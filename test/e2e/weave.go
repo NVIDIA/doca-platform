@@ -41,57 +41,61 @@ import (
 const (
 	// Host-side PF interface names. These are the host PF netdevs that the flow controller creates PF
 	// attachments for in NIC Cloud.
-	ovsvpcHostPFInterfaceP0 = "enp8s0f0np0"
-	ovsvpcHostPFInterfaceP1 = "enp8s0f1np1"
+	weaveHostPFInterfaceP0 = "enp8s0f0np0"
+	weaveHostPFInterfaceP1 = "enp8s0f1np1"
 
 	// DPU-side port names used by the flow-controller for PF lookups.
-	ovsvpcDPUPortP0 = "p0"
-	ovsvpcDPUPortP1 = "p1"
+	weaveDPUPortP0 = "p0"
+	weaveDPUPortP1 = "p1"
 
-	// ovsvpcDPUServiceLabelKey is propagated from spec.serviceDaemonSet.labels in our DPUService
+	// weaveDPUServiceLabelKey is propagated from spec.serviceDaemonSet.labels in our DPUService
 	// manifests to every pod. We use it (rather than svc.dpu.nvidia.com/service, which the
 	// controller hashes via generateServiceID) because the value is human-readable and stable.
-	ovsvpcDPUServiceLabelKey = "dpuservice"
+	weaveDPUServiceLabelKey = "dpuservice"
+
+	// DPUService label values and pod-name substrings for the Weave workloads on the DPU cluster.
+	weaveFlowControllerName = "weave-flow-controller"
+	weaveDHCPAgentName      = "weave-dhcp-agent"
 
 	// DPU-side PCI addresses (underscored form used in OVS bridge names) for the two NIC ports.
-	// Pinned by the dpf-bootstrap deployment, see DPUService-vpc-ovs-flow-controller.yml.
+	// Pinned by the dpf-bootstrap deployment, see DPUService-weave-flow-controller.yml.
 	// If the underlay config in the DPUService changes, these need to follow.
-	ovsvpcDPUPortP0PCIUnderscored = "0000_03_00_0"
-	ovsvpcDPUPortP1PCIUnderscored = "0000_03_00_1"
+	weaveDPUPortP0PCIUnderscored = "0000_03_00_0"
+	weaveDPUPortP1PCIUnderscored = "0000_03_00_1"
 
-	ovsvpcPFMTU = 9000
+	weavePFMTU = 9000
 
-	// ovsvpcVNetSubnet is the /8 overlay IPv4 subnet used for all OVS VPC virtual networks.
-	ovsvpcVNetSubnet = "10.0.0.0/8"
+	// weaveVNetSubnet is the /8 overlay IPv4 subnet used for all Weave virtual networks.
+	weaveVNetSubnet = "10.0.0.0/8"
 
-	// vpcovsDPUTunnelCleanupTimeout is for vpcctl deletes over the tunneled DPU REST client. When the tunnel
+	// weaveDPUTunnelCleanupTimeout is for vpcctl deletes over the tunneled DPU REST client. When the tunnel
 	// drops, getDPUClusterClient's inner Eventually can take up to 3m (system_setup.go); a shorter timeout
 	// causes flaky failures (e.g. "connection reset by peer" on pod exec) attributed to the last It block.
-	vpcovsDPUTunnelCleanupTimeout = 4 * time.Minute
+	weaveDPUTunnelCleanupTimeout = 4 * time.Minute
 
-	// vpcovsOperationTimeout is the default ceiling for vpcctl and DPU pod exec Eventually loops (create,
+	// weaveOperationTimeout is the default ceiling for vpcctl and DPU pod exec Eventually loops (create,
 	// wait, verify). Tunnel and API variance affect these the same way; one value avoids brittle 30s/60s/2m splits.
-	vpcovsOperationTimeout = 2 * time.Minute
+	weaveOperationTimeout = 2 * time.Minute
 
-	vpcovsEventuallyPollInterval = 1 * time.Second
+	weaveEventuallyPollInterval = 1 * time.Second
 )
 
-// ovsVPCPodsToVerify is used by OVS VPC tests to wait for VPC OVS workloads on the DPU cluster (pod names contain these substrings).
-var ovsVPCPodsToVerify = []string{
-	"vpc-ovs-dhcp-agent",
-	"vpc-ovs-flow-controller",
+// weavePodsToVerify is used by Weave tests to wait for Weave workloads on the DPU cluster (pod names contain these substrings).
+var weavePodsToVerify = []string{
+	weaveDHCPAgentName,
+	weaveFlowControllerName,
 }
 
 var (
-	// vpcOvsContextScope manages cleanup for test-specific VPC OVS resources within each test Context.
-	vpcOvsContextScope *cleanup.Scope
+	// weaveContextScope manages cleanup for test-specific Weave resources within each test Context.
+	weaveContextScope *cleanup.Scope
 
-	// vpcOvsPrerequisiteScope manages cleanup for shared VPC OVS prerequisites (e.g. the host DHCP CNI
+	// weavePrerequisiteScope manages cleanup for shared Weave prerequisites (e.g. the host DHCP CNI
 	// daemon) that must outlive individual Contexts. It is cleaned up only in the top-level AfterAll.
-	vpcOvsPrerequisiteScope *cleanup.Scope
+	weavePrerequisiteScope *cleanup.Scope
 )
 
-var vpcOvsInput = &vpcOvsTestInput{}
+var weaveInput = &weaveTestInput{}
 
 // vpcctlVNetResponse is used to parse create-vnet / get-vnet JSON responses.
 type vpcctlVNetResponse struct {
@@ -131,26 +135,26 @@ type vpcctlListAttachmentResponse struct {
 	} `json:"virtualNetworkAttachments"`
 }
 
-// vpcOvsTestInput holds objects loaded from config for OVS VPC e2e (see applyVPCOVSConfig).
-type vpcOvsTestInput struct {
+// weaveTestInput holds objects loaded from config for Weave e2e (see applyWeaveConfig).
+type weaveTestInput struct {
 	dhcpDaemonSet *appsv1.DaemonSet
 }
 
-func (t *vpcOvsTestInput) applyVPCOVSConfig(conf config) {
+func (t *weaveTestInput) applyWeaveConfig(conf config) {
 	dhcpDaemonSet := &appsv1.DaemonSet{}
 	dhcpObj := unstructuredFromFile(conf.DHCPDaemonSetPath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(dhcpObj.Object, dhcpDaemonSet)).To(Succeed())
 	t.dhcpDaemonSet = dhcpDaemonSet
 }
 
-// OVSVPCBeforeSuite is called from the e2e BeforeSuite to load OVS VPC test artifacts from config.
-func OVSVPCBeforeSuite(c config) {
-	By("Setting OVS VPC configs for the test")
-	vpcOvsInput.applyVPCOVSConfig(c)
+// WeaveBeforeSuite is called from the e2e BeforeSuite to load Weave test artifacts from config.
+func WeaveBeforeSuite(c config) {
+	By("Setting Weave configs for the test")
+	weaveInput.applyWeaveConfig(c)
 }
 
-// getProvisionDPUClustersInputForOVSVPC returns provision input for OVS VPC tests.
-func getProvisionDPUClustersInputForOVSVPC(ctx context.Context, provisionInput ProvisionDPUClustersInput, cl client.Client) ProvisionDPUClustersInput {
+// getProvisionDPUClustersInputForWeave returns provision input for Weave tests.
+func getProvisionDPUClustersInputForWeave(ctx context.Context, provisionInput ProvisionDPUClustersInput, cl client.Client) ProvisionDPUClustersInput {
 	if dpuClusterName != "" && dpuClusterNamespace != "" {
 		name, ns := dpuClusterName, dpuClusterNamespace
 		dc := &provisioningv1.DPUCluster{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns}}
@@ -184,7 +188,7 @@ func verifyOVSResponsive(pod *corev1.Pod) {
 			[]string{"ovs-vsctl", "show"})
 		g.Expect(err).ToNot(HaveOccurred(), "ovs-vsctl show failed on pod %s: %s", pod.Name, out)
 		g.Expect(strings.TrimSpace(out)).ToNot(BeEmpty(), "ovs-vsctl show returned empty output on pod %s", pod.Name)
-	}).WithTimeout(30 * time.Second).WithPolling(vpcovsEventuallyPollInterval).Should(Succeed())
+	}).WithTimeout(30 * time.Second).WithPolling(weaveEventuallyPollInterval).Should(Succeed())
 }
 
 // getPFMACFromFlowControllerByPort reads the PF MAC for the given DPU-side port (e.g. "p0" or "p1")
@@ -198,7 +202,7 @@ func getPFMACFromFlowControllerByPort(pod *corev1.Pod, port string) string {
 		g.Expect(err).ToNot(HaveOccurred(), "failed to read PF MAC (%s) from pod %s: %s", port, pod.Name, output)
 		mac = strings.TrimSpace(output)
 		g.Expect(mac).ToNot(BeEmpty(), "empty PF MAC (%s) from pod %s", port, pod.Name)
-	}).WithTimeout(vpcovsOperationTimeout).WithPolling(vpcovsEventuallyPollInterval).Should(Succeed(),
+	}).WithTimeout(weaveOperationTimeout).WithPolling(weaveEventuallyPollInterval).Should(Succeed(),
 		"could not read PF MAC (%s) from flow-controller pod %s", port, pod.Name)
 	By(fmt.Sprintf("Got PF MAC %s for port %s from pod %s (node %s)", mac, port, pod.Name, pod.Spec.NodeName))
 	return mac
@@ -227,12 +231,12 @@ func assertVPCtlAttachmentPhaseReady(g Gomega, pod *corev1.Pod, attachmentID str
 // createVNetOnPod creates a virtual network on a flow-controller pod via vpcctl and asserts it reaches PHASE_READY.
 // The same vnetID and vni must be used on both flow-controller pods so that cross-node VXLAN traffic uses matching VNIs.
 func createVNetOnPod(pod *corev1.Pod, vnetID string, vni uint32) {
-	By(fmt.Sprintf("Creating virtual network %q (vni=%d, subnet=%s) on pod %s", vnetID, vni, ovsvpcVNetSubnet, pod.Name))
+	By(fmt.Sprintf("Creating virtual network %q (vni=%d, subnet=%s) on pod %s", vnetID, vni, weaveVNetSubnet, pod.Name))
 	cmd := []string{
 		"/vpcctl", "create-vnet",
 		"--id", vnetID,
 		"--vni", fmt.Sprintf("%d", vni),
-		"--subnet-v4", ovsvpcVNetSubnet,
+		"--subnet-v4", weaveVNetSubnet,
 	}
 	Eventually(func(g Gomega) {
 		output, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name, cmd)
@@ -245,7 +249,7 @@ func createVNetOnPod(pod *corev1.Pod, vnetID string, vni uint32) {
 		g.Expect(json.Unmarshal([]byte(output), &resp)).To(Succeed(), "failed to parse create-vnet response from pod %s: %s", pod.Name, output)
 		g.Expect(resp.VirtualNetwork.Status.State.Phase).To(Equal("PHASE_READY"),
 			"virtual network %q on pod %s not PHASE_READY: %s", vnetID, pod.Name, output)
-	}).WithTimeout(vpcovsOperationTimeout).WithPolling(vpcovsEventuallyPollInterval).Should(Succeed(),
+	}).WithTimeout(weaveOperationTimeout).WithPolling(weaveEventuallyPollInterval).Should(Succeed(),
 		"failed to create virtual network %q on pod %s", vnetID, pod.Name)
 }
 
@@ -309,7 +313,7 @@ func createPFAttachmentAndWaitForHostIP(pod *corev1.Pod, vnetID, pfMAC string) (
 		g.Expect(err).ToNot(HaveOccurred(), "vpcctl create-attachment failed on pod %s: %s", pod.Name, output)
 		var createResp vpcctlAttachmentResponse
 		g.Expect(json.Unmarshal([]byte(output), &createResp)).To(Succeed(), "failed to parse create-attachment response from pod %s: %s", pod.Name, output)
-	}).WithTimeout(vpcovsOperationTimeout).WithPolling(vpcovsEventuallyPollInterval).Should(Succeed(),
+	}).WithTimeout(weaveOperationTimeout).WithPolling(weaveEventuallyPollInterval).Should(Succeed(),
 		"failed to create PF attachment for MAC %s on pod %s", pfMAC, pod.Name)
 
 	By(fmt.Sprintf("Waiting for attachment %s on pod %s to reach PHASE_READY", attID, pod.Name))
@@ -321,7 +325,7 @@ func createPFAttachmentAndWaitForHostIP(pod *corev1.Pod, vnetID, pfMAC string) (
 		g.Expect(resp.VirtualNetworkAttachment.Status.State.Phase).To(Equal("PHASE_READY"))
 		hostIP = resp.VirtualNetworkAttachment.Status.HostIPv4
 		g.Expect(hostIP).ToNot(BeEmpty())
-	}).WithTimeout(vpcovsOperationTimeout).WithPolling(vpcovsEventuallyPollInterval).Should(Succeed(),
+	}).WithTimeout(weaveOperationTimeout).WithPolling(weaveEventuallyPollInterval).Should(Succeed(),
 		"attachment %s on pod %s did not reach PHASE_READY", attID, pod.Name)
 
 	By(fmt.Sprintf("Attachment %s ready on pod %s — host overlay IP: %s", attID, pod.Name, hostIP))
@@ -329,8 +333,8 @@ func createPFAttachmentAndWaitForHostIP(pod *corev1.Pod, vnetID, pfMAC string) (
 }
 
 var dpuPortToPCIUnderscored = map[string]string{
-	ovsvpcDPUPortP0: ovsvpcDPUPortP0PCIUnderscored,
-	ovsvpcDPUPortP1: ovsvpcDPUPortP1PCIUnderscored,
+	weaveDPUPortP0: weaveDPUPortP0PCIUnderscored,
+	weaveDPUPortP1: weaveDPUPortP1PCIUnderscored,
 }
 
 // verifyIsolationBridgeExists asserts that the OVS isolation bridge for the given VNI
@@ -344,10 +348,10 @@ func verifyIsolationBridgeExists(pod *corev1.Pod, vni uint32, dpuPort string) {
 		out, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name,
 			[]string{"ovs-vsctl", "list", "bridge", bridge})
 		g.Expect(err).ToNot(HaveOccurred(), "bridge %s not found on pod %s: %s", bridge, pod.Name, out)
-	}).WithTimeout(vpcovsOperationTimeout).WithPolling(vpcovsEventuallyPollInterval).Should(Succeed())
+	}).WithTimeout(weaveOperationTimeout).WithPolling(weaveEventuallyPollInterval).Should(Succeed())
 }
 
-// ensureOverlayRoute ensures the route for ovsvpcVNetSubnet on a netshoot pod uses the DHCP
+// ensureOverlayRoute ensures the route for weaveVNetSubnet on a netshoot pod uses the DHCP
 // gateway rather than being on-link. The CNI DHCP plugin sometimes fails to apply
 // option 121 classless static routes correctly. overlayIP is the pod's known overlay
 // address (from createPFAttachmentAndWaitForHostIP); for a /31 the gateway is the peer.
@@ -364,11 +368,11 @@ func ensureOverlayRoute(restClient *rest.RESTClient, restCfg *rest.Config, names
 			[]string{"ip", "link", "set", overlayIface, "up"})
 		g.Expect(linkErr).ToNot(HaveOccurred(), "failed to bring up %s on pod %s: %s", overlayIface, podName, linkOut)
 		output, err := netshoot.ExecInPodOnce(restClient, restCfg, namespace, podName,
-			[]string{"ip", "route", "replace", ovsvpcVNetSubnet, "via", gateway, "dev", overlayIface})
+			[]string{"ip", "route", "replace", weaveVNetSubnet, "via", gateway, "dev", overlayIface})
 		g.Expect(err).ToNot(HaveOccurred(), "failed to set overlay route on pod %s: %s", podName, output)
-	}).WithTimeout(vpcovsOperationTimeout).WithPolling(vpcovsEventuallyPollInterval).Should(Succeed(),
+	}).WithTimeout(weaveOperationTimeout).WithPolling(weaveEventuallyPollInterval).Should(Succeed(),
 		"overlay route on pod %s not set after timeout", podName)
-	By(fmt.Sprintf("Overlay route on pod %s: %s via %s", podName, ovsvpcVNetSubnet, gateway))
+	By(fmt.Sprintf("Overlay route on pod %s: %s via %s", podName, weaveVNetSubnet, gateway))
 }
 
 // deleteAttachmentOnPod deletes a virtual network attachment via vpcctl on the given flow-controller pod.
@@ -380,7 +384,7 @@ func deleteAttachmentOnPod(pod *corev1.Pod, attID string) {
 			return
 		}
 		g.Expect(err).ToNot(HaveOccurred(), "vpcctl delete-attachment %s failed on pod %s: %s", attID, pod.Name, output)
-	}).WithTimeout(vpcovsDPUTunnelCleanupTimeout).WithPolling(vpcovsEventuallyPollInterval).Should(Succeed(),
+	}).WithTimeout(weaveDPUTunnelCleanupTimeout).WithPolling(weaveEventuallyPollInterval).Should(Succeed(),
 		"failed to delete attachment %s on pod %s", attID, pod.Name)
 }
 
@@ -402,6 +406,6 @@ func deleteVNetOnPod(pod *corev1.Pod, vnetID string) {
 			g.Expect(fmt.Errorf("deleted %d blocking attachment(s) for vnet %s, retrying vnet delete", len(staleIDs), vnetID)).ToNot(HaveOccurred())
 		}
 		g.Expect(err).ToNot(HaveOccurred(), "vpcctl delete-vnet %s failed on pod %s: %s", vnetID, pod.Name, output)
-	}).WithTimeout(vpcovsDPUTunnelCleanupTimeout).WithPolling(vpcovsEventuallyPollInterval).Should(Succeed(),
+	}).WithTimeout(weaveDPUTunnelCleanupTimeout).WithPolling(weaveEventuallyPollInterval).Should(Succeed(),
 		"failed to delete virtual network %s on pod %s", vnetID, pod.Name)
 }
