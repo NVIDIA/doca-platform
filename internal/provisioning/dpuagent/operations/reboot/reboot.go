@@ -22,7 +22,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -31,6 +30,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
+	dpuagentutil "github.com/nvidia/doca-platform/internal/provisioning/dpuagent/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
 
 	"github.com/Masterminds/semver/v3"
@@ -180,21 +180,12 @@ func (h *HandleReboot) execSystemLevelReset(execCtx context.Context, optCtx *ope
 	return h.blockUntilReset()
 }
 
-// getMSTDevices lists all device paths under mstDevicesPath.
-func (h *HandleReboot) getMSTDevices() ([]string, error) {
-	mstPath := h.mstDevicesPath
-	if mstPath == "" {
-		mstPath = defaultMstDevicesPath
+// getMSTDevices returns the selected target devices for MFT commands.
+func (h *HandleReboot) getMSTDevices(optCtx *operations.Context) ([]string, error) {
+	if h.mstDevicesPath == "" {
+		h.mstDevicesPath = defaultMstDevicesPath
 	}
-	devices, err := filepath.Glob(filepath.Join(mstPath, "*"))
-	if err != nil {
-		return nil, fmt.Errorf("failed to list MST devices: %w", err)
-	}
-	if len(devices) == 0 {
-		return nil, fmt.Errorf("no MST devices found in %s", mstPath)
-	}
-	sort.Strings(devices)
-	return devices, nil
+	return dpuagentutil.MFTDevicesForNSNIC(h.mstDevicesPath, optCtx.NSNIC)
 }
 
 func (h *HandleReboot) execFirmwareReset(execCtx context.Context, optCtx *operations.Context) error {
@@ -501,7 +492,7 @@ func (h *HandleReboot) getRebootMethodDeviceQuery(optCtx *operations.Context) (*
 	h.allowFirmwareReset = agentAnnotationAllowsFirmwareResetReboot(optCtx)
 	defer func() { h.allowFirmwareReset = false }()
 
-	devices, err := h.getMSTDevices()
+	devices, err := h.getMSTDevices(optCtx)
 	if err != nil {
 		return nil, err
 	}

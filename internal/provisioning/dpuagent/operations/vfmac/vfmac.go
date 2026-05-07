@@ -62,8 +62,11 @@ func (v *SetVFMac) ShouldUpdateStatusBeforeContinue(ctx *operations.Context) boo
 func (v *SetVFMac) Execute(execCtx context.Context, optCtx *operations.Context) error {
 	if v.vfmacInstance == nil {
 		var err error
+		if optCtx.NSNIC == nil {
+			return fmt.Errorf("N/S NIC is not initialized")
+		}
 		// Create a new VFMAC instance with default configuration
-		v.vfmacInstance, err = vfmac.NewVFMAC(filesystem.DefaultFileSystem, networkhelper.New(), logr.FromContextOrDiscard(execCtx), "", "")
+		v.vfmacInstance, err = vfmac.NewVFMAC(filesystem.DefaultFileSystem, networkhelper.New(), logr.FromContextOrDiscard(execCtx), "", "", optCtx.NSNIC.PFPCIAddresses())
 		if err != nil {
 			return fmt.Errorf("error creating VFMAC instance: %v", err)
 		}

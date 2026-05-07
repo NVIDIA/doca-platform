@@ -43,6 +43,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/staticfiles"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/sysctl"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/vfmac"
+	dpuagentutil "github.com/nvidia/doca-platform/internal/provisioning/dpuagent/util"
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
 
@@ -111,6 +112,9 @@ func (d *DPUAgent) Run(ctx context.Context) error {
 	if err := d.initCurrentBootID(); err != nil {
 		return err
 	}
+	if err := d.initNSNIC(); err != nil {
+		return err
+	}
 	for _, op := range d.operations {
 		if op.ShouldSkip(d.optCtx) {
 			klog.Infof("Skipping operation %s", op.Name())
@@ -171,5 +175,17 @@ func (d *DPUAgent) initCurrentBootID() error {
 		return fmt.Errorf("initialize current boot ID: %w", err)
 	}
 	d.optCtx.CurrentBootID = strings.TrimSpace(string(currentBootID))
+	return nil
+}
+
+func (d *DPUAgent) initNSNIC() error {
+	if d.optCtx.NSNIC != nil {
+		return nil
+	}
+	dev, err := dpuagentutil.DiscoverNSNIC(hostutil.SysFSRoot)
+	if err != nil {
+		return fmt.Errorf("initialize N/S NIC: %w", err)
+	}
+	d.optCtx.NSNIC = dev
 	return nil
 }

@@ -90,7 +90,9 @@ type VFMAC struct {
 }
 
 // NewVFMAC creates a new VFMAC instance with the given configuration.
-func NewVFMAC(fs FileSystem, networkhelper networkhelper.NetworkHelper, log logr.Logger, configDir, configFile string) (*VFMAC, error) {
+// allowedPCIAddresses restricts discovery to physical devlink ports owned by
+// those PCI devices. An empty allow-list allows all ports.
+func NewVFMAC(fs FileSystem, networkhelper networkhelper.NetworkHelper, log logr.Logger, configDir, configFile string, allowedPCIAddresses []string) (*VFMAC, error) {
 	if fs == nil {
 		fs = OSFileSystem{}
 	}
@@ -102,7 +104,7 @@ func NewVFMAC(fs FileSystem, networkhelper networkhelper.NetworkHelper, log logr
 	}
 
 	// get ecpfs
-	ecpfs, err := discoverECPFs(networkhelper, fs)
+	ecpfs, err := discoverECPFs(networkhelper, fs, log, allowedPCIAddresses)
 	if err != nil {
 		return nil, fmt.Errorf("failed to discover ECPFs: %w", err)
 	}
@@ -117,10 +119,14 @@ func NewVFMAC(fs FileSystem, networkhelper networkhelper.NetworkHelper, log logr
 }
 
 // discoverECPFs discovers all ECPFs in the system. returns a list of netdevs of those ECPFs.
-func discoverECPFs(networkhelper networkhelper.NetworkHelper, fs FileSystem) ([]string, error) {
+func discoverECPFs(networkhelper networkhelper.NetworkHelper, fs FileSystem, log logr.Logger, allowedPCIAddresses []string) ([]string, error) {
 	ports, err := networkhelper.DevlinkPortList()
 	if err != nil {
 		return nil, fmt.Errorf("failed to list devlink ports: %w", err)
+	}
+	allowed := allowedPCIAddressSet(allowedPCIAddresses)
+	if len(allowed) > 0 {
+		log.Info("Filtering ECPFs by PCI allowlist", "allowedPCIAddresses", allowedPCIAddresses)
 	}
 
 	//nolint:prealloc
@@ -129,6 +135,17 @@ func discoverECPFs(networkhelper networkhelper.NetworkHelper, fs FileSystem) ([]
 		if port.PortFlavour != nl.DEVLINK_PORT_FLAVOUR_PHYSICAL {
 			continue
 		}
+		if len(allowed) > 0 {
+			pciAddress, ok, err := isAllowed(fs, port.NetdeviceName, allowed)
+			if err != nil {
+				return nil, err
+			}
+			if !ok {
+				log.Info("Skipping ECPF candidate outside PCI allowlist", "netdev", port.NetdeviceName, "pciAddress", pciAddress)
+				continue
+			}
+			log.Info("ECPF candidate matched PCI allowlist", "netdev", port.NetdeviceName, "pciAddress", pciAddress)
+		}
 
 		// check if smart_nic dir exists. ATM we don't have a better way to check if this device is an ECPF.
 		smartNicPath := filepath.Join(sysfsNetPath, port.NetdeviceName, "smart_nic")
@@ -136,13 +153,70 @@ func discoverECPFs(networkhelper networkhelper.NetworkHelper, fs FileSystem) ([]
 			if !os.IsNotExist(err) {
 				return nil, fmt.Errorf("failed to stat smart_nic directory (%s): %w", smartNicPath, err)
 			}
+			log.Info("Skipping ECPF candidate without smart_nic directory", "netdev", port.NetdeviceName, "path", smartNicPath)
 			continue
 		}
 
 		ecpfs = append(ecpfs, port.NetdeviceName)
 	}
+	log.Info("Discovered ECPFs", "ecpfs", ecpfs)
 
 	return ecpfs, nil
+}
+
+func isAllowed(fs FileSystem, netdev string, allowed map[string]struct{}) (string, bool, error) {
+	pciAddress, err := netdevPCI(fs, netdev)
+	if err != nil {
+		return "", false, err
+	}
+	if pciAddress == "" {
+		return "", false, nil
+	}
+	_, ok := allowed[pciAddress]
+	return pciAddress, ok, nil
+}
+
+func netdevPCI(fs FileSystem, netdev string) (string, error) {
+	ueventPath := filepath.Join(sysfsNetPath, netdev, "device", "uevent")
+	data, err := fs.ReadFile(ueventPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("failed to read uevent for netdev %s: %w", netdev, err)
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		key, value, found := strings.Cut(line, "=")
+		if !found || key != "PCI_SLOT_NAME" {
+			continue
+		}
+		return normalizePCIAddress(value), nil
+	}
+	return "", nil
+}
+
+func allowedPCIAddressSet(addresses []string) map[string]struct{} {
+	if len(addresses) == 0 {
+		return nil
+	}
+	out := make(map[string]struct{}, len(addresses))
+	for _, address := range addresses {
+		address = normalizePCIAddress(address)
+		if address == "" {
+			continue
+		}
+		out[address] = struct{}{}
+	}
+	return out
+}
+
+func normalizePCIAddress(address string) string {
+	address = strings.ToLower(strings.TrimSpace(address))
+	parts := strings.Split(address, ":")
+	if len(parts) == 2 {
+		return "0000:" + address
+	}
+	return address
 }
 
 // getMaxVFs queries the maximum number of VFs from /sys/class/net/<uplink>/smart_nic.
