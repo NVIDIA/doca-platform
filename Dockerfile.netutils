@@ -3,6 +3,6 @@ FROM ubuntu:24.04
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && \
-    apt-get install -y -qq iputils-ping iperf3 rdma-core perftest
+    apt-get install -y -qq iputils-ping iperf3 rdma-core perftest dhcpcd-base
 
 CMD ["sleep", "infinity"]

@@ -21,7 +21,7 @@ import (
 
 	"github.com/nvidia/doca-platform/test/e2e/cleanup"
 	"github.com/nvidia/doca-platform/test/utils/netshoot"
-	vpc "github.com/nvidia/doca-platform/test/utils/vpc"
+	"github.com/nvidia/doca-platform/test/utils/vpc"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -318,6 +318,82 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 		It("should deny ping between worker nodes on different virtual networks", func() {
 			netshoot.AssertPingFailure(&hostClusterRESTClient, &input.restConfig, isolTestNS, isolPod1, overlayIP2)
 			netshoot.AssertPingFailure(&hostClusterRESTClient, &input.restConfig, isolTestNS, isolPod2, overlayIP1)
+		})
+	})
+
+	// Runs AFTER the iperf and isolation Contexts so the host PFs are free for dhcpcd to claim.
+	Context("RDMA over Weave via host PFs", Labels{Domain.RequiresNodes}, Ordered, func() {
+		const (
+			rdmaVNetID = "vnet"
+			rdmaVNI    = uint32(3001)
+			rdmaTestNS = "weave-rdma-test"
+			rdmaPod1   = "weave-rdma-w1"
+			rdmaPod2   = "weave-rdma-w2"
+		)
+		var (
+			netutilsPod1, netutilsPod2         *corev1.Pod
+			overlayIPP0Node1, overlayIPP0Node2 string
+			grpcCleanup                        []func()
+			contextHasFailed                   bool
+		)
+
+		BeforeAll(func() {
+			vpc.CreateTestNamespace(ctx, input.client, rdmaTestNS, weaveContextScope.CleanupLabels)
+			CopySecretToNamespace(ctx, input.client, dpfPullSecretName, dpfOperatorSystemNamespace, rdmaTestNS, weaveContextScope.CleanupLabels)
+			netutilsPod1 = createNetutilsHostPodOnNode(ctx, input.client, rdmaTestNS, rdmaPod1, workerNode1)
+			netutilsPod2 = createNetutilsHostPodOnNode(ctx, input.client, rdmaTestNS, rdmaPod2, workerNode2)
+		})
+
+		AfterEach(func() {
+			if CurrentSpecReport().Failed() {
+				contextHasFailed = true
+			}
+		})
+
+		AfterAll(func() {
+			if contextHasFailed {
+				By("Weave RDMA: Report failure for this spec")
+				reportAfterEach(CurrentSpecReport())
+			}
+			// Pod preStop hook flushes dhcpcd state when CleanupAfter deletes the netutils pods.
+			for i := len(grpcCleanup) - 1; i >= 0; i-- {
+				grpcCleanup[i]()
+			}
+			weaveContextScope.CleanupAfter()
+		})
+
+		It("should create vnet on both flow-controller pods", func() {
+			createVNetOnPod(fcPod1, rdmaVNetID, rdmaVNI)
+			grpcCleanup = append(grpcCleanup, func() { deleteVNetOnPod(fcPod1, rdmaVNetID) })
+			createVNetOnPod(fcPod2, rdmaVNetID, rdmaVNI)
+			grpcCleanup = append(grpcCleanup, func() { deleteVNetOnPod(fcPod2, rdmaVNetID) })
+		})
+
+		It("should create PF attachments for vnet on p0 of both nodes", func() {
+			var attP0Fc1, attP0Fc2 string
+			attP0Fc1, overlayIPP0Node1 = createPFAttachmentAndWaitForHostIP(fcPod1, rdmaVNetID, pfMACP0Node1)
+			grpcCleanup = append(grpcCleanup, func() { deleteAttachmentOnPod(fcPod1, attP0Fc1) })
+			attP0Fc2, overlayIPP0Node2 = createPFAttachmentAndWaitForHostIP(fcPod2, rdmaVNetID, pfMACP0Node2)
+			grpcCleanup = append(grpcCleanup, func() { deleteAttachmentOnPod(fcPod2, attP0Fc2) })
+		})
+
+		It("should verify OVS isolation bridges for vnet on p0 of both DPUs", func() {
+			verifyIsolationBridgeExists(fcPod1, rdmaVNI, weaveDPUPortP0)
+			verifyIsolationBridgeExists(fcPod2, rdmaVNI, weaveDPUPortP0)
+		})
+
+		It("should plumb overlay IPs onto worker p0 PFs via dhcpcd", func() {
+			acquireDHCPLeaseInPod(hostClusterRESTClient, input.restConfig, netutilsPod1, weaveHostPFInterfaceP0, overlayIPP0Node1)
+			acquireDHCPLeaseInPod(hostClusterRESTClient, input.restConfig, netutilsPod2, weaveHostPFInterfaceP0, overlayIPP0Node2)
+		})
+
+		It("should run ib_write_bw between the two hosts on p0 and meet the BW threshold", func() {
+			runIBWriteBWPodToPod(hostClusterRESTClient, input.restConfig, netutilsPod2, netutilsPod1, weaveHostPFRDMADeviceP0, overlayIPP0Node2, weaveIBWriteBWDuration)
+		})
+
+		It("should run ib_write_bw between the two hosts on p0 with --reversed and meet the BW threshold", func() {
+			// Running with --reversed checks that the RDMA traffic also works in reverse direction for sanity purposes.
+			runIBWriteBWPodToPod(hostClusterRESTClient, input.restConfig, netutilsPod2, netutilsPod1, weaveHostPFRDMADeviceP0, overlayIPP0Node2, weaveIBWriteBWDuration, "--reversed")
 		})
 	})
 })
