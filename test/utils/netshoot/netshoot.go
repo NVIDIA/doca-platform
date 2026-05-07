@@ -246,7 +246,7 @@ func RunRDMATrafficTest(restClient **rest.RESTClient, restConfig **rest.Config, 
 	defer stopRDMAServer(restClient, restConfig, hostNamespace, podName2)
 
 	output := runRDMAClient(restClient, restConfig, hostNamespace, podName1, pod2IP)
-	analyzeIBWriteBWResult(output)
+	AnalyzeIBWriteBWResult(output, 0)
 }
 
 func createNetshootPod(ctx context.Context, testClient client.Client, config TestPodConfig) {
@@ -404,7 +404,7 @@ func runRDMAClient(restClient **rest.RESTClient, restConfig **rest.Config, names
 	fileName := fmt.Sprintf("ib_write_bw-result-%s", utilrand.String(6))
 	// The timeout here needs to be higher than 30 because in case the client used is tunneled, and is broken, it has an
 	// internal timeout of 30s to re-create itself.
-	execCommandEventually(restClient, restConfig, namespace, podName, []string{"ib_write_bw", serverIP, "--out_json", fmt.Sprintf("--out_json_file=%s", fileName)}, 120*time.Second, 5*time.Second, DefaultErrorParser)
+	execCommandEventually(restClient, restConfig, namespace, podName, []string{"ib_write_bw", serverIP, "--report_gbit", "--out_json", fmt.Sprintf("--out_json_file=%s", fileName)}, 120*time.Second, 5*time.Second, DefaultErrorParser)
 	output := execCommandEventually(restClient, restConfig, namespace, podName, []string{"cat", fileName}, 120*time.Second, 5*time.Second, DefaultErrorParser)
 	return output
 }
@@ -438,17 +438,27 @@ func analyzeIperfResults(output string, reverse bool) {
 	Expect(bitrate).Should(BeNumerically(">", throughputThreshold), "bitrate is below %d Gbit/sec", throughputThreshold/1e9)
 }
 
-func analyzeIBWriteBWResult(output string) {
+// AnalyzeIBWriteBWResult parses ib_write_bw --out_json output and asserts BWAverage > minAvg.
+// Values are assumed Gbit/sec, callers must run ib_write_bw with --report_gbit. BWPeak is logged
+// only (perftest zeroes it on -D runs once iters > 20000), the average assertion is the gate.
+func AnalyzeIBWriteBWResult(output string, minAvg float32) {
 	var result IBWriteBWResult
 	err := json.Unmarshal([]byte(output), &result)
-	Expect(err).NotTo(HaveOccurred(), fmt.Sprintf("failed to parse ib_write_bw output: %v", err))
+	Expect(err).NotTo(HaveOccurred(), "failed to parse ib_write_bw output: %v\nraw output:\n%s", err, output)
 
 	Expect(result.Results).ToNot(BeNil(), "no results found. output: %s", output)
-	Expect(result.Results.BWPeak).ToNot(BeNil())
-	Expect(result.Results.BWAverage).ToNot(BeNil())
-	fmt.Printf("Bandwidth peak %.2f MB/sec\t Bandwidth average %.2f MB/sec\n", *result.Results.BWPeak, *result.Results.BWAverage)
-	Expect(*result.Results.BWPeak).Should(BeNumerically(">", 0))
-	Expect(*result.Results.BWAverage).Should(BeNumerically(">", 0))
+	Expect(result.Results.BWAverage).ToNot(BeNil(), "no BW average reported. output: %s", output)
+
+	fmtBW := func(bw *float32) string {
+		if bw == nil {
+			return "N/A"
+		}
+		return fmt.Sprintf("%.2f Gbit/sec", *bw)
+	}
+	fmt.Printf("Bandwidth peak %s\t Bandwidth average %s\n", fmtBW(result.Results.BWPeak), fmtBW(result.Results.BWAverage))
+
+	Expect(*result.Results.BWAverage).Should(BeNumerically(">", minAvg),
+		"ib_write_bw average %.2f Gbit/sec is not above threshold %.2f Gbit/sec", *result.Results.BWAverage, minAvg)
 }
 
 // execCommandEventually executes a command on a pod repeatedly until it succeeds or the timeout is reached
