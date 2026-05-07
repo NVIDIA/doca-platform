@@ -35,6 +35,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	machineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -63,10 +64,33 @@ const (
 	weaveDPUPortP0PCIUnderscored = "0000_03_00_0"
 	weaveDPUPortP1PCIUnderscored = "0000_03_00_1"
 
+	// Host-side RDMA device name (ibv) for the p0 PF netdev. Pinned by hardware/driver enumeration
+	// on the worker.
+	weaveHostPFRDMADeviceP0 = "mlx5_0"
+
 	weavePFMTU = 9000
 
 	// weaveVNetSubnet is the /8 overlay IPv4 subnet used for all Weave virtual networks.
 	weaveVNetSubnet = "10.0.0.0/8"
+
+	// weaveRDMAMinAvgBWGbit gates that HW offload is engaged: with offload, BF2/BF3 sustain >60 Gbit/sec;
+	// without it, the SW path tops at a much lower average.
+	weaveRDMAMinAvgBWGbit = 60.0
+
+	// weaveIBWriteBWDuration is the per-run duration for the host-side ib_write_bw test (-D).
+	weaveIBWriteBWDuration = 5 * time.Second
+
+	// weaveIBWriteBWPort is the default TCP port ib_write_bw listens on (used to wait for
+	// the server to be ready before launching the client).
+	weaveIBWriteBWPort = 18515
+
+	// weaveIBWriteBWClientJSONPath is where ib_write_bw client writes its JSON result inside the pod.
+	weaveIBWriteBWClientJSONPath = "/tmp/ib_write_bw_client.json"
+
+	// weaveRDMAFlushCmdFmt is best-effort cleanup shared by releaseDHCPLeaseInPod and the pod preStop hook.
+	// Steps are independent (`;`, not `&&`): on a fresh pod dhcpcd -k has nothing to kill and exits non-zero,
+	// so chaining with `&&` would skip the addr flush and lease wipe. Trailing `true` keeps exec exit 0.
+	weaveRDMAFlushCmdFmt = "dhcpcd -k %[1]s 2>/dev/null; ip -4 addr flush dev %[1]s 2>/dev/null; rm -f /var/lib/dhcpcd/%[1]s.lease*; true"
 
 	// weaveDPUTunnelCleanupTimeout is for vpcctl deletes over the tunneled DPU REST client. When the tunnel
 	// drops, getDPUClusterClient's inner Eventually can take up to 3m (system_setup.go); a shorter timeout
@@ -408,4 +432,138 @@ func deleteVNetOnPod(pod *corev1.Pod, vnetID string) {
 		g.Expect(err).ToNot(HaveOccurred(), "vpcctl delete-vnet %s failed on pod %s: %s", vnetID, pod.Name, output)
 	}).WithTimeout(weaveDPUTunnelCleanupTimeout).WithPolling(weaveEventuallyPollInterval).Should(Succeed(),
 		"failed to delete virtual network %s on pod %s", vnetID, pod.Name)
+}
+
+// createNetutilsHostPodOnNode creates a privileged hostNetwork netutils pod on nodeName and waits for Ready state.
+func createNetutilsHostPodOnNode(ctx context.Context, c client.Client, namespace, podName, nodeName string) *corev1.Pod {
+	By(fmt.Sprintf("Creating netutils host pod %s/%s on node %s", namespace, podName, nodeName))
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      podName,
+			Namespace: namespace,
+			Labels:    weaveContextScope.CleanupLabels,
+		},
+		Spec: corev1.PodSpec{
+			NodeName:         nodeName,
+			HostNetwork:      true,
+			DNSPolicy:        corev1.DNSClusterFirstWithHostNet,
+			RestartPolicy:    corev1.RestartPolicyNever,
+			ImagePullSecrets: []corev1.LocalObjectReference{{Name: dpfPullSecretName}},
+			Containers: []corev1.Container{{
+				Name:    "netutils",
+				Image:   fmt.Sprintf("%s:%s", netutilsImage, tag),
+				Command: []string{"/bin/sh", "-c", "sleep infinity"},
+				SecurityContext: &corev1.SecurityContext{
+					Privileged: ptr.To(true),
+				},
+				VolumeMounts: []corev1.VolumeMount{
+					{Name: "dev-infiniband", MountPath: "/dev/infiniband"},
+					{Name: "sys", MountPath: "/sys", ReadOnly: true},
+				},
+				// Backstop flush: kubelet runs preStop on pod delete.
+				Lifecycle: &corev1.Lifecycle{
+					PreStop: &corev1.LifecycleHandler{
+						Exec: &corev1.ExecAction{
+							Command: []string{"/bin/sh", "-c",
+								fmt.Sprintf(weaveRDMAFlushCmdFmt, weaveHostPFInterfaceP0),
+							},
+						},
+					},
+				},
+			}},
+			Volumes: []corev1.Volume{
+				{Name: "dev-infiniband", VolumeSource: corev1.VolumeSource{
+					HostPath: &corev1.HostPathVolumeSource{Path: "/dev/infiniband", Type: ptr.To(corev1.HostPathDirectory)},
+				}},
+				{Name: "sys", VolumeSource: corev1.VolumeSource{
+					HostPath: &corev1.HostPathVolumeSource{Path: "/sys"},
+				}},
+			},
+		},
+	}
+	Expect(client.IgnoreAlreadyExists(c.Create(ctx, pod))).To(Succeed(), "creating pod %s/%s", namespace, podName)
+
+	Eventually(func(g Gomega) {
+		g.Expect(c.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(Succeed())
+		g.Expect(netshoot.IsPodRunningAndReady(pod)).To(BeTrue(), "pod %s/%s not ready", namespace, podName)
+	}).WithTimeout(2 * time.Minute).WithPolling(weaveEventuallyPollInterval).Should(Succeed())
+	return pod
+}
+
+// releaseDHCPLeaseInPod runs weaveRDMAFlushCmdFmt inside the pod. Best-effort; preStop is the backstop.
+func releaseDHCPLeaseInPod(restClient *rest.RESTClient, restCfg *rest.Config, pod *corev1.Pod, iface string) {
+	By(fmt.Sprintf("Resetting dhcpcd state in pod %s/%s on %s", pod.Namespace, pod.Name, iface))
+	cmd := fmt.Sprintf(weaveRDMAFlushCmdFmt, iface)
+	if out, err := netshoot.ExecInPodOnce(restClient, restCfg, pod.Namespace, pod.Name,
+		[]string{"sh", "-c", cmd}); err != nil {
+		By(fmt.Sprintf("Best-effort dhcpcd cleanup in pod %s/%s on %s failed: %v, output: %s", pod.Namespace, pod.Name, iface, err, out))
+	}
+}
+
+// acquireDHCPLeaseInPod resets dhcpcd state, runs dhcpcd -L -1 -4, and verifies expectedIP is on iface.
+func acquireDHCPLeaseInPod(restClient *rest.RESTClient, restCfg *rest.Config, pod *corev1.Pod, iface, expectedIP string) {
+	releaseDHCPLeaseInPod(restClient, restCfg, pod, iface)
+
+	By(fmt.Sprintf("Running dhcpcd -L -1 -4 %s in pod %s/%s", iface, pod.Namespace, pod.Name))
+	out, err := netshoot.ExecInPodOnce(restClient, restCfg, pod.Namespace, pod.Name,
+		[]string{"dhcpcd", "-L", "-1", "-4", iface})
+	Expect(err).ToNot(HaveOccurred(), "dhcpcd in pod %s/%s on %s failed: %s", pod.Namespace, pod.Name, iface, out)
+
+	By(fmt.Sprintf("Verifying %s holds expected IP %s in pod %s/%s", iface, expectedIP, pod.Namespace, pod.Name))
+	addrOut, addrErr := netshoot.ExecInPodOnce(restClient, restCfg, pod.Namespace, pod.Name,
+		[]string{"ip", "-4", "-o", "addr", "show", "dev", iface})
+	Expect(addrErr).ToNot(HaveOccurred(), "ip addr show in pod %s/%s on %s failed: %s", pod.Namespace, pod.Name, iface, addrOut)
+	Expect(addrOut).To(ContainSubstring(expectedIP),
+		"expected IP %s not present in pod %s/%s on %s; got: %s", expectedIP, pod.Namespace, pod.Name, iface, addrOut)
+}
+
+// runIBWriteBWPodToPod runs ib_write_bw between two pods and asserts the BW threshold. extraArgs forwards to both sides.
+func runIBWriteBWPodToPod(restClient *rest.RESTClient, restCfg *rest.Config, serverPod, clientPod *corev1.Pod, dev, serverIP string, duration time.Duration, extraArgs ...string) {
+	// Joined as-is into the sh -c command. Safe only for plain shell flags (e.g. "--reversed").
+	extra := strings.Join(extraArgs, " ")
+	durationSec := int(duration / time.Second)
+
+	By(fmt.Sprintf("Starting ib_write_bw server in pod %s/%s (dev=%s, -D=%s, extra=%v)",
+		serverPod.Namespace, serverPod.Name, dev, duration, extraArgs))
+	// Flow: pre-kill any stale ib_write_bw from a prior failed run (port :18515 would otherwise be busy), then
+	// detach via nohup + bg + redirected stdio so the kubectl exec returns immediately while the server keeps
+	// running for -D seconds. The defer below pkill's again as a belt-and-braces cleanup if the spec fails.
+	serverCmd := fmt.Sprintf(
+		"pkill -9 ib_write_bw 2>/dev/null; nohup ib_write_bw -d %s -D %d -q 1 -m 4096 --report_gbit %s >/dev/null 2>&1 < /dev/null &",
+		dev, durationSec, extra)
+	out, err := netshoot.ExecInPodOnce(restClient, restCfg, serverPod.Namespace, serverPod.Name,
+		[]string{"sh", "-c", serverCmd})
+	Expect(err).ToNot(HaveOccurred(), "starting ib_write_bw server in pod %s/%s failed: %s", serverPod.Namespace, serverPod.Name, out)
+	// Wide pkill -9 is safe: the netutils pod is dedicated to this test and runs no other ib_write_bw process,
+	// so we can't kill an unrelated workload. SIGKILL (not SIGTERM) is fine since ib_write_bw has no on-exit
+	// state to clean up. `|| true` makes the no-process-found case a no-op (e.g. server already exited).
+	defer func() {
+		if killOut, killErr := netshoot.ExecInPodOnce(restClient, restCfg, serverPod.Namespace, serverPod.Name,
+			[]string{"sh", "-c", "pkill -9 ib_write_bw 2>/dev/null || true"}); killErr != nil {
+			By(fmt.Sprintf("Best-effort pkill ib_write_bw in pod %s/%s failed: %v, output: %s", serverPod.Namespace, serverPod.Name, killErr, killOut))
+		}
+	}()
+
+	By(fmt.Sprintf("Waiting for ib_write_bw to listen on :%d in pod %s/%s", weaveIBWriteBWPort, serverPod.Namespace, serverPod.Name))
+	listenCmd := fmt.Sprintf("ss -lnt 'sport = :%d' | grep -q LISTEN", weaveIBWriteBWPort)
+	Eventually(func(g Gomega) {
+		listenOut, listenErr := netshoot.ExecInPodOnce(restClient, restCfg, serverPod.Namespace, serverPod.Name,
+			[]string{"sh", "-c", listenCmd})
+		g.Expect(listenErr).ToNot(HaveOccurred(), "ib_write_bw not listening on :%d: %s", weaveIBWriteBWPort, listenOut)
+	}).WithTimeout(30 * time.Second).WithPolling(weaveEventuallyPollInterval).Should(Succeed())
+
+	By(fmt.Sprintf("Running ib_write_bw client in pod %s/%s -> %s (dev=%s, -D=%s, extra=%v)",
+		clientPod.Namespace, clientPod.Name, serverIP, dev, duration, extraArgs))
+	clientCmd := fmt.Sprintf(
+		"rm -f %s; ib_write_bw -d %s -D %d -q 1 -m 4096 --report_gbit --out_json --out_json_file=%s %s %s",
+		weaveIBWriteBWClientJSONPath, dev, durationSec, weaveIBWriteBWClientJSONPath, extra, serverIP)
+	cliOut, cliErr := netshoot.ExecInPodOnce(restClient, restCfg, clientPod.Namespace, clientPod.Name,
+		[]string{"sh", "-c", clientCmd})
+	Expect(cliErr).ToNot(HaveOccurred(), "ib_write_bw client in pod %s/%s failed: %s", clientPod.Namespace, clientPod.Name, cliOut)
+
+	jsonOut, jsonErr := netshoot.ExecInPodOnce(restClient, restCfg, clientPod.Namespace, clientPod.Name,
+		[]string{"cat", weaveIBWriteBWClientJSONPath})
+	Expect(jsonErr).ToNot(HaveOccurred(), "reading ib_write_bw client JSON in pod %s/%s failed: %s", clientPod.Namespace, clientPod.Name, jsonOut)
+
+	netshoot.AnalyzeIBWriteBWResult(jsonOut, weaveRDMAMinAvgBWGbit)
 }
