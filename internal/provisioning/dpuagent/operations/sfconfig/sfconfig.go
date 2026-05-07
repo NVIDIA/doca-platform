@@ -30,18 +30,15 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
+	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
+	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
 
 	"k8s.io/klog/v2"
 )
 
 const (
 	defaultRootFS = "/"
-	// defaultDevice is the PCI address of device for BF3.
-	// Note:
-	// For BF3, the address is always 0000:03:00.0.
-	// For BF4, we have no clear answer yet.
-	defaultDevice = "0000:03:00.0"
 	MaxTrustedSfs = 10
 )
 
@@ -71,6 +68,10 @@ func (s *CreateSF) Execute(execCtx context.Context, optCtx *operations.Context) 
 	if s.runBash == nil {
 		s.runBash = bash.Run
 	}
+	device, err := s.targetPF0Device(optCtx.NSNIC)
+	if err != nil {
+		return err
+	}
 
 	pfTotalSF := getPFTotalSFFromFlavor(&optCtx.DPUFlavor)
 	trustedSF := getTrustedSFFromFlavor(&optCtx.DPUFlavor)
@@ -82,7 +83,7 @@ func (s *CreateSF) Execute(execCtx context.Context, optCtx *operations.Context) 
 	for i := 0; i < pfTotalSF-trustedSF; i++ {
 		expectedSFNums = append(expectedSFNums, i)
 		// Create SFs with random mac, kernel will allocate random MAC for SF netdev
-		cmd := fmt.Sprintf("/sbin/mlnx-sf --action create --device %s --sfnum %d", defaultDevice, i)
+		cmd := fmt.Sprintf("/sbin/mlnx-sf --action create --device %s --sfnum %d", device, i)
 		stdout, stderr, err := s.runBash(cmd)
 		if err != nil {
 			// Continue on error (like "|| true" in bash)
@@ -94,7 +95,7 @@ func (s *CreateSF) Execute(execCtx context.Context, optCtx *operations.Context) 
 	// Create trusted SFs starting from index 101
 	for i := 101; i <= 100+trustedSF; i++ {
 		expectedSFNums = append(expectedSFNums, i)
-		cmd := fmt.Sprintf("/sbin/mlnx-sf --action create --device %s --sfnum %d -t", defaultDevice, i)
+		cmd := fmt.Sprintf("/sbin/mlnx-sf --action create --device %s --sfnum %d -t", device, i)
 		stdout, stderr, err := s.runBash(cmd)
 		if err != nil {
 			// Continue on error (like "|| true" in bash)
@@ -102,15 +103,22 @@ func (s *CreateSF) Execute(execCtx context.Context, optCtx *operations.Context) 
 			createErrBySF[i] = fmt.Errorf("failed to create trusted SF %d: stdout=%s, stderr=%s, err=%w", i, stdout.String(), stderr.String(), err)
 		}
 	}
-	if err := s.verifyExpectedSFs(expectedSFNums, createErrBySF); err != nil {
+	if err := s.verifyExpectedSFs(device, expectedSFNums, createErrBySF); err != nil {
 		return err
 	}
 
 	// Set GUID for SF
-	if err := s.setGUIDForSF(); err != nil {
+	if err := s.setGUIDForSF(device); err != nil {
 		return fmt.Errorf("failed to set GUID for SF: %w", err)
 	}
 	return nil
+}
+
+func (s *CreateSF) targetPF0Device(dev *hostutil.Device) (string, error) {
+	if dev == nil {
+		return "", fmt.Errorf("N/S NIC is not initialized")
+	}
+	return dev.PFPCIAddress(0), nil
 }
 
 // SFInfo represents fields parsed from mlnx-sf -a show -j.
@@ -151,7 +159,7 @@ type SFInfo struct {
 	SFNum    int    `json:"sfnum"`
 }
 
-func (s *CreateSF) verifyExpectedSFs(expectedSFNums []int, createErrBySF map[int]error) error {
+func (s *CreateSF) verifyExpectedSFs(device string, expectedSFNums []int, createErrBySF map[int]error) error {
 	stdout, stderr, err := s.runBash("mlnx-sf -a show -j")
 	if err != nil {
 		return fmt.Errorf("failed to run mlnx-sf for SF verification: stdout=%s, stderr=%s, err=%w", stdout.String(), stderr.String(), err)
@@ -164,7 +172,7 @@ func (s *CreateSF) verifyExpectedSFs(expectedSFNums []int, createErrBySF map[int
 
 	existingSF := map[int]struct{}{}
 	for _, info := range sfMap {
-		if normalizePCIDevice(info.Device) == normalizePCIDevice(defaultDevice) {
+		if pciutil.NormalizeAddress(info.Device) == pciutil.NormalizeAddress(device) {
 			existingSF[info.SFNum] = struct{}{}
 		}
 	}
@@ -176,23 +184,13 @@ func (s *CreateSF) verifyExpectedSFs(expectedSFNums []int, createErrBySF map[int
 		if createErr, hasCreateErr := createErrBySF[sfnum]; hasCreateErr {
 			return createErr
 		}
-		return fmt.Errorf("sf %d was not found on device %s after creation", sfnum, defaultDevice)
+		return fmt.Errorf("sf %d was not found on device %s after creation", sfnum, device)
 	}
 
 	return nil
 }
 
-func normalizePCIDevice(device string) string {
-	device = strings.ToLower(strings.TrimSpace(device))
-	parts := strings.Split(device, ":")
-	// Normalize domain-qualified BDF (0000:03:00.0) to short form (03:00.0).
-	if len(parts) == 3 {
-		return strings.Join(parts[1:], ":")
-	}
-	return device
-}
-
-func (s *CreateSF) setGUIDForSF() error {
+func (s *CreateSF) setGUIDForSF(device string) error {
 	// Get JSON output from mlnx-sf
 	stdout, stderr, err := s.runBash("mlnx-sf -a show -j")
 	if err != nil {
@@ -210,6 +208,9 @@ func (s *CreateSF) setGUIDForSF() error {
 	}
 	// Iterate over each SF
 	for key, info := range sfMap {
+		if pciutil.NormalizeAddress(info.Device) != pciutil.NormalizeAddress(device) {
+			continue
+		}
 		// Read the MAC address from the system file
 		macPath := filepath.Join(s.rootFS, "sys/class/net", info.SFNetdev, "address")
 		macBytes, err := os.ReadFile(macPath)

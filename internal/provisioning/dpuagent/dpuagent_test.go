@@ -24,6 +24,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/cmd/dpuagent/opts"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
+	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -68,6 +69,7 @@ var _ = Describe("DPUAgent", func() {
 				retryInterval: testRetryInterval,
 				optCtx: &operations.Context{
 					Client: &mockClient{},
+					NSNIC:  &hostutil.Device{Address: "0000:03:00", NumOfPFs: 2},
 				},
 				operations: mockOps,
 			}
@@ -93,6 +95,7 @@ var _ = Describe("DPUAgent", func() {
 				retryInterval: testRetryInterval,
 				optCtx: &operations.Context{
 					Client: &mockClient{},
+					NSNIC:  &hostutil.Device{Address: "0000:03:00", NumOfPFs: 2},
 				},
 				operations: mockOps,
 			}
@@ -117,6 +120,7 @@ var _ = Describe("DPUAgent", func() {
 				retryInterval: testRetryInterval,
 				optCtx: &operations.Context{
 					Client: &mockClient{},
+					NSNIC:  &hostutil.Device{Address: "0000:03:00", NumOfPFs: 2},
 				},
 				operations: mockOps,
 			}
@@ -133,6 +137,7 @@ var _ = Describe("DPUAgent", func() {
 				},
 				optCtx: &operations.Context{
 					Client: &mockClient{},
+					NSNIC:  &hostutil.Device{Address: "0000:03:00", NumOfPFs: 2},
 				},
 				operations: []operations.Operation{
 					&mockOperation{
@@ -158,6 +163,7 @@ var _ = Describe("DPUAgent", func() {
 				},
 				optCtx: &operations.Context{
 					Client: &mockClient{},
+					NSNIC:  &hostutil.Device{Address: "0000:03:00", NumOfPFs: 2},
 					Options: opts.Options{
 						SkipRebootMethodDiscovery: true,
 					},
@@ -211,6 +217,7 @@ var _ = Describe("DPUAgent", func() {
 				retryInterval: testRetryInterval,
 				optCtx: &operations.Context{
 					Client: &mockClient{},
+					NSNIC:  &hostutil.Device{Address: "0000:03:00", NumOfPFs: 2},
 				},
 				operations: mockOps,
 			}
@@ -240,6 +247,7 @@ var _ = Describe("DPUAgent", func() {
 				retryInterval: testRetryInterval,
 				optCtx: &operations.Context{
 					Client: &mockClient{},
+					NSNIC:  &hostutil.Device{Address: "0000:03:00", NumOfPFs: 2},
 				},
 				operations: mockOps,
 			}
@@ -255,6 +263,7 @@ var _ = Describe("DPUAgent", func() {
 				retryInterval: testRetryInterval,
 				optCtx: &operations.Context{
 					Client: &mockClient{},
+					NSNIC:  &hostutil.Device{Address: "0000:03:00", NumOfPFs: 2},
 				},
 				operations: []operations.Operation{
 					&mockOperation{
@@ -282,6 +291,7 @@ var _ = Describe("DPUAgent", func() {
 				retryInterval: testRetryInterval,
 				optCtx: &operations.Context{
 					Client: &mockClient{},
+					NSNIC:  &hostutil.Device{Address: "0000:03:00", NumOfPFs: 2},
 				},
 				operations: []operations.Operation{
 					&mockOperation{
@@ -316,6 +326,7 @@ var _ = Describe("DPUAgent", func() {
 				retryInterval: testRetryInterval,
 				optCtx: &operations.Context{
 					Client: &mockClient{},
+					NSNIC:  &hostutil.Device{Address: "0000:03:00", NumOfPFs: 2},
 				},
 				operations: []operations.Operation{
 					&mockOperation{
@@ -384,6 +395,7 @@ var _ = Describe("DPUAgent", func() {
 							return nil
 						},
 					},
+					NSNIC: &hostutil.Device{Address: "0000:03:00", NumOfPFs: 2},
 				},
 				operations: mockOps,
 			}
@@ -406,6 +418,7 @@ var _ = Describe("DPUAgent", func() {
 				retryInterval: testRetryInterval,
 				optCtx: &operations.Context{
 					Client: &mockClient{},
+					NSNIC:  &hostutil.Device{Address: "0000:03:00", NumOfPFs: 2},
 				},
 				operations: []operations.Operation{
 					&mockOperation{

@@ -217,7 +217,7 @@ func TestNewVFMAC(t *testing.T) {
 		t.Run(tcase.name, func(t *testing.T) {
 			mockNetworkHelper := tcase.setup(t)
 			mfs := &mockFS{files: make(map[string][]byte), dirs: make(map[string]bool)}
-			_, err := NewVFMAC(mfs, mockNetworkHelper, logr.Discard(), "", "")
+			_, err := NewVFMAC(mfs, mockNetworkHelper, logr.Discard(), "", "", nil)
 			if (err != nil) != tcase.wantErr {
 				t.Errorf("NewVFMAC() error = %v, wantErr %v", err, tcase.wantErr)
 			}
@@ -1068,6 +1068,7 @@ func TestDiscoverECPFs(t *testing.T) {
 		name      string
 		mockFS    *mockFS
 		setup     func(t *testing.T) *networkhelper_mock.MockNetworkHelper
+		allowed   []string
 		wantECPFs []string
 		wantErr   bool
 	}{
@@ -1170,6 +1171,34 @@ func TestDiscoverECPFs(t *testing.T) {
 			wantErr:   false,
 		},
 		{
+			name: "allowed PCI addresses filter physical ports by netdev uevent",
+			mockFS: &mockFS{
+				files: map[string][]byte{
+					"/sys/class/net/p0/device/uevent":  []byte("DRIVER=mlx5_core\nPCI_SLOT_NAME=0000:03:00.0\n"),
+					"/sys/class/net/p1/device/uevent":  []byte("DRIVER=mlx5_core\nPCI_SLOT_NAME=0000:03:00.1\n"),
+					"/sys/class/net/ew0/device/uevent": []byte("DRIVER=mlx5_core\nPCI_SLOT_NAME=0000:04:00.0\n"),
+				},
+				dirs: map[string]bool{
+					"/sys/class/net/p0/smart_nic":  true,
+					"/sys/class/net/p1/smart_nic":  true,
+					"/sys/class/net/ew0/smart_nic": true,
+				},
+			},
+			setup: func(t *testing.T) *networkhelper_mock.MockNetworkHelper {
+				ctrl := gomock.NewController(t)
+				mock := networkhelper_mock.NewMockNetworkHelper(ctrl)
+				mock.EXPECT().DevlinkPortList().Return([]*netlink.DevlinkPort{
+					{BusName: "auxiliary", DeviceName: "mlx5_core.eth.0", NetdeviceName: "p0", PortFlavour: nl.DEVLINK_PORT_FLAVOUR_PHYSICAL},
+					{BusName: "auxiliary", DeviceName: "mlx5_core.eth.1", NetdeviceName: "p1", PortFlavour: nl.DEVLINK_PORT_FLAVOUR_PHYSICAL},
+					{BusName: "auxiliary", DeviceName: "mlx5_core.eth.2", NetdeviceName: "ew0", PortFlavour: nl.DEVLINK_PORT_FLAVOUR_PHYSICAL},
+				}, nil)
+				return mock
+			},
+			allowed:   []string{"0000:03:00.0", "0000:03:00.1"},
+			wantECPFs: []string{"p0", "p1"},
+			wantErr:   false,
+		},
+		{
 			name:   "stat error (non-NotExist) returns error",
 			mockFS: &mockFS{files: make(map[string][]byte), dirs: make(map[string]bool), statErr: os.ErrPermission},
 			setup: func(t *testing.T) *networkhelper_mock.MockNetworkHelper {
@@ -1187,7 +1216,7 @@ func TestDiscoverECPFs(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockNH := tt.setup(t)
-			got, err := discoverECPFs(mockNH, tt.mockFS)
+			got, err := discoverECPFs(mockNH, tt.mockFS, logr.Discard(), tt.allowed)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("discoverECPFs() error = %v, wantErr %v", err, tt.wantErr)
 				return
