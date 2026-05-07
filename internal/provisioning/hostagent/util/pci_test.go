@@ -685,4 +685,5 @@ var _ = Describe("PCI", func() {
 			Expect(devices[0].Address).To(Equal("0000:b1:00"))
 		})
 	})
+
 })

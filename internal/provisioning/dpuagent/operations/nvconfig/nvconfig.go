@@ -26,8 +26,9 @@ import (
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
+	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
-	"github.com/nvidia/doca-platform/pkg/utils/networkhelper"
+	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -37,14 +38,13 @@ import (
 const (
 	CondNVConfigApplied = "NVConfigApplied"
 
-	pciPrefix       = "pci/"
 	flavourPhysical = "physical"
 )
 
 type ConfigureNVConfig struct {
 	runBash        func(cmd string) (bytes.Buffer, bytes.Buffer, error)
 	getDevlinkPort func() (string, error)
-	getUplinkName  func(pci string) (string, error)
+	getNetdevPCI   func(netdev string) (string, error)
 }
 
 func (n *ConfigureNVConfig) Name() string {
@@ -91,7 +91,7 @@ func (n *ConfigureNVConfig) Execute(execCtx context.Context, optCtx *operations.
 	}
 
 	// 1.Get PCI -> netdev map.
-	pciToNetdev, err := n.pciToNetdevMap()
+	pciToNetdev, err := n.pciToNetdevMap(optCtx.NSNIC)
 	if err != nil {
 		return fmt.Errorf("get devices from devlink: %w", err)
 	}
@@ -213,9 +213,12 @@ type devlinkPortEntry struct {
 	Port   *int   `json:"port,omitempty"`
 }
 
-func (n *ConfigureNVConfig) pciToNetdevMap() (map[string]string, error) {
+func (n *ConfigureNVConfig) pciToNetdevMap(target *hostutil.Device) (map[string]string, error) {
 	if n.getDevlinkPort == nil {
 		n.getDevlinkPort = getDevlinkPort
+	}
+	if target == nil {
+		return nil, fmt.Errorf("N/S NIC is not initialized")
 	}
 	// 1. Get devlink port show JSON.
 	output, err := n.getDevlinkPort()
@@ -229,30 +232,39 @@ func (n *ConfigureNVConfig) pciToNetdevMap() (map[string]string, error) {
 	if out.Port == nil {
 		return nil, fmt.Errorf("devlink port show: missing \"port\" object")
 	}
-	// 2. Collect unique PCI keys from all pci/... entries.
+	if n.getNetdevPCI == nil {
+		n.getNetdevPCI = pciutil.NetdevPCI
+	}
+	allowedPCI := pciutil.AddressSet(target.PFPCIAddresses())
+
+	// 2. Physical uplinks (p0/p1) are auxiliary devlink entries. Resolve each
+	// physical netdev back to its PF PCI address through sysfs uevent.
 	pciToNetdev := make(map[string]string)
-	for key := range out.Port {
-		if !strings.HasPrefix(key, pciPrefix) {
+	for key, entry := range out.Port {
+		if !strings.EqualFold(strings.TrimSpace(entry.Flavor), flavourPhysical) {
 			continue
 		}
-		rest := strings.TrimPrefix(key, pciPrefix)
-		parts := strings.SplitN(rest, "/", 2)
-		if len(parts) < 2 {
-			continue
+		netdev := strings.TrimSpace(entry.Netdev)
+		if netdev == "" {
+			return nil, fmt.Errorf("physical devlink port %s has no netdev", key)
 		}
-		pci := parts[0]
-		pciToNetdev[pci] = ""
-	}
-	// 3. Fill value for each PCI using getUplinkName (returns p0/p1 on DPU).
-	if n.getUplinkName == nil {
-		n.getUplinkName = func(pci string) (string, error) { return networkhelper.New().GetUplinkRepresentor(pci) }
-	}
-	for pci := range pciToNetdev {
-		portName, err := n.getUplinkName(pci)
+		pci, err := n.getNetdevPCI(netdev)
 		if err != nil {
-			return nil, fmt.Errorf("get uplink representor for %s: %w", pci, err)
+			return nil, fmt.Errorf("get PCI address for physical netdev %s: %w", netdev, err)
 		}
-		pciToNetdev[pci] = portName
+		pci = pciutil.NormalizeAddress(pci)
+		if pci == "" {
+			klog.Infof("Skipping physical devlink port with no PCI address, netdev=%s", netdev)
+			continue
+		}
+		if _, ok := allowedPCI[pci]; !ok {
+			klog.Infof("Skipping physical devlink port outside target NIC, netdev=%s, pciAddress=%s, targetPCIAddresses=%v", netdev, pci, target.PFPCIAddresses())
+			continue
+		}
+		if existing, ok := pciToNetdev[pci]; ok && existing != netdev {
+			return nil, fmt.Errorf("multiple physical netdevs for PCI %s: %s, %s", pci, existing, netdev)
+		}
+		pciToNetdev[pci] = netdev
 	}
 	return pciToNetdev, nil
 }

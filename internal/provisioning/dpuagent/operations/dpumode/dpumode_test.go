@@ -26,6 +26,7 @@ import (
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
+	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -39,8 +40,8 @@ var _ = Describe("Ensure Mode", func() {
 		tempDir, err = os.MkdirTemp("", "dpumode-test-*")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(os.MkdirAll(filepath.Join(tempDir, "dev/mst"), 0755)).To(Succeed())
-		Expect(os.WriteFile(filepath.Join(tempDir, "dev/mst/dev1"), []byte("dev1"), 0600)).To(Succeed())
-		Expect(os.WriteFile(filepath.Join(tempDir, "dev/mst/dev2"), []byte("dev2"), 0600)).To(Succeed())
+		Expect(os.WriteFile(filepath.Join(tempDir, "dev/mst/dev1"), mstDeviceContent("0000:03:00.0"), 0600)).To(Succeed())
+		Expect(os.WriteFile(filepath.Join(tempDir, "dev/mst/dev2"), mstDeviceContent("0000:03:00.1"), 0600)).To(Succeed())
 	})
 
 	AfterEach(func() {
@@ -72,6 +73,7 @@ var _ = Describe("Ensure Mode", func() {
 						DeploymentMode: provisioningv1.DeploymentModeZeroTrust,
 					},
 				},
+				NSNIC: &hostutil.Device{Address: "0000:03:00", NumOfPFs: 2},
 			})
 			Expect(err).NotTo(HaveOccurred())
 		})
@@ -94,8 +96,13 @@ var _ = Describe("Ensure Mode", func() {
 						DeploymentMode: provisioningv1.DeploymentModeHostTrusted,
 					},
 				},
+				NSNIC: &hostutil.Device{Address: "0000:03:00", NumOfPFs: 2},
 			})
 			Expect(err).NotTo(HaveOccurred())
 		})
 	})
 })
+
+func mstDeviceContent(pci string) []byte {
+	return []byte(fmt.Sprintf("domain:bus:dev.fn=%s addr.reg=88 data.reg=92", pci))
+}

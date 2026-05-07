@@ -41,9 +41,16 @@ const (
 // knownDPUDeviceID maps PCI device IDs to known DPU types.
 // This should be treated as immutable - do not modify at runtime.
 var knownDPUDeviceID = map[string]struct{}{
-	"0xa2dc": {}, // BlueField-3
-	"0xa2d6": {}, // BlueField-2
+	DeviceIDBlueField3: {}, // BlueField-3
+	DeviceIDBlueField2: {}, // BlueField-2
+	DeviceIDBlueField4: {}, // BlueField-4 N/S NIC
 }
+
+const (
+	DeviceIDBlueField2 = "0xa2d6"
+	DeviceIDBlueField3 = "0xa2dc"
+	DeviceIDBlueField4 = "0xa2df"
+)
 
 type PCIHelper struct {
 	// sysFSRoot is the path to the sysfs directory.
@@ -105,13 +112,30 @@ func (h *PCIHelper) Path() string {
 	return p
 }
 
+func normalizePCIID(id string) string {
+	id = strings.ToLower(strings.TrimSpace(id))
+	if id == "" || strings.HasPrefix(id, "0x") {
+		return id
+	}
+	return "0x" + id
+}
+
+// DeviceID returns the normalized PCI device ID from sysfs.
+func (h *PCIHelper) DeviceID() (string, error) {
+	deviceID, err := os.ReadFile(filepath.Join(h.Path(), "device"))
+	if err != nil {
+		return "", err
+	}
+	return normalizePCIID(string(deviceID)), nil
+}
+
 // IsDPU checks if the device is a DPU.
 func (h *PCIHelper) IsDPU() (bool, error) {
-	deviceID, err := os.ReadFile(filepath.Join(h.Path(), "device"))
+	deviceID, err := h.DeviceID()
 	if err != nil {
 		return false, err
 	}
-	_, ok := knownDPUDeviceID[strings.TrimSpace(string(deviceID))]
+	_, ok := knownDPUDeviceID[deviceID]
 	return ok, nil
 }
 
@@ -237,6 +261,20 @@ type Device struct {
 	SerialNumber string
 	// NumOfPFs is the number of PFs of the device
 	NumOfPFs int
+}
+
+// PFPCIAddress returns the full PCI BDF for a PF index on this device.
+func (d Device) PFPCIAddress(pf int) string {
+	return fmt.Sprintf("%s.%d", d.Address, pf)
+}
+
+// PFPCIAddresses returns full PCI BDFs for discovered PFs in deterministic order.
+func (d Device) PFPCIAddresses() []string {
+	addrs := make([]string, 0, d.NumOfPFs)
+	for i := 0; i < d.NumOfPFs; i++ {
+		addrs = append(addrs, d.PFPCIAddress(i))
+	}
+	return addrs
 }
 
 func DiscoverDPUs(sysFSRoot string) ([]Device, error) {

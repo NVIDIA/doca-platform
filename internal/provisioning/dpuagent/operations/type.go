@@ -22,6 +22,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/cmd/dpuagent/opts"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/client"
+	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 )
 
 // Operation is the interface for all operations.
@@ -70,6 +71,10 @@ type Context struct {
 	// CurrentBootID caches the current host boot_id for this agent run so reboot
 	// operations do not need to read it repeatedly.
 	CurrentBootID string
+
+	// NSNIC is the selected NIC that N/S operations should target.
+	// It is discovered once at startup and reused by operations that need PF/PCI context.
+	NSNIC *hostutil.Device
 
 	// GrubConfigChanged is set by ConfigureKernelCmdLine when it writes a new grub config
 	// and runs update-grub. HandleReboot uses this to force a reboot even when the reboot

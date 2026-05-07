@@ -25,6 +25,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/cmd/dpuagent/opts"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
+	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -33,6 +34,7 @@ import (
 
 var _ = Describe("Netplan", func() {
 	var tempDir string
+	targetNIC := &hostutil.Device{Address: "0000:00:00", NumOfPFs: 1}
 
 	BeforeEach(func() {
 		var err error
@@ -81,6 +83,7 @@ var _ = Describe("Netplan", func() {
 					ZeroTrustMode: true,
 				},
 				Client: &mockClient{},
+				NSNIC:  targetNIC,
 			})).To(Succeed())
 
 			_, err = os.Stat(mockFile)
@@ -128,6 +131,7 @@ var _ = Describe("Netplan", func() {
 					ZeroTrustMode: false,
 				},
 				Client: &mockClient{},
+				NSNIC:  targetNIC,
 			})).To(Succeed())
 
 			_, err = os.Stat(mockFile)
@@ -149,6 +153,41 @@ var _ = Describe("Netplan", func() {
 			_, err = os.Stat(filepath.Join(tempDir, "97-pf-mtu.yaml"))
 			Expect(err).NotTo(HaveOccurred())
 
+			Expect(applied).To(BeTrue())
+		})
+
+		It("[BF4] should create PF MTU config only for the selected N/S NIC", func() {
+			nsPF1 := filepath.Join(tempDir, "bus/pci/devices/0000:00:00.1")
+			Expect(os.MkdirAll(nsPF1, 0755)).To(Succeed())
+			Expect(os.WriteFile(filepath.Join(nsPF1, "device"), []byte("0xa2df\n"), 0644)).To(Succeed())
+
+			ewNIC := filepath.Join(tempDir, "bus/pci/devices/0000:01:00.0")
+			Expect(os.MkdirAll(ewNIC, 0755)).To(Succeed())
+			Expect(os.WriteFile(filepath.Join(ewNIC, "device"), []byte("0xffff\n"), 0644)).To(Succeed())
+
+			Expect(os.WriteFile(filepath.Join(tempDir, "bus/pci/devices/0000:00:00.0/device"), []byte("0xa2df\n"), 0644)).To(Succeed())
+			applied := false
+			operation := &ConfigureNetwork{
+				sysFSRoot:   tempDir,
+				netplanRoot: tempDir,
+				applyNetplanFunc: func() error {
+					applied = true
+					return nil
+				},
+			}
+			Expect(operation.Execute(ctx, &operations.Context{
+				Options: opts.Options{ZeroTrustMode: true},
+				Client:  &mockClient{},
+				NSNIC:   &hostutil.Device{Address: "0000:00:00", NumOfPFs: 2},
+			})).To(Succeed())
+
+			content, err := os.ReadFile(filepath.Join(tempDir, "97-pf-mtu.yaml"))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(content)).To(ContainSubstring("p0:"))
+			Expect(string(content)).To(ContainSubstring("p1:"))
+			Expect(string(content)).To(ContainSubstring("pf0hpf:"))
+			Expect(string(content)).To(ContainSubstring("pf1hpf:"))
+			Expect(string(content)).NotTo(ContainSubstring("p2:"))
 			Expect(applied).To(BeTrue())
 		})
 	})
