@@ -25,6 +25,7 @@ import (
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
+	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -44,12 +45,12 @@ const devlinkFlavourPlaceholder = "{{F}}" // placeholder replaced with devlinkKe
 
 var devlinkPortShowTemplate = `{
 	"port": {
-		"pci/0000:03:00.0/262143": {"type": "eth", "netdev": "p0", "{{F}}": "physical", "port": 0, "splittable": false},
 		"pci/0000:03:00.0/196608": {"type": "eth", "netdev": "pf0hpf", "{{F}}": "pcipf", "controller": 1, "pfnum": 0, "external": true, "splittable": false, "function": {"hw_addr": "a0:88:c2:f2:30:3c"}},
 		"pci/0000:03:00.0/229408": {"type": "eth", "netdev": "en3f0pf0sf0", "{{F}}": "pcisf", "controller": 0, "pfnum": 0, "sfnum": 0, "splittable": false, "function": {"hw_addr": "02:e0:a9:05:72:9a", "state": "active", "opstate": "attached"}},
-		"pci/0000:03:00.1/327679": {"type": "eth", "netdev": "p1", "{{F}}": "physical", "port": 1, "splittable": false},
+		"auxiliary/mlx5_core.eth.0/262143": {"type": "eth", "netdev": "p0", "{{F}}": "physical", "port": 0, "splittable": false},
 		"pci/0000:03:00.1/262144": {"type": "eth", "netdev": "pf1hpf", "{{F}}": "pcipf", "controller": 1, "pfnum": 1, "external": true, "splittable": false, "function": {"hw_addr": "a0:88:c2:f2:30:3d"}},
 		"pci/0000:03:00.1/294944": {"type": "eth", "netdev": "en3f1pf1sf0", "{{F}}": "pcisf", "controller": 0, "pfnum": 1, "sfnum": 0, "splittable": false, "function": {"hw_addr": "02:9c:ed:fa:d2:78", "state": "active", "opstate": "attached"}},
+		"auxiliary/mlx5_core.eth.1/327679": {"type": "eth", "netdev": "p1", "{{F}}": "physical", "port": 1, "splittable": false},
 		"auxiliary/mlx5_core.sf.2/10813440": {"type": "eth", "netdev": "enp3s0f0s0", "{{F}}": "virtual", "splittable": false},
 		"auxiliary/mlx5_core.sf.3/12910592": {"type": "eth", "netdev": "enp3s0f1s0", "{{F}}": "virtual", "splittable": false}
 	}
@@ -58,16 +59,23 @@ var devlinkPortShowTemplate = `{
 // devlinkPortShowRealistic is sample "devlink port show -j" output with physical (p0, p1), pcipf, pcisf, and virtual ports.
 var devlinkPortShowRealistic = strings.ReplaceAll(devlinkPortShowTemplate, devlinkFlavourPlaceholder, devlinkKeyFlavour)
 
-// Dummy getUplinkName for tests that call pciToNetdevMap or Execute (returns p0/p1).
-var getUplinkNameForTest = func(pci string) (string, error) {
-	switch pci {
-	case testPci0:
-		return "p0", nil
-	case testPci1:
-		return "p1", nil
+// Dummy getNetdevPCI for tests that call pciToNetdevMap or Execute.
+var getNetdevPCIForTest = func(netdev string) (string, error) {
+	switch netdev {
+	case "p0":
+		return testPci0, nil
+	case "p1":
+		return testPci1, nil
+	case "ew0":
+		return "0000:04:00.0", nil
 	default:
-		return "", fmt.Errorf("unknown pci %s", pci)
+		return "", nil
 	}
+}
+
+var targetNICForTest = &hostutil.Device{
+	Address:  "0000:03:00",
+	NumOfPFs: 2,
 }
 
 var _ = Describe("NVConfig Operation", func() {
@@ -91,9 +99,10 @@ var _ = Describe("NVConfig Operation", func() {
 					return bytes.Buffer{}, bytes.Buffer{}, nil
 				},
 				getDevlinkPort: func() (string, error) { return devlinkPortShowRealistic, nil },
-				getUplinkName:  getUplinkNameForTest,
+				getNetdevPCI:   getNetdevPCIForTest,
 			}
 			operationCtx := &operations.Context{
+				NSNIC:                 targetNICForTest,
 				DPUFlavor:             provisioningv1.DPUFlavor{Spec: provisioningv1.DPUFlavorSpec{NVConfig: []provisioningv1.NVConfig{}}},
 				RebootMethodDiscovery: true,
 				LatestDPU:             &provisioningv1.DPU{Status: provisioningv1.DPUStatus{AgentStatus: &provisioningv1.AgentStatus{Conditions: []metav1.Condition{}}}},
@@ -115,9 +124,10 @@ var _ = Describe("NVConfig Operation", func() {
 					return bytes.Buffer{}, bytes.Buffer{}, nil
 				},
 				getDevlinkPort: func() (string, error) { return devlinkPortShowRealistic, nil },
-				getUplinkName:  getUplinkNameForTest,
+				getNetdevPCI:   getNetdevPCIForTest,
 			}
 			operationCtx := &operations.Context{
+				NSNIC:                 targetNICForTest,
 				RebootMethodDiscovery: true,
 				DPUFlavor: provisioningv1.DPUFlavor{
 					Spec: provisioningv1.DPUFlavorSpec{
@@ -144,9 +154,10 @@ var _ = Describe("NVConfig Operation", func() {
 					return bytes.Buffer{}, bytes.Buffer{}, nil
 				},
 				getDevlinkPort: func() (string, error) { return devlinkPortShowRealistic, nil },
-				getUplinkName:  getUplinkNameForTest,
+				getNetdevPCI:   getNetdevPCIForTest,
 			}
 			operationCtx := &operations.Context{
+				NSNIC:                 targetNICForTest,
 				RebootMethodDiscovery: false,
 				DPUFlavor:             provisioningv1.DPUFlavor{Spec: provisioningv1.DPUFlavorSpec{NVConfig: []provisioningv1.NVConfig{}}},
 				LatestDPU:             &provisioningv1.DPU{Status: provisioningv1.DPUStatus{AgentStatus: &provisioningv1.AgentStatus{Conditions: []metav1.Condition{}}}},
@@ -168,9 +179,10 @@ var _ = Describe("NVConfig Operation", func() {
 					return bytes.Buffer{}, bytes.Buffer{}, nil
 				},
 				getDevlinkPort: func() (string, error) { return devlinkPortShowRealistic, nil },
-				getUplinkName:  getUplinkNameForTest,
+				getNetdevPCI:   getNetdevPCIForTest,
 			}
 			operationCtx := &operations.Context{
+				NSNIC:                 targetNICForTest,
 				RebootMethodDiscovery: false,
 				DPUFlavor: provisioningv1.DPUFlavor{
 					Spec: provisioningv1.DPUFlavorSpec{
@@ -208,6 +220,7 @@ var _ = Describe("NVConfig Operation", func() {
 				runBash: runBash,
 			}
 			operationCtx := &operations.Context{
+				NSNIC:     targetNICForTest,
 				DPUFlavor: dpuFlavor,
 			}
 			operationCtx.LatestDPU = &provisioningv1.DPU{
@@ -238,6 +251,7 @@ var _ = Describe("NVConfig Operation", func() {
 			}
 			operation := ConfigureNVConfig{}
 			operationCtx := &operations.Context{
+				NSNIC:                 targetNICForTest,
 				DPUFlavor:             dpuFlavor,
 				RebootMethodDiscovery: true,
 				LatestDPU: &provisioningv1.DPU{
@@ -294,9 +308,10 @@ var _ = Describe("NVConfig Operation", func() {
 			operation := ConfigureNVConfig{
 				runBash:        runBash,
 				getDevlinkPort: func() (string, error) { return devlinkPortShowRealistic, nil },
-				getUplinkName:  getUplinkNameForTest,
+				getNetdevPCI:   getNetdevPCIForTest,
 			}
 			operationCtx := &operations.Context{
+				NSNIC:                 targetNICForTest,
 				RebootMethodDiscovery: true,
 				DPUFlavor:             dpuFlavor,
 				Client: &mockClient{
@@ -364,9 +379,10 @@ var _ = Describe("NVConfig Operation", func() {
 			operation := ConfigureNVConfig{
 				runBash:        runBash,
 				getDevlinkPort: func() (string, error) { return devlinkPortShowRealistic, nil },
-				getUplinkName:  getUplinkNameForTest,
+				getNetdevPCI:   getNetdevPCIForTest,
 			}
 			operationCtx := &operations.Context{
+				NSNIC:                 targetNICForTest,
 				RebootMethodDiscovery: false,
 				DPUFlavor:             dpuFlavor,
 				Client: &mockClient{
@@ -400,39 +416,59 @@ var _ = Describe("NVConfig Operation", func() {
 		It("should parse devlink JSON and return PCI -> netdev map", func() {
 			operation := ConfigureNVConfig{
 				getDevlinkPort: func() (string, error) { return devlinkPortShowRealistic, nil },
-				getUplinkName:  getUplinkNameForTest,
+				getNetdevPCI:   getNetdevPCIForTest,
 			}
-			m, err := operation.pciToNetdevMap()
+			m, err := operation.pciToNetdevMap(targetNICForTest)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(m).To(HaveLen(2))
 			Expect(m[testPci0]).To(Equal("p0"))
 			Expect(m[testPci1]).To(Equal("p1"))
 		})
 
-		It("should include all pci/ keys and skip already included PCI", func() {
+		It("should filter physical devlink ports to the selected target NIC", func() {
 			devlinkJSON := strings.ReplaceAll(`{
 				"port": {
-					"pci/0000:03:00.0/0": {"type": "eth", "netdev": "p0", "{{F}}": "physical"},
-					"pci/0000:03:00.1/1": {"type": "eth", "netdev": "", "{{F}}": "virtual"}
+					"auxiliary/mlx5_core.eth.0/0": {"type": "eth", "netdev": "p0", "{{F}}": "physical"},
+					"auxiliary/mlx5_core.eth.1/1": {"type": "eth", "netdev": "p1", "{{F}}": "physical"},
+					"auxiliary/mlx5_core.eth.2/2": {"type": "eth", "netdev": "ew0", "{{F}}": "physical"}
 				}
 			}`, devlinkFlavourPlaceholder, devlinkKeyFlavour)
 			operation := ConfigureNVConfig{
 				getDevlinkPort: func() (string, error) { return devlinkJSON, nil },
-				getUplinkName:  getUplinkNameForTest,
+				getNetdevPCI:   getNetdevPCIForTest,
 			}
-			m, err := operation.pciToNetdevMap()
+			m, err := operation.pciToNetdevMap(targetNICForTest)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(m).To(HaveLen(2))
 			Expect(m[testPci0]).To(Equal("p0"))
 			Expect(m[testPci1]).To(Equal("p1"))
+		})
+
+		It("should ignore pci devlink entries that are not physical uplinks", func() {
+			devlinkJSON := strings.ReplaceAll(`{
+				"port": {
+					"auxiliary/mlx5_core.eth.0/0": {"type": "eth", "netdev": "p0", "{{F}}": "physical"},
+					"pci/0000:03:00.1/1": {"type": "eth", "netdev": "pf1hpf", "{{F}}": "pcipf"},
+					"pci/0000:03:00.1/2": {"type": "eth", "netdev": "en3f1pf1sf0", "{{F}}": "pcisf"}
+				}
+			}`, devlinkFlavourPlaceholder, devlinkKeyFlavour)
+			operation := ConfigureNVConfig{
+				getDevlinkPort: func() (string, error) { return devlinkJSON, nil },
+				getNetdevPCI:   getNetdevPCIForTest,
+			}
+			m, err := operation.pciToNetdevMap(targetNICForTest)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(m).To(HaveLen(1))
+			Expect(m[testPci0]).To(Equal("p0"))
+			Expect(m).NotTo(HaveKey(testPci1))
 		})
 
 		It("should fail when getDevlinkPort returns an error", func() {
 			operation := ConfigureNVConfig{
 				getDevlinkPort: func() (string, error) { return "", os.ErrNotExist },
-				getUplinkName:  getUplinkNameForTest,
+				getNetdevPCI:   getNetdevPCIForTest,
 			}
-			_, err := operation.pciToNetdevMap()
+			_, err := operation.pciToNetdevMap(targetNICForTest)
 			Expect(err).To(HaveOccurred())
 			Expect(err).To(MatchError(os.ErrNotExist))
 		})
@@ -440,9 +476,9 @@ var _ = Describe("NVConfig Operation", func() {
 		It("should fail on invalid JSON", func() {
 			operation := ConfigureNVConfig{
 				getDevlinkPort: func() (string, error) { return "not json", nil },
-				getUplinkName:  getUplinkNameForTest,
+				getNetdevPCI:   getNetdevPCIForTest,
 			}
-			_, err := operation.pciToNetdevMap()
+			_, err := operation.pciToNetdevMap(targetNICForTest)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("devlink port show: parse JSON"))
 		})
@@ -450,28 +486,43 @@ var _ = Describe("NVConfig Operation", func() {
 		It("should fail when port object is missing", func() {
 			operation := ConfigureNVConfig{
 				getDevlinkPort: func() (string, error) { return "{}", nil },
-				getUplinkName:  getUplinkNameForTest,
+				getNetdevPCI:   getNetdevPCIForTest,
 			}
-			_, err := operation.pciToNetdevMap()
+			_, err := operation.pciToNetdevMap(targetNICForTest)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("missing \"port\" object"))
 		})
 
-		It("should include each PCI once when devlink has multiple entries per PCI", func() {
+		It("should include each PCI once when devlink has physical and non-physical entries per PCI", func() {
 			dupPCIJSON := strings.ReplaceAll(`{
 				"port": {
-					"pci/0000:03:00.0/0": {"type":"eth", "netdev":"p0", "{{F}}":"physical"},
-					"pci/0000:03:00.0/1": {"type":"eth", "netdev":"p1", "{{F}}":"physical"}
+					"auxiliary/mlx5_core.eth.0/0": {"type":"eth", "netdev":"p0", "{{F}}":"physical"},
+					"pci/0000:03:00.0/1": {"type":"eth", "netdev":"pf0hpf", "{{F}}":"pcipf"}
 				}
 			}`, devlinkFlavourPlaceholder, devlinkKeyFlavour)
 			operation := ConfigureNVConfig{
 				getDevlinkPort: func() (string, error) { return dupPCIJSON, nil },
-				getUplinkName:  getUplinkNameForTest,
+				getNetdevPCI:   getNetdevPCIForTest,
 			}
-			m, err := operation.pciToNetdevMap()
+			m, err := operation.pciToNetdevMap(targetNICForTest)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(m).To(HaveLen(1))
 			Expect(m[testPci0]).To(Equal("p0"))
+		})
+
+		It("should fail when a physical devlink entry has no netdev", func() {
+			devlinkJSON := strings.ReplaceAll(`{
+				"port": {
+					"auxiliary/mlx5_core.eth.0/0": {"type": "eth", "netdev": "", "{{F}}": "physical"}
+				}
+			}`, devlinkFlavourPlaceholder, devlinkKeyFlavour)
+			operation := ConfigureNVConfig{
+				getDevlinkPort: func() (string, error) { return devlinkJSON, nil },
+				getNetdevPCI:   getNetdevPCIForTest,
+			}
+			_, err := operation.pciToNetdevMap(targetNICForTest)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("physical devlink port auxiliary/mlx5_core.eth.0/0 has no netdev"))
 		})
 	})
 })

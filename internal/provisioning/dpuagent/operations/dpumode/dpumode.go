@@ -20,10 +20,10 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"path/filepath"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
+	dpuagentutil "github.com/nvidia/doca-platform/internal/provisioning/dpuagent/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
 
 	"k8s.io/klog/v2"
@@ -55,18 +55,13 @@ func (d *EnsureMode) ShouldUpdateStatusBeforeContinue(ctx *operations.Context) b
 }
 
 func (d *EnsureMode) Execute(execCtx context.Context, optCtx *operations.Context) error {
-	if d.mstDevicesPath == "" {
-		d.mstDevicesPath = defaultMstDevicesPath
-	}
-
-	// Find all devices in /dev/mst/
-	devices, err := filepath.Glob(filepath.Join(d.mstDevicesPath, "*"))
+	devices, err := d.targetMFTDevices(optCtx)
 	if err != nil {
-		return fmt.Errorf("failed to list MST devices: %w", err)
+		return fmt.Errorf("failed to discover MFT target devices: %w", err)
 	}
 
 	if len(devices) == 0 {
-		klog.Warningf("No MST devices found in %s", d.mstDevicesPath)
+		klog.Warningf("No MFT target devices found")
 		return nil
 	}
 
@@ -84,6 +79,13 @@ func (d *EnsureMode) Execute(execCtx context.Context, optCtx *operations.Context
 		}
 	}
 	return nil
+}
+
+func (d *EnsureMode) targetMFTDevices(optCtx *operations.Context) ([]string, error) {
+	if d.mstDevicesPath == "" {
+		d.mstDevicesPath = defaultMstDevicesPath
+	}
+	return dpuagentutil.MFTDevicesForNSNIC(d.mstDevicesPath, optCtx.NSNIC)
 }
 
 func (d *EnsureMode) setDeploymentMode(dev string, deploymentMode provisioningv1.DeploymentMode) error {

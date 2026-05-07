@@ -66,8 +66,6 @@ func (c *CheckNetwork) Execute(execCtx context.Context, optCtx *operations.Conte
 	return optCtx.Client.HealthCheck()
 }
 
-type listPFFunc func() ([]string, error)
-
 type ConfigureNetwork struct {
 	// sysFSRoot is the root directory of the sysfs filesystem.
 	sysFSRoot        string
@@ -110,7 +108,7 @@ func (n *ConfigureNetwork) configNetplan(ctx *operations.Context) error {
 			return fmt.Errorf("failed to create 99-dpf-comm-ch.yaml: %w", err)
 		}
 	}
-	pfs, err := n.listPFsFromSysfs()()
+	pfs, err := n.listPFsFromTargetNIC(ctx.NSNIC)
 	if err != nil {
 		return fmt.Errorf("failed to list PFs: %w", err)
 	}
@@ -218,27 +216,15 @@ func (n *ConfigureNetwork) setPFMTU(pfs []string) error {
 	return config.WriteToFile(name)
 }
 
-func (n *ConfigureNetwork) listPFsFromSysfs() listPFFunc {
-	if n.sysFSRoot == "" {
-		n.sysFSRoot = hostutil.SysFSRoot
+func (n *ConfigureNetwork) listPFsFromTargetNIC(dev *hostutil.Device) ([]string, error) {
+	if dev == nil {
+		return nil, fmt.Errorf("N/S NIC is not initialized")
 	}
-	return func() ([]string, error) {
-		pfs := []string{}
-		devs, err := hostutil.DiscoverDPUs(n.sysFSRoot)
-		if err != nil {
-			return nil, fmt.Errorf("failed to discover DPUs: %w", err)
-		}
-		if len(devs) == 0 {
-			return nil, fmt.Errorf("no DPUs found")
-		} else if len(devs) > 1 {
-			return nil, fmt.Errorf("multiple DPUs found")
-		}
-		dev := devs[0]
-		for i := 0; i < dev.NumOfPFs; i++ {
-			pfs = append(pfs, fmt.Sprintf("p%d", i), fmt.Sprintf("pf%dhpf", i))
-		}
-		return pfs, nil
+	pfs := []string{}
+	for i := 0; i < dev.NumOfPFs; i++ {
+		pfs = append(pfs, fmt.Sprintf("p%d", i), fmt.Sprintf("pf%dhpf", i))
 	}
+	return pfs, nil
 }
 
 func runNetplanApply() error {
