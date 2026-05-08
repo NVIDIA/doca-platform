@@ -26,7 +26,11 @@ Each control plane machine:
 Each workload machine has the following characteristics:
 
 * Bare metal - no virtualization
+* x86_64 or ARM64 (aarch64) architecture
 * Any number of DPUs
+
+DPF does not define CPU, memory, or disk requirements for workload machines in Zero Trust mode. Size workload machines
+according to the workloads they run.
 
 #### DPUs
 
@@ -34,6 +38,7 @@ Each workload machine has the following characteristics:
 * 32 GB memory
 * Flashed with NVIDIA BFB with DOCA version 2.5 or higher
 * out-of-band management port must be connected to the management network
+* PCIe ATX power cable connected when required by the DPU model
 
 ### Control Plane Nodes with BlueField DPUs
 
@@ -194,8 +199,12 @@ kubectl get dpu -n dpf-operator-system -o custom-columns=NAME:.metadata.name,NOD
 
 ### Kubernetes
 
-* Kubernetes 1.32 - 1.34
+* Kubernetes 1.33 - 1.35
 * Control plane nodes have the labels `"node-role.kubernetes.io/control-plane" : ""`
+
+> [!NOTE]
+> Only multi-master (high-availability) Kubernetes control planes are supported for production DPF deployments.
+> Single-master clusters may be used only as a lab shortcut.
 
 ## Network Setup
 

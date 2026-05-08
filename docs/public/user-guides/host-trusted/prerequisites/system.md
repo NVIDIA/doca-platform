@@ -37,6 +37,7 @@ Each worker machine:
 * 32 GB memory
 * Flashed with NVIDIA BFB with DOCA version 2.5 or higher
 * Out-of-band management port is not used
+* PCIe ATX power cable connected when required by the DPU model
 
 ### Control Plane Nodes with BlueField DPUs
 
@@ -201,8 +202,12 @@ kubectl get dpu -n dpf-operator-system -o custom-columns=NAME:.metadata.name,NOD
 
 ### Kubernetes
 
-* Kubernetes 1.32 - 1.34
+* Kubernetes 1.33 - 1.35
 * Control plane nodes have the labels `"node-role.kubernetes.io/control-plane" : ""`
+
+> [!NOTE]
+> Only multi-master (high-availability) Kubernetes control planes are supported for production DPF deployments.
+> Single-master clusters may be used only as a lab shortcut.
 
 ## Network Setup
 
