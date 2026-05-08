@@ -14,7 +14,11 @@ In this configuration OVN Kubernetes is offloaded to the DPU and combined with [
 
 This guide should be run by cloning the repo from [github.com/NVIDIA/doca-platform](https://github.com/NVIDIA/doca-platform) and moving to the `docs/public/user-guides/hbn_ovn` directory.
 
-The system is set up as described in the [system prerequisites](../../prerequisites/system.md).  The OVN Kubernetes with HBN case has the additional requirements:
+The system is set up as described in the [system prerequisites](../../prerequisites/system.md).
+
+In addition, for this use case, the Top of Rack switch(ToR) must support BGP and EVPN.
+
+The OVN Kubernetes with HBN case has the additional requirements:
 
 ### DPU Prerequisites
 

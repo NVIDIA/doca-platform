@@ -23,9 +23,9 @@ and moving to the `docs/public/user-guides/zero-trust/use-cases/hbn` directory.
 
 The system is set up as described in the [prerequisites](../../prerequisites/README.md).
 
-In addition, for this use case, the Top of Rack switch(ToR) should be configured to support unnumbered BGP towards the two
-ports of the DPU, where HBN will act as peer, and advertise routes over BGP to allow for ECMP from the DPU. Additional
-information about how to do that can be found in the [RDG for DPF Zero Trust (DPF-ZT) with HBN DPU Service](https://docs.nvidia.com/networking/display/public/sol/rdg+for+dpf+zero+trust+(dpf-zt)+with+hbn+dpu+service).
+In addition, for this use case, the Top of Rack switch(ToR) must support BGP and EVPN, and should be configured to
+support unnumbered BGP towards the two ports of the DPU, where HBN will act as peer, and advertise routes over BGP to
+allow for ECMP from the DPU. Additional information about how to do that can be found in the [RDG for DPF Zero Trust (DPF-ZT) with HBN DPU Service](https://docs.nvidia.com/networking/display/public/sol/rdg+for+dpf+zero+trust+(dpf-zt)+with+hbn+dpu+service).
 
 ### Software prerequisites
 

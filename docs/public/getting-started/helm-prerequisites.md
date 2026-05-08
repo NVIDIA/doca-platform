@@ -17,24 +17,30 @@ must be installed manually** before installing the DPF chart itself.
 
 ## Prerequisites Overview
 
-The following table lists all required and optional Helm chart dependencies with their specific versions and purposes:
+The following table lists all required, conditional, and optional Helm chart dependencies with their specific versions
+and purposes:
 
 | Helm Chart                | Version | Description                                                                                    | Required | Post/Pre-installation |
 |---------------------------|---------|------------------------------------------------------------------------------------------------|----------|-----------------------|
-| [cert-manager]            | v1.19.3 | Certificate management for Kubernetes, provides automatic TLS certificate issuance and renewal | ✅        | Pre-installation      |
-| [argo-cd]                 | 9.4.1   | GitOps continuous delivery tool for Kubernetes, necessary for DPUService integration           | ✅        | Pre-installation      |
-| [node-feature-discovery]  | 0.18.3  | Discovers and advertises hardware features and capabilities of DPUs in the cluster             | ✅        | Pre-installation      |
-| [maintenance-operator]    | 0.2.3   | Manages node maintenance operations and ensures graceful handling of node updates              | ✅        | Pre-installation      |
-| [kamaji]                  | 1.2.0   | Kubernetes cluster management platform for creating and managing the DPU Kubernetes clusters   | ❌        | Pre-installation      |
-| [local-path-provisioner]  | 0.0.34  | Provides a local storage provisioner for Kubernetes, used for Kamaji etcd storage              | ❌        | Pre-installation      |
-| [kube-state-metrics]      | 5.25.1  | Exposes DPF Operator related objects as metrics                                                | ❌        | Post-installation     |
-| [kube-prometheus-stack]   | 80.4.1  | Complete monitoring stack with Prometheus and Grafana for collecting and visualizing metrics   | ❌        | Post-installation     |
-| [loki]                    | 6.53.0  | Kubernetes log aggregation and storage, integrates with Grafana                                | ❌        | Post-installation     |
-| [opentelemetry-collector] | 0.145.0 | Collects and exports metrics, logs, and traces to observability backends                       | ❌        | Post-installation     |
+| [cert-manager]            | v1.19.3 | Certificate management for Kubernetes, provides automatic TLS certificate issuance and renewal | Yes      | Pre-installation      |
+| [argo-cd]                 | 9.4.1   | GitOps continuous delivery tool for Kubernetes, necessary for DPUService integration           | Yes      | Pre-installation      |
+| [node-feature-discovery]  | 0.18.3  | Discovers and advertises hardware features and capabilities of DPUs in the cluster             | Yes      | Pre-installation      |
+| [maintenance-operator]    | 0.3.0   | Manages node maintenance operations and ensures graceful handling of node updates              | Yes      | Pre-installation      |
+| [kamaji]                  | 1.2.0   | Kubernetes cluster management platform for creating and managing the DPU Kubernetes clusters   | Conditional | Pre-installation      |
+| [local-path-provisioner]  | 0.0.34  | Provides the `local-path` storage class used by the default Kamaji etcd configuration          | Conditional | Pre-installation      |
+| [kube-state-metrics]      | 5.25.1  | Exposes DPF Operator related objects as metrics                                                | No       | Post-installation     |
+| [kube-prometheus-stack]   | 80.4.1  | Complete monitoring stack with Prometheus and Grafana for collecting and visualizing metrics   | No       | Post-installation     |
+| [loki]                    | 6.53.0  | Kubernetes log aggregation and storage, integrates with Grafana                                | No       | Post-installation     |
+| [opentelemetry-collector] | 0.146.0 | Collects and exports metrics, logs, and traces to observability backends                       | No       | Post-installation     |
+
+`Conditional` means the component is required for the default installation described in the user guides, but can be
+replaced in custom deployments.
 
 Some of the components requires the DPF Operator to be installed before they can be installed.  
 This is necessary for `kube-state-metrics` and `kube-prometheus-stack` (Grafana dashboards), because we rely on ConfigMaps created by the DPF Operator to
 provide the necessary configuration for these components.
+
+See [Running Argo CD in a separate namespace](#running-argo-cd-in-a-separate-namespace) for the configuration required to utilise ArgoCD running in a different namespace.
 
 [cert-manager]: https://cert-manager.io/docs/installation/helm
 [argo-cd]: https://argo-cd.readthedocs.io/en/stable/getting_started/
@@ -66,6 +72,11 @@ We provide a working [helmfile] configuration that can be used to install all de
 The helmfiles are located at `deploy/helmfiles/` in the [DPF repository].
 
 This approach ensures consistent deployment across different environments and simplifies the installation process.
+
+> [!NOTE]
+> The default Helmfile installs both `kamaji` and `local-path-provisioner`. Apply the required changes to files in
+> `deploy/helmfiles/` if you do not want to install these components, or if you want to replace the default `local-path`
+> storage class with another storage class for Kamaji etcd.
 
 ### Option 2: Manual Installation
 
