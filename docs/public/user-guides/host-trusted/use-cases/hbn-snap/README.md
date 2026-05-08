@@ -18,6 +18,9 @@ This guide includes examples for both SNAP Block (NVMe) and SNAP VirtioFS storag
 This guide should be run by cloning the repo from [github.com/NVIDIA/doca-platform](https://github.com/NVIDIA/doca-platform) and moving to the `docs/public/user-guides/host-trusted/use-cases/hbn-snap` directory.
 
 The system is set up as described in the [system prerequisites](../../prerequisites/system.md).
+
+In addition, for this use case, the Top of Rack switch(ToR) must support BGP and EVPN.
+
 The HBN with SNAP storage use case has the additional requirements:
 
 ### SNAP Block (NVMe) Prerequisites

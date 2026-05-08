@@ -15,7 +15,11 @@ In this configuration [NVIDIA Host Based Networking (HBN)](https://docs.nvidia.c
 ## Prerequisites
 This guide should be run by cloning the repo from [github.com/NVIDIA/doca-platform](https://github.com/NVIDIA/doca-platform) and moving to the `docs/public/user-guides/hbn_only` directory.
 
-The system is set up as described in the [system prerequisites](../../prerequisites/system.md).  The HBN DPUService has the additional requirements:
+The system is set up as described in the [system prerequisites](../../prerequisites/system.md).
+
+In addition, for this use case, the Top of Rack switch(ToR) must support BGP and EVPN.
+
+The HBN DPUService has the additional requirements:
 
 ### Software Prerequisites
 
