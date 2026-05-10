@@ -541,8 +541,8 @@ test-release-e2e-quick: # Build images required for the quick DPF e2e test.
 	$(MAKE) helm-package-all helm-push-all
 	$(MAKE) helm-package-dummydpuservice helm-push-dummydpuservice
 
-.PHONY: test-release-e2e-slow
-test-release-e2e-slow: release # Build images required for the slow DPF e2e tests.
+.PHONY: test-helper-images
+test-helper-images: # Build and push the e2e test-helper images and charts (dummydpuservice, netutils).
 	$(MAKE) docker-build-dummydpuservice \
 		docker-build-netutils \
 		helm-package-dummydpuservice
@@ -551,6 +551,8 @@ test-release-e2e-slow: release # Build images required for the slow DPF e2e test
 		docker-push-netutils \
 		helm-push-dummydpuservice
 
+.PHONY: test-release-e2e-slow
+test-release-e2e-slow: release test-helper-images # Build images required for the slow DPF e2e tests.
 
 TEST_CLUSTER_NAME := dpf-test
 ADD_CONTROL_PLANE_TAINTS ?= true
