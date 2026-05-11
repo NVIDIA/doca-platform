@@ -62,6 +62,20 @@ var (
 	testEnv2 *envtest.Environment
 )
 
+func crdDirectoryPaths() []string {
+	dpuServiceCRDBase := filepath.Join("..", "..", "..", "config", "dpuservice", "crd", "bases")
+	return []string{
+		filepath.Join("..", "..", "..", "deploy", "charts", "dpf-operator", "templates", "crds"),
+		filepath.Join(dpuServiceCRDBase, "svc.dpu.nvidia.com_servicechains.yaml"),
+		filepath.Join(dpuServiceCRDBase, "svc.dpu.nvidia.com_servicechainsets.yaml"),
+		filepath.Join(dpuServiceCRDBase, "svc.dpu.nvidia.com_serviceinterfaces.yaml"),
+		filepath.Join(dpuServiceCRDBase, "svc.dpu.nvidia.com_serviceinterfacesets.yaml"),
+		filepath.Join("..", "..", "..", "test", "objects", "crd", "kamaji"),
+		filepath.Join("..", "..", "..", "test", "objects", "crd", "nvipam"),
+		filepath.Join("..", "..", "..", "test", "objects", "crd", "multus"),
+	}
+}
+
 func TestDPUServiceChain(t *testing.T) {
 	RegisterFailHandler(Fail)
 
@@ -73,11 +87,7 @@ var _ = BeforeSuite(func() {
 
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
-		CRDDirectoryPaths: []string{
-			filepath.Join("..", "..", "..", "deploy", "charts", "dpf-operator", "templates", "crds"),
-			filepath.Join("..", "..", "..", "test", "objects", "crd", "kamaji"),
-			filepath.Join("..", "..", "..", "test", "objects", "crd", "nvipam"),
-			filepath.Join("..", "..", "..", "test", "objects", "crd", "multus")},
+		CRDDirectoryPaths:     crdDirectoryPaths(),
 		ErrorIfCRDPathMissing: true,
 
 		// The BinaryAssetsDirectory is only required if you want to run the tests directly
@@ -97,11 +107,7 @@ var _ = BeforeSuite(func() {
 
 	By("bootstrapping additional test environments for multi-cluster testing")
 	testEnv1 = &envtest.Environment{
-		CRDDirectoryPaths: []string{
-			filepath.Join("..", "..", "..", "deploy", "charts", "dpf-operator", "templates", "crds"),
-			filepath.Join("..", "..", "..", "test", "objects", "crd", "kamaji"),
-			filepath.Join("..", "..", "..", "test", "objects", "crd", "nvipam"),
-			filepath.Join("..", "..", "..", "test", "objects", "crd", "multus")},
+		CRDDirectoryPaths:     crdDirectoryPaths(),
 		ErrorIfCRDPathMissing: true,
 		BinaryAssetsDirectory: filepath.Join("..", "..", "..", "hack", "tools", "bin", "k8s",
 			fmt.Sprintf("1.32.0-%s-%s", runtime.GOOS, runtime.GOARCH)),
@@ -111,11 +117,7 @@ var _ = BeforeSuite(func() {
 	Expect(cfg1).NotTo(BeNil())
 
 	testEnv2 = &envtest.Environment{
-		CRDDirectoryPaths: []string{
-			filepath.Join("..", "..", "..", "deploy", "charts", "dpf-operator", "templates", "crds"),
-			filepath.Join("..", "..", "..", "test", "objects", "crd", "kamaji"),
-			filepath.Join("..", "..", "..", "test", "objects", "crd", "nvipam"),
-			filepath.Join("..", "..", "..", "test", "objects", "crd", "multus")},
+		CRDDirectoryPaths:     crdDirectoryPaths(),
 		ErrorIfCRDPathMissing: true,
 		BinaryAssetsDirectory: filepath.Join("..", "..", "..", "hack", "tools", "bin", "k8s",
 			fmt.Sprintf("1.32.0-%s-%s", runtime.GOOS, runtime.GOARCH)),
