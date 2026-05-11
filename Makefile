@@ -292,12 +292,13 @@ generate-manifests-servicechainset: controller-gen kustomize envsubst ## Generat
 	paths="./internal/pod-ipam-injector/..." \
 	rbac:roleName=servicechainset-controller-manager \
 	output:rbac:dir=deploy/charts/dpu-networking/charts/servicechainset-controller/templates;
+	# Make the CRDs to only be deployed if the deployDPUManifests flag is set.
 	find config/dpuservice/crd/bases/ -type f -not -name '*_dpu*' -exec cp {} deploy/charts/dpu-networking/charts/servicechainset-controller/templates/crds/ \;
+	sed -i -e '1i{{- if .Values.deployDPUManifests }}' -e '$$a{{- end }}' deploy/charts/dpu-networking/charts/servicechainset-controller/templates/crds/*.yaml
 
 	# Make the role.yaml compatible with the chart design so that multiple charts can be deployed and the manifest is skipped in specific cases.
 	sed -i 's/name: servicechainset-controller-manager/name: {{ include "servicechain.fullname" . }}/g' deploy/charts/dpu-networking/charts/servicechainset-controller/templates/role.yaml
-	sed -i '1i{{ if .Values.deployDPUManifests }}' deploy/charts/dpu-networking/charts/servicechainset-controller/templates/role.yaml
-	echo '{{- end }}' >> deploy/charts/dpu-networking/charts/servicechainset-controller/templates/role.yaml
+	sed -i -e '1i{{ if .Values.deployDPUManifests }}' -e '$$a{{- end }}' deploy/charts/dpu-networking/charts/servicechainset-controller/templates/role.yaml
 
 .PHONY: generate-manifests-storage
 generate-manifests-storage: controller-gen kustomize embedmd yq ## Generate CRDs for SNAP storage in DPU cluster
@@ -345,8 +346,8 @@ generate-manifests-operator-embedded: kustomize envsubst generate-manifests-dpus
 
 .PHONY: generate-manifests-sfc-controller
 generate-manifests-sfc-controller: envsubst generate-manifests-servicechainset
-	cp deploy/charts/dpu-networking/charts/servicechainset-controller/templates/crds/svc.dpu.nvidia.com_servicechains.yaml deploy/charts/dpu-networking/charts/sfc-controller/templates/crds/
-	cp deploy/charts/dpu-networking/charts/servicechainset-controller/templates/crds/svc.dpu.nvidia.com_serviceinterfaces.yaml deploy/charts/dpu-networking/charts/sfc-controller/templates/crds/
+	cp config/dpuservice/crd/bases/svc.dpu.nvidia.com_servicechains.yaml deploy/charts/dpu-networking/charts/sfc-controller/templates/crds/
+	cp config/dpuservice/crd/bases/svc.dpu.nvidia.com_serviceinterfaces.yaml deploy/charts/dpu-networking/charts/sfc-controller/templates/crds/
 
 .PHONY: generate-manifests-provisioning
 generate-manifests-provisioning: controller-gen kustomize ## Generate manifests e.g. CRD, RBAC. for the DPF provisioning controller.
