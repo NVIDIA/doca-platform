@@ -44,6 +44,17 @@ var testClient client.Client
 var testEnv *envtest.Environment
 var ctx, testCancelFunc = context.WithCancel(ctrl.SetupSignalHandler())
 
+func crdDirectoryPaths() []string {
+	dpuServiceCRDBase := filepath.Join("..", "..", "config", "dpuservice", "crd", "bases")
+	return []string{
+		filepath.Join("..", "..", "deploy", "charts", "dpf-operator", "templates", "crds"),
+		filepath.Join(dpuServiceCRDBase, "svc.dpu.nvidia.com_servicechains.yaml"),
+		filepath.Join(dpuServiceCRDBase, "svc.dpu.nvidia.com_servicechainsets.yaml"),
+		filepath.Join(dpuServiceCRDBase, "svc.dpu.nvidia.com_serviceinterfaces.yaml"),
+		filepath.Join(dpuServiceCRDBase, "svc.dpu.nvidia.com_serviceinterfacesets.yaml"),
+	}
+}
+
 func TestAPIs(t *testing.T) {
 	RegisterFailHandler(Fail)
 
@@ -55,9 +66,7 @@ var _ = BeforeSuite(func() {
 
 	By("Bootstrapping test environment")
 	testEnv = &envtest.Environment{
-		CRDDirectoryPaths: []string{
-			filepath.Join("..", "..", "deploy", "charts", "dpf-operator", "templates", "crds"),
-		},
+		CRDDirectoryPaths:     crdDirectoryPaths(),
 		ErrorIfCRDPathMissing: true,
 
 		// The BinaryAssetsDirectory is only required if you want to run the tests directly
