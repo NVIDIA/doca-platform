@@ -30,7 +30,7 @@ The DOCA Platform Framework (DPF) documentation is organized into the following 
 * [Storage Developer Guide](developer-guides/services/storage.md) - Documentation for Storage development and configuration
 * [DPUServices](advanced-configuration/dpuservices/README.md) - Documentation for DPF DPU services
 * [DPUService Developer Guide](developer-guides/services/dpuservice-development.md) - Documentation for DPUService development and configuration
-* [Troubleshooting](troubleshooting/README.md) - Documentation for troubleshooting and debugging DPF
+* [Troubleshooting](operational-readiness/troubleshooting/README.md) - Documentation for troubleshooting and debugging DPF
 * [User Guides](user-guides/README.md) - Documentation for DPF users
 * [Release Notes](release-notes/README.md) - Release notes and version history
 * [Platform Support](platform-support.md) - Hardware requirements and supported platforms

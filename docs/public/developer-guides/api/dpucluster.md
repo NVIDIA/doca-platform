@@ -118,3 +118,31 @@ type: Opaque
 data:
   super-admin.conf: $KUBECONFIG_DATA
 ```
+
+## Troubleshooting
+
+### DPUCluster Status
+
+Inspect the `DPUCluster` status conditions to understand the current state of the cluster:
+
+```shell
+kubectl describe dpucluster <dpucluster-name> -n dpf-operator-system
+```
+
+Key status fields:
+
+| Field | Description |
+|---|---|
+| `.status.phase` | Overall lifecycle phase: `Pending`, `Creating`, `Ready`, `NotReady`, `Failed` |
+| `.status.conditions` | Detailed conditions with `Reason` and `Message` fields |
+| `.status.version` | Kubernetes control-plane version running in the DPU cluster |
+| `.status.nodesCount` | Number of DPU nodes currently joined to the cluster |
+
+For Kamaji-backed clusters, the underlying `TenantControlPlane` resource may provide additional detail:
+
+```shell
+kubectl get tenantcontrolplane <dpucluster-name> -n dpf-operator-system -o yaml
+```
+
+If direct access to the DPU cluster is needed for further investigation, see
+[Accessing the Kamaji DPU Cluster](../../operational-readiness/troubleshooting/kamaji-cluster-access.md).

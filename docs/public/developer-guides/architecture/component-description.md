@@ -198,7 +198,9 @@ This is a prerequisite to provision a DPU with DPF. This flow is based on the Ka
 
 4. The DPUCluster manager creates a load balancer for the Kamaji control plane.
 
-5. The DPUCluster manager updates the DPUCluster with a kubeconfig for the Kamaji control plane. 
+5. The DPUCluster manager updates the DPUCluster with a kubeconfig for the Kamaji control plane.
+
+> For advanced troubleshooting that requires direct access to the DPU cluster, see [Accessing the Kamaji DPU Cluster](../../operational-readiness/troubleshooting/kamaji-cluster-access.md).
 
 ### Provision a DPU
 

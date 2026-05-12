@@ -99,7 +99,7 @@ This guide requires working knowledge of Docker, Kubernetes and Helm.
 * a docker build environment
 * `docker` CLI installed - see the [guide](https://docs.docker.com/get-docker/)
 * `helm` CLI installed - see [the guide](https://helm.sh/docs/intro/quickstart/) 
-* `dpfctl` CLI installed - see [the guide](../../troubleshooting/dpfctl/README.md)
+* `dpfctl` CLI installed - see [the guide](../../operational-readiness/troubleshooting/dpfctl/README.md)
 * `kubectl` CLI installed - see [the guide](https://kubernetes.io/docs/tasks/tools/)
 * The repo `github.com/nvidia/doca-platform` cloned to `$PATH_TO_ROOT_OF_DPF_REPO`
 * A docker registry - `$DPUSERVICE_DOCKER_REGISTRY` you can push images to.
@@ -276,6 +276,9 @@ You can monitor the health of your DPUService with:
 ```bash
 dpfctl describe dpuservices --show-conditions=dpuservice/dummydpuservice
 ```
+
+For advanced troubleshooting that requires inspecting workloads directly on the DPU cluster, see
+[Accessing the Kamaji DPU Cluster](../../operational-readiness/troubleshooting/kamaji-cluster-access.md).
 
 ## Additional Information About Supported Features
 
