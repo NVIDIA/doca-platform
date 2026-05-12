@@ -281,7 +281,7 @@ $ kubectl patch dpuservice <dpuservice-name> \
 ### Debugging DPUServices
 
 There are several ways to debug `DPUServices` in DPF. The recommended way is to use the
-[dpfctl](../../troubleshooting/dpfctl/README.md) command line tool to gather information about the `DPUServices`
+[dpfctl](../../operational-readiness/troubleshooting/dpfctl/README.md) command line tool to gather information about the `DPUServices`
 in the DPU cluster.
 
 ```bash
