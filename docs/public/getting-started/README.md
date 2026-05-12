@@ -38,10 +38,10 @@ Once you have completed the initial setup using one of the deployment guides abo
 ### User Guides and Support
 
 * **[User Guides](../user-guides/README.md)** - Step-by-step guides for using DPF for specific use cases
-* **[Troubleshooting](../troubleshooting/README.md)** - Common issues and solutions
+* **[Troubleshooting](../operational-readiness/troubleshooting/README.md)** - Common issues and solutions
 
 ## Getting Help
 
-* Check the [Troubleshooting](../troubleshooting/README.md) section for common issues
+* Check the [Troubleshooting](../operational-readiness/troubleshooting/README.md) section for common issues
 * Review [Release Notes](../release-notes/README.md) for known issues and updates
 * Visit the [GitHub repository](https://github.com/NVIDIA/doca-platform) for community support

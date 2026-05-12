@@ -14,6 +14,7 @@ The Operational Readiness documentation covers all aspects of production DPF ope
 
 * System upgrades and version management
 * Observability and monitoring
+* Troubleshooting and diagnostics
 
 ## Contents
 
@@ -25,8 +26,10 @@ Version compatibility, upgrade procedures, and lifecycle management.
 
 Operational guidance for the DPF observability stack.
 
-## Related Documentation
+### [Troubleshooting](troubleshooting/README.md)
 
-* [Troubleshooting](../troubleshooting/README.md) - Technical troubleshooting
+Diagnostic tools, common issues, and escalation procedures.
+
+## Related Documentation
 * [Platform Support](../platform-support.md) - Hardware and software requirements
 * [Release Notes](../release-notes/README.md) - Latest releases and changes

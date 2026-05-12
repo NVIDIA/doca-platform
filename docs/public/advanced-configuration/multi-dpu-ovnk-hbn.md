@@ -314,7 +314,7 @@ kubectl apply -f dpudeployment-blueman-dts.yaml
 
 ### 4. Verify Deployment
 
-You can monitor prevalidation status using either [dpfctl](../troubleshooting/dpfctl/README.md) or kubectl:
+You can monitor prevalidation status using either [dpfctl](../operational-readiness/troubleshooting/dpfctl/README.md) or kubectl:
 
 **Using dpfctl (recommended):**
 

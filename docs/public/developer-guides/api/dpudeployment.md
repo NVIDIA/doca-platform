@@ -1016,7 +1016,7 @@ a mismatched combination is configured:
 #### General guideline
 
 There are several ways to debug `DPUDeployments` in DPF. The recommended way is to
-use the [dpfctl](../../troubleshooting/dpfctl/README.md) command line tool to describe the `DPUDeployment` and
+use the [dpfctl](../../operational-readiness/troubleshooting/dpfctl/README.md) command line tool to describe the `DPUDeployment` and
 its underlying objects. The `dpfctl` tool provides a detailed description of the
 `DPUDeployment` and its underlying objects, including the status of the objects.
 
