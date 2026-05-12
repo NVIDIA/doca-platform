@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
@@ -212,6 +213,80 @@ var _ = Describe("DPF Upgrade validation", Labels{Domain.DPFUpgradeValidation}, 
 
 		It("validate DPU and DPUService artifacts after upgrade", func() {
 			validateArtifactsAfterUpgrade()
+		})
+
+		It("switch DPUDeployments to new BFB and DPUFlavor", func() {
+			By("Listing all DPUDeployments in the system namespace")
+			dpuDeploymentList := &dpuservicev1.DPUDeploymentList{}
+			Expect(input.client.List(ctx, dpuDeploymentList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+			Expect(dpuDeploymentList.Items).NotTo(BeEmpty(), "expected at least one DPUDeployment")
+
+			oldBFBName := dpuDeploymentList.Items[0].Spec.DPUs.BFB
+			oldFlavorName := dpuDeploymentList.Items[0].Spec.DPUs.Flavor
+			Expect(oldBFBName).NotTo(BeEmpty())
+			Expect(oldFlavorName).NotTo(BeEmpty())
+
+			for i := range dpuDeploymentList.Items {
+				dd := &dpuDeploymentList.Items[i]
+				Expect(dd.Spec.DPUs.BFB).To(Equal(oldBFBName), "all DPUDeployments should start with the same BFB in this test")
+				Expect(dd.Spec.DPUs.Flavor).To(Equal(oldFlavorName), "all DPUDeployments should start with the same DPUFlavor in this test")
+			}
+
+			newBFBName := fmt.Sprintf("%s-upgrade", oldBFBName)
+			newFlavorName := fmt.Sprintf("%s-upgrade", oldFlavorName)
+
+			By(fmt.Sprintf("Creating a new BFB %s", newBFBName))
+			newBFB := input.bfb.DeepCopy()
+			newBFB.SetName(newBFBName)
+			newBFB.SetNamespace(dpfOperatorSystemNamespace)
+			newBFB.SetLabels(CleanupScope.Suite)
+			Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, newBFB))).To(Succeed())
+
+			By(fmt.Sprintf("Waiting for new BFB %s to become Ready", newBFBName))
+			Eventually(func(g Gomega) {
+				bfb := &provisioningv1.BFB{}
+				g.Expect(input.client.Get(ctx, client.ObjectKey{Name: newBFBName, Namespace: dpfOperatorSystemNamespace}, bfb)).To(Succeed())
+				g.Expect(bfb.Status.Phase).To(Equal(provisioningv1.BFBReady))
+			}).WithTimeout(10 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+
+			By(fmt.Sprintf("Creating a new DPUFlavor %s", newFlavorName))
+			newDPUFlavor := input.dpuFlavor.DeepCopy()
+			newDPUFlavor.SetName(newFlavorName)
+			newDPUFlavor.SetNamespace(dpfOperatorSystemNamespace)
+			newDPUFlavor.SetLabels(CleanupScope.Suite)
+			Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, newDPUFlavor))).To(Succeed())
+
+			By("Patching DPUDeployments to use new BFB and DPUFlavor")
+			for i := range dpuDeploymentList.Items {
+				dd := &dpuDeploymentList.Items[i]
+				original := dd.DeepCopy()
+				dd.Spec.DPUs.BFB = newBFBName
+				dd.Spec.DPUs.Flavor = newFlavorName
+				Expect(input.client.Patch(ctx, dd, client.MergeFrom(original))).To(Succeed())
+			}
+
+			By("Waiting for DPUDeployments to reconcile with updated dependencies")
+			for i := range dpuDeploymentList.Items {
+				dd := &dpuDeploymentList.Items[i]
+				Eventually(func(g Gomega) {
+					current := &dpuservicev1.DPUDeployment{}
+					g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dd), current)).To(Succeed())
+					g.Expect(current.Spec.DPUs.BFB).To(Equal(newBFBName))
+					g.Expect(current.Spec.DPUs.Flavor).To(Equal(newFlavorName))
+					g.Expect(conditions.IsTrue(current, dpuservicev1.ConditionPreReqsReady)).To(BeTrue(),
+						"PrerequisitesReady should be True for %s", current.Name)
+					g.Expect(conditions.IsTrue(current, dpuservicev1.ConditionDPUSetsReconciled)).To(BeTrue(),
+						"DPUSetsReconciled should be True for %s", current.Name)
+				}).WithTimeout(20 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+			}
+
+			By("Verifying old DPUFlavor has no consumed-by-dpudeployment labels")
+			oldFlavor := &provisioningv1.DPUFlavor{}
+			Expect(input.client.Get(ctx, client.ObjectKey{Name: oldFlavorName, Namespace: dpfOperatorSystemNamespace}, oldFlavor)).To(Succeed())
+			for k := range oldFlavor.GetLabels() {
+				Expect(strings.HasPrefix(k, dpuservicev1.DependentDPUDeploymentLabelKeyPrefix)).To(BeFalse(),
+					"old DPUFlavor should not retain consumed-by labels")
+			}
 		})
 
 		It("perform DPU and DPUService rollout test", func() {

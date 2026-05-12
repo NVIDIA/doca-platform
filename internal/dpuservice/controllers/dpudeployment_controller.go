@@ -461,10 +461,7 @@ func cleanAllStaleDependencies(ctx context.Context, c client.Client, dpuDeployme
 						continue
 					}
 				}
-				patcher := patch.NewSerialPatcher(&dpuServiceConfiguration, c)
-				unmarkDependency(dpuDeployment, &dpuServiceConfiguration)
-
-				if err := patcher.Patch(ctx, &dpuServiceConfiguration, patch.WithFieldOwner(dpuDeploymentControllerName)); err != nil {
+				if err := patchUnmarkDependency(ctx, c, dpuDeployment, &dpuServiceConfiguration); err != nil {
 					return fmt.Errorf("error while patching %s %s: %w", dpuServiceConfiguration.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&dpuServiceConfiguration), err)
 				}
 			}
@@ -476,10 +473,7 @@ func cleanAllStaleDependencies(ctx context.Context, c client.Client, dpuDeployme
 						continue
 					}
 				}
-				patcher := patch.NewSerialPatcher(&dpuServiceTemplate, c)
-				unmarkDependency(dpuDeployment, &dpuServiceTemplate)
-
-				if err := patcher.Patch(ctx, &dpuServiceTemplate, patch.WithFieldOwner(dpuDeploymentControllerName)); err != nil {
+				if err := patchUnmarkDependency(ctx, c, dpuDeployment, &dpuServiceTemplate); err != nil {
 					return fmt.Errorf("error while patching %s %s: %w", dpuServiceTemplate.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&dpuServiceTemplate), err)
 				}
 			}
@@ -489,10 +483,7 @@ func cleanAllStaleDependencies(ctx context.Context, c client.Client, dpuDeployme
 				if bfb.Name == deps.BFB.Name {
 					continue
 				}
-				patcher := patch.NewSerialPatcher(&bfb, c)
-				unmarkDependency(dpuDeployment, &bfb)
-
-				if err := patcher.Patch(ctx, &bfb, patch.WithFieldOwner(dpuDeploymentControllerName)); err != nil {
+				if err := patchUnmarkDependency(ctx, c, dpuDeployment, &bfb); err != nil {
 					return fmt.Errorf("error while patching %s %s: %w", bfb.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&bfb), err)
 				}
 			}
@@ -502,10 +493,7 @@ func cleanAllStaleDependencies(ctx context.Context, c client.Client, dpuDeployme
 				if dpuFlavor.Name == deps.DPUFlavor.Name {
 					continue
 				}
-				patcher := patch.NewSerialPatcher(&dpuFlavor, c)
-				unmarkDependency(dpuDeployment, &dpuFlavor)
-
-				if err := patcher.Patch(ctx, &dpuFlavor, patch.WithFieldOwner(dpuDeploymentControllerName)); err != nil {
+				if err := patchUnmarkDependency(ctx, c, dpuDeployment, &dpuFlavor); err != nil {
 					return fmt.Errorf("error while patching %s %s: %w", dpuFlavor.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&dpuFlavor), err)
 				}
 			}
@@ -539,6 +527,13 @@ func unmarkDependency(dpuDeployment *dpuservicev1.DPUDeployment, o client.Object
 		}
 	}
 	controllerutil.RemoveFinalizer(o, dpuservicev1.DPUDeploymentFinalizer)
+}
+
+// patchUnmarkDependency removes DPUDeployment dependency metadata using a metadata-only merge patch.
+func patchUnmarkDependency(ctx context.Context, c client.Client, dpuDeployment *dpuservicev1.DPUDeployment, o client.Object) error {
+	before := o.DeepCopyObject().(client.Object)
+	unmarkDependency(dpuDeployment, o)
+	return c.Patch(ctx, o, client.MergeFrom(before), client.FieldOwner(dpuDeploymentControllerName))
 }
 
 // verifyResourceFitting verifies that the user provided resources for DPUServices can fit the resources defined in the
@@ -1029,40 +1024,28 @@ func releaseAllDependencies(ctx context.Context, c client.Client, dpuDeployment 
 		case *dpuservicev1.DPUServiceConfigurationList:
 			objs := obj.(*dpuservicev1.DPUServiceConfigurationList).Items
 			for _, o := range objs {
-				patcher := patch.NewSerialPatcher(&o, c)
-				unmarkDependency(dpuDeployment, &o)
-
-				if err := patcher.Patch(ctx, &o, patch.WithFieldOwner(dpuDeploymentControllerName)); err != nil {
+				if err := patchUnmarkDependency(ctx, c, dpuDeployment, &o); err != nil {
 					return fmt.Errorf("error while patching %s %s: %w", o.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&o), err)
 				}
 			}
 		case *dpuservicev1.DPUServiceTemplateList:
 			objs := obj.(*dpuservicev1.DPUServiceTemplateList).Items
 			for _, o := range objs {
-				patcher := patch.NewSerialPatcher(&o, c)
-				unmarkDependency(dpuDeployment, &o)
-
-				if err := patcher.Patch(ctx, &o, patch.WithFieldOwner(dpuDeploymentControllerName)); err != nil {
+				if err := patchUnmarkDependency(ctx, c, dpuDeployment, &o); err != nil {
 					return fmt.Errorf("error while patching %s %s: %w", o.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&o), err)
 				}
 			}
 		case *provisioningv1.BFBList:
 			objs := obj.(*provisioningv1.BFBList).Items
 			for _, o := range objs {
-				patcher := patch.NewSerialPatcher(&o, c)
-				unmarkDependency(dpuDeployment, &o)
-
-				if err := patcher.Patch(ctx, &o, patch.WithFieldOwner(dpuDeploymentControllerName)); err != nil {
+				if err := patchUnmarkDependency(ctx, c, dpuDeployment, &o); err != nil {
 					return fmt.Errorf("error while patching %s %s: %w", o.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&o), err)
 				}
 			}
 		case *provisioningv1.DPUFlavorList:
 			objs := obj.(*provisioningv1.DPUFlavorList).Items
 			for _, o := range objs {
-				patcher := patch.NewSerialPatcher(&o, c)
-				unmarkDependency(dpuDeployment, &o)
-
-				if err := patcher.Patch(ctx, &o, patch.WithFieldOwner(dpuDeploymentControllerName)); err != nil {
+				if err := patchUnmarkDependency(ctx, c, dpuDeployment, &o); err != nil {
 					return fmt.Errorf("error while patching %s %s: %w", o.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&o), err)
 				}
 			}
