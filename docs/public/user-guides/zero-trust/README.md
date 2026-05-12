@@ -75,7 +75,7 @@ To deploy DPF in zero trust mode:
 For assistance with zero trust deployments:
 
 * Review the specific use case documentation
-* Check the [DPF troubleshooting guide](../../troubleshooting/README.md)
+* Check the [DPF troubleshooting guide](../../operational-readiness/troubleshooting/README.md)
 * Consult the [release notes](../../release-notes/README.md) for known issues
 * Engage with the NVIDIA support team for further assistance
 
