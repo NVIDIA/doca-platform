@@ -393,17 +393,22 @@ spec:
   ovs:
     rawConfigScript: |
       _ovs-vsctl() {
-        ovs-vsctl --no-wait --timeout 15 "$@"
+        ovs-vsctl --timeout 15 "$@"
       }
 
+      # Remove default OVS configuration on the DPU and ensure no leftovers on the OVS kernel side
       _ovs-vsctl --if-exists del-br ovsbr1
       _ovs-vsctl --if-exists del-br ovsbr2
+      ovs-appctl --timeout 15 dpctl/del-dp system@ovs-system || true
+
       _ovs-vsctl set Open_vSwitch . other_config:doca-init=true
       _ovs-vsctl set Open_vSwitch . other_config:dpdk-max-memzones=50000
       _ovs-vsctl set Open_vSwitch . other_config:hw-offload=true
       _ovs-vsctl set Open_vSwitch . other_config:pmd-quiet-idle=true
       _ovs-vsctl set Open_vSwitch . other_config:max-idle=20000
       _ovs-vsctl set Open_vSwitch . other_config:max-revalidator=5000
+      _ovs-vsctl remove Open_vSwitch . other_config default-datapath-type || true
+
       if systemctl list-unit-files openvswitch-switch.service &>/dev/null; then
         systemctl restart openvswitch-switch
       elif systemctl list-unit-files openvswitch.service &>/dev/null; then
@@ -1111,17 +1116,22 @@ spec:
   ovs:
     rawConfigScript: |
       _ovs-vsctl() {
-        ovs-vsctl --no-wait --timeout 15 "$@"
+        ovs-vsctl --timeout 15 "$@"
       }
 
+      # Remove default OVS configuration on the DPU and ensure no leftovers on the OVS kernel side
       _ovs-vsctl --if-exists del-br ovsbr1
       _ovs-vsctl --if-exists del-br ovsbr2
+      ovs-appctl --timeout 15 dpctl/del-dp system@ovs-system || true
+
       _ovs-vsctl set Open_vSwitch . other_config:doca-init=true
       _ovs-vsctl set Open_vSwitch . other_config:dpdk-max-memzones=50000
       _ovs-vsctl set Open_vSwitch . other_config:hw-offload=true
       _ovs-vsctl set Open_vSwitch . other_config:pmd-quiet-idle=true
       _ovs-vsctl set Open_vSwitch . other_config:max-idle=20000
       _ovs-vsctl set Open_vSwitch . other_config:max-revalidator=5000
+      _ovs-vsctl remove Open_vSwitch . other_config default-datapath-type || true
+
       if systemctl list-unit-files openvswitch-switch.service &>/dev/null; then
         systemctl restart openvswitch-switch
       elif systemctl list-unit-files openvswitch.service &>/dev/null; then
@@ -1832,17 +1842,22 @@ spec:
   ovs:
     rawConfigScript: |
       _ovs-vsctl() {
-        ovs-vsctl --no-wait --timeout 15 "$@"
+        ovs-vsctl --timeout 15 "$@"
       }
 
+      # Remove default OVS configuration on the DPU and ensure no leftovers on the OVS kernel side
       _ovs-vsctl --if-exists del-br ovsbr1
       _ovs-vsctl --if-exists del-br ovsbr2
+      ovs-appctl --timeout 15 dpctl/del-dp system@ovs-system || true
+
       _ovs-vsctl set Open_vSwitch . other_config:doca-init=true
       _ovs-vsctl set Open_vSwitch . other_config:dpdk-max-memzones=50000
       _ovs-vsctl set Open_vSwitch . other_config:hw-offload=true
       _ovs-vsctl set Open_vSwitch . other_config:pmd-quiet-idle=true
       _ovs-vsctl set Open_vSwitch . other_config:max-idle=20000
       _ovs-vsctl set Open_vSwitch . other_config:max-revalidator=5000
+      _ovs-vsctl remove Open_vSwitch . other_config default-datapath-type || true
+
       if systemctl list-unit-files openvswitch-switch.service &>/dev/null; then
         systemctl restart openvswitch-switch
       elif systemctl list-unit-files openvswitch.service &>/dev/null; then
@@ -2497,17 +2512,22 @@ spec:
   ovs:
     rawConfigScript: |
       _ovs-vsctl() {
-        ovs-vsctl --no-wait --timeout 15 "$@"
+        ovs-vsctl --timeout 15 "$@"
       }
 
+      # Remove default OVS configuration on the DPU and ensure no leftovers on the OVS kernel side
       _ovs-vsctl --if-exists del-br ovsbr1
       _ovs-vsctl --if-exists del-br ovsbr2
+      ovs-appctl --timeout 15 dpctl/del-dp system@ovs-system || true
+
       _ovs-vsctl set Open_vSwitch . other_config:doca-init=true
       _ovs-vsctl set Open_vSwitch . other_config:dpdk-max-memzones=50000
       _ovs-vsctl set Open_vSwitch . other_config:hw-offload=true
       _ovs-vsctl set Open_vSwitch . other_config:pmd-quiet-idle=true
       _ovs-vsctl set Open_vSwitch . other_config:max-idle=20000
       _ovs-vsctl set Open_vSwitch . other_config:max-revalidator=5000
+      _ovs-vsctl remove Open_vSwitch . other_config default-datapath-type || true
+
       if systemctl list-unit-files openvswitch-switch.service &>/dev/null; then
         systemctl restart openvswitch-switch
       elif systemctl list-unit-files openvswitch.service &>/dev/null; then
@@ -3307,17 +3327,22 @@ spec:
   ovs:
     rawConfigScript: |
       _ovs-vsctl() {
-        ovs-vsctl --no-wait --timeout 15 "$@"
+        ovs-vsctl --timeout 15 "$@"
       }
 
+      # Remove default OVS configuration on the DPU and ensure no leftovers on the OVS kernel side
       _ovs-vsctl --if-exists del-br ovsbr1
       _ovs-vsctl --if-exists del-br ovsbr2
+      ovs-appctl --timeout 15 dpctl/del-dp system@ovs-system || true
+
       _ovs-vsctl set Open_vSwitch . other_config:doca-init=true
       _ovs-vsctl set Open_vSwitch . other_config:dpdk-max-memzones=50000
       _ovs-vsctl set Open_vSwitch . other_config:hw-offload=true
       _ovs-vsctl set Open_vSwitch . other_config:pmd-quiet-idle=true
       _ovs-vsctl set Open_vSwitch . other_config:max-idle=20000
       _ovs-vsctl set Open_vSwitch . other_config:max-revalidator=5000
+      _ovs-vsctl remove Open_vSwitch . other_config default-datapath-type || true
+
       if systemctl list-unit-files openvswitch-switch.service &>/dev/null; then
         systemctl restart openvswitch-switch
       elif systemctl list-unit-files openvswitch.service &>/dev/null; then
@@ -4159,17 +4184,22 @@ spec:
   ovs:
     rawConfigScript: |
       _ovs-vsctl() {
-        ovs-vsctl --no-wait --timeout 15 "$@"
+        ovs-vsctl --timeout 15 "$@"
       }
 
+      # Remove default OVS configuration on the DPU and ensure no leftovers on the OVS kernel side
       _ovs-vsctl --if-exists del-br ovsbr1
       _ovs-vsctl --if-exists del-br ovsbr2
+      ovs-appctl --timeout 15 dpctl/del-dp system@ovs-system || true
+
       _ovs-vsctl set Open_vSwitch . other_config:doca-init=true
       _ovs-vsctl set Open_vSwitch . other_config:dpdk-max-memzones=50000
       _ovs-vsctl set Open_vSwitch . other_config:hw-offload=true
       _ovs-vsctl set Open_vSwitch . other_config:pmd-quiet-idle=true
       _ovs-vsctl set Open_vSwitch . other_config:max-idle=20000
       _ovs-vsctl set Open_vSwitch . other_config:max-revalidator=5000
+      _ovs-vsctl remove Open_vSwitch . other_config default-datapath-type || true
+
       if systemctl list-unit-files openvswitch-switch.service &>/dev/null; then
         systemctl restart openvswitch-switch
       elif systemctl list-unit-files openvswitch.service &>/dev/null; then
@@ -4955,17 +4985,22 @@ spec:
   ovs:
     rawConfigScript: |
       _ovs-vsctl() {
-        ovs-vsctl --no-wait --timeout 15 "$@"
+        ovs-vsctl --timeout 15 "$@"
       }
 
+      # Remove default OVS configuration on the DPU and ensure no leftovers on the OVS kernel side
       _ovs-vsctl --if-exists del-br ovsbr1
       _ovs-vsctl --if-exists del-br ovsbr2
+      ovs-appctl --timeout 15 dpctl/del-dp system@ovs-system || true
+
       _ovs-vsctl set Open_vSwitch . other_config:doca-init=true
       _ovs-vsctl set Open_vSwitch . other_config:dpdk-max-memzones=50000
       _ovs-vsctl set Open_vSwitch . other_config:hw-offload=true
       _ovs-vsctl set Open_vSwitch . other_config:pmd-quiet-idle=true
       _ovs-vsctl set Open_vSwitch . other_config:max-idle=20000
       _ovs-vsctl set Open_vSwitch . other_config:max-revalidator=5000
+      _ovs-vsctl remove Open_vSwitch . other_config default-datapath-type || true
+
       if systemctl list-unit-files openvswitch-switch.service &>/dev/null; then
         systemctl restart openvswitch-switch
       elif systemctl list-unit-files openvswitch.service &>/dev/null; then
