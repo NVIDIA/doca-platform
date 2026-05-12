@@ -26,10 +26,20 @@ Collect system diagnostics from host and DPU cluster nodes for support cases.
 * Investigating complex infrastructure issues
 * Preparing diagnostic data for NVIDIA support
 
+## DPU Cluster
+
+### [Accessing the Kamaji DPU Cluster](kamaji-cluster-access.md)
+How to retrieve the admin kubeconfig for a Kamaji-backed `DPUCluster` when direct cluster access is needed for advanced troubleshooting.
+
+**Use when:**
+
+* You need to inspect workloads or nodes running inside the DPU cluster directly
+* DPF-level status fields do not provide enough detail for a specific investigation
+
 ## Common Issues
 
 ### Service Function Chaining (SFC)
-If a `ServiceChain` or `ServiceChainSet` is stuck at `Ready=False` or flapping between `Ready` and `Pending`, the most common cause is a `ServiceInterface` uniqueness conflict. See the [DPUServiceChain Constraints](../developer-guides/api/dpuservicechain.md#constraints) section for detailed error messages, root causes, and resolution steps.
+If a `ServiceChain` or `ServiceChainSet` is stuck at `Ready=False` or flapping between `Ready` and `Pending`, the most common cause is a `ServiceInterface` uniqueness conflict. See the [DPUServiceChain Constraints](../../developer-guides/api/dpuservicechain.md#constraints) section for detailed error messages, root causes, and resolution steps.
 
 ## Escalation Path
 
@@ -39,7 +49,7 @@ If you cannot resolve the issue using the guides above:
    * Collect a [sosreport](dpfctl/sosreport.md) for your environment
 
 2. **Check Known Issues**
-   * Review [Release Notes](../release-notes/README.md) for known issues
+   * Review [Release Notes](../../release-notes/README.md) for known issues
    * Search the [GitHub repository](https://github.com/NVIDIA/doca-platform/issues) for similar problems
 
 3. **Contact Support**
@@ -49,6 +59,6 @@ If you cannot resolve the issue using the guides above:
 
 ## Additional Resources
 
-* **[User Guides](../user-guides/README.md)** - Operational procedures and best practices
-* **[Architecture](../developer-guides/architecture/README.md)** - Understanding system design for better troubleshooting
-* **[API Reference](../developer-guides/api/README.md)** - Complete API documentation for debugging configurations
+* **[User Guides](../../user-guides/README.md)** - Operational procedures and best practices
+* **[Architecture](../../developer-guides/architecture/README.md)** - Understanding system design for better troubleshooting
+* **[API Reference](../../developer-guides/api/README.md)** - Complete API documentation for debugging configurations
