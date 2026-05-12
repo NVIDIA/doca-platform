@@ -33,27 +33,40 @@ import (
 // mockLink is a minimal implementation of netlink.Link for testing
 type mockLink struct {
 	name string
+	mtu  int
 }
 
 func (m *mockLink) Attrs() *netlink.LinkAttrs {
-	return &netlink.LinkAttrs{Name: m.name}
+	return &netlink.LinkAttrs{Name: m.name, MTU: m.mtu}
 }
 
 func (m *mockLink) Type() string {
 	return "bridge"
 }
 
-var _ = Describe("CheckBridgeIP", func() {
+const testMTU = 1500
+
+func mockLinkByName(links map[string]*mockLink) linkByNameFunc {
+	return func(name string) (netlink.Link, error) {
+		if l, ok := links[name]; ok {
+			return l, nil
+		}
+		return nil, errors.New("link not found: " + name)
+	}
+}
+
+var _ = Describe("CheckBridge", func() {
 	var (
-		checkBridge *CheckBridgeIP
+		checkBridge *CheckBridge
 		optCtx      *operations.Context
 	)
 
 	BeforeEach(func() {
-		checkBridge = &CheckBridgeIP{}
+		checkBridge = &CheckBridge{}
 		optCtx = &operations.Context{
 			Options: opts.Options{
-				ZeroTrustMode: false,
+				ZeroTrustMode:   false,
+				ControlPlaneMTU: testMTU,
 			},
 		}
 	})
@@ -87,9 +100,10 @@ var _ = Describe("CheckBridgeIP", func() {
 		})
 
 		It("should return error when AddrList fails", func() {
-			checkBridge.linkByName = func(name string) (netlink.Link, error) {
-				return &mockLink{name: name}, nil
-			}
+			checkBridge.linkByName = mockLinkByName(map[string]*mockLink{
+				"br-comm-ch": {name: "br-comm-ch", mtu: testMTU},
+				"pf0vf0":     {name: "pf0vf0", mtu: testMTU},
+			})
 			checkBridge.addrList = func(link netlink.Link, family int) ([]netlink.Addr, error) {
 				return nil, errors.New("failed to list addresses")
 			}
@@ -98,10 +112,11 @@ var _ = Describe("CheckBridgeIP", func() {
 			Expect(err).To(HaveOccurred())
 		})
 
-		It("should return error when no addresses are found", func() {
-			checkBridge.linkByName = func(name string) (netlink.Link, error) {
-				return &mockLink{name: name}, nil
-			}
+		It("should return error and run netplan apply when no addresses are found", func() {
+			checkBridge.linkByName = mockLinkByName(map[string]*mockLink{
+				"br-comm-ch": {name: "br-comm-ch", mtu: testMTU},
+				"pf0vf0":     {name: "pf0vf0", mtu: testMTU},
+			})
 			checkBridge.addrList = func(link netlink.Link, family int) ([]netlink.Addr, error) {
 				return []netlink.Addr{}, nil
 			}
@@ -117,11 +132,11 @@ var _ = Describe("CheckBridgeIP", func() {
 			Expect(netplanApplied).To(BeTrue())
 		})
 
-		It("should succeed when bridge has an IP address", func() {
-			checkBridge.linkByName = func(name string) (netlink.Link, error) {
-				Expect(name).To(Equal("br-comm-ch"))
-				return &mockLink{name: name}, nil
-			}
+		It("should succeed when bridge has an IP address and MTU matches", func() {
+			checkBridge.linkByName = mockLinkByName(map[string]*mockLink{
+				"br-comm-ch": {name: "br-comm-ch", mtu: testMTU},
+				"pf0vf0":     {name: "pf0vf0", mtu: testMTU},
+			})
 			checkBridge.addrList = func(link netlink.Link, family int) ([]netlink.Addr, error) {
 				Expect(family).To(Equal(netlink.FAMILY_V4))
 				return []netlink.Addr{
@@ -138,10 +153,11 @@ var _ = Describe("CheckBridgeIP", func() {
 			Expect(err).NotTo(HaveOccurred())
 		})
 
-		It("should use the first IP address when multiple addresses exist", func() {
-			checkBridge.linkByName = func(name string) (netlink.Link, error) {
-				return &mockLink{name: name}, nil
-			}
+		It("should succeed when multiple IP addresses exist and MTU matches", func() {
+			checkBridge.linkByName = mockLinkByName(map[string]*mockLink{
+				"br-comm-ch": {name: "br-comm-ch", mtu: testMTU},
+				"pf0vf0":     {name: "pf0vf0", mtu: testMTU},
+			})
 			checkBridge.addrList = func(link netlink.Link, family int) ([]netlink.Addr, error) {
 				return []netlink.Addr{
 					{
@@ -161,6 +177,65 @@ var _ = Describe("CheckBridgeIP", func() {
 
 			err := checkBridge.Execute(context.Background(), optCtx)
 			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("should return error and run netplan apply when br-comm-ch MTU mismatches", func() {
+			checkBridge.linkByName = mockLinkByName(map[string]*mockLink{
+				"br-comm-ch": {name: "br-comm-ch", mtu: 9000},
+				"pf0vf0":     {name: "pf0vf0", mtu: testMTU},
+			})
+			checkBridge.addrList = func(link netlink.Link, family int) ([]netlink.Addr, error) {
+				return []netlink.Addr{
+					{IPNet: &net.IPNet{IP: net.ParseIP("192.168.1.1"), Mask: net.CIDRMask(24, 32)}},
+				}, nil
+			}
+			netplanApplied := false
+			checkBridge.runBash = func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+				Expect(cmd).To(Equal("netplan apply"))
+				netplanApplied = true
+				return bytes.Buffer{}, bytes.Buffer{}, nil
+			}
+
+			err := checkBridge.Execute(context.Background(), optCtx)
+			Expect(err).To(HaveOccurred())
+			Expect(netplanApplied).To(BeTrue())
+		})
+
+		It("should return error and run netplan apply when pf0vf0 MTU mismatches", func() {
+			checkBridge.linkByName = mockLinkByName(map[string]*mockLink{
+				"br-comm-ch": {name: "br-comm-ch", mtu: testMTU},
+				"pf0vf0":     {name: "pf0vf0", mtu: 9000},
+			})
+			checkBridge.addrList = func(link netlink.Link, family int) ([]netlink.Addr, error) {
+				return []netlink.Addr{
+					{IPNet: &net.IPNet{IP: net.ParseIP("192.168.1.1"), Mask: net.CIDRMask(24, 32)}},
+				}, nil
+			}
+			netplanApplied := false
+			checkBridge.runBash = func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+				Expect(cmd).To(Equal("netplan apply"))
+				netplanApplied = true
+				return bytes.Buffer{}, bytes.Buffer{}, nil
+			}
+
+			err := checkBridge.Execute(context.Background(), optCtx)
+			Expect(err).To(HaveOccurred())
+			Expect(netplanApplied).To(BeTrue())
+		})
+
+		It("should return error when LinkByName fails for pf0vf0 during MTU check", func() {
+			checkBridge.linkByName = mockLinkByName(map[string]*mockLink{
+				"br-comm-ch": {name: "br-comm-ch", mtu: testMTU},
+			})
+			checkBridge.addrList = func(link netlink.Link, family int) ([]netlink.Addr, error) {
+				return []netlink.Addr{
+					{IPNet: &net.IPNet{IP: net.ParseIP("192.168.1.1"), Mask: net.CIDRMask(24, 32)}},
+				}, nil
+			}
+
+			err := checkBridge.Execute(context.Background(), optCtx)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("pf0vf0"))
 		})
 	})
 })
