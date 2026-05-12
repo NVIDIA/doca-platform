@@ -287,15 +287,13 @@ func (r *BFBRegistryRunnable) ensureService(ctx context.Context, namespace strin
 		svc.Labels = map[string]string{}
 		svc.Annotations = map[string]string{}
 
-		svc.Spec = corev1.ServiceSpec{
-			Type:     corev1.ServiceTypeNodePort,
-			Selector: bfbRegistryPodLabels(),
-			Ports: []corev1.ServicePort{
-				{
-					Name:       "http",
-					Port:       int32(ContainerPort),
-					TargetPort: intstr.FromInt(ContainerPort),
-				},
+		svc.Spec.Type = corev1.ServiceTypeNodePort
+		svc.Spec.Selector = bfbRegistryPodLabels()
+		svc.Spec.Ports = []corev1.ServicePort{
+			{
+				Name:       "http",
+				Port:       int32(ContainerPort),
+				TargetPort: intstr.FromInt(ContainerPort),
 			},
 		}
 		return nil
