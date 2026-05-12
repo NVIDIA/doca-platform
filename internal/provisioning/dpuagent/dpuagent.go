@@ -86,7 +86,7 @@ func NewDPUAgent(optCtx *operations.Context) *DPUAgent {
 		&sfconfig.CreateSF{},
 		&vfmac.SetVFMac{},
 		&ovsscript.RunOVSScript{},
-		&checkbridge.CheckBridgeIP{},
+		&checkbridge.CheckBridge{},
 		&kubelet.ConfigureKubelet{},
 		&kubelet.StartKubelet{},
 	}
