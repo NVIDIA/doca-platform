@@ -1,0 +1,56 @@
+ARG builder_image
+ARG ovs_cni_base_image
+
+# 1) Build stage builds OVS CNI binaries
+FROM --platform=${BUILDPLATFORM} ${builder_image} AS builder
+WORKDIR /workspace
+
+# Copy the Go Modules manifests.
+COPY third_party/forked/ovs-cni/go.mod go.mod
+COPY third_party/forked/ovs-cni/go.sum go.sum
+
+# Cache deps before copying source so source changes do not invalidate the downloaded layer.
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
+
+COPY third_party/forked/ovs-cni/ .
+
+ARG goarch=
+ARG TARGETOS
+ARG TARGETARCH
+
+ENV GOOS=${TARGETOS:-linux}
+ENV GOARCH=${goarch:-$TARGETARCH}
+ENV CGO_ENABLED=0
+ENV GOFLAGS=-mod=vendor
+
+RUN mkdir /workspace/bin
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    go build -tags no_openssl -o /workspace/bin/ovs ./cmd/plugin && \
+    go build -tags no_openssl -o /workspace/bin/marker ./cmd/marker && \
+    go build -tags no_openssl -o /workspace/bin/ovs-mirror-producer ./cmd/mirror-producer && \
+    go build -tags no_openssl -o /workspace/bin/ovs-mirror-consumer ./cmd/mirror-consumer
+
+# Copy the Go source code so it can be distributed in the final image.
+RUN mkdir src && \
+    find . -name '*.go' -not -path "./hack/*" -not -path "./.gocache/*" \
+    -exec cp --parents \{\}  src/ \; && \
+    tar -czf source-code.tar.gz src
+
+# 2) Final stage copies artifacts from the builder stage.
+FROM ${ovs_cni_base_image}
+
+WORKDIR /
+
+# Add the source code.
+COPY --from=builder /workspace/source-code.tar.gz source-code.tar.gz
+
+# Add the OVS CNI version file.
+COPY --from=builder /workspace/.version /.version
+
+# Add the OVS CNI binaries.
+COPY --from=builder /workspace/bin/ovs /ovs
+COPY --from=builder /workspace/bin/marker /marker
+COPY --from=builder /workspace/bin/ovs-mirror-producer /ovs-mirror-producer
+COPY --from=builder /workspace/bin/ovs-mirror-consumer /ovs-mirror-consumer

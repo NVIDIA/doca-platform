@@ -1114,6 +1114,8 @@ ALPINE_IMAGE = alpine:3.19
 HOSTDRIVER_BASE_IMAGE ?= nvcr.io/nvidia/doca/doca:3.2.1-full-rt-ubuntu24.04-host
 # Base image for storage-host, by default it is the same as the hostdriver base image
 STORAGE_HOST_BASE_IMAGE ?= $(HOSTDRIVER_BASE_IMAGE)
+# Base image for ovs-cni
+OVS_CNI_BASE_IMAGE ?= nvcr.io/nvidia/doca/canonical:ubuntu24.04
 
 .PHONY: binaries
 binaries: $(addprefix binary-,$(BUILD_TARGETS)) ## Build all binaries
@@ -1419,7 +1421,7 @@ docker-build-ipallocator: docker-buildx-setup $(ARTIFACTS_DIR) ## Build docker i
 
 .PHONY: docker-build-ovs-cni
 docker-build-ovs-cni: docker-buildx-setup $(OVS_CNI_DIR) $(ARTIFACTS_DIR) ## Builds the OVS CNI image
-	$(OVS_CNI_DIR)/hack/get_version.sh > $(OVS_CNI_DIR)/.version && \
+	(cd $(OVS_CNI_DIR) && hack/get_version.sh > .version) && \
 	$(CURDIR)/hack/scripts/docker-build.sh \
 		--load \
 		--label=org.opencontainers.image.created=$(DATE) \
@@ -1429,11 +1431,13 @@ docker-build-ovs-cni: docker-buildx-setup $(OVS_CNI_DIR) $(ARTIFACTS_DIR) ## Bui
 		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
 		--provenance=false \
 		--progress=plain \
+		--build-arg builder_image=$(BUILD_IMAGE) \
+		--build-arg ovs_cni_base_image=$(OVS_CNI_BASE_IMAGE) \
 		--build-arg goarch=$(DPU_ARCH) \
 		--platform linux/${DPU_ARCH} \
-		-f $(OVS_CNI_DIR)/cmd/Dockerfile \
+		-f Dockerfile.ovs-cni \
 		-t $(OVS_CNI_IMAGE):${TAG} \
-		$(OVS_CNI_DIR)
+		.
 
 
 
