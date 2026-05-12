@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -274,45 +275,32 @@ func bfbRegistryPodLabels() map[string]string {
 }
 
 func (r *BFBRegistryRunnable) ensureService(ctx context.Context, namespace string, leaderPod *corev1.Pod) error {
-	ownerRef := leaderControllerRef(leaderPod)
-	existing := &corev1.Service{}
-	err := r.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: PodName}, existing)
-	if err != nil {
-		if !apierrors.IsNotFound(err) {
-			return err
-		}
-		desired := &corev1.Service{
-			ObjectMeta: metav1.ObjectMeta{
-				Namespace:       namespace,
-				Name:            PodName,
-				OwnerReferences: []metav1.OwnerReference{*ownerRef},
-			},
-			Spec: corev1.ServiceSpec{
-				Type:     corev1.ServiceTypeNodePort,
-				Selector: bfbRegistryPodLabels(),
-				Ports: []corev1.ServicePort{
-					{
-						Name:       "http",
-						Port:       int32(ContainerPort),
-						TargetPort: intstr.FromInt(ContainerPort),
-					},
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: namespace,
+			Name:      PodName,
+		},
+	}
+	mutateFn := func() error {
+		ownerRef := leaderControllerRef(leaderPod)
+		svc.OwnerReferences = []metav1.OwnerReference{*ownerRef}
+		svc.Labels = map[string]string{}
+		svc.Annotations = map[string]string{}
+
+		svc.Spec = corev1.ServiceSpec{
+			Type:     corev1.ServiceTypeNodePort,
+			Selector: bfbRegistryPodLabels(),
+			Ports: []corev1.ServicePort{
+				{
+					Name:       "http",
+					Port:       int32(ContainerPort),
+					TargetPort: intstr.FromInt(ContainerPort),
 				},
 			},
 		}
-		if err := r.Client.Create(ctx, desired); err != nil {
-			if apierrors.IsAlreadyExists(err) {
-				return nil
-			}
-			return err
-		}
 		return nil
 	}
-	if serviceOwnedByLeaderPod(existing, leaderPod) {
-		return nil
-	}
-	patchBase := existing.DeepCopy()
-	existing.OwnerReferences = []metav1.OwnerReference{*ownerRef}
-	if err := r.Client.Patch(ctx, existing, client.MergeFrom(patchBase)); err != nil {
+	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, svc, mutateFn); err != nil {
 		return err
 	}
 	return nil
