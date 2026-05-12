@@ -2,7 +2,7 @@
 apiVersion: provisioning.dpu.nvidia.com/v1alpha1
 kind: DPUFlavor
 metadata:
-  name: hbn-ovnk-snap-nvme-$TAG
+  name: hbn-ovn
   namespace: dpf-operator-system
 spec:
   grub:
@@ -16,7 +16,7 @@ spec:
       - iommu.passthrough=1
       - cgroup_no_v1=net_prio,net_cls
       - hugepagesz=2048kB
-      - hugepages=5120
+      - hugepages=8072
   nvconfig:
     - device: "*"
       parameters:
@@ -32,12 +32,9 @@ spec:
         - SRIOV_EN=1
         - NUM_OF_VFS=46
         - LAG_RESOURCE_ALLOCATION=1
-        - NVME_EMULATION_ENABLE=1
-        - NVME_EMULATION_NUM_PF=1
-        - NVME_EMULATION_NUM_VF=125
-        - NVME_EMULATION_NUM_MSIX=2
         - LINK_TYPE_P1=ETH
         - LINK_TYPE_P2=ETH
+        - NUM_VF_MSIX=48
   ovs:
     rawConfigScript: |
       _ovs-vsctl() {
@@ -75,6 +72,10 @@ spec:
       _ovs-vsctl set Interface p0 type=dpdk
       _ovs-vsctl set Interface p0 mtu_request=9216
       _ovs-vsctl set Port p0 external_ids:dpf-type=physical
+      _ovs-vsctl --may-exist add-port br-sfc p1
+      _ovs-vsctl set Interface p1 type=dpdk
+      _ovs-vsctl set Interface p1 mtu_request=9216
+      _ovs-vsctl set Port p1 external_ids:dpf-type=physical
 
       # Activate DOCA for OVNK
       _ovs-vsctl set Open_vSwitch . external-ids:ovn-bridge-datapath-type=netdev
@@ -97,6 +98,21 @@ spec:
       _ovs-vsctl set Interface pbrovntobrdpu type=patch options:peer=pbrdputobrovn
       _ovs-vsctl set Interface pbrdputobrovn type=patch options:peer=pbrovntobrdpu
 
+      cat <<EOT > /etc/netplan/99-dpf-comm-ch.yaml
+      network:
+        renderer: networkd
+        version: 2
+        ethernets:
+          pf0vf0:
+            mtu: 9000
+            dhcp4: no
+        bridges:
+          br-comm-ch:
+            dhcp4: yes
+            interfaces:
+              - pf0vf0
+      EOT
+
   bfcfgParameters:
     - UPDATE_ATF_UEFI=yes
     - UPDATE_DPU_OS=yes
@@ -105,24 +121,23 @@ spec:
   hostNetworkInterfaceConfigs:
     - portNumber: 0
       dhcp: true
-      mtu: 1500
+      mtu: 9000
 
   configFiles:
-  - path: /etc/mellanox/mlnx-bf.conf
-    operation: override
-    raw: |
+    - path: /etc/mellanox/mlnx-bf.conf
+      operation: override
+      raw: |
         ALLOW_SHARED_RQ="no"
         IPSEC_FULL_OFFLOAD="no"
         ENABLE_ESWITCH_MULTIPORT="yes"
-        RDMA_SET_NETNS_EXCLUSIVE="no"
-    permissions: "0644"
-  - path: /etc/mellanox/mlnx-ovs.conf
-    operation: override
-    raw: |
+      permissions: "0644"
+    - path: /etc/mellanox/mlnx-ovs.conf
+      operation: override
+      raw: |
         CREATE_OVS_BRIDGES="no"
         OVS_DOCA="yes"
-    permissions: "0644"
-  - path: /etc/mellanox/mlnx-sf.conf
-    operation: override
-    raw: ""
-    permissions: "0644"
+      permissions: "0644"
+    - path: /etc/mellanox/mlnx-sf.conf
+      operation: override
+      raw: ""
+      permissions: "0644"
