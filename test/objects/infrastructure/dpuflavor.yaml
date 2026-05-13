@@ -28,6 +28,19 @@ spec:
       path: /etc/mellanox/mlnx-sf.conf
       permissions: "0644"
       raw: ""
+    # Cloud runners mix BFB 3.2 and 3.4 runs. BFB 3.2 uses the legacy
+    # reboot flow, which always runs mlxconfig reset and can leave FW reporting
+    # that PCI rescan is required. Legacy flow ignores this FW flag, so it does
+    # not block provisioning. BFB 3.4 uses the new flow, which checks this flag
+    # and triggers host reboot, but host reboot does not clear it in cloud
+    # setups. Force legacy flow for BFB 3.4 on cloud setups as a temporary workaround.
+    - operation: override
+      path: /etc/systemd/system/dpu-agent.service.d/10-skip-reboot-method-discovery.conf
+      permissions: "0644"
+      raw: |
+        [Service]
+        ExecStart=
+        ExecStart=/bin/bash -c '/opt/dpf/dpuagent $(cat /opt/dpf/dpuagent.conf) --skip-reboot-method-discovery'
   grub:
     kernelParameters:
       - console=hvc0
@@ -109,11 +122,13 @@ spec:
           renderer: networkd
           version: 2
           ethernets:
-            pf0vf0: {}
+            pf0vf0:
+              mtu: 1500
           bridges:
             br-comm-ch:
               macaddress: $oob_mac
               dhcp4: yes
+              mtu: 1500
               interfaces:
                 - pf0vf0
       EOF

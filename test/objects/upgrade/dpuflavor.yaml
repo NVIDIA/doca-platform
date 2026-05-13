@@ -101,11 +101,13 @@ spec:
           renderer: networkd
           version: 2
           ethernets:
-            pf0vf0: {}
+            pf0vf0:
+              mtu: 1500
           bridges:
             br-comm-ch:
               macaddress: $oob_mac
               dhcp4: yes
+              mtu: 1500
               interfaces:
                 - pf0vf0
       EOF
