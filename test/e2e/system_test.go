@@ -439,6 +439,12 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 		})
 	})
 
+	Context("VAP Deprecation Warnings", Labels{Domain.ZeroTrust}, func() {
+		It("verify VAP emits a warning when a deprecated field is set", func() {
+			ValidateVAPDeprecationWarnings(ctx, input)
+		})
+	})
+
 	Context("Observability", Labels{Domain.Observability, Domain.ZeroTrust}, func() {
 		Context("Monitoring", func() {
 			Context("KSM Metrics Collection", Labels{Domain.ZeroTrust}, func() {

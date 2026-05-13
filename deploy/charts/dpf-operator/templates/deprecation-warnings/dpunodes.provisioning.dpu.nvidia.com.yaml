@@ -1,0 +1,35 @@
+{{- if .Values.deprecationWarnings.enabled }}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: dpf-deprecation-dpunodes
+  labels:
+    app.kubernetes.io/part-of: dpf-operator-controller-manager
+    dpu.nvidia.com/deprecation-warning: "true"
+spec:
+  failurePolicy: Ignore
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["provisioning.dpu.nvidia.com"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["dpunodes"]
+  validations:
+    - expression: "!has(object.spec.nodeDMSAddress)"
+      message: >-
+        spec.nodeDMSAddress is deprecated. this field is no longer used.
+    - expression: "!has(object.spec.nodeRebootMethod) || !has(object.spec.nodeRebootMethod.gNOI)"
+      message: >-
+        spec.nodeRebootMethod.gNOI is deprecated. Use HostAgent instead.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: dpf-deprecation-dpunodes-binding
+  labels:
+    app.kubernetes.io/part-of: dpf-operator-controller-manager
+    dpu.nvidia.com/deprecation-warning: "true"
+spec:
+  policyName: dpf-deprecation-dpunodes
+  validationActions: [Warn]
+{{- end }}

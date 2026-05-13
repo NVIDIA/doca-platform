@@ -21,6 +21,7 @@ DPF Operator manages the lifecycle of a DOCA Platform Framework system.
 | controllerManager.pullPolicy | string | `"IfNotPresent"` |  |
 | controllerManager.replicas | int | `1` |  |
 | controllerManager.serviceAccount.annotations | object | `{}` |  |
+| deprecationWarnings.enabled | bool | `true` |  |
 | enableNodeFeatureRules | bool | `true` |  |
 | grafanaDashboards.enabled | bool | `true` |  |
 | imagePullSecrets | list | `[]` |  |
