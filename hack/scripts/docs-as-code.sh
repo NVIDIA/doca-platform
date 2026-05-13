@@ -71,7 +71,7 @@ wait_for_dpus() {
 	timeout 5m bash -c "until kubectl get dpu --namespace ${NAMESPACE} -o name 2>/dev/null | grep -q .; do sleep 2; done"
 
 	echo "Waiting for DPUs to be installed..."
-	kubectl wait --namespace "${NAMESPACE}" --timeout=30m dpu --all \
+	kubectl wait --namespace "${NAMESPACE}" --timeout=60m dpu --all \
 		--for=condition=OSInstalled
 
 	echo "Waiting for DPUs to join the cluster..."
