@@ -658,6 +658,9 @@ spec:
 ```
 </details>
 
+> [!NOTE]
+> The DPUFlavor above does not set `ubuntu_PASSWORD` in `bfcfgParameters`. If omitted, DPF defaults to `ubuntu:ubuntu` credentials on the DPU. For production deployments, it is recommended to set a hashed password (see [BFCfg Parameters](../../../../developer-guides/api/dpuflavor.md#bfcfg-parameters)).
+
 <details markdown="1"><summary><b>DPUServiceConfiguration and DPUServiceTemplate for DOCA HBN</b></summary>
 
 [embedmd]:#(manifests/04.1-dpudeployment-installation-nvme/hbn-dpuserviceconfig.yaml)
@@ -1686,6 +1689,9 @@ spec:
       _ovs-vsctl set bridge br-hbn fail_mode=secure
 ```
 </details>
+
+> [!NOTE]
+> The DPUFlavor above does not set `ubuntu_PASSWORD` in `bfcfgParameters`. If omitted, DPF defaults to `ubuntu:ubuntu` credentials on the DPU. For production deployments, it is recommended to set a hashed password (see [BFCfg Parameters](../../../../developer-guides/api/dpuflavor.md#bfcfg-parameters)).
 
 <details markdown="1"><summary><b>DPUServiceConfiguration and DPUServiceTemplate for DOCA HBN</b></summary>
 
