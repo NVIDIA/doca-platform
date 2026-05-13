@@ -41,6 +41,18 @@ RUN mkdir src && \
 # 2) Final stage copies artifacts from the builder stage.
 FROM ${ovs_cni_base_image}
 
+ARG ubuntu_mirror=http://archive.ubuntu.com/ubuntu/
+RUN find /etc/apt/sources.list* -type f -exec sed -i \
+      -e "s|http://archive.ubuntu.com/ubuntu/|${ubuntu_mirror}|g" \
+      -e "s|http://ports.ubuntu.com/ubuntu/|${ubuntu_mirror}|g" \
+      -e "s|http://security.ubuntu.com/ubuntu/|${ubuntu_mirror}|g" '{}' \;
+
+# Update packages from the base image.
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
+    apt-get upgrade -y -qq
+
 WORKDIR /
 
 # Add the source code.

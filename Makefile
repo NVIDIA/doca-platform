@@ -1433,6 +1433,7 @@ docker-build-ovs-cni: docker-buildx-setup $(OVS_CNI_DIR) $(ARTIFACTS_DIR) ## Bui
 		--progress=plain \
 		--build-arg builder_image=$(BUILD_IMAGE) \
 		--build-arg ovs_cni_base_image=$(OVS_CNI_BASE_IMAGE) \
+		--build-arg ubuntu_mirror=$(UBUNTU_MIRROR) \
 		--build-arg goarch=$(DPU_ARCH) \
 		--platform linux/${DPU_ARCH} \
 		-f Dockerfile.ovs-cni \
