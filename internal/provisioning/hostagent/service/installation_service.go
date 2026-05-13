@@ -46,8 +46,9 @@ const (
 	// Host management interface configuration
 	// Using IPv6 link-local address for tmfifo interfaces
 	// fe80::1 is used on the host side, fe80::2 on the DPU side
-	hostMgmtIPv6 = "fe80::1"
-	hostMgmtPort = "11029"
+	hostMgmtIPv6  = "fe80::1"
+	hostMgmtPort  = "11029"
+	hostProxyPort = "11030"
 	// localhostAddr is the address for localhost listener
 	localhostAddr = "localhost:" + hostMgmtPort
 
@@ -72,11 +73,13 @@ type NetworkConfigurator interface {
 
 type InstallationService struct {
 	client.Client
-	handler http.Handler
+	handler      http.Handler
+	proxyHandler http.Handler
 	// mu protects listeners
 	mu sync.Mutex
 	// listeners maps interface names to their listeners
 	listeners      map[string]net.Listener
+	proxyListeners map[string]net.Listener
 	networkManager NetworkConfigurator
 	// stopCh is closed by Stop() to terminate background goroutines
 	stopCh   chan struct{}
@@ -87,6 +90,7 @@ func NewInstallationService(client client.Client, nm NetworkConfigurator) *Insta
 	s := &InstallationService{
 		Client:         client,
 		listeners:      make(map[string]net.Listener),
+		proxyListeners: make(map[string]net.Listener),
 		networkManager: nm,
 		stopCh:         make(chan struct{}),
 	}
@@ -117,6 +121,7 @@ func NewInstallationService(client client.Client, nm NetworkConfigurator) *Insta
 	container := restful.NewContainer()
 	container.Add(ws)
 	s.handler = container
+	s.proxyHandler = newForwardProxyHandler()
 	return s
 }
 
@@ -125,50 +130,32 @@ func NewInstallationService(client client.Client, nm NetworkConfigurator) *Insta
 // The server always listens on localhost:11029 for local access (e.g., debugging, health checks).
 // When setupInterfaces is true, it also sets up IPv6 link-local addresses for each tmfifo_net
 // interface and creates additional listeners bound to each interface.
+// It also starts an HTTP forward proxy on port 11030 for each tmfifo_net interface, allowing
+// DPU-side clients to reach external HTTPS/HTTP endpoints through the host.
 //
 // Network topology when setupInterfaces=true:
 //
-//	┌────────────────────────────────────────────────────────────────────────────────────────┐
-//	│                                      HOST                                              │
-//	│                                                                                        │
-//	│                      ┌─────────────────────────────────────┐                           │
-//	│                      │        InstallationService          │                           │
-//	│                      │            (HTTP Server)            │                           │
-//	│                      └──────────────────┬──────────────────┘                           │
-//	│                                         │                                              │
-//	│      ┌──────────────────────────────────┼──────────────────────────────────┐           │
-//	│      │                                  │                                  │           │
-//	│      ▼                                  ▼                                  ▼           │
-//	│ ┌──────────┐                ┌─────────────────────┐            ┌─────────────────────┐ │
-//	│ │localhost │                │     tmfifo_net0     │            │     tmfifo_net1     │ │
-//	│ │ :11029   │                │  ┌───────────────┐  │            │  ┌───────────────┐  │ │
-//	│ └──────────┘                │  │ listener      │  │            │  │ listener      │  │ │
-//	│      │                      │  │ [fe80::1%     │  │            │  │ [fe80::1%     │  │ │
-//	│      │                      │  │ tmfifo_net0]  │  │            │  │ tmfifo_net1]  │  │ │
-//	│      │                      │  │ :11029        │  │            │  │ :11029        │  │ │
-//	│      │                      │  └───────┬───────┘  │            │  └───────┬───────┘  │ │
-//	│      │                      │          │          │            │          │          │ │
-//	│      │                      │  ┌───────┴───────┐  │            │  ┌───────┴───────┐  │ │
-//	│      ▼                      │  │  tmfifo_net0  │  │            │  │  tmfifo_net1  │  │ │
-//	│  Local access               │  │  fe80::1/64   │  │            │  │  fe80::1/64   │  │ │
-//	│  (curl, tests)              │  └───────┬───────┘  │            │  └───────┬───────┘  │ │
-//	│                             └──────────┼──────────┘            └──────────┼──────────┘ │
-//	└────────────────────────────────────────┼──────────────────────────────────┼────────────┘
-//	                                         │        rshim                     │
-//	┌────────────────────────────────────────┼──────────────────────────────────┼────────────┐
-//	│                                        │                                  │            │
-//	│  ┌─────────────────────────────────────┴─────┐  ┌─────────────────────────┴─────────┐  │
-//	│  │               DPU 0                       │  │               DPU 1               │  │
-//	│  │  ┌──────────────────────────────────────┐ │  │  ┌──────────────────────────────┐ │  │
-//	│  │  │            tmfifo_net0               │ │  │  │         tmfifo_net0          │ │  │
-//	│  │  │            fe80::2/64                │ │  │  │         fe80::2/64           │ │  │
-//	│  │  └──────────────────────────────────────┘ │  │  └──────────────────────────────┘ │  │
-//	│  │                                           │  │                                   │  │
-//	│  │  DPU Agent connects to Host via           │  │  DPU Agent connects to Host via   │  │
-//	│  │  [fe80::1%tmfifo_net0]:11029              │  │  [fe80::1%tmfifo_net0]:11029      │  │
-//	│  └───────────────────────────────────────────┘  └───────────────────────────────────┘  │
-//	│                                                                                        │
-//	└────────────────────────────────────────────────────────────────────────────────────────┘
+//	┌─────────────────────────────────────────────────────────────────────────────────────────┐
+//	│                                      HOST                                               │
+//	│                                                                                         │
+//	│  ┌────────────────┐  ┌──────────────────────────────┐  ┌──────────────────────────────┐ │
+//	│  │ localhost      │  │ tmfifo_net0                  │  │ tmfifo_net1                  │ │
+//	│  │ :11029         │  │ fe80::1/64                   │  │ fe80::1/64                   │ │
+//	│  │                │  │                              │  │                              │ │
+//	│  │ Local access   │  │ [fe80::1%tmfifo_net0]:11029  │  │ [fe80::1%tmfifo_net1]:11029  │ │
+//	│  │ (mainly tests) │  │   InstallationService APIs   │  │   InstallationService APIs   │ │
+//	│  └────────────────┘  │ [fe80::1%tmfifo_net0]:11030  │  │ [fe80::1%tmfifo_net1]:11030  │ │
+//	│                      │   HTTP forward proxy         │  │   HTTP forward proxy         │ │
+//	│                      └──────────────┬───────────────┘  └───────────────┬──────────────┘ │
+//	└─────────────────────────────────────┼──────────────────────────────────┼────────────────┘
+//	                                      │              rshim               │
+//	┌─────────────────────────────────────┼──────────────────────────────────┼────────────────┐
+//	│                                     │                                  │                │
+//	│                       ┌─────────────┴─────────────┐      ┌─────────────┴─────────────┐  │
+//	│                       │           DPU 0           │      │           DPU 1           │  │
+//	│                       │ tmfifo_net0 fe80::2/64    │      │ tmfifo_net0 fe80::2/64    │  │
+//	│                       └───────────────────────────┘      └───────────────────────────┘  │
+//	└─────────────────────────────────────────────────────────────────────────────────────────┘
 //
 // Each tmfifo_net interface on the Host uses the same IPv6 link-local address (fe80::1/64).
 // Since fe80 addresses are link-scoped (bound to the interface), they don't conflict.
@@ -215,12 +202,19 @@ func (s *InstallationService) watchInterfaceDeletes(updates <-chan netlink.LinkU
 		}
 
 		s.mu.Lock()
-		if listener, exists := s.listeners[ifaceName]; exists {
-			klog.Infof("Interface %s deleted, closing listener", ifaceName)
-			_ = listener.Close()
-			delete(s.listeners, ifaceName)
-		}
+		s.closeListener(s.listeners, ifaceName, "installation service")
+		s.closeListener(s.proxyListeners, ifaceName, "forward proxy")
 		s.mu.Unlock()
+	}
+}
+
+// closeListener closes and removes listeners[ifaceName] when it exists.
+// The caller must hold s.mu because this helper reads and writes the listener map.
+func (s *InstallationService) closeListener(listeners map[string]net.Listener, ifaceName, kind string) {
+	if listener, exists := listeners[ifaceName]; exists {
+		klog.Infof("Interface %s deleted, closing %s listener", ifaceName, kind)
+		_ = listener.Close()
+		delete(listeners, ifaceName)
 	}
 }
 
@@ -231,16 +225,7 @@ func (s *InstallationService) scanAndCreateListeners(setupInterfaces bool) {
 	defer s.mu.Unlock()
 
 	// Always check localhost listener (IPv4)
-	if _, exists := s.listeners[localhostIfaceName]; !exists {
-		listener, err := net.Listen("tcp", localhostAddr)
-		if err != nil {
-			klog.Warningf("Failed to create localhost listener: %v", err)
-		} else {
-			klog.Infof("Created listener on %s", localhostAddr)
-			s.listeners[localhostIfaceName] = listener
-			go s.serveInterface(listener, localhostIfaceName)
-		}
-	}
+	s.ensureListener(localhostIfaceName, localhostAddr, s.listeners, "installation service", listenTCP, s.serveInterface)
 
 	if !setupInterfaces {
 		return
@@ -254,23 +239,37 @@ func (s *InstallationService) scanAndCreateListeners(setupInterfaces bool) {
 	}
 
 	for _, ifaceName := range ifaceNames {
-		if _, exists := s.listeners[ifaceName]; exists {
-			continue
-		}
-
 		listenAddr := fmt.Sprintf("[%s%%%s]:%s", hostMgmtIPv6, ifaceName, hostMgmtPort)
-		klog.Infof("Discovered new interface %s, creating listener on %s", ifaceName, listenAddr)
-
-		listener, err := listenTCP6WithRetry(listenAddr)
-		if err != nil {
-			klog.Warningf("Failed to create listener for interface %s: %v", ifaceName, err)
-			continue
-		}
-
-		klog.Infof("Created listener on %s", listenAddr)
-		s.listeners[ifaceName] = listener
-		go s.serveInterface(listener, ifaceName)
+		proxyListenAddr := fmt.Sprintf("[%s%%%s]:%s", hostMgmtIPv6, ifaceName, hostProxyPort)
+		s.ensureListener(ifaceName, listenAddr, s.listeners, "installation service", listenTCP6WithRetry, s.serveInterface)
+		s.ensureListener(ifaceName, proxyListenAddr, s.proxyListeners, "forward proxy", listenTCP6WithRetry, s.serveProxyInterface)
 	}
+}
+
+// ensureListener creates and serves a listener when listeners[ifaceName] does not exist.
+// The caller must hold s.mu because this helper reads and writes the listener map.
+func (s *InstallationService) ensureListener(
+	ifaceName string,
+	listenAddr string,
+	listeners map[string]net.Listener,
+	kind string,
+	listen func(string) (net.Listener, error),
+	serve func(net.Listener, string),
+) {
+	if _, exists := listeners[ifaceName]; exists {
+		return
+	}
+
+	klog.Infof("Creating %s listener on %s", kind, listenAddr)
+	listener, err := listen(listenAddr)
+	if err != nil {
+		klog.Warningf("Failed to create %s listener for interface %s: %v", kind, ifaceName, err)
+		return
+	}
+
+	klog.Infof("Created %s listener on %s", kind, listenAddr)
+	listeners[ifaceName] = listener
+	go serve(listener, ifaceName)
 }
 
 // Stop terminates background goroutines and closes all listeners.
@@ -281,22 +280,40 @@ func (s *InstallationService) Stop() {
 	for _, listener := range s.listeners {
 		_ = listener.Close()
 	}
+	for _, listener := range s.proxyListeners {
+		_ = listener.Close()
+	}
 }
 
 // serveInterface runs http.Serve for an interface (localhost or tmfifo).
 // On exit, it removes the interface from listeners so scanAndCreateListeners can recreate it.
 func (s *InstallationService) serveInterface(listener net.Listener, ifaceName string) {
-	klog.Infof("Serving interface %s, address %s", ifaceName, listener.Addr())
-	err := http.Serve(listener, s.handler)
-	klog.Warningf("Server on interface %s exited: %v", ifaceName, err)
+	s.serveListener(listener, ifaceName, "installation service", s.handler, s.listeners)
+}
 
-	// Close the listener
+// serveProxyInterface runs http.Serve for a forward-proxy listener.
+// On exit, it removes the interface from proxyListeners so scanAndCreateListeners can recreate it.
+func (s *InstallationService) serveProxyInterface(listener net.Listener, ifaceName string) {
+	s.serveListener(listener, ifaceName, "forward proxy", s.proxyHandler, s.proxyListeners)
+}
+
+func (s *InstallationService) serveListener(
+	listener net.Listener,
+	ifaceName string,
+	kind string,
+	handler http.Handler,
+	listeners map[string]net.Listener,
+) {
+	klog.Infof("Serving %s listener for interface %s, address %s", kind, ifaceName, listener.Addr())
+	err := http.Serve(listener, handler)
+	klog.Warningf("%s listener for interface %s exited: %v", kind, ifaceName, err)
+
 	_ = listener.Close()
 
-	// Remove from listeners so scanAndCreateListeners can recreate it
+	// Remove from listeners so scanAndCreateListeners can recreate it.
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.listeners, ifaceName)
+	delete(listeners, ifaceName)
 }
 
 func (s *InstallationService) HealthCheck(req *restful.Request, resp *restful.Response) {
@@ -505,6 +522,10 @@ func setupMgmtInterfaces() ([]string, error) {
 	}
 
 	return ifaceNames, nil
+}
+
+func listenTCP(address string) (net.Listener, error) {
+	return net.Listen("tcp", address)
 }
 
 // listenTCP6WithRetry attempts to create a TCP6 listener with retries.
