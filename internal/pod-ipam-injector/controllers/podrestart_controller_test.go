@@ -117,12 +117,9 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 				nil,
 			)
 
-			// Get fresh copy before updating status to avoid conflicts
-			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(Succeed())
-
-			// Set pod to Running state so it can be properly processed by the controller
-			pod.Status.Phase = corev1.PodRunning
-			Expect(testClient.Status().Patch(ctx, pod, client.Merge)).To(Succeed())
+			testutils.PatchStatus(ctx, testClient, pod, func() {
+				pod.Status.Phase = corev1.PodRunning
+			})
 
 			// Test that the function completes without error
 			err := controller.handlePodRestart(ctx, pod)
@@ -171,12 +168,9 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 				},
 			)
 
-			// Get fresh copy before updating status to avoid conflicts
-			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(Succeed())
-
-			// Set pod to Running state so it can be processed
-			pod.Status.Phase = corev1.PodRunning
-			Expect(testClient.Status().Patch(ctx, pod, client.Merge)).To(Succeed())
+			testutils.PatchStatus(ctx, testClient, pod, func() {
+				pod.Status.Phase = corev1.PodRunning
+			})
 
 			// Now check if restart is needed - resources should be available
 			Eventually(func(g Gomega) {
@@ -220,9 +214,9 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 				},
 			)
 
-			// Set pod to Pending state - this simulates a pod stuck in Pending with outdated digest
-			pod.Status.Phase = corev1.PodPending
-			Expect(testClient.Status().Patch(ctx, pod, client.Merge)).To(Succeed())
+			testutils.PatchStatus(ctx, testClient, pod, func() {
+				pod.Status.Phase = corev1.PodPending
+			})
 
 			// Verify the pod is in Pending state
 			Eventually(func(g Gomega) {
@@ -306,9 +300,9 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 				},
 			)
 
-			// Set pod to Pending state - this simulates a pod in Pending with current digest
-			pod.Status.Phase = corev1.PodPending
-			Expect(testClient.Status().Patch(ctx, pod, client.Merge)).To(Succeed())
+			testutils.PatchStatus(ctx, testClient, pod, func() {
+				pod.Status.Phase = corev1.PodPending
+			})
 
 			// Verify the pod is in Pending state
 			Eventually(func(g Gomega) {
@@ -392,12 +386,9 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 				},
 			)
 
-			// Get fresh copy before updating status to avoid conflicts
-			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(Succeed())
-
-			// Set pod to Running state so it can be processed
-			pod.Status.Phase = corev1.PodRunning
-			Expect(testClient.Status().Patch(ctx, pod, client.Merge)).To(Succeed())
+			testutils.PatchStatus(ctx, testClient, pod, func() {
+				pod.Status.Phase = corev1.PodRunning
+			})
 
 			// Use Eventually to wait for ServiceChain/ServiceInterface to be available in cache
 			// This allows transient errors (missing resources) while they propagate
@@ -420,9 +411,9 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 				},
 			)
 
-			// Update pod status to pending
-			pod.Status.Phase = corev1.PodPending
-			Expect(testClient.Status().Patch(ctx, pod, client.Merge)).To(Succeed())
+			testutils.PatchStatus(ctx, testClient, pod, func() {
+				pod.Status.Phase = corev1.PodPending
+			})
 
 			createdPod := &corev1.Pod{}
 			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod), createdPod)).To(Succeed())
@@ -583,12 +574,9 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 				},
 			)
 
-			// Get fresh copy before updating status to avoid conflicts
-			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(Succeed())
-
-			// Set pod to Running state so it can be processed by the controller
-			pod.Status.Phase = corev1.PodRunning
-			Expect(testClient.Status().Patch(ctx, pod, client.Merge)).To(Succeed())
+			testutils.PatchStatus(ctx, testClient, pod, func() {
+				pod.Status.Phase = corev1.PodRunning
+			})
 
 			// Verify the pod is in Running state before reconciliation
 			Eventually(func(g Gomega) {
@@ -736,10 +724,9 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 				},
 			)
 
-			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod1), pod1)).To(Succeed())
-			patch1 := client.MergeFrom(pod1.DeepCopy())
-			pod1.Status.Phase = corev1.PodRunning
-			Expect(testClient.Status().Patch(ctx, pod1, patch1)).To(Succeed())
+			testutils.PatchStatus(ctx, testClient, pod1, func() {
+				pod1.Status.Phase = corev1.PodRunning
+			})
 
 			// pod2 has the correct digest → should survive reconciliation
 			pod2 := createTestPodWithName(
@@ -753,10 +740,9 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 				},
 			)
 
-			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod2), pod2)).To(Succeed())
-			patch2 := client.MergeFrom(pod2.DeepCopy())
-			pod2.Status.Phase = corev1.PodRunning
-			Expect(testClient.Status().Patch(ctx, pod2, patch2)).To(Succeed())
+			testutils.PatchStatus(ctx, testClient, pod2, func() {
+				pod2.Status.Phase = corev1.PodRunning
+			})
 
 			// Verify both pods are in Running state before reconciliation
 			Eventually(func(g Gomega) {
@@ -917,12 +903,10 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 					},
 				)
 
-				By("Set pod to Running state (retry on conflict if controller updates pod)")
-				Eventually(func(g Gomega) {
-					g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(Succeed())
+				By("Set pod to Running state")
+				testutils.PatchStatus(ctx, testClient, pod, func() {
 					pod.Status.Phase = corev1.PodRunning
-					g.Expect(testClient.Status().Patch(ctx, pod, client.Merge)).To(Succeed())
-				}).WithTimeout(10 * time.Second).WithPolling(100 * time.Millisecond).Should(Succeed())
+				})
 
 				By("Verify ServiceChain has correct node")
 				Eventually(func(g Gomega) {
@@ -1002,12 +986,10 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 					},
 				)
 
-				By("Get fresh copy before updating status to avoid conflicts")
-				Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(Succeed())
-
 				By("Set pod to Running state")
-				pod.Status.Phase = corev1.PodRunning
-				Expect(testClient.Status().Patch(ctx, pod, client.Merge)).To(Succeed())
+				testutils.PatchStatus(ctx, testClient, pod, func() {
+					pod.Status.Phase = corev1.PodRunning
+				})
 
 				By("Trigger ServiceChain reconciliation")
 				serviceChain.Spec.Switches[0].ServiceMTU = ptr.To(1600)
@@ -1039,12 +1021,10 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 					},
 				)
 
-				By("Get fresh copy before updating status to avoid conflicts")
-				Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(Succeed())
-
 				By("Set pod to Running state")
-				pod.Status.Phase = corev1.PodRunning
-				Expect(testClient.Status().Patch(ctx, pod, client.Merge)).To(Succeed())
+				testutils.PatchStatus(ctx, testClient, pod, func() {
+					pod.Status.Phase = corev1.PodRunning
+				})
 
 				By("Trigger ServiceChain reconciliation")
 				serviceChain.Spec.Switches[0].ServiceMTU = ptr.To(1600)
@@ -1077,12 +1057,10 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 					},
 				)
 
-				By("Get fresh copy before updating status to avoid conflicts")
-				Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(Succeed())
-
 				By("Set pod to Running state")
-				pod.Status.Phase = corev1.PodRunning
-				Expect(testClient.Status().Patch(ctx, pod, client.Merge)).To(Succeed())
+				testutils.PatchStatus(ctx, testClient, pod, func() {
+					pod.Status.Phase = corev1.PodRunning
+				})
 
 				By("Trigger ServiceChain reconciliation")
 				serviceChain.Spec.Switches[0].ServiceMTU = ptr.To(1600)
@@ -1115,12 +1093,10 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 					},
 				)
 
-				By("Get fresh copy before updating status to avoid conflicts")
-				Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(Succeed())
-
 				By("Set pod to Running state")
-				pod.Status.Phase = corev1.PodRunning
-				Expect(testClient.Status().Patch(ctx, pod, client.Merge)).To(Succeed())
+				testutils.PatchStatus(ctx, testClient, pod, func() {
+					pod.Status.Phase = corev1.PodRunning
+				})
 
 				By("Trigger ServiceChain reconciliation")
 				serviceChain.Spec.Switches[0].ServiceMTU = ptr.To(1600)
@@ -1156,8 +1132,9 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 				)
 
 				By("Set pod to Pending state")
-				pod.Status.Phase = corev1.PodPending
-				Expect(testClient.Status().Patch(ctx, pod, client.Merge)).To(Succeed())
+				testutils.PatchStatus(ctx, testClient, pod, func() {
+					pod.Status.Phase = corev1.PodPending
+				})
 
 				By("Verify pod is consistently not deleted when in Pending state")
 				Consistently(func(g Gomega) {
@@ -1186,12 +1163,10 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 					},
 				)
 
-				By("Get fresh copy before updating status to avoid conflicts")
-				Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(Succeed())
-
 				By("Set pod to Running state")
-				pod.Status.Phase = corev1.PodRunning
-				Expect(testClient.Status().Patch(ctx, pod, client.Merge)).To(Succeed())
+				testutils.PatchStatus(ctx, testClient, pod, func() {
+					pod.Status.Phase = corev1.PodRunning
+				})
 
 				By("Delete the pod to mark it for deletion")
 				Expect(testClient.Delete(ctx, pod)).To(Succeed())
@@ -1253,15 +1228,13 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 					},
 				)
 
-				By("Get fresh copies before updating status to avoid conflicts")
-				Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod1), pod1)).To(Succeed())
-				Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod2), pod2)).To(Succeed())
-
 				By("Set both pods to Running state")
-				pod1.Status.Phase = corev1.PodRunning
-				Expect(testClient.Status().Patch(ctx, pod1, client.Merge)).To(Succeed())
-				pod2.Status.Phase = corev1.PodRunning
-				Expect(testClient.Status().Patch(ctx, pod2, client.Merge)).To(Succeed())
+				testutils.PatchStatus(ctx, testClient, pod1, func() {
+					pod1.Status.Phase = corev1.PodRunning
+				})
+				testutils.PatchStatus(ctx, testClient, pod2, func() {
+					pod2.Status.Phase = corev1.PodRunning
+				})
 
 				By("Trigger ServiceChain reconciliation")
 				serviceChain.Spec.Switches[0].ServiceMTU = ptr.To(1600)
