@@ -36,6 +36,8 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/test/e2e/cleanup"
 
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -402,4 +404,16 @@ func CreateMTLSCerts(dmsIP string) (caCrtBytes, clientCrtBytes, clientKeyBytes, 
 	}
 
 	return caCertPEM.Bytes(), clientCertPEM.Bytes(), clientPrivKeyPEM.Bytes(), serverCertPEM.Bytes(), serverPrivKeyPEM.Bytes()
+}
+
+// PatchStatus re-fetches obj, calls mutate() to modify status fields, then patches the status
+// subresource using a merge patch. Retries on conflict to avoid "object has been modified" errors
+// from concurrent controller reconciliations.
+func PatchStatus(ctx context.Context, c client.Client, obj client.Object, mutate func()) {
+	GinkgoHelper()
+	Eventually(func(g Gomega) {
+		g.Expect(c.Get(ctx, client.ObjectKeyFromObject(obj), obj)).To(Succeed())
+		mutate()
+		g.Expect(c.Status().Patch(ctx, obj, client.Merge)).To(Succeed())
+	}).WithTimeout(10 * time.Second).WithPolling(100 * time.Millisecond).Should(Succeed())
 }
