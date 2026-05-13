@@ -343,6 +343,9 @@ spec:
 ```
 </details>
 
+> [!NOTE]
+> The DPUFlavor above does not set `ubuntu_PASSWORD` in `bfcfgParameters`. If omitted, DPF defaults to `ubuntu:ubuntu` credentials on the DPU. For production deployments, it is recommended to set a hashed password (see [BFCfg Parameters](../../developer-guides/api/dpuflavor.md#bfcfg-parameters)).
+
 #### DPUServiceNAD
 
 Defines the trusted [Scalable Function (SF)](https://docs.nvidia.com/networking/display/bluefielddpuosv385/scalable+functions)

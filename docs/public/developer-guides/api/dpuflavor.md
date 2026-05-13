@@ -32,7 +32,7 @@ DPUFlavor is a Kubernetes Custom Resource Definition (CRD) that defines configur
 | `sysctl` | [DPUFlavorSysctl](#dpuflavorsysctl) | Kernel sysctl parameters which will be stored in `/etc/sysctl.d/99-dpf.conf` |
 | `nvconfig` | [][NVConfig](#nvconfig) | The device configuration which will be applied by `mlxconfig` |
 | `ovs` | [DPUFlavorOVS](#dpuflavorovs) | Open vSwitch configuration which will be executed via systemd service |
-| `bfcfgParameters` | []string | Parameters for bf.cfg file |
+| `bfcfgParameters` | []string | Parameters for the bf.cfg file. See [BFCfg Parameters](#bfcfg-parameters) for important parameters |
 | `configFiles` | [][ConfigFile](#configfile) | Custom configuration files. Users can use this configuration to overwrite files in the DPU file system or add content to existing files |
 | `containerdConfig` | [ContainerdConfig](#containerdconfig) | ContainerdConfig contains the configuration for containerd |
 | `dpuResources` | ResourceList | Minimum resources needed for BFB installation |
@@ -132,6 +132,32 @@ nvconfig:
 
 - `override`: Replace file content entirely
 - `append`: Append to existing file content
+
+## BFCfg Parameters
+
+The `bfcfgParameters` field accepts a list of `KEY=VALUE` strings that are written directly into the
+`bf.cfg` file consumed by the BFB installer. Common parameters include:
+
+| Parameter | Description |
+|-----------|-------------|
+| `UPDATE_ATF_UEFI` | Update ATF/UEFI firmware during provisioning (`yes`/`no`) |
+| `UPDATE_DPU_OS` | Update the DPU operating system (`yes`/`no`) |
+| `WITH_NIC_FW_UPDATE` | Update NIC firmware during provisioning (`yes`/`no`) |
+| `ubuntu_PASSWORD` | Password hash for the `ubuntu` admin account on the DPU. **If not set, DPF defaults to the well-known `ubuntu:ubuntu` credentials.** It is strongly recommended to set this to a unique hashed password for every deployment |
+
+> [!NOTE]
+> `ubuntu_PASSWORD` is filtered out of the generated `bf.cfg` and applied via cloud-init instead; all other parameters are written directly into the `bf.cfg` file.
+
+To generate a SHA-512 password hash:
+
+```bash
+openssl passwd -6 'YourPassword'
+```
+
+Always use `-6` (SHA-512). Do **not** use `-1` (MD5), which is considered insecure.
+
+For the full list of supported `bf.cfg` parameters, see the
+[BlueField BSP documentation](https://docs.nvidia.com/networking/display/bluefieldbsp480/customizing+bluefield+software+deployment+using+bf-cfg).
 
 ## Resource Management
 
@@ -292,3 +318,4 @@ spec:
 4. **Documentation**: Document custom configurations and their purposes for team understanding
 5. **IB Mode Conversion**: For DPUs initially in InfiniBand (IB) mode, always include `LINK_TYPE_P1=2` in nvconfig parameters to convert to Ethernet mode. For dual port DPUs, also add `LINK_TYPE_P2=2`
 6. **NVConfig**: Use wildcard (`device: '*'`) for uniform configuration across all devices. Use device-specific entries only when per-device configuration is required
+7. **DPU Credentials**: Set `ubuntu_PASSWORD` in `bfcfgParameters` to a strong hashed password. If omitted, the DPU is provisioned with default `ubuntu:ubuntu` credentials.
