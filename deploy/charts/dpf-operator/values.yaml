@@ -41,6 +41,11 @@ tolerations:
   - key: node-role.kubernetes.io/control-plane
     operator: Exists
     effect: NoSchedule
+## deprecationWarnings enables ValidatingAdmissionPolicies that warn users
+## when they set deprecated fields on DPF custom resources.
+## Warnings are non-blocking and appear in kubectl output.
+deprecationWarnings:
+  enabled: true
 ## enableNFDRules decides whether additional NodeFeatureRules for DPF will be created.
 ## Note: NFD must be installed to support this.
 enableNodeFeatureRules: true

@@ -1,0 +1,35 @@
+{{- if .Values.deprecationWarnings.enabled }}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: dpf-deprecation-dpuserviceipams
+  labels:
+    app.kubernetes.io/part-of: dpf-operator-controller-manager
+    dpu.nvidia.com/deprecation-warning: "true"
+spec:
+  failurePolicy: Ignore
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["svc.dpu.nvidia.com"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["dpuserviceipams"]
+  validations:
+    - expression: "!has(object.spec.clusterSelector)"
+      message: >-
+        spec.clusterSelector is deprecated. This field is deprecated and will be removed with v26.7.0. Use DPUClusterSelector instead.
+    - expression: "!has(object.spec.ipv4Network) || !has(object.spec.ipv4Network.exclusions)"
+      message: >-
+        spec.ipv4Network.exclusions is deprecated. This field is deprecated and will be removed with v26.10.0. Use ExcludeRanges instead.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: dpf-deprecation-dpuserviceipams-binding
+  labels:
+    app.kubernetes.io/part-of: dpf-operator-controller-manager
+    dpu.nvidia.com/deprecation-warning: "true"
+spec:
+  policyName: dpf-deprecation-dpuserviceipams
+  validationActions: [Warn]
+{{- end }}

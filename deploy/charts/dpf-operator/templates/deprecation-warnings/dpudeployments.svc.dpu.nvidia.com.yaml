@@ -1,0 +1,38 @@
+{{- if .Values.deprecationWarnings.enabled }}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: dpf-deprecation-dpudeployments
+  labels:
+    app.kubernetes.io/part-of: dpf-operator-controller-manager
+    dpu.nvidia.com/deprecation-warning: "true"
+spec:
+  failurePolicy: Ignore
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["svc.dpu.nvidia.com"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["dpudeployments"]
+  validations:
+    - expression: "!has(object.spec.dpus) || !has(object.spec.dpus.dpuSetStrategy) || !has(object.spec.dpus.dpuSetStrategy.rollingUpdate) || !has(object.spec.dpus.dpuSetStrategy.rollingUpdate.maxUnavailable)"
+      message: >-
+        spec.dpus.dpuSetStrategy.rollingUpdate.maxUnavailable is deprecated. This field is deprecated and will be removed with v26.7.0.
+    - expression: "!has(object.spec.dpus) || !has(object.spec.dpus.dpuSets) || object.spec.dpus.dpuSets.all(e0, !has(e0.dpuSelector))"
+      message: >-
+        spec.dpus.dpuSets[].dpuSelector is deprecated. This field is deprecated and will be removed with v26.7.0. Use DPUDeviceSelector instead.
+    - expression: "!has(object.spec.dpus) || !has(object.spec.dpus.dpuSets) || object.spec.dpus.dpuSets.all(e0, !has(e0.nodeSelector))"
+      message: >-
+        spec.dpus.dpuSets[].nodeSelector is deprecated. This field is deprecated and will be removed with v26.7.0. Use DPUNodeSelector instead.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: dpf-deprecation-dpudeployments-binding
+  labels:
+    app.kubernetes.io/part-of: dpf-operator-controller-manager
+    dpu.nvidia.com/deprecation-warning: "true"
+spec:
+  policyName: dpf-deprecation-dpudeployments
+  validationActions: [Warn]
+{{- end }}
