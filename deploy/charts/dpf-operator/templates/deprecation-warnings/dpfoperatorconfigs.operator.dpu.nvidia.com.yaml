@@ -1,0 +1,83 @@
+{{- if .Values.deprecationWarnings.enabled }}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: dpf-deprecation-dpfoperatorconfigs
+  labels:
+    app.kubernetes.io/part-of: dpf-operator-controller-manager
+    dpu.nvidia.com/deprecation-warning: "true"
+spec:
+  failurePolicy: Ignore
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["operator.dpu.nvidia.com"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["dpfoperatorconfigs"]
+  validations:
+    - expression: "!has(object.spec.dpuDetector) || !has(object.spec.dpuDetector.image)"
+      message: >-
+        spec.dpuDetector.image is deprecated. This field is deprecated and will be removed with v26.7.0. Use the new field `daemon` instead.
+    - expression: "!has(object.spec.dpuServiceController) || !has(object.spec.dpuServiceController.image)"
+      message: >-
+        spec.dpuServiceController.image is deprecated. This field is deprecated and will be removed with v26.7.0. Use the new field `controller` instead.
+    - expression: "!has(object.spec.flannel) || !has(object.spec.flannel.image)"
+      message: >-
+        spec.flannel.image is deprecated. This field is deprecated and will be removed with v26.7.0. Use the new fields `cni` and `daemon` instead.
+    - expression: "!has(object.spec.kamajiClusterManager) || !has(object.spec.kamajiClusterManager.image)"
+      message: >-
+        spec.kamajiClusterManager.image is deprecated. This field is deprecated and will be removed with v26.7.0. Use the new field `controller` instead.
+    - expression: "!has(object.spec.multus) || !has(object.spec.multus.image)"
+      message: >-
+        spec.multus.image is deprecated. This field is deprecated and will be removed with v26.7.0. Use the new field `cni` instead.
+    - expression: "!has(object.spec.nvipam) || !has(object.spec.nvipam.image)"
+      message: >-
+        spec.nvipam.image is deprecated. This field is deprecated and will be removed with v26.7.0. Use the new field `controller` instead.
+    - expression: "!has(object.spec.ovsCNI) || !has(object.spec.ovsCNI.image)"
+      message: >-
+        spec.ovsCNI.image is deprecated. This field is deprecated and will be removed with v26.7.0. Use the new field `cni` instead.
+    - expression: "!has(object.spec.provisioningController) || !has(object.spec.provisioningController.bfCFGTemplateConfigMap)"
+      message: >-
+        spec.provisioningController.bfCFGTemplateConfigMap is deprecated. BFCFGTemplateConfigMap is deprecated and will be removed in a future release. Use enableDynamicBFCFGTemplates instead for custom bf.cfg templates.
+    - expression: "!has(object.spec.provisioningController) || !has(object.spec.provisioningController.image)"
+      message: >-
+        spec.provisioningController.image is deprecated. This field is deprecated and will be removed with v26.7.0. Use the new field `controller` instead.
+    - expression: "!has(object.spec.provisioningController) || !has(object.spec.provisioningController.installInterface) || !has(object.spec.provisioningController.installInterface.installViaGNOI)"
+      message: >-
+        spec.provisioningController.installInterface.installViaGNOI is deprecated. Use InstallViaHostAgent instead.
+    - expression: "!has(object.spec.provisioningController) || !has(object.spec.provisioningController.installInterface) || !has(object.spec.provisioningController.installInterface.installViaRedfish) || !has(object.spec.provisioningController.installInterface.installViaRedfish.bfbRegistry)"
+      message: >-
+        spec.provisioningController.installInterface.installViaRedfish.bfbRegistry is deprecated. Use RegistryConfiguration instead.
+    - expression: "!has(object.spec.provisioningController) || !has(object.spec.provisioningController.installInterface) || !has(object.spec.provisioningController.installInterface.installViaRedfish) || !has(object.spec.provisioningController.installInterface.installViaRedfish.bfbRegistryAddress)"
+      message: >-
+        spec.provisioningController.installInterface.installViaRedfish.bfbRegistryAddress is deprecated. Use RegistryConfiguration instead.
+    - expression: "!has(object.spec.provisioningController) || !has(object.spec.provisioningController.registry) || !has(object.spec.provisioningController.registry.address)"
+      message: >-
+        spec.provisioningController.registry.address is deprecated. Address is deprecated and will be removed in a future release.
+    - expression: "!has(object.spec.provisioningController) || !has(object.spec.provisioningController.registry) || !has(object.spec.provisioningController.registry.port)"
+      message: >-
+        spec.provisioningController.registry.port is deprecated. Address is deprecated and will be removed in a future release.
+    - expression: "!has(object.spec.serviceSetController) || !has(object.spec.serviceSetController.image)"
+      message: >-
+        spec.serviceSetController.image is deprecated. This field is deprecated and will be removed with v26.7.0. Use the new field `controller` instead.
+    - expression: "!has(object.spec.sfcController) || !has(object.spec.sfcController.image)"
+      message: >-
+        spec.sfcController.image is deprecated. This field is deprecated and will be removed with v26.7.0. Use the new field `controller` instead.
+    - expression: "!has(object.spec.sriovDevicePlugin) || !has(object.spec.sriovDevicePlugin.image)"
+      message: >-
+        spec.sriovDevicePlugin.image is deprecated. This field is deprecated and will be removed with v26.7.0. Use the new field `deviceplugin` instead.
+    - expression: "!has(object.spec.staticClusterManager) || !has(object.spec.staticClusterManager.image)"
+      message: >-
+        spec.staticClusterManager.image is deprecated. This field is deprecated and will be removed with v26.7.0. Use the new field `controller` instead.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: dpf-deprecation-dpfoperatorconfigs-binding
+  labels:
+    app.kubernetes.io/part-of: dpf-operator-controller-manager
+    dpu.nvidia.com/deprecation-warning: "true"
+spec:
+  policyName: dpf-deprecation-dpfoperatorconfigs
+  validationActions: [Warn]
+{{- end }}
