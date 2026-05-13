@@ -1,0 +1,38 @@
+{{- if .Values.deprecationWarnings.enabled }}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: dpf-deprecation-dpudevices
+  labels:
+    app.kubernetes.io/part-of: dpf-operator-controller-manager
+    dpu.nvidia.com/deprecation-warning: "true"
+spec:
+  failurePolicy: Ignore
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["provisioning.dpu.nvidia.com"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["dpudevices"]
+  validations:
+    - expression: "!has(object.spec.opn)"
+      message: >-
+        spec.opn is deprecated. This field is deprecated and will be removed in a future version. Use status.opn instead.
+    - expression: "!has(object.spec.pf0Name)"
+      message: >-
+        spec.pf0Name is deprecated. This field is deprecated and will be removed in a future version. Use status.pf0Name instead.
+    - expression: "!has(object.spec.psid)"
+      message: >-
+        spec.psid is deprecated. This field is deprecated and will be removed in a future version. Use status.psid instead.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: dpf-deprecation-dpudevices-binding
+  labels:
+    app.kubernetes.io/part-of: dpf-operator-controller-manager
+    dpu.nvidia.com/deprecation-warning: "true"
+spec:
+  policyName: dpf-deprecation-dpudevices
+  validationActions: [Warn]
+{{- end }}
