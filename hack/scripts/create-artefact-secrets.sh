@@ -28,10 +28,35 @@ set -o errexit
 
 ## Ensure the script is idempotent, allowing safe re-execution even if the secret already exists.
 kubectl -n "$TEST_DEPLOY_PREREQS_NAMESPACE" delete secret dpf-helm-secret --ignore-not-found
+kubectl -n "$TEST_DEPLOY_PREREQS_NAMESPACE" delete secret dpf-helm-secret-alt --ignore-not-found
 kubectl -n dpf-operator-system delete secret dpf-pull-secret --ignore-not-found
 kubectl -n dpf-operator-system delete secret bmc-shared-password --ignore-not-found
 
 IMAGE_PULL_KEY="${IMAGE_PULL_KEY:-""}"
+NGC_API_KEY="${NGC_API_KEY:-""}"
+NGC_ALT_HELM_REGISTRY="${NGC_ALT_HELM_REGISTRY:-""}"
+
+## When NGC_ALT_HELM_REGISTRY is set, create an ArgoCD repository secret so ArgoCD
+## can pull non-GA helm charts (e.g. HBN) from that NGC registry. Authenticated
+## with NGC_API_KEY. Independent of IMAGE_PULL_KEY/REGISTRY which target harbor.
+if [[ "$NGC_ALT_HELM_REGISTRY" != "" && "$NGC_API_KEY" != "" ]]; then
+	kubectl create namespace "$TEST_DEPLOY_PREREQS_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+	echo "
+apiVersion: v1
+kind: Secret
+metadata:
+  name: dpf-helm-secret-alt
+  namespace: $TEST_DEPLOY_PREREQS_NAMESPACE
+  labels:
+    argocd.argoproj.io/secret-type: repository
+stringData:
+  name: dpf-helm-alt
+  url: $NGC_ALT_HELM_REGISTRY
+  type: helm
+  username: \$oauthtoken
+  password: $NGC_API_KEY
+" | kubectl apply -f -
+fi
 
 ## Create a bmc-shared-password secret to be used by ZeroTrust
 if [[ "$ZERO_TRUST" == "true" ]]; then
