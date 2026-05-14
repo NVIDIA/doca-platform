@@ -132,6 +132,12 @@ func (t *systemTestInput) applySDNConfig(conf config) {
 		tag := parts[1]
 		updateHBNImage(svcHBN, repository, tag)
 	}
+	if repoURL, found := os.LookupEnv("HBN_CHART_REPO"); found {
+		updateHBNChartRepo(svcHBN, repoURL)
+	}
+	if chartVersion, found := os.LookupEnv("HBN_CHART_VERSION"); found {
+		updateHBNChartVersion(svcHBN, chartVersion)
+	}
 
 	if ngcAPIKey != "" {
 		updateImagePullSecret(svcHBN, ngcPullSecretName)
@@ -163,6 +169,18 @@ func updateHBNImage(svcHBN *unstructured.Unstructured, repository, tag string) {
 
 	err = unstructured.SetNestedField(svcHBN.Object, tag,
 		"spec", "helmChart", "values", "image", "tag")
+	Expect(err).ToNot(HaveOccurred())
+}
+
+func updateHBNChartRepo(svcHBN *unstructured.Unstructured, repoURL string) {
+	err := unstructured.SetNestedField(svcHBN.Object, repoURL,
+		"spec", "helmChart", "source", "repoURL")
+	Expect(err).ToNot(HaveOccurred())
+}
+
+func updateHBNChartVersion(svcHBN *unstructured.Unstructured, chartVersion string) {
+	err := unstructured.SetNestedField(svcHBN.Object, chartVersion,
+		"spec", "helmChart", "source", "version")
 	Expect(err).ToNot(HaveOccurred())
 }
 
