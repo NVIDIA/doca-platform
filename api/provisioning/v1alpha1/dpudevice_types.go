@@ -98,7 +98,6 @@ type DPUDeviceSpec struct {
 
 	// BMCIP is the IP address of the BMC (Base Management Controller) on the device.
 	// This is used for remote management and monitoring of the device.
-	// This value is immutable and should not be changed once set.
 	// Example: "10.1.2.3"
 	// +kubebuilder:validation:Format=ipv4
 	// +optional
