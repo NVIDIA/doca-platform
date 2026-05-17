@@ -24,7 +24,7 @@ A Helm chart for Kubernetes
 | arm64.ovsCniMarker.imagePullPolicy | string | `"IfNotPresent"` |  |
 | arm64.ovsCniMarker.resources.requests.cpu | string | `"10m"` |  |
 | arm64.ovsCniMarker.resources.requests.memory | string | `"10Mi"` |  |
-| arm64.ovsCniPlugin.args[0] | string | `"cp /ovs /host/opt/cni/bin/ovs && cp /ovs-mirror-producer /host/opt/cni/bin/ovs-mirror-producer && cp /ovs-mirror-consumer /host/opt/cni/bin/ovs-mirror-consumer\n"` |  |
+| arm64.ovsCniPlugin.args[0] | string | `"cp /ovs /host/opt/cni/bin/ovs\n"` |  |
 | arm64.ovsCniPlugin.containerSecurityContext.privileged | bool | `true` |  |
 | arm64.ovsCniPlugin.imagePullPolicy | string | `"IfNotPresent"` |  |
 | arm64.ovsCniPlugin.resources.requests.cpu | string | `"10m"` |  |
