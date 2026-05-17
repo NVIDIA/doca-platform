@@ -36,10 +36,7 @@ spec:
         image: ghcr.io/k8snetworkplumbingwg/ovs-cni-plugin:latest
         command: ["/bin/sh","-c"]
         args:
-          - >
-            cp /ovs /host/opt/cni/bin/ovs &&
-            cp /ovs-mirror-producer /host/opt/cni/bin/ovs-mirror-producer &&
-            cp /ovs-mirror-consumer /host/opt/cni/bin/ovs-mirror-consumer
+          - cp /ovs /host/opt/cni/bin/ovs
         imagePullPolicy: IfNotPresent
         securityContext:
           privileged: true
