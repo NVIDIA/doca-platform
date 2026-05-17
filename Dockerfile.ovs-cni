@@ -28,9 +28,7 @@ RUN mkdir /workspace/bin
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     go build -tags no_openssl -o /workspace/bin/ovs ./cmd/plugin && \
-    go build -tags no_openssl -o /workspace/bin/marker ./cmd/marker && \
-    go build -tags no_openssl -o /workspace/bin/ovs-mirror-producer ./cmd/mirror-producer && \
-    go build -tags no_openssl -o /workspace/bin/ovs-mirror-consumer ./cmd/mirror-consumer
+    go build -tags no_openssl -o /workspace/bin/marker ./cmd/marker
 
 # Copy the Go source code so it can be distributed in the final image.
 RUN mkdir src && \
@@ -64,5 +62,3 @@ COPY --from=builder /workspace/.version /.version
 # Add the OVS CNI binaries.
 COPY --from=builder /workspace/bin/ovs /ovs
 COPY --from=builder /workspace/bin/marker /marker
-COPY --from=builder /workspace/bin/ovs-mirror-producer /ovs-mirror-producer
-COPY --from=builder /workspace/bin/ovs-mirror-consumer /ovs-mirror-consumer
