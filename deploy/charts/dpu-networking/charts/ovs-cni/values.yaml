@@ -25,7 +25,7 @@ arm64:
   ovsCniPlugin:
     args:
     - |
-      cp /ovs /host/opt/cni/bin/ovs && cp /ovs-mirror-producer /host/opt/cni/bin/ovs-mirror-producer && cp /ovs-mirror-consumer /host/opt/cni/bin/ovs-mirror-consumer
+      cp /ovs /host/opt/cni/bin/ovs
     containerSecurityContext:
       privileged: true
     imagePullPolicy: IfNotPresent

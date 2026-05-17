@@ -21,11 +21,6 @@ import (
 	current "github.com/containernetworking/cni/pkg/types/100"
 )
 
-// NetConfs can be either NetConf or MirrorNetConf
-type NetConfs interface {
-	NetConf | MirrorNetConf
-}
-
 // NetConf extends types.NetConf for ovs-cni
 type NetConf struct {
 	types.NetConf
@@ -51,28 +46,6 @@ type CNIArgs struct {
 // NetConfArgs extends types.NetConf for ovs-cni args
 type NetConfArgs struct {
 	CNI *CNIArgs `json:"cni,omitempty"`
-}
-
-// MirrorNetConf extends types.NetConf for ovs-mirrors
-type MirrorNetConf struct {
-	types.NetConf
-
-	// support chaining for master interface and IP decisions
-	// occurring prior to running mirror plugin
-	RawPrevResult *map[string]interface{} `json:"prevResult"`
-	PrevResult    *current.Result         `json:"-"`
-
-	BrName            string    `json:"bridge,omitempty"`
-	ConfigurationPath string    `json:"configuration_path"`
-	SocketFile        string    `json:"socket_file"`
-	Mirrors           []*Mirror `json:"mirrors"`
-}
-
-// Mirror configuration
-type Mirror struct {
-	Name    string `json:"name"`
-	Ingress bool   `json:"ingress,omitempty"`
-	Egress  bool   `json:"egress,omitempty"`
 }
 
 // Trunk containing selective vlan IDs
