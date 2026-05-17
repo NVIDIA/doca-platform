@@ -18,6 +18,7 @@ package sosreport
 
 import (
 	"context"
+	"regexp"
 	"testing"
 	"time"
 
@@ -243,6 +244,75 @@ func TestCreateJob(t *testing.T) {
 			}
 		})
 	}
+}
+
+// rfc1123Re matches valid Kubernetes resource names (RFC 1123 subdomain).
+var rfc1123Re = regexp.MustCompile(`^[a-z0-9]([a-z0-9\-.]*[a-z0-9])?$`)
+
+func TestJobName(t *testing.T) {
+	tests := []struct {
+		name     string
+		caseID   string
+		nodeName string
+	}{
+		{
+			name:     "short name is returned unchanged",
+			caseID:   "dpf-20260517-120000",
+			nodeName: "worker-1",
+		},
+		{
+			name:     "exactly 63 bytes is returned unchanged",
+			caseID:   "dpf-20260517-120000",
+			nodeName: "node-123456789012345678", // "sos-dpf-20260517-120000-node-123456789012345678" = 63 bytes
+		},
+		{
+			// Total name = 64 bytes — just over the limit; slice boundary lands on '.'.
+			name:     "long FQDN node name is truncated with hash",
+			caseID:   "dpf-20260517-081215",
+			nodeName: "worker-01.zone-a.internal.example.cluster.test",
+		},
+		{
+			// DPU node names are host FQDN + DPU suffix, making them even longer.
+			name:     "long DPU node name is truncated with hash",
+			caseID:   "dpf-20260517-081215",
+			nodeName: "worker-01.zone-a.internal.example.cluster.test-dpu0",
+		},
+		{
+			// The 54-byte slice boundary lands on '.' — TrimRight must strip it.
+			name:     "truncation strips trailing dot before hash",
+			caseID:   "dpf-20260517-081215",
+			nodeName: "host-01.rack-a.internal.example.dc.cluster.corp.test",
+		},
+		{
+			// The 54-byte slice boundary lands on '-' — TrimRight must strip it.
+			name:     "truncation strips trailing dash before hash",
+			caseID:   "dpf-20260517-081215",
+			nodeName: "node-aaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbbbbbbb",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
+			result := jobName(tt.caseID, tt.nodeName)
+
+			g.Expect(len(result)).To(BeNumerically("<=", 63),
+				"job name must be at most 63 bytes, got %d: %q", len(result), result)
+
+			g.Expect(rfc1123Re.MatchString(result)).To(BeTrue(),
+				"job name must be a valid RFC 1123 subdomain, got %q", result)
+		})
+	}
+}
+
+func TestJobNameUniqueness(t *testing.T) {
+	g := NewWithT(t)
+	caseID := "dpf-20260517-081215"
+
+	// Two nodes whose names share the same 54-char prefix — hash must distinguish them.
+	name1 := jobName(caseID, "worker-01.zone-a.internal.example.cluster.test")
+	name2 := jobName(caseID, "worker-01.zone-a.internal.example.cluster.test-dpu0")
+	g.Expect(name1).NotTo(Equal(name2), "different long node names must produce different job names")
 }
 
 func TestOutputMode(t *testing.T) {

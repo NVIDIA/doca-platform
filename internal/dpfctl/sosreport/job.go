@@ -18,7 +18,9 @@ package sosreport
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
+	"strings"
 	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
@@ -97,9 +99,19 @@ func selectorLabels() map[string]string {
 	}
 }
 
-// jobName returns the Job name for a given node and case ID.
+// jobName returns the Job name for a given node and case ID, capped at 63 bytes.
+// Kubernetes uses the Job name as a pod label value (batch.kubernetes.io/job-name)
+// which has a 63-byte limit. When truncation is needed an 8-hex-char hash suffix
+// is appended to avoid collisions between nodes with similar long names.
 func jobName(caseID, nodeName string) string {
-	return fmt.Sprintf("sos-%s-%s", caseID, nodeName)
+	name := fmt.Sprintf("sos-%s-%s", caseID, nodeName)
+	if len(name) <= 63 {
+		return name
+	}
+	sum := sha256.Sum256([]byte(name))
+	hash := fmt.Sprintf("%x", sum[:4])              // 8 hex chars
+	prefix := strings.TrimRight(name[:63-9], "-.")  // strip trailing non-alphanumeric
+	return prefix + "-" + hash
 }
 
 // secretName returns the kubeconfig Secret name for a given cluster.
