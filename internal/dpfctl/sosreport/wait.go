@@ -21,7 +21,9 @@ import (
 	"fmt"
 	"time"
 
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -55,7 +57,7 @@ func WaitForAll(ctx context.Context, targets ClusterTargets, namespace, caseID s
 				}
 				// Report init container failures — skip waiting since the Job
 				// will either retry (new pod) or fail permanently (IsJobDone).
-				if msg := checkInitContainerFailure(ctx, targets[i].Client, job.Namespace, job.Spec.Template.Labels); msg != "" {
+				if msg := checkInitContainerFailure(ctx, targets[i].Client, job.Namespace, &job); msg != "" {
 					key := job.Name + ":" + msg
 					if !initContainerFailures[key] {
 						initContainerFailures[key] = true
@@ -63,7 +65,7 @@ func WaitForAll(ctx context.Context, targets ClusterTargets, namespace, caseID s
 							stopSpinner()
 							stopSpinner = nil
 						}
-						nodeName := job.Labels[labelNode]
+						nodeName := job.Annotations[annotationNode]
 						Failure("%s/%s: %s", targets[i].Name, nodeName, msg)
 					}
 					continue
@@ -109,10 +111,15 @@ func WaitForAll(ctx context.Context, targets ClusterTargets, namespace, caseID s
 }
 
 // checkInitContainerFailure returns a description of a failing init container
-// on the most recent pod matching the given labels, or "" if none are failing.
-func checkInitContainerFailure(ctx context.Context, c client.Client, namespace string, podLabels map[string]string) string {
+// on the most recent pod selected by the Job, or "" if none are failing.
+func checkInitContainerFailure(ctx context.Context, c client.Client, namespace string, job *batchv1.Job) string {
+	podSelector, err := metav1.LabelSelectorAsSelector(job.Spec.Selector)
+	if err != nil {
+		return ""
+	}
+
 	podList := &corev1.PodList{}
-	if err := c.List(ctx, podList, client.InNamespace(namespace), client.MatchingLabels(podLabels)); err != nil {
+	if err := c.List(ctx, podList, client.InNamespace(namespace), client.MatchingLabelsSelector{Selector: podSelector}); err != nil {
 		return ""
 	}
 	for _, pod := range podList.Items {

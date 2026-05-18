@@ -39,6 +39,10 @@ collections or clean up after a completed workflow.`,
   # Clean up resources for a specific case ID
   dpfctl sosreport cleanup --case-id CASE-12345`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := validateSOSReportCaseID(); err != nil {
+			return err
+		}
+
 		targets, err := getTargets(cmd.Context())
 		if err != nil {
 			return err

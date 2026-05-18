@@ -24,6 +24,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
@@ -33,6 +34,12 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/remotecommand"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+)
+
+const (
+	// 255 is the common filesystem NAME_MAX for one path component.
+	maxDownloadFilenameLength = 255
+	downloadFileSuffix        = ".tar.gz"
 )
 
 // DownloadAndArchive downloads completed SOS reports and optionally archives them.
@@ -51,7 +58,7 @@ func DownloadAndArchive(ctx context.Context, targets ClusterTargets, opts Downlo
 		return fmt.Errorf("create output directory %s: %w", outputDir, err)
 	}
 
-	downloaded := Download(ctx, targets, opts.Namespace, outputDir)
+	downloaded := Download(ctx, targets, opts.Namespace, opts.CaseID, outputDir)
 
 	if downloaded == 0 {
 		ResultFail("No completed SOS reports found to download")
@@ -129,7 +136,7 @@ func StreamFromPod(ctx context.Context, restConfig *rest.Config, namespace, podN
 
 // DownloadToFile downloads the SOS report from a pod to a local file.
 func DownloadToFile(ctx context.Context, restConfig *rest.Config, namespace, podName, containerName, outputDir, clusterName, nodeName string) (string, error) {
-	filename := fmt.Sprintf("sosreport-%s-%s.tar.gz", clusterName, nodeName)
+	filename := downloadFilename(clusterName, nodeName)
 	localPath := filepath.Join(outputDir, filename)
 
 	f, err := os.Create(localPath)
@@ -146,11 +153,11 @@ func DownloadToFile(ctx context.Context, restConfig *rest.Config, namespace, pod
 	return localPath, nil
 }
 
-// Download downloads all completed SOS reports from the given targets.
-func Download(ctx context.Context, targets ClusterTargets, namespace, outputDir string) int {
+// Download downloads completed SOS reports from the given targets.
+func Download(ctx context.Context, targets ClusterTargets, namespace, caseID, outputDir string) int {
 	downloaded := 0
 	for i := range targets {
-		n, err := downloadFromCluster(ctx, &targets[i], namespace, outputDir)
+		n, err := downloadFromCluster(ctx, &targets[i], namespace, caseID, outputDir)
 		if err != nil {
 			Failure("cluster %s: %v", targets[i].Name, err)
 			continue
@@ -160,16 +167,16 @@ func Download(ctx context.Context, targets ClusterTargets, namespace, outputDir 
 	return downloaded
 }
 
-func downloadFromCluster(ctx context.Context, target *ClusterTarget, namespace, outputDir string) (int, error) {
-	jobs, err := ListJobs(ctx, target.Client, namespace, "")
+func downloadFromCluster(ctx context.Context, target *ClusterTarget, namespace, caseID, outputDir string) (int, error) {
+	jobs, err := ListJobs(ctx, target.Client, namespace, caseID)
 	if err != nil {
 		return 0, err
 	}
 
 	downloaded := 0
 	for _, job := range jobs {
-		nodeName := job.Labels[labelNode]
-		clusterName := job.Labels[labelCluster]
+		nodeName := job.Annotations[annotationNode]
+		clusterName := job.Annotations[annotationCluster]
 
 		if nodeName == "" {
 			continue
@@ -187,7 +194,7 @@ func downloadFromCluster(ctx context.Context, target *ClusterTarget, namespace, 
 			continue
 		}
 
-		runningPod, err := FindReadyDownloadPod(ctx, target.Client, namespace, job.Spec.Template.Labels)
+		runningPod, err := FindReadyDownloadPod(ctx, target.Client, namespace, &job)
 		if err != nil {
 			Failure("%s/%s: %v", clusterName, nodeName, err)
 			continue
@@ -211,6 +218,21 @@ func downloadFromCluster(ctx context.Context, target *ClusterTarget, namespace, 
 	return downloaded, nil
 }
 
+func downloadFilename(clusterName, nodeName string) string {
+	rawName := fmt.Sprintf("sosreport-%s-%s", clusterName, nodeName)
+	filename := rawName + downloadFileSuffix
+	if len(filename) <= maxDownloadFilenameLength {
+		return filename
+	}
+
+	hash := shortHash(rawName)
+	maxBaseLength := maxDownloadFilenameLength - len(downloadFileSuffix)
+	maxPrefixLength := maxBaseLength - len(hash) - 1
+	prefix := rawName[:maxPrefixLength]
+	prefix = strings.TrimRight(prefix, ".-")
+	return fmt.Sprintf("%s-%s%s", prefix, hash, downloadFileSuffix)
+}
+
 // CleanupResources deletes sosreport resources (Jobs, Secrets) matching the given labels.
 func CleanupResources(ctx context.Context, c client.Client, namespace string, labels map[string]string) error {
 	listOpts := []client.ListOption{
@@ -229,7 +251,7 @@ func CleanupResources(ctx context.Context, c client.Client, namespace string, la
 		errs = append(errs, fmt.Errorf("list Jobs: %w", err))
 	} else {
 		for i := range jobList.Items {
-			if err := c.Delete(ctx, &jobList.Items[i], deleteOpts...); err != nil {
+			if err := c.Delete(ctx, &jobList.Items[i], deleteOpts...); client.IgnoreNotFound(err) != nil {
 				errs = append(errs, fmt.Errorf("delete Job %s: %w", jobList.Items[i].Name, err))
 			}
 		}
@@ -241,7 +263,7 @@ func CleanupResources(ctx context.Context, c client.Client, namespace string, la
 		errs = append(errs, fmt.Errorf("list Secrets: %w", err))
 	} else {
 		for i := range secretList.Items {
-			if err := c.Delete(ctx, &secretList.Items[i]); err != nil {
+			if err := c.Delete(ctx, &secretList.Items[i]); client.IgnoreNotFound(err) != nil {
 				errs = append(errs, fmt.Errorf("delete Secret %s: %w", secretList.Items[i].Name, err))
 			}
 		}
