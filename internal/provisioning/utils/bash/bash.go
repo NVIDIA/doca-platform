@@ -22,10 +22,21 @@ import (
 	"os/exec"
 )
 
+type CmdOption func(*exec.Cmd)
+
 func Run(cmdStr string) (stdout, stderr bytes.Buffer, err error) {
+	return RunWithOptions(cmdStr)
+}
+
+func RunWithOptions(cmdStr string, opts ...CmdOption) (stdout, stderr bytes.Buffer, err error) {
 	cmd := exec.Command("bash", "-c", cmdStr)
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	for _, opt := range opts {
+		if opt != nil {
+			opt(cmd)
+		}
+	}
 	err = cmd.Run()
 	if err != nil {
 		return stdout, stderr, fmt.Errorf("failed to run command: %w", err)
