@@ -330,6 +330,47 @@ spec:
                       OVS.
                     type: string
                 type: object
+              packages:
+                description: Packages are the packages to reconcile on the node.
+                items:
+                  description: PackageSpec defines a package to reconcile on the node.
+                  properties:
+                    name:
+                      description: Name is the package name.
+                      minLength: 1
+                      type: string
+                    repoFileRef:
+                      description: |-
+                        RepoFileRef constrains package resolution to a specific repository file available on the node.
+                        If empty, any configured repository may satisfy the package.
+                        If specified, only the referenced repository file may provide candidates.
+                        If that repository file does not provide the package or requested version, the dpu-agent flow does not continue.
+                      type: string
+                    version:
+                      description: |-
+                        Version constrains the package version.
+                        If empty, any installed version satisfies the spec.
+                      properties:
+                        matchPolicy:
+                          default: AtLeast
+                          description: |-
+                            MatchPolicy controls how Value is matched.
+                            If omitted, AtLeast is used.
+                          enum:
+                          - Exact
+                          - AtLeast
+                          type: string
+                        value:
+                          description: Value is the package version to compare against.
+                          minLength: 1
+                          type: string
+                      required:
+                      - value
+                      type: object
+                  required:
+                  - name
+                  type: object
+                type: array
               sysctl:
                 description: Sysctl contains the sysctl configuration for the DPUFlavor.
                 properties:

@@ -41,6 +41,11 @@ spec:
         [Service]
         ExecStart=
         ExecStart=/bin/bash -c '/opt/dpf/dpuagent $(cat /opt/dpf/dpuagent.conf) --skip-reboot-method-discovery'
+  packages:
+    - name: tree
+      version:
+        value: "0.1"
+        matchPolicy: AtLeast
   grub:
     kernelParameters:
       - console=hvc0

@@ -38,6 +38,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/nicprovisioning"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/nvconfig"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/ovsscript"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/packages"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/reboot"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/sfconfig"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/staticfiles"
@@ -77,6 +78,7 @@ func NewDPUAgent(optCtx *operations.Context) *DPUAgent {
 		&nicprovisioning.NICProvisioning{},
 		&dns.ConfigureDNS{},
 		&staticfiles.VerifyStaticFiles{},
+		&packages.InstallPackages{},
 		&kubelet.RemoveBuiltinKubelet{},
 		&sysctl.SetParams{},
 		&sysctl.CheckParams{},

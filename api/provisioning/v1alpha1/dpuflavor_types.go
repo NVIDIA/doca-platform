@@ -60,6 +60,9 @@ type DPUFlavorSpec struct {
 	// ConfigFiles are the files to be written on the DPU.
 	// +optional
 	ConfigFiles []ConfigFile `json:"configFiles,omitempty"`
+	// Packages are the packages to reconcile on the node.
+	// +optional
+	Packages []PackageSpec `json:"packages,omitempty"`
 	// ContainerdConfig contains the configuration for containerd.
 	// +optional
 	ContainerdConfig ContainerdConfig `json:"containerdConfig,omitempty"`
@@ -175,6 +178,47 @@ type ConfigFile struct {
 	// +optional
 	Permissions string `json:"permissions,omitempty"`
 }
+
+// PackageSpec defines a package to reconcile on the node.
+type PackageSpec struct {
+	// Name is the package name.
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+	// Version constrains the package version.
+	// If empty, any installed version satisfies the spec.
+	// +optional
+	Version *PackageVersionSpec `json:"version,omitempty"`
+	// RepoFileRef constrains package resolution to a specific repository file available on the node.
+	// If empty, any configured repository may satisfy the package.
+	// If specified, only the referenced repository file may provide candidates.
+	// If that repository file does not provide the package or requested version, the dpu-agent flow does not continue.
+	// +optional
+	RepoFileRef string `json:"repoFileRef,omitempty"`
+}
+
+// PackageVersionSpec defines a package version constraint.
+type PackageVersionSpec struct {
+	// Value is the package version to compare against.
+	// +kubebuilder:validation:MinLength=1
+	Value string `json:"value"`
+	// MatchPolicy controls how Value is matched.
+	// If omitted, AtLeast is used.
+	// +kubebuilder:validation:Enum=Exact;AtLeast
+	// +kubebuilder:default=AtLeast
+	// +optional
+	MatchPolicy PackageVersionMatchPolicy `json:"matchPolicy,omitempty"`
+}
+
+// PackageVersionMatchPolicy defines how a package version constraint is evaluated.
+type PackageVersionMatchPolicy string
+
+const (
+	// PackageVersionMatchExact requires the installed package version to equal Value.
+	PackageVersionMatchExact PackageVersionMatchPolicy = "Exact"
+
+	// PackageVersionMatchAtLeast requires the installed package version to be greater than or equal to Value.
+	PackageVersionMatchAtLeast PackageVersionMatchPolicy = "AtLeast"
+)
 
 type ContainerdConfig struct {
 	// RegistryEndpoint is the endpoint of the container registry.

@@ -82,6 +82,67 @@ var _ = Describe("Provisioning API Validation", func() {
 	})
 
 	Context("When checking the DPUFlavor API validations", func() {
+		Context("Package validation", func() {
+			It("should default package version match policy to AtLeast", func() {
+				obj := getMinimalDPUFlavor(testNs.Name)
+				obj.Spec.Packages = []provisioningv1.PackageSpec{
+					{
+						Name: "doca-extra",
+						Version: &provisioningv1.PackageVersionSpec{
+							Value: "1.2.3",
+						},
+						RepoFileRef: "/etc/apt/sources.list.d/doca.list",
+					},
+				}
+				Expect(testClient.Create(ctx, obj)).To(Succeed())
+				Expect(obj.Spec.Packages[0].Version.MatchPolicy).To(Equal(provisioningv1.PackageVersionMatchAtLeast))
+			})
+
+			It("should accept package version settings with exact match policy", func() {
+				obj := getMinimalDPUFlavor(testNs.Name)
+				obj.Spec.Packages = []provisioningv1.PackageSpec{
+					{
+						Name: "doca-extra",
+						Version: &provisioningv1.PackageVersionSpec{
+							Value:       "1.2.3",
+							MatchPolicy: provisioningv1.PackageVersionMatchExact,
+						},
+					},
+				}
+				Expect(testClient.Create(ctx, obj)).To(Succeed())
+			})
+
+			It("should reject package settings without a name", func() {
+				obj := getMinimalDPUFlavor(testNs.Name)
+				obj.Spec.Packages = []provisioningv1.PackageSpec{{}}
+				err := testClient.Create(ctx, obj)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(Or(
+					ContainSubstring("Required value"),
+					ContainSubstring("name"),
+				))
+			})
+
+			DescribeTable("should reject invalid package version settings",
+				func(version *provisioningv1.PackageVersionSpec) {
+					obj := getMinimalDPUFlavor(testNs.Name)
+					obj.Spec.Packages = []provisioningv1.PackageSpec{
+						{
+							Name:    "doca-extra",
+							Version: version,
+						},
+					}
+					err := testClient.Create(ctx, obj)
+					Expect(err).To(HaveOccurred())
+				},
+				Entry("missing version value", &provisioningv1.PackageVersionSpec{}),
+				Entry("invalid match policy", &provisioningv1.PackageVersionSpec{
+					Value:       "1.2.3",
+					MatchPolicy: provisioningv1.PackageVersionMatchPolicy("Latest"),
+				}),
+			)
+		})
+
 		Context("NVConfig validation", func() {
 			// ✅ Valid Configurations
 			Context("Valid Configurations", func() {
