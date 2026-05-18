@@ -46,6 +46,10 @@ var sosreportStatusCmd = &cobra.Command{
   # Watch with a custom refresh interval (seconds)
   dpfctl sosreport status -w -i 10`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := validateSOSReportCaseID(); err != nil {
+			return err
+		}
+
 		targets, err := getTargets(cmd.Context())
 		if err != nil {
 			return err

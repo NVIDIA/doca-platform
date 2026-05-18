@@ -72,8 +72,8 @@ func collectStatus(ctx context.Context, targets ClusterTargets, namespace, caseI
 		}
 		for _, job := range jobs {
 			results = append(results, statusResult{
-				cluster: job.Labels[labelCluster],
-				node:    job.Labels[labelNode],
+				cluster: job.Annotations[annotationCluster],
+				node:    job.Annotations[annotationNode],
 				job:     job.Name,
 				status:  resolveStatus(ctx, target, namespace, &job),
 				age:     time.Since(job.CreationTimestamp.Time).Truncate(time.Second),
@@ -152,7 +152,7 @@ func WatchStatus(ctx context.Context, targets ClusterTargets, namespace, caseID 
 				}
 				prev[job.Name] = status
 				fmt.Printf(f,
-					job.Labels[labelCluster], job.Labels[labelNode], job.Name, status,
+					job.Annotations[annotationCluster], job.Annotations[annotationNode], job.Name, status,
 					time.Since(job.CreationTimestamp.Time).Truncate(time.Second))
 			}
 		}
@@ -163,7 +163,7 @@ func WatchStatus(ctx context.Context, targets ClusterTargets, namespace, caseID 
 func resolveStatus(ctx context.Context, target ClusterTarget, namespace string, job *batchv1.Job) string {
 	status := JobStatus(job)
 	if status == "Running" {
-		pod, _ := FindReadyDownloadPod(ctx, target.Client, namespace, job.Spec.Template.Labels)
+		pod, _ := FindReadyDownloadPod(ctx, target.Client, namespace, job)
 		if pod != nil {
 			status = "Ready"
 		}
@@ -206,6 +206,6 @@ func IsJobDone(job *batchv1.Job) bool {
 // IsSosreportDone returns true if the sosreport init container has completed
 // and the pod is running (ready for download).
 func IsSosreportDone(ctx context.Context, target ClusterTarget, job *batchv1.Job) bool {
-	pod, err := FindReadyDownloadPod(ctx, target.Client, job.Namespace, job.Spec.Template.Labels)
+	pod, err := FindReadyDownloadPod(ctx, target.Client, job.Namespace, job)
 	return err == nil && pod != nil
 }

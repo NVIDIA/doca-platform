@@ -19,12 +19,16 @@ package sosreport
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
+
+	"github.com/nvidia/doca-platform/internal/digest"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
@@ -36,13 +40,15 @@ const (
 	// labelManagedBy is the label key for identifying resources managed by dpfctl.
 	labelManagedBy = "app.kubernetes.io/managed-by"
 	// labelComponent is the label key for identifying the component.
-	labelComponent = "dpfctl.dpf.nvidia.com/component"
+	labelComponent = "dpfctl.dpu.nvidia.com/component"
 	// labelCaseID is the label key for the case ID.
-	labelCaseID = "dpfctl.dpf.nvidia.com/case-id"
-	// labelNode is the label key for the node name.
-	labelNode = "dpfctl.dpf.nvidia.com/node"
-	// labelCluster is the label key for the cluster name.
-	labelCluster = "dpfctl.dpf.nvidia.com/cluster"
+	labelCaseID = "dpfctl.dpu.nvidia.com/case-id"
+	// labelNodeID is the label key for a bounded node identifier.
+	labelNodeID = "dpfctl.dpu.nvidia.com/node-id"
+	// annotationNode is the annotation key for the node name.
+	annotationNode = "dpfctl.dpu.nvidia.com/node"
+	// annotationCluster is the annotation key for the cluster name.
+	annotationCluster = "dpfctl.dpu.nvidia.com/cluster"
 	// componentValue is the component label value for sosreport resources.
 	componentValue = "sosreport"
 	// managedByValue is the managed-by label value.
@@ -51,6 +57,10 @@ const (
 	outputDir      = "/sos-output"
 	secretDataKey  = "kubeconfig"
 	secretBaseName = "sos-admin-config"
+
+	generatedNameSuffixLength    = 5
+	maxJobGenerateNamePrefixSize = validation.LabelValueMaxLength - generatedNameSuffixLength
+	hashLength                   = 10
 )
 
 // OutputMode defines where the SOS report output is stored.
@@ -79,14 +89,33 @@ type JobOptions struct {
 }
 
 // commonLabels returns the standard labels for all sosreport resources.
-func commonLabels(caseID, nodeName, clusterName string) map[string]string {
+func commonLabels(caseID string) map[string]string {
 	return map[string]string{
 		labelManagedBy: managedByValue,
 		labelComponent: componentValue,
 		labelCaseID:    caseID,
-		labelNode:      nodeName,
-		labelCluster:   clusterName,
 	}
+}
+
+// podLabels returns labels for node-specific sosreport resources.
+func podLabels(caseID, nodeName string) map[string]string {
+	labels := commonLabels(caseID)
+	labels[labelNodeID] = nodeLabelValue(nodeName)
+	return labels
+}
+
+// commonAnnotations returns the standard annotations for all sosreport resources.
+func commonAnnotations(clusterName string) map[string]string {
+	return map[string]string{
+		annotationCluster: clusterName,
+	}
+}
+
+// jobAnnotations returns annotations for node-specific sosreport resources.
+func jobAnnotations(clusterName, nodeName string) map[string]string {
+	annotations := commonAnnotations(clusterName)
+	annotations[annotationNode] = nodeName
+	return annotations
 }
 
 // selectorLabels returns labels used to select sosreport resources.
@@ -97,9 +126,22 @@ func selectorLabels() map[string]string {
 	}
 }
 
-// jobName returns the Job name for a given node and case ID.
-func jobName(caseID, nodeName string) string {
-	return fmt.Sprintf("sos-%s-%s", caseID, nodeName)
+// jobGenerateName returns a Kubernetes GenerateName prefix for a node/case pair.
+// The final Job name is propagated by Kubernetes into the pod template's
+// batch.kubernetes.io/job-name label, so the generated name must stay within
+// the 63-byte label value limit. The readable part uses the short node name,
+// while the hash uses the full node name to disambiguate FQDNs with the same
+// first label.
+func jobGenerateName(caseID, nodeName string) string {
+	rawName := fmt.Sprintf("sos-%s-%s", caseID, nodeName)
+	name := dns1123NamePart(fmt.Sprintf("sos-%s-%s", caseID, shortNodeName(nodeName)))
+	hash := shortHash(rawName)
+	if len(name)+len(hash)+2 <= maxJobGenerateNamePrefixSize {
+		return fmt.Sprintf("%s-%s-", name, hash)
+	}
+
+	name = truncateDNS1123NamePart(name, maxJobGenerateNamePrefixSize-len(hash)-2)
+	return fmt.Sprintf("%s-%s-", name, hash)
 }
 
 // secretName returns the kubeconfig Secret name for a given cluster.
@@ -109,9 +151,6 @@ func secretName(clusterName string) string {
 
 // CreateJob creates a SOS report Job on the given cluster for the specified node.
 func CreateJob(ctx context.Context, c client.Client, opts JobOptions) (*batchv1.Job, error) {
-	labels := commonLabels(opts.CaseID, opts.NodeName, opts.ClusterName)
-	jobName := jobName(opts.CaseID, opts.NodeName)
-
 	sosContainer := corev1.Container{
 		Name:            "sosreport",
 		Image:           opts.Image,
@@ -267,11 +306,15 @@ func CreateJob(ctx context.Context, c client.Client, opts JobOptions) (*batchv1.
 		})
 	}
 
+	labels := podLabels(opts.CaseID, opts.NodeName)
+	annotations := jobAnnotations(opts.ClusterName, opts.NodeName)
+	generateName := jobGenerateName(opts.CaseID, opts.NodeName)
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      jobName,
-			Namespace: opts.Namespace,
-			Labels:    labels,
+			GenerateName: generateName,
+			Namespace:    opts.Namespace,
+			Labels:       labels,
+			Annotations:  annotations,
 		},
 		Spec: batchv1.JobSpec{
 			Completions:           ptr.To(int32(1)),
@@ -280,7 +323,8 @@ func CreateJob(ctx context.Context, c client.Client, opts JobOptions) (*batchv1.
 			ActiveDeadlineSeconds: ptr.To(int64(opts.Timeout.Seconds())),
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: labels,
+					Labels:      labels,
+					Annotations: annotations,
 				},
 				Spec: podSpec(opts.NodeName, container, initContainers, volumes),
 			},
@@ -298,9 +342,10 @@ func CreateJob(ctx context.Context, c client.Client, opts JobOptions) (*batchv1.
 func CreateKubeconfigSecret(ctx context.Context, c client.Client, namespace, clusterName, caseID string, data []byte) error {
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      secretName(clusterName),
-			Namespace: namespace,
-			Labels:    commonLabels(caseID, "", clusterName),
+			Name:        secretName(clusterName),
+			Namespace:   namespace,
+			Labels:      commonLabels(caseID),
+			Annotations: commonAnnotations(clusterName),
 		},
 		Data: map[string][]byte{
 			secretDataKey: data,
@@ -359,9 +404,14 @@ func isNFSJob(job *batchv1.Job) bool {
 
 // FindReadyDownloadPod finds a running pod for download (sleep strategy).
 // With sleep strategy, the pod is Running and sleeping after sosreport completes.
-func FindReadyDownloadPod(ctx context.Context, c client.Client, namespace string, podLabels map[string]string) (*corev1.Pod, error) {
+func FindReadyDownloadPod(ctx context.Context, c client.Client, namespace string, job *batchv1.Job) (*corev1.Pod, error) {
+	podSelector, err := metav1.LabelSelectorAsSelector(job.Spec.Selector)
+	if err != nil {
+		return nil, err
+	}
+
 	podList := &corev1.PodList{}
-	if err := c.List(ctx, podList, client.InNamespace(namespace), client.MatchingLabels(podLabels)); err != nil {
+	if err := c.List(ctx, podList, client.InNamespace(namespace), client.MatchingLabelsSelector{Selector: podSelector}); err != nil {
 		return nil, err
 	}
 	for i := range podList.Items {
@@ -384,6 +434,46 @@ func ListJobs(ctx context.Context, c client.Client, namespace, caseID string) ([
 		return nil, fmt.Errorf("list SOS report Jobs: %w", err)
 	}
 	return jobList.Items, nil
+}
+
+func shortNodeName(nodeName string) string {
+	shortName, _, found := strings.Cut(nodeName, ".")
+	if found && shortName != "" {
+		return shortName
+	}
+	return nodeName
+}
+
+func shortHash(value string) string {
+	return digest.Short(digest.FromObjects(value), hashLength)
+}
+
+func nodeLabelValue(nodeName string) string {
+	name := dns1123NamePart(shortNodeName(nodeName))
+	hash := shortHash(nodeName)
+	maxNameLength := validation.LabelValueMaxLength - len(hash) - 1
+	name = truncateDNS1123NamePart(name, maxNameLength)
+	return fmt.Sprintf("%s-%s", name, hash)
+}
+
+func dns1123NamePart(value string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(value) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			b.WriteRune(r)
+			continue
+		}
+		b.WriteByte('-')
+	}
+	name := b.String()
+	return truncateDNS1123NamePart(name, len(name))
+}
+
+func truncateDNS1123NamePart(value string, maxLength int) string {
+	if len(value) > maxLength {
+		value = value[:maxLength]
+	}
+	return strings.Trim(value, "-")
 }
 
 // CreateKubeconfigDataFromConfig converts a rest.Config into kubeconfig YAML bytes.

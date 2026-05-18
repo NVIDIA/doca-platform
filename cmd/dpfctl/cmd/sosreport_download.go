@@ -80,6 +80,9 @@ func runSOSReportDownload(ctx context.Context) error {
 	if err := os.MkdirAll(sosOpts.outputDir, 0o755); err != nil {
 		return fmt.Errorf("create output directory %s: %w", sosOpts.outputDir, err)
 	}
+	if err := validateSOSReportCaseID(); err != nil {
+		return err
+	}
 
 	targets, err := getTargets(ctx)
 	if err != nil {
@@ -87,7 +90,7 @@ func runSOSReportDownload(ctx context.Context) error {
 	}
 	defer targets.Close()
 
-	downloaded := sosreport.Download(ctx, targets, sosOpts.namespace, sosOpts.outputDir)
+	downloaded := sosreport.Download(ctx, targets, sosOpts.namespace, sosOpts.caseID, sosOpts.outputDir)
 
 	if downloaded == 0 {
 		sosreport.ResultFail("No completed SOS reports found to download")

@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -61,8 +62,8 @@ func ValidateStartOptions(opts *StartOptions) error {
 		opts.CaseID = fmt.Sprintf("dpf-%s", now)
 	}
 
-	if strings.ContainsAny(opts.CaseID, "/\\") || strings.Contains(opts.CaseID, "..") {
-		return fmt.Errorf("invalid case-id %q: must not contain path separators or '..'", opts.CaseID)
+	if err := ValidateCaseID(opts.CaseID); err != nil {
+		return err
 	}
 
 	if opts.Output == OutputNFS && !opts.NFSNoSub {
@@ -73,6 +74,20 @@ func ValidateStartOptions(opts *StartOptions) error {
 		opts.Archive = true
 	}
 
+	return nil
+}
+
+// ValidateCaseID validates a user-provided case ID used in labels and paths.
+func ValidateCaseID(caseID string) error {
+	if caseID == "" {
+		return nil
+	}
+	if strings.ContainsAny(caseID, "/\\") || strings.Contains(caseID, "..") {
+		return fmt.Errorf("invalid case-id %q: must not contain path separators or '..'", caseID)
+	}
+	if errs := validation.IsValidLabelValue(caseID); len(errs) > 0 {
+		return fmt.Errorf("invalid case-id %q: must be a valid Kubernetes label value: %s", caseID, strings.Join(errs, "; "))
+	}
 	return nil
 }
 
