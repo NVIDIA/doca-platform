@@ -1793,6 +1793,7 @@ _Appears in:_
 | `numberOfPFs` _integer_ | NumberOfPFs is the number of PFs on the device.<br />This value is immutable and should not be changed once set.<br />Example: 1 | 1 | Minimum: 1 <br />Optional: \{\} <br /> |
 | `nicDeviceCount` _integer_ | NICDeviceCount is the expected number of NIC devices used by dpu-agent provisioning.<br />Valid range is 1 to 8. When unspecified, it defaults to 8. |  | Maximum: 8 <br />Minimum: 1 <br />Optional: \{\} <br /> |
 | `pf0Name` _string_ | PF0Name is the name of the PF0 on the device.<br />This value is immutable and should not be changed once set.<br />Example: "eth0"<br />Deprecated: This field is deprecated and will be removed in a future version. Use status.pf0Name instead. |  | Optional: \{\} <br /> |
+| `bmcCredentialSecretName` _string_ | BMCCredentialSecretName is the name of a Secret in the same namespace containing<br />per-device BMC credentials. The secret must contain a "password" key with the BMC credential value.<br />If specified, this password takes precedence over the shared bmc-shared-password secret. |  | Optional: \{\} <br /> |
 | `cluster` _[DPUDeviceClusterSpec](#dpudeviceclusterspec)_ | Specifies details on the K8S cluster to join |  | Optional: \{\} <br /> |
 
 
@@ -1820,6 +1821,7 @@ _Appears in:_
 | `dpuType` _[DPUType](#dputype)_ | DPUType is the type of the DPU. | Unknown | Enum: [Unknown BlueField2 BlueField3 BlueField4] <br />Optional: \{\} <br /> |
 | `dpuMode` _[DpuModeType](#dpumodetype)_ | DPUMode is the mode of the DPU. | dpu | Enum: [dpu nic] <br />Optional: \{\} <br /> |
 | `secureBoot` _[SecureBootStatus](#securebootstatus)_ | SecureBoot indicates the current UEFI Secure Boot state. |  | Optional: \{\} <br /> |
+| `bmcCredentialSecretName` _string_ | BMCCredentialSecretName is the name of the Secret last used successfully for BMC authentication. |  | Optional: \{\} <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ |  |  | Optional: \{\} <br /> |
 
 

@@ -46,6 +46,12 @@ spec:
           spec:
             description: DPUDeviceSpec defines the content of DPUDevice
             properties:
+              bmcCredentialSecretName:
+                description: |-
+                  BMCCredentialSecretName is the name of a Secret in the same namespace containing
+                  per-device BMC credentials. The secret must contain a "password" key with the BMC credential value.
+                  If specified, this password takes precedence over the shared bmc-shared-password secret.
+                type: string
               bmcIp:
                 description: |-
                   BMCIP is the IP address of the BMC (Base Management Controller) on the device.
@@ -156,6 +162,10 @@ spec:
             type: object
           status:
             properties:
+              bmcCredentialSecretName:
+                description: BMCCredentialSecretName is the name of the Secret last
+                  used successfully for BMC authentication.
+                type: string
               bmcIp:
                 description: |-
                   BMCIP is the IP address of the BMC (Base Management Controller) on the device.

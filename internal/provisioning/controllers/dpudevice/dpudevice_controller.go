@@ -44,6 +44,7 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -63,6 +64,7 @@ type DPUDeviceReconciler struct {
 //+kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpudevices/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpudevices/finalizers,verbs=update
 //+kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpus,verbs=get;list;watch
+//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;patch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -85,8 +87,33 @@ func (r *DPUDeviceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, err
 	}
 
-	// Reconcile the DPUDevice
+	if !dpuDevice.DeletionTimestamp.IsZero() {
+		return r.reconcileDelete(ctx, dpuDevice)
+	}
+
 	return r.reconcile(ctx, dpuDevice)
+}
+
+// reconcileDelete handles cleanup when a DPUDevice is being deleted.
+func (r *DPUDeviceReconciler) reconcileDelete(ctx context.Context, dpuDevice *provisioningv1.DPUDevice) (ctrl.Result, error) {
+	log := log.FromContext(ctx)
+
+	if !controllerutil.ContainsFinalizer(dpuDevice, provisioningv1.BMCCredentialFinalizer) {
+		return ctrl.Result{}, nil
+	}
+
+	if err := r.cleanupCredentialFinalizer(ctx, dpuDevice); err != nil {
+		log.Error(err, "Failed to clean up credential finalizer")
+		return ctrl.Result{}, err
+	}
+
+	patch := client.MergeFrom(dpuDevice.DeepCopy())
+	controllerutil.RemoveFinalizer(dpuDevice, provisioningv1.BMCCredentialFinalizer)
+	if err := r.Client.Patch(ctx, dpuDevice, patch); err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to remove BMCCredentialFinalizer from DPUDevice: %w", err)
+	}
+
+	return ctrl.Result{}, nil
 }
 
 // reconcile handles the main reconciliation logic for DPUDevice
@@ -152,6 +179,14 @@ func (r *DPUDeviceReconciler) reconcile(ctx context.Context, dpuDevice *provisio
 		return ctrl.Result{}, err
 	}
 
+	// Check for disallowed mode switch (per-device → shared)
+	if !r.isModeSwitchAllowed(dpuDevice) {
+		conditions.AddFalse(dpuDevice, provisioningv1.ConditionBMCCredentialsReady,
+			conditions.ConditionReason(provisioningv1.ReasonModeSwitchNotAllowed),
+			conditions.ConditionMessage("Switching from per-device to shared credentials is not allowed. Delete and recreate the DPUDevice to use shared mode."))
+		return ctrl.Result{}, nil
+	}
+
 	condition := conditions.Get(dpuDevice, provisioningv1.ConditionDpuDeviceInitialized)
 	if condition == nil || condition.Status == metav1.ConditionFalse {
 		if err := r.initializeDPUDevice(ctx, dpuDevice); err != nil {
@@ -166,6 +201,9 @@ func (r *DPUDeviceReconciler) reconcile(ctx context.Context, dpuDevice *provisio
 		if condition == nil || condition.Status == metav1.ConditionFalse {
 			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
+	} else if _, err := r.resolveAndAuthenticateBMC(ctx, dpuDevice, dpuDevice.BMCAddress(), true); err != nil {
+		log.Error(err, "Failed to reconcile BMC credentials")
+		return ctrl.Result{}, err
 	}
 
 	condition = conditions.Get(dpuDevice, provisioningv1.ConditionDpuDeviceDiscovered)
@@ -271,7 +309,9 @@ func (r *DPUDeviceReconciler) initializeDPUDevice(ctx context.Context, dpuDevice
 	}
 
 	bmcAddress := dpuDevice.BMCAddress()
-	basicAuthClient, err := rfclient.InitPassword(ctx, bmcAddress, dpuDevice.Namespace, r.Client)
+
+	// Resolve BMC credentials and handle rotation
+	basicAuthClient, err := r.resolveAndAuthenticateBMC(ctx, dpuDevice, bmcAddress, false)
 	if err != nil {
 		err = fmt.Errorf("failed to initialize password: %w", err)
 		cutil.SetDPUDeviceCondition(dpuDevice, cutil.NewCondition(string(provisioningv1.ConditionDpuDeviceInitialized), err, "FailedToInitializePassword", err.Error()))
@@ -655,6 +695,195 @@ func (r *DPUDeviceReconciler) createCR(ctx context.Context, dpudevice *provision
 		return err
 	}
 	return r.Client.Create(ctx, cr)
+}
+
+// isModeSwitchAllowed checks whether the requested credential mode transition is permitted.
+// Returns false if status shows per-device usage but spec requests shared mode.
+func (r *DPUDeviceReconciler) isModeSwitchAllowed(dpuDevice *provisioningv1.DPUDevice) bool {
+	if dpuDevice.Status.BMCCredentialSecretName == nil || *dpuDevice.Status.BMCCredentialSecretName == rfclient.BMCPasswordSecret {
+		return true
+	}
+	// Status has a per-device value; check if spec is removing it or setting to shared
+	return dpuDevice.Spec.BMCCredentialSecretName != nil &&
+		*dpuDevice.Spec.BMCCredentialSecretName != "" &&
+		*dpuDevice.Spec.BMCCredentialSecretName != rfclient.BMCPasswordSecret
+}
+
+// resolveAndAuthenticateBMC handles credential resolution, rotation, and BMC authentication.
+// When alreadyInitialized is true the device's password has already been set, so first-use
+// only verifies the credential instead of attempting to change the default BMC password.
+// It returns a basic auth client authenticated against the BMC.
+func (r *DPUDeviceReconciler) resolveAndAuthenticateBMC(ctx context.Context, dpuDevice *provisioningv1.DPUDevice, bmcAddress string, alreadyInitialized bool) (*rfclient.Client, error) {
+	log := log.FromContext(ctx)
+
+	specSecretName := rfclient.BMCPasswordSecret
+	if dpuDevice.Spec.BMCCredentialSecretName != nil && *dpuDevice.Spec.BMCCredentialSecretName != "" {
+		specSecretName = *dpuDevice.Spec.BMCCredentialSecretName
+	}
+
+	statusSecretName := ""
+	if dpuDevice.Status.BMCCredentialSecretName != nil {
+		statusSecretName = *dpuDevice.Status.BMCCredentialSecretName
+	}
+
+	if alreadyInitialized && specSecretName == statusSecretName {
+		conditions.AddTrue(dpuDevice, provisioningv1.ConditionBMCCredentialsReady)
+		return nil, nil
+	}
+
+	isRotation := statusSecretName != "" && statusSecretName != specSecretName
+
+	var basicAuthClient *rfclient.Client
+	if isRotation || alreadyInitialized {
+		cred, err := rfclient.ResolveBMCCredential(ctx, dpuDevice.Namespace, dpuDevice.Spec.BMCCredentialSecretName, r.Client)
+		if err != nil {
+			r.setBMCCredentialsConditionFromError(dpuDevice, err)
+			return nil, err
+		}
+
+		if isRotation {
+			log.Info("Detected credential rotation", "from", statusSecretName, "to", specSecretName)
+
+			oldCred, err := rfclient.ResolveBMCCredential(ctx, dpuDevice.Namespace, &statusSecretName, r.Client)
+			if err != nil {
+				r.setBMCCredentialsConditionFromError(dpuDevice, err)
+				return nil, fmt.Errorf("failed to read old credential secret %q for rotation: %w", statusSecretName, err)
+			}
+
+			basicAuthClient, err = rfclient.RotatePassword(ctx, bmcAddress, cred.Password, oldCred.Password)
+			if err != nil {
+				r.setBMCCredentialsConditionFromError(dpuDevice, fmt.Errorf("password rotation failed: %w", err))
+				return nil, fmt.Errorf("password rotation failed: %w", err)
+			}
+
+			if err := r.moveCredentialFinalizer(ctx, dpuDevice, statusSecretName, specSecretName); err != nil {
+				return nil, fmt.Errorf("failed to move credential finalizer during rotation: %w", err)
+			}
+		} else {
+			log.Info("Adopting per-device credential for an initialized device", "secret", specSecretName)
+			basicAuthClient, _, err = rfclient.VerifyBMCCredential(bmcAddress, cred.Password)
+			if err != nil {
+				r.setBMCCredentialsConditionFromError(dpuDevice, err)
+				return nil, fmt.Errorf("failed to verify per-device credential: %w", err)
+			}
+		}
+	} else {
+		var err error
+		basicAuthClient, err = rfclient.InitPassword(ctx, bmcAddress, dpuDevice.Namespace, dpuDevice.Spec.BMCCredentialSecretName, r.Client)
+		if err != nil {
+			r.setBMCCredentialsConditionFromError(dpuDevice, err)
+			return nil, err
+		}
+	}
+
+	if !isRotation && dpuDevice.Spec.BMCCredentialSecretName != nil && *dpuDevice.Spec.BMCCredentialSecretName != "" {
+		if err := r.ensureCredentialFinalizer(ctx, dpuDevice.Namespace, *dpuDevice.Spec.BMCCredentialSecretName); err != nil {
+			return nil, fmt.Errorf("failed to add finalizer to credential secret: %w", err)
+		}
+	}
+
+	// Update status to reflect the credential in use
+	if specSecretName != rfclient.BMCPasswordSecret {
+		controllerutil.AddFinalizer(dpuDevice, provisioningv1.BMCCredentialFinalizer)
+	}
+	dpuDevice.Status.BMCCredentialSecretName = ptr.To(specSecretName)
+	conditions.AddTrue(dpuDevice, provisioningv1.ConditionBMCCredentialsReady)
+
+	return basicAuthClient, nil
+}
+
+// setBMCCredentialsConditionFromError sets the BMCCredentialsReady condition based on the error type.
+func (r *DPUDeviceReconciler) setBMCCredentialsConditionFromError(dpuDevice *provisioningv1.DPUDevice, err error) {
+	errMsg := err.Error()
+	switch {
+	case strings.Contains(errMsg, "not found"):
+		conditions.AddFalse(dpuDevice, provisioningv1.ConditionBMCCredentialsReady,
+			conditions.ConditionReason(provisioningv1.ReasonCredentialsSecretNotFound),
+			conditions.ConditionMessage(errMsg))
+	case strings.Contains(errMsg, "empty or missing"):
+		conditions.AddFalse(dpuDevice, provisioningv1.ConditionBMCCredentialsReady,
+			conditions.ConditionReason(provisioningv1.ReasonCredentialsSecretInvalid),
+			conditions.ConditionMessage(errMsg))
+	case strings.Contains(errMsg, "password is wrong") || strings.Contains(errMsg, "unexpected BMC status"):
+		conditions.AddFalse(dpuDevice, provisioningv1.ConditionBMCCredentialsReady,
+			conditions.ConditionReason(provisioningv1.ReasonBMCAuthenticationFailed),
+			conditions.ConditionMessage(errMsg))
+	default:
+		conditions.AddFalse(dpuDevice, provisioningv1.ConditionBMCCredentialsReady,
+			conditions.ReasonError,
+			conditions.ConditionMessage(errMsg))
+	}
+}
+
+// ensureCredentialFinalizer adds the BMC credential finalizer to the referenced secret.
+func (r *DPUDeviceReconciler) ensureCredentialFinalizer(ctx context.Context, namespace, secretName string) error {
+	secret := &corev1.Secret{}
+	if err := r.Client.Get(ctx, types.NamespacedName{Name: secretName, Namespace: namespace}, secret); err != nil {
+		return err
+	}
+	if controllerutil.ContainsFinalizer(secret, provisioningv1.BMCCredentialFinalizer) {
+		return nil
+	}
+	patch := client.MergeFrom(secret.DeepCopy())
+	controllerutil.AddFinalizer(secret, provisioningv1.BMCCredentialFinalizer)
+
+	// Ensure the secret is immutable
+	if secret.Immutable == nil || !*secret.Immutable {
+		immutable := true
+		secret.Immutable = &immutable
+	}
+
+	return r.Client.Patch(ctx, secret, patch)
+}
+
+// removeCredentialFinalizer removes the BMC credential finalizer from the given secret.
+func (r *DPUDeviceReconciler) removeCredentialFinalizer(ctx context.Context, namespace, secretName string) error {
+	secret := &corev1.Secret{}
+	if err := r.Client.Get(ctx, types.NamespacedName{Name: secretName, Namespace: namespace}, secret); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	if !controllerutil.ContainsFinalizer(secret, provisioningv1.BMCCredentialFinalizer) {
+		return nil
+	}
+	patch := client.MergeFrom(secret.DeepCopy())
+	controllerutil.RemoveFinalizer(secret, provisioningv1.BMCCredentialFinalizer)
+	return r.Client.Patch(ctx, secret, patch)
+}
+
+// moveCredentialFinalizer removes the finalizer from the old secret and adds it to the new one.
+func (r *DPUDeviceReconciler) moveCredentialFinalizer(ctx context.Context, dpuDevice *provisioningv1.DPUDevice, oldSecretName, newSecretName string) error {
+	// Skip finalizer operations for the shared secret
+	if oldSecretName != rfclient.BMCPasswordSecret {
+		if err := r.removeCredentialFinalizer(ctx, dpuDevice.Namespace, oldSecretName); err != nil {
+			return fmt.Errorf("failed to remove finalizer from old secret %q: %w", oldSecretName, err)
+		}
+	}
+	if newSecretName != rfclient.BMCPasswordSecret {
+		if err := r.ensureCredentialFinalizer(ctx, dpuDevice.Namespace, newSecretName); err != nil {
+			return fmt.Errorf("failed to add finalizer to new secret %q: %w", newSecretName, err)
+		}
+	}
+	return nil
+}
+
+// cleanupCredentialFinalizer removes the BMC credential finalizer from the current credential secret
+// during DPUDevice deletion.
+func (r *DPUDeviceReconciler) cleanupCredentialFinalizer(ctx context.Context, dpuDevice *provisioningv1.DPUDevice) error {
+	secretName := ""
+	if dpuDevice.Status.BMCCredentialSecretName != nil {
+		secretName = *dpuDevice.Status.BMCCredentialSecretName
+	} else if dpuDevice.Spec.BMCCredentialSecretName != nil {
+		secretName = *dpuDevice.Spec.BMCCredentialSecretName
+	}
+
+	if secretName == "" || secretName == rfclient.BMCPasswordSecret {
+		return nil
+	}
+
+	return r.removeCredentialFinalizer(ctx, dpuDevice.Namespace, secretName)
 }
 
 // SetupWithManager sets up the controller with the Manager.

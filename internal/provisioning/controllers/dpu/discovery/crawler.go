@@ -203,7 +203,7 @@ func (c *CrawlerService) worker(ctx context.Context, wg *sync.WaitGroup, jobs <-
 
 		// Now we we know that it's Redfish BMC on this address.
 		// Let's check that this is DPU BMC (could change password if it's default one)
-		client, err = rfclient.InitPassword(ctx, address, c.namespace, c.client)
+		client, err = rfclient.InitPassword(ctx, address, c.namespace, nil, c.client)
 		if err != nil {
 			logger.Error(err, "Failed to create authenticated Redfish client", "address", address)
 			result.Error = err
