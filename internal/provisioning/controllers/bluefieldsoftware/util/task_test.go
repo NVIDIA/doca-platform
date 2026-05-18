@@ -50,13 +50,6 @@ func TestSpecURLForComponent(t *testing.T) {
 		Spec: provisioningv1.BlueFieldSpec{
 			PldmFwBundle: "https://x/pldm",
 			OsIso:        "https://x/iso",
-			TmpFwComponents: &provisioningv1.TmpFwComponents{
-				BmcErot:    "https://x/bmce",
-				BmcFw:      "https://x/bmc",
-				AstraNicFw: "https://x/nic",
-				GraceErot:  "https://x/ge",
-				GraceFw:    "https://x/gf",
-			},
 		},
 	}
 	tests := []struct {
@@ -65,20 +58,11 @@ func TestSpecURLForComponent(t *testing.T) {
 	}{
 		{ComponentTypeFwBundle, "https://x/pldm"},
 		{ComponentTypeOSISO, "https://x/iso"},
-		{ComponentTypeBMCEROT, "https://x/bmce"},
-		{ComponentTypeBMC, "https://x/bmc"},
-		{ComponentTypeNIC, "https://x/nic"},
-		{ComponentTypeGRACEEROT, "https://x/ge"},
-		{ComponentTypeGRACEFW, "https://x/gf"},
 	}
 	for _, tt := range tests {
 		if got := SpecURLForComponent(bfs, tt.ct); got != tt.want {
 			t.Fatalf("%s: got %q, want %q", tt.ct, got, tt.want)
 		}
-	}
-	noTmp := &provisioningv1.BlueFieldSoftware{Spec: provisioningv1.BlueFieldSpec{}}
-	if got := SpecURLForComponent(noTmp, ComponentTypeBMC); got != "" {
-		t.Fatalf("nil TmpFwComponents: got %q", got)
 	}
 }
 

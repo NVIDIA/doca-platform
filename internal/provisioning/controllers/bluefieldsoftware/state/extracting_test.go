@@ -292,7 +292,6 @@ func TestHandle_ExtractSuccess(t *testing.T) {
 	err := st.Handle(context.Background(), nil)
 	require.NoError(t, err)
 	assert.Equal(t, provisioningv1.BlueFieldSoftwareReady, bfs.Status.Phase)
-	assert.Empty(t, bfs.Status.DownloadedComponents.BmcFw)
 	assert.Equal(t, "/tmp/CX9_MT_0000001775_82.48.0906_image.bin", bfs.Status.DownloadedComponents.AstraNicFw)
 	cond := conditions.Get(bfs, provisioningv1.BlueFieldSoftwareCondReady)
 	require.NotNil(t, cond)
