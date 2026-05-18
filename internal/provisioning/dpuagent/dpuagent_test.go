@@ -36,6 +36,20 @@ const testRetryInterval = 1 * time.Millisecond
 
 var _ = Describe("DPUAgent", func() {
 	Describe("Run", func() {
+		It("should include package installation after static file verification", func() {
+			agent := NewDPUAgent(&operations.Context{})
+			names := make([]string, 0, len(agent.operations))
+			for _, op := range agent.operations {
+				names = append(names, op.Name())
+			}
+
+			Expect(names).To(ContainElement("Verify Static Files"))
+			Expect(names).To(ContainElement("Install Packages"))
+			Expect(names).To(ContainElement("Handle Reboot"))
+			Expect(indexOf(names, "Verify Static Files")).To(BeNumerically("<", indexOf(names, "Install Packages")))
+			Expect(indexOf(names, "Install Packages")).To(BeNumerically("<", indexOf(names, "Handle Reboot")))
+		})
+
 		It("should execute operations in order", func() {
 			executionOrder := []string{}
 			mockOps := []operations.Operation{
@@ -481,6 +495,15 @@ func (m *mockOperation) Execute(execCtx context.Context, optCtx *operations.Cont
 		return m.executeFunc(execCtx, optCtx)
 	}
 	return nil
+}
+
+func indexOf(values []string, target string) int {
+	for i, value := range values {
+		if value == target {
+			return i
+		}
+	}
+	return -1
 }
 
 // mockClient is a mock implementation of client.Client for testing

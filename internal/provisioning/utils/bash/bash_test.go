@@ -17,6 +17,9 @@ limitations under the License.
 package bash
 
 import (
+	"os"
+	"os/exec"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -98,6 +101,15 @@ var _ = Describe("Cmd", func() {
 			stdout, stderr, err := Run("export TEST_VAR=testvalue && echo $TEST_VAR")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(stdout.String()).To(Equal("testvalue\n"))
+			Expect(stderr.String()).To(BeEmpty())
+		})
+
+		It("should apply command options before executing", func() {
+			stdout, stderr, err := RunWithOptions("echo $DPF_TEST_VAR", func(cmd *exec.Cmd) {
+				cmd.Env = append(os.Environ(), "DPF_TEST_VAR=from-option")
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stdout.String()).To(Equal("from-option\n"))
 			Expect(stderr.String()).To(BeEmpty())
 		})
 	})
