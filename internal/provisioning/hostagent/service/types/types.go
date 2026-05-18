@@ -30,4 +30,5 @@ type UpdateStatusRequest struct {
 type ConfigureHostVFsRequest struct {
 	DPUName      string `json:"dpuName"`
 	DPUNamespace string `json:"dpuNamespace"`
+	VFCount      int    `json:"vfCount"`
 }
