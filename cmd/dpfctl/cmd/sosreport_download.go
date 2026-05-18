@@ -69,6 +69,10 @@ func init() {
 }
 
 func runSOSReportDownload(ctx context.Context) error {
+	if err := validateSOSReportCaseID(); err != nil {
+		return err
+	}
+
 	targets, err := getTargets(ctx)
 	if err != nil {
 		return err
