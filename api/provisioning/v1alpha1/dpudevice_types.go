@@ -30,6 +30,10 @@ const (
 
 	// DPUDeviceFinalizer is the finalizer used to prevent DpuDevice deletion while DPU is using it
 	DPUDeviceFinalizer = "provisioning.dpu.nvidia.com/dpudevice-protection"
+
+	// BMCCredentialFinalizer is the finalizer added to per-device BMC credential secrets
+	// to prevent accidental deletion while the DPUDevice depends on them.
+	BMCCredentialFinalizer = "provisioning.dpu.nvidia.com/bmc-credential"
 )
 
 // DPUDeviceGroupVersionKind is the GroupVersionKind of the DPUDevice object
@@ -49,6 +53,22 @@ const (
 	ConditionDpuDeviceError conditions.ConditionType = "Error"
 	// ConditionDpuDeviceReady indicates that the DPUDevice is ready
 	ConditionDpuDeviceReady conditions.ConditionType = "Ready"
+	// ConditionBMCCredentialsReady reports the health of BMC credential resolution.
+	ConditionBMCCredentialsReady conditions.ConditionType = "BMCCredentialsReady"
+)
+
+// BMCCredentialsReady condition reasons
+const (
+	// ReasonCredentialsValid indicates the credential secret is valid and authentication succeeded.
+	ReasonCredentialsValid = "CredentialsValid"
+	// ReasonCredentialsSecretNotFound indicates the referenced secret does not exist.
+	ReasonCredentialsSecretNotFound = "CredentialsSecretNotFound"
+	// ReasonCredentialsSecretInvalid indicates the secret exists but is malformed.
+	ReasonCredentialsSecretInvalid = "CredentialsSecretInvalid"
+	// ReasonBMCAuthenticationFailed indicates the password was rejected by the BMC.
+	ReasonBMCAuthenticationFailed = "BMCAuthenticationFailed"
+	// ReasonModeSwitchNotAllowed indicates an attempt to switch from per-device to shared mode.
+	ReasonModeSwitchNotAllowed = "ModeSwitchNotAllowed"
 )
 
 var (
@@ -60,6 +80,7 @@ var (
 		ConditionDpuDeviceInitialized,
 		ConditionDpuDeviceError,
 		ConditionDpuDeviceReady,
+		ConditionBMCCredentialsReady,
 	}
 )
 
@@ -138,6 +159,12 @@ type DPUDeviceSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="PF0 Name is immutable"
 	// +optional
 	PF0Name *string `json:"pf0Name,omitempty"`
+
+	// BMCCredentialSecretName is the name of a Secret in the same namespace containing
+	// per-device BMC credentials. The secret must contain a "password" key with the BMC credential value.
+	// If specified, this password takes precedence over the shared bmc-shared-password secret.
+	// +optional
+	BMCCredentialSecretName *string `json:"bmcCredentialSecretName,omitempty"`
 
 	// Specifies details on the K8S cluster to join
 	// +optional
@@ -225,6 +252,10 @@ type DPUDeviceStatus struct {
 	// SecureBoot indicates the current UEFI Secure Boot state.
 	// +optional
 	SecureBoot *SecureBootStatus `json:"secureBoot,omitempty"`
+
+	// BMCCredentialSecretName is the name of the Secret last used successfully for BMC authentication.
+	// +optional
+	BMCCredentialSecretName *string `json:"bmcCredentialSecretName,omitempty"`
 
 	// +optional
 	Conditions []metav1.Condition `json:"conditions"`
