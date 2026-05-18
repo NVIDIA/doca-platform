@@ -58,7 +58,7 @@ func cleanupOnCluster(ctx context.Context, target ClusterTarget, namespace, case
 	}
 	for i := range jobs {
 		job := &jobs[i]
-		nodeName := job.Labels[labelNode]
+		nodeName := job.Annotations[annotationNode]
 		Success("Deleting %s/%s (job: %s)", target.Name, nodeName, job.Name)
 		if err := target.Client.Delete(ctx, job, deleteOpts...); err != nil {
 			Warn("failed to delete Job %s: %v", job.Name, err)

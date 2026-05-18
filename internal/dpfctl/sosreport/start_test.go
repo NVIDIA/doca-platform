@@ -18,6 +18,7 @@ package sosreport
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -118,23 +119,33 @@ func TestValidateStartOptions_PreserveExistingCaseID(t *testing.T) {
 	g.Expect(opts.CaseID).To(Equal("my-case"))
 }
 
-func TestValidateStartOptions_PathTraversal(t *testing.T) {
+func TestValidateCaseID(t *testing.T) {
 	tests := []struct {
 		name    string
 		caseID  string
 		wantErr bool
 	}{
+		{name: "empty case ID", caseID: "", wantErr: false},
 		{name: "valid case ID", caseID: "CASE-12345", wantErr: false},
+		{name: "valid single character", caseID: "a", wantErr: false},
+		{name: "valid label characters", caseID: "case_123.alpha", wantErr: false},
+		{name: "valid max length", caseID: "case-" + strings.Repeat("a", 58), wantErr: false},
 		{name: "forward slash", caseID: "../../etc", wantErr: true},
 		{name: "backslash", caseID: `case\id`, wantErr: true},
 		{name: "dot-dot", caseID: "case..id", wantErr: true},
 		{name: "embedded slash", caseID: "case/id", wantErr: true},
+		{name: "too long", caseID: "case-" + strings.Repeat("a", 59), wantErr: true},
+		{name: "space", caseID: "case id", wantErr: true},
+		{name: "starts with dash", caseID: "-case", wantErr: true},
+		{name: "ends with dash", caseID: "case-", wantErr: true},
+		{name: "starts with dot", caseID: ".case", wantErr: true},
+		{name: "ends with dot", caseID: "case.", wantErr: true},
+		{name: "starts with underscore", caseID: "_case", wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			g := NewWithT(t)
-			opts := StartOptions{Cluster: "host", Output: OutputLocal, CaseID: tt.caseID}
-			err := ValidateStartOptions(&opts)
+			err := ValidateCaseID(tt.caseID)
 			if tt.wantErr {
 				g.Expect(err).To(HaveOccurred())
 			} else {

@@ -167,6 +167,10 @@ func getTargets(ctx context.Context) (sosreport.ClusterTargets, error) {
 	return sosreport.GetClusterTargets(ctx, sosOpts.cluster, sosOpts.dpuCluster)
 }
 
+func validateSOSReportCaseID() error {
+	return sosreport.ValidateCaseID(sosOpts.caseID)
+}
+
 // completeDPUClusters provides shell completion for --dpu-cluster by listing DPUCluster names.
 func completeDPUClusters(cmd *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
 	targets, err := sosreport.GetClusterTargets(cmd.Context(), "dpu", "")
