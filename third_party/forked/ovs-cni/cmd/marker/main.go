@@ -28,7 +28,6 @@ import (
 	"github.com/golang/glog"
 	"github.com/k8snetworkplumbingwg/ovs-cni/pkg/cache"
 	"github.com/k8snetworkplumbingwg/ovs-cni/pkg/marker"
-	"github.com/k8snetworkplumbingwg/ovs-cni/pkg/ovsdb"
 )
 
 const (
@@ -79,13 +78,10 @@ func main() {
 
 	go keepAlive(healthCheckFile, *healthCheckInterval)
 
-	ovsdbDriver := new(ovsdb.OvsBridgeDriver)
-
 	markerCache := cache.Cache{}
 	wait.JitterUntil(func() {
 		jitteredReconcileInterval := wait.Jitter(time.Duration(*reconcileInterval)*time.Minute, 1.2)
 		shouldReconcileNode := time.Since(markerCache.LastRefreshTime()) >= jitteredReconcileInterval
-		CreateDefaultBridgesAndPorts(*ovsSocket, *ovsdbDriver)
 		if shouldReconcileNode {
 			reportedBridges, err := markerApp.GetReportedResources()
 			if err != nil {
@@ -105,47 +101,6 @@ func main() {
 		}
 
 	}, time.Duration(*updateInterval)*time.Second, 1.2, true, wait.NeverStop)
-}
-
-// TODO: HACK: (aserdean) ensure we always have br-sfc and br-hbn
-func CreateDefaultBridgesAndPorts(socketFile string, ovsDriver ovsdb.OvsBridgeDriver) {
-	ovsDB, err := ovsdb.ConnectToOvsDb(socketFile)
-	if err != nil {
-		glog.Warningf("failed to connect to ovsdb socket %s: error: %v", socketFile, err)
-	}
-	ovsDriver.OvsClient = ovsDB
-	ovsDriver.OvsBridgeName = "br-sfc"
-
-	bridgeExist, err := ovsDriver.IsBridgePresent(ovsdb.SfcBridge)
-	if err != nil {
-		glog.Warningf("IsBridgePresent failed: %v", err)
-	}
-
-	if !bridgeExist {
-		bridgeEnsure, err := ovsDriver.EnsureBridge(ovsdb.SfcBridge)
-		if err != nil {
-			glog.Warningf("EnsureBridge failed: %v", err)
-		}
-		if !bridgeEnsure {
-			glog.Warningf("failed to create bridge %s", ovsdb.SfcBridge)
-		}
-	}
-
-	bridgeExist, err = ovsDriver.IsBridgePresent(ovsdb.HbnBridge)
-	if err != nil {
-		glog.Warningf("IsBridgePresent failed: %v", err)
-	}
-
-	if !bridgeExist {
-		bridgeEnsure, err := ovsDriver.EnsureBridge(ovsdb.HbnBridge)
-		if err != nil {
-			glog.Warningf("EnsureBridge failed: %v", err)
-		}
-		if !bridgeEnsure {
-			glog.Warningf("failed to create bridge %s", ovsdb.HbnBridge)
-		}
-	}
-	ovsDriver.OvsClient.Disconnect()
 }
 
 func keepAlive(healthCheckFile string, healthCheckInterval int) {

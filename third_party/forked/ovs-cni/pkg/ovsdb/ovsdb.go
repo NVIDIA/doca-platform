@@ -686,45 +686,6 @@ func (ovsd *OvsDriver) IsPortPresent(port string) (bool, error) {
 	return true, nil
 }
 
-// EnsureBridge Checks if the bridge entry already exists
-func (ovsd *OvsDriver) EnsureBridge(bridgeName string) (bool, error) {
-	bridge := make(map[string]interface{})
-	bridge["name"] = bridgeName
-
-	bridge["datapath_type"] = "netdev"
-	bridge["fail_mode"] = "secure"
-
-	insertOp := ovsdb.Operation{
-		UUIDName: "dummy",
-		Op:       "insert",
-		Table:    "Bridge",
-		Row:      bridge,
-	}
-	// Inserting/Deleting a Bridge row in Bridge table requires mutating
-	// the open_vswitch table.
-	brUuid := []ovsdb.UUID{{GoUUID: "dummy"}}
-	mutateUuid := brUuid
-	mutateSet, _ := ovsdb.NewOvsSet(mutateUuid)
-	mutation := ovsdb.NewMutation("bridges", ovsdb.MutateOperationInsert, mutateSet)
-
-	// simple mutate operation
-	mutateOp := ovsdb.Operation{
-		Op:        "mutate",
-		Table:     "Open_vSwitch",
-		Mutations: []ovsdb.Mutation{*mutation},
-		Where:     []ovsdb.Condition{ovsdb.NewCondition("system_type", ovsdb.ConditionNotEqual, "")},
-	}
-
-	operations := []ovsdb.Operation{insertOp, mutateOp}
-
-	_, err := ovsd.ovsdbTransact(operations)
-	if err != nil {
-		return false, err
-	}
-
-	return true, nil
-}
-
 // FindBridgeByInterface returns name of the bridge that contains provided interface
 func (ovsd *OvsDriver) FindBridgeByInterface(ifaceName string) (string, error) {
 	iface, err := ovsd.findByCondition("Interface",
