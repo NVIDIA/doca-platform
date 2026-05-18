@@ -51,19 +51,6 @@ spec:
                 type: string
               pldmFwBundle:
                 type: string
-              tmpFwComponents:
-                properties:
-                  astraNicFw:
-                    type: string
-                  bmcErot:
-                    type: string
-                  bmcFw:
-                    type: string
-                  graceErot:
-                    type: string
-                  graceFw:
-                    type: string
-                type: object
             type: object
           status:
             default:
@@ -134,14 +121,6 @@ spec:
                 properties:
                   astraNicFw:
                     type: string
-                  bmcErot:
-                    type: string
-                  bmcFW:
-                    type: string
-                  graceErot:
-                    type: string
-                  graceFw:
-                    type: string
                   osIso:
                     type: string
                   pldmFwBundle:
@@ -166,33 +145,18 @@ spec:
               versions:
                 description: Versions tracks the versions of the components
                 properties:
+                  astraNicFwVersion:
+                    type: string
                   fwBundleVersion:
                     type: string
                   osISOVersion:
                     type: string
-                  tmpFwComponentsVersions:
-                    properties:
-                      astraNicFwVersion:
-                        type: string
-                      bmcErotVersion:
-                        type: string
-                      bmcFwVersion:
-                        type: string
-                      graceErotVersion:
-                        type: string
-                      graceFwVersion:
-                        type: string
-                    type: object
-                required:
-                - tmpFwComponentsVersions
                 type: object
                 x-kubernetes-validations:
                 - message: fwBundleVersion is immutable
                   rule: self.fwBundleVersion == oldSelf.fwBundleVersion
                 - message: osISOVersion is immutable
                   rule: self.osISOVersion == oldSelf.osISOVersion
-                - message: tmpFwComponentsVersions is immutable
-                  rule: self.tmpFwComponentsVersions == oldSelf.tmpFwComponentsVersions
             required:
             - phase
             type: object

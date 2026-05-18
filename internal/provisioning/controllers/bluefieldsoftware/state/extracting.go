@@ -284,7 +284,7 @@ func applyUnpackedComponentsToDownloaded(bfs *provisioningv1.BlueFieldSoftware, 
 		switch {
 		case strings.Contains(imageName, "CX9"):
 			bfs.Status.DownloadedComponents.AstraNicFw = component.FWImage
-			bfs.Status.Versions.TmpFwComponentsVersions.AstraNicFwVersion = component.ComponentVersionString
+			bfs.Status.Versions.AstraNicFwVersion = component.ComponentVersionString
 		}
 	}
 }

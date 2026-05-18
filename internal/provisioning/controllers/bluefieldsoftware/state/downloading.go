@@ -251,41 +251,6 @@ func (st *blueFieldSoftwareDownloadingState) getComponentsToDownload() []compone
 		})
 	}
 
-	// Check TmpFwComponents (optional)
-	if st.bfs.Spec.TmpFwComponents != nil {
-		tc := st.bfs.Spec.TmpFwComponents
-		if tc.BmcErot != "" && !st.componentDownloadSatisfied(butil.ComponentTypeBMCEROT, tc.BmcErot, st.bfs.Status.DownloadedComponents.BmcErot) {
-			components = append(components, componentInfo{
-				URL:           tc.BmcErot,
-				ComponentType: butil.ComponentTypeBMCEROT,
-			})
-		}
-		if tc.BmcFw != "" && !st.componentDownloadSatisfied(butil.ComponentTypeBMC, tc.BmcFw, st.bfs.Status.DownloadedComponents.BmcFw) {
-			components = append(components, componentInfo{
-				URL:           tc.BmcFw,
-				ComponentType: butil.ComponentTypeBMC,
-			})
-		}
-		if tc.AstraNicFw != "" && !st.componentDownloadSatisfied(butil.ComponentTypeNIC, tc.AstraNicFw, st.bfs.Status.DownloadedComponents.AstraNicFw) {
-			components = append(components, componentInfo{
-				URL:           tc.AstraNicFw,
-				ComponentType: butil.ComponentTypeNIC,
-			})
-		}
-		if tc.GraceErot != "" && !st.componentDownloadSatisfied(butil.ComponentTypeGRACEEROT, tc.GraceErot, st.bfs.Status.DownloadedComponents.GraceErot) {
-			components = append(components, componentInfo{
-				URL:           tc.GraceErot,
-				ComponentType: butil.ComponentTypeGRACEEROT,
-			})
-		}
-		if tc.GraceFw != "" && !st.componentDownloadSatisfied(butil.ComponentTypeGRACEFW, tc.GraceFw, st.bfs.Status.DownloadedComponents.GraceFw) {
-			components = append(components, componentInfo{
-				URL:           tc.GraceFw,
-				ComponentType: butil.ComponentTypeGRACEFW,
-			})
-		}
-	}
-
 	return components
 }
 
@@ -295,16 +260,6 @@ func (st *blueFieldSoftwareDownloadingState) updateComponentStatus(componentType
 		st.bfs.Status.DownloadedComponents.PldmFwBundle = destinationPath
 	case butil.ComponentTypeOSISO:
 		st.bfs.Status.DownloadedComponents.OsIso = destinationPath
-	case butil.ComponentTypeBMCEROT:
-		st.bfs.Status.DownloadedComponents.BmcErot = destinationPath
-	case butil.ComponentTypeBMC:
-		st.bfs.Status.DownloadedComponents.BmcFw = destinationPath
-	case butil.ComponentTypeNIC:
-		st.bfs.Status.DownloadedComponents.AstraNicFw = destinationPath
-	case butil.ComponentTypeGRACEEROT:
-		st.bfs.Status.DownloadedComponents.GraceErot = destinationPath
-	case butil.ComponentTypeGRACEFW:
-		st.bfs.Status.DownloadedComponents.GraceFw = destinationPath
 	}
 	st.recorder.Eventf(st.bfs, corev1.EventTypeNormal, events.EventSuccessfulDownloadBFBReason, fmt.Sprintf("Component %s downloaded successfully", componentType))
 	// Clear retry counter on successful download
@@ -315,11 +270,6 @@ func (st *blueFieldSoftwareDownloadingState) cancelAllDownloads() {
 	componentsToCancel := []butil.ComponentType{
 		butil.ComponentTypeFwBundle,
 		butil.ComponentTypeOSISO,
-		butil.ComponentTypeBMCEROT,
-		butil.ComponentTypeBMC,
-		butil.ComponentTypeNIC,
-		butil.ComponentTypeGRACEEROT,
-		butil.ComponentTypeGRACEFW,
 	}
 
 	for _, componentType := range componentsToCancel {

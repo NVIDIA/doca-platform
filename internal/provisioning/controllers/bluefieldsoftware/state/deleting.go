@@ -44,16 +44,6 @@ func (st *blueFieldSoftwareDeletingState) statusPathForComponent(componentType b
 		return st.bfs.Status.DownloadedComponents.PldmFwBundle
 	case butil.ComponentTypeOSISO:
 		return st.bfs.Status.DownloadedComponents.OsIso
-	case butil.ComponentTypeBMCEROT:
-		return st.bfs.Status.DownloadedComponents.BmcErot
-	case butil.ComponentTypeBMC:
-		return st.bfs.Status.DownloadedComponents.BmcFw
-	case butil.ComponentTypeNIC:
-		return st.bfs.Status.DownloadedComponents.AstraNicFw
-	case butil.ComponentTypeGRACEEROT:
-		return st.bfs.Status.DownloadedComponents.GraceErot
-	case butil.ComponentTypeGRACEFW:
-		return st.bfs.Status.DownloadedComponents.GraceFw
 	}
 	return ""
 }
@@ -100,11 +90,7 @@ func (st *blueFieldSoftwareDeletingState) Handle(ctx context.Context, c client.C
 	componentsToDelete := []butil.ComponentType{
 		butil.ComponentTypeFwBundle,
 		butil.ComponentTypeOSISO,
-		butil.ComponentTypeBMCEROT,
-		butil.ComponentTypeBMC,
-		butil.ComponentTypeNIC,
-		butil.ComponentTypeGRACEEROT,
-		butil.ComponentTypeGRACEFW,
+		butil.ComponentTypeAstraNicFw,
 	}
 
 	var errors []error
