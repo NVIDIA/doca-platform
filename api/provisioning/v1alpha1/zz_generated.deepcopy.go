@@ -749,6 +749,11 @@ func (in *DPUDeviceSpec) DeepCopyInto(out *DPUDeviceSpec) {
 		*out = new(string)
 		**out = **in
 	}
+	if in.BMCCredentialSecretName != nil {
+		in, out := &in.BMCCredentialSecretName, &out.BMCCredentialSecretName
+		*out = new(string)
+		**out = **in
+	}
 	if in.Cluster != nil {
 		in, out := &in.Cluster, &out.Cluster
 		*out = new(DPUDeviceClusterSpec)
@@ -813,6 +818,11 @@ func (in *DPUDeviceStatus) DeepCopyInto(out *DPUDeviceStatus) {
 		in, out := &in.SecureBoot, &out.SecureBoot
 		*out = new(SecureBootStatus)
 		(*in).DeepCopyInto(*out)
+	}
+	if in.BMCCredentialSecretName != nil {
+		in, out := &in.BMCCredentialSecretName, &out.BMCCredentialSecretName
+		*out = new(string)
+		**out = **in
 	}
 	if in.Conditions != nil {
 		in, out := &in.Conditions, &out.Conditions

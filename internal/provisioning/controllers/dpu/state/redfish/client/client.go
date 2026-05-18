@@ -32,6 +32,7 @@ import (
 
 	"github.com/go-resty/resty/v2"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -620,23 +621,80 @@ func (c *Client) GetRootService() (*resty.Response, error) {
 	return c.Client.R().Get(APIRootService)
 }
 
-// InitPassword reads a password from the user-created Secret and set it to all DPUs
-func InitPassword(ctx context.Context, bmcAddress string, namespace string, k8sClient client.Client) (*Client, error) {
+// BMCCredentialResult contains the resolved BMC credential information.
+type BMCCredentialResult struct {
+	Password   string
+	SecretName string
+}
+
+// ResolveBMCCredential resolves the BMC password to use for a DPUDevice.
+// If bmcCredentialSecretName is set, it reads the per-device secret.
+// Otherwise it falls back to the shared bmc-shared-password secret.
+func ResolveBMCCredential(ctx context.Context, namespace string, bmcCredentialSecretName *string, k8sClient client.Client) (*BMCCredentialResult, error) {
+	secretName := BMCPasswordSecret
+	if bmcCredentialSecretName != nil && *bmcCredentialSecretName != "" {
+		secretName = *bmcCredentialSecretName
+	}
+	return readPasswordFromSecret(ctx, namespace, secretName, k8sClient)
+}
+
+func readPasswordFromSecret(ctx context.Context, namespace, secretName string, k8sClient client.Client) (*BMCCredentialResult, error) {
+	nn := types.NamespacedName{Name: secretName, Namespace: namespace}
+	secret := &corev1.Secret{}
+	if err := k8sClient.Get(ctx, nn, secret); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, fmt.Errorf("credential secret %q not found: %w", secretName, err)
+		}
+		return nil, fmt.Errorf("failed to get credential secret %q: %w", secretName, err)
+	}
+	passwd := string(secret.Data[BMCSharedPasswordKey])
+	if passwd == "" {
+		return nil, fmt.Errorf("password key is empty or missing in credential secret %q", secretName)
+	}
+	return &BMCCredentialResult{Password: passwd, SecretName: secretName}, nil
+}
+
+// VerifyBMCCredential tries to authenticate to the BMC with the given password,
+// attempting BF3 (root) first, then falling back to BF4 (admin).
+// It returns the authenticated client and the BMC username that succeeded.
+func VerifyBMCCredential(bmcAddress, password string) (*Client, string, error) {
 	if !strings.HasPrefix(bmcAddress, httpsPrefix) {
 		bmcAddress = httpsPrefix + bmcAddress
 	}
-	// get BMC password from the secret created by user
-	nn := types.NamespacedName{Name: BMCPasswordSecret, Namespace: namespace}
-	passwdSecret := &corev1.Secret{}
-	if err := k8sClient.Get(ctx, nn, passwdSecret); err != nil {
-		return nil, err
+
+	for _, user := range []string{BF3BMCUser, BF4BMCUser} {
+		c, err := NewBasicAuthClient(bmcAddress, user, password)
+		if err != nil {
+			return nil, "", err
+		}
+		resp, _, err := c.CheckBMCFirmware()
+		if err != nil {
+			return nil, "", err
+		}
+		switch resp.StatusCode() {
+		case http.StatusOK:
+			return c, user, nil
+		case http.StatusUnauthorized:
+			continue
+		default:
+			return nil, "", fmt.Errorf("unexpected BMC status: %s", resp.Status())
+		}
 	}
-	passwd := string(passwdSecret.Data[BMCSharedPasswordKey])
-	if passwd == "" {
-		return nil, fmt.Errorf("password not specified in secret %s", nn.String())
+	return nil, "", fmt.Errorf("the default BMC password has been changed and the given password is wrong")
+}
+
+// InitPassword resolves the BMC password and authenticates to the BMC.
+func InitPassword(ctx context.Context, bmcAddress string, namespace string, bmcCredentialSecretName *string, k8sClient client.Client) (*Client, error) {
+	if !strings.HasPrefix(bmcAddress, httpsPrefix) {
+		bmcAddress = httpsPrefix + bmcAddress
 	}
 
-	// check if the default password has been changed as requested by the DOCA BMC manual
+	cred, err := ResolveBMCCredential(ctx, namespace, bmcCredentialSecretName, k8sClient)
+	if err != nil {
+		return nil, err
+	}
+	passwd := cred.Password
+
 	client, err := NewBasicAuthClient(bmcAddress, BF3BMCUser, passwd)
 	if err != nil {
 		return nil, err
@@ -673,15 +731,56 @@ func InitPassword(ctx context.Context, bmcAddress string, namespace string, k8sC
 			}
 			return nil, fmt.Errorf("the default BMC password has been changed and the given password is wrong")
 		} else if resp.StatusCode() != http.StatusOK {
-			return nil, fmt.Errorf("expected status %q, received status %q", http.StatusOK, resp.Status())
+			return nil, fmt.Errorf("unexpected BMC status: %s", resp.Status())
 		}
 		log.FromContext(ctx).Info("successfully changed password")
 		return client, nil
 	case http.StatusOK:
 		return client, nil
 	default:
-		return nil, fmt.Errorf("unexpected status: %q", resp.Status())
+		return nil, fmt.Errorf("unexpected BMC status: %s", resp.Status())
 	}
+}
+
+// RotatePassword performs BMC password rotation from oldPassword to newPassword.
+// It first tries to authenticate with newPassword (in case rotation already happened).
+// If that fails, it authenticates with oldPassword and changes the BMC password to newPassword.
+func RotatePassword(ctx context.Context, bmcAddress string, newPassword, oldPassword string) (*Client, error) {
+	if !strings.HasPrefix(bmcAddress, httpsPrefix) {
+		bmcAddress = httpsPrefix + bmcAddress
+	}
+
+	// Crash-recovery: password might already be rotated.
+	newClient, _, err := VerifyBMCCredential(bmcAddress, newPassword)
+	if err == nil {
+		log.FromContext(ctx).Info("new password already active on BMC")
+		return newClient, nil
+	}
+	if !strings.Contains(err.Error(), "password is wrong") && !strings.Contains(err.Error(), "unexpected BMC status") {
+		return nil, fmt.Errorf("BMC connectivity issue during password rotation: %w", err)
+	}
+
+	// Authenticate with old password to perform the rotation.
+	oldClient, bmcUser, err := VerifyBMCCredential(bmcAddress, oldPassword)
+	if err != nil {
+		return nil, fmt.Errorf("failed to authenticate with old password: %w", err)
+	}
+
+	log.FromContext(ctx).Info("rotating BMC password", "user", bmcUser)
+	resp, _, err := oldClient.ChangeBMCPassword(newPassword, bmcUser)
+	if err != nil {
+		return nil, fmt.Errorf("failed to change BMC password: %w", err)
+	}
+	if resp.StatusCode() != http.StatusOK {
+		return nil, fmt.Errorf("failed to change BMC password: status %s", resp.Status())
+	}
+
+	rotatedClient, err := NewBasicAuthClient(bmcAddress, bmcUser, newPassword)
+	if err != nil {
+		return nil, err
+	}
+	log.FromContext(ctx).Info("BMC password rotation completed successfully")
+	return rotatedClient, nil
 }
 
 // NewBasicAuthClient returns a Client using basic auth
