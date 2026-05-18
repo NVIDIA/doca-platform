@@ -25,17 +25,20 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 func TestCreateJob(t *testing.T) {
 	tests := []struct {
-		name               string
-		opts               JobOptions
-		wantContainerName  string
-		wantInitContainers int
-		wantOutputVolume   func(g Gomega, volumes []corev1.Volume)
-		wantOutputDirEnv   string
+		name                  string
+		opts                  JobOptions
+		wantContainerName     string
+		wantInitContainers    int
+		wantOutputVolume      func(g Gomega, volumes []corev1.Volume)
+		wantOutputDirEnv      string
+		wantGeneratePrefix    string
+		wantGenerateHashInput string
 	}{
 		{
 			name: "local mode uses emptyDir and sleep container",
@@ -55,6 +58,83 @@ func TestCreateJob(t *testing.T) {
 				g.Expect(v).NotTo(BeNil())
 				g.Expect(v.VolumeSource.EmptyDir).NotTo(BeNil())
 			},
+		},
+		{
+			name: "local mode uses short node name in generated name for FQDN node",
+			opts: JobOptions{
+				Namespace:   "test-ns",
+				NodeName:    "nvd-srv-00.nvidia.eng.abc1.dc.example.com",
+				CaseID:      "dpf-20260517-081148",
+				Image:       "ghcr.io/nvidia/sosreport:latest",
+				ClusterName: "host",
+				Timeout:     30 * time.Minute,
+				Output:      OutputLocal,
+			},
+			wantContainerName:     "sleep",
+			wantInitContainers:    1,
+			wantGeneratePrefix:    "sos-dpf-20260517-081148-nvd-srv-00-",
+			wantGenerateHashInput: "sos-dpf-20260517-081148-nvd-srv-00.nvidia.eng.abc1.dc.example.com",
+		},
+		{
+			name: "local mode hashes generated name when case ID and short node exceed limit",
+			opts: JobOptions{
+				Namespace:   "test-ns",
+				NodeName:    "worker-1.example.com",
+				CaseID:      "case-with-a-very-long-identifier-that-fits-label",
+				Image:       "ghcr.io/nvidia/sosreport:latest",
+				ClusterName: "host",
+				Timeout:     30 * time.Minute,
+				Output:      OutputLocal,
+			},
+			wantContainerName:     "sleep",
+			wantInitContainers:    1,
+			wantGenerateHashInput: "sos-case-with-a-very-long-identifier-that-fits-label-worker-1.example.com",
+		},
+		{
+			name: "local mode hashes full node name for FQDN node",
+			opts: JobOptions{
+				Namespace:   "test-ns",
+				NodeName:    "foo.bar.com",
+				CaseID:      "case-same-short",
+				Image:       "ghcr.io/nvidia/sosreport:latest",
+				ClusterName: "host",
+				Timeout:     30 * time.Minute,
+				Output:      OutputLocal,
+			},
+			wantContainerName:     "sleep",
+			wantInitContainers:    1,
+			wantGeneratePrefix:    "sos-case-same-short-foo-",
+			wantGenerateHashInput: "sos-case-same-short-foo.bar.com",
+		},
+		{
+			name: "local mode uses different hash for same short node name",
+			opts: JobOptions{
+				Namespace:   "test-ns",
+				NodeName:    "foo.foobar.com",
+				CaseID:      "case-same-short",
+				Image:       "ghcr.io/nvidia/sosreport:latest",
+				ClusterName: "host",
+				Timeout:     30 * time.Minute,
+				Output:      OutputLocal,
+			},
+			wantContainerName:     "sleep",
+			wantInitContainers:    1,
+			wantGeneratePrefix:    "sos-case-same-short-foo-",
+			wantGenerateHashInput: "sos-case-same-short-foo.foobar.com",
+		},
+		{
+			name: "local mode stores long node name in annotation",
+			opts: JobOptions{
+				Namespace:   "test-ns",
+				NodeName:    "node-with-a-long-but-valid-label-value-that-exceeds-sixty-three-bytes.example.com",
+				CaseID:      "dpf-20260517-081148",
+				Image:       "ghcr.io/nvidia/sosreport:latest",
+				ClusterName: "host",
+				Timeout:     30 * time.Minute,
+				Output:      OutputLocal,
+			},
+			wantContainerName:  "sleep",
+			wantInitContainers: 1,
 		},
 		{
 			name: "NFS mode uses NFS volume and done container",
@@ -175,11 +255,31 @@ func TestCreateJob(t *testing.T) {
 			g.Expect(err).NotTo(HaveOccurred())
 
 			// Verify metadata.
-			g.Expect(job.Name).To(Equal(jobName(tt.opts.CaseID, tt.opts.NodeName)))
+			nodeLabel := nodeLabelValue(tt.opts.NodeName)
+			g.Expect(job.GenerateName).To(Equal(jobGenerateName(tt.opts.CaseID, tt.opts.NodeName)))
+			if tt.wantGeneratePrefix != "" {
+				g.Expect(job.GenerateName).To(HavePrefix(tt.wantGeneratePrefix))
+			}
+			if tt.wantGenerateHashInput != "" {
+				g.Expect(len(job.GenerateName)).To(BeNumerically("<=", maxJobGenerateNamePrefixSize))
+				g.Expect(job.GenerateName).To(ContainSubstring(shortHash(tt.wantGenerateHashInput)))
+			}
+			g.Expect(job.Name).To(HavePrefix(job.GenerateName))
+			g.Expect(len(job.Name)).To(BeNumerically("<=", validation.LabelValueMaxLength))
+			g.Expect(validation.IsValidLabelValue(job.Name)).To(BeEmpty())
 			g.Expect(job.Namespace).To(Equal(tt.opts.Namespace))
 			g.Expect(job.Labels).To(HaveKeyWithValue(labelCaseID, tt.opts.CaseID))
-			g.Expect(job.Labels).To(HaveKeyWithValue(labelNode, tt.opts.NodeName))
-			g.Expect(job.Labels).To(HaveKeyWithValue(labelCluster, tt.opts.ClusterName))
+			g.Expect(job.Labels).To(HaveKeyWithValue(labelNodeID, nodeLabel))
+			g.Expect(job.Spec.Template.Labels).To(HaveKeyWithValue(labelNodeID, nodeLabel))
+			g.Expect(len(nodeLabel)).To(BeNumerically("<=", validation.LabelValueMaxLength))
+			g.Expect(validation.IsValidLabelValue(nodeLabel)).To(BeEmpty())
+			g.Expect(nodeLabel).To(HaveSuffix(shortHash(tt.opts.NodeName)))
+			g.Expect(job.Labels).NotTo(HaveKey(annotationNode))
+			g.Expect(job.Labels).NotTo(HaveKey(annotationCluster))
+			g.Expect(job.Annotations).To(HaveKeyWithValue(annotationNode, tt.opts.NodeName))
+			g.Expect(job.Annotations).To(HaveKeyWithValue(annotationCluster, tt.opts.ClusterName))
+			g.Expect(job.Spec.Template.Annotations).To(HaveKeyWithValue(annotationNode, tt.opts.NodeName))
+			g.Expect(job.Spec.Template.Annotations).To(HaveKeyWithValue(annotationCluster, tt.opts.ClusterName))
 
 			// Verify Job spec.
 			g.Expect(job.Spec.ActiveDeadlineSeconds).NotTo(BeNil())
