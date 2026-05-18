@@ -85,6 +85,12 @@ spec:
     - UPDATE_DPU_OS=yes
     - WITH_NIC_FW_UPDATE=yes
 
+  packages:
+    - name: tree
+      version:
+        value: "0.1"
+        matchPolicy: AtLeast
+
   configFiles:
   - path: /etc/mellanox/mlnx-bf.conf
     operation: override

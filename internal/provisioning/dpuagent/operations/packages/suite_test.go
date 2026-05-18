@@ -14,32 +14,31 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package bash
+package packages
 
 import (
-	"bytes"
-	"fmt"
-	"os/exec"
+	"context"
+	"testing"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	ctrl "sigs.k8s.io/controller-runtime"
 )
 
-type CmdOption func(*exec.Cmd)
+var (
+	ctx    context.Context
+	cancel context.CancelFunc
+)
 
-func Run(cmdStr string) (stdout, stderr bytes.Buffer, err error) {
-	return RunWithOptions(cmdStr)
+func TestPackages(t *testing.T) {
+	RegisterFailHandler(Fail)
+	RunSpecs(t, "Packages Suite")
 }
 
-func RunWithOptions(cmdStr string, opts ...CmdOption) (stdout, stderr bytes.Buffer, err error) {
-	cmd := exec.Command("bash", "-c", cmdStr)
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	for _, opt := range opts {
-		if opt != nil {
-			opt(cmd)
-		}
-	}
-	err = cmd.Run()
-	if err != nil {
-		return stdout, stderr, fmt.Errorf("failed to run command: %w", err)
-	}
-	return stdout, stderr, nil
-}
+var _ = BeforeSuite(func() {
+	ctx, cancel = context.WithCancel(ctrl.SetupSignalHandler())
+})
+
+var _ = AfterSuite(func() {
+	cancel()
+})
