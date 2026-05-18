@@ -77,15 +77,6 @@ func (st *blueFieldSoftwareReadyState) checkMissingComponents() []butil.Componen
 		row{st.bfs.Spec.PldmFwBundle, st.bfs.Status.DownloadedComponents.PldmFwBundle, butil.ComponentTypeFwBundle},
 		row{st.bfs.Spec.OsIso, st.bfs.Status.DownloadedComponents.OsIso, butil.ComponentTypeOSISO},
 	)
-	if tc := st.bfs.Spec.TmpFwComponents; tc != nil {
-		rows = append(rows,
-			row{tc.BmcErot, st.bfs.Status.DownloadedComponents.BmcErot, butil.ComponentTypeBMCEROT},
-			row{tc.BmcFw, st.bfs.Status.DownloadedComponents.BmcFw, butil.ComponentTypeBMC},
-			row{tc.AstraNicFw, st.bfs.Status.DownloadedComponents.AstraNicFw, butil.ComponentTypeNIC},
-			row{tc.GraceErot, st.bfs.Status.DownloadedComponents.GraceErot, butil.ComponentTypeGRACEEROT},
-			row{tc.GraceFw, st.bfs.Status.DownloadedComponents.GraceFw, butil.ComponentTypeGRACEFW},
-		)
-	}
 
 	for _, r := range rows {
 		if r.specURL == "" {
@@ -113,15 +104,5 @@ func (st *blueFieldSoftwareReadyState) clearComponentStatus(componentType butil.
 		st.bfs.Status.DownloadedComponents.PldmFwBundle = ""
 	case butil.ComponentTypeOSISO:
 		st.bfs.Status.DownloadedComponents.OsIso = ""
-	case butil.ComponentTypeBMCEROT:
-		st.bfs.Status.DownloadedComponents.BmcErot = ""
-	case butil.ComponentTypeBMC:
-		st.bfs.Status.DownloadedComponents.BmcFw = ""
-	case butil.ComponentTypeNIC:
-		st.bfs.Status.DownloadedComponents.AstraNicFw = ""
-	case butil.ComponentTypeGRACEEROT:
-		st.bfs.Status.DownloadedComponents.GraceErot = ""
-	case butil.ComponentTypeGRACEFW:
-		st.bfs.Status.DownloadedComponents.GraceFw = ""
 	}
 }

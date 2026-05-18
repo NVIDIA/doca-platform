@@ -157,10 +157,6 @@ var _ = Describe("BlueFieldSoftware", func() {
 			obj := createObj("bfs-multi-component")
 			obj.Spec.PldmFwBundle = bfbServerURL + BFB512KBPath
 			obj.Spec.OsIso = bfbServerURL + BFB8KBPath
-			obj.Spec.TmpFwComponents = &provisioningv1.TmpFwComponents{
-				BmcFw:      bfbServerURL + BFB512KBPath,
-				AstraNicFw: bfbServerURL + BFB8KBPath,
-			}
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 			DeferCleanup(k8sClient.Delete, ctx, obj)
 
@@ -175,15 +171,11 @@ var _ = Describe("BlueFieldSoftware", func() {
 			By("verifying all components are downloaded")
 			Expect(objFetched.Status.DownloadedComponents.PldmFwBundle).To(Equal(getComponentFilePath(objFetched, bfsutil.ComponentTypeFwBundle)))
 			Expect(objFetched.Status.DownloadedComponents.OsIso).To(Equal(getComponentFilePath(objFetched, bfsutil.ComponentTypeOSISO)))
-			Expect(objFetched.Status.DownloadedComponents.BmcFw).To(Equal(getComponentFilePath(objFetched, bfsutil.ComponentTypeBMC)))
-			Expect(objFetched.Status.DownloadedComponents.AstraNicFw).To(Equal(getComponentFilePath(objFetched, bfsutil.ComponentTypeNIC)))
 
 			By("verifying all files exist")
 			for _, componentType := range []bfsutil.ComponentType{
 				bfsutil.ComponentTypeFwBundle,
 				bfsutil.ComponentTypeOSISO,
-				bfsutil.ComponentTypeBMC,
-				bfsutil.ComponentTypeNIC,
 			} {
 				filePath := getComponentFilePath(objFetched, componentType)
 				_, err := os.Stat(filePath)
@@ -195,10 +187,6 @@ var _ = Describe("BlueFieldSoftware", func() {
 			By("creating the BlueFieldSoftware with non-URL values")
 			obj := createObj("bfs-non-url")
 			obj.Spec.PldmFwBundle = bfbServerURL + BFB512KBPath // URL will be downloaded
-			obj.Spec.TmpFwComponents = &provisioningv1.TmpFwComponents{
-				BmcFw:      "version-1.2.3", // Non-URL, stored directly
-				AstraNicFw: "nic-fw-v4.5.6", // Non-URL, stored directly
-			}
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 			DeferCleanup(k8sClient.Delete, ctx, obj)
 
@@ -215,10 +203,6 @@ var _ = Describe("BlueFieldSoftware", func() {
 			filePath := getComponentFilePath(objFetched, bfsutil.ComponentTypeFwBundle)
 			_, err := os.Stat(filePath)
 			Expect(err).NotTo(HaveOccurred())
-
-			By("verifying non-URL values are stored directly")
-			Expect(objFetched.Status.DownloadedComponents.BmcFw).To(Equal("version-1.2.3"))
-			Expect(objFetched.Status.DownloadedComponents.AstraNicFw).To(Equal("nic-fw-v4.5.6"))
 		})
 
 		It("BlueFieldSoftware: check (Downloading)->(Error) when URL is not valid (status 404)", func() {
@@ -353,7 +337,6 @@ var _ = Describe("BlueFieldSoftware", func() {
 				index := fmt.Sprintf("%d", i)
 				obj := createObj("bfs-" + index)
 				obj.Spec.PldmFwBundle = bfbServerURL + BFB512KBPath
-				obj.Spec.TmpFwComponents = &provisioningv1.TmpFwComponents{BmcFw: "bmc-version-" + index}
 				Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 				objs = append(objs, obj)
 			}
@@ -415,13 +398,6 @@ var _ = Describe("BlueFieldSoftware", func() {
 			obj := createObj("bfs-all-components")
 			obj.Spec.PldmFwBundle = bfbServerURL + BFB512KBPath
 			obj.Spec.OsIso = bfbServerURL + BFB8KBPath
-			obj.Spec.TmpFwComponents = &provisioningv1.TmpFwComponents{
-				BmcErot:    bfbServerURL + BFB512KBPath,
-				BmcFw:      bfbServerURL + BFB8KBPath,
-				AstraNicFw: bfbServerURL + BFB512KBPath,
-				GraceErot:  bfbServerURL + BFB8KBPath,
-				GraceFw:    bfbServerURL + BFB512KBPath,
-			}
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 			DeferCleanup(k8sClient.Delete, ctx, obj)
 
@@ -436,21 +412,11 @@ var _ = Describe("BlueFieldSoftware", func() {
 			By("verifying all 7 components are downloaded")
 			Expect(objFetched.Status.DownloadedComponents.PldmFwBundle).To(Equal(getComponentFilePath(objFetched, bfsutil.ComponentTypeFwBundle)))
 			Expect(objFetched.Status.DownloadedComponents.OsIso).To(Equal(getComponentFilePath(objFetched, bfsutil.ComponentTypeOSISO)))
-			Expect(objFetched.Status.DownloadedComponents.BmcErot).To(Equal(getComponentFilePath(objFetched, bfsutil.ComponentTypeBMCEROT)))
-			Expect(objFetched.Status.DownloadedComponents.BmcFw).To(Equal(getComponentFilePath(objFetched, bfsutil.ComponentTypeBMC)))
-			Expect(objFetched.Status.DownloadedComponents.AstraNicFw).To(Equal(getComponentFilePath(objFetched, bfsutil.ComponentTypeNIC)))
-			Expect(objFetched.Status.DownloadedComponents.GraceErot).To(Equal(getComponentFilePath(objFetched, bfsutil.ComponentTypeGRACEEROT)))
-			Expect(objFetched.Status.DownloadedComponents.GraceFw).To(Equal(getComponentFilePath(objFetched, bfsutil.ComponentTypeGRACEFW)))
 
 			By("verifying all files exist")
 			for _, componentType := range []bfsutil.ComponentType{
 				bfsutil.ComponentTypeFwBundle,
 				bfsutil.ComponentTypeOSISO,
-				bfsutil.ComponentTypeBMCEROT,
-				bfsutil.ComponentTypeBMC,
-				bfsutil.ComponentTypeNIC,
-				bfsutil.ComponentTypeGRACEEROT,
-				bfsutil.ComponentTypeGRACEFW,
 			} {
 				filePath := getComponentFilePath(objFetched, componentType)
 				_, err := os.Stat(filePath)
