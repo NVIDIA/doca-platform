@@ -144,12 +144,12 @@ func TestHandleDownloadError_MaxRetriesReached(t *testing.T) {
 	}
 
 	// Clear and set retry counter to simulate max retries already occurred
-	retryKey := st.getRetryKey(butil.ComponentTypeNIC)
-	st.clearRetryCounter(butil.ComponentTypeNIC)
+	retryKey := st.getRetryKey(butil.ComponentTypeFwBundle)
+	st.clearRetryCounter(butil.ComponentTypeFwBundle)
 	downloadRetryCounter.Store(retryKey, maxDownloadRetries)
 
 	testErr := errors.New("permanent failure")
-	err := st.handleDownloadError(testErr, butil.ComponentTypeNIC)
+	err := st.handleDownloadError(testErr, butil.ComponentTypeFwBundle)
 
 	// Should return the error after max retries
 	assert.Error(t, err)
@@ -200,7 +200,6 @@ func TestRetryCounter_IndependentPerComponent(t *testing.T) {
 	components := []butil.ComponentType{
 		butil.ComponentTypeFwBundle,
 		butil.ComponentTypeOSISO,
-		butil.ComponentTypeBMC,
 	}
 
 	// Clear any existing retry counters from previous tests
@@ -226,7 +225,6 @@ func TestRetryCounter_IndependentPerComponent(t *testing.T) {
 	// Verify all counters are still independent
 	assert.Equal(t, 1, st.getRetryCount(st.getRetryKey(butil.ComponentTypeFwBundle)))
 	assert.Equal(t, 2, st.getRetryCount(st.getRetryKey(butil.ComponentTypeOSISO)))
-	assert.Equal(t, 3, st.getRetryCount(st.getRetryKey(butil.ComponentTypeBMC)))
 
 	// Cleanup
 	for _, comp := range components {
@@ -255,7 +253,6 @@ func TestUpdateComponentStatus_ClearsRetryCounter(t *testing.T) {
 	components := []butil.ComponentType{
 		butil.ComponentTypeFwBundle,
 		butil.ComponentTypeOSISO,
-		butil.ComponentTypeBMCEROT,
 	}
 
 	for i, comp := range components {
@@ -278,7 +275,6 @@ func TestUpdateComponentStatus_ClearsRetryCounter(t *testing.T) {
 
 	// Other counters should remain unchanged
 	assert.Equal(t, 2, st.getRetryCount(st.getRetryKey(butil.ComponentTypeOSISO)))
-	assert.Equal(t, 3, st.getRetryCount(st.getRetryKey(butil.ComponentTypeBMCEROT)))
 
 	// Verify status holds the on-disk destination path (not the spec URL)
 	assert.Equal(t, expectedFw, bfs.Status.DownloadedComponents.PldmFwBundle)
@@ -305,13 +301,6 @@ func TestGetRetryKey(t *testing.T) {
 			bfsName:       "test-bfs",
 			componentType: butil.ComponentTypeOSISO,
 			expected:      "test-ns/test-bfs/osiso",
-		},
-		{
-			name:          "NIC component with special chars",
-			namespace:     "kube-system",
-			bfsName:       "bfs-123",
-			componentType: butil.ComponentTypeNIC,
-			expected:      "kube-system/bfs-123/nic",
 		},
 	}
 
@@ -347,8 +336,6 @@ func TestClearRetryCounter(t *testing.T) {
 	components := []butil.ComponentType{
 		butil.ComponentTypeFwBundle,
 		butil.ComponentTypeOSISO,
-		butil.ComponentTypeBMC,
-		butil.ComponentTypeNIC,
 	}
 
 	for _, comp := range components {
@@ -358,15 +345,12 @@ func TestClearRetryCounter(t *testing.T) {
 
 	// Clear individual counters
 	st.clearRetryCounter(butil.ComponentTypeFwBundle)
-	st.clearRetryCounter(butil.ComponentTypeBMC)
 
 	// Verify cleared counters are 0
 	assert.Equal(t, 0, st.getRetryCount(st.getRetryKey(butil.ComponentTypeFwBundle)))
-	assert.Equal(t, 0, st.getRetryCount(st.getRetryKey(butil.ComponentTypeBMC)))
 
 	// Verify non-cleared counters remain
 	assert.Equal(t, 5, st.getRetryCount(st.getRetryKey(butil.ComponentTypeOSISO)))
-	assert.Equal(t, 5, st.getRetryCount(st.getRetryKey(butil.ComponentTypeNIC)))
 }
 
 func TestIncrementRetryCounter_ThreadSafety(t *testing.T) {
@@ -715,11 +699,6 @@ func TestComponentDestinationPath(t *testing.T) {
 	t.Run("non-OSISO uses components subdir", func(t *testing.T) {
 		for _, ct := range []butil.ComponentType{
 			butil.ComponentTypeFwBundle,
-			butil.ComponentTypeBMCEROT,
-			butil.ComponentTypeBMC,
-			butil.ComponentTypeNIC,
-			butil.ComponentTypeGRACEEROT,
-			butil.ComponentTypeGRACEFW,
 		} {
 			assert.Equal(t,
 				generateComponentFilePath(fileName),

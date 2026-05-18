@@ -42,44 +42,19 @@ type ComponentDownloadTask struct {
 type ComponentType string
 
 const (
-	ComponentTypeFwBundle  ComponentType = "fwbundle"
-	ComponentTypeOSISO     ComponentType = "osiso"
-	ComponentTypeBMCEROT   ComponentType = "bmcerot"
-	ComponentTypeBMC       ComponentType = "bmc"
-	ComponentTypeNIC       ComponentType = "nic"
-	ComponentTypeGRACEEROT ComponentType = "graceerot"
-	ComponentTypeGRACEFW   ComponentType = "gracefw"
+	ComponentTypeFwBundle   ComponentType = "fwbundle"
+	ComponentTypeOSISO      ComponentType = "osiso"
+	ComponentTypeAstraNicFw ComponentType = "astranicfw"
 )
 
 // SpecURLForComponent returns the spec value (typically a URL) for componentType.
 // Fields that live under TmpFwComponents return "" when TmpFwComponents is nil.
 func SpecURLForComponent(bfs *provisioningv1.BlueFieldSoftware, componentType ComponentType) string {
-	tc := bfs.Spec.TmpFwComponents
 	switch componentType {
 	case ComponentTypeFwBundle:
 		return bfs.Spec.PldmFwBundle
 	case ComponentTypeOSISO:
 		return bfs.Spec.OsIso
-	case ComponentTypeBMCEROT:
-		if tc != nil {
-			return tc.BmcErot
-		}
-	case ComponentTypeBMC:
-		if tc != nil {
-			return tc.BmcFw
-		}
-	case ComponentTypeNIC:
-		if tc != nil {
-			return tc.AstraNicFw
-		}
-	case ComponentTypeGRACEEROT:
-		if tc != nil {
-			return tc.GraceErot
-		}
-	case ComponentTypeGRACEFW:
-		if tc != nil {
-			return tc.GraceFw
-		}
 	}
 	return ""
 }

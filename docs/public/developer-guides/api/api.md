@@ -1483,7 +1483,6 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `pldmFwBundle` _string_ |  |  | Optional: \{\} <br /> |
 | `osIso` _string_ |  |  | Optional: \{\} <br /> |
-| `tmpFwComponents` _[TmpFwComponents](#tmpfwcomponents)_ |  |  | Optional: \{\} <br /> |
 
 
 #### BluefieldSoftwareVersions
@@ -1501,7 +1500,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `fwBundleVersion` _string_ |  |  |  |
 | `osISOVersion` _string_ |  |  |  |
-| `tmpFwComponentsVersions` _[TmpFwComponentsVersions](#tmpfwcomponentsversions)_ |  |  |  |
+| `astraNicFwVersion` _string_ |  |  |  |
 
 
 #### ClusterEndpointSpec
@@ -2511,11 +2510,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `pldmFwBundle` _string_ |  |  |  |
 | `osIso` _string_ |  |  |  |
-| `bmcErot` _string_ |  |  |  |
-| `bmcFW` _string_ |  |  |  |
 | `astraNicFw` _string_ |  |  |  |
-| `graceErot` _string_ |  |  |  |
-| `graceFw` _string_ |  |  |  |
 
 
 #### DpuModeType
@@ -2955,46 +2950,6 @@ _Appears in:_
 | --- | --- |
 | `OnDelete` | New DPU CR will only be created when you manually delete old DPU CR.<br /> |
 | `RollingUpdate` | Gradually scale down the old DPUs and scale up the new one.<br /> |
-
-
-#### TmpFwComponents
-
-
-
-
-
-
-
-_Appears in:_
-- [BlueFieldSpec](#bluefieldspec)
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `bmcErot` _string_ |  |  |  |
-| `bmcFw` _string_ |  |  |  |
-| `astraNicFw` _string_ |  |  |  |
-| `graceErot` _string_ |  |  |  |
-| `graceFw` _string_ |  |  |  |
-
-
-#### TmpFwComponentsVersions
-
-
-
-
-
-
-
-_Appears in:_
-- [BluefieldSoftwareVersions](#bluefieldsoftwareversions)
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `bmcErotVersion` _string_ |  |  |  |
-| `bmcFwVersion` _string_ |  |  |  |
-| `astraNicFwVersion` _string_ |  |  |  |
-| `graceErotVersion` _string_ |  |  |  |
-| `graceFwVersion` _string_ |  |  |  |
 
 
 #### UpgradePolicy

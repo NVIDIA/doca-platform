@@ -84,25 +84,6 @@ type BlueFieldSpec struct {
 
 	// +optional
 	OsIso string `json:"osIso,omitempty"`
-
-	// +optional
-	TmpFwComponents *TmpFwComponents `json:"tmpFwComponents,omitempty"`
-}
-
-type TmpFwComponents struct {
-	BmcErot    string `json:"bmcErot,omitempty"`
-	BmcFw      string `json:"bmcFw,omitempty"`
-	AstraNicFw string `json:"astraNicFw,omitempty"`
-	GraceErot  string `json:"graceErot,omitempty"`
-	GraceFw    string `json:"graceFw,omitempty"`
-}
-
-type TmpFwComponentsVersions struct {
-	BmcErotVersion    string `json:"bmcErotVersion,omitempty"`
-	BmcFwVersion      string `json:"bmcFwVersion,omitempty"`
-	AstraNicFwVersion string `json:"astraNicFwVersion,omitempty"`
-	GraceErotVersion  string `json:"graceErotVersion,omitempty"`
-	GraceFwVersion    string `json:"graceFwVersion,omitempty"`
 }
 
 // BlueFieldSoftwareStatus defines the observed state of BlueFieldSoftware
@@ -127,24 +108,19 @@ type BlueFieldSoftwareStatus struct {
 // BluefieldSoftwareVersions defines the versions of various software components for a Bluefield device.
 // +kubebuilder:validation:XValidation:rule="self.fwBundleVersion == oldSelf.fwBundleVersion",message="fwBundleVersion is immutable"
 // +kubebuilder:validation:XValidation:rule="self.osISOVersion == oldSelf.osISOVersion",message="osISOVersion is immutable"
-// +kubebuilder:validation:XValidation:rule="self.tmpFwComponentsVersions == oldSelf.tmpFwComponentsVersions",message="tmpFwComponentsVersions is immutable"
 type BluefieldSoftwareVersions struct {
 	FwBundleVersion string `json:"fwBundleVersion,omitempty"`
 
 	OSISOVersion string `json:"osISOVersion,omitempty"`
 
-	TmpFwComponentsVersions TmpFwComponentsVersions `json:"tmpFwComponentsVersions"`
+	AstraNicFwVersion string `json:"astraNicFwVersion,omitempty"`
 }
 
 // DownloadedComponents tracks which components have been downloaded
 type DownloadedComponents struct {
 	PldmFwBundle string `json:"pldmFwBundle,omitempty"`
 	OsIso        string `json:"osIso,omitempty"`
-	BmcErot      string `json:"bmcErot,omitempty"`
-	BmcFw        string `json:"bmcFW,omitempty"`
 	AstraNicFw   string `json:"astraNicFw,omitempty"`
-	GraceErot    string `json:"graceErot,omitempty"`
-	GraceFw      string `json:"graceFw,omitempty"`
 }
 
 // +kubebuilder:object:root=true
