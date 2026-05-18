@@ -51,8 +51,9 @@ type Interface interface {
 	Start() error
 	// GetDevice returns the PCI device by serial number
 	GetDevice(serialNumber string) (hostutil.Device, bool)
-	// AddNetworkRequest adds a network request for a DPU
-	AddNetworkRequest(dpu *provisioningv1.DPU) error
+	// AddNetworkRequest adds a network request for a DPU.
+	// If vfCount is non-nil it overrides the value derived from the DPUFlavor.
+	AddNetworkRequest(dpu *provisioningv1.DPU, vfCount *int) error
 }
 
 type NetworkManager struct {
@@ -247,7 +248,7 @@ func (nm *NetworkManager) processNetworkRequest(nr NetworkRequest) error {
 	return nil
 }
 
-func (nm *NetworkManager) AddNetworkRequest(dpu *provisioningv1.DPU) error {
+func (nm *NetworkManager) AddNetworkRequest(dpu *provisioningv1.DPU, vfCount *int) error {
 	nm.Lock()
 	defer nm.Unlock()
 	if !nm.initialized {
@@ -272,9 +273,15 @@ func (nm *NetworkManager) AddNetworkRequest(dpu *provisioningv1.DPU) error {
 	}
 	nr.PCIAddress = dev.Address
 
-	numOfVFs, err := nm.getNumOfVFs(dpu)
-	if err != nil {
-		return fmt.Errorf("failed to get number of VFs: %w", err)
+	var numOfVFs int
+	if vfCount != nil && *vfCount != 0 {
+		numOfVFs = *vfCount
+	} else {
+		var err error
+		numOfVFs, err = nm.getNumOfVFs(dpu)
+		if err != nil {
+			return fmt.Errorf("failed to get number of VFs: %w", err)
+		}
 	}
 	nr.NumOfVFs = numOfVFs
 
