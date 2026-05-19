@@ -45,6 +45,10 @@ type StartOptions struct {
 	NodeSelector string
 	Cluster      string
 	DPUCluster   string
+	MemoryReq    string
+	MemoryLimit  string
+	CPUReq       string
+	CPULimit     string
 }
 
 // ValidateStartOptions validates the start options.
@@ -72,6 +76,19 @@ func ValidateStartOptions(opts *StartOptions) error {
 
 	if opts.ArchiveOnly {
 		opts.Archive = true
+	}
+
+	if opts.MemoryReq == "" {
+		opts.MemoryReq = DefaultMemoryRequest
+	}
+	if opts.MemoryLimit == "" {
+		opts.MemoryLimit = DefaultMemoryLimit
+	}
+	if opts.CPUReq == "" {
+		opts.CPUReq = DefaultCPURequest
+	}
+	if _, err := parseSosResources(opts.MemoryReq, opts.MemoryLimit, opts.CPUReq, opts.CPULimit); err != nil {
+		return err
 	}
 
 	return nil
@@ -149,6 +166,10 @@ func startOnCluster(ctx context.Context, target ClusterTarget, hostClient client
 			NFSUID:      opts.NFSUID,
 			Archive:     opts.Archive,
 			ArchiveOnly: opts.ArchiveOnly,
+			MemoryReq:   opts.MemoryReq,
+			MemoryLimit: opts.MemoryLimit,
+			CPUReq:      opts.CPUReq,
+			CPULimit:    opts.CPULimit,
 		}
 
 		job, err := CreateJob(ctx, target.Client, jobOpts)
