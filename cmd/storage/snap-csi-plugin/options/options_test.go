@@ -31,7 +31,6 @@ func TestNew(t *testing.T) {
 	assert.Equal(t, config.DefaultPluginName, opts.Name)
 	assert.Equal(t, string(config.EmulationModeNVMe), opts.EmulationMode)
 	assert.Equal(t, config.DefaultBindNetwork+"://"+config.DefaultBindAddress, opts.BindAddress)
-	assert.Equal(t, config.DefaultHostRootFS, opts.HostRootFS)
 	assert.Equal(t, config.DefaultSnapDeviceID, opts.SnapControllerDeviceID)
 	assert.Equal(t, config.DefaultVirtiofsFSTypeName, opts.VirtiofsFSTypeName)
 	assert.True(t, opts.NVMeLoadDriver)
@@ -50,6 +49,7 @@ func TestAddFlags(t *testing.T) {
 	assert.NotNil(t, fs.Lookup("bind-address"))
 	assert.NotNil(t, fs.Lookup("namespace"))
 	assert.NotNil(t, fs.Lookup("node-id"))
+	assert.Nil(t, fs.Lookup("node-root-fs"))
 }
 
 func TestValidateName(t *testing.T) {

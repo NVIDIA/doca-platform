@@ -62,7 +62,7 @@ var _ = Describe("Pci Utils package test", func() {
 		BeforeEach(func() {
 			fakeExec = &kexecTesting.FakeExec{}
 			testCtrl = gomock.NewController(GinkgoT())
-			pciUtils = New("/host", fakeExec)
+			pciUtils = New(fakeExec)
 			ctx = context.Background()
 		})
 		AfterEach(func() {
@@ -477,41 +477,23 @@ var _ = Describe("Pci Utils package test", func() {
 						return kexecTesting.InitFakeCmd(fakeCmd, cmd, args...)
 					}}
 			})
-			It("no chroot - succeed", func() {
+			It("succeed", func() {
 				fakeCmd.RunScript = []kexecTesting.FakeAction{func() ([]byte, []byte, error) {
 					return nil, nil, nil
 				}}
-				pciUtils = New("", fakeExec)
+				pciUtils = New(fakeExec)
 				Expect(pciUtils.InsertKernelModule(ctx, "nvme")).NotTo(HaveOccurred())
 				Expect(fakeCmd.RunCalls).To(Equal(1))
 				Expect(fakeCmd.RunLog[0]).To(Equal([]string{"modprobe", "nvme"}))
 			})
-			It("no chroot - failed", func() {
+			It("failed", func() {
 				fakeCmd.RunScript = []kexecTesting.FakeAction{func() ([]byte, []byte, error) {
 					return nil, nil, fmt.Errorf("test error")
 				}}
-				pciUtils = New("", fakeExec)
+				pciUtils = New(fakeExec)
 				Expect(pciUtils.InsertKernelModule(ctx, "nvme")).To(MatchError(ContainSubstring("test error")))
 				Expect(fakeCmd.RunCalls).To(Equal(1))
 				Expect(fakeCmd.RunLog[0]).To(Equal([]string{"modprobe", "nvme"}))
-			})
-			It("chroot - succeed", func() {
-				fakeCmd.RunScript = []kexecTesting.FakeAction{func() ([]byte, []byte, error) {
-					return nil, nil, nil
-				}}
-				pciUtils = New("/host", fakeExec)
-				Expect(pciUtils.InsertKernelModule(ctx, "nvme")).NotTo(HaveOccurred())
-				Expect(fakeCmd.RunCalls).To(Equal(1))
-				Expect(fakeCmd.RunLog[0]).To(Equal([]string{"chroot", "/host", "modprobe", "nvme"}))
-			})
-			It("chroot - failed", func() {
-				fakeCmd.RunScript = []kexecTesting.FakeAction{func() ([]byte, []byte, error) {
-					return nil, nil, fmt.Errorf("test error")
-				}}
-				pciUtils = New("/host", fakeExec)
-				Expect(pciUtils.InsertKernelModule(ctx, "nvme")).To(MatchError(ContainSubstring("test error")))
-				Expect(fakeCmd.RunCalls).To(Equal(1))
-				Expect(fakeCmd.RunLog[0]).To(Equal([]string{"chroot", "/host", "modprobe", "nvme"}))
 			})
 		})
 	})
