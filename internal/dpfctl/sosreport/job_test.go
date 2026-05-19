@@ -24,6 +24,7 @@ import (
 	. "github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -39,6 +40,10 @@ func TestCreateJob(t *testing.T) {
 		wantOutputDirEnv      string
 		wantGeneratePrefix    string
 		wantGenerateHashInput string
+		wantMemoryReq         string
+		wantMemoryLimit       string
+		wantCPUReq            string
+		wantCPULimit          string // empty = expect no CPU limit set
 	}{
 		{
 			name: "local mode uses emptyDir and sleep container",
@@ -58,6 +63,42 @@ func TestCreateJob(t *testing.T) {
 				g.Expect(v).NotTo(BeNil())
 				g.Expect(v.VolumeSource.EmptyDir).NotTo(BeNil())
 			},
+		},
+		{
+			name: "explicit memory request and limit override defaults",
+			opts: JobOptions{
+				Namespace:   "test-ns",
+				NodeName:    "worker-1",
+				CaseID:      "case-mem",
+				Image:       "ghcr.io/nvidia/sosreport:latest",
+				ClusterName: "host",
+				Timeout:     30 * time.Minute,
+				Output:      OutputLocal,
+				MemoryReq:   "512Mi",
+				MemoryLimit: "2Gi",
+			},
+			wantContainerName:  "sleep",
+			wantInitContainers: 1,
+			wantMemoryReq:      "512Mi",
+			wantMemoryLimit:    "2Gi",
+		},
+		{
+			name: "explicit cpu request and optional cpu limit",
+			opts: JobOptions{
+				Namespace:   "test-ns",
+				NodeName:    "worker-1",
+				CaseID:      "case-cpu",
+				Image:       "ghcr.io/nvidia/sosreport:latest",
+				ClusterName: "host",
+				Timeout:     30 * time.Minute,
+				Output:      OutputLocal,
+				CPUReq:      "250m",
+				CPULimit:    "500m",
+			},
+			wantContainerName:  "sleep",
+			wantInitContainers: 1,
+			wantCPUReq:         "250m",
+			wantCPULimit:       "500m",
 		},
 		{
 			name: "local mode uses short node name in generated name for FQDN node",
@@ -299,7 +340,7 @@ func TestCreateJob(t *testing.T) {
 			// Find sosreport init container by name.
 			var sosInit *corev1.Container
 			for i := range spec.InitContainers {
-				if spec.InitContainers[i].Name == "sosreport" {
+				if spec.InitContainers[i].Name == sosreportContainerName {
 					sosInit = &spec.InitContainers[i]
 					break
 				}
@@ -307,6 +348,44 @@ func TestCreateJob(t *testing.T) {
 			g.Expect(sosInit).NotTo(BeNil(), "sosreport init container not found")
 			g.Expect(sosInit.Image).To(Equal(tt.opts.Image))
 			g.Expect(*sosInit.SecurityContext.Privileged).To(BeTrue())
+
+			// Verify memory and CPU resources on the sosreport init container only.
+			wantMemReq := tt.wantMemoryReq
+			if wantMemReq == "" {
+				wantMemReq = DefaultMemoryRequest
+			}
+			wantMemLimit := tt.wantMemoryLimit
+			if wantMemLimit == "" {
+				wantMemLimit = DefaultMemoryLimit
+			}
+			wantCPUReq := tt.wantCPUReq
+			if wantCPUReq == "" {
+				wantCPUReq = DefaultCPURequest
+			}
+			g.Expect(sosInit.Resources.Requests.Memory().Equal(resource.MustParse(wantMemReq))).To(BeTrue(),
+				"sosreport memory request: got %s want %s", sosInit.Resources.Requests.Memory(), wantMemReq)
+			g.Expect(sosInit.Resources.Limits.Memory().Equal(resource.MustParse(wantMemLimit))).To(BeTrue(),
+				"sosreport memory limit: got %s want %s", sosInit.Resources.Limits.Memory(), wantMemLimit)
+			g.Expect(sosInit.Resources.Requests.Cpu().Equal(resource.MustParse(wantCPUReq))).To(BeTrue(),
+				"sosreport cpu request: got %s want %s", sosInit.Resources.Requests.Cpu(), wantCPUReq)
+			if tt.wantCPULimit == "" {
+				_, hasCPULimit := sosInit.Resources.Limits[corev1.ResourceCPU]
+				g.Expect(hasCPULimit).To(BeFalse(), "sosreport must not have a CPU limit by default")
+			} else {
+				g.Expect(sosInit.Resources.Limits.Cpu().Equal(resource.MustParse(tt.wantCPULimit))).To(BeTrue(),
+					"sosreport cpu limit: got %s want %s", sosInit.Resources.Limits.Cpu(), tt.wantCPULimit)
+			}
+			for _, ic := range spec.InitContainers {
+				if ic.Name == sosreportContainerName {
+					continue
+				}
+				g.Expect(ic.Resources.Requests).To(BeEmpty(), "helper init container %s should have no requests", ic.Name)
+				g.Expect(ic.Resources.Limits).To(BeEmpty(), "helper init container %s should have no limits", ic.Name)
+			}
+			for _, mc := range spec.Containers {
+				g.Expect(mc.Resources.Requests).To(BeEmpty(), "main container %s should have no requests", mc.Name)
+				g.Expect(mc.Resources.Limits).To(BeEmpty(), "main container %s should have no limits", mc.Name)
+			}
 
 			// Verify OUTPUT_DIR env override for subdir.
 			if tt.wantOutputDirEnv != "" {

@@ -17,6 +17,7 @@ limitations under the License.
 package sosreport
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"strings"
@@ -26,6 +27,7 @@ import (
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -58,6 +60,12 @@ const (
 	secretDataKey  = "kubeconfig"
 	secretBaseName = "sos-admin-config"
 
+	DefaultMemoryRequest = "256Mi"
+	DefaultMemoryLimit   = "1Gi"
+	DefaultCPURequest    = "100m"
+
+	sosreportContainerName = "sosreport"
+
 	generatedNameSuffixLength    = 5
 	maxJobGenerateNamePrefixSize = validation.LabelValueMaxLength - generatedNameSuffixLength
 	hashLength                   = 10
@@ -86,6 +94,10 @@ type JobOptions struct {
 	NFSUID      int64
 	Archive     bool
 	ArchiveOnly bool
+	MemoryReq   string
+	MemoryLimit string
+	CPUReq      string
+	CPULimit    string
 }
 
 // commonLabels returns the standard labels for all sosreport resources.
@@ -151,8 +163,12 @@ func secretName(clusterName string) string {
 
 // CreateJob creates a SOS report Job on the given cluster for the specified node.
 func CreateJob(ctx context.Context, c client.Client, opts JobOptions) (*batchv1.Job, error) {
+	sosResources, err := parseSosResources(opts.MemoryReq, opts.MemoryLimit, opts.CPUReq, opts.CPULimit)
+	if err != nil {
+		return nil, err
+	}
 	sosContainer := corev1.Container{
-		Name:            "sosreport",
+		Name:            sosreportContainerName,
 		Image:           opts.Image,
 		ImagePullPolicy: corev1.PullIfNotPresent,
 		Env: []corev1.EnvVar{
@@ -163,6 +179,7 @@ func CreateJob(ctx context.Context, c client.Client, opts JobOptions) (*batchv1.
 			Privileged: ptr.To(true),
 			RunAsUser:  ptr.To(int64(0)),
 		},
+		Resources: sosResources,
 		VolumeMounts: append(baseVolumeMounts(), corev1.VolumeMount{
 			MountPath: outputDir, Name: "output",
 		}),
@@ -186,7 +203,7 @@ func CreateJob(ctx context.Context, c client.Client, opts JobOptions) (*batchv1.
 
 		// Sosreport writes to the staging emptyDir instead of the NFS volume.
 		for i := range initContainers {
-			if initContainers[i].Name != "sosreport" {
+			if initContainers[i].Name != sosreportContainerName {
 				continue
 			}
 			for j := range initContainers[i].Env {
@@ -336,6 +353,52 @@ func CreateJob(ctx context.Context, c client.Client, opts JobOptions) (*batchv1.
 	}
 
 	return job, nil
+}
+
+// parseSosResources resolves the sosreport container's CPU and memory resources.
+// Empty memReq/memLimit/cpuReq fall back to package defaults.
+func parseSosResources(memReq, memLimit, cpuReq, cpuLimit string) (corev1.ResourceRequirements, error) {
+	memReqQty, memLimitQty, _, err := parseRequestLimit(cmp.Or(memReq, DefaultMemoryRequest), cmp.Or(memLimit, DefaultMemoryLimit))
+	if err != nil {
+		return corev1.ResourceRequirements{}, fmt.Errorf("memory: %w", err)
+	}
+	cpuReqQty, cpuLimitQty, haveCPULimit, err := parseRequestLimit(cmp.Or(cpuReq, DefaultCPURequest), cpuLimit)
+	if err != nil {
+		return corev1.ResourceRequirements{}, fmt.Errorf("cpu: %w", err)
+	}
+	res := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceMemory: memReqQty,
+			corev1.ResourceCPU:    cpuReqQty,
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceMemory: memLimitQty,
+		},
+	}
+	if haveCPULimit {
+		res.Limits[corev1.ResourceCPU] = cpuLimitQty
+	}
+	return res, nil
+}
+
+// parseRequestLimit parses a Kubernetes request/limit pair. An empty limit
+// string means "no limit"; haveLimit reflects that.
+func parseRequestLimit(req, limit string) (reqQty, limitQty resource.Quantity, haveLimit bool, err error) {
+	reqQty, err = resource.ParseQuantity(req)
+	if err != nil {
+		return reqQty, limitQty, false, fmt.Errorf("invalid request %q: %w", req, err)
+	}
+	if limit == "" {
+		return reqQty, limitQty, false, nil
+	}
+	limitQty, err = resource.ParseQuantity(limit)
+	if err != nil {
+		return reqQty, limitQty, false, fmt.Errorf("invalid limit %q: %w", limit, err)
+	}
+	if reqQty.Cmp(limitQty) > 0 {
+		return reqQty, limitQty, false, fmt.Errorf("request (%s) must not exceed limit (%s)", req, limit)
+	}
+	return reqQty, limitQty, true, nil
 }
 
 // CreateKubeconfigSecret creates a Secret containing a kubeconfig for the SOS report pod.
