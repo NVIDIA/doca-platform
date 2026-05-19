@@ -46,7 +46,7 @@ func TestRedfishMockServer(t *testing.T) {
 }
 
 func testRootService(t *testing.T, client *client.Client) {
-	resp, err := client.GetRootService()
+	resp, _, err := client.GetRootService()
 	if err != nil {
 		t.Fatalf("Failed to get root service: %v", err)
 	}
@@ -63,8 +63,8 @@ func testChassisInfo(t *testing.T, client *client.Client) {
 	if resp.StatusCode() != 200 {
 		t.Errorf("Expected status 200, got %d", resp.StatusCode())
 	}
-	if chassisInfo.Model != "BlueField-3 DPU" {
-		t.Errorf("Expected model BlueField-3 DPU, got %s", chassisInfo.Model)
+	if client.IsBF4 {
+		t.Errorf("Expected BF3 model")
 	}
 	if chassisInfo.PartNumber != "900-9D3B4-00SV-EA0" {
 		t.Errorf("Expected part number 900-9D3B4-00SV-EA0, got %s", chassisInfo.PartNumber)
@@ -85,12 +85,16 @@ func TestBF4Auth(t *testing.T) {
 	}
 
 	// Test that BF4 auth works with admin user
-	resp, err := client.GetRootService()
+	resp, _, err := client.GetRootService()
 	if err != nil {
 		t.Fatalf("Failed to get root service with BF4 auth: %v", err)
 	}
 	if resp.StatusCode() != 200 {
 		t.Errorf("Expected status 200 with BF4 auth, got %d", resp.StatusCode())
+	}
+
+	if !client.IsBF4 {
+		t.Errorf("Expected IsBF4 to be true")
 	}
 
 	if client.UserInfo.Username != "admin" {

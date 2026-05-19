@@ -192,7 +192,7 @@ func (c *CrawlerService) worker(ctx context.Context, wg *sync.WaitGroup, jobs <-
 		}
 
 		// Check if it's a DPU BMC by making a Redfish request
-		resp, err := client.GetRootService()
+		resp, _, err := client.GetRootService()
 		if err != nil {
 			logger.Error(err, "Failed to get root service", "address", address, "response", resp)
 			result.Error = err

@@ -784,6 +784,28 @@ apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   labels:
+    app.kubernetes.io/part-of: dpf-provisioning-controller-manager
+    dpu.nvidia.com/component: dpf-provisioning-controller-manager
+  name: dpf-provisioning-redfish-client-cert-bf4
+  namespace: dpf-provisioning
+spec:
+  commonName: admin
+  dnsNames:
+  - dpf-provisioning-webhook-service.dpf-provisioning.svc
+  - dpf-provisioning-webhook-service.dpf-provisioning.svc.cluster.local
+  duration: 8760h
+  issuerRef:
+    kind: Issuer
+    name: dpf-provisioning-issuer
+  renewBefore: 4360h
+  secretName: dpf-provisioning-redfish-client-secret-bf4
+  usages:
+  - client auth
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  labels:
     app.kubernetes.io/component: certificate
     app.kubernetes.io/part-of: dpf-provisioning-controller-manager
     dpu.nvidia.com/component: dpf-provisioning-controller-manager
