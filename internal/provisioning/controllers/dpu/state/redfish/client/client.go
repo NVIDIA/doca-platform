@@ -79,7 +79,8 @@ const (
 	// Issuer is a cert-manager Issuer deployed by DPF
 	Issuer = "dpf-provisioning-issuer"
 	// ClientCertSecret is created by the cert-manager Certificate deployed by DPF,
-	ClientCertSecret = "dpf-provisioning-redfish-client-secret"
+	ClientCertSecret    = "dpf-provisioning-redfish-client-secret"
+	ClientCertSecretBF4 = "dpf-provisioning-redfish-client-secret-bf4"
 )
 
 const (
@@ -216,6 +217,10 @@ type ProductSpecInfo struct {
 	Mode        NicModeType
 }
 
+type RootServiceInfo struct {
+	Product string `json:"Product,omitempty"`
+}
+
 type SystemInfo struct {
 	BootProgress BootProgress `json:"BootProgress,omitempty"`
 }
@@ -227,6 +232,7 @@ type BootProgress struct {
 // Client is a Redfish client
 type Client struct {
 	*resty.Client
+	IsBF4 bool
 }
 
 // ChangeBMCPassword changes BMC password. For more information, refer to
@@ -617,8 +623,10 @@ func NewRawClient(bmcAddress string) (*Client, error) {
 }
 
 // GetRootService returns the root service of the BMC
-func (c *Client) GetRootService() (*resty.Response, error) {
-	return c.Client.R().Get(APIRootService)
+func (c *Client) GetRootService() (*resty.Response, *RootServiceInfo, error) {
+	return do[RootServiceInfo](func() (*resty.Response, error) {
+		return c.Client.R().Get(APIRootService)
+	})
 }
 
 // BMCCredentialResult contains the resolved BMC credential information.
@@ -797,7 +805,19 @@ func NewBasicAuthClient(bmcAddress, user, passwd string) (*Client, error) {
 		SetTLSClientConfig(&tls.Config{InsecureSkipVerify: true}).
 		SetBaseURL(bmcAddress).
 		SetBasicAuth(user, passwd)
-	return &Client{Client: c}, nil
+
+	client := &Client{Client: c, IsBF4: false}
+
+	_, rootServiceInfo, err := client.GetRootService()
+	if err != nil {
+		return nil, err
+	}
+
+	if rootServiceInfo != nil && strings.Contains(strings.ToUpper(rootServiceInfo.Product), "B4") {
+		client.IsBF4 = true
+	}
+
+	return client, nil
 }
 
 // NewTLSClient returns a Client using mTLS
@@ -805,6 +825,23 @@ func NewTLSClient(ctx context.Context, bmcAddress string, namespace string, k8sC
 	if !strings.HasPrefix(bmcAddress, httpsPrefix) {
 		bmcAddress = httpsPrefix + bmcAddress
 	}
+
+	clientCertSecret := ClientCertSecret
+
+	rawClient, err := NewRawClient(bmcAddress)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create raw client: %w", err)
+	}
+
+	_, rootServiceInfo, err := rawClient.GetRootService()
+	if err != nil {
+		return nil, err
+	}
+	if rootServiceInfo != nil && strings.Contains(strings.ToUpper(rootServiceInfo.Product), "B4") {
+		rawClient.IsBF4 = true
+		clientCertSecret = ClientCertSecretBF4
+	}
+
 	caSecret := &corev1.Secret{}
 	if err := k8sClient.Get(ctx, types.NamespacedName{Name: CASecret, Namespace: namespace}, caSecret); err != nil {
 		return nil, err
@@ -814,7 +851,7 @@ func NewTLSClient(ctx context.Context, bmcAddress string, namespace string, k8sC
 		return nil, fmt.Errorf("no CA crt in CA secret")
 	}
 	clientSecret := &corev1.Secret{}
-	if err := k8sClient.Get(ctx, types.NamespacedName{Name: ClientCertSecret, Namespace: namespace}, clientSecret); err != nil {
+	if err := k8sClient.Get(ctx, types.NamespacedName{Name: clientCertSecret, Namespace: namespace}, clientSecret); err != nil {
 		return nil, err
 	}
 	clientCert, ok := clientSecret.Data["tls.crt"]
@@ -841,20 +878,20 @@ func NewTLSClient(ctx context.Context, bmcAddress string, namespace string, k8sC
 
 	c := resty.New().SetBaseURL(bmcAddress).SetTLSClientConfig(tlsCfg)
 
-	tlsClient := &Client{Client: c}
+	tlsClient := &Client{Client: c, IsBF4: rawClient.IsBF4}
 
 	// verify if the tls client is working
 	// TODO: It is not necessary to perform verification every time when a tls client is created.
 	// We currently want to eliminate other issues with the mlt client, so we temporarily put it in this function.
 	// We will optimize it after redfish is stable.
-	resp, _, err := tlsClient.GetProductDescription()
+	resp, _, err := tlsClient.GetManagers()
 	if err != nil {
 		err = fmt.Errorf("verify mtls client failed, err: %v", err)
 		return nil, err
 	}
 
 	if resp != nil && resp.StatusCode() != http.StatusOK {
-		return nil, fmt.Errorf("redfish call getProductDescription failed, status code: %s", resp.Status())
+		return nil, fmt.Errorf("redfish call getManagers failed, status code: %s", resp.Status())
 	}
 
 	return tlsClient, nil

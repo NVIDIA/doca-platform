@@ -102,3 +102,25 @@ spec:
   secretName: dpf-provisioning-redfish-client-secret # this secret will not be prefixed, since it's not managed by kustomize
   usages:
     - client auth
+
+---
+
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: redfish-client-cert-bf4
+  namespace: system
+spec:
+  dnsNames:
+    - provisioning-controller.SERVICE_NAMESPACE.svc
+    - provisioning-controller.SERVICE_NAMESPACE.svc.cluster.local
+  commonName: admin
+  # 365 days
+  duration: 8760h
+  renewBefore: 4360h
+  issuerRef:
+    kind: Issuer
+    name: issuer
+  secretName: dpf-provisioning-redfish-client-secret-bf4 # this secret will not be prefixed, since it's not managed by kustomize
+  usages:
+    - client auth
