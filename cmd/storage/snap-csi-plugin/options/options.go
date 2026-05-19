@@ -45,8 +45,6 @@ type Options struct {
 	// node options
 	// k8s node name of the node where plugin runs
 	NodeID string
-	// the path where the host root fs is mounted
-	HostRootFS string
 	// max number of volumes that can be published to the node
 	// this option allows to explicitly set the max number of volumes that can be published to the node
 	// if not set, the plugin will try to discover the max number of volumes that can be published to the node
@@ -75,7 +73,6 @@ func New() *Options {
 		EmulationMode:          config.EmulationModeNVMe,
 		BindAddress:            config.DefaultBindNetwork + "://" + config.DefaultBindAddress,
 		LoggingOptions:         logsv1.NewLoggingConfiguration(),
-		HostRootFS:             config.DefaultHostRootFS,
 		SnapControllerDeviceID: config.DefaultSnapDeviceID,
 		NVMeLoadDriver:         true,
 		NVMeCreateVFs:          true,
@@ -107,8 +104,6 @@ func (o *Options) addControllerFlags(fs *pflag.FlagSet) {
 func (o *Options) addNodeFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&o.NodeID, "node-id", o.NodeID,
 		"nodeID to use as CSI NodeID, required for \"node\" mode")
-	fs.StringVar(&o.HostRootFS, "node-root-fs", o.HostRootFS,
-		"the path where the host root fs is mounted")
 	fs.Int64Var(&o.MaxVolumesPerNode, "max-volumes-per-node", o.MaxVolumesPerNode,
 		"max number of volumes that can be published to the node, if not set or set to 0, "+
 			"the plugin will try to discover the max number of volumes that can be published to the node")

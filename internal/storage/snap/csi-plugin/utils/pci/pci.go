@@ -70,10 +70,9 @@ var (
 )
 
 // New initialize and return a new instance of pci utils
-func New(hostRootFS string, exec kexec.Interface) Utils {
+func New(exec kexec.Interface) Utils {
 	return &pciUtils{
-		hostRootFS: hostRootFS,
-		exec:       exec,
+		exec: exec,
 	}
 }
 
@@ -128,8 +127,7 @@ type Utils interface {
 }
 
 type pciUtils struct {
-	exec       kexec.Interface
-	hostRootFS string
+	exec kexec.Interface
 }
 
 // LoadDriver is an Utils interface implementation for pciUtils
@@ -272,9 +270,6 @@ func (u *pciUtils) readSriovVFsCount(pciAddress string, subpath string) (int, er
 // InsertKernelModule is an Utils interface implementation for pciUtils
 func (u *pciUtils) InsertKernelModule(ctx context.Context, module string) error {
 	args := []string{"modprobe", module}
-	if u.hostRootFS != "" {
-		args = append([]string{"chroot", u.hostRootFS}, args...)
-	}
 	cmd := u.exec.CommandContext(ctx, args[0], args[1:]...)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to load kernel module %s: %v", module, err)

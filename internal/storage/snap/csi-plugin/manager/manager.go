@@ -98,7 +98,7 @@ func New(pluginConfig config.PluginConfig, options ...Option) (*ServiceManager, 
 		}
 		csi.RegisterControllerServer(mgr.grpcServer, opts.controllerHandler)
 	case config.PluginModeNode:
-		pciUtils := utilsPci.New(pluginConfig.Node.HostRootFS, kexec.New())
+		pciUtils := utilsPci.New(kexec.New())
 		nodeRuntimeConfig := config.NewNodeRuntime()
 
 		klog.V(2).Info("register preconfigure")

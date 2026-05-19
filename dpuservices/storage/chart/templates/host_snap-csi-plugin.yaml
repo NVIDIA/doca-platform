@@ -331,9 +331,9 @@ spec:
               mountPropagation: "Bidirectional"
             - name: dev
               mountPath: /dev
-            - name: host
-              mountPath: /host
-              mountPropagation: "Bidirectional"
+            - name: host-lib-modules
+              mountPath: /lib/modules
+              readOnly: true
         - name: liveness-probe
           image: "{{ .Values.host.snapCsiPlugin.node.livenessProbe.image.repository }}:{{ .Values.host.snapCsiPlugin.node.livenessProbe.image.tag }}"
           args:
@@ -395,9 +395,10 @@ spec:
                     apiVersion: v1
                     fieldPath: metadata.namespace
                   path: namespace
-        - name: host
+        - name: host-lib-modules
           hostPath:
-            path: /
+            path: /lib/modules
+            type: Directory
         - name: socket-dir
           hostPath:
             path: {{ .Values.host.snapCsiPlugin.node.kubeletDir }}/plugins/{{ .Values.host.snapCsiPlugin.name }}
