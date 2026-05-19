@@ -27,29 +27,41 @@ import (
 	"github.com/nvidia/doca-platform/internal/utils/tunnel"
 
 	"github.com/spf13/cobra"
+	corev1 "k8s.io/api/core/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 )
 
 type sosreportFlags struct {
-	cluster      string
-	dpuCluster   string
-	nodes        []string
-	nodeSelector string
-	namespace    string
-	image        string
-	caseID       string
-	nfsServer    string
-	nfsPath      string
-	nfsNoSub     bool
-	nfsUID       int64
-	timeout      time.Duration
-	outputDir    string
-	cleanup      bool
-	archive      bool
-	archiveOnly  bool
+	cluster        string
+	dpuCluster     string
+	nodes          []string
+	nodeSelector   string
+	namespace      string
+	image          string
+	caseID         string
+	nfsServer      string
+	nfsPath        string
+	nfsNoSub       bool
+	nfsUID         int64
+	timeout        time.Duration
+	outputDir      string
+	cleanup        bool
+	archive        bool
+	archiveOnly    bool
+	requestsMemory string
+	requestsCPU    string
+	limitsMemory   string
+	limitsCPU      string
 }
 
 var sosOpts sosreportFlags
+
+const (
+	requestsMemoryFlag = string(corev1.ResourceRequestsMemory)
+	requestsCPUFlag    = string(corev1.ResourceRequestsCPU)
+	limitsMemoryFlag   = string(corev1.ResourceLimitsMemory)
+	limitsCPUFlag      = string(corev1.ResourceLimitsCPU)
+)
 
 var sosreportCmd = &cobra.Command{
 	Use:   "sosreport",
@@ -112,6 +124,13 @@ func addStartFlags(cmd *cobra.Command) {
 	f.Int64Var(&sosOpts.nfsUID, "nfs-uid", 0, "UID for NFS directory creation (use non-zero when NFS has root_squash)")
 	f.DurationVar(&sosOpts.timeout, "timeout", 30*time.Minute, "Job active deadline timeout")
 	must(cmd.RegisterFlagCompletionFunc("timeout", cobra.FixedCompletions([]string{"5m", "15m", "30m", "1h"}, cobra.ShellCompDirectiveNoFileComp)))
+	f.StringVar(&sosOpts.requestsMemory, requestsMemoryFlag, sosreport.DefaultMemoryRequest, "Memory request for the sosreport container (Kubernetes quantity, e.g. 256Mi, 1Gi)")
+	must(cmd.RegisterFlagCompletionFunc(requestsMemoryFlag, cobra.FixedCompletions([]string{"128Mi", "256Mi", "512Mi", "1Gi"}, cobra.ShellCompDirectiveNoFileComp)))
+	f.StringVar(&sosOpts.requestsCPU, requestsCPUFlag, sosreport.DefaultCPURequest, "CPU request for the sosreport container (Kubernetes quantity, e.g. 100m, 1)")
+	must(cmd.RegisterFlagCompletionFunc(requestsCPUFlag, cobra.FixedCompletions([]string{"50m", "100m", "250m", "500m", "1"}, cobra.ShellCompDirectiveNoFileComp)))
+	f.StringVar(&sosOpts.limitsMemory, limitsMemoryFlag, sosreport.DefaultMemoryLimit, "Memory limit for the sosreport container (Kubernetes quantity, e.g. 256Mi, 1Gi)")
+	must(cmd.RegisterFlagCompletionFunc(limitsMemoryFlag, cobra.FixedCompletions([]string{"512Mi", "1Gi", "2Gi", "4Gi"}, cobra.ShellCompDirectiveNoFileComp)))
+	f.StringVar(&sosOpts.limitsCPU, limitsCPUFlag, "", "Optional CPU limit (empty by default; CPU limits cause throttling and are usually counterproductive)")
 }
 
 // addArchiveFlags registers the --archive and --archive-only flags.
@@ -151,6 +170,10 @@ func startOpts() *sosreport.StartOptions {
 		NodeSelector: sosOpts.nodeSelector,
 		Cluster:      sosOpts.cluster,
 		DPUCluster:   sosOpts.dpuCluster,
+		MemoryReq:    sosOpts.requestsMemory,
+		MemoryLimit:  sosOpts.limitsMemory,
+		CPUReq:       sosOpts.requestsCPU,
+		CPULimit:     sosOpts.limitsCPU,
 	}
 }
 
