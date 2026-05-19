@@ -40,8 +40,6 @@ const (
 )
 
 const (
-	// DefaultHostRootFS is the default path where the host root fs is mounted
-	DefaultHostRootFS = "/host"
 	// DefaultSnapDeviceID default value for the snap device ID
 	DefaultSnapDeviceID = "6001"
 )
@@ -96,8 +94,6 @@ type Common struct {
 type Node struct {
 	// name of the k8s node on which plugin is running
 	NodeID string
-	// the path where the host root fs is mounted
-	HostRootFS string
 	// MaxVolumesPerNode defines the maximum number of volumes that can be published to a node.
 	// This value can be set by the user and takes precedence over the dynamically calculated value.
 	MaxVolumesPerNode int64

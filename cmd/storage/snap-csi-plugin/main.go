@@ -70,7 +70,6 @@ func run(opts *options.Options) error {
 		},
 		Node: config.Node{
 			NodeID:                 opts.NodeID,
-			HostRootFS:             opts.HostRootFS,
 			MaxVolumesPerNode:      opts.MaxVolumesPerNode,
 			SnapControllerDeviceID: opts.SnapControllerDeviceID,
 			NVMeLoadDriver:         opts.NVMeLoadDriver,
