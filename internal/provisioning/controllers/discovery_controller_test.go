@@ -133,10 +133,12 @@ var _ = Describe("Redfish Mock Server Tests", func() {
 
 			By("Verifying Redfish client can make API calls")
 			// Test a simple API call to verify connectivity
-			service, err := redfishClient.GetRootService()
+			resp, service, err := redfishClient.GetRootService()
 			Expect(err).NotTo(HaveOccurred())
+			Expect(resp).NotTo(BeNil())
+			Expect(resp.StatusCode()).To(Equal(200))
 			Expect(service).NotTo(BeNil())
-			Expect(service.StatusCode()).To(Equal(200))
+			Expect(service.Product).To(Equal("BlueField-3 DPU"))
 
 			By("Verifying mock server configuration")
 			Expect(mockServer.GetIPAddress()).NotTo(BeEmpty())

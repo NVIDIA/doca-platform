@@ -196,8 +196,10 @@ func (r *RedfishMockServer) GetClient() (*client.Client, error) {
 	// Set basic auth
 	if r.dpuVersion == BF3 {
 		c.SetBasicAuth("root", r.password)
+		c.IsBF4 = false
 	} else {
 		c.SetBasicAuth("admin", r.password)
+		c.IsBF4 = true
 	}
 
 	return c, nil
@@ -218,6 +220,11 @@ func (r *RedfishMockServer) handleRootService(w http.ResponseWriter, req *http.R
 		return
 	}
 
+	product := "BlueField-3 DPU"
+	if r.dpuVersion == BF4 {
+		product = "B4240"
+	}
+
 	response := map[string]interface{}{
 		"@odata.context": "/redfish/v1/$metadata#ServiceRoot.ServiceRoot",
 		"@odata.id":      "/redfish/v1",
@@ -226,6 +233,7 @@ func (r *RedfishMockServer) handleRootService(w http.ResponseWriter, req *http.R
 		"Name":           "Root Service",
 		"RedfishVersion": "1.15.0",
 		"UUID":           "12345678-1234-1234-1234-123456789abc",
+		"Product":        product,
 		"Systems": map[string]interface{}{
 			"@odata.id": "/redfish/v1/Systems",
 		},
