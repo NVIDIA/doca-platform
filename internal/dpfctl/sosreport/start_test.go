@@ -64,6 +64,56 @@ func TestValidateStartOptions(t *testing.T) {
 			opts:    StartOptions{Cluster: "host", Output: OutputNFS, NFSServer: "10.0.0.1", NFSPath: "/exports/sos"},
 			wantErr: false,
 		},
+		{
+			name:    "valid memory request below limit",
+			opts:    StartOptions{Cluster: "host", Output: OutputLocal, MemoryReq: "256Mi", MemoryLimit: "1Gi"},
+			wantErr: false,
+		},
+		{
+			name:    "valid memory request equals limit",
+			opts:    StartOptions{Cluster: "host", Output: OutputLocal, MemoryReq: "512Mi", MemoryLimit: "512Mi"},
+			wantErr: false,
+		},
+		{
+			name:    "invalid memory request quantity",
+			opts:    StartOptions{Cluster: "host", Output: OutputLocal, MemoryReq: "notaquantity"},
+			wantErr: true,
+		},
+		{
+			name:    "invalid memory limit quantity",
+			opts:    StartOptions{Cluster: "host", Output: OutputLocal, MemoryLimit: "notaquantity"},
+			wantErr: true,
+		},
+		{
+			name:    "memory request exceeds limit",
+			opts:    StartOptions{Cluster: "host", Output: OutputLocal, MemoryReq: "2Gi", MemoryLimit: "1Gi"},
+			wantErr: true,
+		},
+		{
+			name:    "valid cpu request with explicit limit",
+			opts:    StartOptions{Cluster: "host", Output: OutputLocal, CPUReq: "200m", CPULimit: "500m"},
+			wantErr: false,
+		},
+		{
+			name:    "valid cpu request with empty limit",
+			opts:    StartOptions{Cluster: "host", Output: OutputLocal, CPUReq: "200m"},
+			wantErr: false,
+		},
+		{
+			name:    "invalid cpu request quantity",
+			opts:    StartOptions{Cluster: "host", Output: OutputLocal, CPUReq: "notaquantity"},
+			wantErr: true,
+		},
+		{
+			name:    "invalid cpu limit quantity",
+			opts:    StartOptions{Cluster: "host", Output: OutputLocal, CPULimit: "notaquantity"},
+			wantErr: true,
+		},
+		{
+			name:    "cpu request exceeds limit",
+			opts:    StartOptions{Cluster: "host", Output: OutputLocal, CPUReq: "500m", CPULimit: "100m"},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
