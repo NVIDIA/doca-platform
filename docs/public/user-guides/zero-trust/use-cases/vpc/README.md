@@ -273,8 +273,10 @@ Verify the DPF System with:
 kubectl rollout status deployment --namespace dpf-operator-system dpf-provisioning-controller-manager dpuservice-controller-manager
 ## Ensure all other deployments in the DPF Operator system are Available.
 kubectl rollout status deployment --namespace dpf-operator-system
-## Ensure bfb registry daemonset is available
-kubectl rollout status daemonset --namespace dpf-operator-system bfb-registry
+## Ensure bfb-registry pod is running.
+kubectl wait --for=condition=ready --namespace dpf-operator-system pod/bfb-registry --timeout=600s
+## Ensure bfb-registry service exists.
+kubectl get svc bfb-registry --namespace dpf-operator-system
 ## Ensure the DPUCluster is ready for nodes to join.
 kubectl wait --for=condition=ready --namespace dpu-cplane-tenant1 dpucluster --all
 ```
