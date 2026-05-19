@@ -113,25 +113,62 @@ If any validation fails:
 * **Upgrade Blocked**: The upgrade process is automatically halted
 * **Status Updates**: The `DPFOperatorConfig` status reflects the validation failure
 
-### Status Monitoring
+## Performing the Upgrade
 
-You can monitor prevalidation status using either [dpfctl](../troubleshooting/dpfctl/README.md) or kubectl as described in the
-prerequisites above. The `DPFOperatorConfig` status will indicate whether prevalidations have passed or failed. All
-conditions must be `True` for the upgrade to proceed.
+Upgrade the DPF Operator using Helm. This assumes the DPF Helm repository is already configured as described in the
+[Getting Started Guide](../../getting-started/dpf-host-trusted.md#deploy-the-dpf-operator) (repo setup, OCI registry
+variants, and Helm prerequisites are covered there).
+
+> [!IMPORTANT]
+> Any custom values applied to the existing release must be preserved during the upgrade, or they will be reverted to
+> the chart defaults. The recommended command below uses `--reset-then-reuse-values` (Helm 3.14 or later), which
+> applies the new chart's defaults and then layers the existing release values on top.
+
+```bash
+helm repo update
+helm upgrade --install -n dpf-operator-system dpf-operator \
+  dpf-repository/dpf-operator --version=$TAG --reset-then-reuse-values
+```
+
+Replace `$TAG` with the target DPF Operator version (e.g. `v26.4.0`).
+
+Alternatively, re-apply the original values file explicitly with `-f values.yaml`. If the file is no longer
+available, the currently deployed values can be retrieved from the release:
+
+```bash
+helm get values dpf-operator -n dpf-operator-system > values.yaml
+```
+
+## Validate the Upgrade
+
+Verify the controller has rolled out:
+
+```bash
+kubectl -n dpf-operator-system rollout status deployment dpf-operator-controller-manager
+```
+
+Confirm that `DPFOperatorConfig` reports the new version in its status (`status.version` should match `$TAG`):
+
+```bash
+kubectl -n dpf-operator-system get dpfoperatorconfig dpfoperatorconfig -o jsonpath='{.status.version}'
+```
+
+Or, using [`dpfctl`](../troubleshooting/dpfctl/README.md):
+
+```bash
+dpfctl describe all --show-resources=dpfoperatorconfig
+```
 
 ## What to Do Next
 
 After completing your DPF Operator upgrade, follow these steps to ensure everything is working correctly:
 
-1. **Verify DPFOperatorConfig Status**: Verify that your DPFOperatorConfig custom resource is in a ready state and all
-   conditions are met.
-
-2. **Update to Supported BFB and DPUFlavor**: Create the new BFB object and DPUFlavor
+1. **Update to Supported BFB and DPUFlavor**: Create the new BFB object and DPUFlavor
    object [according to the new guide](../../user-guides/README.md). Review and update your DPUDeployment/DPUSet resources as needed
    to reference those objects to make the system compatible with the new operator version.
 
-3. **Update DPUServices**: Review and update your DPUDeployment/DPUService resources to use services that are compatible with
+2. **Update DPUServices**: Review and update your DPUDeployment/DPUService resources to use services that are compatible with
    BFB version and operator version.
 
-4. **Monitor the Upgrade**: Use `dpfctl describe all` to monitor the reconciliation process and ensure all resources
+3. **Monitor the Upgrade**: Use `dpfctl describe all` to monitor the reconciliation process and ensure all resources
    reach ready state.
