@@ -174,6 +174,9 @@ var _ = Describe("DPU: PrepareBFB", func() {
 		dpuNode.Status.KubeNodeRef = ptr.To(node.Name)
 		Expect(k8sClient.Status().Patch(ctx, dpuNode, patch)).To(Succeed())
 
+		dpuDevice := dpuDeviceObj(defaultDeviceName)
+		createObject(dpuDevice)
+
 		dpu := dpuObj(defaultDPUName)
 		dpu.Spec.DPUFlavor = defaultFlavorName
 		dpu.Spec.Cluster = provisioningv1.K8sCluster{
@@ -181,6 +184,7 @@ var _ = Describe("DPU: PrepareBFB", func() {
 			Namespace: testNS.Name,
 		}
 		dpu.Spec.DPUNodeName = dpuNode.Name
+		dpu.Spec.DPUDeviceName = defaultDeviceName
 		dpu.Status.Phase = provisioningv1.DPUPrepareBFB
 
 		// Create a file at the BFBBaseDir path to cause MkdirAll to fail
@@ -511,5 +515,75 @@ var _ = Describe("DPU: PrepareBFB", func() {
 
 		_, err = os.Stat(status.BFCFGFile)
 		Expect(err).NotTo(HaveOccurred())
+	})
+
+	Describe("BlueField 4 ISO path", func() {
+		It("should create ISO image and set BFCFGFile to iso path when DPUDevice is BlueField 4", func() {
+			createDPFOperatorConfig()
+
+			node := nodeObj(defaultNodeName)
+			createObject(node)
+
+			flavor := dpuFlavorObj(defaultFlavorName)
+			createObject(flavor)
+
+			cluster := dpuClusterObj(defaultClusterName, string(provisioningv1.StaticCluster))
+			createObject(cluster)
+
+			dpuNode := dpuNodeObj(defaultNodeName)
+			createObject(dpuNode)
+			patch := client.MergeFrom(dpuNode.DeepCopy())
+			dpuNode.Status.KubeNodeRef = ptr.To(node.Name)
+			Expect(k8sClient.Status().Patch(ctx, dpuNode, patch)).To(Succeed())
+
+			dpuDevice := dpuDeviceObj(defaultDeviceName)
+			createObject(dpuDevice)
+			deviceStatusPatch := client.MergeFrom(dpuDevice.DeepCopy())
+			dpuDevice.Status.DPUType = provisioningv1.DPUTypeBlueField4
+			Expect(k8sClient.Status().Patch(ctx, dpuDevice, deviceStatusPatch)).To(Succeed())
+
+			dpu := dpuObj(defaultDPUName)
+			dpu.Spec.DPUFlavor = defaultFlavorName
+			dpu.Spec.Cluster = provisioningv1.K8sCluster{
+				Name:      defaultClusterName,
+				Namespace: testNS.Name,
+			}
+			dpu.Spec.DPUNodeName = dpuNode.Name
+			dpu.Spec.DPUDeviceName = defaultDeviceName
+			dpu.Status.Phase = provisioningv1.DPUPrepareBFB
+
+			tempDir, err := os.MkdirTemp("", "bfb-bf4-test")
+			Expect(err).NotTo(HaveOccurred())
+			defer func() { _ = os.RemoveAll(tempDir) }()
+
+			originalBFBBaseDir := cutil.BFBBaseDir
+			cutil.BFBBaseDir = tempDir
+			defer func() { cutil.BFBBaseDir = originalBFBBaseDir }()
+
+			status, err := state.PrepareBFB(ctx, dpu,
+				&dutil.ControllerContext{
+					Client: k8sClient,
+					JoinCommandGenerator: &mockJoinCommandGenerator{
+						returnError: false,
+					},
+					Options: dutil.DPUOptions{
+						BFCFGTemplateFile:   "",
+						DPUInstallInterface: string(provisioningv1.InstallViaGNOI),
+					},
+				},
+			)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUOSInstalling))
+			Expect(status.BFCFGFile).To(HaveSuffix("seed.iso"))
+			Expect(status.Conditions).Should(ContainElements(
+				And(
+					HaveField("Type", provisioningv1.DPUCondBFBPrepared.String()),
+					HaveField("Status", metav1.ConditionTrue),
+				),
+			))
+
+			_, err = os.Stat(status.BFCFGFile)
+			Expect(err).NotTo(HaveOccurred())
+		})
 	})
 })
