@@ -32,6 +32,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/operator/inventory"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	testutils "github.com/nvidia/doca-platform/test/utils"
+	"github.com/nvidia/doca-platform/test/utils/netshoot"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -378,6 +379,30 @@ func ValidateDPFOperatorMTUConfigurationChange(ctx context.Context, input *syste
 		g.Expect(exists).To(BeTrue())
 		g.Expect(netAttachConfig).To(ContainSubstring("mtu\": 9000,"))
 	}, time.Second*30).Should(Succeed())
+
+	if input.hasDpuNodes() && !isGinkgoLabelApplied(Domain.ZeroTrust) {
+		By("Verify host bridge br-dpu MTU on DPU nodes reflects ControlPlaneMTU change")
+		Eventually(func(g Gomega) {
+			pods := corev1.PodList{}
+			g.Expect(input.client.List(ctx, &pods,
+				client.MatchingLabels{cutil.ProvisioningComponentLabelKey: "hostagent"})).To(Succeed())
+			runningPods := make([]corev1.Pod, 0, len(pods.Items))
+			for _, pod := range pods.Items {
+				if pod.DeletionTimestamp != nil {
+					continue
+				}
+				g.Expect(pod.Status.Phase).To(Equal(corev1.PodRunning), "hostagent pod %s/%s is not running", pod.Namespace, pod.Name)
+				runningPods = append(runningPods, pod)
+			}
+			g.Expect(runningPods).ToNot(BeEmpty())
+			for _, pod := range runningPods {
+				stdout, err := netshoot.ExecInContainerOnce(hostClusterRESTClient, input.restConfig,
+					pod.Namespace, pod.Name, "hostagent", []string{"cat", "/sys/class/net/br-dpu/mtu"})
+				g.Expect(err).NotTo(HaveOccurred(), "exec on pod %s/%s container hostagent: %s", pod.Namespace, pod.Name, stdout)
+				g.Expect(strings.TrimSpace(stdout)).To(Equal(fmt.Sprintf("%d", testMTUValue)))
+			}
+		}, 5*time.Minute).Should(Succeed())
+	}
 
 	By("Reverting the DPFOperatorConfig to its original setting")
 	Eventually(func(g Gomega) {
