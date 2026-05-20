@@ -80,6 +80,17 @@ type PortConfig struct {
 	InterfaceType    string
 	MTU              *int
 	InterfaceOptions map[string]string
+
+	// Optional fields below are written in the same transaction as port creation.
+	InterfaceExternalIDs map[string]string
+	PortExternalIDs      map[string]string
+	OFPortRequest        *int
+	VLANMode             *ovsmodel.PortVLANMode
+	Tag                  *int
+	Trunks               []int
+	// WaitForOFPortFree, when set with OFPortRequest, aborts the transaction
+	// if another Interface already requested the same ofport.
+	WaitForOFPortFree bool
 }
 
 const (
@@ -92,9 +103,26 @@ const (
 	errMsgFailedToCreateBridge = "failed to create bridge %s: %v"
 )
 
-// AddPort performing 3 operations
-// Adding interface, adding port, attaching port to a bridge
-// The port will not be added if it already exists on a different bridge
+// ofportWaitOp aborts the transaction if any Interface already has the given
+// ofport_request. Uses Until:"!=" with a matching Row because libovsdb drops
+// empty Rows via omitempty, which ovsdb-server would reject.
+func ofportWaitOp(ofportRequest int) ovsdb.Operation {
+	timeout := 0
+	return ovsdb.Operation{
+		Op:      "wait",
+		Table:   "Interface",
+		Where:   []ovsdb.Condition{ovsdb.NewCondition("ofport_request", ovsdb.ConditionEqual, ofportRequest)},
+		Columns: []string{"ofport_request"},
+		Until:   "!=",
+		Rows:    []ovsdb.Row{{"ofport_request": ofportRequest}},
+		Timeout: &timeout,
+	}
+}
+
+// AddPort creates an interface, port, and attaches it to a bridge in a single
+// transaction. No-op if the port already exists on the same bridge, errors if
+// it exists on a different one. Optional PortConfig fields are written in the
+// same transaction.
 func (c *Client) AddPort(ctx context.Context, portConfig PortConfig) error {
 	port := &ovsmodel.Port{
 		Name: portConfig.Name,
@@ -132,23 +160,35 @@ func (c *Client) AddPort(ctx context.Context, portConfig PortConfig) error {
 	maxMtuSize := 9216
 	ifaceUUI := "iface" + portConfig.Name
 	iface := &ovsmodel.Interface{
-		Name:       portConfig.Name,
-		UUID:       ifaceUUI,
-		Type:       portConfig.InterfaceType,
-		MTURequest: &maxMtuSize,
-		Options:    portConfig.InterfaceOptions,
+		Name:          portConfig.Name,
+		UUID:          ifaceUUI,
+		Type:          portConfig.InterfaceType,
+		MTURequest:    &maxMtuSize,
+		Options:       portConfig.InterfaceOptions,
+		ExternalIDs:   portConfig.InterfaceExternalIDs,
+		OfportRequest: portConfig.OFPortRequest,
 	}
 
 	if portConfig.MTU != nil {
 		iface.MTURequest = portConfig.MTU
 	}
 
-	operations, err := c.Create(iface)
+	var operations []ovsdb.Operation
+	if portConfig.WaitForOFPortFree && portConfig.OFPortRequest != nil {
+		operations = append(operations, ofportWaitOp(*portConfig.OFPortRequest))
+	}
+
+	ifaceOps, err := c.Create(iface)
 	if err != nil {
 		return fmt.Errorf("failed to create interface for port %s: %v", portConfig.Name, err)
 	}
+	operations = append(operations, ifaceOps...)
 
 	port.Interfaces = []string{ifaceUUI}
+	port.ExternalIDs = portConfig.PortExternalIDs
+	port.VLANMode = portConfig.VLANMode
+	port.Tag = portConfig.Tag
+	port.Trunks = portConfig.Trunks
 
 	pIns, err := c.Create(port)
 	if err != nil {
