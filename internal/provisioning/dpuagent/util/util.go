@@ -24,6 +24,7 @@ import (
 	"strings"
 
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
+	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
 )
 
 var mstPCIAddressRegex = regexp.MustCompile(`domain:bus:dev\.fn=([0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-9]+)`)
@@ -51,7 +52,15 @@ func DiscoverNSNIC(sysFSRoot string) (*hostutil.Device, error) {
 
 // MFTDevicesForNSNIC lists MST device paths and keeps only those backed by
 // PF PCI addresses on the selected N/S NIC.
-func MFTDevicesForNSNIC(mstDevicesPath string, nic *hostutil.Device) ([]string, error) {
+func MFTDevicesForNSNIC(mstDevicesPath string, nic *hostutil.Device, runBash bash.RunFunc) ([]string, error) {
+	if runBash == nil {
+		runBash = bash.Run
+	}
+	// BF4 images may not start MST automatically, so refresh devices before listing /dev/mst.
+	if _, stderr, err := runBash("mst start"); err != nil {
+		return nil, fmt.Errorf("failed to start mst: %w, stderr: %s", err, stderr.String())
+	}
+
 	devices, err := filepath.Glob(filepath.Join(mstDevicesPath, "*"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to list MST devices: %w", err)

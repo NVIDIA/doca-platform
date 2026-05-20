@@ -87,7 +87,7 @@ type firmwareResetPerDevice struct {
 }
 
 type HandleReboot struct {
-	runBash        func(string) (bytes.Buffer, bytes.Buffer, error)
+	runBash        bash.RunFunc
 	mstDevicesPath string
 	skipBlock      bool
 	// allowFirmwareReset is set for the duration of getRebootMethodDeviceQuery from LatestDPU annotations
@@ -185,7 +185,7 @@ func (h *HandleReboot) getMSTDevices(optCtx *operations.Context) ([]string, erro
 	if h.mstDevicesPath == "" {
 		h.mstDevicesPath = defaultMstDevicesPath
 	}
-	return dpuagentutil.MFTDevicesForNSNIC(h.mstDevicesPath, optCtx.NSNIC)
+	return dpuagentutil.MFTDevicesForNSNIC(h.mstDevicesPath, optCtx.NSNIC, h.runBash)
 }
 
 func (h *HandleReboot) execFirmwareReset(execCtx context.Context, optCtx *operations.Context) error {
@@ -611,11 +611,11 @@ func hasBeenBooted(dpu *provisioningv1.DPU, currentRebootID string) bool {
 
 // ResolveRebootMethodDiscovery runs mlxfwreset and mlxconfig version checks.
 // It returns true when both report MFT at least MinRebootDiscoveryMFTVersion.
-func ResolveRebootMethodDiscovery(run func(string) (bytes.Buffer, bytes.Buffer, error)) bool {
+func ResolveRebootMethodDiscovery(run bash.RunFunc) bool {
 	return resolveRebootMethodDiscovery(run)
 }
 
-func resolveRebootMethodDiscovery(run func(string) (bytes.Buffer, bytes.Buffer, error)) bool {
+func resolveRebootMethodDiscovery(run bash.RunFunc) bool {
 	minVer, err := semver.NewVersion(MinRebootDiscoveryMFTVersion)
 	if err != nil {
 		klog.Errorf("invalid MinRebootDiscoveryMFTVersion constant %q: %v", MinRebootDiscoveryMFTVersion, err)
@@ -656,7 +656,7 @@ func resolveRebootMethodDiscovery(run func(string) (bytes.Buffer, bytes.Buffer, 
 	return true
 }
 
-func getMlxfwresetVersionOutputForDiscovery(run func(string) (bytes.Buffer, bytes.Buffer, error)) (string, error) {
+func getMlxfwresetVersionOutputForDiscovery(run bash.RunFunc) (string, error) {
 	const cmd = "mlxfwreset --version"
 	stdout, stderr, err := run(cmd)
 	combined := strings.TrimSpace(stdout.String() + stderr.String())
@@ -666,7 +666,7 @@ func getMlxfwresetVersionOutputForDiscovery(run func(string) (bytes.Buffer, byte
 	return combined, nil
 }
 
-func getMlxconfigVersionOutputForDiscovery(run func(string) (bytes.Buffer, bytes.Buffer, error)) (string, error) {
+func getMlxconfigVersionOutputForDiscovery(run bash.RunFunc) (string, error) {
 	const cmd = "mlxconfig --version"
 	stdout, stderr, err := run(cmd)
 	combined := strings.TrimSpace(stdout.String() + stderr.String())

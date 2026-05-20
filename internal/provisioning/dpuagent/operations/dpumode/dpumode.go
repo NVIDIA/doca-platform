@@ -17,7 +17,6 @@ limitations under the License.
 package dpumode
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 
@@ -35,7 +34,7 @@ const (
 
 type EnsureMode struct {
 	mstDevicesPath string
-	runBash        func(cmd string) (bytes.Buffer, bytes.Buffer, error)
+	runBash        bash.RunFunc
 }
 
 func (d *EnsureMode) Name() string {
@@ -85,7 +84,7 @@ func (d *EnsureMode) targetMFTDevices(optCtx *operations.Context) ([]string, err
 	if d.mstDevicesPath == "" {
 		d.mstDevicesPath = defaultMstDevicesPath
 	}
-	return dpuagentutil.MFTDevicesForNSNIC(d.mstDevicesPath, optCtx.NSNIC)
+	return dpuagentutil.MFTDevicesForNSNIC(d.mstDevicesPath, optCtx.NSNIC, d.runBash)
 }
 
 func (d *EnsureMode) setDeploymentMode(dev string, deploymentMode provisioningv1.DeploymentMode) error {
