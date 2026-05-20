@@ -85,7 +85,7 @@ var _ = Describe("InstallationService", func() {
 		testNS = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "installation-service-testns-"}}
 		Expect(k8sClient.Create(ctx, testNS)).To(Succeed())
 
-		installationService = NewInstallationService(k8sClient, nil)
+		installationService = NewInstallationService(k8sClient, nil, nil)
 		Expect(installationService.Start(false)).To(Succeed())
 		// Start() runs the server in a goroutine; wait until it is listening to avoid connection refused.
 		Eventually(func() error {

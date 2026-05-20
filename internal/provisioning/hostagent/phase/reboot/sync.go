@@ -128,18 +128,18 @@ func (r *Handler) reboot(ctx context.Context, dpuNode *provisioningv1.DPUNode, d
 		}
 	}
 	if runPowerCycle {
-		if err := r.runPowerCycle(dpuNode, rebootNow); err != nil {
+		if err := r.RunPowerCycle(dpuNode, rebootNow); err != nil {
 			return rebootNow, err
 		}
 		return nil, nil
 	}
-	if err := r.runSLR(ctx, rebootNow); err != nil {
+	if err := r.RunSLR(ctx, rebootNow); err != nil {
 		return rebootNow, err
 	}
 	return nil, nil
 }
 
-func (r *Handler) runPowerCycle(dpuNode *provisioningv1.DPUNode, dpus []provisioningv1.DPU) error {
+func (r *Handler) RunPowerCycle(dpuNode *provisioningv1.DPUNode, dpus []provisioningv1.DPU) error {
 	powerCycleCommand, err := reboot.PowerCycleCommand(dpuNode)
 	if err != nil {
 		return fmt.Errorf("failed to get power cycle command: %w", err)
@@ -155,7 +155,7 @@ func (r *Handler) runPowerCycle(dpuNode *provisioningv1.DPUNode, dpus []provisio
 	return nil
 }
 
-func (r *Handler) runSLR(ctx context.Context, toBeRebooted []provisioningv1.DPU) error {
+func (r *Handler) RunSLR(ctx context.Context, toBeRebooted []provisioningv1.DPU) error {
 	devs := make([]hostutil.Device, len(toBeRebooted))
 	for i, dpu := range toBeRebooted {
 		dev, ok := r.getDeviceBySerialNumberFunc(dpu.Spec.SerialNumber)
