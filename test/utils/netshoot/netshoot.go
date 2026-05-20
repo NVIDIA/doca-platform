@@ -475,7 +475,7 @@ func execCommandEventually(restClient **rest.RESTClient, config **rest.Config, n
 		// We pass the value of the pointer and not the pointer to the pointer to avoid race conditions with pointers
 		// being updated while execution happens. Assuming this function is wrapped in an Eventually, in case of an
 		// error, the next run should pass the up to date pointer and work as expected.
-		output, err = executeCommandOnce(*restClient, *config, namespace, podName, command, errorParser)
+		output, err = executeCommandOnce(*restClient, *config, namespace, podName, "", command, errorParser)
 		if err != nil {
 			fmt.Printf("Attempt %d failed, retrying in 5 seconds...\n", attemptCount)
 		}
@@ -490,7 +490,7 @@ func execCommandFailConsistently(restClient *rest.RESTClient, config *rest.Confi
 	fmt.Printf("Executing command %v on pod '%s' in namespace '%s' (timeout: %v) - expecting failure\n", command, podName, namespace, timeout)
 
 	Consistently(func(g Gomega) {
-		_, err := executeCommandOnce(restClient, config, namespace, podName, command, errorParser)
+		_, err := executeCommandOnce(restClient, config, namespace, podName, "", command, errorParser)
 		g.Expect(err).To(HaveOccurred(), "command %v should consistently fail", command)
 		g.Expect(errors.Is(err, expectFailure)).To(BeTrue(), "command %v should fail with %v, but failed with %v", command, expectFailure, err)
 	}, timeout, 5*time.Second).Should(Succeed())
@@ -498,11 +498,17 @@ func execCommandFailConsistently(restClient *rest.RESTClient, config *rest.Confi
 
 // ExecInPodOnce runs a command in a pod once and returns stdout and any error. Uses DefaultErrorParser for error output.
 func ExecInPodOnce(restClient *rest.RESTClient, config *rest.Config, namespace, podName string, command []string) (string, error) {
-	return executeCommandOnce(restClient, config, namespace, podName, command, DefaultErrorParser)
+	return executeCommandOnce(restClient, config, namespace, podName, "", command, DefaultErrorParser)
+}
+
+// ExecInContainerOnce executes a command in a specific container of a pod and returns the output and error.
+// Use this instead of ExecInPodOnce when the pod has multiple containers.
+func ExecInContainerOnce(restClient *rest.RESTClient, config *rest.Config, namespace, podName, containerName string, command []string) (string, error) {
+	return executeCommandOnce(restClient, config, namespace, podName, containerName, command, DefaultErrorParser)
 }
 
 // executeCommandOnce executes a command on a pod once and returns the output and error.
-func executeCommandOnce(restClient *rest.RESTClient, config *rest.Config, namespace string, podName string, command []string, errorParser ErrorParserFunc) (string, error) {
+func executeCommandOnce(restClient *rest.RESTClient, config *rest.Config, namespace string, podName string, containerName string, command []string, errorParser ErrorParserFunc) (string, error) {
 	execTimeout := DefaultExecTimeout
 	req := restClient.Post().
 		Resource("pods").
@@ -510,9 +516,10 @@ func executeCommandOnce(restClient *rest.RESTClient, config *rest.Config, namesp
 		Namespace(namespace).
 		SubResource("exec").
 		VersionedParams(&corev1.PodExecOptions{
-			Command: command,
-			Stdout:  true,
-			Stderr:  true,
+			Container: containerName,
+			Command:   command,
+			Stdout:    true,
+			Stderr:    true,
 		}, scheme.ParameterCodec)
 
 	exec, err := remotecommand.NewSPDYExecutor(config, "POST", req.URL())
@@ -567,7 +574,7 @@ func AssertPingSuccessWithMTU(restClient **rest.RESTClient, config **rest.Config
 	// Use Eventually to handle transient client recreation during port forwarding
 	Eventually(func(g Gomega) {
 		// Dereference pointers to get current client/config (may be updated if port forward breaks)
-		output, err := executeCommandOnce(*restClient, *config, namespace, fromPod, command, DefaultErrorParser)
+		output, err := executeCommandOnce(*restClient, *config, namespace, fromPod, "", command, DefaultErrorParser)
 		g.Expect(err).NotTo(HaveOccurred(), "ping command should succeed, output: %s", output)
 	}, 1*time.Minute, 5*time.Second).Should(Succeed())
 }
@@ -585,7 +592,7 @@ func AssertPingFailureWithMTU(restClient **rest.RESTClient, config **rest.Config
 	// This will naturally retry on connection errors until the pod is reachable, then verify MTU error
 	Eventually(func(g Gomega) {
 		// Dereference pointers to get current client/config (may be updated if port forward breaks)
-		output, err := executeCommandOnce(*restClient, *config, namespace, fromPod, command, mtuErrorParser)
+		output, err := executeCommandOnce(*restClient, *config, namespace, fromPod, "", command, mtuErrorParser)
 		// Only succeed if we got an error AND the output contains the expected MTU string
 		// This handles both connection errors (will retry) and actual ping failures (will verify MTU)
 		if err == nil {
