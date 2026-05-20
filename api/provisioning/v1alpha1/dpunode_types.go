@@ -205,6 +205,16 @@ type DPUNodeStatus struct {
 	// RebootInProgress indicates if the node is in the process of rebooting.
 	// +optional
 	RebootInProgress *bool `json:"rebootInProgress,omitempty"`
+	// RebootMethod is the host-level reboot method recommended by child DPUs in
+	// DPURebooting phase, aggregated by priority (most disruptive wins, ties broken
+	// by ascending DPU name):
+	// PowerCycle > SystemLevelReset > SystemReboot > FirmwareReset > DPUWarmReboot > NoAction > Unknown.
+	//
+	// Stamped once at least one DPU reports a method, preserved across the
+	// rebooting -> idle transition, and cleared with DPUNodeRebootInProgress
+	// when the DPUNode loses all its DPUs.
+	// +optional
+	RebootMethod *RebootMethodType `json:"rebootMethod,omitempty"`
 }
 
 // +kubebuilder:object:root=true
