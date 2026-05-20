@@ -115,7 +115,7 @@ func helmPaths() helmPathsProvider {
 				operatorv1.OVSCNI: {
 					Repository: []string{"arm64", "image", "repository"},
 					Tag:        []string{"arm64", "image", "tag"},
-					Resources:  []string{"arm64", "ovsCniMarker", "resources"},
+					Resources:  []string{"arm64", "ovsCniPlugin", "resources"},
 				},
 			},
 			operatorv1.CNIInstallerName: {

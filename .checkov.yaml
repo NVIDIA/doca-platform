@@ -102,12 +102,19 @@ exclusions: # Is used to define exclusions on a per-chart basis when analyzing a
     resource: DaemonSet.default.release-name-ovs-cni-arm64
     evaluated_keys:
       - spec/template/spec/containers/[0]/image
-  # ovs-cni requires the API.
-  - check_id: CKV_K8S_38 # Ensure that Service Account Tokens are only mounted where necessary
-    resource: DaemonSet.default.release-name-ovs-cni-arm64
   # ovs-cni needs to run as root.
   - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
     resource: DaemonSet.default.release-name-ovs-cni-arm64
+  # The container only copies the CNI binary then sleeps, so there is nothing meaningful to probe.
+  # TODO: Slated for removal in Phase 2 when cni-installer takes over binary delivery. Remove once done.
+  - check_id: CKV_K8S_8 # Liveness Probe Should be Configured
+    resource: DaemonSet.default.release-name-ovs-cni-arm64
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/livenessProbe
+  - check_id: CKV_K8S_9 # Readiness Probe Should be Configured
+    resource: DaemonSet.default.release-name-ovs-cni-arm64
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/readinessProbe
 
   dpu-networking-sfc-controller:
   # Digest can be set via values.
