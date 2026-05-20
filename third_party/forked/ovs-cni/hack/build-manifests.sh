@@ -23,7 +23,6 @@ export OVS_CNI_PLUGIN_IMAGE_NAME=${OVS_CNI_PLUGIN_IMAGE_NAME:-ovs-cni-plugin}
 export OVS_CNI_PLUGIN_IMAGE_VERSION=${OVS_CNI_PLUGIN_IMAGE_VERSION:-latest}
 export OVS_CNI_PLUGIN_IMAGE_PULL_POLICY=${OVS_CNI_PLUGIN_IMAGE_PULL_POLICY:-IfNotPresent}
 export CNI_MOUNT_PATH=${CNI_MOUNT_PATH:-/opt/cni/bin}
-export OVS_CNI_MARKER_HEALTHCHECK_INTERVAL=${OVS_CNI_MARKER_HEALTHCHECK_INTERVAL:-60}
 
 for template in manifests/*.in; do
     name=$(basename ${template%.in})

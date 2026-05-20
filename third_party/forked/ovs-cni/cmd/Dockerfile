@@ -40,7 +40,6 @@ COPY . .
 
 RUN mkdir /workdir/bin
 RUN go build -tags no_openssl -o /workdir/bin/ovs ./cmd/plugin
-RUN go build -tags no_openssl -o /workdir/bin/marker ./cmd/marker
 
 FROM registry.access.redhat.com/ubi9/ubi-minimal
 
