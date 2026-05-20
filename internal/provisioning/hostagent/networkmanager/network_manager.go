@@ -157,9 +157,9 @@ func (nm *NetworkManager) run() {
 	nm.Lock()
 	defer nm.Unlock()
 
-	for _, nr := range nm.reqs {
+	for uid, nr := range nm.reqs {
 		if err := nm.processNetworkRequest(nr); err != nil {
-			klog.Errorf("failed to process network request, nr: %+v, err: %v", nr, err)
+			klog.Errorf("failed to process network request, nr: %+v, err: %v", nm.reqs[uid], err)
 		}
 	}
 }
@@ -184,6 +184,30 @@ func (nm *NetworkManager) processNetworkRequest(nr NetworkRequest) error {
 		klog.Infof("removed VF and network request for DPU %s/%s(UID: %s)", nr.DPUNamespace, nr.DpuName, nr.UID)
 		return nil
 	}
+	cpy := dpu.DeepCopy()
+
+	// Refresh ControlPlaneMTU from DPFOperatorConfig on every tick.
+	mtu, err := nm.getControlPlaneMTU()
+	if err != nil {
+		hostutil.NewCondition(condition).Failure(err, "FailedToRefreshControlPlaneMTU").Set(&cpy.Status.Conditions)
+		if updateErr := nm.Status().Update(context.TODO(), cpy); updateErr != nil {
+			return fmt.Errorf("failed to update DPU status: %w, MTU refresh err: %w", updateErr, err)
+		}
+		return fmt.Errorf("failed to get control plane MTU: %w", err)
+	}
+	if nr.ControlPlaneMTU != mtu {
+		klog.Infof("ControlPlaneMTU changed for DPU %s/%s: %d -> %d", nr.DPUNamespace, nr.DpuName, nr.ControlPlaneMTU, mtu)
+		nr.ControlPlaneMTU = mtu
+		if err := writeNetworkRequestFile(&nr); err != nil {
+			hostutil.NewCondition(condition).Failure(err, "FailedToUpdateNetworkRequestFile").Set(&cpy.Status.Conditions)
+			if updateErr := nm.Status().Update(context.TODO(), cpy); updateErr != nil {
+				return fmt.Errorf("failed to update DPU status: %w, write err: %w", updateErr, err)
+			}
+			return fmt.Errorf("failed to update network request file with new MTU: %w", err)
+		}
+		nm.reqs[nr.UID] = nr
+	}
+
 	operations := []networkOperation{
 		{
 			name: "CreateP0VF",
@@ -227,7 +251,6 @@ func (nm *NetworkManager) processNetworkRequest(nr NetworkRequest) error {
 			},
 		},
 	}
-	cpy := dpu.DeepCopy()
 	for _, op := range operations {
 		klog.V(3).Infof("Setting up host network. operation: %s", op.name)
 		if err := op.f(nr); err != nil {
