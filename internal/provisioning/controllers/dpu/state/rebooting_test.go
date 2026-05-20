@@ -25,6 +25,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -980,6 +981,88 @@ var _ = Describe("InitializeDPURebootStatus", func() {
 		Expect(st.RebootStatus).NotTo(BeNil())
 		Expect(st.RebootStatus.Method).NotTo(BeNil())
 		Expect(*st.RebootStatus.Method).To(Equal(provisioningv1.RebootMethodSystemReboot))
+	})
+
+	// Regression guard: the host-power-cycle-required annotation is a Trusted Host
+	// execution-time escalation (consumed by hostagent/phase/reboot/sync.go) and
+	// must NOT propagate into RebootStatus.Method on the DPUConfig branch. Pinning
+	// SystemReboot through here protects against the override being reintroduced.
+	It("does not let host-power-cycle-required annotation override AgentStatus.RebootMethod on DPUConfig", func() {
+		scheme := runtime.NewScheme()
+		Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
+		dpuNode := &provisioningv1.DPUNode{
+			ObjectMeta: metav1.ObjectMeta{Name: "node1", Namespace: "ns1"},
+			Spec: provisioningv1.DPUNodeSpec{
+				NodeRebootMethod: &provisioningv1.NodeRebootMethod{
+					External: &provisioningv1.External{},
+				},
+			},
+		}
+		cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(dpuNode).Build()
+		ctrlCtx := &dutil.ControllerContext{Client: cl}
+		rm := provisioningv1.RebootMethodSystemReboot
+		dpu := &provisioningv1.DPU{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "d1", Namespace: "ns1",
+				Annotations: map[string]string{reboot.HostPowerCycleRequireKey: "true"},
+			},
+			Spec: provisioningv1.DPUSpec{DPUNodeName: "node1"},
+			Status: provisioningv1.DPUStatus{
+				AgentStatus: &provisioningv1.AgentStatus{
+					RebootMethod: &rm,
+					Conditions: []metav1.Condition{{
+						Type:    cutil.AgentCondRebootMethodDiscovery,
+						Status:  metav1.ConditionTrue,
+						Reason:  "AgentDiscoveredReason",
+						Message: "agent discovered message",
+					}},
+				},
+			},
+		}
+		st := &provisioningv1.DPUStatus{}
+
+		err := state.InitializeDPURebootStatus(ctx, dpu, st, ctrlCtx, provisioningv1.DPUConfig)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(st.RebootStatus).NotTo(BeNil())
+		Expect(st.RebootStatus.Method).NotTo(BeNil())
+		Expect(*st.RebootStatus.Method).To(Equal(provisioningv1.RebootMethodSystemReboot))
+		Expect(st.RebootStatus.Reason).To(Equal("AgentDiscoveredReason"))
+		Expect(st.RebootStatus.Message).To(Equal("agent discovered message"))
+	})
+
+	// Regression guard: the host-power-cycle-required annotation is orthogonal to
+	// the DPUInitializeInterface branch -- the mode-update reason/message must be
+	// preserved regardless of whether the annotation is set.
+	It("annotation has no effect on DPUInitializeInterface and the mode-update reason is preserved", func() {
+		scheme := runtime.NewScheme()
+		Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
+		dpuNode := &provisioningv1.DPUNode{
+			ObjectMeta: metav1.ObjectMeta{Name: "node1", Namespace: "ns1"},
+			Spec: provisioningv1.DPUNodeSpec{
+				NodeRebootMethod: &provisioningv1.NodeRebootMethod{
+					Script: &provisioningv1.Script{Name: "cm"},
+				},
+			},
+		}
+		cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(dpuNode).Build()
+		ctrlCtx := &dutil.ControllerContext{Client: cl}
+		dpu := &provisioningv1.DPU{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "d1", Namespace: "ns1",
+				Annotations: map[string]string{reboot.HostPowerCycleRequireKey: "true"},
+			},
+			Spec: provisioningv1.DPUSpec{DPUNodeName: "node1"},
+		}
+		st := &provisioningv1.DPUStatus{}
+
+		err := state.InitializeDPURebootStatus(ctx, dpu, st, ctrlCtx, provisioningv1.DPUInitializeInterface)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(st.RebootStatus).NotTo(BeNil())
+		Expect(st.RebootStatus.Method).NotTo(BeNil())
+		Expect(*st.RebootStatus.Method).To(Equal(provisioningv1.RebootMethodPowerCycle))
+		Expect(st.RebootStatus.Reason).To(Equal("ModeUpdateRequiresPowerCycle"))
 	})
 
 	It("returns error for unexpected sourcePhase", func() {

@@ -30,16 +30,24 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 const dpuInstallInterface = "eth0"
+
+// rebootMethodPtr returns a pointer to m. Shared by all reboot-method tests
+// in this file.
+func rebootMethodPtr(m provisioningv1.RebootMethodType) *provisioningv1.RebootMethodType {
+	return &m
+}
 
 // errorInjectingClient wraps a client and injects errors for specific operations
 type dpuNodeErrorInjectingClient struct {
@@ -922,10 +930,12 @@ spec:
 				return dpuNode, &DPUNodeReconciler{Client: newClient}, newClient
 			}
 
-			rebootMethodPtr := func(m provisioningv1.RebootMethodType) *provisioningv1.RebootMethodType {
-				return &m
-			}
-
+			// Source of truth for the aggregator is dpu.Status.RebootStatus.Method.
+			// InitializeDPURebootStatus is the only writer in production: it sets
+			// RebootStatus.Method to AgentStatus.RebootMethod for the DPUConfig
+			// source phase and to RebootMethodPowerCycle for the
+			// DPUInitializeInterface mode-transition path. Tests stamp it
+			// directly so a single helper covers both paths.
 			makeDPU := func(name, dpuNodeName string, method *provisioningv1.RebootMethodType) *provisioningv1.DPU {
 				dpu := &provisioningv1.DPU{
 					ObjectMeta: metav1.ObjectMeta{
@@ -937,7 +947,7 @@ spec:
 					},
 				}
 				if method != nil {
-					dpu.Status.AgentStatus = &provisioningv1.AgentStatus{RebootMethod: method}
+					dpu.Status.RebootStatus = &provisioningv1.RebootStatus{Method: method}
 				}
 				return dpu
 			}
@@ -1170,6 +1180,29 @@ spec:
 				Expect(perDPU).To(Equal("dpu-a=SystemReboot"),
 					"per-DPU mapping must not include DPUs that are not in Rebooting phase")
 			})
+
+			// createScriptJob must consume the per-reconcile aggregation,
+			// not the persisted DPUNode.Status.RebootMethod left over from
+			// a previous cycle.
+			It("env vars track agg.Method and ignore stale Status.RebootMethod from a previous cycle", func() {
+				dpuNodeName := "agg-stale-prev-cycle"
+				dpu := makeDPU("dpu-a", dpuNodeName, rebootMethodPtr(provisioningv1.RebootMethodSystemReboot))
+				dpuNode, rec, c := rebootMethodTestSetup(dpuNodeName, dpu)
+				dpuNode.Status.RebootMethod = rebootMethodPtr(provisioningv1.RebootMethodPowerCycle) // stale carryover
+
+				Expect(rec.createScriptJob(ctx, dpuNode, []*provisioningv1.DPU{dpu})).To(Succeed())
+
+				job := &batchv1.Job{}
+				Expect(c.Get(ctx, types.NamespacedName{
+					Name: rec.generateJobName(dpuNode), Namespace: "test-namespace",
+				}, job)).To(Succeed())
+
+				v, _ := envValue(job.Spec.Template.Spec.Containers[0].Env, DPUNodeRebootMethodEnvVar)
+				Expect(v).To(Equal(string(provisioningv1.RebootMethodSystemReboot)),
+					"env var must reflect agg.Method, not a stale Status.RebootMethod")
+				Expect(job.Spec.Template.Annotations).To(HaveKeyWithValue(
+					DPUNodeRebootMethodAnnotation, string(provisioningv1.RebootMethodSystemReboot)))
+			})
 		})
 	})
 
@@ -1359,6 +1392,20 @@ spec:
 			return dpuNode, dpu, job
 		}
 
+		// runReboot mirrors the production Reconcile flow for the rebootNode
+		// path: it derives the inScope DPU slice from the fake client (via
+		// aggregateAndPublishRebootMethod) and threads it into rebootNode.
+		// Tests that previously called rebootNode directly on (ctx, dpuNode)
+		// now call this helper to exercise the same wiring the controller
+		// uses in production.
+		runReboot := func(dpuNode *provisioningv1.DPUNode) (ctrl.Result, error) {
+			inScope, err := reconciler.aggregateAndPublishRebootMethod(ctx, dpuNode)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			return reconciler.rebootNode(ctx, dpuNode, inScope)
+		}
+
 		completedJobStatus := func() *batchv1.JobStatus {
 			return &batchv1.JobStatus{
 				Succeeded: 1,
@@ -1428,7 +1475,7 @@ spec:
 			dpuNode, _, _ := createTestSetup(completedJobStatus())
 			setDPURebootStatusForTest(dpuNode, provisioningv1.RebootStatusPending, cutil.ReasonRebootScriptWaiting, waitingScriptMsg)
 
-			result, err := reconciler.rebootNode(ctx, dpuNode)
+			result, err := runReboot(dpuNode)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.RequeueAfter).To(BeZero())
 		})
@@ -1440,7 +1487,7 @@ spec:
 			fakeRecorder := record.NewFakeRecorder(10)
 			reconciler.Recorder = fakeRecorder
 
-			result, err := reconciler.rebootNode(ctx, dpuNode)
+			result, err := runReboot(dpuNode)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.RequeueAfter).To(BeZero())
 
@@ -1458,7 +1505,7 @@ spec:
 			dpuNode, _, _ := createTestSetup(nil)
 			setDPURebootStatusForTest(dpuNode, provisioningv1.RebootStatusPending, cutil.ReasonRebootScriptWaiting, waitingScriptMsg)
 
-			result, err := reconciler.rebootNode(ctx, dpuNode)
+			result, err := runReboot(dpuNode)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.RequeueAfter).NotTo(BeZero(), "should requeue after recreating job")
 
@@ -1474,7 +1521,7 @@ spec:
 		It("should create script job when no condition exists", func() {
 			dpuNode, _, _ := createTestSetup(nil)
 
-			result, err := reconciler.rebootNode(ctx, dpuNode)
+			result, err := runReboot(dpuNode)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.RequeueAfter).NotTo(BeZero())
 
@@ -1492,7 +1539,7 @@ spec:
 			dpuNode, _, _ := createTestSetup(jobStatus)
 			setDPURebootStatusForTest(dpuNode, provisioningv1.RebootStatusPending, cutil.ReasonRebootScriptWaiting, waitingScriptMsg)
 
-			result, err := reconciler.rebootNode(ctx, dpuNode)
+			result, err := runReboot(dpuNode)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.RequeueAfter).NotTo(BeZero())
 		})
@@ -1538,7 +1585,7 @@ spec:
 				Recorder: record.NewFakeRecorder(10),
 			}
 
-			result, err := reconciler.rebootNode(ctx, dpuNode)
+			result, err := runReboot(dpuNode)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.RequeueAfter).To(BeZero())
 		})
@@ -1607,7 +1654,7 @@ spec:
 			}
 
 			// Should create job even with no DPUs in rebooting phase
-			result, err := reconciler.rebootNode(ctx, dpuNode)
+			result, err := runReboot(dpuNode)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.RequeueAfter).NotTo(BeZero())
 		})
@@ -1618,7 +1665,7 @@ spec:
 			dpuNode, _, _ := createTestSetup(nil)
 			setDPUConditionForTest(dpuNode, "DPUNodeNotFound")
 
-			result, err := reconciler.rebootNode(ctx, dpuNode)
+			result, err := runReboot(dpuNode)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.RequeueAfter).NotTo(BeZero())
 
@@ -1634,7 +1681,7 @@ spec:
 			dpuNode, _, _ := createTestSetup(jobStatus)
 			setDPURebootStatusForTest(dpuNode, provisioningv1.RebootStatusPending, cutil.ReasonRebootScriptWaiting, waitingScriptMsg)
 
-			result, err := reconciler.rebootNode(ctx, dpuNode)
+			result, err := runReboot(dpuNode)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.RequeueAfter).NotTo(BeZero())
 		})
@@ -1643,7 +1690,7 @@ spec:
 			dpuNode, _, _ := createTestSetup(nil)
 			setDPURebootStatusForTest(dpuNode, provisioningv1.RebootStatusFailed, cutil.ReasonRebootScriptFailed, "prior script failure")
 
-			result, err := reconciler.rebootNode(ctx, dpuNode)
+			result, err := runReboot(dpuNode)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.RequeueAfter).NotTo(BeZero(), "should requeue after recreating job")
 
@@ -1661,7 +1708,7 @@ spec:
 			dpuNode, _, _ := createTestSetup(jobStatus)
 			setDPURebootStatusForTest(dpuNode, provisioningv1.RebootStatusPending, cutil.ReasonRebootScriptWaiting, waitingScriptMsg)
 
-			result, err := reconciler.rebootNode(ctx, dpuNode)
+			result, err := runReboot(dpuNode)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.RequeueAfter).NotTo(BeZero())
 		})
@@ -1692,7 +1739,7 @@ spec:
 			}
 			Expect(fakeClient.Create(ctx, failedPod)).To(Succeed())
 
-			_, err := reconciler.rebootNode(ctx, dpuNode)
+			_, err := runReboot(dpuNode)
 			Expect(err).NotTo(HaveOccurred())
 
 			rs := getDPURebootStatusForTest(dpuNode)
@@ -1707,7 +1754,7 @@ spec:
 			fakeRecorder := record.NewFakeRecorder(10)
 			reconciler.Recorder = fakeRecorder
 
-			result, err := reconciler.rebootNode(ctx, dpuNode)
+			result, err := runReboot(dpuNode)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.RequeueAfter).NotTo(BeZero())
 
@@ -1728,7 +1775,7 @@ spec:
 			cutil.SetDPUCondition(&dpu.Status, cutil.NewCondition(string(provisioningv1.DPUCondRebooted), fmt.Errorf("transient"), "GetDPUNodeError", "transient error"))
 			Expect(fakeClient.Status().Update(ctx, dpu)).To(Succeed())
 
-			result, err := reconciler.rebootNode(ctx, dpuNode)
+			result, err := runReboot(dpuNode)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.RequeueAfter).NotTo(BeZero(), "should requeue after deleting stale job")
 
@@ -1757,7 +1804,7 @@ spec:
 			cutil.SetDPUCondition(&dpu.Status, cutil.NewCondition(string(provisioningv1.DPUCondRebooted), fmt.Errorf("error"), "GenerateIPMIToolCommandError", "error"))
 			Expect(fakeClient.Status().Update(ctx, dpu)).To(Succeed())
 
-			result, err := reconciler.rebootNode(ctx, dpuNode)
+			result, err := runReboot(dpuNode)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.RequeueAfter).NotTo(BeZero(), "should requeue to let API server finish deletion")
 
@@ -1779,7 +1826,7 @@ spec:
 			cutil.SetDPUCondition(&dpu.Status, cutil.NewCondition(string(provisioningv1.DPUCondRebooted), fmt.Errorf("not found"), "DPUNodeNotFound", "not found"))
 			Expect(fakeClient.Status().Update(ctx, dpu)).To(Succeed())
 
-			result, err := reconciler.rebootNode(ctx, dpuNode)
+			result, err := runReboot(dpuNode)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.RequeueAfter).NotTo(BeZero(), "should requeue to let API server finish deletion")
 
@@ -1795,7 +1842,7 @@ spec:
 			dpuNode, _, _ := createTestSetup(jobStatus)
 			setDPURebootStatusForTest(dpuNode, provisioningv1.RebootStatusPending, cutil.ReasonRebootScriptWaiting, waitingScriptMsg)
 
-			result, err := reconciler.rebootNode(ctx, dpuNode)
+			result, err := runReboot(dpuNode)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.RequeueAfter).NotTo(BeZero())
 
@@ -2595,7 +2642,9 @@ spec:
 				Recorder: record.NewFakeRecorder(10),
 			}
 
-			result, err := reconciler.rebootNode(ctx, dpuNode)
+			inScope, err := reconciler.aggregateAndPublishRebootMethod(ctx, dpuNode)
+			Expect(err).NotTo(HaveOccurred())
+			result, err := reconciler.rebootNode(ctx, dpuNode, inScope)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.RequeueAfter).To(BeZero())
 
@@ -3285,7 +3334,7 @@ spec:
 				},
 			}
 
-			err := reconciler.noneDPUInNodeEffectOrRebooting(ctx, dpuNode, false)
+			err := reconciler.noneDPUInNodeEffectOrRebooting(ctx, dpuNode, false, false)
 			Expect(err).NotTo(HaveOccurred())
 		})
 
@@ -3305,12 +3354,15 @@ spec:
 				},
 			}
 
-			err := reconciler.noneDPUInNodeEffectOrRebooting(ctx, dpuNode, true)
+			err := reconciler.noneDPUInNodeEffectOrRebooting(ctx, dpuNode, true, false)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(Equal("node effect is in progress"))
 		})
 
-		It("should return error when RebootInProgress condition is True", func() {
+		It("should return error when RebootInProgress condition is True and a DPU is in DPURebooting", func() {
+			// Stale-True clear is gated on hasRebootingDPU=false, so an active
+			// reboot (at least one DPU in DPURebooting) still short-circuits
+			// readiness with "reboot is in progress".
 			dpuNode := &provisioningv1.DPUNode{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-dpunode",
@@ -3325,10 +3377,127 @@ spec:
 					},
 				},
 			}
+			dpu := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dpu",
+					Namespace: "test-namespace",
+					Labels:    map[string]string{provisioningv1.DPUNodeNameLabel: "test-dpunode"},
+				},
+				Spec:   provisioningv1.DPUSpec{DPUNodeName: "test-dpunode"},
+				Status: provisioningv1.DPUStatus{Phase: provisioningv1.DPURebooting},
+			}
+			Expect(fakeClient.Create(ctx, dpu)).To(Succeed())
 
-			err := reconciler.noneDPUInNodeEffectOrRebooting(ctx, dpuNode, false)
+			err := reconciler.noneDPUInNodeEffectOrRebooting(ctx, dpuNode, false, true)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(Equal("reboot is in progress"))
+			// RebootInProgress must still be present -- DPUs are still around.
+			Expect(meta.FindStatusCondition(dpuNode.Status.Conditions,
+				provisioningv1.DPUNodeConditionRebootInProgress.String())).NotTo(BeNil())
+		})
+
+		It("removes stale RebootInProgress=True without touching reboot-method markers; no-DPUs branch sweeps them on a follow-up call", func() {
+			// Reachable when (a) the reboot finished and the marker was not
+			// cleared, or (b) the user empties Spec.DPUs / DPUSet rescale /
+			// DPUDevice GC wipes the child DPUs while reboot is in flight.
+			// The narrow branch only unsticks readiness; the persistence
+			// contract for Status.RebootMethod is enforced by the separate
+			// no-DPUs branch, which fires on a follow-up reconcile once
+			// RebootInProgress is gone.
+			dpuNode := &provisioningv1.DPUNode{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-dpunode", Namespace: "test-namespace"},
+				Status: provisioningv1.DPUNodeStatus{
+					RebootMethod: ptr.To(provisioningv1.RebootMethodPowerCycle),
+					Conditions: []metav1.Condition{
+						{Type: provisioningv1.DPUNodeConditionRebootInProgress.String(), Status: metav1.ConditionTrue},
+					},
+				},
+			}
+
+			// First call: stale-True branch removes only RebootInProgress.
+			Expect(reconciler.noneDPUInNodeEffectOrRebooting(ctx, dpuNode, false, false)).To(Succeed())
+			Expect(meta.FindStatusCondition(dpuNode.Status.Conditions,
+				provisioningv1.DPUNodeConditionRebootInProgress.String())).To(BeNil())
+			Expect(dpuNode.Status.RebootMethod).NotTo(BeNil(),
+				"Status.RebootMethod must survive the stale-True branch")
+
+			// Follow-up call with no DPUs in the cluster: the no-DPUs branch
+			// observes hasRebootMethodField and the label List returns 0,
+			// so it sweeps the marker.
+			Expect(reconciler.noneDPUInNodeEffectOrRebooting(ctx, dpuNode, false, false)).To(Succeed())
+			Expect(dpuNode.Status.RebootMethod).To(BeNil())
+		})
+
+		It("preserves Status.RebootMethod when reboot finishes and DPUs are idle but still owned (rebooting -> idle)", func() {
+			// Post-reboot persistence contract: once the host reboot is
+			// over, RebootInProgress=True is briefly stale. The narrow
+			// branch removes only the condition; Status.RebootMethod must
+			// survive across the rebooting -> idle transition for as long
+			// as the DPUNode owns any DPU. The no-DPUs branch is gated on
+			// the label List, so idle-but-present DPUs keep the marker on
+			// follow-up calls too.
+			dpuNode := &provisioningv1.DPUNode{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-dpunode", Namespace: "test-namespace"},
+				Status: provisioningv1.DPUNodeStatus{
+					RebootMethod: ptr.To(provisioningv1.RebootMethodPowerCycle),
+					Conditions: []metav1.Condition{
+						{Type: provisioningv1.DPUNodeConditionRebootInProgress.String(), Status: metav1.ConditionTrue},
+					},
+				},
+			}
+			dpu := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dpu",
+					Namespace: "test-namespace",
+					Labels:    map[string]string{provisioningv1.DPUNodeNameLabel: "test-dpunode"},
+				},
+				Spec:   provisioningv1.DPUSpec{DPUNodeName: "test-dpunode"},
+				Status: provisioningv1.DPUStatus{Phase: provisioningv1.DPUReady},
+			}
+			Expect(fakeClient.Create(ctx, dpu)).To(Succeed())
+
+			// First call: only RebootInProgress is removed.
+			Expect(reconciler.noneDPUInNodeEffectOrRebooting(ctx, dpuNode, false, false)).To(Succeed())
+			Expect(meta.FindStatusCondition(dpuNode.Status.Conditions,
+				provisioningv1.DPUNodeConditionRebootInProgress.String())).To(BeNil())
+			Expect(dpuNode.Status.RebootMethod).NotTo(BeNil())
+			Expect(*dpuNode.Status.RebootMethod).To(Equal(provisioningv1.RebootMethodPowerCycle))
+
+			// Follow-up call: no-DPUs branch sees the DPU via the label List
+			// and refuses to sweep, so the marker remains.
+			Expect(reconciler.noneDPUInNodeEffectOrRebooting(ctx, dpuNode, false, false)).To(Succeed())
+			Expect(dpuNode.Status.RebootMethod).NotTo(BeNil())
+			Expect(*dpuNode.Status.RebootMethod).To(Equal(provisioningv1.RebootMethodPowerCycle))
+		})
+
+		It("does not touch existing markers when reboot is in flight and DPUs still exist (no-op cleanup)", func() {
+			// Steady-state in-flight reboot: marker present, DPUs still
+			// around. Cleanup must be observably a no-op.
+			dpuNode := &provisioningv1.DPUNode{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-dpunode", Namespace: "test-namespace"},
+				Status: provisioningv1.DPUNodeStatus{
+					RebootMethod: ptr.To(provisioningv1.RebootMethodPowerCycle),
+					Conditions: []metav1.Condition{
+						{Type: provisioningv1.DPUNodeConditionRebootInProgress.String(), Status: metav1.ConditionFalse},
+					},
+				},
+			}
+			dpu := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dpu",
+					Namespace: "test-namespace",
+					Labels:    map[string]string{provisioningv1.DPUNodeNameLabel: "test-dpunode"},
+				},
+				Spec:   provisioningv1.DPUSpec{DPUNodeName: "test-dpunode"},
+				Status: provisioningv1.DPUStatus{Phase: provisioningv1.DPURebooting},
+			}
+			Expect(fakeClient.Create(ctx, dpu)).To(Succeed())
+
+			Expect(reconciler.noneDPUInNodeEffectOrRebooting(ctx, dpuNode, false, true)).To(Succeed())
+
+			Expect(dpuNode.Status.RebootMethod).NotTo(BeNil())
+			Expect(*dpuNode.Status.RebootMethod).To(Equal(provisioningv1.RebootMethodPowerCycle))
+			Expect(dpuNode.Status.Conditions).To(HaveLen(1))
 		})
 
 		It("should remove RebootInProgress condition when it exists but no DPUs exist", func() {
@@ -3348,7 +3517,7 @@ spec:
 			}
 
 			// No DPUs exist for this DPUNode
-			err := reconciler.noneDPUInNodeEffectOrRebooting(ctx, dpuNode, false)
+			err := reconciler.noneDPUInNodeEffectOrRebooting(ctx, dpuNode, false, false)
 			Expect(err).NotTo(HaveOccurred())
 
 			// Verify RebootInProgress condition was removed
@@ -3392,7 +3561,7 @@ spec:
 			}
 			Expect(fakeClient.Create(ctx, dpu)).To(Succeed())
 
-			err := reconciler.noneDPUInNodeEffectOrRebooting(ctx, dpuNode, false)
+			err := reconciler.noneDPUInNodeEffectOrRebooting(ctx, dpuNode, false, false)
 			Expect(err).NotTo(HaveOccurred())
 
 			// Verify RebootInProgress condition still exists
@@ -3421,9 +3590,394 @@ spec:
 			}
 
 			// NodeEffect takes precedence, should return error before checking RebootInProgress
-			err := reconciler.noneDPUInNodeEffectOrRebooting(ctx, dpuNode, true)
+			err := reconciler.noneDPUInNodeEffectOrRebooting(ctx, dpuNode, true, false)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(Equal("node effect is in progress"))
 		})
+	})
+
+	// The reboot method must be observable on every DPUNode regardless of
+	// which reboot path drives it (HostAgent / External / Script). The tests
+	// below exercise the aggregator's source of truth, the lifecycle of
+	// Status.RebootMethod, the ungated cleanup hook (so HostAgent-path
+	// DPUNodes that never set RebootInProgress still clear the field), and
+	// the External path's WaitForExternalReboot Message enrichment.
+	Context("aggregated reboot method", func() {
+		var (
+			ctx context.Context
+		)
+
+		BeforeEach(func() {
+			ctx = context.Background()
+		})
+
+		// makeDPUWithRebootStatus builds a DPU whose Status.RebootStatus.Method
+		// matches the production wiring set by InitializeDPURebootStatus.
+		// dpuNodeName is needed so cutil.GenerateDPUName produces the same
+		// composite name aggregateAndPublishRebootMethod expects when it
+		// iterates dpuNode.Spec.DPUs.
+		makeDPUWithRebootStatus := func(dpuNodeName, deviceName string, method *provisioningv1.RebootMethodType) *provisioningv1.DPU {
+			d := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      cutil.GenerateDPUName(dpuNodeName, deviceName),
+					Namespace: "test-namespace",
+					Labels:    map[string]string{provisioningv1.DPUNodeNameLabel: dpuNodeName},
+				},
+				Status: provisioningv1.DPUStatus{Phase: provisioningv1.DPURebooting},
+			}
+			if method != nil {
+				d.Status.RebootStatus = &provisioningv1.RebootStatus{Method: method}
+			}
+			return d
+		}
+
+		// dpuNodeWith builds a DPUNode whose Spec.DPUs entries match the
+		// device names supplied so cutil.GetDPUsWithPhase resolves them via
+		// cutil.GenerateDPUName.
+		dpuNodeWith := func(name string, deviceNames ...string) *provisioningv1.DPUNode {
+			refs := make([]provisioningv1.DPURef, 0, len(deviceNames))
+			for _, n := range deviceNames {
+				refs = append(refs, provisioningv1.DPURef{Name: n})
+			}
+			return &provisioningv1.DPUNode{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "test-namespace"},
+				Spec:       provisioningv1.DPUNodeSpec{DPUs: refs},
+			}
+		}
+
+		newReconcilerWith := func(objs ...client.Object) (*DPUNodeReconciler, client.Client) {
+			scheme := runtime.NewScheme()
+			Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
+			Expect(corev1.AddToScheme(scheme)).To(Succeed())
+			Expect(batchv1.AddToScheme(scheme)).To(Succeed())
+			c := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(objs...).
+				WithStatusSubresource(&provisioningv1.DPU{}, &provisioningv1.DPUNode{}).
+				Build()
+			return &DPUNodeReconciler{Client: c, Recorder: record.NewFakeRecorder(10)}, c
+		}
+
+		Context("aggregateDPURebootMethods (pure)", func() {
+			// rawDPU builds an isolated DPU whose ObjectMeta.Name is exactly
+			// the supplied string. The pure aggregator never consults
+			// dpuNode.Spec.DPUs, so the name does not need to satisfy
+			// GenerateDPUName here.
+			rawDPU := func(name string, method *provisioningv1.RebootMethodType) *provisioningv1.DPU {
+				d := &provisioningv1.DPU{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "test-namespace"}}
+				if method != nil {
+					d.Status.RebootStatus = &provisioningv1.RebootStatus{Method: method}
+				}
+				return d
+			}
+
+			It("ignores AgentStatus.RebootMethod and reads Status.RebootStatus.Method as the source of truth", func() {
+				// Production source of truth is Status.RebootStatus.Method.
+				// AgentStatus.RebootMethod is intentionally set to a different
+				// value to prove the aggregator does not consult it.
+				dpu := rawDPU("dpu-a", rebootMethodPtr(provisioningv1.RebootMethodFirmwareReset))
+				dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
+					RebootMethod: ptr.To(provisioningv1.RebootMethodPowerCycle),
+				}
+
+				agg := aggregateDPURebootMethods([]*provisioningv1.DPU{dpu})
+				Expect(agg.HasReporting).To(BeTrue())
+				Expect(agg.Method).To(Equal(provisioningv1.RebootMethodFirmwareReset))
+				Expect(agg.Winner).To(Equal("dpu-a"))
+			})
+
+			It("seeds Winner from the lex-smallest reporting DPU even when all reporting DPUs report Unknown", func() {
+				// Regression: an earlier draft of the aggregator left Winner
+				// empty when every reporting DPU reported Unknown, because
+				// Unknown never beat the initial-priority sentinel. The fix
+				// always seeds Winner from the first reporting DPU, then
+				// upgrades on strict priority.
+				dpus := []*provisioningv1.DPU{
+					rawDPU("zzz", rebootMethodPtr(provisioningv1.RebootMethodUnknown)),
+					rawDPU("aaa", rebootMethodPtr(provisioningv1.RebootMethodUnknown)),
+				}
+				agg := aggregateDPURebootMethods(dpus)
+				Expect(agg.HasReporting).To(BeTrue())
+				Expect(agg.Method).To(Equal(provisioningv1.RebootMethodUnknown))
+				Expect(agg.Winner).To(Equal("aaa"), "Winner must seed from the lex-smallest reporting DPU")
+				Expect(agg.PerDPU).To(Equal("aaa=Unknown,zzz=Unknown"))
+			})
+
+			It("distinguishes 'no DPU has reported' from 'all reported Unknown' via HasReporting", func() {
+				dpus := []*provisioningv1.DPU{
+					rawDPU("dpu-a", nil),
+					rawDPU("dpu-b", nil),
+				}
+				agg := aggregateDPURebootMethods(dpus)
+				Expect(agg.HasReporting).To(BeFalse(), "no DPU reported a method")
+				Expect(agg.Winner).To(BeEmpty())
+				Expect(agg.PerDPU).To(Equal("dpu-a=Unknown,dpu-b=Unknown"))
+			})
+
+			It("orders DPUWarmReboot above NoAction and below FirmwareReset in the priority table", func() {
+				// Regression for the priority renumbering:
+				// PowerCycle > SystemLevelReset > SystemReboot > FirmwareReset > DPUWarmReboot > NoAction > Unknown.
+				// Pin both adjacent boundaries with the smallest possible
+				// fixtures: DPUWarmReboot must beat NoAction, and FirmwareReset
+				// must beat DPUWarmReboot. Tied priorities tie-break by
+				// ascending DPU name.
+				warmVsNoAction := aggregateDPURebootMethods([]*provisioningv1.DPU{
+					rawDPU("dpu-a", rebootMethodPtr(provisioningv1.RebootMethodNoAction)),
+					rawDPU("dpu-b", rebootMethodPtr(provisioningv1.RebootMethodDPUWarmReboot)),
+				})
+				Expect(warmVsNoAction.Method).To(Equal(provisioningv1.RebootMethodDPUWarmReboot))
+				Expect(warmVsNoAction.Winner).To(Equal("dpu-b"))
+
+				firmwareVsWarm := aggregateDPURebootMethods([]*provisioningv1.DPU{
+					rawDPU("dpu-a", rebootMethodPtr(provisioningv1.RebootMethodDPUWarmReboot)),
+					rawDPU("dpu-b", rebootMethodPtr(provisioningv1.RebootMethodFirmwareReset)),
+				})
+				Expect(firmwareVsWarm.Method).To(Equal(provisioningv1.RebootMethodFirmwareReset))
+				Expect(firmwareVsWarm.Winner).To(Equal("dpu-b"))
+			})
+
+			It("falls back to a non-empty placeholder for buildExternalRebootWaitMessage when agg.HasReporting is false", func() {
+				// Defensive-only branch: production InitializeDPURebootStatus
+				// errors out before letting a DPU enter DPURebooting without
+				// a method, so HasReporting=false is unreachable through the
+				// real phase machine. Still pin (a) the placeholder is
+				// non-empty (operators never see a blank Message on
+				// RebootInProgress=True) and (b) HasReporting is the only
+				// gate -- a stray Winner without HasReporting still gets the
+				// placeholder, never "required reboot method:  (driven by DPU dpu-a)".
+				const placeholder = "required reboot method: <pending agent report>"
+				Expect(buildExternalRebootWaitMessage(rebootMethodAggregation{})).To(Equal(placeholder))
+				Expect(buildExternalRebootWaitMessage(rebootMethodAggregation{
+					Method: provisioningv1.RebootMethodPowerCycle,
+					Winner: "dpu-a",
+				})).To(Equal(placeholder))
+			})
+		})
+
+		Context("aggregateAndPublishRebootMethod (rebooting -> idle persistence)", func() {
+			It("stamps Status.RebootMethod once a DPU reports and preserves it across the rebooting->idle transition", func() {
+				// Cycle 1: PowerCycle is reported. Verify the field is set.
+				dpuNode := dpuNodeWith("dpu-node", "1")
+				dpu := makeDPUWithRebootStatus("dpu-node", "1", rebootMethodPtr(provisioningv1.RebootMethodPowerCycle))
+				rec, c := newReconcilerWith(dpu, dpuNode)
+
+				inScope, err := rec.aggregateAndPublishRebootMethod(ctx, dpuNode)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(inScope).To(HaveLen(1))
+				agg := aggregateDPURebootMethods(inScope)
+				Expect(agg.HasReporting).To(BeTrue())
+				Expect(agg.Method).To(Equal(provisioningv1.RebootMethodPowerCycle))
+
+				Expect(dpuNode.Status.RebootMethod).NotTo(BeNil())
+				Expect(*dpuNode.Status.RebootMethod).To(Equal(provisioningv1.RebootMethodPowerCycle))
+
+				// Cycle 2: the DPU has left DPURebooting but the DPUNode still
+				// owns it. The field must remain.
+				dpu.Status.Phase = provisioningv1.DPUReady
+				Expect(c.Status().Update(ctx, dpu)).To(Succeed())
+
+				inScope, err = rec.aggregateAndPublishRebootMethod(ctx, dpuNode)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(inScope).To(BeEmpty(), "no DPU in DPURebooting in cycle 2")
+				Expect(aggregateDPURebootMethods(inScope).HasReporting).To(BeFalse())
+
+				Expect(dpuNode.Status.RebootMethod).NotTo(BeNil(), "Status.RebootMethod must persist across the rebooting->idle transition")
+				Expect(*dpuNode.Status.RebootMethod).To(Equal(provisioningv1.RebootMethodPowerCycle))
+			})
+		})
+
+		Context("noneDPUInNodeEffectOrRebooting (cleanup is ungated, covers HostAgent path)", func() {
+			It("clears Status.RebootMethod when no DPUs remain, even if RebootInProgress was never set", func() {
+				// HostAgent path: the DPUNode controller never sets
+				// DPUNodeRebootInProgress. Status.RebootMethod must still be
+				// cleaned up when the DPUNode loses all its DPUs, which is
+				// why the cleanup gate is `RebootInProgress OR
+				// hasRebootMethodField` rather than `RebootInProgress` only.
+				dpuNode := &provisioningv1.DPUNode{
+					ObjectMeta: metav1.ObjectMeta{Name: "dpu-node", Namespace: "test-namespace"},
+					Status: provisioningv1.DPUNodeStatus{
+						RebootMethod: rebootMethodPtr(provisioningv1.RebootMethodPowerCycle),
+					},
+				}
+				rec, _ := newReconcilerWith(dpuNode) // no DPUs in the cluster
+
+				Expect(rec.noneDPUInNodeEffectOrRebooting(ctx, dpuNode, false, false)).To(Succeed())
+
+				Expect(dpuNode.Status.RebootMethod).To(BeNil(), "Status.RebootMethod must be cleared when the DPUNode loses all DPUs")
+			})
+
+			It("preserves Status.RebootMethod when only the field is set and DPUs still exist (HostAgent steady-state)", func() {
+				// HostAgent path leaves the field set without
+				// RebootInProgress. The cleanup gate must observe
+				// hasRebootMethodField, fire the List, and refuse to sweep
+				// because the label List returns the still-present DPU.
+				dpuNode := &provisioningv1.DPUNode{
+					ObjectMeta: metav1.ObjectMeta{Name: "dpu-node", Namespace: "test-namespace"},
+					Status: provisioningv1.DPUNodeStatus{
+						RebootMethod: rebootMethodPtr(provisioningv1.RebootMethodPowerCycle),
+					},
+				}
+				dpu := &provisioningv1.DPU{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-dpu",
+						Namespace: "test-namespace",
+						Labels:    map[string]string{provisioningv1.DPUNodeNameLabel: "dpu-node"},
+					},
+					Spec:   provisioningv1.DPUSpec{DPUNodeName: "dpu-node"},
+					Status: provisioningv1.DPUStatus{Phase: provisioningv1.DPUReady},
+				}
+				rec, _ := newReconcilerWith(dpuNode, dpu)
+
+				Expect(rec.noneDPUInNodeEffectOrRebooting(ctx, dpuNode, false, false)).To(Succeed())
+
+				Expect(dpuNode.Status.RebootMethod).NotTo(BeNil(), "Status.RebootMethod must be preserved while the DPUNode still owns a DPU")
+				Expect(*dpuNode.Status.RebootMethod).To(Equal(provisioningv1.RebootMethodPowerCycle))
+			})
+
+			It("does not List DPUs when no reboot marker is present (steady-state fast path)", func() {
+				// Sanity: a DPUNode that has never rebooted should hit zero
+				// API calls in the cleanup branch. Using the
+				// dpuNodeErrorInjectingClient declared at the top of this
+				// file we fail every List, so a passing call confirms the
+				// gate guards the List entirely.
+				scheme := runtime.NewScheme()
+				Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
+				inner := fake.NewClientBuilder().WithScheme(scheme).Build()
+				rec := &DPUNodeReconciler{Client: &dpuNodeErrorInjectingClient{
+					Client: inner,
+					listFunc: func(_ context.Context, _ client.ObjectList, _ ...client.ListOption) error {
+						return fmt.Errorf("List must not be invoked when no reboot marker is present")
+					},
+				}}
+				dpuNode := &provisioningv1.DPUNode{
+					ObjectMeta: metav1.ObjectMeta{Name: "dpu-node", Namespace: "test-namespace"},
+				}
+				Expect(rec.noneDPUInNodeEffectOrRebooting(ctx, dpuNode, false, false)).To(Succeed())
+			})
+		})
+
+		Context("External path WaitForExternalReboot Message", func() {
+			It("enriches the RebootInProgress Message with the aggregated method and winner DPU", func() {
+				// processExternalReboot's Message-enrichment branch fires
+				// only when every rebooting DPU is already in
+				// RebootStatus.Phase=Pending with Reason=WaitingForManualPowerCycleOrReboot,
+				// i.e. a steady-state reconcile after Step 2 has been
+				// executed at least once. Pre-stamp that state plus the
+				// annotation so we exercise the actual enrichment path.
+				dpuNode := dpuNodeWith("dpu-node", "a")
+				dpuNode.Annotations = map[string]string{
+					provisioningv1.DPUNodeExternalRebootRequiredAnnotation: "true",
+				}
+				dpuNode.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{External: &provisioningv1.External{}}
+				dpu := makeDPUWithRebootStatus("dpu-node", "a", rebootMethodPtr(provisioningv1.RebootMethodPowerCycle))
+				dpu.Status.RebootStatus.Phase = provisioningv1.RebootStatusPending
+				dpu.Status.RebootStatus.Reason = "WaitingForManualPowerCycleOrReboot"
+				rec, _ := newReconcilerWith(dpu, dpuNode)
+
+				inScope, err := rec.aggregateAndPublishRebootMethod(ctx, dpuNode)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(inScope).To(HaveLen(1))
+				Expect(rec.processExternalReboot(ctx, dpuNode, inScope)).To(Succeed())
+
+				cond := meta.FindStatusCondition(dpuNode.Status.Conditions,
+					provisioningv1.DPUNodeConditionRebootInProgress.String())
+				Expect(cond).NotTo(BeNil())
+				Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+				Expect(cond.Reason).To(Equal("WaitForExternalReboot"))
+				Expect(cond.Message).To(Equal("required reboot method: PowerCycle (driven by DPU dpu-node-a)"))
+			})
+
+			It("Step 1 stamps the enriched Message and the annotation on the first reconcile", func() {
+				// First-time entry into the External path: no annotation yet,
+				// at least one rebooting DPU has no RebootStatus.Phase (so
+				// condExists is false in processExternalReboot). Step 1 must
+				// (a) set the dpunode-external-reboot-required annotation and
+				// (b) stamp RebootInProgress=True with the enriched
+				// "required reboot method: ..." Message immediately, not one
+				// reconcile later when condExists flips to true.
+				dpuNode := dpuNodeWith("dpu-node", "a")
+				dpuNode.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{External: &provisioningv1.External{}}
+				dpu := makeDPUWithRebootStatus("dpu-node", "a", rebootMethodPtr(provisioningv1.RebootMethodPowerCycle))
+				rec, _ := newReconcilerWith(dpu, dpuNode)
+
+				inScope, err := rec.aggregateAndPublishRebootMethod(ctx, dpuNode)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(inScope).To(HaveLen(1))
+				Expect(rec.processExternalReboot(ctx, dpuNode, inScope)).To(Succeed())
+
+				Expect(dpuNode.Annotations).To(HaveKeyWithValue(
+					provisioningv1.DPUNodeExternalRebootRequiredAnnotation, "true"))
+				cond := meta.FindStatusCondition(dpuNode.Status.Conditions,
+					provisioningv1.DPUNodeConditionRebootInProgress.String())
+				Expect(cond).NotTo(BeNil())
+				Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+				Expect(cond.Reason).To(Equal("WaitForExternalReboot"))
+				Expect(cond.Message).To(Equal("required reboot method: PowerCycle (driven by DPU dpu-node-a)"))
+			})
+
+			It("Step 2 refreshes the Message when agg shifts between Step 1 and Step 2", func() {
+				// Step 1 stamps the annotation + enriched Message naming the
+				// initial winner. Before Step 2 runs the snapshot changes
+				// (different DPU now drives a different method). Without the
+				// Step 2 Message refresh the condition would carry a
+				// one-cycle-stale Message until the next reconcile flips
+				// condExists.
+				dpuNode := dpuNodeWith("dpu-node", "a", "b")
+				dpuNode.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{External: &provisioningv1.External{}}
+				dpuNode.Annotations = map[string]string{
+					provisioningv1.DPUNodeExternalRebootRequiredAnnotation: "true",
+				}
+				dpuNode.Status.Conditions = []metav1.Condition{{
+					Type:    provisioningv1.DPUNodeConditionRebootInProgress.String(),
+					Status:  metav1.ConditionTrue,
+					Reason:  "WaitForExternalReboot",
+					Message: "required reboot method: PowerCycle (driven by DPU dpu-node-a)",
+				}}
+				dpuB := makeDPUWithRebootStatus("dpu-node", "b", rebootMethodPtr(provisioningv1.RebootMethodSystemReboot))
+				rec, _ := newReconcilerWith(dpuB, dpuNode)
+
+				inScope, err := rec.aggregateAndPublishRebootMethod(ctx, dpuNode)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(inScope).To(HaveLen(1))
+				Expect(rec.processExternalReboot(ctx, dpuNode, inScope)).To(Succeed())
+
+				cond := meta.FindStatusCondition(dpuNode.Status.Conditions,
+					provisioningv1.DPUNodeConditionRebootInProgress.String())
+				Expect(cond).NotTo(BeNil())
+				Expect(cond.Message).To(Equal("required reboot method: SystemReboot (driven by DPU dpu-node-b)"),
+					"Step 2 must refresh the Message to track the current-cycle winner")
+			})
+		})
+
+		Context("HandleRebootSync snapshot guard", func() {
+			It("requeues without driving rebootNode when dpuPhases reports DPURebooting but the inner Get returns no rebooting DPU", func() {
+				// dpuPhases is computed at the top of Reconcile via the
+				// label-list path; HandleRebootSync re-derives inScope
+				// internally via aggregateAndPublishRebootMethod (Spec.DPUs
+				// + Get). Between the two reads the cache can disagree
+				// (a label points at a DPU whose Phase has already moved
+				// off DPURebooting, or a DPU has been deleted), producing
+				// dpuPhases={DPURebooting} but inScope=empty. Without the
+				// guard External would mark RebootInProgress=False against
+				// zero DPUs and Script would create a Job from a
+				// HasReporting=false aggregation. Simulate the race by
+				// asserting DPURebooting in dpuPhases while no DPU in
+				// DPURebooting exists in the cluster.
+				dpuNode := dpuNodeWith("dpu-node", "a")
+				dpuNode.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{
+					Script: &provisioningv1.Script{Name: "irrelevant-cm"},
+				}
+				rec, _ := newReconcilerWith(dpuNode)
+
+				phases := map[string]struct{}{string(provisioningv1.DPURebooting): {}}
+				result, err := rec.HandleRebootSync(ctx, dpuNode, phases)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result.RequeueAfter).NotTo(BeZero(), "must requeue rather than reboot off an empty snapshot")
+				Expect(meta.FindStatusCondition(dpuNode.Status.Conditions,
+					provisioningv1.DPUNodeConditionRebootInProgress.String())).To(BeNil(),
+					"must not stamp RebootInProgress when refusing to reboot")
+			})
+		})
+
 	})
 })

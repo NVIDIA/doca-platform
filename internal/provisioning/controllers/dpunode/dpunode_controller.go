@@ -38,6 +38,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -61,13 +62,12 @@ const (
 	PodInfoAnnotationsFieldPath string = "metadata.annotations"
 	DPUNodeNameEnvVar           string = "DPUNODE_NAME"
 
-	// DPUNodeRebootMethodEnvVar is the env var name injected into custom-script
-	// reboot pods that holds the aggregated reboot method (highest-priority
-	// non-Unknown RebootMethod across the DPUs associated with the DPUNode).
-	// Possible values mirror the provisioningv1.RebootMethodType enum;
-	// "Unknown" is used when no DPU has reported a RebootMethod yet.
-	// Stop-gap for v26.4: lets custom reboot scripts branch on the required
-	// host action (e.g. PowerCycle vs SystemReboot) without consuming the DPU API.
+	// DPUNodeRebootMethodEnvVar holds the aggregated host reboot method
+	// (highest-priority winner across DPUs in DPURebooting phase), injected
+	// into custom-script reboot pods. Values mirror provisioningv1.RebootMethodType,
+	// with SystemLevelReset substituted when no DPU has reported yet (or all
+	// report Unknown) so the script always has an actionable signal. Mirrors
+	// DPUNode.Status.RebootMethod.
 	DPUNodeRebootMethodEnvVar string = "DPUNODE_REBOOT_METHOD"
 	// DPUNodeRebootMethodsPerDPUEnvVar is the env var name injected into
 	// custom-script reboot pods that holds a comma-separated <dpu-name>=<method>
@@ -173,8 +173,17 @@ func (r *DPUNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ 
 
 	}
 
-	// Handle redfish reboot sync
-	if result, err := r.HandleRebootSync(ctx, dpuNode); err != nil || !result.IsZero() {
+	// Compute the shared DPU phase snapshot once. Both reboot handling
+	// (HandleRebootSync) and readiness (noneDPUInNodeEffectOrRebooting)
+	// need a Spec-derived "is anyone rebooting?" signal, and computing it
+	// here avoids duplicate Spec.DPUs walks downstream.
+	dpuPhases := map[string]struct{}{}
+	if err := cutil.GetDPUPhases(ctx, r.Client, dpuNode, dpuPhases); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// Drive External/Script reboot paths and publish Status.RebootMethod.
+	if result, err := r.HandleRebootSync(ctx, dpuNode, dpuPhases); err != nil || !result.IsZero() {
 		return result, err
 	}
 
@@ -205,7 +214,8 @@ func (r *DPUNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ 
 	}
 
 	// Update DPUNode ready condition
-	if err := r.noneDPUInNodeEffectOrRebooting(ctx, dpuNode, dpunodemaintenanceExists); err == nil {
+	hasRebootingDPU := cutil.ContainsDPUPhase(dpuPhases, provisioningv1.DPURebooting)
+	if err := r.noneDPUInNodeEffectOrRebooting(ctx, dpuNode, dpunodemaintenanceExists, hasRebootingDPU); err == nil {
 		log.Info(fmt.Sprintf("DPUNode %s is ready because there is no DPU in NodeEffect or Rebooting phase", dpuNode.Name))
 		r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionReady, metav1.ConditionTrue, "", "")
 	} else {
@@ -250,43 +260,64 @@ func (r *DPUNodeReconciler) handleDeletionAndFinalizer(ctx context.Context, dpuN
 	return nil
 }
 
-// HandleRebootSync handles the host reboot sync for redfish interface
-func (r *DPUNodeReconciler) HandleRebootSync(ctx context.Context, dpuNode *provisioningv1.DPUNode) (ctrl.Result, error) {
+// HandleRebootSync drives the External and Script reboot paths and
+// publishes Status.RebootMethod when at least one DPU is in DPURebooting.
+// dpuPhases is the phase snapshot from Reconcile, reused to avoid a
+// duplicate Spec.DPUs walk.
+func (r *DPUNodeReconciler) HandleRebootSync(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpuPhases map[string]struct{}) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
+	log.Info(fmt.Sprintf("DPUNode: %s , DPUPhases: %v", dpuNode.Name, dpuPhases))
 
-	if dpuNode.Spec.NodeRebootMethod.External != nil || dpuNode.Spec.NodeRebootMethod.Script != nil {
-		dpuPhases := map[string]struct{}{}
-		err := cutil.GetDPUPhases(ctx, r.Client, dpuNode, dpuPhases)
-		log.Info(fmt.Sprintf("DPUNode: %s , DPUPhases: %v", dpuNode.Name, dpuPhases))
+	var inScope []*provisioningv1.DPU
+	if cutil.ContainsDPUPhase(dpuPhases, provisioningv1.DPURebooting) {
+		var err error
+		inScope, err = r.aggregateAndPublishRebootMethod(ctx, dpuNode)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		provisioningPhases := map[string]struct{}{
-			string(provisioningv1.DPUPrepareBFB):          {},
-			string(provisioningv1.DPUConfigFWParameters):  {},
-			string(provisioningv1.DPUInitializeInterface): {},
-			string(provisioningv1.DPUOSInstalling):        {},
-			string(provisioningv1.DPUConfig):              {},
+	}
+
+	if dpuNode.Spec.NodeRebootMethod.External == nil && dpuNode.Spec.NodeRebootMethod.Script == nil {
+		return ctrl.Result{}, nil
+	}
+
+	provisioningPhases := map[string]struct{}{
+		string(provisioningv1.DPUPrepareBFB):          {},
+		string(provisioningv1.DPUConfigFWParameters):  {},
+		string(provisioningv1.DPUInitializeInterface): {},
+		string(provisioningv1.DPUOSInstalling):        {},
+		string(provisioningv1.DPUConfig):              {},
+	}
+	if !cutil.ContainsDPUPhase(dpuPhases, provisioningv1.DPURebooting) {
+		return ctrl.Result{}, nil
+	}
+	if len(dpuNode.Spec.DPUs) > 1 && cutil.ContainsDPUPhases(provisioningPhases, dpuPhases) {
+		r.Recorder.Event(dpuNode, corev1.EventTypeNormal, "HostRebootCheck", "DPU in provisioning phase is found, wait 30 seconds and check again.")
+		log.Info("There are DPUs in provisioning phase, requeue the request and reboot host later.")
+		return ctrl.Result{RequeueAfter: cutil.RebootSyncInterval}, nil
+	}
+	// Guard against a brief disagreement between dpuPhases (label-list)
+	// and inScope (Spec.DPUs Get) under concurrent updates: without it
+	// External would stamp RebootInProgress=False without touching any
+	// DPU, and Script would create a Job with no DPUs. Requeue.
+	if len(inScope) == 0 {
+		log.Info("DPURebooting phase observed but inScope snapshot is empty; requeueing for a fresh snapshot",
+			"dpuPhases", dpuPhases, "specDPUs", dpuNode.Spec.DPUs)
+		return ctrl.Result{RequeueAfter: cutil.RebootSyncInterval}, nil
+	}
+	if result, err := r.rebootNode(ctx, dpuNode, inScope); err != nil || !result.IsZero() {
+		if err != nil {
+			r.Recorder.Event(dpuNode, corev1.EventTypeWarning, "HostRebootError", err.Error())
 		}
-		if cutil.ContainsDPUPhase(dpuPhases, provisioningv1.DPURebooting) {
-			if len(dpuNode.Spec.DPUs) > 1 && cutil.ContainsDPUPhases(provisioningPhases, dpuPhases) {
-				r.Recorder.Event(dpuNode, corev1.EventTypeNormal, "HostRebootCheck", "DPU in provisioning phase is found, wait 30 seconds and check again.")
-				log.Info("There are DPUs in provisioning phase, requeue the request and reboot host later.")
-				return ctrl.Result{RequeueAfter: cutil.RebootSyncInterval}, nil
-			}
-			// perform host reboot
-			if result, err := r.rebootNode(ctx, dpuNode); err != nil || !result.IsZero() {
-				if err != nil {
-					r.Recorder.Event(dpuNode, corev1.EventTypeWarning, "HostRebootError", err.Error())
-				}
-				return result, err
-			}
-		}
+		return result, err
 	}
 	return ctrl.Result{}, nil
 }
 
-func (r *DPUNodeReconciler) noneDPUInNodeEffectOrRebooting(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpunodemaintenanceExists bool) error {
+// noneDPUInNodeEffectOrRebooting decides whether the DPUNode is ready.
+// hasRebootingDPU is a Spec-derived boolean (true iff any child DPU is in
+// DPURebooting phase), computed by the caller from the dpuPhases snapshot.
+func (r *DPUNodeReconciler) noneDPUInNodeEffectOrRebooting(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpunodemaintenanceExists bool, hasRebootingDPU bool) error {
 	log := log.FromContext(ctx)
 
 	// set DPUNode not ready when DPUNodeMaintenance exists and NodeEffect is in progress
@@ -297,20 +328,43 @@ func (r *DPUNodeReconciler) noneDPUInNodeEffectOrRebooting(ctx context.Context, 
 		}
 	}
 
-	// Check RebootInProgress condition
 	rebootCondition := meta.FindStatusCondition(dpuNode.Status.Conditions, provisioningv1.DPUNodeConditionRebootInProgress.String())
-	if rebootCondition != nil {
-		if rebootCondition.Status == metav1.ConditionTrue {
-			return fmt.Errorf("reboot is in progress")
-		}
 
+	// Stale RebootInProgress=True with no DPU in DPURebooting: either the
+	// reboot finished and the marker was not cleared, or the child DPUs
+	// disappeared mid-reboot. Remove only RebootInProgress so the DPUNode
+	// does not stay NotReady forever; leave Status.RebootMethod intact --
+	// it must survive the rebooting -> idle transition and only the
+	// no-DPUs branch below is allowed to clear it. Uses hasRebootingDPU
+	// (Spec-derived) rather than a label List so it is immune to label
+	// drift and cache races.
+	if rebootCondition != nil && rebootCondition.Status == metav1.ConditionTrue && !hasRebootingDPU {
+		log.Info(fmt.Sprintf("DPUNode %s has stale RebootInProgress=True with no DPU in DPURebooting, removing condition (Status.RebootMethod preserved)", dpuNode.Name))
+		meta.RemoveStatusCondition(&dpuNode.Status.Conditions, provisioningv1.DPUNodeConditionRebootInProgress.String())
+		return nil
+	}
+
+	// Active reboot with DPUs still in DPURebooting short-circuits readiness.
+	if rebootCondition != nil && rebootCondition.Status == metav1.ConditionTrue {
+		return fmt.Errorf("reboot is in progress")
+	}
+
+	// Sweep leftover reboot-method markers when the DPUNode has no DPUs at all.
+	// The HostAgent path never sets RebootInProgress, so the gate is OR'd with
+	// Status.RebootMethod (also covers an orphan field from external mutation
+	// or a partial PATCH). Steady-state DPUNodes with no marker skip the List
+	// entirely.
+	hasRebootInProgress := rebootCondition != nil
+	hasRebootMethodField := dpuNode.Status.RebootMethod != nil
+	if hasRebootInProgress || hasRebootMethodField {
 		dpus := &provisioningv1.DPUList{}
 		if err := r.List(ctx, dpus, client.MatchingLabels{provisioningv1.DPUNodeNameLabel: dpuNode.Name}); err != nil {
 			return err
 		}
 		if len(dpus.Items) == 0 {
-			log.Info(fmt.Sprintf("DPUNode %s has no DPU objects, removing RebootInProgress condition", dpuNode.Name))
+			log.Info(fmt.Sprintf("DPUNode %s has no DPU objects, clearing reboot markers", dpuNode.Name))
 			meta.RemoveStatusCondition(&dpuNode.Status.Conditions, provisioningv1.DPUNodeConditionRebootInProgress.String())
+			dpuNode.Status.RebootMethod = nil
 		}
 	}
 
@@ -326,13 +380,9 @@ func (r *DPUNodeReconciler) updateDPURebootStatus(ctx context.Context, dpus []*p
 	return nil
 }
 
-func (r *DPUNodeReconciler) rebootNode(ctx context.Context, dpuNode *provisioningv1.DPUNode) (ctrl.Result, error) {
+func (r *DPUNodeReconciler) rebootNode(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpus []*provisioningv1.DPU) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 	logger.Info("DPUNode conditions", "DPUNode", dpuNode.Status.Conditions)
-	dpus, err := cutil.GetDPUsWithPhase(ctx, r.Client, dpuNode, provisioningv1.DPURebooting)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
 	dpuNames := make([]string, len(dpus))
 	for i, dpu := range dpus {
 		dpuNames[i] = dpu.Name
@@ -341,7 +391,7 @@ func (r *DPUNodeReconciler) rebootNode(ctx context.Context, dpuNode *provisionin
 
 	if dpuNode.Spec.NodeRebootMethod.External != nil {
 		logger.Info("waiting for manual power cycle or reboot")
-		if err := r.proccessExternalReboot(ctx, dpuNode, dpus); err != nil {
+		if err := r.processExternalReboot(ctx, dpuNode, dpus); err != nil {
 			err = fmt.Errorf("failed to process external reboot: %w", err)
 			if err := r.updateDPURebootStatus(ctx, dpus, provisioningv1.RebootStatusFailed, "FailedToProcessExternalReboot", err.Error()); err != nil {
 				return ctrl.Result{}, err
@@ -465,14 +515,14 @@ func (r *DPUNodeReconciler) handleJobFailed(ctx context.Context, dpuNode *provis
 	return ctrl.Result{}, nil
 }
 
-// createScriptJob creates the custom-reboot-script Job for dpuNode. The dpus
-// argument MUST be the set of DPUs the controller has already filtered down to
-// phase=Rebooting (see rebootNode -> processScriptReboot). The slice is the
-// authoritative source for the reboot-method context propagated to the script
-// pod, ensuring the Job is stamped with the methods of exactly the DPUs whose
-// host reboot the script is being asked to perform.
+// createScriptJob creates the custom-reboot-script Job for dpuNode. The
+// per-reconcile aggregation is recomputed locally from dpus so the job's
+// env vars and annotations track the current cycle rather than the
+// persisted DPUNode.Status.RebootMethod, which may still carry a previous
+// cycle's winner.
 func (r *DPUNodeReconciler) createScriptJob(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpus []*provisioningv1.DPU) error {
 	logger := log.FromContext(ctx)
+	agg := aggregateDPURebootMethods(dpus)
 	job := &batchv1.Job{}
 	jobName := r.generateJobName(dpuNode)
 	if err := r.Get(ctx, client.ObjectKey{Namespace: dpuNode.Namespace, Name: jobName}, job); err == nil {
@@ -511,22 +561,17 @@ func (r *DPUNodeReconciler) createScriptJob(ctx context.Context, dpuNode *provis
 
 	// Add more information to Job's Pod for rebooting script, e.g. labels, annotations, etc.
 
-	// v26.4 stop-gap: surface the aggregated reboot method so custom scripts can
-	// branch on PowerCycle vs SystemReboot vs SLR without consuming the DPU API.
-	// dpus is already restricted to phase=Rebooting by the caller, so the
-	// aggregation reflects exactly the host action the controller is asking the
-	// script to perform - it does not include DPUs in DPUConfig or other
-	// provisioning phases that may still be reporting a stale RebootMethod.
-	aggregatedRebootMethod, perDPURebootMethods := aggregateDPURebootMethods(dpus)
+	// Surface agg (per-reconcile snapshot) so custom scripts can branch on
+	// PowerCycle vs SystemReboot vs SLR without consuming the DPU API.
+	// Stays consistent with DPUNode.Status.RebootMethod.
+	aggregatedRebootMethod := agg.Method
+	perDPURebootMethods := agg.PerDPU
 
-	// Never stamp the script Job with an Unknown aggregate: the script must
-	// always have an actionable signal. If no DPU has reported a RebootMethod
-	// yet (or every DPU reports Unknown), default the aggregate to
-	// SystemLevelReset - the safe middle ground that triggers a host-impacting
-	// reboot without escalating to a hard PowerCycle. The per-DPU mapping
-	// intentionally retains "<dpu>=Unknown" entries so scripts that need
-	// per-DPU detail can still tell which DPUs have not reported yet.
-	if aggregatedRebootMethod == provisioningv1.RebootMethodUnknown {
+	// Never stamp the Job with Unknown: the script must always have an
+	// actionable signal. When no DPU has reported (or all report Unknown),
+	// default to SystemLevelReset -- the safe middle ground. PerDPU keeps
+	// "<dpu>=Unknown" entries so scripts can still tell who hasn't reported.
+	if !agg.HasReporting || aggregatedRebootMethod == provisioningv1.RebootMethodUnknown {
 		aggregatedRebootMethod = provisioningv1.RebootMethodSystemLevelReset
 	}
 
@@ -643,8 +688,12 @@ func (r *DPUNodeReconciler) createScriptJob(ctx context.Context, dpuNode *provis
 	return nil
 }
 
-func (r *DPUNodeReconciler) proccessExternalReboot(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpus []*provisioningv1.DPU) error {
+// processExternalReboot drives the External reboot two-step state machine.
+// agg is threaded from Reconcile so the WaitForExternalReboot Message can
+// name the required reboot method and winner DPU without re-aggregating.
+func (r *DPUNodeReconciler) processExternalReboot(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpus []*provisioningv1.DPU) error {
 	logger := log.FromContext(ctx)
+	agg := aggregateDPURebootMethods(dpus)
 
 	// Every rebooting DPU must show external reboot progress via RebootStatus only: succeeded,
 	// or explicit manual-wait pending (WaitingForManualPowerCycleOrReboot). Failed or unknown
@@ -675,7 +724,7 @@ func (r *DPUNodeReconciler) proccessExternalReboot(ctx context.Context, dpuNode 
 		// Check if the external reboot required annotation is present
 		// If present, update the DPUNode status condition to true and wait for user reboot
 		if _, ok := dpuNode.Annotations[provisioningv1.DPUNodeExternalRebootRequiredAnnotation]; ok {
-			r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionRebootInProgress, metav1.ConditionTrue, "WaitForExternalReboot", "")
+			r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionRebootInProgress, metav1.ConditionTrue, "WaitForExternalReboot", buildExternalRebootWaitMessage(agg))
 			logger.Info("Waiting for user reboot and remove the dpunode-external-reboot-required annotation")
 			return nil
 		}
@@ -700,7 +749,11 @@ func (r *DPUNodeReconciler) proccessExternalReboot(ctx context.Context, dpuNode 
 			dpuNode.Annotations = make(map[string]string)
 		}
 		dpuNode.Annotations[provisioningv1.DPUNodeExternalRebootRequiredAnnotation] = "true"
-		r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionRebootInProgress, metav1.ConditionTrue, "", "")
+		// Stamp the same enriched Reason/Message as the steady-state branch
+		// so operators see the method and winner DPU immediately, not one
+		// reconcile later when condExists flips to true.
+		r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionRebootInProgress, metav1.ConditionTrue,
+			"WaitForExternalReboot", buildExternalRebootWaitMessage(agg))
 		logger.Info("Recorded dpunode-external-reboot-required", "DPUNode", dpuNode.Name)
 		return nil
 	}
@@ -719,6 +772,14 @@ func (r *DPUNodeReconciler) proccessExternalReboot(ctx context.Context, dpuNode 
 		}
 		logger.Info("Updated DPU RebootStatus pending for external reboot wait", "DPU", dpu.Name)
 	}
+
+	// Refresh the RebootInProgress Message so it tracks the current-cycle
+	// agg (winner DPU / required method). Without this the steady-state
+	// branch refreshes only on the next reconcile, leaving Step 2's reconcile
+	// with a one-cycle-stale Message when agg changes between Step 1 and
+	// Step 2.
+	r.updateDPUNodeStatusConditions(dpuNode, provisioningv1.DPUNodeConditionRebootInProgress, metav1.ConditionTrue,
+		"WaitForExternalReboot", buildExternalRebootWaitMessage(agg))
 
 	return nil
 }
@@ -845,11 +906,10 @@ func (r *DPUNodeReconciler) ensureMount(mnts []corev1.VolumeMount, name, path st
 	return append(mnts, corev1.VolumeMount{Name: name, MountPath: path})
 }
 
-// getRebootMethodPriority returns the aggregation priority of a RebootMethodType,
-// where lower numbers represent more demanding reboots. The order intentionally
-// mirrors the host-side host-agent merge order while extending it to the full
-// RebootMethodType enum so that the most disruptive action (PowerCycle) wins
-// when multiple DPUs report different methods.
+// getRebootMethodPriority returns the host-reboot priority of m, where
+// lower numbers are more disruptive. Chain: PowerCycle > SystemLevelReset >
+// SystemReboot > FirmwareReset > DPUWarmReboot > NoAction > Unknown.
+// Unknown / unrecognized never beats a known method.
 func getRebootMethodPriority(m provisioningv1.RebootMethodType) int {
 	switch m {
 	case provisioningv1.RebootMethodPowerCycle:
@@ -860,56 +920,126 @@ func getRebootMethodPriority(m provisioningv1.RebootMethodType) int {
 		return 2
 	case provisioningv1.RebootMethodFirmwareReset:
 		return 3
-	case provisioningv1.RebootMethodNoAction:
+	case provisioningv1.RebootMethodDPUWarmReboot:
 		return 4
-	default:
-		// Unknown or unrecognized: never wins against a known method.
+	case provisioningv1.RebootMethodNoAction:
 		return 5
+	default:
+		return 6
 	}
 }
 
-// aggregateDPURebootMethods inspects AgentStatus.RebootMethod on every DPU in
-// the supplied slice and returns:
-//   - the aggregated reboot method: the highest-priority non-Unknown method
-//     across the DPUs, or RebootMethodUnknown when every DPU is missing or
-//     reports Unknown.
-//   - a comma-separated <dpu-name>=<method> mapping for every DPU, sorted by
-//     DPU name. DPUs whose RebootMethod has not been reported yet appear as
-//     "<dpu-name>=Unknown".
+// aggregateAndPublishRebootMethod recomputes the aggregated host-level
+// reboot method from the DPUs in phase=DPURebooting and stamps
+// Status.RebootMethod (the priority winner) when at least one DPU has
+// reported. The field is left untouched when no DPU has reported, so it
+// survives the rebooting -> idle transition; it is cleared by
+// noneDPUInNodeEffectOrRebooting when the DPUNode loses all its DPUs.
 //
-// This is a v26.4 stop-gap helper used exclusively by createScriptJob to
-// expose reboot intent to custom-script reboot pods. Callers MUST pass only
-// the DPUs that have advanced to phase=Rebooting so the aggregation never
-// incorporates DPUs whose RebootMethod is still being negotiated in earlier
-// provisioning phases (e.g. DPUConfig). The function is pure and does not
-// touch the API server. An empty/nil slice yields (RebootMethodUnknown, "").
-func aggregateDPURebootMethods(dpus []*provisioningv1.DPU) (provisioningv1.RebootMethodType, string) {
-	if len(dpus) == 0 {
-		return provisioningv1.RebootMethodUnknown, ""
+// Returns the in-scope DPU snapshot so the caller can iterate it for
+// per-DPU updates without re-listing.
+func (r *DPUNodeReconciler) aggregateAndPublishRebootMethod(ctx context.Context, dpuNode *provisioningv1.DPUNode) ([]*provisioningv1.DPU, error) {
+	dpus, err := cutil.GetDPUsWithPhase(ctx, r.Client, dpuNode, provisioningv1.DPURebooting)
+	if err != nil {
+		return nil, err
 	}
 
-	sorted := make([]*provisioningv1.DPU, len(dpus))
-	copy(sorted, dpus)
+	agg := aggregateDPURebootMethods(dpus)
+	if !agg.HasReporting {
+		return dpus, nil
+	}
+
+	dpuNode.Status.RebootMethod = ptr.To(agg.Method)
+	return dpus, nil
+}
+
+// buildExternalRebootWaitMessage stamps the WaitForExternalReboot Message on
+// the External path's RebootInProgress condition. Returns a "<pending agent
+// report>" placeholder when no DPU has reported (defensive: production gates
+// entry into DPURebooting on a non-nil method).
+func buildExternalRebootWaitMessage(agg rebootMethodAggregation) string {
+	if !agg.HasReporting {
+		return "required reboot method: <pending agent report>"
+	}
+	return fmt.Sprintf("required reboot method: %s (driven by DPU %s)", agg.Method, agg.winnerOrNone())
+}
+
+// rebootMethodAggregation is the host-reboot decision for a slice of DPUs.
+// Passed by value so downstream consumers do not need to parse the
+// condition Message to recover the winner DPU.
+type rebootMethodAggregation struct {
+	// Method is the priority winner across the input slice, or RebootMethodUnknown
+	// when HasReporting is false.
+	Method provisioningv1.RebootMethodType
+	// Winner is the name of the DPU that drove Method, or "" when HasReporting is false.
+	Winner string
+	// PerDPU is a comma-separated <name>=<method> mapping for the input slice,
+	// sorted by DPU name. Empty for an empty slice.
+	PerDPU string
+	// HasReporting is true iff at least one DPU in the input slice has a
+	// non-nil RebootStatus.Method. Distinguishes "no DPU has reported"
+	// (HasReporting=false) from "all DPUs reported Unknown" (HasReporting=true,
+	// Method=Unknown).
+	HasReporting bool
+}
+
+// winnerOrNone returns Winner, substituting "<none>" for the empty-string
+// (no-reporting) case so condition Messages always carry a placeholder.
+func (a rebootMethodAggregation) winnerOrNone() string {
+	if a.Winner == "" {
+		return "<none>"
+	}
+	return a.Winner
+}
+
+// aggregateDPURebootMethods reads RebootStatus.Method on every DPU in dpus
+// and returns the host-level priority winner, the DPU that drove it, the
+// per-DPU mapping, and whether any DPU has reported. Callers should pass
+// only DPUs in phase=DPURebooting.
+//
+// RebootStatus.Method is the canonical source: InitializeDPURebootStatus
+// is the only writer, so reading it covers both the DPUConfig and the
+// DPUInitializeInterface mode-transition paths uniformly.
+//
+// Pure: does not touch the API server. An empty/nil slice yields a
+// zero-value rebootMethodAggregation.
+func aggregateDPURebootMethods(dpus []*provisioningv1.DPU) rebootMethodAggregation {
+	if len(dpus) == 0 {
+		return rebootMethodAggregation{Method: provisioningv1.RebootMethodUnknown}
+	}
+
+	sorted := make([]*provisioningv1.DPU, 0, len(dpus))
+	for _, d := range dpus {
+		if d != nil {
+			sorted = append(sorted, d)
+		}
+	}
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
 
-	aggregated := provisioningv1.RebootMethodUnknown
-	aggregatedPriority := getRebootMethodPriority(provisioningv1.RebootMethodUnknown)
+	agg := rebootMethodAggregation{Method: provisioningv1.RebootMethodUnknown}
 	pairs := make([]string, 0, len(sorted))
 	for _, d := range sorted {
-		if d == nil {
-			continue
-		}
+		reported := d.Status.RebootStatus != nil && d.Status.RebootStatus.Method != nil
 		method := provisioningv1.RebootMethodUnknown
-		if d.Status.AgentStatus != nil && d.Status.AgentStatus.RebootMethod != nil {
-			method = *d.Status.AgentStatus.RebootMethod
+		if reported {
+			method = *d.Status.RebootStatus.Method
 		}
-		if p := getRebootMethodPriority(method); p < aggregatedPriority {
-			aggregated = method
-			aggregatedPriority = p
+		switch {
+		case !agg.HasReporting && reported:
+			// First reporting DPU seeds the winner regardless of priority,
+			// so an all-Unknown reporting set still has a well-defined
+			// Winner == lex-smallest reporting DPU.
+			agg.HasReporting = true
+			agg.Method = method
+			agg.Winner = d.Name
+		case getRebootMethodPriority(method) < getRebootMethodPriority(agg.Method):
+			agg.Method = method
+			agg.Winner = d.Name
 		}
 		pairs = append(pairs, fmt.Sprintf("%s=%s", d.Name, method))
 	}
-	return aggregated, strings.Join(pairs, ",")
+	agg.PerDPU = strings.Join(pairs, ",")
+	return agg
 }
 
 func (r *DPUNodeReconciler) handleHostAgentUpgrade(ctx context.Context, dpuNode *provisioningv1.DPUNode, isKubernetes bool) ctrl.Result {

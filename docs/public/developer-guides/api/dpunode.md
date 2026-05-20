@@ -13,7 +13,7 @@ The DPUNode resource serves as a bridge between physical host nodes and DPU devi
 ## Key Features
 
 * **Node-Level Management**: Manages DPU operations at the host node level
-* **Reboot Control**: Configurable host reboot methods (gNOI, external, script)
+* **Reboot Control**: Configurable host reboot methods (`hostAgent` [default], `external`, `script`; `gNOI` is deprecated)
 * **DMS Integration**: Integration with Device Management Service (DMS)
 * **DPU Association**: Links multiple DPU devices to a single node
 * **Kubernetes Integration**: Optional integration with Kubernetes Node objects
@@ -26,17 +26,18 @@ The `spec` section defines the desired configuration for the DPU node:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `nodeRebootMethod` | NodeRebootMethod | No | Method for rebooting the host (default: gNOI) |
+| `nodeRebootMethod` | NodeRebootMethod | No | Method for rebooting the host (default: `hostAgent`) |
 | `nodeDMSAddress` | DMSAddress | No | IP and port for DMS communication |
 | `dpus` | []DPURef | No | List of DPU devices attached to this node |
 
 ### NodeRebootMethod
 
-Defines how the host should be rebooted during DPU operations:
+Defines how the host should be rebooted during DPU operations. Exactly one of the fields below must be set; the API server defaults `nodeRebootMethod` to `{hostAgent: {}}` when omitted.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `gNOI` | GNOI | No | Use DPU's DMS interface to reboot the host |
+| `hostAgent` | HostAgent | No | (default) Use the on-host DPF agent to reboot the host |
+| `gNOI` | GNOI | No | **Deprecated**, use `hostAgent` instead. Use the DPU's DMS interface to reboot the host |
 | `external` | External | No | Reboot via external means (not controlled by DPU controller) |
 | `script` | Script | No | Reboot by executing a custom script |
 
@@ -67,6 +68,23 @@ The `status` section contains the observed state of the DPU node:
 | `dpuInstallInterface` | string | Interface used for DPU installation (gNOI or redfish) |
 | `kubeNodeRef` | string | Name of the Kubernetes Node object (immutable) |
 | `rebootInProgress` | bool | Indicates if the node is currently rebooting |
+| `rebootMethod` | string | Host-level reboot method aggregated from child DPUs in `DPURebooting` phase (see [Aggregated reboot method](#aggregated-reboot-method)) |
+
+### Aggregated reboot method
+
+`status.rebootMethod` is the priority winner across child DPUs in `DPURebooting`
+(`PowerCycle` > `SystemLevelReset` > `SystemReboot` > `FirmwareReset` > `DPUWarmReboot` > `NoAction` > `Unknown`).
+It is set once at least one DPU reports, preserved across the rebooting -> idle transition,
+and cleared with `DPUNodeRebootInProgress` when the DPUNode loses all its DPUs.
+On multi-DPU hosts the value may flicker as peers enter and leave `DPURebooting`;
+reboot atomicity is enforced by the per-path action layer (External/Script via `HandleRebootSync`,
+HostAgent via `reboot/sync.go`), not by this field.
+
+This field reflects the **data-plane recommendation**. The
+`provisioning.dpu.nvidia.com/host-power-cycle-required` annotation escalates
+the executed reboot at the host agent layer only and is intentionally not
+propagated here, so a value like `SystemReboot` while the host actually
+power-cycles is by design, not a stale-status bug.
 
 ## Conditions
 
@@ -82,7 +100,7 @@ The DPUNode resource uses several condition types to track its state:
 
 ## Example Usage
 
-### Basic DPUNode with gNOI Reboot
+### Basic DPUNode with hostAgent Reboot (default)
 
 ```yaml
 ---
@@ -93,7 +111,7 @@ metadata:
   namespace: dpf-operator-system
 spec:
   nodeRebootMethod:
-    gNOI: {}
+    hostAgent: {}
   nodeDMSAddress:
     ip: "192.168.1.100"
     port: 443
@@ -101,6 +119,8 @@ spec:
   - name: dpu-device-001
   - name: dpu-device-002
 ```
+
+> `nodeRebootMethod` may be omitted; the API server defaults it to `{hostAgent: {}}`.
 
 ### DPUNode with External Reboot
 
@@ -156,7 +176,7 @@ cycle vs warm reboot) without having to read the DPU API directly.
 | Surface | Name | Meaning |
 |---------|------|---------|
 | Env var | `DPUNODE_NAME` | Name of the `DPUNode` the Job is reconciling. |
-| Env var | `DPUNODE_REBOOT_METHOD` | Aggregated reboot method across the DPUs that have advanced to phase `Rebooting` for this DPUNode. The most disruptive method wins (priority: `PowerCycle` > `SystemLevelReset` > `SystemReboot` > `FirmwareReset` > `DPUWarmReboot` > `NoAction`). DPUs still in earlier provisioning phases (e.g. `DPUConfig`) are intentionally excluded so the value cannot be influenced by reboot methods that are still being negotiated. **The aggregate is never `Unknown`**: when no rebooting DPU has populated `status.agentStatus.rebootMethod`, the controller substitutes `SystemLevelReset` so the script always has an actionable signal. |
+| Env var | `DPUNODE_REBOOT_METHOD` | Aggregated reboot method for this DPUNode in the current reconcile (priority: `PowerCycle` > `SystemLevelReset` > `SystemReboot` > `FirmwareReset` > `DPUWarmReboot` > `NoAction`). Mirrored on the DPUNode itself as `status.rebootMethod`. See the paragraph below the table for `Unknown` handling. |
 | Env var | `DPUNODE_REBOOT_METHODS_PER_DPU` | Comma-separated `<dpu-name>=<method>` mapping for every DPU in phase `Rebooting`, **sorted by DPU name** for stability. DPUs that have not reported a method appear as `<dpu-name>=Unknown` (this mapping is informational and is *not* defaulted, so scripts can still tell which DPUs have not reported). Empty when no DPU is in `Rebooting` phase yet. |
 | Annotation | `provisioning.dpu.nvidia.com/reboot-method-aggregated` | Same value as `DPUNODE_REBOOT_METHOD`. Surfaced inside the pod through the existing `dpf-pod-info` downward-API mount at `/etc/dpf-pod-info/annotations`. |
 | Annotation | `provisioning.dpu.nvidia.com/reboot-methods-per-dpu` | Same value as `DPUNODE_REBOOT_METHODS_PER_DPU`. The DPUNode controller is the source of truth and overwrites any user-provided value for these two keys in the pod template. |
@@ -167,6 +187,13 @@ has not reported yet -- it is the safe middle ground that triggers a
 host-impacting reboot without escalating to a hard `PowerCycle`. Per-DPU
 entries can still appear as `Unknown` and should be treated as "agent has
 not reported for this DPU yet".
+
+`DPUNODE_REBOOT_METHOD` and `DPUNODE_REBOOT_METHODS_PER_DPU` reflect the
+**data-plane recommendation** from the DPU agent. The
+`provisioning.dpu.nvidia.com/host-power-cycle-required` annotation is a Trusted
+Host (host agent) execution-time escalation and is **not** propagated into
+either of these surfaces. Scripts that need to honor the annotation must read
+it directly from the `DPU` resource themselves.
 
 ```yaml
 ---
@@ -212,13 +239,19 @@ data:
 
 ## Reboot Methods
 
-### gNOI (Default)
-Uses the DPU's Device Management Service interface to reboot the host. This is the recommended method for most deployments.
+### hostAgent (Default)
+Uses the on-host DPF agent to reboot the host. This is the default and recommended method for most deployments.
 
 **Advantages:**
-* Integrated with DPU management
-* Reliable and consistent
-* No external dependencies
+* No DMS dependency or out-of-band channel
+* Driven by the same agent that already runs on the host
+* Sets `Status.RebootMethod` (it does not set `DPUNodeRebootInProgress`; the DPU controller drives the reboot)
+
+**Requirements:**
+* Host agent installed and running on the node
+
+### gNOI (Deprecated)
+Uses the DPU's Device Management Service interface to reboot the host. **Deprecated** in favour of `hostAgent`; retained for backwards compatibility only and may be removed in a future release.
 
 **Requirements:**
 * DMS must be accessible

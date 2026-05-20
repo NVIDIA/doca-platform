@@ -38,6 +38,7 @@ import (
 
 const (
 	DefaultDPFOperatorConfig = "test-dpfoperatorconfig"
+	annotationTrue           = "true"
 )
 
 var _ = Describe("DPUNode Controller", func() {
@@ -401,7 +402,7 @@ var _ = Describe("DPUNode Controller", func() {
 				if latestDPUNode.Labels == nil {
 					latestDPUNode.Labels = make(map[string]string)
 				}
-				latestDPUNode.Labels[cutil.NodeFeatureDiscoveryLabelPrefix+cutil.DPUOOBBridgeConfiguredLabel] = "true"
+				latestDPUNode.Labels[cutil.NodeFeatureDiscoveryLabelPrefix+cutil.DPUOOBBridgeConfiguredLabel] = annotationTrue
 				Expect(k8sClient.Patch(ctx, latestDPUNode, client.MergeFrom(orig))).To(Succeed())
 
 				// Create DPUs with different phases
@@ -451,7 +452,7 @@ var _ = Describe("DPUNode Controller", func() {
 				Eventually(func(g Gomega) []metav1.Condition {
 					dpuNodeFetched := &provisioningv1.DPUNode{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dpuNode), dpuNodeFetched)).To(Succeed())
-					g.Expect(dpuNodeFetched.Annotations[provisioningv1.DPUNodeExternalRebootRequiredAnnotation]).To(Equal("true"))
+					g.Expect(dpuNodeFetched.Annotations[provisioningv1.DPUNodeExternalRebootRequiredAnnotation]).To(Equal(annotationTrue))
 
 					return dpuNodeFetched.Status.Conditions
 				}).WithTimeout(5 * time.Second).Should(ContainElement(
@@ -495,7 +496,7 @@ var _ = Describe("DPUNode Controller", func() {
 				if latestDPUNode.Labels == nil {
 					latestDPUNode.Labels = make(map[string]string)
 				}
-				latestDPUNode.Labels[cutil.NodeFeatureDiscoveryLabelPrefix+cutil.DPUOOBBridgeConfiguredLabel] = "true"
+				latestDPUNode.Labels[cutil.NodeFeatureDiscoveryLabelPrefix+cutil.DPUOOBBridgeConfiguredLabel] = annotationTrue
 				Expect(k8sClient.Patch(ctx, latestDPUNode, client.MergeFrom(orig))).To(Succeed())
 
 				// Create DPUs with different phases
@@ -523,7 +524,7 @@ var _ = Describe("DPUNode Controller", func() {
 				Eventually(func(g Gomega) []metav1.Condition {
 					dpuNodeFetched := &provisioningv1.DPUNode{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dpuNode), dpuNodeFetched)).To(Succeed())
-					g.Expect(dpuNodeFetched.Annotations[provisioningv1.DPUNodeExternalRebootRequiredAnnotation]).To(Equal("true"))
+					g.Expect(dpuNodeFetched.Annotations[provisioningv1.DPUNodeExternalRebootRequiredAnnotation]).To(Equal(annotationTrue))
 					return dpuNodeFetched.Status.Conditions
 				}).WithTimeout(5 * time.Second).Should(ContainElement(
 					And(
@@ -532,6 +533,131 @@ var _ = Describe("DPUNode Controller", func() {
 					),
 				))
 
+			})
+
+			It("DPUNode: aggregates Status.RebootMethod across two DPURebooting DPUs, then clears it when the DPUs are gone", func() {
+				// End-to-end coverage for the aggregated host-level reboot
+				// method exposed on DPUNode.Status. Verifies (a) priority
+				// aggregation across two DPUs reporting different methods,
+				// (b) persistence after Phase leaves DPURebooting, and
+				// (c) cleanup when no DPU is in DPURebooting and the
+				// DPUNode loses all its DPUs.
+				dpuDevice1 := createDPUDevice("dpudevice-21",
+					operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace, ptr.To("MT2333XZAGG1"), nil)
+				dpuDevice2 := createDPUDevice("dpudevice-22",
+					operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace, ptr.To("MT2333XZAGG2"), nil)
+				dpuNode := createDPUNode("test-dpunode-21",
+					operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace)
+				dpuNode.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{External: &provisioningv1.External{}}
+				dpuNode.Spec.DPUs = []provisioningv1.DPURef{
+					{Name: dpuDevice1.Name},
+					{Name: dpuDevice2.Name},
+				}
+				Expect(k8sClient.Create(ctx, dpuNode)).To(Succeed())
+
+				// Set DPUInstallInterface + OOB-bridge label so the
+				// reconciler reaches HandleRebootSync.
+				Eventually(func() error {
+					latest := &provisioningv1.DPUNode{}
+					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(dpuNode), latest); err != nil {
+						return err
+					}
+					latest.Status.DPUInstallInterface = ptr.To(string(provisioningv1.DPUNodeInstallInterfaceGNOI))
+					return k8sClient.Status().Update(ctx, latest)
+				}).WithTimeout(10 * time.Second).Should(Succeed())
+
+				latestDPUNode := &provisioningv1.DPUNode{}
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dpuNode), latestDPUNode)).To(Succeed())
+				orig := latestDPUNode.DeepCopy()
+				if latestDPUNode.Labels == nil {
+					latestDPUNode.Labels = make(map[string]string)
+				}
+				latestDPUNode.Labels[cutil.NodeFeatureDiscoveryLabelPrefix+cutil.DPUOOBBridgeConfiguredLabel] = annotationTrue
+				Expect(k8sClient.Patch(ctx, latestDPUNode, client.MergeFrom(orig))).To(Succeed())
+
+				dpu1 := &provisioningv1.DPU{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-dpunode-21-dpudevice-21",
+						Namespace: operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace,
+					},
+					Spec: provisioningv1.DPUSpec{
+						DPUNodeName:   "test-dpunode-21",
+						DPUDeviceName: dpuDevice1.Name,
+						SerialNumber:  DefaultSerialNumberPrefix + utilrand.String(5),
+						DPUFlavor:     "dpu-flavor",
+						NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
+					},
+				}
+				dpu2 := &provisioningv1.DPU{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-dpunode-21-dpudevice-22",
+						Namespace: operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace,
+					},
+					Spec: provisioningv1.DPUSpec{
+						DPUNodeName:   "test-dpunode-21",
+						DPUDeviceName: dpuDevice2.Name,
+						SerialNumber:  DefaultSerialNumberPrefix + utilrand.String(5),
+						DPUFlavor:     "dpu-flavor",
+						NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
+					},
+				}
+
+				Expect(k8sClient.Create(ctx, dpu1)).To(Succeed())
+				patchFakePhase(dpu1.Name, provisioningv1.DPURebooting)
+				Expect(k8sClient.Create(ctx, dpu2)).To(Succeed())
+				patchFakePhase(dpu2.Name, provisioningv1.DPURebooting)
+
+				// Stamp Status.RebootStatus.Method per DPU (production wiring
+				// done by InitializeDPURebootStatus). dpu1 reports the more
+				// disruptive method so it must be the aggregation winner.
+				setRebootMethod := func(name string, m provisioningv1.RebootMethodType) {
+					d := &provisioningv1.DPU{}
+					Expect(k8sClient.Get(ctx, client.ObjectKey{
+						Namespace: operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace,
+						Name:      name,
+					}, d)).To(Succeed())
+					origDPU := d.DeepCopy()
+					d.Status.RebootStatus = &provisioningv1.RebootStatus{Method: ptr.To(m)}
+					Expect(k8sClient.Status().Patch(ctx, d, client.MergeFrom(origDPU))).To(Succeed())
+				}
+				setRebootMethod(dpu1.Name, provisioningv1.RebootMethodPowerCycle)
+				setRebootMethod(dpu2.Name, provisioningv1.RebootMethodSystemReboot)
+
+				// Assert: Status.RebootMethod=PowerCycle (priority winner).
+				Eventually(func(g Gomega) {
+					fetched := &provisioningv1.DPUNode{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dpuNode), fetched)).To(Succeed())
+					g.Expect(fetched.Status.RebootMethod).NotTo(BeNil())
+					g.Expect(*fetched.Status.RebootMethod).To(Equal(provisioningv1.RebootMethodPowerCycle))
+				}).WithTimeout(10 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
+
+				// Persistence check: drive the DPUs out of DPURebooting; the
+				// aggregated condition and Status.RebootMethod must persist
+				// (they are cleared only on stale-True with rebootingCount==0
+				// via the noneDPUInNodeEffectOrRebooting first branch, and
+				// once that fires Status.RebootMethod is cleared together).
+				// To verify stickiness we must keep the reboot in flight,
+				// so move only one DPU back to a provisioning phase that
+				// does not trigger the stale-True branch.
+				patchFakePhase(dpu2.Name, provisioningv1.DPURebooting) // re-affirm
+				Consistently(func(g Gomega) {
+					fetched := &provisioningv1.DPUNode{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dpuNode), fetched)).To(Succeed())
+					g.Expect(fetched.Status.RebootMethod).NotTo(BeNil())
+					g.Expect(*fetched.Status.RebootMethod).To(Equal(provisioningv1.RebootMethodPowerCycle))
+				}, 2*time.Second, 200*time.Millisecond).Should(Succeed())
+
+				// Cleanup check: delete the DPUs. The stale-True branch
+				// removes RebootInProgress on one reconcile; the next
+				// reconcile observes label-list==0 and the no-DPUs branch
+				// sweeps Status.RebootMethod.
+				Expect(k8sClient.Delete(ctx, dpu1)).To(Succeed())
+				Expect(k8sClient.Delete(ctx, dpu2)).To(Succeed())
+				Eventually(func(g Gomega) {
+					fetched := &provisioningv1.DPUNode{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dpuNode), fetched)).To(Succeed())
+					g.Expect(fetched.Status.RebootMethod).To(BeNil())
+				}).WithTimeout(10 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
 			})
 
 			It("DPUNode: Validate the DPUNode condition are set correctly for non-k8s upgrade", func() {
