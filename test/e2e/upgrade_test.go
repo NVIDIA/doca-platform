@@ -23,7 +23,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
@@ -52,6 +51,9 @@ var _ = Describe("DPF Upgrade tests", Labels{Domain.DPFUpgrade}, func() {
 			By("Pre provisioning DPU cluster setup")
 			provInput := getProvisionDPUClustersInput()
 			ProvisionDPUClusters(ctx, provInput)
+			// Use the hardcoded URL from previous/bfb.yaml regardless of BFB_IMAGE_URL, so the
+			// pre-upgrade state always reflects the known previous release BFB.
+			provInput.bfbImageURL = ""
 			ProvisionBFBAndDPUFlavor(ctx, provInput)
 		})
 
@@ -223,84 +225,9 @@ var _ = Describe("DPF Upgrade validation", Labels{Domain.DPFUpgradeValidation}, 
 			validateArtifactsAfterUpgrade()
 		})
 
-		It("switch DPUDeployments to new BFB and DPUFlavor", func() {
-			By("Listing all DPUDeployments in the system namespace")
-			dpuDeploymentList := &dpuservicev1.DPUDeploymentList{}
-			Expect(input.client.List(ctx, dpuDeploymentList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
-			Expect(dpuDeploymentList.Items).NotTo(BeEmpty(), "expected at least one DPUDeployment")
-
-			oldBFBName := dpuDeploymentList.Items[0].Spec.DPUs.BFB
-			oldFlavorName := dpuDeploymentList.Items[0].Spec.DPUs.Flavor
-			Expect(oldBFBName).NotTo(BeEmpty())
-			Expect(oldFlavorName).NotTo(BeEmpty())
-
-			for i := range dpuDeploymentList.Items {
-				dd := &dpuDeploymentList.Items[i]
-				Expect(dd.Spec.DPUs.BFB).To(Equal(oldBFBName), "all DPUDeployments should start with the same BFB in this test")
-				Expect(dd.Spec.DPUs.Flavor).To(Equal(oldFlavorName), "all DPUDeployments should start with the same DPUFlavor in this test")
-			}
-
-			newBFBName := fmt.Sprintf("%s-upgrade", oldBFBName)
-			newFlavorName := fmt.Sprintf("%s-upgrade", oldFlavorName)
-
-			By(fmt.Sprintf("Creating a new BFB %s", newBFBName))
-			newBFB := input.bfb.DeepCopy()
-			newBFB.SetName(newBFBName)
-			newBFB.SetNamespace(dpfOperatorSystemNamespace)
-			newBFB.SetLabels(CleanupScope.Suite)
-			Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, newBFB))).To(Succeed())
-
-			By(fmt.Sprintf("Waiting for new BFB %s to become Ready", newBFBName))
-			Eventually(func(g Gomega) {
-				bfb := &provisioningv1.BFB{}
-				g.Expect(input.client.Get(ctx, client.ObjectKey{Name: newBFBName, Namespace: dpfOperatorSystemNamespace}, bfb)).To(Succeed())
-				g.Expect(bfb.Status.Phase).To(Equal(provisioningv1.BFBReady))
-			}).WithTimeout(10 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
-
-			By(fmt.Sprintf("Creating a new DPUFlavor %s", newFlavorName))
-			newDPUFlavor := input.dpuFlavor.DeepCopy()
-			newDPUFlavor.SetName(newFlavorName)
-			newDPUFlavor.SetNamespace(dpfOperatorSystemNamespace)
-			newDPUFlavor.SetLabels(CleanupScope.Suite)
-			Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, newDPUFlavor))).To(Succeed())
-
-			By("Patching DPUDeployments to use new BFB and DPUFlavor")
-			for i := range dpuDeploymentList.Items {
-				dd := &dpuDeploymentList.Items[i]
-				original := dd.DeepCopy()
-				dd.Spec.DPUs.BFB = newBFBName
-				dd.Spec.DPUs.Flavor = newFlavorName
-				Expect(input.client.Patch(ctx, dd, client.MergeFrom(original))).To(Succeed())
-			}
-
-			By("Waiting for DPUDeployments to reconcile with updated dependencies")
-			for i := range dpuDeploymentList.Items {
-				dd := &dpuDeploymentList.Items[i]
-				Eventually(func(g Gomega) {
-					current := &dpuservicev1.DPUDeployment{}
-					g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dd), current)).To(Succeed())
-					g.Expect(current.Spec.DPUs.BFB).To(Equal(newBFBName))
-					g.Expect(current.Spec.DPUs.Flavor).To(Equal(newFlavorName))
-					g.Expect(conditions.IsTrue(current, dpuservicev1.ConditionPreReqsReady)).To(BeTrue(),
-						"PrerequisitesReady should be True for %s", current.Name)
-					g.Expect(conditions.IsTrue(current, dpuservicev1.ConditionDPUSetsReconciled)).To(BeTrue(),
-						"DPUSetsReconciled should be True for %s", current.Name)
-				}).WithTimeout(20 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
-			}
-
-			By("Verifying old DPUFlavor has no consumed-by-dpudeployment labels")
-			oldFlavor := &provisioningv1.DPUFlavor{}
-			Expect(input.client.Get(ctx, client.ObjectKey{Name: oldFlavorName, Namespace: dpfOperatorSystemNamespace}, oldFlavor)).To(Succeed())
-			for k := range oldFlavor.GetLabels() {
-				Expect(strings.HasPrefix(k, dpuservicev1.DependentDPUDeploymentLabelKeyPrefix)).To(BeFalse(),
-					"old DPUFlavor should not retain consumed-by labels")
-			}
-		})
-
 		It("perform DPU and DPUService rollout test", func() {
-			By("Performing DPU and DPUService rollout test")
-			rolloutDPU(ctx, input)
-			rolloutDPUService(ctx, input)
+			By("Performing DPU and DPUService rollout for one of the DPUDeployments via BFB, DPUFlavor and DPUServiceTemplate update")
+			rolloutDependencies(ctx, input)
 			By("Waiting for provisioning")
 			VerifyDPUClusterWithNodes(ctx, getProvisionDPUClustersInput())
 			By("Waiting for system components to be ready")
@@ -615,53 +542,57 @@ func validateDPFVersionUpgrade() {
 		"DPF version should be upgraded to the specified tag")
 }
 
-func rolloutDPU(ctx context.Context, input *systemTestInput) {
-	By("Selecting one DPU for deletion")
-	dpuList := &provisioningv1.DPUList{}
-	Expect(input.client.List(ctx, dpuList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
-	Expect(dpuList.Items).NotTo(BeEmpty(), "No DPUs found for rollout test")
-	selectedDPU := &dpuList.Items[0]
-	uuid := selectedDPU.GetUID()
-	By(fmt.Sprintf("Selected DPU: %s", selectedDPU.GetName()))
-	dpuDeviceNameLabel := selectedDPU.GetLabels()[util.DPUDeviceNameLabel]
-	Expect(dpuDeviceNameLabel).ToNot(BeEmpty(), "DPU should have a device name label")
+// rolloutDependencies simulates a post-upgrade dependency rollout by creating new BFB, DPUFlavor,
+// DPUServiceTemplate, and DPUServiceConfiguration objects from the current manifests and updating
+// one DPUDeployment to reference them in a single patch.
+func rolloutDependencies(ctx context.Context, input *systemTestInput) {
+	By("Creating current BFB and DPUFlavor")
+	ProvisionBFBAndDPUFlavor(ctx, getProvisionDPUClustersInput())
 
-	By("Deleting selected DPU")
-	Expect(client.IgnoreNotFound(input.client.Delete(ctx, selectedDPU))).To(Succeed())
+	By("Creating current DPUServiceTemplate")
+	currentTemplate := input.dpuServiceTemplate.DeepCopy()
+	currentTemplate.SetLabels(CleanupScope.Suite)
+	currentTemplate.SetName(input.dpuServiceTemplate.Name + "-rollout")
+	useDummyDPUServiceChart(currentTemplate)
+	Expect(input.client.Create(ctx, currentTemplate)).To(Succeed())
 
-	By("Waiting for DPU to be recreated")
+	By("Creating current DPUServiceConfiguration")
+	currentConfig := input.dpuServiceConfiguration.DeepCopy()
+	currentConfig.SetLabels(CleanupScope.Suite)
+	currentConfig.SetName(input.dpuServiceConfiguration.Name + "-rollout")
+	Expect(input.client.Create(ctx, currentConfig)).To(Succeed())
+
+	By("Selecting one DPUDeployment to update")
+	dpuDeploymentList := &dpuservicev1.DPUDeploymentList{}
+	Expect(input.client.List(ctx, dpuDeploymentList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+	Expect(dpuDeploymentList.Items).To(HaveLen(input.numberOfDPUNodes), "expected one DPUDeployment per DPU node")
+	selectedDPUDeployment := &dpuDeploymentList.Items[0]
+	By(fmt.Sprintf("Selected DPUDeployment: %s", selectedDPUDeployment.GetName()))
+
+	By("Updating selected DPUDeployment to reference current BFB, DPUFlavor, DPUServiceTemplate and DPUServiceConfiguration")
+	original := selectedDPUDeployment.DeepCopy()
+	selectedDPUDeployment.Spec.DPUs.BFB = input.bfb.Name
+	selectedDPUDeployment.Spec.DPUs.Flavor = input.dpuFlavor.Name
+	// Replace only the "example" DPUService (not the "example-2")
+	svc := selectedDPUDeployment.Spec.Services[input.dpuServiceTemplate.Name]
+	svc.ServiceTemplate = currentTemplate.Name
+	svc.ServiceConfiguration = currentConfig.Name
+	selectedDPUDeployment.Spec.Services[input.dpuServiceTemplate.Name] = svc
+	Expect(input.client.Patch(ctx, selectedDPUDeployment, client.MergeFrom(original))).To(Succeed())
+
+	By("Waiting for all DPUDeployment Reconciled conditions to become True")
 	Eventually(func(g Gomega) {
-		updatedDPUs := &provisioningv1.DPUList{}
-		g.Expect(input.client.List(ctx, updatedDPUs,
-			client.InNamespace(dpfOperatorSystemNamespace),
-			client.MatchingLabels{
-				util.DPUDeviceNameLabel: dpuDeviceNameLabel,
-			})).To(Succeed())
-		g.Expect(updatedDPUs.Items).To(HaveLen(1), "DPU should be recreated")
-		g.Expect(updatedDPUs.Items[0].GetUID()).ToNot(Equal(uuid), "DPU should be recreated with a new UID")
-		dpuVersion := updatedDPUs.Items[0].Status.DPFVersion
-		g.Expect(dpuVersion).ToNot(BeNil())
-		g.Expect(*dpuVersion).To(Equal(tag), "DPU should be recreated with the new DPF version")
+		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(selectedDPUDeployment), selectedDPUDeployment)).To(Succeed())
+		for _, condType := range []conditions.ConditionType{
+			dpuservicev1.ConditionDPUSetsReconciled,
+			dpuservicev1.ConditionDPUServicesReconciled,
+			dpuservicev1.ConditionDPUServiceChainsReconciled,
+			dpuservicev1.ConditionDPUServiceInterfacesReconciled,
+		} {
+			g.Expect(conditions.IsTrue(selectedDPUDeployment, condType)).To(BeTrue(),
+				"%s should be True for %s", condType, selectedDPUDeployment.Name)
+		}
 	}).WithTimeout(20 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
-}
-
-func rolloutDPUService(ctx context.Context, input *systemTestInput) {
-	By("Selecting system component DPUService flannel for deletion")
-	selectedDPUService := &dpuservicev1.DPUService{}
-	selectedDPUService.SetName(operatorv1.FlannelName.String())
-	selectedDPUService.SetNamespace(dpfOperatorSystemNamespace)
-	Expect(input.client.Get(ctx, client.ObjectKeyFromObject(selectedDPUService), selectedDPUService)).To(Succeed())
-	uuid := selectedDPUService.GetUID()
-
-	By("Deleting system component DPUService flannel")
-	Expect(input.client.Delete(ctx, selectedDPUService)).To(Succeed())
-
-	By("Waiting for DPUService to be recreated")
-	Eventually(func(g Gomega) {
-		updatedDPUService := &dpuservicev1.DPUService{}
-		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(selectedDPUService), updatedDPUService)).To(Succeed())
-		g.Expect(updatedDPUService.GetUID()).ToNot(Equal(uuid), "DPUService should be recreated with a new UID")
-	}).WithTimeout(10 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
 }
 
 // patchDPFOperatorConfigForSpecDeploymentMode supports the breaking change that introduced

@@ -403,33 +403,22 @@ func updateDependencies(ctx context.Context, c client.Client, dpuDeployment *dpu
 
 // markAllCurrentDependencies marks all the current dependencies with the correct identifiers
 func markAllCurrentDependencies(ctx context.Context, c client.Client, dpuDeployment *dpuservicev1.DPUDeployment, deps *dpuDeploymentDependencies) error {
-	patcher := patch.NewSerialPatcher(deps.BFB, c)
-	markDependency(deps.BFB, dpuDeployment)
-
-	if err := patcher.Patch(ctx, deps.BFB, patch.WithFieldOwner(dpuDeploymentControllerName)); err != nil {
-		return fmt.Errorf("error while patching %s %s: %w", deps.BFB.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(deps.BFB), err)
+	if err := markDependency(ctx, c, deps.BFB, dpuDeployment); err != nil {
+		return fmt.Errorf("error while marking dependency %s %s: %w", deps.BFB.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(deps.BFB), err)
 	}
 
-	patcher = patch.NewSerialPatcher(deps.DPUFlavor, c)
-	markDependency(deps.DPUFlavor, dpuDeployment)
-	if err := patcher.Patch(ctx, deps.DPUFlavor, patch.WithFieldOwner(dpuDeploymentControllerName)); err != nil {
-		return fmt.Errorf("error while patching %s %s: %w", deps.DPUFlavor.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(deps.DPUFlavor), err)
+	if err := markDependency(ctx, c, deps.DPUFlavor, dpuDeployment); err != nil {
+		return fmt.Errorf("error while marking dependency %s %s: %w", deps.DPUFlavor.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(deps.DPUFlavor), err)
 	}
 
 	for _, serviceConfig := range deps.DPUServiceConfigurations {
-		patcher = patch.NewSerialPatcher(serviceConfig, c)
-		markDependency(serviceConfig, dpuDeployment)
-
-		if err := patcher.Patch(ctx, serviceConfig, patch.WithFieldOwner(dpuDeploymentControllerName)); err != nil {
-			return fmt.Errorf("error while patching %s %s: %w", serviceConfig.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(serviceConfig), err)
+		if err := markDependency(ctx, c, serviceConfig, dpuDeployment); err != nil {
+			return fmt.Errorf("error while marking dependency %s %s: %w", serviceConfig.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(serviceConfig), err)
 		}
 	}
 	for _, serviceTemplate := range deps.DPUServiceTemplates {
-		patcher = patch.NewSerialPatcher(serviceTemplate, c)
-		markDependency(serviceTemplate, dpuDeployment)
-
-		if err := patcher.Patch(ctx, serviceTemplate, patch.WithFieldOwner(dpuDeploymentControllerName)); err != nil {
-			return fmt.Errorf("error while patching %s %s: %w", serviceTemplate.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(serviceTemplate), err)
+		if err := markDependency(ctx, c, serviceTemplate, dpuDeployment); err != nil {
+			return fmt.Errorf("error while marking dependency %s %s: %w", serviceTemplate.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(serviceTemplate), err)
 		}
 	}
 	return nil
@@ -461,8 +450,8 @@ func cleanAllStaleDependencies(ctx context.Context, c client.Client, dpuDeployme
 						continue
 					}
 				}
-				if err := patchUnmarkDependency(ctx, c, dpuDeployment, &dpuServiceConfiguration); err != nil {
-					return fmt.Errorf("error while patching %s %s: %w", dpuServiceConfiguration.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&dpuServiceConfiguration), err)
+				if err := unmarkDependency(ctx, c, &dpuServiceConfiguration, dpuDeployment); err != nil {
+					return fmt.Errorf("error while unmarking dependency %s %s: %w", dpuServiceConfiguration.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&dpuServiceConfiguration), err)
 				}
 			}
 		case *dpuservicev1.DPUServiceTemplateList:
@@ -473,8 +462,8 @@ func cleanAllStaleDependencies(ctx context.Context, c client.Client, dpuDeployme
 						continue
 					}
 				}
-				if err := patchUnmarkDependency(ctx, c, dpuDeployment, &dpuServiceTemplate); err != nil {
-					return fmt.Errorf("error while patching %s %s: %w", dpuServiceTemplate.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&dpuServiceTemplate), err)
+				if err := unmarkDependency(ctx, c, &dpuServiceTemplate, dpuDeployment); err != nil {
+					return fmt.Errorf("error while unmarking dependency %s %s: %w", dpuServiceTemplate.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&dpuServiceTemplate), err)
 				}
 			}
 		case *provisioningv1.BFBList:
@@ -483,8 +472,8 @@ func cleanAllStaleDependencies(ctx context.Context, c client.Client, dpuDeployme
 				if bfb.Name == deps.BFB.Name {
 					continue
 				}
-				if err := patchUnmarkDependency(ctx, c, dpuDeployment, &bfb); err != nil {
-					return fmt.Errorf("error while patching %s %s: %w", bfb.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&bfb), err)
+				if err := unmarkDependency(ctx, c, &bfb, dpuDeployment); err != nil {
+					return fmt.Errorf("error while unmarking dependency %s %s: %w", bfb.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&bfb), err)
 				}
 			}
 		case *provisioningv1.DPUFlavorList:
@@ -493,8 +482,8 @@ func cleanAllStaleDependencies(ctx context.Context, c client.Client, dpuDeployme
 				if dpuFlavor.Name == deps.DPUFlavor.Name {
 					continue
 				}
-				if err := patchUnmarkDependency(ctx, c, dpuDeployment, &dpuFlavor); err != nil {
-					return fmt.Errorf("error while patching %s %s: %w", dpuFlavor.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&dpuFlavor), err)
+				if err := unmarkDependency(ctx, c, &dpuFlavor, dpuDeployment); err != nil {
+					return fmt.Errorf("error while unmarking dependency %s %s: %w", dpuFlavor.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&dpuFlavor), err)
 				}
 			}
 		default:
@@ -504,36 +493,64 @@ func cleanAllStaleDependencies(ctx context.Context, c client.Client, dpuDeployme
 	return nil
 }
 
-// markDependency marks the object as a dependency to the given DPUDeployment
-func markDependency(o client.Object, dpuDeployment *dpuservicev1.DPUDeployment) {
-	controllerutil.AddFinalizer(o, dpuservicev1.DPUDeploymentFinalizer)
-	labels := o.GetLabels()
-	if labels == nil {
-		labels = make(map[string]string)
+// markDependency adds the DPUDeploymentFinalizer and a per-owner dependent label to obj via a patch.
+// The label key is derived from the DPUDeployment GVK and namespaced name, allowing multiple
+// DPUDeployments to each claim the object independently.
+func markDependency(ctx context.Context, c client.Client, obj client.Object, dpuDeployment *dpuservicev1.DPUDeployment) error {
+	dependentLabelKey := dpuDeployment.GetDependentLabelKey()
+	objLabels := obj.GetLabels()
+	_, hasLabel := objLabels[dependentLabelKey]
+	if controllerutil.ContainsFinalizer(obj, dpuservicev1.DPUDeploymentFinalizer) && hasLabel {
+		return nil
 	}
-	labels[dpuDeployment.GetDependentLabelKey()] = dpuservicev1.DependentDPUDeploymentLabelValue
-	o.SetLabels(labels)
+
+	ctrllog.FromContext(ctx).WithValues(
+		"gvk", obj.GetObjectKind().GroupVersionKind(),
+		"object", client.ObjectKeyFromObject(obj),
+		"finalizer", dpuservicev1.DPUDeploymentFinalizer,
+		"label", dependentLabelKey).Info("Adding finalizer and associated label to dependent object")
+	base := obj.DeepCopyObject().(client.Object)
+	controllerutil.AddFinalizer(obj, dpuservicev1.DPUDeploymentFinalizer)
+	if objLabels == nil {
+		objLabels = make(map[string]string)
+	}
+	objLabels[dependentLabelKey] = dpuservicev1.DependentDPUDeploymentLabelValue
+	obj.SetLabels(objLabels)
+	return c.Patch(ctx, obj, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{}))
 }
 
-// unmarkDependency removes the identifiers for a dependency that is no longer referenced in the DPUDeployment
-func unmarkDependency(dpuDeployment *dpuservicev1.DPUDeployment, o client.Object) {
-	labels := o.GetLabels()
-	delete(labels, dpuDeployment.GetDependentLabelKey())
-	o.SetLabels(labels)
+// unmarkDependency removes the per-owner dependent label from obj and, if no other DPUDeployment
+// labels remain, also removes the DPUDeploymentFinalizer via a patch.
+func unmarkDependency(ctx context.Context, c client.Client, obj client.Object, dpuDeployment *dpuservicev1.DPUDeployment) error {
+	dependentLabelKey := dpuDeployment.GetDependentLabelKey()
+	objLabels := obj.GetLabels()
+	_, hasLabel := objLabels[dependentLabelKey]
+	if !hasLabel && !controllerutil.ContainsFinalizer(obj, dpuservicev1.DPUDeploymentFinalizer) {
+		return nil
+	}
 
-	for k := range labels {
+	base := obj.DeepCopyObject().(client.Object)
+	delete(objLabels, dependentLabelKey)
+	obj.SetLabels(objLabels)
+
+	var othersExist bool
+	for k := range objLabels {
 		if strings.HasPrefix(k, dpuservicev1.DependentDPUDeploymentLabelKeyPrefix) {
-			return
+			othersExist = true
+			break
 		}
 	}
-	controllerutil.RemoveFinalizer(o, dpuservicev1.DPUDeploymentFinalizer)
-}
 
-// patchUnmarkDependency removes DPUDeployment dependency metadata using a metadata-only merge patch.
-func patchUnmarkDependency(ctx context.Context, c client.Client, dpuDeployment *dpuservicev1.DPUDeployment, o client.Object) error {
-	before := o.DeepCopyObject().(client.Object)
-	unmarkDependency(dpuDeployment, o)
-	return c.Patch(ctx, o, client.MergeFrom(before), client.FieldOwner(dpuDeploymentControllerName))
+	log := ctrllog.FromContext(ctx).WithValues(
+		"gvk", obj.GetObjectKind().GroupVersionKind(),
+		"object", client.ObjectKeyFromObject(obj))
+	if !othersExist {
+		log.Info("Removing finalizer from dependent object", "finalizer", dpuservicev1.DPUDeploymentFinalizer)
+		controllerutil.RemoveFinalizer(obj, dpuservicev1.DPUDeploymentFinalizer)
+	}
+
+	log.Info("Removing associated label from dependent object", "label", dependentLabelKey)
+	return c.Patch(ctx, obj, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{}))
 }
 
 // verifyResourceFitting verifies that the user provided resources for DPUServices can fit the resources defined in the
@@ -1025,29 +1042,29 @@ func releaseAllDependencies(ctx context.Context, c client.Client, dpuDeployment 
 		case *dpuservicev1.DPUServiceConfigurationList:
 			objs := obj.(*dpuservicev1.DPUServiceConfigurationList).Items
 			for _, o := range objs {
-				if err := patchUnmarkDependency(ctx, c, dpuDeployment, &o); err != nil {
-					return fmt.Errorf("error while patching %s %s: %w", o.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&o), err)
+				if err := unmarkDependency(ctx, c, &o, dpuDeployment); err != nil {
+					return fmt.Errorf("error while unmarking dependency %s %s: %w", o.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&o), err)
 				}
 			}
 		case *dpuservicev1.DPUServiceTemplateList:
 			objs := obj.(*dpuservicev1.DPUServiceTemplateList).Items
 			for _, o := range objs {
-				if err := patchUnmarkDependency(ctx, c, dpuDeployment, &o); err != nil {
-					return fmt.Errorf("error while patching %s %s: %w", o.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&o), err)
+				if err := unmarkDependency(ctx, c, &o, dpuDeployment); err != nil {
+					return fmt.Errorf("error while unmarking dependency %s %s: %w", o.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&o), err)
 				}
 			}
 		case *provisioningv1.BFBList:
 			objs := obj.(*provisioningv1.BFBList).Items
 			for _, o := range objs {
-				if err := patchUnmarkDependency(ctx, c, dpuDeployment, &o); err != nil {
-					return fmt.Errorf("error while patching %s %s: %w", o.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&o), err)
+				if err := unmarkDependency(ctx, c, &o, dpuDeployment); err != nil {
+					return fmt.Errorf("error while unmarking dependency %s %s: %w", o.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&o), err)
 				}
 			}
 		case *provisioningv1.DPUFlavorList:
 			objs := obj.(*provisioningv1.DPUFlavorList).Items
 			for _, o := range objs {
-				if err := patchUnmarkDependency(ctx, c, dpuDeployment, &o); err != nil {
-					return fmt.Errorf("error while patching %s %s: %w", o.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&o), err)
+				if err := unmarkDependency(ctx, c, &o, dpuDeployment); err != nil {
+					return fmt.Errorf("error while unmarking dependency %s %s: %w", o.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&o), err)
 				}
 			}
 		default:
