@@ -144,8 +144,11 @@ func reconcileHostRebootPhase(ctx context.Context, dpu *provisioningv1.DPU, stat
 	return *state
 }
 
-// InitializeDPURebootStatus initializes status.rebootStatus when entering DPURebooting.
-// It always refreshes reboot tracking to avoid carrying stale status between reboot cycles.
+// InitializeDPURebootStatus initializes status.rebootStatus when entering DPURebooting,
+// always refreshing it to avoid carrying stale state between reboot cycles. The
+// DPUConfig branch consumes the agent-reported method as-is; the host-power-cycle-required
+// annotation is a Trusted Host execution-time escalation (see internal/provisioning/hostagent/phase/reboot/sync.go)
+// and intentionally does not propagate into RebootStatus.Method.
 func InitializeDPURebootStatus(ctx context.Context, dpu *provisioningv1.DPU, state *provisioningv1.DPUStatus, ctrlCtx *dutil.ControllerContext, sourcePhase provisioningv1.DPUPhase) error {
 	// Ensure each reboot cycle starts from a clean rebooted condition state.
 	meta.RemoveStatusCondition(&state.Conditions, provisioningv1.DPUCondRebooted.String())
