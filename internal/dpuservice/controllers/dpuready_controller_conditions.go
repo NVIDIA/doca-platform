@@ -588,10 +588,7 @@ func (r *DPUReadyReconciler) updateDPUOperationalConditions(ctx context.Context,
 		meta.SetStatusCondition(&latestDPU.Status.OperationalConditions, condition)
 	}
 
-	return patcher.Patch(ctx, latestDPU,
-		patch.WithFieldOwner(dpureadyControllerName),
-		patch.WithStatusObservedGeneration{},
-	)
+	return patcher.Patch(ctx, latestDPU, patch.WithFieldOwner(dpureadyControllerName))
 }
 
 // nodeConditionsEqual compares two slices of node conditions for equality

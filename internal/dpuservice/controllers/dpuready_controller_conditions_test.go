@@ -433,6 +433,43 @@ var _ = Describe("DPUReadyReconciler Conditions", func() {
 	})
 
 	Context("Node Health Condition", func() {
+		It("should not update DPU status observedGeneration when patching operational conditions", func() {
+			By("Seeding DPU status observedGeneration and a stale operational condition")
+			createdDPU := &provisioningv1.DPU{}
+			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpu), createdDPU)).To(Succeed())
+			originalDPU := createdDPU.DeepCopy()
+			statusObservedGeneration := createdDPU.Generation + 100
+			createdDPU.Status.ObservedGeneration = statusObservedGeneration
+			createdDPU.Status.OperationalConditions = []metav1.Condition{
+				{
+					Type:               string(provisioningv1.DPUOperationalCondNodeProblemsReady),
+					Status:             metav1.ConditionFalse,
+					LastTransitionTime: metav1.Now(),
+					Reason:             "Stale",
+					Message:            "stale condition",
+				},
+			}
+			Expect(testClient.Status().Patch(ctx, createdDPU, client.MergeFrom(originalDPU))).To(Succeed())
+
+			By("Triggering DPUReady reconciliation")
+			Expect(testutils.ForceObjectReconcileWithAnnotation(ctx, testClient, dpuNodeObj)).To(Succeed())
+
+			By("Verifying status observedGeneration is unchanged")
+			Eventually(func(g Gomega) {
+				updatedDPU := &provisioningv1.DPU{}
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpu), updatedDPU)).To(Succeed())
+				g.Expect(updatedDPU.Status.ObservedGeneration).To(Equal(statusObservedGeneration))
+				g.Expect(updatedDPU.Status.OperationalConditions).NotTo(BeEmpty())
+				g.Expect(updatedDPU.Status.OperationalConditions).To(ContainElement(
+					And(
+						HaveField("Type", Equal(string(provisioningv1.DPUOperationalCondNodeProblemsReady))),
+						HaveField("Status", Equal(metav1.ConditionTrue)),
+						HaveField("Reason", Equal("NoProblemsDetected")),
+					),
+				))
+			}).WithTimeout(10 * time.Second).WithPolling(500 * time.Millisecond).Should(Succeed())
+		})
+
 		It("should set NodeProblemsReady to True when all node conditions are healthy", func() {
 			By("Waiting for reconciliation")
 
