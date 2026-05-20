@@ -228,6 +228,11 @@ For enabling this, the DPUSet provides one annotations in dpuTemplate:
 after DPU provisioning, notice that after the power cycle command is done the annotation would be removed from the DPU
 and DPUSet objects.
 
+> **Scope:** this annotation only takes effect when `nodeRebootMethod=hostAgent`
+> (Trusted Host). On `external` and `script` paths the cluster admin controls
+> reboot semantics directly; the annotation has no built-in consumer and is
+> not propagated into `DPUNode.status.rebootMethod` or `DPUNODE_REBOOT_METHOD`.
+
 Following is an example to enable host power-cycle:
 
 ```yaml

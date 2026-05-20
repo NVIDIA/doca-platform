@@ -26,6 +26,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var _ = Describe("Provisioning API Validation", func() {
@@ -277,7 +278,66 @@ var _ = Describe("Provisioning API Validation", func() {
 			})
 		})
 	})
+
+	// Status.RebootMethod is the aggregated reboot-method marker.
+	// These tests enforce the API contract: status subresource semantics
+	// (no spec-side update), optional on Create, and enum-validated values.
+	Context("When checking the DPUNode Status.RebootMethod field", func() {
+		It("does not require Status.RebootMethod on Create (omitempty)", func() {
+			node := getMinimalDPUNode(testNs.Name)
+			Expect(testClient.Create(ctx, node)).To(Succeed())
+			Expect(node.Status.RebootMethod).To(BeNil())
+		})
+
+		It("ignores Status.RebootMethod on a non-status Update (status subresource)", func() {
+			node := getMinimalDPUNode(testNs.Name)
+			Expect(testClient.Create(ctx, node)).To(Succeed())
+
+			node.Status.RebootMethod = ptr.To(provisioningv1.RebootMethodPowerCycle)
+			Expect(testClient.Update(ctx, node)).To(Succeed())
+
+			refetched := &provisioningv1.DPUNode{}
+			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(node), refetched)).To(Succeed())
+			Expect(refetched.Status.RebootMethod).To(BeNil(), "non-status Update must not stamp Status.RebootMethod")
+		})
+
+		It("accepts the field via the status subresource", func() {
+			node := getMinimalDPUNode(testNs.Name)
+			Expect(testClient.Create(ctx, node)).To(Succeed())
+
+			node.Status.RebootMethod = ptr.To(provisioningv1.RebootMethodPowerCycle)
+			Expect(testClient.Status().Update(ctx, node)).To(Succeed())
+
+			refetched := &provisioningv1.DPUNode{}
+			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(node), refetched)).To(Succeed())
+			Expect(refetched.Status.RebootMethod).NotTo(BeNil())
+			Expect(*refetched.Status.RebootMethod).To(Equal(provisioningv1.RebootMethodPowerCycle))
+		})
+
+		It("rejects Status.RebootMethod values outside the RebootMethodType enum", func() {
+			node := getMinimalDPUNode(testNs.Name)
+			Expect(testClient.Create(ctx, node)).To(Succeed())
+
+			bogus := provisioningv1.RebootMethodType("BogusUserValue")
+			node.Status.RebootMethod = &bogus
+			err := testClient.Status().Update(ctx, node)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(Or(
+				ContainSubstring("supported values"),
+				ContainSubstring("Unsupported value"),
+			))
+		})
+	})
 })
+
+func getMinimalDPUNode(namespace string) *provisioningv1.DPUNode {
+	return &provisioningv1.DPUNode{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "dpunode-test-",
+			Namespace:    namespace,
+		},
+	}
+}
 
 func getMinimalDPUFlavor(namespace string) *provisioningv1.DPUFlavor {
 	return &provisioningv1.DPUFlavor{
