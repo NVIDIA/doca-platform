@@ -39,6 +39,8 @@ import (
 	"k8s.io/utils/ptr"
 )
 
+const mstStartCmd = "mst start"
+
 var _ = Describe("Reboot", func() {
 	Describe("RebootMethodDiscovery false (boot-ID based)", func() {
 		Context("HandleReboot", func() {
@@ -300,6 +302,7 @@ var _ = Describe("Reboot", func() {
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 					var b bytes.Buffer
 					switch {
+					case cmd == mstStartCmd:
 					case strings.Contains(cmd, "mt_a"):
 						_, _ = b.WriteString(`{"reset_needed":false}`)
 					case strings.Contains(cmd, "mt_b"):
@@ -327,6 +330,9 @@ var _ = Describe("Reboot", func() {
 			h := &HandleReboot{
 				mstDevicesPath: dir,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					if cmd == mstStartCmd {
+						return bytes.Buffer{}, bytes.Buffer{}, nil
+					}
 					Expect(cmd).To(Equal(fmt.Sprintf("mlxfwreset -d %s s --json", devicePath)))
 					var b bytes.Buffer
 					_, _ = b.WriteString(`{"reset_needed":false}`)
@@ -363,6 +369,9 @@ var _ = Describe("Reboot", func() {
 			h := &HandleReboot{
 				mstDevicesPath: dir,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					if cmd == mstStartCmd {
+						return bytes.Buffer{}, bytes.Buffer{}, nil
+					}
 					ran = append(ran, cmd)
 					var b bytes.Buffer
 					_, _ = b.WriteString(`{"reset_needed":false}`)
@@ -390,6 +399,9 @@ var _ = Describe("Reboot", func() {
 			h := &HandleReboot{
 				mstDevicesPath: dir,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					if cmd == mstStartCmd {
+						return bytes.Buffer{}, bytes.Buffer{}, nil
+					}
 					Expect(cmd).To(Equal(fmt.Sprintf("mlxfwreset -d %s s --json", devicePath)))
 					var b bytes.Buffer
 					// Omitted reset_needed unmarshals to *bool nil; must not be treated as reset required.
@@ -738,7 +750,13 @@ var _ = Describe("Reboot", func() {
 			Expect(err).NotTo(HaveOccurred())
 			defer func() { _ = os.RemoveAll(dir) }()
 			optCtx := &operations.Context{RebootMethodDiscovery: true, CurrentBootID: "boot-id", NSNIC: &hostutil.Device{Address: "0000:03:00", NumOfPFs: 2}}
-			h := &HandleReboot{mstDevicesPath: dir}
+			h := &HandleReboot{
+				mstDevicesPath: dir,
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					Expect(cmd).To(Equal(mstStartCmd))
+					return bytes.Buffer{}, bytes.Buffer{}, nil
+				},
+			}
 			_, err = h.getRebootMethod(optCtx)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("no MST devices found"))
@@ -767,6 +785,9 @@ var _ = Describe("Reboot", func() {
 				skipBlock:      true,
 				mstDevicesPath: dir,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					if cmd == mstStartCmd {
+						return bytes.Buffer{}, bytes.Buffer{}, nil
+					}
 					if strings.Contains(cmd, "mlxfwreset -d") && strings.Contains(cmd, "s --json") {
 						var b bytes.Buffer
 						_, _ = b.WriteString(mlxfwresetJSON)
@@ -869,6 +890,9 @@ var _ = Describe("Reboot", func() {
 			h := &HandleReboot{
 				mstDevicesPath: dir,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					if cmd == mstStartCmd {
+						return bytes.Buffer{}, bytes.Buffer{}, nil
+					}
 					Expect(cmd).To(Equal(fmt.Sprintf("mlxfwreset -d %s s --json", devicePath)))
 					var b bytes.Buffer
 					_, _ = b.WriteString(mlxfwresetFullJSON)
@@ -1045,6 +1069,7 @@ var _ = Describe("Reboot", func() {
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 					var b bytes.Buffer
 					switch {
+					case cmd == mstStartCmd:
 					case strings.Contains(cmd, "mt_a"):
 						_, _ = b.WriteString(jsonFR)
 					case strings.Contains(cmd, "mt_b"):
@@ -1080,6 +1105,7 @@ var _ = Describe("Reboot", func() {
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 					var b bytes.Buffer
 					switch {
+					case cmd == mstStartCmd:
 					case strings.Contains(cmd, "mt_a"):
 						_, _ = b.WriteString(jsonFR)
 					case strings.Contains(cmd, "mt_b"):

@@ -62,6 +62,9 @@ var _ = Describe("Ensure Mode", func() {
 			operation := &EnsureMode{
 				mstDevicesPath: filepath.Join(tempDir, "dev/mst"),
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					if cmd == "mst start" {
+						return bytes.Buffer{}, bytes.Buffer{}, nil
+					}
 					By(fmt.Sprintf("checking that the command is correct: %s", cmd))
 					Expect(expectedCmd.MatchString(cmd)).To(BeTrue())
 					return bytes.Buffer{}, bytes.Buffer{}, nil
@@ -85,6 +88,9 @@ var _ = Describe("Ensure Mode", func() {
 			operation := &EnsureMode{
 				mstDevicesPath: filepath.Join(tempDir, "dev/mst"),
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					if cmd == "mst start" {
+						return bytes.Buffer{}, bytes.Buffer{}, nil
+					}
 					By(fmt.Sprintf("checking that the command is correct: %s", cmd))
 					Expect(expectedCmd.MatchString(cmd)).To(BeTrue())
 					return bytes.Buffer{}, bytes.Buffer{}, nil
