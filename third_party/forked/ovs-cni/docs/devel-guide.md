@@ -82,9 +82,6 @@ OVS_CNI_PLUGIN_IMAGE_REPO # default quay.io/kubevirt
 OVS_CNI_PLUGIN_IMAGE_NAME # default ovs-cni-plugin
 OVS_CNI_PLUGIN_IMAGE_VERSION # default latest
 
-OVS_CNI_MARKER_IMAGE_REPO # default quay.io/kubevirt
-OVS_CNI_MARKER_IMAGE_NAME # default ovs-cni-marker
-OVS_CNI_MARKER_IMAGE_VERSION # default latest
 ```
 
 ## Local Cluster

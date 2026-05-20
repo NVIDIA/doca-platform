@@ -12,19 +12,7 @@ A Helm chart for Kubernetes
 | arm64.image.tag | string | `"v0.1.0"` |  |
 | arm64.nodeSelector."kubernetes.io/arch" | string | `"arm64"` |  |
 | arm64.nodeSelector."kubernetes.io/os" | string | `"linux"` |  |
-| arm64.ovsCniMarker.args[0] | string | `"-v"` |  |
-| arm64.ovsCniMarker.args[1] | string | `"3"` |  |
-| arm64.ovsCniMarker.args[2] | string | `"-logtostderr"` |  |
-| arm64.ovsCniMarker.args[3] | string | `"-node-name"` |  |
-| arm64.ovsCniMarker.args[4] | string | `"$(NODE_NAME)"` |  |
-| arm64.ovsCniMarker.args[5] | string | `"-ovs-socket"` |  |
-| arm64.ovsCniMarker.args[6] | string | `"unix:/host/var/run/openvswitch/db.sock"` |  |
-| arm64.ovsCniMarker.args[7] | string | `"-healthcheck-interval=60"` |  |
-| arm64.ovsCniMarker.containerSecurityContext.privileged | bool | `true` |  |
-| arm64.ovsCniMarker.imagePullPolicy | string | `"IfNotPresent"` |  |
-| arm64.ovsCniMarker.resources.requests.cpu | string | `"10m"` |  |
-| arm64.ovsCniMarker.resources.requests.memory | string | `"10Mi"` |  |
-| arm64.ovsCniPlugin.args[0] | string | `"cp /ovs /host/opt/cni/bin/ovs\n"` |  |
+| arm64.ovsCniPlugin.args[0] | string | `"cp /ovs /host/opt/cni/bin/.ovs.tmp && \\\nmv /host/opt/cni/bin/.ovs.tmp /host/opt/cni/bin/ovs && \\\nexec sleep infinity\n"` |  |
 | arm64.ovsCniPlugin.containerSecurityContext.privileged | bool | `true` |  |
 | arm64.ovsCniPlugin.imagePullPolicy | string | `"IfNotPresent"` |  |
 | arm64.ovsCniPlugin.resources.requests.cpu | string | `"10m"` |  |
@@ -32,6 +20,4 @@ A Helm chart for Kubernetes
 | cniBinDir | string | `"/opt/cni/bin"` |  |
 | imagePullSecrets | list | `[]` |  |
 | kubernetesClusterDomain | string | `"cluster.local"` |  |
-| marker.serviceAccount.annotations | object | `{}` |  |
-| openvSwitchRunDir | string | `"/var/run/openvswitch"` |  |
 

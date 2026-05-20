@@ -776,8 +776,6 @@ verify-manifest-dpu-networking-nvidia-k8s-ipam: helm-package-dpu-networking helm
 verify-manifest-dpu-networking-ovs-cni: helm-package-dpu-networking helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the dpu-networking ovs-cni subchart
 	$Q $(HELM) template $(CHARTSDIR)/$(DPU_NETWORKING_HELM_CHART_NAME)-$(DPU_NETWORKING_HELM_CHART_VER).tgz \
 	  --set ovs-cni.enabled=true \
-	  --set ovs-cni.arm64.ovsCniMarker.resources.limits.cpu=1m \
-	  --set ovs-cni.arm64.ovsCniMarker.resources.limits.memory=1Mi \
 	  --set ovs-cni.arm64.ovsCniPlugin.resources.limits.cpu=1m \
 	  --set ovs-cni.arm64.ovsCniPlugin.resources.limits.memory=1Mi \
 	> $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-ovs-cni-$(TAG).yaml
