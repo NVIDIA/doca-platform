@@ -24,6 +24,9 @@ import (
 
 type CmdOption func(*exec.Cmd)
 
+// RunFunc runs a shell command and returns stdout, stderr, and any error.
+type RunFunc func(cmdStr string) (stdout, stderr bytes.Buffer, err error)
+
 func Run(cmdStr string) (stdout, stderr bytes.Buffer, err error) {
 	return RunWithOptions(cmdStr)
 }
