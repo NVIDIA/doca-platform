@@ -982,6 +982,150 @@ var _ = Describe("OVSUtils", func() {
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(ContainSubstring("already exists on a bridge other than"))
 			})
+
+			Context("atomic field writes", func() {
+				var (
+					createdIface *ovsmodel.Interface
+					createdPort  *ovsmodel.Port
+					transactOps  []ovsdb.Operation
+				)
+
+				BeforeEach(func() {
+					createdIface = nil
+					createdPort = nil
+					transactOps = nil
+
+					// Port does not exist
+					mockOVSClient.EXPECT().
+						Get(gomock.Any(), gomock.Any()).
+						Return(ovsclient.ErrNotFound)
+					// Bridge exists
+					mockOVSClient.EXPECT().
+						Get(gomock.Any(), gomock.Any()).
+						DoAndReturn(func(ctx context.Context, m interface{}) error {
+							br := m.(*ovsmodel.Bridge)
+							br.UUID = bridgeUUID
+							return nil
+						})
+					// Snapshot the model passed to Create so later mutations in AddPort
+					// don't rewrite what we're asserting on.
+					mockOVSClient.EXPECT().
+						Create(gomock.Any()).
+						DoAndReturn(func(models ...interface{}) ([]ovsdb.Operation, error) {
+							snap := *models[0].(*ovsmodel.Interface)
+							createdIface = &snap
+							return []ovsdb.Operation{{Op: "insert", Table: "Interface"}}, nil
+						})
+					mockOVSClient.EXPECT().
+						Create(gomock.Any()).
+						DoAndReturn(func(models ...interface{}) ([]ovsdb.Operation, error) {
+							snap := *models[0].(*ovsmodel.Port)
+							createdPort = &snap
+							return []ovsdb.Operation{{Op: "insert", Table: "Port"}}, nil
+						})
+					mockOVSClient.EXPECT().
+						Where(gomock.Any()).
+						Return(mockConditionalAPI)
+					mockConditionalAPI.EXPECT().
+						Mutate(gomock.Any(), gomock.Any()).
+						Return([]ovsdb.Operation{{Op: "mutate", Table: "Bridge"}}, nil)
+					mockOVSClient.EXPECT().
+						Transact(gomock.Any(), gomock.Any()).
+						DoAndReturn(func(ctx context.Context, ops ...ovsdb.Operation) ([]ovsdb.OperationResult, error) {
+							transactOps = ops
+							results := make([]ovsdb.OperationResult, len(ops))
+							return results, nil
+						})
+				})
+
+				It("writes InterfaceExternalIDs and PortExternalIDs in the same transaction as Create", func() {
+					Expect(client.AddPort(ctx, PortConfig{
+						BridgeName:           "br-test",
+						Name:                 "port-test",
+						InterfaceType:        "internal",
+						InterfaceExternalIDs: map[string]string{"dpf-id": "abc", "iface-id": "xyz"},
+						PortExternalIDs:      map[string]string{"owner": "ovs-cni.network.kubevirt.io"},
+					})).To(Succeed())
+					Expect(createdIface.ExternalIDs).To(Equal(map[string]string{"dpf-id": "abc", "iface-id": "xyz"}))
+					Expect(createdPort.ExternalIDs).To(Equal(map[string]string{"owner": "ovs-cni.network.kubevirt.io"}))
+				})
+
+				It("sets OFPortRequest on the Interface", func() {
+					req := 40000
+					Expect(client.AddPort(ctx, PortConfig{
+						BridgeName:    "br-test",
+						Name:          "port-test",
+						InterfaceType: "internal",
+						OFPortRequest: &req,
+					})).To(Succeed())
+					Expect(createdIface.OfportRequest).NotTo(BeNil())
+					Expect(*createdIface.OfportRequest).To(Equal(40000))
+				})
+
+				It("sets VLANMode, Tag, and Trunks on the Port", func() {
+					mode := ovsmodel.PortVLANModeTrunk
+					tag := 100
+					Expect(client.AddPort(ctx, PortConfig{
+						BridgeName:    "br-test",
+						Name:          "port-test",
+						InterfaceType: "internal",
+						VLANMode:      &mode,
+						Tag:           &tag,
+						Trunks:        []int{100, 200, 300},
+					})).To(Succeed())
+					Expect(createdPort.VLANMode).NotTo(BeNil())
+					Expect(*createdPort.VLANMode).To(Equal(ovsmodel.PortVLANModeTrunk))
+					Expect(createdPort.Tag).NotTo(BeNil())
+					Expect(*createdPort.Tag).To(Equal(100))
+					Expect(createdPort.Trunks).To(Equal([]int{100, 200, 300}))
+				})
+
+				It("prepends an ofport wait op when WaitForOFPortFree is set with OFPortRequest", func() {
+					req := 40123
+					Expect(client.AddPort(ctx, PortConfig{
+						BridgeName:        "br-test",
+						Name:              "port-test",
+						InterfaceType:     "internal",
+						OFPortRequest:     &req,
+						WaitForOFPortFree: true,
+					})).To(Succeed())
+					Expect(transactOps).NotTo(BeEmpty())
+					Expect(transactOps[0].Op).To(Equal("wait"))
+					Expect(transactOps[0].Table).To(Equal("Interface"))
+					Expect(transactOps[0].Until).To(Equal("!="))
+					Expect(transactOps[0].Rows).To(HaveLen(1))
+					Expect(transactOps[0].Rows[0]).To(HaveKeyWithValue("ofport_request", 40123))
+				})
+
+				It("omits the wait op when WaitForOFPortFree is true but OFPortRequest is nil", func() {
+					Expect(client.AddPort(ctx, PortConfig{
+						BridgeName:        "br-test",
+						Name:              "port-test",
+						InterfaceType:     "internal",
+						WaitForOFPortFree: true,
+					})).To(Succeed())
+					for _, op := range transactOps {
+						Expect(op.Op).NotTo(Equal("wait"))
+					}
+				})
+
+				It("preserves today's behavior when no new fields are set", func() {
+					Expect(client.AddPort(ctx, PortConfig{
+						BridgeName:    "br-test",
+						Name:          "port-test",
+						InterfaceType: "internal",
+					})).To(Succeed())
+					Expect(createdIface.ExternalIDs).To(BeNil())
+					Expect(createdIface.OfportRequest).To(BeNil())
+					Expect(createdPort.ExternalIDs).To(BeNil())
+					Expect(createdPort.VLANMode).To(BeNil())
+					Expect(createdPort.Tag).To(BeNil())
+					Expect(createdPort.Trunks).To(BeNil())
+					for _, op := range transactOps {
+						Expect(op.Op).NotTo(Equal("wait"))
+					}
+				})
+			})
 		})
 
 		Describe("DelPort", func() {
