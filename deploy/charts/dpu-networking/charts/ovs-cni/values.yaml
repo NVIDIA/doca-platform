@@ -5,27 +5,12 @@ arm64:
   image:
     repository: example.com/ovs-cni-plugin
     tag: v0.1.0
-  ovsCniMarker:
-    args:
-    - -v
-    - "3"
-    - -logtostderr
-    - -node-name
-    - $(NODE_NAME)
-    - -ovs-socket
-    - unix:/host/var/run/openvswitch/db.sock
-    - -healthcheck-interval=60
-    containerSecurityContext:
-      privileged: true
-    imagePullPolicy: IfNotPresent
-    resources:
-      requests:
-        cpu: 10m
-        memory: 10Mi
   ovsCniPlugin:
     args:
     - |
-      cp /ovs /host/opt/cni/bin/ovs
+      cp /ovs /host/opt/cni/bin/.ovs.tmp && \
+      mv /host/opt/cni/bin/.ovs.tmp /host/opt/cni/bin/ovs && \
+      exec sleep infinity
     containerSecurityContext:
       privileged: true
     imagePullPolicy: IfNotPresent
@@ -35,9 +20,5 @@ arm64:
         memory: 15Mi
 imagePullSecrets: []
 kubernetesClusterDomain: cluster.local
-marker:
-  serviceAccount:
-    annotations: {}
 
 cniBinDir: /opt/cni/bin
-openvSwitchRunDir: /var/run/openvswitch

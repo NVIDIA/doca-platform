@@ -582,7 +582,6 @@ func ValidateDPFOperatorPathConfiguration(ctx context.Context, input *systemTest
 				g.Expect(volumeNameHasPath("lib64", volumes, filepath.Join(modifiedOVSharedLib64Path))).To(BeTrue())
 			case operatorv1.OVSCNIName:
 				g.Expect(volumeNameHasPath("cnibin", volumes, filepath.Join(modifiedCNIBinPath))).To(BeTrue())
-				g.Expect(volumeNameHasPath("ovs-var-run", volumes, filepath.Join(modifiedOVSRunPath))).To(BeTrue())
 			case operatorv1.NVIPAMNodeName:
 				g.Expect(volumeNameHasPath("cnibin", volumes, filepath.Join(modifiedCNIBinPath))).To(BeTrue())
 				g.Expect(volumeNameHasPath("cniconf", volumes, filepath.Join(modifiedCNIConfigPath, "nv-ipam.d"))).To(BeTrue())

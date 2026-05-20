@@ -260,7 +260,6 @@ func cniInstallerEdits(vars Variables) ([]StructuredEdit, error) {
 func ovsCNIEdits(vars Variables) ([]StructuredEdit, error) {
 	return []StructuredEdit{
 		dpuServiceAddValueEdit(vars.DPUCNIBinPath, operatorv1.OVSCNIName.String(), cniBinDirPathKey),
-		dpuServiceAddValueEdit(vars.DPUOpenvSwitchRunPath, operatorv1.OVSCNIName.String(), openvSwitchRunDirPathKey),
 	}, nil
 }
 

@@ -77,7 +77,7 @@ var (
 	// SRIOVDevicePluginContainer is the default name of the scaffolded SR-IOV Device Plugin container.
 	SRIOVDevicePluginContainer ContainerName = "kube-sriovdp"
 	// OVSCNI is the default name of the scaffolded OVS CNI
-	OVSCNI ContainerName = "ovs-cni-marker"
+	OVSCNI ContainerName = "ovs-cni-plugin"
 	// CNIInstallerContainer is the default name of the scaffolded CNI Installer container.
 	CNIInstallerContainer ContainerName = "cni-installer"
 	// KubeStateMetricsContainer is the default name of the kube-state-metrics container.

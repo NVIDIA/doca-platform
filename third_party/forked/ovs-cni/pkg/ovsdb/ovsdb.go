@@ -509,36 +509,6 @@ func getExternalIDs(row map[string]interface{}) (map[string]string, error) {
 	return extIDs, nil
 }
 
-// BridgeList returns available ovs bridge names
-func (ovsd *OvsDriver) BridgeList() ([]string, error) {
-	selectOp := []ovsdb.Operation{{
-		Op:      "select",
-		Table:   "Bridge",
-		Columns: []string{"name"},
-	}}
-
-	transactionResult, err := ovsd.ovsdbTransact(selectOp)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(transactionResult) != 1 {
-		return nil, fmt.Errorf("unknow error")
-	}
-
-	operationResult := transactionResult[0]
-	if operationResult.Error != "" {
-		return nil, fmt.Errorf("%s - %s", operationResult.Error, operationResult.Details)
-	}
-
-	bridges := []string{}
-	for _, bridge := range operationResult.Rows {
-		bridges = append(bridges, fmt.Sprintf("%v", bridge["name"]))
-	}
-
-	return bridges, nil
-}
-
 // GetOFPortOpState retrieves link state of the OF port
 func (ovsd *OvsDriver) GetOFPortOpState(portName string) (string, error) {
 	condition := ovsdb.NewCondition("name", ovsdb.ConditionEqual, portName)
