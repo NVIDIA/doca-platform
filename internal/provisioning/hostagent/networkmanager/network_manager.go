@@ -257,7 +257,15 @@ func (nm *NetworkManager) AddNetworkRequest(dpu *provisioningv1.DPU, vfCount *in
 		return fmt.Errorf("DPU is nil")
 	}
 
-	if _, ok := nm.reqs[string(dpu.UID)]; ok {
+	if existing, ok := nm.reqs[string(dpu.UID)]; ok {
+		if vfCount != nil && *vfCount != 0 && existing.NumOfVFs != *vfCount {
+			existing.NumOfVFs = *vfCount
+			if err := writeNetworkRequestFile(&existing); err != nil {
+				return fmt.Errorf("failed to update network request file: %w", err)
+			}
+			nm.reqs[existing.UID] = existing
+			klog.Infof("Updated VF count to %d for DPU %s/%s", *vfCount, existing.DPUNamespace, existing.DpuName)
+		}
 		return nil
 	}
 
