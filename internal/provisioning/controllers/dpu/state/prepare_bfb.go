@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/cloudinit"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/pkg/bfcfg"
@@ -36,12 +37,122 @@ import (
 )
 
 const (
-	BFCFGDir = "bfcfg"
+	BFCFGDir    = "bfcfg"
+	UserDataDir = "user-data"
 )
+
+func prepareBF4ISO(ctx context.Context, ctrlCtx *dutil.ControllerContext, dpu *provisioningv1.DPU, flavor *provisioningv1.DPUFlavor, state *provisioningv1.DPUStatus) (string, error) {
+	logger := log.FromContext(ctx)
+	userDataBasePath := filepath.Join("/", cutil.BFBBaseDir, UserDataDir, fmt.Sprintf("%s_%s_%s", dpu.Namespace, dpu.Name, dpu.UID))
+	if err := os.MkdirAll(userDataBasePath, os.ModePerm); err != nil {
+		err = fmt.Errorf("failed to create directory %s: %w", userDataBasePath, err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToCreateDirectory", err.Error()))
+		return "", err
+	}
+
+	userDataPath := filepath.Join(userDataBasePath, UserDataDir)
+
+	if _, err := os.Stat(userDataPath); err == nil {
+		logger.Info(fmt.Sprintf("user-data already exists at %s, removing it", userDataPath))
+		if err := os.Remove(userDataPath); err != nil {
+			err = fmt.Errorf("failed to remove user-data at %s: %w", userDataPath, err)
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToRemoveUserData", err.Error()))
+			return "", err
+		}
+	}
+
+	logger.Info(fmt.Sprintf("write user-data to %s", userDataPath))
+	params, _, err := cloudinit.ResolveParams(ctx, ctrlCtx, dpu, flavor)
+	if err != nil {
+		err = fmt.Errorf("failed to resolve params: %w", err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToResolveParams", err.Error()))
+		return "", err
+	}
+	userData, err := cloudinit.GenerateUserData(params)
+	if err != nil {
+		err = fmt.Errorf("failed to generate user-data: %w", err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToGenerateUserData", err.Error()))
+		return "", err
+	}
+	if err := os.WriteFile(userDataPath, []byte(userData.Content), os.ModePerm); err != nil {
+		err = fmt.Errorf("failed to write user-data to %s: %w", userDataPath, err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToWriteUserData", err.Error()))
+		return "", err
+	}
+
+	networkCfgPath := filepath.Join(userDataBasePath, "network-config")
+	if _, err := os.Stat(networkCfgPath); err == nil {
+		logger.Info(fmt.Sprintf("network-config already exists at %s, removing it", networkCfgPath))
+		if err := os.Remove(networkCfgPath); err != nil {
+			err = fmt.Errorf("failed to remove network-config at %s: %w", networkCfgPath, err)
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToRemoveNetworkCfg", err.Error()))
+			return "", err
+		}
+	}
+	logger.Info(fmt.Sprintf("write network-config to %s", networkCfgPath))
+	networkCfg := cloudinit.GenerateNetworkCfg()
+	if err := os.WriteFile(networkCfgPath, []byte(networkCfg.Content), os.ModePerm); err != nil {
+		err = fmt.Errorf("failed to write network-config to %s: %w", networkCfgPath, err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToWriteNetworkCfg", err.Error()))
+		return "", err
+	}
+
+	isoBasePath := filepath.Join(userDataBasePath, "seed")
+	isoPath := isoBasePath + ".iso"
+
+	if _, err := os.Stat(isoPath); err == nil {
+		logger.Info(fmt.Sprintf("ISO image already exists at %s, removing it", isoPath))
+		if err := os.Remove(isoPath); err != nil {
+			err = fmt.Errorf("failed to remove ISO image at %s: %w", isoPath, err)
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToRemoveISO", err.Error()))
+			return "", err
+		}
+	}
+	logger.Info(fmt.Sprintf("create ISO image at %s", isoPath))
+
+	// Match mkisofs argument order: user-data meta-data network-config
+	createdPath, err := dutil.MkIso(isoBasePath, "cidata", []dutil.IsoRootFile{
+		{Name: "user-data", Data: []byte(userData.Content)},
+		{Name: "meta-data", Data: []byte{}},
+		{Name: "network-config", Data: []byte(networkCfg.Content)},
+	})
+
+	if err != nil {
+		err = fmt.Errorf("failed to create ISO image at %s: %w", isoPath, err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToCreateISO", err.Error()))
+		return "", err
+	}
+
+	return createdPath, nil
+}
+
+func prepareBF3BFB(ctx context.Context, ctrlCtx *dutil.ControllerContext, dpu *provisioningv1.DPU, flavor *provisioningv1.DPUFlavor, state *provisioningv1.DPUStatus) (string, error) {
+	logger := log.FromContext(ctx)
+	bfCFGPath := filepath.Join("/", cutil.BFBBaseDir, BFCFGDir, fmt.Sprintf("%s_%s_%s", dpu.Namespace, dpu.Name, dpu.UID))
+	if err := os.MkdirAll(filepath.Dir(bfCFGPath), os.ModePerm); err != nil {
+		err = fmt.Errorf("failed to create directory %s: %w", filepath.Dir(bfCFGPath), err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToCreateDirectory", err.Error()))
+		return "", err
+	}
+
+	cfg, err := bfcfg.GenerateBFConfig(ctx, ctrlCtx, dpu, flavor)
+	if err != nil {
+		err = fmt.Errorf("failed to generate bf.cfg: %w", err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToGenerateBFConfig", err.Error()))
+		return "", err
+	}
+	logger.Info(fmt.Sprintf("write bf.cfg to %s", bfCFGPath))
+	if err := os.WriteFile(bfCFGPath, cfg, os.ModePerm); err != nil {
+		err = fmt.Errorf("failed to write bf.cfg to %s: %w", bfCFGPath, err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToPushBFCFG", err.Error()))
+		return "", err
+	}
+
+	return bfCFGPath, nil
+}
 
 func PrepareBFB(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
 	state := dpu.Status.DeepCopy()
-	logger := log.FromContext(ctx)
 	flavor := &provisioningv1.DPUFlavor{}
 	if err := ctrlCtx.Get(ctx, types.NamespacedName{
 		Namespace: dpu.Namespace,
@@ -70,12 +181,6 @@ func PrepareBFB(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 			return *state, err
 		}
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToGetDPUNode", err.Error()))
-		return *state, err
-	}
-	bfCFGPath := filepath.Join("/", cutil.BFBBaseDir, BFCFGDir, fmt.Sprintf("%s_%s_%s", dpu.Namespace, dpu.Name, dpu.UID))
-	if err := os.MkdirAll(filepath.Dir(bfCFGPath), os.ModePerm); err != nil {
-		err = fmt.Errorf("failed to create directory %s: %w", filepath.Dir(bfCFGPath), err)
-		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToCreateDirectory", err.Error()))
 		return *state, err
 	}
 
@@ -117,18 +222,17 @@ func PrepareBFB(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 		return *state, err
 	}
 
-	cfg, err := bfcfg.GenerateBFConfig(ctx, ctrlCtx, dpu, flavor)
-	if err != nil {
-		err = fmt.Errorf("failed to generate bf.cfg: %w", err)
-		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToGenerateBFConfig", err.Error()))
-		return *state, err
+	var bfCFGPath string
+	var prepErr error
+	if dpuDevice.Status.DPUType == provisioningv1.DPUTypeBlueField4 {
+		bfCFGPath, prepErr = prepareBF4ISO(ctx, ctrlCtx, dpu, flavor, state)
+	} else {
+		bfCFGPath, prepErr = prepareBF3BFB(ctx, ctrlCtx, dpu, flavor, state)
 	}
-	logger.Info(fmt.Sprintf("write bf.cfg to %s", bfCFGPath))
-	if err := os.WriteFile(bfCFGPath, cfg, os.ModePerm); err != nil {
-		err = fmt.Errorf("failed to write bf.cfg to %s: %w", bfCFGPath, err)
-		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToPushBFCFG", err.Error()))
-		return *state, err
+	if prepErr != nil {
+		return *state, prepErr
 	}
+
 	state.BFCFGFile = bfCFGPath
 	cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), nil, "", ""))
 	state.Phase = provisioningv1.DPUOSInstalling
