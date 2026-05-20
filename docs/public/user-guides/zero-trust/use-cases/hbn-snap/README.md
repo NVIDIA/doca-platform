@@ -1314,7 +1314,8 @@ spec:
   dpuStorageVendors:
     - spdk-csi
   selectionAlgorithm: "NumberVolumes"
-  parameters: {}
+  parameters:
+    num_queues: "16"
 ```
 </details>
 
