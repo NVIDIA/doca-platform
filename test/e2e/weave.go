@@ -58,6 +58,10 @@ const (
 	weaveFlowControllerName = "weave-flow-controller"
 	weaveDHCPAgentName      = "weave-dhcp-agent"
 
+	// Host DHCP NetworkAttachmentDefinition names for Weave PF interfaces.
+	weaveDHCPNADP0 = "weave-dhcp-p0"
+	weaveDHCPNADP1 = "weave-dhcp-p1"
+
 	// DPU-side PCI addresses (underscored form used in OVS bridge names) for the two NIC ports.
 	// Pinned by the dpf-bootstrap deployment, see DPUService-weave-flow-controller.yml.
 	// If the underlay config in the DPUService changes, these need to follow.
@@ -254,13 +258,13 @@ func assertVPCtlAttachmentPhaseReady(g Gomega, pod *corev1.Pod, attachmentID str
 
 // createVNetOnPod creates a virtual network on a flow-controller pod via vpcctl and asserts it reaches PHASE_READY.
 // The same vnetID and vni must be used on both flow-controller pods so that cross-node VXLAN traffic uses matching VNIs.
-func createVNetOnPod(pod *corev1.Pod, vnetID string, vni uint32) {
-	By(fmt.Sprintf("Creating virtual network %q (vni=%d, subnet=%s) on pod %s", vnetID, vni, weaveVNetSubnet, pod.Name))
+func createVNetOnPod(pod *corev1.Pod, vnetID string, vni uint32, subnet string) {
+	By(fmt.Sprintf("Creating virtual network %q (vni=%d, subnet=%s) on pod %s", vnetID, vni, subnet, pod.Name))
 	cmd := []string{
 		"/vpcctl", "create-vnet",
 		"--id", vnetID,
 		"--vni", fmt.Sprintf("%d", vni),
-		"--subnet-v4", weaveVNetSubnet,
+		"--subnet-v4", subnet,
 	}
 	Eventually(func(g Gomega) {
 		output, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name, cmd)
@@ -375,13 +379,13 @@ func verifyIsolationBridgeExists(pod *corev1.Pod, vni uint32, dpuPort string) {
 	}).WithTimeout(weaveOperationTimeout).WithPolling(weaveEventuallyPollInterval).Should(Succeed())
 }
 
-// ensureOverlayRoute ensures the route for weaveVNetSubnet on a netshoot pod uses the DHCP
+// ensureOverlayRoute ensures the route for subnet on a netshoot pod uses the DHCP
 // gateway rather than being on-link. The CNI DHCP plugin sometimes fails to apply
 // option 121 classless static routes correctly. overlayIP is the pod's known overlay
 // address (from createPFAttachmentAndWaitForHostIP); for a /31 the gateway is the peer.
 //
 // restClient and restCfg must be for the host (management) cluster where netshoot pods run.
-func ensureOverlayRoute(restClient *rest.RESTClient, restCfg *rest.Config, namespace, podName, overlayIP string) {
+func ensureOverlayRoute(restClient *rest.RESTClient, restCfg *rest.Config, namespace, podName, overlayIP, subnet string) {
 	const overlayIface = "net1"
 	ip := net.ParseIP(overlayIP).To4()
 	Expect(ip).ToNot(BeNil(), "invalid overlay IP %s for pod %s", overlayIP, podName)
@@ -392,11 +396,28 @@ func ensureOverlayRoute(restClient *rest.RESTClient, restCfg *rest.Config, names
 			[]string{"ip", "link", "set", overlayIface, "up"})
 		g.Expect(linkErr).ToNot(HaveOccurred(), "failed to bring up %s on pod %s: %s", overlayIface, podName, linkOut)
 		output, err := netshoot.ExecInPodOnce(restClient, restCfg, namespace, podName,
-			[]string{"ip", "route", "replace", weaveVNetSubnet, "via", gateway, "dev", overlayIface})
+			[]string{"ip", "route", "replace", subnet, "via", gateway, "dev", overlayIface})
 		g.Expect(err).ToNot(HaveOccurred(), "failed to set overlay route on pod %s: %s", podName, output)
 	}).WithTimeout(weaveOperationTimeout).WithPolling(weaveEventuallyPollInterval).Should(Succeed(),
 		"overlay route on pod %s not set after timeout", podName)
-	By(fmt.Sprintf("Overlay route on pod %s: %s via %s", podName, weaveVNetSubnet, gateway))
+	By(fmt.Sprintf("Overlay route on pod %s: %s via %s", podName, subnet, gateway))
+}
+
+// addRouteOnPodBetweenOverlayAndSubnet installs a route on a netshoot pod for the given (foreign) subnet
+// via the pod's /31 overlay peer. Used to force traffic destined for another VNet's subnet out the local
+// overlay interface so the isolation enforcement on the DPU is exercised.
+func addRouteOnPodBetweenOverlayAndSubnet(restClient *rest.RESTClient, restCfg *rest.Config, namespace, podName, overlayIP, subnet string) {
+	const overlayIface = "net1"
+	ip := net.ParseIP(overlayIP).To4()
+	Expect(ip).ToNot(BeNil(), "invalid overlay IP %s for pod %s", overlayIP, podName)
+	gatewayIP := net.IPv4(ip[0], ip[1], ip[2], ip[3]^1).String()
+	Eventually(func(g Gomega) {
+		output, err := netshoot.ExecInPodOnce(restClient, restCfg, namespace, podName,
+			[]string{"ip", "route", "replace", subnet, "via", gatewayIP, "dev", overlayIface})
+		g.Expect(err).ToNot(HaveOccurred(), "failed to set overlay route on pod %s: %s", podName, output)
+	}).WithTimeout(weaveOperationTimeout).WithPolling(weaveEventuallyPollInterval).Should(Succeed(),
+		"overlay route on pod %s not set after timeout", podName)
+	By(fmt.Sprintf("Cross-subnet route on pod %s: %s via %s", podName, subnet, gatewayIP))
 }
 
 // deleteAttachmentOnPod deletes a virtual network attachment via vpcctl on the given flow-controller pod.
