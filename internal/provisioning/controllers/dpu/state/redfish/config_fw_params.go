@@ -35,12 +35,6 @@ func ConfigFWParameters(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 	logger := log.FromContext(ctx)
 	state := dpu.Status.DeepCopy()
 
-	if dpu.Status.DPUType == provisioningv1.DPUTypeBlueField4 {
-		state.Phase = provisioningv1.DPUPrepareBFB
-		cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondFWConfigured, "", ""))
-		return *state, nil
-	}
-
 	device := &provisioningv1.DPUDevice{}
 	if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.DPUDeviceName}, device); err != nil {
 		cutil.SetDPUCondition(state,
@@ -58,6 +52,24 @@ func ConfigFWParameters(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 		err = fmt.Errorf("failed to create TLS client: %w", err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUConfigFWParameters), err, "FailedToCreateClient", err.Error()))
 		return *state, err
+	}
+
+	if dpu.Status.DPUType == provisioningv1.DPUTypeBlueField4 {
+		resp, _, err := client.SetHostPrivilegeRestricted()
+		if err != nil {
+			err = fmt.Errorf("failed to set host privilege to restricted: %w", err)
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToSetHostPrivilege", err.Error()))
+			return *state, err
+		} else if resp.StatusCode() != http.StatusOK {
+			err = fmt.Errorf("status code: %d is not OK", resp.StatusCode())
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToSetHostPrivilege", err.Error()))
+			return *state, err
+		}
+		logger.Info("successfully set host privilege to restricted via BMC")
+
+		state.Phase = provisioningv1.DPUPrepareBFB
+		cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondFWConfigured, "", ""))
+		return *state, nil
 	}
 
 	flavor := &provisioningv1.DPUFlavor{}

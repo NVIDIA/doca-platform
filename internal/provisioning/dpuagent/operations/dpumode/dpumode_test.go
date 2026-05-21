@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
@@ -54,7 +55,7 @@ var _ = Describe("Ensure Mode", func() {
 			Expect(operation.ShouldSkip(&operations.Context{})).To(BeFalse())
 		})
 
-		It("should set DPU mode to zero-trust", func() {
+		It("should set BF3 DPU mode to zero-trust", func() {
 			reg := fmt.Sprintf("mlxprivhost -d (%s|%s) r --disable_rshim --disable_tracer --disable_counter_rd --disable_port_owner",
 				filepath.Join(tempDir, "dev/mst/dev1"), filepath.Join(tempDir, "dev/mst/dev2"))
 			expectedCmd := regexp.MustCompile(reg)
@@ -73,6 +74,7 @@ var _ = Describe("Ensure Mode", func() {
 			err := operation.Execute(context.Background(), &operations.Context{
 				LatestDPU: &provisioningv1.DPU{
 					Status: provisioningv1.DPUStatus{
+						DPUType:        provisioningv1.DPUTypeBlueField3,
 						DeploymentMode: provisioningv1.DeploymentModeZeroTrust,
 					},
 				},
@@ -80,7 +82,7 @@ var _ = Describe("Ensure Mode", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 		})
-		It("should set DPU mode to DPU", func() {
+		It("should set BF3 DPU mode to DPU", func() {
 			reg := fmt.Sprintf("mlxprivhost -d (%s|%s) p",
 				filepath.Join(tempDir, "dev/mst/dev1"), filepath.Join(tempDir, "dev/mst/dev2"))
 			expectedCmd := regexp.MustCompile(reg)
@@ -99,7 +101,29 @@ var _ = Describe("Ensure Mode", func() {
 			err := operation.Execute(context.Background(), &operations.Context{
 				LatestDPU: &provisioningv1.DPU{
 					Status: provisioningv1.DPUStatus{
+						DPUType:        provisioningv1.DPUTypeBlueField3,
 						DeploymentMode: provisioningv1.DeploymentModeHostTrusted,
+					},
+				},
+				NSNIC: &hostutil.Device{Address: "0000:03:00", NumOfPFs: 2},
+			})
+			Expect(err).NotTo(HaveOccurred())
+		})
+		It("should skip mlxprivhost for BF4", func() {
+			operation := &EnsureMode{
+				mstDevicesPath: filepath.Join(tempDir, "dev/mst"),
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					if strings.Contains(cmd, "mlxprivhost") {
+						Fail("mlxprivhost should not be called for BF4")
+					}
+					return bytes.Buffer{}, bytes.Buffer{}, nil
+				},
+			}
+			err := operation.Execute(context.Background(), &operations.Context{
+				LatestDPU: &provisioningv1.DPU{
+					Status: provisioningv1.DPUStatus{
+						DPUType:        provisioningv1.DPUTypeBlueField4,
+						DeploymentMode: provisioningv1.DeploymentModeZeroTrust,
 					},
 				},
 				NSNIC: &hostutil.Device{Address: "0000:03:00", NumOfPFs: 2},

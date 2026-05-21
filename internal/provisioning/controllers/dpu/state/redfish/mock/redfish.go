@@ -59,6 +59,8 @@ type RedfishMockServer struct {
 	taskHTTPStatus                int                      // Override HTTP status returned by GET task; 0 means default 200
 	taskHTTPBody                  string                   // Override raw body when taskHTTPStatus != 0
 	selEntries                    []client.SELEntry        // System Event Log entries returned by GET SEL/Entries
+	hostPrivilegeError            bool                     // Simulate HostPrivilegeConfig endpoint error for testing
+	hostPrivilegeMode             string                   // Current host privilege mode: "Privileged" or "Restricted"
 }
 
 type DpuVersion int
@@ -75,6 +77,7 @@ func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 		password:              password,
 		dpuMode:               "DpuMode",                  // Default to DpuMode
 		dpuVersion:            BF3,                        // Default to BF3
+		hostPrivilegeMode:     "Privileged",               // Default to Privileged
 		secureBootEnable:      true,                       // Default configured state: enabled
 		secureBootCurrentBoot: true,                       // Default current boot state: enabled
 		oemLastState:          "OsIsRunning",              // Default to OS running
@@ -124,6 +127,9 @@ func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 
 	// System Event Log entries
 	mux.HandleFunc("/"+client.APIGetSELEntries, mock.handleGetSELEntries)
+
+	// Host Privilege Config
+	mux.HandleFunc("/"+client.APIHostPrivilegeConfigSettings, mock.handleHostPrivilegeConfigSettings)
 
 	mock.server = httptest.NewUnstartedServer(mux)
 	return mock
@@ -632,6 +638,11 @@ func (r *RedfishMockServer) GetOemLastState() string {
 	return r.oemLastState
 }
 
+// SetDpuVersion sets the DPU version (BF3 or BF4), which affects the root service product string
+func (r *RedfishMockServer) SetDpuVersion(version DpuVersion) {
+	r.dpuVersion = version
+}
+
 // SetModel sets the DPU model string
 func (r *RedfishMockServer) SetModel(model string) {
 	r.model = model
@@ -677,6 +688,46 @@ func (r *RedfishMockServer) SetTaskHTTPResponse(status int, body string) {
 // SetSELEntries sets the entries returned by GET LogServices/SEL/Entries.
 func (r *RedfishMockServer) SetSELEntries(entries []client.SELEntry) {
 	r.selEntries = entries
+}
+
+// SetHostPrivilegeError enables or disables HostPrivilegeConfig endpoint error simulation for testing
+func (r *RedfishMockServer) SetHostPrivilegeError(simulateError bool) {
+	r.hostPrivilegeError = simulateError
+}
+
+// GetHostPrivilegeMode returns the current host privilege mode
+func (r *RedfishMockServer) GetHostPrivilegeMode() string {
+	return r.hostPrivilegeMode
+}
+
+// handleHostPrivilegeConfigSettings handles PATCH requests to the HostPrivilegeConfig/Settings endpoint
+func (r *RedfishMockServer) handleHostPrivilegeConfigSettings(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPatch {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if r.hostPrivilegeError {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		writeJSONResponse(w, map[string]interface{}{"error": "HostPrivilegeConfig endpoint unavailable"})
+		return
+	}
+
+	var body map[string]interface{}
+	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if mode, ok := body["PrivilegeMode"].(string); ok {
+		r.hostPrivilegeMode = mode
+	}
+
+	w.WriteHeader(http.StatusOK)
+	writeJSONResponse(w, map[string]interface{}{
+		"@odata.id": req.URL.Path,
+	})
 }
 
 // GetCertificate returns the server's TLS certificate in PEM format

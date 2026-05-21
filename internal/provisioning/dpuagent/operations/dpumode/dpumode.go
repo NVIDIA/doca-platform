@@ -67,6 +67,11 @@ func (d *EnsureMode) Execute(execCtx context.Context, optCtx *operations.Context
 	if optCtx.LatestDPU == nil {
 		return fmt.Errorf("latest DPU is required to resolve deployment mode")
 	}
+	if optCtx.LatestDPU.Status.DPUType == provisioningv1.DPUTypeBlueField4 {
+		klog.Infof("Skipping mlxprivhost for DPU type %s; host privilege is configured via BMC", optCtx.LatestDPU.Status.DPUType)
+		return nil
+	}
+
 	deploymentMode := optCtx.LatestDPU.Status.DeploymentMode
 	if deploymentMode == "" {
 		return fmt.Errorf("dpu.status.deploymentMode is empty")
