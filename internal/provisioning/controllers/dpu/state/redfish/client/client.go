@@ -74,6 +74,9 @@ const (
 	// Reference: https://docs.nvidia.com/networking/display/bfswtroubleshooting/bmc
 	APIGetSELEntries = APISystemRoot + "/LogServices/SEL/Entries"
 
+	// APIHostPrivilegeConfigSettings is the Settings URI for host privilege configuration (BF4).
+	APIHostPrivilegeConfigSettings = APIRootService + "/Chassis/BlueField_0/NetworkAdapters/BlueField_NIC_0/Oem/Nvidia/HostPrivilegeConfig/Settings"
+
 	// CASecret is created by the cert-manager Certificate deployed by DPF,
 	CASecret = "dpf-provisioning-ca-secret"
 	// Issuer is a cert-manager Issuer deployed by DPF
@@ -495,6 +498,22 @@ func (c *Client) DisableHostRshim() (*resty.Response, *ExtendedInfo, error) {
 		return c.Client.R().
 			SetBody(reqBody).
 			Post(APIDisableHostRshim)
+	})
+}
+
+// SetHostPrivilegeRestricted sets PrivilegeMode to Restricted via the HostPrivilegeConfig/Settings resource.
+// Currently only BF4 is supported. BF3 uses a different path:
+//
+//	redfish/v1/Chassis/Card1/NetworkAdapters/NvidiaNetworkAdapter/Oem/Nvidia/HostPrivilegeConfig/Settings
+func (c *Client) SetHostPrivilegeRestricted() (*resty.Response, *ExtendedInfo, error) {
+	payload := map[string]interface{}{
+		"PrivilegeMode": "Restricted",
+	}
+	return do[ExtendedInfo](func() (*resty.Response, error) {
+		return c.Client.R().
+			SetHeader("Content-Type", "application/json").
+			SetBody(payload).
+			Patch(APIHostPrivilegeConfigSettings)
 	})
 }
 
