@@ -40,6 +40,7 @@ import (
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/test/e2e/cleanup"
 	"github.com/nvidia/doca-platform/test/utils/collector"
+	"github.com/nvidia/doca-platform/test/utils/refreshableclient"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -1187,6 +1188,9 @@ func getDPUClusterClient(ctx context.Context, input ProvisionDPUClustersInput, c
 	var tun *tunnel.Tunnel
 
 	Eventually(func(g Gomega) {
+		refreshable, ok := dpuClusterClient[clusterIndex].(*refreshableclient.Client)
+		g.Expect(ok).To(BeTrue(), "DPUCluster client %d should be a refreshable client", clusterIndex)
+
 		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(input.dpuClusters[clusterIndex]), input.dpuClusters[clusterIndex])).To(Succeed())
 		g.Expect(input.dpuClusters[clusterIndex].Spec.Kubeconfig).ToNot(BeEmpty(), "DPUCluster kubeconfig should be populated")
 
@@ -1195,8 +1199,9 @@ func getDPUClusterClient(ctx context.Context, input ProvisionDPUClustersInput, c
 		restCfg, tun, err = tunnel.NewTunneledRestConfig(ctx, input.client, input.restConfig, input.dpuClusters[clusterIndex])
 		g.Expect(err).NotTo(HaveOccurred(), "Should create tunneled REST config")
 
-		dpuClusterClient[clusterIndex], err = client.New(restCfg, client.Options{})
+		dpuClient, err := client.New(restCfg, client.Options{})
 		g.Expect(err).NotTo(HaveOccurred(), "Should create tunneled client")
+		refreshable.Set(dpuClient)
 
 		// Setup the dpuClusterRestClient
 		restCfg.APIPath = "/api"
@@ -1234,7 +1239,7 @@ func getDPUClusterClient(ctx context.Context, input ProvisionDPUClustersInput, c
 }
 
 // getDPUClusterClients retrieves the DPUCluster clients for all clusters in the input.
-// This function must only be called once per test suite as it reinitializes global client connections.
+// This function must only be called once per test suite as it initializes stable global client wrappers.
 func getDPUClusterClients(ctx context.Context, input ProvisionDPUClustersInput) {
 	if dpuClusterClientsInitialized {
 		warningMsg := "WARNING: getDPUClusterClients called multiple times - " +
@@ -1250,6 +1255,9 @@ func getDPUClusterClients(ctx context.Context, input ProvisionDPUClustersInput) 
 	dpuClusterClient = make([]client.Client, numClusters)
 	dpuClusterRestConfig = make([]*rest.Config, numClusters)
 	dpuClusterRestClient = make([]*rest.RESTClient, numClusters)
+	for i := range input.dpuClusters {
+		dpuClusterClient[i] = refreshableclient.New()
+	}
 
 	for i := range input.dpuClusters {
 		getDPUClusterClient(ctx, input, i)
