@@ -158,9 +158,9 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 		})
 
 		It("should create virtual network on both flow-controller pods", func() {
-			createVNetOnPod(fcPod1, trafficVNetID, trafficVNI)
+			createVNetOnPod(fcPod1, trafficVNetID, trafficVNI, weaveVNetSubnet)
 			grpcCleanup = append(grpcCleanup, func() { deleteVNetOnPod(fcPod1, trafficVNetID) })
-			createVNetOnPod(fcPod2, trafficVNetID, trafficVNI)
+			createVNetOnPod(fcPod2, trafficVNetID, trafficVNI, weaveVNetSubnet)
 			grpcCleanup = append(grpcCleanup, func() { deleteVNetOnPod(fcPod2, trafficVNetID) })
 		})
 
@@ -188,8 +188,8 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 		})
 
 		It("should create DHCP NADs and netshoot pods on worker nodes", func() {
-			nadP0 := "weave-dhcp-p0"
-			nadP1 := "weave-dhcp-p1"
+			nadP0 := weaveDHCPNADP0
+			nadP1 := weaveDHCPNADP1
 			vpc.CreateDHCPNetworkAttachmentDefinition(ctx, input.client, trafficTestNS, nadP0, weaveHostPFInterfaceP0, weavePFMTU, weaveContextScope.CleanupLabels)
 			vpc.CreateDHCPNetworkAttachmentDefinition(ctx, input.client, trafficTestNS, nadP1, weaveHostPFInterfaceP1, weavePFMTU, weaveContextScope.CleanupLabels)
 			testPodConfigs = []*netshoot.TestPodConfig{
@@ -206,10 +206,10 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 		})
 
 		It("should verify overlay routes on netshoot pods", func() {
-			ensureOverlayRoute(hostClusterRESTClient, input.restConfig, trafficTestNS, podP0Node1, overlayIPP0Node1)
-			ensureOverlayRoute(hostClusterRESTClient, input.restConfig, trafficTestNS, podP0Node2, overlayIPP0Node2)
-			ensureOverlayRoute(hostClusterRESTClient, input.restConfig, trafficTestNS, podP1Node1, overlayIPP1Node1)
-			ensureOverlayRoute(hostClusterRESTClient, input.restConfig, trafficTestNS, podP1Node2, overlayIPP1Node2)
+			ensureOverlayRoute(hostClusterRESTClient, input.restConfig, trafficTestNS, podP0Node1, overlayIPP0Node1, weaveVNetSubnet)
+			ensureOverlayRoute(hostClusterRESTClient, input.restConfig, trafficTestNS, podP0Node2, overlayIPP0Node2, weaveVNetSubnet)
+			ensureOverlayRoute(hostClusterRESTClient, input.restConfig, trafficTestNS, podP1Node1, overlayIPP1Node1, weaveVNetSubnet)
+			ensureOverlayRoute(hostClusterRESTClient, input.restConfig, trafficTestNS, podP1Node2, overlayIPP1Node2, weaveVNetSubnet)
 		})
 
 		It("should verify cross-node ping succeeds on p0", func() {
@@ -271,13 +271,13 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 		})
 
 		It("should create both isolation virtual networks on both flow-controller pods", func() {
-			createVNetOnPod(fcPod1, isolVNet1ID, isolVNI1)
+			createVNetOnPod(fcPod1, isolVNet1ID, isolVNI1, weaveVNetSubnet)
 			grpcCleanup = append(grpcCleanup, func() { deleteVNetOnPod(fcPod1, isolVNet1ID) })
-			createVNetOnPod(fcPod2, isolVNet1ID, isolVNI1)
+			createVNetOnPod(fcPod2, isolVNet1ID, isolVNI1, weaveVNetSubnet)
 			grpcCleanup = append(grpcCleanup, func() { deleteVNetOnPod(fcPod2, isolVNet1ID) })
-			createVNetOnPod(fcPod1, isolVNet2ID, isolVNI2)
+			createVNetOnPod(fcPod1, isolVNet2ID, isolVNI2, weaveVNetSubnet)
 			grpcCleanup = append(grpcCleanup, func() { deleteVNetOnPod(fcPod1, isolVNet2ID) })
-			createVNetOnPod(fcPod2, isolVNet2ID, isolVNI2)
+			createVNetOnPod(fcPod2, isolVNet2ID, isolVNI2, weaveVNetSubnet)
 			grpcCleanup = append(grpcCleanup, func() { deleteVNetOnPod(fcPod2, isolVNet2ID) })
 		})
 
@@ -297,7 +297,7 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 		})
 
 		It("should create DHCP NAD and netshoot pods on worker nodes", func() {
-			nadName := "weave-dhcp-p0"
+			nadName := weaveDHCPNADP0
 			vpc.CreateDHCPNetworkAttachmentDefinition(ctx, input.client, isolTestNS, nadName, weaveHostPFInterfaceP0, weavePFMTU, weaveContextScope.CleanupLabels)
 			testPodConfigs = []*netshoot.TestPodConfig{
 				{Namespace: isolTestNS, Name: isolPod1, NodeName: workerNode1, NADName: nadName, Labels: weaveContextScope.CleanupLabels},
@@ -311,8 +311,8 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 		})
 
 		It("should verify overlay routes on netshoot pods", func() {
-			ensureOverlayRoute(hostClusterRESTClient, input.restConfig, isolTestNS, isolPod1, overlayIP1)
-			ensureOverlayRoute(hostClusterRESTClient, input.restConfig, isolTestNS, isolPod2, overlayIP2)
+			ensureOverlayRoute(hostClusterRESTClient, input.restConfig, isolTestNS, isolPod1, overlayIP1, weaveVNetSubnet)
+			ensureOverlayRoute(hostClusterRESTClient, input.restConfig, isolTestNS, isolPod2, overlayIP2, weaveVNetSubnet)
 		})
 
 		It("should deny ping between worker nodes on different virtual networks", func() {
@@ -363,9 +363,9 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 		})
 
 		It("should create vnet on both flow-controller pods", func() {
-			createVNetOnPod(fcPod1, rdmaVNetID, rdmaVNI)
+			createVNetOnPod(fcPod1, rdmaVNetID, rdmaVNI, weaveVNetSubnet)
 			grpcCleanup = append(grpcCleanup, func() { deleteVNetOnPod(fcPod1, rdmaVNetID) })
-			createVNetOnPod(fcPod2, rdmaVNetID, rdmaVNI)
+			createVNetOnPod(fcPod2, rdmaVNetID, rdmaVNI, weaveVNetSubnet)
 			grpcCleanup = append(grpcCleanup, func() { deleteVNetOnPod(fcPod2, rdmaVNetID) })
 		})
 
@@ -394,6 +394,103 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 		It("should run ib_write_bw between the two hosts on p0 with --reversed and meet the BW threshold", func() {
 			// Running with --reversed checks that the RDMA traffic also works in reverse direction for sanity purposes.
 			runIBWriteBWPodToPod(hostClusterRESTClient, input.restConfig, netutilsPod2, netutilsPod1, weaveHostPFRDMADeviceP0, overlayIPP0Node2, weaveIBWriteBWDuration, "--reversed")
+		})
+	})
+
+	Context("traffic isolation between VNets on same node", Labels{Domain.RequiresNodes}, Ordered, func() {
+		var (
+			overlayIP1, overlayIP2 string
+			testPodConfigs         []*netshoot.TestPodConfig
+			contextHasFailed       bool
+			grpcCleanup            []func()
+		)
+
+		const (
+			isolVNet1ID  = "isol-vnet-1"
+			isolVNet2ID  = "isol-vnet-2"
+			isolVNI1     = uint32(100)
+			isolVNI2     = uint32(101)
+			isolTestNS   = "weave-isolation-samenode-test"
+			isolPod1     = "weave-isol-pod-1"
+			isolPod2     = "weave-isol-pod-2"
+			secondSubnet = "20.0.0.0/8"
+		)
+
+		AfterEach(func() {
+			if CurrentSpecReport().Failed() {
+				contextHasFailed = true
+			}
+		})
+
+		AfterAll(func() {
+			if contextHasFailed {
+				By("Weave: Report failure for this spec")
+				reportAfterEach(CurrentSpecReport())
+			}
+			for i := len(grpcCleanup) - 1; i >= 0; i-- {
+				grpcCleanup[i]()
+			}
+			weaveContextScope.CleanupAfter()
+		})
+
+		It("should create test namespace", func() {
+			vpc.CreateTestNamespace(ctx, input.client, isolTestNS, weaveContextScope.CleanupLabels)
+		})
+
+		It("should create both isolation virtual networks on flow-controller pod 1", func() {
+			createVNetOnPod(fcPod1, isolVNet1ID, isolVNI1, weaveVNetSubnet)
+			grpcCleanup = append(grpcCleanup, func() { deleteVNetOnPod(fcPod1, isolVNet1ID) })
+			createVNetOnPod(fcPod1, isolVNet2ID, isolVNI2, secondSubnet)
+			grpcCleanup = append(grpcCleanup, func() { deleteVNetOnPod(fcPod1, isolVNet2ID) })
+		})
+
+		It("should create two attachments on worker node 1", func() {
+			var attIDIsolFc1, attIDIsolFc2 string
+			attIDIsolFc1, overlayIP1 = createPFAttachmentAndWaitForHostIP(fcPod1, isolVNet1ID, pfMACP0Node1)
+			grpcCleanup = append(grpcCleanup, func() { deleteAttachmentOnPod(fcPod1, attIDIsolFc1) })
+			attIDIsolFc2, overlayIP2 = createPFAttachmentAndWaitForHostIP(fcPod1, isolVNet2ID, pfMACP1Node1)
+			grpcCleanup = append(grpcCleanup, func() { deleteAttachmentOnPod(fcPod1, attIDIsolFc2) })
+		})
+
+		It("should verify OVS isolation bridges for both VNets on DPU node 1", func() {
+			// br-isol-<vni>-<pci> is created when that flow-controller has a PF attachment for the VNI
+			// (bridgemanager), not only when CreateVirtualNetwork succeeded on that pod.
+			verifyIsolationBridgeExists(fcPod1, isolVNI1, weaveDPUPortP0)
+			verifyIsolationBridgeExists(fcPod1, isolVNI2, weaveDPUPortP1)
+		})
+
+		It("should create DHCP NADs and netshoot pods on worker node 1", func() {
+			nadP0 := weaveDHCPNADP0
+			nadP1 := weaveDHCPNADP1
+			vpc.CreateDHCPNetworkAttachmentDefinition(ctx, input.client, isolTestNS, nadP0, weaveHostPFInterfaceP0, weavePFMTU, weaveContextScope.CleanupLabels)
+			vpc.CreateDHCPNetworkAttachmentDefinition(ctx, input.client, isolTestNS, nadP1, weaveHostPFInterfaceP1, weavePFMTU, weaveContextScope.CleanupLabels)
+			testPodConfigs = []*netshoot.TestPodConfig{
+				{Namespace: isolTestNS, Name: isolPod1, NodeName: workerNode1, NADName: nadP0, Labels: weaveContextScope.CleanupLabels},
+				{Namespace: isolTestNS, Name: isolPod2, NodeName: workerNode1, NADName: nadP1, Labels: weaveContextScope.CleanupLabels},
+			}
+			netshoot.CreatePods(ctx, input.client, testPodConfigs)
+		})
+
+		It("should verify netshoot pods are running", func() {
+			netshoot.WaitForPodsReady(ctx, input.client, testPodConfigs, vpc.LongTimeout)
+		})
+
+		It("should verify overlay routes on netshoot pods", func() {
+			ensureOverlayRoute(hostClusterRESTClient, input.restConfig, isolTestNS, isolPod1, overlayIP1, weaveVNetSubnet)
+			ensureOverlayRoute(hostClusterRESTClient, input.restConfig, isolTestNS, isolPod2, overlayIP2, secondSubnet)
+		})
+
+		It("should add route on netshoot pod 1", func() {
+			addRouteOnPodBetweenOverlayAndSubnet(hostClusterRESTClient, input.restConfig, isolTestNS, isolPod1, overlayIP1, secondSubnet)
+		})
+
+		It("should add route on netshoot pod 2", func() {
+			addRouteOnPodBetweenOverlayAndSubnet(hostClusterRESTClient, input.restConfig, isolTestNS, isolPod2, overlayIP2, weaveVNetSubnet)
+		})
+
+		It("should deny ping between pods on different virtual networks on the same node", func() {
+			netshoot.AssertPingFailure(&hostClusterRESTClient, &input.restConfig, isolTestNS, isolPod1, overlayIP2)
+			netshoot.AssertPingFailure(&hostClusterRESTClient, &input.restConfig, isolTestNS, isolPod2, overlayIP1)
 		})
 	})
 })
