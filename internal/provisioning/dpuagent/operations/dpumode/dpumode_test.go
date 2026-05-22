@@ -27,7 +27,7 @@ import (
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
-	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
+	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -40,9 +40,6 @@ var _ = Describe("Ensure Mode", func() {
 		var err error
 		tempDir, err = os.MkdirTemp("", "dpumode-test-*")
 		Expect(err).NotTo(HaveOccurred())
-		Expect(os.MkdirAll(filepath.Join(tempDir, "dev/mst"), 0755)).To(Succeed())
-		Expect(os.WriteFile(filepath.Join(tempDir, "dev/mst/dev1"), mstDeviceContent("0000:03:00.0"), 0600)).To(Succeed())
-		Expect(os.WriteFile(filepath.Join(tempDir, "dev/mst/dev2"), mstDeviceContent("0000:03:00.1"), 0600)).To(Succeed())
 	})
 
 	AfterEach(func() {
@@ -61,11 +58,7 @@ var _ = Describe("Ensure Mode", func() {
 			expectedCmd := regexp.MustCompile(reg)
 			By(fmt.Sprintf("regex: %s", reg))
 			operation := &EnsureMode{
-				mstDevicesPath: filepath.Join(tempDir, "dev/mst"),
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
-					if cmd == "mst start" {
-						return bytes.Buffer{}, bytes.Buffer{}, nil
-					}
 					By(fmt.Sprintf("checking that the command is correct: %s", cmd))
 					Expect(expectedCmd.MatchString(cmd)).To(BeTrue())
 					return bytes.Buffer{}, bytes.Buffer{}, nil
@@ -78,7 +71,12 @@ var _ = Describe("Ensure Mode", func() {
 						DeploymentMode: provisioningv1.DeploymentModeZeroTrust,
 					},
 				},
-				NSNIC: &hostutil.Device{Address: "0000:03:00", NumOfPFs: 2},
+				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+					return []pciutil.NICPort{
+						{MSTDevice: filepath.Join(tempDir, "dev/mst/dev1")},
+						{MSTDevice: filepath.Join(tempDir, "dev/mst/dev2")},
+					}, nil
+				},
 			})
 			Expect(err).NotTo(HaveOccurred())
 		})
@@ -88,11 +86,7 @@ var _ = Describe("Ensure Mode", func() {
 			expectedCmd := regexp.MustCompile(reg)
 			By(fmt.Sprintf("regex: %s", reg))
 			operation := &EnsureMode{
-				mstDevicesPath: filepath.Join(tempDir, "dev/mst"),
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
-					if cmd == "mst start" {
-						return bytes.Buffer{}, bytes.Buffer{}, nil
-					}
 					By(fmt.Sprintf("checking that the command is correct: %s", cmd))
 					Expect(expectedCmd.MatchString(cmd)).To(BeTrue())
 					return bytes.Buffer{}, bytes.Buffer{}, nil
@@ -105,13 +99,17 @@ var _ = Describe("Ensure Mode", func() {
 						DeploymentMode: provisioningv1.DeploymentModeHostTrusted,
 					},
 				},
-				NSNIC: &hostutil.Device{Address: "0000:03:00", NumOfPFs: 2},
+				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+					return []pciutil.NICPort{
+						{MSTDevice: filepath.Join(tempDir, "dev/mst/dev1")},
+						{MSTDevice: filepath.Join(tempDir, "dev/mst/dev2")},
+					}, nil
+				},
 			})
 			Expect(err).NotTo(HaveOccurred())
 		})
 		It("should skip mlxprivhost for BF4", func() {
 			operation := &EnsureMode{
-				mstDevicesPath: filepath.Join(tempDir, "dev/mst"),
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 					if strings.Contains(cmd, "mlxprivhost") {
 						Fail("mlxprivhost should not be called for BF4")
@@ -126,13 +124,14 @@ var _ = Describe("Ensure Mode", func() {
 						DeploymentMode: provisioningv1.DeploymentModeZeroTrust,
 					},
 				},
-				NSNIC: &hostutil.Device{Address: "0000:03:00", NumOfPFs: 2},
+				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+					return []pciutil.NICPort{
+						{MSTDevice: filepath.Join(tempDir, "dev/mst/dev1")},
+						{MSTDevice: filepath.Join(tempDir, "dev/mst/dev2")},
+					}, nil
+				},
 			})
 			Expect(err).NotTo(HaveOccurred())
 		})
 	})
 })
-
-func mstDeviceContent(pci string) []byte {
-	return []byte(fmt.Sprintf("domain:bus:dev.fn=%s addr.reg=88 data.reg=92", pci))
-}

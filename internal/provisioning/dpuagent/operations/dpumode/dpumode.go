@@ -22,19 +22,13 @@ import (
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
-	dpuagentutil "github.com/nvidia/doca-platform/internal/provisioning/dpuagent/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
 
 	"k8s.io/klog/v2"
 )
 
-const (
-	defaultMstDevicesPath = "/dev/mst"
-)
-
 type EnsureMode struct {
-	mstDevicesPath string
-	runBash        bash.RunFunc
+	runBash bash.RunFunc
 }
 
 func (d *EnsureMode) Name() string {
@@ -86,10 +80,17 @@ func (d *EnsureMode) Execute(execCtx context.Context, optCtx *operations.Context
 }
 
 func (d *EnsureMode) targetMFTDevices(optCtx *operations.Context) ([]string, error) {
-	if d.mstDevicesPath == "" {
-		d.mstDevicesPath = defaultMstDevicesPath
+	ports, err := optCtx.NSPorts()
+	if err != nil {
+		return nil, err
 	}
-	return dpuagentutil.MFTDevicesForNSNIC(d.mstDevicesPath, optCtx.NSNIC, d.runBash)
+	var devices []string
+	for _, p := range ports {
+		if p.MSTDevice != "" {
+			devices = append(devices, p.MSTDevice)
+		}
+	}
+	return devices, nil
 }
 
 func (d *EnsureMode) setDeploymentMode(dev string, deploymentMode provisioningv1.DeploymentMode) error {
