@@ -18,6 +18,7 @@ package bash
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os/exec"
 )
@@ -27,12 +28,22 @@ type CmdOption func(*exec.Cmd)
 // RunFunc runs a shell command and returns stdout, stderr, and any error.
 type RunFunc func(cmdStr string) (stdout, stderr bytes.Buffer, err error)
 
+// RunWithContextFunc runs a shell command with a context and returns stdout, stderr, and any error.
+type RunWithContextFunc func(ctx context.Context, cmdStr string, opts ...CmdOption) (stdout, stderr bytes.Buffer, err error)
+
 func Run(cmdStr string) (stdout, stderr bytes.Buffer, err error) {
 	return RunWithOptions(cmdStr)
 }
 
+func RunWithContext(ctx context.Context, cmdStr string, opts ...CmdOption) (stdout, stderr bytes.Buffer, err error) {
+	return runCmd(exec.CommandContext(ctx, "bash", "-c", cmdStr), opts...)
+}
+
 func RunWithOptions(cmdStr string, opts ...CmdOption) (stdout, stderr bytes.Buffer, err error) {
-	cmd := exec.Command("bash", "-c", cmdStr)
+	return runCmd(exec.Command("bash", "-c", cmdStr), opts...)
+}
+
+func runCmd(cmd *exec.Cmd, opts ...CmdOption) (stdout, stderr bytes.Buffer, err error) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	for _, opt := range opts {
@@ -40,8 +51,7 @@ func RunWithOptions(cmdStr string, opts ...CmdOption) (stdout, stderr bytes.Buff
 			opt(cmd)
 		}
 	}
-	err = cmd.Run()
-	if err != nil {
+	if err = cmd.Run(); err != nil {
 		return stdout, stderr, fmt.Errorf("failed to run command: %w", err)
 	}
 	return stdout, stderr, nil
