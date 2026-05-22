@@ -35,6 +35,8 @@ var _ = Describe("NetworkManagerBackend", func() {
 		origGetCurrentMTU    func(string) (int, error)
 		origGetBridgeMembers func(string) ([]string, error)
 		origGetIfaceName     func(string, int) (string, error)
+		origIsVF             func(string) bool
+		origSetLinkMTU       func(string, int) error
 	)
 
 	BeforeEach(func() {
@@ -44,12 +46,18 @@ var _ = Describe("NetworkManagerBackend", func() {
 		origGetCurrentMTU = getCurrentMTUFunc
 		origGetBridgeMembers = getBridgeMembersFunc
 		origGetIfaceName = getInterfaceNameFunc
+		origIsVF = isVFFunc
+		origSetLinkMTU = setLinkMTUFunc
+
+		isVFFunc = func(string) bool { return false }
 	})
 
 	AfterEach(func() {
 		getCurrentMTUFunc = origGetCurrentMTU
 		getBridgeMembersFunc = origGetBridgeMembers
 		getInterfaceNameFunc = origGetIfaceName
+		isVFFunc = origIsVF
+		setLinkMTUFunc = origSetLinkMTU
 	})
 
 	It("should report its name", func() {
@@ -240,6 +248,22 @@ var _ = Describe("NetworkManagerBackend", func() {
 			Expect(backend.modifiedConnPaths).To(BeEmpty())
 		})
 
+		It("should skip when NM profile MTU already matches even if kernel MTU differs", func() {
+			getCurrentMTUFunc = func(name string) (int, error) { return 1500, nil }
+			mock.addTestConnection("/conn/eth0", ConnectionSettings{
+				"connection":     {"id": dbus.MakeVariant("eth0"), "interface-name": dbus.MakeVariant("eth0")},
+				"802-3-ethernet": {"mtu": dbus.MakeVariant(uint32(9000))},
+			})
+
+			mtu := int32(9000)
+			needsApply, err := backend.ConfigurePFInterfaces("0000:4d:00", []hostutil.PortConfig{
+				{PortNumber: 0, MTU: &mtu},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(needsApply).To(BeFalse(), "should not re-activate when NM profile already has correct MTU")
+			Expect(backend.modifiedConnPaths).To(BeEmpty())
+		})
+
 		It("should update DHCP when current differs", func() {
 			getCurrentMTUFunc = func(name string) (int, error) { return 1500, nil }
 			mock.addTestConnection("/conn/eth0", ConnectionSettings{
@@ -303,6 +327,7 @@ var _ = Describe("NetworkManagerBackend", func() {
 			Expect(memberUpdated["802-3-ethernet"]["mtu"].Value()).To(Equal(uint32(9000)))
 			Expect(memberUpdated["connection"]["master"].Value()).To(Equal("br-dpu"))
 			Expect(memberUpdated["connection"]["slave-type"].Value()).To(Equal("bridge"))
+			Expect(memberUpdated["connection"]["interface-name"].Value()).To(Equal("enp1s0f0"))
 		})
 
 		It("should skip when MTUs already match", func() {
@@ -316,6 +341,37 @@ var _ = Describe("NetworkManagerBackend", func() {
 			needsApply, err := backend.ConfigureBridgeMTU("br-dpu", 9000)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(needsApply).To(BeFalse())
+		})
+
+		It("should set VF member MTU via netlink instead of NM", func() {
+			getCurrentMTUFunc = func(name string) (int, error) { return 1500, nil }
+			getBridgeMembersFunc = func(name string) ([]string, error) { return []string{"ens7f0v0"}, nil }
+			isVFFunc = func(name string) bool { return name == "ens7f0v0" }
+
+			var netlinkMTUCalls []struct {
+				name string
+				mtu  int
+			}
+			setLinkMTUFunc = func(name string, mtu int) error {
+				netlinkMTUCalls = append(netlinkMTUCalls, struct {
+					name string
+					mtu  int
+				}{name, mtu})
+				return nil
+			}
+
+			mock.addTestConnection("/conn/br", ConnectionSettings{
+				"connection": {"id": dbus.MakeVariant("br-dpu"), "interface-name": dbus.MakeVariant("br-dpu")},
+			})
+
+			needsApply, err := backend.ConfigureBridgeMTU("br-dpu", 9000)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(needsApply).To(BeTrue())
+			Expect(netlinkMTUCalls).To(HaveLen(1))
+			Expect(netlinkMTUCalls[0].name).To(Equal("ens7f0v0"))
+			Expect(netlinkMTUCalls[0].mtu).To(Equal(9000))
+			Expect(mock.updatedMap).NotTo(HaveKey(ConnectionPath("/conn/vf")),
+				"VF should not be updated via NM")
 		})
 
 		It("should propagate GetBridgeMembers errors", func() {
