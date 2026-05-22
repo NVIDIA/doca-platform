@@ -1,6 +1,6 @@
-# This variable controls whether the manifests that are required in the DPUCluster should be deployed or not
+# -- deployDPUManifests controls whether the manifests that are required in the DPUCluster should be deployed.
 deployDPUManifests: false
-# This variable controls whether the manifests that are required in the host cluster should be deployed or not
+# -- deployHostManifests controls whether the manifests that are required in the host cluster should be deployed.
 deployHostManifests: false
 
 controllerManager:

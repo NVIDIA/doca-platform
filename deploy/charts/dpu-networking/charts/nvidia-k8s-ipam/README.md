@@ -10,8 +10,8 @@ A Helm chart for Kubernetes
 |-----|------|---------|-------------|
 | cniBinDir | string | `"/opt/cni/bin"` |  |
 | cniConfDir | string | `"/etc/cni/net.d"` |  |
-| deployDPUManifests | bool | `false` |  |
-| deployHostManifests | bool | `false` |  |
+| deployDPUManifests | bool | `false` | deployDPUManifests controls whether the manifests that are required in the DPUCluster should be deployed. |
+| deployHostManifests | bool | `false` | deployHostManifests controls whether the manifests that are required in the host cluster should be deployed. |
 | env | list | `[]` |  |
 | imagePullSecrets | list | `[]` |  |
 | nvIpam.controller.resources.limits.memory | string | `"300Mi"` |  |
