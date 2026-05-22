@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package util
+package netconfig
 
 import (
 	"fmt"
@@ -38,12 +38,16 @@ var udevRunner = func(name string, args ...string) ([]byte, error) {
 	return exec.Command(name, args...).CombinedOutput()
 }
 
-// EnsureNMUnmanagedUdevRule writes a udev rule that prevents NetworkManager
+// ensureNMUnmanagedUdevRule writes a udev rule that prevents NetworkManager
 // from managing VF interfaces (PCI device ID 0x101e) and reloads/triggers
 // udev to apply the rule to both new and already-existing devices.
-func EnsureNMUnmanagedUdevRule() error {
-	if err := writeUdevRuleFile(); err != nil {
+func ensureNMUnmanagedUdevRule() error {
+	written, err := writeUdevRuleFile()
+	if err != nil {
 		return fmt.Errorf("failed to write udev rule file: %w", err)
+	}
+	if !written {
+		return nil
 	}
 
 	if err := reloadAndTriggerUdev(); err != nil {
@@ -53,23 +57,23 @@ func EnsureNMUnmanagedUdevRule() error {
 	return nil
 }
 
-func writeUdevRuleFile() error {
+func writeUdevRuleFile() (bool, error) {
 	dir := filepath.Dir(nmUnmanagedRulesPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("failed to create directory %s: %w", dir, err)
+		return false, fmt.Errorf("failed to create directory %s: %w", dir, err)
 	}
 
 	existing, err := os.ReadFile(nmUnmanagedRulesPath)
 	if err == nil && string(existing) == nmUnmanagedRulesContent {
 		klog.V(3).Infof("Udev rule %s already up-to-date", nmUnmanagedRulesPath)
-		return nil
+		return false, nil
 	}
 
 	if err := os.WriteFile(nmUnmanagedRulesPath, []byte(nmUnmanagedRulesContent), 0644); err != nil {
-		return fmt.Errorf("failed to write file %s: %w", nmUnmanagedRulesPath, err)
+		return false, fmt.Errorf("failed to write file %s: %w", nmUnmanagedRulesPath, err)
 	}
 	klog.Infof("Wrote udev rule to disable NM management of VFs: %s", nmUnmanagedRulesPath)
-	return nil
+	return true, nil
 }
 
 func reloadAndTriggerUdev() error {

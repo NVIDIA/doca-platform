@@ -189,10 +189,7 @@ func (nm *NetworkManager) processNetworkRequest(nr NetworkRequest) error {
 		{
 			name: "DisableNMForVFs",
 			f: func(nr NetworkRequest) error {
-				if nm.netBackend.Name() != "NetworkManager" {
-					return nil
-				}
-				return hostutil.EnsureNMUnmanagedUdevRule()
+				return nm.netBackend.EnsureVFsUnmanaged()
 			},
 		},
 		{

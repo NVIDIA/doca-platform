@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package util
+package netconfig
 
 import (
 	"fmt"
@@ -25,7 +25,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("EnsureNMUnmanagedUdevRule", func() {
+var _ = Describe("ensureNMUnmanagedUdevRule", func() {
 	var (
 		origPath   string
 		origRunner func(string, ...string) ([]byte, error)
@@ -63,7 +63,7 @@ var _ = Describe("EnsureNMUnmanagedUdevRule", func() {
 	It("should write the udev rule file and reload rules", func() {
 		rulesFile := setRulesPath()
 
-		err := EnsureNMUnmanagedUdevRule()
+		err := ensureNMUnmanagedUdevRule()
 		Expect(err).NotTo(HaveOccurred())
 
 		content, err := os.ReadFile(rulesFile)
@@ -75,7 +75,7 @@ var _ = Describe("EnsureNMUnmanagedUdevRule", func() {
 		Expect(commands[1]).To(Equal([]string{"udevadm", "trigger", "--subsystem-match=net"}))
 	})
 
-	It("should be idempotent - not rewrite if content matches", func() {
+	It("should be idempotent - skip reload if content matches", func() {
 		rulesFile := setRulesPath()
 
 		err := os.MkdirAll(filepath.Dir(rulesFile), 0755)
@@ -83,10 +83,10 @@ var _ = Describe("EnsureNMUnmanagedUdevRule", func() {
 		err = os.WriteFile(rulesFile, []byte(nmUnmanagedRulesContent), 0644)
 		Expect(err).NotTo(HaveOccurred())
 
-		err = EnsureNMUnmanagedUdevRule()
+		err = ensureNMUnmanagedUdevRule()
 		Expect(err).NotTo(HaveOccurred())
 
-		Expect(commands).To(HaveLen(2))
+		Expect(commands).To(BeEmpty())
 	})
 
 	It("should overwrite if content differs", func() {
@@ -97,7 +97,7 @@ var _ = Describe("EnsureNMUnmanagedUdevRule", func() {
 		err = os.WriteFile(rulesFile, []byte("old content"), 0644)
 		Expect(err).NotTo(HaveOccurred())
 
-		err = EnsureNMUnmanagedUdevRule()
+		err = ensureNMUnmanagedUdevRule()
 		Expect(err).NotTo(HaveOccurred())
 
 		content, err := os.ReadFile(rulesFile)
@@ -108,7 +108,7 @@ var _ = Describe("EnsureNMUnmanagedUdevRule", func() {
 	It("should create parent directories if they don't exist", func() {
 		nmUnmanagedRulesPath = filepath.Join(tempDir, "subdir", "rules.d", "10-nm-unmanaged.rules")
 
-		err := EnsureNMUnmanagedUdevRule()
+		err := ensureNMUnmanagedUdevRule()
 		Expect(err).NotTo(HaveOccurred())
 
 		content, err := os.ReadFile(nmUnmanagedRulesPath)
@@ -126,7 +126,7 @@ var _ = Describe("EnsureNMUnmanagedUdevRule", func() {
 			return nil, nil
 		}
 
-		err := EnsureNMUnmanagedUdevRule()
+		err := ensureNMUnmanagedUdevRule()
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("udevadm control --reload-rules failed"))
 	})
@@ -141,7 +141,7 @@ var _ = Describe("EnsureNMUnmanagedUdevRule", func() {
 			return nil, nil
 		}
 
-		err := EnsureNMUnmanagedUdevRule()
+		err := ensureNMUnmanagedUdevRule()
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("udevadm trigger --subsystem-match=net failed"))
 	})

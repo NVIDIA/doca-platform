@@ -220,6 +220,10 @@ func CreateHostAgentPod(ctx context.Context, client client.Client, node *corev1.
 							MountPath: "/run/udev",
 						},
 						{
+							Name:      "etc-udev-rules",
+							MountPath: "/etc/udev/rules.d",
+						},
+						{
 							Name:      "systemd-network",
 							MountPath: "/usr/lib/systemd/network",
 						},
@@ -304,6 +308,15 @@ func CreateHostAgentPod(ctx context.Context, client client.Client, node *corev1.
 						HostPath: &corev1.HostPathVolumeSource{
 							Path: "/run/udev",
 							Type: ptr.To(corev1.HostPathDirectory),
+						},
+					},
+				},
+				{
+					Name: "etc-udev-rules",
+					VolumeSource: corev1.VolumeSource{
+						HostPath: &corev1.HostPathVolumeSource{
+							Path: "/etc/udev/rules.d",
+							Type: ptr.To(corev1.HostPathDirectoryOrCreate),
 						},
 					},
 				},
