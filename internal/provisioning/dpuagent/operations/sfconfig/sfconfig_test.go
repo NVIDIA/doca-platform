@@ -26,7 +26,7 @@ import (
 	opts "github.com/nvidia/doca-platform/cmd/dpuagent/opts"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
-	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
+	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -35,10 +35,11 @@ import (
 
 var _ = Describe("SFConfig", func() {
 	var tempDir string
-	// var sysClassNet string
-	targetNICForTest := &hostutil.Device{
-		Address:  "0000:03:00",
-		NumOfPFs: 2,
+	discoverTestPorts := func() ([]pciutil.NICPort, error) { //nolint:unparam
+		return []pciutil.NICPort{
+			{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: "/dev/mst/mt41692_pciconf0"},
+			{Netdev: "p1", PCIAddress: "0000:03:00.1", MSTDevice: "/dev/mst/mt41692_pciconf0.1"},
+		}, nil
 	}
 
 	BeforeEach(func() {
@@ -180,7 +181,7 @@ var _ = Describe("SFConfig", func() {
 					return stdout, stderr, nil
 				},
 			}
-			Expect(operation.Execute(ctx, &operations.Context{DPUFlavor: dpuFlavor, NSNIC: targetNICForTest})).To(Succeed())
+			Expect(operation.Execute(ctx, &operations.Context{DPUFlavor: dpuFlavor, DiscoverPorts: discoverTestPorts})).To(Succeed())
 
 			// setGUIDForSF iterates a map, so the final bind content is non-deterministic.
 			By("bind should contain one of the auxiliary devices")
@@ -240,7 +241,7 @@ var _ = Describe("SFConfig", func() {
 				},
 			}
 
-			err := operation.Execute(ctx, &operations.Context{DPUFlavor: dpuFlavor, NSNIC: targetNICForTest})
+			err := operation.Execute(ctx, &operations.Context{DPUFlavor: dpuFlavor, DiscoverPorts: discoverTestPorts})
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("failed to create SF 1"))
 			Expect(err.Error()).To(ContainSubstring("create failed"))
@@ -302,7 +303,7 @@ var _ = Describe("SFConfig", func() {
 				},
 			}
 
-			err := operation.Execute(ctx, &operations.Context{DPUFlavor: dpuFlavor, NSNIC: targetNICForTest})
+			err := operation.Execute(ctx, &operations.Context{DPUFlavor: dpuFlavor, DiscoverPorts: discoverTestPorts})
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("failed to create trusted SF 101"))
 			Expect(err.Error()).To(ContainSubstring("trusted create failed"))

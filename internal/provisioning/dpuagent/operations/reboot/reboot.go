@@ -30,7 +30,6 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
-	dpuagentutil "github.com/nvidia/doca-platform/internal/provisioning/dpuagent/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
 
 	"github.com/Masterminds/semver/v3"
@@ -43,7 +42,6 @@ import (
 const (
 	shutdownDelayInSeconds        = 5
 	bootIDFile                    = "/proc/sys/kernel/random/boot_id"
-	defaultMstDevicesPath         = "/dev/mst"
 	defaultPostResetBlockDuration = 10 * time.Minute
 
 	// maxRebootSequenceCount caps RebootSequenceCount (non-NoAction RebootMethod runs in a row)
@@ -87,9 +85,8 @@ type firmwareResetPerDevice struct {
 }
 
 type HandleReboot struct {
-	runBash        bash.RunFunc
-	mstDevicesPath string
-	skipBlock      bool
+	runBash   bash.RunFunc
+	skipBlock bool
 	// allowFirmwareReset is set for the duration of getRebootMethodDeviceQuery from LatestDPU annotations
 	// (AgentAnnotationAllowFirmwareResetReboot). When false or h is nil, rebootMethodFromMlxfwresetStatus does not select FirmwareReset.
 	allowFirmwareReset bool
@@ -182,10 +179,17 @@ func (h *HandleReboot) execSystemLevelReset(execCtx context.Context, optCtx *ope
 
 // getMSTDevices returns the selected target devices for MFT commands.
 func (h *HandleReboot) getMSTDevices(optCtx *operations.Context) ([]string, error) {
-	if h.mstDevicesPath == "" {
-		h.mstDevicesPath = defaultMstDevicesPath
+	ports, err := optCtx.NSPorts()
+	if err != nil {
+		return nil, err
 	}
-	return dpuagentutil.MFTDevicesForNSNIC(h.mstDevicesPath, optCtx.NSNIC, h.runBash)
+	var devices []string
+	for _, p := range ports {
+		if p.MSTDevice != "" {
+			devices = append(devices, p.MSTDevice)
+		}
+	}
+	return devices, nil
 }
 
 func (h *HandleReboot) execFirmwareReset(execCtx context.Context, optCtx *operations.Context) error {

@@ -30,7 +30,6 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
-	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
 	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
 
@@ -68,7 +67,7 @@ func (s *CreateSF) Execute(execCtx context.Context, optCtx *operations.Context) 
 	if s.runBash == nil {
 		s.runBash = bash.Run
 	}
-	device, err := s.targetPF0Device(optCtx.NSNIC)
+	device, err := s.targetPF0Device(optCtx)
 	if err != nil {
 		return err
 	}
@@ -114,11 +113,19 @@ func (s *CreateSF) Execute(execCtx context.Context, optCtx *operations.Context) 
 	return nil
 }
 
-func (s *CreateSF) targetPF0Device(dev *hostutil.Device) (string, error) {
-	if dev == nil {
-		return "", fmt.Errorf("N/S NIC is not initialized")
+// targetPF0Device returns the PCI address of the first physical port (p0).
+// SFs are always created on p0 across all BlueField generations.
+func (s *CreateSF) targetPF0Device(ctx *operations.Context) (string, error) {
+	ports, err := ctx.NSPorts()
+	if err != nil {
+		return "", err
 	}
-	return dev.PFPCIAddress(0), nil
+	for _, p := range ports {
+		if p.Netdev == "p0" {
+			return p.PCIAddress, nil
+		}
+	}
+	return "", fmt.Errorf("physical port p0 not found")
 }
 
 // SFInfo represents fields parsed from mlnx-sf -a show -j.
