@@ -2022,6 +2022,7 @@ _Appears in:_
 | `bfcfgParameters` _string array_ | BFCfgParameters are the parameters to be set in the bf.cfg file. |  | Optional: \{\} <br /> |
 | `configFiles` _[ConfigFile](#configfile) array_ | ConfigFiles are the files to be written on the DPU. |  | Optional: \{\} <br /> |
 | `packages` _[PackageSpec](#packagespec) array_ | Packages are the packages to reconcile on the node. |  | Optional: \{\} <br /> |
+| `systemdServices` _[SystemdServiceSpec](#systemdservicespec) array_ | SystemdServices are the systemd services to manage on the node. |  | Optional: \{\} <br /> |
 | `containerdConfig` _[ContainerdConfig](#containerdconfig)_ | ContainerdConfig contains the configuration for containerd. |  | Optional: \{\} <br /> |
 | `dpuResources` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#resourcelist-v1-core)_ | DPUResources indicates the minimum amount of resources needed for a BFB with that flavor to be installed on a<br />DPU. Using this field, the controller can understand if that flavor can be installed on a particular DPU. It<br />should be set to the total amount of resources the system needs + the resources that should be made available for<br />DPUServices to consume. |  | Optional: \{\} <br /> |
 | `systemReservedResources` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#resourcelist-v1-core)_ | SystemReservedResources indicates the resources that are consumed by the system (OS, OVS, DPF system etc) and are<br />not made available for DPUServices to consume. DPUServices can consume the difference between DPUResources and<br />SystemReservedResources. This field must not be specified if dpuResources are not specified. |  | Optional: \{\} <br /> |
@@ -3007,6 +3008,42 @@ _Appears in:_
 | --- | --- |
 | `OnDelete` | New DPU CR will only be created when you manually delete old DPU CR.<br /> |
 | `RollingUpdate` | Gradually scale down the old DPUs and scale up the new one.<br /> |
+
+
+#### SystemdServiceOperation
+
+_Underlying type:_ _string_
+
+SystemdServiceOperation defines the operation to perform on a systemd service.
+
+_Validation:_
+- Enum: [Start Enable EnableAndStart]
+
+_Appears in:_
+- [SystemdServiceSpec](#systemdservicespec)
+
+| Field | Description |
+| --- | --- |
+| `Start` | SystemdServiceStart starts the service without enabling it at boot.<br /> |
+| `Enable` | SystemdServiceEnable enables the service at boot without starting it immediately.<br /> |
+| `EnableAndStart` | SystemdServiceEnableAndStart enables the service at boot and starts it immediately (equivalent to systemctl enable --now).<br /> |
+
+
+#### SystemdServiceSpec
+
+
+
+SystemdServiceSpec defines a systemd service to manage on the node.
+
+
+
+_Appears in:_
+- [DPUFlavorSpec](#dpuflavorspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `name` _string_ | Name is the systemd service name. |  | MinLength: 1 <br /> |
+| `operation` _[SystemdServiceOperation](#systemdserviceoperation)_ | Operation is the systemd operation to perform on the service. |  | Enum: [Start Enable EnableAndStart] <br /> |
 
 
 #### UpgradePolicy

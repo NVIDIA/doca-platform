@@ -63,6 +63,9 @@ type DPUFlavorSpec struct {
 	// Packages are the packages to reconcile on the node.
 	// +optional
 	Packages []PackageSpec `json:"packages,omitempty"`
+	// SystemdServices are the systemd services to manage on the node.
+	// +optional
+	SystemdServices []SystemdServiceSpec `json:"systemdServices,omitempty"`
 	// ContainerdConfig contains the configuration for containerd.
 	// +optional
 	ContainerdConfig ContainerdConfig `json:"containerdConfig,omitempty"`
@@ -219,6 +222,30 @@ const (
 	// PackageVersionMatchAtLeast requires the installed package version to be greater than or equal to Value.
 	PackageVersionMatchAtLeast PackageVersionMatchPolicy = "AtLeast"
 )
+
+// SystemdServiceOperation defines the operation to perform on a systemd service.
+// +kubebuilder:validation:Enum=Start;Enable;EnableAndStart
+type SystemdServiceOperation string
+
+const (
+	// SystemdServiceStart starts the service without enabling it at boot.
+	SystemdServiceStart SystemdServiceOperation = "Start"
+
+	// SystemdServiceEnable enables the service at boot without starting it immediately.
+	SystemdServiceEnable SystemdServiceOperation = "Enable"
+
+	// SystemdServiceEnableAndStart enables the service at boot and starts it immediately (equivalent to systemctl enable --now).
+	SystemdServiceEnableAndStart SystemdServiceOperation = "EnableAndStart"
+)
+
+// SystemdServiceSpec defines a systemd service to manage on the node.
+type SystemdServiceSpec struct {
+	// Name is the systemd service name.
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+	// Operation is the systemd operation to perform on the service.
+	Operation SystemdServiceOperation `json:"operation"`
+}
 
 type ContainerdConfig struct {
 	// RegistryEndpoint is the endpoint of the container registry.
