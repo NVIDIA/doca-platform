@@ -66,6 +66,10 @@ isOpenshift: false
 # This is used to collect metrics for custom resources defined by the DPF Operator.
 kubeStateMetricsCRDMetrics:
   enabled: true
+  ## -- namespaceOverride allows to override the namespace where the customresourcestate ConfigMap is deployed.
+  ## Defaults to the release namespace. Set this if the kube-state-metrics Pod that mounts the ConfigMap
+  ## runs in a different namespace.
+  namespaceOverride: ""
 # -- grafanaDashboards enables the Grafana dashboards for the DPF Operator.
 grafanaDashboards:
   enabled: true

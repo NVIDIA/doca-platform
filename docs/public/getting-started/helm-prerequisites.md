@@ -42,6 +42,8 @@ provide the necessary configuration for these components.
 
 See [Running Argo CD in a separate namespace](#running-argo-cd-in-a-separate-namespace) for the configuration required to utilise ArgoCD running in a different namespace.
 
+See [Running Kube-State-Metrics in a separate namespace](#running-kube-state-metrics-in-a-separate-namespace) for the configuration required when KSM runs outside `dpf-operator-system`.
+
 [cert-manager]: https://cert-manager.io/docs/installation/helm
 [argo-cd]: https://argo-cd.readthedocs.io/en/stable/getting_started/
 [node-feature-discovery]: https://github.com/kubernetes-sigs/node-feature-discovery/tree/master/deployment/helm/node-feature-discovery
@@ -63,6 +65,15 @@ DPF supports running Argo CD in a namespace other than `dpf-operator-system`. Wh
 `dpf-operator-system`. Also set `spec.overrides.argoCDNamespace` in the `DPFOperatorConfig` to the namespace where
 Argo CD is installed. See the
 [DPFOperatorConfig guide](../developer-guides/api/dpfoperatorconfig.md#argo-cd-namespace) for an example.
+
+## Running Kube-State-Metrics in a separate namespace
+
+The shipped `kube-state-metrics` values are preconfigured to expose DPF custom resource metrics and work as-is
+when KSM runs in `dpf-operator-system`. If you deploy KSM in a different namespace, set
+`kubeStateMetricsCRDMetrics.namespaceOverride` in the DPF operator Helm values so the CustomResourceState
+ConfigMap lands next to the KSM Pod. See
+[Exposing DPF Custom Resource Metrics](../operational-readiness/observability/deployment/user-managed-components.md#exposing-dpf-custom-resource-metrics)
+for more details.
 
 ## Installation Options
 
