@@ -285,13 +285,112 @@ For configuration details, see the [OpenTelemetry Collector documentation](https
 
 ## Kube-State-Metrics
 
-The Kube-State-Metrics instance deployed via helmfile monitors Host Cluster Kubernetes resources (Pods, Deployments, Nodes, etc.). This is separate from the operator-deployed Kube-State-Metrics that monitors DPU custom resources.
+The user-deployed Kube-State-Metrics instance monitors Host Cluster Kubernetes resources (Pods, Deployments, Nodes, etc.). This is separate from the operator-deployed Kube-State-Metrics that monitors DPU custom resources.
 
 **Difference from DPF-Operator-Managed KSM:**
 
-* **Helmfile KSM**: Monitors standard Kubernetes resources on Host Cluster
+* **User-Managed KSM**: Monitors standard Kubernetes resources on Host Cluster
 * **Operator KSM**: Monitors DPF custom resources (DPU, IPPool, ServiceChain) on DPU clusters
 
 Both expose metrics to Prometheus via ServiceMonitor.
+
+### Exposing DPF Custom Resource Metrics
+
+The DPF operator Helm chart ships a `dpf-operator-customresourcestate-config` ConfigMap containing the CustomResourceState metric configuration for DPF CRDs. The shipped `kube-state-metrics` values already mount this ConfigMap and grant the required RBAC, so a default DPF installation works as-is.
+
+If you bring your own `kube-state-metrics` installation, configure the KSM Pod to:
+
+1. Mount the `dpf-operator-customresourcestate-config` ConfigMap as a file (`volumes` / `volumeMounts`)
+2. Pass `--custom-resource-state-config-file` pointing at that file (`extraArgs`)
+3. Grant `list`/`watch` RBAC on the DPF API groups and on `customresourcedefinitions` (`rbac.extraRules`)
+
+A minimal Helm values snippet for the `kube-state-metrics` helm chart to wire this up looks like:
+
+```yaml
+volumes:
+  - name: customresourcestate-config
+    configMap:
+      name: dpf-operator-customresourcestate-config
+volumeMounts:
+  - name: customresourcestate-config
+    mountPath: /etc/customresourcestate
+    readOnly: true
+extraArgs:
+  - --custom-resource-state-config-file=/etc/customresourcestate/config.yaml
+rbac:
+  extraRules:
+    - apiGroups:
+        - svc.dpu.nvidia.com
+        - operator.dpu.nvidia.com
+        - provisioning.dpu.nvidia.com
+        - storage.dpu.nvidia.com
+        - vpc.dpu.nvidia.com
+      resources: ["*"]
+      verbs: ["list", "watch"]
+    - apiGroups: ["apiextensions.k8s.io"]
+      resources: ["customresourcedefinitions"]
+      verbs: ["list", "watch"]
+```
+
+For the full reference values shipped with DPF (including affinity, tolerations, ServiceMonitor, and label allowlist), see:
+
+<details markdown="1"><summary><b>kube-state-metrics values</b></summary>
+
+[embedmd]:#(../../../../../deploy/helmfiles/values/kube-state-metrics.yaml)
+```yaml
+# Kube State Metrics configuration
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: "node-role.kubernetes.io/master"
+              operator: Exists
+        - matchExpressions:
+            - key: "node-role.kubernetes.io/control-plane"
+              operator: Exists
+tolerations:
+  - key: node-role.kubernetes.io/master
+    operator: Exists
+    effect: NoSchedule
+  - key: node-role.kubernetes.io/control-plane
+    operator: Exists
+    effect: NoSchedule
+extraArgs:
+  - --custom-resource-state-config-file=/etc/customresourcestate/config.yaml
+  - --metric-labels-allowlist=pods=[svc.dpu.nvidia.com/service],daemonsets=[svc.dpu.nvidia.com/service],deployments=[svc.dpu.nvidia.com/service]
+volumes:
+  - configMap:
+      defaultMode: 420
+      name: dpf-operator-customresourcestate-config
+    name: customresourcestate-config
+volumeMounts:
+  - mountPath: /etc/customresourcestate
+    name: customresourcestate-config
+    readOnly: true
+prometheus:
+  monitor:
+    enabled: true
+    http:
+      honorLabels: true
+rbac:
+  extraRules:
+    - apiGroups:
+        - svc.dpu.nvidia.com
+        - operator.dpu.nvidia.com
+        - provisioning.dpu.nvidia.com
+        - storage.dpu.nvidia.com
+        - vpc.dpu.nvidia.com
+      resources:
+        - '*'
+      verbs: ["list", "watch"]
+    - apiGroups: ["apiextensions.k8s.io"]
+      resources: ["customresourcedefinitions"]
+      verbs: ["list", "watch"]
+```
+
+</details>
+
+The ConfigMap must reside in the same namespace as the `kube-state-metrics` Pod in this scenario. By default the DPF operator creates it in the release namespace (`dpf-operator-system`). If KSM runs in a different namespace, set `kubeStateMetricsCRDMetrics.namespaceOverride` in the DPF operator Helm values to match.
 
 For more information, see the [Kube-State-Metrics documentation](https://github.com/kubernetes/kube-state-metrics/tree/main/docs).
