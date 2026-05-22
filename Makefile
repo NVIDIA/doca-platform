@@ -136,6 +136,10 @@ NVIDIA_EXTERNAL_ATTACHER_DIR=third_party/forked/nvidia-external-attacher
 export NODE_SRIOV_DEVICE_PLUGIN_IMAGE=nvcr.io/nvidia/mellanox/sriov-network-device-plugin
 export NODE_SRIOV_DEVICE_PLUGIN_TAG=network-operator-v26.1.0
 
+# Kata Containers kata-deploy image, deployed as a dpu-networking subchart
+export KATA_DEPLOY_IMAGE=quay.io/kata-containers/kata-deploy
+export KATA_DEPLOY_TAG=3.30.0@sha256:b31cf13addbaf49af9e211bf6ab38335299015a754e2bc0341aa4ba47d8cb395
+
 # VPC dependencies to be able to build/push images and charts
 VPC_REF=8d097b06c70046c99cf0da44809944af54af8db2
 VPC_DIR=$(REPOSDIR)/ovn-vpc/ovn-vpc-$(VPC_REF)
@@ -725,7 +729,7 @@ verify-manifest-operator: helm-package-operator helm $(ARTIFACTS_RENDERED_MANIFE
 	  MANIFEST_NAME="dpf-operator" \
 	  hack/scripts/validate-manifest-checkov.sh
 
-VERIFY_DPU_NETWORKING_MANIFESTS ?= flannel multus sriov-device-plugin nvidia-k8s-ipam ovs-cni servicechainset-controller sfc-controller cni-installer node-problem-detector kube-state-metrics opentelemetry-collector
+VERIFY_DPU_NETWORKING_MANIFESTS ?= flannel multus sriov-device-plugin nvidia-k8s-ipam ovs-cni servicechainset-controller sfc-controller cni-installer node-problem-detector kube-state-metrics opentelemetry-collector kata-containers
 
 verify-manifests-dpu-networking-all: $(addprefix verify-manifest-dpu-networking-,$(VERIFY_DPU_NETWORKING_MANIFESTS)) ## Run manifest verification for manifests embedded into dpf-operator
 
@@ -842,6 +846,15 @@ verify-manifest-dpu-networking-opentelemetry-collector: helm-package-dpu-network
 	> $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-opentelemetry-collector-$(TAG).yaml
 	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-opentelemetry-collector-$(TAG).yaml" \
 	  MANIFEST_NAME="dpu-networking-opentelemetry-collector" \
+	  hack/scripts/validate-manifest-checkov.sh
+
+.PHONY: verify-manifest-dpu-networking-kata-containers
+verify-manifest-dpu-networking-kata-containers: helm-package-dpu-networking helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the dpu-networking kata-containers subchart
+	$Q $(HELM) template $(CHARTSDIR)/$(DPU_NETWORKING_HELM_CHART_NAME)-$(DPU_NETWORKING_HELM_CHART_VER).tgz \
+	  --set kata-containers.enabled=true \
+	> $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-kata-containers-$(TAG).yaml
+	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-kata-containers-$(TAG).yaml" \
+	  MANIFEST_NAME="dpu-networking-kata-containers" \
 	  hack/scripts/validate-manifest-checkov.sh
 
 .PHONY: verify-manifest-vpc-ovn-host

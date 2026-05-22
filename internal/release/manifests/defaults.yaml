@@ -13,3 +13,4 @@ dpuNetworkingHelmChart: oci://example.com/dpu-networking:v0.1.0
 
 ## Extra dependencies that are directly refered by the DPF binaries, but not built as part of the DPF release.
 nodeSRIOVDevicePluginImage: nvcr.io/nvidia/mellanox/sriov-network-device-plugin:network-operator-v26.1.0
+kataDeployImage: quay.io/kata-containers/kata-deploy:3.30.0@sha256:b31cf13addbaf49af9e211bf6ab38335299015a754e2bc0341aa4ba47d8cb395

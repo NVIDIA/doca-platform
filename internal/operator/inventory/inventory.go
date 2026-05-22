@@ -71,6 +71,7 @@ type SystemComponents struct {
 	KubeStateMetrics                Component
 	NodeProblemDetector             Component
 	OpenTelemetryCollector          Component
+	KataContainers                  Component
 }
 
 // Embed manifests for Kubernetes objects created by the controller.
@@ -128,6 +129,9 @@ var (
 
 	//go:embed manifests/opentelemetry-collector.yaml
 	openTelemetryCollectorData []byte
+
+	//go:embed manifests/kata-containers.yaml
+	kataContainersData []byte
 )
 
 // New returns a new SystemComponents inventory with data preloaded but parsing not completed.
@@ -179,6 +183,10 @@ func New() *SystemComponents {
 			name: operatorv1.OpenTelemetryCollectorName,
 			data: openTelemetryCollectorData,
 		},
+		KataContainers: &fromDPUService{
+			name: operatorv1.KataContainersName,
+			data: kataContainersData,
+		},
 	}
 }
 
@@ -196,6 +204,7 @@ func (s *SystemComponents) SystemDPUServices() []Component {
 		s.KubeStateMetrics,
 		s.NodeProblemDetector,
 		s.OpenTelemetryCollector,
+		s.KataContainers,
 	}
 }
 
@@ -219,6 +228,7 @@ func (s *SystemComponents) AllComponents() []Component {
 		s.KubeStateMetrics,
 		s.NodeProblemDetector,
 		s.OpenTelemetryCollector,
+		s.KataContainers,
 	}
 }
 
@@ -303,5 +313,10 @@ func (s *SystemComponents) setSfcController(input fromDPUService) *SystemCompone
 
 func (s *SystemComponents) setCNIInstaller(input fromDPUService) *SystemComponents {
 	s.CNIInstaller = &input
+	return s
+}
+
+func (s *SystemComponents) setKataContainers(input fromDPUService) *SystemComponents {
+	s.KataContainers = &input
 	return s
 }

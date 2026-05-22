@@ -165,6 +165,31 @@ exclusions: # Is used to define exclusions on a per-chart basis when analyzing a
   - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
     resource: DaemonSet.default.release-name-opentelemetry-collector
 
+  dpu-networking-kata-containers:
+  # kata-deploy requires privileged access to install binaries, configure containerd, and restart services.
+  - check_id: CKV_K8S_29 # Apply security context to your pods and containers
+    resource: DaemonSet.default.kata-deploy
+  - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
+    resource: DaemonSet.default.kata-deploy
+  # kata-deploy does not set resource limits (matching upstream behavior).
+  - check_id: CKV_K8S_11 # CPU limits should be set
+    resource: DaemonSet.default.kata-deploy
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/resources/limits/cpu
+  - check_id: CKV_K8S_13 # Memory limits should be set
+    resource: DaemonSet.default.kata-deploy
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/resources/limits/memory
+  # kata-deploy does not provide liveness or readiness probes (long-running installer, not a service).
+  - check_id: CKV_K8S_8 # Liveness Probe Should be Configured
+    resource: DaemonSet.default.kata-deploy
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/livenessProbe
+  - check_id: CKV_K8S_9 # Readiness Probe Should be Configured
+    resource: DaemonSet.default.kata-deploy
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/readinessProbe
+
   kamaji-keepalived:
   # Keepalived does not provide liveness or readiness probes.
   - check_id: CKV_K8S_8 # Liveness Probe Should be Configured

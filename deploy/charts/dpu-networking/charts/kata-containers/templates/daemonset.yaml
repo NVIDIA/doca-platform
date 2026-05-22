@@ -1,0 +1,99 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: kata-deploy
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kata-containers.labels" . | nindent 4 }}
+  annotations:
+    {{- include "kata-containers.annotations" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      name: kata-deploy
+      {{- include "kata-containers.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        name: kata-deploy
+        {{- include "kata-containers.labels" . | nindent 8 }}
+      annotations:
+        {{- include "kata-containers.annotations" . | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      serviceAccountName: {{ include "kata-containers.fullname" . }}-sa
+      hostPID: true
+      terminationGracePeriodSeconds: 600
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 6 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: kube-kata
+        image: {{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}
+        command: ["/usr/bin/kata-deploy", "install"]
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: DEBUG
+          value: "false"
+        {{- $enabledShims := list }}
+        {{- range $name, $shim := .Values.shims }}
+        {{- if and (kindIs "map" $shim) (eq (toString $shim.enabled) "true") }}
+        {{- $enabledShims = append $enabledShims $name }}
+        {{- end }}
+        {{- end }}
+        {{- if $enabledShims }}
+        - name: SHIMS_AARCH64
+          value: {{ join " " $enabledShims | quote }}
+        {{- end }}
+        - name: DEFAULT_SHIM_AARCH64
+          value: {{ .Values.defaultShim | quote }}
+        {{- if .Values.containerd.configFileName }}
+        - name: CONTAINERD_CONFIG_FILE_NAME
+          value: {{ .Values.containerd.configFileName | quote }}
+        {{- end }}
+        - name: CREATE_RUNTIMECLASSES
+          value: "false"
+        - name: CREATE_DEFAULT_RUNTIMECLASS
+          value: "false"
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+          name: kube-api-access
+          readOnly: true
+        - name: containerd-conf
+          mountPath: /etc/containerd/
+        - name: host
+          mountPath: /host/
+      volumes:
+      - name: kube-api-access
+        projected:
+          defaultMode: 420
+          sources:
+          - serviceAccountToken:
+              path: token
+          - configMap:
+              items:
+              - key: ca.crt
+                path: ca.crt
+              name: kube-root-ca.crt
+          - downwardAPI:
+              items:
+              - fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+                path: namespace
+      - name: containerd-conf
+        hostPath:
+          path: {{ .Values.containerd.configDir | default "/etc/containerd/" | quote }}
+      - name: host
+        hostPath:
+          path: /
