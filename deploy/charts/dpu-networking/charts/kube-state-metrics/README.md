@@ -8,8 +8,8 @@ Kube-state-metrics for DPU custom resources
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| deployDPUManifests | bool | `false` |  |
-| deployHostManifests | bool | `false` |  |
+| deployDPUManifests | bool | `false` | deployDPUManifests controls whether the manifests that are required in the DPUCluster should be deployed. |
+| deployHostManifests | bool | `false` | deployHostManifests controls whether the manifests that are required in the host cluster should be deployed. |
 | env | list | `[]` |  |
 | image.pullPolicy | string | `"IfNotPresent"` |  |
 | image.repository | string | `"registry.k8s.io/kube-state-metrics/kube-state-metrics"` |  |

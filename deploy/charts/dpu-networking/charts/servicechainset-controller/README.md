@@ -21,8 +21,8 @@ A Helm chart for Kubernetes
 | controllerManager.manager.resources.requests.cpu | string | `"10m"` |  |
 | controllerManager.manager.resources.requests.memory | string | `"64Mi"` |  |
 | controllerManager.replicas | int | `1` |  |
-| deployDPUManifests | bool | `false` |  |
-| deployHostManifests | bool | `false` |  |
+| deployDPUManifests | bool | `false` | deployDPUManifests controls whether the manifests that are required in the DPUCluster should be deployed. |
+| deployHostManifests | bool | `false` | deployHostManifests controls whether the manifests that are required in the host cluster should be deployed. |
 | env | list | `[]` |  |
 | imagePullSecrets | list | `[]` |  |
 | rbac.serviceAccounts | list | `[]` |  |

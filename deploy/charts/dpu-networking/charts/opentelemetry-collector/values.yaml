@@ -16,8 +16,8 @@ resources:
     cpu: 100m
     memory: 256Mi
 
-# Endpoint where the DPU cluster collector sends logs/metrics to the management cluster
-# This MUST be set via DPFOperatorConfig.spec.monitoring.openTelemetryCollector.endpoint
-# Example: "http://10.0.110.1:30050" (management cluster node IP with NodePort)
 logging:
+  # -- endpoint where the DPU cluster collector sends logs/metrics to the management cluster.
+  # This MUST be set via DPFOperatorConfig.spec.monitoring.openTelemetryCollector.endpoint.
+  # Example: "http://10.0.110.1:30050" (management cluster node IP with NodePort).
   endpoint: ""
