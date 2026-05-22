@@ -390,6 +390,30 @@ spec:
                   not made available for DPUServices to consume. DPUServices can consume the difference between DPUResources and
                   SystemReservedResources. This field must not be specified if dpuResources are not specified.
                 type: object
+              systemdServices:
+                description: SystemdServices are the systemd services to manage on
+                  the node.
+                items:
+                  description: SystemdServiceSpec defines a systemd service to manage
+                    on the node.
+                  properties:
+                    name:
+                      description: Name is the systemd service name.
+                      minLength: 1
+                      type: string
+                    operation:
+                      description: Operation is the systemd operation to perform on
+                        the service.
+                      enum:
+                      - Start
+                      - Enable
+                      - EnableAndStart
+                      type: string
+                  required:
+                  - name
+                  - operation
+                  type: object
+                type: array
             type: object
             x-kubernetes-validations:
             - message: DPUFlavor spec is immutable
