@@ -53,6 +53,8 @@ var (
 	getInterfaceNameFunc = func(pciAddress string, portNumber int) (string, error) {
 		return hostutil.NewPCIHelper(pciAddress).PF(portNumber).InterfaceName()
 	}
+	isVFFunc       = hostutil.IsVF
+	setLinkMTUFunc = hostutil.SetLinkMTU
 )
 
 // NetworkManagerBackend implements Backend using NetworkManager via D-Bus.
@@ -108,7 +110,7 @@ func (n *NetworkManagerBackend) configureSinglePF(pciAddress string, portConfig 
 
 	updateSettings := make(ConnectionSettings)
 
-	if err := n.collectMTUDiff(interfaceName, portConfig.MTU, updateSettings); err != nil {
+	if err := n.collectMTUDiff(connPath, interfaceName, portConfig.MTU, updateSettings); err != nil {
 		return false, err
 	}
 	if err := n.collectDHCPDiff(interfaceName, portConfig.DHCP, updateSettings); err != nil {
@@ -126,10 +128,19 @@ func (n *NetworkManagerBackend) configureSinglePF(pciAddress string, portConfig 
 	return true, nil
 }
 
-func (n *NetworkManagerBackend) collectMTUDiff(interfaceName string, desiredMTU *int32, out ConnectionSettings) error {
+func (n *NetworkManagerBackend) collectMTUDiff(connPath ConnectionPath, interfaceName string, desiredMTU *int32, out ConnectionSettings) error {
 	if desiredMTU == nil {
 		return nil
 	}
+
+	// Check the NM profile MTU first. If the profile already has the desired
+	// value, skip — re-activating the connection would bounce the interface
+	// and temporarily reset the link MTU to the driver default.
+	if profileMTU, err := n.getProfileMTU(connPath); err == nil && profileMTU == uint32(*desiredMTU) {
+		klog.V(3).Infof("%s NM profile MTU already %d, skipping", interfaceName, profileMTU)
+		return nil
+	}
+
 	currentMTU, err := getCurrentMTUFunc(interfaceName)
 	if err != nil {
 		return fmt.Errorf("failed to get current MTU for %s: %w", interfaceName, err)
@@ -142,6 +153,26 @@ func (n *NetworkManagerBackend) collectMTUDiff(interfaceName string, desiredMTU 
 		"mtu": dbus.MakeVariant(uint32(*desiredMTU)),
 	}
 	return nil
+}
+
+func (n *NetworkManagerBackend) getProfileMTU(connPath ConnectionPath) (uint32, error) {
+	settings, err := n.client.GetConnectionSettings(connPath)
+	if err != nil {
+		return 0, err
+	}
+	ethSection, ok := settings[nmSectionEthernet]
+	if !ok {
+		return 0, fmt.Errorf("no %s section", nmSectionEthernet)
+	}
+	mtuVariant, ok := ethSection["mtu"]
+	if !ok {
+		return 0, fmt.Errorf("no mtu property")
+	}
+	mtu, ok := mtuVariant.Value().(uint32)
+	if !ok {
+		return 0, fmt.Errorf("mtu is not uint32")
+	}
+	return mtu, nil
 }
 
 func (n *NetworkManagerBackend) collectDHCPDiff(interfaceName string, desiredDHCP *bool, out ConnectionSettings) error {
@@ -229,6 +260,14 @@ func (n *NetworkManagerBackend) configureBridgeMembersMTU(bridgeName string, mtu
 
 		klog.Infof("Bridge member %s MTU mismatch (current=%d, desired=%d)", memberName, currentMTU, mtu)
 
+		if isVFFunc(memberName) {
+			klog.Infof("Member %s is a VF, setting MTU via netlink", memberName)
+			if err := setLinkMTUFunc(memberName, mtu); err != nil {
+				return false, fmt.Errorf("failed to set MTU for VF %s via netlink: %w", memberName, err)
+			}
+			continue
+		}
+
 		connPath, err := n.getOrCreateConnectionForInterface(memberName, nmConnTypeEthernet)
 		if err != nil {
 			return false, fmt.Errorf("failed to get/create connection for member %s: %w", memberName, err)
@@ -239,8 +278,9 @@ func (n *NetworkManagerBackend) configureBridgeMembersMTU(bridgeName string, mtu
 				"mtu": dbus.MakeVariant(uint32(mtu)),
 			},
 			"connection": map[string]dbus.Variant{
-				"master":     dbus.MakeVariant(bridgeName),
-				"slave-type": dbus.MakeVariant("bridge"),
+				"master":            dbus.MakeVariant(bridgeName),
+				"slave-type":        dbus.MakeVariant("bridge"),
+				nmPropInterfaceName: dbus.MakeVariant(memberName),
 			},
 		}
 		if err := n.mergeAndUpdateConnection(connPath, settings); err != nil {
