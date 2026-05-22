@@ -498,3 +498,9 @@ func writeBridgeMTUConfig(controlPlaneMTU int) error {
 
 	return writeNetplanFile(BridgeMTUNetplanFile, &config)
 }
+
+// IsVF returns true if the given network interface is a PCI Virtual Function.
+func IsVF(interfaceName string) bool {
+	_, err := os.Stat(filepath.Join("/sys/class/net", interfaceName, "device", "physfn"))
+	return err == nil
+}
