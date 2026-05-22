@@ -34,7 +34,7 @@ DPF Operator manages the lifecycle of a DOCA Platform Framework system.
 | kamajiEtcdDefrag.replicas | int | `3` | The replica count of the etcd cluster. |
 | kamajiEtcdDefrag.schedule | string | `"0 0 * * *"` | The schedule for the etcd-defrag job. |
 | kamajiEtcdDefrag.successfulJobsHistoryLimit | int | `3` | Keep only the X recent successful jobs. |
-| kubeStateMetricsCRDMetrics | object | `{"enabled":true}` | kubeStateMetricsCRDMetrics enables the kube-state-metrics custom resource state metrics. This is used to collect metrics for custom resources defined by the DPF Operator. |
+| kubeStateMetricsCRDMetrics | object | `{"enabled":true,"namespaceOverride":""}` | kubeStateMetricsCRDMetrics enables the kube-state-metrics custom resource state metrics. This is used to collect metrics for custom resources defined by the DPF Operator. |
 | prometheusSecureMetrics | object | `{"enabled":true}` | prometheusSecureMetrics enables the secure metrics endpoint for Prometheus. This is used to expose metrics securely for Prometheus scraping. |
 | tolerations | list | `[{"effect":"NoSchedule","key":"node-role.kubernetes.io/master","operator":"Exists"},{"effect":"NoSchedule","key":"node-role.kubernetes.io/control-plane","operator":"Exists"}]` | tolerations applied to the controller Pod. Defaults allow scheduling on tainted control-plane nodes. |
 
