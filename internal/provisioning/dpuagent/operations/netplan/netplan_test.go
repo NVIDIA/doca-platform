@@ -25,7 +25,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/cmd/dpuagent/opts"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
-	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
+	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -34,7 +34,11 @@ import (
 
 var _ = Describe("Netplan", func() {
 	var tempDir string
-	targetNIC := &hostutil.Device{Address: "0000:00:00", NumOfPFs: 1}
+	discoverOnePort := func() ([]pciutil.NICPort, error) { //nolint:unparam
+		return []pciutil.NICPort{
+			{Netdev: "p0", PCIAddress: "0000:00:00.0", MSTDevice: "/dev/mst/mt0"},
+		}, nil
+	}
 
 	BeforeEach(func() {
 		var err error
@@ -82,8 +86,8 @@ var _ = Describe("Netplan", func() {
 				Options: opts.Options{
 					ZeroTrustMode: true,
 				},
-				Client: &mockClient{},
-				NSNIC:  targetNIC,
+				Client:        &mockClient{},
+				DiscoverPorts: discoverOnePort,
 			})).To(Succeed())
 
 			_, err = os.Stat(mockFile)
@@ -130,8 +134,8 @@ var _ = Describe("Netplan", func() {
 				Options: opts.Options{
 					ZeroTrustMode: false,
 				},
-				Client: &mockClient{},
-				NSNIC:  targetNIC,
+				Client:        &mockClient{},
+				DiscoverPorts: discoverOnePort,
 			})).To(Succeed())
 
 			_, err = os.Stat(mockFile)
@@ -178,7 +182,12 @@ var _ = Describe("Netplan", func() {
 			Expect(operation.Execute(ctx, &operations.Context{
 				Options: opts.Options{ZeroTrustMode: true},
 				Client:  &mockClient{},
-				NSNIC:   &hostutil.Device{Address: "0000:00:00", NumOfPFs: 2},
+				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+					return []pciutil.NICPort{
+						{Netdev: "p0", PCIAddress: "0000:00:00.0", MSTDevice: "/dev/mst/mt0"},
+						{Netdev: "p1", PCIAddress: "0000:00:00.1", MSTDevice: "/dev/mst/mt0.1"},
+					}, nil
+				},
 			})).To(Succeed())
 
 			content, err := os.ReadFile(filepath.Join(tempDir, "97-pf-mtu.yaml"))

@@ -19,14 +19,12 @@ package nvconfig
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
-	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
 	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
 
@@ -37,14 +35,10 @@ import (
 
 const (
 	CondNVConfigApplied = "NVConfigApplied"
-
-	flavourPhysical = "physical"
 )
 
 type ConfigureNVConfig struct {
-	runBash        func(cmd string) (bytes.Buffer, bytes.Buffer, error)
-	getDevlinkPort func() (string, error)
-	getNetdevPCI   func(netdev string) (string, error)
+	runBash func(cmd string) (bytes.Buffer, bytes.Buffer, error)
 }
 
 func (n *ConfigureNVConfig) Name() string {
@@ -91,7 +85,7 @@ func (n *ConfigureNVConfig) Execute(execCtx context.Context, optCtx *operations.
 	}
 
 	// 1.Get PCI -> netdev map.
-	pciToNetdev, err := n.pciToNetdevMap(optCtx.NSNIC)
+	pciToNetdev, err := n.pciToNetdevMap(optCtx)
 	if err != nil {
 		return fmt.Errorf("get devices from devlink: %w", err)
 	}
@@ -199,72 +193,14 @@ func pciToNVConfig(nvconfigs []provisioningv1.NVConfig, pciToNetdev map[string]s
 	return out
 }
 
-// devlinkPortShowJSON is the structure of "devlink port show -j" output.
-type devlinkPortShowJSON struct {
-	Port map[string]devlinkPortEntry `json:"port"`
-}
-
-// devlinkPortEntry is one port entry in devlink port show JSON.
-type devlinkPortEntry struct {
-	Type   string `json:"type"`
-	Netdev string `json:"netdev"`
-	//nolint:misspell // devlink API key is British spelling "flavour"
-	Flavor string `json:"flavour"`
-	Port   *int   `json:"port,omitempty"`
-}
-
-func (n *ConfigureNVConfig) pciToNetdevMap(target *hostutil.Device) (map[string]string, error) {
-	if n.getDevlinkPort == nil {
-		n.getDevlinkPort = getDevlinkPort
-	}
-	if target == nil {
-		return nil, fmt.Errorf("N/S NIC is not initialized")
-	}
-	// 1. Get devlink port show JSON.
-	output, err := n.getDevlinkPort()
+func (n *ConfigureNVConfig) pciToNetdevMap(optCtx *operations.Context) (map[string]string, error) {
+	ports, err := optCtx.NSPorts()
 	if err != nil {
 		return nil, err
 	}
-	var out devlinkPortShowJSON
-	if err := json.Unmarshal([]byte(output), &out); err != nil {
-		return nil, fmt.Errorf("devlink port show: parse JSON: %w", err)
-	}
-	if out.Port == nil {
-		return nil, fmt.Errorf("devlink port show: missing \"port\" object")
-	}
-	if n.getNetdevPCI == nil {
-		n.getNetdevPCI = pciutil.NetdevPCI
-	}
-	allowedPCI := pciutil.AddressSet(target.PFPCIAddresses())
-
-	// 2. Physical uplinks (p0/p1) are auxiliary devlink entries. Resolve each
-	// physical netdev back to its PF PCI address through sysfs uevent.
-	pciToNetdev := make(map[string]string)
-	for key, entry := range out.Port {
-		if !strings.EqualFold(strings.TrimSpace(entry.Flavor), flavourPhysical) {
-			continue
-		}
-		netdev := strings.TrimSpace(entry.Netdev)
-		if netdev == "" {
-			return nil, fmt.Errorf("physical devlink port %s has no netdev", key)
-		}
-		pci, err := n.getNetdevPCI(netdev)
-		if err != nil {
-			return nil, fmt.Errorf("get PCI address for physical netdev %s: %w", netdev, err)
-		}
-		pci = pciutil.NormalizeAddress(pci)
-		if pci == "" {
-			klog.Infof("Skipping physical devlink port with no PCI address, netdev=%s", netdev)
-			continue
-		}
-		if _, ok := allowedPCI[pci]; !ok {
-			klog.Infof("Skipping physical devlink port outside target NIC, netdev=%s, pciAddress=%s, targetPCIAddresses=%v", netdev, pci, target.PFPCIAddresses())
-			continue
-		}
-		if existing, ok := pciToNetdev[pci]; ok && existing != netdev {
-			return nil, fmt.Errorf("multiple physical netdevs for PCI %s: %s, %s", pci, existing, netdev)
-		}
-		pciToNetdev[pci] = netdev
+	pciToNetdev := make(map[string]string, len(ports))
+	for _, port := range ports {
+		pciToNetdev[pciutil.NormalizeAddress(port.PCIAddress)] = port.Netdev
 	}
 	return pciToNetdev, nil
 }
@@ -277,13 +213,4 @@ func (n *ConfigureNVConfig) runMlxconfig(dev, op, args string) error {
 		return fmt.Errorf("%s: %w (stderr: %s)", cmd, err, stderr.String())
 	}
 	return nil
-}
-
-func getDevlinkPort() (string, error) {
-	const cmd = "devlink port show -j"
-	stdout, stderr, err := bash.Run(cmd)
-	if err != nil {
-		return "", fmt.Errorf("%s: %w (stderr: %s)", cmd, err, stderr.String())
-	}
-	return stdout.String(), nil
 }

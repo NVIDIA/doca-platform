@@ -17,90 +17,36 @@ limitations under the License.
 package util
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
-	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
-	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
+	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
+
+	"k8s.io/klog/v2"
 )
 
-var mstPCIAddressRegex = regexp.MustCompile(`domain:bus:dev\.fn=([0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-9]+)`)
+var sysfsPCIDevicesDir = "/sys/bus/pci/devices"
 
-// DiscoverNSNIC selects the single NIC that dpu-agent should operate on.
-// BF2/BF3 expose one DPU NIC. BF4 may expose multiple NICs; only the N/S NIC
-// has the supported BF4 device ID.
-func DiscoverNSNIC(sysFSRoot string) (*hostutil.Device, error) {
-	devices, err := hostutil.DiscoverDPUs(sysFSRoot)
-	if err != nil {
-		return nil, err
-	}
-	if len(devices) == 0 {
-		return nil, fmt.Errorf("no N/S NIC found")
-	}
-	if len(devices) > 1 {
-		addrs := make([]string, 0, len(devices))
-		for _, dev := range devices {
-			addrs = append(addrs, dev.Address)
-		}
-		return nil, fmt.Errorf("multiple N/S NICs found: %s", strings.Join(addrs, ", "))
-	}
-	return &devices[0], nil
+// nsNICDeviceIDs lists PCI device IDs for known DPU N/S NICs.
+var nsNICDeviceIDs = map[string]struct{}{
+	"0xa2d6": {}, // BlueField-2
+	"0xa2dc": {}, // BlueField-3
+	"0xa2df": {}, // BlueField-4
 }
 
-// MFTDevicesForNSNIC lists MST device paths and keeps only those backed by
-// PF PCI addresses on the selected N/S NIC.
-func MFTDevicesForNSNIC(mstDevicesPath string, nic *hostutil.Device, runBash bash.RunFunc) ([]string, error) {
-	if runBash == nil {
-		runBash = bash.Run
-	}
-	// BF4 images may not start MST automatically, so refresh devices before listing /dev/mst.
-	if _, stderr, err := runBash("mst start"); err != nil {
-		return nil, fmt.Errorf("failed to start mst: %w, stderr: %s", err, stderr.String())
-	}
-
-	devices, err := filepath.Glob(filepath.Join(mstDevicesPath, "*"))
+// NSPortFilter returns true for ports backed by a known N/S NIC device ID.
+func NSPortFilter(port pciutil.NICPort) bool {
+	devicePath := filepath.Join(sysfsPCIDevicesDir, port.PCIAddress, "device")
+	data, err := os.ReadFile(devicePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list MST devices: %w", err)
+		klog.Errorf("Failed to read PCI device ID for %s (PCI %s): %v", port.Netdev, port.PCIAddress, err)
+		return false
 	}
-	if len(devices) == 0 {
-		return nil, fmt.Errorf("no MST devices found in %s", mstDevicesPath)
+	id := strings.ToLower(strings.TrimSpace(string(data)))
+	if id != "" && !strings.HasPrefix(id, "0x") {
+		id = "0x" + id
 	}
-	if nic == nil {
-		return nil, fmt.Errorf("N/S NIC is not initialized")
-	}
-
-	allowed := map[string]struct{}{}
-	for _, pci := range nic.PFPCIAddresses() {
-		allowed[pci] = struct{}{}
-	}
-
-	selected := []string{}
-	for _, device := range devices {
-		pci, err := pciAddressFromMSTDevice(device)
-		if err != nil {
-			return nil, err
-		}
-		if _, ok := allowed[pci]; ok {
-			selected = append(selected, device)
-		}
-	}
-	return selected, nil
-}
-
-func pciAddressFromMSTDevice(device string) (string, error) {
-	content, err := os.ReadFile(device)
-	if err != nil {
-		return "", fmt.Errorf("failed to read MST device %s: %w", device, err)
-	}
-	// Example MST device content:
-	// /dev/mst/mt41692_pciconf0 - PCI configuration cycles access.
-	//                            domain:bus:dev.fn=0000:03:00.0 addr.reg=88 data.reg=92 cr_bar.gw_offset=-1
-	matches := mstPCIAddressRegex.FindSubmatch(content)
-	if len(matches) != 2 {
-		return "", fmt.Errorf("failed to parse PCI address from MST device %s", device)
-	}
-	return string(matches[1]), nil
+	_, ok := nsNICDeviceIDs[id]
+	return ok
 }

@@ -24,7 +24,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/cmd/dpuagent/opts"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
-	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
+	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -83,7 +83,12 @@ var _ = Describe("DPUAgent", func() {
 				retryInterval: testRetryInterval,
 				optCtx: &operations.Context{
 					Client: &mockClient{},
-					NSNIC:  &hostutil.Device{Address: "0000:03:00", NumOfPFs: 2},
+					DiscoverPorts: func() ([]pciutil.NICPort, error) {
+						return []pciutil.NICPort{
+							{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: "/dev/mst/mt41692_pciconf0"},
+							{Netdev: "p1", PCIAddress: "0000:03:00.1", MSTDevice: "/dev/mst/mt41692_pciconf0.1"},
+						}, nil
+					},
 				},
 				operations: mockOps,
 			}
@@ -109,7 +114,12 @@ var _ = Describe("DPUAgent", func() {
 				retryInterval: testRetryInterval,
 				optCtx: &operations.Context{
 					Client: &mockClient{},
-					NSNIC:  &hostutil.Device{Address: "0000:03:00", NumOfPFs: 2},
+					DiscoverPorts: func() ([]pciutil.NICPort, error) {
+						return []pciutil.NICPort{
+							{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: "/dev/mst/mt41692_pciconf0"},
+							{Netdev: "p1", PCIAddress: "0000:03:00.1", MSTDevice: "/dev/mst/mt41692_pciconf0.1"},
+						}, nil
+					},
 				},
 				operations: mockOps,
 			}
@@ -134,7 +144,12 @@ var _ = Describe("DPUAgent", func() {
 				retryInterval: testRetryInterval,
 				optCtx: &operations.Context{
 					Client: &mockClient{},
-					NSNIC:  &hostutil.Device{Address: "0000:03:00", NumOfPFs: 2},
+					DiscoverPorts: func() ([]pciutil.NICPort, error) {
+						return []pciutil.NICPort{
+							{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: "/dev/mst/mt41692_pciconf0"},
+							{Netdev: "p1", PCIAddress: "0000:03:00.1", MSTDevice: "/dev/mst/mt41692_pciconf0.1"},
+						}, nil
+					},
 				},
 				operations: mockOps,
 			}
@@ -151,7 +166,12 @@ var _ = Describe("DPUAgent", func() {
 				},
 				optCtx: &operations.Context{
 					Client: &mockClient{},
-					NSNIC:  &hostutil.Device{Address: "0000:03:00", NumOfPFs: 2},
+					DiscoverPorts: func() ([]pciutil.NICPort, error) {
+						return []pciutil.NICPort{
+							{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: "/dev/mst/mt41692_pciconf0"},
+							{Netdev: "p1", PCIAddress: "0000:03:00.1", MSTDevice: "/dev/mst/mt41692_pciconf0.1"},
+						}, nil
+					},
 				},
 				operations: []operations.Operation{
 					&mockOperation{
@@ -177,7 +197,12 @@ var _ = Describe("DPUAgent", func() {
 				},
 				optCtx: &operations.Context{
 					Client: &mockClient{},
-					NSNIC:  &hostutil.Device{Address: "0000:03:00", NumOfPFs: 2},
+					DiscoverPorts: func() ([]pciutil.NICPort, error) {
+						return []pciutil.NICPort{
+							{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: "/dev/mst/mt41692_pciconf0"},
+							{Netdev: "p1", PCIAddress: "0000:03:00.1", MSTDevice: "/dev/mst/mt41692_pciconf0.1"},
+						}, nil
+					},
 					Options: opts.Options{
 						SkipRebootMethodDiscovery: true,
 					},
@@ -231,7 +256,12 @@ var _ = Describe("DPUAgent", func() {
 				retryInterval: testRetryInterval,
 				optCtx: &operations.Context{
 					Client: &mockClient{},
-					NSNIC:  &hostutil.Device{Address: "0000:03:00", NumOfPFs: 2},
+					DiscoverPorts: func() ([]pciutil.NICPort, error) {
+						return []pciutil.NICPort{
+							{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: "/dev/mst/mt41692_pciconf0"},
+							{Netdev: "p1", PCIAddress: "0000:03:00.1", MSTDevice: "/dev/mst/mt41692_pciconf0.1"},
+						}, nil
+					},
 				},
 				operations: mockOps,
 			}
@@ -261,7 +291,12 @@ var _ = Describe("DPUAgent", func() {
 				retryInterval: testRetryInterval,
 				optCtx: &operations.Context{
 					Client: &mockClient{},
-					NSNIC:  &hostutil.Device{Address: "0000:03:00", NumOfPFs: 2},
+					DiscoverPorts: func() ([]pciutil.NICPort, error) {
+						return []pciutil.NICPort{
+							{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: "/dev/mst/mt41692_pciconf0"},
+							{Netdev: "p1", PCIAddress: "0000:03:00.1", MSTDevice: "/dev/mst/mt41692_pciconf0.1"},
+						}, nil
+					},
 				},
 				operations: mockOps,
 			}
@@ -277,7 +312,12 @@ var _ = Describe("DPUAgent", func() {
 				retryInterval: testRetryInterval,
 				optCtx: &operations.Context{
 					Client: &mockClient{},
-					NSNIC:  &hostutil.Device{Address: "0000:03:00", NumOfPFs: 2},
+					DiscoverPorts: func() ([]pciutil.NICPort, error) {
+						return []pciutil.NICPort{
+							{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: "/dev/mst/mt41692_pciconf0"},
+							{Netdev: "p1", PCIAddress: "0000:03:00.1", MSTDevice: "/dev/mst/mt41692_pciconf0.1"},
+						}, nil
+					},
 				},
 				operations: []operations.Operation{
 					&mockOperation{
@@ -305,7 +345,12 @@ var _ = Describe("DPUAgent", func() {
 				retryInterval: testRetryInterval,
 				optCtx: &operations.Context{
 					Client: &mockClient{},
-					NSNIC:  &hostutil.Device{Address: "0000:03:00", NumOfPFs: 2},
+					DiscoverPorts: func() ([]pciutil.NICPort, error) {
+						return []pciutil.NICPort{
+							{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: "/dev/mst/mt41692_pciconf0"},
+							{Netdev: "p1", PCIAddress: "0000:03:00.1", MSTDevice: "/dev/mst/mt41692_pciconf0.1"},
+						}, nil
+					},
 				},
 				operations: []operations.Operation{
 					&mockOperation{
@@ -340,7 +385,12 @@ var _ = Describe("DPUAgent", func() {
 				retryInterval: testRetryInterval,
 				optCtx: &operations.Context{
 					Client: &mockClient{},
-					NSNIC:  &hostutil.Device{Address: "0000:03:00", NumOfPFs: 2},
+					DiscoverPorts: func() ([]pciutil.NICPort, error) {
+						return []pciutil.NICPort{
+							{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: "/dev/mst/mt41692_pciconf0"},
+							{Netdev: "p1", PCIAddress: "0000:03:00.1", MSTDevice: "/dev/mst/mt41692_pciconf0.1"},
+						}, nil
+					},
 				},
 				operations: []operations.Operation{
 					&mockOperation{
@@ -409,7 +459,12 @@ var _ = Describe("DPUAgent", func() {
 							return nil
 						},
 					},
-					NSNIC: &hostutil.Device{Address: "0000:03:00", NumOfPFs: 2},
+					DiscoverPorts: func() ([]pciutil.NICPort, error) {
+						return []pciutil.NICPort{
+							{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: "/dev/mst/mt41692_pciconf0"},
+							{Netdev: "p1", PCIAddress: "0000:03:00.1", MSTDevice: "/dev/mst/mt41692_pciconf0.1"},
+						}, nil
+					},
 				},
 				operations: mockOps,
 			}
@@ -432,7 +487,12 @@ var _ = Describe("DPUAgent", func() {
 				retryInterval: testRetryInterval,
 				optCtx: &operations.Context{
 					Client: &mockClient{},
-					NSNIC:  &hostutil.Device{Address: "0000:03:00", NumOfPFs: 2},
+					DiscoverPorts: func() ([]pciutil.NICPort, error) {
+						return []pciutil.NICPort{
+							{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: "/dev/mst/mt41692_pciconf0"},
+							{Netdev: "p1", PCIAddress: "0000:03:00.1", MSTDevice: "/dev/mst/mt41692_pciconf0.1"},
+						}, nil
+					},
 				},
 				operations: []operations.Operation{
 					&mockOperation{
