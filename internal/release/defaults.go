@@ -61,6 +61,7 @@ type Defaults struct {
 	BFBRegistryImage           string `yaml:"bfbRegistryImage"`
 	KeepalivedImage            string `yaml:"keepalivedImage"`
 	NodeSRIOVDevicePluginImage string `yaml:"nodeSRIOVDevicePluginImage"`
+	KataDeployImage            string `yaml:"kataDeployImage"`
 }
 
 // Parse parses the defaults from the embedded generated YAML file
@@ -91,6 +92,9 @@ func (d *Defaults) Parse() error {
 	}
 	if len(d.NodeSRIOVDevicePluginImage) == 0 {
 		return errors.New("nodeSRIOVDevicePluginImage can't be empty")
+	}
+	if len(d.KataDeployImage) == 0 {
+		return errors.New("kataDeployImage can't be empty")
 	}
 
 	return nil

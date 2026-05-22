@@ -9,6 +9,7 @@ A Helm chart for Kubernetes
 | Repository | Name | Version |
 |------------|------|---------|
 | file://charts/cni-installer | cni-installer | 0.1.0 |
+| file://charts/kata-containers | kata-containers | 0.1.0 |
 | file://charts/kube-state-metrics | kube-state-metrics | 0.1.0 |
 | file://charts/multus | multus | 0.1.0 |
 | file://charts/node-problem-detector | node-problem-detector | 0.1.0 |
@@ -29,6 +30,7 @@ A Helm chart for Kubernetes
 | flannel.flannel.image.tag | string | `"v0.27.2@sha256:782c111d55e850e8038cdaf35454987e6c170ae9b54d5b12895b02d45c908caf"` |  |
 | flannel.flannel.image_cni.tag | string | `"v1.7.1-flannel1@sha256:cb3176a2c9eae5fa0acd7f45397e706eacb4577dac33cad89f93b775ff5611df"` |  |
 | flannel.podCidr | string | `"10.244.0.0/14"` |  |
+| kata-containers.enabled | bool | `false` |  |
 | kube-state-metrics.enabled | bool | `false` |  |
 | multus.enabled | bool | `false` |  |
 | node-problem-detector.enabled | bool | `false` |  |

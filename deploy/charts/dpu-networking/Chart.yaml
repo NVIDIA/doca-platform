@@ -49,6 +49,10 @@ dependencies:
     version: "0.1.0"
     repository: file://charts/opentelemetry-collector
     condition: opentelemetry-collector.enabled
+  - name: kata-containers
+    version: "0.1.0"
+    repository: file://charts/kata-containers
+    condition: kata-containers.enabled
 annotations:
   dpfVersion: ""
   created: ""

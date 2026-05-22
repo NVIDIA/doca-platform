@@ -527,8 +527,8 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 		// If: standard e2e run, or post-upgrade phase of the upgrade test (current branch state).
 		// Else: initial phase of the upgrade test (deployed from the last GA release).
 		if !isCurrentVersionLastReleasedGA {
-			g.Expect(dpuServices.Items).To(HaveLen(11),
-				"Expected 11 DPUServices, got %d: [%s]", len(dpuServices.Items), strings.Join(itemNames, ", "))
+			g.Expect(dpuServices.Items).To(HaveLen(12),
+				"Expected 12 DPUServices, got %d: [%s]", len(dpuServices.Items), strings.Join(itemNames, ", "))
 		} else {
 			g.Expect(dpuServices.Items).To(HaveLen(9),
 				"Expected 9 DPUServices, got %d: [%s]", len(dpuServices.Items), strings.Join(itemNames, ", "))
@@ -547,6 +547,7 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 			g.Expect(found).To(HaveKey(operatorv1.NVIPAMNodeName.String()))
 			g.Expect(found).To(HaveKey(operatorv1.KubeStateMetricsRBACName.String()))
 			g.Expect(found).To(HaveKey(operatorv1.NodeProblemDetectorName.String()))
+			g.Expect(found).To(HaveKey(operatorv1.KataContainersName.String()))
 		} else {
 			g.Expect(found).To(HaveKey(operatorv1.ServiceSetControllerName.String()))
 			g.Expect(found).To(HaveKey(operatorv1.NVIPAMControllerName.String()))

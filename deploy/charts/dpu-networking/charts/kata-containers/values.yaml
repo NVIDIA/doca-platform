@@ -1,0 +1,26 @@
+imagePullSecrets: []
+
+image:
+  repository: quay.io/kata-containers/kata-deploy
+  tag: 3.30.0@sha256:b31cf13addbaf49af9e211bf6ab38335299015a754e2bc0341aa4ba47d8cb395
+
+nodeSelector: {}
+
+containerd:
+  # Override the host directory where containerd config lives.
+  # When empty, defaults to /etc/containerd/.
+  configDir: ""
+  # Override the containerd config file name (for MLNX DPU nodes).
+  configFileName: "config-mlnx.toml"
+
+# Shim configuration. Each shim is explicitly enabled or disabled.
+shims:
+  qemu:
+    enabled: true
+
+# Default shim.
+defaultShim: qemu
+
+
+serviceAccount:
+  annotations: {}
