@@ -22,7 +22,8 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/cmd/dpuagent/opts"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/client"
-	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
+	dpuagentutil "github.com/nvidia/doca-platform/internal/provisioning/dpuagent/util"
+	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
 )
 
 // Operation is the interface for all operations.
@@ -72,9 +73,12 @@ type Context struct {
 	// operations do not need to read it repeatedly.
 	CurrentBootID string
 
-	// NSNIC is the selected NIC that N/S operations should target.
-	// It is discovered once at startup and reused by operations that need PF/PCI context.
-	NSNIC *hostutil.Device
+	// nsPorts caches the discovered N/S NIC ports. Access via NSPorts().
+	nsPorts []pciutil.NICPort
+
+	// DiscoverPorts is the function used to discover NIC ports. If nil,
+	// NewPortDiscoverer().DiscoverPorts is used.
+	DiscoverPorts func() ([]pciutil.NICPort, error)
 
 	// GrubConfigChanged is set by ConfigureKernelCmdLine when it writes a new grub config
 	// and runs update-grub. HandleReboot uses this to force a reboot even when the reboot
@@ -88,4 +92,25 @@ type Context struct {
 	// and once from Run() when ShouldUpdateStatusBeforeContinue is true. Calling it twice is safe: the same
 	// status is pushed again, so the result is idempotent; at most it causes one redundant API call.
 	UpdateStatusUntilSuccess func(context.Context)
+}
+
+// NSPorts returns the discovered N/S NIC ports, running discovery on the first
+// successful call and caching the result. Errors are NOT cached so that the
+// caller's retry loop will re-attempt discovery.
+func (ctx *Context) NSPorts() ([]pciutil.NICPort, error) {
+	if ctx.nsPorts != nil {
+		return ctx.nsPorts, nil
+	}
+	discover := ctx.DiscoverPorts
+	if discover == nil {
+		discover = func() ([]pciutil.NICPort, error) {
+			return pciutil.DefaultPortDiscoverer.DiscoverPorts(dpuagentutil.NSPortFilter)
+		}
+	}
+	ports, err := discover()
+	if err != nil {
+		return nil, err
+	}
+	ctx.nsPorts = ports
+	return ports, nil
 }

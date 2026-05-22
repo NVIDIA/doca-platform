@@ -21,9 +21,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
-	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/filesystem"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/netplan"
@@ -108,7 +108,7 @@ func (n *ConfigureNetwork) configNetplan(ctx *operations.Context) error {
 			return fmt.Errorf("failed to create 99-dpf-comm-ch.yaml: %w", err)
 		}
 	}
-	pfs, err := n.listPFsFromTargetNIC(ctx.NSNIC)
+	pfs, err := n.listPFsFromTargetNIC(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to list PFs: %w", err)
 	}
@@ -216,13 +216,18 @@ func (n *ConfigureNetwork) setPFMTU(pfs []string) error {
 	return config.WriteToFile(name)
 }
 
-func (n *ConfigureNetwork) listPFsFromTargetNIC(dev *hostutil.Device) ([]string, error) {
-	if dev == nil {
-		return nil, fmt.Errorf("N/S NIC is not initialized")
+func (n *ConfigureNetwork) listPFsFromTargetNIC(ctx *operations.Context) ([]string, error) {
+	ports, err := ctx.NSPorts()
+	if err != nil {
+		return nil, err
 	}
-	pfs := []string{}
-	for i := 0; i < dev.NumOfPFs; i++ {
-		pfs = append(pfs, fmt.Sprintf("p%d", i), fmt.Sprintf("pf%dhpf", i))
+	pfs := make([]string, 0, len(ports)*2)
+	for _, port := range ports {
+		pfs = append(pfs, port.Netdev)
+	}
+	for _, port := range ports {
+		// pf<N>hpf naming follows the netdev suffix: p0 → pf0hpf, p1 → pf1hpf
+		pfs = append(pfs, fmt.Sprintf("pf%shpf", strings.TrimPrefix(port.Netdev, "p")))
 	}
 	return pfs, nil
 }
