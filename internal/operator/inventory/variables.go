@@ -60,6 +60,8 @@ func newDefaultVariables(defaults *release.Defaults) Variables {
 			operatorv1.StaticClusterManagerName: true,
 			// NodeSRIOVDevicePluginController is disabled by default.
 			operatorv1.NodeSRIOVDevicePluginControllerName: true,
+			// KataContainers is disabled by default (opt-in).
+			operatorv1.KataContainersName: true,
 		},
 		Images: map[string]string{
 			// Images built as part of the DPF Operator release.
@@ -73,6 +75,7 @@ func newDefaultVariables(defaults *release.Defaults) Variables {
 			operatorv1.DPUDetectorName.WithContainer(operatorv1.DPUDetectorContainer):                           defaults.DPFSystemImage,
 			operatorv1.CNIInstallerName.WithContainer(operatorv1.CNIInstallerContainer):                         defaults.CNIInstallerImage,
 			operatorv1.NodeSRIOVDevicePluginControllerName.WithContainer(operatorv1.ControllerManagerContainer): defaults.DPFSystemImage,
+			operatorv1.KataContainersName.WithContainer(operatorv1.KataDeployContainer):                         defaults.KataDeployImage,
 			// BFBRegistry is not configurable via the DPFOperatorConfig, thus it does not need to have the container name included.
 			operatorv1.BFBRegistryName.String(): defaults.BFBRegistryImage,
 		},
@@ -88,6 +91,7 @@ func newDefaultVariables(defaults *release.Defaults) Variables {
 			operatorv1.KubeStateMetricsName:       defaults.DPUNetworkingHelmChart,
 			operatorv1.NodeProblemDetectorName:    defaults.DPUNetworkingHelmChart,
 			operatorv1.OpenTelemetryCollectorName: defaults.DPUNetworkingHelmChart,
+			operatorv1.KataContainersName:         defaults.DPUNetworkingHelmChart,
 		},
 		SFCController: SFCControllerVariables{
 			SecureFlowDeletionTimeout: 0 * time.Second,
@@ -126,6 +130,7 @@ type Variables struct {
 	NodeSRIOVDevicePluginController  NodeSRIOVDevicePluginControllerVariables
 	OpenTelemetryCollector           OpenTelemetryCollectorVariables
 	Networking                       Networking
+	KataContainers                   KataContainersVariables
 	DisableSystemComponents          map[operatorv1.ComponentName]bool
 	ImagePullSecrets                 []string
 	Images                           map[string]string
@@ -175,6 +180,13 @@ type NodeSRIOVDevicePluginControllerVariables struct {
 
 type OpenTelemetryCollectorVariables struct {
 	LoggingEndpoint string
+}
+
+// KataContainersVariables holds variables specific to the Kata Containers component.
+type KataContainersVariables struct {
+	Shims                    []string
+	ContainerdConfigFileName string
+	NodeSelector             map[string]string
 }
 
 func VariablesFromDPFOperatorConfig(defaults *release.Defaults, config *operatorv1.DPFOperatorConfig, dpuClusters []*dpucluster.Config) Variables {
@@ -374,6 +386,15 @@ func setAdditionalConfigs(variables Variables, config *operatorv1.DPFOperatorCon
 		if dp.DefaultResourcePrefix != nil {
 			variables.NodeSRIOVDevicePluginController.DefaultResourcePrefix = *dp.DefaultResourcePrefix
 		}
+	}
+
+	if config.Spec.KataContainers != nil {
+		kata := config.Spec.KataContainers
+		for _, shim := range kata.Shims {
+			variables.KataContainers.Shims = append(variables.KataContainers.Shims, string(shim))
+		}
+		variables.KataContainers.ContainerdConfigFileName = kata.ContainerdConfigFileName
+		variables.KataContainers.NodeSelector = kata.NodeSelector
 	}
 	return variables
 }

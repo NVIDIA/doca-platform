@@ -88,6 +88,11 @@ func SetInput() {
 					Disable: ptr.To(false),
 				},
 			},
+			KataContainers: &operatorv1.KataContainersConfiguration{
+				BaseComponentConfig: operatorv1.BaseComponentConfig{
+					Disable: ptr.To(false),
+				},
+			},
 			ImagePullSecrets: []string{dpfPullSecretName, "pull-secret-extra"},
 		},
 	}

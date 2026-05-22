@@ -32,5 +32,8 @@ dependencies:
 - name: opentelemetry-collector
   repository: file://charts/opentelemetry-collector
   version: 0.1.0
-digest: sha256:adabe6af415b63687521efaa6f5fef5742b91704bd48dd3367d7dd2bbd703917
-generated: "2026-03-10T07:58:31.405453039Z"
+- name: kata-containers
+  repository: file://charts/kata-containers
+  version: 0.1.0
+digest: sha256:6e4ba5ccbc982965c66ed14f8820cf355c8603ddbcbbc4439f78c1a1aea9eefd
+generated: "2026-05-06T23:13:09.004732+02:00"

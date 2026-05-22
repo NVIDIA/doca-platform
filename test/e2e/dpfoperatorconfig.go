@@ -181,6 +181,11 @@ func ValidateDPFOperatorBaseConfiguration(ctx context.Context, input *systemTest
 			},
 		}
 	}
+	modifiedConfig.Spec.KataContainers = &operatorv1.KataContainersConfiguration{
+		Daemon: &operatorv1.ImageComponentConfig{
+			Image: ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.KataContainersName)),
+		},
+	}
 
 	By("Updating the DPFOperatorConfig with modified images and resources")
 	Expect(input.client.Patch(ctx, modifiedConfig, client.MergeFrom(originalConfig))).To(Succeed())
@@ -216,9 +221,10 @@ func ValidateDPFOperatorBaseConfiguration(ctx context.Context, input *systemTest
 	if !isGinkgoLabelApplied(Domain.ZeroTrust) {
 		modifiedConfig.Spec.NodeSRIOVDevicePluginController.Controller.Image = ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.NodeSRIOVDevicePluginControllerName))
 	}
+	modifiedConfig.Spec.KataContainers.Daemon.Image = ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.KataContainersName))
 	Expect(input.client.Patch(ctx, modifiedConfig, client.MergeFrom(configCopy))).To(Succeed())
 
-	By("Verifying legacy component overrides")
+	By("Verifying component overrides")
 	verifyComponentOverrides(ctx, input, dummyRegistryName, expectedDummyResources)
 
 	By("Reverting the DPFOperatorConfig to its original setting")
@@ -247,6 +253,11 @@ func verifyComponentOverrides(ctx context.Context, input *systemTestInput, dummy
 			operatorv1.NVIPAMNodeName:        true,
 			operatorv1.MultusName:            true,
 			operatorv1.FlannelName:           true,
+			operatorv1.KataContainersName:    true,
+		}
+		// Components that only support image overrides (no resource overrides).
+		imageOnlyDPUServices := map[operatorv1.ComponentName]bool{
+			operatorv1.KataContainersName: true,
 		}
 		controller := map[string]bool{
 			inventory.DPFProvisioningControllerName: true,
@@ -309,7 +320,9 @@ func verifyComponentOverrides(ctx context.Context, input *systemTestInput, dummy
 			daemonSet := matchingDaemonSets[0]
 			for _, container := range daemonSet.Spec.Template.Spec.Containers {
 				g.Expect(container.Image).To(ContainSubstring(dummyRegistryName))
-				g.Expect(container.Resources).To(BeEquivalentTo(expectedDummyResources))
+				if !imageOnlyDPUServices[name] {
+					g.Expect(container.Resources).To(BeEquivalentTo(expectedDummyResources))
+				}
 			}
 		}
 		// Verify overrides in the controllers

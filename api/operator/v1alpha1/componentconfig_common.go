@@ -46,6 +46,7 @@ var (
 	NodeProblemDetectorName             ComponentName = "node-problem-detector"
 	OpenTelemetryCollectorName          ComponentName = "opentelemetry-collector"
 	PLDMUnpackContainerName             ComponentName = "pldmunpack"
+	KataContainersName                  ComponentName = "kata-containers"
 )
 
 type ComponentName string
@@ -86,6 +87,8 @@ var (
 	NodeProblemDetectorContainer ContainerName = "node-problem-detector"
 	// OpenTelemetryCollectorContainer is the default name of the opentelemetry-collector container.
 	OpenTelemetryCollectorContainer ContainerName = "opentelemetry-collector"
+	// KataDeployContainer is the default name of the kata-deploy container.
+	KataDeployContainer ContainerName = "kata-deploy"
 )
 
 type ContainerName string
@@ -138,6 +141,9 @@ func (c *DPFOperatorConfig) ComponentConfigs() []ComponentConfigurable {
 	}
 	if c.Spec.NodeSRIOVDevicePluginController != nil {
 		out = append(out, c.Spec.NodeSRIOVDevicePluginController)
+	}
+	if c.Spec.KataContainers != nil {
+		out = append(out, c.Spec.KataContainers)
 	}
 	if c.Spec.Monitoring != nil && c.Spec.Monitoring.KubeStateMetrics != nil {
 		out = append(out, c.Spec.Monitoring.KubeStateMetrics)
