@@ -217,6 +217,11 @@ type DPFOperatorConfigSpec struct {
 	// The controller is disabled by default.
 	// +optional
 	NodeSRIOVDevicePluginController *NodeSRIOVDevicePluginControllerConfiguration `json:"nodeSRIOVDevicePluginController,omitempty"`
+	// KataContainers is the configuration for Kata Containers.
+	// Kata Containers provides VM-based isolation for untrusted workloads on DPU nodes.
+	// This component is disabled by default; set disable to false to enable.
+	// +optional
+	KataContainers *KataContainersConfiguration `json:"kataContainers,omitempty"`
 }
 
 // MonitoringConfiguration defines the configuration for monitoring resources.

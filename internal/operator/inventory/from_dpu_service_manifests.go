@@ -60,6 +60,7 @@ var dpuNetworkingSubCharts = map[operatorv1.ComponentName]bool{
 	operatorv1.KubeStateMetricsName:       true,
 	operatorv1.NodeProblemDetectorName:    true,
 	operatorv1.OpenTelemetryCollectorName: true,
+	operatorv1.KataContainersName:         true,
 }
 
 func (f *fromDPUService) Name() operatorv1.ComponentName {
@@ -230,6 +231,8 @@ func additionalValuesForComponent(name operatorv1.ComponentName, vars Variables)
 		return cniInstallerEdits(vars)
 	case operatorv1.OpenTelemetryCollectorName:
 		return openTelemetryCollectorEdits(vars)
+	case operatorv1.KataContainersName:
+		return kataContainersEdits(vars)
 	// Other DPUServices do not need additional values.
 	default:
 		return nil, nil
@@ -261,6 +264,29 @@ func ovsCNIEdits(vars Variables) ([]StructuredEdit, error) {
 	return []StructuredEdit{
 		dpuServiceAddValueEdit(vars.DPUCNIBinPath, operatorv1.OVSCNIName.String(), cniBinDirPathKey),
 	}, nil
+}
+
+func kataContainersEdits(vars Variables) ([]StructuredEdit, error) {
+	edits := []StructuredEdit{}
+
+	shims := vars.KataContainers.Shims
+	for _, shim := range shims {
+		edits = append(edits, dpuServiceAddValueEdit(true, operatorv1.KataContainersName.String(), "shims", shim, "enabled"))
+	}
+	if len(shims) == 0 {
+		edits = append(edits, dpuServiceAddValueEdit(true, operatorv1.KataContainersName.String(), "shims", string(operatorv1.KataShimQEMU), "enabled"))
+	}
+
+	configFileName := vars.KataContainers.ContainerdConfigFileName
+	if configFileName != "" {
+		edits = append(edits, dpuServiceAddValueEdit(configFileName, operatorv1.KataContainersName.String(), "containerd", "configFileName"))
+	}
+
+	for k, v := range vars.KataContainers.NodeSelector {
+		edits = append(edits, dpuServiceAddValueEdit(v, operatorv1.KataContainersName.String(), "nodeSelector", k))
+	}
+
+	return edits, nil
 }
 
 func nvipamEdits(vars Variables) ([]StructuredEdit, error) {

@@ -239,6 +239,31 @@ func TestManifests_Parse_Generate_All(t *testing.T) {
 			}),
 			wantErr: true,
 		},
+		// kata-containers
+		{
+			name: "fail if kata-containers data is nil",
+			inventory: New().setKataContainers(fromDPUService{
+				name: operatorv1.KataContainersName,
+				data: nil,
+			}),
+			wantErr: true,
+		},
+		{
+			name: "fail if kata-containers data has an unexpected object",
+			inventory: New().setKataContainers(fromDPUService{
+				name: operatorv1.KataContainersName,
+				data: addUnexpectedKindToObjects(g, kataContainersData),
+			}),
+			wantErr: true,
+		},
+		{
+			name: "fail if kata-containers is missing the DPUService",
+			inventory: New().setKataContainers(fromDPUService{
+				name: operatorv1.KataContainersName,
+				data: removeKindFromObjects(g, "DPUService", kataContainersData),
+			}),
+			wantErr: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -355,6 +380,11 @@ func TestManifests_generateAllManifests(t *testing.T) {
 		{
 			name:               "Disable cni-installer manifests",
 			componentToDisable: operatorv1.CNIInstallerName,
+			wantErr:            false,
+		},
+		{
+			name:               "Disable kata-containers manifests",
+			componentToDisable: operatorv1.KataContainersName,
 			wantErr:            false,
 		},
 	}

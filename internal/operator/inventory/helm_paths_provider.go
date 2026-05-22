@@ -146,6 +146,12 @@ func helmPaths() helmPathsProvider {
 					Resources:  []string{"resources"},
 				},
 			},
+			operatorv1.KataContainersName: {
+				operatorv1.KataDeployContainer: {
+					Repository: []string{"image", "repository"},
+					Tag:        []string{"image", "tag"},
+				},
+			},
 		},
 	}
 }

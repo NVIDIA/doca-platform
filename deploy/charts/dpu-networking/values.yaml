@@ -29,3 +29,5 @@ node-problem-detector:
     enabled: false
 opentelemetry-collector:
     enabled: false
+kata-containers:
+    enabled: false

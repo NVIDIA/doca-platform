@@ -208,6 +208,7 @@ _Appears in:_
 - [DPUServiceControllerConfiguration](#dpuservicecontrollerconfiguration)
 - [FlannelConfiguration](#flannelconfiguration)
 - [KamajiClusterManagerConfiguration](#kamajiclustermanagerconfiguration)
+- [KataContainersConfiguration](#katacontainersconfiguration)
 - [KubeStateMetricsConfiguration](#kubestatemetricsconfiguration)
 - [MultusConfiguration](#multusconfiguration)
 - [NVIPAMConfiguration](#nvipamconfiguration)
@@ -340,6 +341,7 @@ _Appears in:_
 | `kamajiClusterManager` _[KamajiClusterManagerConfiguration](#kamajiclustermanagerconfiguration)_ | KamajiClusterManager is the configuration for the kamaji-cluster-manager |  | Optional: \{\} <br /> |
 | `staticClusterManager` _[StaticClusterManagerConfiguration](#staticclustermanagerconfiguration)_ | StaticClusterManager is the configuration for the static-cluster-manager |  | Optional: \{\} <br /> |
 | `nodeSRIOVDevicePluginController` _[NodeSRIOVDevicePluginControllerConfiguration](#nodesriovdeviceplugincontrollerconfiguration)_ | NodeSRIOVDevicePluginController is the configuration for the NodeSRIOVDevicePlugin controller.<br />This controller manages per-node SRIOV device plugin pods based on DPU configurations.<br />The controller is disabled by default. |  | Optional: \{\} <br /> |
+| `kataContainers` _[KataContainersConfiguration](#katacontainersconfiguration)_ | KataContainers is the configuration for Kata Containers.<br />Kata Containers provides VM-based isolation for untrusted workloads on DPU nodes.<br />This component is disabled by default; set disable to false to enable. |  | Optional: \{\} <br /> |
 
 
 #### DPFOperatorConfigStatus
@@ -533,6 +535,7 @@ _Appears in:_
 - [CNIInstallerConfiguration](#cniinstallerconfiguration)
 - [FlannelConfiguration](#flannelconfiguration)
 - [HelmComponentConfig](#helmcomponentconfig)
+- [KataContainersConfiguration](#katacontainersconfiguration)
 - [KubeStateMetricsConfiguration](#kubestatemetricsconfiguration)
 - [MultusConfiguration](#multusconfiguration)
 - [NVIPAMConfiguration](#nvipamconfiguration)
@@ -556,6 +559,7 @@ _Appears in:_
 _Appears in:_
 - [CNIInstallerConfiguration](#cniinstallerconfiguration)
 - [FlannelConfiguration](#flannelconfiguration)
+- [KataContainersConfiguration](#katacontainersconfiguration)
 - [KubeStateMetricsConfiguration](#kubestatemetricsconfiguration)
 - [MultusConfiguration](#multusconfiguration)
 - [NVIPAMConfiguration](#nvipamconfiguration)
@@ -617,6 +621,7 @@ _Appears in:_
 - [DefaultOverridesConfiguration](#defaultoverridesconfiguration)
 - [FlannelCNI](#flannelcni)
 - [FlannelDaemon](#flanneldaemon)
+- [KataContainersConfiguration](#katacontainersconfiguration)
 - [NVIPAMController](#nvipamcontroller)
 - [NVIPAMNode](#nvipamnode)
 
@@ -688,6 +693,47 @@ _Appears in:_
 | `replicas` _integer_ | Replicas is the number of replicas for the controller deployment.<br />This is used for High Availability. Leader election is enabled by default. | 2 | Maximum: 3 <br />Minimum: 1 <br />Optional: \{\} <br /> |
 | `image` _[Image](#image)_ | Image overrides the container image used by the Kamaji Cluster Manager.<br />Deprecated: This field is deprecated and will be removed with v26.7.0.<br />Use the new field `controller` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br />Optional: \{\} <br /> |
 | `controller` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Controller contains the configuration for the Kamaji Cluster Manager component.<br />It contains the image for the controller and its resource requirements. |  | Optional: \{\} <br /> |
+
+
+#### KataContainersConfiguration
+
+
+
+
+
+
+
+_Appears in:_
+- [DPFOperatorConfigSpec](#dpfoperatorconfigspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  | Optional: \{\} <br /> |
+| `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br />Optional: \{\} <br /> |
+| `daemon` _[ImageComponentConfig](#imagecomponentconfig)_ | Daemon contains the configuration for the kata-deploy component.<br />It contains the image for the kata-deploy container. |  | Optional: \{\} <br /> |
+| `nodeSelector` _object (keys:string, values:string)_ | NodeSelector restricts which nodes kata-deploy runs on.<br />This is passed as the Helm chart's nodeSelector value. |  | Optional: \{\} <br /> |
+| `shims` _[KataShim](#katashim) array_ | Shims selects which Kata hypervisor shims to enable.<br />Defaults to ["qemu"] if empty. |  | Enum: [qemu] <br />items:Enum: [qemu] <br />Optional: \{\} <br /> |
+| `containerdConfigFileName` _string_ | ContainerdConfigFileName overrides the containerd config file name<br />on the target nodes. Defaults to "config-mlnx.toml". |  | Optional: \{\} <br /> |
+
+
+#### KataShim
+
+_Underlying type:_ _string_
+
+KataShim identifies a Kata hypervisor shim variant.
+Values must match the shim keys in the kata-deploy Helm chart's
+shims.<name>.enabled values.
+Only arm64-compatible shims are supported.
+
+_Validation:_
+- Enum: [qemu]
+
+_Appears in:_
+- [KataContainersConfiguration](#katacontainersconfiguration)
+
+| Field | Description |
+| --- | --- |
+| `qemu` | KataShimQEMU is the QEMU hypervisor shim.<br /> |
 
 
 #### KubeStateMetricsConfiguration
