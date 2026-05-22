@@ -187,6 +187,15 @@ func (nm *NetworkManager) processNetworkRequest(nr NetworkRequest) error {
 	}
 	operations := []networkOperation{
 		{
+			name: "DisableNMForVFs",
+			f: func(nr NetworkRequest) error {
+				if nm.netBackend.Name() != "NetworkManager" {
+					return nil
+				}
+				return hostutil.EnsureNMUnmanagedUdevRule()
+			},
+		},
+		{
 			name: "CreateP0VF",
 			f: func(nr NetworkRequest) error {
 				return hostutil.NewPCIHelper(nr.PCIAddress).PF(0).SetNumOfVFs(nr.NumOfVFs)
