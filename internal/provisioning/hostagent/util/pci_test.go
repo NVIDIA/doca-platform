@@ -482,7 +482,22 @@ var _ = Describe("PCI", func() {
 			helper := NewPCIHelper("0000:b1:00.0").SetSysFS(mock.TempSysfsDir())
 			err := helper.SetNumOfVFs(4)
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("failed to stat sriov_numvfs path"))
+			Expect(err.Error()).To(ContainSubstring("sriov_numvfs sysfs missing"))
+		})
+
+		It("should return mlx5 unhealthy hint when net missing, sriov exists, write ENOENT", func() {
+			mock := createMockSysfs("0000:b1:00.0", "0xa2dc\n", "", nil, "")
+			defer mock.Cleanup()
+
+			numvfsPath := filepath.Join(mock.PCIDevicesDir(), "0000:b1:00.0", "sriov_numvfs")
+			err := os.WriteFile(numvfsPath, []byte("0"), 0644)
+			Expect(err).NotTo(HaveOccurred())
+
+			helper := NewPCIHelper("0000:b1:00.0").SetSysFS(mock.TempSysfsDir())
+			err = helper.errWriteSriovNumVFs(os.ErrNotExist)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("mlx5_core"))
+			Expect(err.Error()).To(ContainSubstring("reloaded"))
 		})
 
 		It("should successfully write number of VFs", func() {
