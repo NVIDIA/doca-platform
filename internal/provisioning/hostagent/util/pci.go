@@ -139,6 +139,30 @@ func (h *PCIHelper) IsDPU() (bool, error) {
 	return ok, nil
 }
 
+// errWriteSriovNumVFs formats a failed sriov_numvfs write by probing PF sysfs:
+//  1. netMissing — host net/ is absent (mlx5 not exposing a netdev).
+//  2. sriovStatOK — sriov_numvfs still exists (stat succeeded earlier in SetNumOfVFs).
+//
+// Together with write ENOENT, that pattern indicates mlx5_core is in error or unloading
+// while SR-IOV sysfs nodes remain — not a missing PCI path.
+func (h *PCIHelper) errWriteSriovNumVFs(writeErr error) error {
+	_, netErr := os.Stat(filepath.Join(h.Path(), "net"))
+	netMissing := os.IsNotExist(netErr)
+	_, sriovErr := os.Stat(filepath.Join(h.Path(), "sriov_numvfs"))
+	sriovStatOK := sriovErr == nil
+
+	if netMissing && sriovStatOK && os.IsNotExist(writeErr) {
+		return fmt.Errorf(
+			"cannot set sriov_numvfs on PF %s: write failed (%w) but sysfs node exists; "+
+				"host net/ is also missing — mlx5_core is likely in error state or unloading "+
+				"(dmesg: poll_health Fatal error / Driver is in error state). "+
+				"Host recovery: mlx5_core driver should be reloaded",
+			h.Path(), writeErr,
+		)
+	}
+	return fmt.Errorf("cannot set sriov_numvfs on PF %s: %w", h.Path(), writeErr)
+}
+
 // InterfaceName returns the name of the network interface of the device.
 func (h *PCIHelper) InterfaceName() (string, error) {
 	p := filepath.Join(h.Path(), "net")
@@ -163,9 +187,19 @@ func (h *PCIHelper) SerialNumber() (string, error) {
 func (h *PCIHelper) SetNumOfVFs(num int) error {
 	numvfsPath := filepath.Join(h.Path(), "sriov_numvfs")
 	if _, err := os.Stat(numvfsPath); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf(
+				"cannot configure SR-IOV on PF %s: sriov_numvfs sysfs missing (%w); "+
+					"verify PCI address, mlxconfig SRIOV_EN=1 and host reboot",
+				h.Path(), err,
+			)
+		}
 		return fmt.Errorf("failed to stat sriov_numvfs path: %w", err)
 	}
-	return os.WriteFile(numvfsPath, []byte(fmt.Sprintf("%d", num)), 0644)
+	if err := os.WriteFile(numvfsPath, []byte(fmt.Sprintf("%d", num)), 0644); err != nil {
+		return h.errWriteSriovNumVFs(err)
+	}
+	return nil
 }
 
 // GetMTU returns the current MTU of the PF interface
