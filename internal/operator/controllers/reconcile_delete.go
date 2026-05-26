@@ -110,6 +110,7 @@ var provisioningResources = []schema.GroupVersionKind{
 	provisioningv1.DPUClusterGroupVersionKind,
 	provisioningv1.DPUSetGroupVersionKind,
 	provisioningv1.BFBGroupVersionKind,
+	provisioningv1.BlueFieldGroupVersionKind,
 	provisioningv1.DPUFlavorGroupVersionKind,
 	provisioningv1.DPUNodeGroupVersionKind,
 	provisioningv1.DPUDeviceGroupVersionKind,
