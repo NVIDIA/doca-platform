@@ -416,7 +416,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			Expect(*dpuDevice.Status.OPN).To(Equal(mock.DpuOPN))
 
 			Expect(dpuDevice.Status.PSID).NotTo(BeNil())
-			Expect(*dpuDevice.Status.PSID).To(Equal(mock.DpuSerialNumber))
+			Expect(*dpuDevice.Status.PSID).To(Equal("N/A"))
 
 			Expect(dpuDevice.Status.DPUMode).To(Equal(provisioningv1.DpuMode))
 
