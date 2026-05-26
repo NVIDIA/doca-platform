@@ -1547,6 +1547,9 @@ _Appears in:_
 | `fwBundleVersion` _string_ |  |  |  |
 | `osISOVersion` _string_ |  |  |  |
 | `astraNicFwVersion` _string_ |  |  |  |
+| `bmcVersion` _string_ |  |  |  |
+| `bmcErotVersion` _string_ |  |  |  |
+| `sbiosVersion` _string_ |  |  |  |
 
 
 #### ClusterEndpointSpec

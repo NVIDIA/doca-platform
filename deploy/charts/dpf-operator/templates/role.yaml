@@ -289,6 +289,7 @@ rules:
   - provisioning.dpu.nvidia.com
   resources:
   - bfbs
+  - bluefieldsoftwares
   - dpuclusters
   - dpudevices
   - dpudiscoveries
@@ -337,18 +338,6 @@ rules:
   - get
   - patch
   - update
-- apiGroups:
-  - provisioning.dpu.nvidia.com
-  resources:
-  - bluefieldsoftwares
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
 - apiGroups:
   - rbac.authorization.k8s.io
   resources:

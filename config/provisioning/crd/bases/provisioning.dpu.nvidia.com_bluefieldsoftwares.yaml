@@ -147,9 +147,15 @@ spec:
                 properties:
                   astraNicFwVersion:
                     type: string
+                  bmcErotVersion:
+                    type: string
+                  bmcVersion:
+                    type: string
                   fwBundleVersion:
                     type: string
                   osISOVersion:
+                    type: string
+                  sbiosVersion:
                     type: string
                 type: object
                 x-kubernetes-validations:
