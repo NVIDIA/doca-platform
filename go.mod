@@ -14,13 +14,14 @@ require (
 	github.com/Mellanox/maintenance-operator/api v0.3.0
 	github.com/Mellanox/nic-configuration-operator v1.3.2-0.20260427085742-a2b4ef3841e4
 	github.com/containernetworking/cni v1.2.3
-	github.com/diskfs/go-diskfs v1.9.2
+	github.com/containernetworking/plugins v1.5.1
+	github.com/diskfs/go-diskfs v1.9.3
 	github.com/fatih/color v1.17.0
 	github.com/fluxcd/pkg/runtime v0.52.0
-	github.com/go-logr/logr v1.4.3
 	github.com/gobuffalo/flect v1.0.3
 	github.com/godbus/dbus/v5 v5.1.0
 	github.com/golang/glog v1.2.5
+	github.com/j-keck/arping v1.0.3
 	github.com/k8snetworkplumbingwg/network-attachment-definition-client v1.7.5
 	github.com/k8snetworkplumbingwg/sriovnet v1.2.1-0.20250818105516-24ab680f94f3
 	github.com/kubernetes-csi/csi-lib-utils v0.22.0
@@ -59,8 +60,8 @@ require (
 	github.com/anchore/go-lzo v0.1.0 // indirect
 	github.com/cenkalti/hub v1.0.2 // indirect
 	github.com/cenkalti/rpc2 v1.0.4 // indirect
-	github.com/containernetworking/plugins v1.2.0 // indirect
 	github.com/contiv/libovsdb v0.0.0-20170227191248-d0061a53e358 // indirect
+	github.com/coreos/go-iptables v0.7.0 // indirect
 	github.com/djherbis/times v1.6.0 // indirect
 	github.com/elliotwutingfeng/asciiset v0.0.0-20260129054604-cfde2086bc57 // indirect
 	github.com/evanphx/json-patch v5.9.0+incompatible // indirect
@@ -73,6 +74,7 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pkg/xattr v0.4.12 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
+	github.com/safchain/ethtool v0.4.0 // indirect
 	github.com/sirupsen/logrus v1.9.4 // indirect
 	github.com/spf13/afero v1.14.0 // indirect
 	github.com/ulikunitz/xz v0.5.15 // indirect
@@ -130,6 +132,7 @@ require (
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fluxcd/pkg/apis/meta v1.9.0 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
+	github.com/go-logr/logr v1.4.3
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-logr/zapr v1.3.0 // indirect
 	github.com/go-openapi/jsonpointer v0.21.0 // indirect
