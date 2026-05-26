@@ -87,6 +87,9 @@ func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 
 	mux := http.NewServeMux()
 
+	// Systems collection (must be registered before the /redfish/v1/ prefix handler)
+	mux.HandleFunc("/redfish/v1/Systems", mock.handleGetSystems)
+
 	// Root service
 	mux.HandleFunc("/redfish/v1/", mock.handleRootService)
 
@@ -257,6 +260,25 @@ func (r *RedfishMockServer) handleRootService(w http.ResponseWriter, req *http.R
 	writeJSONResponse(w, response)
 }
 
+// handleGetSystems handles GET requests to /redfish/v1/Systems
+func (r *RedfishMockServer) handleGetSystems(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	response := map[string]interface{}{
+		"@odata.id": "/redfish/v1/Systems",
+		"Members": []map[string]interface{}{
+			{
+				"@odata.id": "/redfish/v1/Systems/Bluefield",
+			},
+		},
+	}
+
+	writeJSONResponse(w, response)
+}
+
 // handleGetChassis handles chassis information requests
 func (r *RedfishMockServer) handleGetChassis(w http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodGet {
@@ -286,6 +308,7 @@ func (r *RedfishMockServer) handleGetChassis(w http.ResponseWriter, req *http.Re
 		"Model":          model,
 		"PartNumber":     DpuOPN,
 		"SerialNumber":   DpuSerialNumber,
+		"AssetTag":       "N/A",
 		"Status": map[string]interface{}{
 			"State":  "Enabled",
 			"Health": "OK",

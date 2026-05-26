@@ -39,35 +39,37 @@ import (
 )
 
 const (
-	APIChangePasswd              = "redfish/v1/AccountService/Accounts/{USER}"
-	APICheckBMCFW                = "redfish/v1/UpdateService/FirmwareInventory/BMC_Firmware"
-	APICheckDPUBSP               = "redfish/v1/UpdateService/FirmwareInventory/DPU_BSP"
-	APICheckDPUNIC               = "redfish/v1/UpdateService/FirmwareInventory/DPU_NIC"
-	APICheckDPUOS                = "redfish/v1/UpdateService/FirmwareInventory/DPU_OS"
-	APICheckDPUUEFI              = "redfish/v1/UpdateService/FirmwareInventory/DPU_UEFI"
-	APIInstallBFB                = "redfish/v1/UpdateService/Actions/UpdateService.SimpleUpdate"
-	APIUpdateFW                  = "redfish/v1/UpdateService"
-	APICheckProgress             = "redfish/v1/TaskService/Tasks"
-	APIGetManagers               = "redfish/v1/Managers"
-	APIFactoryResetBMC           = "redfish/v1/Managers/{MANAGER_ID}/Actions/Manager.ResetToDefaults"
-	APIResetBMC                  = "redfish/v1/Managers/{MANAGER_ID}/Actions/Manager.Reset"
-	APIEnableBMCRshim            = "redfish/v1/Managers/Bluefield_BMC/Oem/Nvidia"
-	APIGetSystem                 = "redfish/v1/Systems/Bluefield"
-	APIDisableHostRshim          = "redfish/v1/Systems/Bluefield/Oem/Nvidia/Actions/HostRshim.Set"
-	APIInstallCert               = "redfish/v1/Managers/Bluefield_BMC/Truststore/Certificates"
-	APIReplaceCert               = "redfish/v1/CertificateService/Actions/CertificateService.ReplaceCertificate"
-	APIGetBios                   = "redfish/v1/Systems/Bluefield/Bios"
-	APISetBiosSettings           = "redfish/v1/Systems/Bluefield/Bios/Settings"
-	APISetMode                   = "/redfish/v1/Systems/Bluefield/Oem/Nvidia/Actions/Mode.Set"
-	APIGenerateCSR               = "redfish/v1/CertificateService/Actions/CertificateService.GenerateCSR"
-	APIEnableMTLS                = "redfish/v1/AccountService"
-	APIProductDescription        = "redfish/v1/Systems/Bluefield/Oem/Nvidia"
-	APIGetChassis                = "redfish/v1/Chassis/{CHASSIS_ID}"
-	APIGetNetworkDeviceFunctions = "redfish/v1/Chassis/Card1/NetworkAdapters/NvidiaNetworkAdapter/NetworkDeviceFunctions/{PF_ID}"
-	APIRootService               = "redfish/v1"
-	APISystemRoot                = APIRootService + "/Systems/Bluefield"
-	APISecureBoot                = APISystemRoot + "/SecureBoot"
-	APIResetSystem               = APISystemRoot + "/Actions/ComputerSystem.Reset"
+	APIChangePasswd                 = "redfish/v1/AccountService/Accounts/{USER}"
+	APICheckBMCFW                   = "redfish/v1/UpdateService/FirmwareInventory/BMC_Firmware"
+	APICheckDPUBSP                  = "redfish/v1/UpdateService/FirmwareInventory/DPU_BSP"
+	APICheckDPUNIC                  = "redfish/v1/UpdateService/FirmwareInventory/DPU_NIC"
+	APICheckDPUOS                   = "redfish/v1/UpdateService/FirmwareInventory/DPU_OS"
+	APICheckDPUUEFI                 = "redfish/v1/UpdateService/FirmwareInventory/DPU_UEFI"
+	APIInstallBFB                   = "redfish/v1/UpdateService/Actions/UpdateService.SimpleUpdate"
+	APIUpdateFW                     = "redfish/v1/UpdateService"
+	APICheckProgress                = "redfish/v1/TaskService/Tasks"
+	APIGetManagers                  = "redfish/v1/Managers"
+	APIFactoryResetBMC              = "redfish/v1/Managers/{MANAGER_ID}/Actions/Manager.ResetToDefaults"
+	APIResetBMC                     = "redfish/v1/Managers/{MANAGER_ID}/Actions/Manager.Reset"
+	APIEnableBMCRshim               = "redfish/v1/Managers/Bluefield_BMC/Oem/Nvidia"
+	APIGetSystem                    = "redfish/v1/Systems/Bluefield"
+	APIDisableHostRshim             = "redfish/v1/Systems/Bluefield/Oem/Nvidia/Actions/HostRshim.Set"
+	APIInstallCert                  = "redfish/v1/Managers/Bluefield_BMC/Truststore/Certificates"
+	APIReplaceCert                  = "redfish/v1/CertificateService/Actions/CertificateService.ReplaceCertificate"
+	APIGetBios                      = "redfish/v1/Systems/Bluefield/Bios"
+	APIGetSystems                   = "redfish/v1/Systems"
+	APISetBiosSettings              = "redfish/v1/Systems/Bluefield/Bios/Settings"
+	APISetMode                      = "/redfish/v1/Systems/Bluefield/Oem/Nvidia/Actions/Mode.Set"
+	APIGenerateCSR                  = "redfish/v1/CertificateService/Actions/CertificateService.GenerateCSR"
+	APIEnableMTLS                   = "redfish/v1/AccountService"
+	APIProductDescription           = "redfish/v1/Systems/{SYSTEM_ID}/Oem/Nvidia"
+	APIGetChassis                   = "redfish/v1/Chassis/{CHASSIS_ID}"
+	APIGetNetworkDeviceFunctions    = "redfish/v1/Chassis/Card1/NetworkAdapters/NvidiaNetworkAdapter/NetworkDeviceFunctions/{PF_ID}"
+	APIGetNetworkDeviceFunctionsBF4 = "redfish/v1/Chassis/BlueField_0/NetworkAdapters/BlueField_NIC_0/NetworkDeviceFunctions/{PF_ID}"
+	APIRootService                  = "redfish/v1"
+	APISystemRoot                   = APIRootService + "/Systems/Bluefield"
+	APISecureBoot                   = APISystemRoot + "/SecureBoot"
+	APIResetSystem                  = APISystemRoot + "/Actions/ComputerSystem.Reset"
 	// APIGetSELEntries is the Redfish System Event Log entries collection. The BMC
 	// records sensor-threshold events (e.g., 12V_ATX low) here, which we surface
 	// as best-effort hints when an install task fails.
@@ -201,6 +203,14 @@ type Managers struct {
 }
 
 type Manager struct {
+	ODataID string `json:"@odata.id,omitempty"`
+}
+
+type Systems struct {
+	Members []System `json:"Members,omitempty"`
+}
+
+type System struct {
 	ODataID string `json:"@odata.id,omitempty"`
 }
 
@@ -530,6 +540,7 @@ func (c *Client) EnableBMCRShim() (*resty.Response, *ExtendedInfo, error) {
 
 // ChassisInfo contains the part number information responded by RedFish API
 type ChassisInfo struct {
+	AssetTag     string `json:"AssetTag"`
 	Model        string `json:"Model"`
 	PartNumber   string `json:"PartNumber"`
 	SerialNumber string `json:"SerialNumber"`
@@ -558,15 +569,47 @@ func (c *ChassisInfo) GetBlueFieldVersion() provisioningv1.DPUType {
 
 // GetChassis fetches part number of DPU
 func (c *Client) GetChassis() (*resty.Response, *ChassisInfo, error) {
+	chassisID := "Card1"
+	if c.IsBF4 {
+		chassisID = "BlueField_0"
+	}
+
 	return do[ChassisInfo](func() (*resty.Response, error) {
-		return c.Client.R().Get(strings.Replace(APIGetChassis, "{CHASSIS_ID}", "Card1", 1))
+		return c.Client.R().Get(strings.Replace(APIGetChassis, "{CHASSIS_ID}", chassisID, 1))
 	})
+}
+
+func (c *Client) GetSystems() (*resty.Response, *Systems, error) {
+	return do[Systems](func() (*resty.Response, error) {
+		return c.Client.R().Get(APIGetSystems)
+	})
+}
+
+func getSystemID(c *Client) (string, error) {
+	response, systems, err := c.GetSystems()
+	if err != nil {
+		return "", err
+	}
+	if response.StatusCode() != http.StatusOK {
+		return "", fmt.Errorf("unexpected status code: %d", response.StatusCode())
+	}
+
+	for _, system := range systems.Members {
+		if strings.Contains(strings.ToLower(system.ODataID), "bluefield") {
+			return strings.Split(system.ODataID, "/")[len(strings.Split(system.ODataID, "/"))-1], nil
+		}
+	}
+	return "", fmt.Errorf("no system found")
 }
 
 // GetProductDescription fetches product spec of DPU
 func (c *Client) GetProductDescription() (*resty.Response, *ProductSpecInfo, error) {
+	systemID, err := getSystemID(c)
+	if err != nil {
+		return nil, nil, err
+	}
 	return do[ProductSpecInfo](func() (*resty.Response, error) {
-		return c.Client.R().Get(APIProductDescription)
+		return c.Client.R().Get(strings.Replace(APIProductDescription, "{SYSTEM_ID}", systemID, 1))
 	})
 }
 
@@ -584,13 +627,20 @@ type NetworkDeviceFunction struct {
 }
 
 type Ethernet struct {
-	MACAddress string `json:"MACAddress"`
-	MTUSize    int    `json:"MTUSize"`
+	MACAddress          string `json:"MACAddress"`
+	PermanentMACAddress string `json:"PermanentMACAddress"`
+	MTUSize             int    `json:"MTUSize"`
 }
 
 func (c *Client) GetNetworkDeviceFunction(pfID string) (*resty.Response, *NetworkDeviceFunction, error) {
+	url := APIGetNetworkDeviceFunctions
+	if c.IsBF4 {
+		url = APIGetNetworkDeviceFunctionsBF4
+	}
+
+	url = strings.Replace(url, "{PF_ID}", pfID, 1)
 	return do[NetworkDeviceFunction](func() (*resty.Response, error) {
-		return c.Client.R().Get(strings.Replace(APIGetNetworkDeviceFunctions, "{PF_ID}", pfID, 1))
+		return c.Client.R().Get(strings.Replace(url, "{PF_ID}", pfID, 1))
 	})
 }
 
