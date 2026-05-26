@@ -114,6 +114,12 @@ type BluefieldSoftwareVersions struct {
 	OSISOVersion string `json:"osISOVersion,omitempty"`
 
 	AstraNicFwVersion string `json:"astraNicFwVersion,omitempty"`
+
+	BMCVersion string `json:"bmcVersion,omitempty"`
+
+	BMCErotVersion string `json:"bmcErotVersion,omitempty"`
+
+	SBIOSVersion string `json:"sbiosVersion,omitempty"`
 }
 
 // DownloadedComponents tracks which components have been downloaded
