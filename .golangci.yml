@@ -107,6 +107,13 @@ linters:
     paths:
       - third_party
       - third_party$
+      # SFC CNI code was recently moved out of third_party/forked/ovs-cni into the
+      # main module. The upstream code has style/complexity issues that the
+      # original third_party exclusion was hiding. The exclusion is intentionally
+      # temporary, follow-up PRs will clean these up and remove these entries.
+      # TODO: Remove once the upstream code is cleaned up.
+      - internal/cni/dpf-ovs-cni
+      - cmd/dpf-ovs-cni
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
@@ -128,3 +135,6 @@ formatters:
     paths:
       - third_party
       - third_party$
+      # TODO: Remove once the upstream code is cleaned up.
+      - internal/cni/dpf-ovs-cni
+      - cmd/dpf-ovs-cni
