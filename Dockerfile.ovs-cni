@@ -1,41 +1,53 @@
 ARG builder_image
 ARG ovs_cni_base_image
 
-# 1) Build stage builds OVS CNI binaries
-FROM --platform=${BUILDPLATFORM} ${builder_image} AS builder
+# 1) Dependency stage: create vendor/ inside the image (main module is vendor-on-build).
+FROM --platform=${BUILDPLATFORM} ${builder_image} AS dependency
 WORKDIR /workspace
 
-# Copy the Go Modules manifests.
-COPY third_party/forked/ovs-cni/go.mod go.mod
-COPY third_party/forked/ovs-cni/go.sum go.sum
+COPY go.mod go.sum ./
+# third_party/ is required by `go mod vendor`, other DPF internal packages
+# import from third_party/forked/argoproj and nvidia-external-attacher.
+COPY third_party/ third_party/
+COPY api/ api/
+COPY cmd/ cmd/
+COPY test/ test/
+COPY internal/ internal/
+COPY pkg/ pkg/
 
-# Cache deps before copying source so source changes do not invalidate the downloaded layer.
 RUN --mount=type=cache,target=/go/pkg/mod \
-    go mod download
+    --mount=type=cache,target=/root/.cache/go-build \
+    go mod vendor
 
-COPY third_party/forked/ovs-cni/ .
-
-ARG goarch=
-ARG TARGETOS
-ARG TARGETARCH
-
-ENV GOOS=${TARGETOS:-linux}
-ENV GOARCH=${goarch:-$TARGETARCH}
-ENV CGO_ENABLED=0
-ENV GOFLAGS=-mod=vendor
-
-RUN mkdir /workspace/bin
-RUN --mount=type=cache,target=/root/.cache/go-build \
-    --mount=type=cache,target=/go/pkg/mod \
-    go build -tags no_openssl -o /workspace/bin/ovs ./cmd/plugin
-
-# Copy the Go source code so it can be distributed in the final image.
-RUN mkdir src && \
-    find . -name '*.go' -not -path "./hack/*" -not -path "./.gocache/*" \
+# Copy the moved CNI source so it can be distributed in the final image.
+RUN mkdir -p src && \
+    find cmd/dpf-ovs-cni internal/cni/dpf-ovs-cni -name '*.go' \
     -exec cp --parents \{\}  src/ \; && \
     tar -czf source-code.tar.gz src
 
-# 2) Final stage copies artifacts from the builder stage.
+# 2) Build stage builds the OVS CNI binary.
+FROM --platform=${BUILDPLATFORM} ${builder_image} AS builder
+WORKDIR /workspace
+
+COPY --from=dependency /workspace .
+
+ARG goarch=
+ARG TARGETARCH
+ARG ldflags
+ARG gcflags
+ARG tag
+
+ENV ARCH=${goarch:-$TARGETARCH}
+ENV GO_LDFLAGS=${ldflags}
+ENV GO_GCFLAGS=${gcflags}
+ENV TAG=${tag}
+
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=bind,source=Makefile,target=Makefile \
+    --mount=type=bind,source=hack/tools/tools.mk,target=hack/tools/tools.mk \
+    GOFLAGS="-mod=vendor" make binary-ovs-cni
+
+# 3) Final stage copies artifacts from the builder stage.
 FROM ${ovs_cni_base_image}
 
 ARG ubuntu_mirror=http://archive.ubuntu.com/ubuntu/
@@ -53,10 +65,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 WORKDIR /
 
 # Add the source code.
-COPY --from=builder /workspace/source-code.tar.gz source-code.tar.gz
-
-# Add the OVS CNI version file.
-COPY --from=builder /workspace/.version /.version
+COPY --from=dependency /workspace/source-code.tar.gz source-code.tar.gz
 
 # Add the OVS CNI binaries.
 COPY --from=builder /workspace/bin/ovs /ovs

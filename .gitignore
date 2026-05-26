@@ -55,9 +55,6 @@ go.work
 # Git specific files
 *.patch
 
-# Ignore version file for third_party components
-third_party/forked/ovs-cni/.version
-
 # Ignore the rendered helmfiles in the dpf-operator chart
 deploy/charts/dpf-operator/dev/helmfiles/**
 

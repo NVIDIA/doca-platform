@@ -117,11 +117,6 @@ clean-images-for-registry: ## Clean release deletes local images with the $REGIS
 
 ##@ Dependencies
 
-# OVS CNI
-# A third party import to the repo. In future this will be further integrated.
-OVS_CNI_DIR=$(THIRDPARTYDIR)/ovs-cni
-
-
 DOCA_SOSREPORT_REPO_URL=https://github.com/NVIDIA/doca-sosreport/archive/$(DOCA_SOSREPORT_REF).tar.gz
 DOCA_SOSREPORT_REF=6b4289b9f0d9f26af177b0d1c4c009ca74bb514a
 SOS_REPORT_DIR=$(REPOSDIR)/doca-sosreport-$(DOCA_SOSREPORT_REF)
@@ -1335,6 +1330,10 @@ binary-dpfctl-release:
 binary-cni-installer: ## Build the CNI installer binary.
 	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/cni-installer github.com/nvidia/doca-platform/cmd/cniinstaller
 
+.PHONY: binary-ovs-cni
+binary-ovs-cni: ## Build the OVS CNI (SFC CNI) binary.
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -tags no_openssl -ldflags="$(GO_LDFLAGS) -X github.com/containernetworking/plugins/pkg/utils/buildversion.BuildVersion=$(TAG)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/ovs github.com/nvidia/doca-platform/cmd/dpf-ovs-cni
+
 .PHONY: install-dpfctl
 install-dpfctl: binary-dpfctl ## Install the dpfctl binary.
 	install -m 755 $(LOCALBIN)/dpfctl $(GOPATH)/bin/dpfctl
@@ -1502,8 +1501,7 @@ docker-build-ipallocator: docker-buildx-setup $(ARTIFACTS_DIR) ## Build docker i
 		-t $(IPALLOCATOR_IMAGE):$(TAG)
 
 .PHONY: docker-build-ovs-cni
-docker-build-ovs-cni: docker-buildx-setup $(OVS_CNI_DIR) $(ARTIFACTS_DIR) ## Builds the OVS CNI image
-	(cd $(OVS_CNI_DIR) && hack/get_version.sh > .version) && \
+docker-build-ovs-cni: docker-buildx-setup $(ARTIFACTS_DIR) ## Builds the OVS CNI image
 	$(CURDIR)/hack/scripts/docker-build.sh \
 		--load \
 		--label=org.opencontainers.image.created=$(DATE) \
@@ -1517,6 +1515,9 @@ docker-build-ovs-cni: docker-buildx-setup $(OVS_CNI_DIR) $(ARTIFACTS_DIR) ## Bui
 		--build-arg ovs_cni_base_image=$(OVS_CNI_BASE_IMAGE) \
 		--build-arg ubuntu_mirror=$(UBUNTU_MIRROR) \
 		--build-arg goarch=$(DPU_ARCH) \
+		--build-arg ldflags="$(GO_LDFLAGS)" \
+		--build-arg gcflags="$(GO_GCFLAGS)" \
+		--build-arg tag=$(TAG) \
 		--platform linux/${DPU_ARCH} \
 		-f Dockerfile.ovs-cni \
 		-t $(OVS_CNI_IMAGE):${TAG} \
