@@ -722,7 +722,7 @@ _Underlying type:_ _string_
 
 KataShim identifies a Kata hypervisor shim variant.
 Values must match the shim keys in the kata-deploy Helm chart's
-shims.<name>.enabled values.
+`shims.<name>.enabled` values.
 Only arm64-compatible shims are supported.
 
 _Validation:_
