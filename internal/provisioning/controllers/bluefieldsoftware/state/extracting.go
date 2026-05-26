@@ -285,6 +285,12 @@ func applyUnpackedComponentsToDownloaded(bfs *provisioningv1.BlueFieldSoftware, 
 		case strings.Contains(imageName, "CX9"):
 			bfs.Status.DownloadedComponents.AstraNicFw = component.FWImage
 			bfs.Status.Versions.AstraNicFwVersion = component.ComponentVersionString
+		case strings.Contains(imageName, "BMC_BF4"):
+			bfs.Status.Versions.BMCVersion = component.ComponentVersionString
+		case strings.Contains(imageName, "EROT"):
+			bfs.Status.Versions.BMCErotVersion = component.ComponentVersionString
+		case strings.Contains(imageName, "SBIOS"):
+			bfs.Status.Versions.SBIOSVersion = component.ComponentVersionString
 		}
 	}
 }
