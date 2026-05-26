@@ -318,97 +318,15 @@ func (r *DPUDeviceReconciler) initializeDPUDevice(ctx context.Context, dpuDevice
 		return err
 	}
 
-	_, data, err := basicAuthClient.CheckBMCFirmware()
-	if err != nil {
-		err = fmt.Errorf("failed to get BMC firmware: %w", err)
-		cutil.SetDPUDeviceCondition(dpuDevice, cutil.NewCondition(string(provisioningv1.ConditionDpuDeviceInitialized), err, "FailedToCheckBMCFW", err.Error()))
-		return err
-	}
-
-	if version.Compare(data.Version, BMCMinSupportedVersion, "<") {
-		taskName := fmt.Sprintf("%s-%s", dpuDevice.Name, dpuDevice.UID)
-
-		if taskID, ok := dutil.BmcFwUpdateTaskMap.Load(taskName); ok {
-			switch taskID := taskID.(type) {
-			case string:
-				// check progress
-				resp, prog, err := basicAuthClient.CheckTaskProgress(taskID)
-				if err != nil {
-					err = fmt.Errorf("failed to check task progress: %w", err)
-					log.Error(err, "Failed to check task progress")
-					cutil.SetDPUDeviceCondition(dpuDevice, cutil.NewCondition(string(provisioningv1.ConditionDpuDeviceInitialized), err, "FailToCheckProgress", err.Error()))
-					return err
-				} else if resp.StatusCode() != http.StatusOK {
-					err = fmt.Errorf("get status: %s is not OK", resp.Status())
-					log.Error(err, "Failed to check task progress", "status", resp.Status())
-					cutil.SetDPUDeviceCondition(dpuDevice, cutil.NewCondition(string(provisioningv1.ConditionDpuDeviceInitialized), err, "FailToCheckProgress", err.Error()))
-					return err
-				}
-				log.Info(fmt.Sprintf("task: %+v", prog))
-				switch prog.TaskState {
-				case "Exception":
-					cutil.SetDPUDeviceCondition(dpuDevice, cutil.NewCondition(string(provisioningv1.ConditionDpuDeviceInitialized), err, "FailToInstall", fmt.Sprintf("Task %s is in Exception state: %v", taskID, prog.Messages)))
-					return nil
-				case "New", "Starting", "Running":
-					log.Info(fmt.Sprintf("taskProgress: %+v", prog.PercentComplete))
-					conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceInitialized,
-						conditions.ReasonPending,
-						conditions.ConditionMessage("BMC firmware update in progress"))
-					return nil
-				case "Completed":
-					log.Info("Task completed. Resetting BMC")
-					_, _, err := basicAuthClient.ResetBMC()
-					if err != nil {
-						err = fmt.Errorf("failed to reset BMC: %w", err)
-						cutil.SetDPUDeviceCondition(dpuDevice, cutil.NewCondition(string(provisioningv1.ConditionDpuDeviceInitialized), err, "FailToResetBMC", err.Error()))
-						return err
-					}
-					dutil.BmcFwUpdateTaskMap.Delete(taskName)
-					conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceInitialized,
-						conditions.ReasonPending,
-						conditions.ConditionMessage("BMC firmware update completed, resetting BMC"))
-					return nil
-				default:
-					err = fmt.Errorf("unknown task state: '%s'", prog.TaskState)
-					log.Info(err.Error())
-					cutil.SetDPUDeviceCondition(dpuDevice, cutil.NewCondition(string(provisioningv1.ConditionDpuDeviceInitialized), err, "UnknownSTate", err.Error()))
-					return err
-				}
-			}
-
-		} else {
-			log.Info(fmt.Sprintf("Current BMC FW: %s is older than 24.10, update to 24.10-17", data.Version))
-			bmcFwFile := os.Getenv("BMC_FW_FILE")
-			if bmcFwFile == "" {
-				bmcFwFile = "/bf3-bmc.fwpkg"
-			}
-			fwFile, err := os.Open(bmcFwFile)
-			if err != nil {
-				err = fmt.Errorf("failed to open BMC firmware file: %w", err)
-				log.Error(err, "Failed to open BMC firmware file")
-				cutil.SetDPUDeviceCondition(dpuDevice, cutil.NewCondition(string(provisioningv1.ConditionDpuDeviceInitialized), err, "FailedToOpenBMCFirmware", err.Error()))
-				return err
-			}
-			defer func() {
-				_ = fwFile.Close()
-			}()
-			resp, taskInfo, err := basicAuthClient.UpdateBMCFirmware(fwFile)
-			if err != nil {
-				err = fmt.Errorf("failed to update BMC firmware: %w", err)
-				log.Error(err, "Failed to update BMC firmware")
-				cutil.SetDPUDeviceCondition(dpuDevice, cutil.NewCondition(string(provisioningv1.ConditionDpuDeviceInitialized), err, "FailToUpdateBMCFW", err.Error()))
-				return err
-			} else if resp.StatusCode() != http.StatusAccepted {
-				err = fmt.Errorf("get status: %s", resp.Status())
-				log.Error(err, "Failed to update BMC firmware", "status", resp.Status())
-				cutil.SetDPUDeviceCondition(dpuDevice, cutil.NewCondition(string(provisioningv1.ConditionDpuDeviceInitialized), err, "FailToUpdateBMCFW", err.Error()))
-				return err
-			}
-			log.Info(fmt.Sprintf("new install task: %+v", *taskInfo))
-			dutil.BmcFwUpdateTaskMap.Store(taskName, taskInfo.ID)
-			conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceInitialized,
-				conditions.ReasonPending,
-				conditions.ConditionMessage(fmt.Sprintf("BMC firmware update started (current: %s, required: >= %s)", data.Version, BMCMinSupportedVersion)))
+	if basicAuthClient.IsBF4 {
+		dpuDevice.Status.DPUType = provisioningv1.DPUTypeBlueField4
+	} else {
+		dpuDevice.Status.DPUType = provisioningv1.DPUTypeBlueField3
+		stop, err := r.checkAndUpdateBmcFw(ctx, dpuDevice, basicAuthClient)
+		if err != nil {
+			return err
+		}
+		if stop {
 			return nil
 		}
 	}
@@ -491,35 +409,50 @@ func (r *DPUDeviceReconciler) discoverDPUDevice(ctx context.Context, dpuDevice *
 		return err
 	} else {
 		dpuDevice.Status.SerialNumber = ptr.To(chassisInfo.SerialNumber)
-		dpuDevice.Status.PSID = ptr.To(chassisInfo.SerialNumber)
+		dpuDevice.Status.PSID = ptr.To(chassisInfo.AssetTag)
 	}
 
 	dpuDevice.Status.OPN = ptr.To(chassisInfo.PartNumber)
 
-	resp, pf0, err := client.GetNetworkDeviceFunction("eth0f0")
+	device := "eth0f0"
+	if client.IsBF4 {
+		device = "0"
+	}
+	resp, pf0, err := client.GetNetworkDeviceFunction(device)
 	if err != nil {
 		log.Error(err, "Failed to get network device function", "address", bmcAddress, "response", resp)
 		return err
 	}
 
-	if pf0.Ethernet.MACAddress != "" {
-		dpuDevice.Status.PF0MAC = ptr.To(pf0.Ethernet.MACAddress)
+	var mac string
+	if client.IsBF4 {
+		mac = pf0.Ethernet.PermanentMACAddress
+
+	} else {
+		mac = pf0.Ethernet.MACAddress
 	}
 
-	resp, secureBootInfo, err := client.GetSecureBoot()
-	if err != nil {
-		log.Error(err, "Failed to get Secure Boot state", "address", bmcAddress, "response", resp)
-		return err
+	if mac != "" {
+		dpuDevice.Status.PF0MAC = ptr.To(mac)
+	} else {
+		log.Info("No MAC address found for PF0", "address", bmcAddress, "response", resp)
 	}
 
-	if secureBootInfo != nil {
-		enabled := secureBootInfo.IsCurrentlyActive()
-		dpuDevice.Status.SecureBoot = &provisioningv1.SecureBootStatus{
-			Enabled: ptr.To(enabled),
+	if dpuDevice.Status.DPUType == provisioningv1.DPUTypeBlueField3 {
+		resp, secureBootInfo, err := client.GetSecureBoot()
+		if err != nil {
+			log.Error(err, "Failed to get Secure Boot state", "address", bmcAddress, "response", resp)
+			return err
 		}
-		log.Info("Detected Secure Boot state", "address", bmcAddress, "enabled", enabled)
-	}
 
+		if secureBootInfo != nil {
+			enabled := secureBootInfo.IsCurrentlyActive()
+			dpuDevice.Status.SecureBoot = &provisioningv1.SecureBootStatus{
+				Enabled: ptr.To(enabled),
+			}
+			log.Info("Detected Secure Boot state", "address", bmcAddress, "enabled", enabled)
+		}
+	}
 	// TODO: Get the PCI address once it will be available in the Redfish API
 
 	if dpuDevice.Labels == nil {
@@ -624,7 +557,11 @@ func (r *DPUDeviceReconciler) setUpMTLS(ctx context.Context, dpudevice *provisio
 	// step 3: install client certificate
 	log.FromContext(ctx).Info("Install client certificate...")
 	clientSecret := &corev1.Secret{}
-	if err := r.Client.Get(ctx, types.NamespacedName{Name: rfclient.ClientCertSecret, Namespace: dpudevice.Namespace}, clientSecret); err != nil {
+	name := rfclient.ClientCertSecret
+	if basicAuthClient.IsBF4 {
+		name = rfclient.ClientCertSecretBF4
+	}
+	if err := r.Client.Get(ctx, types.NamespacedName{Name: name, Namespace: dpudevice.Namespace}, clientSecret); err != nil {
 		return false, fmt.Errorf("failed to get client cert, err: %v", err)
 	}
 	clientCert, ok := clientSecret.Data["tls.crt"]
@@ -904,4 +841,109 @@ func (r *DPUDeviceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			return requests
 		})).
 		Complete(r)
+}
+
+// checkAndUpdateBmcFw checks BMC firmware version and updates it when below the minimum.
+// Returns stop=true when reconciliation should pause (update in progress or BMC reset pending).
+func (r *DPUDeviceReconciler) checkAndUpdateBmcFw(ctx context.Context, dpuDevice *provisioningv1.DPUDevice, basicAuthClient *rfclient.Client) (stop bool, err error) {
+	log := log.FromContext(ctx)
+
+	_, data, err := basicAuthClient.CheckBMCFirmware()
+	if err != nil {
+		err = fmt.Errorf("failed to get BMC firmware: %w", err)
+		cutil.SetDPUDeviceCondition(dpuDevice, cutil.NewCondition(string(provisioningv1.ConditionDpuDeviceInitialized), err, "FailedToCheckBMCFW", err.Error()))
+		return false, err
+	}
+
+	if version.Compare(data.Version, BMCMinSupportedVersion, "<") {
+		taskName := fmt.Sprintf("%s-%s", dpuDevice.Name, dpuDevice.UID)
+
+		if taskID, ok := dutil.BmcFwUpdateTaskMap.Load(taskName); ok {
+			switch taskID := taskID.(type) {
+			case string:
+				// check progress
+				resp, prog, err := basicAuthClient.CheckTaskProgress(taskID)
+				if err != nil {
+					err = fmt.Errorf("failed to check task progress: %w", err)
+					log.Error(err, "Failed to check task progress")
+					cutil.SetDPUDeviceCondition(dpuDevice, cutil.NewCondition(string(provisioningv1.ConditionDpuDeviceInitialized), err, "FailToCheckProgress", err.Error()))
+					return false, err
+				} else if resp.StatusCode() != http.StatusOK {
+					err = fmt.Errorf("get status: %s is not OK", resp.Status())
+					log.Error(err, "Failed to check task progress", "status", resp.Status())
+					cutil.SetDPUDeviceCondition(dpuDevice, cutil.NewCondition(string(provisioningv1.ConditionDpuDeviceInitialized), err, "FailToCheckProgress", err.Error()))
+					return false, err
+				}
+				log.Info(fmt.Sprintf("task: %+v", prog))
+				switch prog.TaskState {
+				case "Exception":
+					err = fmt.Errorf("task %s failed: %v", taskID, prog.Messages)
+					dutil.BmcFwUpdateTaskMap.Delete(taskName)
+					cutil.SetDPUDeviceCondition(dpuDevice, cutil.NewCondition(string(provisioningv1.ConditionDpuDeviceInitialized), err, "FailToInstall", fmt.Sprintf("Task %s is in Exception state: %v", taskID, prog.Messages)))
+					return false, err
+				case "New", "Starting", "Running":
+					log.Info(fmt.Sprintf("taskProgress: %+v", prog.PercentComplete))
+					conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceInitialized,
+						conditions.ReasonPending,
+						conditions.ConditionMessage("BMC firmware update in progress"))
+					return true, nil
+				case "Completed":
+					log.Info("Task completed. Resetting BMC")
+					_, _, err := basicAuthClient.ResetBMC()
+					if err != nil {
+						err = fmt.Errorf("failed to reset BMC: %w", err)
+						cutil.SetDPUDeviceCondition(dpuDevice, cutil.NewCondition(string(provisioningv1.ConditionDpuDeviceInitialized), err, "FailToResetBMC", err.Error()))
+						return false, err
+					}
+					dutil.BmcFwUpdateTaskMap.Delete(taskName)
+					conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceInitialized,
+						conditions.ReasonPending,
+						conditions.ConditionMessage("BMC firmware update completed, resetting BMC"))
+					return true, nil
+				default:
+					err = fmt.Errorf("unknown task state: '%s'", prog.TaskState)
+					log.Info(err.Error())
+					cutil.SetDPUDeviceCondition(dpuDevice, cutil.NewCondition(string(provisioningv1.ConditionDpuDeviceInitialized), err, "UnknownSTate", err.Error()))
+					return false, err
+				}
+			}
+
+		} else {
+			log.Info(fmt.Sprintf("Current BMC FW: %s is older than 24.10, update to 24.10-17", data.Version))
+			bmcFwFile := os.Getenv("BMC_FW_FILE")
+			if bmcFwFile == "" {
+				bmcFwFile = "/bf3-bmc.fwpkg"
+			}
+			fwFile, err := os.Open(bmcFwFile)
+			if err != nil {
+				err = fmt.Errorf("failed to open BMC firmware file: %w", err)
+				log.Error(err, "Failed to open BMC firmware file")
+				cutil.SetDPUDeviceCondition(dpuDevice, cutil.NewCondition(string(provisioningv1.ConditionDpuDeviceInitialized), err, "FailedToOpenBMCFirmware", err.Error()))
+				return false, err
+			}
+			defer func() {
+				_ = fwFile.Close()
+			}()
+			resp, taskInfo, err := basicAuthClient.UpdateBMCFirmware(fwFile)
+			if err != nil {
+				err = fmt.Errorf("failed to update BMC firmware: %w", err)
+				log.Error(err, "Failed to update BMC firmware")
+				cutil.SetDPUDeviceCondition(dpuDevice, cutil.NewCondition(string(provisioningv1.ConditionDpuDeviceInitialized), err, "FailToUpdateBMCFW", err.Error()))
+				return false, err
+			} else if resp.StatusCode() != http.StatusAccepted {
+				err = fmt.Errorf("get status: %s", resp.Status())
+				log.Error(err, "Failed to update BMC firmware", "status", resp.Status())
+				cutil.SetDPUDeviceCondition(dpuDevice, cutil.NewCondition(string(provisioningv1.ConditionDpuDeviceInitialized), err, "FailToUpdateBMCFW", err.Error()))
+				return false, err
+			}
+			log.Info(fmt.Sprintf("new install task: %+v", *taskInfo))
+			dutil.BmcFwUpdateTaskMap.Store(taskName, taskInfo.ID)
+			conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceInitialized,
+				conditions.ReasonPending,
+				conditions.ConditionMessage(fmt.Sprintf("BMC firmware update started (current: %s, required: >= %s)", data.Version, BMCMinSupportedVersion)))
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
