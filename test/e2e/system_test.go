@@ -354,6 +354,12 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 		})
 	})
 
+	Context("DPU Service Kata Containers", Labels{Domain.RequiresNodes}, func() {
+		It("deploy a DPUService pod with kata-qemu RuntimeClass and an SF", func() {
+			ValidateDPUServiceKataRuntimeClass(ctx, input)
+		})
+	})
+
 	Context("DPU Deployment", Labels{Domain.ZeroTrust}, func() {
 		It("create a DPUDeployment with its dependencies and ensure that the underlying objects are created", func() {
 			ValidateDPUDeploymentCreation(ctx, input)

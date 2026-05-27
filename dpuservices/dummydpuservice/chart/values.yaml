@@ -33,6 +33,7 @@ image:
   pullPolicy: IfNotPresent
   tag: ""
 imagePullSecrets: []
+runtimeClassName: ""
 podSecurityContext: {}
 securityContext: {}
 tolerations: []

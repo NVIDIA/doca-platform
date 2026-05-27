@@ -18,6 +18,8 @@ This section contains documentation for the DPU services that can be deployed an
     * [HBN User Guide (Zero Trust)](../../user-guides/zero-trust/use-cases/hbn/README.md)
 * **Argus**: DOCA Argus Service for Container Threat Detection
     * [Argus User Guide](argus.md)
+* **Kata Containers**: VM-based workload isolation on DPU nodes using QEMU
+    * [Kata Containers Guide](kata-containers.md)
 * **Storage Services**: Storage-related services including SNAP and SPDK CSI for storage management and virtualization
 * **OVN VPC Service**: DOCA VPC OVN service provides accelerated Virtual Private Cloud (VPC) networking with network
   isolation and advanced SDN capabilities using [Open Virtual Network (OVN)](https://www.ovn.org/en/)
