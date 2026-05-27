@@ -337,6 +337,7 @@ spec:
                   properties:
                     name:
                       description: Name is the package name.
+                      maxLength: 253
                       minLength: 1
                       type: string
                     repoFileRef:
@@ -370,7 +371,11 @@ spec:
                   required:
                   - name
                   type: object
+                maxItems: 64
                 type: array
+                x-kubernetes-validations:
+                - message: package names must be unique
+                  rule: self.all(x, self.exists_one(y, x.name == y.name))
               sysctl:
                 description: Sysctl contains the sysctl configuration for the DPUFlavor.
                 properties:
@@ -401,6 +406,7 @@ spec:
                   properties:
                     name:
                       description: Name is the systemd service name.
+                      maxLength: 253
                       minLength: 1
                       type: string
                     operation:
@@ -415,7 +421,11 @@ spec:
                   - name
                   - operation
                   type: object
+                maxItems: 64
                 type: array
+                x-kubernetes-validations:
+                - message: systemd service names must be unique
+                  rule: self.all(x, self.exists_one(y, x.name == y.name))
             type: object
             x-kubernetes-validations:
             - message: DPUFlavor spec is immutable
