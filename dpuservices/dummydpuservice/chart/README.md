@@ -15,6 +15,7 @@ Dummydpuservice chart for Kubernetes
 | image.tag | string | `""` |  |
 | imagePullSecrets | list | `[]` |  |
 | podSecurityContext | object | `{}` |  |
+| runtimeClassName | string | `""` |  |
 | securityContext | object | `{}` |  |
 | serviceDaemonSet.annotations | object | `{}` |  |
 | serviceDaemonSet.labels | object | `{}` |  |
