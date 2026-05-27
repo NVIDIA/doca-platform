@@ -688,7 +688,7 @@ func NewRawClient(bmcAddress string) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Client{Client: resty.New().SetBaseURL(u.String()).SetTLSClientConfig(&tls.Config{InsecureSkipVerify: true})}, nil
+	return &Client{Client: resty.New().SetBaseURL(u.String()).SetTLSClientConfig(newRedfishTLSConfig(nil, nil))}, nil
 }
 
 // GetRootService returns the root service of the BMC
@@ -871,7 +871,7 @@ func NewBasicAuthClient(bmcAddress, user, passwd string) (*Client, error) {
 	}
 
 	c := resty.New().
-		SetTLSClientConfig(&tls.Config{InsecureSkipVerify: true}).
+		SetTLSClientConfig(newRedfishTLSConfig(nil, nil)).
 		SetBaseURL(bmcAddress).
 		SetBasicAuth(user, passwd)
 
@@ -939,13 +939,7 @@ func NewTLSClient(ctx context.Context, bmcAddress string, namespace string, k8sC
 	if !certPool.AppendCertsFromPEM(caCert) {
 		return nil, fmt.Errorf("failed to load CA certs")
 	}
-	tlsCfg := &tls.Config{
-		InsecureSkipVerify: true,
-		RootCAs:            certPool,
-		Certificates:       []tls.Certificate{clientKeyPair},
-	}
-
-	c := resty.New().SetBaseURL(bmcAddress).SetTLSClientConfig(tlsCfg)
+	c := resty.New().SetBaseURL(bmcAddress).SetTLSClientConfig(newRedfishTLSConfig(certPool, []tls.Certificate{clientKeyPair}))
 
 	tlsClient := &Client{Client: c, IsBF4: rawClient.IsBF4}
 
