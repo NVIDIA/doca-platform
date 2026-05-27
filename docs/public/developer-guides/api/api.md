@@ -2070,8 +2070,8 @@ _Appears in:_
 | `ovs` _[DPUFlavorOVS](#dpuflavorovs)_ | OVS contains the OVS configuration for the DPUFlavor. |  | Optional: \{\} <br /> |
 | `bfcfgParameters` _string array_ | BFCfgParameters are the parameters to be set in the bf.cfg file. |  | Optional: \{\} <br /> |
 | `configFiles` _[ConfigFile](#configfile) array_ | ConfigFiles are the files to be written on the DPU. |  | Optional: \{\} <br /> |
-| `packages` _[PackageSpec](#packagespec) array_ | Packages are the packages to reconcile on the node. |  | Optional: \{\} <br /> |
-| `systemdServices` _[SystemdServiceSpec](#systemdservicespec) array_ | SystemdServices are the systemd services to manage on the node. |  | Optional: \{\} <br /> |
+| `packages` _[PackageSpec](#packagespec) array_ | Packages are the packages to reconcile on the node. |  | MaxItems: 64 <br />Optional: \{\} <br /> |
+| `systemdServices` _[SystemdServiceSpec](#systemdservicespec) array_ | SystemdServices are the systemd services to manage on the node. |  | MaxItems: 64 <br />Optional: \{\} <br /> |
 | `containerdConfig` _[ContainerdConfig](#containerdconfig)_ | ContainerdConfig contains the configuration for containerd. |  | Optional: \{\} <br /> |
 | `dpuResources` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#resourcelist-v1-core)_ | DPUResources indicates the minimum amount of resources needed for a BFB with that flavor to be installed on a<br />DPU. Using this field, the controller can understand if that flavor can be installed on a particular DPU. It<br />should be set to the total amount of resources the system needs + the resources that should be made available for<br />DPUServices to consume. |  | Optional: \{\} <br /> |
 | `systemReservedResources` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#resourcelist-v1-core)_ | SystemReservedResources indicates the resources that are consumed by the system (OS, OVS, DPF system etc) and are<br />not made available for DPUServices to consume. DPUServices can consume the difference between DPUResources and<br />SystemReservedResources. This field must not be specified if dpuResources are not specified. |  | Optional: \{\} <br /> |
@@ -2834,7 +2834,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `name` _string_ | Name is the package name. |  | MinLength: 1 <br /> |
+| `name` _string_ | Name is the package name. |  | MaxLength: 253 <br />MinLength: 1 <br /> |
 | `version` _[PackageVersionSpec](#packageversionspec)_ | Version constrains the package version.<br />If empty, any installed version satisfies the spec. |  | Optional: \{\} <br /> |
 | `repoFileRef` _string_ | RepoFileRef constrains package resolution to a specific repository file available on the node.<br />If empty, any configured repository may satisfy the package.<br />If specified, only the referenced repository file may provide candidates.<br />If that repository file does not provide the package or requested version, the dpu-agent flow does not continue. |  | Optional: \{\} <br /> |
 
@@ -3091,7 +3091,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `name` _string_ | Name is the systemd service name. |  | MinLength: 1 <br /> |
+| `name` _string_ | Name is the systemd service name. |  | MaxLength: 253 <br />MinLength: 1 <br /> |
 | `operation` _[SystemdServiceOperation](#systemdserviceoperation)_ | Operation is the systemd operation to perform on the service. |  | Enum: [Start Enable EnableAndStart] <br /> |
 
 
