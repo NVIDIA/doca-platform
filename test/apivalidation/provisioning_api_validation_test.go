@@ -142,6 +142,48 @@ var _ = Describe("Provisioning API Validation", func() {
 					MatchPolicy: provisioningv1.PackageVersionMatchPolicy("Latest"),
 				}),
 			)
+
+			It("should reject duplicate package names", func() {
+				obj := getMinimalDPUFlavor(testNs.Name)
+				obj.Spec.Packages = []provisioningv1.PackageSpec{
+					{Name: "doca-extra", Version: &provisioningv1.PackageVersionSpec{Value: "1.0.0"}},
+					{Name: "doca-extra", RepoFileRef: "/etc/apt/sources.list.d/doca.list"},
+				}
+				err := testClient.Create(ctx, obj)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("package names must be unique"))
+			})
+
+			It("should accept multiple packages with distinct names", func() {
+				obj := getMinimalDPUFlavor(testNs.Name)
+				obj.Spec.Packages = []provisioningv1.PackageSpec{
+					{Name: "doca-extra"},
+					{Name: "doca-ofed"},
+				}
+				Expect(testClient.Create(ctx, obj)).To(Succeed())
+			})
+		})
+
+		Context("SystemdService validation", func() {
+			It("should reject duplicate systemd service names", func() {
+				obj := getMinimalDPUFlavor(testNs.Name)
+				obj.Spec.SystemdServices = []provisioningv1.SystemdServiceSpec{
+					{Name: "doca-agent", Operation: provisioningv1.SystemdServiceStart},
+					{Name: "doca-agent", Operation: provisioningv1.SystemdServiceEnable},
+				}
+				err := testClient.Create(ctx, obj)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("systemd service names must be unique"))
+			})
+
+			It("should accept multiple systemd services with distinct names", func() {
+				obj := getMinimalDPUFlavor(testNs.Name)
+				obj.Spec.SystemdServices = []provisioningv1.SystemdServiceSpec{
+					{Name: "doca-agent", Operation: provisioningv1.SystemdServiceStart},
+					{Name: "containerd", Operation: provisioningv1.SystemdServiceEnableAndStart},
+				}
+				Expect(testClient.Create(ctx, obj)).To(Succeed())
+			})
 		})
 
 		Context("NVConfig validation", func() {

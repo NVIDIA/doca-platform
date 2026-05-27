@@ -61,9 +61,13 @@ type DPUFlavorSpec struct {
 	// +optional
 	ConfigFiles []ConfigFile `json:"configFiles,omitempty"`
 	// Packages are the packages to reconcile on the node.
+	// +kubebuilder:validation:MaxItems=64
+	// +kubebuilder:validation:XValidation:rule="self.all(x, self.exists_one(y, x.name == y.name))",message="package names must be unique"
 	// +optional
 	Packages []PackageSpec `json:"packages,omitempty"`
 	// SystemdServices are the systemd services to manage on the node.
+	// +kubebuilder:validation:MaxItems=64
+	// +kubebuilder:validation:XValidation:rule="self.all(x, self.exists_one(y, x.name == y.name))",message="systemd service names must be unique"
 	// +optional
 	SystemdServices []SystemdServiceSpec `json:"systemdServices,omitempty"`
 	// ContainerdConfig contains the configuration for containerd.
@@ -186,6 +190,7 @@ type ConfigFile struct {
 type PackageSpec struct {
 	// Name is the package name.
 	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
 	Name string `json:"name"`
 	// Version constrains the package version.
 	// If empty, any installed version satisfies the spec.
@@ -242,6 +247,7 @@ const (
 type SystemdServiceSpec struct {
 	// Name is the systemd service name.
 	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
 	Name string `json:"name"`
 	// Operation is the systemd operation to perform on the service.
 	Operation SystemdServiceOperation `json:"operation"`
