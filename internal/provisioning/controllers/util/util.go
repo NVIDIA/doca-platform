@@ -143,6 +143,8 @@ const (
 	// AgentCondRebootMethodDiscovery is set True when the device-query reboot path is active.
 	// Reason is the resolved RebootMethodType (e.g. SystemLevelReset, NoAction); Message holds mlxfwreset JSON when reset is needed.
 	AgentCondRebootMethodDiscovery = "RebootMethodDiscovery"
+	// AgentCondEWNicFirmwareInstalled is set based on the E/W NIC firmware installation result in NIC provisioning.
+	AgentCondEWNicFirmwareInstalled = "EWNicFirmwareInstalled"
 	// AgentAnnotationAllowFirmwareResetReboot is the DPU annotation key used to allow RebootMethodFirmwareReset from mlxfwreset.
 	AgentAnnotationAllowFirmwareResetReboot = DPUProvisioningPrefix + "allow-firmware-reset-reboot"
 
