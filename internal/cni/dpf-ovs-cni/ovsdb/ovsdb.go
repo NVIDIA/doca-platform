@@ -26,9 +26,11 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/nvidia/doca-platform/pkg/ovsmodel"
+	"github.com/nvidia/doca-platform/pkg/ovsutils"
+
 	current "github.com/containernetworking/cni/pkg/types/100"
 	"github.com/ovn-org/libovsdb/client"
-	"github.com/ovn-org/libovsdb/model"
 	"github.com/ovn-org/libovsdb/ovsdb"
 )
 
@@ -36,10 +38,6 @@ const ovsPortOwner = "ovs-cni.network.kubevirt.io"
 const SfcBridge = "br-sfc"
 const HbnBridge = "br-hbn"
 const OvnBridge = "br-ovn"
-const (
-	bridgeTable = "Bridge"
-	ovsTable    = "Open_vSwitch"
-)
 
 // OpenvSwitch limits the port numbers that it automatically assigns to
 // the range 1 through 32,767, inclusive.  Controllers therefore have
@@ -56,20 +54,9 @@ var (
 	errObjectNotFound = errors.New("object not found")
 )
 
-// Bridge defines an object in Bridge table
-type Bridge struct {
-	UUID string `ovsdb:"_uuid"`
-}
-
-// OpenvSwitch defines an object in Open_vSwitch table
-type OpenvSwitch struct {
-	UUID string `ovsdb:"_uuid"`
-}
-
 // OvsDriver OVS driver state
 type OvsDriver struct {
-	// OVS client
-	OvsClient client.Client
+	api ovsutils.API
 }
 
 // OvsBridgeDriver OVS bridge driver state
@@ -123,10 +110,9 @@ func resolveOFPort(intfName string, usedPorts map[uint]bool) uint {
 	return 0
 }
 
-// ConnectToOvsDb connect to ovsdb
-func ConnectToOvsDb(ovsSocket string) (client.Client, error) {
-	dbmodel, err := model.NewClientDBModel("Open_vSwitch",
-		map[string]model.Model{bridgeTable: &Bridge{}, ovsTable: &OpenvSwitch{}})
+// ConnectToOvsDb connect to ovsdb and return an ovsutils.API wrapping the connection.
+func ConnectToOvsDb(ovsSocket string) (ovsutils.API, error) {
+	dbmodel, err := ovsmodel.FullDatabaseModel()
 	if err != nil {
 		return nil, fmt.Errorf("unable to create DB model error: %v", err)
 	}
@@ -140,61 +126,50 @@ func ConnectToOvsDb(ovsSocket string) (client.Client, error) {
 		return nil, fmt.Errorf("failed to connect to ovsdb error: %v", err)
 	}
 
-	return ovsDB, nil
+	return &ovsutils.Client{Client: ovsDB}, nil
 }
 
 // NewOvsDriver Create a new OVS driver with Unix socket
 func NewOvsDriver(ovsSocket string) (*OvsDriver, error) {
-	ovsDriver := new(OvsDriver)
-
 	if ovsSocket == "" {
 		ovsSocket = "unix:/var/run/openvswitch/db.sock"
 	}
 
-	ovsDB, err := ConnectToOvsDb(ovsSocket)
+	api, err := ConnectToOvsDb(ovsSocket)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to ovsdb error: %v", err)
+		return nil, fmt.Errorf("failed to connect to ovsdb socket %s: %v", ovsSocket, err)
 	}
 
-	ovsDriver.OvsClient = ovsDB
-
-	return ovsDriver, nil
+	return &OvsDriver{api: api}, nil
 }
 
 // NewOvsBridgeDriver Create a new OVS driver for a bridge with Unix socket
 func NewOvsBridgeDriver(bridgeName, socketFile string) (*OvsBridgeDriver, error) {
-	ovsDriver := new(OvsBridgeDriver)
-
-	if socketFile == "" {
-		socketFile = "unix:/var/run/openvswitch/db.sock"
-	}
-
-	ovsDB, err := ConnectToOvsDb(socketFile)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to ovsdb socket %s: error: %v", socketFile, err)
-	}
-
-	// Setup state
-	ovsDriver.OvsClient = ovsDB
-	ovsDriver.OvsBridgeName = bridgeName
-
-	bridgeExist, err := ovsDriver.IsBridgePresent(bridgeName)
+	ovsDriver, err := NewOvsDriver(socketFile)
 	if err != nil {
 		return nil, err
 	}
 
+	bridgeDriver := &OvsBridgeDriver{
+		OvsDriver:     *ovsDriver,
+		OvsBridgeName: bridgeName,
+	}
+
+	bridgeExist, err := bridgeDriver.IsBridgePresent(bridgeName)
+	if err != nil {
+		return nil, err
+	}
 	if !bridgeExist {
 		return nil, fmt.Errorf("failed to find bridge %s", bridgeName)
 	}
 
-	// Return the new OVS driver
-	return ovsDriver, nil
+	return bridgeDriver, nil
 }
 
 // Wrapper for ovsDB transaction
 func (ovsd *OvsDriver) ovsdbTransact(ops []ovsdb.Operation) ([]ovsdb.OperationResult, error) {
 	// Perform OVSDB transaction
-	reply, _ := ovsd.OvsClient.Transact(context.Background(), ops...)
+	reply, _ := ovsd.api.Transact(context.Background(), ops...)
 
 	if len(reply) < len(ops) {
 		return nil, errors.New("OVS transaction failed. Less replies than operations")
@@ -765,28 +740,6 @@ func hasError(row map[string]interface{}) bool {
 	default:
 		return false
 	}
-}
-
-// ************************ Notification handler for OVS DB changes ****************
-
-// Update yet to be implemented
-func (ovsd *OvsDriver) Update(context interface{}, tableUpdates ovsdb.TableUpdates) {
-}
-
-// Disconnected yet to be implemented
-func (ovsd *OvsDriver) Disconnected(ovsClient client.Client) {
-}
-
-// Locked yet to be implemented
-func (ovsd *OvsDriver) Locked([]interface{}) {
-}
-
-// Stolen yet to be implemented
-func (ovsd *OvsDriver) Stolen([]interface{}) {
-}
-
-// Echo yet to be implemented
-func (ovsd *OvsDriver) Echo([]interface{}) {
 }
 
 // ************************ Helper functions ********************
