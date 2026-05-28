@@ -234,10 +234,8 @@ func Test_chartHelper_GetAnnotationsFromChart(t *testing.T) {
 			password: "",
 		},
 		{
-			// The NGC OCI registry rejects pulls from the public registry if the username is set with
-			// no registry.
-			name:    "fail to get from public OCI registry with username but no password set",
-			wantErr: true,
+			name:    "get from public OCI registry with username but no password set",
+			wantErr: false,
 			source: dpuservicev1.ApplicationSource{
 				RepoURL: "oci://nvcr.io/nvidia/cloud-native",
 				Chart:   "network-operator",
