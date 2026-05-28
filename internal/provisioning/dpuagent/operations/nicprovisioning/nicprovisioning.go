@@ -24,27 +24,48 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
 	utils "github.com/nvidia/doca-platform/internal/utils"
 
 	nicconfigurationv1alpha1 "github.com/Mellanox/nic-configuration-operator/api/v1alpha1"
+	nicconfiguration "github.com/Mellanox/nic-configuration-operator/pkg/configuration"
+	nicconsts "github.com/Mellanox/nic-configuration-operator/pkg/consts"
 	nicdevicediscovery "github.com/Mellanox/nic-configuration-operator/pkg/devicediscovery"
 	nicdms "github.com/Mellanox/nic-configuration-operator/pkg/dms"
+	nicfirmware "github.com/Mellanox/nic-configuration-operator/pkg/firmware"
 	nicnvconfig "github.com/Mellanox/nic-configuration-operator/pkg/nvconfig"
+	nicspectrumx "github.com/Mellanox/nic-configuration-operator/pkg/spectrumx"
+	nictypes "github.com/Mellanox/nic-configuration-operator/pkg/types"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 )
 
 var nicFirmwareDir = string(os.PathSeparator) + "nic-firmware"
 
+const (
+	cx9NICDeviceType          = "1025"
+	nicFirmwareInstallTimeout = 15 * time.Minute
+	nicNVConfigApplyTimeout   = 5 * time.Minute
+	// TODO: The NIC Operator team will remove this constraint in the near future, and we will need to update the code.
+	spectrumXConfigDir = "/bindata/spectrum-x"
+)
+
 // NICProvisioning performs NIC-related provisioning steps before the rest of the
 // DPU agent pipeline (modules, netplan, etc.).
 type NICProvisioning struct {
 	dmsServer               nicdms.DMSServer
+	discoveredNICDevices    []nicconfigurationv1alpha1.NicDevice
 	runBash                 func(cmd string) (bytes.Buffer, bytes.Buffer, error)
 	prepareLocalDMSServerFn func(optCtx *operations.Context) error
+	installNICFirmwareFn    func(execCtx context.Context, optCtx *operations.Context, localNICFWPath string) error
+	applyNVConfigFn         func(execCtx context.Context, optCtx *operations.Context) error
 }
 
 func (n *NICProvisioning) Name() string {
@@ -78,7 +99,8 @@ func (n *NICProvisioning) Execute(execCtx context.Context, optCtx *operations.Co
 	klog.InfoS("NIC provisioning", "dpu", optCtx.Options.DPUName, "namespace", optCtx.Options.DPUNamespace,
 		"bfbRegistryURL", optCtx.Options.BFBRegistryURL)
 	// 1. Download Astra NIC firmware from bfb-registry
-	if err := n.downloadNICFirmware(execCtx, optCtx); err != nil {
+	localNICFWPath, err := n.downloadNICFirmware(execCtx, optCtx)
+	if err != nil {
 		return err
 	}
 	// 2. Stop host dmsd service (if present) and start local DMS server from NCO library.
@@ -102,57 +124,85 @@ func (n *NICProvisioning) Execute(execCtx context.Context, optCtx *operations.Co
 			klog.ErrorS(stopErr, "NIC provisioning: failed to stop local DMS server while unwinding execute")
 		}()
 	}
+	// 3. Install NIC firmware
+	installNICFirmware := n.installNICFirmware
+	if n.installNICFirmwareFn != nil {
+		installNICFirmware = n.installNICFirmwareFn
+	}
+	if err := installNICFirmware(execCtx, optCtx, localNICFWPath); err != nil {
+		setAgentCondition(optCtx, cutil.AgentCondEWNicFirmwareInstalled, metav1.ConditionFalse, "InstallFailed", err.Error())
+		if optCtx.UpdateStatusUntilSuccess != nil {
+			optCtx.UpdateStatusUntilSuccess(execCtx)
+		}
+		return err
+	}
+	setAgentCondition(optCtx, cutil.AgentCondEWNicFirmwareInstalled, metav1.ConditionTrue, "InstallSucceeded", "E/W NIC firmware installation completed")
+	if optCtx.UpdateStatusUntilSuccess != nil {
+		optCtx.UpdateStatusUntilSuccess(execCtx)
+	}
+	// 4. Apply NVConfig for E/W NIC devices.
+	applyNVConfig := n.applyNVConfig
+	if n.applyNVConfigFn != nil {
+		applyNVConfig = n.applyNVConfigFn
+	}
+	if err := applyNVConfig(execCtx, optCtx); err != nil {
+		if optCtx.UpdateStatusUntilSuccess != nil {
+			optCtx.UpdateStatusUntilSuccess(execCtx)
+		}
+		return err
+	}
+
 	return nil
 }
 
 // downloadNICFirmware resolves and downloads Astra NIC firmware from bfb-registry
 // to the local nic-firmware directory if it is not already cached.
-func (n *NICProvisioning) downloadNICFirmware(execCtx context.Context, optCtx *operations.Context) error {
+func (n *NICProvisioning) downloadNICFirmware(execCtx context.Context, optCtx *operations.Context) (string, error) {
 	if optCtx.LatestDPU == nil {
-		return fmt.Errorf("latest DPU object is required for NIC provisioning")
+		return "", fmt.Errorf("latest DPU object is required for NIC provisioning")
 	}
 	if optCtx.Client == nil {
-		return fmt.Errorf("client is required for NIC provisioning")
+		return "", fmt.Errorf("client is required for NIC provisioning")
 	}
 
 	blueFieldSoftwareName := strings.TrimSpace(optCtx.LatestDPU.Spec.BlueFieldSoftware)
 	if blueFieldSoftwareName == "" {
-		return fmt.Errorf("dpu %s/%s does not reference a BlueFieldSoftware", optCtx.Options.DPUNamespace, optCtx.Options.DPUName)
+		return "", fmt.Errorf("dpu %s/%s does not reference a BlueFieldSoftware", optCtx.Options.DPUNamespace, optCtx.Options.DPUName)
 	}
 
 	blueFieldSoftware := &provisioningv1.BlueFieldSoftware{}
 	if err := optCtx.Client.GetObject(execCtx, optCtx.Options.DPUNamespace, blueFieldSoftwareName, blueFieldSoftware); err != nil {
-		return fmt.Errorf("failed to get BlueFieldSoftware %s/%s: %w", optCtx.Options.DPUNamespace, blueFieldSoftwareName, err)
+		return "", fmt.Errorf("failed to get BlueFieldSoftware %s/%s: %w", optCtx.Options.DPUNamespace, blueFieldSoftwareName, err)
 	}
 
 	nicFWLocation := strings.TrimSpace(blueFieldSoftware.Status.DownloadedComponents.AstraNicFw)
 	if nicFWLocation == "" {
-		return fmt.Errorf("blueFieldSoftware %s/%s has empty status.downloadedComponents.astraNicFw", optCtx.Options.DPUNamespace, blueFieldSoftwareName)
+		return "", fmt.Errorf("blueFieldSoftware %s/%s has empty status.downloadedComponents.astraNicFw", optCtx.Options.DPUNamespace, blueFieldSoftwareName)
 	}
 
 	nicFWFileName := filepath.Base(strings.TrimSpace(extractPathForFileName(nicFWLocation)))
 	if nicFWFileName == "." || nicFWFileName == string(os.PathSeparator) || nicFWFileName == "" {
-		return fmt.Errorf("invalid NIC firmware location %q", nicFWLocation)
+		return "", fmt.Errorf("invalid NIC firmware location %q", nicFWLocation)
 	}
 	localNICFWPath := filepath.Join(nicFirmwareDir, nicFWFileName)
 
 	if _, err := os.Stat(localNICFWPath); err == nil {
 		klog.InfoS("NIC provisioning: firmware already exists, skip download", "path", localNICFWPath)
-		return nil
+		return localNICFWPath, nil
 	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("failed to stat local NIC firmware %s: %w", localNICFWPath, err)
+		return "", fmt.Errorf("failed to stat local NIC firmware %s: %w", localNICFWPath, err)
 	}
 
 	downloadURL, err := resolveNICFirmwareDownloadURL(optCtx.Options.BFBRegistryURL, nicFWLocation)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	if err := utils.DownloadFile(execCtx, downloadURL, localNICFWPath, 0600); err != nil {
-		return fmt.Errorf("failed to download NIC firmware from %s to %s: %w", downloadURL, localNICFWPath, err)
+		return "", fmt.Errorf("failed to download NIC firmware from %s to %s: %w", downloadURL, localNICFWPath, err)
 	}
 	klog.InfoS("NIC provisioning: downloaded firmware", "url", downloadURL, "path", localNICFWPath)
-	return nil
+	return localNICFWPath, nil
 }
 
 func resolveNICFirmwareDownloadURL(registryURL, nicFWLocation string) (string, error) {
@@ -207,18 +257,15 @@ func (n *NICProvisioning) prepareLocalDMSServer(optCtx *operations.Context) erro
 	if err != nil {
 		return fmt.Errorf("failed to discover NIC devices for local DMS server: %w", err)
 	}
-	if len(discoveredDevices) == 0 {
-		return fmt.Errorf("no NIC devices discovered for local DMS server startup")
+	devices := filterCX9Devices(discoveredDevices)
+	if len(devices) == 0 {
+		return fmt.Errorf("no CX9 NIC devices discovered for local DMS server startup")
 	}
-	if len(discoveredDevices) != optCtx.Options.NICDeviceCount {
+	if len(devices) != optCtx.Options.NICDeviceCount {
 		return fmt.Errorf("discovered NIC device count mismatch: expected %d, discovered %d",
-			optCtx.Options.NICDeviceCount, len(discoveredDevices))
+			optCtx.Options.NICDeviceCount, len(devices))
 	}
 
-	devices := make([]nicconfigurationv1alpha1.NicDevice, 0, len(discoveredDevices))
-	for _, device := range discoveredDevices {
-		devices = append(devices, device)
-	}
 	klog.InfoS("NIC provisioning: discovered NIC devices for local DMS server", "deviceCount", len(devices))
 	for _, device := range devices {
 		pciPorts := make([]string, 0, len(device.Status.Ports))
@@ -238,8 +285,190 @@ func (n *NICProvisioning) prepareLocalDMSServer(optCtx *operations.Context) erro
 		return fmt.Errorf("failed to start local DMS server: %w", err)
 	}
 	n.dmsServer = dmsServer
+	n.discoveredNICDevices = devices
 	klog.InfoS("NIC provisioning: local DMS server started", "deviceCount", len(devices))
 	return nil
+}
+
+func filterCX9Devices(discoveredDevices map[string]nicconfigurationv1alpha1.NicDevice) []nicconfigurationv1alpha1.NicDevice {
+	cx9Devices := make([]nicconfigurationv1alpha1.NicDevice, 0, len(discoveredDevices))
+	for _, device := range discoveredDevices {
+		if strings.TrimSpace(device.Status.Type) == cx9NICDeviceType {
+			cx9Devices = append(cx9Devices, device)
+			continue
+		}
+		klog.InfoS("NIC provisioning: skipping non-CX9 NIC device",
+			"serialNumber", device.Status.SerialNumber,
+			"type", device.Status.Type,
+			"modelName", device.Status.ModelName)
+	}
+	return cx9Devices
+}
+
+func (n *NICProvisioning) installNICFirmware(execCtx context.Context, optCtx *operations.Context, localNICFWPath string) error {
+	if n.dmsServer == nil || !n.dmsServer.IsRunning() {
+		return fmt.Errorf("local DMS server is not running for NIC firmware installation")
+	}
+	if len(n.discoveredNICDevices) == 0 {
+		return fmt.Errorf("no discovered NIC devices available for firmware installation")
+	}
+
+	fwMgr := nicfirmware.NewFirmwareManager(nil, n.dmsServer, "")
+	installOptions := &nictypes.FirmwareInstallOptions{
+		FwFilePath: localNICFWPath,
+		SkipReset:  true,
+	}
+	installCtx, cancel := context.WithTimeout(execCtx, nicFirmwareInstallTimeout)
+	defer cancel()
+
+	errCh := make(chan error, len(n.discoveredNICDevices))
+	var wg sync.WaitGroup
+	for _, discoveredDevice := range n.discoveredNICDevices {
+		device := discoveredDevice
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			device.Spec.Firmware = &nicconfigurationv1alpha1.FirmwareTemplateSpec{
+				UpdatePolicy: nicconsts.FirmwareUpdatePolicyUpdate,
+			}
+			device.Spec.Configuration = &nicconfigurationv1alpha1.NicDeviceConfigurationSpec{
+				Template: buildEWNicConfigurationTemplate(optCtx.DPUFlavor.Spec.EWNicConfigurations),
+			}
+			if _, err := fwMgr.InstallFirmware(installCtx, &device, installOptions); err != nil {
+				errCh <- fmt.Errorf("failed to install firmware on NIC %q (type %q): %w",
+					device.Status.SerialNumber, device.Status.Type, err)
+				return
+			}
+			klog.InfoS("NIC provisioning: firmware installed successfully",
+				"serialNumber", device.Status.SerialNumber,
+				"type", device.Status.Type)
+		}()
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	installErrs := make([]string, 0, len(n.discoveredNICDevices))
+	for installErr := range errCh {
+		installErrs = append(installErrs, installErr.Error())
+	}
+	if len(installErrs) > 0 {
+		return fmt.Errorf("NIC firmware installation failed: %s", strings.Join(installErrs, "; "))
+	}
+	if err := installCtx.Err(); err != nil && err != context.Canceled {
+		return fmt.Errorf("NIC firmware installation timed out or canceled: %w", err)
+	}
+	return nil
+}
+
+func (n *NICProvisioning) applyNVConfig(execCtx context.Context, optCtx *operations.Context) error {
+	if n.dmsServer == nil || !n.dmsServer.IsRunning() {
+		return fmt.Errorf("local DMS server is not running for NIC NV config apply")
+	}
+	if len(n.discoveredNICDevices) == 0 {
+		return fmt.Errorf("no discovered NIC devices available for NV config apply")
+	}
+
+	spectrumXConfigs, err := loadSpectrumXConfigs(spectrumXConfigDir)
+	if err != nil {
+		return fmt.Errorf("failed to load Spectrum-X configs: %w", err)
+	}
+	nvUtils := nicnvconfig.NewNVConfigUtils()
+	spectrumXMgr := nicspectrumx.NewSpectrumXConfigManager(n.dmsServer, spectrumXConfigs)
+	cfgMgr := nicconfiguration.NewConfigurationManager(nil, n.dmsServer, nvUtils, spectrumXMgr)
+	applyOptions := &nictypes.ConfigurationOptions{
+		SkipReset:   true,
+		WithDefault: true,
+	}
+	applyCtx, cancel := context.WithTimeout(execCtx, nicNVConfigApplyTimeout)
+	defer cancel()
+
+	errCh := make(chan error, len(n.discoveredNICDevices))
+	var wg sync.WaitGroup
+	for _, discoveredDevice := range n.discoveredNICDevices {
+		device := discoveredDevice
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			device.Spec.Configuration = &nicconfigurationv1alpha1.NicDeviceConfigurationSpec{
+				Template: buildEWNicConfigurationTemplate(optCtx.DPUFlavor.Spec.EWNicConfigurations),
+			}
+			result, applyErr := cfgMgr.ApplyNVConfiguration(applyCtx, &device, applyOptions)
+			if applyErr != nil {
+				errCh <- fmt.Errorf("failed to apply NV config on NIC %q (type %q): %w",
+					device.Status.SerialNumber, device.Status.Type, applyErr)
+				return
+			}
+			klog.InfoS("NIC provisioning: NV config applied",
+				"serialNumber", device.Status.SerialNumber,
+				"type", device.Status.Type,
+				"status", result.Status,
+				"rebootRequired", result.RebootRequired)
+		}()
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	applyErrs := make([]string, 0, len(n.discoveredNICDevices))
+	for applyErr := range errCh {
+		applyErrs = append(applyErrs, applyErr.Error())
+	}
+	if len(applyErrs) > 0 {
+		return fmt.Errorf("NIC NV config apply failed: %s", strings.Join(applyErrs, "; "))
+	}
+	if err := applyCtx.Err(); err != nil && err != context.Canceled {
+		return fmt.Errorf("NIC NV config apply timed out or canceled: %w", err)
+	}
+	return nil
+}
+
+func buildEWNicConfigurationTemplate(cfg *provisioningv1.NicConfiguration) *nicconfigurationv1alpha1.ConfigurationTemplateSpec {
+	if cfg == nil {
+		return nil
+	}
+	rawNvConfig := make([]nicconfigurationv1alpha1.NvConfigParam, 0, len(cfg.RawNvConfig))
+	rawNvConfig = append(rawNvConfig, cfg.RawNvConfig...)
+	return &nicconfigurationv1alpha1.ConfigurationTemplateSpec{
+		NumVfs:             cfg.NumVfs,
+		LinkType:           cfg.LinkType,
+		SpectrumXOptimized: cfg.SpectrumXOptimized,
+		RawNvConfig:        rawNvConfig,
+	}
+}
+
+func loadSpectrumXConfigs(configDir string) (map[string]*nictypes.SpectrumXConfig, error) {
+	configs := make(map[string]*nictypes.SpectrumXConfig)
+	entries, err := os.ReadDir(configDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			klog.InfoS("NIC provisioning: Spectrum-X config directory does not exist, continue with empty configs", "path", configDir)
+			return configs, nil
+		}
+		return nil, err
+	}
+	for _, file := range entries {
+		if file.IsDir() {
+			continue
+		}
+		config, err := nictypes.LoadSpectrumXConfig(filepath.Join(configDir, file.Name()))
+		if err != nil {
+			return nil, fmt.Errorf("load Spectrum-X config file %q: %w", file.Name(), err)
+		}
+		configName := strings.TrimSuffix(file.Name(), filepath.Ext(file.Name()))
+		configs[configName] = config
+	}
+	return configs, nil
+}
+
+func setAgentCondition(optCtx *operations.Context, conditionType string, status metav1.ConditionStatus, reason, message string) {
+	meta.SetStatusCondition(&optCtx.Status.Conditions, metav1.Condition{
+		Type:               conditionType,
+		Status:             status,
+		Reason:             reason,
+		Message:            message,
+		LastTransitionTime: metav1.Now(),
+	})
 }
 
 func (n *NICProvisioning) stopLocalDMSServer() error {

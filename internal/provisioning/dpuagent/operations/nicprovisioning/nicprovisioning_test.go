@@ -127,6 +127,8 @@ func (f *fakeDMSServer) GetDMSClientByPCIAddress(_ string) (nicdms.DMSClient, er
 func TestNICProvisioning_Execute(t *testing.T) {
 	op := &NICProvisioning{
 		prepareLocalDMSServerFn: func(_ *operations.Context) error { return nil },
+		installNICFirmwareFn:    func(_ context.Context, _ *operations.Context, _ string) error { return nil },
+		applyNVConfigFn:         func(_ context.Context, _ *operations.Context) error { return nil },
 	}
 	originalDir := nicFirmwareDir
 	tempDir := t.TempDir()
@@ -201,6 +203,8 @@ func TestNICProvisioning_Execute(t *testing.T) {
 		opWithRunningDMS := &NICProvisioning{
 			dmsServer:               dmsServer,
 			prepareLocalDMSServerFn: func(_ *operations.Context) error { return nil },
+			installNICFirmwareFn:    func(_ context.Context, _ *operations.Context, _ string) error { return nil },
+			applyNVConfigFn:         func(_ context.Context, _ *operations.Context) error { return nil },
 		}
 
 		ctx := newOptCtx(&fakeClient{
@@ -226,6 +230,8 @@ func TestNICProvisioning_Execute(t *testing.T) {
 		opWithRunningDMS := &NICProvisioning{
 			dmsServer:               dmsServer,
 			prepareLocalDMSServerFn: func(_ *operations.Context) error { return nil },
+			installNICFirmwareFn:    func(_ context.Context, _ *operations.Context, _ string) error { return nil },
+			applyNVConfigFn:         func(_ context.Context, _ *operations.Context) error { return nil },
 		}
 
 		ctx := newOptCtx(&fakeClient{
@@ -254,5 +260,58 @@ func TestResolveNICFirmwareDownloadURL(t *testing.T) {
 		got, err := resolveNICFirmwareDownloadURL("10.233.14.188:8082", "https://registry.example.com/fw.bin")
 		require.NoError(t, err)
 		assert.Equal(t, "https://registry.example.com/fw.bin", got)
+	})
+}
+
+func TestFilterCX9Devices(t *testing.T) {
+	devices := map[string]nicconfigurationv1alpha1.NicDevice{
+		"0000:01:00.0": {
+			Status: nicconfigurationv1alpha1.NicDeviceStatus{
+				SerialNumber: "cx9-1",
+				Type:         "1025",
+			},
+		},
+		"0000:02:00.0": {
+			Status: nicconfigurationv1alpha1.NicDeviceStatus{
+				SerialNumber: "cx8-1",
+				Type:         "1024",
+			},
+		},
+		"0000:03:00.0": {
+			Status: nicconfigurationv1alpha1.NicDeviceStatus{
+				SerialNumber: "cx9-2",
+				Type:         " 1025 ",
+			},
+		},
+	}
+
+	filtered := filterCX9Devices(devices)
+	require.Len(t, filtered, 2)
+	filteredSerialNumbers := []string{
+		filtered[0].Status.SerialNumber,
+		filtered[1].Status.SerialNumber,
+	}
+	assert.ElementsMatch(t, []string{"cx9-1", "cx9-2"}, filteredSerialNumbers)
+}
+
+func TestBuildEWNicConfigurationTemplate(t *testing.T) {
+	t.Run("returns nil when flavor nic config is nil", func(t *testing.T) {
+		assert.Nil(t, buildEWNicConfigurationTemplate(nil))
+	})
+
+	t.Run("maps flavor nic config fields to NCO config template", func(t *testing.T) {
+		cfg := &provisioningv1.NicConfiguration{
+			NumVfs:   1,
+			LinkType: nicconfigurationv1alpha1.LinkTypeEnum("Ethernet"),
+			RawNvConfig: []nicconfigurationv1alpha1.NvConfigParam{
+				{Name: "A", Value: "1"},
+			},
+		}
+
+		template := buildEWNicConfigurationTemplate(cfg)
+		require.NotNil(t, template)
+		assert.Equal(t, cfg.NumVfs, template.NumVfs)
+		assert.Equal(t, cfg.LinkType, template.LinkType)
+		assert.Equal(t, cfg.RawNvConfig, template.RawNvConfig)
 	})
 }
