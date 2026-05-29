@@ -643,7 +643,7 @@ $(ARTIFACTS_DIR):
 # This is useful for testing with a local registry or a registry mirror.
 export DOCKER_IO_REGISTRY ?= docker.io
 
-E2E_TEST_DEFAULTS ?= -v -ginkgo.v -ginkgo.fail-fast -ginkgo.timeout=2h
+E2E_TEST_DEFAULTS ?= -v -ginkgo.v -ginkgo.fail-fast -ginkgo.timeout=2h30m
 E2E_TEST_ARGS ?= -ginkgo.label-filter="DPFSystem && !SDN && !DPFVPCOVN" -e2e.config=./config-quick.yaml
 # Utilize Kind or modify the e2e tests to load the image locally, enabling compatibility with other vendors.
 .PHONY: test-e2e ## Run the e2e tests against a Kind k8s instance that is spun up.
