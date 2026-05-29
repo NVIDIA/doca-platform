@@ -67,6 +67,8 @@ type NICProvisioning struct {
 	prepareLocalDMSServerFn func(optCtx *operations.Context) error
 	installNICFirmwareFn    func(execCtx context.Context, optCtx *operations.Context, localNICFWPath string) error
 	applyNVConfigFn         func(execCtx context.Context, optCtx *operations.Context) error
+	// configureRestrictedModeFn overrides the restricted mode step (tests only).
+	configureRestrictedModeFn func(execCtx context.Context, optCtx *operations.Context) error
 }
 
 func (n *NICProvisioning) Name() string {
@@ -150,6 +152,15 @@ func (n *NICProvisioning) Execute(execCtx context.Context, optCtx *operations.Co
 		if optCtx.UpdateStatusUntilSuccess != nil {
 			optCtx.UpdateStatusUntilSuccess(execCtx)
 		}
+		return err
+	}
+
+	// 5. Set each E/W NIC to restricted (zero-trust) mode.
+	configureRestrictedMode := n.configureRestrictedMode
+	if n.configureRestrictedModeFn != nil {
+		configureRestrictedMode = n.configureRestrictedModeFn
+	}
+	if err := configureRestrictedMode(execCtx, optCtx); err != nil {
 		return err
 	}
 
@@ -420,6 +431,44 @@ func (n *NICProvisioning) applyNVConfig(execCtx context.Context, optCtx *operati
 	}
 	if err := applyCtx.Err(); err != nil && err != context.Canceled {
 		return fmt.Errorf("NIC NV config apply timed out or canceled: %w", err)
+	}
+	return nil
+}
+
+// configureRestrictedMode sets each discovered E/W NIC to restricted (zero-trust) mode
+// via mlxprivhost. The restricted mode is a device-level (per-ASIC) firmware setting, so it
+// is applied once per NicDevice using the first port's PCI address (PF0): the ports of a
+// dual-port card are functions of the same device and share a single restricted mode config.
+func (n *NICProvisioning) configureRestrictedMode(_ context.Context, _ *operations.Context) error {
+	if len(n.discoveredNICDevices) == 0 {
+		return fmt.Errorf("no discovered NIC devices available for restricted mode configuration")
+	}
+	if n.runBash == nil {
+		n.runBash = bash.Run
+	}
+
+	for _, device := range n.discoveredNICDevices {
+		if len(device.Status.Ports) == 0 {
+			return fmt.Errorf("NIC %q (type %q) has no ports for restricted mode configuration",
+				device.Status.SerialNumber, device.Status.Type)
+		}
+		pciAddress := strings.TrimSpace(device.Status.Ports[0].PCI)
+		if pciAddress == "" {
+			return fmt.Errorf("NIC %q (type %q) has empty PCI address for restricted mode configuration",
+				device.Status.SerialNumber, device.Status.Type)
+		}
+
+		cmd := fmt.Sprintf("mlxprivhost -d %s r --disable_rshim --disable_tracer --disable_counter_rd --disable_port_owner", pciAddress)
+		stdout, stderr, err := n.runBash(cmd)
+		if err != nil {
+			return fmt.Errorf("failed to set restricted mode on NIC %q (type %q, model %q, pci %q): %w, stdout: %s, stderr: %s",
+				device.Status.SerialNumber, device.Status.Type, device.Status.ModelName, pciAddress, err, stdout.String(), stderr.String())
+		}
+		klog.InfoS("NIC provisioning: set E/W NIC to restricted mode",
+			"serialNumber", device.Status.SerialNumber,
+			"type", device.Status.Type,
+			"modelName", device.Status.ModelName,
+			"pci", pciAddress)
 	}
 	return nil
 }
