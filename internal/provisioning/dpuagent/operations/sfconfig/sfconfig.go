@@ -67,17 +67,26 @@ func (s *CreateSF) Execute(execCtx context.Context, optCtx *operations.Context) 
 	if s.runBash == nil {
 		s.runBash = bash.Run
 	}
-	device, err := s.targetPF0Device(optCtx)
+	devices, err := s.targetDevices(optCtx)
 	if err != nil {
 		return err
 	}
 
 	pfTotalSF := getPFTotalSFFromFlavor(&optCtx.DPUFlavor)
 	trustedSF := getTrustedSFFromFlavor(&optCtx.DPUFlavor)
+
+	for _, device := range devices {
+		if err := s.configureSFsOnDevice(device, pfTotalSF, trustedSF); err != nil {
+			return fmt.Errorf("failed to configure SFs on device %s: %w", device, err)
+		}
+	}
+	return nil
+}
+
+func (s *CreateSF) configureSFsOnDevice(device string, pfTotalSF, trustedSF int) error {
 	createErrBySF := map[int]error{}
 	expectedSFNums := make([]int, 0, pfTotalSF)
 
-	// Create SFs on P0 for SFC
 	// System SF(index 0) has been removed, so DPF will create SF from index 0
 	for i := 0; i < pfTotalSF-trustedSF; i++ {
 		expectedSFNums = append(expectedSFNums, i)
@@ -86,8 +95,8 @@ func (s *CreateSF) Execute(execCtx context.Context, optCtx *operations.Context) 
 		stdout, stderr, err := s.runBash(cmd)
 		if err != nil {
 			// Continue on error (like "|| true" in bash)
-			klog.Warningf("Failed to create SF %d: stdout=%s, stderr=%s, err=%v", i, stdout.String(), stderr.String(), err)
-			createErrBySF[i] = fmt.Errorf("failed to create SF %d: stdout=%s, stderr=%s, err=%w", i, stdout.String(), stderr.String(), err)
+			klog.Warningf("Failed to create SF %d on device %s: stdout=%s, stderr=%s, err=%v", i, device, stdout.String(), stderr.String(), err)
+			createErrBySF[i] = fmt.Errorf("failed to create SF %d on device %s: stdout=%s, stderr=%s, err=%w", i, device, stdout.String(), stderr.String(), err)
 		}
 	}
 
@@ -98,8 +107,8 @@ func (s *CreateSF) Execute(execCtx context.Context, optCtx *operations.Context) 
 		stdout, stderr, err := s.runBash(cmd)
 		if err != nil {
 			// Continue on error (like "|| true" in bash)
-			klog.Warningf("Failed to create trusted SF %d: stdout=%s, stderr=%s, err=%v", i, stdout.String(), stderr.String(), err)
-			createErrBySF[i] = fmt.Errorf("failed to create trusted SF %d: stdout=%s, stderr=%s, err=%w", i, stdout.String(), stderr.String(), err)
+			klog.Warningf("Failed to create trusted SF %d on device %s: stdout=%s, stderr=%s, err=%v", i, device, stdout.String(), stderr.String(), err)
+			createErrBySF[i] = fmt.Errorf("failed to create trusted SF %d on device %s: stdout=%s, stderr=%s, err=%w", i, device, stdout.String(), stderr.String(), err)
 		}
 	}
 	if err := s.verifyExpectedSFs(device, expectedSFNums, createErrBySF); err != nil {
@@ -113,19 +122,34 @@ func (s *CreateSF) Execute(execCtx context.Context, optCtx *operations.Context) 
 	return nil
 }
 
-// targetPF0Device returns the PCI address of the first physical port (p0).
-// SFs are always created on p0 across all BlueField generations.
-func (s *CreateSF) targetPF0Device(ctx *operations.Context) (string, error) {
+func (s *CreateSF) targetDevices(ctx *operations.Context) ([]string, error) {
 	ports, err := ctx.NSPorts()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	for _, p := range ports {
-		if p.Netdev == "p0" {
-			return p.PCIAddress, nil
+
+	devices := []string{}
+	if isBlueField4(ctx) {
+		for _, p := range ports {
+			devices = append(devices, p.PCIAddress)
+		}
+	} else {
+		// SFs are created on p0 for non-BF4 BlueField generations.
+		for _, p := range ports {
+			if p.Netdev == "p0" {
+				devices = append(devices, p.PCIAddress)
+				break
+			}
 		}
 	}
-	return "", fmt.Errorf("physical port p0 not found")
+	if len(devices) == 0 {
+		return nil, fmt.Errorf("target physical port not found")
+	}
+	return devices, nil
+}
+
+func isBlueField4(ctx *operations.Context) bool {
+	return ctx.LatestDPU != nil && ctx.LatestDPU.Status.DPUType == provisioningv1.DPUTypeBlueField4
 }
 
 // SFInfo represents fields parsed from mlnx-sf -a show -j.
