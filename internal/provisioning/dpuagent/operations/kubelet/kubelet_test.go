@@ -18,7 +18,6 @@ package kubelet
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -32,36 +31,19 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	kubeletconfigv1beta1 "k8s.io/kubelet/config/v1beta1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/yaml"
 )
 
-type mockClient struct {
-	getObjectFunc    func(ctx context.Context, namespace, name string, obj client.Object) error
-	updateStatusFunc func(ctx context.Context, status provisioningv1.AgentStatus) error
-	healthCheckFunc  func() error
-}
-
-func (m *mockClient) GetObject(ctx context.Context, namespace, name string, obj client.Object) error {
-	if m.getObjectFunc != nil {
-		return m.getObjectFunc(ctx, namespace, name, obj)
-	}
-	return nil
-}
-
-func (m *mockClient) UpdateStatus(ctx context.Context, status provisioningv1.AgentStatus) error {
-	if m.updateStatusFunc != nil {
-		return m.updateStatusFunc(ctx, status)
-	}
-	return nil
-}
-
-func (m *mockClient) HealthCheck() error {
-	if m.healthCheckFunc != nil {
-		return m.healthCheckFunc()
-	}
-	return nil
+func newTestScheme() *runtime.Scheme {
+	s := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(s))
+	utilruntime.Must(provisioningv1.AddToScheme(s))
+	return s
 }
 
 // minimalKubeletConfigYAML is a valid KubeletConfiguration stub for tests.
@@ -233,14 +215,10 @@ var _ = Describe("Kubelet", func() {
 					return nil
 				},
 			}
-			mockCli := &mockClient{
-				getObjectFunc: func(ctx context.Context, namespace, name string, obj client.Object) error {
-					return fmt.Errorf("failed to get secret")
-				},
-			}
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).Build()
 			err := operation.Execute(ctx, &operations.Context{
 				LatestDPU: &provisioningv1.DPU{},
-				Client:    mockCli,
+				Client:    fakeClient,
 				Options: opts.Options{
 					KubeadmSecretNamespace: "default",
 					KubeadmSecretName:      "kubeadm-join",
@@ -259,18 +237,14 @@ var _ = Describe("Kubelet", func() {
 					return nil
 				},
 			}
-			mockCli := &mockClient{
-				getObjectFunc: func(ctx context.Context, namespace, name string, obj client.Object) error {
-					secret := obj.(*corev1.Secret)
-					secret.Data = map[string][]byte{
-						"other-key": []byte("some-value"),
-					}
-					return nil
-				},
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: "kubeadm-join", Namespace: "default"},
+				Data:       map[string][]byte{"other-key": []byte("some-value")},
 			}
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(secret).Build()
 			err := operation.Execute(ctx, &operations.Context{
 				LatestDPU: &provisioningv1.DPU{},
-				Client:    mockCli,
+				Client:    fakeClient,
 				Options: opts.Options{
 					KubeadmSecretNamespace: "default",
 					KubeadmSecretName:      "kubeadm-join",
@@ -292,18 +266,14 @@ var _ = Describe("Kubelet", func() {
 					return bytes.Buffer{}, bytes.Buffer{}, fmt.Errorf("join failed")
 				},
 			}
-			mockCli := &mockClient{
-				getObjectFunc: func(ctx context.Context, namespace, name string, obj client.Object) error {
-					secret := obj.(*corev1.Secret)
-					secret.Data = map[string][]byte{
-						"join": []byte("kubeadm join --token xxx"),
-					}
-					return nil
-				},
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: "kubeadm-join", Namespace: "default"},
+				Data:       map[string][]byte{"join": []byte("kubeadm join --token xxx")},
 			}
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(secret).Build()
 			err := operation.Execute(ctx, &operations.Context{
 				LatestDPU: &provisioningv1.DPU{},
-				Client:    mockCli,
+				Client:    fakeClient,
 				Options: opts.Options{
 					KubeadmSecretNamespace: "default",
 					KubeadmSecretName:      "kubeadm-join",
@@ -337,20 +307,14 @@ var _ = Describe("Kubelet", func() {
 					return bytes.Buffer{}, bytes.Buffer{}, nil
 				},
 			}
-			mockCli := &mockClient{
-				getObjectFunc: func(ctx context.Context, namespace, name string, obj client.Object) error {
-					Expect(namespace).To(Equal("kube-system"))
-					Expect(name).To(Equal("kubeadm-join-secret"))
-					secret := obj.(*corev1.Secret)
-					secret.Data = map[string][]byte{
-						"join": []byte("kubeadm join 10.0.0.1:6443 --token abcdef"),
-					}
-					return nil
-				},
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: "kubeadm-join-secret", Namespace: "kube-system"},
+				Data:       map[string][]byte{"join": []byte("kubeadm join 10.0.0.1:6443 --token abcdef")},
 			}
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(secret).Build()
 			err := operation.Execute(ctx, &operations.Context{
 				LatestDPU: &provisioningv1.DPU{},
-				Client:    mockCli,
+				Client:    fakeClient,
 				Options: opts.Options{
 					KubeadmSecretNamespace: "kube-system",
 					KubeadmSecretName:      "kubeadm-join-secret",
@@ -444,18 +408,14 @@ var _ = Describe("Kubelet", func() {
 					return bytes.Buffer{}, bytes.Buffer{}, nil
 				},
 			}
-			mockCli := &mockClient{
-				getObjectFunc: func(ctx context.Context, namespace, name string, obj client.Object) error {
-					secret := obj.(*corev1.Secret)
-					secret.Data = map[string][]byte{
-						"join": []byte("kubeadm join"),
-					}
-					return nil
-				},
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: "kubeadm-join", Namespace: "default"},
+				Data:       map[string][]byte{"join": []byte("kubeadm join")},
 			}
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(secret).Build()
 			err := operation.Execute(ctx, &operations.Context{
 				LatestDPU: &provisioningv1.DPU{},
-				Client:    mockCli,
+				Client:    fakeClient,
 				Options: opts.Options{
 					KubeadmSecretNamespace: "default",
 					KubeadmSecretName:      "kubeadm-join",

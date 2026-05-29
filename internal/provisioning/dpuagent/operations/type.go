@@ -21,9 +21,11 @@ import (
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/cmd/dpuagent/opts"
-	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/client"
 	dpuagentutil "github.com/nvidia/doca-platform/internal/provisioning/dpuagent/util"
 	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
+
+	"k8s.io/client-go/kubernetes"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // Operation is the interface for all operations.
@@ -48,10 +50,14 @@ type Context struct {
 	// When true, the agent reports RebootMethodDiscovery=True (device-query path) on status condition;
 	RebootMethodDiscovery bool
 
-	// Client is the API client used to update DPU status and fetch objects (e.g. DPU resource).
-	// It may be a zero-trust client (direct to the API server) or a host-trusted client (via the host agent);
-	// the implementation is chosen at startup.
+	// Client is the controller-runtime client used to fetch Kubernetes objects
+	// (e.g. DPU, Secret, BlueFieldSoftware). Both zero-trust and trusted-host
+	// modes use the same client; trusted-host routes through an HTTP proxy.
 	Client client.Client
+
+	// K8sClient is the typed kubernetes clientset, used by operations that need
+	// APIs not exposed by the controller-runtime client (e.g. Discovery).
+	K8sClient kubernetes.Interface
 
 	// DPUFlavor is the desired configuration template for this DPU, loaded at startup (e.g. from --dpuflavor YAML).
 	// Operations use it to apply sysctl, config files, grub, OVS, SF counts, and other flavor-defined settings.
@@ -62,7 +68,7 @@ type Context struct {
 	LatestDPU *provisioningv1.DPU
 
 	// Status is the in-memory DPU internal status. Operations read and update it;
-	// the agent pushes it to the API via Client.UpdateStatus.
+	// the agent pushes it to the API via the runner's updateStatus method.
 	Status provisioningv1.AgentStatus
 
 	// CondMessage is cleared before each operation attempt. On success, dpuagent

@@ -282,7 +282,7 @@ network:
 		Expect(kubeconfigFile.Content).To(Equal(sampleKubeconfig))
 	})
 
-	It("gNOI mode: tmfifo network, no kubeconfig", func() {
+	It("trusted host mode without bootstrap kubeconfig: tmfifo network, no kubeconfig file", func() {
 		_, parsed := generateAndParse(Params{
 			DPUHostName:            "test-dpu",
 			KubeadmSecretName:      "test-secret",
@@ -318,6 +318,26 @@ network:
 		for _, f := range parsed.WriteFiles {
 			Expect(f.Path).NotTo(Equal("/var/lib/dpf/dpuagent/bootstrap-kubeconfig"))
 		}
+	})
+
+	It("trusted host mode with bootstrap kubeconfig: includes kubeconfig file and flag", func() {
+		_, parsed := generateAndParse(Params{
+			DPUHostName:            "test-dpu",
+			KubeadmSecretName:      "test-secret",
+			KubeadmSecretNamespace: "default",
+			ControlPlaneMTU:        1500,
+			DPUName:                "dpu-1",
+			DPUNamespace:           "ns-1",
+			DPUAgentRepoURL:        "http://[fe80::1%25tmfifo_net0]:11029/deb",
+			BootstrapKubeconfig:    sampleKubeconfig,
+		})
+
+		agentConf := getWriteFile(parsed, "/opt/dpf/dpuagent.conf")
+		Expect(agentConf.Content).To(ContainSubstring("--zero-trust-mode=false"))
+		Expect(agentConf.Content).To(ContainSubstring("--bootstrap-kubeconfig=/var/lib/dpf/dpuagent/bootstrap-kubeconfig"))
+
+		kubeconfigFile := getWriteFile(parsed, "/var/lib/dpf/dpuagent/bootstrap-kubeconfig")
+		Expect(kubeconfigFile.Content).To(Equal(sampleKubeconfig))
 	})
 
 	It("no password: should use chpasswd with default credentials", func() {

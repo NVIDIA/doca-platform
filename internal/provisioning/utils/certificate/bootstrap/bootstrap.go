@@ -90,21 +90,32 @@ func writeKubeconfigFromBootstrapping(bootstrapClientConfig *restclient.Config, 
 		caData = bootstrapClientConfig.CAData
 	}
 
+	cluster := &clientcmdapi.Cluster{
+		Server:                   bootstrapClientConfig.Host,
+		InsecureSkipTLSVerify:    bootstrapClientConfig.Insecure,
+		CertificateAuthority:     caFile,
+		CertificateAuthorityData: caData,
+	}
+
+	// Preserve proxy-url from the bootstrap kubeconfig so the cert kubeconfig
+	// continues to route through the same proxy (e.g. hostagent forward proxy).
+	if bootstrapClientConfig.Proxy != nil {
+		proxyReq, err := bootstrapClientConfig.Proxy(nil)
+		if err != nil {
+			return fmt.Errorf("resolving proxy URL from bootstrap kubeconfig: %w", err)
+		}
+		if proxyReq != nil {
+			cluster.ProxyURL = proxyReq.String()
+		}
+	}
+
 	// Build resulting kubeconfig.
 	kubeconfigData := clientcmdapi.Config{
-		// Define a cluster stanza based on the bootstrap kubeconfig.
-		Clusters: map[string]*clientcmdapi.Cluster{"default-cluster": {
-			Server:                   bootstrapClientConfig.Host,
-			InsecureSkipTLSVerify:    bootstrapClientConfig.Insecure,
-			CertificateAuthority:     caFile,
-			CertificateAuthorityData: caData,
-		}},
-		// Define auth based on the obtained client cert.
+		Clusters: map[string]*clientcmdapi.Cluster{"default-cluster": cluster},
 		AuthInfos: map[string]*clientcmdapi.AuthInfo{"default-auth": {
 			ClientCertificate: pemPath,
 			ClientKey:         pemPath,
 		}},
-		// Define a context that connects the auth info and cluster, and set it as the default
 		Contexts: map[string]*clientcmdapi.Context{"default-context": {
 			Cluster:   "default-cluster",
 			AuthInfo:  "default-auth",

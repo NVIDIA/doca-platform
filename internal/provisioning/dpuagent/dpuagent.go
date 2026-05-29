@@ -48,10 +48,12 @@ import (
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
 
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const defaultRetryInterval = 30 * time.Second
@@ -147,15 +149,58 @@ func (d *DPUAgent) Run(ctx context.Context) error {
 	return nil
 }
 
-// updateStatusUntilSuccess updates the status until success
+// updateStatusUntilSuccess fetches the latest DPU, verifies the UID, merges
+// the in-memory AgentStatus fields, and patches until success.
 func (d *DPUAgent) updateStatusUntilSuccess(ctx context.Context) {
 	_ = wait.PollUntilContextCancel(ctx, 2*time.Second, true, func(updateCtx context.Context) (bool, error) {
-		if err := d.optCtx.Client.UpdateStatus(updateCtx, d.optCtx.Status); err != nil {
+		if err := d.updateStatus(updateCtx); err != nil {
 			klog.Warningf("Failed to update DPU status: %v", err)
 			return false, nil
 		}
 		return true, nil
 	})
+}
+
+// updateStatus reads the latest DPU, validates UID, merges AgentStatus
+// fields, and applies a status patch.
+func (d *DPUAgent) updateStatus(ctx context.Context) error {
+	latestDPU := &provisioningv1.DPU{}
+	key := client.ObjectKey{Namespace: d.optCtx.Options.DPUNamespace, Name: d.optCtx.Options.DPUName}
+	if err := d.optCtx.Client.Get(ctx, key, latestDPU); err != nil {
+		return err
+	}
+	if string(latestDPU.UID) != d.optCtx.Options.DPUUID {
+		return fmt.Errorf("stale DPU object: expected UID %s but got %s", d.optCtx.Options.DPUUID, latestDPU.UID)
+	}
+	patch := client.MergeFrom(latestDPU.DeepCopy())
+	if latestDPU.Status.AgentStatus == nil {
+		latestDPU.Status.AgentStatus = &provisioningv1.AgentStatus{
+			Conditions: []metav1.Condition{},
+		}
+	}
+	agentStatus := d.optCtx.Status
+	if agentStatus.LastStartupTime != nil {
+		latestDPU.Status.AgentStatus.LastStartupTime = agentStatus.LastStartupTime
+	}
+	if agentStatus.InitialBootID != nil {
+		latestDPU.Status.AgentStatus.InitialBootID = agentStatus.InitialBootID
+	}
+	if agentStatus.RebootMethod != nil {
+		latestDPU.Status.AgentStatus.RebootMethod = agentStatus.RebootMethod
+	}
+	if agentStatus.RebootSequenceCount != nil {
+		latestDPU.Status.AgentStatus.RebootSequenceCount = agentStatus.RebootSequenceCount
+	}
+	if agentStatus.KubeletVersion != nil {
+		latestDPU.Status.AgentStatus.KubeletVersion = agentStatus.KubeletVersion
+	}
+	if agentStatus.LastObservedPendingNVConfig != nil {
+		latestDPU.Status.AgentStatus.LastObservedPendingNVConfig = agentStatus.LastObservedPendingNVConfig.DeepCopy()
+	}
+	for _, condition := range agentStatus.Conditions {
+		meta.SetStatusCondition(&latestDPU.Status.AgentStatus.Conditions, condition)
+	}
+	return d.optCtx.Client.Status().Patch(ctx, latestDPU, patch)
 }
 
 func (d *DPUAgent) resolveRebootMethodDiscovery(ctx context.Context) bool {

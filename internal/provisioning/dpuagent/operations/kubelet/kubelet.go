@@ -34,6 +34,7 @@ import (
 	"k8s.io/klog/v2"
 	kubeletconfigv1beta1 "k8s.io/kubelet/config/v1beta1"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 )
 
@@ -220,7 +221,7 @@ func (c *ConfigureKubelet) Execute(execCtx context.Context, optCtx *operations.C
 	timeCtx, cancel := context.WithTimeout(execCtx, time.Minute)
 	defer cancel()
 	secret := &corev1.Secret{}
-	if err := optCtx.Client.GetObject(timeCtx, optCtx.Options.KubeadmSecretNamespace, optCtx.Options.KubeadmSecretName, secret); err != nil {
+	if err := optCtx.Client.Get(timeCtx, client.ObjectKey{Namespace: optCtx.Options.KubeadmSecretNamespace, Name: optCtx.Options.KubeadmSecretName}, secret); err != nil {
 		return fmt.Errorf("failed to get kubeadm secret: %w", err)
 	}
 	joinCmd, ok := secret.Data[kubeadminSecretKey]

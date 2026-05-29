@@ -165,8 +165,12 @@ func addCertRotation(stopCh <-chan struct{}, period time.Duration, clientConfig 
 		}()
 	}
 
+	proxyFunc := http.ProxyFromEnvironment
+	if clientConfig.Proxy != nil {
+		proxyFunc = clientConfig.Proxy
+	}
 	clientConfig.Transport = utilnet.SetTransportDefaults(&http.Transport{
-		Proxy:               http.ProxyFromEnvironment,
+		Proxy:               proxyFunc,
 		TLSHandshakeTimeout: 10 * time.Second,
 		TLSClientConfig:     tlsConfig,
 		MaxIdleConnsPerHost: 25,

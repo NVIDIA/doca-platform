@@ -17,19 +17,20 @@ limitations under the License.
 package netplan
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 
-	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/cmd/dpuagent/opts"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
 	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	k8sruntime "k8s.io/apimachinery/pkg/runtime"
+	fakediscovery "k8s.io/client-go/discovery/fake"
+	k8sfake "k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 )
 
 var _ = Describe("Netplan", func() {
@@ -86,7 +87,6 @@ var _ = Describe("Netplan", func() {
 				Options: opts.Options{
 					ZeroTrustMode: true,
 				},
-				Client:        &mockClient{},
 				DiscoverPorts: discoverOnePort,
 			})).To(Succeed())
 
@@ -134,7 +134,6 @@ var _ = Describe("Netplan", func() {
 				Options: opts.Options{
 					ZeroTrustMode: false,
 				},
-				Client:        &mockClient{},
 				DiscoverPorts: discoverOnePort,
 			})).To(Succeed())
 
@@ -181,7 +180,6 @@ var _ = Describe("Netplan", func() {
 			}
 			Expect(operation.Execute(ctx, &operations.Context{
 				Options: opts.Options{ZeroTrustMode: true},
-				Client:  &mockClient{},
 				DiscoverPorts: func() ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{
 						{Netdev: "p0", PCIAddress: "0000:00:00.0", MSTDevice: "/dev/mst/mt0"},
@@ -211,49 +209,22 @@ var _ = Describe("Netplan", func() {
 			})).To(BeFalse())
 		})
 
-		It("should return error if network is not healthy", func() {
+		It("should return error if API server is not reachable", func() {
+			fakeCS := k8sfake.NewClientset()
+			fakeCS.Discovery().(*fakediscovery.FakeDiscovery).PrependReactor("*", "*", func(k8stesting.Action) (bool, k8sruntime.Object, error) {
+				return true, nil, fmt.Errorf("connection refused")
+			})
 			operation := &CheckNetwork{}
 			Expect(operation.Execute(ctx, &operations.Context{
-				Options: opts.Options{
-					SkipNetworkConfig: true,
-				},
-				Client: &mockClient{shouldFail: true},
+				K8sClient: fakeCS,
 			})).To(HaveOccurred())
 		})
 
-		It("should succeed if network is healthy", func() {
+		It("should succeed when API server is reachable", func() {
 			operation := &CheckNetwork{}
 			Expect(operation.Execute(ctx, &operations.Context{
-				Options: opts.Options{
-					SkipNetworkConfig: true,
-				},
-				Client: &mockClient{shouldFail: false},
+				K8sClient: k8sfake.NewClientset(),
 			})).To(Succeed())
 		})
 	})
 })
-
-type mockClient struct {
-	shouldFail bool
-}
-
-func (c *mockClient) HealthCheck() error {
-	if c.shouldFail {
-		return fmt.Errorf("network is not healthy")
-	}
-	return nil
-}
-
-func (c *mockClient) UpdateStatus(ctx context.Context, status provisioningv1.AgentStatus) error {
-	if c.shouldFail {
-		return fmt.Errorf("failed to update status")
-	}
-	return nil
-}
-
-func (c *mockClient) GetObject(ctx context.Context, namespace string, name string, obj client.Object) error {
-	if c.shouldFail {
-		return fmt.Errorf("failed to get object")
-	}
-	return nil
-}
