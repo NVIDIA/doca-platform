@@ -322,44 +322,6 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 		}
 	})
 
-	Context("DPU Agent", Labels{Domain.ZeroTrust, Domain.RequiresNodes}, func() {
-		It("validate DPU agent has reported status on all provisioned DPUs", func() {
-			ValidateDPUAgentStatus(ctx, input, provisioningv1.AgentStatus{
-				RebootMethod:        ptr.To(provisioningv1.RebootMethodNoAction),
-				RebootSequenceCount: ptr.To(int32(0)),
-				Conditions: []metav1.Condition{
-					{Type: "KernelModuleLoaded", Status: metav1.ConditionTrue},
-					{Type: "NetworkConfigured", Status: metav1.ConditionTrue},
-					{Type: "NetworkChecked", Status: metav1.ConditionTrue},
-					{Type: "LastStartupTimeReported", Status: metav1.ConditionTrue},
-					{Type: "DPURetrieved", Status: metav1.ConditionTrue},
-					{Type: "DNSConfigured", Status: metav1.ConditionTrue},
-					{Type: "StaticFilesVerified", Status: metav1.ConditionTrue},
-					{Type: "BuiltinKubeletRemoved", Status: metav1.ConditionTrue},
-					{Type: "SysctlParametersSet", Status: metav1.ConditionTrue},
-					{Type: "SysctlParametersChecked", Status: metav1.ConditionTrue},
-					{Type: "KernelCmdLineConfigured", Status: metav1.ConditionTrue},
-					{Type: "ContainerdConfigured", Status: metav1.ConditionTrue},
-					{Type: "DpuModeEnsured", Status: metav1.ConditionTrue},
-					{Type: "NVConfigApplied", Status: metav1.ConditionTrue},
-					{Type: "RebootHandled", Status: metav1.ConditionTrue},
-					{Type: "KernelCmdLineChecked", Status: metav1.ConditionTrue},
-					{Type: "SFCreated", Status: metav1.ConditionTrue},
-					{Type: "VFMacSet", Status: metav1.ConditionTrue},
-					{Type: "OVSScriptRun", Status: metav1.ConditionTrue},
-					{Type: "KubeletConfigured", Status: metav1.ConditionTrue},
-					{Type: "KubeletStarted", Status: metav1.ConditionTrue},
-				},
-			})
-		})
-	})
-
-	Context("DPU Service Kata Containers", Labels{Domain.RequiresNodes}, func() {
-		It("deploy a DPUService pod with kata-qemu RuntimeClass and an SF", func() {
-			ValidateDPUServiceKataRuntimeClass(ctx, input)
-		})
-	})
-
 	Context("DPU Deployment", Labels{Domain.ZeroTrust}, func() {
 		It("create a DPUDeployment with its dependencies and ensure that the underlying objects are created", func() {
 			ValidateDPUDeploymentCreation(ctx, input)
@@ -518,6 +480,43 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 					ValidateDPUClusterLogFlow(ctx, input)
 				})
 			})
+		})
+	})
+	Context("DPU Agent", Labels{Domain.ZeroTrust, Domain.RequiresNodes}, func() {
+		It("validate DPU agent has reported status on all provisioned DPUs", func() {
+			ValidateDPUAgentStatus(ctx, input, provisioningv1.AgentStatus{
+				RebootMethod:        ptr.To(provisioningv1.RebootMethodNoAction),
+				RebootSequenceCount: ptr.To(int32(0)),
+				Conditions: []metav1.Condition{
+					{Type: "KernelModuleLoaded", Status: metav1.ConditionTrue},
+					{Type: "NetworkConfigured", Status: metav1.ConditionTrue},
+					{Type: "NetworkChecked", Status: metav1.ConditionTrue},
+					{Type: "LastStartupTimeReported", Status: metav1.ConditionTrue},
+					{Type: "DPURetrieved", Status: metav1.ConditionTrue},
+					{Type: "DNSConfigured", Status: metav1.ConditionTrue},
+					{Type: "StaticFilesVerified", Status: metav1.ConditionTrue},
+					{Type: "BuiltinKubeletRemoved", Status: metav1.ConditionTrue},
+					{Type: "SysctlParametersSet", Status: metav1.ConditionTrue},
+					{Type: "SysctlParametersChecked", Status: metav1.ConditionTrue},
+					{Type: "KernelCmdLineConfigured", Status: metav1.ConditionTrue},
+					{Type: "ContainerdConfigured", Status: metav1.ConditionTrue},
+					{Type: "DpuModeEnsured", Status: metav1.ConditionTrue},
+					{Type: "NVConfigApplied", Status: metav1.ConditionTrue},
+					{Type: "RebootHandled", Status: metav1.ConditionTrue},
+					{Type: "KernelCmdLineChecked", Status: metav1.ConditionTrue},
+					{Type: "SFCreated", Status: metav1.ConditionTrue},
+					{Type: "VFMacSet", Status: metav1.ConditionTrue},
+					{Type: "OVSScriptRun", Status: metav1.ConditionTrue},
+					{Type: "KubeletConfigured", Status: metav1.ConditionTrue},
+					{Type: "KubeletStarted", Status: metav1.ConditionTrue},
+				},
+			})
+		})
+	})
+
+	Context("DPU Service Kata Containers", Labels{Domain.RequiresNodes}, func() {
+		It("deploy a DPUService pod with kata-qemu RuntimeClass and an SF", func() {
+			ValidateDPUServiceKataRuntimeClass(ctx, input)
 		})
 	})
 
