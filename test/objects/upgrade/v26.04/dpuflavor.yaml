@@ -8,8 +8,6 @@ spec:
   - UPDATE_ATF_UEFI=yes
   - UPDATE_DPU_OS=yes
   - WITH_NIC_FW_UPDATE=yes
-  - UPDATE_BMC_FW=no
-  - UPDATE_CEC_FW=no
   configFiles:
   - operation: override
     path: /etc/mellanox/mlnx-bf.conf
@@ -27,6 +25,7 @@ spec:
   - operation: override
     path: /etc/mellanox/mlnx-sf.conf
     permissions: "0644"
+    raw: ""
   grub:
     kernelParameters:
     - console=hvc0
@@ -38,43 +37,38 @@ spec:
     - iommu.passthrough=1
     - cgroup_no_v1=net_prio,net_cls
     - hugepagesz=2048kB
-    - hugepages=2048
+    - hugepages=3072
   nvconfig:
   - device: '*'
     parameters:
     - PF_BAR2_ENABLE=0
     - PER_PF_NUM_SF=1
-    - PF_TOTAL_SF=16
+    - PF_TOTAL_SF=20
     - PF_SF_BAR_SIZE=10
+    - NUM_PF_MSIX_VALID=0
+    - PF_NUM_PF_MSIX_VALID=1
+    - PF_NUM_PF_MSIX=228
     - INTERNAL_CPU_MODEL=1
     - INTERNAL_CPU_OFFLOAD_ENGINE=0
     - SRIOV_EN=1
-    - NUM_OF_VFS=8
+    - NUM_OF_VFS=46
     - LAG_RESOURCE_ALLOCATION=1
     - LINK_TYPE_P1=ETH
     - LINK_TYPE_P2=ETH
   ovs:
     rawConfigScript: |
       _ovs-vsctl() {
-        ovs-vsctl --timeout 15 "$@"
+        ovs-vsctl --no-wait --timeout 15 "$@"
       }
 
-      # Remove default OVS configuration on the DPU and ensure no leftovers on the OVS kernel side
       _ovs-vsctl --if-exists del-br ovsbr1
       _ovs-vsctl --if-exists del-br ovsbr2
-      ovs-appctl --timeout 15 dpctl/del-dp system@ovs-system || true
-
       _ovs-vsctl set Open_vSwitch . other_config:doca-init=true
       _ovs-vsctl set Open_vSwitch . other_config:dpdk-max-memzones=50000
       _ovs-vsctl set Open_vSwitch . other_config:hw-offload=true
       _ovs-vsctl set Open_vSwitch . other_config:pmd-quiet-idle=true
       _ovs-vsctl set Open_vSwitch . other_config:max-idle=20000
       _ovs-vsctl set Open_vSwitch . other_config:max-revalidator=5000
-      _ovs-vsctl set Open_vSwitch . other_config:doca-congestion-threshold=60
-      _ovs-vsctl set Open_vSwitch . other_config:flow-limit=500000
-      _ovs-vsctl set Open_vSwitch . other_config:hw-offload-ct-unidir-udp-enabled=true
-      _ovs-vsctl remove Open_vSwitch . other_config default-datapath-type || true
-
       if systemctl list-unit-files openvswitch-switch.service &>/dev/null; then
         systemctl restart openvswitch-switch
       elif systemctl list-unit-files openvswitch.service &>/dev/null; then
@@ -87,27 +81,3 @@ spec:
       _ovs-vsctl set Interface p0 type=dpdk
       _ovs-vsctl set Interface p0 mtu_request=9216
       _ovs-vsctl set Port p0 external_ids:dpf-type=physical
-      echo -e "ubuntu\nubuntu" | passwd ubuntu
-
-      # WA for linux-cloud: override dpf-comm-ch netplan
-      # set the oob_net0 mac on the bridge so it can get an IP
-      # from DHCP of lab network.
-      # NOTE: the use of $ {no_variable} is a hack to avoid substitution
-      # of oob_mac by envsubst
-
-      oob_mac=$(cat /sys/class/net/oob_net0/address)
-      cat <<EOF > /etc/netplan/99-dpf-comm-ch.yaml
-      network:
-          renderer: networkd
-          version: 2
-          ethernets:
-            pf0vf0:
-              mtu: 1500
-          bridges:
-            br-comm-ch:
-              macaddress: $oob_mac
-              dhcp4: yes
-              mtu: 1500
-              interfaces:
-                - pf0vf0
-      EOF

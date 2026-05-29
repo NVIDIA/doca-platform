@@ -432,18 +432,8 @@ func (p *dpuServicePerDPUClusterObjects) IsReadyForUpgrade(ctx context.Context, 
 	}
 	dpuClusterCount := len(dpuClusterList.Items)
 
-	isUpgradeFromLastReleasedGA := operatorutils.IsUpgradeFromLastReleasedGA(*config.Status.Version)
-
-	// TODO: Remove after v26.4.0. This conditional exists because the ServiceChainSet controller
-	// changed from a single DPUService to a per-DPUCluster DPUService.
-	if isUpgradeFromLastReleasedGA {
-		// if we're upgrading from the last released GA, we only need to check the legacy DPUService. This works
-		// because the templateDPUService has the same component name as the legacy DPUService.
-		return p.templateDPUService.isReady(ctx, c, config.GetNamespace(), false)
-	} else {
-		errs = append(errs, p.areDPUServicesReady(ctx, c, config.GetNamespace(), dpuClusterCount, false)...)
-		errs = append(errs, p.areDPUServiceCredentialRequestsReady(ctx, c, config.GetNamespace(), dpuClusterCount, false)...)
-	}
+	errs = append(errs, p.areDPUServicesReady(ctx, c, config.GetNamespace(), dpuClusterCount, false)...)
+	errs = append(errs, p.areDPUServiceCredentialRequestsReady(ctx, c, config.GetNamespace(), dpuClusterCount, false)...)
 
 	return kerrors.NewAggregate(errs)
 }

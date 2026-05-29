@@ -51,6 +51,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const legacyDPFVersionWithoutKubeletSupport = "v25.10.1"
+
 func TestDPFOperatorConfigSettings(t *testing.T) {
 	g := NewWithT(t)
 	t.Run("ConfigSingletonNamespaceName restricts reconciliation to a config with the specified name /namespace", func(t *testing.T) {
@@ -1486,7 +1488,7 @@ func TestValidateKubernetesVersionSkew(t *testing.T) {
 		}
 	}
 
-	// currentDPFVersion is a version newer than LastReleasedDPFGAVersion, simulating
+	// currentDPFVersion is newer than the legacy v25.10.x releases, simulating
 	// a DPU provisioned by the current operator that supports KubeletVersion reporting.
 	currentDPFVersion := "v26.4.0"
 
@@ -1718,7 +1720,7 @@ func TestValidateKubernetesVersionSkew(t *testing.T) {
 		patcher := patch.NewSerialPatcher(dpuLegacy, testClient)
 		dpuLegacy.Status = provisioningv1.DPUStatus{
 			Phase:      provisioningv1.DPUReady,
-			DPFVersion: ptr.To(release.LastReleasedDPFGAVersion), // no KubeletVersion support
+			DPFVersion: ptr.To(legacyDPFVersionWithoutKubeletSupport),
 		}
 		g.Expect(patcher.Patch(ctx, dpuLegacy)).To(Succeed())
 
@@ -1914,9 +1916,9 @@ func TestGetDPUKubeletVersion(t *testing.T) {
 			wantErr:     "no KubeletVersion",
 		},
 		{
-			name:        "skips DPU with DPFVersion equal to LastReleasedDPFGAVersion (v25.10.x)",
+			name:        "skips DPU with legacy DPFVersion v25.10.1",
 			agentStatus: nil,
-			dpfVersion:  ptr.To(release.LastReleasedDPFGAVersion), // v25.10.1
+			dpfVersion:  ptr.To(legacyDPFVersionWithoutKubeletSupport),
 			wantVersion: "",
 		},
 		{
@@ -1944,7 +1946,7 @@ func TestGetDPUKubeletVersion(t *testing.T) {
 			wantVersion: "",
 		},
 		{
-			name:        "errors when DPFVersion is newer minor than LastReleasedDPFGAVersion",
+			name:        "errors when DPFVersion is newer minor than legacy kubelet support threshold",
 			agentStatus: nil,
 			dpfVersion:  ptr.To("v26.4.0"),
 			wantErr:     "kubelet version not reported",

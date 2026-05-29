@@ -46,6 +46,14 @@ func ShouldSkipUpgradeCheck(componentName operatorv1.ComponentName, upgradeFromV
 		return false, fmt.Errorf("failed to parse upgrade source version %s: %w", upgradeFromVersion, err)
 	}
 
+	// Unset prerelease version for comparison so the comparison is fine when upgrading to a pre-release version.
+	// Otherwise testing upgrades from a pre-release which contains the feature would incorreclty skip
+	// the checks.
+	if fromVer.Prerelease() != "" {
+		newFromVer, _ := fromVer.SetPrerelease("")
+		fromVer = &newFromVer
+	}
+
 	introducedVer, err := semver.NewVersion(introducedVersion)
 	if err != nil {
 		return false, fmt.Errorf("failed to parse component introduction version %s for %s: %w",
