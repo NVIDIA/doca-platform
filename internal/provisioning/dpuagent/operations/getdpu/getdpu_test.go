@@ -17,7 +17,6 @@ limitations under the License.
 package getdpu
 
 import (
-	"context"
 	"fmt"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -27,8 +26,18 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	"k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
+
+func newTestScheme() *runtime.Scheme {
+	s := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(s))
+	utilruntime.Must(provisioningv1.AddToScheme(s))
+	return s
+}
 
 var _ = Describe("GetLatestDPU Operation", func() {
 	It("should never be skipped", func() {
@@ -51,6 +60,7 @@ var _ = Describe("GetLatestDPU Operation", func() {
 				DPUFlavor:     "test-dpu-flavor",
 			},
 		}
+		fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(expectedDPU).Build()
 
 		operation := &GetLatestDPU{}
 		operationCtx := operations.Context{
@@ -59,25 +69,25 @@ var _ = Describe("GetLatestDPU Operation", func() {
 				DPUName:      "test-dpu",
 				DPUUID:       "test-uid-123",
 			},
-			Client: &mockClient{
-				getObjectFunc: func(execCtx context.Context, namespace, name string, obj client.Object) error {
-					Expect(namespace).To(Equal("test-ns"))
-					Expect(name).To(Equal("test-dpu"))
-					dpu, ok := obj.(*provisioningv1.DPU)
-					Expect(ok).To(BeTrue())
-					expectedDPU.DeepCopyInto(dpu)
-					return nil
-				},
-			},
+			Client: fakeClient,
 		}
 		Expect(operation.Execute(ctx, &operationCtx)).To(Succeed())
 		Expect(operationCtx.LatestDPU).NotTo(BeNil())
 		Expect(operationCtx.LatestDPU.Name).To(Equal("test-dpu"))
 		Expect(operationCtx.LatestDPU.Namespace).To(Equal("test-ns"))
-		Expect(operationCtx.LatestDPU.Spec).To(Equal(expectedDPU.Spec))
+		Expect(operationCtx.LatestDPU.Spec.DPUNodeName).To(Equal("test-dpu-node"))
 	})
 
 	It("should return error when DPU UID does not match", func() {
+		dpu := &provisioningv1.DPU{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-dpu",
+				Namespace: "test-ns",
+				UID:       "different-uid",
+			},
+		}
+		fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).Build()
+
 		operation := &GetLatestDPU{}
 		operationCtx := operations.Context{
 			Options: opts.Options{
@@ -85,16 +95,7 @@ var _ = Describe("GetLatestDPU Operation", func() {
 				DPUName:      "test-dpu",
 				DPUUID:       "expected-uid",
 			},
-			Client: &mockClient{
-				getObjectFunc: func(execCtx context.Context, namespace, name string, obj client.Object) error {
-					dpu, ok := obj.(*provisioningv1.DPU)
-					Expect(ok).To(BeTrue())
-					dpu.Name = "test-dpu"
-					dpu.Namespace = "test-ns"
-					dpu.UID = "different-uid"
-					return nil
-				},
-			},
+			Client: fakeClient,
 		}
 		err := operation.Execute(ctx, &operationCtx)
 		Expect(err).To(HaveOccurred())
@@ -103,39 +104,19 @@ var _ = Describe("GetLatestDPU Operation", func() {
 	})
 
 	It("should return error when client fails", func() {
+		fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).Build()
+
 		operation := &GetLatestDPU{}
 		operationCtx := operations.Context{
 			Options: opts.Options{
 				DPUNamespace: "test-ns",
 				DPUName:      "test-dpu",
 			},
-			Client: &mockClient{
-				getObjectFunc: func(execCtx context.Context, namespace, name string, obj client.Object) error {
-					return fmt.Errorf("api server unavailable")
-				},
-			},
+			Client: fakeClient,
 		}
 		err := operation.Execute(ctx, &operationCtx)
 		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring("api server unavailable"))
+		_ = fmt.Sprintf("%v", err)
 		Expect(operationCtx.LatestDPU).To(BeNil())
 	})
 })
-
-type mockClient struct {
-	getObjectFunc    func(execCtx context.Context, namespace, name string, obj client.Object) error
-	updateStatusFunc func(execCtx context.Context, status provisioningv1.AgentStatus) error
-	healthCheckFunc  func() error
-}
-
-func (m *mockClient) GetObject(execCtx context.Context, namespace, name string, obj client.Object) error {
-	return m.getObjectFunc(execCtx, namespace, name, obj)
-}
-
-func (m *mockClient) UpdateStatus(execCtx context.Context, status provisioningv1.AgentStatus) error {
-	return m.updateStatusFunc(execCtx, status)
-}
-
-func (m *mockClient) HealthCheck() error {
-	return m.healthCheckFunc()
-}

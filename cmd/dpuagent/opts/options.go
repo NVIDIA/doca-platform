@@ -60,13 +60,11 @@ type Options struct {
 }
 
 func (o Options) Validate() error {
-	if o.ZeroTrustMode {
-		if o.Kubeconfig == "" && o.BootstrapKubeconfig == "" {
-			return fmt.Errorf("kubeconfig or bootstrap-kubeconfig is required for zero trust mode")
-		}
-		if o.BootstrapKubeconfig != "" && o.CertDir == "" {
-			return fmt.Errorf("cert-dir is required when bootstrap-kubeconfig is set")
-		}
+	if o.Kubeconfig == "" && o.BootstrapKubeconfig == "" {
+		return fmt.Errorf("kubeconfig or bootstrap-kubeconfig is required")
+	}
+	if o.BootstrapKubeconfig != "" && o.CertDir == "" {
+		return fmt.Errorf("cert-dir is required when bootstrap-kubeconfig is set")
 	}
 	if o.ControlPlaneMTU < 0 {
 		return fmt.Errorf("control plane MTU must be greater than 0: %d", o.ControlPlaneMTU)

@@ -21,6 +21,7 @@ import (
 	"os"
 	"time"
 
+	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -157,7 +158,7 @@ var _ = Describe("ZT Bootstrap", func() {
 			defer func() { _ = os.Remove(tmpCA.Name()) }()
 			Expect(os.WriteFile(tmpCA.Name(), []byte("fake-ca-data"), 0600)).To(Succeed())
 
-			kubeconfigData, err := CreateDPUAgentBootstrapKubeconfig(ctx, fakeClient, dpu, "https://10.0.0.1:6443", tmpCA.Name())
+			kubeconfigData, err := CreateDPUAgentBootstrapKubeconfig(ctx, fakeClient, dpu, "https://10.0.0.1:6443", tmpCA.Name(), "")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(kubeconfigData).NotTo(BeEmpty())
 
@@ -186,6 +187,29 @@ var _ = Describe("ZT Bootstrap", func() {
 			Expect(cfg.CAData).To(Equal([]byte("fake-ca-data")))
 		})
 
+		It("should include proxy-url in kubeconfig when specified", func() {
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+			tmpCA, err := os.CreateTemp("", "ca-test-*")
+			Expect(err).NotTo(HaveOccurred())
+			defer func() { _ = os.Remove(tmpCA.Name()) }()
+			Expect(os.WriteFile(tmpCA.Name(), []byte("fake-ca-data"), 0600)).To(Succeed())
+
+			proxyURL := "http://[fe80::1%25tmfifo_net0]:11030"
+			kubeconfigData, err := CreateDPUAgentBootstrapKubeconfig(ctx, fakeClient, dpu, "https://kubernetes.default.svc:6443", tmpCA.Name(), proxyURL)
+			Expect(err).NotTo(HaveOccurred())
+
+			tmpKubeconfig, err := os.CreateTemp("", "kubeconfig-test-*")
+			Expect(err).NotTo(HaveOccurred())
+			defer func() { _ = os.Remove(tmpKubeconfig.Name()) }()
+			Expect(os.WriteFile(tmpKubeconfig.Name(), kubeconfigData, 0600)).To(Succeed())
+
+			cfg, err := clientcmd.BuildConfigFromFlags("", tmpKubeconfig.Name())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cfg.Host).To(Equal("https://kubernetes.default.svc:6443"))
+			Expect(cfg.Proxy).NotTo(BeNil())
+		})
+
 		It("should reuse existing token when one already exists", func() {
 			existingSecret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
@@ -210,7 +234,7 @@ var _ = Describe("ZT Bootstrap", func() {
 			defer func() { _ = os.Remove(tmpCA.Name()) }()
 			Expect(os.WriteFile(tmpCA.Name(), []byte("fake-ca-data"), 0600)).To(Succeed())
 
-			kubeconfigData, err := CreateDPUAgentBootstrapKubeconfig(ctx, fakeClient, dpu, "https://10.0.0.1:6443", tmpCA.Name())
+			kubeconfigData, err := CreateDPUAgentBootstrapKubeconfig(ctx, fakeClient, dpu, "https://10.0.0.1:6443", tmpCA.Name(), "")
 			Expect(err).NotTo(HaveOccurred())
 
 			tmpKubeconfig, err := os.CreateTemp("", "kubeconfig-test-*")
@@ -268,6 +292,81 @@ var _ = Describe("ZT Bootstrap", func() {
 
 			err := DeleteDPUAgentBootstrapTokens(ctx, fakeClient, "dpu-01", "dpf-operator-system")
 			Expect(err).NotTo(HaveOccurred())
+		})
+	})
+
+	Describe("ResolveAPIServerAddress", func() {
+		const testVIP = "10.0.0.1"
+
+		It("zero trust requires VIP and Port", func() {
+			_, _, err := ResolveAPIServerAddress(nil, true)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("KubernetesAPIServerVIP"))
+		})
+
+		It("zero trust returns address without proxy", func() {
+			vip := testVIP
+			port := 6443
+			overrides := &operatorv1.Overrides{
+				KubernetesAPIServerVIP:  &vip,
+				KubernetesAPIServerPort: &port,
+			}
+			addr, proxyURL, err := ResolveAPIServerAddress(overrides, true)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(addr).To(Equal("https://10.0.0.1:6443"))
+			Expect(proxyURL).To(BeEmpty())
+		})
+
+		It("trusted host with VIP and Port configured", func() {
+			vip := testVIP
+			port := 6443
+			overrides := &operatorv1.Overrides{
+				KubernetesAPIServerVIP:  &vip,
+				KubernetesAPIServerPort: &port,
+			}
+			addr, proxyURL, err := ResolveAPIServerAddress(overrides, false)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(addr).To(Equal("https://10.0.0.1:6443"))
+			Expect(proxyURL).To(Equal("http://[fe80::1%25tmfifo_net0]:11030"))
+		})
+
+		It("trusted host with only VIP configured uses KUBERNETES_SERVICE_PORT", func() {
+			GinkgoT().Setenv("KUBERNETES_SERVICE_PORT", "6443")
+			vip := testVIP
+			overrides := &operatorv1.Overrides{
+				KubernetesAPIServerVIP: &vip,
+			}
+			addr, proxyURL, err := ResolveAPIServerAddress(overrides, false)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(addr).To(Equal("https://10.0.0.1:6443"))
+			Expect(proxyURL).To(Equal("http://[fe80::1%25tmfifo_net0]:11030"))
+		})
+
+		It("trusted host with only Port configured uses kubernetes.default.svc", func() {
+			port := 6443
+			overrides := &operatorv1.Overrides{
+				KubernetesAPIServerPort: &port,
+			}
+			addr, proxyURL, err := ResolveAPIServerAddress(overrides, false)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(addr).To(Equal("https://kubernetes.default.svc:6443"))
+			Expect(proxyURL).To(Equal("http://[fe80::1%25tmfifo_net0]:11030"))
+		})
+
+		It("trusted host with no overrides uses defaults", func() {
+			GinkgoT().Setenv("KUBERNETES_SERVICE_PORT", "443")
+			addr, proxyURL, err := ResolveAPIServerAddress(nil, false)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(addr).To(Equal("https://kubernetes.default.svc:443"))
+			Expect(proxyURL).To(Equal("http://[fe80::1%25tmfifo_net0]:11030"))
+		})
+
+		It("trusted host with no port anywhere falls back to 443", func() {
+			GinkgoT().Setenv("KUBERNETES_SERVICE_PORT", "")
+			addr, proxyURL, err := ResolveAPIServerAddress(nil, false)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(addr).To(Equal("https://kubernetes.default.svc:443"))
+			Expect(proxyURL).To(Equal("http://[fe80::1%25tmfifo_net0]:11030"))
 		})
 	})
 
