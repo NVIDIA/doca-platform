@@ -64,6 +64,8 @@ var _ = Describe("ValidateDPFVersion", func() {
 		Entry("v25.4.0 previous version should fail with multiple allowed sources", ptr.To("v25.4.0"), []string{"v25.10.0", "v25.7.0"}, false, "only upgrades from v25.10.0, v25.7.0 are supported"),
 		Entry("v24.10.0 previous version should fail when not in allowed sources", ptr.To("v24.10.0"), []string{"v25.7.0"}, false, "is not compatible with current DPF version"),
 
+		Entry("last released source version should succeed by default", ptr.To("v26.4.0-rc.2"), nil, true, ""),
+		Entry("same minor line as last released source should succeed by default", ptr.To("v26.4.1-rc.1"), nil, true, ""),
 		Entry("v25.7.0-beta.3 should succeed to upgrade from", ptr.To("v25.7.0-beta.3"), []string{"v25.7.0"}, true, ""),
 		Entry("v25.7.0 previous version should succeed when exact match", ptr.To("v25.7.0"), []string{"v25.7.0"}, true, ""),
 		Entry("v25.7.5 previous version should succeed when v25.7.0 is allowed", ptr.To("v25.7.5"), []string{"v25.7.0"}, true, ""),
