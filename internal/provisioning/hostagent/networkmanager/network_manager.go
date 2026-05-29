@@ -154,14 +154,24 @@ func (nm *NetworkManager) loadNetworkRequest() error {
 }
 
 func (nm *NetworkManager) run() {
-	nm.Lock()
-	defer nm.Unlock()
+	nm.RLock()
+	reqs := make([]NetworkRequest, 0, len(nm.reqs))
+	for _, nr := range nm.reqs {
+		reqs = append(reqs, nr)
+	}
+	nm.RUnlock()
 
-	for uid, nr := range nm.reqs {
+	for _, nr := range reqs {
 		if err := nm.processNetworkRequest(nr); err != nil {
-			klog.Errorf("failed to process network request, nr: %+v, err: %v", nm.reqs[uid], err)
+			klog.Errorf("failed to process network request, nr: %+v, err: %v", nr, err)
 		}
 	}
+}
+
+func (nm *NetworkManager) removeRequest(uid string) {
+	nm.Lock()
+	defer nm.Unlock()
+	delete(nm.reqs, uid)
 }
 
 func (nm *NetworkManager) processNetworkRequest(nr NetworkRequest) error {
@@ -180,7 +190,7 @@ func (nm *NetworkManager) processNetworkRequest(nr NetworkRequest) error {
 		if err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("failed to remove network request file: %w", err)
 		}
-		delete(nm.reqs, nr.UID)
+		nm.removeRequest(nr.UID)
 		klog.Infof("removed VF and network request for DPU %s/%s(UID: %s)", nr.DPUNamespace, nr.DpuName, nr.UID)
 		return nil
 	}
@@ -270,16 +280,34 @@ func (nm *NetworkManager) processNetworkRequest(nr NetworkRequest) error {
 	return nil
 }
 
-func (nm *NetworkManager) AddNetworkRequest(dpu *provisioningv1.DPU) error {
-	nm.Lock()
-	defer nm.Unlock()
+// lookupDevice checks preconditions and returns the PCI device for the DPU.
+// Returns found=false when a network request for this DPU already exists.
+func (nm *NetworkManager) lookupDevice(dpu *provisioningv1.DPU) (dev hostutil.Device, found bool, err error) {
+	nm.RLock()
+	defer nm.RUnlock()
 	if !nm.initialized {
-		return fmt.Errorf("network manager is not initialized")
-	} else if dpu == nil {
+		return hostutil.Device{}, false, fmt.Errorf("network manager is not initialized")
+	}
+	if _, ok := nm.reqs[string(dpu.UID)]; ok {
+		return hostutil.Device{}, false, nil
+	}
+	dev, ok := nm.devicesBySN[dpu.Spec.SerialNumber]
+	if !ok {
+		return hostutil.Device{}, false, fmt.Errorf("PCI address of device %s not found", dpu.Spec.SerialNumber)
+	}
+	return dev, true, nil
+}
+
+func (nm *NetworkManager) AddNetworkRequest(dpu *provisioningv1.DPU) error {
+	if dpu == nil {
 		return fmt.Errorf("DPU is nil")
 	}
 
-	if _, ok := nm.reqs[string(dpu.UID)]; ok {
+	dev, found, err := nm.lookupDevice(dpu)
+	if err != nil {
+		return err
+	}
+	if !found {
 		return nil
 	}
 
@@ -289,10 +317,6 @@ func (nm *NetworkManager) AddNetworkRequest(dpu *provisioningv1.DPU) error {
 	nr.SetDPUObjectMeta(*dpu)
 
 	// use the PCI address collected locally, so that it's not affected by PCI address changes
-	dev, ok := nm.devicesBySN[nr.SerialNumber]
-	if !ok {
-		return fmt.Errorf("PCI address of device %s not found", nr.SerialNumber)
-	}
 	nr.PCIAddress = dev.Address
 
 	numOfVFs, err := nm.getNumOfVFs(dpu)
@@ -317,8 +341,15 @@ func (nm *NetworkManager) AddNetworkRequest(dpu *provisioningv1.DPU) error {
 	if err := writeNetworkRequestFile(nr); err != nil {
 		return fmt.Errorf("failed to write network request file: %w", err)
 	}
-	nm.reqs[nr.UID] = *nr
+
+	nm.addRequest(nr)
 	return nil
+}
+
+func (nm *NetworkManager) addRequest(nr *NetworkRequest) {
+	nm.Lock()
+	defer nm.Unlock()
+	nm.reqs[nr.UID] = *nr
 }
 
 func (nm *NetworkManager) getNumOfVFs(dpu *provisioningv1.DPU) (int, error) {
