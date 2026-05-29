@@ -14,4 +14,8 @@ spec:
     values:
       image:
         repository: mirror.gcr.io/nginx
+        # This should be:
+        # - `1.27.5-alpine3.21-slim` for the current verrsion
+        # - `1.27.4-alpine3.21-slim` for the old verrsion
+        # to test the upgrade path.
         tag: 1.27.4-alpine3.21-slim

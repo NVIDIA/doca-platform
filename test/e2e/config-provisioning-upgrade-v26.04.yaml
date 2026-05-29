@@ -1,11 +1,11 @@
 provisioningControllerPVC: "../objects/infrastructure/pvc-provisioning.yaml"
-bfb: "../objects/upgrade/v25.10/bfb.yaml"
+bfb: "../objects/upgrade/v26.04/bfb.yaml"
 dpuClusters:
-  - "../objects/upgrade/v25.10/dpucluster.yaml"
-dpuFlavor: "../objects/upgrade/v25.10/dpuflavor.yaml"
-dpuDeployment: "../objects/upgrade/v25.10/dpudeployment.yaml"
-dpuServiceConfiguration: "../objects/upgrade/v25.10/dpuserviceconfiguration.yaml"
-dpuServiceTemplate: "../objects/upgrade/v25.10/dpuservicetemplate.yaml"
+  - "../objects/upgrade/v26.04/dpucluster.yaml"
+dpuFlavor: "../objects/upgrade/v26.04/dpuflavor.yaml"
+dpuDeployment: "../objects/upgrade/v26.04/dpudeployment.yaml"
+dpuServiceConfiguration: "../objects/upgrade/v26.04/dpuserviceconfiguration.yaml"
+dpuServiceTemplate: "../objects/upgrade/v26.04/dpuservicetemplate.yaml"
 numberOfDPUNodes: 2
 numberOfDPUsPerNode: 1
 
