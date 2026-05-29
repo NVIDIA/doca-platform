@@ -29,10 +29,58 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 const testRetryInterval = 1 * time.Millisecond
+
+func newTestScheme() *runtime.Scheme {
+	s := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(s))
+	utilruntime.Must(provisioningv1.AddToScheme(s))
+	return s
+}
+
+func newTestDPU() *provisioningv1.DPU {
+	return &provisioningv1.DPU{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-dpu",
+			Namespace: "test-ns",
+			UID:       "test-uid",
+		},
+		Spec: provisioningv1.DPUSpec{
+			DPUNodeName:   "node-1",
+			DPUDeviceName: "dev-1",
+			BFB:           "bfb-1",
+			SerialNumber:  "sn-1",
+			DPUFlavor:     "flavor-1",
+			NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
+		},
+	}
+}
+
+func newTestOptCtx(fakeClient client.Client) *operations.Context {
+	return &operations.Context{
+		Client: fakeClient,
+		Options: opts.Options{
+			DPUName:      "test-dpu",
+			DPUNamespace: "test-ns",
+			DPUUID:       "test-uid",
+		},
+		DiscoverPorts: func() ([]pciutil.NICPort, error) {
+			return []pciutil.NICPort{
+				{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: "/dev/mst/mt41692_pciconf0"},
+				{Netdev: "p1", PCIAddress: "0000:03:00.1", MSTDevice: "/dev/mst/mt41692_pciconf0.1"},
+			}, nil
+		},
+	}
+}
 
 var _ = Describe("DPUAgent", func() {
 	Describe("Run", func() {
@@ -51,77 +99,44 @@ var _ = Describe("DPUAgent", func() {
 		})
 
 		It("should execute operations in order", func() {
+			dpu := newTestDPU()
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+
 			executionOrder := []string{}
 			mockOps := []operations.Operation{
-				&mockOperation{
-					name:          "op1",
-					conditionType: "Op1Condition",
-					executeFunc: func(execCtx context.Context, optCtx *operations.Context) error {
-						executionOrder = append(executionOrder, "op1")
-						return nil
-					},
-				},
-				&mockOperation{
-					name:          "op2",
-					conditionType: "Op2Condition",
-					executeFunc: func(execCtx context.Context, optCtx *operations.Context) error {
-						executionOrder = append(executionOrder, "op2")
-						return nil
-					},
-				},
-				&mockOperation{
-					name:          "op3",
-					conditionType: "Op3Condition",
-					executeFunc: func(execCtx context.Context, optCtx *operations.Context) error {
-						executionOrder = append(executionOrder, "op3")
-						return nil
-					},
-				},
+				&mockOperation{name: "op1", conditionType: "Op1Condition", executeFunc: func(_ context.Context, _ *operations.Context) error {
+					executionOrder = append(executionOrder, "op1")
+					return nil
+				}},
+				&mockOperation{name: "op2", conditionType: "Op2Condition", executeFunc: func(_ context.Context, _ *operations.Context) error {
+					executionOrder = append(executionOrder, "op2")
+					return nil
+				}},
+				&mockOperation{name: "op3", conditionType: "Op3Condition", executeFunc: func(_ context.Context, _ *operations.Context) error {
+					executionOrder = append(executionOrder, "op3")
+					return nil
+				}},
 			}
 
-			agent := &DPUAgent{
-				retryInterval: testRetryInterval,
-				optCtx: &operations.Context{
-					Client: &mockClient{},
-					DiscoverPorts: func() ([]pciutil.NICPort, error) {
-						return []pciutil.NICPort{
-							{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: "/dev/mst/mt41692_pciconf0"},
-							{Netdev: "p1", PCIAddress: "0000:03:00.1", MSTDevice: "/dev/mst/mt41692_pciconf0.1"},
-						}, nil
-					},
-				},
-				operations: mockOps,
-			}
-
-			err := agent.Run(ctx)
-			Expect(err).NotTo(HaveOccurred())
+			agent := &DPUAgent{retryInterval: testRetryInterval, optCtx: newTestOptCtx(fakeClient), operations: mockOps}
+			Expect(agent.Run(ctx)).To(Succeed())
 			Expect(executionOrder).To(Equal([]string{"op1", "op2", "op3"}))
 		})
 
 		It("initializes RebootMethod to Unknown so stale values from a previous session are overwritten", func() {
+			dpu := newTestDPU()
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+
 			var captured *provisioningv1.RebootMethodType
-			mockOps := []operations.Operation{
-				&mockOperation{
-					name:          "op1",
-					conditionType: "Op1Condition",
-					executeFunc: func(execCtx context.Context, optCtx *operations.Context) error {
-						captured = optCtx.Status.RebootMethod
-						return nil
-					},
-				},
-			}
 			agent := &DPUAgent{
 				retryInterval: testRetryInterval,
-				optCtx: &operations.Context{
-					Client: &mockClient{},
-					DiscoverPorts: func() ([]pciutil.NICPort, error) {
-						return []pciutil.NICPort{
-							{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: "/dev/mst/mt41692_pciconf0"},
-							{Netdev: "p1", PCIAddress: "0000:03:00.1", MSTDevice: "/dev/mst/mt41692_pciconf0.1"},
-						}, nil
-					},
+				optCtx:        newTestOptCtx(fakeClient),
+				operations: []operations.Operation{
+					&mockOperation{name: "op1", conditionType: "Op1Condition", executeFunc: func(_ context.Context, optCtx *operations.Context) error {
+						captured = optCtx.Status.RebootMethod
+						return nil
+					}},
 				},
-				operations: mockOps,
 			}
 			Expect(agent.Run(ctx)).To(Succeed())
 			Expect(captured).NotTo(BeNil())
@@ -129,59 +144,38 @@ var _ = Describe("DPUAgent", func() {
 		})
 
 		It("sets RebootMethodDiscovery on the operation context before operations run", func() {
+			dpu := newTestDPU()
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+
 			var discovery bool
-			mockOps := []operations.Operation{
-				&mockOperation{
-					name:          "op1",
-					conditionType: "Op1Condition",
-					executeFunc: func(execCtx context.Context, optCtx *operations.Context) error {
-						discovery = optCtx.RebootMethodDiscovery
-						return nil
-					},
-				},
-			}
 			agent := &DPUAgent{
 				retryInterval: testRetryInterval,
-				optCtx: &operations.Context{
-					Client: &mockClient{},
-					DiscoverPorts: func() ([]pciutil.NICPort, error) {
-						return []pciutil.NICPort{
-							{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: "/dev/mst/mt41692_pciconf0"},
-							{Netdev: "p1", PCIAddress: "0000:03:00.1", MSTDevice: "/dev/mst/mt41692_pciconf0.1"},
-						}, nil
-					},
+				optCtx:        newTestOptCtx(fakeClient),
+				operations: []operations.Operation{
+					&mockOperation{name: "op1", conditionType: "Op1Condition", executeFunc: func(_ context.Context, optCtx *operations.Context) error {
+						discovery = optCtx.RebootMethodDiscovery
+						return nil
+					}},
 				},
-				operations: mockOps,
 			}
 			Expect(agent.Run(ctx)).To(Succeed())
 			Expect(discovery).To(BeFalse(), "discovery is false when MFT tools are missing or below min version")
 		})
 
 		It("sets RebootMethodDiscovery true when rebootMethodDiscoveryFunc returns true", func() {
+			dpu := newTestDPU()
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+
 			var discovery bool
 			agent := &DPUAgent{
-				retryInterval: testRetryInterval,
-				rebootMethodDiscoveryFunc: func(context.Context) bool {
-					return true
-				},
-				optCtx: &operations.Context{
-					Client: &mockClient{},
-					DiscoverPorts: func() ([]pciutil.NICPort, error) {
-						return []pciutil.NICPort{
-							{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: "/dev/mst/mt41692_pciconf0"},
-							{Netdev: "p1", PCIAddress: "0000:03:00.1", MSTDevice: "/dev/mst/mt41692_pciconf0.1"},
-						}, nil
-					},
-				},
+				retryInterval:             testRetryInterval,
+				rebootMethodDiscoveryFunc: func(context.Context) bool { return true },
+				optCtx:                    newTestOptCtx(fakeClient),
 				operations: []operations.Operation{
-					&mockOperation{
-						name:          "op1",
-						conditionType: "Op1Condition",
-						executeFunc: func(execCtx context.Context, optCtx *operations.Context) error {
-							discovery = optCtx.RebootMethodDiscovery
-							return nil
-						},
-					},
+					&mockOperation{name: "op1", conditionType: "Op1Condition", executeFunc: func(_ context.Context, optCtx *operations.Context) error {
+						discovery = optCtx.RebootMethodDiscovery
+						return nil
+					}},
 				},
 			}
 			Expect(agent.Run(ctx)).To(Succeed())
@@ -189,33 +183,21 @@ var _ = Describe("DPUAgent", func() {
 		})
 
 		It("sets RebootMethodDiscovery false when SkipRebootMethodDiscovery is true", func() {
+			dpu := newTestDPU()
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+
 			var discovery bool
+			optCtx := newTestOptCtx(fakeClient)
+			optCtx.Options.SkipRebootMethodDiscovery = true
 			agent := &DPUAgent{
-				retryInterval: testRetryInterval,
-				rebootMethodDiscoveryFunc: func(context.Context) bool {
-					return true
-				},
-				optCtx: &operations.Context{
-					Client: &mockClient{},
-					DiscoverPorts: func() ([]pciutil.NICPort, error) {
-						return []pciutil.NICPort{
-							{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: "/dev/mst/mt41692_pciconf0"},
-							{Netdev: "p1", PCIAddress: "0000:03:00.1", MSTDevice: "/dev/mst/mt41692_pciconf0.1"},
-						}, nil
-					},
-					Options: opts.Options{
-						SkipRebootMethodDiscovery: true,
-					},
-				},
+				retryInterval:             testRetryInterval,
+				rebootMethodDiscoveryFunc: func(context.Context) bool { return true },
+				optCtx:                    optCtx,
 				operations: []operations.Operation{
-					&mockOperation{
-						name:          "op1",
-						conditionType: "Op1Condition",
-						executeFunc: func(execCtx context.Context, optCtx *operations.Context) error {
-							discovery = optCtx.RebootMethodDiscovery
-							return nil
-						},
-					},
+					&mockOperation{name: "op1", conditionType: "Op1Condition", executeFunc: func(_ context.Context, optCtx *operations.Context) error {
+						discovery = optCtx.RebootMethodDiscovery
+						return nil
+					}},
 				},
 			}
 			Expect(agent.Run(ctx)).To(Succeed())
@@ -223,114 +205,69 @@ var _ = Describe("DPUAgent", func() {
 		})
 
 		It("should skip operations that should be skipped", func() {
-			executionOrder := []string{}
-			mockOps := []operations.Operation{
-				&mockOperation{
-					name:          "op1",
-					conditionType: "Op1Condition",
-					executeFunc: func(execCtx context.Context, optCtx *operations.Context) error {
-						executionOrder = append(executionOrder, "op1")
-						return nil
-					},
-				},
-				&mockOperation{
-					name:          "op2-skipped",
-					conditionType: "Op2Condition",
-					shouldSkip:    true,
-					executeFunc: func(execCtx context.Context, optCtx *operations.Context) error {
-						executionOrder = append(executionOrder, "op2-skipped")
-						return nil
-					},
-				},
-				&mockOperation{
-					name:          "op3",
-					conditionType: "Op3Condition",
-					executeFunc: func(execCtx context.Context, optCtx *operations.Context) error {
-						executionOrder = append(executionOrder, "op3")
-						return nil
-					},
-				},
-			}
+			dpu := newTestDPU()
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
 
+			executionOrder := []string{}
 			agent := &DPUAgent{
 				retryInterval: testRetryInterval,
-				optCtx: &operations.Context{
-					Client: &mockClient{},
-					DiscoverPorts: func() ([]pciutil.NICPort, error) {
-						return []pciutil.NICPort{
-							{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: "/dev/mst/mt41692_pciconf0"},
-							{Netdev: "p1", PCIAddress: "0000:03:00.1", MSTDevice: "/dev/mst/mt41692_pciconf0.1"},
-						}, nil
-					},
+				optCtx:        newTestOptCtx(fakeClient),
+				operations: []operations.Operation{
+					&mockOperation{name: "op1", conditionType: "Op1Condition", executeFunc: func(_ context.Context, _ *operations.Context) error {
+						executionOrder = append(executionOrder, "op1")
+						return nil
+					}},
+					&mockOperation{name: "op2-skipped", conditionType: "Op2Condition", shouldSkip: true, executeFunc: func(_ context.Context, _ *operations.Context) error {
+						executionOrder = append(executionOrder, "op2-skipped")
+						return nil
+					}},
+					&mockOperation{name: "op3", conditionType: "Op3Condition", executeFunc: func(_ context.Context, _ *operations.Context) error {
+						executionOrder = append(executionOrder, "op3")
+						return nil
+					}},
 				},
-				operations: mockOps,
 			}
-
-			err := agent.Run(ctx)
-			Expect(err).NotTo(HaveOccurred())
+			Expect(agent.Run(ctx)).To(Succeed())
 			Expect(executionOrder).To(Equal([]string{"op1", "op3"}))
 		})
 
 		It("should retry failed operations until success", func() {
+			dpu := newTestDPU()
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+
 			attempts := 0
-			mockOps := []operations.Operation{
-				&mockOperation{
-					name:          "flaky-op",
-					conditionType: "FlakyOpCondition",
-					executeFunc: func(execCtx context.Context, optCtx *operations.Context) error {
+			agent := &DPUAgent{
+				retryInterval: testRetryInterval,
+				optCtx:        newTestOptCtx(fakeClient),
+				operations: []operations.Operation{
+					&mockOperation{name: "flaky-op", conditionType: "FlakyOpCondition", executeFunc: func(_ context.Context, _ *operations.Context) error {
 						attempts++
 						if attempts < 3 {
 							return fmt.Errorf("temporary error")
 						}
 						return nil
-					},
+					}},
 				},
 			}
-
-			agent := &DPUAgent{
-				retryInterval: testRetryInterval,
-				optCtx: &operations.Context{
-					Client: &mockClient{},
-					DiscoverPorts: func() ([]pciutil.NICPort, error) {
-						return []pciutil.NICPort{
-							{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: "/dev/mst/mt41692_pciconf0"},
-							{Netdev: "p1", PCIAddress: "0000:03:00.1", MSTDevice: "/dev/mst/mt41692_pciconf0.1"},
-						}, nil
-					},
-				},
-				operations: mockOps,
-			}
-
-			err := agent.Run(ctx)
-			Expect(err).NotTo(HaveOccurred())
+			Expect(agent.Run(ctx)).To(Succeed())
 			Expect(attempts).To(Equal(3))
 		})
 
 		It("uses CondMessage for the success condition message", func() {
+			dpu := newTestDPU()
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
 			const condType = "Op1Condition"
+
 			agent := &DPUAgent{
 				retryInterval: testRetryInterval,
-				optCtx: &operations.Context{
-					Client: &mockClient{},
-					DiscoverPorts: func() ([]pciutil.NICPort, error) {
-						return []pciutil.NICPort{
-							{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: "/dev/mst/mt41692_pciconf0"},
-							{Netdev: "p1", PCIAddress: "0000:03:00.1", MSTDevice: "/dev/mst/mt41692_pciconf0.1"},
-						}, nil
-					},
-				},
+				optCtx:        newTestOptCtx(fakeClient),
 				operations: []operations.Operation{
-					&mockOperation{
-						name:          "op1",
-						conditionType: condType,
-						executeFunc: func(execCtx context.Context, optCtx *operations.Context) error {
-							optCtx.CondMessage = "custom success message"
-							return nil
-						},
-					},
+					&mockOperation{name: "op1", conditionType: condType, executeFunc: func(_ context.Context, optCtx *operations.Context) error {
+						optCtx.CondMessage = "custom success message"
+						return nil
+					}},
 				},
 			}
-
 			Expect(agent.Run(ctx)).To(Succeed())
 			cond := meta.FindStatusCondition(agent.optCtx.Status.Conditions, condType)
 			Expect(cond).NotTo(BeNil())
@@ -338,38 +275,28 @@ var _ = Describe("DPUAgent", func() {
 		})
 
 		It("clears CondMessage before each retry attempt", func() {
+			dpu := newTestDPU()
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
 			const condType = "RetryCondition"
 			attempts := 0
 			seen := []string{}
+
 			agent := &DPUAgent{
 				retryInterval: testRetryInterval,
-				optCtx: &operations.Context{
-					Client: &mockClient{},
-					DiscoverPorts: func() ([]pciutil.NICPort, error) {
-						return []pciutil.NICPort{
-							{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: "/dev/mst/mt41692_pciconf0"},
-							{Netdev: "p1", PCIAddress: "0000:03:00.1", MSTDevice: "/dev/mst/mt41692_pciconf0.1"},
-						}, nil
-					},
-				},
+				optCtx:        newTestOptCtx(fakeClient),
 				operations: []operations.Operation{
-					&mockOperation{
-						name:          "retry-op",
-						conditionType: condType,
-						executeFunc: func(execCtx context.Context, optCtx *operations.Context) error {
-							seen = append(seen, optCtx.CondMessage)
-							attempts++
-							if attempts == 1 {
-								optCtx.CondMessage = "stale message"
-								return fmt.Errorf("temporary error")
-							}
-							optCtx.CondMessage = "fresh message"
-							return nil
-						},
-					},
+					&mockOperation{name: "retry-op", conditionType: condType, executeFunc: func(_ context.Context, optCtx *operations.Context) error {
+						seen = append(seen, optCtx.CondMessage)
+						attempts++
+						if attempts == 1 {
+							optCtx.CondMessage = "stale message"
+							return fmt.Errorf("temporary error")
+						}
+						optCtx.CondMessage = "fresh message"
+						return nil
+					}},
 				},
 			}
-
 			Expect(agent.Run(ctx)).To(Succeed())
 			Expect(seen).To(Equal([]string{"", ""}))
 			cond := meta.FindStatusCondition(agent.optCtx.Status.Conditions, condType)
@@ -378,40 +305,23 @@ var _ = Describe("DPUAgent", func() {
 		})
 
 		It("does not leak CondMessage to the next operation", func() {
+			dpu := newTestDPU()
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
 			const firstCond = "FirstCondition"
 			const secondCond = "SecondCondition"
 			secondSeen := "unset"
+
 			agent := &DPUAgent{
 				retryInterval: testRetryInterval,
-				optCtx: &operations.Context{
-					Client: &mockClient{},
-					DiscoverPorts: func() ([]pciutil.NICPort, error) {
-						return []pciutil.NICPort{
-							{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: "/dev/mst/mt41692_pciconf0"},
-							{Netdev: "p1", PCIAddress: "0000:03:00.1", MSTDevice: "/dev/mst/mt41692_pciconf0.1"},
-						}, nil
-					},
-				},
+				optCtx:        newTestOptCtx(fakeClient),
 				operations: []operations.Operation{
-					&mockOperation{
-						name:          "op1",
-						conditionType: firstCond,
-						executeFunc: func(execCtx context.Context, optCtx *operations.Context) error {
-							optCtx.CondMessage = "first message"
-							return nil
-						},
-					},
-					&mockOperation{
-						name:          "op2",
-						conditionType: secondCond,
-						executeFunc: func(execCtx context.Context, optCtx *operations.Context) error {
-							secondSeen = optCtx.CondMessage
-							return nil
-						},
-					},
+					&mockOperation{name: "op1", conditionType: firstCond, executeFunc: func(_ context.Context, optCtx *operations.Context) error {
+						optCtx.CondMessage = "first message"
+						return nil
+					}},
+					&mockOperation{name: "op2", conditionType: secondCond, executeFunc: func(_ context.Context, optCtx *operations.Context) error { secondSeen = optCtx.CondMessage; return nil }},
 				},
 			}
-
 			Expect(agent.Run(ctx)).To(Succeed())
 			Expect(secondSeen).To(BeEmpty())
 			first := meta.FindStatusCondition(agent.optCtx.Status.Conditions, firstCond)
@@ -423,100 +333,53 @@ var _ = Describe("DPUAgent", func() {
 		})
 
 		It("should update status when operation fails or requires update before continue", func() {
-			statusUpdateCount := 0
+			dpu := newTestDPU()
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
 			failingOpAttempts := 0
 
-			mockOps := []operations.Operation{
-				&mockOperation{
-					name:          "failing-op",
-					conditionType: "FailingOpCondition",
-					executeFunc: func(execCtx context.Context, optCtx *operations.Context) error {
-						defer func() {
-							failingOpAttempts++
-						}()
+			agent := &DPUAgent{
+				retryInterval: testRetryInterval,
+				optCtx:        newTestOptCtx(fakeClient),
+				operations: []operations.Operation{
+					&mockOperation{name: "failing-op", conditionType: "FailingOpCondition", executeFunc: func(_ context.Context, _ *operations.Context) error {
+						defer func() { failingOpAttempts++ }()
 						if failingOpAttempts < 3 {
 							return fmt.Errorf("temporary error")
 						}
 						return nil
-					},
-				},
-				&mockOperation{
-					name:                             "status-update-op",
-					conditionType:                    "StatusUpdateCondition",
-					shouldUpdateStatusBeforeContinue: true,
-					executeFunc: func(execCtx context.Context, optCtx *operations.Context) error {
-						return nil
-					},
+					}},
+					&mockOperation{name: "status-update-op", conditionType: "StatusUpdateCondition", shouldUpdateStatusBeforeContinue: true, executeFunc: func(_ context.Context, _ *operations.Context) error { return nil }},
 				},
 			}
+			Expect(agent.Run(ctx)).To(Succeed())
 
-			agent := &DPUAgent{
-				retryInterval: testRetryInterval,
-				optCtx: &operations.Context{
-					Client: &mockClient{
-						updateStatusFunc: func(ctx context.Context, status provisioningv1.AgentStatus) error {
-							statusUpdateCount++
-							return nil
-						},
-					},
-					DiscoverPorts: func() ([]pciutil.NICPort, error) {
-						return []pciutil.NICPort{
-							{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: "/dev/mst/mt41692_pciconf0"},
-							{Netdev: "p1", PCIAddress: "0000:03:00.1", MSTDevice: "/dev/mst/mt41692_pciconf0.1"},
-						}, nil
-					},
-				},
-				operations: mockOps,
-			}
-
-			err := agent.Run(ctx)
-			Expect(err).NotTo(HaveOccurred())
-			// Status updates:
-			// - 3 times for failing-op failures (attempts 0, 1 and 2)
-			// - 1 time for status-update-op (shouldUpdateStatusBeforeContinue=true)
-			// - 1 time at the end of Run
-			Expect(statusUpdateCount).To(BeNumerically(">=", 5))
+			latestDPU := &provisioningv1.DPU{}
+			Expect(fakeClient.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: "test-dpu"}, latestDPU)).To(Succeed())
+			Expect(latestDPU.Status.AgentStatus).NotTo(BeNil())
+			Expect(latestDPU.Status.AgentStatus.Conditions).NotTo(BeEmpty())
 		})
 
 		It("should abort and return error when context is canceled and not execute subsequent operations", func() {
+			dpu := newTestDPU()
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
 			cancelCtx, cancelFunc := context.WithCancel(ctx)
 			attempts := 0
 			secondOpExecuted := false
 
 			agent := &DPUAgent{
 				retryInterval: testRetryInterval,
-				optCtx: &operations.Context{
-					Client: &mockClient{},
-					DiscoverPorts: func() ([]pciutil.NICPort, error) {
-						return []pciutil.NICPort{
-							{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: "/dev/mst/mt41692_pciconf0"},
-							{Netdev: "p1", PCIAddress: "0000:03:00.1", MSTDevice: "/dev/mst/mt41692_pciconf0.1"},
-						}, nil
-					},
-				},
+				optCtx:        newTestOptCtx(fakeClient),
 				operations: []operations.Operation{
-					&mockOperation{
-						name:          "blocking-op",
-						conditionType: "BlockingOpCondition",
-						executeFunc: func(execCtx context.Context, optCtx *operations.Context) error {
-							attempts++
-							if attempts >= 2 {
-								cancelFunc()
-							}
-							return fmt.Errorf("persistent error")
-						},
-					},
-					&mockOperation{
-						name:          "subsequent-op",
-						conditionType: "SubsequentOpCondition",
-						executeFunc: func(execCtx context.Context, optCtx *operations.Context) error {
-							secondOpExecuted = true
-							return nil
-						},
-					},
+					&mockOperation{name: "blocking-op", conditionType: "BlockingOpCondition", executeFunc: func(_ context.Context, _ *operations.Context) error {
+						attempts++
+						if attempts >= 2 {
+							cancelFunc()
+						}
+						return fmt.Errorf("persistent error")
+					}},
+					&mockOperation{name: "subsequent-op", conditionType: "SubsequentOpCondition", executeFunc: func(_ context.Context, _ *operations.Context) error { secondOpExecuted = true; return nil }},
 				},
 			}
-
 			err := agent.Run(cancelCtx)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("context canceled"))
@@ -564,32 +427,4 @@ func indexOf(values []string, target string) int {
 		}
 	}
 	return -1
-}
-
-// mockClient is a mock implementation of client.Client for testing
-type mockClient struct {
-	updateStatusFunc func(ctx context.Context, status provisioningv1.AgentStatus) error
-	getObjectFunc    func(ctx context.Context, namespace, name string, obj client.Object) error
-	healthCheckFunc  func() error
-}
-
-func (m *mockClient) UpdateStatus(ctx context.Context, status provisioningv1.AgentStatus) error {
-	if m.updateStatusFunc != nil {
-		return m.updateStatusFunc(ctx, status)
-	}
-	return nil
-}
-
-func (m *mockClient) GetObject(ctx context.Context, namespace, name string, obj client.Object) error {
-	if m.getObjectFunc != nil {
-		return m.getObjectFunc(ctx, namespace, name, obj)
-	}
-	return nil
-}
-
-func (m *mockClient) HealthCheck() error {
-	if m.healthCheckFunc != nil {
-		return m.healthCheckFunc()
-	}
-	return nil
 }

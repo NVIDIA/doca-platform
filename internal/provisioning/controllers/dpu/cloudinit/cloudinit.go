@@ -166,22 +166,25 @@ func ResolveParams(ctx context.Context, controllerCtx *util.ControllerContext, d
 		return Params{}, operatorv1.DPFOperatorConfig{}, err
 	}
 	params.NICDeviceCount = nicDeviceCount
+
+	// Both modes create role, rolebinding, and bootstrap kubeconfig.
+	apiServerAddress, proxyURL, err := cutil.ResolveAPIServerAddress(dpfOperatorConfig.Spec.Overrides, isRedfish)
+	if err != nil {
+		return Params{}, operatorv1.DPFOperatorConfig{}, fmt.Errorf("resolving API server address: %w", err)
+	}
+	if err := cutil.CreateDPUAgentRole(ctx, controllerCtx.Client, controllerCtx.Client.Scheme(), dpu); err != nil {
+		return Params{}, operatorv1.DPFOperatorConfig{}, fmt.Errorf("creating DPU agent role: %w", err)
+	}
+	if err := cutil.CreateDPUAgentRoleBinding(ctx, controllerCtx.Client, controllerCtx.Client.Scheme(), dpu); err != nil {
+		return Params{}, operatorv1.DPFOperatorConfig{}, fmt.Errorf("creating DPU agent role binding: %w", err)
+	}
+	kubeconfigData, err := cutil.CreateDPUAgentBootstrapKubeconfig(ctx, controllerCtx.Client, dpu, apiServerAddress, cutil.ServiceAccountCAPath, proxyURL)
+	if err != nil {
+		return Params{}, operatorv1.DPFOperatorConfig{}, fmt.Errorf("creating DPU agent bootstrap kubeconfig: %w", err)
+	}
+	params.BootstrapKubeconfig = string(kubeconfigData)
+
 	if isRedfish {
-		if dpfOperatorConfig.Spec.Overrides == nil || dpfOperatorConfig.Spec.Overrides.KubernetesAPIServerVIP == nil || dpfOperatorConfig.Spec.Overrides.KubernetesAPIServerPort == nil {
-			return Params{}, operatorv1.DPFOperatorConfig{}, fmt.Errorf("KubernetesAPIServerVIP and KubernetesAPIServerPort must be set in DPFOperatorConfig for zero-trust mode")
-		}
-		apiServerAddress := fmt.Sprintf("https://%s:%d", *dpfOperatorConfig.Spec.Overrides.KubernetesAPIServerVIP, *dpfOperatorConfig.Spec.Overrides.KubernetesAPIServerPort)
-		if err := cutil.CreateDPUAgentRole(ctx, controllerCtx.Client, controllerCtx.Client.Scheme(), dpu); err != nil {
-			return Params{}, operatorv1.DPFOperatorConfig{}, fmt.Errorf("creating DPU agent role: %w", err)
-		}
-		if err := cutil.CreateDPUAgentRoleBinding(ctx, controllerCtx.Client, controllerCtx.Client.Scheme(), dpu); err != nil {
-			return Params{}, operatorv1.DPFOperatorConfig{}, fmt.Errorf("creating DPU agent role binding: %w", err)
-		}
-		kubeconfigData, err := cutil.CreateDPUAgentBootstrapKubeconfig(ctx, controllerCtx.Client, dpu, apiServerAddress, cutil.ServiceAccountCAPath)
-		if err != nil {
-			return Params{}, operatorv1.DPFOperatorConfig{}, fmt.Errorf("creating DPU agent bootstrap kubeconfig: %w", err)
-		}
-		params.BootstrapKubeconfig = string(kubeconfigData)
 		var bfbRegistryAddr string
 		if controllerCtx.Options.BFBRegistryLoadBalancer != "" {
 			bfbRegistryAddr = controllerCtx.Options.BFBRegistryLoadBalancer

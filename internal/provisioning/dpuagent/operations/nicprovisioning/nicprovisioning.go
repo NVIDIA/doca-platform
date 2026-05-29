@@ -45,6 +45,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var nicFirmwareDir = string(os.PathSeparator) + "nic-firmware"
@@ -171,7 +172,7 @@ func (n *NICProvisioning) downloadNICFirmware(execCtx context.Context, optCtx *o
 	}
 
 	blueFieldSoftware := &provisioningv1.BlueFieldSoftware{}
-	if err := optCtx.Client.GetObject(execCtx, optCtx.Options.DPUNamespace, blueFieldSoftwareName, blueFieldSoftware); err != nil {
+	if err := optCtx.Client.Get(execCtx, client.ObjectKey{Namespace: optCtx.Options.DPUNamespace, Name: blueFieldSoftwareName}, blueFieldSoftware); err != nil {
 		return "", fmt.Errorf("failed to get BlueFieldSoftware %s/%s: %w", optCtx.Options.DPUNamespace, blueFieldSoftwareName, err)
 	}
 

@@ -18,7 +18,6 @@ package nvconfig
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"strings"
 
@@ -30,7 +29,6 @@ import (
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
@@ -275,14 +273,6 @@ var _ = Describe("NVConfig Operation", func() {
 				DiscoverPorts:         discoverPortsForTest(),
 				RebootMethodDiscovery: true,
 				DPUFlavor:             dpuFlavor,
-				Client: &mockClient{
-					updateStatusFunc: func(execCtx context.Context, status provisioningv1.AgentStatus) error {
-						return nil
-					},
-					healthCheckFunc: func() error {
-						return nil
-					},
-				},
 			}
 			operationCtx.LatestDPU = &provisioningv1.DPU{
 				Status: provisioningv1.DPUStatus{
@@ -344,14 +334,6 @@ var _ = Describe("NVConfig Operation", func() {
 				DiscoverPorts:         discoverPortsForTest(),
 				RebootMethodDiscovery: false,
 				DPUFlavor:             dpuFlavor,
-				Client: &mockClient{
-					updateStatusFunc: func(execCtx context.Context, status provisioningv1.AgentStatus) error {
-						return nil
-					},
-					healthCheckFunc: func() error {
-						return nil
-					},
-				},
 			}
 			operationCtx.LatestDPU = &provisioningv1.DPU{
 				Status: provisioningv1.DPUStatus{
@@ -425,21 +407,3 @@ var _ = Describe("NVConfig Operation", func() {
 		})
 	})
 })
-
-type mockClient struct {
-	getObjectFunc    func(execCtx context.Context, namespace, name string, obj client.Object) error
-	updateStatusFunc func(execCtx context.Context, status provisioningv1.AgentStatus) error
-	healthCheckFunc  func() error
-}
-
-func (m *mockClient) GetObject(execCtx context.Context, namespace, name string, obj client.Object) error {
-	return m.getObjectFunc(execCtx, namespace, name, obj)
-}
-
-func (m *mockClient) UpdateStatus(execCtx context.Context, status provisioningv1.AgentStatus) error {
-	return m.updateStatusFunc(execCtx, status)
-}
-
-func (m *mockClient) HealthCheck() error {
-	return m.healthCheckFunc()
-}

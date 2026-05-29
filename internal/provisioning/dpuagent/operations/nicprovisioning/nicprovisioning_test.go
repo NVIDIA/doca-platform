@@ -19,7 +19,6 @@ package nicprovisioning
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -28,14 +27,18 @@ import (
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/cmd/dpuagent/opts"
-	clientpkg "github.com/nvidia/doca-platform/internal/provisioning/dpuagent/client"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
 
 	nicconfigurationv1alpha1 "github.com/Mellanox/nic-configuration-operator/api/v1alpha1"
 	nicdms "github.com/Mellanox/nic-configuration-operator/pkg/dms"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	crclient "sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 func TestNICProvisioning_ShouldSkip(t *testing.T) {
@@ -79,22 +82,12 @@ func TestNICProvisioning_ShouldSkip(t *testing.T) {
 	})
 }
 
-type fakeClient struct {
-	getObjectFunc func(ctx context.Context, namespace string, name string, obj client.Object) error
+func newTestScheme() *runtime.Scheme {
+	s := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(s))
+	utilruntime.Must(provisioningv1.AddToScheme(s))
+	return s
 }
-
-func (f *fakeClient) HealthCheck() error { return nil }
-
-func (f *fakeClient) UpdateStatus(context.Context, provisioningv1.AgentStatus) error { return nil }
-
-func (f *fakeClient) GetObject(ctx context.Context, namespace string, name string, obj client.Object) error {
-	if f.getObjectFunc == nil {
-		return fmt.Errorf("unexpected GetObject call")
-	}
-	return f.getObjectFunc(ctx, namespace, name, obj)
-}
-
-var _ clientpkg.Client = &fakeClient{}
 
 type fakeDMSServer struct {
 	running    bool
@@ -135,7 +128,18 @@ func TestNICProvisioning_Execute(t *testing.T) {
 	nicFirmwareDir = tempDir
 	t.Cleanup(func() { nicFirmwareDir = originalDir })
 
-	newOptCtx := func(client clientpkg.Client, bfbRegistryURL string) *operations.Context {
+	newBFS := func(nicFWLocation string) *provisioningv1.BlueFieldSoftware {
+		return &provisioningv1.BlueFieldSoftware{
+			ObjectMeta: metav1.ObjectMeta{Name: "bfs-1", Namespace: "default"},
+			Status: provisioningv1.BlueFieldSoftwareStatus{
+				DownloadedComponents: provisioningv1.DownloadedComponents{
+					AstraNicFw: nicFWLocation,
+				},
+			},
+		}
+	}
+
+	newOptCtx := func(client crclient.Client, bfbRegistryURL string) *operations.Context {
 		return &operations.Context{
 			Options: opts.Options{
 				DPUName:        "dpu-1",
@@ -159,13 +163,9 @@ func TestNICProvisioning_Execute(t *testing.T) {
 		existingFile := filepath.Join(tempDir, "astra-nic-fw.fwpkg")
 		require.NoError(t, os.WriteFile(existingFile, []byte("already here"), 0600))
 
-		ctx := newOptCtx(&fakeClient{
-			getObjectFunc: func(_ context.Context, _ string, _ string, obj client.Object) error {
-				bfs := obj.(*provisioningv1.BlueFieldSoftware)
-				bfs.Status.DownloadedComponents.AstraNicFw = "downloads/astra-nic-fw.fwpkg"
-				return nil
-			},
-		}, "https://registry.example.com")
+		bfs := newBFS("downloads/astra-nic-fw.fwpkg")
+		fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(bfs).Build()
+		ctx := newOptCtx(fakeClient, "https://registry.example.com")
 
 		require.NoError(t, op.Execute(context.Background(), ctx))
 		content, err := os.ReadFile(existingFile)
@@ -182,13 +182,9 @@ func TestNICProvisioning_Execute(t *testing.T) {
 		localFile := filepath.Join(tempDir, "astra-nic-fw-new.fwpkg")
 		require.NoError(t, os.RemoveAll(localFile))
 
-		ctx := newOptCtx(&fakeClient{
-			getObjectFunc: func(_ context.Context, _ string, _ string, obj client.Object) error {
-				bfs := obj.(*provisioningv1.BlueFieldSoftware)
-				bfs.Status.DownloadedComponents.AstraNicFw = "download/astra-nic-fw-new.fwpkg"
-				return nil
-			},
-		}, server.URL)
+		bfs := newBFS("download/astra-nic-fw-new.fwpkg")
+		fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(bfs).Build()
+		ctx := newOptCtx(fakeClient, server.URL)
 
 		require.NoError(t, op.Execute(context.Background(), ctx))
 		content, err := os.ReadFile(localFile)
@@ -207,13 +203,9 @@ func TestNICProvisioning_Execute(t *testing.T) {
 			applyNVConfigFn:         func(_ context.Context, _ *operations.Context) error { return nil },
 		}
 
-		ctx := newOptCtx(&fakeClient{
-			getObjectFunc: func(_ context.Context, _ string, _ string, obj client.Object) error {
-				bfs := obj.(*provisioningv1.BlueFieldSoftware)
-				bfs.Status.DownloadedComponents.AstraNicFw = "downloads/astra-nic-fw-stop.fwpkg"
-				return nil
-			},
-		}, "https://registry.example.com")
+		bfs := newBFS("downloads/astra-nic-fw-stop.fwpkg")
+		fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(bfs).Build()
+		ctx := newOptCtx(fakeClient, "https://registry.example.com")
 
 		require.NoError(t, opWithRunningDMS.Execute(context.Background(), ctx))
 		assert.True(t, dmsServer.stopCalled)
@@ -234,13 +226,9 @@ func TestNICProvisioning_Execute(t *testing.T) {
 			applyNVConfigFn:         func(_ context.Context, _ *operations.Context) error { return nil },
 		}
 
-		ctx := newOptCtx(&fakeClient{
-			getObjectFunc: func(_ context.Context, _ string, _ string, obj client.Object) error {
-				bfs := obj.(*provisioningv1.BlueFieldSoftware)
-				bfs.Status.DownloadedComponents.AstraNicFw = "downloads/astra-nic-fw-stop-error.fwpkg"
-				return nil
-			},
-		}, "https://registry.example.com")
+		bfs := newBFS("downloads/astra-nic-fw-stop-error.fwpkg")
+		fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(bfs).Build()
+		ctx := newOptCtx(fakeClient, "https://registry.example.com")
 
 		err := opWithRunningDMS.Execute(context.Background(), ctx)
 		require.Error(t, err)

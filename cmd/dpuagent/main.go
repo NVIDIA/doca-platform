@@ -28,21 +28,22 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/cmd/dpuagent/opts"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent"
-	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/client"
-	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/client/trustedhost"
-	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/client/zerotrust"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
 	provcertificate "github.com/nvidia/doca-platform/internal/provisioning/utils/certificate"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/certificate/bootstrap"
 	providentity "github.com/nvidia/doca-platform/internal/provisioning/utils/certificate/identity"
 
 	"github.com/spf13/pflag"
+	"k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
+	crclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 )
 
@@ -92,22 +93,26 @@ func main() {
 	dpuFlavor := &provisioningv1.DPUFlavor{}
 	parseFileOrDie(options.DPUFlavor, YamlParserFunc, dpuFlavor)
 
-	var dpuClient client.Client
-	if options.ZeroTrustMode {
-		cfg, err := buildZeroTrustClientConfig(&options)
-		if err != nil {
-			klog.Fatalf("failed to build zero trust client config: %v", err)
-		}
-		ztClient, err := zerotrust.NewZerotrustClient(cfg, options.DPUName, options.DPUNamespace, options.DPUUID)
-		if err != nil {
-			klog.Fatalf("failed to create zero trust client: %v", err)
-		}
-		dpuClient = ztClient
-	} else {
-		dpuClient = trustedhost.NewTrustedhostClient(options.DPUName, options.DPUNamespace, options.DPUUID)
+	cfg, err := buildClientConfig(&options)
+	if err != nil {
+		klog.Fatalf("failed to build client config: %v", err)
+	}
+
+	scheme := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(provisioningv1.AddToScheme(scheme))
+
+	dpuClient, err := crclient.New(cfg, crclient.Options{Scheme: scheme})
+	if err != nil {
+		klog.Fatalf("failed to create controller-runtime client: %v", err)
+	}
+	k8sClient, err := clientset.NewForConfig(cfg)
+	if err != nil {
+		klog.Fatalf("failed to create kubernetes clientset: %v", err)
 	}
 	optCtx := &operations.Context{
 		Client:    dpuClient,
+		K8sClient: k8sClient,
 		DPUFlavor: *dpuFlavor,
 		Options:   options,
 	}
@@ -121,7 +126,7 @@ func main() {
 	klog.Info("DPUAgent stop signal received")
 }
 
-func buildZeroTrustClientConfig(options *opts.Options) (*restclient.Config, error) {
+func buildClientConfig(options *opts.Options) (*restclient.Config, error) {
 	if options.BootstrapKubeconfig == "" {
 		return clientcmd.BuildConfigFromFlags("", options.Kubeconfig)
 	}
