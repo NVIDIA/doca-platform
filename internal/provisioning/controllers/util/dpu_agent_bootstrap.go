@@ -24,6 +24,7 @@ import (
 	"os"
 	"time"
 
+	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	providentity "github.com/nvidia/doca-platform/internal/provisioning/utils/certificate/identity"
 
@@ -140,12 +141,14 @@ func CreateDPUAgentRoleBinding(ctx context.Context, client crclient.Client, sche
 // with that token. If a valid (non-expired) token already exists for this DPU
 // (identified by labels), it reuses the existing token.
 // caPath is the path to the CA certificate file (typically ServiceAccountCAPath).
-func CreateDPUAgentBootstrapKubeconfig(ctx context.Context, client crclient.Client, dpu *provisioningv1.DPU, apiServerAddress, caPath string) ([]byte, error) {
+// proxyURL, if non-empty, is written into the kubeconfig cluster's proxy-url
+// field so the DPU agent routes API requests through the hostagent forward proxy.
+func CreateDPUAgentBootstrapKubeconfig(ctx context.Context, client crclient.Client, dpu *provisioningv1.DPU, apiServerAddress, caPath, proxyURL string) ([]byte, error) {
 	token, err := createDPUAgentBootstrapToken(ctx, client, dpu)
 	if err != nil {
 		return nil, err
 	}
-	return generateBootstrapKubeconfig(apiServerAddress, token, caPath)
+	return generateBootstrapKubeconfig(apiServerAddress, token, caPath, proxyURL)
 }
 
 func createDPUAgentBootstrapToken(ctx context.Context, client crclient.Client, dpu *provisioningv1.DPU) (string, error) {
@@ -261,18 +264,23 @@ func generateRandomHex(nBytes int) (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-func generateBootstrapKubeconfig(apiServerAddress, token, caPath string) ([]byte, error) {
+func generateBootstrapKubeconfig(apiServerAddress, token, caPath, proxyURL string) ([]byte, error) {
 	caData, err := os.ReadFile(caPath)
 	if err != nil {
 		return nil, fmt.Errorf("reading CA certificate from %s: %w", caPath, err)
 	}
 
+	cluster := &clientcmdapi.Cluster{
+		Server:                   apiServerAddress,
+		CertificateAuthorityData: caData,
+	}
+	if proxyURL != "" {
+		cluster.ProxyURL = proxyURL
+	}
+
 	kubeconfig := clientcmdapi.Config{
 		Clusters: map[string]*clientcmdapi.Cluster{
-			"default": {
-				Server:                   apiServerAddress,
-				CertificateAuthorityData: caData,
-			},
+			"default": cluster,
 		},
 		AuthInfos: map[string]*clientcmdapi.AuthInfo{
 			"default": {
@@ -293,4 +301,55 @@ func generateBootstrapKubeconfig(apiServerAddress, token, caPath string) ([]byte
 		return nil, fmt.Errorf("marshaling bootstrap kubeconfig: %w", err)
 	}
 	return data, nil
+}
+
+// defaultKubernetesServicePort returns the KUBERNETES_SERVICE_PORT environment
+// variable from the provisioning controller. Returns empty string if unset.
+func defaultKubernetesServicePort() string {
+	return os.Getenv("KUBERNETES_SERVICE_PORT")
+}
+
+// ResolveAPIServerAddress builds the API server address and optional proxy URL
+// for the dpu-agent bootstrap kubeconfig.
+//
+// For zero-trust (redfish) mode both VIP and Port must be configured;
+// otherwise an error is returned.
+//
+// For trusted-host mode the address is composed with fallbacks:
+//   - host: VIP if configured, else "kubernetes.default.svc"
+//   - port: Port if configured, else KUBERNETES_SERVICE_PORT env var
+//
+// The second return value is the proxy URL: for trusted-host mode it is always
+// the hostagent forward proxy address; for zero-trust mode it is empty.
+func ResolveAPIServerAddress(overrides *operatorv1.Overrides, isZeroTrust bool) (apiServerAddress, proxyURL string, err error) {
+	const (
+		defaultHost     = "kubernetes.default.svc"
+		trustedProxyURL = "http://[fe80::1%25tmfifo_net0]:11030"
+	)
+
+	if isZeroTrust {
+		if overrides == nil || overrides.KubernetesAPIServerVIP == nil || overrides.KubernetesAPIServerPort == nil {
+			return "", "", fmt.Errorf("KubernetesAPIServerVIP and KubernetesAPIServerPort must be set in DPFOperatorConfig for zero-trust mode")
+		}
+		addr := fmt.Sprintf("https://%s:%d", *overrides.KubernetesAPIServerVIP, *overrides.KubernetesAPIServerPort)
+		return addr, "", nil
+	}
+
+	host := defaultHost
+	if overrides != nil && overrides.KubernetesAPIServerVIP != nil {
+		host = *overrides.KubernetesAPIServerVIP
+	}
+
+	var port string
+	if overrides != nil && overrides.KubernetesAPIServerPort != nil {
+		port = fmt.Sprintf("%d", *overrides.KubernetesAPIServerPort)
+	} else {
+		port = defaultKubernetesServicePort()
+	}
+	if port == "" {
+		port = "443"
+	}
+
+	addr := fmt.Sprintf("https://%s:%s", host, port)
+	return addr, trustedProxyURL, nil
 }

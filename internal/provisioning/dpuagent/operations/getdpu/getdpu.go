@@ -22,6 +22,8 @@ import (
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
+
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type GetLatestDPU struct {
@@ -45,7 +47,7 @@ func (g *GetLatestDPU) ShouldUpdateStatusBeforeContinue(ctx *operations.Context)
 
 func (g *GetLatestDPU) Execute(execCtx context.Context, optCtx *operations.Context) error {
 	dpu := &provisioningv1.DPU{}
-	if err := optCtx.Client.GetObject(execCtx, optCtx.Options.DPUNamespace, optCtx.Options.DPUName, dpu); err != nil {
+	if err := optCtx.Client.Get(execCtx, client.ObjectKey{Namespace: optCtx.Options.DPUNamespace, Name: optCtx.Options.DPUName}, dpu); err != nil {
 		return err
 	}
 	if string(dpu.UID) != optCtx.Options.DPUUID {

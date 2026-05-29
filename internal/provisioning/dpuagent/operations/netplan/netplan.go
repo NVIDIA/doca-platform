@@ -43,8 +43,7 @@ const (
 	tmfifoIPv6 = "fe80::2/64"
 )
 
-type CheckNetwork struct {
-}
+type CheckNetwork struct{}
 
 func (c *CheckNetwork) Name() string {
 	return "Check Network"
@@ -63,7 +62,8 @@ func (c *CheckNetwork) ShouldUpdateStatusBeforeContinue(ctx *operations.Context)
 }
 
 func (c *CheckNetwork) Execute(execCtx context.Context, optCtx *operations.Context) error {
-	return optCtx.Client.HealthCheck()
+	_, err := optCtx.K8sClient.Discovery().ServerVersion()
+	return err
 }
 
 type ConfigureNetwork struct {

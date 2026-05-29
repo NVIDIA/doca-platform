@@ -78,7 +78,7 @@ write_files:
       --bfb-registry-url={{.BFBRegistryURL}}
 {{- end}}
       --kubeadm-secret-namespace={{.KubeadmSecretNamespace}}
-{{- if .RedfishInterface}}
+{{- if .BootstrapKubeconfig}}
       --bootstrap-kubeconfig=/var/lib/dpf/dpuagent/bootstrap-kubeconfig
 {{- end}}
 
