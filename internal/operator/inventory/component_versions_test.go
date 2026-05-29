@@ -25,8 +25,6 @@ import (
 )
 
 func TestShouldSkipUpgradeCheck(t *testing.T) {
-	g := NewWithT(t)
-
 	tests := []struct {
 		name               string
 		componentName      operatorv1.ComponentName
@@ -55,6 +53,23 @@ func TestShouldSkipUpgradeCheck(t *testing.T) {
 			wantSkip:           false,
 			wantErr:            false,
 		},
+		// Prerelease handling is about the upgrade source version. Without normalizing
+		// v26.4.0-rc.1, semver would sort it before v26.4.0 and incorrectly skip
+		// checks when upgrading from the prerelease to a later build.
+		{
+			name:               "kube-state-metrics upgrading from prerelease of introduced version should not skip",
+			componentName:      operatorv1.KubeStateMetricsName,
+			upgradeFromVersion: "v26.4.0-rc.1",
+			wantSkip:           false,
+			wantErr:            false,
+		},
+		{
+			name:               "kube-state-metrics upgrading from prerelease before introduced version should skip",
+			componentName:      operatorv1.KubeStateMetricsName,
+			upgradeFromVersion: "v26.3.0-rc.1",
+			wantSkip:           true,
+			wantErr:            false,
+		},
 		{
 			name:               "invalid version should return error",
 			componentName:      operatorv1.KubeStateMetricsName,
@@ -66,6 +81,8 @@ func TestShouldSkipUpgradeCheck(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
+
 			skip, err := ShouldSkipUpgradeCheck(tt.componentName, tt.upgradeFromVersion)
 			if tt.wantErr {
 				g.Expect(err).To(HaveOccurred(), "expected error but got none")
