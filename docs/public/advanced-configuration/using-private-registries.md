@@ -71,6 +71,9 @@ export HELM_REPOSITORY_USERNAME=${HELM_REPOSITORY_USERNAME:?Must specify the hel
 
 ## The key/password used to authenticate with the helm repository
 export HELM_REPOSITORY_KEY=${HELM_REPOSITORY_KEY:?Must specify the helm repository key}
+
+## The namespace of the Argo CD deployment
+export ARGOCD_NAMESPACE=${ARGOCD_NAMESPACE:-dpf-operator-system}
 ```
 
 ```bash
@@ -83,7 +86,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: $HELM_REPOSITORY_NAME
-  namespace: dpf-operator-system
+  namespace: $ARGOCD_NAMESPACE
   labels:
     argocd.argoproj.io/secret-type: repository
 stringData:
