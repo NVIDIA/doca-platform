@@ -17,6 +17,7 @@ limitations under the License.
 package nicprovisioning
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
@@ -119,9 +120,10 @@ func (f *fakeDMSServer) GetDMSClientByPCIAddress(_ string) (nicdms.DMSClient, er
 
 func TestNICProvisioning_Execute(t *testing.T) {
 	op := &NICProvisioning{
-		prepareLocalDMSServerFn: func(_ *operations.Context) error { return nil },
-		installNICFirmwareFn:    func(_ context.Context, _ *operations.Context, _ string) error { return nil },
-		applyNVConfigFn:         func(_ context.Context, _ *operations.Context) error { return nil },
+		prepareLocalDMSServerFn:   func(_ *operations.Context) error { return nil },
+		installNICFirmwareFn:      func(_ context.Context, _ *operations.Context, _ string) error { return nil },
+		applyNVConfigFn:           func(_ context.Context, _ *operations.Context) error { return nil },
+		configureRestrictedModeFn: func(_ context.Context, _ *operations.Context) error { return nil },
 	}
 	originalDir := nicFirmwareDir
 	tempDir := t.TempDir()
@@ -197,10 +199,11 @@ func TestNICProvisioning_Execute(t *testing.T) {
 		require.NoError(t, os.WriteFile(existingFile, []byte("already here"), 0600))
 		dmsServer := &fakeDMSServer{running: true}
 		opWithRunningDMS := &NICProvisioning{
-			dmsServer:               dmsServer,
-			prepareLocalDMSServerFn: func(_ *operations.Context) error { return nil },
-			installNICFirmwareFn:    func(_ context.Context, _ *operations.Context, _ string) error { return nil },
-			applyNVConfigFn:         func(_ context.Context, _ *operations.Context) error { return nil },
+			dmsServer:                 dmsServer,
+			prepareLocalDMSServerFn:   func(_ *operations.Context) error { return nil },
+			installNICFirmwareFn:      func(_ context.Context, _ *operations.Context, _ string) error { return nil },
+			applyNVConfigFn:           func(_ context.Context, _ *operations.Context) error { return nil },
+			configureRestrictedModeFn: func(_ context.Context, _ *operations.Context) error { return nil },
 		}
 
 		bfs := newBFS("downloads/astra-nic-fw-stop.fwpkg")
@@ -220,10 +223,11 @@ func TestNICProvisioning_Execute(t *testing.T) {
 			stopErr: errors.New("stop failed"),
 		}
 		opWithRunningDMS := &NICProvisioning{
-			dmsServer:               dmsServer,
-			prepareLocalDMSServerFn: func(_ *operations.Context) error { return nil },
-			installNICFirmwareFn:    func(_ context.Context, _ *operations.Context, _ string) error { return nil },
-			applyNVConfigFn:         func(_ context.Context, _ *operations.Context) error { return nil },
+			dmsServer:                 dmsServer,
+			prepareLocalDMSServerFn:   func(_ *operations.Context) error { return nil },
+			installNICFirmwareFn:      func(_ context.Context, _ *operations.Context, _ string) error { return nil },
+			applyNVConfigFn:           func(_ context.Context, _ *operations.Context) error { return nil },
+			configureRestrictedModeFn: func(_ context.Context, _ *operations.Context) error { return nil },
 		}
 
 		bfs := newBFS("downloads/astra-nic-fw-stop-error.fwpkg")
@@ -301,5 +305,126 @@ func TestBuildEWNicConfigurationTemplate(t *testing.T) {
 		assert.Equal(t, cfg.NumVfs, template.NumVfs)
 		assert.Equal(t, cfg.LinkType, template.LinkType)
 		assert.Equal(t, cfg.RawNvConfig, template.RawNvConfig)
+	})
+}
+
+type fakeBashRunner struct {
+	commands []string
+	stdout   string
+	stderr   string
+	err      error
+}
+
+func (f *fakeBashRunner) run(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+	f.commands = append(f.commands, cmd)
+	var stdout, stderr bytes.Buffer
+	stdout.WriteString(f.stdout)
+	stderr.WriteString(f.stderr)
+	return stdout, stderr, f.err
+}
+
+func newNicDevice(serialNumber string, pciAddresses ...string) nicconfigurationv1alpha1.NicDevice {
+	ports := make([]nicconfigurationv1alpha1.NicDevicePortSpec, 0, len(pciAddresses))
+	for _, pci := range pciAddresses {
+		ports = append(ports, nicconfigurationv1alpha1.NicDevicePortSpec{PCI: pci})
+	}
+	return nicconfigurationv1alpha1.NicDevice{
+		Status: nicconfigurationv1alpha1.NicDeviceStatus{
+			SerialNumber: serialNumber,
+			Type:         cx9NICDeviceType,
+			Ports:        ports,
+		},
+	}
+}
+
+func TestNICProvisioning_configureRestrictedMode(t *testing.T) {
+	const restrictArgs = "r --disable_rshim --disable_tracer --disable_counter_rd --disable_port_owner"
+
+	t.Run("runs mlxprivhost once per device using first port PCI", func(t *testing.T) {
+		runner := &fakeBashRunner{}
+		op := &NICProvisioning{
+			runBash: runner.run,
+			discoveredNICDevices: []nicconfigurationv1alpha1.NicDevice{
+				newNicDevice("cx9-1", "0000:3b:00.0", "0000:3b:00.1"),
+				newNicDevice("cx9-2", "0000:af:00.0", "0000:af:00.1"),
+			},
+		}
+
+		require.NoError(t, op.configureRestrictedMode(context.Background(), &operations.Context{}))
+		assert.Equal(t, []string{
+			"mlxprivhost -d 0000:3b:00.0 " + restrictArgs,
+			"mlxprivhost -d 0000:af:00.0 " + restrictArgs,
+		}, runner.commands)
+	})
+
+	t.Run("trims whitespace around PCI address", func(t *testing.T) {
+		runner := &fakeBashRunner{}
+		op := &NICProvisioning{
+			runBash: runner.run,
+			discoveredNICDevices: []nicconfigurationv1alpha1.NicDevice{
+				newNicDevice("cx9-1", "  0000:3b:00.0  "),
+			},
+		}
+
+		require.NoError(t, op.configureRestrictedMode(context.Background(), &operations.Context{}))
+		assert.Equal(t, []string{"mlxprivhost -d 0000:3b:00.0 " + restrictArgs}, runner.commands)
+	})
+
+	t.Run("returns error when no devices discovered", func(t *testing.T) {
+		op := &NICProvisioning{runBash: (&fakeBashRunner{}).run}
+
+		err := op.configureRestrictedMode(context.Background(), &operations.Context{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no discovered NIC devices")
+	})
+
+	t.Run("returns error when device has no ports", func(t *testing.T) {
+		runner := &fakeBashRunner{}
+		op := &NICProvisioning{
+			runBash: runner.run,
+			discoveredNICDevices: []nicconfigurationv1alpha1.NicDevice{
+				newNicDevice("cx9-noport"),
+			},
+		}
+
+		err := op.configureRestrictedMode(context.Background(), &operations.Context{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "cx9-noport")
+		assert.Empty(t, runner.commands)
+	})
+
+	t.Run("returns error when first port PCI is empty", func(t *testing.T) {
+		runner := &fakeBashRunner{}
+		op := &NICProvisioning{
+			runBash: runner.run,
+			discoveredNICDevices: []nicconfigurationv1alpha1.NicDevice{
+				newNicDevice("cx9-emptypci", "   "),
+			},
+		}
+
+		err := op.configureRestrictedMode(context.Background(), &operations.Context{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "cx9-emptypci")
+		assert.Empty(t, runner.commands)
+	})
+
+	t.Run("returns command failure with device context", func(t *testing.T) {
+		runner := &fakeBashRunner{
+			stdout: "some stdout",
+			stderr: "boom stderr",
+			err:    errors.New("exit status 1"),
+		}
+		op := &NICProvisioning{
+			runBash: runner.run,
+			discoveredNICDevices: []nicconfigurationv1alpha1.NicDevice{
+				newNicDevice("cx9-fail", "0000:3b:00.0"),
+			},
+		}
+
+		err := op.configureRestrictedMode(context.Background(), &operations.Context{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "cx9-fail")
+		assert.Contains(t, err.Error(), "0000:3b:00.0")
+		assert.Contains(t, err.Error(), "boom stderr")
 	})
 }
