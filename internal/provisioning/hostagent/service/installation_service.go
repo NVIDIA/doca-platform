@@ -391,7 +391,7 @@ func (s *InstallationService) TriggerReboot(req *restful.Request, resp *restful.
 		}
 	case provisioningv1.RebootMethodPowerCycle:
 		dpuNode := &provisioningv1.DPUNode{}
-		if err := s.Get(rebootCtx, client.ObjectKey{Name: dpu.Spec.DPUNodeName}, dpuNode); err != nil {
+		if err := s.Get(rebootCtx, client.ObjectKey{Namespace: dpu.Namespace, Name: dpu.Spec.DPUNodeName}, dpuNode); err != nil {
 			klog.Errorf("failed to get DPUNode %s: %v", dpu.Spec.DPUNodeName, err)
 			_ = resp.WriteError(http.StatusInternalServerError, err)
 			return
