@@ -22,6 +22,7 @@ import (
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/digest"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	"github.com/fluxcd/pkg/runtime/patch"
@@ -34,7 +35,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
-	"k8s.io/apiserver/pkg/storage/names"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -205,7 +205,7 @@ func (r *ServiceChainSetReconciler) createOrUpdateChild(ctx context.Context, set
 		return err
 	}
 
-	scName := names.SimpleNameGenerator.GenerateName(serviceChainSet.Name)
+	scName := digest.GenerateName(serviceChainSet.Name, nodeName)
 	scLabels := map[string]string{}
 	scAnnotations := map[string]string{}
 	if sc != nil {

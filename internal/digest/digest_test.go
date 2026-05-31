@@ -17,6 +17,7 @@ limitations under the License.
 package digest
 
 import (
+	"strings"
 	"testing"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -123,6 +124,75 @@ func Test_Short(t *testing.T) {
 			if s != c.expected {
 				g.Expect(s).To(Equal(c.expected))
 			}
+		})
+	}
+}
+
+func Test_GenerateName(t *testing.T) {
+	// maxGeneratedNameLength = 63, digestLength = 5, plus 1 for the hyphen, so the base is truncated to 57 chars.
+	const maxBaseLen = 57
+	longBase := strings.Repeat("a", 100)
+
+	cases := []struct {
+		name     string
+		base     string
+		objects  []any
+		expected string
+	}{
+		{
+			name:     "no objects yields no digest suffix",
+			base:     "test",
+			objects:  nil,
+			expected: "test",
+		},
+		{
+			name:     "empty base with single object",
+			base:     "",
+			objects:  []any{"foo"},
+			expected: "464f0",
+		},
+		{
+			name:     "base with single object",
+			base:     "test",
+			objects:  []any{"foo"},
+			expected: "test-464f0",
+		},
+		{
+			name:     "base with multiple objects",
+			base:     "test",
+			objects:  []any{"foo", "bar"},
+			expected: "test-ae40d",
+		},
+		{
+			name:     "encoding error yields empty digest suffix",
+			base:     "test",
+			objects:  []any{make(chan int)},
+			expected: "test",
+		},
+		{
+			name:     "base exactly at max length is not truncated",
+			base:     strings.Repeat("a", maxBaseLen),
+			objects:  []any{"foo"},
+			expected: strings.Repeat("a", maxBaseLen) + "-464f0",
+		},
+		{
+			name:     "base one over max length is truncated",
+			base:     strings.Repeat("a", maxBaseLen+1),
+			objects:  []any{"foo"},
+			expected: strings.Repeat("a", maxBaseLen) + "-464f0",
+		},
+		{
+			name:     "long base is truncated to max length",
+			base:     longBase,
+			objects:  []any{"foo"},
+			expected: strings.Repeat("a", maxBaseLen) + "-464f0",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			g := NewWithT(t)
+			g.Expect(GenerateName(c.base, c.objects...)).To(Equal(c.expected))
 		})
 	}
 }
