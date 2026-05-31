@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/digest"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	"github.com/fluxcd/pkg/runtime/patch"
@@ -33,7 +34,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
-	"k8s.io/apiserver/pkg/storage/names"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -207,7 +207,7 @@ func (r *ServiceInterfaceSetReconciler) createOrUpdateChild(ctx context.Context,
 		return err
 	}
 
-	siName := names.SimpleNameGenerator.GenerateName(serviceInterfaceSet.Name)
+	siName := digest.GenerateName(serviceInterfaceSet.Name, nodeName)
 	siLabels := map[string]string{}
 	siAnnotations := map[string]string{}
 	if si != nil {

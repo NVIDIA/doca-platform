@@ -18,9 +18,15 @@ package digest
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/opencontainers/go-digest"
+)
+
+const (
+	maxGeneratedNameLength = 63
+	digestLength           = 5
 )
 
 // FromObjects returns a digest for the specified objects.
@@ -54,4 +60,25 @@ func Short(d digest.Digest, length int) string {
 		return full
 	}
 	return full[:length]
+}
+
+// GenerateName generates a name with a digest from the base name and the specified objects.
+// name format: <base>-<digest>
+// that can be used to generate predictable k8s object names.
+func GenerateName(base string, obj ...any) string {
+	shortDigest := Short(FromObjects(obj...), digestLength)
+	if shortDigest == "" {
+		return base
+	}
+
+	if base == "" {
+		return shortDigest
+	}
+
+	maxBaseLen := maxGeneratedNameLength - (digestLength + 1) // +1 for the hyphen
+	if len(base) > maxBaseLen {
+		base = base[:maxBaseLen]
+	}
+
+	return fmt.Sprintf("%s-%s", base, shortDigest)
 }
