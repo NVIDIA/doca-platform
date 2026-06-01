@@ -102,7 +102,7 @@ var _ = Describe("NetworkManager", func() {
 				},
 			}
 
-			err := nm.AddNetworkRequest(dpu)
+			err := nm.AddNetworkRequest(dpu, nil)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("network manager is not initialized"))
 		})
@@ -111,7 +111,7 @@ var _ = Describe("NetworkManager", func() {
 			nm := NewNetworkManager(nil)
 			nm.initialized = true // Bypass initialization check
 
-			err := nm.AddNetworkRequest(nil)
+			err := nm.AddNetworkRequest(nil, nil)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("DPU is nil"))
 		})
@@ -134,8 +134,116 @@ var _ = Describe("NetworkManager", func() {
 			}
 
 			// Should return nil since request already exists
-			err := nm.AddNetworkRequest(dpu)
+			err := nm.AddNetworkRequest(dpu, nil)
 			Expect(err).NotTo(HaveOccurred())
+		})
+
+		Context("vfCount override on existing request", func() {
+			var (
+				tempDir               string
+				origNetworkRequestDir string
+			)
+
+			BeforeEach(func() {
+				var err error
+				tempDir, err = os.MkdirTemp("", "nm-vfcount-test-*")
+				Expect(err).NotTo(HaveOccurred())
+				origNetworkRequestDir = NetworkRequestDir
+				NetworkRequestDir = tempDir
+			})
+
+			AfterEach(func() {
+				NetworkRequestDir = origNetworkRequestDir
+				_ = os.RemoveAll(tempDir)
+			})
+
+			It("should update VF count on existing request when vfCount is provided", func() {
+				nm := NewNetworkManager(nil)
+				nm.initialized = true
+
+				dpu := &provisioningv1.DPU{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-dpu",
+						Namespace: "default",
+						UID:       "test-uid-vf-update",
+					},
+				}
+				nm.reqs["test-uid-vf-update"] = NetworkRequest{
+					UID:      "test-uid-vf-update",
+					NumOfVFs: 4,
+					DpuName:  "test-dpu",
+				}
+
+				vfCount := 8
+				err := nm.AddNetworkRequest(dpu, &vfCount)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(nm.reqs["test-uid-vf-update"].NumOfVFs).To(Equal(8))
+			})
+
+			It("should not update VF count when vfCount is nil", func() {
+				nm := NewNetworkManager(nil)
+				nm.initialized = true
+
+				dpu := &provisioningv1.DPU{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-dpu",
+						Namespace: "default",
+						UID:       "test-uid-nil-vf",
+					},
+				}
+				nm.reqs["test-uid-nil-vf"] = NetworkRequest{
+					UID:      "test-uid-nil-vf",
+					NumOfVFs: 4,
+				}
+
+				err := nm.AddNetworkRequest(dpu, nil)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(nm.reqs["test-uid-nil-vf"].NumOfVFs).To(Equal(4))
+			})
+
+			It("should not update VF count when vfCount is zero", func() {
+				nm := NewNetworkManager(nil)
+				nm.initialized = true
+
+				dpu := &provisioningv1.DPU{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-dpu",
+						Namespace: "default",
+						UID:       "test-uid-zero-vf",
+					},
+				}
+				nm.reqs["test-uid-zero-vf"] = NetworkRequest{
+					UID:      "test-uid-zero-vf",
+					NumOfVFs: 4,
+				}
+
+				vfCount := 0
+				err := nm.AddNetworkRequest(dpu, &vfCount)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(nm.reqs["test-uid-zero-vf"].NumOfVFs).To(Equal(4))
+			})
+
+			It("should not update VF count when it matches existing", func() {
+				nm := NewNetworkManager(nil)
+				nm.initialized = true
+
+				dpu := &provisioningv1.DPU{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-dpu",
+						Namespace: "default",
+						UID:       "test-uid-same-vf",
+					},
+				}
+				nm.reqs["test-uid-same-vf"] = NetworkRequest{
+					UID:      "test-uid-same-vf",
+					NumOfVFs: 4,
+				}
+
+				vfCount := 4
+				err := nm.AddNetworkRequest(dpu, &vfCount)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(nm.reqs["test-uid-same-vf"].NumOfVFs).To(Equal(4))
+			})
 		})
 
 		It("should return error when device not found by serial number", func() {
@@ -154,7 +262,7 @@ var _ = Describe("NetworkManager", func() {
 				},
 			}
 
-			err := nm.AddNetworkRequest(dpu)
+			err := nm.AddNetworkRequest(dpu, nil)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("PCI address of device"))
 			Expect(err.Error()).To(ContainSubstring("not found"))
