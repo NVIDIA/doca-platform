@@ -134,7 +134,7 @@ const (
 	PCIAddressTargetKey = "target"
 	// KubernetesVersion is the version used by the DPUCluster.
 	// It has a one-to-one relationship with the DPF Operator version and needs to be updated with each minor release.
-	KubernetesVersion = "v1.34.0"
+	KubernetesVersion = "v1.35.4"
 	// MaxNameLength is the maximum length of the name of the K8s resource.
 	MaxNameLength = validation.DNS1123SubdomainMaxLength // 253
 	// HostPowerCycleRequireKey is the key for the host power cycle required annotation.

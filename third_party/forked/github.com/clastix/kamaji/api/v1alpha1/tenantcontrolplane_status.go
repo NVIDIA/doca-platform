@@ -8,6 +8,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
 // APIServerCertificatesStatus defines the observed state of ETCD Certificate for API server.
@@ -122,6 +123,12 @@ type ExternalKubernetesObjectStatus struct {
 	LastUpdate metav1.Time `json:"lastUpdate,omitempty"`
 }
 
+type KonnectivityAgentStatus struct {
+	ExternalKubernetesObjectStatus `json:",inline"`
+
+	Mode KonnectivityAgentMode `json:"mode,omitempty"`
+}
+
 // KonnectivityStatus defines the status of Konnectivity as Addon.
 type KonnectivityStatus struct {
 	Enabled            bool                            `json:"enabled"`
@@ -130,8 +137,9 @@ type KonnectivityStatus struct {
 	Kubeconfig         KubeconfigStatus                `json:"kubeconfig,omitempty"`
 	ServiceAccount     ExternalKubernetesObjectStatus  `json:"sa,omitempty"`
 	ClusterRoleBinding ExternalKubernetesObjectStatus  `json:"clusterrolebinding,omitempty"`
-	Agent              ExternalKubernetesObjectStatus  `json:"agent,omitempty"`
+	Agent              KonnectivityAgentStatus         `json:"agent,omitempty"`
 	Service            KubernetesServiceStatus         `json:"service,omitempty"`
+	Gateway            *KubernetesGatewayStatus        `json:"gateway,omitempty"`
 }
 
 type KonnectivityConfigMap struct {
@@ -154,6 +162,9 @@ type AddonsStatus struct {
 
 // TenantControlPlaneStatus defines the observed state of TenantControlPlane.
 type TenantControlPlaneStatus struct {
+	// ObservedGeneration represents the .metadata.generation that was last reconciled.
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 	// Storage Status contains information about Kubernetes storage system
 	Storage StorageStatus `json:"storage,omitempty"`
 	// Certificates contains information about the different certificates
@@ -181,14 +192,17 @@ type KubernetesStatus struct {
 	Deployment KubernetesDeploymentStatus `json:"deployment,omitempty"`
 	Service    KubernetesServiceStatus    `json:"service,omitempty"`
 	Ingress    *KubernetesIngressStatus   `json:"ingress,omitempty"`
+	Gateway    *KubernetesGatewayStatus   `json:"gateway,omitempty"`
 }
 
-// +kubebuilder:validation:Enum=Provisioning;CertificateAuthorityRotating;Upgrading;Migrating;Ready;NotReady;Sleeping
+// +kubebuilder:validation:Enum=Unknown;Provisioning;CertificateAuthorityRotating;Upgrading;Migrating;Ready;NotReady;Sleeping;WriteLimited
 type KubernetesVersionStatus string
 
 var (
+	VersionUnknown      KubernetesVersionStatus = "Unknown"
 	VersionProvisioning KubernetesVersionStatus = "Provisioning"
 	VersionSleeping     KubernetesVersionStatus = "Sleeping"
+	VersionWriteLimited KubernetesVersionStatus = "WriteLimited"
 	VersionCARotating   KubernetesVersionStatus = "CertificateAuthorityRotating"
 	VersionUpgrading    KubernetesVersionStatus = "Upgrading"
 	VersionMigrating    KubernetesVersionStatus = "Migrating"
@@ -235,4 +249,26 @@ type KubernetesIngressStatus struct {
 	Name string `json:"name"`
 	// The namespace which the Ingress for the given cluster is deployed.
 	Namespace string `json:"namespace"`
+}
+
+type GatewayAccessPoint struct {
+	Type  *gatewayv1.AddressType `json:"type"`
+	Value string                 `json:"value"`
+	Port  int32                  `json:"port"`
+	URLs  []string               `json:"urls,omitempty"`
+}
+
+// +k8s:deepcopy-gen=false
+type RouteStatus = gatewayv1.RouteStatus
+
+// KubernetesGatewayStatus defines the status for the Tenant Control Plane Gateway in the management cluster.
+type KubernetesGatewayStatus struct {
+	// The TLSRoute status as resported by the gateway controllers.
+	RouteStatus `json:",inline"`
+
+	// Reference to the route created for this tenant.
+	RouteRef corev1.LocalObjectReference `json:"routeRef,omitempty"`
+
+	// A list of valid access points that the route exposes.
+	AccessPoints []GatewayAccessPoint `json:"accessPoints,omitempty"`
 }
