@@ -46,15 +46,18 @@ const (
 	APICheckDPUOS                   = "redfish/v1/UpdateService/FirmwareInventory/DPU_OS"
 	APICheckDPUUEFI                 = "redfish/v1/UpdateService/FirmwareInventory/DPU_UEFI"
 	APIInstallBFB                   = "redfish/v1/UpdateService/Actions/UpdateService.SimpleUpdate"
+	APIInsertVirtualMedia           = "redfish/v1/Managers/{MANAGER_ID}/VirtualMedia/{MEDIA_ID}/Actions/VirtualMedia.InsertMedia"
+	APIEjectVirtualMedia            = "redfish/v1/Managers/{MANAGER_ID}/VirtualMedia/{MEDIA_ID}/Actions/VirtualMedia.EjectMedia"
 	APIUpdateFW                     = "redfish/v1/UpdateService"
 	APICheckProgress                = "redfish/v1/TaskService/Tasks"
 	APIGetManagers                  = "redfish/v1/Managers"
 	APIFactoryResetBMC              = "redfish/v1/Managers/{MANAGER_ID}/Actions/Manager.ResetToDefaults"
 	APIResetBMC                     = "redfish/v1/Managers/{MANAGER_ID}/Actions/Manager.Reset"
 	APIEnableBMCRshim               = "redfish/v1/Managers/Bluefield_BMC/Oem/Nvidia"
-	APIGetSystem                    = "redfish/v1/Systems/Bluefield"
+	APIGetSystem                    = "redfish/v1/Systems/{SYSTEM_ID}"
+	APIBluefieldSettings            = "redfish/v1/Systems/{SYSTEM_ID}/Settings"
 	APIDisableHostRshim             = "redfish/v1/Systems/Bluefield/Oem/Nvidia/Actions/HostRshim.Set"
-	APIInstallCert                  = "redfish/v1/Managers/Bluefield_BMC/Truststore/Certificates"
+	APIInstallCert                  = "redfish/v1/Managers/{MANAGER_ID}/Truststore/Certificates"
 	APIReplaceCert                  = "redfish/v1/CertificateService/Actions/CertificateService.ReplaceCertificate"
 	APIGetBios                      = "redfish/v1/Systems/Bluefield/Bios"
 	APIGetSystems                   = "redfish/v1/Systems"
@@ -64,6 +67,7 @@ const (
 	APIEnableMTLS                   = "redfish/v1/AccountService"
 	APIProductDescription           = "redfish/v1/Systems/{SYSTEM_ID}/Oem/Nvidia"
 	APIGetChassis                   = "redfish/v1/Chassis/{CHASSIS_ID}"
+	APIChassisReset                 = "redfish/v1/Chassis/{CHASSIS_ID}/Actions/Oem/NvidiaChassis.Reset"
 	APIGetNetworkDeviceFunctions    = "redfish/v1/Chassis/Card1/NetworkAdapters/NvidiaNetworkAdapter/NetworkDeviceFunctions/{PF_ID}"
 	APIGetNetworkDeviceFunctionsBF4 = "redfish/v1/Chassis/BlueField_0/NetworkAdapters/BlueField_NIC_0/NetworkDeviceFunctions/{PF_ID}"
 	APIRootService                  = "redfish/v1"
@@ -240,6 +244,7 @@ type SystemInfo struct {
 
 type BootProgress struct {
 	OemLastState string `json:"OemLastState,omitempty"`
+	LastState    string `json:"LastState,omitempty"`
 }
 
 // Client is a Redfish client
@@ -263,6 +268,11 @@ func (c *Client) ChangeBMCPassword(newPassword string, user string) (*resty.Resp
 
 // InstallCert installs the given certificate, making the certificate trusted by BMC
 func (c *Client) InstallCert(caCert string) (*resty.Response, *ExtendedInfo, error) {
+	managerID, err := getBMCManagerID(c)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	caCertJSON := map[string]interface{}{
 		"CertificateString": caCert,
 		"CertificateType":   "PEM",
@@ -271,17 +281,22 @@ func (c *Client) InstallCert(caCert string) (*resty.Response, *ExtendedInfo, err
 		return c.Client.R().
 			SetHeader("Content-Type", "application/json").
 			SetBody(caCertJSON).
-			Post(APIInstallCert)
+			Post(strings.Replace(APIInstallCert, "{MANAGER_ID}", *managerID, 1))
 	})
 }
 
 // ReplaceCACert replaces the trusted CA certificate with the given caCert
 func (c *Client) ReplaceCACert(caCert string) (*resty.Response, *ExtendedInfo, error) {
+	managerID, err := getBMCManagerID(c)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	caCertJSON := map[string]interface{}{
 		"CertificateString": caCert,
 		"CertificateType":   "PEM",
 		"CertificateUri": map[string]interface{}{
-			"@odata.id": "/redfish/v1/Managers/Bluefield_BMC/Truststore/Certificates/1",
+			"@odata.id": fmt.Sprintf("/redfish/v1/Managers/%s/Truststore/Certificates/1", *managerID),
 		},
 	}
 	return c.ReplaceCert(caCertJSON)
@@ -289,11 +304,16 @@ func (c *Client) ReplaceCACert(caCert string) (*resty.Response, *ExtendedInfo, e
 
 // ReplaceServerCert replaces the server certificate used by BMC APIs
 func (c *Client) ReplaceServerCert(srvCert string) (*resty.Response, *ExtendedInfo, error) {
+	managerID, err := getBMCManagerID(c)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	srvCertJSON := map[string]interface{}{
 		"CertificateString": srvCert,
 		"CertificateType":   "PEM",
 		"CertificateUri": map[string]interface{}{
-			"@odata.id": "/redfish/v1/Managers/Bluefield_BMC/NetworkProtocol/HTTPS/Certificates/1",
+			"@odata.id": fmt.Sprintf("/redfish/v1/Managers/%s/NetworkProtocol/HTTPS/Certificates/1", *managerID),
 		},
 	}
 	return c.ReplaceCert(srvCertJSON)
@@ -317,6 +337,10 @@ type CSRInfo struct {
 // GenerateCSR generates a server CSR that can be signed by external CA. For more information, refer to
 // https://docs.nvidia.com/networking/display/bluefieldbmcv2410/redfish+certificate+management#src-704886301_RedfishCertificateManagement-forth
 func (c *Client) GenerateCSR(cn string) (*resty.Response, *CSRInfo, error) {
+	managerID, err := getBMCManagerID(c)
+	if err != nil {
+		return nil, nil, err
+	}
 	urlString, err := url.JoinPath("https://", cn, APIGenerateCSR)
 	if err != nil {
 		return nil, nil, err
@@ -329,7 +353,7 @@ func (c *Client) GenerateCSR(cn string) (*resty.Response, *CSRInfo, error) {
 		"OrganizationalUnit": "NBU",
 		"State":              "CA",
 		"CertificateCollection": map[string]interface{}{
-			"@odata.id": "/redfish/v1/Managers/Bluefield_BMC/NetworkProtocol/HTTPS/Certificates",
+			"@odata.id": fmt.Sprintf("/redfish/v1/Managers/%s/NetworkProtocol/HTTPS/Certificates", *managerID),
 		},
 		"AlternativeNames": []string{
 			fmt.Sprintf("IP: %s", cn),
@@ -364,8 +388,13 @@ func (c *Client) CheckBMCFirmware() (*resty.Response, *VersionInfo, error) {
 }
 
 func (c *Client) GetSystem() (*resty.Response, *SystemInfo, error) {
+	systemID, err := getSystemID(c)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	return do[SystemInfo](func() (*resty.Response, error) {
-		return c.Client.R().Get(APIGetSystem)
+		return c.Client.R().Get(strings.Replace(APIGetSystem, "{SYSTEM_ID}", systemID, 1))
 	})
 }
 
@@ -1015,6 +1044,144 @@ func (c *Client) ForceRestartDPUArm() (*resty.Response, error) {
 	// POST operations may return 200 OK or 204 No Content
 	if resp.StatusCode() != http.StatusOK && resp.StatusCode() != http.StatusNoContent {
 		return resp, fmt.Errorf("failed to force restart DPU ARM: unexpected status code %d", resp.StatusCode())
+	}
+	return resp, nil
+}
+
+func (c *Client) InstallBluefieldArmImage(imageURI string) (*resty.Response, *TaskInfo, error) {
+	headers := map[string]string{
+		"Content-Type": "application/json",
+	}
+	reqBody := map[string]interface{}{
+		"TransferProtocol": "HTTP",
+		"ImageURI":         imageURI,
+		"Targets":          []string{"redfish/v1/UpdateService/FirmwareInventory/BlueField_OS_Image_CPU_0"},
+	}
+	return do[TaskInfo](func() (*resty.Response, error) {
+		return c.Client.R().
+			SetHeaders(headers).
+			SetBody(reqBody).
+			Post(APIInstallBFB)
+	})
+}
+
+func (c *Client) InstallBluefieldArmConfig(imageURI string) (*resty.Response, *TaskInfo, error) {
+	headers := map[string]string{
+		"Content-Type": "application/json",
+	}
+	reqBody := map[string]interface{}{
+		"TransferProtocol": "HTTP",
+		"ImageURI":         imageURI,
+		"Targets":          []string{"redfish/v1/UpdateService/FirmwareInventory/BlueField_OS_Config_CPU_0"},
+	}
+	return do[TaskInfo](func() (*resty.Response, error) {
+		return c.Client.R().
+			SetHeaders(headers).
+			SetBody(reqBody).
+			Post(APIInstallBFB)
+	})
+}
+
+func (c *Client) SetBootTarget(target string) (*resty.Response, error) {
+	headers := map[string]string{
+		"Content-Type": "application/json",
+	}
+	reqBody := map[string]interface{}{
+		"Boot": map[string]interface{}{
+			"BootSourceOverrideTarget":     target,
+			"UefiTargetBootSourceOverride": "None",
+			"BootSourceOverrideMode":       "UEFI",
+			"BootSourceOverrideEnabled":    "Once",
+			"BootNext":                     "",
+			"AutomaticRetryConfig":         "Disabled",
+		},
+	}
+
+	systemID, err := getSystemID(c)
+	if err != nil {
+		return nil, err
+	}
+	bluefieldSettingsURL := strings.Replace(APIBluefieldSettings, "{SYSTEM_ID}", systemID, 1)
+	resp, err := c.Client.R().SetHeaders(headers).SetBody(reqBody).Patch(bluefieldSettingsURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to set boot target: %w", err)
+	}
+	if resp.StatusCode() != http.StatusOK {
+		return nil, fmt.Errorf("failed to set boot target: %s", resp.Status())
+	}
+	return resp, nil
+}
+
+func insertVirtualMedia(c *Client, reqBody map[string]interface{}, mediaID string) (*resty.Response, error) {
+	managerID, err := getBMCManagerID(c)
+	if err != nil {
+		return nil, err
+	}
+
+	headers := map[string]string{
+		"Content-Type": "application/json",
+	}
+
+	ejectVirtualMediaURL := strings.Replace(APIEjectVirtualMedia, "{MANAGER_ID}", *managerID, 1)
+	ejectVirtualMediaURL = strings.Replace(ejectVirtualMediaURL, "{MEDIA_ID}", mediaID, 1)
+	resp, err := c.Client.R().
+		SetHeaders(headers).
+		Post(ejectVirtualMediaURL)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode() != http.StatusOK {
+		return nil, fmt.Errorf("failed to eject virtual media config: %s", resp.Status())
+	}
+
+	virtualMediaURL := strings.Replace(APIInsertVirtualMedia, "{MANAGER_ID}", *managerID, 1)
+	virtualMediaURL = strings.Replace(virtualMediaURL, "{MEDIA_ID}", mediaID, 1)
+
+	resp, err = c.Client.R().
+		SetHeaders(headers).
+		SetBody(reqBody).
+		Post(virtualMediaURL)
+
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode() != http.StatusOK {
+		return nil, fmt.Errorf("failed to insert virtual media config: %s", resp.Status())
+	}
+	return resp, nil
+
+}
+
+func (c *Client) InsertVirtualMediaConfig() (*resty.Response, error) {
+
+	reqBody := map[string]interface{}{
+		"Image":          "file:///media/bf_arm_os/config/config.iso",
+		"TransferMethod": "Stream",
+	}
+
+	return insertVirtualMedia(c, reqBody, "CONFIG")
+
+}
+
+func (c *Client) InsertVirtualMediaImage() (*resty.Response, error) {
+
+	reqBody := map[string]interface{}{
+		"Image":          "file:///media/bf_arm_os/image/image.iso",
+		"TransferMethod": "Stream",
+	}
+
+	return insertVirtualMedia(c, reqBody, "IMAGE")
+}
+
+func (c *Client) ChassisReset() (*resty.Response, error) {
+	data := map[string]interface{}{
+		"ResetType": "ArmReset",
+	}
+	resp, err := c.Client.R().
+		SetBody(data).
+		Post(strings.Replace(APIChassisReset, "{CHASSIS_ID}", "BlueField_0", 1))
+	if err != nil {
+		return resp, fmt.Errorf("failed to reset chassis: %w", err)
 	}
 	return resp, nil
 }

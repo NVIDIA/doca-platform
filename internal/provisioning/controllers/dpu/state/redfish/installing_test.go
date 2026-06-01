@@ -782,6 +782,158 @@ var _ = Describe("Installing", func() {
 		})
 	})
 
+	Context("BlueField 4 OS installation via installOsBf4", func() {
+		const (
+			bf4DPUName       = "dpu-bf4-installing-test"
+			bf4DPUDeviceName = "dpu-device-bf4-installing-test"
+			bf4SoftwareName  = "bf4-software-installing-test"
+			testOsIso        = "bfb/os/dpf-operator-system.iso"
+		)
+
+		createBF4InstallingMockServer := func() *redfishmock.RedfishMockServer {
+			server := redfishmock.NewRedfishMockServer("BF-26.04", "password")
+			server.SetDpuVersion(redfishmock.BF4)
+			server.SetNicMode("DpuMode")
+			server.Start()
+			return server
+		}
+
+		createBF4InstallingSecrets := func(mockServerIP string) {
+			bmcSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: "bmc-shared-password", Namespace: testNS.Name},
+				Data:       map[string][]byte{"password": []byte("password")},
+			}
+			Expect(k8sClient.Create(ctx, bmcSecret)).To(Succeed())
+
+			caCrt, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(mockServerIP)
+			caSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: "dpf-provisioning-ca-secret", Namespace: testNS.Name},
+				Data:       map[string][]byte{"tls.crt": caCrt},
+			}
+			Expect(k8sClient.Create(ctx, caSecret)).To(Succeed())
+			clientSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: "dpf-provisioning-redfish-client-secret-bf4", Namespace: testNS.Name},
+				Data:       map[string][]byte{"tls.crt": clientCrt, "tls.key": clientKey},
+			}
+			Expect(k8sClient.Create(ctx, clientSecret)).To(Succeed())
+		}
+
+		createReadyBlueFieldSoftware := func() {
+			bfs := &provisioningv1.BlueFieldSoftware{
+				ObjectMeta: metav1.ObjectMeta{Name: bf4SoftwareName, Namespace: testNS.Name},
+			}
+			createObject(bfs)
+			patch := client.MergeFrom(bfs.DeepCopy())
+			bfs.Status.Phase = provisioningv1.BlueFieldSoftwareReady
+			bfs.Status.DownloadedComponents = provisioningv1.DownloadedComponents{
+				OsIso: testOsIso,
+			}
+			Expect(k8sClient.Status().Patch(ctx, bfs, patch)).To(Succeed())
+		}
+
+		It("should transfer ISO and config, insert virtual media, and set VirtualMediaInserted", func() {
+			mockServer := createBF4InstallingMockServer()
+			defer mockServer.Stop()
+
+			createBF4InstallingSecrets(mockServer.GetIPAddress())
+			createReadyBlueFieldSoftware()
+
+			dpuDevice := dpuDeviceObj(bf4DPUDeviceName)
+			dpuDevice.Spec.BMCIP = ptr.To(mockServer.GetIPAddress())
+			dpuDevice.Spec.BMCPort = ptr.To(uint32(mockServer.GetPort()))
+			createObject(dpuDevice)
+			patch := client.MergeFrom(dpuDevice.DeepCopy())
+			dpuDevice.Status.BMCIP = dpuDevice.Spec.BMCIP
+			dpuDevice.Status.BMCPort = dpuDevice.Spec.BMCPort
+			dpuDevice.Status.DPUType = provisioningv1.DPUTypeBlueField4
+			Expect(k8sClient.Status().Patch(ctx, dpuDevice, patch)).To(Succeed())
+
+			dpu := dpuObj(bf4DPUName)
+			dpu.Spec.DPUDeviceName = dpuDevice.Name
+			dpu.Spec.BlueFieldSoftware = bf4SoftwareName
+			dpu.Status.Phase = provisioningv1.DPUOSInstalling
+			dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
+			dpu.Status.BFCFGFile = testBFCFGFile
+			createObject(dpu)
+			patch = client.MergeFrom(dpu.DeepCopy())
+			dpu.Status.Phase = provisioningv1.DPUOSInstalling
+			dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
+			dpu.Status.BFCFGFile = testBFCFGFile
+			Expect(k8sClient.Status().Patch(ctx, dpu, patch)).To(Succeed())
+
+			prevNS := os.Getenv("POD_NAMESPACE")
+			Expect(os.Setenv("POD_NAMESPACE", testNS.Name)).To(Succeed())
+			defer func() { _ = os.Setenv("POD_NAMESPACE", prevNS) }()
+			bfbRegistrySvc := &corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{Name: bfbregistry.PodName, Namespace: testNS.Name},
+				Spec: corev1.ServiceSpec{
+					Type:  corev1.ServiceTypeNodePort,
+					Ports: []corev1.ServicePort{{Name: "http", Port: int32(bfbregistry.ContainerPort), TargetPort: intstr.FromInt32(bfbregistry.ContainerPort)}},
+				},
+			}
+			Expect(k8sClient.Create(ctx, bfbRegistrySvc)).To(Succeed())
+
+			ctrlCtx := &dutil.ControllerContext{
+				Client:               k8sClient,
+				Options:              dutil.DPUOptions{BFBRegistry: "10.0.110.1"},
+				DPUInProvisioningMap: dutil.NewDPUInProvisioningMap(10),
+			}
+
+			By("Step 1: submit ISO install task")
+			status, err := Installing(ctx, dpu, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUOSInstalling))
+			Expect(status.RedfishTaskID).NotTo(BeNil())
+			Expect(*status.RedfishTaskID).To(Equal("0"))
+			_, isoCond := cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondIsoTransferred))
+			if isoCond != nil {
+				Expect(isoCond.Status).NotTo(Equal(metav1.ConditionTrue))
+			}
+
+			By("Step 2: complete ISO transfer and submit config install task")
+			dpu.Status = status
+			status, err = Installing(ctx, dpu, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUOSInstalling))
+			_, isoCond = cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondIsoTransferred))
+			Expect(isoCond).NotTo(BeNil())
+			Expect(isoCond.Status).To(Equal(metav1.ConditionTrue))
+			_, cfgCond := cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondConfigTransferred))
+			if cfgCond != nil {
+				Expect(cfgCond.Status).NotTo(Equal(metav1.ConditionTrue))
+			}
+
+			By("Step 3: complete config transfer, insert virtual media, and set VirtualMediaInserted")
+			dpu.Status = status
+			status, err = Installing(ctx, dpu, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUOSInstalling))
+			Expect(status.RedfishTaskID).To(BeNil())
+
+			_, cfgCond = cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondConfigTransferred))
+			Expect(cfgCond).NotTo(BeNil())
+			Expect(cfgCond.Status).To(Equal(metav1.ConditionTrue))
+
+			_, vmCond := cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondVirtualMediaInserted))
+			Expect(vmCond).NotTo(BeNil())
+			Expect(vmCond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(vmCond.Message).To(ContainSubstring("Virtual media inserted"))
+
+			By("Step 4: next reconcile waits for OSRunning instead of re-entering installOsBf4")
+			mockServer.SetBootLastState("DdrTraining")
+			dpu.Status = status
+			status, err = Installing(ctx, dpu, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUOSInstalling))
+			_, osCond := cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondOSInstalled))
+			Expect(osCond).NotTo(BeNil())
+			Expect(osCond.Status).To(Equal(metav1.ConditionFalse))
+			Expect(osCond.Reason).To(Equal("OSNotRunning"))
+			Expect(osCond.Message).To(ContainSubstring("Waiting for DPU OS to finish booting"))
+			Expect(osCond.Message).To(ContainSubstring(`"DdrTraining"`))
+		})
+	})
+
 	Context("OSInstalled condition semantics", func() {
 		var (
 			mockServer *redfishmock.RedfishMockServer
@@ -884,7 +1036,7 @@ var _ = Describe("Installing", func() {
 			_, trueCond := cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondOSInstalled))
 			Expect(trueCond).NotTo(BeNil())
 			Expect(trueCond.Status).To(Equal(metav1.ConditionTrue))
-			Expect(trueCond.Reason).To(Equal("BFBInstalled"))
+			Expect(trueCond.Reason).To(Equal("OsInstalled"))
 			Expect(trueCond.LastTransitionTime.After(t1)).To(BeTrue(), "LastTransitionTime must advance on the False->True transition to anchor the agent-startup timer")
 		})
 
