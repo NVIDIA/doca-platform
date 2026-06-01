@@ -59,8 +59,6 @@ const (
 	kubeStateMetricsPort = 8080
 	// testMTUValue is the MTU value used across e2e tests to trigger configuration changes.
 	testMTUValue = 1300
-	// bfbRegistryNodePort is the NodePort used by the BFB registry service.
-	bfbRegistryNodePort = 30082
 	// defaultAPIServerPort is the default Kubernetes API server port used in performance tests.
 	defaultAPIServerPort = 6443
 	// performanceMTU is the MTU configured for both the control plane and high-speed networks in performance tests.
