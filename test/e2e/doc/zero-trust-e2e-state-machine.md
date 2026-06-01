@@ -56,6 +56,52 @@ Node Effect                                                  │
     └───────────────────────────────────   Ready
 ```
 
+## Reboot driver
+
+The Zero Trust e2e suite uses a single reboot driver, set by the
+`nodeRebootConfigMap` field in the e2e config file (e.g.
+`dpunode-reboot-redfish`):
+
+- **In-cluster script reboot** — the suite applies the ConfigMap
+  fixture as-is to `dpf-operator-system`, creates a sibling Secret
+  `dpunode-reboot-bmc-credentials` populated from `$E2E_ZT_BMC_PASSWORD`,
+   and patches each DPUNode to `spec.nodeRebootMethod.script.name=<configmap>`
+  plus the `host-bmc-ip` label looked up from the static lab inventory.
+  When a DPU enters `DPURebooting`, the DPUNode controller spawns
+  `{dpunode}-script-job` from the pod-template, which reads the BMC
+  password from the Secret and power-cycles the host via Redfish
+  against that BMC. The suite waits for the DPU's `RebootStatus` to
+  reach `Succeeded` and the controller's normal flow drives the DPU
+  back to `DPUReady`.
+
+The reboot driver depends on the **DPUNode → host BMC IP map**.
+DPUNode names in ZT are derived from the DPU serial (e.g.
+`dpu-node-mt2337xz04vd`), so there is no in-cluster way to know which
+physical host backs each DPU. The path to the inventory YAML (DPU
+serial → host BMC IP, all keys lower-case to match how the host-agent
+normalises serials when it creates the DPUNode) is provided by the
+`$E2E_ZT_BMC_INVENTORY_PATH` env var and loaded at runtime by
+`GetDPUNodeToBMCIPs` in `system_setup.go`. CI sets the env var on the ZT
+job in `.gitlab/ci/e2e-jobs.yml`; local developers export it
+themselves. When DPUs are swapped in/out of the lab,
+edit the YAML file at the path the env var points to.
+
+One reboot pod-template fixture ships in
+`test/objects/infrastructure/`:
+
+- `dpunode-reboot-redfish.yaml` — used by the ZT physical e2e job.
+  Drives reboots through the host BMC over Redfish. Only one label per
+  DPUNode (`host-bmc-ip`) and one CI variable (`$E2E_ZT_BMC_PASSWORD`,
+  paired with hardcoded `root` user) are needed; vendor differences are
+  side-stepped by discovering the System path at runtime from
+  `/redfish/v1/Systems` (`Members[0]."@odata.id"`). Honors
+  `DPUNODE_REBOOT_METHOD` by mapping `PowerCycle` to a hard cycle
+  (`ForceOff` → sleep 10s → `On`) and warm methods (`SystemLevelReset` /
+  `SystemReboot` / `FirmwareReset` / `DPUWarmReboot`) to
+  `GracefulRestart`. The suite's `waitForScriptRebootCompletion` +
+  DPUReady waiters are the source of truth on "the node is actually
+  back up".
+
 ## Currently Covered in `system_test.go` (Domain.ZeroTrust)
 
 ### Provisioning Flow (BeforeEach / setup)
@@ -67,15 +113,14 @@ Node Effect                                                  │
 | BFB download + Ready phase                            | `ProvisionBFBAndDPUFlavor`                                                   |
 | DPUSet creation → DPU objects created                 | `ProvisionDPUSet`                                                            |
 | DPUNodeMaintenance hold → release                     | `ProcessDPUNodeMaintenanceHold`                                              |
-| DPU reaches Rebooting phase                           | `RebootAndVerifyDPU` (waits for `DPURebooting`)                              |
-| External host reboot via script                       | `RebootAndVerifyDPU` (calls `RebootHostByScript`)                            |
-| DPUNode annotation removal post-reboot                | `RebootAndVerifyDPU`                                                         |
+| DPU reaches Rebooting phase                           | `WaitForDPUReboot` (waits for `DPURebooting`)                                |
+| in-cluster reboot via script ConfigMap                | `WaitForDPUReboot` (wait for each DPU's `status.rebootStatus.phase`=`ready`) |
 | DPU reaches Ready                                     | `VerifyDPUClusterWithNodes`                                                  |
 | DPUServices deployed on DPU cluster                   | `VerifyDPUServicesDeployed` / `VerifyClusterPods`                            |
 | DPFOperatorConfig Ready                               | `VerifyDPFOperatorConfigReady`                                               |
 | DPU Discovery + DPUDevice creation                    | `CreateDPUDiscovery`                                                         |
 | BFB registry service + pods                           | `DeployDPFSystemComponents` (ZT-specific check)                              |
-| DPU fails instantly on `DPUError` during provisioning | `RebootAndVerifyDPU` (`Expect(current.Status.Phase).NotTo(Equal(DPUError))`) |
+| DPU fails instantly on `DPUError` during provisioning | `WaitForDPUReboot` (`Expect(current.Status.Phase).NotTo(Equal(DPUError))`)   |
 
 ## Flows That Require Retry — Candidates for New Zero Trust Tests
 
