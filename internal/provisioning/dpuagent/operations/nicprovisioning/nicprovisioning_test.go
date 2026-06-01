@@ -133,6 +133,9 @@ func TestNICProvisioning_Execute(t *testing.T) {
 	newBFS := func(nicFWLocation string) *provisioningv1.BlueFieldSoftware {
 		return &provisioningv1.BlueFieldSoftware{
 			ObjectMeta: metav1.ObjectMeta{Name: "bfs-1", Namespace: "default"},
+			Spec: provisioningv1.BlueFieldSpec{
+				PldmFwBundle: "https://example.com/pldm.fwpkg",
+			},
 			Status: provisioningv1.BlueFieldSoftwareStatus{
 				DownloadedComponents: provisioningv1.DownloadedComponents{
 					AstraNicFw: nicFWLocation,
@@ -215,6 +218,30 @@ func TestNICProvisioning_Execute(t *testing.T) {
 		assert.False(t, dmsServer.running)
 	})
 
+	t.Run("skip firmware download and install when PldmFwBundle is empty", func(t *testing.T) {
+		installCalled := false
+		opSkipFirmware := &NICProvisioning{
+			prepareLocalDMSServerFn: func(_ *operations.Context) error { return nil },
+			installNICFirmwareFn: func(_ context.Context, _ *operations.Context, _ string) error {
+				installCalled = true
+				return nil
+			},
+			applyNVConfigFn:           func(_ context.Context, _ *operations.Context) error { return nil },
+			configureRestrictedModeFn: func(_ context.Context, _ *operations.Context) error { return nil },
+		}
+
+		// No PldmFwBundle and no AstraNicFw: download would fail if not skipped.
+		bfs := &provisioningv1.BlueFieldSoftware{
+			ObjectMeta: metav1.ObjectMeta{Name: "bfs-1", Namespace: "default"},
+			Spec:       provisioningv1.BlueFieldSpec{},
+		}
+		fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(bfs).Build()
+		ctx := newOptCtx(fakeClient, "https://registry.example.com")
+
+		require.NoError(t, opSkipFirmware.Execute(context.Background(), ctx))
+		assert.False(t, installCalled)
+	})
+
 	t.Run("return error when stop local dms server fails", func(t *testing.T) {
 		existingFile := filepath.Join(tempDir, "astra-nic-fw-stop-error.fwpkg")
 		require.NoError(t, os.WriteFile(existingFile, []byte("already here"), 0600))
@@ -239,6 +266,17 @@ func TestNICProvisioning_Execute(t *testing.T) {
 		assert.Contains(t, err.Error(), "failed to stop local DMS server")
 		assert.True(t, dmsServer.stopCalled)
 	})
+}
+
+func TestIsPldmFwBundleConfigured(t *testing.T) {
+	assert.False(t, isPldmFwBundleConfigured(nil))
+	assert.False(t, isPldmFwBundleConfigured(&provisioningv1.BlueFieldSoftware{}))
+	assert.False(t, isPldmFwBundleConfigured(&provisioningv1.BlueFieldSoftware{
+		Spec: provisioningv1.BlueFieldSpec{PldmFwBundle: "   "},
+	}))
+	assert.True(t, isPldmFwBundleConfigured(&provisioningv1.BlueFieldSoftware{
+		Spec: provisioningv1.BlueFieldSpec{PldmFwBundle: "https://example.com/fw.fwpkg"},
+	}))
 }
 
 func TestResolveNICFirmwareDownloadURL(t *testing.T) {
