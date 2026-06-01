@@ -1115,8 +1115,10 @@ func (in *DPUFlavorSpec) DeepCopyInto(out *DPUFlavorSpec) {
 	}
 	if in.EWNicConfigurations != nil {
 		in, out := &in.EWNicConfigurations, &out.EWNicConfigurations
-		*out = new(NicConfiguration)
-		(*in).DeepCopyInto(*out)
+		*out = make([]NicConfiguration, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
 	}
 }
 

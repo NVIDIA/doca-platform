@@ -94,9 +94,23 @@ type DPUFlavorSpec struct {
 	// +optional
 	HostNetworkInterfaceConfigs []NetworkInterfaceConfig `json:"hostNetworkInterfaceConfigs,omitempty"`
 
-	// EWNicConfigurations contains the configuration for the E/W NICs.
+	// EWNicConfigurations lists per-NIC configuration for the E/W NICs.
+	// Only the first entry is applied in this release; additional entries are ignored until a future
+	// release adds multi-NIC support. The field is modeled as a list now so the API shape does not
+	// need to change when multiple entries are supported.
+	// +kubebuilder:validation:MaxItems=16
+	// +listType=atomic
 	// +optional
-	EWNicConfigurations *NicConfiguration `json:"ewNicConfigurations,omitempty"`
+	EWNicConfigurations []NicConfiguration `json:"ewNicConfigurations,omitempty"`
+}
+
+// FirstEWNicConfiguration returns the E/W NIC configuration used by provisioning in this release.
+// Only index 0 of Spec.EWNicConfigurations is honored; further entries are reserved for future multi-NIC support.
+func (s *DPUFlavorSpec) FirstEWNicConfiguration() *NicConfiguration {
+	if s == nil || len(s.EWNicConfigurations) == 0 {
+		return nil
+	}
+	return &s.EWNicConfigurations[0]
 }
 
 // NicConfiguration is a set of configurations for the NICs

@@ -2077,7 +2077,7 @@ _Appears in:_
 | `systemReservedResources` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#resourcelist-v1-core)_ | SystemReservedResources indicates the resources that are consumed by the system (OS, OVS, DPF system etc) and are<br />not made available for DPUServices to consume. DPUServices can consume the difference between DPUResources and<br />SystemReservedResources. This field must not be specified if dpuResources are not specified. |  | Optional: \{\} <br /> |
 | `dpuMode` _[DpuModeType](#dpumodetype)_ | DpuMode is deprecated and no longer used by provisioning workflows.<br />Deployment mode is sourced from DPFOperatorConfig and exposed on DPU.status.deploymentMode. |  | Enum: [dpu zero-trust nic] <br />Optional: \{\} <br /> |
 | `hostNetworkInterfaceConfigs` _[NetworkInterfaceConfig](#networkinterfaceconfig) array_ | HostNetworkInterfaceConfigs contains the configuration for the host-side network interfaces. |  | Optional: \{\} <br /> |
-| `ewNicConfigurations` _[NicConfiguration](#nicconfiguration)_ | EWNicConfigurations contains the configuration for the E/W NICs. |  | Optional: \{\} <br /> |
+| `ewNicConfigurations` _[NicConfiguration](#nicconfiguration) array_ | EWNicConfigurations lists per-NIC configuration for the E/W NICs.<br />Only the first entry is applied in this release; additional entries are ignored until a future<br />release adds multi-NIC support. The field is modeled as a list now so the API shape does not<br />need to change when multiple entries are supported. |  | MaxItems: 16 <br />Optional: \{\} <br /> |
 
 
 
