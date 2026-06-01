@@ -7,9 +7,12 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
+	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
 // NetworkProfileSpec defines the desired state of NetworkProfile.
+// +kubebuilder:validation:XValidation:rule="!has(self.dnsServiceIPs) || self.dnsServiceIPs.all(r, cidr(self.serviceCidr).containsIP(r))",message="all DNS service IPs must be part of the Service CIDR"
 type NetworkProfileSpec struct {
 	// LoadBalancerSourceRanges restricts the IP ranges that can access
 	// the LoadBalancer type Service. This field defines a list of IP
@@ -18,15 +21,22 @@ type NetworkProfileSpec struct {
 	// This feature is useful for restricting access to API servers or services
 	// to specific networks for security purposes.
 	// Example: {"192.168.1.0/24", "10.0.0.0/8"}
+	//+kubebuilder:validation:MaxItems=16
+	//+kubebuilder:validation:XValidation:rule="self.all(r, isCIDR(r))",message="all LoadBalancer source range entries must be valid CIDR"
 	LoadBalancerSourceRanges []string `json:"loadBalancerSourceRanges,omitempty"`
 	// Specify the LoadBalancer class in case of multiple load balancer implementations.
 	// Field supported only for Tenant Control Plane instances exposed using a LoadBalancer Service.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="LoadBalancerClass is immutable"
 	LoadBalancerClass *string `json:"loadBalancerClass,omitempty"`
-	// Address where API server of will be exposed.
-	// In case of LoadBalancer Service, this can be empty in order to use the exposed IP provided by the cloud controller manager.
+	// Address where API server will be exposed.
+	// In the case of LoadBalancer Service, this can be empty in order to use the exposed IP provided by the cloud controller manager.
 	Address string `json:"address,omitempty"`
+	// AdvertiseAddress is the address advertised to tenant-side consumers (workers, konnectivity).
+	// When set, the management address is used for CAPI and status reporting, while this address
+	// is used for kubeadm ControlPlaneEndpoint, cluster-info, and admin.conf.
+	// Both addresses are included in the API server certificate SANs.
+	AdvertiseAddress string `json:"advertiseAddress,omitempty"`
 	// The default domain name used for DNS resolution within the cluster.
 	//+kubebuilder:default="cluster.local"
 	//+kubebuilder:validation:XValidation:rule="self == oldSelf",message="changing the cluster domain is not supported"
@@ -35,7 +45,7 @@ type NetworkProfileSpec struct {
 	// AllowAddressAsExternalIP will include tenantControlPlane.Spec.NetworkProfile.Address in the section of
 	// ExternalIPs of the Kubernetes Service (only ClusterIP or NodePort)
 	AllowAddressAsExternalIP bool `json:"allowAddressAsExternalIP,omitempty"`
-	// Port where API server of will be exposed
+	// Port where API server will be exposed
 	//+kubebuilder:default=6443
 	Port int32 `json:"port,omitempty"`
 	// CertSANs sets extra Subject Alternative Names (SANs) for the API Server signing certificate.
@@ -43,14 +53,20 @@ type NetworkProfileSpec struct {
 	CertSANs []string `json:"certSANs,omitempty"`
 	// CIDR for Kubernetes Services: if empty, defaulted to 10.96.0.0/16.
 	//+kubebuilder:default="10.96.0.0/16"
+	//+kubebuilder:validation:Optional
+	//+kubebuilder:validation:XValidation:rule="self == '' || isCIDR(self)",message="serviceCidr must be empty or a valid CIDR"
 	ServiceCIDR string `json:"serviceCidr,omitempty"`
 	// CIDR for Kubernetes Pods: if empty, defaulted to 10.244.0.0/16.
 	//+kubebuilder:default="10.244.0.0/16"
+	//+kubebuilder:validation:Optional
+	//+kubebuilder:validation:XValidation:rule="self == '' || isCIDR(self)",message="podCidr must be empty or a valid CIDR"
 	PodCIDR string `json:"podCidr,omitempty"`
 	// The DNS Service for internal resolution, it must match the Service CIDR.
 	// In case of an empty value, it is automatically computed according to the Service CIDR, e.g.:
 	// Service CIDR 10.96.0.0/16, the resulting DNS Service IP will be 10.96.0.10 for IPv4,
 	// for IPv6 from the CIDR 2001:db8:abcd::/64 the resulting DNS Service IP will be 2001:db8:abcd::10.
+	//+kubebuilder:validation:MaxItems=8
+	//+kubebuilder:validation:Optional
 	DNSServiceIPs []string `json:"dnsServiceIPs,omitempty"`
 }
 
@@ -66,13 +82,22 @@ const (
 )
 
 type KubeletSpec struct {
+	// ConfigurationJSONPatches contains the RFC 6902 JSON patches to customise the kubeadm generate configuration,
+	// useful to customise and mangling the configuration according to your needs;
+	// e.g.: configuring the cgroup driver used by Kubelet is possible via the following patch:
+	//
+	// [{"op": "replace", "path": "/cgroupDriver", "value": "systemd"}]
+	ConfigurationJSONPatches JSONPatches `json:"configurationJSONPatches,omitempty"`
 	// Ordered list of the preferred NodeAddressTypes to use for kubelet connections.
-	// Default to Hostname, InternalIP, ExternalIP.
-	//+kubebuilder:default={"Hostname","InternalIP","ExternalIP"}
+	// Default to InternalIP, ExternalIP, Hostname.
+	//+kubebuilder:default={"InternalIP","ExternalIP","Hostname"}
 	//+kubebuilder:validation:MinItems=1
+	//+listType=set
 	PreferredAddressTypes []KubeletPreferredAddressType `json:"preferredAddressTypes,omitempty"`
-	// CGroupFS defines the  cgroup driver for Kubelet
+	// CGroupFS defines the cgroup driver for Kubelet
 	// https://kubernetes.io/docs/tasks/administer-cluster/kubeadm/configure-cgroup-driver/
+	//
+	// Deprecated: use ConfigurationJSONPatches.
 	CGroupFS CGroupDriver `json:"cgroupfs,omitempty"`
 }
 
@@ -88,6 +113,32 @@ type KubernetesSpec struct {
 	AdmissionControllers AdmissionControllers `json:"admissionControllers,omitempty"`
 }
 
+type AdditionalPort struct {
+	// The name of this port within the Service created by Kamaji.
+	// This must be a DNS_LABEL, must have unique names, and cannot be `kube-apiserver`, or `konnectivity-server`.
+	Name string `json:"name"`
+	// The IP protocol for this port. Supports "TCP", "UDP", and "SCTP".
+	//+kubebuilder:validation:Enum=TCP;UDP;SCTP
+	//+kubebuilder:default=TCP
+	Protocol corev1.Protocol `json:"protocol,omitempty"`
+	// The application protocol for this port.
+	// This is used as a hint for implementations to offer richer behavior for protocols that they understand.
+	// This field follows standard Kubernetes label syntax.
+	// Valid values are either:
+	//
+	// * Un-prefixed protocol names - reserved for IANA standard service names (as per
+	// RFC-6335 and https://www.iana.org/assignments/service-names).
+	AppProtocol *string `json:"appProtocol,omitempty"`
+	// The port that will be exposed by this service.
+	Port int32 `json:"port"`
+	// Number or name of the port to access on the pods of the Tenant Control Plane.
+	// Number must be in the range 1 to 65535. Name must be an IANA_SVC_NAME.
+	// If this is a string, it will be looked up as a named port in the
+	// target Pod's container ports. If this is not specified, the value
+	// of the 'port' field is used (an identity map).
+	TargetPort intstr.IntOrString `json:"targetPort"`
+}
+
 // AdditionalMetadata defines which additional metadata, such as labels and annotations, must be attached to the created resource.
 type AdditionalMetadata struct {
 	Labels      map[string]string `json:"labels,omitempty"`
@@ -96,6 +147,7 @@ type AdditionalMetadata struct {
 
 // ControlPlane defines how the Tenant Control Plane Kubernetes resources must be created in the Admin Cluster,
 // such as the number of Pod replicas, the Service resource, or the Ingress.
+// +kubebuilder:validation:XValidation:rule="!(has(self.ingress) && has(self.gateway))",message="using both ingress and gateway is not supported"
 type ControlPlane struct {
 	// Defining the options for the deployed Tenant Control Plane as Deployment resource.
 	Deployment DeploymentSpec `json:"deployment,omitempty"`
@@ -103,6 +155,8 @@ type ControlPlane struct {
 	Service ServiceSpec `json:"service"`
 	// Defining the options for an Optional Ingress which will expose API Server of the Tenant Control Plane
 	Ingress *IngressSpec `json:"ingress,omitempty"`
+	// Defining the options for an Optional Gateway which will expose API Server of the Tenant Control Plane
+	Gateway *GatewaySpec `json:"gateway,omitempty"`
 }
 
 // IngressSpec defines the options for the ingress which will expose API Server of the Tenant Control Plane.
@@ -114,6 +168,16 @@ type IngressSpec struct {
 	Hostname string `json:"hostname,omitempty"`
 }
 
+// GatewaySpec defines the options for the Gateway which will expose API Server of the Tenant Control Plane.
+type GatewaySpec struct {
+	// AdditionalMetadata to add Labels and Annotations support.
+	AdditionalMetadata AdditionalMetadata `json:"additionalMetadata,omitempty"`
+	// GatewayParentRefs is the class of the Gateway resource to use.
+	GatewayParentRefs []gatewayv1.ParentReference `json:"parentRefs,omitempty"`
+	// Hostname is an optional field which will be used as a route hostname.
+	Hostname gatewayv1.Hostname `json:"hostname,omitempty"`
+}
+
 type ControlPlaneComponentsResources struct {
 	APIServer         *corev1.ResourceRequirements `json:"apiServer,omitempty"`
 	ControllerManager *corev1.ResourceRequirements `json:"controllerManager,omitempty"`
@@ -121,6 +185,54 @@ type ControlPlaneComponentsResources struct {
 	// Define the kine container resources.
 	// Available only if Kamaji is running using Kine as backing storage.
 	Kine *corev1.ResourceRequirements `json:"kine,omitempty"`
+}
+
+// ProbeSpec defines configurable parameters for a Kubernetes probe.
+type ProbeSpec struct {
+	// InitialDelaySeconds is the number of seconds after the container has started before the probe is initiated.
+	//+kubebuilder:validation:Minimum=0
+	InitialDelaySeconds *int32 `json:"initialDelaySeconds,omitempty"`
+	// TimeoutSeconds is the number of seconds after which the probe times out.
+	//+kubebuilder:validation:Minimum=1
+	TimeoutSeconds *int32 `json:"timeoutSeconds,omitempty"`
+	// PeriodSeconds is how often (in seconds) to perform the probe.
+	//+kubebuilder:validation:Minimum=1
+	PeriodSeconds *int32 `json:"periodSeconds,omitempty"`
+	// SuccessThreshold is the minimum consecutive successes for the probe to be considered successful.
+	// Must be 1 for liveness and startup probes.
+	//+kubebuilder:validation:Minimum=1
+	SuccessThreshold *int32 `json:"successThreshold,omitempty"`
+	// FailureThreshold is the consecutive failure count required to consider the probe failed.
+	//+kubebuilder:validation:Minimum=1
+	FailureThreshold *int32 `json:"failureThreshold,omitempty"`
+}
+
+// ProbeSet defines per-probe-type configuration.
+type ProbeSet struct {
+	// Liveness defines parameters for the liveness probe.
+	Liveness *ProbeSpec `json:"liveness,omitempty"`
+	// Readiness defines parameters for the readiness probe.
+	Readiness *ProbeSpec `json:"readiness,omitempty"`
+	// Startup defines parameters for the startup probe.
+	Startup *ProbeSpec `json:"startup,omitempty"`
+}
+
+// ControlPlaneProbes defines probe configuration for Control Plane components.
+// Global probe settings (Liveness, Readiness, Startup) apply to all components.
+// Per-component settings (APIServer, ControllerManager, Scheduler) override global settings.
+type ControlPlaneProbes struct {
+	// Liveness defines default parameters for liveness probes of all Control Plane components.
+	Liveness *ProbeSpec `json:"liveness,omitempty"`
+	// Readiness defines default parameters for the readiness probe of kube-apiserver.
+	Readiness *ProbeSpec `json:"readiness,omitempty"`
+	// Startup defines default parameters for startup probes of all Control Plane components.
+	Startup *ProbeSpec `json:"startup,omitempty"`
+	// APIServer defines probe overrides for kube-apiserver, taking precedence over global probe settings.
+	APIServer *ProbeSet `json:"apiServer,omitempty"`
+	// ControllerManager defines probe overrides for kube-controller-manager, taking precedence over global probe settings.
+	ControllerManager *ProbeSet `json:"controllerManager,omitempty"`
+	// Scheduler defines probe overrides for kube-scheduler, taking precedence over global probe settings.
+	Scheduler *ProbeSet `json:"scheduler,omitempty"`
 }
 
 type DeploymentSpec struct {
@@ -174,6 +286,10 @@ type DeploymentSpec struct {
 	// AdditionalVolumeMounts allows to mount an additional volume into each component of the Control Plane
 	// (kube-apiserver, controller-manager, and scheduler).
 	AdditionalVolumeMounts *AdditionalVolumeMounts `json:"additionalVolumeMounts,omitempty"`
+	// Probes defines the probe configuration for the Control Plane components
+	// (kube-apiserver, controller-manager, and scheduler).
+	// Override TimeoutSeconds, PeriodSeconds, and FailureThreshold for resource-constrained environments.
+	Probes *ControlPlaneProbes `json:"probes,omitempty"`
 	//+kubebuilder:default="default"
 	// ServiceAccountName allows to specify the service account to be mounted to the pods of the Control plane deployment
 	ServiceAccountName string `json:"serviceAccountName,omitempty"`
@@ -197,6 +313,9 @@ type ControlPlaneExtraArgs struct {
 
 type ServiceSpec struct {
 	AdditionalMetadata AdditionalMetadata `json:"additionalMetadata,omitempty"`
+	// AdditionalPorts allows adding additional ports to the Service generated Kamaji
+	// which targets the Tenant Control Plane pods.
+	AdditionalPorts []AdditionalPort `json:"additionalPorts,omitempty"`
 	// ServiceType allows specifying how to expose the Tenant Control Plane.
 	ServiceType ServiceType `json:"serviceType"`
 }
@@ -225,7 +344,9 @@ type KonnectivityServerSpec struct {
 	// The port which Konnectivity server is listening to.
 	Port int32 `json:"port"`
 	// Container image version of the Konnectivity server.
-	//+kubebuilder:default=v0.28.6
+	// If left empty, Kamaji will automatically inflect the version from the deployed Tenant Control Plane.
+	//
+	// WARNING: for last cut-off releases, the container image could be not available.
 	Version string `json:"version,omitempty"`
 	// Container image used by the Konnectivity server.
 	//+kubebuilder:default=registry.k8s.io/kas-network-proxy/proxy-server
@@ -235,25 +356,50 @@ type KonnectivityServerSpec struct {
 	ExtraArgs ExtraArgs                    `json:"extraArgs,omitempty"`
 }
 
+type KonnectivityAgentMode string
+
+var (
+	KonnectivityAgentModeDaemonSet  KonnectivityAgentMode = "DaemonSet"
+	KonnectivityAgentModeDeployment KonnectivityAgentMode = "Deployment"
+)
+
+//+kubebuilder:validation:XValidation:rule="!(self.mode == 'DaemonSet' && has(self.replicas) && self.replicas != 0) && !(self.mode == 'Deployment' && has(self.replicas) && self.replicas == 0)",message="replicas must be 0 (or unset) when mode is DaemonSet, and greater than 0 (or unset) when mode is Deployment"
+
 type KonnectivityAgentSpec struct {
 	// AgentImage defines the container image for Konnectivity's agent.
 	//+kubebuilder:default=registry.k8s.io/kas-network-proxy/proxy-agent
 	Image string `json:"image,omitempty"`
 	// Version for Konnectivity agent.
-	//+kubebuilder:default=v0.28.6
+	// If left empty, Kamaji will automatically inflect the version from the deployed Tenant Control Plane.
+	//
+	// WARNING: for last cut-off releases, the container image could be not available.
 	Version string `json:"version,omitempty"`
 	// Tolerations for the deployed agent.
 	// Can be customized to start the konnectivity-agent even if the nodes are not ready or tainted.
 	//+kubebuilder:default={{key: "CriticalAddonsOnly", operator: "Exists"}}
 	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
 	ExtraArgs   ExtraArgs           `json:"extraArgs,omitempty"`
+	// HostNetwork enables the konnectivity agent to use the Host network namespace.
+	// By enabling this mode, the Agent doesn't need to wait for the CNI initialisation,
+	// enabling a sort of out-of-band access to nodes for troubleshooting scenarios,
+	// or when the agent needs direct access to the host network.
+	//+kubebuilder:default=false
+	HostNetwork bool `json:"hostNetwork,omitempty"`
+	// Mode allows specifying the Agent deployment mode: Deployment, or DaemonSet (default).
+	//+kubebuilder:default="DaemonSet"
+	//+kubebuilder:validation:Enum=DaemonSet;Deployment
+	Mode KonnectivityAgentMode `json:"mode,omitempty"`
+	// Replicas defines the number of replicas when Mode is Deployment.
+	// Must be 0 if Mode is DaemonSet.
+	//+kubebuilder:validation:Optional
+	Replicas *int32 `json:"replicas,omitempty"`
 }
 
 // KonnectivitySpec defines the spec for Konnectivity.
 type KonnectivitySpec struct {
-	//+kubebuilder:default={version:"v0.28.6",image:"registry.k8s.io/kas-network-proxy/proxy-server",port:8132}
+	//+kubebuilder:default={image:"registry.k8s.io/kas-network-proxy/proxy-server",port:8132}
 	KonnectivityServerSpec KonnectivityServerSpec `json:"server,omitempty"`
-	//+kubebuilder:default={version:"v0.28.6",image:"registry.k8s.io/kas-network-proxy/proxy-agent"}
+	//+kubebuilder:default={image:"registry.k8s.io/kas-network-proxy/proxy-agent",mode:"DaemonSet"}
 	KonnectivityAgentSpec KonnectivityAgentSpec `json:"agent,omitempty"`
 }
 
@@ -269,14 +415,44 @@ type AddonsSpec struct {
 	KubeProxy *AddonSpec `json:"kubeProxy,omitempty"`
 }
 
+type Permissions struct {
+	BlockCreate bool `json:"blockCreation,omitempty"`
+	BlockUpdate bool `json:"blockUpdate,omitempty"`
+	BlockDelete bool `json:"blockDeletion,omitempty"`
+}
+
+func (p *Permissions) HasAnyLimitation() bool {
+	if p.BlockCreate || p.BlockUpdate || p.BlockDelete {
+		return true
+	}
+
+	return false
+}
+
+// DataStoreOverride defines which kubernetes resource will be stored in a dedicated datastore.
+type DataStoreOverride struct {
+	// Resource specifies which kubernetes resource to target.
+	Resource string `json:"resource,omitempty"`
+	// DataStore specifies the DataStore that should be used to store the Kubernetes data for the given Resource.
+	DataStore string `json:"dataStore,omitempty"`
+}
+
 // TenantControlPlaneSpec defines the desired state of TenantControlPlane.
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.dataStore) || has(self.dataStore)", message="unsetting the dataStore is not supported"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.dataStoreSchema) || has(self.dataStoreSchema)", message="unsetting the dataStoreSchema is not supported"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.dataStoreUsername) || has(self.dataStoreUsername)", message="unsetting the dataStoreUsername is not supported"
 // +kubebuilder:validation:XValidation:rule="!has(self.networkProfile.loadBalancerSourceRanges) || (size(self.networkProfile.loadBalancerSourceRanges) == 0 || self.controlPlane.service.serviceType == 'LoadBalancer')", message="LoadBalancer source ranges are supported only with LoadBalancer service type"
 // +kubebuilder:validation:XValidation:rule="!has(self.networkProfile.loadBalancerClass) || self.controlPlane.service.serviceType == 'LoadBalancer'", message="LoadBalancerClass is supported only with LoadBalancer service type"
 // +kubebuilder:validation:XValidation:rule="self.controlPlane.service.serviceType != 'LoadBalancer' || (oldSelf.controlPlane.service.serviceType != 'LoadBalancer' && self.controlPlane.service.serviceType == 'LoadBalancer') || has(self.networkProfile.loadBalancerClass) == has(oldSelf.networkProfile.loadBalancerClass)",message="LoadBalancerClass cannot be set or unset at runtime"
 
 type TenantControlPlaneSpec struct {
+	// WritePermissions allows to select which operations (create, delete, update) must be blocked:
+	// by default, all actions are allowed, and API Server can write to its Datastore.
+	//
+	// By blocking all actions, the Tenant Control Plane can enter in a Read Only mode:
+	// this phase can be used to prevent Datastore quota exhaustion or for your own business logic
+	// (e.g.: blocking creation and update, but allowing deletion to "clean up" space).
+	WritePermissions Permissions `json:"writePermissions,omitempty"`
 	// DataStore specifies the DataStore that should be used to store the Kubernetes data for the given Tenant Control Plane.
 	// When Kamaji runs with the default DataStore flag, all empty values will inherit the default value.
 	// By leaving it empty and running Kamaji with no default DataStore flag, it is possible to achieve automatic assignment to a specific DataStore object.
@@ -289,8 +465,16 @@ type TenantControlPlaneSpec struct {
 	// to the user to avoid clashes between different TenantControlPlanes. If not set upon creation, Kamaji will default the
 	// DataStoreSchema by concatenating the namespace and name of the TenantControlPlane.
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="changing the dataStoreSchema is not supported"
-	DataStoreSchema string       `json:"dataStoreSchema,omitempty"`
-	ControlPlane    ControlPlane `json:"controlPlane"`
+	DataStoreSchema string `json:"dataStoreSchema,omitempty"`
+	// DataStoreUsername allows to specify the username of the database (for relational DataStores). This
+	// value is optional and immutable. Note that Kamaji currently doesn't ensure that DataStoreUsername values are unique. It's up
+	// to the user to avoid clashes between different TenantControlPlanes. If not set upon creation, Kamaji will default the
+	// DataStoreUsername by concatenating the namespace and name of the TenantControlPlane.
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="changing the dataStoreUsername is not supported"
+	DataStoreUsername string `json:"dataStoreUsername,omitempty"`
+	// DataStoreOverride defines which kubernetes resources will be stored in dedicated datastores.
+	DataStoreOverrides []DataStoreOverride `json:"dataStoreOverrides,omitempty"`
+	ControlPlane       ControlPlane        `json:"controlPlane"`
 	// Kubernetes specification for tenant control plane
 	Kubernetes KubernetesSpec `json:"kubernetes"`
 	// NetworkProfile specifies how the network is
@@ -304,6 +488,7 @@ type TenantControlPlaneSpec struct {
 //+kubebuilder:subresource:scale:specpath=.spec.controlPlane.deployment.replicas,statuspath=.status.kubernetesResources.deployment.replicas,selectorpath=.status.kubernetesResources.deployment.selector
 //+kubebuilder:resource:categories=kamaji,shortName=tcp
 //+kubebuilder:printcolumn:name="Version",type="string",JSONPath=".spec.kubernetes.version",description="Kubernetes version"
+//+kubebuilder:printcolumn:name="Installed Version",type="string",JSONPath=".status.kubernetesResources.version.version",description="The actual installed Kubernetes version from status"
 //+kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.kubernetesResources.version.status",description="Status"
 //+kubebuilder:printcolumn:name="Control-Plane endpoint",type="string",JSONPath=".status.controlPlaneEndpoint",description="Tenant Control Plane Endpoint (API server)"
 //+kubebuilder:printcolumn:name="Kubeconfig",type="string",JSONPath=".status.kubeconfig.admin.secretName",description="Secret which contains admin kubeconfig"

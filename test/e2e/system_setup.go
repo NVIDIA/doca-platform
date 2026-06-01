@@ -74,6 +74,17 @@ type ProvisionDPUClustersInput struct {
 	DPUNodeBMCs             map[string]string
 }
 
+func isPreUpgradeFromLastReleasedGA(ctx context.Context, kclient client.Client, objectKey client.ObjectKey) (bool, error) {
+	dpfOperatorConfig := &operatorv1.DPFOperatorConfig{}
+	if err := kclient.Get(ctx, objectKey, dpfOperatorConfig); err != nil {
+		return false, err
+	}
+	if dpfOperatorConfig.Status.Version == nil {
+		return false, fmt.Errorf("DPFOperatorConfig %s status.version must be set before comparing", objectKey)
+	}
+	return operatorutils.IsUpgradeFromLastReleasedGA(*dpfOperatorConfig.Status.Version), nil
+}
+
 // systemTestInput represents the fully loaded and processed test environment.
 // This struct contains actual Kubernetes API objects and runtime configuration
 // that are ready for use in end-to-end tests.
@@ -514,10 +525,9 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 	var isCurrentVersionLastReleasedGA bool
 	Eventually(func(g Gomega) {
 		// TODO: Remove as soon as we have version aware upgrade logic for the pre-upgrade validation
-		gotDPFOperatorConfig := &operatorv1.DPFOperatorConfig{}
-		g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(input.operatorConfig), gotDPFOperatorConfig)).NotTo(HaveOccurred())
-		g.Expect(gotDPFOperatorConfig.Status.Version).NotTo(BeNil())
-		isCurrentVersionLastReleasedGA = operatorutils.IsUpgradeFromLastReleasedGA(*gotDPFOperatorConfig.Status.Version)
+		var err error
+		isCurrentVersionLastReleasedGA, err = isPreUpgradeFromLastReleasedGA(ctx, testClient, client.ObjectKeyFromObject(input.operatorConfig))
+		g.Expect(err).NotTo(HaveOccurred())
 
 		dpuServices := &dpuservicev1.DPUServiceList{}
 		g.Expect(testClient.List(ctx, dpuServices)).To(Succeed())
@@ -601,13 +611,25 @@ func ProvisionDPUClusters(ctx context.Context, input ProvisionDPUClustersInput) 
 
 	By(fmt.Sprintf("Waiting for %d DPUCluster(s) to be ready", len(input.dpuClusters)))
 	Eventually(func(g Gomega) {
+		// During the upgrade test's "before" phase, the in-cluster DPUCluster controller
+		// is the last released GA and pins its own KubernetesVersion, which can differ
+		// from HEAD's util.KubernetesVersion. Skip the strict version match in that case.
+		// The post-upgrade phase still asserts HEAD's expected version for Kamaji based DPUClusters.
+		// TODO: Remove as soon as we have version aware upgrade logic for the pre-upgrade validation.
+		isCurrentVersionLastReleasedGA, err := isPreUpgradeFromLastReleasedGA(ctx, input.client, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: configName})
+		g.Expect(err).NotTo(HaveOccurred())
+
 		clusters := &provisioningv1.DPUClusterList{}
 		g.Expect(input.client.List(ctx, clusters)).To(Succeed())
 		g.Expect(clusters.Items).To(HaveLen(len(input.dpuClusters)))
 		for _, dpuCluster := range input.dpuClusters {
 			g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuCluster), dpuCluster)).To(Succeed())
 			g.Expect(dpuCluster.Status.Phase).Should(Equal(provisioningv1.PhaseReady))
-			g.Expect(dpuCluster.Status.Version).Should(Equal(util.KubernetesVersion))
+			if !isCurrentVersionLastReleasedGA {
+				g.Expect(dpuCluster.Status.Version).Should(Equal(util.KubernetesVersion))
+			} else {
+				g.Expect(dpuCluster.Status.Version).ShouldNot(BeEmpty())
+			}
 		}
 	}).WithTimeout(300 * time.Second).Should(Succeed())
 
