@@ -66,7 +66,7 @@ linters:
         # Third party APIs
         - pkg: github.com/nvidia/doca-platform/third_party/api/nvipam/api/v1alpha1
           alias: nvipamv1
-        - pkg: github.com/nvidia/doca-platform/third_party/api/kamaji/api/v1alpha1
+        - pkg: github.com/nvidia/doca-platform/third_party/forked/github.com/clastix/kamaji/api/v1alpha1
           alias: kamajiv1
         - pkg: github.com/nvidia/doca-platform/third_party/forked/argoproj/argo-cd/pkg/apis/application/v1alpha1
           alias: argov1

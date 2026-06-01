@@ -39,6 +39,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -165,6 +166,18 @@ var _ = Describe("DPF Upgrade validation", Labels{Domain.DPFUpgradeValidation}, 
 			validatePreUpgradeConditions(ctx, input)
 		})
 
+		It("validate the DPF version is upgraded", func() {
+			By("Validating the DPF version is upgraded")
+			validateDPFVersionUpgrade()
+		})
+
+		It("validate DPUCluster upgrade completed", func() {
+			By("Validating the DPUCluster upgrade completed")
+			validateDPUClusterUpgrade(ctx, getProvisionDPUClustersInput())
+		})
+
+		// Initialize the DPUCluster clients after knowing the DPUClusters are upgraded, because
+		// we do not expect disruptions for the clients.
 		It("get DPUCluster client", func() {
 			By("Creating a client for the DPUCluster")
 			getDPUClusterClients(ctx, getProvisionDPUClustersInput())
@@ -175,11 +188,6 @@ var _ = Describe("DPF Upgrade validation", Labels{Domain.DPFUpgradeValidation}, 
 			VerifyDPUClusterWithNodes(ctx, getProvisionDPUClustersInput())
 			By("Waiting for system components to be ready")
 			verifySystemReady()
-		})
-
-		It("validate the DPF version is upgraded", func() {
-			By("Validating the DPF version is upgraded")
-			validateDPFVersionUpgrade()
 		})
 
 		It("validate that DMS Pods are upgraded", func() {
@@ -502,6 +510,41 @@ func validateDPFVersionUpgrade() {
 
 	}).WithTimeout(1*time.Minute).WithPolling(1*time.Second).Should(Succeed(),
 		"DPF version should be upgraded to the specified tag")
+}
+
+func validateDPUClusterUpgrade(ctx context.Context, input ProvisionDPUClustersInput) {
+	Expect(input.dpuClusters).ToNot(BeEmpty(), "expected at least one DPUCluster to validate after upgrade")
+	hasKamajiDPUCluster := false
+	for _, dpuCluster := range input.dpuClusters {
+		if dpuCluster.Spec.Type == string(provisioningv1.KamajiCluster) {
+			hasKamajiDPUCluster = true
+			break
+		}
+	}
+	Expect(hasKamajiDPUCluster).To(BeTrue(), "expected at least one Kamaji DPUCluster to validate after upgrade")
+
+	Eventually(func(g Gomega) {
+		for _, expectedDPUCluster := range input.dpuClusters {
+			dpuCluster := &provisioningv1.DPUCluster{}
+			g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(expectedDPUCluster), dpuCluster)).To(Succeed())
+
+			// Ignore non-Kamaji clusters for now, because we do not handle their upgrade.
+			if dpuCluster.Spec.Type != string(provisioningv1.KamajiCluster) {
+				continue
+			}
+
+			g.Expect(dpuCluster.Status.Version).To(Equal(util.KubernetesVersion),
+				"DPUCluster %s should report the upgraded Kubernetes version", klog.KObj(dpuCluster))
+
+			g.Expect(dpuCluster.Status.Phase).To(Equal(provisioningv1.PhaseReady),
+				"DPUCluster %s phase should be Ready after upgrade", klog.KObj(dpuCluster))
+
+			readyCondition := conditions.Get(dpuCluster, conditions.ConditionType(provisioningv1.ConditionReady))
+			g.Expect(readyCondition).ToNot(BeNil(), "DPUCluster %s Ready condition should be set after upgrade", klog.KObj(dpuCluster))
+			g.Expect(readyCondition.Status).To(Equal(metav1.ConditionTrue), "DPUCluster %s Ready condition should be True after upgrade", klog.KObj(dpuCluster))
+		}
+	}).WithTimeout(20*time.Minute).WithPolling(1*time.Second).Should(Succeed(),
+		"DPUClusters should finish upgrading and report a fresh Ready condition with the expected Kubernetes version")
 }
 
 // rolloutDependencies simulates a post-upgrade dependency rollout by creating new BFB, DPUFlavor,
