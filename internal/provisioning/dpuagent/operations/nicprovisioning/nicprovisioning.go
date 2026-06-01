@@ -101,10 +101,25 @@ func (n *NICProvisioning) Execute(execCtx context.Context, optCtx *operations.Co
 	}
 	klog.InfoS("NIC provisioning", "dpu", optCtx.Options.DPUName, "namespace", optCtx.Options.DPUNamespace,
 		"bfbRegistryURL", optCtx.Options.BFBRegistryURL)
-	// 1. Download Astra NIC firmware from bfb-registry
-	localNICFWPath, err := n.downloadNICFirmware(execCtx, optCtx)
+
+	blueFieldSoftware, err := getReferencedBlueFieldSoftware(execCtx, optCtx)
 	if err != nil {
 		return err
+	}
+	skipNICFirmware := !isPldmFwBundleConfigured(blueFieldSoftware)
+	if skipNICFirmware {
+		klog.InfoS("NIC provisioning: PldmFwBundle not configured, skipping NIC firmware download and installation",
+			"dpu", optCtx.Options.DPUName, "namespace", optCtx.Options.DPUNamespace,
+			"blueFieldSoftware", blueFieldSoftware.Name)
+	}
+
+	var localNICFWPath string
+	if !skipNICFirmware {
+		// 1. Download Astra NIC firmware from bfb-registry
+		localNICFWPath, err = n.downloadNICFirmware(execCtx, optCtx, blueFieldSoftware)
+		if err != nil {
+			return err
+		}
 	}
 	// 2. Stop host dmsd service (if present) and start local DMS server from NCO library.
 	prepareDMSServer := n.prepareLocalDMSServer
@@ -127,21 +142,23 @@ func (n *NICProvisioning) Execute(execCtx context.Context, optCtx *operations.Co
 			klog.ErrorS(stopErr, "NIC provisioning: failed to stop local DMS server while unwinding execute")
 		}()
 	}
-	// 3. Install NIC firmware
-	installNICFirmware := n.installNICFirmware
-	if n.installNICFirmwareFn != nil {
-		installNICFirmware = n.installNICFirmwareFn
-	}
-	if err := installNICFirmware(execCtx, optCtx, localNICFWPath); err != nil {
-		setAgentCondition(optCtx, cutil.AgentCondEWNicFirmwareInstalled, metav1.ConditionFalse, "InstallFailed", err.Error())
+	// 3. Install NIC firmware (skipped when BlueFieldSoftware has no PldmFwBundle)
+	if !skipNICFirmware {
+		installNICFirmware := n.installNICFirmware
+		if n.installNICFirmwareFn != nil {
+			installNICFirmware = n.installNICFirmwareFn
+		}
+		if err := installNICFirmware(execCtx, optCtx, localNICFWPath); err != nil {
+			setAgentCondition(optCtx, cutil.AgentCondEWNicFirmwareInstalled, metav1.ConditionFalse, "InstallFailed", err.Error())
+			if optCtx.UpdateStatusUntilSuccess != nil {
+				optCtx.UpdateStatusUntilSuccess(execCtx)
+			}
+			return err
+		}
+		setAgentCondition(optCtx, cutil.AgentCondEWNicFirmwareInstalled, metav1.ConditionTrue, "InstallSucceeded", "E/W NIC firmware installation completed")
 		if optCtx.UpdateStatusUntilSuccess != nil {
 			optCtx.UpdateStatusUntilSuccess(execCtx)
 		}
-		return err
-	}
-	setAgentCondition(optCtx, cutil.AgentCondEWNicFirmwareInstalled, metav1.ConditionTrue, "InstallSucceeded", "E/W NIC firmware installation completed")
-	if optCtx.UpdateStatusUntilSuccess != nil {
-		optCtx.UpdateStatusUntilSuccess(execCtx)
 	}
 	// 4. Apply NVConfig for E/W NIC devices.
 	applyNVConfig := n.applyNVConfig
@@ -167,29 +184,44 @@ func (n *NICProvisioning) Execute(execCtx context.Context, optCtx *operations.Co
 	return nil
 }
 
-// downloadNICFirmware resolves and downloads Astra NIC firmware from bfb-registry
-// to the local nic-firmware directory if it is not already cached.
-func (n *NICProvisioning) downloadNICFirmware(execCtx context.Context, optCtx *operations.Context) (string, error) {
+func getReferencedBlueFieldSoftware(execCtx context.Context, optCtx *operations.Context) (*provisioningv1.BlueFieldSoftware, error) {
 	if optCtx.LatestDPU == nil {
-		return "", fmt.Errorf("latest DPU object is required for NIC provisioning")
+		return nil, fmt.Errorf("latest DPU object is required for NIC provisioning")
 	}
 	if optCtx.Client == nil {
-		return "", fmt.Errorf("client is required for NIC provisioning")
+		return nil, fmt.Errorf("client is required for NIC provisioning")
 	}
 
 	blueFieldSoftwareName := strings.TrimSpace(optCtx.LatestDPU.Spec.BlueFieldSoftware)
 	if blueFieldSoftwareName == "" {
-		return "", fmt.Errorf("dpu %s/%s does not reference a BlueFieldSoftware", optCtx.Options.DPUNamespace, optCtx.Options.DPUName)
+		return nil, fmt.Errorf("dpu %s/%s does not reference a BlueFieldSoftware", optCtx.Options.DPUNamespace, optCtx.Options.DPUName)
 	}
 
 	blueFieldSoftware := &provisioningv1.BlueFieldSoftware{}
 	if err := optCtx.Client.Get(execCtx, client.ObjectKey{Namespace: optCtx.Options.DPUNamespace, Name: blueFieldSoftwareName}, blueFieldSoftware); err != nil {
-		return "", fmt.Errorf("failed to get BlueFieldSoftware %s/%s: %w", optCtx.Options.DPUNamespace, blueFieldSoftwareName, err)
+		return nil, fmt.Errorf("failed to get BlueFieldSoftware %s/%s: %w", optCtx.Options.DPUNamespace, blueFieldSoftwareName, err)
+	}
+	return blueFieldSoftware, nil
+}
+
+func isPldmFwBundleConfigured(bfs *provisioningv1.BlueFieldSoftware) bool {
+	if bfs == nil {
+		return false
+	}
+	return strings.TrimSpace(bfs.Spec.PldmFwBundle) != ""
+}
+
+// downloadNICFirmware resolves and downloads Astra NIC firmware from bfb-registry
+// to the local nic-firmware directory if it is not already cached.
+func (n *NICProvisioning) downloadNICFirmware(execCtx context.Context, optCtx *operations.Context, blueFieldSoftware *provisioningv1.BlueFieldSoftware) (string, error) {
+	if blueFieldSoftware == nil {
+		return "", fmt.Errorf("blueFieldSoftware is required for NIC firmware download")
 	}
 
 	nicFWLocation := strings.TrimSpace(blueFieldSoftware.Status.DownloadedComponents.AstraNicFw)
 	if nicFWLocation == "" {
-		return "", fmt.Errorf("blueFieldSoftware %s/%s has empty status.downloadedComponents.astraNicFw", optCtx.Options.DPUNamespace, blueFieldSoftwareName)
+		return "", fmt.Errorf("blueFieldSoftware %s/%s has empty status.downloadedComponents.astraNicFw",
+			blueFieldSoftware.Namespace, blueFieldSoftware.Name)
 	}
 
 	nicFWFileName := filepath.Base(strings.TrimSpace(extractPathForFileName(nicFWLocation)))
@@ -344,7 +376,7 @@ func (n *NICProvisioning) installNICFirmware(execCtx context.Context, optCtx *op
 				UpdatePolicy: nicconsts.FirmwareUpdatePolicyUpdate,
 			}
 			device.Spec.Configuration = &nicconfigurationv1alpha1.NicDeviceConfigurationSpec{
-				Template: buildEWNicConfigurationTemplate(optCtx.DPUFlavor.Spec.EWNicConfigurations),
+				Template: buildEWNicConfigurationTemplate(optCtx.DPUFlavor.Spec.FirstEWNicConfiguration()),
 			}
 			if _, err := fwMgr.InstallFirmware(installCtx, &device, installOptions); err != nil {
 				errCh <- fmt.Errorf("failed to install firmware on NIC %q (type %q): %w",
@@ -403,7 +435,7 @@ func (n *NICProvisioning) applyNVConfig(execCtx context.Context, optCtx *operati
 		go func() {
 			defer wg.Done()
 			device.Spec.Configuration = &nicconfigurationv1alpha1.NicDeviceConfigurationSpec{
-				Template: buildEWNicConfigurationTemplate(optCtx.DPUFlavor.Spec.EWNicConfigurations),
+				Template: buildEWNicConfigurationTemplate(optCtx.DPUFlavor.Spec.FirstEWNicConfiguration()),
 			}
 			result, applyErr := cfgMgr.ApplyNVConfiguration(applyCtx, &device, applyOptions)
 			if applyErr != nil {
