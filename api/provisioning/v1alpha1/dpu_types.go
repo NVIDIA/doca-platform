@@ -292,6 +292,37 @@ type DPUSpec struct {
 	BMCIP string `json:"bmcIP,omitempty"`
 }
 
+// Reasons reported on DPUStatus.Outdated.Reason. Exactly one of these is set
+// at a time, corresponding to the first-precedence diverged template field.
+const (
+	DPUOutdatedReasonBFB               = "OutdatedBFB"
+	DPUOutdatedReasonDPUFlavor         = "OutdatedDPUFlavor"
+	DPUOutdatedReasonSecureBoot        = "OutdatedSecureBoot"
+	DPUOutdatedReasonBlueFieldSoftware = "OutdatedBlueFieldSoftware"
+)
+
+// DPUOutdated reports that the DPU has drifted from its owning DPUSet's
+// DPUTemplate in a way that requires the DPU to be reprovisioned. The struct
+// is presence-based: when the DPU matches the template, DPUStatus.Outdated is
+// nil. The DPUSet controller is the sole writer.
+type DPUOutdated struct {
+	// TimeStamp records when this drift was first observed for the current Reason.
+	// It is preserved across reconciles as long as Reason is unchanged.
+	// +required
+	TimeStamp metav1.Time `json:"timeStamp"`
+
+	// Reason is the machine-readable drift code (e.g. OutdatedBFB). When more
+	// than one template field has drifted, Reason reports the first in fixed
+	// precedence order: BFB -> DPUFlavor -> SecureBoot -> BlueFieldSoftware.
+	// +required
+	Reason string `json:"reason"`
+
+	// Message is a human-readable summary that lists every drifted field,
+	// e.g. "DPU template has changed (BFB: bfb-v1 -> bfb-v2, DPUFlavor: ...)".
+	// +required
+	Message string `json:"message"`
+}
+
 // DPUStatus defines the observed state of DPU
 type DPUStatus struct {
 	// The current state of DPU.
@@ -304,6 +335,12 @@ type DPUStatus struct {
 	// the first transition from a non-empty Phase. Internal controller tracking only.
 	// +optional
 	PreviousPhase DPUPhase `json:"previousPhase,omitempty"`
+
+	// Outdated, when present, indicates the DPU has drifted from its owning
+	// DPUSet's DPUTemplate and needs to be reprovisioned. Set by the DPUSet
+	// controller; absent when the DPU matches the template.
+	// +optional
+	Outdated *DPUOutdated `json:"outdated,omitempty"`
 
 	// Conditions represents the provisioning lifecycle conditions.
 	// +optional

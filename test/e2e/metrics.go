@@ -76,7 +76,7 @@ func ValidateGeneralDPFMetrics(ctx context.Context, input *systemTestInput) {
 			g.Expect(dpus.Items).To(HaveLen(input.totalDPUs()))
 		}).WithTimeout(60 * time.Second).Should(Succeed())
 
-		expectedMetricsNames["dpu"] = []string{"created", "info", "required_reset", "status_phase", "status_conditions", "status_condition_last_transition_time", "operational_conditions", "operational_condition_last_transition_time", "agent_conditions", "agent_condition_last_transition_time"}
+		expectedMetricsNames["dpu"] = []string{"created", "info", "required_reset", "status_phase", "status_conditions", "status_condition_last_transition_time", "operational_conditions", "operational_condition_last_transition_time", "agent_conditions", "agent_condition_last_transition_time", "outdated_timestamp", "outdated_reason"}
 		expectedMetricsNames["dpuset"] = []string{"created", "info", "status_dpu_statistics", "status_conditions", "status_condition_last_transition_time"}
 		expectedMetricsNames["dpunode"] = []string{"created", "info", "reboot_in_progress", "status_conditions", "status_condition_last_transition_time"}
 		expectedMetricsNames["dpudevice"] = []string{"created", "info", "status_conditions", "status_condition_last_transition_time"}
