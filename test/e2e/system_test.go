@@ -101,10 +101,8 @@ func SetInput() {
 		dpfOperatorConfig.Spec.StaticClusterManager.BaseComponentConfig.Disable = ptr.To(true)
 		dpfOperatorConfig.Spec.KamajiClusterManager.BaseComponentConfig.Disable = ptr.To(false)
 		dpfOperatorConfig.Spec.NodeSRIOVDevicePluginController.BaseComponentConfig.Disable = ptr.To(true)
-		By(fmt.Sprintf("Zero trust mode is applied to operatorConfig with trusted host IP %s", controlPlaneIP))
 		dpfOperatorConfig.Spec.ProvisioningController.InstallInterface = &operatorv1.ProvisioningInstallInterface{
 			InstallViaRedfish: &operatorv1.InstallViaRedfish{
-				BFBRegistryAddress:   fmt.Sprintf("%s:%d", controlPlaneIP, bfbRegistryNodePort),
 				SkipDPUNodeDiscovery: ptr.To(false),
 			},
 		}
