@@ -631,6 +631,34 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              outdated:
+                description: |-
+                  Outdated, when present, indicates the DPU has drifted from its owning
+                  DPUSet's DPUTemplate and needs to be reprovisioned. Set by the DPUSet
+                  controller; absent when the DPU matches the template.
+                properties:
+                  message:
+                    description: |-
+                      Message is a human-readable summary that lists every drifted field,
+                      e.g. "DPU template has changed (BFB: bfb-v1 -> bfb-v2, DPUFlavor: ...)".
+                    type: string
+                  reason:
+                    description: |-
+                      Reason is the machine-readable drift code (e.g. OutdatedBFB). When more
+                      than one template field has drifted, Reason reports the first in fixed
+                      precedence order: BFB -> DPUFlavor -> SecureBoot -> BlueFieldSoftware.
+                    type: string
+                  timeStamp:
+                    description: |-
+                      TimeStamp records when this drift was first observed for the current Reason.
+                      It is preserved across reconciles as long as Reason is unchanged.
+                    format: date-time
+                    type: string
+                required:
+                - message
+                - reason
+                - timeStamp
+                type: object
               pciDevice:
                 description: pci device information of this DPU
                 type: string

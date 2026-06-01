@@ -2259,6 +2259,27 @@ _Appears in:_
 
 
 
+#### DPUOutdated
+
+
+
+DPUOutdated reports that the DPU has drifted from its owning DPUSet's
+DPUTemplate in a way that requires the DPU to be reprovisioned. The struct
+is presence-based: when the DPU matches the template, DPUStatus.Outdated is
+nil. The DPUSet controller is the sole writer.
+
+
+
+_Appears in:_
+- [DPUStatus](#dpustatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `timeStamp` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | TimeStamp records when this drift was first observed for the current Reason.<br />It is preserved across reconciles as long as Reason is unchanged. |  | Required: \{\} <br /> |
+| `reason` _string_ | Reason is the machine-readable drift code (e.g. OutdatedBFB). When more<br />than one template field has drifted, Reason reports the first in fixed<br />precedence order: BFB -> DPUFlavor -> SecureBoot -> BlueFieldSoftware. |  | Required: \{\} <br /> |
+| `message` _string_ | Message is a human-readable summary that lists every drifted field,<br />e.g. "DPU template has changed (BFB: bfb-v1 -> bfb-v2, DPUFlavor: ...)". |  | Required: \{\} <br /> |
+
+
 #### DPUPhase
 
 _Underlying type:_ _string_
@@ -2446,6 +2467,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `phase` _[DPUPhase](#dpuphase)_ | The current state of DPU. | Initializing | Enum: [Initializing Node Effect Pending Config FW Parameters Prepare BFB OS Installing DPU Config DPU Cluster Config Host Network Configuration Ready Error Deleting Rebooting Perform ARM Force Restart Initialize Interface Node Effect Removal Checking Host Reboot Required] <br />Required: \{\} <br /> |
 | `previousPhase` _[DPUPhase](#dpuphase)_ | PreviousPhase is the last non-empty Phase before the current Phase, set by the controller<br />when Phase transitions. It may be unset during early initialization (empty Phase) or until<br />the first transition from a non-empty Phase. Internal controller tracking only. |  | Enum: [Initializing Node Effect Pending Config FW Parameters Prepare BFB OS Installing DPU Config DPU Cluster Config Host Network Configuration Ready Error Deleting Rebooting Perform ARM Force Restart Initialize Interface Node Effect Removal Checking Host Reboot Required] <br />Optional: \{\} <br /> |
+| `outdated` _[DPUOutdated](#dpuoutdated)_ | Outdated, when present, indicates the DPU has drifted from its owning<br />DPUSet's DPUTemplate and needs to be reprovisioned. Set by the DPUSet<br />controller; absent when the DPU matches the template. |  | Optional: \{\} <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions represents the provisioning lifecycle conditions. |  | Optional: \{\} <br /> |
 | `operationalConditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | OperationalConditions represents aggregated operational readiness conditions.<br />These conditions reflect the runtime health and readiness of DPU services and node health,<br />separate from the provisioning lifecycle represented by Conditions. |  | Optional: \{\} <br /> |
 | `bfbFile` _string_ | BFBFile is the path to the BFB file |  | Optional: \{\} <br /> |

@@ -203,3 +203,32 @@
           valueFrom:
             - lastTransitionTime
         type: Gauge
+    - name: outdated_timestamp
+      help: Unix timestamp at which dpu.status.outdated was first observed for the current reason. The sample is only emitted while the DPU is outdated.
+      each:
+        gauge:
+          labelsFromPath:
+            reason:
+              - status
+              - outdated
+              - reason
+          path:
+            - status
+            - outdated
+            - timeStamp
+        type: Gauge
+    - name: outdated_reason
+      help: The drift reason reported on dpu.status.outdated.
+      each:
+        stateSet:
+          labelName: reason
+          list:
+            - OutdatedBFB
+            - OutdatedDPUFlavor
+            - OutdatedSecureBoot
+            - OutdatedBlueFieldSoftware
+          path:
+            - status
+            - outdated
+            - reason
+        type: StateSet

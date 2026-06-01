@@ -271,6 +271,10 @@ func (r *DPUSetReconciler) Handle(ctx context.Context, dpuSet *provisioningv1.DP
 		return ctrl.Result{}, fmt.Errorf("failed to update node effect ApplyOnLabelChange for DPUs %w", err)
 	}
 
+	if err := r.reconcileDPUOutdatedStatus(ctx, dpuSet, dpuMap, dpuClusterList.Items); err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to reconcile DPU Outdated status: %w", err)
+	}
+
 	// Check if any DPU changes were made (created or updated)
 	dpusChanged := dpusCreated || dpusUpdated
 
@@ -279,6 +283,82 @@ func (r *DPUSetReconciler) Handle(ctx context.Context, dpuSet *provisioningv1.DP
 	}
 
 	return ctrl.Result{}, nil
+}
+
+// reconcileDPUOutdatedStatus writes (or clears) dpu.status.outdated on each DPU
+// owned by the DPUSet. The struct is set whenever a disruptive template field
+// has diverged (regardless of strategy); it is cleared when the DPU matches
+// the template or only the cluster-selector has drifted.
+//
+// The dpuMap argument is a snapshot captured earlier in the same reconcile,
+// so entries can be stale by the time this method runs (e.g. onDelete /
+// rolloutRolling may have just deleted a DPU). We skip entries already marked
+// for deletion in the snapshot, and tolerate NotFound on the status patch for
+// DPUs that have been deleted since — there's nothing to update on the API
+// server, and treating it as fatal would fail the whole reconcile.
+func (r *DPUSetReconciler) reconcileDPUOutdatedStatus(ctx context.Context, dpuSet *provisioningv1.DPUSet,
+	dpuMap map[string]provisioningv1.DPU, dpuClusters []provisioningv1.DPUCluster) error {
+	logger := log.FromContext(ctx)
+	for i := range dpuMap {
+		dpu := dpuMap[i]
+		if !dpu.DeletionTimestamp.IsZero() {
+			continue
+		}
+
+		outdated, reason, msg := r.detectOutdated(*dpuSet, dpu, dpuClusters)
+
+		var desired *provisioningv1.DPUOutdated
+		if outdated {
+			desired = &provisioningv1.DPUOutdated{Reason: reason, Message: msg}
+		}
+		if !outdatedNeedsUpdate(dpu.Status.Outdated, desired) {
+			continue
+		}
+
+		if desired != nil {
+			// Preserve TimeStamp across reconciles when Reason is unchanged so
+			// it reflects when the current drift was first observed.
+			if dpu.Status.Outdated != nil && dpu.Status.Outdated.Reason == desired.Reason {
+				desired.TimeStamp = dpu.Status.Outdated.TimeStamp
+			} else {
+				desired.TimeStamp = metav1.Now()
+			}
+		}
+
+		patched := dpu.DeepCopy()
+		patched.Status.Outdated = desired
+
+		logger.V(2).Info("Updating DPU Outdated status",
+			"DPU", fmt.Sprintf("%s/%s", dpu.Namespace, dpu.Name),
+			"outdated", outdated, "reason", reason)
+		err := r.Status().Patch(ctx, patched, client.MergeFrom(&dpu), client.FieldOwner(DPUSetControllerName))
+		switch {
+		case err == nil:
+		case apierrors.IsNotFound(err):
+			// The DPU was deleted (likely by onDelete / rolloutRolling earlier
+			// in this same reconcile) after we took the dpuMap snapshot.
+			// Nothing to update; carry on with the remaining DPUs.
+			logger.V(2).Info("Skipping DPU Outdated status patch; DPU no longer exists",
+				"DPU", fmt.Sprintf("%s/%s", dpu.Namespace, dpu.Name))
+		default:
+			return fmt.Errorf("failed to patch DPU (%s/%s) outdated status: %w", dpu.Namespace, dpu.Name, err)
+		}
+	}
+	return nil
+}
+
+// outdatedNeedsUpdate reports whether dpu.status.outdated must be patched to
+// reach the desired state. It returns true iff exactly one of curr/desired is
+// nil, or both are non-nil with a different Reason or Message. TimeStamp is
+// intentionally not compared because it is derived from Reason continuity.
+func outdatedNeedsUpdate(curr, desired *provisioningv1.DPUOutdated) bool {
+	if (curr == nil) != (desired == nil) {
+		return true
+	}
+	if curr == nil {
+		return false
+	}
+	return curr.Reason != desired.Reason || curr.Message != desired.Message
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -596,24 +676,12 @@ func isUnavailable(dpu *provisioningv1.DPU) bool {
 	return cond == nil || cond.Status == metav1.ConditionFalse || !dpu.DeletionTimestamp.IsZero()
 }
 
-// TODO: check more informations
-// needDisruptDPU is used to check if the DPU needs to be disrupted.
+// needDisruptDPU reports whether the DPU's spec has diverged from the owning
+// DPUSet's DPUTemplate in any way that requires recreating the DPU (used by
+// rolloutRolling). It is a thin wrapper over computeDPUDrift, which both
+// callers use to evaluate field-level drift in a single place.
 func (r *DPUSetReconciler) needDisruptDPU(dpuSet provisioningv1.DPUSet, dpu provisioningv1.DPU, dpuClusters []provisioningv1.DPUCluster) bool {
-
-	if dpu.Spec.BFB != dpuSet.Spec.DPUTemplate.Spec.BFB.Name ||
-		dpu.Spec.DPUFlavor != dpuSet.Spec.DPUTemplate.Spec.DPUFlavor ||
-		!reflect.DeepEqual(dpu.Spec.SecureBoot, dpuSet.Spec.DPUTemplate.Spec.SecureBoot) {
-		return true
-	}
-
-	if dpuSet.Spec.DPUTemplate.Spec.BlueFieldSoftware != nil && dpu.Spec.BlueFieldSoftware != dpuSet.Spec.DPUTemplate.Spec.BlueFieldSoftware.Name {
-		return true
-	}
-
-	if dpuSet.Spec.DPUTemplate.Spec.Cluster != nil && !matchDPUClusterSelector(dpuSet.Spec.DPUTemplate.Spec.Cluster.Selector, dpu.Spec.Cluster, dpuClusters) {
-		return true
-	}
-	return false
+	return !r.computeDPUDrift(dpuSet, dpu, dpuClusters).empty()
 }
 
 func (r *DPUSetReconciler) collectDPUStatistics(dpuMap map[string]provisioningv1.DPU) map[provisioningv1.DPUPhase]int {
