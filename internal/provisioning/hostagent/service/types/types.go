@@ -31,3 +31,10 @@ type ConfigureHostVFsRequest struct {
 	DPUName      string `json:"dpuName"`
 	DPUNamespace string `json:"dpuNamespace"`
 }
+
+type TriggerRebootRequest struct {
+	DPUName      string                          `json:"dpuName"`
+	DPUNamespace string                          `json:"dpuNamespace"`
+	DPUUID       string                          `json:"dpuUID"`
+	RebootMethod provisioningv1.RebootMethodType `json:"rebootMethod"`
+}

@@ -56,7 +56,8 @@ type HostAgentReconciler struct {
 func NewHostAgentReconciler(client client.Client,
 	bfbRegistryAddress string,
 	nodeManager nodemanager.Interface,
-	networkManager networkmanager.Interface) *HostAgentReconciler {
+	networkManager networkmanager.Interface,
+	rebootHandler *reboot.Handler) *HostAgentReconciler {
 	r := &HostAgentReconciler{
 		Client:         client,
 		NodeManager:    nodeManager,
@@ -70,7 +71,7 @@ func NewHostAgentReconciler(client client.Client,
 		provisioningv1.DPUInitializeInterface:      interfaceinit.NewHandler(client, r.NetworkManager.GetDevice),
 		provisioningv1.DPUConfigFWParameters:       configfw.NewHandler(client, r.NetworkManager.GetDevice),
 		provisioningv1.DPUOSInstalling:             install.NewHandler(client, bfbRegistry, r.NetworkManager.GetDevice),
-		provisioningv1.DPURebooting:                reboot.NewHandler(client, r.NodeManager.GetNodeName, r.NetworkManager.GetDevice),
+		provisioningv1.DPURebooting:                rebootHandler,
 		provisioningv1.DPUHostNetworkConfiguration: network.NewHandler(r.NetworkManager.AddNetworkRequest),
 	}
 	return r
