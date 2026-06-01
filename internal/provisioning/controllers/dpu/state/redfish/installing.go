@@ -38,6 +38,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
+const (
+	exceptionTaskState = "Exception"
+)
+
 func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
 	logger := log.FromContext(ctx)
 	state := dpu.Status.DeepCopy()
@@ -74,19 +78,36 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 		return *state, err
 	}
 
-	_, cond := cutil.GetDPUCondition(state, string(provisioningv1.DPUCondBFBTransferred))
-	if cond == nil || cond.Status != metav1.ConditionTrue {
-		return submitAndMonitorBfbInstallTask(ctx, dpu, ctrlCtx, client)
+	if dpu.Status.DPUType == provisioningv1.DPUTypeBlueField4 {
+		_, cond := cutil.GetDPUCondition(state, string(provisioningv1.DPUCondChangeBootTarget))
+		if cond == nil || cond.Status != metav1.ConditionTrue {
+			return installOsBf4(ctx, dpu, ctrlCtx, client)
+		}
+
+	} else {
+		_, cond := cutil.GetDPUCondition(state, string(provisioningv1.DPUCondBFBTransferred))
+		if cond == nil || cond.Status != metav1.ConditionTrue {
+
+			return submitAndMonitorBfbInstallTask(ctx, dpu, ctrlCtx, client)
+		}
 	}
 
 	resp, system, err := client.GetSystem()
 	if err != nil || resp.StatusCode() != http.StatusOK {
 		err = fmt.Errorf("failed to get system: %w", err)
+		logger.Error(err, "Failed to get system")
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "FailToGetSystem", err.Error()))
 		return *state, err
 	}
 
-	if system.BootProgress.OemLastState != "OsIsRunning" {
+	if dpu.Status.DPUType == provisioningv1.DPUTypeBlueField4 && system.BootProgress.LastState != "OSRunning" {
+		logger.Info("OS is not running, waiting for it to start")
+		msg := fmt.Sprintf("Waiting for DPU OS to finish booting; current boot state=%q", system.BootProgress.LastState)
+		cond := cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), nil, "OSNotRunning", msg)
+		cond.Status = metav1.ConditionFalse
+		cutil.SetDPUCondition(state, cond)
+		return *state, nil
+	} else if system.BootProgress.OemLastState != "OsIsRunning" {
 		msg := fmt.Sprintf("Waiting for DPU OS to finish booting; current boot state=%q", system.BootProgress.OemLastState)
 		cond := cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), nil, "OSNotRunning", msg)
 		cond.Status = metav1.ConditionFalse
@@ -94,8 +115,8 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 		return *state, nil
 	}
 
-	cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), nil, "BFBInstalled", "BFB installed, waiting for the DPU agent to start"))
-	_, cond = cutil.GetDPUCondition(state, string(provisioningv1.DPUCondOSInstalled))
+	cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), nil, "OsInstalled", "OS installed, waiting for the DPU agent to start"))
+	_, cond := cutil.GetDPUCondition(state, string(provisioningv1.DPUCondOSInstalled))
 
 	// wait until the DPU agent is started
 	if dpu.Status.AgentStatus == nil || dpu.Status.AgentStatus.LastStartupTime == nil {
@@ -116,6 +137,185 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 	state.Phase = provisioningv1.DPUConfig
 	logger.Info("installation finished")
 	return *state, nil
+}
+
+func installOsBf4(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext, client *rc.Client) (provisioningv1.DPUStatus, error) {
+	logger := log.FromContext(ctx)
+	state := dpu.Status.DeepCopy()
+
+	logger.Info("installing OS for BlueField 4")
+
+	bfbRegistryAddr, err := getBFBRegistryAddress(ctx, ctrlCtx)
+	if err != nil {
+		err = fmt.Errorf("failed to get bfb-registry address: %w", err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "FailToGetBFBRegistryAddress", err.Error()))
+		return *state, err
+	}
+
+	bluefieldSoftware := &provisioningv1.BlueFieldSoftware{}
+	if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.BlueFieldSoftware}, bluefieldSoftware); err != nil {
+		err = fmt.Errorf("failed to get bluefield software: %w", err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "FailToGetBlueFieldSoftware", err.Error()))
+		return *state, err
+	}
+
+	if bluefieldSoftware.Status.Phase != provisioningv1.BlueFieldSoftwareReady {
+		err = fmt.Errorf("bluefield software is not ready")
+		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "BlueFieldSoftwareIsNotReady", err.Error()))
+		return *state, err
+	}
+
+	schemes := []string{"http://", "https://"}
+	for _, prefix := range schemes {
+		bfbRegistryAddr = strings.TrimPrefix(bfbRegistryAddr, prefix)
+	}
+	imageURI := filepath.Join(bfbRegistryAddr, bluefieldSoftware.Status.DownloadedComponents.OsIso)
+	if err := reconcileBf4ArmTransfer(logger, dpu, state, client, provisioningv1.DPUCondIsoTransferred, imageURI, client.InstallBluefieldArmImage, "ISO"); err != nil {
+		logger.Error(err, "Failed to install ISO", "error", err)
+		return *state, err
+	}
+	if _, c := cutil.GetDPUCondition(state, string(provisioningv1.DPUCondIsoTransferred)); c == nil || c.Status != metav1.ConditionTrue {
+		return *state, nil
+	}
+	logger.Info("ISO transferred, starting to install config")
+
+	configURI := filepath.Join(bfbRegistryAddr, dpu.Status.BFCFGFile)
+	if err := reconcileBf4ArmTransfer(logger, dpu, state, client, provisioningv1.DPUCondConfigTransferred, configURI, client.InstallBluefieldArmConfig, "config"); err != nil {
+		logger.Error(err, "Failed to install config", "error", err)
+		return *state, err
+	}
+	if _, c := cutil.GetDPUCondition(state, string(provisioningv1.DPUCondConfigTransferred)); c == nil || c.Status != metav1.ConditionTrue {
+		return *state, nil
+	}
+
+	logger.Info("Config transferred, starting to insert virtual media")
+
+	resp, err := client.InsertVirtualMediaImage()
+	if err != nil {
+		err = fmt.Errorf("failed to insert virtual media image: %w", err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondVirtualMediaInserted), err, "FailToResetChassis", resp.String()))
+		state.Phase = provisioningv1.DPUError
+		return *state, nil
+	}
+
+	resp, err = client.InsertVirtualMediaConfig()
+	if err != nil {
+		err = fmt.Errorf("failed to insert virtual media config: %w", err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondVirtualMediaInserted), err, "FailToResetChassis", resp.String()))
+		state.Phase = provisioningv1.DPUError
+		return *state, nil
+	}
+
+	resp, err = client.SetBootTarget("Usb")
+	if err != nil {
+		err = fmt.Errorf("failed to set boot target: %w", err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondChangeBootTarget), err, "FailToSetBootTarget", resp.String()))
+		state.Phase = provisioningv1.DPUError
+		return *state, nil
+	}
+
+	resp, err = client.ChassisReset()
+	if err != nil {
+		err = fmt.Errorf("failed to reset chassis: %w", err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondChassisReset), err, "FailToResetChassis", resp.String()))
+		state.Phase = provisioningv1.DPUError
+		return *state, nil
+	}
+
+	logger.Info("Chassis reset, waiting for the DPU agent to start")
+
+	state.RedfishTaskID = nil
+
+	vmCond := cutil.NewCondition(string(provisioningv1.DPUCondVirtualMediaInserted), nil, "", "Virtual media inserted")
+	vmCond.Status = metav1.ConditionTrue
+	cutil.SetDPUCondition(state, vmCond)
+
+	bootCond := cutil.NewCondition(string(provisioningv1.DPUCondChangeBootTarget), nil, "", "Boot target changed to USB, chassis reset.")
+	bootCond.Status = metav1.ConditionTrue
+	cutil.SetDPUCondition(state, bootCond)
+
+	return *state, nil
+}
+
+// reconcileBf4ArmTransfer submits or polls a single BlueField ARM install Redfish task (ISO or config)
+// and updates state. It uses state.RedfishTaskID (not dpu.Status) so a completed ISO step can start
+// the config step in the same reconcile without reusing the prior task id from the API object.
+func reconcileBf4ArmTransfer(
+	logger logr.Logger,
+	dpu *provisioningv1.DPU,
+	state *provisioningv1.DPUStatus,
+	client *rc.Client,
+	condType provisioningv1.DPUConditionType,
+	uri string,
+	install func(string) (*resty.Response, *rc.TaskInfo, error),
+	installDesc string,
+) error {
+	_, cond := cutil.GetDPUCondition(state, string(condType))
+	if cond != nil && cond.Status == metav1.ConditionTrue {
+		return nil
+	}
+
+	condKey := string(condType)
+
+	if state.RedfishTaskID == nil {
+		resp, taskInfo, err := install(uri)
+		if err != nil {
+			err = fmt.Errorf("failed to install %s: %w", installDesc, err)
+			cutil.SetDPUCondition(state, cutil.NewCondition(condKey, err, "FailToInstall", err.Error()))
+			state.Phase = provisioningv1.DPUError
+			// When we transition to ERROR phase, return nil so the next Reconcile is triggered by the UPDATE event.
+			// If an error is returned, the next Reconcile may be triggered as a retry, leading to installing again.
+			return nil
+		}
+		if resp.StatusCode() == http.StatusBadRequest && strings.Contains(resp.String(), "Another update is in progress") {
+			logger.Info("another update is in progress, waiting for it to finish", "dpuName", dpu.Name)
+			return nil
+		}
+		if resp.StatusCode() != http.StatusAccepted {
+			err = fmt.Errorf("get status: %s", resp.Status())
+			logger.Error(err, "Failed to install component", "component", installDesc, "status", resp.Status(), "body", resp.String())
+			cutil.SetDPUCondition(state, cutil.NewCondition(condKey, err, "FailToInstall", resp.String()))
+			state.Phase = provisioningv1.DPUError
+			return nil
+		}
+		state.RedfishTaskID = &taskInfo.ID
+		logger.Info(fmt.Sprintf("new install task: %+v", *taskInfo))
+		return nil
+	}
+
+	resp, prog, err := client.CheckTaskProgress(*state.RedfishTaskID)
+	if err != nil {
+		err = fmt.Errorf("failed to check task progress: %w", err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(condKey, err, "FailToCheckProgress", err.Error()))
+		return err
+	}
+	if resp.StatusCode() != http.StatusOK {
+		err = fmt.Errorf("get status: %s", resp.Status())
+		logger.Error(err, "Failed to check task progress", "status", resp.Status(), "body", resp.String())
+		cutil.SetDPUCondition(state, cutil.NewCondition(condKey, err, "FailToCheckProgress", resp.String()))
+		state.Phase = provisioningv1.DPUError
+		return nil
+	}
+	if prog.TaskState == exceptionTaskState {
+		taskErr := fmt.Errorf("task %s is in Exception state: %v", *state.RedfishTaskID, prog.Messages)
+		cutil.SetDPUCondition(state, cutil.NewCondition(condKey, taskErr, "FailToInstall", fmt.Sprintf("Task %s is in Exception state: %v", *state.RedfishTaskID, prog.Messages)))
+		state.Phase = provisioningv1.DPUError
+		return nil
+	}
+	logger.Info(fmt.Sprintf("taskProgress: %+v", prog), "component", installDesc)
+	if prog.PercentComplete < 100 {
+		taskProgress := fmt.Sprintf("install task %d%% complete", prog.PercentComplete)
+		c := cutil.NewCondition(condKey, nil, "TaskProgress", taskProgress)
+		c.Status = metav1.ConditionFalse
+		cutil.SetDPUCondition(state, c)
+		return nil
+	}
+
+	state.RedfishTaskID = nil
+	done := cutil.NewCondition(condKey, nil, "", "")
+	done.Status = metav1.ConditionTrue
+	cutil.SetDPUCondition(state, done)
+	return nil
 }
 
 func submitAndMonitorBfbInstallTask(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext, client *rc.Client) (provisioningv1.DPUStatus, error) {
@@ -167,7 +367,7 @@ func submitAndMonitorBfbInstallTask(ctx context.Context, dpu *provisioningv1.DPU
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondBFBTransferred), enrichedErr, "FailToCheckProgress", enrichedErr.Error()))
 		return *state, enrichedErr
 	}
-	if prog.TaskState == "Exception" {
+	if prog.TaskState == exceptionTaskState {
 		taskErr := buildExceptionTaskError(ctx, dpu, ctrlCtx, logger, client, resp, prog)
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondBFBTransferred), taskErr, "FailToInstall", taskErr.Error()))
 		state.Phase = provisioningv1.DPUError
