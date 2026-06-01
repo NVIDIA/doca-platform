@@ -24,7 +24,6 @@ import (
 	"maps"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -71,7 +70,8 @@ type ProvisionDPUClustersInput struct {
 	client                  client.Client
 	bfbImageURL             string
 	restConfig              *rest.Config
-	HostRebootScript        string
+	NodeRebootConfigMap     string
+	DPUNodeBMCs             map[string]string
 }
 
 // systemTestInput represents the fully loaded and processed test environment.
@@ -117,13 +117,15 @@ type systemTestInput struct {
 	ovnCredentialRequest        *dpuservicev1.DPUServiceCredentialRequest
 	numberOfDPUNodes            int
 	numberOfDPUsPerNode         int
-	useExternalNodeReboot       bool
 	pullSecretNames             []string
 	client                      client.Client
 	cleanupFlags                *cleanup.CleanupFlags
 	bfbImageURL                 string
 	restConfig                  *rest.Config
-	HostRebootScript            string
+	nodeRebootConfigMap         string
+	nodeRebootConfigMapPath     string
+	useExternalNodeReboot       bool
+	dpuNodeBMCs                 map[string]string
 }
 
 func (t *systemTestInput) applySDNConfig(conf config) {
@@ -368,6 +370,8 @@ func (t *systemTestInput) applyConfig(conf config) {
 
 	t.numberOfDPUNodes = conf.NumberOfDPUNodes
 	t.numberOfDPUsPerNode = conf.NumberOfDPUsPerNode
+	t.nodeRebootConfigMap = conf.NodeRebootConfigMap
+	t.nodeRebootConfigMapPath = conf.NodeRebootConfigMapPath
 	t.useExternalNodeReboot = conf.UseExternalNodeReboot
 }
 
@@ -753,7 +757,7 @@ func VerifyDPUClusterWithNodes(ctx context.Context, input ProvisionDPUClustersIn
 
 	if isGinkgoLabelApplied(Domain.ZeroTrust) {
 		ProcessDPUNodeMaintenanceHold(ctx, input)
-		RebootAndVerifyDPU(ctx, input)
+		WaitForDPUReboot(ctx, input)
 	}
 
 	// Verify nodes are present in DPUCluster,
@@ -854,16 +858,19 @@ func ProcessDPUNodeMaintenanceHold(ctx context.Context, input ProvisionDPUCluste
 	}
 }
 
-// RebootAndVerifyDPU waits and verifies that the DPUs expecting reboot, triggers node and dpu reboot via power cycle
-// here when expected condition met.
-// In addition removes annotation from rebooted node after the reboot is finished.
-// applies to ZeroTrust only
-func RebootAndVerifyDPU(ctx context.Context, input ProvisionDPUClustersInput) {
+// WaitForDPUReboot waits for all DPUs to reach the DPURebooting phase, then
+// polls each DPU's `Status.RebootStatus.Phase` until it reports `Succeeded`.
+// The actual reboot is driven in-cluster by the DPUNode controller, which
+// spawns a Job from the ConfigMap named in
+// ProvisionDPUClustersInput.NodeRebootConfigMap (e.g. `dpunode-reboot-redfish`)
+// and updates `RebootStatus` as the Job progresses; the test does not look
+// at the Job directly because the controller may garbage-collect it after
+// success. Fails fast if any DPU's `RebootStatus.Phase` becomes `Failed`.
+// Applies to ZeroTrust only.
+func WaitForDPUReboot(ctx context.Context, input ProvisionDPUClustersInput) {
 	tracker := NewByTracker()
-	// Verify DPUs are present in DPUCluster
 	dpus := &provisioningv1.DPUList{}
 
-	// applies to ZeroTrust only
 	By("Wait for DPUs to reach DPURebooting state in ZeroTrust")
 	Eventually(func(g Gomega) {
 		g.Expect(input.client.List(ctx, dpus)).ToNot(HaveOccurred())
@@ -885,55 +892,46 @@ func RebootAndVerifyDPU(ctx context.Context, input ProvisionDPUClustersInput) {
 		}
 	}).WithTimeout(provisioningTimeout).Should(Succeed())
 
-	By("Trigger host reboot via script for all DPUs requiring reboot")
-	Expect(input.client.List(ctx, dpus)).ToNot(HaveOccurred())
-	for i := range dpus.Items {
-		dpuKey := client.ObjectKey{Name: dpus.Items[i].Name, Namespace: dpus.Items[i].Namespace}
-		current := &provisioningv1.DPU{}
-		Expect(input.client.Get(ctx, dpuKey, current)).To(Succeed())
+	By("Reboot driven by in-cluster script Job (nodeRebootMethod.script); waiting for completion")
+	waitForScriptRebootCompletion(ctx, input.client,
+		input.numberOfDPUNodes*input.numberOfDPUsPerNode)
+}
 
-		if current.Status.Phase == provisioningv1.DPURebooting {
-			nodeName := fmt.Sprintf("worker%d", i+1)
-			By(fmt.Sprintf("Trigger host %s reboot via script for DPU %s", nodeName, current.Name))
-			err := RebootHostByScript(input.HostRebootScript, nodeName)
-			Expect(err).NotTo(HaveOccurred(), "Reboot host script failed for %s: %v", nodeName, err)
-		}
-	}
-
-	By("Waiting for SSH connectivity to all hosts after reboot")
+// Waits for all DPU host reboots to finish in script-reboot mode by checking DPU.Status.RebootStatus,
+// Succeeds when all DPUs report RebootStatus.Succeeded, fails-fast if any hit RebootStatus.Failed.
+func waitForScriptRebootCompletion(ctx context.Context, c client.Client, expectedDPUs int) {
+	tracker := NewByTracker()
 	Eventually(func(g Gomega) {
-		for i := 0; i < input.numberOfDPUNodes; i++ {
-			nodeName := fmt.Sprintf("worker%d", i+1)
-			By(fmt.Sprintf("Checking SSH connectivity for %s", nodeName))
+		dpus := &provisioningv1.DPUList{}
+		g.Expect(c.List(ctx, dpus)).To(Succeed())
+		g.Expect(dpus.Items).To(HaveLen(expectedDPUs))
 
-			// Try SSH with timeout
-			cmd := exec.Command("ssh",
-				"-o", "ConnectTimeout=3",
-				"-o", "BatchMode=yes",
-				"-o", "StrictHostKeyChecking=no",
-				nodeName,
-				"true")
+		for i := range dpus.Items {
+			dpu := &dpus.Items[i]
+			rs := dpu.Status.RebootStatus
+			phase := provisioningv1.RebootStatusPhase("")
+			reason, message := "", ""
+			if rs != nil {
+				phase = rs.Phase
+				reason = rs.Reason
+				message = rs.Message
+			}
+			tracker.By(dpu.Name, "DPU %s RebootStatus.Phase=%q reason=%q",
+				dpu.Name, phase, reason)
 
-			err := cmd.Run()
-			g.Expect(err).NotTo(HaveOccurred(),
-				fmt.Sprintf("SSH connectivity check failed for %s", nodeName))
+			// We use Expect here (not g.Expect) to fail fast the test if a DPU
+			// enters the RebootStatusFailed state.
+			Expect(phase).NotTo(Equal(provisioningv1.RebootStatusFailed),
+				fmt.Sprintf("DPU %s RebootStatus=Failed (reason=%q, message=%q); "+
+					"the script-reboot Job hit its backoffLimit and recovery "+
+					"requires manual Job deletion",
+					dpu.Name, reason, message))
+
+			g.Expect(phase).To(Equal(provisioningv1.RebootStatusSucceeded),
+				fmt.Sprintf("DPU %s RebootStatus.Phase=%q (waiting for Succeeded)",
+					dpu.Name, phase))
 		}
-	}).WithTimeout(10 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
-
-	By("Removing provisioning.dpu.nvidia.com/dpunode-external-reboot-required annotation from DPUNodes after the host reboot")
-	nodes := &provisioningv1.DPUNodeList{}
-	Expect(input.client.List(ctx, nodes)).ToNot(HaveOccurred())
-
-	for _, node := range nodes.Items {
-		annotation := "provisioning.dpu.nvidia.com/dpunode-external-reboot-required"
-
-		if _, ok := node.GetAnnotations()[annotation]; ok {
-			patch := client.MergeFrom(node.DeepCopy())
-			delete(node.Annotations, annotation)
-			Expect(input.client.Patch(ctx, &node, patch)).ToNot(HaveOccurred(),
-				fmt.Sprintf("Failed to patch DPUNode %s", node.Name))
-		}
-	}
+	}).WithTimeout(30 * time.Minute).WithPolling(15 * time.Second).Should(Succeed())
 }
 
 func VerifyClusterPods(ctx context.Context, client client.Client, podSubstrToVerify []string) {
@@ -1258,13 +1256,139 @@ func getDPUClusterClients(ctx context.Context, input ProvisionDPUClustersInput) 
 	}
 }
 
-func RebootHostByScript(rebootHostScript string, hostName string) error {
-	cmd := exec.Command(rebootHostScript, hostName)
+const bmcIPLabelKey = "host-bmc-ip"
 
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+// GetDPUNodeToBMCIPs ensures the expected DPUNodes exist and maps each DPUNode name to its host BMC IP based on a static inventory file.
+// In Zero-Trust mode, this mapping validates each DPUNode against the inventory, failing clearly if not found.
+// bmcInventoryPath is sourced from $E2E_ZT_BMC_INVENTORY_PATH by getEnvVariables() and required-ness is enforced by validateFlags() for ZT runs.
+func GetDPUNodeToBMCIPs(ctx context.Context, c client.Client,
+	expectedDPUNodes int) map[string]string {
 
-	return cmd.Run()
+	raw, err := os.ReadFile(bmcInventoryPath)
+	Expect(err).NotTo(HaveOccurred(),
+		"reading BMC inventory at %s (set $E2E_ZT_BMC_INVENTORY_PATH to a valid path)",
+		bmcInventoryPath)
+	inventory := map[string]string{}
+	Expect(yaml.Unmarshal(raw, &inventory)).To(Succeed(),
+		"parsing %s", bmcInventoryPath)
+
+	By(fmt.Sprintf("Resolving DPUNode -> host BMC IP for %d DPUNodes via %s",
+		expectedDPUNodes, bmcInventoryPath))
+	var observed []provisioningv1.DPUNode
+	Eventually(func(g Gomega) {
+		nodes := &provisioningv1.DPUNodeList{}
+		g.Expect(c.List(ctx, nodes, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(nodes.Items).To(HaveLen(expectedDPUNodes))
+		observed = nodes.Items
+	}).WithTimeout(10 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+
+	out := make(map[string]string, len(observed))
+	for i := range observed {
+		serial := strings.TrimPrefix(strings.ToLower(observed[i].Name), "dpu-node-")
+		bmcIP, ok := inventory[serial]
+		Expect(ok).To(BeTrue(),
+			"DPUNode %q has no entry in %s; add the DPU serial there",
+			observed[i].Name, bmcInventoryPath)
+		out[observed[i].Name] = bmcIP
+	}
+	return out
+}
+
+// Name of the Secret referenced by the reboot ConfigMap pod-template to provide the BMC password.
+// Must match between Go code and the YAML fixture for script-based node reboot.
+const (
+	bmcCredentialsSecretName = "dpunode-reboot-bmc-credentials"
+	bmcPasswordSecretKey     = "BMC_PASSWORD"
+)
+
+// ApplyNodeRebootConfigMap creates the BMC credentials Secret (sourced from
+// $E2E_ZT_BMC_PASSWORD) and applies the reboot ConfigMap fixture as-is.
+func ApplyNodeRebootConfigMap(ctx context.Context, c client.Client, configMapPath string) {
+
+	applyBMCCredentialsSecret(ctx, c)
+
+	By(fmt.Sprintf("Applying node reboot ConfigMap fixture %s", configMapPath))
+	data, err := os.ReadFile(configMapPath)
+	Expect(err).ToNot(HaveOccurred(), "reading node reboot ConfigMap fixture")
+
+	obj := &unstructured.Unstructured{}
+	Expect(yaml.Unmarshal(data, obj)).To(Succeed())
+	if obj.GetNamespace() == "" {
+		obj.SetNamespace(dpfOperatorSystemNamespace)
+	}
+	labels := obj.GetLabels()
+	if labels == nil {
+		labels = map[string]string{}
+	}
+	maps.Copy(labels, CleanupScope.Suite)
+	obj.SetLabels(labels)
+	Expect(client.IgnoreAlreadyExists(c.Create(ctx, obj))).To(Succeed())
+}
+
+// applyBMCCredentialsSecret creates a suite-scoped Secret for the reboot pod with the BMC password, ensuring it is not exposed in the ConfigMap.
+// bmcPassword is sourced from $E2E_ZT_BMC_PASSWORD by getEnvVariables() and required-ness is enforced by validateFlags() for ZT runs.
+func applyBMCCredentialsSecret(ctx context.Context, c client.Client) {
+	By(fmt.Sprintf("Creating BMC credentials Secret %s/%s",
+		dpfOperatorSystemNamespace, bmcCredentialsSecretName))
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      bmcCredentialsSecretName,
+			Namespace: dpfOperatorSystemNamespace,
+			Labels:    maps.Clone(CleanupScope.Suite),
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: map[string][]byte{
+			bmcPasswordSecretKey: []byte(bmcPassword),
+		},
+	}
+	Expect(client.IgnoreAlreadyExists(c.Create(ctx, secret))).To(Succeed())
+}
+
+// PatchDPUNodesForScriptReboot updates each DPUNode to use the specified script-based reboot method,
+// assigning the correct BMC IP label from the externally provided bmcIPs map. This pattern is necessary
+// because we use dpudiscovery (and do not create the DPUNode objects ourselves), so we must associate
+// host identity (BMC IPs) externally. This is especially important in Zero-Trust setups, where host
+// identity cannot be reliably derived from cluster state.
+func PatchDPUNodesForScriptReboot(ctx context.Context, c client.Client,
+	expectedDPUNodes int, configMapName string, bmcIPs map[string]string) {
+
+	Expect(bmcIPs).NotTo(BeEmpty(),
+		"DPUNodeBMCs must be set when NodeRebootConfigMap is in use")
+	Expect(bmcIPs).To(HaveLen(expectedDPUNodes),
+		"DPUNodeBMCs must have one entry per DPUNode (got %d, expected %d)",
+		len(bmcIPs), expectedDPUNodes)
+
+	By(fmt.Sprintf("Waiting for %d DPUNodes to exist before switching reboot method to script", expectedDPUNodes))
+	var observed []provisioningv1.DPUNode
+	Eventually(func(g Gomega) {
+		nodes := &provisioningv1.DPUNodeList{}
+		g.Expect(c.List(ctx, nodes, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(nodes.Items).To(HaveLen(expectedDPUNodes))
+		observed = nodes.Items
+	}).WithTimeout(10 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+
+	for i := range observed {
+		dpuNode := &provisioningv1.DPUNode{}
+		Expect(c.Get(ctx, client.ObjectKeyFromObject(&observed[i]), dpuNode)).To(Succeed())
+
+		bmcIP, ok := bmcIPs[dpuNode.Name]
+		Expect(ok).To(BeTrue(),
+			"DPUNode %s has no entry in DPUNodeBMCs: %v", dpuNode.Name, bmcIPs)
+		Expect(bmcIP).NotTo(BeEmpty(),
+			"DPUNodeBMCs[%s] is empty", dpuNode.Name)
+
+		patch := client.MergeFrom(dpuNode.DeepCopy())
+		dpuNode.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{
+			Script: &provisioningv1.Script{Name: configMapName},
+		}
+		if dpuNode.Labels == nil {
+			dpuNode.Labels = map[string]string{}
+		}
+		dpuNode.Labels[bmcIPLabelKey] = bmcIP
+		By(fmt.Sprintf("Patching DPUNode %s -> script reboot via ConfigMap %s (BMC %s)",
+			dpuNode.Name, configMapName, bmcIP))
+		Expect(c.Patch(ctx, dpuNode, patch)).To(Succeed())
+	}
 }
 
 func unstructuredFromFile(path string) *unstructured.Unstructured {
