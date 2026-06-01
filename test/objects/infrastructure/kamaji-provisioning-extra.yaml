@@ -37,8 +37,19 @@ spec:
           tenant.clastix.io: dpu-cluster-2
       serviceType: ClusterIP
   kubernetes:
-    version: v1.34.0
+    version: v1.35.4
     kubelet:
+      # Required for compatibility with v1.34 kubelet versions.
+      configurationJSONPatches:
+        - op: remove
+          path: /crashLoopBackOff
+        - op: remove
+          path: /imagePullCredentialsVerificationPolicy
+        - op: add
+          path: /featureGates
+          value:
+            KubeletCrashLoopBackOffMax: false
+            KubeletEnsureSecretPulledImages: false
       cgroupfs: systemd
       preferredAddressTypes: [InternalIP,Hostname,ExternalIP]
     admissionControllers:

@@ -31,10 +31,10 @@ import (
 	"github.com/nvidia/doca-platform/internal/operator/inventory"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/pkg/conditions"
-	kamajiv1 "github.com/nvidia/doca-platform/third_party/api/kamaji/api/v1alpha1"
 	"github.com/nvidia/doca-platform/third_party/forked/argoproj/argo-cd/pkg/apis/application"
 	argov1 "github.com/nvidia/doca-platform/third_party/forked/argoproj/argo-cd/pkg/apis/application/v1alpha1"
 	argohealth "github.com/nvidia/doca-platform/third_party/forked/argoproj/gitops-engine/pkg/health"
+	kamajiv1 "github.com/nvidia/doca-platform/third_party/forked/github.com/clastix/kamaji/api/v1alpha1"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -46,6 +46,8 @@ import (
 )
 
 const all = "all"
+
+const tenantControlPlaneKind = "TenantControlPlane"
 
 type objectScope struct {
 	client client.Client
@@ -349,7 +351,7 @@ func addDPUClusters(ctx context.Context, o objectScope, root client.Object) erro
 }
 
 func addKamajisTenantControlPlane(ctx context.Context, o objectScope, root client.Object, matchLabels client.MatchingLabels) error {
-	if !showResource(o.opts, kamajiv1.TenantControlPlaneKind) {
+	if !showResource(o.opts, tenantControlPlaneKind) {
 		return nil
 	}
 
@@ -365,7 +367,7 @@ func addKamajisTenantControlPlane(ctx context.Context, o objectScope, root clien
 		}
 
 		conds := kamajisTenantControlPlaneStatusConditions(tcp)
-		fakeTCP := VirtualObjectForVisualization(&tcp, kamajiv1.TenantControlPlaneKind)
+		fakeTCP := VirtualObjectForVisualization(&tcp, tenantControlPlaneKind)
 		fakeTCP.Object["status"] = map[string]interface{}{
 			"conditions": conds,
 		}
