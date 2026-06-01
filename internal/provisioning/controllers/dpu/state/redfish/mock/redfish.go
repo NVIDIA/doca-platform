@@ -50,6 +50,7 @@ type RedfishMockServer struct {
 	taskProgressError             bool                     // Simulate CheckTaskProgress endpoint error for testing
 	chassisError                  bool                     // Simulate GetChassis endpoint error for testing
 	oemLastState                  string                   // Current ARM OS boot state: "OsIsRunning", "OsStarting", etc.
+	bootLastState                 string                   // BootProgress.LastState for GET System (e.g. OSRunning on BF4)
 	dpuVersion                    DpuVersion               // Current DPU version
 	model                         string                   // DPU model string (optional override)
 	taskState                     string                   // Current task state: "Completed", "Exception", etc.
@@ -133,6 +134,11 @@ func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 
 	// Host Privilege Config
 	mux.HandleFunc("/"+client.APIHostPrivilegeConfigSettings, mock.handleHostPrivilegeConfigSettings)
+
+	// BlueField 4 OS install (virtual media, boot settings, chassis reset)
+	mux.HandleFunc("/redfish/v1/Managers/Bluefield_BMC/VirtualMedia/", mock.handleVirtualMedia)
+	mux.HandleFunc("/redfish/v1/Systems/Bluefield/Settings", mock.handleBluefieldSystemSettings)
+	mux.HandleFunc("/redfish/v1/Chassis/BlueField_0/Actions/Oem/NvidiaChassis.Reset", mock.handleChassisReset)
 
 	mock.server = httptest.NewUnstartedServer(mux)
 	return mock
@@ -656,6 +662,11 @@ func (r *RedfishMockServer) SetOemLastState(state string) {
 	r.oemLastState = state
 }
 
+// SetBootLastState sets BootProgress.LastState returned by GET System (used by BF4 installing).
+func (r *RedfishMockServer) SetBootLastState(state string) {
+	r.bootLastState = state
+}
+
 // GetOemLastState returns the current ARM OS boot state
 func (r *RedfishMockServer) GetOemLastState() string {
 	return r.oemLastState
@@ -761,6 +772,49 @@ func (r *RedfishMockServer) GetCertificate() []byte {
 	return r.server.Certificate().Raw
 }
 
+func (r *RedfishMockServer) bootProgressLastState() string {
+	if r.bootLastState != "" {
+		return r.bootLastState
+	}
+	return "OEM"
+}
+
+// handleVirtualMedia handles VirtualMedia.InsertMedia and VirtualMedia.EjectMedia for BF4 OS install.
+func (r *RedfishMockServer) handleVirtualMedia(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	writeJSONResponse(w, map[string]interface{}{
+		"@odata.id": req.URL.Path,
+	})
+}
+
+// handleBluefieldSystemSettings handles PATCH boot settings for BF4 OS install.
+func (r *RedfishMockServer) handleBluefieldSystemSettings(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPatch {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	writeJSONResponse(w, map[string]interface{}{
+		"@odata.id": req.URL.Path,
+	})
+}
+
+// handleChassisReset handles BF4 chassis ARM reset during OS install.
+func (r *RedfishMockServer) handleChassisReset(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	writeJSONResponse(w, map[string]interface{}{
+		"@odata.id": req.URL.Path,
+	})
+}
+
 // handleGetSystem handles GET requests to /redfish/v1/Systems/Bluefield
 func (r *RedfishMockServer) handleGetSystem(w http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodGet {
@@ -793,7 +847,7 @@ func (r *RedfishMockServer) handleGetSystem(w http.ResponseWriter, req *http.Req
 			"Conditions": []interface{}{},
 		},
 		"BootProgress": map[string]interface{}{
-			"LastState":     "OEM",
+			"LastState":     r.bootProgressLastState(),
 			"LastStateTime": "1970-01-21T11:09:24.575484+00:00",
 			"OemLastState":  r.oemLastState,
 		},
