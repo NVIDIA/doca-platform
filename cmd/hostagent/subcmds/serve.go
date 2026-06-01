@@ -28,6 +28,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/hostagent"
 	"github.com/nvidia/doca-platform/internal/provisioning/hostagent/networkmanager"
 	"github.com/nvidia/doca-platform/internal/provisioning/hostagent/nodemanager"
+	"github.com/nvidia/doca-platform/internal/provisioning/hostagent/phase/reboot"
 	"github.com/nvidia/doca-platform/internal/provisioning/hostagent/service"
 
 	"github.com/spf13/cobra"
@@ -103,11 +104,13 @@ var serveCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		if err := service.NewInstallationService(unCachedClient, nm).Start(true); err != nil {
+		rh := reboot.NewHandler(mgr.GetClient(), dpuNodeManager.GetNodeName, nm.GetDevice)
+
+		if err := service.NewInstallationService(unCachedClient, nm, rh).Start(true); err != nil {
 			klog.Fatalf("failed to start installation service: %v", err)
 		}
 
-		reconciler := hostagent.NewHostAgentReconciler(mgr.GetClient(), opts.BFBRegistryAddress, dpuNodeManager, nm)
+		reconciler := hostagent.NewHostAgentReconciler(mgr.GetClient(), opts.BFBRegistryAddress, dpuNodeManager, nm, rh)
 		if err = reconciler.SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "DPU")
 			os.Exit(1)
