@@ -526,7 +526,8 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 		numberOfDPUNodes:    input.numberOfDPUNodes,
 		numberOfDPUsPerNode: input.numberOfDPUsPerNode,
 		client:              input.client,
-		HostRebootScript:    input.HostRebootScript,
+		NodeRebootConfigMap: input.nodeRebootConfigMap,
+		DPUNodeBMCs:         input.dpuNodeBMCs,
 	})
 
 	By(fmt.Sprintf("Verify ServiceInterface is created in %d nodes", input.totalDPUs()))

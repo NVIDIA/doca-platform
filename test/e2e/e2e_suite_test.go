@@ -65,8 +65,6 @@ var (
 	collectResources = true
 	// externalTest path used to run external tests scripts
 	externalTest string
-	// HostRebootScript path used to Zero Trust Host Reboot script
-	HostRebootScript string
 	// enableSOSReports to enable collecting SOS reports after an e2e test run failure.
 	enableSOSReports = false
 )
@@ -87,7 +85,6 @@ func init() {
 	flag.StringVar(&testKubeconfig, "e2e.testKubeconfig", "", "path to the testKubeconfig file")
 	flag.StringVar(&configPath, "e2e.config", "", "path to the configuration file")
 	flag.StringVar(&externalTest, "e2e.externalTestScript", "", "path to the external test file, script will be called in between BeforeSuite setup and AfterSuite cleanup")
-	flag.StringVar(&HostRebootScript, "e2e.hostRebootScript", "", "path to the host reboot script file, script will be called as a part of dpu provisioning for the ZeroTrust suite")
 
 	// Register cleanup flags and get handle for it
 	cleanupFlags = cleanup.NewCleanupFlagsFromCLI()
@@ -142,6 +139,12 @@ func getEnvVariables() {
 	} else {
 		panic("NETUTILS_IMAGE env variable must be set")
 	}
+
+	// ZeroTrust-only env vars; required-ness enforced in validateFlags() once
+	// the ginkgo label filter is known. Reading them here keeps all env-var
+	// loading in one place.
+	bmcPassword = os.Getenv("E2E_ZT_BMC_PASSWORD")
+	bmcInventoryPath = os.Getenv("E2E_ZT_BMC_INVENTORY_PATH")
 
 	if name, found := os.LookupEnv("DPU_CLUSTER_NAME"); found {
 		dpuClusterName = name
@@ -220,7 +223,8 @@ func TestE2E(t *testing.T) {
 	_, _ = fmt.Fprintf(GinkgoWriter, "  testKubeconfig: %s\n", testKubeconfig)
 	_, _ = fmt.Fprintf(GinkgoWriter, "  numberOfDPUNodes: %d\n", conf.NumberOfDPUNodes)
 	_, _ = fmt.Fprintf(GinkgoWriter, "  numberOfDPUsPerNode: %d\n", conf.NumberOfDPUsPerNode)
-	_, _ = fmt.Fprintf(GinkgoWriter, "  useExternalNodeReboot: %v\n", conf.UseExternalNodeReboot)
+	_, _ = fmt.Fprintf(GinkgoWriter, "  nodeRebootConfigMap: %q\n", conf.NodeRebootConfigMap)
+	_, _ = fmt.Fprintf(GinkgoWriter, "  nodeRebootConfigMapPath: %q\n", conf.NodeRebootConfigMapPath)
 
 	// Create a client to use throughout the test.
 	restConfig, err = clientcmd.BuildConfigFromFlags("", testKubeconfig)
@@ -426,9 +430,20 @@ var _ = AfterSuite(func() {
 })
 
 func validateFlags() {
-	if isGinkgoLabelApplied(Domain.ZeroTrust) {
-		if len(HostRebootScript) == 0 {
-			panic("This script must be provided when ZeroTrust label is present")
-		}
+	if !isGinkgoLabelApplied(Domain.ZeroTrust) {
+		return
+	}
+
+	if conf.NodeRebootConfigMap == "" {
+		panic("ZeroTrust requires `nodeRebootConfigMap` to be set in the e2e config file")
+	}
+	if conf.NodeRebootConfigMapPath == "" {
+		panic("ZeroTrust requires `nodeRebootConfigMapPath` to be set in the e2e config file")
+	}
+	if bmcPassword == "" {
+		panic("ZeroTrust requires E2E_ZT_BMC_PASSWORD env var (BMC root password used by the in-cluster reboot script)")
+	}
+	if bmcInventoryPath == "" {
+		panic("ZeroTrust requires E2E_ZT_BMC_INVENTORY_PATH env var (path to the lab DPU-serial -> BMC IP inventory YAML)")
 	}
 }

@@ -172,14 +172,13 @@ func SetInput() {
 	}
 
 	input = &systemTestInput{
-		namespace:        dpfOperatorSystemNamespace,
-		config:           dpfOperatorConfig,
-		pullSecretNames:  dpfOperatorConfig.Spec.ImagePullSecrets,
-		client:           testClient,
-		restConfig:       restConfig,
-		cleanupFlags:     cleanupFlags,
-		bfbImageURL:      bfbImageURL,
-		HostRebootScript: HostRebootScript,
+		namespace:       dpfOperatorSystemNamespace,
+		config:          dpfOperatorConfig,
+		pullSecretNames: dpfOperatorConfig.Spec.ImagePullSecrets,
+		client:          testClient,
+		restConfig:      restConfig,
+		cleanupFlags:    cleanupFlags,
+		bfbImageURL:     bfbImageURL,
 	}
 	input.applyConfig(*conf)
 }
@@ -205,6 +204,19 @@ func SystemSetupBeforeSuite() {
 		client:                    input.client,
 		numberOfDPUNodes:          input.numberOfDPUNodes,
 	})
+
+	if isGinkgoLabelApplied(Domain.ZeroTrust) {
+		// In ZeroTrust mode, build a DPUNode-to-host BMC IP map from the lab inventory file
+		// for the script-based reboot path (nodeRebootMethod.script).
+		input.dpuNodeBMCs = GetDPUNodeToBMCIPs(
+			ctx, input.client, input.numberOfDPUNodes)
+
+		// Ensure ConfigMap and DPUNode BMC IP labels are set ahead of any DPU reaching the reboot state,
+		// so the controller can drive in-cluster Redfish reboots through the named ConfigMap.
+		ApplyNodeRebootConfigMap(ctx, input.client, input.nodeRebootConfigMapPath)
+		PatchDPUNodesForScriptReboot(ctx, input.client, input.numberOfDPUNodes,
+			input.nodeRebootConfigMap, input.dpuNodeBMCs)
+	}
 
 	if isGinkgoLabelApplied(Domain.Performance) {
 		vip := *input.config.Spec.Overrides.KubernetesAPIServerVIP
@@ -255,6 +267,12 @@ func createNGCImagePullSecret(ctx context.Context, testClient client.Client) {
 	Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, secret))).NotTo(HaveOccurred())
 }
 
+// AnnotateAndLabelNodes stamps host-cluster Nodes with reboot-related labels
+// consumed by the host agent. When useExternalNodeReboot is true (NIC cloud
+// e2e tests), the labels make the host agent delegate host reboots to lab
+// infrastructure (e.g. NIC cloud's `nic-cloud-reset`). Independent from
+// ZeroTrust's in-cluster script reboot path (`nodeRebootMethod.script` set
+// per-DPUNode by the e2e suite).
 func AnnotateAndLabelNodes(ctx context.Context, c client.Client, useExternalNodeReboot bool) {
 	nodeAnnotations := make(map[string]string)
 	nodeLabels := make(map[string]string)
@@ -625,6 +643,7 @@ func getProvisionDPUClustersInput() ProvisionDPUClustersInput {
 		client:                  input.client,
 		bfbImageURL:             input.bfbImageURL,
 		restConfig:              restConfig,
-		HostRebootScript:        input.HostRebootScript,
+		NodeRebootConfigMap:     input.nodeRebootConfigMap,
+		DPUNodeBMCs:             input.dpuNodeBMCs,
 	}
 }

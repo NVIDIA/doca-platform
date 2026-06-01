@@ -40,20 +40,39 @@ Location: `test/e2e/config-*.yaml`
 
 Each config targets different test scenarios:
 * **`config-quick.yaml`** - fast tests without provisioning (`numberOfDPUNodes: 0`, fake BFB)
-* **`config-provisioning.yaml`** - single-node provisioning tests with real DPU
+* **`config-provisioning.yaml`** - single-node provisioning tests with real DPU, external reboot
 * **`config-provisioning-multinode.yaml`** - multi-node (2 nodes) provisioning, external reboot
 * **`config-provisioning-physical.yaml`** - physical hardware setup
+* **`config-provisioning-zt-physical.yaml`** - Zero-Trust physical setup; sets `nodeRebootConfigMap`/`nodeRebootConfigMapPath` for in-cluster Redfish reboots
 * **`config-provisioning-upgrade.yaml`** - upgrade scenario tests (see [upgrade testing workflow](../../../docs/do_not_publish/tests/upgrade.md))
 * **`config-scale.yaml`** - scale tests (10 nodes, mock DPUServices for performance, see [scale testing methodology](../../../docs/public/developer-guides/system/testing/scale-testing.md))
 
 Example structure:
 ```yaml
-bfb: "../objects/infrastructure/bfb.yaml"              # BFB manifest
-dpuCluster: "../objects/infrastructure/dpucluster.yaml"  # DPUCluster spec
-dpuService: "../objects/application/dpuservice.yaml"   # DPUService template
-numberOfDPUNodes: 2                                    # node count
-useExternalNodeReboot: true                            # external reboot flag
+bfb: "../objects/infrastructure/bfb.yaml"                                               # BFB manifest
+dpuCluster: "../objects/infrastructure/dpucluster.yaml"                                 # DPUCluster spec
+dpuService: "../objects/application/dpuservice.yaml"                                    # DPUService template
+numberOfDPUNodes: 2                                                                     # node count
+# Reboot driver: pick ONE of the two paths below (never both).
+# cloud env:
+useExternalNodeReboot: true                                                             # labels host nodes with reboot-method=external (cloud only)
+# Zero-Trust (in-cluster Job drives Redfish/BMC):
+nodeRebootConfigMap: "dpunode-reboot-redfish"                                           # custom reboot script ConfigMap name (ZeroTrust only)
+nodeRebootConfigMapPath: "../objects/infrastructure/dpunode-reboot-redfish.yaml"        # custom reboot script ConfigMap path (ZeroTrust only)
 ```
+
+The reboot driver is split into two independent paths; a given config picks
+at most one:
+
+* **`useExternalNodeReboot: true`** (cloud) — labels every
+  host-cluster Node with `provisioning.dpu.nvidia.com/reboot-method=external`
+  so a systemd unit can reboot the node.
+* **`nodeRebootConfigMap` + `nodeRebootConfigMapPath`** (Zero-Trust only) —
+  the suite applies the named ConfigMap (with a Job pod-template that drives
+  Redfish/BMC) and patches each DPUNode to
+  `spec.nodeRebootMethod.script.name=<configmap>`. The DPUNode controller
+  spawns the Job per reboot. Requires the `E2E_ZT_BMC_PASSWORD` and
+  `E2E_ZT_BMC_INVENTORY_PATH` env vars.
 
 Configs reference YAML manifests in `test/objects/`
 

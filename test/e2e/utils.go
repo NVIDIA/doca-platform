@@ -148,6 +148,10 @@ var (
 	// netutilsImage is the image name of the netutils image produced by the release associated with the e2e tests. This
 	// image is used for testing traffic. The value does not contain the tag.
 	netutilsImage = ""
+	// bmcPassword is the BMC root password used by the in-cluster reboot script Job (ZeroTrust only).
+	bmcPassword = ""
+	// bmcInventoryPath is the filesystem path to the lab DPU-serial -> BMC IP inventory YAML (ZeroTrust only).
+	bmcInventoryPath = ""
 	// ngcAPIKey can be used to create a secret to be able to pull images from NGC, this secret can be used by DPUservices and should not be used for core components.
 	ngcAPIKey = ""
 	// dpuClusterName optionally overrides the DPUCluster name (e.g. when created externally with a non-default name).
