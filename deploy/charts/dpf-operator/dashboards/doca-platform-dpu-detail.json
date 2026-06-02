@@ -446,12 +446,211 @@
       "type": "table"
     },
     {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true,
+            "inspect": false
+          },
+          "mappings": [],
+          "noValue": "-",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "DPUService"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "match": "empty",
+                      "result": {
+                        "text": "—",
+                        "color": "text"
+                      }
+                    },
+                    "type": "special"
+                  },
+                  {
+                    "options": {
+                      "match": "null",
+                      "result": {
+                        "text": "—",
+                        "color": "text"
+                      }
+                    },
+                    "type": "special"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Ready"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "gradient",
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "0": {
+                        "color": "semi-dark-red",
+                        "text": "No"
+                      },
+                      "1": {
+                        "color": "semi-dark-green",
+                        "text": "Yes"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "semi-dark-red",
+                      "value": 0
+                    },
+                    {
+                      "color": "semi-dark-green",
+                      "value": 1
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
+      "id": 18,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": false,
+            "displayName": "Ready"
+          }
+        ]
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "(\n  (\n    kube_pod_info{node=\"$dpu\", exported_pod!=\"\"}\n      * on(exported_pod, exported_namespace) group_left(label_svc_dpu_nvidia_com_service)\n        kube_pod_labels{exported_pod!=\"\"}\n  )\n    * on(exported_pod, exported_namespace) group_left()\n      kube_pod_status_ready{condition=\"true\", exported_pod!=\"\"}\n    * on(label_svc_dpu_nvidia_com_service) group_left(dpuservice)\n      label_replace(\n        label_replace(dpuservice_info, \"dpuservice\", \"$1\", \"name\", \"(.*)\"),\n        \"label_svc_dpu_nvidia_com_service\", \"$1\", \"service_id\", \"(.*)\"\n      )\n)\nor on(exported_pod, exported_namespace)\n(\n  (\n    kube_pod_info{node=\"$dpu\", exported_pod!=\"\"}\n      * on(exported_pod, exported_namespace) group_left(label_svc_dpu_nvidia_com_service)\n        kube_pod_labels{exported_pod!=\"\"}\n  )\n    * on(exported_pod, exported_namespace) group_left()\n      kube_pod_status_ready{condition=\"true\", exported_pod!=\"\"}\n)",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Scheduled Pods on $dpu",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "container": true,
+              "endpoint": true,
+              "instance": true,
+              "job": true,
+              "service": true,
+              "pod": true,
+              "namespace": true,
+              "uid": true,
+              "node": true,
+              "host_ip": true,
+              "host_network": true,
+              "pod_ip": true,
+              "priority_class": true,
+              "label_svc_dpu_nvidia_com_service": true,
+              "deploy_in_cluster": true
+            },
+            "includeByName": {},
+            "indexByName": {
+              "exported_pod": 0,
+              "exported_namespace": 1,
+              "created_by_kind": 2,
+              "created_by_name": 3,
+              "dpuservice": 4,
+              "Value": 5
+            },
+            "renameByName": {
+              "exported_pod": "Pod",
+              "exported_namespace": "Namespace",
+              "created_by_kind": "Owner Kind",
+              "created_by_name": "Owner",
+              "dpuservice": "DPUService",
+              "Value": "Ready"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 5
+        "y": 15
       },
       "id": 6,
       "panels": [],
@@ -516,7 +715,7 @@
         "h": 9,
         "w": 8,
         "x": 0,
-        "y": 6
+        "y": 16
       },
       "id": 7,
       "options": {
@@ -619,7 +818,7 @@
         "h": 9,
         "w": 8,
         "x": 8,
-        "y": 6
+        "y": 16
       },
       "id": 9,
       "options": {
@@ -722,7 +921,7 @@
         "h": 9,
         "w": 8,
         "x": 16,
-        "y": 6
+        "y": 16
       },
       "id": 15,
       "options": {
@@ -787,7 +986,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 15
+        "y": 25
       },
       "id": 10,
       "panels": [],
@@ -859,7 +1058,7 @@
         "h": 9,
         "w": 24,
         "x": 0,
-        "y": 16
+        "y": 26
       },
       "id": 11,
       "options": {
@@ -960,7 +1159,7 @@
         "h": 7,
         "w": 24,
         "x": 0,
-        "y": 25
+        "y": 35
       },
       "id": 13,
       "options": {
@@ -1061,7 +1260,7 @@
         "h": 7,
         "w": 24,
         "x": 0,
-        "y": 32
+        "y": 42
       },
       "id": 16,
       "options": {
@@ -1116,7 +1315,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 39
+        "y": 49
       },
       "id": 14,
       "panels": [
@@ -1178,7 +1377,7 @@
             "h": 12,
             "w": 8,
             "x": 0,
-            "y": 40
+            "y": 50
           },
           "id": 8,
           "options": {
@@ -1288,7 +1487,7 @@
             "h": 12,
             "w": 16,
             "x": 8,
-            "y": 40
+            "y": 50
           },
           "id": 12,
           "options": {

@@ -569,7 +569,7 @@
       },
       "gridPos": {
         "h": 6,
-        "w": 12,
+        "w": 6,
         "x": 12,
         "y": 3
       },
@@ -619,6 +619,119 @@
       "type": "timeseries"
     },
     {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "axisSoftMin": 0,
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 18,
+        "y": 3
+      },
+      "id": 28,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "count(count by (uid) (dpuservice_status_conditions{type=\"Ready\", status=\"True\"} == 1)) or vector(0)",
+          "instant": false,
+          "legendFormat": "Ready DPUServices",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "count(count by (uid) (dpuservice_status_conditions{type=\"Ready\"} == 1)) or vector(0)",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "DPUService Count",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "DPUService Health",
+      "type": "timeseries"
+    },
+    {
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -647,11 +760,6 @@
               "type": "auto"
             },
             "filterable": true,
-            "footer": {
-              "reducers": [
-                "count"
-              ]
-            },
             "inspect": false,
             "wrapHeaderText": false,
             "wrapText": false
@@ -1004,15 +1112,10 @@
               "type": "auto"
             },
             "filterable": true,
-            "footer": {
-              "reducers": [
-                "count"
-              ]
-            },
             "inspect": false
           },
           "mappings": [],
-          "noValue": "All DPUServices healthy",
+          "noValue": "-",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -1060,6 +1163,115 @@
                 "value": 80
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Desired"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "match": "null",
+                      "result": {
+                        "text": "-"
+                      }
+                    },
+                    "type": "special"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Healthy"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "match": "null",
+                      "result": {
+                        "text": "-"
+                      }
+                    },
+                    "type": "special"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Not Ready"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "transparent",
+                      "value": 0
+                    },
+                    {
+                      "color": "semi-dark-orange",
+                      "value": 1
+                    },
+                    {
+                      "color": "semi-dark-red",
+                      "value": 3
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "gradient",
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "match": "null",
+                      "result": {
+                        "text": "-"
+                      }
+                    },
+                    "type": "special"
+                  },
+                  {
+                    "options": {
+                      "NaN": {
+                        "text": "-"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              }
+            ]
           }
         ]
       },
@@ -1105,13 +1317,43 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "dpuservice_status_conditions{type=\"Ready\"} == 1",
+          "expr": "(dpuservice_status_conditions{type=\"Ready\"} == 1)\n  * on(uid) group_left(service_id) dpuservice_info",
           "format": "table",
           "hide": false,
           "instant": true,
           "legendFormat": "__auto",
           "range": false,
           "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "(\n  label_replace(\n    kube_daemonset_status_number_ready\n      * on(daemonset, namespace) group_left(label_svc_dpu_nvidia_com_service)\n        kube_daemonset_labels{label_svc_dpu_nvidia_com_service!=\"\"},\n    \"service_id\", \"$1\", \"label_svc_dpu_nvidia_com_service\", \"(.*)\"\n  )\n  or\n  label_replace(\n    kube_deployment_status_replicas_ready\n      * on(deployment, namespace) group_left(label_svc_dpu_nvidia_com_service)\n        kube_deployment_labels{label_svc_dpu_nvidia_com_service!=\"\"},\n    \"service_id\", \"$1\", \"label_svc_dpu_nvidia_com_service\", \"(.*)\"\n  )\n)",
+          "format": "table",
+          "hide": false,
+          "instant": true,
+          "legendFormat": "Healthy",
+          "range": false,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "(\n  label_replace(\n    kube_daemonset_status_desired_number_scheduled\n      * on(daemonset, namespace) group_left(label_svc_dpu_nvidia_com_service)\n        kube_daemonset_labels{label_svc_dpu_nvidia_com_service!=\"\"},\n    \"service_id\", \"$1\", \"label_svc_dpu_nvidia_com_service\", \"(.*)\"\n  )\n  or\n  label_replace(\n    kube_deployment_spec_replicas\n      * on(deployment, namespace) group_left(label_svc_dpu_nvidia_com_service)\n        kube_deployment_labels{label_svc_dpu_nvidia_com_service!=\"\"},\n    \"service_id\", \"$1\", \"label_svc_dpu_nvidia_com_service\", \"(.*)\"\n  )\n)",
+          "format": "table",
+          "hide": false,
+          "instant": true,
+          "legendFormat": "Desired",
+          "range": false,
+          "refId": "D"
         }
       ],
       "title": "DPUServices Not Fully Ready",
@@ -1119,8 +1361,21 @@
         {
           "id": "joinByField",
           "options": {
-            "byField": "uid",
-            "mode": "inner"
+            "byField": "service_id",
+            "mode": "outer"
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "Not Ready",
+            "binary": {
+              "left": "Value #D",
+              "operator": "-",
+              "right": "Value #C"
+            },
+            "mode": "binary",
+            "replaceFields": false
           }
         },
         {
@@ -1130,6 +1385,8 @@
               "Time": true,
               "Time 1": true,
               "Time 2": true,
+              "Time 3": true,
+              "Time 4": true,
               "Value": true,
               "Value #A": true,
               "Value #B": true,
@@ -1169,7 +1426,13 @@
               "customresource_version": true,
               "customresource_version 1": true,
               "customresource_version 2": true,
+              "daemonset": true,
+              "daemonset 1": true,
+              "daemonset 2": true,
               "deploy_in_cluster": true,
+              "deployment": true,
+              "deployment 1": true,
+              "deployment 2": true,
               "endpoint": true,
               "endpoint 1": true,
               "endpoint 2": true,
@@ -1185,8 +1448,15 @@
               "job": true,
               "job 1": true,
               "job 2": true,
+              "label_svc_dpu_nvidia_com_service": true,
+              "label_svc_dpu_nvidia_com_service 1": true,
+              "label_svc_dpu_nvidia_com_service 2": true,
               "name 2": true,
+              "name 3": true,
+              "name 4": true,
               "namespace 2": true,
+              "namespace 3": true,
+              "namespace 4": true,
               "node": true,
               "node 1": true,
               "node 2": true,
@@ -1198,23 +1468,47 @@
               "service 2": true,
               "service_id": true,
               "type": true,
-              "uid": true
+              "uid": true,
+              "chart_version 2": true,
+              "chart_version 3": true,
+              "chart_version 4": true,
+              "Value #E": true,
+              "Time 5": true,
+              "name 5": true,
+              "namespace 5": true,
+              "daemonset 3": true,
+              "daemonset 4": true,
+              "daemonset 5": true,
+              "deployment 3": true,
+              "deployment 4": true,
+              "deployment 5": true,
+              "label_svc_dpu_nvidia_com_service 3": true,
+              "label_svc_dpu_nvidia_com_service 4": true,
+              "label_svc_dpu_nvidia_com_service 5": true,
+              "exported_namespace 3": true,
+              "exported_namespace 4": true,
+              "exported_namespace 5": true
             },
             "includeByName": {},
             "indexByName": {
-              "chart_version": 2,
               "name 1": 0,
-              "namespace 1": 3,
               "parent_dpudeployment": 1,
-              "status": 4
+              "chart_version 1": 2,
+              "namespace 1": 3,
+              "status": 4,
+              "Value #D": 5,
+              "Value #C": 6,
+              "Not Ready": 7
             },
             "renameByName": {
-              "chart_version": "Chart",
               "name 1": "Name",
               "namespace 1": "Namespace",
-              "parent_dpudeployment": "DPUDeployment",
               "service_id": "",
-              "status": "Status"
+              "status": "Status",
+              "Value #C": "Healthy",
+              "Value #D": "Desired",
+              "chart_version 1": "Chart",
+              "parent_dpudeployment": "DPUDeployment"
             }
           }
         },
@@ -1224,16 +1518,25 @@
             "filters": [
               {
                 "config": {
+                  "id": "greater",
+                  "options": {
+                    "value": 0
+                  }
+                },
+                "fieldName": "Not Ready"
+              },
+              {
+                "config": {
                   "id": "equal",
                   "options": {
-                    "value": "True"
+                    "value": "False"
                   }
                 },
                 "fieldName": "Status"
               }
             ],
-            "match": "all",
-            "type": "exclude"
+            "match": "any",
+            "type": "include"
           }
         }
       ],
@@ -1440,11 +1743,6 @@
                   "type": "auto"
                 },
                 "filterable": true,
-                "footer": {
-                  "reducers": [
-                    "count"
-                  ]
-                },
                 "inspect": false
               },
               "mappings": [],
@@ -1716,15 +2014,10 @@
                   "type": "auto"
                 },
                 "filterable": true,
-                "footer": {
-                  "reducers": [
-                    "count"
-                  ]
-                },
                 "inspect": false
               },
               "mappings": [],
-              "noValue": "",
+              "noValue": "-",
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
@@ -1772,6 +2065,115 @@
                     "value": 108
                   }
                 ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Desired"
+                },
+                "properties": [
+                  {
+                    "id": "custom.width",
+                    "value": 90
+                  },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "options": {
+                          "match": "null",
+                          "result": {
+                            "text": "-"
+                          }
+                        },
+                        "type": "special"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Healthy"
+                },
+                "properties": [
+                  {
+                    "id": "custom.width",
+                    "value": 90
+                  },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "options": {
+                          "match": "null",
+                          "result": {
+                            "text": "-"
+                          }
+                        },
+                        "type": "special"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Not Ready"
+                },
+                "properties": [
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "transparent",
+                          "value": 0
+                        },
+                        {
+                          "color": "semi-dark-orange",
+                          "value": 1
+                        },
+                        {
+                          "color": "semi-dark-red",
+                          "value": 3
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "mode": "gradient",
+                      "type": "color-background"
+                    }
+                  },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "options": {
+                          "match": "null",
+                          "result": {
+                            "text": "-"
+                          }
+                        },
+                        "type": "special"
+                      },
+                      {
+                        "options": {
+                          "NaN": {
+                            "text": "-"
+                          }
+                        },
+                        "type": "value"
+                      }
+                    ]
+                  }
+                ]
               }
             ]
           },
@@ -1817,13 +2219,43 @@
               },
               "editorMode": "code",
               "exemplar": false,
-              "expr": "dpuservice_status_conditions{type=\"Ready\"} == 1",
+              "expr": "(dpuservice_status_conditions{type=\"Ready\"} == 1)\n  * on(uid) group_left(service_id) dpuservice_info",
               "format": "table",
               "hide": false,
               "instant": true,
               "legendFormat": "__auto",
               "range": false,
               "refId": "B"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "exemplar": false,
+              "expr": "(\n  label_replace(\n    kube_daemonset_status_number_ready\n      * on(daemonset, namespace) group_left(label_svc_dpu_nvidia_com_service)\n        kube_daemonset_labels{label_svc_dpu_nvidia_com_service!=\"\"},\n    \"service_id\", \"$1\", \"label_svc_dpu_nvidia_com_service\", \"(.*)\"\n  )\n  or\n  label_replace(\n    kube_deployment_status_replicas_ready\n      * on(deployment, namespace) group_left(label_svc_dpu_nvidia_com_service)\n        kube_deployment_labels{label_svc_dpu_nvidia_com_service!=\"\"},\n    \"service_id\", \"$1\", \"label_svc_dpu_nvidia_com_service\", \"(.*)\"\n  )\n)",
+              "format": "table",
+              "hide": false,
+              "instant": true,
+              "legendFormat": "Healthy",
+              "range": false,
+              "refId": "C"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "exemplar": false,
+              "expr": "(\n  label_replace(\n    kube_daemonset_status_desired_number_scheduled\n      * on(daemonset, namespace) group_left(label_svc_dpu_nvidia_com_service)\n        kube_daemonset_labels{label_svc_dpu_nvidia_com_service!=\"\"},\n    \"service_id\", \"$1\", \"label_svc_dpu_nvidia_com_service\", \"(.*)\"\n  )\n  or\n  label_replace(\n    kube_deployment_spec_replicas\n      * on(deployment, namespace) group_left(label_svc_dpu_nvidia_com_service)\n        kube_deployment_labels{label_svc_dpu_nvidia_com_service!=\"\"},\n    \"service_id\", \"$1\", \"label_svc_dpu_nvidia_com_service\", \"(.*)\"\n  )\n)",
+              "format": "table",
+              "hide": false,
+              "instant": true,
+              "legendFormat": "Desired",
+              "range": false,
+              "refId": "D"
             }
           ],
           "title": "All DPUServices",
@@ -1831,8 +2263,21 @@
             {
               "id": "joinByField",
               "options": {
-                "byField": "uid",
-                "mode": "inner"
+                "byField": "service_id",
+                "mode": "outer"
+              }
+            },
+            {
+              "id": "calculateField",
+              "options": {
+                "alias": "Not Ready",
+                "binary": {
+                  "left": "Value #D",
+                  "operator": "-",
+                  "right": "Value #C"
+                },
+                "mode": "binary",
+                "replaceFields": false
               }
             },
             {
@@ -1842,6 +2287,8 @@
                   "Time": true,
                   "Time 1": true,
                   "Time 2": true,
+                  "Time 3": true,
+                  "Time 4": true,
                   "Value": true,
                   "Value #A": true,
                   "Value #B": true,
@@ -1881,7 +2328,13 @@
                   "customresource_version": true,
                   "customresource_version 1": true,
                   "customresource_version 2": true,
+                  "daemonset": true,
+                  "daemonset 1": true,
+                  "daemonset 2": true,
                   "deploy_in_cluster": true,
+                  "deployment": true,
+                  "deployment 1": true,
+                  "deployment 2": true,
                   "endpoint": true,
                   "endpoint 1": true,
                   "endpoint 2": true,
@@ -1897,8 +2350,15 @@
                   "job": true,
                   "job 1": true,
                   "job 2": true,
+                  "label_svc_dpu_nvidia_com_service": true,
+                  "label_svc_dpu_nvidia_com_service 1": true,
+                  "label_svc_dpu_nvidia_com_service 2": true,
                   "name 2": true,
+                  "name 3": true,
+                  "name 4": true,
                   "namespace 2": true,
+                  "namespace 3": true,
+                  "namespace 4": true,
                   "node": true,
                   "node 1": true,
                   "node 2": true,
@@ -1910,23 +2370,47 @@
                   "service 2": true,
                   "service_id": true,
                   "type": true,
-                  "uid": true
+                  "uid": true,
+                  "chart_version 2": true,
+                  "chart_version 3": true,
+                  "chart_version 4": true,
+                  "Value #E": true,
+                  "Time 5": true,
+                  "name 5": true,
+                  "namespace 5": true,
+                  "daemonset 3": true,
+                  "daemonset 4": true,
+                  "daemonset 5": true,
+                  "deployment 3": true,
+                  "deployment 4": true,
+                  "deployment 5": true,
+                  "label_svc_dpu_nvidia_com_service 3": true,
+                  "label_svc_dpu_nvidia_com_service 4": true,
+                  "label_svc_dpu_nvidia_com_service 5": true,
+                  "exported_namespace 3": true,
+                  "exported_namespace 4": true,
+                  "exported_namespace 5": true
                 },
                 "includeByName": {},
                 "indexByName": {
-                  "chart_version": 2,
                   "name 1": 0,
-                  "namespace 1": 3,
                   "parent_dpudeployment": 1,
-                  "status": 4
+                  "chart_version 1": 2,
+                  "namespace 1": 3,
+                  "status": 4,
+                  "Value #D": 5,
+                  "Value #C": 6,
+                  "Not Ready": 7
                 },
                 "renameByName": {
-                  "chart_version": "Chart",
                   "name 1": "Name",
                   "namespace 1": "Namespace",
-                  "parent_dpudeployment": "DPUDeployment",
                   "service_id": "",
-                  "status": "Status"
+                  "status": "Status",
+                  "Value #C": "Healthy",
+                  "Value #D": "Desired",
+                  "chart_version 1": "Chart",
+                  "parent_dpudeployment": "DPUDeployment"
                 }
               }
             }
