@@ -258,7 +258,14 @@ func (nm *NetworkManager) AddNetworkRequest(dpu *provisioningv1.DPU, vfCount *in
 	}
 
 	if existing, ok := nm.reqs[string(dpu.UID)]; ok {
-		if vfCount != nil && *vfCount != 0 && existing.NumOfVFs != *vfCount {
+		if vfCount == nil {
+			n, err := nm.getNumOfVFs(dpu)
+			if err != nil {
+				return fmt.Errorf("failed to get number of VFs: %w", err)
+			}
+			vfCount = &n
+		}
+		if *vfCount != 0 && existing.NumOfVFs != *vfCount {
 			existing.NumOfVFs = *vfCount
 			if err := writeNetworkRequestFile(&existing); err != nil {
 				return fmt.Errorf("failed to update network request file: %w", err)
