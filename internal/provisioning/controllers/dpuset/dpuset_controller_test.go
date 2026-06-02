@@ -597,7 +597,7 @@ var _ = Describe("DPUSetReconciler needDisruptDPU", func() {
 				Spec: provisioningv1.DPUSetSpec{
 					DPUTemplate: provisioningv1.DPUTemplate{
 						Spec: provisioningv1.DPUTemplateSpec{
-							BFB:        provisioningv1.BFBReference{Name: tc.dpuSetBFB},
+							BFB:        &provisioningv1.BFBReference{Name: tc.dpuSetBFB},
 							DPUFlavor:  tc.dpuSetFlavor,
 							SecureBoot: tc.dpuSetSB,
 						},
@@ -643,6 +643,31 @@ var _ = Describe("DPUSetReconciler needDisruptDPU", func() {
 			dpuBFB: "bfb-v1", dpuFlavor: "flavor-a", dpuSB: ptr.To(true),
 			expectedResult: true,
 		}),
+	)
+
+	DescribeTable("BF4 DPUSet with BlueFieldSoftware only (no BFB)",
+		func(dpuSetBFS, dpuBFS string, expectedResult bool) {
+			dpuSet := provisioningv1.DPUSet{
+				Spec: provisioningv1.DPUSetSpec{
+					DPUTemplate: provisioningv1.DPUTemplate{
+						Spec: provisioningv1.DPUTemplateSpec{
+							BlueFieldSoftware: &provisioningv1.BlueFieldSoftwareReference{Name: dpuSetBFS},
+							DPUFlavor:         "bf4-flavor",
+						},
+					},
+				},
+			}
+			dpu := provisioningv1.DPU{
+				Spec: provisioningv1.DPUSpec{
+					BlueFieldSoftware: dpuBFS,
+					DPUFlavor:         "bf4-flavor",
+				},
+			}
+			Expect(reconciler.needDisruptDPU(dpuSet, dpu, nil)).To(Equal(expectedResult))
+		},
+		Entry("no changes - BlueFieldSoftware matches, BFB omitted", "bfsw-v1", "bfsw-v1", false),
+		Entry("BlueFieldSoftware changed", "bfsw-v2", "bfsw-v1", true),
+		Entry("DPU missing BlueFieldSoftware", "bfsw-v1", "", true),
 	)
 })
 

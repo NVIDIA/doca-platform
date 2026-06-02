@@ -54,7 +54,7 @@ func newOutdatedFixture(strategy provisioningv1.StrategyType, dpus ...*provision
 			Strategy: provisioningv1.DPUSetStrategy{Type: strategy},
 			DPUTemplate: provisioningv1.DPUTemplate{
 				Spec: provisioningv1.DPUTemplateSpec{
-					BFB:        provisioningv1.BFBReference{Name: "bfb-v2"},
+					BFB:        &provisioningv1.BFBReference{Name: "bfb-v2"},
 					DPUFlavor:  "flavor-a",
 					SecureBoot: nil,
 				},

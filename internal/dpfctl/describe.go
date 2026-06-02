@@ -459,7 +459,7 @@ func addDPUSets(ctx context.Context, o objectScope, root client.Object, matchLab
 			return err
 		}
 
-		if dpuSet.Spec.DPUTemplate.Spec.BFB.Name != "" {
+		if dpuSet.Spec.DPUTemplate.Spec.BFB != nil && dpuSet.Spec.DPUTemplate.Spec.BFB.Name != "" {
 			// Add BFB to the tree.
 			bfb := &provisioningv1.BFB{
 				ObjectMeta: metav1.ObjectMeta{
@@ -541,7 +541,7 @@ func addStandaloneBFBs(ctx context.Context, o objectScope, root client.Object) e
 	// Build a map of BFB names that are referenced by existing DPUSets
 	referencedBFBs := make(map[types.NamespacedName]bool)
 	for _, dpuSet := range dpuSetList.Items {
-		if dpuSet.Spec.DPUTemplate.Spec.BFB.Name != "" {
+		if dpuSet.Spec.DPUTemplate.Spec.BFB != nil && dpuSet.Spec.DPUTemplate.Spec.BFB.Name != "" {
 			nn := types.NamespacedName{
 				Name:      dpuSet.Spec.DPUTemplate.Spec.BFB.Name,
 				Namespace: dpuSet.Namespace,

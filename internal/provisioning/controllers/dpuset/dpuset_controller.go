@@ -542,7 +542,6 @@ func (r *DPUSetReconciler) createDPU(ctx context.Context, dpuSet *provisioningv1
 		Spec: provisioningv1.DPUSpec{
 			DPUNodeName:   dpuNodeName,
 			DPUDeviceName: dpuDevice.Name,
-			BFB:           dpuSet.Spec.DPUTemplate.Spec.BFB.Name,
 			NodeEffect:    dpuSet.Spec.DPUTemplate.Spec.NodeEffect,
 			Cluster: provisioningv1.K8sCluster{
 				ClusterSpec: clusterSpec,
@@ -555,6 +554,9 @@ func (r *DPUSetReconciler) createDPU(ctx context.Context, dpuSet *provisioningv1
 		},
 	}
 
+	if dpuSet.Spec.DPUTemplate.Spec.BFB != nil && dpuSet.Spec.DPUTemplate.Spec.BFB.Name != "" {
+		dpu.Spec.BFB = dpuSet.Spec.DPUTemplate.Spec.BFB.Name
+	}
 	if dpuSet.Spec.DPUTemplate.Spec.BlueFieldSoftware != nil && dpuSet.Spec.DPUTemplate.Spec.BlueFieldSoftware.Name != "" {
 		dpu.Spec.BlueFieldSoftware = dpuSet.Spec.DPUTemplate.Spec.BlueFieldSoftware.Name
 	}

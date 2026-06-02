@@ -340,6 +340,10 @@ spec:
                     - dpuFlavor
                     - nodeEffect
                     type: object
+                    x-kubernetes-validations:
+                    - message: exactly one of bfb or blueFieldSoftware must be set
+                      rule: '(has(self.bfb) && has(self.bfb.name) ? 1 : 0) + (has(self.blueFieldSoftware)
+                        && has(self.blueFieldSoftware.name) ? 1 : 0) == 1'
                 type: object
               strategy:
                 description: The rolling update strategy to use to updating existing

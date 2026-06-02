@@ -93,7 +93,7 @@ var _ = Describe("DPUSet", func() {
 				},
 				DPUTemplate: provisioningv1.DPUTemplate{
 					Spec: provisioningv1.DPUTemplateSpec{
-						BFB:        provisioningv1.BFBReference{Name: "test-bfb"},
+						BFB:        &provisioningv1.BFBReference{Name: "test-bfb"},
 						DPUFlavor:  "test-flavor",
 						NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 					},
@@ -1091,7 +1091,7 @@ var _ = Describe("DPUSet", func() {
 					},
 					DPUTemplate: provisioningv1.DPUTemplate{
 						Spec: provisioningv1.DPUTemplateSpec{
-							BFB:       provisioningv1.BFBReference{Name: "test-bfb"},
+							BFB:       &provisioningv1.BFBReference{Name: "test-bfb"},
 							DPUFlavor: "test-flavor",
 							NodeEffect: provisioningv1.NodeEffect{
 								Action: provisioningv1.Action{
@@ -1250,7 +1250,7 @@ var _ = Describe("DPUSet", func() {
 					},
 					DPUTemplate: provisioningv1.DPUTemplate{
 						Spec: provisioningv1.DPUTemplateSpec{
-							BFB:       provisioningv1.BFBReference{Name: "test-bfb"},
+							BFB:       &provisioningv1.BFBReference{Name: "test-bfb"},
 							DPUFlavor: "test-flavor",
 							NodeEffect: provisioningv1.NodeEffect{
 								Action: provisioningv1.Action{
