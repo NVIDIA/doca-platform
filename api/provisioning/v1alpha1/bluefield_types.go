@@ -94,7 +94,7 @@ type BlueFieldSoftwareStatus struct {
 	Phase BlueFieldSoftwarePhase `json:"phase"`
 	// Versions tracks the versions of the components
 	// +optional
-	Versions BluefieldSoftwareVersions `json:"versions,omitempty"`
+	Versions *BluefieldSoftwareVersions `json:"versions,omitempty"`
 	// DownloadedComponents tracks which components have been successfully downloaded
 	// +optional
 	DownloadedComponents DownloadedComponents `json:"downloadedComponents,omitempty"`
