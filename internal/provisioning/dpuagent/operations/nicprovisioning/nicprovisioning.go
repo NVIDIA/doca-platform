@@ -19,7 +19,9 @@ package nicprovisioning
 import (
 	"bytes"
 	"context"
+	"embed"
 	"fmt"
+	"io/fs"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -56,17 +58,23 @@ const (
 	nicNVConfigApplyTimeout   = 5 * time.Minute
 	// TODO: The NIC Operator team will remove this constraint in the near future, and we will need to update the code.
 	spectrumXConfigDir = "/bindata/spectrum-x"
+
+	embeddedSpectrumXConfigDir = "bindata/spectrum-x"
 )
+
+//go:embed bindata/spectrum-x/*.yaml
+var embeddedSpectrumXConfigs embed.FS
 
 // NICProvisioning performs NIC-related provisioning steps before the rest of the
 // DPU agent pipeline (modules, netplan, etc.).
 type NICProvisioning struct {
-	dmsServer               nicdms.DMSServer
-	discoveredNICDevices    []nicconfigurationv1alpha1.NicDevice
-	runBash                 func(cmd string) (bytes.Buffer, bytes.Buffer, error)
-	prepareLocalDMSServerFn func(optCtx *operations.Context) error
-	installNICFirmwareFn    func(execCtx context.Context, optCtx *operations.Context, localNICFWPath string) error
-	applyNVConfigFn         func(execCtx context.Context, optCtx *operations.Context) error
+	dmsServer                 nicdms.DMSServer
+	discoveredNICDevices      []nicconfigurationv1alpha1.NicDevice
+	runBash                   func(cmd string) (bytes.Buffer, bytes.Buffer, error)
+	prepareLocalDMSServerFn   func(optCtx *operations.Context) error
+	installNICFirmwareFn      func(execCtx context.Context, optCtx *operations.Context, localNICFWPath string) error
+	prepareSpectrumXConfigsFn func() error
+	applyNVConfigFn           func(execCtx context.Context, optCtx *operations.Context) error
 	// configureRestrictedModeFn overrides the restricted mode step (tests only).
 	configureRestrictedModeFn func(execCtx context.Context, optCtx *operations.Context) error
 }
@@ -160,7 +168,17 @@ func (n *NICProvisioning) Execute(execCtx context.Context, optCtx *operations.Co
 			optCtx.UpdateStatusUntilSuccess(execCtx)
 		}
 	}
-	// 4. Apply NVConfig for E/W NIC devices.
+	// 4. Temporarily stage Spectrum-X configs for the NIC Operator library.
+	// TODO: Remove this once the NIC Operator library and DMS integration no longer require DPF to maintain these files.
+	prepareSpectrumXConfigFiles := prepareSpectrumXConfigs
+	if n.prepareSpectrumXConfigsFn != nil {
+		prepareSpectrumXConfigFiles = n.prepareSpectrumXConfigsFn
+	}
+	if err := prepareSpectrumXConfigFiles(); err != nil {
+		return err
+	}
+
+	// 5. Apply NVConfig for E/W NIC devices.
 	applyNVConfig := n.applyNVConfig
 	if n.applyNVConfigFn != nil {
 		applyNVConfig = n.applyNVConfigFn
@@ -172,7 +190,7 @@ func (n *NICProvisioning) Execute(execCtx context.Context, optCtx *operations.Co
 		return err
 	}
 
-	// 5. Set each E/W NIC to restricted (zero-trust) mode.
+	// 6. Set each E/W NIC to restricted (zero-trust) mode.
 	configureRestrictedMode := n.configureRestrictedMode
 	if n.configureRestrictedModeFn != nil {
 		configureRestrictedMode = n.configureRestrictedModeFn
@@ -463,6 +481,31 @@ func (n *NICProvisioning) applyNVConfig(execCtx context.Context, optCtx *operati
 	}
 	if err := applyCtx.Err(); err != nil && err != context.Canceled {
 		return fmt.Errorf("NIC NV config apply timed out or canceled: %w", err)
+	}
+	return nil
+}
+
+func prepareSpectrumXConfigs() error {
+	entries, err := fs.ReadDir(embeddedSpectrumXConfigs, embeddedSpectrumXConfigDir)
+	if err != nil {
+		return fmt.Errorf("failed to read embedded Spectrum-X configs: %w", err)
+	}
+	if err := os.MkdirAll(spectrumXConfigDir, 0755); err != nil {
+		return fmt.Errorf("failed to create Spectrum-X config directory %s: %w", spectrumXConfigDir, err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		content, err := embeddedSpectrumXConfigs.ReadFile(filepath.Join(embeddedSpectrumXConfigDir, entry.Name()))
+		if err != nil {
+			return fmt.Errorf("failed to read embedded Spectrum-X config %s: %w", entry.Name(), err)
+		}
+		configPath := filepath.Join(spectrumXConfigDir, entry.Name())
+		if err := os.WriteFile(configPath, content, 0644); err != nil {
+			return fmt.Errorf("failed to write Spectrum-X config %s: %w", configPath, err)
+		}
+		klog.InfoS("NIC provisioning: staged Spectrum-X config", "path", configPath)
 	}
 	return nil
 }
