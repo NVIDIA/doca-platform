@@ -415,8 +415,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			Expect(dpuDevice.Status.OPN).NotTo(BeNil())
 			Expect(*dpuDevice.Status.OPN).To(Equal(mock.DpuOPN))
 
-			Expect(dpuDevice.Status.PSID).NotTo(BeNil())
-			Expect(*dpuDevice.Status.PSID).To(Equal("N/A"))
+			Expect(dpuDevice.Status.PSID).To(BeNil())
 
 			Expect(dpuDevice.Status.DPUMode).To(Equal(provisioningv1.DpuMode))
 
@@ -427,12 +426,38 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			Expect(dpuDevice.Labels).NotTo(BeNil())
 			Expect(dpuDevice.Labels).To(HaveKey("provisioning.dpu.nvidia.com/dpudevice-bmc-ip"))
 			Expect(dpuDevice.Labels).To(HaveKey("provisioning.dpu.nvidia.com/dpudevice-opn"))
-			Expect(dpuDevice.Labels).To(HaveKey("provisioning.dpu.nvidia.com/dpudevice-psid"))
+			Expect(dpuDevice.Labels).NotTo(HaveKey("provisioning.dpu.nvidia.com/dpudevice-psid"))
 
 			// Verify Secure Boot detection (default: enabled)
 			Expect(dpuDevice.Status.SecureBoot).NotTo(BeNil())
 			Expect(dpuDevice.Status.SecureBoot.Enabled).NotTo(BeNil())
 			Expect(*dpuDevice.Status.SecureBoot.Enabled).To(BeTrue())
+		})
+
+		It("should not set PSID when chassis AssetTag is N/A", func() {
+			ctx := context.Background()
+			mockServer, reconciler := setupDiscoveryTest()
+			defer mockServer.Stop()
+
+			dpuDevice := createTestDPUDevice(mockServer, "test-dpudevice-psid-na")
+
+			Expect(reconciler.discoverDPUDevice(ctx, dpuDevice)).To(Succeed())
+			Expect(dpuDevice.Status.PSID).To(BeNil())
+			Expect(dpuDevice.Labels).NotTo(HaveKey("provisioning.dpu.nvidia.com/dpudevice-psid"))
+		})
+
+		It("should set PSID from chassis AssetTag when it is not N/A", func() {
+			ctx := context.Background()
+			mockServer, reconciler := setupDiscoveryTest()
+			defer mockServer.Stop()
+
+			mockServer.SetDpuVersion(mock.BF4)
+			dpuDevice := createTestDPUDevice(mockServer, "test-dpudevice-psid-valid")
+
+			Expect(reconciler.discoverDPUDevice(ctx, dpuDevice)).To(Succeed())
+			Expect(dpuDevice.Status.PSID).NotTo(BeNil())
+			Expect(*dpuDevice.Status.PSID).To(Equal(mock.DpuPSIDBF4))
+			Expect(dpuDevice.Labels).To(HaveKeyWithValue("provisioning.dpu.nvidia.com/dpudevice-psid", mock.DpuPSIDBF4))
 		})
 
 		It("should detect Secure Boot disabled state", func() {
@@ -1873,9 +1898,21 @@ func setupDiscoveryTest() (*mock.RedfishMockServer, *DPUDeviceReconciler) {
 		},
 	}
 
+	clientSecretBF4 := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "dpf-provisioning-redfish-client-secret-bf4",
+			Namespace: "test-namespace",
+		},
+		Type: corev1.SecretTypeTLS,
+		Data: map[string][]byte{
+			"tls.crt": clientCrt,
+			"tls.key": clientKey,
+		},
+	}
+
 	fakeClient := fake.NewClientBuilder().
 		WithScheme(scheme).
-		WithObjects(caSecret, clientSecret).
+		WithObjects(caSecret, clientSecret, clientSecretBF4).
 		Build()
 
 	reconciler := &DPUDeviceReconciler{
