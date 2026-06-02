@@ -80,8 +80,8 @@ var pauseDPUDeploymentReconciler atomic.Bool
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=dpudeployments,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=dpudeployments/finalizers,verbs=update
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=dpudeployments/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=bfbs;dpuflavors,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=bfbs/finalizers;dpuflavors/finalizers,verbs=update
+// +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=bfbs;dpuflavors;bluefieldsoftwares,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=bfbs/finalizers;dpuflavors/finalizers;bluefieldsoftwares/finalizers,verbs=update
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=dpuserviceconfigurations;dpuservicetemplates,verbs=get;list;watch;update;patch
 
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpusets,verbs=get;list;watch;create;update;patch;delete;deletecollection
@@ -106,6 +106,7 @@ func (r *DPUDeploymentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&dpuservicev1.DPUDeployment{}).
 		// Dependencies
 		Watches(&provisioningv1.BFB{}, handler.EnqueueRequestsFromMapFunc(r.BFBToDPUDeployment)).
+		Watches(&provisioningv1.BlueFieldSoftware{}, handler.EnqueueRequestsFromMapFunc(r.BlueFieldSoftwareToDPUDeployment)).
 		Watches(&provisioningv1.DPUFlavor{}, handler.EnqueueRequestsFromMapFunc(r.DPUFlavorToDPUDeployment)).
 		Watches(&dpuservicev1.DPUServiceConfiguration{}, handler.EnqueueRequestsFromMapFunc(r.DPUServiceConfigurationToDPUDeployment)).
 		Watches(&dpuservicev1.DPUServiceTemplate{}, handler.EnqueueRequestsFromMapFunc(r.DPUServiceTemplateToDPUDeployment)).
@@ -166,7 +167,24 @@ func (r *DPUDeploymentReconciler) BFBToDPUDeployment(ctx context.Context, o clie
 	}
 
 	for _, dpuDeployment := range dpuDeploymentList.Items {
-		if dpuDeployment.Spec.DPUs.BFB == o.GetName() {
+		if dpuDeployment.Spec.DPUs.BFB != nil && *dpuDeployment.Spec.DPUs.BFB == o.GetName() {
+			result = append(result, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(&dpuDeployment)})
+		}
+	}
+
+	return result
+}
+
+// BlueFieldSoftwareToDPUDeployment returns the DPUDeployments associated with a BlueFieldSoftware
+func (r *DPUDeploymentReconciler) BlueFieldSoftwareToDPUDeployment(ctx context.Context, o client.Object) []ctrl.Request {
+	result := []ctrl.Request{}
+	dpuDeploymentList := &dpuservicev1.DPUDeploymentList{}
+	if err := r.Client.List(ctx, dpuDeploymentList, client.InNamespace(o.GetNamespace())); err != nil {
+		return nil
+	}
+
+	for _, dpuDeployment := range dpuDeploymentList.Items {
+		if dpuDeployment.Spec.DPUs.BlueFieldSoftware != nil && *dpuDeployment.Spec.DPUs.BlueFieldSoftware == o.GetName() {
 			result = append(result, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(&dpuDeployment)})
 		}
 	}
@@ -194,6 +212,7 @@ func (r *DPUDeploymentReconciler) DPUFlavorToDPUDeployment(ctx context.Context, 
 // dpuDeploymentDependencies is a struct that holds the parsed dependencies a DPUDeployment has.
 type dpuDeploymentDependencies struct {
 	BFB                      *provisioningv1.BFB
+	BlueFieldSoftware        *provisioningv1.BlueFieldSoftware
 	DPUFlavor                *provisioningv1.DPUFlavor
 	DPUServiceConfigurations map[string]*dpuservicev1.DPUServiceConfiguration
 	DPUServiceTemplates      map[string]*dpuservicev1.DPUServiceTemplate
@@ -403,8 +422,15 @@ func updateDependencies(ctx context.Context, c client.Client, dpuDeployment *dpu
 
 // markAllCurrentDependencies marks all the current dependencies with the correct identifiers
 func markAllCurrentDependencies(ctx context.Context, c client.Client, dpuDeployment *dpuservicev1.DPUDeployment, deps *dpuDeploymentDependencies) error {
-	if err := markDependency(ctx, c, deps.BFB, dpuDeployment); err != nil {
-		return fmt.Errorf("error while marking dependency %s %s: %w", deps.BFB.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(deps.BFB), err)
+	if deps.BFB != nil {
+		if err := markDependency(ctx, c, deps.BFB, dpuDeployment); err != nil {
+			return fmt.Errorf("error while marking dependency %s %s: %w", deps.BFB.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(deps.BFB), err)
+		}
+	}
+	if deps.BlueFieldSoftware != nil {
+		if err := markDependency(ctx, c, deps.BlueFieldSoftware, dpuDeployment); err != nil {
+			return fmt.Errorf("error while marking dependency %s %s: %w", deps.BlueFieldSoftware.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(deps.BlueFieldSoftware), err)
+		}
 	}
 
 	if err := markDependency(ctx, c, deps.DPUFlavor, dpuDeployment); err != nil {
@@ -430,6 +456,7 @@ func cleanAllStaleDependencies(ctx context.Context, c client.Client, dpuDeployme
 		&dpuservicev1.DPUServiceConfigurationList{},
 		&dpuservicev1.DPUServiceTemplateList{},
 		&provisioningv1.BFBList{},
+		&provisioningv1.BlueFieldSoftwareList{},
 		&provisioningv1.DPUFlavorList{},
 	} {
 		if err := c.List(ctx,
@@ -469,11 +496,21 @@ func cleanAllStaleDependencies(ctx context.Context, c client.Client, dpuDeployme
 		case *provisioningv1.BFBList:
 			objs := obj.(*provisioningv1.BFBList).Items
 			for _, bfb := range objs {
-				if bfb.Name == deps.BFB.Name {
+				if deps.BFB != nil && bfb.Name == deps.BFB.Name {
 					continue
 				}
 				if err := unmarkDependency(ctx, c, &bfb, dpuDeployment); err != nil {
 					return fmt.Errorf("error while unmarking dependency %s %s: %w", bfb.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&bfb), err)
+				}
+			}
+		case *provisioningv1.BlueFieldSoftwareList:
+			objs := obj.(*provisioningv1.BlueFieldSoftwareList).Items
+			for _, bfs := range objs {
+				if deps.BlueFieldSoftware != nil && bfs.Name == deps.BlueFieldSoftware.Name {
+					continue
+				}
+				if err := unmarkDependency(ctx, c, &bfs, dpuDeployment); err != nil {
+					return fmt.Errorf("error while unmarking dependency %s %s: %w", bfs.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&bfs), err)
 				}
 			}
 		case *provisioningv1.DPUFlavorList:
@@ -592,6 +629,10 @@ func verifyResourceFitting(dependencies *dpuDeploymentDependencies) error {
 
 // verifyVersionMatching verifies that the user provided BFB and DPUServices have versions that match
 func verifyVersionMatching(dependencies *dpuDeploymentDependencies) error {
+	// TODO: implement version matching for BlueFieldSoftware
+	if dependencies.BFB == nil {
+		return nil
+	}
 	var errs []error
 	for _, dpuServiceTemplate := range dependencies.DPUServiceTemplates {
 		for dpuServiceVersionKey, bfbVersionFunc := range GetServiceVersionKeyToBFBVersionValue() {
@@ -633,18 +674,30 @@ func getDependencies(ctx context.Context, c client.Client, dpuDeployment *dpuser
 		DPUServiceTemplates:      make(map[string]*dpuservicev1.DPUServiceTemplate),
 	}
 
-	bfb := &provisioningv1.BFB{}
-	key := client.ObjectKey{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Spec.DPUs.BFB}
-	if err := c.Get(ctx, key, bfb); err != nil {
-		return deps, fmt.Errorf("error while getting %s %s: %w", provisioningv1.BFBGroupVersionKind.String(), key.String(), err)
+	if dpuDeployment.Spec.DPUs.BFB != nil {
+		bfb := &provisioningv1.BFB{}
+		key := client.ObjectKey{Namespace: dpuDeployment.Namespace, Name: *dpuDeployment.Spec.DPUs.BFB}
+		if err := c.Get(ctx, key, bfb); err != nil {
+			return deps, fmt.Errorf("error while getting %s %s: %w", provisioningv1.BFBGroupVersionKind.String(), key.String(), err)
+		}
+		if bfb.Status.Phase != provisioningv1.BFBReady {
+			return deps, errors.New("BFB is not ready yet")
+		}
+		deps.BFB = bfb
+	} else {
+		blueFieldSoftware := &provisioningv1.BlueFieldSoftware{}
+		key := client.ObjectKey{Namespace: dpuDeployment.Namespace, Name: *dpuDeployment.Spec.DPUs.BlueFieldSoftware}
+		if err := c.Get(ctx, key, blueFieldSoftware); err != nil {
+			return deps, fmt.Errorf("error while getting %s %s: %w", provisioningv1.BlueFieldGroupVersionKind.String(), key.String(), err)
+		}
+		if blueFieldSoftware.Status.Phase != provisioningv1.BlueFieldSoftwareReady {
+			return deps, errors.New("BlueFieldSoftware is not ready yet")
+		}
+		deps.BlueFieldSoftware = blueFieldSoftware
 	}
-	if bfb.Status.Phase != provisioningv1.BFBReady {
-		return deps, errors.New("BFB is not ready yet")
-	}
-	deps.BFB = bfb
 
 	dpuFlavor := &provisioningv1.DPUFlavor{}
-	key = client.ObjectKey{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Spec.DPUs.Flavor}
+	key := client.ObjectKey{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Spec.DPUs.Flavor}
 	if err := c.Get(ctx, key, dpuFlavor); err != nil {
 		return deps, fmt.Errorf("error while getting %s %s: %w", provisioningv1.DPUFlavorGroupVersionKind.String(), key.String(), err)
 	}
@@ -771,15 +824,18 @@ func generateDPUSet(dpuDeploymentNamespacedName types.NamespacedName,
 			DPUTemplate: provisioningv1.DPUTemplate{
 				Annotations: dpuSetSettings.DPUAnnotations,
 				Spec: provisioningv1.DPUTemplateSpec{
-					BFB: provisioningv1.BFBReference{
-						Name: dpuDeployment.Spec.DPUs.BFB,
-					},
 					DPUFlavor:    dpuDeployment.Spec.DPUs.Flavor,
 					SecureBoot:   dpuDeployment.Spec.DPUs.SecureBoot,
 					AstraEnabled: dpuDeployment.Spec.DPUs.AstraEnabled,
 				},
 			},
 		},
+	}
+
+	if dpuDeployment.Spec.DPUs.BFB != nil {
+		dpuSet.Spec.DPUTemplate.Spec.BFB = provisioningv1.BFBReference{Name: *dpuDeployment.Spec.DPUs.BFB}
+	} else if dpuDeployment.Spec.DPUs.BlueFieldSoftware != nil {
+		dpuSet.Spec.DPUTemplate.Spec.BlueFieldSoftware = &provisioningv1.BlueFieldSoftwareReference{Name: *dpuDeployment.Spec.DPUs.BlueFieldSoftware}
 	}
 
 	// Set DPUNodeSelector and DPUDeviceSelector accordingly preferring the new field over the deprecated one
@@ -1027,6 +1083,7 @@ func releaseAllDependencies(ctx context.Context, c client.Client, dpuDeployment 
 		&dpuservicev1.DPUServiceConfigurationList{},
 		&dpuservicev1.DPUServiceTemplateList{},
 		&provisioningv1.BFBList{},
+		&provisioningv1.BlueFieldSoftwareList{},
 		&provisioningv1.DPUFlavorList{},
 	} {
 		if err := c.List(ctx,
@@ -1055,6 +1112,13 @@ func releaseAllDependencies(ctx context.Context, c client.Client, dpuDeployment 
 			}
 		case *provisioningv1.BFBList:
 			objs := obj.(*provisioningv1.BFBList).Items
+			for _, o := range objs {
+				if err := unmarkDependency(ctx, c, &o, dpuDeployment); err != nil {
+					return fmt.Errorf("error while unmarking dependency %s %s: %w", o.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&o), err)
+				}
+			}
+		case *provisioningv1.BlueFieldSoftwareList:
+			objs := obj.(*provisioningv1.BlueFieldSoftwareList).Items
 			for _, o := range objs {
 				if err := unmarkDependency(ctx, c, &o, dpuDeployment); err != nil {
 					return fmt.Errorf("error while unmarking dependency %s %s: %w", o.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&o), err)

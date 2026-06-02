@@ -364,6 +364,7 @@ var _ = Describe("API Validations for DPUDeployment related objects", func() {
 	Context("When checking the DPUDeployment API validations", func() {
 		It("should not create the DPUDeployment if system annotations are present", func() {
 			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 			dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
 				{
 					NameSuffix: "dpuset1",
@@ -388,11 +389,13 @@ var _ = Describe("API Validations for DPUDeployment related objects", func() {
 		})
 		It("should not create the DPUDeployment if name exceeds the maximum length", func() {
 			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 			dpuDeployment.Name = utilrand.String(21)
 			Expect(testClient.Create(ctx, dpuDeployment)).ToNot(Succeed())
 		})
 		It("should not create the DPUDeployment if spec.dpus.dpuSets.nameSuffix exceeds the maximum length", func() {
 			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 			dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
 				{
 					NameSuffix: utilrand.String(25),
@@ -402,6 +405,7 @@ var _ = Describe("API Validations for DPUDeployment related objects", func() {
 		})
 		It("should not create the DPUDeployment if spec.dpus.dpuSets.nameSuffix is duplicated", func() {
 			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 			dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
 				{
 					NameSuffix: "dpuset1",
@@ -414,26 +418,31 @@ var _ = Describe("API Validations for DPUDeployment related objects", func() {
 		})
 		It("should not create the DPUDeployment if spec.services has key that exceeds the maximum length", func() {
 			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 			dpuDeployment.Spec.Services[utilrand.String(29)] = dpuservicev1.DPUDeploymentServiceConfiguration{}
 			Expect(testClient.Create(ctx, dpuDeployment)).ToNot(Succeed())
 		})
 		It("should not create the DPUDeployment if spec.serviceChains references service with name that exceeds the maximum length", func() {
 			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 			dpuDeployment.Spec.ServiceChains.Switches[0].Ports[0].Service.Name = utilrand.String(29)
 			Expect(testClient.Create(ctx, dpuDeployment)).ToNot(Succeed())
 		})
 		It("should not create the DPUDeployment if spec.serviceChains references service that has interfaceName that exceeds the maximum length", func() {
 			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 			dpuDeployment.Spec.ServiceChains.Switches[0].Ports[0].Service.InterfaceName = utilrand.String(16)
 			Expect(testClient.Create(ctx, dpuDeployment)).ToNot(Succeed())
 		})
 		It("should create the DPUDeployment if spec.serviceChains references service that has interfaceName at maximum length", func() {
 			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 			dpuDeployment.Spec.ServiceChains.Switches[0].Ports[0].Service.InterfaceName = utilrand.String(15)
 			Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 		})
 		DescribeTable("Validates creation of DPUDeployment with various spec.services configurations", func(services map[string]dpuservicev1.DPUDeploymentServiceConfiguration, expectError bool) {
 			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 			dpuDeployment.Spec.Services = services
 			err := testClient.Create(ctx, dpuDeployment)
 			if expectError {
@@ -466,21 +475,25 @@ var _ = Describe("API Validations for DPUDeployment related objects", func() {
 		)
 		It("should not create the DPUDeployment if revisionHistoryLimit is 0", func() {
 			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 			dpuDeployment.Spec.RevisionHistoryLimit = ptr.To(int32(0))
 			Expect(testClient.Create(ctx, dpuDeployment)).ToNot(Succeed())
 		})
 		It("should not create the DPUDeployment if revisionHistoryLimit is negative", func() {
 			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 			dpuDeployment.Spec.RevisionHistoryLimit = ptr.To(int32(-1))
 			Expect(testClient.Create(ctx, dpuDeployment)).ToNot(Succeed())
 		})
 		It("should create the DPUDeployment if revisionHistoryLimit is 1", func() {
 			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 			dpuDeployment.Spec.RevisionHistoryLimit = ptr.To(int32(1))
 			Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 		})
 		It("should create the DPUDeployment with default revisionHistoryLimit", func() {
 			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 			Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), dpuDeployment)).To(Succeed())
 			Expect(dpuDeployment.Spec.RevisionHistoryLimit).ToNot(BeNil())
@@ -488,6 +501,7 @@ var _ = Describe("API Validations for DPUDeployment related objects", func() {
 		})
 		DescribeTable("Validates mutual exclusivity of deprecated and new selector fields", func(dpuSet dpuservicev1.DPUSet, expectError bool) {
 			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 			dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{dpuSet}
 			err := testClient.Create(ctx, dpuDeployment)
 			if expectError {
@@ -557,6 +571,24 @@ var _ = Describe("API Validations for DPUDeployment related objects", func() {
 					},
 				}, false),
 		)
+		DescribeTable("Validates mutual exclusivity of bfb and blueFieldSoftware fields", func(bfb *string, blueFieldSoftware *string, expectError bool) {
+			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.DPUs.BFB = bfb
+			dpuDeployment.Spec.DPUs.BlueFieldSoftware = blueFieldSoftware
+			err := testClient.Create(ctx, dpuDeployment)
+			if expectError {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
+			}
+		},
+			Entry("neither bfb nor blueFieldSoftware set", nil, nil, true),
+			Entry("both bfb and blueFieldSoftware set", ptr.To("somebfb"), ptr.To("somebfs"), true),
+			Entry("only bfb set", ptr.To("somebfb"), nil, false),
+			Entry("only blueFieldSoftware set", nil, ptr.To("somebfs"), false),
+			Entry("bfb set to empty string", ptr.To(""), nil, true),
+			Entry("blueFieldSoftware set to empty string", nil, ptr.To(""), true),
+		)
 	})
 })
 
@@ -568,7 +600,6 @@ func getMinimalDPUDeployment(namespace string) *dpuservicev1.DPUDeployment {
 		},
 		Spec: dpuservicev1.DPUDeploymentSpec{
 			DPUs: dpuservicev1.DPUs{
-				BFB:            "somebfb",
 				Flavor:         "someflavor",
 				NodeEffect:     provisioningv1.Action{NoEffect: ptr.To(true)},
 				DPUSetStrategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},

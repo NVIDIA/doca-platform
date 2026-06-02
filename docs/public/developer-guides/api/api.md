@@ -4149,8 +4149,8 @@ _Appears in:_
 
 
 
-DPUDeployment is the Schema for the dpudeployments API. This object connects DPUServices with specific BFBs and
-DPUServiceChains.
+DPUDeployment is an object that describes a set of DPUServices and a DPUServiceChain that run a on a set of DPUs with
+a given BFB or BlueFieldSoftware and DPUFlavor.
 
 
 
@@ -4954,7 +4954,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `bfb` _string_ | BFB is the name of the BFB object to be used in this DPUDeployment. It must be in the same namespace as the<br />DPUDeployment. |  | Required: \{\} <br /> |
+| `bfb` _string_ | BFB is the name of the BFB object to be used in this DPUDeployment. It must be in the same namespace as the<br />DPUDeployment. |  | MinLength: 1 <br />Optional: \{\} <br /> |
+| `blueFieldSoftware` _string_ | BlueFieldSoftware is the name of the BlueFieldSoftware object to be used in this DPUDeployment. It must be in the<br />same namespace as the DPUDeployment. |  | MinLength: 1 <br />Optional: \{\} <br /> |
 | `flavor` _string_ | Flavor is the name of the DPUFlavor object to be used in this DPUDeployment. It must be in the same namespace as<br />the DPUDeployment. |  | Required: \{\} <br /> |
 | `astraEnabled` _boolean_ | AstraEnabled indicates whether E/W NIC configuration (Astra) is enabled |  | Optional: \{\} <br /> |
 | `dpuSets` _[DPUSet](#dpuset) array_ | DPUSets contains configuration for each DPUSet that is going to be created by the DPUDeployment |  | MaxItems: 50 <br />MinItems: 1 <br />Optional: \{\} <br /> |

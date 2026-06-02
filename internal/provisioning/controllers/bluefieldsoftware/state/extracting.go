@@ -281,6 +281,9 @@ func applyUnpackedComponentsToDownloaded(bfs *provisioningv1.BlueFieldSoftware, 
 	}
 	for _, component := range components {
 		imageName := strings.ToUpper(filepath.Base(component.FWImage))
+		if bfs.Status.Versions == nil {
+			bfs.Status.Versions = &provisioningv1.BluefieldSoftwareVersions{}
+		}
 		switch {
 		case strings.Contains(imageName, "CX9"):
 			bfs.Status.DownloadedComponents.AstraNicFw = component.FWImage

@@ -148,6 +148,7 @@ rules:
   - provisioning.dpu.nvidia.com
   resources:
   - bfbs
+  - bluefieldsoftwares
   - dpuflavors
   - dpunodemaintenances
   verbs:
@@ -160,6 +161,7 @@ rules:
   - provisioning.dpu.nvidia.com
   resources:
   - bfbs/finalizers
+  - bluefieldsoftwares/finalizers
   - dpuflavors/finalizers
   verbs:
   - update
