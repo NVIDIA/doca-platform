@@ -17,10 +17,17 @@
 # Check if DPU is in DPU mode (not SEPARATED mode)
 # Note: This requires mstflint/mlxconfig to be available in the container or on the host
 if nsenter --target 1 --mount which mlxconfig > /dev/null 2>&1; then
-	MODE=$(nsenter --target 1 --mount mlxconfig -d /dev/mst/mt*_pciconf0 q INTERNAL_CPU_MODEL | awk '/INTERNAL_CPU_MODEL/{print $2}')
-	if [[ ! "$MODE" =~ "EMBEDDED" ]]; then
-		echo "DPU is in $MODE mode, expected EMBEDDED mode"
-		exit 1
-	fi
+	for dev in /dev/mst/mt*_pciconf0; do
+		# Skip if the device is not a BlueField.
+		if ! nsenter --target 1 --mount mlxconfig -d $dev q some-non-existing-value |& awk "/Device type:/{print \$3}" | grep -q "BlueField"; then
+			continue
+		fi
+
+		MODE=$(nsenter --target 1 --mount mlxconfig -d $dev q INTERNAL_CPU_MODEL | awk '/INTERNAL_CPU_MODEL/{print $2}')
+		if [[ ! "$MODE" =~ "EMBEDDED" ]]; then
+			echo "DPU is in $MODE mode, expected EMBEDDED mode"
+			exit 1
+		fi
+	done
 fi
 exit 0
