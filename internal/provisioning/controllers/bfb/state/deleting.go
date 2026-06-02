@@ -58,7 +58,7 @@ func (st *bfbDeletingState) Handle(ctx context.Context, client ctrlclient.Client
 
 	// Early exit: check if any DPUSet references this BFB
 	for _, ds := range dpusetList.Items {
-		if ds.Spec.DPUTemplate.Spec.BFB.Name == st.bfb.Name {
+		if ds.Spec.DPUTemplate.Spec.BFB != nil && ds.Spec.DPUTemplate.Spec.BFB.Name == st.bfb.Name {
 			err := fmt.Errorf("BFB %s/%s cannot be deleted, still referenced by DPUSet: %s",
 				st.bfb.Namespace, st.bfb.Name, ds.Name)
 			conditions.AddFalse(st.bfb, provisioningv1.BFBCondDeleted,
