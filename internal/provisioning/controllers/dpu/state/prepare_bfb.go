@@ -23,10 +23,8 @@ import (
 	"path/filepath"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
-	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/cloudinit"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
-	"github.com/nvidia/doca-platform/pkg/bfcfg"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -41,7 +39,7 @@ const (
 	UserDataDir = "user-data"
 )
 
-func prepareBF4ISO(ctx context.Context, ctrlCtx *dutil.ControllerContext, dpu *provisioningv1.DPU, flavor *provisioningv1.DPUFlavor, state *provisioningv1.DPUStatus) (string, error) {
+func prepareBF4ISO(ctx context.Context, dpu *provisioningv1.DPU, artifact dutil.BF4Artifact, state *provisioningv1.DPUStatus) (string, error) {
 	logger := log.FromContext(ctx)
 	userDataBasePath := filepath.Join("/", cutil.BFBBaseDir, UserDataDir, fmt.Sprintf("%s_%s_%s", dpu.Namespace, dpu.Name, dpu.UID))
 	if err := os.MkdirAll(userDataBasePath, os.ModePerm); err != nil {
@@ -62,19 +60,7 @@ func prepareBF4ISO(ctx context.Context, ctrlCtx *dutil.ControllerContext, dpu *p
 	}
 
 	logger.Info(fmt.Sprintf("write user-data to %s", userDataPath))
-	params, _, err := cloudinit.ResolveParams(ctx, ctrlCtx, dpu, flavor)
-	if err != nil {
-		err = fmt.Errorf("failed to resolve params: %w", err)
-		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToResolveParams", err.Error()))
-		return "", err
-	}
-	userData, err := cloudinit.GenerateUserData(params)
-	if err != nil {
-		err = fmt.Errorf("failed to generate user-data: %w", err)
-		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToGenerateUserData", err.Error()))
-		return "", err
-	}
-	if err := os.WriteFile(userDataPath, []byte(userData.Content), os.ModePerm); err != nil {
+	if err := os.WriteFile(userDataPath, artifact.UserData, os.ModePerm); err != nil {
 		err = fmt.Errorf("failed to write user-data to %s: %w", userDataPath, err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToWriteUserData", err.Error()))
 		return "", err
@@ -90,8 +76,7 @@ func prepareBF4ISO(ctx context.Context, ctrlCtx *dutil.ControllerContext, dpu *p
 		}
 	}
 	logger.Info(fmt.Sprintf("write network-config to %s", networkCfgPath))
-	networkCfg := cloudinit.GenerateNetworkCfg()
-	if err := os.WriteFile(networkCfgPath, []byte(networkCfg.Content), os.ModePerm); err != nil {
+	if err := os.WriteFile(networkCfgPath, artifact.NetworkConfig, os.ModePerm); err != nil {
 		err = fmt.Errorf("failed to write network-config to %s: %w", networkCfgPath, err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToWriteNetworkCfg", err.Error()))
 		return "", err
@@ -112,9 +97,9 @@ func prepareBF4ISO(ctx context.Context, ctrlCtx *dutil.ControllerContext, dpu *p
 
 	// Match mkisofs argument order: user-data meta-data network-config
 	createdPath, err := dutil.MkIso(isoBasePath, "cidata", []dutil.IsoRootFile{
-		{Name: "user-data", Data: []byte(userData.Content)},
+		{Name: "user-data", Data: artifact.UserData},
 		{Name: "meta-data", Data: []byte{}},
-		{Name: "network-config", Data: []byte(networkCfg.Content)},
+		{Name: "network-config", Data: artifact.NetworkConfig},
 	})
 
 	if err != nil {
@@ -126,7 +111,7 @@ func prepareBF4ISO(ctx context.Context, ctrlCtx *dutil.ControllerContext, dpu *p
 	return createdPath, nil
 }
 
-func prepareBF3BFB(ctx context.Context, ctrlCtx *dutil.ControllerContext, dpu *provisioningv1.DPU, flavor *provisioningv1.DPUFlavor, state *provisioningv1.DPUStatus) (string, error) {
+func prepareBF3BFB(ctx context.Context, dpu *provisioningv1.DPU, bfCFG []byte, state *provisioningv1.DPUStatus) (string, error) {
 	logger := log.FromContext(ctx)
 	bfCFGPath := filepath.Join("/", cutil.BFBBaseDir, BFCFGDir, fmt.Sprintf("%s_%s_%s", dpu.Namespace, dpu.Name, dpu.UID))
 	if err := os.MkdirAll(filepath.Dir(bfCFGPath), os.ModePerm); err != nil {
@@ -135,20 +120,28 @@ func prepareBF3BFB(ctx context.Context, ctrlCtx *dutil.ControllerContext, dpu *p
 		return "", err
 	}
 
-	cfg, err := bfcfg.GenerateBFConfig(ctx, ctrlCtx, dpu, flavor)
-	if err != nil {
-		err = fmt.Errorf("failed to generate bf.cfg: %w", err)
-		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToGenerateBFConfig", err.Error()))
-		return "", err
-	}
 	logger.Info(fmt.Sprintf("write bf.cfg to %s", bfCFGPath))
-	if err := os.WriteFile(bfCFGPath, cfg, os.ModePerm); err != nil {
+	if err := os.WriteFile(bfCFGPath, bfCFG, os.ModePerm); err != nil {
 		err = fmt.Errorf("failed to write bf.cfg to %s: %w", bfCFGPath, err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToPushBFCFG", err.Error()))
 		return "", err
 	}
 
 	return bfCFGPath, nil
+}
+
+func ensureRBAC(ctx context.Context, ctrlCtx *dutil.ControllerContext, dpu *provisioningv1.DPU) (string, error) {
+	if err := cutil.CreateDPUAgentRole(ctx, ctrlCtx.Client, ctrlCtx.Client.Scheme(), dpu); err != nil {
+		return "", fmt.Errorf("creating DPU agent role: %w", err)
+	}
+	if err := cutil.CreateDPUAgentRoleBinding(ctx, ctrlCtx.Client, ctrlCtx.Client.Scheme(), dpu); err != nil {
+		return "", fmt.Errorf("creating DPU agent role binding: %w", err)
+	}
+	token, err := cutil.CreateDPUAgentBootstrapToken(ctx, ctrlCtx.Client, dpu)
+	if err != nil {
+		return "", fmt.Errorf("creating DPU agent bootstrap token: %w", err)
+	}
+	return token, nil
 }
 
 func PrepareBFB(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
@@ -222,18 +215,45 @@ func PrepareBFB(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 		return *state, err
 	}
 
-	var bfCFGPath string
+	bootstrapToken, err := ensureRBAC(ctx, ctrlCtx, dpu)
+	if err != nil {
+		err = fmt.Errorf("failed to ensure DPU agent RBAC: %w", err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToEnsureRBAC", err.Error()))
+		return *state, err
+	}
+
+	artifactGenerator := ctrlCtx.DPUArtifactGenerator
+	artifactRequest := dutil.DPUArtifactRequest{
+		ControllerContext: ctrlCtx,
+		DPU:               dpu,
+		Flavor:            flavor,
+		BootstrapToken:    bootstrapToken,
+	}
+
+	var artifactPath string
 	var prepErr error
 	if dpuDevice.Status.DPUType == provisioningv1.DPUTypeBlueField4 {
-		bfCFGPath, prepErr = prepareBF4ISO(ctx, ctrlCtx, dpu, flavor, state)
+		artifact, err := artifactGenerator.GenerateBF4(ctx, artifactRequest)
+		if err != nil {
+			err = fmt.Errorf("failed to generate BF4 artifact: %w", err)
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToGenerateBF4Artifact", err.Error()))
+			return *state, err
+		}
+		artifactPath, prepErr = prepareBF4ISO(ctx, dpu, artifact, state)
 	} else {
-		bfCFGPath, prepErr = prepareBF3BFB(ctx, ctrlCtx, dpu, flavor, state)
+		cfg, err := artifactGenerator.GenerateBF3(ctx, artifactRequest)
+		if err != nil {
+			err = fmt.Errorf("failed to generate bf.cfg: %w", err)
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToGenerateBFConfig", err.Error()))
+			return *state, err
+		}
+		artifactPath, prepErr = prepareBF3BFB(ctx, dpu, cfg, state)
 	}
 	if prepErr != nil {
 		return *state, prepErr
 	}
 
-	state.BFCFGFile = bfCFGPath
+	state.BFCFGFile = artifactPath
 	cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), nil, "", ""))
 	state.Phase = provisioningv1.DPUOSInstalling
 	return *state, nil

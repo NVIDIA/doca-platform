@@ -50,6 +50,29 @@ func (m *mockJoinCommandGenerator) GenerateJoinCommand(ctx context.Context, dc *
 	return "kubeadm join 10.0.0.1:6443 --token abc123.xyz789", nil
 }
 
+type mockDPUArtifactGenerator struct {
+	bf3    []byte
+	bf4    dutil.BF4Artifact
+	err    error
+	called string
+}
+
+func (m *mockDPUArtifactGenerator) GenerateBF3(ctx context.Context, req dutil.DPUArtifactRequest) ([]byte, error) {
+	m.called = "bf3"
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.bf3, nil
+}
+
+func (m *mockDPUArtifactGenerator) GenerateBF4(ctx context.Context, req dutil.DPUArtifactRequest) (dutil.BF4Artifact, error) {
+	m.called = "bf4"
+	if m.err != nil {
+		return dutil.BF4Artifact{}, m.err
+	}
+	return m.bf4, nil
+}
+
 var _ = Describe("DPU: PrepareBFB", func() {
 	var (
 		defaultDPUName     = "dpu-prepare-bfb-test"
@@ -203,6 +226,9 @@ var _ = Describe("DPU: PrepareBFB", func() {
 				Client: k8sClient,
 				JoinCommandGenerator: &mockJoinCommandGenerator{
 					returnError: false,
+				},
+				DPUArtifactGenerator: &mockDPUArtifactGenerator{
+					bf3: []byte("bf.cfg"),
 				},
 			},
 		)
@@ -368,9 +394,8 @@ var _ = Describe("DPU: PrepareBFB", func() {
 				JoinCommandGenerator: &mockJoinCommandGenerator{
 					returnError: false,
 				},
-				Options: dutil.DPUOptions{
-					// Use a non-existent template file to trigger GenerateBFConfig error
-					BFCFGTemplateFile: "/non/existent/template/file.cfg",
+				DPUArtifactGenerator: &mockDPUArtifactGenerator{
+					err: fmt.Errorf("failed to render artifact"),
 				},
 			},
 		)
@@ -385,9 +410,7 @@ var _ = Describe("DPU: PrepareBFB", func() {
 		))
 	})
 
-	// TODO: Re-enable after refactoring ResolveParams to not read ServiceAccountCAPath directly.
-	// Tracked in follow-up MR to extract bootstrap kubeconfig generation behind an interface.
-	PIt("should return error with FailedToPushBFCFG when file write fails", func() {
+	It("should return error with FailedToPushBFCFG when file write fails", func() {
 		createDPFOperatorConfig()
 
 		node := nodeObj(defaultNodeName)
@@ -422,20 +445,22 @@ var _ = Describe("DPU: PrepareBFB", func() {
 		Expect(err).NotTo(HaveOccurred())
 		defer func() { _ = os.RemoveAll(tempDir) }()
 
-		// Create the bfcfg directory but make it read-only to cause write to fail
-		bfcfgDir := filepath.Join(tempDir, "bfcfg")
-		err = os.MkdirAll(bfcfgDir, 0555)
-		Expect(err).NotTo(HaveOccurred())
-
 		originalBFBBaseDir := cutil.BFBBaseDir
 		cutil.BFBBaseDir = tempDir
 		defer func() { cutil.BFBBaseDir = originalBFBBaseDir }()
+
+		// Create a directory at the target bf.cfg path to cause os.WriteFile to fail.
+		bfCFGPath := filepath.Join(tempDir, "bfcfg", fmt.Sprintf("%s_%s_%s", dpu.Namespace, dpu.Name, dpu.UID))
+		Expect(os.MkdirAll(bfCFGPath, os.ModePerm)).To(Succeed())
 
 		status, err := state.PrepareBFB(ctx, dpu,
 			&dutil.ControllerContext{
 				Client: k8sClient,
 				JoinCommandGenerator: &mockJoinCommandGenerator{
 					returnError: false,
+				},
+				DPUArtifactGenerator: &mockDPUArtifactGenerator{
+					bf3: []byte("bf.cfg"),
 				},
 				Options: dutil.DPUOptions{
 					BFCFGTemplateFile:   "",
@@ -454,8 +479,7 @@ var _ = Describe("DPU: PrepareBFB", func() {
 		))
 	})
 
-	// TODO: Re-enable after refactoring ResolveParams to not read ServiceAccountCAPath directly.
-	PIt("should successfully prepare BFB and transition to DPUOSInstalling", func() {
+	It("should successfully prepare BFB and transition to DPUOSInstalling", func() {
 		createDPFOperatorConfig()
 
 		node := nodeObj(defaultNodeName)
@@ -499,6 +523,9 @@ var _ = Describe("DPU: PrepareBFB", func() {
 				Client: k8sClient,
 				JoinCommandGenerator: &mockJoinCommandGenerator{
 					returnError: false,
+				},
+				DPUArtifactGenerator: &mockDPUArtifactGenerator{
+					bf3: []byte("bf.cfg"),
 				},
 				Options: dutil.DPUOptions{
 					BFCFGTemplateFile:   "",
@@ -521,8 +548,7 @@ var _ = Describe("DPU: PrepareBFB", func() {
 	})
 
 	Describe("BlueField 4 ISO path", func() {
-		// TODO: Re-enable after refactoring ResolveParams to not read ServiceAccountCAPath directly.
-		PIt("should create ISO image and set BFCFGFile to iso path when DPUDevice is BlueField 4", func() {
+		It("should create ISO image and set BFCFGFile to iso path when DPUDevice is BlueField 4", func() {
 			createDPFOperatorConfig()
 
 			node := nodeObj(defaultNodeName)
@@ -569,6 +595,12 @@ var _ = Describe("DPU: PrepareBFB", func() {
 					Client: k8sClient,
 					JoinCommandGenerator: &mockJoinCommandGenerator{
 						returnError: false,
+					},
+					DPUArtifactGenerator: &mockDPUArtifactGenerator{
+						bf4: dutil.BF4Artifact{
+							UserData:      []byte("#cloud-config\n"),
+							NetworkConfig: []byte("network:\n  config: disabled\n"),
+						},
 					},
 					Options: dutil.DPUOptions{
 						BFCFGTemplateFile:   "",

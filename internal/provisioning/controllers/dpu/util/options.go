@@ -71,6 +71,7 @@ type ControllerContext struct {
 	Recorder             record.EventRecorder
 	ClusterAllocator     allocator.Allocator
 	JoinCommandGenerator NodeJoinCommandGenerator
+	DPUArtifactGenerator DPUArtifactGenerator
 	HostUptimeChecker    reboot.HostUptimeChecker
 	DPUInProvisioningMap *DPUInProvisioningMap
 }
