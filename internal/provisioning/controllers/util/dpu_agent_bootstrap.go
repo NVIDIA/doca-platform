@@ -136,22 +136,47 @@ func CreateDPUAgentRoleBinding(ctx context.Context, client crclient.Client, sche
 	return nil
 }
 
-// CreateDPUAgentBootstrapKubeconfig creates a short-lived bootstrap token secret
-// in kube-system for the DPU agent and returns a kubeconfig that authenticates
-// with that token. If a valid (non-expired) token already exists for this DPU
-// (identified by labels), it reuses the existing token.
-// caPath is the path to the CA certificate file (typically ServiceAccountCAPath).
-// proxyURL, if non-empty, is written into the kubeconfig cluster's proxy-url
-// field so the DPU agent routes API requests through the hostagent forward proxy.
-func CreateDPUAgentBootstrapKubeconfig(ctx context.Context, client crclient.Client, dpu *provisioningv1.DPU, apiServerAddress, caPath, proxyURL string) ([]byte, error) {
-	token, err := createDPUAgentBootstrapToken(ctx, client, dpu)
-	if err != nil {
-		return nil, err
+// GenerateBootstrapKubeconfig returns a kubeconfig that authenticates with the
+// provided bootstrap token. proxyURL, if non-empty, is written into the cluster
+// stanza so clients route requests through that proxy.
+func GenerateBootstrapKubeconfig(apiServerAddress, token string, caData []byte, proxyURL string) ([]byte, error) {
+	cluster := &clientcmdapi.Cluster{
+		Server:                   apiServerAddress,
+		CertificateAuthorityData: caData,
 	}
-	return generateBootstrapKubeconfig(apiServerAddress, token, caPath, proxyURL)
+	if proxyURL != "" {
+		cluster.ProxyURL = proxyURL
+	}
+
+	kubeconfig := clientcmdapi.Config{
+		Clusters: map[string]*clientcmdapi.Cluster{
+			"default": cluster,
+		},
+		AuthInfos: map[string]*clientcmdapi.AuthInfo{
+			"default": {
+				Token: token,
+			},
+		},
+		Contexts: map[string]*clientcmdapi.Context{
+			"default": {
+				Cluster:  "default",
+				AuthInfo: "default",
+			},
+		},
+		CurrentContext: "default",
+	}
+
+	data, err := clientcmd.Write(kubeconfig)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling bootstrap kubeconfig: %w", err)
+	}
+	return data, nil
 }
 
-func createDPUAgentBootstrapToken(ctx context.Context, client crclient.Client, dpu *provisioningv1.DPU) (string, error) {
+// CreateDPUAgentBootstrapToken creates or reuses a short-lived bootstrap token
+// secret in kube-system for the DPU agent. If a valid (non-expired) token
+// already exists for this DPU (identified by labels), it reuses it.
+func CreateDPUAgentBootstrapToken(ctx context.Context, client crclient.Client, dpu *provisioningv1.DPU) (string, error) {
 	selector := labels.SelectorFromSet(labels.Set{
 		LabelDPUName:      dpu.Name,
 		LabelDPUNamespace: dpu.Namespace,
@@ -262,45 +287,6 @@ func generateRandomHex(nBytes int) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(b), nil
-}
-
-func generateBootstrapKubeconfig(apiServerAddress, token, caPath, proxyURL string) ([]byte, error) {
-	caData, err := os.ReadFile(caPath)
-	if err != nil {
-		return nil, fmt.Errorf("reading CA certificate from %s: %w", caPath, err)
-	}
-
-	cluster := &clientcmdapi.Cluster{
-		Server:                   apiServerAddress,
-		CertificateAuthorityData: caData,
-	}
-	if proxyURL != "" {
-		cluster.ProxyURL = proxyURL
-	}
-
-	kubeconfig := clientcmdapi.Config{
-		Clusters: map[string]*clientcmdapi.Cluster{
-			"default": cluster,
-		},
-		AuthInfos: map[string]*clientcmdapi.AuthInfo{
-			"default": {
-				Token: token,
-			},
-		},
-		Contexts: map[string]*clientcmdapi.Context{
-			"default": {
-				Cluster:  "default",
-				AuthInfo: "default",
-			},
-		},
-		CurrentContext: "default",
-	}
-
-	data, err := clientcmd.Write(kubeconfig)
-	if err != nil {
-		return nil, fmt.Errorf("marshaling bootstrap kubeconfig: %w", err)
-	}
-	return data, nil
 }
 
 // defaultKubernetesServicePort returns the KUBERNETES_SERVICE_PORT environment

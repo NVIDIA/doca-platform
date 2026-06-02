@@ -33,6 +33,7 @@ import (
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	operatorcontroller "github.com/nvidia/doca-platform/internal/operator/controllers"
+	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 	"github.com/nvidia/doca-platform/test/mock/dms/pkg/certs"
@@ -215,8 +216,6 @@ func TestDMSServerReconciler(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// TODO: Re-enable after refactoring ResolveParams to not read ServiceAccountCAPath directly.
-			t.Skip("Skipped: ResolveParams now creates bootstrap kubeconfig for all modes, requires ServiceAccount CA file absent in envtest")
 			// Create the DPU and check its provisioning process.
 			for _, node := range createNodes(tt.numberOfNodes) {
 				g.Expect(testClient.Create(ctx, node)).To(Succeed())
@@ -324,6 +323,19 @@ type mockKubeadmJoinCommandGenerator struct{}
 
 func (m *mockKubeadmJoinCommandGenerator) GenerateJoinCommand(context.Context, *provisioningv1.DPUCluster) (string, error) {
 	return "soup", nil
+}
+
+type mockDPUArtifactGenerator struct{}
+
+func (m *mockDPUArtifactGenerator) GenerateBF3(context.Context, dutil.DPUArtifactRequest) ([]byte, error) {
+	return []byte("bf.cfg"), nil
+}
+
+func (m *mockDPUArtifactGenerator) GenerateBF4(context.Context, dutil.DPUArtifactRequest) (dutil.BF4Artifact, error) {
+	return dutil.BF4Artifact{
+		UserData:      []byte("#cloud-config\n"),
+		NetworkConfig: []byte("network:\n  config: disabled\n"),
+	}, nil
 }
 
 // mockHostUptimeReporter implements the interface for checking if a node reboot has occurred..
