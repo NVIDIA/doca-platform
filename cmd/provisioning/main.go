@@ -33,6 +33,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/csr"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/discovery"
+	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpucluster"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpudevice"
@@ -284,6 +285,7 @@ func setupControllers(mgr ctrl.Manager, flags *cliFlags, bfbRegistry string, ima
 		mgr,
 		alloc,
 		&dutil.KubeadmBootstrapTokenGenerator{Client: mgr.GetClient()},
+		&state.DefaultDPUArtifactGenerator{},
 		&reboot.DMSPodExecUptimeChecker{},
 		dpuOptions,
 		dpuMap,

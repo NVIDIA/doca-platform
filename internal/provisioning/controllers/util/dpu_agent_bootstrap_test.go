@@ -149,18 +149,13 @@ var _ = Describe("ZT Bootstrap", func() {
 		})
 	})
 
-	Describe("CreateDPUAgentBootstrapKubeconfig", func() {
-		It("should create a bootstrap token and return a valid kubeconfig", func() {
+	Describe("CreateDPUAgentBootstrapToken", func() {
+		It("should create a bootstrap token", func() {
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 
-			tmpCA, err := os.CreateTemp("", "ca-test-*")
+			token, err := CreateDPUAgentBootstrapToken(ctx, fakeClient, dpu)
 			Expect(err).NotTo(HaveOccurred())
-			defer func() { _ = os.Remove(tmpCA.Name()) }()
-			Expect(os.WriteFile(tmpCA.Name(), []byte("fake-ca-data"), 0600)).To(Succeed())
-
-			kubeconfigData, err := CreateDPUAgentBootstrapKubeconfig(ctx, fakeClient, dpu, "https://10.0.0.1:6443", tmpCA.Name(), "")
-			Expect(err).NotTo(HaveOccurred())
-			Expect(kubeconfigData).NotTo(BeEmpty())
+			Expect(token).NotTo(BeEmpty())
 
 			secretList := &corev1.SecretList{}
 			Expect(fakeClient.List(ctx, secretList, client.InNamespace("kube-system"))).To(Succeed())
@@ -174,40 +169,6 @@ var _ = Describe("ZT Bootstrap", func() {
 			Expect(s.Labels[LabelDPUNamespace]).To(Equal("dpf-operator-system"))
 			Expect(s.StringData["usage-bootstrap-authentication"]).To(Equal("true"))
 			Expect(s.StringData["auth-extra-groups"]).To(Equal(DPUAgentBootstrapGroup))
-
-			tmpKubeconfig, err := os.CreateTemp("", "kubeconfig-test-*")
-			Expect(err).NotTo(HaveOccurred())
-			defer func() { _ = os.Remove(tmpKubeconfig.Name()) }()
-			Expect(os.WriteFile(tmpKubeconfig.Name(), kubeconfigData, 0600)).To(Succeed())
-
-			cfg, err := clientcmd.BuildConfigFromFlags("", tmpKubeconfig.Name())
-			Expect(err).NotTo(HaveOccurred())
-			Expect(cfg.Host).To(Equal("https://10.0.0.1:6443"))
-			Expect(cfg.BearerToken).NotTo(BeEmpty())
-			Expect(cfg.CAData).To(Equal([]byte("fake-ca-data")))
-		})
-
-		It("should include proxy-url in kubeconfig when specified", func() {
-			fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-
-			tmpCA, err := os.CreateTemp("", "ca-test-*")
-			Expect(err).NotTo(HaveOccurred())
-			defer func() { _ = os.Remove(tmpCA.Name()) }()
-			Expect(os.WriteFile(tmpCA.Name(), []byte("fake-ca-data"), 0600)).To(Succeed())
-
-			proxyURL := "http://[fe80::1%25tmfifo_net0]:11030"
-			kubeconfigData, err := CreateDPUAgentBootstrapKubeconfig(ctx, fakeClient, dpu, "https://kubernetes.default.svc:6443", tmpCA.Name(), proxyURL)
-			Expect(err).NotTo(HaveOccurred())
-
-			tmpKubeconfig, err := os.CreateTemp("", "kubeconfig-test-*")
-			Expect(err).NotTo(HaveOccurred())
-			defer func() { _ = os.Remove(tmpKubeconfig.Name()) }()
-			Expect(os.WriteFile(tmpKubeconfig.Name(), kubeconfigData, 0600)).To(Succeed())
-
-			cfg, err := clientcmd.BuildConfigFromFlags("", tmpKubeconfig.Name())
-			Expect(err).NotTo(HaveOccurred())
-			Expect(cfg.Host).To(Equal("https://kubernetes.default.svc:6443"))
-			Expect(cfg.Proxy).NotTo(BeNil())
 		})
 
 		It("should reuse existing token when one already exists", func() {
@@ -229,26 +190,47 @@ var _ = Describe("ZT Bootstrap", func() {
 			}
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existingSecret).Build()
 
-			tmpCA, err := os.CreateTemp("", "ca-test-*")
+			token, err := CreateDPUAgentBootstrapToken(ctx, fakeClient, dpu)
 			Expect(err).NotTo(HaveOccurred())
-			defer func() { _ = os.Remove(tmpCA.Name()) }()
-			Expect(os.WriteFile(tmpCA.Name(), []byte("fake-ca-data"), 0600)).To(Succeed())
+			Expect(token).To(Equal("abc123.1234567890abcdef"))
 
-			kubeconfigData, err := CreateDPUAgentBootstrapKubeconfig(ctx, fakeClient, dpu, "https://10.0.0.1:6443", tmpCA.Name(), "")
+			secretList := &corev1.SecretList{}
+			Expect(fakeClient.List(ctx, secretList, client.InNamespace("kube-system"))).To(Succeed())
+			Expect(secretList.Items).To(HaveLen(1))
+		})
+	})
+
+	Describe("GenerateBootstrapKubeconfig", func() {
+		It("should generate a valid bootstrap kubeconfig", func() {
+			data, err := GenerateBootstrapKubeconfig("https://10.0.0.1:6443", "abc123.token", []byte("fake-ca-data"), "")
 			Expect(err).NotTo(HaveOccurred())
 
 			tmpKubeconfig, err := os.CreateTemp("", "kubeconfig-test-*")
 			Expect(err).NotTo(HaveOccurred())
 			defer func() { _ = os.Remove(tmpKubeconfig.Name()) }()
-			Expect(os.WriteFile(tmpKubeconfig.Name(), kubeconfigData, 0600)).To(Succeed())
+			Expect(os.WriteFile(tmpKubeconfig.Name(), data, 0600)).To(Succeed())
 
 			cfg, err := clientcmd.BuildConfigFromFlags("", tmpKubeconfig.Name())
 			Expect(err).NotTo(HaveOccurred())
-			Expect(cfg.BearerToken).To(Equal("abc123.1234567890abcdef"))
+			Expect(cfg.Host).To(Equal("https://10.0.0.1:6443"))
+			Expect(cfg.BearerToken).To(Equal("abc123.token"))
+			Expect(cfg.CAData).To(Equal([]byte("fake-ca-data")))
+		})
 
-			secretList := &corev1.SecretList{}
-			Expect(fakeClient.List(ctx, secretList, client.InNamespace("kube-system"))).To(Succeed())
-			Expect(secretList.Items).To(HaveLen(1))
+		It("should include proxy-url when specified", func() {
+			proxyURL := "http://[fe80::1%25tmfifo_net0]:11030"
+			data, err := GenerateBootstrapKubeconfig("https://kubernetes.default.svc:6443", "abc123.token", []byte("fake-ca-data"), proxyURL)
+			Expect(err).NotTo(HaveOccurred())
+
+			tmpKubeconfig, err := os.CreateTemp("", "kubeconfig-test-*")
+			Expect(err).NotTo(HaveOccurred())
+			defer func() { _ = os.Remove(tmpKubeconfig.Name()) }()
+			Expect(os.WriteFile(tmpKubeconfig.Name(), data, 0600)).To(Succeed())
+
+			cfg, err := clientcmd.BuildConfigFromFlags("", tmpKubeconfig.Name())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cfg.Host).To(Equal("https://kubernetes.default.svc:6443"))
+			Expect(cfg.Proxy).NotTo(BeNil())
 		})
 	})
 

@@ -154,6 +154,7 @@ func TestMain(m *testing.M) {
 		testManager,
 		allocator.NewAllocator(testClient),
 		&mockKubeadmJoinCommandGenerator{},
+		&mockDPUArtifactGenerator{},
 		&mockHostUptimeReporter{},
 		dutil.DPUOptions{DPUInstallInterface: string(provisioningv1.InstallViaGNOI), MaxDPUParallelInstallations: 50},
 		dpuMap)

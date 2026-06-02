@@ -113,13 +113,8 @@ type BFCFGData struct {
 	BFGCFGParams []string
 }
 
-func GenerateBFConfig(ctx context.Context, controllerContext *util.ControllerContext, dpu *provisioningv1.DPU, flavor *provisioningv1.DPUFlavor) ([]byte, error) {
+func GenerateBFConfigWithParams(ctx context.Context, controllerContext *util.ControllerContext, dpu *provisioningv1.DPU, flavor *provisioningv1.DPUFlavor, params cloudinit.Params, dpfOperatorConfig operatorv1.DPFOperatorConfig) ([]byte, error) {
 	logger := log.FromContext(ctx)
-	params, dpfOperatorConfig, err := cloudinit.ResolveParams(ctx, controllerContext, dpu, flavor)
-	if err != nil {
-		return nil, err
-	}
-
 	templateData, isDefault, err := getTemplateData(ctx, controllerContext, &dpfOperatorConfig, dpu)
 	if err != nil {
 		return nil, err

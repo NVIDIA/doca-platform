@@ -190,6 +190,7 @@ var _ = BeforeSuite(func() {
 	dpuReconciler = dpu.NewDPUReconciler(k8sManager,
 		alloc,
 		&mockNodeJoinCommandGenerator{},
+		&mockDPUArtifactGenerator{},
 		&reboot.DMSPodExecUptimeChecker{},
 		dutil.DPUOptions{DPUInstallInterface: string(provisioningv1.InstallViaMock), MaxDPUParallelInstallations: maxDPUParallelInstallations},
 		dpuMap)
@@ -403,4 +404,17 @@ type mockNodeJoinCommandGenerator struct{}
 
 func (m *mockNodeJoinCommandGenerator) GenerateJoinCommand(ctx context.Context, dc *provisioningv1.DPUCluster) (string, error) {
 	return "soup", nil
+}
+
+type mockDPUArtifactGenerator struct{}
+
+func (m *mockDPUArtifactGenerator) GenerateBF3(ctx context.Context, req dutil.DPUArtifactRequest) ([]byte, error) {
+	return []byte("bf.cfg"), nil
+}
+
+func (m *mockDPUArtifactGenerator) GenerateBF4(ctx context.Context, req dutil.DPUArtifactRequest) (dutil.BF4Artifact, error) {
+	return dutil.BF4Artifact{
+		UserData:      []byte("#cloud-config\n"),
+		NetworkConfig: []byte("network:\n  config: disabled\n"),
+	}, nil
 }
