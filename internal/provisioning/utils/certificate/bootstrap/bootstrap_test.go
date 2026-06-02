@@ -264,7 +264,7 @@ var _ = Describe("Bootstrap", func() {
 			Expect(loadedConfig.Clusters["default-cluster"].CertificateAuthorityData).To(Equal([]byte("test-ca-data")))
 		})
 
-		It("should write kubeconfig with insecure flag", func() {
+		It("should never propagate insecure flag from bootstrap config", func() {
 			kubeconfigPath := filepath.Join(tempDir, "output-kubeconfig-insecure")
 			pemPath := filepath.Join(tempDir, "client.pem")
 
@@ -278,11 +278,11 @@ var _ = Describe("Bootstrap", func() {
 			err := writeKubeconfigFromBootstrapping(bootstrapConfig, kubeconfigPath, pemPath)
 			Expect(err).NotTo(HaveOccurred())
 
-			// Load and verify content
+			// Verify InsecureSkipTLSVerify is NOT propagated even when bootstrap config has Insecure: true
 			loader := &clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeconfigPath}
 			loadedConfig, err := loader.Load()
 			Expect(err).NotTo(HaveOccurred())
-			Expect(loadedConfig.Clusters["default-cluster"].InsecureSkipTLSVerify).To(BeTrue())
+			Expect(loadedConfig.Clusters["default-cluster"].InsecureSkipTLSVerify).To(BeFalse())
 		})
 	})
 

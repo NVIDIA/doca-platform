@@ -90,9 +90,13 @@ func writeKubeconfigFromBootstrapping(bootstrapClientConfig *restclient.Config, 
 		caData = bootstrapClientConfig.CAData
 	}
 
+	if bootstrapClientConfig.Insecure {
+		klog.Warning("Bootstrap kubeconfig has Insecure set; the resulting kubeconfig will enforce TLS verification")
+	}
+
 	cluster := &clientcmdapi.Cluster{
 		Server:                   bootstrapClientConfig.Host,
-		InsecureSkipTLSVerify:    bootstrapClientConfig.Insecure,
+		InsecureSkipTLSVerify:    false,
 		CertificateAuthority:     caFile,
 		CertificateAuthorityData: caData,
 	}
