@@ -88,7 +88,8 @@ func (r *DPUSetReconciler) computeDPUDrift(dpuSet provisioningv1.DPUSet, dpu pro
 	var d dpuDrift
 	t := dpuSet.Spec.DPUTemplate.Spec
 	s := dpu.Spec
-	if t.BFB.Name != s.BFB {
+
+	if t.BFB != nil && t.BFB.Name != s.BFB {
 		d.Reasons = append(d.Reasons, driftReasonBFB)
 		d.Diffs = append(d.Diffs, fmt.Sprintf("BFB: %s -> %s", s.BFB, t.BFB.Name))
 	}
@@ -104,6 +105,7 @@ func (r *DPUSetReconciler) computeDPUDrift(dpuSet provisioningv1.DPUSet, dpu pro
 		d.Reasons = append(d.Reasons, driftReasonBlueFieldSoftware)
 		d.Diffs = append(d.Diffs, fmt.Sprintf("BlueFieldSoftware: %s -> %s", s.BlueFieldSoftware, t.BlueFieldSoftware.Name))
 	}
+
 	if t.Cluster != nil && !matchDPUClusterSelector(t.Cluster.Selector, s.Cluster, dpuClusters) {
 		d.Reasons = append(d.Reasons, driftReasonClusterSelector)
 		d.Diffs = append(d.Diffs, "ClusterSelector: matched -> not matched")

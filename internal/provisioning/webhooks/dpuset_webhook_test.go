@@ -59,7 +59,7 @@ var _ = Describe("DPUSet", func() {
 				},
 				DPUTemplate: provisioningv1.DPUTemplate{
 					Spec: provisioningv1.DPUTemplateSpec{
-						BFB:        provisioningv1.BFBReference{Name: "test-bfb"},
+						BFB:        &provisioningv1.BFBReference{Name: "test-bfb"},
 						DPUFlavor:  dpuFlavor,
 						NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 					},
@@ -387,7 +387,7 @@ spec:
 		It("should reject DPUSet with empty spec.dpuTemplate.spec.bfb.name", func() {
 			obj := createObj("obj-empty-bfb-name")
 			obj.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor
-			obj.Spec.DPUTemplate.Spec.BFB.Name = ""
+			obj.Spec.DPUTemplate.Spec.BFB = &provisioningv1.BFBReference{Name: ""}
 			err := k8sClient.Create(ctx, obj)
 			Expect(err).To(HaveOccurred())
 			Expect(apierrors.IsInvalid(err)).To(BeTrue())
@@ -611,7 +611,7 @@ spec:
 					Strategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},
 					DPUTemplate: provisioningv1.DPUTemplate{
 						Spec: provisioningv1.DPUTemplateSpec{
-							BFB:       provisioningv1.BFBReference{Name: ""},
+							BFB:       &provisioningv1.BFBReference{Name: ""},
 							DPUFlavor: "flavor",
 						},
 					},
@@ -629,7 +629,7 @@ spec:
 					Strategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},
 					DPUTemplate: provisioningv1.DPUTemplate{
 						Spec: provisioningv1.DPUTemplateSpec{
-							BFB:       provisioningv1.BFBReference{Name: "bfb"},
+							BFB:       &provisioningv1.BFBReference{Name: "bfb"},
 							DPUFlavor: "",
 						},
 					},
@@ -697,7 +697,7 @@ spec:
 					Strategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},
 					DPUTemplate: provisioningv1.DPUTemplate{
 						Spec: provisioningv1.DPUTemplateSpec{
-							BFB:          provisioningv1.BFBReference{Name: "bfb"},
+							BFB:          &provisioningv1.BFBReference{Name: "bfb"},
 							DPUFlavor:    "flavor",
 							AstraEnabled: ptr.To(true),
 						},
@@ -716,7 +716,7 @@ spec:
 					Strategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},
 					DPUTemplate: provisioningv1.DPUTemplate{
 						Spec: provisioningv1.DPUTemplateSpec{
-							BFB:          provisioningv1.BFBReference{Name: "bfb"},
+							BFB:          &provisioningv1.BFBReference{Name: "bfb"},
 							DPUFlavor:    "flavor",
 							AstraEnabled: ptr.To(true),
 						},
@@ -734,7 +734,7 @@ spec:
 					Strategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},
 					DPUTemplate: provisioningv1.DPUTemplate{
 						Spec: provisioningv1.DPUTemplateSpec{
-							BFB:          provisioningv1.BFBReference{Name: "bfb"},
+							BFB:          &provisioningv1.BFBReference{Name: "bfb"},
 							DPUFlavor:    "flavor",
 							AstraEnabled: ptr.To(true),
 						},
@@ -753,7 +753,7 @@ spec:
 					Strategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},
 					DPUTemplate: provisioningv1.DPUTemplate{
 						Spec: provisioningv1.DPUTemplateSpec{
-							BFB:       provisioningv1.BFBReference{Name: "bfb"},
+							BFB:       &provisioningv1.BFBReference{Name: "bfb"},
 							DPUFlavor: "flavor",
 						},
 					},
@@ -774,7 +774,7 @@ spec:
 					Strategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},
 					DPUTemplate: provisioningv1.DPUTemplate{
 						Spec: provisioningv1.DPUTemplateSpec{
-							BFB:       provisioningv1.BFBReference{Name: "bfb"},
+							BFB:       &provisioningv1.BFBReference{Name: "bfb"},
 							DPUFlavor: "flavor",
 						},
 					},

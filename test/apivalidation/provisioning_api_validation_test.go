@@ -80,6 +80,44 @@ var _ = Describe("Provisioning API Validation", func() {
 			Entry("neither dpuSelector nor dpuDeviceSelector is specified",
 				provisioningv1.DPUSetSpec{}, false),
 		)
+
+		DescribeTable("Validates exactly one of bfb or blueFieldSoftware in DPUTemplateSpec",
+			func(templateSpec provisioningv1.DPUTemplateSpec, expectError bool) {
+				dpuSet := getMinimalDPUSet(testNs.Name)
+				dpuSet.Spec.DPUTemplate.Spec = templateSpec
+				err := testClient.Create(ctx, dpuSet)
+				if expectError {
+					Expect(err).To(HaveOccurred())
+					Expect(err.Error()).To(ContainSubstring("exactly one of bfb or blueFieldSoftware must be set"))
+				} else {
+					Expect(err).ToNot(HaveOccurred())
+				}
+			},
+			Entry("both bfb and blueFieldSoftware are specified",
+				provisioningv1.DPUTemplateSpec{
+					BFB:               &provisioningv1.BFBReference{Name: "somebfb"},
+					BlueFieldSoftware: &provisioningv1.BlueFieldSoftwareReference{Name: "somebfs"},
+					DPUFlavor:         "someflavor",
+					NodeEffect:        provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
+				}, true),
+			Entry("only bfb is specified",
+				provisioningv1.DPUTemplateSpec{
+					BFB:        &provisioningv1.BFBReference{Name: "somebfb"},
+					DPUFlavor:  "someflavor",
+					NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
+				}, false),
+			Entry("only blueFieldSoftware is specified",
+				provisioningv1.DPUTemplateSpec{
+					BlueFieldSoftware: &provisioningv1.BlueFieldSoftwareReference{Name: "somebfs"},
+					DPUFlavor:         "someflavor",
+					NodeEffect:        provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
+				}, false),
+			Entry("neither bfb nor blueFieldSoftware is specified",
+				provisioningv1.DPUTemplateSpec{
+					DPUFlavor:  "someflavor",
+					NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
+				}, true),
+		)
 	})
 
 	Context("When checking the DPUFlavor API validations", func() {
@@ -485,7 +523,7 @@ func getMinimalDPUSet(namespace string) *provisioningv1.DPUSet {
 			},
 			DPUTemplate: provisioningv1.DPUTemplate{
 				Spec: provisioningv1.DPUTemplateSpec{
-					BFB: provisioningv1.BFBReference{
+					BFB: &provisioningv1.BFBReference{
 						Name: "somebfb",
 					},
 					DPUFlavor:  "someflavor",

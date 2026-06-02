@@ -1814,7 +1814,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 								"annotationkey1": "annotationvalue1",
 							},
 							Spec: provisioningv1.DPUTemplateSpec{
-								BFB: provisioningv1.BFBReference{
+								BFB: &provisioningv1.BFBReference{
 									Name: "somebfb",
 								},
 								DPUFlavor: "someflavor",
@@ -1849,7 +1849,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 								"annotationkey2": "annotationvalue2",
 							},
 							Spec: provisioningv1.DPUTemplateSpec{
-								BFB: provisioningv1.BFBReference{
+								BFB: &provisioningv1.BFBReference{
 									Name: "somebfb",
 								},
 								DPUFlavor: "someflavor",
@@ -3554,7 +3554,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 								"annotationkey3": "annotationvalue3",
 							},
 							Spec: provisioningv1.DPUTemplateSpec{
-								BFB: provisioningv1.BFBReference{
+								BFB: &provisioningv1.BFBReference{
 									Name: "somebfb",
 								},
 								DPUFlavor: "someflavor",

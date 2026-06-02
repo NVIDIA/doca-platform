@@ -126,9 +126,12 @@ type ClusterSpec struct {
 	Selector *metav1.LabelSelector `json:"selector,omitempty"`
 }
 
+// DPUTemplateSpec defines the desired provisioning template for DPUs.
+// +kubebuilder:validation:XValidation:rule="(has(self.bfb) && has(self.bfb.name) ? 1 : 0) + (has(self.blueFieldSoftware) && has(self.blueFieldSoftware.name) ? 1 : 0) == 1",message="exactly one of bfb or blueFieldSoftware must be set"
 type DPUTemplateSpec struct {
 	// Specifies a BFB CR
-	BFB BFBReference `json:"bfb,omitempty"`
+	// +optional
+	BFB *BFBReference `json:"bfb,omitempty"`
 	// Specifies a BlueFieldSoftware CR
 	// +optional
 	BlueFieldSoftware *BlueFieldSoftwareReference `json:"blueFieldSoftware,omitempty"`
