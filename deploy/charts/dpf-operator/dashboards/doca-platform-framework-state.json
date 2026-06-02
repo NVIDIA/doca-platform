@@ -3141,6 +3141,42 @@
               "options": "Chart Version"
             },
             "properties": []
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Node Count"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 100
+              },
+              {
+                "id": "custom.align",
+                "value": "center"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "auto"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "match": "null",
+                      "result": {
+                        "text": "-"
+                      }
+                    },
+                    "type": "special"
+                  }
+                ]
+              }
+            ]
           }
         ]
       },
@@ -3198,6 +3234,20 @@
           "legendFormat": "__auto",
           "range": false,
           "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "(\n  label_replace(\n    sum by(label_svc_dpu_nvidia_com_service) (\n      kube_daemonset_status_desired_number_scheduled\n        * on(daemonset, namespace) group_left(label_svc_dpu_nvidia_com_service)\n          kube_daemonset_labels{label_svc_dpu_nvidia_com_service!=\"\"}\n      or\n      kube_deployment_spec_replicas\n        * on(deployment, namespace) group_left(label_svc_dpu_nvidia_com_service)\n          kube_deployment_labels{label_svc_dpu_nvidia_com_service!=\"\"}\n    ),\n    \"service_id\", \"$1\", \"label_svc_dpu_nvidia_com_service\", \"(.*)\"\n  )\n)",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "C"
         }
       ],
       "title": "DPUServices",
@@ -3207,6 +3257,13 @@
           "options": {
             "byField": "uid",
             "mode": "inner"
+          }
+        },
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "service_id",
+            "mode": "outer"
           }
         },
         {
@@ -3283,55 +3340,17 @@
               "status": false,
               "type": true,
               "uid": true,
-              "{__name__=\"dpuservice_status_conditions\", app_kubernetes_io_component=\"metrics\", app_kubernetes_io_instance=\"dpf-operator\", app_kubernetes_io_managed_by=\"Helm\", app_kubernetes_io_name=\"kube-state-metrics\", app_kubernetes_io_part_of=\"kube-state-metrics\", app_kubernetes_io_version=\"2.13.0\", creation_timestamp=\"2024-09-02T13:54:06Z\", customresource_group=\"svc.dpu.nvidia.com\", customresource_kind=\"DPUService\", customresource_version=\"v1alpha1\", helm_sh_chart=\"kube-state-metrics-5.25.1\", instance=\"10.244.0.35:8080\", job=\"kubernetes-service-endpoints\", name=\"flannel\", namespace=\"dpf-operator-system\", node=\"dpf-test\", service=\"dpf-operator-kube-state-metrics\", status=\"False\", type=\"Ready\", uid=\"31cb2ccc-175b-4983-8b12-bb27708a5155\"}": false
+              "service_id": true
             },
             "includeByName": {},
             "indexByName": {
-              "Time 1": 6,
-              "Time 2": 24,
-              "Value #A": 23,
-              "Value #B": 44,
-              "__name__ 1": 7,
-              "__name__ 2": 25,
-              "app_kubernetes_io_component 1": 8,
-              "app_kubernetes_io_component 2": 26,
-              "app_kubernetes_io_instance 1": 9,
-              "app_kubernetes_io_instance 2": 27,
-              "app_kubernetes_io_managed_by 1": 10,
-              "app_kubernetes_io_managed_by 2": 28,
-              "app_kubernetes_io_name 1": 11,
-              "app_kubernetes_io_name 2": 29,
-              "app_kubernetes_io_part_of 1": 12,
-              "app_kubernetes_io_part_of 2": 30,
-              "app_kubernetes_io_version 1": 13,
-              "app_kubernetes_io_version 2": 31,
+              "name 1": 0,
+              "namespace 1": 1,
               "chart_version": 2,
-              "creation_timestamp 1": 14,
-              "creation_timestamp 2": 32,
-              "customresource_group 1": 15,
-              "customresource_group 2": 33,
-              "customresource_kind 1": 16,
-              "customresource_kind 2": 34,
-              "customresource_version 1": 17,
-              "customresource_version 2": 35,
-              "deploy_in_cluster": 4,
-              "helm_sh_chart 1": 18,
-              "helm_sh_chart 2": 36,
-              "instance 1": 19,
-              "instance 2": 37,
-              "job 1": 20,
-              "job 2": 38,
-              "name 1": 1,
-              "name 2": 39,
-              "namespace 1": 0,
-              "namespace 2": 40,
-              "node 1": 21,
-              "node 2": 41,
-              "service 1": 22,
-              "service 2": 42,
-              "status": 3,
-              "type": 43,
-              "uid": 5
+              "parent_dpudeployment": 3,
+              "status": 4,
+              "deploy_in_cluster": 5,
+              "Value #C": 6
             },
             "renameByName": {
               "Value #A": "",
@@ -3340,7 +3359,8 @@
               "name 1": "Name",
               "namespace 1": "Namespace",
               "status": "Status",
-              "parent_dpudeployment": "DPUDeployment"
+              "parent_dpudeployment": "DPUDeployment",
+              "Value #C": "Node Count"
             }
           }
         },
@@ -4237,7 +4257,7 @@
   },
   "timepicker": {},
   "timezone": "browser",
-  "title": "DOCA Platform Framework State",
+  "title": "DOCA Platform Framework - State",
   "uid": "bdwdkx2p9kqgwdasdsd",
   "version": 1
 }
