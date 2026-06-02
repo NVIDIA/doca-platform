@@ -409,7 +409,9 @@ func (r *DPUDeviceReconciler) discoverDPUDevice(ctx context.Context, dpuDevice *
 		return err
 	} else {
 		dpuDevice.Status.SerialNumber = ptr.To(chassisInfo.SerialNumber)
-		dpuDevice.Status.PSID = ptr.To(chassisInfo.AssetTag)
+		if chassisInfo.AssetTag != rfclient.ChassisAssetTagUnavailable {
+			dpuDevice.Status.PSID = ptr.To(chassisInfo.AssetTag)
+		}
 	}
 
 	dpuDevice.Status.OPN = ptr.To(chassisInfo.PartNumber)
