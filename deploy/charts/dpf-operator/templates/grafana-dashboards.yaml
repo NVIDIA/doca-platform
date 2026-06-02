@@ -4,6 +4,8 @@ kind: ConfigMap
 metadata:
   name: dpf-operator-grafana-dashboards
   namespace: {{ .Release.Namespace }}
+  annotations:
+    grafana_folder: "DOCA Platform Framework"
   labels:
     grafana_dashboard: "1"
     app.kubernetes.io/name: {{ include "dpf-operator.name" . }}
@@ -16,9 +18,10 @@ kind: ConfigMap
 metadata:
   name: dpf-operator-grafana-debug-dashboards
   namespace: {{ .Release.Namespace }}
+  annotations:
+    grafana_folder: "DOCA Platform Framework/debug"
   labels:
     grafana_dashboard: "1"
-    grafana_folder: "debug"
     app.kubernetes.io/name: {{ include "dpf-operator.name" . }}
     app.kubernetes.io/instance: {{ .Release.Name }}
 data:
