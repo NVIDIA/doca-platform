@@ -66,7 +66,7 @@ type DPUReconciler struct {
 	DPUInProvisioningMap *util.DPUInProvisioningMap
 }
 
-func NewDPUReconciler(mgr manager.Manager, alloc allocator.Allocator, joinCommandGenerator util.NodeJoinCommandGenerator, hostUptimeChecker reboot.HostUptimeChecker, options util.DPUOptions, dpuMap *util.DPUInProvisioningMap) *DPUReconciler {
+func NewDPUReconciler(mgr manager.Manager, alloc allocator.Allocator, joinCommandGenerator util.NodeJoinCommandGenerator, artifactGenerator util.DPUArtifactGenerator, hostUptimeChecker reboot.HostUptimeChecker, options util.DPUOptions, dpuMap *util.DPUInProvisioningMap) *DPUReconciler {
 	ctrlCtx := &util.ControllerContext{
 		Client:               mgr.GetClient(),
 		Scheme:               mgr.GetScheme(),
@@ -74,6 +74,7 @@ func NewDPUReconciler(mgr manager.Manager, alloc allocator.Allocator, joinComman
 		Options:              options,
 		ClusterAllocator:     alloc,
 		JoinCommandGenerator: joinCommandGenerator,
+		DPUArtifactGenerator: artifactGenerator,
 		HostUptimeChecker:    hostUptimeChecker,
 		DPUInProvisioningMap: dpuMap,
 	}

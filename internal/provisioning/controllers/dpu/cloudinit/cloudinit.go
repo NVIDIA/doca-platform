@@ -107,25 +107,6 @@ type WriteFile struct {
 	Permissions string
 }
 
-// GenerateFiles generates the cloud-init files needed to provision a DPU.
-// It returns two files:
-//   - networkCfg (dpf.cfg): disables cloud-init's default network config
-//     (ref: https://docs.cloud-init.io/en/latest/reference/network-config.html).
-//   - userData: cloud-init user-data executed during boot to configure the DPU
-//     (ref: https://docs.cloud-init.io/en/latest/explanation/boot.html).
-func GenerateFiles(ctx context.Context, controllerCtx *util.ControllerContext, dpu *provisioningv1.DPU, flavor *provisioningv1.DPUFlavor) (networkCfg File, userData File, err error) {
-	params, _, err := ResolveParams(ctx, controllerCtx, dpu, flavor)
-	if err != nil {
-		return File{}, File{}, err
-	}
-	networkCfg = GenerateNetworkCfg()
-	userData, err = GenerateUserData(params)
-	if err != nil {
-		return File{}, File{}, err
-	}
-	return networkCfg, userData, nil
-}
-
 // ResolveParams builds the Params needed to provision a DPU by reading the
 // DPFOperatorConfig and the DPU/Secret objects, and applying flavor-derived
 // fields. It also returns the DPFOperatorConfig for callers that need it
@@ -166,23 +147,6 @@ func ResolveParams(ctx context.Context, controllerCtx *util.ControllerContext, d
 		return Params{}, operatorv1.DPFOperatorConfig{}, err
 	}
 	params.NICDeviceCount = nicDeviceCount
-
-	// Both modes create role, rolebinding, and bootstrap kubeconfig.
-	apiServerAddress, proxyURL, err := cutil.ResolveAPIServerAddress(dpfOperatorConfig.Spec.Overrides, isRedfish)
-	if err != nil {
-		return Params{}, operatorv1.DPFOperatorConfig{}, fmt.Errorf("resolving API server address: %w", err)
-	}
-	if err := cutil.CreateDPUAgentRole(ctx, controllerCtx.Client, controllerCtx.Client.Scheme(), dpu); err != nil {
-		return Params{}, operatorv1.DPFOperatorConfig{}, fmt.Errorf("creating DPU agent role: %w", err)
-	}
-	if err := cutil.CreateDPUAgentRoleBinding(ctx, controllerCtx.Client, controllerCtx.Client.Scheme(), dpu); err != nil {
-		return Params{}, operatorv1.DPFOperatorConfig{}, fmt.Errorf("creating DPU agent role binding: %w", err)
-	}
-	kubeconfigData, err := cutil.CreateDPUAgentBootstrapKubeconfig(ctx, controllerCtx.Client, dpu, apiServerAddress, cutil.ServiceAccountCAPath, proxyURL)
-	if err != nil {
-		return Params{}, operatorv1.DPFOperatorConfig{}, fmt.Errorf("creating DPU agent bootstrap kubeconfig: %w", err)
-	}
-	params.BootstrapKubeconfig = string(kubeconfigData)
 
 	if isRedfish {
 		var bfbRegistryAddr string
