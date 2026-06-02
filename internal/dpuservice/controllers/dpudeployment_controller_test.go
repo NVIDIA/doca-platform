@@ -78,6 +78,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 		It("should successfully reconcile the DPUDeployment", func() {
 			By("reconciling the created resource")
 			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 			Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
 
@@ -94,6 +95,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 		It("should not create DPUSet, DPUService, DPUServiceChain and DPUServiceInterface if any of the dependencies does not exist", func() {
 			By("reconciling the created resource")
 			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 			Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
 
@@ -154,6 +156,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 			By("creating the dpudeployment")
 			dpuDeployment := getMinimalDPUDeployment(testNSMaxLength.Name)
+			dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 			dpuDeployment.Name = dpuDeploymentNameMaxLength
 			dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
 				{
@@ -221,6 +224,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 			By("creating the dpudeployment")
 			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 			dpuDeployment.Spec.ServiceChains = &dpuservicev1.ServiceChains{
 				UpgradePolicy: dpuservicev1.UpgradePolicy{
 					ApplyNodeEffect: ptr.To(false),
@@ -353,6 +357,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 			By("creating the dpudeployment")
 			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 			dpuDeployment.Spec.ServiceChains = &dpuservicev1.ServiceChains{
 				UpgradePolicy: dpuservicev1.UpgradePolicy{
 					ApplyNodeEffect: ptr.To(false),
@@ -566,12 +571,14 @@ var _ = Describe("DPUDeployment Controller", func() {
 			}
 
 			dpuDeployment1 := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment1.Spec.DPUs.BFB = ptr.To("somebfb")
 			dpuDeployment1.Name = "dpudeployment1"
 			dpuDeployment1.Spec.DPUs.DPUSets = dpusets
 			Expect(testClient.Create(ctx, dpuDeployment1)).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment1)
 
 			dpuDeployment2 := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment2.Spec.DPUs.BFB = ptr.To("somebfb")
 			dpuDeployment2.Name = "dpudeployment2"
 			dpuDeployment2.Spec.DPUs.DPUSets = dpusets
 			Expect(testClient.Create(ctx, dpuDeployment2)).To(Succeed())
@@ -679,6 +686,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 				Entry("dpuDeployment with no dependencies", getMinimalDPUDeployment("my-ns"), []string{"someservice"}, false),
 				Entry("dpuDeployment with one dependency", func() *dpuservicev1.DPUDeployment {
 					dpuDeployment := getMinimalDPUDeployment("my-ns")
+					dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 					dpuDeployment.Spec.Services["some-otherservice"] = dpuservicev1.DPUDeploymentServiceConfiguration{
 						DependsOn: []dpuservicev1.LocalObjectDependency{
 							{
@@ -690,6 +698,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 				}(), []string{"someservice", "some-otherservice"}, false),
 				Entry("dpuDeployment with multiple dependencies", func() *dpuservicev1.DPUDeployment {
 					dpuDeployment := getMinimalDPUDeployment("my-ns")
+					dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 					dpuDeployment.Spec.Services["some-otherservice"] = dpuservicev1.DPUDeploymentServiceConfiguration{
 						DependsOn: []dpuservicev1.LocalObjectDependency{
 							{
@@ -721,6 +730,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 				}(), []string{"someservice", "someservice2", "some-otherservice", "someservice3"}, false),
 				Entry("dpuDeployment with circular dependency", func() *dpuservicev1.DPUDeployment {
 					dpuDeployment := getMinimalDPUDeployment("my-ns")
+					dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 					dpuDeployment.Spec.Services["some-otherservice"] = dpuservicev1.DPUDeploymentServiceConfiguration{
 						DependsOn: []dpuservicev1.LocalObjectDependency{
 							{
@@ -752,6 +762,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 				}(), nil, true),
 				Entry("dpuDeployment with non-existing dependency", func() *dpuservicev1.DPUDeployment {
 					dpuDeployment := getMinimalDPUDeployment("my-ns")
+					dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 					dpuDeployment.Spec.Services["some-otherservice"] = dpuservicev1.DPUDeploymentServiceConfiguration{
 						DependsOn: []dpuservicev1.LocalObjectDependency{
 							{
@@ -1027,6 +1038,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 		Context("When checking getDependencies()", func() {
 			It("should return the correct object", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				By("Creating the dependencies")
 				bfb := createMinimalBFBWithStatus("somebfb", testNS.Name)
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, bfb)
@@ -1061,12 +1073,14 @@ var _ = Describe("DPUDeployment Controller", func() {
 			})
 			It("should error if a dependency doesn't exist", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				By("Checking the output of the function")
 				_, err := getDependencies(ctx, testClient, dpuDeployment)
 				Expect(err).To(HaveOccurred())
 			})
 			It("should error if bfb is not ready", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				By("Creating the dependencies")
 				bfb := getMinimalBFB("somebfb", testNS.Name)
 				Expect(testClient.Create(ctx, bfb)).To(Succeed())
@@ -1089,6 +1103,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 			})
 			It("should error if a DPUServiceConfiguration doesn't match DPUDeployment service", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				By("Creating the dependencies")
 				bfb := createMinimalBFBWithStatus("somebfb", testNS.Name)
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, bfb)
@@ -1111,6 +1126,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 			})
 			It("should error if a DPUServiceTemplate doesn't match DPUDeployment service", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				By("Creating the dependencies")
 				bfb := createMinimalBFBWithStatus("somebfb", testNS.Name)
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, bfb)
@@ -1135,6 +1151,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 			})
 			It("should error if a DPUServiceTemplate is not ready", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				By("Creating the dependencies")
 				bfb := createMinimalBFBWithStatus("somebfb", testNS.Name)
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, bfb)
@@ -1155,12 +1172,82 @@ var _ = Describe("DPUDeployment Controller", func() {
 				_, err := getDependencies(ctx, testClient, dpuDeployment)
 				Expect(err).To(HaveOccurred())
 			})
+			It("should return the correct object when using BlueFieldSoftware", func() {
+				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BlueFieldSoftware = ptr.To("somebfs")
+
+				By("Creating the dependencies")
+				bfs := createMinimalBlueFieldSoftwareWithStatus("somebfs", testNS.Name)
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, bfs)
+
+				dpuFlavor := getMinimalDPUFlavor(testNS.Name)
+				Expect(testClient.Create(ctx, dpuFlavor)).To(Succeed())
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuFlavor)
+
+				dpuServiceConfiguration := getMinimalDPUServiceConfiguration(testNS.Name)
+				Expect(testClient.Create(ctx, dpuServiceConfiguration)).To(Succeed())
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceConfiguration)
+
+				dpuServiceTemplate := createMinimalDPUServiceTemplateWithStatus(testNS.Name)
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceTemplate)
+
+				bfs.SetGroupVersionKind(schema.EmptyObjectKind.GroupVersionKind())
+				dpuServiceTemplate.SetGroupVersionKind(schema.EmptyObjectKind.GroupVersionKind())
+
+				By("Checking the output of the function")
+				deps, err := getDependencies(ctx, testClient, dpuDeployment)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(deps).To(BeComparableTo(&dpuDeploymentDependencies{
+					DPUFlavor:         dpuFlavor,
+					BlueFieldSoftware: bfs,
+					DPUServiceConfigurations: map[string]*dpuservicev1.DPUServiceConfiguration{
+						"someservice": dpuServiceConfiguration,
+					},
+					DPUServiceTemplates: map[string]*dpuservicev1.DPUServiceTemplate{
+						"someservice": dpuServiceTemplate,
+					},
+				}))
+			})
+			It("should error if blueFieldSoftware doesn't exist", func() {
+				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BlueFieldSoftware = ptr.To("somebfs")
+
+				By("Checking the output of the function")
+				_, err := getDependencies(ctx, testClient, dpuDeployment)
+				Expect(err).To(HaveOccurred())
+			})
+			It("should error if blueFieldSoftware is not ready", func() {
+				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BlueFieldSoftware = ptr.To("somebfs")
+
+				By("Creating the dependencies")
+				bfs := getMinimalBlueFieldSoftware("somebfs", testNS.Name)
+				Expect(testClient.Create(ctx, bfs)).To(Succeed())
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, bfs)
+
+				dpuFlavor := getMinimalDPUFlavor(testNS.Name)
+				Expect(testClient.Create(ctx, dpuFlavor)).To(Succeed())
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuFlavor)
+
+				dpuServiceConfiguration := getMinimalDPUServiceConfiguration(testNS.Name)
+				Expect(testClient.Create(ctx, dpuServiceConfiguration)).To(Succeed())
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceConfiguration)
+
+				dpuServiceTemplate := createMinimalDPUServiceTemplateWithStatus(testNS.Name)
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceTemplate)
+
+				By("Checking the output of the function")
+				_, err := getDependencies(ctx, testClient, dpuDeployment)
+				Expect(err).To(HaveOccurred())
+			})
 		})
 		Context("When checking updateDependencies()", func() {
 			var (
 				dpuDeployment                *dpuservicev1.DPUDeployment
 				bfb                          *provisioningv1.BFB
 				extraBFB                     *provisioningv1.BFB
+				bfs                          *provisioningv1.BlueFieldSoftware
+				extraBfs                     *provisioningv1.BlueFieldSoftware
 				dpuFlavor                    *provisioningv1.DPUFlavor
 				extraDPUFlavor               *provisioningv1.DPUFlavor
 				dpuServiceConfiguration      *dpuservicev1.DPUServiceConfiguration
@@ -1177,6 +1264,12 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 				extraBFB = createMinimalBFBWithStatus("extra-bfb", testNS.Name)
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, extraBFB)
+
+				bfs = createMinimalBlueFieldSoftwareWithStatus("somebfs", testNS.Name)
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, bfs)
+
+				extraBfs = createMinimalBlueFieldSoftwareWithStatus("extra-bfs", testNS.Name)
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, extraBfs)
 
 				dpuFlavor = getMinimalDPUFlavor(testNS.Name)
 				Expect(testClient.Create(ctx, dpuFlavor)).To(Succeed())
@@ -1208,6 +1301,8 @@ var _ = Describe("DPUDeployment Controller", func() {
 				objGVK = map[client.Object]schema.GroupVersionKind{
 					bfb:                          provisioningv1.BFBGroupVersionKind,
 					extraBFB:                     provisioningv1.BFBGroupVersionKind,
+					bfs:                          provisioningv1.BlueFieldGroupVersionKind,
+					extraBfs:                     provisioningv1.BlueFieldGroupVersionKind,
 					dpuFlavor:                    provisioningv1.DPUFlavorGroupVersionKind,
 					extraDPUFlavor:               provisioningv1.DPUFlavorGroupVersionKind,
 					dpuServiceConfiguration:      dpuservicev1.DPUServiceConfigurationGroupVersionKind,
@@ -1222,7 +1317,9 @@ var _ = Describe("DPUDeployment Controller", func() {
 					}
 				})
 			})
-			It("should mark only the current dependencies", func() {
+			It("should mark only the current dependencies (using BFB)", func() {
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
+
 				By("Constructing the dependencies object")
 				deps, err := getDependencies(ctx, testClient, dpuDeployment)
 				Expect(err).ToNot(HaveOccurred())
@@ -1254,7 +1351,9 @@ var _ = Describe("DPUDeployment Controller", func() {
 					Expect(obj.GetLabels()).ToNot(HaveKeyWithValue(dpuDeployment.GetDependentLabelKey(), dpuservicev1.DependentDPUDeploymentLabelValue), fmt.Sprintf("%T", obj))
 				}
 			})
-			It("should clean only the stale dependencies", func() {
+			It("should clean only the stale dependencies (using BFB)", func() {
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
+
 				By("Constructing the dependencies object")
 				deps, err := getDependencies(ctx, testClient, dpuDeployment)
 				Expect(err).ToNot(HaveOccurred())
@@ -1291,7 +1390,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 					ServiceConfiguration: extraDPUServiceConfiguration.Name,
 				}
 				dpuDeployment.Spec.Services["someservice"] = svc
-				dpuDeployment.Spec.DPUs.BFB = extraBFB.Name
+				dpuDeployment.Spec.DPUs.BFB = ptr.To(extraBFB.Name)
 				dpuDeployment.Spec.DPUs.Flavor = extraDPUFlavor.Name
 
 				By("Constructing the dependencies object")
@@ -1325,7 +1424,9 @@ var _ = Describe("DPUDeployment Controller", func() {
 					Expect(obj.GetLabels()).ToNot(HaveKeyWithValue(dpuDeployment.GetDependentLabelKey(), dpuservicev1.DependentDPUDeploymentLabelValue), fmt.Sprintf("%T", obj))
 				}
 			})
-			It("should be able to mark and clean stale dependencies that other controller have applied finalizers and labels to", func() {
+			It("should be able to mark and clean stale dependencies that other controller have applied finalizers and labels to (using BFB)", func() {
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
+
 				By("Service side applying the dependencies with finalizers and labels")
 				for obj, gvk := range objGVK {
 					obj.SetFinalizers([]string{"test.io/some-finalizer"})
@@ -1389,7 +1490,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 					ServiceConfiguration: extraDPUServiceConfiguration.Name,
 				}
 				dpuDeployment.Spec.Services["someservice"] = svc
-				dpuDeployment.Spec.DPUs.BFB = extraBFB.Name
+				dpuDeployment.Spec.DPUs.BFB = ptr.To(extraBFB.Name)
 				dpuDeployment.Spec.DPUs.Flavor = extraDPUFlavor.Name
 
 				By("Constructing the dependencies object")
@@ -1417,6 +1518,222 @@ var _ = Describe("DPUDeployment Controller", func() {
 				By("Checking the rest of the objects after update")
 				for obj, key := range map[client.Object]client.ObjectKey{
 					&provisioningv1.BFB{}:                   client.ObjectKeyFromObject(bfb),
+					&provisioningv1.DPUFlavor{}:             client.ObjectKeyFromObject(dpuFlavor),
+					&dpuservicev1.DPUServiceConfiguration{}: client.ObjectKeyFromObject(dpuServiceConfiguration),
+					&dpuservicev1.DPUServiceTemplate{}:      client.ObjectKeyFromObject(dpuServiceTemplate),
+				} {
+					Expect(testClient.Get(ctx, key, obj)).To(Succeed(), fmt.Sprintf("%T", obj))
+					Expect(obj.GetFinalizers()).ToNot(ContainElement(dpuservicev1.DPUDeploymentFinalizer), fmt.Sprintf("%T", obj))
+					Expect(obj.GetFinalizers()).To(ContainElement("test.io/some-finalizer"), fmt.Sprintf("%T", obj))
+					Expect(obj.GetLabels()).ToNot(HaveKeyWithValue(dpuDeployment.GetDependentLabelKey(), dpuservicev1.DependentDPUDeploymentLabelValue), fmt.Sprintf("%T", obj))
+					Expect(obj.GetLabels()).To(HaveKeyWithValue("some", "label"), fmt.Sprintf("%T", obj))
+				}
+			})
+			It("should mark only the current dependencies (using BlueFieldSoftware)", func() {
+				dpuDeployment = getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BlueFieldSoftware = ptr.To("somebfs")
+
+				By("Constructing the dependencies object")
+				deps, err := getDependencies(ctx, testClient, dpuDeployment)
+				Expect(err).ToNot(HaveOccurred())
+
+				By("Updating the dependencies")
+				Expect(updateDependencies(ctx, testClient, dpuDeployment, deps)).To(Succeed())
+
+				By("Checking the current dependencies after update")
+				for obj, key := range map[client.Object]client.ObjectKey{
+					&provisioningv1.BlueFieldSoftware{}:     client.ObjectKeyFromObject(bfs),
+					&provisioningv1.DPUFlavor{}:             client.ObjectKeyFromObject(dpuFlavor),
+					&dpuservicev1.DPUServiceConfiguration{}: client.ObjectKeyFromObject(dpuServiceConfiguration),
+					&dpuservicev1.DPUServiceTemplate{}:      client.ObjectKeyFromObject(dpuServiceTemplate),
+				} {
+					Expect(testClient.Get(ctx, key, obj)).To(Succeed(), fmt.Sprintf("%T", obj))
+					Expect(obj.GetFinalizers()).To(ContainElement(dpuservicev1.DPUDeploymentFinalizer), fmt.Sprintf("%T", obj))
+					Expect(obj.GetLabels()).To(HaveKeyWithValue(dpuDeployment.GetDependentLabelKey(), dpuservicev1.DependentDPUDeploymentLabelValue), fmt.Sprintf("%T", obj))
+				}
+
+				By("Checking the rest of the objects after update")
+				for obj, key := range map[client.Object]client.ObjectKey{
+					&provisioningv1.BlueFieldSoftware{}:     client.ObjectKeyFromObject(extraBfs),
+					&provisioningv1.DPUFlavor{}:             client.ObjectKeyFromObject(extraDPUFlavor),
+					&dpuservicev1.DPUServiceConfiguration{}: client.ObjectKeyFromObject(extraDPUServiceConfiguration),
+					&dpuservicev1.DPUServiceTemplate{}:      client.ObjectKeyFromObject(extraDPUServiceTemplate),
+				} {
+					Expect(testClient.Get(ctx, key, obj)).To(Succeed(), fmt.Sprintf("%T", obj))
+					Expect(obj.GetFinalizers()).ToNot(ContainElement(dpuservicev1.DPUDeploymentFinalizer), fmt.Sprintf("%T", obj))
+					Expect(obj.GetLabels()).ToNot(HaveKeyWithValue(dpuDeployment.GetDependentLabelKey(), dpuservicev1.DependentDPUDeploymentLabelValue), fmt.Sprintf("%T", obj))
+				}
+			})
+			It("should clean only the stale dependencies (using BlueFieldSoftware)", func() {
+				dpuDeployment = getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BlueFieldSoftware = ptr.To("somebfs")
+
+				By("Constructing the dependencies object")
+				deps, err := getDependencies(ctx, testClient, dpuDeployment)
+				Expect(err).ToNot(HaveOccurred())
+
+				By("Updating the dependencies")
+				Expect(updateDependencies(ctx, testClient, dpuDeployment, deps)).To(Succeed())
+
+				By("Checking the current dependencies after update")
+				for obj, key := range map[client.Object]client.ObjectKey{
+					&provisioningv1.BlueFieldSoftware{}:     client.ObjectKeyFromObject(bfs),
+					&provisioningv1.DPUFlavor{}:             client.ObjectKeyFromObject(dpuFlavor),
+					&dpuservicev1.DPUServiceConfiguration{}: client.ObjectKeyFromObject(dpuServiceConfiguration),
+					&dpuservicev1.DPUServiceTemplate{}:      client.ObjectKeyFromObject(dpuServiceTemplate),
+				} {
+					Expect(testClient.Get(ctx, key, obj)).To(Succeed(), fmt.Sprintf("%T", obj))
+					Expect(obj.GetFinalizers()).To(ContainElement(dpuservicev1.DPUDeploymentFinalizer), fmt.Sprintf("%T", obj))
+					Expect(obj.GetLabels()).To(HaveKeyWithValue(dpuDeployment.GetDependentLabelKey(), dpuservicev1.DependentDPUDeploymentLabelValue), fmt.Sprintf("%T", obj))
+				}
+
+				By("Checking the rest of the objects after update")
+				for obj, key := range map[client.Object]client.ObjectKey{
+					&provisioningv1.BlueFieldSoftware{}:     client.ObjectKeyFromObject(extraBfs),
+					&provisioningv1.DPUFlavor{}:             client.ObjectKeyFromObject(extraDPUFlavor),
+					&dpuservicev1.DPUServiceConfiguration{}: client.ObjectKeyFromObject(extraDPUServiceConfiguration),
+					&dpuservicev1.DPUServiceTemplate{}:      client.ObjectKeyFromObject(extraDPUServiceTemplate),
+				} {
+					Expect(testClient.Get(ctx, key, obj)).To(Succeed(), fmt.Sprintf("%T", obj))
+					Expect(obj.GetFinalizers()).ToNot(ContainElement(dpuservicev1.DPUDeploymentFinalizer), fmt.Sprintf("%T", obj))
+					Expect(obj.GetLabels()).ToNot(HaveKeyWithValue(dpuDeployment.GetDependentLabelKey(), dpuservicev1.DependentDPUDeploymentLabelValue), fmt.Sprintf("%T", obj))
+				}
+
+				By("Updating the DPUDeployment deps")
+				svc := dpuservicev1.DPUDeploymentServiceConfiguration{
+					ServiceTemplate:      extraDPUServiceTemplate.Name,
+					ServiceConfiguration: extraDPUServiceConfiguration.Name,
+				}
+				dpuDeployment.Spec.Services["someservice"] = svc
+				dpuDeployment.Spec.DPUs.BlueFieldSoftware = ptr.To(extraBfs.Name)
+				dpuDeployment.Spec.DPUs.Flavor = extraDPUFlavor.Name
+
+				By("Constructing the dependencies object")
+				deps, err = getDependencies(ctx, testClient, dpuDeployment)
+				Expect(err).ToNot(HaveOccurred())
+
+				By("Updating the dependencies")
+				Expect(updateDependencies(ctx, testClient, dpuDeployment, deps)).To(Succeed())
+
+				By("Checking the current dependencies after update")
+				for obj, key := range map[client.Object]client.ObjectKey{
+					&provisioningv1.BlueFieldSoftware{}:     client.ObjectKeyFromObject(extraBfs),
+					&provisioningv1.DPUFlavor{}:             client.ObjectKeyFromObject(extraDPUFlavor),
+					&dpuservicev1.DPUServiceConfiguration{}: client.ObjectKeyFromObject(extraDPUServiceConfiguration),
+					&dpuservicev1.DPUServiceTemplate{}:      client.ObjectKeyFromObject(extraDPUServiceTemplate),
+				} {
+					Expect(testClient.Get(ctx, key, obj)).To(Succeed(), fmt.Sprintf("%T", obj))
+					Expect(obj.GetFinalizers()).To(ContainElement(dpuservicev1.DPUDeploymentFinalizer), fmt.Sprintf("%T", obj))
+					Expect(obj.GetLabels()).To(HaveKeyWithValue(dpuDeployment.GetDependentLabelKey(), dpuservicev1.DependentDPUDeploymentLabelValue), fmt.Sprintf("%T", obj))
+				}
+
+				By("Checking the rest of the objects after update")
+				for obj, key := range map[client.Object]client.ObjectKey{
+					&provisioningv1.BlueFieldSoftware{}:     client.ObjectKeyFromObject(bfs),
+					&provisioningv1.DPUFlavor{}:             client.ObjectKeyFromObject(dpuFlavor),
+					&dpuservicev1.DPUServiceConfiguration{}: client.ObjectKeyFromObject(dpuServiceConfiguration),
+					&dpuservicev1.DPUServiceTemplate{}:      client.ObjectKeyFromObject(dpuServiceTemplate),
+				} {
+					Expect(testClient.Get(ctx, key, obj)).To(Succeed(), fmt.Sprintf("%T", obj))
+					Expect(obj.GetFinalizers()).ToNot(ContainElement(dpuservicev1.DPUDeploymentFinalizer), fmt.Sprintf("%T", obj))
+					Expect(obj.GetLabels()).ToNot(HaveKeyWithValue(dpuDeployment.GetDependentLabelKey(), dpuservicev1.DependentDPUDeploymentLabelValue), fmt.Sprintf("%T", obj))
+				}
+			})
+			It("should be able to mark and clean stale dependencies that other controller have applied finalizers and labels to (using BlueFieldSoftware)", func() {
+				dpuDeployment = getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BlueFieldSoftware = ptr.To("somebfs")
+
+				By("Service side applying the dependencies with finalizers and labels")
+				for obj, gvk := range objGVK {
+					obj.SetFinalizers([]string{"test.io/some-finalizer"})
+					obj.SetLabels(map[string]string{"some": "label"})
+					obj.GetObjectKind().SetGroupVersionKind(gvk)
+					obj.SetManagedFields(nil)
+					Expect(testClient.Patch(ctx, obj, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
+				}
+
+				By("Constructing the dependencies object")
+				deps, err := getDependencies(ctx, testClient, dpuDeployment)
+				Expect(err).ToNot(HaveOccurred())
+
+				By("Updating the dependencies")
+				Expect(updateDependencies(ctx, testClient, dpuDeployment, deps)).To(Succeed())
+
+				By("Checking the current dependencies after update")
+				for obj, key := range map[client.Object]client.ObjectKey{
+					&provisioningv1.BlueFieldSoftware{}:     client.ObjectKeyFromObject(bfs),
+					&provisioningv1.DPUFlavor{}:             client.ObjectKeyFromObject(dpuFlavor),
+					&dpuservicev1.DPUServiceConfiguration{}: client.ObjectKeyFromObject(dpuServiceConfiguration),
+					&dpuservicev1.DPUServiceTemplate{}:      client.ObjectKeyFromObject(dpuServiceTemplate),
+				} {
+					Expect(testClient.Get(ctx, key, obj)).To(Succeed(), fmt.Sprintf("%T", obj))
+					Expect(obj.GetFinalizers()).To(ContainElements(dpuservicev1.DPUDeploymentFinalizer, "test.io/some-finalizer"), fmt.Sprintf("%T", obj))
+					Expect(obj.GetLabels()).To(And(
+						HaveKeyWithValue(dpuDeployment.GetDependentLabelKey(), dpuservicev1.DependentDPUDeploymentLabelValue),
+						HaveKeyWithValue("some", "label"),
+					), fmt.Sprintf("%T", obj))
+				}
+
+				By("Checking the rest of the objects after update")
+				for obj, key := range map[client.Object]client.ObjectKey{
+					&provisioningv1.BlueFieldSoftware{}:     client.ObjectKeyFromObject(extraBfs),
+					&provisioningv1.DPUFlavor{}:             client.ObjectKeyFromObject(extraDPUFlavor),
+					&dpuservicev1.DPUServiceConfiguration{}: client.ObjectKeyFromObject(extraDPUServiceConfiguration),
+					&dpuservicev1.DPUServiceTemplate{}:      client.ObjectKeyFromObject(extraDPUServiceTemplate),
+				} {
+					Expect(testClient.Get(ctx, key, obj)).To(Succeed(), fmt.Sprintf("%T", obj))
+					Expect(obj.GetFinalizers()).ToNot(ContainElement(dpuservicev1.DPUDeploymentFinalizer), fmt.Sprintf("%T", obj))
+					Expect(obj.GetFinalizers()).To(ContainElement("test.io/some-finalizer"), fmt.Sprintf("%T", obj))
+					Expect(obj.GetLabels()).ToNot(HaveKeyWithValue(dpuDeployment.GetDependentLabelKey(), dpuservicev1.DependentDPUDeploymentLabelValue), fmt.Sprintf("%T", obj))
+					Expect(obj.GetLabels()).To(HaveKeyWithValue("some", "label"), fmt.Sprintf("%T", obj))
+				}
+
+				By("Service side applying the dependencies again with finalizers and labels")
+				for obj, gvk := range objGVK {
+					Expect(testClient.Get(ctx, client.ObjectKeyFromObject(obj), obj)).To(Succeed())
+					controllerutil.AddFinalizer(obj, "test.io/some-finalizer")
+					labels := obj.GetLabels()
+					labels["some"] = "label"
+					obj.SetLabels(labels)
+					obj.GetObjectKind().SetGroupVersionKind(gvk)
+					obj.SetManagedFields(nil)
+					Expect(testClient.Patch(ctx, obj, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
+				}
+
+				By("Updating the DPUDeployment deps")
+				svc := dpuservicev1.DPUDeploymentServiceConfiguration{
+					ServiceTemplate:      extraDPUServiceTemplate.Name,
+					ServiceConfiguration: extraDPUServiceConfiguration.Name,
+				}
+				dpuDeployment.Spec.Services["someservice"] = svc
+				dpuDeployment.Spec.DPUs.BlueFieldSoftware = ptr.To(extraBfs.Name)
+				dpuDeployment.Spec.DPUs.Flavor = extraDPUFlavor.Name
+
+				By("Constructing the dependencies object")
+				deps, err = getDependencies(ctx, testClient, dpuDeployment)
+				Expect(err).ToNot(HaveOccurred())
+
+				By("Updating the dependencies")
+				Expect(updateDependencies(ctx, testClient, dpuDeployment, deps)).To(Succeed())
+
+				By("Checking the current dependencies after update")
+				for obj, key := range map[client.Object]client.ObjectKey{
+					&provisioningv1.BlueFieldSoftware{}:     client.ObjectKeyFromObject(extraBfs),
+					&provisioningv1.DPUFlavor{}:             client.ObjectKeyFromObject(extraDPUFlavor),
+					&dpuservicev1.DPUServiceConfiguration{}: client.ObjectKeyFromObject(extraDPUServiceConfiguration),
+					&dpuservicev1.DPUServiceTemplate{}:      client.ObjectKeyFromObject(extraDPUServiceTemplate),
+				} {
+					Expect(testClient.Get(ctx, key, obj)).To(Succeed(), fmt.Sprintf("%T", obj))
+					Expect(obj.GetFinalizers()).To(ContainElements(dpuservicev1.DPUDeploymentFinalizer, "test.io/some-finalizer"), fmt.Sprintf("%T", obj))
+					Expect(obj.GetLabels()).To(And(
+						HaveKeyWithValue(dpuDeployment.GetDependentLabelKey(), dpuservicev1.DependentDPUDeploymentLabelValue),
+						HaveKeyWithValue("some", "label"),
+					), fmt.Sprintf("%T", obj))
+				}
+
+				By("Checking the rest of the objects after update")
+				for obj, key := range map[client.Object]client.ObjectKey{
+					&provisioningv1.BlueFieldSoftware{}:     client.ObjectKeyFromObject(bfs),
 					&provisioningv1.DPUFlavor{}:             client.ObjectKeyFromObject(dpuFlavor),
 					&dpuservicev1.DPUServiceConfiguration{}: client.ObjectKeyFromObject(dpuServiceConfiguration),
 					&dpuservicev1.DPUServiceTemplate{}:      client.ObjectKeyFromObject(dpuServiceTemplate),
@@ -1592,6 +1909,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 			})
 			It("should create the correct DPUSets", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				dpuDeployment.Spec.DPUs.DPUSets = initialDPUSetSettings
 				dpuDeployment.Spec.DPUs.SecureBoot = ptr.To(true)
 				dpuDeployment.Spec.DPUs.AstraEnabled = ptr.To(true)
@@ -1654,8 +1972,128 @@ var _ = Describe("DPUDeployment Controller", func() {
 					g.Expect(specs).To(ConsistOf(expectedDPUSetSpecs))
 				}).WithTimeout(30 * time.Second).Should(Succeed())
 			})
+			It("should propagate BlueFieldSoftware to the generated DPUSets", func() {
+				bfs := createMinimalBlueFieldSoftwareWithStatus("somebfs", testNS.Name)
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, bfs)
+
+				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BlueFieldSoftware = ptr.To("somebfs")
+				dpuDeployment.Spec.DPUs.DPUSets = initialDPUSetSettings
+				dpuDeployment.Spec.ServiceChains = initialServiceChainsSettings
+				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
+
+				By("retrieving the DPUServiceChain and DPUService")
+				var dpuServiceChain *dpuservicev1.DPUServiceChain
+				Eventually(func(g Gomega) {
+					dpuServiceChainList := getDPUServiceChainList()
+					g.Expect(dpuServiceChainList.Items).To(HaveLen(1))
+					dpuServiceChain = &dpuServiceChainList.Items[0]
+				}).WithTimeout(30 * time.Second).Should(Succeed())
+
+				var dpuService *dpuservicev1.DPUService
+				Eventually(func(g Gomega) {
+					dpuServiceList := getDPUServiceList()
+					g.Expect(dpuServiceList.Items).To(HaveLen(1))
+					dpuService = &dpuServiceList.Items[0]
+				}).WithTimeout(30 * time.Second).Should(Succeed())
+
+				expectedSpecs := []provisioningv1.DPUSetSpec{
+					{
+						Strategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.RollingUpdateStrategyType},
+						DPUNodeSelector: &metav1.LabelSelector{
+							MatchLabels: map[string]string{"nodekey1": "nodevalue1"},
+						},
+						DPUDeviceSelector: &metav1.LabelSelector{
+							MatchLabels: map[string]string{"dpukey1": "dpuvalue1"},
+						},
+						DPUTemplate: provisioningv1.DPUTemplate{
+							Annotations: map[string]string{"annotationkey1": "annotationvalue1"},
+							Spec: provisioningv1.DPUTemplateSpec{
+								BlueFieldSoftware: &provisioningv1.BlueFieldSoftwareReference{Name: "somebfs"},
+								DPUFlavor:         "someflavor",
+								NodeEffect: provisioningv1.NodeEffect{
+									Action: provisioningv1.Action{Drain: ptr.To(true), Force: ptr.To(false)},
+									UpgradePolicy: provisioningv1.UpgradePolicy{
+										ApplyOnLabelChange: ptr.To(false),
+										NodeMaintenanceAdditionalRequestors: []string{
+											fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), dpuServiceChain.Name),
+											fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), dpuService.Name),
+										},
+									},
+								},
+								Cluster: &provisioningv1.ClusterSpec{
+									NodeLabels: map[string]string{
+										"svc.dpu.nvidia.com/dpuservicechain-version":        dpuServiceChain.Name,
+										"svc.dpu.nvidia.com/dpuservice-someservice-version": dpuService.Name,
+										dpuservicev1.ParentDPUDeploymentNameLabel:           fmt.Sprintf("%s_%s", dpuDeployment.Namespace, dpuDeployment.Name),
+									},
+								},
+							},
+						},
+					},
+					{
+						Strategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.RollingUpdateStrategyType},
+						DPUNodeSelector: &metav1.LabelSelector{
+							MatchLabels: map[string]string{"nodekey2": "nodevalue2"},
+						},
+						DPUDeviceSelector: &metav1.LabelSelector{
+							MatchLabels: map[string]string{"dpukey2": "dpuvalue2"},
+						},
+						DPUTemplate: provisioningv1.DPUTemplate{
+							Annotations: map[string]string{"annotationkey2": "annotationvalue2"},
+							Spec: provisioningv1.DPUTemplateSpec{
+								BlueFieldSoftware: &provisioningv1.BlueFieldSoftwareReference{Name: "somebfs"},
+								DPUFlavor:         "someflavor",
+								NodeEffect: provisioningv1.NodeEffect{
+									Action: provisioningv1.Action{Drain: ptr.To(true), Force: ptr.To(false)},
+									UpgradePolicy: provisioningv1.UpgradePolicy{
+										ApplyOnLabelChange: ptr.To(false),
+										NodeMaintenanceAdditionalRequestors: []string{
+											fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), dpuServiceChain.Name),
+											fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), dpuService.Name),
+										},
+									},
+								},
+								Cluster: &provisioningv1.ClusterSpec{
+									NodeLabels: map[string]string{
+										"svc.dpu.nvidia.com/dpuservicechain-version":        dpuServiceChain.Name,
+										"svc.dpu.nvidia.com/dpuservice-someservice-version": dpuService.Name,
+										dpuservicev1.ParentDPUDeploymentNameLabel:           fmt.Sprintf("%s_%s", dpuDeployment.Namespace, dpuDeployment.Name),
+									},
+									Selector: &metav1.LabelSelector{
+										MatchLabels: map[string]string{"clusterkey1": "clustervalue1"},
+									},
+								},
+							},
+						},
+					},
+				}
+
+				By("checking that correct DPUSets are created")
+				Eventually(func(g Gomega) {
+					gotDPUSetList := &provisioningv1.DPUSetList{}
+					g.Expect(testClient.List(ctx, gotDPUSetList)).To(Succeed())
+					g.Expect(gotDPUSetList.Items).To(HaveLen(2))
+
+					By("checking the object metadata")
+					for _, dpuSet := range gotDPUSetList.Items {
+						g.Expect(dpuSet.Labels).To(HaveLen(1))
+						g.Expect(dpuSet.Labels).To(HaveKeyWithValue("svc.dpu.nvidia.com/owned-by-dpudeployment", fmt.Sprintf("%s_dpudeployment", testNS.Name)))
+						g.Expect(dpuSet.OwnerReferences).To(ConsistOf(*metav1.NewControllerRef(dpuDeployment, dpuservicev1.DPUDeploymentGroupVersionKind)))
+					}
+
+					By("checking the specs")
+					specs := make([]provisioningv1.DPUSetSpec, 0, len(gotDPUSetList.Items))
+					for _, dpuSet := range gotDPUSetList.Items {
+						specs = append(specs, dpuSet.Spec)
+					}
+					g.Expect(specs).To(ConsistOf(expectedSpecs))
+				}).WithTimeout(30 * time.Second).Should(Succeed())
+			})
 			It("should not add DPUServiceChain requestor to NodeMaintenanceAdditionalRequestors when annotation is set", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				dpuDeployment.Spec.DPUs.DPUSets = initialDPUSetSettings
 				dpuDeployment.Spec.ServiceChains = initialServiceChainsSettings
 				dpuDeployment.Annotations = map[string]string{
@@ -1712,6 +2150,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 			})
 			It("should update the existing DPUSets on update of the .spec.dpus in the DPUDeployment", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				dpuDeployment.Spec.DPUs.DPUSets = initialDPUSetSettings
 				dpuDeployment.Spec.ServiceChains = initialServiceChainsSettings
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
@@ -1791,6 +2230,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 			})
 			It("should update the DPUSets on changing the .spec.dpus.nodeEffect in the DPUDeployment", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				dpuDeployment.Spec.DPUs.DPUSets = initialDPUSetSettings
 				dpuDeployment.Spec.ServiceChains = initialServiceChainsSettings
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
@@ -1930,6 +2370,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 			})
 			It("should keep the existing DPUSets labels on update of a DPUServiceConfiguration", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				dpuDeployment.Spec.DPUs.DPUSets = initialDPUSetSettings
 				dpuDeployment.Spec.ServiceChains = initialServiceChainsSettings
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
@@ -2032,6 +2473,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 			})
 			It("should update the existing DPUSets labels on update of a disruptive DPUServiceConfiguration", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				dpuDeployment.Spec.DPUs.DPUSets = initialDPUSetSettings
 				dpuDeployment.Spec.ServiceChains = initialServiceChainsSettings
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
@@ -2405,6 +2847,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 			})
 			It("should update the existing DPUSets labels on update of a disruptive DPUServiceChain", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				dpuDeployment.Spec.DPUs.DPUSets = initialDPUSetSettings
 				dpuDeployment.Spec.ServiceChains = initialServiceChainsSettings
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
@@ -2753,6 +3196,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 			})
 			It("should keep the existing DPUSets labels on update of a dpudeployment service chain", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				dpuDeployment.Spec.DPUs.DPUSets = initialDPUSetSettings
 				dpuDeployment.Spec.ServiceChains = initialServiceChainsSettings
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
@@ -2903,6 +3347,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 			})
 			It("should update the existing DPUSets on update of the referenced BFB", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				dpuDeployment.Spec.DPUs.DPUSets = initialDPUSetSettings
 				dpuDeployment.Spec.ServiceChains = initialServiceChainsSettings
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
@@ -2957,7 +3402,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 				bfb2 := createMinimalBFBWithStatus("somebfb2", testNS.Name)
 
 				By("Updating the DPUDeployment object to reference the new BFB")
-				dpuDeployment.Spec.DPUs.BFB = bfb2.Name
+				dpuDeployment.Spec.DPUs.BFB = ptr.To(bfb2.Name)
 				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner(dpuDeploymentControllerName))).To(Succeed())
 
 				// Update the expected DPUSetSpecs
@@ -2990,6 +3435,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 			})
 			It("should update existing and create new DPUSets on update of the .spec.dpus in the DPUDeployment", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				dpuDeployment.Spec.DPUs.DPUSets = initialDPUSetSettings
 				dpuDeployment.Spec.ServiceChains = initialServiceChainsSettings
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
@@ -3145,6 +3591,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 			})
 			It("should delete DPUSets that are no longer part of the DPUDeployment", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				dpuDeployment.Spec.DPUs.DPUSets = initialDPUSetSettings
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
@@ -3175,6 +3622,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 			It("should create new DPUSets on manual deletion of the DPUSets", func() {
 				By("Creating the DPUDeployment")
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				dpuDeployment.Spec.DPUs.DPUSets = initialDPUSetSettings
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
@@ -3246,6 +3694,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 				By("Creating the DPUDeployment")
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
 
@@ -3352,6 +3801,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 				By("Creating the DPUDeployment with multiple DPUSets")
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
 					{
 						NameSuffix: "set1",
@@ -3474,6 +3924,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 				By("Creating the DPUDeployment")
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
 
@@ -3567,6 +4018,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 				By("Creating the DPUDeployment")
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
 
@@ -3731,6 +4183,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 				By("Creating the DPUDeployment")
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
 					{
 						NameSuffix: "dpuset1",
@@ -4138,6 +4591,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 				By("Creating the DPUDeployment")
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
 
@@ -4539,6 +4993,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 				By("Creating the DPUDeployment")
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				dpuDeployment.Spec.Services = map[string]dpuservicev1.DPUDeploymentServiceConfiguration{
 					"service-1": {
 						ServiceTemplate:      dpuServiceTemplate1.Name,
@@ -5084,6 +5539,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 				By("Creating the DPUDeployment with initial DPUClusterSelector")
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
 					{
 						NameSuffix: "set1",
@@ -5176,6 +5632,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 				By("Creating the DPUDeployment")
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
 
@@ -5299,6 +5756,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 				By("Creating the DPUDeployment")
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
 
@@ -5448,6 +5906,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 				By("Creating the DPUDeployment")
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
 
@@ -5571,6 +6030,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 				By("Creating the DPUDeployment")
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				dpuDeployment.Spec.Services = make(map[string]dpuservicev1.DPUDeploymentServiceConfiguration)
 				dpuDeployment.Spec.Services["service-1"] = dpuservicev1.DPUDeploymentServiceConfiguration{
 					ServiceTemplate:      "service-1",
@@ -5795,6 +6255,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 				By("Creating the DPUDeployment")
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
 					{
 						NameSuffix: "dpuset1",
@@ -5993,6 +6454,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 				By("Creating the DPUDeployment")
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				dpuDeployment.Spec.Services = make(map[string]dpuservicev1.DPUDeploymentServiceConfiguration)
 				dpuDeployment.Spec.Services["service1"] = dpuservicev1.DPUDeploymentServiceConfiguration{
 					ServiceTemplate:      "service1",
@@ -6096,6 +6558,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 				By("Creating the DPUDeployment")
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
 
@@ -6185,6 +6648,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 				By("Creating the DPUDeployment")
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				dpuDeployment.Spec.Services = make(map[string]dpuservicev1.DPUDeploymentServiceConfiguration)
 				dpuDeployment.Spec.Services["service-1"] = dpuservicev1.DPUDeploymentServiceConfiguration{
 					ServiceTemplate:      "service-1",
@@ -6431,6 +6895,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 				By("Creating the DPUDeployment")
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				dpuDeployment.Spec.Services = make(map[string]dpuservicev1.DPUDeploymentServiceConfiguration)
 				dpuDeployment.Spec.Services["service-1"] = dpuservicev1.DPUDeploymentServiceConfiguration{
 					ServiceTemplate:      "service-1",
@@ -6685,6 +7150,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 				By("Creating the DPUDeployment")
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				dpuDeployment.Spec.RevisionHistoryLimit = ptr.To(int32(revisionHistoryLimit))
 				dpuDeployment.Spec.Services = make(map[string]dpuservicev1.DPUDeploymentServiceConfiguration)
 				dpuDeployment.Spec.Services["service-1"] = dpuservicev1.DPUDeploymentServiceConfiguration{
@@ -7102,6 +7568,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 				By("Creating the DPUDeployment with initial DPUClusterSelector")
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				dpuDeployment.Spec.Services = make(map[string]dpuservicev1.DPUDeploymentServiceConfiguration)
 				dpuDeployment.Spec.Services["service-1"] = dpuservicev1.DPUDeploymentServiceConfiguration{
 					ServiceTemplate:      "service-1",
@@ -7187,6 +7654,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 				By("Creating the DPUDeployment")
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				dpuDeployment.Spec.Services = make(map[string]dpuservicev1.DPUDeploymentServiceConfiguration)
 				dpuDeployment.Spec.Services["service-1"] = dpuservicev1.DPUDeploymentServiceConfiguration{
 					ServiceTemplate:      "service-1",
@@ -7296,6 +7764,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 				By("Creating the DPUDeployment")
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				dpuDeployment.Spec.Services = make(map[string]dpuservicev1.DPUDeploymentServiceConfiguration)
 				dpuDeployment.Spec.Services["service-1"] = dpuservicev1.DPUDeploymentServiceConfiguration{
 					ServiceTemplate:      "service-1",
@@ -7435,6 +7904,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 				By("Creating the DPUDeployment")
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				dpuDeployment.Spec.Services = make(map[string]dpuservicev1.DPUDeploymentServiceConfiguration)
 				dpuDeployment.Spec.Services["service-1"] = dpuservicev1.DPUDeploymentServiceConfiguration{
 					ServiceTemplate:      "service-1",
@@ -7492,6 +7962,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 				By("Creating the DPUDeployment")
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				dpuDeployment.Spec.Services = make(map[string]dpuservicev1.DPUDeploymentServiceConfiguration)
 				dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
 					{
@@ -7948,6 +8419,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 			})
 			It("should create the correct DPUServiceChain", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				dpuDeployment.Spec.ServiceChains = &dpuservicev1.ServiceChains{
 					Switches: []dpuservicev1.DPUDeploymentSwitch{
 						{
@@ -8116,6 +8588,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 			It("should create the correct DPUServiceChain when DPUDeployment specifies multiple DPUSets", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
 					{
 						NameSuffix: "set1",
@@ -8307,6 +8780,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 			It("should not create the DPUServiceChain if none specified", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
 
@@ -8329,6 +8803,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 			})
 			It("should delete the DPUServiceChain if DPUDeployment is updated with no serviceChain specified", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				dpuDeployment.Spec.ServiceChains = initialServiceChainsSettings
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
@@ -8355,6 +8830,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 			It("should patch a manually modified DPUServiceChain as long as the modification is not on the version annotation", func() {
 				By("Creating the DPUDeployment")
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				dpuDeployment.Spec.ServiceChains = initialServiceChainsSettings
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
@@ -8472,6 +8948,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 			})
 			It("should update the disruptive DPUServiceChain on update of dpuDeployment.Spec.ServiceChains.Switches", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				// make the DPUServiceChain disruptive
 				dpuDeployment.Spec.ServiceChains = initialServiceChainsSettings
 				dpuDeployment.Spec.ServiceChains.UpgradePolicy.ApplyNodeEffect = ptr.To(true)
@@ -8740,6 +9217,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 			It("should not create new DPUServiceChain, when chain is disruptive, on update of the .spec.dpuClusterSelector in the DPUDeployment", func() {
 				By("Creating the DPUDeployment with initial DPUClusterSelector")
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				dpuDeployment.Spec.ServiceChains = initialServiceChainsSettings
 				dpuDeployment.Spec.ServiceChains.UpgradePolicy.ApplyNodeEffect = ptr.To(true)
 				dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
@@ -8816,6 +9294,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 			})
 			It("should update the disruptive DPUServiceChain to non-diruptive", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				// make the DPUServiceChain disruptive
 				dpuDeployment.Spec.ServiceChains = initialServiceChainsSettings
 				dpuDeployment.Spec.ServiceChains.UpgradePolicy.ApplyNodeEffect = ptr.To(true)
@@ -9003,6 +9482,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 			})
 			It("should update the DPUServiceChain on update of dpuDeployment.Spec.ServiceChains.Switches", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				dpuDeployment.Spec.ServiceChains = initialServiceChainsSettings
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
@@ -9189,6 +9669,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 			It("should create new DPUServiceChain on manual deletion of the DPUServiceChain", func() {
 				By("Creating the DPUDeployment")
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				dpuDeployment.Spec.ServiceChains = initialServiceChainsSettings
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
@@ -9239,6 +9720,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 		})
 		It("DPUDeployment has all the conditions with Pending Reason at start of the reconciliation loop", func() {
 			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 			Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
 
@@ -9335,6 +9817,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 			By("Creating the DPUDeployment")
 			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 			dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
 				{
 					NameSuffix: "some",
@@ -9456,6 +9939,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 			By("Creating the DPUDeployment")
 			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 			dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
 				{
 					NameSuffix: "some",
@@ -9650,6 +10134,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 			By("Creating the DPUDeployment")
 			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 			Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
 
@@ -9681,6 +10166,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 		It("DPUDeployment has condition PrerequisitesReady with Error Reason at the end of first reconciliation loop that failed on dependencies", func() {
 			// Add DPUDeployment
 			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 			Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
 
@@ -9730,6 +10216,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 			By("Creating the DPUDeployment")
 			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 			Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
 
@@ -9777,6 +10264,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 			By("Creating the DPUDeployment")
 			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 			dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
 				{
 					NameSuffix: "dpuset1",
@@ -9993,7 +10481,6 @@ func getMinimalDPUDeployment(namespace string) *dpuservicev1.DPUDeployment {
 		},
 		Spec: dpuservicev1.DPUDeploymentSpec{
 			DPUs: dpuservicev1.DPUs{
-				BFB:            "somebfb",
 				Flavor:         "someflavor",
 				NodeEffect:     provisioningv1.Action{Drain: ptr.To(true)},
 				DPUSetStrategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.RollingUpdateStrategyType},
@@ -10027,6 +10514,25 @@ func getMinimalBFB(name, namespace string) *provisioningv1.BFB {
 		},
 		Spec: provisioningv1.BFBSpec{
 			URL: fmt.Sprintf("http://somewebserver/%s.bfb", name),
+		},
+	}
+}
+
+func createMinimalBlueFieldSoftwareWithStatus(name, namespace string) *provisioningv1.BlueFieldSoftware {
+	bfs := getMinimalBlueFieldSoftware(name, namespace)
+	Expect(testClient.Create(ctx, bfs)).To(Succeed())
+	bfs.Status.Phase = provisioningv1.BlueFieldSoftwareReady
+	bfs.SetGroupVersionKind(provisioningv1.BlueFieldGroupVersionKind)
+	bfs.SetManagedFields(nil)
+	Expect(testClient.Status().Patch(ctx, bfs, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
+	return bfs
+}
+
+func getMinimalBlueFieldSoftware(name, namespace string) *provisioningv1.BlueFieldSoftware {
+	return &provisioningv1.BlueFieldSoftware{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
 		},
 	}
 }

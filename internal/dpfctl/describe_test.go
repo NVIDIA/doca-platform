@@ -1037,7 +1037,7 @@ func defaultDPUDeployment() *dpuservicev1.DPUDeployment {
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
 		Spec: dpuservicev1.DPUDeploymentSpec{
 			DPUs: dpuservicev1.DPUs{
-				BFB:            "test",
+				BFB:            ptr.To("test"),
 				Flavor:         "test-flavor",
 				NodeEffect:     provisioningv1.Action{NoEffect: ptr.To(true)},
 				DPUSetStrategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},

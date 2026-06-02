@@ -503,6 +503,7 @@ var _ = Describe("DPUDeployment Node Controller", func() {
 
 			By("Creating a DPUDeployment")
 			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 			dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
 				{
 					NameSuffix: "test-dpuset",
@@ -582,6 +583,7 @@ var _ = Describe("DPUDeployment Node Controller", func() {
 
 			By("Creating an active DPUDeployment")
 			activeDPUDeployment := getMinimalDPUDeployment(testNS.Name)
+			activeDPUDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 			activeDPUDeployment.Name = "active-deploy"
 			activeDPUDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{{NameSuffix: "test-dpuset"}}
 			Expect(testClient.Create(ctx, activeDPUDeployment)).To(Succeed())
@@ -589,6 +591,7 @@ var _ = Describe("DPUDeployment Node Controller", func() {
 
 			By("Creating a terminating DPUDeployment")
 			terminatingDPUDeployment := getMinimalDPUDeployment(testNS.Name)
+			terminatingDPUDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 			terminatingDPUDeployment.Name = "terminating-deploy"
 			terminatingDPUDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{{NameSuffix: "test-dpuset"}}
 			Expect(testClient.Create(ctx, terminatingDPUDeployment)).To(Succeed())
@@ -679,6 +682,7 @@ var _ = Describe("DPUDeployment Node Controller", func() {
 
 			By("Creating a DPUDeployment with multiple DPUServices")
 			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 			dpuDeployment.Name = "multi-service-deploy"
 			dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{{NameSuffix: "test-dpuset"}}
 			Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
@@ -806,6 +810,7 @@ var _ = Describe("DPUDeployment Node Controller", func() {
 
 			By("Creating a DPUDeployment that targets only the matching DPUNode")
 			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 			dpuDeployment.Name = "selective-deploy"
 			dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
 				{
@@ -941,6 +946,7 @@ var _ = Describe("DPUDeployment Node Controller", func() {
 
 			By("Creating a DPUDeployment targeting all DPUNodes but filtering by DPUDeviceSelector")
 			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 			dpuDeployment.Name = "device-sel-deploy"
 			dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
 				{
@@ -1037,6 +1043,7 @@ var _ = Describe("DPUDeployment Node Controller", func() {
 
 			By("Creating a DPUDeployment targeting DPUNodes with DPUDeviceSelector")
 			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 			dpuDeployment.Name = "dev-lbl-lc"
 			dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
 				{
@@ -1131,6 +1138,7 @@ var _ = Describe("DPUDeployment Node Controller", func() {
 
 			By("Creating a DPUDeployment with a DPUNodeSelector matching the DPUNode's label")
 			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 			dpuDeployment.Name = "node-lbl-lc"
 			dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
 				{
@@ -1220,6 +1228,7 @@ var _ = Describe("DPUDeployment Node Controller", func() {
 
 			By("Creating a DPUDeployment")
 			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 			dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
 				{
 					NameSuffix: "test-dpuset",

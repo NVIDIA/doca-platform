@@ -40,6 +40,7 @@ import (
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -576,7 +577,7 @@ func rolloutDependencies(ctx context.Context, input *systemTestInput) {
 
 	By("Updating selected DPUDeployment to reference current BFB, DPUFlavor, DPUServiceTemplate and DPUServiceConfiguration")
 	original := selectedDPUDeployment.DeepCopy()
-	selectedDPUDeployment.Spec.DPUs.BFB = input.bfb.Name
+	selectedDPUDeployment.Spec.DPUs.BFB = ptr.To(input.bfb.Name)
 	selectedDPUDeployment.Spec.DPUs.Flavor = input.dpuFlavor.Name
 	// Replace only the "example" DPUService (not the "example-2")
 	svc := selectedDPUDeployment.Spec.Services[input.dpuServiceTemplate.Name]
