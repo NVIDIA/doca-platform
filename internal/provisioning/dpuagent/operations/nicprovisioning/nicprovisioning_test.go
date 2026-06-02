@@ -122,6 +122,7 @@ func TestNICProvisioning_Execute(t *testing.T) {
 	op := &NICProvisioning{
 		prepareLocalDMSServerFn:   func(_ *operations.Context) error { return nil },
 		installNICFirmwareFn:      func(_ context.Context, _ *operations.Context, _ string) error { return nil },
+		prepareSpectrumXConfigsFn: func() error { return nil },
 		applyNVConfigFn:           func(_ context.Context, _ *operations.Context) error { return nil },
 		configureRestrictedModeFn: func(_ context.Context, _ *operations.Context) error { return nil },
 	}
@@ -205,6 +206,7 @@ func TestNICProvisioning_Execute(t *testing.T) {
 			dmsServer:                 dmsServer,
 			prepareLocalDMSServerFn:   func(_ *operations.Context) error { return nil },
 			installNICFirmwareFn:      func(_ context.Context, _ *operations.Context, _ string) error { return nil },
+			prepareSpectrumXConfigsFn: func() error { return nil },
 			applyNVConfigFn:           func(_ context.Context, _ *operations.Context) error { return nil },
 			configureRestrictedModeFn: func(_ context.Context, _ *operations.Context) error { return nil },
 		}
@@ -226,6 +228,7 @@ func TestNICProvisioning_Execute(t *testing.T) {
 				installCalled = true
 				return nil
 			},
+			prepareSpectrumXConfigsFn: func() error { return nil },
 			applyNVConfigFn:           func(_ context.Context, _ *operations.Context) error { return nil },
 			configureRestrictedModeFn: func(_ context.Context, _ *operations.Context) error { return nil },
 		}
@@ -253,6 +256,7 @@ func TestNICProvisioning_Execute(t *testing.T) {
 			dmsServer:                 dmsServer,
 			prepareLocalDMSServerFn:   func(_ *operations.Context) error { return nil },
 			installNICFirmwareFn:      func(_ context.Context, _ *operations.Context, _ string) error { return nil },
+			prepareSpectrumXConfigsFn: func() error { return nil },
 			applyNVConfigFn:           func(_ context.Context, _ *operations.Context) error { return nil },
 			configureRestrictedModeFn: func(_ context.Context, _ *operations.Context) error { return nil },
 		}
