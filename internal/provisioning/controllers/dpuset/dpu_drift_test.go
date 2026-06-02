@@ -50,7 +50,7 @@ type driftFixture struct {
 
 func buildDPUSetForDrift(f driftFixture) provisioningv1.DPUSet {
 	tpl := provisioningv1.DPUTemplateSpec{
-		BFB:        provisioningv1.BFBReference{Name: f.tplBFB},
+		BFB:        &provisioningv1.BFBReference{Name: f.tplBFB},
 		DPUFlavor:  f.tplFlavor,
 		SecureBoot: f.tplSecureBoot,
 	}

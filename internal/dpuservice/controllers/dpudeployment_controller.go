@@ -833,7 +833,7 @@ func generateDPUSet(dpuDeploymentNamespacedName types.NamespacedName,
 	}
 
 	if dpuDeployment.Spec.DPUs.BFB != nil {
-		dpuSet.Spec.DPUTemplate.Spec.BFB = provisioningv1.BFBReference{Name: *dpuDeployment.Spec.DPUs.BFB}
+		dpuSet.Spec.DPUTemplate.Spec.BFB = &provisioningv1.BFBReference{Name: *dpuDeployment.Spec.DPUs.BFB}
 	} else if dpuDeployment.Spec.DPUs.BlueFieldSoftware != nil {
 		dpuSet.Spec.DPUTemplate.Spec.BlueFieldSoftware = &provisioningv1.BlueFieldSoftwareReference{Name: *dpuDeployment.Spec.DPUs.BlueFieldSoftware}
 	}

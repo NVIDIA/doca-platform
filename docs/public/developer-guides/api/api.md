@@ -2512,7 +2512,7 @@ _Appears in:_
 
 
 
-
+DPUTemplateSpec defines the desired provisioning template for DPUs.
 
 
 
@@ -2521,7 +2521,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `bfb` _[BFBReference](#bfbreference)_ | Specifies a BFB CR |  |  |
+| `bfb` _[BFBReference](#bfbreference)_ | Specifies a BFB CR |  | Optional: \{\} <br /> |
 | `blueFieldSoftware` _[BlueFieldSoftwareReference](#bluefieldsoftwarereference)_ | Specifies a BlueFieldSoftware CR |  | Optional: \{\} <br /> |
 | `nodeEffect` _[NodeEffect](#nodeeffect)_ | Specifies how changes to the DPU should affect the Node |  | Required: \{\} <br /> |
 | `cluster` _[ClusterSpec](#clusterspec)_ | Specifies details on the K8S cluster to join |  | Optional: \{\} <br /> |

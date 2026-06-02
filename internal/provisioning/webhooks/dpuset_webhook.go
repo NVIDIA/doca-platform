@@ -94,7 +94,7 @@ func (r *DPUSet) ValidateCreate(ctx context.Context, obj runtime.Object) (admiss
 	if dpuSet.Spec.DPUTemplate.Spec.DPUFlavor == "" {
 		errs = append(errs, field.Required(dpuTemplatePath.Child("dpuFlavor"), "dpuFlavor must be non-empty"))
 	}
-	if dpuSet.Spec.DPUTemplate.Spec.BFB.Name == "" {
+	if dpuSet.Spec.DPUTemplate.Spec.BFB != nil && dpuSet.Spec.DPUTemplate.Spec.BFB.Name == "" {
 		errs = append(errs, field.Required(dpuTemplatePath.Child("bfb", "name"), "bfb.name must be non-empty"))
 	}
 
@@ -134,7 +134,7 @@ func (r *DPUSet) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Obje
 	if dpuSet.Spec.DPUTemplate.Spec.DPUFlavor == "" {
 		errs = append(errs, field.Required(dpuTemplatePath.Child("dpuFlavor"), "dpuFlavor must be non-empty"))
 	}
-	if dpuSet.Spec.DPUTemplate.Spec.BFB.Name == "" {
+	if dpuSet.Spec.DPUTemplate.Spec.BFB != nil && dpuSet.Spec.DPUTemplate.Spec.BFB.Name == "" {
 		errs = append(errs, field.Required(dpuTemplatePath.Child("bfb", "name"), "bfb.name must be non-empty"))
 	}
 

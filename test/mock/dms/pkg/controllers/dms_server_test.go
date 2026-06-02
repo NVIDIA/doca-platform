@@ -75,7 +75,7 @@ func TestDMSServerReconciler(t *testing.T) {
 			},
 			DPUTemplate: provisioningv1.DPUTemplate{
 				Spec: provisioningv1.DPUTemplateSpec{
-					BFB: provisioningv1.BFBReference{
+					BFB: &provisioningv1.BFBReference{
 						Name: bfbName,
 					},
 					DPUFlavor: dpuFlavorName,
