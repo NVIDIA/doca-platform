@@ -95,7 +95,7 @@ If Grafana is deployed with the [sidecar container](https://github.com/kiwigrid/
 
 **Option 2: Manual Import**
 
-Download the dashboard JSON files from the [DPF Helm chart dashboards directory](https://github.com/NVIDIA/doca-platform/tree/public-release-v26.4/deploy/charts/dpf-operator/dashboards) and import them via the Grafana UI or API. See the [Grafana Dashboards](../dashboards/README.md) page for details on available dashboards.
+Download the dashboard JSON files from the [DPF Helm chart dashboards directory](https://github.com/NVIDIA/doca-platform/tree/main/deploy/charts/dpf-operator/dashboards) and import them via the Grafana UI or API. See the [Grafana Dashboards](../dashboards/README.md) page for details on available dashboards.
 
 ### Log Collection (Loki / OpenTelemetry)
 
