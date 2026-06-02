@@ -370,6 +370,76 @@ var _ = Describe("Provisioning API Validation", func() {
 			))
 		})
 	})
+
+	Context("When checking the DPUDevice Status.PSID field", func() {
+		It("does not require Status.PSID on Create (omitempty)", func() {
+			device := getMinimalDPUDevice(testNs.Name)
+			Expect(testClient.Create(ctx, device)).To(Succeed())
+			Expect(device.Status.PSID).To(BeNil())
+		})
+
+		It("accepts a valid PSID via the status subresource", func() {
+			device := getMinimalDPUDevice(testNs.Name)
+			Expect(testClient.Create(ctx, device)).To(Succeed())
+
+			device.Status.PSID = ptr.To("MT25066004C7")
+			Expect(testClient.Status().Update(ctx, device)).To(Succeed())
+
+			refetched := &provisioningv1.DPUDevice{}
+			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(device), refetched)).To(Succeed())
+			Expect(refetched.Status.PSID).NotTo(BeNil())
+			Expect(*refetched.Status.PSID).To(Equal("MT25066004C7"))
+		})
+
+		It("rejects Status.PSID values that do not match the CRD pattern", func() {
+			device := getMinimalDPUDevice(testNs.Name)
+			Expect(testClient.Create(ctx, device)).To(Succeed())
+
+			device.Status.PSID = ptr.To("N/A")
+			err := testClient.Status().Update(ctx, device)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(And(
+				ContainSubstring("psid"),
+				Or(
+					ContainSubstring(`^MT_?[A-Z0-9]+$`),
+					ContainSubstring("should match"),
+				),
+			))
+		})
+	})
+
+	Context("When checking the DPUDevice PSID label", func() {
+		const dpuDevicePSIDLabel = "provisioning.dpu.nvidia.com/dpudevice-psid"
+
+		It("rejects label values that are not valid Kubernetes label values", func() {
+			device := getMinimalDPUDevice(testNs.Name)
+			Expect(testClient.Create(ctx, device)).To(Succeed())
+
+			device.Labels = map[string]string{
+				dpuDevicePSIDLabel: "N/A",
+			}
+			err := testClient.Update(ctx, device)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(And(
+				ContainSubstring("metadata.labels"),
+				ContainSubstring("N/A"),
+			))
+		})
+
+		It("accepts a valid PSID label value", func() {
+			device := getMinimalDPUDevice(testNs.Name)
+			Expect(testClient.Create(ctx, device)).To(Succeed())
+
+			device.Labels = map[string]string{
+				dpuDevicePSIDLabel: "MT25066004C7",
+			}
+			Expect(testClient.Update(ctx, device)).To(Succeed())
+
+			refetched := &provisioningv1.DPUDevice{}
+			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(device), refetched)).To(Succeed())
+			Expect(refetched.Labels).To(HaveKeyWithValue(dpuDevicePSIDLabel, "MT25066004C7"))
+		})
+	})
 })
 
 func getMinimalDPUNode(namespace string) *provisioningv1.DPUNode {
@@ -377,6 +447,18 @@ func getMinimalDPUNode(namespace string) *provisioningv1.DPUNode {
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "dpunode-test-",
 			Namespace:    namespace,
+		},
+	}
+}
+
+func getMinimalDPUDevice(namespace string) *provisioningv1.DPUDevice {
+	return &provisioningv1.DPUDevice{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "dpudevice-test-",
+			Namespace:    namespace,
+		},
+		Spec: provisioningv1.DPUDeviceSpec{
+			SerialNumber: "MT25066004C7",
 		},
 	}
 }

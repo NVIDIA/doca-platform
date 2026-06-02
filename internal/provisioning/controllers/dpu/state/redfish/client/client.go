@@ -567,6 +567,9 @@ func (c *Client) EnableBMCRShim() (*resty.Response, *ExtendedInfo, error) {
 	})
 }
 
+// ChassisAssetTagUnavailable is the BMC sentinel when chassis AssetTag (PSID) is not set.
+const ChassisAssetTagUnavailable = "N/A"
+
 // ChassisInfo contains the part number information responded by RedFish API
 type ChassisInfo struct {
 	AssetTag     string `json:"AssetTag"`
