@@ -4051,6 +4051,8 @@ Package v1alpha1 contains API Schema definitions for the sfc v1alpha1 API group
 - [DPUServiceNADList](#dpuservicenadlist)
 - [DPUServiceTemplate](#dpuservicetemplate)
 - [DPUServiceTemplateList](#dpuservicetemplatelist)
+- [NodeServiceInterfaces](#nodeserviceinterfaces)
+- [NodeServiceInterfacesList](#nodeserviceinterfaceslist)
 - [ServiceChain](#servicechain)
 - [ServiceChainList](#servicechainlist)
 - [ServiceChainSet](#servicechainset)
@@ -5049,6 +5051,51 @@ _Appears in:_
 | `routes` _[Route](#route) array_ | Routes is the static routes list using the gateway specified in the spec. |  |  |
 
 
+#### InterfaceEntry
+
+
+
+InterfaceEntry defines a single service interface entry within a NodeServiceInterfaces object.
+
+
+
+_Appears in:_
+- [NodeServiceInterfacesSpec](#nodeserviceinterfacesspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `name` _string_ | Name uniquely identifies this entry within the NodeServiceInterfaces object.<br />Format: `<namespace>_<service-interface-set-name>`. The underscore separator is collision-free<br />because Kubernetes namespace and resource names follow DNS subdomain rules<br />and can never contain an underscore. Both components are<br />bounded to 63 chars, so the full name is at most 127 chars. |  | MaxLength: 253 <br />MinLength: 1 <br />Required: \{\} <br /> |
+| `terminating` _boolean_ | Terminating indicates this entry is marked for removal. Cleanup may<br />require one or more reconcilers. ResourceReleased=True is set only<br />after all required cleanup conditions are satisfied in status. |  |  |
+| `labels` _object (keys:string, values:string)_ | Labels used for ServiceChain matchLabels resolution. |  | MaxProperties: 50 <br />Optional: \{\} <br /> |
+| `annotations` _object (keys:string, values:string)_ | Annotations carry operational metadata for this entry. |  | MaxProperties: 50 <br />Optional: \{\} <br /> |
+| `interfaceType` _string_ | InterfaceType is the type of the interface. |  | Enum: [vlan physical pf vf ovn patch service] <br />Required: \{\} <br /> |
+| `physical` _[Physical](#physical)_ | Physical is the physical interface definition. |  | Optional: \{\} <br /> |
+| `vlan` _[VLAN](#vlan)_ | Vlan is the VLAN definition. |  | Optional: \{\} <br /> |
+| `vf` _[VF](#vf)_ | VF is the VF definition. |  | Optional: \{\} <br /> |
+| `pf` _[PF](#pf)_ | PF is the PF definition. |  | Optional: \{\} <br /> |
+| `service` _[ServiceDef](#servicedef)_ | Service is the service definition. |  | Optional: \{\} <br /> |
+| `ovn` _[OVN](#ovn)_ | OVN is the OVN definition. |  | Optional: \{\} <br /> |
+| `patch` _[PatchDef](#patchdef)_ | Patch is the patch definition. |  | Optional: \{\} <br /> |
+
+
+#### InterfaceEntryStatus
+
+
+
+InterfaceEntryStatus records reconciliation state for a single interface entry.
+
+
+
+_Appears in:_
+- [NodeServiceInterfacesStatus](#nodeserviceinterfacesstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `name` _string_ | Name matches the spec entry name. |  | MinLength: 1 <br />Required: \{\} <br /> |
+| `params` _object (keys:string, values:string)_ | Params carries controller-specific information for handling reconcile/release of the matching InterfaceEntry in spec.<br />Multiple reconcilers may write distinct keys safely as long as they do not share keys. |  | Optional: \{\} <br /> |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions may be written by multiple reconcilers for the same entry. |  | Optional: \{\} <br /> |
+
+
 #### LocalObjectDependency
 
 
@@ -5084,6 +5131,80 @@ _Appears in:_
 | `namespace` _string_ | Namespace of the object, if not provided the object will be looked up in<br />the same namespace as the referring object |  | Optional: \{\} <br /> |
 
 
+#### NodeServiceInterfaces
+
+
+
+NodeServiceInterfaces is the Schema for the nodeserviceinterfaces API.
+
+
+
+_Appears in:_
+- [NodeServiceInterfacesList](#nodeserviceinterfaceslist)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `svc.dpu.nvidia.com/v1alpha1` | | |
+| `kind` _string_ | `NodeServiceInterfaces` | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[NodeServiceInterfacesSpec](#nodeserviceinterfacesspec)_ |  |  |  |
+| `status` _[NodeServiceInterfacesStatus](#nodeserviceinterfacesstatus)_ |  |  |  |
+
+
+#### NodeServiceInterfacesList
+
+
+
+NodeServiceInterfacesList contains a list of NodeServiceInterfaces
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `svc.dpu.nvidia.com/v1alpha1` | | |
+| `kind` _string_ | `NodeServiceInterfacesList` | | |
+| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `items` _[NodeServiceInterfaces](#nodeserviceinterfaces) array_ |  |  |  |
+
+
+#### NodeServiceInterfacesSpec
+
+
+
+NodeServiceInterfacesSpec defines the desired state of NodeServiceInterfaces.
+
+
+
+_Appears in:_
+- [NodeServiceInterfaces](#nodeserviceinterfaces)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `node` _string_ | Node is the name of the DPU node this object represents. |  | MaxLength: 253 <br />MinLength: 1 <br />Required: \{\} <br /> |
+| `type` _string_ | Type identifies which controller domain owns this NSI shard.<br />Examples: "sfc", "vpc-my-provisioner". |  | MaxLength: 253 <br />MinLength: 1 <br />Required: \{\} <br /> |
+| `interfaces` _[InterfaceEntry](#interfaceentry) array_ | Interfaces is the list of service interface entries for this node. |  | MaxItems: 256 <br />Optional: \{\} <br /> |
+
+
+#### NodeServiceInterfacesStatus
+
+
+
+NodeServiceInterfacesStatus defines the observed state of NodeServiceInterfaces.
+
+
+
+_Appears in:_
+- [NodeServiceInterfaces](#nodeserviceinterfaces)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect aggregate status. |  | Optional: \{\} <br /> |
+| `observedGeneration` _integer_ | ObservedGeneration is the last observed generation of the NodeServiceInterfaces object. |  | Optional: \{\} <br /> |
+| `interfaceStatuses` _[InterfaceEntryStatus](#interfaceentrystatus) array_ | InterfaceStatuses tracks per-entry reconciliation state. Written by<br />the managing controller. The params map carries controller-specific<br />release information needed during terminating/release handling. |  | Optional: \{\} <br /> |
+
+
 #### OVN
 
 
@@ -5093,6 +5214,7 @@ OVN defines the configuration for OVN interface type
 
 
 _Appears in:_
+- [InterfaceEntry](#interfaceentry)
 - [ServiceInterfaceSpec](#serviceinterfacespec)
 
 | Field | Description | Default | Validation |
@@ -5131,6 +5253,7 @@ PF defines the PF configuration
 
 
 _Appears in:_
+- [InterfaceEntry](#interfaceentry)
 - [ServiceInterfaceSpec](#serviceinterfacespec)
 
 | Field | Description | Default | Validation |
@@ -5148,6 +5271,7 @@ PatchDef defines the configuration for Patch interface type
 
 
 _Appears in:_
+- [InterfaceEntry](#interfaceentry)
 - [ServiceInterfaceSpec](#serviceinterfacespec)
 
 | Field | Description | Default | Validation |
@@ -5166,6 +5290,7 @@ Physical Identifies a physical interface
 
 
 _Appears in:_
+- [InterfaceEntry](#interfaceentry)
 - [ServiceInterfaceSpec](#serviceinterfacespec)
 
 | Field | Description | Default | Validation |
@@ -5470,6 +5595,7 @@ ServiceDef Identifies the service and network for the ServiceInterface
 
 
 _Appears in:_
+- [InterfaceEntry](#interfaceentry)
 - [ServiceInterfaceSpec](#serviceinterfacespec)
 
 | Field | Description | Default | Validation |
@@ -5749,6 +5875,7 @@ VF defines the VF configuration
 
 
 _Appears in:_
+- [InterfaceEntry](#interfaceentry)
 - [ServiceInterfaceSpec](#serviceinterfacespec)
 
 | Field | Description | Default | Validation |
@@ -5768,6 +5895,7 @@ VLAN defines the VLAN configuration
 
 
 _Appears in:_
+- [InterfaceEntry](#interfaceentry)
 - [ServiceInterfaceSpec](#serviceinterfacespec)
 
 | Field | Description | Default | Validation |
