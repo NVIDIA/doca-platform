@@ -399,11 +399,8 @@ spec:
                             - interfaceType
                             type: object
                             x-kubernetes-validations:
-                            - message: '`for interfaceType=vlan, vlan must be set;
-                                for interfaceType=pf, pf must be set; for interfaceType=vf,
-                                vf must be set; for interfaceType=physical, physical
-                                must be set; for interfaceType=service, service must
-                                be set; for interfaceType=patch, patch must be set`'
+                            - messageExpression: '''for interfaceType='' + self.interfaceType
+                                + '', '' + self.interfaceType + '' must be set'''
                               rule: (self.interfaceType == 'vlan' && has(self.vlan))
                                 || (self.interfaceType == 'pf' && has(self.pf)) ||
                                 (self.interfaceType == 'vf' && has(self.vf)) || (self.interfaceType

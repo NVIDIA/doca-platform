@@ -254,6 +254,17 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err = (&sfccontroller.NodeServiceInterfacesReconciler{
+		Client:        mgr.GetClient(),
+		Scheme:        mgr.GetScheme(),
+		NodeName:      nodeName,
+		OVS:           ovsClient,
+		NetworkHelper: networkHelper,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "NodeServiceInterfaces")
+		os.Exit(1)
+	}
+
 	oFlow := &oflow.OpenFlow{Exec: kexec.New()}
 
 	if err = (&sfccontroller.ServiceChainReconciler{
