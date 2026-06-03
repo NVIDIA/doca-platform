@@ -47,7 +47,7 @@ const (
 var ServiceInterfaceGroupVersionKind = GroupVersion.WithKind(ServiceInterfaceKind)
 
 // ServiceInterfaceSpec defines the desired state of ServiceInterface
-// +kubebuilder:validation:XValidation:rule="(self.interfaceType == 'vlan' && has(self.vlan)) || (self.interfaceType == 'pf' && has(self.pf)) || (self.interfaceType == 'vf' && has(self.vf)) || (self.interfaceType == 'physical' && has(self.physical)) || (self.interfaceType == 'service' && has(self.service)) || (self.interfaceType == 'ovn') || (self.interfaceType == 'patch' && has(self.patch))", message="`for interfaceType=vlan, vlan must be set; for interfaceType=pf, pf must be set; for interfaceType=vf, vf must be set; for interfaceType=physical, physical must be set; for interfaceType=service, service must be set; for interfaceType=patch, patch must be set`"
+// +kubebuilder:validation:XValidation:rule="(self.interfaceType == 'vlan' && has(self.vlan)) || (self.interfaceType == 'pf' && has(self.pf)) || (self.interfaceType == 'vf' && has(self.vf)) || (self.interfaceType == 'physical' && has(self.physical)) || (self.interfaceType == 'service' && has(self.service)) || (self.interfaceType == 'ovn') || (self.interfaceType == 'patch' && has(self.patch))",messageExpression="'for interfaceType=' + self.interfaceType + ', ' + self.interfaceType + ' must be set'"
 type ServiceInterfaceSpec struct {
 	// Node where this interface exists
 	// +optional
@@ -63,12 +63,15 @@ type ServiceInterfaceSpec struct {
 	// +optional
 	Vlan *VLAN `json:"vlan,omitempty"`
 	// The VF definition
+	// +kubebuilder:validation:XValidation:rule="(!has(oldSelf.virtualNetwork) && !has(self.virtualNetwork)) || ((has(oldSelf.virtualNetwork) && has(self.virtualNetwork)) && self.virtualNetwork==oldSelf.virtualNetwork)", message="virtualNetwork is immutable"
 	// +optional
 	VF *VF `json:"vf,omitempty"`
 	// The PF definition
+	// +kubebuilder:validation:XValidation:rule="(!has(oldSelf.virtualNetwork) && !has(self.virtualNetwork)) || ((has(oldSelf.virtualNetwork) && has(self.virtualNetwork)) && self.virtualNetwork==oldSelf.virtualNetwork)", message="virtualNetwork is immutable"
 	// +optional
 	PF *PF `json:"pf,omitempty"`
 	// The Service definition
+	// +kubebuilder:validation:XValidation:rule="(!has(oldSelf.virtualNetwork) && !has(self.virtualNetwork)) || ((has(oldSelf.virtualNetwork) && has(self.virtualNetwork)) && self.virtualNetwork==oldSelf.virtualNetwork)", message="virtualNetwork is immutable"
 	// +optional
 	Service *ServiceDef `json:"service,omitempty"`
 	// The OVN definition
@@ -148,7 +151,6 @@ type Physical struct {
 }
 
 // ServiceDef Identifies the service and network for the ServiceInterface
-// +kubebuilder:validation:XValidation:rule="(!has(oldSelf.virtualNetwork) && !has(self.virtualNetwork)) || ((has(oldSelf.virtualNetwork) && has(self.virtualNetwork)) && self.virtualNetwork==oldSelf.virtualNetwork)", message="virtualNetwork is immutable"
 type ServiceDef struct {
 	// ServiceID is the DPU Service Identifier
 	// +required
@@ -196,7 +198,6 @@ type VLAN struct {
 }
 
 // VF defines the VF configuration
-// +kubebuilder:validation:XValidation:rule="(!has(oldSelf.virtualNetwork) && !has(self.virtualNetwork)) || ((has(oldSelf.virtualNetwork) && has(self.virtualNetwork)) && self.virtualNetwork==oldSelf.virtualNetwork)", message="virtualNetwork is immutable"
 type VF struct {
 	// The VF ID
 	// +required
@@ -214,7 +215,6 @@ type VF struct {
 }
 
 // PF defines the PF configuration
-// +kubebuilder:validation:XValidation:rule="(!has(oldSelf.virtualNetwork) && !has(self.virtualNetwork)) || ((has(oldSelf.virtualNetwork) && has(self.virtualNetwork)) && self.virtualNetwork==oldSelf.virtualNetwork)", message="virtualNetwork is immutable"
 type PF struct {
 	// The PF ID
 	// +required

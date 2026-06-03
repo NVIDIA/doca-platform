@@ -347,6 +347,7 @@ generate-manifests-operator-embedded: kustomize envsubst generate-manifests-dpus
 generate-manifests-sfc-controller: envsubst generate-manifests-servicechainset
 	cp config/dpuservice/crd/bases/svc.dpu.nvidia.com_servicechains.yaml deploy/charts/dpu-networking/charts/sfc-controller/templates/crds/
 	cp config/dpuservice/crd/bases/svc.dpu.nvidia.com_serviceinterfaces.yaml deploy/charts/dpu-networking/charts/sfc-controller/templates/crds/
+	cp config/dpuservice/crd/bases/svc.dpu.nvidia.com_nodeserviceinterfaces.yaml deploy/charts/dpu-networking/charts/sfc-controller/templates/crds/
 
 .PHONY: generate-manifests-provisioning
 generate-manifests-provisioning: controller-gen kustomize ## Generate manifests e.g. CRD, RBAC. for the DPF provisioning controller.
