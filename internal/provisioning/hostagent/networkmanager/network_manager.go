@@ -210,6 +210,28 @@ func (nm *NetworkManager) processNetworkRequest(nr NetworkRequest) error {
 
 	operations := []networkOperation{
 		{
+			name: "EnsureDriverBoundP0",
+			f: func(nr NetworkRequest) error {
+				return hostutil.NewPCIHelper(nr.PCIAddress).PF(0).BindDriver("mlx5_core")
+			},
+		},
+		{
+			name: "EnsureDriverBoundP1",
+			f: func(nr NetworkRequest) error {
+				pf := hostutil.NewPCIHelper(nr.PCIAddress).PF(1)
+				isDPU, err := pf.IsDPU()
+				if err != nil {
+					if os.IsNotExist(err) {
+						return nil
+					}
+					return fmt.Errorf("failed to check if device is DPU: %w", err)
+				} else if !isDPU {
+					return nil
+				}
+				return pf.BindDriver("mlx5_core")
+			},
+		},
+		{
 			name: "CreateP0VF",
 			f: func(nr NetworkRequest) error {
 				return hostutil.NewPCIHelper(nr.PCIAddress).PF(0).SetNumOfVFs(nr.NumOfVFs)
