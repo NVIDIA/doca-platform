@@ -179,7 +179,9 @@ The `dpuDeviceSelector` field is used to further filter DPUDevices based on thei
 The `dpuDeviceSelector` uses the standard Kubernetes LabelSelector format, which supports both `matchLabels` and
 `matchExpressions`.
 
-For example, to select only specific DPU models or configurations:
+For example, to select only specific DPU devices by PCI address. The value must match the
+`provisioning.dpu.nvidia.com/dpudevice-pciAddress` label on DPUDevice, which is set from the device's
+`status.pciAddress` in hyphen form (`0000-00-00`, e.g. `0000-2b-00`):
 
 ```yaml
 spec:
@@ -188,7 +190,7 @@ spec:
       feature.node.kubernetes.io/dpu-enabled: "true"
   dpuDeviceSelector:
     matchLabels:
-      provisioning.dpu.nvidia.com/dpudevice-pciAddress: "0000:1a:00.0"
+      provisioning.dpu.nvidia.com/dpudevice-pciAddress: "0000-2b-00"
 ```
 
 Or using match expressions for more complex selection:
@@ -211,7 +213,7 @@ spec:
 In Host Trusted model, the automatically created DPUDevice objects have the following labels:
 
 - `provisioning.dpu.nvidia.com/dpudevice-num-of-pfs`: The number of PFs on the DPU device
-- `provisioning.dpu.nvidia.com/dpudevice-pciAddress`: The PCI address of the DPU device
+- `provisioning.dpu.nvidia.com/dpudevice-pciAddress`: The PCI address of the DPU device (value from `status.pciAddress`, hyphen form `0000-00-00` e.g. `0000-2b-00`)
 - `provisioning.dpu.nvidia.com/dpudevice-pf0-name`: The name of PF0 on the DPU device
 - `provisioning.dpu.nvidia.com/dpunode-name`: The name of the DPUNode the DPU is part of
 

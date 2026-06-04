@@ -7,7 +7,7 @@ spec:
   dpuNodeSelector:
     matchLabels:
       feature.node.kubernetes.io/dpu-enabled: "true"
-  # No dpuSelector: cloud provisioning uses whatever DPUDevices exist (no PCI filter).
+  # No dpuSelector: use all DPUs per node (2 DPUs per node for multi-DPU physical).
   strategy:
     rollingUpdate:
       maxUnavailable: 10%
