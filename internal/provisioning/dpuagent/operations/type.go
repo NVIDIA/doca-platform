@@ -91,6 +91,10 @@ type Context struct {
 	// method is NoAction, so that the new kernel parameters take effect.
 	GrubConfigChanged bool
 
+	// NICFirmwareRebootRequired is set by NICProvisioning when E/W NIC firmware
+	// or configuration changes require a reboot before provisioning can continue.
+	NICFirmwareRebootRequired bool
+
 	// UpdateStatusUntilSuccess, when set, pushes Status to the API until success (e.g. agent's updateStatusUntilSuccess).
 	// Used by operations that must ensure status is persisted before continuing (e.g. before shutdown).
 	//

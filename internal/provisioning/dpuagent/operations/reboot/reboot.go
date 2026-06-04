@@ -334,19 +334,21 @@ func checkRebootMethodFirmwareReset(h *HandleReboot, devicePath string, out *mlx
 }
 
 // rebootMethodMergePriority orders RebootMethodType for MST merge (lower = wins over more devices).
-// PowerCycle > SystemLevelReset > FirmwareReset > NoAction.
+// PowerCycle > SystemLevelReset > SystemReboot > FirmwareReset > NoAction.
 func rebootMethodMergePriority(m provisioningv1.RebootMethodType) int {
 	switch m {
 	case provisioningv1.RebootMethodPowerCycle:
 		return 0
 	case provisioningv1.RebootMethodSystemLevelReset:
 		return 1
-	case provisioningv1.RebootMethodFirmwareReset:
+	case provisioningv1.RebootMethodSystemReboot:
 		return 2
+	case provisioningv1.RebootMethodFirmwareReset:
+		return 3
 	case provisioningv1.RebootMethodNoAction:
-		return 3
+		return 4
 	default:
-		return 3
+		return 4
 	}
 }
 
@@ -542,6 +544,13 @@ func (h *HandleReboot) getRebootMethodDeviceQuery(optCtx *operations.Context) (*
 			finalRebootMethod = m
 		}
 		klog.Infof("MST device %s requires reboot method %s, (current selected method: %s)", device, m, finalRebootMethod)
+	}
+
+	if optCtx.NICFirmwareRebootRequired && rebootMethodTakesPrecedenceOver(provisioningv1.RebootMethodSystemReboot, finalRebootMethod) {
+		nicFirmwareRebootMsg := "NIC provisioning requires host reboot, using SystemReboot"
+		klog.Info(nicFirmwareRebootMsg)
+		rawParts = append(rawParts, nicFirmwareRebootMsg)
+		finalRebootMethod = provisioningv1.RebootMethodSystemReboot
 	}
 
 	// If a higher-priority method wins (e.g. PowerCycle), drop those cmds—they only apply when finalRebootMethod is FirmwareReset.
