@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package ovsdb
+package plugin
 
 import (
 	"flag"
@@ -61,52 +61,6 @@ func TestHashToOFPort_Deterministic(t *testing.T) {
 		if got := hashToOFPort(name); got != first {
 			t.Fatalf("hashToOFPort(%q) returned %d on iteration %d, expected %d", name, got, i, first)
 		}
-	}
-}
-
-// ---------- ofportWaitOp tests ----------
-
-// TestOfportWaitOp_Structure verifies that ofportWaitOp produces a valid
-// OVSDB "wait" operation with the correct fields for collision detection.
-func TestOfportWaitOp_Structure(t *testing.T) {
-	op := ofportWaitOp(40000)
-
-	if op.Op != "wait" {
-		t.Errorf("Op = %q, want %q", op.Op, "wait")
-	}
-	if op.Table != "Interface" {
-		t.Errorf("Table = %q, want %q", op.Table, "Interface")
-	}
-	if op.Until != "!=" {
-		t.Errorf("Until = %q, want %q", op.Until, "!=")
-	}
-	if op.Timeout == nil || *op.Timeout != 0 {
-		t.Errorf("Timeout = %v, want pointer to 0", op.Timeout)
-	}
-	if len(op.Columns) != 1 || op.Columns[0] != "ofport_request" {
-		t.Errorf("Columns = %v, want [ofport_request]", op.Columns)
-	}
-	if len(op.Where) != 1 {
-		t.Fatalf("Where has %d conditions, want 1", len(op.Where))
-	}
-	if len(op.Rows) != 1 {
-		t.Fatalf("Rows has %d entries, want 1", len(op.Rows))
-	}
-	if v, ok := op.Rows[0]["ofport_request"]; !ok || v != uint(40000) {
-		t.Errorf("Rows[0][ofport_request] = %v, want 40000", v)
-	}
-}
-
-// TestOfportWaitOp_DifferentPorts verifies that ofportWaitOp produces
-// distinct operations for different port numbers.
-func TestOfportWaitOp_DifferentPorts(t *testing.T) {
-	op1 := ofportWaitOp(minOFPort)
-	op2 := ofportWaitOp(maxOFPort)
-
-	v1 := op1.Rows[0]["ofport_request"]
-	v2 := op2.Rows[0]["ofport_request"]
-	if v1 == v2 {
-		t.Errorf("ofportWaitOp should produce different Rows for different ports")
 	}
 }
 
@@ -198,8 +152,7 @@ func TestResolveOFPort_WrapsAround(t *testing.T) {
 
 // TestResolveOFPort_AllSlotsExhausted verifies that when every port in
 // [minOFPort, maxOFPort] is occupied, resolveOFPort returns 0 as a sentinel.
-// createInterfaceOperation treats 0 as "omit ofport_request" and lets OVS
-// auto-assign a port number.
+// Callers treat 0 as "omit ofport_request" and let OVS auto-assign.
 func TestResolveOFPort_AllSlotsExhausted(t *testing.T) {
 	used := make(map[uint]bool)
 	for p := minOFPort; p <= maxOFPort; p++ {
@@ -215,7 +168,7 @@ func TestResolveOFPort_AllSlotsExhausted(t *testing.T) {
 // TestResolveOFPort_DifferentNamesGetDifferentPorts simulates sequential port
 // allocation for multiple SF and patch interfaces on the same bridge. Each
 // resolved port is added to the used set before the next resolve, mirroring
-// real CreatePort/createPeer behavior. Verifies no two interfaces collide.
+// real createPort/addPatchPort behavior. Verifies no two interfaces collide.
 func TestResolveOFPort_DifferentNamesGetDifferentPorts(t *testing.T) {
 	used := make(map[uint]bool)
 	names := []string{
