@@ -56,6 +56,7 @@ const (
 	cx9NICDeviceType          = "1025"
 	nicFirmwareInstallTimeout = 15 * time.Minute
 	nicNVConfigApplyTimeout   = 5 * time.Minute
+	nicRuntimeApplyTimeout    = 5 * time.Minute
 	// TODO: The NIC Operator team will remove this constraint in the near future, and we will need to update the code.
 	spectrumXConfigDir = "/bindata/spectrum-x"
 
@@ -75,6 +76,7 @@ type NICProvisioning struct {
 	installNICFirmwareFn      func(execCtx context.Context, optCtx *operations.Context, localNICFWPath string) error
 	prepareSpectrumXConfigsFn func() error
 	applyNVConfigFn           func(execCtx context.Context, optCtx *operations.Context) error
+	applyRuntimeConfigFn      func(execCtx context.Context, optCtx *operations.Context) error
 	// configureRestrictedModeFn overrides the restricted mode step (tests only).
 	configureRestrictedModeFn func(execCtx context.Context, optCtx *operations.Context) error
 }
@@ -152,54 +154,102 @@ func (n *NICProvisioning) Execute(execCtx context.Context, optCtx *operations.Co
 	}
 	// 3. Install NIC firmware (skipped when BlueFieldSoftware has no PldmFwBundle)
 	if !skipNICFirmware {
-		installNICFirmware := n.installNICFirmware
-		if n.installNICFirmwareFn != nil {
-			installNICFirmware = n.installNICFirmwareFn
-		}
-		if err := installNICFirmware(execCtx, optCtx, localNICFWPath); err != nil {
-			setAgentCondition(optCtx, cutil.AgentCondEWNicFirmwareInstalled, metav1.ConditionFalse, "InstallFailed", err.Error())
-			if optCtx.UpdateStatusUntilSuccess != nil {
-				optCtx.UpdateStatusUntilSuccess(execCtx)
-			}
+		if err := n.installNICFirmwareAndUpdateStatus(execCtx, optCtx, localNICFWPath); err != nil {
 			return err
 		}
-		setAgentCondition(optCtx, cutil.AgentCondEWNicFirmwareInstalled, metav1.ConditionTrue, "InstallSucceeded", "E/W NIC firmware installation completed")
-		if optCtx.UpdateStatusUntilSuccess != nil {
-			optCtx.UpdateStatusUntilSuccess(execCtx)
-		}
 	}
-	// 4. Temporarily stage Spectrum-X configs for the NIC Operator library.
+	if optCtx.NICFirmwareRebootRequired {
+		klog.InfoS("NIC provisioning: reboot required after NIC firmware installation, skipping remaining NIC provisioning steps")
+		return nil
+	}
+
+	// 4. Set each E/W NIC to restricted (zero-trust) mode.
+	if err := n.configureRestrictedModeWithOverride(execCtx, optCtx); err != nil {
+		return err
+	}
+
+	// Temporarily stage Spectrum-X configs for the NIC Operator library.
 	// TODO: Remove this once the NIC Operator library and DMS integration no longer require DPF to maintain these files.
-	prepareSpectrumXConfigFiles := prepareSpectrumXConfigs
-	if n.prepareSpectrumXConfigsFn != nil {
-		prepareSpectrumXConfigFiles = n.prepareSpectrumXConfigsFn
-	}
-	if err := prepareSpectrumXConfigFiles(); err != nil {
+	if err := n.prepareSpectrumXConfigFiles(); err != nil {
 		return err
 	}
 
 	// 5. Apply NVConfig for E/W NIC devices.
+	if err := n.applyNVConfigAndUpdateStatus(execCtx, optCtx); err != nil {
+		return err
+	}
+	if optCtx.NICFirmwareRebootRequired {
+		klog.InfoS("NIC provisioning: reboot required after NIC NV config apply, skipping runtime configuration")
+		return nil
+	}
+
+	// 6. Apply runtime configuration for E/W NIC devices.
+	if err := n.applyRuntimeConfigAndUpdateStatus(execCtx, optCtx); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (n *NICProvisioning) installNICFirmwareAndUpdateStatus(execCtx context.Context, optCtx *operations.Context, localNICFWPath string) error {
+	installNICFirmware := n.installNICFirmware
+	if n.installNICFirmwareFn != nil {
+		installNICFirmware = n.installNICFirmwareFn
+	}
+	if err := installNICFirmware(execCtx, optCtx, localNICFWPath); err != nil {
+		setAgentCondition(optCtx, cutil.AgentCondEWNicFirmwareInstalled, metav1.ConditionFalse, "InstallFailed", err.Error())
+		updateStatusUntilSuccess(execCtx, optCtx)
+		return err
+	}
+	setAgentCondition(optCtx, cutil.AgentCondEWNicFirmwareInstalled, metav1.ConditionTrue, "InstallSucceeded", "E/W NIC firmware installation completed")
+	updateStatusUntilSuccess(execCtx, optCtx)
+	return nil
+}
+
+func (n *NICProvisioning) configureRestrictedModeWithOverride(execCtx context.Context, optCtx *operations.Context) error {
+	configureRestrictedMode := n.configureRestrictedMode
+	if n.configureRestrictedModeFn != nil {
+		configureRestrictedMode = n.configureRestrictedModeFn
+	}
+	return configureRestrictedMode(execCtx, optCtx)
+}
+
+func (n *NICProvisioning) prepareSpectrumXConfigFiles() error {
+	prepareSpectrumXConfigFiles := prepareSpectrumXConfigs
+	if n.prepareSpectrumXConfigsFn != nil {
+		prepareSpectrumXConfigFiles = n.prepareSpectrumXConfigsFn
+	}
+	return prepareSpectrumXConfigFiles()
+}
+
+func (n *NICProvisioning) applyNVConfigAndUpdateStatus(execCtx context.Context, optCtx *operations.Context) error {
 	applyNVConfig := n.applyNVConfig
 	if n.applyNVConfigFn != nil {
 		applyNVConfig = n.applyNVConfigFn
 	}
 	if err := applyNVConfig(execCtx, optCtx); err != nil {
-		if optCtx.UpdateStatusUntilSuccess != nil {
-			optCtx.UpdateStatusUntilSuccess(execCtx)
-		}
+		updateStatusUntilSuccess(execCtx, optCtx)
 		return err
 	}
-
-	// 6. Set each E/W NIC to restricted (zero-trust) mode.
-	configureRestrictedMode := n.configureRestrictedMode
-	if n.configureRestrictedModeFn != nil {
-		configureRestrictedMode = n.configureRestrictedModeFn
-	}
-	if err := configureRestrictedMode(execCtx, optCtx); err != nil {
-		return err
-	}
-
 	return nil
+}
+
+func (n *NICProvisioning) applyRuntimeConfigAndUpdateStatus(execCtx context.Context, optCtx *operations.Context) error {
+	applyRuntimeConfig := n.applyRuntimeConfig
+	if n.applyRuntimeConfigFn != nil {
+		applyRuntimeConfig = n.applyRuntimeConfigFn
+	}
+	if err := applyRuntimeConfig(execCtx, optCtx); err != nil {
+		updateStatusUntilSuccess(execCtx, optCtx)
+		return err
+	}
+	return nil
+}
+
+func updateStatusUntilSuccess(execCtx context.Context, optCtx *operations.Context) {
+	if optCtx.UpdateStatusUntilSuccess != nil {
+		optCtx.UpdateStatusUntilSuccess(execCtx)
+	}
 }
 
 func getReferencedBlueFieldSoftware(execCtx context.Context, optCtx *operations.Context) (*provisioningv1.BlueFieldSoftware, error) {
@@ -384,6 +434,7 @@ func (n *NICProvisioning) installNICFirmware(execCtx context.Context, optCtx *op
 	defer cancel()
 
 	errCh := make(chan error, len(n.discoveredNICDevices))
+	rebootRequiredCh := make(chan bool, len(n.discoveredNICDevices))
 	var wg sync.WaitGroup
 	for _, discoveredDevice := range n.discoveredNICDevices {
 		device := discoveredDevice
@@ -396,19 +447,25 @@ func (n *NICProvisioning) installNICFirmware(execCtx context.Context, optCtx *op
 			device.Spec.Configuration = &nicconfigurationv1alpha1.NicDeviceConfigurationSpec{
 				Template: buildEWNicConfigurationTemplate(optCtx.DPUFlavor.Spec.FirstEWNicConfiguration()),
 			}
-			if _, err := fwMgr.InstallFirmware(installCtx, &device, installOptions); err != nil {
+			rebootRequired, err := fwMgr.InstallFirmware(installCtx, &device, installOptions)
+			if err != nil {
 				errCh <- fmt.Errorf("failed to install firmware on NIC %q (type %q): %w",
 					device.Status.SerialNumber, device.Status.Type, err)
 				return
 			}
+			if rebootRequired {
+				rebootRequiredCh <- true
+			}
 			klog.InfoS("NIC provisioning: firmware installed successfully",
 				"serialNumber", device.Status.SerialNumber,
-				"type", device.Status.Type)
+				"type", device.Status.Type,
+				"rebootRequired", rebootRequired)
 		}()
 	}
 
 	wg.Wait()
 	close(errCh)
+	close(rebootRequiredCh)
 
 	installErrs := make([]string, 0, len(n.discoveredNICDevices))
 	for installErr := range errCh {
@@ -416,6 +473,12 @@ func (n *NICProvisioning) installNICFirmware(execCtx context.Context, optCtx *op
 	}
 	if len(installErrs) > 0 {
 		return fmt.Errorf("NIC firmware installation failed: %s", strings.Join(installErrs, "; "))
+	}
+	for rebootRequired := range rebootRequiredCh {
+		if rebootRequired {
+			optCtx.NICFirmwareRebootRequired = true
+			break
+		}
 	}
 	if err := installCtx.Err(); err != nil && err != context.Canceled {
 		return fmt.Errorf("NIC firmware installation timed out or canceled: %w", err)
@@ -446,6 +509,7 @@ func (n *NICProvisioning) applyNVConfig(execCtx context.Context, optCtx *operati
 	defer cancel()
 
 	errCh := make(chan error, len(n.discoveredNICDevices))
+	partialAppliedCh := make(chan bool, len(n.discoveredNICDevices))
 	var wg sync.WaitGroup
 	for _, discoveredDevice := range n.discoveredNICDevices {
 		device := discoveredDevice
@@ -461,11 +525,78 @@ func (n *NICProvisioning) applyNVConfig(execCtx context.Context, optCtx *operati
 					device.Status.SerialNumber, device.Status.Type, applyErr)
 				return
 			}
+			if result.Status == nictypes.ApplyStatusPartiallyApplied {
+				partialAppliedCh <- true
+			}
 			klog.InfoS("NIC provisioning: NV config applied",
 				"serialNumber", device.Status.SerialNumber,
 				"type", device.Status.Type,
 				"status", result.Status,
 				"rebootRequired", result.RebootRequired)
+		}()
+	}
+
+	wg.Wait()
+	close(errCh)
+	close(partialAppliedCh)
+
+	applyErrs := make([]string, 0, len(n.discoveredNICDevices))
+	for applyErr := range errCh {
+		applyErrs = append(applyErrs, applyErr.Error())
+	}
+	if len(applyErrs) > 0 {
+		return fmt.Errorf("NIC NV config apply failed: %s", strings.Join(applyErrs, "; "))
+	}
+	for partialApplied := range partialAppliedCh {
+		if partialApplied {
+			optCtx.NICFirmwareRebootRequired = true
+			break
+		}
+	}
+	if err := applyCtx.Err(); err != nil && err != context.Canceled {
+		return fmt.Errorf("NIC NV config apply timed out or canceled: %w", err)
+	}
+	return nil
+}
+
+func (n *NICProvisioning) applyRuntimeConfig(execCtx context.Context, optCtx *operations.Context) error {
+	if n.dmsServer == nil || !n.dmsServer.IsRunning() {
+		return fmt.Errorf("local DMS server is not running for NIC runtime config apply")
+	}
+	if len(n.discoveredNICDevices) == 0 {
+		return fmt.Errorf("no discovered NIC devices available for runtime config apply")
+	}
+
+	spectrumXConfigs, err := loadSpectrumXConfigs(spectrumXConfigDir)
+	if err != nil {
+		return fmt.Errorf("failed to load Spectrum-X configs: %w", err)
+	}
+	nvUtils := nicnvconfig.NewNVConfigUtils()
+	spectrumXMgr := nicspectrumx.NewSpectrumXConfigManager(n.dmsServer, spectrumXConfigs)
+	cfgMgr := nicconfiguration.NewConfigurationManager(nil, n.dmsServer, nvUtils, spectrumXMgr)
+	applyCtx, cancel := context.WithTimeout(execCtx, nicRuntimeApplyTimeout)
+	defer cancel()
+
+	errCh := make(chan error, len(n.discoveredNICDevices))
+	var wg sync.WaitGroup
+	for _, discoveredDevice := range n.discoveredNICDevices {
+		device := discoveredDevice
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			device.Spec.Configuration = &nicconfigurationv1alpha1.NicDeviceConfigurationSpec{
+				Template: buildEWNicConfigurationTemplate(optCtx.DPUFlavor.Spec.FirstEWNicConfiguration()),
+			}
+			result, applyErr := cfgMgr.ApplyRuntimeConfiguration(applyCtx, &device)
+			if applyErr != nil {
+				errCh <- fmt.Errorf("failed to apply runtime config on NIC %q (type %q): %w",
+					device.Status.SerialNumber, device.Status.Type, applyErr)
+				return
+			}
+			klog.InfoS("NIC provisioning: runtime config applied",
+				"serialNumber", device.Status.SerialNumber,
+				"type", device.Status.Type,
+				"status", result.Status)
 		}()
 	}
 
@@ -477,10 +608,10 @@ func (n *NICProvisioning) applyNVConfig(execCtx context.Context, optCtx *operati
 		applyErrs = append(applyErrs, applyErr.Error())
 	}
 	if len(applyErrs) > 0 {
-		return fmt.Errorf("NIC NV config apply failed: %s", strings.Join(applyErrs, "; "))
+		return fmt.Errorf("NIC runtime config apply failed: %s", strings.Join(applyErrs, "; "))
 	}
 	if err := applyCtx.Err(); err != nil && err != context.Canceled {
-		return fmt.Errorf("NIC NV config apply timed out or canceled: %w", err)
+		return fmt.Errorf("NIC runtime config apply timed out or canceled: %w", err)
 	}
 	return nil
 }

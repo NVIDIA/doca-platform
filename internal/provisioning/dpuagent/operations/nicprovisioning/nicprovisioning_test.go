@@ -124,6 +124,7 @@ func TestNICProvisioning_Execute(t *testing.T) {
 		installNICFirmwareFn:      func(_ context.Context, _ *operations.Context, _ string) error { return nil },
 		prepareSpectrumXConfigsFn: func() error { return nil },
 		applyNVConfigFn:           func(_ context.Context, _ *operations.Context) error { return nil },
+		applyRuntimeConfigFn:      func(_ context.Context, _ *operations.Context) error { return nil },
 		configureRestrictedModeFn: func(_ context.Context, _ *operations.Context) error { return nil },
 	}
 	originalDir := nicFirmwareDir
@@ -198,6 +199,67 @@ func TestNICProvisioning_Execute(t *testing.T) {
 		assert.Equal(t, "firmware-bytes", string(content))
 	})
 
+	t.Run("stop after firmware install when reboot is required", func(t *testing.T) {
+		existingFile := filepath.Join(tempDir, "astra-nic-fw-reboot.fwpkg")
+		require.NoError(t, os.WriteFile(existingFile, []byte("already here"), 0600))
+		runtimeCalled := false
+		configureCalled := false
+		opRebootAfterFirmware := &NICProvisioning{
+			prepareLocalDMSServerFn: func(_ *operations.Context) error { return nil },
+			installNICFirmwareFn: func(_ context.Context, optCtx *operations.Context, _ string) error {
+				optCtx.NICFirmwareRebootRequired = true
+				return nil
+			},
+			prepareSpectrumXConfigsFn: func() error { return nil },
+			applyNVConfigFn:           func(_ context.Context, _ *operations.Context) error { return nil },
+			applyRuntimeConfigFn: func(_ context.Context, _ *operations.Context) error {
+				runtimeCalled = true
+				return nil
+			},
+			configureRestrictedModeFn: func(_ context.Context, _ *operations.Context) error {
+				configureCalled = true
+				return nil
+			},
+		}
+
+		bfs := newBFS("downloads/astra-nic-fw-reboot.fwpkg")
+		fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(bfs).Build()
+		ctx := newOptCtx(fakeClient, "https://registry.example.com")
+
+		require.NoError(t, opRebootAfterFirmware.Execute(context.Background(), ctx))
+		assert.True(t, ctx.NICFirmwareRebootRequired)
+		assert.False(t, configureCalled)
+		assert.False(t, runtimeCalled)
+	})
+
+	t.Run("stop after NV config apply when reboot is required", func(t *testing.T) {
+		existingFile := filepath.Join(tempDir, "astra-nic-fw-nv-reboot.fwpkg")
+		require.NoError(t, os.WriteFile(existingFile, []byte("already here"), 0600))
+		runtimeCalled := false
+		opRebootAfterNVConfig := &NICProvisioning{
+			prepareLocalDMSServerFn:   func(_ *operations.Context) error { return nil },
+			installNICFirmwareFn:      func(_ context.Context, _ *operations.Context, _ string) error { return nil },
+			prepareSpectrumXConfigsFn: func() error { return nil },
+			applyNVConfigFn: func(_ context.Context, optCtx *operations.Context) error {
+				optCtx.NICFirmwareRebootRequired = true
+				return nil
+			},
+			applyRuntimeConfigFn: func(_ context.Context, _ *operations.Context) error {
+				runtimeCalled = true
+				return nil
+			},
+			configureRestrictedModeFn: func(_ context.Context, _ *operations.Context) error { return nil },
+		}
+
+		bfs := newBFS("downloads/astra-nic-fw-nv-reboot.fwpkg")
+		fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(bfs).Build()
+		ctx := newOptCtx(fakeClient, "https://registry.example.com")
+
+		require.NoError(t, opRebootAfterNVConfig.Execute(context.Background(), ctx))
+		assert.True(t, ctx.NICFirmwareRebootRequired)
+		assert.False(t, runtimeCalled)
+	})
+
 	t.Run("stop local dms server when execute returns", func(t *testing.T) {
 		existingFile := filepath.Join(tempDir, "astra-nic-fw-stop.fwpkg")
 		require.NoError(t, os.WriteFile(existingFile, []byte("already here"), 0600))
@@ -208,6 +270,7 @@ func TestNICProvisioning_Execute(t *testing.T) {
 			installNICFirmwareFn:      func(_ context.Context, _ *operations.Context, _ string) error { return nil },
 			prepareSpectrumXConfigsFn: func() error { return nil },
 			applyNVConfigFn:           func(_ context.Context, _ *operations.Context) error { return nil },
+			applyRuntimeConfigFn:      func(_ context.Context, _ *operations.Context) error { return nil },
 			configureRestrictedModeFn: func(_ context.Context, _ *operations.Context) error { return nil },
 		}
 
@@ -230,6 +293,7 @@ func TestNICProvisioning_Execute(t *testing.T) {
 			},
 			prepareSpectrumXConfigsFn: func() error { return nil },
 			applyNVConfigFn:           func(_ context.Context, _ *operations.Context) error { return nil },
+			applyRuntimeConfigFn:      func(_ context.Context, _ *operations.Context) error { return nil },
 			configureRestrictedModeFn: func(_ context.Context, _ *operations.Context) error { return nil },
 		}
 
@@ -258,6 +322,7 @@ func TestNICProvisioning_Execute(t *testing.T) {
 			installNICFirmwareFn:      func(_ context.Context, _ *operations.Context, _ string) error { return nil },
 			prepareSpectrumXConfigsFn: func() error { return nil },
 			applyNVConfigFn:           func(_ context.Context, _ *operations.Context) error { return nil },
+			applyRuntimeConfigFn:      func(_ context.Context, _ *operations.Context) error { return nil },
 			configureRestrictedModeFn: func(_ context.Context, _ *operations.Context) error { return nil },
 		}
 
