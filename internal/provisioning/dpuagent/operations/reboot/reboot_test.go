@@ -40,6 +40,30 @@ import (
 )
 
 var _ = Describe("Reboot", func() {
+	It("getRebootMethod uses boot-ID logic when NIC firmware requires reboot and discovery is disabled", func() {
+		bootID, err := os.ReadFile(bootIDFile)
+		Expect(err).NotTo(HaveOccurred())
+		currentBootIDStr := strings.TrimSpace(string(bootID))
+		optCtx := &operations.Context{
+			LatestDPU: &provisioningv1.DPU{
+				Status: provisioningv1.DPUStatus{
+					AgentStatus: &provisioningv1.AgentStatus{
+						InitialBootID: ptr.To(currentBootIDStr + "-previous"),
+					},
+				},
+			},
+			RebootMethodDiscovery:     false,
+			NICFirmwareRebootRequired: true,
+			CurrentBootID:             currentBootIDStr,
+		}
+		h := &HandleReboot{}
+
+		m, err := h.getRebootMethod(optCtx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(m).NotTo(BeNil())
+		Expect(*m).To(Equal(provisioningv1.RebootMethodNoAction))
+	})
+
 	Describe("RebootMethodDiscovery false (boot-ID based)", func() {
 		Context("HandleReboot", func() {
 			It("should reboot the host if DPU ARM has not been booted", func() {
@@ -261,6 +285,40 @@ var _ = Describe("Reboot", func() {
 	})
 
 	Describe("RebootMethodDiscovery true (Device Query based)", func() {
+		It("getRebootMethod returns SystemReboot when NIC firmware requires reboot", func() {
+			dir, err := os.MkdirTemp("", "reboot-nic-fw-dq-")
+			Expect(err).NotTo(HaveOccurred())
+			defer func() { _ = os.RemoveAll(dir) }()
+			devicePath := filepath.Join(dir, "mt4125_pciconf0")
+			Expect(writeMSTDevice(devicePath, "0000:03:00.0")).To(Succeed())
+
+			optCtx := &operations.Context{
+				RebootMethodDiscovery:     true,
+				NICFirmwareRebootRequired: true,
+				CurrentBootID:             "boot-id",
+				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: devicePath}}, nil
+				},
+			}
+			h := &HandleReboot{
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					Expect(cmd).To(Equal(fmt.Sprintf("mlxfwreset -d %s s --json", devicePath)))
+					var b bytes.Buffer
+					_, _ = b.WriteString(`{"reset_needed":false}`)
+					return b, bytes.Buffer{}, nil
+				},
+			}
+
+			m, err := h.getRebootMethod(optCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(m).NotTo(BeNil())
+			Expect(*m).To(Equal(provisioningv1.RebootMethodSystemReboot))
+			cond := meta.FindStatusCondition(optCtx.Status.Conditions, cutil.AgentCondRebootMethodDiscovery)
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Reason).To(Equal(string(provisioningv1.RebootMethodSystemReboot)))
+			Expect(cond.Message).To(Equal("NIC provisioning requires host reboot, using SystemReboot"))
+		})
+
 		It("getRebootMethod returns SystemLevelReset when reset_needed is true", func() {
 			dir, err := os.MkdirTemp("", "reboot-mst-dq-")
 			Expect(err).NotTo(HaveOccurred())
@@ -1304,10 +1362,11 @@ var _ = Describe("Reboot", func() {
 			},
 			Entry("PowerCycle", provisioningv1.RebootMethodPowerCycle, 0),
 			Entry("SystemLevelReset", provisioningv1.RebootMethodSystemLevelReset, 1),
-			Entry("FirmwareReset", provisioningv1.RebootMethodFirmwareReset, 2),
-			Entry("NoAction", provisioningv1.RebootMethodNoAction, 3),
+			Entry("SystemReboot", provisioningv1.RebootMethodSystemReboot, 2),
+			Entry("FirmwareReset", provisioningv1.RebootMethodFirmwareReset, 3),
+			Entry("NoAction", provisioningv1.RebootMethodNoAction, 4),
 			Entry("unhandled type falls through to default bucket (same priority as NoAction)",
-				provisioningv1.RebootMethodType("NotAnMSTMergeMethod"), 3),
+				provisioningv1.RebootMethodType("NotAnMSTMergeMethod"), 4),
 		)
 
 		DescribeTable("rebootMethodTakesPrecedenceOver",
@@ -1324,6 +1383,10 @@ var _ = Describe("Reboot", func() {
 				provisioningv1.RebootMethodSystemLevelReset, provisioningv1.RebootMethodFirmwareReset, true),
 			Entry("FirmwareReset does not beat SystemLevelReset",
 				provisioningv1.RebootMethodFirmwareReset, provisioningv1.RebootMethodSystemLevelReset, false),
+			Entry("SystemReboot beats FirmwareReset",
+				provisioningv1.RebootMethodSystemReboot, provisioningv1.RebootMethodFirmwareReset, true),
+			Entry("FirmwareReset does not beat SystemReboot",
+				provisioningv1.RebootMethodFirmwareReset, provisioningv1.RebootMethodSystemReboot, false),
 			Entry("same method — no replacement",
 				provisioningv1.RebootMethodFirmwareReset, provisioningv1.RebootMethodFirmwareReset, false),
 			Entry("FirmwareReset beats NoAction",
