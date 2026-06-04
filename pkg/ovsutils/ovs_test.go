@@ -1241,6 +1241,18 @@ var _ = Describe("OVSUtils", func() {
 				Entry("when multiple interfaces match", 2, true, "found multiple interfaces"),
 				Entry("when single interface matches", 1, false, ""),
 			)
+
+			It("wraps ErrIfaceNotFound when no interfaces match", func() {
+				mockOVSClient.EXPECT().
+					WhereAll(gomock.Any(), gomock.Any()).
+					Return(mockConditionalAPI)
+				mockConditionalAPI.EXPECT().
+					List(gomock.Any(), gomock.Any()).
+					Return(nil)
+
+				_, err := client.GetIfaceWithExternalIDs(ctx, map[string]string{"key": "value"})
+				Expect(errors.Is(err, ErrIfaceNotFound)).To(BeTrue())
+			})
 		})
 
 		Describe("SetIfaceExternalIDs", func() {
