@@ -103,6 +103,9 @@ const (
 	errMsgFailedToCreateBridge = "failed to create bridge %s: %v"
 )
 
+// ErrIfaceNotFound is returned by GetIfaceWithExternalIDs when no Interface matches.
+var ErrIfaceNotFound = errors.New("failed to find matching interface")
+
 // ofportWaitOp aborts the transaction if any Interface already has the given
 // ofport_request. Uses Until:"!=" with a matching Row because libovsdb drops
 // empty Rows via omitempty, which ovsdb-server would reject.
@@ -341,7 +344,7 @@ func (c *Client) GetIfaceWithExternalIDs(ctx context.Context, externalIDs map[st
 	}
 
 	if len(ifaces) == 0 {
-		return nil, fmt.Errorf("failed to find matching interface with external_ids: %v", iface.ExternalIDs)
+		return nil, fmt.Errorf("%w with external_ids: %v", ErrIfaceNotFound, iface.ExternalIDs)
 	}
 
 	if len(ifaces) > 1 {
