@@ -1,13 +1,14 @@
 bfb: "../objects/infrastructure/bfb.yaml"
 dpuClusters:
   - "../objects/infrastructure/dpucluster-kamaji.yaml"
-dpuSet: "../objects/infrastructure/dpuset.yaml"
+# Physical setup: 2 DPUs per node (no dpuSelector; uses all DPUs on selected nodes).
+dpuSet: "../objects/infrastructure/dpuset-multidpu-physical.yaml"
 dpuFlavor: "../objects/infrastructure/dpuflavor-physical.yaml"
 dpuServiceInterface: "../objects/application/dpuserviceinterface_service_type.yaml"
 dpuServiceInterfaceTemplate: "../objects/application/dpuserviceinterfacetemplate.yaml"
 dpuServiceChain: "../objects/application/dpuservicechain.yaml"
 dpuServiceChainTemplate: "../objects/application/dpuservicechaintemplate.yaml"
-dpuDeployment: "../objects/application/dpudeployment.yaml"
+dpuDeployment: "../objects/application/dpudeployment-multidpu-physical.yaml"
 dpuServiceCredentialRequest: "../objects/application/dpuservicecredentialrequest.yaml"
 dpuServiceConfiguration: "../objects/application/dpuserviceconfiguration.yaml"
 ipPoolDPUServiceIPAM: "../objects/application/dpuserviceipam_subnet.yaml"

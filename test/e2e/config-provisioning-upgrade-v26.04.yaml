@@ -3,14 +3,14 @@ bfb: "../objects/upgrade/v26.04/bfb.yaml"
 dpuClusters:
   - "../objects/upgrade/v26.04/dpucluster.yaml"
 dpuFlavor: "../objects/upgrade/v26.04/dpuflavor.yaml"
-dpuDeployment: "../objects/upgrade/v26.04/dpudeployment.yaml"
+dpuDeployment: "../objects/upgrade/v26.04/dpudeployment-physical.yaml"
 dpuServiceConfiguration: "../objects/upgrade/v26.04/dpuserviceconfiguration.yaml"
 dpuServiceTemplate: "../objects/upgrade/v26.04/dpuservicetemplate.yaml"
 numberOfDPUNodes: 2
 numberOfDPUsPerNode: 1
 
 # Unused, but still needed for the e2e tests to run.
-dpuSet: "../objects/infrastructure/dpuset.yaml"
+dpuSet: "../objects/infrastructure/dpuset-physical.yaml"
 dpuServiceInterface: "../objects/application/dpuserviceinterface_service_type.yaml"
 dpuServiceInterfaceTemplate: "../objects/application/dpuserviceinterfacetemplate.yaml"
 dpuServiceChain: "../objects/application/dpuservicechain.yaml"
