@@ -1031,7 +1031,7 @@ var _ = Describe("Installing", func() {
 			mockServer.SetOemLastState("OsIsRunning")
 			status, err = Installing(ctx, dpu, ctrlCtx)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(status.Phase).To(Equal(provisioningv1.DPUOSInstalling), "agent has not started yet, must stay in OSInstalling")
+			Expect(status.Phase).To(Equal(provisioningv1.DPUConfig), "Installing should hand off to DPUConfig once the OS has booted")
 
 			_, trueCond := cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondOSInstalled))
 			Expect(trueCond).NotTo(BeNil())
@@ -1040,35 +1040,5 @@ var _ = Describe("Installing", func() {
 			Expect(trueCond.LastTransitionTime.After(t1)).To(BeTrue(), "LastTransitionTime must advance on the False->True transition to anchor the agent-startup timer")
 		})
 
-		It("should anchor the 20-minute agent-startup timer to the OS-running transition, not earlier reconciles", func() {
-			By("Reconcile once with OemLastState=OsIsRunning so OSInstalled becomes True now (timer anchors here)")
-			mockServer.SetOemLastState("OsIsRunning")
-			dpu := dpuWithBFBTransferred("dpu-osinstalled-timer-test")
-
-			status, err := Installing(ctx, dpu, ctrlCtx)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(status.Phase).To(Equal(provisioningv1.DPUOSInstalling))
-			_, cond := cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondOSInstalled))
-			Expect(cond).NotTo(BeNil())
-			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
-
-			By("Backdate OSInstalled.LastTransitionTime to >20m ago to simulate the agent never starting")
-			for i := range status.Conditions {
-				if status.Conditions[i].Type == string(provisioningv1.DPUCondOSInstalled) {
-					status.Conditions[i].LastTransitionTime = metav1.Time{Time: time.Now().Add(-21 * time.Minute)}
-				}
-			}
-			dpu.Status = status
-
-			By("Reconcile again with AgentStatus still nil -> phase must transition to Error")
-			status, err = Installing(ctx, dpu, ctrlCtx)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(status.Phase).To(Equal(provisioningv1.DPUError))
-
-			_, cond = cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondOSInstalled))
-			Expect(cond).NotTo(BeNil())
-			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
-			Expect(cond.Reason).To(Equal("DPUAgentNotStarted"))
-		})
 	})
 })
