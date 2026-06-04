@@ -88,9 +88,14 @@ data:
               redfish_reset() {
                 reset_type="$1"
                 echo "POST $RESET_URL ResetType=$reset_type"
-                $CURL -X POST -H 'Content-Type: application/json' \
-                      -d "{\"ResetType\": \"$reset_type\"}" \
-                      "$RESET_URL" >/dev/null
+                # No curl -f (it hides the body): send the response body straight to stderr and capture the status code.
+                code=$(curl -sS -k --connect-timeout 10 --max-time 30 \
+                            -u "$BMC_USER:$BMC_PASSWORD" \
+                            -X POST -H 'Content-Type: application/json' \
+                            -d "{\"ResetType\": \"$reset_type\"}" \
+                            -o /dev/stderr -w '%{http_code}' "$RESET_URL") || code=000
+                echo "ResetType=$reset_type -> HTTP $code"
+                case "$code" in 2*) return 0 ;; *) return 1 ;; esac
               }
 
               if [ "$STYLE" = "soft" ]; then
