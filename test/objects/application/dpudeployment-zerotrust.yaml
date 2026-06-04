@@ -6,8 +6,6 @@ metadata:
 spec:
   dpus:
     bfb: "bf-bundle"
-    # Created automatically when installing DPF.
-    # Will be overridden if DPUFlavor is provided in the e2e config.
     flavor: "dpf-provisioning-hbn-ovn"
     dpuSets:
       # We intentionally don't match any node to ensure that we don't trigger the provisioning flow for the time being

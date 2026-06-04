@@ -7,14 +7,13 @@ spec:
   dpuNodeSelector:
     matchLabels:
       feature.node.kubernetes.io/dpu-enabled: "true"
+  # No dpuSelector: cloud provisioning uses whatever DPUDevices exist (no PCI filter).
   strategy:
     rollingUpdate:
       maxUnavailable: 10%
     type: RollingUpdate
   dpuTemplate:
     spec:
-      # Created automatically when installing DPF.
-      # Will be overridden if DPUFlavor is provided in the e2e config.
       dpuFlavor: dpf-provisioning-hbn-ovn
       bfb:
         name: "bf-bundle"

@@ -3,7 +3,7 @@ bfb: "../objects/upgrade/current/bfb.yaml"
 dpuClusters:
   - "../objects/upgrade/current/dpucluster.yaml"
 dpuFlavor: "../objects/upgrade/current/dpuflavor.yaml"
-dpuDeployment: "../objects/upgrade/current/dpudeployment.yaml"
+dpuDeployment: "../objects/upgrade/current/dpudeployment-physical.yaml"
 dpuServiceConfiguration: "../objects/upgrade/current/dpuserviceconfiguration.yaml"
 dpuServiceTemplate: "../objects/upgrade/current/dpuservicetemplate.yaml"
 numberOfDPUNodes: 2
