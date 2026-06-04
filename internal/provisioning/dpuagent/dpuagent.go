@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -60,13 +61,21 @@ const defaultRetryInterval = 30 * time.Second
 
 const bootIDFile = "/proc/sys/kernel/random/boot_id"
 
+const (
+	defaultRunDir      = "/run/dpu-agent"
+	doneMarkerFileName = "configuration-complete"
+)
+
 type DPUAgent struct {
 	optCtx        *operations.Context
 	operations    []operations.Operation
 	retryInterval time.Duration
+	runDir        string
 
 	// rebootMethodDiscoveryFunc, if non-nil, replaces MFT tool probing (tests only).
 	rebootMethodDiscoveryFunc func(context.Context) bool
+	// writeDoneMarkerFunc, if non-nil, replaces the default marker writer (tests only).
+	writeDoneMarkerFunc func(dir string) error
 }
 
 func NewDPUAgent(optCtx *operations.Context) *DPUAgent {
@@ -101,6 +110,7 @@ func NewDPUAgent(optCtx *operations.Context) *DPUAgent {
 	return &DPUAgent{
 		optCtx:     optCtx,
 		operations: operations,
+		runDir:     defaultRunDir,
 	}
 }
 
@@ -144,6 +154,13 @@ func (d *DPUAgent) Run(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("execution of operator %s aborted: %v", op.Name(), err)
 		}
+	}
+	writeMarker := writeDoneMarker
+	if d.writeDoneMarkerFunc != nil {
+		writeMarker = d.writeDoneMarkerFunc
+	}
+	if err := writeMarker(d.runDir); err != nil {
+		return fmt.Errorf("failed to write done marker: %w", err)
 	}
 	d.updateStatusUntilSuccess(ctx)
 	return nil
@@ -220,5 +237,17 @@ func (d *DPUAgent) initCurrentBootID() error {
 		return fmt.Errorf("initialize current boot ID: %w", err)
 	}
 	d.optCtx.CurrentBootID = strings.TrimSpace(string(currentBootID))
+	return nil
+}
+
+func writeDoneMarker(dir string) error {
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("create run directory %s: %w", dir, err)
+	}
+	markerPath := filepath.Join(dir, doneMarkerFileName)
+	if err := os.WriteFile(markerPath, []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0644); err != nil {
+		return fmt.Errorf("write done marker file: %w", err)
+	}
+	klog.Infof("Configuration complete, marker written to %s", markerPath)
 	return nil
 }

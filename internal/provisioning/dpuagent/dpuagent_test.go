@@ -83,7 +83,67 @@ func newTestOptCtx(fakeClient client.Client) *operations.Context {
 }
 
 var _ = Describe("DPUAgent", func() {
+	Describe("Done marker", func() {
+		It("should write the done marker file after all operations complete successfully", func() {
+			dpu := newTestDPU()
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+			markerCalled := false
+
+			agent := &DPUAgent{
+				retryInterval:       testRetryInterval,
+				writeDoneMarkerFunc: func(_ string) error { markerCalled = true; return nil },
+				optCtx:              newTestOptCtx(fakeClient),
+				operations: []operations.Operation{
+					&mockOperation{name: "op1", conditionType: "Op1Condition", executeFunc: func(_ context.Context, _ *operations.Context) error { return nil }},
+				},
+			}
+			Expect(agent.Run(ctx)).To(Succeed())
+			Expect(markerCalled).To(BeTrue())
+		})
+
+		It("should not write the done marker when the run is aborted", func() {
+			dpu := newTestDPU()
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+			cancelCtx, cancelFunc := context.WithCancel(ctx)
+			markerCalled := false
+
+			agent := &DPUAgent{
+				retryInterval:       testRetryInterval,
+				writeDoneMarkerFunc: func(_ string) error { markerCalled = true; return nil },
+				optCtx:              newTestOptCtx(fakeClient),
+				operations: []operations.Operation{
+					&mockOperation{name: "cancel-op", conditionType: "CancelOpCondition", executeFunc: func(_ context.Context, _ *operations.Context) error {
+						cancelFunc()
+						return fmt.Errorf("error that triggers context check")
+					}},
+				},
+			}
+			err := agent.Run(cancelCtx)
+			Expect(err).To(HaveOccurred())
+			Expect(markerCalled).To(BeFalse())
+		})
+
+		It("should return error when writing the done marker fails", func() {
+			dpu := newTestDPU()
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+
+			agent := &DPUAgent{
+				retryInterval:       testRetryInterval,
+				writeDoneMarkerFunc: func(_ string) error { return fmt.Errorf("disk full") },
+				optCtx:              newTestOptCtx(fakeClient),
+				operations: []operations.Operation{
+					&mockOperation{name: "op1", conditionType: "Op1Condition", executeFunc: func(_ context.Context, _ *operations.Context) error { return nil }},
+				},
+			}
+			err := agent.Run(ctx)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("done marker"))
+		})
+	})
+
 	Describe("Run", func() {
+		noopMarker := func(_ string) error { return nil }
+
 		It("should include package installation after static file verification", func() {
 			agent := NewDPUAgent(&operations.Context{})
 			names := make([]string, 0, len(agent.operations))
@@ -118,7 +178,7 @@ var _ = Describe("DPUAgent", func() {
 				}},
 			}
 
-			agent := &DPUAgent{retryInterval: testRetryInterval, optCtx: newTestOptCtx(fakeClient), operations: mockOps}
+			agent := &DPUAgent{retryInterval: testRetryInterval, writeDoneMarkerFunc: noopMarker, optCtx: newTestOptCtx(fakeClient), operations: mockOps}
 			Expect(agent.Run(ctx)).To(Succeed())
 			Expect(executionOrder).To(Equal([]string{"op1", "op2", "op3"}))
 		})
@@ -129,8 +189,9 @@ var _ = Describe("DPUAgent", func() {
 
 			var captured *provisioningv1.RebootMethodType
 			agent := &DPUAgent{
-				retryInterval: testRetryInterval,
-				optCtx:        newTestOptCtx(fakeClient),
+				retryInterval:       testRetryInterval,
+				writeDoneMarkerFunc: noopMarker,
+				optCtx:              newTestOptCtx(fakeClient),
 				operations: []operations.Operation{
 					&mockOperation{name: "op1", conditionType: "Op1Condition", executeFunc: func(_ context.Context, optCtx *operations.Context) error {
 						captured = optCtx.Status.RebootMethod
@@ -149,8 +210,9 @@ var _ = Describe("DPUAgent", func() {
 
 			var discovery bool
 			agent := &DPUAgent{
-				retryInterval: testRetryInterval,
-				optCtx:        newTestOptCtx(fakeClient),
+				retryInterval:       testRetryInterval,
+				writeDoneMarkerFunc: noopMarker,
+				optCtx:              newTestOptCtx(fakeClient),
 				operations: []operations.Operation{
 					&mockOperation{name: "op1", conditionType: "Op1Condition", executeFunc: func(_ context.Context, optCtx *operations.Context) error {
 						discovery = optCtx.RebootMethodDiscovery
@@ -169,6 +231,7 @@ var _ = Describe("DPUAgent", func() {
 			var discovery bool
 			agent := &DPUAgent{
 				retryInterval:             testRetryInterval,
+				writeDoneMarkerFunc:       noopMarker,
 				rebootMethodDiscoveryFunc: func(context.Context) bool { return true },
 				optCtx:                    newTestOptCtx(fakeClient),
 				operations: []operations.Operation{
@@ -191,6 +254,7 @@ var _ = Describe("DPUAgent", func() {
 			optCtx.Options.SkipRebootMethodDiscovery = true
 			agent := &DPUAgent{
 				retryInterval:             testRetryInterval,
+				writeDoneMarkerFunc:       noopMarker,
 				rebootMethodDiscoveryFunc: func(context.Context) bool { return true },
 				optCtx:                    optCtx,
 				operations: []operations.Operation{
@@ -210,8 +274,9 @@ var _ = Describe("DPUAgent", func() {
 
 			executionOrder := []string{}
 			agent := &DPUAgent{
-				retryInterval: testRetryInterval,
-				optCtx:        newTestOptCtx(fakeClient),
+				retryInterval:       testRetryInterval,
+				writeDoneMarkerFunc: noopMarker,
+				optCtx:              newTestOptCtx(fakeClient),
 				operations: []operations.Operation{
 					&mockOperation{name: "op1", conditionType: "Op1Condition", executeFunc: func(_ context.Context, _ *operations.Context) error {
 						executionOrder = append(executionOrder, "op1")
@@ -237,8 +302,9 @@ var _ = Describe("DPUAgent", func() {
 
 			attempts := 0
 			agent := &DPUAgent{
-				retryInterval: testRetryInterval,
-				optCtx:        newTestOptCtx(fakeClient),
+				retryInterval:       testRetryInterval,
+				writeDoneMarkerFunc: noopMarker,
+				optCtx:              newTestOptCtx(fakeClient),
 				operations: []operations.Operation{
 					&mockOperation{name: "flaky-op", conditionType: "FlakyOpCondition", executeFunc: func(_ context.Context, _ *operations.Context) error {
 						attempts++
@@ -259,8 +325,9 @@ var _ = Describe("DPUAgent", func() {
 			const condType = "Op1Condition"
 
 			agent := &DPUAgent{
-				retryInterval: testRetryInterval,
-				optCtx:        newTestOptCtx(fakeClient),
+				retryInterval:       testRetryInterval,
+				writeDoneMarkerFunc: noopMarker,
+				optCtx:              newTestOptCtx(fakeClient),
 				operations: []operations.Operation{
 					&mockOperation{name: "op1", conditionType: condType, executeFunc: func(_ context.Context, optCtx *operations.Context) error {
 						optCtx.CondMessage = "custom success message"
@@ -282,8 +349,9 @@ var _ = Describe("DPUAgent", func() {
 			seen := []string{}
 
 			agent := &DPUAgent{
-				retryInterval: testRetryInterval,
-				optCtx:        newTestOptCtx(fakeClient),
+				retryInterval:       testRetryInterval,
+				writeDoneMarkerFunc: noopMarker,
+				optCtx:              newTestOptCtx(fakeClient),
 				operations: []operations.Operation{
 					&mockOperation{name: "retry-op", conditionType: condType, executeFunc: func(_ context.Context, optCtx *operations.Context) error {
 						seen = append(seen, optCtx.CondMessage)
@@ -312,8 +380,9 @@ var _ = Describe("DPUAgent", func() {
 			secondSeen := "unset"
 
 			agent := &DPUAgent{
-				retryInterval: testRetryInterval,
-				optCtx:        newTestOptCtx(fakeClient),
+				retryInterval:       testRetryInterval,
+				writeDoneMarkerFunc: noopMarker,
+				optCtx:              newTestOptCtx(fakeClient),
 				operations: []operations.Operation{
 					&mockOperation{name: "op1", conditionType: firstCond, executeFunc: func(_ context.Context, optCtx *operations.Context) error {
 						optCtx.CondMessage = "first message"
@@ -338,8 +407,9 @@ var _ = Describe("DPUAgent", func() {
 			failingOpAttempts := 0
 
 			agent := &DPUAgent{
-				retryInterval: testRetryInterval,
-				optCtx:        newTestOptCtx(fakeClient),
+				retryInterval:       testRetryInterval,
+				writeDoneMarkerFunc: noopMarker,
+				optCtx:              newTestOptCtx(fakeClient),
 				operations: []operations.Operation{
 					&mockOperation{name: "failing-op", conditionType: "FailingOpCondition", executeFunc: func(_ context.Context, _ *operations.Context) error {
 						defer func() { failingOpAttempts++ }()
@@ -367,8 +437,9 @@ var _ = Describe("DPUAgent", func() {
 			secondOpExecuted := false
 
 			agent := &DPUAgent{
-				retryInterval: testRetryInterval,
-				optCtx:        newTestOptCtx(fakeClient),
+				retryInterval:       testRetryInterval,
+				writeDoneMarkerFunc: noopMarker,
+				optCtx:              newTestOptCtx(fakeClient),
 				operations: []operations.Operation{
 					&mockOperation{name: "blocking-op", conditionType: "BlockingOpCondition", executeFunc: func(_ context.Context, _ *operations.Context) error {
 						attempts++
