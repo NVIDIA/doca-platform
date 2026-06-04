@@ -7,7 +7,9 @@ spec:
   dpuNodeSelector:
     matchLabels:
       feature.node.kubernetes.io/dpu-enabled: "true"
-  # No dpuSelector: cloud provisioning uses whatever DPUDevices exist (no PCI filter).
+  # Physical: first DPU per host (label format 0000-2b-00).
+  dpuSelector:
+    provisioning.dpu.nvidia.com/dpudevice-pciAddress: "0000-2b-00"
   strategy:
     rollingUpdate:
       maxUnavailable: 10%
