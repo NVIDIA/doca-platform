@@ -41,6 +41,16 @@ var _ = Describe("Phase DPUConfig", func() {
 	}
 
 	Context("waiting for agent", func() {
+		osInstalledCondition := func(transitionTime metav1.Time) metav1.Condition {
+			return metav1.Condition{
+				Type:               provisioningv1.DPUCondOSInstalled.String(),
+				Status:             metav1.ConditionTrue,
+				Reason:             "OsInstalled",
+				Message:            "OS installed, waiting for the DPU agent to start",
+				LastTransitionTime: transitionTime,
+			}
+		}
+
 		It("should wait when AgentStatus is nil", func() {
 			dpu := dpuObj(defaultDPUName)
 			dpu.Status.Phase = provisioningv1.DPUConfig
@@ -80,6 +90,54 @@ var _ = Describe("Phase DPUConfig", func() {
 			Expect(status.AgentLastStartupTime).To(Equal(&oldTime), "should not update AgentLastStartupTime while waiting for real RebootMethod")
 			expectDPUConfigCondition(status, metav1.ConditionFalse, "WaitingForRebootMethod", "waiting for DPU agent to report reboot method")
 		})
+
+		It("should wait before the initial agent startup timeout expires", func() {
+			dpu := dpuObj(defaultDPUName)
+			dpu.Status.Phase = provisioningv1.DPUConfig
+			dpu.Status.PreviousPhase = provisioningv1.DPUOSInstalling
+			dpu.Status.Conditions = []metav1.Condition{
+				osInstalledCondition(metav1.NewTime(time.Now().Add(-19 * time.Minute))),
+			}
+
+			status, err := state.DPUConfig(ctx, dpu, &dutil.ControllerContext{})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUConfig))
+			expectDPUConfigCondition(status, metav1.ConditionFalse, "WaitingForRebootMethod", "waiting for DPU agent to report reboot method")
+		})
+
+		It("should error when the initial agent startup timeout expires", func() {
+			dpu := dpuObj(defaultDPUName)
+			dpu.Status.Phase = provisioningv1.DPUConfig
+			dpu.Status.PreviousPhase = provisioningv1.DPUOSInstalling
+			dpu.Status.Conditions = []metav1.Condition{
+				osInstalledCondition(metav1.NewTime(time.Now().Add(-21 * time.Minute))),
+			}
+
+			status, err := state.DPUConfig(ctx, dpu, &dutil.ControllerContext{})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUError))
+
+			expectDPUConfigCondition(status, metav1.ConditionFalse, "DPUAgentNotStarted", "DPU agent did not report startup within 20 minutes after OS installation completed")
+		})
+
+		It("should not timeout after controller restart when agent startup was already reported", func() {
+			dpu := dpuObj(defaultDPUName)
+			dpu.Status.Phase = provisioningv1.DPUConfig
+			dpu.Status.PreviousPhase = provisioningv1.DPUOSInstalling
+			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
+				LastStartupTime: ptr.To(metav1.Now()),
+			}
+			dpu.Status.Conditions = []metav1.Condition{
+				osInstalledCondition(metav1.NewTime(time.Now().Add(-21 * time.Minute))),
+			}
+
+			status, err := state.DPUConfig(ctx, dpu, &dutil.ControllerContext{})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUConfig))
+
+			expectDPUConfigCondition(status, metav1.ConditionFalse, "WaitingForRebootMethod", "waiting for DPU agent to report reboot method")
+		})
+
 	})
 
 	Context("stale RebootMethod guard", func() {
