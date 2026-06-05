@@ -68,7 +68,7 @@ const (
 // NetworkConfigurator is an interface for triggering host network configuration.
 // It is satisfied by networkmanager.NetworkManager.
 type NetworkConfigurator interface {
-	AddNetworkRequest(dpu *provisioningv1.DPU) error
+	AddNetworkRequest(dpu *provisioningv1.DPU, vfCount *int) error
 }
 
 type RebootHandler interface {
@@ -358,7 +358,7 @@ func (s *InstallationService) ConfigureHostVFs(req *restful.Request, resp *restf
 		return
 	}
 
-	if err := s.networkManager.AddNetworkRequest(dpu); err != nil {
+	if err := s.networkManager.AddNetworkRequest(dpu, request.VFCount); err != nil {
 		klog.Errorf("failed to add network request for DPU %s/%s: %v", request.DPUNamespace, request.DPUName, err)
 		_ = resp.WriteError(http.StatusInternalServerError, err)
 		return

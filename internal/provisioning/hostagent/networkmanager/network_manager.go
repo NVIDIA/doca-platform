@@ -51,8 +51,9 @@ type Interface interface {
 	Start() error
 	// GetDevice returns the PCI device by serial number
 	GetDevice(serialNumber string) (hostutil.Device, bool)
-	// AddNetworkRequest adds a network request for a DPU
-	AddNetworkRequest(dpu *provisioningv1.DPU) error
+	// AddNetworkRequest adds a network request for a DPU.
+	// If vfCount is non-nil it overrides the value derived from the DPUFlavor.
+	AddNetworkRequest(dpu *provisioningv1.DPU, vfCount *int) error
 }
 
 type NetworkManager struct {
@@ -292,7 +293,7 @@ func (nm *NetworkManager) processNetworkRequest(nr NetworkRequest) error {
 	return nil
 }
 
-func (nm *NetworkManager) AddNetworkRequest(dpu *provisioningv1.DPU) error {
+func (nm *NetworkManager) AddNetworkRequest(dpu *provisioningv1.DPU, vfCount *int) error {
 	nm.Lock()
 	defer nm.Unlock()
 	if !nm.initialized {
@@ -300,8 +301,26 @@ func (nm *NetworkManager) AddNetworkRequest(dpu *provisioningv1.DPU) error {
 	} else if dpu == nil {
 		return fmt.Errorf("DPU is nil")
 	}
+	if vfCount != nil && *vfCount < 0 {
+		return fmt.Errorf("vfCount must be >= 0")
+	}
 
-	if _, ok := nm.reqs[string(dpu.UID)]; ok {
+	if existing, ok := nm.reqs[string(dpu.UID)]; ok {
+		if vfCount == nil {
+			n, err := nm.getNumOfVFs(dpu)
+			if err != nil {
+				return fmt.Errorf("failed to get number of VFs: %w", err)
+			}
+			vfCount = &n
+		}
+		if *vfCount != 0 && existing.NumOfVFs != *vfCount {
+			existing.NumOfVFs = *vfCount
+			if err := writeNetworkRequestFile(&existing); err != nil {
+				return fmt.Errorf("failed to update network request file: %w", err)
+			}
+			nm.reqs[existing.UID] = existing
+			klog.Infof("Updated VF count to %d for DPU %s/%s", *vfCount, existing.DPUNamespace, existing.DpuName)
+		}
 		return nil
 	}
 
@@ -317,9 +336,15 @@ func (nm *NetworkManager) AddNetworkRequest(dpu *provisioningv1.DPU) error {
 	}
 	nr.PCIAddress = dev.Address
 
-	numOfVFs, err := nm.getNumOfVFs(dpu)
-	if err != nil {
-		return fmt.Errorf("failed to get number of VFs: %w", err)
+	var numOfVFs int
+	if vfCount != nil && *vfCount > 0 {
+		numOfVFs = *vfCount
+	} else {
+		var err error
+		numOfVFs, err = nm.getNumOfVFs(dpu)
+		if err != nil {
+			return fmt.Errorf("failed to get number of VFs: %w", err)
+		}
 	}
 	nr.NumOfVFs = numOfVFs
 
