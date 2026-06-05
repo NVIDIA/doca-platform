@@ -906,29 +906,6 @@ func (r *DPUNodeReconciler) ensureMount(mnts []corev1.VolumeMount, name, path st
 	return append(mnts, corev1.VolumeMount{Name: name, MountPath: path})
 }
 
-// getRebootMethodPriority returns the host-reboot priority of m, where
-// lower numbers are more disruptive. Chain: PowerCycle > SystemLevelReset >
-// SystemReboot > FirmwareReset > DPUWarmReboot > NoAction > Unknown.
-// Unknown / unrecognized never beats a known method.
-func getRebootMethodPriority(m provisioningv1.RebootMethodType) int {
-	switch m {
-	case provisioningv1.RebootMethodPowerCycle:
-		return 0
-	case provisioningv1.RebootMethodSystemLevelReset:
-		return 1
-	case provisioningv1.RebootMethodSystemReboot:
-		return 2
-	case provisioningv1.RebootMethodFirmwareReset:
-		return 3
-	case provisioningv1.RebootMethodDPUWarmReboot:
-		return 4
-	case provisioningv1.RebootMethodNoAction:
-		return 5
-	default:
-		return 6
-	}
-}
-
 // aggregateAndPublishRebootMethod recomputes the aggregated host-level
 // reboot method from the DPUs in phase=DPURebooting and stamps
 // Status.RebootMethod (the priority winner) when at least one DPU has
@@ -1032,7 +1009,7 @@ func aggregateDPURebootMethods(dpus []*provisioningv1.DPU) rebootMethodAggregati
 			agg.HasReporting = true
 			agg.Method = method
 			agg.Winner = d.Name
-		case getRebootMethodPriority(method) < getRebootMethodPriority(agg.Method):
+		case cutil.GetRebootMethodPriority(method) < cutil.GetRebootMethodPriority(agg.Method):
 			agg.Method = method
 			agg.Winner = d.Name
 		}

@@ -333,28 +333,9 @@ func checkRebootMethodFirmwareReset(h *HandleReboot, devicePath string, out *mlx
 	return true
 }
 
-// rebootMethodMergePriority orders RebootMethodType for MST merge (lower = wins over more devices).
-// PowerCycle > SystemLevelReset > SystemReboot > FirmwareReset > NoAction.
-func rebootMethodMergePriority(m provisioningv1.RebootMethodType) int {
-	switch m {
-	case provisioningv1.RebootMethodPowerCycle:
-		return 0
-	case provisioningv1.RebootMethodSystemLevelReset:
-		return 1
-	case provisioningv1.RebootMethodSystemReboot:
-		return 2
-	case provisioningv1.RebootMethodFirmwareReset:
-		return 3
-	case provisioningv1.RebootMethodNoAction:
-		return 4
-	default:
-		return 4
-	}
-}
-
 // rebootMethodTakesPrecedenceOver reports whether a should replace the merged method b when both come from MST discovery.
 func rebootMethodTakesPrecedenceOver(a, b provisioningv1.RebootMethodType) bool {
-	return rebootMethodMergePriority(a) < rebootMethodMergePriority(b)
+	return cutil.GetRebootMethodPriority(a) < cutil.GetRebootMethodPriority(b)
 }
 
 // rebootMethodFromMlxfwresetStatus maps one device's JSON to a reboot method.
