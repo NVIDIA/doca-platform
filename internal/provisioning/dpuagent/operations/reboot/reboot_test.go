@@ -1356,19 +1356,6 @@ var _ = Describe("Reboot", func() {
 	})
 
 	Describe("MST reboot method helpers", func() {
-		DescribeTable("rebootMethodMergePriority",
-			func(m provisioningv1.RebootMethodType, want int) {
-				Expect(rebootMethodMergePriority(m)).To(Equal(want))
-			},
-			Entry("PowerCycle", provisioningv1.RebootMethodPowerCycle, 0),
-			Entry("SystemLevelReset", provisioningv1.RebootMethodSystemLevelReset, 1),
-			Entry("SystemReboot", provisioningv1.RebootMethodSystemReboot, 2),
-			Entry("FirmwareReset", provisioningv1.RebootMethodFirmwareReset, 3),
-			Entry("NoAction", provisioningv1.RebootMethodNoAction, 4),
-			Entry("unhandled type falls through to default bucket (same priority as NoAction)",
-				provisioningv1.RebootMethodType("NotAnMSTMergeMethod"), 4),
-		)
-
 		DescribeTable("rebootMethodTakesPrecedenceOver",
 			func(a, b provisioningv1.RebootMethodType, want bool) {
 				Expect(rebootMethodTakesPrecedenceOver(a, b)).To(Equal(want))

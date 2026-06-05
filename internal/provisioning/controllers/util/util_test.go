@@ -38,6 +38,20 @@ func TestUtil(t *testing.T) {
 }
 
 var _ = Describe("Util", func() {
+	DescribeTable("GetRebootMethodPriority",
+		func(m provisioningv1.RebootMethodType, want int) {
+			Expect(GetRebootMethodPriority(m)).To(Equal(want))
+		},
+		Entry("PowerCycle", provisioningv1.RebootMethodPowerCycle, 0),
+		Entry("SystemLevelReset", provisioningv1.RebootMethodSystemLevelReset, 1),
+		Entry("SystemReboot", provisioningv1.RebootMethodSystemReboot, 2),
+		Entry("FirmwareReset", provisioningv1.RebootMethodFirmwareReset, 3),
+		Entry("DPUWarmReboot", provisioningv1.RebootMethodDPUWarmReboot, 4),
+		Entry("NoAction", provisioningv1.RebootMethodNoAction, 5),
+		Entry("Unknown", provisioningv1.RebootMethodUnknown, 6),
+		Entry("unrecognized type", provisioningv1.RebootMethodType("NotARebootMethod"), 6),
+	)
+
 	Context("GetDPUCondition", func() {
 		It("should return -1, nil when status is nil", func() {
 			idx, cond := GetDPUCondition(nil, "test-condition")
