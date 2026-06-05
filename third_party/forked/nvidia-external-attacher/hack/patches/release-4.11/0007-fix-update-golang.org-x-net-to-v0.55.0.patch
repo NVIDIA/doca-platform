@@ -1,0 +1,42 @@
+From 4813eeb79fd7ca955efbaa9c56fe5c161b778bf4 Mon Sep 17 00:00:00 2001
+From: Yury Kulazhenkov <ykulazhenkov@nvidia.com>
+Date: Fri, 5 Jun 2026 10:24:45 +0300
+Subject: [PATCH] fix: update golang.org/x/net to v0.55.0
+
+Update golang.org/x/net to address x/net dependency CVEs.
+
+Signed-off-by: Yury Kulazhenkov <ykulazhenkov@nvidia.com>
+---
+ go.mod | 2 +-
+ go.sum | 2 ++
+ 2 files changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/go.mod b/go.mod
+index bc88d210..c0f6853e 100644
+--- a/go.mod
++++ b/go.mod
+@@ -85,7 +85,7 @@ require (
+ 	go.yaml.in/yaml/v3 v3.0.4 // indirect
+ 	golang.org/x/crypto v0.52.0 // indirect
+ 	golang.org/x/exp v0.0.0-20240719175910-8a7402abbf56 // indirect
+-	golang.org/x/net v0.54.0 // indirect
++	golang.org/x/net v0.55.0 // indirect
+ 	golang.org/x/oauth2 v0.34.0 // indirect
+ 	golang.org/x/sync v0.20.0 // indirect
+ 	golang.org/x/sys v0.45.0 // indirect
+diff --git a/go.sum b/go.sum
+index f988ce4c..96cc4426 100644
+--- a/go.sum
++++ b/go.sum
+@@ -257,6 +257,8 @@ golang.org/x/net v0.47.0/go.mod h1:/jNxtkgq5yWUGYkaZGqo27cfGZ1c5Nen03aYrrKpVRU=
+ golang.org/x/net v0.52.0 h1:He/TN1l0e4mmR3QqHMT2Xab3Aj3L9qjbhRm78/6jrW0=
+ golang.org/x/net v0.52.0/go.mod h1:R1MAz7uMZxVMualyPXb+VaqGSa3LIaUqk0eEt3w36Sw=
+ golang.org/x/net v0.54.0/go.mod h1:Sj4oj8jK6XmHpBZU/zWHw3BV3abl4Kvi+Ut7cQcY+cQ=
++golang.org/x/net v0.55.0 h1:bcvxaJn3e1U6InsFWt1JUq1aSjnRxLzT2rtD2KfkDF8=
++golang.org/x/net v0.55.0/go.mod h1:L5U2KuzuOe1lY7Z+aWVIKK6qEeJXnXV9yzGA+WCHJww=
+ golang.org/x/oauth2 v0.30.0 h1:dnDm7JmhM45NNpd8FDDeLhK6FwqbOf4MLCM9zb1BOHI=
+ golang.org/x/oauth2 v0.30.0/go.mod h1:B++QgG3ZKulg6sRPGD/mqlHQs5rB3Ml9erfeDY7xKlU=
+ golang.org/x/oauth2 v0.34.0/go.mod h1:lzm5WQJQwKZ3nwavOZ3IS5Aulzxi68dUSgRHujetwEA=
+-- 
+2.43.0
+
