@@ -19,6 +19,7 @@ limitations under the License.
 package networkmanager
 
 import (
+	"fmt"
 	"os"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -27,8 +28,32 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/utils/ptr"
+	crclient "sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
+
+func newTestNetworkManager(objects ...crclient.Object) *NetworkManager {
+	scheme := runtime.NewScheme()
+	utilruntime.Must(provisioningv1.AddToScheme(scheme))
+	return NewNetworkManager(fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build())
+}
+
+func newDPUFlavor(namespace, name string, numOfVFs int) *provisioningv1.DPUFlavor {
+	return &provisioningv1.DPUFlavor{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+		Spec: provisioningv1.DPUFlavorSpec{
+			NVConfig: []provisioningv1.NVConfig{
+				{Parameters: []string{fmt.Sprintf("NUM_OF_VFS=%d", numOfVFs)}},
+			},
+		},
+	}
+}
 
 var _ = Describe("NetworkManager", func() {
 	Context("NetworkManager.NewNetworkManager", Label("NewNetworkManager"), func() {
@@ -102,7 +127,7 @@ var _ = Describe("NetworkManager", func() {
 				},
 			}
 
-			err := nm.AddNetworkRequest(dpu)
+			err := nm.AddNetworkRequest(dpu, nil)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("network manager is not initialized"))
 		})
@@ -111,13 +136,13 @@ var _ = Describe("NetworkManager", func() {
 			nm := NewNetworkManager(nil)
 			nm.initialized = true // Bypass initialization check
 
-			err := nm.AddNetworkRequest(nil)
+			err := nm.AddNetworkRequest(nil, nil)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("DPU is nil"))
 		})
 
 		It("should return nil when request already exists", func() {
-			nm := NewNetworkManager(nil)
+			nm := newTestNetworkManager(newDPUFlavor("default", "test-flavor", 4))
 			nm.initialized = true
 
 			dpu := &provisioningv1.DPU{
@@ -126,16 +151,131 @@ var _ = Describe("NetworkManager", func() {
 					Namespace: "default",
 					UID:       "test-uid-123",
 				},
+				Spec: provisioningv1.DPUSpec{
+					DPUFlavor: "test-flavor",
+				},
 			}
 
 			// Pre-add the request
 			nm.reqs["test-uid-123"] = NetworkRequest{
-				UID: "test-uid-123",
+				UID:      "test-uid-123",
+				NumOfVFs: 4,
 			}
 
 			// Should return nil since request already exists
-			err := nm.AddNetworkRequest(dpu)
+			err := nm.AddNetworkRequest(dpu, nil)
 			Expect(err).NotTo(HaveOccurred())
+		})
+
+		Context("vfCount override on existing request", func() {
+			var (
+				tempDir               string
+				origNetworkRequestDir string
+			)
+
+			BeforeEach(func() {
+				var err error
+				tempDir, err = os.MkdirTemp("", "nm-vfcount-test-*")
+				Expect(err).NotTo(HaveOccurred())
+				origNetworkRequestDir = NetworkRequestDir
+				NetworkRequestDir = tempDir
+			})
+
+			AfterEach(func() {
+				NetworkRequestDir = origNetworkRequestDir
+				_ = os.RemoveAll(tempDir)
+			})
+
+			It("should update VF count on existing request when vfCount is provided", func() {
+				nm := NewNetworkManager(nil)
+				nm.initialized = true
+
+				dpu := &provisioningv1.DPU{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-dpu",
+						Namespace: "default",
+						UID:       "test-uid-vf-update",
+					},
+				}
+				nm.reqs["test-uid-vf-update"] = NetworkRequest{
+					UID:      "test-uid-vf-update",
+					NumOfVFs: 4,
+					DpuName:  "test-dpu",
+				}
+
+				vfCount := 8
+				err := nm.AddNetworkRequest(dpu, &vfCount)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(nm.reqs["test-uid-vf-update"].NumOfVFs).To(Equal(8))
+			})
+
+			It("should update VF count from DPUFlavor when vfCount is nil", func() {
+				nm := newTestNetworkManager(newDPUFlavor("default", "test-flavor", 8))
+				nm.initialized = true
+
+				dpu := &provisioningv1.DPU{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-dpu",
+						Namespace: "default",
+						UID:       "test-uid-nil-vf",
+					},
+					Spec: provisioningv1.DPUSpec{
+						DPUFlavor: "test-flavor",
+					},
+				}
+				nm.reqs["test-uid-nil-vf"] = NetworkRequest{
+					UID:      "test-uid-nil-vf",
+					NumOfVFs: 4,
+				}
+
+				err := nm.AddNetworkRequest(dpu, nil)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(nm.reqs["test-uid-nil-vf"].NumOfVFs).To(Equal(8))
+			})
+
+			It("should not update VF count when vfCount is zero", func() {
+				nm := NewNetworkManager(nil)
+				nm.initialized = true
+
+				dpu := &provisioningv1.DPU{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-dpu",
+						Namespace: "default",
+						UID:       "test-uid-zero-vf",
+					},
+				}
+				nm.reqs["test-uid-zero-vf"] = NetworkRequest{
+					UID:      "test-uid-zero-vf",
+					NumOfVFs: 4,
+				}
+
+				vfCount := 0
+				err := nm.AddNetworkRequest(dpu, &vfCount)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(nm.reqs["test-uid-zero-vf"].NumOfVFs).To(Equal(4))
+			})
+
+			It("should not update VF count when it matches existing", func() {
+				nm := NewNetworkManager(nil)
+				nm.initialized = true
+
+				dpu := &provisioningv1.DPU{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-dpu",
+						Namespace: "default",
+						UID:       "test-uid-same-vf",
+					},
+				}
+				nm.reqs["test-uid-same-vf"] = NetworkRequest{
+					UID:      "test-uid-same-vf",
+					NumOfVFs: 4,
+				}
+
+				vfCount := 4
+				err := nm.AddNetworkRequest(dpu, &vfCount)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(nm.reqs["test-uid-same-vf"].NumOfVFs).To(Equal(4))
+			})
 		})
 
 		It("should return error when device not found by serial number", func() {
@@ -154,7 +294,7 @@ var _ = Describe("NetworkManager", func() {
 				},
 			}
 
-			err := nm.AddNetworkRequest(dpu)
+			err := nm.AddNetworkRequest(dpu, nil)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("PCI address of device"))
 			Expect(err.Error()).To(ContainSubstring("not found"))
