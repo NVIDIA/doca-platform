@@ -429,20 +429,17 @@ var _ = Describe("Provisioning API Validation", func() {
 			Expect(*refetched.Status.PSID).To(Equal("MT25066004C7"))
 		})
 
-		It("rejects Status.PSID values that do not match the CRD pattern", func() {
+		It("accepts Status.PSID values without a CRD pattern (vendor-agnostic)", func() {
 			device := getMinimalDPUDevice(testNs.Name)
 			Expect(testClient.Create(ctx, device)).To(Succeed())
 
 			device.Status.PSID = ptr.To("N/A")
-			err := testClient.Status().Update(ctx, device)
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(And(
-				ContainSubstring("psid"),
-				Or(
-					ContainSubstring(`^MT_?[A-Z0-9]+$`),
-					ContainSubstring("should match"),
-				),
-			))
+			Expect(testClient.Status().Update(ctx, device)).To(Succeed())
+
+			refetched := &provisioningv1.DPUDevice{}
+			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(device), refetched)).To(Succeed())
+			Expect(refetched.Status.PSID).NotTo(BeNil())
+			Expect(*refetched.Status.PSID).To(Equal("N/A"))
 		})
 	})
 
