@@ -155,6 +155,29 @@ const (
 	ReasonRebootScriptFailed           = "RebootScriptFailed"
 )
 
+// GetRebootMethodPriority returns the host-reboot priority of m, where
+// lower numbers are more disruptive. Chain: PowerCycle > SystemLevelReset >
+// SystemReboot > FirmwareReset > DPUWarmReboot > NoAction > Unknown.
+// Unknown / unrecognized never beats a known method.
+func GetRebootMethodPriority(m provisioningv1.RebootMethodType) int {
+	switch m {
+	case provisioningv1.RebootMethodPowerCycle:
+		return 0
+	case provisioningv1.RebootMethodSystemLevelReset:
+		return 1
+	case provisioningv1.RebootMethodSystemReboot:
+		return 2
+	case provisioningv1.RebootMethodFirmwareReset:
+		return 3
+	case provisioningv1.RebootMethodDPUWarmReboot:
+		return 4
+	case provisioningv1.RebootMethodNoAction:
+		return 5
+	default:
+		return 6
+	}
+}
+
 var (
 	// Location of BFB binary files
 	BFBBaseDir        = "bfb"
