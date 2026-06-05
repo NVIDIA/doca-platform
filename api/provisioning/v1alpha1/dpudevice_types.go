@@ -92,7 +92,6 @@ type DPUDeviceSpec struct {
 	// Example: "MT_0001234567", "MT25066004C7"
 	//
 	// Deprecated: This field is deprecated and will be removed in a future version. Use status.psid instead.
-	// +kubebuilder:validation:Pattern=`^MT_?[A-Z0-9]+$`
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="PSID is immutable"
 	// +optional
 	PSID *string `json:"psid,omitempty"`
@@ -112,7 +111,6 @@ type DPUDeviceSpec struct {
 	// Example: "900-9D3B4-00SV-EA0"
 	//
 	// Deprecated: This field is deprecated and will be removed in a future version. Use status.opn instead.
-	// +kubebuilder:validation:Pattern=`^\d{3}-[A-Z0-9]{5}-[A-Z0-9]{4}-[A-Z0-9]{3}$`
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="OPN is immutable"
 	// +optional
 	OPN *string `json:"opn,omitempty"`
@@ -186,7 +184,6 @@ type DPUDeviceStatus struct {
 	// It's used to track the device's lifecycle and for inventory management.
 	// This value is discovered and should not be changed once set.
 	// Example: "MT_0001234567", "MT25066004C7"
-	// +kubebuilder:validation:Pattern=`^MT_?[A-Z0-9]+$`
 	// +optional
 	PSID *string `json:"psid,omitempty"`
 
