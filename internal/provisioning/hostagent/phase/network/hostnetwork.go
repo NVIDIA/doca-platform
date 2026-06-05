@@ -31,10 +31,10 @@ const (
 )
 
 type Handler struct {
-	AddNetworkRequest func(dpu *provisioningv1.DPU) error
+	AddNetworkRequest func(dpu *provisioningv1.DPU, vfCount *int) error
 }
 
-func NewHandler(addNetworkRequest func(dpu *provisioningv1.DPU) error) *Handler {
+func NewHandler(addNetworkRequest func(dpu *provisioningv1.DPU, vfCount *int) error) *Handler {
 	return &Handler{
 		AddNetworkRequest: addNetworkRequest,
 	}
@@ -42,7 +42,7 @@ func NewHandler(addNetworkRequest func(dpu *provisioningv1.DPU) error) *Handler 
 
 func (h *Handler) Handle(ctx context.Context, dpu *provisioningv1.DPU) (provisioningv1.DPUStatus, ctrl.Result, error) {
 	log := log.FromContext(ctx)
-	if err := h.AddNetworkRequest(dpu); err != nil {
+	if err := h.AddNetworkRequest(dpu, nil); err != nil {
 		log.Error(err, "Failed to add network request")
 		hostutil.NewCondition(condition).Failure(err, "FailedToSetupHostNetwork").Set(&dpu.Status.Conditions)
 		return dpu.Status, ctrl.Result{}, err
