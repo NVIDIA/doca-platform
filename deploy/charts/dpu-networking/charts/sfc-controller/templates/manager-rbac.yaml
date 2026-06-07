@@ -13,7 +13,6 @@ rules:
   - create
   - patch
   - update
-rules:
 - apiGroups:
   - ""
   resources:
@@ -90,6 +89,30 @@ rules:
   - serviceinterfaces/status
   verbs:
   - patch
+- apiGroups:
+  - svc.dpu.nvidia.com
+  resources:
+  - nodeserviceinterfaces
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - svc.dpu.nvidia.com
+  resources:
+  - nodeserviceinterfaces/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - svc.dpu.nvidia.com
+  resources:
+  - nodeserviceinterfaces/finalizers
+  verbs:
+  - update
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
