@@ -72,6 +72,9 @@ func connectToOvsDb(ctx context.Context, ovsSocket string) (ovsutils.API, error)
 	if err := ovsDB.Connect(ctx); err != nil {
 		return nil, fmt.Errorf("failed to connect to ovsdb socket %s: %v", ovsSocket, err)
 	}
+	if _, err := ovsDB.MonitorAll(ctx); err != nil {
+		return nil, fmt.Errorf("failed to monitor ovsdb: %v", err)
+	}
 
 	return &ovsutils.Client{Client: ovsDB}, nil
 }
