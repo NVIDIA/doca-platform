@@ -34,9 +34,10 @@ Utilize  [Netplan](https://netplan.readthedocs.io/en/stable/) to configure the n
 The following YAML illustrates the requirements for the Netplan configuration. It ensures the following:
 
 1. No IP, gateway or DNS nameservers is configured on the `oob` interface.
-2. The `oob` interface is connected to the bridge `br-dpu`.
-3. The bridge is always named `br-dpu`. The name of the OOB interface does not matter.
-4. All network connectivity requirements, such as IP, gateway, and nameservers, are configured on br-dpu.
+2. The `oob` interface is connected to the bridge used for out-of-band management (default: `br-dpu`).
+3. The bridge name defaults to `br-dpu` and can be customized in host-trusted deployments via
+   `DPFOperatorConfig.spec.networking.dpuNodeOOBBridgeName`. The name of the OOB interface does not matter.
+4. All network connectivity requirements, such as IP, gateway, and nameservers, are configured on the OOB bridge.
 
 ```yaml
 network:

@@ -109,6 +109,15 @@ func GetDPFOperatorConfig(ctx context.Context, c client.Client) (*operatorv1.DPF
 	return &dpfOperatorConfigList.Items[0], nil
 }
 
+// GetOOBBridgeName returns the out-of-band bridge name from the cluster DPFOperatorConfig.
+func GetOOBBridgeName(ctx context.Context, c client.Client) (string, error) {
+	config, err := GetDPFOperatorConfig(ctx, c)
+	if err != nil {
+		return "", err
+	}
+	return config.Spec.Networking.GetDPUNodeOOBBridgeName(), nil
+}
+
 // GetMatchingDPUClusters returns a list of DPUCluster Configs from the given list that match the given selector.
 // In case no selector is provided, it returns the entire list.
 func GetMatchingDPUClusters(dpuClusters []*dpucluster.Config, clusterSelector *metav1.LabelSelector) ([]*dpucluster.Config, error) {

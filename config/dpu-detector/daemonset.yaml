@@ -47,6 +47,9 @@ spec:
             - name: host-sys
               mountPath: "/host-sys"
               readOnly: true
+            - name: kube-api-access
+              mountPath: "/var/run/secrets/kubernetes.io/serviceaccount"
+              readOnly: true
       terminationGracePeriodSeconds: 10
       volumes:
         - name: features-d
@@ -55,3 +58,22 @@ spec:
         - name: host-sys
           hostPath:
             path: "/sys"
+        - name: kube-api-access
+          projected:
+            defaultMode: 420
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  expirationSeconds: 3600
+              - configMap:
+                  name: kube-root-ca.crt
+                  items:
+                    - key: ca.crt
+                      path: ca.crt
+              - downwardAPI:
+                  items:
+                    - path: namespace
+                      fieldRef:
+                        apiVersion: v1
+                        fieldPath: metadata.namespace
+                        

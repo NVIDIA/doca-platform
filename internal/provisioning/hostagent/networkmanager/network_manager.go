@@ -33,6 +33,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/hostagent/util/netconfig"
+	"github.com/nvidia/doca-platform/internal/utils"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -187,6 +188,14 @@ func (nm *NetworkManager) processNetworkRequest(nr NetworkRequest) error {
 	}
 	cpy := dpu.DeepCopy()
 
+	if err := nm.refreshOOBBridgeName(); err != nil {
+		hostutil.NewCondition(condition).Failure(err, "FailedToRefreshOOBBridgeName").Set(&cpy.Status.Conditions)
+		if updateErr := nm.Status().Update(context.TODO(), cpy); updateErr != nil {
+			return fmt.Errorf("failed to update DPU status: %w, OOB bridge refresh err: %w", updateErr, err)
+		}
+		return fmt.Errorf("failed to refresh OOB bridge name: %w", err)
+	}
+
 	// Refresh ControlPlaneMTU from DPFOperatorConfig on every tick.
 	mtu, err := nm.getControlPlaneMTU()
 	if err != nil {
@@ -264,7 +273,7 @@ func (nm *NetworkManager) processNetworkRequest(nr NetworkRequest) error {
 				if err := writeNetworkRequestFile(&nr); err != nil {
 					return fmt.Errorf("failed to update vf name in network request file: %w", err)
 				}
-				return hostutil.AddVFToBridge(nr.VFName, hostutil.BridgeName)
+				return hostutil.AddVFToBridge(nr.VFName, hostutil.OOBBridge.GetBridgeName())
 			},
 		},
 		{
@@ -354,6 +363,10 @@ func (nm *NetworkManager) AddNetworkRequest(dpu *provisioningv1.DPU, vfCount *in
 	}
 	nr.ControlPlaneMTU = controlPlaneMTU
 
+	if err := nm.refreshOOBBridgeName(); err != nil {
+		return fmt.Errorf("failed to refresh OOB bridge name: %w", err)
+	}
+
 	// Get PF network configuration for all ports
 	portConfigs, err := nm.getPFNetworkConfig(dpu, dev.Address)
 	if err != nil {
@@ -400,6 +413,15 @@ func (nm *NetworkManager) getControlPlaneMTU() (int, error) {
 		return *dpfOperatorConfigList.Items[0].Spec.Networking.ControlPlaneMTU, nil
 	}
 	return 1500, nil
+}
+
+func (nm *NetworkManager) refreshOOBBridgeName() error {
+	bridgeName, err := utils.GetOOBBridgeName(context.Background(), nm.Client)
+	if err != nil {
+		return err
+	}
+	hostutil.OOBBridge.SetBridgeName(bridgeName)
+	return nil
 }
 
 func (nm *NetworkManager) getPFNetworkConfig(dpu *provisioningv1.DPU, pciAddress string) ([]hostutil.PortConfig, error) {

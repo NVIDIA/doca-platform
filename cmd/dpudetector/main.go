@@ -20,6 +20,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -27,10 +28,16 @@ import (
 	"strings"
 	"time"
 
+	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	"github.com/nvidia/doca-platform/cmd/dpudetector/dpu"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	"github.com/nvidia/doca-platform/internal/utils"
 
+	"k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
@@ -47,6 +54,13 @@ func main() {
 	}
 	flag.Parse()
 	defer klog.Flush()
+
+	oobBridgeName := operatorv1.DefaultDPUNodeOOBBridgeName
+	k8sClient, err := newK8sClient()
+	if err != nil {
+		klog.Warningf("failed to initialize Kubernetes client: %v; using default OOB bridge name %q", err, oobBridgeName)
+	}
+
 	// 0xa2dc: MT43244 BlueField-3 integrated ConnectX-7 network controller
 	// 0xa2d6: MT42822 BlueField-2 integrated ConnectX-6 Dx network controller
 	deviceList := []string{"0xa2dc", "0xa2d6"}
@@ -54,13 +68,43 @@ func main() {
 	ticker := time.NewTicker(Interval * time.Second)
 	defer ticker.Stop()
 	for range ticker.C {
-		if err := discoveryDPU(deviceList); err != nil {
+		oobBridgeName = resolveOOBBridgeName(context.Background(), k8sClient, oobBridgeName)
+		if err := discoveryDPU(deviceList, oobBridgeName); err != nil {
 			klog.Errorf("DPU discovery failed, error: %v", err)
 		}
 	}
 }
 
-func discoveryDPU(deviceList []string) error {
+func newK8sClient() (client.Client, error) {
+	cfg, err := rest.InClusterConfig()
+	if err != nil {
+		return nil, fmt.Errorf("get in-cluster config: %w", err)
+	}
+
+	scheme := runtime.NewScheme()
+	utilruntime.Must(operatorv1.AddToScheme(scheme))
+
+	k8sClient, err := client.New(cfg, client.Options{Scheme: scheme})
+	if err != nil {
+		return nil, fmt.Errorf("create Kubernetes client: %w", err)
+	}
+	return k8sClient, nil
+}
+
+func resolveOOBBridgeName(ctx context.Context, k8sClient client.Client, oobBridgeName string) string {
+	if k8sClient == nil {
+		return operatorv1.DefaultDPUNodeOOBBridgeName
+	}
+
+	bridgeName, err := utils.GetOOBBridgeName(ctx, k8sClient)
+	if err != nil {
+		klog.Warningf("failed to get OOB bridge name from DPFOperatorConfig: %v; using %q", err, oobBridgeName)
+		return oobBridgeName
+	}
+	return bridgeName
+}
+
+func discoveryDPU(deviceList []string, oobBridgeName string) error {
 	discoveryStart := time.Now()
 	dpuMap := make(map[string]dpu.DPU)
 	dpuIndex := 0
@@ -116,7 +160,7 @@ func discoveryDPU(deviceList []string) error {
 	for _, d := range dpuMap {
 		klog.Infof("discovered DPU: %v", d)
 	}
-	return writeNFDFeatureFile(dpuMap)
+	return writeNFDFeatureFile(dpuMap, oobBridgeName)
 }
 
 /* The pciAddress parameter likes "0000:04:00.x"
@@ -156,7 +200,7 @@ func getPF0Name(pciAddress string) (string, error) {
 	return "", fmt.Errorf("not found PF0 name")
 }
 
-func writeNFDFeatureFile(dpuMap map[string]dpu.DPU) error {
+func writeNFDFeatureFile(dpuMap map[string]dpu.DPU, oobBridgeName string) error {
 	discoveryFile, err := os.OpenFile(NFDFeaturesFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0755)
 	if err != nil {
 		return err
@@ -196,7 +240,7 @@ func writeNFDFeatureFile(dpuMap map[string]dpu.DPU) error {
 	}
 
 	// Add label if the DPU OOB bridge is configured properly.
-	if isOOBBridgeConfigured() {
+	if isOOBBridgeConfigured(oobBridgeName) {
 		nfdString := fmt.Sprintf("%s=\r\n", cutil.DPUOOBBridgeConfiguredLabel)
 		if _, err := write.WriteString(nfdString); err != nil {
 			return err
