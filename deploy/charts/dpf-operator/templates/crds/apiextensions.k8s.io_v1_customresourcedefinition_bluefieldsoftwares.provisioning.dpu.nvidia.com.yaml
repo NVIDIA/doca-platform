@@ -48,12 +48,16 @@ spec:
           metadata:
             type: object
           spec:
+            description: BlueFieldSpec defines the desired state of BlueFieldSoftware.
             properties:
               osIso:
                 type: string
               pldmFwBundle:
                 type: string
             type: object
+            x-kubernetes-validations:
+            - message: BlueFieldSpec is immutable
+              rule: self == oldSelf
           status:
             default:
               phase: Initializing
@@ -160,14 +164,12 @@ spec:
                   sbiosVersion:
                     type: string
                 type: object
-                x-kubernetes-validations:
-                - message: fwBundleVersion is immutable
-                  rule: self.fwBundleVersion == oldSelf.fwBundleVersion
-                - message: osISOVersion is immutable
-                  rule: self.osISOVersion == oldSelf.osISOVersion
             required:
             - phase
             type: object
+            x-kubernetes-validations:
+            - message: versions cannot be removed once set
+              rule: '!has(oldSelf.versions) || has(self.versions)'
         type: object
         x-kubernetes-validations:
         - message: name length can't be bigger than 187 chars

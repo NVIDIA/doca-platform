@@ -78,6 +78,8 @@ var (
 	}
 )
 
+// BlueFieldSpec defines the desired state of BlueFieldSoftware.
+// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="BlueFieldSpec is immutable"
 type BlueFieldSpec struct {
 	// +optional
 	PldmFwBundle string `json:"pldmFwBundle,omitempty"`
@@ -87,6 +89,7 @@ type BlueFieldSpec struct {
 }
 
 // BlueFieldSoftwareStatus defines the observed state of BlueFieldSoftware
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.versions) || has(self.versions)",message="versions cannot be removed once set"
 type BlueFieldSoftwareStatus struct {
 	// The current state of BlueFieldSoftware.
 	// +kubebuilder:default=Initializing
@@ -106,8 +109,6 @@ type BlueFieldSoftwareStatus struct {
 }
 
 // BluefieldSoftwareVersions defines the versions of various software components for a Bluefield device.
-// +kubebuilder:validation:XValidation:rule="self.fwBundleVersion == oldSelf.fwBundleVersion",message="fwBundleVersion is immutable"
-// +kubebuilder:validation:XValidation:rule="self.osISOVersion == oldSelf.osISOVersion",message="osISOVersion is immutable"
 type BluefieldSoftwareVersions struct {
 	FwBundleVersion string `json:"fwBundleVersion,omitempty"`
 
