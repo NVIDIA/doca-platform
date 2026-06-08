@@ -24,7 +24,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 
+	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/netplan"
 
 	"github.com/vishvananda/netlink"
@@ -45,9 +47,35 @@ type PortConfig struct {
 
 const (
 	NetplanConfigFilePrefix = "/etc/netplan/99-dpu"
-	BridgeName              = "br-dpu"
-	BridgeMTUNetplanFile    = "/etc/netplan/99-br-dpu-interfaces-mtu.yaml"
+	BridgeMTUNetplanFile    = "/etc/netplan/99-dpf-oob-bridge-mtu.yaml"
+	// LegacyBridgeMTUNetplanFile is the old bridge MTU netplan file path used prior to bridge-name configurability.
+	LegacyBridgeMTUNetplanFile = "/etc/netplan/99-br-dpu-interfaces-mtu.yaml"
 )
+
+type oobBridgeConfig struct {
+	mu   sync.RWMutex
+	name string
+}
+
+// GetBridgeName returns the configured OOB bridge name.
+func (b *oobBridgeConfig) GetBridgeName() string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.name
+}
+
+// SetBridgeName sets the configured OOB bridge name.
+func (b *oobBridgeConfig) SetBridgeName(name string) {
+	if name == "" {
+		name = operatorv1.DefaultDPUNodeOOBBridgeName
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.name = name
+}
+
+// OOBBridge holds the process-wide OOB bridge name synced from DPFOperatorConfig.
+var OOBBridge = &oobBridgeConfig{name: operatorv1.DefaultDPUNodeOOBBridgeName}
 
 // generateNetplanFilePath creates a unique netplan file path for a DPU device using its serial number
 func generateNetplanFilePath(pciHelper *PCIHelper) (string, error) {
@@ -422,23 +450,23 @@ func ApplyNetplan() error {
 
 // checkIfBridgeMTUChangeNeeded determines if the bridge and its member interfaces need MTU changes
 // Returns (needsChange, error) where needsChange indicates if configuration changes are needed
-func checkIfBridgeMTUChangeNeeded(controlPlaneMTU int) (bool, error) {
+func checkIfBridgeMTUChangeNeeded(bridgeName string, controlPlaneMTU int) (bool, error) {
 	// Check current bridge MTU
-	currentBridgeMTU, err := GetCurrentMTU(BridgeName)
+	currentBridgeMTU, err := GetCurrentMTU(bridgeName)
 	if err != nil {
 		return false, fmt.Errorf("failed to get current bridge MTU: %w", err)
 	}
 
 	// If bridge MTU differs, we need to apply changes
 	if currentBridgeMTU != controlPlaneMTU {
-		klog.Infof("Bridge %s MTU mismatch (current=%d, desired=%d)", BridgeName, currentBridgeMTU, controlPlaneMTU)
+		klog.Infof("Bridge %s MTU mismatch (current=%d, desired=%d)", bridgeName, currentBridgeMTU, controlPlaneMTU)
 		return true, nil
 	}
 
 	// Check all member interface MTUs
-	memberNames, err := GetBridgeMembers(BridgeName)
+	memberNames, err := GetBridgeMembers(bridgeName)
 	if err != nil {
-		return false, fmt.Errorf("failed to get bridge members for %s: %w", BridgeName, err)
+		return false, fmt.Errorf("failed to get bridge members for %s: %w", bridgeName, err)
 	}
 
 	// Check if any member interface has different MTU
@@ -460,33 +488,44 @@ func checkIfBridgeMTUChangeNeeded(controlPlaneMTU int) (bool, error) {
 // ConfigureBridgeMTU configures the bridge and its member interfaces MTU using netplan.
 // Returns (needsApply, error) where needsApply indicates if changes are needed.
 func ConfigureBridgeMTU(controlPlaneMTU int) (bool, error) {
+	return ConfigureBridgeMTUForBridge(OOBBridge.GetBridgeName(), controlPlaneMTU)
+}
+
+// ConfigureBridgeMTUForBridge configures bridge and member MTU for a specific bridge via netplan.
+// Returns (needsApply, error) where needsApply indicates if changes are needed.
+func ConfigureBridgeMTUForBridge(bridgeName string, controlPlaneMTU int) (bool, error) {
 	// Check if changes are needed first
-	needsApply, err := checkIfBridgeMTUChangeNeeded(controlPlaneMTU)
+	needsApply, err := checkIfBridgeMTUChangeNeeded(bridgeName, controlPlaneMTU)
 	if err != nil {
 		return false, fmt.Errorf("failed to check bridge MTU state: %w", err)
 	}
 
 	// Always write the netplan config file for consistency (idempotent operation)
-	if err := writeBridgeMTUConfig(controlPlaneMTU); err != nil {
+	if err := writeBridgeMTUConfig(bridgeName, controlPlaneMTU); err != nil {
 		return false, fmt.Errorf("failed to write bridge MTU config: %w", err)
+	}
+
+	// Best-effort cleanup of the deprecated file after replacement write succeeds.
+	if err := cleanupLegacyBridgeMTUNetplanFile(); err != nil {
+		klog.Warningf("failed to clean legacy bridge MTU netplan file %q: %v", LegacyBridgeMTUNetplanFile, err)
 	}
 
 	return needsApply, nil
 }
 
 // writeBridgeMTUConfig writes the bridge and its member interfaces MTU configuration to netplan
-func writeBridgeMTUConfig(controlPlaneMTU int) error {
+func writeBridgeMTUConfig(bridgeName string, controlPlaneMTU int) error {
 	// Get bridge member interfaces
-	memberNames, err := GetBridgeMembers(BridgeName)
+	memberNames, err := GetBridgeMembers(bridgeName)
 	if err != nil {
-		return fmt.Errorf("failed to get bridge members for %s: %w", BridgeName, err)
+		return fmt.Errorf("failed to get bridge members for %s: %w", bridgeName, err)
 	}
 
 	mtu := int32(controlPlaneMTU)
 	config := netplan.Config{
 		Network: netplan.Network{
 			Version:   2,
-			Bridges:   map[string]netplan.Bridge{BridgeName: {Ethernet: netplan.Ethernet{MTU: &mtu}}},
+			Bridges:   map[string]netplan.Bridge{bridgeName: {Ethernet: netplan.Ethernet{MTU: &mtu}}},
 			Ethernets: make(map[string]netplan.Ethernet, len(memberNames)),
 		},
 	}
@@ -497,6 +536,17 @@ func writeBridgeMTUConfig(controlPlaneMTU int) error {
 	}
 
 	return writeNetplanFile(BridgeMTUNetplanFile, &config)
+}
+
+// cleanupLegacyBridgeMTUNetplanFile removes the deprecated bridge MTU netplan file from previous releases.
+func cleanupLegacyBridgeMTUNetplanFile() error {
+	if LegacyBridgeMTUNetplanFile == BridgeMTUNetplanFile {
+		return nil
+	}
+	if err := os.Remove(LegacyBridgeMTUNetplanFile); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 // IsVF returns true if the given network interface is a PCI Virtual Function.

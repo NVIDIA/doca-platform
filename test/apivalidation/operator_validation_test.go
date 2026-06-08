@@ -256,6 +256,48 @@ var _ = Describe("Operator API Validation", func() {
 				}, false, ""),
 			)
 		})
+
+		Context("Validate OOB bridge name", func() {
+			DescribeTable("DPFOperatorConfig dpuNodeOOBBridgeName validation",
+				func(deploymentMode operatorv1.DeploymentMode, bridgeName *string, expectError bool, errorMessage string) {
+					config := getMinimalDPFOperatorConfig(testNs.Name)
+					config.Spec.DeploymentMode = deploymentMode
+					config.Spec.Networking = &operatorv1.Networking{
+						ControlPlaneMTU:      ptr.To(1500),
+						DPUNodeOOBBridgeName: bridgeName,
+					}
+					if deploymentMode == operatorv1.DeploymentModeZeroTrust {
+						config.Spec.ProvisioningController.InstallInterface = &operatorv1.ProvisioningInstallInterface{
+							InstallViaRedfish: &operatorv1.InstallViaRedfish{},
+						}
+					}
+					validateConfigCreation(config, expectError, errorMessage, &cleanupObjs)
+				},
+				Entry("valid - host-trusted with default bridge name omitted", operatorv1.DeploymentModeHostTrusted, nil, false, ""),
+				Entry("valid - host-trusted with br-ex", operatorv1.DeploymentModeHostTrusted, ptr.To("br-ex"), false, ""),
+				Entry("valid - host-trusted with mgmt-br", operatorv1.DeploymentModeHostTrusted, ptr.To("mgmt-br"), false, ""),
+				Entry("valid - zero-trust with default br-dpu", operatorv1.DeploymentModeZeroTrust, ptr.To("br-dpu"), false, ""),
+				Entry("valid - zero-trust with bridge name omitted", operatorv1.DeploymentModeZeroTrust, nil, false, ""),
+				Entry("invalid - zero-trust with custom bridge name", operatorv1.DeploymentModeZeroTrust, ptr.To("br-ex"), true, "dpuNodeOOBBridgeName is only configurable in host-trusted mode"),
+				Entry("invalid - uppercase bridge name", operatorv1.DeploymentModeHostTrusted, ptr.To("BR-DPU"), true, "Invalid value"),
+				Entry("invalid - bridge name starts with digit", operatorv1.DeploymentModeHostTrusted, ptr.To("1br"), true, "Invalid value"),
+				Entry("invalid - bridge name too long", operatorv1.DeploymentModeHostTrusted, ptr.To("abcdefghijklmnop"), true, "Invalid value"),
+			)
+
+			It("accepts update from br-dpu to br-ex in host-trusted mode", func() {
+				config := getMinimalDPFOperatorConfig(testNs.Name)
+				config.Spec.Networking = &operatorv1.Networking{
+					ControlPlaneMTU:      ptr.To(1500),
+					DPUNodeOOBBridgeName: ptr.To("br-dpu"),
+				}
+				Expect(testClient.Create(ctx, config)).To(Succeed())
+				cleanupObjs = append(cleanupObjs, config)
+
+				updated := config.DeepCopy()
+				updated.Spec.Networking.DPUNodeOOBBridgeName = ptr.To("br-ex")
+				Expect(testClient.Update(ctx, updated)).To(Succeed())
+			})
+		})
 	})
 })
 
