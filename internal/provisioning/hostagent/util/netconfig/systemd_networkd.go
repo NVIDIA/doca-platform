@@ -18,8 +18,6 @@ package netconfig
 
 import (
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
-
-	"k8s.io/klog/v2"
 )
 
 // SystemdNetworkdBackend implements Backend using systemd-networkd and netplan.
@@ -42,14 +40,9 @@ func (s *SystemdNetworkdBackend) ConfigurePFInterfaces(pciAddress string, portCo
 	return hostutil.ConfigurePFs(pciAddress, portConfigs)
 }
 
-// ConfigureBridgeMTU configures the bridge MTU via netplan. The bridgeName
-// parameter is ignored; netplan always targets the canonical br-dpu bridge.
+// ConfigureBridgeMTU configures the bridge MTU via netplan.
 func (s *SystemdNetworkdBackend) ConfigureBridgeMTU(bridgeName string, mtu int) (bool, error) {
-	if bridgeName != hostutil.BridgeName {
-		klog.Warningf("systemd-networkd backend: requested bridge %q differs from canonical %q; using %q",
-			bridgeName, hostutil.BridgeName, hostutil.BridgeName)
-	}
-	return hostutil.ConfigureBridgeMTU(mtu)
+	return hostutil.ConfigureBridgeMTUForBridge(bridgeName, mtu)
 }
 
 func (s *SystemdNetworkdBackend) ApplyConfiguration() error {

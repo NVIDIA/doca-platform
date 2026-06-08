@@ -9,6 +9,12 @@ title: "Host Installation for non-Kubernetes Environments"
 ### 1. Install DPF
 
 Select a use case from the [host trusted use cases](../../user-guides/host-trusted/README.md#use-cases) and complete all prerequisite steps before provisioning.
+
+If your platform uses a bridge name other than `br-dpu` for out-of-band management, set
+`spec.networking.dpuNodeOOBBridgeName` in `DPFOperatorConfig` before starting the host agent. The bridge must already
+exist on each worker node with a default route configured. Changing the bridge name on a running cluster breaks VF
+connectivity until `DPFOperatorConfig` is updated with the new name.
+
 > Note: The DPU Detector is not used in non-Kubernetes environments. After creating `DPFOperatorConfig`, you can ignore any related errors, or [disable the DPU Detector](../../developer-guides/api/dpfoperatorconfig.md#optional-component-configurations) by setting `dpuDetector.disable=true`.
 
 ### 2. Create Bootstrap Token 

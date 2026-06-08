@@ -119,6 +119,11 @@ type Overrides struct {
 	ArgoCDNamespace *string `json:"argoCDNamespace,omitempty"`
 }
 
+const (
+	// DefaultDPUNodeOOBBridgeName is the default out-of-band bridge name on host-trusted worker nodes.
+	DefaultDPUNodeOOBBridgeName = "br-dpu"
+)
+
 // Networking defines the networking configuration for the system components.
 type Networking struct {
 	// ControlPlaneMTU is the MTU value to be set on the management network.
@@ -136,6 +141,24 @@ type Networking struct {
 	// +kubebuilder:default=1500
 	// +optional
 	HighSpeedMTU *int `json:"highSpeedMTU,omitempty"`
+
+	// DPUNodeOOBBridgeName is the name of the Linux bridge on the host used for
+	// out-of-band DPU management traffic. If not specified, defaults to "br-dpu".
+	// This setting applies only to host-trusted deployments.
+	// +kubebuilder:default="br-dpu"
+	// +kubebuilder:validation:Pattern=`^[a-z][a-z0-9-]*$`
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=15
+	// +optional
+	DPUNodeOOBBridgeName *string `json:"dpuNodeOOBBridgeName,omitempty"`
+}
+
+// GetDPUNodeOOBBridgeName returns the configured OOB bridge name, defaulting to br-dpu.
+func (n *Networking) GetDPUNodeOOBBridgeName() string {
+	if n == nil || n.DPUNodeOOBBridgeName == nil || *n.DPUNodeOOBBridgeName == "" {
+		return DefaultDPUNodeOOBBridgeName
+	}
+	return *n.DPUNodeOOBBridgeName
 }
 
 // DeploymentMode describes the cluster deployment model for DPU provisioning (zero-trust vs host-trusted).
@@ -152,6 +175,7 @@ const (
 // DPFOperatorConfigSpec defines the desired state of DPFOperatorConfig
 // +kubebuilder:validation:XValidation:rule="self.deploymentMode != 'zero-trust' || (has(self.provisioningController.installInterface) && has(self.provisioningController.installInterface.installViaRedfish))",message="deploymentMode zero-trust requires provisioningController.installInterface.installViaRedfish"
 // +kubebuilder:validation:XValidation:rule="self.deploymentMode != 'host-trusted' || !has(self.provisioningController.installInterface) || !has(self.provisioningController.installInterface.installViaRedfish)",message="deploymentMode host-trusted does not support provisioningController.installInterface.installViaRedfish"
+// +kubebuilder:validation:XValidation:rule="self.deploymentMode == 'host-trusted' || !has(self.networking.dpuNodeOOBBridgeName) || self.networking.dpuNodeOOBBridgeName == 'br-dpu'",message="dpuNodeOOBBridgeName is only configurable in host-trusted mode"
 type DPFOperatorConfigSpec struct {
 	// +optional
 	Overrides *Overrides `json:"overrides,omitempty"`

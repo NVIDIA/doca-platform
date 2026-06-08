@@ -33,6 +33,7 @@ import (
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/filesystem"
 	"github.com/nvidia/doca-platform/internal/release"
+	"github.com/nvidia/doca-platform/internal/utils"
 
 	"github.com/vishvananda/netlink"
 	corev1 "k8s.io/api/core/v1"
@@ -283,11 +284,20 @@ func (n *NodeManager) initDPUNode(dpuDevices []*provisioningv1.DPUDevice) error 
 	return nil
 }
 
-func (n *NodeManager) bridgeCondition() metav1.Condition {
+func (n *NodeManager) bridgeCondition(ctx context.Context) metav1.Condition {
 	cond := metav1.Condition{
 		Type: string(provisioningv1.DPUNodeConditionBridgeConfigured),
 	}
-	bridge, err := netlink.LinkByName("br-dpu")
+
+	bridgeName, err := utils.GetOOBBridgeName(ctx, n.Client)
+	if err != nil {
+		cond.Status = metav1.ConditionFalse
+		cond.Reason = "FailedToGetOOBBridgeName"
+		cond.Message = err.Error()
+		return cond
+	}
+
+	bridge, err := netlink.LinkByName(bridgeName)
 	if err != nil {
 		cond.Status = metav1.ConditionFalse
 		cond.Reason = "BridgeNotFound"
@@ -299,6 +309,7 @@ func (n *NodeManager) bridgeCondition() metav1.Condition {
 	if _, err := os.Stat(SkipDefaultRouteCheckFile); err == nil {
 		cond.Status = metav1.ConditionTrue
 		cond.Reason = cond.Type
+		cond.Message = fmt.Sprintf("Bridge %s is configured and has a default route.", bridgeName)
 		return cond
 	}
 
@@ -313,12 +324,13 @@ func (n *NodeManager) bridgeCondition() metav1.Condition {
 		if route.Dst != nil && route.Dst.IP.Equal(net.ParseIP("0.0.0.0")) {
 			cond.Status = metav1.ConditionTrue
 			cond.Reason = cond.Type
+			cond.Message = fmt.Sprintf("Bridge %s is configured and has a default route.", bridgeName)
 			return cond
 		}
 	}
 	cond.Status = metav1.ConditionFalse
 	cond.Reason = "NoDefaultRouteFound"
-	cond.Message = "No default route found for bridge br-dpu"
+	cond.Message = fmt.Sprintf("No default route found for bridge %s.", bridgeName)
 	return cond
 }
 
@@ -434,7 +446,7 @@ func (n *NodeManager) updateDPUNodeStatus() error {
 	if err := n.Get(timeoutCtx, client.ObjectKey{Namespace: hostutil.DPFNamespace, Name: nodeName}, dpuNode); err != nil {
 		return fmt.Errorf("failed to get DPUNode: %w", err)
 	}
-	cond := n.bridgeCondition()
+	cond := n.bridgeCondition(timeoutCtx)
 	needUpdate := SetDPUNodeCondition(&dpuNode.Status, &cond)
 	if !needUpdate {
 		return nil

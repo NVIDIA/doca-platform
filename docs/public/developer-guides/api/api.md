@@ -861,6 +861,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `controlPlaneMTU` _integer_ | ControlPlaneMTU is the MTU value to be set on the management network.<br />The default is 1500. | 1500 | Maximum: 9216 <br />Minimum: 1280 <br />Optional: \{\} <br /> |
 | `highSpeedMTU` _integer_ | HighSpeedMTU is the MTU value to be set on the high-speed interface.<br />The default is 1500. | 1500 | Maximum: 9216 <br />Minimum: 1280 <br />Optional: \{\} <br /> |
+| `dpuNodeOOBBridgeName` _string_ | DPUNodeOOBBridgeName is the name of the Linux bridge on the host used for<br />out-of-band DPU management traffic. If not specified, defaults to "br-dpu".<br />This setting applies only to host-trusted deployments. | br-dpu | MaxLength: 15 <br />MinLength: 1 <br />Pattern: `^[a-z][a-z0-9-]*$` <br />Optional: \{\} <br /> |
 
 
 #### NodeProblemDetectorConfiguration
