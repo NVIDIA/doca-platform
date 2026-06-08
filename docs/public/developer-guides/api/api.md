@@ -1518,7 +1518,7 @@ _Appears in:_
 
 
 
-
+BlueFieldSpec defines the desired state of BlueFieldSoftware.
 
 
 
