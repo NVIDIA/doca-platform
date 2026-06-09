@@ -32,6 +32,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
+	dpuagentutil "github.com/nvidia/doca-platform/internal/provisioning/dpuagent/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
 	utils "github.com/nvidia/doca-platform/internal/utils"
 
@@ -102,8 +103,7 @@ func (n *NICProvisioning) ShouldUpdateStatusBeforeContinue(_ *operations.Context
 }
 
 func (n *NICProvisioning) Execute(execCtx context.Context, optCtx *operations.Context) (err error) {
-	isBlueField4 := optCtx.LatestDPU != nil && optCtx.LatestDPU.Status.DPUType == provisioningv1.DPUTypeBlueField4
-	if !isBlueField4 {
+	if !dpuagentutil.IsBlueField4(optCtx.LatestDPU) {
 		return fmt.Errorf("DPU type is not BlueField4")
 	}
 	if optCtx.Options.BFBRegistryURL == "" {
