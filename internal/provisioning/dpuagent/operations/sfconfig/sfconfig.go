@@ -30,6 +30,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
+	dpuagentutil "github.com/nvidia/doca-platform/internal/provisioning/dpuagent/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
 	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
 
@@ -129,7 +130,7 @@ func (s *CreateSF) targetDevices(ctx *operations.Context) ([]string, error) {
 	}
 
 	devices := []string{}
-	if isBlueField4(ctx) {
+	if dpuagentutil.IsBlueField4(ctx.LatestDPU) {
 		for _, p := range ports {
 			devices = append(devices, p.PCIAddress)
 		}
@@ -146,10 +147,6 @@ func (s *CreateSF) targetDevices(ctx *operations.Context) ([]string, error) {
 		return nil, fmt.Errorf("target physical port not found")
 	}
 	return devices, nil
-}
-
-func isBlueField4(ctx *operations.Context) bool {
-	return ctx.LatestDPU != nil && ctx.LatestDPU.Status.DPUType == provisioningv1.DPUTypeBlueField4
 }
 
 // SFInfo represents fields parsed from mlnx-sf -a show -j.
