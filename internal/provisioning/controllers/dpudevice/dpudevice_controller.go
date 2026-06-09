@@ -377,8 +377,8 @@ func (r *DPUDeviceReconciler) discoverDPUDevice(ctx context.Context, dpuDevice *
 		return err
 	}
 
-	switch productDescription.Mode {
-	case rfclient.NicMode:
+	switch {
+	case productDescription.Mode != nil && *productDescription.Mode == rfclient.NicMode:
 		dpuDevice.Status.DPUMode = provisioningv1.NicMode
 	default:
 		dpuDevice.Status.DPUMode = provisioningv1.DpuMode
