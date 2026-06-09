@@ -42,6 +42,8 @@ const (
 	devicePluginSocketVolumeName = "device-plugin-socket"
 	// sysVolumeName is the volume name for sysfs.
 	sysVolumeName = "sys"
+	// devInfoVolumeName is the volume name for the device info directory.
+	devInfoVolumeName = "devinfo"
 
 	// configMountPath is the path where the device plugin config is mounted.
 	configMountPath = "/etc/pcidp"
@@ -51,6 +53,8 @@ const (
 	devicePluginSocketMountPath = "/var/lib/kubelet/device-plugins"
 	// sysMountPath is the path for sysfs.
 	sysMountPath = "/sys"
+	// devInfoMountPath is the path for the device info directory used by the device plugin.
+	devInfoMountPath = "/var/run/k8s.cni.cncf.io/devinfo/dp"
 
 	// inputFileName is the name of the input file in the downward API volume.
 	inputFileName = "input.json"
@@ -71,6 +75,7 @@ func buildDesiredPod(
 
 	podName := generatePodName(nodeName)
 	hostPathDirectory := corev1.HostPathDirectory
+	hostPathDirectoryOrCreate := corev1.HostPathDirectoryOrCreate
 
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -141,6 +146,10 @@ func buildDesiredPod(
 							Name:      sysVolumeName,
 							MountPath: sysMountPath,
 						},
+						{
+							Name:      devInfoVolumeName,
+							MountPath: devInfoMountPath,
+						},
 					},
 					SecurityContext: &corev1.SecurityContext{
 						Privileged: ptr.To(true),
@@ -187,6 +196,15 @@ func buildDesiredPod(
 						HostPath: &corev1.HostPathVolumeSource{
 							Path: "/sys",
 							Type: &hostPathDirectory,
+						},
+					},
+				},
+				{
+					Name: devInfoVolumeName,
+					VolumeSource: corev1.VolumeSource{
+						HostPath: &corev1.HostPathVolumeSource{
+							Path: devInfoMountPath,
+							Type: &hostPathDirectoryOrCreate,
 						},
 					},
 				},
