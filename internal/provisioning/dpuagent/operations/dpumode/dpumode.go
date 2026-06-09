@@ -22,6 +22,7 @@ import (
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
+	dpuagentutil "github.com/nvidia/doca-platform/internal/provisioning/dpuagent/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
 
 	"k8s.io/klog/v2"
@@ -61,7 +62,7 @@ func (d *EnsureMode) Execute(execCtx context.Context, optCtx *operations.Context
 	if optCtx.LatestDPU == nil {
 		return fmt.Errorf("latest DPU is required to resolve deployment mode")
 	}
-	if optCtx.LatestDPU.Status.DPUType == provisioningv1.DPUTypeBlueField4 {
+	if dpuagentutil.IsBlueField4(optCtx.LatestDPU) {
 		klog.Infof("Skipping mlxprivhost for DPU type %s; host privilege is configured via BMC", optCtx.LatestDPU.Status.DPUType)
 		return nil
 	}
