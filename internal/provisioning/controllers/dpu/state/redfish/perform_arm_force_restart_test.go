@@ -403,4 +403,42 @@ var _ = Describe("PerformArmForceRestart", func() {
 		loaded, _ := dutil.LoadArmRestartTracker(dpu)
 		Expect(loaded).NotTo(BeNil())
 	})
+
+	Context("when DPU is BF4", func() {
+		BeforeEach(func() {
+			mockServer.SetDpuVersion(redfishmock.BF4)
+
+			_, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(mockServer.GetIPAddress())
+			bf4ClientSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "dpf-provisioning-redfish-client-secret-bf4",
+					Namespace: testNS.Name,
+				},
+				Data: map[string][]byte{"tls.crt": clientCrt, "tls.key": clientKey},
+			}
+			Expect(k8sClient.Create(ctx, bf4ClientSecret)).To(Succeed())
+		})
+
+		It("should trigger chassis reset instead of ARM ForceRestart", func() {
+			tracker := &dutil.ArmRestartTracker{
+				MaxAttempts:       2,
+				Attempt:           0,
+				InitialGeneration: dpu.Generation,
+			}
+			Expect(dutil.SaveArmRestartTracker(dpu, tracker)).To(Succeed())
+
+			status, err := PerformArmForceRestart(ctx, dpu, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUPerformArmForceRestart))
+
+			loaded, loadErr := dutil.LoadArmRestartTracker(dpu)
+			Expect(loadErr).NotTo(HaveOccurred())
+			Expect(loaded.Attempt).To(Equal(1))
+
+			_, cond := cutil.GetDPUCondition(&status, provisioningv1.DPUCondArmForceRestarted.String())
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+			Expect(cond.Reason).To(Equal("RestartTriggered"))
+		})
+	})
 })

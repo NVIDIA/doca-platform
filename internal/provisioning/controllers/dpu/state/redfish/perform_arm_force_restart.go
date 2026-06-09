@@ -171,10 +171,19 @@ func triggerArmRestart(ctx context.Context, dpu *provisioningv1.DPU, state *prov
 	}
 
 	// ForceRestartDPUArm returns error for both connection failures and non-200/204 responses
-	if _, err := client.ForceRestartDPUArm(); err != nil {
-		log.Error(err, "Failed to trigger ARM ForceRestart")
-		setArmCondition(state, "FailedToRebootDPUArm", err.Error())
-		return *state, err // Retryable
+	if client.IsBF4 {
+		log.Info("Triggering chassis reset for BF4")
+		if _, err := client.ChassisReset(); err != nil {
+			log.Error(err, "Failed to trigger chassis reset")
+			setArmCondition(state, "FailedToChassisReset", err.Error())
+			return *state, err // Retryable
+		}
+	} else {
+		if _, err := client.ForceRestartDPUArm(); err != nil {
+			log.Error(err, "Failed to trigger ARM ForceRestart")
+			setArmCondition(state, "FailedToRebootDPUArm", err.Error())
+			return *state, err // Retryable
+		}
 	}
 
 	tracker.IncrementAttempt()
