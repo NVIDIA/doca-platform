@@ -269,9 +269,11 @@ func (nm *NetworkManager) processNetworkRequest(nr NetworkRequest) error {
 				if err != nil {
 					return fmt.Errorf("failed to get VF name: %w", err)
 				}
-				nr.VFName = vfName
-				if err := writeNetworkRequestFile(&nr); err != nil {
-					return fmt.Errorf("failed to update vf name in network request file: %w", err)
+				if nr.VFName != vfName {
+					nr.VFName = vfName
+					if err := writeNetworkRequestFile(&nr); err != nil {
+						return fmt.Errorf("failed to update vf name in network request file: %w", err)
+					}
 				}
 				return hostutil.AddVFToBridge(nr.VFName, hostutil.OOBBridge.GetBridgeName())
 			},
