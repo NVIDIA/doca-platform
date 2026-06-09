@@ -266,7 +266,7 @@ func splitVlanIds(trunks []*types.Trunk) ([]uint, error) {
 		var id uint
 		if item.ID != nil {
 			id = *item.ID
-			if minID > 4096 {
+			if id > 4096 {
 				return nil, errors.New("incorrect trunk id parameter")
 			}
 			vlans[id] = true
@@ -558,6 +558,9 @@ func CmdAdd(args *skel.CmdArgs) error {
 }
 
 func waitLinkUp(ctx context.Context, api ovsutils.API, ofPortName string, retryCount, interval int) error {
+	if retryCount < 1 {
+		return fmt.Errorf("retryCount must be at least 1, got %d", retryCount)
+	}
 	checkInterval := time.Duration(interval) * time.Millisecond
 	for i := 1; i <= retryCount; i++ {
 		portState, err := getOFPortOpState(ctx, api, ofPortName)
