@@ -59,3 +59,7 @@ func (s *SystemdNetworkdBackend) ApplyConfiguration() error {
 func (s *SystemdNetworkdBackend) IsDHCPConfigured(interfaceName string) (bool, error) {
 	return hostutil.IsDHCPConfigured(interfaceName)
 }
+
+func (s *SystemdNetworkdBackend) EnsureVFsUnmanaged() error {
+	return nil
+}

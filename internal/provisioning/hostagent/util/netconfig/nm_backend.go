@@ -77,6 +77,10 @@ func (n *NetworkManagerBackend) ResetPendingChanges() {
 	n.modifiedConnPaths = nil
 }
 
+func (n *NetworkManagerBackend) EnsureVFsUnmanaged() error {
+	return ensureNMUnmanagedUdevRule()
+}
+
 // ConfigurePFInterfaces configures physical function network interfaces via NM D-Bus.
 func (n *NetworkManagerBackend) ConfigurePFInterfaces(pciAddress string, portConfigs []hostutil.PortConfig) (bool, error) {
 	needsApply := false
