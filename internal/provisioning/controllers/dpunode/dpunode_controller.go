@@ -407,18 +407,16 @@ func (r *DPUNodeReconciler) rebootNode(ctx context.Context, dpuNode *provisionin
 	return ctrl.Result{}, nil
 }
 
-// processScriptReboot manages the script-based reboot lifecycle, detecting and
-// cleaning up stale jobs from previous provisioning cycles before creating new ones.
+// processScriptReboot applies cycle-level policy then delegates Job routing to
+// reconcileScriptJob. Once every in-scope DPU has Succeeded the cycle is done and
+// it returns without touching the Job: deleting or recreating it would re-reboot
+// the host and regress RebootStatus. Callers pass the non-empty inScope snapshot
+// from HandleRebootSync.
 func (r *DPUNodeReconciler) processScriptReboot(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpus []*provisioningv1.DPU) (ctrl.Result, error) {
-	lifecycleActive := false
-	for _, dpu := range dpus {
-		if scriptRebootLifecycleActive(dpu.Status.RebootStatus) {
-			lifecycleActive = true
-			break
-		}
+	if allRebootingDPUsSucceeded(dpus) {
+		return ctrl.Result{}, nil
 	}
-	isFirstRun := !lifecycleActive
-	return r.handleExistingScriptJob(ctx, dpuNode, dpus, isFirstRun)
+	return r.reconcileScriptJob(ctx, dpuNode, dpus)
 }
 
 func (r *DPUNodeReconciler) createAndTrackScriptJob(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpus []*provisioningv1.DPU) (ctrl.Result, error) {
@@ -436,10 +434,15 @@ func (r *DPUNodeReconciler) createAndTrackScriptJob(ctx context.Context, dpuNode
 	return ctrl.Result{RequeueAfter: cutil.RequeueInterval}, nil
 }
 
-// handleExistingScriptJob fetches the script Job and routes based on its status.
-// When isFirstRun is true (no in-flight script RebootStatus on any DPU), the job is
-// stale from a previous provisioning cycle and is deleted regardless of status.
-func (r *DPUNodeReconciler) handleExistingScriptJob(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpus []*provisioningv1.DPU, isFirstRun bool) (ctrl.Result, error) {
+// reconcileScriptJob fetches the script Job and routes by RebootStatus lifecycle
+// and Job terminality. A terminal Job is deleted as stale only when no DPU has an
+// in-flight script lifecycle; an active Job with idle RebootStatus is the current
+// cycle's Job whose status write has not yet reached the cache, so it is waited
+// on rather than killed mid-reboot.
+//
+// Precondition: only called when allRebootingDPUsSucceeded is false, else a
+// completed current-cycle Job would be misclassified as stale and deleted.
+func (r *DPUNodeReconciler) reconcileScriptJob(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpus []*provisioningv1.DPU) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 	jobName := r.generateJobName(dpuNode)
 	job := &batchv1.Job{}
@@ -455,35 +458,29 @@ func (r *DPUNodeReconciler) handleExistingScriptJob(ctx context.Context, dpuNode
 		return r.handleJobNotFound(ctx, dpuNode, dpus)
 	}
 
-	// Any job present when isFirstRun is true is stale from a previous
-	// provisioning cycle (deterministic name + TTL). Delete it and requeue so a
-	// fresh job can be created with the same name.
-	if isFirstRun {
+	lifecycleActive := scriptRebootLifecycleActiveOnAny(dpus)
+
+	switch {
+	case !lifecycleActive && isJobTerminal(job):
 		logger.Info("Deleting stale script job from previous provisioning cycle",
 			"job", jobName, "succeeded", job.Status.Succeeded, "failed", job.Status.Failed)
 		if err := r.Delete(ctx, job, client.PropagationPolicy(metav1.DeletePropagationForeground)); client.IgnoreNotFound(err) != nil {
 			return ctrl.Result{}, fmt.Errorf("failed to delete stale job %s: %w", jobName, err)
 		}
 		return ctrl.Result{RequeueAfter: cutil.RequeueInterval}, nil
-	}
-
-	if isJobComplete(job) {
+	case isJobComplete(job):
 		return r.handleJobSucceeded(ctx, dpuNode, dpus)
-	}
-
-	if isJobFailed(job) {
+	case isJobFailed(job):
 		return r.handleJobFailed(ctx, dpuNode, dpus, job)
+	default:
+		// Job is active or in backoff -- wait for it to complete.
+		return ctrl.Result{RequeueAfter: cutil.RequeueInterval}, nil
 	}
-
-	// Job is active or in backoff -- wait for it to complete.
-	return ctrl.Result{RequeueAfter: cutil.RequeueInterval}, nil
 }
 
-// handleJobNotFound recreates the script job when it is not found. This covers
-// first-run (no job yet), accidental user deletion, and TTL cleanup races.
-// If a concurrent reconcile created the job between the NotFound check and the
-// Create call, createScriptJob's defense-in-depth guard returns an "already
-// exists" error, which triggers a harmless backoff retry.
+// handleJobNotFound (re)creates the script job when absent: new cycle, user
+// deletion, or TTL cleanup. A concurrent create loses the race to
+// createScriptJob's guard, which returns an "already exists" error and retries.
 func (r *DPUNodeReconciler) handleJobNotFound(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpus []*provisioningv1.DPU) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 	jobName := r.generateJobName(dpuNode)
@@ -805,6 +802,37 @@ func scriptRebootLifecycleActive(rs *provisioningv1.RebootStatus) bool {
 	}
 }
 
+// scriptRebootLifecycleActiveOnAny is true when any DPU has an in-flight script
+// reboot. When false, an existing Job belongs to a previous cycle.
+func scriptRebootLifecycleActiveOnAny(dpus []*provisioningv1.DPU) bool {
+	for _, dpu := range dpus {
+		if dpu != nil && scriptRebootLifecycleActive(dpu.Status.RebootStatus) {
+			return true
+		}
+	}
+	return false
+}
+
+// allRebootingDPUsSucceeded reports whether every in-scope DPU has Succeeded its
+// script reboot (one host reboot serves all DPUs on the node). Returns false for
+// an empty slice and on the first DPU that is nil, has nil RebootStatus, or is
+// not yet Succeeded.
+func allRebootingDPUsSucceeded(dpus []*provisioningv1.DPU) bool {
+	if len(dpus) == 0 {
+		return false
+	}
+	for _, dpu := range dpus {
+		if dpu == nil {
+			return false
+		}
+		rs := dpu.Status.RebootStatus
+		if rs == nil || rs.Phase != provisioningv1.RebootStatusSucceeded {
+			return false
+		}
+	}
+	return true
+}
+
 // isScriptRelatedReason returns true for RebootStatus.reason values for script-reboot paths.
 func isScriptRelatedReason(reason string) bool {
 	switch reason {
@@ -832,6 +860,11 @@ func isJobFailed(job *batchv1.Job) bool {
 		}
 	}
 	return false
+}
+
+// isJobTerminal is true when the Job has reached a terminal state (Complete or Failed).
+func isJobTerminal(job *batchv1.Job) bool {
+	return isJobComplete(job) || isJobFailed(job)
 }
 
 func (r *DPUNodeReconciler) extractPodFailureDetails(ctx context.Context, job *batchv1.Job) string {
