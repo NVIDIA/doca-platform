@@ -44,7 +44,7 @@ const (
 	// to wait for the BMC to reflect the new SecureBootCurrentBoot value.
 	// Anchored to ArmForceRestarted condition's LastTransitionTime, which is set
 	// when PerformArmForceRestart detects AllRestartsDone (regardless of OS state).
-	secureBootVerificationTimeout = 2 * time.Minute
+	secureBootVerificationTimeout = 4 * time.Minute
 )
 
 func InitializeInterface(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
@@ -80,7 +80,7 @@ func InitializeInterface(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *
 	}
 
 	// Redfish returns DPU is in NIC mode - reqesting to change to DpuMode
-	if descr.Mode == rfclient.NicMode {
+	if descr.Mode != nil && *descr.Mode == rfclient.NicMode {
 		log.Info(fmt.Sprintf("DPU %s is in NicMode. Setting DPU mode to DpuMode", device.BMCAddress()))
 		_, err := tlsClient.SetDpuMode(provisioningv1.DpuMode)
 		if err != nil {
@@ -327,7 +327,7 @@ func checkDPUDeviceReady(dpuDevice *provisioningv1.DPUDevice) error {
 
 func getProductDescription(tlsClient *rfclient.Client) (*rfclient.ProductSpecInfo, error) {
 	resp, desc, err := tlsClient.GetProductDescription()
-	if err != nil || resp == nil || resp.StatusCode() != http.StatusOK || desc == nil || desc.Mode == "" {
+	if err != nil || resp == nil || resp.StatusCode() != http.StatusOK || desc == nil || desc.Mode == nil {
 		return nil, fmt.Errorf("failed to get description, err: %v, resp: %+v, desc: %+v", err, resp, desc)
 	}
 	return desc, nil
@@ -370,5 +370,8 @@ func checkCapacity(ctx context.Context, dpu *provisioningv1.DPU, device *provisi
 		return result, nil
 	}
 
-	return check(productSpecInfo.Description, dutil.ParseDescription), nil
+	if productSpecInfo.Description != nil && *productSpecInfo.Description != "" {
+		return check(*productSpecInfo.Description, dutil.ParseDescription), nil
+	}
+	return dutil.CapacityUnknown, nil
 }

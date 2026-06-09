@@ -71,7 +71,7 @@ const (
 	APIGetNetworkDeviceFunctions    = "redfish/v1/Chassis/Card1/NetworkAdapters/NvidiaNetworkAdapter/NetworkDeviceFunctions/{PF_ID}"
 	APIGetNetworkDeviceFunctionsBF4 = "redfish/v1/Chassis/BlueField_0/NetworkAdapters/BlueField_NIC_0/NetworkDeviceFunctions/{PF_ID}"
 	APIRootService                  = "redfish/v1"
-	APISystemRoot                   = APIRootService + "/Systems/Bluefield"
+	APISystemRoot                   = APIRootService + "/Systems/{SYSTEM_ID}"
 	APISecureBoot                   = APISystemRoot + "/SecureBoot"
 	APIResetSystem                  = APISystemRoot + "/Actions/ComputerSystem.Reset"
 	// APIGetSELEntries is the Redfish System Event Log entries collection. The BMC
@@ -230,8 +230,8 @@ type MessageExtendedInfo struct {
 
 // ProductSpecInfo contains the product specification information responded by RedFish API
 type ProductSpecInfo struct {
-	Description string
-	Mode        NicModeType
+	Description *string      `json:"Description,omitempty"`
+	Mode        *NicModeType `json:"Mode,omitempty"`
 }
 
 type RootServiceInfo struct {
@@ -524,8 +524,13 @@ func (c *Client) CheckTaskProgress(taskID string) (*resty.Response, *TaskProgres
 // and never propagate them. The context is propagated to the HTTP layer so
 // callers can cap the call duration on unreachable BMCs.
 func (c *Client) GetSELEntries(ctx context.Context) (*resty.Response, *SELEntries, error) {
+	systemID, err := getSystemID(c)
+	if err != nil {
+		return nil, nil, err
+	}
+	url := strings.Replace(APIGetSELEntries, "{SYSTEM_ID}", systemID, 1)
 	return do[SELEntries](func() (*resty.Response, error) {
-		return c.Client.R().SetContext(ctx).Get(APIGetSELEntries)
+		return c.Client.R().SetContext(ctx).Get(url)
 	})
 }
 
@@ -994,19 +999,30 @@ func NewTLSClient(ctx context.Context, bmcAddress string, namespace string, k8sC
 
 // GetSecureBoot queries current Secure Boot state from BMC
 func (c *Client) GetSecureBoot() (*resty.Response, *SecureBootInfo, error) {
+	systemID, err := getSystemID(c)
+	if err != nil {
+		return nil, nil, err
+	}
+	url := strings.Replace(APISecureBoot, "{SYSTEM_ID}", systemID, 1)
 	return do[SecureBootInfo](func() (*resty.Response, error) {
-		return c.Client.R().Get(APISecureBoot)
+		return c.Client.R().Get(url)
 	})
 }
 
 // EnableSecureBoot configures Secure Boot to enabled
 func (c *Client) EnableSecureBoot() (*resty.Response, error) {
+	systemID, err := getSystemID(c)
+	if err != nil {
+		return nil, err
+	}
+	url := strings.Replace(APISecureBoot, "{SYSTEM_ID}", systemID, 1)
+
 	payload := map[string]interface{}{
 		"SecureBootEnable": true,
 	}
 	resp, err := c.Client.R().
 		SetBody(payload).
-		Patch(APISecureBoot)
+		Patch(url)
 	if err != nil {
 		return resp, fmt.Errorf("failed to enable Secure Boot: %w", err)
 	}
@@ -1019,12 +1035,19 @@ func (c *Client) EnableSecureBoot() (*resty.Response, error) {
 
 // DisableSecureBoot configures Secure Boot to disabled
 func (c *Client) DisableSecureBoot() (*resty.Response, error) {
+	systemID, err := getSystemID(c)
+	if err != nil {
+		return nil, err
+	}
+
+	url := strings.Replace(APISecureBoot, "{SYSTEM_ID}", systemID, 1)
+
 	payload := map[string]interface{}{
 		"SecureBootEnable": false,
 	}
 	resp, err := c.Client.R().
 		SetBody(payload).
-		Patch(APISecureBoot)
+		Patch(url)
 	if err != nil {
 		return resp, fmt.Errorf("failed to disable Secure Boot: %w", err)
 	}
@@ -1037,10 +1060,16 @@ func (c *Client) DisableSecureBoot() (*resty.Response, error) {
 
 // ForceRestartDPUArm performs ForceRestart on DPU ARM (not host power cycle).
 func (c *Client) ForceRestartDPUArm() (*resty.Response, error) {
+	systemID, err := getSystemID(c)
+	if err != nil {
+		return nil, err
+	}
+	url := strings.Replace(APIResetSystem, "{SYSTEM_ID}", systemID, 1)
+
 	payload := ResetRequest{ResetType: "ForceRestart"}
 	resp, err := c.Client.R().
 		SetBody(payload).
-		Post(APIResetSystem)
+		Post(url)
 	if err != nil {
 		return resp, fmt.Errorf("failed to force restart DPU ARM: %w", err)
 	}
@@ -1185,6 +1214,10 @@ func (c *Client) ChassisReset() (*resty.Response, error) {
 		Post(strings.Replace(APIChassisReset, "{CHASSIS_ID}", "BlueField_0", 1))
 	if err != nil {
 		return resp, fmt.Errorf("failed to reset chassis: %w", err)
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		return resp, fmt.Errorf("failed to reset chassis: unexpected status code %d", resp.StatusCode())
 	}
 	return resp, nil
 }
