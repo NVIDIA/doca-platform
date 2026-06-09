@@ -21,10 +21,16 @@ import (
 	"path/filepath"
 	"strings"
 
+	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
 
 	"k8s.io/klog/v2"
 )
+
+// IsBlueField4 reports whether dpu is a BlueField-4 DPU.
+func IsBlueField4(dpu *provisioningv1.DPU) bool {
+	return dpu != nil && dpu.Status.DPUType == provisioningv1.DPUTypeBlueField4
+}
 
 var sysfsPCIDevicesDir = "/sys/bus/pci/devices"
 

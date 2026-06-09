@@ -20,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 
+	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -65,5 +66,18 @@ var _ = Describe("NSPortFilter", func() {
 		overrideSysfsPCIDevicesDir(GinkgoT().TempDir())
 
 		Expect(NSPortFilter(pciutil.NICPort{Netdev: "p0", PCIAddress: "0000:99:00.0"})).To(BeFalse())
+	})
+})
+
+var _ = Describe("IsBlueField4", func() {
+	It("returns true only for BlueField4 DPU type", func() {
+		Expect(IsBlueField4(nil)).To(BeFalse())
+		Expect(IsBlueField4(&provisioningv1.DPU{})).To(BeFalse())
+		Expect(IsBlueField4(&provisioningv1.DPU{
+			Status: provisioningv1.DPUStatus{DPUType: provisioningv1.DPUTypeBlueField3},
+		})).To(BeFalse())
+		Expect(IsBlueField4(&provisioningv1.DPU{
+			Status: provisioningv1.DPUStatus{DPUType: provisioningv1.DPUTypeBlueField4},
+		})).To(BeTrue())
 	})
 })
