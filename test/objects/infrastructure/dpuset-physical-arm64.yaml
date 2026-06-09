@@ -1,0 +1,27 @@
+apiVersion: provisioning.dpu.nvidia.com/v1alpha1
+kind: DPUSet
+metadata:
+  name: dpuset-1
+  namespace: dpf-operator-system
+spec:
+  dpuNodeSelector:
+    matchLabels:
+      feature.node.kubernetes.io/dpu-enabled: "true"
+  # ARM64 physical: first DPU per host (label format 0004-01-00).
+  dpuDeviceSelector:
+    matchLabels:
+      provisioning.dpu.nvidia.com/dpudevice-pciAddress: "0004-01-00"
+  strategy:
+    rollingUpdate:
+      maxUnavailable: 10%
+    type: RollingUpdate
+  dpuTemplate:
+    spec:
+      dpuFlavor: dpf-provisioning-hbn-ovn
+      bfb:
+        name: "bf-bundle"
+      nodeEffect:
+        taint:
+          key: "dpu"
+          value: "provisioning"
+          effect: NoSchedule
