@@ -1,5 +1,3 @@
-//go:build integration
-
 // Modifications copyright (C) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 //
 // Copyright 2018 Red Hat, Inc.
