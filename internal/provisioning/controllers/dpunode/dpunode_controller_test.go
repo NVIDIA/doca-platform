@@ -1653,10 +1653,22 @@ spec:
 				Recorder: record.NewFakeRecorder(10),
 			}
 
-			// Should create job even with no DPUs in rebooting phase
-			result, err := runReboot(dpuNode)
+			// No DPU is in DPURebooting, so HandleRebootSync returns before
+			// rebootNode/processScriptReboot and no Job is created. The
+			// empty-inScope race (dpuPhases reports DPURebooting but the
+			// Spec.DPUs snapshot is empty) is covered separately by the
+			// "HandleRebootSync snapshot guard" context.
+			phases := map[string]struct{}{string(provisioningv1.DPUReady): {}}
+			result, err := reconciler.HandleRebootSync(ctx, dpuNode, phases)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(result.RequeueAfter).NotTo(BeZero())
+			Expect(result.RequeueAfter).To(BeZero())
+
+			job := &batchv1.Job{}
+			err = fakeClient.Get(ctx, types.NamespacedName{
+				Name:      "test-dpunode-script-job",
+				Namespace: "test-namespace",
+			}, job)
+			Expect(apierrors.IsNotFound(err)).To(BeTrue(), "no job should be created when no DPU is rebooting")
 		})
 
 		// --- A1: Race condition tests ---
@@ -1763,34 +1775,116 @@ spec:
 
 		// --- Job-existence guard tests ---
 
-		It("should delete stale active job from previous cycle when isFirstRun is true", func() {
+		It("should not delete a non-terminal job when no script lifecycle is in flight (cache lag)", func() {
+			// lifecycleActive is derived from the DPUs' RebootStatus, which lags
+			// Job creation in the informer cache. A sibling reconcile firing right
+			// after the Job is created can observe lifecycleActive=false while the
+			// Job is still active (RebootStatus not yet RebootScriptWaiting in
+			// cache). Deleting it here would kill an in-flight reboot mid-sequence
+			// (between ForceOff and On), so a non-terminal Job must be preserved
+			// and waited on rather than treated as stale.
 			jobStatus := &batchv1.JobStatus{Active: 1}
 			dpuNode, _, _ := createTestSetup(jobStatus)
-
-			dpu := &provisioningv1.DPU{}
-			Expect(fakeClient.Get(ctx, types.NamespacedName{
-				Name:      cutil.GenerateDPUName(dpuNode.Name, "dpu1"),
-				Namespace: "test-namespace",
-			}, dpu)).To(Succeed())
-			cutil.SetDPUCondition(&dpu.Status, cutil.NewCondition(string(provisioningv1.DPUCondRebooted), fmt.Errorf("transient"), "GetDPUNodeError", "transient error"))
-			Expect(fakeClient.Status().Update(ctx, dpu)).To(Succeed())
+			// Primary scenario: the steady-state initial value written by the DPU
+			// controller. The nil-RebootStatus variant is covered separately below.
+			setDPURebootStatusForTest(dpuNode, provisioningv1.RebootStatusPending, "RebootRequested", "reboot requested and pending execution")
 
 			result, err := runReboot(dpuNode)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(result.RequeueAfter).NotTo(BeZero(), "should requeue after deleting stale job")
+			Expect(result.RequeueAfter).NotTo(BeZero(), "should requeue while waiting for the active job")
+
+			job := &batchv1.Job{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{
+				Name:      "test-dpunode-script-job",
+				Namespace: "test-namespace",
+			}, job)).To(Succeed(), "a non-terminal job must not be deleted on first run")
+			Expect(job.Status.Active).To(Equal(int32(1)))
+		})
+
+		It("should not delete a non-terminal job when RebootStatus is nil", func() {
+			// Same race as above but the cache has no RebootStatus at all yet
+			// (the very first reconcile after Job creation). lifecycleActive is
+			// still false, so the terminal-status gate is what protects the
+			// running Job.
+			jobStatus := &batchv1.JobStatus{Active: 1}
+			dpuNode, _, _ := createTestSetup(jobStatus)
+			Expect(getDPURebootStatusForTest(dpuNode)).To(BeNil(), "precondition: RebootStatus is nil")
+
+			result, err := runReboot(dpuNode)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).NotTo(BeZero(), "should requeue while waiting for the active job")
+
+			job := &batchv1.Job{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{
+				Name:      "test-dpunode-script-job",
+				Namespace: "test-namespace",
+			}, job)).To(Succeed(), "a non-terminal job must not be deleted when RebootStatus is nil")
+			Expect(job.Status.Active).To(Equal(int32(1)))
+		})
+
+		It("should not delete/recreate a completed job once RebootStatus is Succeeded", func() {
+			// After the cycle succeeds, scriptRebootLifecycleActive(Succeeded) is
+			// false so lifecycleActive would be false; without the allSucceeded
+			// short-circuit the completed Job would be deleted and recreated,
+			// regressing RebootStatus to Pending and re-rebooting the host.
+			dpuNode, _, _ := createTestSetup(completedJobStatus())
+			setDPURebootStatusForTest(dpuNode, provisioningv1.RebootStatusSucceeded, "", "")
+
+			result, err := runReboot(dpuNode)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(BeZero(), "succeeded cycle should not requeue from this controller")
+
+			job := &batchv1.Job{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{
+				Name:      "test-dpunode-script-job",
+				Namespace: "test-namespace",
+			}, job)).To(Succeed(), "a completed job must be left intact once the cycle succeeded")
+
+			rs := getDPURebootStatusForTest(dpuNode)
+			Expect(rs).NotTo(BeNil())
+			Expect(rs.Phase).To(Equal(provisioningv1.RebootStatusSucceeded), "RebootStatus must not regress from Succeeded")
+		})
+
+		It("should not recreate the job when absent once RebootStatus is Succeeded", func() {
+			// The NotFound path recreates unconditionally; the allSucceeded
+			// short-circuit must stop it so a TTL/manual/GC deletion of the
+			// completed Job does not trigger a spurious second host reboot.
+			dpuNode, _, _ := createTestSetup(nil) // no job present
+			setDPURebootStatusForTest(dpuNode, provisioningv1.RebootStatusSucceeded, "", "")
+
+			result, err := runReboot(dpuNode)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(BeZero())
 
 			job := &batchv1.Job{}
 			err = fakeClient.Get(ctx, types.NamespacedName{
 				Name:      "test-dpunode-script-job",
 				Namespace: "test-namespace",
 			}, job)
-			Expect(apierrors.IsNotFound(err)).To(BeTrue(), "stale active job should be deleted from the API")
+			Expect(apierrors.IsNotFound(err)).To(BeTrue(), "job must not be recreated once the cycle succeeded")
 
-			Expect(fakeClient.Get(ctx, types.NamespacedName{
-				Name:      cutil.GenerateDPUName(dpuNode.Name, "dpu1"),
+			rs := getDPURebootStatusForTest(dpuNode)
+			Expect(rs).NotTo(BeNil())
+			Expect(rs.Phase).To(Equal(provisioningv1.RebootStatusSucceeded), "RebootStatus must not regress from Succeeded")
+		})
+
+		It("should delete a terminal job when no script lifecycle is in flight (legitimate stale cleanup)", func() {
+			// Companion to the non-terminal case: when lifecycleActive is false
+			// and the job has actually finished, it is a genuine leftover from a
+			// previous provisioning cycle (deterministic name + TTL) and must be
+			// deleted so a fresh job can be created with the same name.
+			dpuNode, _, _ := createTestSetup(completedJobStatus())
+
+			result, err := runReboot(dpuNode)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).NotTo(BeZero(), "should requeue after deleting the stale terminal job")
+
+			job := &batchv1.Job{}
+			err = fakeClient.Get(ctx, types.NamespacedName{
+				Name:      "test-dpunode-script-job",
 				Namespace: "test-namespace",
-			}, dpu)).To(Succeed())
-			Expect(dpu.Status.RebootStatus).To(BeNil())
+			}, job)
+			Expect(apierrors.IsNotFound(err)).To(BeTrue(), "a terminal stale job must be deleted on first run")
 		})
 
 		It("should delete stale completed job from previous cycle and requeue", func() {
@@ -1807,6 +1901,12 @@ spec:
 			result, err := runReboot(dpuNode)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.RequeueAfter).NotTo(BeZero(), "should requeue to let API server finish deletion")
+
+			job := &batchv1.Job{}
+			Expect(apierrors.IsNotFound(fakeClient.Get(ctx, types.NamespacedName{
+				Name:      "test-dpunode-script-job",
+				Namespace: "test-namespace",
+			}, job))).To(BeTrue(), "stale terminal job should be deleted from the API")
 
 			Expect(fakeClient.Get(ctx, types.NamespacedName{
 				Name:      cutil.GenerateDPUName(dpuNode.Name, "dpu1"),
@@ -1829,6 +1929,12 @@ spec:
 			result, err := runReboot(dpuNode)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.RequeueAfter).NotTo(BeZero(), "should requeue to let API server finish deletion")
+
+			job := &batchv1.Job{}
+			Expect(apierrors.IsNotFound(fakeClient.Get(ctx, types.NamespacedName{
+				Name:      "test-dpunode-script-job",
+				Namespace: "test-namespace",
+			}, job))).To(BeTrue(), "stale terminal job should be deleted from the API")
 
 			Expect(fakeClient.Get(ctx, types.NamespacedName{
 				Name:      cutil.GenerateDPUName(dpuNode.Name, "dpu1"),
@@ -1954,6 +2060,77 @@ spec:
 				},
 			}
 			Expect(isJobFailed(job)).To(BeFalse())
+		})
+	})
+
+	completedJob := &batchv1.Job{Status: batchv1.JobStatus{
+		Succeeded:  1,
+		Conditions: []batchv1.JobCondition{{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}},
+	}}
+	failedJob := &batchv1.Job{Status: batchv1.JobStatus{
+		Failed:     3,
+		Conditions: []batchv1.JobCondition{{Type: batchv1.JobFailed, Status: corev1.ConditionTrue, Reason: "BackoffLimitExceeded"}},
+	}}
+	activeJob := &batchv1.Job{Status: batchv1.JobStatus{Active: 1}}
+
+	Context("isJobTerminal", func() {
+		It("should be true for a completed job", func() {
+			Expect(isJobTerminal(completedJob)).To(BeTrue())
+		})
+		It("should be true for a failed job", func() {
+			Expect(isJobTerminal(failedJob)).To(BeTrue())
+		})
+		It("should be false for an active job", func() {
+			Expect(isJobTerminal(activeJob)).To(BeFalse())
+		})
+		It("should be false for a job in backoff with no terminal condition", func() {
+			Expect(isJobTerminal(&batchv1.Job{Status: batchv1.JobStatus{Failed: 1}})).To(BeFalse())
+		})
+	})
+
+	Context("scriptRebootLifecycleActiveOnAny", func() {
+		dpuWith := func(rs *provisioningv1.RebootStatus) *provisioningv1.DPU {
+			return &provisioningv1.DPU{Status: provisioningv1.DPUStatus{RebootStatus: rs}}
+		}
+		activeRS := &provisioningv1.RebootStatus{Phase: provisioningv1.RebootStatusPending, Reason: cutil.ReasonRebootScriptWaiting}
+
+		It("should be false for an empty slice", func() {
+			Expect(scriptRebootLifecycleActiveOnAny(nil)).To(BeFalse())
+		})
+		It("should be false when no DPU has an in-flight script lifecycle", func() {
+			dpus := []*provisioningv1.DPU{dpuWith(nil), dpuWith(&provisioningv1.RebootStatus{Phase: provisioningv1.RebootStatusSucceeded})}
+			Expect(scriptRebootLifecycleActiveOnAny(dpus)).To(BeFalse())
+		})
+		It("should be true when any DPU has an in-flight script lifecycle", func() {
+			dpus := []*provisioningv1.DPU{dpuWith(nil), dpuWith(activeRS)}
+			Expect(scriptRebootLifecycleActiveOnAny(dpus)).To(BeTrue())
+		})
+		It("should tolerate nil DPU entries", func() {
+			Expect(scriptRebootLifecycleActiveOnAny([]*provisioningv1.DPU{nil, dpuWith(activeRS)})).To(BeTrue())
+		})
+	})
+
+	Context("allRebootingDPUsSucceeded", func() {
+		dpuWith := func(rs *provisioningv1.RebootStatus) *provisioningv1.DPU {
+			return &provisioningv1.DPU{Status: provisioningv1.DPUStatus{RebootStatus: rs}}
+		}
+		succeeded := &provisioningv1.RebootStatus{Phase: provisioningv1.RebootStatusSucceeded}
+		pending := &provisioningv1.RebootStatus{Phase: provisioningv1.RebootStatusPending, Reason: cutil.ReasonRebootScriptWaiting}
+
+		It("should be false for an empty slice", func() {
+			Expect(allRebootingDPUsSucceeded(nil)).To(BeFalse())
+		})
+		It("should be false when any DPU has nil RebootStatus", func() {
+			Expect(allRebootingDPUsSucceeded([]*provisioningv1.DPU{dpuWith(succeeded), dpuWith(nil)})).To(BeFalse())
+		})
+		It("should be false when any DPU is not yet Succeeded (late joiner)", func() {
+			Expect(allRebootingDPUsSucceeded([]*provisioningv1.DPU{dpuWith(succeeded), dpuWith(pending)})).To(BeFalse())
+		})
+		It("should be false when a DPU entry is nil", func() {
+			Expect(allRebootingDPUsSucceeded([]*provisioningv1.DPU{nil, dpuWith(succeeded)})).To(BeFalse())
+		})
+		It("should be true only when every DPU is Succeeded", func() {
+			Expect(allRebootingDPUsSucceeded([]*provisioningv1.DPU{dpuWith(succeeded), dpuWith(succeeded)})).To(BeTrue())
 		})
 	})
 
