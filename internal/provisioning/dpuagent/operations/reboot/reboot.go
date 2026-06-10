@@ -113,6 +113,11 @@ func (h *HandleReboot) ShouldUpdateStatusBeforeContinue(ctx *operations.Context)
 }
 
 func (h *HandleReboot) Execute(execCtx context.Context, optCtx *operations.Context) error {
+	if isHostlessDPU(optCtx) {
+		optCtx.Status.RebootMethod = ptr.To(provisioningv1.RebootMethodHostlessDPUReboot)
+		return nil
+	}
+
 	m, err := h.getRebootMethod(optCtx)
 	if err != nil {
 		return err
@@ -139,6 +144,9 @@ func (h *HandleReboot) Execute(execCtx context.Context, optCtx *operations.Conte
 		return h.execFirmwareReset(execCtx, optCtx)
 	case provisioningv1.RebootMethodDPUWarmReboot:
 		return h.execWarmReboot(execCtx, optCtx)
+	case provisioningv1.RebootMethodHostlessDPUReboot:
+		optCtx.Status.RebootMethod = ptr.To(provisioningv1.RebootMethodHostlessDPUReboot)
+		return nil
 	case provisioningv1.RebootMethodNoAction:
 		optCtx.Status.InitialBootID = nil
 		optCtx.Status.RebootMethod = ptr.To(provisioningv1.RebootMethodNoAction)
@@ -175,6 +183,10 @@ func (h *HandleReboot) execSystemLevelReset(execCtx context.Context, optCtx *ope
 		return fmt.Errorf("failed to shut down host: %w, stderr: %s", err, stderr.String())
 	}
 	return h.blockUntilReset()
+}
+
+func isHostlessDPU(optCtx *operations.Context) bool {
+	return optCtx != nil && optCtx.LatestDPU != nil && optCtx.LatestDPU.Status.Hostless
 }
 
 // getMSTDevices returns the selected target devices for MFT commands.

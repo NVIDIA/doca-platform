@@ -14,14 +14,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package state
+package util
 
 import (
 	"context"
 	"fmt"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
-	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -31,61 +30,58 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-// Keys and paths for DPUNode pod template ConfigMap integration and pod-info volume (shared with dpunode controller).
-const (
-	PodTemplateConfigMapKey     string = "pod-template"
-	PodInfoVolumeName           string = "dpf-pod-info"
-	PodInfoMountPath            string = "/etc/dpf-pod-info"
-	PodInfoLabelsPath           string = "labels"
-	PodInfoAnnotationsPath      string = "annotations"
-	PodInfoLabelsFieldPath      string = "metadata.labels"
-	PodInfoAnnotationsFieldPath string = "metadata.annotations"
-	DPUNodeNameEnvVar           string = "DPUNODE_NAME"
-)
-
-// Rebooting handles DPURebooting: validates reboot preconditions, waits for DPUCondRebooted, then moves to
-// DPUInitializeInterface, DPUConfig (when agent reports reboot-method discovery after DPUConfig), DPUClusterConfig,
-// or DPUHostNetworkConfiguration as appropriate.
-func Rebooting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
+// StartRebooting performs checks common to all DPURebooting implementations.
+// If done is true, the returned status is complete and callers should return it immediately.
+func StartRebooting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *ControllerContext) (*provisioningv1.DPUStatus, *provisioningv1.DPUNode, bool, error) {
 	state := dpu.Status.DeepCopy()
 	if !dpu.DeletionTimestamp.IsZero() {
 		state.Phase = provisioningv1.DPUDeleting
-		return *state, nil
+		return state, nil, true, nil
 	}
 
 	dpuNode := &provisioningv1.DPUNode{}
 	if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.DPUNodeName}, dpuNode); err != nil {
 		if apierrors.IsNotFound(err) {
 			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondRebooted.String(), err, "DPUNodeNotFound", err.Error()))
-			return *state, err
+			return state, nil, true, err
 		}
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondRebooted.String(), err, "GetDPUNodeError", err.Error()))
-		return *state, err
+		return state, nil, true, err
 	}
 
 	_, cond := cutil.GetDPUCondition(state, provisioningv1.DPUCondInterfaceInitialized.String())
 	if (dpu.Status.DPUMode != provisioningv1.NicMode) && (cond == nil || cond.Status != metav1.ConditionTrue) {
-		err := fmt.Errorf("trying to reboot the host before %s", provisioningv1.DPUCondOSInstalled.String())
+		err := fmt.Errorf("trying to reboot the host before %s", provisioningv1.DPUCondInterfaceInitialized.String())
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondRebooted.String(), err, "InvalidState", err.Error()))
-		return *state, err
+		return state, dpuNode, true, err
 	}
 
-	switch {
-	case dpuNode.Spec.NodeRebootMethod.GNOI != nil || dpuNode.Spec.NodeRebootMethod.HostAgent != nil: //nolint:staticcheck // GNOI is deprecated but still honored for compatibility.
-		return reconcileHostRebootPhase(ctx, dpu, state, false), nil
-	case dpuNode.Spec.NodeRebootMethod.External != nil || dpuNode.Spec.NodeRebootMethod.Script != nil:
-		// External and script reboot both complete on the host side; zero-trust mode selects the next phase after reboot.
-		return reconcileHostRebootPhase(ctx, dpu, state, ctrlCtx.Options.ZeroTrustProvisioningFlow()), nil
-	default:
-		panic("should not reach here")
+	return state, dpuNode, false, nil
+}
+
+// UpdateRebootStatus updates the in-memory DPU reboot status and transition time.
+func UpdateRebootStatus(state *provisioningv1.DPUStatus, phase provisioningv1.RebootStatusPhase, reason, message string) {
+	changed := state.RebootStatus == nil ||
+		state.RebootStatus.Phase != phase ||
+		state.RebootStatus.Reason != reason ||
+		state.RebootStatus.Message != message
+	if state.RebootStatus == nil {
+		state.RebootStatus = &provisioningv1.RebootStatus{}
+	}
+	state.RebootStatus.Phase = phase
+	state.RebootStatus.Reason = reason
+	state.RebootStatus.Message = message
+	if changed {
+		now := metav1.Now()
+		state.RebootStatus.LastTransitionTime = &now
 	}
 }
 
-// reconcileHostRebootPhase runs when the DPU is in DPURebooting and host reboot is complete.
-func reconcileHostRebootPhase(ctx context.Context, dpu *provisioningv1.DPU, state *provisioningv1.DPUStatus, zeroTrustMode bool) provisioningv1.DPUStatus {
+// CompleteRebooting runs when the DPU is in DPURebooting and reboot is complete.
+func CompleteRebooting(ctx context.Context, dpu *provisioningv1.DPU, state *provisioningv1.DPUStatus, zeroTrustMode bool) provisioningv1.DPUStatus {
 	logger := log.FromContext(ctx)
 
-	// Update the Rebooted condition based on status.rebootStatus (host agent / DPUNode).
+	// Update the Rebooted condition based on status.rebootStatus.
 	// Pending / Failed: copy Reason and Message onto DPUCondRebooted (False). Succeeded: True via DPUCondition.
 	_, rebootCondition := cutil.GetDPUCondition(state, provisioningv1.DPUCondRebooted.String())
 	if (rebootCondition == nil || rebootCondition.Status != metav1.ConditionTrue) && dpu.Status.RebootStatus != nil {
@@ -138,7 +134,7 @@ func reconcileHostRebootPhase(ctx context.Context, dpu *provisioningv1.DPU, stat
 		state.Phase = provisioningv1.DPUHostNetworkConfiguration
 	}
 
-	logger.Info("host reboot reported complete, advancing provisioning phase",
+	logger.Info("reboot reported complete, advancing provisioning phase",
 		"dpu", dpu.Name,
 		"phase", state.Phase)
 	return *state
@@ -149,7 +145,7 @@ func reconcileHostRebootPhase(ctx context.Context, dpu *provisioningv1.DPU, stat
 // DPUConfig branch consumes the agent-reported method as-is; the host-power-cycle-required
 // annotation is a Trusted Host execution-time escalation (see internal/provisioning/hostagent/phase/reboot/sync.go)
 // and intentionally does not propagate into RebootStatus.Method.
-func InitializeDPURebootStatus(ctx context.Context, dpu *provisioningv1.DPU, state *provisioningv1.DPUStatus, ctrlCtx *dutil.ControllerContext, sourcePhase provisioningv1.DPUPhase) error {
+func InitializeDPURebootStatus(ctx context.Context, dpu *provisioningv1.DPU, state *provisioningv1.DPUStatus, ctrlCtx *ControllerContext, sourcePhase provisioningv1.DPUPhase) error {
 	// Ensure each reboot cycle starts from a clean rebooted condition state.
 	meta.RemoveStatusCondition(&state.Conditions, provisioningv1.DPUCondRebooted.String())
 
@@ -157,6 +153,7 @@ func InitializeDPURebootStatus(ctx context.Context, dpu *provisioningv1.DPU, sta
 	reason := "RebootRequested"
 	message := "reboot requested and pending execution"
 	var method *provisioningv1.RebootMethodType
+
 	switch {
 	case sourcePhase == provisioningv1.DPUInitializeInterface:
 		// Mode transition reboot always requires a host power cycle.

@@ -19,10 +19,11 @@ package state_test
 import (
 	"context"
 	"fmt"
+	"time"
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
-	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state"
+	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/hostagent"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
@@ -54,7 +55,7 @@ var _ = Describe("Phase Rebooting", func() {
 			now := metav1.Now()
 			dpu.DeletionTimestamp = &now
 
-			status, err := state.Rebooting(ctx, dpu, &dutil.ControllerContext{
+			status, err := hostagent.Rebooting(ctx, dpu, &dutil.ControllerContext{
 				Client: k8sClient,
 			})
 
@@ -70,7 +71,7 @@ var _ = Describe("Phase Rebooting", func() {
 			dpu.Status.Phase = provisioningv1.DPURebooting
 			cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondInterfaceInitialized, "", ""))
 
-			status, err := state.Rebooting(ctx, dpu, &dutil.ControllerContext{
+			status, err := hostagent.Rebooting(ctx, dpu, &dutil.ControllerContext{
 				Client: k8sClient,
 			})
 
@@ -98,7 +99,7 @@ var _ = Describe("Phase Rebooting", func() {
 			dpu.Status.DPUMode = provisioningv1.DpuMode
 			// No InterfaceInitialized condition set
 
-			status, err := state.Rebooting(ctx, dpu, &dutil.ControllerContext{
+			status, err := hostagent.Rebooting(ctx, dpu, &dutil.ControllerContext{
 				Client: k8sClient,
 			})
 
@@ -127,7 +128,7 @@ var _ = Describe("Phase Rebooting", func() {
 			dpu.Status.Phase = provisioningv1.DPURebooting
 			cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondInterfaceInitialized, "", ""))
 
-			status, err := state.Rebooting(ctx, dpu, &dutil.ControllerContext{
+			status, err := hostagent.Rebooting(ctx, dpu, &dutil.ControllerContext{
 				Client: k8sClient,
 			})
 
@@ -153,7 +154,7 @@ var _ = Describe("Phase Rebooting", func() {
 				Message: "host reboot not yet reported",
 			})
 
-			status, err := state.Rebooting(ctx, dpu, &dutil.ControllerContext{
+			status, err := hostagent.Rebooting(ctx, dpu, &dutil.ControllerContext{
 				Client: k8sClient,
 			})
 
@@ -175,7 +176,7 @@ var _ = Describe("Phase Rebooting", func() {
 			dpu.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaRedFish))
 			cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondInterfaceInitialized, "", ""))
 
-			status, err := state.Rebooting(ctx, dpu, &dutil.ControllerContext{
+			status, err := hostagent.Rebooting(ctx, dpu, &dutil.ControllerContext{
 				Client: k8sClient,
 				Options: dutil.DPUOptions{
 					DPUInstallInterface: string(provisioningv1.InstallViaRedFish),
@@ -206,7 +207,7 @@ var _ = Describe("Phase Rebooting", func() {
 				Message: "external reboot not yet confirmed",
 			})
 
-			status, err := state.Rebooting(ctx, dpu, &dutil.ControllerContext{
+			status, err := hostagent.Rebooting(ctx, dpu, &dutil.ControllerContext{
 				Client: k8sClient,
 				Options: dutil.DPUOptions{
 					DPUInstallInterface: string(provisioningv1.InstallViaRedFish),
@@ -240,7 +241,7 @@ var _ = Describe("Phase Rebooting", func() {
 				LastTransitionTime: &now,
 			}
 
-			status, err := state.Rebooting(ctx, dpu, &dutil.ControllerContext{
+			status, err := hostagent.Rebooting(ctx, dpu, &dutil.ControllerContext{
 				Client: k8sClient,
 				Options: dutil.DPUOptions{
 					DPUInstallInterface: string(provisioningv1.InstallViaRedFish),
@@ -275,7 +276,7 @@ var _ = Describe("Phase Rebooting", func() {
 				Message: "script reboot not yet confirmed",
 			})
 
-			status, err := state.Rebooting(ctx, dpu, &dutil.ControllerContext{
+			status, err := hostagent.Rebooting(ctx, dpu, &dutil.ControllerContext{
 				Client: k8sClient,
 				Options: dutil.DPUOptions{
 					DPUInstallInterface: string(provisioningv1.InstallViaRedFish),
@@ -312,7 +313,7 @@ var _ = Describe("Phase Rebooting", func() {
 				Message: string(provisioningv1.DPUCondMessageModeUpdate),
 			})
 
-			status, err := state.Rebooting(ctx, dpu, &dutil.ControllerContext{
+			status, err := hostagent.Rebooting(ctx, dpu, &dutil.ControllerContext{
 				Client: k8sClient,
 			})
 
@@ -345,7 +346,7 @@ var _ = Describe("Phase Rebooting", func() {
 				Message: "",
 			})
 
-			status, err := state.Rebooting(ctx, dpu, &dutil.ControllerContext{
+			status, err := hostagent.Rebooting(ctx, dpu, &dutil.ControllerContext{
 				Client: k8sClient,
 			})
 
@@ -373,7 +374,7 @@ var _ = Describe("Phase Rebooting", func() {
 				Message: "",
 			})
 
-			status, err := state.Rebooting(ctx, dpu, &dutil.ControllerContext{
+			status, err := hostagent.Rebooting(ctx, dpu, &dutil.ControllerContext{
 				Client: k8sClient,
 			})
 
@@ -405,7 +406,7 @@ var _ = Describe("Phase Rebooting", func() {
 				Message: "",
 			})
 
-			status, err := state.Rebooting(ctx, dpu, &dutil.ControllerContext{
+			status, err := hostagent.Rebooting(ctx, dpu, &dutil.ControllerContext{
 				Client: k8sClient,
 			})
 
@@ -443,7 +444,7 @@ var _ = Describe("Phase Rebooting", func() {
 					Message: "",
 				})
 
-				status, err := state.Rebooting(ctx, dpu, &dutil.ControllerContext{
+				status, err := hostagent.Rebooting(ctx, dpu, &dutil.ControllerContext{
 					Client:  k8sClient,
 					Options: *opts,
 				})
@@ -494,7 +495,7 @@ var _ = Describe("Phase Rebooting", func() {
 				Message: "",
 			})
 
-			status, err := state.Rebooting(ctx, dpu, &dutil.ControllerContext{
+			status, err := hostagent.Rebooting(ctx, dpu, &dutil.ControllerContext{
 				Client: k8sClient,
 			})
 
@@ -524,7 +525,7 @@ var _ = Describe("Phase Rebooting", func() {
 				Message: "",
 			})
 
-			status, err := state.Rebooting(ctx, dpu, &dutil.ControllerContext{
+			status, err := hostagent.Rebooting(ctx, dpu, &dutil.ControllerContext{
 				Client: k8sClient,
 			})
 
@@ -559,7 +560,7 @@ var _ = Describe("Phase Rebooting", func() {
 				Message: string(provisioningv1.DPUCondMessageModeUpdate),
 			})
 
-			status, err := state.Rebooting(ctx, dpu, &dutil.ControllerContext{
+			status, err := hostagent.Rebooting(ctx, dpu, &dutil.ControllerContext{
 				Client: k8sClient,
 				Options: dutil.DPUOptions{
 					DPUInstallInterface: string(provisioningv1.InstallViaHostAgent),
@@ -589,7 +590,7 @@ var _ = Describe("Phase Rebooting", func() {
 				Message: "",
 			})
 
-			status, err := state.Rebooting(ctx, dpu, &dutil.ControllerContext{
+			status, err := hostagent.Rebooting(ctx, dpu, &dutil.ControllerContext{
 				Client: k8sClient,
 				Options: dutil.DPUOptions{
 					DPUInstallInterface: string(provisioningv1.InstallViaHostAgent),
@@ -620,7 +621,7 @@ var _ = Describe("Phase Rebooting", func() {
 				Message: "",
 			})
 
-			status, err := state.Rebooting(ctx, dpu, &dutil.ControllerContext{
+			status, err := hostagent.Rebooting(ctx, dpu, &dutil.ControllerContext{
 				Client: k8sClient,
 				Options: dutil.DPUOptions{
 					DPUInstallInterface: string(provisioningv1.InstallViaRedFish),
@@ -651,7 +652,7 @@ var _ = Describe("Phase Rebooting", func() {
 				Message: "",
 			})
 
-			status, err := state.Rebooting(ctx, dpu, &dutil.ControllerContext{
+			status, err := hostagent.Rebooting(ctx, dpu, &dutil.ControllerContext{
 				Client: k8sClient,
 				Options: dutil.DPUOptions{
 					DPUInstallInterface: string(provisioningv1.InstallViaRedFish),
@@ -682,7 +683,7 @@ var _ = Describe("Phase Rebooting", func() {
 				Message: "",
 			})
 
-			status, err := state.Rebooting(ctx, dpu, &dutil.ControllerContext{
+			status, err := hostagent.Rebooting(ctx, dpu, &dutil.ControllerContext{
 				Client: k8sClient,
 				Options: dutil.DPUOptions{
 					DPUInstallInterface: string(provisioningv1.InstallViaRedFish),
@@ -714,7 +715,7 @@ var _ = Describe("Phase Rebooting", func() {
 				Message: "",
 			})
 
-			status, err := state.Rebooting(ctx, dpu, &dutil.ControllerContext{
+			status, err := hostagent.Rebooting(ctx, dpu, &dutil.ControllerContext{
 				Client: k8sClient,
 				Options: dutil.DPUOptions{
 					DPUInstallInterface: string(provisioningv1.InstallViaRedFish),
@@ -750,7 +751,7 @@ var _ = Describe("Phase Rebooting", func() {
 				Message: "",
 			})
 
-			status, err := state.Rebooting(ctx, dpu, &dutil.ControllerContext{
+			status, err := hostagent.Rebooting(ctx, dpu, &dutil.ControllerContext{
 				Client: k8sClient,
 				Options: dutil.DPUOptions{
 					DPUInstallInterface: string(provisioningv1.InstallViaRedFish),
@@ -790,7 +791,7 @@ var _ = Describe("Phase Rebooting", func() {
 				Message: string(provisioningv1.DPUCondMessageModeUpdate),
 			})
 
-			status, err := state.Rebooting(ctx, dpu, &dutil.ControllerContext{
+			status, err := hostagent.Rebooting(ctx, dpu, &dutil.ControllerContext{
 				Client: k8sClient,
 				Options: dutil.DPUOptions{
 					DPUInstallInterface: string(provisioningv1.InstallViaHostAgent),
@@ -816,7 +817,7 @@ var _ = Describe("Phase Rebooting", func() {
 			dpu.Status.DPUMode = provisioningv1.NicMode
 			// No InterfaceInitialized condition set, but should not error
 
-			status, err := state.Rebooting(ctx, dpu, &dutil.ControllerContext{
+			status, err := hostagent.Rebooting(ctx, dpu, &dutil.ControllerContext{
 				Client: k8sClient,
 			})
 
@@ -857,7 +858,7 @@ var _ = Describe("Phase Rebooting", func() {
 			dpu := rebootingDPU()
 			cutil.SetDPUCondition(&dpu.Status, cutil.NewCondition(provisioningv1.DPUCondRebooted.String(), fmt.Errorf("exit code 1"), cutil.ReasonRebootScriptFailed, ""))
 
-			status, err := state.Rebooting(ctx, dpu, hostAgentCtx())
+			status, err := hostagent.Rebooting(ctx, dpu, hostAgentCtx())
 			Expect(err).NotTo(HaveOccurred())
 			Expect(status.Phase).To(Equal(provisioningv1.DPURebooting))
 			_, cond := cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondRebooted))
@@ -872,7 +873,7 @@ var _ = Describe("Phase Rebooting", func() {
 				dpu := rebootingDPU()
 				cutil.SetDPUCondition(&dpu.Status, cutil.NewCondition(provisioningv1.DPUCondRebooted.String(), fmt.Errorf("err"), reason, "details"))
 
-				status, err := state.Rebooting(ctx, dpu, hostAgentCtx())
+				status, err := hostagent.Rebooting(ctx, dpu, hostAgentCtx())
 				Expect(err).NotTo(HaveOccurred(), "reason=%s", reason)
 				Expect(status.Phase).To(Equal(provisioningv1.DPURebooting), "reason=%s", reason)
 			}
@@ -882,10 +883,30 @@ var _ = Describe("Phase Rebooting", func() {
 			createScriptDPUNode()
 			dpu := rebootingDPU()
 
-			status, err := state.Rebooting(ctx, dpu, hostAgentCtx())
+			status, err := hostagent.Rebooting(ctx, dpu, hostAgentCtx())
 			Expect(err).NotTo(HaveOccurred())
 			Expect(status.Phase).To(Equal(provisioningv1.DPURebooting))
 		})
+	})
+})
+
+var _ = Describe("UpdateRebootStatus", func() {
+	It("only updates LastTransitionTime when reboot status content changes", func() {
+		oldTime := metav1.NewTime(time.Now().Add(-time.Hour))
+		state := &provisioningv1.DPUStatus{
+			RebootStatus: &provisioningv1.RebootStatus{
+				Phase:              provisioningv1.RebootStatusPending,
+				Reason:             "Waiting",
+				Message:            "waiting",
+				LastTransitionTime: &oldTime,
+			},
+		}
+
+		dutil.UpdateRebootStatus(state, provisioningv1.RebootStatusPending, "Waiting", "waiting")
+		Expect(state.RebootStatus.LastTransitionTime).To(Equal(&oldTime))
+
+		dutil.UpdateRebootStatus(state, provisioningv1.RebootStatusPending, "StillWaiting", "waiting")
+		Expect(state.RebootStatus.LastTransitionTime).NotTo(Equal(&oldTime))
 	})
 })
 
@@ -915,7 +936,7 @@ var _ = Describe("InitializeDPURebootStatus", func() {
 		}
 		st := &provisioningv1.DPUStatus{}
 
-		err := state.InitializeDPURebootStatus(ctx, dpu, st, ctrlCtx, provisioningv1.DPUInitializeInterface)
+		err := dutil.InitializeDPURebootStatus(ctx, dpu, st, ctrlCtx, provisioningv1.DPUInitializeInterface)
 		Expect(err).NotTo(HaveOccurred())
 
 		Expect(st.RebootStatus).NotTo(BeNil())
@@ -944,7 +965,7 @@ var _ = Describe("InitializeDPURebootStatus", func() {
 		}
 		st := &provisioningv1.DPUStatus{Phase: provisioningv1.DPURebooting}
 
-		err := state.InitializeDPURebootStatus(ctx, dpu, st, ctrlCtx, provisioningv1.DPUInitializeInterface)
+		err := dutil.InitializeDPURebootStatus(ctx, dpu, st, ctrlCtx, provisioningv1.DPUInitializeInterface)
 		Expect(err).NotTo(HaveOccurred())
 
 		Expect(st.Phase).To(Equal(provisioningv1.DPURebooting), "callers set status.phase to DPURebooting before init")
@@ -975,7 +996,7 @@ var _ = Describe("InitializeDPURebootStatus", func() {
 		}
 		st := &provisioningv1.DPUStatus{}
 
-		err := state.InitializeDPURebootStatus(ctx, dpu, st, ctrlCtx, provisioningv1.DPUConfig)
+		err := dutil.InitializeDPURebootStatus(ctx, dpu, st, ctrlCtx, provisioningv1.DPUConfig)
 		Expect(err).NotTo(HaveOccurred())
 
 		Expect(st.RebootStatus).NotTo(BeNil())
@@ -1021,7 +1042,7 @@ var _ = Describe("InitializeDPURebootStatus", func() {
 		}
 		st := &provisioningv1.DPUStatus{}
 
-		err := state.InitializeDPURebootStatus(ctx, dpu, st, ctrlCtx, provisioningv1.DPUConfig)
+		err := dutil.InitializeDPURebootStatus(ctx, dpu, st, ctrlCtx, provisioningv1.DPUConfig)
 		Expect(err).NotTo(HaveOccurred())
 
 		Expect(st.RebootStatus).NotTo(BeNil())
@@ -1056,7 +1077,7 @@ var _ = Describe("InitializeDPURebootStatus", func() {
 		}
 		st := &provisioningv1.DPUStatus{}
 
-		err := state.InitializeDPURebootStatus(ctx, dpu, st, ctrlCtx, provisioningv1.DPUInitializeInterface)
+		err := dutil.InitializeDPURebootStatus(ctx, dpu, st, ctrlCtx, provisioningv1.DPUInitializeInterface)
 		Expect(err).NotTo(HaveOccurred())
 
 		Expect(st.RebootStatus).NotTo(BeNil())
@@ -1076,7 +1097,7 @@ var _ = Describe("InitializeDPURebootStatus", func() {
 		}
 		st := &provisioningv1.DPUStatus{}
 
-		err := state.InitializeDPURebootStatus(ctx, dpu, st, ctrlCtx, provisioningv1.DPUClusterConfig)
+		err := dutil.InitializeDPURebootStatus(ctx, dpu, st, ctrlCtx, provisioningv1.DPUClusterConfig)
 		Expect(err).To(HaveOccurred())
 		Expect(st.RebootStatus).To(BeNil())
 	})
@@ -1096,7 +1117,7 @@ var _ = Describe("InitializeDPURebootStatus", func() {
 			},
 		}
 
-		err := state.InitializeDPURebootStatus(ctx, dpu, st, ctrlCtx, provisioningv1.DPUInitializeInterface)
+		err := dutil.InitializeDPURebootStatus(ctx, dpu, st, ctrlCtx, provisioningv1.DPUInitializeInterface)
 		Expect(err).NotTo(HaveOccurred())
 
 		Expect(meta.FindStatusCondition(st.Conditions, provisioningv1.DPUCondRebooted.String())).To(BeNil())

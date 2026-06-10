@@ -1105,22 +1105,31 @@ func (c *Client) DisableSecureBoot() (*resty.Response, error) {
 
 // ForceRestartDPUArm performs ForceRestart on DPU ARM (not host power cycle).
 func (c *Client) ForceRestartDPUArm() (*resty.Response, error) {
+	return c.resetDPUArm("ForceRestart")
+}
+
+// GracefulRestartDPUArm performs GracefulRestart on the DPU ARM system.
+func (c *Client) GracefulRestartDPUArm() (*resty.Response, error) {
+	return c.resetDPUArm("GracefulRestart")
+}
+
+func (c *Client) resetDPUArm(resetType string) (*resty.Response, error) {
 	systemID, err := getSystemID(c)
 	if err != nil {
 		return nil, err
 	}
 	url := strings.Replace(APIResetSystem, "{SYSTEM_ID}", systemID, 1)
 
-	payload := ResetRequest{ResetType: "ForceRestart"}
+	payload := ResetRequest{ResetType: resetType}
 	resp, err := c.Client.R().
 		SetBody(payload).
 		Post(url)
 	if err != nil {
-		return resp, fmt.Errorf("failed to force restart DPU ARM: %w", err)
+		return resp, fmt.Errorf("failed to reset DPU ARM with %s: %w", resetType, err)
 	}
-	// POST operations may return 200 OK or 204 No Content
-	if resp.StatusCode() != http.StatusOK && resp.StatusCode() != http.StatusNoContent {
-		return resp, fmt.Errorf("failed to force restart DPU ARM: unexpected status code %d", resp.StatusCode())
+	// POST reset operations may return 202 Accepted while the reset runs asynchronously.
+	if resp.StatusCode() != http.StatusOK && resp.StatusCode() != http.StatusNoContent && resp.StatusCode() != http.StatusAccepted {
+		return resp, fmt.Errorf("failed to reset DPU ARM with %s: unexpected status code %d", resetType, resp.StatusCode())
 	}
 	return resp, nil
 }

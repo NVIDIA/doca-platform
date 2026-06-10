@@ -111,6 +111,8 @@ type HostAgent struct{}
 
 type External struct{}
 
+type None struct{}
+
 type Script struct {
 	// +kubebuilder:validation:MinLength=1
 	// +required
@@ -118,7 +120,7 @@ type Script struct {
 }
 
 // NodeRebootMethod defines the desired reboot method
-// +kubebuilder:validation:XValidation:rule="(((has(self.hostAgent) || has(self.gNOI)) && !has(self.external) && !has(self.script)) || (has(self.external) && !has(self.hostAgent) && !has(self.gNOI) && !has(self.script)) || (has(self.script) && !has(self.external) && !has(self.hostAgent) && !has(self.gNOI)))", message="only one of hostAgent, external, script can be set"
+// +kubebuilder:validation:XValidation:rule="(((has(self.hostAgent) || has(self.gNOI)) && !has(self.external) && !has(self.script) && !has(self.none)) || (has(self.external) && !has(self.hostAgent) && !has(self.gNOI) && !has(self.script) && !has(self.none)) || (has(self.script) && !has(self.external) && !has(self.hostAgent) && !has(self.gNOI) && !has(self.none)) || (has(self.none) && !has(self.external) && !has(self.hostAgent) && !has(self.gNOI) && !has(self.script)))", message="only one of hostAgent, external, script, none can be set"
 type NodeRebootMethod struct {
 	// Use the DPU's DMS interface to reboot the host.
 	//
@@ -136,6 +138,10 @@ type NodeRebootMethod struct {
 	// That pod template will be put in a Job object to be executed.
 	// +optional
 	Script *Script `json:"script,omitempty"`
+	// Do not reboot a host through the DPUNode. Used for hostless devices where
+	// DPF manages the DPU reboot directly through Redfish.
+	// +optional
+	None *None `json:"none,omitempty"`
 }
 
 type DPURef struct {
@@ -153,6 +159,7 @@ type DPUNodeSpec struct {
 	//      DPU controller.
 	//    - "script": Reboot the host by executing a custom script.
 	//    - "hostAgent": Use the host agent to reboot the host.
+	//    - "none": Do not reboot a host through the DPUNode.
 	// "hostAgent" is the default value.
 	// +kubebuilder:default={hostAgent:{}}
 	// +optional
@@ -208,7 +215,7 @@ type DPUNodeStatus struct {
 	// RebootMethod is the host-level reboot method recommended by child DPUs in
 	// DPURebooting phase, aggregated by priority (most disruptive wins, ties broken
 	// by ascending DPU name):
-	// PowerCycle > SystemLevelReset > SystemReboot > FirmwareReset > DPUWarmReboot > NoAction > Unknown.
+	// PowerCycle > SystemLevelReset > SystemReboot > HostlessDPUReboot > FirmwareReset > DPUWarmReboot > NoAction > Unknown.
 	//
 	// Stamped once at least one DPU reports a method, preserved across the
 	// rebooting -> idle transition, and cleared with DPUNodeRebootInProgress

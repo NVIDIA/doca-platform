@@ -243,13 +243,18 @@ func (r *DPUNodeReconciler) handleDeletionAndFinalizer(ctx context.Context, dpuN
 		if err := r.List(ctx, dpuDevices, client.MatchingLabels{provisioningv1.DPUNodeNameLabel: dpuNode.Name}); err != nil {
 			return err
 		}
-		if len(dpuDevices.Items) == 0 {
-			return r.removeFinalizer(ctx, dpuNode)
-		}
+		hasBlockingDPUDevices := false
 		for _, dpuDevice := range dpuDevices.Items {
+			if dpuDevice.Labels[cutil.DPUDeviceHostlessLabel] == "true" {
+				continue
+			}
+			hasBlockingDPUDevices = true
 			if err := r.Delete(ctx, &dpuDevice); err != nil {
 				return err
 			}
+		}
+		if !hasBlockingDPUDevices {
+			return r.removeFinalizer(ctx, dpuNode)
 		}
 	}
 	if !controllerutil.ContainsFinalizer(dpuNode, provisioningv1.DPUNodeFinalizer) {
@@ -401,7 +406,11 @@ func (r *DPUNodeReconciler) rebootNode(ctx context.Context, dpuNode *provisionin
 	} else if dpuNode.Spec.NodeRebootMethod.Script != nil {
 		return r.processScriptReboot(ctx, dpuNode, dpus)
 	} else {
-		panic("should not reach here")
+		err := fmt.Errorf("unsupported node reboot method for DPUNode %s", dpuNode.Name)
+		if updateErr := r.updateDPURebootStatus(ctx, dpus, provisioningv1.RebootStatusFailed, "UnsupportedNodeRebootMethod", err.Error()); updateErr != nil {
+			return ctrl.Result{}, updateErr
+		}
+		return ctrl.Result{}, err
 	}
 
 	return ctrl.Result{}, nil
