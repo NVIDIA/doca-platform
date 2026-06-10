@@ -17,6 +17,7 @@ limitations under the License.
 package mock
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
@@ -41,6 +42,7 @@ func TestRedfishMockServer(t *testing.T) {
 	// Run all the individual tests
 	t.Run("RootService", func(t *testing.T) { testRootService(t, client) })
 	t.Run("ChassisInfo", func(t *testing.T) { testChassisInfo(t, client) })
+	t.Run("SetBootTarget", func(t *testing.T) { testSetBootTarget(t, client) })
 
 	klog.Infof("All tests passed successfully")
 }
@@ -52,6 +54,16 @@ func testRootService(t *testing.T, client *client.Client) {
 	}
 	if resp.StatusCode() != 200 {
 		t.Errorf("Expected status 200, got %d", resp.StatusCode())
+	}
+}
+
+func testSetBootTarget(t *testing.T, client *client.Client) {
+	resp, err := client.SetBootTarget("Usb", true)
+	if err != nil {
+		t.Fatalf("SetBootTarget failed: %v", err)
+	}
+	if resp.StatusCode() != http.StatusNoContent {
+		t.Errorf("Expected status %d, got %d", http.StatusNoContent, resp.StatusCode())
 	}
 }
 
