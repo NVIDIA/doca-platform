@@ -1183,7 +1183,7 @@ DPU_ARCH = arm64
 BASE_IMAGE = nvcr.io/nvidia/doca/dpf_containers:1.0.2-ubuntu22.04-distroless
 ALPINE_IMAGE = alpine:3.19
 # Base image for hostdriver (DOCA full runtime host image)
-HOSTDRIVER_BASE_IMAGE ?= nvcr.io/nvidia/doca/doca:3.2.1-full-rt-ubuntu24.04-host
+HOSTDRIVER_BASE_IMAGE ?= nvcr.io/nvidia/doca/doca:full-rt-3.4.0-host
 # Base image for storage-host, by default it is the same as the hostdriver base image
 STORAGE_HOST_BASE_IMAGE ?= $(HOSTDRIVER_BASE_IMAGE)
 # Base image for bfb-registry, by default it is the same as the hostdriver base image
