@@ -26,6 +26,7 @@ import (
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/digest"
 	rfclient "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
@@ -52,6 +53,8 @@ import (
 const (
 	BMCMinSupportedVersion  = "BF-24.10-17"
 	DPUDeviceControllerName = "dpudevice"
+	hostlessDPUNodePrefix   = "hostless-"
+	maxDPUNodeNameLength    = 48
 )
 
 // DPUDeviceReconciler reconciles a DPUDevice object
@@ -64,6 +67,7 @@ type DPUDeviceReconciler struct {
 //+kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpudevices/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpudevices/finalizers,verbs=update
 //+kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpus,verbs=get;list;watch
+//+kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpunodes,verbs=get;list;watch;create;update;patch
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;patch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -229,6 +233,20 @@ func (r *DPUDeviceReconciler) reconcile(ctx context.Context, dpuDevice *provisio
 func (r *DPUDeviceReconciler) checkDPUNodeAttachment(ctx context.Context, dpuDevice *provisioningv1.DPUDevice) (bool, ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
+	if isHostlessDPUDevice(dpuDevice) {
+		dpuNodeName, err := r.ensureHostlessDPUNode(ctx, dpuDevice)
+		if err != nil {
+			log.Error(err, "Failed to ensure hostless DPUNode")
+			conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceNodeAttached,
+				conditions.ReasonError,
+				conditions.ConditionMessage(err.Error()))
+			return false, ctrl.Result{}, err
+		}
+		conditions.AddTrue(dpuDevice, provisioningv1.ConditionDpuDeviceNodeAttached)
+		dpuDevice.Labels[provisioningv1.DPUNodeNameLabel] = dpuNodeName
+		return true, ctrl.Result{}, nil
+	}
+
 	condition := conditions.Get(dpuDevice, provisioningv1.ConditionDpuDeviceNodeAttached)
 	if condition != nil && condition.Status != metav1.ConditionFalse {
 		return true, ctrl.Result{}, nil
@@ -268,6 +286,59 @@ func (r *DPUDeviceReconciler) checkDPUNodeAttachment(ctx context.Context, dpuDev
 	}
 
 	return true, ctrl.Result{}, nil
+}
+
+func isHostlessDPUDevice(dpuDevice *provisioningv1.DPUDevice) bool {
+	return dpuDevice.Labels[cutil.DPUDeviceHostlessLabel] == "true"
+}
+
+func (r *DPUDeviceReconciler) ensureHostlessDPUNode(ctx context.Context, dpuDevice *provisioningv1.DPUDevice) (string, error) {
+	name := hostlessDPUNodeName(dpuDevice.Name)
+	dpuNode := &provisioningv1.DPUNode{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: dpuDevice.Namespace,
+		},
+	}
+	_, err := controllerutil.CreateOrPatch(ctx, r.Client, dpuNode, func() error {
+		if controller := metav1.GetControllerOf(dpuNode); controller != nil && controller.UID != dpuDevice.UID {
+			return fmt.Errorf("DPUNode %s/%s is already controlled by %s/%s", dpuNode.Namespace, dpuNode.Name, controller.Kind, controller.Name)
+		}
+		// The synthetic DPUNode is derived from this DPUDevice; keep its metadata
+		// aligned with the DPUDevice instead of preserving external edits.
+		dpuNode.Labels = copyStringMap(dpuDevice.Labels)
+		if dpuNode.Labels == nil {
+			dpuNode.Labels = map[string]string{}
+		}
+		dpuNode.Labels[cutil.NodeSelectorLabel] = "true"
+		dpuNode.Annotations = copyStringMap(dpuDevice.Annotations)
+		dpuNode.Spec.DPUs = []provisioningv1.DPURef{{Name: dpuDevice.Name}}
+		dpuNode.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{None: &provisioningv1.None{}}
+		dpuNode.OwnerReferences = []metav1.OwnerReference{*metav1.NewControllerRef(dpuDevice, provisioningv1.DPUDeviceGroupVersionKind)}
+		return nil
+	})
+	return name, err
+}
+
+func hostlessDPUNodeName(dpuDeviceName string) string {
+	name := hostlessDPUNodePrefix + dpuDeviceName
+	if len(name) <= maxDPUNodeNameLength {
+		return name
+	}
+	suffix := digest.Short(digest.FromObjects(dpuDeviceName), 8)
+	prefixLen := maxDPUNodeNameLength - len(hostlessDPUNodePrefix) - 1 - len(suffix)
+	return fmt.Sprintf("%s%s-%s", hostlessDPUNodePrefix, dpuDeviceName[:prefixLen], suffix)
+}
+
+func copyStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }
 
 // setDPUDeviceLabels sets device-specific labels on the DPUDevice from its spec and status fields.

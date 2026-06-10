@@ -438,6 +438,7 @@ spec:
                     - SystemLevelReset
                     - FirmwareReset
                     - DPUWarmReboot
+                    - HostlessDPUReboot
                     type: string
                   rebootSequenceCount:
                     description: |-
@@ -575,6 +576,11 @@ spec:
                     description: UEFI is the used UEFI firmware version
                     type: string
                 type: object
+              hostless:
+                description: |-
+                  Hostless indicates that the DPU is attached to a system-managed synthetic
+                  DPUNode rather than a physical host.
+                type: boolean
               observedGeneration:
                 description: ObservedGeneration records the Generation observed on
                   the object the last time it was patched.
@@ -748,6 +754,7 @@ spec:
                     - SystemLevelReset
                     - FirmwareReset
                     - DPUWarmReboot
+                    - HostlessDPUReboot
                     type: string
                   phase:
                     description: Phase is the current host reboot progress.

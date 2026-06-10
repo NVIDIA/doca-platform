@@ -77,6 +77,8 @@ const (
 	DPUDevicePF0NameLabel = DPUProvisioningPrefix + "dpudevice-pf0-name"
 	// DPUDeviceBMCIPLabel is the label that indicates the BMC IP of the DPU device.
 	DPUDeviceBMCIPLabel = DPUProvisioningPrefix + "dpudevice-bmc-ip"
+	// DPUDeviceHostlessLabel marks a manually onboarded DPUDevice that has no physical host node.
+	DPUDeviceHostlessLabel = DPUProvisioningPrefix + "hostless"
 	// DPUOOBBridgeConfiguredLabel is the label that indicates that the DPU OOB bridge is configured.
 	DPUOOBBridgeConfiguredLabel = "dpu-oob-bridge-configured"
 	// NodeFeatureDiscoveryLabelPrefix is the prefix for all NodeFeatureDiscovery labels.
@@ -157,7 +159,7 @@ const (
 
 // GetRebootMethodPriority returns the host-reboot priority of m, where
 // lower numbers are more disruptive. Chain: PowerCycle > SystemLevelReset >
-// SystemReboot > FirmwareReset > DPUWarmReboot > NoAction > Unknown.
+// SystemReboot > HostlessDPUReboot > FirmwareReset > DPUWarmReboot > NoAction > Unknown.
 // Unknown / unrecognized never beats a known method.
 func GetRebootMethodPriority(m provisioningv1.RebootMethodType) int {
 	switch m {
@@ -167,14 +169,16 @@ func GetRebootMethodPriority(m provisioningv1.RebootMethodType) int {
 		return 1
 	case provisioningv1.RebootMethodSystemReboot:
 		return 2
-	case provisioningv1.RebootMethodFirmwareReset:
+	case provisioningv1.RebootMethodHostlessDPUReboot:
 		return 3
-	case provisioningv1.RebootMethodDPUWarmReboot:
+	case provisioningv1.RebootMethodFirmwareReset:
 		return 4
-	case provisioningv1.RebootMethodNoAction:
+	case provisioningv1.RebootMethodDPUWarmReboot:
 		return 5
-	default:
+	case provisioningv1.RebootMethodNoAction:
 		return 6
+	default:
+		return 7
 	}
 }
 

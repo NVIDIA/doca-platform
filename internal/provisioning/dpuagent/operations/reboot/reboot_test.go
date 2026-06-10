@@ -243,6 +243,34 @@ var _ = Describe("Reboot", func() {
 
 		})
 
+		It("should only report HostlessDPUReboot for hostless DPU", func() {
+			statusPushed := false
+			runBashCalled := false
+			optCtx := &operations.Context{
+				LatestDPU: &provisioningv1.DPU{
+					Status: provisioningv1.DPUStatus{
+						Hostless: true,
+					},
+				},
+				RebootMethodDiscovery:    false,
+				CurrentBootID:            "boot-id",
+				UpdateStatusUntilSuccess: func(context.Context) { statusPushed = true },
+			}
+			h := &HandleReboot{
+				skipBlock: true,
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					runBashCalled = true
+					return bytes.Buffer{}, bytes.Buffer{}, nil
+				},
+			}
+
+			Expect(h.Execute(context.Background(), optCtx)).To(Succeed())
+			Expect(statusPushed).To(BeFalse())
+			Expect(runBashCalled).To(BeFalse())
+			Expect(optCtx.Status.RebootMethod).NotTo(BeNil())
+			Expect(*optCtx.Status.RebootMethod).To(Equal(provisioningv1.RebootMethodHostlessDPUReboot))
+		})
+
 		Context("getRebootMethod", func() {
 			It("returns RebootMethodSystemLevelReset or RebootMethodNoAction", func() {
 				currentBootID, err := os.ReadFile(bootIDFile)

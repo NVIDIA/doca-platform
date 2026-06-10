@@ -3028,6 +3028,41 @@ spec:
 			}
 		})
 
+		It("should not delete hostless DPUDevices when synthetic DPUNode is being deleted", func() {
+			dpuNode := createTestDPUNode("test-dpunode", []string{provisioningv1.DPUNodeFinalizer})
+			Expect(fakeClient.Create(ctx, dpuNode)).To(Succeed())
+
+			dpuDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-hostless-dpudevice",
+					Namespace: "test-namespace",
+					Labels: map[string]string{
+						provisioningv1.DPUNodeNameLabel: "test-dpunode",
+						cutil.DPUDeviceHostlessLabel:    "true",
+					},
+				},
+				Spec: provisioningv1.DPUDeviceSpec{},
+			}
+			Expect(fakeClient.Create(ctx, dpuDevice)).To(Succeed())
+			Expect(fakeClient.Delete(ctx, dpuNode)).To(Succeed())
+
+			result, err := reconciler.Reconcile(ctx, ctrl.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      "test-dpunode",
+					Namespace: "test-namespace",
+				},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+
+			updatedDPUDevice := &provisioningv1.DPUDevice{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{
+				Name:      "test-hostless-dpudevice",
+				Namespace: "test-namespace",
+			}, updatedDPUDevice)).To(Succeed())
+			Expect(updatedDPUDevice.DeletionTimestamp.IsZero()).To(BeTrue())
+		})
+
 		It("should remove finalizer when all DPUDevices are deleted and no DPUs exist", func() {
 			// Create DPUNode with finalizer
 			dpuNode := createTestDPUNode("test-dpunode", []string{provisioningv1.DPUNodeFinalizer})
@@ -3891,13 +3926,21 @@ spec:
 				Expect(agg.PerDPU).To(Equal("dpu-a=Unknown,dpu-b=Unknown"))
 			})
 
-			It("orders DPUWarmReboot above NoAction and below FirmwareReset in the priority table", func() {
+			It("orders HostlessDPUReboot and DPUWarmReboot by the reboot priority table", func() {
 				// Regression for the priority renumbering:
-				// PowerCycle > SystemLevelReset > SystemReboot > FirmwareReset > DPUWarmReboot > NoAction > Unknown.
+				// PowerCycle > SystemLevelReset > SystemReboot > HostlessDPUReboot > FirmwareReset > DPUWarmReboot > NoAction > Unknown.
 				// Pin both adjacent boundaries with the smallest possible
-				// fixtures: DPUWarmReboot must beat NoAction, and FirmwareReset
-				// must beat DPUWarmReboot. Tied priorities tie-break by
-				// ascending DPU name.
+				// fixtures: HostlessDPUReboot must beat FirmwareReset,
+				// DPUWarmReboot must beat NoAction, and FirmwareReset must
+				// beat DPUWarmReboot. Tied priorities tie-break by ascending
+				// DPU name.
+				hostlessVsFirmware := aggregateDPURebootMethods([]*provisioningv1.DPU{
+					rawDPU("dpu-a", rebootMethodPtr(provisioningv1.RebootMethodFirmwareReset)),
+					rawDPU("dpu-b", rebootMethodPtr(provisioningv1.RebootMethodHostlessDPUReboot)),
+				})
+				Expect(hostlessVsFirmware.Method).To(Equal(provisioningv1.RebootMethodHostlessDPUReboot))
+				Expect(hostlessVsFirmware.Winner).To(Equal("dpu-b"))
+
 				warmVsNoAction := aggregateDPURebootMethods([]*provisioningv1.DPU{
 					rawDPU("dpu-a", rebootMethodPtr(provisioningv1.RebootMethodNoAction)),
 					rawDPU("dpu-b", rebootMethodPtr(provisioningv1.RebootMethodDPUWarmReboot)),

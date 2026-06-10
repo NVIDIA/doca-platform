@@ -1275,7 +1275,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `lastStartupTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | LastStartupTime is the time when the DPU was last started |  | Optional: \{\} <br /> |
 | `initialBootID` _string_ | InitialBootID is the boot ID of the DPU OS during the first boot |  |  |
-| `rebootMethod` _[RebootMethodType](#rebootmethodtype)_ | RebootMethod is the type of reset/reboot set by the DPU agent<br />See enum values in RebootMethodType.<br />No default is set intentionally: nil means "check not run or not applicable"<br />(e.g. legacy flow, or agent has not run the check yet);<br />a non-nil value means the check ran and this is the result. |  | Enum: [Unknown NoAction PowerCycle SystemReboot SystemLevelReset FirmwareReset DPUWarmReboot] <br />Optional: \{\} <br /> |
+| `rebootMethod` _[RebootMethodType](#rebootmethodtype)_ | RebootMethod is the type of reset/reboot set by the DPU agent<br />See enum values in RebootMethodType.<br />No default is set intentionally: nil means "check not run or not applicable"<br />(e.g. legacy flow, or agent has not run the check yet);<br />a non-nil value means the check ran and this is the result. |  | Enum: [Unknown NoAction PowerCycle SystemReboot SystemLevelReset FirmwareReset DPUWarmReboot HostlessDPUReboot] <br />Optional: \{\} <br /> |
 | `lastObservedPendingNvconfig` _[PendingNVConfigState](#pendingnvconfigstate)_ | LastObservedPendingNVConfig stores the last pending NVConfig parameters seen<br />during reboot-method discovery on this boot. It is used on the next boot to<br />ignore repeated parameters that remained unchanged across boots. |  | Optional: \{\} <br /> |
 | `rebootSequenceCount` _integer_ | RebootSequenceCount is the length of the current non-NoAction RebootMethod sequence:<br />it increments on each agent run that reports a RebootMethod other than NoAction and<br />resets to 0 when the agent reports NoAction. Used with RebootMethod to bound host reboot loops. |  | Minimum: 0 <br />Optional: \{\} <br /> |
 | `kubeletVersion` _string_ | KubeletVersion represents the kubelet version running on the DPU. |  |  |
@@ -2233,7 +2233,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `nodeRebootMethod` _[NodeRebootMethod](#noderebootmethod)_ | Defines the method for rebooting the host.<br />One of the following options can be chosen for this field:<br />   - "external": Reboot the host via an external means, not controlled by the<br />     DPU controller.<br />   - "script": Reboot the host by executing a custom script.<br />   - "hostAgent": Use the host agent to reboot the host.<br />"hostAgent" is the default value. | \{ hostAgent:map[] \} | Optional: \{\} <br /> |
+| `nodeRebootMethod` _[NodeRebootMethod](#noderebootmethod)_ | Defines the method for rebooting the host.<br />One of the following options can be chosen for this field:<br />   - "external": Reboot the host via an external means, not controlled by the<br />     DPU controller.<br />   - "script": Reboot the host by executing a custom script.<br />   - "hostAgent": Use the host agent to reboot the host.<br />   - "none": Do not reboot a host through the DPUNode.<br />"hostAgent" is the default value. | \{ hostAgent:map[] \} | Optional: \{\} <br /> |
 | `nodeDMSAddress` _[DMSAddress](#dmsaddress)_ | The IP address and port where the DMS is exposed. Only applicable if dpuInstallInterface is set to gNOI.<br />Deprecated: this field is no longer used. |  | Optional: \{\} <br /> |
 | `dpus` _[DPURef](#dpuref) array_ | A map containing names of each DPUDevice attached to the node. |  | Optional: \{\} <br /> |
 
@@ -2255,7 +2255,7 @@ _Appears in:_
 | `dpuInstallInterface` _string_ | The name of the interface which will be used to install the bfb image, can be one of hostAgent,redfish |  | Enum: [gNOI hostAgent redfish] <br />Optional: \{\} <br /> |
 | `kubeNodeRef` _string_ | The name of the Kubernetes Node object that this DPUNode represents.<br />This field is optional and only relevant if the x86 host is part of the DPF Kubernetes cluster. |  | Optional: \{\} <br /> |
 | `rebootInProgress` _boolean_ | RebootInProgress indicates if the node is in the process of rebooting. |  | Optional: \{\} <br /> |
-| `rebootMethod` _[RebootMethodType](#rebootmethodtype)_ | RebootMethod is the host-level reboot method recommended by child DPUs in<br />DPURebooting phase, aggregated by priority (most disruptive wins, ties broken<br />by ascending DPU name):<br />PowerCycle > SystemLevelReset > SystemReboot > FirmwareReset > DPUWarmReboot > NoAction > Unknown.<br />Stamped once at least one DPU reports a method, preserved across the<br />rebooting -> idle transition, and cleared with DPUNodeRebootInProgress<br />when the DPUNode loses all its DPUs. |  | Enum: [Unknown NoAction PowerCycle SystemReboot SystemLevelReset FirmwareReset DPUWarmReboot] <br />Optional: \{\} <br /> |
+| `rebootMethod` _[RebootMethodType](#rebootmethodtype)_ | RebootMethod is the host-level reboot method recommended by child DPUs in<br />DPURebooting phase, aggregated by priority (most disruptive wins, ties broken<br />by ascending DPU name):<br />PowerCycle > SystemLevelReset > SystemReboot > HostlessDPUReboot > FirmwareReset > DPUWarmReboot > NoAction > Unknown.<br />Stamped once at least one DPU reports a method, preserved across the<br />rebooting -> idle transition, and cleared with DPUNodeRebootInProgress<br />when the DPUNode loses all its DPUs. |  | Enum: [Unknown NoAction PowerCycle SystemReboot SystemLevelReset FirmwareReset DPUWarmReboot HostlessDPUReboot] <br />Optional: \{\} <br /> |
 
 
 
@@ -2488,6 +2488,7 @@ _Appears in:_
 | `rebootStatus` _[RebootStatus](#rebootstatus)_ | RebootStatus contains host reboot progress.<br />DPU controller derives user-facing DPUCondRebooted from this status. |  | Optional: \{\} <br /> |
 | `dpuMode` _[DpuModeType](#dpumodetype)_ | The mode of the DPU | dpu | Enum: [dpu nic] <br />Optional: \{\} <br /> |
 | `deploymentMode` _[DeploymentMode](#deploymentmode)_ | DeploymentMode is copied from DPFOperatorConfig.spec.deploymentMode by the controller.<br />This field is read-only for users. |  | Enum: [zero-trust host-trusted] <br />Optional: \{\} <br /> |
+| `hostless` _boolean_ | Hostless indicates that the DPU is attached to a system-managed synthetic<br />DPUNode rather than a physical host. |  | Optional: \{\} <br /> |
 | `secureBoot` _[SecureBootStatus](#securebootstatus)_ | SecureBoot indicates the current UEFI Secure Boot state. |  | Optional: \{\} <br /> |
 | `redfishTaskId` _string_ | The task ID of the last task performed on the DPU BMC |  | Optional: \{\} <br /> |
 
@@ -2842,6 +2843,20 @@ _Appears in:_
 | `hostAgent` _[HostAgent](#hostagent)_ | Use the HostAgent to reboot the host. |  | Optional: \{\} <br /> |
 | `external` _[External](#external)_ | Reboot the host via an external means, not controlled by the DPU controller. |  | Optional: \{\} <br /> |
 | `script` _[Script](#script)_ | Reboot the host by executing a custom script. This field defined which ConfigMap store the custom script.<br />The ConfigMap should include a pod template of Job object under the `pod-template` key.<br />That pod template will be put in a Job object to be executed. |  | Optional: \{\} <br /> |
+| `none` _[None](#none)_ | Do not reboot a host through the DPUNode. Used for hostless devices where<br />DPF manages the DPU reboot directly through Redfish. |  | Optional: \{\} <br /> |
+
+
+#### None
+
+
+
+
+
+
+
+_Appears in:_
+- [NodeRebootMethod](#noderebootmethod)
+
 
 
 #### PackageSpec
@@ -2954,10 +2969,10 @@ _Appears in:_
 _Underlying type:_ _string_
 
 RebootMethodType is the type of reset/reboot required after NVConfig or firmware changes.
-Set by the DPU agent. Values align with NVIDIA BlueField Reset and Reboot Procedures (mlxfwreset levels).
+Set by the DPU agent. Most values align with NVIDIA BlueField Reset and Reboot Procedures (mlxfwreset levels).
 
 _Validation:_
-- Enum: [Unknown NoAction PowerCycle SystemReboot SystemLevelReset FirmwareReset DPUWarmReboot]
+- Enum: [Unknown NoAction PowerCycle SystemReboot SystemLevelReset FirmwareReset DPUWarmReboot HostlessDPUReboot]
 
 _Appears in:_
 - [AgentStatus](#agentstatus)
@@ -2973,6 +2988,7 @@ _Appears in:_
 | `SystemLevelReset` | RebootMethodSystemLevelReset firmware configuration changes to take effect.<br /> |
 | `FirmwareReset` | RebootMethodFirmwareReset driver restart and PCI reset.<br /> |
 | `DPUWarmReboot` | RebootMethodDPUWarmReboot indicates the DPU OS is rebooting itself to apply<br />configuration changes (e.g. grub kernel parameters) that do not originate<br />from firmware or NVConfig. The provisioning controller should stay in the<br />current phase and wait for the agent to come back.<br /> |
+| `HostlessDPUReboot` | RebootMethodHostlessDPUReboot indicates a hostless DPU needs a DPU ARM<br />reboot performed by the provisioning controller through Redfish.<br /> |
 
 
 #### RebootStatus
@@ -2989,7 +3005,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `phase` _[RebootStatusPhase](#rebootstatusphase)_ | Phase is the current host reboot progress. |  | Enum: [Pending Succeeded Failed Unknown] <br /> |
-| `method` _[RebootMethodType](#rebootmethodtype)_ | Method is the recommended reboot method. |  | Enum: [Unknown NoAction PowerCycle SystemReboot SystemLevelReset FirmwareReset DPUWarmReboot] <br />Optional: \{\} <br /> |
+| `method` _[RebootMethodType](#rebootmethodtype)_ | Method is the recommended reboot method. |  | Enum: [Unknown NoAction PowerCycle SystemReboot SystemLevelReset FirmwareReset DPUWarmReboot HostlessDPUReboot] <br />Optional: \{\} <br /> |
 | `reason` _string_ | Reason indicates machine-readable reason for current phase. |  | Optional: \{\} <br /> |
 | `message` _string_ | Message provides human-readable details for current phase. |  | Optional: \{\} <br /> |
 | `lastTransitionTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | LastTransitionTime is the last update time for reboot status. |  | Optional: \{\} <br /> |

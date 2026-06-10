@@ -91,7 +91,7 @@ func DPUConfig(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Cont
 		// accidentally treat a previous reboot as already completed.
 		meta.RemoveStatusCondition(&state.Conditions, provisioningv1.DPUCondRebooted.String())
 		state.Phase = provisioningv1.DPURebooting
-		if err := InitializeDPURebootStatus(ctx, dpu, state, ctrlCtx, provisioningv1.DPUConfig); err != nil {
+		if err := dutil.InitializeDPURebootStatus(ctx, dpu, state, ctrlCtx, provisioningv1.DPUConfig); err != nil {
 			state.Phase = provisioningv1.DPUConfig
 			err = fmt.Errorf("failed to initialize reboot status: %w", err)
 			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondDPUConfig.String(), err, "FailedToInitializeRebootStatus", err.Error()))

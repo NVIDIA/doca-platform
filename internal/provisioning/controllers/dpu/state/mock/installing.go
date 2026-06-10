@@ -130,7 +130,7 @@ func RebootRequiredCheck(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *
 	}
 
 	state.Phase = provisioningv1.DPURebooting
-	if err := dpustate.InitializeDPURebootStatus(ctx, dpu, state, ctrlCtx, provisioningv1.DPUConfig); err != nil {
+	if err := dutil.InitializeDPURebootStatus(ctx, dpu, state, ctrlCtx, provisioningv1.DPUConfig); err != nil {
 		return *state, err
 	}
 	return *state, nil

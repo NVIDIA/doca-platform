@@ -20,7 +20,6 @@ import (
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
-	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state"
 	redfishmock "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/mock"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
@@ -216,7 +215,7 @@ var _ = Describe("InitializeInterface", func() {
 		cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondInterfaceInitialized, "", ""))
 
 		By("Step 3: Run Rebooting phase handler")
-		status, err = state.Rebooting(ctx, dpu,
+		status, err = Rebooting(ctx, dpu,
 			&dutil.ControllerContext{
 				Client: k8sClient,
 				Options: dutil.DPUOptions{
@@ -237,7 +236,7 @@ var _ = Describe("InitializeInterface", func() {
 		cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondRebooted, "", ""))
 
 		By("Step 5: Run Rebooting phase again after reboot annotation removed - should transition to InitializeInterface")
-		status, err = state.Rebooting(ctx, dpu,
+		status, err = Rebooting(ctx, dpu,
 			&dutil.ControllerContext{
 				Client: k8sClient,
 				Options: dutil.DPUOptions{
