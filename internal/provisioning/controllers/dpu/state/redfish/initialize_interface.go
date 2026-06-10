@@ -23,7 +23,6 @@ import (
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
-	dpustate "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state"
 	rfclient "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
@@ -94,7 +93,7 @@ func InitializeInterface(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *
 		cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondInterfaceInitialized, "", string(provisioningv1.DPUCondMessageModeUpdate)))
 
 		state.Phase = provisioningv1.DPURebooting
-		if err := dpustate.InitializeDPURebootStatus(ctx, dpu, state, ctrlCtx, provisioningv1.DPUInitializeInterface); err != nil {
+		if err := dutil.InitializeDPURebootStatus(ctx, dpu, state, ctrlCtx, provisioningv1.DPUInitializeInterface); err != nil {
 			return *state, err
 		}
 		return *state, nil

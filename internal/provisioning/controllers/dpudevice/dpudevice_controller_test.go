@@ -27,6 +27,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/mock"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
+	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -209,6 +210,65 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			// Try to create again - should fail
 			err = reconciler.createCR(ctx, dpuDevice, testCSR)
 			Expect(err).To(HaveOccurred())
+		})
+	})
+
+	Context("hostless DPUNode attachment", func() {
+		It("should generate a valid synthetic DPUNode name for long DPUDevice names", func() {
+			name := hostlessDPUNodeName("this-device-name-is-longer-than-the-dpunode-limit")
+
+			Expect(name).To(HavePrefix("hostless-"))
+			Expect(name).To(HaveLen(48))
+		})
+
+		It("should create a synthetic DPUNode and attach the DPUDevice", func() {
+			ctx := context.Background()
+			scheme := runtime.NewScheme()
+			_ = provisioningv1.AddToScheme(scheme)
+
+			dpuDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "bf3-cmx-01",
+					Namespace: "test-namespace",
+					UID:       types.UID("hostless-device-uid"),
+					Labels: map[string]string{
+						"provisioning.dpu.nvidia.com/hostless": "true",
+						"rack":                                 "r1",
+					},
+					Annotations: map[string]string{
+						"owner": "storage",
+					},
+				},
+				Spec: provisioningv1.DPUDeviceSpec{
+					SerialNumber: "MT25066004C7",
+				},
+			}
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(dpuDevice).
+				Build()
+			reconciler := &DPUDeviceReconciler{Client: fakeClient}
+
+			shouldContinue, result, err := reconciler.checkDPUNodeAttachment(ctx, dpuDevice)
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(shouldContinue).To(BeTrue())
+			Expect(result).To(Equal(ctrl.Result{}))
+			Expect(dpuDevice.Labels[provisioningv1.DPUNodeNameLabel]).To(Equal("hostless-bf3-cmx-01"))
+			Expect(findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceNodeAttached)).Status).To(Equal(metav1.ConditionTrue))
+
+			dpuNode := &provisioningv1.DPUNode{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: "hostless-bf3-cmx-01", Namespace: "test-namespace"}, dpuNode)).To(Succeed())
+			Expect(dpuNode.Spec.DPUs).To(Equal([]provisioningv1.DPURef{{Name: "bf3-cmx-01"}}))
+			Expect(dpuNode.Spec.NodeRebootMethod).NotTo(BeNil())
+			Expect(dpuNode.Spec.NodeRebootMethod.None).NotTo(BeNil())
+			Expect(dpuNode.Labels["provisioning.dpu.nvidia.com/hostless"]).To(Equal("true"))
+			Expect(dpuNode.Labels[cutil.NodeSelectorLabel]).To(Equal("true"))
+			Expect(dpuNode.Labels["rack"]).To(Equal("r1"))
+			Expect(dpuNode.Annotations["owner"]).To(Equal("storage"))
+			Expect(dpuNode.OwnerReferences).To(HaveLen(1))
+			Expect(dpuNode.OwnerReferences[0].Kind).To(Equal(provisioningv1.DPUDeviceKind))
+			Expect(dpuNode.OwnerReferences[0].Name).To(Equal("bf3-cmx-01"))
 		})
 	})
 

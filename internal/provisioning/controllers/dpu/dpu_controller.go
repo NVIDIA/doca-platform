@@ -85,7 +85,6 @@ func NewDPUReconciler(mgr manager.Manager, alloc allocator.Allocator, joinComman
 		provisioningv1.DPUNodeEffect:        state.NodeEffect,
 		provisioningv1.DPUPrepareBFB:        state.PrepareBFB,
 		provisioningv1.DPUConfig:            state.DPUConfig,
-		provisioningv1.DPURebooting:         state.Rebooting,
 		provisioningv1.DPUClusterConfig:     state.ClusterConfig,
 		provisioningv1.DPUNodeEffectRemoval: state.NodeEffectRemoval,
 		provisioningv1.DPUReady:             state.Ready,
@@ -98,11 +97,13 @@ func NewDPUReconciler(mgr manager.Manager, alloc allocator.Allocator, joinComman
 		handlers[provisioningv1.DPUConfigFWParameters] = hostagent.ConfigFWParameters
 		handlers[provisioningv1.DPUHostNetworkConfiguration] = hostagent.SetupNetwork
 		handlers[provisioningv1.DPUOSInstalling] = hostagent.Installing
+		handlers[provisioningv1.DPURebooting] = hostagent.Rebooting
 	case string(provisioningv1.InstallViaRedFish):
 		handlers[provisioningv1.DPUInitializeInterface] = redfish.InitializeInterface
 		handlers[provisioningv1.DPUConfigFWParameters] = redfish.ConfigFWParameters
 		handlers[provisioningv1.DPUOSInstalling] = redfish.Installing
 		handlers[provisioningv1.DPUPerformArmForceRestart] = redfish.PerformArmForceRestart
+		handlers[provisioningv1.DPURebooting] = redfish.Rebooting
 	case string(provisioningv1.InstallViaMock):
 		handlers[provisioningv1.DPUInitializeInterface] = mock.InitializeInterface
 		handlers[provisioningv1.DPUConfigFWParameters] = mock.ConfigFWParameters
@@ -112,6 +113,7 @@ func NewDPUReconciler(mgr manager.Manager, alloc allocator.Allocator, joinComman
 		handlers[provisioningv1.DPUClusterConfig] = mock.ClusterConfig
 		handlers[provisioningv1.DPUNodeEffectRemoval] = mock.NodeEffectRemoval
 		handlers[provisioningv1.DPUDeleting] = mock.Deleting
+		handlers[provisioningv1.DPURebooting] = mock.Rebooting
 	default:
 		panic(fmt.Errorf("unsupported interface %q. Supported: %s,%s",
 			options.DPUInstallInterface, provisioningv1.InstallViaGNOI, provisioningv1.InstallViaRedFish))
