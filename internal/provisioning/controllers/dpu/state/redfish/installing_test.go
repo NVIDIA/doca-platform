@@ -40,8 +40,9 @@ import (
 )
 
 const (
-	testBFBFile   = "/bfb/dpf-operator-system-bfb-bundle.bfb"
-	testBFCFGFile = "/bfb/bfcfg/dpf-operator-system_dpu-config"
+	testBFBFile     = "/bfb/dpf-operator-system-bfb-bundle.bfb"
+	testBFCFGFile   = "/bfb/bfcfg/dpf-operator-system_dpu-config"
+	testBFBRegistry = "10.0.110.1:8080"
 )
 
 // installingTestEnv bundles the boilerplate needed for the install-flow tests:
@@ -119,7 +120,7 @@ func setupInstallingEnv(dpuName string) *installingTestEnv {
 		dpuDevice:  dpuDevice,
 		ctrlCtx: &dutil.ControllerContext{
 			Client:               k8sClient,
-			Options:              dutil.DPUOptions{BFBRegistry: "10.0.110.1:8080"},
+			Options:              dutil.DPUOptions{BFBRegistry: testBFBRegistry},
 			DPUInProvisioningMap: dutil.NewDPUInProvisioningMap(10),
 		},
 		prevPodNS: prevNS,
@@ -161,10 +162,10 @@ func pcieLowSELEntry() rc.SELEntry {
 var _ = Describe("Installing", func() {
 	Context("concatBFBAndBFCFGPath", func() {
 		It("should return the correct path", func() {
-			registry := "10.0.110.1:8080"
+			registry := testBFBRegistry
 			bfbFile := testBFBFile
 			bfcfgFile := "/bfb/bfcfg/dpf-operator-system_dpu-node-mt25066004be-mt25066004be_ea091a0e-f0ae-4033-9db3-2ecf9a1dfe61"
-			expected := "10.0.110.1:8080/bfb/??dpf-operator-system-bfb-bundle.bfb,bfcfg/dpf-operator-system_dpu-node-mt25066004be-mt25066004be_ea091a0e-f0ae-4033-9db3-2ecf9a1dfe61?/bfb-to-install"
+			expected := testBFBRegistry + "/bfb/??dpf-operator-system-bfb-bundle.bfb,bfcfg/dpf-operator-system_dpu-node-mt25066004be-mt25066004be_ea091a0e-f0ae-4033-9db3-2ecf9a1dfe61?/bfb-to-install"
 
 			Expect(concatBFBAndBFCFGPath(registry, bfbFile, bfcfgFile)).To(Equal(expected))
 			Expect(concatBFBAndBFCFGPath("http://"+registry, bfbFile, bfcfgFile)).To(Equal(expected))
@@ -444,7 +445,7 @@ var _ = Describe("Installing", func() {
 		ctrlCtx := &dutil.ControllerContext{
 			Client: k8sClient,
 			Options: dutil.DPUOptions{
-				BFBRegistry: "10.0.110.1:8080",
+				BFBRegistry: testBFBRegistry,
 			},
 			DPUInProvisioningMap: dutil.NewDPUInProvisioningMap(10),
 		}
@@ -680,6 +681,79 @@ var _ = Describe("Installing", func() {
 			// Rail hint comes from the best-effort SEL probe (404 triggers ShouldProbeRails).
 			Expect(cond.Message).To(ContainSubstring("12V_ATX low"))
 			Expect(cond.Message).To(ContainSubstring("check power cable"))
+		})
+
+		It("HTTP 404 from InstallBFB submit surfaces the BMC message in the condition (rshim not owned by BMC)", func() {
+			env := setupInstallingEnv("dpu-installbfb-404-test")
+			defer env.teardown()
+
+			// Submit path: no Redfish task created yet.
+			env.dpu.Status.RedfishTaskID = nil
+			// Use the load-balancer override so getBFBRegistryAddress returns
+			// directly, keeping this test focused on the submit failure path.
+			env.ctrlCtx.Options.BFBRegistryLoadBalancer = testBFBRegistry
+
+			// Real BMC error envelope seen when rshim is not owned by the BMC.
+			body := `{
+  "error": {
+    "@Message.ExtendedInfo": [
+      {
+        "@odata.type": "#Message.v1_1_1.Message",
+        "Message": "The requested resource of type Targets named '/dev/rshim0/boot' was not found.",
+        "MessageArgs": ["Targets", "/dev/rshim0/boot"],
+        "MessageId": "Base.1.18.1.ResourceNotFound",
+        "MessageSeverity": "Critical",
+        "Resolution": "Provide a valid resource identifier and resubmit the request."
+      }
+    ],
+    "code": "Base.1.18.1.ResourceNotFound",
+    "message": "The requested resource of type Targets named '/dev/rshim0/boot' was not found."
+  }
+}`
+			env.mockServer.SetInstallBFBResponse(http.StatusNotFound, body)
+
+			status, err := Installing(ctx, env.dpu, env.ctrlCtx)
+			// Submit failure transitions to Error and returns nil so the next
+			// reconcile is driven by the UPDATE event, not a retry.
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUError))
+
+			_, cond := cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondBFBTransferred))
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Reason).To(Equal("FailToInstall"))
+			// Backward-compat: the historical "get status: <status>" prefix is kept.
+			Expect(cond.Message).To(ContainSubstring("get status: 404"))
+			// The Redfish error envelope is translated: the BMC's own message,
+			// MessageId, and Resolution now reach the condition (previously only
+			// in the log), so the actual cause is visible to the operator.
+			Expect(cond.Message).To(ContainSubstring("The requested resource of type Targets named '/dev/rshim0/boot' was not found."))
+			Expect(cond.Message).To(ContainSubstring("(Base.1.18.1.ResourceNotFound)"))
+			Expect(cond.Message).To(ContainSubstring("BMC Resolution: Provide a valid resource identifier and resubmit the request."))
+			// The translated form replaces the raw body dump.
+			Expect(cond.Message).NotTo(ContainSubstring("body:"))
+		})
+
+		It("valid-JSON non-Redfish body from InstallBFB submit falls back to the raw (truncated) body", func() {
+			env := setupInstallingEnv("dpu-installbfb-rawbody-test")
+			defer env.teardown()
+
+			env.dpu.Status.RedfishTaskID = nil
+			env.ctrlCtx.Options.BFBRegistryLoadBalancer = testBFBRegistry
+
+			// Valid JSON, but not a Redfish error envelope. It decodes cleanly in
+			// do[TaskInfo] (so we reach buildInstallBFBError), yet rc.ErrorMessages
+			// finds no error.message/@Message.ExtendedInfo, so we fall back to the body.
+			env.mockServer.SetInstallBFBResponse(http.StatusInternalServerError, `{"unexpected":"payload"}`)
+
+			status, err := Installing(ctx, env.dpu, env.ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUError))
+
+			_, cond := cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondBFBTransferred))
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Reason).To(Equal("FailToInstall"))
+			Expect(cond.Message).To(ContainSubstring("get status: 500"))
+			Expect(cond.Message).To(ContainSubstring(`body: {"unexpected":"payload"}`))
 		})
 
 		It("HTTP 500 + SEL has 12V_PCIe low: rail hint is appended; phase unchanged", func() {
