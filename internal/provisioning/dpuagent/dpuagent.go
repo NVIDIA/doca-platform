@@ -76,6 +76,8 @@ type DPUAgent struct {
 	rebootMethodDiscoveryFunc func(context.Context) bool
 	// writeDoneMarkerFunc, if non-nil, replaces the default marker writer (tests only).
 	writeDoneMarkerFunc func(dir string) error
+	// removeDoneMarkerFunc, if non-nil, replaces the default marker remover (tests only).
+	removeDoneMarkerFunc func(dir string) error
 }
 
 func NewDPUAgent(optCtx *operations.Context) *DPUAgent {
@@ -126,6 +128,13 @@ func (d *DPUAgent) Run(ctx context.Context) error {
 	}
 	if err := d.initCurrentBootID(); err != nil {
 		return err
+	}
+	removeMarker := removeDoneMarker
+	if d.removeDoneMarkerFunc != nil {
+		removeMarker = d.removeDoneMarkerFunc
+	}
+	if err := removeMarker(d.runDir); err != nil {
+		return fmt.Errorf("failed to remove stale done marker: %w", err)
 	}
 	for _, op := range d.operations {
 		if op.ShouldSkip(d.optCtx) {
@@ -237,6 +246,14 @@ func (d *DPUAgent) initCurrentBootID() error {
 		return fmt.Errorf("initialize current boot ID: %w", err)
 	}
 	d.optCtx.CurrentBootID = strings.TrimSpace(string(currentBootID))
+	return nil
+}
+
+func removeDoneMarker(dir string) error {
+	markerPath := filepath.Join(dir, doneMarkerFileName)
+	if err := os.Remove(markerPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove stale done marker %s: %w", markerPath, err)
+	}
 	return nil
 }
 

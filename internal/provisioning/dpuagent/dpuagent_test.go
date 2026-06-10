@@ -123,6 +123,47 @@ var _ = Describe("DPUAgent", func() {
 			Expect(markerCalled).To(BeFalse())
 		})
 
+		It("should remove a stale done marker at startup before operations run", func() {
+			dpu := newTestDPU()
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+			removeCalled := false
+			opExecuted := false
+
+			agent := &DPUAgent{
+				retryInterval:        testRetryInterval,
+				removeDoneMarkerFunc: func(_ string) error { removeCalled = true; return nil },
+				writeDoneMarkerFunc:  func(_ string) error { return nil },
+				optCtx:               newTestOptCtx(fakeClient),
+				operations: []operations.Operation{
+					&mockOperation{name: "op1", conditionType: "Op1Condition", executeFunc: func(_ context.Context, _ *operations.Context) error {
+						Expect(removeCalled).To(BeTrue(), "stale marker should be removed before operations run")
+						opExecuted = true
+						return nil
+					}},
+				},
+			}
+			Expect(agent.Run(ctx)).To(Succeed())
+			Expect(opExecuted).To(BeTrue())
+		})
+
+		It("should return error when removing the stale done marker fails", func() {
+			dpu := newTestDPU()
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+
+			agent := &DPUAgent{
+				retryInterval:        testRetryInterval,
+				removeDoneMarkerFunc: func(_ string) error { return fmt.Errorf("permission denied") },
+				writeDoneMarkerFunc:  func(_ string) error { return nil },
+				optCtx:               newTestOptCtx(fakeClient),
+				operations: []operations.Operation{
+					&mockOperation{name: "op1", conditionType: "Op1Condition", executeFunc: func(_ context.Context, _ *operations.Context) error { return nil }},
+				},
+			}
+			err := agent.Run(ctx)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("stale done marker"))
+		})
+
 		It("should return error when writing the done marker fails", func() {
 			dpu := newTestDPU()
 			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
