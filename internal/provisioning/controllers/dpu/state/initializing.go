@@ -72,6 +72,7 @@ func Initializing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 
 	state.DPUType = dpuDevice.Status.DPUType
 	state.DPUMode = dpuDevice.Status.DPUMode
+	state.Hostless = dpuDevice.Labels[cutil.DPUDeviceHostlessLabel] == "true"
 
 	// Sync SecureBoot status from DPUDevice
 	if dpuDevice.Status.SecureBoot != nil {

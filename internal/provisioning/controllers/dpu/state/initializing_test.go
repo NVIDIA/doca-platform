@@ -165,6 +165,41 @@ var _ = Describe("Phase Initializing", func() {
 			Expect(status.SecureBoot).NotTo(BeNil())
 			Expect(*status.SecureBoot.Enabled).To(BeTrue())
 		})
+
+		It("should propagate hostless status from DPUDevice label", func() {
+			dpuDevice := dpuDeviceObj(defaultDPUDeviceName)
+			dpuDevice.Labels[cutil.DPUDeviceHostlessLabel] = "true"
+			dpuDevice.Spec.BMCIP = ptr.To("192.0.2.10")
+			createObject(dpuDevice)
+
+			dpuNode := dpuNodeObj(defaultDPUNodeName)
+			dpuNode.Spec.DPUs = []provisioningv1.DPURef{{Name: dpuDevice.Name}}
+			createObject(dpuNode)
+			patchNode := client.MergeFrom(dpuNode.DeepCopy())
+			dpuNode.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaRedFish))
+			Expect(k8sClient.Status().Patch(ctx, dpuNode, patchNode)).To(Succeed())
+
+			dpuCluster := dpuClusterObj(defaultDPUClusterName, "static")
+			createObject(dpuCluster)
+
+			dpu := dpuObj(defaultDPUName)
+			dpu.Spec.DPUNodeName = dpuNode.Name
+			dpu.Spec.DPUDeviceName = dpuDevice.Name
+			dpu.Spec.Cluster.Namespace = dpuCluster.Namespace
+			dpu.Spec.Cluster.Name = dpuCluster.Name
+			dpu.Status.Phase = provisioningv1.DPUInitializing
+			dpu.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaRedFish))
+
+			status, err := state.Initializing(ctx, dpu, &dutil.ControllerContext{
+				Client: k8sClient,
+				Options: dutil.DPUOptions{
+					DPUInstallInterface: string(provisioningv1.InstallViaRedFish),
+				},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Hostless).To(BeTrue())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUPending))
+		})
 	})
 
 	Context("error handling", func() {
