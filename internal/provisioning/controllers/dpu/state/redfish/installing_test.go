@@ -998,11 +998,12 @@ var _ = Describe("Installing", func() {
 			dpu := dpuObj(name)
 			dpu.Spec.DPUDeviceName = dpuDevice.Name
 			dpu.Status.Phase = provisioningv1.DPUOSInstalling
+			dpu.Status.DPUType = provisioningv1.DPUTypeBlueField3
 			cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondBFBTransferred, "", ""))
 			return dpu
 		}
 
-		It("should report OSInstalled=False while booting and flip to True (resetting LastTransitionTime) when OemLastState becomes OsIsRunning", func() {
+		It("should report OSInstalled=False while booting and flip to True (resetting LastTransitionTime) when the DPU agent starts", func() {
 			By("Step 1: OS still booting -> OSInstalled=False with descriptive message")
 			mockServer.SetOemLastState("DdrTraining")
 			dpu := dpuWithBFBTransferred("dpu-osinstalled-flip-test")
@@ -1027,11 +1028,13 @@ var _ = Describe("Installing", func() {
 			t1 := time.Now().Add(-30 * time.Minute)
 			dpu.Status = status
 
-			By("Step 3: OS finishes booting -> OSInstalled flips to True with fresh LastTransitionTime")
+			By("Step 3: DPU agent reports startup -> OSInstalled flips to True with fresh LastTransitionTime")
 			mockServer.SetOemLastState("OsIsRunning")
+			now := metav1.Now()
+			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{LastStartupTime: &now}
 			status, err = Installing(ctx, dpu, ctrlCtx)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(status.Phase).To(Equal(provisioningv1.DPUConfig), "Installing should hand off to DPUConfig once the OS has booted")
+			Expect(status.Phase).To(Equal(provisioningv1.DPUConfig), "Installing should hand off to DPUConfig once the DPU agent has started")
 
 			_, trueCond := cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondOSInstalled))
 			Expect(trueCond).NotTo(BeNil())

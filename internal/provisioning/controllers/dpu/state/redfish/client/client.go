@@ -1114,7 +1114,11 @@ func (c *Client) InstallBluefieldArmConfig(imageURI string) (*resty.Response, *T
 	})
 }
 
-func (c *Client) SetBootTarget(target string) (*resty.Response, error) {
+func (c *Client) SetBootTarget(target string, bootSourceOverride bool) (*resty.Response, error) {
+	bootSourceOverrideEnabled := "Disabled"
+	if bootSourceOverride {
+		bootSourceOverrideEnabled = "Once"
+	}
 	headers := map[string]string{
 		"Content-Type": "application/json",
 	}
@@ -1123,7 +1127,7 @@ func (c *Client) SetBootTarget(target string) (*resty.Response, error) {
 			"BootSourceOverrideTarget":     target,
 			"UefiTargetBootSourceOverride": "None",
 			"BootSourceOverrideMode":       "UEFI",
-			"BootSourceOverrideEnabled":    "Once",
+			"BootSourceOverrideEnabled":    bootSourceOverrideEnabled,
 			"BootNext":                     "",
 			"AutomaticRetryConfig":         "Disabled",
 		},
@@ -1138,8 +1142,8 @@ func (c *Client) SetBootTarget(target string) (*resty.Response, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to set boot target: %w", err)
 	}
-	if resp.StatusCode() != http.StatusOK {
-		return nil, fmt.Errorf("failed to set boot target: %s", resp.Status())
+	if resp.StatusCode() != http.StatusNoContent && resp.StatusCode() != http.StatusOK {
+		return nil, fmt.Errorf("failed to set boot target: unexpected status code %d", resp.StatusCode())
 	}
 	return resp, nil
 }

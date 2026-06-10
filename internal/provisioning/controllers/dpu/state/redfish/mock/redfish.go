@@ -830,10 +830,7 @@ func (r *RedfishMockServer) handleBluefieldSystemSettings(w http.ResponseWriter,
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	w.WriteHeader(http.StatusOK)
-	writeJSONResponse(w, map[string]interface{}{
-		"@odata.id": req.URL.Path,
-	})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleChassisReset handles BF4 chassis ARM reset during OS install.
