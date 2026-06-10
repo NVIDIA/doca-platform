@@ -340,9 +340,8 @@ func submitAndMonitorBfbInstallTask(ctx context.Context, dpu *provisioningv1.DPU
 			logger.Info("another update is in progress, waiting for it to finish", "dpuName", dpu.Name)
 			return *state, nil
 		} else if resp.StatusCode() != http.StatusAccepted {
-			err = fmt.Errorf("get status: %s", resp.Status())
-			logger.Error(err, "Failed to install BFB", "status", resp.Status(), "body", resp.String())
-			cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondBFBTransferred), err, "FailToInstall", resp.String()))
+			err = buildInstallBFBError(logger, resp.Status(), resp.String())
+			cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondBFBTransferred), err, "FailToInstall", err.Error()))
 			state.Phase = provisioningv1.DPUError
 			return *state, nil
 		}
@@ -418,6 +417,23 @@ func truncateForCondition(body string) string {
 		return body
 	}
 	return body[:responseBodyMaxChars] + "...(truncated)"
+}
+
+// buildInstallBFBError formats a non-202 response to the BFB submit
+// (UpdateService.SimpleUpdate) into a condition error. It keeps the legacy
+// "get status: %s" prefix and folds in the Redfish error message(s), falling
+// back to the raw (truncated) body when the response is not a parseable
+// Redfish error envelope.
+func buildInstallBFBError(logger logr.Logger, status, body string) error {
+	parts := []string{fmt.Sprintf("get status: %s", status)}
+	if msgs := rc.ErrorMessages(body); len(msgs) > 0 {
+		parts = append(parts, strings.Join(msgs, "; "))
+	} else if body != "" {
+		parts = append(parts, "body: "+truncateForCondition(body))
+	}
+	err := fmt.Errorf("%s", strings.Join(parts, ". "))
+	logger.Error(err, "Failed to install BFB", "status", status, "body", body)
+	return err
 }
 
 // buildNon200ProgressError formats the enriched error for a non-200 response

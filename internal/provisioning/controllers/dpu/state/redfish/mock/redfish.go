@@ -59,6 +59,8 @@ type RedfishMockServer struct {
 	taskMessages                  []map[string]interface{} // Task messages for Exception state
 	concurrentUpdateBusyRemaining int                      // Number of InstallBFB calls that return HTTP 400 "Another update is in progress"
 	concurrentUpdateBusyServed    int                      // How many 400 "Another update" responses were actually sent
+	installBFBStatus              int                      // Override HTTP status returned by InstallBFB; 0 means default 202
+	installBFBBody                string                   // Override raw body when installBFBStatus != 0
 	taskHTTPStatus                int                      // Override HTTP status returned by GET task; 0 means default 200
 	taskHTTPBody                  string                   // Override raw body when taskHTTPStatus != 0
 	selEntries                    []client.SELEntry        // System Event Log entries returned by GET SEL/Entries
@@ -339,6 +341,15 @@ func (r *RedfishMockServer) handleGetChassis(w http.ResponseWriter, req *http.Re
 func (r *RedfishMockServer) handleInstallBFB(w http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if r.installBFBStatus != 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(r.installBFBStatus)
+		if r.installBFBBody != "" {
+			_, _ = w.Write([]byte(r.installBFBBody))
+		}
 		return
 	}
 
@@ -750,6 +761,15 @@ func (r *RedfishMockServer) GetConcurrentUpdateBusyServed() int {
 func (r *RedfishMockServer) SetTaskHTTPResponse(status int, body string) {
 	r.taskHTTPStatus = status
 	r.taskHTTPBody = body
+}
+
+// SetInstallBFBResponse forces handleInstallBFB to return the given HTTP status
+// and raw body, bypassing the default HTTP 202 Accepted. Pass status=0 to
+// restore the default. Used to simulate BMC errors such as a 404 when the BMC
+// does not own rshim.
+func (r *RedfishMockServer) SetInstallBFBResponse(status int, body string) {
+	r.installBFBStatus = status
+	r.installBFBBody = body
 }
 
 // SetSELEntries sets the entries returned by GET LogServices/SEL/Entries.
