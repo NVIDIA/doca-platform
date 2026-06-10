@@ -68,12 +68,14 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 
 	device := &provisioningv1.DPUDevice{}
 	if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.DPUDeviceName}, device); err != nil {
+		logger.Error(err, "Failed to get DPUDevice")
 		return *state, err
 	}
 
 	client, err := rc.NewTLSClient(ctx, device.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
 	if err != nil {
 		err = fmt.Errorf("failed to create TLS client: %w", err)
+		logger.Error(err, "Failed to create TLS client")
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "FailedToCreateClient", err.Error()))
 		return *state, err
 	}
@@ -92,23 +94,26 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 		}
 	}
 
-	resp, system, err := client.GetSystem()
-	if err != nil || resp.StatusCode() != http.StatusOK {
-		err = fmt.Errorf("failed to get system: %w", err)
-		logger.Error(err, "Failed to get system")
-		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "FailToGetSystem", err.Error()))
-		return *state, err
-	}
+	if dpu.Status.AgentStatus == nil || dpu.Status.AgentStatus.LastStartupTime == nil {
+		resp, system, err := client.GetSystem()
+		if err != nil || resp.StatusCode() != http.StatusOK {
+			if err == nil {
+				err = fmt.Errorf("failed to get system: unexpected status code %d", resp.StatusCode())
+			} else {
+				err = fmt.Errorf("failed to get system: %w", err)
+			}
+			logger.Error(err, "Failed to get system")
+			cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "FailToGetSystem", err.Error()))
+			return *state, err
+		}
 
-	if dpu.Status.DPUType == provisioningv1.DPUTypeBlueField4 && system.BootProgress.LastState != "OSRunning" {
-		logger.Info("OS is not running, waiting for it to start")
-		msg := fmt.Sprintf("Waiting for DPU OS to finish booting; current boot state=%q", system.BootProgress.LastState)
-		cond := cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), nil, "OSNotRunning", msg)
-		cond.Status = metav1.ConditionFalse
-		cutil.SetDPUCondition(state, cond)
-		return *state, nil
-	} else if system.BootProgress.OemLastState != "OsIsRunning" {
-		msg := fmt.Sprintf("Waiting for DPU OS to finish booting; current boot state=%q", system.BootProgress.OemLastState)
+		lastState := system.BootProgress.LastState
+		if dpu.Status.DPUType == provisioningv1.DPUTypeBlueField3 {
+			lastState = system.BootProgress.OemLastState
+		}
+
+		msg := fmt.Sprintf("Waiting for DPU OS to finish booting and start dpu-agent; current boot state=%q", lastState)
+		logger.Info(msg)
 		cond := cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), nil, "OSNotRunning", msg)
 		cond.Status = metav1.ConditionFalse
 		cutil.SetDPUCondition(state, cond)
@@ -190,7 +195,15 @@ func installOsBf4(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 		return *state, nil
 	}
 
-	resp, err = client.SetBootTarget("Usb")
+	resp, err = client.SetBootTarget("None", false)
+	if err != nil {
+		err = fmt.Errorf("failed to set boot target: %w", err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondChangeBootTarget), err, "FailToSetBootTarget", resp.String()))
+		state.Phase = provisioningv1.DPUError
+		return *state, nil
+	}
+
+	resp, err = client.SetBootTarget("Usb", true)
 	if err != nil {
 		err = fmt.Errorf("failed to set boot target: %w", err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondChangeBootTarget), err, "FailToSetBootTarget", resp.String()))
