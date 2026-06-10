@@ -47,6 +47,11 @@ type Backend interface {
 
 	// IsDHCPConfigured checks if DHCP is enabled for an interface.
 	IsDHCPConfigured(interfaceName string) (bool, error)
+
+	// EnsureVFsUnmanaged ensures that VF interfaces will not be managed by the
+	// network configuration backend. For NetworkManager this writes a udev rule;
+	// other backends may no-op.
+	EnsureVFsUnmanaged() error
 }
 
 // ConfigureNetwork orchestrates PF interface and bridge MTU configuration
