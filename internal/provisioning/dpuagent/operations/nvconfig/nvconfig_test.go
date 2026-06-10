@@ -47,6 +47,35 @@ func discoverPortsForTest() func() ([]pciutil.NICPort, error) {
 	}
 }
 
+// queryOutputForParams builds mlxconfig q output exposing all desired params except hidden names.
+func queryOutputForParams(params string, hidden ...string) string {
+	hiddenSet := make(map[string]struct{}, len(hidden))
+	for _, name := range hidden {
+		hiddenSet[strings.ToUpper(name)] = struct{}{}
+	}
+	entries := parseParamEntries(params)
+	lines := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if _, ok := hiddenSet[entry.name]; ok {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("%s False(0)", entry.name))
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
+func runBashWithQuery(recorded *[]string, queryOut string) func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+	return func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+		*recorded = append(*recorded, cmd)
+		if strings.Contains(cmd, " q") {
+			var stdout bytes.Buffer
+			stdout.WriteString(queryOut)
+			return stdout, bytes.Buffer{}, nil
+		}
+		return bytes.Buffer{}, bytes.Buffer{}, nil
+	}
+}
+
 var _ = Describe("NVConfig Operation", func() {
 	Context("Set NVConfig", func() {
 		It("should not skip when NVConfig is empty (Execute will run reset-only)", func() {
@@ -59,7 +88,7 @@ var _ = Describe("NVConfig Operation", func() {
 			Expect(operation.ShouldSkip(&operations.Context{DPUFlavor: dpuFlavor})).To(BeFalse())
 		})
 
-		It("when NVConfig is empty and RebootMethodDiscovery is true should run --with_default BOOT_DBG_LOG=0 on all devices", func() {
+		It("when NVConfig is empty and RebootMethodDiscovery is true should run no-op --with_default set on all devices", func() {
 			pci0, pci1 := testPci0, testPci1
 			var recorded []string
 			operation := ConfigureNVConfig{
@@ -81,15 +110,12 @@ var _ = Describe("NVConfig Operation", func() {
 			))
 		})
 
-		It("when NVConfig has single entry with device '*' and RebootMethodDiscovery is true should run --with_default set with same params on all netdevs", func() {
+		It("when NVConfig has single entry with device '*' and RebootMethodDiscovery is true should query then set visible params", func() {
 			pci0, pci1 := testPci0, testPci1
 			params := "PARAM1=VALUE1 PARAM2=VALUE2"
 			var recorded []string
 			operation := ConfigureNVConfig{
-				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
-					recorded = append(recorded, cmd)
-					return bytes.Buffer{}, bytes.Buffer{}, nil
-				},
+				runBash: runBashWithQuery(&recorded, queryOutputForParams(params)),
 			}
 			operationCtx := &operations.Context{
 				DiscoverPorts:         discoverPortsForTest(),
@@ -105,7 +131,9 @@ var _ = Describe("NVConfig Operation", func() {
 			}
 			Expect(operation.Execute(ctx, operationCtx)).To(Succeed())
 			Expect(recorded).To(ConsistOf(
+				fmt.Sprintf("mlxconfig -d %s q", pci0),
 				fmt.Sprintf("mlxconfig -d %s -y --with_default set %s", pci0, params),
+				fmt.Sprintf("mlxconfig -d %s q", pci1),
 				fmt.Sprintf("mlxconfig -d %s -y --with_default set %s", pci1, params),
 			))
 		})
@@ -132,7 +160,7 @@ var _ = Describe("NVConfig Operation", func() {
 			))
 		})
 
-		It("when RebootMethodDiscovery is false should use reset then set without --with_default", func() {
+		It("when RebootMethodDiscovery is false should reset then set full flavor params", func() {
 			pci0, pci1 := testPci0, testPci1
 			params := "PARAM1=VALUE1 PARAM2=VALUE2"
 			var recorded []string
@@ -155,12 +183,12 @@ var _ = Describe("NVConfig Operation", func() {
 				LatestDPU: &provisioningv1.DPU{Status: provisioningv1.DPUStatus{AgentStatus: &provisioningv1.AgentStatus{Conditions: []metav1.Condition{}}}},
 			}
 			Expect(operation.Execute(ctx, operationCtx)).To(Succeed())
-			Expect(recorded).To(ConsistOf(
+			Expect(recorded).To(Equal([]string{
 				fmt.Sprintf("mlxconfig -d %s -y reset", pci0),
-				fmt.Sprintf("mlxconfig -d %s -y set %s", pci0, params),
 				fmt.Sprintf("mlxconfig -d %s -y reset", pci1),
+				fmt.Sprintf("mlxconfig -d %s -y set %s", pci0, params),
 				fmt.Sprintf("mlxconfig -d %s -y set %s", pci1, params),
-			))
+			}))
 		})
 
 		It("should skip if NVConfig is already configured", func() {
@@ -257,13 +285,19 @@ var _ = Describe("NVConfig Operation", func() {
 				},
 			}
 
-			expectedCommands := []string{
-				fmt.Sprintf("mlxconfig -d %s -y --with_default set PARAM5=VALUE5 PARAM6=VALUE6", pci0),
-				fmt.Sprintf("mlxconfig -d %s -y --with_default set PARAM7=VALUE7 PARAM8=VALUE8", pci1),
-			}
 			var recorded []string
 			runBash := func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 				recorded = append(recorded, cmd)
+				if strings.Contains(cmd, " q") {
+					var stdout bytes.Buffer
+					switch {
+					case strings.Contains(cmd, pci0):
+						stdout.WriteString(queryOutputForParams("PARAM5=VALUE5 PARAM6=VALUE6"))
+					case strings.Contains(cmd, pci1):
+						stdout.WriteString(queryOutputForParams("PARAM7=VALUE7 PARAM8=VALUE8"))
+					}
+					return stdout, bytes.Buffer{}, nil
+				}
 				return bytes.Buffer{}, bytes.Buffer{}, nil
 			}
 			operation := ConfigureNVConfig{
@@ -288,7 +322,12 @@ var _ = Describe("NVConfig Operation", func() {
 			}
 
 			Expect(operation.Execute(ctx, operationCtx)).To(Succeed())
-			Expect(recorded).To(ConsistOf(expectedCommands))
+			Expect(recorded).To(ConsistOf(
+				fmt.Sprintf("mlxconfig -d %s q", pci0),
+				fmt.Sprintf("mlxconfig -d %s -y --with_default set PARAM5=VALUE5 PARAM6=VALUE6", pci0),
+				fmt.Sprintf("mlxconfig -d %s q", pci1),
+				fmt.Sprintf("mlxconfig -d %s -y --with_default set PARAM7=VALUE7 PARAM8=VALUE8", pci1),
+			))
 		})
 
 		It("should succeed with RebootMethodDiscovery false (reset then set per port)", func() {
@@ -297,13 +336,6 @@ var _ = Describe("NVConfig Operation", func() {
 			dpuFlavor := provisioningv1.DPUFlavor{
 				Spec: provisioningv1.DPUFlavorSpec{
 					NVConfig: []provisioningv1.NVConfig{
-						{
-							Device:     ptr.To("*"),
-							Parameters: []string{"PARAM1=VALUE1", "PARAM2=VALUE2"},
-						},
-						{
-							Parameters: []string{"PARAM3=VALUE3", "PARAM4=VALUE4"},
-						},
 						{
 							Device:     ptr.To("p0"),
 							Parameters: []string{"PARAM5=VALUE5", "PARAM6=VALUE6"},
@@ -316,12 +348,6 @@ var _ = Describe("NVConfig Operation", func() {
 				},
 			}
 
-			expectedCommands := []string{
-				fmt.Sprintf("mlxconfig -d %s -y reset", pci0),
-				fmt.Sprintf("mlxconfig -d %s -y reset", pci1),
-				fmt.Sprintf("mlxconfig -d %s -y set PARAM5=VALUE5 PARAM6=VALUE6", pci0),
-				fmt.Sprintf("mlxconfig -d %s -y set PARAM7=VALUE7 PARAM8=VALUE8", pci1),
-			}
 			var recorded []string
 			runBash := func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 				recorded = append(recorded, cmd)
@@ -349,7 +375,151 @@ var _ = Describe("NVConfig Operation", func() {
 			}
 
 			Expect(operation.Execute(ctx, operationCtx)).To(Succeed())
-			Expect(recorded).To(Equal(expectedCommands))
+			Expect(recorded).To(Equal([]string{
+				fmt.Sprintf("mlxconfig -d %s -y reset", pci0),
+				fmt.Sprintf("mlxconfig -d %s -y reset", pci1),
+				fmt.Sprintf("mlxconfig -d %s -y set PARAM5=VALUE5 PARAM6=VALUE6", pci0),
+				fmt.Sprintf("mlxconfig -d %s -y set PARAM7=VALUE7 PARAM8=VALUE8", pci1),
+			}))
+		})
+
+		It("should defer params not exposed in mlxconfig q until after reboot", func() {
+			pci0, pci1 := testPci0, testPci1
+			params := "ADVANCED_PCI_SETTINGS=1 MAX_ACC_OUT_READ=44"
+			queryOut := queryOutputForParams(params, "MAX_ACC_OUT_READ")
+			var recorded []string
+			operation := ConfigureNVConfig{
+				runBash: runBashWithQuery(&recorded, queryOut),
+			}
+			operationCtx := &operations.Context{
+				DiscoverPorts:         discoverPortsForTest(),
+				RebootMethodDiscovery: true,
+				DPUFlavor: provisioningv1.DPUFlavor{
+					Spec: provisioningv1.DPUFlavorSpec{
+						NVConfig: []provisioningv1.NVConfig{
+							{Device: ptr.To("*"), Parameters: strings.Split(params, " ")},
+						},
+					},
+				},
+				LatestDPU: &provisioningv1.DPU{Status: provisioningv1.DPUStatus{AgentStatus: &provisioningv1.AgentStatus{Conditions: []metav1.Condition{}}}},
+			}
+			Expect(operation.Execute(ctx, operationCtx)).To(Succeed())
+			Expect(recorded).To(ConsistOf(
+				fmt.Sprintf("mlxconfig -d %s q", pci0),
+				fmt.Sprintf("mlxconfig -d %s -y --with_default set ADVANCED_PCI_SETTINGS=1", pci0),
+				fmt.Sprintf("mlxconfig -d %s q", pci1),
+				fmt.Sprintf("mlxconfig -d %s -y --with_default set ADVANCED_PCI_SETTINGS=1", pci1),
+			))
+		})
+
+		It("should apply full list when all params are exposed in mlxconfig q", func() {
+			pci0 := testPci0
+			params := "ADVANCED_PCI_SETTINGS=1 MAX_ACC_OUT_READ=44"
+			var recorded []string
+			operation := ConfigureNVConfig{
+				runBash: runBashWithQuery(&recorded, queryOutputForParams(params)),
+			}
+			operationCtx := &operations.Context{
+				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+					return []pciutil.NICPort{
+						{Netdev: "p0", PCIAddress: testPci0},
+					}, nil
+				},
+				RebootMethodDiscovery: true,
+				DPUFlavor: provisioningv1.DPUFlavor{
+					Spec: provisioningv1.DPUFlavorSpec{
+						NVConfig: []provisioningv1.NVConfig{
+							{Device: ptr.To("*"), Parameters: strings.Split(params, " ")},
+						},
+					},
+				},
+				LatestDPU: &provisioningv1.DPU{Status: provisioningv1.DPUStatus{AgentStatus: &provisioningv1.AgentStatus{Conditions: []metav1.Condition{}}}},
+			}
+			Expect(operation.Execute(ctx, operationCtx)).To(Succeed())
+			Expect(recorded).To(Equal([]string{
+				fmt.Sprintf("mlxconfig -d %s q", pci0),
+				fmt.Sprintf("mlxconfig -d %s -y --with_default set %s", pci0, params),
+			}))
+		})
+
+		It("should set visible params even when mlxconfig q already shows them", func() {
+			pci0 := testPci0
+			params := "ADVANCED_PCI_SETTINGS=1"
+			queryOut := "ADVANCED_PCI_SETTINGS True(1)\n"
+			var recorded []string
+			operation := ConfigureNVConfig{
+				runBash: runBashWithQuery(&recorded, queryOut),
+			}
+			operationCtx := &operations.Context{
+				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPci0}}, nil
+				},
+				RebootMethodDiscovery: true,
+				DPUFlavor: provisioningv1.DPUFlavor{
+					Spec: provisioningv1.DPUFlavorSpec{
+						NVConfig: []provisioningv1.NVConfig{
+							{Device: ptr.To("*"), Parameters: strings.Split(params, " ")},
+						},
+					},
+				},
+				LatestDPU: &provisioningv1.DPU{Status: provisioningv1.DPUStatus{AgentStatus: &provisioningv1.AgentStatus{Conditions: []metav1.Condition{}}}},
+			}
+			Expect(operation.Execute(ctx, operationCtx)).To(Succeed())
+			Expect(recorded).To(Equal([]string{
+				fmt.Sprintf("mlxconfig -d %s q", pci0),
+				fmt.Sprintf("mlxconfig -d %s -y --with_default set %s", pci0, params),
+			}))
+		})
+
+		It("should run no-op set when all flavor params are deferred by mlxconfig q filtering", func() {
+			pci0 := testPci0
+			params := "MAX_ACC_OUT_READ=44"
+			var recorded []string
+			operation := ConfigureNVConfig{
+				runBash: runBashWithQuery(&recorded, ""),
+			}
+			operationCtx := &operations.Context{
+				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPci0}}, nil
+				},
+				RebootMethodDiscovery: true,
+				DPUFlavor: provisioningv1.DPUFlavor{
+					Spec: provisioningv1.DPUFlavorSpec{
+						NVConfig: []provisioningv1.NVConfig{
+							{Device: ptr.To("*"), Parameters: strings.Split(params, " ")},
+						},
+					},
+				},
+				LatestDPU: &provisioningv1.DPU{Status: provisioningv1.DPUStatus{AgentStatus: &provisioningv1.AgentStatus{Conditions: []metav1.Condition{}}}},
+			}
+			Expect(operation.Execute(ctx, operationCtx)).To(Succeed())
+			Expect(recorded).To(Equal([]string{
+				fmt.Sprintf("mlxconfig -d %s q", pci0),
+				fmt.Sprintf("mlxconfig -d %s -y --with_default set BOOT_DBG_LOG=0", pci0),
+			}))
+		})
+
+	})
+
+	Context("mlxconfig q parsing and filtering", func() {
+		It("parses mlxconfig q parameter names", func() {
+			out := parseMlxconfigQuery("        ADVANCED_PCI_SETTINGS                           False(0)\nSRIOV_EN True(1)\n")
+			Expect(out).To(HaveKey("ADVANCED_PCI_SETTINGS"))
+			Expect(out).To(HaveKey("SRIOV_EN"))
+			Expect(out).To(HaveLen(2))
+		})
+
+		It("filterParamsForSet defers hidden params", func() {
+			operation := ConfigureNVConfig{
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					var stdout bytes.Buffer
+					stdout.WriteString("ADVANCED_PCI_SETTINGS False(0)\n")
+					return stdout, bytes.Buffer{}, nil
+				},
+			}
+			resolved, err := operation.filterParamsForSet(testPci0, "ADVANCED_PCI_SETTINGS=1 IBM_CAPI_EN=1")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resolved).To(Equal("ADVANCED_PCI_SETTINGS=1"))
 		})
 	})
 
