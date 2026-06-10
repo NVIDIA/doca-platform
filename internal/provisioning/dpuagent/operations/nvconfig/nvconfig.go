@@ -33,9 +33,12 @@ import (
 	"k8s.io/klog/v2"
 )
 
-const (
-	CondNVConfigApplied = "NVConfigApplied"
-)
+const CondNVConfigApplied = "NVConfigApplied"
+
+type nvParam struct {
+	name  string
+	value string
+}
 
 type ConfigureNVConfig struct {
 	runBash func(cmd string) (bytes.Buffer, bytes.Buffer, error)
@@ -121,7 +124,8 @@ func (n *ConfigureNVConfig) Execute(execCtx context.Context, optCtx *operations.
 
 	// 4. Execute mlxconfig.
 	// RebootMethodDiscovery is set at agent start (see dpuagent MFT version probe logs).
-	// false: reset all target PCI devices, then set per PCI. true: --with_default set only.
+	// false (legacy): reset all target PCI devices, then set the full flavor list per PCI.
+	// true (device-query): --with_default set only; filterParamsForSet queries mlxconfig before each set.
 	if !optCtx.RebootMethodDiscovery {
 		// Reset all target PCI devices first, then set per PCI.
 		for _, pair := range ordered {
@@ -143,7 +147,7 @@ func (n *ConfigureNVConfig) Execute(execCtx context.Context, optCtx *operations.
 	}
 	for _, pair := range ordered {
 		pci, params := pair.pci, pair.params
-		klog.Infof("Setting NVConfig params on device %s: %s", pci, params)
+		klog.Infof("Passed NVConfig params on device %s: %s", pci, params)
 		if params == "" {
 			// Avoid mlxconfig reset (which always forces a device reset). Use --with_default set
 			// with a parameter that equals its default (e.g. BOOT_DBG_LOG=0), so the config is
@@ -151,10 +155,21 @@ func (n *ConfigureNVConfig) Execute(execCtx context.Context, optCtx *operations.
 			if err := n.runMlxconfig(pci, "--with_default set", "BOOT_DBG_LOG=0"); err != nil {
 				return err
 			}
-		} else {
-			if err := n.runMlxconfig(pci, "--with_default set", params); err != nil {
+			continue
+		}
+		resolved, resolveErr := n.filterParamsForSet(pci, params)
+		if resolveErr != nil {
+			return resolveErr
+		}
+		klog.Infof("Setting NVConfig params on device %s: %s", pci, resolved)
+		if resolved == "" {
+			if err := n.runMlxconfig(pci, "--with_default set", "BOOT_DBG_LOG=0"); err != nil {
 				return err
 			}
+			continue
+		}
+		if err := n.runMlxconfig(pci, "--with_default set", resolved); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -213,4 +228,120 @@ func (n *ConfigureNVConfig) runMlxconfig(dev, op, args string) error {
 		return fmt.Errorf("%s: %w (stderr: %s)", cmd, err, stderr.String())
 	}
 	return nil
+}
+
+func (n *ConfigureNVConfig) queryMlxconfig(dev string) (string, error) {
+	cmd := fmt.Sprintf("mlxconfig -d %s q", dev)
+	stdout, stderr, err := n.runBash(cmd)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w (stderr: %s)", cmd, err, stderr.String())
+	}
+	return stdout.String(), nil
+}
+
+// filterParamsForSet queries mlxconfig and returns only parameters to apply on this pass.
+// Used only when RebootMethodDiscovery is true. Parameters not listed in mlxconfig q output
+// are deferred (partial apply succeeds).
+func (n *ConfigureNVConfig) filterParamsForSet(dev, params string) (string, error) {
+	if strings.TrimSpace(params) == "" {
+		return params, nil
+	}
+	entries := parseParamEntries(params)
+	if len(entries) == 0 {
+		return "", nil
+	}
+	queryOut, err := n.queryMlxconfig(dev)
+	if err != nil {
+		return "", err
+	}
+	available := parseMlxconfigQuery(queryOut)
+	toSet, deferred := planParamApply(entries, available)
+	if len(deferred) > 0 {
+		klog.Infof(
+			"device %s: deferring NVConfig params not exposed by mlxconfig q until after reboot: %s",
+			dev,
+			joinParamEntries(deferred),
+		)
+	}
+	return joinParamEntries(toSet), nil
+}
+
+func planParamApply(desired []nvParam, available map[string]struct{}) (toSet, deferred []nvParam) {
+	for _, entry := range desired {
+		if _, ok := available[entry.name]; !ok {
+			deferred = append(deferred, entry)
+			continue
+		}
+		toSet = append(toSet, entry)
+	}
+	return toSet, deferred
+}
+
+func parseMlxconfigQuery(output string) map[string]struct{} {
+	out := make(map[string]struct{})
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "-E-") || strings.HasPrefix(line, "Configurations:") {
+			continue
+		}
+		name, ok := parseMlxconfigQueryLine(line)
+		if !ok {
+			continue
+		}
+		out[strings.ToUpper(name)] = struct{}{}
+	}
+	return out
+}
+
+func parseMlxconfigQueryLine(line string) (name string, ok bool) {
+	i := 0
+	for i < len(line) && (line[i] == ' ' || line[i] == '\t') {
+		i++
+	}
+	if i >= len(line) || line[i] < 'A' || line[i] > 'Z' {
+		return "", false
+	}
+	start := i
+	for i < len(line) {
+		c := line[i]
+		if c != '_' && (c < 'A' || c > 'Z') && (c < '0' || c > '9') {
+			break
+		}
+		i++
+	}
+	if i == start {
+		return "", false
+	}
+	name = line[start:i]
+	if strings.TrimSpace(line[i:]) == "" {
+		return "", false
+	}
+	return name, true
+}
+
+func parseParamEntries(params string) []nvParam {
+	parts := strings.Fields(strings.TrimSpace(params))
+	out := make([]nvParam, 0, len(parts))
+	for _, part := range parts {
+		name, value, ok := strings.Cut(part, "=")
+		if !ok {
+			continue
+		}
+		out = append(out, nvParam{
+			name:  strings.ToUpper(strings.TrimSpace(name)),
+			value: strings.TrimSpace(value),
+		})
+	}
+	return out
+}
+
+func joinParamEntries(entries []nvParam) string {
+	if len(entries) == 0 {
+		return ""
+	}
+	parts := make([]string, len(entries))
+	for i, entry := range entries {
+		parts[i] = entry.name + "=" + entry.value
+	}
+	return strings.Join(parts, " ")
 }
