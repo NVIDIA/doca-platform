@@ -33,7 +33,7 @@ metadata:
   name: bf-bundle-new
   namespace: dpf-operator-system
 spec:
-  url: https://content.mellanox.com/BlueField/BFBs/Ubuntu24.04/bf-bundle-3.2.1-34_25.11_ubuntu-24.04_64k_prod.bfb
+  url: https://content.mellanox.com/BlueField/BFBs/Ubuntu24.04/bf-bundle-3.4.0-92_26.04_ubuntu-24.04_64k_prod.bfb
 ```
 
 **2.** Update the DPUSet YAML to point to the new BFB object:
