@@ -228,6 +228,51 @@ type MessageExtendedInfo struct {
 	Resolution      string
 }
 
+// RedfishError is the standard DMTF Redfish error response body, carrying the
+// error payload under the top-level "error" key. ExtendedInfo reuses
+// MessageExtendedInfo so all Redfish message decoding shares one schema.
+type RedfishError struct {
+	Error struct {
+		Code         string                `json:"code"`
+		Message      string                `json:"message"`
+		ExtendedInfo []MessageExtendedInfo `json:"@Message.ExtendedInfo"`
+	} `json:"error"`
+}
+
+// ErrorMessages parses a Redfish error response body and returns its
+// human-readable messages. A single error may carry several
+// @Message.ExtendedInfo entries; each entry's Message (+ MessageId, + BMC
+// Resolution when present) is returned in order. Falls back to the top-level
+// error.message. Returns nil when body is not a parseable Redfish error, so
+// callers can fall back to the raw body.
+func ErrorMessages(body string) []string {
+	var re RedfishError
+	if json.Unmarshal([]byte(body), &re) != nil {
+		return nil
+	}
+	msgs := make([]string, 0, len(re.Error.ExtendedInfo))
+	for _, info := range re.Error.ExtendedInfo {
+		if info.Message == "" {
+			continue
+		}
+		m := info.Message
+		if info.MessageID != "" {
+			m += fmt.Sprintf(" (%s)", info.MessageID)
+		}
+		if info.Resolution != "" {
+			m += ". BMC Resolution: " + info.Resolution
+		}
+		msgs = append(msgs, m)
+	}
+	if len(msgs) == 0 && re.Error.Message != "" {
+		msgs = append(msgs, re.Error.Message)
+	}
+	if len(msgs) == 0 {
+		return nil
+	}
+	return msgs
+}
+
 // ProductSpecInfo contains the product specification information responded by RedFish API
 type ProductSpecInfo struct {
 	Description *string      `json:"Description,omitempty"`
