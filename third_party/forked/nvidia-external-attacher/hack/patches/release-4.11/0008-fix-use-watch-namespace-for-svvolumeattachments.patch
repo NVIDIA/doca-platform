@@ -1,0 +1,49 @@
+From f53c9113d4cb963d1c75bf9614f609bf714ab43d Mon Sep 17 00:00:00 2001
+From: Yury Kulazhenkov <ykulazhenkov@nvidia.com>
+Date: Thu, 11 Jun 2026 16:13:01 +0300
+Subject: [PATCH] fix: use watch namespace for svvolumeattachments
+
+Use dpf-operator-system as the built-in namespace for SVVolumeAttachment operations so the NVIDIA external attacher watches the operator namespace by default.
+
+Prefer WATCH_NAMESPACE for runtime overrides while keeping the legacy DefaultNS variable as a compatibility fallback.
+
+Signed-off-by: Yury Kulazhenkov <ykulazhenkov@nvidia.com>
+---
+ pkg/controller/util.go | 17 +++++++++++++----
+ 1 file changed, 13 insertions(+), 4 deletions(-)
+
+diff --git a/pkg/controller/util.go b/pkg/controller/util.go
+index 8382ca0a..9ee17098 100644
+--- a/pkg/controller/util.go
++++ b/pkg/controller/util.go
+@@ -37,14 +37,23 @@ import (
+ 	"k8s.io/klog/v2"
+ )
+ 
++const (
++	defaultNamespace   = "dpf-operator-system"
++	legacyNamespaceEnv = "DefaultNS"
++	watchNamespaceEnv  = "WATCH_NAMESPACE"
++)
++
+ var DefaultNS string
+ 
+ func init() {
+-	DefaultNS = "nvidia-storage"
+-
+-	if envNS := os.Getenv("DefaultNS"); envNS != "" {
+-		DefaultNS = envNS
++	namespace := os.Getenv(watchNamespaceEnv)
++	if namespace == "" {
++		namespace = os.Getenv(legacyNamespaceEnv)
++	}
++	if namespace == "" {
++		namespace = defaultNamespace
+ 	}
++	DefaultNS = namespace
+ }
+ 
+ func markAsAttached(ctx context.Context, client dpfClientset.Interface, va *dpfstorage.SVVolumeAttachment, metadata map[string]string) (*dpfstorage.SVVolumeAttachment, error) {
+-- 
+2.43.0
+
