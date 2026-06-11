@@ -22,14 +22,14 @@ spec:
   helmChart:
     source:
       repoURL: https://helm.ngc.nvidia.com/nvidia/doca
-      version: 1.0.3
+      version: 3.4.0
       chart: doca-hbn
     values:
       imagePullSecrets:
       - name: dpf-pull-secret
       image:
         repository: nvcr.io/nvidia/doca/doca_hbn
-        tag: 3.1.0-doca3.1.0
+        tag: 3.4.0-doca3.4.0
       resources:
         memory: 6Gi
         nvidia.com/bf_sf: 4
