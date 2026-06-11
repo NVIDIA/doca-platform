@@ -130,7 +130,7 @@ export SNAP_NGC_IMAGE_URL=nvcr.io/nvidia/doca/doca_vfs
 export OVN_KUBERNETES_REPO_URL=oci://ghcr.io/mellanox/charts
 
 # OVN-Kubernetes chart tag
-export OVN_KUBERNETES_CHART_TAG=v26.1.27-ad5189a
+export OVN_KUBERNETES_CHART_TAG=v26.4.0
 
 ## POD_CIDR is the CIDR used for pods in the target Kubernetes cluster.
 export POD_CIDR=10.233.64.0/18
@@ -144,7 +144,7 @@ export SERVICE_CIDR=10.233.0.0/18
 export REGISTRY=https://helm.ngc.nvidia.com/nvidia/doca
 
 ## The DPF TAG is the version of the DPF components which will be deployed in this guide.
-export TAG=v25.10.1
+export TAG=v26.4.0
 
 ## URL to the BFB used in the `bfb.yaml` and linked by the DPUSet.
 export BFB_URL="https://content.mellanox.com/BlueField/BFBs/Ubuntu24.04/bf-bundle-3.4.0-92_26.04_ubuntu-24.04_64k_prod.bfb"
@@ -1112,12 +1112,12 @@ spec:
   helmChart:
     source:
       repoURL: $HELM_REGISTRY_REPO_URL
-      version: 1.0.5
+      version: 3.4.0
       chart: doca-hbn
     values:
       image:
         repository: $HBN_NGC_IMAGE_URL
-        tag: 3.2.1-doca3.2.1
+        tag: 3.4.0-doca3.4.0
       resources:
         memory: 6Gi
         nvidia.com/bf_sf: 4
@@ -1151,7 +1151,7 @@ spec:
   helmChart:
     source:
       repoURL: $HELM_REGISTRY_REPO_URL
-      version: 1.23.4
+      version: 1.25.5
       chart: doca-telemetry
 ```
 </details>
@@ -1225,7 +1225,7 @@ spec:
             enabled: true
             image:
               repository: $SNAP_NGC_IMAGE_URL
-              tag: 1.5.0-doca3.2.0
+              tag: 1.7.0-doca3.4.0
             snapRpcInitConf: |
               nvme_subsystem_create --nqn nqn.2022-10.io.nvda.nvme:0
               nvme_controller_create --nqn nqn.2022-10.io.nvda.nvme:0 --ctrl NVMeCtrl1 --pf_id 0 --admin_only
