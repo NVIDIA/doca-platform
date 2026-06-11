@@ -64,13 +64,13 @@ helm repo update
 Deploy the DPF Operator to your Kubernetes cluster using Helm:
 
 ```bash
-helm upgrade --install -n dpf-operator-system dpf-operator dpf-repository/dpf-operator --version=v25.10.1
+helm upgrade --install -n dpf-operator-system dpf-operator dpf-repository/dpf-operator --version=v26.4.0
 ```
 
 The command above does the following:
 
 * Creates the `dpf-operator-system` namespace if it does not exist
-* Installs the DPF Operator version v25.10.1 from the NVIDIA repository
+* Installs the DPF Operator version v26.4.0 from the NVIDIA repository
 
 ### 3. Verify the Installation
 
