@@ -21,6 +21,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
 
@@ -39,6 +40,9 @@ const (
 type RedfishMockServer struct {
 	server                        *httptest.Server
 	bmcVersion                    string
+	bmcErotVersion                string
+	sbiosVersion                  string
+	nicVersion                    string
 	password                      string
 	dpuMode                       string                   // Current DPU mode: "NicMode" or "DpuMode"
 	secureBootEnable              bool                     // Configured/desired Secure Boot state (for next boot)
@@ -107,8 +111,10 @@ func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 	mux.HandleFunc("/"+client.APIUpdateFW, mock.handleUpdateService)
 	mux.HandleFunc("/redfish/v1/UpdateService/Actions/UpdateService.SimpleUpdate", mock.handleInstallBFB)
 
-	// FirmwareInventory
-	mux.HandleFunc("/"+client.APICheckBMCFW, mock.handleCheckBMCFirmware)
+	// FirmwareInventory (prefix handler avoids Go ServeMux wildcard conflicts between inventory IDs)
+	mux.HandleFunc("/redfish/v1/UpdateService/FirmwareInventory/", mock.handleCheckFirmwareInventory)
+	mux.HandleFunc("/"+client.APIUpdateBluefieldFWMultipart, mock.handleUpdateBluefieldFirmwareMultipart)
+	mux.HandleFunc("/"+client.APIActivatePendingBundle, mock.handleActivatePendingBundle)
 
 	// TaskService
 	mux.HandleFunc("/redfish/v1/TaskService/Tasks/", mock.handleGetTask)
@@ -137,7 +143,7 @@ func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 	mux.HandleFunc("/redfish/v1/Systems/Bluefield/Actions/ComputerSystem.Reset", mock.handleResetSystem)
 
 	// System Event Log entries
-	mux.HandleFunc("/"+client.APIGetSELEntries, mock.handleGetSELEntries)
+	mux.HandleFunc("/redfish/v1/Systems/Bluefield/LogServices/SEL/Entries", mock.handleGetSELEntries)
 
 	// Host Privilege Config
 	mux.HandleFunc("/"+client.APIHostPrivilegeConfigSettings, mock.handleHostPrivilegeConfigSettings)
@@ -403,15 +409,83 @@ func (r *RedfishMockServer) handleUpdateService(w http.ResponseWriter, req *http
 	}
 }
 
-// handleCheckBMCFirmware handles BMC firmware version requests
-func (r *RedfishMockServer) handleCheckBMCFirmware(w http.ResponseWriter, req *http.Request) {
+// handleCheckFirmwareInventory handles firmware inventory version requests.
+func (r *RedfishMockServer) handleCheckFirmwareInventory(w http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	writeJSONResponse(w, map[string]interface{}{
-		"@odata.id": "/" + client.APICheckBMCFW,
-		"Version":   r.bmcVersion,
+		"@odata.id": req.URL.Path,
+		"Version":   r.firmwareVersionForPath(req.URL.Path),
+	})
+}
+
+func (r *RedfishMockServer) firmwareVersionForPath(path string) string {
+	switch {
+	case strings.HasSuffix(path, "BlueField_FW_ERoT_BMC_0"):
+		return r.bmcErotVersionOrDefault()
+	case strings.HasSuffix(path, "BlueField_FW_CPU_0"), strings.HasSuffix(path, "DPU_UEFI"):
+		return r.sbiosVersionOrDefault()
+	case strings.HasSuffix(path, "BlueField_FW_NIC_0"), strings.HasSuffix(path, "DPU_NIC"):
+		return r.nicVersionOrDefault()
+	case strings.HasSuffix(path, "BlueField_FW_BMC_0"), strings.HasSuffix(path, "BMC_Firmware"):
+		return r.bmcVersion
+	default:
+		return r.bmcVersion
+	}
+}
+
+func (r *RedfishMockServer) bmcErotVersionOrDefault() string {
+	if r.bmcErotVersion != "" {
+		return r.bmcErotVersion
+	}
+	return r.bmcVersion
+}
+
+func (r *RedfishMockServer) sbiosVersionOrDefault() string {
+	if r.sbiosVersion != "" {
+		return r.sbiosVersion
+	}
+	return r.bmcVersion
+}
+
+func (r *RedfishMockServer) nicVersionOrDefault() string {
+	if r.nicVersion != "" {
+		return r.nicVersion
+	}
+	return r.bmcVersion
+}
+
+// handleUpdateBluefieldFirmwareMultipart handles PLDM firmware multipart upload requests.
+func (r *RedfishMockServer) handleUpdateBluefieldFirmwareMultipart(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	taskInfo := map[string]interface{}{
+		"@odata.context": "/redfish/v1/$metadata#Task.Task",
+		"@odata.id":      "/redfish/v1/TaskService/Tasks/0",
+		"@odata.type":    "#Task.v1_10_0.Task",
+		"Id":             "0",
+		"Name":           "PLDM Firmware Update Task",
+	}
+
+	w.WriteHeader(http.StatusAccepted)
+	writeJSONResponse(w, taskInfo)
+}
+
+// handleActivatePendingBundle handles pending bundle activation requests.
+func (r *RedfishMockServer) handleActivatePendingBundle(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	writeJSONResponse(w, map[string]interface{}{
+		"@odata.id": "/" + client.APIActivatePendingBundle,
 	})
 }
 
@@ -469,8 +543,11 @@ func (r *RedfishMockServer) handleGetSELEntries(w http.ResponseWriter, req *http
 	if members == nil {
 		members = []client.SELEntry{}
 	}
+
+	systemID := "Bluefield"
+	url := strings.ReplaceAll(client.APIGetSELEntries, "{SYSTEM_ID}", systemID)
 	writeJSONResponse(w, map[string]interface{}{
-		"@odata.id":           "/" + client.APIGetSELEntries,
+		"@odata.id":           "/" + url,
 		"@odata.type":         "#LogEntryCollection.LogEntryCollection",
 		"Description":         "Collection of System Event Log Entries",
 		"Members":             members,
@@ -729,6 +806,14 @@ func (r *RedfishMockServer) SetModel(model string) {
 // SetBMCVersion sets the BMC firmware version returned by the mock server
 func (r *RedfishMockServer) SetBMCVersion(version string) {
 	r.bmcVersion = version
+}
+
+// SetFirmwareVersions sets the firmware versions returned by firmware inventory endpoints.
+func (r *RedfishMockServer) SetFirmwareVersions(bmc, bmcErot, sbios, nic string) {
+	r.bmcVersion = bmc
+	r.bmcErotVersion = bmcErot
+	r.sbiosVersion = sbios
+	r.nicVersion = nic
 }
 
 // SetTaskState sets the task state for the mock server

@@ -107,7 +107,7 @@ var _ = Describe("ConfigFWParameters", func() {
 		return dpuDevice
 	}
 
-	It("should set host privilege to restricted for BF4 and advance to PrepareBFB", func() {
+	It("should set host privilege to restricted for BF4 and advance to Firmware Update", func() {
 		mockServer := createBF4MockRedfishServer()
 		defer mockServer.Stop()
 
@@ -124,7 +124,7 @@ var _ = Describe("ConfigFWParameters", func() {
 			&dutil.ControllerContext{Client: k8sClient},
 		)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(status.Phase).To(Equal(provisioningv1.DPUPrepareBFB))
+		Expect(status.Phase).To(Equal(provisioningv1.DPUUpdateFirmware))
 		Expect(status.Conditions).To(ContainElement(
 			HaveField("Type", provisioningv1.DPUCondFWConfigured.String()),
 		))
