@@ -687,6 +687,7 @@ spec:
                 - Initializing
                 - Node Effect
                 - Pending
+                - Update Firmware
                 - Config FW Parameters
                 - Prepare BFB
                 - OS Installing
@@ -715,6 +716,7 @@ spec:
                 - Initializing
                 - Node Effect
                 - Pending
+                - Update Firmware
                 - Config FW Parameters
                 - Prepare BFB
                 - OS Installing

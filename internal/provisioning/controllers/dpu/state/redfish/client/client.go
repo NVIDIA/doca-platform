@@ -40,17 +40,20 @@ import (
 
 const (
 	APIChangePasswd                 = "redfish/v1/AccountService/Accounts/{USER}"
-	APICheckBMCFW                   = "redfish/v1/UpdateService/FirmwareInventory/BMC_Firmware"
+	APICheckBMCFW                   = "redfish/v1/UpdateService/FirmwareInventory/{BMC_FW_ID}"
+	APICheckBMCEROTFW               = "redfish/v1/UpdateService/FirmwareInventory/BlueField_FW_ERoT_BMC_0"
 	APICheckDPUBSP                  = "redfish/v1/UpdateService/FirmwareInventory/DPU_BSP"
-	APICheckDPUNIC                  = "redfish/v1/UpdateService/FirmwareInventory/DPU_NIC"
+	APICheckDPUNIC                  = "redfish/v1/UpdateService/FirmwareInventory/{DPU_NIC_ID}"
 	APICheckDPUOS                   = "redfish/v1/UpdateService/FirmwareInventory/DPU_OS"
-	APICheckDPUUEFI                 = "redfish/v1/UpdateService/FirmwareInventory/DPU_UEFI"
+	APICheckDPUUEFI                 = "redfish/v1/UpdateService/FirmwareInventory/{DPU_UEFI_ID}"
+	APICheckPendingBundle           = "redfish/v1/UpdateService/FirmwareInventory/Pending_Bundle"
 	APIInstallBFB                   = "redfish/v1/UpdateService/Actions/UpdateService.SimpleUpdate"
 	APIInsertVirtualMedia           = "redfish/v1/Managers/{MANAGER_ID}/VirtualMedia/{MEDIA_ID}/Actions/VirtualMedia.InsertMedia"
 	APIEjectVirtualMedia            = "redfish/v1/Managers/{MANAGER_ID}/VirtualMedia/{MEDIA_ID}/Actions/VirtualMedia.EjectMedia"
 	APIUpdateFW                     = "redfish/v1/UpdateService"
 	APICheckProgress                = "redfish/v1/TaskService/Tasks"
 	APIGetManagers                  = "redfish/v1/Managers"
+	APIGetSystems                   = "redfish/v1/Systems"
 	APIFactoryResetBMC              = "redfish/v1/Managers/{MANAGER_ID}/Actions/Manager.ResetToDefaults"
 	APIResetBMC                     = "redfish/v1/Managers/{MANAGER_ID}/Actions/Manager.Reset"
 	APIEnableBMCRshim               = "redfish/v1/Managers/Bluefield_BMC/Oem/Nvidia"
@@ -59,9 +62,10 @@ const (
 	APIDisableHostRshim             = "redfish/v1/Systems/Bluefield/Oem/Nvidia/Actions/HostRshim.Set"
 	APIInstallCert                  = "redfish/v1/Managers/{MANAGER_ID}/Truststore/Certificates"
 	APIReplaceCert                  = "redfish/v1/CertificateService/Actions/CertificateService.ReplaceCertificate"
-	APIGetBios                      = "redfish/v1/Systems/Bluefield/Bios"
-	APIGetSystems                   = "redfish/v1/Systems"
-	APISetBiosSettings              = "redfish/v1/Systems/Bluefield/Bios/Settings"
+	APIUpdateBluefieldFWMultipart   = "redfish/v1/UpdateService/update-multipart"
+	APIActivatePendingBundle        = "redfish/v1/UpdateService/Actions/UpdateService.Activate"
+	APIGetBios                      = "redfish/v1/Systems/{SYSTEM_ID}/Bios"
+	APISetBiosSettings              = "redfish/v1/Systems/{SYSTEM_ID}/Bios/Settings"
 	APISetMode                      = "/redfish/v1/Systems/Bluefield/Oem/Nvidia/Actions/Mode.Set"
 	APIGenerateCSR                  = "redfish/v1/CertificateService/Actions/CertificateService.GenerateCSR"
 	APIEnableMTLS                   = "redfish/v1/AccountService"
@@ -283,6 +287,10 @@ type RootServiceInfo struct {
 	Product string `json:"Product,omitempty"`
 }
 
+func (r *RootServiceInfo) IsBF4() bool {
+	return strings.Contains(strings.ToUpper(r.Product), "B4") || strings.Contains(strings.ToUpper(r.Product), "BLUEFIELD-4")
+}
+
 type SystemInfo struct {
 	BootProgress BootProgress `json:"BootProgress,omitempty"`
 }
@@ -427,8 +435,21 @@ func (c *Client) EnableMTLS() (*resty.Response, *ExtendedInfo, error) {
 // CheckBMCFirmware fetches BMC firmware version. For more information, refer to
 // https://docs.nvidia.com/networking/display/bluefieldbmcv2410/cec+and+bmc+firmware+operations#src-704886294_CECandBMCFirmwareOperations-FetchingRunningBMCFirmwareVersion
 func (c *Client) CheckBMCFirmware() (*resty.Response, *VersionInfo, error) {
+	bmcFwID := "BMC_Firmware"
+	if c.IsBF4 {
+		bmcFwID = "BlueField_FW_BMC_0"
+	}
+
+	url := strings.Replace(APICheckBMCFW, "{BMC_FW_ID}", bmcFwID, 1)
+
 	return do[VersionInfo](func() (*resty.Response, error) {
-		return c.Client.R().Get(APICheckBMCFW)
+		return c.Client.R().Get(url)
+	})
+}
+
+func (c *Client) CheckBMCEROTFW() (*resty.Response, *VersionInfo, error) {
+	return do[VersionInfo](func() (*resty.Response, error) {
+		return c.Client.R().Get(APICheckBMCEROTFW)
 	})
 }
 
@@ -445,8 +466,15 @@ func (c *Client) GetSystem() (*resty.Response, *SystemInfo, error) {
 
 // CheckDPUNIC fetches DPU NIC version
 func (c *Client) CheckDPUNIC() (*resty.Response, *VersionInfo, error) {
+	dpuNicID := "DPU_NIC"
+	if c.IsBF4 {
+		dpuNicID = "BlueField_FW_NIC_0"
+	}
+
+	url := strings.Replace(APICheckDPUNIC, "{DPU_NIC_ID}", dpuNicID, 1)
+
 	return do[VersionInfo](func() (*resty.Response, error) {
-		return c.Client.R().Get(APICheckDPUNIC)
+		return c.Client.R().Get(url)
 	})
 }
 
@@ -458,8 +486,15 @@ func (c *Client) CheckDPUOS() (*resty.Response, *VersionInfo, error) {
 }
 
 func (c *Client) CheckDPUUEFI() (*resty.Response, *VersionInfo, error) {
+	uefiID := "DPU_UEFI"
+	if c.IsBF4 {
+		uefiID = "BlueField_FW_CPU_0"
+	}
+
+	url := strings.Replace(APICheckDPUUEFI, "{DPU_UEFI_ID}", uefiID, 1)
+
 	return do[VersionInfo](func() (*resty.Response, error) {
-		return c.Client.R().Get(APICheckDPUUEFI)
+		return c.Client.R().Get(url)
 	})
 }
 
@@ -644,9 +679,11 @@ func (c *ChassisInfo) GetBlueFieldVersion() provisioningv1.DPUType {
 		default:
 			return provisioningv1.DPUTypeUnknown
 		}
-	} else {
-		return provisioningv1.DPUTypeUnknown
 	}
+	if strings.HasPrefix(strings.ToUpper(c.Model), "B4") {
+		return provisioningv1.DPUTypeBlueField4
+	}
+	return provisioningv1.DPUTypeUnknown
 }
 
 // GetChassis fetches part number of DPU
@@ -697,8 +734,12 @@ func (c *Client) GetProductDescription() (*resty.Response, *ProductSpecInfo, err
 
 // GetBios returns a Bios information for current DPU
 func (c *Client) GetBios() (*resty.Response, *Bios, error) {
+	systemID, err := getSystemID(c)
+	if err != nil {
+		return nil, nil, err
+	}
 	return do[Bios](func() (*resty.Response, error) {
-		return c.Client.R().Get(APIGetBios)
+		return c.Client.R().Get(strings.Replace(APIGetBios, "{SYSTEM_ID}", systemID, 1))
 	})
 }
 
@@ -722,17 +763,21 @@ func (c *Client) GetNetworkDeviceFunction(pfID string) (*resty.Response, *Networ
 
 	url = strings.Replace(url, "{PF_ID}", pfID, 1)
 	return do[NetworkDeviceFunction](func() (*resty.Response, error) {
-		return c.Client.R().Get(strings.Replace(url, "{PF_ID}", pfID, 1))
+		return c.Client.R().Get(url)
 	})
 }
 
 // SetDpuMode returns a Bios information for current DPU
 func (c *Client) SetDpuMode(desiredMode provisioningv1.DpuModeType) (*resty.Response, error) {
+	systemID, err := getSystemID(c)
+	if err != nil {
+		return nil, err
+	}
 	var body []byte
 	switch desiredMode {
 	case provisioningv1.DpuMode:
 		body = []byte(`{ "Attributes": {"InternalCPUModel": "Privileged" } }`)
-		resp, err := c.Client.R().SetBody(body).Patch(APISetBiosSettings)
+		resp, err := c.Client.R().SetBody(body).Patch(strings.Replace(APISetBiosSettings, "{SYSTEM_ID}", systemID, 1))
 		if err != nil {
 			return resp, err
 		}
@@ -844,50 +889,51 @@ func VerifyBMCCredential(bmcAddress, password string) (*Client, string, error) {
 
 // InitPassword resolves the BMC password and authenticates to the BMC.
 func InitPassword(ctx context.Context, bmcAddress string, namespace string, bmcCredentialSecretName *string, k8sClient client.Client) (*Client, error) {
-	if !strings.HasPrefix(bmcAddress, httpsPrefix) {
-		bmcAddress = httpsPrefix + bmcAddress
-	}
-
 	cred, err := ResolveBMCCredential(ctx, namespace, bmcCredentialSecretName, k8sClient)
 	if err != nil {
 		return nil, err
 	}
 	passwd := cred.Password
 
-	client, err := NewBasicAuthClient(bmcAddress, BF3BMCUser, passwd)
+	if !strings.HasPrefix(bmcAddress, httpsPrefix) {
+		bmcAddress = httpsPrefix + bmcAddress
+	}
+
+	rootClient, err := NewRawClient(bmcAddress)
 	if err != nil {
 		return nil, err
 	}
-	resp, _, err := client.CheckBMCFirmware()
+	_, rootServiceInfo, err := rootClient.GetRootService()
+	if err != nil {
+		return nil, err
+	}
+	var user = BF3BMCUser
+	if rootServiceInfo.IsBF4() {
+		user = BF4BMCUser
+		log.FromContext(ctx).Info("Assuming BF4 model, BMC user changed to admin")
+	}
+
+	// check if the default password has been changed as requested by the DOCA BMC manual
+	client, err := NewBasicAuthClient(bmcAddress, user, passwd)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, _, err := client.GetChassis()
 	if err != nil {
 		return nil, err
 	}
 	switch resp.StatusCode() {
 	case http.StatusUnauthorized:
 		log.FromContext(ctx).Info("try to change password")
-		defaultClient, err := NewBasicAuthClient(bmcAddress, BF3BMCUser, BMCDefaultPassword)
+		defaultClient, err := NewBasicAuthClient(bmcAddress, user, BMCDefaultPassword)
 		if err != nil {
 			return nil, err
 		}
-		resp, _, err = defaultClient.ChangeBMCPassword(passwd, BF3BMCUser)
+		resp, _, err = defaultClient.ChangeBMCPassword(passwd, user)
 		if err != nil {
 			return nil, err
 		} else if resp.StatusCode() == http.StatusUnauthorized {
-			defaultClient, err = NewBasicAuthClient(bmcAddress, BF4BMCUser, BMCDefaultPassword)
-			if err != nil {
-				return nil, err
-			}
-			resp, _, err = defaultClient.ChangeBMCPassword(passwd, BF4BMCUser)
-			if err != nil {
-				return nil, err
-			}
-			if resp.StatusCode() == http.StatusOK {
-				client, err = NewBasicAuthClient(bmcAddress, BF4BMCUser, passwd)
-				if err != nil {
-					return nil, err
-				}
-				return client, nil
-			}
 			return nil, fmt.Errorf("the default BMC password has been changed and the given password is wrong")
 		} else if resp.StatusCode() != http.StatusOK {
 			return nil, fmt.Errorf("unexpected BMC status: %s", resp.Status())
@@ -964,7 +1010,7 @@ func NewBasicAuthClient(bmcAddress, user, passwd string) (*Client, error) {
 		return nil, err
 	}
 
-	if rootServiceInfo != nil && strings.Contains(strings.ToUpper(rootServiceInfo.Product), "B4") {
+	if rootServiceInfo != nil && rootServiceInfo.IsBF4() {
 		client.IsBF4 = true
 	}
 
@@ -988,7 +1034,7 @@ func NewTLSClient(ctx context.Context, bmcAddress string, namespace string, k8sC
 	if err != nil {
 		return nil, err
 	}
-	if rootServiceInfo != nil && strings.Contains(strings.ToUpper(rootServiceInfo.Product), "B4") {
+	if rootServiceInfo != nil && rootServiceInfo.IsBF4() {
 		rawClient.IsBF4 = true
 		clientCertSecret = ClientCertSecretBF4
 	}
@@ -1278,4 +1324,34 @@ func (c *Client) ChassisReset() (*resty.Response, error) {
 		return resp, fmt.Errorf("failed to reset chassis: unexpected status code %d", resp.StatusCode())
 	}
 	return resp, nil
+}
+
+func (c *Client) UpdateBluefieldFirmwareMultipart(fwFile *os.File, target string) (*resty.Response, *TaskInfo, error) {
+	updateParameters := make(map[string]interface{})
+	if target != "" {
+		updateParameters["ForceUpdate"] = true
+		updateParameters["Targets"] = []string{target}
+	}
+	updateParametersJSON, err := json.Marshal(updateParameters)
+	if err != nil {
+		return nil, nil, err
+	}
+	return do[TaskInfo](func() (*resty.Response, error) {
+		return c.Client.R().
+			SetFileReader("UpdateFile", fwFile.Name(), fwFile).
+			SetMultipartField("UpdateParameters", "", "application/json", strings.NewReader(string(updateParametersJSON))).
+			Post(APIUpdateBluefieldFWMultipart)
+	})
+}
+
+func (c *Client) ActivatePendingBundle() (*resty.Response, error) {
+	reqBody := map[string]interface{}{
+		"Targets": []Manager{
+			{ODataID: "/" + APICheckPendingBundle},
+		},
+	}
+	return c.Client.R().
+		SetHeader("Content-Type", "application/json").
+		SetBody(reqBody).
+		Post(APIActivatePendingBundle)
 }

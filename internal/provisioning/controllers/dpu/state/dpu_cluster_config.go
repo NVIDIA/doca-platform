@@ -107,6 +107,10 @@ func checkFwVersion(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil
 		return nil
 	}
 
+	if dpu.Status.DPUType == provisioningv1.DPUTypeBlueField4 {
+		return nil
+	}
+
 	dpuDevice := &provisioningv1.DPUDevice{}
 	if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.DPUDeviceName}, dpuDevice); err != nil {
 		return err
