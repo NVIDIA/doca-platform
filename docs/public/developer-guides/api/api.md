@@ -4164,6 +4164,23 @@ _Appears in:_
 | `ports` _[ConfigPort](#configport) array_ | Ports defines the list of port configurations that will be exposed by the DPUService.<br />Each port must specify a name, port number, and protocol.<br />Constraints:<br />- If ServiceType is "NodePort", ports may optionally specify a NodePort.<br />- If ServiceType is "None" or "ClusterIP", ports **cannot** specify a NodePort. |  | Required: \{\} <br /> |
 
 
+#### DPUClusterAllocation
+
+
+
+DPUClusterAllocation contains the IP range allocations for a specific DPUCluster.
+
+
+
+_Appears in:_
+- [DPUServiceIPAMStatus](#dpuserviceipamstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `dpuCluster` _string_ | DPUCluster is the NamespacedName of the DPUCluster in the format `<namespace>/<name>`. |  |  |
+| `ipRanges` _[IPRange](#iprange) array_ | IPRanges contains the IP ranges allocated to this DPUCluster. |  | Optional: \{\} <br /> |
+
+
 #### DPUDeployment
 
 
@@ -4649,6 +4666,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
 | `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
+| `dpuClusterAllocations` _[DPUClusterAllocation](#dpuclusterallocation) array_ | DPUClusterAllocations contains the IPV4Network/IPV4Subnet allocations per DPUCluster as calculated by the controller. |  | Optional: \{\} <br /> |
 
 
 #### DPUServiceInterface
@@ -4983,25 +5001,6 @@ _Appears in:_
 | `secureBoot` _boolean_ | SecureBoot specifies whether UEFI Secure Boot should be enabled. |  | Optional: \{\} <br /> |
 
 
-#### ExcludeRange
-
-
-
-ExcludeRange contains range of IP addresses to exclude from allocation
-startIP and endIP are part of the Excluded range.
-
-
-
-_Appears in:_
-- [IPV4Network](#ipv4network)
-- [IPV4Subnet](#ipv4subnet)
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `startIP` _string_ | StartIP is the start of the range. |  |  |
-| `endIP` _string_ | EndIP is the end of the range. |  |  |
-
-
 #### HelmChart
 
 
@@ -5022,6 +5021,25 @@ _Appears in:_
 
 
 
+#### IPRange
+
+
+
+
+
+
+
+_Appears in:_
+- [DPUClusterAllocation](#dpuclusterallocation)
+- [IPV4Network](#ipv4network)
+- [IPV4Subnet](#ipv4subnet)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `startIP` _string_ | StartIP is the start of the range. |  | Required: \{\} <br /> |
+| `endIP` _string_ | EndIP is the end of the range. |  | Required: \{\} <br /> |
+
+
 #### IPV4Network
 
 
@@ -5040,10 +5058,11 @@ _Appears in:_
 | `gatewayIndex` _integer_ | GatewayIndex determines which IP in the subnet extracted from the CIDR should be the gateway IP. For point to<br />point networks (/31), one needs to leave this empty to make use of both the IPs. |  |  |
 | `prefixSize` _integer_ | PrefixSize is the size of the subnet that should be allocated per node. |  |  |
 | `exclusions` _string array_ | Exclusions is a list of IPs that should be excluded when splitting the CIDR into subnets per node.<br />Deprecated: This field is deprecated and will be removed with v26.10.0. Use ExcludeRanges instead. |  |  |
-| `excludeRanges` _[ExcludeRange](#excluderange) array_ | ExcludeRanges is a list of IP ranges that should be excluded from the allocation. |  |  |
+| `excludeRanges` _[IPRange](#iprange) array_ | ExcludeRanges is a list of IP ranges that should be excluded from the allocation.<br />startIP and endIP are part of the Excluded range. |  |  |
 | `allocations` _object (keys:string, values:string)_ | Allocations describes the subnets that should be assigned in each DPU node. |  |  |
 | `defaultGateway` _boolean_ | DefaultGateway adds gateway as default gateway in the routes list if true. |  |  |
 | `routes` _[Route](#route) array_ | Routes is the static routes list using the gateway specified in the spec. |  |  |
+| `subnetsPerDPUCluster` _integer_ | SubnetsPerDPUCluster is the number of PrefixSize-sized subnets each DPUCluster should receive.<br />When specified, the controller will take care of assigning non-overlapping subnets part of the Network in each<br />DPUCluster that the DPUServiceIPAM is targeting. Leave empty in case you want the whole Network to be consumed<br />by a single DPUCluster. |  | Optional: \{\} <br /> |
 
 
 #### IPV4Subnet
@@ -5063,9 +5082,10 @@ _Appears in:_
 | `subnet` _string_ | Subnet is the CIDR from which blocks should be allocated per node |  |  |
 | `gateway` _string_ | Gateway is the IP in the subnet that should be the gateway of the subnet. |  |  |
 | `perNodeIPCount` _integer_ | PerNodeIPCount is the number of IPs that should be allocated per node. |  |  |
-| `excludeRanges` _[ExcludeRange](#excluderange) array_ | ExcludeRanges is a list of IP ranges that should be excluded from the allocation. |  |  |
+| `excludeRanges` _[IPRange](#iprange) array_ | ExcludeRanges is a list of IP ranges that should be excluded from the allocation.<br />startIP and endIP are part of the Excluded range. |  |  |
 | `defaultGateway` _boolean_ | if true, add gateway as default gateway in the routes list<br />DefaultGateway adds gateway as default gateway in the routes list if true. |  |  |
 | `routes` _[Route](#route) array_ | Routes is the static routes list using the gateway specified in the spec. |  |  |
+| `blocksPerDPUCluster` _integer_ | BlocksPerDPUCluster is the number of PerNodeIPCount-sized blocks each DPUCluster should receive.<br />When specified, the controller will take care of assigning non-overlapping IP blocks part of the Subnet in each<br />DPUCluster that the DPUServiceIPAM is targeting. Leave empty in case you want the whole Subnet to be consumed by<br />a single DPUCluster. |  | Optional: \{\} <br /> |
 
 
 #### InterfaceEntry

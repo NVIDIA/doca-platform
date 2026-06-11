@@ -125,17 +125,37 @@ func validateDPUServiceIPAM(newIpamObj, oldIpamObj *dpuservicev1.DPUServiceIPAM)
 		errs = append(errs, errors.New("either ipv4Subnet or ipv4Network must be specified but not both"))
 	}
 
-	if newIpamObj.Spec.IPV4Network != nil {
+	if newIpamObj.Spec.IPV4Network != nil { //nolint:dupl
 		errs = append(errs, validateDPUServiceIPAMIPV4Network(newIpamObj.Spec.IPV4Network))
 		if oldIpamObj != nil && oldIpamObj.Spec.IPV4Network != nil {
 			errs = append(errs, validateIPRangeNotShrinking(newIpamObj.Spec.IPV4Network.Network, oldIpamObj.Spec.IPV4Network.Network))
+			if newIpamObj.Spec.IPV4Network.PrefixSize != oldIpamObj.Spec.IPV4Network.PrefixSize {
+				errs = append(errs, errors.New("prefixSize is immutable"))
+			}
+			if (oldIpamObj.Spec.IPV4Network.SubnetsPerDPUCluster == nil) != (newIpamObj.Spec.IPV4Network.SubnetsPerDPUCluster == nil) {
+				errs = append(errs, errors.New("subnetsPerDPUCluster cannot be toggled between set and unset"))
+			}
+			if oldIpamObj.Spec.IPV4Network.SubnetsPerDPUCluster != nil && newIpamObj.Spec.IPV4Network.SubnetsPerDPUCluster != nil &&
+				*newIpamObj.Spec.IPV4Network.SubnetsPerDPUCluster < *oldIpamObj.Spec.IPV4Network.SubnetsPerDPUCluster {
+				errs = append(errs, errors.New("subnetsPerDPUCluster cannot be decreased"))
+			}
 		}
 	}
 
-	if newIpamObj.Spec.IPV4Subnet != nil {
+	if newIpamObj.Spec.IPV4Subnet != nil { //nolint:dupl
 		errs = append(errs, validateDPUServiceIPAMIPV4Subnet(newIpamObj.Spec.IPV4Subnet))
 		if oldIpamObj != nil && oldIpamObj.Spec.IPV4Subnet != nil {
 			errs = append(errs, validateIPRangeNotShrinking(newIpamObj.Spec.IPV4Subnet.Subnet, oldIpamObj.Spec.IPV4Subnet.Subnet))
+			if newIpamObj.Spec.IPV4Subnet.PerNodeIPCount != oldIpamObj.Spec.IPV4Subnet.PerNodeIPCount {
+				errs = append(errs, errors.New("perNodeIPCount is immutable"))
+			}
+			if (oldIpamObj.Spec.IPV4Subnet.BlocksPerDPUCluster == nil) != (newIpamObj.Spec.IPV4Subnet.BlocksPerDPUCluster == nil) {
+				errs = append(errs, errors.New("blocksPerDPUCluster cannot be toggled between set and unset"))
+			}
+			if oldIpamObj.Spec.IPV4Subnet.BlocksPerDPUCluster != nil && newIpamObj.Spec.IPV4Subnet.BlocksPerDPUCluster != nil &&
+				*newIpamObj.Spec.IPV4Subnet.BlocksPerDPUCluster < *oldIpamObj.Spec.IPV4Subnet.BlocksPerDPUCluster {
+				errs = append(errs, errors.New("blocksPerDPUCluster cannot be decreased"))
+			}
 		}
 	}
 
@@ -172,6 +192,16 @@ func validateDPUServiceIPAMIPV4Network(ipv4Network *dpuservicev1.IPV4Network) er
 			errs = append(errs, fmt.Errorf("allocation %s is not part of the network %s", allocation, ipv4Network.Network))
 		}
 	}
+	if ipv4Network.SubnetsPerDPUCluster != nil {
+		if *ipv4Network.SubnetsPerDPUCluster < 1 {
+			errs = append(errs, errors.New("subnetsPerDPUCluster must be at least 1 when set"))
+		} else {
+			totalSubnets := 1 << uint(int(ipv4Network.PrefixSize)-networkPrefix)
+			if int(*ipv4Network.SubnetsPerDPUCluster) > totalSubnets {
+				errs = append(errs, fmt.Errorf("subnetsPerDPUCluster %d exceeds the %d available subnets in network %s", *ipv4Network.SubnetsPerDPUCluster, totalSubnets, ipv4Network.Network))
+			}
+		}
+	}
 	errs = append(errs, validateRoutes(ipv4Network.Routes, network, ipv4Network.DefaultGateway))
 	return kerrors.NewAggregate(errs)
 }
@@ -190,7 +220,7 @@ func validateExclusions(exclusions []string, network *net.IPNet) []error {
 }
 
 // validateExcludeRanges validates if the exclude ranges are valid and part of network. returns error for each invalid exclude range.
-func validateExcludeRanges(excludeRanges []dpuservicev1.ExcludeRange, network *net.IPNet) []error {
+func validateExcludeRanges(excludeRanges []dpuservicev1.IPRange, network *net.IPNet) []error {
 	var errs []error
 	for _, excludeRange := range excludeRanges {
 		startIP, err := validateIP(excludeRange.StartIP, network)
@@ -232,6 +262,11 @@ func validateDPUServiceIPAMIPV4Subnet(ipv4Subnet *dpuservicev1.IPV4Subnet) error
 		return fmt.Errorf("subnet %s is not a valid network", ipv4Subnet.Subnet)
 	}
 
+	prefixLen, _ := network.Mask.Size()
+	if prefixLen >= 31 {
+		return fmt.Errorf("subnet %s must be larger than /30 — /31 and /32 are not supported", ipv4Subnet.Subnet)
+	}
+
 	if excludeRangesErrs := validateExcludeRanges(ipv4Subnet.ExcludeRanges, network); len(excludeRangesErrs) > 0 {
 		return kerrors.NewAggregate(excludeRangesErrs)
 	}
@@ -243,6 +278,19 @@ func validateDPUServiceIPAMIPV4Subnet(ipv4Subnet *dpuservicev1.IPV4Subnet) error
 
 	if !network.Contains(ip) {
 		return fmt.Errorf("gateway %s is not part of subnet %s", ipv4Subnet.Gateway, ipv4Subnet.Subnet)
+	}
+
+	if ipv4Subnet.BlocksPerDPUCluster != nil {
+		if *ipv4Subnet.BlocksPerDPUCluster < 1 {
+			return errors.New("blocksPerDPUCluster must be at least 1 when set")
+		}
+		networkPrefixLen, _ := network.Mask.Size()
+		networkSize := 1 << uint(32-networkPrefixLen)
+		// -2 because we don't support /31 and /32 where the network address and broadcast address are allocatable
+		totalBlocks := (networkSize - 2) / ipv4Subnet.PerNodeIPCount
+		if int(*ipv4Subnet.BlocksPerDPUCluster) > totalBlocks {
+			return fmt.Errorf("blocksPerDPUCluster %d exceeds the %d available blocks in subnet %s", *ipv4Subnet.BlocksPerDPUCluster, totalBlocks, ipv4Subnet.Subnet)
+		}
 	}
 
 	err = validateRoutes(ipv4Subnet.Routes, network, ipv4Subnet.DefaultGateway)

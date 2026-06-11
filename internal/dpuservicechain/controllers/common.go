@@ -47,6 +47,12 @@ func (n *namespacedNameInCluster) String() string {
 // objectsInDPUClustersReconciler is an interface that enables host cluster reconcilers to reconcile objects in the DPU
 // clusters in a standardized way.
 type objectsInDPUClustersReconciler interface {
+	// calculateDPUServiceObjectStateBasedOnStatus calculates the expected state of the DPUServiceObject after this
+	// reconciliation is done. It does so before committing any changes on the underlying DPUClusters. In case the state
+	// has changed, the common reconcile functions will exit early by enqueueing the request again in order to ensure
+	// that the status is committed first before modifying objects in the underlying clusters.
+	// Returns true if the status was mutated and needs to be committed before proceeding.
+	calculateDPUServiceObjectStateBasedOnStatus(targetDPUClusterConfigs []*dpucluster.Config, dpuServiceObject dpuservicev1.DPUServiceObject) (bool, error)
 	// getObjectsInDPUCluster is the method called by the reconcileObjectDeletionInDPUClusters function which deletes
 	// objects in the DPU cluster related to the given parentObject. The implementation should get the created objects
 	// in the DPU cluster.
@@ -54,7 +60,7 @@ type objectsInDPUClustersReconciler interface {
 	// createOrUpdateObjectsInDPUCluster is the method called by the reconcileObjectsInDPUClusters function which applies changes to
 	// the DPU clusters based on the given parentObject. The implementation should create and update objects in the DPU
 	// cluster.
-	createOrUpdateObjectsInDPUCluster(ctx context.Context, dpuClusterClient client.Client, parentObject dpuservicev1.DPUServiceObject) error
+	createOrUpdateObjectsInDPUCluster(ctx context.Context, dpuClusterClient client.Client, dpuClusterKey types.NamespacedName, parentObject dpuservicev1.DPUServiceObject) error
 	// deleteObjectsInDPUCluster is the method called by the reconcileObjectDeletionInDPUClusters function which deletes
 	// objects in the DPU cluster related to the given parentObject. The implementation should delete objects in the
 	// DPU cluster.
@@ -75,6 +81,14 @@ type longOperationError struct {
 
 func (e *longOperationError) Error() string {
 	return e.err.Error()
+}
+
+// staleStatusError is an error returned when the object status must be committed before mutations are applied to the
+// underlying DPU clusters. The caller should patch the status and requeue immediately.
+type staleStatusError struct{}
+
+func (e *staleStatusError) Error() string {
+	return "status is stale, must commit before modifying underlying resources"
 }
 
 // watchObjectsInDPUClusters watches objects in the DPU clusters. It is called by the reconciler to start
@@ -131,7 +145,9 @@ func reconcileObjectDeletionInDPUClusters(ctx context.Context,
 	return nil
 }
 
-// reconcileObjectsInDPUClusters handles the main reconciliation loop for objects in the DPU clusters
+// reconcileObjectsInDPUClusters handles the main reconciliation loop for objects in the DPU clusters.
+// Returns staleStatusError when calculateDPUServiceObjectStateBasedOnStatus signals that the
+// status must be committed before mutations are applied to the underlying clusters.
 //
 //nolint:unparam
 func reconcileObjectsInDPUClusters(ctx context.Context,
@@ -160,6 +176,15 @@ func reconcileObjectsInDPUClusters(ctx context.Context,
 		return err
 	}
 
+	// Check whether the state of the DPUServiceObject must be committed before proceeding with mutations.
+	changed, err := r.calculateDPUServiceObjectStateBasedOnStatus(targetDPUClusterConfigs, dpuServiceObject)
+	if err != nil {
+		return err
+	}
+	if changed {
+		return &staleStatusError{}
+	}
+
 	// Create and update objects in each targeted cluster
 	for _, dpuClusterConfig := range targetDPUClusterConfigs {
 		dpuClusterClient, err := dpuClusterConfig.Client(ctx)
@@ -169,12 +194,13 @@ func reconcileObjectsInDPUClusters(ctx context.Context,
 		if err := utils.EnsureNamespace(ctx, dpuClusterClient, dpuServiceObject.GetNamespace()); err != nil {
 			return err
 		}
-		if err := r.createOrUpdateObjectsInDPUCluster(ctx, dpuClusterClient, dpuServiceObject); err != nil {
+		dpuClusterKey := client.ObjectKeyFromObject(dpuClusterConfig.Cluster)
+		if err := r.createOrUpdateObjectsInDPUCluster(ctx, dpuClusterClient, dpuClusterKey, dpuServiceObject); err != nil {
 			return err
 		}
 
 		// Remove the cluster from the map to keep only clusters where resources need to be deleted
-		delete(unprocessedDPUClusters, client.ObjectKeyFromObject(dpuClusterConfig.Cluster).String())
+		delete(unprocessedDPUClusters, dpuClusterKey.String())
 	}
 
 	// Delete leftover resources in clusters that are no longer selected
