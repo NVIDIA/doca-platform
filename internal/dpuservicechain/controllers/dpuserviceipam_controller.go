@@ -21,6 +21,8 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
+	"strings"
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
@@ -64,7 +66,14 @@ type DPUServiceIPAMReconciler struct {
 	RemoteCache *dpucluster.RemoteCache
 }
 
-var _ objectsInDPUClustersReconciler = &DPUServiceIPAMReconciler{}
+// dpuServiceIPAMReconcilerWithPerReconcileState is a per-reconcile wrapper that carries the DPUServiceIPAMReconciler
+// and any state computed during a single reconcile pass (e.g. the exclusion calculator).
+type dpuServiceIPAMReconcilerWithPerReconcileState struct {
+	*DPUServiceIPAMReconciler
+	calculator *MultiDPUClusterExclusionCalculator
+}
+
+var _ objectsInDPUClustersReconciler = &dpuServiceIPAMReconcilerWithPerReconcileState{}
 
 const (
 	dpuServiceIPAMControllerName = "dpuserviceipamcontroller"
@@ -91,13 +100,15 @@ func (r *DPUServiceIPAMReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, err
 	}
 
+	rc := &dpuServiceIPAMReconcilerWithPerReconcileState{DPUServiceIPAMReconciler: r}
+
 	patcher := patch.NewSerialPatcher(dpuServiceIPAM, r.Client)
 
 	// Defer a patch call to always patch the object when Reconcile exits.
 	defer func() {
 		log.Info("Patching")
 
-		if err := updateSummary(ctx, r, r.Client, dpuservicev1.ConditionDPUIPAMObjectReady, dpuServiceIPAM); err != nil {
+		if err := updateSummary(ctx, rc, r.Client, dpuservicev1.ConditionDPUIPAMObjectReady, dpuServiceIPAM); err != nil {
 			reterr = kerrors.NewAggregate([]error{reterr, err})
 		}
 		if err := patcher.Patch(ctx, dpuServiceIPAM,
@@ -113,7 +124,7 @@ func (r *DPUServiceIPAMReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	// Handle deletion reconciliation loop.
 	if !dpuServiceIPAM.ObjectMeta.DeletionTimestamp.IsZero() {
-		return r.reconcileDelete(ctx, dpuServiceIPAM)
+		return rc.reconcileDelete(ctx, dpuServiceIPAM)
 	}
 
 	// Add finalizer if not set.
@@ -123,14 +134,24 @@ func (r *DPUServiceIPAMReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, nil
 	}
 
-	return r.reconcile(ctx, dpuServiceIPAM)
+	return rc.reconcile(ctx, dpuServiceIPAM)
 }
 
 // reconcile handles the main reconciliation loop
 //
 //nolint:unparam
-func (r *DPUServiceIPAMReconciler) reconcile(ctx context.Context, dpuServiceIPAM *dpuservicev1.DPUServiceIPAM) (ctrl.Result, error) {
-	if err := reconcileObjectsInDPUClusters(ctx, r, r.Client, dpuServiceIPAM); err != nil {
+func (rc *dpuServiceIPAMReconcilerWithPerReconcileState) reconcile(ctx context.Context, dpuServiceIPAM *dpuservicev1.DPUServiceIPAM) (ctrl.Result, error) {
+	if err := reconcileObjectsInDPUClusters(ctx, rc, rc.Client, dpuServiceIPAM); err != nil {
+		s := &staleStatusError{}
+		if errors.As(err, &s) {
+			conditions.AddFalse(
+				dpuServiceIPAM,
+				dpuservicev1.ConditionDPUIPAMObjectReconciled,
+				conditions.ReasonPending,
+				conditions.ConditionMessage("Committing state before modifying underlying resources"),
+			)
+			return ctrl.Result{RequeueAfter: time.Second}, nil
+		}
 		e := &longOperationError{}
 		conditions.AddFalse(
 			dpuServiceIPAM,
@@ -151,7 +172,7 @@ func (r *DPUServiceIPAMReconciler) reconcile(ctx context.Context, dpuServiceIPAM
 	)
 
 	// start watching the ServiceInterfaceSet in the DPU clusters
-	if err := watchObjectsInDPUClusters(ctx, r.Client, r); err != nil {
+	if err := watchObjectsInDPUClusters(ctx, rc.Client, rc); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -161,11 +182,11 @@ func (r *DPUServiceIPAMReconciler) reconcile(ctx context.Context, dpuServiceIPAM
 // reconcileDelete handles the delete reconciliation loop
 //
 //nolint:unparam
-func (r *DPUServiceIPAMReconciler) reconcileDelete(ctx context.Context, dpuServiceIPAM *dpuservicev1.DPUServiceIPAM) (ctrl.Result, error) {
+func (rc *dpuServiceIPAMReconcilerWithPerReconcileState) reconcileDelete(ctx context.Context, dpuServiceIPAM *dpuservicev1.DPUServiceIPAM) (ctrl.Result, error) {
 	log := ctrllog.FromContext(ctx)
 	log.Info("Reconciling delete")
 
-	if err := reconcileObjectDeletionInDPUClusters(ctx, r, r.Client, dpuServiceIPAM); err != nil {
+	if err := reconcileObjectDeletionInDPUClusters(ctx, rc, rc.Client, dpuServiceIPAM); err != nil {
 		e := &longOperationError{}
 		if errors.As(err, &e) {
 			log.Info(fmt.Sprintf("Requeueing because %s", err.Error()))
@@ -185,10 +206,70 @@ func (r *DPUServiceIPAMReconciler) reconcileDelete(ctx context.Context, dpuServi
 	return ctrl.Result{}, nil
 }
 
+// calculateDPUServiceObjectStateBasedOnStatus runs the IP allocator for all target clusters, compares the result
+// with status.DPUClusterAllocations, and if they differ updates the status in-memory and returns true so the caller
+// can commit the status before applying changes to the DPU clusters.
+func (rc *dpuServiceIPAMReconcilerWithPerReconcileState) calculateDPUServiceObjectStateBasedOnStatus(targetClusters []*dpucluster.Config, dpuServiceObject dpuservicev1.DPUServiceObject) (bool, error) {
+	dpuServiceIPAM := dpuServiceObject.(*dpuservicev1.DPUServiceIPAM)
+
+	if !isPerClusterAllocationEnabled(dpuServiceIPAM) && len(targetClusters) > 1 {
+		return false, fmt.Errorf("blocksPerDPUCluster or subnetsPerDPUCluster must be set when targeting more than one DPU cluster")
+	}
+
+	// Sort by key so that new block assignments are deterministic regardless of List ordering.
+	slices.SortFunc(targetClusters, func(a, b *dpucluster.Config) int {
+		return strings.Compare(
+			client.ObjectKeyFromObject(a.Cluster).String(),
+			client.ObjectKeyFromObject(b.Cluster).String(),
+		)
+	})
+
+	// Only pass allocations for target clusters so that removed clusters' blocks can be reclaimed.
+	existingAllocations := make([][]dpuservicev1.IPRange, 0, len(targetClusters))
+	for _, clusterConfig := range targetClusters {
+		existingAllocations = append(existingAllocations, getAllocationsForDPUCluster(dpuServiceIPAM.Status.DPUClusterAllocations, client.ObjectKeyFromObject(clusterConfig.Cluster)))
+	}
+
+	var err error
+	if dpuServiceIPAM.Spec.IPV4Subnet != nil {
+		rc.calculator, err = NewMultiDPUClusterExclusionCalculatorForIPPool(
+			dpuServiceIPAM.Spec.IPV4Subnet,
+			existingAllocations,
+		)
+	} else {
+		rc.calculator, err = NewMultiDPUClusterExclusionCalculatorForCIDRPool(
+			dpuServiceIPAM.Spec.IPV4Network,
+			existingAllocations,
+		)
+	}
+	if err != nil {
+		return false, fmt.Errorf("failed to create multi DPUCluster exclusion calculator: %w", err)
+	}
+
+	newAllocations := make([]dpuservicev1.DPUClusterAllocation, 0, len(targetClusters))
+	for _, clusterConfig := range targetClusters {
+		dpuCluster := client.ObjectKeyFromObject(clusterConfig.Cluster)
+		clusterBlocks, err := rc.calculator.AllocateClusterBlocks(getAllocationsForDPUCluster(dpuServiceIPAM.Status.DPUClusterAllocations, dpuCluster))
+		if err != nil {
+			return false, fmt.Errorf("failed to allocate for DPUCluster %s: %w", dpuCluster, err)
+		}
+		newAllocations = append(newAllocations, dpuservicev1.DPUClusterAllocation{DPUCluster: dpuCluster.String(), IPRanges: clusterBlocks})
+	}
+
+	if slices.EqualFunc(newAllocations, dpuServiceIPAM.Status.DPUClusterAllocations, func(a, b dpuservicev1.DPUClusterAllocation) bool {
+		return a.DPUCluster == b.DPUCluster && slices.Equal(a.IPRanges, b.IPRanges)
+	}) {
+		return false, nil
+	}
+
+	dpuServiceIPAM.Status.DPUClusterAllocations = newAllocations
+	return true, nil
+}
+
 // getObjectsInDPUCluster is the method called by the reconcileObjectDeletionInDPUClusters function which deletes
 // objects in the DPU cluster related to the given parentObject. The implementation should get the created objects
 // in the DPU cluster.
-func (r *DPUServiceIPAMReconciler) getObjectsInDPUCluster(ctx context.Context, c client.Client, dpuObject dpuservicev1.DPUServiceObject) ([]unstructured.Unstructured, error) {
+func (rc *dpuServiceIPAMReconcilerWithPerReconcileState) getObjectsInDPUCluster(ctx context.Context, c client.Client, dpuObject dpuservicev1.DPUServiceObject) ([]unstructured.Unstructured, error) {
 	pools := []unstructured.Unstructured{}
 	for _, poolListType := range []string{nvipamv1.IPPoolListKind, nvipamv1.CIDRPoolListKind} {
 		p := &unstructured.UnstructuredList{}
@@ -206,24 +287,25 @@ func (r *DPUServiceIPAMReconciler) getObjectsInDPUCluster(ctx context.Context, c
 	return pools, nil
 }
 
-// createOrUpdateChild is the method called by the reconcileObjectsInDPUClusters function which applies changes to the
-// DPU clusters on DPUServiceIPAM object updates.
-func (r *DPUServiceIPAMReconciler) createOrUpdateObjectsInDPUCluster(ctx context.Context, c client.Client, dpuObject dpuservicev1.DPUServiceObject) error {
+// createOrUpdateObjectsInDPUCluster is the method called by the reconcileObjectsInDPUClusters function which applies
+// changes to the DPU clusters on DPUServiceIPAM object updates.
+func (rc *dpuServiceIPAMReconcilerWithPerReconcileState) createOrUpdateObjectsInDPUCluster(ctx context.Context, c client.Client, dpuClusterKey types.NamespacedName, dpuObject dpuservicev1.DPUServiceObject) error {
 	dpuServiceIPAM, ok := dpuObject.(*dpuservicev1.DPUServiceIPAM)
 	if !ok {
 		return errors.New("error converting input object to DPUServiceIPAM")
 	}
 
-	if dpuServiceIPAM.Spec.IPV4Subnet != nil {
-		return reconcileIPPoolMode(ctx, c, dpuServiceIPAM)
-	}
+	exclusions := rc.calculator.ComputeExclusions(getAllocationsForDPUCluster(dpuServiceIPAM.Status.DPUClusterAllocations, dpuClusterKey))
 
-	return reconcileCIDRPoolMode(ctx, c, dpuServiceIPAM)
+	if dpuServiceIPAM.Spec.IPV4Subnet != nil {
+		return reconcileIPPoolMode(ctx, c, dpuServiceIPAM, exclusions)
+	}
+	return reconcileCIDRPoolMode(ctx, c, dpuServiceIPAM, exclusions)
 }
 
 // deleteObjectsInDPUCluster is the method called by the reconcileObjectDeletionInDPUClusters function which deletes
 // objects in the DPU cluster related to the deleted DPUServiceIPAM object.
-func (r *DPUServiceIPAMReconciler) deleteObjectsInDPUCluster(ctx context.Context, c client.Client, dpuObject dpuservicev1.DPUServiceObject) error {
+func (rc *dpuServiceIPAMReconcilerWithPerReconcileState) deleteObjectsInDPUCluster(ctx context.Context, c client.Client, dpuObject dpuservicev1.DPUServiceObject) error {
 	dpuServiceIPAM, ok := dpuObject.(*dpuservicev1.DPUServiceIPAM)
 	if !ok {
 		return errors.New("error converting input object to DPUServiceIPAM")
@@ -241,7 +323,7 @@ func (r *DPUServiceIPAMReconciler) deleteObjectsInDPUCluster(ctx context.Context
 // getUnreadyObjects is the method called by reconcileReadinessOfObjectsInDPUClusters function which returns whether
 // objects in the DPU cluster are ready. The input to the function is a list of objects that exist in a particular
 // cluster.
-func (r *DPUServiceIPAMReconciler) getUnreadyObjects(objects []unstructured.Unstructured) ([]types.NamespacedName, error) {
+func (rc *dpuServiceIPAMReconcilerWithPerReconcileState) getUnreadyObjects(objects []unstructured.Unstructured) ([]types.NamespacedName, error) {
 	unreadyObjs := []types.NamespacedName{}
 	for _, o := range objects {
 		// Both IPPool and CIDRPool objects have the same status field. Unfortunately we don't have a condition ready
@@ -261,21 +343,21 @@ func (r *DPUServiceIPAMReconciler) getUnreadyObjects(objects []unstructured.Unst
 // so that the DPUServiceIPAM controller can watch for changes in the IPPool and CIDRPool objects
 // in the DPU clusters. This is used to trigger reconciliation of the DPUServiceIPAM
 // when an IPPool or CIDRPool is created, updated, or deleted in any of the DPU clusters.
-func (r *DPUServiceIPAMReconciler) registerKindToWatcher(ctx context.Context, dpuCluster client.ObjectKey) error {
-	if err := r.RemoteCache.Watch(ctx, dpuCluster, dpucluster.NewWatcher(dpucluster.WatcherOptions{
+func (rc *dpuServiceIPAMReconcilerWithPerReconcileState) registerKindToWatcher(ctx context.Context, dpuCluster client.ObjectKey) error {
+	if err := rc.RemoteCache.Watch(ctx, dpuCluster, dpucluster.NewWatcher(dpucluster.WatcherOptions{
 		Name:         "dpuserviceipam-watch-ippool",
-		Watcher:      r.controller,
+		Watcher:      rc.controller,
 		Kind:         &nvipamv1.IPPool{},
-		EventHandler: handler.EnqueueRequestsFromMapFunc(r.ipPoolToDPUServiceChain),
+		EventHandler: handler.EnqueueRequestsFromMapFunc(ipPoolToDPUServiceChain),
 		Predicates:   []predicate.TypedPredicate[client.Object]{predicates.TypedResourceIsChanged[client.Object]()},
 	})); err != nil {
 		return fmt.Errorf("error while watching IPPool in DPU cluster: %w", err)
 	}
-	if err := r.RemoteCache.Watch(ctx, dpuCluster, dpucluster.NewWatcher(dpucluster.WatcherOptions{
+	if err := rc.RemoteCache.Watch(ctx, dpuCluster, dpucluster.NewWatcher(dpucluster.WatcherOptions{
 		Name:         "dpuserviceipam-watch-cidrpool",
-		Watcher:      r.controller,
+		Watcher:      rc.controller,
 		Kind:         &nvipamv1.CIDRPool{},
-		EventHandler: handler.EnqueueRequestsFromMapFunc(r.cidrPoolToDPUServiceChain),
+		EventHandler: handler.EnqueueRequestsFromMapFunc(cidrPoolToDPUServiceChain),
 		Predicates:   []predicate.TypedPredicate[client.Object]{predicates.TypedResourceIsChanged[client.Object]()},
 	})); err != nil {
 		return fmt.Errorf("error while watching CIDRPool in DPU cluster: %w", err)
@@ -283,7 +365,7 @@ func (r *DPUServiceIPAMReconciler) registerKindToWatcher(ctx context.Context, dp
 	return nil
 }
 
-func (r *DPUServiceIPAMReconciler) ipPoolToDPUServiceChain(ctx context.Context, o client.Object) []reconcile.Request {
+func ipPoolToDPUServiceChain(ctx context.Context, o client.Object) []reconcile.Request {
 	log := ctrllog.FromContext(ctx)
 	set, ok := o.(*nvipamv1.IPPool)
 	if !ok {
@@ -294,7 +376,7 @@ func (r *DPUServiceIPAMReconciler) ipPoolToDPUServiceChain(ctx context.Context, 
 	return []reconcile.Request{{NamespacedName: client.ObjectKey{Namespace: set.Namespace, Name: set.Name}}}
 }
 
-func (r *DPUServiceIPAMReconciler) cidrPoolToDPUServiceChain(ctx context.Context, o client.Object) []reconcile.Request {
+func cidrPoolToDPUServiceChain(ctx context.Context, o client.Object) []reconcile.Request {
 	log := ctrllog.FromContext(ctx)
 	set, ok := o.(*nvipamv1.CIDRPool)
 	if !ok {
@@ -320,14 +402,16 @@ func deleteDPUServiceOwnedPoolsOfType(ctx context.Context, c client.Client, dpuS
 }
 
 // reconcileIPPoolMode reconciles NVIPAM IPPool object and removes any leftover CIDRPool
-func reconcileIPPoolMode(ctx context.Context, c client.Client, dpuServiceIPAM *dpuservicev1.DPUServiceIPAM) error {
+func reconcileIPPoolMode(ctx context.Context, c client.Client, dpuServiceIPAM *dpuservicev1.DPUServiceIPAM, exclusions []nvipamv1.ExcludeRange) error {
 	pool := generateIPPool(dpuServiceIPAM)
+	pool.Spec.Exclusions = exclusions
 	return reconcilePoolMode(ctx, c, dpuServiceIPAM, pool, nvipamv1.CIDRPoolKind)
 }
 
 // reconcileCIDRPoolMode reconciles NVIPAM CIDRPool object and removes any leftover IPPool
-func reconcileCIDRPoolMode(ctx context.Context, c client.Client, dpuServiceIPAM *dpuservicev1.DPUServiceIPAM) error {
+func reconcileCIDRPoolMode(ctx context.Context, c client.Client, dpuServiceIPAM *dpuservicev1.DPUServiceIPAM, exclusions []nvipamv1.ExcludeRange) error {
 	pool := generateCIDRPool(dpuServiceIPAM)
+	pool.Spec.Exclusions = exclusions
 	return reconcilePoolMode(ctx, c, dpuServiceIPAM, pool, nvipamv1.IPPoolKind)
 }
 
@@ -364,11 +448,6 @@ func generateIPPool(dpuServiceIPAM *dpuservicev1.DPUServiceIPAM) *nvipamv1.IPPoo
 		routes = append(routes, nvipamv1.Route{Dst: route.Dst})
 	}
 
-	exclusions := make([]nvipamv1.ExcludeRange, 0, len(dpuServiceIPAM.Spec.IPV4Subnet.ExcludeRanges))
-	for _, excludeRange := range dpuServiceIPAM.Spec.IPV4Subnet.ExcludeRanges {
-		exclusions = append(exclusions, nvipamv1.ExcludeRange{StartIP: excludeRange.StartIP, EndIP: excludeRange.EndIP})
-	}
-
 	pool := &nvipamv1.IPPool{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        dpuServiceIPAM.Name,
@@ -379,7 +458,6 @@ func generateIPPool(dpuServiceIPAM *dpuservicev1.DPUServiceIPAM) *nvipamv1.IPPoo
 		Spec: nvipamv1.IPPoolSpec{
 			Subnet:           dpuServiceIPAM.Spec.IPV4Subnet.Subnet,
 			PerNodeBlockSize: dpuServiceIPAM.Spec.IPV4Subnet.PerNodeIPCount,
-			Exclusions:       exclusions,
 			Gateway:          dpuServiceIPAM.Spec.IPV4Subnet.Gateway,
 			NodeSelector:     dpuServiceIPAM.Spec.NodeSelector,
 			DefaultGateway:   dpuServiceIPAM.Spec.IPV4Subnet.DefaultGateway,
@@ -392,18 +470,7 @@ func generateIPPool(dpuServiceIPAM *dpuservicev1.DPUServiceIPAM) *nvipamv1.IPPoo
 }
 
 // generateCIDRPool generates a CIDRPool object for the given dpuServiceIPAM
-//
-//nolint:staticcheck // SA1019: Exclusions is deprecated but still supported
 func generateCIDRPool(dpuServiceIPAM *dpuservicev1.DPUServiceIPAM) *nvipamv1.CIDRPool {
-	exclusions := make([]nvipamv1.ExcludeRange, 0, len(dpuServiceIPAM.Spec.IPV4Network.Exclusions)+len(dpuServiceIPAM.Spec.IPV4Network.ExcludeRanges))
-	for _, ip := range dpuServiceIPAM.Spec.IPV4Network.Exclusions {
-		exclusions = append(exclusions, nvipamv1.ExcludeRange{StartIP: ip, EndIP: ip})
-	}
-
-	for _, excludeRange := range dpuServiceIPAM.Spec.IPV4Network.ExcludeRanges {
-		exclusions = append(exclusions, nvipamv1.ExcludeRange{StartIP: excludeRange.StartIP, EndIP: excludeRange.EndIP})
-	}
-
 	allocations := make([]nvipamv1.CIDRPoolStaticAllocation, 0, len(dpuServiceIPAM.Spec.IPV4Network.Allocations))
 	for node, prefix := range dpuServiceIPAM.Spec.IPV4Network.Allocations {
 		allocations = append(allocations, nvipamv1.CIDRPoolStaticAllocation{NodeName: node, Prefix: prefix})
@@ -426,7 +493,6 @@ func generateCIDRPool(dpuServiceIPAM *dpuservicev1.DPUServiceIPAM) *nvipamv1.CID
 			GatewayIndex:         dpuServiceIPAM.Spec.IPV4Network.GatewayIndex,
 			PerNodeNetworkPrefix: dpuServiceIPAM.Spec.IPV4Network.PrefixSize,
 			NodeSelector:         dpuServiceIPAM.Spec.NodeSelector,
-			Exclusions:           exclusions,
 			StaticAllocations:    allocations,
 			DefaultGateway:       dpuServiceIPAM.Spec.IPV4Network.DefaultGateway,
 			Routes:               routes,
@@ -462,6 +528,28 @@ func (r *DPUServiceIPAMReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	r.controller = c
 	return nil
+}
+
+// getAllocationsForDPUCluster returns the IPRanges for the given DPUCluster, or nil if not found.
+func getAllocationsForDPUCluster(allocations []dpuservicev1.DPUClusterAllocation, dpuCluster types.NamespacedName) []dpuservicev1.IPRange {
+	for _, a := range allocations {
+		if a.DPUCluster == dpuCluster.String() {
+			return a.IPRanges
+		}
+	}
+	return nil
+}
+
+// isPerClusterAllocationEnabled reports whether the DPUServiceIPAM is configured to partition IP allocations
+// per DPU cluster. This can apply to any number of clusters, including a single one.
+func isPerClusterAllocationEnabled(dpuServiceIPAM *dpuservicev1.DPUServiceIPAM) bool {
+	if dpuServiceIPAM.Spec.IPV4Subnet != nil {
+		return dpuServiceIPAM.Spec.IPV4Subnet.BlocksPerDPUCluster != nil
+	}
+	if dpuServiceIPAM.Spec.IPV4Network != nil {
+		return dpuServiceIPAM.Spec.IPV4Network.SubnetsPerDPUCluster != nil
+	}
+	return false
 }
 
 // dpuClusterToDPUServiceIPAM ensures all DPUServiceIPAMs are updated each time there is an update to a DPUCluster.
