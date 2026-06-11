@@ -19,6 +19,7 @@ package networkhelper
 import (
 	"net"
 
+	"github.com/k8snetworkplumbingwg/sriovnet"
 	"github.com/vishvananda/netlink"
 )
 
@@ -77,4 +78,8 @@ type NetworkHelper interface {
 	GetUplinkRepresentor(pciAddress string) (string, error)
 	// DevlinkPortList returns the list of devlink ports in the system
 	DevlinkPortList() ([]*netlink.DevlinkPort, error)
+	// GetVfRepresentorFromPortParams returns the VF representor netdev name for a given port parameters and VF index
+	GetVfRepresentorFromPortParams(pp *sriovnet.RepresentorPortParams, vfIndex uint32) (string, error)
+	// GetPfRepresentorFromPortParams returns the PF representor netdev name for a given port parameters
+	GetPfRepresentorFromPortParams(pp *sriovnet.RepresentorPortParams) (string, error)
 }

@@ -309,6 +309,7 @@ func (n *networkHelper) LinkExists(link string) (bool, error) {
 // GetHostPFMACAddressDPU returns the MAC address of the Host PF identified by pfID provided as input.
 // pfID is either "0" or "1". This function should only be called on the DPU.
 func (n *networkHelper) GetHostPFMACAddressDPU(pfID string) (net.HardwareAddr, error) {
+	//nolint:staticcheck
 	rep, err := sriovnet.GetPfRepresentorDPU(pfID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get PF representor for pfID %s: %w", pfID, err)
@@ -402,6 +403,8 @@ func (n *networkHelper) AddRule(src *net.IPNet, table int, priority int) error {
 
 // GetPFRepresentorDPU returns PF representor on DPU for a host PF identified by its ID.
 func (n *networkHelper) GetPFRepresentorDPU(pfID string) (string, error) {
+	// TODO(adrianc): remove these function once we migrate ovn-vpc to the new API
+	//nolint:staticcheck
 	rep, err := sriovnet.GetPfRepresentorDPU(pfID)
 	if err != nil {
 		return "", fmt.Errorf("failed to get PF representor for pfID %s: %w", pfID, err)
@@ -411,6 +414,8 @@ func (n *networkHelper) GetPFRepresentorDPU(pfID string) (string, error) {
 
 // GetVFRepresentorDPU returns VF representor on DPU for a host VF identified by pfID and vfIndex
 func (n *networkHelper) GetVFRepresentorDPU(pfID, vfIndex string) (string, error) {
+	// TODO(adrianc): remove these function once we migrate ovn-vpc to the new API
+	//nolint:staticcheck
 	rep, err := sriovnet.GetVfRepresentorDPU(pfID, vfIndex)
 	if err != nil {
 		return "", fmt.Errorf("failed to get VF representor for pfID %s and vfIndex %s: %w", pfID, vfIndex, err)
@@ -435,4 +440,22 @@ func (n *networkHelper) DevlinkPortList() ([]*netlink.DevlinkPort, error) {
 		return nil, fmt.Errorf("failed to list devlink ports: %w", err)
 	}
 	return ports, nil
+}
+
+// GetVfRepresentorFromPortParams returns the VF representor netdev name for a given port parameters and VF index
+func (n *networkHelper) GetVfRepresentorFromPortParams(pp *sriovnet.RepresentorPortParams, vfIndex uint32) (string, error) {
+	rep, err := sriovnet.GetVfRepresentorFromPortParams(pp, vfIndex)
+	if err != nil {
+		return "", fmt.Errorf("failed to get VF representor for port parameters %v and vfIndex %d: %w", pp, vfIndex, err)
+	}
+	return rep, nil
+}
+
+// GetPfRepresentorFromPortParams returns the PF representor netdev name for a given port parameters
+func (n *networkHelper) GetPfRepresentorFromPortParams(pp *sriovnet.RepresentorPortParams) (string, error) {
+	rep, err := sriovnet.GetPfRepresentorFromPortParams(pp)
+	if err != nil {
+		return "", fmt.Errorf("failed to get PF representor for port parameters %v: %w", pp, err)
+	}
+	return rep, nil
 }

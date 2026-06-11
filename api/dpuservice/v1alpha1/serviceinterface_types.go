@@ -199,10 +199,17 @@ type VLAN struct {
 
 // VF defines the VF configuration
 type VF struct {
+	// NICSelector defines the NIC selected for the VF interface
+	// +optional
+	NICSelector *NICSelectorSpec `json:"nicSelector,omitempty"`
 	// The VF ID
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=255
 	// +required
 	VFID int `json:"vfID"`
 	// The PF ID
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=255
 	// +required
 	PFID int `json:"pfID"`
 	// The parent interface reference
@@ -216,7 +223,12 @@ type VF struct {
 
 // PF defines the PF configuration
 type PF struct {
+	// NICSelector defines the NIC selected for the PF interface
+	// +optional
+	NICSelector *NICSelectorSpec `json:"nicSelector,omitempty"`
 	// The PF ID
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=255
 	// +required
 	ID int `json:"pfID"`
 	// VirtualNetwork is the VirtualNetwork name in the same namespace
@@ -248,6 +260,50 @@ type PatchDef struct {
 	// PeerExternalIDs are the external IDs used to identify the peer patch port.
 	// +optional
 	PeerExternalIDs map[string]string `json:"peerExternalIDs,omitempty"`
+}
+
+// NICSelectorType is the type of NIC selector
+type NICSelectorType string
+
+const (
+	// NICSelectorTypeDPU selects the DPU NIC
+	NICSelectorTypeDPU NICSelectorType = "dpu"
+	// NICSelectorTypePCI selects NIC according to the provided PCI address of one of the NIC's Embedded CPU PFs (ECPFs)
+	NICSelectorTypePCI NICSelectorType = "pci"
+)
+
+// NICSelectorSpec defines how a NIC is selected
+// +kubebuilder:validation:XValidation:rule="(self.type == 'dpu') || (self.type == 'pci' && has(self.pci))", message="for type=pci, pci must be set"
+type NICSelectorSpec struct {
+	// Type is the type of selector to be used to identify the NIC.
+	// +kubebuilder:validation:Enum=dpu;pci
+	// +required
+	Type NICSelectorType `json:"type"`
+	// PCI is the PCI selector. valid only for selector type pci
+	// +optional
+	PCI *PCISelector `json:"pci,omitempty"`
+	// ControllerNumber specifies the controller number that will be used to find the matching representor on the DPU.
+	// A value of 0 targets the local controller, >=1 targets external controllers with the specified number. If unspecified controller number 1 is used.
+	// In case of a DPU/NIC with socket direct or MultiHost, the user should specify the controller number explicitly
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=255
+	// +optional
+	ControllerNumber *int32 `json:"controllerNumber,omitempty"`
+}
+
+func (n *NICSelectorSpec) GetControllerNumber() int32 {
+	if n == nil || n.ControllerNumber == nil {
+		return 1
+	}
+	return *n.ControllerNumber
+}
+
+// PCISelector selects NIC by PCI address
+type PCISelector struct {
+	// Address is the PCI address of any of the NIC's Embedded CPU PFs (ECPFs)
+	// +kubebuilder:validation:Pattern=`^[0-9a-f]{4}:[0-9a-f]{2}:[0-1][0-9a-f]\.[0-7]{1}$`
+	// +required
+	Address string `json:"address,omitzero"`
 }
 
 // ServiceInterfaceStatus defines the observed state of ServiceInterface

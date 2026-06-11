@@ -26,11 +26,11 @@ import (
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	sfccontroller "github.com/nvidia/doca-platform/internal/sfccontroller/controllers"
+	"github.com/nvidia/doca-platform/pkg/ecpf"
 	"github.com/nvidia/doca-platform/pkg/health"
 	oflow "github.com/nvidia/doca-platform/pkg/openflow"
 	"github.com/nvidia/doca-platform/pkg/ovsmodel"
 	"github.com/nvidia/doca-platform/pkg/ovsutils"
-	"github.com/nvidia/doca-platform/pkg/utils/networkhelper"
 
 	"antrea.io/antrea/pkg/ovs/openflow"
 	"github.com/cenkalti/backoff/v4"
@@ -241,25 +241,30 @@ func main() {
 	}
 
 	ovsClient := &ovsutils.Client{Client: ovs}
-	networkHelper := networkhelper.New()
+
+	ecpfManager, err := ecpf.NewECPFManager()
+	if err != nil {
+		setupLog.Error(err, "failed to create ecpf manager")
+		os.Exit(1)
+	}
 
 	if err = (&sfccontroller.ServiceInterfaceReconciler{
-		Client:        mgr.GetClient(),
-		Scheme:        mgr.GetScheme(),
-		NodeName:      nodeName,
-		OVS:           ovsClient,
-		NetworkHelper: networkHelper,
+		Client:      mgr.GetClient(),
+		Scheme:      mgr.GetScheme(),
+		NodeName:    nodeName,
+		OVS:         ovsClient,
+		ECPFManager: ecpfManager,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ServiceInterface")
 		os.Exit(1)
 	}
 
 	if err = (&sfccontroller.NodeServiceInterfacesReconciler{
-		Client:        mgr.GetClient(),
-		Scheme:        mgr.GetScheme(),
-		NodeName:      nodeName,
-		OVS:           ovsClient,
-		NetworkHelper: networkHelper,
+		Client:      mgr.GetClient(),
+		Scheme:      mgr.GetScheme(),
+		NodeName:    nodeName,
+		OVS:         ovsClient,
+		ECPFManager: ecpfManager,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "NodeServiceInterfaces")
 		os.Exit(1)
@@ -292,7 +297,7 @@ func main() {
 	}
 
 	staleFlowsRemover := sfccontroller.NewStaleObjectRemover(
-		staleFlowsRemovalPeriod, mgr.GetClient(), ofb, ovsClient, networkHelper)
+		staleFlowsRemovalPeriod, mgr.GetClient(), ofb, ovsClient, ecpfManager)
 	if err = mgr.Add(staleFlowsRemover); err != nil {
 		setupLog.Error(err, "cannot add runnable to manager")
 	}

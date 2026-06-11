@@ -22,8 +22,8 @@ import (
 	"fmt"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	ecpfMock "github.com/nvidia/doca-platform/pkg/ecpf/mock"
 	"github.com/nvidia/doca-platform/pkg/ovsutils"
-	mock_networkhelper "github.com/nvidia/doca-platform/pkg/utils/networkhelper/mock"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 
 	"github.com/fluxcd/pkg/runtime/conditions"
@@ -41,26 +41,26 @@ import (
 //nolint:goconst
 var _ = Describe("service interface controller", func() {
 	var (
-		mockCtrl          *gomock.Controller
-		cleanupObjects    []client.Object
-		sir               *ServiceInterfaceReconciler
-		ovsMock           *ovsutils.MockAPI
-		networkHelperMock *mock_networkhelper.MockNetworkHelper
-		ctx               = context.Background()
-		ns                *corev1.Namespace
+		mockCtrl        *gomock.Controller
+		cleanupObjects  []client.Object
+		sir             *ServiceInterfaceReconciler
+		ovsMock         *ovsutils.MockAPI
+		ecpfManagerMock *ecpfMock.MockECPFManager
+		ctx             = context.Background()
+		ns              *corev1.Namespace
 	)
 
 	BeforeEach(func() {
 		cleanupObjects = []client.Object{}
 		mockCtrl = gomock.NewController(GinkgoT())
 		ovsMock = ovsutils.NewMockAPI(mockCtrl)
-		networkHelperMock = mock_networkhelper.NewMockNetworkHelper(mockCtrl)
+		ecpfManagerMock = ecpfMock.NewMockECPFManager(mockCtrl)
 
 		sir = &ServiceInterfaceReconciler{
-			Client:        testClient,
-			NodeName:      testNodeName,
-			OVS:           ovsMock,
-			NetworkHelper: networkHelperMock,
+			Client:      testClient,
+			NodeName:    testNodeName,
+			OVS:         ovsMock,
+			ECPFManager: ecpfManagerMock,
 		}
 
 		ns = &corev1.Namespace{
@@ -272,12 +272,12 @@ var _ = Describe("service interface controller", func() {
 			Entry("failed to get port name",
 				pfIfaceSpec,
 				func() {
-					networkHelperMock.EXPECT().GetPFRepresentorDPU(gomock.Any()).Return("", fmt.Errorf("failed to get port name"))
+					ecpfManagerMock.EXPECT().GetRepresentorForPFServiceInterface(gomock.Any()).Return("", fmt.Errorf("failed to get port name"))
 				}, false),
 			Entry("success pf interface",
 				pfIfaceSpec,
 				func() {
-					networkHelperMock.EXPECT().GetPFRepresentorDPU(gomock.Any()).Return("pf0hpf", nil)
+					ecpfManagerMock.EXPECT().GetRepresentorForPFServiceInterface(gomock.Any()).Return("pf0hpf", nil)
 					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any()).Return(nil)
 					ovsMock.EXPECT().SetIfaceExternalIDs(
 						gomock.Any(),
@@ -289,7 +289,7 @@ var _ = Describe("service interface controller", func() {
 			Entry("success vf interface",
 				vfIfaceSpec,
 				func() {
-					networkHelperMock.EXPECT().GetVFRepresentorDPU(gomock.Any(), gomock.Any()).Return("pf0vf2", nil)
+					ecpfManagerMock.EXPECT().GetRepresentorForVFServiceInterface(gomock.Any()).Return("pf0vf2", nil)
 					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any()).Return(nil)
 					ovsMock.EXPECT().SetIfaceExternalIDs(
 						gomock.Any(),
@@ -477,7 +477,7 @@ var _ = Describe("service interface controller", func() {
 
 		It("should return success", func() {
 
-			networkHelperMock.EXPECT().GetPFRepresentorDPU(gomock.Any()).Return("pf0hpf", nil)
+			ecpfManagerMock.EXPECT().GetRepresentorForPFServiceInterface(gomock.Any()).Return("pf0hpf", nil)
 			ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 
 			result, err := sir.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{
@@ -489,7 +489,7 @@ var _ = Describe("service interface controller", func() {
 		})
 
 		It("should requeue if failed to delete port", func() {
-			networkHelperMock.EXPECT().GetPFRepresentorDPU(gomock.Any()).Return("pf0hpf", nil)
+			ecpfManagerMock.EXPECT().GetRepresentorForPFServiceInterface(gomock.Any()).Return("pf0hpf", nil)
 			ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("failed to delete port"))
 
 			result, err := sir.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{
@@ -501,7 +501,7 @@ var _ = Describe("service interface controller", func() {
 		})
 
 		It("should requeue if failed to get port name", func() {
-			networkHelperMock.EXPECT().GetPFRepresentorDPU(gomock.Any()).Return("", fmt.Errorf("failed to get port name"))
+			ecpfManagerMock.EXPECT().GetRepresentorForPFServiceInterface(gomock.Any()).Return("", fmt.Errorf("failed to get port name"))
 
 			result, err := sir.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{
 				Namespace: deletedServiceInterface.Namespace,
@@ -540,7 +540,7 @@ var _ = Describe("service interface controller", func() {
 
 		It("should return success", func() {
 
-			networkHelperMock.EXPECT().GetVFRepresentorDPU(gomock.Any(), gomock.Any()).Return("pf0hvf2", nil)
+			ecpfManagerMock.EXPECT().GetRepresentorForVFServiceInterface(gomock.Any()).Return("pf0hvf2", nil)
 			ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), "pf0hvf2").Return(nil)
 
 			result, err := sir.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{
@@ -552,7 +552,7 @@ var _ = Describe("service interface controller", func() {
 		})
 
 		It("should requeue if failed to get port name", func() {
-			networkHelperMock.EXPECT().GetVFRepresentorDPU(gomock.Any(), gomock.Any()).Return("", fmt.Errorf("failed to get port name"))
+			ecpfManagerMock.EXPECT().GetRepresentorForVFServiceInterface(gomock.Any()).Return("", fmt.Errorf("failed to get port name"))
 
 			result, err := sir.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{
 				Namespace: deletedServiceInterface.Namespace,
