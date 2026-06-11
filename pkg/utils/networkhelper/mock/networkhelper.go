@@ -31,6 +31,7 @@ import (
 	reflect "reflect"
 
 	sriovnet "github.com/k8snetworkplumbingwg/sriovnet"
+	networkhelper "github.com/nvidia/doca-platform/pkg/utils/networkhelper"
 	netlink "github.com/vishvananda/netlink"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -204,18 +205,18 @@ func (mr *MockNetworkHelperMockRecorder) GetHostPFMACAddressDPU(pfID any) *gomoc
 }
 
 // GetLinkIPAddresses mocks base method.
-func (m *MockNetworkHelper) GetLinkIPAddresses(link string) ([]*net.IPNet, error) {
+func (m *MockNetworkHelper) GetLinkIPAddresses(link string, family networkhelper.IPFamily) ([]*net.IPNet, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetLinkIPAddresses", link)
+	ret := m.ctrl.Call(m, "GetLinkIPAddresses", link, family)
 	ret0, _ := ret[0].([]*net.IPNet)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetLinkIPAddresses indicates an expected call of GetLinkIPAddresses.
-func (mr *MockNetworkHelperMockRecorder) GetLinkIPAddresses(link any) *gomock.Call {
+func (mr *MockNetworkHelperMockRecorder) GetLinkIPAddresses(link, family any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLinkIPAddresses", reflect.TypeOf((*MockNetworkHelper)(nil).GetLinkIPAddresses), link)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLinkIPAddresses", reflect.TypeOf((*MockNetworkHelper)(nil).GetLinkIPAddresses), link, family)
 }
 
 // GetPFRepresentorDPU mocks base method.
@@ -368,18 +369,18 @@ func (mr *MockNetworkHelperMockRecorder) RouteExists(network, gateway, device, t
 }
 
 // RouteList mocks base method.
-func (m *MockNetworkHelper) RouteList(device string, table *int) ([]netlink.Route, error) {
+func (m *MockNetworkHelper) RouteList(device string, family networkhelper.IPFamily, table *int) ([]netlink.Route, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RouteList", device, table)
+	ret := m.ctrl.Call(m, "RouteList", device, family, table)
 	ret0, _ := ret[0].([]netlink.Route)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // RouteList indicates an expected call of RouteList.
-func (mr *MockNetworkHelperMockRecorder) RouteList(device, table any) *gomock.Call {
+func (mr *MockNetworkHelperMockRecorder) RouteList(device, family, table any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RouteList", reflect.TypeOf((*MockNetworkHelper)(nil).RouteList), device, table)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RouteList", reflect.TypeOf((*MockNetworkHelper)(nil).RouteList), device, family, table)
 }
 
 // RuleExists mocks base method.
