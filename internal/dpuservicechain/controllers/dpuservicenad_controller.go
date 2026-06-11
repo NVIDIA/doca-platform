@@ -71,6 +71,10 @@ type DPUServiceNADReconciler struct {
 
 var _ objectsInDPUClustersReconciler = &DPUServiceNADReconciler{}
 
+func (r *DPUServiceNADReconciler) calculateDPUServiceObjectStateBasedOnStatus(_ []*dpucluster.Config, _ dpuservicev1.DPUServiceObject) (bool, error) {
+	return false, nil
+}
+
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=dpuservicenads,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=dpuservicenads/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=dpuservicenads/finalizers,verbs=update
@@ -266,9 +270,9 @@ func (r *DPUServiceNADReconciler) getObjectsInDPUCluster(ctx context.Context, c 
 	return []unstructured.Unstructured{*nad}, nil
 }
 
-// createOrUpdateChild is the method called by the reconcileObjectsInDPUClusters function which applies changes to the
-// DPU clusters on DPUServiceNAD object updates.
-func (r *DPUServiceNADReconciler) createOrUpdateObjectsInDPUCluster(ctx context.Context, c client.Client, dpuObject dpuservicev1.DPUServiceObject) error {
+// createOrUpdateObjectsInDPUCluster is the method called by the reconcileObjectsInDPUClusters function which applies
+// changes to the DPU clusters on DPUServiceNAD object updates.
+func (r *DPUServiceNADReconciler) createOrUpdateObjectsInDPUCluster(ctx context.Context, c client.Client, _ types.NamespacedName, dpuObject dpuservicev1.DPUServiceObject) error {
 	DPUServiceNAD, ok := dpuObject.(*dpuservicev1.DPUServiceNAD)
 	if !ok {
 		return errors.New("error converting input object to DPUServiceNAD")

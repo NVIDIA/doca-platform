@@ -50,6 +50,10 @@ import (
 
 var _ objectsInDPUClustersReconciler = &DPUServiceChainReconciler{}
 
+func (r *DPUServiceChainReconciler) calculateDPUServiceObjectStateBasedOnStatus(_ []*dpucluster.Config, _ dpuservicev1.DPUServiceObject) (bool, error) {
+	return false, nil
+}
+
 // DPUServiceChainReconciler reconciles a DPUServiceChain object
 type DPUServiceChainReconciler struct {
 	client.Client
@@ -187,7 +191,7 @@ func (r *DPUServiceChainReconciler) getObjectsInDPUCluster(ctx context.Context, 
 	return []unstructured.Unstructured{*scs}, nil
 }
 
-func (r *DPUServiceChainReconciler) createOrUpdateObjectsInDPUCluster(ctx context.Context, k8sClient client.Client, dpuObject dpuservicev1.DPUServiceObject) error {
+func (r *DPUServiceChainReconciler) createOrUpdateObjectsInDPUCluster(ctx context.Context, k8sClient client.Client, _ types.NamespacedName, dpuObject dpuservicev1.DPUServiceObject) error {
 	dpuServiceChain := dpuObject.(*dpuservicev1.DPUServiceChain)
 	scs := &dpuservicev1.ServiceChainSet{
 		ObjectMeta: metav1.ObjectMeta{
