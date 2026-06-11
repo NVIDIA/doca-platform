@@ -95,6 +95,13 @@ func (n *networkHelper) SetLinkIPAddress(link string, ipNet *net.IPNet) error {
 	return nil
 }
 
+func ipFamilyFromIP(ip net.IP) IPFamily {
+	if ip.To4() != nil {
+		return IPFamilyV4
+	}
+	return IPFamilyV6
+}
+
 // LinkIPAddressExists checks whether a link has the given IP.
 func (n *networkHelper) LinkIPAddressExists(link string, ipNet *net.IPNet) (bool, error) {
 	l, err := netlink.LinkByName(link)
@@ -105,7 +112,7 @@ func (n *networkHelper) LinkIPAddressExists(link string, ipNet *net.IPNet) (bool
 	if err != nil {
 		return false, fmt.Errorf("netlink.ParseAddr() failed: %w", err)
 	}
-	ips, err := netlink.AddrList(l, netlink.FAMILY_V4)
+	ips, err := netlink.AddrList(l, int(ipFamilyFromIP(ipNet.IP)))
 	if err != nil {
 		return false, fmt.Errorf("netlink.AddrList() failed: %w", err)
 	}
@@ -166,7 +173,7 @@ func (n *networkHelper) NeighborExists(ip net.IP, device string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("netlink.LinkByName() failed: %w", err)
 	}
-	neighbors, err := netlink.NeighList(l.Attrs().Index, netlink.FAMILY_V4)
+	neighbors, err := netlink.NeighList(l.Attrs().Index, int(ipFamilyFromIP(ip)))
 	if err != nil {
 		return false, fmt.Errorf("netlink.NeighList() failed: %w", err)
 	}
@@ -204,7 +211,7 @@ func (n *networkHelper) RouteExists(network *net.IPNet, gateway net.IP, device s
 	if network == nil {
 		return false, errors.New("network is empty, can't check whether route exists")
 	}
-	routes, err := n.RouteList(device, table)
+	routes, err := n.RouteList(device, ipFamilyFromIP(network.IP), table)
 	if err != nil {
 		return false, err
 	}
@@ -216,9 +223,9 @@ func (n *networkHelper) RouteExists(network *net.IPNet, gateway net.IP, device s
 	return false, nil
 }
 
-// RouteList returns IPv4 routes for device.
+// RouteList returns routes for device and the given IP family.
 // When table is non-nil, only routes in that routing table are returned.
-func (n *networkHelper) RouteList(device string, table *int) ([]netlink.Route, error) {
+func (n *networkHelper) RouteList(device string, family IPFamily, table *int) ([]netlink.Route, error) {
 	l, err := netlink.LinkByName(device)
 	if err != nil {
 		return nil, fmt.Errorf("netlink.LinkByName() failed: %w", err)
@@ -231,7 +238,7 @@ func (n *networkHelper) RouteList(device string, table *int) ([]netlink.Route, e
 		routeFilter.Table = *table
 		filterMask += netlink.RT_FILTER_TABLE
 	}
-	routes, err := netlink.RouteListFiltered(netlink.FAMILY_V4, routeFilter, filterMask)
+	routes, err := netlink.RouteListFiltered(int(family), routeFilter, filterMask)
 	if err != nil {
 		return nil, fmt.Errorf("netlink.RouteListFiltered() failed: %w", err)
 	}
@@ -323,13 +330,13 @@ func (n *networkHelper) GetHostPFMACAddressDPU(pfID string) (net.HardwareAddr, e
 	return mac, nil
 }
 
-// GetLinkIPAddresses returns the IP addresses of a link
-func (n *networkHelper) GetLinkIPAddresses(link string) ([]*net.IPNet, error) {
+// GetLinkIPAddresses returns the IP addresses of a link for the given IP family.
+func (n *networkHelper) GetLinkIPAddresses(link string, family IPFamily) ([]*net.IPNet, error) {
 	l, err := netlink.LinkByName(link)
 	if err != nil {
 		return nil, fmt.Errorf("netlink.LinkByName() failed: %w", err)
 	}
-	ips, err := netlink.AddrList(l, netlink.FAMILY_V4)
+	ips, err := netlink.AddrList(l, int(family))
 	if err != nil {
 		return nil, fmt.Errorf("netlink.AddrList() failed: %w", err)
 	}
@@ -342,7 +349,10 @@ func (n *networkHelper) GetLinkIPAddresses(link string) ([]*net.IPNet, error) {
 
 // GetGateway returns the gateway for the given network with the lower metric
 func (n *networkHelper) GetGateway(network *net.IPNet) (net.IP, error) {
-	routes, err := netlink.RouteList(nil, netlink.FAMILY_V4)
+	if network == nil {
+		return nil, errors.New("network is empty, can't get gateway")
+	}
+	routes, err := netlink.RouteList(nil, int(ipFamilyFromIP(network.IP)))
 	if err != nil {
 		return nil, fmt.Errorf("netlink.RouteList() failed: %w", err)
 	}
@@ -371,7 +381,7 @@ func (n *networkHelper) RuleExists(src *net.IPNet, table int, priority int) (boo
 	if src == nil {
 		return false, errors.New("src is empty, can't check whether rule exists")
 	}
-	rules, err := netlink.RuleList(netlink.FAMILY_V4)
+	rules, err := netlink.RuleList(int(ipFamilyFromIP(src.IP)))
 	if err != nil {
 		return false, fmt.Errorf("netlink.RuleList() failed: %w", err)
 	}

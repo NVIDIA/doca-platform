@@ -23,6 +23,18 @@ import (
 	"github.com/vishvananda/netlink"
 )
 
+// IPFamily identifies the IP address family to query.
+type IPFamily int
+
+const (
+	// IPFamilyV4 is IPv4.
+	IPFamilyV4 IPFamily = netlink.FAMILY_V4
+	// IPFamilyV6 is IPv6.
+	IPFamilyV6 IPFamily = netlink.FAMILY_V6
+	// IPFamilyAll is both IPv4 and IPv6.
+	IPFamilyAll IPFamily = netlink.FAMILY_ALL
+)
+
 // NetworkHelper is a helper that can be used to configure networking related settings on the system.
 
 //go:generate mockgen -copyright_file ../../../hack/boilerplate.go.txt -destination mock/networkhelper.go -source types.go
@@ -41,7 +53,7 @@ type NetworkHelper interface {
 	DeleteLinkIPAddress(link string, ipNet *net.IPNet) error
 	// DeleteNeighbor deletes a neighbor
 	DeleteNeighbor(ip net.IP, device string) error
-	// NeighborExists checks whether an neighbor entry exists
+	// NeighborExists checks whether a neighbor entry exists for the given IP.
 	NeighborExists(ip net.IP, device string) (bool, error)
 	// AddRoute adds a route
 	AddRoute(network *net.IPNet, gateway net.IP, device string, metric *int, table *int) error
@@ -49,9 +61,9 @@ type NetworkHelper interface {
 	DeleteRoute(network *net.IPNet, gateway net.IP, device string) error
 	// RouteExists checks whether a route exists
 	RouteExists(network *net.IPNet, gateway net.IP, device string, table *int) (bool, error)
-	// RouteList returns IPv4 routes for device.
+	// RouteList returns routes for device and the given IP family.
 	// When table is non-nil, only routes in that routing table are returned.
-	RouteList(device string, table *int) ([]netlink.Route, error)
+	RouteList(device string, family IPFamily, table *int) ([]netlink.Route, error)
 	// AddDummyLink adds a dummy link
 	AddDummyLink(link string) error
 	// DummyLinkExists checks if a dummy link exists
@@ -61,8 +73,8 @@ type NetworkHelper interface {
 	// GetHostPFMACAddressDPU returns the MAC address of the Host PF identified by pfID provided as input.
 	// pfID is either "0" or "1". This function should only be called on the DPU.
 	GetHostPFMACAddressDPU(pfID string) (net.HardwareAddr, error)
-	// GetLinkIPAddresses returns the IP addresses of a link
-	GetLinkIPAddresses(link string) ([]*net.IPNet, error)
+	// GetLinkIPAddresses returns the IP addresses of a link for the given IP family.
+	GetLinkIPAddresses(link string, family IPFamily) ([]*net.IPNet, error)
 	// GetGateway returns the gateway for the given network with the lower metric
 	GetGateway(network *net.IPNet) (net.IP, error)
 	// AddRule adds a rule in the routing policy database that controls the route selection algorithm
