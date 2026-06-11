@@ -23,9 +23,9 @@ import (
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	"github.com/nvidia/doca-platform/pkg/ecpf"
 	"github.com/nvidia/doca-platform/pkg/ovsmodel"
 	"github.com/nvidia/doca-platform/pkg/ovsutils"
-	"github.com/nvidia/doca-platform/pkg/utils/networkhelper"
 
 	"antrea.io/antrea/pkg/ovs/openflow"
 	"github.com/ovn-org/libovsdb/model"
@@ -36,11 +36,11 @@ import (
 )
 
 type StaleObjectRemover struct {
-	duration      time.Duration
-	client        client.Client
-	OFBridge      openflow.Bridge
-	OVS           ovsutils.API
-	NetworkHelper networkhelper.NetworkHelper
+	duration    time.Duration
+	client      client.Client
+	OFBridge    openflow.Bridge
+	OVS         ovsutils.API
+	ECPFManager ecpf.ECPFManager
 }
 
 func NewStaleObjectRemover(
@@ -48,14 +48,14 @@ func NewStaleObjectRemover(
 	client client.Client,
 	ofb openflow.Bridge,
 	ovs ovsutils.API,
-	networkHelper networkhelper.NetworkHelper,
+	ecpfManager ecpf.ECPFManager,
 ) *StaleObjectRemover {
 	return &StaleObjectRemover{
-		duration:      duration,
-		client:        client,
-		OFBridge:      ofb,
-		OVS:           ovs,
-		NetworkHelper: networkHelper,
+		duration:    duration,
+		client:      client,
+		OFBridge:    ofb,
+		OVS:         ovs,
+		ECPFManager: ecpfManager,
 	}
 }
 
@@ -185,7 +185,7 @@ func (r *StaleObjectRemover) removeStalePorts(ctx context.Context) error {
 			log.Info("adding patch port", "patchPort", patchPort)
 			continue
 		} else {
-			portName, err := FigureOutName(ctx, r.NetworkHelper, &serviceInterface)
+			portName, err := FigureOutName(ctx, r.ECPFManager, &serviceInterface)
 			if err != nil {
 				// Note: we must return error here to not risk unintended removal of ports from br-sfc
 				return fmt.Errorf("failed to get port name from serviceInterface %s. %w", client.ObjectKeyFromObject(&serviceInterface), err)

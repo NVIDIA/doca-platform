@@ -30,6 +30,7 @@ import (
 	net "net"
 	reflect "reflect"
 
+	sriovnet "github.com/k8snetworkplumbingwg/sriovnet"
 	netlink "github.com/vishvananda/netlink"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -232,6 +233,21 @@ func (mr *MockNetworkHelperMockRecorder) GetPFRepresentorDPU(pfID any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPFRepresentorDPU", reflect.TypeOf((*MockNetworkHelper)(nil).GetPFRepresentorDPU), pfID)
 }
 
+// GetPfRepresentorFromPortParams mocks base method.
+func (m *MockNetworkHelper) GetPfRepresentorFromPortParams(pp *sriovnet.RepresentorPortParams) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPfRepresentorFromPortParams", pp)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPfRepresentorFromPortParams indicates an expected call of GetPfRepresentorFromPortParams.
+func (mr *MockNetworkHelperMockRecorder) GetPfRepresentorFromPortParams(pp any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPfRepresentorFromPortParams", reflect.TypeOf((*MockNetworkHelper)(nil).GetPfRepresentorFromPortParams), pp)
+}
+
 // GetUplinkRepresentor mocks base method.
 func (m *MockNetworkHelper) GetUplinkRepresentor(pciAddress string) (string, error) {
 	m.ctrl.T.Helper()
@@ -260,6 +276,21 @@ func (m *MockNetworkHelper) GetVFRepresentorDPU(pfID, vfIndex string) (string, e
 func (mr *MockNetworkHelperMockRecorder) GetVFRepresentorDPU(pfID, vfIndex any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetVFRepresentorDPU", reflect.TypeOf((*MockNetworkHelper)(nil).GetVFRepresentorDPU), pfID, vfIndex)
+}
+
+// GetVfRepresentorFromPortParams mocks base method.
+func (m *MockNetworkHelper) GetVfRepresentorFromPortParams(pp *sriovnet.RepresentorPortParams, vfIndex uint32) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetVfRepresentorFromPortParams", pp, vfIndex)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetVfRepresentorFromPortParams indicates an expected call of GetVfRepresentorFromPortParams.
+func (mr *MockNetworkHelperMockRecorder) GetVfRepresentorFromPortParams(pp, vfIndex any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetVfRepresentorFromPortParams", reflect.TypeOf((*MockNetworkHelper)(nil).GetVfRepresentorFromPortParams), pp, vfIndex)
 }
 
 // LinkExists mocks base method.

@@ -5130,6 +5130,42 @@ _Appears in:_
 | `name` _string_ | Name is the name of the object |  | Required: \{\} <br /> |
 
 
+#### NICSelectorSpec
+
+
+
+NICSelectorSpec defines how a NIC is selected
+
+
+
+_Appears in:_
+- [PF](#pf)
+- [VF](#vf)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `type` _[NICSelectorType](#nicselectortype)_ | Type is the type of selector to be used to identify the NIC. |  | Enum: [dpu pci] <br />Required: \{\} <br /> |
+| `pci` _[PCISelector](#pciselector)_ | PCI is the PCI selector. valid only for selector type pci |  | Optional: \{\} <br /> |
+| `controllerNumber` _integer_ | ControllerNumber specifies the controller number that will be used to find the matching representor on the DPU.<br />A value of 0 targets the local controller, >=1 targets external controllers with the specified number. If unspecified controller number 1 is used.<br />In case of a DPU/NIC with socket direct or MultiHost, the user should specify the controller number explicitly |  | Maximum: 255 <br />Minimum: 0 <br />Optional: \{\} <br /> |
+
+
+#### NICSelectorType
+
+_Underlying type:_ _string_
+
+NICSelectorType is the type of NIC selector
+
+
+
+_Appears in:_
+- [NICSelectorSpec](#nicselectorspec)
+
+| Field | Description |
+| --- | --- |
+| `dpu` | NICSelectorTypeDPU selects the DPU NIC<br /> |
+| `pci` | NICSelectorTypePCI selects NIC according to the provided PCI address of one of the NIC's Embedded CPU PFs (ECPFs)<br /> |
+
+
 #### NamespacedName
 
 
@@ -5261,6 +5297,19 @@ _Appears in:_
 | `annotations` _object (keys:string, values:string)_ | Annotations is a map of string keys and values. |  | Optional: \{\} <br /> |
 
 
+#### PCISelector
+
+_Underlying type:_ _[struct{Address string "json:\"address,omitzero\""}](#struct{address-string-"json:\"address,omitzero\""})_
+
+PCISelector selects NIC by PCI address
+
+
+
+_Appears in:_
+- [NICSelectorSpec](#nicselectorspec)
+
+
+
 #### PF
 
 
@@ -5275,7 +5324,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `pfID` _integer_ | The PF ID |  | Required: \{\} <br /> |
+| `nicSelector` _[NICSelectorSpec](#nicselectorspec)_ | NICSelector defines the NIC selected for the PF interface |  | Optional: \{\} <br /> |
+| `pfID` _integer_ | The PF ID |  | Maximum: 255 <br />Minimum: 0 <br />Required: \{\} <br /> |
 | `virtualNetwork` _string_ | VirtualNetwork is the VirtualNetwork name in the same namespace |  | Optional: \{\} <br /> |
 
 
@@ -5897,8 +5947,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `vfID` _integer_ | The VF ID |  | Required: \{\} <br /> |
-| `pfID` _integer_ | The PF ID |  | Required: \{\} <br /> |
+| `nicSelector` _[NICSelectorSpec](#nicselectorspec)_ | NICSelector defines the NIC selected for the VF interface |  | Optional: \{\} <br /> |
+| `vfID` _integer_ | The VF ID |  | Maximum: 255 <br />Minimum: 0 <br />Required: \{\} <br /> |
+| `pfID` _integer_ | The PF ID |  | Maximum: 255 <br />Minimum: 0 <br />Required: \{\} <br /> |
 | `parentInterfaceRef` _string_ | The parent interface reference |  | Optional: \{\} <br /> |
 | `virtualNetwork` _string_ | VirtualNetwork is the VirtualNetwork name in the same namespace |  | Optional: \{\} <br /> |
 
