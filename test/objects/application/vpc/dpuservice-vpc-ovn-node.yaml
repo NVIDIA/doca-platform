@@ -4,6 +4,8 @@ metadata:
   name: vpc-ovn-node
   namespace: dpf-operator-system
 spec:
+  security:
+    privileged: true
   serviceID: vpc-ovn-node
   helmChart:
     source:

@@ -1,0 +1,77 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: dpf-deny-privileged-pods
+spec:
+  failurePolicy: Fail
+  paramKind:
+    apiVersion: v1
+    kind: ConfigMap
+  # Note: this policy gates `securityContext.privileged` only. Other container
+  # privilege-escalation vectors (hostPID, hostIPC, hostNetwork,
+  # allowPrivilegeEscalation, capabilities, hostPath volumes) are NOT covered
+  # by this iteration. The scope is intentional; broadening the policy would
+  # break existing DPUServices that rely on hostNetwork for SR-IOV/DPDK paths
+  # without an explicit opt-in. See DPUServiceSecurity API docs.
+  matchConstraints:
+    matchPolicy: Equivalent
+    namespaceSelector:
+      matchExpressions:
+        - key: svc.dpu.nvidia.com/dpuservice-namespace
+          operator: Exists
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+        scope: "*"
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["daemonsets", "deployments", "replicasets", "statefulsets"]
+        scope: "*"
+      - apiGroups: ["batch"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["cronjobs", "jobs"]
+        scope: "*"
+  variables:
+    - name: privilegedDPUServices
+      expression: "params.?data.orValue({})"
+    - name: resourceLabels
+      expression: "object.metadata.?labels.orValue({})"
+    - name: templateLabels
+      expression: "has(object.spec.jobTemplate) ? object.spec.jobTemplate.spec.template.metadata.?labels.orValue({}) : (has(object.spec.template) ? object.spec.template.metadata.?labels.orValue({}) : {})"
+    - name: dpuServiceID
+      expression: "variables.resourceLabels[?'svc.dpu.nvidia.com/service'].orValue(variables.templateLabels[?'svc.dpu.nvidia.com/service'].orValue(''))"
+    - name: podSpec
+      expression: "has(object.spec.jobTemplate) ? object.spec.jobTemplate.spec.template.spec : (has(object.spec.template) ? object.spec.template.spec : object.spec)"
+    - name: allContainers
+      expression: "variables.podSpec.containers"
+    - name: allInitContainers
+      expression: "variables.podSpec.?initContainers.orValue([])"
+    - name: allEphemeralContainers
+      expression: "variables.podSpec.?ephemeralContainers.orValue([])"
+  validations:
+    # Workloads without a DPUService label are outside this policy's scope.
+    # For labeled workloads, privileged containers require the DPUService ID to
+    # be in the allowlist.
+    - expression: "!variables.allContainers.exists(c, c.?securityContext.?privileged.orValue(false) == true) || variables.dpuServiceID == '' || variables.dpuServiceID in variables.privilegedDPUServices"
+      message: "Privileged containers are not allowed for this DPUService unless security.privileged is set to true."
+    - expression: "!variables.allInitContainers.exists(c, c.?securityContext.?privileged.orValue(false) == true) || variables.dpuServiceID == '' || variables.dpuServiceID in variables.privilegedDPUServices"
+      message: "Privileged init containers are not allowed for this DPUService unless security.privileged is set to true."
+    - expression: "!variables.allEphemeralContainers.exists(c, c.?securityContext.?privileged.orValue(false) == true) || variables.dpuServiceID == '' || variables.dpuServiceID in variables.privilegedDPUServices"
+      message: "Privileged ephemeral containers are not allowed for this DPUService unless security.privileged is set to true."
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: dpf-deny-privileged-pods
+spec:
+  policyName: dpf-deny-privileged-pods
+  paramRef:
+    name: dpf-deny-privileged-pods-allowlist
+    namespace: dpf-operator-system
+    parameterNotFoundAction: Deny
+  validationActions:
+    - Deny

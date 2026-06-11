@@ -969,6 +969,9 @@ func defaultDPUService() *dpuservicev1.DPUService {
 					Version: "1.0.0",
 				},
 			},
+			Security: &dpuservicev1.DPUServiceSecurity{
+				Privileged: ptr.To(false),
+			},
 		},
 	}
 }
@@ -982,6 +985,9 @@ func customDPUService(name string) *dpuservicev1.DPUService {
 					RepoURL: "oci://foobar",
 					Version: "1.0.0",
 				},
+			},
+			Security: &dpuservicev1.DPUServiceSecurity{
+				Privileged: ptr.To(false),
 			},
 		},
 	}
@@ -1123,6 +1129,9 @@ func defaultDPUServiceFromDPUDeployment() *dpuservicev1.DPUService {
 					RepoURL: "oci://foobar",
 					Version: "1.0.0",
 				},
+			},
+			Security: &dpuservicev1.DPUServiceSecurity{
+				Privileged: ptr.To(false),
 			},
 		},
 	}

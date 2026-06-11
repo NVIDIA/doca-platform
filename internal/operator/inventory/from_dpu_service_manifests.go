@@ -509,6 +509,11 @@ func dpuServiceInClusterEdit(deployInCluster bool) StructuredEdit {
 			return fmt.Errorf("unexpected object kind %s. expected DPUService", obj.GetObjectKind().GroupVersionKind())
 		}
 		dpuService.Spec.DeployInCluster = ptr.To(deployInCluster)
+		if deployInCluster {
+			// Unset security.privileged when deployInCluster is true.
+			// Otherwise the DPUService will not pass validation.
+			dpuService.Spec.Security = nil
+		}
 		return nil
 	}
 }

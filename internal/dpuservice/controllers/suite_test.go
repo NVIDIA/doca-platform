@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
@@ -132,6 +133,7 @@ var _ = BeforeSuite(func() {
 		dpucluster.OptionHostClient{Client: testManager.GetClient()},
 		dpucluster.OptionScheme{Scheme: testManager.GetScheme()},
 		dpucluster.OptionUserAgent{UserAgent: "dpu-service-controller"},
+		dpucluster.OptionTimeout{Timeout: time.Second * 10},
 		dpucluster.OptionGetIndexerCallbacks{
 			GetIndexerCallbacks: []dpucluster.GetIndexerCallback{
 				SetupCacheIndexers,

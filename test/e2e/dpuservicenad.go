@@ -201,6 +201,10 @@ func constructDummyDPUServiceObject(serviceName, namespace, interfaceName string
 		}
 	}
 
+	dpuServiceDummy.Spec.Security = &dpuservicev1.DPUServiceSecurity{
+		Privileged: ptr.To(false),
+	}
+
 	dpuServiceDummy.Spec.ServiceID = ptr.To(serviceName)
 
 	dpuServiceDummy.Spec.Interfaces = []string{interfaceName}

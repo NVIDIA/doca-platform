@@ -4,6 +4,8 @@ metadata:
   name: dpudeployment-example-servicetemplate
   namespace: dpf-operator-system
 spec:
+  security:
+    privileged: false
   deploymentServiceName: "example"
   helmChart:
     source:

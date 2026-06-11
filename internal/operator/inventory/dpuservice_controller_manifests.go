@@ -23,6 +23,7 @@ import (
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	argocd "github.com/nvidia/doca-platform/internal/argocd"
+	"github.com/nvidia/doca-platform/internal/features"
 	"github.com/nvidia/doca-platform/internal/operator/utils"
 	"github.com/nvidia/doca-platform/internal/release"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
@@ -215,6 +216,7 @@ func (d *dpuServiceControllerObjects) deploymentEdit(vars Variables) StructuredE
 
 		mods := []func(*appsv1.Deployment, Variables) error{
 			d.setDPUReadyController,
+			d.setFeatureGates,
 		}
 		for _, mod := range mods {
 			if err := mod(deployment, vars); err != nil {
@@ -231,6 +233,17 @@ func (d *dpuServiceControllerObjects) setDPUReadyController(deploy *appsv1.Deplo
 		return fmt.Errorf("container %q not found in DPUService Controller deployment", managerContainerName)
 	}
 	return setFlags(c, fmt.Sprintf("--disable-dpu-ready-taints=%t", vars.DisableDPUReadyTaints))
+}
+
+// setFeatureGates propagates the operator binary's feature-gate state of
+// PrivilegedPodEnforcement to the dpuservice controller deployment so a
+// single operator-side flip toggles the same gate downstream.
+func (d *dpuServiceControllerObjects) setFeatureGates(deploy *appsv1.Deployment, vars Variables) error {
+	c := getManagerContainer(deploy)
+	if c == nil {
+		return fmt.Errorf("container %q not found in DPUService Controller deployment", managerContainerName)
+	}
+	return setFlags(c, fmt.Sprintf("--feature-gates=%s=%t", features.PrivilegedPodEnforcement, features.MutableGates.Enabled(features.PrivilegedPodEnforcement)))
 }
 
 // IsReadyForUpgrade reports the readiness of the dpuservice controller objects. It returns an error when the number of Replicas in

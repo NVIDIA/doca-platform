@@ -4,6 +4,8 @@ metadata:
   name: cni-installer
   namespace: dpf-operator-system
 spec:
+  security:
+    privileged: true
   helmChart:
     source:
       repoURL: oci://example.com

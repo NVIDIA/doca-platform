@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -71,7 +72,7 @@ import (
 type DPUServiceReconciler struct {
 	client.Client
 	Scheme      *runtime.Scheme
-	RemoteCache *dpucluster.RemoteCache
+	RemoteCache dpucluster.ClusterClientProvider
 	controller  controller.Controller
 }
 
@@ -82,7 +83,7 @@ var pauseDPUServiceReconciler atomic.Bool
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=dpuservices,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=dpuservices/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=dpuservices/finalizers,verbs=update
-// +kubebuilder:rbac:groups="",resources=configmaps;secrets,verbs=get;list;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=configmaps;secrets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=services;endpoints,verbs=get;list;watch;create;update;patch;delete;deletecollection
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=create
 // +kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices,verbs=get;list;watch;create;update;patch;delete;deletecollection
@@ -112,6 +113,14 @@ func (r *DPUServiceReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Ma
 	c, err := ctrl.NewControllerManagedBy(mgr).
 		For(&dpuservicev1.DPUService{}).
 		Watches(&argov1.Application{}, handler.EnqueueRequestsFromMapFunc(r.requestsForChangeByLabel)).
+		Watches(
+			&corev1.Secret{},
+			handler.EnqueueRequestsFromMapFunc(r.imagePullSecretToDPUServices),
+			builder.WithPredicates(predicate.NewPredicateFuncs(func(o client.Object) bool {
+				_, ok := o.GetLabels()[dpuservicev1.DPFImagePullSecretLabelKey]
+				return ok
+			})),
+		).
 		Watches(&corev1.Service{}, handler.EnqueueRequestsFromMapFunc(r.requestsForChangeByLabel)).
 		Watches(&discoveryv1.EndpointSlice{}, handler.EnqueueRequestsFromMapFunc(r.requestsForChangeByLabel)).
 		Watches(
@@ -128,6 +137,21 @@ func (r *DPUServiceReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Ma
 
 	r.controller = c
 	return nil
+}
+
+// imagePullSecretToDPUServices enqueues DPUServices in the secret namespace so
+// remote mirrored pull secrets are refreshed when the source secret changes.
+func (r *DPUServiceReconciler) imagePullSecretToDPUServices(ctx context.Context, obj client.Object) []ctrl.Request {
+	dpuServices := &dpuservicev1.DPUServiceList{}
+	if err := r.Client.List(ctx, dpuServices, client.InNamespace(obj.GetNamespace())); err != nil {
+		return nil
+	}
+	out := make([]ctrl.Request, 0, len(dpuServices.Items))
+	for i := range dpuServices.Items {
+		svc := &dpuServices.Items[i]
+		out = append(out, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(svc)})
+	}
+	return out
 }
 
 // Reconcile reconciles changes in a DPUService.
@@ -207,6 +231,13 @@ func (r *DPUServiceReconciler) reconcileDelete(ctx context.Context, dpuService *
 	}
 
 	if err := r.reconcileDeleteImagePullSecrets(ctx, dpuService); err != nil {
+		return ctrl.Result{}, err
+	}
+	dpuClusterConfigs, err := dpucluster.GetConfigs(ctx, r.Client)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if err := r.reconcilePrivilegedPodEnforcements(ctx, dpuClusterConfigs, dpuService); err != nil {
 		return ctrl.Result{}, err
 	}
 	if err := r.cleanupAllConfigPorts(ctx, dpuService); err != nil {
@@ -521,6 +552,9 @@ func (r *DPUServiceReconciler) reconcile(ctx context.Context, dpuService *dpuser
 	return nil
 }
 
+// reconcileApplicationPrereqs ensures destination namespaces, image-pull
+// secrets, and privileged-pod enforcement are ready before ArgoCD Applications
+// are created or updated.
 func (r *DPUServiceReconciler) reconcileApplicationPrereqs(ctx context.Context, dpuService *dpuservicev1.DPUService, dpuClusterConfigs []*dpucluster.Config) error {
 	// Ensure the DPUService namespace exists in target clusters.
 	project := getProjectName(dpuService)
@@ -535,6 +569,10 @@ func (r *DPUServiceReconciler) reconcileApplicationPrereqs(ctx context.Context, 
 	// TODO: This can be cluster specific, consider adjusting this to target specific clusters
 	if err := r.reconcileImagePullSecrets(ctx, dpuClusterConfigs, dpuService); err != nil {
 		return fmt.Errorf("ImagePullSecrets: %v", err)
+	}
+
+	if err := r.reconcilePrivilegedPodEnforcements(ctx, dpuClusterConfigs, dpuService); err != nil {
+		return fmt.Errorf("PrivilegedPodEnforcement: %v", err)
 	}
 
 	return nil
@@ -604,12 +642,12 @@ func (r *DPUServiceReconciler) ensureNamespaces(ctx context.Context, dpuClusterC
 	var errs []error
 	if project == argocd.AppProjectNameDPU {
 		for _, dpuClusterConfig := range dpuClusterConfigs {
-			dpuClusterClient, err := dpuClusterConfig.Client(ctx)
+			dpuClusterClient, err := r.getDPUClusterClient(ctx, dpuClusterConfig.Cluster)
 			if err != nil {
 				errs = append(errs, fmt.Errorf("get cluster %s: %v", dpuClusterConfig.Cluster.Name, err))
 				continue
 			}
-			if err := utils.EnsureNamespace(ctx, dpuClusterClient, dpuNamespace); err != nil {
+			if err := r.ensureNamespace(ctx, dpuClusterClient, dpuNamespace); err != nil {
 				errs = append(errs, fmt.Errorf("namespace for cluster %s: %v", dpuClusterConfig.Cluster.Name, err))
 			}
 		}
@@ -619,6 +657,27 @@ func (r *DPUServiceReconciler) ensureNamespaces(ctx context.Context, dpuClusterC
 		}
 	}
 	return kerrors.NewAggregate(errs)
+}
+
+func (r *DPUServiceReconciler) ensureNamespace(ctx context.Context, dpuClusterClient client.Client, namespace string) error {
+	ns := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: namespace,
+		},
+	}
+
+	_, err := controllerutil.CreateOrPatch(ctx, dpuClusterClient, ns, func() error {
+		if ns.Labels == nil {
+			ns.Labels = map[string]string{}
+		}
+		ns.Labels[NamespaceScopeLabelKey] = namespace
+		ns.Labels[DPUServicePrereqLabel] = dpuServicePrereqLabelValue
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create or patch namespace %s: %w", namespace, err)
+	}
+	return nil
 }
 
 // summary sets the conditions for the sync status of the ArgoCD applications as well as the overall conditions.
@@ -722,7 +781,7 @@ func (r *DPUServiceReconciler) reconcileImagePullSecrets(ctx context.Context, dp
 	// Apply the new secret to every DPUCluster.
 	var errs []error
 	for _, dpuClusterConfig := range dpuClusterConfigs {
-		dpuClusterClient, err := dpuClusterConfig.Client(ctx)
+		dpuClusterClient, err := r.getDPUClusterClient(ctx, dpuClusterConfig.Cluster)
 		if err != nil {
 			errs = append(errs, err)
 			continue
@@ -1057,7 +1116,7 @@ func (r *DPUServiceReconciler) reconcileConfigPortEndpointSlices(ctx context.Con
 	}
 
 	log.Info("Reconciling EndpointSlice", "Service", klog.KObj(endpointSlice))
-	remoteClient, err := r.RemoteCache.GetClient(client.ObjectKeyFromObject(dpuClusterConfig.Cluster))
+	remoteClient, err := r.getDPUClusterClient(ctx, dpuClusterConfig.Cluster)
 	if err != nil {
 		return err
 	}
@@ -1192,7 +1251,7 @@ func (r *DPUServiceReconciler) reconcileEndpointsFromEndpointsSlice(ctx context.
 
 	// Add skip-mirror label to signal this Endpoints object is manually managed
 	// and should not be mirrored to EndpointSlices.
-	endpoints.ObjectMeta.Labels[discoveryv1.LabelSkipMirror] = "true"
+	endpoints.ObjectMeta.Labels[discoveryv1.LabelSkipMirror] = "true" //nolint:goconst
 
 	// Convert EndpointSlice to Endpoints format
 	endpoints.Subsets = r.convertEndpointSliceToSubsets(endpointSlice)
@@ -1712,6 +1771,30 @@ func (r *DPUServiceReconciler) WatchNodes(_ context.Context, _ client.Client, _ 
 		},
 		Watcher: r.controller,
 	}), nil
+}
+
+// getDPUClusterClient returns a client for the given DPUCluster.
+// It first tries to get a client from the remote cache.
+// If that fails because the remote cache has not yet bootstrapped for this
+// cluster (no accessor, or accessor present but not yet connected), it falls
+// back to a direct client. This is the case when prereqs were never
+// reconciled yet, since the remote cache needs ServiceChain/ServiceInterface
+// CRDs to be provisioned before it can connect.
+func (r *DPUServiceReconciler) getDPUClusterClient(ctx context.Context, dpuCluster *provisioningv1.DPUCluster) (client.Client, error) {
+	log := ctrllog.FromContext(ctx)
+	clusterKey := client.ObjectKeyFromObject(dpuCluster)
+
+	dpuClusterClient, err := r.RemoteCache.GetClient(clusterKey)
+	if err != nil {
+		if errors.Is(err, dpucluster.ErrDPUClusterNoConnectionAvailable) ||
+			errors.Is(err, dpucluster.ErrDPUClusterNotConnected) {
+			log.V(1).Info("Using direct DPU cluster client for prerequisites", "dpuCluster", clusterKey, "remoteCacheError", err.Error())
+			return dpucluster.NewConfig(r.Client, dpuCluster).Client(ctx)
+		}
+		return nil, err
+	}
+
+	return dpuClusterClient, nil
 }
 
 func nodeAddressPredicate() predicate.Funcs {

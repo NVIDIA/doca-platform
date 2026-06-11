@@ -23,6 +23,7 @@ import (
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/features"
 	operatorcontroller "github.com/nvidia/doca-platform/internal/operator/controllers"
 	"github.com/nvidia/doca-platform/internal/operator/inventory"
 	"github.com/nvidia/doca-platform/internal/release"
@@ -96,6 +97,7 @@ func initFlags(fs *pflag.FlagSet) {
 		"The minimum interval at which watched resources are reconciled.")
 	fs.IntVar(&concurrency, "concurrency", 1,
 		"Number of objects to process simultaneously by each controller.")
+	features.MutableGates.AddFlag(fs)
 	logsv1.AddFlags(logOptions, fs)
 
 }

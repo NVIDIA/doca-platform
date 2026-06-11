@@ -18,6 +18,16 @@ controllerManager:
   pullPolicy: IfNotPresent
   # -- replicas is the number of controller Pods to run.
   replicas: 1
+  # featureGates is a map of feature names to boolean values forwarded
+  # to both the dpf-operator binary and the dpuservice controller deployment.
+  # Supported features:
+  #   PrivilegedPodEnforcement (default: true)
+  #     When enabled, the dpuservice controller installs a
+  #     ValidatingAdmissionPolicy in each DPUCluster that rejects privileged
+  #     workloads from DPUServices that have not opted in via
+  #     spec.security.privileged.
+  # -- featureGates configures the feature gates for the dpf-operator.
+  featureGates: {}
   # Set kubernetes resource requests and limits for the controller.
   # resources:
   #   limits:

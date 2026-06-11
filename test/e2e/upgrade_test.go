@@ -35,6 +35,7 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/selection"
@@ -290,7 +291,16 @@ type upgradeExpectedChange struct {
 // upgradeExpectedChanges lists spec changes that are intentionally introduced by an
 // upgrade. Add entries here to prevent known expected changes from failing the
 // artifact comparison.
-var upgradeExpectedChanges = []upgradeExpectedChange{}
+var upgradeExpectedChanges = []upgradeExpectedChange{
+	{
+		// Post 26.4 the .spec.security.privileged field is introduced.
+		// It gets defaulted after the upgrade if not set.
+		gvk: dpuservicev1.GroupVersion.WithKind("DPUService"),
+		transform: func(artifact map[string]interface{}) {
+			unstructured.RemoveNestedField(artifact, "spec", "security")
+		},
+	},
+}
 
 func applyUpgradeExpectedChanges(before, after []map[string]interface{}) {
 	type artifactKey struct{ apiVersion, kind, name, namespace string }

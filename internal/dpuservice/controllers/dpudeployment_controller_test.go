@@ -659,6 +659,66 @@ var _ = Describe("DPUDeployment Controller", func() {
 			Expect(testClient.Create(ctx, testNS)).To(Succeed())
 			DeferCleanup(testClient.Delete, ctx, testNS)
 		})
+		Context("generateDPUService", func() {
+			newTestGenerateDPUServiceInputs := func(deployInCluster bool, templateSecurity *dpuservicev1.DPUServiceSecurity) (*dpuservicev1.DPUServiceConfiguration, *dpuservicev1.DPUServiceTemplate) {
+				cfg := &dpuservicev1.DPUServiceConfiguration{
+					Spec: dpuservicev1.DPUServiceConfigurationSpec{
+						DeploymentServiceName: "svc",
+						ServiceConfiguration: dpuservicev1.ServiceConfiguration{
+							DeployInCluster: ptr.To(deployInCluster),
+						},
+					},
+				}
+				tpl := &dpuservicev1.DPUServiceTemplate{
+					Spec: dpuservicev1.DPUServiceTemplateSpec{
+						DeploymentServiceName: "svc",
+						HelmChart: dpuservicev1.HelmChart{
+							Source: dpuservicev1.ApplicationSource{
+								RepoURL: "oci://example.com",
+								Path:    "chart",
+								Version: "v1.0.0",
+							},
+						},
+						Security: templateSecurity,
+					},
+				}
+				return cfg, tpl
+			}
+
+			It("copies explicit template security", func() {
+				cfg, tpl := newTestGenerateDPUServiceInputs(false, &dpuservicev1.DPUServiceSecurity{Privileged: ptr.To(false)})
+
+				owner := &metav1.OwnerReference{Name: "dpud"}
+				got, err := generateDPUService(types.NamespacedName{Name: "dpud", Namespace: "ns"}, owner, "svc", cfg, tpl, nil, "v1", nil)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(got.Spec.Security).ToNot(BeNil())
+				Expect(got.Spec.Security.Privileged).ToNot(BeNil())
+				Expect(*got.Spec.Security.Privileged).To(BeFalse(), "template Privileged=false must propagate, not the iteration fallback")
+			})
+
+			It("uses the fallback when template security is unset", func() {
+				cfg, tpl := newTestGenerateDPUServiceInputs(false, nil)
+
+				owner := &metav1.OwnerReference{Name: "dpud"}
+				got, err := generateDPUService(types.NamespacedName{Name: "dpud", Namespace: "ns"}, owner, "svc", cfg, tpl, nil, "v1", nil)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(got.Spec.Security).ToNot(BeNil())
+				Expect(got.Spec.Security.Privileged).ToNot(BeNil())
+				// TODO: BeTrue should BeFalse with the next minor version.
+				Expect(*got.Spec.Security.Privileged).To(BeTrue(), "unset template security must fall back to privilegedDefaultForUnsetSecurity")
+			})
+
+			It("leaves security unset when deploying in cluster", func() {
+				cfg, tpl := newTestGenerateDPUServiceInputs(true, &dpuservicev1.DPUServiceSecurity{Privileged: ptr.To(true)})
+
+				owner := &metav1.OwnerReference{Name: "dpud"}
+				got, err := generateDPUService(types.NamespacedName{Name: "dpud", Namespace: "ns"}, owner, "svc", cfg, tpl, nil, "v1", nil)
+				Expect(err).ToNot(HaveOccurred())
+				// CEL on DPUServiceSpec forbids security.privileged when deployInCluster=true,
+				// so the generator must clear it regardless of the template value.
+				Expect(got.Spec.Security).To(BeNil())
+			})
+		})
 		Context("DPUService name matching", func() {
 			DescribeTable("Validate dpuService name matching", func(dpuServiceName, TargetName string, expected bool) {
 				Expect(matchDPUServiceName(dpuServiceName, TargetName)).To(Equal(expected))
@@ -6151,6 +6211,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 								Values: &runtime.RawExtension{Raw: []byte(`{"key2":"value2","key3":"value3"}`)},
 							},
 							ServiceID: ptr.To(getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-2", versionDigest2)),
+							Security:  &dpuservicev1.DPUServiceSecurity{Privileged: ptr.To(true)},
 							ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 								Labels:      map[string]string{"labelkey2": "labelval2", "svc.dpu.nvidia.com/dpudeployment-service": "service-2"},
 								Annotations: map[string]string{"annkey2": "annval2"},
@@ -6185,6 +6246,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 								},
 							},
 							ServiceID: ptr.To(getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-3", versionDigest3)),
+							Security:  &dpuservicev1.DPUServiceSecurity{Privileged: ptr.To(true)},
 							ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 								Labels:      map[string]string{"labelkey3": "labelval3", "svc.dpu.nvidia.com/dpudeployment-service": "service-3"},
 								Annotations: map[string]string{"annkey3": "annval3"},
@@ -6375,6 +6437,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 								},
 							},
 							ServiceID: ptr.To(getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-2", versionDigest2)),
+							Security:  &dpuservicev1.DPUServiceSecurity{Privileged: ptr.To(true)},
 							ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 								Labels: map[string]string{"svc.dpu.nvidia.com/dpudeployment-service": "service-2"},
 								NodeSelector: &corev1.NodeSelector{
@@ -6768,6 +6831,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 							},
 							ServiceID:  ptr.To(getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-1", versionDigest2ForService["service-1"])),
 							Interfaces: gotDPUServiceInterfaceNames["service-1"],
+							Security:   &dpuservicev1.DPUServiceSecurity{Privileged: ptr.To(true)},
 							ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 								Labels: map[string]string{"svc.dpu.nvidia.com/dpudeployment-service": "service-1"},
 								NodeSelector: &corev1.NodeSelector{
@@ -6801,6 +6865,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 							},
 							ServiceID:  ptr.To(getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-2", versionDigest2ForService["service-2"])),
 							Interfaces: gotDPUServiceInterfaceNames["service-2"],
+							Security:   &dpuservicev1.DPUServiceSecurity{Privileged: ptr.To(true)},
 							ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 								Labels: map[string]string{"newlabel2": "newvalue-service-2", "svc.dpu.nvidia.com/dpudeployment-service": "service-2"},
 								NodeSelector: &corev1.NodeSelector{
@@ -7015,6 +7080,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 								},
 							},
 							ServiceID: ptr.To(getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-1", versionDigest2ForService["service-1"])),
+							Security:  &dpuservicev1.DPUServiceSecurity{Privileged: ptr.To(true)},
 							ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 								Labels: map[string]string{"svc.dpu.nvidia.com/dpudeployment-service": "service-1"},
 								NodeSelector: &corev1.NodeSelector{
@@ -7048,6 +7114,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 								},
 							},
 							ServiceID: ptr.To(getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-2", versionDigest2ForService["service-2"])),
+							Security:  &dpuservicev1.DPUServiceSecurity{Privileged: ptr.To(true)},
 							ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 								Labels: map[string]string{"newlabel2": "newvalue-service-2", "svc.dpu.nvidia.com/dpudeployment-service": "service-2"},
 								NodeSelector: &corev1.NodeSelector{
@@ -7218,6 +7285,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 							},
 						},
 						ServiceID: ptr.To(getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-1", versionDigest1)),
+						Security:  &dpuservicev1.DPUServiceSecurity{Privileged: ptr.To(true)},
 						ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 							Labels: map[string]string{"svc.dpu.nvidia.com/dpudeployment-service": "service-1"},
 							NodeSelector: &corev1.NodeSelector{
@@ -7251,6 +7319,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 							},
 						},
 						ServiceID: ptr.To(getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-2", versionDigest2)),
+						Security:  &dpuservicev1.DPUServiceSecurity{Privileged: ptr.To(true)},
 						ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 							Labels: map[string]string{"svc.dpu.nvidia.com/dpudeployment-service": "service-2"},
 							NodeSelector: &corev1.NodeSelector{
@@ -7335,6 +7404,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 							},
 						},
 						ServiceID: ptr.To(getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-2", versionDigest)),
+						Security:  &dpuservicev1.DPUServiceSecurity{Privileged: ptr.To(true)},
 						ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 							Labels: map[string]string{fmt.Sprintf("somelabel%d", i): "val", "svc.dpu.nvidia.com/dpudeployment-service": "service-2"},
 							NodeSelector: &corev1.NodeSelector{
@@ -7503,6 +7573,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 								},
 							},
 							ServiceID: ptr.To(getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-1", versionDigest1)),
+							Security:  &dpuservicev1.DPUServiceSecurity{Privileged: ptr.To(true)},
 							ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 								Labels: map[string]string{"svc.dpu.nvidia.com/dpudeployment-service": "service-1"},
 								NodeSelector: &corev1.NodeSelector{
@@ -7536,6 +7607,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 								},
 							},
 							ServiceID: ptr.To(getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-2", versionDigest)),
+							Security:  &dpuservicev1.DPUServiceSecurity{Privileged: ptr.To(true)},
 							ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 								Labels: map[string]string{"somelabel4": "val", "svc.dpu.nvidia.com/dpudeployment-service": "service-2"},
 								NodeSelector: &corev1.NodeSelector{
@@ -7734,6 +7806,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 						},
 						ServiceID:  ptr.To(getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-2", versionDigest2)),
 						Interfaces: gotDPUServiceInterfaceNames["service-2"],
+						Security:   &dpuservicev1.DPUServiceSecurity{Privileged: ptr.To(true)},
 						ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 							Labels: map[string]string{"svc.dpu.nvidia.com/dpudeployment-service": "service-2"},
 							NodeSelector: &corev1.NodeSelector{
@@ -7840,6 +7913,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 							},
 							ServiceID:  ptr.To(getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-1", versionDigest1)),
 							Interfaces: gotDPUServiceInterfaceNames["service-1"],
+							Security:   &dpuservicev1.DPUServiceSecurity{Privileged: ptr.To(true)},
 							ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 								Labels: map[string]string{"svc.dpu.nvidia.com/dpudeployment-service": "service-1"},
 								NodeSelector: &corev1.NodeSelector{
@@ -7873,6 +7947,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 							},
 							ServiceID:  ptr.To(getServiceID(client.ObjectKeyFromObject(dpuDeployment), "service-2", versionDigest2)),
 							Interfaces: gotDPUServiceInterfaceNames["service-2"],
+							Security:   &dpuservicev1.DPUServiceSecurity{Privileged: ptr.To(true)},
 							ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 								Labels: map[string]string{"svc.dpu.nvidia.com/dpudeployment-service": "service-2"},
 								NodeSelector: &corev1.NodeSelector{

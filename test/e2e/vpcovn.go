@@ -486,6 +486,9 @@ func createDummyDPUService(ctx context.Context, testClient client.Client, namesp
 			"nvidia.com/bf_sf": resource.MustParse("1"),
 		},
 	}
+	dpuService.Spec.Security = &dpuservicev1.DPUServiceSecurity{
+		Privileged: ptr.To(false),
+	}
 	if tenantNode != nil {
 		dpuService.Spec.ServiceDaemonSet.NodeSelector = &corev1.NodeSelector{
 			NodeSelectorTerms: []corev1.NodeSelectorTerm{
