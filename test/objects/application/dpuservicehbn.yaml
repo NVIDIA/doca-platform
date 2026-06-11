@@ -4,6 +4,8 @@ metadata:
   name: doca-hbn
   namespace: dpf-operator-system
 spec:
+  security:
+    privileged: true
   serviceID: doca-hbn
   interfaces:
   - p0-sf

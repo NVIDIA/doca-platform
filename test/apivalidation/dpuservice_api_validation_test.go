@@ -281,6 +281,9 @@ var _ = Describe("API Validations for DPUService", func() {
 		DescribeTable("Validates dpuClusterSelector and deployInCluster mutual exclusivity", func(deployInCluster *bool, hasDPUClusterSelector bool, expectError bool) {
 			dpuService := getMinimalDPUService(testNS.Name)
 			dpuService.Spec.DeployInCluster = deployInCluster
+			if ptr.Deref(deployInCluster, false) {
+				dpuService.Spec.Security = nil
+			}
 			if hasDPUClusterSelector {
 				dpuService.Spec.DPUClusterSelector = &metav1.LabelSelector{
 					MatchLabels: map[string]string{
@@ -303,6 +306,41 @@ var _ = Describe("API Validations for DPUService", func() {
 			Entry("valid config - with deployInCluster=true and without dpuClusterSelector", ptr.To(true), false, false),
 			Entry("invalid config - with deployInCluster=true and with dpuClusterSelector", ptr.To(true), true, true),
 		)
+
+		DescribeTable("Validates security.privileged and deployInCluster", func(deployInCluster *bool, privileged *bool, expectError bool) {
+			dpuService := getMinimalDPUService(testNS.Name)
+			dpuService.Spec.DeployInCluster = deployInCluster
+			if privileged == nil {
+				dpuService.Spec.Security = nil
+			} else {
+				dpuService.Spec.Security = &dpuservicev1.DPUServiceSecurity{Privileged: privileged}
+			}
+
+			err := testClient.Create(ctx, dpuService)
+			if expectError {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
+			}
+		},
+			Entry("invalid config - DPU cluster by default and security unset", nil, nil, true),
+			Entry("invalid config - deployInCluster=false and security unset", ptr.To(false), nil, true),
+			Entry("valid config - DPU cluster by default and security false", nil, ptr.To(false), false),
+			Entry("valid config - DPU cluster by default and security true", nil, ptr.To(true), false),
+			Entry("valid config - deployInCluster=false and security false", ptr.To(false), ptr.To(false), false),
+			Entry("valid config - deployInCluster=true and security unset", ptr.To(true), nil, false),
+			Entry("invalid config - deployInCluster=true and security false", ptr.To(true), ptr.To(false), true),
+			Entry("invalid config - deployInCluster=true and security true", ptr.To(true), ptr.To(true), true),
+		)
+
+		It("should reject updates that unset an explicit security.privileged value", func() {
+			dpuService := getMinimalDPUService(testNS.Name)
+			dpuService.Spec.Security = &dpuservicev1.DPUServiceSecurity{Privileged: ptr.To(true)}
+			Expect(testClient.Create(ctx, dpuService)).To(Succeed())
+
+			dpuService.Spec.Security = nil
+			Expect(testClient.Update(ctx, dpuService)).To(HaveOccurred())
+		})
 	})
 })
 
@@ -721,6 +759,7 @@ func getMinimalDPUService(namespace string) *dpuservicev1.DPUService {
 					Version: "v1.0.0",
 				},
 			},
+			Security: &dpuservicev1.DPUServiceSecurity{Privileged: ptr.To(false)},
 		},
 	}
 }

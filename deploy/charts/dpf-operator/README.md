@@ -9,8 +9,9 @@ DPF Operator manages the lifecycle of a DOCA Platform Framework system.
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | affinity | object | `{"nodeAffinity":{"requiredDuringSchedulingIgnoredDuringExecution":{"nodeSelectorTerms":[{"matchExpressions":[{"key":"node-role.kubernetes.io/master","operator":"Exists"}]},{"matchExpressions":[{"key":"node-role.kubernetes.io/control-plane","operator":"Exists"}]}]}}}` | affinity controls scheduling of the controller Pod. Defaults pin the controller to control-plane nodes. |
-| controllerManager | object | `{"containerSecurityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}},"image":{"repository":"","tag":""},"podSecurityContext":{"runAsNonRoot":true,"runAsUser":65532},"pullPolicy":"IfNotPresent","replicas":1,"serviceAccount":{"annotations":{}}}` | controllerManager configures the DPF Operator controller Deployment. |
+| controllerManager | object | `{"containerSecurityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}},"featureGates":{},"image":{"repository":"","tag":""},"podSecurityContext":{"runAsNonRoot":true,"runAsUser":65532},"pullPolicy":"IfNotPresent","replicas":1,"serviceAccount":{"annotations":{}}}` | controllerManager configures the DPF Operator controller Deployment. |
 | controllerManager.containerSecurityContext | object | `{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}` | containerSecurityContext sets the securityContext applied to the controller container. |
+| controllerManager.featureGates | object | `{}` | featureGates configures the feature gates for the dpf-operator. |
 | controllerManager.image | object | `{"repository":"","tag":""}` | image overrides the controller container image. Defaults to the image baked into the chart release when left empty. |
 | controllerManager.podSecurityContext | object | `{"runAsNonRoot":true,"runAsUser":65532}` | podSecurityContext sets the pod-level securityContext for the controller Pod. |
 | controllerManager.pullPolicy | string | `"IfNotPresent"` | pullPolicy is the imagePullPolicy used for the controller container. |

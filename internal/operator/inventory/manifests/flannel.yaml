@@ -4,6 +4,8 @@ metadata:
   name: flannel
   namespace: dpf-operator-system
 spec:
+  security:
+    privileged: false
   helmChart:
     source:
       repoURL: oci://example.com

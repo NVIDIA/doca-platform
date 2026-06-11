@@ -4,6 +4,8 @@ metadata:
   name: ovs-cni
   namespace: dpf-operator-system
 spec:
+  security:
+    privileged: true
   helmChart:
     source:
       repoURL: oci://example.com

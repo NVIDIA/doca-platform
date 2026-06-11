@@ -48,8 +48,11 @@ const (
 	defaultInitialSyncTimeout = 5 * time.Minute
 )
 
-// ErrDPUClusterNotConnected is returned when a dpu cluster that is not connected.
+// ErrDPUClusterNotConnected is returned when a DPU cluster is not connected.
 var ErrDPUClusterNotConnected = fmt.Errorf("dpu cluster is not connected")
+
+// ErrDPUClusterNoConnectionAvailable is returned when no connection is available for a DPU cluster.
+var ErrDPUClusterNoConnectionAvailable = fmt.Errorf("no connection available")
 
 // GetWatcherCallback the function is called when a client for a dpu cluster is created.
 // The function should return a Watcher that will be used to watch for events for the given cluster.
