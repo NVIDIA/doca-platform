@@ -1227,6 +1227,8 @@ Package v1alpha1 contains API Schema definitions for the provisioning.dpu v1alph
 - [DPUDiscoveryList](#dpudiscoverylist)
 - [DPUFlavor](#dpuflavor)
 - [DPUFlavorList](#dpuflavorlist)
+- [DPUFlavorTemplate](#dpuflavortemplate)
+- [DPUFlavorTemplateList](#dpuflavortemplatelist)
 - [DPUList](#dpulist)
 - [DPUNode](#dpunode)
 - [DPUNodeList](#dpunodelist)
@@ -1845,6 +1847,7 @@ _Appears in:_
 | `pf0Name` _string_ | PF0Name is the name of the PF0 on the device.<br />This value is immutable and should not be changed once set.<br />Example: "eth0"<br />Deprecated: This field is deprecated and will be removed in a future version. Use status.pf0Name instead. |  | Optional: \{\} <br /> |
 | `bmcCredentialSecretName` _string_ | BMCCredentialSecretName is the name of a Secret in the same namespace containing<br />per-device BMC credentials. The secret must contain a "password" key with the BMC credential value.<br />If specified, this password takes precedence over the shared bmc-shared-password secret. |  | Optional: \{\} <br /> |
 | `cluster` _[DPUDeviceClusterSpec](#dpudeviceclusterspec)_ | Specifies details on the K8S cluster to join |  | Optional: \{\} <br /> |
+| `values` _[RawExtension](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#rawextension-runtime-pkg)_ | Values contains free-form per-device values used to render a DPUFlavorTemplate<br />into a concrete generated DPUFlavor for this device. |  | Optional: \{\} <br /> |
 
 
 #### DPUDeviceStatus
@@ -2079,6 +2082,62 @@ _Appears in:_
 | `dpuMode` _[DpuModeType](#dpumodetype)_ | DpuMode is deprecated and no longer used by provisioning workflows.<br />Deployment mode is sourced from DPFOperatorConfig and exposed on DPU.status.deploymentMode. |  | Enum: [dpu zero-trust nic] <br />Optional: \{\} <br /> |
 | `hostNetworkInterfaceConfigs` _[NetworkInterfaceConfig](#networkinterfaceconfig) array_ | HostNetworkInterfaceConfigs contains the configuration for the host-side network interfaces. |  | Optional: \{\} <br /> |
 | `ewNicConfigurations` _[NicConfiguration](#nicconfiguration) array_ | EWNicConfigurations lists per-NIC configuration for the E/W NICs.<br />Only the first entry is applied in this release; additional entries are ignored until a future<br />release adds multi-NIC support. The field is modeled as a list now so the API shape does not<br />need to change when multiple entries are supported. |  | MaxItems: 16 <br />Optional: \{\} <br /> |
+
+
+#### DPUFlavorTemplate
+
+
+
+DPUFlavorTemplate is the Schema for the dpuflavortemplates API
+
+
+
+_Appears in:_
+- [DPUFlavorTemplateList](#dpuflavortemplatelist)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `provisioning.dpu.nvidia.com/v1alpha1` | | |
+| `kind` _string_ | `DPUFlavorTemplate` | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[DPUFlavorTemplateSpec](#dpuflavortemplatespec)_ |  |  |  |
+
+
+#### DPUFlavorTemplateList
+
+
+
+DPUFlavorTemplateList contains a list of DPUFlavorTemplate
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `provisioning.dpu.nvidia.com/v1alpha1` | | |
+| `kind` _string_ | `DPUFlavorTemplateList` | | |
+| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `items` _[DPUFlavorTemplate](#dpuflavortemplate) array_ |  |  |  |
+
+
+#### DPUFlavorTemplateSpec
+
+
+
+DPUFlavorTemplateSpec defines the content of a DPUFlavorTemplate. The template body is
+rendered per-DPU against DPUDevice.spec.values to produce a concrete DPUFlavor.
+
+
+
+_Appears in:_
+- [DPUFlavorTemplate](#dpuflavortemplate)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `template` _string_ | Template is the DPUFlavor body as a YAML/JSON string with Go template actions<br />(delimited by double curly braces). It is rendered against DPUDevice.spec.values and the result is<br />unmarshalled into a typed DPUFlavor and validated by DPUFlavor admission when<br />the generated flavor is created. It must NOT contain dpuResources or<br />systemReservedResources; those are provided by the structured fields below. |  | MinLength: 1 <br />Required: \{\} <br /> |
+| `dpuResources` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#resourcelist-v1-core)_ | DPUResources is resource-fitting metadata mirrored from DPUFlavor. It is NOT<br />templated: when set it is stamped onto every generated DPUFlavor and takes<br />precedence over anything in the rendered body. |  | Optional: \{\} <br /> |
+| `systemReservedResources` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#resourcelist-v1-core)_ | SystemReservedResources is resource-fitting metadata mirrored from DPUFlavor. It is<br />NOT templated: when set it is stamped onto every generated DPUFlavor and takes<br />precedence over anything in the rendered body. |  | Optional: \{\} <br /> |
 
 
 
@@ -2528,7 +2587,8 @@ _Appears in:_
 | `blueFieldSoftware` _[BlueFieldSoftwareReference](#bluefieldsoftwarereference)_ | Specifies a BlueFieldSoftware CR |  | Optional: \{\} <br /> |
 | `nodeEffect` _[NodeEffect](#nodeeffect)_ | Specifies how changes to the DPU should affect the Node |  | Required: \{\} <br /> |
 | `cluster` _[ClusterSpec](#clusterspec)_ | Specifies details on the K8S cluster to join |  | Optional: \{\} <br /> |
-| `dpuFlavor` _string_ | DPUFlavor is the name of the DPUFlavor that will be used to deploy the DPU. |  | MinLength: 1 <br />Required: \{\} <br /> |
+| `dpuFlavor` _string_ | DPUFlavor is the name of the DPUFlavor that will be used to deploy the DPU.<br />Mutually exclusive with DPUFlavorTemplate. |  | MinLength: 1 <br />Optional: \{\} <br /> |
+| `dpuFlavorTemplate` _string_ | DPUFlavorTemplate is the name of a DPUFlavorTemplate that is rendered per-DPU<br />(against DPUDevice.spec.values) into a generated DPUFlavor. Mutually exclusive<br />with DPUFlavor. |  | MinLength: 1 <br />Optional: \{\} <br /> |
 | `astraEnabled` _boolean_ | AstraEnabled indicates whether E/W NIC configuration (Astra) is enabled |  | Optional: \{\} <br /> |
 | `secureBoot` _boolean_ | SecureBoot specifies whether UEFI Secure Boot should be enabled. |  | Optional: \{\} <br /> |
 

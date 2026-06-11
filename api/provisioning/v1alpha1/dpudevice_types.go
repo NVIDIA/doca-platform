@@ -22,6 +22,7 @@ import (
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 const (
@@ -167,6 +168,11 @@ type DPUDeviceSpec struct {
 	// Specifies details on the K8S cluster to join
 	// +optional
 	Cluster *DPUDeviceClusterSpec `json:"cluster,omitempty"`
+
+	// Values contains free-form per-device values used to render a DPUFlavorTemplate
+	// into a concrete generated DPUFlavor for this device.
+	// +optional
+	Values *runtime.RawExtension `json:"values,omitempty"`
 }
 
 // DPUDeviceClusterSpec holds node labels and annotations propagated from DPUDevice to the DPU and cluster node.
