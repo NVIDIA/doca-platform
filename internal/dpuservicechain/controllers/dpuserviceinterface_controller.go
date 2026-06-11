@@ -53,6 +53,10 @@ import (
 //nolint:dupl
 var _ objectsInDPUClustersReconciler = &DPUServiceInterfaceReconciler{}
 
+func (r *DPUServiceInterfaceReconciler) calculateDPUServiceObjectStateBasedOnStatus(_ []*dpucluster.Config, _ dpuservicev1.DPUServiceObject) (bool, error) {
+	return false, nil
+}
+
 // DPUServiceInterfaceReconciler reconciles a DPUServiceInterface object
 type DPUServiceInterfaceReconciler struct {
 	client.Client
@@ -272,7 +276,7 @@ func (r *DPUServiceInterfaceReconciler) getObjectsInDPUCluster(ctx context.Conte
 	return []unstructured.Unstructured{*sis}, nil
 }
 
-func (r *DPUServiceInterfaceReconciler) createOrUpdateObjectsInDPUCluster(ctx context.Context, k8sClient client.Client, dpuObject dpuservicev1.DPUServiceObject) error {
+func (r *DPUServiceInterfaceReconciler) createOrUpdateObjectsInDPUCluster(ctx context.Context, k8sClient client.Client, _ types.NamespacedName, dpuObject dpuservicev1.DPUServiceObject) error {
 	dpuServiceInterface := dpuObject.(*dpuservicev1.DPUServiceInterface)
 	sis := &dpuservicev1.ServiceInterfaceSet{
 		ObjectMeta: metav1.ObjectMeta{

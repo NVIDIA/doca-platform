@@ -101,13 +101,20 @@ type IPV4Network struct {
 	// Deprecated: This field is deprecated and will be removed with v26.10.0. Use ExcludeRanges instead.
 	Exclusions []string `json:"exclusions,omitempty"`
 	// ExcludeRanges is a list of IP ranges that should be excluded from the allocation.
-	ExcludeRanges []ExcludeRange `json:"excludeRanges,omitempty"`
+	// startIP and endIP are part of the Excluded range.
+	ExcludeRanges []IPRange `json:"excludeRanges,omitempty"`
 	// Allocations describes the subnets that should be assigned in each DPU node.
 	Allocations map[string]string `json:"allocations,omitempty"`
 	// DefaultGateway adds gateway as default gateway in the routes list if true.
 	DefaultGateway bool `json:"defaultGateway,omitempty"`
 	// Routes is the static routes list using the gateway specified in the spec.
 	Routes []Route `json:"routes,omitempty"`
+	// SubnetsPerDPUCluster is the number of PrefixSize-sized subnets each DPUCluster should receive.
+	// When specified, the controller will take care of assigning non-overlapping subnets part of the Network in each
+	// DPUCluster that the DPUServiceIPAM is targeting. Leave empty in case you want the whole Network to be consumed
+	// by a single DPUCluster.
+	// +optional
+	SubnetsPerDPUCluster *int32 `json:"subnetsPerDPUCluster,omitempty"`
 }
 
 // IPV4Subnet describes the configuration relevant to splitting a subnet to a subnet block per node (i.e. same gateway
@@ -120,20 +127,27 @@ type IPV4Subnet struct {
 	// PerNodeIPCount is the number of IPs that should be allocated per node.
 	PerNodeIPCount int `json:"perNodeIPCount"`
 	// ExcludeRanges is a list of IP ranges that should be excluded from the allocation.
-	ExcludeRanges []ExcludeRange `json:"excludeRanges,omitempty"`
+	// startIP and endIP are part of the Excluded range.
+	ExcludeRanges []IPRange `json:"excludeRanges,omitempty"`
 	// if true, add gateway as default gateway in the routes list
 	// DefaultGateway adds gateway as default gateway in the routes list if true.
 	DefaultGateway bool `json:"defaultGateway,omitempty"`
 	// Routes is the static routes list using the gateway specified in the spec.
 	Routes []Route `json:"routes,omitempty"`
+	// BlocksPerDPUCluster is the number of PerNodeIPCount-sized blocks each DPUCluster should receive.
+	// When specified, the controller will take care of assigning non-overlapping IP blocks part of the Subnet in each
+	// DPUCluster that the DPUServiceIPAM is targeting. Leave empty in case you want the whole Subnet to be consumed by
+	// a single DPUCluster.
+	// +optional
+	BlocksPerDPUCluster *int32 `json:"blocksPerDPUCluster,omitempty"`
 }
 
-// ExcludeRange contains range of IP addresses to exclude from allocation
-// startIP and endIP are part of the Excluded range.
-type ExcludeRange struct {
+type IPRange struct {
 	// StartIP is the start of the range.
+	// +kubebuilder:validation:Required
 	StartIP string `json:"startIP"`
 	// EndIP is the end of the range.
+	// +kubebuilder:validation:Required
 	EndIP string `json:"endIP"`
 }
 
@@ -143,12 +157,27 @@ type Route struct {
 	Dst string `json:"dst"`
 }
 
+// DPUClusterAllocation contains the IP range allocations for a specific DPUCluster.
+type DPUClusterAllocation struct {
+	// DPUCluster is the NamespacedName of the DPUCluster in the format `<namespace>/<name>`.
+	DPUCluster string `json:"dpuCluster"`
+	// IPRanges contains the IP ranges allocated to this DPUCluster.
+	// +optional
+	IPRanges []IPRange `json:"ipRanges,omitempty"`
+}
+
 // DPUServiceIPAMStatus defines the observed state of DPUServiceIPAM
 type DPUServiceIPAMStatus struct {
 	// Conditions reflect the status of the object
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 	// ObservedGeneration records the Generation observed on the object the last time it was patched.
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
+	// DPUClusterAllocations contains the IPV4Network/IPV4Subnet allocations per DPUCluster as calculated by the controller.
+	// +optional
+	// +listType=map
+	// +listMapKey=dpuCluster
+	DPUClusterAllocations []DPUClusterAllocation `json:"dpuClusterAllocations,omitempty"`
 }
 
 // +kubebuilder:object:root=true

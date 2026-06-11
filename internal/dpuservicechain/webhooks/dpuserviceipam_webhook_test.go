@@ -144,7 +144,7 @@ var _ = Describe("DPUServiceIPAM Validating Webhook", func() {
 		Entry("bad exclude range - invalid startIP", func() *dpuservicev1.DPUServiceIPAM {
 			ipam := getFullyPopulatedDPUServiceIPAM()
 			ipam.Spec.IPV4Subnet = nil
-			ipam.Spec.IPV4Network.ExcludeRanges = []dpuservicev1.ExcludeRange{
+			ipam.Spec.IPV4Network.ExcludeRanges = []dpuservicev1.IPRange{
 				{StartIP: "bad-startIP", EndIP: "192.168.0.50"},
 			}
 			return ipam
@@ -152,7 +152,7 @@ var _ = Describe("DPUServiceIPAM Validating Webhook", func() {
 		Entry("bad exclude range - invalid endIP", func() *dpuservicev1.DPUServiceIPAM {
 			ipam := getFullyPopulatedDPUServiceIPAM()
 			ipam.Spec.IPV4Subnet = nil
-			ipam.Spec.IPV4Network.ExcludeRanges = []dpuservicev1.ExcludeRange{
+			ipam.Spec.IPV4Network.ExcludeRanges = []dpuservicev1.IPRange{
 				{StartIP: "192.168.0.40", EndIP: "bad-endIP"},
 			}
 			return ipam
@@ -160,7 +160,7 @@ var _ = Describe("DPUServiceIPAM Validating Webhook", func() {
 		Entry("bad exclude range - startIP is not part of the network", func() *dpuservicev1.DPUServiceIPAM {
 			ipam := getFullyPopulatedDPUServiceIPAM()
 			ipam.Spec.IPV4Subnet = nil
-			ipam.Spec.IPV4Network.ExcludeRanges = []dpuservicev1.ExcludeRange{
+			ipam.Spec.IPV4Network.ExcludeRanges = []dpuservicev1.IPRange{
 				{StartIP: "192.178.0.40", EndIP: "192.168.0.50"},
 			}
 			return ipam
@@ -168,7 +168,7 @@ var _ = Describe("DPUServiceIPAM Validating Webhook", func() {
 		Entry("bad exclude range - endIP is not part of the network", func() *dpuservicev1.DPUServiceIPAM {
 			ipam := getFullyPopulatedDPUServiceIPAM()
 			ipam.Spec.IPV4Subnet = nil
-			ipam.Spec.IPV4Network.ExcludeRanges = []dpuservicev1.ExcludeRange{
+			ipam.Spec.IPV4Network.ExcludeRanges = []dpuservicev1.IPRange{
 				{StartIP: "192.168.0.40", EndIP: "192.178.0.50"},
 			}
 			return ipam
@@ -176,7 +176,7 @@ var _ = Describe("DPUServiceIPAM Validating Webhook", func() {
 		Entry("bad exclude range - endIP is smaller than startIP", func() *dpuservicev1.DPUServiceIPAM {
 			ipam := getFullyPopulatedDPUServiceIPAM()
 			ipam.Spec.IPV4Subnet = nil
-			ipam.Spec.IPV4Network.ExcludeRanges = []dpuservicev1.ExcludeRange{
+			ipam.Spec.IPV4Network.ExcludeRanges = []dpuservicev1.IPRange{
 				{StartIP: "192.178.0.50", EndIP: "192.178.0.40"},
 			}
 			return ipam
@@ -184,11 +184,37 @@ var _ = Describe("DPUServiceIPAM Validating Webhook", func() {
 		Entry("bad exclude range - endIP is smaller than startIP ipv6", func() *dpuservicev1.DPUServiceIPAM {
 			ipam := getFullyPopulatedDPUServiceIPAM()
 			ipam.Spec.IPV4Subnet = nil
-			ipam.Spec.IPV4Network.ExcludeRanges = []dpuservicev1.ExcludeRange{
+			ipam.Spec.IPV4Network.ExcludeRanges = []dpuservicev1.IPRange{
 				{StartIP: "2001:db8::40:1", EndIP: "2001:db8::1"},
 			}
 			return ipam
 		}(), true),
+		Entry("subnetsPerDPUCluster is 0", func() *dpuservicev1.DPUServiceIPAM {
+			ipam := getFullyPopulatedDPUServiceIPAM()
+			ipam.Spec.IPV4Subnet = nil
+			ipam.Spec.IPV4Network.SubnetsPerDPUCluster = ptr.To[int32](0)
+			return ipam
+		}(), true),
+		Entry("subnetsPerDPUCluster is 1", func() *dpuservicev1.DPUServiceIPAM {
+			ipam := getFullyPopulatedDPUServiceIPAM()
+			ipam.Spec.IPV4Subnet = nil
+			ipam.Spec.IPV4Network.SubnetsPerDPUCluster = ptr.To[int32](1)
+			return ipam
+		}(), false),
+		Entry("subnetsPerDPUCluster exceeds total available subnets in network", func() *dpuservicev1.DPUServiceIPAM {
+			// 192.168.0.0/20 with prefixSize 24 gives 16 /24 subnets; requesting 17 must fail.
+			ipam := getFullyPopulatedDPUServiceIPAM()
+			ipam.Spec.IPV4Subnet = nil
+			ipam.Spec.IPV4Network.SubnetsPerDPUCluster = ptr.To[int32](17)
+			return ipam
+		}(), true),
+		Entry("subnetsPerDPUCluster equals total available subnets in network", func() *dpuservicev1.DPUServiceIPAM {
+			// 192.168.0.0/20 with prefixSize 24 gives exactly 16 /24 subnets; requesting 16 must pass.
+			ipam := getFullyPopulatedDPUServiceIPAM()
+			ipam.Spec.IPV4Subnet = nil
+			ipam.Spec.IPV4Network.SubnetsPerDPUCluster = ptr.To[int32](16)
+			return ipam
+		}(), false),
 	)
 
 	DescribeTable("Validates the .spec.ipv4Subnet correctly", func(ipam *dpuservicev1.DPUServiceIPAM, expectError bool) {
@@ -203,6 +229,20 @@ var _ = Describe("DPUServiceIPAM Validating Webhook", func() {
 			ipam := getFullyPopulatedDPUServiceIPAM()
 			ipam.Spec.IPV4Network = nil
 			ipam.Spec.IPV4Subnet.Subnet = "bad-subnet"
+			return ipam
+		}(), true),
+		Entry("/31 subnet is rejected", func() *dpuservicev1.DPUServiceIPAM {
+			ipam := getFullyPopulatedDPUServiceIPAM()
+			ipam.Spec.IPV4Network = nil
+			ipam.Spec.IPV4Subnet.Subnet = "192.168.0.0/31"
+			ipam.Spec.IPV4Subnet.Gateway = "192.168.0.1"
+			return ipam
+		}(), true),
+		Entry("/32 subnet is rejected", func() *dpuservicev1.DPUServiceIPAM {
+			ipam := getFullyPopulatedDPUServiceIPAM()
+			ipam.Spec.IPV4Network = nil
+			ipam.Spec.IPV4Subnet.Subnet = "192.168.0.1/32"
+			ipam.Spec.IPV4Subnet.Gateway = "192.168.0.1"
 			return ipam
 		}(), true),
 		Entry("bad gateway - invalid IP ", func() *dpuservicev1.DPUServiceIPAM {
@@ -243,7 +283,7 @@ var _ = Describe("DPUServiceIPAM Validating Webhook", func() {
 		Entry("bad exclude range - invalid startIP", func() *dpuservicev1.DPUServiceIPAM {
 			ipam := getFullyPopulatedDPUServiceIPAM()
 			ipam.Spec.IPV4Network = nil
-			ipam.Spec.IPV4Subnet.ExcludeRanges = []dpuservicev1.ExcludeRange{
+			ipam.Spec.IPV4Subnet.ExcludeRanges = []dpuservicev1.IPRange{
 				{StartIP: "bad-startIP", EndIP: "192.168.0.50"},
 			}
 			return ipam
@@ -251,7 +291,7 @@ var _ = Describe("DPUServiceIPAM Validating Webhook", func() {
 		Entry("bad exclude range - invalid endIP", func() *dpuservicev1.DPUServiceIPAM {
 			ipam := getFullyPopulatedDPUServiceIPAM()
 			ipam.Spec.IPV4Network = nil
-			ipam.Spec.IPV4Subnet.ExcludeRanges = []dpuservicev1.ExcludeRange{
+			ipam.Spec.IPV4Subnet.ExcludeRanges = []dpuservicev1.IPRange{
 				{StartIP: "192.168.0.40", EndIP: "bad-endIP"},
 			}
 			return ipam
@@ -259,7 +299,7 @@ var _ = Describe("DPUServiceIPAM Validating Webhook", func() {
 		Entry("bad exclude range - startIP is not part of the network", func() *dpuservicev1.DPUServiceIPAM {
 			ipam := getFullyPopulatedDPUServiceIPAM()
 			ipam.Spec.IPV4Network = nil
-			ipam.Spec.IPV4Subnet.ExcludeRanges = []dpuservicev1.ExcludeRange{
+			ipam.Spec.IPV4Subnet.ExcludeRanges = []dpuservicev1.IPRange{
 				{StartIP: "192.178.0.40", EndIP: "192.168.0.50"},
 			}
 			return ipam
@@ -267,7 +307,7 @@ var _ = Describe("DPUServiceIPAM Validating Webhook", func() {
 		Entry("bad exclude range - endIP is not part of the network", func() *dpuservicev1.DPUServiceIPAM {
 			ipam := getFullyPopulatedDPUServiceIPAM()
 			ipam.Spec.IPV4Network = nil
-			ipam.Spec.IPV4Subnet.ExcludeRanges = []dpuservicev1.ExcludeRange{
+			ipam.Spec.IPV4Subnet.ExcludeRanges = []dpuservicev1.IPRange{
 				{StartIP: "192.168.0.40", EndIP: "192.178.0.50"},
 			}
 			return ipam
@@ -275,7 +315,7 @@ var _ = Describe("DPUServiceIPAM Validating Webhook", func() {
 		Entry("bad exclude range - endIP is smaller than startIP", func() *dpuservicev1.DPUServiceIPAM {
 			ipam := getFullyPopulatedDPUServiceIPAM()
 			ipam.Spec.IPV4Network = nil
-			ipam.Spec.IPV4Subnet.ExcludeRanges = []dpuservicev1.ExcludeRange{
+			ipam.Spec.IPV4Subnet.ExcludeRanges = []dpuservicev1.IPRange{
 				{StartIP: "192.178.0.50", EndIP: "192.178.0.40"},
 			}
 			return ipam
@@ -283,11 +323,37 @@ var _ = Describe("DPUServiceIPAM Validating Webhook", func() {
 		Entry("bad exclude range - endIP is smaller than startIP ipv6", func() *dpuservicev1.DPUServiceIPAM {
 			ipam := getFullyPopulatedDPUServiceIPAM()
 			ipam.Spec.IPV4Network = nil
-			ipam.Spec.IPV4Subnet.ExcludeRanges = []dpuservicev1.ExcludeRange{
+			ipam.Spec.IPV4Subnet.ExcludeRanges = []dpuservicev1.IPRange{
 				{StartIP: "2001:db8::40:1", EndIP: "2001:db8::1"},
 			}
 			return ipam
 		}(), true),
+		Entry("blocksPerDPUCluster is 0", func() *dpuservicev1.DPUServiceIPAM {
+			ipam := getFullyPopulatedDPUServiceIPAM()
+			ipam.Spec.IPV4Network = nil
+			ipam.Spec.IPV4Subnet.BlocksPerDPUCluster = ptr.To[int32](0)
+			return ipam
+		}(), true),
+		Entry("blocksPerDPUCluster is 1", func() *dpuservicev1.DPUServiceIPAM {
+			ipam := getFullyPopulatedDPUServiceIPAM()
+			ipam.Spec.IPV4Network = nil
+			ipam.Spec.IPV4Subnet.BlocksPerDPUCluster = ptr.To[int32](1)
+			return ipam
+		}(), false),
+		Entry("blocksPerDPUCluster exceeds total available blocks in subnet", func() *dpuservicev1.DPUServiceIPAM {
+			// 192.168.0.0/20 with perNodeIPCount 256: (4096-2)/256 = 15 blocks; requesting 16 must fail.
+			ipam := getFullyPopulatedDPUServiceIPAM()
+			ipam.Spec.IPV4Network = nil
+			ipam.Spec.IPV4Subnet.BlocksPerDPUCluster = ptr.To[int32](16)
+			return ipam
+		}(), true),
+		Entry("blocksPerDPUCluster equals total available blocks in subnet", func() *dpuservicev1.DPUServiceIPAM {
+			// 192.168.0.0/20 with perNodeIPCount 256: (4096-2)/256 = 15 blocks; requesting 15 must pass.
+			ipam := getFullyPopulatedDPUServiceIPAM()
+			ipam.Spec.IPV4Network = nil
+			ipam.Spec.IPV4Subnet.BlocksPerDPUCluster = ptr.To[int32](15)
+			return ipam
+		}(), false),
 	)
 
 	DescribeTable("type switch validation",
@@ -351,6 +417,134 @@ var _ = Describe("DPUServiceIPAM Validating Webhook", func() {
 		Entry("ipv4subnet - old subnet is invalid", "invalid", "192.168.0.0/20", false, true, ""),
 		Entry("ipv4subnet - new subnet is invalid", "192.168.0.0/20", "invalid", false, true, ""),
 	)
+
+	DescribeTable("subnetsPerDPUCluster immutability on update",
+		func(oldIpamObj, newIpamObj dpuservicev1.DPUServiceIPAM, expectedError bool, expectedErrorMessage string) {
+			_, err := webhook.ValidateUpdate(context.Background(), &oldIpamObj, &newIpamObj)
+			if expectedError {
+				Expect(err).To(HaveOccurred())
+				if expectedErrorMessage != "" {
+					Expect(err.Error()).To(ContainSubstring(expectedErrorMessage))
+				}
+			} else {
+				Expect(err).ToNot(HaveOccurred())
+			}
+		},
+		Entry("both unset - no change",
+			dpuservicev1.DPUServiceIPAM{ObjectMeta: metav1.ObjectMeta{Namespace: "dpf-operator-system"}, Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Network: &dpuservicev1.IPV4Network{Network: "10.0.0.0/20", PrefixSize: 24}}},
+			dpuservicev1.DPUServiceIPAM{ObjectMeta: metav1.ObjectMeta{Namespace: "dpf-operator-system"}, Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Network: &dpuservicev1.IPV4Network{Network: "10.0.0.0/20", PrefixSize: 24}}},
+			false, ""),
+		Entry("both set same value - no change",
+			dpuservicev1.DPUServiceIPAM{ObjectMeta: metav1.ObjectMeta{Namespace: "dpf-operator-system"}, Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Network: &dpuservicev1.IPV4Network{Network: "10.0.0.0/20", PrefixSize: 24, SubnetsPerDPUCluster: ptr.To[int32](2)}}},
+			dpuservicev1.DPUServiceIPAM{ObjectMeta: metav1.ObjectMeta{Namespace: "dpf-operator-system"}, Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Network: &dpuservicev1.IPV4Network{Network: "10.0.0.0/20", PrefixSize: 24, SubnetsPerDPUCluster: ptr.To[int32](2)}}},
+			false, ""),
+		Entry("both set different value - value change is allowed",
+			dpuservicev1.DPUServiceIPAM{ObjectMeta: metav1.ObjectMeta{Namespace: "dpf-operator-system"}, Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Network: &dpuservicev1.IPV4Network{Network: "10.0.0.0/20", PrefixSize: 24, SubnetsPerDPUCluster: ptr.To[int32](2)}}},
+			dpuservicev1.DPUServiceIPAM{ObjectMeta: metav1.ObjectMeta{Namespace: "dpf-operator-system"}, Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Network: &dpuservicev1.IPV4Network{Network: "10.0.0.0/20", PrefixSize: 24, SubnetsPerDPUCluster: ptr.To[int32](4)}}},
+			false, ""),
+		Entry("unset to set - not allowed",
+			dpuservicev1.DPUServiceIPAM{ObjectMeta: metav1.ObjectMeta{Namespace: "dpf-operator-system"}, Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Network: &dpuservicev1.IPV4Network{Network: "10.0.0.0/20", PrefixSize: 24}}},
+			dpuservicev1.DPUServiceIPAM{ObjectMeta: metav1.ObjectMeta{Namespace: "dpf-operator-system"}, Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Network: &dpuservicev1.IPV4Network{Network: "10.0.0.0/20", PrefixSize: 24, SubnetsPerDPUCluster: ptr.To[int32](2)}}},
+			true, "subnetsPerDPUCluster cannot be toggled between set and unset"),
+		Entry("set to unset - not allowed",
+			dpuservicev1.DPUServiceIPAM{ObjectMeta: metav1.ObjectMeta{Namespace: "dpf-operator-system"}, Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Network: &dpuservicev1.IPV4Network{Network: "10.0.0.0/20", PrefixSize: 24, SubnetsPerDPUCluster: ptr.To[int32](2)}}},
+			dpuservicev1.DPUServiceIPAM{ObjectMeta: metav1.ObjectMeta{Namespace: "dpf-operator-system"}, Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Network: &dpuservicev1.IPV4Network{Network: "10.0.0.0/20", PrefixSize: 24}}},
+			true, "subnetsPerDPUCluster cannot be toggled between set and unset"),
+		Entry("grow - allowed",
+			dpuservicev1.DPUServiceIPAM{ObjectMeta: metav1.ObjectMeta{Namespace: "dpf-operator-system"}, Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Network: &dpuservicev1.IPV4Network{Network: "10.0.0.0/20", PrefixSize: 24, SubnetsPerDPUCluster: ptr.To[int32](2)}}},
+			dpuservicev1.DPUServiceIPAM{ObjectMeta: metav1.ObjectMeta{Namespace: "dpf-operator-system"}, Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Network: &dpuservicev1.IPV4Network{Network: "10.0.0.0/20", PrefixSize: 24, SubnetsPerDPUCluster: ptr.To[int32](4)}}},
+			false, ""),
+		Entry("shrink - not allowed",
+			dpuservicev1.DPUServiceIPAM{ObjectMeta: metav1.ObjectMeta{Namespace: "dpf-operator-system"}, Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Network: &dpuservicev1.IPV4Network{Network: "10.0.0.0/20", PrefixSize: 24, SubnetsPerDPUCluster: ptr.To[int32](4)}}},
+			dpuservicev1.DPUServiceIPAM{ObjectMeta: metav1.ObjectMeta{Namespace: "dpf-operator-system"}, Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Network: &dpuservicev1.IPV4Network{Network: "10.0.0.0/20", PrefixSize: 24, SubnetsPerDPUCluster: ptr.To[int32](2)}}},
+			true, "subnetsPerDPUCluster cannot be decreased"),
+	)
+
+	DescribeTable("blocksPerDPUCluster immutability on update",
+		func(oldIpamObj, newIpamObj dpuservicev1.DPUServiceIPAM, expectedError bool, expectedErrorMessage string) {
+			_, err := webhook.ValidateUpdate(context.Background(), &oldIpamObj, &newIpamObj)
+			if expectedError {
+				Expect(err).To(HaveOccurred())
+				if expectedErrorMessage != "" {
+					Expect(err.Error()).To(ContainSubstring(expectedErrorMessage))
+				}
+			} else {
+				Expect(err).ToNot(HaveOccurred())
+			}
+		},
+		Entry("both unset - no change",
+			dpuservicev1.DPUServiceIPAM{ObjectMeta: metav1.ObjectMeta{Namespace: "dpf-operator-system"}, Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Subnet: &dpuservicev1.IPV4Subnet{Subnet: "10.0.0.0/24", Gateway: "10.0.0.1", PerNodeIPCount: 10}}},
+			dpuservicev1.DPUServiceIPAM{ObjectMeta: metav1.ObjectMeta{Namespace: "dpf-operator-system"}, Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Subnet: &dpuservicev1.IPV4Subnet{Subnet: "10.0.0.0/24", Gateway: "10.0.0.1", PerNodeIPCount: 10}}},
+			false, ""),
+		Entry("both set same value - no change",
+			dpuservicev1.DPUServiceIPAM{ObjectMeta: metav1.ObjectMeta{Namespace: "dpf-operator-system"}, Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Subnet: &dpuservicev1.IPV4Subnet{Subnet: "10.0.0.0/24", Gateway: "10.0.0.1", PerNodeIPCount: 10, BlocksPerDPUCluster: ptr.To[int32](2)}}},
+			dpuservicev1.DPUServiceIPAM{ObjectMeta: metav1.ObjectMeta{Namespace: "dpf-operator-system"}, Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Subnet: &dpuservicev1.IPV4Subnet{Subnet: "10.0.0.0/24", Gateway: "10.0.0.1", PerNodeIPCount: 10, BlocksPerDPUCluster: ptr.To[int32](2)}}},
+			false, ""),
+		Entry("both set different value - value change is allowed",
+			dpuservicev1.DPUServiceIPAM{ObjectMeta: metav1.ObjectMeta{Namespace: "dpf-operator-system"}, Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Subnet: &dpuservicev1.IPV4Subnet{Subnet: "10.0.0.0/24", Gateway: "10.0.0.1", PerNodeIPCount: 10, BlocksPerDPUCluster: ptr.To[int32](2)}}},
+			dpuservicev1.DPUServiceIPAM{ObjectMeta: metav1.ObjectMeta{Namespace: "dpf-operator-system"}, Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Subnet: &dpuservicev1.IPV4Subnet{Subnet: "10.0.0.0/24", Gateway: "10.0.0.1", PerNodeIPCount: 10, BlocksPerDPUCluster: ptr.To[int32](4)}}},
+			false, ""),
+		Entry("unset to set - not allowed",
+			dpuservicev1.DPUServiceIPAM{ObjectMeta: metav1.ObjectMeta{Namespace: "dpf-operator-system"}, Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Subnet: &dpuservicev1.IPV4Subnet{Subnet: "10.0.0.0/24", Gateway: "10.0.0.1", PerNodeIPCount: 10}}},
+			dpuservicev1.DPUServiceIPAM{ObjectMeta: metav1.ObjectMeta{Namespace: "dpf-operator-system"}, Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Subnet: &dpuservicev1.IPV4Subnet{Subnet: "10.0.0.0/24", Gateway: "10.0.0.1", PerNodeIPCount: 10, BlocksPerDPUCluster: ptr.To[int32](2)}}},
+			true, "blocksPerDPUCluster cannot be toggled between set and unset"),
+		Entry("set to unset - not allowed",
+			dpuservicev1.DPUServiceIPAM{ObjectMeta: metav1.ObjectMeta{Namespace: "dpf-operator-system"}, Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Subnet: &dpuservicev1.IPV4Subnet{Subnet: "10.0.0.0/24", Gateway: "10.0.0.1", PerNodeIPCount: 10, BlocksPerDPUCluster: ptr.To[int32](2)}}},
+			dpuservicev1.DPUServiceIPAM{ObjectMeta: metav1.ObjectMeta{Namespace: "dpf-operator-system"}, Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Subnet: &dpuservicev1.IPV4Subnet{Subnet: "10.0.0.0/24", Gateway: "10.0.0.1", PerNodeIPCount: 10}}},
+			true, "blocksPerDPUCluster cannot be toggled between set and unset"),
+		Entry("grow - allowed",
+			dpuservicev1.DPUServiceIPAM{ObjectMeta: metav1.ObjectMeta{Namespace: "dpf-operator-system"}, Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Subnet: &dpuservicev1.IPV4Subnet{Subnet: "10.0.0.0/24", Gateway: "10.0.0.1", PerNodeIPCount: 10, BlocksPerDPUCluster: ptr.To[int32](2)}}},
+			dpuservicev1.DPUServiceIPAM{ObjectMeta: metav1.ObjectMeta{Namespace: "dpf-operator-system"}, Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Subnet: &dpuservicev1.IPV4Subnet{Subnet: "10.0.0.0/24", Gateway: "10.0.0.1", PerNodeIPCount: 10, BlocksPerDPUCluster: ptr.To[int32](4)}}},
+			false, ""),
+		Entry("shrink - not allowed",
+			dpuservicev1.DPUServiceIPAM{ObjectMeta: metav1.ObjectMeta{Namespace: "dpf-operator-system"}, Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Subnet: &dpuservicev1.IPV4Subnet{Subnet: "10.0.0.0/24", Gateway: "10.0.0.1", PerNodeIPCount: 10, BlocksPerDPUCluster: ptr.To[int32](4)}}},
+			dpuservicev1.DPUServiceIPAM{ObjectMeta: metav1.ObjectMeta{Namespace: "dpf-operator-system"}, Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Subnet: &dpuservicev1.IPV4Subnet{Subnet: "10.0.0.0/24", Gateway: "10.0.0.1", PerNodeIPCount: 10, BlocksPerDPUCluster: ptr.To[int32](2)}}},
+			true, "blocksPerDPUCluster cannot be decreased"),
+	)
+
+	DescribeTable("prefixSize immutability on update",
+		func(oldIpamObj, newIpamObj dpuservicev1.DPUServiceIPAM, expectedError bool, expectedErrorMessage string) {
+			_, err := webhook.ValidateUpdate(context.Background(), &oldIpamObj, &newIpamObj)
+			if expectedError {
+				Expect(err).To(HaveOccurred())
+				if expectedErrorMessage != "" {
+					Expect(err.Error()).To(ContainSubstring(expectedErrorMessage))
+				}
+			} else {
+				Expect(err).ToNot(HaveOccurred())
+			}
+		},
+		Entry("same value - no change",
+			dpuservicev1.DPUServiceIPAM{ObjectMeta: metav1.ObjectMeta{Namespace: "dpf-operator-system"}, Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Network: &dpuservicev1.IPV4Network{Network: "10.0.0.0/20", PrefixSize: 24}}},
+			dpuservicev1.DPUServiceIPAM{ObjectMeta: metav1.ObjectMeta{Namespace: "dpf-operator-system"}, Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Network: &dpuservicev1.IPV4Network{Network: "10.0.0.0/20", PrefixSize: 24}}},
+			false, ""),
+		Entry("change - not allowed",
+			dpuservicev1.DPUServiceIPAM{ObjectMeta: metav1.ObjectMeta{Namespace: "dpf-operator-system"}, Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Network: &dpuservicev1.IPV4Network{Network: "10.0.0.0/20", PrefixSize: 24}}},
+			dpuservicev1.DPUServiceIPAM{ObjectMeta: metav1.ObjectMeta{Namespace: "dpf-operator-system"}, Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Network: &dpuservicev1.IPV4Network{Network: "10.0.0.0/20", PrefixSize: 25}}},
+			true, "prefixSize is immutable"),
+	)
+
+	DescribeTable("perNodeIPCount immutability on update",
+		func(oldIpamObj, newIpamObj dpuservicev1.DPUServiceIPAM, expectedError bool, expectedErrorMessage string) {
+			_, err := webhook.ValidateUpdate(context.Background(), &oldIpamObj, &newIpamObj)
+			if expectedError {
+				Expect(err).To(HaveOccurred())
+				if expectedErrorMessage != "" {
+					Expect(err.Error()).To(ContainSubstring(expectedErrorMessage))
+				}
+			} else {
+				Expect(err).ToNot(HaveOccurred())
+			}
+		},
+		Entry("same value - no change",
+			dpuservicev1.DPUServiceIPAM{ObjectMeta: metav1.ObjectMeta{Namespace: "dpf-operator-system"}, Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Subnet: &dpuservicev1.IPV4Subnet{Subnet: "10.0.0.0/24", Gateway: "10.0.0.1", PerNodeIPCount: 10}}},
+			dpuservicev1.DPUServiceIPAM{ObjectMeta: metav1.ObjectMeta{Namespace: "dpf-operator-system"}, Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Subnet: &dpuservicev1.IPV4Subnet{Subnet: "10.0.0.0/24", Gateway: "10.0.0.1", PerNodeIPCount: 10}}},
+			false, ""),
+		Entry("change - not allowed",
+			dpuservicev1.DPUServiceIPAM{ObjectMeta: metav1.ObjectMeta{Namespace: "dpf-operator-system"}, Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Subnet: &dpuservicev1.IPV4Subnet{Subnet: "10.0.0.0/24", Gateway: "10.0.0.1", PerNodeIPCount: 10}}},
+			dpuservicev1.DPUServiceIPAM{ObjectMeta: metav1.ObjectMeta{Namespace: "dpf-operator-system"}, Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Subnet: &dpuservicev1.IPV4Subnet{Subnet: "10.0.0.0/24", Gateway: "10.0.0.1", PerNodeIPCount: 20}}},
+			true, "perNodeIPCount is immutable"),
+	)
 })
 
 var ipamWithIPV4Subnet = &dpuservicev1.DPUServiceIPAM{
@@ -392,7 +586,7 @@ func getFullyPopulatedDPUServiceIPAM() *dpuservicev1.DPUServiceIPAM {
 					"192.168.0.10",
 					"192.168.2.30",
 				},
-				ExcludeRanges: []dpuservicev1.ExcludeRange{
+				ExcludeRanges: []dpuservicev1.IPRange{
 					{StartIP: "192.168.0.40", EndIP: "192.168.0.50"},
 					{StartIP: "192.168.0.60", EndIP: "192.168.0.70"},
 				},
@@ -407,7 +601,7 @@ func getFullyPopulatedDPUServiceIPAM() *dpuservicev1.DPUServiceIPAM {
 				Subnet:         "192.168.0.0/20",
 				Gateway:        "192.168.0.1",
 				PerNodeIPCount: 256,
-				ExcludeRanges: []dpuservicev1.ExcludeRange{
+				ExcludeRanges: []dpuservicev1.IPRange{
 					{StartIP: "192.168.0.40", EndIP: "192.168.0.50"},
 					{StartIP: "192.168.0.60", EndIP: "192.168.0.70"},
 				},

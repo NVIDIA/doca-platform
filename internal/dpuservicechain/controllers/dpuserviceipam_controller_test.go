@@ -105,6 +105,21 @@ var _ = Describe("DPUServiceIPAM Controller", func() {
 			Expect(testClient.Create(ctx, dpuServiceIPAM)).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceIPAM)
 
+			clusterKey := client.ObjectKeyFromObject(&dpuCluster)
+
+			By("Verifying DPUClusterAllocations is committed to status")
+			Eventually(func(g Gomega) {
+				got := &dpuservicev1.DPUServiceIPAM{}
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuServiceIPAM), got)).To(Succeed())
+				g.Expect(got.Status.DPUClusterAllocations).To(ConsistOf(dpuservicev1.DPUClusterAllocation{
+					DPUCluster: clusterKey.String(),
+					IPRanges: []dpuservicev1.IPRange{
+						{StartIP: "192.168.0.1", EndIP: "192.168.15.0"},
+					},
+				}))
+			}).WithTimeout(30 * time.Second).Should(Succeed())
+
+			By("Verifying IPPool is created with correct spec and exclusions")
 			Eventually(func(g Gomega) {
 				got := &nvipamv1.IPPool{}
 				g.Expect(dpuClusterClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: "pool-1"}, got)).To(Succeed())
@@ -129,7 +144,11 @@ var _ = Describe("DPUServiceIPAM Controller", func() {
 			By("Creating the DPUServiceIPAM resource")
 			dpuServiceIPAM := getMinimalDPUServiceIPAM(testNS.Name)
 			dpuServiceIPAM.Name = name
-			dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.IPV4Subnet{}
+			dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.IPV4Subnet{
+				Subnet:         "10.0.0.0/24",
+				Gateway:        "10.0.0.1",
+				PerNodeIPCount: 1,
+			}
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceIPAM)
 
 			Expect(testClient.Create(ctx, dpuServiceIPAM)).To(Succeed())
@@ -261,7 +280,7 @@ var _ = Describe("DPUServiceIPAM Controller", func() {
 				GatewayIndex: ptr.To[int32](1),
 				PrefixSize:   24,
 				Exclusions:   []string{"192.168.0.1", "192.168.0.2"},
-				ExcludeRanges: []dpuservicev1.ExcludeRange{
+				ExcludeRanges: []dpuservicev1.IPRange{
 					{StartIP: "192.168.0.30", EndIP: "192.168.0.40"},
 				},
 				Allocations: map[string]string{
@@ -287,6 +306,21 @@ var _ = Describe("DPUServiceIPAM Controller", func() {
 			Expect(testClient.Create(ctx, dpuServiceIPAM)).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceIPAM)
 
+			clusterKey := client.ObjectKeyFromObject(&dpuCluster)
+
+			By("Verifying DPUClusterAllocations is committed to status")
+			Eventually(func(g Gomega) {
+				got := &dpuservicev1.DPUServiceIPAM{}
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuServiceIPAM), got)).To(Succeed())
+				g.Expect(got.Status.DPUClusterAllocations).To(ConsistOf(dpuservicev1.DPUClusterAllocation{
+					DPUCluster: clusterKey.String(),
+					IPRanges: []dpuservicev1.IPRange{
+						{StartIP: "192.168.0.0", EndIP: "192.168.15.255"},
+					},
+				}))
+			}).WithTimeout(30 * time.Second).Should(Succeed())
+
+			By("Verifying CIDRPool is created with correct spec and exclusions")
 			Eventually(func(g Gomega) {
 				got := &nvipamv1.CIDRPool{}
 				g.Expect(dpuClusterClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: "pool-1"}, got)).To(Succeed())
@@ -311,7 +345,10 @@ var _ = Describe("DPUServiceIPAM Controller", func() {
 			By("Creating the DPUServiceIPAM resource")
 			dpuServiceIPAM := getMinimalDPUServiceIPAM(testNS.Name)
 			dpuServiceIPAM.Name = name
-			dpuServiceIPAM.Spec.IPV4Network = &dpuservicev1.IPV4Network{}
+			dpuServiceIPAM.Spec.IPV4Network = &dpuservicev1.IPV4Network{
+				Network:    "10.0.0.0/24",
+				PrefixSize: 30,
+			}
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceIPAM)
 
 			Expect(testClient.Create(ctx, dpuServiceIPAM)).To(Succeed())
@@ -672,8 +709,8 @@ var _ = Describe("DPUServiceIPAM Controller", func() {
 			dpuCluster2Client, err = dpucluster.NewConfig(testClient, &dpuCluster2).Client(ctx)
 			Expect(err).ToNot(HaveOccurred())
 		})
-		It("should reconcile resources in all DPU Clusters when DPUClusterSelector is not set", func() {
-			By("Creating DPUServiceIPAM without DPUClusterSelector")
+		It("should report an error when targeting multiple DPU Clusters without per-cluster allocation configured", func() {
+			By("Creating DPUServiceIPAM without DPUClusterSelector and without BlocksPerDPUCluster")
 			dpuServiceIPAM := getMinimalDPUServiceIPAM(testNS.Name)
 			dpuServiceIPAM.Name = "no-selector-pool"
 			dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.IPV4Subnet{
@@ -684,19 +721,126 @@ var _ = Describe("DPUServiceIPAM Controller", func() {
 			Expect(testClient.Create(ctx, dpuServiceIPAM)).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceIPAM)
 
-			By("Verifying IPPool is created in cluster1")
+			By("Verifying DPUServiceIPAM reports an error condition")
+			Eventually(func(g Gomega) {
+				got := &dpuservicev1.DPUServiceIPAM{}
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuServiceIPAM), got)).To(Succeed())
+				g.Expect(got.Status.Conditions).To(ContainElement(
+					And(
+						HaveField("Type", string(dpuservicev1.ConditionDPUIPAMObjectReconciled)),
+						HaveField("Status", metav1.ConditionFalse),
+						HaveField("Message", ContainSubstring("blocksPerDPUCluster or subnetsPerDPUCluster must be set")),
+					),
+				))
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+		})
+
+		It("should reconcile IPPool resources in all DPU Clusters when DPUClusterSelector is not set", func() {
+			By("Creating DPUServiceIPAM without DPUClusterSelector and with BlocksPerDPUCluster set")
+			dpuServiceIPAM := getMinimalDPUServiceIPAM(testNS.Name)
+			dpuServiceIPAM.Name = "no-selector-pool"
+			dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.IPV4Subnet{
+				Subnet:              "10.0.0.0/20",
+				Gateway:             "10.0.0.1",
+				PerNodeIPCount:      256,
+				BlocksPerDPUCluster: ptr.To[int32](1),
+			}
+			Expect(testClient.Create(ctx, dpuServiceIPAM)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceIPAM)
+
+			cluster1Key := client.ObjectKeyFromObject(&dpuCluster1)
+			cluster2Key := client.ObjectKeyFromObject(&dpuCluster2)
+
+			By("Verifying DPUClusterAllocations is committed to status for both clusters")
+			Eventually(func(g Gomega) {
+				got := &dpuservicev1.DPUServiceIPAM{}
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuServiceIPAM), got)).To(Succeed())
+				g.Expect(got.Status.DPUClusterAllocations).To(ConsistOf(
+					dpuservicev1.DPUClusterAllocation{
+						DPUCluster: cluster1Key.String(),
+						IPRanges:   []dpuservicev1.IPRange{{StartIP: "10.0.0.1", EndIP: "10.0.1.0"}},
+					},
+					dpuservicev1.DPUClusterAllocation{
+						DPUCluster: cluster2Key.String(),
+						IPRanges:   []dpuservicev1.IPRange{{StartIP: "10.0.1.1", EndIP: "10.0.2.0"}},
+					},
+				))
+			}).WithTimeout(30 * time.Second).Should(Succeed())
+
+			By("Verifying IPPool is created in cluster1 with correct subnet and exclusions")
 			Eventually(func(g Gomega) {
 				got := &nvipamv1.IPPool{}
 				g.Expect(dpuCluster1Client.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: "no-selector-pool"}, got)).To(Succeed())
 				g.Expect(got.Spec.Subnet).To(Equal("10.0.0.0/20"))
-			}).WithTimeout(10 * time.Second).Should(Succeed())
+				g.Expect(got.Spec.Exclusions).To(Equal([]nvipamv1.ExcludeRange{
+					{StartIP: "10.0.0.0", EndIP: "10.0.0.0"},
+					{StartIP: "10.0.1.1", EndIP: "10.0.15.255"},
+				}))
+			}).WithTimeout(30 * time.Second).Should(Succeed())
 
-			By("Verifying IPPool is created in cluster2")
+			By("Verifying IPPool is created in cluster2 with correct subnet and exclusions")
 			Eventually(func(g Gomega) {
 				got := &nvipamv1.IPPool{}
 				g.Expect(dpuCluster2Client.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: "no-selector-pool"}, got)).To(Succeed())
 				g.Expect(got.Spec.Subnet).To(Equal("10.0.0.0/20"))
-			}).WithTimeout(10 * time.Second).Should(Succeed())
+				g.Expect(got.Spec.Exclusions).To(Equal([]nvipamv1.ExcludeRange{
+					{StartIP: "10.0.0.0", EndIP: "10.0.1.0"},
+					{StartIP: "10.0.2.1", EndIP: "10.0.15.255"},
+				}))
+			}).WithTimeout(30 * time.Second).Should(Succeed())
+		})
+
+		It("should reconcile CIDRPool resources in all DPU Clusters when DPUClusterSelector is not set", func() {
+			By("Creating DPUServiceIPAM without DPUClusterSelector and with SubnetsPerDPUCluster set")
+			dpuServiceIPAM := getMinimalDPUServiceIPAM(testNS.Name)
+			dpuServiceIPAM.Name = "no-selector-cidrpool"
+			dpuServiceIPAM.Spec.IPV4Network = &dpuservicev1.IPV4Network{
+				Network:              "10.1.0.0/20",
+				PrefixSize:           24,
+				SubnetsPerDPUCluster: ptr.To[int32](1),
+			}
+			Expect(testClient.Create(ctx, dpuServiceIPAM)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceIPAM)
+
+			cluster1Key := client.ObjectKeyFromObject(&dpuCluster1)
+			cluster2Key := client.ObjectKeyFromObject(&dpuCluster2)
+
+			By("Verifying DPUClusterAllocations is committed to status for both clusters")
+			Eventually(func(g Gomega) {
+				got := &dpuservicev1.DPUServiceIPAM{}
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuServiceIPAM), got)).To(Succeed())
+				g.Expect(got.Status.DPUClusterAllocations).To(ConsistOf(
+					dpuservicev1.DPUClusterAllocation{
+						DPUCluster: cluster1Key.String(),
+						IPRanges:   []dpuservicev1.IPRange{{StartIP: "10.1.0.0", EndIP: "10.1.0.255"}},
+					},
+					dpuservicev1.DPUClusterAllocation{
+						DPUCluster: cluster2Key.String(),
+						IPRanges:   []dpuservicev1.IPRange{{StartIP: "10.1.1.0", EndIP: "10.1.1.255"}},
+					},
+				))
+			}).WithTimeout(30 * time.Second).Should(Succeed())
+
+			By("Verifying CIDRPool is created in cluster1 with correct CIDR and exclusions")
+			Eventually(func(g Gomega) {
+				got := &nvipamv1.CIDRPool{}
+				g.Expect(dpuCluster1Client.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: "no-selector-cidrpool"}, got)).To(Succeed())
+				g.Expect(got.Spec.CIDR).To(Equal("10.1.0.0/20"))
+				g.Expect(got.Spec.Exclusions).To(Equal([]nvipamv1.ExcludeRange{
+					{StartIP: "10.1.1.0", EndIP: "10.1.15.255"},
+				}))
+			}).WithTimeout(30 * time.Second).Should(Succeed())
+
+			By("Verifying CIDRPool is created in cluster2 with correct CIDR and exclusions")
+			Eventually(func(g Gomega) {
+				got := &nvipamv1.CIDRPool{}
+				g.Expect(dpuCluster2Client.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: "no-selector-cidrpool"}, got)).To(Succeed())
+				g.Expect(got.Spec.CIDR).To(Equal("10.1.0.0/20"))
+				g.Expect(got.Spec.Exclusions).To(Equal([]nvipamv1.ExcludeRange{
+					{StartIP: "10.1.0.0", EndIP: "10.1.0.255"},
+					{StartIP: "10.1.2.0", EndIP: "10.1.15.255"},
+				}))
+			}).WithTimeout(30 * time.Second).Should(Succeed())
 		})
 
 		It("should reconcile resources in all matching DPU Clusters", func() {
@@ -707,19 +851,38 @@ var _ = Describe("DPUServiceIPAM Controller", func() {
 				MatchLabels: map[string]string{"dpucluster": "cluster1"},
 			}
 			dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.IPV4Subnet{
-				Subnet:         "192.168.0.0/20",
-				Gateway:        "192.168.0.1",
-				PerNodeIPCount: 256,
+				Subnet:              "192.168.0.0/20",
+				Gateway:             "192.168.0.1",
+				PerNodeIPCount:      256,
+				BlocksPerDPUCluster: ptr.To[int32](1),
 			}
 			Expect(testClient.Create(ctx, dpuServiceIPAM)).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceIPAM)
 
-			By("Verifying IPPool is created in cluster1")
+			cluster1Key := client.ObjectKeyFromObject(&dpuCluster1)
+
+			By("Verifying DPUClusterAllocations is committed to status for cluster1")
+			Eventually(func(g Gomega) {
+				got := &dpuservicev1.DPUServiceIPAM{}
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuServiceIPAM), got)).To(Succeed())
+				g.Expect(got.Status.DPUClusterAllocations).To(ConsistOf(dpuservicev1.DPUClusterAllocation{
+					DPUCluster: cluster1Key.String(),
+					IPRanges: []dpuservicev1.IPRange{
+						{StartIP: "192.168.0.1", EndIP: "192.168.1.0"},
+					},
+				}))
+			}).WithTimeout(30 * time.Second).Should(Succeed())
+
+			By("Verifying IPPool is created in cluster1 with correct subnet and exclusions")
 			Eventually(func(g Gomega) {
 				got := &nvipamv1.IPPool{}
 				g.Expect(dpuCluster1Client.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: "multi-cluster-pool"}, got)).To(Succeed())
 				g.Expect(got.Spec.Subnet).To(Equal("192.168.0.0/20"))
-			}).WithTimeout(10 * time.Second).Should(Succeed())
+				g.Expect(got.Spec.Exclusions).To(Equal([]nvipamv1.ExcludeRange{
+					{StartIP: "192.168.0.0", EndIP: "192.168.0.0"},
+					{StartIP: "192.168.1.1", EndIP: "192.168.15.255"},
+				}))
+			}).WithTimeout(30 * time.Second).Should(Succeed())
 
 			By("Verifying IPPool is NOT created in cluster2")
 			Consistently(func(g Gomega) {
@@ -734,20 +897,54 @@ var _ = Describe("DPUServiceIPAM Controller", func() {
 			dpuServiceIPAM := getMinimalDPUServiceIPAM(testNS.Name)
 			dpuServiceIPAM.Name = "all-clusters-pool"
 			dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.IPV4Subnet{
-				Subnet:         "192.168.0.0/20",
-				Gateway:        "192.168.0.1",
-				PerNodeIPCount: 256,
+				Subnet:              "192.168.0.0/20",
+				Gateway:             "192.168.0.1",
+				PerNodeIPCount:      256,
+				BlocksPerDPUCluster: ptr.To[int32](1),
 			}
 			Expect(testClient.Create(ctx, dpuServiceIPAM)).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceIPAM)
 
-			By("Verifying IPPool is created in both clusters")
+			cluster1Key := client.ObjectKeyFromObject(&dpuCluster1)
+			cluster2Key := client.ObjectKeyFromObject(&dpuCluster2)
+
+			By("Verifying DPUClusterAllocations is committed to status for both clusters")
 			Eventually(func(g Gomega) {
-				got1 := &nvipamv1.IPPool{}
-				g.Expect(dpuCluster1Client.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: "all-clusters-pool"}, got1)).To(Succeed())
-				got2 := &nvipamv1.IPPool{}
-				g.Expect(dpuCluster2Client.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: "all-clusters-pool"}, got2)).To(Succeed())
-			}).WithTimeout(10 * time.Second).Should(Succeed())
+				got := &dpuservicev1.DPUServiceIPAM{}
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuServiceIPAM), got)).To(Succeed())
+				g.Expect(got.Status.DPUClusterAllocations).To(ConsistOf(
+					dpuservicev1.DPUClusterAllocation{
+						DPUCluster: cluster1Key.String(),
+						IPRanges:   []dpuservicev1.IPRange{{StartIP: "192.168.0.1", EndIP: "192.168.1.0"}},
+					},
+					dpuservicev1.DPUClusterAllocation{
+						DPUCluster: cluster2Key.String(),
+						IPRanges:   []dpuservicev1.IPRange{{StartIP: "192.168.1.1", EndIP: "192.168.2.0"}},
+					},
+				))
+			}).WithTimeout(30 * time.Second).Should(Succeed())
+
+			By("Verifying IPPool is created in cluster1 with correct exclusions")
+			Eventually(func(g Gomega) {
+				got := &nvipamv1.IPPool{}
+				g.Expect(dpuCluster1Client.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: "all-clusters-pool"}, got)).To(Succeed())
+				g.Expect(got.Spec.Subnet).To(Equal("192.168.0.0/20"))
+				g.Expect(got.Spec.Exclusions).To(Equal([]nvipamv1.ExcludeRange{
+					{StartIP: "192.168.0.0", EndIP: "192.168.0.0"},
+					{StartIP: "192.168.1.1", EndIP: "192.168.15.255"},
+				}))
+			}).WithTimeout(30 * time.Second).Should(Succeed())
+
+			By("Verifying IPPool is created in cluster2 with correct exclusions")
+			Eventually(func(g Gomega) {
+				got := &nvipamv1.IPPool{}
+				g.Expect(dpuCluster2Client.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: "all-clusters-pool"}, got)).To(Succeed())
+				g.Expect(got.Spec.Subnet).To(Equal("192.168.0.0/20"))
+				g.Expect(got.Spec.Exclusions).To(Equal([]nvipamv1.ExcludeRange{
+					{StartIP: "192.168.0.0", EndIP: "192.168.1.0"},
+					{StartIP: "192.168.2.1", EndIP: "192.168.15.255"},
+				}))
+			}).WithTimeout(30 * time.Second).Should(Succeed())
 
 			By("Updating DPUServiceIPAM to only match dpucluster=cluster1")
 			Eventually(func(g Gomega) {
@@ -760,18 +957,84 @@ var _ = Describe("DPUServiceIPAM Controller", func() {
 				g.Expect(testClient.Patch(ctx, dpuServiceIPAM, client.Apply, client.FieldOwner("test"))).To(Succeed())
 			}).WithTimeout(10 * time.Second).Should(Succeed())
 
-			By("Verifying IPPool is still in cluster1")
+			By("Verifying DPUClusterAllocations only contains cluster1 after selector update")
+			Eventually(func(g Gomega) {
+				got := &dpuservicev1.DPUServiceIPAM{}
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuServiceIPAM), got)).To(Succeed())
+				g.Expect(got.Status.DPUClusterAllocations).To(HaveLen(1))
+				g.Expect(got.Status.DPUClusterAllocations).To(ConsistOf(dpuservicev1.DPUClusterAllocation{
+					DPUCluster: cluster1Key.String(),
+					IPRanges: []dpuservicev1.IPRange{
+						{StartIP: "192.168.0.1", EndIP: "192.168.1.0"},
+					},
+				}))
+			}).WithTimeout(30 * time.Second).Should(Succeed())
+
+			By("Verifying IPPool is still in cluster1 with correct exclusions")
 			Eventually(func(g Gomega) {
 				got := &nvipamv1.IPPool{}
 				g.Expect(dpuCluster1Client.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: "all-clusters-pool"}, got)).To(Succeed())
-			}).WithTimeout(10 * time.Second).Should(Succeed())
+				g.Expect(got.Spec.Exclusions).To(Equal([]nvipamv1.ExcludeRange{
+					{StartIP: "192.168.0.0", EndIP: "192.168.0.0"},
+					{StartIP: "192.168.1.1", EndIP: "192.168.15.255"},
+				}))
+			}).WithTimeout(30 * time.Second).Should(Succeed())
 
 			By("Verifying IPPool is removed from cluster2")
 			Eventually(func(g Gomega) {
 				got := &nvipamv1.IPPool{}
 				err := dpuCluster2Client.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: "all-clusters-pool"}, got)
 				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
-			}).WithTimeout(10 * time.Second).Should(Succeed())
+			}).WithTimeout(30 * time.Second).Should(Succeed())
+		})
+	})
+	Context("When unit testing individual functions", func() {
+		Context("calculateDPUServiceObjectStateBasedOnStatus", func() {
+			It("returns false and does not update status when allocations are unchanged", func() {
+				ipam := &dpuservicev1.DPUServiceIPAM{
+					Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Subnet: &dpuservicev1.IPV4Subnet{
+						Subnet:              "10.0.0.0/24",
+						PerNodeIPCount:      10,
+						Gateway:             "10.0.0.1",
+						BlocksPerDPUCluster: ptr.To[int32](3),
+					}},
+					Status: dpuservicev1.DPUServiceIPAMStatus{
+						DPUClusterAllocations: []dpuservicev1.DPUClusterAllocation{
+							{DPUCluster: "ns/c1", IPRanges: []dpuservicev1.IPRange{{StartIP: "10.0.0.1", EndIP: "10.0.0.30"}}},
+						},
+					},
+				}
+				rc := &dpuServiceIPAMReconcilerWithPerReconcileState{DPUServiceIPAMReconciler: &DPUServiceIPAMReconciler{}}
+				changed, err := rc.calculateDPUServiceObjectStateBasedOnStatus(
+					[]*dpucluster.Config{
+						{Cluster: &provisioningv1.DPUCluster{ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "c1"}}},
+					}, ipam)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(changed).To(BeFalse())
+			})
+			It("returns true and updates status for a new single-cluster IPPool allocation", func() {
+				ipam := &dpuservicev1.DPUServiceIPAM{
+					Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Subnet: &dpuservicev1.IPV4Subnet{
+						Subnet:              "10.0.0.0/24",
+						PerNodeIPCount:      10,
+						Gateway:             "10.0.0.1",
+						BlocksPerDPUCluster: ptr.To[int32](3),
+					}},
+				}
+				rc := &dpuServiceIPAMReconcilerWithPerReconcileState{DPUServiceIPAMReconciler: &DPUServiceIPAMReconciler{}}
+				changed, err := rc.calculateDPUServiceObjectStateBasedOnStatus(
+					[]*dpucluster.Config{
+						{Cluster: &provisioningv1.DPUCluster{ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "c1"}}},
+					}, ipam)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(changed).To(BeTrue())
+				Expect(ipam.Status.DPUClusterAllocations).To(ConsistOf(
+					dpuservicev1.DPUClusterAllocation{
+						DPUCluster: "ns/c1",
+						IPRanges:   []dpuservicev1.IPRange{{StartIP: "10.0.0.1", EndIP: "10.0.0.30"}},
+					},
+				))
+			})
 		})
 	})
 	Context("When checking the status transitions", func() {
@@ -864,8 +1127,9 @@ var _ = Describe("DPUServiceIPAM Controller", func() {
 				g.Expect(oldObj.Status.Conditions).To(ContainElement(
 					And(
 						HaveField("Type", string(dpuservicev1.ConditionDPUIPAMObjectReconciled)),
-						HaveField("Status", metav1.ConditionUnknown),
+						HaveField("Status", metav1.ConditionFalse),
 						HaveField("Reason", string(conditions.ReasonPending)),
+						HaveField("Message", "Committing state before modifying underlying resources"),
 					),
 				))
 				return newObj.Status.Conditions
@@ -929,6 +1193,54 @@ var _ = Describe("DPUServiceIPAM Controller", func() {
 				),
 			))
 		})
+		It("DPUServiceIPAM has ConditionDPUIPAMObjectReconciled that moves to Pending while committing DPUClusterAllocations, then to True in the next reconciliation", func() {
+			By("Waiting for the status commit phase: DPUClusterAllocations first populated with ConditionDPUIPAMObjectReconciled=Pending")
+			Eventually(func(g Gomega) []metav1.Condition {
+				ev := &informer.Event{}
+				g.Eventually(i.UpdateEvents).Should(Receive(ev))
+				oldObj := &dpuservicev1.DPUServiceIPAM{}
+				newObj := &dpuservicev1.DPUServiceIPAM{}
+				g.Expect(testClient.Scheme().Convert(ev.OldObj, oldObj, nil)).ToNot(HaveOccurred())
+				g.Expect(testClient.Scheme().Convert(ev.NewObj, newObj, nil)).ToNot(HaveOccurred())
+
+				// Filter for the specific event where allocations are committed for the first time.
+				g.Expect(oldObj.Status.DPUClusterAllocations).To(BeEmpty())
+				g.Expect(newObj.Status.DPUClusterAllocations).ToNot(BeEmpty())
+				return newObj.Status.Conditions
+			}).WithTimeout(10 * time.Second).Should(ContainElement(
+				And(
+					HaveField("Type", string(dpuservicev1.ConditionDPUIPAMObjectReconciled)),
+					HaveField("Status", metav1.ConditionFalse),
+					HaveField("Reason", string(conditions.ReasonPending)),
+				),
+			))
+
+			By("Waiting for ConditionDPUIPAMObjectReconciled to move to True in the next reconciliation")
+			Eventually(func(g Gomega) []metav1.Condition {
+				ev := &informer.Event{}
+				g.Eventually(i.UpdateEvents).Should(Receive(ev))
+				oldObj := &dpuservicev1.DPUServiceIPAM{}
+				newObj := &dpuservicev1.DPUServiceIPAM{}
+				g.Expect(testClient.Scheme().Convert(ev.OldObj, oldObj, nil)).ToNot(HaveOccurred())
+				g.Expect(testClient.Scheme().Convert(ev.NewObj, newObj, nil)).ToNot(HaveOccurred())
+
+				g.Expect(oldObj.Status.Conditions).To(ContainElement(
+					And(
+						HaveField("Type", string(dpuservicev1.ConditionDPUIPAMObjectReconciled)),
+						HaveField("Status", metav1.ConditionFalse),
+						HaveField("Reason", string(conditions.ReasonPending)),
+					),
+				))
+				return newObj.Status.Conditions
+			}).WithTimeout(10 * time.Second).Should(ContainElement(
+				And(
+					HaveField("Type", string(dpuservicev1.ConditionDPUIPAMObjectReconciled)),
+					HaveField("Status", metav1.ConditionTrue),
+					HaveField("Reason", string(conditions.ReasonSuccess)),
+				),
+			))
+		})
+
 		It("DPUServiceIPAM has condition DPUIPAMObjectReconciled with Error Reason at the end of first reconciliation loop that failed", func() {
 			By("Setting the DPUCluster to an invalid state")
 			Expect(testClient.Delete(ctx, kamajiSecret)).To(Succeed())
@@ -951,8 +1263,9 @@ var _ = Describe("DPUServiceIPAM Controller", func() {
 				g.Expect(oldObj.Status.Conditions).To(ContainElement(
 					And(
 						HaveField("Type", string(dpuservicev1.ConditionDPUIPAMObjectReconciled)),
-						HaveField("Status", metav1.ConditionUnknown),
+						HaveField("Status", metav1.ConditionFalse),
 						HaveField("Reason", string(conditions.ReasonPending)),
+						HaveField("Message", "Committing state before modifying underlying resources"),
 					),
 				))
 				return newObj.Status.Conditions
@@ -1062,7 +1375,7 @@ func getIPV4SubnetDPUServiceIPAM(namespace string) *dpuservicev1.DPUServiceIPAM 
 	dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.IPV4Subnet{
 		Subnet:  "192.168.0.0/20",
 		Gateway: "192.168.0.1",
-		ExcludeRanges: []dpuservicev1.ExcludeRange{
+		ExcludeRanges: []dpuservicev1.IPRange{
 			{StartIP: "192.168.0.30", EndIP: "192.168.0.40"},
 		},
 		PerNodeIPCount: 256,
@@ -1093,7 +1406,9 @@ func validateIPPool(g Gomega, ipPool *nvipamv1.IPPool) {
 		{Dst: "5.5.5.0/16"},
 	}))
 	g.Expect(ipPool.Spec.Exclusions).To(ConsistOf([]nvipamv1.ExcludeRange{
+		{StartIP: "192.168.0.0", EndIP: "192.168.0.0"},
 		{StartIP: "192.168.0.30", EndIP: "192.168.0.40"},
+		{StartIP: "192.168.15.1", EndIP: "192.168.15.255"},
 	}))
 	g.Expect(ipPool.Spec.NodeSelector).To(BeComparableTo(&corev1.NodeSelector{
 		NodeSelectorTerms: []corev1.NodeSelectorTerm{
@@ -1123,7 +1438,7 @@ func getIPV4NetworkDPUServiceIPAM(namespace string) *dpuservicev1.DPUServiceIPAM
 		GatewayIndex: ptr.To[int32](1),
 		PrefixSize:   24,
 		Exclusions:   []string{"192.168.0.1", "192.168.0.2"},
-		ExcludeRanges: []dpuservicev1.ExcludeRange{
+		ExcludeRanges: []dpuservicev1.IPRange{
 			{StartIP: "192.168.0.30", EndIP: "192.168.0.40"},
 		},
 		Allocations: map[string]string{
@@ -1153,8 +1468,7 @@ func validateCIDRPool(g Gomega, cidrPool *nvipamv1.CIDRPool) {
 	g.Expect(cidrPool.Spec.PerNodeNetworkPrefix).To(Equal(int32(24)))
 	g.Expect(cidrPool.Spec.GatewayIndex).To(Equal(ptr.To[int32](1)))
 	g.Expect(cidrPool.Spec.Exclusions).To(ConsistOf([]nvipamv1.ExcludeRange{
-		{StartIP: "192.168.0.1", EndIP: "192.168.0.1"},
-		{StartIP: "192.168.0.2", EndIP: "192.168.0.2"},
+		{StartIP: "192.168.0.1", EndIP: "192.168.0.2"},
 		{StartIP: "192.168.0.30", EndIP: "192.168.0.40"},
 	}))
 	g.Expect(cidrPool.Spec.StaticAllocations).To(ConsistOf([]nvipamv1.CIDRPoolStaticAllocation{

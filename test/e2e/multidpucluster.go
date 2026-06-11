@@ -159,7 +159,7 @@ func ValidateDPUServiceIPAMInL2ModeForMultiDPUCluster(ctx context.Context, input
 		Subnet:         "192.168.10.1/28",
 		Gateway:        "192.168.10.1",
 		PerNodeIPCount: 6,
-		ExcludeRanges: []dpuservicev1.ExcludeRange{
+		ExcludeRanges: []dpuservicev1.IPRange{
 			{
 				StartIP: "192.168.10.7",
 				EndIP:   "192.168.10.15",
@@ -180,7 +180,7 @@ func ValidateDPUServiceIPAMInL2ModeForMultiDPUCluster(ctx context.Context, input
 		Subnet:         "192.168.10.1/28",
 		Gateway:        "192.168.10.1",
 		PerNodeIPCount: 6,
-		ExcludeRanges: []dpuservicev1.ExcludeRange{
+		ExcludeRanges: []dpuservicev1.IPRange{
 			{
 				StartIP: "192.168.10.1",
 				EndIP:   "192.168.10.6",
@@ -275,7 +275,7 @@ func ValidateDPUServiceIPAMInL3ModeForMultiDPUCluster(ctx context.Context, input
 		Network:      "192.168.20.0/28",
 		GatewayIndex: ptr.To[int32](1),
 		PrefixSize:   30,
-		ExcludeRanges: []dpuservicev1.ExcludeRange{
+		ExcludeRanges: []dpuservicev1.IPRange{
 			{
 				StartIP: "192.168.20.8",
 				EndIP:   "192.168.20.15",
@@ -296,7 +296,7 @@ func ValidateDPUServiceIPAMInL3ModeForMultiDPUCluster(ctx context.Context, input
 		Network:      "192.168.20.0/28",
 		GatewayIndex: ptr.To[int32](1),
 		PrefixSize:   30,
-		ExcludeRanges: []dpuservicev1.ExcludeRange{
+		ExcludeRanges: []dpuservicev1.IPRange{
 			{
 				StartIP: "192.168.20.0",
 				EndIP:   "192.168.20.7",
