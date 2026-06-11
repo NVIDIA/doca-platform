@@ -103,7 +103,7 @@ export SNAP_NGC_IMAGE_URL=nvcr.io/nvidia/doca/doca_vfs
 export REGISTRY=https://helm.ngc.nvidia.com/nvidia/doca
 
 ## The DPF TAG is the version of the DPF components which will be deployed in this guide.
-export TAG=v25.10.1
+export TAG=v26.4.0
 
 ## URL to the BFB used in the `bfb.yaml` and linked by the DPUSet.
 export BFB_URL="https://content.mellanox.com/BlueField/BFBs/Ubuntu24.04/bf-bundle-3.4.0-92_26.04_ubuntu-24.04_64k_prod.bfb"
@@ -857,12 +857,12 @@ spec:
   helmChart:
     source:
       repoURL: $HELM_REGISTRY_REPO_URL
-      version: 1.0.5
+      version: 3.4.0
       chart: doca-hbn
     values:
       image:
         repository: $HBN_NGC_IMAGE_URL
-        tag: 3.2.1-doca3.2.1
+        tag: 3.4.0-doca3.4.0
       resources:
         memory: 6Gi
         nvidia.com/bf_sf: 5
@@ -1052,7 +1052,7 @@ spec:
             enabled: true
             image:
               repository: $SNAP_NGC_IMAGE_URL
-              tag: 1.5.0-doca3.2.0
+              tag: 1.7.0-doca3.4.0
             snapRpcInitConf: |
               nvme_subsystem_create --nqn nqn.2022-10.io.nvda.nvme:0
   interfaces:
@@ -2194,12 +2194,12 @@ spec:
   helmChart:
     source:
       repoURL: $HELM_REGISTRY_REPO_URL
-      version: 1.0.5
+      version: 3.4.0
       chart: doca-hbn
     values:
       image:
         repository: $HBN_NGC_IMAGE_URL
-        tag: 3.2.1-doca3.2.1
+        tag: 3.4.0-doca3.4.0
       resources:
         memory: 6Gi
         nvidia.com/bf_sf: 5
@@ -2245,7 +2245,7 @@ spec:
               XLIO_ENABLED: "0"
             image:
               repository: $SNAP_NGC_IMAGE_URL
-              tag: 1.5.0-doca3.2.0
+              tag: 1.7.0-doca3.4.0
   interfaces:
   - name: app_sf
     network: mybrsfc-storage
