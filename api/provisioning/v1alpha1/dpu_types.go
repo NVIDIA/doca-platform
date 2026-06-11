@@ -88,6 +88,7 @@ const (
 	DPUCondBFBReady               DPUConditionType = "BFBReady"
 	DPUCondBlueFieldSoftwareReady DPUConditionType = "BlueFieldSoftwareReady"
 	DPUCondDPUFlavorExists        DPUConditionType = "DPUFlavorExists"
+	DPUCondDPUFlavorRendered      DPUConditionType = "DPUFlavorRendered"
 	DPUCondNodeEffectReady        DPUConditionType = "NodeEffectReady"
 	DPUCondBFBPrepared            DPUConditionType = "BFBPrepared"
 	DPUCondInterfaceInitialized   DPUConditionType = "InterfaceInitialized"

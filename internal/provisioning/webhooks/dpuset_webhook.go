@@ -86,14 +86,8 @@ func (r *DPUSet) ValidateCreate(ctx context.Context, obj runtime.Object) (admiss
 
 	}
 
-	// Kubebuilder CRD validation (minLength=1) is not sufficient: when a client sends raw JSON
-	// with "bfb": {} or "dpuFlavor": "", the field may be omitted (e.g. Go omitempty) so the CRD
-	// never sees it, or empty string may slip through. The webhook enforces non-empty on the
-	// decoded object so both empty values and omitted-then-zero-valued fields are rejected.
+	// Exactly-one-of dpuFlavor/dpuFlavorTemplate is enforced by the CRD XValidation rule.
 	dpuTemplatePath := newPath.Child("dpuTemplate", "spec")
-	if dpuSet.Spec.DPUTemplate.Spec.DPUFlavor == "" {
-		errs = append(errs, field.Required(dpuTemplatePath.Child("dpuFlavor"), "dpuFlavor must be non-empty"))
-	}
 	if dpuSet.Spec.DPUTemplate.Spec.BFB != nil && dpuSet.Spec.DPUTemplate.Spec.BFB.Name == "" {
 		errs = append(errs, field.Required(dpuTemplatePath.Child("bfb", "name"), "bfb.name must be non-empty"))
 	}
@@ -129,11 +123,8 @@ func (r *DPUSet) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Obje
 
 	}
 
-	// Same as ValidateCreate: CRD validation alone is not enough for raw JSON / omitempty cases.
+	// Exactly-one-of dpuFlavor/dpuFlavorTemplate is enforced by the CRD XValidation rule.
 	dpuTemplatePath := newPath.Child("dpuTemplate", "spec")
-	if dpuSet.Spec.DPUTemplate.Spec.DPUFlavor == "" {
-		errs = append(errs, field.Required(dpuTemplatePath.Child("dpuFlavor"), "dpuFlavor must be non-empty"))
-	}
 	if dpuSet.Spec.DPUTemplate.Spec.BFB != nil && dpuSet.Spec.DPUTemplate.Spec.BFB.Name == "" {
 		errs = append(errs, field.Required(dpuTemplatePath.Child("bfb", "name"), "bfb.name must be non-empty"))
 	}

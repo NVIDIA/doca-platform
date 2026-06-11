@@ -128,6 +128,7 @@ type ClusterSpec struct {
 
 // DPUTemplateSpec defines the desired provisioning template for DPUs.
 // +kubebuilder:validation:XValidation:rule="(has(self.bfb) && has(self.bfb.name) ? 1 : 0) + (has(self.blueFieldSoftware) && has(self.blueFieldSoftware.name) ? 1 : 0) == 1",message="exactly one of bfb or blueFieldSoftware must be set"
+// +kubebuilder:validation:XValidation:rule="has(self.dpuFlavor) != has(self.dpuFlavorTemplate)",message="exactly one of dpuFlavor or dpuFlavorTemplate must be set"
 type DPUTemplateSpec struct {
 	// Specifies a BFB CR
 	// +optional
@@ -142,9 +143,16 @@ type DPUTemplateSpec struct {
 	// +optional
 	Cluster *ClusterSpec `json:"cluster,omitempty"`
 	// DPUFlavor is the name of the DPUFlavor that will be used to deploy the DPU.
+	// Mutually exclusive with DPUFlavorTemplate.
 	// +kubebuilder:validation:MinLength=1
-	// +required
-	DPUFlavor string `json:"dpuFlavor"`
+	// +optional
+	DPUFlavor string `json:"dpuFlavor,omitempty"`
+	// DPUFlavorTemplate is the name of a DPUFlavorTemplate that is rendered per-DPU
+	// (against DPUDevice.spec.values) into a generated DPUFlavor. Mutually exclusive
+	// with DPUFlavor.
+	// +kubebuilder:validation:MinLength=1
+	// +optional
+	DPUFlavorTemplate string `json:"dpuFlavorTemplate,omitempty"`
 	// AstraEnabled indicates whether E/W NIC configuration (Astra) is enabled
 	// +optional
 	AstraEnabled *bool `json:"astraEnabled,omitempty"`

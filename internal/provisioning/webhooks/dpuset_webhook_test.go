@@ -418,6 +418,27 @@ spec:
 			Expect(objFetched.Spec.DPUTemplate.Spec.DPUFlavor).To(Equal("updated-flavor"))
 		})
 
+		It("should create DPUSet with dpuFlavorTemplate and no dpuFlavor", func() {
+			obj := createObj("obj-flavor-template")
+			obj.Spec.DPUTemplate.Spec.DPUFlavor = ""
+			obj.Spec.DPUTemplate.Spec.DPUFlavorTemplate = "some-template"
+			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+			objFetched := &provisioningv1.DPUSet{}
+			Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
+			Expect(objFetched.Spec.DPUTemplate.Spec.DPUFlavorTemplate).To(Equal("some-template"))
+			Expect(objFetched.Spec.DPUTemplate.Spec.DPUFlavor).To(BeEmpty())
+		})
+
+		It("should reject DPUSet with both dpuFlavor and dpuFlavorTemplate set", func() {
+			obj := createObj("obj-flavor-and-template")
+			obj.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor
+			obj.Spec.DPUTemplate.Spec.DPUFlavorTemplate = "some-template"
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).To(HaveOccurred())
+			Expect(apierrors.IsInvalid(err)).To(BeTrue())
+		})
+
 		// Tests for validateStrategy() - nil pointer safety
 		It("should accept RollingUpdate with nil rollingUpdate field", func() {
 			obj := createObj("obj-rolling-nil-details")
@@ -622,22 +643,24 @@ spec:
 			Expect(apierrors.IsInvalid(err)).To(BeTrue())
 		})
 
-		It("ValidateCreate should reject empty spec.dpuTemplate.spec.dpuFlavor", func() {
+		// The webhook no longer enforces dpuFlavor non-emptiness: exclusivity of
+		// dpuFlavor/dpuFlavorTemplate is enforced by the CRD CEL rule. The webhook must
+		// therefore accept a template-only DPUSet (no dpuFlavor).
+		It("ValidateCreate should accept dpuFlavorTemplate without dpuFlavor", func() {
 			webhook := &DPUSet{}
 			obj := &provisioningv1.DPUSet{
 				Spec: provisioningv1.DPUSetSpec{
 					Strategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},
 					DPUTemplate: provisioningv1.DPUTemplate{
 						Spec: provisioningv1.DPUTemplateSpec{
-							BFB:       &provisioningv1.BFBReference{Name: "bfb"},
-							DPUFlavor: "",
+							BFB:               &provisioningv1.BFBReference{Name: "bfb"},
+							DPUFlavorTemplate: "some-template",
 						},
 					},
 				},
 			}
 			_, err := webhook.ValidateCreate(ctx, obj)
-			Expect(err).To(HaveOccurred())
-			Expect(apierrors.IsInvalid(err)).To(BeTrue())
+			Expect(err).NotTo(HaveOccurred())
 		})
 
 		// Object decoded from YAML/JSON with explicit empty bfb.name or dpuFlavor (e.g. kubectl apply
@@ -666,7 +689,7 @@ spec:
 			Expect(apierrors.IsInvalid(err)).To(BeTrue())
 		})
 
-		It("ValidateCreate should reject YAML with empty spec.dpuTemplate.spec.dpuFlavor", func() {
+		It("ValidateCreate should accept YAML with dpuFlavorTemplate and no dpuFlavor", func() {
 			yml := []byte(`
 apiVersion: provisioning.dpu.nvidia.com/v1alpha1
 kind: DPUSet
@@ -680,14 +703,13 @@ spec:
     spec:
       bfb:
         name: "bfb"
-      dpuFlavor: ""
+      dpuFlavorTemplate: "some-template"
 `)
 			obj := &provisioningv1.DPUSet{}
 			Expect(yaml.UnmarshalStrict(yml, obj)).To(Succeed())
 			webhook := &DPUSet{}
 			_, err := webhook.ValidateCreate(ctx, obj)
-			Expect(err).To(HaveOccurred())
-			Expect(apierrors.IsInvalid(err)).To(BeTrue())
+			Expect(err).NotTo(HaveOccurred())
 		})
 
 		It("ValidateCreate should reject astraEnabled=true when deploymentMode is not zero-trust", func() {

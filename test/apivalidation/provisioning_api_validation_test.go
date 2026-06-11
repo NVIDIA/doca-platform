@@ -24,7 +24,9 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -115,6 +117,44 @@ var _ = Describe("Provisioning API Validation", func() {
 			Entry("neither bfb nor blueFieldSoftware is specified",
 				provisioningv1.DPUTemplateSpec{
 					DPUFlavor:  "someflavor",
+					NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
+				}, true),
+		)
+
+		DescribeTable("Validates exactly one of dpuFlavor or dpuFlavorTemplate in DPUTemplateSpec",
+			func(templateSpec provisioningv1.DPUTemplateSpec, expectError bool) {
+				dpuSet := getMinimalDPUSet(testNs.Name)
+				dpuSet.Spec.DPUTemplate.Spec = templateSpec
+				err := testClient.Create(ctx, dpuSet)
+				if expectError {
+					Expect(err).To(HaveOccurred())
+					Expect(err.Error()).To(ContainSubstring("exactly one of dpuFlavor or dpuFlavorTemplate must be set"))
+				} else {
+					Expect(err).ToNot(HaveOccurred())
+				}
+			},
+			Entry("both dpuFlavor and dpuFlavorTemplate are specified",
+				provisioningv1.DPUTemplateSpec{
+					BFB:               &provisioningv1.BFBReference{Name: "somebfb"},
+					DPUFlavor:         "someflavor",
+					DPUFlavorTemplate: "sometemplate",
+					NodeEffect:        provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
+				}, true),
+			Entry("only dpuFlavor is specified",
+				provisioningv1.DPUTemplateSpec{
+					BFB:        &provisioningv1.BFBReference{Name: "somebfb"},
+					DPUFlavor:  "someflavor",
+					NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
+				}, false),
+			Entry("only dpuFlavorTemplate is specified",
+				provisioningv1.DPUTemplateSpec{
+					BFB:               &provisioningv1.BFBReference{Name: "somebfb"},
+					DPUFlavorTemplate: "sometemplate",
+					NodeEffect:        provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
+				}, false),
+			Entry("neither dpuFlavor nor dpuFlavorTemplate is specified",
+				provisioningv1.DPUTemplateSpec{
+					BFB:        &provisioningv1.BFBReference{Name: "somebfb"},
 					NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 				}, true),
 		)
@@ -359,6 +399,60 @@ var _ = Describe("Provisioning API Validation", func() {
 		})
 	})
 
+	Context("When checking the DPUFlavorTemplate API validations", func() {
+		It("should accept a DPUFlavorTemplate with a non-empty template", func() {
+			Expect(testClient.Create(ctx, getMinimalDPUFlavorTemplate(testNs.Name))).To(Succeed())
+		})
+
+		It("should reject a DPUFlavorTemplate with an empty template", func() {
+			obj := getMinimalDPUFlavorTemplate(testNs.Name)
+			obj.Spec.Template = ""
+			err := testClient.Create(ctx, obj)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(Or(
+				ContainSubstring("should be at least 1 chars long"),
+				ContainSubstring("template"),
+			))
+		})
+
+		It("should accept dpuResources and systemReservedResources and round-trip them", func() {
+			obj := getMinimalDPUFlavorTemplate(testNs.Name)
+			obj.Spec.DPUResources = corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("2"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+			}
+			obj.Spec.SystemReservedResources = corev1.ResourceList{
+				corev1.ResourceMemory: resource.MustParse("256Mi"),
+			}
+			Expect(testClient.Create(ctx, obj)).To(Succeed())
+
+			refetched := &provisioningv1.DPUFlavorTemplate{}
+			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(obj), refetched)).To(Succeed())
+			Expect(refetched.Spec.DPUResources).To(HaveKey(corev1.ResourceCPU))
+			Expect(refetched.Spec.DPUResources).To(HaveKey(corev1.ResourceMemory))
+			Expect(refetched.Spec.SystemReservedResources).To(HaveKey(corev1.ResourceMemory))
+		})
+	})
+
+	Context("When checking the DPUDevice spec.values field", func() {
+		It("does not require spec.values on Create (omitempty)", func() {
+			device := getMinimalDPUDevice(testNs.Name)
+			Expect(testClient.Create(ctx, device)).To(Succeed())
+			Expect(device.Spec.Values).To(BeNil())
+		})
+
+		It("accepts an arbitrary JSON object in spec.values", func() {
+			device := getMinimalDPUDevice(testNs.Name)
+			device.Spec.Values = &runtime.RawExtension{Raw: []byte(`{"mtu":1500,"hugepages":3072}`)}
+			Expect(testClient.Create(ctx, device)).To(Succeed())
+
+			refetched := &provisioningv1.DPUDevice{}
+			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(device), refetched)).To(Succeed())
+			Expect(refetched.Spec.Values).NotTo(BeNil())
+			Expect(string(refetched.Spec.Values.Raw)).To(ContainSubstring("mtu"))
+		})
+	})
+
 	// Status.RebootMethod is the aggregated reboot-method marker.
 	// These tests enforce the API contract: status subresource semantics
 	// (no spec-side update), optional on Create, and enum-validated values.
@@ -505,6 +599,18 @@ func getMinimalDPUFlavor(namespace string) *provisioningv1.DPUFlavor {
 			Namespace:    namespace,
 		},
 		Spec: provisioningv1.DPUFlavorSpec{},
+	}
+}
+
+func getMinimalDPUFlavorTemplate(namespace string) *provisioningv1.DPUFlavorTemplate {
+	return &provisioningv1.DPUFlavorTemplate{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "dpuflavortemplate-test-",
+			Namespace:    namespace,
+		},
+		Spec: provisioningv1.DPUFlavorTemplateSpec{
+			Template: "grub:\n  kernelParameters: []\n",
+		},
 	}
 }
 
