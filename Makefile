@@ -621,6 +621,7 @@ test-deploy-mock-dms: helm # Deploy mock-dms to the kind test cluster.
 
 HELMFILE_FILE ?= $(CURDIR)/deploy/helmfiles/prereqs.yaml
 HELMFILE_SELECTOR ?=
+HELMFILE_STATE_VALUES_SET ?=
 HELMFILE_COLLECT_RESOURCES_ON_FAIL ?= true
 HELMFILE_CLEANUP_ON_FAIL ?= false
 HELMFILE_WAIT ?= true
@@ -634,7 +635,8 @@ test-deploy-helmfile: helmfile helm helm-diff helm-git yq binary-dpfdev ## Deplo
 		--helm-bin "$(HELM)" \
 		--helmfile-bin "$(HELMFILE)" \
 		$(if $(strip $(HELMFILE_ENV)),--environment "$(HELMFILE_ENV)") \
-		$(if $(strip $(HELMFILE_SELECTOR)),--selector "$(HELMFILE_SELECTOR)")
+		$(if $(strip $(HELMFILE_SELECTOR)),--selector "$(HELMFILE_SELECTOR)") \
+		$(if $(strip $(HELMFILE_STATE_VALUES_SET)),--state-values-set "$(HELMFILE_STATE_VALUES_SET)")
 
 ARTIFACTS_DIR ?= $(CURDIR)/artifacts
 $(ARTIFACTS_DIR):
