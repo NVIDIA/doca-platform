@@ -20,14 +20,13 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
-	"strconv"
 	"strings"
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	"github.com/nvidia/doca-platform/pkg/conditions"
+	"github.com/nvidia/doca-platform/pkg/ecpf"
 	"github.com/nvidia/doca-platform/pkg/ovsutils"
-	"github.com/nvidia/doca-platform/pkg/utils/networkhelper"
 
 	"github.com/fluxcd/pkg/runtime/patch"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -87,10 +86,10 @@ func requeueError() (ctrl.Result, error) {
 // ServiceInterfaceReconciler reconciles a ServiceInterface object
 type ServiceInterfaceReconciler struct {
 	client.Client
-	Scheme        *runtime.Scheme
-	NodeName      string
-	OVS           ovsutils.API
-	NetworkHelper networkhelper.NetworkHelper
+	Scheme      *runtime.Scheme
+	NodeName    string
+	OVS         ovsutils.API
+	ECPFManager ecpf.ECPFManager
 }
 
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=ServiceInterfaces,verbs=get;list;watch;create;update;patch;delete
@@ -257,7 +256,7 @@ func setTrueServiceInterfaceReconciledCondition(si *dpuservicev1.ServiceInterfac
 	)
 }
 
-func FigureOutName(ctx context.Context, networkHelper networkhelper.NetworkHelper, serviceInterface *dpuservicev1.ServiceInterface) (string, error) {
+func FigureOutName(ctx context.Context, ecpfManager ecpf.ECPFManager, serviceInterface *dpuservicev1.ServiceInterface) (string, error) {
 	var err error
 	log := ctrllog.FromContext(ctx)
 	portName := ""
@@ -268,12 +267,10 @@ func FigureOutName(ctx context.Context, networkHelper networkhelper.NetworkHelpe
 		portName = serviceInterface.Spec.Physical.InterfaceName
 	case dpuservicev1.InterfaceTypePF:
 		log.Info("matched on pf")
-		portName, err = networkHelper.GetPFRepresentorDPU(strconv.Itoa(serviceInterface.Spec.PF.ID))
+		portName, err = ecpfManager.GetRepresentorForPFServiceInterface(serviceInterface.Spec.PF)
 	case dpuservicev1.InterfaceTypeVF:
 		log.Info("matched on vf")
-		portName, err = networkHelper.GetVFRepresentorDPU(
-			strconv.Itoa(serviceInterface.Spec.VF.PFID),
-			strconv.Itoa(serviceInterface.Spec.VF.VFID))
+		portName, err = ecpfManager.GetRepresentorForVFServiceInterface(serviceInterface.Spec.VF)
 	case dpuservicev1.InterfaceTypeVLAN:
 		log.Info("matched on vlan skipping")
 		// TODO for MVP it is out of scope
@@ -301,7 +298,7 @@ func getOVNBridge(serviceInterface *dpuservicev1.ServiceInterface) string {
 func AddInterfacesToOvs(
 	ctx context.Context,
 	ovs ovsutils.API,
-	networkHelper networkhelper.NetworkHelper,
+	ecpfManager ecpf.ECPFManager,
 	serviceInterface *dpuservicev1.ServiceInterface,
 	metadata string,
 ) error {
@@ -365,7 +362,7 @@ func AddInterfacesToOvs(
 		return nil
 	}
 
-	portName, err := FigureOutName(ctx, networkHelper, serviceInterface)
+	portName, err := FigureOutName(ctx, ecpfManager, serviceInterface)
 	if err != nil {
 		log.Error(err, "failed to get port name from serviceInterface")
 		return err
@@ -389,7 +386,7 @@ func AddInterfacesToOvs(
 func DeleteInterfacesFromOvs(
 	ctx context.Context,
 	ovs ovsutils.API,
-	networkhelper networkhelper.NetworkHelper,
+	ecpfManager ecpf.ECPFManager,
 	serviceInterface *dpuservicev1.ServiceInterface,
 ) error {
 	log := ctrllog.FromContext(ctx)
@@ -438,7 +435,7 @@ func DeleteInterfacesFromOvs(
 		return nil
 	}
 
-	portName, err := FigureOutName(ctx, networkhelper, serviceInterface)
+	portName, err := FigureOutName(ctx, ecpfManager, serviceInterface)
 	if err != nil {
 		log.Error(err, "failed to get port name from serviceInterface")
 		return err
@@ -460,7 +457,7 @@ func DeleteInterfacesFromOvs(
 func (r *ServiceInterfaceReconciler) reconcileDelete(ctx context.Context, serviceInterface *dpuservicev1.ServiceInterface, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrllog.FromContext(ctx)
 	log.Info("Reconciling delete")
-	err := DeleteInterfacesFromOvs(ctx, r.OVS, r.NetworkHelper, serviceInterface)
+	err := DeleteInterfacesFromOvs(ctx, r.OVS, r.ECPFManager, serviceInterface)
 	if err != nil {
 		log.Error(err, "failed to delete DeleteInterfacesFromOvs")
 		setFalseServiceInterfaceReconciledCondition(err, serviceInterface)
@@ -517,7 +514,7 @@ func (r *ServiceInterfaceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{}, nil
 	}
 
-	err := AddInterfacesToOvs(ctx, r.OVS, r.NetworkHelper, serviceInterface, req.NamespacedName.String())
+	err := AddInterfacesToOvs(ctx, r.OVS, r.ECPFManager, serviceInterface, req.NamespacedName.String())
 	if err != nil {
 		log.Info("failed to add AddInterfacesToOvs")
 		setFalseServiceInterfaceReconciledCondition(err, serviceInterface)

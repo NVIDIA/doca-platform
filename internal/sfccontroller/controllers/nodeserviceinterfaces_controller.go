@@ -20,8 +20,8 @@ import (
 	"context"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	"github.com/nvidia/doca-platform/pkg/ecpf"
 	"github.com/nvidia/doca-platform/pkg/ovsutils"
-	"github.com/nvidia/doca-platform/pkg/utils/networkhelper"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -39,10 +39,10 @@ const (
 // NodeServiceInterfacesReconciler reconciles SFC-owned NodeServiceInterfaces objects.
 type NodeServiceInterfacesReconciler struct {
 	client.Client
-	Scheme        *runtime.Scheme
-	NodeName      string
-	OVS           ovsutils.API
-	NetworkHelper networkhelper.NetworkHelper
+	Scheme      *runtime.Scheme
+	NodeName    string
+	OVS         ovsutils.API
+	ECPFManager ecpf.ECPFManager
 }
 
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=nodeserviceinterfaces,verbs=get;list;watch;update;patch

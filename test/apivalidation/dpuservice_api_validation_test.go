@@ -215,6 +215,56 @@ var _ = Describe("DPUService API Validation", func() {
 					Expect(testClient.Update(ctx, si)).ToNot(Succeed())
 				})
 			})
+
+			Context("Validate ServiceInterface NICSelector field", func() {
+				var si *dpuservicev1.ServiceInterface
+
+				BeforeEach(func() {
+					si = &dpuservicev1.ServiceInterface{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "test",
+							Namespace: testNs.Name,
+						},
+						Spec: dpuservicev1.ServiceInterfaceSpec{
+							InterfaceType: dpuservicev1.InterfaceTypePF,
+							PF: &dpuservicev1.PF{
+								ID: 0,
+							},
+						},
+					}
+				})
+
+				It("should not allow NICSelector without type", func() {
+					si.Spec.PF.NICSelector = &dpuservicev1.NICSelectorSpec{}
+					Expect(testClient.Create(ctx, si)).ToNot(Succeed())
+				})
+
+				It("should not allow NICSelector of type pci without pci field set", func() {
+					si.Spec.PF.NICSelector = &dpuservicev1.NICSelectorSpec{
+						Type: dpuservicev1.NICSelectorTypePCI,
+					}
+					Expect(testClient.Create(ctx, si)).ToNot(Succeed())
+				})
+
+				It("should allow NICSelector of type dpu", func() {
+					si.Spec.PF.NICSelector = &dpuservicev1.NICSelectorSpec{
+						Type: dpuservicev1.NICSelectorTypeDPU,
+					}
+					Expect(testClient.Create(ctx, si)).To(Succeed())
+					cleanupObjs = append(cleanupObjs, si)
+				})
+
+				It("should allow NICSelector of type pci with pci field set", func() {
+					si.Spec.PF.NICSelector = &dpuservicev1.NICSelectorSpec{
+						Type: dpuservicev1.NICSelectorTypePCI,
+						PCI: &dpuservicev1.PCISelector{
+							Address: "0000:03:00.0",
+						},
+					}
+					Expect(testClient.Create(ctx, si)).To(Succeed())
+					cleanupObjs = append(cleanupObjs, si)
+				})
+			})
 		})
 	})
 })

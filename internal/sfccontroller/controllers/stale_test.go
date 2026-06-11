@@ -22,9 +22,9 @@ import (
 	"math"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	ecpfMock "github.com/nvidia/doca-platform/pkg/ecpf/mock"
 	"github.com/nvidia/doca-platform/pkg/ovsmodel"
 	"github.com/nvidia/doca-platform/pkg/ovsutils"
-	mock_networkhelper "github.com/nvidia/doca-platform/pkg/utils/networkhelper/mock"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 
 	"antrea.io/antrea/pkg/ovs/openflow"
@@ -127,7 +127,7 @@ var _ = Describe("stale ports cleanup", func() {
 	var (
 		ctrl                  *gomock.Controller
 		ovsMock               *ovsutils.MockAPI
-		networkHelperMock     *mock_networkhelper.MockNetworkHelper
+		ECPFManagerMock       *ecpfMock.MockECPFManager
 		ovsConditionalAPIMock *ovsutils.MockConditionalAPI
 		sor                   *StaleObjectRemover
 		testNS                *corev1.Namespace
@@ -138,9 +138,9 @@ var _ = Describe("stale ports cleanup", func() {
 		ctrl = gomock.NewController(GinkgoT())
 		ovsMock = ovsutils.NewMockAPI(ctrl)
 		ovsConditionalAPIMock = ovsutils.NewMockConditionalAPI(ctrl)
-		networkHelperMock = mock_networkhelper.NewMockNetworkHelper(ctrl)
+		ECPFManagerMock = ecpfMock.NewMockECPFManager(ctrl)
 
-		sor = NewStaleObjectRemover(0, testClient, nil, ovsMock, networkHelperMock)
+		sor = NewStaleObjectRemover(0, testClient, nil, ovsMock, ECPFManagerMock)
 		cleanupObjects = []client.Object{}
 
 		// create test namespace
@@ -228,7 +228,7 @@ var _ = Describe("stale ports cleanup", func() {
 	It("fails if failed to figure out port name", func() {
 		// mock calls
 		ovsMock.EXPECT().Get(gomock.Any(), gomock.Any()).Return(nil).Times(1)
-		networkHelperMock.EXPECT().GetVFRepresentorDPU(gomock.Any(), gomock.Any()).Return("", fmt.Errorf("failed to figure out port name")).Times(1)
+		ECPFManagerMock.EXPECT().GetRepresentorForVFServiceInterface(gomock.Any()).Return("", fmt.Errorf("failed to figure out port name")).Times(1)
 
 		si := getTestVFServiceInterface("dpu-service-interface", testNS.Name, "my-node", 0, 3, nil, nil)
 		Expect(testClient.Create(ctx, si)).To(Succeed())
@@ -281,7 +281,7 @@ var _ = Describe("stale ports cleanup", func() {
 		).Times(1)
 		ovsMock.EXPECT().WhereAll(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(ovsConditionalAPIMock).Times(1)
 		ovsMock.EXPECT().DelPort(gomock.Any(), SFCBridge, "some-port").Return(nil).Times(1)
-		networkHelperMock.EXPECT().GetVFRepresentorDPU("0", "3").Return("pf0vf3", nil).Times(1)
+		ECPFManagerMock.EXPECT().GetRepresentorForVFServiceInterface(gomock.Any()).Return("pf0vf3", nil).Times(1)
 
 		Expect(sor.removeStalePorts(ctx)).To(Succeed())
 	})

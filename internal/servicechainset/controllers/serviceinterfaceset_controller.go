@@ -236,51 +236,29 @@ func (r *ServiceInterfaceSetReconciler) createOrUpdateChild(ctx context.Context,
 	}
 
 	if serviceInterfaceSet.Spec.Template.Spec.Physical != nil {
-		serviceInterface.Spec.Physical = &dpuservicev1.Physical{
-			InterfaceName: serviceInterfaceSet.Spec.Template.Spec.Physical.InterfaceName,
-		}
+		serviceInterface.Spec.Physical = serviceInterfaceSet.Spec.Template.Spec.Physical.DeepCopy()
 	}
 	if serviceInterfaceSet.Spec.Template.Spec.Vlan != nil {
-		serviceInterface.Spec.Vlan = &dpuservicev1.VLAN{
-			VlanID:             serviceInterfaceSet.Spec.Template.Spec.Vlan.VlanID,
-			ParentInterfaceRef: serviceInterfaceSet.Spec.Template.Spec.Vlan.ParentInterfaceRef + "-" + nodeName,
-		}
+		serviceInterface.Spec.Vlan = serviceInterfaceSet.Spec.Template.Spec.Vlan.DeepCopy()
+		serviceInterface.Spec.Vlan.ParentInterfaceRef = serviceInterface.Spec.Vlan.ParentInterfaceRef + "-" + nodeName
 	}
 	if serviceInterfaceSet.Spec.Template.Spec.VF != nil {
-		serviceInterface.Spec.VF = &dpuservicev1.VF{
-			VFID:           serviceInterfaceSet.Spec.Template.Spec.VF.VFID,
-			PFID:           serviceInterfaceSet.Spec.Template.Spec.VF.PFID,
-			VirtualNetwork: serviceInterfaceSet.Spec.Template.Spec.VF.VirtualNetwork,
-		}
+		serviceInterface.Spec.VF = serviceInterfaceSet.Spec.Template.Spec.VF.DeepCopy()
 		if serviceInterfaceSet.Spec.Template.Spec.VF.ParentInterfaceRef != nil {
 			serviceInterface.Spec.VF.ParentInterfaceRef = ptr.To(*serviceInterfaceSet.Spec.Template.Spec.VF.ParentInterfaceRef + "-" + nodeName)
 		}
 	}
 	if serviceInterfaceSet.Spec.Template.Spec.PF != nil {
-		serviceInterface.Spec.PF = &dpuservicev1.PF{
-			ID:             serviceInterfaceSet.Spec.Template.Spec.PF.ID,
-			VirtualNetwork: serviceInterfaceSet.Spec.Template.Spec.PF.VirtualNetwork,
-		}
+		serviceInterface.Spec.PF = serviceInterfaceSet.Spec.Template.Spec.PF.DeepCopy()
 	}
 	if serviceInterfaceSet.Spec.Template.Spec.Service != nil {
-		serviceInterface.Spec.Service = &dpuservicev1.ServiceDef{
-			ServiceID:      serviceInterfaceSet.Spec.Template.Spec.Service.ServiceID,
-			Network:        serviceInterfaceSet.Spec.Template.Spec.Service.Network,
-			InterfaceName:  serviceInterfaceSet.Spec.Template.Spec.Service.InterfaceName,
-			VirtualNetwork: serviceInterfaceSet.Spec.Template.Spec.Service.VirtualNetwork,
-		}
+		serviceInterface.Spec.Service = serviceInterfaceSet.Spec.Template.Spec.Service.DeepCopy()
 	}
 	if serviceInterfaceSet.Spec.Template.Spec.OVN != nil {
-		serviceInterface.Spec.OVN = &dpuservicev1.OVN{
-			ExternalBridge: serviceInterfaceSet.Spec.Template.Spec.OVN.ExternalBridge,
-		}
+		serviceInterface.Spec.OVN = serviceInterfaceSet.Spec.Template.Spec.OVN.DeepCopy()
 	}
 	if serviceInterfaceSet.Spec.Template.Spec.Patch != nil {
-		serviceInterface.Spec.Patch = &dpuservicev1.PatchDef{
-			PeerBridge:      serviceInterfaceSet.Spec.Template.Spec.Patch.PeerBridge,
-			PeerPatchName:   serviceInterfaceSet.Spec.Template.Spec.Patch.PeerPatchName,
-			PeerExternalIDs: serviceInterfaceSet.Spec.Template.Spec.Patch.PeerExternalIDs,
-		}
+		serviceInterface.Spec.Patch = serviceInterfaceSet.Spec.Template.Spec.Patch.DeepCopy()
 	}
 	serviceInterface.SetManagedFields(nil)
 	serviceInterface.SetGroupVersionKind(dpuservicev1.GroupVersion.WithKind("ServiceInterface"))
