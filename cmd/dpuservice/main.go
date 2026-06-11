@@ -29,12 +29,14 @@ import (
 	"github.com/nvidia/doca-platform/internal/dpuservice/utils"
 	dpuservicechaincontroller "github.com/nvidia/doca-platform/internal/dpuservicechain/controllers"
 	dpuservicechainwebhooks "github.com/nvidia/doca-platform/internal/dpuservicechain/webhooks"
+	"github.com/nvidia/doca-platform/internal/features"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 	"github.com/nvidia/doca-platform/pkg/health"
 	nvipamv1 "github.com/nvidia/doca-platform/third_party/api/nvipam/api/v1alpha1"
 	argov1 "github.com/nvidia/doca-platform/third_party/forked/argoproj/argo-cd/pkg/apis/application/v1alpha1"
 
 	"github.com/spf13/pflag"
+	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -101,6 +103,8 @@ func main() {
 		"The minimum interval at which watched resources are reconciled.")
 	fs.IntVar(&concurrency, "concurrency", 1,
 		"Number of objects to process simultaneously by each controller.")
+
+	features.MutableGates.AddFlag(fs)
 
 	logsv1.AddFlags(logOptions, fs)
 
@@ -205,6 +209,19 @@ func main() {
 		os.Exit(1)
 	}
 
+	dpuServicePrereqLabelSelector, err := metav1.LabelSelectorAsSelector(&metav1.LabelSelector{
+		MatchExpressions: []metav1.LabelSelectorRequirement{
+			{
+				Key:      dpuservicecontroller.DPUServicePrereqLabel,
+				Operator: metav1.LabelSelectorOpExists,
+			},
+		},
+	})
+	if err != nil {
+		setupLog.Error(err, "could not create configmap label selector")
+		os.Exit(1)
+	}
+
 	if disableDPUReadyTaints {
 		setupLog.Info("DPUReady taint management is disabled")
 	}
@@ -233,6 +250,10 @@ func main() {
 		dpucluster.OptionScheme{Scheme: mgr.GetScheme()},
 		dpucluster.OptionUserAgent{UserAgent: "dpuservice-controller"},
 		dpucluster.OptionSyncPeriod{SyncPeriod: syncPeriod},
+		// Configures a timeout of 10s for direct api calls by the client. Without configuring,
+		// the default value of 0 is used which means direct api calls will get an already
+		// expired context and not succeed.
+		dpucluster.OptionTimeout{Timeout: time.Second * 10},
 		dpucluster.OptionGetIndexerCallbacks{
 			GetIndexerCallbacks: []dpucluster.GetIndexerCallback{
 				dpuservicecontroller.SetupCacheIndexers,
@@ -248,13 +269,24 @@ func main() {
 			},
 		},
 		dpucluster.OptionDisableFor{DisableFor: []client.Object{
-			&corev1.ConfigMap{},
 			&corev1.Secret{},
 		}},
 		dpucluster.OptionByObject{ByObject: map[client.Object]cache.ByObject{
 			&corev1.Pod{}: {
 				// watch only pods with the service id label
 				Label: podsOwnedByDPUServiceLabelSelector,
+			},
+
+			// watch only configmaps, validatingadmissionpolicies, and validatingadmissionpolicybindings
+			// with the dpu service prereq label (created by the dpu service prereqs controller).
+			&corev1.ConfigMap{}: {
+				Label: dpuServicePrereqLabelSelector,
+			},
+			&admissionregistrationv1.ValidatingAdmissionPolicy{}: {
+				Label: dpuServicePrereqLabelSelector,
+			},
+			&admissionregistrationv1.ValidatingAdmissionPolicyBinding{}: {
+				Label: dpuServicePrereqLabelSelector,
 			},
 		}},
 	)

@@ -4,6 +4,8 @@ metadata:
   name: dpu-01
   namespace: "default"
 spec:
+  security:
+    privileged: false
   helmChart:
     source:
       repoURL: https://helm.github.io/examples

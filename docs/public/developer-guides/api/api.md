@@ -4898,6 +4898,24 @@ _Appears in:_
 
 
 
+#### DPUServiceSecurity
+
+
+
+DPUServiceSecurity contains security-related settings for a DPUService or
+DPUServiceTemplate.
+
+
+
+_Appears in:_
+- [DPUServiceSpec](#dpuservicespec)
+- [DPUServiceTemplateSpec](#dpuservicetemplatespec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `privileged` _boolean_ | Privileged, when set to true, allows workloads governed by this security<br />setting to run containers with `securityContext.privileged: true` in the<br />DPUCluster. When set to false, a ValidatingAdmissionPolicy in the<br />DPUCluster rejects such workloads. On DPUService objects, this field must<br />be unset when deployInCluster is true. For DPUServices that target a<br />DPUCluster, Privileged must be set explicitly. When set on a<br />DPUServiceTemplate, the DPUDeployment controller propagates the value to<br />generated DPUServices that target DPUClusters.<br />Scope of the policy enforcement:<br />  - Only `securityContext.privileged: true` is gated. Other<br />    privilege-escalation vectors (hostPID, hostIPC, hostNetwork,<br />    allowPrivilegeEscalation, capabilities, hostPath volumes) are NOT<br />    gated by this field.<br />  - Enforcement matches workloads via the<br />    `svc.dpu.nvidia.com/service` label. The controller adds this<br />    label to the resources it manages, and to pod templates of<br />    workload-controller resources (Deployment, DaemonSet, etc.). If a<br />    Helm chart strips that label from the pod template, the parent<br />    resource will be admitted but the child Pods will be denied at<br />    Pod admission time. |  | Optional: \{\} <br /> |
+
+
 #### DPUServiceSpec
 
 
@@ -4919,6 +4937,7 @@ _Appears in:_
 | `interfaces` _string array_ | Interfaces specifies the DPUServiceInterface names that the DPUService<br />uses in the same namespace. |  | MaxItems: 50 <br />MinItems: 1 <br />Optional: \{\} <br /> |
 | `paused` _boolean_ | Paused indicates that the DPUService is paused.<br />Underlying resources are also paused when this is set to true.<br />No deletion of resources will occur when this is set to true. |  | Optional: \{\} <br /> |
 | `configPorts` _[ConfigPorts](#configports)_ | ConfigPorts defines the desired state of port configurations for a DPUService.<br />This struct determines how ports are exposed from the DPU to the host cluster.<br />A DPUService can only have a single ServiceType across all ports. |  | Optional: \{\} <br /> |
+| `security` _[DPUServiceSecurity](#dpuservicesecurity)_ | Security contains security-related settings for the DPUService. |  | Optional: \{\} <br /> |
 
 
 #### DPUServiceStatus
@@ -4997,6 +5016,7 @@ _Appears in:_
 | `deploymentServiceName` _string_ | DeploymentServiceName is the name of the DPU service this configuration refers to. It must match<br />.spec.deploymentServiceName of a DPUServiceConfiguration object and one of the keys in .spec.services of a<br />DPUDeployment object. |  | MaxLength: 28 <br />MinLength: 1 <br />Required: \{\} <br /> |
 | `helmChart` _[HelmChart](#helmchart)_ | HelmChart reflects the Helm related configuration. The user is supposed to configure the values that are static<br />across any DPUServiceConfiguration used with this DPUServiceTemplate in a DPUDeployment. These values act as a<br />baseline and are merged with values specified in the DPUServiceConfiguration. In case of conflict, the<br />DPUServiceConfiguration values take precedence. |  | Required: \{\} <br /> |
 | `resourceRequirements` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#resourcelist-v1-core)_ | ResourceRequirements contains the overall resources required by this particular service to run on a single node |  | Optional: \{\} <br /> |
+| `security` _[DPUServiceSecurity](#dpuservicesecurity)_ | Security contains security-related settings for the generated DPUService.<br />These settings are inherent to the service and apply to all deployments<br />using this template. Specifically, Privileged should be set on charts<br />that need privileged containers (e.g. for direct hardware access). |  | Optional: \{\} <br /> |
 
 
 #### DPUServiceTemplateStatus

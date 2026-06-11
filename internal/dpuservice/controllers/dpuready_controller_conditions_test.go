@@ -400,6 +400,7 @@ var _ = Describe("DPUReadyReconciler Conditions", func() {
 			},
 			Spec: dpuservicev1.DPUServiceSpec{
 				ServiceID: ptr.To("critical-svc-id"),
+				Security:  &dpuservicev1.DPUServiceSecurity{Privileged: ptr.To(false)},
 				HelmChart: dpuservicev1.HelmChart{
 					Source: dpuservicev1.ApplicationSource{
 						RepoURL: "oci://example.com",
@@ -419,6 +420,7 @@ var _ = Describe("DPUReadyReconciler Conditions", func() {
 			},
 			Spec: dpuservicev1.DPUServiceSpec{
 				ServiceID: ptr.To("non-critical-svc-id"),
+				Security:  &dpuservicev1.DPUServiceSecurity{Privileged: ptr.To(false)},
 				HelmChart: dpuservicev1.HelmChart{
 					Source: dpuservicev1.ApplicationSource{
 						RepoURL: "oci://example.com",

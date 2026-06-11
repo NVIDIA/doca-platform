@@ -119,6 +119,8 @@ type DPUService struct {
 // +kubebuilder:validation:XValidation:rule="(has(self.interfaces) && has(self.serviceID)) || (!has(self.interfaces) && !has(self.serviceID)) || has(self.serviceID)", message="serviceID must be provided when interfaces are provided"
 // +kubebuilder:validation:XValidation:rule="!(has(self.deployInCluster) && self.deployInCluster && has(self.configPorts))", message="configPorts cannot be set when deployInCluster is true"
 // +kubebuilder:validation:XValidation:rule="!(has(self.deployInCluster) && self.deployInCluster && has(self.dpuClusterSelector))", message="dpuClusterSelector cannot be set when deployInCluster is true"
+// +kubebuilder:validation:XValidation:rule="!(has(self.deployInCluster) && self.deployInCluster && has(self.security) && has(self.security.privileged))", message="security.privileged must not be set when deployInCluster is true"
+// +kubebuilder:validation:XValidation:rule="(has(self.deployInCluster) && self.deployInCluster) || (has(self.security) && has(self.security.privileged)) || (oldSelf.hasValue() && !(has(oldSelf.value().deployInCluster) && oldSelf.value().deployInCluster) && !(has(oldSelf.value().security) && has(oldSelf.value().security.privileged)))", message="security.privileged must be set when deployInCluster is false", optionalOldSelf=true
 type DPUServiceSpec struct {
 	// Select the Clusters with specific labels, Applications will be created only for these Clusters
 	// +optional
@@ -159,6 +161,38 @@ type DPUServiceSpec struct {
 	// A DPUService can only have a single ServiceType across all ports.
 	// +optional
 	ConfigPorts *ConfigPorts `json:"configPorts,omitempty"`
+
+	// Security contains security-related settings for the DPUService.
+	// +optional
+	Security *DPUServiceSecurity `json:"security,omitempty"`
+}
+
+// DPUServiceSecurity contains security-related settings for a DPUService or
+// DPUServiceTemplate.
+type DPUServiceSecurity struct {
+	// Privileged, when set to true, allows workloads governed by this security
+	// setting to run containers with `securityContext.privileged: true` in the
+	// DPUCluster. When set to false, a ValidatingAdmissionPolicy in the
+	// DPUCluster rejects such workloads. On DPUService objects, this field must
+	// be unset when deployInCluster is true. For DPUServices that target a
+	// DPUCluster, Privileged must be set explicitly. When set on a
+	// DPUServiceTemplate, the DPUDeployment controller propagates the value to
+	// generated DPUServices that target DPUClusters.
+	//
+	// Scope of the policy enforcement:
+	//   - Only `securityContext.privileged: true` is gated. Other
+	//     privilege-escalation vectors (hostPID, hostIPC, hostNetwork,
+	//     allowPrivilegeEscalation, capabilities, hostPath volumes) are NOT
+	//     gated by this field.
+	//   - Enforcement matches workloads via the
+	//     `svc.dpu.nvidia.com/service` label. The controller adds this
+	//     label to the resources it manages, and to pod templates of
+	//     workload-controller resources (Deployment, DaemonSet, etc.). If a
+	//     Helm chart strips that label from the pod template, the parent
+	//     resource will be admitted but the child Pods will be denied at
+	//     Pod admission time.
+	// +optional
+	Privileged *bool `json:"privileged,omitempty"`
 }
 
 // ConfigPorts defines the desired state of port configurations for a DPUService.

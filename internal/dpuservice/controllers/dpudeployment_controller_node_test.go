@@ -293,6 +293,7 @@ var _ = Describe("DPUDeployment Node Controller", func() {
 			standardDPUService.Spec.ServiceDaemonSet.NodeSelector.NodeSelectorTerms[0].MatchExpressions[0].Key = "svc.dpu.nvidia.com/dpuservice-dpu-service-two-version"
 			standardDPUService.Spec.ServiceDaemonSet.NodeSelector.NodeSelectorTerms[0].MatchExpressions[0].Values = []string{"dpu-service-xasdca"}
 			standardDPUService.Spec.DeployInCluster = ptr.To(false)
+			standardDPUService.Spec.Security = &dpuservicev1.DPUServiceSecurity{Privileged: ptr.To(false)}
 			Expect(testClient.Create(ctx, standardDPUService)).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, standardDPUService)
 

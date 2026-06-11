@@ -4,6 +4,8 @@ metadata:
   name: kwok-stage-fast
   namespace: dpf-operator-system
 spec:
+  security:
+    privileged: false
   helmChart:
     values:
       enableDeployment: false

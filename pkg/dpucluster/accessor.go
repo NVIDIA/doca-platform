@@ -156,7 +156,7 @@ func (a *accessor) getClient() (client.Client, error) {
 	defer a.RUnlock()
 
 	if a.state.connection == nil {
-		return nil, fmt.Errorf("no connection available")
+		return nil, ErrDPUClusterNoConnectionAvailable
 	}
 
 	return a.state.connection.cachedClient, nil

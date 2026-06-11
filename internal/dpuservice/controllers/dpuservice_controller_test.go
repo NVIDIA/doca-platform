@@ -790,6 +790,8 @@ var _ = Describe("DPUService Controller", func() {
 			dpuServices := getMinimalDPUServices(testNS.Name)
 			dpuServices[0].Name = utilrand.String(63)
 			dpuServices[0].Spec.DeployInCluster = ptr.To(true)
+			// security.privileged must not be set when deployInCluster is true.
+			dpuServices[0].Spec.Security = nil
 			Expect(testClient.Create(ctx, dpuServices[0])).To(Succeed())
 			DeferCleanup(cleanupDPUServiceAndApplication, ctx, testClient, dpuServices[0], testConfig.Namespace)
 
@@ -1838,6 +1840,7 @@ func getDPUServiceWithoutHelmchartValues(testNamespace string) []*dpuservicev1.D
 					},
 				},
 				ServiceID: ptr.To("service-one"),
+				Security:  &dpuservicev1.DPUServiceSecurity{Privileged: ptr.To(false)},
 				ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 					NodeSelector: &corev1.NodeSelector{
 						NodeSelectorTerms: []corev1.NodeSelectorTerm{
@@ -1900,6 +1903,7 @@ func getMinimalDPUServices(testNamespace string) []*dpuservicev1.DPUService {
 					},
 				},
 				ServiceID: ptr.To("service-one"),
+				Security:  &dpuservicev1.DPUServiceSecurity{Privileged: ptr.To(false)},
 				ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 					NodeSelector: &corev1.NodeSelector{
 						NodeSelectorTerms: []corev1.NodeSelectorTerm{
@@ -1949,6 +1953,7 @@ func getMinimalDPUServices(testNamespace string) []*dpuservicev1.DPUService {
 						ReleaseName: "release-two",
 					},
 				},
+				Security: &dpuservicev1.DPUServiceSecurity{Privileged: ptr.To(false)},
 			},
 		},
 	}
@@ -2016,7 +2021,11 @@ var _ = Describe("test DPUService reconciler step-by-step", func() {
 			cloningNamespace := "namespace-to-clone-to"
 			Expect(testClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: cloningNamespace}})).To(Succeed())
 			dpuService := &dpuservicev1.DPUService{ObjectMeta: metav1.ObjectMeta{Name: "name", Namespace: cloningNamespace}}
-			r := &DPUServiceReconciler{Client: testClient, Scheme: testClient.Scheme()}
+			r := &DPUServiceReconciler{
+				Client:      testClient,
+				Scheme:      testClient.Scheme(),
+				RemoteCache: &stubClusterClientProvider{client: testClient},
+			}
 			dpuClusterConfig := dpucluster.NewConfig(testClient, &dpuCluster)
 			Expect(r.reconcileImagePullSecrets(ctx, []*dpucluster.Config{dpuClusterConfig}, dpuService)).To(Succeed())
 
@@ -2469,6 +2478,7 @@ func newTestDPUService(name, namespace string) *dpuservicev1.DPUService {
 					},
 				},
 			},
+			Security: &dpuservicev1.DPUServiceSecurity{Privileged: ptr.To(false)},
 		},
 	}
 }
