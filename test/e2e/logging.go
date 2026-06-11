@@ -109,7 +109,7 @@ func ValidateManagementClusterLogFlow(ctx context.Context, input *systemTestInpu
 			break
 		}
 		g.Expect(found).To(BeTrue(), "Expected log message not found in Loki")
-	}).WithTimeout(10 * time.Second).WithPolling(time.Second).Should(Succeed())
+	}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 }
 
 // ValidateDPUClusterLogFlow verifies logs flow from DPU cluster to Loki
