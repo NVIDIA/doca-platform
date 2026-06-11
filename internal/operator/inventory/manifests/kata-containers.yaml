@@ -4,6 +4,8 @@ metadata:
   name: kata-containers
   namespace: dpf-operator-system
 spec:
+  security:
+    privileged: true
   helmChart:
     source:
       repoURL: oci://example.com

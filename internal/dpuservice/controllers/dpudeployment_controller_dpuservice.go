@@ -527,6 +527,15 @@ func generateDPUService(dpuDeploymentNamespacedName types.NamespacedName,
 
 	if !serviceConfig.Spec.ServiceConfiguration.ShouldDeployInCluster() {
 		dpuService.Spec.DPUClusterSelector = dpuClusterSelector
+
+		// security.privileged must be set when deployInCluster is false. Honor
+		// the template's explicit value if present; otherwise apply the shared
+		// iteration fallback.
+		privileged := privilegedDefaultForUnsetSecurity
+		if serviceTemplate.Spec.Security != nil {
+			privileged = ptr.Deref(serviceTemplate.Spec.Security.Privileged, privilegedDefaultForUnsetSecurity)
+		}
+		dpuService.Spec.Security = &dpuservicev1.DPUServiceSecurity{Privileged: ptr.To(privileged)}
 	}
 
 	dpuService.SetOwnerReferences([]metav1.OwnerReference{*owner})

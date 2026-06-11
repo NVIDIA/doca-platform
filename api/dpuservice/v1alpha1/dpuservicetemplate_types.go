@@ -90,6 +90,12 @@ type DPUServiceTemplateSpec struct {
 	// ResourceRequirements contains the overall resources required by this particular service to run on a single node
 	// +optional
 	ResourceRequirements corev1.ResourceList `json:"resourceRequirements,omitempty"`
+	// Security contains security-related settings for the generated DPUService.
+	// These settings are inherent to the service and apply to all deployments
+	// using this template. Specifically, Privileged should be set on charts
+	// that need privileged containers (e.g. for direct hardware access).
+	// +optional
+	Security *DPUServiceSecurity `json:"security,omitempty"`
 }
 
 // DPUServiceTemplateStatus defines the observed state of DPUServiceTemplate

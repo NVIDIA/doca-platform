@@ -4,6 +4,8 @@ metadata:
   name: kwok-dpu-crds
   namespace: dpf-operator-system
 spec:
+  security:
+    privileged: false
   helmChart:
     values:
       enableDeployment: false

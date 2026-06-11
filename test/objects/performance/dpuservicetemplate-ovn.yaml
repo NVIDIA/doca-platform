@@ -20,3 +20,5 @@ spec:
       gatewayOpts: "--gateway-interface=br-dpu"
       ovn-kubernetes-resource-injector:
         enabled: false
+  security:
+    privileged: true

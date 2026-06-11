@@ -20,7 +20,9 @@ rules:
   - ""
   resources:
   - configmaps
+  - events
   - secrets
+  - serviceaccounts
   verbs:
   - create
   - delete
@@ -28,6 +30,7 @@ rules:
   - list
   - patch
   - update
+  - watch
 - apiGroups:
   - ""
   resources:
@@ -37,19 +40,6 @@ rules:
   - create
   - delete
   - deletecollection
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - ""
-  resources:
-  - events
-  - serviceaccounts
-  verbs:
-  - create
-  - delete
   - get
   - list
   - patch

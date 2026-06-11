@@ -4,6 +4,8 @@ metadata:
   name: ovn-controller
   namespace: dpf-operator-system
 spec:
+  security:
+    privileged: true
   serviceDaemonSet:
     nodeSelector:
       nodeSelectorTerms:

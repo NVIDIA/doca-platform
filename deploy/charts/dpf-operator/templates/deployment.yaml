@@ -38,6 +38,9 @@ spec:
         - /operator
         args:
           - --leader-elect=true
+          {{- if .Values.controllerManager.featureGates }}
+          - --feature-gates={{ range $i, $key := keys .Values.controllerManager.featureGates }}{{- if $i }},{{ end }}{{ $key }}={{ index $.Values.controllerManager.featureGates $key }}{{ end }}
+          {{- end }}
         image: {{ .Values.controllerManager.image.repository }}:{{ .Values.controllerManager.image.tag
           | default .Chart.AppVersion }}
         imagePullPolicy: {{ .Values.controllerManager.pullPolicy }}

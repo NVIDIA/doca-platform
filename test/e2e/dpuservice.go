@@ -70,6 +70,8 @@ func ValidateDPUServiceCreationAndMirroring(ctx context.Context, input *systemTe
 	By("Create a DPUService to be deployed on the host cluster")
 	hostDPUService := utils.GenerateDPUObj(hostDPUServiceName, dpuServiceNamespace, input.dpuService.DeepCopy())
 	hostDPUService.Spec.DeployInCluster = ptr.To(true)
+	// security.privileged must be unset when deployInCluster=true.
+	hostDPUService.Spec.Security = nil
 	Expect(input.client.Create(ctx, hostDPUService)).To(Succeed())
 
 	By("Verify DPUServices and deployments are created in DPUCluster")

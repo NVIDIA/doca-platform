@@ -4,6 +4,8 @@ metadata:
   name: sriov-device-plugin
   namespace: dpf-operator-system
 spec:
+  security:
+    privileged: true
   helmChart:
     source:
       repoURL: oci://example.com
