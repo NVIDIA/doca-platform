@@ -155,6 +155,12 @@ spec:
                 x-kubernetes-validations:
                 - message: Serial Number is immutable
                   rule: self == oldSelf
+              values:
+                description: |-
+                  Values contains free-form per-device values used to render a DPUFlavorTemplate
+                  into a concrete generated DPUFlavor for this device.
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
             required:
             - serialNumber
             type: object
