@@ -157,7 +157,7 @@ openssl passwd -6 'YourPassword'
 Always use `-6` (SHA-512). Do **not** use `-1` (MD5), which is considered insecure.
 
 For the full list of supported `bf.cfg` parameters, see the
-[BlueField BSP documentation](https://docs.nvidia.com/networking/display/bluefieldbsp480/customizing+bluefield+software+deployment+using+bf-cfg).
+[BlueField BSP documentation](https://networking-docs.nvidia.com/bsp/4150/customizing-bluefield-software-deployment).
 
 ## Resource Management
 
