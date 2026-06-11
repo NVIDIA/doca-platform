@@ -1,0 +1,280 @@
+/*
+Copyright 2026 NVIDIA
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package redfish
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"os"
+	"time"
+
+	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	rc "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
+	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
+	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/log"
+)
+
+func FirmwareUpdate(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
+	logger := log.FromContext(ctx)
+	state := dpu.Status.DeepCopy()
+	logger.Info("updating BF4 firmware")
+
+	// Check for installation timeout
+	if err := checkFirmwareUpdateTimeout(state, ctrlCtx.Options.FirmwareUpdateTimeout); err != nil {
+		logger.Error(err, "Firmware update timeout exceeded")
+		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondFwBundleUpdated), err, "FirmwareUpdateTimeout", err.Error()))
+		state.Phase = provisioningv1.DPUError
+		return *state, nil
+	}
+
+	blueFieldSoftware := &provisioningv1.BlueFieldSoftware{}
+	if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.BlueFieldSoftware}, blueFieldSoftware); err != nil {
+		if apierrors.IsNotFound(err) {
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), err, "BlueFieldSoftwareNotFound", err.Error()))
+			return *state, err
+		}
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), err, "FailedToGetBlueFieldSoftware", err.Error()))
+		return *state, err
+	}
+
+	if blueFieldSoftware.Status.DownloadedComponents.PldmFwBundle == "" {
+		logger.Info("no PLDM firmware bundle provided - skipping firmware update")
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), nil, "NoPldmFwBundle", "no PLDM firmware bundle provided - skipping firmware update"))
+		state.Phase = provisioningv1.DPUPrepareBFB
+		return *state, nil
+	}
+
+	cond := cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), nil, "Updating", "Updating PLDM Firmware")
+	_, existingCond := cutil.GetDPUCondition(&dpu.Status, cond.Type)
+	if existingCond == nil || existingCond.Status != metav1.ConditionTrue {
+		if checkFirmwareVersions(ctx, dpu, blueFieldSoftware, ctrlCtx) != nil {
+			return updatePldmFwBundle(ctx, dpu, ctrlCtx, blueFieldSoftware.Status.DownloadedComponents.PldmFwBundle)
+		} else {
+			logger.Info("firmware versions match with PLDM bundle- skipping firmware update")
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), nil, "FirmwareVersionsMatch", "Firmware versions match - skipping firmware update"))
+		}
+	} else if dpu.Status.PreviousPhase == provisioningv1.DPURebooting {
+		if err := checkFirmwareVersions(ctx, dpu, blueFieldSoftware, ctrlCtx); err != nil {
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), err, "FirmwareVersionsMismatch", err.Error()))
+			return *state, err
+		} else {
+			logger.Info("firmware update completed successfully")
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), nil, "FirmwareUpdated", "Firmware updated successfully"))
+		}
+	}
+
+	state.Phase = provisioningv1.DPUPrepareBFB
+	return *state, nil
+}
+
+func checkFirmwareVersions(ctx context.Context, dpu *provisioningv1.DPU, blueFieldSoftware *provisioningv1.BlueFieldSoftware, ctrlCtx *dutil.ControllerContext) error {
+	if blueFieldSoftware.Status.Versions == nil {
+		return fmt.Errorf("BlueFieldSoftware versions are not set")
+	}
+
+	if blueFieldSoftware.Status.Versions.BMCVersion == "" {
+		return fmt.Errorf("BMC firmware version is not set")
+	}
+
+	if blueFieldSoftware.Status.Versions.BMCErotVersion == "" {
+		return fmt.Errorf("BMC ERoT firmware version is not set")
+	}
+
+	if blueFieldSoftware.Status.Versions.SBIOSVersion == "" {
+		return fmt.Errorf("DPU SBIOS firmware version is not set")
+	}
+
+	if blueFieldSoftware.Status.Versions.AstraNicFwVersion == "" {
+		return fmt.Errorf("DPU NIC firmware version is not set")
+	}
+
+	dpuDevice := &provisioningv1.DPUDevice{}
+	if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.DPUDeviceName}, dpuDevice); err != nil {
+		if apierrors.IsNotFound(err) {
+			return fmt.Errorf("DPUDevice not found: %w", err)
+		}
+		return fmt.Errorf("failed to get DPUDevice: %w", err)
+	}
+
+	client, err := rc.NewTLSClient(ctx, dpuDevice.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
+	if err != nil {
+		return fmt.Errorf("failed to create TLS client: %w", err)
+	}
+
+	_, bmcFirmwareVersion, err := client.CheckBMCFirmware()
+	if err != nil {
+		return fmt.Errorf("failed to check BMC firmware: %w", err)
+	}
+
+	if bmcFirmwareVersion.Version != blueFieldSoftware.Status.Versions.BMCVersion {
+		return fmt.Errorf("BMC firmware version %s is not equal to %s", bmcFirmwareVersion.Version, blueFieldSoftware.Status.Versions.BMCVersion)
+	}
+
+	_, bmcEROTFWVersion, err := client.CheckBMCEROTFW()
+	if err != nil {
+		return fmt.Errorf("failed to check BMC ERoT firmware: %w", err)
+	}
+
+	if bmcEROTFWVersion.Version != blueFieldSoftware.Status.Versions.BMCErotVersion {
+		return fmt.Errorf("BMC ERoT firmware version %s is not equal to %s", bmcEROTFWVersion.Version, blueFieldSoftware.Status.Versions.BMCErotVersion)
+	}
+
+	_, dpuUEFIVersion, err := client.CheckDPUUEFI()
+	if err != nil {
+		return fmt.Errorf("failed to check DPU UEFI firmware: %w", err)
+	}
+
+	if dpuUEFIVersion.Version != blueFieldSoftware.Status.Versions.SBIOSVersion {
+		return fmt.Errorf("DPU SBIOS firmware version %s is not equal to %s", dpuUEFIVersion.Version, blueFieldSoftware.Status.Versions.SBIOSVersion)
+	}
+
+	_, dpuNICVersion, err := client.CheckDPUNIC()
+	if err != nil {
+		return fmt.Errorf("failed to check DPU NIC firmware: %w", err)
+	}
+
+	if dpuNICVersion.Version != blueFieldSoftware.Status.Versions.AstraNicFwVersion {
+		return fmt.Errorf("DPU NIC firmware version %s is not equal to %s", dpuNICVersion.Version, blueFieldSoftware.Status.Versions.AstraNicFwVersion)
+	}
+
+	return nil
+}
+
+func monitorTask(ctx context.Context, client *rc.Client, taskID string) (bool, error) {
+	logger := log.FromContext(ctx)
+
+	_, prog, err := client.CheckTaskProgress(taskID)
+	if err != nil {
+		return false, err
+	}
+
+	logger.Info(fmt.Sprintf("taskProgress: %+v", prog))
+
+	// nolint:goconst
+	if prog.TaskState == "Exception" {
+		return false, fmt.Errorf("task %s is in Exception state: %v", taskID, prog.Messages)
+	}
+
+	if prog.PercentComplete < 100 {
+		return false, nil
+	}
+
+	return true, nil
+}
+
+func updatePldmFwBundle(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext, pldmFwBundle string) (provisioningv1.DPUStatus, error) {
+	logger := log.FromContext(ctx)
+	state := dpu.Status.DeepCopy()
+	logger.Info("updating PLDM firmware")
+
+	dpuDevice := &provisioningv1.DPUDevice{}
+	if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.DPUDeviceName}, dpuDevice); err != nil {
+		if apierrors.IsNotFound(err) {
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "DPUDeviceNotFound", err.Error()))
+			return *state, err
+		}
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToGetDPUDevice", err.Error()))
+		return *state, err
+	}
+
+	client, err := rc.NewTLSClient(ctx, dpuDevice.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
+	if err != nil {
+		err = fmt.Errorf("failed to create TLS client: %w", err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToCreateClient", err.Error()))
+		return *state, err
+	}
+
+	cond := cutil.NewCondition(provisioningv1.DPUCondFwBundleSubmitted.String(), nil, "Submitting", "Submitting PLDM Firmware")
+	_, existingCond := cutil.GetDPUCondition(&dpu.Status, cond.Type)
+	if existingCond == nil || existingCond.Status != metav1.ConditionTrue {
+		fwFile, err := os.Open(pldmFwBundle)
+		if err != nil {
+			err = fmt.Errorf("failed to open %s: %w", pldmFwBundle, err)
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToOpenComponent", err.Error()))
+			return *state, err
+		}
+		defer func() { _ = fwFile.Close() }()
+		resp, taskInfo, err := client.UpdateBluefieldFirmwareMultipart(fwFile, "")
+		if err != nil {
+			err = fmt.Errorf("failed to update PLDM firmware: %w", err)
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToUpdatePldmFwBundle", err.Error()))
+			return *state, err
+		}
+
+		if resp.StatusCode() != http.StatusAccepted {
+			err = fmt.Errorf("status code: %d is not Accepted", resp.StatusCode())
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToUpdateBMCFirmware", err.Error()))
+			return *state, err
+		}
+		state.RedfishTaskID = &taskInfo.ID
+		logger.Info(fmt.Sprintf("new pldm firmware update task: %+v", *taskInfo))
+		cutil.SetDPUCondition(state, cond)
+		return *state, nil
+	}
+
+	if state.RedfishTaskID == nil {
+		return *state, nil
+	}
+
+	if completed, err := monitorTask(ctx, client, *state.RedfishTaskID); err != nil {
+		state.RedfishTaskID = nil
+		state.Phase = provisioningv1.DPUError
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToUpdatePldmFwBundle", err.Error()))
+		return *state, fmt.Errorf("failed to update PLDM firmware: %w", err)
+	} else if completed {
+		resp, err := client.ActivatePendingBundle()
+		if err != nil {
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToActivatePendingBundle", err.Error()))
+			return *state, err
+		}
+		if resp.StatusCode() != http.StatusOK {
+			activateErr := fmt.Errorf("unexpected status code from ActivatePendingBundle: %s", resp.Status())
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), activateErr, "FailedToActivatePendingBundle", resp.Status()))
+			return *state, activateErr
+		}
+		logger.Info("successfully activated pending bundle. Moving to Rebooting phase")
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), nil, "Updated", "PLDM Firmware Updated"))
+		state.RedfishTaskID = nil
+		state.Phase = provisioningv1.DPURebooting
+		return *state, nil
+	} else {
+		return *state, nil
+	}
+}
+
+func checkFirmwareUpdateTimeout(state *provisioningv1.DPUStatus, timeout time.Duration) error {
+	if timeout <= 0 {
+		return nil
+	}
+
+	if len(state.Conditions) == 0 {
+		return nil
+	}
+
+	elapsed := time.Since(state.Conditions[0].LastTransitionTime.Time)
+	if elapsed <= timeout {
+		return nil
+	}
+
+	return fmt.Errorf("firmware update timeout exceeded: %v > %v", elapsed, timeout)
+}

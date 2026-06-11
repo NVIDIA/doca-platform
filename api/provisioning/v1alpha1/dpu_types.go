@@ -34,7 +34,7 @@ var DPUGroupVersionKind = GroupVersion.WithKind(DPUKind)
 // DPUPhase describes current state of DPU.
 // Only one of the following state may be specified.
 // Default is Initializing.
-// +kubebuilder:validation:Enum="Initializing";"Node Effect";"Pending";"Config FW Parameters";"Prepare BFB";"OS Installing";"DPU Config";"DPU Cluster Config";"Host Network Configuration";"Ready";"Error";"Deleting";"Rebooting";"Perform ARM Force Restart";"Initialize Interface";"Node Effect Removal";"Checking Host Reboot Required"
+// +kubebuilder:validation:Enum="Initializing";"Node Effect";"Pending";"Update Firmware";"Config FW Parameters";"Prepare BFB";"OS Installing";"DPU Config";"DPU Cluster Config";"Host Network Configuration";"Ready";"Error";"Deleting";"Rebooting";"Perform ARM Force Restart";"Initialize Interface";"Node Effect Removal";"Checking Host Reboot Required"
 type DPUPhase string
 
 // These are the valid statuses of DPU.
@@ -52,6 +52,8 @@ const (
 	DPUPending DPUPhase = "Pending"
 	// DPUPrepareBFB means the controller is preparing the BFB and bf.cfg to be installed to DPU
 	DPUPrepareBFB DPUPhase = "Prepare BFB"
+	// DPUUpdateFirmware means the controller will update the DPU firmware for BlueField4.
+	DPUUpdateFirmware DPUPhase = "Update Firmware"
 	// DPUConfig means the DPU agent will configure the DPU
 	DPUConfig DPUPhase = "DPU Config"
 	// DPUConfigFWParameters means the controller will manipulate DPU firmware, e.g., set DPU mode, check firmware version
@@ -90,6 +92,8 @@ const (
 	DPUCondBFBPrepared            DPUConditionType = "BFBPrepared"
 	DPUCondInterfaceInitialized   DPUConditionType = "InterfaceInitialized"
 	DPUCondFWConfigured           DPUConditionType = "FWConfigured"
+	DPUCondFwBundleSubmitted      DPUConditionType = "FwBundleSubmitted"
+	DPUCondFwBundleUpdated        DPUConditionType = "FwBundleUpdated"
 	DPUCondBFBTransferred         DPUConditionType = "BFBTransferred"
 	DPUCondIsoTransferred         DPUConditionType = "IsoTransferred"
 	DPUCondConfigTransferred      DPUConditionType = "ConfigTransferred"

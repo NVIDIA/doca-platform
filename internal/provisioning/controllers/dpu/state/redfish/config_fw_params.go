@@ -67,7 +67,7 @@ func ConfigFWParameters(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 		}
 		logger.Info("successfully set host privilege to restricted via BMC")
 
-		state.Phase = provisioningv1.DPUPrepareBFB
+		state.Phase = provisioningv1.DPUUpdateFirmware
 		cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondFWConfigured, "", ""))
 		return *state, nil
 	}

@@ -117,14 +117,17 @@ func CompleteRebooting(ctx context.Context, dpu *provisioningv1.DPU, state *prov
 	}
 	// Next provisioning phase after host reboot completes (cases 1-4 in order; first match wins).
 	// 1. DPUInitializeInterface: in case the reboot was forced from DPUInitializeInterface.
-	// 2. DPUConfig: in case the reboot was forced from DPUConfig and the reboot method is based on device query.
-	// 3. DPUClusterConfig: in case the reboot method is based on boot ID and Zero Trusted mode.
-	// 4. DPUHostNetworkConfiguration: in case the reboot method is based on boot ID and Host Trusted mode.
+	// 2. DPUFirmwareUpdate: in case the reboot was forced from DPUFirmwareUpdate.
+	// 3. DPUConfig: in case the reboot was forced from DPUConfig and the reboot method is based on device query.
+	// 4. DPUClusterConfig: in case the reboot method is based on boot ID and Zero Trusted mode.
+	// 5. DPUHostNetworkConfiguration: in case the reboot method is based on boot ID and Host Trusted mode.
 	switch {
 	case dpu.Status.PreviousPhase == provisioningv1.DPUInitializeInterface:
 		meta.RemoveStatusCondition(&state.Conditions, provisioningv1.DPUCondInterfaceInitialized.String())
 		state.RequiredReset = nil
 		state.Phase = provisioningv1.DPUInitializeInterface
+	case dpu.Status.PreviousPhase == provisioningv1.DPUUpdateFirmware:
+		state.Phase = provisioningv1.DPUUpdateFirmware
 	case dpu.Status.PreviousPhase == provisioningv1.DPUConfig &&
 		discoveryCond != nil && discoveryCond.Status == metav1.ConditionTrue:
 		state.Phase = provisioningv1.DPUConfig

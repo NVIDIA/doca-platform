@@ -2290,7 +2290,7 @@ Only one of the following state may be specified.
 Default is Initializing.
 
 _Validation:_
-- Enum: [Initializing Node Effect Pending Config FW Parameters Prepare BFB OS Installing DPU Config DPU Cluster Config Host Network Configuration Ready Error Deleting Rebooting Perform ARM Force Restart Initialize Interface Node Effect Removal Checking Host Reboot Required]
+- Enum: [Initializing Node Effect Pending Update Firmware Config FW Parameters Prepare BFB OS Installing DPU Config DPU Cluster Config Host Network Configuration Ready Error Deleting Rebooting Perform ARM Force Restart Initialize Interface Node Effect Removal Checking Host Reboot Required]
 
 _Appears in:_
 - [DPUSetStatus](#dpusetstatus)
@@ -2302,6 +2302,7 @@ _Appears in:_
 | `Node Effect` | DPUNodeEffect means the controller will handle the node effect provided by the user.<br /> |
 | `Pending` | DPUPending means the controller is waiting for the BFB to be ready.<br /> |
 | `Prepare BFB` | DPUPrepareBFB means the controller is preparing the BFB and bf.cfg to be installed to DPU<br /> |
+| `Update Firmware` | DPUUpdateFirmware means the controller will update the DPU firmware for BlueField4.<br /> |
 | `DPU Config` | DPUConfig means the DPU agent will configure the DPU<br /> |
 | `Config FW Parameters` | DPUConfigFWParameters means the controller will manipulate DPU firmware, e.g., set DPU mode, check firmware version<br /> |
 | `Initialize Interface` | DPUInitializeInterface means the controller will intitialize the interface used to provision the DPUs, e.g., create the DMS pod, set up RedFish account.<br /> |
@@ -2466,8 +2467,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `phase` _[DPUPhase](#dpuphase)_ | The current state of DPU. | Initializing | Enum: [Initializing Node Effect Pending Config FW Parameters Prepare BFB OS Installing DPU Config DPU Cluster Config Host Network Configuration Ready Error Deleting Rebooting Perform ARM Force Restart Initialize Interface Node Effect Removal Checking Host Reboot Required] <br />Required: \{\} <br /> |
-| `previousPhase` _[DPUPhase](#dpuphase)_ | PreviousPhase is the last non-empty Phase before the current Phase, set by the controller<br />when Phase transitions. It may be unset during early initialization (empty Phase) or until<br />the first transition from a non-empty Phase. Internal controller tracking only. |  | Enum: [Initializing Node Effect Pending Config FW Parameters Prepare BFB OS Installing DPU Config DPU Cluster Config Host Network Configuration Ready Error Deleting Rebooting Perform ARM Force Restart Initialize Interface Node Effect Removal Checking Host Reboot Required] <br />Optional: \{\} <br /> |
+| `phase` _[DPUPhase](#dpuphase)_ | The current state of DPU. | Initializing | Enum: [Initializing Node Effect Pending Update Firmware Config FW Parameters Prepare BFB OS Installing DPU Config DPU Cluster Config Host Network Configuration Ready Error Deleting Rebooting Perform ARM Force Restart Initialize Interface Node Effect Removal Checking Host Reboot Required] <br />Required: \{\} <br /> |
+| `previousPhase` _[DPUPhase](#dpuphase)_ | PreviousPhase is the last non-empty Phase before the current Phase, set by the controller<br />when Phase transitions. It may be unset during early initialization (empty Phase) or until<br />the first transition from a non-empty Phase. Internal controller tracking only. |  | Enum: [Initializing Node Effect Pending Update Firmware Config FW Parameters Prepare BFB OS Installing DPU Config DPU Cluster Config Host Network Configuration Ready Error Deleting Rebooting Perform ARM Force Restart Initialize Interface Node Effect Removal Checking Host Reboot Required] <br />Optional: \{\} <br /> |
 | `outdated` _[DPUOutdated](#dpuoutdated)_ | Outdated, when present, indicates the DPU has drifted from its owning<br />DPUSet's DPUTemplate and needs to be reprovisioned. Set by the DPUSet<br />controller; absent when the DPU matches the template. |  | Optional: \{\} <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions represents the provisioning lifecycle conditions. |  | Optional: \{\} <br /> |
 | `operationalConditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | OperationalConditions represents aggregated operational readiness conditions.<br />These conditions reflect the runtime health and readiness of DPU services and node health,<br />separate from the provisioning lifecycle represented by Conditions. |  | Optional: \{\} <br /> |
