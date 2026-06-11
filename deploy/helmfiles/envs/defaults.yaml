@@ -1,0 +1,7 @@
+# Default values for opt-in releases in prereqs.yaml.
+# Add a new key here when introducing a new conditional release.
+#
+# To enable a subset of features, pass a values file that overrides the relevant keys, e.g.:
+#   helmfile --state-values-file envs/all.yaml sync        # all.yaml: all features enabled
+kata:
+  enabled: false

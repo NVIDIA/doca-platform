@@ -1,0 +1,47 @@
+image:
+  reference: quay.io/fidencio/kata-containers/kata-deploy
+  tag: vf-coldplug
+
+snapshotter:
+  setup: []
+
+# Only install/support these two shims
+shims:
+  disableAll: true
+  qemu:
+    enabled: true
+
+# Avoid duplicate RuntimeClass manifests from the built-in template.
+# We define the same RuntimeClass names below under customRuntimes.
+runtimeClasses:
+  enabled: false
+
+customRuntimes:
+  enabled: true
+  runtimes:
+    kata-qemu:
+      baseConfig: qemu
+      dropIn: |
+        [hypervisor.qemu]
+        cold_plug_vfio = "root-port"
+        pcie_root_port = 2
+
+        [runtime]
+        vfio_mode = "guest-kernel"
+        static_sandbox_resource_mgmt = true
+        sandbox_cgroup_only = true
+      runtimeClass: |
+        apiVersion: node.k8s.io/v1
+        kind: RuntimeClass
+        metadata:
+          name: kata-qemu
+          labels:
+            app.kubernetes.io/managed-by: kata-deploy
+        handler: qemu
+        overhead:
+          podFixed:
+            memory: "160Mi"
+            cpu: "250m"
+        scheduling:
+          nodeSelector:
+            katacontainers.io/kata-runtime: "true"

@@ -26,6 +26,7 @@ HELMFILE_BIN="helmfile"
 HELM_BIN="helm"
 ENVIRONMENT=""
 SELECTOR=""
+STATE_VALUES_SET=""
 COLLECT_ON_FAIL="true"
 CLEANUP_ON_FAIL="false"
 WAIT="true"
@@ -61,6 +62,7 @@ OPTIONS:
     -n, --name NAME                     Chart name for extraction (default: dpf-operator)
     --environment NAME                  Defines the environment for the deployment (e.g., shared-fs)
     --selector SELECTOR                 Selector for filtering resources (e.g., "app=grafana" or "app!=prometheus")
+    --state-values-set KEY=VALUE        Set a helmfile state value (e.g. kata.enabled=true)
     --helmfile-bin PATH                 Path to helmfile binary (default: helmfile)
     --helm-bin PATH                     Path to helm binary (default: helm)
     -h, --help                          Show this help message
@@ -121,6 +123,10 @@ while [[ $# -gt 0 ]]; do
 		;;
 	--selector)
 		SELECTOR="$2"
+		shift 2
+		;;
+	--state-values-set)
+		STATE_VALUES_SET="$2"
 		shift 2
 		;;
 	--helmfile-bin)
@@ -319,6 +325,12 @@ deploy_helmfile() {
 	# Add selector if specified
 	if [[ -n "$SELECTOR" ]]; then
 		helmfile_cmd+=("--selector" "$SELECTOR")
+	fi
+
+	# Add state values file if specified
+	# Add state values set if specified
+	if [[ -n "$STATE_VALUES_SET" ]]; then
+		helmfile_cmd+=("--state-values-set" "$STATE_VALUES_SET")
 	fi
 
 	# Deploy using helmfile
