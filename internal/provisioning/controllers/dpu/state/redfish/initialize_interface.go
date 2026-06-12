@@ -326,7 +326,7 @@ func checkDPUDeviceReady(dpuDevice *provisioningv1.DPUDevice) error {
 
 func getProductDescription(tlsClient *rfclient.Client) (*rfclient.ProductSpecInfo, error) {
 	resp, desc, err := tlsClient.GetProductDescription()
-	if err != nil || resp == nil || resp.StatusCode() != http.StatusOK || desc == nil || desc.Mode == nil {
+	if err != nil || resp == nil || resp.StatusCode() != http.StatusOK {
 		return nil, fmt.Errorf("failed to get description, err: %v, resp: %+v, desc: %+v", err, resp, desc)
 	}
 	return desc, nil

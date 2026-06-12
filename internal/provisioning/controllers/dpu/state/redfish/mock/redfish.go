@@ -129,28 +129,24 @@ func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 	mux.HandleFunc("/redfish/v1/Chassis/Card1/NetworkAdapters/NvidiaNetworkAdapter/NetworkDeviceFunctions/eth0f0", mock.handleGetNetworkDeviceFunction)
 	mux.HandleFunc("/redfish/v1/Chassis/BlueField_0/NetworkAdapters/BlueField_NIC_0/NetworkDeviceFunctions/0", mock.handleGetNetworkDeviceFunctionBF4)
 
-	// System endpoints
-	mux.HandleFunc("/redfish/v1/Systems/Bluefield", mock.handleGetSystem)
-
-	// BIOS endpoints
-	mux.HandleFunc("/redfish/v1/Systems/Bluefield/Bios", mock.handleGetBios)
-	mux.HandleFunc("/redfish/v1/Systems/Bluefield/Bios/Settings", mock.handleSetBiosSettings)
-	mux.HandleFunc("/redfish/v1/Systems/Bluefield/Oem/Nvidia/Actions/Mode.Set", mock.handleSetMode)
-	mux.HandleFunc("/redfish/v1/Systems/Bluefield/Oem/Nvidia", mock.handleGetProductDescription)
-
-	// Secure Boot endpoints
-	mux.HandleFunc("/redfish/v1/Systems/Bluefield/SecureBoot", mock.handleSecureBoot)
-	mux.HandleFunc("/redfish/v1/Systems/Bluefield/Actions/ComputerSystem.Reset", mock.handleResetSystem)
-
-	// System Event Log entries
-	mux.HandleFunc("/redfish/v1/Systems/Bluefield/LogServices/SEL/Entries", mock.handleGetSELEntries)
+	// System endpoints (BF3 uses Bluefield; BF4 uses BlueField_0)
+	for _, systemID := range []string{"Bluefield", "BlueField_0"} {
+		mux.HandleFunc("/redfish/v1/Systems/"+systemID, mock.handleGetSystem)
+		mux.HandleFunc("/redfish/v1/Systems/"+systemID+"/Bios", mock.handleGetBios)
+		mux.HandleFunc("/redfish/v1/Systems/"+systemID+"/Bios/Settings", mock.handleSetBiosSettings)
+		mux.HandleFunc("/redfish/v1/Systems/"+systemID+"/Oem/Nvidia/Actions/Mode.Set", mock.handleSetMode)
+		mux.HandleFunc("/redfish/v1/Systems/"+systemID+"/Oem/Nvidia", mock.handleGetProductDescription)
+		mux.HandleFunc("/redfish/v1/Systems/"+systemID+"/SecureBoot", mock.handleSecureBoot)
+		mux.HandleFunc("/redfish/v1/Systems/"+systemID+"/Actions/ComputerSystem.Reset", mock.handleResetSystem)
+		mux.HandleFunc("/redfish/v1/Systems/"+systemID+"/LogServices/SEL/Entries", mock.handleGetSELEntries)
+		mux.HandleFunc("/redfish/v1/Systems/"+systemID+"/Settings", mock.handleBluefieldSystemSettings)
+	}
 
 	// Host Privilege Config
 	mux.HandleFunc("/"+client.APIHostPrivilegeConfigSettings, mock.handleHostPrivilegeConfigSettings)
 
 	// BlueField 4 OS install (virtual media, boot settings, chassis reset)
 	mux.HandleFunc("/redfish/v1/Managers/Bluefield_BMC/VirtualMedia/", mock.handleVirtualMedia)
-	mux.HandleFunc("/redfish/v1/Systems/Bluefield/Settings", mock.handleBluefieldSystemSettings)
 	mux.HandleFunc("/redfish/v1/Chassis/BlueField_0/Actions/Oem/NvidiaChassis.Reset", mock.handleChassisReset)
 
 	mock.server = httptest.NewUnstartedServer(mux)
@@ -279,6 +275,13 @@ func (r *RedfishMockServer) handleRootService(w http.ResponseWriter, req *http.R
 	writeJSONResponse(w, response)
 }
 
+func getSystemID(r *RedfishMockServer) string {
+	if r.dpuVersion == BF4 {
+		return "BlueField_0"
+	}
+	return "Bluefield"
+}
+
 // handleGetSystems handles GET requests to /redfish/v1/Systems
 func (r *RedfishMockServer) handleGetSystems(w http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodGet {
@@ -286,11 +289,13 @@ func (r *RedfishMockServer) handleGetSystems(w http.ResponseWriter, req *http.Re
 		return
 	}
 
+	systemID := getSystemID(r)
+
 	response := map[string]interface{}{
 		"@odata.id": "/redfish/v1/Systems",
 		"Members": []map[string]interface{}{
 			{
-				"@odata.id": "/redfish/v1/Systems/Bluefield",
+				"@odata.id": "/redfish/v1/Systems/" + systemID,
 			},
 		},
 	}
@@ -628,12 +633,23 @@ func (r *RedfishMockServer) handleGetProductDescription(w http.ResponseWriter, r
 		writeJSONResponse(w, map[string]interface{}{"error": "BMC unreachable"})
 		return
 	}
+	systemID := getSystemID(r)
+
 	response := map[string]interface{}{
-		"@odata.id":   "/redfish/v1/Systems/Bluefield/Oem/Nvidia",
+		"@odata.id":   "/redfish/v1/Systems/" + systemID + "/Oem/Nvidia",
 		"@odata.type": "#NvidiaComputerSystem.v1_0_0.NvidiaComputerSystem",
-		"Id":          "NvidiaComputerSystem",
-		"Name":        "Nvidia Computer System",
-		"Mode":        r.dpuMode,
+	}
+	if r.dpuVersion == BF4 {
+		// BF4 BMC does not expose Description or Mode on this resource.
+		response["Actions"] = map[string]interface{}{
+			"#SOC.ForceReset": map[string]interface{}{
+				"target": "/redfish/v1/Systems/" + systemID + "/Oem/Nvidia/SOC.ForceReset",
+			},
+		}
+	} else {
+		response["Id"] = "NvidiaComputerSystem"
+		response["Name"] = "Nvidia Computer System"
+		response["Mode"] = r.dpuMode
 	}
 	writeJSONResponse(w, response)
 }
