@@ -19,7 +19,6 @@ package state
 import (
 	"context"
 	"fmt"
-	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
@@ -36,21 +35,6 @@ func DPUConfig(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Cont
 	if !dpu.DeletionTimestamp.IsZero() {
 		state.Phase = provisioningv1.DPUDeleting
 		return *state, nil
-	}
-
-	// Apply the agent-startup timeout only while handling the initial Installing ->
-	// DPUConfig handoff. If the controller restarts after that handoff, the agent may
-	// already have reported LastStartupTime, so do not treat the old OSInstalled
-	// transition as an agent-startup timeout.
-	if state.PreviousPhase == provisioningv1.DPUOSInstalling &&
-		(state.AgentStatus == nil || state.AgentStatus.LastStartupTime == nil) {
-		_, cond := cutil.GetDPUCondition(state, provisioningv1.DPUCondOSInstalled.String())
-		if cond != nil && time.Since(cond.LastTransitionTime.Time) > 20*time.Minute {
-			err := fmt.Errorf("DPU agent did not report startup within 20 minutes after OS installation completed")
-			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondDPUConfig.String(), err, "DPUAgentNotStarted", err.Error()))
-			state.Phase = provisioningv1.DPUError
-			return *state, nil
-		}
 	}
 
 	if dpu.Status.AgentStatus == nil || dpu.Status.AgentStatus.RebootMethod == nil || *dpu.Status.AgentStatus.RebootMethod == provisioningv1.RebootMethodUnknown {
