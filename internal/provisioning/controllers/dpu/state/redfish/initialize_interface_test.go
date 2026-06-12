@@ -896,4 +896,22 @@ var _ = Describe("InitializeInterface", func() {
 		})
 	})
 
+	Context("BF4 product description", func() {
+
+		It("should accept BF4 Oem/Nvidia response without Description or Mode", func() {
+			server := redfishmock.NewRedfishMockServer("BF-26.04", "password")
+			server.SetDpuVersion(redfishmock.BF4)
+			server.Start()
+			DeferCleanup(server.Stop)
+
+			client, err := server.GetClient()
+			Expect(err).NotTo(HaveOccurred())
+
+			desc, err := getProductDescription(client)
+			Expect(err).NotTo(HaveOccurred(), "BF4 Oem/Nvidia response without Description/Mode must not fail")
+			Expect(desc).NotTo(BeNil())
+			Expect(desc.Description).To(BeNil())
+			Expect(desc.Mode).To(BeNil())
+		})
+	})
 })
