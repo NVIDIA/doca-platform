@@ -1,0 +1,21 @@
+apiVersion: provisioning.dpu.nvidia.com/v1alpha1
+kind: DPUSet
+metadata:
+  name: dpuset-1
+  namespace: dpf-operator-system
+spec:
+  dpuNodeSelector:
+    matchLabels:
+      feature.node.kubernetes.io/dpu-enabled: "true"
+  strategy:
+    rollingUpdate:
+      maxUnavailable: 10%
+    type: RollingUpdate
+  dpuTemplate:
+    spec:
+      # Will be overridden if DPUFlavor is provided in the e2e config.
+      dpuFlavor: dpf-provisioning-hbn-ovn
+      blueFieldSoftware:
+        name: "bf4"
+      nodeEffect:
+        hold: true

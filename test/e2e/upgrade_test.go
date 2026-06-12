@@ -56,7 +56,7 @@ var _ = Describe("DPF Upgrade tests", Labels{Domain.DPFUpgrade}, func() {
 			// Use the hardcoded URL from previous/bfb.yaml regardless of BFB_IMAGE_URL, so the
 			// pre-upgrade state always reflects the known previous release BFB.
 			provInput.bfbImageURL = ""
-			ProvisionBFBAndDPUFlavor(ctx, provInput)
+			ProvisionBFBOrBlueFieldSoftwareAndDPUFlavor(ctx, provInput)
 		})
 
 		It("create DPUDeployments dependencies", func() {
@@ -563,7 +563,7 @@ func validateDPUClusterUpgrade(ctx context.Context, input ProvisionDPUClustersIn
 // one DPUDeployment to reference them in a single patch.
 func rolloutDependencies(ctx context.Context, input *systemTestInput) {
 	By("Creating current BFB and DPUFlavor")
-	ProvisionBFBAndDPUFlavor(ctx, getProvisionDPUClustersInput())
+	ProvisionBFBOrBlueFieldSoftwareAndDPUFlavor(ctx, getProvisionDPUClustersInput())
 
 	By("Creating current DPUServiceTemplate")
 	currentTemplate := input.dpuServiceTemplate.DeepCopy()

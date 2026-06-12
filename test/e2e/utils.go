@@ -142,7 +142,14 @@ var (
 	// tag holds the tag which the artifacts used in e2e are using
 	tag = ""
 	// bfbImageURL can be used to override the default BFB image URL used in the tests.
+	// Required for BF3.
 	bfbImageURL = ""
+	// bfsOsIsoURL can be used to override the default BlueFieldSoftware OS ISO URL used in the tests.
+	// Required for BF4.
+	bfsOsIsoURL = ""
+	// bfsPldmFwBundleURL can be used to override the default BlueFieldSoftware PLDM FW bundle URL used in the tests.
+	// Required for BF4.
+	bfsPldmFwBundleURL = ""
 	// hbnImageURL can be used to override the default HBN image URL used in the tests.
 	hbnImageURL = ""
 	// netutilsImage is the image name of the netutils image produced by the release associated with the e2e tests. This

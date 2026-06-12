@@ -1,0 +1,27 @@
+blueFieldSoftware: "../objects/infrastructure/bluefieldsoftware-bf4.yaml"
+dpuClusters:
+  # TODO (vremmas): consider whether this needs to be like this or via env variable, we have a mix right now which is not
+  # ideal
+  - "../objects/infrastructure/dpucluster-kamaji-bf4.yaml"
+dpuSet: "../objects/infrastructure/dpuset-zerotrust-bf4.yaml"
+dpuFlavor: "../objects/infrastructure/dpuflavor-physical-bf4.yaml"
+dpuDiscovery: "../objects/infrastructure/dpudicovery.yaml"
+dpuServiceInterface: "../objects/application/dpuserviceinterface_service_type.yaml"
+dpuServiceInterfaceTemplate: "../objects/application/dpuserviceinterfacetemplate.yaml"
+dpuServiceChain: "../objects/application/dpuservicechain.yaml"
+dpuServiceChainTemplate: "../objects/application/dpuservicechaintemplate.yaml"
+dpuDeployment: "../objects/application/dpudeployment-zerotrust-bf4.yaml"
+dpuServiceCredentialRequest: "../objects/application/dpuservicecredentialrequest.yaml"
+dpuServiceConfiguration: "../objects/application/dpuserviceconfiguration.yaml"
+ipPoolDPUServiceIPAM: "../objects/application/dpuserviceipam_subnet.yaml"
+cidrPoolDPUServiceIPAM: "../objects/application/dpuserviceipam_cidr.yaml"
+dpuServiceIPAMTemplate: "../objects/application/dpuserviceipamtemplate.yaml"
+dpuServiceNAD: "../objects/application/dpuservicenad.yaml"
+dpuService: "../objects/application/dpuservice.yaml"
+dpuServiceTemplate: "../objects/application/dpuservicetemplate.yaml"
+dpuServiceHBN: "../objects/application/dpuservicehbn.yaml"
+dhcpDaemonSet: "../objects/application/vpc/dhcp.yaml"
+numberOfDPUNodes: 2
+numberOfDPUsPerNode: 1
+nodeRebootConfigMap: dpunode-reboot-redfish
+nodeRebootConfigMapPath: "../objects/infrastructure/dpunode-reboot-redfish.yaml"
