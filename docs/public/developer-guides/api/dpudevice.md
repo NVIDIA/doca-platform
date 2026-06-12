@@ -2,7 +2,7 @@
 title: "DPUDevice"
 ---
 
-[TOC]
+[[_TOC_]]
 
 The DPUDevice is a Kubernetes CRD that represents a physical DPU (Data Processing Unit) device that was discovered.
 The DPUDevice contain all the information required to identify and provision the DPU by the DPU Controller.

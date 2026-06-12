@@ -6,7 +6,7 @@ The DPF Storage Subsystem provides a framework for integrating 3rd-party storage
 This document outlines the architecture and guidelines for developing a plugin that integrates with the
 NVIDIA storage emulation service, called [DOCA SNAP](https://docs.nvidia.com/doca/sdk/doca+snap+services/index.html).
 
-[TOC]
+[[_TOC_]]
 
 ## Architecture
 

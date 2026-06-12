@@ -2,7 +2,7 @@
 title: "DPUCluster"
 ---
 
-[TOC]
+[[_TOC_]]
 
 The DPUCluster is a Kubernetes CRD which managed the control plane of a DPUCluster in DPF. The DPUCluster can be backed
 by different implementations.

@@ -5,7 +5,7 @@ title: "DOCA VPC OVN Service"
 > [!NOTE]
 > The OVN VPC service is considered a tech preview and is not recommended for production use.
 
-[TOC]
+[[_TOC_]]
 
 ## Overview
 

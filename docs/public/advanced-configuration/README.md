@@ -2,7 +2,7 @@
 title: "Advanced Configuration"
 ---
 
-[TOC]
+[[_TOC_]]
 
 This page contains advanced configuration documentation for the DOCA Platform Framework (DPF). These guides cover advanced topics and configurations for power users and administrators.
 

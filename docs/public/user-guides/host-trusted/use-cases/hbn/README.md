@@ -10,7 +10,7 @@ title: "Host Based Networking"
 
 In this configuration [NVIDIA Host Based Networking (HBN)](https://docs.nvidia.com/doca/sdk/doca+hbn+service+guide/index.html) is installed as a DPUService.
 
-[TOC]
+[[_TOC_]]
 
 ## Prerequisites
 This guide should be run by cloning the repo from [github.com/NVIDIA/doca-platform](https://github.com/NVIDIA/doca-platform) and moving to the `docs/public/user-guides/hbn_only` directory.

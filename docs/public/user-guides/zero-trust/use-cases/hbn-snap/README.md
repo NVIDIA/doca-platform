@@ -13,7 +13,7 @@ This configuration provides instructions for deploying the NVIDIA DOCA Platform 
 bare-metal infrastructure in Zero Trust mode, utilizing DPU BMC and Redfish. It focuses on provisioning NVIDIA®
 BlueField®-3 DPUs using DPF, installing the HBN DPUService on those DPUs and enabling SNAP Storage on those DPUs.
 
-[TOC]
+[[_TOC_]]
 
 ## Prerequisites
 

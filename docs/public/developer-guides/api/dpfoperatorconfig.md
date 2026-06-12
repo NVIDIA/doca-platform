@@ -2,7 +2,7 @@
 title: "DPFOperatorConfig"
 ---
 
-[TOC]
+[[_TOC_]]
 
 ## Overview
 

@@ -2,7 +2,7 @@
 title: "DPUNode"
 ---
 
-[TOC]
+[[_TOC_]]
 
 The DPUNode is a Kubernetes CRD that represents a physical host node containing one or more DPU (Data Processing Unit) devices in the DOCA Platform Framework (DPF). It provides node-level management capabilities for DPU provisioning, reboot control, and integration with Kubernetes clusters.
 

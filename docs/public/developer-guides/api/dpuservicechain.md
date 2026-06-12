@@ -2,7 +2,7 @@
 title: "DPUServiceChain"
 ---
 
-[TOC]
+[[_TOC_]]
 
 This document describes how to use DPUServiceChain in DPF.
 

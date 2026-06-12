@@ -2,7 +2,7 @@
 title: "DPF-Operator-Managed Components"
 ---
 
-[TOC]
+[[_TOC_]]
 
 ## Introduction
 

@@ -2,7 +2,7 @@
 title: "DPUDiscovery"
 ---
 
-[TOC]
+[[_TOC_]]
 
 The DPUDiscovery is a Kubernetes CRD that enables automatic discovery of DPU (Data Processing Unit) devices within specified IP ranges in the DOCA Platform Framework (DPF). It provides a scalable and efficient way to scan network ranges for DPU BMCs and automatically create DPUDevice resources.
 

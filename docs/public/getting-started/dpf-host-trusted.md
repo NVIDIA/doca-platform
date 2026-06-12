@@ -2,7 +2,7 @@
 title: "DPF Host Trusted"
 ---
 
-[TOC]
+[[_TOC_]]
 
 # Get Started with DPF Host Trusted
 

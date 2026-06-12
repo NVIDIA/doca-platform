@@ -6,7 +6,7 @@ title: "DPF Operator Upgrade Guide"
 
 This document describes the process of upgrading between different versions of the DPF Operator.
 
-[TOC]
+[[_TOC_]]
 
 ## Prerequisites
 

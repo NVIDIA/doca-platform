@@ -2,7 +2,7 @@
 title: "DPUServiceCredentialRequest"
 ---
 
-[TOC]
+[[_TOC_]]
 
 In order to request credential to access a cluster API Server, users should deploy
 a `DPUServiceCredentialRequest` custom resource.

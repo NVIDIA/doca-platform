@@ -2,7 +2,7 @@
 title: "Secondary Network Support for HBN-OVNK Use Case"
 ---
 
-[TOC]
+[[_TOC_]]
 
 This section covers an **advanced configuration** of the secondary network feature of the
 [Host Based Networking and OVN Kubernetes](../../user-guides/host-trusted/use-cases/hbn-ovnk/README.md)
