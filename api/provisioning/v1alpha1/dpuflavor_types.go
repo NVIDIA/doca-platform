@@ -115,7 +115,6 @@ func (s *DPUFlavorSpec) FirstEWNicConfiguration() *NicConfiguration {
 
 // NicConfiguration is a set of configurations for the NICs
 // +kubebuilder:validation:XValidation:rule="!(has(self.spectrumXOptimized) && self.spectrumXOptimized.enabled) || (self.linkType == 'Ethernet' && self.numVfs == 1)",message="spectrumXOptimized can be enabled only when linkType=='Ethernet' and numVfs==1"
-// +kubebuilder:validation:XValidation:rule="!(has(self.spectrumXOptimized) && self.spectrumXOptimized.enabled) || !has(self.rawNvConfig) || size(self.rawNvConfig) == 0",message="when spectrumXOptimized is enabled, rawNvConfig must be empty"
 type NicConfiguration struct {
 	// Number of VFs to be configured
 	// +required
