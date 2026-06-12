@@ -2,7 +2,7 @@
 title: "DPUService Development Guide"
 ---
 
-[TOC]
+[[_TOC_]]
 
 The DOCA Platform Framework (DPF) manages application lifecycles through DPUService resources. A DPUService typically
 represents an application that runs on NVIDIA BlueField DPUs and utilizes the DOCA SDK.

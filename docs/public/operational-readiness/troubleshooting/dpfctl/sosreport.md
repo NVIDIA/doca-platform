@@ -2,7 +2,7 @@
 title: "dpfctl sosreport"
 ---
 
-[TOC]
+[[_TOC_]]
 
 The `dpfctl sosreport` command collects SOS reports from host and DPU cluster nodes using Kubernetes Jobs. It creates
 privileged Jobs on target nodes that run the NVIDIA sosreport tool to collect system diagnostics. Reports can be

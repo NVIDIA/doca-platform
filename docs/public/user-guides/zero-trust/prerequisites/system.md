@@ -2,7 +2,7 @@
 title: "DPF System Prerequisites for Zero Trust"
 ---
 
-[TOC]
+[[_TOC_]]
 
 DPF makes a number of assumptions about the hardware, software and networking of the machines it runs on. Some of the
 specific [user guides](../README.md) add their own requirements.

@@ -3,7 +3,7 @@ title: "API"
 ---
 
 
-[TOC]
+[[_TOC_]]
 
 This section contains comprehensive API documentation for the DOCA Platform Framework (DPF).
 

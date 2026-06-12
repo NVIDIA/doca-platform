@@ -2,7 +2,7 @@
 title: "DPUServiceNAD"
 ---
 
-[TOC]
+[[_TOC_]]
 
 ## Overview
 

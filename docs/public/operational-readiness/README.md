@@ -6,7 +6,7 @@ title: "Operational Readiness"
 
 This section provides comprehensive guidance for operating DPF in production environments.
 
-[TOC]
+[[_TOC_]]
 
 ## Overview
 

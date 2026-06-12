@@ -2,7 +2,7 @@
 title: "DPUFlavor"
 ---
 
-[TOC]
+[[_TOC_]]
 
 ## Overview
 

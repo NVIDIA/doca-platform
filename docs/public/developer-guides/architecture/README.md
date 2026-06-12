@@ -2,7 +2,7 @@
 title: "Architecture"
 ---
 
-[TOC]
+[[_TOC_]]
 
 This section contains architectural documentation for the DOCA Platform Framework (DPF), including:
 

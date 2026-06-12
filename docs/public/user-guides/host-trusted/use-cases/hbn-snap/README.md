@@ -12,7 +12,7 @@ In this configuration [DOCA SNAP](https://docs.nvidia.com/doca/sdk/doca+snap+ser
 
 This guide includes examples for both SNAP Block (NVMe) and SNAP VirtioFS storage scenarios.
 
-[TOC]
+[[_TOC_]]
 
 ## Prerequisites
 This guide should be run by cloning the repo from [github.com/NVIDIA/doca-platform](https://github.com/NVIDIA/doca-platform) and moving to the `docs/public/user-guides/host-trusted/use-cases/hbn-snap` directory.

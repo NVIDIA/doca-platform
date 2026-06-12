@@ -2,7 +2,7 @@
 title: "Helm Prerequisites"
 ---
 
-[TOC]
+[[_TOC_]]
 
 ## Overview
 

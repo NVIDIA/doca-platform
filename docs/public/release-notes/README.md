@@ -2,7 +2,7 @@
 title: "Release Notes"
 ---
 
-[TOC]
+[[_TOC_]]
 
 This section contains release notes for the DOCA Platform Framework (DPF), documenting new features, improvements, and bug fixes for each version.
 

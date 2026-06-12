@@ -6,7 +6,7 @@ title: "Observability"
 
 This section provides observability guidance for DPF, covering monitoring, logging, and health checks across the Host Cluster and DPU clusters.
 
-[TOC]
+[[_TOC_]]
 
 ## Introduction
 

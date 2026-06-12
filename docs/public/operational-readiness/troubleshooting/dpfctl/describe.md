@@ -2,7 +2,7 @@
 title: "dpfctl describe"
 ---
 
-[TOC]
+[[_TOC_]]
 
 **`dpfctl`** is a command-line tool designed to **visualize, debug, and troubleshoot DPU resources** in Kubernetes.  
 It simplifies debugging by extracting and presenting resource conditions in a structured, human-readable format.

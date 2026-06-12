@@ -14,7 +14,7 @@ bare-metal infrastructure in Zero Trust mode, utilizing DPU BMC and Redfish. It 
 BlueField®-3 DPUs using DPF, installing the HBN DPUService on those DPUs and enabling workload traffic to pass through
 HBN before leaving the DPU.
 
-[TOC]
+[[_TOC_]]
 
 ## Prerequisites
 

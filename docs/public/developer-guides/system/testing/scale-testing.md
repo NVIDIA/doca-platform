@@ -2,7 +2,7 @@
 title: "Scale Testing"
 ---
 
-[TOC]
+[[_TOC_]]
 
 This document describes a test design for assessing the DPF core components at scale. It mocks a number of parts of the DPF system to enable performance testing of the core DPF components in response to growth in specific dimensions of scale.
 

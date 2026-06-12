@@ -2,7 +2,7 @@
 title: "System"
 ---
 
-[TOC]
+[[_TOC_]]
 
 This section provides comprehensive guides for developing and building conformant DPF systems, including development environments, testing strategies, and system configuration.
 

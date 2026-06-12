@@ -2,7 +2,7 @@
 title: "DPUSet"
 ---
 
-[TOC]
+[[_TOC_]]
 
 The DPUSet is a Kubernetes CRD which managed the DPU CRs in DPF.
 
