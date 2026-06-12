@@ -210,10 +210,6 @@ spec:
                       and numVfs==1
                     rule: '!(has(self.spectrumXOptimized) && self.spectrumXOptimized.enabled)
                       || (self.linkType == ''Ethernet'' && self.numVfs == 1)'
-                  - message: when spectrumXOptimized is enabled, rawNvConfig must
-                      be empty
-                    rule: '!(has(self.spectrumXOptimized) && self.spectrumXOptimized.enabled)
-                      || !has(self.rawNvConfig) || size(self.rawNvConfig) == 0'
                 maxItems: 16
                 type: array
                 x-kubernetes-list-type: atomic
