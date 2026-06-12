@@ -37,7 +37,7 @@ var _ = Describe("DPF System tests - Multi DPUCluster", Labels{Domain.MultiDPUCl
 			ProvisionDPUClusters(ctx, getProvisionDPUClustersInput())
 		})
 		It("create BFB and DPUFlavor", func() {
-			ProvisionBFBAndDPUFlavor(ctx, getProvisionDPUClustersInput())
+			ProvisionBFBOrBlueFieldSoftwareAndDPUFlavor(ctx, getProvisionDPUClustersInput())
 		})
 		It("create a DPUDeployment with each of DPUs joining a different cluster", func() {
 			ProvisionDPUDeploymentWithEachDPUJoiningADifferentDPUCluster(ctx, input)

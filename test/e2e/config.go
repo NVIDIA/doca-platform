@@ -32,7 +32,8 @@ import (
 type config struct {
 	DPUFlavorPath                     *string  `json:"dpuFlavor,omitempty"`
 	ProvisioningControllerPVCPath     *string  `json:"provisioningControllerPVC,omitempty"`
-	BFBPath                           string   `json:"bfb"`
+	BFBPath                           *string  `json:"bfb,omitempty"`
+	BlueFieldSoftwarePath             *string  `json:"blueFieldSoftware,omitempty"`
 	DPUClusterPaths                   []string `json:"dpuClusters"`
 	DPUSetPath                        string   `json:"dpuSet"`
 	DPUDiscoveryPath                  *string  `json:"dpuDiscovery,omitempty"`

@@ -66,9 +66,12 @@ type ProvisionDPUClustersInput struct {
 	dpuClusters             []*provisioningv1.DPUCluster
 	dpuFlavor               *provisioningv1.DPUFlavor
 	bfb                     *provisioningv1.BFB
+	blueFieldSoftware       *provisioningv1.BlueFieldSoftware
 	dpuSet                  *provisioningv1.DPUSet
 	client                  client.Client
 	bfbImageURL             string
+	bfsOsIsoURL             string
+	bfsPldmFwBundleURL      string
 	restConfig              *rest.Config
 	NodeRebootConfigMap     string
 	DPUNodeBMCs             map[string]string
@@ -110,7 +113,10 @@ type systemTestInput struct {
 	dpuServiceChain             *dpuservicev1.DPUServiceChain
 	dpuServiceChainTemplate     *dpuservicev1.DPUServiceChain
 	bfb                         *provisioningv1.BFB
+	blueFieldSoftware           *provisioningv1.BlueFieldSoftware
 	dpuSet                      *provisioningv1.DPUSet
+	bfsOsIsoURL                 string
+	bfsPldmFwBundleURL          string
 	dpuDeployment               *dpuservicev1.DPUDeployment
 	dpuServiceConfiguration     *dpuservicev1.DPUServiceConfiguration
 	dpuServiceInterfacesHBN     []*dpuservicev1.DPUServiceInterface
@@ -221,10 +227,19 @@ func updateImagePullSecret(svc *unstructured.Unstructured, secretName string) {
 }
 
 func (t *systemTestInput) applyConfig(conf config) {
-	bfb := &provisioningv1.BFB{}
-	bfbUnstructured := unstructuredFromFile(conf.BFBPath)
-	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(bfbUnstructured.Object, bfb)).To(Succeed())
-	t.bfb = bfb
+	if conf.BFBPath != nil {
+		bfb := &provisioningv1.BFB{}
+		bfbUnstructured := unstructuredFromFile(*conf.BFBPath)
+		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(bfbUnstructured.Object, bfb)).To(Succeed())
+		t.bfb = bfb
+	}
+
+	if conf.BlueFieldSoftwarePath != nil {
+		blueFieldSoftware := &provisioningv1.BlueFieldSoftware{}
+		bfsUnstructured := unstructuredFromFile(*conf.BlueFieldSoftwarePath)
+		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(bfsUnstructured.Object, blueFieldSoftware)).To(Succeed())
+		t.blueFieldSoftware = blueFieldSoftware
+	}
 
 	dpuSet := &provisioningv1.DPUSet{}
 	dpuSetUnstructured := unstructuredFromFile(conf.DPUSetPath)
@@ -637,31 +652,37 @@ func ProvisionDPUClusters(ctx context.Context, input ProvisionDPUClustersInput) 
 	getDPUClusterClients(ctx, input)
 }
 
-// ProvisionBFBAndDPUFlavor creates the BFB and optionally the DPUFlavor resources
-func ProvisionBFBAndDPUFlavor(ctx context.Context, input ProvisionDPUClustersInput) {
+// ProvisionBFBOrBlueFieldSoftwareAndDPUFlavor creates the BFB or BlueFieldSoftware and optionally the DPUFlavor resources.
+func ProvisionBFBOrBlueFieldSoftwareAndDPUFlavor(ctx context.Context, input ProvisionDPUClustersInput) {
+	Expect(input.bfb == nil && input.blueFieldSoftware == nil).To(BeFalse(),
+		"one of bfb or blueFieldSoftware must be set")
+	Expect(input.bfb != nil && input.blueFieldSoftware != nil).To(BeFalse(),
+		"bfb and blueFieldSoftware cannot both be set")
+	if input.bfb != nil {
+		ProvisionBFB(ctx, input)
+	}
+	if input.blueFieldSoftware != nil {
+		ProvisionBlueFieldSoftware(ctx, input)
+	}
+	if input.dpuFlavor != nil {
+		ProvisionDPUFlavor(ctx, input)
+	}
+}
+
+// ProvisionBFB creates the BFB resource, waits for it to reach Ready phase, and verifies
+// the BFB file is reachable via the bfb-registry service (ZeroTrust only).
+func ProvisionBFB(ctx context.Context, input ProvisionDPUClustersInput) {
 	// TODO: Pass this in as config instead of as a global.
 	if input.bfbImageURL != "" {
 		By(fmt.Sprintf("Override BFB URL with env variable BFB_IMAGE_URL=%s", input.bfbImageURL))
 		input.bfb.Spec.URL = input.bfbImageURL
 	}
-	By("Create the BFB and DPUFlavor")
+	By("Create the BFB")
 	Eventually(func(g Gomega) {
-		By("Creating the BFB")
 		bfb := input.bfb.DeepCopy()
 		bfb.SetLabels(CleanupScope.Suite)
 		g.Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, bfb))).NotTo(HaveOccurred())
 	}).WithTimeout(10 * time.Second).Should(Succeed())
-
-	Eventually(func(g Gomega) {
-		// Return if no DPUFlavor is provided.
-		if input.dpuFlavor == nil {
-			return
-		}
-		By("Creating the DPUFlavor")
-		dpuFlavor := input.dpuFlavor.DeepCopy()
-		dpuFlavor.SetLabels(CleanupScope.Suite)
-		g.Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuFlavor))).NotTo(HaveOccurred())
-	}).WithTimeout(60 * time.Second).Should(Succeed())
 
 	By("Checking that BFB is ready")
 	Eventually(func(g Gomega) {
@@ -703,6 +724,44 @@ func ProvisionBFBAndDPUFlavor(ctx context.Context, input ProvisionDPUClustersInp
 				fmt.Sprintf("BFB file should be reachable at %s, got status %d", bfbURL, resp.StatusCode))
 		}).WithTimeout(10 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
 	}
+}
+
+// ProvisionBlueFieldSoftware creates the BlueFieldSoftware resource and waits for it to reach Ready phase.
+func ProvisionBlueFieldSoftware(ctx context.Context, input ProvisionDPUClustersInput) {
+	if input.bfsOsIsoURL != "" {
+		By(fmt.Sprintf("Override BlueFieldSoftware OS ISO URL with env variable BFS_OS_ISO_URL=%s", input.bfsOsIsoURL))
+		input.blueFieldSoftware.Spec.OsIso = input.bfsOsIsoURL
+	}
+	if input.bfsPldmFwBundleURL != "" {
+		By(fmt.Sprintf("Override BlueFieldSoftware PLDM FW bundle URL with env variable BFS_PLDM_FW_BUNDLE_URL=%s", input.bfsPldmFwBundleURL))
+		input.blueFieldSoftware.Spec.PldmFwBundle = input.bfsPldmFwBundleURL
+	}
+	By("Create the BlueFieldSoftware")
+	Eventually(func(g Gomega) {
+		bfs := input.blueFieldSoftware.DeepCopy()
+		bfs.SetLabels(CleanupScope.Suite)
+		g.Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, bfs))).NotTo(HaveOccurred())
+	}).WithTimeout(10 * time.Second).Should(Succeed())
+
+	By("Checking that BlueFieldSoftware is ready")
+	Eventually(func(g Gomega) {
+		bfs := &provisioningv1.BlueFieldSoftware{}
+		g.Expect(input.client.Get(ctx, client.ObjectKey{
+			Name:      input.blueFieldSoftware.Name,
+			Namespace: input.blueFieldSoftware.Namespace,
+		}, bfs)).To(Succeed())
+		g.Expect(bfs.Status.Phase).To(Equal(provisioningv1.BlueFieldSoftwareReady))
+	}).WithTimeout(10 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+}
+
+// ProvisionDPUFlavor creates the DPUFlavor resource.
+func ProvisionDPUFlavor(ctx context.Context, input ProvisionDPUClustersInput) {
+	By("Creating the DPUFlavor")
+	Eventually(func(g Gomega) {
+		dpuFlavor := input.dpuFlavor.DeepCopy()
+		dpuFlavor.SetLabels(CleanupScope.Suite)
+		g.Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuFlavor))).NotTo(HaveOccurred())
+	}).WithTimeout(60 * time.Second).Should(Succeed())
 }
 
 // ProvisionDPUSet DPUSet that will provision DPUs in the background if the environment has such DPUs.

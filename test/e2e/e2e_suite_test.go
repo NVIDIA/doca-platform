@@ -100,6 +100,12 @@ func getEnvVariables() {
 			panic(err)
 		}
 	}
+	if url, found := os.LookupEnv("BFS_OS_ISO_URL"); found {
+		bfsOsIsoURL = url
+	}
+	if url, found := os.LookupEnv("BFS_PLDM_FW_BUNDLE_URL"); found {
+		bfsPldmFwBundleURL = url
+	}
 	if url, found := os.LookupEnv("HBN_IMAGE_URL"); found {
 		var err error
 		hbnImageURL, err = utils.ResolveHBNImageURL(url)
@@ -304,7 +310,7 @@ var _ = BeforeSuite(func() {
 		// CreateProvisioningDPUSet(ctx, input)
 		provInput := getProvisionDPUClustersInput()
 		ProvisionDPUClusters(ctx, provInput)
-		ProvisionBFBAndDPUFlavor(ctx, provInput)
+		ProvisionBFBOrBlueFieldSoftwareAndDPUFlavor(ctx, provInput)
 		ProvisionDPUSet(ctx, provInput)
 	}
 
@@ -350,7 +356,7 @@ var _ = BeforeSuite(func() {
 		By("Pre-provisioning DPU cluster setup")
 		provInput := getProvisionDPUClustersInput()
 		ProvisionDPUClusters(ctx, provInput)
-		ProvisionBFBAndDPUFlavor(ctx, provInput)
+		ProvisionBFBOrBlueFieldSoftwareAndDPUFlavor(ctx, provInput)
 		By("Installing OVN-K resource injector webhook")
 		InstallOVNKResourceInjector(ctx, testClient)
 		By("Deploying HBN-OVN scenario objects")
