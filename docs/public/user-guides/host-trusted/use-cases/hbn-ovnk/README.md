@@ -8,7 +8,7 @@ title: "OVN Kubernetes with Host Based Networking"
 
 In this configuration OVN Kubernetes is offloaded to the DPU and combined with [NVIDIA Host Based Networking (HBN)](https://docs.nvidia.com/doca/sdk/doca+hbn+service+guide/index.html).
 
-[TOC]
+[[_TOC_]]
 
 ## Prerequisites
 

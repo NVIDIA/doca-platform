@@ -8,7 +8,7 @@ title: "OVN Kubernetes with Host Based Networking and SNAP Block Storage"
 
 In this configuration OVN Kubernetes is offloaded to the DPU and combined with [NVIDIA Host Based Networking (HBN)](https://docs.nvidia.com/doca/sdk/doca+hbn+service+guide/index.html) and [DOCA SNAP](https://docs.nvidia.com/doca/sdk/doca+snap+services/index.html) for Block (NVMe) storage.
 
-[TOC]
+[[_TOC_]]
 
 ## Prerequisites
 

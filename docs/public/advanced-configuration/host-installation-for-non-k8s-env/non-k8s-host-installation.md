@@ -2,7 +2,7 @@
 title: "Host Installation for non-Kubernetes Environments"
 ---
 
-[TOC]
+[[_TOC_]]
 
 ## Installation Steps
 

@@ -2,7 +2,7 @@
 title: "Per-DPU BMC Credentials"
 ---
 
-[TOC]
+[[_TOC_]]
 
 By default, DPF in Zero Trust mode uses a single shared secret (`bmc-shared-password`) to authenticate with the BMC on every DPU in a
 namespace. The per-DPU BMC credentials feature allows each DPUDevice to reference its own secret containing a unique
