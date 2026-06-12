@@ -172,13 +172,15 @@ func SetInput() {
 	}
 
 	input = &systemTestInput{
-		namespace:       dpfOperatorSystemNamespace,
-		config:          dpfOperatorConfig,
-		pullSecretNames: dpfOperatorConfig.Spec.ImagePullSecrets,
-		client:          testClient,
-		restConfig:      restConfig,
-		cleanupFlags:    cleanupFlags,
-		bfbImageURL:     bfbImageURL,
+		namespace:          dpfOperatorSystemNamespace,
+		config:             dpfOperatorConfig,
+		pullSecretNames:    dpfOperatorConfig.Spec.ImagePullSecrets,
+		client:             testClient,
+		restConfig:         restConfig,
+		cleanupFlags:       cleanupFlags,
+		bfbImageURL:        bfbImageURL,
+		bfsOsIsoURL:        bfsOsIsoURL,
+		bfsPldmFwBundleURL: bfsPldmFwBundleURL,
 	}
 	input.applyConfig(*conf)
 }
@@ -639,9 +641,12 @@ func getProvisionDPUClustersInput() ProvisionDPUClustersInput {
 		dpuClusters:             input.dpuClusters,
 		dpuSet:                  input.dpuSet,
 		bfb:                     input.bfb,
+		blueFieldSoftware:       input.blueFieldSoftware,
 		dpuFlavor:               input.dpuFlavor,
 		client:                  input.client,
 		bfbImageURL:             input.bfbImageURL,
+		bfsOsIsoURL:             input.bfsOsIsoURL,
+		bfsPldmFwBundleURL:      input.bfsPldmFwBundleURL,
 		restConfig:              restConfig,
 		NodeRebootConfigMap:     input.nodeRebootConfigMap,
 		DPUNodeBMCs:             input.dpuNodeBMCs,
