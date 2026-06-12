@@ -9,7 +9,7 @@ This guide describes how to use the `dpuDeviceSelector` to target particular DPU
 and distributes OVN-Kubernetes, HBN, BlueMan and DTS services across them, providing more granular control over which
 DPUs run specific services and allowing for better resource allocation, service isolation, and  multi-DPU scalability.
 
-[TOC]
+[[_TOC_]]
 
 ## Overview
 

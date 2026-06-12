@@ -2,7 +2,7 @@
 title: "Host Network Configuration Prerequisites"
 ---
 
-[TOC]
+[[_TOC_]]
 
 ## Overview
 To facilitate connectivity between the Data Processing Unit (DPU) and the Kubernetes control plane (API server) and the DHCP server on the management network, a fundamental network configuration is necessary on the host. The appropriate solution may vary depending on the specific environment. This guide provides a basic example for a host with Ubuntu 24.04 OS.

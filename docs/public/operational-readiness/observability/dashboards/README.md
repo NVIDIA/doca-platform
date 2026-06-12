@@ -7,7 +7,7 @@ title: "Grafana Dashboards"
 The DPF operator Helm chart packages Grafana dashboards as ConfigMaps that are deployed alongside the operator.
 The dashboard JSON definitions are located in the Helm chart under [`deploy/charts/dpf-operator/dashboards/`](https://github.com/NVIDIA/doca-platform/tree/public-main/deploy/charts/dpf-operator/dashboards).
 
-[TOC]
+[[_TOC_]]
 
 ## Deployment
 

@@ -2,7 +2,7 @@
 title: "DPUServiceIPAM"
 ---
 
-[TOC]
+[[_TOC_]]
 
 This document describes how a user can work with the `DPUServiceIPAM` Custom Resource. A `DPUServiceIPAM` object is
 responsible for doing the IP Address Management in the DPU cluster, IPs which the rest of the DPF objects like

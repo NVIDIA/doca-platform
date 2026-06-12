@@ -2,7 +2,7 @@
 title: "Host Trusted with Non Kubernetes Workers"
 ---
 
-[TOC]
+[[_TOC_]]
 
 This section covers an **advanced configuration** of the [Host Trusted use case](../../user-guides/host-trusted/README.md) for environments where worker nodes are not part of a Kubernetes cluster.
 

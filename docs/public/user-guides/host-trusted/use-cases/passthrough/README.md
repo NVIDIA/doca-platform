@@ -13,7 +13,7 @@ Framework (DPF) on high-performance,
 bare-metal infrastructure in Host Trusted mode. It focuses on provisioning NVIDIA®
 BlueField®-3 DPUs using DPF and enabling them to act as passthrough devices.
 
-[TOC]
+[[_TOC_]]
 
 ## Prerequisites
 

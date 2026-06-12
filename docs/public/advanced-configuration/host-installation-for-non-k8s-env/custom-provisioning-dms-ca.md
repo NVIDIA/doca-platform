@@ -2,7 +2,7 @@
 title: "Enable Custom Certificate Authority for DMS"
 ---
 
-[TOC]
+[[_TOC_]]
 
 This document provides instructions on how to configure DPF to use a custom Certificate Authority (CA) for mutual TLS
 (mTLS) authentication between the provisioning controller and DOCA Management Service (DMS) in non-Kubernetes(only Kubernetes

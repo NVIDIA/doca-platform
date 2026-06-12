@@ -2,7 +2,7 @@
 title: "DPUServices"
 ---
 
-[TOC]
+[[_TOC_]]
 
 This section contains documentation for the DPU services that can be deployed and managed by the DOCA Platform Framework
 (DPF). Each service has its own documentation, deployment guides, and configuration details:

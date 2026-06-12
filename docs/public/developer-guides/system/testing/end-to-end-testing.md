@@ -2,7 +2,7 @@
 title: "End-To-End Testing"
 ---
 
-[TOC]
+[[_TOC_]]
 
 DPF end-to-end tests are written in go and use the `ginkgo` and `gomega` frameworks.
 

@@ -2,7 +2,7 @@
 title: "Developing a Conformant DPF System"
 ---
 
-[TOC]
+[[_TOC_]]
 
 Independent software vendors (ISVs) can integrate DOCA Platform Foundation (DPF). Integration may involve modifying or replacing dependencies and components used in the upstream version of DPF.
 

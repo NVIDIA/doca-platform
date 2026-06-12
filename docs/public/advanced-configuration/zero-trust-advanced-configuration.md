@@ -2,7 +2,7 @@
 title: "Zero Trust Advanced Configuration"
 ---
 
-[TOC]
+[[_TOC_]]
 
 This section includes advanced configuration and additional information for the Zero Trust use case.
 

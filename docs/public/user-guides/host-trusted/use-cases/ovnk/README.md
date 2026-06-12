@@ -8,7 +8,7 @@ title: "OVN Kubernetes"
 
 In this configuration OVN Kubernetes is offloaded to the DPU.
 
-[TOC]
+[[_TOC_]]
 
 ## Prerequisites
 This guide should be run by cloning the repo from [github.com/NVIDIA/doca-platform](https://github.com/NVIDIA/doca-platform) and moving to the `docs/public/user-guides/ovn_only` directory.

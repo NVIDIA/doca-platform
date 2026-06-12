@@ -2,7 +2,7 @@
 title: "DPUService"
 ---
 
-[TOC]
+[[_TOC_]]
 
 The `DPUService` CRD provides an API for DPF users to deploy applications on DPU
 nodes using Helm charts.

@@ -10,7 +10,7 @@ This configuration provides instructions for deploying the NVIDIA DOCA Platform 
 bare-metal infrastructure in Zero Trust mode, utilizing DPU BMC and Redfish. It focuses on provisioning NVIDIA®
 BlueField®-3 DPUs using DPF, Deploying VPC OVN Service and enabling hosts to communicate through an isolated VPC.
 
-[TOC]
+[[_TOC_]]
 
 ## Prerequisites
 This guide should be run by cloning the repo from [github.com/NVIDIA/doca-platform](https://github.com/NVIDIA/doca-platform)

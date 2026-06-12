@@ -2,7 +2,7 @@
 title: "Host Trusted Deployment"
 ---
 
-[TOC]
+[[_TOC_]]
 
 ## Overview
 

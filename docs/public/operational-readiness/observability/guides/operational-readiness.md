@@ -2,7 +2,7 @@
 title: "DPU Operational Readiness"
 ---
 
-[TOC]
+[[_TOC_]]
 
 ## Introduction
 

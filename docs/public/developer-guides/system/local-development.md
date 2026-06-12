@@ -2,7 +2,7 @@
 title: "Local Development"
 ---
 
-[TOC]
+[[_TOC_]]
 
 This guide helps the developer in setting and running a local env that can be used to deploy the various DPF components and run tests. The local env does not require a DPU. 
 

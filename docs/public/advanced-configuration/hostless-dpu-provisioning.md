@@ -2,7 +2,7 @@
 title: "Hostless DPU Provisioning"
 ---
 
-[TOC]
+[[_TOC_]]
 
 Hostless DPU provisioning is used when a DPU is managed without a host-side Kubernetes node or host agent. In this mode, DPF manages the DPU through Redfish and creates a synthetic `DPUNode` for the hostless `DPUDevice`.
 
