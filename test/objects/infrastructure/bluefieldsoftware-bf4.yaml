@@ -1,0 +1,8 @@
+apiVersion: provisioning.dpu.nvidia.com/v1alpha1
+kind: BlueFieldSoftware
+metadata:
+  name: bf4
+  namespace: dpf-operator-system
+spec:
+  osIso: REPLACE_ME
+  pldmFwBundle: REPLACE_ME

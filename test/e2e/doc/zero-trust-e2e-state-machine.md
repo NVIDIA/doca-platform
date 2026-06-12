@@ -110,7 +110,7 @@ One reboot pod-template fixture ships in
 | What is tested                                        | Where                                                                        |
 | ----------------------------------------------------- | ---------------------------------------------------------------------------- |
 | DPUCluster creation + Ready phase                     | `VerifyDPUClusterWithNodes` via `system_setup.go`                            |
-| BFB download + Ready phase                            | `ProvisionBFBAndDPUFlavor`                                                   |
+| BFB download + Ready phase                            | `ProvisionBFBOrBlueFieldSoftwareAndDPUFlavor`                                                   |
 | DPUSet creation → DPU objects created                 | `ProvisionDPUSet`                                                            |
 | DPUNodeMaintenance hold → release                     | `ProcessDPUNodeMaintenanceHold`                                              |
 | DPU reaches Rebooting phase                           | `WaitForDPUReboot` (waits for `DPURebooting`)                                |

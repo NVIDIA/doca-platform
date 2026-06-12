@@ -61,9 +61,12 @@ func VerifyDPUKSMMetricsCollection(ctx context.Context, input *systemTestInput) 
 func ValidateGeneralDPFMetrics(ctx context.Context, input *systemTestInput) {
 	By("Verify metrics are being collected")
 	expectedMetricsNames := map[string][]string{
-		"bfb":               {"created", "info", "status_phase", "version_bsp", "version_doca", "version_uefi", "version_atf", "file_name"},
 		"dpfoperatorconfig": {"created", "info", "status_conditions", "status_condition_last_transition_time", "version"}, // "paused" missed
 		"dpucluster":        {"created", "info", "status_phase", "status_conditions", "status_condition_last_transition_time", "status_nodes_count"},
+	}
+
+	if input.bfb != nil {
+		expectedMetricsNames["bfb"] = []string{"created", "info", "status_phase", "version_bsp", "version_doca", "version_uefi", "version_atf", "file_name"}
 	}
 
 	if input.hasDpuNodes() {
