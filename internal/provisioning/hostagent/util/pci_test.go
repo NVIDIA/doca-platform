@@ -535,6 +535,39 @@ var _ = Describe("PCI", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(string(content)).To(Equal("0"))
 		})
+
+		It("should skip write when already at desired VF count", func() {
+			mock := createMockSysfs("0000:b1:00.0", "0xa2dc\n", "", nil, "")
+			defer mock.Cleanup()
+
+			numvfsPath := filepath.Join(mock.PCIDevicesDir(), "0000:b1:00.0", "sriov_numvfs")
+			err := os.WriteFile(numvfsPath, []byte("4"), 0644)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Make the file read-only to prove no write happens
+			Expect(os.Chmod(numvfsPath, 0444)).To(Succeed())
+
+			helper := NewPCIHelper("0000:b1:00.0").SetSysFS(mock.TempSysfsDir())
+			err = helper.SetNumOfVFs(4)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("should reset to 0 before changing to a different non-zero VF count", func() {
+			mock := createMockSysfs("0000:b1:00.0", "0xa2dc\n", "", nil, "")
+			defer mock.Cleanup()
+
+			numvfsPath := filepath.Join(mock.PCIDevicesDir(), "0000:b1:00.0", "sriov_numvfs")
+			err := os.WriteFile(numvfsPath, []byte("2"), 0644)
+			Expect(err).NotTo(HaveOccurred())
+
+			helper := NewPCIHelper("0000:b1:00.0").SetSysFS(mock.TempSysfsDir())
+			err = helper.SetNumOfVFs(4)
+			Expect(err).NotTo(HaveOccurred())
+
+			content, err := os.ReadFile(numvfsPath)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(content)).To(Equal("4"))
+		})
 	})
 
 	Context("PCIHelper.BoundDriver", Label("PCIHelper", "BoundDriver"), func() {

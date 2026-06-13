@@ -196,6 +196,21 @@ func (h *PCIHelper) SetNumOfVFs(num int) error {
 		}
 		return fmt.Errorf("failed to stat sriov_numvfs path: %w", err)
 	}
+	current, err := os.ReadFile(numvfsPath)
+	if err == nil {
+		val, parseErr := strconv.Atoi(strings.TrimSpace(string(current)))
+		if parseErr == nil {
+			if val == num {
+				return nil
+			}
+			// Kernel requires writing 0 before changing to a different non-zero value.
+			if val != 0 && num != 0 {
+				if err := os.WriteFile(numvfsPath, []byte("0"), 0644); err != nil {
+					return fmt.Errorf("failed to reset sriov_numvfs to 0: %w", err)
+				}
+			}
+		}
+	}
 	if err := os.WriteFile(numvfsPath, []byte(fmt.Sprintf("%d", num)), 0644); err != nil {
 		return h.errWriteSriovNumVFs(err)
 	}
