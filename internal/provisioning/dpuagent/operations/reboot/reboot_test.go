@@ -166,6 +166,139 @@ var _ = Describe("Reboot", func() {
 			})
 		})
 
+		Context("probeResetRequirements upgrades reboot method on first boot", func() {
+			It("should return PowerCycle when mlxfwreset reports power cycle required", func() {
+				dpu := &provisioningv1.DPU{}
+				powerCycleJSON := `{"reset_needed": true, "command_required": "Power cycle is required", "reasons": ["Pending FW update"]}`
+				optCtx := &operations.Context{
+					LatestDPU:             dpu,
+					RebootMethodDiscovery: false,
+					CurrentBootID:         "first-boot-id",
+					DiscoverPorts: func() ([]pciutil.NICPort, error) {
+						return []pciutil.NICPort{{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: "/dev/mst/mt4125_pciconf0"}}, nil
+					},
+					UpdateStatusUntilSuccess: func(context.Context) {},
+				}
+				reboot := &HandleReboot{
+					skipBlock: true,
+					runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+						if strings.Contains(cmd, "mlxfwreset") && strings.Contains(cmd, "--json") {
+							var b bytes.Buffer
+							b.WriteString(powerCycleJSON)
+							return b, bytes.Buffer{}, nil
+						}
+						return bytes.Buffer{}, bytes.Buffer{}, nil
+					},
+				}
+				Expect(reboot.Execute(context.Background(), optCtx)).To(Succeed())
+				Expect(optCtx.Status.RebootMethod).NotTo(BeNil())
+				Expect(*optCtx.Status.RebootMethod).To(Equal(provisioningv1.RebootMethodPowerCycle))
+			})
+
+			It("should fall back to SystemLevelReset when mlxfwreset reports no reset needed", func() {
+				dpu := &provisioningv1.DPU{}
+				noResetJSON := `{"reset_needed": false}`
+				optCtx := &operations.Context{
+					LatestDPU:             dpu,
+					RebootMethodDiscovery: false,
+					CurrentBootID:         "first-boot-id",
+					DiscoverPorts: func() ([]pciutil.NICPort, error) {
+						return []pciutil.NICPort{{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: "/dev/mst/mt4125_pciconf0"}}, nil
+					},
+					UpdateStatusUntilSuccess: func(context.Context) {},
+				}
+				reboot := &HandleReboot{
+					skipBlock: true,
+					runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+						if strings.Contains(cmd, "mlxfwreset") && strings.Contains(cmd, "--json") {
+							var b bytes.Buffer
+							b.WriteString(noResetJSON)
+							return b, bytes.Buffer{}, nil
+						}
+						return bytes.Buffer{}, bytes.Buffer{}, nil
+					},
+				}
+				Expect(reboot.Execute(context.Background(), optCtx)).To(Succeed())
+				Expect(optCtx.Status.RebootMethod).NotTo(BeNil())
+				Expect(*optCtx.Status.RebootMethod).To(Equal(provisioningv1.RebootMethodSystemLevelReset))
+			})
+
+			It("should fall back to SystemLevelReset when mlxfwreset probe fails", func() {
+				dpu := &provisioningv1.DPU{}
+				optCtx := &operations.Context{
+					LatestDPU:             dpu,
+					RebootMethodDiscovery: false,
+					CurrentBootID:         "first-boot-id",
+					DiscoverPorts: func() ([]pciutil.NICPort, error) {
+						return []pciutil.NICPort{{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: "/dev/mst/mt4125_pciconf0"}}, nil
+					},
+					UpdateStatusUntilSuccess: func(context.Context) {},
+				}
+				reboot := &HandleReboot{
+					skipBlock: true,
+					runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+						if strings.Contains(cmd, "mlxfwreset") && strings.Contains(cmd, "--json") {
+							return bytes.Buffer{}, bytes.Buffer{}, fmt.Errorf("mlxfwreset not found")
+						}
+						return bytes.Buffer{}, bytes.Buffer{}, nil
+					},
+				}
+				Expect(reboot.Execute(context.Background(), optCtx)).To(Succeed())
+				Expect(optCtx.Status.RebootMethod).NotTo(BeNil())
+				Expect(*optCtx.Status.RebootMethod).To(Equal(provisioningv1.RebootMethodSystemLevelReset))
+			})
+
+			It("should fall back to SystemLevelReset when no MST devices are discovered", func() {
+				dpu := &provisioningv1.DPU{}
+				optCtx := &operations.Context{
+					LatestDPU:             dpu,
+					RebootMethodDiscovery: false,
+					CurrentBootID:         "first-boot-id",
+					DiscoverPorts: func() ([]pciutil.NICPort, error) {
+						return []pciutil.NICPort{{Netdev: "p0", PCIAddress: "0000:03:00.0"}}, nil
+					},
+					UpdateStatusUntilSuccess: func(context.Context) {},
+				}
+				reboot := &HandleReboot{
+					skipBlock: true,
+					runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+						return bytes.Buffer{}, bytes.Buffer{}, nil
+					},
+				}
+				Expect(reboot.Execute(context.Background(), optCtx)).To(Succeed())
+				Expect(optCtx.Status.RebootMethod).NotTo(BeNil())
+				Expect(*optCtx.Status.RebootMethod).To(Equal(provisioningv1.RebootMethodSystemLevelReset))
+			})
+
+			It("should return SystemLevelReset when mlxfwreset reports SLR required", func() {
+				dpu := &provisioningv1.DPU{}
+				slrJSON := `{"reset_needed": true, "command_required": "Reboot external host is required", "reasons": ["Pending FW update"]}`
+				optCtx := &operations.Context{
+					LatestDPU:             dpu,
+					RebootMethodDiscovery: false,
+					CurrentBootID:         "first-boot-id",
+					DiscoverPorts: func() ([]pciutil.NICPort, error) {
+						return []pciutil.NICPort{{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: "/dev/mst/mt4125_pciconf0"}}, nil
+					},
+					UpdateStatusUntilSuccess: func(context.Context) {},
+				}
+				reboot := &HandleReboot{
+					skipBlock: true,
+					runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+						if strings.Contains(cmd, "mlxfwreset") && strings.Contains(cmd, "--json") {
+							var b bytes.Buffer
+							b.WriteString(slrJSON)
+							return b, bytes.Buffer{}, nil
+						}
+						return bytes.Buffer{}, bytes.Buffer{}, nil
+					},
+				}
+				Expect(reboot.Execute(context.Background(), optCtx)).To(Succeed())
+				Expect(optCtx.Status.RebootMethod).NotTo(BeNil())
+				Expect(*optCtx.Status.RebootMethod).To(Equal(provisioningv1.RebootMethodSystemLevelReset))
+			})
+		})
+
 		Context("DPUWarmReboot when GrubConfigChanged", func() {
 			It("should trigger DPUWarmReboot via boot-ID path when GrubConfigChanged is true", func() {
 				bootID, err := os.ReadFile(bootIDFile)

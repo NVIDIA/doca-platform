@@ -258,13 +258,16 @@ func (h *HandleReboot) blockUntilReset() error {
 // getRebootMethod returns the reboot method for this run.
 func (h *HandleReboot) getRebootMethod(optCtx *operations.Context) (*provisioningv1.RebootMethodType, error) {
 	if !optCtx.RebootMethodDiscovery {
-		return getRebootMethodBootID(optCtx)
+		return h.getRebootMethodBootID(optCtx)
 	}
 	return h.getRebootMethodDeviceQuery(optCtx)
 }
 
 // getRebootMethodBootID is used when RebootMethodDiscovery is false (Boot-ID based).
-func getRebootMethodBootID(optCtx *operations.Context) (*provisioningv1.RebootMethodType, error) {
+// On first boot it probes firmware via mlxfwreset to detect whether a
+// higher-priority reboot method (e.g. PowerCycle after ATF/UEFI update) is
+// required, falling back to SystemLevelReset on any probe error.
+func (h *HandleReboot) getRebootMethodBootID(optCtx *operations.Context) (*provisioningv1.RebootMethodType, error) {
 	if hasBeenBooted(optCtx.LatestDPU, optCtx.CurrentBootID) {
 		if optCtx.GrubConfigChanged {
 			return ptr.To(provisioningv1.RebootMethodDPUWarmReboot), nil
@@ -272,7 +275,49 @@ func getRebootMethodBootID(optCtx *operations.Context) (*provisioningv1.RebootMe
 		klog.Infof("Host has already been booted, no reboot action")
 		return ptr.To(provisioningv1.RebootMethodNoAction), nil
 	}
+	if m := h.probeResetRequirements(optCtx); m != nil {
+		klog.Infof("Boot-ID path: firmware probe returned reboot method %s (overriding default SystemLevelReset)", *m)
+		return m, nil
+	}
 	return ptr.To(provisioningv1.RebootMethodSystemLevelReset), nil
+}
+
+// probeResetRequirements runs a best-effort mlxfwreset status check on each
+// MST device to detect whether firmware requires a specific reboot method
+// (e.g. PowerCycle after an ATF/UEFI update). Returns nil when the probe
+// cannot run or no device requires a reset, so the caller can fall back to
+// SystemLevelReset. Unlike getRebootMethodDeviceQuery, this method has no
+// side effects on optCtx.Status (no conditions or pending state recorded).
+func (h *HandleReboot) probeResetRequirements(optCtx *operations.Context) *provisioningv1.RebootMethodType {
+	devices, err := h.getMSTDevices(optCtx)
+	if err != nil || len(devices) == 0 {
+		klog.Infof("Boot-ID path: firmware probe skipped (devices err: %v, count: %d)", err, len(devices))
+		return nil
+	}
+	run := h.runBash
+	if run == nil {
+		run = bash.Run
+	}
+
+	best := provisioningv1.RebootMethodNoAction
+	for _, device := range devices {
+		out, _, err := queryDeviceResetStatus(device, run)
+		if err != nil {
+			klog.Infof("Boot-ID path: firmware probe failed for %s: %v", device, err)
+			return nil
+		}
+		if !ptr.Deref(out.ResetNeeded, false) {
+			continue
+		}
+		m := rebootMethodFromMlxfwresetStatus(nil, device, out)
+		if rebootMethodTakesPrecedenceOver(m, best) {
+			best = m
+		}
+	}
+	if best == provisioningv1.RebootMethodNoAction {
+		return nil
+	}
+	return ptr.To(best)
 }
 
 type pendingParamList []provisioningv1.PendingNVConfigEntry
@@ -482,6 +527,25 @@ func agentAnnotationAllowsFirmwareResetReboot(optCtx *operations.Context) bool {
 	return allowed
 }
 
+// queryDeviceResetStatus runs `mlxfwreset -d <device> s --json` and parses
+// the output. Returns the parsed status, the raw JSON string, and any error.
+func queryDeviceResetStatus(device string, run bash.RunFunc) (*mlxfwresetStatusJSON, string, error) {
+	cmd := fmt.Sprintf("mlxfwreset -d %s s --json", device)
+	stdout, stderr, err := run(cmd)
+	if err != nil {
+		return nil, "", fmt.Errorf("%s: %w (stderr: %s)", cmd, err, stderr.String())
+	}
+	raw := strings.TrimSpace(stdout.String())
+	if raw == "" {
+		raw = strings.TrimSpace(stderr.String())
+	}
+	var out mlxfwresetStatusJSON
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil, "", fmt.Errorf("mlxfwreset status for %s: parse JSON: %w", device, err)
+	}
+	return &out, raw, nil
+}
+
 // getRebootMethodDeviceQuery is used when RebootMethodDiscovery is true (Device Query based).
 func (h *HandleReboot) getRebootMethodDeviceQuery(optCtx *operations.Context) (*provisioningv1.RebootMethodType, error) {
 	// Mark device-query mode early so status reflects it even if listing devices or mlxfwreset fails later.
@@ -502,18 +566,9 @@ func (h *HandleReboot) getRebootMethodDeviceQuery(optCtx *operations.Context) (*
 	finalRebootMethod := provisioningv1.RebootMethodNoAction
 	rawParts := make([]string, 0, len(devices))
 	for _, device := range devices {
-		cmd := fmt.Sprintf("mlxfwreset -d %s s --json", device)
-		stdout, stderr, err := h.runBash(cmd)
+		out, raw, err := queryDeviceResetStatus(device, h.runBash)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w (stderr: %s)", cmd, err, stderr.String())
-		}
-		raw := strings.TrimSpace(stdout.String())
-		if raw == "" {
-			raw = strings.TrimSpace(stderr.String())
-		}
-		var out mlxfwresetStatusJSON
-		if err := json.Unmarshal([]byte(raw), &out); err != nil {
-			return nil, fmt.Errorf("mlxfwreset status for %s: parse JSON: %w", device, err)
+			return nil, err
 		}
 		recordPending(optCtx, device, out.PendingNvconfigParameters)
 		if !ptr.Deref(out.ResetNeeded, false) {
@@ -526,7 +581,7 @@ func (h *HandleReboot) getRebootMethodDeviceQuery(optCtx *operations.Context) (*
 		// unchanged across boots. Provisioning continues only when all remaining
 		// pending_nvconfig_parameters are filtered out and "Pending NVCONFIG
 		// parameter change" is the only reason for reset.
-		effective, shouldIgnore := removeForeverPending(optCtx, device, out)
+		effective, shouldIgnore := removeForeverPending(optCtx, device, *out)
 		if shouldIgnore {
 			klog.Infof("MST device %s: ignoring repeated pending NVCONFIG parameters after boot change", device)
 			continue
