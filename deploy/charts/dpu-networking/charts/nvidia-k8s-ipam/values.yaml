@@ -3,6 +3,9 @@ deployDPUManifests: false
 # -- deployHostManifests controls whether the manifests that are required in the host cluster should be deployed.
 deployHostManifests: false
 
+controllerManager:
+  replicas: 2
+
 serviceAccount:
   name: null
 imagePullSecrets: []

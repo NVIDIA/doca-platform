@@ -1,7 +1,7 @@
 controllerManager:
   manager:
-    args:
-    - --leader-elect
+    # No --leader-elect: sfc-controller uses per-node sharding
+    args: []
     # -- Zero indicates feature is disabled (default). Set a non zero value to timeout duration and enable this feature. Kubernetes can cause the pod to restart earlier under connectivity constraints in which case flows are always cleaned up under this mode.
     secureFlowDeletionTimeout: 0s
     ports:
@@ -21,7 +21,6 @@ controllerManager:
       requests:
         cpu: 100m
         memory: 512Mi
-  replicas: 1
   serviceAccount:
     annotations: {}
 imagePullSecrets: []

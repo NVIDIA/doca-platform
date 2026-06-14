@@ -123,6 +123,11 @@ func (d *dpuServiceControllerObjects) GenerateManifests(ctx context.Context, var
 		}
 	}
 
+	// Propagate replicas from DPFOperatorConfig.Spec.DPUServiceController.Replicas.
+	if replicas, exists := vars.Replicas[d.Name()]; exists && replicas != nil {
+		edits = edits.AddForKindS(DeploymentKind, ReplicasEditForDeployment(replicas))
+	}
+
 	if err := edits.Apply(objsCopy); err != nil {
 		return nil, err
 	}

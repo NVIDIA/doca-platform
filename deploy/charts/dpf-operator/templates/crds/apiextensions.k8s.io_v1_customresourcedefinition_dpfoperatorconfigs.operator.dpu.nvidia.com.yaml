@@ -291,10 +291,10 @@ spec:
                     pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                     type: string
                   replicas:
-                    default: 1
+                    default: 2
                     description: |-
                       Replicas is the number of replicas for the controller deployment.
-                      This is used for High Availability. Leader election is enabled by default.
+                      Used for High Availability via leader election.
                     format: int32
                     maximum: 3
                     minimum: 1
@@ -495,7 +495,7 @@ spec:
                     default: 2
                     description: |-
                       Replicas is the number of replicas for the controller deployment.
-                      This is used for High Availability. Leader election is enabled by default.
+                      Used for High Availability via leader election.
                     format: int32
                     maximum: 3
                     minimum: 1
@@ -1018,10 +1018,10 @@ spec:
                       set to true.
                     type: boolean
                   replicas:
-                    default: 1
+                    default: 2
                     description: |-
                       Replicas is the number of replicas for the controller deployment.
-                      This is used for High Availability. Leader election is enabled by default.
+                      Used for High Availability via leader election.
                     format: int32
                     maximum: 3
                     minimum: 1
@@ -1165,6 +1165,15 @@ spec:
                             type: object
                         type: object
                     type: object
+                  replicas:
+                    default: 2
+                    description: |-
+                      Replicas is the number of replicas for the controller deployment.
+                      Used for High Availability via leader election.
+                    format: int32
+                    maximum: 3
+                    minimum: 1
+                    type: integer
                 type: object
                 x-kubernetes-validations:
                 - message: only either 'image' (deprecated) or 'controller.image'
@@ -1569,7 +1578,7 @@ spec:
                     default: 2
                     description: |-
                       Replicas is the number of replicas for the controller deployment.
-                      This is used for High Availability. Leader election is enabled by default.
+                      Used for High Availability via leader election.
                     format: int32
                     maximum: 3
                     minimum: 1
@@ -1664,10 +1673,10 @@ spec:
                     pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                     type: string
                   replicas:
-                    default: 1
+                    default: 2
                     description: |-
                       Replicas is the number of replicas for the controller deployment.
-                      This is used for High Availability. Leader election is enabled by default.
+                      Used for High Availability via leader election.
                     format: int32
                     maximum: 3
                     minimum: 1
@@ -1927,10 +1936,10 @@ spec:
                     pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                     type: string
                   replicas:
-                    default: 1
+                    default: 2
                     description: |-
                       Replicas is the number of replicas for the controller deployment.
-                      This is used for High Availability. Leader election is enabled by default.
+                      Used for High Availability via leader election.
                     format: int32
                     maximum: 3
                     minimum: 1
