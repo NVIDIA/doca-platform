@@ -25,7 +25,7 @@ RUN mkdir -p src && \
     -exec cp --parents \{\}  src/ \; && \
     tar -czf source-code.tar.gz src
 
-# 2) Build stage builds the OVS CNI binary.
+# 2) Build stage builds the SFC CNI binary.
 FROM --platform=${BUILDPLATFORM} ${builder_image} AS builder
 WORKDIR /workspace
 
@@ -45,7 +45,7 @@ ENV TAG=${tag}
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=bind,source=Makefile,target=Makefile \
     --mount=type=bind,source=hack/tools/tools.mk,target=hack/tools/tools.mk \
-    GOFLAGS="-mod=vendor" make binary-ovs-cni
+    GOFLAGS="-mod=vendor" make binary-sfc-cni
 
 # 3) Final stage copies artifacts from the builder stage.
 FROM ${ovs_cni_base_image}
@@ -67,5 +67,5 @@ WORKDIR /
 # Add the source code.
 COPY --from=dependency /workspace/source-code.tar.gz source-code.tar.gz
 
-# Add the OVS CNI binaries.
+# Add the SFC CNI binary.
 COPY --from=builder /workspace/bin/ovs /ovs

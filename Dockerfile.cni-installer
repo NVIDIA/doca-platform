@@ -43,10 +43,12 @@ ENV ARCH=${TARGETARCH}
 # Copy the source code from the dependency image
 COPY --from=dependency /workspace .
 
+# Build the installer plus every CNI binary it ships, in a single make
+# invocation so they share the go-build cache mount.
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=bind,source=Makefile,target=Makefile \
     --mount=type=bind,source=hack/tools/tools.mk,target=hack/tools/tools.mk \
-    GOFLAGS="-mod=vendor" make binary-cni-installer
+    GOFLAGS="-mod=vendor" make binary-cni-installer binary-sfc-cni
 
 # 3) Declare images to copy binaries from. The reason we declare them here is so that we can parameterise the version.
 FROM --platform=${TARGETPLATFORM} nvcr.io/nvidia/mellanox/rdma-cni:${rdma_cni_version} AS rdmacni
@@ -65,6 +67,10 @@ USER ${uid}:${uid}
 COPY --chown=${uid} --from=dependency /workspace/source-code.tar.gz source-code.tar.gz
 
 # Add the CNI Installer binary
-COPY --chown=${uid} --from=builder /workspace/bin/ .
+COPY --chown=${uid} --from=builder /workspace/bin/cni-installer .
 
+# Stage each CNI binary at /opt/cnis/<name>, the installer copies them
+# to /opt/cni/bin/ at runtime when the corresponding CNI is enabled.
 COPY --chown=${uid} --from=rdmacni /usr/bin/rdma /opt/cnis/rdma
+# Keep name ovs to match NAD type dispatch.
+COPY --chown=${uid} --from=builder /workspace/bin/ovs /opt/cnis/ovs

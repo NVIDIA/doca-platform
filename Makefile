@@ -1190,7 +1190,7 @@ HOSTDRIVER_BASE_IMAGE ?= nvcr.io/nvidia/doca/doca:full-rt-3.4.0-host
 STORAGE_HOST_BASE_IMAGE ?= $(HOSTDRIVER_BASE_IMAGE)
 # Base image for bfb-registry, by default it is the same as the hostdriver base image
 BFB_REGISTRY_BASE_IMAGE ?= $(HOSTDRIVER_BASE_IMAGE)
-# Base image for ovs-cni
+# Base image for the standalone SFC CNI image. Will be removed in follow up PR
 OVS_CNI_BASE_IMAGE ?= nvcr.io/nvidia/doca/canonical:ubuntu24.04
 
 .PHONY: binaries
@@ -1333,8 +1333,8 @@ binary-dpfctl-release:
 binary-cni-installer: ## Build the CNI installer binary.
 	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/cni-installer github.com/nvidia/doca-platform/cmd/cniinstaller
 
-.PHONY: binary-ovs-cni
-binary-ovs-cni: ## Build the OVS CNI (SFC CNI) binary.
+.PHONY: binary-sfc-cni
+binary-sfc-cni: ## Build the SFC CNI binary.
 	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -tags no_openssl -ldflags="$(GO_LDFLAGS) -X github.com/containernetworking/plugins/pkg/utils/buildversion.BuildVersion=$(TAG)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/ovs github.com/nvidia/doca-platform/cmd/dpf-ovs-cni
 
 .PHONY: install-dpfctl
@@ -1503,8 +1503,9 @@ docker-build-ipallocator: docker-buildx-setup $(ARTIFACTS_DIR) ## Build docker i
 		. \
 		-t $(IPALLOCATOR_IMAGE):$(TAG)
 
+# Keep the ovs-cni target name until the standalone image is removed.
 .PHONY: docker-build-ovs-cni
-docker-build-ovs-cni: docker-buildx-setup $(ARTIFACTS_DIR) ## Builds the OVS CNI image
+docker-build-ovs-cni: docker-buildx-setup $(ARTIFACTS_DIR) ## Builds the standalone SFC CNI image
 	$(CURDIR)/hack/scripts/docker-build.sh \
 		--load \
 		--label=org.opencontainers.image.created=$(DATE) \
@@ -1819,8 +1820,9 @@ docker-push-all: $(addprefix docker-push-,$(DOCKER_BUILD_TARGETS))  ## Push the 
 .PHONY: docker-push-dpf-system
 docker-push-dpf-system: ## This is a no-op to allow using DOCKER_BUILD_TARGETS.
 
+# Keep the ovs-cni target name until the standalone image is removed.
 .PHONY: docker-push-ovs-cni
-docker-push-ovs-cni: ## Push the docker image for ovs-cni
+docker-push-ovs-cni: ## Push the standalone SFC CNI image
 	docker push $(OVS_CNI_IMAGE):$(TAG)
 
 .PHONY: docker-push-hostdriver # Push a multi-arch image for hostdriver using `docker manifest`. The variable DPF_SYSTEM_ARCH defines which architectures this target pushes for.

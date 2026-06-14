@@ -27,7 +27,7 @@ import (
 )
 
 func main() {
-	// buildversion.BuildVersion is stamped via -ldflags by `binary-ovs-cni`
+	// buildversion.BuildVersion is stamped via -ldflags by `binary-sfc-cni`
 	// so the CNI About output reports the DPF release version.
 	skel.PluginMainFuncs(skel.CNIFuncs{
 		Add:   plugin.CmdAdd,
