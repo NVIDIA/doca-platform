@@ -91,6 +91,8 @@ var serveCmd = &cobra.Command{
 			Controller: config.Controller{
 				MaxConcurrentReconciles: 1,
 			},
+			// hostagent is a per-host agent (one pod per host), so leader election
+			// does not apply: each pod owns its own host's state.
 			LeaderElection: false,
 		})
 		if err != nil {

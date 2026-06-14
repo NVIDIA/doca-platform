@@ -60,9 +60,9 @@ func init() {
 
 // A controller which watches on DPU objects. When created add a new server listening on a new port. Add the address in an annotation on the DPU.
 // One single DMS pod will mock the API for any number of DMS instances by using ports.
+// Singleton by design (multi-replica would race port allocation and annotation writes); leader election is intentionally not implemented.
 func main() {
 	var metricsAddr string
-	var enableLeaderElection bool
 	var probeAddr string
 	var insecureMetrics bool
 	var enableHTTP2 bool
@@ -73,9 +73,6 @@ func main() {
 
 	fs.StringVar(&metricsAddr, "metrics-bind-address", ":35769", "The address the metric endpoint binds to.")
 	fs.StringVar(&probeAddr, "health-probe-bind-address", ":35001", "The address the probe endpoint binds to.")
-	fs.BoolVar(&enableLeaderElection, "leader-elect", false,
-		"Enable leader election for controller manager. "+
-			"Enabling this will ensure there is only one active controller manager.")
 	fs.BoolVar(&insecureMetrics, "insecure-metrics", false,
 		"If set the metrics endpoint is served insecure without AuthN/AuthZ.")
 	fs.BoolVar(&enableHTTP2, "enable-http2", false,
@@ -147,19 +144,7 @@ func main() {
 		Cache: cache.Options{
 			SyncPeriod: &syncPeriod,
 		},
-		LeaderElection:   enableLeaderElection,
-		LeaderElectionID: "e361zzcf.nvidia.com",
-		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
-		// when the Manager ends. This requires the binary to immediately end when the
-		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
-		// speeds up voluntary leader transitions as the new leader don't have to wait
-		// LeaseDuration time first.
-		//
-		// In the default scaffold provided, the program ends immediately after
-		// the manager stops, so would be fine to enable this option. However,
-		// if you are doing or is intended to do any operation such as perform cleanups
-		// after the manager stops then its usage might be unsafe.
-		// LeaderElectionReleaseOnCancel: true,
+		// No LeaderElection: see comment above.
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")

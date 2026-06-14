@@ -183,6 +183,12 @@ func (f *fromDPUService) applyDPUServiceEdits(vars Variables, labelsToAdd map[st
 		edits.AddForKindS(DPUServiceKind, dpuServiceAddValueEdit(secrets, f.Name().String(), "imagePullSecrets"))
 	}
 
+	// Propagate replicas from DPFOperatorConfig.Spec.<Component>.Replicas into the helm
+	// chart values at controllerManager.replicas.
+	if replicas, exists := vars.Replicas[f.Name()]; exists && replicas != nil {
+		edits.AddForKindS(DPUServiceKind, dpuServiceAddValueEdit(*replicas, f.Name().String(), "controllerManager", "replicas"))
+	}
+
 	// Update the networking values from variables if possible.
 	networkingEdits := networkEditsForComponent(f.Name(), vars.Networking)
 	for _, edit := range networkingEdits {

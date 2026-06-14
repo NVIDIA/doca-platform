@@ -5,6 +5,9 @@ metadata:
   name: {{ include "nvidia-k8s-ipam.fullname" . }}
   namespace: {{ .Release.Namespace }}
   labels:
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/part-of: nvidia-k8s-ipam-controller
+    dpu.nvidia.com/component: nvidia-k8s-ipam-controller
     {{- include "nvidia-k8s-ipam.labels" . | nindent 4 }}
   annotations:
     kubernetes.io/description: |
@@ -13,7 +16,9 @@ metadata:
 spec:
   strategy:
     type: RollingUpdate
-  replicas: 1
+  replicas: {{ .Values.controllerManager.replicas }}
+  # TODO: drop `name: controller` and switch the selector to the DPF-native
+  # labels on the next breaking-change release (selector matchLabels is immutable).
   selector:
     matchLabels:
       name: controller
@@ -21,6 +26,9 @@ spec:
     metadata:
       labels:
         name: controller
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/part-of: nvidia-k8s-ipam-controller
+        dpu.nvidia.com/component: nvidia-k8s-ipam-controller
         {{- include "nvidia-k8s-ipam.labels" . | nindent 8 }}
       annotations:
         {{- include "nvidia-k8s-ipam.annotations" . | nindent 8 }}
@@ -39,6 +47,15 @@ spec:
               - matchExpressions:
                   - key: node-role.kubernetes.io/control-plane
                     operator: Exists
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/part-of: nvidia-k8s-ipam-controller
+                    dpu.nvidia.com/component: nvidia-k8s-ipam-controller
       tolerations:
         - key: node-role.kubernetes.io/master
           operator: Exists

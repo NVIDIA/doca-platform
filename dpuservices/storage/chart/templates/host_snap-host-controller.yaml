@@ -67,10 +67,20 @@ spec:
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.host.snapHostController.affinity }}
       affinity:
+        {{- with .Values.host.snapHostController.affinity }}
         {{- toYaml . | nindent 8 }}
-      {{- end }}
+        {{- else }}
+        # Default: preferred per-node spread for HA; on single-node setups both pods colocate.
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  {{- include "snap-host-controller.selectorLabels" . | nindent 18 }}
+        {{- end }}
       {{- with .Values.host.snapHostController.tolerations | default list }}
       tolerations:
         {{- toYaml . | nindent 8 }}

@@ -138,7 +138,7 @@ metadata:
   name: static-cm-controller-manager
   namespace: dpf-operator-system
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app.kubernetes.io/part-of: static-cluster-manager
@@ -151,6 +151,16 @@ spec:
         app.kubernetes.io/part-of: static-cluster-manager
         dpu.nvidia.com/component: static-cluster-manager
     spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/part-of: static-cluster-manager
+                  dpu.nvidia.com/component: static-cluster-manager
+              topologyKey: kubernetes.io/hostname
+            weight: 100
       automountServiceAccountToken: false
       containers:
       - args:

@@ -364,15 +364,29 @@ func setAdditionalConfigs(variables Variables, config *operatorv1.DPFOperatorCon
 		variables.DisableDPUReadyTaints = *config.Spec.DPUServiceController.DisableDPUReadyTaints
 	}
 
-	// Extract replicas for cluster managers
+	// Extract replicas for every controller that exposes a Replicas field in the CRD.
+	// This is the single propagation point from DPFOperatorConfig.Spec.<Component>.Replicas
+	// into the deployment manifests and helm chart values.
 	if config.Spec.KamajiClusterManager != nil && config.Spec.KamajiClusterManager.Replicas != nil {
 		variables.Replicas[operatorv1.KamajiClusterManagerName] = config.Spec.KamajiClusterManager.Replicas
 	}
-
-	// Extract replicas for NodeSRIOVDevicePluginController
 	if config.Spec.NodeSRIOVDevicePluginController != nil && config.Spec.NodeSRIOVDevicePluginController.Replicas != nil {
 		variables.Replicas[operatorv1.NodeSRIOVDevicePluginControllerName] = config.Spec.NodeSRIOVDevicePluginController.Replicas
 	}
+	if config.Spec.DPUServiceController != nil && config.Spec.DPUServiceController.Replicas != nil {
+		variables.Replicas[operatorv1.DPUServiceControllerName] = config.Spec.DPUServiceController.Replicas
+	}
+	if config.Spec.StaticClusterManager != nil && config.Spec.StaticClusterManager.Replicas != nil {
+		variables.Replicas[operatorv1.StaticClusterManagerName] = config.Spec.StaticClusterManager.Replicas
+	}
+	if config.Spec.ServiceSetController != nil && config.Spec.ServiceSetController.Replicas != nil {
+		variables.Replicas[operatorv1.ServiceSetControllerName] = config.Spec.ServiceSetController.Replicas
+	}
+	if config.Spec.NVIPAM != nil && config.Spec.NVIPAM.Replicas != nil {
+		variables.Replicas[operatorv1.NVIPAMControllerName] = config.Spec.NVIPAM.Replicas
+	}
+	// SFCController achieves HA via per-node sharding (DaemonSet + node-local cache):
+	// each pod exclusively owns its node's state, which makes leader election unnecessary.
 
 	// Extract NodeSRIOVDevicePluginController configuration
 	if config.Spec.NodeSRIOVDevicePluginController != nil && config.Spec.NodeSRIOVDevicePluginController.DevicePlugin != nil {

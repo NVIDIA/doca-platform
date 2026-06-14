@@ -33,15 +33,8 @@ type DefaultOverridesConfiguration struct {
 // +kubebuilder:validation:XValidation:rule="!(has(self.bfCFGTemplateConfigMap) && has(self.enableDynamicBFCFGTemplates) && self.enableDynamicBFCFGTemplates)",message="bfCFGTemplateConfigMap and enableDynamicBFCFGTemplates are mutually exclusive"
 
 type ProvisioningControllerConfiguration struct {
-	BaseComponentConfig `json:",inline"`
-
-	// Replicas is the number of replicas for the controller deployment.
-	// This is used for High Availability. Leader election is enabled by default.
-	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:validation:Maximum=3
-	// +kubebuilder:default=2
-	// +optional
-	Replicas *int32 `json:"replicas,omitempty"`
+	BaseComponentConfig  `json:",inline"`
+	BaseControllerConfig `json:",inline"`
 
 	// Image overrides the container image used by the Provisioning controller.
 	//
@@ -356,15 +349,8 @@ func (c *DPUDetectorConfiguration) GetResources() map[ContainerName]*corev1.Reso
 // +kubebuilder:validation:XValidation:rule="!has(self.image) || !has(self.controller) || !has(self.controller.image)",message="only either 'image' (deprecated) or 'controller.image' can be set, but not both"
 
 type KamajiClusterManagerConfiguration struct {
-	BaseComponentConfig `json:",inline"`
-
-	// Replicas is the number of replicas for the controller deployment.
-	// This is used for High Availability. Leader election is enabled by default.
-	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:validation:Maximum=3
-	// +kubebuilder:default=2
-	// +optional
-	Replicas *int32 `json:"replicas,omitempty"`
+	BaseComponentConfig  `json:",inline"`
+	BaseControllerConfig `json:",inline"`
 
 	// Image overrides the container image used by the Kamaji Cluster Manager.
 	//
@@ -633,8 +619,9 @@ func (c *MultusConfiguration) GetResources() map[ContainerName]*corev1.ResourceR
 // +kubebuilder:validation:XValidation:rule="!has(self.image) || !has(self.controller) || !has(self.controller.image)",message="only either 'image' (deprecated) or 'controller.image' can be set, but not both"
 
 type NVIPAMConfiguration struct {
-	BaseComponentConfig `json:",inline"`
-	HelmComponentConfig `json:",inline"`
+	BaseComponentConfig  `json:",inline"`
+	HelmComponentConfig  `json:",inline"`
+	BaseControllerConfig `json:",inline"`
 
 	// Image overrides the container image used by the NVIPAM controller.
 	//
@@ -788,6 +775,10 @@ func (c *OVSCNIConfiguration) GetResources() map[ContainerName]*corev1.ResourceR
 
 // +kubebuilder:validation:XValidation:rule="!has(self.image) || !has(self.controller) || !has(self.controller.image)",message="only either 'image' (deprecated) or 'controller.image' can be set, but not both"
 
+// SFCControllerConfiguration intentionally does not embed BaseControllerConfig:
+// HA is achieved via per-node sharding (DaemonSet + node-local cache + per-node
+// reconcilers); each pod exclusively owns its node's state, which makes leader
+// election unnecessary.
 type SFCControllerConfiguration struct {
 	BaseComponentConfig `json:",inline"`
 	HelmComponentConfig `json:",inline"`

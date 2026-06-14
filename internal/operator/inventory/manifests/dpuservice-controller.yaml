@@ -372,7 +372,7 @@ metadata:
   name: dpuservice-controller-manager
   namespace: dpuservice-controller-system
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app.kubernetes.io/part-of: dpuservice-controller-manager
@@ -385,6 +385,16 @@ spec:
         app.kubernetes.io/part-of: dpuservice-controller-manager
         dpu.nvidia.com/component: dpuservice-controller-manager
     spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/part-of: dpuservice-controller-manager
+                  dpu.nvidia.com/component: dpuservice-controller-manager
+              topologyKey: kubernetes.io/hostname
+            weight: 100
       automountServiceAccountToken: false
       containers:
       - command:

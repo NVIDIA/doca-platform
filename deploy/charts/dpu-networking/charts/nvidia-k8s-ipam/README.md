@@ -10,6 +10,7 @@ A Helm chart for Kubernetes
 |-----|------|---------|-------------|
 | cniBinDir | string | `"/opt/cni/bin"` |  |
 | cniConfDir | string | `"/etc/cni/net.d"` |  |
+| controllerManager.replicas | int | `2` |  |
 | deployDPUManifests | bool | `false` | deployDPUManifests controls whether the manifests that are required in the DPUCluster should be deployed. |
 | deployHostManifests | bool | `false` | deployHostManifests controls whether the manifests that are required in the host cluster should be deployed. |
 | env | list | `[]` |  |

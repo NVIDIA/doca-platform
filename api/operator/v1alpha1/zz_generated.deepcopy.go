@@ -568,11 +568,7 @@ func (in *InstallViaRedfish) DeepCopy() *InstallViaRedfish {
 func (in *KamajiClusterManagerConfiguration) DeepCopyInto(out *KamajiClusterManagerConfiguration) {
 	*out = *in
 	in.BaseComponentConfig.DeepCopyInto(&out.BaseComponentConfig)
-	if in.Replicas != nil {
-		in, out := &in.Replicas, &out.Replicas
-		*out = new(int32)
-		**out = **in
-	}
+	in.BaseControllerConfig.DeepCopyInto(&out.BaseControllerConfig)
 	if in.Image != nil {
 		in, out := &in.Image, &out.Image
 		*out = new(string)
@@ -718,6 +714,7 @@ func (in *NVIPAMConfiguration) DeepCopyInto(out *NVIPAMConfiguration) {
 	*out = *in
 	in.BaseComponentConfig.DeepCopyInto(&out.BaseComponentConfig)
 	in.HelmComponentConfig.DeepCopyInto(&out.HelmComponentConfig)
+	in.BaseControllerConfig.DeepCopyInto(&out.BaseControllerConfig)
 	if in.Image != nil {
 		in, out := &in.Image, &out.Image
 		*out = new(string)
@@ -1031,11 +1028,7 @@ func (in *Overrides) DeepCopy() *Overrides {
 func (in *ProvisioningControllerConfiguration) DeepCopyInto(out *ProvisioningControllerConfiguration) {
 	*out = *in
 	in.BaseComponentConfig.DeepCopyInto(&out.BaseComponentConfig)
-	if in.Replicas != nil {
-		in, out := &in.Replicas, &out.Replicas
-		*out = new(int32)
-		**out = **in
-	}
+	in.BaseControllerConfig.DeepCopyInto(&out.BaseControllerConfig)
 	if in.Image != nil {
 		in, out := &in.Image, &out.Image
 		*out = new(string)
