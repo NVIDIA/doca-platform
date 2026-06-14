@@ -160,6 +160,8 @@ var _ = BeforeSuite(func() {
 				Port:    webhookInstallOptions.LocalServingPort,
 				CertDir: webhookInstallOptions.LocalServingCertDir,
 			}),
+		// Disable leader election: enabling it would add recurring Lease writes and a startup delay
+		// of ~LeaseDuration whenever a stale Lease from a previous run is still present.
 		LeaderElection: false,
 		Metrics: server.Options{
 			BindAddress: "0",

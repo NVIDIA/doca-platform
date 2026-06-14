@@ -12,8 +12,11 @@ metadata:
   {{- include "dpf-operator.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.controllerManager.replicas }}
+  # RollingUpdate relies on a stable leader-election ID: the brief old/new pod overlap
+  # on upgrade contends the same Lease, so only one acts as leader. If the ID ever
+  # changes again (as it did in 26.4), use Recreate for that upgrade to avoid split-brain.
   strategy:
-    type: Recreate
+    type: RollingUpdate
   selector:
     matchLabels:
       control-plane: controller-manager

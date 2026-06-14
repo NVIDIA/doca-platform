@@ -150,7 +150,7 @@ A Helm chart for DPF storage subsystem
 | host.snapHostController.podAnnotations | object | `{}` |  |
 | host.snapHostController.podLabels | object | `{}` |  |
 | host.snapHostController.podSecurityContext.runAsNonRoot | bool | `true` |  |
-| host.snapHostController.replicas | int | `1` |  |
+| host.snapHostController.replicas | int | `2` |  |
 | host.snapHostController.securityContext.privileged | bool | `false` |  |
 | host.snapHostController.securityContext.runAsUser | int | `65532` |  |
 | host.snapHostController.tolerations[0].effect | string | `"NoSchedule"` |  |

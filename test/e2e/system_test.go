@@ -136,6 +136,17 @@ func SetInput() {
 		}
 	}
 
+	// CI runs the host control-plane controllers at a single replica to save
+	// resources on control-plane nodes and keep logs easy to read.
+	if dpfOperatorConfig.Spec.DPUServiceController == nil {
+		dpfOperatorConfig.Spec.DPUServiceController = &operatorv1.DPUServiceControllerConfiguration{}
+	}
+	dpfOperatorConfig.Spec.ProvisioningController.Replicas = ptr.To[int32](1)
+	dpfOperatorConfig.Spec.DPUServiceController.Replicas = ptr.To[int32](1)
+	dpfOperatorConfig.Spec.KamajiClusterManager.Replicas = ptr.To[int32](1)
+	dpfOperatorConfig.Spec.StaticClusterManager.Replicas = ptr.To[int32](1)
+	dpfOperatorConfig.Spec.NodeSRIOVDevicePluginController.Replicas = ptr.To[int32](1)
+
 	if prereqsNamespace != "" {
 		if dpfOperatorConfig.Spec.Overrides == nil {
 			dpfOperatorConfig.Spec.Overrides = &operatorv1.Overrides{}

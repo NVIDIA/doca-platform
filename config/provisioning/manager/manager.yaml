@@ -17,6 +17,16 @@ spec:
       labels:
     spec:
       automountServiceAccountToken: false
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/part-of: dpf-provisioning-controller-manager
+                  dpu.nvidia.com/component: dpf-provisioning-controller-manager
       imagePullSecrets:
       - name: dpf-provisioning-regcred
       containers:

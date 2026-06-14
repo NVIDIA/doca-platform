@@ -33,7 +33,6 @@ spec:
       containers:
       - command:
         - /manager
-        - --leader-elect
         - --config=/etc/config/config.yaml
         - --host-ip=$(POD_IP)
         env:

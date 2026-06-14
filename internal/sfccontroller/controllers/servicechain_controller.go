@@ -335,7 +335,6 @@ func (r *ServiceChainReconciler) reconcileDelete(ctx context.Context, sc *dpuser
 }
 
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch;update
-// +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=servicechains,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=servicechains/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=servicechains/finalizers,verbs=update
