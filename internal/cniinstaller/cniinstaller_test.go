@@ -44,11 +44,13 @@ var _ = Describe("CNI Installer", func() {
 		})
 
 		It("should copy all enabled CNIs when source contains all required CNIs", func() {
-			// Create source CNI directory with RDMA CNI (enabled by default)
+			// Create source CNI directory with RDMA and ovs
 			sourceCniDir := filepath.Join(tmpDir, "/opt/cnis")
 			Expect(os.MkdirAll(sourceCniDir, 0755)).To(Succeed())
 			rdmaSourcePath := filepath.Join(sourceCniDir, "rdma")
 			Expect(os.WriteFile(rdmaSourcePath, []byte("#!/usr/bin/env bash\necho 'RDMA CNI binary'"), 0755)).To(Succeed())
+			sfcSourcePath := filepath.Join(sourceCniDir, "ovs")
+			Expect(os.WriteFile(sfcSourcePath, []byte("#!/usr/bin/env bash\necho 'SFC CNI binary'"), 0755)).To(Succeed())
 
 			// Create destination directory
 			destCniDir := filepath.Join(tmpDir, "/opt/cni/bin")
@@ -58,20 +60,29 @@ var _ = Describe("CNI Installer", func() {
 			err := installer.Install()
 			Expect(err).ToNot(HaveOccurred())
 
-			// Verify destination contains the enabled CNI
+			// Verify destination contains both enabled CNIs
 			rdmaDestPath := filepath.Join(tmpDir, "/opt/cni/bin/rdma")
 			Expect(rdmaDestPath).To(BeAnExistingFile())
+			sfcDestPath := filepath.Join(tmpDir, "/opt/cni/bin/ovs")
+			Expect(sfcDestPath).To(BeAnExistingFile())
 
 			// Verify content was copied correctly
 			destContent, err := os.ReadFile(rdmaDestPath)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(destContent).To(Equal([]byte("#!/usr/bin/env bash\necho 'RDMA CNI binary'")))
 
+			destContent, err = os.ReadFile(sfcDestPath)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(destContent).To(Equal([]byte("#!/usr/bin/env bash\necho 'SFC CNI binary'")))
+
 			// Verify permissions were set to 755
 			destInfo, err := os.Stat(rdmaDestPath)
 			Expect(err).ToNot(HaveOccurred())
-			finalMode := destInfo.Mode()
-			Expect(finalMode & 0777).To(Equal(os.FileMode(0755)))
+			Expect(destInfo.Mode() & 0777).To(Equal(os.FileMode(0755)))
+
+			destInfo, err = os.Stat(sfcDestPath)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(destInfo.Mode() & 0777).To(Equal(os.FileMode(0755)))
 		})
 
 		It("should copy only relevant CNIs when source contains extra CNIs", func() {
@@ -82,6 +93,10 @@ var _ = Describe("CNI Installer", func() {
 			// RDMA CNI (enabled by default)
 			rdmaSourcePath := filepath.Join(sourceCniDir, "rdma")
 			Expect(os.WriteFile(rdmaSourcePath, []byte("#!/usr/bin/env bash\necho 'RDMA CNI binary'"), 0755)).To(Succeed())
+
+			// ovs (enabled by default)
+			sfcSourcePath := filepath.Join(sourceCniDir, "ovs")
+			Expect(os.WriteFile(sfcSourcePath, []byte("#!/usr/bin/env bash\necho 'SFC CNI binary'"), 0755)).To(Succeed())
 
 			// Extra CNI (not relevant to this installer)
 			extraSourcePath := filepath.Join(sourceCniDir, "extra")
@@ -95,16 +110,21 @@ var _ = Describe("CNI Installer", func() {
 			err := installer.Install()
 			Expect(err).ToNot(HaveOccurred())
 
-			// Verify destination contains only the enabled CNI
+			// Verify destination contains only the enabled CNIs
 			rdmaDestPath := filepath.Join(tmpDir, "/opt/cni/bin/rdma")
 			Expect(rdmaDestPath).To(BeAnExistingFile())
+			sfcDestPath := filepath.Join(tmpDir, "/opt/cni/bin/ovs")
+			Expect(sfcDestPath).To(BeAnExistingFile())
 
 			// Verify extra CNI was not copied
 			extraDestPath := filepath.Join(tmpDir, "/opt/cni/bin/extra")
 			Expect(extraDestPath).NotTo(BeAnExistingFile())
 		})
 
-		It("should fail when source is missing an enabled CNI", func() {
+		It("should fail when source is missing RDMA CNI", func() {
+			// Disable SFC so validation is isolated to RDMA
+			installer.DisableSFC()
+
 			// Create source CNI directory but without RDMA CNI (which is enabled by default)
 			sourceCniDir := filepath.Join(tmpDir, "/opt/cnis")
 			Expect(os.MkdirAll(sourceCniDir, 0755)).To(Succeed())
@@ -121,11 +141,32 @@ var _ = Describe("CNI Installer", func() {
 			Expect(err.Error()).To(ContainSubstring("failed to stat"))
 		})
 
-		It("should not fail when source is missing a disabled CNI", func() {
-			// Disable RDMA CNI
+		It("should fail when source is missing ovs", func() {
+			// Disable RDMA so validation is isolated to SFC
 			installer.DisableRDMA()
 
-			// Create source CNI directory without RDMA CNI (which is now disabled)
+			// Create source CNI directory but without ovs
+			sourceCniDir := filepath.Join(tmpDir, "/opt/cnis")
+			Expect(os.MkdirAll(sourceCniDir, 0755)).To(Succeed())
+			// Note: No ovs binary created
+
+			// Create destination directory
+			destCniDir := filepath.Join(tmpDir, "/opt/cni/bin")
+			Expect(os.MkdirAll(destCniDir, 0755)).To(Succeed())
+
+			// Install should fail
+			err := installer.Install()
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("failed to validate CNI presence"))
+			Expect(err.Error()).To(ContainSubstring("failed to stat"))
+		})
+
+		It("should not fail when source is missing a disabled RDMA CNI", func() {
+			// Disable both CNIs so no source binaries are required
+			installer.DisableRDMA()
+			installer.DisableSFC()
+
+			// Create empty source CNI directory
 			sourceCniDir := filepath.Join(tmpDir, "/opt/cnis")
 			Expect(os.MkdirAll(sourceCniDir, 0755)).To(Succeed())
 			// Note: No RDMA CNI binary created
@@ -142,15 +183,40 @@ var _ = Describe("CNI Installer", func() {
 			Expect(rdmaDestPath).NotTo(BeAnExistingFile())
 		})
 
-		It("should not copy disabled CNI even when source contains it", func() {
-			// Disable RDMA CNI
-			installer.DisableRDMA()
+		It("should not fail when source is missing a disabled ovs", func() {
+			// Disable SFC
+			installer.DisableSFC()
 
-			// Create source CNI directory with RDMA CNI (but it's disabled)
+			// Create source CNI directory with only RDMA
 			sourceCniDir := filepath.Join(tmpDir, "/opt/cnis")
 			Expect(os.MkdirAll(sourceCniDir, 0755)).To(Succeed())
 			rdmaSourcePath := filepath.Join(sourceCniDir, "rdma")
 			Expect(os.WriteFile(rdmaSourcePath, []byte("#!/usr/bin/env bash\necho 'RDMA CNI binary'"), 0755)).To(Succeed())
+			// Note: No ovs binary created
+
+			// Create destination directory
+			destCniDir := filepath.Join(tmpDir, "/opt/cni/bin")
+			Expect(os.MkdirAll(destCniDir, 0755)).To(Succeed())
+
+			// Install should succeed
+			err := installer.Install()
+			Expect(err).ToNot(HaveOccurred())
+
+			sfcDestPath := filepath.Join(tmpDir, "/opt/cni/bin/ovs")
+			Expect(sfcDestPath).NotTo(BeAnExistingFile())
+		})
+
+		It("should not copy disabled RDMA CNI even when source contains it", func() {
+			// Disable RDMA CNI
+			installer.DisableRDMA()
+
+			// Create source CNI directory with RDMA CNI (but it's disabled) and ovs
+			sourceCniDir := filepath.Join(tmpDir, "/opt/cnis")
+			Expect(os.MkdirAll(sourceCniDir, 0755)).To(Succeed())
+			rdmaSourcePath := filepath.Join(sourceCniDir, "rdma")
+			Expect(os.WriteFile(rdmaSourcePath, []byte("#!/usr/bin/env bash\necho 'RDMA CNI binary'"), 0755)).To(Succeed())
+			sfcSourcePath := filepath.Join(sourceCniDir, "ovs")
+			Expect(os.WriteFile(sfcSourcePath, []byte("#!/usr/bin/env bash\necho 'SFC CNI binary'"), 0755)).To(Succeed())
 
 			// Create destination directory
 			destCniDir := filepath.Join(tmpDir, "/opt/cni/bin")
@@ -164,12 +230,38 @@ var _ = Describe("CNI Installer", func() {
 			Expect(rdmaDestPath).NotTo(BeAnExistingFile())
 		})
 
-		It("should fail when destination directory doesn't exist", func() {
-			// Create source CNI directory with RDMA CNI
+		It("should not copy disabled ovs even when source contains it", func() {
+			// Disable SFC CNI
+			installer.DisableSFC()
+
+			// Create source CNI directory with ovs (but it's disabled) and RDMA
 			sourceCniDir := filepath.Join(tmpDir, "/opt/cnis")
 			Expect(os.MkdirAll(sourceCniDir, 0755)).To(Succeed())
 			rdmaSourcePath := filepath.Join(sourceCniDir, "rdma")
 			Expect(os.WriteFile(rdmaSourcePath, []byte("#!/usr/bin/env bash\necho 'RDMA CNI binary'"), 0755)).To(Succeed())
+			sfcSourcePath := filepath.Join(sourceCniDir, "ovs")
+			Expect(os.WriteFile(sfcSourcePath, []byte("#!/usr/bin/env bash\necho 'SFC CNI binary'"), 0755)).To(Succeed())
+
+			// Create destination directory
+			destCniDir := filepath.Join(tmpDir, "/opt/cni/bin")
+			Expect(os.MkdirAll(destCniDir, 0755)).To(Succeed())
+
+			// Install should succeed
+			err := installer.Install()
+			Expect(err).ToNot(HaveOccurred())
+
+			sfcDestPath := filepath.Join(tmpDir, "/opt/cni/bin/ovs")
+			Expect(sfcDestPath).NotTo(BeAnExistingFile())
+		})
+
+		It("should fail when destination directory doesn't exist", func() {
+			// Create source CNI directory with RDMA CNI and ovs
+			sourceCniDir := filepath.Join(tmpDir, "/opt/cnis")
+			Expect(os.MkdirAll(sourceCniDir, 0755)).To(Succeed())
+			rdmaSourcePath := filepath.Join(sourceCniDir, "rdma")
+			Expect(os.WriteFile(rdmaSourcePath, []byte("#!/usr/bin/env bash\necho 'RDMA CNI binary'"), 0755)).To(Succeed())
+			sfcSourcePath := filepath.Join(sourceCniDir, "ovs")
+			Expect(os.WriteFile(sfcSourcePath, []byte("#!/usr/bin/env bash\necho 'SFC CNI binary'"), 0755)).To(Succeed())
 
 			// Note: Destination directory is not created
 
@@ -187,6 +279,9 @@ var _ = Describe("CNI Installer", func() {
 			rdmaSourcePath := filepath.Join(sourceCniDir, "rdma")
 			rdmaContent := []byte("#!/usr/bin/env bash\necho 'RDMA CNI binary'")
 			Expect(os.WriteFile(rdmaSourcePath, rdmaContent, 0755)).To(Succeed())
+
+			// Disable SFC so this test is scoped to RDMA copy mechanics
+			installer.DisableSFC()
 
 			// Create destination directory
 			destCniDir := filepath.Join(tmpDir, "/opt/cni/bin")
@@ -223,6 +318,9 @@ var _ = Describe("CNI Installer", func() {
 			rdmaContent := []byte("#!/usr/bin/env bash\necho 'RDMA CNI binary'")
 			Expect(os.WriteFile(rdmaSourcePath, rdmaContent, 0755)).To(Succeed())
 
+			// Disable SFC so this test is scoped to RDMA copy mechanics
+			installer.DisableSFC()
+
 			// Create destination directory
 			destCniDir := filepath.Join(tmpDir, "/opt/cni/bin")
 			Expect(os.MkdirAll(destCniDir, 0755)).To(Succeed())
@@ -249,12 +347,15 @@ var _ = Describe("CNI Installer", func() {
 		})
 
 		It("should not leave temporary files after successful copy", func() {
-			// Create source CNI directory with RDMA CNI
+			// Create source CNI directory with RDMA CNI and ovs
 			sourceCniDir := filepath.Join(tmpDir, "/opt/cnis")
 			Expect(os.MkdirAll(sourceCniDir, 0755)).To(Succeed())
 			rdmaSourcePath := filepath.Join(sourceCniDir, "rdma")
 			rdmaContent := []byte("#!/usr/bin/env bash\necho 'RDMA CNI binary'")
 			Expect(os.WriteFile(rdmaSourcePath, rdmaContent, 0755)).To(Succeed())
+			sfcSourcePath := filepath.Join(sourceCniDir, "ovs")
+			sfcContent := []byte("#!/usr/bin/env bash\necho 'SFC CNI binary'")
+			Expect(os.WriteFile(sfcSourcePath, sfcContent, 0755)).To(Succeed())
 
 			// Create destination directory
 			destCniDir := filepath.Join(tmpDir, "/opt/cni/bin")
@@ -264,20 +365,26 @@ var _ = Describe("CNI Installer", func() {
 			err := installer.Install()
 			Expect(err).ToNot(HaveOccurred())
 
-			// Verify destination contains the CNI
+			// Verify destination contains both CNI binaries
 			rdmaDestPath := filepath.Join(tmpDir, "/opt/cni/bin/rdma")
 			Expect(rdmaDestPath).To(BeAnExistingFile())
+			sfcDestPath := filepath.Join(tmpDir, "/opt/cni/bin/ovs")
+			Expect(sfcDestPath).To(BeAnExistingFile())
 
 			// Check that no temporary files exist in the destination directory
 			destFiles, err := os.ReadDir(destCniDir)
 			Expect(err).ToNot(HaveOccurred())
 
-			// Should only contain the expected CNI binary, no temporary files
-			Expect(destFiles).To(HaveLen(1))
-			Expect(destFiles[0].Name()).To(Equal("rdma"))
+			// Should only contain the expected CNI binaries, no temporary files
+			Expect(destFiles).To(HaveLen(2))
+			Expect(destFiles[0].Name()).To(Equal("ovs"))
+			Expect(destFiles[1].Name()).To(Equal("rdma"))
 		})
 
 		It("should not leave temporary files after failed copy", func() {
+			// Disable SFC so the read-only failure stays isolated to the RDMA copy step
+			installer.DisableSFC()
+
 			// Create source CNI directory with RDMA CNI
 			sourceCniDir := filepath.Join(tmpDir, "/opt/cnis")
 			Expect(os.MkdirAll(sourceCniDir, 0755)).To(Succeed())
