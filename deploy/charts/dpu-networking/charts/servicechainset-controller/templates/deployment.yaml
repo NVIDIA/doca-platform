@@ -39,6 +39,15 @@ spec:
             - matchExpressions:
               - key: node-role.kubernetes.io/control-plane
                 operator: Exists
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  control-plane: controller-manager
+                {{- include "servicechain.selectorLabels" . | nindent 18 }}
       {{- with .Values.volumes }}
       volumes:
         {{- toYaml . | nindent 6 }}

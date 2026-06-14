@@ -89,6 +89,9 @@ func main() {
 		"The address the probe endpoint binds to.")
 	fs.StringVar(&pprofBindAddr, "pprof-bind-address", "",
 		"The address the pprof endpoint binds to.")
+	// --leader-elect defaults to false so `make run` / tests skip the Lease entirely
+	// (otherwise startup blocks for ~LeaseDuration waiting for stale leases).
+	// Production deployment manifests pass --leader-elect to opt into HA.
 	fs.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
@@ -172,6 +175,9 @@ func main() {
 		},
 		LeaderElection:   enableLeaderElection,
 		LeaderElectionID: "nodesriovdeviceplugin.dpu.nvidia.com",
+		// Release the lease on shutdown so a standby replica can take over within
+		// seconds. Safe because main() exits immediately after mgr.Start returns.
+		LeaderElectionReleaseOnCancel: true,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")

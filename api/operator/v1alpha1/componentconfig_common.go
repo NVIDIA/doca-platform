@@ -181,12 +181,17 @@ func (b *BaseComponentConfig) Disabled() bool {
 // by all controller configurations to reduce code duplication.
 type BaseControllerConfig struct {
 	// Replicas is the number of replicas for the controller deployment.
-	// This is used for High Availability. Leader election is enabled by default.
+	// Used for High Availability via leader election.
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=3
-	// +kubebuilder:default=1
+	// +kubebuilder:default=2
 	// +optional
 	Replicas *int32 `json:"replicas,omitempty"`
+}
+
+// SetReplicas sets the desired replica count for the controller deployment.
+func (b *BaseControllerConfig) SetReplicas(replicas *int32) {
+	b.Replicas = replicas
 }
 
 // HelmComponentConfigurable is the shared config for helm components.

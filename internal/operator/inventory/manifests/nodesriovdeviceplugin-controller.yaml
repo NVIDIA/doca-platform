@@ -223,7 +223,7 @@ metadata:
   name: dpf-nodesriovdeviceplugin-controller
   namespace: dpf-nodesriovdeviceplugin-system
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app.kubernetes.io/part-of: nodesriovdeviceplugin-controller
@@ -236,6 +236,16 @@ spec:
         app.kubernetes.io/part-of: nodesriovdeviceplugin-controller
         dpu.nvidia.com/component: nodesriovdeviceplugin-controller
     spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/part-of: nodesriovdeviceplugin-controller
+                  dpu.nvidia.com/component: nodesriovdeviceplugin-controller
+              topologyKey: kubernetes.io/hostname
+            weight: 100
       containers:
       - command:
         - /nodesriovdeviceplugin-controller

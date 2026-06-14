@@ -576,6 +576,16 @@ spec:
         app.kubernetes.io/part-of: dpf-provisioning-controller-manager
         dpu.nvidia.com/component: dpf-provisioning-controller-manager
     spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/part-of: dpf-provisioning-controller-manager
+                  dpu.nvidia.com/component: dpf-provisioning-controller-manager
+              topologyKey: kubernetes.io/hostname
+            weight: 100
       automountServiceAccountToken: false
       containers:
       - args:

@@ -129,6 +129,9 @@ func parseFlags() *cliFlags {
 	fs.StringVar(&flags.metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	fs.StringVar(&flags.probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	fs.StringVar(&flags.pprofBindAddr, "pprof-bind-address", "", "The address the pprof endpoint binds to.")
+	// --leader-elect defaults to false so `make run` / tests skip the Lease entirely
+	// (otherwise startup blocks for ~LeaseDuration waiting for stale leases).
+	// Production deployment manifests pass --leader-elect to opt into HA.
 	fs.BoolVar(&flags.enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
@@ -220,17 +223,9 @@ func createManager(flags *cliFlags) (ctrl.Manager, *rest.Config) {
 		},
 		LeaderElection:   flags.enableLeaderElection,
 		LeaderElectionID: "provisioning.dpu.nvidia.com",
-		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
-		// when the Manager ends. This requires the binary to immediately end when the
-		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
-		// speeds up voluntary leader transitions as the new leader don't have to wait
-		// LeaseDuration time first.
-		//
-		// In the default scaffold provided, the program ends immediately after
-		// the manager stops, so would be fine to enable this option. However,
-		// if you are doing or is intended to do any operation such as perform cleanups
-		// after the manager stops then its usage might be unsafe.
-		// LeaderElectionReleaseOnCancel: true,
+		// Release the lease on shutdown so a standby replica can take over within
+		// seconds. Safe because main() exits immediately after mgr.Start returns.
+		LeaderElectionReleaseOnCancel: true,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")

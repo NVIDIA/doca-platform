@@ -211,6 +211,16 @@ spec:
         app.kubernetes.io/part-of: kamaji-cluster-manager
         dpu.nvidia.com/component: kamaji-cluster-manager
     spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/part-of: kamaji-cluster-manager
+                  dpu.nvidia.com/component: kamaji-cluster-manager
+              topologyKey: kubernetes.io/hostname
+            weight: 100
       automountServiceAccountToken: false
       containers:
       - args:

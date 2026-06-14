@@ -29,18 +29,8 @@ rules:
   - get
   - list
   - watch
-- apiGroups:
-  - coordination.k8s.io
-  resources:
-  - leases
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
+# No coordination.k8s.io/leases grant: sfc-controller uses per-node sharding
+# (DaemonSet + node-local cache), not leader election.
 - apiGroups:
   - svc.dpu.nvidia.com
   resources:

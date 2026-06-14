@@ -72,10 +72,13 @@ func init() {
 // +kubebuilder:rbac:groups=authentication.k8s.io,resources=tokenreviews,verbs=create
 // +kubebuilder:rbac:groups=authorization.k8s.io,resources=subjectaccessreviews,verbs=create
 
+// sfc-controller achieves HA via per-node sharding instead of leader election
+// (DaemonSet + node-local cache + per-node reconcilers. Each pod exclusively
+// owns its node's OVS state, so no two pods touch the same resource.
+
 func main() {
 	var metricsAddr string
 	var pprofAddr string
-	var enableLeaderElection bool
 	var probeAddr string
 	var insecureMetrics bool
 	var enableHTTP2 bool
@@ -84,9 +87,6 @@ func main() {
 	fs.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	fs.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	fs.StringVar(&pprofAddr, "pprof-bind-address", "", "The address the pprof endpoint binds to.")
-	fs.BoolVar(&enableLeaderElection, "leader-elect", false,
-		"Enable leader election for controller manager. "+
-			"Enabling this will ensure there is only one active controller manager.")
 	fs.BoolVar(&insecureMetrics, "insecure-metrics", false,
 		"If set the metrics endpoint is served insecure without AuthN/AuthZ.")
 	fs.BoolVar(&enableHTTP2, "enable-http2", false,
@@ -155,17 +155,7 @@ func main() {
 		Controller: config.Controller{
 			MaxConcurrentReconciles: concurrency,
 		},
-		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
-		// when the Manager ends. This requires the binary to immediately end when the
-		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
-		// speeds up voluntary leader transitions as the new leader don't have to wait
-		// LeaseDuration time first.
-		//
-		// In the default scaffold provided, the program ends immediately after
-		// the manager stops, so would be fine to enable this option. However,
-		// if you are doing or is intended to do any operation such as perform cleanups
-		// after the manager stops then its usage might be unsafe.
-		// LeaderElectionReleaseOnCancel: true,
+		// No LeaderElection: see comment above.
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to create manager")
