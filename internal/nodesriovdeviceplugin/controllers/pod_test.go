@@ -30,6 +30,15 @@ import (
 	"k8s.io/utils/ptr"
 )
 
+func findVolumeByName(volumes []corev1.Volume, name string) *corev1.Volume {
+	for i := range volumes {
+		if volumes[i].Name == name {
+			return &volumes[i]
+		}
+	}
+	return nil
+}
+
 var _ = Describe("Pod", func() {
 	Context("generatePodName", func() {
 		It("should generate pod name with node name suffix", func() {
@@ -166,11 +175,15 @@ var _ = Describe("Pod", func() {
 			Expect(mainContainer.Args).To(ContainElement("--resource-prefix=nvidia.com"))
 			Expect(mainContainer.SecurityContext).NotTo(BeNil())
 			Expect(mainContainer.SecurityContext.Privileged).To(Equal(ptr.To(true)))
+			Expect(mainContainer.VolumeMounts).To(ContainElement(corev1.VolumeMount{
+				Name:      deviceInfoVolumeName,
+				MountPath: deviceInfoMountPath,
+			}))
 		})
 		It("should configure volumes correctly", func() {
 			pod, err := buildDesiredPod(nodeName, namespace, inputConfig, devicePluginConfig, nil)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(pod.Spec.Volumes).To(HaveLen(4))
+			Expect(pod.Spec.Volumes).To(HaveLen(5))
 			volumeNames := make([]string, len(pod.Spec.Volumes))
 			for i, v := range pod.Spec.Volumes {
 				volumeNames[i] = v.Name
@@ -179,8 +192,14 @@ var _ = Describe("Pod", func() {
 				configVolumeName,
 				downwardAPIVolumeName,
 				devicePluginSocketVolumeName,
+				deviceInfoVolumeName,
 				sysVolumeName,
 			))
+			deviceInfoVolume := findVolumeByName(pod.Spec.Volumes, deviceInfoVolumeName)
+			Expect(deviceInfoVolume).NotTo(BeNil())
+			Expect(deviceInfoVolume.HostPath).NotTo(BeNil())
+			Expect(deviceInfoVolume.HostPath.Path).To(Equal(deviceInfoMountPath))
+			Expect(*deviceInfoVolume.HostPath.Type).To(Equal(corev1.HostPathDirectoryOrCreate))
 		})
 		It("should include image pull secrets when configured", func() {
 			devicePluginConfig.ImagePullSecrets = []string{"my-secret"}
