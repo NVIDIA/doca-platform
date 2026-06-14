@@ -34,6 +34,7 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 		workerNode1, workerNode2                               string
 		fcPod1, fcPod2                                         *corev1.Pod
 		pfMACP0Node1, pfMACP0Node2, pfMACP1Node1, pfMACP1Node2 string
+		beforeAllSucceeded                                     bool
 	)
 
 	BeforeAll(func() {
@@ -98,9 +99,14 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 			pfMACP1Node1 = getPFMACFromFlowControllerByPort(fcPod1, weaveDPUPortP1)
 			pfMACP1Node2 = getPFMACFromFlowControllerByPort(fcPod2, weaveDPUPortP1)
 		}
+		beforeAllSucceeded = true
 	})
 
 	AfterAll(func() {
+		if !beforeAllSucceeded {
+			By("Weave: Skipping cleanup, BeforeAll did not complete successfully")
+			return
+		}
 		weaveContextScope.CleanupAfter()
 		weavePrerequisiteScope.CleanupAfter()
 	})
