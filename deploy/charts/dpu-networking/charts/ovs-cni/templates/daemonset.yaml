@@ -19,7 +19,7 @@ spec:
         tier: node
       {{- include "ovs-cni.labels" . | nindent 8 }}
       annotations:
-        description: OVS CNI allows users to attach their Pods/VMs to Open vSwitch bridges
+        description: SFC CNI allows users to attach their Pods/VMs to Open vSwitch bridges
           available on nodes
     spec:
       hostNetwork: true

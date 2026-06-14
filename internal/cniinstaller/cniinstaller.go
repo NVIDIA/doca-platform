@@ -47,6 +47,8 @@ type CNIInstaller struct {
 type cnis struct {
 	// RDMA enables installation of RDMA CNI
 	RDMA bool
+	// DPFSFCCNI enables installation of the SFC CNI
+	DPFSFCCNI bool
 }
 
 // GetRDMABinaryName returns the binary name of the RDMA CNI
@@ -54,12 +56,19 @@ func (c *cnis) GetRDMABinaryName() string {
 	return "rdma"
 }
 
+// GetSFCCNIBinaryName returns the binary name of the SFC CNI
+func (c *cnis) GetSFCCNIBinaryName() string {
+	// NADs use type "ovs", so the executable must keep that name.
+	return "ovs"
+}
+
 // New creates a CNIInstaller that can copy CNIs to the host
 func New() *CNIInstaller {
 	return &CNIInstaller{
 		FileSystemRoot: "",
 		cnis: cnis{
-			RDMA: true,
+			RDMA:      true,
+			DPFSFCCNI: true,
 		},
 	}
 }
@@ -67,6 +76,11 @@ func New() *CNIInstaller {
 // DisableRDMA disables the installation of the RDMA CNI
 func (c *CNIInstaller) DisableRDMA() {
 	c.cnis.RDMA = false
+}
+
+// DisableSFC disables the installation of the SFC CNI
+func (c *CNIInstaller) DisableSFC() {
+	c.cnis.DPFSFCCNI = false
 }
 
 // Install copies the CNIs to the host
@@ -106,6 +120,12 @@ func (c *CNIInstaller) validateCNIsPresence() error {
 			return fmt.Errorf("failed to stat %s: %w", rdmaCNIPath, err)
 		}
 	}
+	if c.cnis.DPFSFCCNI {
+		dpfSFCCNIPath := filepath.Join(c.FileSystemRoot, sourceCNIBinDir, c.cnis.GetSFCCNIBinaryName())
+		if _, err := os.Stat(dpfSFCCNIPath); err != nil {
+			return fmt.Errorf("failed to stat %s: %w", dpfSFCCNIPath, err)
+		}
+	}
 	return nil
 }
 
@@ -114,6 +134,11 @@ func (c *CNIInstaller) copyCNIs() error {
 	if c.cnis.RDMA {
 		if err := c.copyCNIBinary(c.cnis.GetRDMABinaryName()); err != nil {
 			return fmt.Errorf("failed to copy RDMA CNI: %w", err)
+		}
+	}
+	if c.cnis.DPFSFCCNI {
+		if err := c.copyCNIBinary(c.cnis.GetSFCCNIBinaryName()); err != nil {
+			return fmt.Errorf("failed to copy DPF SFC CNI: %w", err)
 		}
 	}
 
