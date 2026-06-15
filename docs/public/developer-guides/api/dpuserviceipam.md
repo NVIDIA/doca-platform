@@ -80,6 +80,114 @@ spec:
 
 This configuration creates subnets of size `/24` for each node with gateway the first IP in that subnet.
 
+## Multi-DPUCluster Support
+
+When a `DPUServiceIPAM` targets multiple DPU clusters, each cluster must receive a non-overlapping slice of the address
+space. This is controlled by a single field added to each mode:
+
+* `.spec.ipv4Subnet.blocksPerDPUCluster`: number of `perNodeIPCount`-sized blocks each DPUCluster receives.
+* `.spec.ipv4Network.subnetsPerDPUCluster`: number of `prefixSize`-sized subnets each DPUCluster receives.
+
+If either field is omitted and the `DPUServiceIPAM` matches more than one DPU cluster, the controller reports an error
+in the status and does not reconcile until the field is populated.
+
+### Subnet mode across multiple DPU clusters
+
+```yaml
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceIPAM
+metadata:
+  name: example-pool1
+spec:
+  ipv4Subnet:
+    subnet: "192.168.0.0/25"
+    gateway: "192.168.0.1"
+    perNodeIPCount: 6
+    # /25 gives 128 IPs; minus network and broadcast = 126, allocatable = 21 full blocks of 6.
+    # Each DPUCluster receives 10 blocks (60 IPs), leaving 1 block spare for a second cluster or future growth.
+    blocksPerDPUCluster: 10
+```
+
+### Network mode across multiple DPU clusters
+
+```yaml
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceIPAM
+metadata:
+  name: example-pool1
+spec:
+  ipv4Network:
+    network: "192.168.0.0/20"
+    gatewayIndex: 1
+    prefixSize: 24
+    # Each DPUCluster receives 4 /24 subnets.
+    subnetsPerDPUCluster: 4
+```
+
+### How allocations are assigned
+
+The controller computes non-overlapping allocations once per reconcile and stores the result in
+`.status.dpuClusterAllocations` (keyed by DPUCluster `<namespace>/<name>`). The underlying CIDRPool or IPPool in each
+DPU cluster is then configured with exclusion ranges covering everything outside that cluster's allocation, ensuring
+nodes in different clusters never receive duplicate IPs.
+
+Allocations are stable across reconciles: existing slices are preserved and only extended when
+`blocksPerDPUCluster` / `subnetsPerDPUCluster` grows. If a DPU cluster is removed from the selector its
+blocks are freed and may be reassigned.
+
+### Advanced: per-cluster allocation using `dpuClusterSelector` and `excludeRanges`
+
+> **Note:** This is an advanced use case. For most scenarios, prefer `blocksPerDPUCluster` /
+> `subnetsPerDPUCluster` which handles allocation automatically and keeps `excludeRanges` in sync.
+
+For cases where each DPU cluster requires a custom-sized allocation, create one `DPUServiceIPAM` per cluster using
+`.spec.dpuClusterSelector` to pin each object to a single cluster. Both objects reference the **same parent
+subnet/network** and use `excludeRanges` to carve out the portion that belongs to the other cluster — this is exactly
+what the controller does automatically when `blocksPerDPUCluster` / `subnetsPerDPUCluster` is set with the
+difference that the API does not allow for specific DPUCluster allocation in its spec.
+
+```yaml
+# Parent subnet: 10.0.0.0/22 (1024 IPs). First half → cluster A, second half → cluster B.
+
+# Cluster A — receives 10.0.0.0–10.0.1.255; excludes cluster B's range.
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceIPAM
+metadata:
+  name: pool-cluster-a
+spec:
+  dpuClusterSelector:
+    matchLabels:
+      kubernetes.io/cluster: cluster-a
+  ipv4Subnet:
+    subnet: "10.0.0.0/22"
+    gateway: "10.0.0.1"
+    perNodeIPCount: 256
+    excludeRanges:
+    - startIP: "10.0.2.0"
+      endIP: "10.0.3.255"
+---
+# Cluster B — receives 10.0.2.0–10.0.3.255; excludes cluster A's range.
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceIPAM
+metadata:
+  name: pool-cluster-b
+spec:
+  dpuClusterSelector:
+    matchLabels:
+      kubernetes.io/cluster: cluster-b
+  ipv4Subnet:
+    subnet: "10.0.0.0/22"
+    gateway: "10.0.0.1"
+    perNodeIPCount: 256
+    excludeRanges:
+    - startIP: "10.0.0.0"
+      endIP: "10.0.1.255"
+```
+
+This approach gives full control over the address space assigned to each cluster at the cost of managing one object per
+cluster and keeping the `excludeRanges` in sync manually. The `blocksPerDPUCluster` / `subnetsPerDPUCluster`
+fields are not required when only one cluster is targeted.
+
 ## Consuming IPAM in `DPUServiceChain`
 
 For our workload to consume an IP from the IPAM we have installed in the cluster, we need to create a `DPUServiceChain`
@@ -234,3 +342,6 @@ pool defined above, from the chunk that is allocated on the node.
 ## Limitations
 
 * `DPUServiceIPAM` CRs must be created in `dpf-operator-system` namespace to take effect.
+* Adding static allocations in a `DPUServiceIPAM` - that targets multiple DPU clusters - for only a subset of the DPUs
+  that are supposed to join these DPU clusters and utilise this `DPUServiceIPAM`, can lead to DPU clusters with fewer
+  allocatable IPs. Applying static allocations to all DPUs or to none avoids this issue.
