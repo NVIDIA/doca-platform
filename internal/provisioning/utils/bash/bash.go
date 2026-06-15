@@ -31,12 +31,21 @@ type RunFunc func(cmdStr string) (stdout, stderr bytes.Buffer, err error)
 // RunWithContextFunc runs a shell command with a context and returns stdout, stderr, and any error.
 type RunWithContextFunc func(ctx context.Context, cmdStr string, opts ...CmdOption) (stdout, stderr bytes.Buffer, err error)
 
+// RunScriptWithContextFunc runs an executable directly (without a shell wrapper) and returns stdout, stderr, and any error.
+type RunScriptWithContextFunc func(ctx context.Context, path string) (stdout, stderr bytes.Buffer, err error)
+
 func Run(cmdStr string) (stdout, stderr bytes.Buffer, err error) {
 	return RunWithOptions(cmdStr)
 }
 
 func RunWithContext(ctx context.Context, cmdStr string, opts ...CmdOption) (stdout, stderr bytes.Buffer, err error) {
 	return runCmd(exec.CommandContext(ctx, "bash", "-c", cmdStr), opts...)
+}
+
+// RunScriptWithContext executes path directly (honors the file's shebang or binary format),
+// supporting both shell scripts and compiled executables.
+func RunScriptWithContext(ctx context.Context, path string) (stdout, stderr bytes.Buffer, err error) {
+	return runCmd(exec.CommandContext(ctx, path))
 }
 
 func RunWithOptions(cmdStr string, opts ...CmdOption) (stdout, stderr bytes.Buffer, err error) {

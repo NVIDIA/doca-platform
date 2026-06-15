@@ -27,6 +27,12 @@ spec:
       path: /etc/mellanox/mlnx-sf.conf
       permissions: "0644"
       raw: ""
+    - operation: override
+      path: /var/lib/dpf/dpuagent/node-label-scripts/node-labeling-test.sh
+      permissions: "0755"
+      raw: |
+        #!/bin/bash
+        echo "node-labeling-test-ok"
   packages:
     - name: tree
       version:
