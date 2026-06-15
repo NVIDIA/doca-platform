@@ -179,42 +179,72 @@ func installOsBf4(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 
 	logger.Info("Config transferred, starting to insert virtual media")
 
-	resp, err := client.InsertVirtualMediaImage()
+	_, err = client.InsertVirtualMediaImage()
 	if err != nil {
 		err = fmt.Errorf("failed to insert virtual media image: %w", err)
-		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondVirtualMediaInserted), err, "FailToResetChassis", resp.String()))
+		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondVirtualMediaInserted), err, "FailToInsertVirtualMediaImage", "Failed to insert virtual media image"))
 		state.Phase = provisioningv1.DPUError
 		return *state, nil
 	}
 
-	resp, err = client.InsertVirtualMediaConfig()
+	_, err = client.InsertVirtualMediaConfig()
 	if err != nil {
 		err = fmt.Errorf("failed to insert virtual media config: %w", err)
-		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondVirtualMediaInserted), err, "FailToResetChassis", resp.String()))
+		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondVirtualMediaInserted), err, "FailToInsertVirtualMediaConfig", "Failed to insert virtual media config"))
 		state.Phase = provisioningv1.DPUError
 		return *state, nil
 	}
 
-	resp, err = client.SetBootTarget("None", false)
+	_, err = client.SetBootTarget("None", false)
 	if err != nil {
 		err = fmt.Errorf("failed to set boot target: %w", err)
-		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondChangeBootTarget), err, "FailToSetBootTarget", resp.String()))
+		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondChangeBootTarget), err, "FailToSetBootTarget", "Failed to set boot target to None"))
 		state.Phase = provisioningv1.DPUError
 		return *state, nil
 	}
 
-	resp, err = client.SetBootTarget("Usb", true)
+	_, settings, err := client.GetSettings()
+	if err != nil {
+		err = fmt.Errorf("failed to get settings: %w", err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondChangeBootTarget), err, "FailToGetSettings", "Failed to get settings"))
+		state.Phase = provisioningv1.DPUError
+		return *state, nil
+	}
+
+	if settings.Boot.BootSourceOverrideTarget != "None" {
+		err = fmt.Errorf("boot source override target is not None")
+		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondChangeBootTarget), err, "BootTargetNotApplied", fmt.Sprintf("Boot source override target is not None: %s", settings.Boot.BootSourceOverrideTarget)))
+		state.Phase = provisioningv1.DPUError
+		return *state, nil
+	}
+
+	_, err = client.SetBootTarget("Usb", true)
 	if err != nil {
 		err = fmt.Errorf("failed to set boot target: %w", err)
-		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondChangeBootTarget), err, "FailToSetBootTarget", resp.String()))
+		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondChangeBootTarget), err, "FailToSetBootTarget", "Failed to set boot target to USB"))
 		state.Phase = provisioningv1.DPUError
 		return *state, nil
 	}
 
-	resp, err = client.ChassisReset()
+	_, settings, err = client.GetSettings()
+	if err != nil {
+		err = fmt.Errorf("failed to get settings: %w", err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondChangeBootTarget), err, "FailToGetSettings", "Failed to get settings"))
+		state.Phase = provisioningv1.DPUError
+		return *state, nil
+	}
+
+	if settings.Boot.BootSourceOverrideTarget != "Usb" {
+		err = fmt.Errorf("boot source override target is not Usb")
+		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondChangeBootTarget), err, "BootTargetNotApplied", fmt.Sprintf("Boot source override target is not Usb: %s", settings.Boot.BootSourceOverrideTarget)))
+		state.Phase = provisioningv1.DPUError
+		return *state, nil
+	}
+
+	_, err = client.ChassisReset()
 	if err != nil {
 		err = fmt.Errorf("failed to reset chassis: %w", err)
-		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondChassisReset), err, "FailToResetChassis", resp.String()))
+		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondChassisReset), err, "FailToResetChassis", "Failed to reset chassis"))
 		state.Phase = provisioningv1.DPUError
 		return *state, nil
 	}

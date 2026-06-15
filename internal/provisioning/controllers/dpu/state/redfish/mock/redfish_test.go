@@ -58,12 +58,37 @@ func testRootService(t *testing.T, client *client.Client) {
 }
 
 func testSetBootTarget(t *testing.T, client *client.Client) {
-	resp, err := client.SetBootTarget("Usb", true)
+	resp, settings, err := client.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings failed: %v", err)
+	}
+	if resp.StatusCode() != http.StatusOK {
+		t.Errorf("Expected status %d, got %d", http.StatusOK, resp.StatusCode())
+	}
+	if settings.Boot.BootSourceOverrideTarget != "None" {
+		t.Errorf("Expected boot target None, got %s", settings.Boot.BootSourceOverrideTarget)
+	}
+
+	resp, err = client.SetBootTarget("Usb", true)
 	if err != nil {
 		t.Fatalf("SetBootTarget failed: %v", err)
 	}
 	if resp.StatusCode() != http.StatusNoContent {
 		t.Errorf("Expected status %d, got %d", http.StatusNoContent, resp.StatusCode())
+	}
+
+	resp, settings, err = client.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings after SetBootTarget failed: %v", err)
+	}
+	if resp.StatusCode() != http.StatusOK {
+		t.Errorf("Expected status %d, got %d", http.StatusOK, resp.StatusCode())
+	}
+	if settings.Boot.BootSourceOverrideTarget != "Usb" {
+		t.Errorf("Expected boot target Usb, got %s", settings.Boot.BootSourceOverrideTarget)
+	}
+	if settings.Boot.BootSourceOverrideEnabled != "Once" {
+		t.Errorf("Expected boot override Once, got %s", settings.Boot.BootSourceOverrideEnabled)
 	}
 }
 
