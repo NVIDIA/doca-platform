@@ -46,7 +46,6 @@ const (
 
 	defaultKubleteCA           = "/etc/kubernetes/pki/ca.crt"
 	defaultKubeletBootstrap    = "/etc/kubernetes/bootstrap-kubelet.conf"
-	defaultKubeletConf         = "/etc/kubernetes/kubelet.conf"
 	defaultKubeletDataConfig   = "/var/lib/kubelet/config.yaml"
 	kubeletSystemdDropInDir    = "/etc/systemd/system/kubelet.service.d"
 	kubeletSystemdDropInFile   = "10-bf.conf"
@@ -201,7 +200,7 @@ func (c *ConfigureKubelet) Execute(execCtx context.Context, optCtx *operations.C
 		c.bootstrapPath = defaultKubeletBootstrap
 	}
 	if c.kubeletConfPath == "" {
-		c.kubeletConfPath = defaultKubeletConf
+		c.kubeletConfPath = operations.DefaultKubeletKubeconfigPath
 	}
 	_ = os.Remove(c.caPath)
 	_ = os.Remove(c.bootstrapPath)

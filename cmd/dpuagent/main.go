@@ -68,6 +68,7 @@ func main() {
 	pflag.StringVar(&options.KubeadmSecretName, "kubeadm-secret-name", "", "Name of the Secret containing the Kubeadm join command")
 	pflag.StringVar(&options.KubeadmSecretNamespace, "kubeadm-secret-namespace", "", "Namespace of the Secret containing the Kubeadm join command")
 	pflag.StringVar(&options.BFBRegistryURL, "bfb-registry-url", "", "HTTP base URL of bfb-registry (scheme://host:port) for downloading files from the registry")
+	pflag.StringVar(&options.NodeLabelScriptsDir, "node-label-scripts-dir", opts.DefaultNodeLabelScriptsDir, "Directory containing executable scripts that report DPU cluster Node labels")
 	pflag.BoolVar(&options.AstraEnabled, "astra-enabled", false, "Enable astra-specific behavior")
 	pflag.IntVar(&options.NICDeviceCount, "nic-device-count", opts.DefaultNICDeviceCount, "Expected NIC device count for provisioning validation")
 	pflag.BoolVar(&options.SkipSysctl, "skip-sysctl", false, "Skip sysctl configuration")
@@ -82,6 +83,7 @@ func main() {
 	pflag.BoolVar(&options.SkipConfigureKubelet, "skip-configure-kubelet", false, "Skip kubelet configuration")
 	pflag.BoolVar(&options.SkipStartKubelet, "skip-start-kubelet", false, "Skip starting kubelet")
 	pflag.BoolVar(&options.SkipRebootMethodDiscovery, "skip-reboot-method-discovery", false, "Skip MFT-based reboot method discovery")
+	pflag.BoolVar(&options.SkipNodeLabeling, "skip-node-labeling", false, "Skip reporting DPU cluster Node labels from scripts")
 	pflag.BoolVar(&options.SkipAstra, "skip-astra", false, "Skip Astra-specific behavior")
 	pflag.Parse()
 

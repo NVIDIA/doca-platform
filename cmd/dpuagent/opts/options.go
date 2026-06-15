@@ -23,10 +23,11 @@ import (
 )
 
 const (
-	DPUAgentDir           = "/var/lib/dpf/dpuagent"
-	DefaultCertDir        = DPUAgentDir + "/pki"
-	DefaultKubeconfig     = DPUAgentDir + "/kubeconfig"
-	DefaultNICDeviceCount = provisioningconstants.DefaultNICDeviceCount
+	DPUAgentDir                = "/var/lib/dpf/dpuagent"
+	DefaultCertDir             = DPUAgentDir + "/pki"
+	DefaultKubeconfig          = DPUAgentDir + "/kubeconfig"
+	DefaultNodeLabelScriptsDir = DPUAgentDir + "/node-label-scripts"
+	DefaultNICDeviceCount      = provisioningconstants.DefaultNICDeviceCount
 )
 
 type Options struct {
@@ -42,6 +43,7 @@ type Options struct {
 	KubeadmSecretName          string
 	KubeadmSecretNamespace     string
 	BFBRegistryURL             string
+	NodeLabelScriptsDir        string
 	AstraEnabled               bool
 	NICDeviceCount             int
 	SkipSysctl                 bool
@@ -56,6 +58,7 @@ type Options struct {
 	SkipConfigureKubelet       bool
 	SkipStartKubelet           bool
 	SkipRebootMethodDiscovery  bool
+	SkipNodeLabeling           bool
 	SkipAstra                  bool
 }
 
