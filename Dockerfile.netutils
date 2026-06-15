@@ -1,8 +1,81 @@
-FROM ubuntu:24.04
+FROM ubuntu:24.04 AS dpdk-builder
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && \
-    apt-get install -y -qq iputils-ping iperf3 rdma-core perftest dhcpcd-base
+    apt-get install -y -qq --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        curl \
+        libibverbs-dev \
+        libnuma-dev \
+        libpcap-dev \
+        librdmacm-dev \
+        meson \
+        ninja-build \
+        pkg-config \
+        python3 \
+        python3-pyelftools \
+        rdma-core \
+        xz-utils
+
+ARG DPDK_VERSION=25.11
+ARG DPDK_SHA256=52e90d2a531ef3ded0283bd91abc94980698f1f6471fa09658a0217cf6609526
+ARG DPDK_MAX_LCORES=256
+ARG TARGETARCH
+ARG DPDK_PLATFORM
+ARG DPDK_DRIVERS=bus/pci,bus/auxiliary,common/mlx5,net/mlx5,mempool/ring
+
+RUN curl -fsSL "https://fast.dpdk.org/rel/dpdk-${DPDK_VERSION}.tar.xz" -o /tmp/dpdk.tar.xz && \
+    echo "${DPDK_SHA256}  /tmp/dpdk.tar.xz" | sha256sum -c - && \
+    mkdir -p /tmp/dpdk && \
+    tar -xf /tmp/dpdk.tar.xz -C /tmp/dpdk --strip-components=1 && \
+    dpdk_platform="${DPDK_PLATFORM:-native}" && \
+    build_arch="${TARGETARCH:-$(uname -m)}" && \
+    if { [ "${build_arch}" = "arm64" ] || [ "${build_arch}" = "aarch64" ]; } && \
+        [ -z "${DPDK_PLATFORM}" ]; then \
+        dpdk_platform="generic"; \
+    fi && \
+    meson setup /tmp/dpdk/build /tmp/dpdk \
+        -Dplatform="${dpdk_platform}" \
+        -Dmax_lcores="${DPDK_MAX_LCORES}" \
+        -Denable_drivers="${DPDK_DRIVERS}" \
+        -Denable_apps=test-pmd \
+        -Dexamples="" \
+        -Dtests=false && \
+    ninja -C /tmp/dpdk/build && \
+    DESTDIR=/tmp/dpdk-install ninja -C /tmp/dpdk/build install
+
+RUN find /tmp/dpdk-install/usr/local -type f -executable -exec strip --strip-unneeded {} + || true
+
+FROM ubuntu:24.04
+
+ARG DPDK_MAX_LCORES=256
+
+ENV RTE_MAX_LCORE=${DPDK_MAX_LCORES}
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
+    apt-get install -y -qq --no-install-recommends \
+        dhcpcd-base \
+        ibverbs-providers \
+        iperf3 \
+        iproute2 \
+        iputils-ping \
+        libibverbs1 \
+        libnuma1 \
+        libpcap0.8 \
+        librdmacm1 \
+        net-tools \
+        perftest \
+        python3 \
+        python3-pexpect \
+        rdma-core && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY --from=dpdk-builder /tmp/dpdk-install/usr/local/ /usr/local/
+
+RUN ldconfig
 
 CMD ["sleep", "infinity"]

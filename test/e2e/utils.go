@@ -94,6 +94,8 @@ type TestDomain struct {
 	DPFUpgrade           string // Upgrade test suite
 	DPFUpgradeValidation string // Upgrade validation test suite
 	ExternalTest         string // External test scripts (DPF precondition setup)
+	TCP                  string // TCP external performance tests
+	UDP                  string // UDP external performance tests
 	OVNKPrimary          string // Tests that need OVNK as primary CNI
 	OVNKHBN              string // Tests that need OVNK as primary CNI with HBN deployed alongside
 	DPFVPCOVN            string // VPC OVN test suite
@@ -117,6 +119,8 @@ var Domain = TestDomain{
 	DPFUpgrade:           "DPFUpgrade",
 	DPFUpgradeValidation: "DPFUpgradeValidation",
 	ExternalTest:         "ExternalTest",
+	TCP:                  "TCP",
+	UDP:                  "UDP",
 	OVNKPrimary:          "OVNKPrimary",
 	OVNKHBN:              "OVNKHBN",
 	DPFVPCOVN:            "DPFVPCOVN",
