@@ -53,11 +53,26 @@ var _ = Describe("DPF System tests - Multi DPUCluster", Labels{Domain.MultiDPUCl
 			By("Waiting for DPFOperatorConfig to be ready")
 			VerifyDPFOperatorConfigReady(ctx, input.client, 20*time.Minute)
 		})
-		It("create DPUServiceIPAM in L2 mode and validate workload", func() {
-			ValidateDPUServiceIPAMInL2ModeForMultiDPUCluster(ctx, input)
+		It("create single DPUServiceIPAM in L2 mode spanning both DPUClusters and validate workload", func() {
+			ValidateDPUServiceIPAMInL2ModeSharedAcrossDPUClusters(ctx, input)
 		})
-		It("create DPUServiceIPAM in L3 mode and validate workload", func() {
-			ValidateDPUServiceIPAMInL3ModeForMultiDPUCluster(ctx, input)
+		It("create single DPUServiceIPAM in L3 mode spanning both DPUClusters and validate workload", func() {
+			ValidateDPUServiceIPAMInL3ModeSharedAcrossDPUClusters(ctx, input)
+		})
+		It("create single DPUServiceIPAM in L3 mode spanning both DPUClusters with static allocations and validate workload", func() {
+			ValidateDPUServiceIPAMInL3ModeSharedAcrossDPUClustersWithStaticAllocations(ctx, input)
+		})
+		It("create single DPUServiceIPAM in L2 mode spanning both DPUClusters with single IP per node and validate workload", func() {
+			ValidateDPUServiceIPAMInL2ModeSharedAcrossDPUClustersWithSingleIPPerNode(ctx, input)
+		})
+		It("create single DPUServiceIPAM in L3 mode spanning both DPUClusters with single IP per node (/32) and validate workload", func() {
+			ValidateDPUServiceIPAMInL3ModeSharedAcrossDPUClustersWithSingleIPPerNode(ctx, input)
+		})
+		It("create per-DPUCluster DPUServiceIPAM in L2 mode and validate workload", func() {
+			ValidateDPUServiceIPAMInL2ModePerDPUCluster(ctx, input)
+		})
+		It("create per-DPUCluster DPUServiceIPAM in L3 mode and validate workload", func() {
+			ValidateDPUServiceIPAMInL3ModePerDPUCluster(ctx, input)
 		})
 	})
 

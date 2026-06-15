@@ -231,17 +231,18 @@ const (
 	dpfPullSecretName = "dpf-pull-secret"
 )
 
-// EventuallyCheckReadyStatusCondition checks for the Ready condition on any object having a Status.Conditions[...].Type == "Ready" field
-// It uses Gomega matchers to validate the condition
-func EventuallyCheckReadyStatusCondition(ctx context.Context, client client.Client, obj client.Object, timeout time.Duration) {
+// EventuallyCheckReadyStatusCondition waits until obj has a Ready condition with Status True and
+// ObservedGeneration equal to the object's current Generation.
+func EventuallyCheckReadyStatusCondition(ctx context.Context, c client.Client, obj client.Object, timeout time.Duration) {
 	Eventually(func(g Gomega) {
-		g.Expect(client.Get(ctx, types.NamespacedName{Name: obj.GetName(), Namespace: obj.GetNamespace()}, obj)).To(Succeed())
+		g.Expect(c.Get(ctx, types.NamespacedName{Name: obj.GetName(), Namespace: obj.GetNamespace()}, obj)).To(Succeed())
 		g.Expect(obj).To(
 			HaveField("Status.Conditions", ContainElement(And(
 				HaveField("Type", Equal("Ready")),
 				HaveField("Status", Equal(metav1.ConditionTrue)),
+				HaveField("ObservedGeneration", Equal(obj.GetGeneration())),
 			))),
-			fmt.Sprintf("Object of type %T (name: %s, namespace: %s) did not reach Ready condition", obj, obj.GetName(), obj.GetNamespace()),
+			fmt.Sprintf("Object %T %s/%s did not reach Ready condition with matching generation", obj, obj.GetNamespace(), obj.GetName()),
 		)
 	}).WithTimeout(timeout).Should(Succeed())
 }
