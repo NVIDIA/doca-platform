@@ -10,6 +10,7 @@ spec:
     helmChart:
       values:
         k8sAPIServer: ""   # set at runtime from input.restConfig.Host
+        mtu: 8900
         podNetwork: ""     # set at runtime from kube-controller-manager --cluster-cidr
         serviceNetwork: "" # set at runtime from kube-controller-manager --service-cluster-ip-range
         nodeWithDPUManifests:

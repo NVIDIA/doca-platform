@@ -452,4 +452,10 @@ func validateFlags() {
 	if bmcInventoryPath == "" {
 		panic("ZeroTrust requires E2E_ZT_BMC_INVENTORY_PATH env var (path to the lab DPU-serial -> BMC IP inventory YAML)")
 	}
+
+	if isGinkgoLabelApplied(Domain.ExternalTest) {
+		if len(externalTest) == 0 {
+			panic("This script must be provided when External label is present")
+		}
+	}
 }
