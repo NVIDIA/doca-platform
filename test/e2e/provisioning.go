@@ -45,6 +45,12 @@ import (
 // RM: 4869399
 const skipDPUClusterDeletionInProvisioningTest = true
 
+const (
+	dpuFlavorNodeLabelScriptPath = "/var/lib/dpf/dpuagent/node-label-scripts/node-labeling-test.sh"
+	dpuFlavorNodeLabelKey        = "scripts.dpu.nvidia.com/node-labeling-test.sh"
+	dpuFlavorNodeLabelValue      = "node-labeling-test-ok"
+)
+
 // ProvisioningExpected holds all expected counts for provisioning tests
 type ProvisioningExpected struct {
 	DPUNodes      int
@@ -672,6 +678,45 @@ func getProvisioningDPUSet(ctx context.Context, cl client.Client, fallback *prov
 		return nil, fmt.Errorf("expected exactly 1 DPUSet, got %d", len(list.Items))
 	}
 	return &list.Items[0], nil
+}
+
+func dpuFlavorHasNodeLabelScript(dpuFlavor *provisioningv1.DPUFlavor) bool {
+	if dpuFlavor == nil {
+		return false
+	}
+	for _, configFile := range dpuFlavor.Spec.ConfigFiles {
+		if configFile.Path == dpuFlavorNodeLabelScriptPath {
+			return true
+		}
+	}
+	return false
+}
+
+// ValidateDPUFlavorNodeLabelScripts validates that node label scripts delivered by DPUFlavor.spec.configFiles
+// are executed by dpuagent and reflected as labels on tenant cluster Nodes.
+func ValidateDPUFlavorNodeLabelScripts(ctx context.Context, input *systemTestInput) {
+	if !input.hasDpuNodes() {
+		Skip("Skip test as DPU nodes are required")
+	}
+	if len(dpuClusterClient) == 0 || dpuClusterClient[0] == nil {
+		Fail("DPUCluster client is not initialized; expected CreateProvisioningDPUCluster to run first")
+	}
+	if !dpuFlavorHasNodeLabelScript(input.dpuFlavor) {
+		Skip("DPUFlavor has no e2e node label script; skipping DPUFlavor node label script validation")
+	}
+
+	By("Waiting for tenant Nodes to report the DPUFlavor node label script output")
+	Eventually(func(g Gomega) {
+		nodes := &corev1.NodeList{}
+		g.Expect(dpuClusterClient[0].List(ctx, nodes)).To(Succeed(), "Should be able to list nodes in DPU cluster")
+		g.Expect(nodes.Items).To(HaveLen(provisioningExpected.TotalDPUs),
+			"DPU cluster should have one tenant Node per provisioned DPU")
+
+		for _, node := range nodes.Items {
+			g.Expect(node.Labels).To(HaveKeyWithValue(dpuFlavorNodeLabelKey, dpuFlavorNodeLabelValue),
+				"tenant Node %s should have the label produced by %s with value %q", node.Name, dpuFlavorNodeLabelScriptPath, dpuFlavorNodeLabelValue)
+		}
+	}).WithTimeout(time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 }
 
 // ValidateDPUSetClusterNodeLabelsPropagation validates that changing DPUSet.spec.dpuTemplate.spec.cluster.nodeLabels/nodeAnnotations

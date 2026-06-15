@@ -310,6 +310,49 @@ spec:
       _ovs-vsctl set Interface pbrdputobrovn type=patch options:peer=pbrovntobrdpu
 ```
 
+## DPU Node Label Scripts
+
+The DPU agent can run executable files on the DPU ARM and report their output as labels on the corresponding DPU cluster Node. This allows DPU-side hardware or software properties to be surfaced into Kubernetes scheduling decisions without any host-side tooling.
+
+### How it works
+
+1. On every provisioning run, the DPU agent scans the directory `/var/lib/dpf/dpuagent/node-label-scripts/` on the DPU.
+2. Each regular, executable file in that directory is run with a 30-second timeout. Shell scripts and compiled binaries are supported.
+3. The trimmed stdout of the file becomes the label value; the file name becomes the label key suffix under the `scripts.dpu.nvidia.com/` prefix.
+4. Labels from previous runs whose files have since been removed are automatically deleted from the Node.
+
+**Requirements:**
+
+- The file name must be a valid Kubernetes label key suffix (alphanumeric, `-`, `_`, `.`; max 63 characters).
+- The stdout (trimmed) must be a valid Kubernetes label value.
+- The file must be a regular file with at least one executable bit set (`chmod +x`).
+- Directories in the scripts directory are silently ignored.
+
+### Deploying scripts via DPUFlavor
+
+Use the `configFiles` field to place executable files into the default directory during provisioning:
+
+```yaml
+apiVersion: provisioning.dpu.nvidia.com/v1alpha1
+kind: DPUFlavor
+metadata:
+  name: my-flavor
+  namespace: dpf-operator-system
+spec:
+  configFiles:
+    - operation: override
+      path: /var/lib/dpf/dpuagent/node-label-scripts/test-label
+      permissions: "0755"
+      raw: |
+        #!/bin/bash
+        echo "some-data"
+```
+
+This example produces a Node label `scripts.dpu.nvidia.com/test-label=some-data` on the DPU cluster Node.
+
+> [!NOTE]
+> Executables run during the dpuagent provisioning step on the DPU ARM, as root, with access to the DPU's hardware interfaces.
+
 ## Best Practices
 
 1. **Resource Planning**: Always specify `dpuResources` and `systemReservedResources` to ensure proper resource allocation

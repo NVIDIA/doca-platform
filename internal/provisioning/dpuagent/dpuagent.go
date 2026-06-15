@@ -37,6 +37,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/laststartuptime"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/netplan"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/nicprovisioning"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/nodelabels"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/nvconfig"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/ovsscript"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/packages"
@@ -108,6 +109,7 @@ func NewDPUAgent(optCtx *operations.Context) *DPUAgent {
 		&checkbridge.CheckBridge{},
 		&kubelet.ConfigureKubelet{},
 		&kubelet.StartKubelet{},
+		&nodelabels.ReportNodeLabels{},
 	}
 	return &DPUAgent{
 		optCtx:     optCtx,
