@@ -64,6 +64,10 @@ var _ = Describe("DPF System tests - Provisioning", Labels{Domain.Provisioning},
 		ValidateDPUDeviceClusterNodeLabelsPropagation(ctx, input)
 	})
 
+	It("verify node labels are added via dpu-agent on tenant Nodes", Labels{Domain.RequiresNodes}, func() {
+		ValidateDPUFlavorNodeLabelScripts(ctx, input)
+	})
+
 	It("delete all provisioning resources", func() {
 		if cleanupFlags.SkipCleanup {
 			Skip("Skipping deprovisioning tests because skipCleanup is enabled")

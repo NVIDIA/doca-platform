@@ -195,8 +195,11 @@ var _ = Describe("DPUAgent", func() {
 			Expect(names).To(ContainElement("Verify Static Files"))
 			Expect(names).To(ContainElement("Install Packages"))
 			Expect(names).To(ContainElement("Handle Reboot"))
+			Expect(names).To(ContainElement("Start Kubelet"))
+			Expect(names).To(ContainElement("Report Node Labels"))
 			Expect(indexOf(names, "Verify Static Files")).To(BeNumerically("<", indexOf(names, "Install Packages")))
 			Expect(indexOf(names, "Install Packages")).To(BeNumerically("<", indexOf(names, "Handle Reboot")))
+			Expect(indexOf(names, "Start Kubelet")).To(BeNumerically("<", indexOf(names, "Report Node Labels")))
 		})
 
 		It("should execute operations in order", func() {

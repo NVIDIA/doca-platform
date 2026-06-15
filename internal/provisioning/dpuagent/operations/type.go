@@ -28,6 +28,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// DefaultKubeletKubeconfigPath is the default path to the kubelet kubeconfig on DPU nodes.
+const DefaultKubeletKubeconfigPath = "/etc/kubernetes/kubelet.conf"
+
 // Operation is the interface for all operations.
 // The same optCtx instance is passed to all operations, which can be used to pass data between operations.
 // Since the optCtx is not thread-safe, do not execute operations in parallel.

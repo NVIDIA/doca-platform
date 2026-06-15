@@ -28,6 +28,12 @@ spec:
       path: /etc/mellanox/mlnx-sf.conf
       permissions: "0644"
       raw: ""
+    - operation: override
+      path: /var/lib/dpf/dpuagent/node-label-scripts/node-labeling-test.sh
+      permissions: "0755"
+      raw: |
+        #!/bin/bash
+        echo "node-labeling-test-ok"
     # Cloud runners mix BFB 3.2 and 3.4 runs. BFB 3.2 uses the legacy
     # reboot flow, which always runs mlxconfig reset and can leave FW reporting
     # that PCI rescan is required. Legacy flow ignores this FW flag, so it does
