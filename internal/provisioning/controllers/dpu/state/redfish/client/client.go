@@ -222,6 +222,18 @@ type System struct {
 	ODataID string `json:"@odata.id,omitempty"`
 }
 
+type Settings struct {
+	Boot BootSettings `json:"Boot,omitempty"`
+}
+
+type BootSettings struct {
+	BootSourceOverrideTarget  string   `json:"BootSourceOverrideTarget,omitempty"`
+	BootSourceOverrideMode    string   `json:"BootSourceOverrideMode,omitempty"`
+	BootSourceOverrideEnabled string   `json:"BootSourceOverrideEnabled,omitempty"`
+	BootOrder                 []string `json:"BootOrder,omitempty"`
+	AutomaticRetryConfig      string   `json:"AutomaticRetryConfig,omitempty"`
+}
+
 // MessageExtendedInfo contains the Message.ExtendedInfo responded by RedFish API
 type MessageExtendedInfo struct {
 	ODataType       string `json:"@odata.type,omitempty"`
@@ -1246,6 +1258,17 @@ func (c *Client) SetBootTarget(target string, bootSourceOverride bool) (*resty.R
 		return nil, fmt.Errorf("failed to set boot target: unexpected status code %d", resp.StatusCode())
 	}
 	return resp, nil
+}
+
+func (c *Client) GetSettings() (*resty.Response, *Settings, error) {
+	systemID, err := getSystemID(c)
+	if err != nil {
+		return nil, nil, err
+	}
+	url := strings.Replace(APIBluefieldSettings, "{SYSTEM_ID}", systemID, 1)
+	return do[Settings](func() (*resty.Response, error) {
+		return c.Client.R().Get(url)
+	})
 }
 
 func insertVirtualMedia(c *Client, reqBody map[string]interface{}, mediaID string) (*resty.Response, error) {

@@ -70,6 +70,8 @@ type RedfishMockServer struct {
 	selEntries                    []client.SELEntry        // System Event Log entries returned by GET SEL/Entries
 	hostPrivilegeError            bool                     // Simulate HostPrivilegeConfig endpoint error for testing
 	hostPrivilegeMode             string                   // Current host privilege mode: "Privileged" or "Restricted"
+	bootSourceOverrideTarget      string                   // BootSourceOverrideTarget returned by GET Settings
+	bootSourceOverrideEnabled     string                   // BootSourceOverrideEnabled returned by GET Settings
 }
 
 type DpuVersion int
@@ -82,17 +84,19 @@ const (
 // NewRedfishMockServer creates a new mock Redfish server
 func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 	mock := &RedfishMockServer{
-		bmcVersion:            bmcVersion,
-		password:              password,
-		dpuMode:               "DpuMode",                         // Default to DpuMode
-		dpuVersion:            BF3,                               // Default to BF3
-		hostPrivilegeMode:     "Privileged",                      // Default to Privileged
-		secureBootEnable:      true,                              // Default configured state: enabled
-		secureBootCurrentBoot: true,                              // Default current boot state: enabled
-		oemLastState:          "OsIsRunning",                     // Default to OS running
-		assetTag:              client.ChassisAssetTagUnavailable, // Default AssetTag when unset on BMC
-		taskState:             "Completed",                       // Default task state
-		taskMessages:          []map[string]interface{}{},        // Default empty messages
+		bmcVersion:                bmcVersion,
+		password:                  password,
+		dpuMode:                   "DpuMode",                         // Default to DpuMode
+		dpuVersion:                BF3,                               // Default to BF3
+		hostPrivilegeMode:         "Privileged",                      // Default to Privileged
+		secureBootEnable:          true,                              // Default configured state: enabled
+		secureBootCurrentBoot:     true,                              // Default current boot state: enabled
+		oemLastState:              "OsIsRunning",                     // Default to OS running
+		assetTag:                  client.ChassisAssetTagUnavailable, // Default AssetTag when unset on BMC
+		taskState:                 "Completed",                       // Default task state
+		taskMessages:              []map[string]interface{}{},        // Default empty messages
+		bootSourceOverrideTarget:  "None",                            // Default boot target
+		bootSourceOverrideEnabled: "Disabled",                        // Default boot override state
 	}
 
 	mux := http.NewServeMux()
@@ -945,13 +949,40 @@ func (r *RedfishMockServer) handleVirtualMedia(w http.ResponseWriter, req *http.
 	})
 }
 
-// handleBluefieldSystemSettings handles PATCH boot settings for BF4 OS install.
+// handleBluefieldSystemSettings handles GET/PATCH boot settings for BF4 OS install.
 func (r *RedfishMockServer) handleBluefieldSystemSettings(w http.ResponseWriter, req *http.Request) {
-	if req.Method != http.MethodPatch {
+	switch req.Method {
+	case http.MethodGet:
+		w.WriteHeader(http.StatusOK)
+		writeJSONResponse(w, map[string]interface{}{
+			"@odata.id": req.URL.Path,
+			"Boot": map[string]interface{}{
+				"BootSourceOverrideTarget":  r.bootSourceOverrideTarget,
+				"BootSourceOverrideMode":    "UEFI",
+				"BootSourceOverrideEnabled": r.bootSourceOverrideEnabled,
+			},
+		})
+	case http.MethodPatch:
+		var body struct {
+			Boot struct {
+				BootSourceOverrideTarget  string `json:"BootSourceOverrideTarget"`
+				BootSourceOverrideEnabled string `json:"BootSourceOverrideEnabled"`
+			} `json:"Boot"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+		if body.Boot.BootSourceOverrideTarget != "" {
+			r.bootSourceOverrideTarget = body.Boot.BootSourceOverrideTarget
+		}
+		if body.Boot.BootSourceOverrideEnabled != "" {
+			r.bootSourceOverrideEnabled = body.Boot.BootSourceOverrideEnabled
+		}
+		w.WriteHeader(http.StatusNoContent)
+	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
 	}
-	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleChassisReset handles BF4 chassis ARM reset during OS install.
