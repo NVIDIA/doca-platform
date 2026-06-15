@@ -363,13 +363,12 @@ spec:
     - console=hvc0
     - console=ttyAMA0
     - earlycon=pl011,0x13010000
-    - fixrttc
     - net.ifnames=0
     - biosdevname=0
     - iommu.passthrough=1
     - cgroup_no_v1=net_prio,net_cls
     - hugepagesz=2048kB
-    - hugepages=3072
+    - hugepages=250
   nvconfig:
   - device: '*'
     parameters:
@@ -1062,13 +1061,12 @@ spec:
     - console=hvc0
     - console=ttyAMA0
     - earlycon=pl011,0x13010000
-    - fixrttc
     - net.ifnames=0
     - biosdevname=0
     - iommu.passthrough=1
     - cgroup_no_v1=net_prio,net_cls
     - hugepagesz=2048kB
-    - hugepages=3072
+    - hugepages=250
   nvconfig:
   - device: '*'
     parameters:
