@@ -34,6 +34,7 @@ spec:
           - service:
               name: hbn
               interface: p0_if
+        serviceMTU: 9000
       - ports:
           - serviceInterface:
               matchLabels:
@@ -41,6 +42,7 @@ spec:
           - service:
               name: hbn
               interface: p1_if
+        serviceMTU: 9000
       - ports:
           - serviceInterface:
               matchLabels:
@@ -48,3 +50,4 @@ spec:
           - service:
               name: hbn
               interface: pf2dpu2_if
+        serviceMTU: 9000

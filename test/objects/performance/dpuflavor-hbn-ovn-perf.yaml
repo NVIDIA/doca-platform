@@ -84,6 +84,7 @@ spec:
       _ovs-vsctl br-set-external-id br-dpu bridge-id br-dpu
       _ovs-vsctl br-set-external-id br-dpu bridge-uplink pbrdputobrovn
       _ovs-vsctl set bridge br-dpu datapath_type=netdev
+      _ovs-vsctl set Interface br-dpu mtu_request=9216
       _ovs-vsctl --may-exist add-port br-dpu pf0hpf
       _ovs-vsctl set Interface pf0hpf mtu_request=9216
       _ovs-vsctl set Interface pf0hpf type=dpdk
@@ -91,12 +92,15 @@ spec:
       # Create OVS bridge (br-ovn) in between the SC managed bridge and OVNK
       _ovs-vsctl --may-exist add-br br-ovn
       _ovs-vsctl set bridge br-ovn datapath_type=netdev
+      _ovs-vsctl set Interface br-ovn mtu_request=9216
       _ovs-vsctl --may-exist add-port br-ovn pbrovntobrdpu
       _ovs-vsctl --may-exist add-port br-dpu pbrdputobrovn
 
       # Patch br-ovn and br-dpu together
       _ovs-vsctl set Interface pbrovntobrdpu type=patch options:peer=pbrdputobrovn
+      _ovs-vsctl set Interface pbrovntobrdpu mtu_request=9216
       _ovs-vsctl set Interface pbrdputobrovn type=patch options:peer=pbrovntobrdpu
+      _ovs-vsctl set Interface pbrdputobrovn mtu_request=9216
 
       cat <<EOT > /etc/netplan/99-dpf-comm-ch.yaml
       network:
