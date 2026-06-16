@@ -606,7 +606,7 @@ var _ = Describe("DPUSetReconciler needDisruptDPU", func() {
 			}
 			dpu := provisioningv1.DPU{
 				Spec: provisioningv1.DPUSpec{
-					BFB:        tc.dpuBFB,
+					BFB:        ptr.To(tc.dpuBFB),
 					DPUFlavor:  tc.dpuFlavor,
 					SecureBoot: tc.dpuSB,
 				},
@@ -659,7 +659,7 @@ var _ = Describe("DPUSetReconciler needDisruptDPU", func() {
 			}
 			dpu := provisioningv1.DPU{
 				Spec: provisioningv1.DPUSpec{
-					BlueFieldSoftware: dpuBFS,
+					BlueFieldSoftware: ptr.To(dpuBFS),
 					DPUFlavor:         "bf4-flavor",
 				},
 			}

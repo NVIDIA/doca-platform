@@ -57,7 +57,7 @@ func newTestDPU() *provisioningv1.DPU {
 		Spec: provisioningv1.DPUSpec{
 			DPUNodeName:   "node-1",
 			DPUDeviceName: "dev-1",
-			BFB:           "bfb-1",
+			BFB:           ptr.To("bfb-1"),
 			SerialNumber:  "sn-1",
 			DPUFlavor:     "flavor-1",
 			NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},

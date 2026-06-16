@@ -38,6 +38,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -96,7 +97,7 @@ func getTemplateData(ctx context.Context, controllerCtx *util.ControllerContext,
 
 	if provisioningConfig != nil && provisioningConfig.EnableDynamicBFCFGTemplates {
 		data, err := getTemplateDataFromConfigMap(ctx, controllerCtx.Client, dpfOperatorConfig.Namespace,
-			dpu.Spec.BFB, dpu.Namespace,
+			ptr.Deref(dpu.Spec.BFB, ""), dpu.Namespace,
 			dpu.Spec.Cluster.Name, dpu.Spec.Cluster.Namespace,
 			dpu.Spec.DPUFlavor, dpu.Namespace)
 		if err != nil {

@@ -251,3 +251,8 @@ validations:
           kind: "DPUFlavor"
           field: ".spec.hostNetworkInterfaceConfigs[*].nvconfig.parameters[*]"
           error: "maximum constraint added when there was none previously : 200"
+        # Allow BFB length constraints when making spec.bfb optional (mutually exclusive with blueFieldSoftware)
+        - apiVersion: "provisioning.dpu.nvidia.com/v1alpha1"
+          kind: "DPU"
+          field: ".spec.bfb"
+          error: "maximum constraint added when there was none previously : 253"

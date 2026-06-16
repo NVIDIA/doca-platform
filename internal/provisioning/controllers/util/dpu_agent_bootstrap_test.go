@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
@@ -70,7 +71,7 @@ var _ = Describe("ZT Bootstrap", func() {
 	Describe("CreateDPUAgentRole", func() {
 		It("should create a role with correct rules and owner reference", func() {
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-			dpu.Spec.BlueFieldSoftware = "bfs-1"
+			dpu.Spec.BlueFieldSoftware = ptr.To("bfs-1")
 
 			err := CreateDPUAgentRole(ctx, fakeClient, scheme, dpu)
 			Expect(err).NotTo(HaveOccurred())

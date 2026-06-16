@@ -194,7 +194,7 @@ var _ = Describe("NodeReconciler", Ordered, func() {
 				Spec: provisioningv1.DPUSpec{
 					DPUNodeName:   dpuNode.Name,
 					DPUDeviceName: "bf3-1",
-					BFB:           "test-bfb-second",
+					BFB:           ptr.To("test-bfb-second"),
 					SerialNumber:  "SN654321",
 					DPUFlavor:     "test-flavor",
 					NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
@@ -446,7 +446,7 @@ func createNodeWithDPU(ctx context.Context, nodeName, dpuNodeName, dpuName, conf
 		Spec: provisioningv1.DPUSpec{
 			DPUNodeName:   dpuNode.Name,
 			DPUDeviceName: "bf3-0",
-			BFB:           "test-bfb",
+			BFB:           ptr.To("test-bfb"),
 			SerialNumber:  "SN123456",
 			DPUFlavor:     "test-flavor",
 			NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},

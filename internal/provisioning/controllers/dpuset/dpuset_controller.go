@@ -43,6 +43,7 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -555,10 +556,10 @@ func (r *DPUSetReconciler) createDPU(ctx context.Context, dpuSet *provisioningv1
 	}
 
 	if dpuSet.Spec.DPUTemplate.Spec.BFB != nil && dpuSet.Spec.DPUTemplate.Spec.BFB.Name != "" {
-		dpu.Spec.BFB = dpuSet.Spec.DPUTemplate.Spec.BFB.Name
+		dpu.Spec.BFB = ptr.To(dpuSet.Spec.DPUTemplate.Spec.BFB.Name)
 	}
 	if dpuSet.Spec.DPUTemplate.Spec.BlueFieldSoftware != nil && dpuSet.Spec.DPUTemplate.Spec.BlueFieldSoftware.Name != "" {
-		dpu.Spec.BlueFieldSoftware = dpuSet.Spec.DPUTemplate.Spec.BlueFieldSoftware.Name
+		dpu.Spec.BlueFieldSoftware = ptr.To(dpuSet.Spec.DPUTemplate.Spec.BlueFieldSoftware.Name)
 	}
 
 	if dpuSet.Spec.DPUTemplate.Spec.Cluster != nil && dpuSet.Spec.DPUTemplate.Spec.Cluster.Selector != nil {
