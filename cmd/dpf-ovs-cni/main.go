@@ -20,6 +20,7 @@ package main
 
 import (
 	"github.com/nvidia/doca-platform/internal/cni/dpf-ovs-cni/plugin"
+	"github.com/nvidia/doca-platform/internal/cni/dpf-ovs-cni/sriov"
 
 	"github.com/containernetworking/cni/pkg/skel"
 	"github.com/containernetworking/cni/pkg/version"
@@ -29,9 +30,10 @@ import (
 func main() {
 	// buildversion.BuildVersion is stamped via -ldflags by `binary-sfc-cni`
 	// so the CNI About output reports the DPF release version.
+	d := plugin.NewDpfCNI(sriov.DefaultOps{})
 	skel.PluginMainFuncs(skel.CNIFuncs{
-		Add:   plugin.CmdAdd,
-		Check: plugin.CmdCheck,
-		Del:   plugin.CmdDel,
+		Add:   d.CmdAdd,
+		Check: d.CmdCheck,
+		Del:   d.CmdDel,
 	}, version.All, buildversion.BuildString("OVS bridge"))
 }

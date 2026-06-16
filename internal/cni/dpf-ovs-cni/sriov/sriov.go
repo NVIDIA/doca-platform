@@ -42,18 +42,23 @@ var (
 	UserspaceDrivers = []string{"vfio-pci", "uio_pci_generic", "igb_uio"}
 )
 
-// IsPCIDeviceName check if passed device id is a PCI device name
-func IsPCIDeviceName(deviceID string) bool {
+// DefaultOps implements API using live SR-IOV, netlink, and sriovnet operations.
+type DefaultOps struct{}
+
+var _ API = DefaultOps{}
+
+// IsPCIDeviceName checks if passed device id is a PCI device name.
+func (DefaultOps) IsPCIDeviceName(deviceID string) bool {
 	return rePciDeviceName.MatchString(deviceID)
 }
 
-// IsAuxDeviceName check if passed device id is a Auxiliary device name
-func IsAuxDeviceName(deviceID string) bool {
+// isAuxDeviceName checks if passed device id is an auxiliary device name.
+func isAuxDeviceName(deviceID string) bool {
 	return reAuxDeviceName.MatchString(deviceID)
 }
 
-// GetVFLinkName retrieves interface name for given pci address
-func GetVFLinkName(pciAddr string) (string, error) {
+// GetVFLinkName retrieves interface name for given pci address.
+func (DefaultOps) GetVFLinkName(pciAddr string) (string, error) {
 	var names []string
 	vfDir := filepath.Join(SysBusPci, pciAddr, "net")
 	if _, err := os.Lstat(vfDir); err != nil {
@@ -77,8 +82,8 @@ func GetVFLinkName(pciAddr string) (string, error) {
 	return names[0], nil
 }
 
-// GetSFLinkName retrieves aux interface name for given pci address
-func GetAuxLinkName(auxDev string) (string, error) {
+// GetAuxLinkName retrieves aux interface name for given device id.
+func (DefaultOps) GetAuxLinkName(auxDev string) (string, error) {
 	var names []string
 	names, err := sriovnet.GetNetDevicesFromAux(auxDev)
 	if err != nil {
@@ -92,15 +97,14 @@ func GetAuxLinkName(auxDev string) (string, error) {
 	return names[0], nil
 }
 
-// IsOvsHardwareOffloadEnabled when device id is set, then ovs hardware offload
-// is enabled.
-func IsOvsHardwareOffloadEnabled(deviceID string) bool {
+// IsOvsHardwareOffloadEnabled returns true when device id is set.
+func (DefaultOps) IsOvsHardwareOffloadEnabled(deviceID string) bool {
 	return deviceID != ""
 }
 
-// HasUserspaceDriver checks if a device is attached to userspace driver
+// HasUserspaceDriver checks if a device is attached to userspace driver.
 // This method is copied from https://github.com/k8snetworkplumbingwg/sriov-cni/blob/8af83a33b2cac8e2df0bd6276b76658eb7c790ab/pkg/utils/utils.go#L222
-func HasUserspaceDriver(pciAddr string) (bool, error) {
+func (DefaultOps) HasUserspaceDriver(pciAddr string) (bool, error) {
 	driverLink := filepath.Join(SysBusPci, pciAddr, "driver")
 	driverPath, err := filepath.EvalSymlinks(driverLink)
 	if err != nil {
@@ -122,8 +126,8 @@ func HasUserspaceDriver(pciAddr string) (bool, error) {
 // GetBridgeUplinkNameByDeviceID tries to automatically resolve uplink interface name
 // for provided VF deviceID by following the sequence:
 // VF pci address > PF pci address > Bond (optional, if PF is part of a bond)
-// return list of candidate names
-func GetBridgeUplinkNameByDeviceID(deviceID string) ([]string, error) {
+// return list of candidate names.
+func (DefaultOps) GetBridgeUplinkNameByDeviceID(deviceID string) ([]string, error) {
 	pfName, err := sriovnet.GetUplinkRepresentor(deviceID)
 	if err != nil {
 		return nil, err
@@ -186,13 +190,13 @@ func getBondMembers(bond netlink.Link) ([]string, error) {
 }
 
 // GetNetRepresentor returns representor name for passed device ID. Supported devices are Virtual Function
-// or Scalable Function
-func GetNetRepresentor(deviceID string) (string, error) {
+// or Scalable Function.
+func (ops DefaultOps) GetNetRepresentor(deviceID string) (string, error) {
 	var rep, uplink string
 	var err error
 	var index int
 
-	if IsPCIDeviceName(deviceID) { // PCI device
+	if ops.IsPCIDeviceName(deviceID) { // PCI device
 		uplink, err = sriovnet.GetUplinkRepresentor(deviceID)
 		if err != nil {
 			return "", err
@@ -202,7 +206,7 @@ func GetNetRepresentor(deviceID string) (string, error) {
 			return "", err
 		}
 		rep, err = sriovnet.GetVfRepresentor(uplink, index)
-	} else if IsAuxDeviceName(deviceID) { // Auxiliary device
+	} else if isAuxDeviceName(deviceID) { // Auxiliary device
 		uplink, err = sriovnet.GetUplinkRepresentorFromAux(deviceID)
 		if err != nil {
 			return "", err
@@ -222,12 +226,12 @@ func GetNetRepresentor(deviceID string) (string, error) {
 }
 
 // setupKernelSriovContIface moves smartVF into container namespace,
-// configures the smartVF and also fills in the contIface fields
-func setupKernelSriovContIface(contNetns ns.NetNS, contIface *current.Interface, deviceID string, pfLink netlink.Link, vfIdx int, ifName string, hwaddr net.HardwareAddr, mtu int) error {
+// configures the smartVF and also fills in the contIface fields.
+func (ops DefaultOps) setupKernelSriovContIface(contNetns ns.NetNS, contIface *current.Interface, deviceID string, pfLink netlink.Link, vfIdx int, ifName string, hwaddr net.HardwareAddr, mtu int) error {
 	var netDevices []string
 	var err error
 
-	if IsPCIDeviceName(deviceID) {
+	if ops.IsPCIDeviceName(deviceID) {
 		// get smart VF netdevice from PCI
 		netDevices, err = sriovnet.GetNetDevicesFromPci(deviceID)
 		if err != nil {
@@ -246,7 +250,7 @@ func setupKernelSriovContIface(contNetns ns.NetNS, contIface *current.Interface,
 	}
 	netDevice := netDevices[0]
 
-	if IsPCIDeviceName(deviceID) {
+	if ops.IsPCIDeviceName(deviceID) {
 		// get smart VF netdevice from PCI
 		netDevices, err = sriovnet.GetNetDevicesFromPci(deviceID)
 		if err != nil {
@@ -313,8 +317,8 @@ func setupKernelSriovContIface(contNetns ns.NetNS, contIface *current.Interface,
 	return nil
 }
 
-// setupUserspaceSriovContIface configures smartVF via PF netlink and fills in the contIface fields
-func setupUserspaceSriovContIface(contNetns ns.NetNS, contIface *current.Interface, pfLink netlink.Link, vfIdx int, ifName string, hwaddr net.HardwareAddr) error {
+// setupUserspaceSriovContIface configures smartVF via PF netlink and fills in the contIface fields.
+func (DefaultOps) setupUserspaceSriovContIface(contNetns ns.NetNS, contIface *current.Interface, pfLink netlink.Link, vfIdx int, ifName string, hwaddr net.HardwareAddr) error {
 	contIface.Name = ifName
 	contIface.Sandbox = contNetns.Path()
 
@@ -332,8 +336,8 @@ func setupUserspaceSriovContIface(contNetns ns.NetNS, contIface *current.Interfa
 	return nil
 }
 
-// SetupSriovInterface configures smartVF and returns VF's representor device as host interface and VF's netdevice as container interface
-func SetupSriovInterface(contNetns ns.NetNS, containerID, ifName, mac string, mtu int, deviceID string, userspaceMode bool) (*current.Interface, *current.Interface, error) {
+// SetupSriovInterface configures smartVF and returns VF's representor device as host interface and VF's netdevice as container interface.
+func (ops DefaultOps) SetupSriovInterface(contNetns ns.NetNS, containerID, ifName, mac string, mtu int, deviceID string, userspaceMode bool) (*current.Interface, *current.Interface, error) {
 	hostIface := &current.Interface{}
 	contIface := &current.Interface{}
 
@@ -341,7 +345,7 @@ func SetupSriovInterface(contNetns ns.NetNS, containerID, ifName, mac string, mt
 	var vfIdx int
 
 	// network representor device for smartvf
-	rep, err := GetNetRepresentor(deviceID)
+	rep, err := ops.GetNetRepresentor(deviceID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -354,7 +358,7 @@ func SetupSriovInterface(contNetns ns.NetNS, containerID, ifName, mac string, mt
 	}
 	hostIface.Mac = link.Attrs().HardwareAddr.String()
 
-	if IsPCIDeviceName(deviceID) {
+	if ops.IsPCIDeviceName(deviceID) {
 		// get PF netlink and VF index from PCI address
 		pfIface, err := sriovnet.GetUplinkRepresentor(deviceID)
 		if err != nil {
@@ -394,12 +398,12 @@ func SetupSriovInterface(contNetns ns.NetNS, containerID, ifName, mac string, mt
 
 	if !userspaceMode {
 		// configure the smart VF netdevice directly in the container namespace
-		if err = setupKernelSriovContIface(contNetns, contIface, deviceID, pfLink, vfIdx, ifName, hwaddr, mtu); err != nil {
+		if err = ops.setupKernelSriovContIface(contNetns, contIface, deviceID, pfLink, vfIdx, ifName, hwaddr, mtu); err != nil {
 			return nil, nil, err
 		}
 	} else {
 		// configure the smart VF netdevice via PF netlink
-		if err = setupUserspaceSriovContIface(contNetns, contIface, pfLink, vfIdx, ifName, hwaddr); err != nil {
+		if err = ops.setupUserspaceSriovContIface(contNetns, contIface, pfLink, vfIdx, ifName, hwaddr); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -440,8 +444,8 @@ func renameLink(curName, newName string) (netlink.Link, error) {
 	return link, nil
 }
 
-// ReleaseVF release the VF from container namespace into host namespace
-func ReleaseVF(args *skel.CmdArgs, origIfName string) error {
+// ReleaseVF releases the VF from container namespace into host namespace.
+func (DefaultOps) ReleaseVF(args *skel.CmdArgs, origIfName string) error {
 	hostNs, err := ns.GetCurrentNS()
 	if err != nil {
 		return fmt.Errorf("failed to get host netns: %v", err)
@@ -466,13 +470,13 @@ func ReleaseVF(args *skel.CmdArgs, origIfName string) error {
 
 }
 
-// ResetOffloadDev reset the VF which accidentally moved into default network namespace by a container failure
-func ResetOffloadDev(args *skel.CmdArgs, deviceID, origIfName string) error {
+// ResetOffloadDev resets the VF which accidentally moved into default network namespace by a container failure.
+func (ops DefaultOps) ResetOffloadDev(args *skel.CmdArgs, deviceID, origIfName string) error {
 	// get smart VF netdevice from PCI
 	var netDevices []string
 	var err error
 
-	if IsPCIDeviceName(deviceID) {
+	if ops.IsPCIDeviceName(deviceID) {
 		// get smart VF netdevice from PCI
 		netDevices, err = sriovnet.GetNetDevicesFromPci(deviceID)
 		if err != nil {
