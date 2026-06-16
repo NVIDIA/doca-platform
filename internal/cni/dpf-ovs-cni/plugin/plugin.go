@@ -61,6 +61,18 @@ type EnvArgs struct {
 	K8S_POD_NAME      cnitypes.UnmarshallableString
 }
 
+// DpfCNI holds the collaborators used by the CNI entrypoints.
+type DpfCNI struct {
+	Sriov sriov.API
+}
+
+// NewDpfCNI returns a CNI instance wired with injected dependencies.
+func NewDpfCNI(sriovAPI sriov.API) *DpfCNI {
+	return &DpfCNI{
+		Sriov: sriovAPI,
+	}
+}
+
 func init() {
 	// this ensures that main runs only on main thread (thread group leader).
 	// since namespace ops (unshare, setns) are done for a single thread, we
@@ -166,13 +178,13 @@ func assignMacToLink(link netlink.Link, mac net.HardwareAddr, name string) error
 	return nil
 }
 
-func getBridgeName(ctx context.Context, api ovsutils.API, bridgeName, ovnPort, deviceID string) (string, error) {
+func (d *DpfCNI) getBridgeName(ctx context.Context, api ovsutils.API, bridgeName, ovnPort, deviceID string) (string, error) {
 	if bridgeName != "" {
 		return bridgeName, nil
 	} else if bridgeName == "" && ovnPort != "" {
 		return "br-int", nil
 	} else if deviceID != "" {
-		possibleUplinkNames, err := sriov.GetBridgeUplinkNameByDeviceID(deviceID)
+		possibleUplinkNames, err := d.Sriov.GetBridgeUplinkNameByDeviceID(deviceID)
 		if err != nil {
 			return "", fmt.Errorf("failed to get bridge name - failed to resolve uplink name: %v", err)
 		}
@@ -283,8 +295,8 @@ func splitVlanIds(trunks []*types.Trunk) ([]uint, error) {
 	return vlanIds, nil
 }
 
-// CmdAdd add handler for attaching container into network
-func CmdAdd(args *skel.CmdArgs) error {
+// CmdAdd handles attaching a container to the configured network.
+func (d *DpfCNI) CmdAdd(args *skel.CmdArgs) error {
 	logCall("ADD", args)
 	ctx := context.Background()
 
@@ -335,7 +347,7 @@ func CmdAdd(args *skel.CmdArgs) error {
 	if err != nil {
 		return err
 	}
-	bridgeName, err := getBridgeName(ctx, api, netconf.BrName, ovnPort, netconf.DeviceID)
+	bridgeName, err := d.getBridgeName(ctx, api, netconf.BrName, ovnPort, netconf.DeviceID)
 	if err != nil {
 		return err
 	}
@@ -351,9 +363,9 @@ func CmdAdd(args *skel.CmdArgs) error {
 
 	// check if the device driver is the type of userspace driver
 	userspaceMode := false
-	if sriov.IsOvsHardwareOffloadEnabled(netconf.DeviceID) {
-		if sriov.IsPCIDeviceName(netconf.DeviceID) {
-			userspaceMode, err = sriov.HasUserspaceDriver(netconf.DeviceID)
+	if d.Sriov.IsOvsHardwareOffloadEnabled(netconf.DeviceID) {
+		if d.Sriov.IsPCIDeviceName(netconf.DeviceID) {
+			userspaceMode, err = d.Sriov.HasUserspaceDriver(netconf.DeviceID)
 			if err != nil {
 				return err
 			}
@@ -377,11 +389,11 @@ func CmdAdd(args *skel.CmdArgs) error {
 
 	// userspace driver does not create a network interface for the VF on the host
 	var origIfName string
-	if sriov.IsOvsHardwareOffloadEnabled(netconf.DeviceID) && !userspaceMode {
-		if sriov.IsPCIDeviceName(netconf.DeviceID) {
-			origIfName, err = sriov.GetVFLinkName(netconf.DeviceID)
+	if d.Sriov.IsOvsHardwareOffloadEnabled(netconf.DeviceID) && !userspaceMode {
+		if d.Sriov.IsPCIDeviceName(netconf.DeviceID) {
+			origIfName, err = d.Sriov.GetVFLinkName(netconf.DeviceID)
 		} else { // Auxiliary network device
-			origIfName, err = sriov.GetAuxLinkName(netconf.DeviceID)
+			origIfName, err = d.Sriov.GetAuxLinkName(netconf.DeviceID)
 		}
 		if err != nil {
 			return err
@@ -395,8 +407,8 @@ func CmdAdd(args *skel.CmdArgs) error {
 	}
 
 	var hostIface, contIface *current.Interface
-	if sriov.IsOvsHardwareOffloadEnabled(netconf.DeviceID) {
-		hostIface, contIface, err = sriov.SetupSriovInterface(contNetns, args.ContainerID, args.IfName, mac, mtu, netconf.DeviceID, userspaceMode)
+	if d.Sriov.IsOvsHardwareOffloadEnabled(netconf.DeviceID) {
+		hostIface, contIface, err = d.Sriov.SetupSriovInterface(contNetns, args.ContainerID, args.IfName, mac, mtu, netconf.DeviceID, userspaceMode)
 		if err != nil {
 			return err
 		}
@@ -505,7 +517,7 @@ func CmdAdd(args *skel.CmdArgs) error {
 		}
 
 		err = contNetns.Do(func(_ ns.NetNS) error {
-			if mac == "" && !sriov.IsOvsHardwareOffloadEnabled(netconf.DeviceID) && len(newResult.IPs) >= 1 {
+			if mac == "" && !d.Sriov.IsOvsHardwareOffloadEnabled(netconf.DeviceID) && len(newResult.IPs) >= 1 {
 				containerMac := IPAddrToHWAddr(newResult.IPs[0].Address.IP)
 				containerLink, err := netlink.LinkByName(args.IfName)
 				if err != nil {
@@ -583,8 +595,8 @@ func removeOvsPort(ctx context.Context, api ovsutils.API, bridgeName, portName s
 	return deletePort(ctx, api, bridgeName, portName)
 }
 
-// CmdDel remove handler for deleting container from network
-func CmdDel(args *skel.CmdArgs) error {
+// CmdDel handles removing a container from the configured network.
+func (d *DpfCNI) CmdDel(args *skel.CmdArgs) error {
 	logCall("DEL", args)
 	ctx := context.Background()
 
@@ -624,7 +636,7 @@ func CmdDel(args *skel.CmdArgs) error {
 	if err != nil {
 		return err
 	}
-	bridgeName, err := getBridgeName(ctx, api, cache.Netconf.BrName, ovnPort, cache.Netconf.DeviceID)
+	bridgeName, err := d.getBridgeName(ctx, api, cache.Netconf.BrName, ovnPort, cache.Netconf.DeviceID)
 	if err != nil {
 		return err
 	}
@@ -654,11 +666,11 @@ func CmdDel(args *skel.CmdArgs) error {
 
 		// The CNI_NETNS parameter may be empty according to version 0.4.0
 		// of the CNI spec (https://github.com/containernetworking/cni/blob/spec-v0.4.0/SPEC.md).
-		if sriov.IsOvsHardwareOffloadEnabled(cache.Netconf.DeviceID) {
+		if d.Sriov.IsOvsHardwareOffloadEnabled(cache.Netconf.DeviceID) {
 			// SR-IOV Case - The sriov device is moved into host network namespace when args.Netns is empty.
 			// This happens container is killed due to an error (example: CrashLoopBackOff, OOMKilled)
 			var rep string
-			if rep, err = sriov.GetNetRepresentor(cache.Netconf.DeviceID); err != nil {
+			if rep, err = d.Sriov.GetNetRepresentor(cache.Netconf.DeviceID); err != nil {
 				return err
 			}
 			if err = removeOvsPort(ctx, api, bridgeName, rep); err != nil {
@@ -668,7 +680,7 @@ func CmdDel(args *skel.CmdArgs) error {
 			}
 			// there is no network interface in case of userspace driver, so OrigIfName is empty
 			if !cache.UserspaceMode {
-				if err = sriov.ResetOffloadDev(args, cache.Netconf.DeviceID, cache.OrigIfName); err != nil {
+				if err = d.Sriov.ResetOffloadDev(args, cache.Netconf.DeviceID, cache.OrigIfName); err != nil {
 					return err
 				}
 			}
@@ -705,13 +717,13 @@ func CmdDel(args *skel.CmdArgs) error {
 		}
 	}
 
-	if sriov.IsOvsHardwareOffloadEnabled(cache.Netconf.DeviceID) {
+	if d.Sriov.IsOvsHardwareOffloadEnabled(cache.Netconf.DeviceID) {
 		// there is no network interface in case of userspace driver, so OrigIfName is empty
 		if !cache.UserspaceMode {
-			err = sriov.ReleaseVF(args, cache.OrigIfName)
+			err = d.Sriov.ReleaseVF(args, cache.OrigIfName)
 			if err != nil {
 				// try to reset vf into original state as much as possible in case of error
-				if err := sriov.ResetOffloadDev(args, cache.Netconf.DeviceID, cache.OrigIfName); err != nil {
+				if err := d.Sriov.ResetOffloadDev(args, cache.Netconf.DeviceID, cache.OrigIfName); err != nil {
 					log.Printf("Failed best-effort cleanup of VF %s: %v", cache.OrigIfName, err)
 				}
 			}
@@ -736,8 +748,8 @@ func CmdDel(args *skel.CmdArgs) error {
 	return err
 }
 
-// CmdCheck check handler to make sure networking is as expected.
-func CmdCheck(args *skel.CmdArgs) error {
+// CmdCheck verifies that container networking matches the configured state.
+func (d *DpfCNI) CmdCheck(args *skel.CmdArgs) error {
 	logCall("CHECK", args)
 	ctx := context.Background()
 
@@ -745,7 +757,7 @@ func CmdCheck(args *skel.CmdArgs) error {
 	if err != nil {
 		return err
 	}
-	ovsHWOffloadEnable := sriov.IsOvsHardwareOffloadEnabled(netconf.DeviceID)
+	ovsHWOffloadEnable := d.Sriov.IsOvsHardwareOffloadEnabled(netconf.DeviceID)
 
 	envArgs, err := getEnvArgs(args.Args)
 	if err != nil {
@@ -761,7 +773,7 @@ func CmdCheck(args *skel.CmdArgs) error {
 	}
 	// cached config may contain bridge name which were automatically
 	// discovered in CmdAdd, we need to re-discover the bridge name before we validating the cache
-	bridgeName, err := getBridgeName(ctx, api, netconf.BrName, ovnPort, netconf.DeviceID)
+	bridgeName, err := d.getBridgeName(ctx, api, netconf.BrName, ovnPort, netconf.DeviceID)
 	if err != nil {
 		return err
 	}
@@ -857,7 +869,7 @@ func CmdCheck(args *skel.CmdArgs) error {
 	}
 
 	// ovs specific check
-	if err := validateOvs(ctx, args, netconf, hostIntf.Name); err != nil {
+	if err := d.validateOvs(ctx, args, netconf, hostIntf.Name); err != nil {
 		return err
 	}
 
@@ -922,7 +934,7 @@ func validateInterface(intf current.Interface, isHost bool, hwOffload bool) erro
 	return nil
 }
 
-func validateOvs(ctx context.Context, args *skel.CmdArgs, netconf *types.NetConf, hostIfname string) error {
+func (d *DpfCNI) validateOvs(ctx context.Context, args *skel.CmdArgs, netconf *types.NetConf, hostIfname string) error {
 	envArgs, err := getEnvArgs(args.Args)
 	if err != nil {
 		return err
@@ -935,7 +947,7 @@ func validateOvs(ctx context.Context, args *skel.CmdArgs, netconf *types.NetConf
 	if err != nil {
 		return err
 	}
-	bridgeName, err := getBridgeName(ctx, api, netconf.BrName, ovnPort, netconf.DeviceID)
+	bridgeName, err := d.getBridgeName(ctx, api, netconf.BrName, ovnPort, netconf.DeviceID)
 	if err != nil {
 		return err
 	}
