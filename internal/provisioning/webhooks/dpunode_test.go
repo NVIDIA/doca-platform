@@ -603,7 +603,7 @@ spec:
 				Spec: provisioningv1.DPUSpec{
 					DPUNodeName:   "node-ready-test",
 					DPUDeviceName: "dpu-device-ready-1",
-					BFB:           "test-bfb",
+					BFB:           ptr.To("test-bfb"),
 					SerialNumber:  "MT_READY001",
 					DPUFlavor:     "test-flavor",
 					NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
@@ -656,7 +656,7 @@ spec:
 				Spec: provisioningv1.DPUSpec{
 					DPUNodeName:   "node-not-ready-test",
 					DPUDeviceName: "dpu-device-not-ready-1",
-					BFB:           "test-bfb",
+					BFB:           ptr.To("test-bfb"),
 					SerialNumber:  "MT_NOTREADY001",
 					DPUFlavor:     "test-flavor",
 					NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
@@ -711,7 +711,7 @@ spec:
 				Spec: provisioningv1.DPUSpec{
 					DPUNodeName:   "node-multi-test",
 					DPUDeviceName: "dpu-device-multi-1",
-					BFB:           "test-bfb",
+					BFB:           ptr.To("test-bfb"),
 					SerialNumber:  "MT_MULTI001",
 					DPUFlavor:     "test-flavor",
 					NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
@@ -737,7 +737,7 @@ spec:
 				Spec: provisioningv1.DPUSpec{
 					DPUNodeName:   "node-multi-test",
 					DPUDeviceName: "dpu-device-multi-2",
-					BFB:           "test-bfb",
+					BFB:           ptr.To("test-bfb"),
 					SerialNumber:  "MT_MULTI002",
 					DPUFlavor:     "test-flavor",
 					NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
@@ -794,7 +794,7 @@ spec:
 				Spec: provisioningv1.DPUSpec{
 					DPUNodeName:   "node-mixed-test",
 					DPUDeviceName: "dpu-device-mixed-1",
-					BFB:           "test-bfb",
+					BFB:           ptr.To("test-bfb"),
 					SerialNumber:  "MT_MIXED001",
 					DPUFlavor:     "test-flavor",
 					NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
@@ -820,7 +820,7 @@ spec:
 				Spec: provisioningv1.DPUSpec{
 					DPUNodeName:   "node-mixed-test",
 					DPUDeviceName: "dpu-device-mixed-2",
-					BFB:           "test-bfb",
+					BFB:           ptr.To("test-bfb"),
 					SerialNumber:  "MT_MIXED002",
 					DPUFlavor:     "test-flavor",
 					NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
@@ -875,7 +875,7 @@ spec:
 				Spec: provisioningv1.DPUSpec{
 					DPUNodeName:   "node-unchanged-test",
 					DPUDeviceName: "dpu-device-unchanged-1",
-					BFB:           "test-bfb",
+					BFB:           ptr.To("test-bfb"),
 					SerialNumber:  "MT_UNCHANGED001",
 					DPUFlavor:     "test-flavor",
 					NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
@@ -956,7 +956,7 @@ spec:
 				Spec: provisioningv1.DPUSpec{
 					DPUNodeName:   "node-unchanged-test",
 					DPUDeviceName: "dpu-device-unchanged-1",
-					BFB:           "test-bfb",
+					BFB:           ptr.To("test-bfb"),
 					SerialNumber:  "MT_UNCHANGED001",
 					DPUFlavor:     "test-flavor",
 					NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
@@ -1009,7 +1009,7 @@ spec:
 				Spec: provisioningv1.DPUSpec{
 					DPUNodeName:   "node-ready-test",
 					DPUDeviceName: "update-to-nil-device-1",
-					BFB:           "test-bfb",
+					BFB:           ptr.To("test-bfb"),
 					SerialNumber:  "MT_READY001",
 					DPUFlavor:     "test-flavor",
 					NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},

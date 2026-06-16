@@ -934,7 +934,7 @@ func defaultDPU() *provisioningv1.DPU {
 			DPUDeviceName: "dpudevice-dpfctl-test",
 			SerialNumber:  "MT25066004C7",
 			DPUFlavor:     "test-flavor",
-			BFB:           "test-bfb",
+			BFB:           ptr.To("test-bfb"),
 			NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 		},
 	}
@@ -954,6 +954,7 @@ func defaultDPUFromDPUSet() *provisioningv1.DPU {
 			DPUDeviceName: "dpudevice-dpfctl-test",
 			SerialNumber:  "MT25066004C7",
 			DPUFlavor:     "test-flavor",
+			BFB:           ptr.To("test"),
 			NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 		},
 	}
@@ -1173,6 +1174,7 @@ func defaultDPUFromDPUSetsFromDPUDeployment() *provisioningv1.DPU {
 			DPUDeviceName: "dpudevice-dpfctl-test",
 			SerialNumber:  "MT25066004C7",
 			DPUFlavor:     "test-flavor",
+			BFB:           ptr.To("test"),
 			NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 		},
 	}
@@ -1628,6 +1630,7 @@ func dpuWithNodeReference() *provisioningv1.DPU {
 			DPUNodeName:   "test-node",
 			DPUDeviceName: "test-device",
 			SerialNumber:  "MT25066004C7",
+			BFB:           ptr.To("test"),
 			NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 		},
 	}

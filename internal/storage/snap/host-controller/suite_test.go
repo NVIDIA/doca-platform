@@ -238,7 +238,7 @@ func getDPU() *provisioningv1.DPU {
 			SerialNumber:  "MT25066004C7",
 			DPUNodeName:   "test-node",
 			DPUDeviceName: "test-device",
-			BFB:           "test-bfb",
+			BFB:           ptr.To("test-bfb"),
 			DPUFlavor:     "test-flavor",
 			NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 		},

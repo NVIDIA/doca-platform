@@ -27,6 +27,7 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -43,7 +44,7 @@ func Pending(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Contro
 	if dpu.Status.DPUType == provisioningv1.DPUTypeBlueField4 {
 
 		blueFieldSoftware := &provisioningv1.BlueFieldSoftware{}
-		if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.BlueFieldSoftware}, blueFieldSoftware); err != nil {
+		if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: ptr.Deref(dpu.Spec.BlueFieldSoftware, "")}, blueFieldSoftware); err != nil {
 			if apierrors.IsNotFound(err) {
 				cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBlueFieldSoftwareReady.String(), err, "BlueFieldSoftwareNotFound", err.Error()))
 				return *state, err
@@ -63,7 +64,7 @@ func Pending(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Contro
 	} else {
 		// Check for the presence of the specified BFB
 		bfb := &provisioningv1.BFB{}
-		if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.BFB}, bfb); err != nil {
+		if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: ptr.Deref(dpu.Spec.BFB, "")}, bfb); err != nil {
 			if apierrors.IsNotFound(err) {
 				cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBReady.String(), err, "BFBNotFound", err.Error()))
 				return *state, err

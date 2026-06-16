@@ -36,6 +36,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+	"k8s.io/utils/ptr"
 	crclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
@@ -85,7 +86,7 @@ func CreateDPUAgentRole(ctx context.Context, client crclient.Client, scheme *run
 			{
 				APIGroups:     []string{"provisioning.dpu.nvidia.com"},
 				Resources:     []string{"bluefieldsoftwares"},
-				ResourceNames: []string{dpu.Spec.BlueFieldSoftware},
+				ResourceNames: []string{ptr.Deref(dpu.Spec.BlueFieldSoftware, "")},
 				Verbs:         []string{"get"},
 			},
 		},

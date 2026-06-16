@@ -57,7 +57,7 @@ var _ = Describe("Allocator", func() {
 				SerialNumber:  "MT25066004C" + utilrand.String(5),
 				DPUNodeName:   "test-node",
 				DPUDeviceName: "test-dpudevice",
-				BFB:           "test-bfb",
+				BFB:           ptr.To("test-bfb"),
 				PCIAddress:    ptr.To("0000-4b-00"),
 				DPUFlavor:     "test-flavor",
 				NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},

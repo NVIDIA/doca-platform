@@ -48,6 +48,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -260,7 +261,7 @@ func getReferencedBlueFieldSoftware(execCtx context.Context, optCtx *operations.
 		return nil, fmt.Errorf("client is required for NIC provisioning")
 	}
 
-	blueFieldSoftwareName := strings.TrimSpace(optCtx.LatestDPU.Spec.BlueFieldSoftware)
+	blueFieldSoftwareName := strings.TrimSpace(ptr.Deref(optCtx.LatestDPU.Spec.BlueFieldSoftware, ""))
 	if blueFieldSoftwareName == "" {
 		return nil, fmt.Errorf("dpu %s/%s does not reference a BlueFieldSoftware", optCtx.Options.DPUNamespace, optCtx.Options.DPUName)
 	}
