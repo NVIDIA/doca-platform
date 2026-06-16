@@ -159,7 +159,7 @@ var _ = Describe("FirmwareUpdate", func() {
 		createBlueFieldSoftware("", false)
 
 		dpu := dpuObj(defaultDPUName)
-		dpu.Spec.BlueFieldSoftware = defaultBlueFieldSWName
+		dpu.Spec.BlueFieldSoftware = ptr.To(defaultBlueFieldSWName)
 		dpu.Status.Phase = provisioningv1.DPUUpdateFirmware
 		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
 
@@ -184,7 +184,7 @@ var _ = Describe("FirmwareUpdate", func() {
 
 		dpu := dpuObj(defaultDPUName)
 		dpu.Spec.DPUDeviceName = defaultDPUDeviceName
-		dpu.Spec.BlueFieldSoftware = defaultBlueFieldSWName
+		dpu.Spec.BlueFieldSoftware = ptr.To(defaultBlueFieldSWName)
 		dpu.Status.Phase = provisioningv1.DPUUpdateFirmware
 		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
 
@@ -198,7 +198,7 @@ var _ = Describe("FirmwareUpdate", func() {
 
 	It("should return error when BlueFieldSoftware is not found", func() {
 		dpu := dpuObj(defaultDPUName)
-		dpu.Spec.BlueFieldSoftware = "missing-bluefield-software"
+		dpu.Spec.BlueFieldSoftware = ptr.To("missing-bluefield-software")
 		dpu.Status.Phase = provisioningv1.DPUUpdateFirmware
 		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
 
@@ -217,7 +217,7 @@ var _ = Describe("FirmwareUpdate", func() {
 		createBlueFieldSoftware("", false)
 
 		dpu := dpuObj(defaultDPUName)
-		dpu.Spec.BlueFieldSoftware = defaultBlueFieldSWName
+		dpu.Spec.BlueFieldSoftware = ptr.To(defaultBlueFieldSWName)
 		dpu.Status.Phase = provisioningv1.DPUUpdateFirmware
 		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
 		dpu.Status.Conditions = []metav1.Condition{
@@ -260,7 +260,7 @@ var _ = Describe("FirmwareUpdate", func() {
 
 		dpu := dpuObj(defaultDPUName)
 		dpu.Spec.DPUDeviceName = defaultDPUDeviceName
-		dpu.Spec.BlueFieldSoftware = defaultBlueFieldSWName
+		dpu.Spec.BlueFieldSoftware = ptr.To(defaultBlueFieldSWName)
 		dpu.Status.Phase = provisioningv1.DPUUpdateFirmware
 		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
 
@@ -290,7 +290,7 @@ var _ = Describe("FirmwareUpdate", func() {
 
 		dpu := dpuObj(defaultDPUName)
 		dpu.Spec.DPUDeviceName = defaultDPUDeviceName
-		dpu.Spec.BlueFieldSoftware = defaultBlueFieldSWName
+		dpu.Spec.BlueFieldSoftware = ptr.To(defaultBlueFieldSWName)
 		dpu.Status.Phase = provisioningv1.DPUUpdateFirmware
 		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
 
@@ -335,7 +335,7 @@ var _ = Describe("FirmwareUpdate", func() {
 
 		dpu := dpuObj(defaultDPUName)
 		dpu.Spec.DPUDeviceName = defaultDPUDeviceName
-		dpu.Spec.BlueFieldSoftware = defaultBlueFieldSWName
+		dpu.Spec.BlueFieldSoftware = ptr.To(defaultBlueFieldSWName)
 		dpu.Status.Phase = provisioningv1.DPUUpdateFirmware
 		dpu.Status.PreviousPhase = provisioningv1.DPURebooting
 		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
@@ -375,7 +375,7 @@ var _ = Describe("FirmwareUpdate", func() {
 
 		dpu := dpuObj(defaultDPUName)
 		dpu.Spec.DPUDeviceName = defaultDPUDeviceName
-		dpu.Spec.BlueFieldSoftware = defaultBlueFieldSWName
+		dpu.Spec.BlueFieldSoftware = ptr.To(defaultBlueFieldSWName)
 		dpu.Status.Phase = provisioningv1.DPUUpdateFirmware
 		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
 		cutil.SetDPUCondition(&dpu.Status, cutil.NewCondition(

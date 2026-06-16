@@ -583,7 +583,7 @@ var _ = Describe("BFB", func() {
 					Namespace: otherNS.Name,
 				},
 				Spec: provisioningv1.DPUSpec{
-					BFB:           obj.Name, // Same BFB name, different namespace
+					BFB:           ptr.To(obj.Name), // Same BFB name, different namespace
 					DPUFlavor:     "dummy-flavor",
 					SerialNumber:  "SN-" + utilrand.String(5),
 					DPUDeviceName: "device-" + utilrand.String(5),
@@ -600,7 +600,7 @@ var _ = Describe("BFB", func() {
 					Namespace: testNS.Name,
 				},
 				Spec: provisioningv1.DPUSpec{
-					BFB:           obj.Name,
+					BFB:           ptr.To(obj.Name),
 					DPUFlavor:     "dummy-flavor",
 					SerialNumber:  "SN-" + utilrand.String(5),
 					DPUDeviceName: "device-" + utilrand.String(5),

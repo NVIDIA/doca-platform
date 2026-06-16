@@ -38,6 +38,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/utils/ptr"
 	crclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
@@ -157,7 +158,7 @@ func TestNICProvisioning_Execute(t *testing.T) {
 			Client: client,
 			LatestDPU: &provisioningv1.DPU{
 				Spec: provisioningv1.DPUSpec{
-					BlueFieldSoftware: "bfs-1",
+					BlueFieldSoftware: ptr.To("bfs-1"),
 				},
 				Status: provisioningv1.DPUStatus{
 					DPUType: provisioningv1.DPUTypeBlueField4,

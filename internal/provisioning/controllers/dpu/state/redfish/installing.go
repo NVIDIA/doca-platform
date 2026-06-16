@@ -35,6 +35,7 @@ import (
 	"github.com/go-resty/resty/v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -142,7 +143,7 @@ func installOsBf4(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 	}
 
 	bluefieldSoftware := &provisioningv1.BlueFieldSoftware{}
-	if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.BlueFieldSoftware}, bluefieldSoftware); err != nil {
+	if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: ptr.Deref(dpu.Spec.BlueFieldSoftware, "")}, bluefieldSoftware); err != nil {
 		err = fmt.Errorf("failed to get bluefield software: %w", err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "FailToGetBlueFieldSoftware", err.Error()))
 		return *state, err

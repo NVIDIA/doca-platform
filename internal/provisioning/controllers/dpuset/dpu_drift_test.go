@@ -73,11 +73,15 @@ func buildDPUSetForDrift(f driftFixture) provisioningv1.DPUSet {
 func buildDPUForDrift(f driftFixture) provisioningv1.DPU {
 	dpu := provisioningv1.DPU{
 		Spec: provisioningv1.DPUSpec{
-			BFB:               f.dpuBFB,
-			DPUFlavor:         f.dpuFlavor,
-			SecureBoot:        f.dpuSecureBoot,
-			BlueFieldSoftware: f.dpuBlueFieldSWName,
+			DPUFlavor:  f.dpuFlavor,
+			SecureBoot: f.dpuSecureBoot,
 		},
+	}
+	if f.dpuBFB != "" {
+		dpu.Spec.BFB = ptr.To(f.dpuBFB)
+	}
+	if f.dpuBlueFieldSWName != "" {
+		dpu.Spec.BlueFieldSoftware = ptr.To(f.dpuBlueFieldSWName)
 	}
 	if f.dpuClusterName != "" {
 		dpu.Spec.Cluster = provisioningv1.K8sCluster{

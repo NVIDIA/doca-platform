@@ -81,7 +81,7 @@ var _ = Describe("InstallationService", func() {
 			Spec: provisioningv1.DPUSpec{
 				DPUNodeName:   "test-dpu-node",
 				DPUDeviceName: "test-dpu-device",
-				BFB:           "bfb-test",
+				BFB:           ptr.To("bfb-test"),
 				SerialNumber:  "test-dpu-serial-number",
 				DPUFlavor:     "test-dpu-flavor",
 				NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},

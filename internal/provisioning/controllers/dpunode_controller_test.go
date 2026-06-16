@@ -38,6 +38,7 @@ import (
 
 const (
 	DefaultDPFOperatorConfig = "test-dpfoperatorconfig"
+	DefaultTestBFB           = "test-bfb"
 	annotationTrue           = "true"
 )
 
@@ -416,6 +417,7 @@ var _ = Describe("DPUNode Controller", func() {
 						DPUDeviceName: dpuDevice1.Name,
 						SerialNumber:  DefaultSerialNumberPrefix + utilrand.String(5),
 						DPUFlavor:     "dpu-flavor",
+						BFB:           ptr.To(DefaultTestBFB),
 						NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 					},
 				}
@@ -429,6 +431,7 @@ var _ = Describe("DPUNode Controller", func() {
 						DPUDeviceName: dpuDevice2.Name,
 						SerialNumber:  DefaultSerialNumberPrefix + utilrand.String(5),
 						DPUFlavor:     "dpu-flavor",
+						BFB:           ptr.To(DefaultTestBFB),
 						NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 					},
 				}
@@ -510,6 +513,7 @@ var _ = Describe("DPUNode Controller", func() {
 						DPUDeviceName: dpuDevice7.Name,
 						SerialNumber:  DefaultSerialNumberPrefix + utilrand.String(5),
 						DPUFlavor:     "dpu-flavor",
+						BFB:           ptr.To(DefaultTestBFB),
 						NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 					},
 				}
@@ -585,6 +589,7 @@ var _ = Describe("DPUNode Controller", func() {
 						DPUDeviceName: dpuDevice1.Name,
 						SerialNumber:  DefaultSerialNumberPrefix + utilrand.String(5),
 						DPUFlavor:     "dpu-flavor",
+						BFB:           ptr.To(DefaultTestBFB),
 						NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 					},
 				}
@@ -598,6 +603,7 @@ var _ = Describe("DPUNode Controller", func() {
 						DPUDeviceName: dpuDevice2.Name,
 						SerialNumber:  DefaultSerialNumberPrefix + utilrand.String(5),
 						DPUFlavor:     "dpu-flavor",
+						BFB:           ptr.To(DefaultTestBFB),
 						NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 					},
 				}

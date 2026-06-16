@@ -23,6 +23,8 @@ import (
 	"strings"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+
+	"k8s.io/utils/ptr"
 )
 
 // dpuDriftReason enumerates the spec fields that can diverge between a DPU and
@@ -89,9 +91,9 @@ func (r *DPUSetReconciler) computeDPUDrift(dpuSet provisioningv1.DPUSet, dpu pro
 	t := dpuSet.Spec.DPUTemplate.Spec
 	s := dpu.Spec
 
-	if t.BFB != nil && t.BFB.Name != s.BFB {
+	if t.BFB != nil && t.BFB.Name != ptr.Deref(s.BFB, "") {
 		d.Reasons = append(d.Reasons, driftReasonBFB)
-		d.Diffs = append(d.Diffs, fmt.Sprintf("BFB: %s -> %s", s.BFB, t.BFB.Name))
+		d.Diffs = append(d.Diffs, fmt.Sprintf("BFB: %s -> %s", ptr.Deref(s.BFB, ""), t.BFB.Name))
 	}
 	if t.DPUFlavor != s.DPUFlavor {
 		d.Reasons = append(d.Reasons, driftReasonDPUFlavor)
@@ -101,9 +103,9 @@ func (r *DPUSetReconciler) computeDPUDrift(dpuSet provisioningv1.DPUSet, dpu pro
 		d.Reasons = append(d.Reasons, driftReasonSecureBoot)
 		d.Diffs = append(d.Diffs, fmt.Sprintf("SecureBoot: %s -> %s", formatBoolPtr(s.SecureBoot), formatBoolPtr(t.SecureBoot)))
 	}
-	if t.BlueFieldSoftware != nil && t.BlueFieldSoftware.Name != s.BlueFieldSoftware {
+	if t.BlueFieldSoftware != nil && t.BlueFieldSoftware.Name != ptr.Deref(s.BlueFieldSoftware, "") {
 		d.Reasons = append(d.Reasons, driftReasonBlueFieldSoftware)
-		d.Diffs = append(d.Diffs, fmt.Sprintf("BlueFieldSoftware: %s -> %s", s.BlueFieldSoftware, t.BlueFieldSoftware.Name))
+		d.Diffs = append(d.Diffs, fmt.Sprintf("BlueFieldSoftware: %s -> %s", ptr.Deref(s.BlueFieldSoftware, ""), t.BlueFieldSoftware.Name))
 	}
 
 	if t.Cluster != nil && !matchDPUClusterSelector(t.Cluster.Selector, s.Cluster, dpuClusters) {

@@ -83,6 +83,7 @@ var _ = Describe("DPU", func() {
 			Spec: provisioningv1.DPUSpec{
 				SerialNumber: DefaultSerialNumberPrefix + utilrand.String(5),
 				DPUFlavor:    "dpu-flavor",
+				BFB:          ptr.To(DefaultBFB),
 				NodeEffect:   provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 			},
 			Status: provisioningv1.DPUStatus{},
@@ -399,6 +400,7 @@ var _ = Describe("DPU", func() {
 					},
 					Spec: provisioningv1.DPUSpec{
 						DPUNodeName: DefaultNode,
+						BFB:         ptr.To(DefaultBFB),
 						NodeEffect: provisioningv1.NodeEffect{
 							Action: provisioningv1.Action{
 								Hold: ptr.To(true),
@@ -476,7 +478,7 @@ var _ = Describe("DPU", func() {
 				By("creating a DPU")
 				dpu := createFakeDPU("dpu-phase")
 				dpu.Spec.DPUDeviceName = testDPUDevice.Name
-				dpu.Spec.BFB = testBFB.Name
+				dpu.Spec.BFB = ptr.To(testBFB.Name)
 				Expect(fakeMapClient.Create(ctx, dpu)).To(Succeed())
 
 				By("setting initial state to Provisioning state")
@@ -501,7 +503,7 @@ var _ = Describe("DPU", func() {
 				By("creating a DPU")
 				dpu := createFakeDPU("dpu-phase")
 				dpu.Spec.DPUDeviceName = testDPUDevice.Name
-				dpu.Spec.BFB = testBFB.Name
+				dpu.Spec.BFB = ptr.To(testBFB.Name)
 				Expect(fakeMapClient.Create(ctx, dpu)).To(Succeed())
 
 				By("setting initial state to Provisioning state")
@@ -526,7 +528,7 @@ var _ = Describe("DPU", func() {
 				By("creating a DPU")
 				dpu := createFakeDPU("dpu-phase")
 				dpu.Spec.DPUDeviceName = testDPUDevice.Name
-				dpu.Spec.BFB = testBFB.Name
+				dpu.Spec.BFB = ptr.To(testBFB.Name)
 				Expect(fakeMapClient.Create(ctx, dpu)).To(Succeed())
 
 				By("setting initial state to Provisioning state")

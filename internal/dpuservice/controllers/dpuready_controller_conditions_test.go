@@ -322,6 +322,7 @@ var _ = Describe("DPUReadyReconciler Conditions", func() {
 				DPUDeviceName: "test-node-0000-ca-00",
 				SerialNumber:  "MT25066004C7",
 				DPUFlavor:     "dpu-flavor",
+				BFB:           ptr.To("test-bfb"),
 				Cluster: provisioningv1.K8sCluster{
 					Name:      dpuCluster.Name,
 					Namespace: dpuCluster.Namespace,

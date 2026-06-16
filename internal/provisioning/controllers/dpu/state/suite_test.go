@@ -169,6 +169,7 @@ func dpuObj(name string) *provisioningv1.DPU {
 			UID:       types.UID(utilrand.String(12)),
 		},
 		Spec: provisioningv1.DPUSpec{
+			BFB:          ptr.To("test-bfb"),
 			SerialNumber: "MT25066004C" + utilrand.String(5),
 			DPUFlavor:    "dpu-flavor",
 			NodeEffect:   provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},

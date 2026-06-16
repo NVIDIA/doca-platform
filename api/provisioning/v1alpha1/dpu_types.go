@@ -235,6 +235,7 @@ type K8sCluster struct {
 }
 
 // DPUSpec defines the desired state of DPU
+// +kubebuilder:validation:XValidation:rule="has(self.bfb) != has(self.blueFieldSoftware)",message="exactly one of bfb or blueFieldSoftware must be set"
 type DPUSpec struct {
 	// Specifies the DPUNode this DPU belongs to
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf", message="Value is immutable"
@@ -248,12 +249,16 @@ type DPUSpec struct {
 	DPUDeviceName string `json:"dpuDeviceName"`
 
 	// Specifies name of the bfb CR to use for this DPU
-	// +required
-	BFB string `json:"bfb"`
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +optional
+	BFB *string `json:"bfb,omitempty"`
 
 	// Specifies the name of the BlueFieldSoftware CR to use for this DPU
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
 	// +optional
-	BlueFieldSoftware string `json:"blueFieldSoftware,omitempty"`
+	BlueFieldSoftware *string `json:"blueFieldSoftware,omitempty"`
 
 	// The serial number of the DPU
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf", message="Value is immutable"

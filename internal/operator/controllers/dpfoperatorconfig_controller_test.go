@@ -1294,7 +1294,7 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 				SerialNumber:  "MT25066004C7",
 				DPUNodeName:   "test-node-1",
 				DPUDeviceName: "test-device-1",
-				BFB:           "test-bfb",
+				BFB:           ptr.To("test-bfb"),
 				DPUFlavor:     "test-flavor",
 				NodeEffect: provisioningv1.NodeEffect{
 					Action: provisioningv1.Action{NoEffect: ptr.To(true)},
@@ -1311,7 +1311,7 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 				SerialNumber:  "MT25066004C7",
 				DPUNodeName:   "test-node-2",
 				DPUDeviceName: "test-device-2",
-				BFB:           "test-bfb",
+				BFB:           ptr.To("test-bfb"),
 				DPUFlavor:     "test-flavor",
 				NodeEffect: provisioningv1.NodeEffect{
 					Action: provisioningv1.Action{NoEffect: ptr.To(true)},
@@ -1504,7 +1504,7 @@ func TestValidateKubernetesVersionSkew(t *testing.T) {
 				SerialNumber:  "MT25066004C7",
 				DPUNodeName:   "test-node",
 				DPUDeviceName: "test-device",
-				BFB:           "test-bfb",
+				BFB:           ptr.To("test-bfb"),
 				DPUFlavor:     "test-flavor",
 				Cluster: provisioningv1.K8sCluster{
 					Name:      cluster.Name,
@@ -1705,7 +1705,7 @@ func TestValidateKubernetesVersionSkew(t *testing.T) {
 				SerialNumber:  "MT25066004C7",
 				DPUNodeName:   "test-node",
 				DPUDeviceName: "test-device",
-				BFB:           "test-bfb",
+				BFB:           ptr.To("test-bfb"),
 				DPUFlavor:     "test-flavor",
 				Cluster: provisioningv1.K8sCluster{
 					Name:      kamajiCluster.Name,
@@ -1743,7 +1743,7 @@ func TestValidateKubernetesVersionSkew(t *testing.T) {
 				SerialNumber:  "MT25066004C8",
 				DPUNodeName:   "test-node",
 				DPUDeviceName: "test-device",
-				BFB:           "test-bfb",
+				BFB:           ptr.To("test-bfb"),
 				DPUFlavor:     "test-flavor",
 				Cluster: provisioningv1.K8sCluster{
 					Name:      kamajiCluster.Name,
@@ -1770,7 +1770,7 @@ func TestValidateKubernetesVersionSkew(t *testing.T) {
 				SerialNumber:  "MT25066004C7",
 				DPUNodeName:   "test-node",
 				DPUDeviceName: "test-device",
-				BFB:           "test-bfb",
+				BFB:           ptr.To("test-bfb"),
 				DPUFlavor:     "test-flavor",
 				Cluster: provisioningv1.K8sCluster{
 					Name:      kamajiCluster.Name,

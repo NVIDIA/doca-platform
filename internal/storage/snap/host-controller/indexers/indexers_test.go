@@ -38,7 +38,7 @@ var _ = Describe("Indexers", func() {
 				DPUNodeName:   dpuNodeName,
 				SerialNumber:  "MT25066004C7",
 				DPUDeviceName: "test-device",
-				BFB:           "test-bfb",
+				BFB:           ptr.To("test-bfb"),
 				DPUFlavor:     "test-flavor",
 				NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 			},

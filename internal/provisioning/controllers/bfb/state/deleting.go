@@ -29,6 +29,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/ptr"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
@@ -78,7 +79,7 @@ func (st *bfbDeletingState) Handle(ctx context.Context, client ctrlclient.Client
 
 	// Early exit: check if any DPU references this BFB
 	for _, dpu := range dpuList.Items {
-		if dpu.Spec.BFB == st.bfb.Name {
+		if ptr.Deref(dpu.Spec.BFB, "") == st.bfb.Name {
 			err := fmt.Errorf("BFB %s/%s cannot be deleted, still referenced by DPU: %s",
 				st.bfb.Namespace, st.bfb.Name, dpu.Name)
 			conditions.AddFalse(st.bfb, provisioningv1.BFBCondDeleted,
