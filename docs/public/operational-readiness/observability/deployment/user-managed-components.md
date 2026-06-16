@@ -2,7 +2,7 @@
 title: "User-Managed Components"
 ---
 
-[TOC]
+[[_TOC_]]
 
 ## Introduction
 

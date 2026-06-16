@@ -2,7 +2,7 @@
 title: "Overview"
 ---
 
-[TOC]
+[[_TOC_]]
 
 DOCA Platform Framework (DPF) streamlines the provisioning and orchestration of NVIDIA BlueField DPUs in Kubernetes environments.
 It supports scalable deployment and management of DPUs and the services running on them.

@@ -2,7 +2,7 @@
 title: "DPF Zero Trust"
 ---
 
-[TOC]
+[[_TOC_]]
 
 # Get Started with DPF Zero Trust
 

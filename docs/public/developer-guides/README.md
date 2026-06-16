@@ -2,7 +2,7 @@
 title: "Developer Guides"
 ---
 
-[TOC]
+[[_TOC_]]
 
 This section provides comprehensive guides for developers working with the DOCA Platform Framework (DPF). It includes detailed information on system architecture, API usage, DPU service development, and more.
 

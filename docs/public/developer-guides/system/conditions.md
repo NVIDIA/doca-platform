@@ -2,7 +2,7 @@
 title: "Conditions"
 ---
 
-[TOC]
+[[_TOC_]]
 
 The conditions specified in the DPF Kubernetes objects represent the various states and requirements of the resource during its lifecycle. 
 These conditions are critical for the reconciliation loop of the DPF controllers, providing insights into the current status, potential issues, and the overall health of the system.

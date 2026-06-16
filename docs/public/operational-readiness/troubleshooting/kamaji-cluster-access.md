@@ -2,7 +2,7 @@
 title: "Accessing the Kamaji DPU Cluster"
 ---
 
-[TOC]
+[[_TOC_]]
 
 > **Warning:** Direct access to the DPU cluster is intended for advanced troubleshooting only.
 > Under normal circumstances you should **not** need to interact with the DPU cluster directly.

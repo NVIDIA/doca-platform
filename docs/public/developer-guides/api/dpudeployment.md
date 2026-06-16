@@ -2,7 +2,7 @@
 title: "DPUDeployment"
 ---
 
-[TOC]
+[[_TOC_]]
 
 This document describes how a user can work with the `DPUDeployment` Custom Resource.
 A `DPUDeployment` describes a set of `DPUServices` and a `DPUServiceChain` that run

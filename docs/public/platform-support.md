@@ -2,7 +2,7 @@
 title: "Platform Support"
 ---
 
-[TOC]
+[[_TOC_]]
 
 ## Prerequisites
 

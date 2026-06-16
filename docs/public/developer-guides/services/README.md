@@ -2,7 +2,7 @@
 title: "Services"
 ---
 
-[TOC]
+[[_TOC_]]
 
 This section provides comprehensive guides for developing and extending DPU services within the DOCA Platform Framework (DPF).
 

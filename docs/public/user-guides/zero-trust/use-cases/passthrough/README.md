@@ -12,7 +12,7 @@ This configuration provides instructions for deploying the NVIDIA DOCA Platform 
 bare-metal infrastructure in Zero Trust mode, utilizing DPU BMC and Redfish. It focuses on provisioning NVIDIA®
 BlueField®-3 DPUs using DPF and enabling them to act as passthrough devices.
 
-[TOC]
+[[_TOC_]]
 
 ## Prerequisites
 
