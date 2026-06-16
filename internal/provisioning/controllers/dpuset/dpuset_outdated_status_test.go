@@ -105,7 +105,7 @@ func newOutdatedTestDPU(name, deviceName, bfb, flavor string) *provisioningv1.DP
 		Spec: provisioningv1.DPUSpec{
 			DPUNodeName:   name + "-node",
 			DPUDeviceName: deviceName,
-			BFB:           bfb,
+			BFB:           ptr.To(bfb),
 			DPUFlavor:     flavor,
 		},
 	}

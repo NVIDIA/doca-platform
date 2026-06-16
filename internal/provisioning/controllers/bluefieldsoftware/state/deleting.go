@@ -29,6 +29,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
@@ -71,7 +72,7 @@ func (st *blueFieldSoftwareDeletingState) Handle(ctx context.Context, c client.C
 
 	var usingDPUs []string
 	for _, dpu := range dpuList.Items {
-		if dpu.Spec.BlueFieldSoftware == st.bfs.Name {
+		if ptr.Deref(dpu.Spec.BlueFieldSoftware, "") == st.bfs.Name {
 			usingDPUs = append(usingDPUs, fmt.Sprintf("%s/%s", dpu.Namespace, dpu.Name))
 		}
 	}

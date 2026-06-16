@@ -160,6 +160,58 @@ var _ = Describe("Provisioning API Validation", func() {
 		)
 	})
 
+	Context("When checking the DPU API validations", func() {
+		DescribeTable("Validates exactly one of bfb or blueFieldSoftware in DPUSpec",
+			func(dpuSpec provisioningv1.DPUSpec, expectError bool) {
+				dpu := getMinimalDPU(testNs.Name)
+				dpu.Spec = dpuSpec
+				err := testClient.Create(ctx, dpu)
+				if expectError {
+					Expect(err).To(HaveOccurred())
+					Expect(err.Error()).To(ContainSubstring("exactly one of bfb or blueFieldSoftware must be set"))
+				} else {
+					Expect(err).ToNot(HaveOccurred())
+				}
+			},
+			Entry("both bfb and blueFieldSoftware are specified",
+				provisioningv1.DPUSpec{
+					BFB:               ptr.To("somebfb"),
+					BlueFieldSoftware: ptr.To("somebfs"),
+					DPUDeviceName:     "some-device",
+					DPUNodeName:       "some-node",
+					SerialNumber:      "SN123",
+					DPUFlavor:         "someflavor",
+					NodeEffect:        provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
+				}, true),
+			Entry("only bfb is specified",
+				provisioningv1.DPUSpec{
+					BFB:           ptr.To("somebfb"),
+					DPUDeviceName: "some-device",
+					DPUNodeName:   "some-node",
+					SerialNumber:  "SN123",
+					DPUFlavor:     "someflavor",
+					NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
+				}, false),
+			Entry("only blueFieldSoftware is specified",
+				provisioningv1.DPUSpec{
+					BlueFieldSoftware: ptr.To("somebfs"),
+					DPUDeviceName:     "some-device",
+					DPUNodeName:       "some-node",
+					SerialNumber:      "SN123",
+					DPUFlavor:         "someflavor",
+					NodeEffect:        provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
+				}, false),
+			Entry("neither bfb nor blueFieldSoftware is specified",
+				provisioningv1.DPUSpec{
+					DPUDeviceName: "some-device",
+					DPUNodeName:   "some-node",
+					SerialNumber:  "SN123",
+					DPUFlavor:     "someflavor",
+					NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
+				}, true),
+		)
+	})
+
 	Context("When checking the DPUFlavor API validations", func() {
 		Context("Package validation", func() {
 			It("should default package version match policy to AtLeast", func() {
@@ -570,6 +622,15 @@ var _ = Describe("Provisioning API Validation", func() {
 		})
 	})
 })
+
+func getMinimalDPU(namespace string) *provisioningv1.DPU {
+	return &provisioningv1.DPU{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "dpu-test-",
+			Namespace:    namespace,
+		},
+	}
+}
 
 func getMinimalDPUNode(namespace string) *provisioningv1.DPUNode {
 	return &provisioningv1.DPUNode{

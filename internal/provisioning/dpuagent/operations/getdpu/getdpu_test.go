@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -55,7 +56,7 @@ var _ = Describe("GetLatestDPU Operation", func() {
 			Spec: provisioningv1.DPUSpec{
 				DPUNodeName:   "test-dpu-node",
 				DPUDeviceName: "test-dpu-device",
-				BFB:           "bfb-test",
+				BFB:           ptr.To("bfb-test"),
 				SerialNumber:  "test-dpu-serial-number",
 				DPUFlavor:     "test-dpu-flavor",
 			},

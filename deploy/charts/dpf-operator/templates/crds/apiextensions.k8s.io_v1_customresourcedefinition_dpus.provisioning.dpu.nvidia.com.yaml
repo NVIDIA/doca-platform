@@ -72,10 +72,14 @@ spec:
                 type: boolean
               bfb:
                 description: Specifies name of the bfb CR to use for this DPU
+                maxLength: 253
+                minLength: 1
                 type: string
               blueFieldSoftware:
                 description: Specifies the name of the BlueFieldSoftware CR to use
                   for this DPU
+                maxLength: 253
+                minLength: 1
                 type: string
               bmcIP:
                 description: |-
@@ -279,13 +283,15 @@ spec:
                 - message: Value is immutable
                   rule: self == oldSelf
             required:
-            - bfb
             - dpuDeviceName
             - dpuFlavor
             - dpuNodeName
             - nodeEffect
             - serialNumber
             type: object
+            x-kubernetes-validations:
+            - message: exactly one of bfb or blueFieldSoftware must be set
+              rule: has(self.bfb) != has(self.blueFieldSoftware)
           status:
             default:
               phase: Initializing

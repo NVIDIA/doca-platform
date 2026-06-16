@@ -24,6 +24,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -48,7 +49,7 @@ var _ = Describe("DPU: pending", func() {
 			createObject(dpuFlavor)
 
 			dpu := dpuObj(defaultDPUName)
-			dpu.Spec.BFB = bfb.Name
+			dpu.Spec.BFB = ptr.To(bfb.Name)
 			dpu.Spec.DPUFlavor = dpuFlavor.Name
 			dpu.Status.Phase = provisioningv1.DPUPending
 
@@ -98,7 +99,7 @@ var _ = Describe("DPU: pending", func() {
 			createObject(dpuDevice)
 
 			dpu := dpuObj(defaultDPUName)
-			dpu.Spec.BlueFieldSoftware = blueFieldSoftware.Name
+			dpu.Spec.BlueFieldSoftware = ptr.To(blueFieldSoftware.Name)
 			dpu.Spec.DPUFlavor = dpuFlavor.Name
 			dpu.Spec.DPUDeviceName = dpuDevice.Name
 			dpu.Status.Phase = provisioningv1.DPUPending
@@ -143,7 +144,7 @@ var _ = Describe("DPU: pending", func() {
 			createObject(dpuFlavor)
 
 			dpu := dpuObj(defaultDPUName)
-			dpu.Spec.BFB = "not-existing-bfb"
+			dpu.Spec.BFB = ptr.To("not-existing-bfb")
 			dpu.Spec.DPUFlavor = dpuFlavor.Name
 			dpu.Status.Phase = provisioningv1.DPUPending
 			dpu.Status.DPUType = provisioningv1.DPUTypeBlueField3
@@ -178,7 +179,7 @@ var _ = Describe("DPU: pending", func() {
 		Expect(k8sClient.Status().Patch(ctx, bfb, patch)).To(Succeed())
 
 		dpu := dpuObj(defaultDPUName)
-		dpu.Spec.BFB = bfb.Name
+		dpu.Spec.BFB = ptr.To(bfb.Name)
 		dpu.Spec.DPUFlavor = "not-existing-dpu-flavor"
 		dpu.Status.Phase = provisioningv1.DPUPending
 		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField3
@@ -209,8 +210,8 @@ var _ = Describe("DPU: pending", func() {
 
 		dpu := dpuObj(defaultDPUName)
 		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
-		dpu.Spec.BlueFieldSoftware = blueFieldSoftware.Name
-		dpu.Spec.BlueFieldSoftware = "not-existing-blue-field-software"
+		dpu.Spec.BlueFieldSoftware = ptr.To(blueFieldSoftware.Name)
+		dpu.Spec.BlueFieldSoftware = ptr.To("not-existing-blue-field-software")
 		dpu.Status.Phase = provisioningv1.DPUPending
 		runForEachInterface(func(installInterface provisioningv1.DPUInstallInterfaceType) {
 			status, err := state.Pending(ctx, dpu,
@@ -241,7 +242,7 @@ var _ = Describe("DPU: pending", func() {
 		createObject(dpuFlavor)
 
 		dpu := dpuObj(defaultDPUName)
-		dpu.Spec.BFB = bfb.Name
+		dpu.Spec.BFB = ptr.To(bfb.Name)
 		dpu.Spec.DPUFlavor = dpuFlavor.Name
 		dpu.Status.Phase = provisioningv1.DPUPending
 		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField3

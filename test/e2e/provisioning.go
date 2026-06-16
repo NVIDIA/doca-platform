@@ -34,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -347,7 +348,10 @@ func CreateProvisioningDPUSet(ctx context.Context, input *systemTestInput) {
 
 		for _, dpu := range dpus.Items {
 			By(fmt.Sprintf("DPU %s created with Phase: %s", dpu.Name, dpu.Status.Phase))
-			g.Expect(dpu.Spec.BFB).NotTo(BeEmpty(), "DPU should reference BFB")
+			bfbName := ptr.Deref(dpu.Spec.BFB, "")
+			bfsName := ptr.Deref(dpu.Spec.BlueFieldSoftware, "")
+			g.Expect((bfbName != "")).ToNot(Equal((bfsName != "")), "DPU should reference exactly one of BFB or BlueFieldSoftware")
+
 			g.Expect(dpu.Spec.Cluster.Name).NotTo(BeEmpty(), "DPU should reference DPUCluster")
 		}
 	}).WithTimeout(5 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())

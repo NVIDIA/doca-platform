@@ -47,7 +47,7 @@ var _ = Describe("DPU", func() {
 				Name:      name,
 				Namespace: "default",
 			},
-			Spec: provisioningv1.DPUSpec{DPUDeviceName: "dpudevice-1", SerialNumber: "MT25066004C7", DPUFlavor: "dummy-flavor",
+			Spec: provisioningv1.DPUSpec{DPUDeviceName: "dpudevice-1", BFB: ptr.To("test-bfb"), SerialNumber: "MT25066004C7", DPUFlavor: "dummy-flavor",
 				NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}}},
 			Status: provisioningv1.DPUStatus{},
 		}
@@ -411,6 +411,7 @@ metadata:
   namespace: default
 spec:
   dpuDeviceName: "dpudevice-1"
+  bfb: "test-bfb"
   serialNumber: "MT25066004C7"
   dpuFlavor: "dpu-flavor"
   nodeEffect:

@@ -2508,8 +2508,8 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `dpuNodeName` _string_ | Specifies the DPUNode this DPU belongs to |  | Required: \{\} <br /> |
 | `dpuDeviceName` _string_ | Specifies the name of the DPUDevice this DPU is associated with |  | MinLength: 1 <br />Required: \{\} <br /> |
-| `bfb` _string_ | Specifies name of the bfb CR to use for this DPU |  | Required: \{\} <br /> |
-| `blueFieldSoftware` _string_ | Specifies the name of the BlueFieldSoftware CR to use for this DPU |  | Optional: \{\} <br /> |
+| `bfb` _string_ | Specifies name of the bfb CR to use for this DPU |  | MaxLength: 253 <br />MinLength: 1 <br />Optional: \{\} <br /> |
+| `blueFieldSoftware` _string_ | Specifies the name of the BlueFieldSoftware CR to use for this DPU |  | MaxLength: 253 <br />MinLength: 1 <br />Optional: \{\} <br /> |
 | `serialNumber` _string_ | The serial number of the DPU |  | MinLength: 1 <br />Required: \{\} <br /> |
 | `pciAddress` _string_ | The PCI device related DPU<br />Example: "0000-03-00", "03-00" |  | Pattern: `^([0-9a-fA-F]\{4\}[-])?[0-9a-fA-F]\{2\}[-][0-9a-fA-F]\{2\}$` <br />Optional: \{\} <br /> |
 | `nodeEffect` _[NodeEffect](#nodeeffect)_ | Specifies how changes to the DPU should affect the Node |  | Required: \{\} <br /> |

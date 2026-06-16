@@ -646,7 +646,7 @@ var _ = Describe("BlueFieldSoftware", func() {
 					Namespace: testNS.Name,
 				},
 				Spec: provisioningv1.DPUSpec{
-					BlueFieldSoftware: obj.Name,
+					BlueFieldSoftware: ptr.To(obj.Name),
 					DPUNodeName:       "test-node",
 					DPUDeviceName:     "test-device",
 					DPUFlavor:         "test-flavor",

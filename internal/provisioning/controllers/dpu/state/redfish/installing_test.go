@@ -924,7 +924,8 @@ var _ = Describe("Installing", func() {
 
 			dpu := dpuObj(bf4DPUName)
 			dpu.Spec.DPUDeviceName = dpuDevice.Name
-			dpu.Spec.BlueFieldSoftware = bf4SoftwareName
+			dpu.Spec.BFB = nil
+			dpu.Spec.BlueFieldSoftware = ptr.To(bf4SoftwareName)
 			dpu.Status.Phase = provisioningv1.DPUOSInstalling
 			dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
 			dpu.Status.BFCFGFile = testBFCFGFile
