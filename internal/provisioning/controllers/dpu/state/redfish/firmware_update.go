@@ -257,6 +257,9 @@ func updatePldmFwBundle(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), nil, "Updated", "PLDM Firmware Updated"))
 		state.RedfishTaskID = nil
 		state.Phase = provisioningv1.DPURebooting
+		if err := dutil.InitializeDPURebootStatus(ctx, dpu, state, ctrlCtx, provisioningv1.DPUUpdateFirmware); err != nil {
+			return *state, err
+		}
 		return *state, nil
 	} else {
 		return *state, nil
