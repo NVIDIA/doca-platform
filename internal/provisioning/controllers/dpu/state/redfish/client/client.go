@@ -931,7 +931,7 @@ func InitPassword(ctx context.Context, bmcAddress string, namespace string, bmcC
 		return nil, err
 	}
 
-	resp, _, err := client.GetChassis()
+	resp, _, err := client.GetManagers()
 	if err != nil {
 		return nil, err
 	}
