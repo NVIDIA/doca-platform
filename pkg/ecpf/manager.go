@@ -1,3 +1,5 @@
+//go:build linux
+
 /*
 Copyright 2026 NVIDIA
 
@@ -13,8 +15,6 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-
-//go:generate mockgen -copyright_file ../../hack/boilerplate.go.txt -package mock -destination mock/manager.go . ECPFManager
 
 package ecpf
 
@@ -48,14 +48,6 @@ const (
 var (
 	dpuDeviceIDs = sets.New(bluefield2DeviceID, bluefield3DeviceID, bluefield4DeviceID)
 )
-
-// ECPFManager is an interface for managing ECPF representors.
-type ECPFManager interface {
-	// GetRepresentorForPFServiceInterface returns the representor for the given PF ServiceInterface.
-	GetRepresentorForPFServiceInterface(pfsi *dpuservicev1.PF) (string, error)
-	// GetRepresentorForVFServiceInterface returns the representor for the given VF ServiceInterface.
-	GetRepresentorForVFServiceInterface(vfsi *dpuservicev1.VF) (string, error)
-}
 
 // ecpfEntry represents an embedded CPU PF (ECPF) device.
 type ecpfEntry struct {
