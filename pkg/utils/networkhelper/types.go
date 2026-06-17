@@ -41,6 +41,12 @@ const (
 type NetworkHelper interface {
 	// SetLinkUp sets the administrative state of a link to "up"
 	SetLinkUp(link string) error
+	// GetLinkHardwareAddr returns the MAC address of a link.
+	GetLinkHardwareAddr(link string) (net.HardwareAddr, error)
+	// IsLinkVeth checks if a link is a veth device.
+	IsLinkVeth(link string) (bool, error)
+	// SetLinkHardwareAddr sets the MAC address of a link.
+	SetLinkHardwareAddr(link string, hwaddr net.HardwareAddr) error
 	// SetLinkDown sets the administrative state of a link to "down"
 	SetLinkDown(link string) error
 	// RenameLink renames a link to the given name
