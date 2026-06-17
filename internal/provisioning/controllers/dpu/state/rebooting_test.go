@@ -946,6 +946,28 @@ var _ = Describe("InitializeDPURebootStatus", func() {
 		Expect(st.RebootStatus.Phase).To(Equal(provisioningv1.RebootStatusPending))
 	})
 
+	It("sets PowerCycle method for DPUUpdateFirmware", func() {
+		scheme := runtime.NewScheme()
+		Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
+		cl := fake.NewClientBuilder().WithScheme(scheme).Build()
+		ctrlCtx := &dutil.ControllerContext{Client: cl}
+		dpu := &provisioningv1.DPU{
+			ObjectMeta: metav1.ObjectMeta{Name: "d1", Namespace: "ns1"},
+			Spec:       provisioningv1.DPUSpec{DPUNodeName: "node1"},
+		}
+		st := &provisioningv1.DPUStatus{}
+
+		err := dutil.InitializeDPURebootStatus(ctx, dpu, st, ctrlCtx, provisioningv1.DPUUpdateFirmware)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(st.RebootStatus).NotTo(BeNil())
+		Expect(st.RebootStatus.Method).NotTo(BeNil())
+		Expect(*st.RebootStatus.Method).To(Equal(provisioningv1.RebootMethodPowerCycle))
+		Expect(st.RebootStatus.Reason).To(Equal("FirmwareUpdateRequiresPowerCycle"))
+		Expect(st.RebootStatus.Message).To(Equal("firmware update requires power cycle to activate"))
+		Expect(st.RebootStatus.Phase).To(Equal(provisioningv1.RebootStatusPending))
+	})
+
 	It("does not modify DPU status.phase; only status.rebootStatus.phase is initialized to Pending", func() {
 		scheme := runtime.NewScheme()
 		Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())

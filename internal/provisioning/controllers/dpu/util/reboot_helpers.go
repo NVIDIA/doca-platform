@@ -158,6 +158,11 @@ func InitializeDPURebootStatus(ctx context.Context, dpu *provisioningv1.DPU, sta
 	var method *provisioningv1.RebootMethodType
 
 	switch {
+	case sourcePhase == provisioningv1.DPUUpdateFirmware:
+		powerCycle := provisioningv1.RebootMethodPowerCycle
+		method = &powerCycle
+		reason = "FirmwareUpdateRequiresPowerCycle"
+		message = "firmware update requires power cycle to activate"
 	case sourcePhase == provisioningv1.DPUInitializeInterface:
 		// Mode transition reboot always requires a host power cycle.
 		powerCycle := provisioningv1.RebootMethodPowerCycle
