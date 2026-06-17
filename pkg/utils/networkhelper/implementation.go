@@ -49,6 +49,38 @@ func (n *networkHelper) SetLinkUp(link string) error {
 	return nil
 }
 
+// GetLinkHardwareAddr returns the MAC address of a link.
+func (n *networkHelper) GetLinkHardwareAddr(link string) (net.HardwareAddr, error) {
+	l, err := netlink.LinkByName(link)
+	if err != nil {
+		return nil, fmt.Errorf("netlink.LinkByName() failed: %w", err)
+	}
+	return l.Attrs().HardwareAddr, nil
+}
+
+// IsLinkVeth checks if a link is a veth device.
+func (n *networkHelper) IsLinkVeth(link string) (bool, error) {
+	l, err := netlink.LinkByName(link)
+	if err != nil {
+		return false, fmt.Errorf("netlink.LinkByName() failed: %w", err)
+	}
+	_, isVeth := l.(*netlink.Veth)
+	return isVeth, nil
+}
+
+// SetLinkHardwareAddr sets the MAC address of a link.
+func (n *networkHelper) SetLinkHardwareAddr(link string, hwaddr net.HardwareAddr) error {
+	l, err := netlink.LinkByName(link)
+	if err != nil {
+		return fmt.Errorf("netlink.LinkByName() failed: %w", err)
+	}
+	err = netlink.LinkSetHardwareAddr(l, hwaddr)
+	if err != nil {
+		return fmt.Errorf("netlink.LinkSetHardwareAddr() failed: %w", err)
+	}
+	return nil
+}
+
 // SetLinkDown sets the administrative state of a link to "down"
 func (n *networkHelper) SetLinkDown(link string) error {
 	l, err := netlink.LinkByName(link)

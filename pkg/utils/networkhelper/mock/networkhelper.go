@@ -204,6 +204,21 @@ func (mr *MockNetworkHelperMockRecorder) GetHostPFMACAddressDPU(pfID any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetHostPFMACAddressDPU", reflect.TypeOf((*MockNetworkHelper)(nil).GetHostPFMACAddressDPU), pfID)
 }
 
+// GetLinkHardwareAddr mocks base method.
+func (m *MockNetworkHelper) GetLinkHardwareAddr(link string) (net.HardwareAddr, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetLinkHardwareAddr", link)
+	ret0, _ := ret[0].(net.HardwareAddr)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetLinkHardwareAddr indicates an expected call of GetLinkHardwareAddr.
+func (mr *MockNetworkHelperMockRecorder) GetLinkHardwareAddr(link any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLinkHardwareAddr", reflect.TypeOf((*MockNetworkHelper)(nil).GetLinkHardwareAddr), link)
+}
+
 // GetLinkIPAddresses mocks base method.
 func (m *MockNetworkHelper) GetLinkIPAddresses(link string, family networkhelper.IPFamily) ([]*net.IPNet, error) {
 	m.ctrl.T.Helper()
@@ -292,6 +307,21 @@ func (m *MockNetworkHelper) GetVfRepresentorFromPortParams(pp *sriovnet.Represen
 func (mr *MockNetworkHelperMockRecorder) GetVfRepresentorFromPortParams(pp, vfIndex any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetVfRepresentorFromPortParams", reflect.TypeOf((*MockNetworkHelper)(nil).GetVfRepresentorFromPortParams), pp, vfIndex)
+}
+
+// IsLinkVeth mocks base method.
+func (m *MockNetworkHelper) IsLinkVeth(link string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsLinkVeth", link)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// IsLinkVeth indicates an expected call of IsLinkVeth.
+func (mr *MockNetworkHelperMockRecorder) IsLinkVeth(link any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsLinkVeth", reflect.TypeOf((*MockNetworkHelper)(nil).IsLinkVeth), link)
 }
 
 // LinkExists mocks base method.
@@ -410,6 +440,20 @@ func (m *MockNetworkHelper) SetLinkDown(link string) error {
 func (mr *MockNetworkHelperMockRecorder) SetLinkDown(link any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetLinkDown", reflect.TypeOf((*MockNetworkHelper)(nil).SetLinkDown), link)
+}
+
+// SetLinkHardwareAddr mocks base method.
+func (m *MockNetworkHelper) SetLinkHardwareAddr(link string, hwaddr net.HardwareAddr) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetLinkHardwareAddr", link, hwaddr)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetLinkHardwareAddr indicates an expected call of SetLinkHardwareAddr.
+func (mr *MockNetworkHelperMockRecorder) SetLinkHardwareAddr(link, hwaddr any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetLinkHardwareAddr", reflect.TypeOf((*MockNetworkHelper)(nil).SetLinkHardwareAddr), link, hwaddr)
 }
 
 // SetLinkIPAddress mocks base method.
