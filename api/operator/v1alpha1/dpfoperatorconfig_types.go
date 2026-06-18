@@ -96,6 +96,24 @@ type Overrides struct {
 	// +kubebuilder:validation:MinLength=1
 	DPUOpenvSwitchSystemSharedLib64Path *string `json:"dpuOpenvSwitchSystemSharedLib64Path,omitempty"`
 
+	// DPULinkerCachePath is the path on the DPU at which the prebuilt dynamic-linker cache
+	// file can be found. When set, this file is mounted read-only into the SFC Controller
+	// container so that host OVS binaries can resolve shared libraries using the DPU's
+	// linker configuration. If not set, no linker cache mount is added.
+	// This setting does not change where components are installed. Installation location fixed in the BFB.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	DPULinkerCachePath *string `json:"dpuLinkerCachePath,omitempty"`
+
+	// DPUOptLibraryPath is the path on the DPU at which an additional library directory
+	// can be found. When set, this directory is mounted read-only into the SFC Controller
+	// container. Useful on distributions that install vendor libraries outside the standard
+	// paths (e.g. /usr/opt on RHCOS BFB). If not set, no additional library directory is mounted.
+	// This setting does not change where components are installed. Installation location fixed in the BFB.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	DPUOptLibraryPath *string `json:"dpuOptLibraryPath,omitempty"`
+
 	// KubernetesAPIServerVIP is the VIP the Kubernetes API server is accessible at.
 	// This setting enables specific underlying components deployed directly or indirectly by the DPF Operator to reach
 	// the Kubernetes API Server when the ClusterIP Kubernetes Service is not functional.

@@ -121,6 +121,8 @@ type Variables struct {
 	DPUOpenvSwitchBinPath            string
 	DPUOpenvSwitchSharedLibPath      string
 	DPUOpenvSwitchSharedLib64Path    *string
+	DPULinkerCachePath               *string
+	DPUOptLibraryPath                *string
 	FlannelSkipCNIConfigInstallation bool
 	DisableDPUReadyTaints            bool
 	FlannelPodCIDR                   string
@@ -333,6 +335,12 @@ func setOverrideConfigs(variables Variables, config *operatorv1.DPFOperatorConfi
 	}
 	if v := config.Spec.Overrides.DPUOpenvSwitchSystemSharedLib64Path; v != nil && *v != "" {
 		variables.DPUOpenvSwitchSharedLib64Path = v
+	}
+	if v := config.Spec.Overrides.DPULinkerCachePath; v != nil && *v != "" {
+		variables.DPULinkerCachePath = v
+	}
+	if v := config.Spec.Overrides.DPUOptLibraryPath; v != nil && *v != "" {
+		variables.DPUOptLibraryPath = v
 	}
 	if config.Spec.Overrides.DPUOpenvSwitchRunPath != nil {
 		variables.DPUOpenvSwitchRunPath = *config.Spec.Overrides.DPUOpenvSwitchRunPath
