@@ -252,9 +252,14 @@ func sfcControllerEdits(vars Variables) ([]StructuredEdit, error) {
 		dpuServiceAddValueEdit(vars.DPUOpenvSwitchSharedLibPath, operatorv1.SFCControllerName.String(), openvSwitchSharedLibraryDirPathKey),
 		dpuServiceAddValueEdit(vars.SFCController.SecureFlowDeletionTimeout.String(), operatorv1.SFCControllerName.String(), "controllerManager", "manager", "secureFlowDeletionTimeout"),
 	}
-	// Only add lib64 path if it's configured
 	if vars.DPUOpenvSwitchSharedLib64Path != nil {
 		edits = append(edits, dpuServiceAddValueEdit(*vars.DPUOpenvSwitchSharedLib64Path, operatorv1.SFCControllerName.String(), openvSwitchSharedLibrary64DirPathKey))
+	}
+	if vars.DPULinkerCachePath != nil {
+		edits = append(edits, dpuServiceAddValueEdit(*vars.DPULinkerCachePath, operatorv1.SFCControllerName.String(), dpuLinkerCachePathKey))
+	}
+	if vars.DPUOptLibraryPath != nil {
+		edits = append(edits, dpuServiceAddValueEdit(*vars.DPUOptLibraryPath, operatorv1.SFCControllerName.String(), dpuOptLibraryPathKey))
 	}
 	return edits, nil
 }
