@@ -254,6 +254,176 @@ spec:
 			},
 		},
 		{
+			name: "SFC linker cache and opt library paths are propagated when set",
+			inputYAML: `apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUService
+metadata:
+  name: sfc-controller
+spec:
+  helmChart:
+    source:
+      repoURL: helmchart.com
+      chart: chart
+      version: v1
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceNAD
+metadata:
+  name: test-nad
+spec:
+  resourceType: sf
+  bridge: br-sfc
+  serviceMTU: 1500
+  ipam: false`,
+			vars: func() Variables {
+				defaults := &release.Defaults{}
+				g.Expect(defaults.Parse()).To(Succeed())
+				vars := newDefaultVariables(defaults)
+				vars.Namespace = testNamespace
+				vars.DPULinkerCachePath = ptr.To("/etc/ld.so.cache")
+				vars.DPUOptLibraryPath = ptr.To("/usr/opt")
+				return vars
+			}(),
+			wantDPUService: &dpuservicev1.DPUService{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "DPUService",
+					APIVersion: "svc.dpu.nvidia.com/v1alpha1",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      serviceName.String(),
+					Namespace: testNamespace,
+					Labels: map[string]string{
+						operatorv1.DPFComponentLabelKey: serviceName.String(),
+						release.DPFVersionLabelKey:      release.DPFVersion(),
+					},
+				},
+				Spec: dpuservicev1.DPUServiceSpec{
+					ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
+						Labels: map[string]string{
+							operatorv1.DPFComponentLabelKey: operatorv1.SFCControllerName.String(),
+						},
+					},
+					HelmChart: dpuservicev1.HelmChart{
+						Source: dpuservicev1.ApplicationSource{
+							RepoURL: "oci://example.com",
+							Chart:   "dpu-networking",
+							Version: "v0.1.0",
+						},
+						Values: &runtime.RawExtension{
+							Raw: []byte(`{"sfc-controller":{"controllerManager":{"manager":{"image":{"repository":"example.com/dpf-system","tag":"v0.1.0"},"secureFlowDeletionTimeout":"0s"}},"dpuLinkerCachePath":"/etc/ld.so.cache","dpuOptLibraryPath":"/usr/opt","enabled":true,"openvSwitchBinDir":"/usr/bin/","openvSwitchRunDir":"/var/run/openvswitch/","openvSwitchSharedLibraryDir":"/lib"}}`),
+						},
+					},
+				},
+			},
+			wantDPUServiceNADs: []*dpuservicev1.DPUServiceNAD{
+				{
+					TypeMeta: metav1.TypeMeta{
+						Kind:       "DPUServiceNAD",
+						APIVersion: "svc.dpu.nvidia.com/v1alpha1",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-nad",
+						Namespace: testNamespace,
+						Labels: map[string]string{
+							operatorv1.DPFComponentLabelKey: serviceName.String(),
+							release.DPFVersionLabelKey:      release.DPFVersion(),
+						},
+					},
+					Spec: dpuservicev1.DPUServiceNADSpec{
+						ResourceType: "sf",
+						Bridge:       "br-sfc",
+						ServiceMTU:   0,
+						IPAM:         false,
+					},
+				},
+			},
+		},
+		{
+			name: "SFC paths can be set independently",
+			inputYAML: `apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUService
+metadata:
+  name: sfc-controller
+spec:
+  helmChart:
+    source:
+      repoURL: helmchart.com
+      chart: chart
+      version: v1
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceNAD
+metadata:
+  name: test-nad
+spec:
+  resourceType: sf
+  bridge: br-sfc
+  serviceMTU: 1500
+  ipam: false`,
+			vars: func() Variables {
+				defaults := &release.Defaults{}
+				g.Expect(defaults.Parse()).To(Succeed())
+				vars := newDefaultVariables(defaults)
+				vars.Namespace = testNamespace
+				vars.DPULinkerCachePath = ptr.To("/etc/ld.so.cache")
+				// DPUOptLibraryPath intentionally left nil
+				return vars
+			}(),
+			wantDPUService: &dpuservicev1.DPUService{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "DPUService",
+					APIVersion: "svc.dpu.nvidia.com/v1alpha1",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      serviceName.String(),
+					Namespace: testNamespace,
+					Labels: map[string]string{
+						operatorv1.DPFComponentLabelKey: serviceName.String(),
+						release.DPFVersionLabelKey:      release.DPFVersion(),
+					},
+				},
+				Spec: dpuservicev1.DPUServiceSpec{
+					ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
+						Labels: map[string]string{
+							operatorv1.DPFComponentLabelKey: operatorv1.SFCControllerName.String(),
+						},
+					},
+					HelmChart: dpuservicev1.HelmChart{
+						Source: dpuservicev1.ApplicationSource{
+							RepoURL: "oci://example.com",
+							Chart:   "dpu-networking",
+							Version: "v0.1.0",
+						},
+						Values: &runtime.RawExtension{
+							Raw: []byte(`{"sfc-controller":{"controllerManager":{"manager":{"image":{"repository":"example.com/dpf-system","tag":"v0.1.0"},"secureFlowDeletionTimeout":"0s"}},"dpuLinkerCachePath":"/etc/ld.so.cache","enabled":true,"openvSwitchBinDir":"/usr/bin/","openvSwitchRunDir":"/var/run/openvswitch/","openvSwitchSharedLibraryDir":"/lib"}}`),
+						},
+					},
+				},
+			},
+			wantDPUServiceNADs: []*dpuservicev1.DPUServiceNAD{
+				{
+					TypeMeta: metav1.TypeMeta{
+						Kind:       "DPUServiceNAD",
+						APIVersion: "svc.dpu.nvidia.com/v1alpha1",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-nad",
+						Namespace: testNamespace,
+						Labels: map[string]string{
+							operatorv1.DPFComponentLabelKey: serviceName.String(),
+							release.DPFVersionLabelKey:      release.DPFVersion(),
+						},
+					},
+					Spec: dpuservicev1.DPUServiceNADSpec{
+						ResourceType: "sf",
+						Bridge:       "br-sfc",
+						ServiceMTU:   0,
+						IPAM:         false,
+					},
+				},
+			},
+		},
+		{
 			name: "component is disabled",
 			inputYAML: `apiVersion: svc.dpu.nvidia.com/v1alpha1
 kind: DPUService
