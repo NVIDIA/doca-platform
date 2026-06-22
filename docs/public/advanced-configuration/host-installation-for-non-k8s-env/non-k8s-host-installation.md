@@ -9,7 +9,9 @@ title: "Host Installation for non-Kubernetes Environments"
 ### 1. Install DPF
 
 Select a use case from the [host trusted use cases](../../user-guides/host-trusted/README.md#use-cases) and complete all prerequisite steps before provisioning.
-> Note: The DPU Detector is not used in non-Kubernetes environments. After creating `DPFOperatorConfig`, you can ignore any related errors, or [disable the DPU Detector](../../developer-guides/api/dpfoperatorconfig.md#optional-component-configurations) by setting `dpuDetector.disable=true`.
+
+> [!NOTE]
+> The DPU Detector is not used in non-Kubernetes environments. After creating `DPFOperatorConfig`, you can ignore any related errors, or [disable the DPU Detector](../../developer-guides/api/dpfoperatorconfig.md#optional-component-configurations) by setting `dpuDetector.disable=true`.
 
 ### 2. Create Bootstrap Token 
 For security reasons, it’s recommended that the host agent join the cluster using a bootstrap token. The following commands create a bootstrap token that expires in 24 hours and use that token to generate a kubeconfig. 

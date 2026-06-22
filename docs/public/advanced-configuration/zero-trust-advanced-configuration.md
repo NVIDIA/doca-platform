@@ -89,7 +89,8 @@ and `DPUNode` resources manually.
 
 Create a `DPUDevice` resource for each DPU:
 
-> **Note**: The `DPUDevice` is immutable, and creating a DPUDevice will not trigger DPU provisioning.
+> [!NOTE]
+> The `DPUDevice` is immutable, and creating a DPUDevice will not trigger DPU provisioning.
 
 ```yaml
 ---
