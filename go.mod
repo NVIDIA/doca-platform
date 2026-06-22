@@ -23,7 +23,7 @@ require (
 	github.com/golang/glog v1.2.5
 	github.com/j-keck/arping v1.0.3
 	github.com/k8snetworkplumbingwg/network-attachment-definition-client v1.7.5
-	github.com/k8snetworkplumbingwg/sriovnet v1.2.1-0.20260604181911-433ce1d85872
+	github.com/k8snetworkplumbingwg/sriovnet v1.3.0
 	github.com/kubernetes-csi/csi-lib-utils v0.22.0
 	github.com/mcuadros/go-version v0.0.0-20190830083331-035f6764e8d2
 	github.com/olekukonko/tablewriter v0.0.5
