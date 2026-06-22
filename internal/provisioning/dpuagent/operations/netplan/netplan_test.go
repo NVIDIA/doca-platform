@@ -152,6 +152,9 @@ var _ = Describe("Netplan", func() {
 
 			_, err = os.Stat(filepath.Join(tempDir, "99-dpf-comm-ch.yaml"))
 			Expect(err).NotTo(HaveOccurred())
+			content, err = os.ReadFile(filepath.Join(tempDir, "99-dpf-comm-ch.yaml"))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(content)).To(ContainSubstring("pf0vf0"))
 
 			_, err = os.Stat(filepath.Join(tempDir, "97-pf-mtu.yaml"))
 			Expect(err).NotTo(HaveOccurred())
@@ -182,7 +185,7 @@ var _ = Describe("Netplan", func() {
 				Options: opts.Options{ZeroTrustMode: true},
 				DiscoverPorts: func() ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{
-						{Netdev: "p0", PCIAddress: "0000:00:00.0", MSTDevice: "/dev/mst/mt0"},
+						{Netdev: "p0", PCIAddress: "0000:00:00.0", MSTDevice: "/dev/mst/mt0", PFRepresentor: "B00c1pf0"},
 						{Netdev: "p1", PCIAddress: "0000:00:00.1", MSTDevice: "/dev/mst/mt0.1"},
 					}, nil
 				},
@@ -192,11 +195,13 @@ var _ = Describe("Netplan", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(string(content)).To(ContainSubstring("p0:"))
 			Expect(string(content)).To(ContainSubstring("p1:"))
-			Expect(string(content)).To(ContainSubstring("pf0hpf:"))
-			Expect(string(content)).To(ContainSubstring("pf1hpf:"))
+			Expect(string(content)).To(ContainSubstring("B00c1pf0:"))
+			Expect(string(content)).NotTo(ContainSubstring("pf0hpf:"))
+			Expect(string(content)).NotTo(ContainSubstring("pf1hpf:"))
 			Expect(string(content)).NotTo(ContainSubstring("p2:"))
 			Expect(applied).To(BeTrue())
 		})
+
 	})
 
 	Context("check network", func() {

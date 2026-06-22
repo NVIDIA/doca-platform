@@ -45,6 +45,12 @@ func writeUevent(root, netdev, pciSlotName string) {
 		[]byte(fmt.Sprintf("DRIVER=mlx5_core\nPCI_SLOT_NAME=%s\n", pciSlotName)), 0644)).To(Succeed())
 }
 
+func writePCIDeviceID(root, bdf, deviceID string) {
+	dir := filepath.Join(root, bdf)
+	ExpectWithOffset(1, os.MkdirAll(dir, 0755)).To(Succeed())
+	ExpectWithOffset(1, os.WriteFile(filepath.Join(dir, "device"), []byte(deviceID+"\n"), 0644)).To(Succeed())
+}
+
 func mockRunBash(devlinkResponse string) func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 	return func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 		switch cmd {
@@ -68,21 +74,24 @@ func setSysfsNetPathForTest(path string) {
 
 func overridePathVars(netRoot, mstDir string) {
 	origNet := sysfsNetPath
+	origPCIDevices := sysfsPCIDevicesPath
 	origMST := mstDevicesPath
 	sysfsNetPath = netRoot
+	sysfsPCIDevicesPath = filepath.Join(filepath.Dir(filepath.Dir(netRoot)), "bus", "pci", "devices")
 	mstDevicesPath = mstDir
 	DeferCleanup(func() {
 		sysfsNetPath = origNet
+		sysfsPCIDevicesPath = origPCIDevices
 		mstDevicesPath = origMST
 	})
 }
 
-func excludePCI(addrs ...string) func(NICPort) bool {
+func excludePCI(addrs ...string) func(*NICPort) bool {
 	blocked := map[string]struct{}{}
 	for _, a := range addrs {
 		blocked[a] = struct{}{}
 	}
-	return func(port NICPort) bool {
+	return func(port *NICPort) bool {
 		_, ok := blocked[port.PCIAddress]
 		return !ok
 	}
@@ -125,6 +134,19 @@ var _ = Describe("NetdevPCI", func() {
 	})
 })
 
+var _ = Describe("NSPortFilter", func() {
+	It("should return true for known N/S NIC device IDs (BF2, BF3, BF4)", func() {
+		Expect(NSPortFilter(&NICPort{DeviceID: bluefield2DeviceID})).To(BeTrue())
+		Expect(NSPortFilter(&NICPort{DeviceID: bluefield3DeviceID})).To(BeTrue())
+		Expect(NSPortFilter(&NICPort{DeviceID: bluefield4DeviceID})).To(BeTrue())
+	})
+
+	It("should return false for unknown device IDs", func() {
+		Expect(NSPortFilter(&NICPort{DeviceID: "0xffff"})).To(BeFalse())
+		Expect(NSPortFilter(&NICPort{})).To(BeFalse())
+	})
+})
+
 var _ = Describe("DiscoverPorts", func() {
 	It("should join devlink, sysfs, and MST data and apply filter", func() {
 		root := GinkgoT().TempDir()
@@ -144,6 +166,11 @@ var _ = Describe("DiscoverPorts", func() {
 		writeMSTDevice(filepath.Join(mstDir, "mt41695_pciconf0"), "0002:01:00.0")
 		writeMSTDevice(filepath.Join(mstDir, "mt41695_pciconf1"), "0006:01:00.0")
 
+		pciDevicesRoot := filepath.Join(root, "sys", "bus", "pci", "devices")
+		writePCIDeviceID(pciDevicesRoot, "0000:03:00.0", bluefield3DeviceID)
+		writePCIDeviceID(pciDevicesRoot, "0000:03:00.1", bluefield3DeviceID)
+		writePCIDeviceID(pciDevicesRoot, "0002:01:00.0", bluefield4DeviceID)
+		writePCIDeviceID(pciDevicesRoot, "0006:01:00.0", bluefield4DeviceID)
 		overridePathVars(netRoot, mstDir)
 
 		d := &PortDiscoverer{
@@ -152,12 +179,15 @@ var _ = Describe("DiscoverPorts", func() {
 				"auxiliary/mlx5_core.eth.1/327679": {Netdev: "p1", Flavor: "physical"},
 				"auxiliary/mlx5_core.eth.2/393215": {Netdev: "p3", Flavor: "physical"},
 				"auxiliary/mlx5_core.eth.3/458751": {Netdev: "p4", Flavor: "physical"},
+				"pci/0000:03:00.0/196608":          {Netdev: "custompf0", Flavor: "pcipf"},
+				"pci/0002:01:00.0/458752":          {Netdev: "B21c1pf7", Flavor: "pcipf"},
 				"pci/0000:03:00.0/229377":          {Netdev: "en3f0pf0sf1", Flavor: "pcisf"},
+				"pci/0002:01:00.0/458754":          {Flavor: "virtual"},
 			})),
 		}
 
 		// Filter excludes p1 and p4
-		ports, err := d.DiscoverPorts(excludePCI("0000:03:00.1", "0006:01:00.0"))
+		ports, err := d.DiscoverPhysicalPort(excludePCI("0000:03:00.1", "0006:01:00.0"))
 		Expect(err).NotTo(HaveOccurred())
 		Expect(ports).To(HaveLen(2))
 
@@ -168,10 +198,58 @@ var _ = Describe("DiscoverPorts", func() {
 		Expect(portMap).To(HaveKey("p0"))
 		Expect(portMap["p0"].PCIAddress).To(Equal("0000:03:00.0"))
 		Expect(portMap["p0"].MSTDevice).To(Equal(filepath.Join(mstDir, "mt41692_pciconf0")))
+		Expect(portMap["p0"].PFRepresentor).To(Equal("custompf0"))
 		Expect(portMap).To(HaveKey("p3"))
 		Expect(portMap["p3"].PCIAddress).To(Equal("0002:01:00.0"))
 		Expect(portMap["p3"].MSTDevice).To(Equal(filepath.Join(mstDir, "mt41695_pciconf0")))
+		Expect(portMap["p3"].PFRepresentor).To(Equal("B21c1pf7"))
 	})
+
+	It("should discover N/S ports and annotate BF4 ports", func() {
+		root := GinkgoT().TempDir()
+
+		netRoot := filepath.Join(root, "sys", "class", "net")
+		writeUevent(netRoot, "p0", "0000:03:00.0")
+		writeUevent(netRoot, "p1", "0002:01:00.0")
+		writeUevent(netRoot, "eth0", "000a:01:00.0")
+
+		mstDir := filepath.Join(root, "dev", "mst")
+		Expect(os.MkdirAll(mstDir, 0755)).To(Succeed())
+		writeMSTDevice(filepath.Join(mstDir, "mt41692_pciconf0"), "0000:03:00.0")
+		writeMSTDevice(filepath.Join(mstDir, "mt41695_pciconf0"), "0002:01:00.0")
+		writeMSTDevice(filepath.Join(mstDir, "mt_other_pciconf0"), "000a:01:00.0")
+
+		pciDevicesRoot := filepath.Join(root, "sys", "bus", "pci", "devices")
+		writePCIDeviceID(pciDevicesRoot, "0000:03:00.0", "0xa2dc")
+		writePCIDeviceID(pciDevicesRoot, "0002:01:00.0", "0xa2df")
+		writePCIDeviceID(pciDevicesRoot, "000a:01:00.0", "0xffff")
+		overridePathVars(netRoot, mstDir)
+
+		d := &PortDiscoverer{
+			runBash: mockRunBash(devlinkJSON(map[string]DevlinkPortEntry{
+				"auxiliary/mlx5_core.eth.0/262143": {Netdev: "p0", Flavor: "physical"},
+				"auxiliary/mlx5_core.eth.1/327679": {Netdev: "p1", Flavor: "physical"},
+				"auxiliary/mlx5_core.eth.2/393215": {Netdev: "eth0", Flavor: "physical"},
+				"pci/0000:03:00.0/196608":          {Netdev: "pf0hpf", Flavor: "pcipf"},
+				"pci/0002:01:00.0/458752":          {Netdev: "B21c1pf0", Flavor: "pcipf"},
+			})),
+		}
+
+		ports, err := d.DiscoverPhysicalPort(NSPortFilter)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(ports).To(HaveLen(2))
+
+		portMap := map[string]NICPort{}
+		for _, p := range ports {
+			portMap[p.Netdev] = p
+		}
+		Expect(portMap["p0"].DeviceID).To(Equal(bluefield3DeviceID))
+		Expect(portMap["p0"].PFRepresentor).To(Equal("pf0hpf"))
+		Expect(portMap["p1"].DeviceID).To(Equal(bluefield4DeviceID))
+		Expect(portMap["p1"].PFRepresentor).To(Equal("B21c1pf0"))
+		Expect(portMap).NotTo(HaveKey("eth0"))
+	})
+
 })
 
 var _ = Describe("pciAddressFromMSTDevice", func() {
