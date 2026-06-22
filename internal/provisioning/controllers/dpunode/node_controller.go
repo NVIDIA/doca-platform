@@ -74,9 +74,6 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		if err := r.handleReconcileDelete(ctx, node.Name); err != nil {
 			return ctrl.Result{}, err
 		}
-	}
-
-	if !node.DeletionTimestamp.IsZero() {
 		return ctrl.Result{}, nil
 	}
 
