@@ -464,7 +464,8 @@ generate-docs-api: gen-crd-api-reference-docs ## Generate docs for the API.
 .PHONY: generate-docs-helm
 generate-docs-helm: helm-docs yq ## Generate helm chart documentation.
 	## Generate helm docs for all charts in the helm directory.
-	$(HELM_DOCS) --ignore-file=.helmdocsignore
+	## --chart-search-root uses the resolved path because PROJECT_DIR keeps the symlink (pwd -L).
+	$(HELM_DOCS) --chart-search-root=$(realpath $(PROJECT_DIR)) --ignore-file=.helmdocsignore
 
 .PHONY: generate-docs-embedmd
 generate-docs-embedmd: embedmd ## Embed additional files into markdown docs.
