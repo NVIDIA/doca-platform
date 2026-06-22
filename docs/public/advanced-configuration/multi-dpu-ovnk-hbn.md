@@ -164,16 +164,16 @@ Be aware of the following limitations before relying on auto-generated labels:
 
 ## Example: Multi-DPU Deployment with dpuDeviceSelector
 
-This section shows how to modify the existing DPUDeployment from the [OVN Kubernetes with Host Based 
-Networking](../user-guides/host-trusted/use-cases/hbn-ovnk/README.md) guide and create an additional one for 
-multi-DPU support.
+This section shows how to modify the existing DPUDeployment from the [OVN Kubernetes with Host Based Networking](../user-guides/host-trusted/use-cases/hbn-ovnk/README.md)
+guide and create an additional one for multi-DPU support.
 
 ### Step 1: Modify the Existing DPUDeployment for OVN and HBN Services
 
 **Instead of creating a new DPUDeployment, modify the existing one from the OVN-Kubernetes HBN guide.** Simply 
 add a `dpuDeviceSelector` to the existing `ovn-hbn` DPUDeployment:
 
-> [!NOTE] We removed the serviceChains section for simplicity. You should keep the serviceChains section if you have
+> [!NOTE]
+> We removed the serviceChains section for simplicity. You should keep the serviceChains section if you have
 > defined any service chains in your original DPUDeployment.
 
 **Modified DPUDeployment:**
@@ -218,19 +218,19 @@ DPUDeployment must use a different `dpuDeviceSelector` to target the second DPU.
 
 The second DPU requires a slightly different `DPUFlavor` without the `hostNetworkInterfaceConfigs` section. 
 
-> [!NOTE]  
+> [!NOTE]
 > **When to use `hostNetworkInterfaceConfigs`:**  
-> The `hostNetworkInterfaceConfigs` section (which configures DHCP and MTU settings for host-side network 
-> interfaces) is only needed for the DPU that handles host networking (the one running OVN-Kubernetes and HBN). 
-> Since the second DPU only runs Blueman and DTS services, it does not need to configure the host network 
+> The `hostNetworkInterfaceConfigs` section (which configures DHCP and MTU settings for host-side network
+> interfaces) is only needed for the DPU that handles host networking (the one running OVN-Kubernetes and HBN).
+> Since the second DPU only runs Blueman and DTS services, it does not need to configure the host network
 > interfaces, and therefore the `hostNetworkInterfaceConfigs` section should be omitted.
 
 To create the new flavor, modify the existing `dpuflavor-hbn-ovn.yaml` file by removing the 
 `hostNetworkInterfaceConfigs` section as shown below and save it as a new file (e.g., 
 `dpuflavor-other-services.yaml`) with a new `metadata.name`:
 
-> [!TIP]  
-> The diff below shows the path from the documentation repository for reference. Use your actual file location 
+> [!TIP]
+> The diff below shows the path from the documentation repository for reference. Use your actual file location
 > when making these changes.
 
 ```diff
