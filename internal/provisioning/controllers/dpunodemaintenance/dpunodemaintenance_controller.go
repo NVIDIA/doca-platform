@@ -63,6 +63,7 @@ type DPUNodeMaintenanceReconciler struct {
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpunodemaintenances,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpunodemaintenances/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpunodemaintenances/finalizers,verbs=update
+// +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpunodes,verbs=get
 
 func (r *DPUNodeMaintenanceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, reterr error) {
 	logger := log.FromContext(ctx)
@@ -97,16 +98,17 @@ func (r *DPUNodeMaintenanceReconciler) Reconcile(ctx context.Context, req ctrl.R
 		return ctrl.Result{}, nil
 	}
 
-	// If Requestor is empty, remove node effect and delete the DPUNodeMaintenance object
-	if len(dpunodemaintenance.Spec.Requestor) == 0 {
-		if dpunodemaintenance.GetDeletionTimestamp().IsZero() {
-			if err := r.Client.Delete(ctx, dpunodemaintenance); err != nil {
-				return ctrl.Result{}, err
-			}
-			logger.Info(fmt.Sprintf("Deleted DPUNodeMaintenance %s object", dpunodemaintenance.Name))
-			return ctrl.Result{}, nil
-		}
+	if !dpunodemaintenance.GetDeletionTimestamp().IsZero() {
 		return r.reconcileDelete(ctx, dpunodemaintenance, provisioningv1.DPUNodeMaintenanceFinalizer)
+	}
+
+	// If no requestors remain, trigger deletion; node effect removal runs in reconcileDelete.
+	if len(dpunodemaintenance.Spec.Requestor) == 0 {
+		if err := r.Client.Delete(ctx, dpunodemaintenance); err != nil {
+			return ctrl.Result{}, err
+		}
+		logger.Info(fmt.Sprintf("Deleted DPUNodeMaintenance %s object", dpunodemaintenance.Name))
+		return ctrl.Result{}, nil
 	}
 
 	return r.reconcile(ctx, dpunodemaintenance)
@@ -138,9 +140,19 @@ func (r *DPUNodeMaintenanceReconciler) reconcileDelete(ctx context.Context, dpun
 	logger := log.FromContext(ctx)
 	logger.Info("Reconciling delete")
 	if len(dpunodemaintenance.Spec.Requestor) > 0 {
-		logger.Info(fmt.Sprintf("The requestor(%v) of DPUNodeMaintenance (%s/%s) is set, skipping delete",
-			dpunodemaintenance.Spec.Requestor, dpunodemaintenance.Namespace, dpunodemaintenance.Name))
-		return ctrl.Result{}, nil
+		err := r.Client.Get(ctx, types.NamespacedName{
+			Namespace: dpunodemaintenance.Namespace,
+			Name:      dpunodemaintenance.Spec.DPUNodeName,
+		}, &provisioningv1.DPUNode{})
+		if apierrors.IsNotFound(err) {
+			dpunodemaintenance.Spec.Requestor = nil
+		} else if err != nil {
+			return ctrl.Result{}, err
+		} else {
+			logger.Info(fmt.Sprintf("The requestor(%v) of DPUNodeMaintenance (%s/%s) is set, skipping delete",
+				dpunodemaintenance.Spec.Requestor, dpunodemaintenance.Namespace, dpunodemaintenance.Name))
+			return ctrl.Result{}, nil
+		}
 	}
 
 	if err := handleNodeEffectRemoval(ctx, r.Client, dpunodemaintenance); err != nil {
@@ -592,6 +604,9 @@ func handleNodeEffectRemoval(ctx context.Context, k8sClient client.Client, dpuno
 	dpuNode := &provisioningv1.DPUNode{}
 	if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: dpunodemaintenance.Namespace, Name: dpunodemaintenance.Spec.DPUNodeName}, dpuNode); err != nil {
 		if apierrors.IsNotFound(err) {
+			if nodeEffect.IsNoEffect() || nodeEffect.IsHold() {
+				return nil
+			}
 			return fmt.Errorf("DPU node %s not found during node effect removal", dpunodemaintenance.Spec.DPUNodeName)
 		}
 		return fmt.Errorf("failed to get DPU node %s during node effect removal: %w", dpunodemaintenance.Spec.DPUNodeName, err)
