@@ -26,6 +26,7 @@ import (
 
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
 
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 )
 
@@ -33,14 +34,24 @@ const (
 	pciSlotNameKey = "PCI_SLOT_NAME"
 	//nolint:misspell // devlink API key uses British spelling "flavour"
 	flavourPhysical = "physical"
+	//nolint:misspell // devlink API key uses British spelling "flavour"
+	flavourPCIPF = "pcipf"
+
+	// Supported BlueField N/S NIC PCI device IDs as advertised in https://admin.pci-ids.ucw.cz/read/PC/15b3
+	bluefield2DeviceID = "0xa2d6"
+	bluefield3DeviceID = "0xa2dc"
+	bluefield4DeviceID = "0xa2df"
 )
 
 var (
-	sysfsNetPath   = "/sys/class/net"
-	mstDevicesPath = "/dev/mst"
+	sysfsNetPath        = "/sys/class/net"
+	sysfsPCIDevicesPath = "/sys/bus/pci/devices"
+	mstDevicesPath      = "/dev/mst"
 )
 
 var mstPCIAddressRegex = regexp.MustCompile(`domain:bus:dev\.fn=([0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-9]+)`)
+
+var nsNICDeviceIDs = sets.New(bluefield2DeviceID, bluefield3DeviceID, bluefield4DeviceID)
 
 // NormalizeAddress normalizes a PCI address for comparisons.
 func NormalizeAddress(address string) string {
@@ -72,11 +83,36 @@ func NetdevPCI(netdev string) (string, error) {
 	return "", nil
 }
 
+// NSPortFilter returns true for ports backed by a known N/S NIC device ID.
+func NSPortFilter(port *NICPort) bool {
+	return nsNICDeviceIDs.Has(port.DeviceID)
+}
+
+func pciDeviceID(pciAddress string) (string, error) {
+	devicePath := filepath.Join(sysfsPCIDevicesPath, NormalizeAddress(pciAddress), "device")
+	data, err := os.ReadFile(devicePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read PCI device ID for PCI %s: %w", pciAddress, err)
+	}
+	id := strings.ToLower(strings.TrimSpace(string(data)))
+	if id != "" && !strings.HasPrefix(id, "0x") {
+		id = "0x" + id
+	}
+	return id, nil
+}
+
 // NICPort describes a single physical NIC port discovered on the DPU.
 type NICPort struct {
-	Netdev     string // network interface name, e.g. "p0", "p1"
-	PCIAddress string // full PCI BDF, e.g. "0002:01:00.0"
-	MSTDevice  string // MST device path, e.g. "/dev/mst/mt41695_pciconf0"
+	// Netdev is the physical port network interface name, e.g. "p0", "p1".
+	Netdev string
+	// PCIAddress is the full ECPF PCI BDF, e.g. "0002:01:00.0".
+	PCIAddress string
+	// DeviceID is the ECPF PCI device ID, e.g. "0xa2df".
+	DeviceID string
+	// MSTDevice is the MST device path, e.g. "/dev/mst/mt41695_pciconf0".
+	MSTDevice string
+	// PFRepresentor is the host PF representor netdev for this port.
+	PFRepresentor string
 }
 
 // PortDiscoverer discovers physical NIC ports on the DPU by joining devlink,
@@ -97,18 +133,26 @@ func (d *PortDiscoverer) run(cmd string) (string, string, error) {
 	return stdout.String(), stderr.String(), err
 }
 
-// DiscoverPorts discovers physical NIC ports by joining devlink, sysfs uevent,
-// and MST device data via PCI address, then applies the given filter.
-// Pass nil to return all discovered ports without filtering.
-func (d *PortDiscoverer) DiscoverPorts(filter func(NICPort) bool) ([]NICPort, error) {
+// DiscoverPhysicalPort discovers physical ports by joining devlink physical entries,
+// sysfs PCI uevent data, and MST device data via PCI address. It also attaches
+// the host PF representor from the matching ECPF devlink ports before applying
+// the optional filter. Pass nil to return all discovered physical ports.
+func (d *PortDiscoverer) DiscoverPhysicalPort(filter func(*NICPort) bool) ([]NICPort, error) {
 	// Step a: devlink → physical netdevs
-	physicalNetdevs, err := d.DevlinkPorts(PhysicalPortFilter)
+	devlinkPorts, err := d.DevlinkPortEntries()
 	if err != nil {
-		return nil, fmt.Errorf("discover physical netdevs: %w", err)
+		return nil, err
 	}
 	// Step a': netdev → PCI address via uevent
-	netdevToPCI := make(map[string]string, len(physicalNetdevs))
-	for _, netdev := range physicalNetdevs {
+	netdevToPCI := make(map[string]string, len(devlinkPorts))
+	for key, entry := range devlinkPorts {
+		if !PhysicalPortFilter(entry) {
+			continue
+		}
+		netdev := strings.TrimSpace(entry.Netdev)
+		if netdev == "" {
+			return nil, fmt.Errorf("discover physical netdevs: devlink port %s has no netdev", key)
+		}
 		pci, err := NetdevPCI(netdev)
 		if err != nil {
 			return nil, fmt.Errorf("get PCI address for netdev %s: %w", netdev, err)
@@ -139,7 +183,26 @@ func (d *PortDiscoverer) DiscoverPorts(filter func(NICPort) bool) ([]NICPort, er
 			PCIAddress: pci,
 			MSTDevice:  mstDev,
 		}
-		if filter != nil && !filter(port) {
+		deviceID, err := pciDeviceID(port.PCIAddress)
+		if err != nil {
+			return nil, err
+		}
+		port.DeviceID = deviceID
+		// Find the host PF representor on this ECPF's devlink ports.
+		prefix := "pci/" + port.PCIAddress + "/"
+		for key, entry := range devlinkPorts {
+			if !strings.HasPrefix(key, prefix) || !strings.EqualFold(strings.TrimSpace(entry.Flavor), flavourPCIPF) {
+				continue
+			}
+			netdev := strings.TrimSpace(entry.Netdev)
+			if netdev == "" {
+				klog.Warningf("Skipping pcipf devlink port %s with no netdev", key)
+				continue
+			}
+			// Each ECPF has exactly one host PF representor.
+			port.PFRepresentor = netdev
+		}
+		if filter != nil && !filter(&port) {
 			klog.Infof("Filtered out port %s (PCI %s)", netdev, pci)
 			continue
 		}
@@ -160,17 +223,13 @@ type DevlinkPortEntry struct {
 	Flavor string `json:"flavour"`
 }
 
-// DevlinkPortFilterFunc is a predicate for filtering devlink port entries.
-type DevlinkPortFilterFunc func(DevlinkPortEntry) bool
-
 // PhysicalPortFilter returns true for devlink ports with flavour "physical".
 func PhysicalPortFilter(e DevlinkPortEntry) bool {
 	return strings.EqualFold(strings.TrimSpace(e.Flavor), flavourPhysical)
 }
 
-// DevlinkPorts runs "devlink port show -j" and returns the netdev names of
-// ports matching the given filter. Pass nil to return all ports.
-func (d *PortDiscoverer) DevlinkPorts(filter DevlinkPortFilterFunc) ([]string, error) {
+// DevlinkPortEntries runs "devlink port show -j" and returns the parsed devlink port map.
+func (d *PortDiscoverer) DevlinkPortEntries() (map[string]DevlinkPortEntry, error) {
 	stdout, stderr, err := d.run("devlink port show -j")
 	if err != nil {
 		return nil, fmt.Errorf("devlink port show -j: %w (stderr: %s)", err, stderr)
@@ -182,18 +241,7 @@ func (d *PortDiscoverer) DevlinkPorts(filter DevlinkPortFilterFunc) ([]string, e
 	if parsed.Port == nil {
 		return nil, fmt.Errorf("devlink port show: missing \"port\" object")
 	}
-	netdevs := make([]string, 0, len(parsed.Port))
-	for key, entry := range parsed.Port {
-		if filter != nil && !filter(entry) {
-			continue
-		}
-		netdev := strings.TrimSpace(entry.Netdev)
-		if netdev == "" {
-			return nil, fmt.Errorf("devlink port %s has no netdev", key)
-		}
-		netdevs = append(netdevs, netdev)
-	}
-	return netdevs, nil
+	return parsed.Port, nil
 }
 
 func (d *PortDiscoverer) listMSTFiles() (map[string]string, error) {
