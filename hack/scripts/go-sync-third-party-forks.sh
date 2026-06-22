@@ -40,6 +40,9 @@ function sync_clastix_kamaji() {
 	mkdir internal
 	cp -r "${upstream_dir}/internal/errors/" internal/errors
 
+	# copy over tenantcontrolplane CR for testing
+	cp "${upstream_dir}/charts/kamaji/crds/kamaji.clastix.io_tenantcontrolplanes.yaml" ../../../../../test/objects/crd/kamaji/tenantcontrolplane-crd.yaml
+
 	# cleanup cloned repository
 	rm -rf "${upstream_dir}"
 
