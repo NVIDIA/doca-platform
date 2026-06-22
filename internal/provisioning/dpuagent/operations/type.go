@@ -21,7 +21,6 @@ import (
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/cmd/dpuagent/opts"
-	dpuagentutil "github.com/nvidia/doca-platform/internal/provisioning/dpuagent/util"
 	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
 
 	"k8s.io/client-go/kubernetes"
@@ -117,7 +116,7 @@ func (ctx *Context) NSPorts() ([]pciutil.NICPort, error) {
 	discover := ctx.DiscoverPorts
 	if discover == nil {
 		discover = func() ([]pciutil.NICPort, error) {
-			return pciutil.DefaultPortDiscoverer.DiscoverPorts(dpuagentutil.NSPortFilter)
+			return pciutil.DefaultPortDiscoverer.DiscoverPhysicalPort(pciutil.NSPortFilter)
 		}
 	}
 	ports, err := discover()

@@ -133,9 +133,9 @@ func (c *CheckBridge) checkBridgeIP() (bool, error) {
 	return false, nil
 }
 
-// checkBridgeMTU checks if br-comm-ch and pf0vf0 has the expected MTU
+// checkBridgeMTU checks if br-comm-ch and pf0vf0 have the expected MTU
 func (c *CheckBridge) checkBridgeMTU(optCtx *operations.Context) (bool, error) {
-	klog.Info("Checking if br-comm-ch and pf0vf0 has expected MTU")
+	klog.Info("Checking if br-comm-ch and pf0vf0 have expected MTU")
 	commChLink, err := c.getLinkByName()("br-comm-ch")
 	if err != nil {
 		return false, fmt.Errorf("failed to get link by name for br-comm-ch: %w", err)
@@ -146,6 +146,7 @@ func (c *CheckBridge) checkBridgeMTU(optCtx *operations.Context) (bool, error) {
 		return true, nil
 	}
 
+	// Note: pf0vf0 is only valid for BF3.
 	pf0vf0Link, err := c.getLinkByName()("pf0vf0")
 	if err != nil {
 		return false, fmt.Errorf("failed to get link by name for pf0vf0: %w", err)

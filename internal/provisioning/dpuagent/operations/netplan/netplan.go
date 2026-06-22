@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
@@ -172,6 +171,8 @@ func (n *ConfigureNetwork) setOOBAndRshimInterface(zeroTrustMode bool, cpMTU int
 	return config.WriteToFile(name)
 }
 
+// setBridgeCommCh configures the communication bridge using pf0vf0, which is
+// only valid for BF3.
 func (n *ConfigureNetwork) setBridgeCommCh(cpMTU int32) error {
 	name := filepath.Join(n.netplanRoot, "99-dpf-comm-ch.yaml")
 	config := &netplan.Config{
@@ -224,10 +225,9 @@ func (n *ConfigureNetwork) listPFsFromTargetNIC(ctx *operations.Context) ([]stri
 	pfs := make([]string, 0, len(ports)*2)
 	for _, port := range ports {
 		pfs = append(pfs, port.Netdev)
-	}
-	for _, port := range ports {
-		// pf<N>hpf naming follows the netdev suffix: p0 → pf0hpf, p1 → pf1hpf
-		pfs = append(pfs, fmt.Sprintf("pf%shpf", strings.TrimPrefix(port.Netdev, "p")))
+		if port.PFRepresentor != "" {
+			pfs = append(pfs, port.PFRepresentor)
+		}
 	}
 	return pfs, nil
 }
