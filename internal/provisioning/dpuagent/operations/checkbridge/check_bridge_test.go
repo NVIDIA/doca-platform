@@ -237,5 +237,6 @@ var _ = Describe("CheckBridge", func() {
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("pf0vf0"))
 		})
+
 	})
 })
