@@ -796,7 +796,53 @@ func ValidateDPFOperatorConfigCleanupPrerequisites(ctx context.Context, input *s
 	}
 }
 
+// removeStaleDPUDeviceProtectionFinalizers clears provisioning.dpu.nvidia.com/dpudevice-protection
+// from DPUDevice objects that are not referenced by any active DPU.
+//
+// Workaround for v25.10 → v26.4 upgrade (#5048585): non-selected DPUDevices can retain the
+// legacy finalizer after upgrade, which blocks DPUDevice deletion and stalls DPFOperatorConfig
+// teardown. Only the finalizer is removed; DPUDevice objects are kept.
+func removeStaleDPUDeviceProtectionFinalizers(ctx context.Context, testClient client.Client) {
+	By("Removing stale dpudevice-protection finalizers from unreferenced DPUDevices (v25.10→v26.4 upgrade workaround)")
+
+	dpuList := &provisioningv1.DPUList{}
+	Expect(testClient.List(ctx, dpuList)).To(Succeed())
+
+	referencedDPUDevices := make(map[string]struct{}, len(dpuList.Items))
+	for i := range dpuList.Items {
+		dpu := &dpuList.Items[i]
+		if name := dpu.Spec.DPUDeviceName; name != "" {
+			referencedDPUDevices[name] = struct{}{}
+		}
+		if name := dpu.GetLabels()[cutil.DPUDeviceNameLabel]; name != "" {
+			referencedDPUDevices[name] = struct{}{}
+		}
+	}
+
+	dpuDeviceList := &provisioningv1.DPUDeviceList{}
+	Expect(testClient.List(ctx, dpuDeviceList)).To(Succeed())
+
+	for i := range dpuDeviceList.Items {
+		device := &dpuDeviceList.Items[i]
+		if _, referenced := referencedDPUDevices[device.Name]; referenced {
+			continue
+		}
+		if !slices.Contains(device.Finalizers, provisioningv1.DPUDeviceFinalizer) {
+			continue
+		}
+		By(fmt.Sprintf("Patching DPUDevice %s/%s: remove %s finalizer",
+			device.Namespace, device.Name, provisioningv1.DPUDeviceFinalizer))
+		original := device.DeepCopy()
+		device.Finalizers = slices.DeleteFunc(device.Finalizers, func(finalizer string) bool {
+			return finalizer == provisioningv1.DPUDeviceFinalizer
+		})
+		Expect(testClient.Patch(ctx, device, client.MergeFrom(original))).To(Succeed())
+	}
+}
+
 func DeleteDPFOperatorConfig(ctx context.Context, testClient client.Client) {
+	removeStaleDPUDeviceProtectionFinalizers(ctx, testClient)
+
 	By("Delete the operatorConfig and ensure it is deleted")
 	Eventually(func(g Gomega) {
 		key := client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: configName}

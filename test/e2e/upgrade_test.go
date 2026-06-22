@@ -298,6 +298,12 @@ var _ = Describe("DPF Upgrade validation", Labels{Domain.DPFUpgradeValidation}, 
 			By("Waiting for system components to be ready")
 			verifySystemReady()
 		})
+
+		AfterAll(func() {
+			// v25.10 → v26.4: stale dpudevice-protection on non-selected DPUDevices can block
+			// DPFOperatorConfig deletion in AfterSuite (#5048585).
+			removeStaleDPUDeviceProtectionFinalizers(ctx, input.client)
+		})
 	})
 })
 
@@ -374,7 +380,30 @@ type upgradeExpectedChange struct {
 // upgradeExpectedChanges lists spec changes that are intentionally introduced by an
 // upgrade. Add entries here to prevent known expected changes from failing the
 // artifact comparison.
-var upgradeExpectedChanges = []upgradeExpectedChange{}
+var upgradeExpectedChanges = []upgradeExpectedChange{
+	{
+		// v25.10 GA → release-26.4: DPUDeployment controller maps deprecated dpuSelector to
+		// dpuDeviceSelector on child DPUSet. Before snapshot has dpuSelector; after reconcile has
+		// dpuDeviceSelector with the same PCI matchLabels and generation +1.
+		gvk: provisioningv1.DPUSetGroupVersionKind,
+		transform: func(after map[string]interface{}) {
+			spec, ok := after["spec"].(map[string]interface{})
+			if !ok {
+				return
+			}
+			deviceSelector, ok := spec["dpuDeviceSelector"].(map[string]interface{})
+			if !ok {
+				return
+			}
+			matchLabels, ok := deviceSelector["matchLabels"].(map[string]interface{})
+			if !ok {
+				return
+			}
+			spec["dpuSelector"] = matchLabels
+			delete(spec, "dpuDeviceSelector")
+		},
+	},
+}
 
 func applyUpgradeExpectedChanges(before, after []map[string]interface{}) {
 	type artifactKey struct{ apiVersion, kind, name, namespace string }

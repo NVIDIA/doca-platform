@@ -1,0 +1,46 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUDeployment
+metadata:
+  name: example
+  namespace: dpf-operator-system
+spec:
+  dpus:
+    bfb: "bf-bundle"
+    # Created automatically when installing DPF.
+    # Will be overridden if DPUFlavor is provided in the e2e config.
+    flavor: "dpf-provisioning-hbn-ovn"
+    dpuSets:
+    # We intentionally don't match any node to ensure that we don't trigger the provisioning flow for the time being
+    - nameSuffix: dpuset1
+      nodeSelector:
+        matchLabels:
+          nodeKey: "nodeValue"
+      # Physical: first DPU per host (label format 0000-2b-00).
+      dpuDeviceSelector:
+        matchExpressions:
+          - key: provisioning.dpu.nvidia.com/dpudevice-pciAddress
+            operator: In
+            values:
+              - "0000-2b-00"
+      dpuAnnotations:
+        doMagic: "true"
+    dpuSetStrategy:
+      type: RollingUpdate
+    nodeEffect:
+      drain: true
+  services:
+    example:
+      serviceTemplate: "dpudeployment-example-servicetemplate"
+      serviceConfiguration: "dpudeployment-example-serviceconfiguration"
+  serviceChains:
+    switches:
+      - ports:
+        - serviceInterface:
+            matchLabels:
+              uplink: p0
+        - service:
+            name: example
+            interface: net1
+            ipam:
+              matchLabels:
+                svc.dpu.nvidia.com/pool: pool1

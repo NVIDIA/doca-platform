@@ -1,0 +1,26 @@
+apiVersion: provisioning.dpu.nvidia.com/v1alpha1
+kind: DPUSet
+metadata:
+  name: dpuset-1
+  namespace: dpf-operator-system
+spec:
+  dpuNodeSelector:
+    matchLabels:
+      feature.node.kubernetes.io/dpu-enabled: "true"
+  # No dpuSelector: use all DPUs per node (2 DPUs per node for multi-DPU physical).
+  strategy:
+    rollingUpdate:
+      maxUnavailable: 10%
+    type: RollingUpdate
+  dpuTemplate:
+    spec:
+      # Created automatically when installing DPF.
+      # Will be overridden if DPUFlavor is provided in the e2e config.
+      dpuFlavor: dpf-provisioning-hbn-ovn
+      bfb:
+        name: "bf-bundle"
+      nodeEffect:
+        taint:
+          key: "dpu"
+          value: "provisioning"
+          effect: NoSchedule
