@@ -166,8 +166,8 @@ github.com/json-iterator/go v1.1.12 h1:PV8peI4a0ysnczrg+LtxykD8LfKY9ML6u2jnxaEnr
 github.com/json-iterator/go v1.1.12/go.mod h1:e30LSqwooZae/UwlEbR2852Gd8hjQvJoHmT4TnhNGBo=
 github.com/k8snetworkplumbingwg/network-attachment-definition-client v1.7.5 h1:CELpSMPSyicFBaVsxROmfrWlu9yr3Dduk+y7vGrIsx8=
 github.com/k8snetworkplumbingwg/network-attachment-definition-client v1.7.5/go.mod h1:CM7HAH5PNuIsqjMN0fGc1ydM74Uj+0VZFhob620nklw=
-github.com/k8snetworkplumbingwg/sriovnet v1.2.1-0.20260604181911-433ce1d85872 h1:My9jAGY6LUmxdT230Lu99rJlnTceGHSbblLHsMs5bXk=
-github.com/k8snetworkplumbingwg/sriovnet v1.2.1-0.20260604181911-433ce1d85872/go.mod h1:Vo8qTfRTwUUIM7TNZrr9huS/ZoJTQFXlRviX7xrOk7o=
+github.com/k8snetworkplumbingwg/sriovnet v1.3.0 h1:82mkvuM/8UOrsUCKjTlHfsG1YgdVHs3wImhLMufLumc=
+github.com/k8snetworkplumbingwg/sriovnet v1.3.0/go.mod h1:Vo8qTfRTwUUIM7TNZrr9huS/ZoJTQFXlRviX7xrOk7o=
 github.com/kisielk/errcheck v1.5.0/go.mod h1:pFxgyoBC7bSaBwPgfKdkLd5X25qrDl4LWUI2bnpBCr8=
 github.com/kisielk/gotool v1.0.0/go.mod h1:XhKaO+MFFWcvkIS/tQcRk01m1F5IRFswLeQ+oQHNcck=
 github.com/klauspost/compress v1.18.5 h1:/h1gH5Ce+VWNLSWqPzOVn6XBO+vJbCNGvjoaGBFW2IE=
