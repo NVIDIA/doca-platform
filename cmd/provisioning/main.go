@@ -155,7 +155,7 @@ func parseFlags() *cliFlags {
 	fs.BoolVar(&flags.enableDpuDiscovery, "enable-dpu-discovery", true, "Enable autmated DPU discovery")
 	fs.DurationVar(&flags.multiDPUOperationsSyncWaitTime, "multi-dpu-operations-sync-wait-time", 30*time.Second, "The wait time between DPUs sync operations on the same node")
 	fs.Int32Var(&flags.maxUnavailableDPUNodes, "max-unavailable-dpu-nodes", 50, "The maximum number of DPUNodes that are unavailable during the node effect period")
-	fs.DurationVar(&flags.osInstallTimeout, "os-install-timeout", 45*time.Minute, "Maximum time allowed for OS installation in zero-trust mode")
+	fs.DurationVar(&flags.osInstallTimeout, "os-install-timeout", operatorv1.DefaultOSInstallTimeout, "Maximum time allowed for OS installation in zero-trust mode")
 	fs.DurationVar(&flags.nodeEffectRemovalTimeout, "node-effect-removal-timeout", 0, "Maximum time allowed for the Node Effect Removal phase before transitioning to error. 0 means no timeout.")
 	fs.StringVar(&flags.hostAgentDNSPolicy, "hostagent-dns-policy", string(corev1.DNSClusterFirstWithHostNet), "DNS policy for the hostagent pod")
 	fs.StringVar(&flags.deploymentMode, "deployment-mode", "", "required: cluster deployment mode from DPFOperatorConfig (zero-trust or host-trusted)")

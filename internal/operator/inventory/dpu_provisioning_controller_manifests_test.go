@@ -35,6 +35,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
@@ -318,6 +319,7 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 			fmt.Sprintf("--deployment-mode=%s", operatorv1.DeploymentModeHostTrusted),
 			fmt.Sprintf("--dms-pod-envs=KUBERNETES_SERVICE_HOST=%s,KUBERNETES_SERVICE_PORT=%d", expectedKubernetesAPIServerVIP, expectedKubernetesAPIServerPort),
 			fmt.Sprintf("--multi-dpu-operations-sync-wait-time=%s", expectedMultiDPUOperationsSyncWaitTime),
+			fmt.Sprintf("--os-install-timeout=%s", operatorv1.DefaultOSInstallTimeout.String()),
 			"--bfb-registry-load-balancer-address=",
 		}
 		g.Expect(gotDeployment.Spec.Template.Spec.Containers).To(HaveLen(2))
@@ -855,5 +857,62 @@ func TestDPFProvisioningControllerObjects_setMaxDPUParallelInstallations(t *test
 		g.Expect(deployment).NotTo(BeNil())
 		g.Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(2))
 		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--max-dpu-parallel-installations=1000"))
+	})
+}
+
+func TestDPFProvisioningControllerObjects_setOSInstallTimeout(t *testing.T) {
+	g := NewGomegaWithT(t)
+
+	defaults := release.NewDefaults()
+	g.Expect(defaults.Parse()).To(Succeed())
+
+	provCtrl := &provisioningControllerObjects{
+		data:            provisioningControllerData,
+		bfbRegistryData: bfbRegistryData,
+	}
+	g.Expect(provCtrl.Parse()).To(Succeed())
+
+	findDeployment := func(t *testing.T, vars Variables) *appsv1.Deployment {
+		t.Helper()
+		g := NewGomegaWithT(t)
+		generatedObjs, err := provCtrl.GenerateManifests(context.Background(), vars)
+		g.Expect(err).NotTo(HaveOccurred())
+
+		for _, obj := range generatedObjs {
+			if obj.GetObjectKind().GroupVersionKind().Kind == string(DeploymentKind) {
+				deploy := &appsv1.Deployment{}
+				unstructuredObj, ok := obj.(*unstructured.Unstructured)
+				g.Expect(ok).To(BeTrue())
+				g.Expect(runtime.DefaultUnstructuredConverter.FromUnstructured(unstructuredObj.UnstructuredContent(), deploy)).To(Succeed())
+				return deploy
+			}
+		}
+		t.Fatal("deployment not found in generated manifests")
+		return nil
+	}
+
+	baseVars := func() Variables {
+		vars := newDefaultVariables(defaults)
+		vars.DPFProvisioningController = DPFProvisioningVariables{
+			BFBPersistentVolumeClaimName: ptr.To(TestPVC),
+			DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
+		}
+		return vars
+	}
+
+	t.Run("uses 60m default when OSInstallTimeout is unset", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		deployment := findDeployment(t, baseVars())
+		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement(
+			fmt.Sprintf("--os-install-timeout=%s", operatorv1.DefaultOSInstallTimeout.String()),
+		))
+	})
+
+	t.Run("uses configured OSInstallTimeout when set", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		vars := baseVars()
+		vars.DPFProvisioningController.OSInstallTimeout = &metav1.Duration{Duration: 90 * time.Minute}
+		deployment := findDeployment(t, vars)
+		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--os-install-timeout=1h30m0s"))
 	})
 }

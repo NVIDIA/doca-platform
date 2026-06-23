@@ -57,7 +57,7 @@ type DPUOptions struct {
 	CustomCASecretName          string
 	MaxDPUParallelInstallations int32
 	// OSInstallTimeout is the maximum time allowed for OS installation in zero-trust mode.
-	// Default: 45 minutes
+	// Default: operatorv1.DefaultOSInstallTimeout (keep in sync with +kubebuilder:default on OSInstallTimeout).
 	OSInstallTimeout time.Duration
 	// FirmwareUpdateTimeout is the maximum time allowed for firmware update in zero-trust mode.
 	// Default: 45 minutes
