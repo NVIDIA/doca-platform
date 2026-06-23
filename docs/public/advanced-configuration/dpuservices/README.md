@@ -25,6 +25,9 @@ This section contains documentation for the DPU services that can be deployed an
   isolation and advanced SDN capabilities using [Open Virtual Network (OVN)](https://www.ovn.org/en/)
     * [OVN VPC Deployment Guide](../../user-guides/zero-trust/use-cases/vpc/README.md)
     * [OVN VPC Service Guide](./ovnvpc/README.md)
+* **DOCA Weave**: East–west traffic isolation over VXLAN controller by the DPU
+    * [DOCA Weave deployment](doca-weave/deployment.md)
+    * [DOCA Weave service](doca-weave/README.md)
 * **Example Services**: Reference implementations and test services for development and validation
 
 For implementation details of these services, refer to the `dpuservices` directory in the repository root.
