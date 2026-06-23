@@ -34,21 +34,22 @@ import (
 	"time"
 
 	"github.com/nvidia/doca-platform/internal/cni/dpf-ovs-cni/config"
+	"github.com/nvidia/doca-platform/internal/cni/dpf-ovs-cni/pkg/ipam"
+	"github.com/nvidia/doca-platform/internal/cni/dpf-ovs-cni/pkg/ovsdb"
 	"github.com/nvidia/doca-platform/internal/cni/dpf-ovs-cni/sriov"
 	"github.com/nvidia/doca-platform/internal/cni/dpf-ovs-cni/types"
 	"github.com/nvidia/doca-platform/internal/cni/dpf-ovs-cni/utils"
 	"github.com/nvidia/doca-platform/pkg/ovsmodel"
 	"github.com/nvidia/doca-platform/pkg/ovsutils"
+	"github.com/nvidia/doca-platform/pkg/utils/networkhelper"
 
 	"github.com/containernetworking/cni/pkg/skel"
 	cnitypes "github.com/containernetworking/cni/pkg/types"
 	current "github.com/containernetworking/cni/pkg/types/100"
 	"github.com/containernetworking/cni/pkg/version"
 	"github.com/containernetworking/plugins/pkg/ip"
-	"github.com/containernetworking/plugins/pkg/ipam"
 	"github.com/containernetworking/plugins/pkg/ns"
 	"github.com/j-keck/arping"
-	"github.com/vishvananda/netlink"
 )
 
 // EnvArgs args containing common, desired mac and ovs port name
@@ -63,13 +64,19 @@ type EnvArgs struct {
 
 // DpfCNI holds the collaborators used by the CNI entrypoints.
 type DpfCNI struct {
-	Sriov sriov.API
+	OVS     ovsdb.Connector
+	Network networkhelper.NetworkHelper
+	IPAM    ipam.API
+	Sriov   sriov.API
 }
 
 // NewDpfCNI returns a CNI instance wired with injected dependencies.
 func NewDpfCNI(sriovAPI sriov.API) *DpfCNI {
 	return &DpfCNI{
-		Sriov: sriovAPI,
+		OVS:     ovsdb.DefaultConnector{},
+		Network: networkhelper.New(),
+		IPAM:    ipam.DefaultAPI{},
+		Sriov:   sriovAPI,
 	}
 }
 
@@ -97,12 +104,12 @@ func getEnvArgs(envArgsString string) (*EnvArgs, error) {
 	return nil, nil
 }
 
-func getHardwareAddr(ifName string) string {
-	ifLink, err := netlink.LinkByName(ifName)
+func (d *DpfCNI) getHardwareAddr(ifName string) string {
+	hwAddr, err := d.Network.GetLinkHardwareAddr(ifName)
 	if err != nil {
 		return ""
 	}
-	return ifLink.Attrs().HardwareAddr.String()
+	return hwAddr.String()
 
 }
 
@@ -122,7 +129,7 @@ func IPAddrToHWAddr(ip net.IP) net.HardwareAddr {
 	return net.HardwareAddr{0x0A, 0x58, hash[0], hash[1], hash[2], hash[3]}
 }
 
-func setupVeth(contNetns ns.NetNS, contIfaceName string, requestedMac string, mtu int) (*current.Interface, *current.Interface, error) {
+func (d *DpfCNI) setupVeth(contNetns ns.NetNS, contIfaceName string, requestedMac string, mtu int) (*current.Interface, *current.Interface, error) {
 	hostIface := &current.Interface{}
 	contIface := &current.Interface{}
 
@@ -130,12 +137,12 @@ func setupVeth(contNetns ns.NetNS, contIfaceName string, requestedMac string, mt
 	// this we will make sure that both ends of the veth pair will be removed
 	// when the container is gone.
 	err := contNetns.Do(func(hostNetns ns.NetNS) error {
-		hostVeth, containerVeth, err := ip.SetupVeth(contIfaceName, mtu, requestedMac, hostNetns)
+		hostVeth, containerVeth, err := d.Network.SetupVeth(contIfaceName, mtu, requestedMac, hostNetns)
 		if err != nil {
 			return err
 		}
 
-		if err := setInterfaceUp(contIfaceName); err != nil {
+		if err := d.setInterfaceUp(contIfaceName); err != nil {
 			return err
 		}
 
@@ -150,28 +157,19 @@ func setupVeth(contNetns ns.NetNS, contIfaceName string, requestedMac string, mt
 	}
 
 	// Refetch the hostIface since its MAC address may change during network namespace move.
-	if err = refetchIface(hostIface); err != nil {
+	if err = d.refetchIface(hostIface); err != nil {
 		return nil, nil, err
 	}
 
 	return hostIface, contIface, nil
 }
 
-func setInterfaceUp(name string) error {
-	link, err := netlink.LinkByName(name)
-	if err != nil {
-		return err
-	}
-
-	if err := netlink.LinkSetUp(link); err != nil {
-		return err
-	}
-
-	return nil
+func (d *DpfCNI) setInterfaceUp(name string) error {
+	return d.Network.SetLinkUp(name)
 }
 
-func assignMacToLink(link netlink.Link, mac net.HardwareAddr, name string) error {
-	err := netlink.LinkSetHardwareAddr(link, mac)
+func (d *DpfCNI) assignMacToLink(name string, mac net.HardwareAddr) error {
+	err := d.Network.SetLinkHardwareAddr(name, mac)
 	if err != nil {
 		return fmt.Errorf("failed to set container iface %q MAC %q: %v", name, mac.String(), err)
 	}
@@ -204,7 +202,7 @@ func (d *DpfCNI) getBridgeName(ctx context.Context, api ovsutils.API, bridgeName
 	return "", fmt.Errorf("failed to get bridge name")
 }
 
-func attachIfaceToBridge(
+func (d *DpfCNI) attachIfaceToBridge(
 	ctx context.Context,
 	api ovsutils.API,
 	bridgeName string,
@@ -226,12 +224,7 @@ func attachIfaceToBridge(
 		return err
 	}
 
-	hostLink, err := netlink.LinkByName(hostIfaceName)
-	if err != nil {
-		return err
-	}
-
-	if err := netlink.LinkSetUp(hostLink); err != nil {
+	if err := d.setInterfaceUp(hostIfaceName); err != nil {
 		return err
 	}
 
@@ -245,8 +238,8 @@ func attachIfaceToBridge(
 	return nil
 }
 
-func refetchIface(iface *current.Interface) error {
-	iface.Mac = getHardwareAddr(iface.Name)
+func (d *DpfCNI) refetchIface(iface *current.Interface) error {
+	iface.Mac = d.getHardwareAddr(iface.Name)
 	return nil
 }
 
@@ -343,7 +336,7 @@ func (d *DpfCNI) CmdAdd(args *skel.CmdArgs) error {
 	} else if netconf.VlanTag != nil {
 		vlanTagNum = *netconf.VlanTag
 	}
-	api, err := connectToOvsDb(ctx, netconf.SocketFile)
+	api, err := d.OVS.Connect(ctx, netconf.SocketFile)
 	if err != nil {
 		return err
 	}
@@ -372,7 +365,7 @@ func (d *DpfCNI) CmdAdd(args *skel.CmdArgs) error {
 		}
 	}
 
-	contNetns, err := ns.GetNS(args.Netns)
+	contNetns, err := d.Network.GetNS(args.Netns)
 	if err != nil {
 		return fmt.Errorf("failed to open netns %q: %v", args.Netns, err)
 	}
@@ -413,7 +406,7 @@ func (d *DpfCNI) CmdAdd(args *skel.CmdArgs) error {
 			return err
 		}
 	} else {
-		hostIface, contIface, err = setupVeth(contNetns, args.IfName, mac, mtu)
+		hostIface, contIface, err = d.setupVeth(contNetns, args.IfName, mac, mtu)
 		if err != nil {
 			return err
 		}
@@ -436,7 +429,7 @@ func (d *DpfCNI) CmdAdd(args *skel.CmdArgs) error {
 		}
 	}
 
-	if err = attachIfaceToBridge(ctx, api, bridgeName, hostIface.Name, contIface,
+	if err = d.attachIfaceToBridge(ctx, api, bridgeName, hostIface.Name, contIface,
 		netconf.OfportRequest, vlanTagNum, trunks,
 		portType, netconf.InterfaceType, mtu, args.Netns,
 		ovnPort, contPodUid, dpfId); err != nil {
@@ -478,10 +471,10 @@ func (d *DpfCNI) CmdAdd(args *skel.CmdArgs) error {
 	// because there is no network interface for the VF on the host
 	if netconf.IPAM.Type != "" && !userspaceMode {
 		var r cnitypes.Result
-		r, err = ipam.ExecAdd(netconf.IPAM.Type, args.StdinData)
+		r, err = d.IPAM.ExecAdd(netconf.IPAM.Type, args.StdinData)
 		defer func() {
 			if err != nil {
-				if err := ipam.ExecDel(netconf.IPAM.Type, args.StdinData); err != nil {
+				if err := d.IPAM.ExecDel(netconf.IPAM.Type, args.StdinData); err != nil {
 					log.Printf("Failed best-effort cleanup IPAM configuration: %v", err)
 				}
 			}
@@ -519,17 +512,20 @@ func (d *DpfCNI) CmdAdd(args *skel.CmdArgs) error {
 		err = contNetns.Do(func(_ ns.NetNS) error {
 			if mac == "" && !d.Sriov.IsOvsHardwareOffloadEnabled(netconf.DeviceID) && len(newResult.IPs) >= 1 {
 				containerMac := IPAddrToHWAddr(newResult.IPs[0].Address.IP)
-				containerLink, err := netlink.LinkByName(args.IfName)
+				exists, err := d.Network.LinkExists(args.IfName)
 				if err != nil {
 					return fmt.Errorf("failed to lookup container interface %q: %v", args.IfName, err)
 				}
-				err = assignMacToLink(containerLink, containerMac, args.IfName)
+				if !exists {
+					return fmt.Errorf("failed to lookup container interface %q: not found", args.IfName)
+				}
+				err = d.assignMacToLink(args.IfName, containerMac)
 				if err != nil {
 					return err
 				}
 				newResult.Interfaces[0].Mac = containerMac.String()
 			}
-			err := ipam.ConfigureIface(args.IfName, newResult)
+			err := d.IPAM.ConfigureIface(args.IfName, newResult)
 			if err != nil {
 				return err
 			}
@@ -632,7 +628,7 @@ func (d *DpfCNI) CmdDel(args *skel.CmdArgs) error {
 		ovnPort = string(envArgs.OvnPort)
 		dpfId = string(envArgs.K8S_POD_NAMESPACE) + "/" + string(envArgs.K8S_POD_NAME) + "/" + args.IfName
 	}
-	api, err := connectToOvsDb(ctx, cache.Netconf.SocketFile)
+	api, err := d.OVS.Connect(ctx, cache.Netconf.SocketFile)
 	if err != nil {
 		return err
 	}
@@ -646,7 +642,7 @@ func (d *DpfCNI) CmdDel(args *skel.CmdArgs) error {
 	}
 
 	if cache.Netconf.IPAM.Type != "" {
-		err = ipam.ExecDel(cache.Netconf.IPAM.Type, args.StdinData)
+		err = d.IPAM.ExecDel(cache.Netconf.IPAM.Type, args.StdinData)
 		if err != nil {
 			return err
 		}
@@ -729,15 +725,15 @@ func (d *DpfCNI) CmdDel(args *skel.CmdArgs) error {
 			}
 		}
 	} else {
-		err = ns.WithNetNSPath(args.Netns, func(ns.NetNS) error {
-			err = ip.DelLinkByName(args.IfName)
+		err = d.Network.WithNetNSPath(args.Netns, func(ns.NetNS) error {
+			err = d.Network.DelLinkByName(args.IfName)
 			return err
 		})
 		// do the following as per cni spec (i.e. Plugins should generally complete a DEL action
 		// without error even if some resources are missing)
 		if _, ok := err.(ns.NSPathNotExistErr); ok || err == ip.ErrLinkNotFound {
 			if portFound {
-				if err := ip.DelLinkByName(portName); err != nil {
+				if err := d.Network.DelLinkByName(portName); err != nil {
 					log.Printf("Failed best-effort cleanup of %s: %v", portName, err)
 				}
 			}
@@ -767,7 +763,7 @@ func (d *DpfCNI) CmdCheck(args *skel.CmdArgs) error {
 	if envArgs != nil {
 		ovnPort = string(envArgs.OvnPort)
 	}
-	api, err := connectToOvsDb(ctx, netconf.SocketFile)
+	api, err := d.OVS.Connect(ctx, netconf.SocketFile)
 	if err != nil {
 		return err
 	}
@@ -799,7 +795,7 @@ func (d *DpfCNI) CmdCheck(args *skel.CmdArgs) error {
 	// userspace driver does not support IPAM plugin,
 	// because there is no network interface for the VF on the host
 	if netconf.NetConf.IPAM.Type != "" && !cache.UserspaceMode {
-		err = ipam.ExecCheck(netconf.NetConf.IPAM.Type, args.StdinData)
+		err = d.IPAM.ExecCheck(netconf.NetConf.IPAM.Type, args.StdinData)
 		if err != nil {
 			return fmt.Errorf("failed to check with IPAM plugin type %q: %v", netconf.NetConf.IPAM.Type, err)
 		}
@@ -826,7 +822,7 @@ func (d *DpfCNI) CmdCheck(args *skel.CmdArgs) error {
 			}
 		} else {
 			// Check prevResults for ips against values found in the host
-			if err := validateInterface(*intf, true, ovsHWOffloadEnable); err != nil {
+			if err := d.validateInterface(*intf, true, ovsHWOffloadEnable); err != nil {
 				return err
 			}
 			hostIntf = *intf
@@ -839,7 +835,7 @@ func (d *DpfCNI) CmdCheck(args *skel.CmdArgs) error {
 			contIntf.Sandbox, args.Netns)
 	}
 
-	netns, err := ns.GetNS(args.Netns)
+	netns, err := d.Network.GetNS(args.Netns)
 	if err != nil {
 		return fmt.Errorf("failed to open netns %q: %v", args.Netns, err)
 	}
@@ -849,17 +845,17 @@ func (d *DpfCNI) CmdCheck(args *skel.CmdArgs) error {
 	if err := netns.Do(func(_ ns.NetNS) error {
 
 		// Check interface against values found in the container
-		err := validateInterface(contIntf, false, ovsHWOffloadEnable)
+		err := d.validateInterface(contIntf, false, ovsHWOffloadEnable)
 		if err != nil {
 			return err
 		}
 
-		err = ip.ValidateExpectedInterfaceIPs(args.IfName, result.IPs)
+		err = d.Network.ValidateExpectedInterfaceIPs(args.IfName, result.IPs)
 		if err != nil {
 			return err
 		}
 
-		err = ip.ValidateExpectedRoute(result.Routes)
+		err = d.Network.ValidateExpectedRoute(result.Routes)
 		if err != nil {
 			return err
 		}
@@ -900,8 +896,7 @@ func validateCache(cache *types.CachedNetConf, netconf *types.NetConf) error {
 	return nil
 }
 
-func validateInterface(intf current.Interface, isHost bool, hwOffload bool) error {
-	var link netlink.Link
+func (d *DpfCNI) validateInterface(intf current.Interface, isHost bool, hwOffload bool) error {
 	var err error
 	var iftype string
 	if isHost {
@@ -913,22 +908,32 @@ func validateInterface(intf current.Interface, isHost bool, hwOffload bool) erro
 	if intf.Name == "" {
 		return fmt.Errorf("%s interface name missing in prevResult: %v", iftype, intf.Name)
 	}
-	link, err = netlink.LinkByName(intf.Name)
+	exists, err := d.Network.LinkExists(intf.Name)
 	if err != nil {
+		return fmt.Errorf("Error: %s failed to check Interface in prevResult: %s: %v", iftype, intf.Name, err)
+	}
+	if !exists {
 		return fmt.Errorf("Error: %s Interface name in prevResult: %s not found", iftype, intf.Name)
 	}
 	if !isHost && intf.Sandbox == "" {
-		return fmt.Errorf("Error: %s interface %s should not be in host namespace", iftype, link.Attrs().Name)
+		return fmt.Errorf("Error: %s interface %s should not be in host namespace", iftype, intf.Name)
 	}
 	if !hwOffload {
-		_, isVeth := link.(*netlink.Veth)
+		isVeth, err := d.Network.IsLinkVeth(intf.Name)
+		if err != nil {
+			return fmt.Errorf("Error: %s failed to check Interface type in prevResult: %s: %v", iftype, intf.Name, err)
+		}
 		if !isVeth {
-			return fmt.Errorf("Error: %s interface %s not of type veth/p2p", iftype, link.Attrs().Name)
+			return fmt.Errorf("Error: %s interface %s not of type veth/p2p", iftype, intf.Name)
 		}
 	}
 
-	if intf.Mac != "" && intf.Mac != link.Attrs().HardwareAddr.String() {
-		return fmt.Errorf("Error: Interface %s Mac %s doesn't match %s Mac: %s", intf.Name, intf.Mac, iftype, link.Attrs().HardwareAddr)
+	hwAddr, err := d.Network.GetLinkHardwareAddr(intf.Name)
+	if err != nil {
+		return fmt.Errorf("Error: %s failed to get Interface MAC in prevResult: %s: %v", iftype, intf.Name, err)
+	}
+	if intf.Mac != "" && intf.Mac != hwAddr.String() {
+		return fmt.Errorf("Error: Interface %s Mac %s doesn't match %s Mac: %s", intf.Name, intf.Mac, iftype, hwAddr)
 	}
 
 	return nil
@@ -943,7 +948,7 @@ func (d *DpfCNI) validateOvs(ctx context.Context, args *skel.CmdArgs, netconf *t
 	if envArgs != nil {
 		ovnPort = string(envArgs.OvnPort)
 	}
-	api, err := connectToOvsDb(ctx, netconf.SocketFile)
+	api, err := d.OVS.Connect(ctx, netconf.SocketFile)
 	if err != nil {
 		return err
 	}

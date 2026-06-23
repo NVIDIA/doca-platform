@@ -24,6 +24,10 @@ import (
 	"math"
 	"net"
 
+	cnitypes "github.com/containernetworking/cni/pkg/types"
+	current "github.com/containernetworking/cni/pkg/types/100"
+	cniip "github.com/containernetworking/plugins/pkg/ip"
+	"github.com/containernetworking/plugins/pkg/ns"
 	"github.com/k8snetworkplumbingwg/sriovnet"
 	"github.com/vishvananda/netlink"
 	"k8s.io/utils/ptr"
@@ -343,6 +347,36 @@ func (n *networkHelper) LinkExists(link string) (bool, error) {
 	}
 
 	return true, nil
+}
+
+// SetupVeth creates a veth pair in the target network namespace.
+func (n *networkHelper) SetupVeth(contIfaceName string, mtu int, requestedMac string, hostNS ns.NetNS) (net.Interface, net.Interface, error) {
+	return cniip.SetupVeth(contIfaceName, mtu, requestedMac, hostNS)
+}
+
+// DelLinkByName deletes the link with the given name.
+func (n *networkHelper) DelLinkByName(name string) error {
+	return cniip.DelLinkByName(name)
+}
+
+// ValidateExpectedInterfaceIPs validates interface IPs against CNI result IPs.
+func (n *networkHelper) ValidateExpectedInterfaceIPs(ifName string, expectedIPs []*current.IPConfig) error {
+	return cniip.ValidateExpectedInterfaceIPs(ifName, expectedIPs)
+}
+
+// ValidateExpectedRoute validates routes from a CNI result.
+func (n *networkHelper) ValidateExpectedRoute(expectedRoutes []*cnitypes.Route) error {
+	return cniip.ValidateExpectedRoute(expectedRoutes)
+}
+
+// GetNS opens a network namespace.
+func (n *networkHelper) GetNS(nspath string) (ns.NetNS, error) {
+	return ns.GetNS(nspath)
+}
+
+// WithNetNSPath runs a function in the given network namespace.
+func (n *networkHelper) WithNetNSPath(nspath string, toRun func(ns.NetNS) error) error {
+	return ns.WithNetNSPath(nspath, toRun)
 }
 
 // GetHostPFMACAddressDPU returns the MAC address of the Host PF identified by pfID provided as input.
