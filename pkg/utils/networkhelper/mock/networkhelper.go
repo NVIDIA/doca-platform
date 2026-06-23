@@ -30,6 +30,9 @@ import (
 	net "net"
 	reflect "reflect"
 
+	types "github.com/containernetworking/cni/pkg/types"
+	types100 "github.com/containernetworking/cni/pkg/types/100"
+	ns "github.com/containernetworking/plugins/pkg/ns"
 	sriovnet "github.com/k8snetworkplumbingwg/sriovnet"
 	networkhelper "github.com/nvidia/doca-platform/pkg/utils/networkhelper"
 	netlink "github.com/vishvananda/netlink"
@@ -100,6 +103,20 @@ func (m *MockNetworkHelper) AddRule(src *net.IPNet, table, priority int) error {
 func (mr *MockNetworkHelperMockRecorder) AddRule(src, table, priority any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddRule", reflect.TypeOf((*MockNetworkHelper)(nil).AddRule), src, table, priority)
+}
+
+// DelLinkByName mocks base method.
+func (m *MockNetworkHelper) DelLinkByName(name string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DelLinkByName", name)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DelLinkByName indicates an expected call of DelLinkByName.
+func (mr *MockNetworkHelperMockRecorder) DelLinkByName(name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DelLinkByName", reflect.TypeOf((*MockNetworkHelper)(nil).DelLinkByName), name)
 }
 
 // DeleteLinkIPAddress mocks base method.
@@ -232,6 +249,21 @@ func (m *MockNetworkHelper) GetLinkIPAddresses(link string, family networkhelper
 func (mr *MockNetworkHelperMockRecorder) GetLinkIPAddresses(link, family any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLinkIPAddresses", reflect.TypeOf((*MockNetworkHelper)(nil).GetLinkIPAddresses), link, family)
+}
+
+// GetNS mocks base method.
+func (m *MockNetworkHelper) GetNS(nspath string) (ns.NetNS, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetNS", nspath)
+	ret0, _ := ret[0].(ns.NetNS)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetNS indicates an expected call of GetNS.
+func (mr *MockNetworkHelperMockRecorder) GetNS(nspath any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNS", reflect.TypeOf((*MockNetworkHelper)(nil).GetNS), nspath)
 }
 
 // GetPFRepresentorDPU mocks base method.
@@ -482,4 +514,62 @@ func (m *MockNetworkHelper) SetLinkUp(link string) error {
 func (mr *MockNetworkHelperMockRecorder) SetLinkUp(link any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetLinkUp", reflect.TypeOf((*MockNetworkHelper)(nil).SetLinkUp), link)
+}
+
+// SetupVeth mocks base method.
+func (m *MockNetworkHelper) SetupVeth(contIfaceName string, mtu int, requestedMac string, hostNS ns.NetNS) (net.Interface, net.Interface, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetupVeth", contIfaceName, mtu, requestedMac, hostNS)
+	ret0, _ := ret[0].(net.Interface)
+	ret1, _ := ret[1].(net.Interface)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// SetupVeth indicates an expected call of SetupVeth.
+func (mr *MockNetworkHelperMockRecorder) SetupVeth(contIfaceName, mtu, requestedMac, hostNS any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetupVeth", reflect.TypeOf((*MockNetworkHelper)(nil).SetupVeth), contIfaceName, mtu, requestedMac, hostNS)
+}
+
+// ValidateExpectedInterfaceIPs mocks base method.
+func (m *MockNetworkHelper) ValidateExpectedInterfaceIPs(ifName string, expectedIPs []*types100.IPConfig) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ValidateExpectedInterfaceIPs", ifName, expectedIPs)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ValidateExpectedInterfaceIPs indicates an expected call of ValidateExpectedInterfaceIPs.
+func (mr *MockNetworkHelperMockRecorder) ValidateExpectedInterfaceIPs(ifName, expectedIPs any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateExpectedInterfaceIPs", reflect.TypeOf((*MockNetworkHelper)(nil).ValidateExpectedInterfaceIPs), ifName, expectedIPs)
+}
+
+// ValidateExpectedRoute mocks base method.
+func (m *MockNetworkHelper) ValidateExpectedRoute(expectedRoutes []*types.Route) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ValidateExpectedRoute", expectedRoutes)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ValidateExpectedRoute indicates an expected call of ValidateExpectedRoute.
+func (mr *MockNetworkHelperMockRecorder) ValidateExpectedRoute(expectedRoutes any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateExpectedRoute", reflect.TypeOf((*MockNetworkHelper)(nil).ValidateExpectedRoute), expectedRoutes)
+}
+
+// WithNetNSPath mocks base method.
+func (m *MockNetworkHelper) WithNetNSPath(nspath string, toRun func(ns.NetNS) error) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "WithNetNSPath", nspath, toRun)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// WithNetNSPath indicates an expected call of WithNetNSPath.
+func (mr *MockNetworkHelperMockRecorder) WithNetNSPath(nspath, toRun any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WithNetNSPath", reflect.TypeOf((*MockNetworkHelper)(nil).WithNetNSPath), nspath, toRun)
 }
