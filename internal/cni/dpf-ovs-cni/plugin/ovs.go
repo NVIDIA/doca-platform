@@ -54,31 +54,6 @@ const (
 
 var errObjectNotFound = errors.New("object not found")
 
-// connectToOvsDb connects to ovsdb and returns an ovsutils.API wrapping the connection.
-func connectToOvsDb(ctx context.Context, ovsSocket string) (ovsutils.API, error) {
-	if ovsSocket == "" {
-		ovsSocket = "unix:/var/run/openvswitch/db.sock"
-	}
-
-	dbmodel, err := ovsmodel.FullDatabaseModel()
-	if err != nil {
-		return nil, fmt.Errorf("unable to create DB model error: %v", err)
-	}
-
-	ovsDB, err := client.NewOVSDBClient(dbmodel, client.WithEndpoint(ovsSocket))
-	if err != nil {
-		return nil, fmt.Errorf("unable to create DB client error: %v", err)
-	}
-	if err := ovsDB.Connect(ctx); err != nil {
-		return nil, fmt.Errorf("failed to connect to ovsdb socket %s: %v", ovsSocket, err)
-	}
-	if _, err := ovsDB.MonitorAll(ctx); err != nil {
-		return nil, fmt.Errorf("failed to monitor ovsdb: %v", err)
-	}
-
-	return &ovsutils.Client{Client: ovsDB}, nil
-}
-
 // ensureBridge returns an error if bridgeName is missing in OVS.
 func ensureBridge(ctx context.Context, api ovsutils.API, bridgeName string) error {
 	err := api.Get(ctx, &ovsmodel.Bridge{Name: bridgeName})

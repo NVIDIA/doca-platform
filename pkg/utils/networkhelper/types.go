@@ -19,6 +19,9 @@ package networkhelper
 import (
 	"net"
 
+	cnitypes "github.com/containernetworking/cni/pkg/types"
+	current "github.com/containernetworking/cni/pkg/types/100"
+	"github.com/containernetworking/plugins/pkg/ns"
 	"github.com/k8snetworkplumbingwg/sriovnet"
 	"github.com/vishvananda/netlink"
 )
@@ -76,6 +79,18 @@ type NetworkHelper interface {
 	DummyLinkExists(link string) (bool, error)
 	// LinkExists checks if a link exists
 	LinkExists(link string) (bool, error)
+	// SetupVeth creates a veth pair in the target network namespace.
+	SetupVeth(contIfaceName string, mtu int, requestedMac string, hostNS ns.NetNS) (net.Interface, net.Interface, error)
+	// DelLinkByName deletes the link with the given name.
+	DelLinkByName(name string) error
+	// ValidateExpectedInterfaceIPs validates interface IPs against CNI result IPs.
+	ValidateExpectedInterfaceIPs(ifName string, expectedIPs []*current.IPConfig) error
+	// ValidateExpectedRoute validates routes from a CNI result.
+	ValidateExpectedRoute(expectedRoutes []*cnitypes.Route) error
+	// GetNS opens a network namespace.
+	GetNS(nspath string) (ns.NetNS, error)
+	// WithNetNSPath runs a function in the given network namespace.
+	WithNetNSPath(nspath string, toRun func(ns.NetNS) error) error
 	// GetHostPFMACAddressDPU returns the MAC address of the Host PF identified by pfID provided as input.
 	// pfID is either "0" or "1". This function should only be called on the DPU.
 	GetHostPFMACAddressDPU(pfID string) (net.HardwareAddr, error)
