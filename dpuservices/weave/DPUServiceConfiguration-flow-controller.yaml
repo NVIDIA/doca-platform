@@ -1,0 +1,29 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: weave-flow-controller
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: weave-flow-controller
+  upgradePolicy:
+    applyNodeEffect: false
+  serviceConfiguration:
+    helmChart:
+      values:
+        weaveFlowController:
+          enabled: true
+          underlayConfigMapData:
+            # underlayInterface must match the underlay OVS bridge names DPUFlavor spec.ovs.rawConfigScript creates per PCI (br-underlay-n* here is illustrative).
+            nicIDType: mac
+            interfaces:
+              - pciAddress: "0000:01:00.0"
+                underlayInterface: br-underlay-n0
+                overlayDHCPInterface: nic0
+                dhcpBridgeName: br-dhcp-n0
+                dropBridgeName: br-drop-n0
+              - pciAddress: "0000:02:00.0"
+                underlayInterface: br-underlay-n1
+                overlayDHCPInterface: nic1
+                dhcpBridgeName: br-dhcp-n1
+                dropBridgeName: br-drop-n1

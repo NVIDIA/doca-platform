@@ -1,0 +1,25 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUDeployment
+metadata:
+  name: doca-weave
+  namespace: dpf-operator-system
+spec:
+  dpus:
+    bfb: bf-bundle-v26.5.0
+    flavor: doca-weave-flavor-v26.5.0
+    nodeEffect:
+      noEffect: true
+    dpuSets:
+    - nameSuffix: "dpuset1"
+      dpuNodeSelector:
+        matchLabels:
+          feature.node.kubernetes.io/dpu-enabled: "true"
+  services:
+    weave-flow-controller:
+      serviceTemplate: weave-flow-controller
+      serviceConfiguration: weave-flow-controller
+    weave-dhcp-agent:
+      serviceTemplate: weave-dhcp-agent
+      serviceConfiguration: weave-dhcp-agent
+  # serviceChains: define per XPLANE / PF based on your underlay topology.
