@@ -1,0 +1,26 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceTemplate
+metadata:
+  name: weave-flow-controller
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: weave-flow-controller
+  helmChart:
+    source:
+      repoURL: https://helm.ngc.nvidia.com/nvidia/doca
+      version: v26.5.0
+      chart: dpf-weave
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceTemplate
+metadata:
+  name: weave-dhcp-agent
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: weave-dhcp-agent
+  helmChart:
+    source:
+      repoURL: https://helm.ngc.nvidia.com/nvidia/doca
+      version: v26.5.0
+      chart: dpf-weave

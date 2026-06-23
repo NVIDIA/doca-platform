@@ -1,0 +1,26 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: weave-dhcp-agent
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: weave-dhcp-agent
+  upgradePolicy:
+    applyNodeEffect: false
+  serviceConfiguration:
+    helmChart:
+      values:
+        weaveDHCPAgent:
+          enabled: true
+          dhcpNetworks:
+            createNADs: true
+            networks:
+            - name: dhcp-nic-n0
+              bridge: br-dhcp-n0
+              resourceName: nvidia.com/bf_sf
+              interfaceName: nic0
+            - name: dhcp-nic-n1
+              bridge: br-dhcp-n1
+              resourceName: nvidia.com/bf_sf
+              interfaceName: nic1
