@@ -215,3 +215,12 @@ kubectl get dpu -n dpf-operator-system -o custom-columns=NAME:.metadata.name,NOD
 * The control plane nodes hosting the DPU control plane pods must be located on the same L2 broadcast domain
 * The out-of-band management fabric on which control plane nodes are connected should allow MultiCast traffic (used for
   VRRP)
+
+### DPU OOB MTU
+
+In zero-trust mode, `DPFOperatorConfig.spec.networking.controlPlaneMTU` applies to the DPU out-of-band interface
+(`oob_net0`) only. All DPU management traffic (DHCP, package installs, Kubernetes API access) uses this interface.
+
+The BlueField OOB port is a 1 GbE management interface that does **not** support jumbo frames (maximum frame size is
+approximately 2 KB). Keep `controlPlaneMTU` at **1500** (the default). Values above 1500 are rejected in zero-trust
+mode.

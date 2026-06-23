@@ -903,6 +903,8 @@ spec:
                     default: 1500
                     description: |-
                       ControlPlaneMTU is the MTU value to be set on the management network.
+                      In zero-trust mode this value is applied to the DPU OOB interface (oob_net0), which does not
+                      support jumbo frames; it must not exceed 1500 when deploymentMode is zero-trust.
                       The default is 1500.
                     maximum: 9216
                     minimum: 1280
@@ -1981,6 +1983,11 @@ spec:
             - message: dpuNodeOOBBridgeName is only configurable in host-trusted mode
               rule: self.deploymentMode == 'host-trusted' || !has(self.networking.dpuNodeOOBBridgeName)
                 || self.networking.dpuNodeOOBBridgeName == 'br-dpu'
+            - message: controlPlaneMTU must not exceed 1500 in zero-trust mode because
+                DPU OOB interfaces do not support jumbo frames
+              rule: self.deploymentMode != 'zero-trust' || !has(self.networking) ||
+                !has(self.networking.controlPlaneMTU) || self.networking.controlPlaneMTU
+                <= 1500
           status:
             description: DPFOperatorConfigStatus defines the observed state of DPFOperatorConfig
             properties:

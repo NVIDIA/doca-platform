@@ -27,6 +27,7 @@ write_files:
 {{- if .OOBNetwork}}
           oob_net0:
             dhcp4: true
+            mtu: {{.ControlPlaneMTU}}
 {{- else}}
           oob_net0:
             dhcp4: false
