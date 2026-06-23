@@ -18,15 +18,19 @@ package bfbregistry
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
 func TestBFBRegistryCreator(t *testing.T) {
@@ -178,4 +182,41 @@ var _ = Describe("EnsureBFBRegistry", func() {
 		Expect(c.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: PodName}, svc)).To(Succeed())
 		Expect(serviceOwnedByLeaderPod(svc, newLeader)).To(BeTrue())
 	})
+
+	It("does not fail when service create races with an existing service", func() {
+		leaderPod := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "leader-pod",
+				Namespace: testNamespace,
+				UID:       "leader-uid",
+			},
+		}
+		ref := leaderControllerRef(leaderPod)
+		existingSvc := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:            PodName,
+				Namespace:       testNamespace,
+				OwnerReferences: []metav1.OwnerReference{*ref},
+			},
+			Spec: corev1.ServiceSpec{Type: corev1.ServiceTypeNodePort},
+		}
+
+		var staleReadServed atomic.Bool
+		c := fake.NewClientBuilder().WithScheme(scheme).
+			WithObjects(leaderPod, existingSvc).
+			WithInterceptorFuncs(interceptor.Funcs{
+				Get: func(ctx context.Context, client client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					if _, ok := obj.(*corev1.Service); ok && key.Namespace == testNamespace && key.Name == PodName && !staleReadServed.Load() {
+						staleReadServed.Store(true)
+						return apierrors.NewNotFound(schema.GroupResource{Group: "", Resource: "services"}, key.Name)
+					}
+					return client.Get(ctx, key, obj, opts...)
+				},
+			}).Build()
+
+		run := &BFBRegistryRunnable{Client: c}
+		err := run.ensureService(ctx, testNamespace, leaderPod)
+		Expect(err).NotTo(HaveOccurred())
+	})
+
 })
