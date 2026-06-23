@@ -145,6 +145,8 @@ const (
 // Networking defines the networking configuration for the system components.
 type Networking struct {
 	// ControlPlaneMTU is the MTU value to be set on the management network.
+	// In zero-trust mode this value is applied to the DPU OOB interface (oob_net0), which does not
+	// support jumbo frames; it must not exceed 1500 when deploymentMode is zero-trust.
 	// The default is 1500.
 	// +kubebuilder:validation:Minimum=1280
 	// +kubebuilder:validation:Maximum=9216
@@ -194,6 +196,7 @@ const (
 // +kubebuilder:validation:XValidation:rule="self.deploymentMode != 'zero-trust' || (has(self.provisioningController.installInterface) && has(self.provisioningController.installInterface.installViaRedfish))",message="deploymentMode zero-trust requires provisioningController.installInterface.installViaRedfish"
 // +kubebuilder:validation:XValidation:rule="self.deploymentMode != 'host-trusted' || !has(self.provisioningController.installInterface) || !has(self.provisioningController.installInterface.installViaRedfish)",message="deploymentMode host-trusted does not support provisioningController.installInterface.installViaRedfish"
 // +kubebuilder:validation:XValidation:rule="self.deploymentMode == 'host-trusted' || !has(self.networking.dpuNodeOOBBridgeName) || self.networking.dpuNodeOOBBridgeName == 'br-dpu'",message="dpuNodeOOBBridgeName is only configurable in host-trusted mode"
+// +kubebuilder:validation:XValidation:rule="self.deploymentMode != 'zero-trust' || !has(self.networking) || !has(self.networking.controlPlaneMTU) || self.networking.controlPlaneMTU <= 1500",message="controlPlaneMTU must not exceed 1500 in zero-trust mode because DPU OOB interfaces do not support jumbo frames"
 type DPFOperatorConfigSpec struct {
 	// +optional
 	Overrides *Overrides `json:"overrides,omitempty"`
