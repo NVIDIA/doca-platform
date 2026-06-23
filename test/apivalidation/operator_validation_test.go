@@ -298,6 +298,35 @@ var _ = Describe("Operator API Validation", func() {
 				Expect(testClient.Update(ctx, updated)).To(Succeed())
 			})
 		})
+
+		Context("Validate control plane MTU in zero-trust mode", func() {
+			DescribeTable("DPFOperatorConfig controlPlaneMTU validation",
+				func(controlPlaneMTU *int, expectError bool, errorMessage string) {
+					config := getMinimalDPFOperatorConfig(testNs.Name)
+					config.Spec.DeploymentMode = operatorv1.DeploymentModeZeroTrust
+					config.Spec.ProvisioningController.InstallInterface = &operatorv1.ProvisioningInstallInterface{
+						InstallViaRedfish: &operatorv1.InstallViaRedfish{},
+					}
+					config.Spec.Networking = &operatorv1.Networking{
+						ControlPlaneMTU: controlPlaneMTU,
+					}
+					validateConfigCreation(config, expectError, errorMessage, &cleanupObjs)
+				},
+				Entry("valid - zero-trust with default MTU omitted", nil, false, ""),
+				Entry("valid - zero-trust with MTU 1500", ptr.To(1500), false, ""),
+				Entry("valid - zero-trust with MTU 1280", ptr.To(1280), false, ""),
+				Entry("invalid - zero-trust with MTU 9000", ptr.To(9000), true, "controlPlaneMTU must not exceed 1500 in zero-trust mode because DPU OOB interfaces do not support jumbo frames"),
+			)
+
+			It("accepts controlPlaneMTU 9000 in host-trusted mode", func() {
+				config := getMinimalDPFOperatorConfig(testNs.Name)
+				config.Spec.Networking = &operatorv1.Networking{
+					ControlPlaneMTU: ptr.To(9000),
+				}
+				Expect(testClient.Create(ctx, config)).To(Succeed())
+				cleanupObjs = append(cleanupObjs, config)
+			})
+		})
 	})
 })
 

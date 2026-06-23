@@ -193,6 +193,7 @@ network:
   ethernets:
     oob_net0:
       dhcp4: true
+      mtu: 1500
 `)
 		Expect(netplanFile.Content).To(Equal(expectedNetplan))
 
@@ -270,6 +271,7 @@ network:
   ethernets:
     oob_net0:
       dhcp4: true
+      mtu: 1500
 `)
 		Expect(netplanFile.Content).To(Equal(expectedNetplan))
 
