@@ -80,9 +80,6 @@ func (r *BFBRegistryRunnable) Start(ctx context.Context) error {
 	if err := r.removeLegacyDaemonSet(ctx, namespace); err != nil {
 		return err
 	}
-	if err := r.removeLegacyBFBRegistryService(ctx, namespace, pod); err != nil {
-		return err
-	}
 	if err := r.ensurePod(ctx, namespace, nodeName, registryImage, pod); err != nil {
 		return err
 	}
@@ -107,21 +104,6 @@ func (r *BFBRegistryRunnable) removeLegacyDaemonSet(ctx context.Context, namespa
 		return err
 	}
 	return nil
-}
-
-func (r *BFBRegistryRunnable) removeLegacyBFBRegistryService(ctx context.Context, namespace string, leaderPod *corev1.Pod) error {
-	svc := &corev1.Service{}
-	err := r.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: PodName}, svc)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil
-		}
-		return err
-	}
-	if serviceOwnedByLeaderPod(svc, leaderPod) {
-		return nil
-	}
-	return client.IgnoreNotFound(r.Client.Delete(ctx, svc))
 }
 
 func serviceOwnedByLeaderPod(svc *corev1.Service, leaderPod *corev1.Pod) bool {
@@ -299,6 +281,14 @@ func (r *BFBRegistryRunnable) ensureService(ctx context.Context, namespace strin
 		return nil
 	}
 	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, svc, mutateFn); err != nil {
+		// In HA/restart windows, a stale cache read can race with another writer:
+		// Get returns NotFound, then Create returns AlreadyExists. Treat this as
+		// idempotent success to avoid crashing the manager; later reconciles keep
+		// converging Service spec/ownership via CreateOrUpdate.
+		if apierrors.IsAlreadyExists(err) {
+			log.FromContext(ctx).Info("bfb-registry service already exists during ensure; continuing", "service", PodName)
+			return nil
+		}
 		return err
 	}
 	return nil
