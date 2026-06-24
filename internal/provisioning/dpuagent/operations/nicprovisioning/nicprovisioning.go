@@ -59,6 +59,7 @@ const (
 	nicFirmwareInstallTimeout = 15 * time.Minute
 	nicNVConfigApplyTimeout   = 5 * time.Minute
 	nicRuntimeApplyTimeout    = 5 * time.Minute
+	invalidImageSignature     = "Invalid Image signature"
 	// TODO: The NIC Operator team will remove this constraint in the near future, and we will need to update the code.
 	spectrumXConfigDir = "/bindata/spectrum-x"
 
@@ -301,6 +302,9 @@ func (n *NICProvisioning) downloadNICFirmware(execCtx context.Context, optCtx *o
 
 	if _, err := os.Stat(localNICFWPath); err == nil {
 		klog.InfoS("NIC provisioning: firmware already exists, skip download", "path", localNICFWPath)
+		if err := n.ensureNICFirmwareImageSignature(localNICFWPath); err != nil {
+			return "", err
+		}
 		return localNICFWPath, nil
 	} else if !os.IsNotExist(err) {
 		return "", fmt.Errorf("failed to stat local NIC firmware %s: %w", localNICFWPath, err)
@@ -315,7 +319,56 @@ func (n *NICProvisioning) downloadNICFirmware(execCtx context.Context, optCtx *o
 		return "", fmt.Errorf("failed to download NIC firmware from %s to %s: %w", downloadURL, localNICFWPath, err)
 	}
 	klog.InfoS("NIC provisioning: downloaded firmware", "url", downloadURL, "path", localNICFWPath)
+	if err := n.ensureNICFirmwareImageSignature(localNICFWPath); err != nil {
+		return "", err
+	}
 	return localNICFWPath, nil
+}
+
+func (n *NICProvisioning) ensureNICFirmwareImageSignature(localNICFWPath string) error {
+	if n.runBash == nil {
+		n.runBash = bash.Run
+	}
+
+	// The NIC operator library later uses flint to query the NIC FW version.
+	// NIC FW extracted from the PLDM bundle is not built by flint and may miss
+	// the magic pattern flint expects, so add it after download when flint
+	// reports an invalid image signature.
+	quotedPath := shellQuote(localNICFWPath)
+	stdout, stderr, err := n.runBash(fmt.Sprintf("flint -i %s q", quotedPath))
+	if err == nil {
+		return nil
+	}
+
+	combinedOutput := stdout.String() + stderr.String() + err.Error()
+	if !strings.Contains(combinedOutput, invalidImageSignature) {
+		return fmt.Errorf("failed to query NIC firmware image %s: %w, stdout: %s, stderr: %s",
+			localNICFWPath, err, stdout.String(), stderr.String())
+	}
+
+	klog.InfoS("NIC provisioning: fixing NIC firmware image signature", "path", localNICFWPath)
+	signatureWords := []struct {
+		address string
+		data    string
+	}{
+		{address: "0x0", data: "0x4d544657"},
+		{address: "0x4", data: "0xabcdef00"},
+		{address: "0x8", data: "0xfade1234"},
+		{address: "0xc", data: "0x5678dead"},
+	}
+	for _, word := range signatureWords {
+		cmd := fmt.Sprintf("flint -i %s ww %s %s", quotedPath, word.address, word.data)
+		stdout, stderr, err := n.runBash(cmd)
+		if err != nil {
+			return fmt.Errorf("failed to write NIC firmware image signature word at %s for %s: %w, stdout: %s, stderr: %s",
+				word.address, localNICFWPath, err, stdout.String(), stderr.String())
+		}
+	}
+	return nil
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
 
 func resolveNICFirmwareDownloadURL(registryURL, nicFWLocation string) (string, error) {
