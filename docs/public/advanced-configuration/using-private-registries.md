@@ -18,6 +18,7 @@ DPF uses needs to authenticate with registries in the following ways:
 Kubernetes Pods which run images from an authenticated registry will need a secret to access the registry.
 
 To create an image pull secret, you need to specify the following environment variables:
+
 ```bash
 ## The registry the image pull secret will be created for.
 export REGISTRY=${REGISTRY:?Must specify the registry}
@@ -34,11 +35,13 @@ export IMAGE_PULL_KEY=${IMAGE_PULL_KEY:?Must specify the image pull key}
 ```
 
 Log in to the registry to ensure the variables are correct:
+
 ```bash
 echo "$IMAGE_PULL_KEY" | docker login --username "$IMAGE_REGISTRY_USERNAME" --password-stdin $REGISTRY
 ```
 
 Create the image pull secret:
+
 ```bash 
 echo "Creating image pull secret in namespace: $ns"
 kubectl -n "$ns" create secret docker-registry dpf-pull-secret --docker-server="$REGISTRY" --docker-username="$IMAGE_REGISTRY_USERNAME" --docker-password="$IMAGE_PULL_KEY" --dry-run=client -o yaml | kubectl apply -f -
@@ -59,6 +62,7 @@ Any Secret with this label will be mirrored to the DPUCluster and can be used th
 DPUServices which reference helm charts from public registries will need a secret to access the helm chart repository.
 
 To create an ArgoCD repository secret, you need to specify the following environment variables:
+
 ```bash
 ## The registry the image pull secret will be created for.
 export HELM_REPOSITORY_URL=${HELM_REPOSITORY_URL:?Must specify the helm repository url}

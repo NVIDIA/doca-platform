@@ -69,6 +69,7 @@ DPUFlavor is a Kubernetes Custom Resource Definition (CRD) that defines configur
 #### IB Mode to Ethernet Mode Configuration
 
 **Example for single port DPU:**
+
 ```yaml
 nvconfig:
   - device: '*'
@@ -77,6 +78,7 @@ nvconfig:
 ```
 
 **Example for dual port DPU:**
+
 ```yaml
 nvconfig:
   - device: '*'
@@ -86,6 +88,7 @@ nvconfig:
 ```
 
 **Device-specific configuration (per-port):**
+
 ```yaml
 nvconfig:
   - device: 'p0'

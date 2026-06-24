@@ -323,6 +323,7 @@ To remove the critical label, use:
 `kubectl label dpuservice sriov-device-plugin svc.dpu.nvidia.com/critical- -n dpf-operator-system`
 
 ### Example Manifest Snippet
+
 ```yaml
 apiVersion: svc.dpu.nvidia.com/v1alpha1
 kind: DPUService
@@ -335,6 +336,7 @@ metadata:
 
 ### Taint Behavior
 When a pod of a critical DPUService is not in a Running state on the DPU, the corresponding host node is tainted:
+
 ```yaml
 spec:
   taints:

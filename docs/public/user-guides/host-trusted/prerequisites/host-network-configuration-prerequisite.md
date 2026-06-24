@@ -12,6 +12,7 @@ This configuration is intended to be implemented during the host provisioning ph
 
 ## Host-DPU Network Diagram
 The solution involves setting up a linux bridge with an IP address and connecting the Out-of-Band (OOB) uplink (a 1 Gbps Ethernet port) to it. During the DPU provisioning process, a Virtual Function (VF) will be created for the DPU and connected to the bridge to enable connectivity.
+
 ```
              +--------------------------------+  +-------------+
              | Host                           |  | DPU         |
@@ -61,6 +62,7 @@ network:
 In addition to the above configuration, an IP address and other settings are required to make br-dpu work. You can either set them statically or configure them through DHCP.
 ### Option 1: Set br-dpu through DHCP
 To let the `br-dpu` get its configuration via DHCP, add `dhcp4: yes` like the following:
+
 ```yaml
 network:
   ethernets:
@@ -89,6 +91,7 @@ network:
 
 ### Option 2: Set br-dpu Statically
 If DHCP is disabled on br-dpu, you must assign an IP address and a default gateway to `br-dpu`. `nameservers` are optional.
+
 ```yaml
 network:
   ethernets:

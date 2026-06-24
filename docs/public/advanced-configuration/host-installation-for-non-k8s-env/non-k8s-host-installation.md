@@ -17,6 +17,7 @@ Select a use case from the [host trusted use cases](../../user-guides/host-trust
 For security reasons, it’s recommended that the host agent join the cluster using a bootstrap token. The following commands create a bootstrap token that expires in 24 hours and use that token to generate a kubeconfig. 
 
 Run the following commands on any of the **control plane nodes**
+
 ```bash
 export TOKEN_SUFFIX=$(cat /dev/urandom | tr -dc 'a-z0-9' | fold -w 6 | head -n 1)
 export TOKEN_SECRET=$(cat /dev/urandom | tr -dc 'a-z0-9' | fold -w 16 | head -n 1)
@@ -87,6 +88,7 @@ sudo ctr image pull --user \$oauthtoken:$IMAGE_PULL_KEY  $IMAGE
 Before you run the following commands, you need to set the BFB_REGISTRY_ADDRESS with the same value as you set in [DPFOperatorConfig.spec.provisioningController.registry](../../developer-guides/api/api.md#registryconfiguration)
 
 Run the following commands on worker host.
+
 ```bash
 export BFB_REGISTRY_ADDRESS=<address of the bfb-registry>
 export HOST_AGENT_DIR=/var/lib/dpf/hostagent
@@ -104,6 +106,7 @@ EOF
 ### 7. Start rshim and DMS
 
 Run the following commands on worker host.
+
 ```bash
 export DMSD_SERVICE_FILE=/etc/systemd/system/dpf-dmsd.service
 sudo tee $DMSD_SERVICE_FILE >/dev/null <<EOF

@@ -241,6 +241,7 @@ spec:
 These verification commands may need to be run multiple times to ensure the condition is met.
 
 Verify the DPF System with:
+
 ```shell
 ## Ensure the provisioning and DPUService controller manager deployments are available.
 kubectl rollout status deployment --namespace dpf-operator-system dpf-provisioning-controller-manager dpuservice-controller-manager
@@ -273,6 +274,7 @@ connectivity between the host and DPU interfaces.
 #### Create the BFB, DPUSet and DPUServiceChain
 
 A number of [environment variables](#0-required-variables) must be set before running this command.
+
 ```shell
 cat manifests/03-dpf-object-installation/*.yaml | envsubst | kubectl apply -f -
 ```

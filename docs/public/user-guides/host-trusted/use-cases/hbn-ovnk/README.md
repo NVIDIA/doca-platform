@@ -159,6 +159,7 @@ kubectl create ns ovn-kubernetes
 #### Install OVN Kubernetes from the helm chart
 
 Install the OVN Kubernetes CNI components from the helm chart. A number of [environment variables](#0-required-variables) must be set before running this command.
+
 ```shell
 envsubst < manifests/01-cni-installation/helm-values/ovn-kubernetes.yml | helm upgrade --install -n ovn-kubernetes ovn-kubernetes ${OVN_KUBERNETES_REPO_URL}/ovn-kubernetes-chart --version ${OVN_KUBERNETES_CHART_TAG} --values -
 ```
@@ -190,6 +191,7 @@ k8sAPIServer: https://$TARGETCLUSTER_API_SERVER_HOST:$TARGETCLUSTER_API_SERVER_P
 These verification commands may need to be run multiple times to ensure the condition is met.
 
 Verify the CNI installation with:
+
 ```shell
 ## Ensure all nodes in the cluster are ready.
 kubectl wait --for=condition=ready nodes --all
@@ -225,6 +227,7 @@ A number of [environment variables](#0-required-variables) must be set before ru
 ##### HTTP Registry (default)
 
 If the $REGISTRY is an HTTP Registry (default value) use this command:
+
 ```shell
 helm repo add --force-update dpf-repository ${REGISTRY}
 helm repo update
@@ -236,6 +239,7 @@ helm upgrade --install -n dpf-operator-system dpf-operator dpf-repository/dpf-op
 ##### OCI Registry
 
 For development purposes, if the $REGISTRY is an OCI Registry use this command:
+
 ```shell
 helm upgrade --install -n dpf-operator-system dpf-operator $REGISTRY/dpf-operator --version=$TAG
 ```
@@ -245,6 +249,7 @@ helm upgrade --install -n dpf-operator-system dpf-operator $REGISTRY/dpf-operato
 These verification commands may need to be run multiple times to ensure the condition is met.
 
 Verify the DPF Operator installation with:
+
 ```shell
 ## Ensure the DPF Operator deployment is available.
 kubectl rollout status deployment --namespace dpf-operator-system dpf-operator-controller-manager
@@ -257,6 +262,7 @@ This section involves creating the DPF system components and some basic infrastr
 
 #### Deploy the DPF System components
 A number of [environment variables](#0-required-variables) must be set before running this command.
+
 ```shell
 kubectl create ns dpu-cplane-tenant1
 cat manifests/03-dpf-system-installation/*.yaml | envsubst | kubectl apply -f - 
@@ -319,6 +325,7 @@ spec:
 These verification commands may need to be run multiple times to ensure the condition is met.
 
 Verify the DPF System with:
+
 ```shell
 ## Ensure the provisioning and DPUService controller manager deployments are available.
 kubectl rollout status deployment --namespace dpf-operator-system dpf-provisioning-controller-manager dpuservice-controller-manager
@@ -449,6 +456,7 @@ The `NodeSRIOVDevicePluginConfig` is linked to DPUs via the `noderesources.dpu.n
 These verification commands may need to be run multiple times to ensure the condition is met.
 
 Verify that the accelerated CNI is enabled with:
+
 ```shell
 ## Ensure all pods in the nvidia-network-operator namespace are ready.
 kubectl wait --for=condition=Ready --namespace nvidia-network-operator pods --all
@@ -475,6 +483,7 @@ that should run on a set of DPUs.
 > to understand more about the selectors.
 
 A number of [environment variables](#0-required-variables) must be set before running this command.
+
 ```shell
 cat manifests/05-dpudeployment-installation/*.yaml | envsubst | kubectl apply -f - 
 ```
@@ -1068,6 +1077,7 @@ These verification commands may need to be run multiple times to ensure the cond
 Note that the DPUService name will have a random suffix. For example, `ovn-hbn-doca-hbn-l2xsl`. Use the correct name for the verification.
 
 Verify the DPU and Service installation with:
+
 ```shell
 ## Ensure the BFB is ready
 kubectl wait --for=jsonpath='{.status.phase}'=Ready --namespace dpf-operator-system bfb bf-bundle-$TAG --timeout=600s
@@ -1126,11 +1136,13 @@ It is important to follow the steps in the correct order to ensure that all
 components are removed cleanly and that the cluster remains functional.
 
 ### Delete the test pods
+
 ```shell
 kubectl delete -f manifests/06-test-traffic --wait
 ```
 
 ### Delete DPF CNI acceleration components
+
 ```shell
 kubectl delete -f manifests/04-enable-accelerated-cni --wait
 helm uninstall -n nvidia-network-operator network-operator --wait
