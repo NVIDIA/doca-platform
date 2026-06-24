@@ -197,6 +197,8 @@ const (
 // +kubebuilder:validation:XValidation:rule="self.deploymentMode != 'host-trusted' || !has(self.provisioningController.installInterface) || !has(self.provisioningController.installInterface.installViaRedfish)",message="deploymentMode host-trusted does not support provisioningController.installInterface.installViaRedfish"
 // +kubebuilder:validation:XValidation:rule="self.deploymentMode == 'host-trusted' || !has(self.networking.dpuNodeOOBBridgeName) || self.networking.dpuNodeOOBBridgeName == 'br-dpu'",message="dpuNodeOOBBridgeName is only configurable in host-trusted mode"
 // +kubebuilder:validation:XValidation:rule="self.deploymentMode != 'zero-trust' || !has(self.networking) || !has(self.networking.controlPlaneMTU) || self.networking.controlPlaneMTU <= 1500",message="controlPlaneMTU must not exceed 1500 in zero-trust mode because DPU OOB interfaces do not support jumbo frames"
+// +kubebuilder:validation:XValidation:rule="!has(self.security) || !has(self.security.spiffe) || self.deploymentMode == 'zero-trust'",message="spiffe configuration requires deploymentMode=zero-trust"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.security) || !has(oldSelf.security.spiffe) || (has(self.security) && has(self.security.spiffe))",message="spec.security.spiffe cannot be removed once set; SPIFFE-mode DPUs depend on this configuration. Disable SPIFFE for the cluster by deleting and recreating DPFOperatorConfig (DR escape hatch); existing SPIFFE-mode DPUs require re-provisioning."
 type DPFOperatorConfigSpec struct {
 	// +optional
 	Overrides *Overrides `json:"overrides,omitempty"`
@@ -207,6 +209,10 @@ type DPFOperatorConfigSpec struct {
 	// Monitoring is the configuration for monitoring resources.
 	// +optional
 	Monitoring *MonitoringConfiguration `json:"monitoring,omitempty"`
+
+	// Security groups security-related cluster settings.
+	// +optional
+	Security *SecurityConfiguration `json:"security,omitempty"`
 
 	// List of secret names which are used to pull images for DPF system components and DPUServices.
 	// These secrets must be in the same namespace as the DPF Operator Config and should be created before the config is created.
@@ -269,6 +275,14 @@ type DPFOperatorConfigSpec struct {
 	// This component is disabled by default; set disable to false to enable.
 	// +optional
 	KataContainers *KataContainersConfiguration `json:"kataContainers,omitempty"`
+}
+
+// SecurityConfiguration groups security-related cluster settings.
+type SecurityConfiguration struct {
+	// spiffe configures the SPIFFE-based DPU Agent identity flow. Edits are accepted post-bootstrap
+	// but do NOT retro-apply to already-provisioned DPUs.
+	// +optional
+	SPIFFE *SPIFFEConfiguration `json:"spiffe,omitempty"`
 }
 
 // MonitoringConfiguration defines the configuration for monitoring resources.

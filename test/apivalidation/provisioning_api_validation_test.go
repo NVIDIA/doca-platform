@@ -18,6 +18,7 @@ package apivalidation_test
 
 import (
 	"fmt"
+	"strings"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 
@@ -621,6 +622,104 @@ var _ = Describe("Provisioning API Validation", func() {
 			Expect(refetched.Labels).To(HaveKeyWithValue(dpuDevicePSIDLabel, "MT25066004C7"))
 		})
 	})
+
+	// Status.IdentityMode is stamp-once and enum-validated: an immutable record of which
+	// authentication mechanism the DPU Agent uses, set exactly once from the empty value.
+	Context("When checking the DPU Status.IdentityMode field", func() {
+		It("does not require IdentityMode on Create (omitempty)", func() {
+			dpu := getMinimalDPU(testNs.Name)
+			Expect(testClient.Create(ctx, dpu)).To(Succeed())
+			Expect(dpu.Status.IdentityMode).To(BeNil())
+		})
+
+		It("accepts a stamp from unset to a valid value via the status subresource", func() {
+			dpu := getMinimalDPU(testNs.Name)
+			Expect(testClient.Create(ctx, dpu)).To(Succeed())
+
+			dpu.Status.IdentityMode = ptr.To(provisioningv1.IdentityModeSpiffe)
+			Expect(testClient.Status().Update(ctx, dpu)).To(Succeed())
+
+			refetched := &provisioningv1.DPU{}
+			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpu), refetched)).To(Succeed())
+			Expect(refetched.Status.IdentityMode).NotTo(BeNil())
+			Expect(*refetched.Status.IdentityMode).To(Equal(provisioningv1.IdentityModeSpiffe))
+		})
+
+		It("rejects re-stamping a different value (stamp-once)", func() {
+			dpu := getMinimalDPU(testNs.Name)
+			Expect(testClient.Create(ctx, dpu)).To(Succeed())
+
+			dpu.Status.IdentityMode = ptr.To(provisioningv1.IdentityModeSpiffe)
+			Expect(testClient.Status().Update(ctx, dpu)).To(Succeed())
+
+			refetched := &provisioningv1.DPU{}
+			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpu), refetched)).To(Succeed())
+			refetched.Status.IdentityMode = ptr.To(provisioningv1.IdentityModeBootstrapToken)
+			err := testClient.Status().Update(ctx, refetched)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("identityMode is stamp-once"))
+		})
+
+		It("rejects clearing identityMode after stamp (stamp-once)", func() {
+			dpu := getMinimalDPU(testNs.Name)
+			Expect(testClient.Create(ctx, dpu)).To(Succeed())
+
+			dpu.Status.IdentityMode = ptr.To(provisioningv1.IdentityModeSpiffe)
+			Expect(testClient.Status().Update(ctx, dpu)).To(Succeed())
+
+			refetched := &provisioningv1.DPU{}
+			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpu), refetched)).To(Succeed())
+			refetched.Status.IdentityMode = nil
+			err := testClient.Status().Update(ctx, refetched)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("identityMode is stamp-once"))
+		})
+
+		It("rejects values outside the IdentityMode enum", func() {
+			dpu := getMinimalDPU(testNs.Name)
+			Expect(testClient.Create(ctx, dpu)).To(Succeed())
+
+			dpu.Status.IdentityMode = ptr.To(provisioningv1.IdentityMode("bogus"))
+			err := testClient.Status().Update(ctx, dpu)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(Or(
+				ContainSubstring("Unsupported value"),
+				ContainSubstring("supported values"),
+			))
+		})
+	})
+
+	Context("When checking the DPU AgentStatus.Spiffe.LastProbeMessage field", func() {
+		It("accepts a 256-char message via the status subresource", func() {
+			dpu := getMinimalDPU(testNs.Name)
+			Expect(testClient.Create(ctx, dpu)).To(Succeed())
+
+			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
+				Spiffe: &provisioningv1.SpiffeStatus{
+					LastProbeMessage: ptr.To(strings.Repeat("a", 256)),
+				},
+			}
+			Expect(testClient.Status().Update(ctx, dpu)).To(Succeed())
+		})
+
+		It("rejects a message longer than 256 chars", func() {
+			dpu := getMinimalDPU(testNs.Name)
+			Expect(testClient.Create(ctx, dpu)).To(Succeed())
+
+			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
+				Spiffe: &provisioningv1.SpiffeStatus{
+					LastProbeMessage: ptr.To(strings.Repeat("a", 257)),
+				},
+			}
+			err := testClient.Status().Update(ctx, dpu)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(Or(
+				ContainSubstring("maxLength"),
+				ContainSubstring("Too long"),
+				ContainSubstring("256"),
+			))
+		})
+	})
 })
 
 func getMinimalDPU(namespace string) *provisioningv1.DPU {
@@ -628,6 +727,14 @@ func getMinimalDPU(namespace string) *provisioningv1.DPU {
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "dpu-test-",
 			Namespace:    namespace,
+		},
+		Spec: provisioningv1.DPUSpec{
+			DPUNodeName:   "node-1",
+			DPUDeviceName: "device-1",
+			BFB:           ptr.To("somebfb"),
+			SerialNumber:  "MT25066004C7",
+			DPUFlavor:     "someflavor",
+			NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 		},
 	}
 }
