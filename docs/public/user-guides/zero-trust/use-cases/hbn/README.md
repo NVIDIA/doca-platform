@@ -142,6 +142,7 @@ A number of [environment variables](#0-required-variables) must be set before ru
 ##### HTTP Registry (default)
 
 If the $REGISTRY is an HTTP Registry (default value) use this command:
+
 ```shell
 helm repo add --force-update dpf-repository ${REGISTRY}
 helm repo update
@@ -153,6 +154,7 @@ helm upgrade --install -n dpf-operator-system dpf-operator dpf-repository/dpf-op
 ##### OCI Registry
 
 For development purposes, if the $REGISTRY is an OCI Registry use this command:
+
 ```shell
 helm upgrade --install -n dpf-operator-system dpf-operator $REGISTRY/dpf-operator --version=$TAG
 ```
@@ -162,6 +164,7 @@ helm upgrade --install -n dpf-operator-system dpf-operator $REGISTRY/dpf-operato
 These verification commands may need to be run multiple times to ensure the condition is met.
 
 Verify the DPF Operator installation with:
+
 ```shell
 ## Ensure the DPF Operator deployment is available.
 kubectl rollout status deployment --namespace dpf-operator-system dpf-operator-controller-manager
@@ -263,6 +266,7 @@ spec:
 These verification commands may need to be run multiple times to ensure the condition is met.
 
 Verify the DPF System with:
+
 ```shell
 ## Ensure the provisioning and DPUService controller manager deployments are available.
 kubectl rollout status deployment --namespace dpf-operator-system dpf-provisioning-controller-manager dpuservice-controller-manager
@@ -305,6 +309,7 @@ We make use of a PF on the host to test traffic.
 > to understand more about the selectors.
 
 A number of [environment variables](#0-required-variables) must be set before running this command.
+
 ```shell
 cat manifests/03.1-dpudeployment-installation-pf/*.yaml | envsubst | kubectl apply -f -
 ```
@@ -1003,6 +1008,7 @@ We make use of a PF and a VF on the host to test traffic.
 ##### Create the DPUDeployment, DPUServiceConfig, DPUServiceTemplate and other necessary objects
 
 A number of [environment variables](#0-required-variables) must be set before running this command.
+
 ```shell
 cat manifests/03.2-dpudeployment-installation-pf-vf/*.yaml | envsubst | kubectl apply -f -
 ```

@@ -78,6 +78,7 @@ This scale testing approach does not adequately test the following at scale:
 ### Running the Scale Tests
 
 You can set up a scale testing environment locally with the DPF developer environment. This builds and pushes the required images, spins up a new cluster, deploys dpf and mock-dms.
+
 ```yaml
 export REGISTRY=$YOUR_REGISTRY
 export TAG=$YOUR_TAG

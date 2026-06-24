@@ -59,6 +59,7 @@ graph TD
 
 ## Provisioning System
 Manage the lifecycle of the DPU hardware and its Kubernetes orchestration system.
+
 ```mermaid
 
 %%{
@@ -120,6 +121,7 @@ style D fill:#76B900,stroke:#FFF,stroke-width:2px
 
 ## DPUService System
 Orchestrate DOCA Services to run on DPUs.
+
 ```mermaid
 %%{
   init: {
@@ -172,6 +174,7 @@ style D fill:#76B900,stroke:#FFF,stroke-width:2px
 
 ## DPUServiceChain System
 Orchestrate Service Chains for advanced network flows through DPUs.
+
 ```mermaid
 %%{
   init: {

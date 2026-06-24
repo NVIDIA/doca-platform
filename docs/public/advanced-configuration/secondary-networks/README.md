@@ -57,6 +57,7 @@ k8sAPIServer: https://$TARGETCLUSTER_API_SERVER_HOST:$TARGETCLUSTER_API_SERVER_P
 These verification commands may need to be run multiple times to ensure the condition is met.
 
 Verify the CNI installation with:
+
 ```shell
 ## Ensure all nodes in the cluster are ready.
 kubectl wait --for=condition=ready nodes --all
@@ -67,6 +68,7 @@ kubectl wait --for=condition=ready --namespace ovn-kubernetes pods --all --timeo
 ## 2. Update the DPUServiceTemplate
 
 Ensure [environment variables](../../user-guides/host-trusted/use-cases/hbn-ovnk/README.md#0-required-variables) are set before running this command.
+
 ```shell
 cat manifests/02-dpudeployment-modifications/*.yaml | envsubst | kubectl apply -f -
 ```
@@ -108,6 +110,7 @@ These verification commands may need to be run multiple times to ensure the cond
 Note that the DPUService name will have a random suffix. For example, `ovn-hbn-doca-hbn-l2xsl`. Use the correct name for the verification.
 
 Verify the DPU and Service installation with:
+
 ```shell
 ## Ensure the DPUServices are created and have been reconciled.
 kubectl wait --for=condition=ApplicationsReconciled --namespace dpf-operator-system dpuservices -l svc.dpu.nvidia.com/owned-by-dpudeployment=dpf-operator-system_ovn-hbn
