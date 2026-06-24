@@ -19,11 +19,13 @@ package dpuagent
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/cmd/dpuagent/opts"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
+	dpuutil "github.com/nvidia/doca-platform/internal/provisioning/dpuagent/util"
 	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -383,6 +385,29 @@ var _ = Describe("DPUAgent", func() {
 			cond := meta.FindStatusCondition(agent.optCtx.Status.Conditions, condType)
 			Expect(cond).NotTo(BeNil())
 			Expect(cond.Message).To(Equal("custom success message"))
+		})
+
+		It("truncates CondMessage before writing the success condition", func() {
+			dpu := newTestDPU()
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+			const condType = "LongMessageCondition"
+			longMessage := strings.Repeat("a", 9000)
+
+			agent := &DPUAgent{
+				retryInterval:       testRetryInterval,
+				writeDoneMarkerFunc: noopMarker,
+				optCtx:              newTestOptCtx(fakeClient),
+				operations: []operations.Operation{
+					&mockOperation{name: "op1", conditionType: condType, executeFunc: func(_ context.Context, optCtx *operations.Context) error {
+						optCtx.CondMessage = longMessage
+						return nil
+					}},
+				},
+			}
+			Expect(agent.Run(ctx)).To(Succeed())
+			cond := meta.FindStatusCondition(agent.optCtx.Status.Conditions, condType)
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Message).To(Equal(dpuutil.TruncateConditionMessage(longMessage)))
 		})
 
 		It("clears CondMessage before each retry attempt", func() {

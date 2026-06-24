@@ -509,7 +509,7 @@ var _ = Describe("NVConfig Operation", func() {
 			Expect(out).To(HaveLen(2))
 		})
 
-		It("filterParamsForSet defers hidden params", func() {
+		It("filterParamsForSet defers hidden params and records CondMessage", func() {
 			operation := ConfigureNVConfig{
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 					var stdout bytes.Buffer
@@ -517,9 +517,71 @@ var _ = Describe("NVConfig Operation", func() {
 					return stdout, bytes.Buffer{}, nil
 				},
 			}
-			resolved, err := operation.filterParamsForSet(testPci0, "ADVANCED_PCI_SETTINGS=1 IBM_CAPI_EN=1")
+			optCtx := &operations.Context{}
+			resolved, err := operation.filterParamsForSet(optCtx, testPci0, "ADVANCED_PCI_SETTINGS=1 IBM_CAPI_EN=1")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resolved).To(Equal("ADVANCED_PCI_SETTINGS=1"))
+			Expect(optCtx.CondMessage).To(Equal(fmt.Sprintf(
+				"device=%s deferred NVConfig params (not exposed by mlxconfig q on this pass): [IBM_CAPI_EN=1]",
+				testPci0,
+			)))
+		})
+
+		It("sets CondMessage for deferred params only", func() {
+			pci0 := testPci0
+			params := "ADVANCED_PCI_SETTINGS=1 IBM_CAPI_EN=1"
+			queryOut := "ADVANCED_PCI_SETTINGS False(0)\n"
+			var recorded []string
+			operation := ConfigureNVConfig{
+				runBash: runBashWithQuery(&recorded, queryOut),
+			}
+			operationCtx := &operations.Context{
+				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPci0}}, nil
+				},
+				RebootMethodDiscovery: true,
+				DPUFlavor: provisioningv1.DPUFlavor{
+					Spec: provisioningv1.DPUFlavorSpec{
+						NVConfig: []provisioningv1.NVConfig{
+							{Device: ptr.To("*"), Parameters: strings.Split(params, " ")},
+						},
+					},
+				},
+				LatestDPU: &provisioningv1.DPU{Status: provisioningv1.DPUStatus{AgentStatus: &provisioningv1.AgentStatus{Conditions: []metav1.Condition{}}}},
+			}
+			Expect(operation.Execute(ctx, operationCtx)).To(Succeed())
+			Expect(operationCtx.CondMessage).To(Equal(fmt.Sprintf(
+				"device=%s deferred NVConfig params (not exposed by mlxconfig q on this pass): [IBM_CAPI_EN=1]",
+				pci0,
+			)))
+		})
+
+		It("sets CondMessage when all flavor params are deferred", func() {
+			pci0 := testPci0
+			params := "MAX_ACC_OUT_READ=44"
+			var recorded []string
+			operation := ConfigureNVConfig{
+				runBash: runBashWithQuery(&recorded, ""),
+			}
+			operationCtx := &operations.Context{
+				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPci0}}, nil
+				},
+				RebootMethodDiscovery: true,
+				DPUFlavor: provisioningv1.DPUFlavor{
+					Spec: provisioningv1.DPUFlavorSpec{
+						NVConfig: []provisioningv1.NVConfig{
+							{Device: ptr.To("*"), Parameters: strings.Split(params, " ")},
+						},
+					},
+				},
+				LatestDPU: &provisioningv1.DPU{Status: provisioningv1.DPUStatus{AgentStatus: &provisioningv1.AgentStatus{Conditions: []metav1.Condition{}}}},
+			}
+			Expect(operation.Execute(ctx, operationCtx)).To(Succeed())
+			Expect(operationCtx.CondMessage).To(Equal(fmt.Sprintf(
+				"device=%s deferred NVConfig params (not exposed by mlxconfig q on this pass): [MAX_ACC_OUT_READ=44]",
+				pci0,
+			)))
 		})
 	})
 

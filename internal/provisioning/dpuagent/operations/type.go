@@ -74,7 +74,7 @@ type Context struct {
 	Status provisioningv1.AgentStatus
 
 	// CondMessage is cleared before each operation attempt. On success, dpuagent
-	// writes it to the operation condition message.
+	// truncates and writes it to the operation condition message.
 	CondMessage string
 
 	// CurrentBootID caches the current host boot_id for this agent run so reboot
