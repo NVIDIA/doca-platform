@@ -1242,11 +1242,18 @@ func getNotReadyUnstructuredObjects(objs *unstructured.UnstructuredList) ([]type
 	return unreadyObjs, nil
 }
 
-// getNotReadyDPUSets returns a list of DPUSets from a given list that are not in Ready state.
-func getNotReadyDPUSets(dpuSets []provisioningv1.DPUSet) []types.NamespacedName {
+// getNotReadyDPUSets returns a list of DPUSets from a given list that are not ready.
+// In the context of DPUDeployment, a DPUSet is ready when its Ready condition is true, its observed generation matches
+// its generation, and its spec contains the expected label to be applied on the corev1.Nodes in the DPUCluster that
+// represent the DPUs the DPUDeployment manages.
+func getNotReadyDPUSets(dpuSets []provisioningv1.DPUSet, dpuNodeLabelKey, dpuNodeLabelValue string) []types.NamespacedName {
 	unreadyObjs := []types.NamespacedName{}
 	for _, dpuSet := range dpuSets {
-		if conditions.IsTrue(&dpuSet, conditions.TypeReady) {
+		if conditions.IsTrue(&dpuSet, conditions.TypeReady) &&
+			// This is important because in case the DPUSet failed to apply for whatever reason (e.g. webhook is down),
+			// or in case the internal cache is not up to date, we might end up considering the DPUSet as ready which
+			// is not really true.
+			dpuSet.Spec.DPUTemplate.Spec.Cluster.NodeLabels[dpuNodeLabelKey] == dpuNodeLabelValue {
 			continue
 		}
 

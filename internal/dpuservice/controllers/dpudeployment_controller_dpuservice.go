@@ -355,14 +355,15 @@ func reconcileCurrentDPUServiceRevision(ctx context.Context, c client.Client,
 	delete(existingDPUServicesMap, newRevision.GetName())
 
 	// This is needed because we don't know if a dpuSet will be updated or created
-	setDPUServiceNodeLabelValue(serviceName,
+	shouldDeployInCluster := serviceConfig.Spec.ServiceConfiguration.ShouldDeployInCluster()
+	dpuNodeLabelKey, dpuNodeLabelValue := getDPUServiceNodeLabel(serviceName,
 		getDPUServiceVersionLabelValueFromNodeSelector(currentRev.Spec.ServiceDaemonSet.NodeSelector,
 			serviceName,
 			client.ObjectKeyFromObject(dpuDeployment),
-			serviceConfig.Spec.ServiceConfiguration.ShouldDeployInCluster()),
-		dpuNodeLabels,
+			shouldDeployInCluster),
 		client.ObjectKeyFromObject(dpuDeployment),
-		serviceConfig.Spec.ServiceConfiguration.ShouldDeployInCluster())
+		shouldDeployInCluster)
+	dpuNodeLabels[dpuNodeLabelKey] = dpuNodeLabelValue
 
 	// If there are no old revisions, it means that we are not in the middle of a disruptive upgrade operation, so there
 	// are no leftovers to handle
@@ -376,7 +377,7 @@ func reconcileCurrentDPUServiceRevision(ctx context.Context, c client.Client,
 
 	// If the current revision is still not ready, keep the old revisions and requeue otherwise, clean old revisions.
 	// We expect additional reconciliations to be triggered for leftovers that are getting deleted.
-	if conditions.IsTrue(currentRev, conditions.TypeReady) && len(getNotReadyDPUSets(existingDPUSets)) == 0 {
+	if conditions.IsTrue(currentRev, conditions.TypeReady) && len(getNotReadyDPUSets(existingDPUSets, dpuNodeLabelKey, dpuNodeLabelValue)) == 0 {
 		err := cleanStaleDPUServices(ctx, c, oldRevs)
 		if err != nil {
 			log.Error(err, "failed to delete stale DPUServices")
@@ -390,13 +391,18 @@ func reconcileCurrentDPUServiceRevision(ctx context.Context, c client.Client,
 	return isDisruptiveUpgradeOngoing
 }
 
+// getDPUServiceNodeLabel returns the label key and value for the DPUService node label.
+func getDPUServiceNodeLabel(serviceName string, value string, dpuDeploymentNamespaceName types.NamespacedName, inClusterDPUService bool) (string, string) {
+	if inClusterDPUService {
+		return getInClusterDPUServiceVersionLabelKey(dpuDeploymentNamespaceName, serviceName), value
+	}
+	return getDPUServiceVersionLabelKey(serviceName), value
+}
+
 // setDPUServiceNodeLabelValue sets the value of the node label for the DPUService.
 func setDPUServiceNodeLabelValue(serviceName string, value string, nodeLabels map[string]string, dpuDeploymentNamespaceName types.NamespacedName, inClusterDPUService bool) {
-	if inClusterDPUService {
-		nodeLabels[getInClusterDPUServiceVersionLabelKey(dpuDeploymentNamespaceName, serviceName)] = value
-	} else {
-		nodeLabels[getDPUServiceVersionLabelKey(serviceName)] = value
-	}
+	k, v := getDPUServiceNodeLabel(serviceName, value, dpuDeploymentNamespaceName, inClusterDPUService)
+	nodeLabels[k] = v
 }
 
 // getCurrentAndStaleDPUServices returns the current and stale DPUService objects.
