@@ -264,7 +264,7 @@ func ValidateMyFeature(ctx context.Context, input *systemTestInput) {
         )).To(Succeed())
         // Only checking if pods exist (not checking individual pod states)
         g.Expect(podList.Items).ToNot(BeEmpty(), "No Pods found in DPU cluster containing label: "+podServiceLabel)
-    }).WithTimeout(5 * time.Minute).Should(Succeed())
+    }).WithTimeout(5 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
     
     // Alternative pattern: Validate each object individually
     // Use when you need to check properties on every pod/object in the list
@@ -276,7 +276,7 @@ func ValidateMyFeature(ctx context.Context, input *systemTestInput) {
         for _, pod := range podList.Items {
             g.Expect(pod.Status.Phase).To(Equal(corev1.PodRunning))
         }
-    }).WithTimeout(5 * time.Minute).Should(Succeed())
+    }).WithTimeout(5 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
 }
 
 // Private functions to build objects
@@ -346,3 +346,7 @@ func constructDummyDPUServiceObject(serviceName, namespace, interfaceName string
 * `dpuService := generateDPUObj("test", namespace, dpuServiceTemplate.DeepCopy())`
     * Use generator helper functions if available
     * Copy configuration templates before modifying
+* When you use polling (`Eventually`/`Consistently`) always set `.WithPolling(1 * time.Second)`
+    * A larger interval only adds idle wait time after the condition is already met
+    * Polling every 1 s is basically for free
+    * Only deviate from 1s if you have a really good reason
