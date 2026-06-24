@@ -1263,6 +1263,33 @@ rpm-dpuagent: $(NFPM) ## Package dpuagent binary as .rpm (expects binary to exis
 	$(Q) rm -f $(DPUAGENT_PKG_DIR)/dpuagent
 	@echo "Packaged $(DPUAGENT_RPM)"
 
+# dpu_hw SPIRE NodeAttestor plugin (agent runs on the DPU, server on the SPIRE server).
+DPU_HW_AGENT_BINARY ?= $(LOCALBIN)/dpu-hw-agent
+DPU_HW_SERVER_BINARY ?= $(LOCALBIN)/dpu-hw-server
+DPU_HW_PKG_DIR = $(CURDIR)/internal/spire/dpu_hw/packaging
+# Strip the leading "v" from TAG: Debian policy requires package versions to start with a digit.
+DPU_HW_PKG_VERSION = $(patsubst v%,%,$(TAG))
+DPU_HW_AGENT_DEB = $(LOCALBIN)/dpu-hw-agent_$(DPU_HW_PKG_VERSION)_arm64.deb
+
+.PHONY: binary-dpu-hw-agent
+binary-dpu-hw-agent: ## Build the dpu_hw SPIRE NodeAttestor agent plugin (DPU/arm64).
+	CGO_ENABLED=0 GOOS=linux GOARCH=$(DPU_ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(DPU_HW_AGENT_BINARY) github.com/nvidia/doca-platform/cmd/dpu-hw-agent
+
+.PHONY: binary-dpu-hw-server
+binary-dpu-hw-server: ## Build the dpu_hw SPIRE NodeAttestor server plugin (+ bare-hex .sha256 sidecar consumed by the DPF Helm overlay).
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(DPU_HW_SERVER_BINARY) github.com/nvidia/doca-platform/cmd/dpu-hw-server
+	$(Q) cd $(LOCALBIN) && sha256sum $(notdir $(DPU_HW_SERVER_BINARY)) | cut -d' ' -f1 > $(notdir $(DPU_HW_SERVER_BINARY)).sha256
+
+.PHONY: deb-dpu-hw-agent
+deb-dpu-hw-agent: $(NFPM) ## Package dpu_hw agent plugin as .deb plus a .sha256 sidecar (expects binary to exist).
+	$(Q) cp $(DPU_HW_AGENT_BINARY) $(DPU_HW_PKG_DIR)/dpu-hw-agent
+	$(Q) cd $(DPU_HW_PKG_DIR) && \
+		VERSION=$(DPU_HW_PKG_VERSION) \
+		$(NFPM) package --packager deb --target $(DPU_HW_AGENT_DEB)
+	$(Q) rm -f $(DPU_HW_PKG_DIR)/dpu-hw-agent
+	$(Q) cd $(LOCALBIN) && sha256sum $(notdir $(DPU_HW_AGENT_DEB)) | cut -d' ' -f1 > $(notdir $(DPU_HW_AGENT_DEB)).sha256
+	@echo "Packaged $(DPU_HW_AGENT_DEB) (+ .sha256)"
+
 .PHONY: binary-storage-snap-host-controller
 binary-storage-snap-host-controller: ## Build the snap host controller controller binary.
 	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/snap-host-controller github.com/nvidia/doca-platform/cmd/storage/snap-host-controller
