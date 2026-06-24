@@ -189,6 +189,41 @@ var _ = Describe("DPUServiceIPAM Validating Webhook", func() {
 			}
 			return ipam
 		}(), true),
+		Entry("prefixSize is 0 - out of range", func() *dpuservicev1.DPUServiceIPAM {
+			ipam := getFullyPopulatedDPUServiceIPAM()
+			ipam.Spec.IPV4Subnet = nil
+			ipam.Spec.IPV4Network.PrefixSize = 0
+			return ipam
+		}(), true),
+		Entry("prefixSize is 33 - out of range", func() *dpuservicev1.DPUServiceIPAM {
+			ipam := getFullyPopulatedDPUServiceIPAM()
+			ipam.Spec.IPV4Subnet = nil
+			ipam.Spec.IPV4Network.PrefixSize = 33
+			return ipam
+		}(), true),
+		Entry("prefixSize is 32 - valid", func() *dpuservicev1.DPUServiceIPAM {
+			ipam := getFullyPopulatedDPUServiceIPAM()
+			ipam.Spec.IPV4Subnet = nil
+			ipam.Spec.IPV4Network.Network = "192.168.0.0/20"
+			ipam.Spec.IPV4Network.PrefixSize = 32
+			ipam.Spec.IPV4Network.GatewayIndex = nil
+			ipam.Spec.IPV4Network.Allocations = nil
+			return ipam
+		}(), false),
+		Entry("gatewayIndex out of range for prefix", func() *dpuservicev1.DPUServiceIPAM {
+			// /24 prefix has 256 IPs (indices 0–255); gatewayIndex 256 is out of range.
+			ipam := getFullyPopulatedDPUServiceIPAM()
+			ipam.Spec.IPV4Subnet = nil
+			ipam.Spec.IPV4Network.GatewayIndex = ptr.To[int32](256)
+			return ipam
+		}(), true),
+		Entry("gatewayIndex at upper bound for prefix - valid", func() *dpuservicev1.DPUServiceIPAM {
+			// /24 prefix has 256 IPs (indices 0–255); gatewayIndex 255 is the last valid index.
+			ipam := getFullyPopulatedDPUServiceIPAM()
+			ipam.Spec.IPV4Subnet = nil
+			ipam.Spec.IPV4Network.GatewayIndex = ptr.To[int32](255)
+			return ipam
+		}(), false),
 		Entry("subnetsPerDPUCluster is 0", func() *dpuservicev1.DPUServiceIPAM {
 			ipam := getFullyPopulatedDPUServiceIPAM()
 			ipam.Spec.IPV4Subnet = nil
@@ -328,6 +363,26 @@ var _ = Describe("DPUServiceIPAM Validating Webhook", func() {
 			}
 			return ipam
 		}(), true),
+		Entry("perNodeIPCount is 0", func() *dpuservicev1.DPUServiceIPAM {
+			ipam := getFullyPopulatedDPUServiceIPAM()
+			ipam.Spec.IPV4Network = nil
+			ipam.Spec.IPV4Subnet.PerNodeIPCount = 0
+			return ipam
+		}(), true),
+		Entry("perNodeIPCount exceeds allocatable IPs in subnet", func() *dpuservicev1.DPUServiceIPAM {
+			// 192.168.0.0/20 has 4094 allocatable IPs; perNodeIPCount 4095 must fail.
+			ipam := getFullyPopulatedDPUServiceIPAM()
+			ipam.Spec.IPV4Network = nil
+			ipam.Spec.IPV4Subnet.PerNodeIPCount = 4095
+			return ipam
+		}(), true),
+		Entry("perNodeIPCount equals allocatable IPs in subnet - valid", func() *dpuservicev1.DPUServiceIPAM {
+			// 192.168.0.0/20 has 4094 allocatable IPs; perNodeIPCount 4094 must pass (1 full block).
+			ipam := getFullyPopulatedDPUServiceIPAM()
+			ipam.Spec.IPV4Network = nil
+			ipam.Spec.IPV4Subnet.PerNodeIPCount = 4094
+			return ipam
+		}(), false),
 		Entry("blocksPerDPUCluster is 0", func() *dpuservicev1.DPUServiceIPAM {
 			ipam := getFullyPopulatedDPUServiceIPAM()
 			ipam.Spec.IPV4Network = nil
@@ -553,8 +608,9 @@ var ipamWithIPV4Subnet = &dpuservicev1.DPUServiceIPAM{
 	},
 	Spec: dpuservicev1.DPUServiceIPAMSpec{
 		IPV4Subnet: &dpuservicev1.IPV4Subnet{
-			Subnet:  "10.0.0.0/24",
-			Gateway: "10.0.0.1",
+			Subnet:         "10.0.0.0/24",
+			Gateway:        "10.0.0.1",
+			PerNodeIPCount: 10,
 		},
 	},
 }
