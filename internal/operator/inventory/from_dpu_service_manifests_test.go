@@ -45,7 +45,7 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 	initialValuesObject := &unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"value-one": "value-again",
-			"ovs-cni": map[string]interface{}{
+			"disabled-service": map[string]interface{}{
 				"enabled": false,
 			},
 			"multus": map[string]interface{}{
@@ -644,23 +644,23 @@ func Test_parseHelmChartString(t *testing.T) {
 	}{
 		{
 			name:  "correctly parse a valid helmChart string",
-			input: "oci://example.com/ovs-cni:v0.1.0",
+			input: "oci://example.com/example-chart:v0.1.0",
 			want: &HelmChartSource{
 				Repo:    "oci://example.com",
 				Version: "v0.1.0",
-				Chart:   "ovs-cni",
+				Chart:   "example-chart",
 			},
 			wantErr: false,
 		},
 
 		{
 			name:    "error if version not present",
-			input:   "oci://example.com/ovs-cni",
+			input:   "oci://example.com/example-chart",
 			wantErr: true,
 		},
 		{
 			name:    "error if repo prefix is missing",
-			input:   "ovs-cni:v0.1.0",
+			input:   "example-chart:v0.1.0",
 			wantErr: true,
 		},
 	}

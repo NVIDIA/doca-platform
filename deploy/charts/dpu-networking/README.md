@@ -15,7 +15,6 @@ A Helm chart for Kubernetes
 | file://charts/node-problem-detector | node-problem-detector | 0.1.0 |
 | file://charts/nvidia-k8s-ipam | nvidia-k8s-ipam | 0.1.0 |
 | file://charts/opentelemetry-collector | opentelemetry-collector | 0.1.0 |
-| file://charts/ovs-cni | ovs-cni | 0.1.0 |
 | file://charts/servicechainset-controller | servicechainset-controller | 0.1.0 |
 | file://charts/sfc-controller | sfc-controller | 0.1.0 |
 | file://charts/sriov-device-plugin | sriov-device-plugin | 0.1.0 |
@@ -36,7 +35,6 @@ A Helm chart for Kubernetes
 | node-problem-detector.enabled | bool | `false` |  |
 | nvidia-k8s-ipam.enabled | bool | `false` |  |
 | opentelemetry-collector.enabled | bool | `false` |  |
-| ovs-cni.enabled | bool | `false` |  |
 | servicechainset-controller.enabled | bool | `false` |  |
 | sfc-controller.enabled | bool | `false` |  |
 | sriov-device-plugin.enabled | bool | `false` |  |

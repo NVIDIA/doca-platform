@@ -53,7 +53,6 @@ var dpuNetworkingSubCharts = map[operatorv1.ComponentName]bool{
 	operatorv1.ServiceSetControllerName:   true,
 	operatorv1.MultusName:                 true,
 	operatorv1.SRIOVDevicePluginName:      true,
-	operatorv1.OVSCNIName:                 true,
 	operatorv1.NVIPAMControllerName:       true,
 	operatorv1.SFCControllerName:          true,
 	operatorv1.CNIInstallerName:           true,
@@ -225,8 +224,6 @@ func additionalValuesForComponent(name operatorv1.ComponentName, vars Variables)
 	switch name {
 	case operatorv1.MultusName:
 		return multusEdits(vars)
-	case operatorv1.OVSCNIName:
-		return ovsCNIEdits(vars)
 	case operatorv1.SFCControllerName:
 		return sfcControllerEdits(vars)
 	case operatorv1.NVIPAMControllerName:
@@ -269,12 +266,6 @@ func cniInstallerEdits(vars Variables) ([]StructuredEdit, error) {
 		dpuServiceAddValueEdit(vars.DPUCNIBinPath, operatorv1.CNIInstallerName.String(), cniBinDirPathKey),
 	}
 	return edits, nil
-}
-
-func ovsCNIEdits(vars Variables) ([]StructuredEdit, error) {
-	return []StructuredEdit{
-		dpuServiceAddValueEdit(vars.DPUCNIBinPath, operatorv1.OVSCNIName.String(), cniBinDirPathKey),
-	}, nil
 }
 
 func kataContainersEdits(vars Variables) ([]StructuredEdit, error) {

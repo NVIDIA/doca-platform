@@ -46,7 +46,6 @@ func newDefaultVariables(defaults *release.Defaults) Variables {
 			operatorv1.FlannelName:                false,
 			operatorv1.MultusName:                 false,
 			operatorv1.SRIOVDevicePluginName:      false,
-			operatorv1.OVSCNIName:                 false,
 			operatorv1.NVIPAMControllerName:       false,
 			operatorv1.SFCControllerName:          false,
 			operatorv1.DPUDetectorName:            false,
@@ -71,7 +70,6 @@ func newDefaultVariables(defaults *release.Defaults) Variables {
 			operatorv1.KamajiClusterManagerName.WithContainer(operatorv1.ControllerManagerContainer):            defaults.DPFSystemImage,
 			operatorv1.ServiceSetControllerName.WithContainer(operatorv1.ControllerManagerContainer):            defaults.DPFSystemImage,
 			operatorv1.SFCControllerName.WithContainer(operatorv1.ControllerManagerContainer):                   defaults.DPFSystemImage,
-			operatorv1.OVSCNIName.WithContainer(operatorv1.OVSCNI):                                              defaults.OVSCNIImage,
 			operatorv1.DPUDetectorName.WithContainer(operatorv1.DPUDetectorContainer):                           defaults.DPFSystemImage,
 			operatorv1.CNIInstallerName.WithContainer(operatorv1.CNIInstallerContainer):                         defaults.CNIInstallerImage,
 			operatorv1.NodeSRIOVDevicePluginControllerName.WithContainer(operatorv1.ControllerManagerContainer): defaults.DPFSystemImage,
@@ -84,7 +82,6 @@ func newDefaultVariables(defaults *release.Defaults) Variables {
 			operatorv1.MultusName:                 defaults.DPUNetworkingHelmChart,
 			operatorv1.SRIOVDevicePluginName:      defaults.DPUNetworkingHelmChart,
 			operatorv1.NVIPAMControllerName:       defaults.DPUNetworkingHelmChart,
-			operatorv1.OVSCNIName:                 defaults.DPUNetworkingHelmChart,
 			operatorv1.SFCControllerName:          defaults.DPUNetworkingHelmChart,
 			operatorv1.ServiceSetControllerName:   defaults.DPUNetworkingHelmChart,
 			operatorv1.CNIInstallerName:           defaults.DPUNetworkingHelmChart,
@@ -480,8 +477,6 @@ func getContainerNameFromComponent(componentName operatorv1.ComponentName) opera
 		return operatorv1.ControllerManagerContainer
 	case operatorv1.DPUDetectorName:
 		return operatorv1.DPUDetectorContainer
-	case operatorv1.OVSCNIName:
-		return operatorv1.OVSCNI
 	case operatorv1.MultusName:
 		return operatorv1.MultusContainer
 	case operatorv1.SRIOVDevicePluginName:

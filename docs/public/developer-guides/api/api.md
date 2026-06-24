@@ -337,7 +337,7 @@ _Appears in:_
 | `multus` _[MultusConfiguration](#multusconfiguration)_ | Multus is the configuration for Multus |  | Optional: \{\} <br /> |
 | `sriovDevicePlugin` _[SRIOVDevicePluginConfiguration](#sriovdevicepluginconfiguration)_ | SRIOVDevicePlugin is the configuration for the SRIOVDevicePlugin |  | Optional: \{\} <br /> |
 | `flannel` _[FlannelConfiguration](#flannelconfiguration)_ | Flannel is the configuration for Flannel |  | Optional: \{\} <br /> |
-| `ovsCNI` _[OVSCNIConfiguration](#ovscniconfiguration)_ | OVSCNI is the configuration for OVSCNI |  | Optional: \{\} <br /> |
+| `ovsCNI` _[OVSCNIConfiguration](#ovscniconfiguration)_ | OVSCNI is the configuration for OVSCNI<br />Deprecated: OVS CNI is installed by CNIInstaller. Remove after 26.7 is released. |  | Optional: \{\} <br /> |
 | `nvipam` _[NVIPAMConfiguration](#nvipamconfiguration)_ | NVIPAM is the configuration for NVIPAM |  | Optional: \{\} <br /> |
 | `cniInstaller` _[CNIInstallerConfiguration](#cniinstallerconfiguration)_ | CNIInstaller is the configuration for the cni-installer |  | Optional: \{\} <br /> |
 | `sfcController` _[SFCControllerConfiguration](#sfccontrollerconfiguration)_ | SFCController is the configuration for the SFCController |  | Optional: \{\} <br /> |

@@ -496,7 +496,6 @@ func verifySystemReady() {
 		operatorv1.FlannelName.String(),
 		operatorv1.MultusName.String(),
 		operatorv1.SRIOVDevicePluginName.String(),
-		operatorv1.OVSCNIName.String(),
 		operatorv1.SFCControllerName.String(),
 		operatorv1.ServiceChainSetCRDsName.String(),
 		operatorv1.CNIInstallerName.String(),

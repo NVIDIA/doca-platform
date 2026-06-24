@@ -38,7 +38,6 @@ func TestDefaults_Parse(t *testing.T) {
 	defaultValues := map[string]string{
 		"dmsImage":                   "example.com/hostdriver:v0.1.0",
 		"dpfSystemImage":             "example.com/dpf-system:v0.1.0",
-		"ovsCniImage":                "example.com/ovs-cni-plugin:v0.1.0",
 		"bfbRegistryImage":           "example.com/bfb-registry:v0.1.0",
 		"dpfStorageSystemImage":      "example.com/storage-system:v0.1.0",
 		"dpfStorageHostImage":        "example.com/storage-host:v0.1.0",
@@ -75,11 +74,6 @@ func TestDefaults_Parse(t *testing.T) {
 		{
 			name:    "fail when dpuNetworkingHelmChart empty/missing",
 			content: withoutValue(g, defaultValues, "dpuNetworkingHelmChart"),
-			wantErr: true,
-		},
-		{
-			name:    "fail when ovsCniImage empty/missing",
-			content: withoutValue(g, defaultValues, "ovsCniImage"),
 			wantErr: true,
 		},
 		{

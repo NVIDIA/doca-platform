@@ -181,31 +181,6 @@ func TestManifests_Parse_Generate_All(t *testing.T) {
 			}),
 			wantErr: true,
 		},
-		// ovs-cni
-		{
-			name: "fail if ovs-cni data is nil",
-			inventory: New().setOvsCni(fromDPUService{
-				name: operatorv1.OVSCNIName,
-				data: nil,
-			}),
-			wantErr: true,
-		},
-		{
-			name: "fail if ovs-cni data has an unexpected object",
-			inventory: New().setOvsCni(fromDPUService{
-				name: operatorv1.OVSCNIName,
-				data: addUnexpectedKindToObjects(g, ovsCniData),
-			}),
-			wantErr: true,
-		},
-		{
-			name: "fail if ovs-cni is missing the DPUService",
-			inventory: New().setOvsCni(fromDPUService{
-				name: operatorv1.OVSCNIName,
-				data: removeKindFromObjects(g, "DPUService", ovsCniData),
-			}),
-			wantErr: true,
-		},
 		// sfc-controller
 		{
 			name: "fail if sfc-controller data is nil",
@@ -368,11 +343,6 @@ func TestManifests_generateAllManifests(t *testing.T) {
 			wantErr:            false,
 		},
 		{
-			name:               "Disable ovs-cni manifests",
-			componentToDisable: operatorv1.OVSCNIName,
-			wantErr:            false,
-		},
-		{
 			name:               "Disable sfc-controller manifests",
 			componentToDisable: operatorv1.SFCControllerName,
 			wantErr:            false,
@@ -422,4 +392,28 @@ func hasLabel(obj client.Object, label string) bool {
 		}
 	}
 	return false
+}
+
+func TestLegacyOVSCNIComponent(t *testing.T) {
+	g := NewWithT(t)
+
+	inventory := New()
+	g.Expect(inventory.ParseAll()).To(Succeed())
+
+	componentNames := map[operatorv1.ComponentName]bool{}
+	for _, component := range inventory.AllComponents() {
+		componentNames[component.Name()] = true
+	}
+	g.Expect(componentNames).To(HaveKey(operatorv1.OVSCNIName))
+
+	systemDPUServiceNames := map[operatorv1.ComponentName]bool{}
+	for _, component := range inventory.SystemDPUServices() {
+		systemDPUServiceNames[component.Name()] = true
+	}
+	g.Expect(systemDPUServiceNames).NotTo(HaveKey(operatorv1.OVSCNIName))
+
+	objs, err := inventory.RemoveOVSCNI.GenerateManifests(context.Background(), Variables{})
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(objs).To(BeEmpty())
+	g.Expect(ApplySetName(inventory.RemoveOVSCNI)).To(Equal("ovs-cni-applyset"))
 }
