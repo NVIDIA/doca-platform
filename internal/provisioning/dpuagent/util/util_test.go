@@ -17,11 +17,26 @@ limitations under the License.
 package util
 
 import (
+	"strings"
+
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
+
+var _ = Describe("TruncateConditionMessage", func() {
+	It("returns trimmed message unchanged when within limit", func() {
+		Expect(TruncateConditionMessage("  hello  ")).To(Equal("hello"))
+	})
+
+	It("truncates long messages with ellipsis", func() {
+		msg := strings.Repeat("a", maxConditionMessageLen+10)
+		truncated := TruncateConditionMessage(msg)
+		Expect(truncated).To(HaveSuffix("…"))
+		Expect(strings.TrimSuffix(truncated, "…")).To(HaveLen(maxConditionMessageLen - 1))
+	})
+})
 
 var _ = Describe("IsBlueField4", func() {
 	It("returns true only for BlueField4 DPU type", func() {
