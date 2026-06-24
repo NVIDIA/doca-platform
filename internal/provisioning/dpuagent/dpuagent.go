@@ -47,6 +47,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/sysctl"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/systemd"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/vfmac"
+	dpuutil "github.com/nvidia/doca-platform/internal/provisioning/dpuagent/util"
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
 
@@ -153,7 +154,7 @@ func (d *DPUAgent) Run(ctx context.Context) error {
 				hostutil.NewCondition(op.ConditionType()).Failure(err, "FailedToExecute").Set(&d.optCtx.Status.Conditions)
 			} else {
 				klog.Infof("[%s] Successfully executed", op.Name())
-				hostutil.NewCondition(op.ConditionType()).Success(d.optCtx.CondMessage).Set(&d.optCtx.Status.Conditions)
+				hostutil.NewCondition(op.ConditionType()).Success(dpuutil.TruncateConditionMessage(d.optCtx.CondMessage)).Set(&d.optCtx.Status.Conditions)
 			}
 
 			if err != nil || op.ShouldUpdateStatusBeforeContinue(d.optCtx) {
