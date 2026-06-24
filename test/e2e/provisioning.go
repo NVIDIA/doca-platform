@@ -78,7 +78,7 @@ func initProvisioningExpected(input *systemTestInput) {
 		DPUSets:       1, // Provisioning tests create one DPUSet
 		BFBs:          1, // Provisioning tests create one BFB
 		Prerequisites: len(input.dpuClusterPrerequisites),
-		DPUServices:   6, // Multus, Flannel, SRIOV, NVIPAM, OVS-CNI, SFC-Controller
+		DPUServices:   6, // Multus, Flannel, SRIOV, NVIPAM, CNI installer, SFC-Controller
 	}
 
 	provisioningExpected.DPUFlavors = 1 // DPUFlavor is always required
@@ -134,7 +134,7 @@ func VerifyDPUServicesDeployed(ctx context.Context, clusterClient client.Client,
 			operatorv1.FlannelName.String(),
 			operatorv1.SRIOVDevicePluginName.String(),
 			operatorv1.NVIPAMControllerName.String(),
-			operatorv1.OVSCNIName.String(),
+			operatorv1.CNIInstallerName.String(),
 			operatorv1.SFCControllerName.String(),
 		}
 		for _, svcName := range serviceNames {
@@ -153,7 +153,7 @@ func VerifyDPUServicesDeployed(ctx context.Context, clusterClient client.Client,
 		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.FlannelName.String())), "Flannel should be deployed")
 		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.SRIOVDevicePluginName.String())), "SRIOV should be deployed")
 		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.NVIPAMControllerName.String())), "NVIPAM should be deployed")
-		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.OVSCNIName.String())), "OVS-CNI should be deployed")
+		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.CNIInstallerName.String())), "CNI installer should be deployed")
 		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.SFCControllerName.String())), "SFC-Controller should be deployed")
 	}).WithTimeout(10 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
 }

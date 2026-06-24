@@ -113,13 +113,6 @@ func helmPaths() helmPathsProvider {
 					Resources:  []string{"kubeSriovDevicePlugin", "kubeSriovdp", "resources"},
 				},
 			},
-			operatorv1.OVSCNIName: {
-				operatorv1.OVSCNI: {
-					Repository: []string{"arm64", "image", "repository"},
-					Tag:        []string{"arm64", "image", "tag"},
-					Resources:  []string{"arm64", "ovsCniPlugin", "resources"},
-				},
-			},
 			operatorv1.CNIInstallerName: {
 				operatorv1.CNIInstallerContainer: {
 					Repository: []string{"cniInstaller", "image", "repository"},

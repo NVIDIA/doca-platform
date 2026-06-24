@@ -11,9 +11,6 @@ dependencies:
 - name: nvidia-k8s-ipam
   repository: file://charts/nvidia-k8s-ipam
   version: 0.1.0
-- name: ovs-cni
-  repository: file://charts/ovs-cni
-  version: 0.1.0
 - name: sfc-controller
   repository: file://charts/sfc-controller
   version: 0.1.0
@@ -35,5 +32,5 @@ dependencies:
 - name: kata-containers
   repository: file://charts/kata-containers
   version: 0.1.0
-digest: sha256:6e4ba5ccbc982965c66ed14f8820cf355c8603ddbcbbc4439f78c1a1aea9eefd
-generated: "2026-05-06T23:13:09.004732+02:00"
+digest: sha256:a259c11383ca858f07fc72f426594f0a0744a8fa7a0ecf43f04011600b2a8afa
+generated: "2026-06-10T09:44:53.488052+03:00"
