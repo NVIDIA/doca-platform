@@ -21,6 +21,7 @@ require (
 	github.com/gobuffalo/flect v1.0.3
 	github.com/godbus/dbus/v5 v5.1.0
 	github.com/golang/glog v1.2.5
+	github.com/hashicorp/go-hclog v0.15.0
 	github.com/j-keck/arping v1.0.3
 	github.com/k8snetworkplumbingwg/network-attachment-definition-client v1.7.5
 	github.com/k8snetworkplumbingwg/sriovnet v1.3.0
@@ -35,6 +36,7 @@ require (
 	github.com/ovn-org/libovsdb v0.7.0
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/pflag v1.0.7
+	github.com/spiffe/spire-plugin-sdk v1.15.1
 	github.com/stretchr/testify v1.11.1
 	github.com/vishvananda/netlink v1.3.2-0.20251101063711-6e61cd407d1d
 	go.uber.org/mock v0.5.0
@@ -67,9 +69,14 @@ require (
 	github.com/elliotwutingfeng/asciiset v0.0.0-20260129054604-cfde2086bc57 // indirect
 	github.com/evanphx/json-patch v5.9.0+incompatible // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
+	github.com/golang/protobuf v1.5.4 // indirect
+	github.com/hashicorp/go-plugin v1.4.0 // indirect
+	github.com/hashicorp/yamux v0.0.0-20180604194846-3520598351bb // indirect
 	github.com/jaypipes/ghw v0.24.0 // indirect
 	github.com/jaypipes/pcidb v1.1.1 // indirect
 	github.com/klauspost/compress v1.18.5 // indirect
+	github.com/mitchellh/go-testing-interface v0.0.0-20171004221916-a61a99592b77 // indirect
+	github.com/oklog/run v1.0.0 // indirect
 	github.com/orcaman/concurrent-map/v2 v2.0.1 // indirect
 	github.com/pierrec/lz4/v4 v4.1.26 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
