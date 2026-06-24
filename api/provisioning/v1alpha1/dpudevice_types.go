@@ -56,6 +56,9 @@ const (
 	ConditionDpuDeviceReady conditions.ConditionType = "Ready"
 	// ConditionBMCCredentialsReady reports the health of BMC credential resolution.
 	ConditionBMCCredentialsReady conditions.ConditionType = "BMCCredentialsReady"
+	// ConditionSPIFFEEntryReady reports whether the per-DPU SPIRE ClusterStaticEntry has been
+	// registered and rendered (L1 composite mirror of the upstream entry status).
+	ConditionSPIFFEEntryReady conditions.ConditionType = "SPIFFEEntryReady"
 )
 
 // BMCCredentialsReady condition reasons
@@ -82,6 +85,7 @@ var (
 		ConditionDpuDeviceError,
 		ConditionDpuDeviceReady,
 		ConditionBMCCredentialsReady,
+		ConditionSPIFFEEntryReady,
 	}
 )
 

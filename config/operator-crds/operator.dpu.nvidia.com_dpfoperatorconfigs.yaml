@@ -1613,6 +1613,79 @@ spec:
                     are mutually exclusive
                   rule: '!(has(self.bfCFGTemplateConfigMap) && has(self.enableDynamicBFCFGTemplates)
                     && self.enableDynamicBFCFGTemplates)'
+              security:
+                description: Security groups security-related cluster settings.
+                properties:
+                  spiffe:
+                    description: |-
+                      spiffe configures the SPIFFE-based DPU Agent identity flow. Edits are accepted post-bootstrap
+                      but do NOT retro-apply to already-provisioned DPUs.
+                    properties:
+                      kubeAPIAudience:
+                        description: |-
+                          KubeAPIAudience is the audience claim the DPU Agent's JWT-SVID must carry; it must match an
+                          entry in the kube-apiserver AuthenticationConfiguration.audiences[] (owned out-of-band).
+                        maxLength: 512
+                        minLength: 1
+                        type: string
+                      spireOIDCURL:
+                        description: |-
+                          SPIREOIDCURL is the OIDC discovery (issuer) URL of the pre-installed SPIRE Server.
+                          The matching kube-apiserver AuthenticationConfiguration.jwt[].issuer value is applied out-of-band.
+                        maxLength: 2048
+                        minLength: 1
+                        type: string
+                      spireServerAddress:
+                        description: |-
+                          SPIREServerAddress is the address of the pre-installed SPIRE Server in host:port form
+                          (e.g. "spire-server.spire-system.svc:8081").
+                        maxLength: 263
+                        minLength: 1
+                        type: string
+                      spireTrustDomain:
+                        description: |-
+                          SPIRETrustDomain is the SPIRE-internal trust domain (e.g. "cs.internal") embedded in the
+                          DPU Agent SVID URI.
+                        maxLength: 253
+                        minLength: 1
+                        pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                        type: string
+                      trustBundle:
+                        description: |-
+                          trustBundle references a ConfigMap whose data["bundle.pem"] key holds the SPIRE trust
+                          bundle in PEM form.
+                        properties:
+                          name:
+                            description: Name is the name of the ConfigMap holding
+                              the SPIRE trust bundle.
+                            maxLength: 253
+                            minLength: 1
+                            type: string
+                          namespace:
+                            description: Namespace is the namespace of the ConfigMap
+                              holding the SPIRE trust bundle.
+                            maxLength: 63
+                            minLength: 1
+                            type: string
+                        required:
+                        - name
+                        - namespace
+                        type: object
+                    required:
+                    - kubeAPIAudience
+                    - spireOIDCURL
+                    - spireServerAddress
+                    - spireTrustDomain
+                    - trustBundle
+                    type: object
+                    x-kubernetes-validations:
+                    - message: spireServerAddress must be host:port with a valid DNS-1123
+                        host (e.g. spire-server.spire-system.svc:8081)
+                      rule: self.spireServerAddress.matches('^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?([.][A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*:[1-9][0-9]{0,4}$')
+                    - message: spireServerAddress port must be in 1-65535
+                      rule: '!self.spireServerAddress.contains('':'') || (int(self.spireServerAddress.split('':'')[1])
+                        >= 1 && int(self.spireServerAddress.split('':'')[1]) <= 65535)'
+                type: object
               serviceSetController:
                 description: ServiceSetController is the configuration for the ServiceSetController
                 properties:
@@ -1989,6 +2062,15 @@ spec:
               rule: self.deploymentMode != 'zero-trust' || !has(self.networking) ||
                 !has(self.networking.controlPlaneMTU) || self.networking.controlPlaneMTU
                 <= 1500
+            - message: spiffe configuration requires deploymentMode=zero-trust
+              rule: '!has(self.security) || !has(self.security.spiffe) || self.deploymentMode
+                == ''zero-trust'''
+            - message: spec.security.spiffe cannot be removed once set; SPIFFE-mode
+                DPUs depend on this configuration. Disable SPIFFE for the cluster
+                by deleting and recreating DPFOperatorConfig (DR escape hatch); existing
+                SPIFFE-mode DPUs require re-provisioning.
+              rule: '!has(oldSelf.security) || !has(oldSelf.security.spiffe) || (has(self.security)
+                && has(self.security.spiffe))'
           status:
             description: DPFOperatorConfigStatus defines the observed state of DPFOperatorConfig
             properties:

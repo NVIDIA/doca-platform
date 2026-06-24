@@ -254,6 +254,62 @@ type RegistryConfiguration struct {
 	LoadBalancerAddress *string `json:"loadBalancerAddress,omitempty"`
 }
 
+// SPIFFETrustBundleConfigMapReference references the ConfigMap (by name and namespace)
+// whose data["bundle.pem"] key holds the SPIRE trust bundle in PEM form.
+type SPIFFETrustBundleConfigMapReference struct {
+	// Name is the name of the ConfigMap holding the SPIRE trust bundle.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +required
+	Name string `json:"name,omitempty"`
+
+	// Namespace is the namespace of the ConfigMap holding the SPIRE trust bundle.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	// +required
+	Namespace string `json:"namespace,omitempty"`
+}
+
+// SPIFFEConfiguration is the per-cluster SPIFFE bootstrap parameter set
+//
+// +kubebuilder:validation:XValidation:rule="self.spireServerAddress.matches('^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?([.][A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*:[1-9][0-9]{0,4}$')",message="spireServerAddress must be host:port with a valid DNS-1123 host (e.g. spire-server.spire-system.svc:8081)"
+// +kubebuilder:validation:XValidation:rule="!self.spireServerAddress.contains(':') || (int(self.spireServerAddress.split(':')[1]) >= 1 && int(self.spireServerAddress.split(':')[1]) <= 65535)",message="spireServerAddress port must be in 1-65535"
+type SPIFFEConfiguration struct {
+	// SPIREServerAddress is the address of the pre-installed SPIRE Server in host:port form
+	// (e.g. "spire-server.spire-system.svc:8081").
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=263
+	// +required
+	SPIREServerAddress string `json:"spireServerAddress,omitempty"`
+
+	// SPIRETrustDomain is the SPIRE-internal trust domain (e.g. "cs.internal") embedded in the
+	// DPU Agent SVID URI.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
+	// +required
+	SPIRETrustDomain string `json:"spireTrustDomain,omitempty"`
+
+	// KubeAPIAudience is the audience claim the DPU Agent's JWT-SVID must carry; it must match an
+	// entry in the kube-apiserver AuthenticationConfiguration.audiences[] (owned out-of-band).
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=512
+	// +required
+	KubeAPIAudience string `json:"kubeAPIAudience,omitempty"`
+
+	// SPIREOIDCURL is the OIDC discovery (issuer) URL of the pre-installed SPIRE Server.
+	// The matching kube-apiserver AuthenticationConfiguration.jwt[].issuer value is applied out-of-band.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=2048
+	// +required
+	SPIREOIDCURL string `json:"spireOIDCURL,omitempty"`
+
+	// trustBundle references a ConfigMap whose data["bundle.pem"] key holds the SPIRE trust
+	// bundle in PEM form.
+	// +required
+	TrustBundle SPIFFETrustBundleConfigMapReference `json:"trustBundle,omitzero"`
+}
+
 // +kubebuilder:validation:XValidation:rule="!has(self.image) || !has(self.controller) || !has(self.controller.image)",message="only either 'image' (deprecated) or 'controller.image' can be set, but not both"
 
 type DPUServiceControllerConfiguration struct {
