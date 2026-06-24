@@ -18,6 +18,8 @@ limitations under the License.
 package apivalidation_test
 
 import (
+	"strings"
+
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 
@@ -327,6 +329,103 @@ var _ = Describe("Operator API Validation", func() {
 				cleanupObjs = append(cleanupObjs, config)
 			})
 		})
+
+		Context("Validate SPIFFE configuration", func() {
+			DescribeTable("SPIFFE deploymentMode gate (creation)",
+				func(zeroTrust bool, withSPIFFE bool, expectError bool, errorMessage string) {
+					var config *operatorv1.DPFOperatorConfig
+					if zeroTrust {
+						config = getZeroTrustDPFOperatorConfig(testNs.Name)
+					} else {
+						config = getMinimalDPFOperatorConfig(testNs.Name)
+					}
+					if withSPIFFE {
+						setSPIFFEConfig(config, getValidSPIFFEConfiguration())
+					}
+					validateConfigCreation(config, expectError, errorMessage, &cleanupObjs)
+				},
+				Entry("valid - zero-trust with spiffe", true, true, false, ""),
+				Entry("valid - host-trusted without spiffe", false, false, false, ""),
+				Entry("valid - zero-trust without spiffe", true, false, false, ""),
+				Entry("invalid - host-trusted with spiffe", false, true, true, "spiffe configuration requires deploymentMode=zero-trust"),
+			)
+
+			DescribeTable("SPIFFEConfiguration field validation (zero-trust base)",
+				func(mutate func(*operatorv1.SPIFFEConfiguration), expectError bool, errorMessage string) {
+					config := getZeroTrustDPFOperatorConfig(testNs.Name)
+					spiffe := getValidSPIFFEConfiguration()
+					mutate(spiffe)
+					setSPIFFEConfig(config, spiffe)
+					validateConfigCreation(config, expectError, errorMessage, &cleanupObjs)
+				},
+				Entry("valid - full configuration", func(s *operatorv1.SPIFFEConfiguration) {}, false, ""),
+				Entry("invalid - address missing port", func(s *operatorv1.SPIFFEConfiguration) {
+					s.SPIREServerAddress = "spire-server.spire-system.svc"
+				}, true, "spireServerAddress must be host:port"),
+				Entry("invalid - address port out of range", func(s *operatorv1.SPIFFEConfiguration) {
+					s.SPIREServerAddress = "spire-server.spire-system.svc:70000"
+				}, true, "spireServerAddress port must be in 1-65535"),
+				Entry("invalid - empty trust domain", func(s *operatorv1.SPIFFEConfiguration) {
+					s.SPIRETrustDomain = ""
+				}, true, "spireTrustDomain"),
+				Entry("invalid - whitespace trust domain", func(s *operatorv1.SPIFFEConfiguration) {
+					s.SPIRETrustDomain = " "
+				}, true, "spireTrustDomain"),
+				Entry("invalid - slash in trust domain", func(s *operatorv1.SPIFFEConfiguration) {
+					s.SPIRETrustDomain = "cs.internal/extra"
+				}, true, "spireTrustDomain"),
+				// Pattern-valid but exceeds MaxLength=253: closes the admission/runtime skew where
+				// an overlength all-lowercase domain passed admission yet failed spireTrustDomain().
+				Entry("invalid - overlength trust domain", func(s *operatorv1.SPIFFEConfiguration) {
+					s.SPIRETrustDomain = strings.Repeat("a", 254)
+				}, true, "spireTrustDomain"),
+				Entry("invalid - empty trust bundle name", func(s *operatorv1.SPIFFEConfiguration) {
+					s.TrustBundle.Name = ""
+				}, true, "trustBundle.name"),
+			)
+
+			DescribeTable("SPIFFE no-downgrade transition (K2)",
+				func(setup func(*operatorv1.DPFOperatorConfig), endFn func(*operatorv1.DPFOperatorConfig), expectError bool, errorMessage string) {
+					config := getZeroTrustDPFOperatorConfig(testNs.Name)
+					setup(config)
+					Expect(testClient.Create(ctx, config)).To(Succeed())
+					cleanupObjs = append(cleanupObjs, config)
+
+					endFn(config)
+					err := testClient.Update(ctx, config)
+					if expectError {
+						Expect(err).To(HaveOccurred())
+						Expect(err.Error()).To(ContainSubstring(errorMessage))
+					} else {
+						Expect(err).ToNot(HaveOccurred())
+					}
+				},
+				Entry("ok - nil to nil", func(c *operatorv1.DPFOperatorConfig) {}, func(c *operatorv1.DPFOperatorConfig) {}, false, ""),
+				Entry("ok - nil to set (add allowed)", func(c *operatorv1.DPFOperatorConfig) {}, func(c *operatorv1.DPFOperatorConfig) {
+					setSPIFFEConfig(c, getValidSPIFFEConfiguration())
+				}, false, ""),
+				Entry("ok - empty security to set (add allowed)", func(c *operatorv1.DPFOperatorConfig) {
+					c.Spec.Security = &operatorv1.SecurityConfiguration{}
+				}, func(c *operatorv1.DPFOperatorConfig) {
+					setSPIFFEConfig(c, getValidSPIFFEConfiguration())
+				}, false, ""),
+				Entry("ok - set to set", func(c *operatorv1.DPFOperatorConfig) {
+					setSPIFFEConfig(c, getValidSPIFFEConfiguration())
+				}, func(c *operatorv1.DPFOperatorConfig) {
+					setSPIFFEConfig(c, getValidSPIFFEConfiguration())
+				}, false, ""),
+				Entry("reject - remove security block (downgrade)", func(c *operatorv1.DPFOperatorConfig) {
+					setSPIFFEConfig(c, getValidSPIFFEConfiguration())
+				}, func(c *operatorv1.DPFOperatorConfig) {
+					c.Spec.Security = nil
+				}, true, "spec.security.spiffe cannot be removed once set"),
+				Entry("reject - clear spiffe under security (downgrade)", func(c *operatorv1.DPFOperatorConfig) {
+					setSPIFFEConfig(c, getValidSPIFFEConfiguration())
+				}, func(c *operatorv1.DPFOperatorConfig) {
+					c.Spec.Security.SPIFFE = nil
+				}, true, "spec.security.spiffe cannot be removed once set"),
+			)
+		})
 	})
 })
 
@@ -507,6 +606,43 @@ func getMinimalDPFOperatorConfig(namespace string) *operatorv1.DPFOperatorConfig
 			ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 				BFBPersistentVolumeClaimName: ptr.To("test-bfb-pvc"),
 			},
+		},
+	}
+}
+
+// getZeroTrustDPFOperatorConfig returns a minimal config switched to zero-trust mode with
+// installViaRedfish, which is the pre-existing CEL prerequisite for any SPIFFE configuration.
+func getZeroTrustDPFOperatorConfig(namespace string) *operatorv1.DPFOperatorConfig {
+	config := getMinimalDPFOperatorConfig(namespace)
+	config.Spec.DeploymentMode = operatorv1.DeploymentModeZeroTrust
+	config.Spec.ProvisioningController.InstallInterface = &operatorv1.ProvisioningInstallInterface{
+		InstallViaRedfish: &operatorv1.InstallViaRedfish{},
+	}
+	return config
+}
+
+func setSPIFFEConfig(config *operatorv1.DPFOperatorConfig, spiffe *operatorv1.SPIFFEConfiguration) {
+	if spiffe == nil {
+		if config.Spec.Security != nil {
+			config.Spec.Security.SPIFFE = nil
+		}
+		return
+	}
+	if config.Spec.Security == nil {
+		config.Spec.Security = &operatorv1.SecurityConfiguration{}
+	}
+	config.Spec.Security.SPIFFE = spiffe
+}
+
+func getValidSPIFFEConfiguration() *operatorv1.SPIFFEConfiguration {
+	return &operatorv1.SPIFFEConfiguration{
+		SPIREServerAddress: "spire-server.spire-system.svc:8081",
+		SPIRETrustDomain:   "cs.internal",
+		KubeAPIAudience:    "https://kubernetes.default.svc",
+		SPIREOIDCURL:       "https://spire-oidc.spire-system.svc",
+		TrustBundle: operatorv1.SPIFFETrustBundleConfigMapReference{
+			Name:      "spire-bundle",
+			Namespace: "spire-system",
 		},
 	}
 }

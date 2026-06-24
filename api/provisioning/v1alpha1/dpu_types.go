@@ -334,6 +334,7 @@ type DPUOutdated struct {
 }
 
 // DPUStatus defines the observed state of DPU
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.identityMode) || (has(self.identityMode) && self.identityMode == oldSelf.identityMode)",message="identityMode is stamp-once: can only transition from unset to a value"
 type DPUStatus struct {
 	// The current state of DPU.
 	// +kubebuilder:default=Initializing
@@ -450,6 +451,14 @@ type DPUStatus struct {
 	// +optional
 	SecureBoot *SecureBootStatus `json:"secureBoot,omitempty"`
 
+	// IdentityMode records which authentication mechanism the DPU Agent uses to reach the
+	// management-cluster kube-apiserver. Stamped exactly once by the DPU controller during phase
+	// Initializing (nil guard); immutable thereafter. Pre-SPIFFE legacy DPUs have IdentityMode
+	// unset (nil) which consumers MUST treat semantically as bootstrap-token.
+	// +kubebuilder:validation:Enum=spiffe;bootstrap-token
+	// +optional
+	IdentityMode *IdentityMode `json:"identityMode,omitempty"`
+
 	// The task ID of the last task performed on the DPU BMC
 	// +optional
 	RedfishTaskID *string `json:"redfishTaskId,omitempty"`
@@ -529,6 +538,39 @@ type AgentStatus struct {
 	// Conditions contains the conditions reported from inside the DPU
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// Spiffe contains the SPIFFE heartbeat status reported by the DPU Agent when running in
+	// SPIFFE identity mode.
+	// +optional
+	Spiffe *SpiffeStatus `json:"spiffe,omitempty"`
+}
+
+// IdentityMode records which authentication mechanism the DPU Agent uses to reach the
+// management-cluster kube-apiserver. It is stamp-once (see DPUStatus.IdentityMode).
+type IdentityMode string
+
+const (
+	// IdentityModeSpiffe indicates the DPU Agent authenticates with a SPIFFE-issued JWT-SVID.
+	IdentityModeSpiffe IdentityMode = "spiffe"
+	// IdentityModeBootstrapToken indicates the DPU Agent authenticates with a kubeadm bootstrap token.
+	// An unset (nil) IdentityMode is treated semantically as bootstrap-token; no sentinel is declared
+	// for the unset case deliberately, to force explicit handling by consumers.
+	IdentityModeBootstrapToken IdentityMode = "bootstrap-token"
+)
+
+// SpiffeStatus is the DPU Agent's SPIFFE heartbeat sub-status.
+type SpiffeStatus struct {
+	// LastProbeTime is the wall-clock timestamp the DPU Agent recorded on its most recent successful
+	// status report. It is informational and subject to DPU clock skew, so it is not a precise
+	// liveness signal on its own.
+	// +optional
+	LastProbeTime *metav1.Time `json:"lastProbeTime,omitempty"`
+
+	// LastProbeMessage is a structured one-line diagnostic for the most recent self-probe. Unset in
+	// the steady-state happy path. Bounded to 256 chars (truncated agent-side).
+	// +kubebuilder:validation:MaxLength=256
+	// +optional
+	LastProbeMessage *string `json:"lastProbeMessage,omitempty"`
 }
 
 type PendingNVConfigState struct {
