@@ -24,6 +24,7 @@ import (
 	"net"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/dpuservicechain/utils/iputils"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -170,6 +171,9 @@ func validateDPUServiceIPAMIPV4Network(ipv4Network *dpuservicev1.IPV4Network) er
 	}
 
 	networkPrefix, _ := network.Mask.Size()
+	if int(ipv4Network.PrefixSize) < 1 || int(ipv4Network.PrefixSize) > 32 {
+		return fmt.Errorf("prefixSize %d is invalid, must be between 1 and 32", ipv4Network.PrefixSize)
+	}
 	if networkPrefix > int(ipv4Network.PrefixSize) {
 		return fmt.Errorf("prefixSize %d doesn't fit in network prefix %d", ipv4Network.PrefixSize, networkPrefix)
 	}
@@ -190,6 +194,12 @@ func validateDPUServiceIPAMIPV4Network(ipv4Network *dpuservicev1.IPV4Network) er
 		allocationNetworkPrefix, _ := allocationNetwork.Mask.Size()
 		if !network.Contains(allocationNetwork.IP) || allocationNetworkPrefix != int(ipv4Network.PrefixSize) {
 			errs = append(errs, fmt.Errorf("allocation %s is not part of the network %s", allocation, ipv4Network.Network))
+		}
+	}
+	if ipv4Network.GatewayIndex != nil {
+		blockSize := int(iputils.PrefixSize(int(ipv4Network.PrefixSize)))
+		if int(*ipv4Network.GatewayIndex) >= blockSize {
+			errs = append(errs, fmt.Errorf("gatewayIndex %d is out of range for /%d prefix (valid range: 0–%d)", *ipv4Network.GatewayIndex, ipv4Network.PrefixSize, blockSize-1))
 		}
 	}
 	if ipv4Network.SubnetsPerDPUCluster != nil {
@@ -280,14 +290,21 @@ func validateDPUServiceIPAMIPV4Subnet(ipv4Subnet *dpuservicev1.IPV4Subnet) error
 		return fmt.Errorf("gateway %s is not part of subnet %s", ipv4Subnet.Gateway, ipv4Subnet.Subnet)
 	}
 
+	if ipv4Subnet.PerNodeIPCount < 1 {
+		return errors.New("perNodeIPCount must be at least 1")
+	}
+
+	// -2 because network and broadcast addresses are not allocatable (see /31 and /32 rejection above)
+	effectiveSize := int(iputils.PrefixSize(prefixLen)) - 2
+	if ipv4Subnet.PerNodeIPCount > effectiveSize {
+		return fmt.Errorf("perNodeIPCount %d exceeds the %d allocatable IPs in subnet %s", ipv4Subnet.PerNodeIPCount, effectiveSize, ipv4Subnet.Subnet)
+	}
+
 	if ipv4Subnet.BlocksPerDPUCluster != nil {
 		if *ipv4Subnet.BlocksPerDPUCluster < 1 {
 			return errors.New("blocksPerDPUCluster must be at least 1 when set")
 		}
-		networkPrefixLen, _ := network.Mask.Size()
-		networkSize := 1 << uint(32-networkPrefixLen)
-		// -2 because we don't support /31 and /32 where the network address and broadcast address are allocatable
-		totalBlocks := (networkSize - 2) / ipv4Subnet.PerNodeIPCount
+		totalBlocks := effectiveSize / ipv4Subnet.PerNodeIPCount
 		if int(*ipv4Subnet.BlocksPerDPUCluster) > totalBlocks {
 			return fmt.Errorf("blocksPerDPUCluster %d exceeds the %d available blocks in subnet %s", *ipv4Subnet.BlocksPerDPUCluster, totalBlocks, ipv4Subnet.Subnet)
 		}
