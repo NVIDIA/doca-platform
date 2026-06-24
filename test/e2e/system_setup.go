@@ -553,15 +553,7 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 		}
 
 		// Validate the expected number of DPUServices.
-		// If: standard e2e run, or post-upgrade phase of the upgrade test (current branch state).
-		// Else: initial phase of the upgrade test (deployed from the last GA release).
-		if !isCurrentVersionLastReleasedGA {
-			g.Expect(dpuServices.Items).To(HaveLen(12),
-				"Expected 12 DPUServices, got %d: [%s]", len(dpuServices.Items), strings.Join(itemNames, ", "))
-		} else {
-			g.Expect(dpuServices.Items).To(HaveLen(11),
-				"Expected 11 DPUServices, got %d: [%s]", len(dpuServices.Items), strings.Join(itemNames, ", "))
-		}
+		g.Expect(dpuServices.Items).To(HaveLen(11), "Expected 11 DPUServices, got %d: [%s]", len(dpuServices.Items), strings.Join(itemNames, ", "))
 
 		found := map[string]bool{}
 		for i := range dpuServices.Items {
@@ -583,7 +575,6 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 		g.Expect(found).To(HaveKey(operatorv1.MultusName.String()))
 		g.Expect(found).To(HaveKey(operatorv1.SRIOVDevicePluginName.String()))
 		g.Expect(found).To(HaveKey(operatorv1.FlannelName.String()))
-		g.Expect(found).To(HaveKey(operatorv1.OVSCNIName.String()))
 		g.Expect(found).To(HaveKey(operatorv1.SFCControllerName.String()))
 		g.Expect(found).To(HaveKey(operatorv1.CNIInstallerName.String()))
 	}).WithTimeout(60 * time.Second).Should(Succeed())
@@ -818,7 +809,6 @@ func ProvisionDPUSet(ctx context.Context, input ProvisionDPUClustersInput) {
 		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.SRIOVDevicePluginName.String())))
 		// Note: The NVIPAM DPUService contains both a Daemonset and a Deployment - but this is overwritten in the map.
 		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.NVIPAMContainerNode.String())))
-		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.OVSCNIName.String())))
 		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.SFCControllerName.String())))
 		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.OpenTelemetryCollectorName.String())))
 	}).WithTimeout(600 * time.Second).Should(Succeed())

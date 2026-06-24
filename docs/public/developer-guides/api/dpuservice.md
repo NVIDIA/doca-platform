@@ -302,7 +302,7 @@ DPFOperatorConfig/dpfoperatorconfig                   dpf-operator-system
 │ └─4 DPUServices...                                  dpf-operator-system  Ready: True  Success  3d7h   See ovn-central-9558p, ovn-controller-v5bkr, vpc-ovn-controller-7sbp6, vpc-ovn-node-r84zn
 └─System Components                                   dpf-operator-system
   └─DPUServices
-    └─8 DPUServices...                                dpf-operator-system  Ready: True  Success  5d1h   See flannel, multus, nvidia-k8s-ipam, ovs-cni, servicechainset-controller,
+    └─8 DPUServices...                                dpf-operator-system  Ready: True  Success  5d1h   See cni-installer, flannel, multus, nvidia-k8s-ipam, servicechainset-controller,
                                                                                                         servicechainset-rbac-and-crds, sfc-controller, sriov-device-plugin
 ```
 

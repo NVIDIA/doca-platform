@@ -70,7 +70,7 @@ DPFOperatorConfig/dpfoperatorconfig                   dpf-operator-system  Ready
 │     └─DPUServiceInterface/vf2-test                  dpf-operator-system  Ready: True  Success            2d
 └─System Components                                   dpf-operator-system
   └─DPUServices
-    └─8 DPUServices...                                dpf-operator-system  Ready: True  Success            4d20h  See flannel, multus, nvidia-k8s-ipam, ovs-cni, servicechainset-controller,
+    └─8 DPUServices...                                dpf-operator-system  Ready: True  Success            4d20h  See cni-installer, flannel, multus, nvidia-k8s-ipam, servicechainset-controller,
                                                                                                                   servicechainset-rbac-and-crds, sfc-controller, sriov-device-plugin
 ```
 
@@ -94,7 +94,7 @@ DPFOperatorConfig/dpfoperatorconfig  dpf-operator-system  Ready: True  Success  
 │ └─4 DPUServices...                 dpf-operator-system  Ready: True  Success  3d1h   See ovn-central-9558p, ovn-controller-v5bkr, vpc-ovn-controller-7sbp6, vpc-ovn-node-r84zn
 └─System Components                  dpf-operator-system
   └─DPUServices
-    └─8 DPUServices...               dpf-operator-system  Ready: True  Success  4d20h  See flannel, multus, nvidia-k8s-ipam, ovs-cni, servicechainset-controller,
+    └─8 DPUServices...               dpf-operator-system  Ready: True  Success  4d20h  See cni-installer, flannel, multus, nvidia-k8s-ipam, servicechainset-controller,
                                                                                        servicechainset-rbac-and-crds, sfc-controller, sriov-device-plugin
 ```
 
@@ -115,7 +115,7 @@ DPFOperatorConfig/dpfoperatorconfig  dpf-operator-system  Ready: True  Success  
 │                                                                                       dpu-node-mt2425601x13-mt2425601x13, dpu-node-mt2425601xqy-mt2425601xqy
 └─System Components                  dpf-operator-system
   └─DPUServices
-    └─8 DPUServices...               dpf-operator-system  Ready: True  Success   4d20h  See flannel, multus, nvidia-k8s-ipam, ovs-cni, servicechainset-controller,
+    └─8 DPUServices...               dpf-operator-system  Ready: True  Success   4d20h  See cni-installer, flannel, multus, nvidia-k8s-ipam, servicechainset-controller,
                                                                                         servicechainset-rbac-and-crds, sfc-controller, sriov-device-plugin
 ```
 
@@ -157,7 +157,7 @@ DPFOperatorConfig/dpfoperatorconfig             dpf-operator-system  Ready: True
     ├─DPUService/flannel                        dpf-operator-system  Ready: True  Success  47h
     ├─DPUService/multus                         dpf-operator-system  Ready: True  Success  47h
     ├─DPUService/nvidia-k8s-ipam                dpf-operator-system  Ready: True  Success  47h
-    ├─DPUService/ovs-cni                        dpf-operator-system  Ready: True  Success  25h
+    ├─DPUService/cni-installer                  dpf-operator-system  Ready: True  Success  25h
     ├─DPUService/servicechainset-controller     dpf-operator-system  Ready: True  Success  3d21h
     ├─DPUService/servicechainset-rbac-and-crds  dpf-operator-system  Ready: True  Success  3d21h
     ├─DPUService/sfc-controller                 dpf-operator-system  Ready: True  Success  26h

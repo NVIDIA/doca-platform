@@ -33,9 +33,9 @@ spec:
     - expression: "!has(object.spec.nvipam) || !has(object.spec.nvipam.image)"
       message: >-
         spec.nvipam.image is deprecated. This field is deprecated and will be removed with v26.7.0. Use the new field `controller` instead.
-    - expression: "!has(object.spec.ovsCNI) || !has(object.spec.ovsCNI.image)"
+    - expression: "!has(object.spec.ovsCNI)"
       message: >-
-        spec.ovsCNI.image is deprecated. This field is deprecated and will be removed with v26.7.0. Use the new field `cni` instead.
+        spec.ovsCNI is deprecated. OVS CNI is installed by CNIInstaller. Remove after 26.7 is released.
     - expression: "!has(object.spec.provisioningController) || !has(object.spec.provisioningController.bfCFGTemplateConfigMap)"
       message: >-
         spec.provisioningController.bfCFGTemplateConfigMap is deprecated. BFCFGTemplateConfigMap is deprecated and will be removed in a future release. Use enableDynamicBFCFGTemplates instead for custom bf.cfg templates.

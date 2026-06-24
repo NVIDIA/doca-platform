@@ -218,7 +218,6 @@ var (
 		"kube-flannel",
 		"cni-installer",
 		"nvidia-k8s-ipam",
-		"ovs-cni",
 		"sfc-controller",
 		"sriov-device-plugin",
 		"kube-multus",

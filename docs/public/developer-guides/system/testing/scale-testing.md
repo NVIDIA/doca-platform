@@ -67,7 +67,7 @@ The following categories of metrics are of interest. The testing process is iter
 
 This scale testing approach does not adequately test the following at scale:
 
-* DPUCluster components and management network - i.e. `sfc-controller`, `ovs-cni` `nvipam` `flannel` etc.
+* DPUCluster components and management network - i.e. `sfc-controller`, `cni-installer`, `nvipam`, `flannel` etc.
 * DPUCluster control plane scale including etcd performance
 * DPF controllers at large target cluster scale
 * Resources on individual DPUs at scale e.g. DPU file descriptors, memory

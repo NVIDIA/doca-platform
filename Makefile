@@ -728,7 +728,7 @@ verify-manifest-operator: helm-package-operator helm $(ARTIFACTS_RENDERED_MANIFE
 	  MANIFEST_NAME="dpf-operator" \
 	  hack/scripts/validate-manifest-checkov.sh
 
-VERIFY_DPU_NETWORKING_MANIFESTS ?= flannel multus sriov-device-plugin nvidia-k8s-ipam ovs-cni servicechainset-controller sfc-controller cni-installer node-problem-detector kube-state-metrics opentelemetry-collector kata-containers
+VERIFY_DPU_NETWORKING_MANIFESTS ?= flannel multus sriov-device-plugin nvidia-k8s-ipam servicechainset-controller sfc-controller cni-installer node-problem-detector kube-state-metrics opentelemetry-collector kata-containers
 
 verify-manifests-dpu-networking-all: $(addprefix verify-manifest-dpu-networking-,$(VERIFY_DPU_NETWORKING_MANIFESTS)) ## Run manifest verification for manifests embedded into dpf-operator
 
@@ -773,17 +773,6 @@ verify-manifest-dpu-networking-nvidia-k8s-ipam: helm-package-dpu-networking helm
 	> $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-nvidia-k8s-ipam-$(TAG).yaml
 	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-nvidia-k8s-ipam-$(TAG).yaml" \
 	  MANIFEST_NAME="dpu-networking-nvidia-k8s-ipam" \
-	  hack/scripts/validate-manifest-checkov.sh
-
-.PHONY: verify-manifest-dpu-networking-ovs-cni
-verify-manifest-dpu-networking-ovs-cni: helm-package-dpu-networking helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the dpu-networking ovs-cni subchart
-	$Q $(HELM) template $(CHARTSDIR)/$(DPU_NETWORKING_HELM_CHART_NAME)-$(DPU_NETWORKING_HELM_CHART_VER).tgz \
-	  --set ovs-cni.enabled=true \
-	  --set ovs-cni.arm64.ovsCniPlugin.resources.limits.cpu=1m \
-	  --set ovs-cni.arm64.ovsCniPlugin.resources.limits.memory=1Mi \
-	> $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-ovs-cni-$(TAG).yaml
-	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-ovs-cni-$(TAG).yaml" \
-	  MANIFEST_NAME="dpu-networking-ovs-cni" \
 	  hack/scripts/validate-manifest-checkov.sh
 
 .PHONY: verify-manifest-dpu-networking-servicechainset-controller
@@ -927,7 +916,7 @@ verify-manifest-kamaji-keepalived: $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dp
 	  MANIFEST_NAME="kamaji-keepalived" \
 	  hack/scripts/validate-manifest-checkov.sh
 
-VERIFY_OPERATOR_EMBEDDED_MANIFESTS ?= cni-installer dpu-detector dpuservice-controller flannel kamaji-cluster-manager multus nv-k8s-ipam ovs-cni provisioning-controller servicefunctionchainset-controller sfc-controller sriov-device-plugin static-cluster-manager
+VERIFY_OPERATOR_EMBEDDED_MANIFESTS ?= cni-installer dpu-detector dpuservice-controller flannel kamaji-cluster-manager multus nv-k8s-ipam provisioning-controller servicefunctionchainset-controller sfc-controller sriov-device-plugin static-cluster-manager
 
 verify-manifests-operator-embedded-all: $(addprefix verify-manifest-operator-embedded-,$(VERIFY_OPERATOR_EMBEDDED_MANIFESTS)) ## Run manifest verification for manifests embedded into dpf-operator
 
@@ -1191,8 +1180,6 @@ HOSTDRIVER_BASE_IMAGE ?= nvcr.io/nvidia/doca/doca:full-rt-3.4.0-host
 STORAGE_HOST_BASE_IMAGE ?= $(HOSTDRIVER_BASE_IMAGE)
 # Base image for bfb-registry, by default it is the same as the hostdriver base image
 BFB_REGISTRY_BASE_IMAGE ?= $(HOSTDRIVER_BASE_IMAGE)
-# Base image for the standalone SFC CNI image. Will be removed in follow up PR
-OVS_CNI_BASE_IMAGE ?= nvcr.io/nvidia/doca/canonical:ubuntu24.04
 
 .PHONY: binaries
 binaries: $(addprefix binary-,$(BUILD_TARGETS)) ## Build all binaries
@@ -1357,7 +1344,7 @@ binary-nodesriovdeviceplugin-init: ## Build the nodesriovdeviceplugin init binar
 	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/nodesriovdeviceplugin-init github.com/nvidia/doca-platform/cmd/nodesriovdeviceplugin/initcontainer
 
 DOCKER_BUILD_TARGETS=$(DPU_ARCH_DOCKER_BUILD_TARGETS) $(MULTI_ARCH_DOCKER_BUILD_TARGETS)
-DPU_ARCH_DOCKER_BUILD_TARGETS=$(DPU_ARCH_BUILD_TARGETS) ovs-cni cni-installer
+DPU_ARCH_DOCKER_BUILD_TARGETS=$(DPU_ARCH_BUILD_TARGETS) cni-installer
 MULTI_ARCH_DOCKER_BUILD_TARGETS= dpf-system hostdriver storage-system storage-host bfb-registry keepalived
 
 .PHONY: binary-hostagent
@@ -1386,10 +1373,6 @@ docker-build-all: docker-buildx-setup $(addprefix docker-build-,$(DOCKER_BUILD_T
 DPF_SYSTEM_IMAGE_NAME ?= dpf-system
 export DPF_SYSTEM_IMAGE ?= $(REGISTRY)/$(DPF_SYSTEM_IMAGE_NAME)
 export DPF_SYSTEM_UPSTREAM_IMAGE ?= $(UPSTREAM_REGISTRY)/$(DPF_SYSTEM_IMAGE_NAME)
-
-OVS_CNI_IMAGE_NAME ?= ovs-cni-plugin
-export OVS_CNI_IMAGE ?= $(REGISTRY)/$(OVS_CNI_IMAGE_NAME)
-export OVS_CNI_UPSTREAM_IMAGE ?= $(UPSTREAM_REGISTRY)/$(OVS_CNI_IMAGE_NAME)
 
 HOSTDRIVER_IMAGE_NAME ?= hostdriver
 export HOSTDRIVER_IMAGE ?= $(REGISTRY)/$(HOSTDRIVER_IMAGE_NAME)
@@ -1503,32 +1486,6 @@ docker-build-ipallocator: docker-buildx-setup $(ARTIFACTS_DIR) ## Build docker i
 		-f Dockerfile \
 		. \
 		-t $(IPALLOCATOR_IMAGE):$(TAG)
-
-# Keep the ovs-cni target name until the standalone image is removed.
-.PHONY: docker-build-ovs-cni
-docker-build-ovs-cni: docker-buildx-setup $(ARTIFACTS_DIR) ## Builds the standalone SFC CNI image
-	$(CURDIR)/hack/scripts/docker-build.sh \
-		--load \
-		--label=org.opencontainers.image.created=$(DATE) \
-		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
-		--label=org.opencontainers.image.revision=$(FULL_COMMIT) \
-		--label=org.opencontainers.image.version=$(TAG) \
-		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
-		--provenance=false \
-		--progress=plain \
-		--build-arg builder_image=$(BUILD_IMAGE) \
-		--build-arg ovs_cni_base_image=$(OVS_CNI_BASE_IMAGE) \
-		--build-arg ubuntu_mirror=$(UBUNTU_MIRROR) \
-		--build-arg goarch=$(DPU_ARCH) \
-		--build-arg ldflags="$(GO_LDFLAGS)" \
-		--build-arg gcflags="$(GO_GCFLAGS)" \
-		--build-arg tag=$(TAG) \
-		--platform linux/${DPU_ARCH} \
-		-f Dockerfile.ovs-cni \
-		-t $(OVS_CNI_IMAGE):${TAG} \
-		.
-
-
 
 .PHONY: docker-build-hostdriver # Build a multi-arch image for hostdriver. The variable DPF_SYSTEM_ARCH defines which architectures this target builds for.
 docker-build-hostdriver: $(addprefix docker-build-hostdriver-for-,$(DPF_SYSTEM_ARCH))
@@ -1820,11 +1777,6 @@ docker-push-all: $(addprefix docker-push-,$(DOCKER_BUILD_TARGETS))  ## Push the 
 
 .PHONY: docker-push-dpf-system
 docker-push-dpf-system: ## This is a no-op to allow using DOCKER_BUILD_TARGETS.
-
-# Keep the ovs-cni target name until the standalone image is removed.
-.PHONY: docker-push-ovs-cni
-docker-push-ovs-cni: ## Push the standalone SFC CNI image
-	docker push $(OVS_CNI_IMAGE):$(TAG)
 
 .PHONY: docker-push-hostdriver # Push a multi-arch image for hostdriver using `docker manifest`. The variable DPF_SYSTEM_ARCH defines which architectures this target pushes for.
 docker-push-hostdriver: $(addprefix docker-push-hostdriver-for-,$(DPF_SYSTEM_ARCH))

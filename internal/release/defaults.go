@@ -57,7 +57,6 @@ type Defaults struct {
 	DPFSystemImage             string `yaml:"dpfSystemImage"`
 	CNIInstallerImage          string `yaml:"cniInstallerImage"`
 	DPUNetworkingHelmChart     string `yaml:"dpuNetworkingHelmChart"`
-	OVSCNIImage                string `yaml:"ovsCniImage"`
 	BFBRegistryImage           string `yaml:"bfbRegistryImage"`
 	KeepalivedImage            string `yaml:"keepalivedImage"`
 	NodeSRIOVDevicePluginImage string `yaml:"nodeSRIOVDevicePluginImage"`
@@ -83,9 +82,6 @@ func (d *Defaults) Parse() error {
 	}
 	if len(d.DPUNetworkingHelmChart) == 0 {
 		return errors.New("DPUNetworkingHelmChart can't be empty")
-	}
-	if len(d.OVSCNIImage) == 0 {
-		return errors.New("ovsCniImage can't be empty")
 	}
 	if len(d.KeepalivedImage) == 0 {
 		return errors.New("keepalivedImage can't be empty")

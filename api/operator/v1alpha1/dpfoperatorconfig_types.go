@@ -240,6 +240,8 @@ type DPFOperatorConfigSpec struct {
 	// +optional
 	Flannel *FlannelConfiguration `json:"flannel,omitempty"`
 	// OVSCNI is the configuration for OVSCNI
+	//
+	// Deprecated: OVS CNI is installed by CNIInstaller. Remove after 26.7 is released.
 	// +optional
 	OVSCNI *OVSCNIConfiguration `json:"ovsCNI,omitempty"`
 	// NVIPAM is the configuration for NVIPAM
