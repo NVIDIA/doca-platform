@@ -103,6 +103,7 @@ A number of [environment variables](#0-required-variables) must be set before ru
 ##### HTTP Registry (default)
 
 If the $REGISTRY is an HTTP Registry (default value) use this command:
+
 ```shell
 helm repo add --force-update dpf-repository ${REGISTRY}
 helm repo update
@@ -114,6 +115,7 @@ helm upgrade --install -n dpf-operator-system dpf-operator dpf-repository/dpf-op
 ##### OCI Registry
 
 For development purposes, if the $REGISTRY is an OCI Registry use this command:
+
 ```shell
 helm upgrade --install -n dpf-operator-system dpf-operator $REGISTRY/dpf-operator --version=$TAG
 ```
@@ -123,6 +125,7 @@ helm upgrade --install -n dpf-operator-system dpf-operator $REGISTRY/dpf-operato
 These verification commands may need to be run multiple times to ensure the condition is met.
 
 Verify the DPF Operator installation with:
+
 ```shell
 ## Ensure the DPF Operator deployment is available.
 kubectl rollout status deployment --namespace dpf-operator-system dpf-operator-controller-manager
@@ -136,6 +139,7 @@ This section involves creating the DPF system components and some basic infrastr
 
 #### Deploy the DPF System components
 A number of [environment variables](#0-required-variables) must be set before running this command.
+
 ```shell
 kubectl create ns dpu-cplane-tenant1
 cat manifests/02-dpf-system-installation/*.yaml | envsubst | kubectl apply -f - 
@@ -196,6 +200,7 @@ spec:
 These verification commands may need to be run multiple times to ensure the condition is met.
 
 Verify the DPF System with:
+
 ```shell
 ## Ensure the provisioning and DPUService controller manager deployments are available.
 kubectl rollout status deployment --namespace dpf-operator-system dpf-provisioning-controller-manager dpuservice-controller-manager
@@ -302,6 +307,7 @@ The `NodeSRIOVDevicePluginConfig` is linked to DPUs via the `noderesources.dpu.n
 These verification commands may need to be run multiple times to ensure the condition is met.
 
 Verify the accelerated network prerequisites with:
+
 ```shell
 ## Ensure all pods in the nvidia-network-operator namespace are ready.
 kubectl wait --for=condition=Ready --namespace nvidia-network-operator pods --all
@@ -326,6 +332,7 @@ that should run on a set of DPUs.
 > to understand more about the selectors.
 
 A number of [environment variables](#0-required-variables) must be set before running this command.
+
 ```shell
 cat manifests/04-dpudeployment-installation/*.yaml | envsubst | kubectl apply -f - 
 ```
@@ -893,12 +900,14 @@ This section describes how to clean up the DPF components installed in this guid
 It is recommended to run this section only after the DPF Operator and DPUCluster are no longer needed.
 
 ### Delete DPF CNI acceleration components
+
 ```shell
 kubectl delete -f manifests/03-enable-accelerated-interfaces --wait
 helm uninstall -n nvidia-network-operator network-operator --wait
 ```
 
 ### Delete the DPF Operator system and DPF Operator
+
 ```shell
 kubectl delete -n dpf-operator-system dpfoperatorconfig dpfoperatorconfig --wait
 helm uninstall -n dpf-operator-system dpf-operator --wait

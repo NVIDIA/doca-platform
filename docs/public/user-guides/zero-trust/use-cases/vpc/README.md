@@ -152,6 +152,7 @@ Before deploying the DPF Operator, ensure that Helm is properly configured accor
 ##### HTTP Registry (default)
 
 If the $REGISTRY is an HTTP Registry (default value) use this command:
+
 ```shell
 helm repo add --force-update dpf-repository ${REGISTRY}
 helm repo update
@@ -161,6 +162,7 @@ helm upgrade --install -n dpf-operator-system dpf-operator dpf-repository/dpf-op
 ##### OCI Registry
 
 For development purposes, if the $REGISTRY is an OCI Registry use this command:
+
 ```shell
 helm upgrade --install -n dpf-operator-system dpf-operator $REGISTRY/dpf-operator --version=$TAG
 ```
@@ -170,6 +172,7 @@ helm upgrade --install -n dpf-operator-system dpf-operator $REGISTRY/dpf-operato
 These verification commands may need to be run multiple times to ensure the condition is met.
 
 Verify the DPF Operator installation with:
+
 ```shell
 ## Ensure the DPF Operator deployment is available.
 kubectl rollout status deployment --namespace dpf-operator-system dpf-operator-controller-manager
@@ -268,6 +271,7 @@ spec:
 These verification commands may need to be run multiple times to ensure the condition is met.
 
 Verify the DPF System with:
+
 ```shell
 ## Ensure the provisioning and DPUService controller manager deployments are available.
 kubectl rollout status deployment --namespace dpf-operator-system dpf-provisioning-controller-manager dpuservice-controller-manager
@@ -436,6 +440,7 @@ helm upgrade --install -n dpf-operator-system vpc-ovn-controller ovn-vpc-reposit
 ##### Using OCI Registry
 
 For development purposes, if the $HELM_REGISTRY_REPO_URL is an OCI Registry use this command:
+
 ```shell
 helm upgrade --install -n dpf-operator-system ovn-central $HELM_REGISTRY_REPO_URL/ovn-chart \
   --version=$TAG --wait -f manifests/04.1-vpc-ovn-target-cluster/helm-values/ovn-central.yaml
@@ -934,6 +939,7 @@ kubectl wait --for=condition=ready dpuserviceinterface pf0
 * SSH into each node and run `dhclient` for the network device associated with PF index 0 to obtain a DHCP address.
 
 An example output for a node named `node1` and PF 0 network interface `enp8s0f0`:
+
 ```shell
 root@node1:~# ip link set enp8s0f0 up
 root@node1:~# dhclient -1 -v enp8s0f0
@@ -955,6 +961,7 @@ Repeat this process on another node.
 * Test connectivity by running traffic between nodes.
 
 In the example below, the other node's PF 0 network interface was assigned the IP 10.100.0.3:
+
 ```shell
 root@node1:~# ping 10.100.0.3
 ```
@@ -988,6 +995,7 @@ Ensure you have SSH access to your worker hosts from the management or out-of-ba
 Login to each host and create SR-IOV virtual functions(VFs)
 
 Example for creating VFs on node1, do the same on the other node. the DPU is assumed to have PCI address of `0000:08:00.0`
+
 ```shell
 root@node1:~# echo 2 > /sys/bus/pci/devices/0000:08:00.0/sriov_numvfs
 ```
@@ -1123,6 +1131,7 @@ To do the same for PF interfaces refer to [Test traffic between hosts](#test-tra
 * SSH into each node and run `dhclient` for the network device associated with VF index 0 to obtain a DHCP address.
 
 An example output for a node named `node1` and VF 0 network interface `enp8s0f0`:
+
 ```shell
 # send dhcp request
 root@node1:~# ip link set enp8s0f0v0 up
@@ -1145,6 +1154,7 @@ Repeat this process for the second VF on this node and on another node.
 * Test connectivity by running traffic between nodes.
 
 In the example below, the other node's VF 0 network interface was assigned the IP 10.200.0.3:
+
 ```shell
 root@node1:~# ping 10.200.0.3
 ```

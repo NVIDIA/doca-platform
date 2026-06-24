@@ -925,6 +925,7 @@ To support this case, add the following annotation to your DPUServiceInterface:
 `ovn.vpc.dpu.nvidia.com/unknown-mac: true`
 
 **Example**
+
 ```yaml
 apiVersion: svc.dpu.nvidia.com/v1alpha1
 kind: DPUServiceInterface

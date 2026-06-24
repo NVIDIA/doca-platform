@@ -70,6 +70,7 @@ spec:
 #### Using the Kamaji Cluster Manager
 
 The DPUCluster will look like:
+
 ```yaml
 apiVersion: provisioning.dpu.nvidia.com/v1alpha1
 kind: DPUCluster

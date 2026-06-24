@@ -265,6 +265,7 @@ spec:
 ```
 
 You can deploy your DPUService by running the following command:
+
 ```bash
 kubectl apply -f $PATH_TO_DPU_SERVICE_YAML
 ```

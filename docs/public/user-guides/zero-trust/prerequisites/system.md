@@ -82,6 +82,7 @@ chmod +x dpu-control-plane-setup.sh
 The script is available in the repository at: `hack/scripts/dpu-control-plane-setup.sh`
 
 **Quick Start**:
+
 ```bash
 # Check current DPU modes (dry run)
 sudo ./dpu-control-plane-setup.sh --dry-run
@@ -99,6 +100,7 @@ sudo ./dpu-control-plane-setup.sh --no-reboot
 - `--help`: Display usage information
 
 **Verification**: After reboot, verify all DPUs are in NIC mode:
+
 ```bash
 sudo ./dpu-control-plane-setup.sh --dry-run
 # Should report: "All DPUs already in NIC mode"
@@ -111,6 +113,7 @@ sudo ./dpu-control-plane-setup.sh --dry-run
 To prevent DPF from provisioning DPUs on control plane nodes, use node selectors.
 
 **Option 1: DPUSet**
+
 ```yaml
 apiVersion: provisioning.dpu.nvidia.com/v1alpha1
 kind: DPUSet
@@ -126,6 +129,7 @@ spec:
 ```
 
 **Option 2: DPUDeployment**
+
 ```yaml
 apiVersion: svc.dpu.nvidia.com/v1alpha1
 kind: DPUDeployment
@@ -145,6 +149,7 @@ spec:
 ```
 
 **Verification**:
+
 ```bash
 # Verify control plane nodes have the label
 kubectl get nodes -L node-role.kubernetes.io/control-plane
