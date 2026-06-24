@@ -113,14 +113,6 @@ func ValidateDPFOperatorBaseConfiguration(ctx context.Context, input *systemTest
 			ResourceComponentConfig: dummyResourceRequirements,
 		},
 	}
-	modifiedConfig.Spec.OVSCNI = &operatorv1.OVSCNIConfiguration{
-		CNI: &operatorv1.DefaultOverridesConfiguration{
-			ImageComponentConfig: operatorv1.ImageComponentConfig{
-				Image: ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.OVSCNIName)),
-			},
-			ResourceComponentConfig: dummyResourceRequirements,
-		},
-	}
 	modifiedConfig.Spec.SFCController = &operatorv1.SFCControllerConfiguration{
 		Controller: &operatorv1.DefaultOverridesConfiguration{
 			ImageComponentConfig: operatorv1.ImageComponentConfig{
@@ -202,8 +194,6 @@ func ValidateDPFOperatorBaseConfiguration(ctx context.Context, input *systemTest
 	modifiedConfig.Spec.Multus.Image = ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.MultusName))
 	modifiedConfig.Spec.SRIOVDevicePlugin.DevicePlugin.Image = nil
 	modifiedConfig.Spec.SRIOVDevicePlugin.Image = ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.SRIOVDevicePluginName))
-	modifiedConfig.Spec.OVSCNI.CNI.Image = nil
-	modifiedConfig.Spec.OVSCNI.Image = ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.OVSCNIName))
 	modifiedConfig.Spec.SFCController.Controller.Image = nil
 	modifiedConfig.Spec.SFCController.Image = ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.SFCControllerName))
 	modifiedConfig.Spec.NVIPAM.Controller.Image = nil
@@ -250,7 +240,6 @@ func verifyComponentOverrides(ctx context.Context, input *systemTestInput, dummy
 		daemonSetDPUServices := map[operatorv1.ComponentName]bool{
 			operatorv1.SRIOVDevicePluginName: true,
 			operatorv1.SFCControllerName:     true,
-			operatorv1.OVSCNIName:            true,
 			operatorv1.NVIPAMNodeName:        true,
 			operatorv1.MultusName:            true,
 			operatorv1.FlannelName:           true,
@@ -683,7 +672,6 @@ func ValidateDPFOperatorPathConfiguration(ctx context.Context, input *systemTest
 
 	dpuServiceDaemonSetsWithPathChanges := map[operatorv1.ComponentName]bool{
 		operatorv1.SFCControllerName: true,
-		operatorv1.OVSCNIName:        true,
 		operatorv1.NVIPAMNodeName:    true,
 		operatorv1.MultusName:        true,
 		operatorv1.FlannelName:       true,
@@ -716,8 +704,6 @@ func ValidateDPFOperatorPathConfiguration(ctx context.Context, input *systemTest
 				g.Expect(volumeNameHasPath("ovs-vsctl", volumes, filepath.Join(modifiedOVSBinPath, "ovs-vsctl"))).To(BeTrue())
 				g.Expect(volumeNameHasPath("lib", volumes, filepath.Join(modifiedOVSharedLibPath))).To(BeTrue())
 				g.Expect(volumeNameHasPath("lib64", volumes, filepath.Join(modifiedOVSharedLib64Path))).To(BeTrue())
-			case operatorv1.OVSCNIName:
-				g.Expect(volumeNameHasPath("cnibin", volumes, filepath.Join(modifiedCNIBinPath))).To(BeTrue())
 			case operatorv1.NVIPAMNodeName:
 				g.Expect(volumeNameHasPath("cnibin", volumes, filepath.Join(modifiedCNIBinPath))).To(BeTrue())
 				g.Expect(volumeNameHasPath("cniconf", volumes, filepath.Join(modifiedCNIConfigPath, "nv-ipam.d"))).To(BeTrue())

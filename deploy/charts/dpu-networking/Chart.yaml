@@ -21,10 +21,6 @@ dependencies:
     version: "0.1.0"
     repository: file://charts/nvidia-k8s-ipam
     condition: nvidia-k8s-ipam.enabled
-  - name: ovs-cni
-    version: "0.1.0"
-    repository: file://charts/ovs-cni
-    condition: ovs-cni.enabled
   - name: sfc-controller
     version: "0.1.0"
     repository: file://charts/sfc-controller

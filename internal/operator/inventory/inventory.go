@@ -52,15 +52,42 @@ type Component interface {
 	IsReady(ctx context.Context, c client.Client, namespace string) error
 }
 
+var _ Component = removedComponent{}
+
+// removedComponent reconciles legacy ApplySets to empty.
+type removedComponent struct {
+	name operatorv1.ComponentName
+}
+
+func (r removedComponent) Name() operatorv1.ComponentName {
+	return r.name
+}
+
+func (r removedComponent) Parse() error {
+	return nil
+}
+
+func (r removedComponent) GenerateManifests(context.Context, Variables) ([]client.Object, error) {
+	return nil, nil
+}
+
+func (r removedComponent) IsReadyForUpgrade(context.Context, client.Client, *operatorv1.DPFOperatorConfig) error {
+	return nil
+}
+
+func (r removedComponent) IsReady(context.Context, client.Client, string) error {
+	return nil
+}
+
 // SystemComponents holds kubernetes object manifests to be deployed by the operator.
 type SystemComponents struct {
 	DPUService                      Component
 	DPFProvisioning                 Component
 	ServiceFunctionChainSet         Component
+	RemoveOVSCNI                    Component
 	Multus                          Component
 	SRIOVDevicePlugin               Component
 	NVIPAM                          Component
-	OvsCni                          Component
 	Flannel                         Component
 	SfcController                   Component
 	KamajiClusterManager            Component
@@ -90,9 +117,6 @@ var (
 
 	//go:embed manifests/flannel.yaml
 	flannelData []byte
-
-	//go:embed manifests/ovs-cni.yaml
-	ovsCniData []byte
 
 	//go:embed manifests/nv-k8s-ipam.yaml
 	nvK8sIpamData []byte
@@ -145,6 +169,8 @@ func New() *SystemComponents {
 			bfbRegistryData: bfbRegistryData,
 		},
 		ServiceFunctionChainSet: newServiceChainSetControllerObjects(serviceChainSetData),
+		// TODO: Remove this after 26.7 is released.
+		RemoveOVSCNI: removedComponent{name: operatorv1.OVSCNIName},
 		Multus: &fromDPUService{
 			name: operatorv1.MultusName,
 			data: multusData,
@@ -156,10 +182,6 @@ func New() *SystemComponents {
 		Flannel: &fromDPUService{
 			name: operatorv1.FlannelName,
 			data: flannelData,
-		},
-		OvsCni: &fromDPUService{
-			name: operatorv1.OVSCNIName,
-			data: ovsCniData,
 		},
 		NVIPAM:        newNVIPAMObjects(nvK8sIpamData),
 		SfcController: newSFCControllerObjects(sfcControllerData),
@@ -198,7 +220,6 @@ func (s *SystemComponents) SystemDPUServices() []Component {
 		s.SRIOVDevicePlugin,
 		s.Flannel,
 		s.NVIPAM,
-		s.OvsCni,
 		s.SfcController,
 		s.CNIInstaller,
 		s.KubeStateMetrics,
@@ -217,11 +238,11 @@ func (s *SystemComponents) AllComponents() []Component {
 		s.DPUService,
 		s.DPUDetector,
 		s.ServiceFunctionChainSet,
+		s.RemoveOVSCNI,
 		s.Multus,
 		s.SRIOVDevicePlugin,
 		s.Flannel,
 		s.NVIPAM,
-		s.OvsCni,
 		s.SfcController,
 		s.CNIInstaller,
 		s.NodeSRIOVDevicePluginController,
@@ -298,11 +319,6 @@ func (s *SystemComponents) setFlannel(input fromDPUService) *SystemComponents {
 
 func (s *SystemComponents) setNvK8sIpam(input dpuServicePerDPUClusterObjects) *SystemComponents {
 	s.NVIPAM = &input
-	return s
-}
-
-func (s *SystemComponents) setOvsCni(input fromDPUService) *SystemComponents {
-	s.OvsCni = &input
 	return s
 }
 

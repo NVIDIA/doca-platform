@@ -15,8 +15,6 @@ sriov-device-plugin:
     enabled: false
 nvidia-k8s-ipam:
     enabled: false
-ovs-cni:
-    enabled: false
 servicechainset-controller:
     enabled: false
 sfc-controller:

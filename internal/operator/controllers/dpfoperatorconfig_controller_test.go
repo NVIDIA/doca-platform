@@ -515,7 +515,6 @@ func TestDPFOperatorConfigReconciler_Reconcile(t *testing.T) {
 		waitForDPUService(g, config.Namespace, operatorv1.SRIOVDevicePluginName, operatorv1.SRIOVDevicePluginName.String(), initialImagePullSecrets)
 		waitForDPUService(g, config.Namespace, operatorv1.FlannelName, operatorv1.FlannelName.String(), initialImagePullSecrets)
 		waitForDPUService(g, config.Namespace, operatorv1.NVIPAMControllerName, operatorv1.NVIPAMNodeName.String(), initialImagePullSecrets)
-		waitForDPUService(g, config.Namespace, operatorv1.OVSCNIName, operatorv1.OVSCNIName.String(), initialImagePullSecrets)
 		waitForDPUService(g, config.Namespace, operatorv1.SFCControllerName, operatorv1.SFCControllerName.String(), initialImagePullSecrets)
 
 		// Check that DPUServiceNADs are deployed
@@ -606,11 +605,6 @@ func TestDPFOperatorConfigReconciler_Reconcile(t *testing.T) {
 					HelmChart: ptr.To(fmt.Sprintf(helmTemplate, operatorv1.FlannelName)),
 				},
 			},
-			OVSCNI: &operatorv1.OVSCNIConfiguration{
-				HelmComponentConfig: operatorv1.HelmComponentConfig{
-					HelmChart: ptr.To(fmt.Sprintf(helmTemplate, operatorv1.OVSCNIName)),
-				},
-			},
 			NVIPAM: &operatorv1.NVIPAMConfiguration{
 				HelmComponentConfig: operatorv1.HelmComponentConfig{
 					HelmChart: ptr.To(fmt.Sprintf(helmTemplate, operatorv1.NVIPAMControllerName)),
@@ -649,11 +643,6 @@ func TestDPFOperatorConfigReconciler_Reconcile(t *testing.T) {
 			g.Expect(dpuServiceReferencesHelmChart(
 				waitForDPUService(g, config.Namespace, operatorv1.ServiceSetControllerName, operatorv1.ServiceChainSetCRDsName.String(), initialImagePullSecrets),
 				fmt.Sprintf(helmTemplate, operatorv1.ServiceSetControllerName),
-			)).To(BeTrue())
-
-			g.Expect(dpuServiceReferencesHelmChart(
-				waitForDPUService(g, config.Namespace, operatorv1.OVSCNIName, operatorv1.OVSCNIName.String(), initialImagePullSecrets),
-				fmt.Sprintf(helmTemplate, operatorv1.OVSCNIName),
 			)).To(BeTrue())
 
 			g.Expect(dpuServiceReferencesHelmChart(
@@ -703,7 +692,6 @@ func TestDPFOperatorConfigReconciler_Reconcile(t *testing.T) {
 		waitForDPUService(g, config.Namespace, operatorv1.SRIOVDevicePluginName, operatorv1.SRIOVDevicePluginName.String(), initialImagePullSecrets)
 		waitForDPUService(g, config.Namespace, operatorv1.FlannelName, operatorv1.FlannelName.String(), initialImagePullSecrets)
 		waitForDPUService(g, config.Namespace, operatorv1.NVIPAMControllerName, operatorv1.NVIPAMNodeName.String(), initialImagePullSecrets)
-		waitForDPUService(g, config.Namespace, operatorv1.OVSCNIName, operatorv1.OVSCNIName.String(), initialImagePullSecrets)
 		waitForDPUService(g, config.Namespace, operatorv1.SFCControllerName, operatorv1.SFCControllerName.String(), initialImagePullSecrets)
 		waitForDPUService(g, config.Namespace, operatorv1.CNIInstallerName, operatorv1.CNIInstallerName.String(), initialImagePullSecrets)
 		g.Eventually(func(g Gomega) {
@@ -809,7 +797,6 @@ func TestDPFOperatorConfigReconciler_ReconcileWithTwoDPUClusters(t *testing.T) {
 		waitForDPUService(g, config.Namespace, operatorv1.MultusName, operatorv1.MultusName.String(), initialImagePullSecrets)
 		waitForDPUService(g, config.Namespace, operatorv1.SRIOVDevicePluginName, operatorv1.SRIOVDevicePluginName.String(), initialImagePullSecrets)
 		waitForDPUService(g, config.Namespace, operatorv1.FlannelName, operatorv1.FlannelName.String(), initialImagePullSecrets)
-		waitForDPUService(g, config.Namespace, operatorv1.OVSCNIName, operatorv1.OVSCNIName.String(), initialImagePullSecrets)
 		waitForDPUService(g, config.Namespace, operatorv1.SFCControllerName, operatorv1.SFCControllerName.String(), initialImagePullSecrets)
 	})
 
@@ -1396,8 +1383,6 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 				SRIOVDevicePlugin: &operatorv1.SRIOVDevicePluginConfiguration{
 					BaseComponentConfig: operatorv1.BaseComponentConfig{Disable: ptr.To(true)}},
 				Flannel: &operatorv1.FlannelConfiguration{
-					BaseComponentConfig: operatorv1.BaseComponentConfig{Disable: ptr.To(true)}},
-				OVSCNI: &operatorv1.OVSCNIConfiguration{
 					BaseComponentConfig: operatorv1.BaseComponentConfig{Disable: ptr.To(true)}},
 				NVIPAM: &operatorv1.NVIPAMConfiguration{
 					BaseComponentConfig: operatorv1.BaseComponentConfig{Disable: ptr.To(true)}},

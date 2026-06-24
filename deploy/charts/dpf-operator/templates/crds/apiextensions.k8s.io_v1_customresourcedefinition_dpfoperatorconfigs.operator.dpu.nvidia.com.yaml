@@ -1275,7 +1275,10 @@ spec:
                     type: boolean
                 type: object
               ovsCNI:
-                description: OVSCNI is the configuration for OVSCNI
+                description: |-
+                  OVSCNI is the configuration for OVSCNI
+
+                  Deprecated: OVS CNI is installed by CNIInstaller. Remove after 26.7 is released.
                 properties:
                   cni:
                     description: |-
