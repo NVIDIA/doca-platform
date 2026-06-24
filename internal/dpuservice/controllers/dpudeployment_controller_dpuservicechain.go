@@ -231,7 +231,8 @@ func reconcileCurrentDPUServiceChainRevision(ctx context.Context, c client.Clien
 	delete(existingDPUServiceChainsMap, currentRev.GetName())
 
 	// This is needed because we don't know if a dpuSet will be updated or created
-	setDPUServiceChainNodeLabelValue(getLabelSelectorDPUServiceChainVersionValue(currentRev.Spec.Template.Spec.NodeSelector), dpuNodeLabels)
+	dpuNodeLabelKey, dpuNodeLabelValue := getDPUServiceChainNodeLabel(getLabelSelectorDPUServiceChainVersionValue(currentRev.Spec.Template.Spec.NodeSelector))
+	dpuNodeLabels[dpuNodeLabelKey] = dpuNodeLabelValue
 
 	// If there are no old revisions, it means that we are not in the middle of a disruptive upgrade operation, so there
 	// are no leftovers to handle
@@ -245,7 +246,7 @@ func reconcileCurrentDPUServiceChainRevision(ctx context.Context, c client.Clien
 
 	// If the current revision is still not ready, keep the old revisions and requeue otherwise, clean old revisions.
 	// We expect additional reconciliations to be triggered for leftovers that are getting deleted.
-	if conditions.IsTrue(currentRev, conditions.TypeReady) && len(getNotReadyDPUSets(existingDPUSets)) == 0 {
+	if conditions.IsTrue(currentRev, conditions.TypeReady) && len(getNotReadyDPUSets(existingDPUSets, dpuNodeLabelKey, dpuNodeLabelValue)) == 0 {
 		err := cleanStaleDPUServiceChains(ctx, c, oldRevs)
 		if err != nil {
 			log.Error(err, "failed to delete stale DPUServiceChains")
@@ -259,9 +260,15 @@ func reconcileCurrentDPUServiceChainRevision(ctx context.Context, c client.Clien
 	return isDisruptiveUpgradeOngoing
 }
 
+// getDPUServiceChainNodeLabel returns the label key and value for the DPUServiceChain node label.
+func getDPUServiceChainNodeLabel(value string) (string, string) {
+	return dpuServiceChainVersionLabelAnnotationKey, value
+}
+
 // setDPUServiceChainNodeLabelValue sets the value of the DPUServiceChain version label.
 func setDPUServiceChainNodeLabelValue(value string, nodeLabels map[string]string) {
-	nodeLabels[dpuServiceChainVersionLabelAnnotationKey] = value
+	k, v := getDPUServiceChainNodeLabel(value)
+	nodeLabels[k] = v
 }
 
 // getCurrentAndStaleDPUServiceChains returns the current and stale DPUServiceChain objects.
