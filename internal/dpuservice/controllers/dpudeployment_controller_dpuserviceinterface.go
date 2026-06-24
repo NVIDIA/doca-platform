@@ -314,7 +314,15 @@ func reconcileCurrentDPUServiceInterfaceRevision(ctx context.Context,
 
 	// If the current revision is still not ready, keep the old revisions and requeue otherwise, clean old revisions.
 	// We expect additional reconciliations to be triggered for leftovers that are getting deleted.
-	if conditions.IsTrue(currentDPUService, conditions.TypeReady) && len(getNotReadyDPUSets(existingDPUSets)) == 0 {
+	shouldDeployInCluster := serviceConfig.Spec.ServiceConfiguration.ShouldDeployInCluster()
+	dpuNodeLabelKey, dpuNodeLabelValue := getDPUServiceNodeLabel(serviceName,
+		getDPUServiceVersionLabelValueFromNodeSelector(currentDPUService.Spec.ServiceDaemonSet.NodeSelector,
+			serviceName,
+			dpuDeploymentNamespacedName,
+			shouldDeployInCluster),
+		dpuDeploymentNamespacedName,
+		shouldDeployInCluster)
+	if conditions.IsTrue(currentDPUService, conditions.TypeReady) && len(getNotReadyDPUSets(existingDPUSets, dpuNodeLabelKey, dpuNodeLabelValue)) == 0 {
 		err := cleanStaleDPUServiceInterfaces(ctx, c, oldRevs)
 		if err != nil {
 			log.Error(err, "failed to clean stale DPUServiceInterfaces")
