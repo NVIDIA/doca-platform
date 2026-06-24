@@ -174,11 +174,14 @@ func TestNICProvisioning_Execute(t *testing.T) {
 		bfs := newBFS("downloads/astra-nic-fw.fwpkg")
 		fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(bfs).Build()
 		ctx := newOptCtx(fakeClient, "https://registry.example.com")
+		runner := &fakeBashRunner{}
+		op.runBash = runner.run
 
 		require.NoError(t, op.Execute(context.Background(), ctx))
 		content, err := os.ReadFile(existingFile)
 		require.NoError(t, err)
 		assert.Equal(t, "already here", string(content))
+		assert.Equal(t, []string{"flint -i '" + existingFile + "' q"}, runner.commands)
 	})
 
 	t.Run("download firmware to local nic-firmware directory", func(t *testing.T) {
@@ -193,11 +196,14 @@ func TestNICProvisioning_Execute(t *testing.T) {
 		bfs := newBFS("download/astra-nic-fw-new.fwpkg")
 		fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(bfs).Build()
 		ctx := newOptCtx(fakeClient, server.URL)
+		runner := &fakeBashRunner{}
+		op.runBash = runner.run
 
 		require.NoError(t, op.Execute(context.Background(), ctx))
 		content, err := os.ReadFile(localFile)
 		require.NoError(t, err)
 		assert.Equal(t, "firmware-bytes", string(content))
+		assert.Equal(t, []string{"flint -i '" + localFile + "' q"}, runner.commands)
 	})
 
 	t.Run("stop after firmware install when reboot is required", func(t *testing.T) {
@@ -206,6 +212,7 @@ func TestNICProvisioning_Execute(t *testing.T) {
 		runtimeCalled := false
 		configureCalled := false
 		opRebootAfterFirmware := &NICProvisioning{
+			runBash:                 (&fakeBashRunner{}).run,
 			prepareLocalDMSServerFn: func(_ *operations.Context) error { return nil },
 			installNICFirmwareFn: func(_ context.Context, optCtx *operations.Context, _ string) error {
 				optCtx.NICFirmwareRebootRequired = true
@@ -238,6 +245,7 @@ func TestNICProvisioning_Execute(t *testing.T) {
 		require.NoError(t, os.WriteFile(existingFile, []byte("already here"), 0600))
 		runtimeCalled := false
 		opRebootAfterNVConfig := &NICProvisioning{
+			runBash:                   (&fakeBashRunner{}).run,
 			prepareLocalDMSServerFn:   func(_ *operations.Context) error { return nil },
 			installNICFirmwareFn:      func(_ context.Context, _ *operations.Context, _ string) error { return nil },
 			prepareSpectrumXConfigsFn: func() error { return nil },
@@ -266,6 +274,7 @@ func TestNICProvisioning_Execute(t *testing.T) {
 		require.NoError(t, os.WriteFile(existingFile, []byte("already here"), 0600))
 		dmsServer := &fakeDMSServer{running: true}
 		opWithRunningDMS := &NICProvisioning{
+			runBash:                   (&fakeBashRunner{}).run,
 			dmsServer:                 dmsServer,
 			prepareLocalDMSServerFn:   func(_ *operations.Context) error { return nil },
 			installNICFirmwareFn:      func(_ context.Context, _ *operations.Context, _ string) error { return nil },
@@ -318,6 +327,7 @@ func TestNICProvisioning_Execute(t *testing.T) {
 			stopErr: errors.New("stop failed"),
 		}
 		opWithRunningDMS := &NICProvisioning{
+			runBash:                   (&fakeBashRunner{}).run,
 			dmsServer:                 dmsServer,
 			prepareLocalDMSServerFn:   func(_ *operations.Context) error { return nil },
 			installNICFirmwareFn:      func(_ context.Context, _ *operations.Context, _ string) error { return nil },
@@ -360,6 +370,72 @@ func TestResolveNICFirmwareDownloadURL(t *testing.T) {
 		got, err := resolveNICFirmwareDownloadURL("10.233.14.188:8082", "https://registry.example.com/fw.bin")
 		require.NoError(t, err)
 		assert.Equal(t, "https://registry.example.com/fw.bin", got)
+	})
+}
+
+func TestNICProvisioning_ensureNICFirmwareImageSignature(t *testing.T) {
+	t.Run("does nothing when flint query succeeds", func(t *testing.T) {
+		runner := &fakeBashRunner{}
+		op := &NICProvisioning{runBash: runner.run}
+
+		require.NoError(t, op.ensureNICFirmwareImageSignature("/tmp/fw.bin"))
+		assert.Equal(t, []string{"flint -i '/tmp/fw.bin' q"}, runner.commands)
+	})
+
+	t.Run("writes signature words when flint reports invalid image signature", func(t *testing.T) {
+		runner := &fakeBashSequenceRunner{
+			results: []fakeBashResult{
+				{stderr: invalidImageSignature, err: errors.New("exit status 1")},
+				{},
+				{},
+				{},
+				{},
+			},
+		}
+		op := &NICProvisioning{runBash: runner.run}
+
+		require.NoError(t, op.ensureNICFirmwareImageSignature("/tmp/fw.bin"))
+		assert.Equal(t, []string{
+			"flint -i '/tmp/fw.bin' q",
+			"flint -i '/tmp/fw.bin' ww 0x0 0x4d544657",
+			"flint -i '/tmp/fw.bin' ww 0x4 0xabcdef00",
+			"flint -i '/tmp/fw.bin' ww 0x8 0xfade1234",
+			"flint -i '/tmp/fw.bin' ww 0xc 0x5678dead",
+		}, runner.commands)
+	})
+
+	t.Run("returns non-signature flint query errors", func(t *testing.T) {
+		runner := &fakeBashRunner{
+			stderr: "some other flint error",
+			err:    errors.New("exit status 1"),
+		}
+		op := &NICProvisioning{runBash: runner.run}
+
+		err := op.ensureNICFirmwareImageSignature("/tmp/fw.bin")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "some other flint error")
+		assert.Equal(t, []string{"flint -i '/tmp/fw.bin' q"}, runner.commands)
+	})
+
+	t.Run("returns error when writing signature word fails", func(t *testing.T) {
+		runner := &fakeBashSequenceRunner{
+			results: []fakeBashResult{
+				{stderr: invalidImageSignature, err: errors.New("exit status 1")},
+				{},
+				{stderr: "write failed", err: errors.New("exit status 1")},
+			},
+		}
+		op := &NICProvisioning{runBash: runner.run}
+
+		err := op.ensureNICFirmwareImageSignature("/tmp/fw.bin")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "0x4")
+		assert.Contains(t, err.Error(), "write failed")
+		assert.Equal(t, []string{
+			"flint -i '/tmp/fw.bin' q",
+			"flint -i '/tmp/fw.bin' ww 0x0 0x4d544657",
+			"flint -i '/tmp/fw.bin' ww 0x4 0xabcdef00",
+		}, runner.commands)
 	})
 }
 
@@ -429,6 +505,30 @@ func (f *fakeBashRunner) run(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 	stdout.WriteString(f.stdout)
 	stderr.WriteString(f.stderr)
 	return stdout, stderr, f.err
+}
+
+type fakeBashResult struct {
+	stdout string
+	stderr string
+	err    error
+}
+
+type fakeBashSequenceRunner struct {
+	commands []string
+	results  []fakeBashResult
+}
+
+func (f *fakeBashSequenceRunner) run(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+	f.commands = append(f.commands, cmd)
+	var result fakeBashResult
+	if len(f.results) > 0 {
+		result = f.results[0]
+		f.results = f.results[1:]
+	}
+	var stdout, stderr bytes.Buffer
+	stdout.WriteString(result.stdout)
+	stderr.WriteString(result.stderr)
+	return stdout, stderr, result.err
 }
 
 func newNicDevice(serialNumber string, pciAddresses ...string) nicconfigurationv1alpha1.NicDevice {
