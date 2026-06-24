@@ -138,13 +138,35 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=bind,source=Makefile,target=Makefile \
     --mount=type=bind,source=hack/tools/tools.mk,target=hack/tools/tools.mk \
-    GOFLAGS="-mod=vendor" make binary-dpuagent binary-pldmunpackserver
+    GOFLAGS="-mod=vendor" make binary-dpuagent binary-pldmunpackserver binary-dpu-hw-agent
 
 # Copy the go source code so it can be distributed in the final image.
 RUN mkdir src && \
     find . -name '*.go' -not -path "./hack/*" -not -path "./.gocache/*" \
     -exec cp --parents \{\}  src/ \; && \
     tar -czf source-code.tar.gz src
+
+# dpu_hw SPIRE NodeAttestor agent plugin packager stage - produces a .deb plus a .sha256 sidecar.
+FROM --platform=${BUILDPLATFORM} ${builder_image} AS dpu-hw-packager
+WORKDIR /workspace
+
+# Ensure sha256sum (coreutils) is present for the .sha256 sidecar; mirrors the
+# explicit tool install in dpuagent-packager rather than assuming the builder image carries it.
+RUN apt-get update && apt-get install -y --no-install-recommends coreutils && rm -rf /var/lib/apt/lists/*
+
+# Copy packaging configuration and the agent plugin binary from the builder.
+COPY internal/spire/dpu_hw/packaging/ internal/spire/dpu_hw/packaging/
+COPY --from=dpuagent-builder /workspace/bin/dpu-hw-agent /workspace/bin/dpu-hw-agent
+
+ARG TAG
+RUN --mount=type=cache,target=/workspace/hack/tools/bin \
+    --mount=type=bind,source=Makefile,target=Makefile \
+    --mount=type=bind,source=hack/tools/tools.mk,target=hack/tools/tools.mk \
+    make deb-dpu-hw-agent
+
+RUN mkdir -p /dpu-hw-deb \
+    && cp /workspace/bin/dpu-hw-agent_*_arm64.deb /dpu-hw-deb/ \
+    && cp /workspace/bin/dpu-hw-agent_*_arm64.deb.sha256 /dpu-hw-deb/
 
 # DPU Agent packager stage - packages binary with actual TAG version
 FROM --platform=${BUILDPLATFORM} ${builder_image} AS dpuagent-packager
@@ -168,6 +190,9 @@ RUN --mount=type=cache,target=/workspace/hack/tools/bin \
 RUN mkdir -p /deb /rpm \
     && cp /workspace/bin/dpu-agent_*_arm64.deb /deb/ \
     && cp /workspace/bin/dpu-agent-*.aarch64.rpm /rpm/
+
+# Include the dpu_hw agent plugin package (and its .sha256 sidecar) in the same APT repository.
+COPY --from=dpu-hw-packager /dpu-hw-deb/ /deb/
 
 # Generate APT repository metadata
 WORKDIR /deb

@@ -1,0 +1,19 @@
+name: dpu-hw-agent
+arch: arm64
+version: "${VERSION}"
+maintainer: NVIDIA DPF Team <dpf@nvidia.com>
+description: |
+  DOCA Platform Framework dpu_hw SPIRE NodeAttestor (agent plugin).
+  Runs on the DPU's Arm cores. Reads the local hardware serial and presents it
+  to the SPIRE server for node attestation, yielding a stable SPIFFE identity
+  for the DPU agent. SPIRE Agent launches this binary as an external plugin.
+vendor: NVIDIA
+license: Apache-2.0
+section: admin
+priority: optional
+
+contents:
+  - src: ./dpu-hw-agent
+    dst: /opt/dpf/spire/plugins/dpu-hw-agent
+    file_info:
+      mode: 0755
