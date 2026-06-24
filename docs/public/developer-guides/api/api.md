@@ -328,6 +328,7 @@ _Appears in:_
 | `overrides` _[Overrides](#overrides)_ |  |  | Optional: \{\} <br /> |
 | `networking` _[Networking](#networking)_ |  | \{ controlPlaneMTU:1500 \} | Optional: \{\} <br /> |
 | `monitoring` _[MonitoringConfiguration](#monitoringconfiguration)_ | Monitoring is the configuration for monitoring resources. |  | Optional: \{\} <br /> |
+| `security` _[SecurityConfiguration](#securityconfiguration)_ | Security groups security-related cluster settings. |  | Optional: \{\} <br /> |
 | `imagePullSecrets` _string array_ | List of secret names which are used to pull images for DPF system components and DPUServices.<br />These secrets must be in the same namespace as the DPF Operator Config and should be created before the config is created.<br />System reconciliation will not proceed until these secrets are available. |  | Optional: \{\} <br /> |
 | `deploymentMode` _[DeploymentMode](#deploymentmode)_ | DeploymentMode selects zero-trust vs host-trusted deployment alignment.<br />Required: operators must set this explicitly; provisioning controllers propagate this to DPU.status.deploymentMode. |  | Enum: [zero-trust host-trusted] <br />Required: \{\} <br /> |
 | `dpuServiceController` _[DPUServiceControllerConfiguration](#dpuservicecontrollerconfiguration)_ | DPUServiceController is the configuration for the DPUServiceController |  | Optional: \{\} <br /> |
@@ -1159,6 +1160,44 @@ _Appears in:_
 | `secureFlowDeletionTimeout` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#duration-v1-meta)_ | SecureFlowDeletionTimeout controls the timeout for which the API server is unreachable after which all the flows<br />are deleted to prevent unintended packet leaks. It has effect when is greater than zero.<br />Value must be in units accepted by Go time.ParseDuration https://golang.org/pkg/time/#ParseDuration. |  | Optional: \{\} <br /> |
 
 
+#### SPIFFEConfiguration
+
+
+
+SPIFFEConfiguration is the per-cluster SPIFFE bootstrap parameter set
+
+
+
+_Appears in:_
+- [SecurityConfiguration](#securityconfiguration)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `spireServerAddress` _string_ | SPIREServerAddress is the address of the pre-installed SPIRE Server in host:port form<br />(e.g. "spire-server.spire-system.svc:8081"). |  | MaxLength: 263 <br />MinLength: 1 <br />Required: \{\} <br /> |
+| `spireTrustDomain` _string_ | SPIRETrustDomain is the SPIRE-internal trust domain (e.g. "cs.internal") embedded in the<br />DPU Agent SVID URI. |  | MaxLength: 253 <br />MinLength: 1 <br />Pattern: `^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$` <br />Required: \{\} <br /> |
+| `kubeAPIAudience` _string_ | KubeAPIAudience is the audience claim the DPU Agent's JWT-SVID must carry; it must match an<br />entry in the kube-apiserver AuthenticationConfiguration.audiences[] (owned out-of-band). |  | MaxLength: 512 <br />MinLength: 1 <br />Required: \{\} <br /> |
+| `spireOIDCURL` _string_ | SPIREOIDCURL is the OIDC discovery (issuer) URL of the pre-installed SPIRE Server.<br />The matching kube-apiserver AuthenticationConfiguration.jwt[].issuer value is applied out-of-band. |  | MaxLength: 2048 <br />MinLength: 1 <br />Required: \{\} <br /> |
+| `trustBundle` _[SPIFFETrustBundleConfigMapReference](#spiffetrustbundleconfigmapreference)_ | trustBundle references a ConfigMap whose data["bundle.pem"] key holds the SPIRE trust<br />bundle in PEM form. |  | Required: \{\} <br /> |
+
+
+#### SPIFFETrustBundleConfigMapReference
+
+
+
+SPIFFETrustBundleConfigMapReference references the ConfigMap (by name and namespace)
+whose data["bundle.pem"] key holds the SPIRE trust bundle in PEM form.
+
+
+
+_Appears in:_
+- [SPIFFEConfiguration](#spiffeconfiguration)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `name` _string_ | Name is the name of the ConfigMap holding the SPIRE trust bundle. |  | MaxLength: 253 <br />MinLength: 1 <br />Required: \{\} <br /> |
+| `namespace` _string_ | Namespace is the namespace of the ConfigMap holding the SPIRE trust bundle. |  | MaxLength: 63 <br />MinLength: 1 <br />Required: \{\} <br /> |
+
+
 #### SRIOVDevicePluginConfiguration
 
 
@@ -1176,6 +1215,22 @@ _Appears in:_
 | `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br />Optional: \{\} <br /> |
 | `image` _[Image](#image)_ | Image overrides the container image used by the SRIOV Device Plugin container.<br />Deprecated: This field is deprecated and will be removed with v26.7.0.<br />Use the new field `deviceplugin` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br />Optional: \{\} <br /> |
 | `deviceplugin` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | DevicePlugin contains the configuration for the SRIOV Device Plugin component.<br />It contains the image for the controller and its resource requirements. |  | Optional: \{\} <br /> |
+
+
+#### SecurityConfiguration
+
+
+
+SecurityConfiguration groups security-related cluster settings.
+
+
+
+_Appears in:_
+- [DPFOperatorConfigSpec](#dpfoperatorconfigspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `spiffe` _[SPIFFEConfiguration](#spiffeconfiguration)_ | spiffe configures the SPIFFE-based DPU Agent identity flow. Edits are accepted post-bootstrap<br />but do NOT retro-apply to already-provisioned DPUs. |  | Optional: \{\} <br /> |
 
 
 #### ServiceSetControllerConfiguration
@@ -1291,6 +1346,7 @@ _Appears in:_
 | `rebootSequenceCount` _integer_ | RebootSequenceCount is the length of the current non-NoAction RebootMethod sequence:<br />it increments on each agent run that reports a RebootMethod other than NoAction and<br />resets to 0 when the agent reports NoAction. Used with RebootMethod to bound host reboot loops. |  | Minimum: 0 <br />Optional: \{\} <br /> |
 | `kubeletVersion` _string_ | KubeletVersion represents the kubelet version running on the DPU. |  |  |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions contains the conditions reported from inside the DPU |  | Optional: \{\} <br /> |
+| `spiffe` _[SpiffeStatus](#spiffestatus)_ | Spiffe contains the SPIFFE heartbeat status reported by the DPU Agent when running in<br />SPIFFE identity mode. |  | Optional: \{\} <br /> |
 
 
 #### BFB
@@ -2559,6 +2615,7 @@ _Appears in:_
 | `deploymentMode` _[DeploymentMode](#deploymentmode)_ | DeploymentMode is copied from DPFOperatorConfig.spec.deploymentMode by the controller.<br />This field is read-only for users. |  | Enum: [zero-trust host-trusted] <br />Optional: \{\} <br /> |
 | `hostless` _boolean_ | Hostless indicates that the DPU is attached to a system-managed synthetic<br />DPUNode rather than a physical host. |  | Optional: \{\} <br /> |
 | `secureBoot` _[SecureBootStatus](#securebootstatus)_ | SecureBoot indicates the current UEFI Secure Boot state. |  | Optional: \{\} <br /> |
+| `identityMode` _[IdentityMode](#identitymode)_ | IdentityMode records which authentication mechanism the DPU Agent uses to reach the<br />management-cluster kube-apiserver. Stamped exactly once by the DPU controller during phase<br />Initializing (nil guard); immutable thereafter. Pre-SPIFFE legacy DPUs have IdentityMode<br />unset (nil) which consumers MUST treat semantically as bootstrap-token. |  | Enum: [spiffe bootstrap-token] <br />Optional: \{\} <br /> |
 | `redfishTaskId` _string_ | The task ID of the last task performed on the DPU BMC |  | Optional: \{\} <br /> |
 
 
@@ -2772,6 +2829,24 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `ipRange` _[IPRange](#iprange)_ |  |  |  |
+
+
+#### IdentityMode
+
+_Underlying type:_ _string_
+
+IdentityMode records which authentication mechanism the DPU Agent uses to reach the
+management-cluster kube-apiserver. It is stamp-once (see DPUStatus.IdentityMode).
+
+
+
+_Appears in:_
+- [DPUStatus](#dpustatus)
+
+| Field | Description |
+| --- | --- |
+| `spiffe` | IdentityModeSpiffe indicates the DPU Agent authenticates with a SPIFFE-issued JWT-SVID.<br /> |
+| `bootstrap-token` | IdentityModeBootstrapToken indicates the DPU Agent authenticates with a kubeadm bootstrap token.<br />An unset (nil) IdentityMode is treated semantically as bootstrap-token; no sentinel is declared<br />for the unset case deliberately, to force explicit handling by consumers.<br /> |
 
 
 #### K8sCluster
@@ -3148,6 +3223,23 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `enabled` _boolean_ | Enabled indicates whether UEFI Secure Boot is currently enabled on the DPU. |  | Optional: \{\} <br /> |
+
+
+#### SpiffeStatus
+
+
+
+SpiffeStatus is the DPU Agent's SPIFFE heartbeat sub-status.
+
+
+
+_Appears in:_
+- [AgentStatus](#agentstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `lastProbeTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | LastProbeTime is the wall-clock timestamp the DPU Agent recorded on its most recent successful<br />status report. It is informational and subject to DPU clock skew, so it is not a precise<br />liveness signal on its own. |  | Optional: \{\} <br /> |
+| `lastProbeMessage` _string_ | LastProbeMessage is a structured one-line diagnostic for the most recent self-probe. Unset in<br />the steady-state happy path. Bounded to 256 chars (truncated agent-side). |  | MaxLength: 256 <br />Optional: \{\} <br /> |
 
 
 #### StrategyType
