@@ -177,6 +177,7 @@ add a `dpuDeviceSelector` to the existing `ovn-hbn` DPUDeployment:
 > defined any service chains in your original DPUDeployment.
 
 **Modified DPUDeployment:**
+
 ```yaml
 ---
 apiVersion: svc.dpu.nvidia.com/v1alpha1

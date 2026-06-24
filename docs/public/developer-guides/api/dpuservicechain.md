@@ -153,6 +153,7 @@ spec:
 ```
 
 `DPUServiceChain`
+
 ```yaml
 apiVersion: svc.dpu.nvidia.com/v1alpha1
 kind: DPUServiceChain
