@@ -17,8 +17,22 @@ limitations under the License.
 package util
 
 import (
+	"strings"
+
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 )
+
+// maxConditionMessageLen bounds agent condition Message fields (e.g. mlxfwreset JSON).
+const maxConditionMessageLen = 8192
+
+// TruncateConditionMessage trims msg to maxConditionMessageLen, appending "…" when truncated.
+func TruncateConditionMessage(msg string) string {
+	msg = strings.TrimSpace(msg)
+	if len(msg) <= maxConditionMessageLen {
+		return msg
+	}
+	return msg[:maxConditionMessageLen-1] + "…"
+}
 
 // IsBlueField4 reports whether dpu is a BlueField-4 DPU.
 func IsBlueField4(dpu *provisioningv1.DPU) bool {

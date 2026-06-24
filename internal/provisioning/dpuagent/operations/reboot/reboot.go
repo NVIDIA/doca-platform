@@ -30,6 +30,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
+	dpuutil "github.com/nvidia/doca-platform/internal/provisioning/dpuagent/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
 
 	"github.com/Masterminds/semver/v3"
@@ -47,9 +48,6 @@ const (
 	// maxRebootSequenceCount caps RebootSequenceCount (non-NoAction RebootMethod runs in a row)
 	// before the agent refuses further host reboot until NoAction resets the counter.
 	maxRebootSequenceCount int32 = 5
-
-	// maxConditionMessageLen bounds Condition.Message (mlxfwreset JSON can be large).
-	maxConditionMessageLen = 8192
 
 	// MinRebootDiscoveryMFTVersion is the minimum MFT (mlxconfig / mlxfwreset) version
 	// required to use device-query path (RebootMethodDiscovery=true).
@@ -461,6 +459,9 @@ func removeForeverPending(
 	} else {
 		msg += "; reset still required because other reset reasons remain."
 	}
+	if len(removed) > 0 {
+		klog.Info(msg)
+	}
 	optCtx.CondMessage += msg
 	return effective, shouldIgnore
 }
@@ -587,9 +588,7 @@ func checkRebootSequenceCount(optCtx *operations.Context, method *provisioningv1
 
 // setRebootMethodDiscoveryCondition sets or updates the device-query discovery condition.
 func setRebootMethodDiscoveryCondition(optCtx *operations.Context, method provisioningv1.RebootMethodType, msg string) {
-	if len(msg) > maxConditionMessageLen {
-		msg = msg[:maxConditionMessageLen-1] + "…"
-	}
+	msg = dpuutil.TruncateConditionMessage(msg)
 	meta.SetStatusCondition(&optCtx.Status.Conditions, metav1.Condition{
 		Type:               cutil.AgentCondRebootMethodDiscovery,
 		Status:             metav1.ConditionTrue,

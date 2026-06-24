@@ -157,7 +157,7 @@ func (n *ConfigureNVConfig) Execute(execCtx context.Context, optCtx *operations.
 			}
 			continue
 		}
-		resolved, resolveErr := n.filterParamsForSet(pci, params)
+		resolved, resolveErr := n.filterParamsForSet(optCtx, pci, params)
 		if resolveErr != nil {
 			return resolveErr
 		}
@@ -241,8 +241,8 @@ func (n *ConfigureNVConfig) queryMlxconfig(dev string) (string, error) {
 
 // filterParamsForSet queries mlxconfig and returns only parameters to apply on this pass.
 // Used only when RebootMethodDiscovery is true. Parameters not listed in mlxconfig q output
-// are deferred (partial apply succeeds).
-func (n *ConfigureNVConfig) filterParamsForSet(dev, params string) (string, error) {
+// are deferred (partial apply succeeds) and recorded in optCtx.CondMessage.
+func (n *ConfigureNVConfig) filterParamsForSet(optCtx *operations.Context, dev, params string) (string, error) {
 	if strings.TrimSpace(params) == "" {
 		return params, nil
 	}
@@ -257,11 +257,16 @@ func (n *ConfigureNVConfig) filterParamsForSet(dev, params string) (string, erro
 	available := parseMlxconfigQuery(queryOut)
 	toSet, deferred := planParamApply(entries, available)
 	if len(deferred) > 0 {
-		klog.Infof(
-			"device %s: deferring NVConfig params not exposed by mlxconfig q until after reboot: %s",
+		msg := fmt.Sprintf(
+			"device=%s deferred NVConfig params (not exposed by mlxconfig q on this pass): [%s]",
 			dev,
 			joinParamEntries(deferred),
 		)
+		klog.Info(msg)
+		if optCtx.CondMessage != "" {
+			optCtx.CondMessage += " "
+		}
+		optCtx.CondMessage += msg
 	}
 	return joinParamEntries(toSet), nil
 }
