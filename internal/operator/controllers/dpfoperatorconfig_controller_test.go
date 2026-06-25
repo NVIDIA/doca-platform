@@ -1146,10 +1146,11 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 
 	newReconciler := func() *DPFOperatorConfigReconciler {
 		return &DPFOperatorConfigReconciler{
-			Client:    testClient,
-			Scheme:    scheme.Scheme,
-			Inventory: mockInventory,
-			Defaults:  mockDefaults,
+			Client:         testClient,
+			UncachedClient: testClient,
+			Scheme:         scheme.Scheme,
+			Inventory:      mockInventory,
+			Defaults:       mockDefaults,
 			Settings: &DPFOperatorConfigReconcilerSettings{
 				SkipWebhook: true,
 			},
