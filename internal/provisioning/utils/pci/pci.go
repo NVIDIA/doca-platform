@@ -111,8 +111,6 @@ type NICPort struct {
 	DeviceID string
 	// MSTDevice is the MST device path, e.g. "/dev/mst/mt41695_pciconf0".
 	MSTDevice string
-	// PFRepresentor is the host PF representor netdev for this port.
-	PFRepresentor string
 }
 
 // PortDiscoverer discovers physical NIC ports on the DPU by joining devlink,
@@ -134,9 +132,8 @@ func (d *PortDiscoverer) run(cmd string) (string, string, error) {
 }
 
 // DiscoverPhysicalPort discovers physical ports by joining devlink physical entries,
-// sysfs PCI uevent data, and MST device data via PCI address. It also attaches
-// the host PF representor from the matching ECPF devlink ports before applying
-// the optional filter. Pass nil to return all discovered physical ports.
+// sysfs PCI uevent data, and MST device data via PCI address. Pass nil to return
+// all discovered physical ports.
 func (d *PortDiscoverer) DiscoverPhysicalPort(filter func(*NICPort) bool) ([]NICPort, error) {
 	// Step a: devlink → physical netdevs
 	devlinkPorts, err := d.DevlinkPortEntries()
@@ -188,20 +185,6 @@ func (d *PortDiscoverer) DiscoverPhysicalPort(filter func(*NICPort) bool) ([]NIC
 			return nil, err
 		}
 		port.DeviceID = deviceID
-		// Find the host PF representor on this ECPF's devlink ports.
-		prefix := "pci/" + port.PCIAddress + "/"
-		for key, entry := range devlinkPorts {
-			if !strings.HasPrefix(key, prefix) || !strings.EqualFold(strings.TrimSpace(entry.Flavor), flavourPCIPF) {
-				continue
-			}
-			netdev := strings.TrimSpace(entry.Netdev)
-			if netdev == "" {
-				klog.Warningf("Skipping pcipf devlink port %s with no netdev", key)
-				continue
-			}
-			// Each ECPF has exactly one host PF representor.
-			port.PFRepresentor = netdev
-		}
 		if filter != nil && !filter(&port) {
 			klog.Infof("Filtered out port %s (PCI %s)", netdev, pci)
 			continue
@@ -209,6 +192,44 @@ func (d *PortDiscoverer) DiscoverPhysicalPort(filter func(*NICPort) bool) ([]NIC
 		ports = append(ports, port)
 	}
 	return ports, nil
+}
+
+// DiscoverNSPFRepresentors discovers host PF representor netdevs for all N/S ECPFs.
+func (d *PortDiscoverer) DiscoverNSPFRepresentors() ([]string, error) {
+	devlinkPorts, err := d.DevlinkPortEntries()
+	if err != nil {
+		return nil, err
+	}
+
+	pfReps := make([]string, 0, len(devlinkPorts))
+	for key, entry := range devlinkPorts {
+		if !strings.EqualFold(strings.TrimSpace(entry.Flavor), flavourPCIPF) {
+			continue
+		}
+		addressWithPortID, ok := strings.CutPrefix(key, "pci/")
+		if !ok {
+			continue
+		}
+		pciAddress, _, ok := strings.Cut(addressWithPortID, "/")
+		if !ok {
+			continue
+		}
+		deviceID, err := pciDeviceID(pciAddress)
+		if err != nil {
+			return nil, err
+		}
+		if !nsNICDeviceIDs.Has(deviceID) {
+			continue
+		}
+		netdev := strings.TrimSpace(entry.Netdev)
+		if netdev == "" {
+			klog.Warningf("Skipping pcipf devlink port %s with no netdev", key)
+			continue
+		}
+		// Each ECPF has exactly one host PF representor.
+		pfReps = append(pfReps, netdev)
+	}
+	return pfReps, nil
 }
 
 // devlinkPortShowJSON is the structure of "devlink port show -j" output.
