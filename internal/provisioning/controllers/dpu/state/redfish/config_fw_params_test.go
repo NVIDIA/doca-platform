@@ -107,6 +107,18 @@ var _ = Describe("ConfigFWParameters", func() {
 		return dpuDevice
 	}
 
+	It("should transition to DPUDeleting when DPU is being deleted", func() {
+		now := metav1.Now()
+		dpu := dpuObj(defaultDPUName)
+		dpu.DeletionTimestamp = &now
+		dpu.Status.Phase = provisioningv1.DPUConfigFWParameters
+		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
+
+		status, err := ConfigFWParameters(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(status.Phase).To(Equal(provisioningv1.DPUDeleting))
+	})
+
 	It("should set host privilege to restricted for BF4 and advance to Firmware Update", func() {
 		mockServer := createBF4MockRedfishServer()
 		defer mockServer.Stop()
