@@ -26,6 +26,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/filesystem"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/netplan"
+	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
 
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
@@ -66,10 +67,9 @@ func (c *CheckNetwork) Execute(execCtx context.Context, optCtx *operations.Conte
 }
 
 type ConfigureNetwork struct {
-	// sysFSRoot is the root directory of the sysfs filesystem.
-	sysFSRoot        string
 	netplanRoot      string
 	applyNetplanFunc func() error
+	listPFRepsFunc   func() ([]string, error)
 }
 
 func (n *ConfigureNetwork) Name() string {
@@ -107,11 +107,7 @@ func (n *ConfigureNetwork) configNetplan(ctx *operations.Context) error {
 			return fmt.Errorf("failed to create 99-dpf-comm-ch.yaml: %w", err)
 		}
 	}
-	pfs, err := n.listPFsFromTargetNIC(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to list PFs: %w", err)
-	}
-	if err := n.setPFMTU(pfs); err != nil {
+	if err := n.setPFMTU(ctx); err != nil {
 		return fmt.Errorf("failed to create 97-pf-mtu.yaml: %w", err)
 	}
 	klog.Infof("Successfully created all netplan files")
@@ -198,7 +194,20 @@ func (n *ConfigureNetwork) setBridgeCommCh(cpMTU int32) error {
 	return config.WriteToFile(name)
 }
 
-func (n *ConfigureNetwork) setPFMTU(pfs []string) error {
+func (n *ConfigureNetwork) setPFMTU(ctx *operations.Context) error {
+	ports, err := ctx.NSPorts()
+	if err != nil {
+		return err
+	}
+	listPFReps := pciutil.DefaultPortDiscoverer.DiscoverNSPFRepresentors
+	if n.listPFRepsFunc != nil {
+		listPFReps = n.listPFRepsFunc
+	}
+	pfReps, err := listPFReps()
+	if err != nil {
+		return err
+	}
+
 	name := filepath.Join(n.netplanRoot, "97-pf-mtu.yaml")
 	config := &netplan.Config{
 		Network: netplan.Network{
@@ -206,6 +215,13 @@ func (n *ConfigureNetwork) setPFMTU(pfs []string) error {
 			Renderer: "networkd",
 		},
 	}
+
+	pfs := make([]string, 0, len(ports)+len(pfReps))
+	for _, port := range ports {
+		pfs = append(pfs, port.Netdev)
+	}
+	pfs = append(pfs, pfReps...)
+
 	for _, pf := range pfs {
 		if config.Network.Ethernets == nil {
 			config.Network.Ethernets = make(map[string]netplan.Ethernet)
@@ -215,21 +231,6 @@ func (n *ConfigureNetwork) setPFMTU(pfs []string) error {
 		}
 	}
 	return config.WriteToFile(name)
-}
-
-func (n *ConfigureNetwork) listPFsFromTargetNIC(ctx *operations.Context) ([]string, error) {
-	ports, err := ctx.NSPorts()
-	if err != nil {
-		return nil, err
-	}
-	pfs := make([]string, 0, len(ports)*2)
-	for _, port := range ports {
-		pfs = append(pfs, port.Netdev)
-		if port.PFRepresentor != "" {
-			pfs = append(pfs, port.PFRepresentor)
-		}
-	}
-	return pfs, nil
 }
 
 func runNetplanApply() error {

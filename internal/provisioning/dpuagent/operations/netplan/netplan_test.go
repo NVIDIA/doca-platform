@@ -76,11 +76,13 @@ var _ = Describe("Netplan", func() {
 
 			applied := false
 			operation := &ConfigureNetwork{
-				sysFSRoot:   tempDir,
 				netplanRoot: tempDir,
 				applyNetplanFunc: func() error {
 					applied = true
 					return nil
+				},
+				listPFRepsFunc: func() ([]string, error) {
+					return nil, nil
 				},
 			}
 			Expect(operation.Execute(ctx, &operations.Context{
@@ -123,11 +125,13 @@ var _ = Describe("Netplan", func() {
 
 			applied := false
 			operation := &ConfigureNetwork{
-				sysFSRoot:   tempDir,
 				netplanRoot: tempDir,
 				applyNetplanFunc: func() error {
 					applied = true
 					return nil
+				},
+				listPFRepsFunc: func() ([]string, error) {
+					return nil, nil
 				},
 			}
 			Expect(operation.Execute(ctx, &operations.Context{
@@ -162,30 +166,23 @@ var _ = Describe("Netplan", func() {
 			Expect(applied).To(BeTrue())
 		})
 
-		It("[BF4] should create PF MTU config only for the selected N/S NIC", func() {
-			nsPF1 := filepath.Join(tempDir, "bus/pci/devices/0000:00:00.1")
-			Expect(os.MkdirAll(nsPF1, 0755)).To(Succeed())
-			Expect(os.WriteFile(filepath.Join(nsPF1, "device"), []byte("0xa2df\n"), 0644)).To(Succeed())
-
-			ewNIC := filepath.Join(tempDir, "bus/pci/devices/0000:01:00.0")
-			Expect(os.MkdirAll(ewNIC, 0755)).To(Succeed())
-			Expect(os.WriteFile(filepath.Join(ewNIC, "device"), []byte("0xffff\n"), 0644)).To(Succeed())
-
-			Expect(os.WriteFile(filepath.Join(tempDir, "bus/pci/devices/0000:00:00.0/device"), []byte("0xa2df\n"), 0644)).To(Succeed())
+		It("[BF4] should create PF MTU config for N/S uplinks and PF representors", func() {
 			applied := false
 			operation := &ConfigureNetwork{
-				sysFSRoot:   tempDir,
 				netplanRoot: tempDir,
 				applyNetplanFunc: func() error {
 					applied = true
 					return nil
+				},
+				listPFRepsFunc: func() ([]string, error) {
+					return []string{"B21c1pf0", "B61c1pf1", "B21c2pf0", "B61c2pf1"}, nil
 				},
 			}
 			Expect(operation.Execute(ctx, &operations.Context{
 				Options: opts.Options{ZeroTrustMode: true},
 				DiscoverPorts: func() ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{
-						{Netdev: "p0", PCIAddress: "0000:00:00.0", MSTDevice: "/dev/mst/mt0", PFRepresentor: "B00c1pf0"},
+						{Netdev: "p0", PCIAddress: "0000:00:00.0", MSTDevice: "/dev/mst/mt0"},
 						{Netdev: "p1", PCIAddress: "0000:00:00.1", MSTDevice: "/dev/mst/mt0.1"},
 					}, nil
 				},
@@ -195,7 +192,10 @@ var _ = Describe("Netplan", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(string(content)).To(ContainSubstring("p0:"))
 			Expect(string(content)).To(ContainSubstring("p1:"))
-			Expect(string(content)).To(ContainSubstring("B00c1pf0:"))
+			Expect(string(content)).To(ContainSubstring("B21c1pf0:"))
+			Expect(string(content)).To(ContainSubstring("B61c1pf1:"))
+			Expect(string(content)).To(ContainSubstring("B21c2pf0:"))
+			Expect(string(content)).To(ContainSubstring("B61c2pf1:"))
 			Expect(string(content)).NotTo(ContainSubstring("pf0hpf:"))
 			Expect(string(content)).NotTo(ContainSubstring("pf1hpf:"))
 			Expect(string(content)).NotTo(ContainSubstring("p2:"))

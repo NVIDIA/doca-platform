@@ -72,6 +72,12 @@ func setSysfsNetPathForTest(path string) {
 	DeferCleanup(func() { sysfsNetPath = original })
 }
 
+func setSysfsPCIDevicesPathForTest(path string) {
+	original := sysfsPCIDevicesPath
+	sysfsPCIDevicesPath = path
+	DeferCleanup(func() { sysfsPCIDevicesPath = original })
+}
+
 func overridePathVars(netRoot, mstDir string) {
 	origNet := sysfsNetPath
 	origPCIDevices := sysfsPCIDevicesPath
@@ -147,6 +153,38 @@ var _ = Describe("NSPortFilter", func() {
 	})
 })
 
+var _ = Describe("DiscoverNSPFRepresentors", func() {
+	It("should discover PF representors from N/S ECPF sysfs devices and devlink", func() {
+		root := GinkgoT().TempDir()
+		pciDevicesRoot := filepath.Join(root, "bus", "pci", "devices")
+		setSysfsPCIDevicesPathForTest(pciDevicesRoot)
+		writePCIDeviceID(pciDevicesRoot, "0002:01:00.0", "0xa2df")
+		writePCIDeviceID(pciDevicesRoot, "0002:01:00.1", "0xa2df")
+		writePCIDeviceID(pciDevicesRoot, "0006:01:00.0", "0xa2df")
+		writePCIDeviceID(pciDevicesRoot, "0006:01:00.1", "0xa2df")
+		writePCIDeviceID(pciDevicesRoot, "0001:03:00.0", "0xffff")
+
+		d := &PortDiscoverer{
+			runBash: mockRunBash(devlinkJSON(map[string]DevlinkPortEntry{
+				"pci/0001:03:00.0/262144":             {Netdev: "eth46", Flavor: "pcipf"},
+				"pci/0002:01:00.0/327680":             {Netdev: "B21c1pf0", Flavor: "pcipf"},
+				"pci/0002:01:00.0/360448":             {Netdev: "B21pf0sf0", Flavor: "pcisf"},
+				"pci/0002:01:00.1/393216":             {Netdev: "B21c2pf0", Flavor: "pcipf"},
+				"auxiliary/mlx5_core.eth.12/393215":   {Netdev: "p0", Flavor: "physical"},
+				"pci/0006:01:00.0/458752":             {Netdev: "B61c1pf1", Flavor: "pcipf"},
+				"pci/0006:01:00.0/491520":             {Netdev: "B61c4pf0sf0", Flavor: "pcisf"},
+				"pci/0006:01:00.1/524288":             {Netdev: "B61c2pf1", Flavor: "pcipf"},
+				"auxiliary/mlx5_core.eth.30/524287":   {Netdev: "p1", Flavor: "physical"},
+				"auxiliary/mlx5_core.eth.40/13238272": {Netdev: "enP2p1s0f0S8", Flavor: "virtual"},
+			})),
+		}
+
+		pfReps, err := d.DiscoverNSPFRepresentors()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(pfReps).To(ConsistOf("B21c1pf0", "B61c1pf1", "B21c2pf0", "B61c2pf1"))
+	})
+})
+
 var _ = Describe("DiscoverPorts", func() {
 	It("should join devlink, sysfs, and MST data and apply filter", func() {
 		root := GinkgoT().TempDir()
@@ -198,14 +236,12 @@ var _ = Describe("DiscoverPorts", func() {
 		Expect(portMap).To(HaveKey("p0"))
 		Expect(portMap["p0"].PCIAddress).To(Equal("0000:03:00.0"))
 		Expect(portMap["p0"].MSTDevice).To(Equal(filepath.Join(mstDir, "mt41692_pciconf0")))
-		Expect(portMap["p0"].PFRepresentor).To(Equal("custompf0"))
 		Expect(portMap).To(HaveKey("p3"))
 		Expect(portMap["p3"].PCIAddress).To(Equal("0002:01:00.0"))
 		Expect(portMap["p3"].MSTDevice).To(Equal(filepath.Join(mstDir, "mt41695_pciconf0")))
-		Expect(portMap["p3"].PFRepresentor).To(Equal("B21c1pf7"))
 	})
 
-	It("should discover N/S ports and annotate BF4 ports", func() {
+	It("should discover N/S ports", func() {
 		root := GinkgoT().TempDir()
 
 		netRoot := filepath.Join(root, "sys", "class", "net")
@@ -244,9 +280,7 @@ var _ = Describe("DiscoverPorts", func() {
 			portMap[p.Netdev] = p
 		}
 		Expect(portMap["p0"].DeviceID).To(Equal(bluefield3DeviceID))
-		Expect(portMap["p0"].PFRepresentor).To(Equal("pf0hpf"))
 		Expect(portMap["p1"].DeviceID).To(Equal(bluefield4DeviceID))
-		Expect(portMap["p1"].PFRepresentor).To(Equal("B21c1pf0"))
 		Expect(portMap).NotTo(HaveKey("eth0"))
 	})
 
