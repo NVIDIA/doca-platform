@@ -67,7 +67,7 @@ var _ = Describe("External DPF tests", Labels{Domain.ExternalTest}, func() {
 			tcpScenario("1", "iperf pod to pod same host", 15),
 			tcpScenario("3", "iperf pod to pod diff host", 230),
 			tcpScenario("6", "iperf pod to pod via ClusterIP same host", 20),
-			tcpScenario("7", "iperf pod to pod via ClusterIP diff host", 250),
+			tcpScenario("7", "iperf pod to pod via ClusterIP diff host", 230),
 			//  TODO: Scenario 8 is skipped until Nlastic handles NodePort same-host mapping correctly.
 			// tcpScenario("8", "iperf pod to pod via NodePort same host", 10),
 			//  TODO: Scenario 9 is skipped until Nlastic handles NodePort diff-host mapping correctly.
@@ -88,6 +88,8 @@ var _ = Describe("External DPF tests", Labels{Domain.ExternalTest}, func() {
 		BeforeAll(func() {
 			By("Wait for OVNK HBN deployment to be ready")
 			WaitForOVNKHBNDeploymentReady(ctx, input)
+			By("Syncing image pull secrets for Nlastic workload pods")
+			syncNlasticImagePullSecrets()
 			By("Setup Nlastic environment")
 			runExternalTestScript("setup")
 			By("Configuring Nlastic testpmd image")
@@ -118,6 +120,13 @@ var _ = Describe("External DPF tests", Labels{Domain.ExternalTest}, func() {
 		}
 	})
 })
+
+func syncNlasticImagePullSecrets() {
+	const nlasticPodNamespace = "default"
+	for _, secretName := range []string{dpfPullSecretName, "pull-secret-extra"} {
+		CopySecretToNamespace(ctx, input.client, secretName, dpfOperatorSystemNamespace, nlasticPodNamespace, CleanupScope.Suite)
+	}
+}
 
 func runExternalTestScript(args ...string) {
 	cmd := exec.Command(externalTest, args...)
