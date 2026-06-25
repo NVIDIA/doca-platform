@@ -32,6 +32,7 @@ import (
 
 	"github.com/spf13/pflag"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -63,6 +64,8 @@ func init() {
 	utilruntime.Must(provisioningv1.AddToScheme(scheme))
 
 	utilruntime.Must(argov1.AddToScheme(scheme))
+
+	utilruntime.Must(apiextensionsv1.AddToScheme(scheme))
 
 	// +kubebuilder:scaffold:scheme
 }
@@ -177,12 +180,19 @@ func main() {
 		setupLog.Error(err, "unable to parse defaults")
 		os.Exit(1)
 	}
+
+	uncachedClient, err := client.New(mgr.GetConfig(), client.Options{Scheme: mgr.GetScheme()})
+	if err != nil {
+		setupLog.Error(err, "unable to create uncached client")
+		os.Exit(1)
+	}
 	if err = (&operatorcontroller.DPFOperatorConfigReconciler{
-		Client:    mgr.GetClient(),
-		Scheme:    mgr.GetScheme(),
-		Settings:  getSettings(),
-		Inventory: inventory,
-		Defaults:  defaults,
+		Client:         mgr.GetClient(),
+		UncachedClient: uncachedClient,
+		Scheme:         mgr.GetScheme(),
+		Settings:       getSettings(),
+		Inventory:      inventory,
+		Defaults:       defaults,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DPFOperatorConfig")
 		os.Exit(1)
