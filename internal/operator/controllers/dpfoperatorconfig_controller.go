@@ -57,6 +57,10 @@ const (
 	DefaultDPFOperatorConfigSingletonName = "dpfoperatorconfig"
 	// DefaultDPFOperatorConfigSingletonNamespace is the default single valid name of the DPFOperatorConfig.
 	DefaultDPFOperatorConfigSingletonNamespace = "dpf-operator-system"
+
+	// maxItemsToReportOnValidationMessage is the maximum number of objects reported
+	// for validation errors to prevent condition messages from growing unbounded.
+	maxItemsToReportOnValidationMessage int = 5
 )
 
 const (
@@ -74,10 +78,11 @@ var (
 // DPFOperatorConfigReconciler reconciles a DPFOperatorConfig object
 type DPFOperatorConfigReconciler struct {
 	client.Client
-	Scheme    *runtime.Scheme
-	Settings  *DPFOperatorConfigReconcilerSettings
-	Inventory *inventory.SystemComponents
-	Defaults  *release.Defaults
+	UncachedClient client.Reader
+	Scheme         *runtime.Scheme
+	Settings       *DPFOperatorConfigReconcilerSettings
+	Inventory      *inventory.SystemComponents
+	Defaults       *release.Defaults
 }
 
 // DPFOperatorConfigReconcilerSettings contains settings related to the DPFOperatorConfig.
@@ -104,7 +109,7 @@ type DPFOperatorConfigReconcilerSettings struct {
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=serviceinterfaces/finalizers;servicechains/finalizers;dpuservicechains/finalizers;dpuserviceinterfaces/finalizers;dpuserviceipams/finalizers;dpuservicenads/finalizers,verbs=update
 
 // Provisioning objects
-// +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpusets;dpuflavors;bfbs;bluefieldsoftwares;dpus;dpuclusters;dpudevices;dpunodes;dpudiscoveries;dpunodemaintenances,verbs=create;delete;get;list;watch;patch;update;deletecollection
+// +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpusets;dpuflavors;dpuflavortemplates;bfbs;bluefieldsoftwares;dpus;dpuclusters;dpudevices;dpunodes;dpudiscoveries;dpunodemaintenances,verbs=create;delete;get;list;watch;patch;update;deletecollection
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpusets/status;dpus/status;bfbs/status;bluefieldsoftwares/status;dpuclusters/status;dpunodes/status;dpudevices/status;dpudiscoveries/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpusets/finalizers;bfbs/finalizers;bluefieldsoftwares/finalizers;dpus/finalizers;dpuflavors/finalizers;dpuclusters/finalizers;dpudevices/finalizers;dpunodes/finalizers;dpudiscoveries/finalizers,verbs=update
 
@@ -309,6 +314,7 @@ func (r *DPFOperatorConfigReconciler) validators() []validator {
 		{name: "Kubernetes Version Skew", fn: r.validateKubernetesVersionSkew},
 		{name: "System Components", fn: r.validateSystemComponentsReadiness},
 		{name: "DPU State", fn: r.validateDPUState},
+		{name: "Object Schema Validation", fn: r.validateObjectSchemas},
 	}
 }
 
@@ -332,13 +338,23 @@ func (r *DPFOperatorConfigReconciler) validateDPUState(ctx context.Context, conf
 		return fmt.Errorf("failed to list DPUs in namespace %s: %w", config.Namespace, err)
 	}
 
-	errs := []error{}
+	dpus := []string{}
 	for _, dpu := range dpuList.Items {
 		// Skip if the DPU has reached a terminal state (Ready or Error).
 		if dpu.Status.Phase == provisioningv1.DPUError || dpu.Status.Phase == provisioningv1.DPUReady {
 			continue
 		}
-		errs = append(errs, fmt.Errorf("DPU %s is not ready", dpu.Name))
+		dpus = append(dpus, dpu.Name)
+	}
+	sort.Strings(dpus)
+
+	errs := []error{}
+	for i, dpu := range dpus {
+		if i >= maxItemsToReportOnValidationMessage {
+			errs = append(errs, fmt.Errorf("... and %d more", len(dpus)-i))
+			break
+		}
+		errs = append(errs, fmt.Errorf("DPU %s is not ready", dpu))
 	}
 
 	return kerrors.NewAggregate(errs)

@@ -132,8 +132,9 @@ func TestMain(m *testing.M) {
 		panic(fmt.Sprintf("Failed to parse defaults: %v", err))
 	}
 	reconciler = &DPFOperatorConfigReconciler{
-		Client: testClient,
-		Scheme: testManager.GetScheme(),
+		Client:         testClient,
+		UncachedClient: testClient,
+		Scheme:         testManager.GetScheme(),
 		Settings: &DPFOperatorConfigReconcilerSettings{
 			SkipWebhook: true,
 		},
