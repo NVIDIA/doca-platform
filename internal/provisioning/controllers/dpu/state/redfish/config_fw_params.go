@@ -35,6 +35,11 @@ func ConfigFWParameters(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 	logger := log.FromContext(ctx)
 	state := dpu.Status.DeepCopy()
 
+	if !dpu.DeletionTimestamp.IsZero() {
+		state.Phase = provisioningv1.DPUDeleting
+		return *state, nil
+	}
+
 	device := &provisioningv1.DPUDevice{}
 	if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.DPUDeviceName}, device); err != nil {
 		cutil.SetDPUCondition(state,
