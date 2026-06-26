@@ -19,10 +19,13 @@ package controller
 import (
 	"context"
 	"fmt"
+	"os"
 	"strconv"
 	"testing"
 
+	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
+	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 
 	. "github.com/onsi/gomega"
 	apiextensionsinternal "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
@@ -33,8 +36,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/yaml"
 )
 
 // testSchema builds a simple v1 CRD validation schema with required fields at spec level.
@@ -120,6 +125,51 @@ func TestValidateObjectSchemas(t *testing.T) {
 	g.Expect(msg).To(ContainSubstring("svc.dpu.nvidia.com/v1alpha1, Kind=DPUDeployment:"))
 	g.Expect(msg).To(ContainSubstring("target/invalid has schema validation errors: [spec.dpuSetStrategy: Required value; spec.nodeEffect: Required value]"))
 	g.Expect(msg).NotTo(ContainSubstring("target/valid"))
+}
+
+// TestValidateObjectSchemaForCRDMissingRequiredField validates a real object against the actual
+// generated DPUDeployment CRD schema. The object omits the required spec.dpus.dpuSetStrategy field,
+// which must surface as a schema validation error.
+func TestValidateObjectSchemaForCRDMissingRequiredField(t *testing.T) {
+	g := NewWithT(t)
+
+	crd := loadCRD(t, "../../../config/dpuservice/crd/bases/svc.dpu.nvidia.com_dpudeployments.yaml")
+
+	// Build an otherwise-valid DPUDeployment from the typed API.
+	dpuDeployment := &dpuservicev1.DPUDeployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "missing-field", Namespace: "dpf-operator-system"},
+		Spec: dpuservicev1.DPUDeploymentSpec{
+			DPUs: dpuservicev1.DPUs{
+				Flavor:         "flavor",
+				NodeEffect:     provisioningv1.Action{Drain: ptr.To(true)},
+				DPUSetStrategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.RollingUpdateStrategyType},
+			},
+			Services: map[string]dpuservicev1.DPUDeploymentServiceConfiguration{
+				"example": {ServiceConfiguration: "example", ServiceTemplate: "example"},
+			},
+		},
+	}
+
+	obj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(dpuDeployment)
+	g.Expect(err).NotTo(HaveOccurred())
+	invalid := unstructured.Unstructured{Object: obj}
+	invalid.SetGroupVersionKind(dpuservicev1.DPUDeploymentGroupVersionKind)
+
+	// dpuSetStrategy is a non-pointer field that the typed API always serializes, so delete it here
+	// to exercise the missing-required-field path.
+	unstructured.RemoveNestedField(invalid.Object, "spec", "dpus", "dpuSetStrategy")
+
+	r := &DPFOperatorConfigReconciler{
+		UncachedClient: &paginatedValidationClient{items: []unstructured.Unstructured{invalid}},
+	}
+
+	var errs []error
+	r.validateObjectSchemaForCRD(context.Background(), crd, &errs)
+
+	g.Expect(errs).To(HaveLen(1))
+	msg := errs[0].Error()
+	g.Expect(msg).To(ContainSubstring("dpf-operator-system/missing-field has schema validation errors"))
+	g.Expect(msg).To(ContainSubstring("spec.dpus.dpuSetStrategy: Required value"))
 }
 
 func TestValidateObjectSchemasSkipsNonDPFGroups(t *testing.T) {
@@ -257,4 +307,18 @@ func (c *paginatedValidationClient) List(_ context.Context, list client.ObjectLi
 		ul.SetContinue(strconv.Itoa(end))
 	}
 	return nil
+}
+
+// loadCRD reads and decodes a CustomResourceDefinition from a YAML file on disk.
+func loadCRD(t *testing.T, path string) *apiextensionsv1.CustomResourceDefinition {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading CRD %s: %v", path, err)
+	}
+	crd := &apiextensionsv1.CustomResourceDefinition{}
+	if err := yaml.Unmarshal(data, crd); err != nil {
+		t.Fatalf("unmarshalling CRD %s: %v", path, err)
+	}
+	return crd
 }
