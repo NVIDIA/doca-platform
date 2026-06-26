@@ -65,17 +65,33 @@ func FirmwareUpdate(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil
 		return *state, nil
 	}
 
+	dpuDevice := &provisioningv1.DPUDevice{}
+	if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.DPUDeviceName}, dpuDevice); err != nil {
+		if apierrors.IsNotFound(err) {
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), err, "DPUDeviceNotFound", err.Error()))
+			return *state, err
+		}
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), err, "FailedToGetDPUDevice", err.Error()))
+		return *state, err
+	}
+
+	client, err := rc.NewTLSClient(ctx, dpuDevice.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
+	if err != nil {
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), err, "FailedToCreateClient", err.Error()))
+		return *state, err
+	}
+
 	cond := cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), nil, "Updating", "Updating PLDM Firmware")
 	_, existingCond := cutil.GetDPUCondition(&dpu.Status, cond.Type)
 	if existingCond == nil || existingCond.Status != metav1.ConditionTrue {
-		if checkFirmwareVersions(ctx, dpu, blueFieldSoftware, ctrlCtx) != nil {
+		if checkFirmwareVersions(client, blueFieldSoftware) != nil {
 			return updatePldmFwBundle(ctx, dpu, ctrlCtx, blueFieldSoftware.Status.DownloadedComponents.PldmFwBundle)
 		} else {
 			logger.Info("firmware versions match with PLDM bundle- skipping firmware update")
 			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), nil, "FirmwareVersionsMatch", "Firmware versions match - skipping firmware update"))
 		}
 	} else if dpu.Status.PreviousPhase == provisioningv1.DPURebooting {
-		if err := checkFirmwareVersions(ctx, dpu, blueFieldSoftware, ctrlCtx); err != nil {
+		if err := checkFirmwareVersions(client, blueFieldSoftware); err != nil {
 			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), err, "FirmwareVersionsMismatch", err.Error()))
 			return *state, err
 		} else {
@@ -88,7 +104,7 @@ func FirmwareUpdate(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil
 	return *state, nil
 }
 
-func checkFirmwareVersions(ctx context.Context, dpu *provisioningv1.DPU, blueFieldSoftware *provisioningv1.BlueFieldSoftware, ctrlCtx *dutil.ControllerContext) error {
+func checkFirmwareVersions(client *rc.Client, blueFieldSoftware *provisioningv1.BlueFieldSoftware) error {
 	if blueFieldSoftware.Status.Versions == nil {
 		return fmt.Errorf("BlueFieldSoftware versions are not set")
 	}
@@ -107,19 +123,6 @@ func checkFirmwareVersions(ctx context.Context, dpu *provisioningv1.DPU, blueFie
 
 	if blueFieldSoftware.Status.Versions.AstraNicFwVersion == "" {
 		return fmt.Errorf("DPU NIC firmware version is not set")
-	}
-
-	dpuDevice := &provisioningv1.DPUDevice{}
-	if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.DPUDeviceName}, dpuDevice); err != nil {
-		if apierrors.IsNotFound(err) {
-			return fmt.Errorf("DPUDevice not found: %w", err)
-		}
-		return fmt.Errorf("failed to get DPUDevice: %w", err)
-	}
-
-	client, err := rc.NewTLSClient(ctx, dpuDevice.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
-	if err != nil {
-		return fmt.Errorf("failed to create TLS client: %w", err)
 	}
 
 	_, bmcFirmwareVersion, err := client.CheckBMCFirmware()
@@ -200,7 +203,6 @@ func updatePldmFwBundle(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 
 	client, err := rc.NewTLSClient(ctx, dpuDevice.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
 	if err != nil {
-		err = fmt.Errorf("failed to create TLS client: %w", err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToCreateClient", err.Error()))
 		return *state, err
 	}

@@ -133,7 +133,7 @@ func createRedfishClientForDPU(ctx context.Context, dpu *provisioningv1.DPU, ctr
 
 	client, err := rc.NewTLSClient(ctx, dpuDevice.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
 	if err != nil {
-		setArmCondition(state, "FailedToCreateRedfishClient", err.Error())
+		setArmCondition(state, "FailedToCreateClient", err.Error())
 		return nil, err // Retryable
 	}
 

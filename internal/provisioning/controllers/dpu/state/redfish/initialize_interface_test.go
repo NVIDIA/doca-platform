@@ -847,15 +847,36 @@ var _ = Describe("InitializeInterface", func() {
 			}
 		})
 
-		It("should stay in InitializeInterface when BMC is unreachable and recover when connectivity is restored", func() {
-			By("Simulate BMC unreachable via ProductDescription endpoint error")
-			mockServer.SetProductDescriptionError(true)
+		It("should set FailedToCreateClient when TLS client cannot be created", func() {
+			By("Point DPUDevice BMC at an unreachable IP")
+			unreachable := "192.0.2.1"
+			patch := client.MergeFrom(dpuDevice.DeepCopy())
+			dpuDevice.Status.BMCIP = ptr.To(unreachable)
+			Expect(k8sClient.Status().Patch(ctx, dpuDevice, patch)).To(Succeed())
 
-			By("Step 1: Call InitializeInterface — TLS client creation fails due to BMC unreachable")
 			status, err := InitializeInterface(ctx, dpu, ctrlCtx)
 			Expect(err).To(HaveOccurred(), "should return error to trigger controller-runtime requeue")
 			Expect(status.Phase).To(Equal(provisioningv1.DPUInitializeInterface),
 				"DPU should stay in InitializeInterface, not transition to DPUError")
+			_, cond := cutil.GetDPUCondition(&status, provisioningv1.DPUCondInterfaceInitialized.String())
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+			Expect(cond.Reason).To(Equal("FailedToCreateClient"))
+		})
+
+		It("should stay in InitializeInterface when BMC is unreachable and recover when connectivity is restored", func() {
+			By("Simulate BMC unreachable via ProductDescription endpoint error")
+			mockServer.SetProductDescriptionError(true)
+
+			By("Step 1: Call InitializeInterface — GetProductDescription fails due to BMC unreachable")
+			status, err := InitializeInterface(ctx, dpu, ctrlCtx)
+			Expect(err).To(HaveOccurred(), "should return error to trigger controller-runtime requeue")
+			Expect(status.Phase).To(Equal(provisioningv1.DPUInitializeInterface),
+				"DPU should stay in InitializeInterface, not transition to DPUError")
+			_, cond := cutil.GetDPUCondition(&status, provisioningv1.DPUCondInterfaceInitialized.String())
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+			Expect(cond.Reason).To(Equal("FailedToGetProductDescription"))
 
 			By("Step 2: Restore BMC connectivity")
 			mockServer.SetProductDescriptionError(false)

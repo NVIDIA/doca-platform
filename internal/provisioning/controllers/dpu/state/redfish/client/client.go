@@ -1029,6 +1029,11 @@ func NewBasicAuthClient(bmcAddress, user, passwd string) (*Client, error) {
 	return client, nil
 }
 
+// tlsClientError wraps an error with the BMC address used to construct the client.
+func tlsClientError(bmcAddress string, err error) error {
+	return fmt.Errorf("failed to create TLS client for %s: %w", bmcAddress, err)
+}
+
 // NewTLSClient returns a Client using mTLS
 func NewTLSClient(ctx context.Context, bmcAddress string, namespace string, k8sClient client.Client) (*Client, error) {
 	if !strings.HasPrefix(bmcAddress, httpsPrefix) {
@@ -1039,12 +1044,12 @@ func NewTLSClient(ctx context.Context, bmcAddress string, namespace string, k8sC
 
 	rawClient, err := NewRawClient(bmcAddress)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create raw client: %w", err)
+		return nil, tlsClientError(bmcAddress, fmt.Errorf("failed to create raw client: %w", err))
 	}
 
 	_, rootServiceInfo, err := rawClient.GetRootService()
 	if err != nil {
-		return nil, err
+		return nil, tlsClientError(bmcAddress, err)
 	}
 	if rootServiceInfo != nil && rootServiceInfo.IsBF4() {
 		rawClient.IsBF4 = true
@@ -1053,31 +1058,31 @@ func NewTLSClient(ctx context.Context, bmcAddress string, namespace string, k8sC
 
 	caSecret := &corev1.Secret{}
 	if err := k8sClient.Get(ctx, types.NamespacedName{Name: CASecret, Namespace: namespace}, caSecret); err != nil {
-		return nil, err
+		return nil, tlsClientError(bmcAddress, err)
 	}
 	caCert, ok := caSecret.Data["tls.crt"]
 	if !ok {
-		return nil, fmt.Errorf("no CA crt in CA secret")
+		return nil, tlsClientError(bmcAddress, fmt.Errorf("no CA crt in CA secret"))
 	}
 	clientSecret := &corev1.Secret{}
 	if err := k8sClient.Get(ctx, types.NamespacedName{Name: clientCertSecret, Namespace: namespace}, clientSecret); err != nil {
-		return nil, err
+		return nil, tlsClientError(bmcAddress, err)
 	}
 	clientCert, ok := clientSecret.Data["tls.crt"]
 	if !ok {
-		return nil, fmt.Errorf("no client crt in client secret")
+		return nil, tlsClientError(bmcAddress, fmt.Errorf("no client crt in client secret"))
 	}
 	clientKey, ok := clientSecret.Data["tls.key"]
 	if !ok {
-		return nil, fmt.Errorf("no client key in client secret")
+		return nil, tlsClientError(bmcAddress, fmt.Errorf("no client key in client secret"))
 	}
 	clientKeyPair, err := tls.X509KeyPair(clientCert, clientKey)
 	if err != nil {
-		return nil, err
+		return nil, tlsClientError(bmcAddress, err)
 	}
 	certPool := x509.NewCertPool()
 	if !certPool.AppendCertsFromPEM(caCert) {
-		return nil, fmt.Errorf("failed to load CA certs")
+		return nil, tlsClientError(bmcAddress, fmt.Errorf("failed to load CA certs"))
 	}
 	c := resty.New().SetBaseURL(bmcAddress).SetTLSClientConfig(newRedfishTLSConfig(certPool, []tls.Certificate{clientKeyPair}))
 
@@ -1089,12 +1094,11 @@ func NewTLSClient(ctx context.Context, bmcAddress string, namespace string, k8sC
 	// We will optimize it after redfish is stable.
 	resp, _, err := tlsClient.GetManagers()
 	if err != nil {
-		err = fmt.Errorf("verify mtls client failed, err: %v", err)
-		return nil, err
+		return nil, tlsClientError(bmcAddress, fmt.Errorf("verify mtls client failed, err: %v", err))
 	}
 
 	if resp != nil && resp.StatusCode() != http.StatusOK {
-		return nil, fmt.Errorf("redfish call getManagers failed, status code: %s", resp.Status())
+		return nil, tlsClientError(bmcAddress, fmt.Errorf("redfish call getManagers failed, status code: %s", resp.Status()))
 	}
 
 	return tlsClient, nil
