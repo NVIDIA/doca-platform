@@ -77,8 +77,8 @@ func newTestOptCtx(fakeClient client.Client) *operations.Context {
 		},
 		DiscoverPorts: func() ([]pciutil.NICPort, error) {
 			return []pciutil.NICPort{
-				{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: "/dev/mst/mt41692_pciconf0"},
-				{Netdev: "p1", PCIAddress: "0000:03:00.1", MSTDevice: "/dev/mst/mt41692_pciconf0.1"},
+				{Netdev: "p0", PCIAddress: "0000:03:00.0"},
+				{Netdev: "p1", PCIAddress: "0000:03:00.1"},
 			}, nil
 		},
 	}

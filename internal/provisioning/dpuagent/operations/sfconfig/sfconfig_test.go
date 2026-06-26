@@ -38,14 +38,14 @@ var _ = Describe("SFConfig", func() {
 	var tempDir string
 	discoverTestPorts := func() ([]pciutil.NICPort, error) { //nolint:unparam
 		return []pciutil.NICPort{
-			{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: "/dev/mst/mt41692_pciconf0"},
-			{Netdev: "p1", PCIAddress: "0000:03:00.1", MSTDevice: "/dev/mst/mt41692_pciconf0.1"},
+			{Netdev: "p0", PCIAddress: "0000:03:00.0"},
+			{Netdev: "p1", PCIAddress: "0000:03:00.1"},
 		}, nil
 	}
 	discoverBF4TestPorts := func() ([]pciutil.NICPort, error) { //nolint:unparam
 		return []pciutil.NICPort{
-			{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: "/dev/mst/mt41692_pciconf0"},
-			{Netdev: "p1", PCIAddress: "0001:03:00.0", MSTDevice: "/dev/mst/mt41692_pciconf1"},
+			{Netdev: "p0", PCIAddress: "0000:03:00.0"},
+			{Netdev: "p1", PCIAddress: "0001:03:00.0"},
 		}, nil
 	}
 

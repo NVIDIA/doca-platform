@@ -22,8 +22,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
-	"sort"
 	"strings"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -37,6 +35,11 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
+)
+
+const (
+	testPCIAddress0 = "0000:03:00.0"
+	testPCIAddress1 = "0000:03:00.1"
 )
 
 var _ = Describe("Reboot", func() {
@@ -205,19 +208,13 @@ var _ = Describe("Reboot", func() {
 			})
 
 			It("should trigger DPUWarmReboot via device-query path when GrubConfigChanged is true", func() {
-				dir, err := os.MkdirTemp("", "reboot-grub-changed-")
-				Expect(err).NotTo(HaveOccurred())
-				defer func() { _ = os.RemoveAll(dir) }()
-				devicePath := filepath.Join(dir, "mt4125_pciconf0")
-				Expect(writeMSTDevice(devicePath, "0000:03:00.0")).To(Succeed())
-
 				var rebootCmd string
 				statusPushed := false
 				optCtx := &operations.Context{
 					RebootMethodDiscovery: true,
 					CurrentBootID:         "boot-id",
 					DiscoverPorts: func() ([]pciutil.NICPort, error) {
-						return []pciutil.NICPort{{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: devicePath}}, nil
+						return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPCIAddress0}}, nil
 					},
 					GrubConfigChanged:        true,
 					UpdateStatusUntilSuccess: func(context.Context) { statusPushed = true },
@@ -314,23 +311,19 @@ var _ = Describe("Reboot", func() {
 
 	Describe("RebootMethodDiscovery true (Device Query based)", func() {
 		It("getRebootMethod returns SystemReboot when NIC firmware requires reboot", func() {
-			dir, err := os.MkdirTemp("", "reboot-nic-fw-dq-")
-			Expect(err).NotTo(HaveOccurred())
-			defer func() { _ = os.RemoveAll(dir) }()
-			devicePath := filepath.Join(dir, "mt4125_pciconf0")
-			Expect(writeMSTDevice(devicePath, "0000:03:00.0")).To(Succeed())
+			device := testPCIAddress0
 
 			optCtx := &operations.Context{
 				RebootMethodDiscovery:     true,
 				NICFirmwareRebootRequired: true,
 				CurrentBootID:             "boot-id",
 				DiscoverPorts: func() ([]pciutil.NICPort, error) {
-					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: devicePath}}, nil
+					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
 				},
 			}
 			h := &HandleReboot{
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
-					Expect(cmd).To(Equal(fmt.Sprintf("mlxfwreset -d %s s --json", devicePath)))
+					Expect(cmd).To(Equal(fmt.Sprintf("mlxfwreset -d %s s --json", device)))
 					var b bytes.Buffer
 					_, _ = b.WriteString(`{"reset_needed":false}`)
 					return b, bytes.Buffer{}, nil
@@ -348,17 +341,13 @@ var _ = Describe("Reboot", func() {
 		})
 
 		It("getRebootMethod returns SystemLevelReset when reset_needed is true", func() {
-			dir, err := os.MkdirTemp("", "reboot-mst-dq-")
-			Expect(err).NotTo(HaveOccurred())
-			defer func() { _ = os.RemoveAll(dir) }()
-			devicePath := filepath.Join(dir, "mt4125_pciconf0")
-			Expect(writeMSTDevice(devicePath, "0000:03:00.0")).To(Succeed())
+			device := testPCIAddress0
 
 			optCtx := &operations.Context{
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
 				DiscoverPorts: func() ([]pciutil.NICPort, error) {
-					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: devicePath}}, nil
+					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
 				},
 			}
 			var ran string
@@ -372,27 +361,22 @@ var _ = Describe("Reboot", func() {
 			}
 			m, err := h.getRebootMethod(optCtx)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(ran).To(Equal(fmt.Sprintf("mlxfwreset -d %s s --json", devicePath)))
+			Expect(ran).To(Equal(fmt.Sprintf("mlxfwreset -d %s s --json", device)))
 			Expect(m).NotTo(BeNil())
 			Expect(*m).To(Equal(provisioningv1.RebootMethodSystemLevelReset))
 		})
 
 		It("getRebootMethod returns SystemLevelReset when at least one device has reset_needed true", func() {
-			dir, err := os.MkdirTemp("", "reboot-mst-dq-multi-")
-			Expect(err).NotTo(HaveOccurred())
-			defer func() { _ = os.RemoveAll(dir) }()
-			devA := filepath.Join(dir, "mt_a")
-			devB := filepath.Join(dir, "mt_b")
-			Expect(writeMSTDevice(devA, "0000:03:00.0")).To(Succeed())
-			Expect(writeMSTDevice(devB, "0000:03:00.1")).To(Succeed())
+			devA := testPCIAddress0
+			devB := testPCIAddress1
 
 			optCtx := &operations.Context{
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
 				DiscoverPorts: func() ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{
-						{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: devA},
-						{Netdev: "p1", PCIAddress: "0000:03:00.1", MSTDevice: devB},
+						{Netdev: "p0", PCIAddress: devA},
+						{Netdev: "p1", PCIAddress: devB},
 					}, nil
 				},
 			}
@@ -400,9 +384,9 @@ var _ = Describe("Reboot", func() {
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 					var b bytes.Buffer
 					switch {
-					case strings.Contains(cmd, "mt_a"):
+					case strings.Contains(cmd, devA):
 						_, _ = b.WriteString(`{"reset_needed":false}`)
-					case strings.Contains(cmd, "mt_b"):
+					case strings.Contains(cmd, devB):
 						_, _ = b.WriteString(`{"reset_needed":true}`)
 					default:
 						Fail("unexpected cmd: " + cmd)
@@ -417,22 +401,18 @@ var _ = Describe("Reboot", func() {
 		})
 
 		It("getRebootMethod returns NoAction when reset_needed is false", func() {
-			dir, err := os.MkdirTemp("", "reboot-mst-dq2-")
-			Expect(err).NotTo(HaveOccurred())
-			defer func() { _ = os.RemoveAll(dir) }()
-			devicePath := filepath.Join(dir, "mt4125_pciconf0")
-			Expect(writeMSTDevice(devicePath, "0000:03:00.0")).To(Succeed())
+			device := testPCIAddress0
 
 			optCtx := &operations.Context{
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
 				DiscoverPorts: func() ([]pciutil.NICPort, error) {
-					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: devicePath}}, nil
+					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
 				},
 			}
 			h := &HandleReboot{
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
-					Expect(cmd).To(Equal(fmt.Sprintf("mlxfwreset -d %s s --json", devicePath)))
+					Expect(cmd).To(Equal(fmt.Sprintf("mlxfwreset -d %s s --json", device)))
 					var b bytes.Buffer
 					_, _ = b.WriteString(`{"reset_needed":false}`)
 					return b, bytes.Buffer{}, nil
@@ -448,22 +428,17 @@ var _ = Describe("Reboot", func() {
 			Expect(cond.Message).To(BeEmpty())
 		})
 
-		It("getRebootMethod queries only MST devices for the target NIC", func() {
-			dir, err := os.MkdirTemp("", "reboot-mst-filter-")
-			Expect(err).NotTo(HaveOccurred())
-			defer func() { _ = os.RemoveAll(dir) }()
-			target0 := filepath.Join(dir, "mt41692_pciconf0")
-			target1 := filepath.Join(dir, "mt41692_pciconf0.1")
-			Expect(writeMSTDevice(target0, "0000:03:00.0")).To(Succeed())
-			Expect(writeMSTDevice(target1, "0000:03:00.1")).To(Succeed())
+		It("getRebootMethod queries only PCI devices for the target NIC", func() {
+			target0 := testPCIAddress0
+			target1 := testPCIAddress1
 
 			optCtx := &operations.Context{
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
 				DiscoverPorts: func() ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{
-						{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: target0},
-						{Netdev: "p1", PCIAddress: "0000:03:00.1", MSTDevice: target1},
+						{Netdev: "p0", PCIAddress: target0},
+						{Netdev: "p1", PCIAddress: target1},
 					}, nil
 				},
 			}
@@ -487,22 +462,18 @@ var _ = Describe("Reboot", func() {
 		})
 
 		It("getRebootMethod returns NoAction when reset_needed is omitted from mlxfwreset JSON", func() {
-			dir, err := os.MkdirTemp("", "reboot-mst-dq-omit-")
-			Expect(err).NotTo(HaveOccurred())
-			defer func() { _ = os.RemoveAll(dir) }()
-			devicePath := filepath.Join(dir, "mt4125_pciconf0")
-			Expect(writeMSTDevice(devicePath, "0000:03:00.0")).To(Succeed())
+			device := testPCIAddress0
 
 			optCtx := &operations.Context{
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
 				DiscoverPorts: func() ([]pciutil.NICPort, error) {
-					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: devicePath}}, nil
+					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
 				},
 			}
 			h := &HandleReboot{
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
-					Expect(cmd).To(Equal(fmt.Sprintf("mlxfwreset -d %s s --json", devicePath)))
+					Expect(cmd).To(Equal(fmt.Sprintf("mlxfwreset -d %s s --json", device)))
 					var b bytes.Buffer
 					// Omitted reset_needed unmarshals to *bool nil; must not be treated as reset required.
 					_, _ = b.WriteString(`{"fw_version":"1.2.3"}`)
@@ -517,11 +488,7 @@ var _ = Describe("Reboot", func() {
 
 		Context("removeForeverPending workaround", func() {
 			It("stores current pending NVConfig entries in agent status", func() {
-				dir, err := os.MkdirTemp("", "reboot-mst-dq-pending-status-")
-				Expect(err).NotTo(HaveOccurred())
-				defer func() { _ = os.RemoveAll(dir) }()
-				devicePath := filepath.Join(dir, "mt4125_pciconf0")
-				Expect(writeMSTDevice(devicePath, "0000:03:00.0")).To(Succeed())
+				device := testPCIAddress0
 				currentBootID, err := getCurrentRebootID()
 				Expect(err).NotTo(HaveOccurred())
 
@@ -539,7 +506,7 @@ var _ = Describe("Reboot", func() {
 					RebootMethodDiscovery: true,
 					CurrentBootID:         currentBootID,
 					DiscoverPorts: func() ([]pciutil.NICPort, error) {
-						return []pciutil.NICPort{{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: devicePath}}, nil
+						return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
 					},
 				}
 				h := &HandleReboot{
@@ -555,7 +522,7 @@ var _ = Describe("Reboot", func() {
 					BootID: currentBootID,
 					Devices: []provisioningv1.PendingNVConfigDevice{
 						{
-							Device: devicePath,
+							Device: device,
 							Entries: []provisioningv1.PendingNVConfigEntry{
 								{Name: "PARAM_A", Current: "0", NextBoot: "1"},
 								{Name: "PARAM_B", Current: "x", NextBoot: "y"},
@@ -566,11 +533,7 @@ var _ = Describe("Reboot", func() {
 			})
 
 			It("stores pending NVConfig state when reset_needed is false", func() {
-				dir, err := os.MkdirTemp("", "reboot-mst-dq-pending-status-false-")
-				Expect(err).NotTo(HaveOccurred())
-				defer func() { _ = os.RemoveAll(dir) }()
-				devicePath := filepath.Join(dir, "mt4125_pciconf0")
-				Expect(writeMSTDevice(devicePath, "0000:03:00.0")).To(Succeed())
+				device := testPCIAddress0
 
 				mlxfwresetJSON := strings.TrimSpace(`
 {
@@ -583,7 +546,7 @@ var _ = Describe("Reboot", func() {
 					RebootMethodDiscovery: true,
 					CurrentBootID:         "boot-id",
 					DiscoverPorts: func() ([]pciutil.NICPort, error) {
-						return []pciutil.NICPort{{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: devicePath}}, nil
+						return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
 					},
 				}
 				h := &HandleReboot{
@@ -593,13 +556,13 @@ var _ = Describe("Reboot", func() {
 						return b, bytes.Buffer{}, nil
 					},
 				}
-				_, err = h.getRebootMethod(optCtx)
+				_, err := h.getRebootMethod(optCtx)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(optCtx.Status.LastObservedPendingNVConfig).To(Equal(&provisioningv1.PendingNVConfigState{
 					BootID: "boot-id",
 					Devices: []provisioningv1.PendingNVConfigDevice{
 						{
-							Device:  devicePath,
+							Device:  device,
 							Entries: []provisioningv1.PendingNVConfigEntry{},
 						},
 					},
@@ -607,14 +570,10 @@ var _ = Describe("Reboot", func() {
 			})
 
 			It("ignores repeated pending NVConfig entries after boot change when they are the only reason", func() {
-				dir, err := os.MkdirTemp("", "reboot-mst-dq-ignore-stuck-")
-				Expect(err).NotTo(HaveOccurred())
-				defer func() { _ = os.RemoveAll(dir) }()
-				devicePath := filepath.Join(dir, "mt4125_pciconf0")
-				Expect(writeMSTDevice(devicePath, "0000:03:00.0")).To(Succeed())
+				device := testPCIAddress0
 				currentBootID, err := getCurrentRebootID()
 				Expect(err).NotTo(HaveOccurred())
-				cmd := fmt.Sprintf("mlxfwreset -d %s reset --level 3", devicePath)
+				cmd := fmt.Sprintf("mlxfwreset -d %s reset --level 3", device)
 
 				mlxfwresetJSON := fmt.Sprintf(`{
   "reset_needed": true,
@@ -627,7 +586,7 @@ var _ = Describe("Reboot", func() {
 				optCtx := &operations.Context{
 					RebootMethodDiscovery: true,
 					DiscoverPorts: func() ([]pciutil.NICPort, error) {
-						return []pciutil.NICPort{{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: devicePath}}, nil
+						return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
 					},
 					CurrentBootID: currentBootID,
 					LatestDPU: &provisioningv1.DPU{
@@ -637,7 +596,7 @@ var _ = Describe("Reboot", func() {
 									BootID: "previous-boot",
 									Devices: []provisioningv1.PendingNVConfigDevice{
 										{
-											Device: devicePath,
+											Device: device,
 											Entries: []provisioningv1.PendingNVConfigEntry{
 												{Name: "PARAM_A", Default: "2", Current: "0", NextBoot: "1"},
 											},
@@ -660,13 +619,13 @@ var _ = Describe("Reboot", func() {
 				Expect(*m).To(Equal(provisioningv1.RebootMethodNoAction))
 				Expect(optCtx.CondMessage).To(Equal(fmt.Sprintf(
 					"device=%s pending NVCONFIG params did not take effect after reboot: [PARAM_A(default=2,current=0,next=1)]; reset ignored because no other reset reasons remain.",
-					devicePath,
+					device,
 				)))
 				Expect(optCtx.Status.LastObservedPendingNVConfig).To(Equal(&provisioningv1.PendingNVConfigState{
 					BootID: currentBootID,
 					Devices: []provisioningv1.PendingNVConfigDevice{
 						{
-							Device: devicePath,
+							Device: device,
 							Entries: []provisioningv1.PendingNVConfigEntry{
 								{Name: "PARAM_A", Default: "2", Current: "0", NextBoot: "1"},
 							},
@@ -676,12 +635,8 @@ var _ = Describe("Reboot", func() {
 			})
 
 			It("filters stuck pending NVConfig entries per entry before selecting reboot method", func() {
-				dir, err := os.MkdirTemp("", "reboot-mst-dq-filter-stuck-")
-				Expect(err).NotTo(HaveOccurred())
-				defer func() { _ = os.RemoveAll(dir) }()
-				devicePath := filepath.Join(dir, "mt4125_pciconf0")
-				Expect(writeMSTDevice(devicePath, "0000:03:00.0")).To(Succeed())
-				cmd := fmt.Sprintf("mlxfwreset -d %s reset --level 3", devicePath)
+				device := testPCIAddress0
+				cmd := fmt.Sprintf("mlxfwreset -d %s reset --level 3", device)
 
 				mlxfwresetJSON := fmt.Sprintf(`{
   "reset_needed": true,
@@ -695,7 +650,7 @@ var _ = Describe("Reboot", func() {
 				optCtx := &operations.Context{
 					RebootMethodDiscovery: true,
 					DiscoverPorts: func() ([]pciutil.NICPort, error) {
-						return []pciutil.NICPort{{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: devicePath}}, nil
+						return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
 					},
 					CurrentBootID: "current-boot-id",
 					LatestDPU: &provisioningv1.DPU{
@@ -710,7 +665,7 @@ var _ = Describe("Reboot", func() {
 									BootID: "previous-boot",
 									Devices: []provisioningv1.PendingNVConfigDevice{
 										{
-											Device: devicePath,
+											Device: device,
 											Entries: []provisioningv1.PendingNVConfigEntry{
 												{Name: "INTERNAL_CPU_MODEL", Default: "model-default", Current: "x", NextBoot: "y"},
 											},
@@ -733,16 +688,12 @@ var _ = Describe("Reboot", func() {
 				Expect(*m).To(Equal(provisioningv1.RebootMethodFirmwareReset))
 				Expect(optCtx.CondMessage).To(Equal(fmt.Sprintf(
 					"device=%s pending NVCONFIG params did not take effect after reboot: [INTERNAL_CPU_MODEL(default=model-default,current=x,next=y)]; reset still required because other reset reasons remain.",
-					devicePath,
+					device,
 				)))
 			})
 
 			It("does not ignore reset when pending NVCONFIG is not the only reason", func() {
-				dir, err := os.MkdirTemp("", "reboot-mst-dq-other-reasons-")
-				Expect(err).NotTo(HaveOccurred())
-				defer func() { _ = os.RemoveAll(dir) }()
-				devicePath := filepath.Join(dir, "mt4125_pciconf0")
-				Expect(writeMSTDevice(devicePath, "0000:03:00.0")).To(Succeed())
+				device := testPCIAddress0
 
 				mlxfwresetJSON := `{
   "reset_needed": true,
@@ -755,7 +706,7 @@ var _ = Describe("Reboot", func() {
 				optCtx := &operations.Context{
 					RebootMethodDiscovery: true,
 					DiscoverPorts: func() ([]pciutil.NICPort, error) {
-						return []pciutil.NICPort{{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: devicePath}}, nil
+						return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
 					},
 					CurrentBootID: "current-boot-id",
 					LatestDPU: &provisioningv1.DPU{
@@ -765,7 +716,7 @@ var _ = Describe("Reboot", func() {
 									BootID: "previous-boot",
 									Devices: []provisioningv1.PendingNVConfigDevice{
 										{
-											Device: devicePath,
+											Device: device,
 											Entries: []provisioningv1.PendingNVConfigEntry{
 												{Name: "PARAM_A", Default: "2", Current: "0", NextBoot: "1"},
 											},
@@ -789,13 +740,13 @@ var _ = Describe("Reboot", func() {
 				Expect(*m).To(Equal(provisioningv1.RebootMethodSystemLevelReset))
 				Expect(optCtx.CondMessage).To(Equal(fmt.Sprintf(
 					"device=%s pending NVCONFIG params did not take effect after reboot: [PARAM_A(default=2,current=0,next=1)]; reset still required because other reset reasons remain.",
-					devicePath,
+					device,
 				)))
 				Expect(optCtx.Status.LastObservedPendingNVConfig).To(Equal(&provisioningv1.PendingNVConfigState{
 					BootID: "current-boot-id",
 					Devices: []provisioningv1.PendingNVConfigDevice{
 						{
-							Device: devicePath,
+							Device: device,
 							Entries: []provisioningv1.PendingNVConfigEntry{
 								{Name: "PARAM_A", Default: "2", Current: "0", NextBoot: "1"},
 							},
@@ -805,14 +756,10 @@ var _ = Describe("Reboot", func() {
 			})
 
 			It("ignores repeated pending NVConfig entries on the same boot", func() {
-				dir, err := os.MkdirTemp("", "reboot-mst-dq-same-boot-")
-				Expect(err).NotTo(HaveOccurred())
-				defer func() { _ = os.RemoveAll(dir) }()
-				devicePath := filepath.Join(dir, "mt4125_pciconf0")
-				Expect(writeMSTDevice(devicePath, "0000:03:00.0")).To(Succeed())
+				device := testPCIAddress0
 				currentBootID, err := getCurrentRebootID()
 				Expect(err).NotTo(HaveOccurred())
-				cmd := fmt.Sprintf("mlxfwreset -d %s reset --level 3", devicePath)
+				cmd := fmt.Sprintf("mlxfwreset -d %s reset --level 3", device)
 
 				mlxfwresetJSON := fmt.Sprintf(`{
   "reset_needed": true,
@@ -825,7 +772,7 @@ var _ = Describe("Reboot", func() {
 				optCtx := &operations.Context{
 					RebootMethodDiscovery: true,
 					DiscoverPorts: func() ([]pciutil.NICPort, error) {
-						return []pciutil.NICPort{{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: devicePath}}, nil
+						return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
 					},
 					CurrentBootID: currentBootID,
 					LatestDPU: &provisioningv1.DPU{
@@ -835,7 +782,7 @@ var _ = Describe("Reboot", func() {
 									BootID: currentBootID,
 									Devices: []provisioningv1.PendingNVConfigDevice{
 										{
-											Device: devicePath,
+											Device: device,
 											Entries: []provisioningv1.PendingNVConfigEntry{
 												{Name: "INTERNAL_CPU_MODEL", Current: "x", NextBoot: "y"},
 											},
@@ -859,27 +806,21 @@ var _ = Describe("Reboot", func() {
 			})
 		})
 
-		It("getRebootMethod returns error when no MST devices are found", func() {
+		It("getRebootMethod returns error when no PCI devices are found", func() {
 			optCtx := &operations.Context{
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
 				DiscoverPorts: func() ([]pciutil.NICPort, error) {
-					return nil, fmt.Errorf("no MST devices found")
+					return nil, fmt.Errorf("no PCI devices found")
 				},
 			}
 			h := &HandleReboot{}
 			_, err := h.getRebootMethod(optCtx)
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("no MST devices found"))
+			Expect(err.Error()).To(ContainSubstring("no PCI devices found"))
 		})
 
 		It("HandleReboot sets RebootMethodDiscovery True when device-query path", func() {
-			dir, err := os.MkdirTemp("", "reboot-dq-cond-")
-			Expect(err).NotTo(HaveOccurred())
-			defer func() { _ = os.RemoveAll(dir) }()
-			devicePath := filepath.Join(dir, "mt4125_pciconf0")
-			Expect(writeMSTDevice(devicePath, "0000:03:00.0")).To(Succeed())
-
 			mlxfwresetJSON := strings.TrimSpace(`
 {
   "reset_needed": true
@@ -890,7 +831,7 @@ var _ = Describe("Reboot", func() {
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
 				DiscoverPorts: func() ([]pciutil.NICPort, error) {
-					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: devicePath}}, nil
+					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPCIAddress0}}, nil
 				},
 				UpdateStatusUntilSuccess: func(context.Context) {},
 			}
@@ -915,12 +856,6 @@ var _ = Describe("Reboot", func() {
 		})
 
 		It("RebootMethodDiscovery condition uses Reason=SystemLevelReset and Message=mlxfwreset JSON when reset_needed", func() {
-			dir, err := os.MkdirTemp("", "reboot-dq-reasons-")
-			Expect(err).NotTo(HaveOccurred())
-			defer func() { _ = os.RemoveAll(dir) }()
-			devicePath := filepath.Join(dir, "mt4125_pciconf0")
-			Expect(writeMSTDevice(devicePath, "0000:03:00.0")).To(Succeed())
-
 			mlxfwresetJSON := strings.TrimSpace(`
 {
   "reset_needed": true,
@@ -934,7 +869,7 @@ var _ = Describe("Reboot", func() {
 			optCtx := &operations.Context{
 				RebootMethodDiscovery: true,
 				DiscoverPorts: func() ([]pciutil.NICPort, error) {
-					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: devicePath}}, nil
+					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPCIAddress0}}, nil
 				},
 				CurrentBootID: "boot-id",
 			}
@@ -955,16 +890,12 @@ var _ = Describe("Reboot", func() {
 		})
 
 		It("stores full mlxfwreset JSON in condition Message (device, FW versions, nvconfig, reasons)", func() {
-			dir, err := os.MkdirTemp("", "reboot-dq-full-json-")
-			Expect(err).NotTo(HaveOccurred())
-			defer func() { _ = os.RemoveAll(dir) }()
-			devicePath := filepath.Join(dir, "mt4125_pciconf0")
-			Expect(writeMSTDevice(devicePath, "0000:03:00.0")).To(Succeed())
+			device := testPCIAddress0
 
-			// Representative `mlxfwreset -d <mst> s --json` output (embedded fixture, same style as dpuflavor webhook YAML tests).
+			// Representative `mlxfwreset -d <pci> s --json` output (embedded fixture, same style as dpuflavor webhook YAML tests).
 			mlxfwresetFullJSON := strings.TrimSpace(`
 {
-  "device": "/dev/mst/mt4125_pciconf0",
+  "device": "0000:03:00.0",
   "pending_fw_version": "22.49.0264",
   "running_fw_version": "22.33.1048",
   "pending_nvconfig_parameters": [
@@ -977,7 +908,7 @@ var _ = Describe("Reboot", func() {
   ],
   "reset_needed": true,
   "description_action": "Driver restart and PCI reset (Level 3)",
-  "command_required": "mlxfwreset -d /dev/mst/mt4125_pciconf0 reset --level 3 --type 0 --sync 0 --method 0",
+  "command_required": "mlxfwreset -d 0000:03:00.0 reset --level 3 --type 0 --sync 0 --method 0",
   "reasons": [
     "Pending FW update",
     "Pending NVCONFIG parameter change"
@@ -988,7 +919,7 @@ var _ = Describe("Reboot", func() {
 			optCtx := &operations.Context{
 				RebootMethodDiscovery: true,
 				DiscoverPorts: func() ([]pciutil.NICPort, error) {
-					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: devicePath}}, nil
+					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
 				},
 				CurrentBootID: "boot-id",
 				LatestDPU: &provisioningv1.DPU{
@@ -1001,7 +932,7 @@ var _ = Describe("Reboot", func() {
 			}
 			h := &HandleReboot{
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
-					Expect(cmd).To(Equal(fmt.Sprintf("mlxfwreset -d %s s --json", devicePath)))
+					Expect(cmd).To(Equal(fmt.Sprintf("mlxfwreset -d %s s --json", device)))
 					var b bytes.Buffer
 					_, _ = b.WriteString(mlxfwresetFullJSON)
 					return b, bytes.Buffer{}, nil
@@ -1017,23 +948,17 @@ var _ = Describe("Reboot", func() {
 		})
 
 		It("getRebootMethod maps firmware-style command_required to SystemLevelReset when allow-firmware-reset-reboot annotation is absent", func() {
-			dir, err := os.MkdirTemp("", "reboot-dq-full-json-no-dev-")
-			Expect(err).NotTo(HaveOccurred())
-			defer func() { _ = os.RemoveAll(dir) }()
-			devicePath := filepath.Join(dir, "mt4125_pciconf0")
-			Expect(writeMSTDevice(devicePath, "0000:03:00.0")).To(Succeed())
-
 			mlxfwresetFullJSON := strings.TrimSpace(`
 {
   "reset_needed": true,
-  "command_required": "mlxfwreset -d /dev/mst/mt4125_pciconf0 reset --level 3 --type 0 --sync 0 --method 0"
+  "command_required": "mlxfwreset -d 0000:03:00.0 reset --level 3 --type 0 --sync 0 --method 0"
 }
 `)
 			optCtx := &operations.Context{
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
 				DiscoverPorts: func() ([]pciutil.NICPort, error) {
-					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: devicePath}}, nil
+					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPCIAddress0}}, nil
 				},
 			}
 			h := &HandleReboot{
@@ -1049,26 +974,20 @@ var _ = Describe("Reboot", func() {
 		})
 
 		It("getRebootMethod returns PowerCycle when pending_nvconfig includes a power-cycle-only parameter", func() {
-			dir, err := os.MkdirTemp("", "reboot-dq-pwr-cycle-")
-			Expect(err).NotTo(HaveOccurred())
-			defer func() { _ = os.RemoveAll(dir) }()
-			devicePath := filepath.Join(dir, "mt41692_pciconf0")
-			Expect(writeMSTDevice(devicePath, "0000:03:00.0")).To(Succeed())
-
 			mlxfwresetJSON := strings.TrimSpace(`
 {
   "reset_needed": true,
   "pending_nvconfig_parameters": [
     {"name": "INTERNAL_CPU_MODEL", "current": "x", "next_boot": "y"}
   ],
-  "command_required": "mlxfwreset -d /dev/mst/mt41692_pciconf0 reset --level 3"
+  "command_required": "mlxfwreset -d 0000:03:00.0 reset --level 3"
 }
 `)
 			optCtx := &operations.Context{
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
 				DiscoverPorts: func() ([]pciutil.NICPort, error) {
-					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: devicePath}}, nil
+					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPCIAddress0}}, nil
 				},
 			}
 			h := &HandleReboot{
@@ -1087,12 +1006,6 @@ var _ = Describe("Reboot", func() {
 		})
 
 		It("getRebootMethod returns PowerCycle when command_required contains power cycle (case-insensitive substring)", func() {
-			dir, err := os.MkdirTemp("", "reboot-dq-pwr-cycle-cmd-")
-			Expect(err).NotTo(HaveOccurred())
-			defer func() { _ = os.RemoveAll(dir) }()
-			devicePath := filepath.Join(dir, "mt41692_pciconf0")
-			Expect(writeMSTDevice(devicePath, "0000:03:00.0")).To(Succeed())
-
 			mlxfwresetJSON := strings.TrimSpace(`
 {
   "reset_needed": true,
@@ -1104,7 +1017,7 @@ var _ = Describe("Reboot", func() {
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
 				DiscoverPorts: func() ([]pciutil.NICPort, error) {
-					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: devicePath}}, nil
+					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPCIAddress0}}, nil
 				},
 			}
 			h := &HandleReboot{
@@ -1123,12 +1036,6 @@ var _ = Describe("Reboot", func() {
 		})
 
 		It("getRebootMethod returns SystemLevelReset when command_required is external host reboot message", func() {
-			dir, err := os.MkdirTemp("", "reboot-dq-ext-host-")
-			Expect(err).NotTo(HaveOccurred())
-			defer func() { _ = os.RemoveAll(dir) }()
-			devicePath := filepath.Join(dir, "mt41692_pciconf0")
-			Expect(writeMSTDevice(devicePath, "0000:03:00.0")).To(Succeed())
-
 			mlxfwresetJSON := strings.TrimSpace(`
 {
   "reset_needed": true,
@@ -1140,7 +1047,7 @@ var _ = Describe("Reboot", func() {
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
 				DiscoverPorts: func() ([]pciutil.NICPort, error) {
-					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: devicePath}}, nil
+					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPCIAddress0}}, nil
 				},
 			}
 			h := &HandleReboot{
@@ -1159,18 +1066,12 @@ var _ = Describe("Reboot", func() {
 		})
 
 		It("getRebootMethod matches external host message with trim and case-insensitive command_required", func() {
-			dir, err := os.MkdirTemp("", "reboot-dq-ext-host-case-")
-			Expect(err).NotTo(HaveOccurred())
-			defer func() { _ = os.RemoveAll(dir) }()
-			devicePath := filepath.Join(dir, "mt41692_pciconf0")
-			Expect(writeMSTDevice(devicePath, "0000:03:00.0")).To(Succeed())
-
 			mlxfwresetJSON := `{"reset_needed":true,"command_required":"  reboot EXTERNAL host is required  "}`
 			optCtx := &operations.Context{
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
 				DiscoverPorts: func() ([]pciutil.NICPort, error) {
-					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: devicePath}}, nil
+					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPCIAddress0}}, nil
 				},
 			}
 			h := &HandleReboot{
@@ -1185,24 +1086,19 @@ var _ = Describe("Reboot", func() {
 			Expect(*m).To(Equal(provisioningv1.RebootMethodSystemLevelReset))
 		})
 
-		It("merges multiple MST devices: PowerCycle wins over FirmwareReset", func() {
-			dir, err := os.MkdirTemp("", "reboot-dq-merge-pc-")
-			Expect(err).NotTo(HaveOccurred())
-			defer func() { _ = os.RemoveAll(dir) }()
-			devA := filepath.Join(dir, "mt_a")
-			devB := filepath.Join(dir, "mt_b")
-			Expect(writeMSTDevice(devA, "0000:03:00.0")).To(Succeed())
-			Expect(writeMSTDevice(devB, "0000:03:00.1")).To(Succeed())
+		It("merges multiple PCI devices: PowerCycle wins over FirmwareReset", func() {
+			devA := testPCIAddress0
+			devB := testPCIAddress1
 
-			jsonFR := `{"reset_needed":true,"command_required":"mlxfwreset -d /dev/mst/mt_a reset --level 3"}`
+			jsonFR := `{"reset_needed":true,"command_required":"mlxfwreset -d 0000:03:00.0 reset --level 3"}`
 			jsonPC := `{"reset_needed":true,"pending_nvconfig_parameters":[{"name":"INTERNAL_CPU_MODEL"}]}`
 			optCtx := &operations.Context{
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
 				DiscoverPorts: func() ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{
-						{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: devA},
-						{Netdev: "p1", PCIAddress: "0000:03:00.1", MSTDevice: devB},
+						{Netdev: "p0", PCIAddress: devA},
+						{Netdev: "p1", PCIAddress: devB},
 					}, nil
 				},
 			}
@@ -1210,9 +1106,9 @@ var _ = Describe("Reboot", func() {
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 					var b bytes.Buffer
 					switch {
-					case strings.Contains(cmd, "mt_a"):
+					case strings.Contains(cmd, devA):
 						_, _ = b.WriteString(jsonFR)
-					case strings.Contains(cmd, "mt_b"):
+					case strings.Contains(cmd, devB):
 						_, _ = b.WriteString(jsonPC)
 					default:
 						Fail("unexpected cmd: " + cmd)
@@ -1228,24 +1124,19 @@ var _ = Describe("Reboot", func() {
 			Expect(cond.Message).To(Equal(jsonFR + "\n---\n" + jsonPC))
 		})
 
-		It("merges multiple MST devices: SystemLevelReset wins over FirmwareReset", func() {
-			dir, err := os.MkdirTemp("", "reboot-dq-merge-slr-")
-			Expect(err).NotTo(HaveOccurred())
-			defer func() { _ = os.RemoveAll(dir) }()
-			devA := filepath.Join(dir, "mt_a")
-			devB := filepath.Join(dir, "mt_b")
-			Expect(writeMSTDevice(devA, "0000:03:00.0")).To(Succeed())
-			Expect(writeMSTDevice(devB, "0000:03:00.1")).To(Succeed())
+		It("merges multiple PCI devices: SystemLevelReset wins over FirmwareReset", func() {
+			devA := testPCIAddress0
+			devB := testPCIAddress1
 
-			jsonFR := `{"reset_needed":true,"command_required":"mlxfwreset -d /dev/mst/mt_a reset --level 3"}`
+			jsonFR := `{"reset_needed":true,"command_required":"mlxfwreset -d 0000:03:00.0 reset --level 3"}`
 			jsonSLR := `{"reset_needed":true,"command_required":"Reboot external host is required"}`
 			optCtx := &operations.Context{
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
 				DiscoverPorts: func() ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{
-						{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: devA},
-						{Netdev: "p1", PCIAddress: "0000:03:00.1", MSTDevice: devB},
+						{Netdev: "p0", PCIAddress: devA},
+						{Netdev: "p1", PCIAddress: devB},
 					}, nil
 				},
 			}
@@ -1253,9 +1144,9 @@ var _ = Describe("Reboot", func() {
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 					var b bytes.Buffer
 					switch {
-					case strings.Contains(cmd, "mt_a"):
+					case strings.Contains(cmd, devA):
 						_, _ = b.WriteString(jsonFR)
-					case strings.Contains(cmd, "mt_b"):
+					case strings.Contains(cmd, devB):
 						_, _ = b.WriteString(jsonSLR)
 					default:
 						Fail("unexpected cmd: " + cmd)
@@ -1272,28 +1163,23 @@ var _ = Describe("Reboot", func() {
 		})
 
 		It("joins mlxfwreset JSON from each reset-needed device in discovery condition Message", func() {
-			dir, err := os.MkdirTemp("", "reboot-dq-join-msg-")
-			Expect(err).NotTo(HaveOccurred())
-			defer func() { _ = os.RemoveAll(dir) }()
-			devA := filepath.Join(dir, "mt_a")
-			devB := filepath.Join(dir, "mt_b")
-			Expect(writeMSTDevice(devA, "0000:03:00.0")).To(Succeed())
-			Expect(writeMSTDevice(devB, "0000:03:00.1")).To(Succeed())
+			devA := testPCIAddress0
+			devB := testPCIAddress1
 			jsonA := `{"reset_needed":true,"tag":"a"}`
 			jsonB := `{"reset_needed":true,"tag":"b"}`
 			optCtx := &operations.Context{
 				RebootMethodDiscovery: true,
 				DiscoverPorts: func() ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{
-						{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: devA},
-						{Netdev: "p1", PCIAddress: "0000:03:00.1", MSTDevice: devB},
+						{Netdev: "p0", PCIAddress: devA},
+						{Netdev: "p1", PCIAddress: devB},
 					}, nil
 				},
 			}
 			h := &HandleReboot{
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 					var b bytes.Buffer
-					if strings.Contains(cmd, "mt_a") {
+					if strings.Contains(cmd, devA) {
 						_, _ = b.WriteString(jsonA)
 					} else {
 						_, _ = b.WriteString(jsonB)
@@ -1301,30 +1187,25 @@ var _ = Describe("Reboot", func() {
 					return b, bytes.Buffer{}, nil
 				},
 			}
-			_, err = h.getRebootMethod(optCtx)
+			_, err := h.getRebootMethod(optCtx)
 			Expect(err).NotTo(HaveOccurred())
 			cond := meta.FindStatusCondition(optCtx.Status.Conditions, cutil.AgentCondRebootMethodDiscovery)
 			Expect(cond.Message).To(Equal(jsonA + "\n---\n" + jsonB))
 		})
 
 		It("populates per-device firmware reset commands when merged method is FirmwareReset", func() {
-			dir, err := os.MkdirTemp("", "reboot-dq-fw-plan-")
-			Expect(err).NotTo(HaveOccurred())
-			defer func() { _ = os.RemoveAll(dir) }()
-			devA := filepath.Join(dir, "mt_a")
-			devB := filepath.Join(dir, "mt_b")
-			Expect(writeMSTDevice(devA, "0000:03:00.0")).To(Succeed())
-			Expect(writeMSTDevice(devB, "0000:03:00.1")).To(Succeed())
-			cmdA := "mlxfwreset -d /dev/mst/mt_a reset --level 3 --type 0"
-			cmdB := "mlxfwreset -d /dev/mst/mt_b reset --level 1"
+			devA := testPCIAddress0
+			devB := testPCIAddress1
+			cmdA := "mlxfwreset -d 0000:03:00.0 reset --level 3 --type 0"
+			cmdB := "mlxfwreset -d 0000:03:00.1 reset --level 1"
 			jsonA := `{"reset_needed":true,"command_required":"` + cmdA + `"}`
 			jsonB := `{"reset_needed":true,"command_required":"` + cmdB + `"}`
 			optCtx := &operations.Context{
 				RebootMethodDiscovery: true,
 				DiscoverPorts: func() ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{
-						{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: devA},
-						{Netdev: "p1", PCIAddress: "0000:03:00.1", MSTDevice: devB},
+						{Netdev: "p0", PCIAddress: devA},
+						{Netdev: "p1", PCIAddress: devB},
 					}, nil
 				},
 				CurrentBootID: "boot-id",
@@ -1339,7 +1220,7 @@ var _ = Describe("Reboot", func() {
 			h := &HandleReboot{
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 					var b bytes.Buffer
-					if strings.Contains(cmd, "mt_a") {
+					if strings.Contains(cmd, devA) {
 						_, _ = b.WriteString(jsonA)
 					} else {
 						_, _ = b.WriteString(jsonB)
@@ -1351,23 +1232,17 @@ var _ = Describe("Reboot", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(*m).To(Equal(provisioningv1.RebootMethodFirmwareReset))
 			Expect(h.perDeviceFirmwareResetCmds).To(Equal([]firmwareResetPerDevice{
-				{DevicePath: devA, Cmd: cmdA},
-				{DevicePath: devB, Cmd: cmdB},
+				{Device: devA, Cmd: cmdA},
+				{Device: devB, Cmd: cmdB},
 			}))
 		})
 
 		It("getRebootMethod returns error when mlxfwreset JSON is invalid", func() {
-			dir, err := os.MkdirTemp("", "reboot-mst-dq-json-")
-			Expect(err).NotTo(HaveOccurred())
-			defer func() { _ = os.RemoveAll(dir) }()
-			devicePath := filepath.Join(dir, "mt4125_pciconf0")
-			Expect(writeMSTDevice(devicePath, "0000:03:00.0")).To(Succeed())
-
 			optCtx := &operations.Context{
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
 				DiscoverPorts: func() ([]pciutil.NICPort, error) {
-					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: "0000:03:00.0", MSTDevice: devicePath}}, nil
+					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPCIAddress0}}, nil
 				},
 			}
 			h := &HandleReboot{
@@ -1377,13 +1252,13 @@ var _ = Describe("Reboot", func() {
 					return b, bytes.Buffer{}, nil
 				},
 			}
-			_, err = h.getRebootMethod(optCtx)
+			_, err := h.getRebootMethod(optCtx)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("parse JSON:"))
 		})
 	})
 
-	Describe("MST reboot method helpers", func() {
+	Describe("device-query reboot method helpers", func() {
 		DescribeTable("rebootMethodTakesPrecedenceOver",
 			func(a, b provisioningv1.RebootMethodType, want bool) {
 				Expect(rebootMethodTakesPrecedenceOver(a, b)).To(Equal(want))
@@ -1409,7 +1284,7 @@ var _ = Describe("Reboot", func() {
 		)
 
 		It("rebootMethodFromMlxfwresetStatus follows PowerCycle > SystemLevelReset > FirmwareReset > SystemLevelReset fallback", func() {
-			dev := "/dev/mst/x"
+			dev := testPCIAddress0
 			h := &HandleReboot{}
 
 			var outPC mlxfwresetStatusJSON
@@ -1484,13 +1359,9 @@ var _ = Describe("Reboot", func() {
 		})
 
 		Context("execFirmwareReset", func() {
-			It("sets status and runs mlxfwreset reset for each MST device", func() {
-				dir, err := os.MkdirTemp("", "reboot-mst-")
-				Expect(err).NotTo(HaveOccurred())
-				defer func() { _ = os.RemoveAll(dir) }()
-				devicePath := filepath.Join(dir, "mt4119_pciconf0")
-				Expect(writeMSTDevice(devicePath, "0000:03:00.0")).To(Succeed())
-				cmd := fmt.Sprintf("mlxfwreset -d %s -y reset", devicePath)
+			It("sets status and runs mlxfwreset reset for each PCI device", func() {
+				device := testPCIAddress0
+				cmd := fmt.Sprintf("mlxfwreset -d %s -y reset", device)
 				optCtx := &operations.Context{
 					UpdateStatusUntilSuccess: func(context.Context) {}, // no-op for unit test
 				}
@@ -1498,7 +1369,7 @@ var _ = Describe("Reboot", func() {
 				h := &HandleReboot{
 					skipBlock: true,
 					perDeviceFirmwareResetCmds: []firmwareResetPerDevice{
-						{DevicePath: devicePath, Cmd: cmd},
+						{Device: device, Cmd: cmd},
 					},
 					runBash: func(c string) (bytes.Buffer, bytes.Buffer, error) {
 						fwResetCmds = append(fwResetCmds, c)
@@ -1511,7 +1382,7 @@ var _ = Describe("Reboot", func() {
 				Expect(fwResetCmds).To(Equal([]string{cmd}))
 			})
 
-			It("runs discovered per-device firmware reset commands without listing MST devices", func() {
+			It("runs discovered per-device firmware reset commands without listing devices", func() {
 				optCtx := &operations.Context{
 					UpdateStatusUntilSuccess: func(context.Context) {},
 				}
@@ -1519,8 +1390,8 @@ var _ = Describe("Reboot", func() {
 				h := &HandleReboot{
 					skipBlock: true,
 					perDeviceFirmwareResetCmds: []firmwareResetPerDevice{
-						{DevicePath: "/dev/mst/a", Cmd: "custom-a"},
-						{DevicePath: "/dev/mst/b", Cmd: "custom-b"},
+						{Device: testPCIAddress0, Cmd: "custom-a"},
+						{Device: testPCIAddress1, Cmd: "custom-b"},
 					},
 					runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 						ran = append(ran, cmd)
@@ -1532,16 +1403,8 @@ var _ = Describe("Reboot", func() {
 				Expect(h.perDeviceFirmwareResetCmds).To(BeNil())
 			})
 
-			It("runs mlxfwreset reset for every device under mst path", func() {
-				dir, err := os.MkdirTemp("", "reboot-mst-multi-")
-				Expect(err).NotTo(HaveOccurred())
-				defer func() { _ = os.RemoveAll(dir) }()
-				d1 := filepath.Join(dir, "mt_dev1")
-				d2 := filepath.Join(dir, "mt_dev2")
-				Expect(os.WriteFile(d1, nil, 0600)).To(Succeed())
-				Expect(os.WriteFile(d2, nil, 0600)).To(Succeed())
-				paths := []string{d1, d2}
-				sort.Strings(paths)
+			It("runs mlxfwreset reset for every planned device command", func() {
+				devices := []string{testPCIAddress0, testPCIAddress1}
 				optCtx := &operations.Context{
 					UpdateStatusUntilSuccess: func(context.Context) {},
 				}
@@ -1549,8 +1412,8 @@ var _ = Describe("Reboot", func() {
 				h := &HandleReboot{
 					skipBlock: true,
 					perDeviceFirmwareResetCmds: []firmwareResetPerDevice{
-						{DevicePath: paths[0], Cmd: fmt.Sprintf("mlxfwreset -d %s -y reset", paths[0])},
-						{DevicePath: paths[1], Cmd: fmt.Sprintf("mlxfwreset -d %s -y reset", paths[1])},
+						{Device: devices[0], Cmd: fmt.Sprintf("mlxfwreset -d %s -y reset", devices[0])},
+						{Device: devices[1], Cmd: fmt.Sprintf("mlxfwreset -d %s -y reset", devices[1])},
 					},
 					runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 						ran = append(ran, cmd)
@@ -1560,8 +1423,8 @@ var _ = Describe("Reboot", func() {
 				Expect(h.execFirmwareReset(context.Background(), optCtx)).To(Succeed())
 				Expect(ran).To(HaveLen(2))
 				Expect(ran).To(Equal([]string{
-					fmt.Sprintf("mlxfwreset -d %s -y reset", paths[0]),
-					fmt.Sprintf("mlxfwreset -d %s -y reset", paths[1]),
+					fmt.Sprintf("mlxfwreset -d %s -y reset", devices[0]),
+					fmt.Sprintf("mlxfwreset -d %s -y reset", devices[1]),
 				}))
 			})
 
@@ -1674,7 +1537,3 @@ var _ = Describe("MFT tool version parsing and resolveRebootMethodDiscovery", fu
 		Expect(mftVersionMeetsMinimum(v95, minVer)).To(BeTrue())
 	})
 })
-
-func writeMSTDevice(path, pci string) error {
-	return os.WriteFile(path, []byte(fmt.Sprintf("%s        - PCI configuration cycles access.\n                                   domain:bus:dev.fn=%s addr.reg=88 data.reg=92 cr_bar.gw_offset=-1", path, pci)), 0600)
-}
