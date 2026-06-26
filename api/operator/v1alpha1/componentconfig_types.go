@@ -18,16 +18,11 @@ package v1alpha1
 
 import (
 	"strings"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 )
-
-// DefaultOSInstallTimeout is the runtime default for OS installation timeout.
-// Keep +kubebuilder:default on OSInstallTimeout in sync (same duration), then run make generate.
-const DefaultOSInstallTimeout = 60 * time.Minute
 
 type DefaultOverridesConfiguration struct {
 	ImageComponentConfig    `json:",inline"`
@@ -116,7 +111,7 @@ type ProvisioningControllerConfiguration struct {
 
 	// OSInstallTimeout is the maximum time allowed for OS installation in zero-trust mode.
 	// If the installation exceeds this timeout, the DPU will transition to an error state.
-	// +kubebuilder:default="60m"
+	// When unset, the provisioning controller defaults to 60m.
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Pattern=`^([0-9]+(h|m|s|ms|us|µs|ns))+$`
 	// +kubebuilder:validation:Format=duration
@@ -134,8 +129,7 @@ type ProvisioningControllerConfiguration struct {
 
 	// NodeEffectRemovalTimeout is the maximum time allowed for the Node Effect Removal phase.
 	// If the DPUNodeMaintenance CR still has requestors after this timeout, the DPU will transition to an error state.
-	// When set to "0s" (the default), the timeout is disabled and no time limit is enforced.
-	// +kubebuilder:default="0s"
+	// When unset, the provisioning controller defaults to 0s (timeout disabled).
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Pattern=`^([0-9]+(h|m|s|ms|us|µs|ns))+$`
 	// +kubebuilder:validation:Format=duration
