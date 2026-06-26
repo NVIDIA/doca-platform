@@ -278,7 +278,7 @@ func isPldmFwBundleConfigured(bfs *provisioningv1.BlueFieldSoftware) bool {
 	if bfs == nil {
 		return false
 	}
-	return strings.TrimSpace(bfs.Spec.PldmFwBundle) != ""
+	return bfs.Spec.PldmFwBundle != nil
 }
 
 // downloadNICFirmware resolves and downloads Astra NIC firmware from bfb-registry

@@ -895,6 +895,9 @@ var _ = Describe("Installing", func() {
 		createReadyBlueFieldSoftware := func() {
 			bfs := &provisioningv1.BlueFieldSoftware{
 				ObjectMeta: metav1.ObjectMeta{Name: bf4SoftwareName, Namespace: testNS.Name},
+				Spec: provisioningv1.BlueFieldSpec{
+					OsIso: "https://test.com/" + testOsIso,
+				},
 			}
 			createObject(bfs)
 			patch := client.MergeFrom(bfs.DeepCopy())

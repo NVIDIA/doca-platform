@@ -52,7 +52,10 @@ const (
 func SpecURLForComponent(bfs *provisioningv1.BlueFieldSoftware, componentType ComponentType) string {
 	switch componentType {
 	case ComponentTypeFwBundle:
-		return bfs.Spec.PldmFwBundle
+		if bfs.Spec.PldmFwBundle == nil {
+			return ""
+		}
+		return *bfs.Spec.PldmFwBundle
 	case ComponentTypeOSISO:
 		return bfs.Spec.OsIso
 	}

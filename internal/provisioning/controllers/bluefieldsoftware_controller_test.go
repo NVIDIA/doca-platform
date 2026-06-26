@@ -58,7 +58,9 @@ var _ = Describe("BlueFieldSoftware", func() {
 				Name:      name,
 				Namespace: testNS.Name,
 			},
-			Spec:   provisioningv1.BlueFieldSpec{},
+			Spec: provisioningv1.BlueFieldSpec{
+				OsIso: bfbServerURL + BFB8KBPath,
+			},
 			Status: provisioningv1.BlueFieldSoftwareStatus{},
 		}
 	}
@@ -96,7 +98,7 @@ var _ = Describe("BlueFieldSoftware", func() {
 		It("BlueFieldSoftware: check finalizer is added", func() {
 			By("creating the BlueFieldSoftware")
 			obj := createObj("bfs-finalizer-test")
-			obj.Spec.PldmFwBundle = bfbServerURL + BFB512KBPath
+			obj.Spec.PldmFwBundle = ptr.To(bfbServerURL + BFB512KBPath)
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 			DeferCleanup(k8sClient.Delete, ctx, obj)
 
@@ -111,7 +113,7 @@ var _ = Describe("BlueFieldSoftware", func() {
 		It("BlueFieldSoftware: download single URL component (FwBundleURL)", func() {
 			By("creating the BlueFieldSoftware")
 			obj := createObj("bfs-single-component")
-			obj.Spec.PldmFwBundle = bfbServerURL + BFB512KBPath
+			obj.Spec.PldmFwBundle = ptr.To(bfbServerURL + BFB512KBPath)
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 			DeferCleanup(k8sClient.Delete, ctx, obj)
 
@@ -155,7 +157,7 @@ var _ = Describe("BlueFieldSoftware", func() {
 		It("BlueFieldSoftware: download multiple URL components", func() {
 			By("creating the BlueFieldSoftware with multiple components")
 			obj := createObj("bfs-multi-component")
-			obj.Spec.PldmFwBundle = bfbServerURL + BFB512KBPath
+			obj.Spec.PldmFwBundle = ptr.To(bfbServerURL + BFB512KBPath)
 			obj.Spec.OsIso = bfbServerURL + BFB8KBPath
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 			DeferCleanup(k8sClient.Delete, ctx, obj)
@@ -186,7 +188,7 @@ var _ = Describe("BlueFieldSoftware", func() {
 		It("BlueFieldSoftware: handle non-URL values (direct strings)", func() {
 			By("creating the BlueFieldSoftware with non-URL values")
 			obj := createObj("bfs-non-url")
-			obj.Spec.PldmFwBundle = bfbServerURL + BFB512KBPath // URL will be downloaded
+			obj.Spec.PldmFwBundle = ptr.To(bfbServerURL + BFB512KBPath) // URL will be downloaded
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 			DeferCleanup(k8sClient.Delete, ctx, obj)
 
@@ -208,7 +210,7 @@ var _ = Describe("BlueFieldSoftware", func() {
 		It("BlueFieldSoftware: check (Downloading)->(Error) when URL is not valid (status 404)", func() {
 			By("creating the BlueFieldSoftware")
 			obj := createObj("bfs-invalid-url")
-			obj.Spec.PldmFwBundle = bfbServerURL + "/notfound.tar.gz"
+			obj.Spec.PldmFwBundle = ptr.To(bfbServerURL + "/notfound.tar.gz")
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 			DeferCleanup(k8sClient.Delete, ctx, obj)
 
@@ -227,7 +229,7 @@ var _ = Describe("BlueFieldSoftware", func() {
 		It("BlueFieldSoftware: cleanup cached files on deletion", func() {
 			By("creating the BlueFieldSoftware")
 			obj := createObj("bfs-cleanup")
-			obj.Spec.PldmFwBundle = bfbServerURL + BFB8KBPath
+			obj.Spec.PldmFwBundle = ptr.To(bfbServerURL + BFB8KBPath)
 			obj.Spec.OsIso = bfbServerURL + BFB512KBPath
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 
@@ -285,7 +287,7 @@ var _ = Describe("BlueFieldSoftware", func() {
 		It("BlueFieldSoftware: remove cached component file from Status (Ready)", func() {
 			By("creating the BlueFieldSoftware")
 			obj := createObj("bfs-remove-file")
-			obj.Spec.PldmFwBundle = bfbServerURL + BFB512KBPath
+			obj.Spec.PldmFwBundle = ptr.To(bfbServerURL + BFB512KBPath)
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 			DeferCleanup(k8sClient.Delete, ctx, obj)
 
@@ -336,7 +338,7 @@ var _ = Describe("BlueFieldSoftware", func() {
 			for i := 1; i <= numObjs; i++ {
 				index := fmt.Sprintf("%d", i)
 				obj := createObj("bfs-" + index)
-				obj.Spec.PldmFwBundle = bfbServerURL + BFB512KBPath
+				obj.Spec.PldmFwBundle = ptr.To(bfbServerURL + BFB512KBPath)
 				Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 				objs = append(objs, obj)
 			}
@@ -368,14 +370,14 @@ var _ = Describe("BlueFieldSoftware", func() {
 		It("BlueFieldSoftware: fail to create with name exceeding the maximum length", func() {
 			By("creating the BlueFieldSoftware")
 			obj := createObj(utilrand.String(188))
-			obj.Spec.PldmFwBundle = bfbServerURL + BFB512KBPath
+			obj.Spec.PldmFwBundle = ptr.To(bfbServerURL + BFB512KBPath)
 			Expect(k8sClient.Create(ctx, obj)).To(HaveOccurred())
 		})
 
 		It("BlueFieldSoftware: patcher should set observedGeneration and handle finalizer", func() {
 			By("creating the BlueFieldSoftware")
 			obj := createObj("bfs-patcher-test")
-			obj.Spec.PldmFwBundle = bfbServerURL + BFB512KBPath
+			obj.Spec.PldmFwBundle = ptr.To(bfbServerURL + BFB512KBPath)
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 			DeferCleanup(k8sClient.Delete, ctx, obj)
 
@@ -396,7 +398,7 @@ var _ = Describe("BlueFieldSoftware", func() {
 		It("BlueFieldSoftware: handle all component types", func() {
 			By("creating the BlueFieldSoftware with all components")
 			obj := createObj("bfs-all-components")
-			obj.Spec.PldmFwBundle = bfbServerURL + BFB512KBPath
+			obj.Spec.PldmFwBundle = ptr.To(bfbServerURL + BFB512KBPath)
 			obj.Spec.OsIso = bfbServerURL + BFB8KBPath
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 			DeferCleanup(k8sClient.Delete, ctx, obj)
@@ -435,7 +437,8 @@ var _ = Describe("BlueFieldSoftware", func() {
 					Generation: 1,
 				},
 				Spec: provisioningv1.BlueFieldSpec{
-					PldmFwBundle: "http://example.com/fw.tar",
+					PldmFwBundle: ptr.To("http://example.com/fw.tar"),
+					OsIso:        bfbServerURL + BFB8KBPath,
 				},
 			}
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
@@ -467,7 +470,8 @@ var _ = Describe("BlueFieldSoftware", func() {
 					Namespace: testNS.Name,
 				},
 				Spec: provisioningv1.BlueFieldSpec{
-					PldmFwBundle: bfbServerURL + "/this-will-404.tar",
+					PldmFwBundle: ptr.To(bfbServerURL + "/this-will-404.tar"),
+					OsIso:        bfbServerURL + BFB8KBPath,
 				},
 			}
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
@@ -500,7 +504,8 @@ var _ = Describe("BlueFieldSoftware", func() {
 					Generation: 1,
 				},
 				Spec: provisioningv1.BlueFieldSpec{
-					PldmFwBundle: bfbServerURL + BFB8KBPath,
+					PldmFwBundle: ptr.To(bfbServerURL + BFB8KBPath),
+					OsIso:        bfbServerURL + BFB8KBPath,
 				},
 			}
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
@@ -556,7 +561,8 @@ var _ = Describe("BlueFieldSoftware", func() {
 					Namespace: testNS.Name,
 				},
 				Spec: provisioningv1.BlueFieldSpec{
-					PldmFwBundle: bfbServerURL + BFB8KBPath,
+					PldmFwBundle: ptr.To(bfbServerURL + BFB8KBPath),
+					OsIso:        bfbServerURL + BFB8KBPath,
 				},
 			}
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
@@ -586,7 +592,8 @@ var _ = Describe("BlueFieldSoftware", func() {
 					Namespace: testNS.Name,
 				},
 				Spec: provisioningv1.BlueFieldSpec{
-					PldmFwBundle: bfbServerURL + BFB512KBPath,
+					PldmFwBundle: ptr.To(bfbServerURL + BFB512KBPath),
+					OsIso:        bfbServerURL + BFB8KBPath,
 				},
 			}
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
@@ -621,7 +628,7 @@ var _ = Describe("BlueFieldSoftware", func() {
 		It("BlueFieldSoftware: should block deletion when DPUs are using it", func() {
 			By("creating the BlueFieldSoftware")
 			obj := createObj("bfs-blocked-deletion")
-			obj.Spec.PldmFwBundle = bfbServerURL + BFB512KBPath
+			obj.Spec.PldmFwBundle = ptr.To(bfbServerURL + BFB512KBPath)
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 			DeferCleanup(func() {
 				// Ignore not found errors since the test deletes the BlueFieldSoftware explicitly

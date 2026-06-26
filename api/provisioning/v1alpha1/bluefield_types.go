@@ -82,10 +82,12 @@ var (
 // +kubebuilder:validation:XValidation:rule="self == oldSelf",message="BlueFieldSpec is immutable"
 type BlueFieldSpec struct {
 	// +optional
-	PldmFwBundle string `json:"pldmFwBundle,omitempty"`
+	// +kubebuilder:validation:MinLength=1
+	PldmFwBundle *string `json:"pldmFwBundle,omitempty"`
 
-	// +optional
-	OsIso string `json:"osIso,omitempty"`
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	OsIso string `json:"osIso"`
 }
 
 // BlueFieldSoftwareStatus defines the observed state of BlueFieldSoftware

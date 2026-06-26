@@ -725,7 +725,7 @@ func ProvisionBlueFieldSoftware(ctx context.Context, input ProvisionDPUClustersI
 	}
 	if input.bfsPldmFwBundleURL != "" {
 		By(fmt.Sprintf("Override BlueFieldSoftware PLDM FW bundle URL with env variable BFS_PLDM_FW_BUNDLE_URL=%s", input.bfsPldmFwBundleURL))
-		input.blueFieldSoftware.Spec.PldmFwBundle = input.bfsPldmFwBundleURL
+		input.blueFieldSoftware.Spec.PldmFwBundle = &input.bfsPldmFwBundleURL
 	}
 	By("Create the BlueFieldSoftware")
 	Eventually(func(g Gomega) {

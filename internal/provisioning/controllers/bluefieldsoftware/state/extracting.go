@@ -129,8 +129,8 @@ func (st *blueFieldSoftwareExtractingState) Handle(ctx context.Context, _ client
 
 func (st *blueFieldSoftwareExtractingState) resolvePackagePath() string {
 	packageRef := st.bfs.Status.DownloadedComponents.PldmFwBundle
-	if packageRef == "" {
-		packageRef = st.bfs.Spec.PldmFwBundle
+	if packageRef == "" && st.bfs.Spec.PldmFwBundle != nil {
+		packageRef = *st.bfs.Spec.PldmFwBundle
 	}
 	if packageRef == "" {
 		return ""

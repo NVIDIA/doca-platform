@@ -236,9 +236,9 @@ func (st *blueFieldSoftwareDownloadingState) getComponentsToDownload() []compone
 	var components []componentInfo
 
 	// Check FwBundleURL
-	if st.bfs.Spec.PldmFwBundle != "" && !st.componentDownloadSatisfied(butil.ComponentTypeFwBundle, st.bfs.Spec.PldmFwBundle, st.bfs.Status.DownloadedComponents.PldmFwBundle) {
+	if st.bfs.Spec.PldmFwBundle != nil && !st.componentDownloadSatisfied(butil.ComponentTypeFwBundle, *st.bfs.Spec.PldmFwBundle, st.bfs.Status.DownloadedComponents.PldmFwBundle) {
 		components = append(components, componentInfo{
-			URL:           st.bfs.Spec.PldmFwBundle,
+			URL:           *st.bfs.Spec.PldmFwBundle,
 			ComponentType: butil.ComponentTypeFwBundle,
 		})
 	}
