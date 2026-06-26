@@ -10609,6 +10609,9 @@ func getMinimalBlueFieldSoftware(name, namespace string) *provisioningv1.BlueFie
 			Name:      name,
 			Namespace: namespace,
 		},
+		Spec: provisioningv1.BlueFieldSpec{
+			OsIso: fmt.Sprintf("https://test.com/%s.iso", name),
+		},
 	}
 }
 

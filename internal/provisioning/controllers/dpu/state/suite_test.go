@@ -246,7 +246,8 @@ func blueFieldSoftwareObj(name string) *provisioningv1.BlueFieldSoftware {
 			Namespace: testNS.Name,
 		},
 		Spec: provisioningv1.BlueFieldSpec{
-			PldmFwBundle: "https://test.com/fw-bundle.tar.gz",
+			PldmFwBundle: ptr.To("https://test.com/fw-bundle.tar.gz"),
+			OsIso:        "https://test.com/os.iso",
 		},
 	}
 	return bfs

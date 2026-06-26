@@ -22,6 +22,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 )
 
 func TestFilenameFromHTTPURL(t *testing.T) {
@@ -48,7 +49,7 @@ func TestFilenameFromHTTPURL(t *testing.T) {
 func TestSpecURLForComponent(t *testing.T) {
 	bfs := &provisioningv1.BlueFieldSoftware{
 		Spec: provisioningv1.BlueFieldSpec{
-			PldmFwBundle: "https://x/pldm",
+			PldmFwBundle: ptr.To("https://x/pldm"),
 			OsIso:        "https://x/iso",
 		},
 	}

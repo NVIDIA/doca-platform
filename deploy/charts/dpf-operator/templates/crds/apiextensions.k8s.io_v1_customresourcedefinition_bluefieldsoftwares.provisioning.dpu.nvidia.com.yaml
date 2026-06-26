@@ -51,9 +51,13 @@ spec:
             description: BlueFieldSpec defines the desired state of BlueFieldSoftware.
             properties:
               osIso:
+                minLength: 1
                 type: string
               pldmFwBundle:
+                minLength: 1
                 type: string
+            required:
+            - osIso
             type: object
             x-kubernetes-validations:
             - message: BlueFieldSpec is immutable

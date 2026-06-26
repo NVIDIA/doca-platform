@@ -65,7 +65,7 @@ func TestResolvePackagePath(t *testing.T) {
 			name: "local spec path is used as-is",
 			bfs: &provisioningv1.BlueFieldSoftware{
 				Spec: provisioningv1.BlueFieldSpec{
-					PldmFwBundle: localPath,
+					PldmFwBundle: &localPath,
 				},
 			},
 			expected: func(_ *provisioningv1.BlueFieldSoftware) string {

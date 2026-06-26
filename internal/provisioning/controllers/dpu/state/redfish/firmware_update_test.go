@@ -127,6 +127,9 @@ var _ = Describe("FirmwareUpdate", func() {
 				Name:      defaultBlueFieldSWName,
 				Namespace: testNS.Name,
 			},
+			Spec: provisioningv1.BlueFieldSpec{
+				OsIso: "https://test.com/os.iso",
+			},
 		}
 		createObject(bfs)
 
