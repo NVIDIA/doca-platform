@@ -20,8 +20,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -34,18 +32,6 @@ import (
 )
 
 var _ = Describe("Ensure Mode", func() {
-	var tempDir string
-
-	BeforeEach(func() {
-		var err error
-		tempDir, err = os.MkdirTemp("", "dpumode-test-*")
-		Expect(err).NotTo(HaveOccurred())
-	})
-
-	AfterEach(func() {
-		Expect(os.RemoveAll(tempDir)).To(Succeed())
-	})
-
 	Context("setting DPU mode", func() {
 		It("should never be skipped", func() {
 			operation := &EnsureMode{}
@@ -53,8 +39,7 @@ var _ = Describe("Ensure Mode", func() {
 		})
 
 		It("should set BF3 DPU mode to zero-trust", func() {
-			reg := fmt.Sprintf("mlxprivhost -d (%s|%s) r --disable_rshim --disable_tracer --disable_counter_rd --disable_port_owner",
-				filepath.Join(tempDir, "dev/mst/dev1"), filepath.Join(tempDir, "dev/mst/dev2"))
+			reg := "mlxprivhost -d (0000:03:00.0|0000:03:00.1) r --disable_rshim --disable_tracer --disable_counter_rd --disable_port_owner"
 			expectedCmd := regexp.MustCompile(reg)
 			By(fmt.Sprintf("regex: %s", reg))
 			operation := &EnsureMode{
@@ -73,16 +58,15 @@ var _ = Describe("Ensure Mode", func() {
 				},
 				DiscoverPorts: func() ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{
-						{MSTDevice: filepath.Join(tempDir, "dev/mst/dev1")},
-						{MSTDevice: filepath.Join(tempDir, "dev/mst/dev2")},
+						{PCIAddress: "0000:03:00.0"},
+						{PCIAddress: "0000:03:00.1"},
 					}, nil
 				},
 			})
 			Expect(err).NotTo(HaveOccurred())
 		})
 		It("should set BF3 DPU mode to DPU", func() {
-			reg := fmt.Sprintf("mlxprivhost -d (%s|%s) p",
-				filepath.Join(tempDir, "dev/mst/dev1"), filepath.Join(tempDir, "dev/mst/dev2"))
+			reg := "mlxprivhost -d (0000:03:00.0|0000:03:00.1) p"
 			expectedCmd := regexp.MustCompile(reg)
 			By(fmt.Sprintf("regex: %s", reg))
 			operation := &EnsureMode{
@@ -101,8 +85,8 @@ var _ = Describe("Ensure Mode", func() {
 				},
 				DiscoverPorts: func() ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{
-						{MSTDevice: filepath.Join(tempDir, "dev/mst/dev1")},
-						{MSTDevice: filepath.Join(tempDir, "dev/mst/dev2")},
+						{PCIAddress: "0000:03:00.0"},
+						{PCIAddress: "0000:03:00.1"},
 					}, nil
 				},
 			})
@@ -126,8 +110,8 @@ var _ = Describe("Ensure Mode", func() {
 				},
 				DiscoverPorts: func() ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{
-						{MSTDevice: filepath.Join(tempDir, "dev/mst/dev1")},
-						{MSTDevice: filepath.Join(tempDir, "dev/mst/dev2")},
+						{PCIAddress: "0000:03:00.0"},
+						{PCIAddress: "0000:03:00.1"},
 					}, nil
 				},
 			})

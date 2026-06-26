@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
@@ -46,10 +45,7 @@ const (
 var (
 	sysfsNetPath        = "/sys/class/net"
 	sysfsPCIDevicesPath = "/sys/bus/pci/devices"
-	mstDevicesPath      = "/dev/mst"
 )
-
-var mstPCIAddressRegex = regexp.MustCompile(`domain:bus:dev\.fn=([0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-9]+)`)
 
 var nsNICDeviceIDs = sets.New(bluefield2DeviceID, bluefield3DeviceID, bluefield4DeviceID)
 
@@ -109,12 +105,10 @@ type NICPort struct {
 	PCIAddress string
 	// DeviceID is the ECPF PCI device ID, e.g. "0xa2df".
 	DeviceID string
-	// MSTDevice is the MST device path, e.g. "/dev/mst/mt41695_pciconf0".
-	MSTDevice string
 }
 
-// PortDiscoverer discovers physical NIC ports on the DPU by joining devlink,
-// sysfs uevent, and MST device data via PCI address.
+// PortDiscoverer discovers physical NIC ports on the DPU by joining devlink and
+// sysfs PCI data.
 type PortDiscoverer struct {
 	runBash bash.RunFunc
 }
@@ -131,16 +125,14 @@ func (d *PortDiscoverer) run(cmd string) (string, string, error) {
 	return stdout.String(), stderr.String(), err
 }
 
-// DiscoverPhysicalPort discovers physical ports by joining devlink physical entries,
-// sysfs PCI uevent data, and MST device data via PCI address. Pass nil to return
-// all discovered physical ports.
+// DiscoverPhysicalPort discovers physical ports by joining devlink physical entries
+// and sysfs PCI data. Pass nil to return all discovered physical ports.
 func (d *PortDiscoverer) DiscoverPhysicalPort(filter func(*NICPort) bool) ([]NICPort, error) {
-	// Step a: devlink → physical netdevs
 	devlinkPorts, err := d.DevlinkPortEntries()
 	if err != nil {
 		return nil, err
 	}
-	// Step a': netdev → PCI address via uevent
+
 	netdevToPCI := make(map[string]string, len(devlinkPorts))
 	for key, entry := range devlinkPorts {
 		if !PhysicalPortFilter(entry) {
@@ -161,24 +153,11 @@ func (d *PortDiscoverer) DiscoverPhysicalPort(filter func(*NICPort) bool) ([]NIC
 		netdevToPCI[netdev] = pci
 	}
 
-	// Step b: MST devices → PCI address
-	pciToMST, err := d.listMSTFiles()
-	if err != nil {
-		return nil, fmt.Errorf("discover MST devices: %w", err)
-	}
-
-	// Step c: join by PCI address
 	ports := make([]NICPort, 0, len(netdevToPCI))
 	for netdev, pci := range netdevToPCI {
-		mstDev := pciToMST[pci]
-		if mstDev == "" {
-			klog.Infof("No MST device found for netdev %s (PCI %s), skipping", netdev, pci)
-			continue
-		}
 		port := NICPort{
 			Netdev:     netdev,
 			PCIAddress: pci,
-			MSTDevice:  mstDev,
 		}
 		deviceID, err := pciDeviceID(port.PCIAddress)
 		if err != nil {
@@ -263,44 +242,4 @@ func (d *PortDiscoverer) DevlinkPortEntries() (map[string]DevlinkPortEntry, erro
 		return nil, fmt.Errorf("devlink port show: missing \"port\" object")
 	}
 	return parsed.Port, nil
-}
-
-func (d *PortDiscoverer) listMSTFiles() (map[string]string, error) {
-	_, stderr, err := d.run("mst start")
-	if err != nil {
-		return nil, fmt.Errorf("failed to start mst: %w, stderr: %s", err, stderr)
-	}
-
-	devices, err := filepath.Glob(filepath.Join(mstDevicesPath, "*"))
-	if err != nil {
-		return nil, fmt.Errorf("failed to list MST devices: %w", err)
-	}
-	if len(devices) == 0 {
-		return nil, fmt.Errorf("no MST devices found in %s", mstDevicesPath)
-	}
-
-	pciToMST := make(map[string]string, len(devices))
-	for _, device := range devices {
-		pci, err := pciAddressFromMSTFile(device)
-		if err != nil {
-			return nil, err
-		}
-		pciToMST[pci] = device
-	}
-	return pciToMST, nil
-}
-
-func pciAddressFromMSTFile(mstFile string) (string, error) {
-	content, err := os.ReadFile(mstFile)
-	if err != nil {
-		return "", fmt.Errorf("failed to read MST device %s: %w", mstFile, err)
-	}
-	// Example MST device content:
-	// /dev/mst/mt41692_pciconf0 - PCI configuration cycles access.
-	//                            domain:bus:dev.fn=0000:03:00.0 addr.reg=88 data.reg=92 cr_bar.gw_offset=-1
-	matches := mstPCIAddressRegex.FindSubmatch(content)
-	if len(matches) != 2 {
-		return "", fmt.Errorf("failed to parse PCI address from MST device %s", mstFile)
-	}
-	return string(matches[1]), nil
 }

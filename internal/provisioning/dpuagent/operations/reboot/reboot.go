@@ -65,7 +65,7 @@ const (
 )
 
 // powerCyclePendingNvconfigNames lists pending NVCONFIG parameter names that require
-// RebootMethodPowerCycle (highest merge priority among MST discovery methods).
+// RebootMethodPowerCycle (highest merge priority among device-query discovery methods).
 var powerCyclePendingNvconfigNames = map[string]struct{}{
 	"DELAY_HOST_OS_INIT":           {},
 	"INT_CPU_AUTO_SHUTDOWN":        {},
@@ -76,10 +76,10 @@ var powerCyclePendingNvconfigNames = map[string]struct{}{
 	"INTERNAL_CPU_MODEL":           {},
 }
 
-// firmwareResetPerDevice is one command line for execFirmwareReset, in MST glob sort order.
+// firmwareResetPerDevice is one command line for execFirmwareReset.
 type firmwareResetPerDevice struct {
-	DevicePath string
-	Cmd        string
+	Device string
+	Cmd    string
 }
 
 type HandleReboot struct {
@@ -88,7 +88,7 @@ type HandleReboot struct {
 	// allowFirmwareReset is set for the duration of getRebootMethodDeviceQuery from LatestDPU annotations
 	// (AgentAnnotationAllowFirmwareResetReboot). When false or h is nil, rebootMethodFromMlxfwresetStatus does not select FirmwareReset.
 	allowFirmwareReset bool
-	// perDeviceFirmwareResetCmds is the ordered mlxfwreset command line per MST device from discovery
+	// perDeviceFirmwareResetCmds is the ordered mlxfwreset command line per PCI device from discovery
 	// when the final reboot method is FirmwareReset. Cleared when consumed by execFirmwareReset.
 	perDeviceFirmwareResetCmds []firmwareResetPerDevice
 }
@@ -187,16 +187,16 @@ func isHostlessDPU(optCtx *operations.Context) bool {
 	return optCtx != nil && optCtx.LatestDPU != nil && optCtx.LatestDPU.Status.Hostless
 }
 
-// getMSTDevices returns the selected target devices for MFT commands.
-func (h *HandleReboot) getMSTDevices(optCtx *operations.Context) ([]string, error) {
+// getDevices returns the selected target PCI devices for MFT commands.
+func (h *HandleReboot) getDevices(optCtx *operations.Context) ([]string, error) {
 	ports, err := optCtx.NSPorts()
 	if err != nil {
 		return nil, err
 	}
 	var devices []string
 	for _, p := range ports {
-		if p.MSTDevice != "" {
-			devices = append(devices, p.MSTDevice)
+		if p.PCIAddress != "" {
+			devices = append(devices, p.PCIAddress)
 		}
 	}
 	return devices, nil
@@ -289,7 +289,7 @@ func (p *pendingParamList) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// mlxfwresetStatusJSON is the subset of `mlxfwreset -d <mst_device> s --json` output we need for reboot decisions.
+// mlxfwresetStatusJSON is the subset of `mlxfwreset -d <pci_device> s --json` output we need for reboot decisions.
 // Other fields remain in the raw JSON string passed to the discovery condition Message.
 type mlxfwresetStatusJSON struct {
 	ResetNeeded *bool `json:"reset_needed"`
@@ -330,20 +330,20 @@ func checkRebootMethodSystemLevelReset(_ *HandleReboot, out *mlxfwresetStatusJSO
 
 // checkRebootMethodFirmwareReset reports non-empty command_required as the firmware-reset path.
 // When h is non-nil, appends CommandRequired to h.perDeviceFirmwareResetCmds.
-func checkRebootMethodFirmwareReset(h *HandleReboot, devicePath string, out *mlxfwresetStatusJSON) bool {
+func checkRebootMethodFirmwareReset(h *HandleReboot, device string, out *mlxfwresetStatusJSON) bool {
 	if out.CommandRequired == "" {
 		return false
 	}
 	if h != nil {
 		h.perDeviceFirmwareResetCmds = append(h.perDeviceFirmwareResetCmds, firmwareResetPerDevice{
-			DevicePath: devicePath,
-			Cmd:        out.CommandRequired,
+			Device: device,
+			Cmd:    out.CommandRequired,
 		})
 	}
 	return true
 }
 
-// rebootMethodTakesPrecedenceOver reports whether a should replace the merged method b when both come from MST discovery.
+// rebootMethodTakesPrecedenceOver reports whether a should replace the merged method b when both come from device-query discovery.
 func rebootMethodTakesPrecedenceOver(a, b provisioningv1.RebootMethodType) bool {
 	return cutil.GetRebootMethodPriority(a) < cutil.GetRebootMethodPriority(b)
 }
@@ -362,7 +362,7 @@ func rebootMethodFromMlxfwresetStatus(h *HandleReboot, device string, out *mlxfw
 	}
 	// Fallback to SystemLevelReset in case 'reset_needed' is true but no other reboot method is detected.
 	// Full tool output is available on the AgentCondRebootMethodDiscovery condition Message.
-	klog.Infof("MST device %s: no reboot method matched from tool output; falling back to SystemLevelReset. See AgentCondRebootMethodDiscovery condition Message for full tool output.", device)
+	klog.Infof("PCI device %s: no reboot method matched from tool output; falling back to SystemLevelReset. See AgentCondRebootMethodDiscovery condition Message for full tool output.", device)
 	return provisioningv1.RebootMethodSystemLevelReset
 }
 
@@ -492,7 +492,7 @@ func (h *HandleReboot) getRebootMethodDeviceQuery(optCtx *operations.Context) (*
 	h.allowFirmwareReset = agentAnnotationAllowsFirmwareResetReboot(optCtx)
 	defer func() { h.allowFirmwareReset = false }()
 
-	devices, err := h.getMSTDevices(optCtx)
+	devices, err := h.getDevices(optCtx)
 	if err != nil {
 		return nil, err
 	}
@@ -529,7 +529,7 @@ func (h *HandleReboot) getRebootMethodDeviceQuery(optCtx *operations.Context) (*
 		// parameter change" is the only reason for reset.
 		effective, shouldIgnore := removeForeverPending(optCtx, device, out)
 		if shouldIgnore {
-			klog.Infof("MST device %s: ignoring repeated pending NVCONFIG parameters after boot change", device)
+			klog.Infof("PCI device %s: ignoring repeated pending NVCONFIG parameters after boot change", device)
 			continue
 		}
 		rawParts = append(rawParts, raw)
@@ -537,7 +537,7 @@ func (h *HandleReboot) getRebootMethodDeviceQuery(optCtx *operations.Context) (*
 		if rebootMethodTakesPrecedenceOver(m, finalRebootMethod) {
 			finalRebootMethod = m
 		}
-		klog.Infof("MST device %s requires reboot method %s, (current selected method: %s)", device, m, finalRebootMethod)
+		klog.Infof("PCI device %s requires reboot method %s, (current selected method: %s)", device, m, finalRebootMethod)
 	}
 
 	if optCtx.NICFirmwareRebootRequired && rebootMethodTakesPrecedenceOver(provisioningv1.RebootMethodSystemReboot, finalRebootMethod) {
@@ -553,17 +553,17 @@ func (h *HandleReboot) getRebootMethodDeviceQuery(optCtx *operations.Context) (*
 	}
 
 	if finalRebootMethod != provisioningv1.RebootMethodNoAction {
-		klog.Infof("MST device-query final reboot method: %s across %d device(s)", finalRebootMethod, len(rawParts))
+		klog.Infof("PCI device-query final reboot method: %s across %d device(s)", finalRebootMethod, len(rawParts))
 		setRebootMethodDiscoveryCondition(optCtx, finalRebootMethod, strings.Join(rawParts, "\n---\n"))
 		return ptr.To(finalRebootMethod), nil
 	}
 
 	if optCtx.GrubConfigChanged {
-		klog.Infof("No MST device requires reset but grub config changed, using DPUWarmReboot")
-		setRebootMethodDiscoveryCondition(optCtx, provisioningv1.RebootMethodDPUWarmReboot, "No MST device requires reset but grub config changed, using DPUWarmReboot")
+		klog.Infof("No PCI device requires reset but grub config changed, using DPUWarmReboot")
+		setRebootMethodDiscoveryCondition(optCtx, provisioningv1.RebootMethodDPUWarmReboot, "No PCI device requires reset but grub config changed, using DPUWarmReboot")
 		return ptr.To(provisioningv1.RebootMethodDPUWarmReboot), nil
 	}
-	klog.Infof("No MST device requires reset, using NoAction")
+	klog.Infof("No PCI device requires reset, using NoAction")
 	return ptr.To(provisioningv1.RebootMethodNoAction), nil
 }
 
