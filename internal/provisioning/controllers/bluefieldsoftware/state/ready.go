@@ -73,10 +73,10 @@ func (st *blueFieldSoftwareReadyState) checkMissingComponents() []butil.Componen
 		ct      butil.ComponentType
 	}
 	var rows []row
-	rows = append(rows,
-		row{st.bfs.Spec.PldmFwBundle, st.bfs.Status.DownloadedComponents.PldmFwBundle, butil.ComponentTypeFwBundle},
-		row{st.bfs.Spec.OsIso, st.bfs.Status.DownloadedComponents.OsIso, butil.ComponentTypeOSISO},
-	)
+	if st.bfs.Spec.PldmFwBundle != nil {
+		rows = append(rows, row{*st.bfs.Spec.PldmFwBundle, st.bfs.Status.DownloadedComponents.PldmFwBundle, butil.ComponentTypeFwBundle})
+	}
+	rows = append(rows, row{st.bfs.Spec.OsIso, st.bfs.Status.DownloadedComponents.OsIso, butil.ComponentTypeOSISO})
 
 	for _, r := range rows {
 		if r.specURL == "" {

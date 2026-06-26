@@ -1596,8 +1596,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `pldmFwBundle` _string_ |  |  | Optional: \{\} <br /> |
-| `osIso` _string_ |  |  | Optional: \{\} <br /> |
+| `pldmFwBundle` _string_ |  |  | MinLength: 1 <br />Optional: \{\} <br /> |
+| `osIso` _string_ |  |  | MinLength: 1 <br />Required: \{\} <br /> |
 
 
 #### BluefieldSoftwareVersions
