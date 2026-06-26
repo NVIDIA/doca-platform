@@ -37,7 +37,6 @@ import (
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
-	"sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -69,7 +68,6 @@ func main() {
 	var insecureMetrics bool
 	var enableHTTP2 bool
 	var syncPeriod time.Duration
-	var concurrency int
 	var leaderElectionNamespace string
 	fs.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	fs.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -88,8 +86,6 @@ func main() {
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
 	fs.DurationVar(&syncPeriod, "sync-period", 10*time.Minute,
 		"The minimum interval at which watched resources are reconciled.")
-	fs.IntVar(&concurrency, "concurrency", 1,
-		"Number of objects to process simultaneously by each controller.")
 	logsv1.AddFlags(logOptions, fs)
 
 	pflag.Parse()
@@ -137,9 +133,6 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		Cache: cache.Options{
 			SyncPeriod: &syncPeriod,
-		},
-		Controller: config.Controller{
-			MaxConcurrentReconciles: concurrency,
 		},
 		LeaderElection:          enableLeaderElection,
 		LeaderElectionID:        "servicechainset.dpu.nvidia.com",
