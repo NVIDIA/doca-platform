@@ -319,7 +319,6 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 			fmt.Sprintf("--deployment-mode=%s", operatorv1.DeploymentModeHostTrusted),
 			fmt.Sprintf("--dms-pod-envs=KUBERNETES_SERVICE_HOST=%s,KUBERNETES_SERVICE_PORT=%d", expectedKubernetesAPIServerVIP, expectedKubernetesAPIServerPort),
 			fmt.Sprintf("--multi-dpu-operations-sync-wait-time=%s", expectedMultiDPUOperationsSyncWaitTime),
-			fmt.Sprintf("--os-install-timeout=%s", operatorv1.DefaultOSInstallTimeout.String()),
 			"--bfb-registry-load-balancer-address=",
 		}
 		g.Expect(gotDeployment.Spec.Template.Spec.Containers).To(HaveLen(2))
@@ -900,12 +899,12 @@ func TestDPFProvisioningControllerObjects_setOSInstallTimeout(t *testing.T) {
 		return vars
 	}
 
-	t.Run("uses 60m default when OSInstallTimeout is unset", func(t *testing.T) {
+	t.Run("does not set flag when OSInstallTimeout is unset", func(t *testing.T) {
 		g := NewGomegaWithT(t)
 		deployment := findDeployment(t, baseVars())
-		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement(
-			fmt.Sprintf("--os-install-timeout=%s", operatorv1.DefaultOSInstallTimeout.String()),
-		))
+		for _, arg := range deployment.Spec.Template.Spec.Containers[0].Args {
+			g.Expect(arg).NotTo(HavePrefix("--os-install-timeout="))
+		}
 	})
 
 	t.Run("uses configured OSInstallTimeout when set", func(t *testing.T) {
@@ -971,5 +970,62 @@ func TestDPFProvisioningControllerObjects_setFirmwareUpdateTimeout(t *testing.T)
 		vars.DPFProvisioningController.FirmwareUpdateTimeout = &metav1.Duration{Duration: 90 * time.Minute}
 		deployment := findDeployment(t, vars)
 		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--firmware-update-timeout=1h30m0s"))
+	})
+}
+
+func TestDPFProvisioningControllerObjects_setNodeEffectRemovalTimeout(t *testing.T) {
+	g := NewGomegaWithT(t)
+
+	defaults := release.NewDefaults()
+	g.Expect(defaults.Parse()).To(Succeed())
+
+	provCtrl := &provisioningControllerObjects{
+		data:            provisioningControllerData,
+		bfbRegistryData: bfbRegistryData,
+	}
+	g.Expect(provCtrl.Parse()).To(Succeed())
+
+	findDeployment := func(t *testing.T, vars Variables) *appsv1.Deployment {
+		t.Helper()
+		g := NewGomegaWithT(t)
+		generatedObjs, err := provCtrl.GenerateManifests(context.Background(), vars)
+		g.Expect(err).NotTo(HaveOccurred())
+
+		for _, obj := range generatedObjs {
+			if obj.GetObjectKind().GroupVersionKind().Kind == string(DeploymentKind) {
+				deploy := &appsv1.Deployment{}
+				unstructuredObj, ok := obj.(*unstructured.Unstructured)
+				g.Expect(ok).To(BeTrue())
+				g.Expect(runtime.DefaultUnstructuredConverter.FromUnstructured(unstructuredObj.UnstructuredContent(), deploy)).To(Succeed())
+				return deploy
+			}
+		}
+		t.Fatal("deployment not found in generated manifests")
+		return nil
+	}
+
+	baseVars := func() Variables {
+		vars := newDefaultVariables(defaults)
+		vars.DPFProvisioningController = DPFProvisioningVariables{
+			BFBPersistentVolumeClaimName: ptr.To(TestPVC),
+			DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
+		}
+		return vars
+	}
+
+	t.Run("does not set flag when NodeEffectRemovalTimeout is unset", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		deployment := findDeployment(t, baseVars())
+		for _, arg := range deployment.Spec.Template.Spec.Containers[0].Args {
+			g.Expect(arg).NotTo(HavePrefix("--node-effect-removal-timeout="))
+		}
+	})
+
+	t.Run("uses configured NodeEffectRemovalTimeout when set", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		vars := baseVars()
+		vars.DPFProvisioningController.NodeEffectRemovalTimeout = &metav1.Duration{Duration: 30 * time.Minute}
+		deployment := findDeployment(t, vars)
+		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--node-effect-removal-timeout=30m0s"))
 	})
 }

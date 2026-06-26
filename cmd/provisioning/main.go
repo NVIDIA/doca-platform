@@ -77,6 +77,18 @@ var (
 // defaultBFBRegistryAddress is the in-cluster service address when --bfb-registry is not set.
 const defaultBFBRegistryAddress = "bfb-registry:8082"
 
+// DefaultOSInstallTimeout is the provisioning-controller default for OS installation.
+// Documented on DPFOperatorConfig.spec.provisioningController.osInstallTimeout when unset.
+const DefaultOSInstallTimeout = 60 * time.Minute
+
+// DefaultNodeEffectRemovalTimeout is the provisioning-controller default for Node Effect Removal.
+// Documented on DPFOperatorConfig.spec.provisioningController.nodeEffectRemovalTimeout when unset.
+const DefaultNodeEffectRemovalTimeout = 0
+
+// DefaultFirmwareUpdateTimeout is the provisioning-controller default for BF4 firmware update.
+// Documented on DPFOperatorConfig.spec.provisioningController.firmwareUpdateTimeout when unset.
+const DefaultFirmwareUpdateTimeout = 45 * time.Minute
+
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
@@ -153,9 +165,9 @@ func parseFlags() *cliFlags {
 	fs.BoolVar(&flags.enableDpuDiscovery, "enable-dpu-discovery", true, "Enable autmated DPU discovery")
 	fs.DurationVar(&flags.multiDPUOperationsSyncWaitTime, "multi-dpu-operations-sync-wait-time", 30*time.Second, "The wait time between DPUs sync operations on the same node")
 	fs.Int32Var(&flags.maxUnavailableDPUNodes, "max-unavailable-dpu-nodes", 50, "The maximum number of DPUNodes that are unavailable during the node effect period")
-	fs.DurationVar(&flags.osInstallTimeout, "os-install-timeout", operatorv1.DefaultOSInstallTimeout, "Maximum time allowed for OS installation in zero-trust mode")
-	fs.DurationVar(&flags.firmwareUpdateTimeout, "firmware-update-timeout", dutil.DefaultFirmwareUpdateTimeout, "Maximum time allowed for BF4 firmware update in zero-trust mode")
-	fs.DurationVar(&flags.nodeEffectRemovalTimeout, "node-effect-removal-timeout", 0, "Maximum time allowed for the Node Effect Removal phase before transitioning to error. 0 means no timeout.")
+	fs.DurationVar(&flags.osInstallTimeout, "os-install-timeout", DefaultOSInstallTimeout, "Maximum time allowed for OS installation in zero-trust mode")
+	fs.DurationVar(&flags.firmwareUpdateTimeout, "firmware-update-timeout", DefaultFirmwareUpdateTimeout, "Maximum time allowed for BF4 firmware update in zero-trust mode")
+	fs.DurationVar(&flags.nodeEffectRemovalTimeout, "node-effect-removal-timeout", DefaultNodeEffectRemovalTimeout, "Maximum time allowed for the Node Effect Removal phase before transitioning to error. 0 means no timeout.")
 	fs.StringVar(&flags.hostAgentDNSPolicy, "hostagent-dns-policy", string(corev1.DNSClusterFirstWithHostNet), "DNS policy for the hostagent pod")
 	fs.StringVar(&flags.deploymentMode, "deployment-mode", "", "required: cluster deployment mode from DPFOperatorConfig (zero-trust or host-trusted)")
 

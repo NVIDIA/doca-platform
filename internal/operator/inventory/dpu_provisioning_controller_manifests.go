@@ -636,15 +636,14 @@ func (p *provisioningControllerObjects) setReplicas(deploy *appsv1.Deployment, v
 }
 
 func (p *provisioningControllerObjects) setOSInstallTimeout(deploy *appsv1.Deployment, vars Variables) error {
+	if vars.DPFProvisioningController.OSInstallTimeout == nil {
+		return nil
+	}
 	c := getManagerContainer(deploy)
 	if c == nil {
 		return fmt.Errorf(errManagerContainerNotFoundFmt, managerContainerName)
 	}
-	timeout := operatorv1.DefaultOSInstallTimeout
-	if vars.DPFProvisioningController.OSInstallTimeout != nil {
-		timeout = vars.DPFProvisioningController.OSInstallTimeout.Duration
-	}
-	return setFlags(c, fmt.Sprintf("--os-install-timeout=%s", timeout.String()))
+	return setFlags(c, fmt.Sprintf("--os-install-timeout=%s", vars.DPFProvisioningController.OSInstallTimeout.Duration.String()))
 }
 
 func (p *provisioningControllerObjects) setFirmwareUpdateTimeout(deploy *appsv1.Deployment, vars Variables) error {
