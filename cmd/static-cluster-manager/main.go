@@ -36,7 +36,6 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
-	"sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -64,7 +63,6 @@ func main() {
 	var secureMetrics bool
 	var enableHTTP2 bool
 	var syncPeriod time.Duration
-	var concurrency int
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -81,8 +79,6 @@ func main() {
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
 	flag.DurationVar(&syncPeriod, "sync-period", 10*time.Minute,
 		"The minimum interval at which watched resources are reconciled.")
-	flag.IntVar(&concurrency, "concurrency", 1,
-		"Number of objects to process simultaneously by each controller.")
 
 	opts := zap.Options{
 		Development: true,
@@ -122,9 +118,6 @@ func main() {
 		PprofBindAddress: pprofAddr,
 		Cache: cache.Options{
 			SyncPeriod: &syncPeriod,
-		},
-		Controller: config.Controller{
-			MaxConcurrentReconciles: concurrency,
 		},
 		WebhookServer:          webhookServer,
 		HealthProbeBindAddress: probeAddr,
