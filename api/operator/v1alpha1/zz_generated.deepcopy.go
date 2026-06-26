@@ -1104,6 +1104,11 @@ func (in *ProvisioningControllerConfiguration) DeepCopyInto(out *ProvisioningCon
 		*out = new(v1.Duration)
 		**out = **in
 	}
+	if in.FirmwareUpdateTimeout != nil {
+		in, out := &in.FirmwareUpdateTimeout, &out.FirmwareUpdateTimeout
+		*out = new(v1.Duration)
+		**out = **in
+	}
 	if in.NodeEffectRemovalTimeout != nil {
 		in, out := &in.NodeEffectRemovalTimeout, &out.NodeEffectRemovalTimeout
 		*out = new(v1.Duration)

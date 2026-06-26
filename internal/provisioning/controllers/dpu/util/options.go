@@ -34,6 +34,10 @@ import (
 
 const (
 	MaxRetryCount = 10
+
+	// DefaultFirmwareUpdateTimeout is the provisioning-controller default for BF4 firmware update.
+	// Documented on DPFOperatorConfig.spec.provisioningController.firmwareUpdateTimeout when unset.
+	DefaultFirmwareUpdateTimeout = 45 * time.Minute
 )
 
 var BmcFwUpdateTaskMap sync.Map
@@ -60,7 +64,7 @@ type DPUOptions struct {
 	// Default: operatorv1.DefaultOSInstallTimeout (keep in sync with +kubebuilder:default on OSInstallTimeout).
 	OSInstallTimeout time.Duration
 	// FirmwareUpdateTimeout is the maximum time allowed for firmware update in zero-trust mode.
-	// Default: 45 minutes
+	// Default: DefaultFirmwareUpdateTimeout when the controller flag is unset.
 	FirmwareUpdateTimeout time.Duration
 	// NodeEffectRemovalTimeout is the maximum time allowed for the Node Effect Removal phase.
 	// Default: 30 minutes

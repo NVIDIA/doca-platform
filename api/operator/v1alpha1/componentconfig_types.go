@@ -123,6 +123,15 @@ type ProvisioningControllerConfiguration struct {
 	// +optional
 	OSInstallTimeout *metav1.Duration `json:"osInstallTimeout,omitempty"`
 
+	// FirmwareUpdateTimeout is the maximum time allowed for BF4 firmware update in zero-trust mode.
+	// If the update exceeds this timeout, the DPU will transition to an error state.
+	// When unset, the provisioning controller defaults to 45m.
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Pattern=`^([0-9]+(h|m|s|ms|us|µs|ns))+$`
+	// +kubebuilder:validation:Format=duration
+	// +optional
+	FirmwareUpdateTimeout *metav1.Duration `json:"firmwareUpdateTimeout,omitempty"`
+
 	// NodeEffectRemovalTimeout is the maximum time allowed for the Node Effect Removal phase.
 	// If the DPUNodeMaintenance CR still has requestors after this timeout, the DPU will transition to an error state.
 	// When set to "0s" (the default), the timeout is disabled and no time limit is enforced.

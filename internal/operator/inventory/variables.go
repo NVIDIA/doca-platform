@@ -153,6 +153,7 @@ type DPFProvisioningVariables struct {
 	Registry                       *operatorv1.RegistryConfiguration
 	Replicas                       *int32
 	OSInstallTimeout               *metav1.Duration
+	FirmwareUpdateTimeout          *metav1.Duration
 	NodeEffectRemovalTimeout       *metav1.Duration
 	HostAgentDNSPolicy             *corev1.DNSPolicy
 	DeploymentMode                 operatorv1.DeploymentMode
@@ -282,6 +283,7 @@ func setBasicConfig(variables Variables, config *operatorv1.DPFOperatorConfig) V
 		Registry:                    config.Spec.ProvisioningController.Registry,
 		Replicas:                    config.Spec.ProvisioningController.Replicas,
 		OSInstallTimeout:            config.Spec.ProvisioningController.OSInstallTimeout,
+		FirmwareUpdateTimeout:       config.Spec.ProvisioningController.FirmwareUpdateTimeout,
 		NodeEffectRemovalTimeout:    config.Spec.ProvisioningController.NodeEffectRemovalTimeout,
 		HostAgentDNSPolicy:          config.Spec.ProvisioningController.HostAgentDNSPolicy,
 		DeploymentMode:              config.Spec.DeploymentMode,
