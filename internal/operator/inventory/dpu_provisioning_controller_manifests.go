@@ -216,6 +216,7 @@ func (p *provisioningControllerObjects) dpfProvisioningDeploymentEdit(vars Varia
 			p.setMultiDPUOperationsSyncWaitTime,
 			p.setMaxUnavailableDPUNodes,
 			p.setOSInstallTimeout,
+			p.setFirmwareUpdateTimeout,
 			p.setNodeEffectRemovalTimeout,
 			p.setHostAgentDNSPolicy,
 			p.setResources,
@@ -644,6 +645,17 @@ func (p *provisioningControllerObjects) setOSInstallTimeout(deploy *appsv1.Deplo
 		timeout = vars.DPFProvisioningController.OSInstallTimeout.Duration
 	}
 	return setFlags(c, fmt.Sprintf("--os-install-timeout=%s", timeout.String()))
+}
+
+func (p *provisioningControllerObjects) setFirmwareUpdateTimeout(deploy *appsv1.Deployment, vars Variables) error {
+	if vars.DPFProvisioningController.FirmwareUpdateTimeout == nil {
+		return nil
+	}
+	c := getManagerContainer(deploy)
+	if c == nil {
+		return fmt.Errorf(errManagerContainerNotFoundFmt, managerContainerName)
+	}
+	return setFlags(c, fmt.Sprintf("--firmware-update-timeout=%s", vars.DPFProvisioningController.FirmwareUpdateTimeout.Duration.String()))
 }
 
 func (p *provisioningControllerObjects) setNodeEffectRemovalTimeout(deploy *appsv1.Deployment, vars Variables) error {

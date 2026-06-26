@@ -118,6 +118,7 @@ type cliFlags struct {
 	multiDPUOperationsSyncWaitTime time.Duration
 	maxUnavailableDPUNodes         int32
 	osInstallTimeout               time.Duration
+	firmwareUpdateTimeout          time.Duration
 	nodeEffectRemovalTimeout       time.Duration
 	hostAgentDNSPolicy             string
 	deploymentMode                 string
@@ -156,6 +157,7 @@ func parseFlags() *cliFlags {
 	fs.DurationVar(&flags.multiDPUOperationsSyncWaitTime, "multi-dpu-operations-sync-wait-time", 30*time.Second, "The wait time between DPUs sync operations on the same node")
 	fs.Int32Var(&flags.maxUnavailableDPUNodes, "max-unavailable-dpu-nodes", 50, "The maximum number of DPUNodes that are unavailable during the node effect period")
 	fs.DurationVar(&flags.osInstallTimeout, "os-install-timeout", operatorv1.DefaultOSInstallTimeout, "Maximum time allowed for OS installation in zero-trust mode")
+	fs.DurationVar(&flags.firmwareUpdateTimeout, "firmware-update-timeout", dutil.DefaultFirmwareUpdateTimeout, "Maximum time allowed for BF4 firmware update in zero-trust mode")
 	fs.DurationVar(&flags.nodeEffectRemovalTimeout, "node-effect-removal-timeout", 0, "Maximum time allowed for the Node Effect Removal phase before transitioning to error. 0 means no timeout.")
 	fs.StringVar(&flags.hostAgentDNSPolicy, "hostagent-dns-policy", string(corev1.DNSClusterFirstWithHostNet), "DNS policy for the hostagent pod")
 	fs.StringVar(&flags.deploymentMode, "deployment-mode", "", "required: cluster deployment mode from DPFOperatorConfig (zero-trust or host-trusted)")
@@ -269,6 +271,7 @@ func setupControllers(mgr ctrl.Manager, flags *cliFlags, bfbRegistry string, ima
 		CustomCASecretName:          flags.customCASecretName,
 		MaxDPUParallelInstallations: flags.maxDPUParallelInstallations,
 		OSInstallTimeout:            flags.osInstallTimeout,
+		FirmwareUpdateTimeout:       flags.firmwareUpdateTimeout,
 		NodeEffectRemovalTimeout:    flags.nodeEffectRemovalTimeout,
 	}
 
