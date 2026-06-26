@@ -48,7 +48,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -85,7 +84,6 @@ func main() {
 	var enableHTTP2 bool
 	var disableDPUReadyTaints bool
 	var syncPeriod time.Duration
-	var concurrency int
 
 	fs.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	fs.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -104,8 +102,6 @@ func main() {
 		"If set, the DPUReady controller will not add/remove taints when DPUs are not ready. Other controller functionality remains enabled.")
 	fs.DurationVar(&syncPeriod, "sync-period", 10*time.Minute,
 		"The minimum interval at which watched resources are reconciled.")
-	fs.IntVar(&concurrency, "concurrency", 1,
-		"Number of objects to process simultaneously by each controller.")
 
 	features.MutableGates.AddFlag(fs)
 
@@ -165,9 +161,6 @@ func main() {
 				DisableFor:   []client.Object{&corev1.Secret{}, &corev1.ConfigMap{}},
 				Unstructured: true,
 			},
-		},
-		Controller: config.Controller{
-			MaxConcurrentReconciles: concurrency,
 		},
 		Cache: cache.Options{
 			SyncPeriod: &syncPeriod,
