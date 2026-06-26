@@ -34,10 +34,6 @@ func devlinkJSON(ports map[string]DevlinkPortEntry) string {
 	return string(b)
 }
 
-func writeMSTDevice(path, pciAddress string) {
-	ExpectWithOffset(1, os.WriteFile(path, []byte(fmt.Sprintf("domain:bus:dev.fn=%s addr.reg=88 data.reg=92", pciAddress)), 0644)).To(Succeed())
-}
-
 func writeUevent(root, netdev, pciSlotName string) {
 	dir := filepath.Join(root, netdev, "device")
 	ExpectWithOffset(1, os.MkdirAll(dir, 0755)).To(Succeed())
@@ -58,8 +54,6 @@ func mockRunBash(devlinkResponse string) func(cmd string) (bytes.Buffer, bytes.B
 			var buf bytes.Buffer
 			buf.WriteString(devlinkResponse)
 			return buf, bytes.Buffer{}, nil
-		case "mst start":
-			return bytes.Buffer{}, bytes.Buffer{}, nil
 		default:
 			return bytes.Buffer{}, bytes.Buffer{}, fmt.Errorf("unexpected command: %s", cmd)
 		}
@@ -78,17 +72,14 @@ func setSysfsPCIDevicesPathForTest(path string) {
 	DeferCleanup(func() { sysfsPCIDevicesPath = original })
 }
 
-func overridePathVars(netRoot, mstDir string) {
+func overridePathVars(netRoot string) {
 	origNet := sysfsNetPath
 	origPCIDevices := sysfsPCIDevicesPath
-	origMST := mstDevicesPath
 	sysfsNetPath = netRoot
 	sysfsPCIDevicesPath = filepath.Join(filepath.Dir(filepath.Dir(netRoot)), "bus", "pci", "devices")
-	mstDevicesPath = mstDir
 	DeferCleanup(func() {
 		sysfsNetPath = origNet
 		sysfsPCIDevicesPath = origPCIDevices
-		mstDevicesPath = origMST
 	})
 }
 
@@ -186,7 +177,7 @@ var _ = Describe("DiscoverNSPFRepresentors", func() {
 })
 
 var _ = Describe("DiscoverPorts", func() {
-	It("should join devlink, sysfs, and MST data and apply filter", func() {
+	It("should join devlink and sysfs data and apply filter", func() {
 		root := GinkgoT().TempDir()
 
 		netRoot := filepath.Join(root, "sys", "class", "net")
@@ -197,19 +188,12 @@ var _ = Describe("DiscoverPorts", func() {
 		writeUevent(netRoot, "p3", "0002:01:00.0")
 		writeUevent(netRoot, "p4", "0006:01:00.0")
 
-		mstDir := filepath.Join(root, "dev", "mst")
-		Expect(os.MkdirAll(mstDir, 0755)).To(Succeed())
-		writeMSTDevice(filepath.Join(mstDir, "mt41692_pciconf0"), "0000:03:00.0")
-		writeMSTDevice(filepath.Join(mstDir, "mt41692_pciconf0.1"), "0000:03:00.1")
-		writeMSTDevice(filepath.Join(mstDir, "mt41695_pciconf0"), "0002:01:00.0")
-		writeMSTDevice(filepath.Join(mstDir, "mt41695_pciconf1"), "0006:01:00.0")
-
 		pciDevicesRoot := filepath.Join(root, "sys", "bus", "pci", "devices")
 		writePCIDeviceID(pciDevicesRoot, "0000:03:00.0", bluefield3DeviceID)
 		writePCIDeviceID(pciDevicesRoot, "0000:03:00.1", bluefield3DeviceID)
 		writePCIDeviceID(pciDevicesRoot, "0002:01:00.0", bluefield4DeviceID)
 		writePCIDeviceID(pciDevicesRoot, "0006:01:00.0", bluefield4DeviceID)
-		overridePathVars(netRoot, mstDir)
+		overridePathVars(netRoot)
 
 		d := &PortDiscoverer{
 			runBash: mockRunBash(devlinkJSON(map[string]DevlinkPortEntry{
@@ -235,10 +219,8 @@ var _ = Describe("DiscoverPorts", func() {
 		}
 		Expect(portMap).To(HaveKey("p0"))
 		Expect(portMap["p0"].PCIAddress).To(Equal("0000:03:00.0"))
-		Expect(portMap["p0"].MSTDevice).To(Equal(filepath.Join(mstDir, "mt41692_pciconf0")))
 		Expect(portMap).To(HaveKey("p3"))
 		Expect(portMap["p3"].PCIAddress).To(Equal("0002:01:00.0"))
-		Expect(portMap["p3"].MSTDevice).To(Equal(filepath.Join(mstDir, "mt41695_pciconf0")))
 	})
 
 	It("should discover N/S ports", func() {
@@ -249,17 +231,11 @@ var _ = Describe("DiscoverPorts", func() {
 		writeUevent(netRoot, "p1", "0002:01:00.0")
 		writeUevent(netRoot, "eth0", "000a:01:00.0")
 
-		mstDir := filepath.Join(root, "dev", "mst")
-		Expect(os.MkdirAll(mstDir, 0755)).To(Succeed())
-		writeMSTDevice(filepath.Join(mstDir, "mt41692_pciconf0"), "0000:03:00.0")
-		writeMSTDevice(filepath.Join(mstDir, "mt41695_pciconf0"), "0002:01:00.0")
-		writeMSTDevice(filepath.Join(mstDir, "mt_other_pciconf0"), "000a:01:00.0")
-
 		pciDevicesRoot := filepath.Join(root, "sys", "bus", "pci", "devices")
 		writePCIDeviceID(pciDevicesRoot, "0000:03:00.0", "0xa2dc")
 		writePCIDeviceID(pciDevicesRoot, "0002:01:00.0", "0xa2df")
 		writePCIDeviceID(pciDevicesRoot, "000a:01:00.0", "0xffff")
-		overridePathVars(netRoot, mstDir)
+		overridePathVars(netRoot)
 
 		d := &PortDiscoverer{
 			runBash: mockRunBash(devlinkJSON(map[string]DevlinkPortEntry{
@@ -284,23 +260,4 @@ var _ = Describe("DiscoverPorts", func() {
 		Expect(portMap).NotTo(HaveKey("eth0"))
 	})
 
-})
-
-var _ = Describe("pciAddressFromMSTDevice", func() {
-	It("should parse PCI address from MST device content", func() {
-		path := filepath.Join(GinkgoT().TempDir(), "mt41695_pciconf0")
-		writeMSTDevice(path, "0002:01:00.0")
-
-		pci, err := pciAddressFromMSTFile(path)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(pci).To(Equal("0002:01:00.0"))
-	})
-
-	It("should return error for unparseable content", func() {
-		path := filepath.Join(GinkgoT().TempDir(), "bad_device")
-		Expect(os.WriteFile(path, []byte("garbage"), 0644)).To(Succeed())
-
-		_, err := pciAddressFromMSTFile(path)
-		Expect(err).To(HaveOccurred())
-	})
 })

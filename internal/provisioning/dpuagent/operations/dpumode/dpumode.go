@@ -49,13 +49,13 @@ func (d *EnsureMode) ShouldUpdateStatusBeforeContinue(ctx *operations.Context) b
 }
 
 func (d *EnsureMode) Execute(execCtx context.Context, optCtx *operations.Context) error {
-	devices, err := d.targetMFTDevices(optCtx)
+	devices, err := d.targetPCIDevices(optCtx)
 	if err != nil {
-		return fmt.Errorf("failed to discover MFT target devices: %w", err)
+		return fmt.Errorf("failed to discover target PCI devices: %w", err)
 	}
 
 	if len(devices) == 0 {
-		klog.Warningf("No MFT target devices found")
+		klog.Warningf("No target PCI devices found")
 		return nil
 	}
 
@@ -80,15 +80,15 @@ func (d *EnsureMode) Execute(execCtx context.Context, optCtx *operations.Context
 	return nil
 }
 
-func (d *EnsureMode) targetMFTDevices(optCtx *operations.Context) ([]string, error) {
+func (d *EnsureMode) targetPCIDevices(optCtx *operations.Context) ([]string, error) {
 	ports, err := optCtx.NSPorts()
 	if err != nil {
 		return nil, err
 	}
 	var devices []string
 	for _, p := range ports {
-		if p.MSTDevice != "" {
-			devices = append(devices, p.MSTDevice)
+		if p.PCIAddress != "" {
+			devices = append(devices, p.PCIAddress)
 		}
 	}
 	return devices, nil
