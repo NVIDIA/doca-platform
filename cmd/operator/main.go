@@ -44,7 +44,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
@@ -80,7 +79,6 @@ var (
 	configSingletonName      string
 	syncPeriod               time.Duration
 	logOptions               = logs.NewOptions()
-	concurrency              int
 )
 
 func initFlags(fs *pflag.FlagSet) {
@@ -101,8 +99,6 @@ func initFlags(fs *pflag.FlagSet) {
 		operatorcontroller.DefaultDPFOperatorConfigSingletonName, "The name of the DPFOperatorConfig the operator will reconcile")
 	fs.DurationVar(&syncPeriod, "sync-period", 10*time.Minute,
 		"The minimum interval at which watched resources are reconciled.")
-	fs.IntVar(&concurrency, "concurrency", 1,
-		"Number of objects to process simultaneously by each controller.")
 	features.MutableGates.AddFlag(fs)
 	logsv1.AddFlags(logOptions, fs)
 
@@ -150,9 +146,6 @@ func main() {
 		},
 		Cache: cache.Options{
 			SyncPeriod: &syncPeriod,
-		},
-		Controller: config.Controller{
-			MaxConcurrentReconciles: concurrency,
 		},
 		LeaderElection: enableLeaderElection,
 		// LeaderElectionID must stay stable across releases: the chart uses RollingUpdate,

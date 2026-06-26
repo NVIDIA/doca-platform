@@ -61,7 +61,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -110,7 +109,6 @@ type cliFlags struct {
 	dpuInstallInterface            string
 	bfCFGTemplateFile              string
 	bfbRegistryLoadBalancerAddress string
-	concurrency                    int
 	customCASecretName             string
 	dmsPodEnvs                     []string
 	maxDPUParallelInstallations    int32
@@ -146,7 +144,6 @@ func parseFlags() *cliFlags {
 	fs.IntVar(&flags.dmsTimeout, "dms-timeout", 900, "The max timeout execution in seconds of a command if not responding, 0 is unlimited.")
 	fs.DurationVar(&flags.dmsPodTimeout, "dms-pod-timeout", 5*time.Minute, "Timeout for DMS pods")
 	fs.DurationVar(&flags.syncPeriod, "sync-period", 10*time.Minute, "The minimum interval at which watched resources are reconciled.")
-	fs.IntVar(&flags.concurrency, "concurrency", 1, "Number of objects to process simultaneously by each controller.")
 	fs.StringVar(&flags.dpuInstallInterface, "dpu-install-interface", string(provisioningv1.InstallViaHostAgent), "the interface used to provision DPUs")
 	fs.StringVar(&flags.bfCFGTemplateFile, "bf-cfg-template-file", "", "A custom bf.cfg template used as part of DPU provisioning.")
 	fs.StringVar(&flags.bfbRegistryLoadBalancerAddress, "bfb-registry-load-balancer-address", "", "load balancer address for the BFB registry from which BFBs are downloaded")
@@ -220,9 +217,6 @@ func createManager(flags *cliFlags) (ctrl.Manager, *rest.Config) {
 			SyncPeriod: &flags.syncPeriod,
 		},
 		PprofBindAddress: flags.pprofBindAddr,
-		Controller: config.Controller{
-			MaxConcurrentReconciles: flags.concurrency,
-		},
 		LeaderElection:   flags.enableLeaderElection,
 		LeaderElectionID: "provisioning.dpu.nvidia.com",
 		// Release the lease on shutdown so a standby replica can take over within
