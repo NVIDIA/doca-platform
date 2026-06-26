@@ -1560,19 +1560,18 @@ spec:
                     pattern: ^([0-9]+(h|m|s|ms|us|µs|ns))+$
                     type: string
                   nodeEffectRemovalTimeout:
-                    default: 0s
                     description: |-
                       NodeEffectRemovalTimeout is the maximum time allowed for the Node Effect Removal phase.
                       If the DPUNodeMaintenance CR still has requestors after this timeout, the DPU will transition to an error state.
-                      When set to "0s" (the default), the timeout is disabled and no time limit is enforced.
+                      When unset, the provisioning controller defaults to 0s (timeout disabled).
                     format: duration
                     pattern: ^([0-9]+(h|m|s|ms|us|µs|ns))+$
                     type: string
                   osInstallTimeout:
-                    default: 60m
                     description: |-
                       OSInstallTimeout is the maximum time allowed for OS installation in zero-trust mode.
                       If the installation exceeds this timeout, the DPU will transition to an error state.
+                      When unset, the provisioning controller defaults to 60m.
                     format: duration
                     pattern: ^([0-9]+(h|m|s|ms|us|µs|ns))+$
                     type: string
