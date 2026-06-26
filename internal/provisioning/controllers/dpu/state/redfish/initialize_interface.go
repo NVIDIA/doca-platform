@@ -68,13 +68,14 @@ func InitializeInterface(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *
 
 	tlsClient, err := rfclient.NewTLSClient(ctx, device.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
 	if err != nil {
-		log.Error(err, fmt.Sprintf("Failed to create TLS client for DPU %s", device.BMCAddress()))
+		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondInterfaceInitialized), err, "FailedToCreateClient", err.Error()))
 		return *state, err
 	}
 
 	descr, err := getProductDescription(tlsClient)
 	if err != nil {
 		log.Error(err, fmt.Sprintf("Failed to get product description for DPU %s", device.BMCAddress()))
+		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondInterfaceInitialized), err, "FailedToGetProductDescription", err.Error()))
 		return *state, err
 	}
 
