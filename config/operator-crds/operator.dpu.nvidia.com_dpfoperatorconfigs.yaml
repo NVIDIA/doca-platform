@@ -1455,6 +1455,14 @@ spec:
                       When enabled, the provisioning controller discovers ConfigMaps by matching labels for BFB
                       name/namespace and DPUCluster name/namespace. Mutually exclusive with bfCFGTemplateConfigMap.
                     type: boolean
+                  firmwareUpdateTimeout:
+                    description: |-
+                      FirmwareUpdateTimeout is the maximum time allowed for BF4 firmware update in zero-trust mode.
+                      If the update exceeds this timeout, the DPU will transition to an error state.
+                      When unset, the provisioning controller defaults to 45m.
+                    format: duration
+                    pattern: ^([0-9]+(h|m|s|ms|us|µs|ns))+$
+                    type: string
                   hostAgentDNSPolicy:
                     description: |-
                       HostAgentDNSPolicy sets the DNS policy for the hostagent pod.

@@ -222,10 +222,10 @@ var _ = Describe("FirmwareUpdate", func() {
 		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
 		dpu.Status.Conditions = []metav1.Condition{
 			{
-				Type:               provisioningv1.DPUCondFwBundleUpdated.String(),
-				Status:             metav1.ConditionFalse,
-				Reason:             "Updating",
-				Message:            "Updating PLDM Firmware",
+				Type:               provisioningv1.DPUCondFWConfigured.String(),
+				Status:             metav1.ConditionTrue,
+				Reason:             "Configured",
+				Message:            "FW configured",
 				LastTransitionTime: metav1.NewTime(time.Now().Add(-2 * time.Hour)),
 			},
 		}
@@ -397,5 +397,39 @@ var _ = Describe("FirmwareUpdate", func() {
 				HaveField("Reason", "FailedToUpdatePldmFwBundle"),
 			),
 		))
+	})
+
+	Context("checkFirmwareUpdateTimeout", func() {
+		It("should return nil when timeout is zero", func() {
+			state := &provisioningv1.DPUStatus{}
+			Expect(checkFirmwareUpdateTimeout(state, 0)).NotTo(HaveOccurred())
+		})
+
+		It("should return nil when FWConfigured condition is missing", func() {
+			state := &provisioningv1.DPUStatus{}
+			Expect(checkFirmwareUpdateTimeout(state, time.Hour)).NotTo(HaveOccurred())
+		})
+
+		It("should return nil when timeout has not been exceeded", func() {
+			state := &provisioningv1.DPUStatus{}
+			cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondFWConfigured), nil, "Configured", ""))
+			Expect(checkFirmwareUpdateTimeout(state, time.Hour)).NotTo(HaveOccurred())
+		})
+
+		It("should return error when timeout has been exceeded", func() {
+			state := &provisioningv1.DPUStatus{
+				Conditions: []metav1.Condition{
+					{
+						Type:               string(provisioningv1.DPUCondFWConfigured),
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.Time{Time: time.Now().Add(-2 * time.Hour)},
+						Reason:             "Configured",
+					},
+				},
+			}
+			err := checkFirmwareUpdateTimeout(state, time.Hour)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("firmware update timeout exceeded"))
+		})
 	})
 })
