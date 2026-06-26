@@ -98,6 +98,19 @@ spec:
         node-role.kubernetes.io/control-plane: ""
 ```
 
+### Multiple DPUClusters
+
+DPF supports running multiple DPUClusters simultaneously within a single management cluster. Each DPUCluster is an
+independent Kubernetes control plane that manages a subset of DPU nodes. This enables horizontal scaling beyond the
+limits of a single cluster.
+
+When allocating DPUs to DPUClusters, DPF uses a bin packing algorithm that selects the cluster with the highest ratio
+of assigned DPUs to `maxNodes`, filling clusters before spilling into new ones.
+
+DPF enables directing workloads to specific DPUClusters as an advanced use case. To do so, apply labels to the DPUCluster
+objects. Other DPF resources expose a `dpuClusterSelector` field that uses those labels to target a subset of clusters.
+When `dpuClusterSelector` is omitted, the resource applies to all DPUClusters.
+
 ### DPUCluster Implementation
 
 A DPUCluster implementation is a Kubernetes controller which operates on the DPF DPUCluster object. It should:
