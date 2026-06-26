@@ -76,7 +76,7 @@ func Rebooting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Cont
 func reconcileHostlessReboot(ctx context.Context, dpu *provisioningv1.DPU, state *provisioningv1.DPUStatus, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
 	client, err := redfishClientForDPU(ctx, dpu, ctrlCtx)
 	if err != nil {
-		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondRebooted.String(), err, "FailedToCreateRedfishClient", err.Error()))
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondRebooted.String(), err, "FailedToCreateClient", err.Error()))
 		return *state, err
 	}
 
