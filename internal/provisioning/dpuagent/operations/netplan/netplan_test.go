@@ -37,7 +37,7 @@ var _ = Describe("Netplan", func() {
 	var tempDir string
 	discoverOnePort := func() ([]pciutil.NICPort, error) { //nolint:unparam
 		return []pciutil.NICPort{
-			{Netdev: "p0", PCIAddress: "0000:00:00.0", MSTDevice: "/dev/mst/mt0"},
+			{Netdev: "p0", PCIAddress: "0000:00:00.0"},
 		}, nil
 	}
 
@@ -182,8 +182,8 @@ var _ = Describe("Netplan", func() {
 				Options: opts.Options{ZeroTrustMode: true},
 				DiscoverPorts: func() ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{
-						{Netdev: "p0", PCIAddress: "0000:00:00.0", MSTDevice: "/dev/mst/mt0"},
-						{Netdev: "p1", PCIAddress: "0000:00:00.1", MSTDevice: "/dev/mst/mt0.1"},
+						{Netdev: "p0", PCIAddress: "0000:00:00.0"},
+						{Netdev: "p1", PCIAddress: "0000:00:00.1"},
 					}, nil
 				},
 			})).To(Succeed())
