@@ -137,7 +137,7 @@ func TestNICProvisioning_Execute(t *testing.T) {
 		return &provisioningv1.BlueFieldSoftware{
 			ObjectMeta: metav1.ObjectMeta{Name: "bfs-1", Namespace: "default"},
 			Spec: provisioningv1.BlueFieldSpec{
-				PldmFwBundle: "https://example.com/pldm.fwpkg",
+				PldmFwBundle: ptr.To("https://example.com/pldm.fwpkg"),
 			},
 			Status: provisioningv1.BlueFieldSoftwareStatus{
 				DownloadedComponents: provisioningv1.DownloadedComponents{
@@ -351,11 +351,8 @@ func TestNICProvisioning_Execute(t *testing.T) {
 func TestIsPldmFwBundleConfigured(t *testing.T) {
 	assert.False(t, isPldmFwBundleConfigured(nil))
 	assert.False(t, isPldmFwBundleConfigured(&provisioningv1.BlueFieldSoftware{}))
-	assert.False(t, isPldmFwBundleConfigured(&provisioningv1.BlueFieldSoftware{
-		Spec: provisioningv1.BlueFieldSpec{PldmFwBundle: "   "},
-	}))
 	assert.True(t, isPldmFwBundleConfigured(&provisioningv1.BlueFieldSoftware{
-		Spec: provisioningv1.BlueFieldSpec{PldmFwBundle: "https://example.com/fw.fwpkg"},
+		Spec: provisioningv1.BlueFieldSpec{PldmFwBundle: ptr.To("https://example.com/fw.fwpkg")},
 	}))
 }
 
