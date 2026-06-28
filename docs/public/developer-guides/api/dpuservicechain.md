@@ -5,6 +5,7 @@ title: "DPUServiceChain"
 [[_TOC_]]
 
 This document describes how to use DPUServiceChain in DPF.
+Familiarity with the [`DPUServiceInterface`](dpuserviceinterface.md) API is required.
 
 # Introduction
 

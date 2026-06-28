@@ -17,6 +17,8 @@ to the API source code in the repository.
 * [DPUService](dpuservice.md) - DPUService CRD for deploying applications on DPU nodes
 * [DPUDeployment](dpudeployment.md) - DPUDeployment CRD for provisioning multiple DPUs with multiple DPUServices running
     on top of them
+* [DPUServiceInterface](dpuserviceinterface.md) - DPUServiceInterface CRD for declaring DPU network interfaces used in
+    service chaining
 * [DPUServiceChain](dpuservicechain.md) - DPUServiceChain CRD for traffic steering and service chaining
 * [DPUSet](dpuset.md) - DPUSet CRD for managing DPU provisioning
 * [DPUCluster](dpucluster.md) - DPUCluster CRD for DPU cluster control plane management
