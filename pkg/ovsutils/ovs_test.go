@@ -582,6 +582,277 @@ var _ = Describe("OVSUtils", func() {
 			client = &Client{Client: mockOVSClient}
 		})
 
+		Describe("ValidateBridgeExists", func() {
+			It("returns nil when the bridge exists", func() {
+				mockOVSClient.EXPECT().Get(gomock.Any(), gomock.Any()).Return(nil)
+
+				Expect(client.ValidateBridgeExists(ctx, "br-sfc")).To(Succeed())
+			})
+
+			It("wraps ErrNotFound with a bridge-specific message", func() {
+				mockOVSClient.EXPECT().Get(gomock.Any(), gomock.Any()).Return(ovsclient.ErrNotFound)
+
+				err := client.ValidateBridgeExists(ctx, "br-missing")
+				Expect(err).To(MatchError(ContainSubstring("failed to find bridge br-missing")))
+			})
+
+			It("propagates transport errors", func() {
+				mockOVSClient.EXPECT().Get(gomock.Any(), gomock.Any()).Return(errors.New("connection lost"))
+
+				err := client.ValidateBridgeExists(ctx, "br-sfc")
+				Expect(err).To(MatchError(ContainSubstring("connection lost")))
+			})
+		})
+
+		Describe("GetInterfaceLinkState", func() {
+			It("returns the interface link state", func() {
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, model interface{}) error {
+						iface := model.(*ovsmodel.Interface)
+						iface.LinkState = &ovsmodel.InterfaceLinkStateUp
+						return nil
+					})
+
+				state, err := client.GetInterfaceLinkState(ctx, "p0")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(state).To(Equal(ovsmodel.InterfaceLinkStateUp))
+			})
+
+			It("returns empty state when the interface is absent", func() {
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					Return(ovsclient.ErrNotFound)
+
+				state, err := client.GetInterfaceLinkState(ctx, "missing")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(state).To(BeEmpty())
+			})
+
+			It("propagates transport errors", func() {
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					Return(errors.New("connection lost"))
+
+				_, err := client.GetInterfaceLinkState(ctx, "p0")
+				Expect(err).To(MatchError(ContainSubstring("connection lost")))
+			})
+		})
+
+		Describe("GetPortVLANState", func() {
+			It("returns access mode with tag", func() {
+				tag := 100
+				mode := ovsmodel.PortVLANModeAccess
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, model interface{}) error {
+						port := model.(*ovsmodel.Port)
+						port.VLANMode = &mode
+						port.Tag = &tag
+						return nil
+					})
+
+				state, err := client.GetPortVLANState(ctx, "p0")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(state.Mode).NotTo(BeNil())
+				Expect(*state.Mode).To(Equal(ovsmodel.PortVLANModeAccess))
+				Expect(state.Tag).NotTo(BeNil())
+				Expect(*state.Tag).To(Equal(100))
+				Expect(state.Trunks).To(BeEmpty())
+			})
+
+			It("returns trunk mode with trunks", func() {
+				mode := ovsmodel.PortVLANModeTrunk
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, model interface{}) error {
+						port := model.(*ovsmodel.Port)
+						port.VLANMode = &mode
+						port.Trunks = []int{10, 20}
+						return nil
+					})
+
+				state, err := client.GetPortVLANState(ctx, "p0")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(state.Mode).NotTo(BeNil())
+				Expect(*state.Mode).To(Equal(ovsmodel.PortVLANModeTrunk))
+				Expect(state.Tag).To(BeNil())
+				Expect(state.Trunks).To(ConsistOf(10, 20))
+			})
+
+			It("propagates Get errors", func() {
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					Return(errors.New("connection lost"))
+
+				_, err := client.GetPortVLANState(ctx, "p0")
+				Expect(err).To(MatchError(ContainSubstring("connection lost")))
+			})
+		})
+
+		Describe("GetBridgeNameByInterface", func() {
+			var mockConditionalAPI *MockConditionalAPI
+
+			BeforeEach(func() {
+				mockConditionalAPI = NewMockConditionalAPI(mockCtrl)
+			})
+
+			It("walks Interface to Port to Bridge", func() {
+				gomock.InOrder(
+					mockOVSClient.EXPECT().
+						Get(gomock.Any(), gomock.Any()).
+						DoAndReturn(func(ctx context.Context, model interface{}) error {
+							iface := model.(*ovsmodel.Interface)
+							iface.UUID = "iface-uuid"
+							return nil
+						}),
+					mockOVSClient.EXPECT().
+						WhereAll(gomock.Any(), gomock.Any()).
+						Return(mockConditionalAPI),
+					mockConditionalAPI.EXPECT().
+						List(gomock.Any(), gomock.Any()).
+						DoAndReturn(func(ctx context.Context, result interface{}) error {
+							ptr := result.(*[]ovsmodel.Port)
+							*ptr = []ovsmodel.Port{{Name: "p0", UUID: "port-uuid"}}
+							return nil
+						}),
+					mockOVSClient.EXPECT().
+						WhereAll(gomock.Any(), gomock.Any()).
+						Return(mockConditionalAPI),
+					mockConditionalAPI.EXPECT().
+						List(gomock.Any(), gomock.Any()).
+						DoAndReturn(func(ctx context.Context, result interface{}) error {
+							ptr := result.(*[]ovsmodel.Bridge)
+							*ptr = []ovsmodel.Bridge{{Name: "br-sfc"}}
+							return nil
+						}),
+				)
+
+				bridge, err := client.GetBridgeNameByInterface(ctx, "p0")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(bridge).To(Equal("br-sfc"))
+			})
+
+			It("returns error when interface lookup fails", func() {
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					Return(ovsclient.ErrNotFound)
+
+				_, err := client.GetBridgeNameByInterface(ctx, "missing")
+				Expect(err).To(MatchError(ContainSubstring("failed to find interface")))
+			})
+
+			It("returns error when port lookup fails", func() {
+				gomock.InOrder(
+					mockOVSClient.EXPECT().
+						Get(gomock.Any(), gomock.Any()).
+						DoAndReturn(func(ctx context.Context, model interface{}) error {
+							iface := model.(*ovsmodel.Interface)
+							iface.UUID = "iface-uuid"
+							return nil
+						}),
+					mockOVSClient.EXPECT().
+						WhereAll(gomock.Any(), gomock.Any()).
+						Return(mockConditionalAPI),
+					mockConditionalAPI.EXPECT().
+						List(gomock.Any(), gomock.Any()).
+						DoAndReturn(func(ctx context.Context, result interface{}) error {
+							ptr := result.(*[]ovsmodel.Port)
+							*ptr = []ovsmodel.Port{}
+							return nil
+						}),
+				)
+
+				_, err := client.GetBridgeNameByInterface(ctx, "p0")
+				Expect(err).To(MatchError(ContainSubstring("failed to find port")))
+			})
+
+			It("returns error when bridge lookup fails", func() {
+				gomock.InOrder(
+					mockOVSClient.EXPECT().
+						Get(gomock.Any(), gomock.Any()).
+						DoAndReturn(func(ctx context.Context, model interface{}) error {
+							iface := model.(*ovsmodel.Interface)
+							iface.UUID = "iface-uuid"
+							return nil
+						}),
+					mockOVSClient.EXPECT().
+						WhereAll(gomock.Any(), gomock.Any()).
+						Return(mockConditionalAPI),
+					mockConditionalAPI.EXPECT().
+						List(gomock.Any(), gomock.Any()).
+						DoAndReturn(func(ctx context.Context, result interface{}) error {
+							ptr := result.(*[]ovsmodel.Port)
+							*ptr = []ovsmodel.Port{{Name: "p0", UUID: "port-uuid"}}
+							return nil
+						}),
+					mockOVSClient.EXPECT().
+						WhereAll(gomock.Any(), gomock.Any()).
+						Return(mockConditionalAPI),
+					mockConditionalAPI.EXPECT().
+						List(gomock.Any(), gomock.Any()).
+						DoAndReturn(func(ctx context.Context, result interface{}) error {
+							ptr := result.(*[]ovsmodel.Bridge)
+							*ptr = []ovsmodel.Bridge{}
+							return nil
+						}),
+				)
+
+				_, err := client.GetBridgeNameByInterface(ctx, "p0")
+				Expect(err).To(MatchError(ContainSubstring("failed to find bridge")))
+			})
+		})
+
+		Describe("ListInterfacesWithError", func() {
+			It("returns names of interfaces with non-empty error", func() {
+				emptyErr := ""
+				ifaceErr := "could not open netdev"
+				busyErr := "device busy"
+				mockOVSClient.EXPECT().
+					List(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, result interface{}) error {
+						ptr := result.(*[]ovsmodel.Interface)
+						*ptr = []ovsmodel.Interface{
+							{Name: "p0", Error: &ifaceErr},
+							{Name: "p1", Error: &emptyErr},
+							{Name: "p2", Error: &busyErr},
+						}
+						return nil
+					})
+
+				names, err := client.ListInterfacesWithError(ctx)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(names).To(ConsistOf("p0", "p2"))
+			})
+
+			It("returns empty slice when no interfaces are in error", func() {
+				emptyErr := ""
+				mockOVSClient.EXPECT().
+					List(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, result interface{}) error {
+						ptr := result.(*[]ovsmodel.Interface)
+						*ptr = []ovsmodel.Interface{
+							{Name: "p0", Error: &emptyErr},
+							{Name: "p1"},
+						}
+						return nil
+					})
+
+				names, err := client.ListInterfacesWithError(ctx)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(names).To(BeEmpty())
+			})
+
+			It("propagates List errors", func() {
+				mockOVSClient.EXPECT().
+					List(gomock.Any(), gomock.Any()).
+					Return(errors.New("db read failed"))
+
+				_, err := client.ListInterfacesWithError(ctx)
+				Expect(err).To(MatchError(ContainSubstring("db read failed")))
+			})
+		})
+
 		Describe("GetIfaceWithName", func() {
 			It("should return error for empty name", func() {
 				iface, err := client.GetIfaceWithName(ctx, "")
