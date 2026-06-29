@@ -119,11 +119,12 @@ type NicConfiguration struct {
 	// Number of VFs to be configured
 	// +required
 	NumVfs int `json:"numVfs"`
-	// LinkType to be configured, Ethernet|Infiniband
+	// LinkType to be configured, Ethernet|Infiniband. Required unless networkBay is configured;
+	// for Network Bay the link type is governed by the system configuration and must not be set.
 	// +kubebuilder:validation:Enum=Ethernet;Infiniband
-	// +required
-	LinkType nicconfigv1alpha1.LinkTypeEnum `json:"linkType"`
-	// Spectrum-X optimization settings. Works only with linkType==Ethernet && numVfs==0. Other optimizations must be skipped or disabled. RawNvConfig must be empty.
+	// +optional
+	LinkType nicconfigv1alpha1.LinkTypeEnum `json:"linkType,omitempty"`
+	// Spectrum-X optimization settings. Works only with linkType==Ethernet && numVfs==1. RawNvConfig parameters, if provided, are merged as overrides on top of Spectrum-X calculated params.
 	SpectrumXOptimized *nicconfigv1alpha1.SpectrumXOptimizedSpec `json:"spectrumXOptimized,omitempty"`
 	// List of arbitrary nv config parameters
 	RawNvConfig []nicconfigv1alpha1.NvConfigParam `json:"rawNvConfig,omitempty"`

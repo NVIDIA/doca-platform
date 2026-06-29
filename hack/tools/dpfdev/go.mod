@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/nvidia/doca-platform v0.0.0-00010101000000-000000000000
-	github.com/onsi/gomega v1.39.1
+	github.com/onsi/gomega v1.42.0
 	github.com/spf13/afero v1.15.0
 	github.com/spf13/cobra v1.10.1
 	k8s.io/apiextensions-apiserver v0.34.1
@@ -18,7 +18,7 @@ replace github.com/nvidia/doca-platform => ../../..
 
 require (
 	dario.cat/mergo v1.0.1 // indirect
-	github.com/Mellanox/nic-configuration-operator v1.3.2-0.20260427085742-a2b4ef3841e4 // indirect
+	github.com/Mellanox/nic-configuration-operator v1.3.2-0.20260626074158-f750f6efa98e // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProtonMail/go-crypto v1.1.3 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
@@ -69,7 +69,7 @@ require (
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	go.uber.org/zap v1.27.1 // indirect
+	go.uber.org/zap v1.28.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/crypto v0.52.0 // indirect
