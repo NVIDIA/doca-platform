@@ -895,6 +895,19 @@ func GetNodeFromDPUCluster(ctx context.Context, client crclient.Client, dpu *pro
 	return node, nil
 }
 
+// ShouldSkipHWProvisioning checks whether the DPUDevice associated with the given DPU
+// has the skip-hw-provisioning label set to "true".
+func ShouldSkipHWProvisioning(ctx context.Context, c crclient.Reader, dpu *provisioningv1.DPU) (bool, error) {
+	if c == nil {
+		return false, fmt.Errorf("client is nil")
+	}
+	dpuDevice := &provisioningv1.DPUDevice{}
+	if err := c.Get(ctx, crclient.ObjectKey{Namespace: dpu.Namespace, Name: dpu.Spec.DPUDeviceName}, dpuDevice); err != nil {
+		return false, fmt.Errorf("failed to get DPUDevice %s: %w", dpu.Spec.DPUDeviceName, err)
+	}
+	return dpuDevice.Labels[provisioningv1.DPUDeviceLabelSkipHWProvisioning] == "true", nil
+}
+
 func NeedUpdateLabelsOnNodeInDPUCluster(dpuNode *corev1.Node, labelsOnDPUObject map[string]string) (bool, error) {
 	if labelsOnDPUObject == nil {
 		labelsOnDPUObject = map[string]string{}

@@ -29,6 +29,7 @@ import (
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 
@@ -94,7 +95,7 @@ func (r *Handler) run() []*provisioningv1.DPU {
 func (r *Handler) reboot(ctx context.Context, dpuNode *provisioningv1.DPUNode, dpus []provisioningv1.DPU) (rebootNow []provisioningv1.DPU, err error) {
 	blockers := []client.ObjectKey{}
 	for _, dpu := range dpus {
-		needReboot, err := r.needRebooting(dpu)
+		needReboot, err := r.needRebooting(ctx, dpu)
 		if err != nil {
 			return nil, fmt.Errorf("failed to check if DPU needs to be rebooted, err: %v", err)
 		}
@@ -335,7 +336,17 @@ func (r *Handler) isDPUOff(rshim string) (bool, string, error) {
 	return strings.Contains(lastLine, "System Off"), lastLine, nil
 }
 
-func (r *Handler) needRebooting(dpu provisioningv1.DPU) (bool, error) {
+func (r *Handler) needRebooting(ctx context.Context, dpu provisioningv1.DPU) (bool, error) {
+	// if the label check fails, proceed with real hardware provisioning.
+	skipHW, err := cutil.ShouldSkipHWProvisioning(ctx, r.Client, &dpu)
+	if err != nil {
+		klog.V(3).Infof("Failed to check skip-hw-provisioning label, assuming real hardware. error: %v", err)
+	}
+	if skipHW {
+		klog.V(3).Infof("skip-hw-provisioning label set - skipping reboot for DPU %s", dpu.Name)
+		return false, nil
+	}
+
 	finished, err := r.bootIDStore.IsRebootFinished(&dpu)
 	if err != nil {
 		return false, fmt.Errorf("failed to check if reboot is finished. dpu: %s, err: %v", dpu.Name, err)

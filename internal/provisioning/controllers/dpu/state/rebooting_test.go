@@ -24,6 +24,7 @@ import (
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/hostagent"
+	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
@@ -39,9 +40,10 @@ import (
 
 var _ = Describe("Phase Rebooting", func() {
 	var (
-		ctx                context.Context
-		defaultDPUName     = "dpu-rebooting-test"
-		defaultDPUNodeName = "dpu-node-rebooting-test"
+		ctx                  context.Context
+		defaultDPUName       = "dpu-rebooting-test"
+		defaultDPUNodeName   = "dpu-node-rebooting-test"
+		defaultDPUDeviceName = "dpu-device-rebooting-test"
 	)
 
 	BeforeEach(func() {
@@ -884,6 +886,118 @@ var _ = Describe("Phase Rebooting", func() {
 			dpu := rebootingDPU()
 
 			status, err := hostagent.Rebooting(ctx, dpu, hostAgentCtx())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPURebooting))
+		})
+	})
+
+	Context("skip-hw-provisioning label", func() {
+		It("hostagent.Rebooting: should skip power cycle and move to DPUHostNetworkConfiguration", func() {
+			dpuDevice := dpuDeviceObj(defaultDPUDeviceName)
+			dpuDevice.Labels[provisioningv1.DPUDeviceLabelSkipHWProvisioning] = "true"
+			createObject(dpuDevice)
+
+			dpuNode := dpuNodeObj(defaultDPUNodeName)
+			dpuNode.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{
+				HostAgent: &provisioningv1.HostAgent{},
+			}
+			createObject(dpuNode)
+
+			dpu := dpuObj(defaultDPUName)
+			dpu.Spec.DPUDeviceName = dpuDevice.Name
+			dpu.Spec.DPUNodeName = dpuNode.Name
+			dpu.Status.Phase = provisioningv1.DPURebooting
+			cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondInterfaceInitialized, "", ""))
+
+			status, err := hostagent.Rebooting(ctx, dpu, &dutil.ControllerContext{
+				Client: k8sClient,
+			})
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUHostNetworkConfiguration))
+			_, cond := cutil.GetDPUCondition(&status, provisioningv1.DPUCondRebooted.String())
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+		})
+
+		It("hostagent.Rebooting: should proceed normally (stay in Rebooting) when label is absent", func() {
+			dpuDevice := dpuDeviceObj(defaultDPUDeviceName)
+			createObject(dpuDevice)
+
+			dpuNode := dpuNodeObj(defaultDPUNodeName)
+			dpuNode.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{
+				HostAgent: &provisioningv1.HostAgent{},
+			}
+			createObject(dpuNode)
+
+			dpu := dpuObj(defaultDPUName)
+			dpu.Spec.DPUDeviceName = dpuDevice.Name
+			dpu.Spec.DPUNodeName = dpuNode.Name
+			dpu.Status.Phase = provisioningv1.DPURebooting
+			cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondInterfaceInitialized, "", ""))
+
+			status, err := hostagent.Rebooting(ctx, dpu, &dutil.ControllerContext{
+				Client: k8sClient,
+			})
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPURebooting))
+		})
+
+		It("redfish.Rebooting: should skip power cycle and move to DPUClusterConfig", func() {
+			dpuDevice := dpuDeviceObj(defaultDPUDeviceName)
+			dpuDevice.Labels[provisioningv1.DPUDeviceLabelSkipHWProvisioning] = "true"
+			createObject(dpuDevice)
+
+			dpuNode := dpuNodeObj(defaultDPUNodeName)
+			dpuNode.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{
+				External: &provisioningv1.External{},
+			}
+			createObject(dpuNode)
+
+			dpu := dpuObj(defaultDPUName)
+			dpu.Spec.DPUDeviceName = dpuDevice.Name
+			dpu.Spec.DPUNodeName = dpuNode.Name
+			dpu.Status.Phase = provisioningv1.DPURebooting
+			cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondInterfaceInitialized, "", ""))
+
+			status, err := redfish.Rebooting(ctx, dpu, &dutil.ControllerContext{
+				Client: k8sClient,
+				Options: dutil.DPUOptions{
+					DPUInstallInterface: string(provisioningv1.InstallViaRedFish),
+				},
+			})
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUClusterConfig))
+			_, cond := cutil.GetDPUCondition(&status, provisioningv1.DPUCondRebooted.String())
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+		})
+
+		It("redfish.Rebooting: should proceed normally (stay in Rebooting) when label is absent", func() {
+			dpuDevice := dpuDeviceObj(defaultDPUDeviceName)
+			createObject(dpuDevice)
+
+			dpuNode := dpuNodeObj(defaultDPUNodeName)
+			dpuNode.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{
+				External: &provisioningv1.External{},
+			}
+			createObject(dpuNode)
+
+			dpu := dpuObj(defaultDPUName)
+			dpu.Spec.DPUDeviceName = dpuDevice.Name
+			dpu.Spec.DPUNodeName = dpuNode.Name
+			dpu.Status.Phase = provisioningv1.DPURebooting
+			cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondInterfaceInitialized, "", ""))
+
+			status, err := redfish.Rebooting(ctx, dpu, &dutil.ControllerContext{
+				Client: k8sClient,
+				Options: dutil.DPUOptions{
+					DPUInstallInterface: string(provisioningv1.InstallViaRedFish),
+				},
+			})
+
 			Expect(err).NotTo(HaveOccurred())
 			Expect(status.Phase).To(Equal(provisioningv1.DPURebooting))
 		})
