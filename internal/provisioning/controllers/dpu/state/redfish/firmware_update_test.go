@@ -360,6 +360,36 @@ var _ = Describe("FirmwareUpdate", func() {
 		))
 	})
 
+	It("should transition to Rebooting when bundle was activated on another reconcile", func() {
+		mockServer := createBF4MockRedfishServer()
+		defer mockServer.Stop()
+
+		createBMCAndMTLSSecretsForBF4(mockServer.GetIPAddress())
+		prepareBF4DPUDevice(mockServer)
+
+		pldmPath := createTempPldmFwBundle()
+		defer func() { _ = os.Remove(pldmPath) }()
+		createBlueFieldSoftware(pldmPath, true)
+
+		dpu := dpuObj(defaultDPUName)
+		dpu.Spec.DPUDeviceName = defaultDPUDeviceName
+		dpu.Spec.BlueFieldSoftware = ptr.To(defaultBlueFieldSWName)
+		dpu.Status.Phase = provisioningv1.DPUUpdateFirmware
+		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
+		cutil.SetDPUCondition(&dpu.Status, cutil.NewCondition(
+			provisioningv1.DPUCondFwBundleUpdated.String(),
+			nil,
+			"Updated",
+			"PLDM Firmware Updated",
+		))
+
+		status, err := FirmwareUpdate(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(status.Phase).To(Equal(provisioningv1.DPURebooting))
+		Expect(status.RebootStatus).NotTo(BeNil())
+		Expect(*status.RebootStatus.Method).To(Equal(provisioningv1.RebootMethodPowerCycle))
+	})
+
 	It("should transition to DPUError when task monitoring fails", func() {
 		mockServer := createBF4MockRedfishServer()
 		defer mockServer.Stop()
