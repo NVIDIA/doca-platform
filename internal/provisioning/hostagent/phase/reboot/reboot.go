@@ -83,6 +83,21 @@ func (r *Handler) updateDPURebootStatus(ctx context.Context, dpu *provisioningv1
 
 func (r *Handler) Handle(ctx context.Context, dpu *provisioningv1.DPU) (provisioningv1.DPUStatus, ctrl.Result, error) {
 	logger := log.FromContext(ctx)
+
+	// if the label check fails, proceed with real hardware provisioning.
+	skipHW, err := cutil.ShouldSkipHWProvisioning(ctx, r.Client, dpu)
+	if err != nil {
+		logger.V(3).Info("Failed to check skip-hw-provisioning label", "error", err)
+	}
+	if skipHW {
+		logger.Info("skip-hw-provisioning label set - skipping reboot")
+		if err := r.updateDPURebootStatus(ctx, dpu, provisioningv1.RebootStatusSucceeded,
+			"ModeUpdateRebootCompleted", string(provisioningv1.DPUCondMessageRebootFinishedForModeUpdate)); err != nil {
+			logger.Error(err, "Failed to update DPU reboot status")
+		}
+		return dpu.Status, ctrl.Result{}, nil
+	}
+
 	finished, err := r.bootIDStore.IsRebootFinished(dpu)
 	if err != nil {
 		logger.Error(err, "Failed to check reboot progress")

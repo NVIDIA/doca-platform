@@ -52,6 +52,13 @@ func ConfigFWParameters(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 		return *state, err
 	}
 
+	if device.Labels[provisioningv1.DPUDeviceLabelSkipHWProvisioning] == "true" {
+		logger.Info("skip-hw-provisioning label set - skipping firmware configuration")
+		state.Phase = provisioningv1.DPUPrepareBFB
+		cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondFWConfigured, "", ""))
+		return *state, nil
+	}
+
 	client, err := rc.NewTLSClient(ctx, device.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
 	if err != nil {
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUConfigFWParameters), err, "FailedToCreateClient", err.Error()))

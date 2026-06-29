@@ -35,6 +35,10 @@ const (
 	// BMCCredentialFinalizer is the finalizer added to per-device BMC credential secrets
 	// to prevent accidental deletion while the DPUDevice depends on them.
 	BMCCredentialFinalizer = "provisioning.dpu.nvidia.com/bmc-credential"
+
+	// DPUDeviceLabelSkipHWProvisioning indicates the device should skip
+	// hardware-specific provisioning steps (install, FW config, reboot).
+	DPUDeviceLabelSkipHWProvisioning = "provisioning.dpu.nvidia.com/skip-hw-provisioning"
 )
 
 // DPUDeviceGroupVersionKind is the GroupVersionKind of the DPUDevice object

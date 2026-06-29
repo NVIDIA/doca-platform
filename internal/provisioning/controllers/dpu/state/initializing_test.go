@@ -168,7 +168,7 @@ var _ = Describe("Phase Initializing", func() {
 
 		It("should propagate hostless status from DPUDevice label", func() {
 			dpuDevice := dpuDeviceObj(defaultDPUDeviceName)
-			dpuDevice.Labels[cutil.DPUDeviceHostlessLabel] = "true"
+			dpuDevice.Labels[cutil.DPUDeviceHostlessLabel] = strTrue
 			dpuDevice.Spec.BMCIP = ptr.To("192.0.2.10")
 			createObject(dpuDevice)
 
@@ -561,7 +561,7 @@ var _ = Describe("Phase Initializing", func() {
 		It("should transition to the next phase if SkipDpuProvisioningLabel is set", func() {
 			By("prepare DPUDevice CR")
 			dpuDevice := dpuDeviceObj(defaultDPUDeviceName)
-			dpuDevice.Labels[cutil.SkipDpuProvisioningLabel] = "true"
+			dpuDevice.Labels[cutil.SkipDpuProvisioningLabel] = strTrue
 			createObject(dpuDevice)
 
 			By("prepare DPUNode CR")
