@@ -43,6 +43,8 @@ func (st *blueFieldSoftwareDeletingState) statusPathForComponent(componentType b
 	switch componentType {
 	case butil.ComponentTypeFwBundle:
 		return st.bfs.Status.DownloadedComponents.PldmFwBundle
+	case butil.ComponentTypePlatformFwBundle:
+		return st.bfs.Status.DownloadedComponents.PlatformPldmFwBundle
 	case butil.ComponentTypeOSISO:
 		return st.bfs.Status.DownloadedComponents.OsIso
 	}
@@ -90,6 +92,7 @@ func (st *blueFieldSoftwareDeletingState) Handle(ctx context.Context, c client.C
 	// Delete all downloaded component files
 	componentsToDelete := []butil.ComponentType{
 		butil.ComponentTypeFwBundle,
+		butil.ComponentTypePlatformFwBundle,
 		butil.ComponentTypeOSISO,
 		butil.ComponentTypeAstraNicFw,
 	}
@@ -110,8 +113,14 @@ func (st *blueFieldSoftwareDeletingState) Handle(ctx context.Context, c client.C
 		}
 	}
 
-	extractDir := extractOutputDirForBFS(st.bfs)
-	if extractDir != "" {
+	for _, componentType := range []butil.ComponentType{
+		butil.ComponentTypeFwBundle,
+		butil.ComponentTypePlatformFwBundle,
+	} {
+		extractDir := extractOutputDirForBFS(st.bfs, componentType)
+		if extractDir == "" {
+			continue
+		}
 		// RemoveAll returns nil when the path does not exist; ignore ErrNotExist if wrapped.
 		if err := os.RemoveAll(extractDir); err != nil && !stderrors.Is(err, os.ErrNotExist) {
 			errors = append(errors, fmt.Errorf("failed to delete extract output directory %q: %w", extractDir, err))
@@ -132,7 +141,7 @@ func (st *blueFieldSoftwareDeletingState) Handle(ctx context.Context, c client.C
 
 	conditions.AddTrue(st.bfs, provisioningv1.BlueFieldSoftwareCondDeleted)
 	msg := fmt.Sprintf("BlueFieldSoftware: (%s/%s) deleted successfully", st.bfs.Namespace, st.bfs.Name)
-	st.recorder.Eventf(st.bfs, corev1.EventTypeNormal, events.EventSuccessfulDownloadBFBReason, msg)
+	st.recorder.Eventf(st.bfs, corev1.EventTypeNormal, events.EventSuccessfulDeleteDPUReason, msg)
 
 	return nil
 }

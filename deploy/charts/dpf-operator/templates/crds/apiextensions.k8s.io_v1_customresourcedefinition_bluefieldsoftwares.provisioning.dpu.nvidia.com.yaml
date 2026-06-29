@@ -51,9 +51,18 @@ spec:
             description: BlueFieldSpec defines the desired state of BlueFieldSoftware.
             properties:
               osIso:
+                description: OS ISO points to the OS ISO used by DPU OS installation
+                  flow.
+                minLength: 1
+                type: string
+              platformPldmFwBundle:
+                description: PlatformPldmFwBundle points to the Vera Rubin PLDM firmware
+                  bundle used for NIC firmware updates.
                 minLength: 1
                 type: string
               pldmFwBundle:
+                description: PldmFwBundle points to the BluefieldPLDM firmware bundle
+                  for baseline firmware updates.
                 minLength: 1
                 type: string
             required:
@@ -132,6 +141,8 @@ spec:
                   astraNicFw:
                     type: string
                   osIso:
+                    type: string
+                  platformPldmFwBundle:
                     type: string
                   pldmFwBundle:
                     type: string

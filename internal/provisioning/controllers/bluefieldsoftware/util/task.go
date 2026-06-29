@@ -26,6 +26,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 )
 
 var DownloadingTaskMap sync.Map
@@ -42,9 +43,10 @@ type ComponentDownloadTask struct {
 type ComponentType string
 
 const (
-	ComponentTypeFwBundle   ComponentType = "fwbundle"
-	ComponentTypeOSISO      ComponentType = "osiso"
-	ComponentTypeAstraNicFw ComponentType = "astranicfw"
+	ComponentTypeFwBundle         ComponentType = "fwbundle"
+	ComponentTypePlatformFwBundle ComponentType = "platformpldmfwbundle"
+	ComponentTypeOSISO            ComponentType = "osiso"
+	ComponentTypeAstraNicFw       ComponentType = "astranicfw"
 )
 
 // SpecURLForComponent returns the spec value (typically a URL) for componentType.
@@ -52,10 +54,9 @@ const (
 func SpecURLForComponent(bfs *provisioningv1.BlueFieldSoftware, componentType ComponentType) string {
 	switch componentType {
 	case ComponentTypeFwBundle:
-		if bfs.Spec.PldmFwBundle == nil {
-			return ""
-		}
-		return *bfs.Spec.PldmFwBundle
+		return ptr.Deref(bfs.Spec.PldmFwBundle, "")
+	case ComponentTypePlatformFwBundle:
+		return ptr.Deref(bfs.Spec.PlatformPldmFwBundle, "")
 	case ComponentTypeOSISO:
 		return bfs.Spec.OsIso
 	}
