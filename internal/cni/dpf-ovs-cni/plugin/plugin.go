@@ -188,7 +188,7 @@ func (d *DpfCNI) getBridgeName(ctx context.Context, api ovsutils.API, bridgeName
 		}
 		var errList []error
 		for _, uplinkName := range possibleUplinkNames {
-			bridgeName, err = findBridgeByInterface(ctx, api, uplinkName)
+			bridgeName, err = api.GetBridgeNameByInterface(ctx, uplinkName)
 			if err != nil {
 				errList = append(errList,
 					fmt.Errorf("failed to get bridge name - failed to find bridge name by uplink name %s: %v", uplinkName, err))
@@ -350,7 +350,7 @@ func (d *DpfCNI) CmdAdd(args *skel.CmdArgs) error {
 	// use the right bridge name in CmdDel
 	netconf.BrName = bridgeName
 
-	if err := ensureBridge(ctx, api, bridgeName); err != nil {
+	if err := api.ValidateBridgeExists(ctx, bridgeName); err != nil {
 		return err
 	}
 
@@ -571,11 +571,11 @@ func waitLinkUp(ctx context.Context, api ovsutils.API, ofPortName string, retryC
 	}
 	checkInterval := time.Duration(interval) * time.Millisecond
 	for i := 1; i <= retryCount; i++ {
-		portState, err := getOFPortOpState(ctx, api, ofPortName)
+		portState, err := api.GetInterfaceLinkState(ctx, ofPortName)
 		if err != nil {
 			log.Printf("error in retrieving port %s state: %v", ofPortName, err)
 		} else {
-			if portState == "up" {
+			if portState == ovsmodel.InterfaceLinkStateUp {
 				break
 			}
 		}
@@ -637,7 +637,7 @@ func (d *DpfCNI) CmdDel(args *skel.CmdArgs) error {
 		return err
 	}
 
-	if err := ensureBridge(ctx, api, bridgeName); err != nil {
+	if err := api.ValidateBridgeExists(ctx, bridgeName); err != nil {
 		return err
 	}
 
@@ -957,34 +957,39 @@ func (d *DpfCNI) validateOvs(ctx context.Context, args *skel.CmdArgs, netconf *t
 		return err
 	}
 
-	if err := ensureBridge(ctx, api, bridgeName); err != nil {
+	if err := api.ValidateBridgeExists(ctx, bridgeName); err != nil {
 		return err
 	}
 
-	ifaces, err := findInterfacesWithError(ctx, api)
+	ifaces, err := api.ListInterfacesWithError(ctx)
 	if err != nil {
 		return err
 	}
 	if len(ifaces) > 0 {
+		log.Printf("found %d interfaces with error", len(ifaces))
 		return fmt.Errorf("Error: There are some interfaces in error state: %v", ifaces)
 	}
 
-	vlanMode, tag, trunk, err := getOFPortVlanState(ctx, api, hostIfname)
+	vlanState, err := api.GetPortVLANState(ctx, hostIfname)
 	if err != nil {
 		return fmt.Errorf("Error: Failed to retrieve port %s state: %v", hostIfname, err)
+	}
+	vlanMode := ""
+	if vlanState.Mode != nil {
+		vlanMode = string(*vlanState.Mode)
 	}
 
 	// check vlan tag
 	if netconf.VlanTag == nil {
-		if tag != nil {
-			return fmt.Errorf("vlan tag mismatch. ovs=%d,netconf=nil", *tag)
+		if vlanState.Tag != nil {
+			return fmt.Errorf("vlan tag mismatch. ovs=%d,netconf=nil", *vlanState.Tag)
 		}
 	} else {
-		if tag == nil {
+		if vlanState.Tag == nil {
 			return fmt.Errorf("vlan tag mismatch. ovs=nil,netconf=%d", *netconf.VlanTag)
 		}
-		if *tag != *netconf.VlanTag {
-			return fmt.Errorf("vlan tag mismatch. ovs=%d,netconf=%d", *tag, *netconf.VlanTag)
+		if uint(*vlanState.Tag) != *netconf.VlanTag {
+			return fmt.Errorf("vlan tag mismatch. ovs=%d,netconf=%d", *vlanState.Tag, *netconf.VlanTag)
 		}
 		if vlanMode != "access" {
 			return fmt.Errorf("vlan mode mismatch. expected=access,real=%s", vlanMode)
@@ -1000,13 +1005,15 @@ func (d *DpfCNI) validateOvs(ctx context.Context, args *skel.CmdArgs, netconf *t
 		}
 		netconfTrunks = append(netconfTrunks, trunkVlanIds...)
 	}
-	if len(trunk) != len(netconfTrunks) {
-		return fmt.Errorf("trunk mismatch. ovs=%v,netconf=%v", trunk, netconfTrunks)
+	ovsTrunks := append([]int(nil), vlanState.Trunks...)
+	sort.Ints(ovsTrunks)
+	if len(ovsTrunks) != len(netconfTrunks) {
+		return fmt.Errorf("trunk mismatch. ovs=%v,netconf=%v", ovsTrunks, netconfTrunks)
 	}
 	if len(netconfTrunks) > 0 {
-		for i := 0; i < len(trunk); i++ {
-			if trunk[i] != netconfTrunks[i] {
-				return fmt.Errorf("trunk mismatch. ovs=%v,netconf=%v", trunk, netconfTrunks)
+		for i := 0; i < len(ovsTrunks); i++ {
+			if uint(ovsTrunks[i]) != netconfTrunks[i] {
+				return fmt.Errorf("trunk mismatch. ovs=%v,netconf=%v", ovsTrunks, netconfTrunks)
 			}
 		}
 

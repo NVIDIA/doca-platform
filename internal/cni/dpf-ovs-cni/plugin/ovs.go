@@ -31,7 +31,6 @@ import (
 	"github.com/nvidia/doca-platform/pkg/ovsutils"
 
 	current "github.com/containernetworking/cni/pkg/types/100"
-	"github.com/ovn-org/libovsdb/client"
 	"github.com/ovn-org/libovsdb/ovsdb"
 )
 
@@ -53,18 +52,6 @@ const (
 )
 
 var errObjectNotFound = errors.New("object not found")
-
-// ensureBridge returns an error if bridgeName is missing in OVS.
-func ensureBridge(ctx context.Context, api ovsutils.API, bridgeName string) error {
-	err := api.Get(ctx, &ovsmodel.Bridge{Name: bridgeName})
-	if err != nil {
-		if errors.Is(err, client.ErrNotFound) {
-			return fmt.Errorf("failed to find bridge %s", bridgeName)
-		}
-		return fmt.Errorf("get bridge %s: %w", bridgeName, err)
-	}
-	return nil
-}
 
 // hashToOFPort maps an interface name to an ofport in [minOFPort, maxOFPort].
 func hashToOFPort(s string) uint {
@@ -326,114 +313,6 @@ func deletePort(ctx context.Context, api ovsutils.API, bridgeName, intfName stri
 	return api.DelPort(ctx, bridgeName, intfName)
 }
 
-// getOFPortOpState retrieves link state of the OF port.
-func getOFPortOpState(ctx context.Context, api ovsutils.API, portName string) (string, error) {
-	condition := ovsdb.NewCondition("name", ovsdb.ConditionEqual, portName)
-	selectOp := []ovsdb.Operation{{
-		Op:      "select",
-		Table:   "Interface",
-		Columns: []string{"link_state"},
-		Where:   []ovsdb.Condition{condition},
-	}}
-
-	transactionResult, err := ovsdbTransact(ctx, api, selectOp)
-	if err != nil {
-		return "", err
-	}
-
-	if len(transactionResult) != 1 {
-		return "", fmt.Errorf("unknown error")
-	}
-
-	operationResult := transactionResult[0]
-	if operationResult.Error != "" {
-		return "", fmt.Errorf("%s - %s", operationResult.Error, operationResult.Details)
-	}
-
-	if len(operationResult.Rows) != 1 {
-		return "", nil
-	}
-
-	return fmt.Sprintf("%v", operationResult.Rows[0]["link_state"]), nil
-}
-
-// getOFPortVlanState retrieves port vlan state of the OF port.
-func getOFPortVlanState(ctx context.Context, api ovsutils.API, portName string) (string, *uint, []uint, error) {
-	condition := ovsdb.NewCondition("name", ovsdb.ConditionEqual, portName)
-	selectOp := []ovsdb.Operation{{
-		Op:      "select",
-		Table:   "Port",
-		Columns: []string{"vlan_mode", "tag", "trunks"},
-		Where:   []ovsdb.Condition{condition},
-	}}
-	var vlanMode = ""
-	var tag *uint = nil
-	var trunks []uint
-
-	transactionResult, err := ovsdbTransact(ctx, api, selectOp)
-	if err != nil {
-		return vlanMode, tag, trunks, err
-	}
-
-	if len(transactionResult) != 1 {
-		return vlanMode, tag, trunks, fmt.Errorf("transactionResult length is not one")
-	}
-
-	operationResult := transactionResult[0]
-	if operationResult.Error != "" {
-		return vlanMode, tag, trunks, fmt.Errorf("%s - %s", operationResult.Error, operationResult.Details)
-	}
-
-	if len(operationResult.Rows) != 1 {
-		return vlanMode, tag, trunks, fmt.Errorf("operationResult.Rows length is not one")
-	}
-
-	vlanModeCol := operationResult.Rows[0]["vlan_mode"]
-	switch vlanModeCol.(type) {
-	case string:
-		vlanMode = operationResult.Rows[0]["vlan_mode"].(string)
-	}
-
-	tagCol := operationResult.Rows[0]["tag"]
-	switch tagCol.(type) {
-	case float64:
-		tagValue := uint(operationResult.Rows[0]["tag"].(float64))
-		tag = &tagValue
-	}
-
-	trunksCol := operationResult.Rows[0]["trunks"].(ovsdb.OvsSet).GoSet
-	if len(trunksCol) > 0 {
-		for i := range trunksCol {
-			trunks = append(trunks, uint(trunksCol[i].(float64)))
-		}
-	}
-
-	return vlanMode, tag, trunks, nil
-}
-
-// findBridgeByInterface returns name of the bridge that contains provided interface.
-func findBridgeByInterface(ctx context.Context, api ovsutils.API, ifaceName string) (string, error) {
-	iface, err := findByCondition(ctx, api, "Interface",
-		ovsdb.NewCondition("name", ovsdb.ConditionEqual, ifaceName),
-		[]string{"name", "_uuid"})
-	if err != nil {
-		return "", fmt.Errorf("failed to find interface %s: %v", ifaceName, err)
-	}
-	port, err := findByCondition(ctx, api, "Port",
-		ovsdb.NewCondition("interfaces", ovsdb.ConditionIncludes, iface["_uuid"]),
-		[]string{"name", "_uuid"})
-	if err != nil {
-		return "", fmt.Errorf("failed to find port %s: %v", ifaceName, err)
-	}
-	bridge, err := findByCondition(ctx, api, "Bridge",
-		ovsdb.NewCondition("ports", ovsdb.ConditionIncludes, port["_uuid"]),
-		[]string{"name"})
-	if err != nil {
-		return "", fmt.Errorf("failed to find bridge for %s: %v", ifaceName, err)
-	}
-	return fmt.Sprintf("%v", bridge["name"]), nil
-}
-
 // getOvsPortForContIface returns the ovs port name for a container interface.
 // Returns ("", false, nil) if no matching port exists.
 func getOvsPortForContIface(ctx context.Context, api ovsutils.API, contIface, contNetnsPath string) (string, bool, error) {
@@ -457,38 +336,6 @@ func getOvsPortForContIface(ctx context.Context, api ovsutils.API, contIface, co
 	}
 
 	return fmt.Sprintf("%v", port["name"]), true, nil
-}
-
-// findInterfacesWithError returns the interfaces which are in error state.
-func findInterfacesWithError(ctx context.Context, api ovsutils.API) ([]string, error) {
-	selectOp := ovsdb.Operation{
-		Op:      "select",
-		Columns: []string{"name", "error"},
-		Table:   "Interface",
-	}
-	transactionResult, err := ovsdbTransact(ctx, api, []ovsdb.Operation{selectOp})
-	if err != nil {
-		return nil, err
-	}
-	if len(transactionResult) != 1 {
-		return nil, fmt.Errorf("no transaction result")
-	}
-	operationResult := transactionResult[0]
-	if operationResult.Error != "" {
-		return nil, errors.New(operationResult.Error)
-	}
-
-	var names []string
-	for _, row := range operationResult.Rows {
-		if !hasError(row) {
-			continue
-		}
-		names = append(names, fmt.Sprintf("%v", row["name"]))
-	}
-	if len(names) > 0 {
-		log.Printf("found %d interfaces with error", len(names))
-	}
-	return names, nil
 }
 
 // ************************ Internal helpers ********************
@@ -581,14 +428,4 @@ func mustOvsMap(m map[string]string) ovsdb.OvsMap {
 		panic(fmt.Errorf("ovsdb.NewOvsMap: %w", err))
 	}
 	return res
-}
-
-func hasError(row map[string]interface{}) bool {
-	v := row["error"]
-	switch x := v.(type) {
-	case string:
-		return x != ""
-	default:
-		return false
-	}
 }
