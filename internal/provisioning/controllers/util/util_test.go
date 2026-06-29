@@ -26,6 +26,7 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -632,6 +633,102 @@ var _ = Describe("Util", func() {
 			cl := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(n.DeepCopy()).Build()
 			Expect(cl.Get(ctx, client.ObjectKey{Name: "bad-labels"}, n)).To(Succeed())
 			Expect(UpdateLabelsAndAnnotationsToNode(ctx, cl, n, map[string]string{}, map[string]string{})).To(HaveOccurred())
+		})
+	})
+
+	Context("ShouldSkipHWProvisioning", func() {
+		var (
+			ctx    context.Context
+			scheme *runtime.Scheme
+		)
+
+		BeforeEach(func() {
+			ctx = context.Background()
+			scheme = runtime.NewScheme()
+			Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
+		})
+
+		It("should return true when label is set to true", func() {
+			device := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-device",
+					Namespace: "default",
+					Labels: map[string]string{
+						provisioningv1.DPUDeviceLabelSkipHWProvisioning: "true",
+					},
+				},
+			}
+			c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(device).Build()
+			dpu := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-dpu", Namespace: "default"},
+				Spec:       provisioningv1.DPUSpec{DPUDeviceName: "test-device"},
+			}
+
+			skip, err := ShouldSkipHWProvisioning(ctx, c, dpu)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(skip).To(BeTrue())
+		})
+
+		It("should return false when label is not set", func() {
+			device := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-device",
+					Namespace: "default",
+				},
+			}
+			c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(device).Build()
+			dpu := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-dpu", Namespace: "default"},
+				Spec:       provisioningv1.DPUSpec{DPUDeviceName: "test-device"},
+			}
+
+			skip, err := ShouldSkipHWProvisioning(ctx, c, dpu)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(skip).To(BeFalse())
+		})
+
+		It("should return false when label is set to a non-true value", func() {
+			device := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-device",
+					Namespace: "default",
+					Labels: map[string]string{
+						provisioningv1.DPUDeviceLabelSkipHWProvisioning: "false",
+					},
+				},
+			}
+			c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(device).Build()
+			dpu := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-dpu", Namespace: "default"},
+				Spec:       provisioningv1.DPUSpec{DPUDeviceName: "test-device"},
+			}
+
+			skip, err := ShouldSkipHWProvisioning(ctx, c, dpu)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(skip).To(BeFalse())
+		})
+
+		It("should return error when DPUDevice is not found", func() {
+			c := fake.NewClientBuilder().WithScheme(scheme).Build()
+			dpu := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-dpu", Namespace: "default"},
+				Spec:       provisioningv1.DPUSpec{DPUDeviceName: "missing-device"},
+			}
+
+			skip, err := ShouldSkipHWProvisioning(ctx, c, dpu)
+			Expect(err).To(HaveOccurred())
+			Expect(skip).To(BeFalse())
+		})
+
+		It("should return error when client is nil", func() {
+			dpu := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-dpu", Namespace: "default"},
+				Spec:       provisioningv1.DPUSpec{DPUDeviceName: "test-device"},
+			}
+
+			skip, err := ShouldSkipHWProvisioning(ctx, nil, dpu)
+			Expect(err).To(HaveOccurred())
+			Expect(skip).To(BeFalse())
 		})
 	})
 })

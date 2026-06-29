@@ -73,6 +73,15 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 		return *state, err
 	}
 
+	if device.Labels[provisioningv1.DPUDeviceLabelSkipHWProvisioning] == "true" {
+		logger.Info("skip-hw-provisioning label set - skipping BFB installation")
+		cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondBFBTransferred, "", ""))
+		cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondOSInstalled, "", ""))
+		ctrlCtx.DPUInProvisioningMap.Remove(dutil.DPUID(dpu.UID))
+		state.Phase = provisioningv1.DPURebooting
+		return *state, nil
+	}
+
 	client, err := rc.NewTLSClient(ctx, device.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
 	if err != nil {
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "FailedToCreateClient", err.Error()))

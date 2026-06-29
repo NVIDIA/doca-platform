@@ -23,9 +23,13 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 func Rebooting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
+	logger := log.FromContext(ctx)
+
 	state, dpuNode, done, err := dutil.StartRebooting(ctx, dpu, ctrlCtx)
 	if done || err != nil {
 		return *state, err
@@ -35,6 +39,17 @@ func Rebooting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Cont
 		err := fmt.Errorf("hostless DPU %s requires the Redfish reboot handler", dpu.Name)
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondRebooted.String(), err, "HostlessRequiresRedfish", err.Error()))
 		state.Phase = provisioningv1.DPUError
+		return *state, nil
+	}
+
+	skipHW, err := cutil.ShouldSkipHWProvisioning(ctx, ctrlCtx.Client, dpu)
+	if err != nil {
+		logger.V(3).Info("Failed to check skip-hw-provisioning label, assuming real hardware", "error", err)
+	}
+	if skipHW {
+		logger.Info("skip-hw-provisioning label set - skipping power cycle")
+		cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondRebooted, "", ""))
+		state.Phase = provisioningv1.DPUHostNetworkConfiguration
 		return *state, nil
 	}
 
