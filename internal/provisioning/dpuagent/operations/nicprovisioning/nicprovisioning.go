@@ -118,9 +118,9 @@ func (n *NICProvisioning) Execute(execCtx context.Context, optCtx *operations.Co
 	if err != nil {
 		return err
 	}
-	skipNICFirmware := !isPldmFwBundleConfigured(blueFieldSoftware)
+	skipNICFirmware := !isPlatformPldmFwBundleConfigured(blueFieldSoftware)
 	if skipNICFirmware {
-		klog.InfoS("NIC provisioning: PldmFwBundle not configured, skipping NIC firmware download and installation",
+		klog.InfoS("NIC provisioning: PlatformPldmFwBundle not configured, skipping NIC firmware download and installation",
 			"dpu", optCtx.Options.DPUName, "namespace", optCtx.Options.DPUNamespace,
 			"blueFieldSoftware", blueFieldSoftware.Name)
 	}
@@ -154,7 +154,7 @@ func (n *NICProvisioning) Execute(execCtx context.Context, optCtx *operations.Co
 			klog.ErrorS(stopErr, "NIC provisioning: failed to stop local DMS server while unwinding execute")
 		}()
 	}
-	// 3. Install NIC firmware (skipped when BlueFieldSoftware has no PldmFwBundle)
+	// 3. Install NIC firmware (skipped when BlueFieldSoftware has no PlatformPldmFwBundle)
 	if !skipNICFirmware {
 		if err := n.installNICFirmwareAndUpdateStatus(execCtx, optCtx, localNICFWPath); err != nil {
 			return err
@@ -274,11 +274,11 @@ func getReferencedBlueFieldSoftware(execCtx context.Context, optCtx *operations.
 	return blueFieldSoftware, nil
 }
 
-func isPldmFwBundleConfigured(bfs *provisioningv1.BlueFieldSoftware) bool {
+func isPlatformPldmFwBundleConfigured(bfs *provisioningv1.BlueFieldSoftware) bool {
 	if bfs == nil {
 		return false
 	}
-	return bfs.Spec.PldmFwBundle != nil
+	return strings.TrimSpace(ptr.Deref(bfs.Spec.PlatformPldmFwBundle, "")) != ""
 }
 
 // downloadNICFirmware resolves and downloads Astra NIC firmware from bfb-registry

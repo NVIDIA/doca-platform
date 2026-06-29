@@ -1596,8 +1596,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `pldmFwBundle` _string_ |  |  | MinLength: 1 <br />Optional: \{\} <br /> |
-| `osIso` _string_ |  |  | MinLength: 1 <br />Required: \{\} <br /> |
+| `pldmFwBundle` _string_ | PldmFwBundle points to the BluefieldPLDM firmware bundle for baseline firmware updates. |  | MinLength: 1 <br />Optional: \{\} <br /> |
+| `osIso` _string_ | OS ISO points to the OS ISO used by DPU OS installation flow. |  | MinLength: 1 <br />Required: \{\} <br /> |
+| `platformPldmFwBundle` _string_ | PlatformPldmFwBundle points to the Vera Rubin PLDM firmware bundle used for NIC firmware updates. |  | MinLength: 1 <br />Optional: \{\} <br /> |
 
 
 #### BluefieldSoftwareVersions
@@ -2715,6 +2716,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `pldmFwBundle` _string_ |  |  |  |
+| `platformPldmFwBundle` _string_ |  |  |  |
 | `osIso` _string_ |  |  |  |
 | `astraNicFw` _string_ |  |  |  |
 

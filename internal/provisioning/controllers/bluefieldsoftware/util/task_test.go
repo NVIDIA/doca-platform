@@ -49,8 +49,9 @@ func TestFilenameFromHTTPURL(t *testing.T) {
 func TestSpecURLForComponent(t *testing.T) {
 	bfs := &provisioningv1.BlueFieldSoftware{
 		Spec: provisioningv1.BlueFieldSpec{
-			PldmFwBundle: ptr.To("https://x/pldm"),
-			OsIso:        "https://x/iso",
+			PldmFwBundle:         ptr.To("https://x/pldm"),
+			PlatformPldmFwBundle: ptr.To("https://x/platform-pldm"),
+			OsIso:                "https://x/iso",
 		},
 	}
 	tests := []struct {
@@ -58,6 +59,7 @@ func TestSpecURLForComponent(t *testing.T) {
 		want string
 	}{
 		{ComponentTypeFwBundle, "https://x/pldm"},
+		{ComponentTypePlatformFwBundle, "https://x/platform-pldm"},
 		{ComponentTypeOSISO, "https://x/iso"},
 	}
 	for _, tt := range tests {
@@ -77,6 +79,9 @@ func TestComponentDownloadFilename(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 	if got := ComponentDownloadFilename(bfs, ComponentTypeFwBundle, "https://x/fw/pldm.tar"); got != "dpf-operator-system-bf4-pldm.tar" {
+		t.Fatalf("got %q", got)
+	}
+	if got := ComponentDownloadFilename(bfs, ComponentTypePlatformFwBundle, "https://x/fw/platform-pldm.fwpkg"); got != "dpf-operator-system-bf4-platform-pldm.fwpkg" {
 		t.Fatalf("got %q", got)
 	}
 	if got := ComponentDownloadFilename(bfs, ComponentTypeOSISO, "ref-only"); got != GenerateComponentTaskName(*bfs, ComponentTypeOSISO) {

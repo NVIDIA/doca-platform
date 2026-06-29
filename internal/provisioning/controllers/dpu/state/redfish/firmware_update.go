@@ -130,10 +130,6 @@ func checkFirmwareVersions(client *rc.Client, blueFieldSoftware *provisioningv1.
 		return fmt.Errorf("DPU SBIOS firmware version is not set")
 	}
 
-	if blueFieldSoftware.Status.Versions.AstraNicFwVersion == "" {
-		return fmt.Errorf("DPU NIC firmware version is not set")
-	}
-
 	_, bmcFirmwareVersion, err := client.CheckBMCFirmware()
 	if err != nil {
 		return fmt.Errorf("failed to check BMC firmware: %w", err)
@@ -159,15 +155,6 @@ func checkFirmwareVersions(client *rc.Client, blueFieldSoftware *provisioningv1.
 
 	if dpuUEFIVersion.Version != blueFieldSoftware.Status.Versions.SBIOSVersion {
 		return fmt.Errorf("DPU SBIOS firmware version %s is not equal to %s", dpuUEFIVersion.Version, blueFieldSoftware.Status.Versions.SBIOSVersion)
-	}
-
-	_, dpuNICVersion, err := client.CheckDPUNIC()
-	if err != nil {
-		return fmt.Errorf("failed to check DPU NIC firmware: %w", err)
-	}
-
-	if dpuNICVersion.Version != blueFieldSoftware.Status.Versions.AstraNicFwVersion {
-		return fmt.Errorf("DPU NIC firmware version %s is not equal to %s", dpuNICVersion.Version, blueFieldSoftware.Status.Versions.AstraNicFwVersion)
 	}
 
 	return nil

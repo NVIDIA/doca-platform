@@ -199,6 +199,7 @@ func TestRetryCounter_IndependentPerComponent(t *testing.T) {
 	// Fail different components and verify counters are independent
 	components := []butil.ComponentType{
 		butil.ComponentTypeFwBundle,
+		butil.ComponentTypePlatformFwBundle,
 		butil.ComponentTypeOSISO,
 	}
 
@@ -224,7 +225,8 @@ func TestRetryCounter_IndependentPerComponent(t *testing.T) {
 
 	// Verify all counters are still independent
 	assert.Equal(t, 1, st.getRetryCount(st.getRetryKey(butil.ComponentTypeFwBundle)))
-	assert.Equal(t, 2, st.getRetryCount(st.getRetryKey(butil.ComponentTypeOSISO)))
+	assert.Equal(t, 2, st.getRetryCount(st.getRetryKey(butil.ComponentTypePlatformFwBundle)))
+	assert.Equal(t, 3, st.getRetryCount(st.getRetryKey(butil.ComponentTypeOSISO)))
 
 	// Cleanup
 	for _, comp := range components {
@@ -252,6 +254,7 @@ func TestUpdateComponentStatus_ClearsRetryCounter(t *testing.T) {
 	// Set retry counters for different components
 	components := []butil.ComponentType{
 		butil.ComponentTypeFwBundle,
+		butil.ComponentTypePlatformFwBundle,
 		butil.ComponentTypeOSISO,
 	}
 
@@ -274,7 +277,8 @@ func TestUpdateComponentStatus_ClearsRetryCounter(t *testing.T) {
 	assert.Equal(t, 0, st.getRetryCount(st.getRetryKey(butil.ComponentTypeFwBundle)))
 
 	// Other counters should remain unchanged
-	assert.Equal(t, 2, st.getRetryCount(st.getRetryKey(butil.ComponentTypeOSISO)))
+	assert.Equal(t, 2, st.getRetryCount(st.getRetryKey(butil.ComponentTypePlatformFwBundle)))
+	assert.Equal(t, 3, st.getRetryCount(st.getRetryKey(butil.ComponentTypeOSISO)))
 
 	// Verify status holds the on-disk destination path (not the spec URL)
 	assert.Equal(t, expectedFw, bfs.Status.DownloadedComponents.PldmFwBundle)
@@ -301,6 +305,13 @@ func TestGetRetryKey(t *testing.T) {
 			bfsName:       "test-bfs",
 			componentType: butil.ComponentTypeOSISO,
 			expected:      "test-ns/test-bfs/osiso",
+		},
+		{
+			name:          "PlatformPldmFwBundle component",
+			namespace:     "test-ns",
+			bfsName:       "test-bfs",
+			componentType: butil.ComponentTypePlatformFwBundle,
+			expected:      "test-ns/test-bfs/platformpldmfwbundle",
 		},
 	}
 
@@ -335,6 +346,7 @@ func TestClearRetryCounter(t *testing.T) {
 	// Set retry counters
 	components := []butil.ComponentType{
 		butil.ComponentTypeFwBundle,
+		butil.ComponentTypePlatformFwBundle,
 		butil.ComponentTypeOSISO,
 	}
 
@@ -350,6 +362,7 @@ func TestClearRetryCounter(t *testing.T) {
 	assert.Equal(t, 0, st.getRetryCount(st.getRetryKey(butil.ComponentTypeFwBundle)))
 
 	// Verify non-cleared counters remain
+	assert.Equal(t, 5, st.getRetryCount(st.getRetryKey(butil.ComponentTypePlatformFwBundle)))
 	assert.Equal(t, 5, st.getRetryCount(st.getRetryKey(butil.ComponentTypeOSISO)))
 }
 
@@ -696,9 +709,11 @@ func TestComponentDestinationPath(t *testing.T) {
 			cutil.GenerateBFBFilePath(fileName),
 			componentDestinationPath(butil.ComponentTypeOSISO, fileName))
 	})
+
 	t.Run("non-OSISO uses components subdir", func(t *testing.T) {
 		for _, ct := range []butil.ComponentType{
 			butil.ComponentTypeFwBundle,
+			butil.ComponentTypePlatformFwBundle,
 		} {
 			assert.Equal(t,
 				generateComponentFilePath(fileName),

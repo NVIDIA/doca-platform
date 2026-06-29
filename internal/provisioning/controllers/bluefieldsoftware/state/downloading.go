@@ -35,6 +35,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -251,6 +252,16 @@ func (st *blueFieldSoftwareDownloadingState) getComponentsToDownload() []compone
 		})
 	}
 
+	// Check PlatformPldmFwBundle
+	platformPldmFwBundle := ptr.Deref(st.bfs.Spec.PlatformPldmFwBundle, "")
+	if platformPldmFwBundle != "" &&
+		!st.componentDownloadSatisfied(butil.ComponentTypePlatformFwBundle, platformPldmFwBundle, st.bfs.Status.DownloadedComponents.PlatformPldmFwBundle) {
+		components = append(components, componentInfo{
+			URL:           platformPldmFwBundle,
+			ComponentType: butil.ComponentTypePlatformFwBundle,
+		})
+	}
+
 	return components
 }
 
@@ -258,6 +269,8 @@ func (st *blueFieldSoftwareDownloadingState) updateComponentStatus(componentType
 	switch componentType {
 	case butil.ComponentTypeFwBundle:
 		st.bfs.Status.DownloadedComponents.PldmFwBundle = destinationPath
+	case butil.ComponentTypePlatformFwBundle:
+		st.bfs.Status.DownloadedComponents.PlatformPldmFwBundle = destinationPath
 	case butil.ComponentTypeOSISO:
 		st.bfs.Status.DownloadedComponents.OsIso = destinationPath
 	}
@@ -269,6 +282,7 @@ func (st *blueFieldSoftwareDownloadingState) updateComponentStatus(componentType
 func (st *blueFieldSoftwareDownloadingState) cancelAllDownloads() {
 	componentsToCancel := []butil.ComponentType{
 		butil.ComponentTypeFwBundle,
+		butil.ComponentTypePlatformFwBundle,
 		butil.ComponentTypeOSISO,
 	}
 

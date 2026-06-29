@@ -81,13 +81,20 @@ var (
 // BlueFieldSpec defines the desired state of BlueFieldSoftware.
 // +kubebuilder:validation:XValidation:rule="self == oldSelf",message="BlueFieldSpec is immutable"
 type BlueFieldSpec struct {
+	// PldmFwBundle points to the BluefieldPLDM firmware bundle for baseline firmware updates.
 	// +optional
 	// +kubebuilder:validation:MinLength=1
 	PldmFwBundle *string `json:"pldmFwBundle,omitempty"`
 
+	// OS ISO points to the OS ISO used by DPU OS installation flow.
 	// +required
 	// +kubebuilder:validation:MinLength=1
 	OsIso string `json:"osIso"`
+
+	// PlatformPldmFwBundle points to the Vera Rubin PLDM firmware bundle used for NIC firmware updates.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	PlatformPldmFwBundle *string `json:"platformPldmFwBundle,omitempty"`
 }
 
 // BlueFieldSoftwareStatus defines the observed state of BlueFieldSoftware
@@ -127,9 +134,10 @@ type BluefieldSoftwareVersions struct {
 
 // DownloadedComponents tracks which components have been downloaded
 type DownloadedComponents struct {
-	PldmFwBundle string `json:"pldmFwBundle,omitempty"`
-	OsIso        string `json:"osIso,omitempty"`
-	AstraNicFw   string `json:"astraNicFw,omitempty"`
+	PldmFwBundle         string `json:"pldmFwBundle,omitempty"`
+	PlatformPldmFwBundle string `json:"platformPldmFwBundle,omitempty"`
+	OsIso                string `json:"osIso,omitempty"`
+	AstraNicFw           string `json:"astraNicFw,omitempty"`
 }
 
 // +kubebuilder:object:root=true
