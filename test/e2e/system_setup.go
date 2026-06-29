@@ -99,50 +99,52 @@ func isPreUpgradeFromLastReleasedGA(ctx context.Context, kclient client.Client, 
 // - Provides all necessary objects and configuration for test execution
 // - Depends on `config` struct for file paths and basic configuration
 type systemTestInput struct {
-	namespace                   string
-	config                      *operatorv1.DPFOperatorConfig
-	pvc                         *corev1.PersistentVolumeClaim
-	dpuClusterPrerequisites     []client.Object
-	dpuClusters                 []*provisioningv1.DPUCluster
-	dpuFlavor                   *provisioningv1.DPUFlavor
-	dpuDiscovery                *provisioningv1.DPUDiscovery
-	dpuService                  *dpuservicev1.DPUService
-	dpuServiceHBN               *dpuservicev1.DPUService
-	dpuServiceInterface         *dpuservicev1.DPUServiceInterface
-	dpuServiceInterfaceTemplate *dpuservicev1.DPUServiceInterface
-	dpuServiceChain             *dpuservicev1.DPUServiceChain
-	dpuServiceChainTemplate     *dpuservicev1.DPUServiceChain
-	bfb                         *provisioningv1.BFB
-	blueFieldSoftware           *provisioningv1.BlueFieldSoftware
-	dpuSet                      *provisioningv1.DPUSet
-	bfsOsIsoURL                 string
-	bfsPldmFwBundleURL          string
-	dpuDeployment               *dpuservicev1.DPUDeployment
-	dpuServiceConfiguration     *dpuservicev1.DPUServiceConfiguration
-	dpuServiceInterfacesHBN     []*dpuservicev1.DPUServiceInterface
-	dpuServiceInterfaceOVN      *dpuservicev1.DPUServiceInterface
-	dpuServiceTemplate          *dpuservicev1.DPUServiceTemplate
-	dpuServiceTemplateOVN       *dpuservicev1.DPUServiceTemplate
-	dpuServiceTemplateHBN       *dpuservicev1.DPUServiceTemplate
-	dpuServiceConfigurationOVN  *dpuservicev1.DPUServiceConfiguration
-	dpuServiceConfigurationHBN  *dpuservicev1.DPUServiceConfiguration
-	dpuServiceIPAMTemplate      *dpuservicev1.DPUServiceIPAM
-	dpuServiceNAD               *dpuservicev1.DPUServiceNAD
-	cidrDPUServiceIPAM          *dpuservicev1.DPUServiceIPAM
-	ipPoolDPUServiceIPAM        *dpuservicev1.DPUServiceIPAM
-	dpuServiceCredentialRequest *dpuservicev1.DPUServiceCredentialRequest
-	ovnCredentialRequest        *dpuservicev1.DPUServiceCredentialRequest
-	numberOfDPUNodes            int
-	numberOfDPUsPerNode         int
-	pullSecretNames             []string
-	client                      client.Client
-	cleanupFlags                *cleanup.CleanupFlags
-	bfbImageURL                 string
-	restConfig                  *rest.Config
-	nodeRebootConfigMap         string
-	nodeRebootConfigMapPath     string
-	useExternalNodeReboot       bool
-	dpuNodeBMCs                 map[string]string
+	namespace                         string
+	config                            *operatorv1.DPFOperatorConfig
+	pvc                               *corev1.PersistentVolumeClaim
+	dpuClusterPrerequisites           []client.Object
+	dpuClusters                       []*provisioningv1.DPUCluster
+	dpuFlavor                         *provisioningv1.DPUFlavor
+	dpuDiscovery                      *provisioningv1.DPUDiscovery
+	dpuService                        *dpuservicev1.DPUService
+	dpuServiceHBN                     *dpuservicev1.DPUService
+	dpuServiceInterface               *dpuservicev1.DPUServiceInterface
+	dpuServiceInterfaceTemplate       *dpuservicev1.DPUServiceInterface
+	dpuServiceChain                   *dpuservicev1.DPUServiceChain
+	dpuServiceChainTemplate           *dpuservicev1.DPUServiceChain
+	bfb                               *provisioningv1.BFB
+	blueFieldSoftware                 *provisioningv1.BlueFieldSoftware
+	dpuSet                            *provisioningv1.DPUSet
+	bfsOsIsoURL                       string
+	bfsPldmFwBundleURL                string
+	dpuDeployment                     *dpuservicev1.DPUDeployment
+	dpuServiceConfiguration           *dpuservicev1.DPUServiceConfiguration
+	dpuServiceInterfacesHBN           []*dpuservicev1.DPUServiceInterface
+	dpuServiceInterfaceOVN            *dpuservicev1.DPUServiceInterface
+	dpuServiceTemplate                *dpuservicev1.DPUServiceTemplate
+	additionalDPUServiceTemplate      *dpuservicev1.DPUServiceTemplate
+	dpuServiceTemplateOVN             *dpuservicev1.DPUServiceTemplate
+	dpuServiceTemplateHBN             *dpuservicev1.DPUServiceTemplate
+	dpuServiceConfigurationOVN        *dpuservicev1.DPUServiceConfiguration
+	dpuServiceConfigurationHBN        *dpuservicev1.DPUServiceConfiguration
+	additionalDPUServiceConfiguration *dpuservicev1.DPUServiceConfiguration
+	dpuServiceIPAMTemplate            *dpuservicev1.DPUServiceIPAM
+	dpuServiceNAD                     *dpuservicev1.DPUServiceNAD
+	cidrDPUServiceIPAM                *dpuservicev1.DPUServiceIPAM
+	ipPoolDPUServiceIPAM              *dpuservicev1.DPUServiceIPAM
+	dpuServiceCredentialRequest       *dpuservicev1.DPUServiceCredentialRequest
+	ovnCredentialRequest              *dpuservicev1.DPUServiceCredentialRequest
+	numberOfDPUNodes                  int
+	numberOfDPUsPerNode               int
+	pullSecretNames                   []string
+	client                            client.Client
+	cleanupFlags                      *cleanup.CleanupFlags
+	bfbImageURL                       string
+	restConfig                        *rest.Config
+	nodeRebootConfigMap               string
+	nodeRebootConfigMapPath           string
+	useExternalNodeReboot             bool
+	dpuNodeBMCs                       map[string]string
 }
 
 func (t *systemTestInput) applySDNConfig(conf config) {
@@ -299,6 +301,20 @@ func (t *systemTestInput) applyConfig(conf config) {
 	svcConfig := unstructuredFromFile(conf.DPUServiceConfiguration)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(svcConfig.Object, dpuServiceConfiguration)).To(Succeed())
 	t.dpuServiceConfiguration = dpuServiceConfiguration
+
+	if conf.AdditionalDPUServiceTemplatePath != nil {
+		additionalTemplate := &dpuservicev1.DPUServiceTemplate{}
+		tmp := unstructuredFromFile(*conf.AdditionalDPUServiceTemplatePath)
+		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(tmp.Object, additionalTemplate)).To(Succeed())
+		t.additionalDPUServiceTemplate = additionalTemplate
+	}
+
+	if conf.AdditionalDPUServiceConfigurationPath != nil {
+		additionalConfiguration := &dpuservicev1.DPUServiceConfiguration{}
+		svcConfig := unstructuredFromFile(*conf.AdditionalDPUServiceConfigurationPath)
+		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(svcConfig.Object, additionalConfiguration)).To(Succeed())
+		t.additionalDPUServiceConfiguration = additionalConfiguration
+	}
 
 	t.dpuServiceInterfacesHBN = make([]*dpuservicev1.DPUServiceInterface, 0, len(conf.DPUServiceInterfacesHBNPaths))
 	for _, path := range conf.DPUServiceInterfacesHBNPaths {
