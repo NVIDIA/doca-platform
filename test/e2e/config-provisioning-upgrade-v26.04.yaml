@@ -5,7 +5,9 @@ dpuClusters:
 dpuFlavor: "../objects/upgrade/v26.04/dpuflavor.yaml"
 dpuDeployment: "../objects/upgrade/v26.04/dpudeployment-physical.yaml"
 dpuServiceConfiguration: "../objects/upgrade/v26.04/dpuserviceconfiguration.yaml"
+additionalDPUServiceConfiguration: "../objects/upgrade/v26.04/dpuserviceconfiguration-2.yaml"
 dpuServiceTemplate: "../objects/upgrade/v26.04/dpuservicetemplate.yaml"
+additionalDPUServiceTemplate: "../objects/upgrade/v26.04/dpuservicetemplate-2.yaml"
 numberOfDPUNodes: 2
 numberOfDPUsPerNode: 1
 
