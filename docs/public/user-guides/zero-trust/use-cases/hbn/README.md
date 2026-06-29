@@ -127,6 +127,11 @@ The password is provided to DPF by creating the following secret:
 kubectl create secret generic -n dpf-operator-system bmc-shared-password --from-literal=password=$BMC_ROOT_PASSWORD
 ```
 
+> [!TIP]
+> This shared password is used to authenticate with every DPU BMC discovered by `DPUDiscovery`. To assign a unique
+> BMC password to individual DPUs instead, see
+> [Per-DPU BMC Credentials](../../../../advanced-configuration/per-dpu-bmc-credentials.md).
+
 #### Additional Dependencies
 
 Before deploying the DPF Operator, ensure that Helm is properly configured according to the
