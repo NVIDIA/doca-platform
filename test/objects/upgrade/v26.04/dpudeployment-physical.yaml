@@ -25,12 +25,15 @@ spec:
   serviceChains:
     switches:
       - ports:
-          - serviceInterface:
-              matchLabels:
-                uplink: p0
           - service:
-              interface: app-iface
+              interface: net1
               name: example
+              ipam:
+                matchLabels:
+                  svc.dpu.nvidia.com/pool: pool1
+          - service:
+              interface: net2
+              name: example-2
               ipam:
                 matchLabels:
                   svc.dpu.nvidia.com/pool: pool1
@@ -40,3 +43,6 @@ spec:
     example:
       serviceConfiguration: example
       serviceTemplate: example
+    example-2:
+      serviceConfiguration: example-2
+      serviceTemplate: example-2
