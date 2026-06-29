@@ -137,7 +137,7 @@ func TestNICProvisioning_Execute(t *testing.T) {
 		return &provisioningv1.BlueFieldSoftware{
 			ObjectMeta: metav1.ObjectMeta{Name: "bfs-1", Namespace: "default"},
 			Spec: provisioningv1.BlueFieldSpec{
-				PldmFwBundle: ptr.To("https://example.com/pldm.fwpkg"),
+				PlatformPldmFwBundle: ptr.To("https://example.com/pldm.fwpkg"),
 			},
 			Status: provisioningv1.BlueFieldSoftwareStatus{
 				DownloadedComponents: provisioningv1.DownloadedComponents{
@@ -293,7 +293,7 @@ func TestNICProvisioning_Execute(t *testing.T) {
 		assert.False(t, dmsServer.running)
 	})
 
-	t.Run("skip firmware download and install when PldmFwBundle is empty", func(t *testing.T) {
+	t.Run("skip firmware download and install when PlatformPldmFwBundle is empty", func(t *testing.T) {
 		installCalled := false
 		opSkipFirmware := &NICProvisioning{
 			prepareLocalDMSServerFn: func(_ *operations.Context) error { return nil },
@@ -307,7 +307,7 @@ func TestNICProvisioning_Execute(t *testing.T) {
 			configureRestrictedModeFn: func(_ context.Context, _ *operations.Context) error { return nil },
 		}
 
-		// No PldmFwBundle and no AstraNicFw: download would fail if not skipped.
+		// No PlatformPldmFwBundle and no AstraNicFw: download would fail if not skipped.
 		bfs := &provisioningv1.BlueFieldSoftware{
 			ObjectMeta: metav1.ObjectMeta{Name: "bfs-1", Namespace: "default"},
 			Spec:       provisioningv1.BlueFieldSpec{},
@@ -348,11 +348,14 @@ func TestNICProvisioning_Execute(t *testing.T) {
 	})
 }
 
-func TestIsPldmFwBundleConfigured(t *testing.T) {
-	assert.False(t, isPldmFwBundleConfigured(nil))
-	assert.False(t, isPldmFwBundleConfigured(&provisioningv1.BlueFieldSoftware{}))
-	assert.True(t, isPldmFwBundleConfigured(&provisioningv1.BlueFieldSoftware{
-		Spec: provisioningv1.BlueFieldSpec{PldmFwBundle: ptr.To("https://example.com/fw.fwpkg")},
+func TestIsPlatformPldmFwBundleConfigured(t *testing.T) {
+	assert.False(t, isPlatformPldmFwBundleConfigured(nil))
+	assert.False(t, isPlatformPldmFwBundleConfigured(&provisioningv1.BlueFieldSoftware{}))
+	assert.False(t, isPlatformPldmFwBundleConfigured(&provisioningv1.BlueFieldSoftware{
+		Spec: provisioningv1.BlueFieldSpec{PlatformPldmFwBundle: ptr.To("   ")},
+	}))
+	assert.True(t, isPlatformPldmFwBundleConfigured(&provisioningv1.BlueFieldSoftware{
+		Spec: provisioningv1.BlueFieldSpec{PlatformPldmFwBundle: ptr.To("https://example.com/fw.fwpkg")},
 	}))
 }
 

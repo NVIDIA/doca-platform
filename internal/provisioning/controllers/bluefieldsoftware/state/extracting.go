@@ -90,34 +90,38 @@ func (st *blueFieldSoftwareExtractingState) Handle(ctx context.Context, _ client
 		return nil
 	}
 
-	packagePath := st.resolvePackagePath()
-	if packagePath == "" {
+	targets := st.resolveExtractTargets()
+	if len(targets) == 0 {
 		st.bfs.Status.Phase = provisioningv1.BlueFieldSoftwareReady
 		conditions.AddTrue(st.bfs, provisioningv1.BlueFieldSoftwareCondReady)
 		return nil
 	}
 
-	outDir := st.extractOutputDir()
-	// Idempotent reconcile: skip unpack if output already exists (e.g. prior run
-	// extracted successfully but status did not patch to Ready yet).
-	alreadyExtracted, err := isExtractOutputPresent(outDir)
-	if err != nil {
-		msg := fmt.Sprintf("Check extract output directory (%s/%s): %v", st.bfs.Namespace, st.bfs.Name, err)
-		st.recorder.Eventf(st.bfs, corev1.EventTypeWarning, events.EventFailedExtractBFBReason, msg)
-		st.bfs.Status.Phase = provisioningv1.BlueFieldSoftwareError
-		conditions.AddFalse(st.bfs, provisioningv1.BlueFieldSoftwareCondReady, conditions.ReasonFailure, conditions.ConditionMessage(msg))
-		return err
-	}
-	if !alreadyExtracted {
-		components, err := callPldmUnpackService(ctx, packagePath, outDir)
+	for _, target := range targets {
+		outDir := st.extractOutputDir(target.componentType)
+		// Idempotent reconcile: skip unpack if output already exists (e.g. prior run
+		// extracted successfully but status did not patch to Ready yet).
+		alreadyExtracted, err := isExtractOutputPresent(outDir)
 		if err != nil {
-			msg := fmt.Sprintf("Extract PLDM firmware bundle (%s/%s) failed: %v", st.bfs.Namespace, st.bfs.Name, err)
+			msg := fmt.Sprintf("Check extract output directory for %s (%s/%s): %v",
+				target.componentType, st.bfs.Namespace, st.bfs.Name, err)
 			st.recorder.Eventf(st.bfs, corev1.EventTypeWarning, events.EventFailedExtractBFBReason, msg)
 			st.bfs.Status.Phase = provisioningv1.BlueFieldSoftwareError
 			conditions.AddFalse(st.bfs, provisioningv1.BlueFieldSoftwareCondReady, conditions.ReasonFailure, conditions.ConditionMessage(msg))
 			return err
 		}
-		applyUnpackedComponentsToDownloaded(st.bfs, components)
+		if !alreadyExtracted {
+			components, err := callPldmUnpackService(ctx, target.packagePath, outDir)
+			if err != nil {
+				msg := fmt.Sprintf("Extract PLDM firmware bundle for %s (%s/%s) failed: %v",
+					target.componentType, st.bfs.Namespace, st.bfs.Name, err)
+				st.recorder.Eventf(st.bfs, corev1.EventTypeWarning, events.EventFailedExtractBFBReason, msg)
+				st.bfs.Status.Phase = provisioningv1.BlueFieldSoftwareError
+				conditions.AddFalse(st.bfs, provisioningv1.BlueFieldSoftwareCondReady, conditions.ReasonFailure, conditions.ConditionMessage(msg))
+				return err
+			}
+			applyUnpackedComponentsToDownloaded(st.bfs, target.componentType, components)
+		}
 	}
 
 	st.bfs.Status.Phase = provisioningv1.BlueFieldSoftwareReady
@@ -127,33 +131,65 @@ func (st *blueFieldSoftwareExtractingState) Handle(ctx context.Context, _ client
 	return nil
 }
 
-func (st *blueFieldSoftwareExtractingState) resolvePackagePath() string {
-	packageRef := st.bfs.Status.DownloadedComponents.PldmFwBundle
-	if packageRef == "" && st.bfs.Spec.PldmFwBundle != nil {
-		packageRef = *st.bfs.Spec.PldmFwBundle
+type extractTarget struct {
+	componentType butil.ComponentType
+	packagePath   string
+}
+
+func (st *blueFieldSoftwareExtractingState) resolveExtractTargets() []extractTarget {
+	var targets []extractTarget
+	for _, componentType := range []butil.ComponentType{
+		butil.ComponentTypeFwBundle,
+		butil.ComponentTypePlatformFwBundle,
+	} {
+		if packagePath := st.resolvePackagePath(componentType); packagePath != "" {
+			targets = append(targets, extractTarget{
+				componentType: componentType,
+				packagePath:   packagePath,
+			})
+		}
+	}
+	return targets
+}
+
+func (st *blueFieldSoftwareExtractingState) resolvePackagePath(componentType butil.ComponentType) string {
+	packageRef := st.statusPathForComponent(componentType)
+	if packageRef == "" {
+		packageRef = butil.SpecURLForComponent(st.bfs, componentType)
 	}
 	if packageRef == "" {
 		return ""
 	}
 	if isURL(packageRef) {
-		fileName := butil.ComponentDownloadFilename(st.bfs, butil.ComponentTypeFwBundle, packageRef)
-		return generateComponentFilePath(fileName)
+		fileName := butil.ComponentDownloadFilename(st.bfs, componentType, packageRef)
+		return componentDestinationPath(componentType, fileName)
 	}
 	return packageRef
 }
 
-func (st *blueFieldSoftwareExtractingState) extractOutputDir() string {
-	return extractOutputDirForBFS(st.bfs)
+func (st *blueFieldSoftwareExtractingState) statusPathForComponent(componentType butil.ComponentType) string {
+	switch componentType {
+	case butil.ComponentTypeFwBundle:
+		return st.bfs.Status.DownloadedComponents.PldmFwBundle
+	case butil.ComponentTypePlatformFwBundle:
+		return st.bfs.Status.DownloadedComponents.PlatformPldmFwBundle
+	default:
+		return ""
+	}
+}
+
+func (st *blueFieldSoftwareExtractingState) extractOutputDir(componentType butil.ComponentType) string {
+	return extractOutputDirForBFS(st.bfs, componentType)
 }
 
 // extractOutputDirForBFS returns the on-disk directory where PLDM unpack output
-// is written for this BlueFieldSoftware (shared with deleting cleanup).
-func extractOutputDirForBFS(bfs *provisioningv1.BlueFieldSoftware) string {
+// is written for this BlueFieldSoftware and source bundle.
+func extractOutputDirForBFS(bfs *provisioningv1.BlueFieldSoftware, componentType butil.ComponentType) string {
 	if bfs == nil {
 		return ""
 	}
 	return filepath.Join(string(os.PathSeparator), cutil.BFBBaseDir, "components",
-		fmt.Sprintf("%s-%s-fwbundle-extracted", bfs.Namespace, bfs.Name))
+		fmt.Sprintf("%s-%s-%s-extracted", bfs.Namespace, bfs.Name, componentType))
 }
 
 // isExtractOutputPresent reports whether outDir exists as a directory and already
@@ -275,25 +311,38 @@ func extractUnpackedComponents(stdout string) ([]unpackedComponent, error) {
 	return components, nil
 }
 
-func applyUnpackedComponentsToDownloaded(bfs *provisioningv1.BlueFieldSoftware, components []unpackedComponent) {
+func applyUnpackedComponentsToDownloaded(
+	bfs *provisioningv1.BlueFieldSoftware,
+	sourceComponentType butil.ComponentType,
+	components []unpackedComponent,
+) {
 	if bfs == nil {
 		return
 	}
 	for _, component := range components {
 		imageName := strings.ToUpper(filepath.Base(component.FWImage))
-		if bfs.Status.Versions == nil {
-			bfs.Status.Versions = &provisioningv1.BluefieldSoftwareVersions{}
-		}
-		switch {
-		case strings.Contains(imageName, "CX9"):
+		switch sourceComponentType {
+		case butil.ComponentTypePlatformFwBundle:
+			if !strings.Contains(imageName, "CX9") {
+				continue
+			}
 			bfs.Status.DownloadedComponents.AstraNicFw = component.FWImage
+			if bfs.Status.Versions == nil {
+				bfs.Status.Versions = &provisioningv1.BluefieldSoftwareVersions{}
+			}
 			bfs.Status.Versions.AstraNicFwVersion = component.ComponentVersionString
-		case strings.Contains(imageName, "BMC_BF4"):
-			bfs.Status.Versions.BMCVersion = component.ComponentVersionString
-		case strings.Contains(imageName, "EROT"):
-			bfs.Status.Versions.BMCErotVersion = component.ComponentVersionString
-		case strings.Contains(imageName, "SBIOS"):
-			bfs.Status.Versions.SBIOSVersion = component.ComponentVersionString
+		case butil.ComponentTypeFwBundle:
+			if bfs.Status.Versions == nil {
+				bfs.Status.Versions = &provisioningv1.BluefieldSoftwareVersions{}
+			}
+			switch {
+			case strings.Contains(imageName, "BMC_BF4"):
+				bfs.Status.Versions.BMCVersion = component.ComponentVersionString
+			case strings.Contains(imageName, "EROT"):
+				bfs.Status.Versions.BMCErotVersion = component.ComponentVersionString
+			case strings.Contains(imageName, "SBIOS"):
+				bfs.Status.Versions.SBIOSVersion = component.ComponentVersionString
+			}
 		}
 	}
 }

@@ -40,12 +40,14 @@ import (
 func TestResolvePackagePath(t *testing.T) {
 	localPath := "/tmp/custom.fwpkg"
 	tests := []struct {
-		name     string
-		bfs      *provisioningv1.BlueFieldSoftware
-		expected func(bfs *provisioningv1.BlueFieldSoftware) string
+		name          string
+		componentType butil.ComponentType
+		bfs           *provisioningv1.BlueFieldSoftware
+		expected      func(bfs *provisioningv1.BlueFieldSoftware) string
 	}{
 		{
-			name: "status url resolves to cached path",
+			name:          "platform status url resolves to cached path",
+			componentType: butil.ComponentTypePlatformFwBundle,
 			bfs: &provisioningv1.BlueFieldSoftware{
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: "ns1",
@@ -53,16 +55,18 @@ func TestResolvePackagePath(t *testing.T) {
 				},
 				Status: provisioningv1.BlueFieldSoftwareStatus{
 					DownloadedComponents: provisioningv1.DownloadedComponents{
-						PldmFwBundle: "https://example.com/fw.fwpkg",
+						PlatformPldmFwBundle: "https://example.com/fw.fwpkg",
 					},
 				},
 			},
 			expected: func(bfs *provisioningv1.BlueFieldSoftware) string {
-				return generateComponentFilePath(butil.ComponentDownloadFilename(bfs, butil.ComponentTypeFwBundle, bfs.Status.DownloadedComponents.PldmFwBundle))
+				fileName := butil.ComponentDownloadFilename(bfs, butil.ComponentTypePlatformFwBundle, bfs.Status.DownloadedComponents.PlatformPldmFwBundle)
+				return componentDestinationPath(butil.ComponentTypePlatformFwBundle, fileName)
 			},
 		},
 		{
-			name: "local spec path is used as-is",
+			name:          "pldm local spec path is used as-is",
+			componentType: butil.ComponentTypeFwBundle,
 			bfs: &provisioningv1.BlueFieldSoftware{
 				Spec: provisioningv1.BlueFieldSpec{
 					PldmFwBundle: &localPath,
@@ -73,8 +77,9 @@ func TestResolvePackagePath(t *testing.T) {
 			},
 		},
 		{
-			name: "empty path returns empty",
-			bfs:  &provisioningv1.BlueFieldSoftware{},
+			name:          "empty path returns empty",
+			componentType: butil.ComponentTypePlatformFwBundle,
+			bfs:           &provisioningv1.BlueFieldSoftware{},
 			expected: func(_ *provisioningv1.BlueFieldSoftware) string {
 				return ""
 			},
@@ -84,7 +89,7 @@ func TestResolvePackagePath(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			st := &blueFieldSoftwareExtractingState{bfs: tc.bfs}
-			assert.Equal(t, tc.expected(tc.bfs), st.resolvePackagePath())
+			assert.Equal(t, tc.expected(tc.bfs), st.resolvePackagePath(tc.componentType))
 		})
 	}
 }
@@ -246,7 +251,9 @@ func TestCallPldmUnpackService_ErrorStatus(t *testing.T) {
 
 func TestHandle_ExtractSuccess(t *testing.T) {
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	callCount := 0
 	socketPath, shutdown := startUnixHTTPServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		callCount++
 		_ = json.NewEncoder(w).Encode(unpackResponse{
 			Success: true,
 			Stdout: `{
@@ -279,11 +286,13 @@ func TestHandle_ExtractSuccess(t *testing.T) {
 		Status: provisioningv1.BlueFieldSoftwareStatus{
 			Phase: provisioningv1.BlueFieldSoftwareExtracting,
 			DownloadedComponents: provisioningv1.DownloadedComponents{
-				PldmFwBundle: "https://example.com/fw.fwpkg",
+				PldmFwBundle:         "https://example.com/fw-base.fwpkg",
+				PlatformPldmFwBundle: "https://example.com/fw.fwpkg",
 			},
 		},
 	}
-	require.NoError(t, os.RemoveAll(extractOutputDirForBFS(bfs)))
+	require.NoError(t, os.RemoveAll(extractOutputDirForBFS(bfs, butil.ComponentTypeFwBundle)))
+	require.NoError(t, os.RemoveAll(extractOutputDirForBFS(bfs, butil.ComponentTypePlatformFwBundle)))
 
 	st := &blueFieldSoftwareExtractingState{
 		bfs:      bfs,
@@ -291,8 +300,10 @@ func TestHandle_ExtractSuccess(t *testing.T) {
 	}
 	err := st.Handle(context.Background(), nil)
 	require.NoError(t, err)
+	assert.Equal(t, 2, callCount)
 	assert.Equal(t, provisioningv1.BlueFieldSoftwareReady, bfs.Status.Phase)
 	assert.Equal(t, "/tmp/CX9_MT_0000001775_82.48.0906_image.bin", bfs.Status.DownloadedComponents.AstraNicFw)
+	assert.Equal(t, "BF4-26.01-4", bfs.Status.Versions.BMCVersion)
 	cond := conditions.Get(bfs, provisioningv1.BlueFieldSoftwareCondReady)
 	require.NotNil(t, cond)
 	assert.Equal(t, metav1.ConditionTrue, cond.Status)
@@ -320,11 +331,13 @@ func TestHandle_ExtractFailure(t *testing.T) {
 		Status: provisioningv1.BlueFieldSoftwareStatus{
 			Phase: provisioningv1.BlueFieldSoftwareExtracting,
 			DownloadedComponents: provisioningv1.DownloadedComponents{
-				PldmFwBundle: "/tmp/fw.fwpkg",
+				PldmFwBundle:         "/tmp/fw.fwpkg",
+				PlatformPldmFwBundle: "/tmp/fw.fwpkg",
 			},
 		},
 	}
-	require.NoError(t, os.RemoveAll(extractOutputDirForBFS(bfs)))
+	require.NoError(t, os.RemoveAll(extractOutputDirForBFS(bfs, butil.ComponentTypeFwBundle)))
+	require.NoError(t, os.RemoveAll(extractOutputDirForBFS(bfs, butil.ComponentTypePlatformFwBundle)))
 
 	st := &blueFieldSoftwareExtractingState{
 		bfs:      bfs,
@@ -389,10 +402,51 @@ func TestExtractOutputDir(t *testing.T) {
 		},
 	}
 	st := &blueFieldSoftwareExtractingState{bfs: bfs}
-	out := st.extractOutputDir()
-	assert.Contains(t, out, fmt.Sprintf("%s-%s-fwbundle-extracted", bfs.Namespace, bfs.Name))
-	assert.Equal(t, extractOutputDirForBFS(bfs), out)
-	assert.Equal(t, "", extractOutputDirForBFS(nil))
+	pldmOut := st.extractOutputDir(butil.ComponentTypeFwBundle)
+	platformOut := st.extractOutputDir(butil.ComponentTypePlatformFwBundle)
+	assert.Contains(t, pldmOut, fmt.Sprintf("%s-%s-%s-extracted", bfs.Namespace, bfs.Name, butil.ComponentTypeFwBundle))
+	assert.Contains(t, platformOut, fmt.Sprintf("%s-%s-%s-extracted", bfs.Namespace, bfs.Name, butil.ComponentTypePlatformFwBundle))
+	assert.Equal(t, extractOutputDirForBFS(bfs, butil.ComponentTypeFwBundle), pldmOut)
+	assert.Equal(t, extractOutputDirForBFS(bfs, butil.ComponentTypePlatformFwBundle), platformOut)
+	assert.Equal(t, "", extractOutputDirForBFS(nil, butil.ComponentTypeFwBundle))
+}
+
+func TestApplyUnpackedComponentsToDownloaded_BySourceBundle(t *testing.T) {
+	bfs := &provisioningv1.BlueFieldSoftware{
+		Status: provisioningv1.BlueFieldSoftwareStatus{
+			Versions: &provisioningv1.BluefieldSoftwareVersions{},
+		},
+	}
+	components := []unpackedComponent{
+		{
+			ComponentVersionString: "82.48.0906",
+			FWImage:                "/tmp/CX9_MT_0000001775_82.48.0906_image.bin",
+		},
+		{
+			ComponentVersionString: "BF4-26.01-4",
+			FWImage:                "/tmp/BMC_BF4-BMC_BF4-26.01-4_image.bin",
+		},
+		{
+			ComponentVersionString: "02.00.0016.0000_n05",
+			FWImage:                "/tmp/ERoT_02.00.0016.0000_n05_image.bin",
+		},
+		{
+			ComponentVersionString: "1.2.3",
+			FWImage:                "/tmp/SBIOS_1.2.3_image.bin",
+		},
+	}
+
+	applyUnpackedComponentsToDownloaded(bfs, butil.ComponentTypePlatformFwBundle, components)
+	assert.Equal(t, "/tmp/CX9_MT_0000001775_82.48.0906_image.bin", bfs.Status.DownloadedComponents.AstraNicFw)
+	assert.Equal(t, "82.48.0906", bfs.Status.Versions.AstraNicFwVersion)
+	assert.Empty(t, bfs.Status.Versions.BMCVersion)
+	assert.Empty(t, bfs.Status.Versions.BMCErotVersion)
+	assert.Empty(t, bfs.Status.Versions.SBIOSVersion)
+
+	applyUnpackedComponentsToDownloaded(bfs, butil.ComponentTypeFwBundle, components)
+	assert.Equal(t, "BF4-26.01-4", bfs.Status.Versions.BMCVersion)
+	assert.Equal(t, "02.00.0016.0000_n05", bfs.Status.Versions.BMCErotVersion)
+	assert.Equal(t, "1.2.3", bfs.Status.Versions.SBIOSVersion)
 }
 
 func TestIsExtractOutputPresent(t *testing.T) {

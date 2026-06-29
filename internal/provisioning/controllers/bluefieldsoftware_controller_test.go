@@ -158,6 +158,7 @@ var _ = Describe("BlueFieldSoftware", func() {
 			By("creating the BlueFieldSoftware with multiple components")
 			obj := createObj("bfs-multi-component")
 			obj.Spec.PldmFwBundle = ptr.To(bfbServerURL + BFB512KBPath)
+			obj.Spec.PlatformPldmFwBundle = ptr.To(bfbServerURL + BFB512KBPath)
 			obj.Spec.OsIso = bfbServerURL + BFB8KBPath
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 			DeferCleanup(k8sClient.Delete, ctx, obj)
@@ -172,11 +173,13 @@ var _ = Describe("BlueFieldSoftware", func() {
 
 			By("verifying all components are downloaded")
 			Expect(objFetched.Status.DownloadedComponents.PldmFwBundle).To(Equal(getComponentFilePath(objFetched, bfsutil.ComponentTypeFwBundle)))
+			Expect(objFetched.Status.DownloadedComponents.PlatformPldmFwBundle).To(Equal(getComponentFilePath(objFetched, bfsutil.ComponentTypePlatformFwBundle)))
 			Expect(objFetched.Status.DownloadedComponents.OsIso).To(Equal(getComponentFilePath(objFetched, bfsutil.ComponentTypeOSISO)))
 
 			By("verifying all files exist")
 			for _, componentType := range []bfsutil.ComponentType{
 				bfsutil.ComponentTypeFwBundle,
+				bfsutil.ComponentTypePlatformFwBundle,
 				bfsutil.ComponentTypeOSISO,
 			} {
 				filePath := getComponentFilePath(objFetched, componentType)
@@ -230,6 +233,7 @@ var _ = Describe("BlueFieldSoftware", func() {
 			By("creating the BlueFieldSoftware")
 			obj := createObj("bfs-cleanup")
 			obj.Spec.PldmFwBundle = ptr.To(bfbServerURL + BFB8KBPath)
+			obj.Spec.PlatformPldmFwBundle = ptr.To(bfbServerURL + BFB8KBPath)
 			obj.Spec.OsIso = bfbServerURL + BFB512KBPath
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 
@@ -243,8 +247,11 @@ var _ = Describe("BlueFieldSoftware", func() {
 
 			By("verifying files exist")
 			fwBundlePath := getComponentFilePath(objFetched, bfsutil.ComponentTypeFwBundle)
+			platformFwBundlePath := getComponentFilePath(objFetched, bfsutil.ComponentTypePlatformFwBundle)
 			osisoPath := getComponentFilePath(objFetched, bfsutil.ComponentTypeOSISO)
 			_, err := os.Stat(fwBundlePath)
+			Expect(err).NotTo(HaveOccurred())
+			_, err = os.Stat(platformFwBundlePath)
 			Expect(err).NotTo(HaveOccurred())
 			_, err = os.Stat(osisoPath)
 			Expect(err).NotTo(HaveOccurred())
@@ -279,6 +286,8 @@ var _ = Describe("BlueFieldSoftware", func() {
 
 			By("verifying files are deleted")
 			_, err = os.Stat(fwBundlePath)
+			Expect(err).To(HaveOccurred())
+			_, err = os.Stat(platformFwBundlePath)
 			Expect(err).To(HaveOccurred())
 			_, err = os.Stat(osisoPath)
 			Expect(err).To(HaveOccurred())
@@ -399,6 +408,7 @@ var _ = Describe("BlueFieldSoftware", func() {
 			By("creating the BlueFieldSoftware with all components")
 			obj := createObj("bfs-all-components")
 			obj.Spec.PldmFwBundle = ptr.To(bfbServerURL + BFB512KBPath)
+			obj.Spec.PlatformPldmFwBundle = ptr.To(bfbServerURL + BFB8KBPath)
 			obj.Spec.OsIso = bfbServerURL + BFB8KBPath
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 			DeferCleanup(k8sClient.Delete, ctx, obj)
@@ -411,13 +421,15 @@ var _ = Describe("BlueFieldSoftware", func() {
 				g.Expect(objFetched.Status.Phase).To(Equal(provisioningv1.BlueFieldSoftwareReady))
 			}).WithTimeout(30 * time.Second).Should(Succeed())
 
-			By("verifying all 7 components are downloaded")
+			By("verifying all configured components are downloaded")
 			Expect(objFetched.Status.DownloadedComponents.PldmFwBundle).To(Equal(getComponentFilePath(objFetched, bfsutil.ComponentTypeFwBundle)))
+			Expect(objFetched.Status.DownloadedComponents.PlatformPldmFwBundle).To(Equal(getComponentFilePath(objFetched, bfsutil.ComponentTypePlatformFwBundle)))
 			Expect(objFetched.Status.DownloadedComponents.OsIso).To(Equal(getComponentFilePath(objFetched, bfsutil.ComponentTypeOSISO)))
 
 			By("verifying all files exist")
 			for _, componentType := range []bfsutil.ComponentType{
 				bfsutil.ComponentTypeFwBundle,
+				bfsutil.ComponentTypePlatformFwBundle,
 				bfsutil.ComponentTypeOSISO,
 			} {
 				filePath := getComponentFilePath(objFetched, componentType)
