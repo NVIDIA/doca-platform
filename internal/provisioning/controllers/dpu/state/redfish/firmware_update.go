@@ -29,6 +29,7 @@ import (
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -79,6 +80,14 @@ func FirmwareUpdate(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil
 	if err != nil {
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), err, "FailedToCreateClient", err.Error()))
 		return *state, err
+	}
+
+	// Stale DPU cache between reconcile loops: a later loop can see FwBundleUpdated
+	// (reason Updated) from the prior loop while phase is still UpdateFirmware and
+	// fall through to PrepareBFB before the required power cycle.
+	if firmwareUpdateAwaitingReboot(dpu) {
+		logger.Info("firmware update awaiting reboot, moving to Rebooting phase")
+		return transitionToFirmwareUpdateReboot(ctx, dpu, state, ctrlCtx)
 	}
 
 	cond := cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), nil, "Updating", "Updating PLDM Firmware")
@@ -236,6 +245,10 @@ func updatePldmFwBundle(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 	}
 
 	if state.RedfishTaskID == nil {
+		if firmwareUpdateAwaitingReboot(dpu) {
+			logger.Info("firmware update awaiting reboot, moving to Rebooting phase")
+			return transitionToFirmwareUpdateReboot(ctx, dpu, state, ctrlCtx)
+		}
 		return *state, nil
 	}
 
@@ -256,16 +269,31 @@ func updatePldmFwBundle(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 			return *state, activateErr
 		}
 		logger.Info("successfully activated pending bundle. Moving to Rebooting phase")
-		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), nil, "Updated", "PLDM Firmware Updated"))
-		state.RedfishTaskID = nil
-		state.Phase = provisioningv1.DPURebooting
-		if err := dutil.InitializeDPURebootStatus(ctx, dpu, state, ctrlCtx, provisioningv1.DPUUpdateFirmware); err != nil {
-			return *state, err
-		}
-		return *state, nil
+		return transitionToFirmwareUpdateReboot(ctx, dpu, state, ctrlCtx)
 	} else {
 		return *state, nil
 	}
+}
+
+// firmwareUpdateAwaitingReboot reports whether ActivatePendingBundle completed on a
+// prior reconcile loop but the post-update power cycle has not started yet.
+func firmwareUpdateAwaitingReboot(dpu *provisioningv1.DPU) bool {
+	if dpu.Status.Phase == provisioningv1.DPURebooting || dpu.Status.PreviousPhase == provisioningv1.DPURebooting {
+		return false
+	}
+	_, updatedCond := cutil.GetDPUCondition(&dpu.Status, provisioningv1.DPUCondFwBundleUpdated.String())
+	return updatedCond != nil && updatedCond.Status == metav1.ConditionTrue && updatedCond.Reason == "Updated"
+}
+
+func transitionToFirmwareUpdateReboot(ctx context.Context, dpu *provisioningv1.DPU, state *provisioningv1.DPUStatus, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
+	meta.RemoveStatusCondition(&state.Conditions, provisioningv1.DPUCondFwBundleSubmitted.String())
+	cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), nil, "Updated", "PLDM Firmware Updated"))
+	state.RedfishTaskID = nil
+	state.Phase = provisioningv1.DPURebooting
+	if err := dutil.InitializeDPURebootStatus(ctx, dpu, state, ctrlCtx, provisioningv1.DPUUpdateFirmware); err != nil {
+		return *state, err
+	}
+	return *state, nil
 }
 
 // checkFirmwareUpdateTimeout checks if the BF4 firmware update has exceeded the configured timeout.
