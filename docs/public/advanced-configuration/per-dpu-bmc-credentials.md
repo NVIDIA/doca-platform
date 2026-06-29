@@ -9,6 +9,40 @@ namespace. The per-DPU BMC credentials feature allows each DPUDevice to referenc
 BMC password via `DPUDevice.spec.bmcCredentialSecretName`. When set, the per-device password takes precedence over the
 shared one.
 
+# How DPF selects the BMC password
+
+DPF resolves the BMC password independently for each DPUDevice:
+
+* If `spec.bmcCredentialSecretName` is set, DPF uses the password from that secret for **all** password-based BMC
+  authentication on that DPU, and the shared password is not used for it (even if the `bmc-shared-password` secret
+  exists).
+* If `spec.bmcCredentialSecretName` is not set, DPF falls back to the shared `bmc-shared-password` secret.
+
+The two modes coexist within a namespace: some DPUs can use per-device credentials while others use the shared
+password.
+
+## Onboarding modes and the shared password
+
+How a DPU first obtains its credential depends on how its DPUDevice is created.
+
+### Auto-discovery (DPUDiscovery)
+
+When [`DPUDiscovery`](../developer-guides/api/dpudiscovery.md) scans a BMC IP range, it authenticates to
+each BMC using the shared `bmc-shared-password` secret and creates a DPUDevice **without**
+`spec.bmcCredentialSecretName`. DPUs onboarded this way therefore start on the shared password. To move such a DPU to
+a unique password afterwards, set `spec.bmcCredentialSecretName`; DPF treats this as a
+[rotation](#password-rotation) from the shared password to the per-device one.
+
+Because the discovery crawler always authenticates with the shared password, the `bmc-shared-password` secret is
+**required** whenever `DPUDiscovery` is used.
+
+### Declarative creation
+
+If you create the DPUDevice yourself with both `spec.bmcIp` and `spec.bmcCredentialSecretName` set before discovery
+reaches that BMC, DPF authenticates to the BMC directly with the per-device password (changing it from the BMC
+default if necessary). In this case the shared password is not used for that DPU. `DPUDiscovery` skips any BMC IP
+that already belongs to a DPUDevice, so a pre-declared device is not overridden.
+
 # Creating a Per-DPU Credential secret
 
 Create a Kubernetes secret in the same namespace as the DPUDevice. The secret must contain a `password` key with the
@@ -103,3 +137,12 @@ accidental deletion while a DPUDevice depends on them. The finalizer is automati
 
 * The DPUDevice is deleted.
 * The credential is rotated to a new secret (the finalizer moves from the old secret to the new one).
+
+# Limitations
+
+* The shared `bmc-shared-password` secret cannot currently be globally disabled. It remains the credential used by
+  `DPUDiscovery` and the fallback for any DPUDevice without `spec.bmcCredentialSecretName`. Per-device credentials
+  are an override applied per DPUDevice, not a cluster-wide replacement of the shared password.
+* Auto-discovery (`DPUDiscovery`) cannot onboard a DPU directly onto a unique password; discovered DPUs start on the
+  shared password. They can keep using it, or be rotated to a per-device credential afterwards. Onboarding directly
+  with a unique password is only possible through [declarative creation](#declarative-creation).
