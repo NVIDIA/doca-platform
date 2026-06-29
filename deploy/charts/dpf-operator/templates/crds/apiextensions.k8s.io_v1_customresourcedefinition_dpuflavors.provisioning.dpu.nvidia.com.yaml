@@ -112,7 +112,9 @@ spec:
                     NICs
                   properties:
                     linkType:
-                      description: LinkType to be configured, Ethernet|Infiniband
+                      description: |-
+                        LinkType to be configured, Ethernet|Infiniband. Required unless networkBay is configured;
+                        for Network Bay the link type is governed by the system configuration and must not be set.
                       enum:
                       - Ethernet
                       - Infiniband
@@ -137,8 +139,9 @@ spec:
                       type: array
                     spectrumXOptimized:
                       description: Spectrum-X optimization settings. Works only with
-                        linkType==Ethernet && numVfs==0. Other optimizations must
-                        be skipped or disabled. RawNvConfig must be empty.
+                        linkType==Ethernet && numVfs==1. RawNvConfig parameters, if
+                        provided, are merged as overrides on top of Spectrum-X calculated
+                        params.
                       properties:
                         enabled:
                           description: Optimize Spectrum X
@@ -173,12 +176,8 @@ spec:
                           type: string
                         version:
                           description: Version of the Spectrum-X architecture to optimize
-                            for
-                          enum:
-                          - RA1.3
-                          - RA2.0
-                          - RA2.1
-                          - RA2.2
+                            for. Should match the name of the config map with Spectrum-X
+                            profile
                           type: string
                       required:
                       - enabled
@@ -195,14 +194,7 @@ spec:
                         rule: '!has(self.multiplaneMode) || !has(self.numberOfPlanes)
                           || self.multiplaneMode == ''none'' || self.numberOfPlanes
                           != 1'
-                      - message: when Version is RA1.3 or RA2.0, MultiplaneMode must
-                          be none and numberOfPlanes must be 1
-                        rule: '!has(self.version) || !has(self.multiplaneMode) ||
-                          !has(self.numberOfPlanes) || !(self.version == ''RA1.3''
-                          || self.version == ''RA2.0'') || (self.multiplaneMode ==
-                          ''none'' && self.numberOfPlanes == 1)'
                   required:
-                  - linkType
                   - numVfs
                   type: object
                   x-kubernetes-validations:

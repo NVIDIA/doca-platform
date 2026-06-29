@@ -2940,8 +2940,8 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `numVfs` _integer_ | Number of VFs to be configured |  | Required: \{\} <br /> |
-| `linkType` _[LinkTypeEnum](#linktypeenum)_ | LinkType to be configured, Ethernet\|Infiniband |  | Enum: [Ethernet Infiniband] <br />Required: \{\} <br /> |
-| `spectrumXOptimized` _[SpectrumXOptimizedSpec](#spectrumxoptimizedspec)_ | Spectrum-X optimization settings. Works only with linkType==Ethernet && numVfs==0. Other optimizations must be skipped or disabled. RawNvConfig must be empty. |  |  |
+| `linkType` _[LinkTypeEnum](#linktypeenum)_ | LinkType to be configured, Ethernet\|Infiniband. Required unless networkBay is configured;<br />for Network Bay the link type is governed by the system configuration and must not be set. |  | Enum: [Ethernet Infiniband] <br />Optional: \{\} <br /> |
+| `spectrumXOptimized` _[SpectrumXOptimizedSpec](#spectrumxoptimizedspec)_ | Spectrum-X optimization settings. Works only with linkType==Ethernet && numVfs==1. RawNvConfig parameters, if provided, are merged as overrides on top of Spectrum-X calculated params. |  |  |
 | `rawNvConfig` _NvConfigParam array_ | List of arbitrary nv config parameters |  |  |
 
 
