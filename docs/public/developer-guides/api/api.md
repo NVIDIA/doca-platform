@@ -1808,7 +1808,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `type` _string_ | Type of the cluster with few supported values<br />static - existing cluster that is deployed by user. For DPUCluster of this type, the kubeconfig field must be set.<br />kamaji - DPF managed cluster. The kamaji-cluster-manager will create a DPU cluster on behalf of this CR.<br />$(others) - any string defined by ISVs, such type names must start with a prefix. |  | Pattern: `kamaji\|static\|[^/]+/.*` <br />Required: \{\} <br /> |
-| `maxNodes` _integer_ | MaxNodes is the max amount of node in the cluster | 1000 | Maximum: 1000 <br />Minimum: 1 <br />Optional: \{\} <br /> |
+| `maxNodes` _integer_ | MaxNodes is the max amount of node in the cluster | 1000 | Maximum: 3000 <br />Minimum: 1 <br />Optional: \{\} <br /> |
 | `kubeconfig` _string_ | Kubeconfig is the secret that contains the admin kubeconfig |  | Optional: \{\} <br /> |
 | `clusterEndpoint` _[ClusterEndpointSpec](#clusterendpointspec)_ | ClusterEndpoint contains configurations of the cluster entry point |  | Optional: \{\} <br /> |
 

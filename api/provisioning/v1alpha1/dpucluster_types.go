@@ -89,7 +89,7 @@ type DPUClusterSpec struct {
 
 	// MaxNodes is the max amount of node in the cluster
 	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:validation:Maximum=1000
+	// +kubebuilder:validation:Maximum=3000
 	// +kubebuilder:default=1000
 	// +optional
 	MaxNodes int `json:"maxNodes,omitempty"`

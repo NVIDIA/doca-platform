@@ -55,6 +55,7 @@ const (
 	DPUDeviceControllerName = "dpudevice"
 	hostlessDPUNodePrefix   = "hostless-"
 	maxDPUNodeNameLength    = 48
+	labelValueTrue          = "true"
 )
 
 // DPUDeviceReconciler reconciles a DPUDevice object
@@ -173,6 +174,16 @@ func (r *DPUDeviceReconciler) reconcile(ctx context.Context, dpuDevice *provisio
 		dpuDevice.Status.BMCPort = dpuDevice.Spec.BMCPort
 	}
 
+	if dpuDevice.Labels[provisioningv1.DPUDeviceLabelSkipHWProvisioning] == labelValueTrue {
+		// until redfish support is implemented, skip hardware provisioning
+		log.Info("skip-hw-provisioning label set - skipping DPUDevice initialization and discovery")
+		conditions.AddTrue(dpuDevice, provisioningv1.ConditionDpuDeviceInitialized)
+		conditions.AddTrue(dpuDevice, provisioningv1.ConditionDpuDeviceDiscovered)
+		conditions.AddTrue(dpuDevice, provisioningv1.ConditionDpuDeviceReady)
+		setDPUDeviceLabels(dpuDevice)
+		return ctrl.Result{}, nil
+	}
+
 	// Check if BMCIP and Port are set, provide defaults if not
 	if dpuDevice.Status.BMCIP == nil {
 		err := fmt.Errorf("BMCIP for DPUDevice %s is required but not set", dpuDevice.Name)
@@ -289,7 +300,7 @@ func (r *DPUDeviceReconciler) checkDPUNodeAttachment(ctx context.Context, dpuDev
 }
 
 func isHostlessDPUDevice(dpuDevice *provisioningv1.DPUDevice) bool {
-	return dpuDevice.Labels[cutil.DPUDeviceHostlessLabel] == "true"
+	return dpuDevice.Labels[cutil.DPUDeviceHostlessLabel] == labelValueTrue
 }
 
 func (r *DPUDeviceReconciler) ensureHostlessDPUNode(ctx context.Context, dpuDevice *provisioningv1.DPUDevice) (string, error) {
@@ -310,7 +321,7 @@ func (r *DPUDeviceReconciler) ensureHostlessDPUNode(ctx context.Context, dpuDevi
 		if dpuNode.Labels == nil {
 			dpuNode.Labels = map[string]string{}
 		}
-		dpuNode.Labels[cutil.NodeSelectorLabel] = "true"
+		dpuNode.Labels[cutil.NodeSelectorLabel] = labelValueTrue
 		dpuNode.Annotations = copyStringMap(dpuDevice.Annotations)
 		dpuNode.Spec.DPUs = []provisioningv1.DPURef{{Name: dpuDevice.Name}}
 		dpuNode.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{None: &provisioningv1.None{}}

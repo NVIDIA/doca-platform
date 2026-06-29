@@ -50,9 +50,22 @@ func NewHandler(client client.Client, getDevice func(string) (hostutil.Device, b
 }
 
 func (h *Handler) Handle(ctx context.Context, dpu *provisioningv1.DPU) (provisioningv1.DPUStatus, ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+
 	dev, ok := h.GetDevice(dpu.Spec.SerialNumber)
 	if !ok {
 		return dpu.Status, ctrl.Result{}, fmt.Errorf("device not found")
+	}
+
+	// if the label check fails, proceed with real hardware provisioning.
+	skipHW, err := cutil.ShouldSkipHWProvisioning(ctx, h.Client, dpu)
+	if err != nil {
+		logger.V(3).Info("Failed to check skip-hw-provisioning label", "error", err)
+	}
+	if skipHW {
+		logger.Info("skip-hw-provisioning label set - skipping firmware configuration")
+		hostutil.NewCondition(condition).Success("").Set(&dpu.Status.Conditions)
+		return dpu.Status, ctrl.Result{}, nil
 	}
 
 	if dpu.Status.DeploymentMode != provisioningv1.DeploymentModeHostTrusted {

@@ -25,6 +25,7 @@ import (
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/future"
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 	"github.com/nvidia/doca-platform/internal/utils"
@@ -75,6 +76,18 @@ func (h *Handler) Handle(ctx context.Context, dpu *provisioningv1.DPU) (provisio
 		hostutil.NewCondition(condition).Failure(err, InstallationFailed).Set(&dpu.Status.Conditions)
 		return dpu.Status, ctrl.Result{}, err
 	}
+
+	// if the label check fails, proceed with real hardware provisioning.
+	skipHW, err := cutil.ShouldSkipHWProvisioning(ctx, h.Client, dpu)
+	if err != nil {
+		logger.V(3).Info("Failed to check skip-hw-provisioning label", "error", err)
+	}
+	if skipHW {
+		logger.Info("skip-hw-provisioning label set - skipping BFB installation")
+		hostutil.NewCondition(condition).Success("").Set(&dpu.Status.Conditions)
+		return dpu.Status, ctrl.Result{}, nil
+	}
+
 	taskID := string(dpu.UID)
 	task, maxReached := h.taskManager.RunTask(taskID, func() (any, error) {
 		return nil, h.handle(ctx, dev, dpu)

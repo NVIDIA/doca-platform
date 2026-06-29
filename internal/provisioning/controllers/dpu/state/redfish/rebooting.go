@@ -28,6 +28,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 const (
@@ -38,6 +39,8 @@ const (
 )
 
 func Rebooting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
+	logger := log.FromContext(ctx)
+
 	state, dpuNode, done, err := dutil.StartRebooting(ctx, dpu, ctrlCtx)
 	if done || err != nil {
 		return *state, err
@@ -45,6 +48,17 @@ func Rebooting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Cont
 
 	if dpu.Status.Hostless {
 		return reconcileHostlessReboot(ctx, dpu, state, ctrlCtx)
+	}
+
+	skipHW, err := cutil.ShouldSkipHWProvisioning(ctx, ctrlCtx.Client, dpu)
+	if err != nil {
+		logger.V(3).Info("Failed to check skip-hw-provisioning label, assuming real hardware", "error", err)
+	}
+	if skipHW {
+		logger.Info("skip-hw-provisioning label set - skipping power cycle")
+		cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondRebooted, "", ""))
+		state.Phase = provisioningv1.DPUClusterConfig
+		return *state, nil
 	}
 
 	switch {

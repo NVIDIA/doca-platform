@@ -167,7 +167,7 @@ var _ = Describe("DPUCluster", func() {
 
 			obj = createObj(DefaultObjName)
 			obj.Spec.Type = DefaultObjType
-			obj.Spec.MaxNodes = 1001
+			obj.Spec.MaxNodes = 3001
 			err = k8sClient.Create(ctx, obj)
 			Expect(err).To(HaveOccurred())
 
