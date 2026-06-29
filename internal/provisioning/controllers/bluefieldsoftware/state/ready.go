@@ -27,6 +27,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -73,10 +74,11 @@ func (st *blueFieldSoftwareReadyState) checkMissingComponents() []butil.Componen
 		ct      butil.ComponentType
 	}
 	var rows []row
-	if st.bfs.Spec.PldmFwBundle != nil {
-		rows = append(rows, row{*st.bfs.Spec.PldmFwBundle, st.bfs.Status.DownloadedComponents.PldmFwBundle, butil.ComponentTypeFwBundle})
-	}
-	rows = append(rows, row{st.bfs.Spec.OsIso, st.bfs.Status.DownloadedComponents.OsIso, butil.ComponentTypeOSISO})
+	rows = append(rows,
+		row{ptr.Deref(st.bfs.Spec.PldmFwBundle, ""), st.bfs.Status.DownloadedComponents.PldmFwBundle, butil.ComponentTypeFwBundle},
+		row{ptr.Deref(st.bfs.Spec.PlatformPldmFwBundle, ""), st.bfs.Status.DownloadedComponents.PlatformPldmFwBundle, butil.ComponentTypePlatformFwBundle},
+		row{st.bfs.Spec.OsIso, st.bfs.Status.DownloadedComponents.OsIso, butil.ComponentTypeOSISO},
+	)
 
 	for _, r := range rows {
 		if r.specURL == "" {
@@ -102,6 +104,8 @@ func (st *blueFieldSoftwareReadyState) clearComponentStatus(componentType butil.
 	switch componentType {
 	case butil.ComponentTypeFwBundle:
 		st.bfs.Status.DownloadedComponents.PldmFwBundle = ""
+	case butil.ComponentTypePlatformFwBundle:
+		st.bfs.Status.DownloadedComponents.PlatformPldmFwBundle = ""
 	case butil.ComponentTypeOSISO:
 		st.bfs.Status.DownloadedComponents.OsIso = ""
 	}
