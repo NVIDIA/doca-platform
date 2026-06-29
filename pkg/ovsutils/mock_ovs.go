@@ -259,6 +259,21 @@ func (mr *MockAPIMockRecorder) Get(arg0, arg1 any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockAPI)(nil).Get), arg0, arg1)
 }
 
+// GetBridgeNameByInterface mocks base method.
+func (m *MockAPI) GetBridgeNameByInterface(ctx context.Context, name string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetBridgeNameByInterface", ctx, name)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetBridgeNameByInterface indicates an expected call of GetBridgeNameByInterface.
+func (mr *MockAPIMockRecorder) GetBridgeNameByInterface(ctx, name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetBridgeNameByInterface", reflect.TypeOf((*MockAPI)(nil).GetBridgeNameByInterface), ctx, name)
+}
+
 // GetIfaceWithExternalIDs mocks base method.
 func (m *MockAPI) GetIfaceWithExternalIDs(ctx context.Context, externalIDs map[string]string) (*ovsmodel.Interface, error) {
 	m.ctrl.T.Helper()
@@ -289,6 +304,21 @@ func (mr *MockAPIMockRecorder) GetIfaceWithName(ctx, name any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetIfaceWithName", reflect.TypeOf((*MockAPI)(nil).GetIfaceWithName), ctx, name)
 }
 
+// GetInterfaceLinkState mocks base method.
+func (m *MockAPI) GetInterfaceLinkState(ctx context.Context, name string) (ovsmodel.InterfaceLinkState, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetInterfaceLinkState", ctx, name)
+	ret0, _ := ret[0].(ovsmodel.InterfaceLinkState)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetInterfaceLinkState indicates an expected call of GetInterfaceLinkState.
+func (mr *MockAPIMockRecorder) GetInterfaceLinkState(ctx, name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetInterfaceLinkState", reflect.TypeOf((*MockAPI)(nil).GetInterfaceLinkState), ctx, name)
+}
+
 // GetOpenVSwitchExternalIDs mocks base method.
 func (m *MockAPI) GetOpenVSwitchExternalIDs(ctx context.Context) (map[string]string, error) {
 	m.ctrl.T.Helper()
@@ -302,6 +332,21 @@ func (m *MockAPI) GetOpenVSwitchExternalIDs(ctx context.Context) (map[string]str
 func (mr *MockAPIMockRecorder) GetOpenVSwitchExternalIDs(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOpenVSwitchExternalIDs", reflect.TypeOf((*MockAPI)(nil).GetOpenVSwitchExternalIDs), ctx)
+}
+
+// GetPortVLANState mocks base method.
+func (m *MockAPI) GetPortVLANState(ctx context.Context, name string) (PortVLANState, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPortVLANState", ctx, name)
+	ret0, _ := ret[0].(PortVLANState)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPortVLANState indicates an expected call of GetPortVLANState.
+func (mr *MockAPIMockRecorder) GetPortVLANState(ctx, name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPortVLANState", reflect.TypeOf((*MockAPI)(nil).GetPortVLANState), ctx, name)
 }
 
 // IsIfaceInBr mocks base method.
@@ -346,6 +391,21 @@ func (m *MockAPI) ListBridgesWithExternalIDs(ctx context.Context, externalIDs ma
 func (mr *MockAPIMockRecorder) ListBridgesWithExternalIDs(ctx, externalIDs any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListBridgesWithExternalIDs", reflect.TypeOf((*MockAPI)(nil).ListBridgesWithExternalIDs), ctx, externalIDs)
+}
+
+// ListInterfacesWithError mocks base method.
+func (m *MockAPI) ListInterfacesWithError(ctx context.Context) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListInterfacesWithError", ctx)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListInterfacesWithError indicates an expected call of ListInterfacesWithError.
+func (mr *MockAPIMockRecorder) ListInterfacesWithError(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListInterfacesWithError", reflect.TypeOf((*MockAPI)(nil).ListInterfacesWithError), ctx)
 }
 
 // Monitor mocks base method.
@@ -538,6 +598,20 @@ func (m *MockAPI) UpdateEndpoints(arg0 []string) {
 func (mr *MockAPIMockRecorder) UpdateEndpoints(arg0 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateEndpoints", reflect.TypeOf((*MockAPI)(nil).UpdateEndpoints), arg0)
+}
+
+// ValidateBridgeExists mocks base method.
+func (m *MockAPI) ValidateBridgeExists(ctx context.Context, bridgeName string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ValidateBridgeExists", ctx, bridgeName)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ValidateBridgeExists indicates an expected call of ValidateBridgeExists.
+func (mr *MockAPIMockRecorder) ValidateBridgeExists(ctx, bridgeName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateBridgeExists", reflect.TypeOf((*MockAPI)(nil).ValidateBridgeExists), ctx, bridgeName)
 }
 
 // Where mocks base method.

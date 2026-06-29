@@ -17,9 +17,23 @@ limitations under the License.
 package plugin
 
 import (
+	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"strings"
 	"testing"
+
+	"github.com/nvidia/doca-platform/pkg/ovsmodel"
+	"github.com/nvidia/doca-platform/pkg/ovsutils"
+
+	current "github.com/containernetworking/cni/pkg/types/100"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	"github.com/ovn-org/libovsdb/client"
+	"github.com/ovn-org/libovsdb/model"
+	"github.com/ovn-org/libovsdb/ovsdb"
+	"go.uber.org/mock/gomock"
 )
 
 var showAllCollisions = flag.Bool("show-all-collisions", false, "log every hash collision, not just the total")
@@ -393,3 +407,480 @@ func TestResolveOFPort_ManySubfunctions(t *testing.T) {
 		t.Errorf("expected %d unique ports, got %d", expectedCount, len(used))
 	}
 }
+
+// Ginkgo specs for OVS helpers that need mocked ovsutils.API behavior.
+// transactExpect builds an EXPECT().Transact() with ctx + opCount gomock.Any
+// matchers, sidestepping the per-arg verbosity of variadic gomock matchers.
+//
+// Op payloads are matched as gomock.Any. Shape assertions on what the
+// production helpers send live on the api.AddPort side where they actually
+// have value.
+func transactExpect(mockAPI *ovsutils.MockAPI, opCount int) *gomock.Call {
+	opMatchers := make([]any, opCount)
+	for i := range opMatchers {
+		opMatchers[i] = gomock.Any()
+	}
+	return mockAPI.EXPECT().Transact(gomock.Any(), opMatchers...)
+}
+
+// portWithExternalIDs stages an api.Get that populates Port.ExternalIDs,
+// so production-code checks on owner see meaningful values.
+func portWithExternalIDs(mockAPI *ovsutils.MockAPI, externalIDs map[string]string) *gomock.Call {
+	return mockAPI.EXPECT().Get(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, m model.Model) error {
+			p, ok := m.(*ovsmodel.Port)
+			if !ok {
+				Fail(fmt.Sprintf("portWithExternalIDs: unexpected model type %T", m))
+				return nil
+			}
+			p.ExternalIDs = externalIDs
+			return nil
+		})
+}
+
+var _ = Describe("OVS helpers", func() {
+	var (
+		ctx      context.Context
+		mockCtrl *gomock.Controller
+		mockAPI  *ovsutils.MockAPI
+	)
+
+	BeforeEach(func() {
+		ctx = context.Background()
+		mockCtrl = gomock.NewController(GinkgoT())
+		mockAPI = ovsutils.NewMockAPI(mockCtrl)
+	})
+
+	AfterEach(func() { mockCtrl.Finish() })
+
+	Describe("getOvsPortForContIface", func() {
+		It("returns the port name when found", func() {
+			transactExpect(mockAPI, 1).Return([]ovsdb.OperationResult{{Rows: []ovsdb.Row{{"name": "p0"}}}}, nil)
+
+			name, found, err := getOvsPortForContIface(ctx, mockAPI, "eth0", "/proc/1/ns/net")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(found).To(BeTrue())
+			Expect(name).To(Equal("p0"))
+		})
+
+		It("returns (\"\", false, nil) when the port is absent", func() {
+			transactExpect(mockAPI, 1).Return([]ovsdb.OperationResult{{}}, nil)
+
+			name, found, err := getOvsPortForContIface(ctx, mockAPI, "eth0", "/proc/1/ns/net")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(found).To(BeFalse())
+			Expect(name).To(BeEmpty())
+		})
+
+		It("propagates op-level errors", func() {
+			transactExpect(mockAPI, 1).
+				Return([]ovsdb.OperationResult{{Error: "permission denied", Details: ""}}, nil)
+
+			_, found, err := getOvsPortForContIface(ctx, mockAPI, "eth0", "/proc/1/ns/net")
+			Expect(err).To(MatchError(ContainSubstring("permission denied")))
+			Expect(found).To(BeFalse())
+		})
+	})
+
+	Describe("deletePort", func() {
+		It("deletes a port when owned by the CNI and on this bridge", func() {
+			gomock.InOrder(
+				portWithExternalIDs(mockAPI, map[string]string{"owner": ovsPortOwner}),
+				mockAPI.EXPECT().IsIfaceInBr(gomock.Any(), "br-test", "p0").Return(true, nil),
+				mockAPI.EXPECT().DelPort(gomock.Any(), "br-test", "p0").Return(nil),
+			)
+
+			Expect(deletePort(ctx, mockAPI, "br-test", "p0")).To(Succeed())
+		})
+
+		It("refuses to delete a port not owned by the CNI", func() {
+			portWithExternalIDs(mockAPI, map[string]string{"owner": "someone-else"})
+
+			err := deletePort(ctx, mockAPI, "br-test", "p0")
+			Expect(err).To(MatchError(ContainSubstring("not created by ovs-cni")))
+		})
+
+		It("errors when the port lives on a different bridge", func() {
+			gomock.InOrder(
+				portWithExternalIDs(mockAPI, map[string]string{"owner": ovsPortOwner}),
+				mockAPI.EXPECT().IsIfaceInBr(gomock.Any(), "br-test", "p0").Return(false, nil),
+			)
+
+			err := deletePort(ctx, mockAPI, "br-test", "p0")
+			Expect(err).To(MatchError(ContainSubstring("is not on bridge br-test")))
+		})
+
+		It("returns error when the port cannot be found", func() {
+			mockAPI.EXPECT().Get(gomock.Any(), gomock.Any()).Return(client.ErrNotFound)
+
+			err := deletePort(ctx, mockAPI, "br-test", "missing")
+			Expect(err).To(MatchError(ContainSubstring("object not found")))
+		})
+
+		It("propagates IsIfaceInBr errors", func() {
+			gomock.InOrder(
+				portWithExternalIDs(mockAPI, map[string]string{"owner": ovsPortOwner}),
+				mockAPI.EXPECT().IsIfaceInBr(gomock.Any(), "br-test", "p0").
+					Return(false, errors.New("schema mismatch")),
+			)
+
+			err := deletePort(ctx, mockAPI, "br-test", "p0")
+			Expect(err).To(MatchError(ContainSubstring("schema mismatch")))
+		})
+
+		It("propagates DelPort errors", func() {
+			gomock.InOrder(
+				portWithExternalIDs(mockAPI, map[string]string{"owner": ovsPortOwner}),
+				mockAPI.EXPECT().IsIfaceInBr(gomock.Any(), "br-test", "p0").Return(true, nil),
+				mockAPI.EXPECT().DelPort(gomock.Any(), "br-test", "p0").Return(errors.New("constraint")),
+			)
+
+			err := deletePort(ctx, mockAPI, "br-test", "p0")
+			Expect(err).To(MatchError(ContainSubstring("constraint")))
+		})
+	})
+
+	Describe("getUsedOFPorts", func() {
+		// Prefers ofport over ofport_request and ignores non-positive ofport values
+		// ("interface still being configured").
+		It("prefers ofport, falls back to ofport_request, and ignores zero/negative values", func() {
+			rows := []ovsdb.Row{
+				{"ofport": float64(40000), "ofport_request": float64(32800)}, // ofport wins
+				{"ofport": float64(-1), "ofport_request": float64(32801)},    // negative ofport -> use request
+				{"ofport": float64(40002)},                                   // only ofport
+				{"ofport_request": float64(32803)},                           // only request
+				{"ofport": float64(0), "ofport_request": float64(0)},         // both invalid, skip
+			}
+			transactExpect(mockAPI, 1).Return([]ovsdb.OperationResult{{Rows: rows}}, nil)
+
+			used, err := getUsedOFPorts(ctx, mockAPI)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(used).To(HaveKey(uint(40000)))
+			Expect(used).NotTo(HaveKey(uint(32800)))
+			Expect(used).To(HaveKey(uint(32801)))
+			Expect(used).To(HaveKey(uint(40002)))
+			Expect(used).To(HaveKey(uint(32803)))
+			Expect(used).To(HaveLen(4))
+		})
+
+		It("returns an empty set when no rows are present", func() {
+			transactExpect(mockAPI, 1).Return([]ovsdb.OperationResult{{}}, nil)
+
+			used, err := getUsedOFPorts(ctx, mockAPI)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(used).To(BeEmpty())
+		})
+
+		It("propagates op-level errors", func() {
+			transactExpect(mockAPI, 1).Return([]ovsdb.OperationResult{{Error: "denied", Details: ""}}, nil)
+
+			_, err := getUsedOFPorts(ctx, mockAPI)
+			Expect(err).To(MatchError(ContainSubstring("denied")))
+		})
+	})
+
+	Describe("createPort", func() {
+		iface := &current.Interface{Name: "eth0", Mac: "aa:bb:cc:dd:ee:ff"}
+
+		It("delegates to api.AddPort when ofport_request is explicit", func() {
+			mockAPI.EXPECT().AddPort(gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, cfg ovsutils.PortConfig) error {
+					Expect(cfg.Name).To(Equal("p0"))
+					Expect(cfg.BridgeName).To(Equal("br-test"))
+					Expect(cfg.OFPortRequest).NotTo(BeNil())
+					Expect(*cfg.OFPortRequest).To(Equal(40000))
+					Expect(cfg.WaitForOFPortFree).To(BeTrue())
+					Expect(cfg.MTU).NotTo(BeNil())
+					Expect(*cfg.MTU).To(Equal(1500))
+					Expect(cfg.Tag).NotTo(BeNil())
+					Expect(*cfg.Tag).To(Equal(100))
+					Expect(cfg.Trunks).To(BeNil())
+					Expect(cfg.PortExternalIDs).To(HaveKeyWithValue("owner", ovsPortOwner))
+					Expect(cfg.PortExternalIDs).To(HaveKeyWithValue("contIface", "eth0"))
+					Expect(cfg.InterfaceExternalIDs).To(HaveKeyWithValue("iface-id", "ovn-port"))
+					Expect(cfg.InterfaceExternalIDs).To(HaveKeyWithValue(ovsutils.DPFIDKey, "dpf-1"))
+					Expect(cfg.InterfaceExternalIDs).To(HaveKeyWithValue("iface-mac", iface.Mac))
+					return nil
+				})
+
+			err := createPort(ctx, mockAPI, "br-test", "p0", "/proc/1/ns/net", "ovn-port",
+				"dpf-1", iface, 40000, 100, nil, "access", 1500, "", "pod-uid")
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("resolves ofport_request via getUsedOFPorts when caller passes 0", func() {
+			// Empty used-set, resolveOFPort returns the hash candidate directly,
+			// pin it so the contract catches a regression in the hash mapping.
+			wantOFPort := int(hashToOFPort("p0"))
+			gomock.InOrder(
+				transactExpect(mockAPI, 1).Return([]ovsdb.OperationResult{{}}, nil),
+				mockAPI.EXPECT().AddPort(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(_ context.Context, cfg ovsutils.PortConfig) error {
+						Expect(cfg.OFPortRequest).NotTo(BeNil())
+						Expect(*cfg.OFPortRequest).To(Equal(wantOFPort))
+						Expect(cfg.WaitForOFPortFree).To(BeTrue())
+						return nil
+					}),
+			)
+
+			err := createPort(ctx, mockAPI, "br-test", "p0", "/proc/1/ns/net", "ovn-port",
+				"dpf-1", iface, 0, 0, nil, "access", 1500, "", "pod-uid")
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("populates Trunks (not Tag) when portType is trunk", func() {
+			mockAPI.EXPECT().AddPort(gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, cfg ovsutils.PortConfig) error {
+					Expect(cfg.Tag).To(BeNil())
+					Expect(cfg.Trunks).To(Equal([]int{10, 20}))
+					Expect(cfg.VLANMode).NotTo(BeNil())
+					Expect(*cfg.VLANMode).To(Equal(ovsmodel.PortVLANMode("trunk")))
+					return nil
+				})
+
+			err := createPort(ctx, mockAPI, "br-test", "p0", "/proc/1/ns/net", "ovn-port",
+				"dpf-1", iface, 40000, 0, []uint{10, 20}, "trunk", 1500, "", "pod-uid")
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("propagates getUsedOFPorts errors before reaching AddPort", func() {
+			transactExpect(mockAPI, 1).Return([]ovsdb.OperationResult{{Error: "denied", Details: ""}}, nil)
+
+			err := createPort(ctx, mockAPI, "br-test", "p0", "/proc/1/ns/net", "ovn-port",
+				"dpf-1", iface, 0, 0, nil, "access", 1500, "", "pod-uid")
+			Expect(err).To(MatchError(ContainSubstring("query used ofports")))
+		})
+
+		It("propagates AddPort errors", func() {
+			mockAPI.EXPECT().AddPort(gomock.Any(), gomock.Any()).Return(errors.New("duplicate"))
+
+			err := createPort(ctx, mockAPI, "br-test", "p0", "/proc/1/ns/net", "ovn-port",
+				"dpf-1", iface, 40000, 0, nil, "access", 1500, "", "pod-uid")
+			Expect(err).To(MatchError(ContainSubstring("duplicate")))
+		})
+
+		It("omits mtu_request when mtu is below the CRD minimum", func() {
+			mockAPI.EXPECT().AddPort(gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, cfg ovsutils.PortConfig) error {
+					Expect(cfg.MTU).To(BeNil())
+					return nil
+				})
+
+			err := createPort(ctx, mockAPI, "br-test", "p0", "/proc/1/ns/net", "ovn-port",
+				"dpf-1", iface, 40000, 0, nil, "access", 1279, "", "pod-uid")
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("sets mtu_request when mtu is the CRD minimum", func() {
+			mockAPI.EXPECT().AddPort(gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, cfg ovsutils.PortConfig) error {
+					Expect(cfg.MTU).NotTo(BeNil())
+					Expect(*cfg.MTU).To(Equal(1280))
+					return nil
+				})
+
+			err := createPort(ctx, mockAPI, "br-test", "p0", "/proc/1/ns/net", "ovn-port",
+				"dpf-1", iface, 40000, 0, nil, "access", 1280, "", "pod-uid")
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("omits iface-id/dpf-id/iface-mac when no OVN metadata is supplied", func() {
+			mockAPI.EXPECT().AddPort(gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, cfg ovsutils.PortConfig) error {
+					Expect(cfg.InterfaceExternalIDs).To(BeNil())
+					return nil
+				})
+
+			err := createPort(ctx, mockAPI, "br-test", "p0", "/proc/1/ns/net", "",
+				"", iface, 40000, 0, nil, "access", 1500, "", "pod-uid")
+			Expect(err).NotTo(HaveOccurred())
+		})
+	})
+
+	Describe("cleanupStaleHbn", func() {
+		It("returns nil when no stale HBN interfaces exist", func() {
+			transactExpect(mockAPI, 1).Return([]ovsdb.OperationResult{{}}, nil)
+
+			Expect(cleanupStaleHbn(ctx, mockAPI, "eth0")).To(Succeed())
+		})
+
+		It("deletes each stale interface from br-hbn", func() {
+			rows := []ovsdb.Row{
+				{"name": "pen3f0pf0sf1brhbn"},
+				{"name": "pen3f0pf0sf2brhbn"},
+			}
+			gomock.InOrder(
+				transactExpect(mockAPI, 1).Return([]ovsdb.OperationResult{{Rows: rows}}, nil),
+				mockAPI.EXPECT().DelPort(gomock.Any(), hbnBridge, "pen3f0pf0sf1brhbn").Return(nil),
+				mockAPI.EXPECT().DelPort(gomock.Any(), hbnBridge, "pen3f0pf0sf2brhbn").Return(nil),
+			)
+
+			Expect(cleanupStaleHbn(ctx, mockAPI, "eth0")).To(Succeed())
+		})
+
+		It("returns error when the lookup fails", func() {
+			transactExpect(mockAPI, 1).Return([]ovsdb.OperationResult{{Error: "read denied", Details: ""}}, nil)
+
+			err := cleanupStaleHbn(ctx, mockAPI, "eth0")
+			Expect(err).To(MatchError(ContainSubstring("read denied")))
+		})
+
+		It("propagates DelPort errors", func() {
+			gomock.InOrder(
+				transactExpect(mockAPI, 1).
+					Return([]ovsdb.OperationResult{{Rows: []ovsdb.Row{{"name": "pen3f0pf0sf1brhbn"}}}}, nil),
+				mockAPI.EXPECT().DelPort(gomock.Any(), hbnBridge, "pen3f0pf0sf1brhbn").
+					Return(errors.New("port busy")),
+			)
+
+			err := cleanupStaleHbn(ctx, mockAPI, "eth0")
+			Expect(err).To(MatchError(ContainSubstring("port busy")))
+		})
+	})
+
+	Describe("cleanupStaleSfc", func() {
+		// Same shape as cleanupStaleHbn, just pin the br-sfc + dpf-id wiring.
+		It("deletes each stale interface from br-sfc", func() {
+			gomock.InOrder(
+				transactExpect(mockAPI, 1).
+					Return([]ovsdb.OperationResult{{Rows: []ovsdb.Row{{"name": "p0"}}}}, nil),
+				mockAPI.EXPECT().DelPort(gomock.Any(), sfcBridge, "p0").Return(nil),
+			)
+
+			Expect(cleanupStaleSfc(ctx, mockAPI, "eth0")).To(Succeed())
+		})
+	})
+
+	Describe("addPatchPort", func() {
+		// Each call: DelPort (refresh stale external_ids) + Transact (getUsedOFPorts) + AddPort.
+
+		It("writes SFC-side external_ids for a non-brhbn patch port", func() {
+			gomock.InOrder(
+				mockAPI.EXPECT().DelPort(gomock.Any(), "br-sfc", "peth0brsfc").Return(nil),
+				transactExpect(mockAPI, 1).Return([]ovsdb.OperationResult{{}}, nil),
+				mockAPI.EXPECT().AddPort(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(_ context.Context, cfg ovsutils.PortConfig) error {
+						Expect(cfg.Name).To(Equal("peth0brsfc"))
+						Expect(cfg.BridgeName).To(Equal("br-sfc"))
+						Expect(cfg.InterfaceType).To(Equal("patch"))
+						Expect(cfg.InterfaceOptions).To(HaveKeyWithValue("peer", "peth0brhbn"))
+						Expect(cfg.InterfaceExternalIDs).To(HaveKeyWithValue("iface-id", "eth0"))
+						Expect(cfg.InterfaceExternalIDs).To(HaveKeyWithValue(ovsutils.DPFIDKey, "container-iface"))
+						Expect(cfg.InterfaceExternalIDs).To(HaveKey("iface-mac"))
+						Expect(cfg.PortExternalIDs).To(HaveKeyWithValue("owner", ovsPortOwner))
+						return nil
+					}),
+			)
+
+			err := addPatchPort(ctx, mockAPI, "br-sfc", "peth0brsfc", "peth0brhbn", "eth0", "container-iface")
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("writes HBN-side external_ids (hbn_rep_ofport/hbn_netdev) for a *brhbn patch port", func() {
+			gomock.InOrder(
+				mockAPI.EXPECT().DelPort(gomock.Any(), "br-hbn", "peth0brhbn").Return(nil),
+				transactExpect(mockAPI, 1).Return([]ovsdb.OperationResult{{}}, nil),
+				mockAPI.EXPECT().AddPort(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(_ context.Context, cfg ovsutils.PortConfig) error {
+						Expect(cfg.Name).To(Equal("peth0brhbn"))
+						Expect(cfg.BridgeName).To(Equal("br-hbn"))
+						Expect(cfg.InterfaceType).To(Equal("patch"))
+						Expect(cfg.InterfaceOptions).To(HaveKeyWithValue("peer", "peth0brsfc"))
+						Expect(cfg.InterfaceExternalIDs).To(HaveKeyWithValue("hbn_rep_ofport", "eth0"))
+						Expect(cfg.InterfaceExternalIDs).To(HaveKeyWithValue("hbn_netdev", "container-iface"))
+						Expect(cfg.InterfaceExternalIDs).NotTo(HaveKey("iface-id"))
+						Expect(cfg.InterfaceExternalIDs).NotTo(HaveKey("iface-mac"))
+						return nil
+					}),
+			)
+
+			err := addPatchPort(ctx, mockAPI, "br-hbn", "peth0brhbn", "peth0brsfc", "eth0", "container-iface")
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("propagates DelPort errors before querying ofports", func() {
+			mockAPI.EXPECT().DelPort(gomock.Any(), "br-sfc", "peth0brsfc").
+				Return(errors.New("port busy"))
+
+			err := addPatchPort(ctx, mockAPI, "br-sfc", "peth0brsfc", "peth0brhbn", "eth0", "container-iface")
+			Expect(err).To(MatchError(ContainSubstring("delete stale patch port peth0brsfc")))
+			Expect(err).To(MatchError(ContainSubstring("port busy")))
+		})
+
+		It("propagates getUsedOFPorts errors before reaching AddPort", func() {
+			gomock.InOrder(
+				mockAPI.EXPECT().DelPort(gomock.Any(), "br-sfc", "peth0brsfc").Return(nil),
+				transactExpect(mockAPI, 1).Return([]ovsdb.OperationResult{{Error: "read denied", Details: ""}}, nil),
+			)
+
+			err := addPatchPort(ctx, mockAPI, "br-sfc", "peth0brsfc", "peth0brhbn", "eth0", "container-iface")
+			Expect(err).To(MatchError(ContainSubstring("query used ofports")))
+		})
+
+		It("propagates AddPort errors", func() {
+			gomock.InOrder(
+				mockAPI.EXPECT().DelPort(gomock.Any(), "br-sfc", "peth0brsfc").Return(nil),
+				transactExpect(mockAPI, 1).Return([]ovsdb.OperationResult{{}}, nil),
+				mockAPI.EXPECT().AddPort(gomock.Any(), gomock.Any()).Return(errors.New("duplicate")),
+			)
+
+			err := addPatchPort(ctx, mockAPI, "br-sfc", "peth0brsfc", "peth0brhbn", "eth0", "container-iface")
+			Expect(err).To(MatchError(ContainSubstring("duplicate")))
+		})
+
+	})
+
+	Describe("createPatch", func() {
+		// addPatchPort is exercised in depth above. These tests just pin the
+		// orchestration: peer A gets {brA, portA, peer=portB}, peer B gets
+		// {brB, portB, peer=portA}, with each invocation issuing the
+		// DelPort + Transact + AddPort triple.
+		intfName, contIfaceName, brA, brB := "eth0", "container-iface", "br-sfc", "br-hbn"
+		portOnBrA := patchPortName(intfName, brA)
+		portOnBrB := patchPortName(intfName, brB)
+
+		It("invokes addPatchPort once per bridge with the right peer wiring", func() {
+			gomock.InOrder(
+				// Peer A on brA, peer = portOnBrB.
+				mockAPI.EXPECT().DelPort(gomock.Any(), brA, portOnBrA).Return(nil),
+				transactExpect(mockAPI, 1).Return([]ovsdb.OperationResult{{}}, nil),
+				mockAPI.EXPECT().AddPort(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(_ context.Context, cfg ovsutils.PortConfig) error {
+						Expect(cfg.BridgeName).To(Equal(brA))
+						Expect(cfg.Name).To(Equal(portOnBrA))
+						Expect(cfg.InterfaceOptions).To(HaveKeyWithValue("peer", portOnBrB))
+						return nil
+					}),
+				// Peer B on brB, peer = portOnBrA.
+				mockAPI.EXPECT().DelPort(gomock.Any(), brB, portOnBrB).Return(nil),
+				transactExpect(mockAPI, 1).Return([]ovsdb.OperationResult{{}}, nil),
+				mockAPI.EXPECT().AddPort(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(_ context.Context, cfg ovsutils.PortConfig) error {
+						Expect(cfg.BridgeName).To(Equal(brB))
+						Expect(cfg.Name).To(Equal(portOnBrB))
+						Expect(cfg.InterfaceOptions).To(HaveKeyWithValue("peer", portOnBrA))
+						return nil
+					}),
+			)
+
+			Expect(createPatch(ctx, mockAPI, intfName, contIfaceName, brA, brB)).To(Succeed())
+		})
+
+		It("short-circuits when the first peer fails", func() {
+			mockAPI.EXPECT().DelPort(gomock.Any(), brA, portOnBrA).
+				Return(errors.New("port busy"))
+			// No further calls on the second peer.
+
+			err := createPatch(ctx, mockAPI, intfName, contIfaceName, brA, brB)
+			Expect(err).To(MatchError(ContainSubstring("port busy")))
+		})
+	})
+})
+
+var _ = Describe("patchPortName", func() {
+	It("strips hyphens from the bridge name to form the patch port name", func() {
+		Expect(patchPortName("en3f0pf0sf51", "br-sfc")).To(Equal("pen3f0pf0sf51brsfc"))
+		Expect(patchPortName("en3f0pf0sf51", "br-hbn")).To(Equal("pen3f0pf0sf51brhbn"))
+		Expect(strings.HasSuffix(patchPortName("p0", "br-hbn"), "brhbn")).To(BeTrue())
+	})
+})

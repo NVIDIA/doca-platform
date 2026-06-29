@@ -37,6 +37,11 @@ type API interface {
 	ovsclient.Client
 	AddPort(ctx context.Context, portConfig PortConfig) error
 	DelPort(ctx context.Context, bridgeName, portName string) error
+	ValidateBridgeExists(ctx context.Context, bridgeName string) error
+	GetInterfaceLinkState(ctx context.Context, name string) (ovsmodel.InterfaceLinkState, error)
+	GetPortVLANState(ctx context.Context, name string) (PortVLANState, error)
+	GetBridgeNameByInterface(ctx context.Context, name string) (string, error)
+	ListInterfacesWithError(ctx context.Context) ([]string, error)
 	SetIfaceExternalIDs(ctx context.Context, name string, externalIDs map[string]string) error
 	GetIfaceWithExternalIDs(ctx context.Context, externalIDs map[string]string) (*ovsmodel.Interface, error)
 	SetIfaceOptions(ctx context.Context, name string, options map[string]string) error
@@ -55,6 +60,107 @@ var _ API = (*Client)(nil)
 
 type Client struct {
 	ovsclient.Client
+}
+
+// ValidateBridgeExists returns an error if bridgeName is missing in OVS.
+func (c *Client) ValidateBridgeExists(ctx context.Context, bridgeName string) error {
+	err := c.Get(ctx, &ovsmodel.Bridge{Name: bridgeName})
+	if err != nil {
+		if errors.Is(err, ovsclient.ErrNotFound) {
+			return fmt.Errorf("failed to find bridge %s", bridgeName)
+		}
+		return fmt.Errorf("get bridge %s: %w", bridgeName, err)
+	}
+	return nil
+}
+
+// GetInterfaceLinkState returns the OVS link_state for an interface.
+func (c *Client) GetInterfaceLinkState(ctx context.Context, name string) (ovsmodel.InterfaceLinkState, error) {
+	iface := &ovsmodel.Interface{Name: name}
+	if err := c.Get(ctx, iface); err != nil {
+		if errors.Is(err, ovsclient.ErrNotFound) {
+			return "", nil
+		}
+		return "", fmt.Errorf("failed to get interface %s: %w", name, err)
+	}
+	if iface.LinkState == nil {
+		return "", nil
+	}
+	return *iface.LinkState, nil
+}
+
+// GetPortVLANState returns the VLAN configuration for an OVS port.
+func (c *Client) GetPortVLANState(ctx context.Context, name string) (PortVLANState, error) {
+	port := &ovsmodel.Port{Name: name}
+	if err := c.Get(ctx, port); err != nil {
+		return PortVLANState{}, fmt.Errorf("failed to get port %s: %w", name, err)
+	}
+	return PortVLANState{
+		Mode:   port.VLANMode,
+		Tag:    port.Tag,
+		Trunks: port.Trunks,
+	}, nil
+}
+
+// GetBridgeNameByInterface returns the bridge name that contains an interface.
+func (c *Client) GetBridgeNameByInterface(ctx context.Context, name string) (string, error) {
+	iface := &ovsmodel.Interface{Name: name}
+	if err := c.Get(ctx, iface); err != nil {
+		return "", fmt.Errorf("failed to find interface %s: %w", name, err)
+	}
+
+	var ports []ovsmodel.Port
+	port := &ovsmodel.Port{}
+	err := c.WhereAll(
+		port,
+		model.Condition{
+			Field:    &port.Interfaces,
+			Function: ovsdb.ConditionIncludes,
+			Value:    []string{iface.UUID},
+		},
+	).List(ctx, &ports)
+	if err != nil {
+		return "", fmt.Errorf("failed to find port %s: %w", name, err)
+	}
+	if len(ports) != 1 {
+		return "", fmt.Errorf("failed to find port %s: expected 1 port, got %d", name, len(ports))
+	}
+
+	var bridges []ovsmodel.Bridge
+	bridge := &ovsmodel.Bridge{}
+	err = c.WhereAll(
+		bridge,
+		model.Condition{
+			Field:    &bridge.Ports,
+			Function: ovsdb.ConditionIncludes,
+			Value:    []string{ports[0].UUID},
+		},
+	).List(ctx, &bridges)
+	if err != nil {
+		return "", fmt.Errorf("failed to find bridge for %s: %w", name, err)
+	}
+	if len(bridges) != 1 {
+		return "", fmt.Errorf("failed to find bridge for %s: expected 1 bridge, got %d", name, len(bridges))
+	}
+
+	return bridges[0].Name, nil
+}
+
+// ListInterfacesWithError returns interface names with a non-empty OVS error.
+func (c *Client) ListInterfacesWithError(ctx context.Context) ([]string, error) {
+	var ifaces []ovsmodel.Interface
+	if err := c.List(ctx, &ifaces); err != nil {
+		return nil, fmt.Errorf("failed to list interfaces: %w", err)
+	}
+
+	names := make([]string, 0, len(ifaces))
+	for _, iface := range ifaces {
+		if iface.Error == nil || *iface.Error == "" {
+			continue
+		}
+		names = append(names, iface.Name)
+	}
+	return names, nil
 }
 
 // BridgeConfig holds the configuration for creating an OVS bridge.
@@ -91,6 +197,13 @@ type PortConfig struct {
 	// WaitForOFPortFree, when set with OFPortRequest, aborts the transaction
 	// if another Interface already requested the same ofport.
 	WaitForOFPortFree bool
+}
+
+// PortVLANState holds the VLAN configuration read from an OVS port.
+type PortVLANState struct {
+	Mode   *ovsmodel.PortVLANMode
+	Tag    *int
+	Trunks []int
 }
 
 const (
