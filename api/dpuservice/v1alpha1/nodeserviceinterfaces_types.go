@@ -27,6 +27,12 @@ import (
 const (
 	NodeServiceInterfacesKind = "NodeServiceInterfaces"
 
+	// NSITypeSFC is the NSI type for SFC-backed service interfaces.
+	NSITypeSFC = "sfc"
+	// NSITypeVPC is the NSI type prefix for VPC-backed service interfaces.
+	// The full type may be "vpc" or "vpc-<provisioner>".
+	NSITypeVPC = "vpc"
+
 	// NodeServiceInterfacesReconciled indicates that all interface entries
 	// have been processed by the managing controller.
 	NodeServiceInterfacesReconciled conditions.ConditionType = "NodeServiceInterfacesReconciled"
@@ -58,6 +64,33 @@ func (c *NodeServiceInterfaces) GetConditions() []metav1.Condition {
 
 func (c *NodeServiceInterfaces) SetConditions(conditions []metav1.Condition) {
 	c.Status.Conditions = conditions
+}
+
+// interfaceEntryStatusGetSet wraps an InterfaceEntryStatus and the parent NSI's metadata
+// generation, implementing conditions.GetSet so pkg/conditions helpers can be used
+// for per-entry condition checks.
+type interfaceEntryStatusGetSet struct {
+	status     *InterfaceEntryStatus
+	generation int64
+}
+
+func (a *interfaceEntryStatusGetSet) GetConditions() []metav1.Condition  { return a.status.Conditions }
+func (a *interfaceEntryStatusGetSet) SetConditions(c []metav1.Condition) { a.status.Conditions = c }
+func (a *interfaceEntryStatusGetSet) GetGeneration() int64               { return a.generation }
+
+// GetEntryStatus returns a conditions.GetSet view of the named entry's status,
+// using the NSI object's metadata generation for staleness detection.
+// Returns nil if the entry is not found.
+func (c *NodeServiceInterfaces) GetEntryStatus(entryName string) conditions.GetSet {
+	for i := range c.Status.InterfaceStatuses {
+		if c.Status.InterfaceStatuses[i].Name == entryName {
+			return &interfaceEntryStatusGetSet{
+				status:     &c.Status.InterfaceStatuses[i],
+				generation: c.GetGeneration(),
+			}
+		}
+	}
+	return nil
 }
 
 // NodeServiceInterfacesSpec defines the desired state of NodeServiceInterfaces.

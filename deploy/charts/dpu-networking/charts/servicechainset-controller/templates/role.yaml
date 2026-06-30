@@ -68,6 +68,7 @@ rules:
 - apiGroups:
   - svc.dpu.nvidia.com
   resources:
+  - nodeserviceinterfaces
   - servicechains
   - servicechainsets
   - serviceinterfaces

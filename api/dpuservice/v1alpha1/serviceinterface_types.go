@@ -84,6 +84,30 @@ type ServiceInterfaceSpec struct {
 	Patch *PatchDef `json:"patch,omitempty"`
 }
 
+// GetVirtualNetworkName returns the virtual network name from the ServiceInterfaceSpec.
+// if it does not have a virtual network, it returns an empty string
+func (c *ServiceInterfaceSpec) GetVirtualNetworkName() string {
+	vnn := ""
+	switch c.InterfaceType {
+	case InterfaceTypePF:
+		if c.PF != nil &&
+			c.PF.VirtualNetwork != nil {
+			vnn = *c.PF.VirtualNetwork
+		}
+	case InterfaceTypeVF:
+		if c.VF != nil &&
+			c.VF.VirtualNetwork != nil {
+			vnn = *c.VF.VirtualNetwork
+		}
+	case InterfaceTypeService:
+		if c.Service != nil &&
+			c.Service.VirtualNetwork != nil {
+			vnn = *c.Service.VirtualNetwork
+		}
+	}
+	return vnn
+}
+
 const (
 	// ServiceInterfaceReconciled is the condition type that indicates that the
 	// service interface is reconciled.
@@ -119,28 +143,10 @@ func (c *ServiceInterface) HasVirtualNetwork() bool {
 	return c.GetVirtualNetworkName() != ""
 }
 
-// GetVirtualNetworkName returns the virtual network name from the DPUServiceInterface.
+// GetVirtualNetworkName returns the virtual network name from the ServiceInterface.
 // if it does not have a virtual network, it returns an empty string
 func (c *ServiceInterface) GetVirtualNetworkName() string {
-	vnn := ""
-	switch c.Spec.InterfaceType {
-	case InterfaceTypePF:
-		if c.Spec.PF != nil &&
-			c.Spec.PF.VirtualNetwork != nil {
-			vnn = *c.Spec.PF.VirtualNetwork
-		}
-	case InterfaceTypeVF:
-		if c.Spec.VF != nil &&
-			c.Spec.VF.VirtualNetwork != nil {
-			vnn = *c.Spec.VF.VirtualNetwork
-		}
-	case InterfaceTypeService:
-		if c.Spec.Service != nil &&
-			c.Spec.Service.VirtualNetwork != nil {
-			vnn = *c.Spec.Service.VirtualNetwork
-		}
-	}
-	return vnn
+	return c.Spec.GetVirtualNetworkName()
 }
 
 // Physical Identifies a physical interface
