@@ -30,7 +30,9 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/nvconfig"
 	dpuutil "github.com/nvidia/doca-platform/internal/provisioning/dpuagent/util"
+	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
 
 	"github.com/Masterminds/semver/v3"
@@ -144,6 +146,9 @@ func (h *HandleReboot) Execute(execCtx context.Context, optCtx *operations.Conte
 		optCtx.Status.RebootMethod = ptr.To(provisioningv1.RebootMethodHostlessDPUReboot)
 		return nil
 	case provisioningv1.RebootMethodNoAction:
+		if err := deferredNVConfigWithoutRebootError(optCtx); err != nil {
+			return err
+		}
 		optCtx.Status.InitialBootID = nil
 		optCtx.Status.RebootMethod = ptr.To(provisioningv1.RebootMethodNoAction)
 		return nil
@@ -249,6 +254,24 @@ func (h *HandleReboot) blockUntilReset() error {
 	klog.Infof("Reset initiated, waiting up to %v for system to go down...", defaultPostResetBlockDuration)
 	time.Sleep(defaultPostResetBlockDuration)
 	return fmt.Errorf("system did not reset within %v", defaultPostResetBlockDuration)
+}
+
+// deferredNVConfigWithoutRebootError reports when flavor NVConfig parameters were
+// not exposed by mlxconfig q and reboot method is NoAction, so they remain unapplied.
+func deferredNVConfigWithoutRebootError(optCtx *operations.Context) error {
+	if optCtx == nil || len(optCtx.DeferredNVConfigParams) == 0 {
+		return nil
+	}
+	parts := make([]string, 0, len(optCtx.DeferredNVConfigParams))
+	for _, d := range optCtx.DeferredNVConfigParams {
+		parts = append(parts, fmt.Sprintf(
+			"device=%s unapplied NVConfig params not exposed by mlxconfig q: [%s]",
+			d.Device, d.Params,
+		))
+	}
+	err := fmt.Errorf("check DPUFlavor NVConfig: %s", strings.Join(parts, " "))
+	hostutil.NewCondition(nvconfig.CondNVConfigApplied).Failure(err, nvconfig.CondNVConfigApplied).Set(&optCtx.Status.Conditions)
+	return err
 }
 
 // getRebootMethod returns the reboot method for this run.
