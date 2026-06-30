@@ -61,7 +61,7 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 		})
 		It("should successfully reconcile the ServiceInterfaceSet without Node Selector", func() {
 			By("Create ServiceInterfaceSet, without Node Selector")
-			cleanupObjects = append(cleanupObjects, createServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{}))
+			cleanupObjects = append(cleanupObjects, createLegacyServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{}))
 			By("Verify ServiceInterface not created, no nodes")
 			Consistently(func(g Gomega) {
 				serviceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
@@ -85,7 +85,7 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 		})
 		It("should successfully reconcile the ServiceInterfaceSet with Node Selector", func() {
 			By("creating ServiceInterfaceSet, with Node Selector")
-			cleanupObjects = append(cleanupObjects, createServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
+			cleanupObjects = append(cleanupObjects, createLegacyServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
 				MatchLabels: map[string]string{"role": "firewall"}}))
 
 			By("Create 3 nodes")
@@ -103,7 +103,7 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 		})
 		It("should successfully reconcile the ServiceInterfaceSet with Node Selector and remove Service Interface", func() {
 			By("creating ServiceInterfaceSet, with Node Selector")
-			cleanupObjects = append(cleanupObjects, createServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
+			cleanupObjects = append(cleanupObjects, createLegacyServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
 				MatchLabels: map[string]string{"role": "firewall"}}))
 
 			By("Create 3 nodes")
@@ -136,7 +136,7 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 		})
 		It("should successfully reconcile the ServiceInterfaceSet after update", func() {
 			By("creating ServiceInterfaceSet, with Node Selector")
-			cleanupObjects = append(cleanupObjects, createServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
+			cleanupObjects = append(cleanupObjects, createLegacyServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
 				MatchLabels: map[string]string{"role": "firewall"}}))
 
 			By("Create 3 nodes")
@@ -182,7 +182,7 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 		})
 		It("should successfully delete the ServiceInterfaceSet", func() {
 			By("Creating ServiceInterfaceSet, with Node Selector")
-			cleanupObjects = append(cleanupObjects, createServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
+			cleanupObjects = append(cleanupObjects, createLegacyServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
 				MatchLabels: map[string]string{"role": "firewall"}}))
 
 			By("Creating 2 nodes")
@@ -208,7 +208,7 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 		})
 		It("should successfully delete the ServiceInterfaceSet and corresponding ServiceInterfaces in its namespace only but not cross-namespace", func() {
 			By("Creating ServiceInterfaceSet, with Node Selector")
-			cleanupObjects = append(cleanupObjects, createServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
+			cleanupObjects = append(cleanupObjects, createLegacyServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
 				MatchLabels: map[string]string{"role": "firewall"}}))
 
 			By("Creating 2 nodes")
@@ -256,7 +256,7 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 		})
 		It("ServiceInterfaceSet has condition ServiceInterfacesReconciled with AwaitingDeletion Reason when there are still objects in the DPUCluster", func() {
 			By("Creating ServiceInterfaceSet, with Node Selector")
-			set := createServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
+			set := createLegacyServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
 				MatchLabels: map[string]string{"role": "firewall"}})
 
 			By("Creating 2 nodes")
@@ -347,6 +347,7 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 			By("Create ServiceInterfaceSet, without Node Selector")
 			sis := getServiceInterfaceSet(testNS.Name, &metav1.LabelSelector{})
 			sis.Name = utilrand.String(63)
+			setServiceInterfaceSetMode(sis)
 			Expect(testClient.Create(ctx, sis)).NotTo(HaveOccurred())
 			cleanupObjects = append(cleanupObjects, sis)
 
@@ -365,7 +366,7 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 		})
 		It("verify ServiceInterface node labeling", func() {
 			By("Create ServiceInterfaceSet, without Node Selector")
-			cleanupObjects = append(cleanupObjects, createServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{}))
+			cleanupObjects = append(cleanupObjects, createLegacyServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{}))
 
 			By("Create 3 nodes")
 			labels := map[string]string{"role": "firewall"}
@@ -401,6 +402,7 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 			sis := serviceInterfaceSpec(testNS.Name, nil)
 			sis.Spec.Template.Spec = getTypedTestServiceInterfaceSpec(dpuservicev1.InterfaceTypeVF, nil)
 			sis.Spec.Template.Spec.VF.ParentInterfaceRef = ptr.To("p100")
+			setServiceInterfaceSetMode(sis)
 			Expect(testClient.Create(ctx, sis)).NotTo(HaveOccurred())
 			cleanupObjects = append(cleanupObjects, sis)
 
@@ -418,7 +420,7 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 			cleanupObjects = append(cleanupObjects, createNode(ctx, "node1", nil))
 
 			By("Create ServiceInterfaceSet with virtualNetwork")
-			cleanupObjects = append(cleanupObjects, createTypedServiceInterfaceSet(ctx, testNS.Name, nil, dpuservicev1.InterfaceTypePF, ptr.To("myvnet")))
+			cleanupObjects = append(cleanupObjects, createLegacyTypedServiceInterfaceSet(ctx, testNS.Name, nil, dpuservicev1.InterfaceTypePF, ptr.To("myvnet")))
 
 			By("Reconciling the created resource")
 			Eventually(func(g Gomega) {
@@ -434,7 +436,7 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 			cleanupObjects = append(cleanupObjects, createNode(ctx, "node1", nil))
 
 			By("Create ServiceInterfaceSet with virtualNetwork")
-			cleanupObjects = append(cleanupObjects, createTypedServiceInterfaceSet(ctx, testNS.Name, nil, dpuservicev1.InterfaceTypeVF, ptr.To("myvnet")))
+			cleanupObjects = append(cleanupObjects, createLegacyTypedServiceInterfaceSet(ctx, testNS.Name, nil, dpuservicev1.InterfaceTypeVF, ptr.To("myvnet")))
 
 			By("Reconciling the created resource")
 			Eventually(func(g Gomega) {
@@ -450,7 +452,7 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 			cleanupObjects = append(cleanupObjects, createNode(ctx, "node1", nil))
 
 			By("Create ServiceInterfaceSet with virtualNetwork")
-			cleanupObjects = append(cleanupObjects, createTypedServiceInterfaceSet(ctx, testNS.Name, nil, dpuservicev1.InterfaceTypeService, ptr.To("myvnet")))
+			cleanupObjects = append(cleanupObjects, createLegacyTypedServiceInterfaceSet(ctx, testNS.Name, nil, dpuservicev1.InterfaceTypeService, ptr.To("myvnet")))
 
 			By("Reconciling the created resource")
 			Eventually(func(g Gomega) {
@@ -474,6 +476,7 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 			sis.Spec.Template.Spec = getTypedTestServiceInterfaceSpec(dpuservicev1.InterfaceTypePatch, nil)
 			sis.Spec.Template.Spec.Patch.PeerPatchName = ptr.To("custom-patch-name")
 			sis.Spec.Template.Spec.Patch.PeerExternalIDs = peerExternalIDs
+			setServiceInterfaceSetMode(sis)
 			Expect(testClient.Create(ctx, sis)).NotTo(HaveOccurred())
 			cleanupObjects = append(cleanupObjects, sis)
 
@@ -511,6 +514,7 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 			sis := getServiceInterfaceSet(testNS.Name, nil)
 			sis.Spec.Template.Annotations = map[string]string{fooAnnotKey: fooAnnotValue}
 			sis.Spec.Template.Labels = map[string]string{fooLabelKey: fooLabelValue}
+			setServiceInterfaceSetMode(sis)
 			Expect(testClient.Create(ctx, sis)).ToNot(HaveOccurred())
 			cleanupObjects = append(cleanupObjects, sis)
 
@@ -575,32 +579,32 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 		It("should successfully create the ServiceInterfaceSet with vlan interface", func() {
 			By("creating ServiceInterfaceSet, with Node Selector")
 			cleanupObjects = append(cleanupObjects, createTypedServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
-				MatchLabels: map[string]string{"role": "firewall"}}, dpuservicev1.InterfaceTypeVLAN, nil))
+				MatchLabels: map[string]string{"role": "firewall"}}, dpuservicev1.InterfaceTypeVLAN))
 		})
 		It("should successfully create the ServiceInterfaceSet with pf interface", func() {
 			By("creating ServiceInterfaceSet, with Node Selector")
 			cleanupObjects = append(cleanupObjects, createTypedServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
-				MatchLabels: map[string]string{"role": "firewall"}}, dpuservicev1.InterfaceTypePF, nil))
+				MatchLabels: map[string]string{"role": "firewall"}}, dpuservicev1.InterfaceTypePF))
 		})
 		It("should successfully create the ServiceInterfaceSet with vf interface", func() {
 			By("creating ServiceInterfaceSet, with Node Selector")
 			cleanupObjects = append(cleanupObjects, createTypedServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
-				MatchLabels: map[string]string{"role": "firewall"}}, dpuservicev1.InterfaceTypeVF, nil))
+				MatchLabels: map[string]string{"role": "firewall"}}, dpuservicev1.InterfaceTypeVF))
 		})
 		It("should successfully create the ServiceInterfaceSet with physical interface", func() {
 			By("creating ServiceInterfaceSet, with Node Selector")
 			cleanupObjects = append(cleanupObjects, createTypedServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
-				MatchLabels: map[string]string{"role": "firewall"}}, dpuservicev1.InterfaceTypePhysical, nil))
+				MatchLabels: map[string]string{"role": "firewall"}}, dpuservicev1.InterfaceTypePhysical))
 		})
 		It("should successfully create the ServiceInterfaceSet with patch interface", func() {
 			By("creating ServiceInterfaceSet, with Node Selector")
 			cleanupObjects = append(cleanupObjects, createTypedServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
-				MatchLabels: map[string]string{"role": "firewall"}}, dpuservicev1.InterfaceTypePatch, nil))
+				MatchLabels: map[string]string{"role": "firewall"}}, dpuservicev1.InterfaceTypePatch))
 		})
 		It("should successfully create the ServiceInterfaceSet with service interface", func() {
 			By("creating ServiceInterfaceSet, with Node Selector")
 			cleanupObjects = append(cleanupObjects, createTypedServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
-				MatchLabels: map[string]string{"role": "firewall"}}, dpuservicev1.InterfaceTypeService, nil))
+				MatchLabels: map[string]string{"role": "firewall"}}, dpuservicev1.InterfaceTypeService))
 		})
 
 		It("should fail to create the ServiceInterfaceSet with missing vlan interface", func() {
@@ -623,7 +627,7 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 		})
 		It("should successfully create the ServiceInterfaceSet and have all conditions set", func() {
 			By("creating ServiceInterfaceSet, with Node Selector")
-			obj := createServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{MatchLabels: map[string]string{"role": "firewall"}})
+			obj := createLegacyServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{MatchLabels: map[string]string{"role": "firewall"}})
 			cleanupObjects = append(cleanupObjects, obj)
 			Eventually(func(g Gomega) {
 				assertServiceInterfaceSetCondition(g, testClient, obj)
@@ -649,7 +653,7 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 			DeferCleanup(cleanServiceInterfaces, testNS.Name)
 		})
 		It("ServiceInterfaceSet has condition with Pending Reason after object creation", func() {
-			cleanupObjects = append(cleanupObjects, createServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
+			cleanupObjects = append(cleanupObjects, createLegacyServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
 				MatchLabels: map[string]string{"role": "firewall"}}))
 
 			By("Create 3 nodes")
@@ -689,7 +693,7 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 		})
 		It("ServiceInterfaceSet has condition with Success Reason at the end of a successful reconciliation loop and underlying object ready", func() {
 			By("Creating the service chain set")
-			cleanupObjects = append(cleanupObjects, createServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
+			cleanupObjects = append(cleanupObjects, createLegacyServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
 				MatchLabels: map[string]string{"role": "firewall"}}))
 
 			By("Create 3 nodes")
@@ -748,7 +752,7 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 		})
 		It("ServiceInterfaceSet has condition with Pending Reason with partial success", func() {
 			By("Creating the service chain set")
-			cleanupObjects = append(cleanupObjects, createServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
+			cleanupObjects = append(cleanupObjects, createLegacyServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
 				MatchLabels: map[string]string{"role": "firewall"}}))
 
 			By("Create 3 nodes")
@@ -909,9 +913,32 @@ func createServiceInterfaceSet(ctx context.Context, ns string, labelSelector *me
 	return sis
 }
 
-func createTypedServiceInterfaceSet(ctx context.Context, ns string, labelSelector *metav1.LabelSelector, typ string, vn *string) *dpuservicev1.ServiceInterfaceSet {
+func setServiceInterfaceSetMode(sis *dpuservicev1.ServiceInterfaceSet) {
+	if sis.Annotations == nil {
+		sis.Annotations = map[string]string{}
+	}
+	sis.Annotations[interfaceModeAnnotation] = interfaceModeLegacy
+}
+
+func createLegacyServiceInterfaceSet(ctx context.Context, ns string, labelSelector *metav1.LabelSelector) *dpuservicev1.ServiceInterfaceSet {
+	sis := getServiceInterfaceSet(ns, labelSelector)
+	setServiceInterfaceSetMode(sis)
+	Expect(testClient.Create(ctx, sis)).NotTo(HaveOccurred())
+	return sis
+}
+
+func createTypedServiceInterfaceSet(ctx context.Context, ns string, labelSelector *metav1.LabelSelector, typ string) *dpuservicev1.ServiceInterfaceSet {
+	sis := serviceInterfaceSpec(ns, labelSelector)
+	sis.Spec.Template.Spec = getTypedTestServiceInterfaceSpec(typ, nil)
+
+	Expect(testClient.Create(ctx, sis)).NotTo(HaveOccurred())
+	return sis
+}
+
+func createLegacyTypedServiceInterfaceSet(ctx context.Context, ns string, labelSelector *metav1.LabelSelector, typ string, vn *string) *dpuservicev1.ServiceInterfaceSet {
 	sis := serviceInterfaceSpec(ns, labelSelector)
 	sis.Spec.Template.Spec = getTypedTestServiceInterfaceSpec(typ, vn)
+	setServiceInterfaceSetMode(sis)
 
 	Expect(testClient.Create(ctx, sis)).NotTo(HaveOccurred())
 	return sis
