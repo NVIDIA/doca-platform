@@ -27,6 +27,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/nvconfig"
 	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
 
 	"github.com/Masterminds/semver/v3"
@@ -484,6 +485,84 @@ var _ = Describe("Reboot", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(m).NotTo(BeNil())
 			Expect(*m).To(Equal(provisioningv1.RebootMethodNoAction))
+		})
+
+		It("Execute fails when deferred NVConfig params remain and reboot method is NoAction", func() {
+			device := testPCIAddress0
+			mlxfwresetJSON := strings.TrimSpace(`
+{
+  "reset_needed": false,
+  "pending_nvconfig_parameters": "N/A",
+  "reasons": []
+}
+`)
+			optCtx := &operations.Context{
+				RebootMethodDiscovery: true,
+				CurrentBootID:         "current-boot-id",
+				DeferredNVConfigParams: []operations.DeferredNVConfigParam{
+					{Device: device, Params: "INVALID_PARAM=1"},
+				},
+				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
+				},
+				Status: provisioningv1.AgentStatus{
+					Conditions: []metav1.Condition{},
+				},
+			}
+			h := &HandleReboot{
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					var b bytes.Buffer
+					_, _ = b.WriteString(mlxfwresetJSON)
+					return b, bytes.Buffer{}, nil
+				},
+			}
+			err := h.Execute(context.Background(), optCtx)
+			expectedMsg := fmt.Sprintf(
+				"check DPUFlavor NVConfig: device=%s unapplied NVConfig params not exposed by mlxconfig q: [INVALID_PARAM=1]",
+				device,
+			)
+			Expect(err).To(MatchError(expectedMsg))
+			nvCond := meta.FindStatusCondition(optCtx.Status.Conditions, nvconfig.CondNVConfigApplied)
+			Expect(nvCond).NotTo(BeNil())
+			Expect(nvCond.Status).To(Equal(metav1.ConditionFalse))
+			Expect(nvCond.Reason).To(Equal(nvconfig.CondNVConfigApplied))
+			Expect(nvCond.Message).To(Equal(expectedMsg))
+		})
+
+		It("Execute succeeds when deferred NVConfig params remain but reboot is required", func() {
+			device := testPCIAddress0
+			mlxfwresetJSON := strings.TrimSpace(`
+{
+  "reset_needed": true,
+  "command_required": "Reboot external host is required",
+  "reasons": ["Pending NVCONFIG parameter change"]
+}
+`)
+			optCtx := &operations.Context{
+				RebootMethodDiscovery: true,
+				CurrentBootID:         "current-boot-id",
+				DeferredNVConfigParams: []operations.DeferredNVConfigParam{
+					{Device: device, Params: "INTERNAL_CPU_MODEL=1"},
+				},
+				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
+				},
+				UpdateStatusUntilSuccess: func(context.Context) {},
+			}
+			h := &HandleReboot{
+				skipBlock: true,
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					if strings.Contains(cmd, "mlxfwreset") {
+						var b bytes.Buffer
+						_, _ = b.WriteString(mlxfwresetJSON)
+						return b, bytes.Buffer{}, nil
+					}
+					return bytes.Buffer{}, bytes.Buffer{}, nil
+				},
+			}
+			err := h.Execute(context.Background(), optCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(optCtx.Status.RebootMethod).To(Equal(ptr.To(provisioningv1.RebootMethodSystemLevelReset)))
 		})
 
 		Context("removeForeverPending workaround", func() {
