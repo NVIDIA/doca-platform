@@ -26,7 +26,6 @@ This section contains documentation for the DPU services that can be deployed an
     * [OVN VPC Deployment Guide](../../user-guides/zero-trust/use-cases/vpc/README.md)
     * [OVN VPC Service Guide](./ovnvpc/README.md)
 * **DOCA Weave**: East–west traffic isolation over VXLAN controller by the DPU
-    * [DOCA Weave deployment](doca-weave/deployment.md)
     * [DOCA Weave service](doca-weave/README.md)
 * **Example Services**: Reference implementations and test services for development and validation
 
