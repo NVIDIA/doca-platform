@@ -50,13 +50,10 @@ func prepareBF4ISO(ctx context.Context, dpu *provisioningv1.DPU, artifact dutil.
 
 	userDataPath := filepath.Join(userDataBasePath, UserDataDir)
 
-	if _, err := os.Stat(userDataPath); err == nil {
-		logger.Info(fmt.Sprintf("user-data already exists at %s, removing it", userDataPath))
-		if err := os.Remove(userDataPath); err != nil {
-			err = fmt.Errorf("failed to remove user-data at %s: %w", userDataPath, err)
-			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToRemoveUserData", err.Error()))
-			return "", err
-		}
+	if err := cutil.RemoveFileEx(userDataPath); err != nil {
+		err = fmt.Errorf("failed to remove user-data at %s: %w", userDataPath, err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToRemoveUserData", err.Error()))
+		return "", err
 	}
 
 	logger.Info(fmt.Sprintf("write user-data to %s", userDataPath))
@@ -67,13 +64,10 @@ func prepareBF4ISO(ctx context.Context, dpu *provisioningv1.DPU, artifact dutil.
 	}
 
 	networkCfgPath := filepath.Join(userDataBasePath, "network-config")
-	if _, err := os.Stat(networkCfgPath); err == nil {
-		logger.Info(fmt.Sprintf("network-config already exists at %s, removing it", networkCfgPath))
-		if err := os.Remove(networkCfgPath); err != nil {
-			err = fmt.Errorf("failed to remove network-config at %s: %w", networkCfgPath, err)
-			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToRemoveNetworkCfg", err.Error()))
-			return "", err
-		}
+	if err := cutil.RemoveFileEx(networkCfgPath); err != nil {
+		err = fmt.Errorf("failed to remove network-config at %s: %w", networkCfgPath, err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToRemoveNetworkCfg", err.Error()))
+		return "", err
 	}
 	logger.Info(fmt.Sprintf("write network-config to %s", networkCfgPath))
 	if err := os.WriteFile(networkCfgPath, artifact.NetworkConfig, os.ModePerm); err != nil {
@@ -85,13 +79,10 @@ func prepareBF4ISO(ctx context.Context, dpu *provisioningv1.DPU, artifact dutil.
 	isoBasePath := filepath.Join(userDataBasePath, "seed")
 	isoPath := isoBasePath + ".iso"
 
-	if _, err := os.Stat(isoPath); err == nil {
-		logger.Info(fmt.Sprintf("ISO image already exists at %s, removing it", isoPath))
-		if err := os.Remove(isoPath); err != nil {
-			err = fmt.Errorf("failed to remove ISO image at %s: %w", isoPath, err)
-			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToRemoveISO", err.Error()))
-			return "", err
-		}
+	if err := cutil.RemoveFileEx(isoPath); err != nil {
+		err = fmt.Errorf("failed to remove ISO image at %s: %w", isoPath, err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToRemoveISO", err.Error()))
+		return "", err
 	}
 	logger.Info(fmt.Sprintf("create ISO image at %s", isoPath))
 
