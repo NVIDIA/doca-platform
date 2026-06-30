@@ -60,8 +60,6 @@ const (
 	// powerCycleCommandRequiredText is the canonical mlxfwreset `command_required` text pattern that
 	// maps to RebootMethodPowerCycle when present in the field (trim + case-insensitive substring match).
 	powerCycleCommandRequiredText = "power cycle"
-
-	pendingNVConfigReason = "Pending NVCONFIG parameter change"
 )
 
 // powerCyclePendingNvconfigNames lists pending NVCONFIG parameter names that require
@@ -385,7 +383,11 @@ func recordPending(optCtx *operations.Context, device string, entries pendingPar
 }
 
 // removeForeverPending filters parameters that mlxfwreset keeps reporting as
-// pending across boots and ignores them when they are the only reset reason.
+// pending across boots and ignores the reset when every pending entry is stuck.
+// mlxfwreset reasons[] is not used for reboot method selection (command_required
+// and pending_nvconfig_parameters are); extra strings such as "PCI rescan is
+// required" often appear alongside stuck NVConfig params and cannot be acted on
+// via host reboot anyway.
 // TODO: Remove this workaround once the MFT tool is fixed.
 func removeForeverPending(
 	optCtx *operations.Context,
@@ -438,14 +440,7 @@ func removeForeverPending(
 	}
 	effective := mlxfwresetOutput
 	effective.PendingNvconfigParameters = pendingParamList(effectivePending)
-	hasOtherReasons := false
-	for _, reason := range mlxfwresetOutput.Reasons {
-		if !strings.EqualFold(strings.TrimSpace(reason), pendingNVConfigReason) {
-			hasOtherReasons = true
-			break
-		}
-	}
-	shouldIgnore := len(effectivePending) == 0 && !hasOtherReasons
+	shouldIgnore := len(effectivePending) == 0
 
 	// format the message for the condition
 	sort.Strings(removed)
@@ -455,9 +450,9 @@ func removeForeverPending(
 		strings.Join(removed, ","),
 	)
 	if shouldIgnore {
-		msg += "; reset ignored because no other reset reasons remain."
+		msg += "; reset ignored because stuck pending NVCONFIG params did not progress after reboot."
 	} else {
-		msg += "; reset still required because other reset reasons remain."
+		msg += "; reset still required because unapplied pending NVCONFIG parameters remain."
 	}
 	if len(removed) > 0 {
 		klog.Info(msg)
@@ -524,9 +519,8 @@ func (h *HandleReboot) getRebootMethodDeviceQuery(optCtx *operations.Context) (*
 		// dependencies are not satisfied, the parameter values still do not change
 		// after reboot, so mlxfwreset keeps reporting them as pending. As a
 		// workaround, removeForeverPending filters parameters that remained
-		// unchanged across boots. Provisioning continues only when all remaining
-		// pending_nvconfig_parameters are filtered out and "Pending NVCONFIG
-		// parameter change" is the only reason for reset.
+		// unchanged across boots. Provisioning continues when every pending entry
+		// is filtered; mlxfwreset reasons[] is not consulted (see removeForeverPending).
 		effective, shouldIgnore := removeForeverPending(optCtx, device, out)
 		if shouldIgnore {
 			klog.Infof("PCI device %s: ignoring repeated pending NVCONFIG parameters after boot change", device)
