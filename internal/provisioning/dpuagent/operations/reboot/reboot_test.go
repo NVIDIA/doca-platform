@@ -618,7 +618,7 @@ var _ = Describe("Reboot", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(*m).To(Equal(provisioningv1.RebootMethodNoAction))
 				Expect(optCtx.CondMessage).To(Equal(fmt.Sprintf(
-					"device=%s pending NVCONFIG params did not take effect after reboot: [PARAM_A(default=2,current=0,next=1)]; reset ignored because no other reset reasons remain.",
+					"device=%s pending NVCONFIG params did not take effect after reboot: [PARAM_A(default=2,current=0,next=1)]; reset ignored because stuck pending NVCONFIG params did not progress after reboot.",
 					device,
 				)))
 				Expect(optCtx.Status.LastObservedPendingNVConfig).To(Equal(&provisioningv1.PendingNVConfigState{
@@ -687,13 +687,14 @@ var _ = Describe("Reboot", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(*m).To(Equal(provisioningv1.RebootMethodFirmwareReset))
 				Expect(optCtx.CondMessage).To(Equal(fmt.Sprintf(
-					"device=%s pending NVCONFIG params did not take effect after reboot: [INTERNAL_CPU_MODEL(default=model-default,current=x,next=y)]; reset still required because other reset reasons remain.",
+					"device=%s pending NVCONFIG params did not take effect after reboot: [INTERNAL_CPU_MODEL(default=model-default,current=x,next=y)]; reset still required because unapplied pending NVCONFIG parameters remain.",
 					device,
 				)))
 			})
 
-			It("does not ignore reset when pending NVCONFIG is not the only reason", func() {
+			It("ignores reset when stuck pending NVCONFIG remains despite extra mlxfwreset reasons", func() {
 				device := testPCIAddress0
+				currentBootID := "current-boot-id"
 
 				mlxfwresetJSON := `{
   "reset_needed": true,
@@ -701,14 +702,14 @@ var _ = Describe("Reboot", func() {
     {"name": "PARAM_A", "default": "2", "current": "0", "next_boot": "1"}
   ],
   "command_required": "Reboot external host is required",
-  "reasons": ["Pending NVCONFIG parameter change", "another reason"]
+  "reasons": ["Pending NVCONFIG parameter change", "PCI rescan is required"]
 }`
 				optCtx := &operations.Context{
 					RebootMethodDiscovery: true,
 					DiscoverPorts: func() ([]pciutil.NICPort, error) {
 						return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
 					},
-					CurrentBootID: "current-boot-id",
+					CurrentBootID: currentBootID,
 					LatestDPU: &provisioningv1.DPU{
 						Status: provisioningv1.DPUStatus{
 							AgentStatus: &provisioningv1.AgentStatus{
@@ -737,13 +738,13 @@ var _ = Describe("Reboot", func() {
 
 				m, err := h.getRebootMethod(optCtx)
 				Expect(err).NotTo(HaveOccurred())
-				Expect(*m).To(Equal(provisioningv1.RebootMethodSystemLevelReset))
+				Expect(*m).To(Equal(provisioningv1.RebootMethodNoAction))
 				Expect(optCtx.CondMessage).To(Equal(fmt.Sprintf(
-					"device=%s pending NVCONFIG params did not take effect after reboot: [PARAM_A(default=2,current=0,next=1)]; reset still required because other reset reasons remain.",
+					"device=%s pending NVCONFIG params did not take effect after reboot: [PARAM_A(default=2,current=0,next=1)]; reset ignored because stuck pending NVCONFIG params did not progress after reboot.",
 					device,
 				)))
 				Expect(optCtx.Status.LastObservedPendingNVConfig).To(Equal(&provisioningv1.PendingNVConfigState{
-					BootID: "current-boot-id",
+					BootID: currentBootID,
 					Devices: []provisioningv1.PendingNVConfigDevice{
 						{
 							Device: device,
