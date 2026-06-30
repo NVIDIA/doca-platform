@@ -25,11 +25,15 @@ import (
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/features"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	featuregatetesting "k8s.io/component-base/featuregate/testing"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -91,6 +95,11 @@ var _ = BeforeSuite(func() {
 	Expect(err).ToNot(HaveOccurred())
 
 	testClient = testManager.GetClient()
+
+	// Create the DPF-owned namespace where NSI objects will be placed.
+	// Writes on the manager client bypass the cache and go directly to the API server.
+	Expect(testClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: nsiObjectsNamespace}})).To(Succeed())
+
 	reconciler := &ServiceChainSetReconciler{
 		Client: testClient,
 		Scheme: testManager.GetScheme(),
@@ -107,6 +116,10 @@ var _ = BeforeSuite(func() {
 
 	// set defaultRequeueAfter to 100 milliseconds
 	defaultRequeueAfter = 100 * time.Millisecond
+
+	// Enable NSI path for both SFC and VPC sets for the duration of the test suite.
+	featuregatetesting.SetFeatureGateDuringTest(GinkgoT(), features.MutableGates, features.NSIPathForSFC, true)
+	featuregatetesting.SetFeatureGateDuringTest(GinkgoT(), features.MutableGates, features.NSIPathForVPC, true)
 
 	go func() {
 		defer GinkgoRecover()

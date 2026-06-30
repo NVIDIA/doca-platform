@@ -20,6 +20,7 @@ import (
 	"context"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/features"
 	"github.com/nvidia/doca-platform/pkg/ecpf"
 	"github.com/nvidia/doca-platform/pkg/ovsutils"
 
@@ -62,7 +63,12 @@ func (r *NodeServiceInterfacesReconciler) Reconcile(ctx context.Context, req ctr
 }
 
 // SetupWithManager sets up the controller with the Manager.
+// The controller is only registered when the NSIPathForSFC feature gate is enabled.
 func (r *NodeServiceInterfacesReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if !features.Gates.Enabled(features.NSIPathForSFC) {
+		return nil
+	}
+
 	nsiPredicate := predicate.NewPredicateFuncs(func(o client.Object) bool {
 		nsi, ok := o.(*dpuservicev1.NodeServiceInterfaces)
 		if !ok {

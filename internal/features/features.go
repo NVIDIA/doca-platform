@@ -31,6 +31,16 @@ const (
 	// reconciler creates the policy/binding/ConfigMap in each
 	// DPUCluster. When disabled, the same resources are removed.
 	PrivilegedPodEnforcement featuregate.Feature = "PrivilegedPodEnforcement"
+
+	// NSIPathForSFC gates the NodeServiceInterfaces reconciliation path for
+	// plain SFC ServiceInterfaceSets (those without a virtualNetwork).
+	// When disabled, sets fall back to the legacy ServiceInterface path.
+	NSIPathForSFC featuregate.Feature = "NSIPathForSFC"
+
+	// NSIPathForVPC gates the NodeServiceInterfaces reconciliation path for
+	// VPC ServiceInterfaceSets (those with a virtualNetwork set).
+	// When disabled, sets fall back to the legacy ServiceInterface path.
+	NSIPathForVPC featuregate.Feature = "NSIPathForVPC"
 )
 
 var (
@@ -54,4 +64,6 @@ func init() {
 var defaultDPFFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	// Every feature should be registered here:
 	PrivilegedPodEnforcement: {Default: true, PreRelease: featuregate.Beta},
+	NSIPathForSFC:            {Default: false, PreRelease: featuregate.Alpha},
+	NSIPathForVPC:            {Default: false, PreRelease: featuregate.Alpha},
 }
