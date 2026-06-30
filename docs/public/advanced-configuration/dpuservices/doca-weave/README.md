@@ -18,7 +18,7 @@ Weave also supplies overlay DHCP on the per-NIC DHCP bridges, rounding out tenan
 A straightforward overlay-to-underlay address mapping avoids a dedicated routing layer on the overlay - underlay routing (including features such as route summarization) carries scalability to very large node counts.
 Each BlueField 4 hosts a gRPC control plane above flow programming (NetworkIsolation in this release), keeping forwarding on hardware for near line-rate encapsulation with minimal added latency.
 
-This document describes how the Weave service behaves on the DPU - components, `vpcctl`, virtual networks, and worked examples. For deployment instructions, see [DOCA Weave deployment](deployment.md).
+This document describes how the Weave service behaves on the DPU - components, `vpcctl`, virtual networks, and worked examples.
 
 ### Key Features
 
@@ -28,11 +28,11 @@ This document describes how the Weave service behaves on the DPU - components, `
 
 ## Underlay configuration
 
-DOCA Weave uses several OVS bridges per east-west NIC. Names come from `weaveFlowController.underlayConfigMapData.interfaces[]` in `DPUServiceConfiguration` ([flow controller configuration](deployment.md#dpuserviceconfiguration-flow-controller)).
+DOCA Weave uses several OVS bridges per east-west NIC. Names come from `weaveFlowController.underlayConfigMapData.interfaces[]` in `DPUServiceConfiguration`
 
 ### Bridges you must provide
 
-The flow controller expects these bridges to already exist on each DPU (names come from `underlayInterface` in `underlayConfigMapData.interfaces[]`). How to create and wire them is covered in [DOCA Weave deployment](deployment.md#underlay-fabric-topology).
+The flow controller expects these bridges to already exist on each DPU (names come from `underlayInterface` in `underlayConfigMapData.interfaces[]`). How to create and wire them is covered in the deployment guide.
 
 | Bridge (example) | Config field | Role |
 |------------------|--------------|------|
@@ -83,7 +83,7 @@ Persists virtual network and attachment state, coordinates with `weave-dhcp-agen
 
 #### weave-flow-controller environment variables
 
-Set these on the `weave-flow-controller` `DPUService` container (for example `env` in `DPUServiceConfiguration` Helm values, see [flow controller configuration](deployment.md#dpuserviceconfiguration-flow-controller)). Names and defaults follow the `weave-flow-controller` binary, the authoritative list is in the `dpf-vpc` repository at `cmd/weave-flow-controller/main.go`.
+Set these on the `weave-flow-controller` `DPUService` / `DPUServiceConfiguration`.
 
 | Environment variable | Default when unset | Role |
 |----------------------|--------------------|------|
@@ -102,7 +102,7 @@ Serves overlay DHCP on bridges such as `br-dhcp-n0` and `br-dhcp-n1`, aligned wi
 
 #### weave-dhcp-agent environment variables
 
-Set these on the `weave-dhcp-agent` `DPUService` container (for example `env` in `DPUServiceConfiguration` Helm values, see [DHCP agent configuration](deployment.md#dpuserviceconfiguration-dhcp-agent)). Names and defaults follow the `weave-dhcp-agent` binary, the authoritative list is in the `dpf-vpc` repository at `cmd/weave-dhcp-agent/main.go`.
+Set these on the `weave-dhcp-agent` `DPUService` / `DPUServiceConfiguration`.
 
 | Environment variable | Default when unset | Role |
 |----------------------|--------------------|------|
@@ -330,7 +330,7 @@ This walkthrough builds one east-west overlay tenant across two DPU nodes. All f
 
 ### Setup
 
-* Two Kubernetes worker nodes, each with a DPU running DOCA Weave (`weave-flow-controller` and `weave-dhcp-agent` deployed per [DOCA Weave deployment](deployment.md)).
+* Two Kubernetes worker nodes, each with a DPU running DOCA Weave (`weave-flow-controller` and `weave-dhcp-agent`).
 * Two east-west NIC rails per node (`n0`, `n1`), each with a host PF you attach to the overlay (`--type pf`).
 * Replace `<weave-flow-controller-dpu-worker-1>` and `<weave-flow-controller-dpu-worker-2>` with the flow-controller pod names on those nodes (for example `kubectl get pods -n dpf-operator-system -o wide`).
 * Run `vpcctl` in the pod on the DPU you are configuring. Virtual network state is per DPU: create the same `VirtualNetwork` on every participating DPU, then create only that node’s attachments from that node’s pod.
@@ -750,20 +750,20 @@ On each worker pod, `list-attachment` and `list-vnet` should no longer list thes
 
 ## Monitoring and Troubleshooting
 
-* DPUServices not ready - Follow [Validate the deployment](deployment.md#validate-the-deployment). Inspect the deployment and chain hierarchy:
+* DPUServices not ready - inspect the deployment and chain hierarchy:
 
     ```shell
     kubectl describe dpudeployment <name> -n dpf-operator-system
     kubectl -n dpf-operator-system exec deploy/dpf-operator-controller-manager -- /dpfctl describe dpudeployments
     ```
 
-    where `<name>` matches your `DPUDeployment` `metadata.name` (see [Inspect DPUDeployment and related objects](deployment.md#inspect-dpudeployment-and-related-objects)). Confirm chart version and image pull secrets match your DPF release.
-* Fabric / bridges - `serviceChains`, `DPUServiceInterface`, `peerBridge`, and `underlayConfigMapData` must stay consistent per NIC (including `weave.dpu.nvidia.com/interface` where used), see [DOCA Weave deployment](deployment.md#prerequisites-and-underlay-topology).
+    where `<name>` matches your `DPUDeployment` `metadata.name`. Confirm chart version and image pull secrets match your DPF release.
+* Fabric / bridges - `serviceChains`, `DPUServiceInterface`, `peerBridge`, and `underlayConfigMapData` must stay consistent per NIC (including `weave.dpu.nvidia.com/interface` where used).
 * `vpcctl` - Run it in the `weave-flow-controller` pod on the DPU (node) you are configuring or debugging. Virtual network and attachment state is stored only on that DPU, `get-vnet` / `list-vnet` show that DPU only. For multi-DPU overlays, create the same virtual networks and attachments on each participating DPU (see [shared-overlay example](#example-one-shared-virtualnetwork-one-attachment-per-host-pf)).
 * DHCP - If host PFs do not receive overlay addresses (for example `dhclient` fails), check overlay DHCP on each DPU:
 
     1. `weave-dhcp-agent` pod is `Ready` on that DPU.
-    2. Per NIC, [DHCP agent](deployment.md#dpuserviceconfiguration-dhcp-agent) `dhcpNetworks.networks[]` matches [flow controller](deployment.md#dpuserviceconfiguration-flow-controller) `underlayConfigMapData`: `bridge` = `dhcpBridgeName`, `interfaceName` = `overlayDHCPInterface` (same NIC index on both sides).
+    2. Per NIC, DHCP agent configuration `dhcpNetworks.networks[]` matches flow controller configuration `underlayConfigMapData`: `bridge` = `dhcpBridgeName`, `interfaceName` = `overlayDHCPInterface` (same NIC index on both sides).
     3. If `resourceName` is set (for example `nvidia.com/bf_sf`), the DPU node must advertise that extended resource so the agent can attach to the DHCP bridge.
 
 ## Limitations
