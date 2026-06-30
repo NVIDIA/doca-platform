@@ -525,6 +525,9 @@ var _ = Describe("NVConfig Operation", func() {
 				"device=%s deferred NVConfig params (not exposed by mlxconfig q on this pass): [IBM_CAPI_EN=1]",
 				testPci0,
 			)))
+			Expect(optCtx.DeferredNVConfigParams).To(Equal([]operations.DeferredNVConfigParam{
+				{Device: testPci0, Params: "IBM_CAPI_EN=1"},
+			}))
 		})
 
 		It("sets CondMessage for deferred params only", func() {
@@ -554,6 +557,9 @@ var _ = Describe("NVConfig Operation", func() {
 				"device=%s deferred NVConfig params (not exposed by mlxconfig q on this pass): [IBM_CAPI_EN=1]",
 				pci0,
 			)))
+			Expect(operationCtx.DeferredNVConfigParams).To(Equal([]operations.DeferredNVConfigParam{
+				{Device: pci0, Params: "IBM_CAPI_EN=1"},
+			}))
 		})
 
 		It("sets CondMessage when all flavor params are deferred", func() {
