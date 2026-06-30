@@ -18,9 +18,11 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -41,6 +43,25 @@ type mockNetworkConfigurator struct {
 func (m *mockNetworkConfigurator) AddNetworkRequest(dpu *provisioningv1.DPU) error {
 	if m.addNetworkRequestFunc != nil {
 		return m.addNetworkRequestFunc(dpu)
+	}
+	return nil
+}
+
+type mockRebootHandler struct {
+	runSLRFunc        func(context.Context, []provisioningv1.DPU) error
+	runPowerCycleFunc func(*provisioningv1.DPUNode, []provisioningv1.DPU) error
+}
+
+func (m *mockRebootHandler) RunSLR(ctx context.Context, dpus []provisioningv1.DPU) error {
+	if m.runSLRFunc != nil {
+		return m.runSLRFunc(ctx, dpus)
+	}
+	return nil
+}
+
+func (m *mockRebootHandler) RunPowerCycle(dpuNode *provisioningv1.DPUNode, dpus []provisioningv1.DPU) error {
+	if m.runPowerCycleFunc != nil {
+		return m.runPowerCycleFunc(dpuNode, dpus)
 	}
 	return nil
 }
@@ -81,11 +102,27 @@ var _ = Describe("InstallationService", func() {
 		return dpu
 	}
 
+	var createDPUNode = func(name string, namespace string) *provisioningv1.DPUNode {
+		dpuNode := &provisioningv1.DPUNode{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: namespace,
+			},
+			Spec: provisioningv1.DPUNodeSpec{
+				NodeRebootMethod: &provisioningv1.NodeRebootMethod{
+					HostAgent: &provisioningv1.HostAgent{},
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, dpuNode)).To(Succeed())
+		return dpuNode
+	}
+
 	BeforeEach(func() {
 		testNS = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "installation-service-testns-"}}
 		Expect(k8sClient.Create(ctx, testNS)).To(Succeed())
 
-		installationService = NewInstallationService(k8sClient, nil)
+		installationService = NewInstallationService(k8sClient, nil, nil)
 		Expect(installationService.Start(false)).To(Succeed())
 		// Start() runs the server in a goroutine; wait until it is listening to avoid connection refused.
 		Eventually(func() error {
@@ -444,6 +481,141 @@ var _ = Describe("InstallationService", func() {
 				resp, err := http.Post(fmt.Sprintf("http://%s/configure-host-vfs", address), "application/json", bytes.NewBuffer(req))
 				Expect(err).To(Succeed())
 				Expect(resp.StatusCode).To(Equal(http.StatusInternalServerError))
+			})
+		})
+	})
+
+	Context("trigger reboot", func() {
+		var triggerServer *httptest.Server
+		var triggerRebootURL string
+
+		BeforeEach(func() {
+			triggerServer = httptest.NewServer(installationService.handler)
+			triggerRebootURL = triggerServer.URL + "/trigger-reboot"
+		})
+
+		AfterEach(func() {
+			triggerServer.Close()
+		})
+
+		It("should return 400 when request body is malformed", func() {
+			resp, err := http.Post(triggerRebootURL, "application/json", bytes.NewBufferString("not-json"))
+			Expect(err).To(Succeed())
+			Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+		})
+
+		It("should return 503 when reboot handler is not configured", func() {
+			dpu := createDPU("test-dpu", testNS.Name)
+
+			request := types.TriggerRebootRequest{
+				DPUName:      dpu.Name,
+				DPUNamespace: dpu.Namespace,
+				DPUUID:       string(dpu.UID),
+				RebootMethod: provisioningv1.RebootMethodPowerCycle,
+			}
+			req, err := json.Marshal(request)
+			Expect(err).To(Succeed())
+
+			resp, err := http.Post(triggerRebootURL, "application/json", bytes.NewBuffer(req))
+			Expect(err).To(Succeed())
+			Expect(resp.StatusCode).To(Equal(http.StatusServiceUnavailable))
+		})
+
+		Context("when reboot handler is configured", func() {
+			var mockRH *mockRebootHandler
+
+			BeforeEach(func() {
+				mockRH = &mockRebootHandler{}
+				installationService.rebootHandler = mockRH
+			})
+
+			It("should return 404 when DPU is not found", func() {
+				request := types.TriggerRebootRequest{
+					DPUName:      "non-existent-dpu",
+					DPUNamespace: testNS.Name,
+					DPUUID:       "some-uid",
+					RebootMethod: provisioningv1.RebootMethodSystemLevelReset,
+				}
+				req, err := json.Marshal(request)
+				Expect(err).To(Succeed())
+
+				resp, err := http.Post(triggerRebootURL, "application/json", bytes.NewBuffer(req))
+				Expect(err).To(Succeed())
+				Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
+			})
+
+			It("should return 409 when DPU UID does not match", func() {
+				dpu := createDPU("test-dpu", testNS.Name)
+
+				request := types.TriggerRebootRequest{
+					DPUName:      dpu.Name,
+					DPUNamespace: dpu.Namespace,
+					DPUUID:       "stale-uid-from-old-agent",
+					RebootMethod: provisioningv1.RebootMethodSystemLevelReset,
+				}
+				req, err := json.Marshal(request)
+				Expect(err).To(Succeed())
+
+				resp, err := http.Post(triggerRebootURL, "application/json", bytes.NewBuffer(req))
+				Expect(err).To(Succeed())
+				Expect(resp.StatusCode).To(Equal(http.StatusConflict))
+			})
+
+			It("should dispatch SLR reboot methods to the reboot handler", func() {
+				dpu := createDPU("test-dpu", testNS.Name)
+
+				var receivedDPUs []provisioningv1.DPU
+				mockRH.runSLRFunc = func(_ context.Context, dpus []provisioningv1.DPU) error {
+					receivedDPUs = dpus
+					return nil
+				}
+
+				request := types.TriggerRebootRequest{
+					DPUName:      dpu.Name,
+					DPUNamespace: dpu.Namespace,
+					DPUUID:       string(dpu.UID),
+					RebootMethod: provisioningv1.RebootMethodSystemLevelReset,
+				}
+				req, err := json.Marshal(request)
+				Expect(err).To(Succeed())
+
+				resp, err := http.Post(triggerRebootURL, "application/json", bytes.NewBuffer(req))
+				Expect(err).To(Succeed())
+				Expect(resp.StatusCode).To(Equal(http.StatusOK))
+				Expect(receivedDPUs).To(HaveLen(1))
+				Expect(receivedDPUs[0].Name).To(Equal(dpu.Name))
+				Expect(receivedDPUs[0].Namespace).To(Equal(dpu.Namespace))
+			})
+
+			It("should dispatch PowerCycle reboot method with the DPUNode", func() {
+				dpu := createDPU("test-dpu", testNS.Name)
+				dpuNode := createDPUNode(dpu.Spec.DPUNodeName, dpu.Namespace)
+
+				var receivedDPUNode *provisioningv1.DPUNode
+				var receivedDPUs []provisioningv1.DPU
+				mockRH.runPowerCycleFunc = func(node *provisioningv1.DPUNode, dpus []provisioningv1.DPU) error {
+					receivedDPUNode = node
+					receivedDPUs = dpus
+					return nil
+				}
+
+				request := types.TriggerRebootRequest{
+					DPUName:      dpu.Name,
+					DPUNamespace: dpu.Namespace,
+					DPUUID:       string(dpu.UID),
+					RebootMethod: provisioningv1.RebootMethodPowerCycle,
+				}
+				req, err := json.Marshal(request)
+				Expect(err).To(Succeed())
+
+				resp, err := http.Post(triggerRebootURL, "application/json", bytes.NewBuffer(req))
+				Expect(err).To(Succeed())
+				Expect(resp.StatusCode).To(Equal(http.StatusOK))
+				Expect(receivedDPUNode).NotTo(BeNil())
+				Expect(receivedDPUNode.Name).To(Equal(dpuNode.Name))
+				Expect(receivedDPUNode.Namespace).To(Equal(dpuNode.Namespace))
+				Expect(receivedDPUs).To(HaveLen(1))
+				Expect(receivedDPUs[0].Name).To(Equal(dpu.Name))
 			})
 		})
 	})

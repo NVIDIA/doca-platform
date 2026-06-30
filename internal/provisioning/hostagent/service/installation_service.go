@@ -70,6 +70,11 @@ type NetworkConfigurator interface {
 	AddNetworkRequest(dpu *provisioningv1.DPU) error
 }
 
+type RebootHandler interface {
+	RunSLR(ctx context.Context, toBeRebooted []provisioningv1.DPU) error
+	RunPowerCycle(dpuNode *provisioningv1.DPUNode, dpus []provisioningv1.DPU) error
+}
+
 type InstallationService struct {
 	client.Client
 	handler http.Handler
@@ -78,16 +83,18 @@ type InstallationService struct {
 	// listeners maps interface names to their listeners
 	listeners      map[string]net.Listener
 	networkManager NetworkConfigurator
+	rebootHandler  RebootHandler
 	// stopCh is closed by Stop() to terminate background goroutines
 	stopCh   chan struct{}
 	stopOnce sync.Once
 }
 
-func NewInstallationService(client client.Client, nm NetworkConfigurator) *InstallationService {
+func NewInstallationService(client client.Client, nm NetworkConfigurator, rh RebootHandler) *InstallationService {
 	s := &InstallationService{
 		Client:         client,
 		listeners:      make(map[string]net.Listener),
 		networkManager: nm,
+		rebootHandler:  rh,
 		stopCh:         make(chan struct{}),
 	}
 	ws := new(restful.WebService).Path("/")
@@ -110,6 +117,11 @@ func NewInstallationService(client client.Client, nm NetworkConfigurator) *Insta
 			Consumes(restful.MIME_JSON).
 			Produces(restful.MIME_JSON).
 			To(s.ConfigureHostVFs))
+	ws.Route(
+		ws.POST("/trigger-reboot").
+			Consumes(restful.MIME_JSON).
+			Produces(restful.MIME_JSON).
+			To(s.TriggerReboot))
 	ws.Route(ws.GET("/healthz").To(s.HealthCheck))
 	// Package repositories: serve .deb and .rpm packages for DPU provisioning.
 	ws.Route(ws.GET("/deb/{subpath:*}").To(serveRepoFile(debRepoDir)))
@@ -336,6 +348,75 @@ func (s *InstallationService) ConfigureHostVFs(req *restful.Request, resp *restf
 	}
 
 	klog.Infof("Successfully added network request for DPU %s/%s", request.DPUNamespace, request.DPUName)
+	resp.WriteHeader(http.StatusOK)
+}
+
+func (s *InstallationService) TriggerReboot(req *restful.Request, resp *restful.Response) {
+	var request types.TriggerRebootRequest
+	if err := req.ReadEntity(&request); err != nil {
+		klog.Errorf("failed to read trigger reboot request: %v", err)
+		_ = resp.WriteError(http.StatusBadRequest, err)
+		return
+	}
+	klog.Infof("Received trigger reboot request: %#v", request)
+
+	if s.rebootHandler == nil {
+		klog.Errorf("reboot handler is not configured")
+		_ = resp.WriteError(http.StatusServiceUnavailable, fmt.Errorf("reboot handler is not configured"))
+		return
+	}
+
+	ctx := req.Request.Context()
+
+	dpu := &provisioningv1.DPU{}
+	if err := s.Get(ctx, client.ObjectKey{Namespace: request.DPUNamespace, Name: request.DPUName}, dpu); err != nil {
+		klog.Errorf("failed to get DPU %s/%s: %v", request.DPUNamespace, request.DPUName, err)
+		if apierrors.IsNotFound(err) {
+			_ = resp.WriteError(http.StatusNotFound, err)
+		} else {
+			_ = resp.WriteError(http.StatusInternalServerError, err)
+		}
+		return
+	}
+
+	if string(dpu.UID) != request.DPUUID {
+		klog.Warningf("Rejecting trigger reboot request for DPU %s/%s: request UID %q does not match current DPU UID %q",
+			request.DPUNamespace, request.DPUName, request.DPUUID, dpu.UID)
+		_ = resp.WriteError(http.StatusConflict, fmt.Errorf("stale DPU object: expected UID %q but got %q", request.DPUUID, dpu.UID))
+		return
+	}
+
+	// Detach from the HTTP request context: the request arrives over tmfifo,
+	// and shutting down the ARM severs that connection.
+	rebootCtx := context.WithoutCancel(ctx)
+
+	switch request.RebootMethod {
+	case provisioningv1.RebootMethodSystemLevelReset,
+		provisioningv1.RebootMethodFirmwareReset,
+		provisioningv1.RebootMethodSystemReboot:
+		if err := s.rebootHandler.RunSLR(rebootCtx, []provisioningv1.DPU{*dpu}); err != nil {
+			klog.Errorf("SLR failed for DPU %s/%s: %v", request.DPUNamespace, request.DPUName, err)
+			_ = resp.WriteError(http.StatusInternalServerError, err)
+			return
+		}
+	case provisioningv1.RebootMethodPowerCycle:
+		dpuNode := &provisioningv1.DPUNode{}
+		if err := s.Get(rebootCtx, client.ObjectKey{Namespace: dpu.Namespace, Name: dpu.Spec.DPUNodeName}, dpuNode); err != nil {
+			klog.Errorf("failed to get DPUNode %s: %v", dpu.Spec.DPUNodeName, err)
+			_ = resp.WriteError(http.StatusInternalServerError, err)
+			return
+		}
+		if err := s.rebootHandler.RunPowerCycle(dpuNode, []provisioningv1.DPU{*dpu}); err != nil {
+			klog.Errorf("PowerCycle failed for DPU %s/%s: %v", request.DPUNamespace, request.DPUName, err)
+			_ = resp.WriteError(http.StatusInternalServerError, err)
+			return
+		}
+	default:
+		_ = resp.WriteError(http.StatusBadRequest, fmt.Errorf("unsupported reboot method: %q", request.RebootMethod))
+		return
+	}
+
+	klog.Infof("Successfully triggered reboot (%s) for DPU %s/%s", request.RebootMethod, request.DPUNamespace, request.DPUName)
 	resp.WriteHeader(http.StatusOK)
 }
 
