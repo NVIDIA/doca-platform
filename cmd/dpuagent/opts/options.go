@@ -73,7 +73,7 @@ func (o Options) Validate() error {
 	if o.DPUFlavor == "" {
 		return fmt.Errorf("dpu flavor is required")
 	}
-	if o.KubeadmSecretName == "" {
+	if !o.SkipConfigureKubelet && o.KubeadmSecretName == "" {
 		return fmt.Errorf("kubeadm secret name is required")
 	}
 	return nil
