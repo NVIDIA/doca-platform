@@ -105,6 +105,25 @@ can continue.
     * **DPU Readiness**: All DPUs must be in a ready state
     * **DPF Version Compatibility**: Each DPU's DPF version must be compatible with the upgrade
     * **DPU Health**: All DPUs must be healthy and operational
+* Object Schema Validation
+    * All existing DPF API objects are validated against the OpenAPI schema of the installed CRDs. If a field that was previously optional has become required in the new version, any objects missing that field are reported and the upgrade is blocked until they are corrected.
+    * Violations are reported via a `PreUpgradeValidationReady` status condition on `DPFOperatorConfig`. While this condition is `False`, the `Ready` condition also remains `False` and the operator does not proceed to upgrade its managed components.
+    * **Example condition when validation fails:**
+        ```yaml
+        status:
+          conditions:
+          - type: PreUpgradeValidationReady
+            status: "False"
+            reason: Error
+            message: |-
+              Validation must pass for DPF upgrade to continue:
+                * Object Schema Validation:
+                  * storage.dpu.nvidia.com/v1alpha1, Kind=DPUStorageVendor:
+                    * dpf-operator-system/example has schema validation errors: [spec.pluginName: Required value]
+                  * svc.dpu.nvidia.com/v1alpha1, Kind=DPUDeployment:
+                    * dpf-operator-system/example has schema validation errors: [spec.dpus.dpuSetStrategy: Required value]
+        ```
+    * **Required action when present:** Fix the schema violations on the listed resources. Once all objects pass validation, `PreUpgradeValidationReady` transitions to `True` and the upgrade proceeds automatically.
 
 ### Validation Failure Handling
 
