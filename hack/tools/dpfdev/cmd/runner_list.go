@@ -18,6 +18,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"sort"
 	"strings"
@@ -27,6 +28,7 @@ import (
 	"github.com/nvidia/doca-platform/hack/tools/dpfdev/pkg/gitlab"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 var (
@@ -153,30 +155,26 @@ type runnerWithJob struct {
 
 // printRunners prints the runner list in a formatted table
 func printRunners(runners []runnerWithJob) {
+	printRunnersTo(os.Stdout, runners, colorEnabled())
+}
+
+// printRunnersTo prints the runner list in a formatted table. color controls
+// whether ANSI status badges are included, which is useful for CI logs and tests.
+func printRunnersTo(out io.Writer, runners []runnerWithJob, color bool) {
 	if len(runners) == 0 {
-		fmt.Println("No runners found matching the criteria.")
+		fmt.Fprintln(out, "No runners found matching the criteria.")
 		return
 	}
 
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tNAME\tDESCRIPTION\tSTATUS\tJOB\tONLINE\tACTIVE\tPAUSED\tTYPE\tTAGS")
-	fmt.Fprintln(w, "--\t----\t-----------\t------\t---\t------\t------\t------\t----\t----")
+	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "ID\tDESCRIPTION\tSTATUS\tJOB\tTAGS")
+	fmt.Fprintln(w, "--\t-----------\t------\t---\t----")
 
 	for _, entry := range runners {
 		runner := entry.Details
-		name := runner.Name
-		if name == "" {
-			name = "-"
-		}
-
 		description := runner.Description
 		if description == "" {
 			description = "-"
-		}
-
-		status := runner.Status
-		if status == "" {
-			status = "-"
 		}
 
 		tags := strings.Join(runner.TagList, ", ")
@@ -184,25 +182,69 @@ func printRunners(runners []runnerWithJob) {
 			tags = "-"
 		}
 
-		runnerType := runner.RunnerType
-		if runnerType == "" {
-			runnerType = "-"
-		}
-
-		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%t\t%t\t%t\t%s\t%s\n",
+		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\n",
 			runner.ID,
-			name,
 			description,
-			status,
-			entry.Job,
-			runner.Online,
-			runner.Active,
-			runner.Paused,
-			runnerType,
+			runnerStatusBadge(runner, color),
+			jobStatusBadge(entry.Job, color),
 			tags,
 		)
 	}
 
 	w.Flush()
-	fmt.Printf("\nTotal runners: %d\n", len(runners))
+	fmt.Fprintf(out, "\nTotal runners: %d\n", len(runners))
+}
+
+const (
+	ansiReset  = "\033[0m"
+	ansiRed    = "\033[31m"
+	ansiGreen  = "\033[32m"
+	ansiYellow = "\033[33m"
+	ansiCyan   = "\033[36m"
+)
+
+func colorEnabled() bool {
+	_, present := os.LookupEnv("NO_COLOR")
+	return colorEnabledForFD(int(os.Stdout.Fd()), present)
+}
+
+func colorEnabledForFD(fd int, noColorPresent bool) bool {
+	return !noColorPresent && term.IsTerminal(fd)
+}
+
+func runnerStatusBadge(runner *gitlab.RunnerDetails, color bool) string {
+	text := "● ONLINE"
+	ansiColor := ansiGreen
+
+	switch {
+	case !runner.Active:
+		text = "○ INACTIVE"
+		ansiColor = ansiRed
+	case runner.Paused:
+		text = "Ⅱ PAUSED"
+		ansiColor = ansiYellow
+	case !runner.Online:
+		text = "● OFFLINE"
+		ansiColor = ansiRed
+	}
+
+	if !color {
+		return text
+	}
+	return ansiColor + text + ansiReset
+}
+
+func jobStatusBadge(job string, color bool) string {
+	if job == "idle" {
+		if color {
+			return ansiCyan + "• IDLE" + ansiReset
+		}
+		return "• IDLE"
+	}
+
+	text := "▶ " + strings.TrimPrefix(job, "running: ")
+	if color {
+		return ansiYellow + text + ansiReset
+	}
+	return text
 }
