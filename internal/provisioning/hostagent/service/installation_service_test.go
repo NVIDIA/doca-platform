@@ -37,12 +37,12 @@ import (
 )
 
 type mockNetworkConfigurator struct {
-	addNetworkRequestFunc func(dpu *provisioningv1.DPU) error
+	addNetworkRequestFunc func(dpu *provisioningv1.DPU, vfCount *int) error
 }
 
-func (m *mockNetworkConfigurator) AddNetworkRequest(dpu *provisioningv1.DPU) error {
+func (m *mockNetworkConfigurator) AddNetworkRequest(dpu *provisioningv1.DPU, vfCount *int) error {
 	if m.addNetworkRequestFunc != nil {
-		return m.addNetworkRequestFunc(dpu)
+		return m.addNetworkRequestFunc(dpu, vfCount)
 	}
 	return nil
 }
@@ -422,18 +422,22 @@ var _ = Describe("InstallationService", func() {
 				installationService.networkManager = mockNM
 			})
 
-			It("should successfully configure host VF", func() {
+			It("should successfully configure host VF with VFCount", func() {
 				dpu := createDPU("test-dpu", testNS.Name)
 
 				var receivedDPU *provisioningv1.DPU
-				mockNM.addNetworkRequestFunc = func(dpu *provisioningv1.DPU) error {
+				var receivedVFCount *int
+				mockNM.addNetworkRequestFunc = func(dpu *provisioningv1.DPU, vfCount *int) error {
 					receivedDPU = dpu
+					receivedVFCount = vfCount
 					return nil
 				}
 
+				vfCount := 16
 				request := types.ConfigureHostVFsRequest{
 					DPUName:      dpu.Name,
 					DPUNamespace: dpu.Namespace,
+					VFCount:      &vfCount,
 				}
 				req, err := json.Marshal(request)
 				Expect(err).To(Succeed())
@@ -449,6 +453,10 @@ var _ = Describe("InstallationService", func() {
 				Expect(receivedDPU.Spec.SerialNumber).To(Equal(dpu.Spec.SerialNumber))
 				Expect(receivedDPU.Spec.DPUFlavor).To(Equal(dpu.Spec.DPUFlavor))
 				Expect(receivedDPU.Spec.BFB).To(Equal(dpu.Spec.BFB))
+
+				By("VFCount should be passed through to AddNetworkRequest")
+				Expect(receivedVFCount).NotTo(BeNil())
+				Expect(*receivedVFCount).To(Equal(16))
 			})
 
 			It("should return 404 when DPU not found", func() {
@@ -467,7 +475,7 @@ var _ = Describe("InstallationService", func() {
 			It("should return 500 when AddNetworkRequest fails", func() {
 				dpu := createDPU("test-dpu", testNS.Name)
 
-				mockNM.addNetworkRequestFunc = func(dpu *provisioningv1.DPU) error {
+				mockNM.addNetworkRequestFunc = func(dpu *provisioningv1.DPU, vfCount *int) error {
 					return fmt.Errorf("network manager is not initialized")
 				}
 
