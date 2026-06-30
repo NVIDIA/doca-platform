@@ -136,7 +136,7 @@ For configuration details, mode-specific behavior, and the impact of changing th
 [Secure Boot](../developer-guides/api/dpuset.md#secure-boot). 
 
 For more information on BlueField Secure Boot, see
-[Secure Boot](https://networking-docs.nvidia.com/bsp/4150/secure-boot) in the NVIDIA documentation.
+[Secure Boot](https://networking-docs.nvidia.com/bsp/4.15.0/secure-boot) in the NVIDIA documentation.
 
 # External Host Reboot
 
