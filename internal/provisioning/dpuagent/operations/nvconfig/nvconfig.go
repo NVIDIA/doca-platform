@@ -145,6 +145,7 @@ func (n *ConfigureNVConfig) Execute(execCtx context.Context, optCtx *operations.
 		}
 		return nil
 	}
+	optCtx.DeferredNVConfigParams = nil
 	for _, pair := range ordered {
 		pci, params := pair.pci, pair.params
 		klog.Infof("Passed NVConfig params on device %s: %s", pci, params)
@@ -257,10 +258,15 @@ func (n *ConfigureNVConfig) filterParamsForSet(optCtx *operations.Context, dev, 
 	available := parseMlxconfigQuery(queryOut)
 	toSet, deferred := planParamApply(entries, available)
 	if len(deferred) > 0 {
+		deferredParams := joinParamEntries(deferred)
+		optCtx.DeferredNVConfigParams = append(optCtx.DeferredNVConfigParams, operations.DeferredNVConfigParam{
+			Device: dev,
+			Params: deferredParams,
+		})
 		msg := fmt.Sprintf(
 			"device=%s deferred NVConfig params (not exposed by mlxconfig q on this pass): [%s]",
 			dev,
-			joinParamEntries(deferred),
+			deferredParams,
 		)
 		klog.Info(msg)
 		if optCtx.CondMessage != "" {

@@ -77,6 +77,11 @@ type Context struct {
 	// truncates and writes it to the operation condition message.
 	CondMessage string
 
+	// DeferredNVConfigParams lists flavor NVConfig parameters not exposed by mlxconfig q
+	// on the current pass (device-query path). Populated by nvconfig; reboot fails with
+	// NoAction while any entries remain because they cannot be applied without a reboot.
+	DeferredNVConfigParams []DeferredNVConfigParam
+
 	// CurrentBootID caches the current host boot_id for this agent run so reboot
 	// operations do not need to read it repeatedly.
 	CurrentBootID string
@@ -104,6 +109,12 @@ type Context struct {
 	// and once from Run() when ShouldUpdateStatusBeforeContinue is true. Calling it twice is safe: the same
 	// status is pushed again, so the result is idempotent; at most it causes one redundant API call.
 	UpdateStatusUntilSuccess func(context.Context)
+}
+
+// DeferredNVConfigParam is one deferred mlxconfig set request for a PCI device.
+type DeferredNVConfigParam struct {
+	Device string
+	Params string
 }
 
 // NSPorts returns the discovered N/S NIC ports, running discovery on the first
