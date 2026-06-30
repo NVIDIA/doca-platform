@@ -21,11 +21,19 @@ controllerManager:
   # featureGates is a map of feature names to boolean values forwarded
   # to both the dpf-operator binary and the dpuservice controller deployment.
   # Supported features:
-  #   PrivilegedPodEnforcement (default: true)
+  #   PrivilegedPodEnforcement (default: true, beta)
   #     When enabled, the dpuservice controller installs a
   #     ValidatingAdmissionPolicy in each DPUCluster that rejects privileged
   #     workloads from DPUServices that have not opted in via
   #     spec.security.privileged.
+  #   NSIPathForSFC (default: false, alpha)
+  #     When enabled, SFC ServiceInterfaceSets (those without a virtualNetwork)
+  #     use the NodeServiceInterfaces reconciliation path instead of creating
+  #     individual ServiceInterface objects per node.
+  #   NSIPathForVPC (default: false, alpha)
+  #     When enabled, VPC ServiceInterfaceSets (those with a virtualNetwork set)
+  #     use the NodeServiceInterfaces reconciliation path instead of creating
+  #     individual ServiceInterface objects per node.
   # -- featureGates configures the feature gates for the dpf-operator.
   featureGates: {}
   # Set kubernetes resource requests and limits for the controller.

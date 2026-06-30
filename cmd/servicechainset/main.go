@@ -22,6 +22,7 @@ import (
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/features"
 	ipamcontroller "github.com/nvidia/doca-platform/internal/pod-ipam-injector/controllers"
 	sfcsetcontroller "github.com/nvidia/doca-platform/internal/servicechainset/controllers"
 	"github.com/nvidia/doca-platform/pkg/health"
@@ -87,6 +88,7 @@ func main() {
 	fs.DurationVar(&syncPeriod, "sync-period", 10*time.Minute,
 		"The minimum interval at which watched resources are reconciled.")
 	logsv1.AddFlags(logOptions, fs)
+	features.MutableGates.AddFlag(fs)
 
 	pflag.Parse()
 	if err := logsv1.ValidateAndApply(logOptions, nil); err != nil {
