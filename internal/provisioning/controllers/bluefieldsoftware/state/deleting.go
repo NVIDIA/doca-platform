@@ -18,13 +18,12 @@ package state
 
 import (
 	"context"
-	stderrors "errors"
 	"fmt"
-	"os"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	butil "github.com/nvidia/doca-platform/internal/provisioning/controllers/bluefieldsoftware/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/events"
+	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	corev1 "k8s.io/api/core/v1"
@@ -104,12 +103,8 @@ func (st *blueFieldSoftwareDeletingState) Handle(ctx context.Context, c client.C
 			continue
 		}
 
-		if exists, err := isFileExist(filePath); err != nil {
-			errors = append(errors, fmt.Errorf("failed to check %s: %w", componentType, err))
-		} else if exists {
-			if err := os.Remove(filePath); err != nil {
-				errors = append(errors, fmt.Errorf("failed to delete %s: %w", componentType, err))
-			}
+		if err := cutil.RemoveFileEx(filePath); err != nil {
+			errors = append(errors, fmt.Errorf("failed to delete %s: %w", componentType, err))
 		}
 	}
 
@@ -121,8 +116,8 @@ func (st *blueFieldSoftwareDeletingState) Handle(ctx context.Context, c client.C
 		if extractDir == "" {
 			continue
 		}
-		// RemoveAll returns nil when the path does not exist; ignore ErrNotExist if wrapped.
-		if err := os.RemoveAll(extractDir); err != nil && !stderrors.Is(err, os.ErrNotExist) {
+		// RemoveAll returns nil when the path does not exist; ignore ignorable NFS errors.
+		if err := cutil.RemoveAllEx(extractDir); err != nil {
 			errors = append(errors, fmt.Errorf("failed to delete extract output directory %q: %w", extractDir, err))
 		}
 	}
