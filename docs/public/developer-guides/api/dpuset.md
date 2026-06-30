@@ -287,7 +287,7 @@ configuration via the BMC and performs the required ARM force restarts.
 **Trusted Host (Host Agent):** The host agent can detect the current Secure Boot state but **cannot configure** it.
 If there is a mismatch between the desired and actual state, the DPU transitions to **Error**.
 Secure Boot must be configured manually (e.g. via the DPU's UEFI menu) before provisioning.
-See [Arm OS Secure Boot (Configured from UEFI)](https://networking-docs.nvidia.com/bsp/4150/arm-os-secure-boot-configured-from-uefi) for details.
+See [Arm OS Secure Boot (Configured from UEFI)](https://networking-docs.nvidia.com/bsp/4.15.0/arm-os-secure-boot-configured-from-uefi) for details.
 
 ### Changing Secure Boot on an existing DPUSet
 
