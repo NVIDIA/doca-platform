@@ -19,7 +19,6 @@ package state
 import (
 	"context"
 	"fmt"
-	"os"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	butil "github.com/nvidia/doca-platform/internal/provisioning/controllers/bfb/util"
@@ -92,8 +91,7 @@ func (st *bfbDeletingState) Handle(ctx context.Context, client ctrlclient.Client
 	// Check if the File name was set during the initialization phase
 	if st.bfb.Status.FileName != "" {
 		bfbFile := cutil.GenerateBFBFilePath(st.bfb.Status.FileName)
-		err := os.Remove(bfbFile)
-		if err != nil && !os.IsNotExist(err) {
+		if err := cutil.RemoveFileEx(bfbFile); err != nil {
 			msg := fmt.Sprintf("Deleting BFB: (%s/%s) failed", st.bfb.Namespace, st.bfb.Name)
 			st.recorder.Eventf(st.bfb, corev1.EventTypeWarning, events.EventFailedDeleteBFBReason, msg)
 			conditions.AddFalse(st.bfb, provisioningv1.BFBCondDeleted,
@@ -103,8 +101,7 @@ func (st *bfbDeletingState) Handle(ctx context.Context, client ctrlclient.Client
 	}
 
 	tempFileName := cutil.GenerateBFBTMPFilePath(string(st.bfb.UID))
-	err := os.Remove(tempFileName)
-	if err != nil && !os.IsNotExist(err) {
+	if err := cutil.RemoveFileEx(tempFileName); err != nil {
 		msg := fmt.Sprintf("Deleting BFB temp file: (%s/%s) failed", st.bfb.Namespace, st.bfb.Name)
 		st.recorder.Eventf(st.bfb, corev1.EventTypeWarning, events.EventFailedDeleteBFBReason, msg)
 		conditions.AddFalse(st.bfb, provisioningv1.BFBCondDeleted,

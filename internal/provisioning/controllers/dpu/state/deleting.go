@@ -19,7 +19,6 @@ package state
 import (
 	"context"
 	"fmt"
-	"os"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
@@ -61,7 +60,7 @@ func Deleting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Contr
 
 	// Make sure there is no old bf cfg file in the shared volume
 	cfgFile := cutil.GenerateBFBCFGFilePath(cfgVersion)
-	if err := os.Remove(cfgFile); err != nil && !os.IsNotExist(err) {
+	if err := cutil.RemoveFileEx(cfgFile); err != nil {
 		err = fmt.Errorf("delete BFB CFG file %s failed: %w", cfgFile, err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondDeleting.String(), err, "DeleteBFBCFGFileError", err.Error()))
 		return *state, err
