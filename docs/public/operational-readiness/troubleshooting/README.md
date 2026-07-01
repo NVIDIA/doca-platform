@@ -26,6 +26,14 @@ Collect system diagnostics from host and DPU cluster nodes for support cases.
 * Investigating complex infrastructure issues
 * Preparing diagnostic data for NVIDIA support
 
+### [Using the DOCA Debug Image](doca-debug-image.md)
+How to start a privileged DOCA debug container with host networking and use release-aligned DOCA tooling for debugging.
+
+**Use when:**
+
+* You need DOCA release-aligned debug tooling, such as `mstflint`, available from a container
+* You need to run debug tools with host networking
+
 ## DPU Cluster
 
 ### [Accessing the Kamaji DPU Cluster](kamaji-cluster-access.md)
