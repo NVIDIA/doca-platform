@@ -65,6 +65,7 @@ type IperfResult struct {
 			LocalHost  string `json:"local_host"`
 			RemoteHost string `json:"remote_host"`
 		} `json:"connected"`
+		TCPMSSDefault int64 `json:"tcp_mss_default"`
 	} `json:"start"`
 	Intervals []struct {
 		Sum struct {
@@ -74,6 +75,7 @@ type IperfResult struct {
 	End struct {
 		SumSent struct {
 			BitsPerSecond float64 `json:"bits_per_second"`
+			Bytes         int64   `json:"bytes"`
 		} `json:"sum_sent"`
 	} `json:"end"`
 }
@@ -230,15 +232,34 @@ func CreateNadsFromConfig(ctx context.Context, client client.Client, configs []*
 	}
 }
 
+// TrafficTestResult holds the parsed iperf3 results for both directions of a bidirectional run:
+// Forward is podName1 -> podName2, Reverse is podName2 -> podName1.
+type TrafficTestResult struct {
+	Forward IperfResult
+	Reverse IperfResult
+}
+
+// RunTrafficTest runs a bidirectional iperf3 throughput test and asserts the threshold in both
+// directions. Use RunTrafficTestWithResult if you also need the parsed iperf results.
 func RunTrafficTest(restClient **rest.RESTClient, restConfig **rest.Config, hostNamespace string, podName1, podName2, pod2IP string) {
+	RunTrafficTestWithResult(restClient, restConfig, hostNamespace, podName1, podName2, pod2IP)
+}
+
+// RunTrafficTestWithResult runs a bidirectional iperf3 throughput test, asserts the threshold in both
+// directions and returns the parsed results for both directions.
+func RunTrafficTestWithResult(restClient **rest.RESTClient, restConfig **rest.Config, hostNamespace string, podName1, podName2, pod2IP string) TrafficTestResult {
 	startIperf3Server(restClient, restConfig, hostNamespace, podName2)
 	defer stopIperf3Server(restClient, restConfig, hostNamespace, podName2)
 
 	netshootOutput := runIperf3Client(restClient, restConfig, hostNamespace, podName1, pod2IP)
-	analyzeIperfResults(netshootOutput, false)
+	forwardResult := parseIperfResult(netshootOutput)
+	analyzeIperfResults(forwardResult, false)
 
 	reverseNetshootOutput := runIperf3ClientReverse(restClient, restConfig, hostNamespace, podName1, pod2IP)
-	analyzeIperfResults(reverseNetshootOutput, true)
+	reverseResult := parseIperfResult(reverseNetshootOutput)
+	analyzeIperfResults(reverseResult, true)
+
+	return TrafficTestResult{Forward: forwardResult, Reverse: reverseResult}
 }
 
 func RunRDMATrafficTest(restClient **rest.RESTClient, restConfig **rest.Config, hostNamespace string, podName1, podName2, pod2IP string) {
@@ -417,12 +438,19 @@ func runIperf3ClientReverse(restClient **rest.RESTClient, restConfig **rest.Conf
 	return execCommandEventually(restClient, restConfig, namespace, podName, []string{"iperf3", "-c", iperf3ServerIP, "-R", "-J"}, 500*time.Second, DefaultExecTimeout, IperfErrorParser)
 }
 
-func analyzeIperfResults(output string, reverse bool) {
+// parseIperfResult unmarshals iperf3 --json output into an IperfResult and validates that connection
+// information is present.
+func parseIperfResult(output string) IperfResult {
 	var result IperfResult
 	err := json.Unmarshal([]byte(output), &result)
 	Expect(err).NotTo(HaveOccurred(), fmt.Sprintf("failed to parse iperf3 output: %v", err))
 
 	Expect(result.Start.Connected).ShouldNot(BeEmpty(), "no connection information found. output: %s", output)
+	return result
+}
+
+// analyzeIperfResults logs the transfer and asserts the throughput threshold for a parsed iperf3 result.
+func analyzeIperfResults(result IperfResult, reverse bool) {
 	localIP := result.Start.Connected[0].LocalHost
 	remoteIP := result.Start.Connected[0].RemoteHost
 
@@ -608,6 +636,13 @@ func AssertPingFailureWithMTU(restClient **rest.RESTClient, config **rest.Config
 		g.Expect(errors.Is(err, ErrExecFailed)).To(BeTrue(), "ping should fail with exec error")
 		g.Expect(output).To(ContainSubstring(expectedMTUStr), "Expected ping failure to indicate MTU=%d in error message", expectedNetworkMTU)
 	}, 5*time.Minute, 5*time.Second).Should(Succeed())
+}
+
+// PingBurst sends count ICMP echo requests (fast interval, short per-packet wait) from a pod to dstIP
+// and returns the ping output and error.
+func PingBurst(restClient *rest.RESTClient, config *rest.Config, namespace, podName, dstIP string, count int) (string, error) {
+	return ExecInPodOnce(restClient, config, namespace, podName,
+		[]string{"ping", "-c", strconv.Itoa(count), "-i", "0.2", "-W", "1", dstIP})
 }
 
 // calculatePacketSize gets the ping MTU for the given MTU
