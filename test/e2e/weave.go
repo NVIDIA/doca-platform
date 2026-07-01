@@ -30,6 +30,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/prometheus/common/expfmt"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -106,6 +107,26 @@ const (
 	weaveOperationTimeout = 2 * time.Minute
 
 	weaveEventuallyPollInterval = 1 * time.Second
+
+	// weaveMetricBurstCount is the ICMP echo count per ping-based metric-delta burst.
+	weaveMetricBurstCount = 30
+
+	// weaveTxAccountingSlack is the acceptable gap, in packets, between host_tx and (tx_sent+tx_dropped). The gap
+	// exists because broadcast/ARP/DHCP are counted in host_tx but not in tx_sent or tx_dropped.
+	weaveTxAccountingSlack = 2
+
+	// weaveCrossNodePacketDriftTolerance is the maximum allowed drift, in packets, between matching sender/receiver
+	// this is just a small margin for a rare in-flight/lost packet across the tunnel.
+	weaveCrossNodePacketDriftTolerance = 2
+
+	// Names of the OVS flow metrics we use in the tests.
+	weaveMetricHostTx        = "weave_host_tx"
+	weaveMetricHostRx        = "weave_host_rx"
+	weaveMetricTxSent        = "weave_tx_sent"
+	weaveMetricTxDropped     = "weave_tx_dropped"
+	weaveMetricRxDecap       = "weave_rx_decap"
+	weaveMetricRxDropped     = "weave_rx_dropped"
+	weaveMetricRxVNIMismatch = "weave_rx_vni_mismatch"
 )
 
 // weavePodsToVerify is used by Weave tests to wait for Weave workloads on the DPU cluster (pod names contain these substrings).
@@ -365,18 +386,147 @@ var dpuPortToPCIUnderscored = map[string]string{
 	weaveDPUPortP1: weaveDPUPortP1PCIUnderscored,
 }
 
+var dpuPortToDropNIC = map[string]string{
+	weaveDPUPortP0: "n0",
+	weaveDPUPortP1: "n1",
+}
+
+// isolationBridgeName returns the OVS isolation bridge name for a VNI on a DPU port.
+func isolationBridgeName(vni uint32, dpuPort string) string {
+	pci, ok := dpuPortToPCIUnderscored[dpuPort]
+	Expect(ok).To(BeTrue(), "unknown DPU port %q", dpuPort)
+	return fmt.Sprintf("br-isol-%d-%s", vni, pci)
+}
+
 // verifyIsolationBridgeExists asserts that the OVS isolation bridge for the given VNI
 // on the given DPU port (br-isol-<vni>-<pci_underscored>) is present on the flow-controller pod.
 func verifyIsolationBridgeExists(pod *corev1.Pod, vni uint32, dpuPort string) {
-	pci, ok := dpuPortToPCIUnderscored[dpuPort]
-	Expect(ok).To(BeTrue(), "unknown DPU port %q", dpuPort)
-	bridge := fmt.Sprintf("br-isol-%d-%s", vni, pci)
+	bridge := isolationBridgeName(vni, dpuPort)
 	By(fmt.Sprintf("Verifying bridge %s exists on pod %s", bridge, pod.Name))
 	Eventually(func(g Gomega) {
 		out, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name,
 			[]string{"ovs-vsctl", "list", "bridge", bridge})
 		g.Expect(err).ToNot(HaveOccurred(), "bridge %s not found on pod %s: %s", bridge, pod.Name, out)
 	}).WithTimeout(weaveOperationTimeout).WithPolling(weaveEventuallyPollInterval).Should(Succeed())
+}
+
+// weaveMetricFamily is the Prometheus metric family emitted by `ovs-appctl metrics/show` carrying per-flow packet
+// counters. Each sample is labeled with the bridge and the weave_* counter name.
+const weaveMetricFamily = "ovs_vswitchd_flow_packets_total"
+
+// weaveMetrics holds weave packet counters from one scrape of a flow-controller pod,
+// keyed by bridge then counter name (e.g. metrics["br-isol-1001-..."]["weave_host_tx"]).
+type weaveMetrics map[string]map[string]uint64
+
+// scrapeWeaveMetrics performs a single weave-metrics scrape of a flow-controller pod, keyed [bridge][name].
+func scrapeWeaveMetrics(g Gomega, pod *corev1.Pod) weaveMetrics {
+	cmd := []string{"sh", "-c", `exec ovs-appctl -t /var/run/openvswitch/ovs-vswitchd.$(cat /var/run/openvswitch/ovs-vswitchd.pid).ctl metrics/show`}
+
+	out, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name, cmd)
+	g.Expect(err).ToNot(HaveOccurred(), "ovs-appctl metrics/show failed on pod %s: %s", pod.Name, out)
+
+	families, perr := (&expfmt.TextParser{}).TextToMetricFamilies(strings.NewReader(out))
+	if perr != nil && len(families) == 0 {
+		g.Expect(perr).ToNot(HaveOccurred(), "fatal parse error in metrics/show output on pod %s: %s", pod.Name, out)
+	}
+
+	metrics := weaveMetrics{}
+	for _, m := range families[weaveMetricFamily].GetMetric() {
+		var bridge, name string
+		for _, l := range m.GetLabel() {
+			switch l.GetName() {
+			case "bridge":
+				bridge = l.GetValue()
+			case "name":
+				name = l.GetValue()
+			}
+		}
+		if bridge == "" || !strings.HasPrefix(name, "weave_") {
+			continue
+		}
+		if metrics[bridge] == nil {
+			metrics[bridge] = map[string]uint64{}
+		}
+		// The family is counter-typed, so the value lives in Counter.
+		metrics[bridge][name] = uint64(m.GetCounter().GetValue())
+	}
+	g.Expect(metrics).ToNot(BeEmpty(), "no weave_* metrics found on pod %s: %s", pod.Name, out)
+	return metrics
+}
+
+// readWeaveMetrics scrapes weave packet counters with retry, for standalone use outside an
+// Eventually. Inside an outer Eventually, call scrapeWeaveMetrics instead.
+func readWeaveMetrics(pod *corev1.Pod) weaveMetrics {
+	var metrics weaveMetrics
+	Eventually(func(g Gomega) {
+		metrics = scrapeWeaveMetrics(g, pod)
+	}).WithTimeout(weaveOperationTimeout).WithPolling(weaveEventuallyPollInterval).Should(Succeed(),
+		"failed to read weave metrics from pod %s", pod.Name)
+	return metrics
+}
+
+// metricDelta returns after-before for a counter on a bridge, asserting it did not go backwards
+func metricDelta(g Gomega, before, after weaveMetrics, bridge, name string) uint64 {
+	b, bOK := before[bridge][name]
+	a, aOK := after[bridge][name]
+	g.Expect(bOK).To(BeTrue(), "weave metric %s missing on bridge %s in before scrape", name, bridge)
+	g.Expect(aOK).To(BeTrue(), "weave metric %s missing on bridge %s in after scrape", name, bridge)
+	g.Expect(a).To(BeNumerically(">=", b), "weave metric %s on bridge %s went backwards (%d -> %d): OVS restart?", name, bridge, b, a)
+	return a - b
+}
+
+// metricDeltaExpect describes how a set of weave counters should move between two scrapes.
+type metricDeltaExpect struct {
+	// mustRiseBy maps a counter name to the minimum delta it must have gained.
+	mustRiseBy map[string]uint64
+	// mustStayFlat lists counters whose delta must be exactly zero.
+	mustStayFlat []string
+}
+
+// assertMetricDeltas checks, on the given bridge, that every counter in expect.mustRiseBy advanced
+// by at least its minimum and every counter in expect.mustStayFlat did not move.
+func assertMetricDeltas(g Gomega, before, after weaveMetrics, bridge string, expect metricDeltaExpect) {
+	for name, minDelta := range expect.mustRiseBy {
+		delta := metricDelta(g, before, after, bridge, name)
+		g.Expect(delta).To(BeNumerically(">=", minDelta), "weave metric %s on bridge %s: delta %d < expected %d", name, bridge, delta, minDelta)
+	}
+	for _, name := range expect.mustStayFlat {
+		delta := metricDelta(g, before, after, bridge, name)
+		g.Expect(delta).To(BeZero(), "weave metric %s on bridge %s: expected no change, got delta %d", name, bridge, delta)
+	}
+}
+
+// assertTxPacketsAccountedFor asserts every host_tx packet is accounted for as tx_sent or tx_dropped,
+// leaving only a small remainder (DHCP/ARP) under slack — i.e. no TX packets silently vanish.
+func assertTxPacketsAccountedFor(g Gomega, before, after weaveMetrics, bridge string) {
+	hostTx := metricDelta(g, before, after, bridge, weaveMetricHostTx)
+	txSent := metricDelta(g, before, after, bridge, weaveMetricTxSent)
+	txDropped := metricDelta(g, before, after, bridge, weaveMetricTxDropped)
+	accounted := txSent + txDropped
+	g.Expect(hostTx).To(BeNumerically(">=", accounted),
+		"tx accounting on %s: tx_sent(%d)+tx_dropped(%d)=%d exceeds host_tx delta %d", bridge, txSent, txDropped, accounted, hostTx)
+	g.Expect(hostTx).To(BeNumerically("<", accounted+weaveTxAccountingSlack),
+		"tx accounting on %s: host_tx delta %d exceeds tx_sent(%d)+tx_dropped(%d)=%d by >= slack %d", bridge, hostTx, txSent, txDropped, accounted, weaveTxAccountingSlack)
+}
+
+// metricRef identifies one weave counter sampled before and after traffic: a counter name on a
+// specific bridge, paired with its two scrapes.
+type metricRef struct {
+	before, after weaveMetrics
+	bridge, name  string
+}
+
+// assertMetricDeltasMatch asserts the sender and receiver counters advanced by the same amount
+// within tolerance — e.g. tx_sent on the sender DPU vs rx_decap on the receiver DPU track the same overlay
+// packets.
+func assertMetricDeltasMatch(g Gomega, sender, receiver metricRef) {
+	src := metricDelta(g, sender.before, sender.after, sender.bridge, sender.name)
+	dst := metricDelta(g, receiver.before, receiver.after, receiver.bridge, receiver.name)
+	// Absolute difference between the two counters.
+	diff := max(src, dst) - min(src, dst)
+	g.Expect(diff).To(BeNumerically("<=", weaveCrossNodePacketDriftTolerance),
+		"%s on %s delta %d vs %s on %s delta %d differ by %d packets (> tolerance %d)",
+		sender.name, sender.bridge, src, receiver.name, receiver.bridge, dst, diff, weaveCrossNodePacketDriftTolerance)
 }
 
 // ensureOverlayRoute ensures the route for subnet on a netshoot pod uses the DHCP
@@ -539,13 +689,13 @@ func acquireDHCPLeaseInPod(restClient *rest.RESTClient, restCfg *rest.Config, po
 }
 
 // runIBWriteBWPodToPod runs ib_write_bw between two pods and asserts the BW threshold. extraArgs forwards to both sides.
-func runIBWriteBWPodToPod(restClient *rest.RESTClient, restCfg *rest.Config, serverPod, clientPod *corev1.Pod, dev, serverIP string, duration time.Duration, extraArgs ...string) {
+func runIBWriteBWPodToPod(restClient *rest.RESTClient, restCfg *rest.Config, serverPod, clientPod *corev1.Pod, dev, serverIP string, extraArgs ...string) {
 	// Joined as-is into the sh -c command. Safe only for plain shell flags (e.g. "--reversed").
 	extra := strings.Join(extraArgs, " ")
-	durationSec := int(duration / time.Second)
+	durationSec := int(weaveIBWriteBWDuration / time.Second)
 
 	By(fmt.Sprintf("Starting ib_write_bw server in pod %s/%s (dev=%s, -D=%s, extra=%v)",
-		serverPod.Namespace, serverPod.Name, dev, duration, extraArgs))
+		serverPod.Namespace, serverPod.Name, dev, weaveIBWriteBWDuration, extraArgs))
 	// Flow: pre-kill any stale ib_write_bw from a prior failed run (port :18515 would otherwise be busy), then
 	// detach via nohup + bg + redirected stdio so the kubectl exec returns immediately while the server keeps
 	// running for -D seconds. The defer below pkill's again as a belt-and-braces cleanup if the spec fails.
@@ -574,7 +724,7 @@ func runIBWriteBWPodToPod(restClient *rest.RESTClient, restCfg *rest.Config, ser
 	}).WithTimeout(30 * time.Second).WithPolling(weaveEventuallyPollInterval).Should(Succeed())
 
 	By(fmt.Sprintf("Running ib_write_bw client in pod %s/%s -> %s (dev=%s, -D=%s, extra=%v)",
-		clientPod.Namespace, clientPod.Name, serverIP, dev, duration, extraArgs))
+		clientPod.Namespace, clientPod.Name, serverIP, dev, weaveIBWriteBWDuration, extraArgs))
 	clientCmd := fmt.Sprintf(
 		"rm -f %s; ib_write_bw -d %s -D %d -q 1 -m 4096 --report_gbit --out_json --out_json_file=%s %s %s",
 		weaveIBWriteBWClientJSONPath, dev, durationSec, weaveIBWriteBWClientJSONPath, extra, serverIP)
