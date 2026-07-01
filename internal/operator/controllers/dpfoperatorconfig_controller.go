@@ -298,7 +298,7 @@ func (r *DPFOperatorConfigReconciler) reconcilePreUpgradeValidations(ctx context
 
 	// Validate the DPF version in the DPFOperatorConfig against the build version of the operator.
 	if err := utils.ValidateDPFVersion(config.Status.Version); err != nil {
-		return fmt.Errorf("DPF version validation:\n%v", err)
+		return fmt.Errorf("DPF version validation: %v", err)
 	}
 
 	return r.validateAll(ctx, config, dpuClusters)
