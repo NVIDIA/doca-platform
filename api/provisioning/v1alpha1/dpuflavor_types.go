@@ -114,7 +114,10 @@ func (s *DPUFlavorSpec) FirstEWNicConfiguration() *NicConfiguration {
 }
 
 // NicConfiguration is a set of configurations for the NICs
-// +kubebuilder:validation:XValidation:rule="!(has(self.spectrumXOptimized) && self.spectrumXOptimized.enabled) || (self.linkType == 'Ethernet' && self.numVfs == 1)",message="spectrumXOptimized can be enabled only when linkType=='Ethernet' and numVfs==1"
+// +kubebuilder:validation:XValidation:rule="!(has(self.spectrumXOptimized) && self.spectrumXOptimized.enabled) || ((!has(self.linkType) || self.linkType == 'Ethernet') && self.numVfs == 1)",message="spectrumXOptimized can be enabled only when linkType=='Ethernet' (or unset for Network Bay) and numVfs==1"
+// +kubebuilder:validation:XValidation:rule="has(self.networkBay) || has(self.linkType)",message="linkType is required unless networkBay is configured"
+// +kubebuilder:validation:XValidation:rule="!has(self.networkBay) || !has(self.linkType)",message="linkType must not be set when networkBay is configured (the Network Bay link type is governed by the system configuration)"
+// +kubebuilder:validation:XValidation:rule="!has(self.networkBay) || self.networkBay.conf != \"\"",message="networkBay.conf must not be empty"
 type NicConfiguration struct {
 	// Number of VFs to be configured
 	// +required
@@ -128,6 +131,16 @@ type NicConfiguration struct {
 	SpectrumXOptimized *nicconfigv1alpha1.SpectrumXOptimizedSpec `json:"spectrumXOptimized,omitempty"`
 	// List of arbitrary nv config parameters
 	RawNvConfig []nicconfigv1alpha1.NvConfigParam `json:"rawNvConfig,omitempty"`
+	// NetworkBay configures a ConnectX-9 Network Bay card (per-ASIC set_system_conf). Allowed only for ConnectX-9 (nicType 1025).
+	// +optional
+	NetworkBay *nicconfigv1alpha1.NetworkBaySpec `json:"networkBay,omitempty"`
+	// Force passes `--force` to mlxconfig set commands. When set, the daemon
+	// applies the nv config batch and set_system_conf with --force, letting
+	// mlxconfig accept a batch it would otherwise refuse due to implicit
+	// parameter dependencies.
+	// +optional
+	// +kubebuilder:default:=false
+	Force bool `json:"force,omitempty"`
 }
 
 type DPUFlavorGrub struct {

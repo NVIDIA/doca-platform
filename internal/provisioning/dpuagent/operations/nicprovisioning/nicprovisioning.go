@@ -555,9 +555,16 @@ func (n *NICProvisioning) applyNVConfig(execCtx context.Context, optCtx *operati
 	nvUtils := nicnvconfig.NewNVConfigUtils()
 	spectrumXMgr := nicspectrumx.NewSpectrumXConfigManager(n.dmsServer, spectrumXConfigs)
 	cfgMgr := nicconfiguration.NewConfigurationManager(nil, n.dmsServer, nvUtils, spectrumXMgr)
+	ewNICCfg := optCtx.DPUFlavor.Spec.FirstEWNicConfiguration()
+	warnUnrecognizedNetworkBayTargets(ewNICCfg, n.discoveredNICDevices)
+	forceNVApply := false
+	if ewNICCfg != nil {
+		forceNVApply = ewNICCfg.Force
+	}
 	applyOptions := &nictypes.ConfigurationOptions{
 		SkipReset:   true,
 		WithDefault: true,
+		Force:       forceNVApply,
 	}
 	applyCtx, cancel := context.WithTimeout(execCtx, nicNVConfigApplyTimeout)
 	defer cancel()
@@ -571,7 +578,7 @@ func (n *NICProvisioning) applyNVConfig(execCtx context.Context, optCtx *operati
 		go func() {
 			defer wg.Done()
 			device.Spec.Configuration = &nicconfigurationv1alpha1.NicDeviceConfigurationSpec{
-				Template: buildEWNicConfigurationTemplate(optCtx.DPUFlavor.Spec.FirstEWNicConfiguration()),
+				Template: buildEWNicConfigurationTemplate(ewNICCfg),
 			}
 			result, applyErr := cfgMgr.ApplyNVConfiguration(applyCtx, &device, applyOptions)
 			if applyErr != nil {
@@ -628,6 +635,7 @@ func (n *NICProvisioning) applyRuntimeConfig(execCtx context.Context, optCtx *op
 	nvUtils := nicnvconfig.NewNVConfigUtils()
 	spectrumXMgr := nicspectrumx.NewSpectrumXConfigManager(n.dmsServer, spectrumXConfigs)
 	cfgMgr := nicconfiguration.NewConfigurationManager(nil, n.dmsServer, nvUtils, spectrumXMgr)
+	ewNICCfg := optCtx.DPUFlavor.Spec.FirstEWNicConfiguration()
 	applyCtx, cancel := context.WithTimeout(execCtx, nicRuntimeApplyTimeout)
 	defer cancel()
 
@@ -639,7 +647,7 @@ func (n *NICProvisioning) applyRuntimeConfig(execCtx context.Context, optCtx *op
 		go func() {
 			defer wg.Done()
 			device.Spec.Configuration = &nicconfigurationv1alpha1.NicDeviceConfigurationSpec{
-				Template: buildEWNicConfigurationTemplate(optCtx.DPUFlavor.Spec.FirstEWNicConfiguration()),
+				Template: buildEWNicConfigurationTemplate(ewNICCfg),
 			}
 			result, applyErr := cfgMgr.ApplyRuntimeConfiguration(applyCtx, &device)
 			if applyErr != nil {
@@ -718,7 +726,7 @@ func (n *NICProvisioning) configureRestrictedMode(_ context.Context, _ *operatio
 				device.Status.SerialNumber, device.Status.Type)
 		}
 
-		cmd := fmt.Sprintf("mlxprivhost -d %s r --disable_rshim --disable_tracer --disable_counter_rd --disable_port_owner", pciAddress)
+		cmd := fmt.Sprintf("mlxprivhost -d %s r --disable_tracer --disable_counter_rd --disable_port_owner", pciAddress)
 		stdout, stderr, err := n.runBash(cmd)
 		if err != nil {
 			return fmt.Errorf("failed to set restricted mode on NIC %q (type %q, model %q, pci %q): %w, stdout: %s, stderr: %s",
@@ -744,7 +752,33 @@ func buildEWNicConfigurationTemplate(cfg *provisioningv1.NicConfiguration) *nicc
 		LinkType:           cfg.LinkType,
 		SpectrumXOptimized: cfg.SpectrumXOptimized,
 		RawNvConfig:        rawNvConfig,
+		NetworkBay:         cfg.NetworkBay,
 	}
+}
+
+func warnUnrecognizedNetworkBayTargets(cfg *provisioningv1.NicConfiguration, devices []nicconfigurationv1alpha1.NicDevice) {
+	if cfg == nil || cfg.NetworkBay == nil {
+		return
+	}
+	missingNetworkBay := make([]string, 0)
+	for _, device := range devices {
+		if device.Status.NetworkBay != nil {
+			continue
+		}
+		serial := strings.TrimSpace(device.Status.SerialNumber)
+		deviceType := strings.TrimSpace(device.Status.Type)
+		pci := ""
+		if len(device.Status.Ports) > 0 {
+			if trimmedPCI := strings.TrimSpace(device.Status.Ports[0].PCI); trimmedPCI != "" {
+				pci = trimmedPCI
+			}
+		}
+		missingNetworkBay = append(missingNetworkBay, fmt.Sprintf("serial=%s type=%s pci=%s", serial, deviceType, pci))
+	}
+	if len(missingNetworkBay) == 0 {
+		return
+	}
+	klog.Warningf("NIC provisioning: networkBay is configured in DPUFlavor but some discovered NIC devices are not identified as Network Bay cards: %s", strings.Join(missingNetworkBay, "; "))
 }
 
 func loadSpectrumXConfigs(configDir string) (map[string]*nictypes.SpectrumXConfig, error) {
