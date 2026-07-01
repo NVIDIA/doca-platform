@@ -475,10 +475,11 @@ func TestBuildEWNicConfigurationTemplate(t *testing.T) {
 		assert.Nil(t, buildEWNicConfigurationTemplate(nil))
 	})
 
-	t.Run("maps flavor nic config fields to NCO config template", func(t *testing.T) {
+	t.Run("maps linkType-based flavor nic config fields to NCO config template", func(t *testing.T) {
 		cfg := &provisioningv1.NicConfiguration{
 			NumVfs:   1,
 			LinkType: nicconfigurationv1alpha1.LinkTypeEnum("Ethernet"),
+			Force:    true,
 			RawNvConfig: []nicconfigurationv1alpha1.NvConfigParam{
 				{Name: "A", Value: "1"},
 			},
@@ -489,6 +490,76 @@ func TestBuildEWNicConfigurationTemplate(t *testing.T) {
 		assert.Equal(t, cfg.NumVfs, template.NumVfs)
 		assert.Equal(t, cfg.LinkType, template.LinkType)
 		assert.Equal(t, cfg.RawNvConfig, template.RawNvConfig)
+		assert.Nil(t, template.NetworkBay)
+	})
+
+	t.Run("maps networkBay-based flavor nic config fields to NCO config template", func(t *testing.T) {
+		cfg := &provisioningv1.NicConfiguration{
+			NumVfs: 1,
+			NetworkBay: &nicconfigurationv1alpha1.NetworkBaySpec{
+				Conf: "nb-template",
+			},
+			Force: true,
+			RawNvConfig: []nicconfigurationv1alpha1.NvConfigParam{
+				{Name: "A", Value: "1"},
+			},
+		}
+
+		template := buildEWNicConfigurationTemplate(cfg)
+		require.NotNil(t, template)
+		assert.Equal(t, cfg.NumVfs, template.NumVfs)
+		assert.Equal(t, cfg.NetworkBay, template.NetworkBay)
+		assert.Equal(t, cfg.RawNvConfig, template.RawNvConfig)
+		assert.Empty(t, template.LinkType)
+	})
+}
+
+func TestWarnUnrecognizedNetworkBayTargets(t *testing.T) {
+	t.Run("does nothing when networkBay is not requested", func(t *testing.T) {
+		require.NotPanics(t, func() {
+			warnUnrecognizedNetworkBayTargets(nil, []nicconfigurationv1alpha1.NicDevice{
+				newNicDevice("cx9-1", "0000:3b:00.0"),
+			})
+		})
+	})
+
+	t.Run("does nothing when all devices are recognized as network bay", func(t *testing.T) {
+		cfg := &provisioningv1.NicConfiguration{
+			NetworkBay: &nicconfigurationv1alpha1.NetworkBaySpec{Conf: "nb-template"},
+		}
+		devices := []nicconfigurationv1alpha1.NicDevice{
+			{
+				Status: nicconfigurationv1alpha1.NicDeviceStatus{
+					SerialNumber: "cx9-1",
+					Type:         cx9NICDeviceType,
+					Ports:        []nicconfigurationv1alpha1.NicDevicePortSpec{{PCI: "0000:3b:00.0"}},
+					NetworkBay:   &nicconfigurationv1alpha1.NicDeviceNetworkBayStatus{Asic: 0},
+				},
+			},
+		}
+		require.NotPanics(t, func() {
+			warnUnrecognizedNetworkBayTargets(cfg, devices)
+		})
+	})
+
+	t.Run("logs warning and does not error when a target device is not recognized as network bay", func(t *testing.T) {
+		cfg := &provisioningv1.NicConfiguration{
+			NetworkBay: &nicconfigurationv1alpha1.NetworkBaySpec{Conf: "nb-template"},
+		}
+		devices := []nicconfigurationv1alpha1.NicDevice{
+			{
+				Status: nicconfigurationv1alpha1.NicDeviceStatus{
+					SerialNumber: "cx9-1",
+					Type:         cx9NICDeviceType,
+					Ports:        []nicconfigurationv1alpha1.NicDevicePortSpec{{PCI: "0000:3b:00.0"}},
+					NetworkBay:   &nicconfigurationv1alpha1.NicDeviceNetworkBayStatus{Asic: 0},
+				},
+			},
+			newNicDevice("cx9-2", "0000:af:00.0"),
+		}
+		require.NotPanics(t, func() {
+			warnUnrecognizedNetworkBayTargets(cfg, devices)
+		})
 	})
 }
 
@@ -546,7 +617,7 @@ func newNicDevice(serialNumber string, pciAddresses ...string) nicconfigurationv
 }
 
 func TestNICProvisioning_configureRestrictedMode(t *testing.T) {
-	const restrictArgs = "r --disable_rshim --disable_tracer --disable_counter_rd --disable_port_owner"
+	const restrictArgs = "r --disable_tracer --disable_counter_rd --disable_port_owner"
 
 	t.Run("runs mlxprivhost once per device using first port PCI", func(t *testing.T) {
 		runner := &fakeBashRunner{}

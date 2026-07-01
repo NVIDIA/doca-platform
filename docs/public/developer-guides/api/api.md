@@ -2945,6 +2945,8 @@ _Appears in:_
 | `linkType` _[LinkTypeEnum](#linktypeenum)_ | LinkType to be configured, Ethernet\|Infiniband. Required unless networkBay is configured;<br />for Network Bay the link type is governed by the system configuration and must not be set. |  | Enum: [Ethernet Infiniband] <br />Optional: \{\} <br /> |
 | `spectrumXOptimized` _[SpectrumXOptimizedSpec](#spectrumxoptimizedspec)_ | Spectrum-X optimization settings. Works only with linkType==Ethernet && numVfs==1. RawNvConfig parameters, if provided, are merged as overrides on top of Spectrum-X calculated params. |  |  |
 | `rawNvConfig` _NvConfigParam array_ | List of arbitrary nv config parameters |  |  |
+| `networkBay` _[NetworkBaySpec](#networkbayspec)_ | NetworkBay configures a ConnectX-9 Network Bay card (per-ASIC set_system_conf). Allowed only for ConnectX-9 (nicType 1025). |  | Optional: \{\} <br /> |
+| `force` _boolean_ | Force passes `--force` to mlxconfig set commands. When set, the daemon<br />applies the nv config batch and set_system_conf with --force, letting<br />mlxconfig accept a batch it would otherwise refuse due to implicit<br />parameter dependencies. | false | Optional: \{\} <br /> |
 
 
 #### NodeEffect
