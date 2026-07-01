@@ -17,6 +17,7 @@ limitations under the License.
 package e2e
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/nvidia/doca-platform/test/e2e/cleanup"
@@ -235,6 +236,48 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 		It("should verify performance with iperf cross-node traffic on p1", func() {
 			netshoot.RunTrafficTest(&hostClusterRESTClient, &input.restConfig, trafficTestNS, podP1Node1, podP1Node2, overlayIPP1Node2)
 		})
+
+		It("should verify metrics across nodes under iperf load on p0", func() {
+			bridge := isolationBridgeName(trafficVNI, weaveDPUPortP0)
+
+			baselineMetricsPod1 := readWeaveMetrics(fcPod1)
+			baselineMetricsPod2 := readWeaveMetrics(fcPod2)
+
+			By("Running iperf cross-node on p0")
+			iperfResult := netshoot.RunTrafficTestWithResult(&hostClusterRESTClient, &input.restConfig, trafficTestNS, podP0Node1, podP0Node2, overlayIPP0Node2)
+			forwardBytes := iperfResult.Forward.End.SumSent.Bytes
+			Expect(forwardBytes).To(BeNumerically(">", 0), "iperf reported zero forward bytes")
+			// iperf3 exposes no packet counter, so derive it from bytes/MSS (segment payload).
+			mss := iperfResult.Forward.Start.TCPMSSDefault
+			Expect(mss).To(BeNumerically(">", 0), "iperf did not report a TCP MSS")
+			minIperfPackets := uint64(forwardBytes) / uint64(mss)
+
+			By("Verifying weave metrics across nodes")
+			// Poll until the OVS scrape reflects the burst.
+			var currentMetricsPod1, currentMetricsPod2 weaveMetrics
+			Eventually(func(g Gomega) {
+				currentMetricsPod1 = scrapeWeaveMetrics(g, fcPod1)
+				currentMetricsPod2 = scrapeWeaveMetrics(g, fcPod2)
+
+				// Sender encaps (host_tx/tx_sent), receiver decaps (host_rx/rx_decap), neither drop.
+				assertMetricDeltas(g, baselineMetricsPod1, currentMetricsPod1, bridge, metricDeltaExpect{
+					mustRiseBy:   map[string]uint64{weaveMetricHostTx: minIperfPackets, weaveMetricTxSent: minIperfPackets},
+					mustStayFlat: []string{weaveMetricTxDropped},
+				})
+				assertMetricDeltas(g, baselineMetricsPod2, currentMetricsPod2, bridge, metricDeltaExpect{
+					mustRiseBy:   map[string]uint64{weaveMetricHostRx: minIperfPackets, weaveMetricRxDecap: minIperfPackets},
+					mustStayFlat: []string{weaveMetricRxDropped},
+				})
+
+				// Cross-DPU: packets encapped out of one DPU equal those decapped at the other, both directions.
+				assertMetricDeltasMatch(g,
+					metricRef{before: baselineMetricsPod1, after: currentMetricsPod1, bridge: bridge, name: weaveMetricTxSent},
+					metricRef{before: baselineMetricsPod2, after: currentMetricsPod2, bridge: bridge, name: weaveMetricRxDecap})
+				assertMetricDeltasMatch(g,
+					metricRef{before: baselineMetricsPod2, after: currentMetricsPod2, bridge: bridge, name: weaveMetricTxSent},
+					metricRef{before: baselineMetricsPod1, after: currentMetricsPod1, bridge: bridge, name: weaveMetricRxDecap})
+			}).WithTimeout(weaveOperationTimeout).WithPolling(weaveEventuallyPollInterval).Should(Succeed())
+		})
 	})
 
 	Context("traffic isolation between different VNets", Labels{Domain.RequiresNodes}, Ordered, func() {
@@ -321,6 +364,36 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 			ensureOverlayRoute(hostClusterRESTClient, input.restConfig, isolTestNS, isolPod2, overlayIP2, weaveVNetSubnet)
 		})
 
+		// Should run before the deny-ping below so the source ACL starts unlearned.
+		It("should verify metrics for VNI-mismatch detection", func() {
+			srcBridge := isolationBridgeName(isolVNI1, weaveDPUPortP0)
+			dstBridge := fmt.Sprintf("br-drop-%s", dpuPortToDropNIC[weaveDPUPortP0])
+
+			baselineMetricsPod1 := readWeaveMetrics(fcPod1)
+			baselineMetricsPod2 := readWeaveMetrics(fcPod2)
+
+			By("Sending a ping burst across mismatched VNets")
+			_, _ = netshoot.PingBurst(hostClusterRESTClient, input.restConfig, isolTestNS, isolPod1, overlayIP2, weaveMetricBurstCount)
+
+			By("Verifying weave metrics across mismatching VNets")
+			var currentMetricsPod1, currentMetricsPod2 weaveMetrics
+			Eventually(func(g Gomega) {
+				currentMetricsPod1 = scrapeWeaveMetrics(g, fcPod1)
+				currentMetricsPod2 = scrapeWeaveMetrics(g, fcPod2)
+
+				// Source: packets enter (host_tx); some leak before the ACL lands (tx_sent), the rest drop after (tx_dropped).
+				// tx_dropped omitted because it rides the learned ACL flow and resets to 0 when that flow times out (~30s).
+				assertMetricDeltas(g, baselineMetricsPod1, currentMetricsPod1, srcBridge, metricDeltaExpect{
+					mustRiseBy: map[string]uint64{weaveMetricHostTx: 1, weaveMetricTxSent: 1},
+				})
+
+				// Destination: the leaked packets are counted as VNI mismatches on the p0 drop bridge.
+				assertMetricDeltas(g, baselineMetricsPod2, currentMetricsPod2, dstBridge, metricDeltaExpect{
+					mustRiseBy: map[string]uint64{weaveMetricRxVNIMismatch: 1},
+				})
+			}).WithTimeout(weaveOperationTimeout).WithPolling(weaveEventuallyPollInterval).Should(Succeed())
+		})
+
 		It("should deny ping between worker nodes on different virtual networks", func() {
 			netshoot.AssertPingFailure(&hostClusterRESTClient, &input.restConfig, isolTestNS, isolPod1, overlayIP2)
 			netshoot.AssertPingFailure(&hostClusterRESTClient, &input.restConfig, isolTestNS, isolPod2, overlayIP1)
@@ -394,12 +467,12 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 		})
 
 		It("should run ib_write_bw between the two hosts on p0 and meet the BW threshold", func() {
-			runIBWriteBWPodToPod(hostClusterRESTClient, input.restConfig, netutilsPod2, netutilsPod1, weaveHostPFRDMADeviceP0, overlayIPP0Node2, weaveIBWriteBWDuration)
+			runIBWriteBWPodToPod(hostClusterRESTClient, input.restConfig, netutilsPod2, netutilsPod1, weaveHostPFRDMADeviceP0, overlayIPP0Node2)
 		})
 
 		It("should run ib_write_bw between the two hosts on p0 with --reversed and meet the BW threshold", func() {
 			// Running with --reversed checks that the RDMA traffic also works in reverse direction for sanity purposes.
-			runIBWriteBWPodToPod(hostClusterRESTClient, input.restConfig, netutilsPod2, netutilsPod1, weaveHostPFRDMADeviceP0, overlayIPP0Node2, weaveIBWriteBWDuration, "--reversed")
+			runIBWriteBWPodToPod(hostClusterRESTClient, input.restConfig, netutilsPod2, netutilsPod1, weaveHostPFRDMADeviceP0, overlayIPP0Node2, "--reversed")
 		})
 	})
 
@@ -497,6 +570,27 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 		It("should deny ping between pods on different virtual networks on the same node", func() {
 			netshoot.AssertPingFailure(&hostClusterRESTClient, &input.restConfig, isolTestNS, isolPod1, overlayIP2)
 			netshoot.AssertPingFailure(&hostClusterRESTClient, &input.restConfig, isolTestNS, isolPod2, overlayIP1)
+		})
+
+		It("should verify metrics for an out-of-subnet destination", func() {
+			bridge := isolationBridgeName(isolVNI1, weaveDPUPortP0)
+			baselineMetrics := readWeaveMetrics(fcPod1)
+
+			By("Sending a ping burst to an out-of-subnet destination")
+			_, _ = netshoot.PingBurst(hostClusterRESTClient, input.restConfig, isolTestNS, isolPod1, overlayIP2, weaveMetricBurstCount)
+
+			By("Verifying weave metrics across out-of-subnet destination")
+			// Poll until the OVS scrape reflects the burst.
+			var currentMetrics weaveMetrics
+			Eventually(func(g Gomega) {
+				currentMetrics = scrapeWeaveMetrics(g, fcPod1)
+				// tx_sent stays flat because an out-of-subnet destination is dropped before it is reached.
+				assertMetricDeltas(g, baselineMetrics, currentMetrics, bridge, metricDeltaExpect{
+					mustRiseBy:   map[string]uint64{weaveMetricHostTx: 1, weaveMetricTxDropped: 1},
+					mustStayFlat: []string{weaveMetricTxSent},
+				})
+				assertTxPacketsAccountedFor(g, baselineMetrics, currentMetrics, bridge)
+			}).WithTimeout(weaveOperationTimeout).WithPolling(weaveEventuallyPollInterval).Should(Succeed())
 		})
 	})
 })
