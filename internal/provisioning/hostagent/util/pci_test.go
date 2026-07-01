@@ -522,6 +522,128 @@ var _ = Describe("PCI", func() {
 		})
 	})
 
+	Context("PCIHelper.BoundDriver", Label("PCIHelper", "BoundDriver"), func() {
+		It("should return empty string when device has no driver symlink", func() {
+			mock := createMockSysfs("0000:b1:00.0", "0xa2dc\n", "", nil, "")
+			defer mock.Cleanup()
+
+			helper := NewPCIHelper("0000:b1:00.0").SetSysFS(mock.TempSysfsDir())
+			driver, err := helper.BoundDriver()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(driver).To(Equal(""))
+		})
+
+		It("should return the driver name when a driver is bound", func() {
+			mock := createMockSysfs("0000:b1:00.0", "0xa2dc\n", "", nil, "")
+			defer mock.Cleanup()
+
+			// Create a fake driver symlink to mimic the kernel binding the device
+			driverTarget := filepath.Join(mock.TempSysfsDir(), "bus/pci/drivers/mlx5_core")
+			Expect(os.MkdirAll(driverTarget, 0755)).To(Succeed())
+			driverSymlink := filepath.Join(mock.PCIDevicesDir(), "0000:b1:00.0", "driver")
+			Expect(os.Symlink(driverTarget, driverSymlink)).To(Succeed())
+
+			helper := NewPCIHelper("0000:b1:00.0").SetSysFS(mock.TempSysfsDir())
+			driver, err := helper.BoundDriver()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(driver).To(Equal("mlx5_core"))
+		})
+
+		It("should return the correct name for a different driver (e.g. vfio-pci)", func() {
+			mock := createMockSysfs("0000:b1:00.0", "0xa2dc\n", "", nil, "")
+			defer mock.Cleanup()
+
+			driverTarget := filepath.Join(mock.TempSysfsDir(), "bus/pci/drivers/vfio-pci")
+			Expect(os.MkdirAll(driverTarget, 0755)).To(Succeed())
+			driverSymlink := filepath.Join(mock.PCIDevicesDir(), "0000:b1:00.0", "driver")
+			Expect(os.Symlink(driverTarget, driverSymlink)).To(Succeed())
+
+			helper := NewPCIHelper("0000:b1:00.0").SetSysFS(mock.TempSysfsDir())
+			driver, err := helper.BoundDriver()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(driver).To(Equal("vfio-pci"))
+		})
+	})
+
+	Context("PCIHelper.BindDriver", Label("PCIHelper", "BindDriver"), func() {
+		It("should write the BDF to the driver's bind file when no driver is bound", func() {
+			mock := createMockSysfs("0000:b1:00.0", "0xa2dc\n", "", nil, "")
+			defer mock.Cleanup()
+
+			// Create the driver's bind file (kernel-managed in real sysfs)
+			bindDir := filepath.Join(mock.TempSysfsDir(), "bus/pci/drivers/mlx5_core")
+			Expect(os.MkdirAll(bindDir, 0755)).To(Succeed())
+			bindPath := filepath.Join(bindDir, "bind")
+			Expect(os.WriteFile(bindPath, []byte{}, 0644)).To(Succeed())
+
+			helper := NewPCIHelper("0000:b1:00.0").SetSysFS(mock.TempSysfsDir())
+			Expect(helper.BindDriver("mlx5_core")).To(Succeed())
+
+			content, err := os.ReadFile(bindPath)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(content)).To(Equal("0000:b1:00.0"))
+		})
+
+		It("should be a no-op when the named driver is already bound", func() {
+			mock := createMockSysfs("0000:b1:00.0", "0xa2dc\n", "", nil, "")
+			defer mock.Cleanup()
+
+			// Pre-bind by creating the driver symlink
+			driverTarget := filepath.Join(mock.TempSysfsDir(), "bus/pci/drivers/mlx5_core")
+			Expect(os.MkdirAll(driverTarget, 0755)).To(Succeed())
+			driverSymlink := filepath.Join(mock.PCIDevicesDir(), "0000:b1:00.0", "driver")
+			Expect(os.Symlink(driverTarget, driverSymlink)).To(Succeed())
+
+			// Create the bind file too, but pre-populated to detect any unwanted writes
+			bindPath := filepath.Join(driverTarget, "bind")
+			Expect(os.WriteFile(bindPath, []byte("untouched"), 0644)).To(Succeed())
+
+			helper := NewPCIHelper("0000:b1:00.0").SetSysFS(mock.TempSysfsDir())
+			Expect(helper.BindDriver("mlx5_core")).To(Succeed())
+
+			content, err := os.ReadFile(bindPath)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(content)).To(Equal("untouched"))
+		})
+
+		It("should return error when a different driver is already bound", func() {
+			mock := createMockSysfs("0000:b1:00.0", "0xa2dc\n", "", nil, "")
+			defer mock.Cleanup()
+
+			// Bind the device to vfio-pci (not what we want)
+			otherDriverTarget := filepath.Join(mock.TempSysfsDir(), "bus/pci/drivers/vfio-pci")
+			Expect(os.MkdirAll(otherDriverTarget, 0755)).To(Succeed())
+			driverSymlink := filepath.Join(mock.PCIDevicesDir(), "0000:b1:00.0", "driver")
+			Expect(os.Symlink(otherDriverTarget, driverSymlink)).To(Succeed())
+
+			// Create mlx5_core bind file too, pre-populated to detect any unwanted writes
+			mlx5BindDir := filepath.Join(mock.TempSysfsDir(), "bus/pci/drivers/mlx5_core")
+			Expect(os.MkdirAll(mlx5BindDir, 0755)).To(Succeed())
+			mlx5BindPath := filepath.Join(mlx5BindDir, "bind")
+			Expect(os.WriteFile(mlx5BindPath, []byte("untouched"), 0644)).To(Succeed())
+
+			helper := NewPCIHelper("0000:b1:00.0").SetSysFS(mock.TempSysfsDir())
+			err := helper.BindDriver("mlx5_core")
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring(`device 0000:b1:00.0 is bound to driver "vfio-pci", expected "mlx5_core"`))
+
+			// Confirm we did NOT write to the mlx5_core bind file
+			content, err := os.ReadFile(mlx5BindPath)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(content)).To(Equal("untouched"))
+		})
+
+		It("should return error when bind file does not exist", func() {
+			mock := createMockSysfs("0000:b1:00.0", "0xa2dc\n", "", nil, "")
+			defer mock.Cleanup()
+
+			helper := NewPCIHelper("0000:b1:00.0").SetSysFS(mock.TempSysfsDir())
+			err := helper.BindDriver("mlx5_core")
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("failed to bind 0000:b1:00.0 to mlx5_core"))
+		})
+	})
+
 	Context("DiscoverDPUs", Label("DiscoverDPUs"), func() {
 		It("should return error when PCI devices directory does not exist", func() {
 			// Create mock to get cleanup() for path restoration, then point to non-existent path

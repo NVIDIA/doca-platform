@@ -144,6 +144,46 @@ func (h *PCIHelper) SetNumOfVFs(num int) error {
 	return os.WriteFile(numvfsPath, []byte(fmt.Sprintf("%d", num)), 0644)
 }
 
+// BoundDriver returns the name of the driver currently bound to the device,
+// or empty string if no driver is bound.
+func (h *PCIHelper) BoundDriver() (string, error) {
+	target, err := os.Readlink(filepath.Join(h.Path(), "driver"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("failed to read driver symlink: %w", err)
+	}
+	return filepath.Base(target), nil
+}
+
+// BindDriver writes the device's BDF to /sys/bus/pci/drivers/<driverName>/bind,
+// causing the kernel to attempt to bind the named driver to the device.
+// No-op if the named driver is already bound. Returns an error if a *different*
+// driver is bound — silently overriding could disrupt setups that intentionally
+// bound the device to another driver (e.g. vfio-pci for passthrough).
+// May block while the kernel runs the driver's probe routine; if the device's
+// firmware is in pre-init, the bind can return -ETIMEDOUT after the kernel's
+// wait_fw_init timeout.
+func (h *PCIHelper) BindDriver(driverName string) error {
+	boundDriver, err := h.BoundDriver()
+	if err != nil {
+		return err
+	}
+	if boundDriver == driverName {
+		return nil
+	}
+	bdf := filepath.Base(h.Path())
+	if boundDriver != "" {
+		return fmt.Errorf("device %s is bound to driver %q, expected %q", bdf, boundDriver, driverName)
+	}
+	bindPath := filepath.Join(h.sysFSRoot, "bus/pci/drivers", driverName, "bind")
+	if err := os.WriteFile(bindPath, []byte(bdf), 0644); err != nil {
+		return fmt.Errorf("failed to bind %s to %s: %w", bdf, driverName, err)
+	}
+	return nil
+}
+
 // GetMTU returns the current MTU of the PF interface
 func (h *PCIHelper) GetMTU() (int, error) {
 	interfaceName, err := h.InterfaceName()
