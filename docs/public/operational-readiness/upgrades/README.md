@@ -96,34 +96,124 @@ Before the DPF Operator upgrades any components, the system performs prevalidati
 in a safe state for the upgrade. These validations are **automatically executed** and **must pass** before the upgrade
 can continue.
 
-* Version Compatibility Validation
-    * **DPF Version Check**: Validates that the current DPF version is compatible with the target version
-    * **Supported Upgrade Path**: Ensures you are upgrading from a supported version (n-1 policy)
-* System Components Readiness
-    * The operator validates that all critical system components are ready for upgrade
-* DPU State Validation
-    * **DPU Readiness**: All DPUs must be in a ready state
-    * **DPF Version Compatibility**: Each DPU's DPF version must be compatible with the upgrade
-    * **DPU Health**: All DPUs must be healthy and operational
-* Object Schema Validation
-    * All existing DPF API objects are validated against the OpenAPI schema of the installed CRDs. If a field that was previously optional has become required in the new version, any objects missing that field are reported and the upgrade is blocked until they are corrected.
-    * Violations are reported via a `PreUpgradeValidationReady` status condition on `DPFOperatorConfig`. While this condition is `False`, the `Ready` condition also remains `False` and the operator does not proceed to upgrade its managed components.
-    * **Example condition when validation fails:**
-        ```yaml
-        status:
-          conditions:
-          - type: PreUpgradeValidationReady
-            status: "False"
-            reason: Error
-            message: |-
-              Validation must pass for DPF upgrade to continue:
-                * Object Schema Validation:
-                  * storage.dpu.nvidia.com/v1alpha1, Kind=DPUStorageVendor:
-                    * dpf-operator-system/example has schema validation errors: [spec.pluginName: Required value]
-                  * svc.dpu.nvidia.com/v1alpha1, Kind=DPUDeployment:
-                    * dpf-operator-system/example has schema validation errors: [spec.dpus.dpuSetStrategy: Required value]
-        ```
-    * **Required action when present:** Fix the schema violations on the listed resources. Once all objects pass validation, `PreUpgradeValidationReady` transitions to `True` and the upgrade proceeds automatically.
+The operator performs the following prevalidations, any of which can block the upgrade:
+
+* [DPU State Validation](#dpu-state-validation)
+* [Kubernetes Version Skew](#kubernetes-version-skew)
+* [Object Schema Validation](#object-schema-validation)
+* [System Components Readiness](#system-components-readiness)
+* [Version Compatibility Validation](#version-compatibility-validation)
+
+### Validation Failures
+
+All failures are reported through a single `PreUpgradeValidationReady` status condition on `DPFOperatorConfig`. While
+this condition is `False`, the `Ready` condition also remains `False` and the operator does not proceed to upgrade its
+managed components. Each example below shows the condition for a single failing check; when several checks fail, they are
+aggregated under the same `Validation must pass for DPF upgrade to continue:` message.
+
+#### DPU State Validation
+
+* **DPU Readiness**: All DPUs must have reached a terminal state. Any DPU still progressing toward readiness blocks the upgrade.
+
+<details markdown="1"><summary>Example failure condition</summary>
+
+```yaml
+status:
+  conditions:
+  - type: PreUpgradeValidationReady
+    status: "False"
+    reason: Error
+    message: |-
+      Validation must pass for DPF upgrade to continue:
+        * DPU State:
+          * DPU worker-1-0000-08-00 is not ready
+          * DPU worker-2-0000-08-00 is not ready
+```
+
+</details>
+
+#### Kubernetes Version Skew
+
+* Each ready DPU's kubelet version must satisfy the [Kubernetes version skew policy](https://kubernetes.io/releases/version-skew-policy/) relative to its DPU cluster's kube-apiserver: the same major version, never newer than the API server, and at most three minor versions behind. DPUs provisioned by older operator versions that do not report a kubelet version are skipped.
+
+<details markdown="1"><summary>Example failure condition</summary>
+
+```yaml
+status:
+  conditions:
+  - type: PreUpgradeValidationReady
+    status: "False"
+    reason: Error
+    message: |-
+      Validation must pass for DPF upgrade to continue:
+        * Kubernetes Version Skew:
+          * kubernetes version skew violated: cluster dpf-operator-system/dpu-cplane-tenant1: DPU dpf-operator-system/worker-1-0000-08-00: kubelet version (v1.31.0) is more than 3 minor versions behind kube-apiserver version (v1.35.4)
+```
+
+</details>
+
+#### Object Schema Validation
+
+* All existing DPF API objects are validated against the OpenAPI schema of the installed CRDs. If a field that was previously optional has become required in the new version, any objects missing that field are reported and the upgrade is blocked until they are corrected.
+* **Required action when present:** Fix the schema violations on the listed resources. Once all objects pass validation, the condition transitions to `True` and the upgrade proceeds automatically.
+
+<details markdown="1"><summary>Example failure condition</summary>
+```yaml
+status:
+  conditions:
+  - type: PreUpgradeValidationReady
+    status: "False"
+    reason: Error
+    message: |-
+      Validation must pass for DPF upgrade to continue:
+        * Object Schema Validation:
+          * storage.dpu.nvidia.com/v1alpha1, Kind=DPUStorageVendor:
+            * dpf-operator-system/example has schema validation errors: [spec.pluginName: Required value]
+          * svc.dpu.nvidia.com/v1alpha1, Kind=DPUDeployment:
+            * dpf-operator-system/example has schema validation errors: [spec.dpus.dpuSetStrategy: Required value]
+```
+
+</details>
+
+#### System Components Readiness
+
+* The operator validates that all enabled DPF system components are ready for upgrade.
+
+<details markdown="1"><summary>Example failure condition</summary>
+
+```yaml
+status:
+  conditions:
+  - type: PreUpgradeValidationReady
+    status: "False"
+    reason: Error
+    message: |-
+      Validation must pass for DPF upgrade to continue:
+        * System Components:
+          * dpuservice-controller: Deployment dpf-operator-system/dpuservice-controller-manager has 0 readyReplicas, want 1
+```
+
+</details>
+
+#### Version Compatibility Validation
+
+* **DPF Version Check**: Validates that the current DPF version is compatible with the target version
+* **Supported Upgrade Path**: Ensures you are upgrading from a supported version (n-1 policy)
+
+<details markdown="1"><summary>Example failure condition</summary>
+
+```yaml
+status:
+  conditions:
+  - type: PreUpgradeValidationReady
+    status: "False"
+    reason: Error
+    message: |-
+      Validation must pass for DPF upgrade to continue:
+        * DPF version validation: DPF version v25.7.0 is not compatible with current DPF version v26.4.0, only upgrades from v25.10.0 are supported
+```
+
+</details>
 
 ### Validation Failure Handling
 
