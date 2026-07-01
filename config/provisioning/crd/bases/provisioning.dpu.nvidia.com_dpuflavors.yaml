@@ -109,6 +109,14 @@ spec:
                   description: NicConfiguration is a set of configurations for the
                     NICs
                   properties:
+                    force:
+                      default: false
+                      description: |-
+                        Force passes `--force` to mlxconfig set commands. When set, the daemon
+                        applies the nv config batch and set_system_conf with --force, letting
+                        mlxconfig accept a batch it would otherwise refuse due to implicit
+                        parameter dependencies.
+                      type: boolean
                     linkType:
                       description: |-
                         LinkType to be configured, Ethernet|Infiniband. Required unless networkBay is configured;
@@ -117,6 +125,20 @@ spec:
                       - Ethernet
                       - Infiniband
                       type: string
+                    networkBay:
+                      description: NetworkBay configures a ConnectX-9 Network Bay
+                        card (per-ASIC set_system_conf). Allowed only for ConnectX-9
+                        (nicType 1025).
+                      properties:
+                        conf:
+                          description: |-
+                            Conf is the <conf_name> argument passed to `mlxconfig set_system_conf`.
+                            The per-ASIC index is appended automatically by the daemon based on the
+                            device's detected Network Bay ASIC index, e.g. set_system_conf <conf>[0].
+                          type: string
+                      required:
+                      - conf
+                      type: object
                     numVfs:
                       description: Number of VFs to be configured
                       type: integer
@@ -197,9 +219,17 @@ spec:
                   type: object
                   x-kubernetes-validations:
                   - message: spectrumXOptimized can be enabled only when linkType=='Ethernet'
-                      and numVfs==1
+                      (or unset for Network Bay) and numVfs==1
                     rule: '!(has(self.spectrumXOptimized) && self.spectrumXOptimized.enabled)
-                      || (self.linkType == ''Ethernet'' && self.numVfs == 1)'
+                      || ((!has(self.linkType) || self.linkType == ''Ethernet'') &&
+                      self.numVfs == 1)'
+                  - message: linkType is required unless networkBay is configured
+                    rule: has(self.networkBay) || has(self.linkType)
+                  - message: linkType must not be set when networkBay is configured
+                      (the Network Bay link type is governed by the system configuration)
+                    rule: '!has(self.networkBay) || !has(self.linkType)'
+                  - message: networkBay.conf must not be empty
+                    rule: '!has(self.networkBay) || self.networkBay.conf != ""'
                 maxItems: 16
                 type: array
                 x-kubernetes-list-type: atomic
