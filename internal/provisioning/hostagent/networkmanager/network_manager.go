@@ -92,6 +92,10 @@ func (nm *NetworkManager) Start() error {
 	nm.netBackend = backend
 	klog.Infof("Using network configuration backend: %s", backend.Name())
 
+	if err := nm.netBackend.EnsureVFsUnmanaged(); err != nil {
+		return fmt.Errorf("failed to ensure VFs are unmanaged by network backend: %w", err)
+	}
+
 	devices, err := hostutil.DiscoverDPUs(hostutil.SysFSRoot)
 	if err != nil {
 		return fmt.Errorf("failed to discovery DPUs: %w", err)
