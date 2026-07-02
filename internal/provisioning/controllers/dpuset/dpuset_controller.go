@@ -72,7 +72,8 @@ type DPUSetReconciler struct {
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpusets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpusets/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpusets/finalizers,verbs=update
-// +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpuflavors,verbs=get;list;watch
+// +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpuflavors,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpuflavortemplates,verbs=get;list;watch
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpudevices,verbs=get;list;watch
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpunodes,verbs=get;list;watch
 
@@ -254,13 +255,25 @@ func (r *DPUSetReconciler) Handle(ctx context.Context, dpuSet *provisioningv1.DP
 		return ctrl.Result{}, fmt.Errorf("failed to get DPUs %w", err)
 	}
 
+	// Template mode: evaluate every template-mode DPU once and share the result across the
+	// strategy and outdated-status passes below. templateEvals (not dpuMap labels) is the source
+	// of truth for template decisions this reconcile; see evalTemplateDPUs. Nil for static flavors.
+	templateEvals := r.evalTemplateDPUs(ctx, dpuSet, dpuMap)
+
+	// Template mode: patch stale hash labels for unchanged renders and record
+	// non-disruptive render-failure annotations. Disruptive divergence is handled
+	// by the strategy below via computeDPUDrift.
+	if err := r.reconcileTemplateDPUs(ctx, dpuSet, dpuMap, templateEvals); err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to reconcile template DPUs %w", err)
+	}
+
 	switch dpuSet.Spec.Strategy.Type {
 	case provisioningv1.OnDeleteStrategyType:
 		if err := r.onDelete(ctx, dpuSet, dpuMap, dpuClusterList.Items); err != nil {
 			return ctrl.Result{}, fmt.Errorf("failed to on delete DPUs %w", err)
 		}
 	case provisioningv1.RollingUpdateStrategyType:
-		if err := r.rolloutRolling(ctx, dpuSet, dpuMap, len(dpuDeviceMap), dpuClusterList.Items); err != nil {
+		if err := r.rolloutRolling(ctx, dpuSet, dpuMap, len(dpuDeviceMap), dpuClusterList.Items, templateEvals); err != nil {
 			return ctrl.Result{}, fmt.Errorf("failed to rollout DPU %w", err)
 		}
 	default:
@@ -272,7 +285,7 @@ func (r *DPUSetReconciler) Handle(ctx context.Context, dpuSet *provisioningv1.DP
 		return ctrl.Result{}, fmt.Errorf("failed to update node effect ApplyOnLabelChange for DPUs %w", err)
 	}
 
-	if err := r.reconcileDPUOutdatedStatus(ctx, dpuSet, dpuMap, dpuClusterList.Items); err != nil {
+	if err := r.reconcileDPUOutdatedStatus(ctx, dpuSet, dpuMap, dpuClusterList.Items, templateEvals); err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to reconcile DPU Outdated status: %w", err)
 	}
 
@@ -298,7 +311,8 @@ func (r *DPUSetReconciler) Handle(ctx context.Context, dpuSet *provisioningv1.DP
 // DPUs that have been deleted since — there's nothing to update on the API
 // server, and treating it as fatal would fail the whole reconcile.
 func (r *DPUSetReconciler) reconcileDPUOutdatedStatus(ctx context.Context, dpuSet *provisioningv1.DPUSet,
-	dpuMap map[string]provisioningv1.DPU, dpuClusters []provisioningv1.DPUCluster) error {
+	dpuMap map[string]provisioningv1.DPU, dpuClusters []provisioningv1.DPUCluster,
+	templateEvals map[string]templateEval) error {
 	logger := log.FromContext(ctx)
 	for i := range dpuMap {
 		dpu := dpuMap[i]
@@ -306,7 +320,7 @@ func (r *DPUSetReconciler) reconcileDPUOutdatedStatus(ctx context.Context, dpuSe
 			continue
 		}
 
-		outdated, reason, msg := r.detectOutdated(*dpuSet, dpu, dpuClusters)
+		outdated, reason, msg := r.detectOutdated(*dpuSet, dpu, dpuClusters, templateEvals[dpu.Name])
 
 		var desired *provisioningv1.DPUOutdated
 		if outdated {
@@ -373,6 +387,8 @@ func (r *DPUSetReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(r.resourceToDPUSetReq)).
 		Watches(&provisioningv1.DPUFlavor{},
 			handler.EnqueueRequestsFromMapFunc(r.flavorToDPUSetReq)).
+		Watches(&provisioningv1.DPUFlavorTemplate{},
+			handler.EnqueueRequestsFromMapFunc(r.templateToDPUSetReq)).
 		Watches(&provisioningv1.DPUCluster{},
 			handler.EnqueueRequestsFromMapFunc(r.resourceToDPUSetReq)).
 		Complete(r)
@@ -582,7 +598,11 @@ func (r *DPUSetReconciler) createDPU(ctx context.Context, dpuSet *provisioningv1
 	if err != nil {
 		return fmt.Errorf("failed to set last applied annotations on DPU (%s/%s): %w", dpu.Namespace, dpu.Name, err)
 	}
-	if err := r.Create(ctx, dpu); err != nil {
+	if isTemplateMode(dpuSet) {
+		if err := r.createTemplateModeDPU(ctx, dpuSet, dpuDevice, dpu); err != nil {
+			return err
+		}
+	} else if err := r.Create(ctx, dpu); err != nil {
 		return err
 	}
 	msg := fmt.Sprintf("Created DPU: (%s/%s)", dpu.Namespace, dpu.Name)
@@ -622,7 +642,8 @@ func (r *DPUSetReconciler) onDelete(ctx context.Context, dpuSet *provisioningv1.
 }
 
 func (r *DPUSetReconciler) rolloutRolling(ctx context.Context, dpuSet *provisioningv1.DPUSet,
-	dpuMap map[string]provisioningv1.DPU, total int, dpuClusters []provisioningv1.DPUCluster) error {
+	dpuMap map[string]provisioningv1.DPU, total int, dpuClusters []provisioningv1.DPUCluster,
+	templateEvals map[string]templateEval) error {
 	var maxUnavailable *intstr.IntOrString
 	//nolint:staticcheck // SA1019: MaxUnavailable is deprecated but still supported
 	if dpuSet.Spec.Strategy.RollingUpdate != nil {
@@ -650,7 +671,7 @@ func (r *DPUSetReconciler) rolloutRolling(ctx context.Context, dpuSet *provision
 	}
 
 	for _, dpu := range dpuMap {
-		if disrupted := r.needDisruptDPU(*dpuSet, dpu, dpuClusters); !disrupted {
+		if !r.needDisruptDPU(*dpuSet, dpu, dpuClusters, templateEvals[dpu.Name]) {
 			continue
 		}
 
@@ -683,8 +704,8 @@ func isUnavailable(dpu *provisioningv1.DPU) bool {
 // DPUSet's DPUTemplate in any way that requires recreating the DPU (used by
 // rolloutRolling). It is a thin wrapper over computeDPUDrift, which both
 // callers use to evaluate field-level drift in a single place.
-func (r *DPUSetReconciler) needDisruptDPU(dpuSet provisioningv1.DPUSet, dpu provisioningv1.DPU, dpuClusters []provisioningv1.DPUCluster) bool {
-	return !r.computeDPUDrift(dpuSet, dpu, dpuClusters).empty()
+func (r *DPUSetReconciler) needDisruptDPU(dpuSet provisioningv1.DPUSet, dpu provisioningv1.DPU, dpuClusters []provisioningv1.DPUCluster, eval templateEval) bool {
+	return !r.computeDPUDrift(dpuSet, dpu, dpuClusters, eval).empty()
 }
 
 func (r *DPUSetReconciler) collectDPUStatistics(dpuMap map[string]provisioningv1.DPU) map[provisioningv1.DPUPhase]int {

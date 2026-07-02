@@ -85,8 +85,11 @@ var outdatedReasonForDrift = map[dpuDriftReason]string{
 
 // computeDPUDrift returns every drift reason between the DPU and its owning
 // DPUSet's DPUTemplate. dpuClusters is used only to evaluate the ClusterSelector
-// reason; passing nil/empty effectively skips that check.
-func (r *DPUSetReconciler) computeDPUDrift(dpuSet provisioningv1.DPUSet, dpu provisioningv1.DPU, dpuClusters []provisioningv1.DPUCluster) dpuDrift {
+// reason; passing nil/empty effectively skips that check. For template-mode DPUSets
+// the caller supplies the per-DPU templateEval (computed once per reconcile by
+// evalTemplateDPUs); it is ignored for static-flavor DPUSets. computeDPUDrift is pure
+// over its inputs and performs no client reads.
+func (r *DPUSetReconciler) computeDPUDrift(dpuSet provisioningv1.DPUSet, dpu provisioningv1.DPU, dpuClusters []provisioningv1.DPUCluster, eval templateEval) dpuDrift {
 	var d dpuDrift
 	t := dpuSet.Spec.DPUTemplate.Spec
 	s := dpu.Spec
@@ -95,7 +98,16 @@ func (r *DPUSetReconciler) computeDPUDrift(dpuSet provisioningv1.DPUSet, dpu pro
 		d.Reasons = append(d.Reasons, driftReasonBFB)
 		d.Diffs = append(d.Diffs, fmt.Sprintf("BFB: %s -> %s", ptr.Deref(s.BFB, ""), t.BFB.Name))
 	}
-	if t.DPUFlavor != s.DPUFlavor {
+	if isTemplateMode(&dpuSet) {
+		// Template mode: dpu.spec.dpuFlavor holds a per-DPU generated name, so the direct
+		// name comparison below is meaningless. The caller's templateEval (re-render compared
+		// against the existing generated DPUFlavor, plus name/existence checks) decides whether
+		// the DPU must be reprovisioned.
+		if eval.disrupt {
+			d.Reasons = append(d.Reasons, driftReasonDPUFlavor)
+			d.Diffs = append(d.Diffs, "DPUFlavor: generated flavor diverged from DPUFlavorTemplate")
+		}
+	} else if t.DPUFlavor != s.DPUFlavor {
 		d.Reasons = append(d.Reasons, driftReasonDPUFlavor)
 		d.Diffs = append(d.Diffs, fmt.Sprintf("DPUFlavor: %s -> %s", s.DPUFlavor, t.DPUFlavor))
 	}
@@ -134,8 +146,8 @@ func formatBoolPtr(b *bool) string {
 // multiple fields have diverged, reason reports the first in fixed precedence
 // order (BFB -> DPUFlavor -> SecureBoot -> BlueFieldSoftware) and message lists
 // every detected mismatch. The returned values populate dpu.status.outdated.
-func (r *DPUSetReconciler) detectOutdated(dpuSet provisioningv1.DPUSet, dpu provisioningv1.DPU, dpuClusters []provisioningv1.DPUCluster) (outdated bool, reason string, message string) {
-	drift := r.computeDPUDrift(dpuSet, dpu, dpuClusters).without(driftReasonClusterSelector)
+func (r *DPUSetReconciler) detectOutdated(dpuSet provisioningv1.DPUSet, dpu provisioningv1.DPU, dpuClusters []provisioningv1.DPUCluster, eval templateEval) (outdated bool, reason string, message string) {
+	drift := r.computeDPUDrift(dpuSet, dpu, dpuClusters, eval).without(driftReasonClusterSelector)
 	if drift.empty() {
 		return false, "", ""
 	}
