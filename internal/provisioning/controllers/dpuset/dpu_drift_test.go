@@ -31,6 +31,7 @@ type driftFixture struct {
 	// DPUSet template fields
 	tplBFB             string
 	tplFlavor          string
+	tplFlavorTemplate  string // non-empty => template-mode DPUSet; DPUFlavor name comparison is bypassed
 	tplSecureBoot      *bool
 	tplBlueFieldSWName string  // empty => template.BlueFieldSoftware is nil
 	tplClusterSelector *string // nil => template.Cluster is nil; non-nil string is a match-anything selector token
@@ -43,6 +44,8 @@ type driftFixture struct {
 	dpuClusterName     string // used together with cluster list to simulate match/mismatch
 	// Clusters provided to matchDPUClusterSelector
 	dpuClusters []provisioningv1.DPUCluster
+	// Precomputed template evaluation supplied to computeDPUDrift (template mode only).
+	eval templateEval
 
 	// Expected reasons (in fixed precedence order)
 	expectReasons []dpuDriftReason
@@ -50,9 +53,10 @@ type driftFixture struct {
 
 func buildDPUSetForDrift(f driftFixture) provisioningv1.DPUSet {
 	tpl := provisioningv1.DPUTemplateSpec{
-		BFB:        &provisioningv1.BFBReference{Name: f.tplBFB},
-		DPUFlavor:  f.tplFlavor,
-		SecureBoot: f.tplSecureBoot,
+		BFB:               &provisioningv1.BFBReference{Name: f.tplBFB},
+		DPUFlavor:         f.tplFlavor,
+		DPUFlavorTemplate: f.tplFlavorTemplate,
+		SecureBoot:        f.tplSecureBoot,
 	}
 	if f.tplBlueFieldSWName != "" {
 		tpl.BlueFieldSoftware = &provisioningv1.BlueFieldSoftwareReference{Name: f.tplBlueFieldSWName}
@@ -100,7 +104,7 @@ var _ = Describe("computeDPUDrift", func() {
 		func(f driftFixture) {
 			dpuSet := buildDPUSetForDrift(f)
 			dpu := buildDPUForDrift(f)
-			drift := r.computeDPUDrift(dpuSet, dpu, f.dpuClusters)
+			drift := r.computeDPUDrift(dpuSet, dpu, f.dpuClusters, f.eval)
 			Expect(drift.Reasons).To(Equal(f.expectReasons))
 			Expect(drift.Diffs).To(HaveLen(len(f.expectReasons)))
 		},
@@ -149,6 +153,20 @@ var _ = Describe("computeDPUDrift", func() {
 			dpuBFB: "bfb-1", dpuFlavor: "f-a", dpuSecureBoot: ptr.To(true), dpuBlueFieldSWName: "bfsw-1",
 			expectReasons: []dpuDriftReason{driftReasonBFB, driftReasonDPUFlavor, driftReasonSecureBoot, driftReasonBlueFieldSoftware},
 		}),
+		// Template mode: dpuFlavor holds a per-DPU generated name, so the direct name
+		// comparison is bypassed and the supplied templateEval decides DPUFlavor drift.
+		Entry("template mode: eval.disrupt -> DPUFlavor drift", driftFixture{
+			tplBFB: "bfb-1", tplFlavorTemplate: "tmpl",
+			dpuBFB: "bfb-1", dpuFlavor: "generated-dpu-0",
+			eval:          templateEval{disrupt: true},
+			expectReasons: []dpuDriftReason{driftReasonDPUFlavor},
+		}),
+		Entry("template mode: no disrupt -> no DPUFlavor drift despite differing flavor names", driftFixture{
+			tplBFB: "bfb-1", tplFlavor: "f-b", tplFlavorTemplate: "tmpl",
+			dpuBFB: "bfb-1", dpuFlavor: "generated-dpu-0",
+			eval:          templateEval{},
+			expectReasons: nil,
+		}),
 	)
 
 	It("includes ClusterSelector drift when DPU cluster does not match the selector", func() {
@@ -174,7 +192,7 @@ var _ = Describe("computeDPUDrift", func() {
 				},
 			},
 		}
-		drift := r.computeDPUDrift(buildDPUSetForDrift(f), buildDPUForDrift(f), f.dpuClusters)
+		drift := r.computeDPUDrift(buildDPUSetForDrift(f), buildDPUForDrift(f), f.dpuClusters, templateEval{})
 		Expect(drift.Reasons).To(Equal([]dpuDriftReason{driftReasonClusterSelector}))
 	})
 
@@ -185,7 +203,7 @@ var _ = Describe("computeDPUDrift", func() {
 			tplClusterSelector: ptr.To("primary"),
 			// dpuClusterName empty -> matchDPUClusterSelector returns true
 		}
-		drift := r.computeDPUDrift(buildDPUSetForDrift(f), buildDPUForDrift(f), nil)
+		drift := r.computeDPUDrift(buildDPUSetForDrift(f), buildDPUForDrift(f), nil, templateEval{})
 		Expect(drift.Reasons).To(BeNil())
 	})
 })
@@ -227,7 +245,7 @@ var _ = Describe("detectOutdated", func() {
 				tplBFB: "bfb-2", tplFlavor: "f-a", tplStrategy: provisioningv1.RollingUpdateStrategyType,
 				dpuBFB: "bfb-1", dpuFlavor: "f-a",
 			}
-			outdated, reason, msg := r.detectOutdated(buildDPUSetForDrift(f), buildDPUForDrift(f), nil)
+			outdated, reason, msg := r.detectOutdated(buildDPUSetForDrift(f), buildDPUForDrift(f), nil, templateEval{})
 			Expect(outdated).To(BeTrue())
 			Expect(reason).To(Equal(provisioningv1.DPUOutdatedReasonBFB))
 			Expect(msg).To(ContainSubstring("BFB: bfb-1 -> bfb-2"))
@@ -245,7 +263,7 @@ var _ = Describe("detectOutdated", func() {
 				tplBFB: "bfb-1", tplFlavor: "f-a",
 				dpuBFB: "bfb-1", dpuFlavor: "f-a",
 			})
-			outdated, reason, msg := r.detectOutdated(buildDPUSetForDrift(f), buildDPUForDrift(f), nil)
+			outdated, reason, msg := r.detectOutdated(buildDPUSetForDrift(f), buildDPUForDrift(f), nil, templateEval{})
 			Expect(outdated).To(BeFalse())
 			Expect(reason).To(BeEmpty())
 			Expect(msg).To(BeEmpty())
@@ -256,7 +274,7 @@ var _ = Describe("detectOutdated", func() {
 				tplBFB: "bfb-2", tplFlavor: "f-a",
 				dpuBFB: "bfb-1", dpuFlavor: "f-a",
 			})
-			outdated, reason, msg := r.detectOutdated(buildDPUSetForDrift(f), buildDPUForDrift(f), nil)
+			outdated, reason, msg := r.detectOutdated(buildDPUSetForDrift(f), buildDPUForDrift(f), nil, templateEval{})
 			Expect(outdated).To(BeTrue())
 			Expect(reason).To(Equal(provisioningv1.DPUOutdatedReasonBFB))
 			Expect(msg).To(ContainSubstring("BFB: bfb-1 -> bfb-2"))
@@ -267,7 +285,7 @@ var _ = Describe("detectOutdated", func() {
 				tplBFB: "bfb-1", tplFlavor: "f-b",
 				dpuBFB: "bfb-1", dpuFlavor: "f-a",
 			})
-			outdated, reason, msg := r.detectOutdated(buildDPUSetForDrift(f), buildDPUForDrift(f), nil)
+			outdated, reason, msg := r.detectOutdated(buildDPUSetForDrift(f), buildDPUForDrift(f), nil, templateEval{})
 			Expect(outdated).To(BeTrue())
 			Expect(reason).To(Equal(provisioningv1.DPUOutdatedReasonDPUFlavor))
 			Expect(msg).To(ContainSubstring("DPUFlavor: f-a -> f-b"))
@@ -278,7 +296,7 @@ var _ = Describe("detectOutdated", func() {
 				tplBFB: "bfb-1", tplFlavor: "f-a", tplSecureBoot: ptr.To(true),
 				dpuBFB: "bfb-1", dpuFlavor: "f-a", dpuSecureBoot: nil,
 			})
-			outdated, reason, _ := r.detectOutdated(buildDPUSetForDrift(f), buildDPUForDrift(f), nil)
+			outdated, reason, _ := r.detectOutdated(buildDPUSetForDrift(f), buildDPUForDrift(f), nil, templateEval{})
 			Expect(outdated).To(BeTrue())
 			Expect(reason).To(Equal(provisioningv1.DPUOutdatedReasonSecureBoot))
 		})
@@ -288,7 +306,7 @@ var _ = Describe("detectOutdated", func() {
 				tplBFB: "bfb-1", tplFlavor: "f-a", tplBlueFieldSWName: "bfsw-2",
 				dpuBFB: "bfb-1", dpuFlavor: "f-a", dpuBlueFieldSWName: "bfsw-1",
 			})
-			outdated, reason, _ := r.detectOutdated(buildDPUSetForDrift(f), buildDPUForDrift(f), nil)
+			outdated, reason, _ := r.detectOutdated(buildDPUSetForDrift(f), buildDPUForDrift(f), nil, templateEval{})
 			Expect(outdated).To(BeTrue())
 			Expect(reason).To(Equal(provisioningv1.DPUOutdatedReasonBlueFieldSoftware))
 		})
@@ -298,7 +316,7 @@ var _ = Describe("detectOutdated", func() {
 				tplBFB: "bfb-1", tplFlavor: "f-a",
 				dpuBFB: "bfb-1", dpuFlavor: "f-a", dpuBlueFieldSWName: "bfsw-old",
 			})
-			outdated, _, _ := r.detectOutdated(buildDPUSetForDrift(f), buildDPUForDrift(f), nil)
+			outdated, _, _ := r.detectOutdated(buildDPUSetForDrift(f), buildDPUForDrift(f), nil, templateEval{})
 			Expect(outdated).To(BeFalse())
 		})
 
@@ -313,7 +331,7 @@ var _ = Describe("detectOutdated", func() {
 					{ObjectMeta: metav1.ObjectMeta{Name: "secondary-cluster", Namespace: "default", Labels: map[string]string{"role": "secondary"}}},
 				},
 			})
-			outdated, reason, msg := r.detectOutdated(buildDPUSetForDrift(f), buildDPUForDrift(f), f.dpuClusters)
+			outdated, reason, msg := r.detectOutdated(buildDPUSetForDrift(f), buildDPUForDrift(f), f.dpuClusters, templateEval{})
 			Expect(outdated).To(BeFalse())
 			Expect(reason).To(BeEmpty())
 			Expect(msg).To(BeEmpty())
@@ -324,7 +342,7 @@ var _ = Describe("detectOutdated", func() {
 				tplBFB: "bfb-2", tplFlavor: "f-b", tplSecureBoot: ptr.To(true),
 				dpuBFB: "bfb-1", dpuFlavor: "f-a", dpuSecureBoot: nil,
 			})
-			outdated, reason, msg := r.detectOutdated(buildDPUSetForDrift(f), buildDPUForDrift(f), nil)
+			outdated, reason, msg := r.detectOutdated(buildDPUSetForDrift(f), buildDPUForDrift(f), nil, templateEval{})
 			Expect(outdated).To(BeTrue())
 			Expect(reason).To(Equal(provisioningv1.DPUOutdatedReasonBFB))
 			Expect(msg).To(ContainSubstring("BFB: bfb-1 -> bfb-2"))
@@ -343,7 +361,7 @@ var _ = Describe("detectOutdated", func() {
 					{ObjectMeta: metav1.ObjectMeta{Name: "secondary-cluster", Namespace: "default", Labels: map[string]string{"role": "secondary"}}},
 				},
 			})
-			outdated, reason, msg := r.detectOutdated(buildDPUSetForDrift(f), buildDPUForDrift(f), f.dpuClusters)
+			outdated, reason, msg := r.detectOutdated(buildDPUSetForDrift(f), buildDPUForDrift(f), f.dpuClusters, templateEval{})
 			Expect(outdated).To(BeTrue())
 			Expect(reason).To(Equal(provisioningv1.DPUOutdatedReasonBFB))
 			Expect(msg).To(ContainSubstring("BFB: bfb-1 -> bfb-2"))

@@ -118,7 +118,7 @@ var _ = Describe("DPUSetReconciler reconcileDPUOutdatedStatus", func() {
 			dpu := newOutdatedTestDPU("dpu-1", "dev-1", "bfb-v1", "flavor-a")
 			f := newOutdatedFixture(provisioningv1.OnDeleteStrategyType, dpu)
 
-			Expect(f.reconciler.reconcileDPUOutdatedStatus(f.ctx, f.dpuSet, f.dpuMap(), nil)).To(Succeed())
+			Expect(f.reconciler.reconcileDPUOutdatedStatus(f.ctx, f.dpuSet, f.dpuMap(), nil, nil)).To(Succeed())
 
 			got := f.reloadDPU("dpu-1")
 			Expect(got.Status.Outdated).ToNot(BeNil())
@@ -138,7 +138,7 @@ var _ = Describe("DPUSetReconciler reconcileDPUOutdatedStatus", func() {
 			f := newOutdatedFixture(provisioningv1.OnDeleteStrategyType, dpu)
 			Expect(f.reconciler.Status().Update(f.ctx, dpu)).To(Succeed())
 
-			Expect(f.reconciler.reconcileDPUOutdatedStatus(f.ctx, f.dpuSet, f.dpuMap(), nil)).To(Succeed())
+			Expect(f.reconciler.reconcileDPUOutdatedStatus(f.ctx, f.dpuSet, f.dpuMap(), nil, nil)).To(Succeed())
 
 			got := f.reloadDPU("dpu-2")
 			Expect(got.Status.Outdated).To(BeNil())
@@ -149,7 +149,7 @@ var _ = Describe("DPUSetReconciler reconcileDPUOutdatedStatus", func() {
 			f := newOutdatedFixture(provisioningv1.OnDeleteStrategyType, dpu)
 			initial := f.reloadDPU("dpu-3")
 
-			Expect(f.reconciler.reconcileDPUOutdatedStatus(f.ctx, f.dpuSet, f.dpuMap(), nil)).To(Succeed())
+			Expect(f.reconciler.reconcileDPUOutdatedStatus(f.ctx, f.dpuSet, f.dpuMap(), nil, nil)).To(Succeed())
 
 			got := f.reloadDPU("dpu-3")
 			Expect(got.ResourceVersion).To(Equal(initial.ResourceVersion), "DPU must not be patched when no change is needed")
@@ -163,7 +163,7 @@ var _ = Describe("DPUSetReconciler reconcileDPUOutdatedStatus", func() {
 			dpu.Finalizers = []string{"test-finalizer"}
 			f := newOutdatedFixture(provisioningv1.OnDeleteStrategyType, dpu)
 
-			Expect(f.reconciler.reconcileDPUOutdatedStatus(f.ctx, f.dpuSet, f.dpuMap(), nil)).To(Succeed())
+			Expect(f.reconciler.reconcileDPUOutdatedStatus(f.ctx, f.dpuSet, f.dpuMap(), nil, nil)).To(Succeed())
 
 			got := f.reloadDPU("dpu-4")
 			Expect(got.Status.Outdated).To(BeNil())
@@ -175,7 +175,7 @@ var _ = Describe("DPUSetReconciler reconcileDPUOutdatedStatus", func() {
 			dpu := newOutdatedTestDPU("dpu-5", "dev-5", "bfb-v1", "flavor-a")
 			f := newOutdatedFixture(provisioningv1.RollingUpdateStrategyType, dpu)
 
-			Expect(f.reconciler.reconcileDPUOutdatedStatus(f.ctx, f.dpuSet, f.dpuMap(), nil)).To(Succeed())
+			Expect(f.reconciler.reconcileDPUOutdatedStatus(f.ctx, f.dpuSet, f.dpuMap(), nil, nil)).To(Succeed())
 
 			got := f.reloadDPU("dpu-5")
 			Expect(got.Status.Outdated).ToNot(BeNil())
@@ -190,7 +190,7 @@ var _ = Describe("DPUSetReconciler reconcileDPUOutdatedStatus", func() {
 			f := newOutdatedFixture(provisioningv1.OnDeleteStrategyType, dpu)
 			// Template currently has bfb-v2 + flavor-a, so DPU diverges on both.
 
-			Expect(f.reconciler.reconcileDPUOutdatedStatus(f.ctx, f.dpuSet, f.dpuMap(), nil)).To(Succeed())
+			Expect(f.reconciler.reconcileDPUOutdatedStatus(f.ctx, f.dpuSet, f.dpuMap(), nil, nil)).To(Succeed())
 
 			got := f.reloadDPU("dpu-7")
 			Expect(got.Status.Outdated).ToNot(BeNil())
@@ -215,7 +215,7 @@ var _ = Describe("DPUSetReconciler reconcileDPUOutdatedStatus", func() {
 			f := newOutdatedFixture(provisioningv1.OnDeleteStrategyType, dpu)
 			Expect(f.reconciler.Status().Update(f.ctx, dpu)).To(Succeed())
 
-			Expect(f.reconciler.reconcileDPUOutdatedStatus(f.ctx, f.dpuSet, f.dpuMap(), nil)).To(Succeed())
+			Expect(f.reconciler.reconcileDPUOutdatedStatus(f.ctx, f.dpuSet, f.dpuMap(), nil, nil)).To(Succeed())
 
 			got := f.reloadDPU("dpu-8")
 			Expect(got.Status.Outdated).ToNot(BeNil())
@@ -234,7 +234,7 @@ var _ = Describe("DPUSetReconciler reconcileDPUOutdatedStatus", func() {
 
 			f := newOutdatedFixture(provisioningv1.OnDeleteStrategyType, outdated, matching)
 
-			Expect(f.reconciler.reconcileDPUOutdatedStatus(f.ctx, f.dpuSet, f.dpuMap(), nil)).To(Succeed())
+			Expect(f.reconciler.reconcileDPUOutdatedStatus(f.ctx, f.dpuSet, f.dpuMap(), nil, nil)).To(Succeed())
 
 			gotOutdated := f.reloadDPU("dpu-9a")
 			Expect(gotOutdated.Status.Outdated).ToNot(BeNil())
@@ -258,7 +258,7 @@ var _ = Describe("DPUSetReconciler reconcileDPUOutdatedStatus", func() {
 			// Remove the DPU from the API server after capturing the snapshot.
 			Expect(f.reconciler.Delete(f.ctx, deleted)).To(Succeed())
 
-			Expect(f.reconciler.reconcileDPUOutdatedStatus(f.ctx, f.dpuSet, snapshot, nil)).To(Succeed())
+			Expect(f.reconciler.reconcileDPUOutdatedStatus(f.ctx, f.dpuSet, snapshot, nil, nil)).To(Succeed())
 
 			gotSurvivor := f.reloadDPU("dpu-alive")
 			Expect(gotSurvivor.Status.Outdated).ToNot(BeNil())
@@ -275,7 +275,7 @@ var _ = Describe("DPUSetReconciler reconcileDPUOutdatedStatus", func() {
 			f := newOutdatedFixture(provisioningv1.OnDeleteStrategyType, dpu)
 			f.dpuSet.Spec.DPUTemplate.Spec.SecureBoot = ptr.To(true)
 
-			Expect(f.reconciler.reconcileDPUOutdatedStatus(f.ctx, f.dpuSet, f.dpuMap(), nil)).To(Succeed())
+			Expect(f.reconciler.reconcileDPUOutdatedStatus(f.ctx, f.dpuSet, f.dpuMap(), nil, nil)).To(Succeed())
 
 			got := f.reloadDPU("dpu-10")
 			Expect(got.Status.Outdated).ToNot(BeNil())
@@ -299,7 +299,7 @@ var _ = Describe("DPUSetReconciler reconcileDPUOutdatedStatus", func() {
 			f := newOutdatedFixture(provisioningv1.OnDeleteStrategyType, dpu)
 			Expect(f.reconciler.Status().Update(f.ctx, dpu)).To(Succeed())
 
-			Expect(f.reconciler.reconcileDPUOutdatedStatus(f.ctx, f.dpuSet, f.dpuMap(), nil)).To(Succeed())
+			Expect(f.reconciler.reconcileDPUOutdatedStatus(f.ctx, f.dpuSet, f.dpuMap(), nil, nil)).To(Succeed())
 
 			got := f.reloadDPU("dpu-11")
 			Expect(got.Status.Outdated).ToNot(BeNil())
@@ -320,7 +320,7 @@ var _ = Describe("DPUSetReconciler reconcileDPUOutdatedStatus", func() {
 			f := newOutdatedFixture(provisioningv1.OnDeleteStrategyType, dpu)
 			Expect(f.reconciler.Status().Update(f.ctx, dpu)).To(Succeed())
 
-			Expect(f.reconciler.reconcileDPUOutdatedStatus(f.ctx, f.dpuSet, f.dpuMap(), nil)).To(Succeed())
+			Expect(f.reconciler.reconcileDPUOutdatedStatus(f.ctx, f.dpuSet, f.dpuMap(), nil, nil)).To(Succeed())
 
 			got := f.reloadDPU("dpu-12")
 			Expect(got.Status.Outdated).ToNot(BeNil())

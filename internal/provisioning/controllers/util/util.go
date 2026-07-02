@@ -87,6 +87,36 @@ const (
 	NodeSelectorLabel = NodeFeatureDiscoveryLabelPrefix + "dpu-enabled"
 	// DPUSetDPUTemplateSpecHashLabelKey is the label for the hash of the DPU template spec from the DPUSet.
 	DPUSetDPUTemplateSpecHashLabelKey = DPUProvisioningPrefix + "dpuset-dpu-template-spec-hash"
+
+	// GeneratedByLabel marks a DPUFlavor that was generated from a DPUFlavorTemplate.
+	GeneratedByLabel = DPUProvisioningPrefix + "generated-by"
+	// GeneratedByDPUFlavorTemplate is the value of GeneratedByLabel for template-generated flavors.
+	GeneratedByDPUFlavorTemplate = "dpuflavortemplate"
+	// DPUFlavorTemplateNameLabel records, on a template-mode DPU and its generated DPUFlavor, the
+	// name of the source DPUFlavorTemplate.
+	DPUFlavorTemplateNameLabel = DPUProvisioningPrefix + "dpuflavortemplate-name"
+	// DPUFlavorTemplateHashLabel records, on a template-mode DPU, a short hash of the render inputs
+	// (template body + dpuResources + systemReservedResources).
+	DPUFlavorTemplateHashLabel = DPUProvisioningPrefix + "dpuflavortemplate-hash"
+	// DPUDeviceValuesHashLabel records, on a template-mode DPU, a short hash of DPUDevice.spec.values.
+	DPUDeviceValuesHashLabel = DPUProvisioningPrefix + "dpudevice-values-hash"
+
+	// GeneratedDPUFlavorFinalizer is owned by the DPU controller: it is added to the generated
+	// DPUFlavor the DPU consumes (preventing accidental external deletion while in use) and removed
+	// by that same controller during the DPU's Deleting().
+	GeneratedDPUFlavorFinalizer = DPUProvisioningPrefix + "generated-dpuflavor-protection"
+
+	// RenderFailedReasonAnnotation carries the reason a DPUFlavorTemplate render/admission failed.
+	RenderFailedReasonAnnotation = DPUProvisioningPrefix + "render-failed-reason"
+	// RenderFailedMessageAnnotation carries the human-readable message for a render/admission failure.
+	RenderFailedMessageAnnotation = DPUProvisioningPrefix + "render-failed-message"
+	// RenderFailedOnCreate is the reason value used when a render/admission failure happens while
+	// creating a new template-mode DPU. The DPU is blocked in Error.
+	RenderFailedOnCreate = "RenderFailedOnCreate"
+	// RenderFailedOnUpdate is the reason value used when a render/admission failure happens while
+	// re-evaluating an existing template-mode DPU. The DPU is NOT disrupted.
+	RenderFailedOnUpdate = "RenderFailedOnUpdate"
+
 	// LastAppliedLabelsOnDPUKey is the key for the last applied labels.
 	LastAppliedLabelsOnDPUKey = DPUProvisioningPrefix + "last-applied-labels-on-dpu"
 	// LastAppliedAnnotationsOnDPUKey is the key for the last applied annotations on the cluster node.
