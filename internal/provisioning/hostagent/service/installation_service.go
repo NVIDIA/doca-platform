@@ -135,6 +135,11 @@ func NewInstallationService(client client.Client, nm NetworkConfigurator, rh Reb
 			Consumes(restful.MIME_JSON).
 			Produces(restful.MIME_JSON).
 			To(s.RebindHostDriver))
+	ws.Route(
+		ws.POST("/set-error").
+			Consumes(restful.MIME_JSON).
+			Produces(restful.MIME_JSON).
+			To(s.SetError))
 	ws.Route(ws.GET("/healthz").To(s.HealthCheck))
 	// Package repositories: serve .deb and .rpm packages for DPU provisioning.
 	ws.Route(ws.GET("/deb/{subpath:*}").To(serveRepoFile(debRepoDir)))
@@ -493,6 +498,53 @@ func (s *InstallationService) TriggerReboot(req *restful.Request, resp *restful.
 	}
 
 	klog.Infof("Successfully triggered reboot (%s) for DPU %s/%s", request.RebootMethod, request.DPUNamespace, request.DPUName)
+	resp.WriteHeader(http.StatusOK)
+}
+
+func (s *InstallationService) SetError(req *restful.Request, resp *restful.Response) {
+	var request types.SetErrorRequest
+	if err := req.ReadEntity(&request); err != nil {
+		klog.Errorf("failed to read set error request: %v", err)
+		_ = resp.WriteError(http.StatusBadRequest, err)
+		return
+	}
+	klog.Infof("Received set error request for DPU %s/%s: reason=%s, message=%s",
+		request.DPUNamespace, request.DPUName, request.Reason, request.Message)
+
+	dpu := &provisioningv1.DPU{}
+	if err := s.Get(req.Request.Context(), client.ObjectKey{Namespace: request.DPUNamespace, Name: request.DPUName}, dpu); err != nil {
+		klog.Errorf("failed to get DPU %s/%s: %v", request.DPUNamespace, request.DPUName, err)
+		if apierrors.IsNotFound(err) {
+			_ = resp.WriteError(http.StatusNotFound, err)
+		} else {
+			_ = resp.WriteError(http.StatusInternalServerError, err)
+		}
+		return
+	}
+
+	if string(dpu.UID) != request.DPUUID {
+		klog.Warningf("Rejecting set error request for DPU %s/%s: request UID %q does not match current DPU UID %q",
+			request.DPUNamespace, request.DPUName, request.DPUUID, dpu.UID)
+		_ = resp.WriteError(http.StatusConflict, fmt.Errorf("stale DPU object: expected UID %q but got %q", request.DPUUID, dpu.UID))
+		return
+	}
+
+	patch := client.MergeFrom(dpu.DeepCopy())
+	dpu.Status.Phase = provisioningv1.DPUError
+	meta.SetStatusCondition(&dpu.Status.Conditions, metav1.Condition{
+		Type:               string(provisioningv1.DPUCondError),
+		Status:             metav1.ConditionTrue,
+		Reason:             request.Reason,
+		Message:            request.Message,
+		LastTransitionTime: metav1.Now(),
+	})
+
+	if err := s.Status().Patch(req.Request.Context(), dpu, patch); err != nil {
+		klog.Errorf("failed to patch DPU %s/%s error status: %v", request.DPUNamespace, request.DPUName, err)
+		_ = resp.WriteError(http.StatusInternalServerError, err)
+		return
+	}
+	klog.Infof("Successfully set error on DPU %s/%s", request.DPUNamespace, request.DPUName)
 	resp.WriteHeader(http.StatusOK)
 }
 

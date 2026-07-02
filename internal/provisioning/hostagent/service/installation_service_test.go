@@ -773,4 +773,85 @@ var _ = Describe("InstallationService", func() {
 		})
 	})
 
+	Context("set error", func() {
+		It("should set DPU phase to Error and add DPUCondError condition", func() {
+			dpu := createDPU("test-dpu", testNS.Name)
+
+			request := types.SetErrorRequest{
+				DPUName:      dpu.Name,
+				DPUNamespace: dpu.Namespace,
+				DPUUID:       string(dpu.UID),
+				Reason:       "FatalFailure",
+				Message:      "something went wrong on the DPU",
+			}
+			req, err := json.Marshal(request)
+			Expect(err).To(Succeed())
+
+			resp, err := http.Post(fmt.Sprintf("http://%s/set-error", address), "application/json", bytes.NewBuffer(req))
+			Expect(err).To(Succeed())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			updatedDPU := &provisioningv1.DPU{}
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: dpu.Namespace, Name: dpu.Name}, updatedDPU)).To(Succeed())
+			Expect(updatedDPU.Status.Phase).To(Equal(provisioningv1.DPUError))
+
+			By("DPUCondError condition should be set")
+			var errorCond *metav1.Condition
+			for i := range updatedDPU.Status.Conditions {
+				if updatedDPU.Status.Conditions[i].Type == string(provisioningv1.DPUCondError) {
+					errorCond = &updatedDPU.Status.Conditions[i]
+					break
+				}
+			}
+			Expect(errorCond).NotTo(BeNil())
+			Expect(errorCond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(errorCond.Reason).To(Equal("FatalFailure"))
+			Expect(errorCond.Message).To(Equal("something went wrong on the DPU"))
+		})
+
+		It("should reject set error with mismatched DPU UID", func() {
+			dpu := createDPU("test-dpu", testNS.Name)
+
+			request := types.SetErrorRequest{
+				DPUName:      dpu.Name,
+				DPUNamespace: dpu.Namespace,
+				DPUUID:       "stale-uid-from-old-agent",
+				Reason:       "FatalFailure",
+				Message:      "something went wrong on the DPU",
+			}
+			req, err := json.Marshal(request)
+			Expect(err).To(Succeed())
+
+			resp, err := http.Post(fmt.Sprintf("http://%s/set-error", address), "application/json", bytes.NewBuffer(req))
+			Expect(err).To(Succeed())
+			Expect(resp.StatusCode).To(Equal(http.StatusConflict))
+
+			updatedDPU := &provisioningv1.DPU{}
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: dpu.Namespace, Name: dpu.Name}, updatedDPU)).To(Succeed())
+			Expect(updatedDPU.Status.Phase).NotTo(Equal(provisioningv1.DPUError))
+		})
+
+		It("should return 404 when DPU is not found", func() {
+			request := types.SetErrorRequest{
+				DPUName:      "non-existent-dpu",
+				DPUNamespace: testNS.Name,
+				DPUUID:       "some-uid",
+				Reason:       "FatalFailure",
+				Message:      "something went wrong on the DPU",
+			}
+			req, err := json.Marshal(request)
+			Expect(err).To(Succeed())
+
+			resp, err := http.Post(fmt.Sprintf("http://%s/set-error", address), "application/json", bytes.NewBuffer(req))
+			Expect(err).To(Succeed())
+			Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
+		})
+
+		It("should return 400 when request body is malformed", func() {
+			resp, err := http.Post(fmt.Sprintf("http://%s/set-error", address), "application/json", bytes.NewBufferString("not-json"))
+			Expect(err).To(Succeed())
+			Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+		})
+	})
+
 })
