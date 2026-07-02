@@ -22,6 +22,7 @@ import (
 	"fmt"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	dpfutils "github.com/nvidia/doca-platform/internal/utils"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -110,6 +111,15 @@ func (r *DPUFlavor) ValidateDelete(ctx context.Context, obj runtime.Object) (adm
 	}
 
 	dpuflavorlog.V(4).Info("validate delete", "name", dpuFlavor.Name)
+
+	// Generated DPUFlavors are cleaned up by the DPU deletion flow, so skip the reference check to
+	// avoid blocking that cleanup; user-authored flavors are unaffected. The label is intentionally
+	// the only gate (an accidental-deletion guard, not a security boundary): also gating on the
+	// ownerRef/finalizer can deadlock cleanup when a crash skips the ownership patch before deletion.
+	if dpuFlavor.Labels[cutil.GeneratedByLabel] == cutil.GeneratedByDPUFlavorTemplate {
+		return nil, nil
+	}
+
 	dpuSetList := &provisioningv1.DPUSetList{}
 	if err := manager.GetClient().List(ctx, dpuSetList, &client.ListOptions{Namespace: dpuFlavor.Namespace}); err != nil {
 		return nil, fmt.Errorf("list DPUSets failed, err: %v", err)

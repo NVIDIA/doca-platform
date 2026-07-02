@@ -41,6 +41,16 @@ func Pending(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Contro
 		return *state, nil
 	}
 
+	// Template-mode create-time render failures: the generated DPUFlavor was never created, so
+	// block in Error before the DPUFlavor lookup below reports a misleading "DPUFlavorNotFound".
+	// Only the phase is driven here; the DPUFlavorRendered condition is surfaced uniformly for
+	// any phase by the DPU controller. An update-time failure keeps the existing generated flavor
+	// and is intentionally NOT handled here, so provisioning is not blocked.
+	if dpu.Annotations[cutil.RenderFailedReasonAnnotation] == cutil.RenderFailedOnCreate {
+		state.Phase = provisioningv1.DPUError
+		return *state, nil
+	}
+
 	if dpu.Status.DPUType == provisioningv1.DPUTypeBlueField4 {
 
 		blueFieldSoftware := &provisioningv1.BlueFieldSoftware{}

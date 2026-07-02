@@ -611,7 +611,7 @@ var _ = Describe("DPUSetReconciler needDisruptDPU", func() {
 					SecureBoot: tc.dpuSB,
 				},
 			}
-			Expect(reconciler.needDisruptDPU(dpuSet, dpu, nil)).To(Equal(tc.expectedResult))
+			Expect(reconciler.needDisruptDPU(dpuSet, dpu, nil, templateEval{})).To(Equal(tc.expectedResult))
 		},
 		Entry("no changes - all fields match", testCase{
 			dpuSetBFB: "bfb-v1", dpuSetFlavor: "flavor-a", dpuSetSB: ptr.To(true),
@@ -663,7 +663,7 @@ var _ = Describe("DPUSetReconciler needDisruptDPU", func() {
 					DPUFlavor:         "bf4-flavor",
 				},
 			}
-			Expect(reconciler.needDisruptDPU(dpuSet, dpu, nil)).To(Equal(expectedResult))
+			Expect(reconciler.needDisruptDPU(dpuSet, dpu, nil, templateEval{})).To(Equal(expectedResult))
 		},
 		Entry("no changes - BlueFieldSoftware matches, BFB omitted", "bfsw-v1", "bfsw-v1", false),
 		Entry("BlueFieldSoftware changed", "bfsw-v2", "bfsw-v1", true),
@@ -691,7 +691,7 @@ var _ = Describe("DPUSetReconciler rolloutRolling", func() {
 					},
 				},
 			}
-			err := reconciler.rolloutRolling(context.Background(), dpuSet, map[string]provisioningv1.DPU{}, 0, nil)
+			err := reconciler.rolloutRolling(context.Background(), dpuSet, map[string]provisioningv1.DPU{}, 0, nil, nil)
 			if expectErr {
 				Expect(err).To(HaveOccurred())
 			} else {

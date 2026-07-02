@@ -19,6 +19,7 @@ package dpu
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
@@ -40,6 +41,7 @@ import (
 	"github.com/fluxcd/pkg/runtime/patch"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/client-go/util/retry"
@@ -130,7 +132,7 @@ func NewDPUReconciler(mgr manager.Manager, alloc allocator.Allocator, joinComman
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpus,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpus/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpus/finalizers,verbs=update
-// +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpuflavors,verbs=get;list;watch
+// +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpuflavors,verbs=get;list;watch;update;patch;delete
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpudevices,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpudevices/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=pods;nodes;services,verbs=get;list;watch;create;update;patch;delete
@@ -187,10 +189,11 @@ func (r *DPUReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl
 		return ctrl.Result{}, nil
 	}
 
-	// Add DpuDevice finalizer to prevent DpuDevice deletion while DPU is using it
+	// Claim the resources the DPU references while alive (DpuDevice finalizer, and in template
+	// mode the generated DPUFlavor's ownerRef + finalizer).
 	if dpu.DeletionTimestamp.IsZero() {
-		if err := r.addDpuDeviceFinalizer(ctx, dpu); err != nil {
-			return ctrl.Result{}, fmt.Errorf("failed to add DpuDevice finalizer %w", err)
+		if err := r.claimReferencedResources(ctx, dpu); err != nil {
+			return ctrl.Result{}, err
 		}
 	}
 
@@ -221,6 +224,13 @@ func (r *DPUReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl
 		logger.Error(err, "State handle error")
 	}
 
+	// Mirror the render-failed annotation (set by the DPUSet controller) into the
+	// DPUFlavorRendered condition in any phase. This is phase-agnostic for the update case: a
+	// post-Pending edit to the template/values that fails to re-render is recorded without
+	// disrupting the running DPU, and this condition is its only surface. Status only; self-heals
+	// when a later successful render clears the annotation.
+	setDPUFlavorRenderedCondition(dpu, &nextState)
+
 	deploymentMode := provisioningv1.DeploymentMode(r.ctrlCtx.Options.DeploymentMode)
 	dpfOperatorConfig, cfgErr := dpfutils.GetDPFOperatorConfig(ctx, r.ctrlCtx.Client)
 	if cfgErr != nil {
@@ -243,6 +253,25 @@ func (r *DPUReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl
 	return ctrl.Result{}, err
 }
 
+// setDPUFlavorRenderedCondition mirrors the DPUFlavorTemplate render status into the
+// DPUFlavorRendered condition for template-mode DPUs, in any phase. It is a no-op for
+// non-template DPUs. When the DPUSet controller recorded a render-failure annotation it sets
+// the condition False (with the failure reason/message); otherwise it sets it True. It is purely
+// a status surface: it never changes the phase or touches the generated DPUFlavor, so an
+// update-time failure stays non-disruptive, and the condition self-heals once the annotation is
+// cleared after a successful render.
+func setDPUFlavorRenderedCondition(dpu *provisioningv1.DPU, state *provisioningv1.DPUStatus) {
+	if dpu.Labels[cutil.DPUFlavorTemplateNameLabel] == "" {
+		return
+	}
+	if reason, ok := dpu.Annotations[cutil.RenderFailedReasonAnnotation]; ok {
+		message := dpu.Annotations[cutil.RenderFailedMessageAnnotation]
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondDPUFlavorRendered.String(), errors.New(message), reason, message))
+		return
+	}
+	cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondDPUFlavorRendered, "", ""))
+}
+
 // UpdateDPUStatus updates only dpu.Status when next differs from the current status (DeepEqual).
 // Returns false without mutating status when unchanged.
 // Returns true only when Phase changes after applying next; still mutates status when other fields
@@ -258,6 +287,20 @@ func UpdateDPUStatus(dpu *provisioningv1.DPU, next provisioningv1.DPUStatus) boo
 	}
 	dpu.Status = next
 	return phaseChanged
+}
+
+// claimReferencedResources adds the finalizers/ownership the DPU holds on objects it references
+// while it is alive: the DpuDevice finalizer, and (template mode) the ownerReference + protective
+// finalizer on the generated DPUFlavor. Each step is idempotent and self-heals on later reconciles.
+// The DPU is the single controller that both adds these (here) and releases them on deletion.
+func (r *DPUReconciler) claimReferencedResources(ctx context.Context, dpu *provisioningv1.DPU) error {
+	if err := r.addDpuDeviceFinalizer(ctx, dpu); err != nil {
+		return fmt.Errorf("failed to add DpuDevice finalizer: %w", err)
+	}
+	if err := r.adoptGeneratedFlavor(ctx, dpu); err != nil {
+		return fmt.Errorf("failed to adopt generated DPUFlavor: %w", err)
+	}
+	return nil
 }
 
 // addDpuDeviceFinalizer adds the DpuDevice finalizer to prevent deletion while DPU is using it
@@ -276,6 +319,49 @@ func (r *DPUReconciler) addDpuDeviceFinalizer(ctx context.Context, dpu *provisio
 		if err := r.ctrlCtx.Client.Update(ctx, dpuDevice); err != nil {
 			return fmt.Errorf("failed to add DpuDevice finalizer: %w", err)
 		}
+	}
+	return nil
+}
+
+// adoptGeneratedFlavor makes the generated DPUFlavor of a template-mode DPU owned by that DPU by
+// setting the controller ownerReference (for garbage collection) and the protective finalizer in a
+// single patch. It is idempotent (the write is skipped once both are present) and runs on every
+// reconcile, so a missed claim self-heals.
+//
+// It is guarded so it only ever touches a generated flavor: it returns early for non-template DPUs
+// and for a flavor lacking the generated-by label. This matters because the DPU controller
+// reconciles static-flavor DPUs too, whose dpu.Spec.DPUFlavor points at a shared, user-authored
+// DPUFlavor that must never be adopted or finalized. A missing flavor (render-failed/blocked DPU,
+// or an in-flight reprovision) is tolerated as a no-op.
+func (r *DPUReconciler) adoptGeneratedFlavor(ctx context.Context, dpu *provisioningv1.DPU) error {
+	if dpu.Labels[cutil.DPUFlavorTemplateNameLabel] == "" {
+		return nil
+	}
+	flavor := &provisioningv1.DPUFlavor{}
+	if err := r.ctrlCtx.Client.Get(ctx, client.ObjectKey{Namespace: dpu.Namespace, Name: dpu.Spec.DPUFlavor}, flavor); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to get generated DPUFlavor %s: %w", dpu.Spec.DPUFlavor, err)
+	}
+	if flavor.Labels[cutil.GeneratedByLabel] != cutil.GeneratedByDPUFlavorTemplate {
+		return nil
+	}
+	// Runs every reconcile; skip the write once this DPU owns the flavor and the finalizer is present.
+	// Checking both (set together below) self-heals if either is dropped, and avoids a no-op
+	// optimistic-lock patch that could conflict needlessly.
+	if metav1.IsControlledBy(flavor, dpu) && controllerutil.ContainsFinalizer(flavor, cutil.GeneratedDPUFlavorFinalizer) {
+		return nil
+	}
+	base := flavor.DeepCopy()
+	// SetControllerReference derives the GVK from the scheme and preserves any non-controller owner
+	// references, rather than overwriting the whole slice with a hard-coded ref.
+	if err := controllerutil.SetControllerReference(dpu, flavor, r.ctrlCtx.Scheme); err != nil {
+		return fmt.Errorf("failed to set controller reference on generated DPUFlavor %s: %w", dpu.Spec.DPUFlavor, err)
+	}
+	controllerutil.AddFinalizer(flavor, cutil.GeneratedDPUFlavorFinalizer)
+	if err := r.ctrlCtx.Client.Patch(ctx, flavor, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil {
+		return fmt.Errorf("failed to adopt generated DPUFlavor %s: %w", dpu.Spec.DPUFlavor, err)
 	}
 	return nil
 }

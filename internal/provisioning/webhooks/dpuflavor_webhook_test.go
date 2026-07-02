@@ -20,6 +20,7 @@ import (
 	"context"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -689,6 +690,17 @@ spec:
 			webhook := &DPUFlavor{}
 			warnings, err := webhook.ValidateDelete(ctx, &provisioningv1.DPUFlavor{ObjectMeta: metav1.ObjectMeta{Name: "non-existent-flavor", Namespace: "default"}})
 			Expect(warnings).To(BeEmpty()) // Empty slice, not nil
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		It("ValidateDelete should skip the reference check for generated flavors", func() {
+			webhook := &DPUFlavor{}
+			generated := &provisioningv1.DPUFlavor{ObjectMeta: metav1.ObjectMeta{
+				Name:      "generated-flavor",
+				Namespace: "default",
+				Labels:    map[string]string{cutil.GeneratedByLabel: cutil.GeneratedByDPUFlavorTemplate},
+			}}
+			_, err := webhook.ValidateDelete(ctx, generated)
 			Expect(err).ToNot(HaveOccurred())
 		})
 
