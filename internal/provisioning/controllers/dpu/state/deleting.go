@@ -84,6 +84,17 @@ func Deleting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Contr
 	certificateRequest.SetName(dpu.Name)
 	certificateRequest.SetNamespace(dpu.Namespace)
 
+	// Template-mode DPUs own a generated DPUFlavor named after the DPU. Release its
+	// protective finalizer and include it in the objects to delete so the DPU's own
+	// finalizer is only removed once the generated flavor is fully gone.
+	if dpu.Labels[cutil.DPUFlavorTemplateNameLabel] != "" {
+		if err := releaseGeneratedFlavorFinalizer(ctx, ctrlCtx, dpu); err != nil {
+			err = fmt.Errorf("failed to release generated DPUFlavor finalizer: %w", err)
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondDeleting.String(), err, "ReleaseGeneratedFlavorFinalizerError", err.Error()))
+			return *state, err
+		}
+	}
+
 	deleteObjects := []crclient.Object{
 		certificate,
 		&corev1.Secret{
@@ -111,6 +122,15 @@ func Deleting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Contr
 				Namespace: dpu.Namespace,
 			},
 		},
+	}
+
+	if dpu.Labels[cutil.DPUFlavorTemplateNameLabel] != "" {
+		deleteObjects = append(deleteObjects, &provisioningv1.DPUFlavor{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      dpu.Spec.DPUFlavor,
+				Namespace: dpu.Namespace,
+			},
+		})
 	}
 
 	objects, err := cutil.GetObjects(ctx, ctrlCtx.Client, deleteObjects)
@@ -182,6 +202,24 @@ func RemoveDpuDeviceFinalizer(ctx context.Context, dpu *provisioningv1.DPU, ctrl
 		}
 	}
 	return nil
+}
+
+// releaseGeneratedFlavorFinalizer removes the GeneratedDPUFlavorFinalizer from the generated
+// DPUFlavor owned by this DPU, so the subsequent delete (and owner-reference GC) can complete.
+func releaseGeneratedFlavorFinalizer(ctx context.Context, ctrlCtx *dutil.ControllerContext, dpu *provisioningv1.DPU) error {
+	flavor := &provisioningv1.DPUFlavor{}
+	if err := ctrlCtx.Client.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.DPUFlavor}, flavor); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	if !controllerutil.ContainsFinalizer(flavor, cutil.GeneratedDPUFlavorFinalizer) {
+		return nil
+	}
+	base := flavor.DeepCopy()
+	controllerutil.RemoveFinalizer(flavor, cutil.GeneratedDPUFlavorFinalizer)
+	return ctrlCtx.Client.Patch(ctx, flavor, crclient.MergeFromWithOptions(base, crclient.MergeFromWithOptimisticLock{}))
 }
 
 func deleteNode(ctx context.Context, client crclient.Client, dpu *provisioningv1.DPU) error {

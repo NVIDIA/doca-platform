@@ -316,6 +316,7 @@ rules:
   - dpuclusters
   - dpudevices
   - dpudiscoveries
+  - dpuflavors
   - dpunodes
   - dpus
   - dpusets
@@ -360,7 +361,7 @@ rules:
 - apiGroups:
   - provisioning.dpu.nvidia.com
   resources:
-  - dpuflavors
+  - dpuflavortemplates
   verbs:
   - get
   - list
