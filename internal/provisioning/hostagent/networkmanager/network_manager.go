@@ -248,13 +248,18 @@ func (nm *NetworkManager) processNetworkRequest(nr NetworkRequest) error {
 		{
 			name: "CreateP0VF",
 			f: func(nr NetworkRequest) error {
-				return hostutil.NewPCIHelper(nr.PCIAddress).PF(0).SetNumOfVFs(nr.NumOfVFs)
+				pf := hostutil.NewPCIHelper(nr.PCIAddress).PF(0)
+				if _, err := pf.InterfaceName(); err != nil {
+					return fmt.Errorf("PF0 net interface not available, DPU firmware may still be initializing: %w", err)
+				}
+				return pf.SetNumOfVFs(nr.NumOfVFs)
 			},
 		},
 		{
 			name: "CreateP1VF",
 			f: func(nr NetworkRequest) error {
-				isDPU, err := hostutil.NewPCIHelper(nr.PCIAddress).PF(1).IsDPU()
+				pf := hostutil.NewPCIHelper(nr.PCIAddress).PF(1)
+				isDPU, err := pf.IsDPU()
 				if err != nil {
 					if os.IsNotExist(err) {
 						return nil
@@ -263,7 +268,10 @@ func (nm *NetworkManager) processNetworkRequest(nr NetworkRequest) error {
 				} else if !isDPU {
 					return nil
 				}
-				return hostutil.NewPCIHelper(nr.PCIAddress).PF(1).SetNumOfVFs(nr.NumOfVFs)
+				if _, err := pf.InterfaceName(); err != nil {
+					return fmt.Errorf("PF1 net interface not available, DPU firmware may still be initializing: %w", err)
+				}
+				return pf.SetNumOfVFs(nr.NumOfVFs)
 			},
 		},
 		{
