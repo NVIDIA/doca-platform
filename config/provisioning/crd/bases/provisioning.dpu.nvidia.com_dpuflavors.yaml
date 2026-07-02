@@ -148,9 +148,11 @@ spec:
                         properties:
                           name:
                             description: Name of the arbitrary nvconfig parameter
+                            maxLength: 64
                             type: string
                           value:
                             description: Value of the arbitrary nvconfig parameter
+                            maxLength: 128
                             type: string
                         required:
                         - name
