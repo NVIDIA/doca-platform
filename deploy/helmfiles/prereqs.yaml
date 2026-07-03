@@ -1,9 +1,12 @@
 environments:
-  default: {}
+  default:
+    values:
+      - envs/defaults.yaml
   # Environment for shared file system configuration.
   # Used by local-path-provisioner to configure shared storage instead of local node storage.
   shared-fs:
     values:
+      - envs/defaults.yaml
       - envs/shared-fs.yaml
 ---
 repositories:
@@ -138,3 +141,16 @@ releases:
     values:
       - values/local-path-provisioner.yaml
       - values/local-path-provisioner.yaml.gotmpl
+
+  # Optional: install Kata Containers on host nodes for Kata-based DPUServices.
+  # Disabled by default. Enable with: helmfile --state-values-file envs/physical.yaml sync
+  - name: kata-containers
+    namespace: kata-containers
+    createNamespace: true
+    chart: oci://ghcr.io/kata-containers/kata-deploy-charts/kata-deploy
+    version: 3.31.0
+    condition: kata.enabled
+    labels:
+      app: kata-containers
+    values:
+      - values/kata-containers.yaml

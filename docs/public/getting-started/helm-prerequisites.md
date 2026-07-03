@@ -28,6 +28,7 @@ and purposes:
 | [maintenance-operator]    | 0.3.0   | Manages node maintenance operations and ensures graceful handling of node updates              | Yes      | Pre-installation      |
 | [kamaji]                  | 1.2.0   | Kubernetes cluster management platform for creating and managing the DPU Kubernetes clusters   | Conditional | Pre-installation      |
 | [local-path-provisioner]  | 0.0.34  | Provides the `local-path` storage class used by the default Kamaji etcd configuration          | Conditional | Pre-installation      |
+| [kata-containers]         | 3.32.0  | Secure container runtime using lightweight VMs for workload isolation on host nodes            | Conditional | Pre-installation      |
 | [kube-state-metrics]      | 5.25.1  | Exposes DPF Operator related objects as metrics                                                | No       | Post-installation     |
 | [kube-prometheus-stack]   | 80.4.1  | Complete monitoring stack with Prometheus and Grafana for collecting and visualizing metrics   | No       | Post-installation     |
 | [loki]                    | 6.53.0  | Kubernetes log aggregation and storage, integrates with Grafana                                | No       | Post-installation     |
@@ -48,6 +49,7 @@ See [Running Argo CD in a separate namespace](#running-argo-cd-in-a-separate-nam
 [maintenance-operator]: https://github.com/Mellanox/maintenance-operator/tree/main/deployment/maintenance-operator-chart
 [kamaji]: https://github.com/clastix/kamaji/tree/master/charts/kamaji
 [local-path-provisioner]: https://github.com/rancher/local-path-provisioner/
+[kata-containers]: https://github.com/kata-containers/kata-containers
 [kube-state-metrics]: https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-state-metrics
 [kube-prometheus-stack]: https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack
 [loki]: https://github.com/grafana/loki/

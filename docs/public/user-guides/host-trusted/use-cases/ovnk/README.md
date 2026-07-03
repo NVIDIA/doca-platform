@@ -383,6 +383,19 @@ ovn-kubernetes-resource-injector:
 ```
 </details>
 
+**Kata Enabled**
+If Kata is enabled, the injector's default `runtimeClassMappings` reference `kata-qemu` as the RuntimeClass name. If your Kata installation uses a different name, update the mapping accordingly:
+
+```yaml
+ovn-kubernetes-resource-injector:
+  enabled: true
+  runtimeClassMappings:
+    - runtimeClass: <kata-runtime-class-name>
+      nadName: dpf-ovn-kubernetes-kata-qemu
+      resourceName: nvidia.com/bf3-p0-kata-vfs
+```
+
+
 #### Apply the NICClusterPolicy
 
 ```shell
@@ -443,6 +456,51 @@ spec:
       ranges:
         - pfIndex: 0
           start: 2
+          end: 45
+```
+</details>
+
+If [Kata Containers](../../../../advanced-configuration/kata-containers.md) is enabled, use the
+Kata variant instead. It reduces the `bf3-p0-vfs` RDMA range to VFs 2–40 and adds a dedicated
+`bf3-p0-kata-vfs` pool (VFs 41–45) with `isRdma: false`. VFs in this pool are cold-plugged into
+Kata VMs as the primary network interface; `isRdma: false` prevents RDMA uverbs from being exposed
+inside the VM.
+
+```shell
+kubectl apply -f manifests/04-enable-accelerated-cni/nodesriovdevicepluginconfig-kata.yaml
+```
+
+<details markdown="1"><summary><b>NodeSRIOVDevicePluginConfig for VFs on PF0 (with Kata pool)</b></summary>
+
+[embedmd]:#(manifests/04-enable-accelerated-cni/nodesriovdevicepluginconfig-kata.yaml)
+```yaml
+---
+apiVersion: noderesources.dpu.nvidia.com/v1alpha1
+kind: NodeSRIOVDevicePluginConfig
+metadata:
+  name: bf3-p0-vfs
+  namespace: dpf-operator-system
+spec:
+  devicePluginResources:
+    - name: ovnk-mgmt-vf
+      type: vf
+      ranges:
+        - pfIndex: 0
+          start: 1
+          end: 1
+    - name: bf3-p0-vfs
+      type: vf
+      options:
+        isRdma: true
+      ranges:
+        - pfIndex: 0
+          start: 2
+          end: 40
+    - name: bf3-p0-kata-vfs
+      type: vf
+      ranges:
+        - pfIndex: 0
+          start: 41
           end: 45
 ```
 </details>
