@@ -5,7 +5,7 @@ ARG base_image=ubuntu:22.04
 FROM ${base_image} AS builder
 
 ARG TARGETARCH
-ARG nginx_version=1.30.2
+ARG nginx_version=1.30.3
 
 ARG PACKAGES="wget unzip build-essential libpcre3 libpcre3-dev libssl-dev zlib1g-dev gettext"
 
