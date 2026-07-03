@@ -280,20 +280,100 @@ func (st *blueFieldSoftwareDownloadingState) updateComponentStatus(componentType
 }
 
 func (st *blueFieldSoftwareDownloadingState) cancelAllDownloads() {
-	componentsToCancel := []butil.ComponentType{
+	cancelDownloadsForBFS(st.bfs)
+}
+
+// componentTypesWithDownloads returns the components fetched during the Downloading phase.
+func componentTypesWithDownloads() []butil.ComponentType {
+	return []butil.ComponentType{
 		butil.ComponentTypeFwBundle,
 		butil.ComponentTypePlatformFwBundle,
 		butil.ComponentTypeOSISO,
 	}
+}
 
-	for _, componentType := range componentsToCancel {
-		taskName := butil.GenerateComponentTaskName(*st.bfs, componentType)
+func cancelDownloadsForBFS(bfs *provisioningv1.BlueFieldSoftware) {
+	for _, componentType := range componentTypesWithDownloads() {
+		taskName := butil.GenerateComponentTaskName(*bfs, componentType)
 		if cancelFunc, ok := butil.DownloadingTaskMap.Load(taskName + "cancel"); ok {
 			cancelFunc.(context.CancelFunc)()
 			butil.DownloadingTaskMap.Delete(taskName)
 			butil.DownloadingTaskMap.Delete(taskName + "cancel")
 		}
 	}
+}
+
+func cleanupPartialComponentFiles(bfs *provisioningv1.BlueFieldSoftware) error {
+	var errs []error
+	for _, componentType := range componentTypesWithDownloads() {
+		specURL := butil.SpecURLForComponent(bfs, componentType)
+		if specURL == "" || !isURL(specURL) {
+			continue
+		}
+
+		fileName := butil.ComponentDownloadFilename(bfs, componentType, specURL)
+		destPath := componentDestinationPath(componentType, fileName)
+		var downloaded string
+		switch componentType {
+		case butil.ComponentTypeFwBundle:
+			downloaded = bfs.Status.DownloadedComponents.PldmFwBundle
+		case butil.ComponentTypePlatformFwBundle:
+			downloaded = bfs.Status.DownloadedComponents.PlatformPldmFwBundle
+		case butil.ComponentTypeOSISO:
+			downloaded = bfs.Status.DownloadedComponents.OsIso
+		}
+		if downloaded == destPath {
+			continue
+		}
+
+		// Only remove in-flight .tmp artifacts. Completed downloads are atomically renamed
+		// to destPath before status is updated; removing destPath here would race with
+		// a sibling failure and delete a valid file.
+		pattern := filepath.Join(filepath.Dir(destPath), filepath.Base(destPath)+"-*.tmp")
+		matches, err := filepath.Glob(pattern)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("glob partial component files %q: %w", pattern, err))
+			continue
+		}
+		for _, match := range matches {
+			if err := cutil.RemoveFileEx(match); err != nil {
+				errs = append(errs, fmt.Errorf("remove partial component file %q: %w", match, err))
+			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// componentTypesWithExtraction returns the bundle components unpacked into *-extracted
+// directories during the Extracting phase.
+func componentTypesWithExtraction() []butil.ComponentType {
+	return []butil.ComponentType{
+		butil.ComponentTypeFwBundle,
+		butil.ComponentTypePlatformFwBundle,
+	}
+}
+
+// cleanupExtractedComponentDirs removes the *-extracted output directories produced
+// during the Extracting phase. They are regenerable from the downloaded bundles, so
+// removing them on Error lets a subsequent retry re-extract cleanly instead of leaving
+// partial firmware files on shared bfb storage.
+func cleanupExtractedComponentDirs(bfs *provisioningv1.BlueFieldSoftware) error {
+	var errs []error
+	for _, componentType := range componentTypesWithExtraction() {
+		extractDir := extractOutputDirForBFS(bfs, componentType)
+		if extractDir == "" {
+			continue
+		}
+		if err := cutil.RemoveAllEx(extractDir); err != nil {
+			errs = append(errs, fmt.Errorf("remove extract output directory %q: %w", extractDir, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func cleanupInFlightComponentArtifacts(bfs *provisioningv1.BlueFieldSoftware) error {
+	cancelDownloadsForBFS(bfs)
+	return errors.Join(cleanupPartialComponentFiles(bfs), cleanupExtractedComponentDirs(bfs))
 }
 
 func downloadComponent(ctx context.Context, task butil.ComponentDownloadTask) {
