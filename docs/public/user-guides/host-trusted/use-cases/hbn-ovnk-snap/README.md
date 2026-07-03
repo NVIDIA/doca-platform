@@ -716,7 +716,7 @@ spec:
       - iommu.passthrough=1
       - cgroup_no_v1=net_prio,net_cls
       - hugepagesz=2048kB
-      - hugepages=5120
+      - hugepages=2298
   nvconfig:
     - device: "*"
       parameters:

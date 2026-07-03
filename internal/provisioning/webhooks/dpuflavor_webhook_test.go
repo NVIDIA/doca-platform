@@ -309,7 +309,7 @@ spec:
       - iommu.passthrough=1
       - cgroup_no_v1=net_prio,net_cls
       - hugepagesz=2048kB
-      - hugepages=3072
+      - hugepages=250
   sysctl:
     parameters:
     - net.ipv4.ip_forward=1
