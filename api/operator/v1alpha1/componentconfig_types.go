@@ -18,11 +18,16 @@ package v1alpha1
 
 import (
 	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 )
+
+// DefaultOSInstallTimeout is the runtime default for OS installation timeout.
+// Keep +kubebuilder:default on OSInstallTimeout in sync (same duration), then run make generate.
+const DefaultOSInstallTimeout = 60 * time.Minute
 
 type DefaultOverridesConfiguration struct {
 	ImageComponentConfig    `json:",inline"`
@@ -118,7 +123,7 @@ type ProvisioningControllerConfiguration struct {
 
 	// OSInstallTimeout is the maximum time allowed for OS installation in zero-trust mode.
 	// If the installation exceeds this timeout, the DPU will transition to an error state.
-	// +kubebuilder:default="45m"
+	// +kubebuilder:default="60m"
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Pattern=`^([0-9]+(h|m|s|ms|us|µs|ns))+$`
 	// +kubebuilder:validation:Format=duration

@@ -621,10 +621,11 @@ func (p *provisioningControllerObjects) setOSInstallTimeout(deploy *appsv1.Deplo
 	if c == nil {
 		return fmt.Errorf(errManagerContainerNotFoundFmt, managerContainerName)
 	}
-	if vars.DPFProvisioningController.OSInstallTimeout == nil {
-		return nil
+	timeout := operatorv1.DefaultOSInstallTimeout
+	if vars.DPFProvisioningController.OSInstallTimeout != nil {
+		timeout = vars.DPFProvisioningController.OSInstallTimeout.Duration
 	}
-	return setFlags(c, fmt.Sprintf("--os-install-timeout=%s", vars.DPFProvisioningController.OSInstallTimeout.Duration.String()))
+	return setFlags(c, fmt.Sprintf("--os-install-timeout=%s", timeout.String()))
 }
 
 func (p *provisioningControllerObjects) setNodeEffectRemovalTimeout(deploy *appsv1.Deployment, vars Variables) error {
