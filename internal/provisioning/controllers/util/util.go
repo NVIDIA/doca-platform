@@ -177,6 +177,10 @@ const (
 	AgentCondRebootMethodDiscovery = "RebootMethodDiscovery"
 	// AgentCondEWNicFirmwareInstalled is set based on the E/W NIC firmware installation result in NIC provisioning.
 	AgentCondEWNicFirmwareInstalled = "EWNicFirmwareInstalled"
+	// AgentCondEWNICNVConfigApplied is set based on the E/W NIC NV config apply result in NIC provisioning.
+	AgentCondEWNICNVConfigApplied = "EWNICNVConfigApplied"
+	// AgentCondEWNICConfigured is set based on the E/W NIC runtime configuration result in NIC provisioning.
+	AgentCondEWNICConfigured = "EWNICConfigured"
 	// AgentAnnotationAllowFirmwareResetReboot is the DPU annotation key used to allow RebootMethodFirmwareReset from mlxfwreset.
 	AgentAnnotationAllowFirmwareResetReboot = DPUProvisioningPrefix + "allow-firmware-reset-reboot"
 
