@@ -41,6 +41,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/ptr"
 )
 
 func TestHandleDownloadError_ContextCanceled(t *testing.T) {
@@ -743,4 +744,424 @@ func TestComponentDownloadSatisfied(t *testing.T) {
 	t.Run("mismatch", func(t *testing.T) {
 		assert.False(t, st.componentDownloadSatisfied(ct, specURL, "/wrong/path"))
 	})
+}
+
+const testBF4OsIsoURL = "https://example.com/bf4-os.iso"
+
+func withTestBFBBaseDir(t *testing.T) func() {
+	t.Helper()
+	tempDir := t.TempDir()
+	originalBFBBaseDir := cutil.BFBBaseDir
+	cutil.BFBBaseDir = filepath.Join(tempDir, "bfb")
+	return func() {
+		cutil.BFBBaseDir = originalBFBBaseDir
+	}
+}
+
+func loadDownloadFuture(t *testing.T, taskName string) *future.Future {
+	t.Helper()
+	var downloadFuture *future.Future
+	require.Eventually(t, func() bool {
+		val, ok := butil.DownloadingTaskMap.Load(taskName)
+		if !ok {
+			return false
+		}
+		downloadFuture = val.(*future.Future)
+		return true
+	}, time.Second, 10*time.Millisecond, "download task should be registered")
+	return downloadFuture
+}
+
+func waitForDownloadFutureDone(t *testing.T, downloadFuture *future.Future) {
+	t.Helper()
+	require.NotNil(t, downloadFuture)
+	require.Eventually(t, func() bool {
+		return downloadFuture.GetState() == future.Ready
+	}, 5*time.Second, 10*time.Millisecond, "download task should complete")
+	_, _ = downloadFuture.GetResult()
+}
+
+func TestCleanupPartialComponentFiles(t *testing.T) {
+	defer withTestBFBBaseDir(t)()
+
+	osIsoURL := testBF4OsIsoURL
+	bfs := &provisioningv1.BlueFieldSoftware{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "bf4-software",
+			Namespace: "dpf-operator-system",
+		},
+		Spec: provisioningv1.BlueFieldSpec{
+			OsIso:        osIsoURL,
+			PldmFwBundle: ptr.To("https://example.com/fw.fwpkg"),
+		},
+	}
+
+	fileName := butil.ComponentDownloadFilename(bfs, butil.ComponentTypeOSISO, osIsoURL)
+	destPath := componentDestinationPath(butil.ComponentTypeOSISO, fileName)
+	require.NoError(t, os.MkdirAll(filepath.Dir(destPath), 0755))
+
+	tmpPath := filepath.Join(filepath.Dir(destPath), filepath.Base(destPath)+"-1234567890.tmp")
+	require.NoError(t, os.WriteFile(tmpPath, []byte("partial download"), 0644))
+
+	require.NoError(t, cleanupPartialComponentFiles(bfs))
+
+	_, err := os.Stat(tmpPath)
+	assert.True(t, os.IsNotExist(err))
+}
+
+func TestCleanupPartialComponentFiles_PreservesCompletedComponent(t *testing.T) {
+	defer withTestBFBBaseDir(t)()
+
+	osIsoURL := testBF4OsIsoURL
+	bfs := &provisioningv1.BlueFieldSoftware{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "bf4-software",
+			Namespace: "dpf-operator-system",
+		},
+		Spec: provisioningv1.BlueFieldSpec{
+			OsIso: osIsoURL,
+		},
+	}
+
+	fileName := butil.ComponentDownloadFilename(bfs, butil.ComponentTypeOSISO, osIsoURL)
+	destPath := componentDestinationPath(butil.ComponentTypeOSISO, fileName)
+	require.NoError(t, os.MkdirAll(filepath.Dir(destPath), 0755))
+	require.NoError(t, os.WriteFile(destPath, []byte("complete download"), 0644))
+	bfs.Status.DownloadedComponents.OsIso = destPath
+
+	require.NoError(t, cleanupPartialComponentFiles(bfs))
+
+	content, err := os.ReadFile(destPath)
+	require.NoError(t, err)
+	assert.Equal(t, "complete download", string(content))
+}
+
+func TestCleanupPartialComponentFiles_PreservesCompletedFileBeforeStatusUpdate(t *testing.T) {
+	defer withTestBFBBaseDir(t)()
+
+	osIsoURL := testBF4OsIsoURL
+	bfs := &provisioningv1.BlueFieldSoftware{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "bf4-software",
+			Namespace: "dpf-operator-system",
+		},
+		Spec: provisioningv1.BlueFieldSpec{
+			OsIso: osIsoURL,
+		},
+	}
+
+	fileName := butil.ComponentDownloadFilename(bfs, butil.ComponentTypeOSISO, osIsoURL)
+	destPath := componentDestinationPath(butil.ComponentTypeOSISO, fileName)
+	require.NoError(t, os.MkdirAll(filepath.Dir(destPath), 0755))
+	require.NoError(t, os.WriteFile(destPath, []byte("complete download"), 0644))
+
+	require.NoError(t, cleanupPartialComponentFiles(bfs))
+
+	content, err := os.ReadFile(destPath)
+	require.NoError(t, err)
+	assert.Equal(t, "complete download", string(content))
+}
+
+func TestCleanupExtractedComponentDirs(t *testing.T) {
+	defer withTestBFBBaseDir(t)()
+
+	bfs := &provisioningv1.BlueFieldSoftware{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "bf4-software",
+			Namespace: "dpf-operator-system",
+		},
+		Spec: provisioningv1.BlueFieldSpec{
+			PldmFwBundle:         ptr.To("https://example.com/fw.fwpkg"),
+			PlatformPldmFwBundle: ptr.To("https://example.com/platform.fwpkg"),
+		},
+	}
+
+	fwExtractDir := extractOutputDirForBFS(bfs, butil.ComponentTypeFwBundle)
+	platformExtractDir := extractOutputDirForBFS(bfs, butil.ComponentTypePlatformFwBundle)
+	for _, dir := range []string{fwExtractDir, platformExtractDir} {
+		require.NoError(t, os.MkdirAll(dir, 0755))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "image.bin"), []byte("extracted"), 0644))
+	}
+
+	require.NoError(t, cleanupExtractedComponentDirs(bfs))
+
+	for _, dir := range []string{fwExtractDir, platformExtractDir} {
+		_, err := os.Stat(dir)
+		assert.True(t, os.IsNotExist(err), "extract dir %q should be removed", dir)
+	}
+}
+
+func TestBlueFieldSoftwareErrorState_RemovesExtractedDirs(t *testing.T) {
+	defer withTestBFBBaseDir(t)()
+
+	bfs := &provisioningv1.BlueFieldSoftware{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "bf4-software",
+			Namespace: "dpf-operator-system",
+		},
+		Spec: provisioningv1.BlueFieldSpec{
+			PldmFwBundle: ptr.To("https://example.com/fw.fwpkg"),
+		},
+		Status: provisioningv1.BlueFieldSoftwareStatus{
+			Phase: provisioningv1.BlueFieldSoftwareError,
+		},
+	}
+
+	extractDir := extractOutputDirForBFS(bfs, butil.ComponentTypeFwBundle)
+	require.NoError(t, os.MkdirAll(extractDir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(extractDir, "image.bin"), []byte("extracted"), 0644))
+
+	st := &blueFieldSoftwareErrorState{bfs: bfs}
+	require.NoError(t, st.Handle(context.Background(), nil))
+
+	_, err := os.Stat(extractDir)
+	assert.True(t, os.IsNotExist(err))
+}
+
+func TestBlueFieldSoftwareErrorState_CancelsInFlightDownloads(t *testing.T) {
+	defer withTestBFBBaseDir(t)()
+
+	downloadStarted := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(downloadStarted)
+		w.WriteHeader(http.StatusOK)
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			t.Fatal("expected http.Flusher")
+		}
+		buf := make([]byte, 1024*1024)
+		for {
+			select {
+			case <-r.Context().Done():
+				return
+			default:
+				if _, err := w.Write(buf); err != nil {
+					return
+				}
+				flusher.Flush()
+				time.Sleep(20 * time.Millisecond)
+			}
+		}
+	}))
+	defer server.Close()
+
+	bfs := &provisioningv1.BlueFieldSoftware{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "bf4-software",
+			Namespace: "dpf-operator-system",
+			UID:       types.UID("test-uid"),
+		},
+		Spec: provisioningv1.BlueFieldSpec{
+			OsIso:        server.URL,
+			PldmFwBundle: ptr.To("https://example.com/missing.fwpkg"),
+		},
+		Status: provisioningv1.BlueFieldSoftwareStatus{
+			Phase: provisioningv1.BlueFieldSoftwareError,
+		},
+	}
+
+	osIsoFileName := butil.ComponentDownloadFilename(bfs, butil.ComponentTypeOSISO, server.URL)
+	taskName := butil.GenerateComponentTaskName(*bfs, butil.ComponentTypeOSISO)
+
+	taskCtx, cancel := context.WithCancel(context.Background())
+	butil.DownloadingTaskMap.Store(taskName+"cancel", cancel)
+	downloadComponent(taskCtx, butil.ComponentDownloadTask{
+		TaskName:      taskName,
+		URL:           server.URL,
+		FileName:      osIsoFileName,
+		ComponentName: string(butil.ComponentTypeOSISO),
+		UID:           bfs.UID,
+	})
+
+	select {
+	case <-downloadStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("download did not start")
+	}
+
+	downloadFuture := loadDownloadFuture(t, taskName)
+
+	st := &blueFieldSoftwareErrorState{bfs: bfs}
+	require.NoError(t, st.Handle(context.Background(), nil))
+
+	tmpPattern := filepath.Join(
+		filepath.Dir(componentDestinationPath(butil.ComponentTypeOSISO, osIsoFileName)),
+		filepath.Base(componentDestinationPath(butil.ComponentTypeOSISO, osIsoFileName))+"-*.tmp",
+	)
+
+	require.Eventually(t, func() bool {
+		matches, globErr := filepath.Glob(tmpPattern)
+		require.NoError(t, globErr)
+		return len(matches) == 0
+	}, 5*time.Second, 100*time.Millisecond, "partial .tmp files should be removed in Error state")
+
+	waitForDownloadFutureDone(t, downloadFuture)
+
+	butil.DownloadingTaskMap.Delete(taskName)
+	butil.DownloadingTaskMap.Delete(taskName + "cancel")
+}
+
+func TestBlueFieldSoftwareErrorState_CleansPartialFiles(t *testing.T) {
+	defer withTestBFBBaseDir(t)()
+
+	osIsoURL := testBF4OsIsoURL
+	bfs := &provisioningv1.BlueFieldSoftware{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "bf4-software",
+			Namespace: "dpf-operator-system",
+		},
+		Spec: provisioningv1.BlueFieldSpec{
+			OsIso: osIsoURL,
+		},
+		Status: provisioningv1.BlueFieldSoftwareStatus{
+			Phase: provisioningv1.BlueFieldSoftwareError,
+		},
+	}
+
+	fileName := butil.ComponentDownloadFilename(bfs, butil.ComponentTypeOSISO, osIsoURL)
+	destPath := componentDestinationPath(butil.ComponentTypeOSISO, fileName)
+	require.NoError(t, os.MkdirAll(filepath.Dir(destPath), 0755))
+
+	tmpPath := filepath.Join(filepath.Dir(destPath), filepath.Base(destPath)+"-3393455104.tmp")
+	require.NoError(t, os.WriteFile(tmpPath, []byte("partial"), 0644))
+
+	st := &blueFieldSoftwareErrorState{bfs: bfs}
+	require.NoError(t, st.Handle(context.Background(), nil))
+
+	_, err := os.Stat(tmpPath)
+	assert.True(t, os.IsNotExist(err))
+}
+
+func TestBlueFieldSoftwareErrorState_SetsErrorConditionWhenCleanupFails(t *testing.T) {
+	defer withTestBFBBaseDir(t)()
+
+	osIsoURL := testBF4OsIsoURL
+	bfs := &provisioningv1.BlueFieldSoftware{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "bf4-software",
+			Namespace: "dpf-operator-system",
+		},
+		Spec: provisioningv1.BlueFieldSpec{
+			OsIso: osIsoURL,
+		},
+		Status: provisioningv1.BlueFieldSoftwareStatus{
+			Phase: provisioningv1.BlueFieldSoftwareError,
+		},
+	}
+
+	fileName := butil.ComponentDownloadFilename(bfs, butil.ComponentTypeOSISO, osIsoURL)
+	destPath := componentDestinationPath(butil.ComponentTypeOSISO, fileName)
+	componentDir := filepath.Dir(destPath)
+	require.NoError(t, os.MkdirAll(componentDir, 0755))
+
+	tmpPath := filepath.Join(componentDir, filepath.Base(destPath)+"-3393455104.tmp")
+	require.NoError(t, os.WriteFile(tmpPath, []byte("partial"), 0644))
+	require.NoError(t, os.Chmod(componentDir, 0555))
+	t.Cleanup(func() { _ = os.Chmod(componentDir, 0755) })
+
+	st := &blueFieldSoftwareErrorState{bfs: bfs}
+	err := st.Handle(context.Background(), nil)
+	require.Error(t, err)
+
+	cond := conditions.Get(bfs, provisioningv1.BlueFieldSoftwareCondError)
+	require.NotNil(t, cond)
+	assert.Equal(t, metav1.ConditionTrue, cond.Status)
+}
+
+func TestBlueFieldSoftwareErrorState_CancelsDownloadsOnDelete(t *testing.T) {
+	defer withTestBFBBaseDir(t)()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.Copy(w, &slowReader{chunk: 1024 * 1024, delay: 20 * time.Millisecond})
+	}))
+	defer server.Close()
+
+	bfs := &provisioningv1.BlueFieldSoftware{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "bf4-software",
+			Namespace:         "dpf-operator-system",
+			UID:               types.UID("test-uid"),
+			DeletionTimestamp: ptr.To(metav1.Now()),
+		},
+		Spec: provisioningv1.BlueFieldSpec{
+			OsIso: server.URL,
+		},
+		Status: provisioningv1.BlueFieldSoftwareStatus{
+			Phase: provisioningv1.BlueFieldSoftwareError,
+		},
+	}
+
+	osIsoFileName := butil.ComponentDownloadFilename(bfs, butil.ComponentTypeOSISO, server.URL)
+	taskName := butil.GenerateComponentTaskName(*bfs, butil.ComponentTypeOSISO)
+
+	taskCtx, cancel := context.WithCancel(context.Background())
+	butil.DownloadingTaskMap.Store(taskName+"cancel", cancel)
+	downloadComponent(taskCtx, butil.ComponentDownloadTask{
+		TaskName:      taskName,
+		URL:           server.URL,
+		FileName:      osIsoFileName,
+		ComponentName: string(butil.ComponentTypeOSISO),
+		UID:           bfs.UID,
+	})
+	downloadFuture := loadDownloadFuture(t, taskName)
+
+	st := &blueFieldSoftwareErrorState{bfs: bfs}
+	require.NoError(t, st.Handle(context.Background(), nil))
+	assert.Equal(t, provisioningv1.BlueFieldSoftwareDeleting, bfs.Status.Phase)
+
+	require.Eventually(t, func() bool {
+		_, ok := butil.DownloadingTaskMap.Load(taskName + "cancel")
+		return !ok
+	}, 5*time.Second, 100*time.Millisecond, "download cancel func should be removed after delete transition")
+
+	waitForDownloadFutureDone(t, downloadFuture)
+
+	butil.DownloadingTaskMap.Delete(taskName)
+	butil.DownloadingTaskMap.Delete(taskName + "cancel")
+}
+
+type slowReader struct {
+	chunk int
+	delay time.Duration
+}
+
+func (r *slowReader) Read(p []byte) (int, error) {
+	time.Sleep(r.delay)
+	n := r.chunk
+	if n > len(p) {
+		n = len(p)
+	}
+	if n == 0 {
+		return 0, io.EOF
+	}
+	copy(p, make([]byte, n))
+	return n, nil
+}
+
+func TestCleanupPartialComponentFiles_GlobPattern(t *testing.T) {
+	defer withTestBFBBaseDir(t)()
+
+	osIsoURL := "https://example.com/bf4-os-doca-bundle.iso"
+	bfs := &provisioningv1.BlueFieldSoftware{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "bf4-software",
+			Namespace: "dpf-operator-system",
+		},
+		Spec: provisioningv1.BlueFieldSpec{
+			OsIso: osIsoURL,
+		},
+	}
+
+	fileName := butil.ComponentDownloadFilename(bfs, butil.ComponentTypeOSISO, osIsoURL)
+	destPath := componentDestinationPath(butil.ComponentTypeOSISO, fileName)
+	require.NoError(t, os.MkdirAll(filepath.Dir(destPath), 0755))
+
+	tmpPath := filepath.Join(filepath.Dir(destPath), fmt.Sprintf("%s-3393455104.tmp", filepath.Base(destPath)))
+	require.NoError(t, os.WriteFile(tmpPath, []byte("partial"), 0644))
+
+	require.NoError(t, cleanupPartialComponentFiles(bfs))
+
+	_, err := os.Stat(tmpPath)
+	assert.True(t, os.IsNotExist(err))
 }
