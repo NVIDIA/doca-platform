@@ -90,11 +90,23 @@ func (p *Params) ApplyFlavor(flavor *provisioningv1.DPUFlavor) error {
 	p.UbuntuPassword = ExtractUbuntuPassword(flavor)
 	p.OVSRawScript = flavor.Spec.OVS.RawConfigScript
 	for _, f := range flavor.Spec.ConfigFiles {
+		if f.Type != nil && *f.Type != provisioningv1.ConfigFileTypeCloudInit {
+			continue
+		}
+		// Only inline content is written through cloud-init.
+		// ConfigMap-backed content is resolved later by dpu-agent.
+		if f.ContentFrom != nil {
+			continue
+		}
+		rawContent := ""
+		if f.Raw != nil {
+			rawContent = *f.Raw
+		}
 		p.ConfigFiles = append(p.ConfigFiles, WriteFile{
 			Path:        f.Path,
 			Permissions: f.Permissions,
 			IsAppend:    f.Operation == provisioningv1.FileAppend,
-			Content:     f.Raw,
+			Content:     rawContent,
 		})
 	}
 	return nil
