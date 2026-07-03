@@ -160,10 +160,6 @@ func (n *NICProvisioning) Execute(execCtx context.Context, optCtx *operations.Co
 			return err
 		}
 	}
-	if optCtx.NICFirmwareRebootRequired {
-		klog.InfoS("NIC provisioning: reboot required after NIC firmware installation, skipping remaining NIC provisioning steps")
-		return nil
-	}
 
 	// 4. Set each E/W NIC to restricted (zero-trust) mode.
 	if err := n.configureRestrictedModeWithOverride(execCtx, optCtx); err != nil {
@@ -230,9 +226,12 @@ func (n *NICProvisioning) applyNVConfigAndUpdateStatus(execCtx context.Context, 
 		applyNVConfig = n.applyNVConfigFn
 	}
 	if err := applyNVConfig(execCtx, optCtx); err != nil {
+		setAgentCondition(optCtx, cutil.AgentCondEWNICNVConfigApplied, metav1.ConditionFalse, "NICNVConfigApplyFailed", err.Error())
 		updateStatusUntilSuccess(execCtx, optCtx)
 		return err
 	}
+	setAgentCondition(optCtx, cutil.AgentCondEWNICNVConfigApplied, metav1.ConditionTrue, "NICNVConfigApplied", "E/W NIC NV config apply completed")
+	updateStatusUntilSuccess(execCtx, optCtx)
 	return nil
 }
 
@@ -242,9 +241,12 @@ func (n *NICProvisioning) applyRuntimeConfigAndUpdateStatus(execCtx context.Cont
 		applyRuntimeConfig = n.applyRuntimeConfigFn
 	}
 	if err := applyRuntimeConfig(execCtx, optCtx); err != nil {
+		setAgentCondition(optCtx, cutil.AgentCondEWNICConfigured, metav1.ConditionFalse, "RuntimeConfigApplyFailed", err.Error())
 		updateStatusUntilSuccess(execCtx, optCtx)
 		return err
 	}
+	setAgentCondition(optCtx, cutil.AgentCondEWNICConfigured, metav1.ConditionTrue, "RuntimeConfigApplied", "E/W NIC runtime configuration completed")
+	updateStatusUntilSuccess(execCtx, optCtx)
 	return nil
 }
 
@@ -466,7 +468,9 @@ func filterCX9Devices(discoveredDevices map[string]nicconfigurationv1alpha1.NicD
 		klog.InfoS("NIC provisioning: skipping non-CX9 NIC device",
 			"serialNumber", device.Status.SerialNumber,
 			"type", device.Status.Type,
-			"modelName", device.Status.ModelName)
+			"modelName", device.Status.ModelName,
+			"networkBay", device.Status.NetworkBay,
+		)
 	}
 	return cx9Devices
 }
@@ -611,6 +615,7 @@ func (n *NICProvisioning) applyNVConfig(execCtx context.Context, optCtx *operati
 	for partialApplied := range partialAppliedCh {
 		if partialApplied {
 			optCtx.NICFirmwareRebootRequired = true
+			klog.InfoS("NIC provisioning: reboot required after NIC NV config apply")
 			break
 		}
 	}

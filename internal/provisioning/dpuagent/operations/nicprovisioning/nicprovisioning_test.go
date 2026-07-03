@@ -28,6 +28,7 @@ import (
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/cmd/dpuagent/opts"
+	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
 
 	nicconfigurationv1alpha1 "github.com/Mellanox/nic-configuration-operator/api/v1alpha1"
@@ -206,40 +207,6 @@ func TestNICProvisioning_Execute(t *testing.T) {
 		assert.Equal(t, []string{"flint -i '" + localFile + "' q"}, runner.commands)
 	})
 
-	t.Run("stop after firmware install when reboot is required", func(t *testing.T) {
-		existingFile := filepath.Join(tempDir, "astra-nic-fw-reboot.fwpkg")
-		require.NoError(t, os.WriteFile(existingFile, []byte("already here"), 0600))
-		runtimeCalled := false
-		configureCalled := false
-		opRebootAfterFirmware := &NICProvisioning{
-			runBash:                 (&fakeBashRunner{}).run,
-			prepareLocalDMSServerFn: func(_ *operations.Context) error { return nil },
-			installNICFirmwareFn: func(_ context.Context, optCtx *operations.Context, _ string) error {
-				optCtx.NICFirmwareRebootRequired = true
-				return nil
-			},
-			prepareSpectrumXConfigsFn: func() error { return nil },
-			applyNVConfigFn:           func(_ context.Context, _ *operations.Context) error { return nil },
-			applyRuntimeConfigFn: func(_ context.Context, _ *operations.Context) error {
-				runtimeCalled = true
-				return nil
-			},
-			configureRestrictedModeFn: func(_ context.Context, _ *operations.Context) error {
-				configureCalled = true
-				return nil
-			},
-		}
-
-		bfs := newBFS("downloads/astra-nic-fw-reboot.fwpkg")
-		fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(bfs).Build()
-		ctx := newOptCtx(fakeClient, "https://registry.example.com")
-
-		require.NoError(t, opRebootAfterFirmware.Execute(context.Background(), ctx))
-		assert.True(t, ctx.NICFirmwareRebootRequired)
-		assert.False(t, configureCalled)
-		assert.False(t, runtimeCalled)
-	})
-
 	t.Run("stop after NV config apply when reboot is required", func(t *testing.T) {
 		existingFile := filepath.Join(tempDir, "astra-nic-fw-nv-reboot.fwpkg")
 		require.NoError(t, os.WriteFile(existingFile, []byte("already here"), 0600))
@@ -345,6 +312,72 @@ func TestNICProvisioning_Execute(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to stop local DMS server")
 		assert.True(t, dmsServer.stopCalled)
+	})
+}
+
+func TestNICProvisioning_applyRuntimeConfigAndUpdateStatus(t *testing.T) {
+	t.Run("sets EWNICConfigured true on success", func(t *testing.T) {
+		op := &NICProvisioning{
+			applyRuntimeConfigFn: func(_ context.Context, _ *operations.Context) error { return nil },
+		}
+		ctx := &operations.Context{
+			Status: provisioningv1.AgentStatus{Conditions: []metav1.Condition{}},
+		}
+
+		require.NoError(t, op.applyRuntimeConfigAndUpdateStatus(context.Background(), ctx))
+		require.Len(t, ctx.Status.Conditions, 1)
+		assert.Equal(t, cutil.AgentCondEWNICConfigured, ctx.Status.Conditions[0].Type)
+		assert.Equal(t, metav1.ConditionTrue, ctx.Status.Conditions[0].Status)
+		assert.Equal(t, "RuntimeConfigApplied", ctx.Status.Conditions[0].Reason)
+	})
+
+	t.Run("sets EWNICConfigured false on failure", func(t *testing.T) {
+		op := &NICProvisioning{
+			applyRuntimeConfigFn: func(_ context.Context, _ *operations.Context) error { return errors.New("runtime apply failed") },
+		}
+		ctx := &operations.Context{
+			Status: provisioningv1.AgentStatus{Conditions: []metav1.Condition{}},
+		}
+
+		err := op.applyRuntimeConfigAndUpdateStatus(context.Background(), ctx)
+		require.Error(t, err)
+		require.Len(t, ctx.Status.Conditions, 1)
+		assert.Equal(t, cutil.AgentCondEWNICConfigured, ctx.Status.Conditions[0].Type)
+		assert.Equal(t, metav1.ConditionFalse, ctx.Status.Conditions[0].Status)
+		assert.Equal(t, "RuntimeConfigApplyFailed", ctx.Status.Conditions[0].Reason)
+	})
+}
+
+func TestNICProvisioning_applyNVConfigAndUpdateStatus(t *testing.T) {
+	t.Run("sets EWNICNVConfigApplied true on success", func(t *testing.T) {
+		op := &NICProvisioning{
+			applyNVConfigFn: func(_ context.Context, _ *operations.Context) error { return nil },
+		}
+		ctx := &operations.Context{
+			Status: provisioningv1.AgentStatus{Conditions: []metav1.Condition{}},
+		}
+
+		require.NoError(t, op.applyNVConfigAndUpdateStatus(context.Background(), ctx))
+		require.Len(t, ctx.Status.Conditions, 1)
+		assert.Equal(t, cutil.AgentCondEWNICNVConfigApplied, ctx.Status.Conditions[0].Type)
+		assert.Equal(t, metav1.ConditionTrue, ctx.Status.Conditions[0].Status)
+		assert.Equal(t, "NICNVConfigApplied", ctx.Status.Conditions[0].Reason)
+	})
+
+	t.Run("sets EWNICNVConfigApplied false on failure", func(t *testing.T) {
+		op := &NICProvisioning{
+			applyNVConfigFn: func(_ context.Context, _ *operations.Context) error { return errors.New("nvconfig apply failed") },
+		}
+		ctx := &operations.Context{
+			Status: provisioningv1.AgentStatus{Conditions: []metav1.Condition{}},
+		}
+
+		err := op.applyNVConfigAndUpdateStatus(context.Background(), ctx)
+		require.Error(t, err)
+		require.Len(t, ctx.Status.Conditions, 1)
+		assert.Equal(t, cutil.AgentCondEWNICNVConfigApplied, ctx.Status.Conditions[0].Type)
+		assert.Equal(t, metav1.ConditionFalse, ctx.Status.Conditions[0].Status)
+		assert.Equal(t, "NICNVConfigApplyFailed", ctx.Status.Conditions[0].Reason)
 	})
 }
 
