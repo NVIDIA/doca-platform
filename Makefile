@@ -531,16 +531,23 @@ verify-shfmt: $(SHFMT) ## Check shell scripts are formatted
 
 TESTPKGS ?= $$(go list ./... | grep -v /e2e | grep -v /third_party) ./test/e2e/cleanup/...
 COVERPKGS ?= $$(go list ./... | grep -v /e2e | grep -v /third_party | tr '\n' ',')
+# Packages that contain build-tagged (`//go:build benchmark`) benchmark specs.
+# Normalized to a leading ./ so `go test` treats them as directories, not import paths.
+BENCHMARK_PKGS ?= $$(grep -rl 'go:build benchmark' --include='*_test.go' . | grep -v '/third_party/' | xargs -n1 dirname | sort -u | sed 's|^\./||;s|^|./|')
 
 .PHONY: test
-test: envtest ## Run tests.
+test: envtest test-benchmark ## Run tests (incl. benchmarks).
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(TOOLSDIR) -p path)" go test -timeout 0 $(TESTPKGS) $(GO_TEST_ARGS)
 
 .PHONY: test-report
-test-report: envtest gotestsum ## Run tests and generate a junit style report
+test-report: envtest gotestsum test-benchmark ## Run tests and generate a junit style report
 	set +o errexit; GOTOOLCHAIN=$(GOTOOLCHAIN) KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(TOOLSDIR) -p path)" go test -timeout 0 -count 1 -race -json $(TESTPKGS) -coverprofile cover.out -coverpkg=$(COVERPKGS) > junit.stdout; echo $$? > junit.exitcode;
 	$(GOTESTSUM) --junitfile junit.xml --raw-command cat junit.stdout
 	exit $$(cat junit.exitcode)
+
+.PHONY: test-benchmark
+test-benchmark: envtest ## Run the build-tagged gmeasure benchmarks only
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(TOOLSDIR) -p path)" go test -timeout 0 -count 1 -tags benchmark $(BENCHMARK_PKGS) -args -ginkgo.focus='benchmarks' -ginkgo.v
 
 .PHONY: test-release-e2e-quick
 test-release-e2e-quick: # Build images required for the quick DPF e2e test.
