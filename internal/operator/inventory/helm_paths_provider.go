@@ -31,6 +31,8 @@ const (
 	openvSwitchSharedLibraryDirPathKey   = "openvSwitchSharedLibraryDir"
 	openvSwitchSharedLibrary64DirPathKey = "openvSwitchSharedLibrary64Dir"
 	skipCNIConfigInstallationKey         = "skipCNIConfigInstallation"
+	dpuLinkerCachePathKey                = "dpuLinkerCachePath"
+	dpuOptLibraryPathKey                 = "dpuOptLibraryPath"
 )
 
 // helmPathsProvider defines an interface for accessing Helm chart paths configuration

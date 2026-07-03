@@ -21,6 +21,8 @@ A Helm chart for Kubernetes
 | controllerManager.manager.secureFlowDeletionTimeout | string | `"0s"` | Zero indicates feature is disabled (default). Set a non zero value to timeout duration and enable this feature. Kubernetes can cause the pod to restart earlier under connectivity constraints in which case flows are always cleaned up under this mode. |
 | controllerManager.replicas | int | `1` |  |
 | controllerManager.serviceAccount.annotations | object | `{}` |  |
+| dpuLinkerCachePath | string | `""` |  |
+| dpuOptLibraryPath | string | `""` |  |
 | imagePullSecrets | list | `[]` |  |
 | openvSwitchBinDir | string | `"/usr/bin"` |  |
 | openvSwitchRunDir | string | `"/var/run/openvswitch"` |  |

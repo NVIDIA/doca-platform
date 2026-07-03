@@ -77,6 +77,16 @@ spec:
           name: ovs-vsctl
         - mountPath: /usr/bin/ovs-ofctl
           name: ovs-ofctl
+        {{- if .Values.dpuLinkerCachePath }}
+        - mountPath: {{ .Values.dpuLinkerCachePath }}
+          name: dpu-ld-cache
+          readOnly: true
+        {{- end }}
+        {{- if .Values.dpuOptLibraryPath }}
+        - mountPath: {{ .Values.dpuOptLibraryPath }}
+          name: dpu-opt-lib
+          readOnly: true
+        {{- end }}
         image: {{ .Values.controllerManager.manager.image.repository }}:{{ .Values.controllerManager.manager.image.tag
           | default .Chart.AppVersion }}
         securityContext:
@@ -158,3 +168,16 @@ spec:
           type: Directory
         name: lib64
       {{- end }}
+      {{- if .Values.dpuLinkerCachePath }}
+      - hostPath:
+          path: {{ .Values.dpuLinkerCachePath }}
+          type: File
+        name: dpu-ld-cache
+      {{- end }}
+      {{- if .Values.dpuOptLibraryPath }}
+      - hostPath:
+          path: {{ .Values.dpuOptLibraryPath }}
+          type: DirectoryOrCreate
+        name: dpu-opt-lib
+      {{- end }}
+

@@ -30,3 +30,12 @@ openvSwitchRunDir: /var/run/openvswitch
 openvSwitchBinDir: /usr/bin
 openvSwitchSharedLibraryDir: /lib
 openvSwitchSharedLibrary64Dir: ""
+# dpuLinkerCachePath, when set, mounts the given DPU path (expected: the
+# prebuilt dynamic-linker cache file, e.g. /etc/ld.so.cache) read-only into
+# the SFC Controller container. This lets host OVS binaries resolve shared
+# libraries using the DPU's linker configuration. Leave empty to skip.
+dpuLinkerCachePath: ""
+# dpuOptLibraryPath, when set, mounts the given DPU directory read-only into
+# the SFC Controller container. Useful on distributions that install vendor
+# libraries outside standard paths (e.g. /usr/opt on RHCOS BFB). Leave empty to skip.
+dpuOptLibraryPath: ""

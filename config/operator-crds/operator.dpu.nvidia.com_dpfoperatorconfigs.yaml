@@ -1118,6 +1118,15 @@ spec:
                       This is /etc/cni/net.d by default.
                       This setting does not change where kubelet is configured to read the CNI config from.
                     type: string
+                  dpuLinkerCachePath:
+                    description: |-
+                      DPULinkerCachePath is the path on the DPU at which the prebuilt dynamic-linker cache
+                      file can be found. When set, this file is mounted read-only into the SFC Controller
+                      container so that host OVS binaries can resolve shared libraries using the DPU's
+                      linker configuration. If not set, no linker cache mount is added.
+                      This setting does not change where components are installed. Installation location fixed in the BFB.
+                    minLength: 1
+                    type: string
                   dpuOpenvSwitchBinPath:
                     description: |-
                       DPUOpenvSwitchBinPath is the path at which the openvSwitch bin directory can be found on the DPU node.
@@ -1142,6 +1151,15 @@ spec:
                       DPUOpenvSwitchSystemSharedLibPath is the path at which the system lib used by OVS components can be found on the DPU.
                       This is /lib by default.
                       This setting does not change where components are installed. Installation location fixed in the BFB.
+                    type: string
+                  dpuOptLibraryPath:
+                    description: |-
+                      DPUOptLibraryPath is the path on the DPU at which an additional library directory
+                      can be found. When set, this directory is mounted read-only into the SFC Controller
+                      container. Useful on distributions that install vendor libraries outside the standard
+                      paths (e.g. /usr/opt on RHCOS BFB). If not set, no additional library directory is mounted.
+                      This setting does not change where components are installed. Installation location fixed in the BFB.
+                    minLength: 1
                     type: string
                   flannelSkipCNIConfigInstallation:
                     description: |-

@@ -956,6 +956,16 @@ func (in *Overrides) DeepCopyInto(out *Overrides) {
 		*out = new(string)
 		**out = **in
 	}
+	if in.DPULinkerCachePath != nil {
+		in, out := &in.DPULinkerCachePath, &out.DPULinkerCachePath
+		*out = new(string)
+		**out = **in
+	}
+	if in.DPUOptLibraryPath != nil {
+		in, out := &in.DPUOptLibraryPath, &out.DPUOptLibraryPath
+		*out = new(string)
+		**out = **in
+	}
 	if in.KubernetesAPIServerVIP != nil {
 		in, out := &in.KubernetesAPIServerVIP, &out.KubernetesAPIServerVIP
 		*out = new(string)
