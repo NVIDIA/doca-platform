@@ -87,6 +87,10 @@ func (r *DPUFlavor) ValidateCreate(ctx context.Context, obj runtime.Object) (adm
 		return admission.Warnings{}, apierrors.NewBadRequest(fmt.Sprintf("host network interface configs are misconfigured: %s", err.Error()))
 	}
 
+	if err := validateConfigFileContentRefs(dpuFlavor); err != nil {
+		return admission.Warnings{}, apierrors.NewBadRequest(fmt.Sprintf("config files are misconfigured: %s", err.Error()))
+	}
+
 	// NVConfig validation is fully handled by CEL in the CRD schema
 
 	return admission.Warnings{}, nil
@@ -188,6 +192,26 @@ func validateResources(flavor *provisioningv1.DPUFlavor) error {
 			return fmt.Errorf("reserved resource specified in spec.systemReservedResources exceed the ones defined in spec.dpuResources: Additional resources needed in spec.dpuResources: %v", e.AdditionalResourcesRequired)
 		}
 		return err
+	}
+	return nil
+}
+
+func validateConfigFileContentRefs(flavor *provisioningv1.DPUFlavor) error {
+	for i, file := range flavor.Spec.ConfigFiles {
+		if file.Type != nil && *file.Type == provisioningv1.ConfigFileTypeAgentApplied && file.Operation == provisioningv1.FileAppend {
+			return fmt.Errorf("configFiles[%d] uses unsupported combination: type=agent-applied with operation=append", i)
+		}
+
+		if file.ContentFrom == nil || file.ContentFrom.ConfigMapKeyRef == nil {
+			continue
+		}
+		ref := file.ContentFrom.ConfigMapKeyRef
+		if ref.Name == "" {
+			return fmt.Errorf("configFiles[%d].contentFrom.configMapKeyRef.name must be non-empty", i)
+		}
+		if ref.Key == "" {
+			return fmt.Errorf("configFiles[%d].contentFrom.configMapKeyRef.key must be non-empty", i)
+		}
 	}
 	return nil
 }

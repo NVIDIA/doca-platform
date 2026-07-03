@@ -78,6 +78,14 @@ spec:
     permissions: "0644"
     raw: |
       key=value
+  - operation: override
+    path: /etc/from-configmap.conf
+    permissions: "0644"
+    type: agent-applied
+    contentFrom:
+      configMapKeyRef:
+        name: test-cm
+        key: profile.conf
   grub:
     kernelParameters:
     - console=ttyAMA0
@@ -199,6 +207,9 @@ network:
 
 		configFile := getWriteFile(parsed, "/etc/test.conf")
 		Expect(configFile.Content).To(Equal("key=value\n"))
+		for _, f := range parsed.WriteFiles {
+			Expect(f.Path).NotTo(Equal("/etc/from-configmap.conf"))
+		}
 
 		ovsFile := getWriteFile(parsed, "/opt/dpf/ovs.sh")
 		Expect(ovsFile.Permissions).To(Equal("0755"))

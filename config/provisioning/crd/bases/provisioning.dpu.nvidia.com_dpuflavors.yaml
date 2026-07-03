@@ -49,7 +49,39 @@ spec:
               configFiles:
                 description: ConfigFiles are the files to be written on the DPU.
                 items:
+                  description: ConfigFile describes a file materialized from inline
+                    raw content or external contentFrom.
                   properties:
+                    contentFrom:
+                      description: |-
+                        ContentFrom references external content for the file.
+                        Supported only when type is agent-applied.
+                      properties:
+                        configMapKeyRef:
+                          description: ConfigMapKeyRef selects a key from a ConfigMap
+                            in the DPU namespace.
+                          properties:
+                            key:
+                              description: The key to select.
+                              type: string
+                            name:
+                              default: ""
+                              description: |-
+                                Name of the referent.
+                                This field is effectively required, but due to backwards compatibility is
+                                allowed to be empty. Instances of this type with an empty value here are
+                                almost certainly wrong.
+                                More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                              type: string
+                            optional:
+                              description: Specify whether the ConfigMap or its key
+                                must be defined
+                              type: boolean
+                          required:
+                          - key
+                          type: object
+                          x-kubernetes-map-type: atomic
+                      type: object
                     operation:
                       description: Operation is the operation to be performed on the
                         file.
@@ -65,9 +97,36 @@ spec:
                         file.
                       type: string
                     raw:
-                      description: Raw is the raw content of the file.
+                      description: |-
+                        Raw is the inline file content.
+                        Supported only when type is cloud-init. When type is omitted, type defaults
+                        to cloud-init and raw must be set.
                       type: string
+                    type:
+                      default: cloud-init
+                      description: |-
+                        Type controls when the file content is materialized.
+                        cloud-init files use raw inline content and are written during cloud-init.
+                        agent-applied files use contentFrom and are written later by dpu-agent.
+                        Defaults to cloud-init when omitted.
+                      enum:
+                      - cloud-init
+                      - agent-applied
+                      type: string
+                  required:
+                  - path
                   type: object
+                  x-kubernetes-validations:
+                  - message: exactly one of raw or contentFrom must be specified
+                    rule: has(self.raw) != has(self.contentFrom)
+                  - message: contentFrom.configMapKeyRef must be specified
+                    rule: '!has(self.contentFrom) || has(self.contentFrom.configMapKeyRef)'
+                  - message: type cloud-init supports raw only
+                    rule: '!has(self.type) || self.type != ''cloud-init'' || has(self.raw)'
+                  - message: type agent-applied supports contentFrom only
+                    rule: '!has(self.type) || self.type != ''agent-applied'' || has(self.contentFrom)'
+                  - message: type defaults to cloud-init, which requires raw content
+                    rule: has(self.type) || has(self.raw)
                 type: array
               containerdConfig:
                 description: ContainerdConfig contains the configuration for containerd.

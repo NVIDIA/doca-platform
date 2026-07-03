@@ -30,6 +30,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
+	"k8s.io/utils/ptr"
 )
 
 var _ = Describe("DPUFlavor", func() {
@@ -255,7 +256,7 @@ var _ = Describe("DPUFlavor", func() {
 			obj.Spec.Grub.KernelParameters = DefaultGrub
 			obj.Spec.Sysctl.Parameters = DefaultSysctl
 			obj.Spec.ConfigFiles = []provisioningv1.ConfigFile{
-				{Path: refValue},
+				{Path: refValue, Raw: ptr.To("")},
 			}
 			err := k8sClient.Create(ctx, obj)
 			Expect(err).NotTo(HaveOccurred())
@@ -738,6 +739,83 @@ spec:
 			_, err := webhook.ValidateDelete(ctx, &provisioningv1.DPU{}) // Wrong type
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("invalid object type"))
+		})
+
+		It("ValidateCreate should reject empty configMapKeyRef name", func() {
+			webhook := &DPUFlavor{}
+			fileType := provisioningv1.ConfigFileTypeAgentApplied
+			obj := &provisioningv1.DPUFlavor{
+				ObjectMeta: metav1.ObjectMeta{Name: "invalid-configmap-name", Namespace: "default"},
+				Spec: provisioningv1.DPUFlavorSpec{
+					ConfigFiles: []provisioningv1.ConfigFile{
+						{
+							Type: &fileType,
+							Path: "/etc/doca/profile.conf",
+							ContentFrom: &provisioningv1.ConfigFileContentSource{
+								ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+									Key: "profile.conf",
+								},
+							},
+						},
+					},
+				},
+			}
+
+			_, err := webhook.ValidateCreate(ctx, obj)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("configFiles[0].contentFrom.configMapKeyRef.name must be non-empty"))
+		})
+
+		It("ValidateCreate should reject empty configMapKeyRef key", func() {
+			webhook := &DPUFlavor{}
+			fileType := provisioningv1.ConfigFileTypeAgentApplied
+			obj := &provisioningv1.DPUFlavor{
+				ObjectMeta: metav1.ObjectMeta{Name: "invalid-configmap-key", Namespace: "default"},
+				Spec: provisioningv1.DPUFlavorSpec{
+					ConfigFiles: []provisioningv1.ConfigFile{
+						{
+							Type: &fileType,
+							Path: "/etc/doca/profile.conf",
+							ContentFrom: &provisioningv1.ConfigFileContentSource{
+								ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+									LocalObjectReference: corev1.LocalObjectReference{Name: "profile-cm"},
+								},
+							},
+						},
+					},
+				},
+			}
+
+			_, err := webhook.ValidateCreate(ctx, obj)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("configFiles[0].contentFrom.configMapKeyRef.key must be non-empty"))
+		})
+
+		It("ValidateCreate should reject type=agent-applied with operation=append", func() {
+			webhook := &DPUFlavor{}
+			fileType := provisioningv1.ConfigFileTypeAgentApplied
+			obj := &provisioningv1.DPUFlavor{
+				ObjectMeta: metav1.ObjectMeta{Name: "invalid-agent-append", Namespace: "default"},
+				Spec: provisioningv1.DPUFlavorSpec{
+					ConfigFiles: []provisioningv1.ConfigFile{
+						{
+							Type:      &fileType,
+							Path:      "/etc/doca/profile.conf",
+							Operation: provisioningv1.FileAppend,
+							ContentFrom: &provisioningv1.ConfigFileContentSource{
+								ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+									LocalObjectReference: corev1.LocalObjectReference{Name: "profile-cm"},
+									Key:                  "profile.conf",
+								},
+							},
+						},
+					},
+				},
+			}
+
+			_, err := webhook.ValidateCreate(ctx, obj)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("type=agent-applied with operation=append"))
 		})
 	})
 })

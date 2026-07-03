@@ -1688,7 +1688,7 @@ _Appears in:_
 
 
 
-
+ConfigFile describes a file materialized from inline raw content or external contentFrom.
 
 
 
@@ -1697,10 +1697,46 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `path` _string_ | Path is the path of the file to be written. |  | Optional: \{\} <br /> |
+| `type` _[ConfigFileType](#configfiletype)_ | Type controls when the file content is materialized.<br />cloud-init files use raw inline content and are written during cloud-init.<br />agent-applied files use contentFrom and are written later by dpu-agent.<br />Defaults to cloud-init when omitted. | cloud-init | Enum: [cloud-init agent-applied] <br />Optional: \{\} <br /> |
+| `path` _string_ | Path is the path of the file to be written. |  | Required: \{\} <br /> |
 | `operation` _[DPUFlavorFileOp](#dpuflavorfileop)_ | Operation is the operation to be performed on the file. |  | Enum: [override append] <br />Optional: \{\} <br /> |
-| `raw` _string_ | Raw is the raw content of the file. |  | Optional: \{\} <br /> |
+| `raw` _string_ | Raw is the inline file content.<br />Supported only when type is cloud-init. When type is omitted, type defaults<br />to cloud-init and raw must be set. |  | Optional: \{\} <br /> |
+| `contentFrom` _[ConfigFileContentSource](#configfilecontentsource)_ | ContentFrom references external content for the file.<br />Supported only when type is agent-applied. |  | Optional: \{\} <br /> |
 | `permissions` _string_ | Permissions are the permissions to be set on the file. |  | Optional: \{\} <br /> |
+
+
+#### ConfigFileContentSource
+
+
+
+
+
+
+
+_Appears in:_
+- [ConfigFile](#configfile)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `configMapKeyRef` _[ConfigMapKeySelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#configmapkeyselector-v1-core)_ | ConfigMapKeyRef selects a key from a ConfigMap in the DPU namespace. |  | Optional: \{\} <br /> |
+
+
+#### ConfigFileType
+
+_Underlying type:_ _string_
+
+ConfigFileType defines when a config file is materialized.
+
+_Validation:_
+- Enum: [cloud-init agent-applied]
+
+_Appears in:_
+- [ConfigFile](#configfile)
+
+| Field | Description |
+| --- | --- |
+| `cloud-init` |  |
+| `agent-applied` |  |
 
 
 #### ContainerdConfig
