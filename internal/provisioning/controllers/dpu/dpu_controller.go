@@ -275,6 +275,9 @@ func (r *DPUReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&corev1.Pod{},
 			handler.EnqueueRequestsFromMapFunc(r.bfbRegistryPodToRequest),
 			builder.WithPredicates(predicate.NewPredicateFuncs(r.isBFBRegistryPod))).
+		Watches(&corev1.Service{},
+			handler.EnqueueRequestsFromMapFunc(r.bfbRegistryServiceToRequest),
+			builder.WithPredicates(predicate.NewPredicateFuncs(r.isBFBRegistryService))).
 		Complete(r)
 }
 
@@ -329,6 +332,25 @@ func (r *DPUReconciler) bfbRegistryPodToRequest(ctx context.Context, obj client.
 	log.FromContext(ctx).Info("Mapping bfb-registry Pod to reconcile request", "pod", pod.Name, "namespace", pod.Namespace)
 	return []reconcile.Request{
 		{NamespacedName: types.NamespacedName{Namespace: pod.Namespace, Name: bfbregistry.PodName}},
+	}
+}
+
+func (r *DPUReconciler) isBFBRegistryService(obj client.Object) bool {
+	svc, ok := obj.(*corev1.Service)
+	if !ok {
+		return false
+	}
+	return svc.Name == bfbregistry.PodName
+}
+
+func (r *DPUReconciler) bfbRegistryServiceToRequest(ctx context.Context, obj client.Object) []reconcile.Request {
+	svc, ok := obj.(*corev1.Service)
+	if !ok {
+		return nil
+	}
+	log.FromContext(ctx).Info("Mapping bfb-registry Service to reconcile request", "service", svc.Name, "namespace", svc.Namespace)
+	return []reconcile.Request{
+		{NamespacedName: types.NamespacedName{Namespace: svc.Namespace, Name: bfbregistry.PodName}},
 	}
 }
 
