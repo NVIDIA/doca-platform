@@ -72,8 +72,23 @@ var _ = Describe("ZT Bootstrap", func() {
 		It("should create a role with correct rules and owner reference", func() {
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 			dpu.Spec.BlueFieldSoftware = ptr.To("bfs-1")
+			flavor := &provisioningv1.DPUFlavor{
+				Spec: provisioningv1.DPUFlavorSpec{
+					ConfigFiles: []provisioningv1.ConfigFile{
+						{
+							Type: ptr.To(provisioningv1.ConfigFileTypeAgentApplied),
+							ContentFrom: &provisioningv1.ConfigFileContentSource{
+								ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+									LocalObjectReference: corev1.LocalObjectReference{Name: "doca-profile"},
+									Key:                  "profile.conf",
+								},
+							},
+						},
+					},
+				},
+			}
 
-			err := CreateDPUAgentRole(ctx, fakeClient, scheme, dpu)
+			err := CreateDPUAgentRole(ctx, fakeClient, scheme, dpu, flavor)
 			Expect(err).NotTo(HaveOccurred())
 
 			role := &rbacv1.Role{}
@@ -82,7 +97,7 @@ var _ = Describe("ZT Bootstrap", func() {
 				Namespace: "dpf-operator-system",
 			}, role)).To(Succeed())
 
-			Expect(role.Rules).To(HaveLen(4))
+			Expect(role.Rules).To(HaveLen(5))
 			Expect(role.Rules[0].APIGroups).To(Equal([]string{"provisioning.dpu.nvidia.com"}))
 			Expect(role.Rules[0].Resources).To(Equal([]string{"dpus"}))
 			Expect(role.Rules[0].ResourceNames).To(Equal([]string{"dpu-01"}))
@@ -101,6 +116,10 @@ var _ = Describe("ZT Bootstrap", func() {
 			Expect(role.Rules[3].Resources).To(Equal([]string{"bluefieldsoftwares"}))
 			Expect(role.Rules[3].ResourceNames).To(Equal([]string{"bfs-1"}))
 			Expect(role.Rules[3].Verbs).To(Equal([]string{"get"}))
+			Expect(role.Rules[4].APIGroups).To(Equal([]string{""}))
+			Expect(role.Rules[4].Resources).To(Equal([]string{"configmaps"}))
+			Expect(role.Rules[4].ResourceNames).To(Equal([]string{"doca-profile"}))
+			Expect(role.Rules[4].Verbs).To(Equal([]string{"get"}))
 
 			Expect(role.OwnerReferences).To(HaveLen(1))
 			Expect(role.OwnerReferences[0].Name).To(Equal("dpu-01"))
@@ -110,8 +129,48 @@ var _ = Describe("ZT Bootstrap", func() {
 		It("should not fail when role already exists", func() {
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 
-			Expect(CreateDPUAgentRole(ctx, fakeClient, scheme, dpu)).To(Succeed())
-			Expect(CreateDPUAgentRole(ctx, fakeClient, scheme, dpu)).To(Succeed())
+			Expect(CreateDPUAgentRole(ctx, fakeClient, scheme, dpu, nil)).To(Succeed())
+			Expect(CreateDPUAgentRole(ctx, fakeClient, scheme, dpu, nil)).To(Succeed())
+		})
+
+		It("should update existing role when configmap references change", func() {
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+			Expect(CreateDPUAgentRole(ctx, fakeClient, scheme, dpu, nil)).To(Succeed())
+			flavor := &provisioningv1.DPUFlavor{
+				Spec: provisioningv1.DPUFlavorSpec{
+					ConfigFiles: []provisioningv1.ConfigFile{
+						{
+							Type: ptr.To(provisioningv1.ConfigFileTypeAgentApplied),
+							ContentFrom: &provisioningv1.ConfigFileContentSource{
+								ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+									LocalObjectReference: corev1.LocalObjectReference{Name: "cfg-a"},
+									Key:                  "k",
+								},
+							},
+						},
+						{
+							Type: ptr.To(provisioningv1.ConfigFileTypeAgentApplied),
+							ContentFrom: &provisioningv1.ConfigFileContentSource{
+								ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+									LocalObjectReference: corev1.LocalObjectReference{Name: "cfg-b"},
+									Key:                  "k",
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(CreateDPUAgentRole(ctx, fakeClient, scheme, dpu, flavor)).To(Succeed())
+
+			role := &rbacv1.Role{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{
+				Name:      "da-dpu-01",
+				Namespace: "dpf-operator-system",
+			}, role)).To(Succeed())
+			Expect(role.Rules).To(HaveLen(5))
+			Expect(role.Rules[4].Resources).To(Equal([]string{"configmaps"}))
+			Expect(role.Rules[4].ResourceNames).To(Equal([]string{"cfg-a", "cfg-b"}))
 		})
 	})
 

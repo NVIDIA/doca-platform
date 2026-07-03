@@ -22,6 +22,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"sort"
 	"time"
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
@@ -55,52 +56,111 @@ const (
 	DPUAgentBootstrapGroup = "system:bootstrappers:dpf:dpu-agent"
 )
 
-// CreateDPUAgentRole creates a per-DPU Role that restricts the DPU agent to
-// only its own DPU CR and kubeadm join Secret.
-func CreateDPUAgentRole(ctx context.Context, client crclient.Client, scheme *runtime.Scheme, dpu *provisioningv1.DPU) error {
+// CreateDPUAgentRole creates or updates a per-DPU Role that restricts the DPU
+// agent to only its own DPU CR and required bootstrap resources.
+func CreateDPUAgentRole(ctx context.Context, client crclient.Client, scheme *runtime.Scheme, dpu *provisioningv1.DPU, flavor *provisioningv1.DPUFlavor) error {
 	roleName := providentity.DPUAgentUsername(dpu.Name)
-	role := &rbacv1.Role{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      roleName,
-			Namespace: dpu.Namespace,
+	rules := []rbacv1.PolicyRule{
+		{
+			APIGroups:     []string{ProvisioningGroupName},
+			Resources:     []string{"dpus"},
+			ResourceNames: []string{dpu.Name},
+			Verbs:         []string{"get"},
 		},
-		Rules: []rbacv1.PolicyRule{
-			{
-				APIGroups:     []string{"provisioning.dpu.nvidia.com"},
-				Resources:     []string{"dpus"},
-				ResourceNames: []string{dpu.Name},
-				Verbs:         []string{"get"},
-			},
-			{
-				APIGroups:     []string{"provisioning.dpu.nvidia.com"},
-				Resources:     []string{"dpus/status"},
-				ResourceNames: []string{dpu.Name},
-				Verbs:         []string{"patch"},
-			},
-			{
-				APIGroups:     []string{""},
-				Resources:     []string{"secrets"},
-				ResourceNames: []string{KubeadmJoinSecretName(dpu.Name)},
-				Verbs:         []string{"get"},
-			},
-			{
-				APIGroups:     []string{"provisioning.dpu.nvidia.com"},
-				Resources:     []string{"bluefieldsoftwares"},
-				ResourceNames: []string{ptr.Deref(dpu.Spec.BlueFieldSoftware, "")},
-				Verbs:         []string{"get"},
-			},
+		{
+			APIGroups:     []string{ProvisioningGroupName},
+			Resources:     []string{"dpus/status"},
+			ResourceNames: []string{dpu.Name},
+			Verbs:         []string{"patch"},
+		},
+		{
+			APIGroups:     []string{""},
+			Resources:     []string{"secrets"},
+			ResourceNames: []string{KubeadmJoinSecretName(dpu.Name)},
+			Verbs:         []string{"get"},
+		},
+		{
+			APIGroups:     []string{ProvisioningGroupName},
+			Resources:     []string{"bluefieldsoftwares"},
+			ResourceNames: []string{ptr.Deref(dpu.Spec.BlueFieldSoftware, "")},
+			Verbs:         []string{"get"},
 		},
 	}
+	configMapNames := referencedConfigMapNames(flavor)
+	if len(configMapNames) > 0 {
+		rules = append(rules, rbacv1.PolicyRule{
+			APIGroups:     []string{""},
+			Resources:     []string{"configmaps"},
+			ResourceNames: configMapNames,
+			Verbs:         []string{"get"},
+		})
+	}
+
+	key := crclient.ObjectKey{Name: roleName, Namespace: dpu.Namespace}
+	role := &rbacv1.Role{}
+	if err := client.Get(ctx, key, role); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return fmt.Errorf("getting role %s: %w", roleName, err)
+		}
+		role = &rbacv1.Role{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      roleName,
+				Namespace: dpu.Namespace,
+			},
+			Rules: rules,
+		}
+		if err := controllerutil.SetOwnerReference(dpu, role, scheme); err != nil {
+			return fmt.Errorf("setting owner reference on role %s: %w", roleName, err)
+		}
+		if err := client.Create(ctx, role); err != nil {
+			if !apierrors.IsAlreadyExists(err) {
+				return fmt.Errorf("creating role %s: %w", roleName, err)
+			}
+			// Race: the role may appear between Get(NotFound) and Create.
+			// Re-get and continue with update path below.
+			if err := client.Get(ctx, key, role); err != nil {
+				return fmt.Errorf("re-getting role %s after already exists: %w", roleName, err)
+			}
+		} else {
+			return nil
+		}
+	}
+
+	role.Rules = rules
 	if err := controllerutil.SetOwnerReference(dpu, role, scheme); err != nil {
 		return fmt.Errorf("setting owner reference on role %s: %w", roleName, err)
 	}
-	if err := client.Create(ctx, role); err != nil {
-		if apierrors.IsAlreadyExists(err) {
-			return nil
-		}
-		return fmt.Errorf("creating role %s: %w", roleName, err)
+	if err := client.Update(ctx, role); err != nil {
+		return fmt.Errorf("updating role %s: %w", roleName, err)
 	}
 	return nil
+}
+
+func referencedConfigMapNames(flavor *provisioningv1.DPUFlavor) []string {
+	if flavor == nil {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	names := make([]string, 0, len(flavor.Spec.ConfigFiles))
+	for _, file := range flavor.Spec.ConfigFiles {
+		if file.Type == nil || *file.Type != provisioningv1.ConfigFileTypeAgentApplied {
+			continue
+		}
+		if file.ContentFrom == nil || file.ContentFrom.ConfigMapKeyRef == nil {
+			continue
+		}
+		name := file.ContentFrom.ConfigMapKeyRef.Name
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // CreateDPUAgentRoleBinding creates a per-DPU RoleBinding that binds the

@@ -121,8 +121,8 @@ func prepareBF3BFB(ctx context.Context, dpu *provisioningv1.DPU, bfCFG []byte, s
 	return bfCFGPath, nil
 }
 
-func ensureRBAC(ctx context.Context, ctrlCtx *dutil.ControllerContext, dpu *provisioningv1.DPU) (string, error) {
-	if err := cutil.CreateDPUAgentRole(ctx, ctrlCtx.Client, ctrlCtx.Client.Scheme(), dpu); err != nil {
+func ensureRBAC(ctx context.Context, ctrlCtx *dutil.ControllerContext, dpu *provisioningv1.DPU, flavor *provisioningv1.DPUFlavor) (string, error) {
+	if err := cutil.CreateDPUAgentRole(ctx, ctrlCtx.Client, ctrlCtx.Client.Scheme(), dpu, flavor); err != nil {
 		return "", fmt.Errorf("creating DPU agent role: %w", err)
 	}
 	if err := cutil.CreateDPUAgentRoleBinding(ctx, ctrlCtx.Client, ctrlCtx.Client.Scheme(), dpu); err != nil {
@@ -206,7 +206,7 @@ func PrepareBFB(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 		return *state, err
 	}
 
-	bootstrapToken, err := ensureRBAC(ctx, ctrlCtx, dpu)
+	bootstrapToken, err := ensureRBAC(ctx, ctrlCtx, dpu, flavor)
 	if err != nil {
 		err = fmt.Errorf("failed to ensure DPU agent RBAC: %w", err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToEnsureRBAC", err.Error()))

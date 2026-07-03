@@ -198,19 +198,53 @@ const (
 	FileAppend   DPUFlavorFileOp = "append"
 )
 
+// ConfigFileType defines when a config file is materialized.
+// +kubebuilder:validation:Enum=cloud-init;agent-applied
+type ConfigFileType string
+
+const (
+	ConfigFileTypeCloudInit    ConfigFileType = "cloud-init"
+	ConfigFileTypeAgentApplied ConfigFileType = "agent-applied"
+)
+
+// ConfigFile describes a file materialized from inline raw content or external contentFrom.
+// +kubebuilder:validation:XValidation:rule="has(self.raw) != has(self.contentFrom)",message="exactly one of raw or contentFrom must be specified"
+// +kubebuilder:validation:XValidation:rule="!has(self.contentFrom) || has(self.contentFrom.configMapKeyRef)",message="contentFrom.configMapKeyRef must be specified"
+// +kubebuilder:validation:XValidation:rule="!has(self.type) || self.type != 'cloud-init' || has(self.raw)",message="type cloud-init supports raw only"
+// +kubebuilder:validation:XValidation:rule="!has(self.type) || self.type != 'agent-applied' || has(self.contentFrom)",message="type agent-applied supports contentFrom only"
+// +kubebuilder:validation:XValidation:rule="has(self.type) || has(self.raw)",message="type defaults to cloud-init, which requires raw content"
 type ConfigFile struct {
-	// Path is the path of the file to be written.
+	// Type controls when the file content is materialized.
+	// cloud-init files use raw inline content and are written during cloud-init.
+	// agent-applied files use contentFrom and are written later by dpu-agent.
+	// Defaults to cloud-init when omitted.
+	// +kubebuilder:default=cloud-init
 	// +optional
-	Path string `json:"path,omitempty"`
+	Type *ConfigFileType `json:"type,omitempty"`
+	// Path is the path of the file to be written.
+	// +required
+	Path string `json:"path"`
 	// Operation is the operation to be performed on the file.
 	// +optional
 	Operation DPUFlavorFileOp `json:"operation,omitempty"`
-	// Raw is the raw content of the file.
+	// Raw is the inline file content.
+	// Supported only when type is cloud-init. When type is omitted, type defaults
+	// to cloud-init and raw must be set.
 	// +optional
-	Raw string `json:"raw,omitempty"`
+	Raw *string `json:"raw,omitempty"`
+	// ContentFrom references external content for the file.
+	// Supported only when type is agent-applied.
+	// +optional
+	ContentFrom *ConfigFileContentSource `json:"contentFrom,omitempty"`
 	// Permissions are the permissions to be set on the file.
 	// +optional
 	Permissions string `json:"permissions,omitempty"`
+}
+
+type ConfigFileContentSource struct {
+	// ConfigMapKeyRef selects a key from a ConfigMap in the DPU namespace.
+	// +optional
+	ConfigMapKeyRef *corev1.ConfigMapKeySelector `json:"configMapKeyRef,omitempty"`
 }
 
 // PackageSpec defines a package to reconcile on the node.
