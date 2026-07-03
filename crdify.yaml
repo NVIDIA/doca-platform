@@ -57,6 +57,10 @@ validations:
           kind: "DPFOperatorConfig"
           field: ".spec"
           error: "new required fields: [deploymentMode]"
+        - apiVersion: "provisioning.dpu.nvidia.com/v1alpha1"
+          kind: "DPUFlavor"
+          field: ".spec.configFiles[*]"
+          error: "new required fields: [path]"
   - name: minimum
     enforcement: Error
     configuration:
