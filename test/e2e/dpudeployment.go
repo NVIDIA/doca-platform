@@ -454,7 +454,7 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *SystemTestInp
 		ServiceConfiguration: "dpudeployment-example-serviceconfiguration-2",
 	}
 
-	if !isGinkgoLabelApplied(Domain.ZeroTrust) {
+	if !IsGinkgoLabelApplied(Domain.ZeroTrust) {
 		Expect(input.Client.Create(ctx, inClusterDPUServiceTemplate)).To(Succeed())
 		Expect(input.Client.Create(ctx, inClusterDPUServiceConfiguration)).To(Succeed())
 		dpuDeployment.Spec.Services["example-in-cluster"] = dpuservicev1.DPUDeploymentServiceConfiguration{

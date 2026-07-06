@@ -37,7 +37,7 @@ import (
 )
 
 func validateFlags() {
-	if !isGinkgoLabelApplied(Domain.ZeroTrust) {
+	if !IsGinkgoLabelApplied(Domain.ZeroTrust) {
 		return
 	}
 
@@ -54,7 +54,7 @@ func validateFlags() {
 		panic("ZeroTrust requires E2E_ZT_BMC_INVENTORY_PATH env var (path to the lab DPU-serial -> BMC IP inventory YAML)")
 	}
 
-	if isGinkgoLabelApplied(Domain.ExternalTest) {
+	if IsGinkgoLabelApplied(Domain.ExternalTest) {
 		if len(externalTest) == 0 {
 			panic("This script must be provided when External label is present")
 		}
@@ -117,7 +117,7 @@ func SetInput() *SystemTestInput {
 			ImagePullSecrets: []string{DPFPullSecretName, "pull-secret-extra"},
 		},
 	}
-	if isGinkgoLabelApplied(Domain.ZeroTrust) {
+	if IsGinkgoLabelApplied(Domain.ZeroTrust) {
 		dpfOperatorConfig.Spec.DeploymentMode = operatorv1.DeploymentModeZeroTrust
 		dpfOperatorConfig.Spec.StaticClusterManager.BaseComponentConfig.Disable = ptr.To(true)
 		dpfOperatorConfig.Spec.KamajiClusterManager.BaseComponentConfig.Disable = ptr.To(false)
@@ -148,7 +148,7 @@ func SetInput() *SystemTestInput {
 		dpfOperatorConfig.Spec.Overrides.KubernetesAPIServerPort = ptr.To(apiServerPort)
 	}
 
-	if isGinkgoLabelApplied(Domain.Scale) {
+	if IsGinkgoLabelApplied(Domain.Scale) {
 		// For scale environments, the nodes are fake, therefore we can't have DPUDetector running
 		dpfOperatorConfig.Spec.DPUDetector = &operatorv1.DPUDetectorConfiguration{
 			BaseComponentConfig: operatorv1.BaseComponentConfig{
@@ -176,7 +176,7 @@ func SetInput() *SystemTestInput {
 		dpfOperatorConfig.Spec.Overrides.ArgoCDNamespace = ptr.To(prereqsNamespace)
 	}
 
-	if isGinkgoLabelApplied(Domain.Performance) {
+	if IsGinkgoLabelApplied(Domain.Performance) {
 		apiServerHost := controlPlaneIP
 		apiServerPort := DefaultAPIServerPort
 		if targetClusterAPIServerHost != "" {
@@ -243,7 +243,7 @@ func SystemSetupBeforeSuite(skipSystemComponentValidation bool) {
 		SkipSystemComponentValidation: skipSystemComponentValidation,
 	})
 
-	if isGinkgoLabelApplied(Domain.ZeroTrust) {
+	if IsGinkgoLabelApplied(Domain.ZeroTrust) {
 		// In ZeroTrust mode, build a DPUNode-to-host BMC IP map from the lab inventory file
 		// for the script-based reboot path (nodeRebootMethod.script).
 		input.DPUNodeBMCs = GetDPUNodeToBMCIPs(
@@ -256,7 +256,7 @@ func SystemSetupBeforeSuite(skipSystemComponentValidation bool) {
 			input.NodeRebootConfigMap, input.DPUNodeBMCs)
 	}
 
-	if isGinkgoLabelApplied(Domain.Performance) {
+	if IsGinkgoLabelApplied(Domain.Performance) {
 		vip := *input.Config.Spec.Overrides.KubernetesAPIServerVIP
 		port := *input.Config.Spec.Overrides.KubernetesAPIServerPort
 		PatchNFDWorkerForVIP(Ctx, input.Client, input.Namespace, vip, port)

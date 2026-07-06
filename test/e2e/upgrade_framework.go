@@ -226,7 +226,7 @@ func InstallPhase(description string, in InstallPhaseInput) {
 		})
 
 		It("get DPUCluster client", func() {
-			getDPUClusterClients(Ctx, GetProvisionDPUClustersInput())
+			GetDPUClusterClients(Ctx, GetProvisionDPUClustersInput())
 		})
 
 		It("wait for DPUs to be provisioned", func() {
@@ -290,7 +290,7 @@ func ValidationPhase(description string, in ValidationPhaseInput) {
 		// so it never re-binds, and later DPU-cluster calls (e.g. artifact
 		// capture) fail with "connection refused".
 		It("get DPUCluster client", func() {
-			getDPUClusterClients(Ctx, GetProvisionDPUClustersInput())
+			GetDPUClusterClients(Ctx, GetProvisionDPUClustersInput())
 		})
 		It("validate DPUCluster is healthy", func() {
 			VerifyDPUClusterWithNodes(Ctx, GetProvisionDPUClustersInput())

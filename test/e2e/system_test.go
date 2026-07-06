@@ -309,7 +309,7 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 			VerifyDPUDeploymentIsReady(Ctx, input)
 		})
 		It("should validate DPUDeployment disruptive upgrade of standard DPUServices", Labels{Domain.ZeroTrust}, func() {
-			if isGinkgoLabelApplied(Domain.ZeroTrust) {
+			if IsGinkgoLabelApplied(Domain.ZeroTrust) {
 				ValidateDPUDeploymentDPUServiceDisruptiveUpgradeHold(Ctx, input)
 			} else {
 				ValidateDPUDeploymentDPUServiceDisruptiveUpgradeDrain(Ctx, input)
@@ -322,7 +322,7 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 			ValidateDPUDeploymentInClusterDPUServiceDisruptiveUpgrade(Ctx, input)
 		})
 		It("should validate DPUDeployment disruptive upgrade of DPUServiceChain", Labels{Domain.ZeroTrust}, func() {
-			if isGinkgoLabelApplied(Domain.ZeroTrust) {
+			if IsGinkgoLabelApplied(Domain.ZeroTrust) {
 				ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeHold(Ctx, input)
 			} else {
 				ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeDrain(Ctx, input)

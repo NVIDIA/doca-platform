@@ -150,12 +150,12 @@ type SystemTestInput struct {
 
 func (t *SystemTestInput) ApplySDNConfig(conf Config) {
 	dpuServiceInterfaceTemplate := &dpuservicev1.DPUServiceInterface{}
-	dsiTemplate := unstructuredFromFile(conf.DPUServiceInterfaceTemplatePath)
+	dsiTemplate := UnstructuredFromFile(conf.DPUServiceInterfaceTemplatePath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(dsiTemplate.Object, dpuServiceInterfaceTemplate)).To(Succeed())
 	t.DPUServiceInterfaceTemplate = dpuServiceInterfaceTemplate
 
 	dpuServiceHBN := &dpuservicev1.DPUService{}
-	svcHBN := unstructuredFromFile(conf.DPUServiceHBNPath)
+	svcHBN := UnstructuredFromFile(conf.DPUServiceHBNPath)
 
 	// Override HBN image if HBN_IMAGE_URL is set
 	if hbnImageURL != "" {
@@ -179,17 +179,17 @@ func (t *SystemTestInput) ApplySDNConfig(conf Config) {
 	t.DPUServiceHBN = dpuServiceHBN
 
 	dpuServiceIPAMTemplate := &dpuservicev1.DPUServiceIPAM{}
-	ipam := unstructuredFromFile(conf.DPUServiceIPAMTemplatePath)
+	ipam := UnstructuredFromFile(conf.DPUServiceIPAMTemplatePath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(ipam.Object, dpuServiceIPAMTemplate)).To(Succeed())
 	t.DPUServiceIPAMTemplate = dpuServiceIPAMTemplate
 
 	dpuServiceNAD := &dpuservicev1.DPUServiceNAD{}
-	nad := unstructuredFromFile(conf.DPUServiceNADPath)
+	nad := UnstructuredFromFile(conf.DPUServiceNADPath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(nad.Object, dpuServiceNAD)).To(Succeed())
 	t.DPUServiceNAD = dpuServiceNAD
 
 	dpuServiceChainTemplate := &dpuservicev1.DPUServiceChain{}
-	chainTemplate := unstructuredFromFile(conf.DPUServiceChainTemplatePath)
+	chainTemplate := UnstructuredFromFile(conf.DPUServiceChainTemplatePath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(chainTemplate.Object, dpuServiceChainTemplate)).To(Succeed())
 	t.DPUServiceChainTemplate = dpuServiceChainTemplate
 }
@@ -232,26 +232,26 @@ func updateImagePullSecret(svc *unstructured.Unstructured, secretName string) {
 func (t *SystemTestInput) ApplyConfig(conf Config) {
 	if conf.BFBPath != nil {
 		bfb := &provisioningv1.BFB{}
-		bfbUnstructured := unstructuredFromFile(*conf.BFBPath)
+		bfbUnstructured := UnstructuredFromFile(*conf.BFBPath)
 		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(bfbUnstructured.Object, bfb)).To(Succeed())
 		t.BFB = bfb
 	}
 
 	if conf.BlueFieldSoftwarePath != nil {
 		blueFieldSoftware := &provisioningv1.BlueFieldSoftware{}
-		bfsUnstructured := unstructuredFromFile(*conf.BlueFieldSoftwarePath)
+		bfsUnstructured := UnstructuredFromFile(*conf.BlueFieldSoftwarePath)
 		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(bfsUnstructured.Object, blueFieldSoftware)).To(Succeed())
 		t.BlueFieldSoftware = blueFieldSoftware
 	}
 
 	dpuSet := &provisioningv1.DPUSet{}
-	dpuSetUnstructured := unstructuredFromFile(conf.DPUSetPath)
+	dpuSetUnstructured := UnstructuredFromFile(conf.DPUSetPath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(dpuSetUnstructured.Object, dpuSet)).To(Succeed())
 	t.DPUSet = dpuSet
 
 	pvc := &corev1.PersistentVolumeClaim{}
 	if conf.ProvisioningControllerPVCPath != nil {
-		pvcUnstructured := unstructuredFromFile(*conf.ProvisioningControllerPVCPath)
+		pvcUnstructured := UnstructuredFromFile(*conf.ProvisioningControllerPVCPath)
 		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(pvcUnstructured.Object, pvc)).To(Succeed())
 		t.PVC = pvc
 	}
@@ -260,7 +260,7 @@ func (t *SystemTestInput) ApplyConfig(conf Config) {
 	t.DPUClusters = make([]*provisioningv1.DPUCluster, 0, len(conf.DPUClusterPaths))
 	for _, dpuClusterPath := range conf.DPUClusterPaths {
 		dpuCluster := &provisioningv1.DPUCluster{}
-		dpuClusterUnstructured := unstructuredFromFile(dpuClusterPath)
+		dpuClusterUnstructured := UnstructuredFromFile(dpuClusterPath)
 		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(dpuClusterUnstructured.Object, dpuCluster)).To(Succeed())
 		// Override interface if DPUCLUSTER_INTERFACE environment variable is set
 		if dpuClusterInterface != "" && dpuCluster.Spec.ClusterEndpoint != nil && dpuCluster.Spec.ClusterEndpoint.Keepalived != nil {
@@ -272,47 +272,47 @@ func (t *SystemTestInput) ApplyConfig(conf Config) {
 
 	if conf.DPUDiscoveryPath != nil {
 		dpuDiscovery := &provisioningv1.DPUDiscovery{}
-		dpuDiscoveryUnstructured := unstructuredFromFile(*conf.DPUDiscoveryPath)
+		dpuDiscoveryUnstructured := UnstructuredFromFile(*conf.DPUDiscoveryPath)
 		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(dpuDiscoveryUnstructured.Object, dpuDiscovery)).To(Succeed())
 		t.DPUDiscovery = dpuDiscovery
 	}
 
 	dpuServiceInterface := &dpuservicev1.DPUServiceInterface{}
-	dsi := unstructuredFromFile(conf.DPUServiceInterfacePath)
+	dsi := UnstructuredFromFile(conf.DPUServiceInterfacePath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(dsi.Object, dpuServiceInterface)).To(Succeed())
 	t.DPUServiceInterface = dpuServiceInterface
 
 	dpuService := &dpuservicev1.DPUService{}
-	svc := unstructuredFromFile(conf.DPUServicePath)
+	svc := UnstructuredFromFile(conf.DPUServicePath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(svc.Object, dpuService)).To(Succeed())
 	t.DPUService = dpuService
 
 	dpuClusterPrerequisiteObjects := []client.Object{}
 	for _, path := range conf.DPUClusterPrerequisiteObjectPaths {
-		dpuClusterPrerequisiteObjects = append(dpuClusterPrerequisiteObjects, unstructuredFromFile(path))
+		dpuClusterPrerequisiteObjects = append(dpuClusterPrerequisiteObjects, UnstructuredFromFile(path))
 	}
 	t.DPUClusterPrerequisites = dpuClusterPrerequisiteObjects
 
 	dpuServiceTemplate := &dpuservicev1.DPUServiceTemplate{}
-	tmp := unstructuredFromFile(conf.DPUServiceTemplatePath)
+	tmp := UnstructuredFromFile(conf.DPUServiceTemplatePath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(tmp.Object, dpuServiceTemplate)).To(Succeed())
 	t.DPUServiceTemplate = dpuServiceTemplate
 
 	dpuServiceConfiguration := &dpuservicev1.DPUServiceConfiguration{}
-	svcConfig := unstructuredFromFile(conf.DPUServiceConfiguration)
+	svcConfig := UnstructuredFromFile(conf.DPUServiceConfiguration)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(svcConfig.Object, dpuServiceConfiguration)).To(Succeed())
 	t.DPUServiceConfiguration = dpuServiceConfiguration
 
 	if conf.AdditionalDPUServiceTemplatePath != nil {
 		additionalTemplate := &dpuservicev1.DPUServiceTemplate{}
-		tmp := unstructuredFromFile(*conf.AdditionalDPUServiceTemplatePath)
+		tmp := UnstructuredFromFile(*conf.AdditionalDPUServiceTemplatePath)
 		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(tmp.Object, additionalTemplate)).To(Succeed())
 		t.AdditionalDPUServiceTemplate = additionalTemplate
 	}
 
 	if conf.AdditionalDPUServiceConfigurationPath != nil {
 		additionalConfiguration := &dpuservicev1.DPUServiceConfiguration{}
-		svcConfig := unstructuredFromFile(*conf.AdditionalDPUServiceConfigurationPath)
+		svcConfig := UnstructuredFromFile(*conf.AdditionalDPUServiceConfigurationPath)
 		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(svcConfig.Object, additionalConfiguration)).To(Succeed())
 		t.AdditionalDPUServiceConfiguration = additionalConfiguration
 	}
@@ -320,19 +320,19 @@ func (t *SystemTestInput) ApplyConfig(conf Config) {
 	t.DPUServiceInterfacesHBN = make([]*dpuservicev1.DPUServiceInterface, 0, len(conf.DPUServiceInterfacesHBNPaths))
 	for _, path := range conf.DPUServiceInterfacesHBNPaths {
 		iface := &dpuservicev1.DPUServiceInterface{}
-		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(unstructuredFromFile(path).Object, iface)).To(Succeed())
+		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(UnstructuredFromFile(path).Object, iface)).To(Succeed())
 		t.DPUServiceInterfacesHBN = append(t.DPUServiceInterfacesHBN, iface)
 	}
 
 	if conf.DPUServiceInterfaceOVNPath != nil {
 		ovnIface := &dpuservicev1.DPUServiceInterface{}
-		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(unstructuredFromFile(*conf.DPUServiceInterfaceOVNPath).Object, ovnIface)).To(Succeed())
+		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(UnstructuredFromFile(*conf.DPUServiceInterfaceOVNPath).Object, ovnIface)).To(Succeed())
 		t.DPUServiceInterfaceOVN = ovnIface
 	}
 
 	if conf.DPUServiceTemplateOVNPath != nil {
 		dpuServiceTemplateOVN := &dpuservicev1.DPUServiceTemplate{}
-		ovnTmp := unstructuredFromFile(*conf.DPUServiceTemplateOVNPath)
+		ovnTmp := UnstructuredFromFile(*conf.DPUServiceTemplateOVNPath)
 		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(ovnTmp.Object, dpuServiceTemplateOVN)).To(Succeed())
 		if repoURL, found := os.LookupEnv("OVN_KUBERNETES_REPO_URL"); found {
 			dpuServiceTemplateOVN.Spec.HelmChart.Source.RepoURL = repoURL
@@ -345,7 +345,7 @@ func (t *SystemTestInput) ApplyConfig(conf Config) {
 
 	if conf.DPUServiceTemplateHBNPath != nil {
 		dpuServiceTemplateHBN := &dpuservicev1.DPUServiceTemplate{}
-		hbnTmp := unstructuredFromFile(*conf.DPUServiceTemplateHBNPath)
+		hbnTmp := UnstructuredFromFile(*conf.DPUServiceTemplateHBNPath)
 		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(hbnTmp.Object, dpuServiceTemplateHBN)).To(Succeed())
 		if repoURL, found := os.LookupEnv("HBN_CHART_REPO"); found {
 			dpuServiceTemplateHBN.Spec.HelmChart.Source.RepoURL = repoURL
@@ -358,26 +358,26 @@ func (t *SystemTestInput) ApplyConfig(conf Config) {
 
 	if conf.DPUServiceConfigurationOVNPath != nil {
 		dpuServiceConfigurationOVN := &dpuservicev1.DPUServiceConfiguration{}
-		ovnCfg := unstructuredFromFile(*conf.DPUServiceConfigurationOVNPath)
+		ovnCfg := UnstructuredFromFile(*conf.DPUServiceConfigurationOVNPath)
 		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(ovnCfg.Object, dpuServiceConfigurationOVN)).To(Succeed())
 		t.DPUServiceConfigurationOVN = dpuServiceConfigurationOVN
 	}
 
 	if conf.DPUServiceConfigurationHBNPath != nil {
 		dpuServiceConfigurationHBN := &dpuservicev1.DPUServiceConfiguration{}
-		hbnCfg := unstructuredFromFile(*conf.DPUServiceConfigurationHBNPath)
+		hbnCfg := UnstructuredFromFile(*conf.DPUServiceConfigurationHBNPath)
 		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(hbnCfg.Object, dpuServiceConfigurationHBN)).To(Succeed())
 		t.DPUServiceConfigurationHBN = dpuServiceConfigurationHBN
 	}
 
 	dpuDeployment := &dpuservicev1.DPUDeployment{}
-	deployment := unstructuredFromFile(conf.DPUDeploymentPath)
+	deployment := UnstructuredFromFile(conf.DPUDeploymentPath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(deployment.Object, dpuDeployment)).To(Succeed())
 	t.DPUDeployment = dpuDeployment
 
 	dpuFlavor := &provisioningv1.DPUFlavor{}
 	if conf.DPUFlavorPath != nil {
-		dpuFlavorUnstructured := unstructuredFromFile(*conf.DPUFlavorPath)
+		dpuFlavorUnstructured := UnstructuredFromFile(*conf.DPUFlavorPath)
 		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(dpuFlavorUnstructured.Object, dpuFlavor)).To(Succeed())
 		t.DPUFlavor = dpuFlavor
 		t.DPUDeployment.Spec.DPUs.Flavor = dpuFlavor.Name
@@ -385,28 +385,28 @@ func (t *SystemTestInput) ApplyConfig(conf Config) {
 	}
 
 	ipPoolDPUServiceIPAM := &dpuservicev1.DPUServiceIPAM{}
-	subnetIPAM := unstructuredFromFile(conf.IPPoolDPUServiceIPAMPath)
+	subnetIPAM := UnstructuredFromFile(conf.IPPoolDPUServiceIPAMPath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(subnetIPAM.Object, ipPoolDPUServiceIPAM)).To(Succeed())
 	t.IPPoolDPUServiceIPAM = ipPoolDPUServiceIPAM
 
 	cidrDPUServiceIPAM := &dpuservicev1.DPUServiceIPAM{}
-	cidrIPAM := unstructuredFromFile(conf.CIDRPoolDPUServiceIPAMPath)
+	cidrIPAM := UnstructuredFromFile(conf.CIDRPoolDPUServiceIPAMPath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(cidrIPAM.Object, cidrDPUServiceIPAM)).To(Succeed())
 	t.CIDRDPUServiceIPAM = cidrDPUServiceIPAM
 
 	dpuServiceChain := &dpuservicev1.DPUServiceChain{}
-	chain := unstructuredFromFile(conf.DPUServiceChainPath)
+	chain := UnstructuredFromFile(conf.DPUServiceChainPath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(chain.Object, dpuServiceChain)).To(Succeed())
 	t.DPUServiceChain = dpuServiceChain
 
 	dpuServiceCredentialRequest := &dpuservicev1.DPUServiceCredentialRequest{}
-	request := unstructuredFromFile(conf.DPUServiceCredentialRequestPath)
+	request := UnstructuredFromFile(conf.DPUServiceCredentialRequestPath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(request.Object, dpuServiceCredentialRequest)).To(Succeed())
 	t.DPUServiceCredentialRequest = dpuServiceCredentialRequest
 
 	if conf.OVNCredentialRequestPath != nil {
 		ovnCredentialRequest := &dpuservicev1.DPUServiceCredentialRequest{}
-		ovnCR := unstructuredFromFile(*conf.OVNCredentialRequestPath)
+		ovnCR := UnstructuredFromFile(*conf.OVNCredentialRequestPath)
 		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(ovnCR.Object, ovnCredentialRequest)).To(Succeed())
 		t.OVNCredentialRequest = ovnCredentialRequest
 	}
@@ -490,7 +490,7 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 	By("Create the DPFOperatorConfig for the system")
 	Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, input.OperatorConfig))).NotTo(HaveOccurred())
 
-	if isGinkgoLabelApplied(Domain.ZeroTrust) {
+	if IsGinkgoLabelApplied(Domain.ZeroTrust) {
 		By("Deploy DPUDiscovery for ZeroTrust")
 		CreateDPUDiscovery(ctx, input)
 	}
@@ -527,7 +527,7 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 
 	}).WithTimeout(300 * time.Second).Should(Succeed())
 
-	if isGinkgoLabelApplied(Domain.ZeroTrust) {
+	if IsGinkgoLabelApplied(Domain.ZeroTrust) {
 		By("Verify bfb-registry Service and pods (created by provisioning controller leader)")
 		Eventually(func(g Gomega) {
 			svc := &corev1.Service{}
@@ -660,7 +660,7 @@ func ProvisionDPUClusters(ctx context.Context, input ProvisionDPUClustersInput) 
 	}).WithTimeout(300 * time.Second).Should(Succeed())
 
 	By("Creating a client for the DPUCluster")
-	getDPUClusterClients(ctx, input)
+	GetDPUClusterClients(ctx, input)
 }
 
 // ProvisionBFBOrBlueFieldSoftwareAndDPUFlavor creates the BFB or BlueFieldSoftware and optionally the DPUFlavor resources.
@@ -705,7 +705,7 @@ func ProvisionBFB(ctx context.Context, input ProvisionDPUClustersInput) {
 		g.Expect(bfb.Status.Phase).To(Equal(provisioningv1.BFBReady))
 	}).WithTimeout(10 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 
-	if isGinkgoLabelApplied(Domain.ZeroTrust) {
+	if IsGinkgoLabelApplied(Domain.ZeroTrust) {
 		By("Verifying BFB file is reachable")
 		bfb := &provisioningv1.BFB{}
 		Expect(input.Client.Get(ctx, client.ObjectKey{
@@ -846,7 +846,7 @@ func VerifyDPUClusterWithNodes(ctx context.Context, input ProvisionDPUClustersIn
 		return
 	}
 
-	if isGinkgoLabelApplied(Domain.ZeroTrust) {
+	if IsGinkgoLabelApplied(Domain.ZeroTrust) {
 		ProcessDPUNodeMaintenanceHold(ctx, input)
 		WaitForDPUReboot(ctx, input)
 	}
@@ -1265,9 +1265,9 @@ func verifyDPUServicesReady(ctx context.Context, input *SystemTestInput, dpuServ
 	}).WithTimeout(20 * time.Minute).Should(Succeed())
 }
 
-// getDPUClusterClient retrieves the DPUCluster client for the cluster at the given index. This function is internal and should not be called directly.
+// GetDPUClusterClient retrieves the DPUCluster client for the cluster at the given index. This function is internal and should not be called directly.
 // Instead, use getDPUClusterClients to retrieve all clients for all clusters.
-func getDPUClusterClient(ctx context.Context, input ProvisionDPUClustersInput, clusterIndex int) {
+func GetDPUClusterClient(ctx context.Context, input ProvisionDPUClustersInput, clusterIndex int) {
 	var tun *tunnel.Tunnel
 
 	Eventually(func(g Gomega) {
@@ -1313,7 +1313,7 @@ func getDPUClusterClient(ctx context.Context, input ProvisionDPUClustersInput, c
 				if !tun.IsHealthy() {
 					By("Tunnel health check failed, recreating client and rest config")
 					tun.Close()
-					getDPUClusterClient(ctx, input, clusterIndex)
+					GetDPUClusterClient(ctx, input, clusterIndex)
 					return
 				}
 			}
@@ -1321,9 +1321,9 @@ func getDPUClusterClient(ctx context.Context, input ProvisionDPUClustersInput, c
 	}()
 }
 
-// getDPUClusterClients retrieves the DPUCluster clients for all clusters in the input.
+// GetDPUClusterClients retrieves the DPUCluster clients for all clusters in the input.
 // This function must only be called once per test suite as it initializes stable global client wrappers.
-func getDPUClusterClients(ctx context.Context, input ProvisionDPUClustersInput) {
+func GetDPUClusterClients(ctx context.Context, input ProvisionDPUClustersInput) {
 	if dpuClusterClientsInitialized {
 		warningMsg := "WARNING: getDPUClusterClients called multiple times - " +
 			"skipping reinitialization (this may indicate a test structure issue)"
@@ -1343,7 +1343,7 @@ func getDPUClusterClients(ctx context.Context, input ProvisionDPUClustersInput) 
 	}
 
 	for i := range input.DPUClusters {
-		getDPUClusterClient(ctx, input, i)
+		GetDPUClusterClient(ctx, input, i)
 	}
 }
 
@@ -1482,7 +1482,7 @@ func PatchDPUNodesForScriptReboot(ctx context.Context, c client.Client,
 	}
 }
 
-func unstructuredFromFile(path string) *unstructured.Unstructured {
+func UnstructuredFromFile(path string) *unstructured.Unstructured {
 	data, err := os.ReadFile(path)
 	Expect(err).ToNot(HaveOccurred())
 	obj := &unstructured.Unstructured{}

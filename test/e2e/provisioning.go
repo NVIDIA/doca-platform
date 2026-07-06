@@ -261,7 +261,7 @@ func CreateProvisioningDPUCluster(ctx context.Context, input *SystemTestInput) {
 
 	By("Creating DPU cluster client connection")
 	// getDPUClusterClients requires ProvisionDPUClustersInput (defined in system_setup.go)
-	getDPUClusterClients(ctx, ProvisionDPUClustersInput{
+	GetDPUClusterClients(ctx, ProvisionDPUClustersInput{
 		DPUClusters: input.DPUClusters,
 		Client:      input.Client,
 		RestConfig:  input.RestConfig,

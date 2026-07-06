@@ -70,7 +70,7 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 			// Cleanup any VPC-related resources from previous test runs (when tests were run with skip cleanup)
 			vpcPrerequisiteScope.CleanupBefore()
 			vpcOvnContextScope.CleanupBefore()
-			getDPUClusterClients(Ctx, GetProvisionDPUClustersInput())
+			GetDPUClusterClients(Ctx, GetProvisionDPUClustersInput())
 		}
 	})
 

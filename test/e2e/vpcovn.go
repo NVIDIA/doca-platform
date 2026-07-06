@@ -81,42 +81,42 @@ type VPCOVNTestInput struct {
 
 func (t *VPCOVNTestInput) ApplyVPCOVNConfig(conf Config) {
 	dpuServiceIPAMTemplate := &dpuservicev1.DPUServiceIPAM{}
-	ipam := unstructuredFromFile(conf.DPUServiceIPAMTemplatePath)
+	ipam := UnstructuredFromFile(conf.DPUServiceIPAMTemplatePath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(ipam.Object, dpuServiceIPAMTemplate)).To(Succeed())
 	t.DPUServiceIPAMTemplate = dpuServiceIPAMTemplate
 
 	dpuServiceInterfaceTemplate := &dpuservicev1.DPUServiceInterface{}
-	dsiTemplate := unstructuredFromFile(conf.DPUServiceInterfaceTemplatePath)
+	dsiTemplate := UnstructuredFromFile(conf.DPUServiceInterfaceTemplatePath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(dsiTemplate.Object, dpuServiceInterfaceTemplate)).To(Succeed())
 	t.DPUServiceInterfaceTemplate = dpuServiceInterfaceTemplate
 
 	dpuServiceChainTemplate := &dpuservicev1.DPUServiceChain{}
-	chainTemplate := unstructuredFromFile(conf.DPUServiceChainTemplatePath)
+	chainTemplate := UnstructuredFromFile(conf.DPUServiceChainTemplatePath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(chainTemplate.Object, dpuServiceChainTemplate)).To(Succeed())
 	t.DPUServiceChainTemplate = dpuServiceChainTemplate
 
 	dpuServiceOVNCentral := &dpuservicev1.DPUService{}
-	svcOVNCentral := unstructuredFromFile(conf.DPUServiceOVNCentralPath)
+	svcOVNCentral := UnstructuredFromFile(conf.DPUServiceOVNCentralPath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(svcOVNCentral.Object, dpuServiceOVNCentral)).To(Succeed())
 	t.DPUServiceOVNCentral = dpuServiceOVNCentral
 
 	dpuServiceOVNController := &dpuservicev1.DPUService{}
-	svcOVNController := unstructuredFromFile(conf.DPUServiceOVNControllerPath)
+	svcOVNController := UnstructuredFromFile(conf.DPUServiceOVNControllerPath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(svcOVNController.Object, dpuServiceOVNController)).To(Succeed())
 	t.DPUServiceOVNController = dpuServiceOVNController
 
 	dpuServiceVPCOVNController := &dpuservicev1.DPUService{}
-	svcVPCOVNController := unstructuredFromFile(conf.DPUServiceVPCOVNControllerPath)
+	svcVPCOVNController := UnstructuredFromFile(conf.DPUServiceVPCOVNControllerPath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(svcVPCOVNController.Object, dpuServiceVPCOVNController)).To(Succeed())
 	t.DPUServiceVPCOVNController = dpuServiceVPCOVNController
 
 	dpuServiceVPCOVNNode := &dpuservicev1.DPUService{}
-	svcVPCOVNNode := unstructuredFromFile(conf.DPUServiceVPCOVNNodePath)
+	svcVPCOVNNode := UnstructuredFromFile(conf.DPUServiceVPCOVNNodePath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(svcVPCOVNNode.Object, dpuServiceVPCOVNNode)).To(Succeed())
 	t.DPUServiceVPCOVNNode = dpuServiceVPCOVNNode
 
 	dhcpDaemonSet := &appsv1.DaemonSet{}
-	dhcpObj := unstructuredFromFile(conf.DHCPDaemonSetPath)
+	dhcpObj := UnstructuredFromFile(conf.DHCPDaemonSetPath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(dhcpObj.Object, dhcpDaemonSet)).To(Succeed())
 	t.DHCPDaemonSet = dhcpDaemonSet
 }

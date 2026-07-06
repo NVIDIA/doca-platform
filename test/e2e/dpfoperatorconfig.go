@@ -164,7 +164,7 @@ func ValidateDPFOperatorBaseConfiguration(ctx context.Context, input *SystemTest
 			ResourceComponentConfig: dummyResourceRequirements,
 		},
 	}
-	if !isGinkgoLabelApplied(Domain.ZeroTrust) {
+	if !IsGinkgoLabelApplied(Domain.ZeroTrust) {
 		modifiedConfig.Spec.NodeSRIOVDevicePluginController = &operatorv1.NodeSRIOVDevicePluginControllerConfiguration{
 			Controller: &operatorv1.DefaultOverridesConfiguration{
 				ImageComponentConfig: operatorv1.ImageComponentConfig{
@@ -209,7 +209,7 @@ func ValidateDPFOperatorBaseConfiguration(ctx context.Context, input *SystemTest
 		KubeFlannel: dummyRegistryName + "/kube-flannel:legacy-test",
 		FlannelCNI:  dummyRegistryName + "/flannel-cni:legacy-test",
 	}
-	if !isGinkgoLabelApplied(Domain.ZeroTrust) {
+	if !IsGinkgoLabelApplied(Domain.ZeroTrust) {
 		modifiedConfig.Spec.NodeSRIOVDevicePluginController.Controller.Image = ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.NodeSRIOVDevicePluginControllerName))
 	}
 	modifiedConfig.Spec.KataContainers.Daemon.Image = ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.KataContainersName))
@@ -254,7 +254,7 @@ func verifyComponentOverrides(ctx context.Context, input *SystemTestInput, dummy
 			inventory.DPUServiceControllerName:      true,
 		}
 
-		if !isGinkgoLabelApplied(Domain.ZeroTrust) {
+		if !IsGinkgoLabelApplied(Domain.ZeroTrust) {
 			controller[operatorv1.NodeSRIOVDevicePluginControllerName.String()] = true
 		}
 
@@ -383,7 +383,7 @@ func ValidateDPFOperatorMTUConfigurationChange(ctx context.Context, input *Syste
 		g.Expect(netAttachConfig).To(ContainSubstring("mtu\": 9000,"))
 	}, time.Second*30).Should(Succeed())
 
-	if input.HasDpuNodes() && !isGinkgoLabelApplied(Domain.ZeroTrust) {
+	if input.HasDpuNodes() && !IsGinkgoLabelApplied(Domain.ZeroTrust) {
 		By("Get configured OOB bridge name from DPFOperatorConfig")
 		bridgeName := operatorv1.DefaultDPUNodeOOBBridgeName
 		if modifiedConfig.Spec.Networking != nil && modifiedConfig.Spec.Networking.DPUNodeOOBBridgeName != nil {

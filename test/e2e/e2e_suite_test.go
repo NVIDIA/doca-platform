@@ -301,7 +301,7 @@ var _ = BeforeSuite(func() {
 
 	// Apply the ProvisioningBeforeSuite setup if directly specified Provisioning label
 	// !skipProvisioning() branch should not be executed in provisioning-only tests
-	if isGinkgoLabelApplied(Domain.Provisioning) {
+	if IsGinkgoLabelApplied(Domain.Provisioning) {
 		// SystemSetupBeforeSuite must run first to deploy the DPF operator and system components
 		// Provisioning tests need the operator running but will provision DPUs from scratch (no pre-provisioning)
 		SystemSetupBeforeSuite(false)
@@ -333,7 +333,7 @@ var _ = BeforeSuite(func() {
 	// On physical environments provisioning runs above so we must also wait for DPUs to be ready.
 	// IgnoreAlreadyExists handles objects already present (e.g. on re-runs).
 	// Per RDG, service object creation precedes the DPU provisioning wait.
-	if isGinkgoLabelApplied(Domain.Performance) && isGinkgoLabelApplied(Domain.OVNKHBN) {
+	if IsGinkgoLabelApplied(Domain.Performance) && IsGinkgoLabelApplied(Domain.OVNKHBN) {
 		SystemSetupBeforeSuite(false)
 		By("Maximizing maintenance operator parallelism for performance provisioning")
 		restoreMaintenanceConfig := SetMaintenanceOperatorMaxParallelOperations(Ctx, TestClient, 50)

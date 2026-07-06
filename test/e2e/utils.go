@@ -380,7 +380,7 @@ func getDPUNodesInOrder(ctx context.Context, hostClient, dpuClusterClient client
 }
 
 // isGinkgoLabel returns if a label is passed while running ginkgo and is not excluded
-func isGinkgoLabelApplied(ginkgoLabel string) bool {
+func IsGinkgoLabelApplied(ginkgoLabel string) bool {
 	return strings.Contains(GinkgoLabelFilter(), ginkgoLabel) && !strings.Contains(GinkgoLabelFilter(), "!"+ginkgoLabel)
 }
 

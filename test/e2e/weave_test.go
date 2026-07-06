@@ -58,7 +58,7 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 			Expect(provInput.DPUClusters).ToNot(BeEmpty(), "no DPU clusters found via config or discovery")
 
 			By("Creating DPU cluster client for verification")
-			getDPUClusterClients(Ctx, provInput)
+			GetDPUClusterClients(Ctx, provInput)
 			Expect(DPUClusterClient).ToNot(BeEmpty(), "no DPU cluster clients were created")
 
 			By("Verifying DPU cluster has ready nodes")

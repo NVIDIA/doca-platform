@@ -191,7 +191,7 @@ type WeaveTestInput struct {
 
 func (t *WeaveTestInput) ApplyWeaveConfig(conf Config) {
 	dhcpDaemonSet := &appsv1.DaemonSet{}
-	dhcpObj := unstructuredFromFile(conf.DHCPDaemonSetPath)
+	dhcpObj := UnstructuredFromFile(conf.DHCPDaemonSetPath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(dhcpObj.Object, dhcpDaemonSet)).To(Succeed())
 	t.DHCPDaemonSet = dhcpDaemonSet
 }
