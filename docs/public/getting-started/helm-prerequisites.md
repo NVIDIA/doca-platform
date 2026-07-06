@@ -26,7 +26,7 @@ and purposes:
 | [argo-cd]                 | 9.4.1   | GitOps continuous delivery tool for Kubernetes, necessary for DPUService integration           | Yes      | Pre-installation      |
 | [node-feature-discovery]  | 0.18.3  | Discovers and advertises hardware features and capabilities of DPUs in the cluster             | Yes      | Pre-installation      |
 | [maintenance-operator]    | 0.3.0   | Manages node maintenance operations and ensures graceful handling of node updates              | Yes      | Pre-installation      |
-| [kamaji]                  | 1.3.2   | Kubernetes cluster management platform for creating and managing the DPU Kubernetes clusters   | Conditional | Pre-installation      |
+| [kamaji]                  | 1.4.0   | Kubernetes cluster management platform for creating and managing the DPU Kubernetes clusters   | Conditional | Pre-installation      |
 | [local-path-provisioner]  | 0.0.34  | Provides the `local-path` storage class used by the default Kamaji etcd configuration          | Conditional | Pre-installation      |
 | [kata-containers]         | 3.32.0  | Secure container runtime using lightweight VMs for workload isolation on host nodes            | Conditional | Pre-installation      |
 | [kube-state-metrics]      | 5.25.1  | Exposes DPF Operator related objects as metrics                                                | No       | Post-installation     |
