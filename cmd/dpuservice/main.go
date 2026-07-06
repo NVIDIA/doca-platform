@@ -29,7 +29,6 @@ import (
 	"github.com/nvidia/doca-platform/internal/dpuservice/utils"
 	dpuservicechaincontroller "github.com/nvidia/doca-platform/internal/dpuservicechain/controllers"
 	dpuservicechainwebhooks "github.com/nvidia/doca-platform/internal/dpuservicechain/webhooks"
-	"github.com/nvidia/doca-platform/internal/features"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 	"github.com/nvidia/doca-platform/pkg/health"
 	nvipamv1 "github.com/nvidia/doca-platform/third_party/api/nvipam/api/v1alpha1"
@@ -102,8 +101,6 @@ func main() {
 		"If set, the DPUReady controller will not add/remove taints when DPUs are not ready. Other controller functionality remains enabled.")
 	fs.DurationVar(&syncPeriod, "sync-period", 10*time.Minute,
 		"The minimum interval at which watched resources are reconciled.")
-
-	features.MutableGates.AddFlag(fs)
 
 	logsv1.AddFlags(logOptions, fs)
 

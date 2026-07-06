@@ -21,6 +21,8 @@ import (
 	"strings"
 	"time"
 
+	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
@@ -53,19 +55,11 @@ var _ = Describe("DPUService privileged pod enforcement VAP", func() {
 		const (
 			allowedServiceID = "allowed-service"
 			deniedServiceID  = "denied-service"
-			fieldOwner       = "dpuservice-privileged-pod-enforcement-vap-test"
 		)
 
 		By("creating the VAP parameter ConfigMap and scoped namespace")
-		paramNS := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: privilegedAllowlistConfigMapNamespace}}
-		err := testClient.Create(ctx, paramNS)
-		Expect(client.IgnoreAlreadyExists(err)).To(Succeed())
-
-		paramConfigMap := buildPrivilegedDPUServiceConfigMap()
-		paramConfigMap.Data[allowedServiceID] = "svc-ns/allowed"
-		Expect(testClient.Patch(ctx, paramConfigMap, client.Apply, client.ForceOwnership, client.FieldOwner(fieldOwner))).To(Succeed())
-		DeferCleanup(func() {
-			Expect(client.IgnoreNotFound(testClient.Delete(ctx, paramConfigMap))).To(Succeed())
+		applyPrivilegedPodEnforcementPrereqs(map[string]string{
+			allowedServiceID: "svc-ns/allowed",
 		})
 
 		workloadNS := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
@@ -75,64 +69,53 @@ var _ = Describe("DPUService privileged pod enforcement VAP", func() {
 		Expect(testClient.Create(ctx, workloadNS)).To(Succeed())
 		DeferCleanup(testClient.Delete, ctx, workloadNS)
 
-		By("creating the ValidatingAdmissionPolicy and binding")
-		policy := privilegedPodsVAP.DeepCopy()
-		Expect(testClient.Patch(ctx, policy, client.Apply, client.ForceOwnership, client.FieldOwner(fieldOwner))).To(Succeed())
+		By("applying the ValidatingAdmissionPolicy and binding in Deny mode")
+		applyPrivilegedPodEnforcementVAP(admissionregistrationv1.Deny)
+		// Reset to a non-enforcing state with an empty allowlist afterwards, without
+		// deleting the objects — production never deletes them, and a delete+recreate
+		// would trigger the paramRef informer bug these tests must avoid.
 		DeferCleanup(func() {
-			Expect(client.IgnoreNotFound(testClient.Delete(ctx, &admissionregistrationv1.ValidatingAdmissionPolicy{
-				ObjectMeta: metav1.ObjectMeta{Name: privilegedVAPName},
-			}))).To(Succeed())
+			applyPrivilegedPodEnforcementVAP(admissionregistrationv1.Audit)
+			applyPrivilegedPodEnforcementPrereqs(nil)
 		})
 
-		binding := privilegedPodsVAPBinding.DeepCopy()
-		Expect(testClient.Patch(ctx, binding, client.Apply, client.ForceOwnership, client.FieldOwner(fieldOwner))).To(Succeed())
-		DeferCleanup(func() {
-			Expect(client.IgnoreNotFound(testClient.Delete(ctx, &admissionregistrationv1.ValidatingAdmissionPolicyBinding{
-				ObjectMeta: metav1.ObjectMeta{Name: privilegedVAPName},
-			}))).To(Succeed())
-		})
+		// The API server needs some time to observe the ConfigMap, VAP and binding;
+		// there is no readiness signal, so probe (dry-run) until the policy both denies
+		// a non-allowlisted privileged pod and admits the allowlisted one before
+		// running the assertions below.
+		By("waiting for the VAP to enforce with the current allowlist")
+		Eventually(func() error {
+			if err := validatePrivilegedPodEnforcement(ctx, testClient); err != nil {
+				return err
+			}
+			return validateAllowlistedPrivilegedPodAdmission(ctx, testClient, allowedServiceID)
+		}).WithTimeout(30 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
 
 		By("allowing unprivileged workloads for a denied service ID")
 		Expect(testClient.Create(ctx, testPrivilegedPod(workloadNS.Name, "unprivileged", deniedServiceID, false))).To(Succeed())
 
 		By("allowing privileged workloads for an allowlisted service ID")
-		Expect(testClient.Create(ctx, testPrivilegedPod(workloadNS.Name, "allowed", allowedServiceID, true))).To(Succeed())
+		allowedPod := testPrivilegedPod(workloadNS.Name, "allowed", allowedServiceID, true)
+		Expect(testClient.Create(ctx, allowedPod)).To(Succeed())
+		Expect(client.IgnoreNotFound(testClient.Delete(ctx, allowedPod))).To(Succeed())
 
 		By("rejecting privileged Pods for a non-allowlisted service ID")
-		Eventually(func(g Gomega) {
-			pod := testPrivilegedPod(workloadNS.Name, fmt.Sprintf("denied-%d", time.Now().UnixNano()), deniedServiceID, true)
-			err := testClient.Create(ctx, pod)
-			if err == nil {
-				Expect(client.IgnoreNotFound(testClient.Delete(ctx, pod))).To(Succeed())
-			}
-			g.Expect(err).To(HaveOccurred())
-			g.Expect(apierrors.IsInvalid(err)).To(BeTrue(), "expected invalid error, got %v", err)
-			g.Expect(err.Error()).To(ContainSubstring("Privileged containers are not allowed"))
-		}).WithTimeout(10 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
+		err := testClient.Create(ctx, testPrivilegedPod(workloadNS.Name, "denied-pod", deniedServiceID, true))
+		Expect(err).To(HaveOccurred())
+		Expect(apierrors.IsInvalid(err)).To(BeTrue(), "expected invalid error, got %v", err)
+		Expect(err.Error()).To(ContainSubstring("Privileged containers are not allowed"))
 
 		By("rejecting privileged controller workloads using pod template labels")
-		Eventually(func(g Gomega) {
-			deploy := testPrivilegedDeployment(workloadNS.Name, fmt.Sprintf("denied-%d", time.Now().UnixNano()), deniedServiceID)
-			err := testClient.Create(ctx, deploy)
-			if err == nil {
-				Expect(client.IgnoreNotFound(testClient.Delete(ctx, deploy))).To(Succeed())
-			}
-			g.Expect(err).To(HaveOccurred())
-			g.Expect(apierrors.IsInvalid(err)).To(BeTrue(), "expected invalid error, got %v", err)
-			g.Expect(err.Error()).To(ContainSubstring("Privileged containers are not allowed"))
-		}).WithTimeout(10 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
+		err = testClient.Create(ctx, testPrivilegedDeployment(workloadNS.Name, "denied-deploy", deniedServiceID))
+		Expect(err).To(HaveOccurred())
+		Expect(apierrors.IsInvalid(err)).To(BeTrue(), "expected invalid error, got %v", err)
+		Expect(err.Error()).To(ContainSubstring("Privileged containers are not allowed"))
 
 		By("rejecting privileged CronJobs using pod template labels")
-		Eventually(func(g Gomega) {
-			cronJob := testPrivilegedCronJob(workloadNS.Name, fmt.Sprintf("denied-%d", time.Now().UnixNano()), deniedServiceID)
-			err := testClient.Create(ctx, cronJob)
-			if err == nil {
-				Expect(client.IgnoreNotFound(testClient.Delete(ctx, cronJob))).To(Succeed())
-			}
-			g.Expect(err).To(HaveOccurred())
-			g.Expect(apierrors.IsInvalid(err)).To(BeTrue(), "expected invalid error, got %v", err)
-			g.Expect(err.Error()).To(ContainSubstring("Privileged containers are not allowed"))
-		}).WithTimeout(10 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
+		err = testClient.Create(ctx, testPrivilegedCronJob(workloadNS.Name, "denied-cronjob", deniedServiceID))
+		Expect(err).To(HaveOccurred())
+		Expect(apierrors.IsInvalid(err)).To(BeTrue(), "expected invalid error, got %v", err)
+		Expect(err.Error()).To(ContainSubstring("Privileged containers are not allowed"))
 
 		By("allowing privileged Pods that omit the service-id label")
 		unlabeledPod := testPrivilegedPod(workloadNS.Name, "unlabeled", "", true)
@@ -161,12 +144,52 @@ var _ = Describe("DPUService privileged pod enforcement VAP", func() {
 	})
 })
 
+// privilegedPodEnforcementTestFieldOwner is the single server-side-apply field
+// owner used for all VAP/binding/ConfigMap mutations in these tests, so repeated
+// applies consistently replace previously-owned fields (e.g. emptying the allowlist).
+const privilegedPodEnforcementTestFieldOwner = "privileged-pod-enforcement-test"
+
+func applyPrivilegedPodEnforcementPrereqs(data map[string]string) {
+	// The probe pods are created in privilegedAllowlistConfigMapNamespace, which must
+	// carry NamespaceScopeLabelKey for the VAP's namespaceSelector to match.
+	ns := &corev1.Namespace{
+		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Namespace"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   privilegedAllowlistConfigMapNamespace,
+			Labels: map[string]string{NamespaceScopeLabelKey: privilegedAllowlistConfigMapNamespace},
+		},
+	}
+	Expect(testClient.Patch(ctx, ns, client.Apply, client.ForceOwnership, client.FieldOwner(privilegedPodEnforcementTestFieldOwner))).To(Succeed())
+
+	cm := buildPrivilegedDPUServiceConfigMap()
+	for key, value := range data {
+		cm.Data[key] = value
+	}
+	Expect(testClient.Patch(ctx, cm, client.Apply, client.ForceOwnership, client.FieldOwner(privilegedPodEnforcementTestFieldOwner))).To(Succeed())
+}
+
+// applyPrivilegedPodEnforcementVAP creates or updates (server-side apply) the VAP
+// and its binding, setting the binding's validationActions to action. It mirrors
+// production by never deleting/recreating these objects: enforcement is toggled
+// between Deny and Audit by updating the binding in place. A delete+recreate would
+// trigger the Kubernetes paramRef informer bug
+// (https://github.com/kubernetes/kubernetes/issues/133827) where the recreated
+// binding serves a stale allowlist, which made these specs flake under the full suite.
+func applyPrivilegedPodEnforcementVAP(action admissionregistrationv1.ValidationAction) {
+	policy := privilegedPodsVAP.DeepCopy()
+	Expect(testClient.Patch(ctx, policy, client.Apply, client.ForceOwnership, client.FieldOwner(privilegedPodEnforcementTestFieldOwner))).To(Succeed())
+
+	binding := privilegedPodsVAPBinding.DeepCopy()
+	binding.Spec.ValidationActions = []admissionregistrationv1.ValidationAction{action}
+	Expect(testClient.Patch(ctx, binding, client.Apply, client.ForceOwnership, client.FieldOwner(privilegedPodEnforcementTestFieldOwner))).To(Succeed())
+}
+
 func testPrivilegedPod(namespace, name, serviceID string, privileged bool) *corev1.Pod {
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("%s-pod", name),
 			Namespace: namespace,
-			Labels:    map[string]string{"svc.dpu.nvidia.com/service": serviceID},
+			Labels:    map[string]string{dpuservicev1.DPFServiceIDLabelKey: serviceID},
 		},
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{
@@ -193,8 +216,8 @@ func testPrivilegedDeployment(namespace, name, serviceID string) *appsv1.Deploym
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: map[string]string{
-						"app":                        "test",
-						"svc.dpu.nvidia.com/service": serviceID,
+						"app":                             "test",
+						dpuservicev1.DPFServiceIDLabelKey: serviceID,
 					},
 				},
 				Spec: corev1.PodSpec{
@@ -226,8 +249,8 @@ func testPrivilegedCronJob(namespace, name, serviceID string) *batchv1.CronJob {
 					Template: corev1.PodTemplateSpec{
 						ObjectMeta: metav1.ObjectMeta{
 							Labels: map[string]string{
-								"app":                        "test",
-								"svc.dpu.nvidia.com/service": serviceID,
+								"app":                             "test",
+								dpuservicev1.DPFServiceIDLabelKey: serviceID,
 							},
 						},
 						Spec: corev1.PodSpec{

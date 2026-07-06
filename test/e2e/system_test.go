@@ -88,9 +88,11 @@ func SetInput() {
 					Disable: ptr.To(false),
 				},
 			},
-			KataContainers: &operatorv1.KataContainersConfiguration{
-				BaseComponentConfig: operatorv1.BaseComponentConfig{
-					Disable: ptr.To(false),
+			Security: &operatorv1.SecurityConfiguration{
+				Kata: &operatorv1.KataContainersConfiguration{
+					BaseComponentConfig: operatorv1.BaseComponentConfig{
+						Disable: ptr.To(false),
+					},
 				},
 			},
 			ImagePullSecrets: []string{dpfPullSecretName, "pull-secret-extra"},
@@ -592,6 +594,9 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 		})
 		It("change the flannel podCIDR in the operatorConfig and check that it is set", Labels{Domain.ZeroTrust}, func() {
 			ValidateDPFOperatorFlannelPodCIDRChange(ctx, input)
+		})
+		It("toggle PrivilegedPodEnforcement off and on, verify VAP lifecycle in DPU cluster", Labels{Domain.ZeroTrust}, func() {
+			ValidatePrivilegedPodEnforcementToggle(ctx, input)
 		})
 
 		// This test triggers reprovisioning, which might disrupt other tests relying on provisioned nodes.
