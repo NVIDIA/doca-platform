@@ -38,9 +38,9 @@ const (
 )
 
 // ValidateDPUClusterOpenTelemetryConfiguration verifies DPU cluster collector configuration
-func ValidateDPUClusterOpenTelemetryConfiguration(ctx context.Context, input *systemTestInput) {
+func ValidateDPUClusterOpenTelemetryConfiguration(ctx context.Context, input *SystemTestInput) {
 	for i, dpuClient := range dpuClusterClient {
-		clusterName := input.dpuClusters[i].Name
+		clusterName := input.DPUClusters[i].Name
 		By(fmt.Sprintf("Checking OpenTelemetry Collector ConfigMap in DPU cluster %s", clusterName))
 
 		cm := &corev1.ConfigMap{}
@@ -70,16 +70,16 @@ func ValidateDPUClusterOpenTelemetryConfiguration(ctx context.Context, input *sy
 }
 
 // ValidateManagementClusterLogFlow verifies logs flow from management cluster to Loki
-func ValidateManagementClusterLogFlow(ctx context.Context, input *systemTestInput) {
+func ValidateManagementClusterLogFlow(ctx context.Context, input *SystemTestInput) {
 	lokiClient := loki.NewClient(hostClusterRESTClient, dpfOperatorSystemNamespace)
 	testNamespacePrefix := "test-logging-mgmt-"
 	uniqueMessage := fmt.Sprintf("test-log-mgmt-%d", time.Now().Unix())
 
 	By("Creating test namespace in management cluster")
-	testNS := createTestNamespaceInCluster(ctx, input.client, testNamespacePrefix)
+	testNS := createTestNamespaceInCluster(ctx, input.Client, testNamespacePrefix)
 
 	By(fmt.Sprintf("Creating log generator pod with message: %s", uniqueMessage))
-	createLogGeneratorPod(ctx, input.client, testNS, "log-generator", uniqueMessage)
+	createLogGeneratorPod(ctx, input.Client, testNS, "log-generator", uniqueMessage)
 
 	By("Waiting for logs to be collected and forwarded to Loki")
 	Eventually(func(g Gomega) {
@@ -113,7 +113,7 @@ func ValidateManagementClusterLogFlow(ctx context.Context, input *systemTestInpu
 }
 
 // ValidateDPUClusterLogFlow verifies logs flow from DPU cluster to Loki
-func ValidateDPUClusterLogFlow(ctx context.Context, input *systemTestInput) {
+func ValidateDPUClusterLogFlow(ctx context.Context, input *SystemTestInput) {
 	lokiClient := loki.NewClient(hostClusterRESTClient, dpfOperatorSystemNamespace)
 	testNamespacePrefix := "test-logging-dpu-"
 	uniqueMessage := fmt.Sprintf("test-log-dpu-%d", time.Now().Unix())
@@ -125,7 +125,7 @@ func ValidateDPUClusterLogFlow(ctx context.Context, input *systemTestInput) {
 	createLogGeneratorPod(ctx, dpuClusterClient[0], testNS, "log-generator-dpu", uniqueMessage)
 
 	By("Waiting for logs to be collected and forwarded to Loki")
-	clusterName := input.dpuClusters[0].Name
+	clusterName := input.DPUClusters[0].Name
 	Eventually(func(g Gomega) {
 		labels := map[string]string{
 			"cluster": clusterName,

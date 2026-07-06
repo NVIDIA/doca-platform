@@ -39,7 +39,7 @@ import (
 // is upgraded to v26.4 the controller reshapes DPUServices to the current
 // layout (see expectedDPUServicesCurrent in upgrade_test.go) without needing
 // a DPU reprovision.
-func expectedDPUServicesV2510(_ *systemTestInput) []string {
+func expectedDPUServicesV2510(_ *SystemTestInput) []string {
 	return []string{
 		operatorv1.FlannelName.String(),
 		operatorv1.MultusName.String(),
@@ -124,10 +124,10 @@ func envOrDefault(name, fallback string) string {
 // rolloutAllDPUs deletes every DPU in the system namespace and waits for all
 // to be recreated with the given expectedDPFVersion. Used in the BFB LTS
 // upgrade path to reprovision all DPUs so they report their kubelet version.
-func rolloutAllDPUs(ctx context.Context, input *systemTestInput, expectedDPFVersionMajorMinor string) {
+func rolloutAllDPUs(ctx context.Context, input *SystemTestInput, expectedDPFVersionMajorMinor string) {
 	By("Listing all DPUs before rollout")
 	dpuList := &provisioningv1.DPUList{}
-	Expect(input.client.List(ctx, dpuList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+	Expect(input.Client.List(ctx, dpuList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
 	Expect(dpuList.Items).NotTo(BeEmpty(), "expected DPUs to be present before rollout")
 
 	type dpuRecord struct {
@@ -143,14 +143,14 @@ func rolloutAllDPUs(ctx context.Context, input *systemTestInput, expectedDPFVers
 
 	By(fmt.Sprintf("Deleting all %d DPUs to trigger rollout", len(dpusBefore)))
 	for i := range dpuList.Items {
-		Expect(client.IgnoreNotFound(input.client.Delete(ctx, &dpuList.Items[i]))).To(Succeed())
+		Expect(client.IgnoreNotFound(input.Client.Delete(ctx, &dpuList.Items[i]))).To(Succeed())
 	}
 
 	By("Waiting for all DPUs to be recreated with DPFVersion matching " + expectedDPFVersionMajorMinor)
 	Eventually(func(g Gomega) {
 		for _, before := range dpusBefore {
 			updated := &provisioningv1.DPUList{}
-			g.Expect(input.client.List(ctx, updated,
+			g.Expect(input.Client.List(ctx, updated,
 				client.InNamespace(dpfOperatorSystemNamespace),
 				client.MatchingLabels{util.DPUDeviceNameLabel: before.deviceLabel},
 			)).To(Succeed())
@@ -167,11 +167,11 @@ func rolloutAllDPUs(ctx context.Context, input *systemTestInput, expectedDPFVers
 // verifyDPUsHaveKubeletVersion asserts that every DPU in the system namespace
 // has a non-empty KubeletVersion in its AgentStatus. Required after DPUs are
 // reprovisioned with DPF v26.4+.
-func verifyDPUsHaveKubeletVersion(ctx context.Context, input *systemTestInput) {
+func verifyDPUsHaveKubeletVersion(ctx context.Context, input *SystemTestInput) {
 	By("Verifying all DPUs report KubeletVersion")
 	Eventually(func(g Gomega) {
 		dpuList := &provisioningv1.DPUList{}
-		g.Expect(input.client.List(ctx, dpuList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(input.Client.List(ctx, dpuList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
 		g.Expect(dpuList.Items).NotTo(BeEmpty())
 		for _, dpu := range dpuList.Items {
 			g.Expect(dpu.Status.AgentStatus).NotTo(BeNil(), "DPU %s should have AgentStatus", dpu.Name)

@@ -28,10 +28,10 @@ import (
 var _ = Describe("DPF System tests - OVNK", Labels{Domain.OVNKPrimary, Domain.RequiresNodes}, func() {
 	BeforeEach(func() {
 		By("Wait for OVNK deployment to be ready")
-		dpuservice.WaitForDPUDeploymentReady(ctx, input.client, dpfOperatorSystemNamespace, []string{"ovn-kubernetes"}, 50*time.Minute)
+		dpuservice.WaitForDPUDeploymentReady(ctx, input.Client, dpfOperatorSystemNamespace, []string{"ovn-kubernetes"}, 50*time.Minute)
 
 		By("Waiting for multus pods to be ready")
-		VerifyClusterPods(ctx, input.client, []string{"kube-multus-ds"})
+		VerifyClusterPods(ctx, input.Client, []string{"kube-multus-ds"})
 	})
 
 	Context("OVN-Kubernetes", func() {

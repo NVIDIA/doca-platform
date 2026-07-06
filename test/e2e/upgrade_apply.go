@@ -31,58 +31,58 @@ import (
 // createDPUServiceTemplate creates a DPUServiceTemplate from a config-loaded
 // manifest, with the dummy chart override that Phase 1 needs. No-op if the
 // manifest pointer is nil.
-func createDPUServiceTemplate(ctx context.Context, input *systemTestInput, manifest *dpuservicev1.DPUServiceTemplate) {
+func createDPUServiceTemplate(ctx context.Context, input *SystemTestInput, manifest *dpuservicev1.DPUServiceTemplate) {
 	Expect(manifest).ToNot(BeNil())
 	obj := manifest.DeepCopy()
 	obj.SetLabels(CleanupScope.Suite)
 	useDummyDPUServiceChart(obj)
 	By(fmt.Sprintf("Creating DPUServiceTemplate %s", obj.Name))
-	Expect(input.client.Create(ctx, obj)).To(Succeed())
+	Expect(input.Client.Create(ctx, obj)).To(Succeed())
 }
 
 // createDPUServiceConfiguration creates a DPUServiceConfiguration from a
 // config-loaded manifest. No-op if nil.
-func createDPUServiceConfiguration(ctx context.Context, input *systemTestInput, manifest *dpuservicev1.DPUServiceConfiguration) {
+func createDPUServiceConfiguration(ctx context.Context, input *SystemTestInput, manifest *dpuservicev1.DPUServiceConfiguration) {
 	Expect(manifest).ToNot(BeNil())
 	obj := manifest.DeepCopy()
 	obj.SetLabels(CleanupScope.Suite)
 	By(fmt.Sprintf("Creating DPUServiceConfiguration %s", obj.Name))
-	Expect(input.client.Create(ctx, obj)).To(Succeed())
+	Expect(input.Client.Create(ctx, obj)).To(Succeed())
 }
 
-func createAdditionalDPUServiceDependencies(ctx context.Context, input *systemTestInput) {
-	if input.additionalDPUServiceTemplate == nil && input.additionalDPUServiceConfiguration == nil {
+func createAdditionalDPUServiceDependencies(ctx context.Context, input *SystemTestInput) {
+	if input.AdditionalDPUServiceTemplate == nil && input.AdditionalDPUServiceConfiguration == nil {
 		return
 	}
-	Expect(input.additionalDPUServiceTemplate).NotTo(BeNil(),
+	Expect(input.AdditionalDPUServiceTemplate).NotTo(BeNil(),
 		"additional DPUService configuration requires additional DPUService template")
-	Expect(input.additionalDPUServiceConfiguration).NotTo(BeNil(),
+	Expect(input.AdditionalDPUServiceConfiguration).NotTo(BeNil(),
 		"additional DPUService template requires additional DPUService configuration")
-	createDPUServiceTemplate(ctx, input, input.additionalDPUServiceTemplate)
-	createDPUServiceConfiguration(ctx, input, input.additionalDPUServiceConfiguration)
+	createDPUServiceTemplate(ctx, input, input.AdditionalDPUServiceTemplate)
+	createDPUServiceConfiguration(ctx, input, input.AdditionalDPUServiceConfiguration)
 }
 
 // createDPUServiceIPAMPool1 creates the dpudeployment-ipam-pool1 IPAM resource
 // the upgrade tests reference. The base IPAM manifest is reused across many
 // test suites, so the upgrade-specific bits (name override, no NodeSelector)
 // are set in code here.
-func createDPUServiceIPAMPool1(ctx context.Context, input *systemTestInput) {
-	dpuServiceIPAM := input.ipPoolDPUServiceIPAM.DeepCopy()
+func createDPUServiceIPAMPool1(ctx context.Context, input *SystemTestInput) {
+	dpuServiceIPAM := input.IPPoolDPUServiceIPAM.DeepCopy()
 	dpuServiceIPAM.SetLabels(CleanupScope.Suite)
 	dpuServiceIPAM.SetName("dpudeployment-ipam-pool1")
 	dpuServiceIPAM.SetNamespace(dpfOperatorSystemNamespace)
 	dpuServiceIPAM.Spec.NodeSelector = nil
 	By("Creating DPUServiceIPAM dpudeployment-ipam-pool1")
-	Expect(input.client.Create(ctx, dpuServiceIPAM)).To(Succeed())
+	Expect(input.Client.Create(ctx, dpuServiceIPAM)).To(Succeed())
 }
 
 // patchDPFOperatorConfigForSpecDeploymentMode supports the breaking change that
 // introduced DPFOperatorConfig.spec.deploymentMode as a required field. Upgrade
 // validation runs preserve resources from the previous phase, so a cluster
 // upgraded from an older build can still have no deploymentMode.
-func patchDPFOperatorConfigForSpecDeploymentMode(ctx context.Context, input *systemTestInput) {
+func patchDPFOperatorConfigForSpecDeploymentMode(ctx context.Context, input *SystemTestInput) {
 	cfg := &operatorv1.DPFOperatorConfig{}
-	Expect(input.client.Get(ctx, client.ObjectKey{
+	Expect(input.Client.Get(ctx, client.ObjectKey{
 		Name:      configName,
 		Namespace: dpfOperatorSystemNamespace,
 	}, cfg)).To(Succeed())
@@ -90,7 +90,7 @@ func patchDPFOperatorConfigForSpecDeploymentMode(ctx context.Context, input *sys
 		return
 	}
 	original := cfg.DeepCopy()
-	cfg.Spec.DeploymentMode = input.config.Spec.DeploymentMode
+	cfg.Spec.DeploymentMode = input.Config.Spec.DeploymentMode
 	By("Patching DPFOperatorConfig for required spec.deploymentMode")
-	Expect(input.client.Patch(ctx, cfg, client.MergeFrom(original))).To(Succeed())
+	Expect(input.Client.Patch(ctx, cfg, client.MergeFrom(original))).To(Succeed())
 }

@@ -29,8 +29,8 @@ import (
 // each split into a per-cluster controller service plus a node/RBAC
 // companion service. Every phase of the regular GA upgrade path runs against
 // this shape; a future LTS path can reuse it for its v26.04+ phases.
-func expectedDPUServicesCurrent(input *systemTestInput) []string {
-	c := input.dpuClusters[0]
+func expectedDPUServicesCurrent(input *SystemTestInput) []string {
+	c := input.DPUClusters[0]
 	return []string{
 		operatorv1.FlannelName.String(),
 		operatorv1.MultusName.String(),

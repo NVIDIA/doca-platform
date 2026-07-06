@@ -208,13 +208,13 @@ func getProvisionDPUClustersInputForWeave(ctx context.Context, provisionInput Pr
 		name, ns := dpuClusterName, dpuClusterNamespace
 		dc := &provisioningv1.DPUCluster{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns}}
 		if err := cl.Get(ctx, client.ObjectKeyFromObject(dc), dc); err == nil {
-			provisionInput.dpuClusters = []*provisioningv1.DPUCluster{dc}
+			provisionInput.DPUClusters = []*provisioningv1.DPUCluster{dc}
 			return provisionInput
 		}
 	}
-	if len(provisionInput.dpuClusters) > 0 {
-		key := client.ObjectKeyFromObject(provisionInput.dpuClusters[0])
-		if err := cl.Get(ctx, key, provisionInput.dpuClusters[0]); err == nil {
+	if len(provisionInput.DPUClusters) > 0 {
+		key := client.ObjectKeyFromObject(provisionInput.DPUClusters[0])
+		if err := cl.Get(ctx, key, provisionInput.DPUClusters[0]); err == nil {
 			return provisionInput
 		}
 	}
@@ -223,7 +223,7 @@ func getProvisionDPUClustersInputForWeave(ctx context.Context, provisionInput Pr
 	list := &provisioningv1.DPUClusterList{}
 	Expect(cl.List(ctx, list)).To(Succeed())
 	if len(list.Items) > 0 {
-		provisionInput.dpuClusters = []*provisioningv1.DPUCluster{&list.Items[0]}
+		provisionInput.DPUClusters = []*provisioningv1.DPUCluster{&list.Items[0]}
 	}
 	return provisionInput
 }

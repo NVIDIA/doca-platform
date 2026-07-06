@@ -37,7 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-var input *systemTestInput
+var input *SystemTestInput
 var vpcOvnInput = &vpcOvnTestInput{}
 
 func SetInput() {
@@ -182,16 +182,16 @@ func SetInput() {
 		}
 	}
 
-	input = &systemTestInput{
-		namespace:          dpfOperatorSystemNamespace,
-		config:             dpfOperatorConfig,
-		pullSecretNames:    dpfOperatorConfig.Spec.ImagePullSecrets,
-		client:             testClient,
-		restConfig:         restConfig,
-		cleanupFlags:       cleanupFlags,
-		bfbImageURL:        bfbImageURL,
-		bfsOsIsoURL:        bfsOsIsoURL,
-		bfsPldmFwBundleURL: bfsPldmFwBundleURL,
+	input = &SystemTestInput{
+		Namespace:          dpfOperatorSystemNamespace,
+		Config:             dpfOperatorConfig,
+		PullSecretNames:    dpfOperatorConfig.Spec.ImagePullSecrets,
+		Client:             testClient,
+		RestConfig:         restConfig,
+		CleanupFlags:       cleanupFlags,
+		BFBImageURL:        bfbImageURL,
+		BFSOsIsoURL:        bfsOsIsoURL,
+		BFSPldmFwBundleURL: bfsPldmFwBundleURL,
 	}
 	input.applyConfig(*conf)
 }
@@ -200,44 +200,44 @@ func SetInput() {
 // If skipSystemComponentValidation is true, it skips the validation of system components after deployment.
 func SystemSetupBeforeSuite(skipSystemComponentValidation bool) {
 	if Label(Domain.Scale).MatchesLabelFilter(GinkgoLabelFilter()) {
-		CreateDPUWorkerNodes(ctx, input.numberOfDPUNodes)
+		CreateDPUWorkerNodes(ctx, input.NumberOfDPUNodes)
 	}
 
-	AnnotateAndLabelNodes(ctx, input.client, input.useExternalNodeReboot)
+	AnnotateAndLabelNodes(ctx, input.Client, input.UseExternalNodeReboot)
 
 	if ngcAPIKey != "" {
-		createNGCImagePullSecret(ctx, input.client)
+		createNGCImagePullSecret(ctx, input.Client)
 	}
 
 	By("Deploy DPF System components")
 	DeployDPFSystemComponents(ctx, DeployDPFSystemComponentsInput{
-		systemNamespace:               input.namespace,
-		operatorConfig:                input.config,
-		ImagePullSecrets:              input.pullSecretNames,
-		ProvisioningControllerPVC:     input.pvc,
-		dpuDiscovery:                  input.dpuDiscovery,
-		client:                        input.client,
-		numberOfDPUNodes:              input.numberOfDPUNodes,
+		systemNamespace:               input.Namespace,
+		operatorConfig:                input.Config,
+		ImagePullSecrets:              input.PullSecretNames,
+		ProvisioningControllerPVC:     input.PVC,
+		dpuDiscovery:                  input.DPUDiscovery,
+		client:                        input.Client,
+		numberOfDPUNodes:              input.NumberOfDPUNodes,
 		skipSystemComponentValidation: skipSystemComponentValidation,
 	})
 
 	if isGinkgoLabelApplied(Domain.ZeroTrust) {
 		// In ZeroTrust mode, build a DPUNode-to-host BMC IP map from the lab inventory file
 		// for the script-based reboot path (nodeRebootMethod.script).
-		input.dpuNodeBMCs = GetDPUNodeToBMCIPs(
-			ctx, input.client, input.numberOfDPUNodes)
+		input.DPUNodeBMCs = GetDPUNodeToBMCIPs(
+			ctx, input.Client, input.NumberOfDPUNodes)
 
 		// Ensure ConfigMap and DPUNode BMC IP labels are set ahead of any DPU reaching the reboot state,
 		// so the controller can drive in-cluster Redfish reboots through the named ConfigMap.
-		ApplyNodeRebootConfigMap(ctx, input.client, input.nodeRebootConfigMapPath)
-		PatchDPUNodesForScriptReboot(ctx, input.client, input.numberOfDPUNodes,
-			input.nodeRebootConfigMap, input.dpuNodeBMCs)
+		ApplyNodeRebootConfigMap(ctx, input.Client, input.NodeRebootConfigMapPath)
+		PatchDPUNodesForScriptReboot(ctx, input.Client, input.NumberOfDPUNodes,
+			input.NodeRebootConfigMap, input.DPUNodeBMCs)
 	}
 
 	if isGinkgoLabelApplied(Domain.Performance) {
-		vip := *input.config.Spec.Overrides.KubernetesAPIServerVIP
-		port := *input.config.Spec.Overrides.KubernetesAPIServerPort
-		PatchNFDWorkerForVIP(ctx, input.client, input.namespace, vip, port)
+		vip := *input.Config.Spec.Overrides.KubernetesAPIServerVIP
+		port := *input.Config.Spec.Overrides.KubernetesAPIServerPort
+		PatchNFDWorkerForVIP(ctx, input.Client, input.Namespace, vip, port)
 	}
 }
 
@@ -350,7 +350,7 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 			VerifyClusterPods(ctx, dpuClusterClient[0], systemPodsToVerify)
 
 			By("Waiting for DPFOperatorConfig to be ready")
-			VerifyDPFOperatorConfigReady(ctx, input.client, 20*time.Minute)
+			VerifyDPFOperatorConfigReady(ctx, input.Client, 20*time.Minute)
 		}
 	})
 
@@ -458,7 +458,7 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 				})
 				It("validate DPU cluster kube-state-metrics is accessible", func() {
 					By("Waiting for DPU cluster kube-state-metrics to be ready")
-					VerifyClusterPods(ctx, input.client, []string{"in-cluster-kube-state-metrics"})
+					VerifyClusterPods(ctx, input.Client, []string{"in-cluster-kube-state-metrics"})
 					By("Validating DPU cluster kube-state-metrics accessibility")
 					VerifyDPUKSMMetricsCollection(ctx, input)
 				})
@@ -480,7 +480,7 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 			Context("Component Deployment", func() {
 				It("should verify OpenTelemetry Collector DaemonSets running in host cluster", func() {
 					By("Running in host cluster")
-					VerifyClusterPods(ctx, input.client, []string{"opentelemetry-collector"})
+					VerifyClusterPods(ctx, input.Client, []string{"opentelemetry-collector"})
 				})
 				It("should verify OpenTelemetry Collector DaemonSets running in DPU cluster", Labels{Domain.RequiresNodes}, func() {
 					if !input.hasDpuNodes() {
@@ -649,20 +649,20 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 
 func getProvisionDPUClustersInput() ProvisionDPUClustersInput {
 	return ProvisionDPUClustersInput{
-		numberOfDPUNodes:        input.numberOfDPUNodes,
-		numberOfDPUsPerNode:     input.numberOfDPUsPerNode,
-		dpuClusterPrerequisites: input.dpuClusterPrerequisites,
-		dpuClusters:             input.dpuClusters,
-		dpuSet:                  input.dpuSet,
-		bfb:                     input.bfb,
-		blueFieldSoftware:       input.blueFieldSoftware,
-		dpuFlavor:               input.dpuFlavor,
-		client:                  input.client,
-		bfbImageURL:             input.bfbImageURL,
-		bfsOsIsoURL:             input.bfsOsIsoURL,
-		bfsPldmFwBundleURL:      input.bfsPldmFwBundleURL,
+		numberOfDPUNodes:        input.NumberOfDPUNodes,
+		numberOfDPUsPerNode:     input.NumberOfDPUsPerNode,
+		DPUClusterPrerequisites: input.DPUClusterPrerequisites,
+		DPUClusters:             input.DPUClusters,
+		DPUSet:                  input.DPUSet,
+		BFB:                     input.BFB,
+		BlueFieldSoftware:       input.BlueFieldSoftware,
+		DPUFlavor:               input.DPUFlavor,
+		client:                  input.Client,
+		bfbImageURL:             input.BFBImageURL,
+		BFSOsIsoURL:             input.BFSOsIsoURL,
+		BFSPldmFwBundleURL:      input.BFSPldmFwBundleURL,
 		restConfig:              restConfig,
-		NodeRebootConfigMap:     input.nodeRebootConfigMap,
-		DPUNodeBMCs:             input.dpuNodeBMCs,
+		NodeRebootConfigMap:     input.NodeRebootConfigMap,
+		DPUNodeBMCs:             input.DPUNodeBMCs,
 	}
 }

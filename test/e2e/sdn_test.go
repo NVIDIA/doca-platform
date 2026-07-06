@@ -38,7 +38,7 @@ var _ = Describe("DPF System tests - SDN", SpecPriority(SDNTestPriority), Labels
 				By("Waiting for DPU cluster pods to be ready")
 				VerifyClusterPods(ctx, dpuClusterClient[0], systemPodsToVerify)
 				By("Waiting for DPFOperatorConfig to be ready")
-				VerifyDPFOperatorConfigReady(ctx, input.client, 20*time.Minute)
+				VerifyDPFOperatorConfigReady(ctx, input.Client, 20*time.Minute)
 			}
 		}
 	})

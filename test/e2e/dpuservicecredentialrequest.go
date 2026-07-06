@@ -30,51 +30,51 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func ValidateDPUServiceCredentialRequestCreation(ctx context.Context, input *systemTestInput) {
+func ValidateDPUServiceCredentialRequestCreation(ctx context.Context, input *SystemTestInput) {
 	hostDPUServiceCredentialRequestName := "host-dpu-credential-request"
 	dpuServiceCredentialRequestName := "dpu-01-credential-request"
 	dpuServiceCredentialRequestNamespace := "dpucr-test-ns"
 
 	By("Create namespace for DPUServiceCredentialRequest")
-	createTestNamespace(ctx, input.client, dpuServiceCredentialRequestNamespace)
+	createTestNamespace(ctx, input.Client, dpuServiceCredentialRequestNamespace)
 
 	By("Create a DPUServiceCredentialRequest targeting the DPUCluster")
-	dcr := utils.GenerateDPUObj(dpuServiceCredentialRequestName, dpuServiceCredentialRequestNamespace, input.dpuServiceCredentialRequest.DeepCopy())
-	dcr.Spec.TargetCluster = &dpuservicev1.NamespacedName{Name: input.dpuClusters[0].Name, Namespace: ptr.To(dpfOperatorSystemNamespace)}
+	dcr := utils.GenerateDPUObj(dpuServiceCredentialRequestName, dpuServiceCredentialRequestNamespace, input.DPUServiceCredentialRequest.DeepCopy())
+	dcr.Spec.TargetCluster = &dpuservicev1.NamespacedName{Name: input.DPUClusters[0].Name, Namespace: ptr.To(dpfOperatorSystemNamespace)}
 	dcr.Spec.ServiceAccount.Name = "dpu-sa"
 	dcr.Spec.Secret.Name = "dpu-credential"
-	Expect(input.client.Create(ctx, dcr)).To(Succeed())
+	Expect(input.Client.Create(ctx, dcr)).To(Succeed())
 
 	By("Create a DPUServiceCredentialRequest targeting the host cluster")
-	hostDcr := utils.GenerateDPUObj(hostDPUServiceCredentialRequestName, dpuServiceCredentialRequestNamespace, input.dpuServiceCredentialRequest.DeepCopy())
+	hostDcr := utils.GenerateDPUObj(hostDPUServiceCredentialRequestName, dpuServiceCredentialRequestNamespace, input.DPUServiceCredentialRequest.DeepCopy())
 	hostDcr.Spec.ServiceAccount.Name = "host-dpu-sa"
 	hostDcr.Spec.Secret.Name = "host-dpu-credential"
-	Expect(input.client.Create(ctx, hostDcr)).To(Succeed())
+	Expect(input.Client.Create(ctx, hostDcr)).To(Succeed())
 
 	By("Verify reconciled DPUServiceCredentialRequest for DPUCluster")
 	Eventually(func(g Gomega) {
-		assertDPUServiceCredentialRequest(ctx, g, input.client, dcr, false)
+		assertDPUServiceCredentialRequest(ctx, g, input.Client, dcr, false)
 	}).WithTimeout(300 * time.Second).Should(Succeed())
 
 	By("Verify reconciled DPUServiceCredentialRequest for host cluster")
 	Eventually(func(g Gomega) {
-		assertDPUServiceCredentialRequest(ctx, g, input.client, hostDcr, true)
+		assertDPUServiceCredentialRequest(ctx, g, input.Client, hostDcr, true)
 	}).WithTimeout(600 * time.Second).Should(Succeed())
 
 }
 
-func ValidateDPUServiceCredentialRequestMetrics(ctx context.Context, input *systemTestInput) {
+func ValidateDPUServiceCredentialRequestMetrics(ctx context.Context, input *SystemTestInput) {
 	dpuServiceCredentialRequestName := "dpu-01-credential-request-metrics"
 	dpuServiceCredentialRequestNamespace := "dpucr-test-ns-metrics"
 	By("Create namespace for DPUServiceCredentialRequest")
-	createTestNamespace(ctx, input.client, dpuServiceCredentialRequestNamespace)
+	createTestNamespace(ctx, input.Client, dpuServiceCredentialRequestNamespace)
 
 	By("Create a DPUServiceCredentialRequest targeting the DPUCluster")
-	dcr := utils.GenerateDPUObj(dpuServiceCredentialRequestName, dpuServiceCredentialRequestNamespace, input.dpuServiceCredentialRequest.DeepCopy())
-	dcr.Spec.TargetCluster = &dpuservicev1.NamespacedName{Name: input.dpuClusters[0].Name, Namespace: ptr.To(dpfOperatorSystemNamespace)}
+	dcr := utils.GenerateDPUObj(dpuServiceCredentialRequestName, dpuServiceCredentialRequestNamespace, input.DPUServiceCredentialRequest.DeepCopy())
+	dcr.Spec.TargetCluster = &dpuservicev1.NamespacedName{Name: input.DPUClusters[0].Name, Namespace: ptr.To(dpfOperatorSystemNamespace)}
 	dcr.Spec.ServiceAccount.Name = "dpu-sa-metrics"
 	dcr.Spec.Secret.Name = "dpu-credential-metrics"
-	Expect(input.client.Create(ctx, dcr)).To(Succeed())
+	Expect(input.Client.Create(ctx, dcr)).To(Succeed())
 
 	By("Verify DPUServiceCredentialRequest metrics in KSM")
 	expectedMetricsNames := map[string][]string{
@@ -87,8 +87,8 @@ func ValidateDPUServiceCredentialRequestMetrics(ctx context.Context, input *syst
 	}).WithTimeout(5 * time.Second).Should(Succeed())
 }
 
-func ValidateDPUServiceCredentialRequestDeletion(ctx context.Context, input *systemTestInput) {
-	if input.cleanupFlags.SkipCleanup {
+func ValidateDPUServiceCredentialRequestDeletion(ctx context.Context, input *SystemTestInput) {
+	if input.CleanupFlags.SkipCleanup {
 		Skip("Skip cleanup resources")
 	}
 
@@ -97,44 +97,44 @@ func ValidateDPUServiceCredentialRequestDeletion(ctx context.Context, input *sys
 	dpuServiceCredentialRequestNamespace := "dpucr-test-ns-delete"
 
 	By("Create namespace for DPUServiceCredentialRequest")
-	createTestNamespace(ctx, input.client, dpuServiceCredentialRequestNamespace)
+	createTestNamespace(ctx, input.Client, dpuServiceCredentialRequestNamespace)
 
 	By("Create a DPUServiceCredentialRequest targeting the DPUCluster")
-	dcr := utils.GenerateDPUObj(dpuServiceCredentialRequestName, dpuServiceCredentialRequestNamespace, input.dpuServiceCredentialRequest.DeepCopy())
-	dcr.Spec.TargetCluster = &dpuservicev1.NamespacedName{Name: input.dpuClusters[0].Name, Namespace: ptr.To(dpfOperatorSystemNamespace)}
+	dcr := utils.GenerateDPUObj(dpuServiceCredentialRequestName, dpuServiceCredentialRequestNamespace, input.DPUServiceCredentialRequest.DeepCopy())
+	dcr.Spec.TargetCluster = &dpuservicev1.NamespacedName{Name: input.DPUClusters[0].Name, Namespace: ptr.To(dpfOperatorSystemNamespace)}
 	dcr.Spec.ServiceAccount.Name = "dpu-sa-delete"
 	dcr.Spec.Secret.Name = "dpu-credential-delete"
-	Expect(input.client.Create(ctx, dcr)).To(Succeed())
+	Expect(input.Client.Create(ctx, dcr)).To(Succeed())
 
 	By("Create a DPUServiceCredentialRequest targeting the host cluster")
-	hostDcr := utils.GenerateDPUObj(hostDPUServiceCredentialRequestName, dpuServiceCredentialRequestNamespace, input.dpuServiceCredentialRequest.DeepCopy())
+	hostDcr := utils.GenerateDPUObj(hostDPUServiceCredentialRequestName, dpuServiceCredentialRequestNamespace, input.DPUServiceCredentialRequest.DeepCopy())
 	hostDcr.Spec.ServiceAccount.Name = "host-dpu-sa-delete"
 	hostDcr.Spec.Secret.Name = "host-dpu-credential-delete"
-	Expect(input.client.Create(ctx, hostDcr)).To(Succeed())
+	Expect(input.Client.Create(ctx, hostDcr)).To(Succeed())
 
 	By("Verify reconciled DPUServiceCredentialRequest for DPUCluster")
 	Eventually(func(g Gomega) {
-		assertDPUServiceCredentialRequest(ctx, g, input.client, dcr, false)
+		assertDPUServiceCredentialRequest(ctx, g, input.Client, dcr, false)
 	}).WithTimeout(300 * time.Second).Should(Succeed())
 
 	By("Verify reconciled DPUServiceCredentialRequest for host cluster")
 	Eventually(func(g Gomega) {
-		assertDPUServiceCredentialRequest(ctx, g, input.client, hostDcr, true)
+		assertDPUServiceCredentialRequest(ctx, g, input.Client, hostDcr, true)
 	}).WithTimeout(600 * time.Second).Should(Succeed())
 
 	By("Delete the DPUServiceCredentialRequest")
 	key := client.ObjectKey{Namespace: dpuServiceCredentialRequestNamespace, Name: dpuServiceCredentialRequestName}
-	Expect(input.client.Get(ctx, key, dcr)).To(Succeed())
-	Expect(input.client.Delete(ctx, dcr)).To(Succeed())
+	Expect(input.Client.Get(ctx, key, dcr)).To(Succeed())
+	Expect(input.Client.Delete(ctx, dcr)).To(Succeed())
 	Eventually(func(g Gomega) {
-		g.Expect(input.client.Get(ctx, key, dcr)).NotTo(Succeed())
+		g.Expect(input.Client.Get(ctx, key, dcr)).NotTo(Succeed())
 	}).WithTimeout(300 * time.Second).Should(Succeed())
 
 	key = client.ObjectKey{Namespace: dpuServiceCredentialRequestNamespace, Name: hostDPUServiceCredentialRequestName}
-	Expect(input.client.Get(ctx, key, dcr)).To(Succeed())
-	Expect(input.client.Delete(ctx, dcr)).To(Succeed())
+	Expect(input.Client.Get(ctx, key, dcr)).To(Succeed())
+	Expect(input.Client.Delete(ctx, dcr)).To(Succeed())
 	Eventually(func(g Gomega) {
-		g.Expect(input.client.Get(ctx, key, dcr)).NotTo(Succeed())
+		g.Expect(input.Client.Get(ctx, key, dcr)).NotTo(Succeed())
 	}).WithTimeout(300 * time.Second).Should(Succeed())
 }
 

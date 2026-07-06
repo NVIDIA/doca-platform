@@ -35,7 +35,7 @@ import (
 
 var dpuServiceIPAMNamespace = dpfOperatorSystemNamespace
 
-func ValidateDPUServiceIPAMCreationInvalid(ctx context.Context, input *systemTestInput) {
+func ValidateDPUServiceIPAMCreationInvalid(ctx context.Context, input *SystemTestInput) {
 	By("Creating the invalid DPUServiceIPAM CR")
 	dpuServiceIPAMNamespace = dpfOperatorSystemNamespace
 	dpuServiceIPAM := &dpuservicev1.DPUServiceIPAM{
@@ -46,18 +46,18 @@ func ValidateDPUServiceIPAMCreationInvalid(ctx context.Context, input *systemTes
 	}
 	dpuServiceIPAM.SetGroupVersionKind(dpuservicev1.DPUServiceIPAMGroupVersionKind)
 	dpuServiceIPAM.SetLabels(CleanupScope.It)
-	err := input.client.Create(ctx, dpuServiceIPAM)
+	err := input.Client.Create(ctx, dpuServiceIPAM)
 	Expect(err).To(HaveOccurred())
 	fmt.Printf("Error creating the DPUServiceIPAM CR: %v\n", err)
 	Expect(apierrors.IsBadRequest(err)).To(BeTrue())
 	Expect(err.Error()).To(ContainSubstring("either ipv4Subnet or ipv4Network must be specified"))
 }
 
-func ValidateDPUServiceIPAMCreationSubnetSplit(ctx context.Context, input *systemTestInput) {
+func ValidateDPUServiceIPAMCreationSubnetSplit(ctx context.Context, input *SystemTestInput) {
 	dpuServiceIPAMWithIPPoolName := "switched-application"
 	By("Creating the DPUServiceIPAM CR")
-	dpuServiceIPAM := testutils.GenerateDPUObj(dpuServiceIPAMWithIPPoolName, dpuServiceIPAMNamespace, input.ipPoolDPUServiceIPAM.DeepCopy())
-	Expect(input.client.Create(ctx, dpuServiceIPAM)).To(Succeed())
+	dpuServiceIPAM := testutils.GenerateDPUObj(dpuServiceIPAMWithIPPoolName, dpuServiceIPAMNamespace, input.IPPoolDPUServiceIPAM.DeepCopy())
+	Expect(input.Client.Create(ctx, dpuServiceIPAM)).To(Succeed())
 
 	By("Checking that NVIPAM IPPool CR is created in the DPU clusters")
 	Eventually(func(g Gomega) {
@@ -72,10 +72,10 @@ func ValidateDPUServiceIPAMCreationSubnetSplit(ctx context.Context, input *syste
 	}).WithTimeout(180 * time.Second).Should(Succeed())
 }
 
-func ValidateDPUServiceIPAMMetrics(ctx context.Context, input *systemTestInput) {
+func ValidateDPUServiceIPAMMetrics(ctx context.Context, input *SystemTestInput) {
 	By("Creating the DPUServiceIPAM CR")
-	dpuServiceIPAM := testutils.GenerateDPUObj("switched-application-metrics", dpuServiceIPAMNamespace, input.ipPoolDPUServiceIPAM.DeepCopy())
-	Expect(input.client.Create(ctx, dpuServiceIPAM)).To(Succeed())
+	dpuServiceIPAM := testutils.GenerateDPUObj("switched-application-metrics", dpuServiceIPAMNamespace, input.IPPoolDPUServiceIPAM.DeepCopy())
+	Expect(input.Client.Create(ctx, dpuServiceIPAM)).To(Succeed())
 
 	By("Verify DPUServiceIPAM metrics in host cluster KSM")
 	expectedHostMetricsNames := map[string][]string{
@@ -88,7 +88,7 @@ func ValidateDPUServiceIPAMMetrics(ctx context.Context, input *systemTestInput) 
 	}).WithTimeout(5 * time.Second).Should(Succeed())
 
 	By("Waiting for DPU cluster kube-state-metrics to be ready")
-	VerifyClusterPods(ctx, input.client, []string{"in-cluster-kube-state-metrics"})
+	VerifyClusterPods(ctx, input.Client, []string{"in-cluster-kube-state-metrics"})
 
 	By("Wait for IPPool to be created in DPU clusters")
 	Eventually(func(g Gomega) {
@@ -105,8 +105,8 @@ func ValidateDPUServiceIPAMMetrics(ctx context.Context, input *systemTestInput) 
 		"ippool": {"created", "info", "allocation_info"},
 	}
 	Eventually(func(g Gomega) {
-		g.Expect(input.dpuClusters).ToNot(BeEmpty(), "No DPUClusters found in test input")
-		dpuKSMMetricsURI, err := metrics.GetKSMMetricsURIForDPUCluster(ctx, input.client, input.dpuClusters[0], dpfOperatorSystemNamespace, kubeStateMetricsPort, "/metrics")
+		g.Expect(input.DPUClusters).ToNot(BeEmpty(), "No DPUClusters found in test input")
+		dpuKSMMetricsURI, err := metrics.GetKSMMetricsURIForDPUCluster(ctx, input.Client, input.DPUClusters[0], dpfOperatorSystemNamespace, kubeStateMetricsPort, "/metrics")
 		g.Expect(err).NotTo(HaveOccurred(), "Failed to get KSM metrics URI for DPUCluster")
 		g.Expect(dpuKSMMetricsURI).NotTo(BeEmpty())
 
@@ -117,26 +117,26 @@ func ValidateDPUServiceIPAMMetrics(ctx context.Context, input *systemTestInput) 
 	}).WithTimeout(30 * time.Second).Should(Succeed())
 }
 
-func ValidateDPUServiceIPAMMetricsDeletion(ctx context.Context, input *systemTestInput) {
+func ValidateDPUServiceIPAMMetricsDeletion(ctx context.Context, input *SystemTestInput) {
 	dpuServiceIPAMWithIPPoolName := "switched-application-delete"
-	if input.cleanupFlags.SkipCleanup {
+	if input.CleanupFlags.SkipCleanup {
 		Skip("Skip cleanup resources")
 	}
 
 	By("Creating the DPUServiceIPAM CR")
-	dpuServiceIPAM := testutils.GenerateDPUObj(dpuServiceIPAMWithIPPoolName, dpuServiceIPAMNamespace, input.ipPoolDPUServiceIPAM.DeepCopy())
-	Expect(input.client.Create(ctx, dpuServiceIPAM)).To(Succeed())
+	dpuServiceIPAM := testutils.GenerateDPUObj(dpuServiceIPAMWithIPPoolName, dpuServiceIPAMNamespace, input.IPPoolDPUServiceIPAM.DeepCopy())
+	Expect(input.Client.Create(ctx, dpuServiceIPAM)).To(Succeed())
 
 	// Wait for the controller to set its finalizer before deleting, otherwise a
 	// Delete racing with the finalizer patch can remove the object before reconcileDelete
 	// runs and leaves the dpu-cluster object orphaned. See https://github.com/kubernetes/kubernetes/issues/77988
 	Eventually(func(g Gomega) {
-		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuServiceIPAM), dpuServiceIPAM)).To(Succeed())
+		g.Expect(input.Client.Get(ctx, client.ObjectKeyFromObject(dpuServiceIPAM), dpuServiceIPAM)).To(Succeed())
 		g.Expect(dpuServiceIPAM.Finalizers).To(ContainElement(dpuservicev1.DPUServiceIPAMFinalizer))
 	}).WithTimeout(60 * time.Second).Should(Succeed())
 
 	By("Deleting the DPUServiceIPAM")
-	Expect(input.client.Delete(ctx, dpuServiceIPAM)).To(Succeed())
+	Expect(input.Client.Delete(ctx, dpuServiceIPAM)).To(Succeed())
 
 	By("Checking that NVIPAM IPPool CR is deleted in each DPU cluster")
 	Eventually(func(g Gomega) {
@@ -149,11 +149,11 @@ func ValidateDPUServiceIPAMMetricsDeletion(ctx context.Context, input *systemTes
 	}).WithTimeout(180 * time.Second).Should(Succeed())
 }
 
-func ValidateDPUServiceIPAMCreationCidrSplit(ctx context.Context, input *systemTestInput) {
+func ValidateDPUServiceIPAMCreationCidrSplit(ctx context.Context, input *SystemTestInput) {
 	dpuServiceIPAMWithCIDRPoolName := "routed-application"
 	By("Creating the DPUServiceIPAM CR")
-	dpuServiceIPAM := testutils.GenerateDPUObj(dpuServiceIPAMWithCIDRPoolName, dpuServiceIPAMNamespace, input.cidrDPUServiceIPAM.DeepCopy())
-	Expect(input.client.Create(ctx, dpuServiceIPAM)).To(Succeed())
+	dpuServiceIPAM := testutils.GenerateDPUObj(dpuServiceIPAMWithCIDRPoolName, dpuServiceIPAMNamespace, input.CIDRDPUServiceIPAM.DeepCopy())
+	Expect(input.Client.Create(ctx, dpuServiceIPAM)).To(Succeed())
 
 	By("Checking that NVIPAM CIDRPool CR is created in the DPU clusters")
 	Eventually(func(g Gomega) {
@@ -172,8 +172,8 @@ func ValidateDPUServiceIPAMCreationCidrSplit(ctx context.Context, input *systemT
 		"cidrpool": {"created", "info", "allocation_info"},
 	}
 	Eventually(func(g Gomega) {
-		g.Expect(input.dpuClusters).ToNot(BeEmpty(), "No DPUClusters found in test input")
-		dpuKSMMetricsURI, err := metrics.GetKSMMetricsURIForDPUCluster(ctx, input.client, input.dpuClusters[0], dpfOperatorSystemNamespace, kubeStateMetricsPort, "/metrics")
+		g.Expect(input.DPUClusters).ToNot(BeEmpty(), "No DPUClusters found in test input")
+		dpuKSMMetricsURI, err := metrics.GetKSMMetricsURIForDPUCluster(ctx, input.Client, input.DPUClusters[0], dpfOperatorSystemNamespace, kubeStateMetricsPort, "/metrics")
 		g.Expect(err).NotTo(HaveOccurred(), "Failed to get KSM metrics URI for DPUCluster")
 		g.Expect(dpuKSMMetricsURI).NotTo(BeEmpty())
 
@@ -184,26 +184,26 @@ func ValidateDPUServiceIPAMCreationCidrSplit(ctx context.Context, input *systemT
 	}).WithTimeout(10 * time.Second).Should(Succeed())
 }
 
-func ValidateDPUServiceIPAMDeletionCidrSplit(ctx context.Context, input *systemTestInput) {
-	if input.cleanupFlags.SkipCleanup {
+func ValidateDPUServiceIPAMDeletionCidrSplit(ctx context.Context, input *SystemTestInput) {
+	if input.CleanupFlags.SkipCleanup {
 		Skip("Skip cleanup resources")
 	}
 	dpuServiceIPAMWithCIDRPoolName := "routed-application-delete"
 
 	By("Creating the DPUServiceIPAM CR")
-	dpuServiceIPAM := testutils.GenerateDPUObj(dpuServiceIPAMWithCIDRPoolName, dpuServiceIPAMNamespace, input.ipPoolDPUServiceIPAM.DeepCopy())
-	Expect(input.client.Create(ctx, dpuServiceIPAM)).To(Succeed())
+	dpuServiceIPAM := testutils.GenerateDPUObj(dpuServiceIPAMWithCIDRPoolName, dpuServiceIPAMNamespace, input.IPPoolDPUServiceIPAM.DeepCopy())
+	Expect(input.Client.Create(ctx, dpuServiceIPAM)).To(Succeed())
 
 	// Wait for the controller to set its finalizer before deleting, otherwise a
 	// Delete racing with the finalizer patch can remove the object before reconcileDelete
 	// runs and leaves the dpu-cluster object orphaned. See https://github.com/kubernetes/kubernetes/issues/77988
 	Eventually(func(g Gomega) {
-		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuServiceIPAM), dpuServiceIPAM)).To(Succeed())
+		g.Expect(input.Client.Get(ctx, client.ObjectKeyFromObject(dpuServiceIPAM), dpuServiceIPAM)).To(Succeed())
 		g.Expect(dpuServiceIPAM.Finalizers).To(ContainElement(dpuservicev1.DPUServiceIPAMFinalizer))
 	}).WithTimeout(60 * time.Second).Should(Succeed())
 
 	By("Deleting the DPUServiceIPAM")
-	Expect(input.client.Delete(ctx, dpuServiceIPAM)).To(Succeed())
+	Expect(input.Client.Delete(ctx, dpuServiceIPAM)).To(Succeed())
 
 	By("Checking that NVIPAM CIDRPool CR is deleted in each DPU cluster")
 	Eventually(func(g Gomega) {

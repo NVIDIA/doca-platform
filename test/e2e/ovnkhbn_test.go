@@ -27,7 +27,7 @@ var _ = Describe("DPF System tests - OVNK HBN", Labels{Domain.OVNKHBN, Domain.Re
 		WaitForOVNKHBNDeploymentReady(ctx, input)
 
 		By("Waiting for multus pods to be ready")
-		VerifyClusterPods(ctx, input.client, []string{"kube-multus-ds"})
+		VerifyClusterPods(ctx, input.Client, []string{"kube-multus-ds"})
 	})
 
 	Context("OVNK HBN", func() {

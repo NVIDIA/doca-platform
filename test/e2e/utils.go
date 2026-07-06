@@ -385,48 +385,48 @@ func isGinkgoLabelApplied(ginkgoLabel string) bool {
 }
 
 // VerifyPerformancePodToPodSameNode verifies performance between pods on the same node
-func VerifyPerformancePodToPodSameNode(ctx context.Context, input *systemTestInput, namespacePrefix string) {
+func VerifyPerformancePodToPodSameNode(ctx context.Context, input *SystemTestInput, namespacePrefix string) {
 	if !input.hasDpuNodes() {
 		Skip("Skip test as there are not multiple nodes")
 	}
 
 	hostNamespace := namespacePrefix + "-same-node"
-	createTestNamespace(ctx, input.client, hostNamespace)
+	createTestNamespace(ctx, input.Client, hostNamespace)
 
 	By("Creating test pods")
 	pod1Config, pod2Config := getPodSameNodeConfigs(ctx, input, hostNamespace)
-	netshoot.CreateAndWaitForPods(ctx, input.client, []*netshoot.TestPodConfig{&pod1Config, &pod2Config})
+	netshoot.CreateAndWaitForPods(ctx, input.Client, []*netshoot.TestPodConfig{&pod1Config, &pod2Config})
 
 	By("Get pod2 IP")
-	pod2IP := netshoot.GetPodIP(ctx, input.client, hostNamespace, pod2Config.Name)
+	pod2IP := netshoot.GetPodIP(ctx, input.Client, hostNamespace, pod2Config.Name)
 
 	By("Running traffic test between pods")
-	netshoot.RunTrafficTest(&hostClusterRESTClient, &input.restConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2IP)
+	netshoot.RunTrafficTest(&hostClusterRESTClient, &input.RestConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2IP)
 }
 
 // VerifyPerformancePodToPodDifferentNode verifies performance between pods on different nodes
-func VerifyPerformancePodToPodDifferentNode(ctx context.Context, input *systemTestInput, namespacePrefix string) {
+func VerifyPerformancePodToPodDifferentNode(ctx context.Context, input *SystemTestInput, namespacePrefix string) {
 	if !input.hasDpuNodes() {
 		Skip("Skip test as there are not multiple nodes")
 	}
 
 	hostNamespace := namespacePrefix + "-different-node"
-	createTestNamespace(ctx, input.client, hostNamespace)
+	createTestNamespace(ctx, input.Client, hostNamespace)
 
 	By("Creating test pods")
 	pod1Config, pod2Config := getPodDifferentNodeConfigs(ctx, input, hostNamespace)
-	netshoot.CreateAndWaitForPods(ctx, input.client, []*netshoot.TestPodConfig{&pod1Config, &pod2Config})
+	netshoot.CreateAndWaitForPods(ctx, input.Client, []*netshoot.TestPodConfig{&pod1Config, &pod2Config})
 
 	By("Get pod2 IP")
-	pod2IP := netshoot.GetPodIP(ctx, input.client, hostNamespace, pod2Config.Name)
+	pod2IP := netshoot.GetPodIP(ctx, input.Client, hostNamespace, pod2Config.Name)
 
 	By("Running traffic test between pods")
-	netshoot.RunTrafficTest(&hostClusterRESTClient, &input.restConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2IP)
+	netshoot.RunTrafficTest(&hostClusterRESTClient, &input.RestConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2IP)
 }
 
 // getPodDifferentNodeConfigs returns two pod configs for different nodes
-func getPodDifferentNodeConfigs(ctx context.Context, input *systemTestInput, namespace string) (netshoot.TestPodConfig, netshoot.TestPodConfig) {
-	workerNode1, workerNode2 := getTwoWorkerNodeNames(ctx, input.client)
+func getPodDifferentNodeConfigs(ctx context.Context, input *SystemTestInput, namespace string) (netshoot.TestPodConfig, netshoot.TestPodConfig) {
+	workerNode1, workerNode2 := getTwoWorkerNodeNames(ctx, input.Client)
 
 	pod1Config := netshoot.TestPodConfig{
 		Name:      "pod1",
@@ -443,8 +443,8 @@ func getPodDifferentNodeConfigs(ctx context.Context, input *systemTestInput, nam
 }
 
 // getPodSameNodeConfigs returns two pod configs for the same node
-func getPodSameNodeConfigs(ctx context.Context, input *systemTestInput, namespace string) (netshoot.TestPodConfig, netshoot.TestPodConfig) {
-	workerNode1, _ := getTwoWorkerNodeNames(ctx, input.client)
+func getPodSameNodeConfigs(ctx context.Context, input *SystemTestInput, namespace string) (netshoot.TestPodConfig, netshoot.TestPodConfig) {
+	workerNode1, _ := getTwoWorkerNodeNames(ctx, input.Client)
 
 	pod1Config := netshoot.TestPodConfig{
 		Name:      "pod1",

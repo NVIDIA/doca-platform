@@ -40,8 +40,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func WaitForOVNKHBNDeploymentReady(ctx context.Context, input *systemTestInput) {
-	dpuservice.WaitForDPUDeploymentReady(ctx, input.client, dpfOperatorSystemNamespace, []string{"ovn-hbn"}, 50*time.Minute)
+func WaitForOVNKHBNDeploymentReady(ctx context.Context, input *SystemTestInput) {
+	dpuservice.WaitForDPUDeploymentReady(ctx, input.Client, dpfOperatorSystemNamespace, []string{"ovn-hbn"}, 50*time.Minute)
 }
 
 // DeployOVNKHBNScenario creates the application-layer objects required for the HBN-OVN scenario:
@@ -49,69 +49,69 @@ func WaitForOVNKHBNDeploymentReady(ctx context.Context, input *systemTestInput) 
 // DPUServiceConfiguration, OVN-K DPUServiceTemplate, DPUServiceConfiguration,
 // and the ovn-hbn DPUDeployment.
 // It must be called after applyConfig/applySDNConfig have run (to populate input fields).
-func DeployOVNKHBNScenario(ctx context.Context, input *systemTestInput) {
-	for _, iface := range input.dpuServiceInterfacesHBN {
+func DeployOVNKHBNScenario(ctx context.Context, input *SystemTestInput) {
+	for _, iface := range input.DPUServiceInterfacesHBN {
 		By(fmt.Sprintf("Creating physical DPUServiceInterface %s for HBN uplink", iface.Name))
-		Expect(client.IgnoreAlreadyExists(input.client.Create(ctx,
-			utils.GenerateDPUObj(iface.GetName(), input.namespace, iface.DeepCopy(), CleanupScope.Suite),
+		Expect(client.IgnoreAlreadyExists(input.Client.Create(ctx,
+			utils.GenerateDPUObj(iface.GetName(), input.Namespace, iface.DeepCopy(), CleanupScope.Suite),
 		))).ToNot(HaveOccurred())
 	}
 
-	if input.dpuServiceInterfaceOVN != nil {
+	if input.DPUServiceInterfaceOVN != nil {
 		By("Creating patch DPUServiceInterface for OVN-K connectivity")
-		Expect(client.IgnoreAlreadyExists(input.client.Create(ctx,
-			utils.GenerateDPUObj(input.dpuServiceInterfaceOVN.GetName(), input.namespace, input.dpuServiceInterfaceOVN.DeepCopy(), CleanupScope.Suite),
+		Expect(client.IgnoreAlreadyExists(input.Client.Create(ctx,
+			utils.GenerateDPUObj(input.DPUServiceInterfaceOVN.GetName(), input.Namespace, input.DPUServiceInterfaceOVN.DeepCopy(), CleanupScope.Suite),
 		))).ToNot(HaveOccurred())
 	}
 
-	if input.ovnCredentialRequest != nil {
+	if input.OVNCredentialRequest != nil {
 		By("Creating DPUServiceCredentialRequest for OVN")
-		Expect(client.IgnoreAlreadyExists(input.client.Create(ctx,
-			utils.GenerateDPUObj(input.ovnCredentialRequest.GetName(), input.namespace, input.ovnCredentialRequest.DeepCopy(), CleanupScope.Suite),
+		Expect(client.IgnoreAlreadyExists(input.Client.Create(ctx,
+			utils.GenerateDPUObj(input.OVNCredentialRequest.GetName(), input.Namespace, input.OVNCredentialRequest.DeepCopy(), CleanupScope.Suite),
 		))).ToNot(HaveOccurred())
 	}
 
 	By("Creating CIDR pool DPUServiceIPAM for HBN")
-	Expect(client.IgnoreAlreadyExists(input.client.Create(ctx,
-		utils.GenerateDPUObj(input.cidrDPUServiceIPAM.GetName(), input.namespace, input.cidrDPUServiceIPAM.DeepCopy(), CleanupScope.Suite),
+	Expect(client.IgnoreAlreadyExists(input.Client.Create(ctx,
+		utils.GenerateDPUObj(input.CIDRDPUServiceIPAM.GetName(), input.Namespace, input.CIDRDPUServiceIPAM.DeepCopy(), CleanupScope.Suite),
 	))).ToNot(HaveOccurred())
 
 	By("Creating subnet pool DPUServiceIPAM for HBN")
-	Expect(client.IgnoreAlreadyExists(input.client.Create(ctx,
-		utils.GenerateDPUObj(input.ipPoolDPUServiceIPAM.GetName(), input.namespace, input.ipPoolDPUServiceIPAM.DeepCopy(), CleanupScope.Suite),
+	Expect(client.IgnoreAlreadyExists(input.Client.Create(ctx,
+		utils.GenerateDPUObj(input.IPPoolDPUServiceIPAM.GetName(), input.Namespace, input.IPPoolDPUServiceIPAM.DeepCopy(), CleanupScope.Suite),
 	))).ToNot(HaveOccurred())
 
-	if input.dpuServiceTemplateOVN != nil {
+	if input.DPUServiceTemplateOVN != nil {
 		By("Creating DPUServiceTemplate for OVN-K")
-		Expect(client.IgnoreAlreadyExists(input.client.Create(ctx,
-			utils.GenerateDPUObj(input.dpuServiceTemplateOVN.GetName(), input.namespace, input.dpuServiceTemplateOVN.DeepCopy(), CleanupScope.Suite),
+		Expect(client.IgnoreAlreadyExists(input.Client.Create(ctx,
+			utils.GenerateDPUObj(input.DPUServiceTemplateOVN.GetName(), input.Namespace, input.DPUServiceTemplateOVN.DeepCopy(), CleanupScope.Suite),
 		))).ToNot(HaveOccurred())
 	}
 
-	if input.dpuServiceTemplateHBN != nil {
+	if input.DPUServiceTemplateHBN != nil {
 		By("Creating DPUServiceTemplate for HBN")
-		Expect(client.IgnoreAlreadyExists(input.client.Create(ctx,
-			utils.GenerateDPUObj(input.dpuServiceTemplateHBN.GetName(), input.namespace, input.dpuServiceTemplateHBN.DeepCopy(), CleanupScope.Suite),
+		Expect(client.IgnoreAlreadyExists(input.Client.Create(ctx,
+			utils.GenerateDPUObj(input.DPUServiceTemplateHBN.GetName(), input.Namespace, input.DPUServiceTemplateHBN.DeepCopy(), CleanupScope.Suite),
 		))).ToNot(HaveOccurred())
 	}
 
-	if input.dpuServiceConfigurationHBN != nil {
+	if input.DPUServiceConfigurationHBN != nil {
 		By("Creating DPUServiceConfiguration for HBN")
-		Expect(client.IgnoreAlreadyExists(input.client.Create(ctx,
-			utils.GenerateDPUObj(input.dpuServiceConfigurationHBN.GetName(), input.namespace, input.dpuServiceConfigurationHBN.DeepCopy(), CleanupScope.Suite),
+		Expect(client.IgnoreAlreadyExists(input.Client.Create(ctx,
+			utils.GenerateDPUObj(input.DPUServiceConfigurationHBN.GetName(), input.Namespace, input.DPUServiceConfigurationHBN.DeepCopy(), CleanupScope.Suite),
 		))).ToNot(HaveOccurred())
 	}
 
-	if input.dpuServiceConfigurationOVN != nil {
+	if input.DPUServiceConfigurationOVN != nil {
 		By("Creating DPUServiceConfiguration for OVN-K")
-		Expect(client.IgnoreAlreadyExists(input.client.Create(ctx,
-			utils.GenerateDPUObj(input.dpuServiceConfigurationOVN.GetName(), input.namespace, applyOVNClusterValues(ctx, input), CleanupScope.Suite),
+		Expect(client.IgnoreAlreadyExists(input.Client.Create(ctx,
+			utils.GenerateDPUObj(input.DPUServiceConfigurationOVN.GetName(), input.Namespace, applyOVNClusterValues(ctx, input), CleanupScope.Suite),
 		))).ToNot(HaveOccurred())
 	}
 
 	By("Creating ovn-hbn DPUDeployment")
-	Expect(client.IgnoreAlreadyExists(input.client.Create(ctx,
-		utils.GenerateDPUObj(input.dpuDeployment.GetName(), input.namespace, input.dpuDeployment.DeepCopy(), CleanupScope.Suite),
+	Expect(client.IgnoreAlreadyExists(input.Client.Create(ctx,
+		utils.GenerateDPUObj(input.DPUDeployment.GetName(), input.Namespace, input.DPUDeployment.DeepCopy(), CleanupScope.Suite),
 	))).ToNot(HaveOccurred())
 }
 
@@ -119,8 +119,8 @@ func DeployOVNKHBNScenario(ctx context.Context, input *systemTestInput) {
 // extracted from the live cluster: k8sAPIServer from restConfig, pod/service CIDRs from
 // kube-controller-manager, vtepCIDR and ipamPool from the cidr DPUServiceIPAM, and
 // hostCIDR derived from the control plane node IP.
-func applyOVNClusterValues(ctx context.Context, input *systemTestInput) *dpuservicev1.DPUServiceConfiguration {
-	result := input.dpuServiceConfigurationOVN.DeepCopy()
+func applyOVNClusterValues(ctx context.Context, input *SystemTestInput) *dpuservicev1.DPUServiceConfiguration {
+	result := input.DPUServiceConfigurationOVN.DeepCopy()
 
 	if result.Spec.ServiceConfiguration.HelmChart.Values == nil {
 		result.Spec.ServiceConfiguration.HelmChart.Values = &machineryruntime.RawExtension{}
@@ -149,23 +149,23 @@ func applyOVNClusterValues(ctx context.Context, input *systemTestInput) *dpuserv
 	}
 
 	// k8sAPIServer from the kubeconfig used by the test
-	setVal(input.restConfig.Host, "k8sAPIServer")
+	setVal(input.RestConfig.Host, "k8sAPIServer")
 
 	// pod and service CIDRs from kube-controller-manager
-	podCIDR, serviceCIDR := extractClusterCIDRs(ctx, input.client)
+	podCIDR, serviceCIDR := extractClusterCIDRs(ctx, input.Client)
 	setVal(podCIDR, "podNetwork")
 	setVal(serviceCIDR, "serviceNetwork")
 
 	// vtepCIDR and ipamPool from the cidr DPUServiceIPAM already loaded
-	if input.cidrDPUServiceIPAM != nil {
-		setVal(input.cidrDPUServiceIPAM.Name, "dpuManifests", "ipamPool")
-		if input.cidrDPUServiceIPAM.Spec.IPV4Network != nil {
-			setVal(input.cidrDPUServiceIPAM.Spec.IPV4Network.Network, "dpuManifests", "vtepCIDR")
+	if input.CIDRDPUServiceIPAM != nil {
+		setVal(input.CIDRDPUServiceIPAM.Name, "dpuManifests", "ipamPool")
+		if input.CIDRDPUServiceIPAM.Spec.IPV4Network != nil {
+			setVal(input.CIDRDPUServiceIPAM.Spec.IPV4Network.Network, "dpuManifests", "vtepCIDR")
 		}
 	}
 
 	// hostCIDR derived from the control plane node IP
-	controlPlaneIP := getClusterControlPlaneIP(ctx, input.client)
+	controlPlaneIP := getClusterControlPlaneIP(ctx, input.Client)
 	setVal(deriveHostCIDR(controlPlaneIP), "dpuManifests", "hostCIDR")
 
 	raw, err := json.Marshal(values)

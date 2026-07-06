@@ -25,7 +25,7 @@ import (
 //nolint:dupl
 var _ = Describe("DPF System tests - Multi DPUCluster", Labels{Domain.MultiDPUCluster}, Ordered, func() {
 	BeforeAll(func() {
-		if input.numberOfDPUNodes != 2 {
+		if input.NumberOfDPUNodes != 2 {
 			Skip("Skip test as exactly 2 nodes are required for multi DPUCluster testing")
 		}
 	})
@@ -51,7 +51,7 @@ var _ = Describe("DPF System tests - Multi DPUCluster", Labels{Domain.MultiDPUCl
 			By("Waiting for DPU cluster 1 pods to be ready")
 			VerifyClusterPods(ctx, dpuClusterClient[1], systemPodsToVerify)
 			By("Waiting for DPFOperatorConfig to be ready")
-			VerifyDPFOperatorConfigReady(ctx, input.client, 20*time.Minute)
+			VerifyDPFOperatorConfigReady(ctx, input.Client, 20*time.Minute)
 		})
 		It("create single DPUServiceIPAM in L2 mode spanning both DPUClusters and validate workload", func() {
 			ValidateDPUServiceIPAMInL2ModeSharedAcrossDPUClusters(ctx, input)
@@ -83,7 +83,7 @@ var _ = Describe("DPF System tests - Multi DPUCluster", Labels{Domain.MultiDPUCl
 			By("Waiting for DPU cluster 1 pods to be ready")
 			VerifyClusterPods(ctx, dpuClusterClient[1], systemPodsToVerify)
 			By("Waiting for DPFOperatorConfig to be ready")
-			VerifyDPFOperatorConfigReady(ctx, input.client, 20*time.Minute)
+			VerifyDPFOperatorConfigReady(ctx, input.Client, 20*time.Minute)
 		})
 		It("Delete one of the DPUClusters and validate resource readiness", func() {
 			ValidateDPUClusterDeletion(ctx, input)

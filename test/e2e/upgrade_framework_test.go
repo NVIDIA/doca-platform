@@ -79,7 +79,7 @@ type installPhaseInput struct {
 	artifactsKey string
 	// expectedDPUServices returns the DPUService names verifySystemReady expects
 	// on the DPU cluster at this phase's DPF release.
-	expectedDPUServices func(input *systemTestInput) []string
+	expectedDPUServices func(input *SystemTestInput) []string
 }
 
 // validationPhaseInput configures one validation phase of an upgrade path:
@@ -141,7 +141,7 @@ type validationPhaseInput struct {
 	// expectedDPUServices returns the DPUService names verifySystemReady expects
 	// on the DPU cluster at this phase's DPF release. Required; the shape might
 	// differ between releases.
-	expectedDPUServices func(input *systemTestInput) []string
+	expectedDPUServices func(input *SystemTestInput) []string
 	// expectedKubernetesVersion, if set, is the DPUCluster Status.Version this
 	// install should report instead of util.KubernetesVersion. Set for
 	// previous-release installs (e.g. BFB LTS v25.10) on an older Kubernetes
@@ -194,8 +194,8 @@ func installPhase(description string, in installPhaseInput) {
 		})
 
 		It("create DPUDeployment dependencies", func() {
-			createDPUServiceTemplate(ctx, input, input.dpuServiceTemplate)
-			createDPUServiceConfiguration(ctx, input, input.dpuServiceConfiguration)
+			createDPUServiceTemplate(ctx, input, input.DPUServiceTemplate)
+			createDPUServiceConfiguration(ctx, input, input.DPUServiceConfiguration)
 			createAdditionalDPUServiceDependencies(ctx, input)
 			createDPUServiceIPAMPool1(ctx, input)
 		})
@@ -203,13 +203,13 @@ func installPhase(description string, in installPhaseInput) {
 		It("create DPUDeployment objects", func() {
 			By("Get worker nodes")
 			nodes := &corev1.NodeList{}
-			Expect(input.client.List(ctx, nodes,
+			Expect(input.Client.List(ctx, nodes,
 				client.MatchingLabels{"node-role.kubernetes.io/worker": ""})).To(Succeed())
 
 			By("Creating DPUDeployment objects for each DPU node")
-			for i := 0; i < input.numberOfDPUNodes; i++ {
+			for i := 0; i < input.NumberOfDPUNodes; i++ {
 				node := &nodes.Items[i]
-				dpuDeployment := input.dpuDeployment.DeepCopy()
+				dpuDeployment := input.DPUDeployment.DeepCopy()
 				dpuDeployment.SetLabels(CleanupScope.Suite)
 				dpuDeployment.SetName(node.GetName())
 				// Per-node hostname selector — the only field that has to be
@@ -221,7 +221,7 @@ func installPhase(description string, in installPhaseInput) {
 				dpuDeployment.Spec.DPUs.DPUSets[0].NodeSelector = &metav1.LabelSelector{
 					MatchLabels: map[string]string{"kubernetes.io/hostname": node.GetName()},
 				}
-				Expect(input.client.Create(ctx, dpuDeployment)).To(Succeed())
+				Expect(input.Client.Create(ctx, dpuDeployment)).To(Succeed())
 			}
 		})
 
@@ -265,7 +265,7 @@ func validationPhase(description string, in validationPhaseInput) {
 			// (#5048585). DeleteDPFOperatorConfig clears them for non-skip-cleanup
 			// phases; this AfterAll covers the skip-cleanup ones.
 			AfterAll(func() {
-				removeStaleDPUDeviceProtectionFinalizers(ctx, input.client)
+				removeStaleDPUDeviceProtectionFinalizers(ctx, input.Client)
 			})
 		}
 
@@ -375,12 +375,12 @@ func registerArtifactCaptureStep(phaseDescription, stepSuffix, artifactsKey, pre
 
 // validatePreUpgradeConditions waits for DPFOperatorConfig to report
 // PreUpgradeValidationReady=True and asserts the condition remains stable.
-func validatePreUpgradeConditions(ctx context.Context, input *systemTestInput) {
+func validatePreUpgradeConditions(ctx context.Context, input *SystemTestInput) {
 	By("Validating pre-upgrade conditions of dpfoperatorconfig with stability verification")
 
 	checkConditionReady := func(g Gomega) {
 		dpfOperatorConfig := &operatorv1.DPFOperatorConfig{}
-		g.Expect(input.client.Get(ctx, client.ObjectKey{Name: configName, Namespace: dpfOperatorSystemNamespace}, dpfOperatorConfig)).To(Succeed())
+		g.Expect(input.Client.Get(ctx, client.ObjectKey{Name: configName, Namespace: dpfOperatorSystemNamespace}, dpfOperatorConfig)).To(Succeed())
 		g.Expect(dpfOperatorConfig.Status.ObservedGeneration).To(Equal(dpfOperatorConfig.GetGeneration()))
 		g.Expect(dpfOperatorConfig.Status.Conditions).NotTo(BeEmpty())
 		g.Expect(conditions.IsTrue(dpfOperatorConfig, operatorv1.PreUpgradeValidationReadyCondition)).To(BeTrue())
@@ -406,7 +406,7 @@ func validateDPFVersionUpgrade(expectedVersion string) {
 	}
 	Eventually(func(g Gomega) {
 		dpfOperatorConfig := &operatorv1.DPFOperatorConfig{}
-		g.Expect(input.client.Get(ctx, client.ObjectKey{
+		g.Expect(input.Client.Get(ctx, client.ObjectKey{
 			Name:      configName,
 			Namespace: dpfOperatorSystemNamespace,
 		}, dpfOperatorConfig)).To(Succeed())
@@ -427,9 +427,9 @@ func validateDPUClusterUpgrade(ctx context.Context, input ProvisionDPUClustersIn
 	if expectedKubernetesVersion == "" {
 		expectedKubernetesVersion = util.KubernetesVersion
 	}
-	Expect(input.dpuClusters).ToNot(BeEmpty(), "expected at least one DPUCluster to validate after upgrade")
+	Expect(input.DPUClusters).ToNot(BeEmpty(), "expected at least one DPUCluster to validate after upgrade")
 	hasKamajiDPUCluster := false
-	for _, dpuCluster := range input.dpuClusters {
+	for _, dpuCluster := range input.DPUClusters {
 		if dpuCluster.Spec.Type == string(provisioningv1.KamajiCluster) {
 			hasKamajiDPUCluster = true
 			break
@@ -438,7 +438,7 @@ func validateDPUClusterUpgrade(ctx context.Context, input ProvisionDPUClustersIn
 	Expect(hasKamajiDPUCluster).To(BeTrue(), "expected at least one Kamaji DPUCluster to validate after upgrade")
 
 	Eventually(func(g Gomega) {
-		for _, expectedDPUCluster := range input.dpuClusters {
+		for _, expectedDPUCluster := range input.DPUClusters {
 			dpuCluster := &provisioningv1.DPUCluster{}
 			g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(expectedDPUCluster), dpuCluster)).To(Succeed())
 
@@ -467,11 +467,11 @@ func validateDPUClusterUpgrade(ctx context.Context, input ProvisionDPUClustersIn
 // rather than the test binary's TAG env var, so the check is correct across
 // every phase of every upgrade path, including intermediates where the running
 // operator is not yet the version under test.
-func VerifyHostAgentPodsImageTag(ctx context.Context, input *systemTestInput) {
+func VerifyHostAgentPodsImageTag(ctx context.Context, input *SystemTestInput) {
 	By("Verifying HostAgent Pods have the same image tag as the deployed operator")
 	Eventually(func(g Gomega) {
 		cfg := &operatorv1.DPFOperatorConfig{}
-		g.Expect(input.client.Get(ctx, client.ObjectKey{
+		g.Expect(input.Client.Get(ctx, client.ObjectKey{
 			Name:      configName,
 			Namespace: dpfOperatorSystemNamespace,
 		}, cfg)).To(Succeed())
@@ -480,7 +480,7 @@ func VerifyHostAgentPodsImageTag(ctx context.Context, input *systemTestInput) {
 		operatorVersion := *cfg.Status.Version
 
 		dmsPods := &corev1.PodList{}
-		g.Expect(input.client.List(ctx, dmsPods,
+		g.Expect(input.Client.List(ctx, dmsPods,
 			client.InNamespace(dpfOperatorSystemNamespace),
 			client.MatchingLabels{util.ProvisioningComponentLabelKey: "hostagent"},
 		)).To(Succeed())
@@ -518,27 +518,27 @@ func verifySystemReady(dpuServiceNames []string) {
 // the current BFB, DPUFlavor, "-rollout"-suffixed DPUServiceTemplate, and
 // DPUServiceConfiguration objects from the current manifests and updating one
 // DPUDeployment to reference them.
-func rolloutDependencies(ctx context.Context, input *systemTestInput) {
+func rolloutDependencies(ctx context.Context, input *SystemTestInput) {
 	By("Creating current BFB and DPUFlavor")
 	ProvisionBFBOrBlueFieldSoftwareAndDPUFlavor(ctx, getProvisionDPUClustersInput())
 
 	By("Creating current DPUServiceTemplate")
-	currentTemplate := input.dpuServiceTemplate.DeepCopy()
+	currentTemplate := input.DPUServiceTemplate.DeepCopy()
 	currentTemplate.SetLabels(CleanupScope.Suite)
-	currentTemplate.SetName(input.dpuServiceTemplate.Name + "-rollout")
+	currentTemplate.SetName(input.DPUServiceTemplate.Name + "-rollout")
 	useDummyDPUServiceChart(currentTemplate)
-	Expect(input.client.Create(ctx, currentTemplate)).To(Succeed())
+	Expect(input.Client.Create(ctx, currentTemplate)).To(Succeed())
 
 	By("Creating current DPUServiceConfiguration")
-	currentConfig := input.dpuServiceConfiguration.DeepCopy()
+	currentConfig := input.DPUServiceConfiguration.DeepCopy()
 	currentConfig.SetLabels(CleanupScope.Suite)
-	currentConfig.SetName(input.dpuServiceConfiguration.Name + "-rollout")
-	Expect(input.client.Create(ctx, currentConfig)).To(Succeed())
+	currentConfig.SetName(input.DPUServiceConfiguration.Name + "-rollout")
+	Expect(input.Client.Create(ctx, currentConfig)).To(Succeed())
 
 	By("Selecting one DPUDeployment to update")
 	dpuDeploymentList := &dpuservicev1.DPUDeploymentList{}
-	Expect(input.client.List(ctx, dpuDeploymentList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
-	Expect(dpuDeploymentList.Items).To(HaveLen(input.numberOfDPUNodes), "expected one DPUDeployment per DPU node")
+	Expect(input.Client.List(ctx, dpuDeploymentList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+	Expect(dpuDeploymentList.Items).To(HaveLen(input.NumberOfDPUNodes), "expected one DPUDeployment per DPU node")
 
 	// Re-apply the target manifest so fields a new release adds (e.g. v26.4's
 	// required dpuSetStrategy) reach DPUDeployments created under older releases.
@@ -546,7 +546,7 @@ func rolloutDependencies(ctx context.Context, input *systemTestInput) {
 	for i := range dpuDeploymentList.Items {
 		dpuDeployment := &dpuDeploymentList.Items[i]
 		patchBase := dpuDeployment.DeepCopy()
-		desiredSpec := input.dpuDeployment.DeepCopy().Spec
+		desiredSpec := input.DPUDeployment.DeepCopy().Spec
 		for j := range desiredSpec.DPUs.DPUSets {
 			if j < len(dpuDeployment.Spec.DPUs.DPUSets) {
 				// NodeSelector is filled in per worker node at install, not in the manifest.
@@ -555,7 +555,7 @@ func rolloutDependencies(ctx context.Context, input *systemTestInput) {
 			}
 		}
 		dpuDeployment.Spec = desiredSpec
-		Expect(input.client.Patch(ctx, dpuDeployment, client.MergeFrom(patchBase))).To(Succeed())
+		Expect(input.Client.Patch(ctx, dpuDeployment, client.MergeFrom(patchBase))).To(Succeed())
 	}
 
 	selectedDPUDeployment := &dpuDeploymentList.Items[0]
@@ -563,19 +563,19 @@ func rolloutDependencies(ctx context.Context, input *systemTestInput) {
 
 	By("Updating selected DPUDeployment to reference current BFB, DPUFlavor, DPUServiceTemplate and DPUServiceConfiguration")
 	original := selectedDPUDeployment.DeepCopy()
-	selectedDPUDeployment.Spec.DPUs.BFB = ptr.To(input.bfb.Name)
-	selectedDPUDeployment.Spec.DPUs.Flavor = input.dpuFlavor.Name
-	primaryServiceName := input.dpuServiceTemplate.Name
+	selectedDPUDeployment.Spec.DPUs.BFB = ptr.To(input.BFB.Name)
+	selectedDPUDeployment.Spec.DPUs.Flavor = input.DPUFlavor.Name
+	primaryServiceName := input.DPUServiceTemplate.Name
 	svc, ok := selectedDPUDeployment.Spec.Services[primaryServiceName]
 	Expect(ok).To(BeTrue(), "DPUDeployment %s should contain service %s", selectedDPUDeployment.Name, primaryServiceName)
 	svc.ServiceTemplate = currentTemplate.Name
 	svc.ServiceConfiguration = currentConfig.Name
 	selectedDPUDeployment.Spec.Services[primaryServiceName] = svc
-	Expect(input.client.Patch(ctx, selectedDPUDeployment, client.MergeFrom(original))).To(Succeed())
+	Expect(input.Client.Patch(ctx, selectedDPUDeployment, client.MergeFrom(original))).To(Succeed())
 
 	By("Waiting for selected DPUDeployment Reconciled conditions to become True")
 	Eventually(func(g Gomega) {
-		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(selectedDPUDeployment), selectedDPUDeployment)).To(Succeed())
+		g.Expect(input.Client.Get(ctx, client.ObjectKeyFromObject(selectedDPUDeployment), selectedDPUDeployment)).To(Succeed())
 		for _, condType := range []conditions.ConditionType{
 			dpuservicev1.ConditionDPUSetsReconciled,
 			dpuservicev1.ConditionDPUServicesReconciled,
@@ -598,7 +598,7 @@ func rolloutDependencies(ctx context.Context, input *systemTestInput) {
 //
 // Wrapped in Eventually because dependency tracking is reconciler-driven and
 // may lag the DPUDeployment patch by a few seconds.
-func verifyDPUDeploymentDependencyTracking(ctx context.Context, input *systemTestInput) {
+func verifyDPUDeploymentDependencyTracking(ctx context.Context, input *SystemTestInput) {
 	By("Verifying dependency consumed-by-DPUDeployment labels match current references")
 	Eventually(func(g Gomega) {
 		activeBFBs := map[string]bool{}
@@ -606,7 +606,7 @@ func verifyDPUDeploymentDependencyTracking(ctx context.Context, input *systemTes
 		activeServiceConfigurations := map[string]bool{}
 		activeServiceTemplates := map[string]bool{}
 		deployments := &dpuservicev1.DPUDeploymentList{}
-		g.Expect(input.client.List(ctx, deployments, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(input.Client.List(ctx, deployments, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
 		g.Expect(deployments.Items).NotTo(BeEmpty())
 		for i := range deployments.Items {
 			deployment := &deployments.Items[i]
@@ -625,19 +625,19 @@ func verifyDPUDeploymentDependencyTracking(ctx context.Context, input *systemTes
 		}
 
 		bfbs := &provisioningv1.BFBList{}
-		g.Expect(input.client.List(ctx, bfbs, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(input.Client.List(ctx, bfbs, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
 		assertDependencyLabels(g, "BFB", activeBFBs, ToClientObjectSlice(bfbs.Items))
 
 		flavors := &provisioningv1.DPUFlavorList{}
-		g.Expect(input.client.List(ctx, flavors, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(input.Client.List(ctx, flavors, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
 		assertDependencyLabels(g, "DPUFlavor", activeFlavors, ToClientObjectSlice(flavors.Items))
 
 		configurations := &dpuservicev1.DPUServiceConfigurationList{}
-		g.Expect(input.client.List(ctx, configurations, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(input.Client.List(ctx, configurations, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
 		assertDependencyLabels(g, "DPUServiceConfiguration", activeServiceConfigurations, ToClientObjectSlice(configurations.Items))
 
 		templates := &dpuservicev1.DPUServiceTemplateList{}
-		g.Expect(input.client.List(ctx, templates, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(input.Client.List(ctx, templates, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
 		assertDependencyLabels(g, "DPUServiceTemplate", activeServiceTemplates, ToClientObjectSlice(templates.Items))
 	}).WithTimeout(5 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 }

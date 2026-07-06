@@ -124,7 +124,7 @@ var _ = Describe("External DPF tests", Labels{Domain.ExternalTest}, func() {
 func syncNlasticImagePullSecrets() {
 	const nlasticPodNamespace = "default"
 	for _, secretName := range []string{dpfPullSecretName, "pull-secret-extra"} {
-		CopySecretToNamespace(ctx, input.client, secretName, dpfOperatorSystemNamespace, nlasticPodNamespace, CleanupScope.Suite)
+		CopySecretToNamespace(ctx, input.Client, secretName, dpfOperatorSystemNamespace, nlasticPodNamespace, CleanupScope.Suite)
 	}
 }
 

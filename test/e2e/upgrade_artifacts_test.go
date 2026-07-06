@@ -119,29 +119,29 @@ func collectArtifacts(filePath string) {
 
 	By("Capturing DPU artifacts")
 	dpuList := &provisioningv1.DPUList{}
-	Expect(input.client.List(ctx, dpuList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+	Expect(input.Client.List(ctx, dpuList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
 	allArtifacts = append(allArtifacts, extractArtifacts(ToClientObjectSlice(dpuList.Items))...)
 
 	By("Capturing DPUService artifacts with owned-by-dpudeployment label")
 	dpuServiceList := &dpuservicev1.DPUServiceList{}
-	Expect(input.client.List(ctx, dpuServiceList,
+	Expect(input.Client.List(ctx, dpuServiceList,
 		client.InNamespace(dpfOperatorSystemNamespace),
 		client.HasLabels{dpuservicev1.ParentDPUDeploymentNameLabel})).To(Succeed())
 	allArtifacts = append(allArtifacts, extractArtifacts(ToClientObjectSlice(dpuServiceList.Items))...)
 
 	By("Capturing DPUServiceChain artifacts")
 	dpuServiceChainList := &dpuservicev1.DPUServiceChainList{}
-	Expect(input.client.List(ctx, dpuServiceChainList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+	Expect(input.Client.List(ctx, dpuServiceChainList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
 	allArtifacts = append(allArtifacts, extractArtifacts(ToClientObjectSlice(dpuServiceChainList.Items))...)
 
 	By("Capturing DPUSet artifacts")
 	dpuSetList := &provisioningv1.DPUSetList{}
-	Expect(input.client.List(ctx, dpuSetList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+	Expect(input.Client.List(ctx, dpuSetList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
 	allArtifacts = append(allArtifacts, extractArtifacts(ToClientObjectSlice(dpuSetList.Items))...)
 
 	By("Capturing DPUServiceInterface artifacts")
 	dpuServiceInterfaceList := &dpuservicev1.DPUServiceInterfaceList{}
-	Expect(input.client.List(ctx, dpuServiceInterfaceList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+	Expect(input.Client.List(ctx, dpuServiceInterfaceList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
 	allArtifacts = append(allArtifacts, extractArtifacts(ToClientObjectSlice(dpuServiceInterfaceList.Items))...)
 
 	By("Capturing ServiceChain artifacts from DPU cluster")
