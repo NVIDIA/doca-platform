@@ -263,8 +263,8 @@ func CreateProvisioningDPUCluster(ctx context.Context, input *SystemTestInput) {
 	// getDPUClusterClients requires ProvisionDPUClustersInput (defined in system_setup.go)
 	getDPUClusterClients(ctx, ProvisionDPUClustersInput{
 		DPUClusters: input.DPUClusters,
-		client:      input.Client,
-		restConfig:  input.RestConfig,
+		Client:      input.Client,
+		RestConfig:  input.RestConfig,
 	})
 
 	bfb := input.BFB.DeepCopy()

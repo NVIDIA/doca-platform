@@ -311,7 +311,7 @@ var _ = BeforeSuite(func() {
 		// BeforeProvisioning(ctx, input)
 		// CreateProvisioningDPUCluster(ctx, input)
 		// CreateProvisioningDPUSet(ctx, input)
-		provInput := getProvisionDPUClustersInput()
+		provInput := GetProvisionDPUClustersInput()
 		ProvisionDPUClusters(ctx, provInput)
 		ProvisionBFBOrBlueFieldSoftwareAndDPUFlavor(ctx, provInput)
 		ProvisionDPUSet(ctx, provInput)
@@ -357,7 +357,7 @@ var _ = BeforeSuite(func() {
 		restoreMaintenanceConfig := SetMaintenanceOperatorMaxParallelOperations(ctx, testClient, 50)
 		defer restoreMaintenanceConfig()
 		By("Pre-provisioning DPU cluster setup")
-		provInput := getProvisionDPUClustersInput()
+		provInput := GetProvisionDPUClustersInput()
 		ProvisionDPUClusters(ctx, provInput)
 		ProvisionBFBOrBlueFieldSoftwareAndDPUFlavor(ctx, provInput)
 		By("Installing OVN-K resource injector webhook")
@@ -365,7 +365,7 @@ var _ = BeforeSuite(func() {
 		By("Deploying HBN-OVN scenario objects")
 		DeployOVNKHBNScenario(ctx, input)
 		By("Waiting for DPUs to be provisioned")
-		VerifyDPUClusterWithNodes(ctx, getProvisionDPUClustersInput())
+		VerifyDPUClusterWithNodes(ctx, GetProvisionDPUClustersInput())
 	}
 })
 

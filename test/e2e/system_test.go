@@ -212,14 +212,14 @@ func SystemSetupBeforeSuite(skipSystemComponentValidation bool) {
 
 	By("Deploy DPF System components")
 	DeployDPFSystemComponents(ctx, DeployDPFSystemComponentsInput{
-		systemNamespace:               input.Namespace,
-		operatorConfig:                input.Config,
+		SystemNamespace:               input.Namespace,
+		OperatorConfig:                input.Config,
 		ImagePullSecrets:              input.PullSecretNames,
 		ProvisioningControllerPVC:     input.PVC,
-		dpuDiscovery:                  input.DPUDiscovery,
-		client:                        input.Client,
-		numberOfDPUNodes:              input.NumberOfDPUNodes,
-		skipSystemComponentValidation: skipSystemComponentValidation,
+		DPUDiscovery:                  input.DPUDiscovery,
+		Client:                        input.Client,
+		NumberOfDPUNodes:              input.NumberOfDPUNodes,
+		SkipSystemComponentValidation: skipSystemComponentValidation,
 	})
 
 	if isGinkgoLabelApplied(Domain.ZeroTrust) {
@@ -345,7 +345,7 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 			}
 
 			By("Waiting for provisioning")
-			VerifyDPUClusterWithNodes(ctx, getProvisionDPUClustersInput())
+			VerifyDPUClusterWithNodes(ctx, GetProvisionDPUClustersInput())
 
 			By("Waiting for DPU cluster pods to be ready")
 			VerifyClusterPods(ctx, dpuClusterClient[0], systemPodsToVerify)
@@ -648,21 +648,21 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 	})
 })
 
-func getProvisionDPUClustersInput() ProvisionDPUClustersInput {
+func GetProvisionDPUClustersInput() ProvisionDPUClustersInput {
 	return ProvisionDPUClustersInput{
-		numberOfDPUNodes:        input.NumberOfDPUNodes,
-		numberOfDPUsPerNode:     input.NumberOfDPUsPerNode,
+		NumberOfDPUNodes:        input.NumberOfDPUNodes,
+		NumberOfDPUsPerNode:     input.NumberOfDPUsPerNode,
 		DPUClusterPrerequisites: input.DPUClusterPrerequisites,
 		DPUClusters:             input.DPUClusters,
 		DPUSet:                  input.DPUSet,
 		BFB:                     input.BFB,
 		BlueFieldSoftware:       input.BlueFieldSoftware,
 		DPUFlavor:               input.DPUFlavor,
-		client:                  input.Client,
-		bfbImageURL:             input.BFBImageURL,
+		Client:                  input.Client,
+		BFBImageURL:             input.BFBImageURL,
 		BFSOsIsoURL:             input.BFSOsIsoURL,
 		BFSPldmFwBundleURL:      input.BFSPldmFwBundleURL,
-		restConfig:              restConfig,
+		RestConfig:              restConfig,
 		NodeRebootConfigMap:     input.NodeRebootConfigMap,
 		DPUNodeBMCs:             input.DPUNodeBMCs,
 	}

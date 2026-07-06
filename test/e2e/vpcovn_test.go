@@ -65,7 +65,7 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 			// Provisioning is skipped if the test is labels with !Domain.Provisioning
 			if !strings.Contains(GinkgoLabelFilter(), "!"+Domain.Provisioning) {
 				By("Waiting for provisioning")
-				VerifyDPUClusterWithNodes(ctx, getProvisionDPUClustersInput())
+				VerifyDPUClusterWithNodes(ctx, GetProvisionDPUClustersInput())
 				By("Waiting for DPU cluster pods to be ready")
 				VerifyClusterPods(ctx, dpuClusterClient[0], systemPodsToVerify)
 				By("Waiting for DPFOperatorConfig to be ready")
@@ -75,7 +75,7 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 			// Cleanup any VPC-related resources from previous test runs (when tests were run with skip cleanup)
 			vpcPrerequisiteScope.CleanupBefore()
 			vpcOvnContextScope.CleanupBefore()
-			getDPUClusterClients(ctx, getProvisionDPUClustersInput())
+			getDPUClusterClients(ctx, GetProvisionDPUClustersInput())
 		}
 	})
 

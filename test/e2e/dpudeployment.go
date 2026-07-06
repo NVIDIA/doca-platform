@@ -523,9 +523,9 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *SystemTestInp
 
 	By("Verifying DPUs are provisioned")
 	VerifyDPUClusterWithNodes(ctx, ProvisionDPUClustersInput{
-		numberOfDPUNodes:    input.NumberOfDPUNodes,
-		numberOfDPUsPerNode: input.NumberOfDPUsPerNode,
-		client:              input.Client,
+		NumberOfDPUNodes:    input.NumberOfDPUNodes,
+		NumberOfDPUsPerNode: input.NumberOfDPUsPerNode,
+		Client:              input.Client,
 		NodeRebootConfigMap: input.NodeRebootConfigMap,
 		DPUNodeBMCs:         input.DPUNodeBMCs,
 	})

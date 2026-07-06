@@ -181,14 +181,14 @@ func installPhase(description string, in installPhaseInput) {
 		It("create DPFOperatorConfig", func() {
 			SystemSetupBeforeSuite(in.skipSystemComponentValidation)
 			By("Pre provisioning DPU cluster setup")
-			provInput := getProvisionDPUClustersInput()
-			provInput.expectedKubernetesVersion = in.expectedKubernetesVersion
+			provInput := GetProvisionDPUClustersInput()
+			provInput.ExpectedKubernetesVersion = in.expectedKubernetesVersion
 			ProvisionDPUClusters(ctx, provInput)
 			if in.skipBFBImageURL {
 				// Use the hardcoded URL from the BFB manifest regardless of
 				// BFB_IMAGE_URL — pre-upgrade state reflects the known
 				// previous-release BFB.
-				provInput.bfbImageURL = ""
+				provInput.BFBImageURL = ""
 			}
 			ProvisionBFBOrBlueFieldSoftwareAndDPUFlavor(ctx, provInput)
 		})
@@ -226,12 +226,12 @@ func installPhase(description string, in installPhaseInput) {
 		})
 
 		It("get DPUCluster client", func() {
-			getDPUClusterClients(ctx, getProvisionDPUClustersInput())
+			getDPUClusterClients(ctx, GetProvisionDPUClustersInput())
 		})
 
 		It("wait for DPUs to be provisioned", func() {
 			By("Waiting for provisioning")
-			VerifyDPUClusterWithNodes(ctx, getProvisionDPUClustersInput())
+			VerifyDPUClusterWithNodes(ctx, GetProvisionDPUClustersInput())
 			By("Waiting for system components to be ready")
 			verifySystemReady(in.expectedDPUServices(input))
 		})
@@ -281,7 +281,7 @@ func validationPhase(description string, in validationPhaseInput) {
 			validateDPFVersionUpgrade(in.expectedDPFVersion)
 		})
 		It("validate DPUCluster ready", func() {
-			validateDPUClusterUpgrade(ctx, getProvisionDPUClustersInput(), in.expectedKubernetesVersion)
+			validateDPUClusterUpgrade(ctx, GetProvisionDPUClustersInput(), in.expectedKubernetesVersion)
 		})
 		// Create the DPUCluster client only after the DPUCluster upgrade is
 		// confirmed complete. The control-plane roll during the upgrade tears
@@ -290,10 +290,10 @@ func validationPhase(description string, in validationPhaseInput) {
 		// so it never re-binds, and later DPU-cluster calls (e.g. artifact
 		// capture) fail with "connection refused".
 		It("get DPUCluster client", func() {
-			getDPUClusterClients(ctx, getProvisionDPUClustersInput())
+			getDPUClusterClients(ctx, GetProvisionDPUClustersInput())
 		})
 		It("validate DPUCluster is healthy", func() {
-			VerifyDPUClusterWithNodes(ctx, getProvisionDPUClustersInput())
+			VerifyDPUClusterWithNodes(ctx, GetProvisionDPUClustersInput())
 			By("Waiting for system components to be ready")
 			verifySystemReady(in.expectedDPUServices(input))
 		})
@@ -332,7 +332,7 @@ func validationPhase(description string, in validationPhaseInput) {
 		}
 
 		It("wait for DPUs to be ready and system healthy after rollout", func() {
-			VerifyDPUClusterWithNodes(ctx, getProvisionDPUClustersInput())
+			VerifyDPUClusterWithNodes(ctx, GetProvisionDPUClustersInput())
 			By("Waiting for system components to be ready after rollout")
 			verifySystemReady(in.expectedDPUServices(input))
 		})
@@ -440,7 +440,7 @@ func validateDPUClusterUpgrade(ctx context.Context, input ProvisionDPUClustersIn
 	Eventually(func(g Gomega) {
 		for _, expectedDPUCluster := range input.DPUClusters {
 			dpuCluster := &provisioningv1.DPUCluster{}
-			g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(expectedDPUCluster), dpuCluster)).To(Succeed())
+			g.Expect(input.Client.Get(ctx, client.ObjectKeyFromObject(expectedDPUCluster), dpuCluster)).To(Succeed())
 
 			// Ignore non-Kamaji clusters for now, because we do not handle their upgrade.
 			if dpuCluster.Spec.Type != string(provisioningv1.KamajiCluster) {
@@ -520,7 +520,7 @@ func verifySystemReady(dpuServiceNames []string) {
 // DPUDeployment to reference them.
 func rolloutDependencies(ctx context.Context, input *SystemTestInput) {
 	By("Creating current BFB and DPUFlavor")
-	ProvisionBFBOrBlueFieldSoftwareAndDPUFlavor(ctx, getProvisionDPUClustersInput())
+	ProvisionBFBOrBlueFieldSoftwareAndDPUFlavor(ctx, GetProvisionDPUClustersInput())
 
 	By("Creating current DPUServiceTemplate")
 	currentTemplate := input.DPUServiceTemplate.DeepCopy()

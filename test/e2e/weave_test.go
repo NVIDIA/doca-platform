@@ -54,7 +54,7 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 			weavePrerequisiteScope.CleanupBefore()
 			weaveContextScope.CleanupBefore()
 
-			provInput := getProvisionDPUClustersInputForWeave(ctx, getProvisionDPUClustersInput(), input.Client)
+			provInput := getProvisionDPUClustersInputForWeave(ctx, GetProvisionDPUClustersInput(), input.Client)
 			Expect(provInput.DPUClusters).ToNot(BeEmpty(), "no DPU clusters found via config or discovery")
 
 			By("Creating DPU cluster client for verification")
