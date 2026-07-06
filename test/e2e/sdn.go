@@ -20,16 +20,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 )
 
-//nolint:dupl
-var _ = Describe("DPF SNAP tests", Labels{Domain.DPFSystem, Domain.SNAP}, func() {
-
-	BeforeEach(func() {
-		By("Placeholder for the SNAP BeforeEach test condition check/action")
-	})
-	AfterEach(func() {
-		By("Placeholder for the SNAP AfterEach test condition check/action/cleanup")
-	})
-
-	Context("Placeholder for the SNAP tests", Labels{Domain.RequiresNodes}, Serial, func() {
-	})
-})
+func SDNBeforeSuite() {
+	By("Setting SDN configs for the test")
+	input.ApplySDNConfig(*Conf)
+}

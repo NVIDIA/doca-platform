@@ -525,3 +525,8 @@ func ValidateVPCMetrics(ctx context.Context) {
 		g.Expect(metrics.VerifyMetrics(expectedMetricsNames, actualMetricsNames)).To(BeEmpty())
 	}).WithTimeout(5 * time.Second).Should(Succeed())
 }
+
+func VPCOVNBeforeSuite() {
+	By("Setting VPC OVN configs for the test")
+	VPCOVNInput.ApplyVPCOVNConfig(*Conf)
+}

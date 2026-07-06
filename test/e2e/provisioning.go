@@ -923,3 +923,8 @@ func ValidateDPUDeviceClusterNodeLabelsPropagation(ctx context.Context, input *S
 	By("Validating DPUSet becomes NotReady on DPUSet/DPUDevice cluster metadata conflict")
 	ValidateDPUSetNotReadyOnClusterMetadataConflict(ctx, input)
 }
+
+func ProvisioningBeforeSuite() {
+	By("Setting Provisioning configs for the test")
+	// No additional config needed - input.ApplyConfig(*Conf) already called in SetInput()
+}

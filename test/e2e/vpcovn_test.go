@@ -36,11 +36,6 @@ import (
 
 const nadNamePrefix = "nad-"
 
-func VPCOVNBeforeSuite() {
-	By("Setting VPC OVN configs for the test")
-	VPCOVNInput.ApplyVPCOVNConfig(*Conf)
-}
-
 //nolint:dupl
 var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}, Ordered, func() {
 	var (

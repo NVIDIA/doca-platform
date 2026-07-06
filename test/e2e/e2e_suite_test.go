@@ -58,26 +58,8 @@ var (
 	configPath string
 	// testKubeconfig path to be used for this test.
 	testKubeconfig string
-	// ArtifactsDir is the path where test artifacts will be stored.
-	ArtifactsDir string
-
-	// CollectResources indicates whether to collect logs an objects after an e2e test run.
-	CollectResources = true
-	// externalTest path used to run external tests scripts
-	externalTest string
 	// enableSOSReports to enable collecting SOS reports after an e2e test run failure.
 	enableSOSReports = false
-)
-
-var (
-	// CleanupFlags holds all flags to control skip cleanup behavior
-	CleanupFlags   *cleanup.CleanupFlags
-	CleanupTracker *cleanup.Tracker
-	TestClient     client.Client
-	RestConfig     *rest.Config
-	Clientset      *kubernetes.Clientset
-	Ctx            = ctrl.SetupSignalHandler()
-	Conf           *Config
 )
 
 func init() {
@@ -437,28 +419,3 @@ var _ = AfterSuite(func() {
 	By("Performing final suite cleanup")
 	CleanupTracker.HandleScopeLifecycle(nil, cleanup.GinkgoHook.AfterSuite)
 })
-
-func validateFlags() {
-	if !isGinkgoLabelApplied(Domain.ZeroTrust) {
-		return
-	}
-
-	if Conf.NodeRebootConfigMap == "" {
-		panic("ZeroTrust requires `nodeRebootConfigMap` to be set in the e2e config file")
-	}
-	if Conf.NodeRebootConfigMapPath == "" {
-		panic("ZeroTrust requires `nodeRebootConfigMapPath` to be set in the e2e config file")
-	}
-	if bmcPassword == "" {
-		panic("ZeroTrust requires E2E_ZT_BMC_PASSWORD env var (BMC root password used by the in-cluster reboot script)")
-	}
-	if bmcInventoryPath == "" {
-		panic("ZeroTrust requires E2E_ZT_BMC_INVENTORY_PATH env var (path to the lab DPU-serial -> BMC IP inventory YAML)")
-	}
-
-	if isGinkgoLabelApplied(Domain.ExternalTest) {
-		if len(externalTest) == 0 {
-			panic("This script must be provided when External label is present")
-		}
-	}
-}

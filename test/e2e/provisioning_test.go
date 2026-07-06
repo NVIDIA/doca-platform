@@ -20,11 +20,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 )
 
-func ProvisioningBeforeSuite() {
-	By("Setting Provisioning configs for the test")
-	// No additional config needed - input.ApplyConfig(*conf) already called in SetInput()
-}
-
 //nolint:dupl
 var _ = Describe("DPF System tests - Provisioning", Labels{Domain.Provisioning}, Ordered, func() {
 	BeforeAll(func() {

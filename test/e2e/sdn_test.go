@@ -22,11 +22,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 )
 
-func SDNBeforeSuite() {
-	By("Setting SDN configs for the test")
-	input.ApplySDNConfig(*Conf)
-}
-
 //nolint:dupl
 var _ = Describe("DPF System tests - SDN", SpecPriority(SDNTestPriority), Labels{Domain.DPFSystem, Domain.SDN}, Ordered, func() {
 
