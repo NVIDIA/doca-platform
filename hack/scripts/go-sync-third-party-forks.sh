@@ -23,7 +23,7 @@ function sync_clastix_kamaji() {
 	upstream_dir="${PWD}/tmp-upstream"
 	trap 'rm -rf "${upstream_dir}"' EXIT
 
-	TARGET_COMMIT="e51909fae3f5221b14c83413aaa5df07b64d3336" # this is tag 26.4.4-edge
+	TARGET_COMMIT="5e576071f010baa587f8de9027b66324dcea7af5" # this is tag 26.6.4-edge
 
 	# cleanup old files
 	rm -rf api internal "${upstream_dir}"
