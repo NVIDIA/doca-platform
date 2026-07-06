@@ -22,8 +22,8 @@ github.com/Masterminds/sprig/v3 v3.3.0 h1:mQh0Yrg1XPo6vjYXgtf5OtijNAKJRNcTdOOGZe
 github.com/Masterminds/sprig/v3 v3.3.0/go.mod h1:Zy1iXRYNqNLUolqCpL4uhk6SHUMAOSCzdgBfDb35Lz0=
 github.com/Mellanox/maintenance-operator/api v0.3.0 h1:TX+QflSZSOzinodbFdDK+2avEE5OAreajLbB33hubjg=
 github.com/Mellanox/maintenance-operator/api v0.3.0/go.mod h1:hJ+3RfMK82wT9BstT81bWA+6ZUy/zG6UzO5VzmkQfXg=
-github.com/Mellanox/nic-configuration-operator v1.3.2-0.20260702103027-f87f0dbe2abc h1:KNUXwSJSEjcZ9MJtskgcRcXcRSORS5pLrX01OLZpFws=
-github.com/Mellanox/nic-configuration-operator v1.3.2-0.20260702103027-f87f0dbe2abc/go.mod h1:u1vB+MzveeGEL9BtAzAuY0FX63sElJAdwisO7SveAvE=
+github.com/Mellanox/nic-configuration-operator v1.3.2-0.20260706124710-f647d2158e45 h1:7HZVpkqnan6bcqt7Khk6R+V5GNRiNQTKEsNYdv04Uu0=
+github.com/Mellanox/nic-configuration-operator v1.3.2-0.20260706124710-f647d2158e45/go.mod h1:u1vB+MzveeGEL9BtAzAuY0FX63sElJAdwisO7SveAvE=
 github.com/Mellanox/rdmamap v1.2.0 h1:RMqfZIwIWI/gCjFSDi2zZTlZZ3n0LFNwp2DIBAyT2Xw=
 github.com/Mellanox/rdmamap v1.2.0/go.mod h1:j3WvTNr3OHINDyUtJtAFhqB0ZTG3n9ZN0dVgKcxBUlM=
 github.com/Microsoft/go-winio v0.6.2 h1:F2VQgta7ecxGYO8k3ZZz3RS8fVIXVxONVUPlNERoyfY=
