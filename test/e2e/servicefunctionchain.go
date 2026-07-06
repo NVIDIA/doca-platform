@@ -48,7 +48,7 @@ type mtuTestConfig struct {
 }
 
 func VerifyPlainServiceFunctionChain(ctx context.Context, input *SystemTestInput) {
-	if !input.hasDpuNodes() {
+	if !input.HasDpuNodes() {
 		Skip("Skip test as there are not multiple nodes")
 	}
 

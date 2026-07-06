@@ -44,7 +44,7 @@ const (
 )
 
 func ValidateDPUServiceKataRuntimeClass(ctx context.Context, input *SystemTestInput) {
-	if !input.hasDpuNodes() {
+	if !input.HasDpuNodes() {
 		Skip("Skip DPUService Kata RuntimeClass test as there are no DPU nodes")
 	}
 

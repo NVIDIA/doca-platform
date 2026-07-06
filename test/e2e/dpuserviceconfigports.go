@@ -35,7 +35,7 @@ import (
 )
 
 func ValidateDPUServiceConfigPorts(ctx context.Context, input *SystemTestInput) {
-	if !input.hasDpuNodes() {
+	if !input.HasDpuNodes() {
 		Skip("Skip DPUService ConfigPorts test as there are no DPU nodes")
 	}
 

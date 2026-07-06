@@ -38,7 +38,7 @@ import (
 
 // ProvisionDPUDeploymentWithEachDPUJoiningADifferentDPUCluster creates a DPUDeployment where each DPU joins a different cluster
 func ProvisionDPUDeploymentWithEachDPUJoiningADifferentDPUCluster(ctx context.Context, input *SystemTestInput) {
-	expectedTotalDPUs := input.totalDPUs()
+	expectedTotalDPUs := input.TotalDPUs()
 
 	By("Verifying preconditions: number of clusters equals total DPUs")
 	Expect(input.DPUClusters).To(HaveLen(expectedTotalDPUs),

@@ -73,7 +73,7 @@ func initProvisioningExpected(input *SystemTestInput) {
 	provisioningExpected = ProvisioningExpected{
 		DPUNodes:      input.NumberOfDPUNodes,
 		DPUsPerNode:   input.NumberOfDPUsPerNode,
-		TotalDPUs:     input.totalDPUs(),
+		TotalDPUs:     input.TotalDPUs(),
 		DPUClusters:   1, // Provisioning tests create one DPUCluster
 		DPUSets:       1, // Provisioning tests create one DPUSet
 		BFBs:          1, // Provisioning tests create one BFB
@@ -165,7 +165,7 @@ func BeforeProvisioning(ctx context.Context, input *SystemTestInput) {
 	// Print test configuration at the start
 	printProvisioningConfiguration(input)
 	By("Verifying DPU nodes are available for provisioning tests")
-	Expect(input.hasDpuNodes()).To(BeTrue(),
+	Expect(input.HasDpuNodes()).To(BeTrue(),
 		"SETUP ERROR: No DPU nodes found in cluster. "+
 			"Provisioning tests require DPU nodes to be configured. "+
 			"Please ensure DPU hardware is available and properly configured before running these tests.")
@@ -699,7 +699,7 @@ func dpuFlavorHasNodeLabelScript(dpuFlavor *provisioningv1.DPUFlavor) bool {
 // ValidateDPUFlavorNodeLabelScripts validates that node label scripts delivered by DPUFlavor.spec.configFiles
 // are executed by dpuagent and reflected as labels on tenant cluster Nodes.
 func ValidateDPUFlavorNodeLabelScripts(ctx context.Context, input *SystemTestInput) {
-	if !input.hasDpuNodes() {
+	if !input.HasDpuNodes() {
 		Skip("Skip test as DPU nodes are required")
 	}
 	if len(dpuClusterClient) == 0 || dpuClusterClient[0] == nil {
@@ -726,7 +726,7 @@ func ValidateDPUFlavorNodeLabelScripts(ctx context.Context, input *SystemTestInp
 // ValidateDPUSetClusterNodeLabelsPropagation validates that changing DPUSet.spec.dpuTemplate.spec.cluster.nodeLabels/nodeAnnotations
 // is reflected on the tenant cluster Node for a Ready DPU.
 func ValidateDPUSetClusterNodeLabelsPropagation(ctx context.Context, input *SystemTestInput) {
-	if !input.hasDpuNodes() {
+	if !input.HasDpuNodes() {
 		Skip("Skip test as DPU nodes are required")
 	}
 	if len(dpuClusterClient) == 0 || dpuClusterClient[0] == nil {
@@ -775,7 +775,7 @@ func ValidateDPUSetClusterNodeLabelsPropagation(ctx context.Context, input *Syst
 // ValidateDPUSetNotReadyOnClusterMetadataConflict patches DPUSet template and a referenced DPUDevice to create a
 // key/value conflict and verifies the DPUSet transitions to NotReady with the expected reason.
 func ValidateDPUSetNotReadyOnClusterMetadataConflict(ctx context.Context, input *SystemTestInput) {
-	if !input.hasDpuNodes() {
+	if !input.HasDpuNodes() {
 		Skip("Skip test as DPU nodes are required")
 	}
 
@@ -841,7 +841,7 @@ func ValidateDPUSetNotReadyOnClusterMetadataConflict(ctx context.Context, input 
 // ValidateDPUDeviceClusterNodeLabelsPropagation validates that changing DPUDevice.spec.cluster.nodeLabels/nodeAnnotations
 // (add/update/remove) is reflected on the tenant cluster Node for a Ready DPU.
 func ValidateDPUDeviceClusterNodeLabelsPropagation(ctx context.Context, input *SystemTestInput) {
-	if !input.hasDpuNodes() {
+	if !input.HasDpuNodes() {
 		Skip("Skip test as DPU nodes are required")
 	}
 	if len(dpuClusterClient) == 0 || dpuClusterClient[0] == nil {

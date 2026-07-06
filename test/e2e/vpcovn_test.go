@@ -58,7 +58,7 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 				continue
 			}
 
-			if !input.hasDpuNodes() {
+			if !input.HasDpuNodes() {
 				Skip("Skip test as there are not multiple nodes")
 			}
 

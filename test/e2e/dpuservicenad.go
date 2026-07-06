@@ -38,7 +38,7 @@ import (
 )
 
 func ValidateDPUServiceNADConsumedByPod(ctx context.Context, input *SystemTestInput) {
-	if !input.hasDpuNodes() {
+	if !input.HasDpuNodes() {
 		Skip("Skip test as there are not multiple nodes")
 	}
 

@@ -22,7 +22,7 @@ import (
 
 func ProvisioningBeforeSuite() {
 	By("Setting Provisioning configs for the test")
-	// No additional config needed - input.applyConfig(*conf) already called in SetInput()
+	// No additional config needed - input.ApplyConfig(*conf) already called in SetInput()
 }
 
 //nolint:dupl

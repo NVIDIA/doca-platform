@@ -69,14 +69,14 @@ func ValidateGeneralDPFMetrics(ctx context.Context, input *SystemTestInput) {
 		expectedMetricsNames["bfb"] = []string{"created", "info", "status_phase", "version_bsp", "version_doca", "version_uefi", "version_atf", "file_name"}
 	}
 
-	if input.hasDpuNodes() {
+	if input.HasDpuNodes() {
 		By("Checking that DPUs are created")
 		Eventually(func(g Gomega) {
 			// A DPU object is created for each DPU device, not each DPU node.
 			// totalDPUs() = numberOfDPUNodes * numberOfDPUsPerNode
 			dpus := &provisioningv1.DPUList{}
 			g.Expect(input.Client.List(ctx, dpus)).To(Succeed())
-			g.Expect(dpus.Items).To(HaveLen(input.totalDPUs()))
+			g.Expect(dpus.Items).To(HaveLen(input.TotalDPUs()))
 		}).WithTimeout(60 * time.Second).Should(Succeed())
 
 		expectedMetricsNames["dpu"] = []string{"created", "info", "required_reset", "status_phase", "status_conditions", "status_condition_last_transition_time", "operational_conditions", "operational_condition_last_transition_time", "agent_conditions", "agent_condition_last_transition_time", "outdated_timestamp", "outdated_reason"}

@@ -146,7 +146,7 @@ func ValidateNodeSRIOVDevicePluginConfigValidCreate(ctx context.Context, input *
 }
 
 func ValidateNodeSRIOVDevicePluginManagement(ctx context.Context, input *SystemTestInput) {
-	if !input.hasDpuNodes() {
+	if !input.HasDpuNodes() {
 		Skip("No DPUs in test config, skipping managed pod test")
 	}
 

@@ -47,7 +47,7 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 				continue
 			}
 
-			if !input.hasDpuNodes() {
+			if !input.HasDpuNodes() {
 				Skip("Skip test as there are no DPU nodes")
 			}
 

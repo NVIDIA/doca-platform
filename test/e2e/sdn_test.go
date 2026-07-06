@@ -24,7 +24,7 @@ import (
 
 func SDNBeforeSuite() {
 	By("Setting SDN configs for the test")
-	input.applySDNConfig(*conf)
+	input.ApplySDNConfig(*conf)
 }
 
 //nolint:dupl

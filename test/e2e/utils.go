@@ -386,7 +386,7 @@ func isGinkgoLabelApplied(ginkgoLabel string) bool {
 
 // VerifyPerformancePodToPodSameNode verifies performance between pods on the same node
 func VerifyPerformancePodToPodSameNode(ctx context.Context, input *SystemTestInput, namespacePrefix string) {
-	if !input.hasDpuNodes() {
+	if !input.HasDpuNodes() {
 		Skip("Skip test as there are not multiple nodes")
 	}
 
@@ -406,7 +406,7 @@ func VerifyPerformancePodToPodSameNode(ctx context.Context, input *SystemTestInp
 
 // VerifyPerformancePodToPodDifferentNode verifies performance between pods on different nodes
 func VerifyPerformancePodToPodDifferentNode(ctx context.Context, input *SystemTestInput, namespacePrefix string) {
-	if !input.hasDpuNodes() {
+	if !input.HasDpuNodes() {
 		Skip("Skip test as there are not multiple nodes")
 	}
 

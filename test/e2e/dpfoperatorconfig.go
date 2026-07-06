@@ -383,7 +383,7 @@ func ValidateDPFOperatorMTUConfigurationChange(ctx context.Context, input *Syste
 		g.Expect(netAttachConfig).To(ContainSubstring("mtu\": 9000,"))
 	}, time.Second*30).Should(Succeed())
 
-	if input.hasDpuNodes() && !isGinkgoLabelApplied(Domain.ZeroTrust) {
+	if input.HasDpuNodes() && !isGinkgoLabelApplied(Domain.ZeroTrust) {
 		By("Get configured OOB bridge name from DPFOperatorConfig")
 		bridgeName := operatorv1.DefaultDPUNodeOOBBridgeName
 		if modifiedConfig.Spec.Networking != nil && modifiedConfig.Spec.Networking.DPUNodeOOBBridgeName != nil {
@@ -425,7 +425,7 @@ func ValidateDPFOperatorMTUConfigurationChange(ctx context.Context, input *Syste
 }
 
 func ValidateDPFOperatorOOBBridgeNameChange(ctx context.Context, input *SystemTestInput) {
-	if !input.hasDpuNodes() {
+	if !input.HasDpuNodes() {
 		Skip("Skip OOB bridge name test as there are no DPU nodes")
 	}
 
@@ -485,7 +485,7 @@ func ValidateDPFOperatorOOBBridgeNameChange(ctx context.Context, input *SystemTe
 }
 
 func ValidateDPFOperatorOOBBridgePostProvisioning(ctx context.Context, input *SystemTestInput) {
-	if !input.hasDpuNodes() {
+	if !input.HasDpuNodes() {
 		Skip("Skip OOB bridge post-provisioning test as there are no DPU nodes")
 	}
 
@@ -759,7 +759,7 @@ func volumeNameHasPath(name string, volumes []corev1.Volume, path string) bool {
 // ValidateDPFOperatorKubernetesAPIServerVIPAndPort validates that the Kubernetes API Server related variables are
 // propagated correctly to the DMS pods.
 func ValidateDPFOperatorKubernetesAPIServerVIPAndPort(ctx context.Context, input *SystemTestInput) {
-	if !input.hasDpuNodes() {
+	if !input.HasDpuNodes() {
 		Skip("Test requires node to trigger provisioning on, skipping")
 	}
 
@@ -926,21 +926,21 @@ func ValidateDPFOperatorConfigCleanupPrerequisites(ctx context.Context, input *S
 	dpuServiceInterface.Spec.Template.Spec.NodeSelector = nil
 	Expect(input.Client.Create(ctx, dpuServiceInterface)).To(Succeed())
 
-	if input.hasDpuNodes() {
-		By(fmt.Sprintf("Verify ServiceInterface is created in %d nodes", input.totalDPUs()))
+	if input.HasDpuNodes() {
+		By(fmt.Sprintf("Verify ServiceInterface is created in %d nodes", input.TotalDPUs()))
 		Eventually(func(g Gomega) {
 			// Expect ServiceInterface for standalone DPUServiceInterface to be created.
 			// ServiceInterface objects are created per K8s node in the DPU cluster, and each DPU device
 			// becomes a separate K8s node, so the count equals totalDPUs() (nodes * DPUs per node).
 			standaloneServiceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
 			g.Expect(dpuClusterClient[0].List(ctx, standaloneServiceInterfaceList, client.InNamespace(dpuServiceInterfaceNamespace))).To(Succeed())
-			g.Expect(standaloneServiceInterfaceList.Items).To(HaveLen(input.totalDPUs()))
+			g.Expect(standaloneServiceInterfaceList.Items).To(HaveLen(input.TotalDPUs()))
 
 			// Expect ServiceInterface for DPUDeployment owned DPUServiceInterface to exist
 			for _, serviceInterfaceLabels := range dpuDeploymentOwnedServiceInterfaceLabels {
 				dpudeploymentOwnedServiceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
 				g.Expect(dpuClusterClient[0].List(ctx, dpudeploymentOwnedServiceInterfaceList, client.MatchingLabels(serviceInterfaceLabels))).To(Succeed())
-				g.Expect(dpudeploymentOwnedServiceInterfaceList.Items).To(HaveLen(input.totalDPUs()))
+				g.Expect(dpudeploymentOwnedServiceInterfaceList.Items).To(HaveLen(input.TotalDPUs()))
 			}
 		}).WithTimeout(2 * time.Minute).Should(Succeed())
 	}
