@@ -927,9 +927,11 @@ func (r *DPUSetReconciler) validateDPUClusterMetadata(dpuSet *provisioningv1.DPU
 // 2. update the NodeEffect Action fields for DPUs
 // 3. update the ApplyOnLabelChange field for DPUs
 // 4. update the NodeMaintenanceAdditionalRequestors field for DPUs
+// 5. stamp the DPU template hash label once DPU spec has converged and is Ready
 // Returns true if any DPUs were updated, false otherwise.
 func (r *DPUSetReconciler) UpdateDPUs(ctx context.Context, dpuSet *provisioningv1.DPUSet, dpuMap map[string]provisioningv1.DPU, dpuDeviceMap map[string]provisioningv1.DPUDevice) (bool, error) {
 	anyUpdated := false
+	desiredTemplateSpecHash := dpuSet.GetLabels()[cutil.DPUSetDPUTemplateSpecHashLabelKey]
 	for i := range dpuMap {
 		dpu := dpuMap[i]
 		dpuDevice, ok := dpuDeviceMap[dpu.Spec.DPUDeviceName]
@@ -960,8 +962,22 @@ func (r *DPUSetReconciler) UpdateDPUs(ctx context.Context, dpuSet *provisioningv
 			update = true
 		}
 
+		currentTemplateSpecHash := dpu.GetLabels()[cutil.DPUSetDPUTemplateSpecHashLabelKey]
+		hashNeedsSync := currentTemplateSpecHash != desiredTemplateSpecHash
+		// 5. hash is a freshness stamp: only move it forward after DPU is already reconciled
+		// and Ready with the latest spec. If this reconcile updated DPU spec fields, keep
+		// the old hash and let a follow-up reconcile stamp the new hash after DPU catches up.
+		dpuReconciledAndReady := dpu.Status.ObservedGeneration == dpu.Generation && dpu.Status.Phase == provisioningv1.DPUReady
+		shouldSyncHash := !update && hashNeedsSync && dpuReconciledAndReady
+		if shouldSyncHash {
+			update = true
+			if dpu.Labels == nil {
+				dpu.Labels = make(map[string]string)
+			}
+			dpu.GetLabels()[cutil.DPUSetDPUTemplateSpecHashLabelKey] = desiredTemplateSpecHash
+		}
+
 		if update {
-			dpu.GetLabels()[cutil.DPUSetDPUTemplateSpecHashLabelKey] = dpuSet.GetLabels()[cutil.DPUSetDPUTemplateSpecHashLabelKey]
 			if err := patcher.Patch(ctx, &dpu); err != nil {
 				return false, fmt.Errorf("failed to patch DPU (%s/%s): %w", dpu.Namespace, dpu.Name, err)
 			}
