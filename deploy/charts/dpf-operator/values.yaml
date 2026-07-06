@@ -19,13 +19,8 @@ controllerManager:
   # -- replicas is the number of controller Pods to run.
   replicas: 1
   # featureGates is a map of feature names to boolean values forwarded
-  # to both the dpf-operator binary and the dpuservice controller deployment.
+  # to the dpf-operator and dependant controller deployments.
   # Supported features:
-  #   PrivilegedPodEnforcement (default: true, beta)
-  #     When enabled, the dpuservice controller installs a
-  #     ValidatingAdmissionPolicy in each DPUCluster that rejects privileged
-  #     workloads from DPUServices that have not opted in via
-  #     spec.security.privileged.
   #   NSIPathForSFC (default: false, alpha)
   #     When enabled, SFC ServiceInterfaceSets (those without a virtualNetwork)
   #     use the NodeServiceInterfaces reconciliation path instead of creating

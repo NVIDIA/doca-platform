@@ -38,6 +38,8 @@ spec:
   variables:
     - name: privilegedDPUServices
       expression: "params.?data.orValue({})"
+    - name: isBeingDeleted
+      expression: "has(object.metadata.deletionTimestamp)"
     - name: resourceLabels
       expression: "object.metadata.?labels.orValue({})"
     - name: templateLabels
@@ -55,12 +57,13 @@ spec:
   validations:
     # Workloads without a DPUService label are outside this policy's scope.
     # For labeled workloads, privileged containers require the DPUService ID to
-    # be in the allowlist.
-    - expression: "!variables.allContainers.exists(c, c.?securityContext.?privileged.orValue(false) == true) || variables.dpuServiceID == '' || variables.dpuServiceID in variables.privilegedDPUServices"
+    # be in the allowlist. Resources already in deletion are always allowed through
+    # so that finalizer-based cleanup is never blocked by a stale allowlist.
+    - expression: "variables.isBeingDeleted || !variables.allContainers.exists(c, c.?securityContext.?privileged.orValue(false) == true) || variables.dpuServiceID == '' || variables.dpuServiceID in variables.privilegedDPUServices"
       message: "Privileged containers are not allowed for this DPUService unless security.privileged is set to true."
-    - expression: "!variables.allInitContainers.exists(c, c.?securityContext.?privileged.orValue(false) == true) || variables.dpuServiceID == '' || variables.dpuServiceID in variables.privilegedDPUServices"
+    - expression: "variables.isBeingDeleted || !variables.allInitContainers.exists(c, c.?securityContext.?privileged.orValue(false) == true) || variables.dpuServiceID == '' || variables.dpuServiceID in variables.privilegedDPUServices"
       message: "Privileged init containers are not allowed for this DPUService unless security.privileged is set to true."
-    - expression: "!variables.allEphemeralContainers.exists(c, c.?securityContext.?privileged.orValue(false) == true) || variables.dpuServiceID == '' || variables.dpuServiceID in variables.privilegedDPUServices"
+    - expression: "variables.isBeingDeleted || !variables.allEphemeralContainers.exists(c, c.?securityContext.?privileged.orValue(false) == true) || variables.dpuServiceID == '' || variables.dpuServiceID in variables.privilegedDPUServices"
       message: "Privileged ephemeral containers are not allowed for this DPUService unless security.privileged is set to true."
 ---
 apiVersion: admissionregistration.k8s.io/v1

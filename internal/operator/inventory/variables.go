@@ -409,8 +409,8 @@ func setAdditionalConfigs(variables Variables, config *operatorv1.DPFOperatorCon
 		}
 	}
 
-	if config.Spec.KataContainers != nil {
-		kata := config.Spec.KataContainers
+	if config.Spec.Security != nil && config.Spec.Security.Kata != nil {
+		kata := config.Spec.Security.Kata
 		for _, shim := range kata.Shims {
 			variables.KataContainers.Shims = append(variables.KataContainers.Shims, string(shim))
 		}
