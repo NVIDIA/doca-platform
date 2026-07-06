@@ -25,7 +25,7 @@ import (
 //nolint:dupl
 var _ = Describe("DPF System tests - Multi DPUCluster", Labels{Domain.MultiDPUCluster}, Ordered, func() {
 	BeforeAll(func() {
-		if input.numberOfDPUNodes != 2 {
+		if input.NumberOfDPUNodes != 2 {
 			Skip("Skip test as exactly 2 nodes are required for multi DPUCluster testing")
 		}
 	})
@@ -34,59 +34,59 @@ var _ = Describe("DPF System tests - Multi DPUCluster", Labels{Domain.MultiDPUCl
 			SystemSetupBeforeSuite(false)
 		})
 		It("create DPUClusters", func() {
-			ProvisionDPUClusters(ctx, getProvisionDPUClustersInput())
+			ProvisionDPUClusters(Ctx, GetProvisionDPUClustersInput())
 		})
 		It("create BFB and DPUFlavor", func() {
-			ProvisionBFBOrBlueFieldSoftwareAndDPUFlavor(ctx, getProvisionDPUClustersInput())
+			ProvisionBFBOrBlueFieldSoftwareAndDPUFlavor(Ctx, GetProvisionDPUClustersInput())
 		})
 		It("create a DPUDeployment with each of DPUs joining a different cluster", func() {
-			ProvisionDPUDeploymentWithEachDPUJoiningADifferentDPUCluster(ctx, input)
+			ProvisionDPUDeploymentWithEachDPUJoiningADifferentDPUCluster(Ctx, input)
 		})
 	})
 
 	Context("Validate system behavior", Ordered, func() {
 		BeforeAll(func() {
 			By("Waiting for DPU cluster 0 pods to be ready")
-			VerifyClusterPods(ctx, dpuClusterClient[0], systemPodsToVerify)
+			VerifyClusterPods(Ctx, DPUClusterClient[0], systemPodsToVerify)
 			By("Waiting for DPU cluster 1 pods to be ready")
-			VerifyClusterPods(ctx, dpuClusterClient[1], systemPodsToVerify)
+			VerifyClusterPods(Ctx, DPUClusterClient[1], systemPodsToVerify)
 			By("Waiting for DPFOperatorConfig to be ready")
-			VerifyDPFOperatorConfigReady(ctx, input.client, 20*time.Minute)
+			VerifyDPFOperatorConfigReady(Ctx, input.Client, 20*time.Minute)
 		})
 		It("create single DPUServiceIPAM in L2 mode spanning both DPUClusters and validate workload", func() {
-			ValidateDPUServiceIPAMInL2ModeSharedAcrossDPUClusters(ctx, input)
+			ValidateDPUServiceIPAMInL2ModeSharedAcrossDPUClusters(Ctx, input)
 		})
 		It("create single DPUServiceIPAM in L3 mode spanning both DPUClusters and validate workload", func() {
-			ValidateDPUServiceIPAMInL3ModeSharedAcrossDPUClusters(ctx, input)
+			ValidateDPUServiceIPAMInL3ModeSharedAcrossDPUClusters(Ctx, input)
 		})
 		It("create single DPUServiceIPAM in L3 mode spanning both DPUClusters with static allocations and validate workload", func() {
-			ValidateDPUServiceIPAMInL3ModeSharedAcrossDPUClustersWithStaticAllocations(ctx, input)
+			ValidateDPUServiceIPAMInL3ModeSharedAcrossDPUClustersWithStaticAllocations(Ctx, input)
 		})
 		It("create single DPUServiceIPAM in L2 mode spanning both DPUClusters with single IP per node and validate workload", func() {
-			ValidateDPUServiceIPAMInL2ModeSharedAcrossDPUClustersWithSingleIPPerNode(ctx, input)
+			ValidateDPUServiceIPAMInL2ModeSharedAcrossDPUClustersWithSingleIPPerNode(Ctx, input)
 		})
 		It("create single DPUServiceIPAM in L3 mode spanning both DPUClusters with single IP per node (/32) and validate workload", func() {
-			ValidateDPUServiceIPAMInL3ModeSharedAcrossDPUClustersWithSingleIPPerNode(ctx, input)
+			ValidateDPUServiceIPAMInL3ModeSharedAcrossDPUClustersWithSingleIPPerNode(Ctx, input)
 		})
 		It("create per-DPUCluster DPUServiceIPAM in L2 mode and validate workload", func() {
-			ValidateDPUServiceIPAMInL2ModePerDPUCluster(ctx, input)
+			ValidateDPUServiceIPAMInL2ModePerDPUCluster(Ctx, input)
 		})
 		It("create per-DPUCluster DPUServiceIPAM in L3 mode and validate workload", func() {
-			ValidateDPUServiceIPAMInL3ModePerDPUCluster(ctx, input)
+			ValidateDPUServiceIPAMInL3ModePerDPUCluster(Ctx, input)
 		})
 	})
 
 	Context("Validate DPUCluster operations", Ordered, func() {
 		BeforeAll(func() {
 			By("Waiting for DPU cluster 0 pods to be ready")
-			VerifyClusterPods(ctx, dpuClusterClient[0], systemPodsToVerify)
+			VerifyClusterPods(Ctx, DPUClusterClient[0], systemPodsToVerify)
 			By("Waiting for DPU cluster 1 pods to be ready")
-			VerifyClusterPods(ctx, dpuClusterClient[1], systemPodsToVerify)
+			VerifyClusterPods(Ctx, DPUClusterClient[1], systemPodsToVerify)
 			By("Waiting for DPFOperatorConfig to be ready")
-			VerifyDPFOperatorConfigReady(ctx, input.client, 20*time.Minute)
+			VerifyDPFOperatorConfigReady(Ctx, input.Client, 20*time.Minute)
 		})
 		It("Delete one of the DPUClusters and validate resource readiness", func() {
-			ValidateDPUClusterDeletion(ctx, input)
+			ValidateDPUClusterDeletion(Ctx, input)
 		})
 	})
 })

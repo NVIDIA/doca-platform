@@ -37,14 +37,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// upgradeArtifactsFile returns the on-disk path for the snapshot identified
+// UpgradeArtifactsFile returns the on-disk path for the snapshot identified
 // by key. Files live one level above artifactsDir so all phases in a run
 // share the same parent and later phases can read earlier ones.
-func upgradeArtifactsFile(key string) string {
-	return filepath.Join(artifactsDir, "..", "upgrade-artifacts-"+key+".json")
+func UpgradeArtifactsFile(key string) string {
+	return filepath.Join(ArtifactsDir, "..", "upgrade-artifacts-"+key+".json")
 }
 
-// upgradeExpectedChange describes a known spec change introduced by an upgrade.
+// UpgradeExpectedChange describes a known spec change introduced by an upgrade.
 // Objects that are recreated can't be handled by this struct and need to be
 // handled in a different way. transform is applied only to the after artifact
 // of the matching GVK before comparison, resetting the changed field(s) back
@@ -58,15 +58,15 @@ func upgradeArtifactsFile(key string) string {
 //	    spec, _ := a["spec"].(map[string]interface{})
 //	    spec["something"] = false
 //	}}
-type upgradeExpectedChange struct {
-	gvk       schema.GroupVersionKind
-	transform func(artifact map[string]interface{})
+type UpgradeExpectedChange struct {
+	GVK       schema.GroupVersionKind
+	Transform func(artifact map[string]interface{})
 }
 
-// applyUpgradeExpectedChanges mutates `after` to reset the fields touched by
+// ApplyUpgradeExpectedChanges mutates `after` to reset the fields touched by
 // each registered transform, and bumps the matching `before` artifact's
 // generation by one (since the upgrade necessarily bumped it once).
-func applyUpgradeExpectedChanges(before, after []map[string]interface{}, expectedChanges []upgradeExpectedChange) {
+func ApplyUpgradeExpectedChanges(before, after []map[string]interface{}, expectedChanges []UpgradeExpectedChange) {
 	type artifactKey struct{ apiVersion, kind, name, namespace string }
 	beforeIdx := make(map[artifactKey]int, len(before))
 	for i, b := range before {
@@ -86,10 +86,10 @@ func applyUpgradeExpectedChanges(before, after []map[string]interface{}, expecte
 		Expect(err).ToNot(HaveOccurred())
 		artifactGVK := gv.WithKind(kind)
 		for _, change := range expectedChanges {
-			if change.gvk != artifactGVK {
+			if change.GVK != artifactGVK {
 				continue
 			}
-			change.transform(after[i])
+			change.Transform(after[i])
 			// The spec change introduced by the upgrade bumped the generation once.
 			// Increment the matching before artifact's generation so the comparison holds.
 			k := artifactKey{
@@ -107,11 +107,11 @@ func applyUpgradeExpectedChanges(before, after []map[string]interface{}, expecte
 	}
 }
 
-// collectArtifacts writes a snapshot of all tracked objects (DPUs,
+// CollectArtifacts writes a snapshot of all tracked objects (DPUs,
 // DPUDeployment-owned DPUServices, DPUServiceChains, DPUSets,
 // DPUServiceInterfaces, plus DPU-cluster-side ServiceChains, ServiceInterfaces,
 // and service Pods) to filePath as JSON.
-func collectArtifacts(filePath string) {
+func CollectArtifacts(filePath string) {
 	By("Collecting artifacts to: " + filePath)
 	Expect(os.MkdirAll(filepath.Dir(filePath), 0755)).To(Succeed())
 
@@ -119,40 +119,40 @@ func collectArtifacts(filePath string) {
 
 	By("Capturing DPU artifacts")
 	dpuList := &provisioningv1.DPUList{}
-	Expect(input.client.List(ctx, dpuList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
-	allArtifacts = append(allArtifacts, extractArtifacts(ToClientObjectSlice(dpuList.Items))...)
+	Expect(input.Client.List(Ctx, dpuList, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
+	allArtifacts = append(allArtifacts, ExtractArtifacts(ToClientObjectSlice(dpuList.Items))...)
 
 	By("Capturing DPUService artifacts with owned-by-dpudeployment label")
 	dpuServiceList := &dpuservicev1.DPUServiceList{}
-	Expect(input.client.List(ctx, dpuServiceList,
-		client.InNamespace(dpfOperatorSystemNamespace),
+	Expect(input.Client.List(Ctx, dpuServiceList,
+		client.InNamespace(DPFOperatorSystemNamespace),
 		client.HasLabels{dpuservicev1.ParentDPUDeploymentNameLabel})).To(Succeed())
-	allArtifacts = append(allArtifacts, extractArtifacts(ToClientObjectSlice(dpuServiceList.Items))...)
+	allArtifacts = append(allArtifacts, ExtractArtifacts(ToClientObjectSlice(dpuServiceList.Items))...)
 
 	By("Capturing DPUServiceChain artifacts")
 	dpuServiceChainList := &dpuservicev1.DPUServiceChainList{}
-	Expect(input.client.List(ctx, dpuServiceChainList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
-	allArtifacts = append(allArtifacts, extractArtifacts(ToClientObjectSlice(dpuServiceChainList.Items))...)
+	Expect(input.Client.List(Ctx, dpuServiceChainList, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
+	allArtifacts = append(allArtifacts, ExtractArtifacts(ToClientObjectSlice(dpuServiceChainList.Items))...)
 
 	By("Capturing DPUSet artifacts")
 	dpuSetList := &provisioningv1.DPUSetList{}
-	Expect(input.client.List(ctx, dpuSetList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
-	allArtifacts = append(allArtifacts, extractArtifacts(ToClientObjectSlice(dpuSetList.Items))...)
+	Expect(input.Client.List(Ctx, dpuSetList, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
+	allArtifacts = append(allArtifacts, ExtractArtifacts(ToClientObjectSlice(dpuSetList.Items))...)
 
 	By("Capturing DPUServiceInterface artifacts")
 	dpuServiceInterfaceList := &dpuservicev1.DPUServiceInterfaceList{}
-	Expect(input.client.List(ctx, dpuServiceInterfaceList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
-	allArtifacts = append(allArtifacts, extractArtifacts(ToClientObjectSlice(dpuServiceInterfaceList.Items))...)
+	Expect(input.Client.List(Ctx, dpuServiceInterfaceList, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
+	allArtifacts = append(allArtifacts, ExtractArtifacts(ToClientObjectSlice(dpuServiceInterfaceList.Items))...)
 
 	By("Capturing ServiceChain artifacts from DPU cluster")
 	serviceChainList := &dpuservicev1.ServiceChainList{}
-	Expect(dpuClusterClient[0].List(ctx, serviceChainList)).To(Succeed())
-	allArtifacts = append(allArtifacts, extractArtifacts(ToClientObjectSlice(serviceChainList.Items))...)
+	Expect(DPUClusterClient[0].List(Ctx, serviceChainList)).To(Succeed())
+	allArtifacts = append(allArtifacts, ExtractArtifacts(ToClientObjectSlice(serviceChainList.Items))...)
 
 	By("Capturing ServiceInterface artifacts from DPU cluster")
 	serviceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
-	Expect(dpuClusterClient[0].List(ctx, serviceInterfaceList)).To(Succeed())
-	allArtifacts = append(allArtifacts, extractArtifacts(ToClientObjectSlice(serviceInterfaceList.Items))...)
+	Expect(DPUClusterClient[0].List(Ctx, serviceInterfaceList)).To(Succeed())
+	allArtifacts = append(allArtifacts, ExtractArtifacts(ToClientObjectSlice(serviceInterfaceList.Items))...)
 
 	By("Capturing Pod artifacts from DPU cluster with service label but not system component label")
 	podList := &corev1.PodList{}
@@ -161,8 +161,8 @@ func collectArtifacts(filePath string) {
 	notSystemComponentReq, reqErr := labels.NewRequirement(operatorv1.DPFComponentLabelKey, selection.DoesNotExist, nil)
 	Expect(reqErr).ToNot(HaveOccurred())
 	podSelector := labels.NewSelector().Add(*hasServiceLabelReq, *notSystemComponentReq)
-	Expect(dpuClusterClient[0].List(ctx, podList, &client.MatchingLabelsSelector{Selector: podSelector})).To(Succeed())
-	allArtifacts = append(allArtifacts, extractArtifacts(ToClientObjectSlice(podList.Items))...)
+	Expect(DPUClusterClient[0].List(Ctx, podList, &client.MatchingLabelsSelector{Selector: podSelector})).To(Succeed())
+	allArtifacts = append(allArtifacts, ExtractArtifacts(ToClientObjectSlice(podList.Items))...)
 
 	artifactData, err := json.MarshalIndent(allArtifacts, "", "  ")
 	Expect(err).ToNot(HaveOccurred())
@@ -171,8 +171,8 @@ func collectArtifacts(filePath string) {
 	Expect(os.WriteFile(filePath, artifactData, 0644)).To(Succeed())
 }
 
-// getArtifacts reads a snapshot previously written by collectArtifacts.
-func getArtifacts(filePath string) []map[string]interface{} {
+// GetArtifacts reads a snapshot previously written by collectArtifacts.
+func GetArtifacts(filePath string) []map[string]interface{} {
 	By("Reading artifacts from: " + filePath)
 	data, err := os.ReadFile(filePath)
 	Expect(err).ToNot(HaveOccurred())
@@ -182,13 +182,13 @@ func getArtifacts(filePath string) []map[string]interface{} {
 	return artifacts
 }
 
-// compareArtifactSnapshots loads the two named snapshots, applies the given
+// CompareArtifactSnapshots loads the two named snapshots, applies the given
 // expected-change transforms, and asserts they match (modulo sorting). The
 // phaseDescription is used in assertion messages.
-func compareArtifactSnapshots(prevKey, currKey, phaseDescription string, expectedChanges []upgradeExpectedChange) {
-	prev := getArtifacts(upgradeArtifactsFile(prevKey))
-	curr := getArtifacts(upgradeArtifactsFile(currKey))
-	applyUpgradeExpectedChanges(prev, curr, expectedChanges)
+func CompareArtifactSnapshots(prevKey, currKey, phaseDescription string, expectedChanges []UpgradeExpectedChange) {
+	prev := GetArtifacts(UpgradeArtifactsFile(prevKey))
+	curr := GetArtifacts(UpgradeArtifactsFile(currKey))
+	ApplyUpgradeExpectedChanges(prev, curr, expectedChanges)
 	By(fmt.Sprintf("Comparing artifacts: %s vs %s", prevKey, currKey))
 	Expect(curr).To(HaveLen(len(prev)),
 		"Number of tracked objects should be unchanged after %s upgrade", phaseDescription)
@@ -208,12 +208,12 @@ func ToClientObjectSlice[T any](in []T) []client.Object {
 	return out
 }
 
-// extractArtifacts extracts the GVK, name, namespace, UID, generation, and
+// ExtractArtifacts extracts the GVK, name, namespace, UID, generation, and
 // spec of each object — the stable subset we care about for upgrade
 // comparison. All other fields (status, volatile metadata) are excluded.
 // GVK is resolved via the scheme because List calls do not populate TypeMeta
 // on individual items.
-func extractArtifacts(objects []client.Object) []map[string]interface{} {
+func ExtractArtifacts(objects []client.Object) []map[string]interface{} {
 	artifacts := make([]map[string]interface{}, 0, len(objects))
 	for _, obj := range objects {
 		data, err := json.Marshal(obj)

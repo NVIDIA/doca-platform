@@ -32,51 +32,51 @@ import (
 func VerifyHostKSMMetricsCollection(ctx context.Context) {
 	By("Verify host cluster kube-state-metrics endpoint is accessible")
 	Eventually(func(g Gomega) {
-		request := hostClusterRESTClient.Get().AbsPath(metricsURI)
+		request := HostClusterRESTClient.Get().AbsPath(MetricsURI)
 		response, err := request.DoRaw(ctx)
-		g.Expect(err).NotTo(HaveOccurred(), fmt.Sprintf("Request %s failed with err: %v", metricsURI, err))
-		g.Expect(response).NotTo(BeNil(), fmt.Sprintf("Metrics api is not accessible by url %s ", metricsURI))
+		g.Expect(err).NotTo(HaveOccurred(), fmt.Sprintf("Request %s failed with err: %v", MetricsURI, err))
+		g.Expect(response).NotTo(BeNil(), fmt.Sprintf("Metrics api is not accessible by url %s ", MetricsURI))
 	}).WithTimeout(30 * time.Second).Should(Succeed())
 }
 
-func VerifyDPUKSMMetricsCollection(ctx context.Context, input *systemTestInput) {
+func VerifyDPUKSMMetricsCollection(ctx context.Context, input *SystemTestInput) {
 	By("Verify DPU cluster kube-state-metrics endpoint is accessible")
 	Eventually(func(g Gomega) {
 		// Get the KSM metrics URI for the first DPUCluster
 		// Note: The in-cluster kube-state-metrics service runs on the management cluster,
 		// not on the DPU cluster. It connects remotely to collect DPU cluster metrics.
-		g.Expect(input.dpuClusters).ToNot(BeEmpty(), "No DPUClusters found in test input")
-		dpuKSMMetricsURI, err := metrics.GetKSMMetricsURIForDPUCluster(ctx, input.client, input.dpuClusters[0], dpfOperatorSystemNamespace, kubeStateMetricsPort, "/metrics")
+		g.Expect(input.DPUClusters).ToNot(BeEmpty(), "No DPUClusters found in test input")
+		dpuKSMMetricsURI, err := metrics.GetKSMMetricsURIForDPUCluster(ctx, input.Client, input.DPUClusters[0], DPFOperatorSystemNamespace, KubeStateMetricsPort, "/metrics")
 		g.Expect(err).NotTo(HaveOccurred(), "Failed to get KSM metrics URI for DPUCluster")
 		g.Expect(dpuKSMMetricsURI).NotTo(BeEmpty())
 
 		// Use hostClusterRESTClient because the in-cluster KSM service runs on the management cluster
-		request := hostClusterRESTClient.Get().AbsPath(dpuKSMMetricsURI)
+		request := HostClusterRESTClient.Get().AbsPath(dpuKSMMetricsURI)
 		response, err := request.DoRaw(ctx)
 		g.Expect(err).NotTo(HaveOccurred(), fmt.Sprintf("Request %s failed with err: %v", dpuKSMMetricsURI, err))
 		g.Expect(response).NotTo(BeNil(), fmt.Sprintf("Metrics api is not accessible by url %s ", dpuKSMMetricsURI))
 	}).WithTimeout(30 * time.Second).Should(Succeed())
 }
 
-func ValidateGeneralDPFMetrics(ctx context.Context, input *systemTestInput) {
+func ValidateGeneralDPFMetrics(ctx context.Context, input *SystemTestInput) {
 	By("Verify metrics are being collected")
 	expectedMetricsNames := map[string][]string{
 		"dpfoperatorconfig": {"created", "info", "status_conditions", "status_condition_last_transition_time", "version"}, // "paused" missed
 		"dpucluster":        {"created", "info", "status_phase", "status_conditions", "status_condition_last_transition_time", "status_nodes_count"},
 	}
 
-	if input.bfb != nil {
+	if input.BFB != nil {
 		expectedMetricsNames["bfb"] = []string{"created", "info", "status_phase", "version_bsp", "version_doca", "version_uefi", "version_atf", "file_name"}
 	}
 
-	if input.hasDpuNodes() {
+	if input.HasDpuNodes() {
 		By("Checking that DPUs are created")
 		Eventually(func(g Gomega) {
 			// A DPU object is created for each DPU device, not each DPU node.
 			// totalDPUs() = numberOfDPUNodes * numberOfDPUsPerNode
 			dpus := &provisioningv1.DPUList{}
-			g.Expect(input.client.List(ctx, dpus)).To(Succeed())
-			g.Expect(dpus.Items).To(HaveLen(input.totalDPUs()))
+			g.Expect(input.Client.List(ctx, dpus)).To(Succeed())
+			g.Expect(dpus.Items).To(HaveLen(input.TotalDPUs()))
 		}).WithTimeout(60 * time.Second).Should(Succeed())
 
 		expectedMetricsNames["dpu"] = []string{"created", "info", "required_reset", "status_phase", "status_conditions", "status_condition_last_transition_time", "operational_conditions", "operational_condition_last_transition_time", "agent_conditions", "agent_condition_last_transition_time", "outdated_timestamp", "outdated_reason"}
@@ -86,19 +86,19 @@ func ValidateGeneralDPFMetrics(ctx context.Context, input *systemTestInput) {
 	}
 
 	Eventually(func(g Gomega) {
-		actualMetricsNames := metrics.GetKSMMetrics(g, ctx, hostClusterRESTClient, metricsURI)
+		actualMetricsNames := metrics.GetKSMMetrics(g, ctx, HostClusterRESTClient, MetricsURI)
 		g.Expect(actualMetricsNames).NotTo(BeEmpty(), "Actual metrics are empty")
 		g.Expect(metrics.VerifyMetrics(expectedMetricsNames, actualMetricsNames)).To(BeEmpty())
 	}).WithTimeout(5 * time.Second).Should(Succeed())
 }
 
-func VerifyNodeProblemDetectorConditions(ctx context.Context, input *systemTestInput) {
+func VerifyNodeProblemDetectorConditions(ctx context.Context, input *SystemTestInput) {
 	Eventually(func(g Gomega) {
-		for i, dpuCluster := range input.dpuClusters {
+		for i, dpuCluster := range input.DPUClusters {
 			By(fmt.Sprintf("Checking node conditions in DPUCluster %s", dpuCluster.Name))
 
 			nodes := &corev1.NodeList{}
-			g.Expect(dpuClusterClient[i].List(ctx, nodes)).To(Succeed(),
+			g.Expect(DPUClusterClient[i].List(ctx, nodes)).To(Succeed(),
 				fmt.Sprintf("Failed to list nodes in DPUCluster %s", dpuCluster.Name))
 			g.Expect(nodes.Items).ToNot(BeEmpty(),
 				fmt.Sprintf("No nodes found in DPUCluster %s", dpuCluster.Name))

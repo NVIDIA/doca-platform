@@ -43,23 +43,23 @@ const (
 	kataDPUServiceSFResourceID = corev1.ResourceName(kataDPUServiceSFResource)
 )
 
-func ValidateDPUServiceKataRuntimeClass(ctx context.Context, input *systemTestInput) {
-	if !input.hasDpuNodes() {
+func ValidateDPUServiceKataRuntimeClass(ctx context.Context, input *SystemTestInput) {
+	if !input.HasDpuNodes() {
 		Skip("Skip DPUService Kata RuntimeClass test as there are no DPU nodes")
 	}
 
 	By("Waiting for kata-containers DPUService to be ready")
-	dpuservice.WaitForDPUServices(ctx, input.client, dpfOperatorSystemNamespace, []string{operatorv1.KataContainersName.String()})
+	dpuservice.WaitForDPUServices(ctx, input.Client, DPFOperatorSystemNamespace, []string{operatorv1.KataContainersName.String()})
 
 	By("Waiting for kata-qemu RuntimeClass to be created in the DPU cluster")
 	Eventually(func(g Gomega) {
-		g.Expect(dpuClusterClient[0].Get(ctx, client.ObjectKey{Name: kataRuntimeClassName}, &nodev1.RuntimeClass{})).To(Succeed())
+		g.Expect(DPUClusterClient[0].Get(ctx, client.ObjectKey{Name: kataRuntimeClassName}, &nodev1.RuntimeClass{})).To(Succeed())
 	}).WithTimeout(10 * time.Minute).WithPolling(time.Second).Should(Succeed())
 
 	By("Creating a dummy DPUService that uses kata-qemu and requests an SF")
-	dpuService := input.dpuService.DeepCopy()
+	dpuService := input.DPUService.DeepCopy()
 	dpuService.Name = kataDPUServiceName
-	dpuService.Namespace = dpfOperatorSystemNamespace
+	dpuService.Namespace = DPFOperatorSystemNamespace
 	dpuService.SetLabels(CleanupScope.It)
 	dpuService.Spec.HelmChart.Source = dpuservicev1.ApplicationSource{
 		Chart:   "dummydpuservice-chart",
@@ -67,17 +67,17 @@ func ValidateDPUServiceKataRuntimeClass(ctx context.Context, input *systemTestIn
 		RepoURL: helmRegistry,
 	}
 	dpuService.Spec.HelmChart.Values = &machineryruntime.RawExtension{
-		Raw: []byte(fmt.Sprintf(`{"runtimeClassName": %q, "imagePullSecrets": [{"name": %q}]}`, kataRuntimeClassName, dpfPullSecretName)),
+		Raw: []byte(fmt.Sprintf(`{"runtimeClassName": %q, "imagePullSecrets": [{"name": %q}]}`, kataRuntimeClassName, DPFPullSecretName)),
 	}
 	dpuService.Spec.ServiceDaemonSet = &dpuservicev1.ServiceDaemonSetValues{
 		Resources: corev1.ResourceList{
 			kataDPUServiceSFResourceID: resource.MustParse("1"),
 		},
 	}
-	Expect(input.client.Create(ctx, dpuService)).To(Succeed())
+	Expect(input.Client.Create(ctx, dpuService)).To(Succeed())
 
 	By("Waiting for the kata dummy DPUService pods to be running")
-	VerifyClusterPods(ctx, dpuClusterClient[0], []string{kataDPUServiceName})
+	VerifyClusterPods(ctx, DPUClusterClient[0], []string{kataDPUServiceName})
 
 	By("Verifying the running kata dummy DPUService pods use kata-qemu and an SF")
 	Eventually(func(g Gomega) {
@@ -95,7 +95,7 @@ func ValidateDPUServiceKataRuntimeClass(ctx context.Context, input *systemTestIn
 // kataRunningPods returns all Running pods belonging to the kata dummy DPUService DaemonSet.
 func kataRunningPods(ctx context.Context, g Gomega) []corev1.Pod {
 	daemonSetList := &appsv1.DaemonSetList{}
-	g.Expect(dpuClusterClient[0].List(ctx, daemonSetList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+	g.Expect(DPUClusterClient[0].List(ctx, daemonSetList, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 
 	var matchLabels map[string]string
 	for _, ds := range daemonSetList.Items {
@@ -108,10 +108,10 @@ func kataRunningPods(ctx context.Context, g Gomega) []corev1.Pod {
 	g.Expect(matchLabels).NotTo(BeEmpty(), "expected DaemonSet containing %q to exist", kataDPUServiceName)
 
 	podList := &corev1.PodList{}
-	g.Expect(dpuClusterClient[0].List(
+	g.Expect(DPUClusterClient[0].List(
 		ctx,
 		podList,
-		client.InNamespace(dpfOperatorSystemNamespace),
+		client.InNamespace(DPFOperatorSystemNamespace),
 		client.MatchingLabels(matchLabels),
 		client.MatchingFields{"status.phase": string(corev1.PodRunning)},
 	)).To(Succeed())

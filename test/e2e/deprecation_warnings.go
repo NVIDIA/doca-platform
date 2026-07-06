@@ -52,19 +52,19 @@ func (w *warningCollector) get() []string {
 // warnings fire when a deprecated field is set on a DPF resource. It uses
 // spec.bmcIP on a DPU as one arbitrary example of a deprecated field to
 // trigger and assert on the warning.
-func ValidateVAPDeprecationWarnings(ctx context.Context, input *systemTestInput) {
+func ValidateVAPDeprecationWarnings(ctx context.Context, input *SystemTestInput) {
 	collector := &warningCollector{}
-	cfg := rest.CopyConfig(input.restConfig)
+	cfg := rest.CopyConfig(input.RestConfig)
 	cfg.WarningHandler = collector
 
-	warningClient, err := client.New(cfg, client.Options{Scheme: input.client.Scheme()})
+	warningClient, err := client.New(cfg, client.Options{Scheme: input.Client.Scheme()})
 	Expect(err).NotTo(HaveOccurred())
 
 	By("Creating a DPU with deprecated spec.bmcIP set")
 	dpu := &provisioningv1.DPU{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "e2e-vap-warning-",
-			Namespace:    dpfOperatorSystemNamespace,
+			Namespace:    DPFOperatorSystemNamespace,
 			Labels:       CleanupScope.It,
 		},
 		Spec: provisioningv1.DPUSpec{
@@ -90,16 +90,16 @@ func ValidateVAPDeprecationWarnings(ctx context.Context, input *systemTestInput)
 
 	By("Creating a DPU without any deprecated fields set")
 	negativeCollector := &warningCollector{}
-	negativeCfg := rest.CopyConfig(input.restConfig)
+	negativeCfg := rest.CopyConfig(input.RestConfig)
 	negativeCfg.WarningHandler = negativeCollector
 
-	negativeClient, err := client.New(negativeCfg, client.Options{Scheme: input.client.Scheme()})
+	negativeClient, err := client.New(negativeCfg, client.Options{Scheme: input.Client.Scheme()})
 	Expect(err).NotTo(HaveOccurred())
 
 	dpuNoDeprecated := &provisioningv1.DPU{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "e2e-vap-no-warning-",
-			Namespace:    dpfOperatorSystemNamespace,
+			Namespace:    DPFOperatorSystemNamespace,
 			Labels:       CleanupScope.It,
 		},
 		Spec: provisioningv1.DPUSpec{

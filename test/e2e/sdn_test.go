@@ -22,11 +22,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 )
 
-func SDNBeforeSuite() {
-	By("Setting SDN configs for the test")
-	input.applySDNConfig(*conf)
-}
-
 //nolint:dupl
 var _ = Describe("DPF System tests - SDN", SpecPriority(SDNTestPriority), Labels{Domain.DPFSystem, Domain.SDN}, Ordered, func() {
 
@@ -34,39 +29,39 @@ var _ = Describe("DPF System tests - SDN", SpecPriority(SDNTestPriority), Labels
 		for _, label := range CurrentSpecReport().Labels() {
 			if label == Domain.RequiresNodes {
 				By("Waiting for provisioning")
-				VerifyDPUClusterWithNodes(ctx, getProvisionDPUClustersInput())
+				VerifyDPUClusterWithNodes(Ctx, GetProvisionDPUClustersInput())
 				By("Waiting for DPU cluster pods to be ready")
-				VerifyClusterPods(ctx, dpuClusterClient[0], systemPodsToVerify)
+				VerifyClusterPods(Ctx, DPUClusterClient[0], systemPodsToVerify)
 				By("Waiting for DPFOperatorConfig to be ready")
-				VerifyDPFOperatorConfigReady(ctx, input.client, 20*time.Minute)
+				VerifyDPFOperatorConfigReady(Ctx, input.Client, 20*time.Minute)
 			}
 		}
 	})
 
 	Context("DPU Service Function Chain", Labels{Domain.RequiresNodes, Domain.L2Connectivity}, func() {
 		It("create plain DPU chain and verify performance", func() {
-			VerifyPlainServiceFunctionChain(ctx, input)
+			VerifyPlainServiceFunctionChain(Ctx, input)
 		})
 		It("create HBN only DPU chain and verify performance", func() {
-			VerifyHBNOnlyServiceFunctionChain(ctx, input)
+			VerifyHBNOnlyServiceFunctionChain(Ctx, input)
 		})
 		It("create HBN only DPU chain and verify performance after killing HBN", Labels{Domain.L2Connectivity}, func() {
-			VerifyHBNOnlyBadFlowRecovery(ctx, input)
+			VerifyHBNOnlyBadFlowRecovery(Ctx, input)
 		})
 		It("create simple chain and validate serviceMTU changes", func() {
-			VerifyServiceMTUOnDPUPods(ctx, input)
+			VerifyServiceMTUOnDPUPods(Ctx, input)
 		})
 		It("create Pods running in the DPUCluster via DPUService and verify RDMA traffic between them", func() {
-			VerifyDPUPodToPodRDMATraffic(ctx, input)
+			VerifyDPUPodToPodRDMATraffic(Ctx, input)
 		})
 	})
 
 	Context("Validate DPU Service NAD", Labels{Domain.DPFSystem, Domain.RequiresNodes}, func() {
 		It("create a pod consuming a DPUServiceNAD with all dependencies and check that it is created successfully", func() {
-			ValidateDPUServiceNADConsumedByPod(ctx, input)
+			ValidateDPUServiceNADConsumedByPod(Ctx, input)
 		})
 		It("verify DPUServiceNAD metrics", func() {
-			ValidateDPUServiceNADMetrics(ctx)
+			ValidateDPUServiceNADMetrics(Ctx)
 		})
 	})
 })

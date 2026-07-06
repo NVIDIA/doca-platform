@@ -37,8 +37,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func ValidateDPUServiceNADConsumedByPod(ctx context.Context, input *systemTestInput) {
-	if !input.hasDpuNodes() {
+func ValidateDPUServiceNADConsumedByPod(ctx context.Context, input *SystemTestInput) {
+	if !input.HasDpuNodes() {
 		Skip("Skip test as there are not multiple nodes")
 	}
 
@@ -58,45 +58,45 @@ func ValidateDPUServiceNADConsumedByPod(ctx context.Context, input *systemTestIn
 	}
 
 	By("Create test namespace: " + namespace)
-	createTestNamespace(ctx, input.client, namespace)
+	createTestNamespace(ctx, input.Client, namespace)
 
 	By("Copy image pull secret to namespace " + namespace)
-	CopySecretToNamespace(ctx, input.client, dpfPullSecretName, dpfOperatorSystemNamespace, namespace, CleanupScope.It)
+	CopySecretToNamespace(ctx, input.Client, DPFPullSecretName, DPFOperatorSystemNamespace, namespace, CleanupScope.It)
 
 	By("Create DPUServiceNAD")
 	dpuServiceNAD := constructDPUServiceNAD(dpuServiceNADName, namespace, mtu)
-	Expect(input.client.Create(ctx, dpuServiceNAD)).To(Succeed())
+	Expect(input.Client.Create(ctx, dpuServiceNAD)).To(Succeed())
 
 	By("Create DPUServiceInterface")
 	dpuServiceInterface := constructDPUServiceInterface(dpuServiceInterfaceCustomNADName, namespace, serviceName, dpuServiceNADName, serviceInterfaceLabels)
-	Expect(input.client.Create(ctx, dpuServiceInterface)).To(Succeed())
+	Expect(input.Client.Create(ctx, dpuServiceInterface)).To(Succeed())
 
 	// FIXME: There is a bug that incorrectly requires a DPUServiceChain to exist before a DPUService can be deployed successfully; remove the DPUServiceChain part if this is fixed
 	By("Create DPUServiceChain")
 	dpuServiceChain := constructDPUServiceChain(serviceChainName, namespace, mtu, serviceInterfaceLabels)
-	Expect(input.client.Create(ctx, dpuServiceChain)).To(Succeed())
+	Expect(input.Client.Create(ctx, dpuServiceChain)).To(Succeed())
 
 	By("Deploy DummyDPUService")
 	dpuServiceDummy := constructDummyDPUServiceObject(serviceName, namespace, dpuServiceInterfaceCustomNADName)
-	Expect(input.client.Create(ctx, dpuServiceDummy)).To(Succeed())
+	Expect(input.Client.Create(ctx, dpuServiceDummy)).To(Succeed())
 
 	By("Verify DPUServiceNAD is ready")
-	EventuallyCheckReadyStatusCondition(ctx, input.client, dpuServiceNAD, defaultTimeout)
+	EventuallyCheckReadyStatusCondition(ctx, input.Client, dpuServiceNAD, defaultTimeout)
 	By("Verify DPUServiceInterface is ready")
-	EventuallyCheckReadyStatusCondition(ctx, input.client, dpuServiceInterface, 10*time.Minute)
+	EventuallyCheckReadyStatusCondition(ctx, input.Client, dpuServiceInterface, 10*time.Minute)
 	// Only now verify that the DPUServiceChain and DummyDPUService are ready
 	// Reason: They depend on each other and the DPUServiceInterface and only then become ready
 	By("Verify DPUServiceChain is ready")
-	EventuallyCheckReadyStatusCondition(ctx, input.client, dpuServiceChain, 3*time.Minute)
+	EventuallyCheckReadyStatusCondition(ctx, input.Client, dpuServiceChain, 3*time.Minute)
 
 	By("Verify DummyDPUService is ready")
-	EventuallyCheckReadyStatusCondition(ctx, input.client, dpuServiceDummy, 3*time.Minute)
+	EventuallyCheckReadyStatusCondition(ctx, input.Client, dpuServiceDummy, 3*time.Minute)
 
 	By("Verify DPUService pods are created in DPU cluster")
 	Eventually(func(g Gomega) {
 		const podServiceLabel string = "svc.dpu.nvidia.com/service"
 		podList := &corev1.PodList{}
-		g.Expect(dpuClusterClient[0].List(ctx, podList,
+		g.Expect(DPUClusterClient[0].List(ctx, podList,
 			client.InNamespace(namespace),
 			client.MatchingLabels{podServiceLabel: serviceName},
 		)).To(Succeed())
@@ -111,7 +111,7 @@ func ValidateDPUServiceNADMetrics(ctx context.Context) {
 	}
 
 	Eventually(func(g Gomega) {
-		actualMetricsNames := metrics.GetKSMMetrics(g, ctx, hostClusterRESTClient, metricsURI)
+		actualMetricsNames := metrics.GetKSMMetrics(g, ctx, HostClusterRESTClient, MetricsURI)
 		g.Expect(actualMetricsNames).NotTo(BeEmpty(), "Actual metrics are empty")
 		g.Expect(metrics.VerifyMetrics(expectedMetricsNames, actualMetricsNames)).To(BeEmpty())
 	}).WithTimeout(5 * time.Second).Should(Succeed())
@@ -196,7 +196,7 @@ func constructDummyDPUServiceObject(serviceName, namespace, interfaceName string
 	if ngcAPIKey != "" {
 		dpuServiceDummy.Spec.HelmChart.Values = &machineryruntime.RawExtension{
 			Raw: []byte(fmt.Sprintf(
-				`{"imagePullSecrets": [{"name": "%s"}]}`, dpfPullSecretName,
+				`{"imagePullSecrets": [{"name": "%s"}]}`, DPFPullSecretName,
 			)),
 		}
 	}
@@ -213,8 +213,8 @@ func constructDummyDPUServiceObject(serviceName, namespace, interfaceName string
 }
 
 // VerifyDPUPodToPodRDMATraffic verifies that 2 Pods in the DPUCluster can run RDMA traffic between each other.
-func VerifyDPUPodToPodRDMATraffic(ctx context.Context, input *systemTestInput) {
-	if input.numberOfDPUNodes != 2 {
+func VerifyDPUPodToPodRDMATraffic(ctx context.Context, input *SystemTestInput) {
+	if input.NumberOfDPUNodes != 2 {
 		// Test assumes that there are exactly 2 host nodes to match the DPU cluster
 		Skip("Skip test as there are not exactly 2 nodes")
 	}
@@ -223,7 +223,7 @@ func VerifyDPUPodToPodRDMATraffic(ctx context.Context, input *systemTestInput) {
 	setupDPUPodToPodRDMATrafficTest(ctx, input)
 
 	By("Getting the pods in the DPU cluster")
-	pod1, pod2 := get2DPUServicePods(ctx, input.namespace, "dummydpuservice-rdma")
+	pod1, pod2 := get2DPUServicePods(ctx, input.Namespace, "dummydpuservice-rdma")
 	// Validate that IPs are available for both pods
 	podIP1 := getPodIPForInterface(Default, pod1, "app_rdma_if")
 	podIP2 := getPodIPForInterface(Default, pod2, "app_rdma_if")
@@ -234,14 +234,14 @@ func VerifyDPUPodToPodRDMATraffic(ctx context.Context, input *systemTestInput) {
 	// We must pass pointer of a pointer here because the dpuClusterRestClient and dpuClusterRestConfig are updated in
 	// a goroutine in case they break and we need to ensure that the underlying function always picks up the up to date
 	// pointer.
-	netshoot.RunRDMATrafficTest(&dpuClusterRestClient[0], &dpuClusterRestConfig[0], input.namespace, pod1.Name, pod2.Name, podIP2)
+	netshoot.RunRDMATrafficTest(&DPUClusterRestClient[0], &DPUClusterRestConfig[0], input.Namespace, pod1.Name, pod2.Name, podIP2)
 }
 
-func setupDPUPodToPodRDMATrafficTest(ctx context.Context, input *systemTestInput) {
+func setupDPUPodToPodRDMATrafficTest(ctx context.Context, input *SystemTestInput) {
 	interfaceConfigs := []dpuservice.TestDPUServiceInterfaceConfig{
 		{
 			Name:          "p0-rdma",
-			Namespace:     input.namespace,
+			Namespace:     input.Namespace,
 			Type:          "physical",
 			InterfaceName: "p0",
 			Labels: map[string]string{
@@ -253,7 +253,7 @@ func setupDPUPodToPodRDMATrafficTest(ctx context.Context, input *systemTestInput
 		},
 		{
 			Name:          "app-sf-rdma",
-			Namespace:     input.namespace,
+			Namespace:     input.Namespace,
 			Type:          "sf",
 			InterfaceName: "app_rdma_if",
 			ServiceID:     "dummydpuservice-rdma",
@@ -266,10 +266,10 @@ func setupDPUPodToPodRDMATrafficTest(ctx context.Context, input *systemTestInput
 	poolLabels := map[string]string{"svc.dpu.nvidia.com/pool": "dummydpuservice-rdma"}
 
 	By("Create and wait for DPU service interfaces")
-	createAndWaitForInterfaces(ctx, input.client, input.dpuServiceInterfaceTemplate, interfaceConfigs)
+	createAndWaitForInterfaces(ctx, input.Client, input.DPUServiceInterfaceTemplate, interfaceConfigs)
 
 	By("Create the chain between the workload pod and p0")
-	fabricChain := utils.GenerateDPUObj("pod-to-fabric", input.namespace, input.dpuServiceChainTemplate.DeepCopy())
+	fabricChain := utils.GenerateDPUObj("pod-to-fabric", input.Namespace, input.DPUServiceChainTemplate.DeepCopy())
 	fabricChain.Spec.Template.Spec.Template.Spec.Switches = []dpuservicev1.Switch{
 		{
 			Ports: []dpuservicev1.Port{
@@ -289,7 +289,7 @@ func setupDPUPodToPodRDMATrafficTest(ctx context.Context, input *systemTestInput
 			},
 		},
 	}
-	Expect(input.client.Create(ctx, fabricChain)).To(Succeed())
+	Expect(input.Client.Create(ctx, fabricChain)).To(Succeed())
 
 	By("Create DPUServiceIPAM")
 	dpuServiceIPAMTemplate := dpuservicev1.DPUServiceIPAM{
@@ -304,8 +304,8 @@ func setupDPUPodToPodRDMATrafficTest(ctx context.Context, input *systemTestInput
 			},
 		},
 	}
-	dpuServiceIPAM := utils.GenerateDPUObj("mybrsfc-rdma", input.namespace, &dpuServiceIPAMTemplate)
-	Expect(input.client.Create(ctx, dpuServiceIPAM)).To(Succeed())
+	dpuServiceIPAM := utils.GenerateDPUObj("mybrsfc-rdma", input.Namespace, &dpuServiceIPAMTemplate)
+	Expect(input.Client.Create(ctx, dpuServiceIPAM)).To(Succeed())
 
 	By("Create DPUServiceNAD")
 	dpuServiceNADTemplate := dpuservicev1.DPUServiceNAD{
@@ -316,16 +316,16 @@ func setupDPUPodToPodRDMATrafficTest(ctx context.Context, input *systemTestInput
 			ChainedCNIs:  []dpuservicev1.CNIPlugin{{Type: ptr.To("rdma")}},
 		},
 	}
-	dpuServiceNAD := utils.GenerateDPUObj("mybrsfc-rdma", input.namespace, &dpuServiceNADTemplate)
-	Expect(input.client.Create(ctx, dpuServiceNAD)).To(Succeed())
+	dpuServiceNAD := utils.GenerateDPUObj("mybrsfc-rdma", input.Namespace, &dpuServiceNADTemplate)
+	Expect(input.Client.Create(ctx, dpuServiceNAD)).To(Succeed())
 
 	By("Create and wait for dummydpuservice DPUService")
-	createDummyDPUServiceForRDMA(ctx, input.client, input.namespace, input.dpuService)
-	dpuservice.WaitForDPUServices(ctx, input.client, input.namespace, []string{"dummydpuservice-rdma"})
-	VerifyClusterPods(ctx, dpuClusterClient[0], []string{"dummydpuservice-rdma"})
+	createDummyDPUServiceForRDMA(ctx, input.Client, input.Namespace, input.DPUService)
+	dpuservice.WaitForDPUServices(ctx, input.Client, input.Namespace, []string{"dummydpuservice-rdma"})
+	VerifyClusterPods(ctx, DPUClusterClient[0], []string{"dummydpuservice-rdma"})
 
 	By("Verify underlying ServiceChain and ServiceInterface objects are ready")
-	dpuservice.VerifyUnderlyingDPUObjectsReady(ctx, dpuClusterClient[0], input.namespace, interfaceConfigs, []string{"pod-to-fabric"})
+	dpuservice.VerifyUnderlyingDPUObjectsReady(ctx, DPUClusterClient[0], input.Namespace, interfaceConfigs, []string{"pod-to-fabric"})
 }
 
 // createDummyDPUServiceForRDMA creates a DPUService using the dummydpuservice and configures it for RDMA testing
@@ -339,7 +339,7 @@ func createDummyDPUServiceForRDMA(ctx context.Context, testClient client.Client,
 	}
 
 	values := make(map[string]any)
-	values["imagePullSecrets"] = []map[string]string{{"name": dpfPullSecretName}}
+	values["imagePullSecrets"] = []map[string]string{{"name": DPFPullSecretName}}
 	values["image"] = map[string]string{"repository": netutilsImage}
 	values["securityContext"] = map[string]any{"capabilities": map[string]any{"add": []string{"IPC_LOCK"}}}
 	rawValues, err := json.Marshal(values)
@@ -379,7 +379,7 @@ func getPodIPForInterface(g Gomega, pod corev1.Pod, interfaceName string) string
 // get2DPUServicePods returns the 2 DPUService Pods associated with a service
 func get2DPUServicePods(ctx context.Context, namespace string, serviceID string) (corev1.Pod, corev1.Pod) {
 	pods := &corev1.PodList{}
-	Expect(dpuClusterClient[0].List(ctx, pods, client.MatchingLabels{"svc.dpu.nvidia.com/service": serviceID}, client.InNamespace(namespace))).ToNot(HaveOccurred())
+	Expect(DPUClusterClient[0].List(ctx, pods, client.MatchingLabels{"svc.dpu.nvidia.com/service": serviceID}, client.InNamespace(namespace))).ToNot(HaveOccurred())
 	Expect(pods.Items).To(HaveLen(2))
 	return pods.Items[0], pods.Items[1]
 }

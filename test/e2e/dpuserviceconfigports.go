@@ -34,8 +34,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func ValidateDPUServiceConfigPorts(ctx context.Context, input *systemTestInput) {
-	if !input.hasDpuNodes() {
+func ValidateDPUServiceConfigPorts(ctx context.Context, input *SystemTestInput) {
+	if !input.HasDpuNodes() {
 		Skip("Skip DPUService ConfigPorts test as there are no DPU nodes")
 	}
 
@@ -44,14 +44,14 @@ func ValidateDPUServiceConfigPorts(ctx context.Context, input *systemTestInput) 
 	// - Works only with single DPU per node
 	// - Works only with single DPUCluster
 	// See: "ConfigPorts limitations" design document for details.
-	if input.numberOfDPUsPerNode > 1 {
+	if input.NumberOfDPUsPerNode > 1 {
 		Skip("Skip DPUService ConfigPorts test: feature does not support multiple DPUs per node")
 	}
 
 	By("Creating a DPUService with ConfigPorts")
-	dpuService := input.dpuService.DeepCopy()
+	dpuService := input.DPUService.DeepCopy()
 	dpuService.Name = "dummydpuservice"
-	dpuService.Namespace = dpfOperatorSystemNamespace
+	dpuService.Namespace = DPFOperatorSystemNamespace
 	dpuService.SetLabels(CleanupScope.It)
 	dpuService.Spec.HelmChart.Source = dpuservicev1.ApplicationSource{
 		Chart:   "dummydpuservice-chart",
@@ -59,7 +59,7 @@ func ValidateDPUServiceConfigPorts(ctx context.Context, input *systemTestInput) 
 		RepoURL: helmRegistry,
 	}
 	dpuService.Spec.HelmChart.Values = &machineryruntime.RawExtension{
-		Raw: []byte(fmt.Sprintf(`{"imagePullSecrets": [{"name": "%s"}]}`, dpfPullSecretName)),
+		Raw: []byte(fmt.Sprintf(`{"imagePullSecrets": [{"name": "%s"}]}`, DPFPullSecretName)),
 	}
 	dpuService.Spec.ConfigPorts = &dpuservicev1.ConfigPorts{
 		// TODO: test also ClusterIP. Currently this is not working as k3s doesn't have kube-proxy deployed.
@@ -72,14 +72,14 @@ func ValidateDPUServiceConfigPorts(ctx context.Context, input *systemTestInput) 
 			},
 		},
 	}
-	Expect(input.client.Create(ctx, dpuService)).To(Succeed())
+	Expect(input.Client.Create(ctx, dpuService)).To(Succeed())
 
 	By("Waiting for dummydpuservice Pods to be ready")
-	VerifyClusterPods(ctx, dpuClusterClient[0], []string{"dummydpuservice"})
+	VerifyClusterPods(ctx, DPUClusterClient[0], []string{"dummydpuservice"})
 
 	By("Verifying the ConfigPorts are exposed via the DPUService")
 	Eventually(func(g Gomega) {
-		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuService), dpuService)).To(Succeed())
+		g.Expect(input.Client.Get(ctx, client.ObjectKeyFromObject(dpuService), dpuService)).To(Succeed())
 		g.Expect(dpuService.Status.ConfigPorts).NotTo(BeNil())
 	}).WithTimeout(120 * time.Second).Should(Succeed())
 
@@ -94,7 +94,7 @@ func ValidateDPUServiceConfigPorts(ctx context.Context, input *systemTestInput) 
 	// Then get the name and IPs of the host nodes and check reachability.
 	nodeIPs := make(map[string]string)
 	nodeList := &corev1.NodeList{}
-	Expect(input.client.List(ctx, nodeList, client.MatchingLabels{
+	Expect(input.Client.List(ctx, nodeList, client.MatchingLabels{
 		"feature.node.kubernetes.io/dpu-enabled": "true",
 	})).To(Succeed())
 	for _, node := range nodeList.Items {
@@ -108,7 +108,7 @@ func ValidateDPUServiceConfigPorts(ctx context.Context, input *systemTestInput) 
 	}
 	// And finally check reachability by looping over all nodes.
 	for nodeName, nodeIP := range nodeIPs {
-		dpuNodeIP, err := getDPUIPForHost(ctx, input.client, nodeName)
+		dpuNodeIP, err := getDPUIPForHost(ctx, input.Client, nodeName)
 		Expect(err).NotTo(HaveOccurred())
 		Eventually(func(g Gomega) {
 			resp, err := http.Get(fmt.Sprintf("http://%s:%d", nodeIP, *nodePort))
@@ -121,7 +121,7 @@ func ValidateDPUServiceConfigPorts(ctx context.Context, input *systemTestInput) 
 			var podInfo dummydpuservice.PodInfo
 			g.Expect(json.NewDecoder(resp.Body).Decode(&podInfo)).To(Succeed())
 			g.Expect(podInfo.NodeIP).To(Equal(dpuNodeIP))
-			g.Expect(podInfo.PodNamespace).To(Equal(dpfOperatorSystemNamespace))
+			g.Expect(podInfo.PodNamespace).To(Equal(DPFOperatorSystemNamespace))
 			// This timeout needs to be big enough because in multi node nic cloud setup the image pulling may take
 			// longer than expected
 		}).WithTimeout(30 * time.Minute).Should(Succeed())

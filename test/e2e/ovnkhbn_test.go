@@ -24,18 +24,18 @@ import (
 var _ = Describe("DPF System tests - OVNK HBN", Labels{Domain.OVNKHBN, Domain.RequiresNodes}, func() {
 	BeforeEach(func() {
 		By("Wait for OVNK HBN deployment to be ready")
-		WaitForOVNKHBNDeploymentReady(ctx, input)
+		WaitForOVNKHBNDeploymentReady(Ctx, input)
 
 		By("Waiting for multus pods to be ready")
-		VerifyClusterPods(ctx, input.client, []string{"kube-multus-ds"})
+		VerifyClusterPods(Ctx, input.Client, []string{"kube-multus-ds"})
 	})
 
 	Context("OVNK HBN", func() {
 		It("verify performance of pod to pod same node", func() {
-			VerifyPerformancePodToPodSameNode(ctx, input, "ovnkhbn")
+			VerifyPerformancePodToPodSameNode(Ctx, input, "ovnkhbn")
 		})
 		It("verify performance of pod to pod different nodes", func() {
-			VerifyPerformancePodToPodDifferentNode(ctx, input, "ovnkhbn")
+			VerifyPerformancePodToPodDifferentNode(Ctx, input, "ovnkhbn")
 		})
 	})
 })

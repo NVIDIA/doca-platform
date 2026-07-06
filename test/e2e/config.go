@@ -22,14 +22,14 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-// config represents the raw configuration data loaded from YAML files.
+// Config represents the raw configuration data loaded from YAML files.
 // This struct contains file paths and basic configuration values that are used
 // to load and initialize the actual Kubernetes objects for testing.
 //
-// - Loaded from YAML config files (e.g., config-quick.yaml, config-provisioning.yaml)
+// - Loaded from YAML Config files (e.g., Config-quick.yaml, Config-provisioning.yaml)
 // - Used by applyConfig() to populate systemTestInput with actual Kubernetes objects
 // - Used by systemTestInput for object loading and initialization
-type config struct {
+type Config struct {
 	DPUFlavorPath                         *string  `json:"dpuFlavor,omitempty"`
 	ProvisioningControllerPVCPath         *string  `json:"provisioningControllerPVC,omitempty"`
 	BFBPath                               *string  `json:"bfb,omitempty"`
@@ -73,12 +73,12 @@ type config struct {
 	AdditionalDPUServiceConfigurationPath *string  `json:"additionalDPUServiceConfiguration,omitempty"`
 }
 
-func readConfig(path string) (*config, error) {
+func ReadConfig(path string) (*Config, error) {
 	configData, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	conf := &config{}
+	conf := &Config{}
 	if err = yaml.UnmarshalStrict(configData, conf); err != nil {
 		return nil, err
 	}

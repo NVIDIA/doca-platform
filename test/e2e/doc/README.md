@@ -18,7 +18,7 @@ General information about the E2E testing framework structure, patterns, and bes
 
 ### Infrastructure setup
 * `test/e2e/system_setup.go` - DPF system deployment, node setup, cluster provisioning
-* `test/e2e/system_test.go` - system-level test configuration (SetInput, SystemSetupBeforeSuite)
+* `test/e2e/system_bootstrap.go` - system-level test configuration (`SetInput`, `SystemSetupBeforeSuite`)
 
 ### Test suites
 * `test/e2e/*_test.go`
@@ -83,7 +83,7 @@ Configs reference YAML manifests in `test/objects/`
 
 ### Related files
 * `test/e2e/config.go` - config struct definition
-* `test/e2e/system_setup.go` - `systemTestInput` (holds loaded objects), `applyConfig()` (loads manifests)
+* `test/e2e/system_setup.go` - `SystemTestInput` (holds loaded objects), `ApplyConfig()` (loads manifests)
 
 ### CI workflows
 For automated test execution workflows, see:
@@ -174,7 +174,7 @@ var _ = Describe("DPF <some> tests ...", Labels{Domain.DPFSystem}, func() {
 
 	BeforeEach(func() {
         // If required: Check if we have DPU nodes
-		if !input.hasDpuNodes() {
+		if !input.HasDpuNodes() {
 			return
 		}
     })
@@ -184,7 +184,7 @@ var _ = Describe("DPF <some> tests ...", Labels{Domain.DPFSystem}, func() {
     // * Only It starts with a minuscule
 	Context("Validate my fancy feature", Labels{dpfSystemLabel, requiresNodesLabel}, func() {
 		It("create a pod consuming a DPUServiceNAD with all dependencies and check that it is created successfully", func() {
-			ValidateMyFeature(ctx, input)
+			ValidateMyFeature(Ctx, input)
 		})
 	})
 })
@@ -192,9 +192,9 @@ var _ = Describe("DPF <some> tests ...", Labels{Domain.DPFSystem}, func() {
 
 ```go
 // myfeature.go
-func ValidateMyFeature(ctx context.Context, input *systemTestInput) {
+func ValidateMyFeature(ctx context.Context, input *SystemTestInput) {
     // If required: Check if we have DPU nodes
-    if !input.hasDpuNodes() {
+    if !input.HasDpuNodes() {
         Skip("Skip test as there are not multiple nodes")
     }
     
@@ -225,7 +225,7 @@ func ValidateMyFeature(ctx context.Context, input *systemTestInput) {
             Labels:       utils.AfterAllCleanupLabels, // Define appropriate cleanup label
         },
     }
-    Expect(input.client.Create(ctx, testNS)).To(Succeed())
+    Expect(input.Client.Create(ctx, testNS)).To(Succeed())
     By("Created test namespace: " + testNS.Name)
 
     //////////////////////////////////////////////
@@ -233,7 +233,7 @@ func ValidateMyFeature(ctx context.Context, input *systemTestInput) {
 
     By("Copy image pull secret to namespace " + testNS.Name)
     // Re-use generic existing helper functions if possible
-    CopySecretToNamespace(ctx, input.client, dpfPullSecretName, dpfOperatorSystemNamespace, testNS.Name, utils.AfterEachCleanupLabels)
+    CopySecretToNamespace(ctx, input.Client, DPFPullSecretName, DPFOperatorSystemNamespace, testNS.Name, utils.AfterEachCleanupLabels)
 
     //////////////////////////////////////////////
     // Object creation and validation
@@ -241,13 +241,13 @@ func ValidateMyFeature(ctx context.Context, input *systemTestInput) {
     // Easy to read as factory method abstracts away construction details and programm flow and business logic is more in focus
     // Separation of concerns (object construction separated from creation)
     dpuServiceNAD := constructDPUServiceNAD(dpuServiceNADName, testNS.Name, mtu)
-    Expect(input.client.Create(ctx, dpuServiceNAD)).To(Succeed())
+    Expect(input.Client.Create(ctx, dpuServiceNAD)).To(Succeed())
 
     // ...
 
     By("Verify DPUServiceNAD is ready")
     // Most of our objects have a defined status field structure and can be validated easily using helpers
-    EventuallyCheckReadyStatusCondition(ctx, input.client, dpuServiceNAD, defaultTimeout)
+    EventuallyCheckReadyStatusCondition(ctx, input.Client, dpuServiceNAD, defaultTimeout)
 
     By("Verify DPUService pods are created in DPU cluster")
     // Check with Eventually for async operations
@@ -257,8 +257,8 @@ func ValidateMyFeature(ctx context.Context, input *systemTestInput) {
     Eventually(func(g Gomega) {
         const podServiceLabel string = "svc.dpu.nvidia.com/service"
         podList := &corev1.PodList{}
-        // Use `dpuClusterClient` for DPU cluster operations, `input.client` for host cluster
-        g.Expect(dpuClusterClient.List(ctx, podList,
+        // Use `DPUClusterClient` for DPU cluster operations, `input.Client` for host cluster
+        g.Expect(DPUClusterClient[0].List(ctx, podList,
             client.InNamespace(testNS.Name),
             client.MatchingLabels{podServiceLabel: serviceName},
         )).To(Succeed())
@@ -270,7 +270,7 @@ func ValidateMyFeature(ctx context.Context, input *systemTestInput) {
     // Use when you need to check properties on every pod/object in the list
     Eventually(func(g Gomega) {
         podList := &corev1.PodList{}
-        g.Expect(dpuClusterClient.List(ctx, podList, ...)).To(Succeed())
+        g.Expect(DPUClusterClient[0].List(ctx, podList, ...)).To(Succeed())
         g.Expect(podList.Items).ToNot(BeEmpty())
         // Loop through and check each pod's status
         for _, pod := range podList.Items {
@@ -325,7 +325,7 @@ func constructDummyDPUServiceObject(serviceName, namespace, interfaceName string
                 //   values:
                 //     global:
                 //       imagePullSecretName: dpf-pull-secret
-                `{"imagePullSecrets": [{"name": "%s"}]}`, dpfPullSecretName,
+                `{"imagePullSecrets": [{"name": "%s"}]}`, DPFPullSecretName,
             )),
         }
     }

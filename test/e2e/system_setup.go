@@ -60,22 +60,22 @@ import (
 )
 
 type ProvisionDPUClustersInput struct {
-	numberOfDPUNodes          int
-	numberOfDPUsPerNode       int
-	dpuClusterPrerequisites   []client.Object
-	dpuClusters               []*provisioningv1.DPUCluster
-	dpuFlavor                 *provisioningv1.DPUFlavor
-	bfb                       *provisioningv1.BFB
-	blueFieldSoftware         *provisioningv1.BlueFieldSoftware
-	dpuSet                    *provisioningv1.DPUSet
-	client                    client.Client
-	bfbImageURL               string
-	bfsOsIsoURL               string
-	bfsPldmFwBundleURL        string
-	restConfig                *rest.Config
+	NumberOfDPUNodes          int
+	NumberOfDPUsPerNode       int
+	DPUClusterPrerequisites   []client.Object
+	DPUClusters               []*provisioningv1.DPUCluster
+	DPUFlavor                 *provisioningv1.DPUFlavor
+	BFB                       *provisioningv1.BFB
+	BlueFieldSoftware         *provisioningv1.BlueFieldSoftware
+	DPUSet                    *provisioningv1.DPUSet
+	Client                    client.Client
+	BFBImageURL               string
+	BFSOsIsoURL               string
+	BFSPldmFwBundleURL        string
+	RestConfig                *rest.Config
 	NodeRebootConfigMap       string
 	DPUNodeBMCs               map[string]string
-	expectedKubernetesVersion string
+	ExpectedKubernetesVersion string
 }
 
 func isPreUpgradeFromLastReleasedGA(ctx context.Context, kclient client.Client, objectKey client.ObjectKey) (bool, error) {
@@ -89,7 +89,7 @@ func isPreUpgradeFromLastReleasedGA(ctx context.Context, kclient client.Client, 
 	return operatorutils.IsUpgradeFromLastReleasedGA(*dpfOperatorConfig.Status.Version), nil
 }
 
-// systemTestInput represents the fully loaded and processed test environment.
+// SystemTestInput represents the fully loaded and processed test environment.
 // This struct contains actual Kubernetes API objects and runtime configuration
 // that are ready for use in end-to-end tests.
 //
@@ -99,63 +99,63 @@ func isPreUpgradeFromLastReleasedGA(ctx context.Context, kclient client.Client, 
 // - Passed to individual test functions as the primary test context
 // - Provides all necessary objects and configuration for test execution
 // - Depends on `config` struct for file paths and basic configuration
-type systemTestInput struct {
-	namespace                         string
-	config                            *operatorv1.DPFOperatorConfig
-	pvc                               *corev1.PersistentVolumeClaim
-	dpuClusterPrerequisites           []client.Object
-	dpuClusters                       []*provisioningv1.DPUCluster
-	dpuFlavor                         *provisioningv1.DPUFlavor
-	dpuDiscovery                      *provisioningv1.DPUDiscovery
-	dpuService                        *dpuservicev1.DPUService
-	dpuServiceHBN                     *dpuservicev1.DPUService
-	dpuServiceInterface               *dpuservicev1.DPUServiceInterface
-	dpuServiceInterfaceTemplate       *dpuservicev1.DPUServiceInterface
-	dpuServiceChain                   *dpuservicev1.DPUServiceChain
-	dpuServiceChainTemplate           *dpuservicev1.DPUServiceChain
-	bfb                               *provisioningv1.BFB
-	blueFieldSoftware                 *provisioningv1.BlueFieldSoftware
-	dpuSet                            *provisioningv1.DPUSet
-	bfsOsIsoURL                       string
-	bfsPldmFwBundleURL                string
-	dpuDeployment                     *dpuservicev1.DPUDeployment
-	dpuServiceConfiguration           *dpuservicev1.DPUServiceConfiguration
-	dpuServiceInterfacesHBN           []*dpuservicev1.DPUServiceInterface
-	dpuServiceInterfaceOVN            *dpuservicev1.DPUServiceInterface
-	dpuServiceTemplate                *dpuservicev1.DPUServiceTemplate
-	additionalDPUServiceTemplate      *dpuservicev1.DPUServiceTemplate
-	dpuServiceTemplateOVN             *dpuservicev1.DPUServiceTemplate
-	dpuServiceTemplateHBN             *dpuservicev1.DPUServiceTemplate
-	dpuServiceConfigurationOVN        *dpuservicev1.DPUServiceConfiguration
-	dpuServiceConfigurationHBN        *dpuservicev1.DPUServiceConfiguration
-	additionalDPUServiceConfiguration *dpuservicev1.DPUServiceConfiguration
-	dpuServiceIPAMTemplate            *dpuservicev1.DPUServiceIPAM
-	dpuServiceNAD                     *dpuservicev1.DPUServiceNAD
-	cidrDPUServiceIPAM                *dpuservicev1.DPUServiceIPAM
-	ipPoolDPUServiceIPAM              *dpuservicev1.DPUServiceIPAM
-	dpuServiceCredentialRequest       *dpuservicev1.DPUServiceCredentialRequest
-	ovnCredentialRequest              *dpuservicev1.DPUServiceCredentialRequest
-	numberOfDPUNodes                  int
-	numberOfDPUsPerNode               int
-	pullSecretNames                   []string
-	client                            client.Client
-	cleanupFlags                      *cleanup.CleanupFlags
-	bfbImageURL                       string
-	restConfig                        *rest.Config
-	nodeRebootConfigMap               string
-	nodeRebootConfigMapPath           string
-	useExternalNodeReboot             bool
-	dpuNodeBMCs                       map[string]string
+type SystemTestInput struct {
+	Namespace                         string
+	Config                            *operatorv1.DPFOperatorConfig
+	PVC                               *corev1.PersistentVolumeClaim
+	DPUClusterPrerequisites           []client.Object
+	DPUClusters                       []*provisioningv1.DPUCluster
+	DPUFlavor                         *provisioningv1.DPUFlavor
+	DPUDiscovery                      *provisioningv1.DPUDiscovery
+	DPUService                        *dpuservicev1.DPUService
+	DPUServiceHBN                     *dpuservicev1.DPUService
+	DPUServiceInterface               *dpuservicev1.DPUServiceInterface
+	DPUServiceInterfaceTemplate       *dpuservicev1.DPUServiceInterface
+	DPUServiceChain                   *dpuservicev1.DPUServiceChain
+	DPUServiceChainTemplate           *dpuservicev1.DPUServiceChain
+	BFB                               *provisioningv1.BFB
+	BlueFieldSoftware                 *provisioningv1.BlueFieldSoftware
+	DPUSet                            *provisioningv1.DPUSet
+	BFSOsIsoURL                       string
+	BFSPldmFwBundleURL                string
+	DPUDeployment                     *dpuservicev1.DPUDeployment
+	DPUServiceConfiguration           *dpuservicev1.DPUServiceConfiguration
+	DPUServiceInterfacesHBN           []*dpuservicev1.DPUServiceInterface
+	DPUServiceInterfaceOVN            *dpuservicev1.DPUServiceInterface
+	DPUServiceTemplate                *dpuservicev1.DPUServiceTemplate
+	AdditionalDPUServiceTemplate      *dpuservicev1.DPUServiceTemplate
+	DPUServiceTemplateOVN             *dpuservicev1.DPUServiceTemplate
+	DPUServiceTemplateHBN             *dpuservicev1.DPUServiceTemplate
+	DPUServiceConfigurationOVN        *dpuservicev1.DPUServiceConfiguration
+	DPUServiceConfigurationHBN        *dpuservicev1.DPUServiceConfiguration
+	AdditionalDPUServiceConfiguration *dpuservicev1.DPUServiceConfiguration
+	DPUServiceIPAMTemplate            *dpuservicev1.DPUServiceIPAM
+	DPUServiceNAD                     *dpuservicev1.DPUServiceNAD
+	CIDRDPUServiceIPAM                *dpuservicev1.DPUServiceIPAM
+	IPPoolDPUServiceIPAM              *dpuservicev1.DPUServiceIPAM
+	DPUServiceCredentialRequest       *dpuservicev1.DPUServiceCredentialRequest
+	OVNCredentialRequest              *dpuservicev1.DPUServiceCredentialRequest
+	NumberOfDPUNodes                  int
+	NumberOfDPUsPerNode               int
+	PullSecretNames                   []string
+	Client                            client.Client
+	CleanupFlags                      *cleanup.CleanupFlags
+	BFBImageURL                       string
+	RestConfig                        *rest.Config
+	NodeRebootConfigMap               string
+	NodeRebootConfigMapPath           string
+	UseExternalNodeReboot             bool
+	DPUNodeBMCs                       map[string]string
 }
 
-func (t *systemTestInput) applySDNConfig(conf config) {
+func (t *SystemTestInput) ApplySDNConfig(conf Config) {
 	dpuServiceInterfaceTemplate := &dpuservicev1.DPUServiceInterface{}
-	dsiTemplate := unstructuredFromFile(conf.DPUServiceInterfaceTemplatePath)
+	dsiTemplate := UnstructuredFromFile(conf.DPUServiceInterfaceTemplatePath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(dsiTemplate.Object, dpuServiceInterfaceTemplate)).To(Succeed())
-	t.dpuServiceInterfaceTemplate = dpuServiceInterfaceTemplate
+	t.DPUServiceInterfaceTemplate = dpuServiceInterfaceTemplate
 
 	dpuServiceHBN := &dpuservicev1.DPUService{}
-	svcHBN := unstructuredFromFile(conf.DPUServiceHBNPath)
+	svcHBN := UnstructuredFromFile(conf.DPUServiceHBNPath)
 
 	// Override HBN image if HBN_IMAGE_URL is set
 	if hbnImageURL != "" {
@@ -172,26 +172,26 @@ func (t *systemTestInput) applySDNConfig(conf config) {
 	}
 
 	if ngcAPIKey != "" {
-		updateImagePullSecret(svcHBN, ngcPullSecretName)
+		updateImagePullSecret(svcHBN, NGCPullSecretName)
 	}
 
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(svcHBN.Object, dpuServiceHBN)).To(Succeed())
-	t.dpuServiceHBN = dpuServiceHBN
+	t.DPUServiceHBN = dpuServiceHBN
 
 	dpuServiceIPAMTemplate := &dpuservicev1.DPUServiceIPAM{}
-	ipam := unstructuredFromFile(conf.DPUServiceIPAMTemplatePath)
+	ipam := UnstructuredFromFile(conf.DPUServiceIPAMTemplatePath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(ipam.Object, dpuServiceIPAMTemplate)).To(Succeed())
-	t.dpuServiceIPAMTemplate = dpuServiceIPAMTemplate
+	t.DPUServiceIPAMTemplate = dpuServiceIPAMTemplate
 
 	dpuServiceNAD := &dpuservicev1.DPUServiceNAD{}
-	nad := unstructuredFromFile(conf.DPUServiceNADPath)
+	nad := UnstructuredFromFile(conf.DPUServiceNADPath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(nad.Object, dpuServiceNAD)).To(Succeed())
-	t.dpuServiceNAD = dpuServiceNAD
+	t.DPUServiceNAD = dpuServiceNAD
 
 	dpuServiceChainTemplate := &dpuservicev1.DPUServiceChain{}
-	chainTemplate := unstructuredFromFile(conf.DPUServiceChainTemplatePath)
+	chainTemplate := UnstructuredFromFile(conf.DPUServiceChainTemplatePath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(chainTemplate.Object, dpuServiceChainTemplate)).To(Succeed())
-	t.dpuServiceChainTemplate = dpuServiceChainTemplate
+	t.DPUServiceChainTemplate = dpuServiceChainTemplate
 }
 
 func updateHBNImage(svcHBN *unstructured.Unstructured, repository, tag string) {
@@ -229,110 +229,110 @@ func updateImagePullSecret(svc *unstructured.Unstructured, secretName string) {
 	Expect(err).ToNot(HaveOccurred())
 }
 
-func (t *systemTestInput) applyConfig(conf config) {
+func (t *SystemTestInput) ApplyConfig(conf Config) {
 	if conf.BFBPath != nil {
 		bfb := &provisioningv1.BFB{}
-		bfbUnstructured := unstructuredFromFile(*conf.BFBPath)
+		bfbUnstructured := UnstructuredFromFile(*conf.BFBPath)
 		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(bfbUnstructured.Object, bfb)).To(Succeed())
-		t.bfb = bfb
+		t.BFB = bfb
 	}
 
 	if conf.BlueFieldSoftwarePath != nil {
 		blueFieldSoftware := &provisioningv1.BlueFieldSoftware{}
-		bfsUnstructured := unstructuredFromFile(*conf.BlueFieldSoftwarePath)
+		bfsUnstructured := UnstructuredFromFile(*conf.BlueFieldSoftwarePath)
 		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(bfsUnstructured.Object, blueFieldSoftware)).To(Succeed())
-		t.blueFieldSoftware = blueFieldSoftware
+		t.BlueFieldSoftware = blueFieldSoftware
 	}
 
 	dpuSet := &provisioningv1.DPUSet{}
-	dpuSetUnstructured := unstructuredFromFile(conf.DPUSetPath)
+	dpuSetUnstructured := UnstructuredFromFile(conf.DPUSetPath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(dpuSetUnstructured.Object, dpuSet)).To(Succeed())
-	t.dpuSet = dpuSet
+	t.DPUSet = dpuSet
 
 	pvc := &corev1.PersistentVolumeClaim{}
 	if conf.ProvisioningControllerPVCPath != nil {
-		pvcUnstructured := unstructuredFromFile(*conf.ProvisioningControllerPVCPath)
+		pvcUnstructured := UnstructuredFromFile(*conf.ProvisioningControllerPVCPath)
 		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(pvcUnstructured.Object, pvc)).To(Succeed())
-		t.pvc = pvc
+		t.PVC = pvc
 	}
 
 	// Load all DPU clusters
-	t.dpuClusters = make([]*provisioningv1.DPUCluster, 0, len(conf.DPUClusterPaths))
+	t.DPUClusters = make([]*provisioningv1.DPUCluster, 0, len(conf.DPUClusterPaths))
 	for _, dpuClusterPath := range conf.DPUClusterPaths {
 		dpuCluster := &provisioningv1.DPUCluster{}
-		dpuClusterUnstructured := unstructuredFromFile(dpuClusterPath)
+		dpuClusterUnstructured := UnstructuredFromFile(dpuClusterPath)
 		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(dpuClusterUnstructured.Object, dpuCluster)).To(Succeed())
 		// Override interface if DPUCLUSTER_INTERFACE environment variable is set
 		if dpuClusterInterface != "" && dpuCluster.Spec.ClusterEndpoint != nil && dpuCluster.Spec.ClusterEndpoint.Keepalived != nil {
 			By(fmt.Sprintf("Overriding DPUCluster interface with DPUCLUSTER_INTERFACE=%s", dpuClusterInterface))
 			dpuCluster.Spec.ClusterEndpoint.Keepalived.Interface = dpuClusterInterface
 		}
-		t.dpuClusters = append(t.dpuClusters, dpuCluster)
+		t.DPUClusters = append(t.DPUClusters, dpuCluster)
 	}
 
 	if conf.DPUDiscoveryPath != nil {
 		dpuDiscovery := &provisioningv1.DPUDiscovery{}
-		dpuDiscoveryUnstructured := unstructuredFromFile(*conf.DPUDiscoveryPath)
+		dpuDiscoveryUnstructured := UnstructuredFromFile(*conf.DPUDiscoveryPath)
 		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(dpuDiscoveryUnstructured.Object, dpuDiscovery)).To(Succeed())
-		t.dpuDiscovery = dpuDiscovery
+		t.DPUDiscovery = dpuDiscovery
 	}
 
 	dpuServiceInterface := &dpuservicev1.DPUServiceInterface{}
-	dsi := unstructuredFromFile(conf.DPUServiceInterfacePath)
+	dsi := UnstructuredFromFile(conf.DPUServiceInterfacePath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(dsi.Object, dpuServiceInterface)).To(Succeed())
-	t.dpuServiceInterface = dpuServiceInterface
+	t.DPUServiceInterface = dpuServiceInterface
 
 	dpuService := &dpuservicev1.DPUService{}
-	svc := unstructuredFromFile(conf.DPUServicePath)
+	svc := UnstructuredFromFile(conf.DPUServicePath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(svc.Object, dpuService)).To(Succeed())
-	t.dpuService = dpuService
+	t.DPUService = dpuService
 
 	dpuClusterPrerequisiteObjects := []client.Object{}
 	for _, path := range conf.DPUClusterPrerequisiteObjectPaths {
-		dpuClusterPrerequisiteObjects = append(dpuClusterPrerequisiteObjects, unstructuredFromFile(path))
+		dpuClusterPrerequisiteObjects = append(dpuClusterPrerequisiteObjects, UnstructuredFromFile(path))
 	}
-	t.dpuClusterPrerequisites = dpuClusterPrerequisiteObjects
+	t.DPUClusterPrerequisites = dpuClusterPrerequisiteObjects
 
 	dpuServiceTemplate := &dpuservicev1.DPUServiceTemplate{}
-	tmp := unstructuredFromFile(conf.DPUServiceTemplatePath)
+	tmp := UnstructuredFromFile(conf.DPUServiceTemplatePath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(tmp.Object, dpuServiceTemplate)).To(Succeed())
-	t.dpuServiceTemplate = dpuServiceTemplate
+	t.DPUServiceTemplate = dpuServiceTemplate
 
 	dpuServiceConfiguration := &dpuservicev1.DPUServiceConfiguration{}
-	svcConfig := unstructuredFromFile(conf.DPUServiceConfiguration)
+	svcConfig := UnstructuredFromFile(conf.DPUServiceConfiguration)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(svcConfig.Object, dpuServiceConfiguration)).To(Succeed())
-	t.dpuServiceConfiguration = dpuServiceConfiguration
+	t.DPUServiceConfiguration = dpuServiceConfiguration
 
 	if conf.AdditionalDPUServiceTemplatePath != nil {
 		additionalTemplate := &dpuservicev1.DPUServiceTemplate{}
-		tmp := unstructuredFromFile(*conf.AdditionalDPUServiceTemplatePath)
+		tmp := UnstructuredFromFile(*conf.AdditionalDPUServiceTemplatePath)
 		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(tmp.Object, additionalTemplate)).To(Succeed())
-		t.additionalDPUServiceTemplate = additionalTemplate
+		t.AdditionalDPUServiceTemplate = additionalTemplate
 	}
 
 	if conf.AdditionalDPUServiceConfigurationPath != nil {
 		additionalConfiguration := &dpuservicev1.DPUServiceConfiguration{}
-		svcConfig := unstructuredFromFile(*conf.AdditionalDPUServiceConfigurationPath)
+		svcConfig := UnstructuredFromFile(*conf.AdditionalDPUServiceConfigurationPath)
 		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(svcConfig.Object, additionalConfiguration)).To(Succeed())
-		t.additionalDPUServiceConfiguration = additionalConfiguration
+		t.AdditionalDPUServiceConfiguration = additionalConfiguration
 	}
 
-	t.dpuServiceInterfacesHBN = make([]*dpuservicev1.DPUServiceInterface, 0, len(conf.DPUServiceInterfacesHBNPaths))
+	t.DPUServiceInterfacesHBN = make([]*dpuservicev1.DPUServiceInterface, 0, len(conf.DPUServiceInterfacesHBNPaths))
 	for _, path := range conf.DPUServiceInterfacesHBNPaths {
 		iface := &dpuservicev1.DPUServiceInterface{}
-		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(unstructuredFromFile(path).Object, iface)).To(Succeed())
-		t.dpuServiceInterfacesHBN = append(t.dpuServiceInterfacesHBN, iface)
+		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(UnstructuredFromFile(path).Object, iface)).To(Succeed())
+		t.DPUServiceInterfacesHBN = append(t.DPUServiceInterfacesHBN, iface)
 	}
 
 	if conf.DPUServiceInterfaceOVNPath != nil {
 		ovnIface := &dpuservicev1.DPUServiceInterface{}
-		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(unstructuredFromFile(*conf.DPUServiceInterfaceOVNPath).Object, ovnIface)).To(Succeed())
-		t.dpuServiceInterfaceOVN = ovnIface
+		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(UnstructuredFromFile(*conf.DPUServiceInterfaceOVNPath).Object, ovnIface)).To(Succeed())
+		t.DPUServiceInterfaceOVN = ovnIface
 	}
 
 	if conf.DPUServiceTemplateOVNPath != nil {
 		dpuServiceTemplateOVN := &dpuservicev1.DPUServiceTemplate{}
-		ovnTmp := unstructuredFromFile(*conf.DPUServiceTemplateOVNPath)
+		ovnTmp := UnstructuredFromFile(*conf.DPUServiceTemplateOVNPath)
 		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(ovnTmp.Object, dpuServiceTemplateOVN)).To(Succeed())
 		if repoURL, found := os.LookupEnv("OVN_KUBERNETES_REPO_URL"); found {
 			dpuServiceTemplateOVN.Spec.HelmChart.Source.RepoURL = repoURL
@@ -340,12 +340,12 @@ func (t *systemTestInput) applyConfig(conf config) {
 		if chartTag, found := os.LookupEnv("OVN_KUBERNETES_CHART_TAG"); found {
 			dpuServiceTemplateOVN.Spec.HelmChart.Source.Version = chartTag
 		}
-		t.dpuServiceTemplateOVN = dpuServiceTemplateOVN
+		t.DPUServiceTemplateOVN = dpuServiceTemplateOVN
 	}
 
 	if conf.DPUServiceTemplateHBNPath != nil {
 		dpuServiceTemplateHBN := &dpuservicev1.DPUServiceTemplate{}
-		hbnTmp := unstructuredFromFile(*conf.DPUServiceTemplateHBNPath)
+		hbnTmp := UnstructuredFromFile(*conf.DPUServiceTemplateHBNPath)
 		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(hbnTmp.Object, dpuServiceTemplateHBN)).To(Succeed())
 		if repoURL, found := os.LookupEnv("HBN_CHART_REPO"); found {
 			dpuServiceTemplateHBN.Spec.HelmChart.Source.RepoURL = repoURL
@@ -353,94 +353,94 @@ func (t *systemTestInput) applyConfig(conf config) {
 		if chartVersion, found := os.LookupEnv("HBN_CHART_VERSION"); found {
 			dpuServiceTemplateHBN.Spec.HelmChart.Source.Version = chartVersion
 		}
-		t.dpuServiceTemplateHBN = dpuServiceTemplateHBN
+		t.DPUServiceTemplateHBN = dpuServiceTemplateHBN
 	}
 
 	if conf.DPUServiceConfigurationOVNPath != nil {
 		dpuServiceConfigurationOVN := &dpuservicev1.DPUServiceConfiguration{}
-		ovnCfg := unstructuredFromFile(*conf.DPUServiceConfigurationOVNPath)
+		ovnCfg := UnstructuredFromFile(*conf.DPUServiceConfigurationOVNPath)
 		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(ovnCfg.Object, dpuServiceConfigurationOVN)).To(Succeed())
-		t.dpuServiceConfigurationOVN = dpuServiceConfigurationOVN
+		t.DPUServiceConfigurationOVN = dpuServiceConfigurationOVN
 	}
 
 	if conf.DPUServiceConfigurationHBNPath != nil {
 		dpuServiceConfigurationHBN := &dpuservicev1.DPUServiceConfiguration{}
-		hbnCfg := unstructuredFromFile(*conf.DPUServiceConfigurationHBNPath)
+		hbnCfg := UnstructuredFromFile(*conf.DPUServiceConfigurationHBNPath)
 		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(hbnCfg.Object, dpuServiceConfigurationHBN)).To(Succeed())
-		t.dpuServiceConfigurationHBN = dpuServiceConfigurationHBN
+		t.DPUServiceConfigurationHBN = dpuServiceConfigurationHBN
 	}
 
 	dpuDeployment := &dpuservicev1.DPUDeployment{}
-	deployment := unstructuredFromFile(conf.DPUDeploymentPath)
+	deployment := UnstructuredFromFile(conf.DPUDeploymentPath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(deployment.Object, dpuDeployment)).To(Succeed())
-	t.dpuDeployment = dpuDeployment
+	t.DPUDeployment = dpuDeployment
 
 	dpuFlavor := &provisioningv1.DPUFlavor{}
 	if conf.DPUFlavorPath != nil {
-		dpuFlavorUnstructured := unstructuredFromFile(*conf.DPUFlavorPath)
+		dpuFlavorUnstructured := UnstructuredFromFile(*conf.DPUFlavorPath)
 		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(dpuFlavorUnstructured.Object, dpuFlavor)).To(Succeed())
-		t.dpuFlavor = dpuFlavor
-		t.dpuDeployment.Spec.DPUs.Flavor = dpuFlavor.Name
-		t.dpuSet.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor.Name
+		t.DPUFlavor = dpuFlavor
+		t.DPUDeployment.Spec.DPUs.Flavor = dpuFlavor.Name
+		t.DPUSet.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor.Name
 	}
 
 	ipPoolDPUServiceIPAM := &dpuservicev1.DPUServiceIPAM{}
-	subnetIPAM := unstructuredFromFile(conf.IPPoolDPUServiceIPAMPath)
+	subnetIPAM := UnstructuredFromFile(conf.IPPoolDPUServiceIPAMPath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(subnetIPAM.Object, ipPoolDPUServiceIPAM)).To(Succeed())
-	t.ipPoolDPUServiceIPAM = ipPoolDPUServiceIPAM
+	t.IPPoolDPUServiceIPAM = ipPoolDPUServiceIPAM
 
 	cidrDPUServiceIPAM := &dpuservicev1.DPUServiceIPAM{}
-	cidrIPAM := unstructuredFromFile(conf.CIDRPoolDPUServiceIPAMPath)
+	cidrIPAM := UnstructuredFromFile(conf.CIDRPoolDPUServiceIPAMPath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(cidrIPAM.Object, cidrDPUServiceIPAM)).To(Succeed())
-	t.cidrDPUServiceIPAM = cidrDPUServiceIPAM
+	t.CIDRDPUServiceIPAM = cidrDPUServiceIPAM
 
 	dpuServiceChain := &dpuservicev1.DPUServiceChain{}
-	chain := unstructuredFromFile(conf.DPUServiceChainPath)
+	chain := UnstructuredFromFile(conf.DPUServiceChainPath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(chain.Object, dpuServiceChain)).To(Succeed())
-	t.dpuServiceChain = dpuServiceChain
+	t.DPUServiceChain = dpuServiceChain
 
 	dpuServiceCredentialRequest := &dpuservicev1.DPUServiceCredentialRequest{}
-	request := unstructuredFromFile(conf.DPUServiceCredentialRequestPath)
+	request := UnstructuredFromFile(conf.DPUServiceCredentialRequestPath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(request.Object, dpuServiceCredentialRequest)).To(Succeed())
-	t.dpuServiceCredentialRequest = dpuServiceCredentialRequest
+	t.DPUServiceCredentialRequest = dpuServiceCredentialRequest
 
 	if conf.OVNCredentialRequestPath != nil {
 		ovnCredentialRequest := &dpuservicev1.DPUServiceCredentialRequest{}
-		ovnCR := unstructuredFromFile(*conf.OVNCredentialRequestPath)
+		ovnCR := UnstructuredFromFile(*conf.OVNCredentialRequestPath)
 		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(ovnCR.Object, ovnCredentialRequest)).To(Succeed())
-		t.ovnCredentialRequest = ovnCredentialRequest
+		t.OVNCredentialRequest = ovnCredentialRequest
 	}
 
-	t.numberOfDPUNodes = conf.NumberOfDPUNodes
-	t.numberOfDPUsPerNode = conf.NumberOfDPUsPerNode
-	t.nodeRebootConfigMap = conf.NodeRebootConfigMap
-	t.nodeRebootConfigMapPath = conf.NodeRebootConfigMapPath
-	t.useExternalNodeReboot = conf.UseExternalNodeReboot
+	t.NumberOfDPUNodes = conf.NumberOfDPUNodes
+	t.NumberOfDPUsPerNode = conf.NumberOfDPUsPerNode
+	t.NodeRebootConfigMap = conf.NodeRebootConfigMap
+	t.NodeRebootConfigMapPath = conf.NodeRebootConfigMapPath
+	t.UseExternalNodeReboot = conf.UseExternalNodeReboot
 }
 
-func (t *systemTestInput) hasDpuNodes() bool {
-	return t.numberOfDPUNodes > 0
+func (t *SystemTestInput) HasDpuNodes() bool {
+	return t.NumberOfDPUNodes > 0
 }
 
-// totalDPUs returns the total number of DPUs (nodes * DPUs per node)
-func (t *systemTestInput) totalDPUs() int {
-	return t.numberOfDPUNodes * t.numberOfDPUsPerNode
+// TotalDPUs returns the total number of DPUs (nodes * DPUs per node)
+func (t *SystemTestInput) TotalDPUs() int {
+	return t.NumberOfDPUNodes * t.NumberOfDPUsPerNode
 }
 
 type DeployDPFSystemComponentsInput struct {
-	operatorConfig            *operatorv1.DPFOperatorConfig
-	systemNamespace           string
+	OperatorConfig            *operatorv1.DPFOperatorConfig
+	SystemNamespace           string
 	ProvisioningControllerPVC *corev1.PersistentVolumeClaim
 	ImagePullSecrets          []string
-	dpuDiscovery              *provisioningv1.DPUDiscovery
-	client                    client.Client
-	numberOfDPUNodes          int
-	// skipSystemComponentValidation skips the post-deploy system-component checks
+	DPUDiscovery              *provisioningv1.DPUDiscovery
+	Client                    client.Client
+	NumberOfDPUNodes          int
+	// SkipSystemComponentValidation skips the post-deploy system-component checks
 	// (the current-shape DPUService assertion and the DPFOperatorConfig ready
 	// wait). Set for previous-release installs (e.g. BFB LTS v25.10) whose
 	// component shape differs and whose servicechainset-controller stays
 	// not-ready under the current CRD schema.
-	skipSystemComponentValidation bool
+	SkipSystemComponentValidation bool
 }
 
 // DeployDPFSystemComponents creates the operatorConfig and some dependencies and checks that the system components
@@ -451,12 +451,12 @@ type DeployDPFSystemComponentsInput struct {
 // 4) Creates the operatorConfig for the test
 // 5) Ensures the DPF System components - including DPUServices - have been deployed.
 func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemComponentsInput) {
-	testClient := input.client
+	testClient := input.Client
 	By("Ensure the DPF Operator is running and ready")
 	Eventually(func(g Gomega) {
 		deployment := &appsv1.Deployment{}
 		g.Expect(testClient.Get(ctx, client.ObjectKey{
-			Namespace: input.systemNamespace,
+			Namespace: input.SystemNamespace,
 			Name:      "dpf-operator-controller-manager"},
 			deployment)).To(Succeed())
 		g.Expect(deployment.Status.ReadyReplicas).To(Equal(*deployment.Spec.Replicas))
@@ -467,10 +467,10 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 		By("No PVC provided for the provisioning controller, skipping PVC creation")
 	} else {
 		pvc := input.ProvisioningControllerPVC.DeepCopy()
-		if n := input.operatorConfig.Spec.ProvisioningController.BFBPersistentVolumeClaimName; n != nil {
+		if n := input.OperatorConfig.Spec.ProvisioningController.BFBPersistentVolumeClaimName; n != nil {
 			pvc.SetName(*n)
 		}
-		pvc.SetNamespace(input.systemNamespace)
+		pvc.SetNamespace(input.SystemNamespace)
 		pvc.SetLabels(CleanupScope.Suite)
 		Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, pvc))).NotTo(HaveOccurred())
 	}
@@ -480,7 +480,7 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 		secret := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      secretName,
-				Namespace: input.systemNamespace,
+				Namespace: input.SystemNamespace,
 				Labels:    CleanupScope.Suite,
 			},
 		}
@@ -488,9 +488,9 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 	}
 
 	By("Create the DPFOperatorConfig for the system")
-	Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, input.operatorConfig))).NotTo(HaveOccurred())
+	Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, input.OperatorConfig))).NotTo(HaveOccurred())
 
-	if isGinkgoLabelApplied(Domain.ZeroTrust) {
+	if IsGinkgoLabelApplied(Domain.ZeroTrust) {
 		By("Deploy DPUDiscovery for ZeroTrust")
 		CreateDPUDiscovery(ctx, input)
 	}
@@ -500,7 +500,7 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 		// Check the DPUService controller manager is up and ready.
 		dpuServiceDeployment := &appsv1.Deployment{}
 		g.Expect(testClient.Get(ctx, client.ObjectKey{
-			Namespace: input.systemNamespace,
+			Namespace: input.SystemNamespace,
 			Name:      "dpuservice-controller-manager"},
 			dpuServiceDeployment)).To(Succeed())
 		g.Expect(dpuServiceDeployment.Status.ReadyReplicas).To(Equal(*dpuServiceDeployment.Spec.Replicas))
@@ -508,18 +508,18 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 		// Check the DPF provisioning controller manager is up and ready.
 		dpfProvisioningDeployment := &appsv1.Deployment{}
 		g.Expect(testClient.Get(ctx, client.ObjectKey{
-			Namespace: input.systemNamespace,
+			Namespace: input.SystemNamespace,
 			Name:      "dpf-provisioning-controller-manager"},
 			dpfProvisioningDeployment)).To(Succeed())
 		g.Expect(dpfProvisioningDeployment.Status.ReadyReplicas).To(Equal(*dpfProvisioningDeployment.Spec.Replicas))
 
 		// Check the NodeSRIOV Device Plugin controller deployment only when it is explicitly enabled.
-		if input.operatorConfig.Spec.NodeSRIOVDevicePluginController != nil &&
-			input.operatorConfig.Spec.NodeSRIOVDevicePluginController.Disable != nil &&
-			!*input.operatorConfig.Spec.NodeSRIOVDevicePluginController.Disable {
+		if input.OperatorConfig.Spec.NodeSRIOVDevicePluginController != nil &&
+			input.OperatorConfig.Spec.NodeSRIOVDevicePluginController.Disable != nil &&
+			!*input.OperatorConfig.Spec.NodeSRIOVDevicePluginController.Disable {
 			nodesriovDevicePluginDeployment := &appsv1.Deployment{}
 			g.Expect(testClient.Get(ctx, client.ObjectKey{
-				Namespace: input.systemNamespace,
+				Namespace: input.SystemNamespace,
 				Name:      "dpf-nodesriovdeviceplugin-controller"},
 				nodesriovDevicePluginDeployment)).To(Succeed())
 			g.Expect(nodesriovDevicePluginDeployment.Status.ReadyReplicas).To(Equal(*nodesriovDevicePluginDeployment.Spec.Replicas))
@@ -527,18 +527,18 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 
 	}).WithTimeout(300 * time.Second).Should(Succeed())
 
-	if isGinkgoLabelApplied(Domain.ZeroTrust) {
+	if IsGinkgoLabelApplied(Domain.ZeroTrust) {
 		By("Verify bfb-registry Service and pods (created by provisioning controller leader)")
 		Eventually(func(g Gomega) {
 			svc := &corev1.Service{}
 			g.Expect(testClient.Get(ctx, client.ObjectKey{
-				Namespace: input.systemNamespace,
+				Namespace: input.SystemNamespace,
 				Name:      "bfb-registry",
 			}, svc)).To(Succeed(), "bfb-registry Service should be created by provisioning controller leader")
 			g.Expect(svc.Spec.Ports).ToNot(BeEmpty())
 			pods := &corev1.PodList{}
 			g.Expect(testClient.List(ctx, pods,
-				client.InNamespace(input.systemNamespace),
+				client.InNamespace(input.SystemNamespace),
 				client.MatchingLabels(map[string]string{
 					"app.kubernetes.io/part-of": "bfb-registry",
 					"dpu.nvidia.com/component":  "bfb-registry",
@@ -559,7 +559,7 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 		}).WithTimeout(5 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
 	}
 
-	if input.skipSystemComponentValidation {
+	if input.SkipSystemComponentValidation {
 		By("Skipping system component validation")
 		return
 	}
@@ -569,7 +569,7 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 	Eventually(func(g Gomega) {
 		// TODO: Remove as soon as we have version aware upgrade logic for the pre-upgrade validation
 		var err error
-		isCurrentVersionLastReleasedGA, err = isPreUpgradeFromLastReleasedGA(ctx, testClient, client.ObjectKeyFromObject(input.operatorConfig))
+		isCurrentVersionLastReleasedGA, err = isPreUpgradeFromLastReleasedGA(ctx, testClient, client.ObjectKeyFromObject(input.OperatorConfig))
 		g.Expect(err).NotTo(HaveOccurred())
 
 		dpuServices := &dpuservicev1.DPUServiceList{}
@@ -614,17 +614,17 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 // ProvisionDPUClusters provisions DPUClusters.
 func ProvisionDPUClusters(ctx context.Context, input ProvisionDPUClustersInput) {
 	By("Create prerequisites objects for DPUClusters")
-	for _, obj := range input.dpuClusterPrerequisites {
+	for _, obj := range input.DPUClusterPrerequisites {
 		obj.SetLabels(CleanupScope.Suite)
 		// We need to check if object already exists before creating. client.IgnoreAlreadyExists does not work in this case as the error will be "port is already allocated"
 		existing := obj.DeepCopyObject().(client.Object)
-		err := input.client.Get(ctx, types.NamespacedName{
+		err := input.Client.Get(ctx, types.NamespacedName{
 			Namespace: obj.GetNamespace(),
 			Name:      obj.GetName(),
 		}, existing)
 		if apierrors.IsNotFound(err) {
 			By(fmt.Sprintf("Creating prerequisite object %s %s/%s", obj.GetObjectKind().GroupVersionKind().String(), obj.GetNamespace(), obj.GetName()))
-			Expect(input.client.Create(ctx, obj)).To(Succeed())
+			Expect(input.Client.Create(ctx, obj)).To(Succeed())
 		} else {
 			By(fmt.Sprintf("Skipping creation of existing object %s %s/%s",
 				obj.GetObjectKind().GroupVersionKind().String(),
@@ -633,26 +633,26 @@ func ProvisionDPUClusters(ctx context.Context, input ProvisionDPUClustersInput) 
 	}
 
 	By("Create DPUClusters")
-	for _, dpuCluster := range input.dpuClusters {
+	for _, dpuCluster := range input.DPUClusters {
 		dpuClusterLabels := map[string]string{
 			"svc.dpu.nvidia.com/cluster": dpuCluster.Name,
 		}
 		maps.Copy(dpuClusterLabels, CleanupScope.Suite)
 		dpuCluster.SetLabels(dpuClusterLabels)
 		By(fmt.Sprintf("Creating DPU Cluster %s/%s", dpuCluster.GetNamespace(), dpuCluster.GetName()))
-		Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuCluster))).NotTo(HaveOccurred())
+		Expect(client.IgnoreAlreadyExists(input.Client.Create(ctx, dpuCluster))).NotTo(HaveOccurred())
 	}
 
-	By(fmt.Sprintf("Waiting for %d DPUCluster(s) to be ready", len(input.dpuClusters)))
+	By(fmt.Sprintf("Waiting for %d DPUCluster(s) to be ready", len(input.DPUClusters)))
 	Eventually(func(g Gomega) {
 		clusters := &provisioningv1.DPUClusterList{}
-		g.Expect(input.client.List(ctx, clusters)).To(Succeed())
-		g.Expect(clusters.Items).To(HaveLen(len(input.dpuClusters)))
-		for _, dpuCluster := range input.dpuClusters {
-			g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuCluster), dpuCluster)).To(Succeed())
+		g.Expect(input.Client.List(ctx, clusters)).To(Succeed())
+		g.Expect(clusters.Items).To(HaveLen(len(input.DPUClusters)))
+		for _, dpuCluster := range input.DPUClusters {
+			g.Expect(input.Client.Get(ctx, client.ObjectKeyFromObject(dpuCluster), dpuCluster)).To(Succeed())
 			g.Expect(dpuCluster.Status.Phase).Should(Equal(provisioningv1.PhaseReady))
-			if input.expectedKubernetesVersion != "" {
-				g.Expect(dpuCluster.Status.Version).Should(Equal(input.expectedKubernetesVersion))
+			if input.ExpectedKubernetesVersion != "" {
+				g.Expect(dpuCluster.Status.Version).Should(Equal(input.ExpectedKubernetesVersion))
 			} else {
 				g.Expect(dpuCluster.Status.Version).Should(Equal(util.KubernetesVersion))
 			}
@@ -660,22 +660,22 @@ func ProvisionDPUClusters(ctx context.Context, input ProvisionDPUClustersInput) 
 	}).WithTimeout(300 * time.Second).Should(Succeed())
 
 	By("Creating a client for the DPUCluster")
-	getDPUClusterClients(ctx, input)
+	GetDPUClusterClients(ctx, input)
 }
 
 // ProvisionBFBOrBlueFieldSoftwareAndDPUFlavor creates the BFB or BlueFieldSoftware and optionally the DPUFlavor resources.
 func ProvisionBFBOrBlueFieldSoftwareAndDPUFlavor(ctx context.Context, input ProvisionDPUClustersInput) {
-	Expect(input.bfb == nil && input.blueFieldSoftware == nil).To(BeFalse(),
+	Expect(input.BFB == nil && input.BlueFieldSoftware == nil).To(BeFalse(),
 		"one of bfb or blueFieldSoftware must be set")
-	Expect(input.bfb != nil && input.blueFieldSoftware != nil).To(BeFalse(),
+	Expect(input.BFB != nil && input.BlueFieldSoftware != nil).To(BeFalse(),
 		"bfb and blueFieldSoftware cannot both be set")
-	if input.bfb != nil {
+	if input.BFB != nil {
 		ProvisionBFB(ctx, input)
 	}
-	if input.blueFieldSoftware != nil {
+	if input.BlueFieldSoftware != nil {
 		ProvisionBlueFieldSoftware(ctx, input)
 	}
-	if input.dpuFlavor != nil {
+	if input.DPUFlavor != nil {
 		ProvisionDPUFlavor(ctx, input)
 	}
 }
@@ -684,40 +684,40 @@ func ProvisionBFBOrBlueFieldSoftwareAndDPUFlavor(ctx context.Context, input Prov
 // the BFB file is reachable via the bfb-registry service (ZeroTrust only).
 func ProvisionBFB(ctx context.Context, input ProvisionDPUClustersInput) {
 	// TODO: Pass this in as config instead of as a global.
-	if input.bfbImageURL != "" {
-		By(fmt.Sprintf("Override BFB URL with env variable BFB_IMAGE_URL=%s", input.bfbImageURL))
-		input.bfb.Spec.URL = input.bfbImageURL
+	if input.BFBImageURL != "" {
+		By(fmt.Sprintf("Override BFB URL with env variable BFB_IMAGE_URL=%s", input.BFBImageURL))
+		input.BFB.Spec.URL = input.BFBImageURL
 	}
 	By("Create the BFB")
 	Eventually(func(g Gomega) {
-		bfb := input.bfb.DeepCopy()
+		bfb := input.BFB.DeepCopy()
 		bfb.SetLabels(CleanupScope.Suite)
-		g.Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, bfb))).NotTo(HaveOccurred())
+		g.Expect(client.IgnoreAlreadyExists(input.Client.Create(ctx, bfb))).NotTo(HaveOccurred())
 	}).WithTimeout(10 * time.Second).Should(Succeed())
 
 	By("Checking that BFB is ready")
 	Eventually(func(g Gomega) {
 		bfb := &provisioningv1.BFB{}
-		g.Expect(input.client.Get(ctx, client.ObjectKey{
-			Name:      input.bfb.Name,
-			Namespace: input.bfb.Namespace,
+		g.Expect(input.Client.Get(ctx, client.ObjectKey{
+			Name:      input.BFB.Name,
+			Namespace: input.BFB.Namespace,
 		}, bfb)).To(Succeed())
 		g.Expect(bfb.Status.Phase).To(Equal(provisioningv1.BFBReady))
 	}).WithTimeout(10 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 
-	if isGinkgoLabelApplied(Domain.ZeroTrust) {
+	if IsGinkgoLabelApplied(Domain.ZeroTrust) {
 		By("Verifying BFB file is reachable")
 		bfb := &provisioningv1.BFB{}
-		Expect(input.client.Get(ctx, client.ObjectKey{
-			Name:      input.bfb.Name,
-			Namespace: input.bfb.Namespace,
+		Expect(input.Client.Get(ctx, client.ObjectKey{
+			Name:      input.BFB.Name,
+			Namespace: input.BFB.Namespace,
 		}, bfb)).To(Succeed())
 		Expect(bfb.Status.FileName).ToNot(BeEmpty(), "BFB status should have a FileName after reaching Ready")
 
-		controlPlaneIP := getClusterControlPlaneIP(ctx, input.client)
+		controlPlaneIP := getClusterControlPlaneIP(ctx, input.Client)
 		svc := &corev1.Service{}
-		Expect(input.client.Get(ctx, client.ObjectKey{
-			Namespace: input.bfb.Namespace,
+		Expect(input.Client.Get(ctx, client.ObjectKey{
+			Namespace: input.BFB.Namespace,
 			Name:      "bfb-registry",
 		}, svc)).To(Succeed())
 		Expect(svc.Spec.Ports).ToNot(BeEmpty(), "bfb-registry Service should have ports")
@@ -739,27 +739,27 @@ func ProvisionBFB(ctx context.Context, input ProvisionDPUClustersInput) {
 
 // ProvisionBlueFieldSoftware creates the BlueFieldSoftware resource and waits for it to reach Ready phase.
 func ProvisionBlueFieldSoftware(ctx context.Context, input ProvisionDPUClustersInput) {
-	if input.bfsOsIsoURL != "" {
-		By(fmt.Sprintf("Override BlueFieldSoftware OS ISO URL with env variable BFS_OS_ISO_URL=%s", input.bfsOsIsoURL))
-		input.blueFieldSoftware.Spec.OsIso = input.bfsOsIsoURL
+	if input.BFSOsIsoURL != "" {
+		By(fmt.Sprintf("Override BlueFieldSoftware OS ISO URL with env variable BFS_OS_ISO_URL=%s", input.BFSOsIsoURL))
+		input.BlueFieldSoftware.Spec.OsIso = input.BFSOsIsoURL
 	}
-	if input.bfsPldmFwBundleURL != "" {
-		By(fmt.Sprintf("Override BlueFieldSoftware PLDM FW bundle URL with env variable BFS_PLDM_FW_BUNDLE_URL=%s", input.bfsPldmFwBundleURL))
-		input.blueFieldSoftware.Spec.PldmFwBundle = &input.bfsPldmFwBundleURL
+	if input.BFSPldmFwBundleURL != "" {
+		By(fmt.Sprintf("Override BlueFieldSoftware PLDM FW bundle URL with env variable BFS_PLDM_FW_BUNDLE_URL=%s", input.BFSPldmFwBundleURL))
+		input.BlueFieldSoftware.Spec.PldmFwBundle = &input.BFSPldmFwBundleURL
 	}
 	By("Create the BlueFieldSoftware")
 	Eventually(func(g Gomega) {
-		bfs := input.blueFieldSoftware.DeepCopy()
+		bfs := input.BlueFieldSoftware.DeepCopy()
 		bfs.SetLabels(CleanupScope.Suite)
-		g.Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, bfs))).NotTo(HaveOccurred())
+		g.Expect(client.IgnoreAlreadyExists(input.Client.Create(ctx, bfs))).NotTo(HaveOccurred())
 	}).WithTimeout(10 * time.Second).Should(Succeed())
 
 	By("Checking that BlueFieldSoftware is ready")
 	Eventually(func(g Gomega) {
 		bfs := &provisioningv1.BlueFieldSoftware{}
-		g.Expect(input.client.Get(ctx, client.ObjectKey{
-			Name:      input.blueFieldSoftware.Name,
-			Namespace: input.blueFieldSoftware.Namespace,
+		g.Expect(input.Client.Get(ctx, client.ObjectKey{
+			Name:      input.BlueFieldSoftware.Name,
+			Namespace: input.BlueFieldSoftware.Namespace,
 		}, bfs)).To(Succeed())
 		g.Expect(bfs.Status.Phase).To(Equal(provisioningv1.BlueFieldSoftwareReady))
 	}).WithTimeout(10 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
@@ -769,9 +769,9 @@ func ProvisionBlueFieldSoftware(ctx context.Context, input ProvisionDPUClustersI
 func ProvisionDPUFlavor(ctx context.Context, input ProvisionDPUClustersInput) {
 	By("Creating the DPUFlavor")
 	Eventually(func(g Gomega) {
-		dpuFlavor := input.dpuFlavor.DeepCopy()
+		dpuFlavor := input.DPUFlavor.DeepCopy()
 		dpuFlavor.SetLabels(CleanupScope.Suite)
-		g.Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuFlavor))).NotTo(HaveOccurred())
+		g.Expect(client.IgnoreAlreadyExists(input.Client.Create(ctx, dpuFlavor))).NotTo(HaveOccurred())
 	}).WithTimeout(60 * time.Second).Should(Succeed())
 }
 
@@ -780,10 +780,10 @@ func ProvisionDPUFlavor(ctx context.Context, input ProvisionDPUClustersInput) {
 func ProvisionDPUSet(ctx context.Context, input ProvisionDPUClustersInput) {
 	Eventually(func(g Gomega) {
 		By("Creating the DPUSet")
-		dpuset := input.dpuSet.DeepCopy()
+		dpuset := input.DPUSet.DeepCopy()
 		// TODO: Test the cleanup of the node related to the DPU.
 		dpuset.SetLabels(CleanupScope.Suite)
-		g.Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuset))).NotTo(HaveOccurred())
+		g.Expect(client.IgnoreAlreadyExists(input.Client.Create(ctx, dpuset))).NotTo(HaveOccurred())
 	}).WithTimeout(60 * time.Second).Should(Succeed())
 
 	By("Checking the DPUServices have been mirrored to the target cluster")
@@ -791,11 +791,11 @@ func ProvisionDPUSet(ctx context.Context, input ProvisionDPUClustersInput) {
 		operatorv1.ServiceSetControllerName,
 		operatorv1.NVIPAMControllerName,
 	} {
-		deploymentName := fmt.Sprintf("in-cluster-%s", getPerClusterDPUServiceName(componentName, input.dpuClusters[0].Name, input.dpuClusters[0].Namespace))
+		deploymentName := fmt.Sprintf("in-cluster-%s", getPerClusterDPUServiceName(componentName, input.DPUClusters[0].Name, input.DPUClusters[0].Namespace))
 		Eventually(func(g Gomega) {
 			deployment := &appsv1.Deployment{}
-			g.Expect(input.client.Get(ctx, client.ObjectKey{
-				Namespace: dpfOperatorSystemNamespace,
+			g.Expect(input.Client.Get(ctx, client.ObjectKey{
+				Namespace: DPFOperatorSystemNamespace,
 				Name:      deploymentName},
 				deployment)).To(Succeed())
 			g.Expect(deployment.Status.ReadyReplicas).To(Equal(*deployment.Spec.Replicas))
@@ -805,20 +805,20 @@ func ProvisionDPUSet(ctx context.Context, input ProvisionDPUClustersInput) {
 	By("Checking that DPUService objects have been mirrored to the DPUClusters")
 	Eventually(func(g Gomega) {
 		deployments := &appsv1.DeploymentList{}
-		g.Expect(dpuClusterClient[0].List(ctx, deployments)).To(Succeed())
+		g.Expect(DPUClusterClient[0].List(ctx, deployments)).To(Succeed())
 		found := map[string]bool{}
 		for i := range deployments.Items {
-			if _, hasAnnotation := deployments.Items[i].GetAnnotations()[argoCDTrackingIDAnnotation]; hasAnnotation {
-				g.Expect(deployments.Items[i].GetAnnotations()[argoCDTrackingIDAnnotation]).NotTo(Equal(""))
-				found[deployments.Items[i].GetAnnotations()[argoCDTrackingIDAnnotation]] = true
+			if _, hasAnnotation := deployments.Items[i].GetAnnotations()[ArgoCDTrackingIDAnnotation]; hasAnnotation {
+				g.Expect(deployments.Items[i].GetAnnotations()[ArgoCDTrackingIDAnnotation]).NotTo(Equal(""))
+				found[deployments.Items[i].GetAnnotations()[ArgoCDTrackingIDAnnotation]] = true
 			}
 		}
 		daemonsets := appsv1.DaemonSetList{}
-		g.Expect(dpuClusterClient[0].List(ctx, &daemonsets, client.InNamespace(input.dpuClusters[0].GetNamespace()))).To(Succeed())
+		g.Expect(DPUClusterClient[0].List(ctx, &daemonsets, client.InNamespace(input.DPUClusters[0].GetNamespace()))).To(Succeed())
 		for i := range daemonsets.Items {
-			if _, hasAnnotation := daemonsets.Items[i].GetAnnotations()[argoCDTrackingIDAnnotation]; hasAnnotation {
-				g.Expect(daemonsets.Items[i].GetAnnotations()[argoCDTrackingIDAnnotation]).NotTo(Equal(""))
-				found[daemonsets.Items[i].GetAnnotations()[argoCDTrackingIDAnnotation]] = true
+			if _, hasAnnotation := daemonsets.Items[i].GetAnnotations()[ArgoCDTrackingIDAnnotation]; hasAnnotation {
+				g.Expect(daemonsets.Items[i].GetAnnotations()[ArgoCDTrackingIDAnnotation]).NotTo(Equal(""))
+				found[daemonsets.Items[i].GetAnnotations()[ArgoCDTrackingIDAnnotation]] = true
 			}
 		}
 
@@ -838,7 +838,7 @@ func ProvisionDPUSet(ctx context.Context, input ProvisionDPUClustersInput) {
 // addition verifies that the DPUs become ready.
 // Note: Each DPU joins the DPU cluster as a separate K8s node, so the number of nodes in the DPU cluster equals totalDPUs.
 func VerifyDPUClusterWithNodes(ctx context.Context, input ProvisionDPUClustersInput) {
-	expectedDPUs := input.numberOfDPUNodes * input.numberOfDPUsPerNode
+	expectedDPUs := input.NumberOfDPUNodes * input.NumberOfDPUsPerNode
 	tracker := NewByTracker()
 
 	if err := verifyExpectedDPUsToBeReady(ctx, nil, input, expectedDPUs); err == nil {
@@ -846,7 +846,7 @@ func VerifyDPUClusterWithNodes(ctx context.Context, input ProvisionDPUClustersIn
 		return
 	}
 
-	if isGinkgoLabelApplied(Domain.ZeroTrust) {
+	if IsGinkgoLabelApplied(Domain.ZeroTrust) {
 		ProcessDPUNodeMaintenanceHold(ctx, input)
 		WaitForDPUReboot(ctx, input)
 	}
@@ -854,11 +854,11 @@ func VerifyDPUClusterWithNodes(ctx context.Context, input ProvisionDPUClustersIn
 	// Verify nodes are present in DPUCluster,
 	Eventually(func(g Gomega) {
 		nodes := &corev1.NodeList{}
-		g.Expect(dpuClusterClient[0].List(ctx, nodes)).ToNot(HaveOccurred())
+		g.Expect(DPUClusterClient[0].List(ctx, nodes)).ToNot(HaveOccurred())
 		nodeKey := fmt.Sprintf("%d/%d", len(nodes.Items), expectedDPUs)
 		tracker.By(nodeKey, "Checking that the number of nodes %d is equal to %d", len(nodes.Items), expectedDPUs)
 		g.Expect(nodes.Items).To(HaveLen(expectedDPUs))
-	}).WithTimeout(provisioningTimeout).WithPolling(1 * time.Second).Should(Succeed())
+	}).WithTimeout(ProvisioningTimeout).WithPolling(1 * time.Second).Should(Succeed())
 
 	// Verify DPUs are ready
 	Eventually(func(g Gomega) {
@@ -869,7 +869,7 @@ func VerifyDPUClusterWithNodes(ctx context.Context, input ProvisionDPUClustersIn
 
 func verifyExpectedDPUsToBeReady(ctx context.Context, tracker *ByTracker, input ProvisionDPUClustersInput, expectedDPUs int) error {
 	dpus := &provisioningv1.DPUList{}
-	if err := input.client.List(ctx, dpus); err != nil {
+	if err := input.Client.List(ctx, dpus); err != nil {
 		return err
 	}
 	if len(dpus.Items) != expectedDPUs {
@@ -918,13 +918,13 @@ func ProcessDPUNodeMaintenanceHold(ctx context.Context, input ProvisionDPUCluste
 	By("Processing DPUNodeMaintenance with Node Effect Hold")
 	tracker := NewByTracker()
 
-	expectedDPUs := input.numberOfDPUNodes * input.numberOfDPUsPerNode
+	expectedDPUs := input.NumberOfDPUNodes * input.NumberOfDPUsPerNode
 
 	// Wait for DPUNodeMaintenance CRs to exist with hold annotation set to "true"
 	var dpuNodeMaintenanceList *provisioningv1.DPUNodeMaintenanceList
 	Eventually(func(g Gomega) {
 		dpuNodeMaintenanceList = &provisioningv1.DPUNodeMaintenanceList{}
-		g.Expect(input.client.List(ctx, dpuNodeMaintenanceList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(input.Client.List(ctx, dpuNodeMaintenanceList, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 
 		// Count how many have the hold annotation set to "true"
 		holdCount := 0
@@ -943,7 +943,7 @@ func ProcessDPUNodeMaintenanceHold(ctx context.Context, input ProvisionDPUCluste
 	By("Setting hold annotation to false on all DPUNodeMaintenance CRs to allow provisioning to continue")
 	for i := range dpuNodeMaintenanceList.Items {
 		if isDPUNodeMaintenanceOnHold(&dpuNodeMaintenanceList.Items[i]) {
-			Eventually(releaseDPUNodeMaintenanceHold).WithArguments(ctx, input.client, &dpuNodeMaintenanceList.Items[i]).WithTimeout(30 * time.Second).Should(Succeed())
+			Eventually(releaseDPUNodeMaintenanceHold).WithArguments(ctx, input.Client, &dpuNodeMaintenanceList.Items[i]).WithTimeout(30 * time.Second).Should(Succeed())
 			By(fmt.Sprintf("Released hold on DPUNodeMaintenance %s", dpuNodeMaintenanceList.Items[i].Name))
 		}
 	}
@@ -964,8 +964,8 @@ func WaitForDPUReboot(ctx context.Context, input ProvisionDPUClustersInput) {
 
 	By("Wait for DPUs to reach DPURebooting state in ZeroTrust")
 	Eventually(func(g Gomega) {
-		g.Expect(input.client.List(ctx, dpus)).ToNot(HaveOccurred())
-		g.Expect(dpus.Items).To(HaveLen(input.numberOfDPUNodes * input.numberOfDPUsPerNode))
+		g.Expect(input.Client.List(ctx, dpus)).ToNot(HaveOccurred())
+		g.Expect(dpus.Items).To(HaveLen(input.NumberOfDPUNodes * input.NumberOfDPUsPerNode))
 
 		for _, dpu := range dpus.Items {
 			dpuStatusKey := fmt.Sprintf("%s/%v", dpu.Name, dpu.Status.Phase)
@@ -974,18 +974,18 @@ func WaitForDPUReboot(ctx context.Context, input ProvisionDPUClustersInput) {
 			if dpu.Status.Phase != provisioningv1.DPUReady {
 				dpuKey := client.ObjectKey{Name: dpu.Name, Namespace: dpu.Namespace}
 				current := &provisioningv1.DPU{}
-				g.Expect(input.client.Get(ctx, dpuKey, current)).To(Succeed())
+				g.Expect(input.Client.Get(ctx, dpuKey, current)).To(Succeed())
 				// TODO: update this behavior when retry during provisioning is introduced
 				// Failing test instantly when facing Error during provisioning
 				Expect(current.Status.Phase).NotTo(Equal(provisioningv1.DPUError))
 				g.Expect(current.Status.Phase).To(Equal(provisioningv1.DPURebooting))
 			}
 		}
-	}).WithTimeout(provisioningTimeout).Should(Succeed())
+	}).WithTimeout(ProvisioningTimeout).Should(Succeed())
 
 	By("Reboot driven by in-cluster script Job (nodeRebootMethod.script); waiting for completion")
-	waitForScriptRebootCompletion(ctx, input.client,
-		input.numberOfDPUNodes*input.numberOfDPUsPerNode)
+	waitForScriptRebootCompletion(ctx, input.Client,
+		input.NumberOfDPUNodes*input.NumberOfDPUsPerNode)
 }
 
 // Waits for all DPU host reboots to finish in script-reboot mode by checking DPU.Status.RebootStatus,
@@ -1081,7 +1081,7 @@ func VerifyClusterPods(ctx context.Context, client client.Client, podSubstrToVer
 func VerifyDPFOperatorConfigReady(ctx context.Context, kclient client.Client, timeout time.Duration) {
 	Eventually(func(g Gomega) {
 		dpfOperatorConfig := &operatorv1.DPFOperatorConfig{}
-		g.Expect(kclient.Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: configName}, dpfOperatorConfig)).To(Succeed())
+		g.Expect(kclient.Get(ctx, client.ObjectKey{Namespace: DPFOperatorSystemNamespace, Name: ConfigName}, dpfOperatorConfig)).To(Succeed())
 		g.Expect(conditions.IsTrue(dpfOperatorConfig, conditions.TypeReady)).To(BeTrue())
 	}).WithTimeout(timeout).WithPolling(1 * time.Second).Should(Succeed())
 }
@@ -1092,7 +1092,7 @@ func VerifyProvisioningControllerPodsArg(ctx context.Context, kclient client.Cli
 	Eventually(func(g Gomega) {
 		pods := &corev1.PodList{}
 		g.Expect(kclient.List(ctx, pods,
-			client.InNamespace(dpfOperatorSystemNamespace),
+			client.InNamespace(DPFOperatorSystemNamespace),
 			client.MatchingLabels{operatorv1.DPFComponentLabelKey: "dpf-provisioning-controller-manager"},
 		)).To(Succeed())
 		g.Expect(pods.Items).ToNot(BeEmpty())
@@ -1115,7 +1115,7 @@ func CreateDPUDiscovery(ctx context.Context, input DeployDPFSystemComponentsInpu
 	By("Verify worker nodes are not present")
 	workerNodes := &corev1.NodeList{}
 	Eventually(func(g Gomega) int {
-		err := input.client.List(ctx, workerNodes, client.InNamespace(dpfOperatorSystemNamespace), client.MatchingLabels(map[string]string{"node-role.kubernetes.io/worker": ""}))
+		err := input.Client.List(ctx, workerNodes, client.InNamespace(DPFOperatorSystemNamespace), client.MatchingLabels(map[string]string{"node-role.kubernetes.io/worker": ""}))
 		g.Expect(err).NotTo(HaveOccurred())
 		return len(workerNodes.Items)
 	}, time.Second*30, time.Millisecond*250).Should(Equal(0))
@@ -1123,41 +1123,41 @@ func CreateDPUDiscovery(ctx context.Context, input DeployDPFSystemComponentsInpu
 	By("Verify DPU devices are not present")
 	dpuDeviceList := &provisioningv1.DPUDeviceList{}
 	Eventually(func(g Gomega) int {
-		err := input.client.List(ctx, dpuDeviceList, client.InNamespace(input.systemNamespace))
+		err := input.Client.List(ctx, dpuDeviceList, client.InNamespace(input.SystemNamespace))
 		g.Expect(err).NotTo(HaveOccurred())
 		return len(dpuDeviceList.Items)
 	}, time.Second*30, time.Millisecond*250).Should(Equal(0))
 
 	By("Creating DpuDiscovery")
-	Expect(input.dpuDiscovery).NotTo(BeNil(), "dpuDiscovery config is required for ZeroTrust")
-	discovery := input.dpuDiscovery.DeepCopy()
-	discovery.SetNamespace(input.systemNamespace)
+	Expect(input.DPUDiscovery).NotTo(BeNil(), "dpuDiscovery config is required for ZeroTrust")
+	discovery := input.DPUDiscovery.DeepCopy()
+	discovery.SetNamespace(input.SystemNamespace)
 	discovery.SetLabels(CleanupScope.Suite)
 
-	Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, discovery))).NotTo(HaveOccurred())
+	Expect(client.IgnoreAlreadyExists(input.Client.Create(ctx, discovery))).NotTo(HaveOccurred())
 
 	By("Waiting for DPU discovery to complete and create DPU devices")
 	dpuDeviceList = &provisioningv1.DPUDeviceList{}
 	Eventually(func(g Gomega) int {
-		err := input.client.List(ctx, dpuDeviceList, client.InNamespace(input.systemNamespace))
+		err := input.Client.List(ctx, dpuDeviceList, client.InNamespace(input.SystemNamespace))
 		g.Expect(err).NotTo(HaveOccurred())
 		return len(dpuDeviceList.Items)
-	}, time.Minute*5, time.Millisecond*250).Should(Equal(input.numberOfDPUNodes))
+	}, time.Minute*5, time.Millisecond*250).Should(Equal(input.NumberOfDPUNodes))
 }
 
 // ValidateDPUAgentStatus verifies that the DPU agent has reported its status correctly
 // on every ready DPU. Each DPU is validated against the supplied expected AgentStatus.
-func ValidateDPUAgentStatus(ctx context.Context, input *systemTestInput, expected provisioningv1.AgentStatus) {
-	if !input.hasDpuNodes() {
+func ValidateDPUAgentStatus(ctx context.Context, input *SystemTestInput, expected provisioningv1.AgentStatus) {
+	if !input.HasDpuNodes() {
 		Skip("Skip DPU Agent validation as there are no DPU nodes")
 	}
 
-	expectedDPUs := input.totalDPUs()
+	expectedDPUs := input.TotalDPUs()
 
 	By("Listing all DPUs and validating agent status")
 	Eventually(func(g Gomega) {
 		dpus := &provisioningv1.DPUList{}
-		g.Expect(input.client.List(ctx, dpus)).To(Succeed())
+		g.Expect(input.Client.List(ctx, dpus)).To(Succeed())
 		g.Expect(dpus.Items).To(HaveLen(expectedDPUs), "expected %d DPUs", expectedDPUs)
 
 		for i := range dpus.Items {
@@ -1251,13 +1251,13 @@ func validateSingleDPUAgentStatus(g Gomega, dpu *provisioningv1.DPU, expectedAge
 }
 
 // verifyDPUServicesReady checks that the DPUService is ready.
-func verifyDPUServicesReady(ctx context.Context, input *systemTestInput, dpuServiceNamespace string, dpuServiceName []string) {
+func verifyDPUServicesReady(ctx context.Context, input *SystemTestInput, dpuServiceNamespace string, dpuServiceName []string) {
 	tracker := NewByTracker()
 	Eventually(func(g Gomega) {
 		for _, name := range dpuServiceName {
 			tracker.By(name, "verify DPUService %s is ready", name)
 			dpuService := &dpuservicev1.DPUService{}
-			g.Expect(input.client.Get(ctx, client.ObjectKey{Namespace: dpuServiceNamespace, Name: name}, dpuService)).To(Succeed())
+			g.Expect(input.Client.Get(ctx, client.ObjectKey{Namespace: dpuServiceNamespace, Name: name}, dpuService)).To(Succeed())
 			g.Expect(conditions.IsTrue(dpuService, conditions.TypeReady)).To(BeTrue())
 		}
 		// A timeout of 20 minutes is necessary here. We have alot of trouble pulling our images for all
@@ -1265,21 +1265,21 @@ func verifyDPUServicesReady(ctx context.Context, input *systemTestInput, dpuServ
 	}).WithTimeout(20 * time.Minute).Should(Succeed())
 }
 
-// getDPUClusterClient retrieves the DPUCluster client for the cluster at the given index. This function is internal and should not be called directly.
+// GetDPUClusterClient retrieves the DPUCluster client for the cluster at the given index. This function is internal and should not be called directly.
 // Instead, use getDPUClusterClients to retrieve all clients for all clusters.
-func getDPUClusterClient(ctx context.Context, input ProvisionDPUClustersInput, clusterIndex int) {
+func GetDPUClusterClient(ctx context.Context, input ProvisionDPUClustersInput, clusterIndex int) {
 	var tun *tunnel.Tunnel
 
 	Eventually(func(g Gomega) {
-		refreshable, ok := dpuClusterClient[clusterIndex].(*refreshableclient.Client)
+		refreshable, ok := DPUClusterClient[clusterIndex].(*refreshableclient.Client)
 		g.Expect(ok).To(BeTrue(), "DPUCluster client %d should be a refreshable client", clusterIndex)
 
-		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(input.dpuClusters[clusterIndex]), input.dpuClusters[clusterIndex])).To(Succeed())
-		g.Expect(input.dpuClusters[clusterIndex].Spec.Kubeconfig).ToNot(BeEmpty(), "DPUCluster kubeconfig should be populated")
+		g.Expect(input.Client.Get(ctx, client.ObjectKeyFromObject(input.DPUClusters[clusterIndex]), input.DPUClusters[clusterIndex])).To(Succeed())
+		g.Expect(input.DPUClusters[clusterIndex].Spec.Kubeconfig).ToNot(BeEmpty(), "DPUCluster kubeconfig should be populated")
 
 		var err error
 		var restCfg *rest.Config
-		restCfg, tun, err = tunnel.NewTunneledRestConfig(ctx, input.client, input.restConfig, input.dpuClusters[clusterIndex])
+		restCfg, tun, err = tunnel.NewTunneledRestConfig(ctx, input.Client, input.RestConfig, input.DPUClusters[clusterIndex])
 		g.Expect(err).NotTo(HaveOccurred(), "Should create tunneled REST config")
 
 		dpuClient, err := client.New(restCfg, client.Options{})
@@ -1290,8 +1290,8 @@ func getDPUClusterClient(ctx context.Context, input ProvisionDPUClustersInput, c
 		restCfg.APIPath = "/api"
 		restCfg.GroupVersion = &schema.GroupVersion{Group: "", Version: "v1"}
 		restCfg.NegotiatedSerializer = serializer.WithoutConversionCodecFactory{CodecFactory: scheme.Codecs}
-		dpuClusterRestConfig[clusterIndex] = restCfg
-		dpuClusterRestClient[clusterIndex], err = rest.RESTClientFor(restCfg)
+		DPUClusterRestConfig[clusterIndex] = restCfg
+		DPUClusterRestClient[clusterIndex], err = rest.RESTClientFor(restCfg)
 		g.Expect(err).ToNot(HaveOccurred())
 	}).WithTimeout(3 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 
@@ -1313,7 +1313,7 @@ func getDPUClusterClient(ctx context.Context, input ProvisionDPUClustersInput, c
 				if !tun.IsHealthy() {
 					By("Tunnel health check failed, recreating client and rest config")
 					tun.Close()
-					getDPUClusterClient(ctx, input, clusterIndex)
+					GetDPUClusterClient(ctx, input, clusterIndex)
 					return
 				}
 			}
@@ -1321,9 +1321,9 @@ func getDPUClusterClient(ctx context.Context, input ProvisionDPUClustersInput, c
 	}()
 }
 
-// getDPUClusterClients retrieves the DPUCluster clients for all clusters in the input.
+// GetDPUClusterClients retrieves the DPUCluster clients for all clusters in the input.
 // This function must only be called once per test suite as it initializes stable global client wrappers.
-func getDPUClusterClients(ctx context.Context, input ProvisionDPUClustersInput) {
+func GetDPUClusterClients(ctx context.Context, input ProvisionDPUClustersInput) {
 	if dpuClusterClientsInitialized {
 		warningMsg := "WARNING: getDPUClusterClients called multiple times - " +
 			"skipping reinitialization (this may indicate a test structure issue)"
@@ -1334,16 +1334,16 @@ func getDPUClusterClients(ctx context.Context, input ProvisionDPUClustersInput) 
 	dpuClusterClientsInitialized = true
 
 	// Pre-initialize the global slices with the correct size
-	numClusters := len(input.dpuClusters)
-	dpuClusterClient = make([]client.Client, numClusters)
-	dpuClusterRestConfig = make([]*rest.Config, numClusters)
-	dpuClusterRestClient = make([]*rest.RESTClient, numClusters)
-	for i := range input.dpuClusters {
-		dpuClusterClient[i] = refreshableclient.New()
+	numClusters := len(input.DPUClusters)
+	DPUClusterClient = make([]client.Client, numClusters)
+	DPUClusterRestConfig = make([]*rest.Config, numClusters)
+	DPUClusterRestClient = make([]*rest.RESTClient, numClusters)
+	for i := range input.DPUClusters {
+		DPUClusterClient[i] = refreshableclient.New()
 	}
 
-	for i := range input.dpuClusters {
-		getDPUClusterClient(ctx, input, i)
+	for i := range input.DPUClusters {
+		GetDPUClusterClient(ctx, input, i)
 	}
 }
 
@@ -1368,7 +1368,7 @@ func GetDPUNodeToBMCIPs(ctx context.Context, c client.Client,
 	var observed []provisioningv1.DPUNode
 	Eventually(func(g Gomega) {
 		nodes := &provisioningv1.DPUNodeList{}
-		g.Expect(c.List(ctx, nodes, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(c.List(ctx, nodes, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 		g.Expect(nodes.Items).To(HaveLen(expectedDPUNodes))
 		observed = nodes.Items
 	}).WithTimeout(10 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
@@ -1405,7 +1405,7 @@ func ApplyNodeRebootConfigMap(ctx context.Context, c client.Client, configMapPat
 	obj := &unstructured.Unstructured{}
 	Expect(yaml.Unmarshal(data, obj)).To(Succeed())
 	if obj.GetNamespace() == "" {
-		obj.SetNamespace(dpfOperatorSystemNamespace)
+		obj.SetNamespace(DPFOperatorSystemNamespace)
 	}
 	labels := obj.GetLabels()
 	if labels == nil {
@@ -1420,11 +1420,11 @@ func ApplyNodeRebootConfigMap(ctx context.Context, c client.Client, configMapPat
 // bmcPassword is sourced from $E2E_ZT_BMC_PASSWORD by getEnvVariables() and required-ness is enforced by validateFlags() for ZT runs.
 func applyBMCCredentialsSecret(ctx context.Context, c client.Client) {
 	By(fmt.Sprintf("Creating BMC credentials Secret %s/%s",
-		dpfOperatorSystemNamespace, bmcCredentialsSecretName))
+		DPFOperatorSystemNamespace, bmcCredentialsSecretName))
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      bmcCredentialsSecretName,
-			Namespace: dpfOperatorSystemNamespace,
+			Namespace: DPFOperatorSystemNamespace,
 			Labels:    maps.Clone(CleanupScope.Suite),
 		},
 		Type: corev1.SecretTypeOpaque,
@@ -1453,7 +1453,7 @@ func PatchDPUNodesForScriptReboot(ctx context.Context, c client.Client,
 	var observed []provisioningv1.DPUNode
 	Eventually(func(g Gomega) {
 		nodes := &provisioningv1.DPUNodeList{}
-		g.Expect(c.List(ctx, nodes, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(c.List(ctx, nodes, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 		g.Expect(nodes.Items).To(HaveLen(expectedDPUNodes))
 		observed = nodes.Items
 	}).WithTimeout(10 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
@@ -1482,7 +1482,7 @@ func PatchDPUNodesForScriptReboot(ctx context.Context, c client.Client,
 	}
 }
 
-func unstructuredFromFile(path string) *unstructured.Unstructured {
+func UnstructuredFromFile(path string) *unstructured.Unstructured {
 	data, err := os.ReadFile(path)
 	Expect(err).ToNot(HaveOccurred())
 	obj := &unstructured.Unstructured{}

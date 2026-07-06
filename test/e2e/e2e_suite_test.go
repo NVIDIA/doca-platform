@@ -58,26 +58,8 @@ var (
 	configPath string
 	// testKubeconfig path to be used for this test.
 	testKubeconfig string
-	// artifactsDir is the path where test artifacts will be stored.
-	artifactsDir string
-
-	// collectResources indicates whether to collect logs an objects after an e2e test run.
-	collectResources = true
-	// externalTest path used to run external tests scripts
-	externalTest string
 	// enableSOSReports to enable collecting SOS reports after an e2e test run failure.
 	enableSOSReports = false
-)
-
-var (
-	// cleanupFlags holds all flags to control skip cleanup behavior
-	cleanupFlags   *cleanup.CleanupFlags
-	cleanupTracker *cleanup.Tracker
-	testClient     client.Client
-	restConfig     *rest.Config
-	clientset      *kubernetes.Clientset
-	ctx            = ctrl.SetupSignalHandler()
-	conf           *config
 )
 
 func init() {
@@ -87,7 +69,7 @@ func init() {
 	flag.StringVar(&externalTest, "e2e.externalTestScript", "", "path to the external test file, script will be called in between BeforeSuite setup and AfterSuite cleanup")
 
 	// Register cleanup flags and get handle for it
-	cleanupFlags = cleanup.NewCleanupFlagsFromCLI()
+	CleanupFlags = cleanup.NewCleanupFlagsFromCLI()
 
 	getEnvVariables()
 }
@@ -118,7 +100,7 @@ func getEnvVariables() {
 	}
 	if v, found := os.LookupEnv("DPF_E2E_COLLECT_RESOURCES"); found {
 		var err error
-		collectResources, err = strconv.ParseBool(v)
+		CollectResources, err = strconv.ParseBool(v)
 		if err != nil {
 			panic(fmt.Errorf("string must be a bool: %v", err))
 		}
@@ -166,11 +148,11 @@ func getEnvVariables() {
 		}
 	}
 	if path, found := os.LookupEnv("ARTIFACTS_DIR"); found {
-		artifactsDir = path
+		ArtifactsDir = path
 	} else {
 		// Default to ../../artifacts relative to the current file.
 		_, basePath, _, _ := runtime.Caller(0)
-		artifactsDir = filepath.Join(filepath.Dir(basePath), "../../artifacts")
+		ArtifactsDir = filepath.Join(filepath.Dir(basePath), "../../artifacts")
 	}
 
 	if interfaceName, found := os.LookupEnv("DPUCLUSTER_INTERFACE"); found {
@@ -182,7 +164,7 @@ func getEnvVariables() {
 
 	if ns, found := os.LookupEnv("PREREQS_NAMESPACE"); found {
 		// Only set the override if it differs from the default namespace.
-		if ns != dpfOperatorSystemNamespace {
+		if ns != DPFOperatorSystemNamespace {
 			prereqsNamespace = ns
 		}
 	}
@@ -213,7 +195,7 @@ func TestE2E(t *testing.T) {
 	// SchemeGroupVersion is group version used to register these objects
 	var SchemeGroupVersion = schema.GroupVersion{Group: "", Version: "v1"}
 
-	conf, err = readConfig(configPath)
+	Conf, err = ReadConfig(configPath)
 	g.Expect(err).NotTo(HaveOccurred())
 
 	// If testKubeconfig is not set default it to $HOME/.kube/config
@@ -227,34 +209,34 @@ func TestE2E(t *testing.T) {
 	_, _ = fmt.Fprintf(GinkgoWriter, "E2E Test Configuration:\n")
 	_, _ = fmt.Fprintf(GinkgoWriter, "  configPath: %s\n", configPath)
 	_, _ = fmt.Fprintf(GinkgoWriter, "  testKubeconfig: %s\n", testKubeconfig)
-	_, _ = fmt.Fprintf(GinkgoWriter, "  numberOfDPUNodes: %d\n", conf.NumberOfDPUNodes)
-	_, _ = fmt.Fprintf(GinkgoWriter, "  numberOfDPUsPerNode: %d\n", conf.NumberOfDPUsPerNode)
-	_, _ = fmt.Fprintf(GinkgoWriter, "  nodeRebootConfigMap: %q\n", conf.NodeRebootConfigMap)
-	_, _ = fmt.Fprintf(GinkgoWriter, "  nodeRebootConfigMapPath: %q\n", conf.NodeRebootConfigMapPath)
+	_, _ = fmt.Fprintf(GinkgoWriter, "  numberOfDPUNodes: %d\n", Conf.NumberOfDPUNodes)
+	_, _ = fmt.Fprintf(GinkgoWriter, "  numberOfDPUsPerNode: %d\n", Conf.NumberOfDPUsPerNode)
+	_, _ = fmt.Fprintf(GinkgoWriter, "  nodeRebootConfigMap: %q\n", Conf.NodeRebootConfigMap)
+	_, _ = fmt.Fprintf(GinkgoWriter, "  nodeRebootConfigMapPath: %q\n", Conf.NodeRebootConfigMapPath)
 
 	// Create a client to use throughout the test.
-	restConfig, err = clientcmd.BuildConfigFromFlags("", testKubeconfig)
+	RestConfig, err = clientcmd.BuildConfigFromFlags("", testKubeconfig)
 	g.Expect(err).NotTo(HaveOccurred())
-	clientset, err = kubernetes.NewForConfig(restConfig)
+	Clientset, err = kubernetes.NewForConfig(RestConfig)
 	g.Expect(err).NotTo(HaveOccurred())
-	testClient, err = client.New(restConfig, client.Options{Scheme: s})
+	TestClient, err = client.New(RestConfig, client.Options{Scheme: s})
 	g.Expect(err).NotTo(HaveOccurred())
 
 	// Set the path to /api for handling core resources (pods, services, etc)
 	// for handling custom resources (deployments, etc) would need to set the API path to /apis
-	restConfig.APIPath = "/api"
+	RestConfig.APIPath = "/api"
 
 	// Extend configs to restConfig for hostClusterRESTClient
-	restConfig.GroupVersion = &SchemeGroupVersion
-	restConfig.NegotiatedSerializer = serializer.WithoutConversionCodecFactory{CodecFactory: scheme.Codecs}
-	hostClusterRESTClient, err = rest.RESTClientFor(restConfig)
+	RestConfig.GroupVersion = &SchemeGroupVersion
+	RestConfig.NegotiatedSerializer = serializer.WithoutConversionCodecFactory{CodecFactory: scheme.Codecs}
+	HostClusterRESTClient, err = rest.RESTClientFor(RestConfig)
 	g.Expect(err).NotTo(HaveOccurred())
-	metricsURI = metrics.GetMetricsURI("kube-state-metrics", dpfOperatorSystemNamespace, kubeStateMetricsPort, "/metrics")
-	g.Expect(metricsURI).NotTo(BeEmpty())
+	MetricsURI = metrics.GetMetricsURI("kube-state-metrics", DPFOperatorSystemNamespace, KubeStateMetricsPort, "/metrics")
+	g.Expect(MetricsURI).NotTo(BeEmpty())
 
 	// Auto-enable fail-fast when skip-cleanup-on-failure flag is set
 	suiteConfig, _ := GinkgoConfiguration()
-	if cleanupFlags.SkipCleanupOnFailure {
+	if CleanupFlags.SkipCleanupOnFailure {
 		suiteConfig.FailFast = true
 		_, _ = fmt.Fprintf(GinkgoWriter, "Auto-enabled fail-fast mode (skip-cleanup-on-failure flag detected)\n")
 	}
@@ -278,23 +260,23 @@ var _ = BeforeSuite(func() {
 	SetInput()
 
 	// Initialize cleanup flags here as Ginkgo has parsed CLI arguments before BeforeSuite runs
-	cleanupFlags.Init()
+	CleanupFlags.Init()
 
-	cleanupTracker = cleanup.NewTracker(utils.CleanupWithLabelAndWait, cleanupFlags, ctx, testClient, resourcesToDelete)
+	CleanupTracker = cleanup.NewTracker(utils.CleanupWithLabelAndWait, CleanupFlags, Ctx, TestClient, resourcesToDelete)
 
 	// Upgrade validation tests skip cleanup to preserve resources from previous test run.
 	// isUpgradeValidationPhase matches the active label filter against every label
 	// registered by validationPhase, so no per-phase update is needed here when a new
 	// phase is added.
-	if isUpgradeValidationPhase() {
+	if IsUpgradeValidationPhase() {
 		return
 	}
 
 	By("Checking for resources from previous test runs")
-	cleanupTracker.WarnIfStaleResources()
+	CleanupTracker.WarnIfStaleResources()
 
 	By("Performing before suite cleanup")
-	cleanupTracker.HandleScopeLifecycle(nil, cleanup.GinkgoHook.BeforeSuite)
+	CleanupTracker.HandleScopeLifecycle(nil, cleanup.GinkgoHook.BeforeSuite)
 
 	// Label filter examples supported:
 	// (Domain.DPFSystem)                  -> all tests with Domain.DPFSystem running. SDN, SNAP included
@@ -311,15 +293,15 @@ var _ = BeforeSuite(func() {
 		// BeforeProvisioning(ctx, input)
 		// CreateProvisioningDPUCluster(ctx, input)
 		// CreateProvisioningDPUSet(ctx, input)
-		provInput := getProvisionDPUClustersInput()
-		ProvisionDPUClusters(ctx, provInput)
-		ProvisionBFBOrBlueFieldSoftwareAndDPUFlavor(ctx, provInput)
-		ProvisionDPUSet(ctx, provInput)
+		provInput := GetProvisionDPUClustersInput()
+		ProvisionDPUClusters(Ctx, provInput)
+		ProvisionBFBOrBlueFieldSoftwareAndDPUFlavor(Ctx, provInput)
+		ProvisionDPUSet(Ctx, provInput)
 	}
 
 	// Apply the ProvisioningBeforeSuite setup if directly specified Provisioning label
 	// !skipProvisioning() branch should not be executed in provisioning-only tests
-	if isGinkgoLabelApplied(Domain.Provisioning) {
+	if IsGinkgoLabelApplied(Domain.Provisioning) {
 		// SystemSetupBeforeSuite must run first to deploy the DPF operator and system components
 		// Provisioning tests need the operator running but will provision DPUs from scratch (no pre-provisioning)
 		SystemSetupBeforeSuite(false)
@@ -342,7 +324,7 @@ var _ = BeforeSuite(func() {
 
 	// Apply the WeaveBeforeSuite setup
 	if !strings.Contains(GinkgoLabelFilter(), "!"+Domain.Weave) {
-		WeaveBeforeSuite(*conf)
+		WeaveBeforeSuite(*Conf)
 	}
 
 	// For Performance + OVNKHBN (physical HBN-OVN performance) scenario, deploy the full
@@ -351,27 +333,27 @@ var _ = BeforeSuite(func() {
 	// On physical environments provisioning runs above so we must also wait for DPUs to be ready.
 	// IgnoreAlreadyExists handles objects already present (e.g. on re-runs).
 	// Per RDG, service object creation precedes the DPU provisioning wait.
-	if isGinkgoLabelApplied(Domain.Performance) && isGinkgoLabelApplied(Domain.OVNKHBN) {
+	if IsGinkgoLabelApplied(Domain.Performance) && IsGinkgoLabelApplied(Domain.OVNKHBN) {
 		SystemSetupBeforeSuite(false)
 		By("Maximizing maintenance operator parallelism for performance provisioning")
-		restoreMaintenanceConfig := SetMaintenanceOperatorMaxParallelOperations(ctx, testClient, 50)
+		restoreMaintenanceConfig := SetMaintenanceOperatorMaxParallelOperations(Ctx, TestClient, 50)
 		defer restoreMaintenanceConfig()
 		By("Pre-provisioning DPU cluster setup")
-		provInput := getProvisionDPUClustersInput()
-		ProvisionDPUClusters(ctx, provInput)
-		ProvisionBFBOrBlueFieldSoftwareAndDPUFlavor(ctx, provInput)
+		provInput := GetProvisionDPUClustersInput()
+		ProvisionDPUClusters(Ctx, provInput)
+		ProvisionBFBOrBlueFieldSoftwareAndDPUFlavor(Ctx, provInput)
 		By("Installing OVN-K resource injector webhook")
-		InstallOVNKResourceInjector(ctx, testClient)
+		InstallOVNKResourceInjector(Ctx, TestClient)
 		By("Deploying HBN-OVN scenario objects")
-		DeployOVNKHBNScenario(ctx, input)
+		DeployOVNKHBNScenario(Ctx, input)
 		By("Waiting for DPUs to be provisioned")
-		VerifyDPUClusterWithNodes(ctx, getProvisionDPUClustersInput())
+		VerifyDPUClusterWithNodes(Ctx, GetProvisionDPUClustersInput())
 	}
 })
 
 var _ = ReportBeforeEach(func(spec SpecReport) {
 	// Detect entering scopes and perform "before" cleanup
-	cleanupTracker.HandleScopeLifecycle(&spec, cleanup.GinkgoHook.BeforeEach)
+	CleanupTracker.HandleScopeLifecycle(&spec, cleanup.GinkgoHook.BeforeEach)
 })
 
 // reportAfterEach collects diagnostics when a test fails
@@ -380,20 +362,20 @@ func reportAfterEach(spec SpecReport) {
 	if spec.Failed() {
 		By(fmt.Sprintf("ReportAfterEach: Test %q failed. Collecting resources and logs for the clusters", spec.FullText()))
 		collectInput := collectResourcesInput{
-			collectResources: collectResources,
-			testClient:       testClient,
-			clientset:        clientset,
-			restConfig:       restConfig,
-			artifactsDir:     artifactsDir,
+			collectResources: CollectResources,
+			testClient:       TestClient,
+			clientset:        Clientset,
+			restConfig:       RestConfig,
+			artifactsDir:     ArtifactsDir,
 		}
-		err := collectKubernetesResources(ctx, collectInput, "failed_tests/"+spec.LeafNodeText)
+		err := collectKubernetesResources(Ctx, collectInput, "failed_tests/"+spec.LeafNodeText)
 		if err != nil {
 			GinkgoLogr.Error(err, "failed to collect resources and logs for the clusters")
 		}
 
 		// Collect SOS reports if enabled (runs at most once per suite via sync.Once).
 		if enableSOSReports {
-			if err = collectSOSReports(ctx, artifactsDir); err != nil {
+			if err = collectSOSReports(Ctx, ArtifactsDir); err != nil {
 				GinkgoLogr.Error(err, "SOS report collection failed")
 			}
 		}
@@ -405,28 +387,28 @@ var _ = ReportAfterEach(func(spec SpecReport) {
 	reportAfterEach(spec)
 
 	// Handle scope lifecycle and cleanup
-	cleanupTracker.HandleScopeLifecycle(&spec, cleanup.GinkgoHook.AfterEach)
+	CleanupTracker.HandleScopeLifecycle(&spec, cleanup.GinkgoHook.AfterEach)
 })
 
 var _ = AfterSuite(func() {
 	collectInput := collectResourcesInput{
-		collectResources: collectResources,
-		testClient:       testClient,
-		clientset:        clientset,
-		restConfig:       restConfig,
-		artifactsDir:     artifactsDir,
+		collectResources: CollectResources,
+		testClient:       TestClient,
+		clientset:        Clientset,
+		restConfig:       RestConfig,
+		artifactsDir:     ArtifactsDir,
 	}
 
 	By("Collecting resources for the clusters after suite (pre-DPF operator config cleanup)")
-	if err := collectKubernetesResources(ctx, collectInput, "pre-dpf-operator-config-cleanup"); err != nil {
+	if err := collectKubernetesResources(Ctx, collectInput, "pre-dpf-operator-config-cleanup"); err != nil {
 		GinkgoLogr.Error(err, "failed to collect resources for the clusters (pre-DPF operator config cleanup)")
 	}
 
-	if !cleanupFlags.SkipSuiteCleanupAfter {
-		DeleteDPFOperatorConfig(ctx, testClient)
+	if !CleanupFlags.SkipSuiteCleanupAfter {
+		DeleteDPFOperatorConfig(Ctx, TestClient)
 
 		By("Collecting resources for the clusters after suite (post-DPF operator config cleanup)")
-		if err := collectKubernetesResources(ctx, collectInput, "post-dpf-operator-config-cleanup"); err != nil {
+		if err := collectKubernetesResources(Ctx, collectInput, "post-dpf-operator-config-cleanup"); err != nil {
 			GinkgoLogr.Error(err, "failed to collect resources for the clusters (post-DPF operator config cleanup)")
 		}
 
@@ -435,30 +417,5 @@ var _ = AfterSuite(func() {
 	}
 
 	By("Performing final suite cleanup")
-	cleanupTracker.HandleScopeLifecycle(nil, cleanup.GinkgoHook.AfterSuite)
+	CleanupTracker.HandleScopeLifecycle(nil, cleanup.GinkgoHook.AfterSuite)
 })
-
-func validateFlags() {
-	if !isGinkgoLabelApplied(Domain.ZeroTrust) {
-		return
-	}
-
-	if conf.NodeRebootConfigMap == "" {
-		panic("ZeroTrust requires `nodeRebootConfigMap` to be set in the e2e config file")
-	}
-	if conf.NodeRebootConfigMapPath == "" {
-		panic("ZeroTrust requires `nodeRebootConfigMapPath` to be set in the e2e config file")
-	}
-	if bmcPassword == "" {
-		panic("ZeroTrust requires E2E_ZT_BMC_PASSWORD env var (BMC root password used by the in-cluster reboot script)")
-	}
-	if bmcInventoryPath == "" {
-		panic("ZeroTrust requires E2E_ZT_BMC_INVENTORY_PATH env var (path to the lab DPU-serial -> BMC IP inventory YAML)")
-	}
-
-	if isGinkgoLabelApplied(Domain.ExternalTest) {
-		if len(externalTest) == 0 {
-			panic("This script must be provided when External label is present")
-		}
-	}
-}

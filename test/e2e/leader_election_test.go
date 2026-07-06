@@ -24,33 +24,33 @@ import (
 
 // leaderElectionTargets enumerates the in-scope controllers for the failover
 // test (see leader_election.go for the inclusion criteria and exclusion list).
-var leaderElectionTargets = []leaderElectionTarget{
+var leaderElectionTargets = []LeaderElectionTarget{
 	{
-		component:      "provisioning-controller",
-		deploymentName: "dpf-provisioning-controller-manager",
-		leaseName:      "provisioning.dpu.nvidia.com",
+		Component:      "provisioning-controller",
+		DeploymentName: "dpf-provisioning-controller-manager",
+		LeaseName:      "provisioning.dpu.nvidia.com",
 	},
 	{
-		component:      "dpuservice-controller",
-		deploymentName: "dpuservice-controller-manager",
-		leaseName:      "dpuservice.dpu.nvidia.com",
+		Component:      "dpuservice-controller",
+		DeploymentName: "dpuservice-controller-manager",
+		LeaseName:      "dpuservice.dpu.nvidia.com",
 	},
 	{
-		component:      "kamaji-cluster-manager",
-		deploymentName: "kamaji-cm-controller-manager",
-		leaseName:      "kamaji-cluster-manager.dpu.nvidia.com",
+		Component:      "kamaji-cluster-manager",
+		DeploymentName: "kamaji-cm-controller-manager",
+		LeaseName:      "kamaji-cluster-manager.dpu.nvidia.com",
 	},
 	{
-		component:      "static-cluster-manager",
-		deploymentName: "static-cm-controller-manager",
-		leaseName:      "static-cluster-manager.dpu.nvidia.com",
+		Component:      "static-cluster-manager",
+		DeploymentName: "static-cm-controller-manager",
+		LeaseName:      "static-cluster-manager.dpu.nvidia.com",
 	},
 }
 
 var _ = Describe("DPF Leader-election failover", Labels{Domain.DPFSystem}, func() {
 	for _, target := range leaderElectionTargets {
-		It(fmt.Sprintf("hands over the lease when the %s leader pod is deleted", target.component), func() {
-			ValidateLeaderElectionFailover(ctx, testClient, target)
+		It(fmt.Sprintf("hands over the lease when the %s leader pod is deleted", target.Component), func() {
+			ValidateLeaderElectionFailover(Ctx, TestClient, target)
 		})
 	}
 })

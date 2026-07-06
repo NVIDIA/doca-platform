@@ -55,28 +55,28 @@ const (
 	// SDNTestPriority is the test priority for the "DPF System tests - SDN" test suite.
 	SDNTestPriority = 100
 
-	// kubeStateMetricsPort is the port used by kube-state-metrics across host and DPU clusters.
-	kubeStateMetricsPort = 8080
+	// KubeStateMetricsPort is the port used by kube-state-metrics across host and DPU clusters.
+	KubeStateMetricsPort = 8080
 	// testMTUValue is the MTU value used across e2e tests to trigger configuration changes.
 	testMTUValue = 1300
-	// defaultAPIServerPort is the default Kubernetes API server port used in performance tests.
-	defaultAPIServerPort = 6443
-	// performanceMTU is the MTU configured for both the control plane and high-speed networks in performance tests.
-	performanceMTU = 9000
+	// DefaultAPIServerPort is the default Kubernetes API server port used in performance tests.
+	DefaultAPIServerPort = 6443
+	// PerformanceMTU is the MTU configured for both the control plane and high-speed networks in performance tests.
+	PerformanceMTU = 9000
 
-	// provisioningTimeout is the Eventually budget for provisioning-side waits in
+	// ProvisioningTimeout is the Eventually budget for provisioning-side waits in
 	// the e2e suite (DPUs being installed and joining the DPU cluster as K8s
 	// Nodes). Sized to absorb a first-install BFB run that includes a full BMC +
 	// CEC + NIC firmware update cycle plus host power-cycle, which can take
 	// ~45-55 minutes per DPU.
-	provisioningTimeout = 60 * time.Minute
+	ProvisioningTimeout = 60 * time.Minute
 
-	// dpuDeploymentReadyTimeout is the Eventually budget for waits that gate on
+	// DPUDeploymentReadyTimeout is the Eventually budget for waits that gate on
 	// DPUDeployment.Status.Ready=True when DPU provisioning has not been awaited
 	// separately upstream. Such waits must absorb the full provisioning chain
 	// plus the dpuservice / ArgoCD / ServiceChain layer settling on top, so this
 	// is intentionally larger than provisioningTimeout.
-	dpuDeploymentReadyTimeout = 75 * time.Minute
+	DPUDeploymentReadyTimeout = 75 * time.Minute
 )
 
 // CleanupScope is an alias for cleanup.CleanupLabels for ease of use
@@ -139,12 +139,12 @@ var Domain = TestDomain{
 }
 
 var (
-	dpuClusterClient             []client.Client
-	dpuClusterRestConfig         []*rest.Config
-	dpuClusterRestClient         []*rest.RESTClient
+	DPUClusterClient             []client.Client
+	DPUClusterRestConfig         []*rest.Config
+	DPUClusterRestClient         []*rest.RESTClient
 	dpuClusterClientsInitialized bool // tracks if getDPUClusterClients was called (must only be called once)
-	hostClusterRESTClient        *rest.RESTClient
-	metricsURI                   string
+	HostClusterRESTClient        *rest.RESTClient
+	MetricsURI                   string
 	// helmRegistry holds the Helm registry in which the artifacts used in e2e are pushed
 	helmRegistry = ""
 	// dockerIORegistry is a DockerHub mirror registry used to pull mirrored images to avoid rate-limiting.
@@ -231,13 +231,13 @@ var (
 )
 
 const (
-	configName                 = "dpfoperatorconfig"
-	dpfOperatorSystemNamespace = "dpf-operator-system"
-	argoCDTrackingIDAnnotation = "argocd.argoproj.io/tracking-id"
-	// ngcPullSecretName is the name of the secret used to pull images from NGC
-	ngcPullSecretName = "ngc-pull-secret"
-	// dpfPullSecretName is the name of the secret that is set in hack/scripts/create-artefact-secrets.sh
-	dpfPullSecretName = "dpf-pull-secret"
+	ConfigName                 = "dpfoperatorconfig"
+	DPFOperatorSystemNamespace = "dpf-operator-system"
+	ArgoCDTrackingIDAnnotation = "argocd.argoproj.io/tracking-id"
+	// NGCPullSecretName is the name of the secret used to pull images from NGC
+	NGCPullSecretName = "ngc-pull-secret"
+	// DPFPullSecretName is the name of the secret that is set in hack/scripts/create-artefact-secrets.sh
+	DPFPullSecretName = "dpf-pull-secret"
 )
 
 // EventuallyCheckReadyStatusCondition waits until obj has a Ready condition with Status True and
@@ -380,53 +380,53 @@ func getDPUNodesInOrder(ctx context.Context, hostClient, dpuClusterClient client
 }
 
 // isGinkgoLabel returns if a label is passed while running ginkgo and is not excluded
-func isGinkgoLabelApplied(ginkgoLabel string) bool {
+func IsGinkgoLabelApplied(ginkgoLabel string) bool {
 	return strings.Contains(GinkgoLabelFilter(), ginkgoLabel) && !strings.Contains(GinkgoLabelFilter(), "!"+ginkgoLabel)
 }
 
 // VerifyPerformancePodToPodSameNode verifies performance between pods on the same node
-func VerifyPerformancePodToPodSameNode(ctx context.Context, input *systemTestInput, namespacePrefix string) {
-	if !input.hasDpuNodes() {
+func VerifyPerformancePodToPodSameNode(ctx context.Context, input *SystemTestInput, namespacePrefix string) {
+	if !input.HasDpuNodes() {
 		Skip("Skip test as there are not multiple nodes")
 	}
 
 	hostNamespace := namespacePrefix + "-same-node"
-	createTestNamespace(ctx, input.client, hostNamespace)
+	createTestNamespace(ctx, input.Client, hostNamespace)
 
 	By("Creating test pods")
 	pod1Config, pod2Config := getPodSameNodeConfigs(ctx, input, hostNamespace)
-	netshoot.CreateAndWaitForPods(ctx, input.client, []*netshoot.TestPodConfig{&pod1Config, &pod2Config})
+	netshoot.CreateAndWaitForPods(ctx, input.Client, []*netshoot.TestPodConfig{&pod1Config, &pod2Config})
 
 	By("Get pod2 IP")
-	pod2IP := netshoot.GetPodIP(ctx, input.client, hostNamespace, pod2Config.Name)
+	pod2IP := netshoot.GetPodIP(ctx, input.Client, hostNamespace, pod2Config.Name)
 
 	By("Running traffic test between pods")
-	netshoot.RunTrafficTest(&hostClusterRESTClient, &input.restConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2IP)
+	netshoot.RunTrafficTest(&HostClusterRESTClient, &input.RestConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2IP)
 }
 
 // VerifyPerformancePodToPodDifferentNode verifies performance between pods on different nodes
-func VerifyPerformancePodToPodDifferentNode(ctx context.Context, input *systemTestInput, namespacePrefix string) {
-	if !input.hasDpuNodes() {
+func VerifyPerformancePodToPodDifferentNode(ctx context.Context, input *SystemTestInput, namespacePrefix string) {
+	if !input.HasDpuNodes() {
 		Skip("Skip test as there are not multiple nodes")
 	}
 
 	hostNamespace := namespacePrefix + "-different-node"
-	createTestNamespace(ctx, input.client, hostNamespace)
+	createTestNamespace(ctx, input.Client, hostNamespace)
 
 	By("Creating test pods")
 	pod1Config, pod2Config := getPodDifferentNodeConfigs(ctx, input, hostNamespace)
-	netshoot.CreateAndWaitForPods(ctx, input.client, []*netshoot.TestPodConfig{&pod1Config, &pod2Config})
+	netshoot.CreateAndWaitForPods(ctx, input.Client, []*netshoot.TestPodConfig{&pod1Config, &pod2Config})
 
 	By("Get pod2 IP")
-	pod2IP := netshoot.GetPodIP(ctx, input.client, hostNamespace, pod2Config.Name)
+	pod2IP := netshoot.GetPodIP(ctx, input.Client, hostNamespace, pod2Config.Name)
 
 	By("Running traffic test between pods")
-	netshoot.RunTrafficTest(&hostClusterRESTClient, &input.restConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2IP)
+	netshoot.RunTrafficTest(&HostClusterRESTClient, &input.RestConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2IP)
 }
 
 // getPodDifferentNodeConfigs returns two pod configs for different nodes
-func getPodDifferentNodeConfigs(ctx context.Context, input *systemTestInput, namespace string) (netshoot.TestPodConfig, netshoot.TestPodConfig) {
-	workerNode1, workerNode2 := getTwoWorkerNodeNames(ctx, input.client)
+func getPodDifferentNodeConfigs(ctx context.Context, input *SystemTestInput, namespace string) (netshoot.TestPodConfig, netshoot.TestPodConfig) {
+	workerNode1, workerNode2 := getTwoWorkerNodeNames(ctx, input.Client)
 
 	pod1Config := netshoot.TestPodConfig{
 		Name:      "pod1",
@@ -443,8 +443,8 @@ func getPodDifferentNodeConfigs(ctx context.Context, input *systemTestInput, nam
 }
 
 // getPodSameNodeConfigs returns two pod configs for the same node
-func getPodSameNodeConfigs(ctx context.Context, input *systemTestInput, namespace string) (netshoot.TestPodConfig, netshoot.TestPodConfig) {
-	workerNode1, _ := getTwoWorkerNodeNames(ctx, input.client)
+func getPodSameNodeConfigs(ctx context.Context, input *SystemTestInput, namespace string) (netshoot.TestPodConfig, netshoot.TestPodConfig) {
+	workerNode1, _ := getTwoWorkerNodeNames(ctx, input.Client)
 
 	pod1Config := netshoot.TestPodConfig{
 		Name:      "pod1",
