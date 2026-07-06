@@ -60,21 +60,22 @@ import (
 )
 
 type ProvisionDPUClustersInput struct {
-	numberOfDPUNodes        int
-	numberOfDPUsPerNode     int
-	dpuClusterPrerequisites []client.Object
-	dpuClusters             []*provisioningv1.DPUCluster
-	dpuFlavor               *provisioningv1.DPUFlavor
-	bfb                     *provisioningv1.BFB
-	blueFieldSoftware       *provisioningv1.BlueFieldSoftware
-	dpuSet                  *provisioningv1.DPUSet
-	client                  client.Client
-	bfbImageURL             string
-	bfsOsIsoURL             string
-	bfsPldmFwBundleURL      string
-	restConfig              *rest.Config
-	NodeRebootConfigMap     string
-	DPUNodeBMCs             map[string]string
+	numberOfDPUNodes          int
+	numberOfDPUsPerNode       int
+	dpuClusterPrerequisites   []client.Object
+	dpuClusters               []*provisioningv1.DPUCluster
+	dpuFlavor                 *provisioningv1.DPUFlavor
+	bfb                       *provisioningv1.BFB
+	blueFieldSoftware         *provisioningv1.BlueFieldSoftware
+	dpuSet                    *provisioningv1.DPUSet
+	client                    client.Client
+	bfbImageURL               string
+	bfsOsIsoURL               string
+	bfsPldmFwBundleURL        string
+	restConfig                *rest.Config
+	NodeRebootConfigMap       string
+	DPUNodeBMCs               map[string]string
+	expectedKubernetesVersion string
 }
 
 func isPreUpgradeFromLastReleasedGA(ctx context.Context, kclient client.Client, objectKey client.ObjectKey) (bool, error) {
@@ -434,6 +435,12 @@ type DeployDPFSystemComponentsInput struct {
 	dpuDiscovery              *provisioningv1.DPUDiscovery
 	client                    client.Client
 	numberOfDPUNodes          int
+	// skipSystemComponentValidation skips the post-deploy system-component checks
+	// (the current-shape DPUService assertion and the DPFOperatorConfig ready
+	// wait). Set for previous-release installs (e.g. BFB LTS v25.10) whose
+	// component shape differs and whose servicechainset-controller stays
+	// not-ready under the current CRD schema.
+	skipSystemComponentValidation bool
 }
 
 // DeployDPFSystemComponents creates the operatorConfig and some dependencies and checks that the system components
@@ -552,6 +559,11 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 		}).WithTimeout(5 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
 	}
 
+	if input.skipSystemComponentValidation {
+		By("Skipping system component validation")
+		return
+	}
+
 	By("Ensure the system DPUServices are created")
 	var isCurrentVersionLastReleasedGA bool
 	Eventually(func(g Gomega) {
@@ -633,24 +645,16 @@ func ProvisionDPUClusters(ctx context.Context, input ProvisionDPUClustersInput) 
 
 	By(fmt.Sprintf("Waiting for %d DPUCluster(s) to be ready", len(input.dpuClusters)))
 	Eventually(func(g Gomega) {
-		// During the upgrade test's "before" phase, the in-cluster DPUCluster controller
-		// is the last released GA and pins its own KubernetesVersion, which can differ
-		// from HEAD's util.KubernetesVersion. Skip the strict version match in that case.
-		// The post-upgrade phase still asserts HEAD's expected version for Kamaji based DPUClusters.
-		// TODO: Remove as soon as we have version aware upgrade logic for the pre-upgrade validation.
-		isCurrentVersionLastReleasedGA, err := isPreUpgradeFromLastReleasedGA(ctx, input.client, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: configName})
-		g.Expect(err).NotTo(HaveOccurred())
-
 		clusters := &provisioningv1.DPUClusterList{}
 		g.Expect(input.client.List(ctx, clusters)).To(Succeed())
 		g.Expect(clusters.Items).To(HaveLen(len(input.dpuClusters)))
 		for _, dpuCluster := range input.dpuClusters {
 			g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuCluster), dpuCluster)).To(Succeed())
 			g.Expect(dpuCluster.Status.Phase).Should(Equal(provisioningv1.PhaseReady))
-			if !isCurrentVersionLastReleasedGA {
-				g.Expect(dpuCluster.Status.Version).Should(Equal(util.KubernetesVersion))
+			if input.expectedKubernetesVersion != "" {
+				g.Expect(dpuCluster.Status.Version).Should(Equal(input.expectedKubernetesVersion))
 			} else {
-				g.Expect(dpuCluster.Status.Version).ShouldNot(BeEmpty())
+				g.Expect(dpuCluster.Status.Version).Should(Equal(util.KubernetesVersion))
 			}
 		}
 	}).WithTimeout(300 * time.Second).Should(Succeed())

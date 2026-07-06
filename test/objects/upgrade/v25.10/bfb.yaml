@@ -1,0 +1,7 @@
+apiVersion: provisioning.dpu.nvidia.com/v1alpha1
+kind: BFB
+metadata:
+  name: bf-bundle
+  namespace: dpf-operator-system
+spec:
+  url: "https://nbu-nfs.gtm.nvidia.com/auto/sw_mc_soc_release/doca_dpu/latest-3.2-LTS/last_stable_ubuntu_24.04_64k_pk"
