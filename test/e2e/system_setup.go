@@ -148,7 +148,7 @@ type SystemTestInput struct {
 	DPUNodeBMCs                       map[string]string
 }
 
-func (t *SystemTestInput) applySDNConfig(conf config) {
+func (t *SystemTestInput) ApplySDNConfig(conf config) {
 	dpuServiceInterfaceTemplate := &dpuservicev1.DPUServiceInterface{}
 	dsiTemplate := unstructuredFromFile(conf.DPUServiceInterfaceTemplatePath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(dsiTemplate.Object, dpuServiceInterfaceTemplate)).To(Succeed())
@@ -229,7 +229,7 @@ func updateImagePullSecret(svc *unstructured.Unstructured, secretName string) {
 	Expect(err).ToNot(HaveOccurred())
 }
 
-func (t *SystemTestInput) applyConfig(conf config) {
+func (t *SystemTestInput) ApplyConfig(conf config) {
 	if conf.BFBPath != nil {
 		bfb := &provisioningv1.BFB{}
 		bfbUnstructured := unstructuredFromFile(*conf.BFBPath)
@@ -418,12 +418,12 @@ func (t *SystemTestInput) applyConfig(conf config) {
 	t.UseExternalNodeReboot = conf.UseExternalNodeReboot
 }
 
-func (t *SystemTestInput) hasDpuNodes() bool {
+func (t *SystemTestInput) HasDpuNodes() bool {
 	return t.NumberOfDPUNodes > 0
 }
 
-// totalDPUs returns the total number of DPUs (nodes * DPUs per node)
-func (t *SystemTestInput) totalDPUs() int {
+// TotalDPUs returns the total number of DPUs (nodes * DPUs per node)
+func (t *SystemTestInput) TotalDPUs() int {
 	return t.NumberOfDPUNodes * t.NumberOfDPUsPerNode
 }
 
@@ -1148,11 +1148,11 @@ func CreateDPUDiscovery(ctx context.Context, input DeployDPFSystemComponentsInpu
 // ValidateDPUAgentStatus verifies that the DPU agent has reported its status correctly
 // on every ready DPU. Each DPU is validated against the supplied expected AgentStatus.
 func ValidateDPUAgentStatus(ctx context.Context, input *SystemTestInput, expected provisioningv1.AgentStatus) {
-	if !input.hasDpuNodes() {
+	if !input.HasDpuNodes() {
 		Skip("Skip DPU Agent validation as there are no DPU nodes")
 	}
 
-	expectedDPUs := input.totalDPUs()
+	expectedDPUs := input.TotalDPUs()
 
 	By("Listing all DPUs and validating agent status")
 	Eventually(func(g Gomega) {

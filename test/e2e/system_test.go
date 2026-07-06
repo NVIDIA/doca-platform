@@ -40,7 +40,7 @@ import (
 var input *SystemTestInput
 var vpcOvnInput = &vpcOvnTestInput{}
 
-func SetInput() {
+func SetInput() *SystemTestInput {
 	By("Validating the input")
 	validateFlags()
 
@@ -193,7 +193,8 @@ func SetInput() {
 		BFSOsIsoURL:        bfsOsIsoURL,
 		BFSPldmFwBundleURL: bfsPldmFwBundleURL,
 	}
-	input.applyConfig(*conf)
+	input.ApplyConfig(*conf)
+	return input
 }
 
 // SystemSetupBeforeSuite sets up the system components for the e2e tests.
@@ -335,7 +336,7 @@ func AnnotateAndLabelNodes(ctx context.Context, c client.Client, useExternalNode
 var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labels{Domain.DPFSystem}, func() {
 
 	BeforeEach(func() {
-		if !input.hasDpuNodes() {
+		if !input.HasDpuNodes() {
 			return
 		}
 		for _, label := range CurrentSpecReport().Labels() {
@@ -466,7 +467,7 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 
 			Context("Node Problem Detector", Labels{Domain.ZeroTrust, Domain.RequiresNodes}, func() {
 				It("validate node-problem-detector is reporting DPU-specific node conditions", func() {
-					if !input.hasDpuNodes() {
+					if !input.HasDpuNodes() {
 						Skip("Skip Node Problem Detector test as there are no DPU nodes")
 					}
 					By("Waiting for node-problem-detector to be ready")
@@ -483,7 +484,7 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 					VerifyClusterPods(ctx, input.Client, []string{"opentelemetry-collector"})
 				})
 				It("should verify OpenTelemetry Collector DaemonSets running in DPU cluster", Labels{Domain.RequiresNodes}, func() {
-					if !input.hasDpuNodes() {
+					if !input.HasDpuNodes() {
 						Skip("Skip test as there are no DPU nodes")
 					}
 					By("Running in DPUCluster")
@@ -493,7 +494,7 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 
 			Context("Configuration", func() {
 				It("should verify DPU cluster collector configuration", Labels{Domain.RequiresNodes}, func() {
-					if !input.hasDpuNodes() {
+					if !input.HasDpuNodes() {
 						Skip("Skip test as there are no DPU nodes")
 					}
 					ValidateDPUClusterOpenTelemetryConfiguration(ctx, input)
@@ -506,7 +507,7 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 				})
 
 				It("should collect and forward logs from DPU cluster to Loki", Labels{Domain.RequiresNodes}, func() {
-					if !input.hasDpuNodes() {
+					if !input.HasDpuNodes() {
 						Skip("Skip test as there are no DPU nodes")
 					}
 					ValidateDPUClusterLogFlow(ctx, input)
