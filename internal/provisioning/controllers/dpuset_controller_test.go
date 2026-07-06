@@ -1218,7 +1218,19 @@ var _ = Describe("DPUSet", func() {
 				g.Expect(err).NotTo(HaveOccurred())
 				dpusUpdated, err := reconciler.UpdateDPUs(ctx, dpuSet, dpuMap, dpuDeviceMap)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(dpusUpdated).To(BeFalse(), "No DPU updates should be needed now")
+				// After spec updates are reconciled by the DPU controller, UpdateDPUs may perform
+				// one final patch to stamp the fresh template hash label.
+				if dpusUpdated {
+					// Simulate DPU reconciliation of that patch so the next loop can reach Ready.
+					for _, d := range dpuMap {
+						latest := &provisioningv1.DPU{}
+						g.Expect(reconciler.Get(ctx, client.ObjectKeyFromObject(&d), latest)).To(Succeed())
+						p := client.MergeFrom(latest.DeepCopy())
+						latest.Status.ObservedGeneration = latest.Generation
+						latest.Status.Phase = provisioningv1.DPUReady
+						g.Expect(k8sClient.Status().Patch(ctx, latest, p)).To(Succeed())
+					}
+				}
 				err = reconciler.UpdateDPUSetStatus(ctx, dpuSet, dpusUpdated, 1, 0)
 				g.Expect(err).NotTo(HaveOccurred())
 				readyCondition := meta.FindStatusCondition(dpuSet.Status.Conditions, "Ready")
@@ -1344,6 +1356,89 @@ var _ = Describe("DPUSet", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(freshDPU.Generation).To(Equal(initialGeneration),
 				"Generation should not change when no update is needed")
+		})
+
+		It("should update DPU when only template hash is stale", func() {
+			nodeName := "node-" + utilrand.String(5)
+			deviceName := "device-" + utilrand.String(5)
+
+			By("Creating a DPUNode and DPUDevice")
+			_ = createDPUNode(ctx, testNamespace, nodeName, []string{deviceName})
+			_ = createDPUDevice(ctx, testNamespace, deviceName, "0000-05-00", nodeName)
+
+			By("Creating a DPUSet")
+			dpuSet := &provisioningv1.DPUSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dpuset-" + utilrand.String(5),
+					Namespace: testNamespace,
+				},
+				Spec: provisioningv1.DPUSetSpec{
+					Strategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},
+					DPUTemplate: provisioningv1.DPUTemplate{
+						Spec: provisioningv1.DPUTemplateSpec{
+							BFB:       &provisioningv1.BFBReference{Name: "test-bfb"},
+							DPUFlavor: "test-flavor",
+							NodeEffect: provisioningv1.NodeEffect{
+								Action: provisioningv1.Action{NoEffect: ptr.To(true)},
+								UpgradePolicy: provisioningv1.UpgradePolicy{
+									ApplyOnLabelChange: ptr.To(false),
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, dpuSet)).To(Succeed())
+
+			By("Waiting for DPUSet hash label")
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dpuSet), dpuSet)).To(Succeed())
+				_, exists := dpuSet.GetLabels()[cutil.DPUSetDPUTemplateSpecHashLabelKey]
+				g.Expect(exists).To(BeTrue())
+			}).WithTimeout(5 * time.Second).WithPolling(100 * time.Millisecond).Should(Succeed())
+
+			dpuName := cutil.GenerateDPUName(nodeName, deviceName)
+			dpu := &provisioningv1.DPU{}
+			By("Waiting for auto-created DPU")
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: dpuName}, dpu)).To(Succeed())
+			}).WithTimeout(5 * time.Second).WithPolling(100 * time.Millisecond).Should(Succeed())
+
+			By("Forcing only hash mismatch on DPU labels")
+			patch := client.MergeFrom(dpu.DeepCopy())
+			dpu.Labels[cutil.DPUSetDPUTemplateSpecHashLabelKey] = "stalehash123"
+			Expect(k8sClient.Patch(ctx, dpu, patch)).To(Succeed())
+
+			By("Marking DPU status ready with observed generation")
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: dpuName}, dpu)).To(Succeed())
+			statusPatch := client.MergeFrom(dpu.DeepCopy())
+			dpu.Status.Phase = provisioningv1.DPUReady
+			dpu.Status.ObservedGeneration = dpu.Generation
+			Expect(k8sClient.Status().Patch(ctx, dpu, statusPatch)).To(Succeed())
+
+			reconciler := &dpusetcontroller.DPUSetReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			By("Calling UpdateDPUs and verifying it patches stale hash")
+			dpuMap, err := reconciler.GetDPUsMap(ctx, dpuSet)
+			Expect(err).NotTo(HaveOccurred())
+			dpuDeviceMap, err := getDPUDeviceMapForAnyDPU(ctx, testNamespace, dpuMap)
+			Expect(err).NotTo(HaveOccurred())
+
+			updated, err := reconciler.UpdateDPUs(ctx, dpuSet, dpuMap, dpuDeviceMap)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(updated).To(BeTrue(), "stale hash alone should trigger DPU update")
+
+			By("Verifying DPU hash label matches DPUSet hash")
+			freshDPU := &provisioningv1.DPU{}
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: dpuName}, freshDPU)).To(Succeed())
+				g.Expect(freshDPU.GetLabels()[cutil.DPUSetDPUTemplateSpecHashLabelKey]).To(Equal(
+					dpuSet.GetLabels()[cutil.DPUSetDPUTemplateSpecHashLabelKey],
+				))
+			}).WithTimeout(5 * time.Second).WithPolling(100 * time.Millisecond).Should(Succeed())
 		})
 	})
 
