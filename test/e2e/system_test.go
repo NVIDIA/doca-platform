@@ -196,7 +196,9 @@ func SetInput() {
 	input.applyConfig(*conf)
 }
 
-func SystemSetupBeforeSuite() {
+// SystemSetupBeforeSuite sets up the system components for the e2e tests.
+// If skipSystemComponentValidation is true, it skips the validation of system components after deployment.
+func SystemSetupBeforeSuite(skipSystemComponentValidation bool) {
 	if Label(Domain.Scale).MatchesLabelFilter(GinkgoLabelFilter()) {
 		CreateDPUWorkerNodes(ctx, input.numberOfDPUNodes)
 	}
@@ -209,13 +211,14 @@ func SystemSetupBeforeSuite() {
 
 	By("Deploy DPF System components")
 	DeployDPFSystemComponents(ctx, DeployDPFSystemComponentsInput{
-		systemNamespace:           input.namespace,
-		operatorConfig:            input.config,
-		ImagePullSecrets:          input.pullSecretNames,
-		ProvisioningControllerPVC: input.pvc,
-		dpuDiscovery:              input.dpuDiscovery,
-		client:                    input.client,
-		numberOfDPUNodes:          input.numberOfDPUNodes,
+		systemNamespace:               input.namespace,
+		operatorConfig:                input.config,
+		ImagePullSecrets:              input.pullSecretNames,
+		ProvisioningControllerPVC:     input.pvc,
+		dpuDiscovery:                  input.dpuDiscovery,
+		client:                        input.client,
+		numberOfDPUNodes:              input.numberOfDPUNodes,
+		skipSystemComponentValidation: skipSystemComponentValidation,
 	})
 
 	if isGinkgoLabelApplied(Domain.ZeroTrust) {

@@ -1,0 +1,18 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: example-2
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: example-2
+  interfaces:
+    - name: net2
+      network: mybrsfc
+  serviceConfiguration:
+    serviceDaemonSet:
+      annotations:
+        annKey: annVal
+      labels:
+        labelKey: labelVal
+  upgradePolicy:
+    applyNodeEffect: true

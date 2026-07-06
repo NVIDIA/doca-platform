@@ -31,7 +31,7 @@ var _ = Describe("DPF System tests - Multi DPUCluster", Labels{Domain.MultiDPUCl
 	})
 	Context("Setup system", Ordered, func() {
 		It("create DPFOperatorConfig", func() {
-			SystemSetupBeforeSuite()
+			SystemSetupBeforeSuite(false)
 		})
 		It("create DPUClusters", func() {
 			ProvisionDPUClusters(ctx, getProvisionDPUClustersInput())

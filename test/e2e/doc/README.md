@@ -44,7 +44,7 @@ Each config targets different test scenarios:
 * **`config-provisioning-multinode.yaml`** - multi-node (2 nodes) provisioning, external reboot
 * **`config-provisioning-physical.yaml`** - physical hardware setup
 * **`config-provisioning-zt-physical.yaml`** - Zero-Trust physical setup; sets `nodeRebootConfigMap`/`nodeRebootConfigMapPath` for in-cluster Redfish reboots
-* **`config-provisioning-upgrade-v26.04.yaml` / `config-provisioning-upgrade-current.yaml`** - upgrade scenario tests (see [upgrade testing workflow](../../../docs/do_not_publish/tests/upgrade.md))
+* **`config-provisioning-upgrade-v*.yaml` / `config-provisioning-upgrade-current.yaml`** - upgrade scenario tests (see [upgrade testing workflow](../../../docs/do_not_publish/tests/upgrade.md) and [BFB LTS upgrade workflow](../../../docs/do_not_publish/tests/upgrade-lts.md))
 * **`config-scale.yaml`** - scale tests (10 nodes, mock DPUServices for performance, see [scale testing methodology](../../../docs/public/developer-guides/system/testing/scale-testing.md))
 
 Example structure:
