@@ -1,4 +1,4 @@
-Forked from https://github.com/clastix/kamaji@26.4.4-edge / e51909fae3f5221b14c83413aaa5df07b64d3336 to prevent an import of Kamaji as library to:
+Forked from https://github.com/clastix/kamaji@26.6.4-edge / 5e576071f010baa587f8de9027b66324dcea7af5 to prevent an import of Kamaji as library to:
 
 1. Use strong types for Kamaji objects.
 2. Avoid adding a large number of dependencies to the go.mod.

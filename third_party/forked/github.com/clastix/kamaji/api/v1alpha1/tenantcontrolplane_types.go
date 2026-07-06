@@ -12,7 +12,6 @@ import (
 )
 
 // NetworkProfileSpec defines the desired state of NetworkProfile.
-// +kubebuilder:validation:XValidation:rule="!has(self.dnsServiceIPs) || self.dnsServiceIPs.all(r, cidr(self.serviceCidr).containsIP(r))",message="all DNS service IPs must be part of the Service CIDR"
 type NetworkProfileSpec struct {
 	// LoadBalancerSourceRanges restricts the IP ranges that can access
 	// the LoadBalancer type Service. This field defines a list of IP
@@ -52,15 +51,33 @@ type NetworkProfileSpec struct {
 	// Use this field to add additional hostnames when exposing the Tenant Control Plane with third solutions.
 	CertSANs []string `json:"certSANs,omitempty"`
 	// CIDR for Kubernetes Services: if empty, defaulted to 10.96.0.0/16.
+	// Deprecated: use ServiceCIDRs instead.
 	//+kubebuilder:default="10.96.0.0/16"
 	//+kubebuilder:validation:Optional
 	//+kubebuilder:validation:XValidation:rule="self == '' || isCIDR(self)",message="serviceCidr must be empty or a valid CIDR"
 	ServiceCIDR string `json:"serviceCidr,omitempty"`
+	// Service CIDRs for Kubernetes Services.
+	// Supports single-stack and dual-stack configurations.
+	// When specified, this field takes precedence over ServiceCIDR.
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=2
+	// +kubebuilder:validation:XValidation:rule="self.all(x, isCIDR(x))",message="all serviceCidrs entries must be valid CIDRs"
+	ServiceCIDRs []string `json:"serviceCidrs,omitempty"`
 	// CIDR for Kubernetes Pods: if empty, defaulted to 10.244.0.0/16.
+	// Deprecated: use PodCIDRs instead.
 	//+kubebuilder:default="10.244.0.0/16"
 	//+kubebuilder:validation:Optional
 	//+kubebuilder:validation:XValidation:rule="self == '' || isCIDR(self)",message="podCidr must be empty or a valid CIDR"
 	PodCIDR string `json:"podCidr,omitempty"`
+	// PodCIDRs defines one or more CIDRs for Kubernetes Pods.
+	// Supports single-stack and dual-stack configurations.
+	// When specified, this field takes precedence over PodCIDR.
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=2
+	// +kubebuilder:validation:XValidation:rule="self.all(x, isCIDR(x))",message="all podCidrs entries must be valid CIDRs"
+	PodCIDRs []string `json:"podCidrs,omitempty"`
 	// The DNS Service for internal resolution, it must match the Service CIDR.
 	// In case of an empty value, it is automatically computed according to the Service CIDR, e.g.:
 	// Service CIDR 10.96.0.0/16, the resulting DNS Service IP will be 10.96.0.10 for IPv4,
@@ -235,6 +252,16 @@ type ControlPlaneProbes struct {
 	Scheduler *ProbeSet `json:"scheduler,omitempty"`
 }
 
+// ControlPlaneContainerSecurityContexts defines security contexts for individual Control Plane component containers.
+type ControlPlaneContainerSecurityContexts struct {
+	// APIServer defines the security context for the kube-apiserver container.
+	APIServer *corev1.SecurityContext `json:"apiServer,omitempty"`
+	// ControllerManager defines the security context for the kube-controller-manager container.
+	ControllerManager *corev1.SecurityContext `json:"controllerManager,omitempty"`
+	// Scheduler defines the security context for the kube-scheduler container.
+	Scheduler *corev1.SecurityContext `json:"scheduler,omitempty"`
+}
+
 type DeploymentSpec struct {
 	// RegistrySettings allows to override the default images for the given Tenant Control Plane instance.
 	// It could be used to point to a different container registry rather than the public one.
@@ -293,6 +320,10 @@ type DeploymentSpec struct {
 	//+kubebuilder:default="default"
 	// ServiceAccountName allows to specify the service account to be mounted to the pods of the Control plane deployment
 	ServiceAccountName string `json:"serviceAccountName,omitempty"`
+	// ContainerSecurityContexts allows to specify the security context for the individual control plane components.
+	ContainerSecurityContexts *ControlPlaneContainerSecurityContexts `json:"containerSecurityContexts,omitempty"`
+	// PodSecurityContext allows to specify the security context for the control plane pod.
+	PodSecurityContext *corev1.PodSecurityContext `json:"podSecurityContext,omitempty"`
 }
 
 // AdditionalVolumeMounts allows mounting additional volumes to the Control Plane components.
@@ -354,6 +385,8 @@ type KonnectivityServerSpec struct {
 	// Resources define the amount of CPU and memory to allocate to the Konnectivity server.
 	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
 	ExtraArgs ExtraArgs                    `json:"extraArgs,omitempty"`
+	// SecurityContext defines the SecurityContext for the Konnectivity server container.
+	SecurityContext *corev1.SecurityContext `json:"securityContext,omitempty"`
 }
 
 type KonnectivityAgentMode string
@@ -512,8 +545,4 @@ type TenantControlPlaneList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []TenantControlPlane `json:"items"`
-}
-
-func init() {
-	SchemeBuilder.Register(&TenantControlPlane{}, &TenantControlPlaneList{})
 }
