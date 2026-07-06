@@ -74,6 +74,10 @@ type DPUServiceReconciler struct {
 	Scheme      *runtime.Scheme
 	RemoteCache dpucluster.ClusterClientProvider
 	controller  controller.Controller
+	// privilegedPodEnforcementValidator overrides the post-apply VAP probe and is
+	// set only in tests to mock validatePrivilegedPodEnforcement. It is nil in
+	// production, where the real probe runs.
+	privilegedPodEnforcementValidator func(context.Context, client.Client) error
 }
 
 // pauseDPUServiceReconciler pauses the DPUService Reconciler by doing noop reconciliation loops. This is helpful to
@@ -129,6 +133,17 @@ func (r *DPUServiceReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Ma
 			builder.WithPredicates(dpuservicepredicates.DPUServiceInterfaceChangePredicate{}),
 		).
 		Watches(&provisioningv1.DPUCluster{}, handler.EnqueueRequestsFromMapFunc(r.DPUClusterToDPUService)).
+		// Watch the DPFOperatorConfig so toggling the privileged-pod enforcement
+		// breakglass field (spec.security.privilegedPodEnforcement) promptly
+		// re-reconciles all DPUServices instead of waiting for the next resync.
+		// The predicate fires only when the resolved enforcement state actually
+		// changes, so unrelated DPFOperatorConfig spec edits do not trigger a
+		// reconcile of every DPUService.
+		Watches(
+			&operatorv1.DPFOperatorConfig{},
+			handler.EnqueueRequestsFromMapFunc(r.dpfOperatorConfigToDPUServices),
+			builder.WithPredicates(privilegedPodEnforcementChangedPredicate()),
+		).
 		Build(r)
 
 	if err != nil {
@@ -237,7 +252,12 @@ func (r *DPUServiceReconciler) reconcileDelete(ctx context.Context, dpuService *
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	if err := r.reconcilePrivilegedPodEnforcements(ctx, dpuClusterConfigs, dpuService); err != nil {
+	// On deletion we only remove this DPUService's own privileged allowlist
+	// entry; we never change the global VAP/binding state (that is driven by the
+	// DPFOperatorConfig breakglass field on the normal reconcile path). This
+	// keeps deletion independent of the DPFOperatorConfig and free of
+	// cluster-wide side effects.
+	if err := r.removePrivilegedPodEnforcementEntries(ctx, dpuClusterConfigs, dpuService); err != nil {
 		return ctrl.Result{}, err
 	}
 	if err := r.cleanupAllConfigPorts(ctx, dpuService); err != nil {
@@ -511,7 +531,7 @@ func (r *DPUServiceReconciler) reconcile(ctx context.Context, dpuService *dpuser
 	conditions.AddTrue(dpuService, dpuservicev1.ConditionDPUServiceInterfaceReconciled)
 
 	// We apply the application prereqs to all clusters regardless of the selector.
-	if err := r.reconcileApplicationPrereqs(ctx, dpuService, dpuClusterConfigs); err != nil {
+	if err := r.reconcileApplicationPrereqs(ctx, dpuService, dpuClusterConfigs, dpfOperatorConfig); err != nil {
 		message := fmt.Sprintf("Unable to reconcile application prereq for %s", err.Error())
 		conditions.AddFalse(
 			dpuService,
@@ -554,8 +574,9 @@ func (r *DPUServiceReconciler) reconcile(ctx context.Context, dpuService *dpuser
 
 // reconcileApplicationPrereqs ensures destination namespaces, image-pull
 // secrets, and privileged-pod enforcement are ready before ArgoCD Applications
-// are created or updated.
-func (r *DPUServiceReconciler) reconcileApplicationPrereqs(ctx context.Context, dpuService *dpuservicev1.DPUService, dpuClusterConfigs []*dpucluster.Config) error {
+// are created or updated. Whether privileged-pod enforcement is enforcing or in
+// audit-only mode is read directly from the DPFOperatorConfig breakglass field.
+func (r *DPUServiceReconciler) reconcileApplicationPrereqs(ctx context.Context, dpuService *dpuservicev1.DPUService, dpuClusterConfigs []*dpucluster.Config, dpfOperatorConfig *operatorv1.DPFOperatorConfig) error {
 	// Ensure the DPUService namespace exists in target clusters.
 	project := getProjectName(dpuService)
 	// TODO: think about how to cleanup the namespace in the DPU.
@@ -571,8 +592,9 @@ func (r *DPUServiceReconciler) reconcileApplicationPrereqs(ctx context.Context, 
 		return fmt.Errorf("ImagePullSecrets: %v", err)
 	}
 
-	if err := r.reconcilePrivilegedPodEnforcements(ctx, dpuClusterConfigs, dpuService); err != nil {
-		return fmt.Errorf("PrivilegedPodEnforcement: %v", err)
+	isPrivilegedPodEnforcementEnabled := dpfOperatorConfig.Spec.Security.PrivilegedPodEnforcementEnabled()
+	if err := r.reconcilePrivilegedPodEnforcements(ctx, dpuClusterConfigs, dpuService, isPrivilegedPodEnforcementEnabled); err != nil {
+		return fmt.Errorf("PrivilegedPodEnforcement: %w", err)
 	}
 
 	return nil
@@ -1651,6 +1673,47 @@ func (r *DPUServiceReconciler) DPUClusterToDPUService(ctx context.Context, _ cli
 	for _, m := range dpuServiceList.Items {
 		name := client.ObjectKey{Namespace: m.Namespace, Name: m.Name}
 		result = append(result, ctrl.Request{NamespacedName: name})
+	}
+	return result
+}
+
+// privilegedPodEnforcementChangedPredicate triggers a DPUService reconcile only
+// when the DPFOperatorConfig's resolved privileged-pod enforcement state
+// changes. Create/Delete/Generic events and unrelated spec edits are ignored:
+// DPUServices reconcile their own lifecycle (and pick up the current state via
+// the periodic resync), so the watch exists purely to make a breakglass toggle
+// converge promptly without re-reconciling every DPUService on every config edit.
+func privilegedPodEnforcementChangedPredicate() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc:  func(event.CreateEvent) bool { return false },
+		DeleteFunc:  func(event.DeleteEvent) bool { return false },
+		GenericFunc: func(event.GenericEvent) bool { return false },
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldConfig, ok := e.ObjectOld.(*operatorv1.DPFOperatorConfig)
+			if !ok {
+				return false
+			}
+			newConfig, ok := e.ObjectNew.(*operatorv1.DPFOperatorConfig)
+			if !ok {
+				return false
+			}
+			return oldConfig.Spec.Security.PrivilegedPodEnforcementEnabled() != newConfig.Spec.Security.PrivilegedPodEnforcementEnabled()
+		},
+	}
+}
+
+// dpfOperatorConfigToDPUServices enqueues all DPUServices when the
+// DPFOperatorConfig changes, so breakglass toggles (e.g. privileged-pod
+// enforcement) take effect without waiting for the next resync.
+func (r *DPUServiceReconciler) dpfOperatorConfigToDPUServices(ctx context.Context, _ client.Object) []ctrl.Request {
+	result := []ctrl.Request{}
+	dpuServiceList := &dpuservicev1.DPUServiceList{}
+	if err := r.Client.List(ctx, dpuServiceList); err != nil {
+		ctrllog.FromContext(ctx).Error(err, "failed to list DPUServices for DPFOperatorConfig watch")
+		return nil
+	}
+	for _, m := range dpuServiceList.Items {
+		result = append(result, ctrl.Request{NamespacedName: client.ObjectKey{Namespace: m.Namespace, Name: m.Name}})
 	}
 	return result
 }

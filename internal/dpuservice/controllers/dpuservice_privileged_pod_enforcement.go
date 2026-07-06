@@ -23,20 +23,20 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
+	"strings"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
-	"github.com/nvidia/doca-platform/internal/features"
-	"github.com/nvidia/doca-platform/internal/utils"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 
 	yamlv3 "gopkg.in/yaml.v3"
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -59,6 +59,8 @@ const (
 	// dpuServicePrereqLabelValue is the canonical value applied to
 	// DPUServicePrereqLabel-labeled objects.
 	dpuServicePrereqLabelValue = "true"
+
+	privilegedPodDeniedMessage = "Privileged containers are not allowed for this DPUService unless security.privileged is set to true."
 )
 
 // privilegedDefaultForUnsetSecurity is the value applied when a
@@ -174,7 +176,7 @@ func buildPrivilegedDPUServiceConfigMap() *corev1.ConfigMap {
 	}
 }
 
-func (r *DPUServiceReconciler) reconcilePrivilegedPodEnforcements(ctx context.Context, dpuClusterConfigs []*dpucluster.Config, currentDPUService *dpuservicev1.DPUService) error {
+func (r *DPUServiceReconciler) reconcilePrivilegedPodEnforcements(ctx context.Context, dpuClusterConfigs []*dpucluster.Config, currentDPUService *dpuservicev1.DPUService, enforce bool) error {
 	var errs []error
 	for _, dpuClusterConfig := range dpuClusterConfigs {
 		dpuClusterClient, err := r.getDPUClusterClient(ctx, dpuClusterConfig.Cluster)
@@ -183,80 +185,78 @@ func (r *DPUServiceReconciler) reconcilePrivilegedPodEnforcements(ctx context.Co
 			continue
 		}
 
-		targetsCluster, err := dpuServiceTargetsCluster(currentDPUService, dpuClusterConfig.Cluster)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("evaluate target for DPUCluster %s: %w", dpuClusterConfig.Cluster.Name, err))
-			continue
-		}
-
-		if err := r.reconcilePrivilegedPodEnforcement(ctx, dpuClusterClient, currentDPUService, targetsCluster); err != nil {
+		if err := r.reconcilePrivilegedPodEnforcement(ctx, dpuClusterClient, currentDPUService, dpuClusterConfig.Cluster, enforce); err != nil {
 			errs = append(errs, fmt.Errorf("reconcile PrivilegedPodEnforcement for DPUCluster %s: %w", dpuClusterConfig.Cluster.Name, err))
 		}
 	}
 	return kerrors.NewAggregate(errs)
 }
 
-// reconcilePrivilegedPodEnforcement reconciles the privileged pod enforcement for a given DPUService.
-// Note: The cleanup, apply and removeOrphaned operations are okay as is as long as we don't have
-// concurrent reconciles of different DPUServices. As soon as we have concurrent reconciles, we may
-// need to add a locking mechanism so at most one reconcile at a time handles these parts.
-func (r *DPUServiceReconciler) reconcilePrivilegedPodEnforcement(ctx context.Context, dpuClusterClient client.Client, currentDPUService *dpuservicev1.DPUService, targetsCluster bool) error {
-	// Cleanup the VAP and Configmap if the feature gate is disabled.
-	if !features.Gates.Enabled(features.PrivilegedPodEnforcement) {
-		return r.cleanupPrivilegedPodEnforcement(ctx, dpuClusterClient)
+// removePrivilegedPodEnforcementEntries removes the given DPUService's entry
+// from the privileged allowlist ConfigMap in every DPUCluster. It is used on
+// deletion: it only cleans up this service's own entry and never changes the
+// global VAP/binding state, so deleting a single DPUService can never affect
+// enforcement for other services or depend on the DPFOperatorConfig.
+func (r *DPUServiceReconciler) removePrivilegedPodEnforcementEntries(ctx context.Context, dpuClusterConfigs []*dpucluster.Config, dpuService *dpuservicev1.DPUService) error {
+	var errs []error
+	for _, dpuClusterConfig := range dpuClusterConfigs {
+		dpuClusterClient, err := r.getDPUClusterClient(ctx, dpuClusterConfig.Cluster)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("get client for DPUCluster %s: %w", dpuClusterConfig.Cluster.Name, err))
+			continue
+		}
+		if err := r.removePrivilegedDPUServiceEntry(ctx, dpuClusterClient, dpuService); err != nil {
+			errs = append(errs, fmt.Errorf("remove privileged allowlist entry for DPUCluster %s: %w", dpuClusterConfig.Cluster.Name, err))
+		}
 	}
-
-	// In any case, apply the VAP and Binding.
-	if err := r.applyPrivilegedPodPolicyVAP(ctx, dpuClusterClient); err != nil {
-		return err
-	}
-
-	// Remove orphaned privileged DPUService entries from the allowlist ConfigMap.
-	if err := r.removeOrphanedPrivilegedDPUServiceEntries(ctx, dpuClusterClient); err != nil {
-		return err
-	}
-
-	allowed, fellBack := resolvePrivileged(currentDPUService)
-	if fellBack && allowed && targetsCluster && currentDPUService.DeletionTimestamp.IsZero() {
-		ctrllog.FromContext(ctx).V(4).Info(
-			"DPUService allowlisted for privileged workloads via legacy fallback; set spec.security.privileged explicitly before upgrading to the next release",
-			"dpuService", client.ObjectKeyFromObject(currentDPUService),
-		)
-	}
-	shouldAllowPrivilegedPods := targetsCluster && currentDPUService.DeletionTimestamp.IsZero() && allowed
-	return r.updatePrivilegedDPUServiceEntry(ctx, dpuClusterClient, currentDPUService, shouldAllowPrivilegedPods)
+	return kerrors.NewAggregate(errs)
 }
 
-func (r *DPUServiceReconciler) applyPrivilegedPodPolicyVAP(ctx context.Context, dpuClusterClient client.Client) error {
-	if err := utils.EnsureNamespace(ctx, dpuClusterClient, privilegedAllowlistConfigMapNamespace); err != nil {
-		return fmt.Errorf("ensure %s namespace: %w", privilegedAllowlistConfigMapNamespace, err)
+// reconcilePrivilegedPodEnforcement reconciles the privileged pod enforcement for a given DPUService.
+// Note: The apply and allowlist-rebuild operations are okay as is as long as we don't have
+// concurrent reconciles of different DPUServices. As soon as we have concurrent reconciles, we may
+// need to add a locking mechanism so at most one reconcile at a time handles these parts.
+func (r *DPUServiceReconciler) reconcilePrivilegedPodEnforcement(ctx context.Context, dpuClusterClient client.Client, currentDPUService *dpuservicev1.DPUService, cluster *provisioningv1.DPUCluster, enforce bool) error {
+	// When enforcement is disabled (DPFOperatorConfig spec.security.privilegedPodEnforcement
+	// is false) we keep the VAP, its binding, and the allowlist ConfigMap in
+	// place and only switch the binding to Audit so nothing is denied anymore.
+	// See disablePrivilegedPodEnforcement for why we never delete these objects
+	// and why the allowlist is kept populated rather than cleared.
+	if !enforce {
+		return r.disablePrivilegedPodEnforcement(ctx, dpuClusterClient, cluster)
 	}
 
-	// Ensure the allowlist ConfigMap exists before applying the binding.
-	// The binding's paramRef has parameterNotFoundAction: Deny, so a workload
-	// admission between binding rollout and the first updatePrivilegedDPUServiceEntry
-	// call would otherwise be denied. We create it empty here; per-service entries
-	// are written by updatePrivilegedDPUServiceEntry and removed by the sweep.
-	desiredCM := buildPrivilegedDPUServiceConfigMap()
-	cm := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      desiredCM.Name,
-			Namespace: desiredCM.Namespace,
-		},
-	}
-	if _, err := controllerutil.CreateOrPatch(ctx, dpuClusterClient, cm, func() error {
-		if cm.Labels == nil {
-			cm.Labels = map[string]string{}
-		}
-		maps.Copy(cm.Labels, desiredCM.Labels)
-		if cm.Data == nil {
-			cm.Data = map[string]string{}
-		}
-		return nil
-	}); err != nil {
-		return fmt.Errorf("create or patch allowlist ConfigMap: %w", err)
+	// Rebuild the entire allowlist from all DPUServices before the binding is
+	// (re)applied in Deny mode. reconcilePrivilegedAllowlist also ensures the
+	// namespace and ConfigMap exist, so the binding's paramRef always resolves.
+	// The rebuild is authoritative and independent of which DPUService triggered
+	// this reconcile.
+	if err := r.reconcilePrivilegedAllowlist(ctx, dpuClusterClient, cluster); err != nil {
+		return err
 	}
 
+	// Apply the VAP and binding after the allowlist ConfigMap is up to date.
+	// The API server starts a paramRef informer for the binding, so seeding the
+	// ConfigMap first lets the initial LIST observe the desired allowlist. The
+	// post-apply probe in applyPrivilegedPodPolicyVAP confirms privileged pods are
+	// denied (enforcement is active) before we return.
+	if err := r.applyPrivilegedPodPolicyVAP(ctx, dpuClusterClient, admissionregistrationv1.Deny); err != nil {
+		return err
+	}
+
+	// Confirm that this DPUService's own privileged pods are admitted when it is
+	// expected to run them (allowlisted on this cluster).
+	return validateServicePrivilegedPodAdmission(ctx, dpuClusterClient, currentDPUService, cluster)
+}
+
+// applyPrivilegedPodPolicyVAP creates or updates the ValidatingAdmissionPolicy
+// and its binding. validationAction selects the binding's validationActions:
+// Deny when the feature is enabled (privileged workloads are rejected) and
+// Audit when it is disabled (admission is only recorded to the audit log, never
+// denied). The post-apply dry-run probes assert that privileged pods are
+// rejected, which only holds for the enforcing (Deny) configuration, so they
+// are skipped in any non-Deny mode.
+func (r *DPUServiceReconciler) applyPrivilegedPodPolicyVAP(ctx context.Context, dpuClusterClient client.Client, validationAction admissionregistrationv1.ValidationAction) error {
 	// Create or Patch ValidatingAdmissionPolicy
 	desiredPolicy := privilegedPodsVAP.DeepCopy()
 	policy := &admissionregistrationv1.ValidatingAdmissionPolicy{
@@ -274,8 +274,11 @@ func (r *DPUServiceReconciler) applyPrivilegedPodPolicyVAP(ctx context.Context, 
 		return fmt.Errorf("create or patch ValidatingAdmissionPolicy: %w", err)
 	}
 
-	// Create or Patch ValidatingAdmissionPolicyBinding
+	// Create or Patch ValidatingAdmissionPolicyBinding, overriding the manifest's
+	// validationActions with the requested action (Deny when enforcing, Audit
+	// when the feature is disabled).
 	desiredBinding := privilegedPodsVAPBinding.DeepCopy()
+	desiredBinding.Spec.ValidationActions = []admissionregistrationv1.ValidationAction{validationAction}
 	binding := &admissionregistrationv1.ValidatingAdmissionPolicyBinding{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: desiredBinding.GetName(),
@@ -290,24 +293,195 @@ func (r *DPUServiceReconciler) applyPrivilegedPodPolicyVAP(ctx context.Context, 
 		return fmt.Errorf("create or patch ValidatingAdmissionPolicyBinding: %w", err)
 	}
 
+	// The dry-run probes assert that privileged pods are denied, which is only
+	// true for the enforcing configuration. In Audit mode nothing is denied, so
+	// skip them.
+	if validationAction != admissionregistrationv1.Deny {
+		return nil
+	}
+
+	// Note: overriding is only used in tests.
+	if r.privilegedPodEnforcementValidator != nil {
+		return r.privilegedPodEnforcementValidator(ctx, dpuClusterClient)
+	}
+	return validatePrivilegedPodEnforcement(ctx, dpuClusterClient)
+}
+
+// paramRefNotSyncedMarker is the substring the API server returns when a VAP
+// binding with parameterNotFoundAction=Deny is evaluated before its paramRef
+// informer has observed the allowlist ConfigMap. It is a transient condition
+// that clears once the informer syncs.
+const paramRefNotSyncedMarker = "no params found for policy binding with `Deny` parameterNotFoundAction"
+
+// isParamRefNotSyncedErr reports whether err is the transient "paramRef informer
+// not yet synced" signal (see paramRefNotSyncedMarker). It self-heals once the
+// informer syncs, so probes surface it as a distinct, retry-worthy error rather
+// than conflating it with an unexpected rejection.
+func isParamRefNotSyncedErr(err error) bool {
+	return err != nil && strings.Contains(err.Error(), paramRefNotSyncedMarker)
+}
+
+// isPrivilegedPodDeniedErr reports whether err is our PrivilegedPodEnforcement
+// VAP denying a privileged pod (Invalid + privilegedPodDeniedMessage), as
+// opposed to a denial originating from a different admission stage (e.g.
+// PodSecurity or another webhook), which the probes must not mistake for the
+// VAP's own decision.
+func isPrivilegedPodDeniedErr(err error) bool {
+	return apierrors.IsInvalid(err) && strings.Contains(err.Error(), privilegedPodDeniedMessage)
+}
+
+// validateServicePrivilegedPodAdmission runs a dry-run probe confirming that the
+// given DPUService's own privileged pods are admitted, but only when the service
+// is expected to run them: it targets this cluster, is not being deleted, and
+// resolves to privileged=true. For any other service it is a no-op.
+func validateServicePrivilegedPodAdmission(ctx context.Context, dpuClusterClient client.Client, currentDPUService *dpuservicev1.DPUService, cluster *provisioningv1.DPUCluster) error {
+	targetsCluster, err := dpuServiceTargetsCluster(currentDPUService, cluster)
+	if err != nil {
+		return fmt.Errorf("evaluate target for DPUCluster %s: %w", cluster.Name, err)
+	}
+	allowed, fellBack := resolvePrivileged(currentDPUService)
+	if fellBack && allowed && targetsCluster && currentDPUService.DeletionTimestamp.IsZero() {
+		ctrllog.FromContext(ctx).V(4).Info(
+			"DPUService allowlisted for privileged workloads via legacy fallback; set spec.security.privileged explicitly before upgrading to the next release",
+			"dpuService", client.ObjectKeyFromObject(currentDPUService),
+		)
+	}
+	shouldAllowPrivilegedPods := targetsCluster && currentDPUService.DeletionTimestamp.IsZero() && allowed
+	if !shouldAllowPrivilegedPods {
+		return nil
+	}
+	return validateAllowlistedPrivilegedPodAdmission(ctx, dpuClusterClient, getDPUServiceID(currentDPUService))
+}
+
+// validateAllowlistedPrivilegedPodAdmission runs a single dry-run probe
+// confirming that a privileged pod labeled with the given allowlisted DPUService
+// ID is admitted. It is the positive-direction counterpart to
+// validatePrivilegedPodEnforcement (which confirms an unknown service's
+// privileged pod is denied): together they prove the allowlist both denies what
+// it should and admits what it should. This one is run per-DPUService, only for
+// services expected to run privileged pods on the cluster.
+func validateAllowlistedPrivilegedPodAdmission(ctx context.Context, c client.Client, dpuServiceID string) error {
+	if dpuServiceID == "" {
+		return fmt.Errorf("VAP probe: allowlisted privileged pod requires a DPUService ID")
+	}
+	err := c.Create(ctx, &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "dpf-vap-allowlisted-probe",
+			Namespace: privilegedAllowlistConfigMapNamespace,
+			Labels:    map[string]string{dpuservicev1.DPFServiceIDLabelKey: dpuServiceID},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:            "probe",
+					Image:           "scratch",
+					SecurityContext: &corev1.SecurityContext{Privileged: ptr.To(true)},
+				},
+			},
+		},
+	}, client.DryRunAll)
+	if err != nil {
+		switch {
+		case isPrivilegedPodDeniedErr(err):
+			return fmt.Errorf("VAP probe: allowlisted privileged pod rejected: %w", err)
+		case isParamRefNotSyncedErr(err):
+			return fmt.Errorf("VAP probe: waiting for the VAP paramRef informer to catch up: %w", err)
+		default:
+			return fmt.Errorf("VAP probe: allowlisted privileged pod got unexpected error: %w", err)
+		}
+	}
 	return nil
 }
 
-// removeOrphanedPrivilegedDPUServiceEntries removes entries from the allowlist
-// ConfigMap whose owning DPUService no longer exists anywhere in the
-// management cluster. It is called once per per-cluster reconcile (not from
-// inside updatePrivilegedDPUServiceEntry's mutator) so concurrent reconciles
-// of different DPUServices do not delete each other's just-added entries.
-func (r *DPUServiceReconciler) removeOrphanedPrivilegedDPUServiceEntries(ctx context.Context, dpuClusterClient client.Client) error {
+// validatePrivilegedPodEnforcement runs two dry-run pod-creation probes against
+// the DPU cluster to confirm that the VAP setup is correct after apply:
+//  1. A non-privileged pod must be admitted — this confirms the ConfigMap
+//     paramRef is resolvable (guards against the "no params found" race).
+//  2. A privileged pod with an unknown DPUService ID must be denied — this
+//     confirms the allowlist enforcement logic is active.
+//
+// It runs once after every Deny-mode apply and validates the policy globally; it
+// does not depend on any particular DPUService.
+func validatePrivilegedPodEnforcement(ctx context.Context, c client.Client) error {
+	probeMeta := metav1.ObjectMeta{
+		Name:      "dpf-vap-probe",
+		Namespace: privilegedAllowlistConfigMapNamespace,
+		// An ID that is never added to the allowlist ConfigMap.
+		Labels: map[string]string{dpuservicev1.DPFServiceIDLabelKey: "dpf-vap-probe"},
+	}
+	probeContainer := corev1.Container{Name: "probe", Image: "scratch"}
+
+	// Probe 1: non-privileged pod must be allowed. The only expected failure is
+	// the transient paramRef-not-synced race (with parameterNotFoundAction=Deny,
+	// an unobserved allowlist ConfigMap denies even non-privileged pods); any
+	// other rejection comes from a different admission stage and is unexpected.
+	if err := c.Create(ctx, &corev1.Pod{
+		ObjectMeta: probeMeta,
+		Spec:       corev1.PodSpec{Containers: []corev1.Container{probeContainer}},
+	}, client.DryRunAll); err != nil {
+		if isParamRefNotSyncedErr(err) {
+			return fmt.Errorf("VAP probe: waiting for the VAP paramRef informer to catch up (non-privileged pod transiently denied): %w", err)
+		}
+		return fmt.Errorf("VAP probe: non-privileged pod unexpectedly rejected: %w", err)
+	}
+
+	// Probe 2: privileged pod must be denied by our VAP.
+	privileged := true
+	privilegedContainer := probeContainer
+	privilegedContainer.SecurityContext = &corev1.SecurityContext{Privileged: &privileged}
+	err := c.Create(ctx, &corev1.Pod{
+		ObjectMeta: probeMeta,
+		Spec:       corev1.PodSpec{Containers: []corev1.Container{privilegedContainer}},
+	}, client.DryRunAll)
+	switch {
+	case err == nil:
+		return fmt.Errorf("VAP probe: privileged pod was unexpectedly allowed — allowlist check may be broken")
+	case isPrivilegedPodDeniedErr(err):
+		// Expected result.
+		return nil
+	case isParamRefNotSyncedErr(err):
+		return fmt.Errorf("VAP probe: waiting for the VAP paramRef informer to catch up: %w", err)
+	default:
+		return fmt.Errorf("VAP probe: privileged pod got unexpected error: %w", err)
+	}
+}
+
+// reconcilePrivilegedAllowlist rebuilds the allowlist ConfigMap from the full
+// set of DPUServices in the management cluster, so the allowlist is
+// authoritative on every enforcing reconcile and independent of which
+// DPUService triggered it. An entry is present if its DPUService still exists,
+// targets this cluster, and resolves to privileged=true. It also ensures the
+// ConfigMap's namespace exists and creates the ConfigMap if absent.
+//
+// Rebuilding the whole map is required to reliably switch on and off the feature.
+func (r *DPUServiceReconciler) reconcilePrivilegedAllowlist(ctx context.Context, dpuClusterClient client.Client, cluster *provisioningv1.DPUCluster) error {
 	allDPUServices := &dpuservicev1.DPUServiceList{}
 	if err := r.Client.List(ctx, allDPUServices); err != nil {
 		return fmt.Errorf("list all DPUServices: %w", err)
 	}
-	knownIDs := make(map[string]struct{}, len(allDPUServices.Items))
+
+	desired := make(map[string]string, len(allDPUServices.Items))
 	for i := range allDPUServices.Items {
-		if id := getDPUServiceID(&allDPUServices.Items[i]); id != "" {
-			knownIDs[id] = struct{}{}
+		svc := &allDPUServices.Items[i]
+		serviceID := getDPUServiceID(svc)
+		if serviceID == "" {
+			continue
 		}
+		targetsCluster, err := dpuServiceTargetsCluster(svc, cluster)
+		if err != nil {
+			return fmt.Errorf("evaluate target for DPUService %s on DPUCluster %s: %w", client.ObjectKeyFromObject(svc), cluster.Name, err)
+		}
+		if allowed, _ := resolvePrivileged(svc); targetsCluster && allowed {
+			desired[serviceID] = client.ObjectKeyFromObject(svc).String()
+		}
+	}
+
+	// Ensure the namespace exists before patching the ConfigMap into it. The
+	// binding's paramRef has parameterNotFoundAction: Deny, so the ConfigMap must
+	// exist before the binding is applied; seeding it here is what lets callers
+	// apply the binding straight after.
+	if err := r.ensureNamespace(ctx, dpuClusterClient, privilegedAllowlistConfigMapNamespace); err != nil {
+		return fmt.Errorf("ensure %s namespace: %w", privilegedAllowlistConfigMapNamespace, err)
 	}
 
 	cm := &corev1.ConfigMap{
@@ -321,24 +495,21 @@ func (r *DPUServiceReconciler) removeOrphanedPrivilegedDPUServiceEntries(ctx con
 			cm.Labels = map[string]string{}
 		}
 		cm.Labels[DPUServicePrereqLabel] = dpuServicePrereqLabelValue
-		for id := range cm.Data {
-			if _, ok := knownIDs[id]; !ok {
-				delete(cm.Data, id)
-			}
-		}
+		cm.Data = desired
 		return nil
 	}); err != nil {
-		return fmt.Errorf("sweep orphaned allowlist entries: %w", err)
+		return fmt.Errorf("rebuild allowlist ConfigMap: %w", err)
 	}
 	return nil
 }
 
-func (r *DPUServiceReconciler) updatePrivilegedDPUServiceEntry(ctx context.Context, dpuClusterClient client.Client, dpuService *dpuservicev1.DPUService, shouldAllow bool) error {
+// removePrivilegedDPUServiceEntry removes the given DPUService's entry from the
+// privileged allowlist ConfigMap. It is a no-op when the service has no service
+// ID (it can never have had an entry). Adding entries is handled by the
+// authoritative rebuild in reconcilePrivilegedAllowlist, so this is removal-only.
+func (r *DPUServiceReconciler) removePrivilegedDPUServiceEntry(ctx context.Context, dpuClusterClient client.Client, dpuService *dpuservicev1.DPUService) error {
 	serviceID := getDPUServiceID(dpuService)
 	if serviceID == "" {
-		if shouldAllow {
-			return fmt.Errorf("DPUService %s has no service ID", client.ObjectKeyFromObject(dpuService))
-		}
 		return nil
 	}
 
@@ -356,12 +527,7 @@ func (r *DPUServiceReconciler) updatePrivilegedDPUServiceEntry(ctx context.Conte
 		if cm.Data == nil {
 			cm.Data = map[string]string{}
 		}
-		// Either add or remove the entry from the ConfigMap.
-		if shouldAllow {
-			cm.Data[serviceID] = client.ObjectKeyFromObject(dpuService).String()
-		} else {
-			delete(cm.Data, serviceID)
-		}
+		delete(cm.Data, serviceID)
 		return nil
 	})
 	if err != nil {
@@ -371,21 +537,39 @@ func (r *DPUServiceReconciler) updatePrivilegedDPUServiceEntry(ctx context.Conte
 	return nil
 }
 
-// cleanupPrivilegedPodEnforcement removes DPUService prerequisite resources from
-// the DPU cluster by label.
-func (r *DPUServiceReconciler) cleanupPrivilegedPodEnforcement(ctx context.Context, dpuClusterClient client.Client) error {
-	errs := []error{}
-	cleanupLabels := client.MatchingLabels{DPUServicePrereqLabel: dpuServicePrereqLabelValue}
-	if err := dpuClusterClient.DeleteAllOf(ctx, &admissionregistrationv1.ValidatingAdmissionPolicyBinding{}, cleanupLabels); err != nil {
-		errs = append(errs, fmt.Errorf("delete ValidatingAdmissionPolicyBindings: %w", err))
+// disablePrivilegedPodEnforcement switches privileged-pod enforcement to a
+// non-enforcing state without deleting any of its objects. The VAP, its
+// binding, and the allowlist ConfigMap are all kept; the binding's
+// validationActions is set to Audit so admission requests are only recorded to
+// the API server audit log and never denied.
+//
+// The allowlist ConfigMap is kept fully populated — reconciled from the live
+// set of privileged DPUServices, exactly as in the enforcing case — rather than
+// cleared. In Audit mode the VAP still evaluates every in-scope pod and records
+// a violation to the audit log whenever a privileged pod is not in the
+// allowlist. Maintaining the real allowlist means only genuinely-disallowed
+// privileged pods produce audit entries — the same set Deny mode would have
+// rejected — so the audit signal stays meaningful. Clearing it would instead
+// make every privileged pod (including legitimately allowlisted ones) look like
+// a violation, rendering the audit log useless.
+//
+// We deliberately avoid deleting and recreating the binding (and VAP). Doing so
+// triggers a Kubernetes paramRef informer bug
+// (https://github.com/kubernetes/kubernetes/issues/133827, see
+// https://github.com/kubernetes/kubernetes/issues/133827#issuecomment-4797423893):
+// once a ValidatingAdmissionPolicyBinding is deleted and recreated, subsequent
+// changes to its paramRef ConfigMap are no longer observed when the policy is
+// evaluated. Keeping the binding in place and only flipping its action avoids
+// the delete/recreate cycle entirely.
+func (r *DPUServiceReconciler) disablePrivilegedPodEnforcement(ctx context.Context, dpuClusterClient client.Client, cluster *provisioningv1.DPUCluster) error {
+	// Reconcile the allowlist first: it ensures the namespace and ConfigMap exist
+	// and keeps the allowlist maintained as in the enforcing case, so Audit-mode
+	// violations stay meaningful (see the doc comment above).
+	if err := r.reconcilePrivilegedAllowlist(ctx, dpuClusterClient, cluster); err != nil {
+		return err
 	}
-	if err := dpuClusterClient.DeleteAllOf(ctx, &admissionregistrationv1.ValidatingAdmissionPolicy{}, cleanupLabels); err != nil {
-		errs = append(errs, fmt.Errorf("delete ValidatingAdmissionPolicies: %w", err))
-	}
-	if err := dpuClusterClient.DeleteAllOf(ctx, &corev1.ConfigMap{}, cleanupLabels, client.InNamespace(privilegedAllowlistConfigMapNamespace)); err != nil {
-		errs = append(errs, fmt.Errorf("delete ConfigMaps: %w", err))
-	}
-	return kerrors.NewAggregate(errs)
+	// Then apply the VAP and binding in Audit mode so nothing is denied anymore.
+	return r.applyPrivilegedPodPolicyVAP(ctx, dpuClusterClient, admissionregistrationv1.Audit)
 }
 
 // dpuServiceTargetsCluster reports whether the given DPUService targets the

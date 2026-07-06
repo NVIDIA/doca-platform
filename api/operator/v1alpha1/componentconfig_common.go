@@ -142,8 +142,8 @@ func (c *DPFOperatorConfig) ComponentConfigs() []ComponentConfigurable {
 	if c.Spec.NodeSRIOVDevicePluginController != nil {
 		out = append(out, c.Spec.NodeSRIOVDevicePluginController)
 	}
-	if c.Spec.KataContainers != nil {
-		out = append(out, c.Spec.KataContainers)
+	if c.Spec.Security != nil && c.Spec.Security.Kata != nil {
+		out = append(out, c.Spec.Security.Kata)
 	}
 	if c.Spec.Monitoring != nil && c.Spec.Monitoring.KubeStateMetrics != nil {
 		out = append(out, c.Spec.Monitoring.KubeStateMetrics)

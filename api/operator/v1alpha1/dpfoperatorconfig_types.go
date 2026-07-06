@@ -21,6 +21,7 @@ import (
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 )
 
 const (
@@ -210,7 +211,7 @@ type DPFOperatorConfigSpec struct {
 	// +optional
 	Monitoring *MonitoringConfiguration `json:"monitoring,omitempty"`
 
-	// Security groups security-related cluster settings.
+	// Security groups configuration for security-related components managed by the DPF Operator.
 	// +optional
 	Security *SecurityConfiguration `json:"security,omitempty"`
 
@@ -270,19 +271,6 @@ type DPFOperatorConfigSpec struct {
 	// The controller is disabled by default.
 	// +optional
 	NodeSRIOVDevicePluginController *NodeSRIOVDevicePluginControllerConfiguration `json:"nodeSRIOVDevicePluginController,omitempty"`
-	// KataContainers is the configuration for Kata Containers.
-	// Kata Containers provides VM-based isolation for untrusted workloads on DPU nodes.
-	// This component is disabled by default; set disable to false to enable.
-	// +optional
-	KataContainers *KataContainersConfiguration `json:"kataContainers,omitempty"`
-}
-
-// SecurityConfiguration groups security-related cluster settings.
-type SecurityConfiguration struct {
-	// spiffe configures the SPIFFE-based DPU Agent identity flow. Edits are accepted post-bootstrap
-	// but do NOT retro-apply to already-provisioned DPUs.
-	// +optional
-	SPIFFE *SPIFFEConfiguration `json:"spiffe,omitempty"`
 }
 
 // MonitoringConfiguration defines the configuration for monitoring resources.
@@ -307,6 +295,43 @@ type MonitoringConfiguration struct {
 	// OpenTelemetryCollector is the configuration for opentelemetry-collector
 	// +optional
 	OpenTelemetryCollector *OpenTelemetryCollectorConfiguration `json:"openTelemetryCollector,omitempty"`
+}
+
+// SecurityConfiguration groups configuration for security-related configurations
+// managed by the DPF Operator.
+type SecurityConfiguration struct {
+	// PrivilegedPodEnforcement controls whether privileged pods are rejected
+	// unless explicitly allowed by the workload API. The DPUService controller
+	// currently implements this by applying the PrivilegedPodEnforcement
+	// ValidatingAdmissionPolicy to DPUService workloads.
+	// When disabled, the policy and its binding are kept but the binding is
+	// switched to Audit, so privileged pods are only logged to the audit log and
+	// never denied; the allowlist is kept populated so the audit log only flags
+	// pods that would otherwise be denied. The objects are intentionally not
+	// deleted to avoid a Kubernetes paramRef informer bug
+	// (https://github.com/kubernetes/kubernetes/issues/133827).
+	// Intended as a breakglass to restore functionality when the policy causes
+	// unexpected issues. Defaults to true.
+	// +kubebuilder:default=true
+	// +optional
+	PrivilegedPodEnforcement *bool `json:"privilegedPodEnforcement,omitempty"`
+
+	// Kata is the configuration for Kata Containers.
+	// Kata Containers provides VM-based isolation for untrusted workloads on DPU nodes.
+	// This component is disabled by default; set disable to false to enable.
+	// +optional
+	Kata *KataContainersConfiguration `json:"kata,omitempty"`
+
+	// spiffe configures the SPIFFE-based DPU Agent identity flow. Edits are accepted post-bootstrap
+	// but do NOT retro-apply to already-provisioned DPUs.
+	// +optional
+	SPIFFE *SPIFFEConfiguration `json:"spiffe,omitempty"`
+}
+
+// PrivilegedPodEnforcementEnabled reports whether privileged pod enforcement is enabled.
+// Returns true when Security is nil, PrivilegedPodEnforcement is nil, or it is true.
+func (s *SecurityConfiguration) PrivilegedPodEnforcementEnabled() bool {
+	return s == nil || ptr.Deref(s.PrivilegedPodEnforcement, true)
 }
 
 // DPFOperatorConfigStatus defines the observed state of DPFOperatorConfig

@@ -83,7 +83,7 @@ func ValidateVAPDeprecationWarnings(ctx context.Context, input *systemTestInput)
 			DPUFlavor:     "e2e-vap-test-flavor",
 		},
 	}
-	Expect(warningClient.Create(ctx, dpu)).To(Succeed())
+	Expect(warningClient.Create(ctx, dpu, client.DryRunAll)).To(Succeed())
 
 	By("Verifying the VAP deprecation warning was emitted")
 	Expect(collector.get()).To(ContainElement(ContainSubstring("spec.bmcIP is deprecated")))
@@ -115,7 +115,7 @@ func ValidateVAPDeprecationWarnings(ctx context.Context, input *systemTestInput)
 			DPUFlavor:     "e2e-vap-test-flavor",
 		},
 	}
-	Expect(negativeClient.Create(ctx, dpuNoDeprecated)).To(Succeed())
+	Expect(negativeClient.Create(ctx, dpuNoDeprecated, client.DryRunAll)).To(Succeed())
 
 	By("Verifying no VAP deprecation warning was emitted")
 	Expect(negativeCollector.get()).NotTo(ContainElement(ContainSubstring("is deprecated")))

@@ -26,12 +26,6 @@ import (
 )
 
 const (
-	// PrivilegedPodEnforcement gates the ValidatingAdmissionPolicy that
-	// restricts privileged DPUService pods. When enabled, the DPUService
-	// reconciler creates the policy/binding/ConfigMap in each
-	// DPUCluster. When disabled, the same resources are removed.
-	PrivilegedPodEnforcement featuregate.Feature = "PrivilegedPodEnforcement"
-
 	// NSIPathForSFC gates the NodeServiceInterfaces reconciliation path for
 	// plain SFC ServiceInterfaceSets (those without a virtualNetwork).
 	// When disabled, sets fall back to the legacy ServiceInterface path.
@@ -63,7 +57,6 @@ func init() {
 // To add a new feature, define a key for it above and add it here.
 var defaultDPFFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	// Every feature should be registered here:
-	PrivilegedPodEnforcement: {Default: true, PreRelease: featuregate.Beta},
-	NSIPathForSFC:            {Default: false, PreRelease: featuregate.Alpha},
-	NSIPathForVPC:            {Default: false, PreRelease: featuregate.Alpha},
+	NSIPathForSFC: {Default: false, PreRelease: featuregate.Alpha},
+	NSIPathForVPC: {Default: false, PreRelease: featuregate.Alpha},
 }
