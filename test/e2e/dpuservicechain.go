@@ -109,7 +109,7 @@ func ValidateDPUServiceChainMetrics(ctx context.Context, input *SystemTestInput)
 
 	Eventually(func(g Gomega) {
 		g.Expect(input.DPUClusters).ToNot(BeEmpty(), "No DPUClusters found in test input")
-		dpuKSMMetricsURI, err := metrics.GetKSMMetricsURIForDPUCluster(ctx, input.Client, input.DPUClusters[0], dpfOperatorSystemNamespace, kubeStateMetricsPort, "/metrics")
+		dpuKSMMetricsURI, err := metrics.GetKSMMetricsURIForDPUCluster(ctx, input.Client, input.DPUClusters[0], DPFOperatorSystemNamespace, KubeStateMetricsPort, "/metrics")
 		g.Expect(err).NotTo(HaveOccurred(), "Failed to get KSM metrics URI for DPUCluster")
 		g.Expect(dpuKSMMetricsURI).NotTo(BeEmpty())
 

@@ -40,7 +40,7 @@ func ValidateDPUServiceCredentialRequestCreation(ctx context.Context, input *Sys
 
 	By("Create a DPUServiceCredentialRequest targeting the DPUCluster")
 	dcr := utils.GenerateDPUObj(dpuServiceCredentialRequestName, dpuServiceCredentialRequestNamespace, input.DPUServiceCredentialRequest.DeepCopy())
-	dcr.Spec.TargetCluster = &dpuservicev1.NamespacedName{Name: input.DPUClusters[0].Name, Namespace: ptr.To(dpfOperatorSystemNamespace)}
+	dcr.Spec.TargetCluster = &dpuservicev1.NamespacedName{Name: input.DPUClusters[0].Name, Namespace: ptr.To(DPFOperatorSystemNamespace)}
 	dcr.Spec.ServiceAccount.Name = "dpu-sa"
 	dcr.Spec.Secret.Name = "dpu-credential"
 	Expect(input.Client.Create(ctx, dcr)).To(Succeed())
@@ -71,7 +71,7 @@ func ValidateDPUServiceCredentialRequestMetrics(ctx context.Context, input *Syst
 
 	By("Create a DPUServiceCredentialRequest targeting the DPUCluster")
 	dcr := utils.GenerateDPUObj(dpuServiceCredentialRequestName, dpuServiceCredentialRequestNamespace, input.DPUServiceCredentialRequest.DeepCopy())
-	dcr.Spec.TargetCluster = &dpuservicev1.NamespacedName{Name: input.DPUClusters[0].Name, Namespace: ptr.To(dpfOperatorSystemNamespace)}
+	dcr.Spec.TargetCluster = &dpuservicev1.NamespacedName{Name: input.DPUClusters[0].Name, Namespace: ptr.To(DPFOperatorSystemNamespace)}
 	dcr.Spec.ServiceAccount.Name = "dpu-sa-metrics"
 	dcr.Spec.Secret.Name = "dpu-credential-metrics"
 	Expect(input.Client.Create(ctx, dcr)).To(Succeed())
@@ -101,7 +101,7 @@ func ValidateDPUServiceCredentialRequestDeletion(ctx context.Context, input *Sys
 
 	By("Create a DPUServiceCredentialRequest targeting the DPUCluster")
 	dcr := utils.GenerateDPUObj(dpuServiceCredentialRequestName, dpuServiceCredentialRequestNamespace, input.DPUServiceCredentialRequest.DeepCopy())
-	dcr.Spec.TargetCluster = &dpuservicev1.NamespacedName{Name: input.DPUClusters[0].Name, Namespace: ptr.To(dpfOperatorSystemNamespace)}
+	dcr.Spec.TargetCluster = &dpuservicev1.NamespacedName{Name: input.DPUClusters[0].Name, Namespace: ptr.To(DPFOperatorSystemNamespace)}
 	dcr.Spec.ServiceAccount.Name = "dpu-sa-delete"
 	dcr.Spec.Secret.Name = "dpu-credential-delete"
 	Expect(input.Client.Create(ctx, dcr)).To(Succeed())

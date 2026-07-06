@@ -64,7 +64,7 @@ func ValidateVAPDeprecationWarnings(ctx context.Context, input *SystemTestInput)
 	dpu := &provisioningv1.DPU{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "e2e-vap-warning-",
-			Namespace:    dpfOperatorSystemNamespace,
+			Namespace:    DPFOperatorSystemNamespace,
 			Labels:       CleanupScope.It,
 		},
 		Spec: provisioningv1.DPUSpec{
@@ -99,7 +99,7 @@ func ValidateVAPDeprecationWarnings(ctx context.Context, input *SystemTestInput)
 	dpuNoDeprecated := &provisioningv1.DPU{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "e2e-vap-no-warning-",
-			Namespace:    dpfOperatorSystemNamespace,
+			Namespace:    DPFOperatorSystemNamespace,
 			Labels:       CleanupScope.It,
 		},
 		Spec: provisioningv1.DPUSpec{

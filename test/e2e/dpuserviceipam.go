@@ -33,11 +33,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-var dpuServiceIPAMNamespace = dpfOperatorSystemNamespace
+var dpuServiceIPAMNamespace = DPFOperatorSystemNamespace
 
 func ValidateDPUServiceIPAMCreationInvalid(ctx context.Context, input *SystemTestInput) {
 	By("Creating the invalid DPUServiceIPAM CR")
-	dpuServiceIPAMNamespace = dpfOperatorSystemNamespace
+	dpuServiceIPAMNamespace = DPFOperatorSystemNamespace
 	dpuServiceIPAM := &dpuservicev1.DPUServiceIPAM{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "some-name",
@@ -106,7 +106,7 @@ func ValidateDPUServiceIPAMMetrics(ctx context.Context, input *SystemTestInput) 
 	}
 	Eventually(func(g Gomega) {
 		g.Expect(input.DPUClusters).ToNot(BeEmpty(), "No DPUClusters found in test input")
-		dpuKSMMetricsURI, err := metrics.GetKSMMetricsURIForDPUCluster(ctx, input.Client, input.DPUClusters[0], dpfOperatorSystemNamespace, kubeStateMetricsPort, "/metrics")
+		dpuKSMMetricsURI, err := metrics.GetKSMMetricsURIForDPUCluster(ctx, input.Client, input.DPUClusters[0], DPFOperatorSystemNamespace, KubeStateMetricsPort, "/metrics")
 		g.Expect(err).NotTo(HaveOccurred(), "Failed to get KSM metrics URI for DPUCluster")
 		g.Expect(dpuKSMMetricsURI).NotTo(BeEmpty())
 
@@ -173,7 +173,7 @@ func ValidateDPUServiceIPAMCreationCidrSplit(ctx context.Context, input *SystemT
 	}
 	Eventually(func(g Gomega) {
 		g.Expect(input.DPUClusters).ToNot(BeEmpty(), "No DPUClusters found in test input")
-		dpuKSMMetricsURI, err := metrics.GetKSMMetricsURIForDPUCluster(ctx, input.Client, input.DPUClusters[0], dpfOperatorSystemNamespace, kubeStateMetricsPort, "/metrics")
+		dpuKSMMetricsURI, err := metrics.GetKSMMetricsURIForDPUCluster(ctx, input.Client, input.DPUClusters[0], DPFOperatorSystemNamespace, KubeStateMetricsPort, "/metrics")
 		g.Expect(err).NotTo(HaveOccurred(), "Failed to get KSM metrics URI for DPUCluster")
 		g.Expect(dpuKSMMetricsURI).NotTo(BeEmpty())
 

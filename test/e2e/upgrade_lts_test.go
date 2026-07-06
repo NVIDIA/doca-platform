@@ -127,7 +127,7 @@ func envOrDefault(name, fallback string) string {
 func rolloutAllDPUs(ctx context.Context, input *SystemTestInput, expectedDPFVersionMajorMinor string) {
 	By("Listing all DPUs before rollout")
 	dpuList := &provisioningv1.DPUList{}
-	Expect(input.Client.List(ctx, dpuList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+	Expect(input.Client.List(ctx, dpuList, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 	Expect(dpuList.Items).NotTo(BeEmpty(), "expected DPUs to be present before rollout")
 
 	type dpuRecord struct {
@@ -151,7 +151,7 @@ func rolloutAllDPUs(ctx context.Context, input *SystemTestInput, expectedDPFVers
 		for _, before := range dpusBefore {
 			updated := &provisioningv1.DPUList{}
 			g.Expect(input.Client.List(ctx, updated,
-				client.InNamespace(dpfOperatorSystemNamespace),
+				client.InNamespace(DPFOperatorSystemNamespace),
 				client.MatchingLabels{util.DPUDeviceNameLabel: before.deviceLabel},
 			)).To(Succeed())
 			g.Expect(updated.Items).To(HaveLen(1), "DPU for device %s should be recreated", before.deviceLabel)
@@ -171,7 +171,7 @@ func verifyDPUsHaveKubeletVersion(ctx context.Context, input *SystemTestInput) {
 	By("Verifying all DPUs report KubeletVersion")
 	Eventually(func(g Gomega) {
 		dpuList := &provisioningv1.DPUList{}
-		g.Expect(input.Client.List(ctx, dpuList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(input.Client.List(ctx, dpuList, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 		g.Expect(dpuList.Items).NotTo(BeEmpty())
 		for _, dpu := range dpuList.Items {
 			g.Expect(dpu.Status.AgentStatus).NotTo(BeNil(), "DPU %s should have AgentStatus", dpu.Name)

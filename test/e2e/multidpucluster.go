@@ -114,7 +114,7 @@ func ProvisionDPUDeploymentWithEachDPUJoiningADifferentDPUCluster(ctx context.Co
 	Eventually(func(g Gomega) {
 		g.Expect(input.Client.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), dpuDeployment)).To(Succeed())
 		g.Expect(conditions.IsTrue(dpuDeployment, conditions.TypeReady)).To(BeTrue())
-	}).WithTimeout(dpuDeploymentReadyTimeout).WithPolling(1 * time.Second).Should(Succeed())
+	}).WithTimeout(DPUDeploymentReadyTimeout).WithPolling(1 * time.Second).Should(Succeed())
 
 	By("Verifying DPUs joined the correct clusters")
 	for i, dpuCluster := range input.DPUClusters {
@@ -151,7 +151,7 @@ func ValidateDPUServiceIPAMInL2ModePerDPUCluster(ctx context.Context, input *Sys
 		"svc.dpu.nvidia.com/pool": "l2-pool",
 	}
 	dpuServiceIPAMTemplate := input.IPPoolDPUServiceIPAM.DeepCopy()
-	dpuServiceIPAMTemplate.SetNamespace(dpfOperatorSystemNamespace)
+	dpuServiceIPAMTemplate.SetNamespace(DPFOperatorSystemNamespace)
 	dpuServiceIPAMTemplate.Labels = CleanupScope.Suite
 	dpuServiceIPAMTemplate.Spec.ObjectMeta.Labels = poolLabel
 	dpuServiceIPAMTemplate.Spec.NodeSelector = nil
@@ -239,7 +239,7 @@ func ValidateDPUServiceIPAMInL3ModePerDPUCluster(ctx context.Context, input *Sys
 		"svc.dpu.nvidia.com/pool": "l3-pool",
 	}
 	dpuServiceIPAMTemplate := input.CIDRDPUServiceIPAM.DeepCopy()
-	dpuServiceIPAMTemplate.SetNamespace(dpfOperatorSystemNamespace)
+	dpuServiceIPAMTemplate.SetNamespace(DPFOperatorSystemNamespace)
 	dpuServiceIPAMTemplate.Labels = CleanupScope.Suite
 	dpuServiceIPAMTemplate.Spec.ObjectMeta.Labels = poolLabel
 	dpuServiceIPAMTemplate.Spec.NodeSelector = nil
@@ -331,7 +331,7 @@ func ValidateDPUServiceIPAMInL2ModeSharedAcrossDPUClusters(ctx context.Context, 
 	By("Creating a single DPUServiceIPAM spanning all clusters")
 	dpuServiceIPAM := input.IPPoolDPUServiceIPAM.DeepCopy()
 	dpuServiceIPAM.SetName("l2-ipam-shared")
-	dpuServiceIPAM.SetNamespace(dpfOperatorSystemNamespace)
+	dpuServiceIPAM.SetNamespace(DPFOperatorSystemNamespace)
 	dpuServiceIPAM.Labels = CleanupScope.Suite
 	dpuServiceIPAM.Spec.ObjectMeta.Labels = poolLabel
 	dpuServiceIPAM.Spec.NodeSelector = nil
@@ -386,7 +386,7 @@ func ValidateDPUServiceIPAMInL3ModeSharedAcrossDPUClusters(ctx context.Context, 
 	By("Creating a single DPUServiceIPAM spanning all clusters")
 	dpuServiceIPAM := input.CIDRDPUServiceIPAM.DeepCopy()
 	dpuServiceIPAM.SetName("l3-ipam-shared")
-	dpuServiceIPAM.SetNamespace(dpfOperatorSystemNamespace)
+	dpuServiceIPAM.SetNamespace(DPFOperatorSystemNamespace)
 	dpuServiceIPAM.Labels = CleanupScope.Suite
 	dpuServiceIPAM.Spec.ObjectMeta.Labels = poolLabel
 	dpuServiceIPAM.Spec.NodeSelector = nil
@@ -449,7 +449,7 @@ func ValidateDPUServiceIPAMInL3ModeSharedAcrossDPUClustersWithStaticAllocations(
 	By("Creating a single DPUServiceIPAM with static allocations spanning all clusters")
 	dpuServiceIPAM := input.CIDRDPUServiceIPAM.DeepCopy()
 	dpuServiceIPAM.SetName("l3-ipam-static-shared")
-	dpuServiceIPAM.SetNamespace(dpfOperatorSystemNamespace)
+	dpuServiceIPAM.SetNamespace(DPFOperatorSystemNamespace)
 	dpuServiceIPAM.Labels = CleanupScope.Suite
 	dpuServiceIPAM.Spec.ObjectMeta.Labels = poolLabel
 	dpuServiceIPAM.Spec.NodeSelector = nil
@@ -510,7 +510,7 @@ func ValidateDPUServiceIPAMInL2ModeSharedAcrossDPUClustersWithSingleIPPerNode(ct
 	By("Creating a single DPUServiceIPAM with one IP per node spanning all clusters")
 	dpuServiceIPAM := input.IPPoolDPUServiceIPAM.DeepCopy()
 	dpuServiceIPAM.SetName("l2-ipam-single-ip")
-	dpuServiceIPAM.SetNamespace(dpfOperatorSystemNamespace)
+	dpuServiceIPAM.SetNamespace(DPFOperatorSystemNamespace)
 	dpuServiceIPAM.Labels = CleanupScope.Suite
 	dpuServiceIPAM.Spec.ObjectMeta.Labels = poolLabel
 	dpuServiceIPAM.Spec.NodeSelector = nil
@@ -564,7 +564,7 @@ func ValidateDPUServiceIPAMInL3ModeSharedAcrossDPUClustersWithSingleIPPerNode(ct
 	By("Creating a single DPUServiceIPAM with /32 prefix per node spanning all clusters")
 	dpuServiceIPAM := input.CIDRDPUServiceIPAM.DeepCopy()
 	dpuServiceIPAM.SetName("l3-ipam-single-ip")
-	dpuServiceIPAM.SetNamespace(dpfOperatorSystemNamespace)
+	dpuServiceIPAM.SetNamespace(DPFOperatorSystemNamespace)
 	dpuServiceIPAM.Labels = CleanupScope.Suite
 	dpuServiceIPAM.Spec.ObjectMeta.Labels = poolLabel
 	dpuServiceIPAM.Spec.NodeSelector = nil
@@ -630,7 +630,7 @@ func ValidateDPUClusterDeletion(ctx context.Context, input *SystemTestInput) {
 	By("Verifying all DPUServices are ready")
 	Eventually(func(g Gomega) {
 		dpuServiceList := &dpuservicev1.DPUServiceList{}
-		g.Expect(input.Client.List(ctx, dpuServiceList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(input.Client.List(ctx, dpuServiceList, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 		for _, dpuService := range dpuServiceList.Items {
 			g.Expect(conditions.IsTrue(&dpuService, conditions.TypeReady)).To(BeTrue(),
 				fmt.Sprintf("DPUService %s should be ready", dpuService.Name))
@@ -640,7 +640,7 @@ func ValidateDPUClusterDeletion(ctx context.Context, input *SystemTestInput) {
 	By("Verifying all DPUServiceChains are ready")
 	Eventually(func(g Gomega) {
 		dpuServiceChainList := &dpuservicev1.DPUServiceChainList{}
-		g.Expect(input.Client.List(ctx, dpuServiceChainList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(input.Client.List(ctx, dpuServiceChainList, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 		for _, dpuServiceChain := range dpuServiceChainList.Items {
 			g.Expect(conditions.IsTrue(&dpuServiceChain, conditions.TypeReady)).To(BeTrue(),
 				fmt.Sprintf("DPUServiceChain %s should be ready", dpuServiceChain.Name))
@@ -650,7 +650,7 @@ func ValidateDPUClusterDeletion(ctx context.Context, input *SystemTestInput) {
 	By("Verifying all DPUServiceInterfaces are ready")
 	Eventually(func(g Gomega) {
 		dpuServiceInterfaceList := &dpuservicev1.DPUServiceInterfaceList{}
-		g.Expect(input.Client.List(ctx, dpuServiceInterfaceList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(input.Client.List(ctx, dpuServiceInterfaceList, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 		for _, dpuServiceInterface := range dpuServiceInterfaceList.Items {
 			g.Expect(conditions.IsTrue(&dpuServiceInterface, conditions.TypeReady)).To(BeTrue(),
 				fmt.Sprintf("DPUServiceInterface %s should be ready", dpuServiceInterface.Name))
@@ -660,7 +660,7 @@ func ValidateDPUClusterDeletion(ctx context.Context, input *SystemTestInput) {
 	By("Verifying all DPUServiceIPAMs are ready")
 	Eventually(func(g Gomega) {
 		dpuServiceIPAMList := &dpuservicev1.DPUServiceIPAMList{}
-		g.Expect(input.Client.List(ctx, dpuServiceIPAMList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(input.Client.List(ctx, dpuServiceIPAMList, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 		for _, dpuServiceIPAM := range dpuServiceIPAMList.Items {
 			g.Expect(conditions.IsTrue(&dpuServiceIPAM, conditions.TypeReady)).To(BeTrue(),
 				fmt.Sprintf("DPUServiceIPAM %s should be ready", dpuServiceIPAM.Name))
@@ -682,7 +682,7 @@ func validateDPUServicePodIPInCluster(ctx context.Context, clusterClient client.
 		podList := &corev1.PodList{}
 		g.Expect(clusterClient.List(ctx, podList,
 			client.MatchingLabels{"svc.dpu.nvidia.com/service": serviceID},
-			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+			client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 		g.Expect(podList.Items).ToNot(BeEmpty())
 		g.Expect(podList.Items).To(HaveLen(1))
 

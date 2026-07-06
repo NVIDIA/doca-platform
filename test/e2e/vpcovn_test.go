@@ -102,23 +102,23 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 		})
 
 		It("create DPU VPC OVN central DPUService", func() {
-			createOVNCentralDPUService(Ctx, input.Client, dpfOperatorSystemNamespace, vpcOvnInput.dpuServiceOVNCentral)
+			createOVNCentralDPUService(Ctx, input.Client, DPFOperatorSystemNamespace, vpcOvnInput.dpuServiceOVNCentral)
 		})
 
 		It("create DPU OVN controller service", func() {
-			createOVNControllerDPUService(Ctx, input.Client, dpfOperatorSystemNamespace, vpcOvnInput.dpuServiceOVNController)
+			createOVNControllerDPUService(Ctx, input.Client, DPFOperatorSystemNamespace, vpcOvnInput.dpuServiceOVNController)
 		})
 
 		It("create DPU VPC OVN controller service", func() {
-			createVPCOVNControllerDPUService(Ctx, input.Client, dpfOperatorSystemNamespace, vpcOvnInput.dpuServiceVPCOVNController)
+			createVPCOVNControllerDPUService(Ctx, input.Client, DPFOperatorSystemNamespace, vpcOvnInput.dpuServiceVPCOVNController)
 		})
 
 		It("create DPU VPC OVN node service", func() {
-			createVPCOVNNodeDPUService(Ctx, input.Client, dpfOperatorSystemNamespace, vpcOvnInput.dpuServiceVPCOVNNode)
+			createVPCOVNNodeDPUService(Ctx, input.Client, DPFOperatorSystemNamespace, vpcOvnInput.dpuServiceVPCOVNNode)
 		})
 
 		It("wait for pre-requisite DPU services to be ready", func() {
-			dpuservice.WaitForDPUServices(Ctx, input.Client, dpfOperatorSystemNamespace, []string{"ovn-central", "ovn-controller", "vpc-ovn-controller", "vpc-ovn-node"})
+			dpuservice.WaitForDPUServices(Ctx, input.Client, DPFOperatorSystemNamespace, []string{"ovn-central", "ovn-controller", "vpc-ovn-controller", "vpc-ovn-node"})
 		})
 
 		It("create DPU service interfaces", func() {
@@ -127,7 +127,7 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 
 		It("wait for DPU service interfaces to be ready", func() {
 			dpuServiceInterfaceNames := []string{ovnutils.PhysicalInterface0, ovnutils.OvnExtPatchName}
-			dpuservice.WaitForDPUServiceInterfacesReady(Ctx, input.Client, DPUClusterClient[0], dpuServiceInterfaceNames, dpfOperatorSystemNamespace)
+			dpuservice.WaitForDPUServiceInterfacesReady(Ctx, input.Client, DPUClusterClient[0], dpuServiceInterfaceNames, DPFOperatorSystemNamespace)
 		})
 
 		It("create DPU service chain", func() {
@@ -135,7 +135,7 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 		})
 
 		It("wait for DPU service chain to be ready", func() {
-			dpuservice.WaitForDPUServiceChainsReady(Ctx, input.Client, DPUClusterClient[0], []string{ovnutils.VpcOVNServiceChain}, dpfOperatorSystemNamespace, vpcutils.DefaultTimeout)
+			dpuservice.WaitForDPUServiceChainsReady(Ctx, input.Client, DPUClusterClient[0], []string{ovnutils.VpcOVNServiceChain}, DPFOperatorSystemNamespace, vpcutils.DefaultTimeout)
 		})
 
 		It("create dhcp daemon", func() {
@@ -223,11 +223,11 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 		})
 
 		It("verify DPUVirtualNetwork is ready", func() {
-			ovnutils.WaitForDPUServiceVirtualNetworkReady(Ctx, input.Client, testnet1, dpfOperatorSystemNamespace)
+			ovnutils.WaitForDPUServiceVirtualNetworkReady(Ctx, input.Client, testnet1, DPFOperatorSystemNamespace)
 		})
 
 		It("verify DPUVPC is ready", func() {
-			ovnutils.WaitForDPUVPCReady(Ctx, input.Client, vpcName, dpfOperatorSystemNamespace)
+			ovnutils.WaitForDPUVPCReady(Ctx, input.Client, vpcName, DPFOperatorSystemNamespace)
 		})
 
 		It("verify DPUVPC and DPUVirtualNetwork metrics", func() {
@@ -247,7 +247,7 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 
 			createVPCDPUServiceInterface(Ctx, input, dpuservice.TestDPUServiceInterfaceConfig{
 				Name:           pf0vf2Worker1,
-				Namespace:      dpfOperatorSystemNamespace,
+				Namespace:      DPFOperatorSystemNamespace,
 				Labels:         cleanup.MergeMaps(vpcOvnContextScope.CleanupLabels, pf0vf2Worker1Labels),
 				NodeName:       &dpuNode1.Name,
 				Type:           dpuservicev1.InterfaceTypeVF,
@@ -258,7 +258,7 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 			})
 			createVPCDPUServiceInterface(Ctx, input, dpuservice.TestDPUServiceInterfaceConfig{
 				Name:           pf0vf2Worker2,
-				Namespace:      dpfOperatorSystemNamespace,
+				Namespace:      DPFOperatorSystemNamespace,
 				Labels:         cleanup.MergeMaps(vpcOvnContextScope.CleanupLabels, pf0vf2Worker2Labels),
 				NodeName:       &dpuNode2.Name,
 				Type:           dpuservicev1.InterfaceTypeVF,
@@ -270,7 +270,7 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 
 			createVPCDPUServiceInterface(Ctx, input, dpuservice.TestDPUServiceInterfaceConfig{
 				Name:           pf0vf3Worker1,
-				Namespace:      dpfOperatorSystemNamespace,
+				Namespace:      DPFOperatorSystemNamespace,
 				Labels:         cleanup.MergeMaps(vpcOvnContextScope.CleanupLabels, pf0vf3Worker1Labels),
 				NodeName:       &dpuNode1.Name,
 				Type:           dpuservicev1.InterfaceTypeVF,
@@ -283,7 +283,7 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 
 		It("verify DPUServiceInterfaces are ready", func() {
 			dpuServiceInterfaceNames := []string{pf0vf2Worker1, pf0vf2Worker2, pf0vf3Worker1}
-			dpuservice.WaitForDPUServiceInterfacesReady(Ctx, input.Client, DPUClusterClient[0], dpuServiceInterfaceNames, dpfOperatorSystemNamespace)
+			dpuservice.WaitForDPUServiceInterfacesReady(Ctx, input.Client, DPUClusterClient[0], dpuServiceInterfaceNames, DPFOperatorSystemNamespace)
 		})
 
 		It("get the MAC addresses of the ServiceInterface objects", func() {
@@ -296,9 +296,9 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 			pf0vf3Worker1Labels := map[string]string{
 				ovnutils.InterfaceLabelKey: pf0vf3Worker1,
 			}
-			pf0vf2Worker1MacAddressesMap := ovnutils.GetServiceInterfaceMacAddressesMatchingLabels(Ctx, DPUClusterClient[0], dpfOperatorSystemNamespace, pf0vf2Worker1Labels)
-			pf0vf2Worker2MacAddressesMap := ovnutils.GetServiceInterfaceMacAddressesMatchingLabels(Ctx, DPUClusterClient[0], dpfOperatorSystemNamespace, pf0vf2Worker2Labels)
-			pf0vf3Worker1MacAddressesMap := ovnutils.GetServiceInterfaceMacAddressesMatchingLabels(Ctx, DPUClusterClient[0], dpfOperatorSystemNamespace, pf0vf3Worker1Labels)
+			pf0vf2Worker1MacAddressesMap := ovnutils.GetServiceInterfaceMacAddressesMatchingLabels(Ctx, DPUClusterClient[0], DPFOperatorSystemNamespace, pf0vf2Worker1Labels)
+			pf0vf2Worker2MacAddressesMap := ovnutils.GetServiceInterfaceMacAddressesMatchingLabels(Ctx, DPUClusterClient[0], DPFOperatorSystemNamespace, pf0vf2Worker2Labels)
+			pf0vf3Worker1MacAddressesMap := ovnutils.GetServiceInterfaceMacAddressesMatchingLabels(Ctx, DPUClusterClient[0], DPFOperatorSystemNamespace, pf0vf3Worker1Labels)
 
 			Expect(pf0vf2Worker1MacAddressesMap).To(HaveLen(1))
 			pf0vf2Worker1MacAddress = pf0vf2Worker1MacAddressesMap[dpuNode1.Name]
@@ -437,12 +437,12 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 		})
 
 		It("verify DPUVirtualNetwork is ready", func() {
-			ovnutils.WaitForDPUServiceVirtualNetworkReady(Ctx, input.Client, testnet1, dpfOperatorSystemNamespace)
-			ovnutils.WaitForDPUServiceVirtualNetworkReady(Ctx, input.Client, testnet2, dpfOperatorSystemNamespace)
+			ovnutils.WaitForDPUServiceVirtualNetworkReady(Ctx, input.Client, testnet1, DPFOperatorSystemNamespace)
+			ovnutils.WaitForDPUServiceVirtualNetworkReady(Ctx, input.Client, testnet2, DPFOperatorSystemNamespace)
 		})
 
 		It("verify DPUVPC is ready", func() {
-			ovnutils.WaitForDPUVPCReady(Ctx, input.Client, vpcName, dpfOperatorSystemNamespace)
+			ovnutils.WaitForDPUVPCReady(Ctx, input.Client, vpcName, DPFOperatorSystemNamespace)
 		})
 
 		It("create DPUServiceInterfaces on the nodes, different virtual networks", func() {
@@ -461,7 +461,7 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 
 			createVPCDPUServiceInterface(Ctx, input, dpuservice.TestDPUServiceInterfaceConfig{
 				Name:           pf0vf2Worker1,
-				Namespace:      dpfOperatorSystemNamespace,
+				Namespace:      DPFOperatorSystemNamespace,
 				Labels:         cleanup.MergeMaps(vpcOvnContextScope.CleanupLabels, pf0vf2Worker1Labels),
 				NodeName:       &dpuNode1.Name,
 				Type:           dpuservicev1.InterfaceTypeVF,
@@ -473,7 +473,7 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 
 			createVPCDPUServiceInterface(Ctx, input, dpuservice.TestDPUServiceInterfaceConfig{
 				Name:           pf0vf2Worker2,
-				Namespace:      dpfOperatorSystemNamespace,
+				Namespace:      DPFOperatorSystemNamespace,
 				Labels:         cleanup.MergeMaps(vpcOvnContextScope.CleanupLabels, pf0vf2Worker2Labels),
 				NodeName:       &dpuNode2.Name,
 				Type:           dpuservicev1.InterfaceTypeVF,
@@ -485,7 +485,7 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 
 			createVPCDPUServiceInterface(Ctx, input, dpuservice.TestDPUServiceInterfaceConfig{
 				Name:           pf0vf3Worker1,
-				Namespace:      dpfOperatorSystemNamespace,
+				Namespace:      DPFOperatorSystemNamespace,
 				Labels:         cleanup.MergeMaps(vpcOvnContextScope.CleanupLabels, pf0vf3Worker1Labels),
 				NodeName:       &dpuNode1.Name,
 				Type:           dpuservicev1.InterfaceTypeVF,
@@ -498,7 +498,7 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 
 		It("verify DPUServiceInterface is ready", func() {
 			dpuServiceInterfaceNames := []string{pf0vf2Worker1, pf0vf2Worker2, pf0vf3Worker1}
-			dpuservice.WaitForDPUServiceInterfacesReady(Ctx, input.Client, DPUClusterClient[0], dpuServiceInterfaceNames, dpfOperatorSystemNamespace)
+			dpuservice.WaitForDPUServiceInterfacesReady(Ctx, input.Client, DPUClusterClient[0], dpuServiceInterfaceNames, DPFOperatorSystemNamespace)
 		})
 
 		It("get the MAC addresses of the ServiceInterface objects", func() {
@@ -512,9 +512,9 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 				ovnutils.InterfaceLabelKey: pf0vf3Worker1,
 			}
 
-			pf0vf2Worker1MacAddressesMap := ovnutils.GetServiceInterfaceMacAddressesMatchingLabels(Ctx, DPUClusterClient[0], dpfOperatorSystemNamespace, pf0vf2Worker1Labels)
-			pf0vf2Worker2MacAddressesMap := ovnutils.GetServiceInterfaceMacAddressesMatchingLabels(Ctx, DPUClusterClient[0], dpfOperatorSystemNamespace, pf0vf2Worker2Labels)
-			pf0vf3Worker1MacAddressesMap := ovnutils.GetServiceInterfaceMacAddressesMatchingLabels(Ctx, DPUClusterClient[0], dpfOperatorSystemNamespace, pf0vf3Worker1Labels)
+			pf0vf2Worker1MacAddressesMap := ovnutils.GetServiceInterfaceMacAddressesMatchingLabels(Ctx, DPUClusterClient[0], DPFOperatorSystemNamespace, pf0vf2Worker1Labels)
+			pf0vf2Worker2MacAddressesMap := ovnutils.GetServiceInterfaceMacAddressesMatchingLabels(Ctx, DPUClusterClient[0], DPFOperatorSystemNamespace, pf0vf2Worker2Labels)
+			pf0vf3Worker1MacAddressesMap := ovnutils.GetServiceInterfaceMacAddressesMatchingLabels(Ctx, DPUClusterClient[0], DPFOperatorSystemNamespace, pf0vf3Worker1Labels)
 
 			Expect(pf0vf2Worker1MacAddressesMap).To(HaveLen(1))
 			pf0vf2Worker1MacAddress = pf0vf2Worker1MacAddressesMap[dpuNode1.Name]
@@ -657,13 +657,13 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 		})
 
 		It("verify DPUVirtualNetwork is ready", func() {
-			ovnutils.WaitForDPUServiceVirtualNetworkReady(Ctx, input.Client, testnet1, dpfOperatorSystemNamespace)
-			ovnutils.WaitForDPUServiceVirtualNetworkReady(Ctx, input.Client, testnet2, dpfOperatorSystemNamespace)
+			ovnutils.WaitForDPUServiceVirtualNetworkReady(Ctx, input.Client, testnet1, DPFOperatorSystemNamespace)
+			ovnutils.WaitForDPUServiceVirtualNetworkReady(Ctx, input.Client, testnet2, DPFOperatorSystemNamespace)
 		})
 
 		It("verify DPUVPC is ready", func() {
-			ovnutils.WaitForDPUVPCReady(Ctx, input.Client, vpcName, dpfOperatorSystemNamespace)
-			ovnutils.WaitForDPUVPCReady(Ctx, input.Client, vpcName2, dpfOperatorSystemNamespace)
+			ovnutils.WaitForDPUVPCReady(Ctx, input.Client, vpcName, DPFOperatorSystemNamespace)
+			ovnutils.WaitForDPUVPCReady(Ctx, input.Client, vpcName2, DPFOperatorSystemNamespace)
 		})
 
 		It("create DPUServiceInterfaces on the nodes, different virtual networks, different vpcs", func() {
@@ -679,7 +679,7 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 
 			createVPCDPUServiceInterface(Ctx, input, dpuservice.TestDPUServiceInterfaceConfig{
 				Name:           pf0vf2Worker1,
-				Namespace:      dpfOperatorSystemNamespace,
+				Namespace:      DPFOperatorSystemNamespace,
 				Labels:         cleanup.MergeMaps(vpcOvnContextScope.CleanupLabels, pf0vf2Worker1Labels),
 				NodeName:       &dpuNode1.Name,
 				Type:           dpuservicev1.InterfaceTypeVF,
@@ -691,7 +691,7 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 
 			createVPCDPUServiceInterface(Ctx, input, dpuservice.TestDPUServiceInterfaceConfig{
 				Name:           pf0vf2Worker2,
-				Namespace:      dpfOperatorSystemNamespace,
+				Namespace:      DPFOperatorSystemNamespace,
 				Labels:         cleanup.MergeMaps(vpcOvnContextScope.CleanupLabels, pf0vf2Worker2Labels),
 				NodeName:       &dpuNode2.Name,
 				Type:           dpuservicev1.InterfaceTypeVF,
@@ -703,7 +703,7 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 
 			createVPCDPUServiceInterface(Ctx, input, dpuservice.TestDPUServiceInterfaceConfig{
 				Name:           pf0vf3Worker2,
-				Namespace:      dpfOperatorSystemNamespace,
+				Namespace:      DPFOperatorSystemNamespace,
 				Labels:         cleanup.MergeMaps(vpcOvnContextScope.CleanupLabels, pf0vf3Worker2Labels),
 				NodeName:       &dpuNode2.Name,
 				Type:           dpuservicev1.InterfaceTypeVF,
@@ -716,7 +716,7 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 
 		It("verify DPUServiceInterface is ready", func() {
 			dpuServiceInterfaceNames := []string{pf0vf2Worker1, pf0vf2Worker2, pf0vf3Worker2}
-			dpuservice.WaitForDPUServiceInterfacesReady(Ctx, input.Client, DPUClusterClient[0], dpuServiceInterfaceNames, dpfOperatorSystemNamespace)
+			dpuservice.WaitForDPUServiceInterfacesReady(Ctx, input.Client, DPUClusterClient[0], dpuServiceInterfaceNames, DPFOperatorSystemNamespace)
 		})
 
 		It("get the MAC addresses of the ServiceInterface objects", func() {
@@ -730,9 +730,9 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 				ovnutils.InterfaceLabelKey: pf0vf3Worker2,
 			}
 
-			pf0vf2Worker1MacAddressesMap := ovnutils.GetServiceInterfaceMacAddressesMatchingLabels(Ctx, DPUClusterClient[0], dpfOperatorSystemNamespace, pf0vf2Worker1Labels)
-			pf0vf2Worker2MacAddressesMap := ovnutils.GetServiceInterfaceMacAddressesMatchingLabels(Ctx, DPUClusterClient[0], dpfOperatorSystemNamespace, pf0vf2Worker2Labels)
-			pf0vf3Worker2MacAddressesMap := ovnutils.GetServiceInterfaceMacAddressesMatchingLabels(Ctx, DPUClusterClient[0], dpfOperatorSystemNamespace, pf0vf3Worker2Labels)
+			pf0vf2Worker1MacAddressesMap := ovnutils.GetServiceInterfaceMacAddressesMatchingLabels(Ctx, DPUClusterClient[0], DPFOperatorSystemNamespace, pf0vf2Worker1Labels)
+			pf0vf2Worker2MacAddressesMap := ovnutils.GetServiceInterfaceMacAddressesMatchingLabels(Ctx, DPUClusterClient[0], DPFOperatorSystemNamespace, pf0vf2Worker2Labels)
+			pf0vf3Worker2MacAddressesMap := ovnutils.GetServiceInterfaceMacAddressesMatchingLabels(Ctx, DPUClusterClient[0], DPFOperatorSystemNamespace, pf0vf3Worker2Labels)
 
 			Expect(pf0vf2Worker1MacAddressesMap).To(HaveLen(1))
 			pf0vf2Worker1MacAddress = pf0vf2Worker1MacAddressesMap[dpuNode1.Name]
@@ -880,11 +880,11 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 		})
 
 		It("verify DPUVirtualNetwork is ready", func() {
-			ovnutils.WaitForDPUServiceVirtualNetworkReady(Ctx, input.Client, testnet1, dpfOperatorSystemNamespace)
+			ovnutils.WaitForDPUServiceVirtualNetworkReady(Ctx, input.Client, testnet1, DPFOperatorSystemNamespace)
 		})
 
 		It("verify DPUVPC is ready", func() {
-			ovnutils.WaitForDPUVPCReady(Ctx, input.Client, vpcName, dpfOperatorSystemNamespace)
+			ovnutils.WaitForDPUVPCReady(Ctx, input.Client, vpcName, DPFOperatorSystemNamespace)
 		})
 
 		It("create DPUServiceInterfaces on the nodes, same virtual network", func() {
@@ -902,17 +902,17 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 			// Create SFs on both nodes.
 			createVPCDPUServiceInterface(Ctx, input, dpuservice.TestDPUServiceInterfaceConfig{
 				Name:           sfName,
-				Namespace:      dpfOperatorSystemNamespace,
+				Namespace:      DPFOperatorSystemNamespace,
 				Labels:         cleanup.MergeMaps(vpcOvnContextScope.CleanupLabels, sfLabels),
 				Type:           dpuservicev1.InterfaceTypeService,
 				InterfaceName:  sfInterfaceName,
 				ServiceID:      serviceID,
-				Network:        fmt.Sprintf("%s/%s", dpfOperatorSystemNamespace, brIntNetwork),
+				Network:        fmt.Sprintf("%s/%s", DPFOperatorSystemNamespace, brIntNetwork),
 				VirtualNetwork: &testnet1,
 			})
 			createVPCDPUServiceInterface(Ctx, input, dpuservice.TestDPUServiceInterfaceConfig{
 				Name:           pf0vf2Worker1,
-				Namespace:      dpfOperatorSystemNamespace,
+				Namespace:      DPFOperatorSystemNamespace,
 				Labels:         cleanup.MergeMaps(vpcOvnContextScope.CleanupLabels, pf0vf2Worker1Labels),
 				NodeName:       &dpuNode1.Name,
 				Type:           dpuservicev1.InterfaceTypeVF,
@@ -923,7 +923,7 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 			})
 			createVPCDPUServiceInterface(Ctx, input, dpuservice.TestDPUServiceInterfaceConfig{
 				Name:           pf0vf2Worker2,
-				Namespace:      dpfOperatorSystemNamespace,
+				Namespace:      DPFOperatorSystemNamespace,
 				Labels:         cleanup.MergeMaps(vpcOvnContextScope.CleanupLabels, pf0vf2Worker2Labels),
 				NodeName:       &dpuNode2.Name,
 				Type:           dpuservicev1.InterfaceTypeVF,
@@ -935,7 +935,7 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 		})
 
 		It("verify VF DPUServiceInterface is ready", func() {
-			dpuservice.WaitForDPUServiceInterfacesReady(Ctx, input.Client, DPUClusterClient[0], []string{pf0vf2Worker1, pf0vf2Worker2}, dpfOperatorSystemNamespace)
+			dpuservice.WaitForDPUServiceInterfacesReady(Ctx, input.Client, DPUClusterClient[0], []string{pf0vf2Worker1, pf0vf2Worker2}, DPFOperatorSystemNamespace)
 		})
 
 		It("get the MAC addresses of the ServiceInterface objects", func() {
@@ -946,12 +946,12 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 				ovnutils.InterfaceLabelKey: pf0vf2Worker2,
 			}
 
-			pf0vf2Worker1MacAddresseMap := ovnutils.GetServiceInterfaceMacAddressesMatchingLabels(Ctx, DPUClusterClient[0], dpfOperatorSystemNamespace, pf0vf2Worker1Labels)
+			pf0vf2Worker1MacAddresseMap := ovnutils.GetServiceInterfaceMacAddressesMatchingLabels(Ctx, DPUClusterClient[0], DPFOperatorSystemNamespace, pf0vf2Worker1Labels)
 			Expect(pf0vf2Worker1MacAddresseMap).To(HaveLen(1))
 			pf0vf2Worker1MacAddress = pf0vf2Worker1MacAddresseMap[dpuNode1.Name]
 			Expect(pf0vf2Worker1MacAddress).ToNot(BeEmpty())
 
-			pf0vf2Worker2MacAddressesMap := ovnutils.GetServiceInterfaceMacAddressesMatchingLabels(Ctx, DPUClusterClient[0], dpfOperatorSystemNamespace, pf0vf2Worker2Labels)
+			pf0vf2Worker2MacAddressesMap := ovnutils.GetServiceInterfaceMacAddressesMatchingLabels(Ctx, DPUClusterClient[0], DPFOperatorSystemNamespace, pf0vf2Worker2Labels)
 			Expect(pf0vf2Worker2MacAddressesMap).To(HaveLen(1))
 			pf0vf2Worker2MacAddress = pf0vf2Worker2MacAddressesMap[dpuNode2.Name]
 			Expect(pf0vf2Worker2MacAddress).ToNot(BeEmpty())
@@ -998,20 +998,20 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 		})
 
 		It("create DPU NAD for br-int", func() {
-			ovnutils.CreateDPUIntergrationBridgeNetworkAttachmentDefinition(Ctx, DPUClusterClient[0], dpfOperatorSystemNamespace, vpcOvnContextScope.CleanupLabels)
+			ovnutils.CreateDPUIntergrationBridgeNetworkAttachmentDefinition(Ctx, DPUClusterClient[0], DPFOperatorSystemNamespace, vpcOvnContextScope.CleanupLabels)
 		})
 
 		It("create dummy service consuming the SF", func() {
-			createDummyDPUService(Ctx, input.Client, dpfOperatorSystemNamespace, sfServiceName, vpcOvnContextScope.CleanupLabels, nil, serviceID, brIntNetwork, sfInterfaceName)
+			createDummyDPUService(Ctx, input.Client, DPFOperatorSystemNamespace, sfServiceName, vpcOvnContextScope.CleanupLabels, nil, serviceID, brIntNetwork, sfInterfaceName)
 		})
 
 		It("verify SF DPUServiceInterface is ready", func() {
 			// SF ServiceInterfaces will be ready only when we the service pods are deployed.
-			dpuservice.WaitForDPUServiceInterfacesReady(Ctx, input.Client, DPUClusterClient[0], []string{sfName}, dpfOperatorSystemNamespace)
+			dpuservice.WaitForDPUServiceInterfacesReady(Ctx, input.Client, DPUClusterClient[0], []string{sfName}, DPFOperatorSystemNamespace)
 		})
 
 		It("verify dummy service is ready", func() {
-			dpuservice.WaitForDPUServices(Ctx, input.Client, dpfOperatorSystemNamespace, []string{sfServiceName})
+			dpuservice.WaitForDPUServices(Ctx, input.Client, DPFOperatorSystemNamespace, []string{sfServiceName})
 		})
 
 		It("get SF pods ip addresses", func() {
@@ -1020,14 +1020,14 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 			}
 
 			Eventually(func(g Gomega) {
-				sfPods = vpcutils.GetPodsMatchingLabels(Ctx, DPUClusterClient[0], dpfOperatorSystemNamespace, sfServiceLabels)
+				sfPods = vpcutils.GetPodsMatchingLabels(Ctx, DPUClusterClient[0], DPFOperatorSystemNamespace, sfServiceLabels)
 				Expect(sfPods).To(HaveLen(2))
 				for _, pod := range sfPods {
 					Expect(pod.Spec.NodeName).ToNot(BeEmpty())
 				}
 
-				pod1SFIP = vpcutils.GetPodIPAddressFromNetworkStatus(Ctx, DPUClusterClient[0], dpfOperatorSystemNamespace, sfPods[0].Name, sfInterfaceName)
-				pod2SFIP = vpcutils.GetPodIPAddressFromNetworkStatus(Ctx, DPUClusterClient[0], dpfOperatorSystemNamespace, sfPods[1].Name, sfInterfaceName)
+				pod1SFIP = vpcutils.GetPodIPAddressFromNetworkStatus(Ctx, DPUClusterClient[0], DPFOperatorSystemNamespace, sfPods[0].Name, sfInterfaceName)
+				pod2SFIP = vpcutils.GetPodIPAddressFromNetworkStatus(Ctx, DPUClusterClient[0], DPFOperatorSystemNamespace, sfPods[1].Name, sfInterfaceName)
 				Expect(pod1SFIP).ToNot(BeEmpty())
 				Expect(pod2SFIP).ToNot(BeEmpty())
 			}, vpcutils.DefaultTimeout).Should(Succeed())
@@ -1096,11 +1096,11 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 		})
 
 		It("verify DPUVirtualNetwork is ready", func() {
-			ovnutils.WaitForDPUServiceVirtualNetworkReady(Ctx, input.Client, testnet1, dpfOperatorSystemNamespace)
+			ovnutils.WaitForDPUServiceVirtualNetworkReady(Ctx, input.Client, testnet1, DPFOperatorSystemNamespace)
 		})
 
 		It("verify DPUVPC is ready", func() {
-			ovnutils.WaitForDPUVPCReady(Ctx, input.Client, vpcName, dpfOperatorSystemNamespace)
+			ovnutils.WaitForDPUVPCReady(Ctx, input.Client, vpcName, DPFOperatorSystemNamespace)
 		})
 
 		It("create DPUServiceInterfaces on the nodes, same virtual network", func() {
@@ -1113,7 +1113,7 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 
 			createVPCDPUServiceInterface(Ctx, input, dpuservice.TestDPUServiceInterfaceConfig{
 				Name:           pf0vf2Worker1,
-				Namespace:      dpfOperatorSystemNamespace,
+				Namespace:      DPFOperatorSystemNamespace,
 				Labels:         cleanup.MergeMaps(vpcOvnContextScope.CleanupLabels, pf0vf2Worker1Labels),
 				NodeName:       &dpuNode1.Name,
 				Type:           dpuservicev1.InterfaceTypeVF,
@@ -1125,7 +1125,7 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 			// Creating pf0vf7 on second node that will not be part of the VPC that will simulated the endpoint for external network traffic
 			createVPCDPUServiceInterface(Ctx, input, dpuservice.TestDPUServiceInterfaceConfig{
 				Name:          pf0vf7Worker2,
-				Namespace:     dpfOperatorSystemNamespace,
+				Namespace:     DPFOperatorSystemNamespace,
 				Labels:        cleanup.MergeMaps(vpcOvnContextScope.CleanupLabels, pf0vf7Worker2Labels),
 				NodeName:      &dpuNode2.Name,
 				Type:          dpuservicev1.InterfaceTypeVF,
@@ -1137,7 +1137,7 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 
 		It("verify DPUServiceInterfaces are ready", func() {
 			dpuServiceInterfaceNames := []string{pf0vf2Worker1, pf0vf7Worker2}
-			dpuservice.WaitForDPUServiceInterfacesReady(Ctx, input.Client, DPUClusterClient[0], dpuServiceInterfaceNames, dpfOperatorSystemNamespace)
+			dpuservice.WaitForDPUServiceInterfacesReady(Ctx, input.Client, DPUClusterClient[0], dpuServiceInterfaceNames, DPFOperatorSystemNamespace)
 		})
 
 		It("create DPU service chain on second worker node for external network traffic", func() {
@@ -1149,14 +1149,14 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 		})
 
 		It("wait for DPU service chains to be ready", func() {
-			dpuservice.WaitForDPUServiceChainsReady(Ctx, input.Client, DPUClusterClient[0], []string{p0ToPf0Vf7Gw, ovnutils.VpcOVNServiceChain}, dpfOperatorSystemNamespace, vpcutils.LongTimeout)
+			dpuservice.WaitForDPUServiceChainsReady(Ctx, input.Client, DPUClusterClient[0], []string{p0ToPf0Vf7Gw, ovnutils.VpcOVNServiceChain}, DPFOperatorSystemNamespace, vpcutils.LongTimeout)
 		})
 
 		It("get the MAC addresses of the ServiceInterface objects", func() {
 			pf0vf2Worker1Labels := map[string]string{
 				ovnutils.InterfaceLabelKey: pf0vf2Worker1,
 			}
-			pf0vf2Worker1MacAddressesMap := ovnutils.GetServiceInterfaceMacAddressesMatchingLabels(Ctx, DPUClusterClient[0], dpfOperatorSystemNamespace, pf0vf2Worker1Labels)
+			pf0vf2Worker1MacAddressesMap := ovnutils.GetServiceInterfaceMacAddressesMatchingLabels(Ctx, DPUClusterClient[0], DPFOperatorSystemNamespace, pf0vf2Worker1Labels)
 
 			Expect(pf0vf2Worker1MacAddressesMap).To(HaveLen(1))
 			pf0vf2Worker1MacAddress = pf0vf2Worker1MacAddressesMap[dpuNode1.Name]
@@ -1219,7 +1219,7 @@ var _ = Describe("VPC OVN testcases", Labels{Domain.DPFSystem, Domain.DPFVPCOVN}
 
 		It("revert p0 to OVN VTEP external patch port DPU service chain to its original configuration", func() {
 			createOrUpdateVPCDPUServiceChain(Ctx, input, nil)
-			dpuservice.WaitForDPUServiceChainsReady(Ctx, input.Client, DPUClusterClient[0], []string{ovnutils.VpcOVNServiceChain}, dpfOperatorSystemNamespace, vpcutils.LongTimeout)
+			dpuservice.WaitForDPUServiceChainsReady(Ctx, input.Client, DPUClusterClient[0], []string{ovnutils.VpcOVNServiceChain}, DPFOperatorSystemNamespace, vpcutils.LongTimeout)
 		})
 	})
 })

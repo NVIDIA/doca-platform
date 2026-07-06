@@ -49,7 +49,7 @@ func ValidateNodeSRIOVDevicePluginWebhookRejectsInvalid(ctx context.Context, inp
 		invalidConfig := &noderesourcesv1.NodeSRIOVDevicePluginConfig{
 			ObjectMeta: metav1.ObjectMeta{
 				GenerateName: "e2e-invalid-config-",
-				Namespace:    dpfOperatorSystemNamespace,
+				Namespace:    DPFOperatorSystemNamespace,
 				Labels:       CleanupScope.It,
 			},
 			Spec: noderesourcesv1.NodeSRIOVDevicePluginConfigSpec{
@@ -83,7 +83,7 @@ func ValidateNodeSRIOVDevicePluginWebhookRejectsInvalid(ctx context.Context, inp
 		duplicateConfig := &noderesourcesv1.NodeSRIOVDevicePluginConfig{
 			ObjectMeta: metav1.ObjectMeta{
 				GenerateName: "e2e-duplicate-config-",
-				Namespace:    dpfOperatorSystemNamespace,
+				Namespace:    DPFOperatorSystemNamespace,
 				Labels:       CleanupScope.It,
 			},
 			Spec: noderesourcesv1.NodeSRIOVDevicePluginConfigSpec{
@@ -121,7 +121,7 @@ func ValidateNodeSRIOVDevicePluginConfigValidCreate(ctx context.Context, input *
 		validConfig := &noderesourcesv1.NodeSRIOVDevicePluginConfig{
 			ObjectMeta: metav1.ObjectMeta{
 				GenerateName: "e2e-valid-config-",
-				Namespace:    dpfOperatorSystemNamespace,
+				Namespace:    DPFOperatorSystemNamespace,
 				Labels:       CleanupScope.It,
 			},
 			Spec: noderesourcesv1.NodeSRIOVDevicePluginConfigSpec{
@@ -314,7 +314,7 @@ func ValidateNodeSRIOVDevicePluginManagement(ctx context.Context, input *SystemT
 
 func findTargetDPUAndNode(g Gomega, ctx context.Context, c client.Client) (dpuName, kubeNodeName, serialNumber string) {
 	dpuList := &provisioningv1.DPUList{}
-	g.Expect(c.List(ctx, dpuList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+	g.Expect(c.List(ctx, dpuList, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 	for i := range dpuList.Items {
 		dpu := &dpuList.Items[i]
 		if dpu.Spec.SerialNumber == "" || !dpu.DeletionTimestamp.IsZero() {
@@ -325,7 +325,7 @@ func findTargetDPUAndNode(g Gomega, ctx context.Context, c client.Client) (dpuNa
 		}
 		dpuNode := &provisioningv1.DPUNode{}
 		if err := c.Get(ctx, types.NamespacedName{
-			Namespace: dpfOperatorSystemNamespace,
+			Namespace: DPFOperatorSystemNamespace,
 			Name:      dpu.Spec.DPUNodeName,
 		}, dpuNode); err != nil {
 			continue
@@ -353,7 +353,7 @@ func isDPUHostNetworkReady(dpu *provisioningv1.DPU) bool {
 func getManagedPodForNode(ctx context.Context, g Gomega, c client.Client, nodeName string) *corev1.Pod {
 	podList := &corev1.PodList{}
 	g.Expect(c.List(ctx, podList,
-		client.InNamespace(dpfOperatorSystemNamespace),
+		client.InNamespace(DPFOperatorSystemNamespace),
 		client.MatchingLabels{nodesriovctrl.ManagedByLabelKey: nodesriovctrl.ManagedByLabelValue},
 	)).To(Succeed())
 	for i := range podList.Items {
@@ -381,7 +381,7 @@ func setDPUConfigAnnotation(ctx context.Context, c client.Client, dpuName string
 	Eventually(func(g Gomega) {
 		dpu := &provisioningv1.DPU{}
 		g.Expect(c.Get(ctx, types.NamespacedName{
-			Namespace: dpfOperatorSystemNamespace,
+			Namespace: DPFOperatorSystemNamespace,
 			Name:      dpuName,
 		}, dpu)).To(Succeed())
 		original := dpu.DeepCopy()
@@ -422,8 +422,8 @@ func patchDPFOperatorConfigAndWait(ctx context.Context, c client.Client, config 
 	Eventually(func(g Gomega) {
 		cfg := &operatorv1.DPFOperatorConfig{}
 		g.Expect(c.Get(ctx, client.ObjectKey{
-			Namespace: dpfOperatorSystemNamespace,
-			Name:      configName,
+			Namespace: DPFOperatorSystemNamespace,
+			Name:      ConfigName,
 		}, cfg)).To(Succeed())
 		original := cfg.DeepCopy()
 		cfg.Spec.NodeSRIOVDevicePluginController = config.DeepCopy()
@@ -433,8 +433,8 @@ func patchDPFOperatorConfigAndWait(ctx context.Context, c client.Client, config 
 	Eventually(func(g Gomega) {
 		cfg := &operatorv1.DPFOperatorConfig{}
 		g.Expect(c.Get(ctx, client.ObjectKey{
-			Namespace: dpfOperatorSystemNamespace,
-			Name:      configName,
+			Namespace: DPFOperatorSystemNamespace,
+			Name:      ConfigName,
 		}, cfg)).To(Succeed())
 		g.Expect(cfg.Status.ObservedGeneration).To(Equal(cfg.GetGeneration()))
 		g.Expect(conditions.IsTrue(cfg, conditions.TypeReady)).To(BeTrue())
@@ -443,7 +443,7 @@ func patchDPFOperatorConfigAndWait(ctx context.Context, c client.Client, config 
 	Eventually(func(g Gomega) {
 		deployment := &appsv1.Deployment{}
 		g.Expect(c.Get(ctx, client.ObjectKey{
-			Namespace: dpfOperatorSystemNamespace,
+			Namespace: DPFOperatorSystemNamespace,
 			Name:      "dpf-nodesriovdeviceplugin-controller",
 		}, deployment)).To(Succeed())
 		g.Expect(deployment.Spec.Replicas).NotTo(BeNil())
@@ -461,7 +461,7 @@ func buildNodeSRIOVConfigWithResources(
 	return &noderesourcesv1.NodeSRIOVDevicePluginConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
-			Namespace: dpfOperatorSystemNamespace,
+			Namespace: DPFOperatorSystemNamespace,
 			Labels:    CleanupScope.It,
 		},
 		Spec: noderesourcesv1.NodeSRIOVDevicePluginConfigSpec{
@@ -475,7 +475,7 @@ func removeDPUConfigAnnotation(ctx context.Context, c client.Client, dpuName str
 	Eventually(func(g Gomega) {
 		dpu := &provisioningv1.DPU{}
 		g.Expect(c.Get(ctx, types.NamespacedName{
-			Namespace: dpfOperatorSystemNamespace,
+			Namespace: DPFOperatorSystemNamespace,
 			Name:      dpuName,
 		}, dpu)).To(Succeed())
 		original := dpu.DeepCopy()

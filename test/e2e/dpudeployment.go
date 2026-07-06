@@ -388,7 +388,7 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *SystemTestInp
 	Eventually(func(g Gomega) {
 		dpuSetList := &provisioningv1.DPUSetList{}
 
-		g.Expect(client.IgnoreNotFound(input.Client.DeleteAllOf(ctx, &provisioningv1.DPUSet{}, client.InNamespace(dpfOperatorSystemNamespace)))).To(Succeed())
+		g.Expect(client.IgnoreNotFound(input.Client.DeleteAllOf(ctx, &provisioningv1.DPUSet{}, client.InNamespace(DPFOperatorSystemNamespace)))).To(Succeed())
 		g.Expect(input.Client.List(ctx, dpuSetList)).To(Succeed())
 		g.Expect(dpuSetList.Items).To(BeEmpty())
 
@@ -408,7 +408,7 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *SystemTestInp
 	dpuServiceIPAM := input.IPPoolDPUServiceIPAM.DeepCopy()
 	dpuServiceIPAM.SetLabels(CleanupScope.Suite)
 	dpuServiceIPAM.SetName("dpudeployment-ipam-pool1")
-	dpuServiceIPAM.SetNamespace(dpfOperatorSystemNamespace)
+	dpuServiceIPAM.SetNamespace(DPFOperatorSystemNamespace)
 	// Remove selectors so it applies to all nodes
 	dpuServiceIPAM.Spec.NodeSelector = nil
 	Expect(input.Client.Create(ctx, dpuServiceIPAM)).To(Succeed())
@@ -551,7 +551,7 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *SystemTestInp
 
 			g.Expect(DPUClusterClient[0].List(ctx, podList,
 				client.MatchingLabels{dpuservicev1.ServiceReferenceInDPUDeploymentLabelKey: serviceName},
-				client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+				client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 			g.Expect(podList.Items).To(HaveLen(input.TotalDPUs()), "expected %d pods for service %s", input.TotalDPUs(), serviceName)
 		}
 	}).WithTimeout(15 * time.Minute).WithPolling(120 * time.Second).Should(Succeed())
@@ -566,7 +566,7 @@ func VerifyDPUDeploymentIsReady(ctx context.Context, input *SystemTestInput) {
 	// Get the DPUDeployment created in ValidateDPUDeploymentFullCreation
 	dpuDeployment := &dpuservicev1.DPUDeployment{}
 	dpuDeployment.SetName("dpf-dpudeployment")
-	dpuDeployment.SetNamespace(dpfOperatorSystemNamespace)
+	dpuDeployment.SetNamespace(DPFOperatorSystemNamespace)
 	Expect(input.Client.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), dpuDeployment)).To(Succeed())
 
 	By(fmt.Sprintf("Verifying that the dpuDeployment %s is ready", dpuDeployment.GetName()))
@@ -591,13 +591,13 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgradeDrain(ctx context.Context, 
 	// Get the DPUDeployment created in ValidateDPUDeploymentFullCreation
 	dpuDeployment := &dpuservicev1.DPUDeployment{}
 	dpuDeployment.SetName("dpf-dpudeployment")
-	dpuDeployment.SetNamespace(dpfOperatorSystemNamespace)
+	dpuDeployment.SetNamespace(DPFOperatorSystemNamespace)
 	Expect(input.Client.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), dpuDeployment)).To(Succeed())
 
 	By("Getting the DPUServiceConfiguration for example service")
 	dpuServiceConfiguration := &dpuservicev1.DPUServiceConfiguration{}
 	dpuServiceConfiguration.SetName("dpudeployment-example-serviceconfiguration")
-	dpuServiceConfiguration.SetNamespace(dpfOperatorSystemNamespace)
+	dpuServiceConfiguration.SetNamespace(DPFOperatorSystemNamespace)
 	Expect(input.Client.Get(ctx, client.ObjectKeyFromObject(dpuServiceConfiguration), dpuServiceConfiguration)).To(Succeed())
 
 	By("Getting the ServiceID for example service from the DPUService")
@@ -609,7 +609,7 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgradeDrain(ctx context.Context, 
 		podList := &corev1.PodList{}
 		g.Expect(DPUClusterClient[0].List(ctx, podList,
 			client.MatchingLabels{"svc.dpu.nvidia.com/service": serviceIDForExample},
-			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+			client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 		g.Expect(podList.Items).To(HaveLen(input.TotalDPUs()))
 		initialPods = podList.Items
 	}).WithTimeout(30 * time.Second).Should(Succeed())
@@ -687,7 +687,7 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgradeDrain(ctx context.Context, 
 			podList := &corev1.PodList{}
 			g.Expect(DPUClusterClient[0].List(ctx, podList,
 				client.MatchingLabels{"svc.dpu.nvidia.com/service": sid},
-				client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+				client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 			allPods = append(allPods, podList.Items...)
 		}
 		g.Expect(allPods).To(HaveLen(input.TotalDPUs()))
@@ -781,7 +781,7 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgradeDrain(ctx context.Context, 
 		podList := &corev1.PodList{}
 		g.Expect(DPUClusterClient[0].List(ctx, podList,
 			client.MatchingLabels{"svc.dpu.nvidia.com/service": serviceIDForExample},
-			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+			client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 		g.Expect(podList.Items).To(HaveLen(input.TotalDPUs()))
 
 		// Verify all pods have the new label
@@ -817,13 +817,13 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgradeHold(ctx context.Context, i
 	// Get the DPUDeployment created in ValidateDPUDeploymentFullCreation
 	dpuDeployment := &dpuservicev1.DPUDeployment{}
 	dpuDeployment.SetName("dpf-dpudeployment")
-	dpuDeployment.SetNamespace(dpfOperatorSystemNamespace)
+	dpuDeployment.SetNamespace(DPFOperatorSystemNamespace)
 	Expect(input.Client.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), dpuDeployment)).To(Succeed())
 
 	By("Getting the DPUServiceConfiguration for example service")
 	dpuServiceConfiguration := &dpuservicev1.DPUServiceConfiguration{}
 	dpuServiceConfiguration.SetName("dpudeployment-example-serviceconfiguration")
-	dpuServiceConfiguration.SetNamespace(dpfOperatorSystemNamespace)
+	dpuServiceConfiguration.SetNamespace(DPFOperatorSystemNamespace)
 	Expect(input.Client.Get(ctx, client.ObjectKeyFromObject(dpuServiceConfiguration), dpuServiceConfiguration)).To(Succeed())
 
 	By("Getting the ServiceID for example service from the DPUService")
@@ -832,7 +832,7 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgradeHold(ctx context.Context, i
 	By("Getting the mapping between DPUs and DPUNodes")
 	// Get all DPUs in the system
 	dpuList := &provisioningv1.DPUList{}
-	Expect(input.Client.List(ctx, dpuList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+	Expect(input.Client.List(ctx, dpuList, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 
 	// Create a map from DPU name to DPUNode name
 	dpuToDPUNodeMap := make(map[string]string)
@@ -877,7 +877,7 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgradeHold(ctx context.Context, i
 	Eventually(func(g Gomega) {
 		// Get all DPUNodeMaintenance objects
 		dpuNodeMaintenanceList := &provisioningv1.DPUNodeMaintenanceList{}
-		g.Expect(input.Client.List(ctx, dpuNodeMaintenanceList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(input.Client.List(ctx, dpuNodeMaintenanceList, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 
 		// Find the DPUNodeMaintenance with hold annotation set to "true"
 		for i, dpuNodeMaintenance := range dpuNodeMaintenanceList.Items {
@@ -906,7 +906,7 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgradeHold(ctx context.Context, i
 		podList := &corev1.PodList{}
 		g.Expect(DPUClusterClient[0].List(ctx, podList,
 			client.MatchingLabels{"svc.dpu.nvidia.com/service": oldServiceIDForExample},
-			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+			client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 
 		// Verify no pods have the new label yet (update hasn't started)
 		for _, pod := range podList.Items {
@@ -928,7 +928,7 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgradeHold(ctx context.Context, i
 			podList := &corev1.PodList{}
 			g.Expect(DPUClusterClient[0].List(ctx, podList,
 				client.MatchingLabels{"svc.dpu.nvidia.com/service": sid},
-				client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+				client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 			allPods = append(allPods, podList.Items...)
 		}
 		g.Expect(allPods).To(HaveLen(input.TotalDPUs()))
@@ -990,7 +990,7 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgradeHold(ctx context.Context, i
 	By("Verifying the DPU(s) for the updated DPUNode become ready")
 	Eventually(func(g Gomega) {
 		dpus := &provisioningv1.DPUList{}
-		g.Expect(input.Client.List(ctx, dpus, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(input.Client.List(ctx, dpus, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 
 		// Find the DPU(s) belonging to the DPUNode that was updated and verify they're ready
 		foundDPU := false
@@ -1009,7 +1009,7 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgradeHold(ctx context.Context, i
 	var secondMaintenanceWithHold *provisioningv1.DPUNodeMaintenance
 	Eventually(func(g Gomega) {
 		dpuNodeMaintenanceList := &provisioningv1.DPUNodeMaintenanceList{}
-		g.Expect(input.Client.List(ctx, dpuNodeMaintenanceList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(input.Client.List(ctx, dpuNodeMaintenanceList, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 		// We expect only a single DPUNodeMaintenance left
 		g.Expect(dpuNodeMaintenanceList.Items).To(HaveLen(1))
 
@@ -1033,7 +1033,7 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgradeHold(ctx context.Context, i
 		podList := &corev1.PodList{}
 		g.Expect(DPUClusterClient[0].List(ctx, podList,
 			client.MatchingLabels{"svc.dpu.nvidia.com/service": serviceIDForExample},
-			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+			client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 		g.Expect(podList.Items).To(HaveLen(input.TotalDPUs()))
 
 		// Verify all pods have the new label
@@ -1045,7 +1045,7 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgradeHold(ctx context.Context, i
 	By("Verifying that all DPUs are ready")
 	Eventually(func(g Gomega) {
 		dpus := &provisioningv1.DPUList{}
-		g.Expect(input.Client.List(ctx, dpus, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(input.Client.List(ctx, dpus, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 
 		readyDPUs := 0
 		for _, dpu := range dpus.Items {
@@ -1089,13 +1089,13 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgradeBadConfigurationAndBack(ctx
 	// Get the DPUDeployment created in ValidateDPUDeploymentFullCreation
 	dpuDeployment := &dpuservicev1.DPUDeployment{}
 	dpuDeployment.SetName("dpf-dpudeployment")
-	dpuDeployment.SetNamespace(dpfOperatorSystemNamespace)
+	dpuDeployment.SetNamespace(DPFOperatorSystemNamespace)
 	Expect(input.Client.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), dpuDeployment)).To(Succeed())
 
 	By("Getting the DPUServiceConfiguration for example service")
 	dpuServiceConfiguration := &dpuservicev1.DPUServiceConfiguration{}
 	dpuServiceConfiguration.SetName("dpudeployment-example-serviceconfiguration")
-	dpuServiceConfiguration.SetNamespace(dpfOperatorSystemNamespace)
+	dpuServiceConfiguration.SetNamespace(DPFOperatorSystemNamespace)
 	Expect(input.Client.Get(ctx, client.ObjectKeyFromObject(dpuServiceConfiguration), dpuServiceConfiguration)).To(Succeed())
 
 	By("Getting the ServiceID for example service from the DPUService")
@@ -1107,7 +1107,7 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgradeBadConfigurationAndBack(ctx
 		podList := &corev1.PodList{}
 		g.Expect(DPUClusterClient[0].List(ctx, podList,
 			client.MatchingLabels{"svc.dpu.nvidia.com/service": serviceIDForExample},
-			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+			client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 		g.Expect(podList.Items).To(HaveLen(input.TotalDPUs()))
 		initialPods = podList.Items
 	}).WithTimeout(30 * time.Second).Should(Succeed())
@@ -1182,7 +1182,7 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgradeBadConfigurationAndBack(ctx
 		podList := &corev1.PodList{}
 		g.Expect(DPUClusterClient[0].List(ctx, podList,
 			client.MatchingLabels{"svc.dpu.nvidia.com/service": serviceIDForExample},
-			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+			client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 		foundNewPod := false
 		for _, pod := range podList.Items {
 			podHostNodeName := dpuClusterNodeToHostNodeMap[pod.Spec.NodeName]
@@ -1207,7 +1207,7 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgradeBadConfigurationAndBack(ctx
 		// Identify the new DPUService by its service ID.
 		dpuServiceList := &dpuservicev1.DPUServiceList{}
 		g.Expect(input.Client.List(ctx, dpuServiceList,
-			client.InNamespace(dpfOperatorSystemNamespace),
+			client.InNamespace(DPFOperatorSystemNamespace),
 			client.MatchingLabels{
 				dpuservicev1.ParentDPUDeploymentNameLabel:            parentLabel,
 				dpuservicev1.ServiceReferenceInDPUDeploymentLabelKey: "example",
@@ -1245,7 +1245,7 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgradeBadConfigurationAndBack(ctx
 		podList := &corev1.PodList{}
 		Expect(DPUClusterClient[0].List(ctx, podList,
 			client.MatchingLabels{"svc.dpu.nvidia.com/service": sid},
-			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+			client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 		allPods = append(allPods, podList.Items...)
 	}
 	Expect(allPods).To(HaveLen(input.TotalDPUs()), "Expected to find a pod in each DPU")
@@ -1302,7 +1302,7 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgradeBadConfigurationAndBack(ctx
 		recoveredPodList := &corev1.PodList{}
 		g.Expect(DPUClusterClient[0].List(ctx, recoveredPodList,
 			client.MatchingLabels{"svc.dpu.nvidia.com/service": serviceIDForExample},
-			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+			client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 		g.Expect(recoveredPodList.Items).To(HaveLen(input.TotalDPUs()), "Expected to find a pod in each DPU")
 		foundNewReadyPod := false
 		foundIntactPod := false
@@ -1355,7 +1355,7 @@ func ValidateDPUDeploymentInClusterDPUServiceDisruptiveUpgrade(ctx context.Conte
 	By("Getting the existing DPUDeployment")
 	dpuDeployment := &dpuservicev1.DPUDeployment{}
 	dpuDeployment.SetName("dpf-dpudeployment")
-	dpuDeployment.SetNamespace(dpfOperatorSystemNamespace)
+	dpuDeployment.SetNamespace(DPFOperatorSystemNamespace)
 	Expect(input.Client.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), dpuDeployment)).To(Succeed())
 
 	parentLabel := fmt.Sprintf("%s_%s", dpuDeployment.Namespace, dpuDeployment.Name)
@@ -1363,7 +1363,7 @@ func ValidateDPUDeploymentInClusterDPUServiceDisruptiveUpgrade(ctx context.Conte
 	By("Getting the dpuServiceConfiguration for in-cluster service")
 	dpuServiceConfiguration := &dpuservicev1.DPUServiceConfiguration{}
 	dpuServiceConfiguration.SetName("dpudeployment-example-in-cluster-serviceconfiguration")
-	dpuServiceConfiguration.SetNamespace(dpfOperatorSystemNamespace)
+	dpuServiceConfiguration.SetNamespace(DPFOperatorSystemNamespace)
 	Expect(input.Client.Get(ctx, client.ObjectKeyFromObject(dpuServiceConfiguration), dpuServiceConfiguration)).To(Succeed())
 
 	dpuDeploymentKey := client.ObjectKeyFromObject(dpuDeployment)
@@ -1451,7 +1451,7 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeDrain(ctx context.Cont
 	// Get the DPUDeployment created in ValidateDPUDeploymentFullCreation
 	dpuDeployment := &dpuservicev1.DPUDeployment{}
 	dpuDeployment.SetName("dpf-dpudeployment")
-	dpuDeployment.SetNamespace(dpfOperatorSystemNamespace)
+	dpuDeployment.SetNamespace(DPFOperatorSystemNamespace)
 	Expect(input.Client.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), dpuDeployment)).To(Succeed())
 
 	By("Getting initial ServiceChains in DPU cluster")
@@ -1459,7 +1459,7 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeDrain(ctx context.Cont
 	Eventually(func(g Gomega) {
 		serviceChainList := &dpuservicev1.ServiceChainList{}
 		g.Expect(DPUClusterClient[0].List(ctx, serviceChainList,
-			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+			client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 		g.Expect(serviceChainList.Items).To(HaveLen(input.TotalDPUs()))
 		initialServiceChains = serviceChainList.Items
 	}).WithTimeout(30 * time.Second).Should(Succeed())
@@ -1467,11 +1467,11 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeDrain(ctx context.Cont
 	By("Getting the mapping between host nodes and ServiceChains existing in the DPU cluster on a DPU that is part of that node")
 	// Get all DPUs in the system
 	dpuList := &provisioningv1.DPUList{}
-	Expect(input.Client.List(ctx, dpuList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+	Expect(input.Client.List(ctx, dpuList, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 
 	// Get all DPUNodes in the system
 	dpuNodeList := &provisioningv1.DPUNodeList{}
-	Expect(input.Client.List(ctx, dpuNodeList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+	Expect(input.Client.List(ctx, dpuNodeList, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 
 	// Create a map from DPUNode name to host node name (via KubeNodeRef)
 	dpuNodeToHostNodeMap := make(map[string]string)
@@ -1521,7 +1521,7 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeDrain(ctx context.Cont
 	Eventually(func(g Gomega) {
 		serviceChainList := &dpuservicev1.ServiceChainList{}
 		g.Expect(DPUClusterClient[0].List(ctx, serviceChainList,
-			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+			client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 
 		// Verify that we have service chains on both nodes
 		g.Expect(serviceChainList.Items).To(HaveLen(input.TotalDPUs()))
@@ -1612,7 +1612,7 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeDrain(ctx context.Cont
 	Eventually(func(g Gomega) {
 		serviceChainList := &dpuservicev1.ServiceChainList{}
 		g.Expect(DPUClusterClient[0].List(ctx, serviceChainList,
-			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+			client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 		g.Expect(serviceChainList.Items).To(HaveLen(input.TotalDPUs()))
 
 		// Verify all ServiceChains have the new MTU
@@ -1649,12 +1649,12 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeHold(ctx context.Conte
 	By("Getting the existing DPUDeployment")
 	dpuDeployment := &dpuservicev1.DPUDeployment{}
 	dpuDeployment.SetName("dpf-dpudeployment")
-	dpuDeployment.SetNamespace(dpfOperatorSystemNamespace)
+	dpuDeployment.SetNamespace(DPFOperatorSystemNamespace)
 	Expect(input.Client.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), dpuDeployment)).To(Succeed())
 
 	By("Creating mapping from DPU to DPUNode")
 	dpuList := &provisioningv1.DPUList{}
-	Expect(input.Client.List(ctx, dpuList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+	Expect(input.Client.List(ctx, dpuList, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 
 	// Create a map from DPU name to DPUNode name
 	dpuToDPUNodeMap := make(map[string]string)
@@ -1672,7 +1672,7 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeHold(ctx context.Conte
 	var inProgressDPUNodeMaintenance *provisioningv1.DPUNodeMaintenance
 	Eventually(func(g Gomega) {
 		dpuNodeMaintenanceList := &provisioningv1.DPUNodeMaintenanceList{}
-		g.Expect(input.Client.List(ctx, dpuNodeMaintenanceList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(input.Client.List(ctx, dpuNodeMaintenanceList, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 
 		for i, dpuNodeMaintenance := range dpuNodeMaintenanceList.Items {
 			if isDPUNodeMaintenanceOnHold(&dpuNodeMaintenanceList.Items[i]) {
@@ -1698,7 +1698,7 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeHold(ctx context.Conte
 	Consistently(func(g Gomega) {
 		serviceChainList := &dpuservicev1.ServiceChainList{}
 		g.Expect(DPUClusterClient[0].List(ctx, serviceChainList,
-			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+			client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 
 		// Verify no ServiceChains have the new MTU yet (update hasn't started)
 		for _, serviceChain := range serviceChainList.Items {
@@ -1716,7 +1716,7 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeHold(ctx context.Conte
 	Eventually(func(g Gomega) {
 		serviceChainList := &dpuservicev1.ServiceChainList{}
 		g.Expect(DPUClusterClient[0].List(ctx, serviceChainList,
-			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+			client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 		g.Expect(serviceChainList.Items).To(HaveLen(input.TotalDPUs()))
 
 		// Track ServiceChains on DPUs under and not under node effect
@@ -1764,7 +1764,7 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeHold(ctx context.Conte
 	By("Verifying the DPU(s) for the updated DPUNode become ready")
 	Eventually(func(g Gomega) {
 		dpus := &provisioningv1.DPUList{}
-		g.Expect(input.Client.List(ctx, dpus, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(input.Client.List(ctx, dpus, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 
 		foundDPU := false
 		for _, dpu := range dpus.Items {
@@ -1781,7 +1781,7 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeHold(ctx context.Conte
 	var secondMaintenanceWithHold *provisioningv1.DPUNodeMaintenance
 	Eventually(func(g Gomega) {
 		dpuNodeMaintenanceList := &provisioningv1.DPUNodeMaintenanceList{}
-		g.Expect(input.Client.List(ctx, dpuNodeMaintenanceList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(input.Client.List(ctx, dpuNodeMaintenanceList, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 		// We expect only a single DPUNodeMaintenance left
 		g.Expect(dpuNodeMaintenanceList.Items).To(HaveLen(1))
 
@@ -1804,7 +1804,7 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeHold(ctx context.Conte
 	Eventually(func(g Gomega) {
 		serviceChainList := &dpuservicev1.ServiceChainList{}
 		g.Expect(DPUClusterClient[0].List(ctx, serviceChainList,
-			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+			client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 		g.Expect(serviceChainList.Items).To(HaveLen(input.TotalDPUs()))
 
 		for _, serviceChain := range serviceChainList.Items {
@@ -1817,7 +1817,7 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeHold(ctx context.Conte
 	By("Verifying that all DPUs are ready")
 	Eventually(func(g Gomega) {
 		dpus := &provisioningv1.DPUList{}
-		g.Expect(input.Client.List(ctx, dpus, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(input.Client.List(ctx, dpus, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 
 		readyDPUs := 0
 		for _, dpu := range dpus.Items {
@@ -1860,7 +1860,7 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeBadConfigurationAndBac
 	By("Getting the existing DPUDeployment")
 	dpuDeployment := &dpuservicev1.DPUDeployment{}
 	dpuDeployment.SetName("dpf-dpudeployment")
-	dpuDeployment.SetNamespace(dpfOperatorSystemNamespace)
+	dpuDeployment.SetNamespace(DPFOperatorSystemNamespace)
 	Expect(input.Client.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), dpuDeployment)).To(Succeed())
 
 	By("Getting initial ServiceChains in DPU cluster")
@@ -1868,17 +1868,17 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeBadConfigurationAndBac
 	Eventually(func(g Gomega) {
 		serviceChainList := &dpuservicev1.ServiceChainList{}
 		g.Expect(DPUClusterClient[0].List(ctx, serviceChainList,
-			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+			client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 		g.Expect(serviceChainList.Items).To(HaveLen(input.TotalDPUs()))
 		initialServiceChains = serviceChainList.Items
 	}).WithTimeout(30 * time.Second).Should(Succeed())
 
 	By("Getting the mapping between host nodes and ServiceChains existing in the DPU cluster on a DPU that is part of that node")
 	dpuList := &provisioningv1.DPUList{}
-	Expect(input.Client.List(ctx, dpuList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+	Expect(input.Client.List(ctx, dpuList, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 
 	dpuNodeList := &provisioningv1.DPUNodeList{}
-	Expect(input.Client.List(ctx, dpuNodeList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+	Expect(input.Client.List(ctx, dpuNodeList, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 
 	dpuNodeToHostNodeMap := make(map[string]string)
 	for _, dpuNode := range dpuNodeList.Items {
@@ -1929,7 +1929,7 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeBadConfigurationAndBac
 		// Verify that the new ServiceChain on the DPU correlated with the drained host node is not ready.
 		serviceChainList := &dpuservicev1.ServiceChainList{}
 		g.Expect(DPUClusterClient[0].List(ctx, serviceChainList,
-			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+			client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 		foundNewServiceChain := false
 		for _, serviceChain := range serviceChainList.Items {
 			g.Expect(serviceChain.Spec.Node).ToNot(BeNil())
@@ -1956,7 +1956,7 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeBadConfigurationAndBac
 		// The DPUDeployment controller converts Service.InterfaceName to MatchLabels["svc.dpu.nvidia.com/interface"].
 		dpuServiceChainList := &dpuservicev1.DPUServiceChainList{}
 		g.Expect(input.Client.List(ctx, dpuServiceChainList,
-			client.InNamespace(dpfOperatorSystemNamespace),
+			client.InNamespace(DPFOperatorSystemNamespace),
 			client.MatchingLabels{
 				dpuservicev1.ParentDPUDeploymentNameLabel: parentLabel,
 			})).To(Succeed())
@@ -1993,7 +1993,7 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeBadConfigurationAndBac
 	By("Validating that the ServiceChain on the other node remained intact")
 	serviceChainListCheck := &dpuservicev1.ServiceChainList{}
 	Expect(DPUClusterClient[0].List(ctx, serviceChainListCheck,
-		client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 	Expect(serviceChainListCheck.Items).To(HaveLen(input.TotalDPUs()), "Expected to find a ServiceChain in each DPU")
 	foundIntactServiceChain := false
 	for _, serviceChain := range serviceChainListCheck.Items {
@@ -2037,7 +2037,7 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeBadConfigurationAndBac
 	Eventually(func(g Gomega) {
 		recoveredServiceChainList := &dpuservicev1.ServiceChainList{}
 		g.Expect(DPUClusterClient[0].List(ctx, recoveredServiceChainList,
-			client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+			client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 		g.Expect(recoveredServiceChainList.Items).To(HaveLen(input.TotalDPUs()), "Expected to find a ServiceChain in each DPU")
 		foundNewReadyServiceChain := false
 		foundIntactServiceChain := false
@@ -2082,7 +2082,7 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeBadConfigurationAndBac
 // Returns the patched config and a deep copy of the original for use in revert.
 func setMaxUnavailableDPUNodes(ctx context.Context, c client.Client) (*operatorv1.DPFOperatorConfig, *operatorv1.DPFOperatorConfig) {
 	dpfOperatorConfig := &operatorv1.DPFOperatorConfig{}
-	Expect(c.Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: configName}, dpfOperatorConfig)).To(Succeed())
+	Expect(c.Get(ctx, client.ObjectKey{Namespace: DPFOperatorSystemNamespace, Name: ConfigName}, dpfOperatorConfig)).To(Succeed())
 	originalDPFOperatorConfig := dpfOperatorConfig.DeepCopy()
 
 	// Set MaxUnavailableDPUNodes to 1 to ensure only one node is upgraded at a time
@@ -2117,7 +2117,7 @@ func verifyNodeDrainRemoved(g Gomega, ctx context.Context, c client.Client, node
 // DPUNodeEffectRemoval phase.
 func verifyDPUInNodeEffectRemoval(g Gomega, ctx context.Context, c client.Client, drainedHostNodeName string) {
 	dpus := &provisioningv1.DPUList{}
-	g.Expect(c.List(ctx, dpus, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+	g.Expect(c.List(ctx, dpus, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 
 	for _, dpu := range dpus.Items {
 		if dpu.Spec.DPUNodeName == drainedHostNodeName {
@@ -2131,7 +2131,7 @@ func verifyDPUInNodeEffectRemoval(g Gomega, ctx context.Context, c client.Client
 // contains the expected requestor, and that it is currently active (ConditionNodeEffectApplied is True).
 func verifyDPUNodeMaintenanceHasRequestor(g Gomega, ctx context.Context, c client.Client, drainedHostNodeName, expectedRequestor string) {
 	dpuNodeMaintenanceList := &provisioningv1.DPUNodeMaintenanceList{}
-	g.Expect(c.List(ctx, dpuNodeMaintenanceList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+	g.Expect(c.List(ctx, dpuNodeMaintenanceList, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 	foundDPUNodeMaintenance := false
 	for i := range dpuNodeMaintenanceList.Items {
 		dpuNodeMaintenance := &dpuNodeMaintenanceList.Items[i]
@@ -2205,7 +2205,7 @@ func useDummyDPUServiceChart(dpuServiceTemplate *dpuservicev1.DPUServiceTemplate
 	dpuServiceTemplate.Spec.HelmChart.Values = nil
 	if ngcAPIKey != "" {
 		dpuServiceTemplate.Spec.HelmChart.Values = &machineryruntime.RawExtension{
-			Raw: []byte(fmt.Sprintf(`{"imagePullSecrets": [{"name": "%s"}]}`, ngcPullSecretName)),
+			Raw: []byte(fmt.Sprintf(`{"imagePullSecrets": [{"name": "%s"}]}`, NGCPullSecretName)),
 		}
 	}
 }
@@ -2352,7 +2352,7 @@ func captureOldPodUIDs(ctx context.Context, c client.Client, namespace string, s
 func captureInitialNodeEffectStates(ctx context.Context, c client.Client, dpuNodeNames []string) map[string]dpuNodeEffectState {
 	initialNodeEffectStates := make(map[string]dpuNodeEffectState)
 	dpuList := &provisioningv1.DPUList{}
-	Expect(c.List(ctx, dpuList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+	Expect(c.List(ctx, dpuList, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 
 	for _, dpu := range dpuList.Items {
 		// Only track DPUs that belong to our target DPUNodes
@@ -2430,7 +2430,7 @@ func verifyDPUsCompletedMaintenance(ctx context.Context, c client.Client, dpuNod
 		dpusCompletedMaintenance := make(map[string]struct{})
 
 		dpuList := &provisioningv1.DPUList{}
-		g.Expect(c.List(ctx, dpuList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(c.List(ctx, dpuList, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 
 		for _, dpu := range dpuList.Items {
 			// Only check DPUs that belong to our target DPUNodes

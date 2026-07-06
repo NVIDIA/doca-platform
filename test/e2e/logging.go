@@ -46,7 +46,7 @@ func ValidateDPUClusterOpenTelemetryConfiguration(ctx context.Context, input *Sy
 		cm := &corev1.ConfigMap{}
 		Eventually(func(g Gomega) {
 			err := dpuClient.Get(ctx, client.ObjectKey{
-				Namespace: dpfOperatorSystemNamespace,
+				Namespace: DPFOperatorSystemNamespace,
 				Name:      clusterName + "-opentelemetry-collector-config",
 			}, cm)
 			g.Expect(err).NotTo(HaveOccurred())
@@ -71,7 +71,7 @@ func ValidateDPUClusterOpenTelemetryConfiguration(ctx context.Context, input *Sy
 
 // ValidateManagementClusterLogFlow verifies logs flow from management cluster to Loki
 func ValidateManagementClusterLogFlow(ctx context.Context, input *SystemTestInput) {
-	lokiClient := loki.NewClient(HostClusterRESTClient, dpfOperatorSystemNamespace)
+	lokiClient := loki.NewClient(HostClusterRESTClient, DPFOperatorSystemNamespace)
 	testNamespacePrefix := "test-logging-mgmt-"
 	uniqueMessage := fmt.Sprintf("test-log-mgmt-%d", time.Now().Unix())
 
@@ -114,7 +114,7 @@ func ValidateManagementClusterLogFlow(ctx context.Context, input *SystemTestInpu
 
 // ValidateDPUClusterLogFlow verifies logs flow from DPU cluster to Loki
 func ValidateDPUClusterLogFlow(ctx context.Context, input *SystemTestInput) {
-	lokiClient := loki.NewClient(HostClusterRESTClient, dpfOperatorSystemNamespace)
+	lokiClient := loki.NewClient(HostClusterRESTClient, DPFOperatorSystemNamespace)
 	testNamespacePrefix := "test-logging-dpu-"
 	uniqueMessage := fmt.Sprintf("test-log-dpu-%d", time.Now().Unix())
 

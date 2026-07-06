@@ -59,7 +59,7 @@ const (
 // changes them back to their default versions.
 func ValidateDPFOperatorBaseConfiguration(ctx context.Context, input *SystemTestInput) {
 	modifiedConfig := &operatorv1.DPFOperatorConfig{}
-	Expect(input.Client.Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: configName}, modifiedConfig)).To(Succeed())
+	Expect(input.Client.Get(ctx, client.ObjectKey{Namespace: DPFOperatorSystemNamespace, Name: ConfigName}, modifiedConfig)).To(Succeed())
 	originalConfig := modifiedConfig.DeepCopy()
 
 	dummyRegistryName := "dummy-registry.com"
@@ -262,7 +262,7 @@ func verifyComponentOverrides(ctx context.Context, input *SystemTestInput, dummy
 			nameForCluster := fmt.Sprintf("%s-%s", clusterName, name)
 			trackingAnnotationValuePrefix := nameForCluster
 			if prereqsNamespace != "" {
-				trackingAnnotationValuePrefix = fmt.Sprintf("%s_%s", dpfOperatorSystemNamespace, nameForCluster)
+				trackingAnnotationValuePrefix = fmt.Sprintf("%s_%s", DPFOperatorSystemNamespace, nameForCluster)
 			}
 			tracker.By(nameForCluster, "verifying overrides for %s", nameForCluster)
 			deployments := appsv1.DeploymentList{}
@@ -270,7 +270,7 @@ func verifyComponentOverrides(ctx context.Context, input *SystemTestInput, dummy
 
 			var matchingDeployments []appsv1.Deployment
 			for _, deploy := range deployments.Items {
-				if strings.HasPrefix(deploy.GetAnnotations()[argoCDTrackingIDAnnotation], trackingAnnotationValuePrefix) {
+				if strings.HasPrefix(deploy.GetAnnotations()[ArgoCDTrackingIDAnnotation], trackingAnnotationValuePrefix) {
 					matchingDeployments = append(matchingDeployments, deploy)
 				}
 			}
@@ -293,7 +293,7 @@ func verifyComponentOverrides(ctx context.Context, input *SystemTestInput, dummy
 			nameForCluster := fmt.Sprintf("%s-%s", input.DPUClusters[0].Name, name)
 			trackingAnnotationValuePrefix := nameForCluster
 			if prereqsNamespace != "" {
-				trackingAnnotationValuePrefix = fmt.Sprintf("%s_%s", dpfOperatorSystemNamespace, nameForCluster)
+				trackingAnnotationValuePrefix = fmt.Sprintf("%s_%s", DPFOperatorSystemNamespace, nameForCluster)
 			}
 			tracker.By(nameForCluster, "verifying overrides for %s", nameForCluster)
 			daemonSets := appsv1.DaemonSetList{}
@@ -301,7 +301,7 @@ func verifyComponentOverrides(ctx context.Context, input *SystemTestInput, dummy
 
 			var matchingDaemonSets []appsv1.DaemonSet
 			for _, ds := range daemonSets.Items {
-				if strings.HasPrefix(ds.GetAnnotations()[argoCDTrackingIDAnnotation], trackingAnnotationValuePrefix) {
+				if strings.HasPrefix(ds.GetAnnotations()[ArgoCDTrackingIDAnnotation], trackingAnnotationValuePrefix) {
 					matchingDaemonSets = append(matchingDaemonSets, ds)
 				}
 			}
@@ -338,14 +338,14 @@ func verifyComponentOverrides(ctx context.Context, input *SystemTestInput, dummy
 func ValidateDPFOperatorMTUCurrentConfiguration(ctx context.Context, input *SystemTestInput) {
 	By("Verify flannel configmap for cluster " + input.DPUClusters[0].Name)
 	flannelConfigMap := &corev1.ConfigMap{}
-	Expect(DPUClusterClient[0].Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: "kube-flannel-cfg"}, flannelConfigMap)).To(Succeed())
+	Expect(DPUClusterClient[0].Get(ctx, client.ObjectKey{Namespace: DPFOperatorSystemNamespace, Name: "kube-flannel-cfg"}, flannelConfigMap)).To(Succeed())
 	Expect(flannelConfigMap.Data["net-conf.json"]).To(ContainSubstring("MTU\": 1500,"))
 }
 
 func ValidateDPFOperatorMTUConfigurationChange(ctx context.Context, input *SystemTestInput) {
 	By("Get the operatorConfig")
 	modifiedConfig := &operatorv1.DPFOperatorConfig{}
-	Expect(input.Client.Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: configName}, modifiedConfig)).To(Succeed())
+	Expect(input.Client.Get(ctx, client.ObjectKey{Namespace: DPFOperatorSystemNamespace, Name: ConfigName}, modifiedConfig)).To(Succeed())
 	By("Update the MTU in the operatorConfig")
 	originalConfig := modifiedConfig.DeepCopy()
 	if modifiedConfig.Spec.Networking == nil {
@@ -360,7 +360,7 @@ func ValidateDPFOperatorMTUConfigurationChange(ctx context.Context, input *Syste
 	By("Verify flannel and multus for cluster " + input.DPUClusters[0].Name)
 	Eventually(func(g Gomega) {
 		flannelConfigMap := &corev1.ConfigMap{}
-		g.Expect(DPUClusterClient[0].Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: "kube-flannel-cfg"}, flannelConfigMap)).To(Succeed())
+		g.Expect(DPUClusterClient[0].Get(ctx, client.ObjectKey{Namespace: DPFOperatorSystemNamespace, Name: "kube-flannel-cfg"}, flannelConfigMap)).To(Succeed())
 		g.Expect(flannelConfigMap.Data["net-conf.json"]).To(ContainSubstring(fmt.Sprintf(`MTU": %d`, testMTUValue)))
 
 		netAttachDef := &unstructured.Unstructured{}
@@ -370,13 +370,13 @@ func ValidateDPFOperatorMTUConfigurationChange(ctx context.Context, input *Syste
 			Kind:    "NetworkAttachmentDefinition",
 		})
 
-		g.Expect(DPUClusterClient[0].Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: "mybrsfc"}, netAttachDef)).To(Succeed())
+		g.Expect(DPUClusterClient[0].Get(ctx, client.ObjectKey{Namespace: DPFOperatorSystemNamespace, Name: "mybrsfc"}, netAttachDef)).To(Succeed())
 		netAttachConfig, exists, err := unstructured.NestedString(netAttachDef.Object, "spec", "config")
 		g.Expect(err).ToNot(HaveOccurred())
 		g.Expect(exists).To(BeTrue())
 		g.Expect(netAttachConfig).To(ContainSubstring("mtu\": 9000,"))
 
-		g.Expect(DPUClusterClient[0].Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: "mybrhbn"}, netAttachDef)).To(Succeed())
+		g.Expect(DPUClusterClient[0].Get(ctx, client.ObjectKey{Namespace: DPFOperatorSystemNamespace, Name: "mybrhbn"}, netAttachDef)).To(Succeed())
 		netAttachConfig, exists, err = unstructured.NestedString(netAttachDef.Object, "spec", "config")
 		g.Expect(err).ToNot(HaveOccurred())
 		g.Expect(exists).To(BeTrue())
@@ -431,7 +431,7 @@ func ValidateDPFOperatorOOBBridgeNameChange(ctx context.Context, input *SystemTe
 
 	By("Get the operatorConfig")
 	modifiedConfig := &operatorv1.DPFOperatorConfig{}
-	Expect(input.Client.Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: configName}, modifiedConfig)).To(Succeed())
+	Expect(input.Client.Get(ctx, client.ObjectKey{Namespace: DPFOperatorSystemNamespace, Name: ConfigName}, modifiedConfig)).To(Succeed())
 	originalConfig := modifiedConfig.DeepCopy()
 
 	By("Set a non-existent bridge name in the operatorConfig")
@@ -447,7 +447,7 @@ func ValidateDPFOperatorOOBBridgeNameChange(ctx context.Context, input *SystemTe
 	By("Verify DPUNode OOBBridgeConfigured condition becomes False")
 	Eventually(func(g Gomega) {
 		dpuNodeList := &provisioningv1.DPUNodeList{}
-		g.Expect(input.Client.List(ctx, dpuNodeList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(input.Client.List(ctx, dpuNodeList, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 		g.Expect(dpuNodeList.Items).ToNot(BeEmpty())
 		for _, dpuNode := range dpuNodeList.Items {
 			for _, cond := range dpuNode.Status.Conditions {
@@ -471,7 +471,7 @@ func ValidateDPFOperatorOOBBridgeNameChange(ctx context.Context, input *SystemTe
 	By("Verify DPUNode OOBBridgeConfigured condition recovers to True")
 	Eventually(func(g Gomega) {
 		dpuNodeList := &provisioningv1.DPUNodeList{}
-		g.Expect(input.Client.List(ctx, dpuNodeList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(input.Client.List(ctx, dpuNodeList, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 		g.Expect(dpuNodeList.Items).ToNot(BeEmpty())
 		for _, dpuNode := range dpuNodeList.Items {
 			for _, cond := range dpuNode.Status.Conditions {
@@ -491,7 +491,7 @@ func ValidateDPFOperatorOOBBridgePostProvisioning(ctx context.Context, input *Sy
 
 	By("Get configured OOB bridge name from DPFOperatorConfig")
 	config := &operatorv1.DPFOperatorConfig{}
-	Expect(input.Client.Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: configName}, config)).To(Succeed())
+	Expect(input.Client.Get(ctx, client.ObjectKey{Namespace: DPFOperatorSystemNamespace, Name: ConfigName}, config)).To(Succeed())
 	bridgeName := config.Spec.Networking.GetDPUNodeOOBBridgeName()
 
 	By("Get hostagent pods")
@@ -543,7 +543,7 @@ func ValidateDPFOperatorOOBBridgePostProvisioning(ctx context.Context, input *Sy
 func ValidateDPFOperatorFlannelPodCIDRChange(ctx context.Context, input *SystemTestInput) {
 	By("Get the operatorConfig")
 	modifiedConfig := &operatorv1.DPFOperatorConfig{}
-	Expect(input.Client.Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: configName}, modifiedConfig)).To(Succeed())
+	Expect(input.Client.Get(ctx, client.ObjectKey{Namespace: DPFOperatorSystemNamespace, Name: ConfigName}, modifiedConfig)).To(Succeed())
 	By("Update the podCIDR in the operatorConfig")
 	originalConfig := modifiedConfig.DeepCopy()
 	if modifiedConfig.Spec.Flannel == nil {
@@ -557,7 +557,7 @@ func ValidateDPFOperatorFlannelPodCIDRChange(ctx context.Context, input *SystemT
 	By("Verify flannel configmap for cluster " + input.DPUClusters[0].Name)
 	Eventually(func(g Gomega) {
 		flannelConfigMap := &corev1.ConfigMap{}
-		g.Expect(DPUClusterClient[0].Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: "kube-flannel-cfg"}, flannelConfigMap)).To(Succeed())
+		g.Expect(DPUClusterClient[0].Get(ctx, client.ObjectKey{Namespace: DPFOperatorSystemNamespace, Name: "kube-flannel-cfg"}, flannelConfigMap)).To(Succeed())
 		g.Expect(flannelConfigMap.Data["net-conf.json"]).To(ContainSubstring("10.255.0.0/14"))
 	}, time.Second*30).Should(Succeed())
 
@@ -574,7 +574,7 @@ func ValidateDPFOperatorFlannelPodCIDRChange(ctx context.Context, input *SystemT
 
 func ValidateDPFOperatorMaxDPUParallelInstallations(ctx context.Context, input *SystemTestInput) {
 	modifiedConfig := &operatorv1.DPFOperatorConfig{}
-	Expect(input.Client.Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: configName}, modifiedConfig)).To(Succeed())
+	Expect(input.Client.Get(ctx, client.ObjectKey{Namespace: DPFOperatorSystemNamespace, Name: ConfigName}, modifiedConfig)).To(Succeed())
 	originalConfig := modifiedConfig.DeepCopy()
 
 	By("Getting the current provisioning controller pod UIDs")
@@ -649,7 +649,7 @@ func ValidateDPFOperatorMaxDPUParallelInstallations(ctx context.Context, input *
 
 func ValidateDPFOperatorPathConfiguration(ctx context.Context, input *SystemTestInput) {
 	modifiedConfig := &operatorv1.DPFOperatorConfig{}
-	Expect(input.Client.Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: configName}, modifiedConfig)).To(Succeed())
+	Expect(input.Client.Get(ctx, client.ObjectKey{Namespace: DPFOperatorSystemNamespace, Name: ConfigName}, modifiedConfig)).To(Succeed())
 	originalConfig := modifiedConfig.DeepCopy()
 
 	modifiedOVSRunPath := "/ovsrun"
@@ -684,13 +684,13 @@ func ValidateDPFOperatorPathConfiguration(ctx context.Context, input *SystemTest
 			nameForCluster := fmt.Sprintf("%s-%s", input.DPUClusters[0].Name, name)
 			trackingAnnotationValuePrefix := nameForCluster
 			if prereqsNamespace != "" {
-				trackingAnnotationValuePrefix = fmt.Sprintf("%s_%s", dpfOperatorSystemNamespace, nameForCluster)
+				trackingAnnotationValuePrefix = fmt.Sprintf("%s_%s", DPFOperatorSystemNamespace, nameForCluster)
 			}
 			g.Expect(DPUClusterClient[0].List(ctx, &daemonSets)).To(Succeed())
 
 			var matchingDaemonSets []appsv1.DaemonSet
 			for _, ds := range daemonSets.Items {
-				if strings.HasPrefix(ds.GetAnnotations()[argoCDTrackingIDAnnotation], trackingAnnotationValuePrefix) {
+				if strings.HasPrefix(ds.GetAnnotations()[ArgoCDTrackingIDAnnotation], trackingAnnotationValuePrefix) {
 					matchingDaemonSets = append(matchingDaemonSets, ds)
 				}
 			}
@@ -764,7 +764,7 @@ func ValidateDPFOperatorKubernetesAPIServerVIPAndPort(ctx context.Context, input
 	}
 
 	modifiedConfig := &operatorv1.DPFOperatorConfig{}
-	Expect(input.Client.Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: configName}, modifiedConfig)).To(Succeed())
+	Expect(input.Client.Get(ctx, client.ObjectKey{Namespace: DPFOperatorSystemNamespace, Name: ConfigName}, modifiedConfig)).To(Succeed())
 	originalConfig := modifiedConfig.DeepCopy()
 
 	By("Modifying the DPFOperatorConfig to set the Kubernetes API Server related variables")
@@ -867,7 +867,7 @@ func triggerDMSRecreation(ctx context.Context, c client.Client) {
 	// First delete the existing DMS pods
 	Expect(client.IgnoreNotFound(c.DeleteAllOf(ctx,
 		&corev1.Pod{},
-		client.InNamespace(dpfOperatorSystemNamespace),
+		client.InNamespace(DPFOperatorSystemNamespace),
 		client.MatchingLabels{cutil.ProvisioningComponentLabelKey: "hostagent"}))).To(Succeed())
 
 	// Then trigger reconcile of DPUNode Node Controller by modifying the node objects and expect that a new dms pod is created
@@ -949,8 +949,8 @@ func ValidateDPFOperatorConfigCleanupPrerequisites(ctx context.Context, input *S
 func DeleteDPFOperatorConfig(ctx context.Context, testClient client.Client) {
 	By("Delete the operatorConfig and ensure it is deleted")
 	Eventually(func(g Gomega) {
-		key := client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: configName}
-		g.Expect(client.IgnoreNotFound(testClient.DeleteAllOf(ctx, &operatorv1.DPFOperatorConfig{}, client.InNamespace(dpfOperatorSystemNamespace)))).To(Succeed())
+		key := client.ObjectKey{Namespace: DPFOperatorSystemNamespace, Name: ConfigName}
+		g.Expect(client.IgnoreNotFound(testClient.DeleteAllOf(ctx, &operatorv1.DPFOperatorConfig{}, client.InNamespace(DPFOperatorSystemNamespace)))).To(Succeed())
 		g.Expect(apierrors.IsNotFound(testClient.Get(ctx, key, &operatorv1.DPFOperatorConfig{}))).To(BeTrue())
 	}).WithTimeout(time.Hour).WithPolling(30 * time.Second).Should(Succeed())
 	// TODO: Remove once DPUSets implement foreground deletion

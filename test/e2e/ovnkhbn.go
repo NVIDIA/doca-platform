@@ -41,7 +41,7 @@ import (
 )
 
 func WaitForOVNKHBNDeploymentReady(ctx context.Context, input *SystemTestInput) {
-	dpuservice.WaitForDPUDeploymentReady(ctx, input.Client, dpfOperatorSystemNamespace, []string{"ovn-hbn"}, 50*time.Minute)
+	dpuservice.WaitForDPUDeploymentReady(ctx, input.Client, DPFOperatorSystemNamespace, []string{"ovn-hbn"}, 50*time.Minute)
 }
 
 // DeployOVNKHBNScenario creates the application-layer objects required for the HBN-OVN scenario:
@@ -257,7 +257,7 @@ func InstallOVNKResourceInjector(ctx context.Context, c client.Client) {
 // parallelism to ~60% of cluster nodes. Returns a restore function that reverts to the original value.
 func SetMaintenanceOperatorMaxParallelOperations(ctx context.Context, c client.Client, value int32) func() {
 	cfg := &maintenancev1alpha1.MaintenanceOperatorConfig{}
-	Expect(c.Get(ctx, client.ObjectKey{Name: "default", Namespace: dpfOperatorSystemNamespace}, cfg)).To(Succeed())
+	Expect(c.Get(ctx, client.ObjectKey{Name: "default", Namespace: DPFOperatorSystemNamespace}, cfg)).To(Succeed())
 
 	original := cfg.Spec.MaxParallelOperations
 
@@ -268,7 +268,7 @@ func SetMaintenanceOperatorMaxParallelOperations(ctx context.Context, c client.C
 
 	return func() {
 		cfg2 := &maintenancev1alpha1.MaintenanceOperatorConfig{}
-		Expect(c.Get(ctx, client.ObjectKey{Name: "default", Namespace: dpfOperatorSystemNamespace}, cfg2)).To(Succeed())
+		Expect(c.Get(ctx, client.ObjectKey{Name: "default", Namespace: DPFOperatorSystemNamespace}, cfg2)).To(Succeed())
 		patch2 := client.MergeFrom(cfg2.DeepCopy())
 		cfg2.Spec.MaxParallelOperations = original
 		Expect(c.Patch(ctx, cfg2, patch2)).To(Succeed())

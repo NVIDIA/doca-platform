@@ -49,7 +49,7 @@ func ValidateDPUServiceKataRuntimeClass(ctx context.Context, input *SystemTestIn
 	}
 
 	By("Waiting for kata-containers DPUService to be ready")
-	dpuservice.WaitForDPUServices(ctx, input.Client, dpfOperatorSystemNamespace, []string{operatorv1.KataContainersName.String()})
+	dpuservice.WaitForDPUServices(ctx, input.Client, DPFOperatorSystemNamespace, []string{operatorv1.KataContainersName.String()})
 
 	By("Waiting for kata-qemu RuntimeClass to be created in the DPU cluster")
 	Eventually(func(g Gomega) {
@@ -59,7 +59,7 @@ func ValidateDPUServiceKataRuntimeClass(ctx context.Context, input *SystemTestIn
 	By("Creating a dummy DPUService that uses kata-qemu and requests an SF")
 	dpuService := input.DPUService.DeepCopy()
 	dpuService.Name = kataDPUServiceName
-	dpuService.Namespace = dpfOperatorSystemNamespace
+	dpuService.Namespace = DPFOperatorSystemNamespace
 	dpuService.SetLabels(CleanupScope.It)
 	dpuService.Spec.HelmChart.Source = dpuservicev1.ApplicationSource{
 		Chart:   "dummydpuservice-chart",
@@ -67,7 +67,7 @@ func ValidateDPUServiceKataRuntimeClass(ctx context.Context, input *SystemTestIn
 		RepoURL: helmRegistry,
 	}
 	dpuService.Spec.HelmChart.Values = &machineryruntime.RawExtension{
-		Raw: []byte(fmt.Sprintf(`{"runtimeClassName": %q, "imagePullSecrets": [{"name": %q}]}`, kataRuntimeClassName, dpfPullSecretName)),
+		Raw: []byte(fmt.Sprintf(`{"runtimeClassName": %q, "imagePullSecrets": [{"name": %q}]}`, kataRuntimeClassName, DPFPullSecretName)),
 	}
 	dpuService.Spec.ServiceDaemonSet = &dpuservicev1.ServiceDaemonSetValues{
 		Resources: corev1.ResourceList{
@@ -95,7 +95,7 @@ func ValidateDPUServiceKataRuntimeClass(ctx context.Context, input *SystemTestIn
 // kataRunningPods returns all Running pods belonging to the kata dummy DPUService DaemonSet.
 func kataRunningPods(ctx context.Context, g Gomega) []corev1.Pod {
 	daemonSetList := &appsv1.DaemonSetList{}
-	g.Expect(DPUClusterClient[0].List(ctx, daemonSetList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+	g.Expect(DPUClusterClient[0].List(ctx, daemonSetList, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 
 	var matchLabels map[string]string
 	for _, ds := range daemonSetList.Items {
@@ -111,7 +111,7 @@ func kataRunningPods(ctx context.Context, g Gomega) []corev1.Pod {
 	g.Expect(DPUClusterClient[0].List(
 		ctx,
 		podList,
-		client.InNamespace(dpfOperatorSystemNamespace),
+		client.InNamespace(DPFOperatorSystemNamespace),
 		client.MatchingLabels(matchLabels),
 		client.MatchingFields{"status.phase": string(corev1.PodRunning)},
 	)).To(Succeed())

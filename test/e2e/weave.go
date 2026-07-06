@@ -189,7 +189,7 @@ type weaveTestInput struct {
 	dhcpDaemonSet *appsv1.DaemonSet
 }
 
-func (t *weaveTestInput) applyWeaveConfig(conf config) {
+func (t *weaveTestInput) applyWeaveConfig(conf Config) {
 	dhcpDaemonSet := &appsv1.DaemonSet{}
 	dhcpObj := unstructuredFromFile(conf.DHCPDaemonSetPath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(dhcpObj.Object, dhcpDaemonSet)).To(Succeed())
@@ -197,7 +197,7 @@ func (t *weaveTestInput) applyWeaveConfig(conf config) {
 }
 
 // WeaveBeforeSuite is called from the e2e BeforeSuite to load Weave test artifacts from config.
-func WeaveBeforeSuite(c config) {
+func WeaveBeforeSuite(c Config) {
 	By("Setting Weave configs for the test")
 	weaveInput.applyWeaveConfig(c)
 }
@@ -619,7 +619,7 @@ func createNetutilsHostPodOnNode(ctx context.Context, c client.Client, namespace
 			HostNetwork:      true,
 			DNSPolicy:        corev1.DNSClusterFirstWithHostNet,
 			RestartPolicy:    corev1.RestartPolicyNever,
-			ImagePullSecrets: []corev1.LocalObjectReference{{Name: dpfPullSecretName}},
+			ImagePullSecrets: []corev1.LocalObjectReference{{Name: DPFPullSecretName}},
 			Containers: []corev1.Container{{
 				Name:    "netutils",
 				Image:   fmt.Sprintf("%s:%s", netutilsImage, tag),

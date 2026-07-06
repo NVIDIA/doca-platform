@@ -42,7 +42,7 @@ func CreateDPUWorkerNodes(ctx context.Context, n int) {
 	// Get the name of the mock-dms pod
 
 	mockDMSPod := &corev1.PodList{}
-	Expect(TestClient.List(ctx, mockDMSPod, client.InNamespace(dpfOperatorSystemNamespace), client.MatchingLabels{"app.kubernetes.io/instance": "mock-dms"})).To(Succeed())
+	Expect(TestClient.List(ctx, mockDMSPod, client.InNamespace(DPFOperatorSystemNamespace), client.MatchingLabels{"app.kubernetes.io/instance": "mock-dms"})).To(Succeed())
 	Expect(mockDMSPod.Items).To(HaveLen(1))
 	mockDMSPodName := mockDMSPod.Items[0].Name
 

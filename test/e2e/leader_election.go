@@ -101,7 +101,7 @@ func ValidateLeaderElectionFailover(ctx context.Context, c client.Client, target
 	// The lease holder identity is "<podName>_<uuid>" (controller-runtime uses the
 	// pod hostname). Match it to a live pod.
 	pods := &corev1.PodList{}
-	Expect(c.List(ctx, pods, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+	Expect(c.List(ctx, pods, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 	var leaderPod *corev1.Pod
 	for i := range pods.Items {
 		if strings.HasPrefix(originalLeader, pods.Items[i].Name+"_") {
@@ -109,7 +109,7 @@ func ValidateLeaderElectionFailover(ctx context.Context, c client.Client, target
 			break
 		}
 	}
-	Expect(leaderPod).ToNot(BeNil(), "no pod found for lease holder %q in %s", originalLeader, dpfOperatorSystemNamespace)
+	Expect(leaderPod).ToNot(BeNil(), "no pod found for lease holder %q in %s", originalLeader, DPFOperatorSystemNamespace)
 
 	By(fmt.Sprintf("Deleting leader pod %q (lease holder %q) to simulate leader failure", leaderPod.Name, originalLeader))
 	Expect(c.Delete(ctx, leaderPod)).To(Succeed())
@@ -125,8 +125,8 @@ func scaleControllerReplicas(ctx context.Context, c client.Client, target leader
 	Eventually(func(g Gomega) {
 		operatorConfig := &operatorv1.DPFOperatorConfig{}
 		g.Expect(c.Get(ctx, client.ObjectKey{
-			Namespace: dpfOperatorSystemNamespace,
-			Name:      configName,
+			Namespace: DPFOperatorSystemNamespace,
+			Name:      ConfigName,
 		}, operatorConfig)).To(Succeed())
 		configPatch := client.MergeFrom(operatorConfig.DeepCopy())
 		applied := false
@@ -148,7 +148,7 @@ func scaleControllerReplicas(ctx context.Context, c client.Client, target leader
 	Eventually(func(g Gomega) {
 		leaderDeployment := &appsv1.Deployment{}
 		g.Expect(c.Get(ctx, client.ObjectKey{
-			Namespace: dpfOperatorSystemNamespace,
+			Namespace: DPFOperatorSystemNamespace,
 			Name:      target.deploymentName,
 		}, leaderDeployment)).To(Succeed())
 		g.Expect(ptr.Deref(leaderDeployment.Spec.Replicas, 0)).To(Equal(replicas))
@@ -163,7 +163,7 @@ func captureCurrentLeader(ctx context.Context, c client.Client, target leaderEle
 	lease := &coordinationv1.Lease{}
 	Eventually(func(g Gomega) {
 		g.Expect(c.Get(ctx, client.ObjectKey{
-			Namespace: dpfOperatorSystemNamespace,
+			Namespace: DPFOperatorSystemNamespace,
 			Name:      target.leaseName,
 		}, lease)).To(Succeed())
 
@@ -171,7 +171,7 @@ func captureCurrentLeader(ctx context.Context, c client.Client, target leaderEle
 		g.Expect(*lease.Spec.HolderIdentity).ToNot(BeEmpty())
 	}).WithTimeout(leaseReadTimeout).WithPolling(leaderElectionPollInterval).Should(Succeed(),
 		"expected a Lease %s/%s with a non-empty holderIdentity",
-		dpfOperatorSystemNamespace, target.leaseName)
+		DPFOperatorSystemNamespace, target.leaseName)
 	return *lease.Spec.HolderIdentity
 }
 
@@ -183,7 +183,7 @@ func verifyLeaseHandover(ctx context.Context, c client.Client, target leaderElec
 	lease := &coordinationv1.Lease{}
 	Eventually(func(g Gomega) {
 		g.Expect(c.Get(ctx, client.ObjectKey{
-			Namespace: dpfOperatorSystemNamespace,
+			Namespace: DPFOperatorSystemNamespace,
 			Name:      target.leaseName,
 		}, lease)).To(Succeed())
 
@@ -193,14 +193,14 @@ func verifyLeaseHandover(ctx context.Context, c client.Client, target leaderElec
 			"lease is still held by the deleted pod")
 	}).WithTimeout(leaseHandoverTimeout).WithPolling(leaderElectionPollInterval).Should(Succeed(),
 		"expected a new pod to acquire the Lease %s/%s after the original leader was deleted",
-		dpfOperatorSystemNamespace, target.leaseName)
+		DPFOperatorSystemNamespace, target.leaseName)
 
 	By("Verifying the new leader has renewed the Lease at least once")
 	Expect(lease.Spec.RenewTime).ToNot(BeNil())
 	baselineRenewTime := lease.Spec.RenewTime.Time
 	Eventually(func(g Gomega) {
 		g.Expect(c.Get(ctx, client.ObjectKey{
-			Namespace: dpfOperatorSystemNamespace,
+			Namespace: DPFOperatorSystemNamespace,
 			Name:      target.leaseName,
 		}, lease)).To(Succeed())
 
@@ -219,14 +219,14 @@ func verifyDeploymentReady(ctx context.Context, c client.Client, target leaderEl
 	leaderDeployment := &appsv1.Deployment{}
 	Eventually(func(g Gomega) {
 		g.Expect(c.Get(ctx, client.ObjectKey{
-			Namespace: dpfOperatorSystemNamespace,
+			Namespace: DPFOperatorSystemNamespace,
 			Name:      target.deploymentName,
 		}, leaderDeployment)).To(Succeed())
 
 		g.Expect(leaderDeployment.Status.ReadyReplicas).To(
 			Equal(ptr.Deref(leaderDeployment.Spec.Replicas, 0)),
 			"Deployment %s/%s did not return to fully ready (got %d/%d ready)",
-			dpfOperatorSystemNamespace,
+			DPFOperatorSystemNamespace,
 			target.deploymentName,
 			leaderDeployment.Status.ReadyReplicas,
 			ptr.Deref(leaderDeployment.Spec.Replicas, 0),

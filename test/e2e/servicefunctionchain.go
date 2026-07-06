@@ -740,7 +740,7 @@ func configureNetshootDPUService(dpuService *dpuservicev1.DPUService, serviceID 
 	}
 
 	values := make(map[string]any)
-	values["imagePullSecrets"] = []map[string]string{{"name": dpfPullSecretName}}
+	values["imagePullSecrets"] = []map[string]string{{"name": DPFPullSecretName}}
 	values["image"] = map[string]string{"repository": netutilsImage}
 	rawValues, err := json.Marshal(values)
 	Expect(err).NotTo(HaveOccurred())

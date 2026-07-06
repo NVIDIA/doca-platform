@@ -51,7 +51,7 @@ func ValidateDPUServiceConfigPorts(ctx context.Context, input *SystemTestInput) 
 	By("Creating a DPUService with ConfigPorts")
 	dpuService := input.DPUService.DeepCopy()
 	dpuService.Name = "dummydpuservice"
-	dpuService.Namespace = dpfOperatorSystemNamespace
+	dpuService.Namespace = DPFOperatorSystemNamespace
 	dpuService.SetLabels(CleanupScope.It)
 	dpuService.Spec.HelmChart.Source = dpuservicev1.ApplicationSource{
 		Chart:   "dummydpuservice-chart",
@@ -59,7 +59,7 @@ func ValidateDPUServiceConfigPorts(ctx context.Context, input *SystemTestInput) 
 		RepoURL: helmRegistry,
 	}
 	dpuService.Spec.HelmChart.Values = &machineryruntime.RawExtension{
-		Raw: []byte(fmt.Sprintf(`{"imagePullSecrets": [{"name": "%s"}]}`, dpfPullSecretName)),
+		Raw: []byte(fmt.Sprintf(`{"imagePullSecrets": [{"name": "%s"}]}`, DPFPullSecretName)),
 	}
 	dpuService.Spec.ConfigPorts = &dpuservicev1.ConfigPorts{
 		// TODO: test also ClusterIP. Currently this is not working as k3s doesn't have kube-proxy deployed.
@@ -121,7 +121,7 @@ func ValidateDPUServiceConfigPorts(ctx context.Context, input *SystemTestInput) 
 			var podInfo dummydpuservice.PodInfo
 			g.Expect(json.NewDecoder(resp.Body).Decode(&podInfo)).To(Succeed())
 			g.Expect(podInfo.NodeIP).To(Equal(dpuNodeIP))
-			g.Expect(podInfo.PodNamespace).To(Equal(dpfOperatorSystemNamespace))
+			g.Expect(podInfo.PodNamespace).To(Equal(DPFOperatorSystemNamespace))
 			// This timeout needs to be big enough because in multi node nic cloud setup the image pulling may take
 			// longer than expected
 		}).WithTimeout(30 * time.Minute).Should(Succeed())

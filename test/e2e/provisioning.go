@@ -111,9 +111,9 @@ func VerifyDPUServicesDeployed(ctx context.Context, clusterClient client.Client,
 		g.Expect(clusterClient.List(ctx, deployments)).To(Succeed())
 		found := map[string]bool{}
 		for i := range deployments.Items {
-			if _, hasAnnotation := deployments.Items[i].GetAnnotations()[argoCDTrackingIDAnnotation]; hasAnnotation {
-				g.Expect(deployments.Items[i].GetAnnotations()[argoCDTrackingIDAnnotation]).NotTo(Equal(""))
-				found[deployments.Items[i].GetAnnotations()[argoCDTrackingIDAnnotation]] = true
+			if _, hasAnnotation := deployments.Items[i].GetAnnotations()[ArgoCDTrackingIDAnnotation]; hasAnnotation {
+				g.Expect(deployments.Items[i].GetAnnotations()[ArgoCDTrackingIDAnnotation]).NotTo(Equal(""))
+				found[deployments.Items[i].GetAnnotations()[ArgoCDTrackingIDAnnotation]] = true
 			}
 		}
 
@@ -121,9 +121,9 @@ func VerifyDPUServicesDeployed(ctx context.Context, clusterClient client.Client,
 		daemonsets := appsv1.DaemonSetList{}
 		g.Expect(clusterClient.List(ctx, &daemonsets, client.InNamespace(namespace))).To(Succeed())
 		for i := range daemonsets.Items {
-			if _, hasAnnotation := daemonsets.Items[i].GetAnnotations()[argoCDTrackingIDAnnotation]; hasAnnotation {
-				g.Expect(daemonsets.Items[i].GetAnnotations()[argoCDTrackingIDAnnotation]).NotTo(Equal(""))
-				found[daemonsets.Items[i].GetAnnotations()[argoCDTrackingIDAnnotation]] = true
+			if _, hasAnnotation := daemonsets.Items[i].GetAnnotations()[ArgoCDTrackingIDAnnotation]; hasAnnotation {
+				g.Expect(daemonsets.Items[i].GetAnnotations()[ArgoCDTrackingIDAnnotation]).NotTo(Equal(""))
+				found[daemonsets.Items[i].GetAnnotations()[ArgoCDTrackingIDAnnotation]] = true
 			}
 		}
 
@@ -374,7 +374,7 @@ func CreateProvisioningDPUSet(ctx context.Context, input *SystemTestInput) {
 		nodesTracker.By(nodeKey, "K8s nodes in DPU cluster [%d/%d]", len(nodes.Items), provisioningExpected.TotalDPUs)
 		g.Expect(nodes.Items).To(HaveLen(provisioningExpected.TotalDPUs),
 			fmt.Sprintf("DPU cluster should have %d K8s nodes, found %d", provisioningExpected.TotalDPUs, len(nodes.Items)))
-	}).WithTimeout(provisioningTimeout).WithPolling(10 * time.Second).Should(Succeed())
+	}).WithTimeout(ProvisioningTimeout).WithPolling(10 * time.Second).Should(Succeed())
 
 	By("Waiting for all DPU objects to reach Ready phase")
 	dpuTracker := NewByTracker()
@@ -404,11 +404,11 @@ func CreateProvisioningDPUSet(ctx context.Context, input *SystemTestInput) {
 func VerifyProvisioning(ctx context.Context, input *SystemTestInput) {
 	deploymentName := fmt.Sprintf("in-cluster-%s", getPerClusterDPUServiceName(operatorv1.ServiceSetControllerName, input.DPUClusters[0].Name, input.DPUClusters[0].Namespace))
 	deploymentTracker := NewByTracker()
-	By(fmt.Sprintf("Verifying Deployment %s/%s", dpfOperatorSystemNamespace, deploymentName))
+	By(fmt.Sprintf("Verifying Deployment %s/%s", DPFOperatorSystemNamespace, deploymentName))
 	Eventually(func(g Gomega) {
 		serviceSetDeployment := &appsv1.Deployment{}
 		g.Expect(input.Client.Get(ctx, client.ObjectKey{
-			Namespace: dpfOperatorSystemNamespace,
+			Namespace: DPFOperatorSystemNamespace,
 			Name:      deploymentName,
 		}, serviceSetDeployment)).To(Succeed())
 

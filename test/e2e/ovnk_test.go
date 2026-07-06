@@ -28,7 +28,7 @@ import (
 var _ = Describe("DPF System tests - OVNK", Labels{Domain.OVNKPrimary, Domain.RequiresNodes}, func() {
 	BeforeEach(func() {
 		By("Wait for OVNK deployment to be ready")
-		dpuservice.WaitForDPUDeploymentReady(Ctx, input.Client, dpfOperatorSystemNamespace, []string{"ovn-kubernetes"}, 50*time.Minute)
+		dpuservice.WaitForDPUDeploymentReady(Ctx, input.Client, DPFOperatorSystemNamespace, []string{"ovn-kubernetes"}, 50*time.Minute)
 
 		By("Waiting for multus pods to be ready")
 		VerifyClusterPods(Ctx, input.Client, []string{"kube-multus-ds"})

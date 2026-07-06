@@ -70,7 +70,7 @@ func createDPUServiceIPAMPool1(ctx context.Context, input *SystemTestInput) {
 	dpuServiceIPAM := input.IPPoolDPUServiceIPAM.DeepCopy()
 	dpuServiceIPAM.SetLabels(CleanupScope.Suite)
 	dpuServiceIPAM.SetName("dpudeployment-ipam-pool1")
-	dpuServiceIPAM.SetNamespace(dpfOperatorSystemNamespace)
+	dpuServiceIPAM.SetNamespace(DPFOperatorSystemNamespace)
 	dpuServiceIPAM.Spec.NodeSelector = nil
 	By("Creating DPUServiceIPAM dpudeployment-ipam-pool1")
 	Expect(input.Client.Create(ctx, dpuServiceIPAM)).To(Succeed())
@@ -83,8 +83,8 @@ func createDPUServiceIPAMPool1(ctx context.Context, input *SystemTestInput) {
 func patchDPFOperatorConfigForSpecDeploymentMode(ctx context.Context, input *SystemTestInput) {
 	cfg := &operatorv1.DPFOperatorConfig{}
 	Expect(input.Client.Get(ctx, client.ObjectKey{
-		Name:      configName,
-		Namespace: dpfOperatorSystemNamespace,
+		Name:      ConfigName,
+		Namespace: DPFOperatorSystemNamespace,
 	}, cfg)).To(Succeed())
 	if cfg.Spec.DeploymentMode != "" {
 		return

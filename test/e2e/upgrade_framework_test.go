@@ -380,7 +380,7 @@ func validatePreUpgradeConditions(ctx context.Context, input *SystemTestInput) {
 
 	checkConditionReady := func(g Gomega) {
 		dpfOperatorConfig := &operatorv1.DPFOperatorConfig{}
-		g.Expect(input.Client.Get(ctx, client.ObjectKey{Name: configName, Namespace: dpfOperatorSystemNamespace}, dpfOperatorConfig)).To(Succeed())
+		g.Expect(input.Client.Get(ctx, client.ObjectKey{Name: ConfigName, Namespace: DPFOperatorSystemNamespace}, dpfOperatorConfig)).To(Succeed())
 		g.Expect(dpfOperatorConfig.Status.ObservedGeneration).To(Equal(dpfOperatorConfig.GetGeneration()))
 		g.Expect(dpfOperatorConfig.Status.Conditions).NotTo(BeEmpty())
 		g.Expect(conditions.IsTrue(dpfOperatorConfig, operatorv1.PreUpgradeValidationReadyCondition)).To(BeTrue())
@@ -407,8 +407,8 @@ func validateDPFVersionUpgrade(expectedVersion string) {
 	Eventually(func(g Gomega) {
 		dpfOperatorConfig := &operatorv1.DPFOperatorConfig{}
 		g.Expect(input.Client.Get(Ctx, client.ObjectKey{
-			Name:      configName,
-			Namespace: dpfOperatorSystemNamespace,
+			Name:      ConfigName,
+			Namespace: DPFOperatorSystemNamespace,
 		}, dpfOperatorConfig)).To(Succeed())
 		g.Expect(dpfOperatorConfig.Status.Version).NotTo(BeNil(),
 			"DPFOperatorConfig.Status.Version must be set before comparing")
@@ -472,8 +472,8 @@ func VerifyHostAgentPodsImageTag(ctx context.Context, input *SystemTestInput) {
 	Eventually(func(g Gomega) {
 		cfg := &operatorv1.DPFOperatorConfig{}
 		g.Expect(input.Client.Get(ctx, client.ObjectKey{
-			Name:      configName,
-			Namespace: dpfOperatorSystemNamespace,
+			Name:      ConfigName,
+			Namespace: DPFOperatorSystemNamespace,
 		}, cfg)).To(Succeed())
 		g.Expect(cfg.Status.Version).ToNot(BeNil(),
 			"DPFOperatorConfig.Status.Version must be set before checking DMS tags")
@@ -481,7 +481,7 @@ func VerifyHostAgentPodsImageTag(ctx context.Context, input *SystemTestInput) {
 
 		dmsPods := &corev1.PodList{}
 		g.Expect(input.Client.List(ctx, dmsPods,
-			client.InNamespace(dpfOperatorSystemNamespace),
+			client.InNamespace(DPFOperatorSystemNamespace),
 			client.MatchingLabels{util.ProvisioningComponentLabelKey: "hostagent"},
 		)).To(Succeed())
 
@@ -511,7 +511,7 @@ func verifySystemReady(dpuServiceNames []string) {
 		"example",
 	})
 
-	verifyDPUServicesReady(Ctx, input, dpfOperatorSystemNamespace, dpuServiceNames)
+	verifyDPUServicesReady(Ctx, input, DPFOperatorSystemNamespace, dpuServiceNames)
 }
 
 // rolloutDependencies simulates a post-upgrade dependency rollout by creating
@@ -537,7 +537,7 @@ func rolloutDependencies(ctx context.Context, input *SystemTestInput) {
 
 	By("Selecting one DPUDeployment to update")
 	dpuDeploymentList := &dpuservicev1.DPUDeploymentList{}
-	Expect(input.Client.List(ctx, dpuDeploymentList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+	Expect(input.Client.List(ctx, dpuDeploymentList, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 	Expect(dpuDeploymentList.Items).To(HaveLen(input.NumberOfDPUNodes), "expected one DPUDeployment per DPU node")
 
 	// Re-apply the target manifest so fields a new release adds (e.g. v26.4's
@@ -606,7 +606,7 @@ func verifyDPUDeploymentDependencyTracking(ctx context.Context, input *SystemTes
 		activeServiceConfigurations := map[string]bool{}
 		activeServiceTemplates := map[string]bool{}
 		deployments := &dpuservicev1.DPUDeploymentList{}
-		g.Expect(input.Client.List(ctx, deployments, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(input.Client.List(ctx, deployments, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 		g.Expect(deployments.Items).NotTo(BeEmpty())
 		for i := range deployments.Items {
 			deployment := &deployments.Items[i]
@@ -625,19 +625,19 @@ func verifyDPUDeploymentDependencyTracking(ctx context.Context, input *SystemTes
 		}
 
 		bfbs := &provisioningv1.BFBList{}
-		g.Expect(input.Client.List(ctx, bfbs, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(input.Client.List(ctx, bfbs, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 		assertDependencyLabels(g, "BFB", activeBFBs, ToClientObjectSlice(bfbs.Items))
 
 		flavors := &provisioningv1.DPUFlavorList{}
-		g.Expect(input.Client.List(ctx, flavors, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(input.Client.List(ctx, flavors, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 		assertDependencyLabels(g, "DPUFlavor", activeFlavors, ToClientObjectSlice(flavors.Items))
 
 		configurations := &dpuservicev1.DPUServiceConfigurationList{}
-		g.Expect(input.Client.List(ctx, configurations, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(input.Client.List(ctx, configurations, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 		assertDependencyLabels(g, "DPUServiceConfiguration", activeServiceConfigurations, ToClientObjectSlice(configurations.Items))
 
 		templates := &dpuservicev1.DPUServiceTemplateList{}
-		g.Expect(input.Client.List(ctx, templates, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(input.Client.List(ctx, templates, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 		assertDependencyLabels(g, "DPUServiceTemplate", activeServiceTemplates, ToClientObjectSlice(templates.Items))
 	}).WithTimeout(5 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 }

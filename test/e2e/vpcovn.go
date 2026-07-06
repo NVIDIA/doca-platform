@@ -79,7 +79,7 @@ type vpcOvnTestInput struct {
 	dhcpDaemonSet               *appsv1.DaemonSet
 }
 
-func (t *vpcOvnTestInput) applyVPCOVNConfig(conf config) {
+func (t *vpcOvnTestInput) applyVPCOVNConfig(conf Config) {
 	dpuServiceIPAMTemplate := &dpuservicev1.DPUServiceIPAM{}
 	ipam := unstructuredFromFile(conf.DPUServiceIPAMTemplatePath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(ipam.Object, dpuServiceIPAMTemplate)).To(Succeed())
@@ -125,7 +125,7 @@ func createVtepDPUServiceIPAM(ctx context.Context, input *SystemTestInput) {
 	vpcVtepIPAMLabels := map[string]string{
 		ovnutils.PoolLabelKey: ovnutils.VtepIPPoolName,
 	}
-	vtepDpuServiceIPAM := generateVPCDPUObj(ovnutils.VtepIPPoolName, dpfOperatorSystemNamespace, input.DPUServiceIPAMTemplate.DeepCopy(), cleanup.MergeMaps(vpcPrerequisiteScope.CleanupLabels, vpcVtepIPAMLabels))
+	vtepDpuServiceIPAM := generateVPCDPUObj(ovnutils.VtepIPPoolName, DPFOperatorSystemNamespace, input.DPUServiceIPAMTemplate.DeepCopy(), cleanup.MergeMaps(vpcPrerequisiteScope.CleanupLabels, vpcVtepIPAMLabels))
 	ovnutils.SetVPCDPUServiceIPAM(vtepDpuServiceIPAM, ovnutils.VtepIPPoolSubnet, ovnutils.VtepIPPoolGateway, ovnutils.IPPoolPerNodeCount)
 	By("Creating VTEP DPU service IPAM")
 	Expect(client.IgnoreAlreadyExists(input.Client.Create(ctx, vtepDpuServiceIPAM))).ToNot(HaveOccurred())
@@ -135,7 +135,7 @@ func createGatewayDPUServiceIPAM(ctx context.Context, input *SystemTestInput) {
 	vpcGatewayIPAMLabels := map[string]string{
 		ovnutils.PoolLabelKey: ovnutils.GatewayIPPoolName,
 	}
-	gatewayDpuServiceIPAM := generateVPCDPUObj(ovnutils.GatewayIPPoolName, dpfOperatorSystemNamespace, input.DPUServiceIPAMTemplate.DeepCopy(), cleanup.MergeMaps(vpcPrerequisiteScope.CleanupLabels, vpcGatewayIPAMLabels))
+	gatewayDpuServiceIPAM := generateVPCDPUObj(ovnutils.GatewayIPPoolName, DPFOperatorSystemNamespace, input.DPUServiceIPAMTemplate.DeepCopy(), cleanup.MergeMaps(vpcPrerequisiteScope.CleanupLabels, vpcGatewayIPAMLabels))
 	ovnutils.SetVPCDPUServiceIPAM(gatewayDpuServiceIPAM, ovnutils.GatewayIPPoolSubnet, ovnutils.GatewayIPPoolGateway, ovnutils.IPPoolPerNodeCount)
 	By("Creating Gateway DPU service IPAM")
 	Expect(client.IgnoreAlreadyExists(input.Client.Create(ctx, gatewayDpuServiceIPAM))).ToNot(HaveOccurred())
@@ -404,7 +404,7 @@ func createDPUVPC(ctx context.Context, testClient client.Client, name, tenant, i
 	dpuVPC := &vpcv1.DPUVPC{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
-			Namespace: dpfOperatorSystemNamespace,
+			Namespace: DPFOperatorSystemNamespace,
 			Labels:    labels,
 		},
 		Spec: vpcv1.DPUVPCSpec{
@@ -426,7 +426,7 @@ func createDPUVirtualNetwork(ctx context.Context, testClient client.Client, name
 	dpuVirtualNetwork := &vpcv1.DPUVirtualNetwork{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
-			Namespace: dpfOperatorSystemNamespace,
+			Namespace: DPFOperatorSystemNamespace,
 			Labels:    labels,
 		},
 		Spec: vpcv1.DPUVirtualNetworkSpec{
@@ -477,7 +477,7 @@ func createDummyDPUService(ctx context.Context, testClient client.Client, namesp
 	}
 	if ngcAPIKey != "" {
 		dpuService.Spec.HelmChart.Values = &machineryruntime.RawExtension{
-			Raw: []byte(fmt.Sprintf(`{"imagePullSecrets": [{"name": "%s"}]}`, ngcPullSecretName)),
+			Raw: []byte(fmt.Sprintf(`{"imagePullSecrets": [{"name": "%s"}]}`, NGCPullSecretName)),
 		}
 	}
 	dpuService.Spec.ServiceID = ptr.To(serviceID)

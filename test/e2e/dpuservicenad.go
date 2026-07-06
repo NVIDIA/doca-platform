@@ -61,7 +61,7 @@ func ValidateDPUServiceNADConsumedByPod(ctx context.Context, input *SystemTestIn
 	createTestNamespace(ctx, input.Client, namespace)
 
 	By("Copy image pull secret to namespace " + namespace)
-	CopySecretToNamespace(ctx, input.Client, dpfPullSecretName, dpfOperatorSystemNamespace, namespace, CleanupScope.It)
+	CopySecretToNamespace(ctx, input.Client, DPFPullSecretName, DPFOperatorSystemNamespace, namespace, CleanupScope.It)
 
 	By("Create DPUServiceNAD")
 	dpuServiceNAD := constructDPUServiceNAD(dpuServiceNADName, namespace, mtu)
@@ -196,7 +196,7 @@ func constructDummyDPUServiceObject(serviceName, namespace, interfaceName string
 	if ngcAPIKey != "" {
 		dpuServiceDummy.Spec.HelmChart.Values = &machineryruntime.RawExtension{
 			Raw: []byte(fmt.Sprintf(
-				`{"imagePullSecrets": [{"name": "%s"}]}`, dpfPullSecretName,
+				`{"imagePullSecrets": [{"name": "%s"}]}`, DPFPullSecretName,
 			)),
 		}
 	}
@@ -339,7 +339,7 @@ func createDummyDPUServiceForRDMA(ctx context.Context, testClient client.Client,
 	}
 
 	values := make(map[string]any)
-	values["imagePullSecrets"] = []map[string]string{{"name": dpfPullSecretName}}
+	values["imagePullSecrets"] = []map[string]string{{"name": DPFPullSecretName}}
 	values["image"] = map[string]string{"repository": netutilsImage}
 	values["securityContext"] = map[string]any{"capabilities": map[string]any{"add": []string{"IPC_LOCK"}}}
 	rawValues, err := json.Marshal(values)

@@ -148,7 +148,7 @@ type SystemTestInput struct {
 	DPUNodeBMCs                       map[string]string
 }
 
-func (t *SystemTestInput) ApplySDNConfig(conf config) {
+func (t *SystemTestInput) ApplySDNConfig(conf Config) {
 	dpuServiceInterfaceTemplate := &dpuservicev1.DPUServiceInterface{}
 	dsiTemplate := unstructuredFromFile(conf.DPUServiceInterfaceTemplatePath)
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(dsiTemplate.Object, dpuServiceInterfaceTemplate)).To(Succeed())
@@ -172,7 +172,7 @@ func (t *SystemTestInput) ApplySDNConfig(conf config) {
 	}
 
 	if ngcAPIKey != "" {
-		updateImagePullSecret(svcHBN, ngcPullSecretName)
+		updateImagePullSecret(svcHBN, NGCPullSecretName)
 	}
 
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(svcHBN.Object, dpuServiceHBN)).To(Succeed())
@@ -229,7 +229,7 @@ func updateImagePullSecret(svc *unstructured.Unstructured, secretName string) {
 	Expect(err).ToNot(HaveOccurred())
 }
 
-func (t *SystemTestInput) ApplyConfig(conf config) {
+func (t *SystemTestInput) ApplyConfig(conf Config) {
 	if conf.BFBPath != nil {
 		bfb := &provisioningv1.BFB{}
 		bfbUnstructured := unstructuredFromFile(*conf.BFBPath)
@@ -795,7 +795,7 @@ func ProvisionDPUSet(ctx context.Context, input ProvisionDPUClustersInput) {
 		Eventually(func(g Gomega) {
 			deployment := &appsv1.Deployment{}
 			g.Expect(input.Client.Get(ctx, client.ObjectKey{
-				Namespace: dpfOperatorSystemNamespace,
+				Namespace: DPFOperatorSystemNamespace,
 				Name:      deploymentName},
 				deployment)).To(Succeed())
 			g.Expect(deployment.Status.ReadyReplicas).To(Equal(*deployment.Spec.Replicas))
@@ -808,17 +808,17 @@ func ProvisionDPUSet(ctx context.Context, input ProvisionDPUClustersInput) {
 		g.Expect(DPUClusterClient[0].List(ctx, deployments)).To(Succeed())
 		found := map[string]bool{}
 		for i := range deployments.Items {
-			if _, hasAnnotation := deployments.Items[i].GetAnnotations()[argoCDTrackingIDAnnotation]; hasAnnotation {
-				g.Expect(deployments.Items[i].GetAnnotations()[argoCDTrackingIDAnnotation]).NotTo(Equal(""))
-				found[deployments.Items[i].GetAnnotations()[argoCDTrackingIDAnnotation]] = true
+			if _, hasAnnotation := deployments.Items[i].GetAnnotations()[ArgoCDTrackingIDAnnotation]; hasAnnotation {
+				g.Expect(deployments.Items[i].GetAnnotations()[ArgoCDTrackingIDAnnotation]).NotTo(Equal(""))
+				found[deployments.Items[i].GetAnnotations()[ArgoCDTrackingIDAnnotation]] = true
 			}
 		}
 		daemonsets := appsv1.DaemonSetList{}
 		g.Expect(DPUClusterClient[0].List(ctx, &daemonsets, client.InNamespace(input.DPUClusters[0].GetNamespace()))).To(Succeed())
 		for i := range daemonsets.Items {
-			if _, hasAnnotation := daemonsets.Items[i].GetAnnotations()[argoCDTrackingIDAnnotation]; hasAnnotation {
-				g.Expect(daemonsets.Items[i].GetAnnotations()[argoCDTrackingIDAnnotation]).NotTo(Equal(""))
-				found[daemonsets.Items[i].GetAnnotations()[argoCDTrackingIDAnnotation]] = true
+			if _, hasAnnotation := daemonsets.Items[i].GetAnnotations()[ArgoCDTrackingIDAnnotation]; hasAnnotation {
+				g.Expect(daemonsets.Items[i].GetAnnotations()[ArgoCDTrackingIDAnnotation]).NotTo(Equal(""))
+				found[daemonsets.Items[i].GetAnnotations()[ArgoCDTrackingIDAnnotation]] = true
 			}
 		}
 
@@ -858,7 +858,7 @@ func VerifyDPUClusterWithNodes(ctx context.Context, input ProvisionDPUClustersIn
 		nodeKey := fmt.Sprintf("%d/%d", len(nodes.Items), expectedDPUs)
 		tracker.By(nodeKey, "Checking that the number of nodes %d is equal to %d", len(nodes.Items), expectedDPUs)
 		g.Expect(nodes.Items).To(HaveLen(expectedDPUs))
-	}).WithTimeout(provisioningTimeout).WithPolling(1 * time.Second).Should(Succeed())
+	}).WithTimeout(ProvisioningTimeout).WithPolling(1 * time.Second).Should(Succeed())
 
 	// Verify DPUs are ready
 	Eventually(func(g Gomega) {
@@ -924,7 +924,7 @@ func ProcessDPUNodeMaintenanceHold(ctx context.Context, input ProvisionDPUCluste
 	var dpuNodeMaintenanceList *provisioningv1.DPUNodeMaintenanceList
 	Eventually(func(g Gomega) {
 		dpuNodeMaintenanceList = &provisioningv1.DPUNodeMaintenanceList{}
-		g.Expect(input.Client.List(ctx, dpuNodeMaintenanceList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(input.Client.List(ctx, dpuNodeMaintenanceList, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 
 		// Count how many have the hold annotation set to "true"
 		holdCount := 0
@@ -981,7 +981,7 @@ func WaitForDPUReboot(ctx context.Context, input ProvisionDPUClustersInput) {
 				g.Expect(current.Status.Phase).To(Equal(provisioningv1.DPURebooting))
 			}
 		}
-	}).WithTimeout(provisioningTimeout).Should(Succeed())
+	}).WithTimeout(ProvisioningTimeout).Should(Succeed())
 
 	By("Reboot driven by in-cluster script Job (nodeRebootMethod.script); waiting for completion")
 	waitForScriptRebootCompletion(ctx, input.Client,
@@ -1081,7 +1081,7 @@ func VerifyClusterPods(ctx context.Context, client client.Client, podSubstrToVer
 func VerifyDPFOperatorConfigReady(ctx context.Context, kclient client.Client, timeout time.Duration) {
 	Eventually(func(g Gomega) {
 		dpfOperatorConfig := &operatorv1.DPFOperatorConfig{}
-		g.Expect(kclient.Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: configName}, dpfOperatorConfig)).To(Succeed())
+		g.Expect(kclient.Get(ctx, client.ObjectKey{Namespace: DPFOperatorSystemNamespace, Name: ConfigName}, dpfOperatorConfig)).To(Succeed())
 		g.Expect(conditions.IsTrue(dpfOperatorConfig, conditions.TypeReady)).To(BeTrue())
 	}).WithTimeout(timeout).WithPolling(1 * time.Second).Should(Succeed())
 }
@@ -1092,7 +1092,7 @@ func VerifyProvisioningControllerPodsArg(ctx context.Context, kclient client.Cli
 	Eventually(func(g Gomega) {
 		pods := &corev1.PodList{}
 		g.Expect(kclient.List(ctx, pods,
-			client.InNamespace(dpfOperatorSystemNamespace),
+			client.InNamespace(DPFOperatorSystemNamespace),
 			client.MatchingLabels{operatorv1.DPFComponentLabelKey: "dpf-provisioning-controller-manager"},
 		)).To(Succeed())
 		g.Expect(pods.Items).ToNot(BeEmpty())
@@ -1115,7 +1115,7 @@ func CreateDPUDiscovery(ctx context.Context, input DeployDPFSystemComponentsInpu
 	By("Verify worker nodes are not present")
 	workerNodes := &corev1.NodeList{}
 	Eventually(func(g Gomega) int {
-		err := input.Client.List(ctx, workerNodes, client.InNamespace(dpfOperatorSystemNamespace), client.MatchingLabels(map[string]string{"node-role.kubernetes.io/worker": ""}))
+		err := input.Client.List(ctx, workerNodes, client.InNamespace(DPFOperatorSystemNamespace), client.MatchingLabels(map[string]string{"node-role.kubernetes.io/worker": ""}))
 		g.Expect(err).NotTo(HaveOccurred())
 		return len(workerNodes.Items)
 	}, time.Second*30, time.Millisecond*250).Should(Equal(0))
@@ -1368,7 +1368,7 @@ func GetDPUNodeToBMCIPs(ctx context.Context, c client.Client,
 	var observed []provisioningv1.DPUNode
 	Eventually(func(g Gomega) {
 		nodes := &provisioningv1.DPUNodeList{}
-		g.Expect(c.List(ctx, nodes, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(c.List(ctx, nodes, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 		g.Expect(nodes.Items).To(HaveLen(expectedDPUNodes))
 		observed = nodes.Items
 	}).WithTimeout(10 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
@@ -1405,7 +1405,7 @@ func ApplyNodeRebootConfigMap(ctx context.Context, c client.Client, configMapPat
 	obj := &unstructured.Unstructured{}
 	Expect(yaml.Unmarshal(data, obj)).To(Succeed())
 	if obj.GetNamespace() == "" {
-		obj.SetNamespace(dpfOperatorSystemNamespace)
+		obj.SetNamespace(DPFOperatorSystemNamespace)
 	}
 	labels := obj.GetLabels()
 	if labels == nil {
@@ -1420,11 +1420,11 @@ func ApplyNodeRebootConfigMap(ctx context.Context, c client.Client, configMapPat
 // bmcPassword is sourced from $E2E_ZT_BMC_PASSWORD by getEnvVariables() and required-ness is enforced by validateFlags() for ZT runs.
 func applyBMCCredentialsSecret(ctx context.Context, c client.Client) {
 	By(fmt.Sprintf("Creating BMC credentials Secret %s/%s",
-		dpfOperatorSystemNamespace, bmcCredentialsSecretName))
+		DPFOperatorSystemNamespace, bmcCredentialsSecretName))
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      bmcCredentialsSecretName,
-			Namespace: dpfOperatorSystemNamespace,
+			Namespace: DPFOperatorSystemNamespace,
 			Labels:    maps.Clone(CleanupScope.Suite),
 		},
 		Type: corev1.SecretTypeOpaque,
@@ -1453,7 +1453,7 @@ func PatchDPUNodesForScriptReboot(ctx context.Context, c client.Client,
 	var observed []provisioningv1.DPUNode
 	Eventually(func(g Gomega) {
 		nodes := &provisioningv1.DPUNodeList{}
-		g.Expect(c.List(ctx, nodes, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(c.List(ctx, nodes, client.InNamespace(DPFOperatorSystemNamespace))).To(Succeed())
 		g.Expect(nodes.Items).To(HaveLen(expectedDPUNodes))
 		observed = nodes.Items
 	}).WithTimeout(10 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())

@@ -73,12 +73,12 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 			VerifyClusterPods(Ctx, DPUClusterClient[0], weavePodsToVerify)
 
 			By("Getting ready flow controller pods")
-			flowControllerPods := netshoot.GetReadyPodsMatchingLabels(Ctx, DPUClusterClient[0], dpfOperatorSystemNamespace,
+			flowControllerPods := netshoot.GetReadyPodsMatchingLabels(Ctx, DPUClusterClient[0], DPFOperatorSystemNamespace,
 				map[string]string{weaveDPUServiceLabelKey: weaveFlowControllerName})
 			Expect(flowControllerPods).To(HaveLen(2), "expected 2 ready %s pods", weaveFlowControllerName)
 
 			By("Getting ready dhcp agent pods")
-			dhcpAgentPods := netshoot.GetReadyPodsMatchingLabels(Ctx, DPUClusterClient[0], dpfOperatorSystemNamespace,
+			dhcpAgentPods := netshoot.GetReadyPodsMatchingLabels(Ctx, DPUClusterClient[0], DPFOperatorSystemNamespace,
 				map[string]string{weaveDPUServiceLabelKey: weaveDHCPAgentName})
 			Expect(dhcpAgentPods).To(HaveLen(2), "expected 2 ready %s pods", weaveDHCPAgentName)
 
@@ -418,7 +418,7 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 
 		BeforeAll(func() {
 			vpc.CreateTestNamespace(Ctx, input.Client, rdmaTestNS, weaveContextScope.CleanupLabels)
-			CopySecretToNamespace(Ctx, input.Client, dpfPullSecretName, dpfOperatorSystemNamespace, rdmaTestNS, weaveContextScope.CleanupLabels)
+			CopySecretToNamespace(Ctx, input.Client, DPFPullSecretName, DPFOperatorSystemNamespace, rdmaTestNS, weaveContextScope.CleanupLabels)
 			netutilsPod1 = createNetutilsHostPodOnNode(Ctx, input.Client, rdmaTestNS, rdmaPod1, workerNode1)
 			netutilsPod2 = createNetutilsHostPodOnNode(Ctx, input.Client, rdmaTestNS, rdmaPod2, workerNode2)
 		})

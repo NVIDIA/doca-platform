@@ -77,7 +77,7 @@ var (
 	RestConfig     *rest.Config
 	Clientset      *kubernetes.Clientset
 	Ctx            = ctrl.SetupSignalHandler()
-	Conf           *config
+	Conf           *Config
 )
 
 func init() {
@@ -182,7 +182,7 @@ func getEnvVariables() {
 
 	if ns, found := os.LookupEnv("PREREQS_NAMESPACE"); found {
 		// Only set the override if it differs from the default namespace.
-		if ns != dpfOperatorSystemNamespace {
+		if ns != DPFOperatorSystemNamespace {
 			prereqsNamespace = ns
 		}
 	}
@@ -213,7 +213,7 @@ func TestE2E(t *testing.T) {
 	// SchemeGroupVersion is group version used to register these objects
 	var SchemeGroupVersion = schema.GroupVersion{Group: "", Version: "v1"}
 
-	Conf, err = readConfig(configPath)
+	Conf, err = ReadConfig(configPath)
 	g.Expect(err).NotTo(HaveOccurred())
 
 	// If testKubeconfig is not set default it to $HOME/.kube/config
@@ -249,7 +249,7 @@ func TestE2E(t *testing.T) {
 	RestConfig.NegotiatedSerializer = serializer.WithoutConversionCodecFactory{CodecFactory: scheme.Codecs}
 	HostClusterRESTClient, err = rest.RESTClientFor(RestConfig)
 	g.Expect(err).NotTo(HaveOccurred())
-	MetricsURI = metrics.GetMetricsURI("kube-state-metrics", dpfOperatorSystemNamespace, kubeStateMetricsPort, "/metrics")
+	MetricsURI = metrics.GetMetricsURI("kube-state-metrics", DPFOperatorSystemNamespace, KubeStateMetricsPort, "/metrics")
 	g.Expect(MetricsURI).NotTo(BeEmpty())
 
 	// Auto-enable fail-fast when skip-cleanup-on-failure flag is set

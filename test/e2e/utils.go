@@ -55,28 +55,28 @@ const (
 	// SDNTestPriority is the test priority for the "DPF System tests - SDN" test suite.
 	SDNTestPriority = 100
 
-	// kubeStateMetricsPort is the port used by kube-state-metrics across host and DPU clusters.
-	kubeStateMetricsPort = 8080
+	// KubeStateMetricsPort is the port used by kube-state-metrics across host and DPU clusters.
+	KubeStateMetricsPort = 8080
 	// testMTUValue is the MTU value used across e2e tests to trigger configuration changes.
 	testMTUValue = 1300
-	// defaultAPIServerPort is the default Kubernetes API server port used in performance tests.
-	defaultAPIServerPort = 6443
-	// performanceMTU is the MTU configured for both the control plane and high-speed networks in performance tests.
-	performanceMTU = 9000
+	// DefaultAPIServerPort is the default Kubernetes API server port used in performance tests.
+	DefaultAPIServerPort = 6443
+	// PerformanceMTU is the MTU configured for both the control plane and high-speed networks in performance tests.
+	PerformanceMTU = 9000
 
-	// provisioningTimeout is the Eventually budget for provisioning-side waits in
+	// ProvisioningTimeout is the Eventually budget for provisioning-side waits in
 	// the e2e suite (DPUs being installed and joining the DPU cluster as K8s
 	// Nodes). Sized to absorb a first-install BFB run that includes a full BMC +
 	// CEC + NIC firmware update cycle plus host power-cycle, which can take
 	// ~45-55 minutes per DPU.
-	provisioningTimeout = 60 * time.Minute
+	ProvisioningTimeout = 60 * time.Minute
 
-	// dpuDeploymentReadyTimeout is the Eventually budget for waits that gate on
+	// DPUDeploymentReadyTimeout is the Eventually budget for waits that gate on
 	// DPUDeployment.Status.Ready=True when DPU provisioning has not been awaited
 	// separately upstream. Such waits must absorb the full provisioning chain
 	// plus the dpuservice / ArgoCD / ServiceChain layer settling on top, so this
 	// is intentionally larger than provisioningTimeout.
-	dpuDeploymentReadyTimeout = 75 * time.Minute
+	DPUDeploymentReadyTimeout = 75 * time.Minute
 )
 
 // CleanupScope is an alias for cleanup.CleanupLabels for ease of use
@@ -231,13 +231,13 @@ var (
 )
 
 const (
-	configName                 = "dpfoperatorconfig"
-	dpfOperatorSystemNamespace = "dpf-operator-system"
-	argoCDTrackingIDAnnotation = "argocd.argoproj.io/tracking-id"
-	// ngcPullSecretName is the name of the secret used to pull images from NGC
-	ngcPullSecretName = "ngc-pull-secret"
-	// dpfPullSecretName is the name of the secret that is set in hack/scripts/create-artefact-secrets.sh
-	dpfPullSecretName = "dpf-pull-secret"
+	ConfigName                 = "dpfoperatorconfig"
+	DPFOperatorSystemNamespace = "dpf-operator-system"
+	ArgoCDTrackingIDAnnotation = "argocd.argoproj.io/tracking-id"
+	// NGCPullSecretName is the name of the secret used to pull images from NGC
+	NGCPullSecretName = "ngc-pull-secret"
+	// DPFPullSecretName is the name of the secret that is set in hack/scripts/create-artefact-secrets.sh
+	DPFPullSecretName = "dpf-pull-secret"
 )
 
 // EventuallyCheckReadyStatusCondition waits until obj has a Ready condition with Status True and

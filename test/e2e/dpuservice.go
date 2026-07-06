@@ -184,10 +184,10 @@ func ValidateImagePullSecretsSync(ctx context.Context, input *SystemTestInput) {
 	if ngcAPIKey != "" {
 		secretCount += 1
 	}
-	verifyImagePullSecretsCount(ctx, DPUClusterClient[0], dpfOperatorSystemNamespace, secretCount)
+	verifyImagePullSecretsCount(ctx, DPUClusterClient[0], DPFOperatorSystemNamespace, secretCount)
 
 	desiredConf := &operatorv1.DPFOperatorConfig{}
-	Eventually(input.Client.Get).WithArguments(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: configName}, desiredConf).Should(Succeed())
+	Eventually(input.Client.Get).WithArguments(ctx, client.ObjectKey{Namespace: DPFOperatorSystemNamespace, Name: ConfigName}, desiredConf).Should(Succeed())
 	currentConf := desiredConf.DeepCopy()
 
 	// Patch the operatorConfig to remove the second secret. This causes the label to be removed.
@@ -198,13 +198,13 @@ func ValidateImagePullSecretsSync(ctx context.Context, input *SystemTestInput) {
 	// Patch a DPUService to trigger a reconciliation. The DPUService should clean  this secret up from
 	// clusters to which it was previously mirrored.
 	Eventually(utils.ForceObjectReconcileWithAnnotation).WithArguments(ctx, input.Client,
-		&dpuservicev1.DPUService{ObjectMeta: metav1.ObjectMeta{Name: operatorv1.MultusName.String(), Namespace: dpfOperatorSystemNamespace}}).Should(Succeed())
+		&dpuservicev1.DPUService{ObjectMeta: metav1.ObjectMeta{Name: operatorv1.MultusName.String(), Namespace: DPFOperatorSystemNamespace}}).Should(Succeed())
 	// Verify that we have only the precreated secrets in the DPU Cluster.
 	secretCount = 1
 	if ngcAPIKey != "" {
 		secretCount += 1
 	}
-	verifyImagePullSecretsCount(ctx, DPUClusterClient[0], dpfOperatorSystemNamespace, secretCount)
+	verifyImagePullSecretsCount(ctx, DPUClusterClient[0], DPFOperatorSystemNamespace, secretCount)
 }
 
 func ValidateDPUServiceTemplateCreationNoAnnotations(ctx context.Context, input *SystemTestInput) {

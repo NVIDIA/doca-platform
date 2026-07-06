@@ -54,8 +54,8 @@ func SetInput() *SystemTestInput {
 	}
 	dpfOperatorConfig := &operatorv1.DPFOperatorConfig{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      configName,
-			Namespace: dpfOperatorSystemNamespace,
+			Name:      ConfigName,
+			Namespace: DPFOperatorSystemNamespace,
 			Labels:    CleanupScope.Suite,
 		},
 		Spec: operatorv1.DPFOperatorConfigSpec{
@@ -93,7 +93,7 @@ func SetInput() *SystemTestInput {
 					Disable: ptr.To(false),
 				},
 			},
-			ImagePullSecrets: []string{dpfPullSecretName, "pull-secret-extra"},
+			ImagePullSecrets: []string{DPFPullSecretName, "pull-secret-extra"},
 		},
 	}
 	if isGinkgoLabelApplied(Domain.ZeroTrust) {
@@ -157,7 +157,7 @@ func SetInput() *SystemTestInput {
 
 	if isGinkgoLabelApplied(Domain.Performance) {
 		apiServerHost := controlPlaneIP
-		apiServerPort := defaultAPIServerPort
+		apiServerPort := DefaultAPIServerPort
 		if targetClusterAPIServerHost != "" {
 			apiServerHost = targetClusterAPIServerHost
 		} else if u, err := url.Parse(RestConfig.Host); err == nil {
@@ -177,13 +177,13 @@ func SetInput() *SystemTestInput {
 		dpfOperatorConfig.Spec.Overrides.KubernetesAPIServerPort = ptr.To(apiServerPort)
 		dpfOperatorConfig.Spec.ProvisioningController.DMSTimeout = ptr.To(15 * 60)
 		dpfOperatorConfig.Spec.Networking = &operatorv1.Networking{
-			ControlPlaneMTU: ptr.To(performanceMTU),
-			HighSpeedMTU:    ptr.To(performanceMTU),
+			ControlPlaneMTU: ptr.To(PerformanceMTU),
+			HighSpeedMTU:    ptr.To(PerformanceMTU),
 		}
 	}
 
 	input = &SystemTestInput{
-		Namespace:          dpfOperatorSystemNamespace,
+		Namespace:          DPFOperatorSystemNamespace,
 		Config:             dpfOperatorConfig,
 		PullSecretNames:    dpfOperatorConfig.Spec.ImagePullSecrets,
 		Client:             TestClient,
@@ -270,8 +270,8 @@ func createNGCImagePullSecret(ctx context.Context, testClient client.Client) {
 	// Create the Secret object
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      ngcPullSecretName,
-			Namespace: dpfOperatorSystemNamespace,
+			Name:      NGCPullSecretName,
+			Namespace: DPFOperatorSystemNamespace,
 			Labels:    labels,
 		},
 		Type: corev1.SecretTypeDockerConfigJson,

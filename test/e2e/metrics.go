@@ -46,7 +46,7 @@ func VerifyDPUKSMMetricsCollection(ctx context.Context, input *SystemTestInput) 
 		// Note: The in-cluster kube-state-metrics service runs on the management cluster,
 		// not on the DPU cluster. It connects remotely to collect DPU cluster metrics.
 		g.Expect(input.DPUClusters).ToNot(BeEmpty(), "No DPUClusters found in test input")
-		dpuKSMMetricsURI, err := metrics.GetKSMMetricsURIForDPUCluster(ctx, input.Client, input.DPUClusters[0], dpfOperatorSystemNamespace, kubeStateMetricsPort, "/metrics")
+		dpuKSMMetricsURI, err := metrics.GetKSMMetricsURIForDPUCluster(ctx, input.Client, input.DPUClusters[0], DPFOperatorSystemNamespace, KubeStateMetricsPort, "/metrics")
 		g.Expect(err).NotTo(HaveOccurred(), "Failed to get KSM metrics URI for DPUCluster")
 		g.Expect(dpuKSMMetricsURI).NotTo(BeEmpty())
 
