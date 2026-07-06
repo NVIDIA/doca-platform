@@ -30,7 +30,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/selection"
@@ -64,30 +63,10 @@ type upgradeExpectedChange struct {
 	transform func(artifact map[string]interface{})
 }
 
-// upgradeExpectedChanges lists spec changes that are intentionally introduced
-// by an upgrade. Add entries here to prevent known expected changes from
-// failing the artifact comparison.
-var upgradeExpectedChanges = []upgradeExpectedChange{
-	{
-		// The DPUService .spec.security field is defaulted by the DPUDeployment
-		// controller on every generated DPUService. A previous-GA operator that
-		// produced the "before" snapshot did not yet set it, while the upgraded
-		// operator that regenerates the "after" snapshot does, so the field is
-		// present only on the after side. Strip it from the after artifact so
-		// the comparison does not fail on this expected, upgrade-introduced
-		// default (the matching before generation is bumped by one to account
-		// for the single spec change).
-		gvk: dpuservicev1.GroupVersion.WithKind("DPUService"),
-		transform: func(artifact map[string]interface{}) {
-			unstructured.RemoveNestedField(artifact, "spec", "security")
-		},
-	},
-}
-
 // applyUpgradeExpectedChanges mutates `after` to reset the fields touched by
 // each registered transform, and bumps the matching `before` artifact's
 // generation by one (since the upgrade necessarily bumped it once).
-func applyUpgradeExpectedChanges(before, after []map[string]interface{}) {
+func applyUpgradeExpectedChanges(before, after []map[string]interface{}, expectedChanges []upgradeExpectedChange) {
 	type artifactKey struct{ apiVersion, kind, name, namespace string }
 	beforeIdx := make(map[artifactKey]int, len(before))
 	for i, b := range before {
@@ -106,7 +85,7 @@ func applyUpgradeExpectedChanges(before, after []map[string]interface{}) {
 		gv, err := schema.ParseGroupVersion(apiVersion)
 		Expect(err).ToNot(HaveOccurred())
 		artifactGVK := gv.WithKind(kind)
-		for _, change := range upgradeExpectedChanges {
+		for _, change := range expectedChanges {
 			if change.gvk != artifactGVK {
 				continue
 			}
@@ -203,13 +182,13 @@ func getArtifacts(filePath string) []map[string]interface{} {
 	return artifacts
 }
 
-// compareArtifactSnapshots loads the two named snapshots, applies the
-// registered expected-change transforms, and asserts they match (modulo
-// sorting). The phaseDescription is used in assertion messages.
-func compareArtifactSnapshots(prevKey, currKey, phaseDescription string) {
+// compareArtifactSnapshots loads the two named snapshots, applies the given
+// expected-change transforms, and asserts they match (modulo sorting). The
+// phaseDescription is used in assertion messages.
+func compareArtifactSnapshots(prevKey, currKey, phaseDescription string, expectedChanges []upgradeExpectedChange) {
 	prev := getArtifacts(upgradeArtifactsFile(prevKey))
 	curr := getArtifacts(upgradeArtifactsFile(currKey))
-	applyUpgradeExpectedChanges(prev, curr)
+	applyUpgradeExpectedChanges(prev, curr, expectedChanges)
 	By(fmt.Sprintf("Comparing artifacts: %s vs %s", prevKey, currKey))
 	Expect(curr).To(HaveLen(len(prev)),
 		"Number of tracked objects should be unchanged after %s upgrade", phaseDescription)
