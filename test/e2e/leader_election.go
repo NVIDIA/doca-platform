@@ -64,17 +64,17 @@ const (
 	leaderElectionPollInterval = 1 * time.Second
 )
 
-// leaderElectionTarget names one controller's Deployment and its Lease.
-type leaderElectionTarget struct {
-	// component is the controller's ComponentName (e.g. "provisioning-controller"). It
+// LeaderElectionTarget names one controller's Deployment and its Lease.
+type LeaderElectionTarget struct {
+	// Component is the controller's ComponentName (e.g. "provisioning-controller"). It
 	// labels the spec and is matched against DPFOperatorConfig.ComponentConfigs() Name()
 	// to locate the controller config when scaling replicas.
-	component string
-	// deploymentName is the Deployment's metadata.name in dpfOperatorSystemNamespace.
-	deploymentName string
-	// leaseName is the coordination.k8s.io/Lease metadata.name (matches LeaderElectionID
+	Component string
+	// DeploymentName is the Deployment's metadata.name in dpfOperatorSystemNamespace.
+	DeploymentName string
+	// LeaseName is the coordination.k8s.io/Lease metadata.name (matches LeaderElectionID
 	// passed to ctrl.NewManager in each controller's cmd/*/main.go).
-	leaseName string
+	LeaseName string
 }
 
 // replicasSetter is implemented by controller component configs (those embedding
@@ -88,7 +88,7 @@ type replicasSetter interface {
 // controller: capture the current leader -> delete that pod (simulates leader
 // failure) -> assert a different pod takes over the Lease and renews it at
 // least once -> wait for the Deployment to recover.
-func ValidateLeaderElectionFailover(ctx context.Context, c client.Client, target leaderElectionTarget) {
+func ValidateLeaderElectionFailover(ctx context.Context, c client.Client, target LeaderElectionTarget) {
 	// CI deploys controllers at 1 replica; scale this target to 2 for the failover
 	// scenario and revert to 1 afterwards.
 	scaleControllerReplicas(ctx, c, target, 2)
@@ -120,8 +120,8 @@ func ValidateLeaderElectionFailover(ctx context.Context, c client.Client, target
 
 // scaleControllerReplicas sets the target controller's replica count via the
 // DPFOperatorConfig and waits for the Deployment to report that many ready replicas.
-func scaleControllerReplicas(ctx context.Context, c client.Client, target leaderElectionTarget, replicas int32) {
-	By(fmt.Sprintf("Scaling %s to %d replica(s) via DPFOperatorConfig", target.component, replicas))
+func scaleControllerReplicas(ctx context.Context, c client.Client, target LeaderElectionTarget, replicas int32) {
+	By(fmt.Sprintf("Scaling %s to %d replica(s) via DPFOperatorConfig", target.Component, replicas))
 	Eventually(func(g Gomega) {
 		operatorConfig := &operatorv1.DPFOperatorConfig{}
 		g.Expect(c.Get(ctx, client.ObjectKey{
@@ -131,25 +131,25 @@ func scaleControllerReplicas(ctx context.Context, c client.Client, target leader
 		configPatch := client.MergeFrom(operatorConfig.DeepCopy())
 		applied := false
 		for _, componentConfig := range operatorConfig.ComponentConfigs() {
-			if componentConfig.Name() != target.component {
+			if componentConfig.Name() != target.Component {
 				continue
 			}
 			setter, ok := componentConfig.(replicasSetter)
-			g.Expect(ok).To(BeTrue(), "component %q does not expose replicas", target.component)
+			g.Expect(ok).To(BeTrue(), "component %q does not expose replicas", target.Component)
 			setter.SetReplicas(ptr.To(replicas))
 			applied = true
 			break
 		}
-		g.Expect(applied).To(BeTrue(), "component %q not found in DPFOperatorConfig", target.component)
+		g.Expect(applied).To(BeTrue(), "component %q not found in DPFOperatorConfig", target.Component)
 		g.Expect(c.Patch(ctx, operatorConfig, configPatch)).To(Succeed())
 	}).WithTimeout(leaseReadTimeout).WithPolling(leaderElectionPollInterval).Should(Succeed())
 
-	By(fmt.Sprintf("Waiting for the %s Deployment to report %d ready replicas", target.component, replicas))
+	By(fmt.Sprintf("Waiting for the %s Deployment to report %d ready replicas", target.Component, replicas))
 	Eventually(func(g Gomega) {
 		leaderDeployment := &appsv1.Deployment{}
 		g.Expect(c.Get(ctx, client.ObjectKey{
 			Namespace: DPFOperatorSystemNamespace,
-			Name:      target.deploymentName,
+			Name:      target.DeploymentName,
 		}, leaderDeployment)).To(Succeed())
 		g.Expect(ptr.Deref(leaderDeployment.Spec.Replicas, 0)).To(Equal(replicas))
 		g.Expect(leaderDeployment.Status.ReadyReplicas).To(Equal(replicas))
@@ -158,33 +158,33 @@ func scaleControllerReplicas(ctx context.Context, c client.Client, target leader
 
 // captureCurrentLeader reads the controller's Lease and returns the current
 // holder identity (= the active leader pod's name).
-func captureCurrentLeader(ctx context.Context, c client.Client, target leaderElectionTarget) string {
+func captureCurrentLeader(ctx context.Context, c client.Client, target LeaderElectionTarget) string {
 	By("Reading the current Lease and identifying the active leader pod")
 	lease := &coordinationv1.Lease{}
 	Eventually(func(g Gomega) {
 		g.Expect(c.Get(ctx, client.ObjectKey{
 			Namespace: DPFOperatorSystemNamespace,
-			Name:      target.leaseName,
+			Name:      target.LeaseName,
 		}, lease)).To(Succeed())
 
 		g.Expect(lease.Spec.HolderIdentity).ToNot(BeNil())
 		g.Expect(*lease.Spec.HolderIdentity).ToNot(BeEmpty())
 	}).WithTimeout(leaseReadTimeout).WithPolling(leaderElectionPollInterval).Should(Succeed(),
 		"expected a Lease %s/%s with a non-empty holderIdentity",
-		DPFOperatorSystemNamespace, target.leaseName)
+		DPFOperatorSystemNamespace, target.LeaseName)
 	return *lease.Spec.HolderIdentity
 }
 
 // verifyLeaseHandover waits for a pod other than originalHolder to acquire the
 // Lease, then verifies the new leader renews the Lease at least once (proving
 // it is alive and healthy, not just holding a stale lease).
-func verifyLeaseHandover(ctx context.Context, c client.Client, target leaderElectionTarget, originalHolder string) {
+func verifyLeaseHandover(ctx context.Context, c client.Client, target LeaderElectionTarget, originalHolder string) {
 	By("Waiting for a different pod to acquire the Lease")
 	lease := &coordinationv1.Lease{}
 	Eventually(func(g Gomega) {
 		g.Expect(c.Get(ctx, client.ObjectKey{
 			Namespace: DPFOperatorSystemNamespace,
-			Name:      target.leaseName,
+			Name:      target.LeaseName,
 		}, lease)).To(Succeed())
 
 		g.Expect(lease.Spec.HolderIdentity).ToNot(BeNil())
@@ -193,7 +193,7 @@ func verifyLeaseHandover(ctx context.Context, c client.Client, target leaderElec
 			"lease is still held by the deleted pod")
 	}).WithTimeout(leaseHandoverTimeout).WithPolling(leaderElectionPollInterval).Should(Succeed(),
 		"expected a new pod to acquire the Lease %s/%s after the original leader was deleted",
-		DPFOperatorSystemNamespace, target.leaseName)
+		DPFOperatorSystemNamespace, target.LeaseName)
 
 	By("Verifying the new leader has renewed the Lease at least once")
 	Expect(lease.Spec.RenewTime).ToNot(BeNil())
@@ -201,7 +201,7 @@ func verifyLeaseHandover(ctx context.Context, c client.Client, target leaderElec
 	Eventually(func(g Gomega) {
 		g.Expect(c.Get(ctx, client.ObjectKey{
 			Namespace: DPFOperatorSystemNamespace,
-			Name:      target.leaseName,
+			Name:      target.LeaseName,
 		}, lease)).To(Succeed())
 
 		g.Expect(lease.Spec.RenewTime).ToNot(BeNil())
@@ -214,20 +214,20 @@ func verifyLeaseHandover(ctx context.Context, c client.Client, target leaderElec
 // verifyDeploymentReady waits for the Deployment to become fully ready again
 // (Status.ReadyReplicas == Spec.Replicas) so the cluster is left in a healthy
 // state for downstream tests.
-func verifyDeploymentReady(ctx context.Context, c client.Client, target leaderElectionTarget) {
-	By(fmt.Sprintf("Verifying the %s Deployment is fully ready again (all replicas ready)", target.component))
+func verifyDeploymentReady(ctx context.Context, c client.Client, target LeaderElectionTarget) {
+	By(fmt.Sprintf("Verifying the %s Deployment is fully ready again (all replicas ready)", target.Component))
 	leaderDeployment := &appsv1.Deployment{}
 	Eventually(func(g Gomega) {
 		g.Expect(c.Get(ctx, client.ObjectKey{
 			Namespace: DPFOperatorSystemNamespace,
-			Name:      target.deploymentName,
+			Name:      target.DeploymentName,
 		}, leaderDeployment)).To(Succeed())
 
 		g.Expect(leaderDeployment.Status.ReadyReplicas).To(
 			Equal(ptr.Deref(leaderDeployment.Spec.Replicas, 0)),
 			"Deployment %s/%s did not return to fully ready (got %d/%d ready)",
 			DPFOperatorSystemNamespace,
-			target.deploymentName,
+			target.DeploymentName,
 			leaderDeployment.Status.ReadyReplicas,
 			ptr.Deref(leaderDeployment.Spec.Replicas, 0),
 		)
