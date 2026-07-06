@@ -367,12 +367,12 @@ func generateVPCDPUObj[T client.Object](name, ns string, obj T, labels map[strin
 
 // cleanupDPUClusterNodeLabels cleans up the DPU cluster node labels
 func cleanupDPUClusterNodeLabels(ctx context.Context) {
-	dpuNodes := getDPUClusterNodes(ctx, dpuClusterClient[0])
+	dpuNodes := getDPUClusterNodes(ctx, DPUClusterClient[0])
 	Expect(dpuNodes).To(HaveLen(2))
 
 	// Delete the specific labels
 	for _, dpuNode := range dpuNodes {
-		vpc.UpdateDPUNodeLabelsMerge(ctx, dpuClusterClient[0], dpuNode.Name, nil, []string{ovnutils.TenantNodeLabelKey, ovnutils.TenantLabelKey})
+		vpc.UpdateDPUNodeLabelsMerge(ctx, DPUClusterClient[0], dpuNode.Name, nil, []string{ovnutils.TenantNodeLabelKey, ovnutils.TenantLabelKey})
 	}
 }
 
@@ -520,7 +520,7 @@ func validateVPCMetrics(ctx context.Context) {
 	}
 
 	Eventually(func(g Gomega) {
-		actualMetricsNames := metrics.GetKSMMetrics(g, ctx, hostClusterRESTClient, metricsURI)
+		actualMetricsNames := metrics.GetKSMMetrics(g, ctx, HostClusterRESTClient, MetricsURI)
 		g.Expect(actualMetricsNames).NotTo(BeEmpty(), "Actual metrics are empty")
 		g.Expect(metrics.VerifyMetrics(expectedMetricsNames, actualMetricsNames)).To(BeEmpty())
 	}).WithTimeout(5 * time.Second).Should(Succeed())

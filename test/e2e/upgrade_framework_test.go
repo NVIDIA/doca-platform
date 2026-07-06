@@ -183,27 +183,27 @@ func installPhase(description string, in installPhaseInput) {
 			By("Pre provisioning DPU cluster setup")
 			provInput := GetProvisionDPUClustersInput()
 			provInput.ExpectedKubernetesVersion = in.expectedKubernetesVersion
-			ProvisionDPUClusters(ctx, provInput)
+			ProvisionDPUClusters(Ctx, provInput)
 			if in.skipBFBImageURL {
 				// Use the hardcoded URL from the BFB manifest regardless of
 				// BFB_IMAGE_URL — pre-upgrade state reflects the known
 				// previous-release BFB.
 				provInput.BFBImageURL = ""
 			}
-			ProvisionBFBOrBlueFieldSoftwareAndDPUFlavor(ctx, provInput)
+			ProvisionBFBOrBlueFieldSoftwareAndDPUFlavor(Ctx, provInput)
 		})
 
 		It("create DPUDeployment dependencies", func() {
-			createDPUServiceTemplate(ctx, input, input.DPUServiceTemplate)
-			createDPUServiceConfiguration(ctx, input, input.DPUServiceConfiguration)
-			createAdditionalDPUServiceDependencies(ctx, input)
-			createDPUServiceIPAMPool1(ctx, input)
+			createDPUServiceTemplate(Ctx, input, input.DPUServiceTemplate)
+			createDPUServiceConfiguration(Ctx, input, input.DPUServiceConfiguration)
+			createAdditionalDPUServiceDependencies(Ctx, input)
+			createDPUServiceIPAMPool1(Ctx, input)
 		})
 
 		It("create DPUDeployment objects", func() {
 			By("Get worker nodes")
 			nodes := &corev1.NodeList{}
-			Expect(input.Client.List(ctx, nodes,
+			Expect(input.Client.List(Ctx, nodes,
 				client.MatchingLabels{"node-role.kubernetes.io/worker": ""})).To(Succeed())
 
 			By("Creating DPUDeployment objects for each DPU node")
@@ -221,17 +221,17 @@ func installPhase(description string, in installPhaseInput) {
 				dpuDeployment.Spec.DPUs.DPUSets[0].NodeSelector = &metav1.LabelSelector{
 					MatchLabels: map[string]string{"kubernetes.io/hostname": node.GetName()},
 				}
-				Expect(input.Client.Create(ctx, dpuDeployment)).To(Succeed())
+				Expect(input.Client.Create(Ctx, dpuDeployment)).To(Succeed())
 			}
 		})
 
 		It("get DPUCluster client", func() {
-			getDPUClusterClients(ctx, GetProvisionDPUClustersInput())
+			getDPUClusterClients(Ctx, GetProvisionDPUClustersInput())
 		})
 
 		It("wait for DPUs to be provisioned", func() {
 			By("Waiting for provisioning")
-			VerifyDPUClusterWithNodes(ctx, GetProvisionDPUClustersInput())
+			VerifyDPUClusterWithNodes(Ctx, GetProvisionDPUClustersInput())
 			By("Waiting for system components to be ready")
 			verifySystemReady(in.expectedDPUServices(input))
 		})
@@ -265,23 +265,23 @@ func validationPhase(description string, in validationPhaseInput) {
 			// (#5048585). DeleteDPFOperatorConfig clears them for non-skip-cleanup
 			// phases; this AfterAll covers the skip-cleanup ones.
 			AfterAll(func() {
-				removeStaleDPUDeviceProtectionFinalizers(ctx, input.Client)
+				removeStaleDPUDeviceProtectionFinalizers(Ctx, input.Client)
 			})
 		}
 
 		if in.patchDeploymentMode {
 			It("patch DPFOperatorConfig schema bridge fields", func() {
-				patchDPFOperatorConfigForSpecDeploymentMode(ctx, input)
+				patchDPFOperatorConfigForSpecDeploymentMode(Ctx, input)
 			})
 		}
 		It("validate pre-upgrade conditions pass", func() {
-			validatePreUpgradeConditions(ctx, input)
+			validatePreUpgradeConditions(Ctx, input)
 		})
 		It("validate the DPF version", func() {
 			validateDPFVersionUpgrade(in.expectedDPFVersion)
 		})
 		It("validate DPUCluster ready", func() {
-			validateDPUClusterUpgrade(ctx, GetProvisionDPUClustersInput(), in.expectedKubernetesVersion)
+			validateDPUClusterUpgrade(Ctx, GetProvisionDPUClustersInput(), in.expectedKubernetesVersion)
 		})
 		// Create the DPUCluster client only after the DPUCluster upgrade is
 		// confirmed complete. The control-plane roll during the upgrade tears
@@ -290,15 +290,15 @@ func validationPhase(description string, in validationPhaseInput) {
 		// so it never re-binds, and later DPU-cluster calls (e.g. artifact
 		// capture) fail with "connection refused".
 		It("get DPUCluster client", func() {
-			getDPUClusterClients(ctx, GetProvisionDPUClustersInput())
+			getDPUClusterClients(Ctx, GetProvisionDPUClustersInput())
 		})
 		It("validate DPUCluster is healthy", func() {
-			VerifyDPUClusterWithNodes(ctx, GetProvisionDPUClustersInput())
+			VerifyDPUClusterWithNodes(Ctx, GetProvisionDPUClustersInput())
 			By("Waiting for system components to be ready")
 			verifySystemReady(in.expectedDPUServices(input))
 		})
 		It("validate that DMS Pods are upgraded", func() {
-			VerifyHostAgentPodsImageTag(ctx, input)
+			VerifyHostAgentPodsImageTag(Ctx, input)
 		})
 
 		It("wait for controllers to reconcile", func() {
@@ -321,25 +321,25 @@ func validationPhase(description string, in validationPhaseInput) {
 
 		if in.rolloutAllDPUs {
 			It(fmt.Sprintf("roll out all DPUs with BFB LTS under %s", description), func() {
-				rolloutAllDPUs(ctx, input, in.rolloutDPFVersionMinor)
+				rolloutAllDPUs(Ctx, input, in.rolloutDPFVersionMinor)
 			})
 		}
 
 		if in.rolloutDependencies {
 			It("perform DPU and DPUService rollout test", func() {
-				rolloutDependencies(ctx, input)
+				rolloutDependencies(Ctx, input)
 			})
 		}
 
 		It("wait for DPUs to be ready and system healthy after rollout", func() {
-			VerifyDPUClusterWithNodes(ctx, GetProvisionDPUClustersInput())
+			VerifyDPUClusterWithNodes(Ctx, GetProvisionDPUClustersInput())
 			By("Waiting for system components to be ready after rollout")
 			verifySystemReady(in.expectedDPUServices(input))
 		})
 
 		if in.verifyKubeletVersion {
 			It("verify all DPUs report KubeletVersion", func() {
-				verifyDPUsHaveKubeletVersion(ctx, input)
+				verifyDPUsHaveKubeletVersion(Ctx, input)
 			})
 		}
 
@@ -406,7 +406,7 @@ func validateDPFVersionUpgrade(expectedVersion string) {
 	}
 	Eventually(func(g Gomega) {
 		dpfOperatorConfig := &operatorv1.DPFOperatorConfig{}
-		g.Expect(input.Client.Get(ctx, client.ObjectKey{
+		g.Expect(input.Client.Get(Ctx, client.ObjectKey{
 			Name:      configName,
 			Namespace: dpfOperatorSystemNamespace,
 		}, dpfOperatorConfig)).To(Succeed())
@@ -502,7 +502,7 @@ func VerifyHostAgentPodsImageTag(ctx context.Context, input *SystemTestInput) {
 // (phase.expectedDPUServices) so each upgrade phase asserts the DPUService
 // shape that matches its DPF release.
 func verifySystemReady(dpuServiceNames []string) {
-	VerifyClusterPods(ctx, dpuClusterClient[0], []string{
+	VerifyClusterPods(Ctx, DPUClusterClient[0], []string{
 		// Kubernetes system pods
 		"kube-flannel-ds", "coredns", "kube-proxy",
 		// DPF system components
@@ -511,7 +511,7 @@ func verifySystemReady(dpuServiceNames []string) {
 		"example",
 	})
 
-	verifyDPUServicesReady(ctx, input, dpfOperatorSystemNamespace, dpuServiceNames)
+	verifyDPUServicesReady(Ctx, input, dpfOperatorSystemNamespace, dpuServiceNames)
 }
 
 // rolloutDependencies simulates a post-upgrade dependency rollout by creating

@@ -64,7 +64,7 @@ func VerifyPlainServiceFunctionChain(ctx context.Context, input *SystemTestInput
 	netshoot.CreateAndWaitForPods(ctx, input.Client, []*netshoot.TestPodConfig{&pod1Config, &pod2Config})
 
 	By("Running traffic test between pods")
-	netshoot.RunTrafficTest(&hostClusterRESTClient, &input.RestConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2Config.IP)
+	netshoot.RunTrafficTest(&HostClusterRESTClient, &input.RestConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2Config.IP)
 }
 
 func VerifyHBNOnlyServiceFunctionChain(ctx context.Context, input *SystemTestInput) {
@@ -85,7 +85,7 @@ func VerifyHBNOnlyServiceFunctionChain(ctx context.Context, input *SystemTestInp
 	netshoot.CreateAndWaitForPods(ctx, input.Client, []*netshoot.TestPodConfig{&pod1Config, &pod2Config})
 
 	By("Running traffic test between pods")
-	netshoot.RunTrafficTest(&hostClusterRESTClient, &input.RestConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2Config.IP)
+	netshoot.RunTrafficTest(&HostClusterRESTClient, &input.RestConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2Config.IP)
 }
 
 func VerifyHBNOnlyBadFlowRecovery(ctx context.Context, input *SystemTestInput) {
@@ -106,7 +106,7 @@ func VerifyHBNOnlyBadFlowRecovery(ctx context.Context, input *SystemTestInput) {
 	netshoot.CreateAndWaitForPods(ctx, input.Client, []*netshoot.TestPodConfig{&pod1Config, &pod2Config})
 
 	By("Running initial traffic test")
-	netshoot.RunTrafficTest(&hostClusterRESTClient, &input.RestConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2Config.IP)
+	netshoot.RunTrafficTest(&HostClusterRESTClient, &input.RestConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2Config.IP)
 
 	By("Killing HBN pod to test recovery")
 	deleteFirstFoundPodOnDpuCluster(ctx, "doca-hbn", input.Namespace)
@@ -115,7 +115,7 @@ func VerifyHBNOnlyBadFlowRecovery(ctx context.Context, input *SystemTestInput) {
 	dpuservice.WaitForDPUServices(ctx, input.Client, input.Namespace, []string{"doca-hbn"})
 
 	By("Running traffic test after recovery")
-	netshoot.RunTrafficTest(&hostClusterRESTClient, &input.RestConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2Config.IP)
+	netshoot.RunTrafficTest(&HostClusterRESTClient, &input.RestConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2Config.IP)
 }
 
 func VerifyServiceMTUOnDPUPods(ctx context.Context, input *SystemTestInput) {
@@ -226,7 +226,7 @@ func updateServiceMTUAndValidatePodRestart(ctx context.Context, input *SystemTes
 // getActiveServicePods gets and filters active (non-terminating) pods for a service
 func getActiveServicePods(ctx context.Context, g Gomega, namespace, serviceID string) []corev1.Pod {
 	podList := &corev1.PodList{}
-	g.Expect(dpuClusterClient[0].List(ctx, podList, client.MatchingLabels{"svc.dpu.nvidia.com/service": serviceID}, client.InNamespace(namespace))).ToNot(HaveOccurred())
+	g.Expect(DPUClusterClient[0].List(ctx, podList, client.MatchingLabels{"svc.dpu.nvidia.com/service": serviceID}, client.InNamespace(namespace))).ToNot(HaveOccurred())
 
 	var activePods []corev1.Pod
 	for _, pod := range podList.Items {
@@ -265,19 +265,19 @@ func testPingBetweenPods(ctx context.Context, namespace string, mtu int, cfg *mt
 	pod2Node1IP := getPodIPForInterface(Default, *pod2Node1, cfg.ipInterface)
 
 	By(fmt.Sprintf("Testing ping fails from %s (%s) to %s (%s) with MTU %d on the same node", pod1Node1.Name, pod1Node1IP, pod2Node1.Name, pod2Node1IP, mtu+1))
-	netshoot.AssertPingFailureWithMTU(&dpuClusterRestClient[0], &dpuClusterRestConfig[0], namespace, pod1Node1.Name, pod2Node1IP, mtu+1, mtu)
+	netshoot.AssertPingFailureWithMTU(&DPUClusterRestClient[0], &DPUClusterRestConfig[0], namespace, pod1Node1.Name, pod2Node1IP, mtu+1, mtu)
 
 	By(fmt.Sprintf("Testing ping fails from %s (%s) to %s (%s) with MTU %d on different nodes", pod1Node1.Name, pod1Node1IP, pod1Node2.Name, pod1Node2IP, mtu+1))
-	netshoot.AssertPingFailureWithMTU(&dpuClusterRestClient[0], &dpuClusterRestConfig[0], namespace, pod1Node1.Name, pod1Node2IP, mtu+1, mtu)
+	netshoot.AssertPingFailureWithMTU(&DPUClusterRestClient[0], &DPUClusterRestConfig[0], namespace, pod1Node1.Name, pod1Node2IP, mtu+1, mtu)
 
 	By(fmt.Sprintf("Testing ping from %s (%s) to %s (%s) with MTU %d on the same node", pod1Node1.Name, pod1Node1IP, pod2Node1.Name, pod2Node1IP, mtu))
-	netshoot.AssertPingSuccessWithMTU(&dpuClusterRestClient[0], &dpuClusterRestConfig[0], namespace, pod1Node1.Name, pod2Node1IP, mtu)
+	netshoot.AssertPingSuccessWithMTU(&DPUClusterRestClient[0], &DPUClusterRestConfig[0], namespace, pod1Node1.Name, pod2Node1IP, mtu)
 
 	By(fmt.Sprintf("Testing ping from %s (%s) to %s (%s) with MTU %d on different nodes", pod1Node1.Name, pod1Node1IP, pod1Node2.Name, pod1Node2IP, mtu))
-	netshoot.AssertPingSuccessWithMTU(&dpuClusterRestClient[0], &dpuClusterRestConfig[0], namespace, pod1Node1.Name, pod1Node2IP, mtu)
+	netshoot.AssertPingSuccessWithMTU(&DPUClusterRestClient[0], &DPUClusterRestConfig[0], namespace, pod1Node1.Name, pod1Node2IP, mtu)
 
 	By(fmt.Sprintf("Testing ping from %s (%s) to %s (%s) with MTU %d on different nodes", pod1Node2.Name, pod1Node2IP, pod1Node1.Name, pod1Node1IP, mtu))
-	netshoot.AssertPingSuccessWithMTU(&dpuClusterRestClient[0], &dpuClusterRestConfig[0], namespace, pod1Node2.Name, pod1Node1IP, mtu)
+	netshoot.AssertPingSuccessWithMTU(&DPUClusterRestClient[0], &DPUClusterRestConfig[0], namespace, pod1Node2.Name, pod1Node1IP, mtu)
 
 }
 
@@ -370,7 +370,7 @@ func setupPlainChainTest(ctx context.Context, input *SystemTestInput, vfIndex in
 	Expect(input.Client.Create(ctx, dpuServiceChain)).To(Succeed())
 
 	By("Verify underlying DPU objects are ready")
-	dpuservice.VerifyUnderlyingDPUObjectsReady(ctx, dpuClusterClient[0], input.Namespace, interfaceConfigs, []string{"netshoot-to-p0"})
+	dpuservice.VerifyUnderlyingDPUObjectsReady(ctx, DPUClusterClient[0], input.Namespace, interfaceConfigs, []string{"netshoot-to-p0"})
 }
 
 // setupHBNOnlyTest creates a test environment for a HBN only service function chain
@@ -511,12 +511,12 @@ func setupHBNOnlyTest(ctx context.Context, input *SystemTestInput, vfIndex int) 
 	createHBNIPAMs(ctx, input.Client, input.Namespace, input.DPUServiceIPAMTemplate, ipamConfigs)
 
 	By("Create and wait for HBN service")
-	dpuNode1, dpuNode2 := getDPUNodesInOrder(ctx, input.Client, dpuClusterClient[0])
+	dpuNode1, dpuNode2 := getDPUNodesInOrder(ctx, input.Client, DPUClusterClient[0])
 	createHBNService(ctx, input.Client, dpuNode1.Name, dpuNode2.Name, input.Namespace, input.DPUServiceHBN)
 	dpuservice.WaitForDPUServices(ctx, input.Client, input.Namespace, []string{"doca-hbn"})
 
 	By("Verify underlying ServiceChain and ServiceInterface objects are ready")
-	dpuservice.VerifyUnderlyingDPUObjectsReady(ctx, dpuClusterClient[0], input.Namespace, interfaceConfigs, []string{"hbn-to-fabric", "host-to-hbn"})
+	dpuservice.VerifyUnderlyingDPUObjectsReady(ctx, DPUClusterClient[0], input.Namespace, interfaceConfigs, []string{"hbn-to-fabric", "host-to-hbn"})
 }
 
 // createHBNService deploys the HBN service
@@ -554,17 +554,17 @@ func createHBNService(ctx context.Context, testClient client.Client, node1InDPUC
 func deleteFirstFoundPodOnDpuCluster(ctx context.Context, podSubstrNameToDelete string, namespace string) {
 	pods := &corev1.PodList{}
 	deletedPodName := ""
-	Expect(dpuClusterClient[0].List(ctx, pods, client.InNamespace(namespace))).To(Succeed())
+	Expect(DPUClusterClient[0].List(ctx, pods, client.InNamespace(namespace))).To(Succeed())
 	for _, pod := range pods.Items {
 		if strings.Contains(pod.Name, podSubstrNameToDelete) {
 			deletedPodName = pod.Name
-			Expect(dpuClusterClient[0].Delete(ctx, &pod)).To(Succeed())
+			Expect(DPUClusterClient[0].Delete(ctx, &pod)).To(Succeed())
 			break
 		}
 	}
 	Expect(deletedPodName).NotTo(BeEmpty())
 	Eventually(func(g Gomega) {
-		g.Expect(dpuClusterClient[0].Get(ctx, client.ObjectKey{Namespace: namespace, Name: deletedPodName}, &corev1.Pod{})).To(MatchError(ContainSubstring("not found")))
+		g.Expect(DPUClusterClient[0].Get(ctx, client.ObjectKey{Namespace: namespace, Name: deletedPodName}, &corev1.Pod{})).To(MatchError(ContainSubstring("not found")))
 	}, 10*time.Minute).Should(Succeed())
 }
 
@@ -612,7 +612,7 @@ func createHBNServiceChains(ctx context.Context, client client.Client, namespace
 
 // createHBNIPAMs creates the IPAM configurations for HBN
 func createHBNIPAMs(ctx context.Context, client client.Client, namespace string, dpuServiceIPAMTemplate *dpuservicev1.DPUServiceIPAM, IPAMConfigs []dpuservice.TestIPAMConfig) {
-	dpuNode1, dpuNode2 := getDPUNodesInOrder(ctx, client, dpuClusterClient[0])
+	dpuNode1, dpuNode2 := getDPUNodesInOrder(ctx, client, DPUClusterClient[0])
 	for _, config := range IPAMConfigs {
 		DPUServiceIPAM := utils.GenerateDPUObj(config.Name, namespace, dpuServiceIPAMTemplate.DeepCopy())
 		dpuservice.SetDPUServiceHBNIPAM(DPUServiceIPAM, config, dpuNode1.Name, dpuNode2.Name)
@@ -724,7 +724,7 @@ func setupMTUServiceFunctionChain(ctx context.Context, input *SystemTestInput, m
 	Expect(input.Client.Create(ctx, dpuServiceChain)).To(Succeed())
 
 	By("Verify underlying DPU objects are ready")
-	dpuservice.VerifyUnderlyingDPUObjectsReady(ctx, dpuClusterClient[0], input.Namespace, interfaceConfigs, []string{cfg.chainName})
+	dpuservice.VerifyUnderlyingDPUObjectsReady(ctx, DPUClusterClient[0], input.Namespace, interfaceConfigs, []string{cfg.chainName})
 }
 
 // configureNetshootDPUService configures a DPUService for netshoot using the dummydpuservice chart

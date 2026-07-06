@@ -139,12 +139,12 @@ var Domain = TestDomain{
 }
 
 var (
-	dpuClusterClient             []client.Client
-	dpuClusterRestConfig         []*rest.Config
-	dpuClusterRestClient         []*rest.RESTClient
+	DPUClusterClient             []client.Client
+	DPUClusterRestConfig         []*rest.Config
+	DPUClusterRestClient         []*rest.RESTClient
 	dpuClusterClientsInitialized bool // tracks if getDPUClusterClients was called (must only be called once)
-	hostClusterRESTClient        *rest.RESTClient
-	metricsURI                   string
+	HostClusterRESTClient        *rest.RESTClient
+	MetricsURI                   string
 	// helmRegistry holds the Helm registry in which the artifacts used in e2e are pushed
 	helmRegistry = ""
 	// dockerIORegistry is a DockerHub mirror registry used to pull mirrored images to avoid rate-limiting.
@@ -401,7 +401,7 @@ func VerifyPerformancePodToPodSameNode(ctx context.Context, input *SystemTestInp
 	pod2IP := netshoot.GetPodIP(ctx, input.Client, hostNamespace, pod2Config.Name)
 
 	By("Running traffic test between pods")
-	netshoot.RunTrafficTest(&hostClusterRESTClient, &input.RestConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2IP)
+	netshoot.RunTrafficTest(&HostClusterRESTClient, &input.RestConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2IP)
 }
 
 // VerifyPerformancePodToPodDifferentNode verifies performance between pods on different nodes
@@ -421,7 +421,7 @@ func VerifyPerformancePodToPodDifferentNode(ctx context.Context, input *SystemTe
 	pod2IP := netshoot.GetPodIP(ctx, input.Client, hostNamespace, pod2Config.Name)
 
 	By("Running traffic test between pods")
-	netshoot.RunTrafficTest(&hostClusterRESTClient, &input.RestConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2IP)
+	netshoot.RunTrafficTest(&HostClusterRESTClient, &input.RestConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2IP)
 }
 
 // getPodDifferentNodeConfigs returns two pod configs for different nodes

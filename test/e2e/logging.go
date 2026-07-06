@@ -39,7 +39,7 @@ const (
 
 // ValidateDPUClusterOpenTelemetryConfiguration verifies DPU cluster collector configuration
 func ValidateDPUClusterOpenTelemetryConfiguration(ctx context.Context, input *SystemTestInput) {
-	for i, dpuClient := range dpuClusterClient {
+	for i, dpuClient := range DPUClusterClient {
 		clusterName := input.DPUClusters[i].Name
 		By(fmt.Sprintf("Checking OpenTelemetry Collector ConfigMap in DPU cluster %s", clusterName))
 
@@ -71,7 +71,7 @@ func ValidateDPUClusterOpenTelemetryConfiguration(ctx context.Context, input *Sy
 
 // ValidateManagementClusterLogFlow verifies logs flow from management cluster to Loki
 func ValidateManagementClusterLogFlow(ctx context.Context, input *SystemTestInput) {
-	lokiClient := loki.NewClient(hostClusterRESTClient, dpfOperatorSystemNamespace)
+	lokiClient := loki.NewClient(HostClusterRESTClient, dpfOperatorSystemNamespace)
 	testNamespacePrefix := "test-logging-mgmt-"
 	uniqueMessage := fmt.Sprintf("test-log-mgmt-%d", time.Now().Unix())
 
@@ -114,15 +114,15 @@ func ValidateManagementClusterLogFlow(ctx context.Context, input *SystemTestInpu
 
 // ValidateDPUClusterLogFlow verifies logs flow from DPU cluster to Loki
 func ValidateDPUClusterLogFlow(ctx context.Context, input *SystemTestInput) {
-	lokiClient := loki.NewClient(hostClusterRESTClient, dpfOperatorSystemNamespace)
+	lokiClient := loki.NewClient(HostClusterRESTClient, dpfOperatorSystemNamespace)
 	testNamespacePrefix := "test-logging-dpu-"
 	uniqueMessage := fmt.Sprintf("test-log-dpu-%d", time.Now().Unix())
 
 	By("Creating test namespace in DPU cluster")
-	testNS := createTestNamespaceInCluster(ctx, dpuClusterClient[0], testNamespacePrefix)
+	testNS := createTestNamespaceInCluster(ctx, DPUClusterClient[0], testNamespacePrefix)
 
 	By(fmt.Sprintf("Creating log generator pod in DPU cluster with message: %s", uniqueMessage))
-	createLogGeneratorPod(ctx, dpuClusterClient[0], testNS, "log-generator-dpu", uniqueMessage)
+	createLogGeneratorPod(ctx, DPUClusterClient[0], testNS, "log-generator-dpu", uniqueMessage)
 
 	By("Waiting for logs to be collected and forwarded to Loki")
 	clusterName := input.DPUClusters[0].Name

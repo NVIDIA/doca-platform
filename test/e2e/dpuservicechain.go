@@ -44,7 +44,7 @@ func ValidateDPUServiceInterfaceCreation(ctx context.Context, input *SystemTestI
 	By("Verify ServiceInterfaceSet is created in DPF clusters")
 	Eventually(func(g Gomega) {
 		scs := &dpuservicev1.ServiceInterfaceSet{ObjectMeta: metav1.ObjectMeta{Name: testDPUServiceInterfaceName, Namespace: dpuServiceInterfaceNamespace}}
-		g.Expect(dpuClusterClient[0].Get(ctx, client.ObjectKeyFromObject(scs), scs)).NotTo(HaveOccurred())
+		g.Expect(DPUClusterClient[0].Get(ctx, client.ObjectKeyFromObject(scs), scs)).NotTo(HaveOccurred())
 	}, time.Second*300, time.Millisecond*250).Should(Succeed())
 }
 
@@ -61,7 +61,7 @@ func ValidateDPUServiceChainCreation(ctx context.Context, input *SystemTestInput
 	By("Verify ServiceChainSet is created in DPF clusters")
 	Eventually(func(g Gomega) {
 		scs := &dpuservicev1.ServiceChainSet{ObjectMeta: metav1.ObjectMeta{Name: dpuServiceChainName, Namespace: dpuServiceChainNamespace}}
-		g.Expect(dpuClusterClient[0].Get(ctx, client.ObjectKeyFromObject(scs), scs)).NotTo(HaveOccurred())
+		g.Expect(DPUClusterClient[0].Get(ctx, client.ObjectKeyFromObject(scs), scs)).NotTo(HaveOccurred())
 	}, time.Second*300, time.Millisecond*250).Should(Succeed())
 
 }
@@ -87,7 +87,7 @@ func ValidateDPUServiceChainMetrics(ctx context.Context, input *SystemTestInput)
 	}
 
 	Eventually(func(g Gomega) {
-		actualMetricsNames := metrics.GetKSMMetrics(g, ctx, hostClusterRESTClient, metricsURI)
+		actualMetricsNames := metrics.GetKSMMetrics(g, ctx, HostClusterRESTClient, MetricsURI)
 		g.Expect(actualMetricsNames).NotTo(BeEmpty(), "Actual metrics are empty")
 		g.Expect(metrics.VerifyMetrics(expectedMetricsNames, actualMetricsNames)).To(BeEmpty())
 	}).WithTimeout(5 * time.Second).Should(Succeed())
@@ -95,9 +95,9 @@ func ValidateDPUServiceChainMetrics(ctx context.Context, input *SystemTestInput)
 	By("Wait for ServiceChainSet and ServiceInterfaceSet to be created in DPU clusters")
 	Eventually(func(g Gomega) {
 		scs := &dpuservicev1.ServiceChainSet{}
-		g.Expect(dpuClusterClient[0].Get(ctx, client.ObjectKey{Name: dpuServiceChainName, Namespace: dpuServiceInterfaceNamespace}, scs)).To(Succeed())
+		g.Expect(DPUClusterClient[0].Get(ctx, client.ObjectKey{Name: dpuServiceChainName, Namespace: dpuServiceInterfaceNamespace}, scs)).To(Succeed())
 		sis := &dpuservicev1.ServiceInterfaceSet{}
-		g.Expect(dpuClusterClient[0].Get(ctx, client.ObjectKey{Name: dpuServiceInterfaceName, Namespace: dpuServiceInterfaceNamespace}, sis)).To(Succeed())
+		g.Expect(DPUClusterClient[0].Get(ctx, client.ObjectKey{Name: dpuServiceInterfaceName, Namespace: dpuServiceInterfaceNamespace}, sis)).To(Succeed())
 	}).WithTimeout(300 * time.Second).Should(Succeed())
 
 	// TODO: add validation for ServiceChain and ServiceInterface metrics when DPU nodes are present
@@ -114,7 +114,7 @@ func ValidateDPUServiceChainMetrics(ctx context.Context, input *SystemTestInput)
 		g.Expect(dpuKSMMetricsURI).NotTo(BeEmpty())
 
 		// Use hostClusterRESTClient because in-cluster KSM runs on the management cluster
-		actualMetricsNames := metrics.GetKSMMetrics(g, ctx, hostClusterRESTClient, dpuKSMMetricsURI)
+		actualMetricsNames := metrics.GetKSMMetrics(g, ctx, HostClusterRESTClient, dpuKSMMetricsURI)
 		g.Expect(actualMetricsNames).NotTo(BeEmpty(), "Actual metrics are empty")
 		g.Expect(metrics.VerifyMetrics(expectedDPUMetricsNames, actualMetricsNames)).To(BeEmpty())
 	}).WithTimeout(10 * time.Second).Should(Succeed())
@@ -155,11 +155,11 @@ func ValidateDPUServiceChainDeletion(ctx context.Context, input *SystemTestInput
 	// Get the control plane secrets.
 	Eventually(func(g Gomega) {
 		serviceChainSetList := dpuservicev1.ServiceChainSetList{}
-		g.Expect(dpuClusterClient[0].List(ctx, &serviceChainSetList,
+		g.Expect(DPUClusterClient[0].List(ctx, &serviceChainSetList,
 			&client.ListOptions{Namespace: dpuServiceChain.Namespace})).To(Succeed())
 		g.Expect(serviceChainSetList.Items).To(BeEmpty())
 		serviceInterfaceSetList := dpuservicev1.ServiceInterfaceSetList{}
-		g.Expect(dpuClusterClient[0].List(ctx, &serviceInterfaceSetList,
+		g.Expect(DPUClusterClient[0].List(ctx, &serviceInterfaceSetList,
 			&client.ListOptions{Namespace: dpuServiceInterfaceNamespace})).To(Succeed())
 		g.Expect(serviceInterfaceSetList.Items).To(BeEmpty())
 	}).WithTimeout(300 * time.Second).Should(Succeed())

@@ -87,7 +87,7 @@ var _ = Describe("External DPF tests", Labels{Domain.ExternalTest}, func() {
 
 		BeforeAll(func() {
 			By("Wait for OVNK HBN deployment to be ready")
-			WaitForOVNKHBNDeploymentReady(ctx, input)
+			WaitForOVNKHBNDeploymentReady(Ctx, input)
 			By("Syncing image pull secrets for Nlastic workload pods")
 			syncNlasticImagePullSecrets()
 			By("Setup Nlastic environment")
@@ -124,7 +124,7 @@ var _ = Describe("External DPF tests", Labels{Domain.ExternalTest}, func() {
 func syncNlasticImagePullSecrets() {
 	const nlasticPodNamespace = "default"
 	for _, secretName := range []string{dpfPullSecretName, "pull-secret-extra"} {
-		CopySecretToNamespace(ctx, input.Client, secretName, dpfOperatorSystemNamespace, nlasticPodNamespace, CleanupScope.Suite)
+		CopySecretToNamespace(Ctx, input.Client, secretName, dpfOperatorSystemNamespace, nlasticPodNamespace, CleanupScope.Suite)
 	}
 }
 
@@ -195,7 +195,7 @@ func collectNlasticResults(sharedDir, subDir string) {
 	if _, err := os.Stat(sharedDir); err != nil {
 		return
 	}
-	dest := filepath.Join(artifactsDir, "nlastic", subDir)
+	dest := filepath.Join(ArtifactsDir, "nlastic", subDir)
 	if err := os.MkdirAll(dest, 0755); err != nil {
 		_, _ = fmt.Fprintf(GinkgoWriter, "Failed to create nlastic artifacts dir %s: %v\n", dest, err)
 		return

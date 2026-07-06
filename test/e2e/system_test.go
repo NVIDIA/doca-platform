@@ -45,11 +45,11 @@ func SetInput() *SystemTestInput {
 	validateFlags()
 
 	By("Get control plane IP")
-	controlPlaneIP := getClusterControlPlaneIP(ctx, testClient)
+	controlPlaneIP := getClusterControlPlaneIP(Ctx, TestClient)
 
 	By("Setting operatorConfig for the test")
 	var bfbPVCName *string
-	if conf.ProvisioningControllerPVCPath != nil {
+	if Conf.ProvisioningControllerPVCPath != nil {
 		bfbPVCName = ptr.To("bfb-pvc")
 	}
 	dpfOperatorConfig := &operatorv1.DPFOperatorConfig{
@@ -112,7 +112,7 @@ func SetInput() *SystemTestInput {
 			},
 		}
 		apiServerPort := 443
-		if u, err := url.Parse(restConfig.Host); err == nil {
+		if u, err := url.Parse(RestConfig.Host); err == nil {
 			if p := u.Port(); p != "" {
 				if parsed, err := strconv.Atoi(p); err == nil {
 					apiServerPort = parsed
@@ -160,7 +160,7 @@ func SetInput() *SystemTestInput {
 		apiServerPort := defaultAPIServerPort
 		if targetClusterAPIServerHost != "" {
 			apiServerHost = targetClusterAPIServerHost
-		} else if u, err := url.Parse(restConfig.Host); err == nil {
+		} else if u, err := url.Parse(RestConfig.Host); err == nil {
 			if h := u.Hostname(); h != "" {
 				apiServerHost = h
 			}
@@ -186,14 +186,14 @@ func SetInput() *SystemTestInput {
 		Namespace:          dpfOperatorSystemNamespace,
 		Config:             dpfOperatorConfig,
 		PullSecretNames:    dpfOperatorConfig.Spec.ImagePullSecrets,
-		Client:             testClient,
-		RestConfig:         restConfig,
-		CleanupFlags:       cleanupFlags,
+		Client:             TestClient,
+		RestConfig:         RestConfig,
+		CleanupFlags:       CleanupFlags,
 		BFBImageURL:        bfbImageURL,
 		BFSOsIsoURL:        bfsOsIsoURL,
 		BFSPldmFwBundleURL: bfsPldmFwBundleURL,
 	}
-	input.ApplyConfig(*conf)
+	input.ApplyConfig(*Conf)
 	return input
 }
 
@@ -201,17 +201,17 @@ func SetInput() *SystemTestInput {
 // If skipSystemComponentValidation is true, it skips the validation of system components after deployment.
 func SystemSetupBeforeSuite(skipSystemComponentValidation bool) {
 	if Label(Domain.Scale).MatchesLabelFilter(GinkgoLabelFilter()) {
-		CreateDPUWorkerNodes(ctx, input.NumberOfDPUNodes)
+		CreateDPUWorkerNodes(Ctx, input.NumberOfDPUNodes)
 	}
 
-	AnnotateAndLabelNodes(ctx, input.Client, input.UseExternalNodeReboot)
+	AnnotateAndLabelNodes(Ctx, input.Client, input.UseExternalNodeReboot)
 
 	if ngcAPIKey != "" {
-		createNGCImagePullSecret(ctx, input.Client)
+		createNGCImagePullSecret(Ctx, input.Client)
 	}
 
 	By("Deploy DPF System components")
-	DeployDPFSystemComponents(ctx, DeployDPFSystemComponentsInput{
+	DeployDPFSystemComponents(Ctx, DeployDPFSystemComponentsInput{
 		SystemNamespace:               input.Namespace,
 		OperatorConfig:                input.Config,
 		ImagePullSecrets:              input.PullSecretNames,
@@ -226,19 +226,19 @@ func SystemSetupBeforeSuite(skipSystemComponentValidation bool) {
 		// In ZeroTrust mode, build a DPUNode-to-host BMC IP map from the lab inventory file
 		// for the script-based reboot path (nodeRebootMethod.script).
 		input.DPUNodeBMCs = GetDPUNodeToBMCIPs(
-			ctx, input.Client, input.NumberOfDPUNodes)
+			Ctx, input.Client, input.NumberOfDPUNodes)
 
 		// Ensure ConfigMap and DPUNode BMC IP labels are set ahead of any DPU reaching the reboot state,
 		// so the controller can drive in-cluster Redfish reboots through the named ConfigMap.
-		ApplyNodeRebootConfigMap(ctx, input.Client, input.NodeRebootConfigMapPath)
-		PatchDPUNodesForScriptReboot(ctx, input.Client, input.NumberOfDPUNodes,
+		ApplyNodeRebootConfigMap(Ctx, input.Client, input.NodeRebootConfigMapPath)
+		PatchDPUNodesForScriptReboot(Ctx, input.Client, input.NumberOfDPUNodes,
 			input.NodeRebootConfigMap, input.DPUNodeBMCs)
 	}
 
 	if isGinkgoLabelApplied(Domain.Performance) {
 		vip := *input.Config.Spec.Overrides.KubernetesAPIServerVIP
 		port := *input.Config.Spec.Overrides.KubernetesAPIServerPort
-		PatchNFDWorkerForVIP(ctx, input.Client, input.Namespace, vip, port)
+		PatchNFDWorkerForVIP(Ctx, input.Client, input.Namespace, vip, port)
 	}
 }
 
@@ -345,109 +345,109 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 			}
 
 			By("Waiting for provisioning")
-			VerifyDPUClusterWithNodes(ctx, GetProvisionDPUClustersInput())
+			VerifyDPUClusterWithNodes(Ctx, GetProvisionDPUClustersInput())
 
 			By("Waiting for DPU cluster pods to be ready")
-			VerifyClusterPods(ctx, dpuClusterClient[0], systemPodsToVerify)
+			VerifyClusterPods(Ctx, DPUClusterClient[0], systemPodsToVerify)
 
 			By("Waiting for DPFOperatorConfig to be ready")
-			VerifyDPFOperatorConfigReady(ctx, input.Client, 20*time.Minute)
+			VerifyDPFOperatorConfigReady(Ctx, input.Client, 20*time.Minute)
 		}
 	})
 
 	Context("DPU Deployment", Labels{Domain.ZeroTrust}, func() {
 		It("create a DPUDeployment with its dependencies and ensure that the underlying objects are created", func() {
-			ValidateDPUDeploymentCreation(ctx, input)
+			ValidateDPUDeploymentCreation(Ctx, input)
 		})
 		It("verify DPUDeployment and DPUServiceInterface metrics", func() {
-			ValidateDPUDeploymentMetrics(ctx, input)
+			ValidateDPUDeploymentMetrics(Ctx, input)
 		})
 		It("verify deletion on a disruptive upgrade with bad parameters so that the up to date DPUService never becomes ready", func() {
-			ValidateDPUDeploymentDeletionWhileDisruptiveUpgradeInProgress(ctx, input)
+			ValidateDPUDeploymentDeletionWhileDisruptiveUpgradeInProgress(Ctx, input)
 		})
 	})
 
 	Context("DPU Service IPAM", Labels{Domain.ZeroTrust}, func() {
 		It("create an invalid DPUServiceIPAM and ensure that the webhook rejects the request", func() {
-			ValidateDPUServiceIPAMCreationInvalid(ctx, input)
+			ValidateDPUServiceIPAMCreationInvalid(Ctx, input)
 		})
 		It("create a DPUServiceIPAM with subnet split per node configuration and check NVIPAM IPPool is created to each cluster", func() {
-			ValidateDPUServiceIPAMCreationSubnetSplit(ctx, input)
+			ValidateDPUServiceIPAMCreationSubnetSplit(Ctx, input)
 		})
 		It("verify DPUServiceIPAM metrics", func() {
-			ValidateDPUServiceIPAMMetrics(ctx, input)
+			ValidateDPUServiceIPAMMetrics(Ctx, input)
 		})
 		It("delete the DPUServiceIPAM with subnet split per node configuration and check NVIPAM IPPool is deleted in each cluster", func() {
-			ValidateDPUServiceIPAMMetricsDeletion(ctx, input)
+			ValidateDPUServiceIPAMMetricsDeletion(Ctx, input)
 		})
 		It("create a DPUServiceIPAM with cidr split in subnet per node configuration and check NVIPAM CIDRPool is created to each cluster", func() {
-			ValidateDPUServiceIPAMCreationCidrSplit(ctx, input)
+			ValidateDPUServiceIPAMCreationCidrSplit(Ctx, input)
 		})
 		It("delete the DPUServiceIPAM with cidr split in subnet per node configuration and check NVIPAM CIDRPool is deleted in each cluster", func() {
-			ValidateDPUServiceIPAMDeletionCidrSplit(ctx, input)
+			ValidateDPUServiceIPAMDeletionCidrSplit(Ctx, input)
 		})
 	})
 
 	Context("DPU Service Chain", Labels{Domain.ZeroTrust}, func() {
 		It("create DPUServiceInterface and check that it is mirrored to each cluster", func() {
-			ValidateDPUServiceInterfaceCreation(ctx, input)
+			ValidateDPUServiceInterfaceCreation(Ctx, input)
 		})
 		It("create DPUServiceChain and check that it is mirrored to each cluster", func() {
-			ValidateDPUServiceChainCreation(ctx, input)
+			ValidateDPUServiceChainCreation(Ctx, input)
 		})
 		It("verify DPUServiceChain metrics", func() {
-			ValidateDPUServiceChainMetrics(ctx, input)
+			ValidateDPUServiceChainMetrics(Ctx, input)
 		})
 		It("delete the DPUServiceChain & DPUServiceInterface and check that the Sets are cleaned up", func() {
-			ValidateDPUServiceChainDeletion(ctx, input)
+			ValidateDPUServiceChainDeletion(Ctx, input)
 		})
 	})
 
 	Context("DPU Service Credential Request", Labels{Domain.ZeroTrust}, func() {
 		It("create a DPUServiceCredentialRequest and check that the credentials are created", func() {
-			ValidateDPUServiceCredentialRequestCreation(ctx, input)
+			ValidateDPUServiceCredentialRequestCreation(Ctx, input)
 		})
 		It("verify DPUServiceCredentialRequest metrics", func() {
-			ValidateDPUServiceCredentialRequestMetrics(ctx, input)
+			ValidateDPUServiceCredentialRequestMetrics(Ctx, input)
 		})
 		It("delete the DPUServiceCredentialRequest and check that the credentials are deleted", func() {
-			ValidateDPUServiceCredentialRequestDeletion(ctx, input)
+			ValidateDPUServiceCredentialRequestDeletion(Ctx, input)
 		})
 	})
 
 	Context("DPU Service", func() {
 		It("verify DPUService and DPUServiceInterface metrics", Labels{Domain.ZeroTrust}, func() {
-			ValidateDPUServiceMetrics(ctx, input)
+			ValidateDPUServiceMetrics(Ctx, input)
 		})
 		It("delete the DPUServices and check that the applications are cleaned up", Labels{Domain.ZeroTrust}, func() {
-			ValidateDPUServiceDeletion(ctx, input)
+			ValidateDPUServiceDeletion(Ctx, input)
 		})
 		It("verify that the ImagePullSecrets have been synced correctly and cleaned up", Labels{Domain.ZeroTrust, Domain.ImagePullSecretsSync}, func() {
-			ValidateImagePullSecretsSync(ctx, input)
+			ValidateImagePullSecretsSync(Ctx, input)
 		})
 	})
 
 	Context("DPU Service Template", Labels{Domain.ZeroTrust}, func() {
 		It("create a DPUServiceTemplate with a chart that doesn't include annotations and expect no versions in status", func() {
-			ValidateDPUServiceTemplateCreationNoAnnotations(ctx, input)
+			ValidateDPUServiceTemplateCreationNoAnnotations(Ctx, input)
 		})
 		It("create a DPUServiceTemplate with a chart that includes annotations and expect versions in status", func() {
-			VerifyDPUServiceTemplateCreationWithAnnotations(ctx, input)
+			VerifyDPUServiceTemplateCreationWithAnnotations(Ctx, input)
 		})
 		It("verify DPUServiceTemplate metrics", func() {
-			VerifyDPUServiceTemplateMetrics(ctx, input)
+			VerifyDPUServiceTemplateMetrics(Ctx, input)
 		})
 	})
 
 	Context("Validate General DPF Metrics", Labels{Domain.ZeroTrust}, func() {
 		It("should validate general DPF Metrics ", func() {
-			ValidateGeneralDPFMetrics(ctx, input)
+			ValidateGeneralDPFMetrics(Ctx, input)
 		})
 	})
 
 	Context("VAP Deprecation Warnings", Labels{Domain.ZeroTrust}, func() {
 		It("verify VAP emits a warning when a deprecated field is set", func() {
-			ValidateVAPDeprecationWarnings(ctx, input)
+			ValidateVAPDeprecationWarnings(Ctx, input)
 		})
 	})
 
@@ -455,13 +455,13 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 		Context("Monitoring", func() {
 			Context("KSM Metrics Collection", Labels{Domain.ZeroTrust}, func() {
 				It("validate host cluster kube-state-metrics is accessible", func() {
-					VerifyHostKSMMetricsCollection(ctx)
+					VerifyHostKSMMetricsCollection(Ctx)
 				})
 				It("validate DPU cluster kube-state-metrics is accessible", func() {
 					By("Waiting for DPU cluster kube-state-metrics to be ready")
-					VerifyClusterPods(ctx, input.Client, []string{"in-cluster-kube-state-metrics"})
+					VerifyClusterPods(Ctx, input.Client, []string{"in-cluster-kube-state-metrics"})
 					By("Validating DPU cluster kube-state-metrics accessibility")
-					VerifyDPUKSMMetricsCollection(ctx, input)
+					VerifyDPUKSMMetricsCollection(Ctx, input)
 				})
 			})
 
@@ -471,9 +471,9 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 						Skip("Skip Node Problem Detector test as there are no DPU nodes")
 					}
 					By("Waiting for node-problem-detector to be ready")
-					VerifyClusterPods(ctx, dpuClusterClient[0], []string{"node-problem-detector"})
+					VerifyClusterPods(Ctx, DPUClusterClient[0], []string{"node-problem-detector"})
 					By("Validating node-problem-detector conditions for DPU nodes")
-					VerifyNodeProblemDetectorConditions(ctx, input)
+					VerifyNodeProblemDetectorConditions(Ctx, input)
 				})
 			})
 		})
@@ -481,14 +481,14 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 			Context("Component Deployment", func() {
 				It("should verify OpenTelemetry Collector DaemonSets running in host cluster", func() {
 					By("Running in host cluster")
-					VerifyClusterPods(ctx, input.Client, []string{"opentelemetry-collector"})
+					VerifyClusterPods(Ctx, input.Client, []string{"opentelemetry-collector"})
 				})
 				It("should verify OpenTelemetry Collector DaemonSets running in DPU cluster", Labels{Domain.RequiresNodes}, func() {
 					if !input.HasDpuNodes() {
 						Skip("Skip test as there are no DPU nodes")
 					}
 					By("Running in DPUCluster")
-					VerifyClusterPods(ctx, dpuClusterClient[0], []string{"opentelemetry-collector"})
+					VerifyClusterPods(Ctx, DPUClusterClient[0], []string{"opentelemetry-collector"})
 				})
 			})
 
@@ -497,27 +497,27 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 					if !input.HasDpuNodes() {
 						Skip("Skip test as there are no DPU nodes")
 					}
-					ValidateDPUClusterOpenTelemetryConfiguration(ctx, input)
+					ValidateDPUClusterOpenTelemetryConfiguration(Ctx, input)
 				})
 			})
 
 			Context("Log Flow", func() {
 				It("should collect and forward logs from management cluster to Loki", func() {
-					ValidateManagementClusterLogFlow(ctx, input)
+					ValidateManagementClusterLogFlow(Ctx, input)
 				})
 
 				It("should collect and forward logs from DPU cluster to Loki", Labels{Domain.RequiresNodes}, func() {
 					if !input.HasDpuNodes() {
 						Skip("Skip test as there are no DPU nodes")
 					}
-					ValidateDPUClusterLogFlow(ctx, input)
+					ValidateDPUClusterLogFlow(Ctx, input)
 				})
 			})
 		})
 	})
 	Context("DPU Agent", Labels{Domain.ZeroTrust, Domain.RequiresNodes}, func() {
 		It("validate DPU agent has reported status on all provisioned DPUs", func() {
-			ValidateDPUAgentStatus(ctx, input, provisioningv1.AgentStatus{
+			ValidateDPUAgentStatus(Ctx, input, provisioningv1.AgentStatus{
 				RebootMethod:        ptr.To(provisioningv1.RebootMethodNoAction),
 				RebootSequenceCount: ptr.To(int32(0)),
 				Conditions: []metav1.Condition{
@@ -549,57 +549,57 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 
 	Context("DPU Service Kata Containers", Labels{Domain.RequiresNodes}, func() {
 		It("deploy a DPUService pod with kata-qemu RuntimeClass and an SF", func() {
-			ValidateDPUServiceKataRuntimeClass(ctx, input)
+			ValidateDPUServiceKataRuntimeClass(Ctx, input)
 		})
 	})
 
 	// Config Ports check is not valid for ZeroTrust
 	Context("DPU Service Config Ports", Labels{Domain.RequiresNodes}, Serial, func() {
 		It("expose ConfigPorts via DPUService and test reachability", func() {
-			ValidateDPUServiceConfigPorts(ctx, input)
+			ValidateDPUServiceConfigPorts(Ctx, input)
 		})
 	})
 
 	Context("NodeSRIOVDevicePluginController", func() {
 		It("verify the webhook rejects invalid NodeSRIOVDevicePluginConfig", func() {
-			ValidateNodeSRIOVDevicePluginWebhookRejectsInvalid(ctx, input)
+			ValidateNodeSRIOVDevicePluginWebhookRejectsInvalid(Ctx, input)
 		})
 		It("verify a valid NodeSRIOVDevicePluginConfig is accepted and can be deleted", func() {
-			ValidateNodeSRIOVDevicePluginConfigValidCreate(ctx, input)
+			ValidateNodeSRIOVDevicePluginConfigValidCreate(Ctx, input)
 		})
 	})
 
 	Context("NodeSRIOVDevicePluginController Managed Pods", Labels{Domain.RequiresNodes}, Serial, Ordered, func() {
 		It("verify node SRIOV device plugin management", func() {
-			ValidateNodeSRIOVDevicePluginManagement(ctx, input)
+			ValidateNodeSRIOVDevicePluginManagement(Ctx, input)
 		})
 	})
 
 	Context("Validate DPU Operator Config", Serial, Ordered, func() {
 		It("verify system component overrides", Labels{Domain.ZeroTrust}, func() {
-			ValidateDPFOperatorBaseConfiguration(ctx, input)
+			ValidateDPFOperatorBaseConfiguration(Ctx, input)
 		})
 		It("verify that the current MTU in the DPU clusters flannel configmap is 1500", Labels{Domain.ZeroTrust}, func() {
-			ValidateDPFOperatorMTUCurrentConfiguration(ctx, input)
+			ValidateDPFOperatorMTUCurrentConfiguration(Ctx, input)
 		})
 		It("change the MTUs in the operatorConfig and verify that DPU Clusters are updated", Labels{Domain.ZeroTrust}, func() {
-			ValidateDPFOperatorMTUConfigurationChange(ctx, input)
+			ValidateDPFOperatorMTUConfigurationChange(Ctx, input)
 		})
 		It("verify overrides path setting for system DPUServices", Labels{Domain.ZeroTrust}, func() {
-			ValidateDPFOperatorPathConfiguration(ctx, input)
+			ValidateDPFOperatorPathConfiguration(Ctx, input)
 		})
 		It("change the MaxDPUParallelInstallations in the operatorConfig and verify that the provisioning controller is restarted", Labels{Domain.ZeroTrust}, func() {
-			ValidateDPFOperatorMaxDPUParallelInstallations(ctx, input)
+			ValidateDPFOperatorMaxDPUParallelInstallations(Ctx, input)
 		})
 		It("change the flannel podCIDR in the operatorConfig and check that it is set", Labels{Domain.ZeroTrust}, func() {
-			ValidateDPFOperatorFlannelPodCIDRChange(ctx, input)
+			ValidateDPFOperatorFlannelPodCIDRChange(Ctx, input)
 		})
 
 		// This test triggers reprovisioning, which might disrupt other tests relying on provisioned nodes.
 		// Added BeforeEach wait for the nodes to be provisioned for the test with Domain.RequiresNodes
 		// DMS check is not valid for ZeroTrust
 		It("verify Kubernetes API related variables are propagated correctly", Labels{Domain.RequiresNodes}, func() {
-			ValidateDPFOperatorKubernetesAPIServerVIPAndPort(ctx, input)
+			ValidateDPFOperatorKubernetesAPIServerVIPAndPort(Ctx, input)
 		})
 	})
 
@@ -609,33 +609,33 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 	Context("Validate DPUDeployment full creation", Serial, Ordered, func() {
 		BeforeAll(func() {
 			By("Should validate DPUDeployment and underlying objects creation")
-			ValidateDPUDeploymentFullCreation(ctx, input)
+			ValidateDPUDeploymentFullCreation(Ctx, input)
 		})
 		It("should validate DPUDeployment becomes ready", Labels{Domain.ZeroTrust}, func() {
-			VerifyDPUDeploymentIsReady(ctx, input)
+			VerifyDPUDeploymentIsReady(Ctx, input)
 		})
 		It("should validate DPUDeployment disruptive upgrade of standard DPUServices", Labels{Domain.ZeroTrust}, func() {
 			if isGinkgoLabelApplied(Domain.ZeroTrust) {
-				ValidateDPUDeploymentDPUServiceDisruptiveUpgradeHold(ctx, input)
+				ValidateDPUDeploymentDPUServiceDisruptiveUpgradeHold(Ctx, input)
 			} else {
-				ValidateDPUDeploymentDPUServiceDisruptiveUpgradeDrain(ctx, input)
+				ValidateDPUDeploymentDPUServiceDisruptiveUpgradeDrain(Ctx, input)
 			}
 		})
 		It("should validate DPUDeployment disruptive upgrade of standard DPUServices with bad configuration", func() {
-			ValidateDPUDeploymentDPUServiceDisruptiveUpgradeBadConfigurationAndBack(ctx, input)
+			ValidateDPUDeploymentDPUServiceDisruptiveUpgradeBadConfigurationAndBack(Ctx, input)
 		})
 		It("should validate DPUDeployment disruptive upgrade of in-cluster DPUServices", func() {
-			ValidateDPUDeploymentInClusterDPUServiceDisruptiveUpgrade(ctx, input)
+			ValidateDPUDeploymentInClusterDPUServiceDisruptiveUpgrade(Ctx, input)
 		})
 		It("should validate DPUDeployment disruptive upgrade of DPUServiceChain", Labels{Domain.ZeroTrust}, func() {
 			if isGinkgoLabelApplied(Domain.ZeroTrust) {
-				ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeHold(ctx, input)
+				ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeHold(Ctx, input)
 			} else {
-				ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeDrain(ctx, input)
+				ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeDrain(Ctx, input)
 			}
 		})
 		It("should validate DPUDeployment disruptive upgrade of DPUServiceChain with bad configuration", func() {
-			ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeBadConfigurationAndBack(ctx, input)
+			ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeBadConfigurationAndBack(Ctx, input)
 		})
 	})
 
@@ -643,7 +643,7 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 	// proceed with the removal.
 	Context("Validate DPFOperatorConfig deletion", Serial, Labels{Domain.ZeroTrust}, func() {
 		It("should validate the expected objects exist before leaving the Container node", func() {
-			ValidateDPFOperatorConfigCleanupPrerequisites(ctx, input)
+			ValidateDPFOperatorConfigCleanupPrerequisites(Ctx, input)
 		})
 	})
 })
@@ -662,7 +662,7 @@ func GetProvisionDPUClustersInput() ProvisionDPUClustersInput {
 		BFBImageURL:             input.BFBImageURL,
 		BFSOsIsoURL:             input.BFSOsIsoURL,
 		BFSPldmFwBundleURL:      input.BFSPldmFwBundleURL,
-		RestConfig:              restConfig,
+		RestConfig:              RestConfig,
 		NodeRebootConfigMap:     input.NodeRebootConfigMap,
 		DPUNodeBMCs:             input.DPUNodeBMCs,
 	}

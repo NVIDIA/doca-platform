@@ -368,7 +368,7 @@ func CreateProvisioningDPUSet(ctx context.Context, input *SystemTestInput) {
 		}
 
 		nodes := &corev1.NodeList{}
-		g.Expect(dpuClusterClient[0].List(ctx, nodes)).To(Succeed(), "Should be able to list nodes in DPU cluster")
+		g.Expect(DPUClusterClient[0].List(ctx, nodes)).To(Succeed(), "Should be able to list nodes in DPU cluster")
 
 		nodeKey := fmt.Sprintf("%d/%d", len(nodes.Items), provisioningExpected.TotalDPUs)
 		nodesTracker.By(nodeKey, "K8s nodes in DPU cluster [%d/%d]", len(nodes.Items), provisioningExpected.TotalDPUs)
@@ -421,7 +421,7 @@ func VerifyProvisioning(ctx context.Context, input *SystemTestInput) {
 	}).WithTimeout(10 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
 
 	// Use shared function to verify DPUServices are deployed
-	VerifyDPUServicesDeployed(ctx, dpuClusterClient[0], input.DPUClusters[0].GetNamespace())
+	VerifyDPUServicesDeployed(ctx, DPUClusterClient[0], input.DPUClusters[0].GetNamespace())
 
 	By("Verifying DPUSet statistics")
 	dpuSetTracker := NewByTracker()
@@ -453,7 +453,7 @@ func VerifyProvisioning(ctx context.Context, input *SystemTestInput) {
 	}).WithTimeout(2 * time.Minute).Should(Succeed())
 
 	By("Waiting for all system pods to be ready in DPU cluster")
-	VerifyClusterPods(ctx, dpuClusterClient[0], systemPodsToVerify)
+	VerifyClusterPods(ctx, DPUClusterClient[0], systemPodsToVerify)
 }
 
 func DeleteProvisioning(ctx context.Context, input *SystemTestInput) {
@@ -502,7 +502,7 @@ func DeleteProvisioning(ctx context.Context, input *SystemTestInput) {
 	nodesDeleteTracker := NewByTracker()
 	Eventually(func(g Gomega) {
 		nodes := &corev1.NodeList{}
-		g.Expect(dpuClusterClient[0].List(ctx, nodes)).To(Succeed())
+		g.Expect(DPUClusterClient[0].List(ctx, nodes)).To(Succeed())
 		nodesDeleteTracker.By(fmt.Sprintf("%d", len(nodes.Items)),
 			"K8s nodes remaining [%d]", len(nodes.Items))
 		g.Expect(nodes.Items).To(BeEmpty(),
@@ -702,7 +702,7 @@ func ValidateDPUFlavorNodeLabelScripts(ctx context.Context, input *SystemTestInp
 	if !input.HasDpuNodes() {
 		Skip("Skip test as DPU nodes are required")
 	}
-	if len(dpuClusterClient) == 0 || dpuClusterClient[0] == nil {
+	if len(DPUClusterClient) == 0 || DPUClusterClient[0] == nil {
 		Fail("DPUCluster client is not initialized; expected CreateProvisioningDPUCluster to run first")
 	}
 	if !dpuFlavorHasNodeLabelScript(input.DPUFlavor) {
@@ -712,7 +712,7 @@ func ValidateDPUFlavorNodeLabelScripts(ctx context.Context, input *SystemTestInp
 	By("Waiting for tenant Nodes to report the DPUFlavor node label script output")
 	Eventually(func(g Gomega) {
 		nodes := &corev1.NodeList{}
-		g.Expect(dpuClusterClient[0].List(ctx, nodes)).To(Succeed(), "Should be able to list nodes in DPU cluster")
+		g.Expect(DPUClusterClient[0].List(ctx, nodes)).To(Succeed(), "Should be able to list nodes in DPU cluster")
 		g.Expect(nodes.Items).To(HaveLen(provisioningExpected.TotalDPUs),
 			"DPU cluster should have one tenant Node per provisioned DPU")
 
@@ -729,7 +729,7 @@ func ValidateDPUSetClusterNodeLabelsPropagation(ctx context.Context, input *Syst
 	if !input.HasDpuNodes() {
 		Skip("Skip test as DPU nodes are required")
 	}
-	if len(dpuClusterClient) == 0 || dpuClusterClient[0] == nil {
+	if len(DPUClusterClient) == 0 || DPUClusterClient[0] == nil {
 		Fail("DPUCluster client is not initialized; expected CreateProvisioningDPUCluster to run first")
 	}
 
@@ -765,7 +765,7 @@ func ValidateDPUSetClusterNodeLabelsPropagation(ctx context.Context, input *Syst
 
 	By("Waiting for the tenant Node to have the DPUSet template label and annotation")
 	Eventually(func(g Gomega) {
-		node, err := getTenantNode(ctx, dpuClusterClient[0], dpu.Name)
+		node, err := getTenantNode(ctx, DPUClusterClient[0], dpu.Name)
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(node.Labels).To(HaveKeyWithValue(dpusetLabelKey, "tv1"))
 		g.Expect(node.Annotations).To(HaveKeyWithValue(dpusetAnnKey, "tav1"))
@@ -844,7 +844,7 @@ func ValidateDPUDeviceClusterNodeLabelsPropagation(ctx context.Context, input *S
 	if !input.HasDpuNodes() {
 		Skip("Skip test as DPU nodes are required")
 	}
-	if len(dpuClusterClient) == 0 || dpuClusterClient[0] == nil {
+	if len(DPUClusterClient) == 0 || DPUClusterClient[0] == nil {
 		Fail("DPUCluster client is not initialized; expected CreateProvisioningDPUCluster to run first")
 	}
 
@@ -882,7 +882,7 @@ func ValidateDPUDeviceClusterNodeLabelsPropagation(ctx context.Context, input *S
 
 	By("Waiting for the tenant Node to have the added label and annotation")
 	Eventually(func(g Gomega) {
-		node, err := getTenantNode(ctx, dpuClusterClient[0], dpu.Name)
+		node, err := getTenantNode(ctx, DPUClusterClient[0], dpu.Name)
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(node.Labels).To(HaveKeyWithValue(labelKey, "v1"))
 		g.Expect(node.Annotations).To(HaveKeyWithValue(annKey, "av1"))
@@ -897,7 +897,7 @@ func ValidateDPUDeviceClusterNodeLabelsPropagation(ctx context.Context, input *S
 
 	By("Waiting for the tenant Node to have the updated label and annotation values")
 	Eventually(func(g Gomega) {
-		node, err := getTenantNode(ctx, dpuClusterClient[0], dpu.Name)
+		node, err := getTenantNode(ctx, DPUClusterClient[0], dpu.Name)
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(node.Labels).To(HaveKeyWithValue(labelKey, "v2"))
 		g.Expect(node.Annotations).To(HaveKeyWithValue(annKey, "av2"))
@@ -912,7 +912,7 @@ func ValidateDPUDeviceClusterNodeLabelsPropagation(ctx context.Context, input *S
 
 	By("Waiting for the tenant Node to no longer have the removed label and annotation")
 	Eventually(func(g Gomega) {
-		node, err := getTenantNode(ctx, dpuClusterClient[0], dpu.Name)
+		node, err := getTenantNode(ctx, DPUClusterClient[0], dpu.Name)
 		g.Expect(err).NotTo(HaveOccurred())
 		_, ok := node.Labels[labelKey]
 		g.Expect(ok).To(BeFalse(), "label should be removed from tenant Node")

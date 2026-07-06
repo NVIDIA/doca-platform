@@ -75,7 +75,7 @@ func ValidateDPUServiceCreationAndMirroring(ctx context.Context, input *SystemTe
 	Expect(input.Client.Create(ctx, hostDPUService)).To(Succeed())
 
 	By("Verify DPUServices and deployments are created in DPUCluster")
-	verifyKubernetesDeploymentCreated(ctx, dpuClusterClient[0], dpuServiceNamespace)
+	verifyKubernetesDeploymentCreated(ctx, DPUClusterClient[0], dpuServiceNamespace)
 	verifyImagePullSecretsInCluster(ctx, dpuService.Namespace, testNSImagePullSecret.Name)
 
 	By("Verify DPUService is created in the host cluster")
@@ -93,7 +93,7 @@ func ValidateDPUServiceMetrics(ctx context.Context, input *SystemTestInput) {
 		"dpuservice": {"created", "info", "status_conditions", "status_condition_last_transition_time"},
 	}
 	Eventually(func(g Gomega) {
-		actualMetricsNames := metrics.GetKSMMetrics(g, ctx, hostClusterRESTClient, metricsURI)
+		actualMetricsNames := metrics.GetKSMMetrics(g, ctx, HostClusterRESTClient, MetricsURI)
 		g.Expect(actualMetricsNames).NotTo(BeEmpty(), "Actual metrics are empty")
 		g.Expect(metrics.VerifyMetrics(expectedMetricsNames, actualMetricsNames)).To(BeEmpty())
 	}).WithTimeout(5 * time.Second).Should(Succeed())
@@ -158,7 +158,7 @@ func ValidateDPUServiceDeletion(ctx context.Context, input *SystemTestInput) {
 	// Check the DPUCluster DPUService is correctly deleted.
 	Eventually(func(g Gomega) {
 		deploymentList := appsv1.DeploymentList{}
-		g.Expect(dpuClusterClient[0].List(ctx, &deploymentList, client.HasLabels{"app", "release"}, client.InNamespace(dpuServiceNamespace))).To(Succeed())
+		g.Expect(DPUClusterClient[0].List(ctx, &deploymentList, client.HasLabels{"app", "release"}, client.InNamespace(dpuServiceNamespace))).To(Succeed())
 		g.Expect(deploymentList.Items).To(BeEmpty())
 	}).WithTimeout(300 * time.Second).Should(Succeed())
 
@@ -184,7 +184,7 @@ func ValidateImagePullSecretsSync(ctx context.Context, input *SystemTestInput) {
 	if ngcAPIKey != "" {
 		secretCount += 1
 	}
-	verifyImagePullSecretsCount(ctx, dpuClusterClient[0], dpfOperatorSystemNamespace, secretCount)
+	verifyImagePullSecretsCount(ctx, DPUClusterClient[0], dpfOperatorSystemNamespace, secretCount)
 
 	desiredConf := &operatorv1.DPFOperatorConfig{}
 	Eventually(input.Client.Get).WithArguments(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: configName}, desiredConf).Should(Succeed())
@@ -204,7 +204,7 @@ func ValidateImagePullSecretsSync(ctx context.Context, input *SystemTestInput) {
 	if ngcAPIKey != "" {
 		secretCount += 1
 	}
-	verifyImagePullSecretsCount(ctx, dpuClusterClient[0], dpfOperatorSystemNamespace, secretCount)
+	verifyImagePullSecretsCount(ctx, DPUClusterClient[0], dpfOperatorSystemNamespace, secretCount)
 }
 
 func ValidateDPUServiceTemplateCreationNoAnnotations(ctx context.Context, input *SystemTestInput) {
@@ -256,7 +256,7 @@ func VerifyDPUServiceTemplateMetrics(ctx context.Context, input *SystemTestInput
 		"dpuservicetemplate": {"created", "info", "status_conditions", "status_condition_last_transition_time"},
 	}
 	Eventually(func(g Gomega) {
-		actualMetricsNames := metrics.GetKSMMetrics(g, ctx, hostClusterRESTClient, metricsURI)
+		actualMetricsNames := metrics.GetKSMMetrics(g, ctx, HostClusterRESTClient, MetricsURI)
 		g.Expect(actualMetricsNames).NotTo(BeEmpty(), "Actual metrics are empty")
 		g.Expect(metrics.VerifyMetrics(expectedMetricsNames, actualMetricsNames)).To(BeEmpty())
 	}).WithTimeout(5 * time.Second).Should(Succeed())
@@ -271,7 +271,7 @@ func verifyImagePullSecretsCount(ctx context.Context, c client.Client, namespace
 	Eventually(func(g Gomega) {
 		// Check the imagePullSecrets has been deleted.
 		secrets := &corev1.SecretList{}
-		g.Expect(dpuClusterClient[0].List(ctx, secrets,
+		g.Expect(DPUClusterClient[0].List(ctx, secrets,
 			client.InNamespace(namespace),
 			client.HasLabels{dpuservicev1.DPFImagePullSecretLabelKey}),
 		).To(Succeed())
@@ -303,7 +303,7 @@ func verifyKubernetesDeploymentCreated(ctx context.Context, testClient client.Cl
 func verifyImagePullSecretsInCluster(ctx context.Context, namespace string, secretName string) {
 	// Check an imagePullSecret was created in the same namespace in the destination cluster.
 	Eventually(func(g Gomega) {
-		g.Expect(dpuClusterClient[0].Get(ctx, client.ObjectKey{
+		g.Expect(DPUClusterClient[0].Get(ctx, client.ObjectKey{
 			Namespace: namespace,
 			Name:      secretName}, &corev1.Secret{})).To(Succeed())
 	}).WithTimeout(300 * time.Second).Should(Succeed())

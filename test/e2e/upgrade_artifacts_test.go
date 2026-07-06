@@ -41,7 +41,7 @@ import (
 // by key. Files live one level above artifactsDir so all phases in a run
 // share the same parent and later phases can read earlier ones.
 func upgradeArtifactsFile(key string) string {
-	return filepath.Join(artifactsDir, "..", "upgrade-artifacts-"+key+".json")
+	return filepath.Join(ArtifactsDir, "..", "upgrade-artifacts-"+key+".json")
 }
 
 // upgradeExpectedChange describes a known spec change introduced by an upgrade.
@@ -119,39 +119,39 @@ func collectArtifacts(filePath string) {
 
 	By("Capturing DPU artifacts")
 	dpuList := &provisioningv1.DPUList{}
-	Expect(input.Client.List(ctx, dpuList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+	Expect(input.Client.List(Ctx, dpuList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
 	allArtifacts = append(allArtifacts, extractArtifacts(ToClientObjectSlice(dpuList.Items))...)
 
 	By("Capturing DPUService artifacts with owned-by-dpudeployment label")
 	dpuServiceList := &dpuservicev1.DPUServiceList{}
-	Expect(input.Client.List(ctx, dpuServiceList,
+	Expect(input.Client.List(Ctx, dpuServiceList,
 		client.InNamespace(dpfOperatorSystemNamespace),
 		client.HasLabels{dpuservicev1.ParentDPUDeploymentNameLabel})).To(Succeed())
 	allArtifacts = append(allArtifacts, extractArtifacts(ToClientObjectSlice(dpuServiceList.Items))...)
 
 	By("Capturing DPUServiceChain artifacts")
 	dpuServiceChainList := &dpuservicev1.DPUServiceChainList{}
-	Expect(input.Client.List(ctx, dpuServiceChainList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+	Expect(input.Client.List(Ctx, dpuServiceChainList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
 	allArtifacts = append(allArtifacts, extractArtifacts(ToClientObjectSlice(dpuServiceChainList.Items))...)
 
 	By("Capturing DPUSet artifacts")
 	dpuSetList := &provisioningv1.DPUSetList{}
-	Expect(input.Client.List(ctx, dpuSetList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+	Expect(input.Client.List(Ctx, dpuSetList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
 	allArtifacts = append(allArtifacts, extractArtifacts(ToClientObjectSlice(dpuSetList.Items))...)
 
 	By("Capturing DPUServiceInterface artifacts")
 	dpuServiceInterfaceList := &dpuservicev1.DPUServiceInterfaceList{}
-	Expect(input.Client.List(ctx, dpuServiceInterfaceList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+	Expect(input.Client.List(Ctx, dpuServiceInterfaceList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
 	allArtifacts = append(allArtifacts, extractArtifacts(ToClientObjectSlice(dpuServiceInterfaceList.Items))...)
 
 	By("Capturing ServiceChain artifacts from DPU cluster")
 	serviceChainList := &dpuservicev1.ServiceChainList{}
-	Expect(dpuClusterClient[0].List(ctx, serviceChainList)).To(Succeed())
+	Expect(DPUClusterClient[0].List(Ctx, serviceChainList)).To(Succeed())
 	allArtifacts = append(allArtifacts, extractArtifacts(ToClientObjectSlice(serviceChainList.Items))...)
 
 	By("Capturing ServiceInterface artifacts from DPU cluster")
 	serviceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
-	Expect(dpuClusterClient[0].List(ctx, serviceInterfaceList)).To(Succeed())
+	Expect(DPUClusterClient[0].List(Ctx, serviceInterfaceList)).To(Succeed())
 	allArtifacts = append(allArtifacts, extractArtifacts(ToClientObjectSlice(serviceInterfaceList.Items))...)
 
 	By("Capturing Pod artifacts from DPU cluster with service label but not system component label")
@@ -161,7 +161,7 @@ func collectArtifacts(filePath string) {
 	notSystemComponentReq, reqErr := labels.NewRequirement(operatorv1.DPFComponentLabelKey, selection.DoesNotExist, nil)
 	Expect(reqErr).ToNot(HaveOccurred())
 	podSelector := labels.NewSelector().Add(*hasServiceLabelReq, *notSystemComponentReq)
-	Expect(dpuClusterClient[0].List(ctx, podList, &client.MatchingLabelsSelector{Selector: podSelector})).To(Succeed())
+	Expect(DPUClusterClient[0].List(Ctx, podList, &client.MatchingLabelsSelector{Selector: podSelector})).To(Succeed())
 	allArtifacts = append(allArtifacts, extractArtifacts(ToClientObjectSlice(podList.Items))...)
 
 	artifactData, err := json.MarshalIndent(allArtifacts, "", "  ")

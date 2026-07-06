@@ -28,50 +28,50 @@ func ProvisioningBeforeSuite() {
 //nolint:dupl
 var _ = Describe("DPF System tests - Provisioning", Labels{Domain.Provisioning}, Ordered, func() {
 	BeforeAll(func() {
-		BeforeProvisioning(ctx, input)
+		BeforeProvisioning(Ctx, input)
 	})
 
 	AfterAll(func() {
 		By("Cleaning up test suite resources")
-		if cleanupFlags.SkipCleanup {
+		if CleanupFlags.SkipCleanup {
 			By("Skip cleanup")
 			return
 		}
 	})
 
 	It("create DPU cluster and BFB", func() {
-		CreateProvisioningDPUCluster(ctx, input)
+		CreateProvisioningDPUCluster(Ctx, input)
 	})
 
 	It("create DPUSet and provision DPUs", func() {
-		CreateProvisioningDPUSet(ctx, input)
+		CreateProvisioningDPUSet(Ctx, input)
 	})
 
 	It("verify provisioning is complete", func() {
-		VerifyProvisioning(ctx, input)
+		VerifyProvisioning(Ctx, input)
 	})
 
 	It("change the OOB bridge name in the operatorConfig and verify DPUNode condition updates", Labels{Domain.RequiresNodes}, func() {
-		ValidateDPFOperatorOOBBridgeNameChange(ctx, input)
+		ValidateDPFOperatorOOBBridgeNameChange(Ctx, input)
 	})
 
 	It("verify OOB bridge VF attachment and netplan after provisioning", Labels{Domain.RequiresNodes}, func() {
-		ValidateDPFOperatorOOBBridgePostProvisioning(ctx, input)
+		ValidateDPFOperatorOOBBridgePostProvisioning(Ctx, input)
 	})
 
 	It("verify DPUDevice and DPUSet cluster node label and annotation changes are reflected on tenant Nodes", func() {
-		ValidateDPUSetClusterNodeLabelsPropagation(ctx, input)
-		ValidateDPUDeviceClusterNodeLabelsPropagation(ctx, input)
+		ValidateDPUSetClusterNodeLabelsPropagation(Ctx, input)
+		ValidateDPUDeviceClusterNodeLabelsPropagation(Ctx, input)
 	})
 
 	It("verify node labels are added via dpu-agent on tenant Nodes", Labels{Domain.RequiresNodes}, func() {
-		ValidateDPUFlavorNodeLabelScripts(ctx, input)
+		ValidateDPUFlavorNodeLabelScripts(Ctx, input)
 	})
 
 	It("delete all provisioning resources", func() {
-		if cleanupFlags.SkipCleanup {
+		if CleanupFlags.SkipCleanup {
 			Skip("Skipping deprovisioning tests because skipCleanup is enabled")
 		}
-		DeleteProvisioning(ctx, input)
+		DeleteProvisioning(Ctx, input)
 	})
 })

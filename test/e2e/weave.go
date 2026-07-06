@@ -233,7 +233,7 @@ func getProvisionDPUClustersInputForWeave(ctx context.Context, provisionInput Pr
 func verifyOVSResponsive(pod *corev1.Pod) {
 	By(fmt.Sprintf("Verifying OVS is responsive on pod %s (node %s)", pod.Name, pod.Spec.NodeName))
 	Eventually(func(g Gomega) {
-		out, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name,
+		out, err := netshoot.ExecInPodOnce(DPUClusterRestClient[0], DPUClusterRestConfig[0], pod.Namespace, pod.Name,
 			[]string{"ovs-vsctl", "show"})
 		g.Expect(err).ToNot(HaveOccurred(), "ovs-vsctl show failed on pod %s: %s", pod.Name, out)
 		g.Expect(strings.TrimSpace(out)).ToNot(BeEmpty(), "ovs-vsctl show returned empty output on pod %s", pod.Name)
@@ -247,7 +247,7 @@ func getPFMACFromFlowControllerByPort(pod *corev1.Pod, port string) string {
 	cmd := []string{"sh", "-c", fmt.Sprintf(`grep -i '^MAC' /sys/class/net/%s/smart_nic/pf/config | head -1 | sed 's/^[^:]*:[[:space:]]*//'`, port)}
 	var mac string
 	Eventually(func(g Gomega) {
-		output, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name, cmd)
+		output, err := netshoot.ExecInPodOnce(DPUClusterRestClient[0], DPUClusterRestConfig[0], pod.Namespace, pod.Name, cmd)
 		g.Expect(err).ToNot(HaveOccurred(), "failed to read PF MAC (%s) from pod %s: %s", port, pod.Name, output)
 		mac = strings.TrimSpace(output)
 		g.Expect(mac).ToNot(BeEmpty(), "empty PF MAC (%s) from pod %s", port, pod.Name)
@@ -258,7 +258,7 @@ func getPFMACFromFlowControllerByPort(pod *corev1.Pod, port string) string {
 }
 
 func assertVPCtlVNetPhaseReady(g Gomega, pod *corev1.Pod, vnetID string) {
-	out, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name,
+	out, err := netshoot.ExecInPodOnce(DPUClusterRestClient[0], DPUClusterRestConfig[0], pod.Namespace, pod.Name,
 		[]string{"/vpcctl", "get-vnet", "--id", vnetID})
 	g.Expect(err).ToNot(HaveOccurred(), "vpcctl get-vnet %q on pod %s: %s", vnetID, pod.Name, out)
 	var resp vpcctlVNetResponse
@@ -268,7 +268,7 @@ func assertVPCtlVNetPhaseReady(g Gomega, pod *corev1.Pod, vnetID string) {
 }
 
 func assertVPCtlAttachmentPhaseReady(g Gomega, pod *corev1.Pod, attachmentID string) {
-	out, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name,
+	out, err := netshoot.ExecInPodOnce(DPUClusterRestClient[0], DPUClusterRestConfig[0], pod.Namespace, pod.Name,
 		[]string{"/vpcctl", "get-attachment", "--id", attachmentID})
 	g.Expect(err).ToNot(HaveOccurred(), "vpcctl get-attachment %q on pod %s: %s", attachmentID, pod.Name, out)
 	var resp vpcctlAttachmentResponse
@@ -288,7 +288,7 @@ func createVNetOnPod(pod *corev1.Pod, vnetID string, vni uint32, subnet string) 
 		"--subnet-v4", subnet,
 	}
 	Eventually(func(g Gomega) {
-		output, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name, cmd)
+		output, err := netshoot.ExecInPodOnce(DPUClusterRestClient[0], DPUClusterRestConfig[0], pod.Namespace, pod.Name, cmd)
 		if err != nil && strings.Contains(output, "AlreadyExists") {
 			assertVPCtlVNetPhaseReady(g, pod, vnetID)
 			return
@@ -307,7 +307,7 @@ func createVNetOnPod(pod *corev1.Pod, vnetID string, vni uint32, subnet string) 
 // block create/delete operations without relying on parsing gRPC error strings.
 func listAttachmentIDs(g Gomega, pod *corev1.Pod, filterFlags ...string) []string {
 	args := append([]string{"/vpcctl", "list-attachment"}, filterFlags...)
-	out, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name, args)
+	out, err := netshoot.ExecInPodOnce(DPUClusterRestClient[0], DPUClusterRestConfig[0], pod.Namespace, pod.Name, args)
 	g.Expect(err).ToNot(HaveOccurred(), "vpcctl list-attachment %v failed on pod %s: %s", filterFlags, pod.Name, out)
 	var resp vpcctlListAttachmentResponse
 	g.Expect(json.Unmarshal([]byte(out), &resp)).To(Succeed(),
@@ -342,7 +342,7 @@ func createPFAttachmentAndWaitForHostIP(pod *corev1.Pod, vnetID, pfMAC string) (
 		"--pf", pfMAC,
 	}
 	Eventually(func(g Gomega) {
-		output, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name, cmd)
+		output, err := netshoot.ExecInPodOnce(DPUClusterRestClient[0], DPUClusterRestConfig[0], pod.Namespace, pod.Name, cmd)
 		if err != nil && strings.Contains(output, "AlreadyExists") {
 			assertVPCtlAttachmentPhaseReady(g, pod, attID)
 			return
@@ -351,7 +351,7 @@ func createPFAttachmentAndWaitForHostIP(pod *corev1.Pod, vnetID, pfMAC string) (
 			staleIDs := listAttachmentIDs(g, pod, "--nic-id", pfMAC)
 			for _, staleID := range staleIDs {
 				By(fmt.Sprintf("NIC %s has stale attachment %s — deleting before retry", pfMAC, staleID))
-				delOut, delErr := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name,
+				delOut, delErr := netshoot.ExecInPodOnce(DPUClusterRestClient[0], DPUClusterRestConfig[0], pod.Namespace, pod.Name,
 					[]string{"/vpcctl", "delete-attachment", "--id", staleID})
 				if delErr != nil && !strings.Contains(delOut, "NotFound") {
 					g.Expect(delErr).ToNot(HaveOccurred(), "failed to delete stale attachment %s on pod %s: %s", staleID, pod.Name, delOut)
@@ -367,7 +367,7 @@ func createPFAttachmentAndWaitForHostIP(pod *corev1.Pod, vnetID, pfMAC string) (
 
 	By(fmt.Sprintf("Waiting for attachment %s on pod %s to reach PHASE_READY", attID, pod.Name))
 	Eventually(func(g Gomega) {
-		out, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name, []string{"/vpcctl", "get-attachment", "--id", attID})
+		out, err := netshoot.ExecInPodOnce(DPUClusterRestClient[0], DPUClusterRestConfig[0], pod.Namespace, pod.Name, []string{"/vpcctl", "get-attachment", "--id", attID})
 		g.Expect(err).ToNot(HaveOccurred())
 		var resp vpcctlAttachmentResponse
 		g.Expect(json.Unmarshal([]byte(out), &resp)).To(Succeed())
@@ -404,7 +404,7 @@ func verifyIsolationBridgeExists(pod *corev1.Pod, vni uint32, dpuPort string) {
 	bridge := isolationBridgeName(vni, dpuPort)
 	By(fmt.Sprintf("Verifying bridge %s exists on pod %s", bridge, pod.Name))
 	Eventually(func(g Gomega) {
-		out, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name,
+		out, err := netshoot.ExecInPodOnce(DPUClusterRestClient[0], DPUClusterRestConfig[0], pod.Namespace, pod.Name,
 			[]string{"ovs-vsctl", "list", "bridge", bridge})
 		g.Expect(err).ToNot(HaveOccurred(), "bridge %s not found on pod %s: %s", bridge, pod.Name, out)
 	}).WithTimeout(weaveOperationTimeout).WithPolling(weaveEventuallyPollInterval).Should(Succeed())
@@ -422,7 +422,7 @@ type weaveMetrics map[string]map[string]uint64
 func scrapeWeaveMetrics(g Gomega, pod *corev1.Pod) weaveMetrics {
 	cmd := []string{"sh", "-c", `exec ovs-appctl -t /var/run/openvswitch/ovs-vswitchd.$(cat /var/run/openvswitch/ovs-vswitchd.pid).ctl metrics/show`}
 
-	out, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name, cmd)
+	out, err := netshoot.ExecInPodOnce(DPUClusterRestClient[0], DPUClusterRestConfig[0], pod.Namespace, pod.Name, cmd)
 	g.Expect(err).ToNot(HaveOccurred(), "ovs-appctl metrics/show failed on pod %s: %s", pod.Name, out)
 
 	families, perr := (&expfmt.TextParser{}).TextToMetricFamilies(strings.NewReader(out))
@@ -574,7 +574,7 @@ func addRouteOnPodBetweenOverlayAndSubnet(restClient *rest.RESTClient, restCfg *
 func deleteAttachmentOnPod(pod *corev1.Pod, attID string) {
 	By(fmt.Sprintf("Deleting attachment %s on pod %s", attID, pod.Name))
 	Eventually(func(g Gomega) {
-		output, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name, []string{"/vpcctl", "delete-attachment", "--id", attID})
+		output, err := netshoot.ExecInPodOnce(DPUClusterRestClient[0], DPUClusterRestConfig[0], pod.Namespace, pod.Name, []string{"/vpcctl", "delete-attachment", "--id", attID})
 		if err != nil && strings.Contains(output, "NotFound") {
 			return
 		}
@@ -588,7 +588,7 @@ func deleteAttachmentOnPod(pod *corev1.Pod, attID string) {
 func deleteVNetOnPod(pod *corev1.Pod, vnetID string) {
 	By(fmt.Sprintf("Deleting virtual network %s on pod %s", vnetID, pod.Name))
 	Eventually(func(g Gomega) {
-		output, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name, []string{"/vpcctl", "delete-vnet", "--id", vnetID})
+		output, err := netshoot.ExecInPodOnce(DPUClusterRestClient[0], DPUClusterRestConfig[0], pod.Namespace, pod.Name, []string{"/vpcctl", "delete-vnet", "--id", vnetID})
 		if err != nil && strings.Contains(output, "NotFound") {
 			return
 		}

@@ -124,7 +124,7 @@ func ProvisionDPUDeploymentWithEachDPUJoiningADifferentDPUCluster(ctx context.Co
 
 		Eventually(func(g Gomega) {
 			nodes := &corev1.NodeList{}
-			g.Expect(dpuClusterClient[i].List(ctx, nodes)).To(Succeed())
+			g.Expect(DPUClusterClient[i].List(ctx, nodes)).To(Succeed())
 
 			g.Expect(nodes.Items).To(HaveLen(1), fmt.Sprintf("DPUCluster %s should have exactly 1 node", dpuCluster.Name))
 
@@ -218,10 +218,10 @@ func ValidateDPUServiceIPAMInL2ModePerDPUCluster(ctx context.Context, input *Sys
 	serviceIDForExample := GetServiceIDForDPUDeploymentService(ctx, input.Client, dpuDeployment, "example")
 
 	By("Validating DPUService Pod in first cluster has secondary IP from correct subnet")
-	validateDPUServicePodIPInCluster(ctx, dpuClusterClient[0], serviceIDForExample, "192.168.10.2", 1)
+	validateDPUServicePodIPInCluster(ctx, DPUClusterClient[0], serviceIDForExample, "192.168.10.2", 1)
 
 	By("Validating DPUService Pod in second cluster has secondary IP from correct subnet")
-	validateDPUServicePodIPInCluster(ctx, dpuClusterClient[1], serviceIDForExample, "192.168.10.7", 2)
+	validateDPUServicePodIPInCluster(ctx, DPUClusterClient[1], serviceIDForExample, "192.168.10.7", 2)
 }
 
 // ValidateDPUServiceIPAMInL3ModePerDPUCluster validates per-DPUCluster DPUServiceIPAM configuration in L3 mode.
@@ -307,10 +307,10 @@ func ValidateDPUServiceIPAMInL3ModePerDPUCluster(ctx context.Context, input *Sys
 	serviceIDForExample := GetServiceIDForDPUDeploymentService(ctx, input.Client, dpuDeployment, "example")
 
 	By("Validating DPUService Pod in first cluster has secondary IP from correct subnet")
-	validateDPUServicePodIPInCluster(ctx, dpuClusterClient[0], serviceIDForExample, "192.168.20.2", 1)
+	validateDPUServicePodIPInCluster(ctx, DPUClusterClient[0], serviceIDForExample, "192.168.20.2", 1)
 
 	By("Validating DPUService Pod in second cluster has secondary IP from correct subnet")
-	validateDPUServicePodIPInCluster(ctx, dpuClusterClient[1], serviceIDForExample, "192.168.20.10", 2)
+	validateDPUServicePodIPInCluster(ctx, DPUClusterClient[1], serviceIDForExample, "192.168.20.10", 2)
 }
 
 // ValidateDPUServiceIPAMInL2ModeSharedAcrossDPUClusters validates a single DPUServiceIPAM object in L2 mode that spans
@@ -362,10 +362,10 @@ func ValidateDPUServiceIPAMInL2ModeSharedAcrossDPUClusters(ctx context.Context, 
 
 	By("Validating DPUService Pod in first cluster has secondary IP from correct subnet")
 	// .2 because we don't explicitly request the gateway
-	validateDPUServicePodIPInCluster(ctx, dpuClusterClient[0], serviceIDForExample, "192.168.50.2", 1)
+	validateDPUServicePodIPInCluster(ctx, DPUClusterClient[0], serviceIDForExample, "192.168.50.2", 1)
 
 	By("Validating DPUService Pod in second cluster has secondary IP from correct subnet")
-	validateDPUServicePodIPInCluster(ctx, dpuClusterClient[1], serviceIDForExample, "192.168.50.13", 2)
+	validateDPUServicePodIPInCluster(ctx, DPUClusterClient[1], serviceIDForExample, "192.168.50.13", 2)
 }
 
 // ValidateDPUServiceIPAMInL3ModeSharedAcrossDPUClusters validates a single DPUServiceIPAM object in L3 mode that spans
@@ -416,10 +416,10 @@ func ValidateDPUServiceIPAMInL3ModeSharedAcrossDPUClusters(ctx context.Context, 
 	serviceIDForExample := GetServiceIDForDPUDeploymentService(ctx, input.Client, dpuDeployment, "example")
 
 	By("Validating DPUService Pod in first cluster has secondary IP from correct subnet")
-	validateDPUServicePodIPInCluster(ctx, dpuClusterClient[0], serviceIDForExample, "192.168.60.2", 1)
+	validateDPUServicePodIPInCluster(ctx, DPUClusterClient[0], serviceIDForExample, "192.168.60.2", 1)
 
 	By("Validating DPUService Pod in second cluster has secondary IP from correct subnet")
-	validateDPUServicePodIPInCluster(ctx, dpuClusterClient[1], serviceIDForExample, "192.168.60.10", 2)
+	validateDPUServicePodIPInCluster(ctx, DPUClusterClient[1], serviceIDForExample, "192.168.60.10", 2)
 }
 
 // ValidateDPUServiceIPAMInL3ModeSharedAcrossDPUClustersWithStaticAllocations validates a single DPUServiceIPAM in L3 mode
@@ -438,8 +438,8 @@ func ValidateDPUServiceIPAMInL3ModeSharedAcrossDPUClustersWithStaticAllocations(
 	}
 
 	By("Getting node names from each DPU cluster")
-	nodeNames := make([]string, len(dpuClusterClient))
-	for i, clusterClient := range dpuClusterClient {
+	nodeNames := make([]string, len(DPUClusterClient))
+	for i, clusterClient := range DPUClusterClient {
 		nodes := &corev1.NodeList{}
 		Expect(clusterClient.List(ctx, nodes)).To(Succeed())
 		Expect(nodes.Items).To(HaveLen(1))
@@ -487,10 +487,10 @@ func ValidateDPUServiceIPAMInL3ModeSharedAcrossDPUClustersWithStaticAllocations(
 	serviceIDForExample := GetServiceIDForDPUDeploymentService(ctx, input.Client, dpuDeployment, "example")
 
 	By("Validating DPUService Pod in first cluster has secondary IP from correct subnet")
-	validateDPUServicePodIPInCluster(ctx, dpuClusterClient[0], serviceIDForExample, "192.168.70.10", 1)
+	validateDPUServicePodIPInCluster(ctx, DPUClusterClient[0], serviceIDForExample, "192.168.70.10", 1)
 
 	By("Validating DPUService Pod in second cluster has secondary IP from correct subnet")
-	validateDPUServicePodIPInCluster(ctx, dpuClusterClient[1], serviceIDForExample, "192.168.70.6", 2)
+	validateDPUServicePodIPInCluster(ctx, DPUClusterClient[1], serviceIDForExample, "192.168.70.6", 2)
 }
 
 // ValidateDPUServiceIPAMInL2ModeSharedAcrossDPUClustersWithSingleIPPerNode validates a single DPUServiceIPAM in L2 mode
@@ -541,10 +541,10 @@ func ValidateDPUServiceIPAMInL2ModeSharedAcrossDPUClustersWithSingleIPPerNode(ct
 
 	By("Validating DPUService Pod in first cluster has secondary IP from correct subnet")
 	// .2 because we don't explicitly request the gateway
-	validateDPUServicePodIPInCluster(ctx, dpuClusterClient[0], serviceIDForExample, "192.168.100.2", 1)
+	validateDPUServicePodIPInCluster(ctx, DPUClusterClient[0], serviceIDForExample, "192.168.100.2", 1)
 
 	By("Validating DPUService Pod in second cluster has secondary IP from correct subnet")
-	validateDPUServicePodIPInCluster(ctx, dpuClusterClient[1], serviceIDForExample, "192.168.100.3", 2)
+	validateDPUServicePodIPInCluster(ctx, DPUClusterClient[1], serviceIDForExample, "192.168.100.3", 2)
 }
 
 // ValidateDPUServiceIPAMInL3ModeSharedAcrossDPUClustersWithSingleIPPerNode validates a single DPUServiceIPAM in L3 mode
@@ -593,10 +593,10 @@ func ValidateDPUServiceIPAMInL3ModeSharedAcrossDPUClustersWithSingleIPPerNode(ct
 	serviceIDForExample := GetServiceIDForDPUDeploymentService(ctx, input.Client, dpuDeployment, "example")
 
 	By("Validating DPUService Pod in first cluster has secondary IP from correct subnet")
-	validateDPUServicePodIPInCluster(ctx, dpuClusterClient[0], serviceIDForExample, "192.168.110.0", 1)
+	validateDPUServicePodIPInCluster(ctx, DPUClusterClient[0], serviceIDForExample, "192.168.110.0", 1)
 
 	By("Validating DPUService Pod in second cluster has secondary IP from correct subnet")
-	validateDPUServicePodIPInCluster(ctx, dpuClusterClient[1], serviceIDForExample, "192.168.110.2", 2)
+	validateDPUServicePodIPInCluster(ctx, DPUClusterClient[1], serviceIDForExample, "192.168.110.2", 2)
 }
 
 // ValidateDPUClusterDeletion validates the system when first DPUCluster is deleted.

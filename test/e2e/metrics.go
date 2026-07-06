@@ -32,10 +32,10 @@ import (
 func VerifyHostKSMMetricsCollection(ctx context.Context) {
 	By("Verify host cluster kube-state-metrics endpoint is accessible")
 	Eventually(func(g Gomega) {
-		request := hostClusterRESTClient.Get().AbsPath(metricsURI)
+		request := HostClusterRESTClient.Get().AbsPath(MetricsURI)
 		response, err := request.DoRaw(ctx)
-		g.Expect(err).NotTo(HaveOccurred(), fmt.Sprintf("Request %s failed with err: %v", metricsURI, err))
-		g.Expect(response).NotTo(BeNil(), fmt.Sprintf("Metrics api is not accessible by url %s ", metricsURI))
+		g.Expect(err).NotTo(HaveOccurred(), fmt.Sprintf("Request %s failed with err: %v", MetricsURI, err))
+		g.Expect(response).NotTo(BeNil(), fmt.Sprintf("Metrics api is not accessible by url %s ", MetricsURI))
 	}).WithTimeout(30 * time.Second).Should(Succeed())
 }
 
@@ -51,7 +51,7 @@ func VerifyDPUKSMMetricsCollection(ctx context.Context, input *SystemTestInput) 
 		g.Expect(dpuKSMMetricsURI).NotTo(BeEmpty())
 
 		// Use hostClusterRESTClient because the in-cluster KSM service runs on the management cluster
-		request := hostClusterRESTClient.Get().AbsPath(dpuKSMMetricsURI)
+		request := HostClusterRESTClient.Get().AbsPath(dpuKSMMetricsURI)
 		response, err := request.DoRaw(ctx)
 		g.Expect(err).NotTo(HaveOccurred(), fmt.Sprintf("Request %s failed with err: %v", dpuKSMMetricsURI, err))
 		g.Expect(response).NotTo(BeNil(), fmt.Sprintf("Metrics api is not accessible by url %s ", dpuKSMMetricsURI))
@@ -86,7 +86,7 @@ func ValidateGeneralDPFMetrics(ctx context.Context, input *SystemTestInput) {
 	}
 
 	Eventually(func(g Gomega) {
-		actualMetricsNames := metrics.GetKSMMetrics(g, ctx, hostClusterRESTClient, metricsURI)
+		actualMetricsNames := metrics.GetKSMMetrics(g, ctx, HostClusterRESTClient, MetricsURI)
 		g.Expect(actualMetricsNames).NotTo(BeEmpty(), "Actual metrics are empty")
 		g.Expect(metrics.VerifyMetrics(expectedMetricsNames, actualMetricsNames)).To(BeEmpty())
 	}).WithTimeout(5 * time.Second).Should(Succeed())
@@ -98,7 +98,7 @@ func VerifyNodeProblemDetectorConditions(ctx context.Context, input *SystemTestI
 			By(fmt.Sprintf("Checking node conditions in DPUCluster %s", dpuCluster.Name))
 
 			nodes := &corev1.NodeList{}
-			g.Expect(dpuClusterClient[i].List(ctx, nodes)).To(Succeed(),
+			g.Expect(DPUClusterClient[i].List(ctx, nodes)).To(Succeed(),
 				fmt.Sprintf("Failed to list nodes in DPUCluster %s", dpuCluster.Name))
 			g.Expect(nodes.Items).ToNot(BeEmpty(),
 				fmt.Sprintf("No nodes found in DPUCluster %s", dpuCluster.Name))

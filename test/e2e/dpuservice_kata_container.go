@@ -53,7 +53,7 @@ func ValidateDPUServiceKataRuntimeClass(ctx context.Context, input *SystemTestIn
 
 	By("Waiting for kata-qemu RuntimeClass to be created in the DPU cluster")
 	Eventually(func(g Gomega) {
-		g.Expect(dpuClusterClient[0].Get(ctx, client.ObjectKey{Name: kataRuntimeClassName}, &nodev1.RuntimeClass{})).To(Succeed())
+		g.Expect(DPUClusterClient[0].Get(ctx, client.ObjectKey{Name: kataRuntimeClassName}, &nodev1.RuntimeClass{})).To(Succeed())
 	}).WithTimeout(10 * time.Minute).WithPolling(time.Second).Should(Succeed())
 
 	By("Creating a dummy DPUService that uses kata-qemu and requests an SF")
@@ -77,7 +77,7 @@ func ValidateDPUServiceKataRuntimeClass(ctx context.Context, input *SystemTestIn
 	Expect(input.Client.Create(ctx, dpuService)).To(Succeed())
 
 	By("Waiting for the kata dummy DPUService pods to be running")
-	VerifyClusterPods(ctx, dpuClusterClient[0], []string{kataDPUServiceName})
+	VerifyClusterPods(ctx, DPUClusterClient[0], []string{kataDPUServiceName})
 
 	By("Verifying the running kata dummy DPUService pods use kata-qemu and an SF")
 	Eventually(func(g Gomega) {
@@ -95,7 +95,7 @@ func ValidateDPUServiceKataRuntimeClass(ctx context.Context, input *SystemTestIn
 // kataRunningPods returns all Running pods belonging to the kata dummy DPUService DaemonSet.
 func kataRunningPods(ctx context.Context, g Gomega) []corev1.Pod {
 	daemonSetList := &appsv1.DaemonSetList{}
-	g.Expect(dpuClusterClient[0].List(ctx, daemonSetList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+	g.Expect(DPUClusterClient[0].List(ctx, daemonSetList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
 
 	var matchLabels map[string]string
 	for _, ds := range daemonSetList.Items {
@@ -108,7 +108,7 @@ func kataRunningPods(ctx context.Context, g Gomega) []corev1.Pod {
 	g.Expect(matchLabels).NotTo(BeEmpty(), "expected DaemonSet containing %q to exist", kataDPUServiceName)
 
 	podList := &corev1.PodList{}
-	g.Expect(dpuClusterClient[0].List(
+	g.Expect(DPUClusterClient[0].List(
 		ctx,
 		podList,
 		client.InNamespace(dpfOperatorSystemNamespace),

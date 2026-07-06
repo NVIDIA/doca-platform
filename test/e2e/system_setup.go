@@ -805,7 +805,7 @@ func ProvisionDPUSet(ctx context.Context, input ProvisionDPUClustersInput) {
 	By("Checking that DPUService objects have been mirrored to the DPUClusters")
 	Eventually(func(g Gomega) {
 		deployments := &appsv1.DeploymentList{}
-		g.Expect(dpuClusterClient[0].List(ctx, deployments)).To(Succeed())
+		g.Expect(DPUClusterClient[0].List(ctx, deployments)).To(Succeed())
 		found := map[string]bool{}
 		for i := range deployments.Items {
 			if _, hasAnnotation := deployments.Items[i].GetAnnotations()[argoCDTrackingIDAnnotation]; hasAnnotation {
@@ -814,7 +814,7 @@ func ProvisionDPUSet(ctx context.Context, input ProvisionDPUClustersInput) {
 			}
 		}
 		daemonsets := appsv1.DaemonSetList{}
-		g.Expect(dpuClusterClient[0].List(ctx, &daemonsets, client.InNamespace(input.DPUClusters[0].GetNamespace()))).To(Succeed())
+		g.Expect(DPUClusterClient[0].List(ctx, &daemonsets, client.InNamespace(input.DPUClusters[0].GetNamespace()))).To(Succeed())
 		for i := range daemonsets.Items {
 			if _, hasAnnotation := daemonsets.Items[i].GetAnnotations()[argoCDTrackingIDAnnotation]; hasAnnotation {
 				g.Expect(daemonsets.Items[i].GetAnnotations()[argoCDTrackingIDAnnotation]).NotTo(Equal(""))
@@ -854,7 +854,7 @@ func VerifyDPUClusterWithNodes(ctx context.Context, input ProvisionDPUClustersIn
 	// Verify nodes are present in DPUCluster,
 	Eventually(func(g Gomega) {
 		nodes := &corev1.NodeList{}
-		g.Expect(dpuClusterClient[0].List(ctx, nodes)).ToNot(HaveOccurred())
+		g.Expect(DPUClusterClient[0].List(ctx, nodes)).ToNot(HaveOccurred())
 		nodeKey := fmt.Sprintf("%d/%d", len(nodes.Items), expectedDPUs)
 		tracker.By(nodeKey, "Checking that the number of nodes %d is equal to %d", len(nodes.Items), expectedDPUs)
 		g.Expect(nodes.Items).To(HaveLen(expectedDPUs))
@@ -1271,7 +1271,7 @@ func getDPUClusterClient(ctx context.Context, input ProvisionDPUClustersInput, c
 	var tun *tunnel.Tunnel
 
 	Eventually(func(g Gomega) {
-		refreshable, ok := dpuClusterClient[clusterIndex].(*refreshableclient.Client)
+		refreshable, ok := DPUClusterClient[clusterIndex].(*refreshableclient.Client)
 		g.Expect(ok).To(BeTrue(), "DPUCluster client %d should be a refreshable client", clusterIndex)
 
 		g.Expect(input.Client.Get(ctx, client.ObjectKeyFromObject(input.DPUClusters[clusterIndex]), input.DPUClusters[clusterIndex])).To(Succeed())
@@ -1290,8 +1290,8 @@ func getDPUClusterClient(ctx context.Context, input ProvisionDPUClustersInput, c
 		restCfg.APIPath = "/api"
 		restCfg.GroupVersion = &schema.GroupVersion{Group: "", Version: "v1"}
 		restCfg.NegotiatedSerializer = serializer.WithoutConversionCodecFactory{CodecFactory: scheme.Codecs}
-		dpuClusterRestConfig[clusterIndex] = restCfg
-		dpuClusterRestClient[clusterIndex], err = rest.RESTClientFor(restCfg)
+		DPUClusterRestConfig[clusterIndex] = restCfg
+		DPUClusterRestClient[clusterIndex], err = rest.RESTClientFor(restCfg)
 		g.Expect(err).ToNot(HaveOccurred())
 	}).WithTimeout(3 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 
@@ -1335,11 +1335,11 @@ func getDPUClusterClients(ctx context.Context, input ProvisionDPUClustersInput) 
 
 	// Pre-initialize the global slices with the correct size
 	numClusters := len(input.DPUClusters)
-	dpuClusterClient = make([]client.Client, numClusters)
-	dpuClusterRestConfig = make([]*rest.Config, numClusters)
-	dpuClusterRestClient = make([]*rest.RESTClient, numClusters)
+	DPUClusterClient = make([]client.Client, numClusters)
+	DPUClusterRestConfig = make([]*rest.Config, numClusters)
+	DPUClusterRestClient = make([]*rest.RESTClient, numClusters)
 	for i := range input.DPUClusters {
-		dpuClusterClient[i] = refreshableclient.New()
+		DPUClusterClient[i] = refreshableclient.New()
 	}
 
 	for i := range input.DPUClusters {

@@ -39,8 +39,8 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 	)
 
 	BeforeAll(func() {
-		weavePrerequisiteScope = cleanupTracker.RegisterScope(cleanup.NamedScopeManual("weave-prerequisites"))
-		weaveContextScope = cleanupTracker.RegisterScope(cleanup.NamedScopeManual("weave-tests"))
+		weavePrerequisiteScope = CleanupTracker.RegisterScope(cleanup.NamedScopeManual("weave-prerequisites"))
+		weaveContextScope = CleanupTracker.RegisterScope(cleanup.NamedScopeManual("weave-tests"))
 
 		for _, label := range CurrentSpecReport().Labels() {
 			if label != Domain.RequiresNodes {
@@ -54,37 +54,37 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 			weavePrerequisiteScope.CleanupBefore()
 			weaveContextScope.CleanupBefore()
 
-			provInput := getProvisionDPUClustersInputForWeave(ctx, GetProvisionDPUClustersInput(), input.Client)
+			provInput := getProvisionDPUClustersInputForWeave(Ctx, GetProvisionDPUClustersInput(), input.Client)
 			Expect(provInput.DPUClusters).ToNot(BeEmpty(), "no DPU clusters found via config or discovery")
 
 			By("Creating DPU cluster client for verification")
-			getDPUClusterClients(ctx, provInput)
-			Expect(dpuClusterClient).ToNot(BeEmpty(), "no DPU cluster clients were created")
+			getDPUClusterClients(Ctx, provInput)
+			Expect(DPUClusterClient).ToNot(BeEmpty(), "no DPU cluster clients were created")
 
 			By("Verifying DPU cluster has ready nodes")
-			VerifyDPUClusterWithNodes(ctx, provInput)
+			VerifyDPUClusterWithNodes(Ctx, provInput)
 
 			By("Waiting for DPU cluster pods to be ready")
-			VerifyClusterPods(ctx, dpuClusterClient[0], systemPodsToVerify)
+			VerifyClusterPods(Ctx, DPUClusterClient[0], systemPodsToVerify)
 			By("Waiting for DPFOperatorConfig to be ready")
-			VerifyDPFOperatorConfigReady(ctx, input.Client, 20*time.Minute)
+			VerifyDPFOperatorConfigReady(Ctx, input.Client, 20*time.Minute)
 
 			By("Waiting for Weave pods on DPU cluster to be ready")
-			VerifyClusterPods(ctx, dpuClusterClient[0], weavePodsToVerify)
+			VerifyClusterPods(Ctx, DPUClusterClient[0], weavePodsToVerify)
 
 			By("Getting ready flow controller pods")
-			flowControllerPods := netshoot.GetReadyPodsMatchingLabels(ctx, dpuClusterClient[0], dpfOperatorSystemNamespace,
+			flowControllerPods := netshoot.GetReadyPodsMatchingLabels(Ctx, DPUClusterClient[0], dpfOperatorSystemNamespace,
 				map[string]string{weaveDPUServiceLabelKey: weaveFlowControllerName})
 			Expect(flowControllerPods).To(HaveLen(2), "expected 2 ready %s pods", weaveFlowControllerName)
 
 			By("Getting ready dhcp agent pods")
-			dhcpAgentPods := netshoot.GetReadyPodsMatchingLabels(ctx, dpuClusterClient[0], dpfOperatorSystemNamespace,
+			dhcpAgentPods := netshoot.GetReadyPodsMatchingLabels(Ctx, DPUClusterClient[0], dpfOperatorSystemNamespace,
 				map[string]string{weaveDPUServiceLabelKey: weaveDHCPAgentName})
 			Expect(dhcpAgentPods).To(HaveLen(2), "expected 2 ready %s pods", weaveDHCPAgentName)
 
-			workerNode1, workerNode2 = getTwoWorkerNodeNames(ctx, input.Client)
+			workerNode1, workerNode2 = getTwoWorkerNodeNames(Ctx, input.Client)
 			By("Getting DPU cluster nodes in order")
-			dpuNode1, dpuNode2 := getDPUNodesInOrder(ctx, input.Client, dpuClusterClient[0])
+			dpuNode1, dpuNode2 := getDPUNodesInOrder(Ctx, input.Client, DPUClusterClient[0])
 			fcPod1 = netshoot.GetPodOnNode(flowControllerPods, dpuNode1.Name)
 			fcPod2 = netshoot.GetPodOnNode(flowControllerPods, dpuNode2.Name)
 			Expect(fcPod1).ToNot(BeNil(), "no flow-controller pod found on DPU node %s", dpuNode1.Name)
@@ -116,11 +116,11 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 		var dhcpDS *appsv1.DaemonSet
 
 		It("should deploy host DHCP CNI daemon", func() {
-			dhcpDS = vpc.DeployDHCPDaemon(ctx, input.Client, weaveInput.dhcpDaemonSet, weavePrerequisiteScope.CleanupLabels)
+			dhcpDS = vpc.DeployDHCPDaemon(Ctx, input.Client, weaveInput.dhcpDaemonSet, weavePrerequisiteScope.CleanupLabels)
 		})
 
 		It("should wait for DHCP daemon pods to be ready", func() {
-			vpc.WaitForDHCPDaemonReady(ctx, input.Client, dhcpDS)
+			vpc.WaitForDHCPDaemonReady(Ctx, input.Client, dhcpDS)
 		})
 	})
 
@@ -161,7 +161,7 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 		})
 
 		It("should create test namespace", func() {
-			vpc.CreateTestNamespace(ctx, input.Client, trafficTestNS, weaveContextScope.CleanupLabels)
+			vpc.CreateTestNamespace(Ctx, input.Client, trafficTestNS, weaveContextScope.CleanupLabels)
 		})
 
 		It("should create virtual network on both flow-controller pods", func() {
@@ -197,44 +197,44 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 		It("should create DHCP NADs and netshoot pods on worker nodes", func() {
 			nadP0 := weaveDHCPNADP0
 			nadP1 := weaveDHCPNADP1
-			vpc.CreateDHCPNetworkAttachmentDefinition(ctx, input.Client, trafficTestNS, nadP0, weaveHostPFInterfaceP0, weavePFMTU, weaveContextScope.CleanupLabels)
-			vpc.CreateDHCPNetworkAttachmentDefinition(ctx, input.Client, trafficTestNS, nadP1, weaveHostPFInterfaceP1, weavePFMTU, weaveContextScope.CleanupLabels)
+			vpc.CreateDHCPNetworkAttachmentDefinition(Ctx, input.Client, trafficTestNS, nadP0, weaveHostPFInterfaceP0, weavePFMTU, weaveContextScope.CleanupLabels)
+			vpc.CreateDHCPNetworkAttachmentDefinition(Ctx, input.Client, trafficTestNS, nadP1, weaveHostPFInterfaceP1, weavePFMTU, weaveContextScope.CleanupLabels)
 			testPodConfigs = []*netshoot.TestPodConfig{
 				{Namespace: trafficTestNS, Name: podP0Node1, NodeName: workerNode1, NADName: nadP0, Labels: weaveContextScope.CleanupLabels},
 				{Namespace: trafficTestNS, Name: podP0Node2, NodeName: workerNode2, NADName: nadP0, Labels: weaveContextScope.CleanupLabels},
 				{Namespace: trafficTestNS, Name: podP1Node1, NodeName: workerNode1, NADName: nadP1, Labels: weaveContextScope.CleanupLabels},
 				{Namespace: trafficTestNS, Name: podP1Node2, NodeName: workerNode2, NADName: nadP1, Labels: weaveContextScope.CleanupLabels},
 			}
-			netshoot.CreatePods(ctx, input.Client, testPodConfigs)
+			netshoot.CreatePods(Ctx, input.Client, testPodConfigs)
 		})
 
 		It("should verify netshoot pods are running", func() {
-			netshoot.WaitForPodsReady(ctx, input.Client, testPodConfigs, vpc.LongTimeout)
+			netshoot.WaitForPodsReady(Ctx, input.Client, testPodConfigs, vpc.LongTimeout)
 		})
 
 		It("should verify overlay routes on netshoot pods", func() {
-			ensureOverlayRoute(hostClusterRESTClient, input.RestConfig, trafficTestNS, podP0Node1, overlayIPP0Node1, weaveVNetSubnet)
-			ensureOverlayRoute(hostClusterRESTClient, input.RestConfig, trafficTestNS, podP0Node2, overlayIPP0Node2, weaveVNetSubnet)
-			ensureOverlayRoute(hostClusterRESTClient, input.RestConfig, trafficTestNS, podP1Node1, overlayIPP1Node1, weaveVNetSubnet)
-			ensureOverlayRoute(hostClusterRESTClient, input.RestConfig, trafficTestNS, podP1Node2, overlayIPP1Node2, weaveVNetSubnet)
+			ensureOverlayRoute(HostClusterRESTClient, input.RestConfig, trafficTestNS, podP0Node1, overlayIPP0Node1, weaveVNetSubnet)
+			ensureOverlayRoute(HostClusterRESTClient, input.RestConfig, trafficTestNS, podP0Node2, overlayIPP0Node2, weaveVNetSubnet)
+			ensureOverlayRoute(HostClusterRESTClient, input.RestConfig, trafficTestNS, podP1Node1, overlayIPP1Node1, weaveVNetSubnet)
+			ensureOverlayRoute(HostClusterRESTClient, input.RestConfig, trafficTestNS, podP1Node2, overlayIPP1Node2, weaveVNetSubnet)
 		})
 
 		It("should verify cross-node ping succeeds on p0", func() {
-			netshoot.AssertPingSuccess(&hostClusterRESTClient, &input.RestConfig, trafficTestNS, podP0Node1, overlayIPP0Node2)
-			netshoot.AssertPingSuccess(&hostClusterRESTClient, &input.RestConfig, trafficTestNS, podP0Node2, overlayIPP0Node1)
+			netshoot.AssertPingSuccess(&HostClusterRESTClient, &input.RestConfig, trafficTestNS, podP0Node1, overlayIPP0Node2)
+			netshoot.AssertPingSuccess(&HostClusterRESTClient, &input.RestConfig, trafficTestNS, podP0Node2, overlayIPP0Node1)
 		})
 
 		It("should verify cross-node ping succeeds on p1", func() {
-			netshoot.AssertPingSuccess(&hostClusterRESTClient, &input.RestConfig, trafficTestNS, podP1Node1, overlayIPP1Node2)
-			netshoot.AssertPingSuccess(&hostClusterRESTClient, &input.RestConfig, trafficTestNS, podP1Node2, overlayIPP1Node1)
+			netshoot.AssertPingSuccess(&HostClusterRESTClient, &input.RestConfig, trafficTestNS, podP1Node1, overlayIPP1Node2)
+			netshoot.AssertPingSuccess(&HostClusterRESTClient, &input.RestConfig, trafficTestNS, podP1Node2, overlayIPP1Node1)
 		})
 
 		It("should verify performance with iperf cross-node traffic on p0", func() {
-			netshoot.RunTrafficTest(&hostClusterRESTClient, &input.RestConfig, trafficTestNS, podP0Node1, podP0Node2, overlayIPP0Node2)
+			netshoot.RunTrafficTest(&HostClusterRESTClient, &input.RestConfig, trafficTestNS, podP0Node1, podP0Node2, overlayIPP0Node2)
 		})
 
 		It("should verify performance with iperf cross-node traffic on p1", func() {
-			netshoot.RunTrafficTest(&hostClusterRESTClient, &input.RestConfig, trafficTestNS, podP1Node1, podP1Node2, overlayIPP1Node2)
+			netshoot.RunTrafficTest(&HostClusterRESTClient, &input.RestConfig, trafficTestNS, podP1Node1, podP1Node2, overlayIPP1Node2)
 		})
 
 		It("should verify metrics across nodes under iperf load on p0", func() {
@@ -244,7 +244,7 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 			baselineMetricsPod2 := readWeaveMetrics(fcPod2)
 
 			By("Running iperf cross-node on p0")
-			iperfResult := netshoot.RunTrafficTestWithResult(&hostClusterRESTClient, &input.RestConfig, trafficTestNS, podP0Node1, podP0Node2, overlayIPP0Node2)
+			iperfResult := netshoot.RunTrafficTestWithResult(&HostClusterRESTClient, &input.RestConfig, trafficTestNS, podP0Node1, podP0Node2, overlayIPP0Node2)
 			forwardBytes := iperfResult.Forward.End.SumSent.Bytes
 			Expect(forwardBytes).To(BeNumerically(">", 0), "iperf reported zero forward bytes")
 			// iperf3 exposes no packet counter, so derive it from bytes/MSS (segment payload).
@@ -316,7 +316,7 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 		})
 
 		It("should create test namespace", func() {
-			vpc.CreateTestNamespace(ctx, input.Client, isolTestNS, weaveContextScope.CleanupLabels)
+			vpc.CreateTestNamespace(Ctx, input.Client, isolTestNS, weaveContextScope.CleanupLabels)
 		})
 
 		It("should create both isolation virtual networks on both flow-controller pods", func() {
@@ -347,21 +347,21 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 
 		It("should create DHCP NAD and netshoot pods on worker nodes", func() {
 			nadName := weaveDHCPNADP0
-			vpc.CreateDHCPNetworkAttachmentDefinition(ctx, input.Client, isolTestNS, nadName, weaveHostPFInterfaceP0, weavePFMTU, weaveContextScope.CleanupLabels)
+			vpc.CreateDHCPNetworkAttachmentDefinition(Ctx, input.Client, isolTestNS, nadName, weaveHostPFInterfaceP0, weavePFMTU, weaveContextScope.CleanupLabels)
 			testPodConfigs = []*netshoot.TestPodConfig{
 				{Namespace: isolTestNS, Name: isolPod1, NodeName: workerNode1, NADName: nadName, Labels: weaveContextScope.CleanupLabels},
 				{Namespace: isolTestNS, Name: isolPod2, NodeName: workerNode2, NADName: nadName, Labels: weaveContextScope.CleanupLabels},
 			}
-			netshoot.CreatePods(ctx, input.Client, testPodConfigs)
+			netshoot.CreatePods(Ctx, input.Client, testPodConfigs)
 		})
 
 		It("should verify netshoot pods are running", func() {
-			netshoot.WaitForPodsReady(ctx, input.Client, testPodConfigs, vpc.LongTimeout)
+			netshoot.WaitForPodsReady(Ctx, input.Client, testPodConfigs, vpc.LongTimeout)
 		})
 
 		It("should verify overlay routes on netshoot pods", func() {
-			ensureOverlayRoute(hostClusterRESTClient, input.RestConfig, isolTestNS, isolPod1, overlayIP1, weaveVNetSubnet)
-			ensureOverlayRoute(hostClusterRESTClient, input.RestConfig, isolTestNS, isolPod2, overlayIP2, weaveVNetSubnet)
+			ensureOverlayRoute(HostClusterRESTClient, input.RestConfig, isolTestNS, isolPod1, overlayIP1, weaveVNetSubnet)
+			ensureOverlayRoute(HostClusterRESTClient, input.RestConfig, isolTestNS, isolPod2, overlayIP2, weaveVNetSubnet)
 		})
 
 		// Should run before the deny-ping below so the source ACL starts unlearned.
@@ -373,7 +373,7 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 			baselineMetricsPod2 := readWeaveMetrics(fcPod2)
 
 			By("Sending a ping burst across mismatched VNets")
-			_, _ = netshoot.PingBurst(hostClusterRESTClient, input.RestConfig, isolTestNS, isolPod1, overlayIP2, weaveMetricBurstCount)
+			_, _ = netshoot.PingBurst(HostClusterRESTClient, input.RestConfig, isolTestNS, isolPod1, overlayIP2, weaveMetricBurstCount)
 
 			By("Verifying weave metrics across mismatching VNets")
 			var currentMetricsPod1, currentMetricsPod2 weaveMetrics
@@ -395,8 +395,8 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 		})
 
 		It("should deny ping between worker nodes on different virtual networks", func() {
-			netshoot.AssertPingFailure(&hostClusterRESTClient, &input.RestConfig, isolTestNS, isolPod1, overlayIP2)
-			netshoot.AssertPingFailure(&hostClusterRESTClient, &input.RestConfig, isolTestNS, isolPod2, overlayIP1)
+			netshoot.AssertPingFailure(&HostClusterRESTClient, &input.RestConfig, isolTestNS, isolPod1, overlayIP2)
+			netshoot.AssertPingFailure(&HostClusterRESTClient, &input.RestConfig, isolTestNS, isolPod2, overlayIP1)
 		})
 	})
 
@@ -417,10 +417,10 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 		)
 
 		BeforeAll(func() {
-			vpc.CreateTestNamespace(ctx, input.Client, rdmaTestNS, weaveContextScope.CleanupLabels)
-			CopySecretToNamespace(ctx, input.Client, dpfPullSecretName, dpfOperatorSystemNamespace, rdmaTestNS, weaveContextScope.CleanupLabels)
-			netutilsPod1 = createNetutilsHostPodOnNode(ctx, input.Client, rdmaTestNS, rdmaPod1, workerNode1)
-			netutilsPod2 = createNetutilsHostPodOnNode(ctx, input.Client, rdmaTestNS, rdmaPod2, workerNode2)
+			vpc.CreateTestNamespace(Ctx, input.Client, rdmaTestNS, weaveContextScope.CleanupLabels)
+			CopySecretToNamespace(Ctx, input.Client, dpfPullSecretName, dpfOperatorSystemNamespace, rdmaTestNS, weaveContextScope.CleanupLabels)
+			netutilsPod1 = createNetutilsHostPodOnNode(Ctx, input.Client, rdmaTestNS, rdmaPod1, workerNode1)
+			netutilsPod2 = createNetutilsHostPodOnNode(Ctx, input.Client, rdmaTestNS, rdmaPod2, workerNode2)
 		})
 
 		AfterEach(func() {
@@ -462,17 +462,17 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 		})
 
 		It("should plumb overlay IPs onto worker p0 PFs via dhcpcd", func() {
-			acquireDHCPLeaseInPod(hostClusterRESTClient, input.RestConfig, netutilsPod1, weaveHostPFInterfaceP0, overlayIPP0Node1)
-			acquireDHCPLeaseInPod(hostClusterRESTClient, input.RestConfig, netutilsPod2, weaveHostPFInterfaceP0, overlayIPP0Node2)
+			acquireDHCPLeaseInPod(HostClusterRESTClient, input.RestConfig, netutilsPod1, weaveHostPFInterfaceP0, overlayIPP0Node1)
+			acquireDHCPLeaseInPod(HostClusterRESTClient, input.RestConfig, netutilsPod2, weaveHostPFInterfaceP0, overlayIPP0Node2)
 		})
 
 		It("should run ib_write_bw between the two hosts on p0 and meet the BW threshold", func() {
-			runIBWriteBWPodToPod(hostClusterRESTClient, input.RestConfig, netutilsPod2, netutilsPod1, weaveHostPFRDMADeviceP0, overlayIPP0Node2)
+			runIBWriteBWPodToPod(HostClusterRESTClient, input.RestConfig, netutilsPod2, netutilsPod1, weaveHostPFRDMADeviceP0, overlayIPP0Node2)
 		})
 
 		It("should run ib_write_bw between the two hosts on p0 with --reversed and meet the BW threshold", func() {
 			// Running with --reversed checks that the RDMA traffic also works in reverse direction for sanity purposes.
-			runIBWriteBWPodToPod(hostClusterRESTClient, input.RestConfig, netutilsPod2, netutilsPod1, weaveHostPFRDMADeviceP0, overlayIPP0Node2, "--reversed")
+			runIBWriteBWPodToPod(HostClusterRESTClient, input.RestConfig, netutilsPod2, netutilsPod1, weaveHostPFRDMADeviceP0, overlayIPP0Node2, "--reversed")
 		})
 	})
 
@@ -513,7 +513,7 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 		})
 
 		It("should create test namespace", func() {
-			vpc.CreateTestNamespace(ctx, input.Client, isolTestNS, weaveContextScope.CleanupLabels)
+			vpc.CreateTestNamespace(Ctx, input.Client, isolTestNS, weaveContextScope.CleanupLabels)
 		})
 
 		It("should create both isolation virtual networks on flow-controller pod 1", func() {
@@ -541,35 +541,35 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 		It("should create DHCP NADs and netshoot pods on worker node 1", func() {
 			nadP0 := weaveDHCPNADP0
 			nadP1 := weaveDHCPNADP1
-			vpc.CreateDHCPNetworkAttachmentDefinition(ctx, input.Client, isolTestNS, nadP0, weaveHostPFInterfaceP0, weavePFMTU, weaveContextScope.CleanupLabels)
-			vpc.CreateDHCPNetworkAttachmentDefinition(ctx, input.Client, isolTestNS, nadP1, weaveHostPFInterfaceP1, weavePFMTU, weaveContextScope.CleanupLabels)
+			vpc.CreateDHCPNetworkAttachmentDefinition(Ctx, input.Client, isolTestNS, nadP0, weaveHostPFInterfaceP0, weavePFMTU, weaveContextScope.CleanupLabels)
+			vpc.CreateDHCPNetworkAttachmentDefinition(Ctx, input.Client, isolTestNS, nadP1, weaveHostPFInterfaceP1, weavePFMTU, weaveContextScope.CleanupLabels)
 			testPodConfigs = []*netshoot.TestPodConfig{
 				{Namespace: isolTestNS, Name: isolPod1, NodeName: workerNode1, NADName: nadP0, Labels: weaveContextScope.CleanupLabels},
 				{Namespace: isolTestNS, Name: isolPod2, NodeName: workerNode1, NADName: nadP1, Labels: weaveContextScope.CleanupLabels},
 			}
-			netshoot.CreatePods(ctx, input.Client, testPodConfigs)
+			netshoot.CreatePods(Ctx, input.Client, testPodConfigs)
 		})
 
 		It("should verify netshoot pods are running", func() {
-			netshoot.WaitForPodsReady(ctx, input.Client, testPodConfigs, vpc.LongTimeout)
+			netshoot.WaitForPodsReady(Ctx, input.Client, testPodConfigs, vpc.LongTimeout)
 		})
 
 		It("should verify overlay routes on netshoot pods", func() {
-			ensureOverlayRoute(hostClusterRESTClient, input.RestConfig, isolTestNS, isolPod1, overlayIP1, weaveVNetSubnet)
-			ensureOverlayRoute(hostClusterRESTClient, input.RestConfig, isolTestNS, isolPod2, overlayIP2, secondSubnet)
+			ensureOverlayRoute(HostClusterRESTClient, input.RestConfig, isolTestNS, isolPod1, overlayIP1, weaveVNetSubnet)
+			ensureOverlayRoute(HostClusterRESTClient, input.RestConfig, isolTestNS, isolPod2, overlayIP2, secondSubnet)
 		})
 
 		It("should add route on netshoot pod 1", func() {
-			addRouteOnPodBetweenOverlayAndSubnet(hostClusterRESTClient, input.RestConfig, isolTestNS, isolPod1, overlayIP1, secondSubnet)
+			addRouteOnPodBetweenOverlayAndSubnet(HostClusterRESTClient, input.RestConfig, isolTestNS, isolPod1, overlayIP1, secondSubnet)
 		})
 
 		It("should add route on netshoot pod 2", func() {
-			addRouteOnPodBetweenOverlayAndSubnet(hostClusterRESTClient, input.RestConfig, isolTestNS, isolPod2, overlayIP2, weaveVNetSubnet)
+			addRouteOnPodBetweenOverlayAndSubnet(HostClusterRESTClient, input.RestConfig, isolTestNS, isolPod2, overlayIP2, weaveVNetSubnet)
 		})
 
 		It("should deny ping between pods on different virtual networks on the same node", func() {
-			netshoot.AssertPingFailure(&hostClusterRESTClient, &input.RestConfig, isolTestNS, isolPod1, overlayIP2)
-			netshoot.AssertPingFailure(&hostClusterRESTClient, &input.RestConfig, isolTestNS, isolPod2, overlayIP1)
+			netshoot.AssertPingFailure(&HostClusterRESTClient, &input.RestConfig, isolTestNS, isolPod1, overlayIP2)
+			netshoot.AssertPingFailure(&HostClusterRESTClient, &input.RestConfig, isolTestNS, isolPod2, overlayIP1)
 		})
 
 		It("should verify metrics for an out-of-subnet destination", func() {
@@ -577,7 +577,7 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 			baselineMetrics := readWeaveMetrics(fcPod1)
 
 			By("Sending a ping burst to an out-of-subnet destination")
-			_, _ = netshoot.PingBurst(hostClusterRESTClient, input.RestConfig, isolTestNS, isolPod1, overlayIP2, weaveMetricBurstCount)
+			_, _ = netshoot.PingBurst(HostClusterRESTClient, input.RestConfig, isolTestNS, isolPod1, overlayIP2, weaveMetricBurstCount)
 
 			By("Verifying weave metrics across out-of-subnet destination")
 			// Poll until the OVS scrape reflects the burst.

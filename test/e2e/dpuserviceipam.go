@@ -62,7 +62,7 @@ func ValidateDPUServiceIPAMCreationSubnetSplit(ctx context.Context, input *Syste
 	By("Checking that NVIPAM IPPool CR is created in the DPU clusters")
 	Eventually(func(g Gomega) {
 		ipPools := &nvipamv1.IPPoolList{}
-		g.Expect(dpuClusterClient[0].List(ctx, ipPools, client.MatchingLabels{
+		g.Expect(DPUClusterClient[0].List(ctx, ipPools, client.MatchingLabels{
 			"dpu.nvidia.com/dpuserviceipam-name":      dpuServiceIPAM.GetName(),
 			"dpu.nvidia.com/dpuserviceipam-namespace": dpuServiceIPAM.GetNamespace(),
 		})).To(Succeed())
@@ -82,7 +82,7 @@ func ValidateDPUServiceIPAMMetrics(ctx context.Context, input *SystemTestInput) 
 		"dpuserviceipam": {"created", "info", "status_conditions", "status_condition_last_transition_time"}, //  "network_info", "subnet_info" missed
 	}
 	Eventually(func(g Gomega) {
-		actualMetricsNames := metrics.GetKSMMetrics(g, ctx, hostClusterRESTClient, metricsURI)
+		actualMetricsNames := metrics.GetKSMMetrics(g, ctx, HostClusterRESTClient, MetricsURI)
 		g.Expect(actualMetricsNames).NotTo(BeEmpty(), "Actual metrics are empty")
 		g.Expect(metrics.VerifyMetrics(expectedHostMetricsNames, actualMetricsNames)).To(BeEmpty())
 	}).WithTimeout(5 * time.Second).Should(Succeed())
@@ -93,7 +93,7 @@ func ValidateDPUServiceIPAMMetrics(ctx context.Context, input *SystemTestInput) 
 	By("Wait for IPPool to be created in DPU clusters")
 	Eventually(func(g Gomega) {
 		ipPools := &nvipamv1.IPPoolList{}
-		g.Expect(dpuClusterClient[0].List(ctx, ipPools, client.MatchingLabels{
+		g.Expect(DPUClusterClient[0].List(ctx, ipPools, client.MatchingLabels{
 			"dpu.nvidia.com/dpuserviceipam-name":      dpuServiceIPAM.GetName(),
 			"dpu.nvidia.com/dpuserviceipam-namespace": dpuServiceIPAM.GetNamespace(),
 		})).To(Succeed())
@@ -111,7 +111,7 @@ func ValidateDPUServiceIPAMMetrics(ctx context.Context, input *SystemTestInput) 
 		g.Expect(dpuKSMMetricsURI).NotTo(BeEmpty())
 
 		// Use hostClusterRESTClient because in-cluster KSM runs on the management cluster
-		actualMetricsNames := metrics.GetKSMMetrics(g, ctx, hostClusterRESTClient, dpuKSMMetricsURI)
+		actualMetricsNames := metrics.GetKSMMetrics(g, ctx, HostClusterRESTClient, dpuKSMMetricsURI)
 		g.Expect(actualMetricsNames).NotTo(BeEmpty(), "Actual metrics are empty")
 		g.Expect(metrics.VerifyMetrics(expectedDPUMetricsNames, actualMetricsNames)).To(BeEmpty())
 	}).WithTimeout(30 * time.Second).Should(Succeed())
@@ -141,7 +141,7 @@ func ValidateDPUServiceIPAMMetricsDeletion(ctx context.Context, input *SystemTes
 	By("Checking that NVIPAM IPPool CR is deleted in each DPU cluster")
 	Eventually(func(g Gomega) {
 		ipPools := &nvipamv1.IPPoolList{}
-		g.Expect(dpuClusterClient[0].List(ctx, ipPools, client.MatchingLabels{
+		g.Expect(DPUClusterClient[0].List(ctx, ipPools, client.MatchingLabels{
 			"dpu.nvidia.com/dpuserviceipam-name":      dpuServiceIPAM.GetName(),
 			"dpu.nvidia.com/dpuserviceipam-namespace": dpuServiceIPAM.GetNamespace(),
 		})).To(Succeed())
@@ -158,7 +158,7 @@ func ValidateDPUServiceIPAMCreationCidrSplit(ctx context.Context, input *SystemT
 	By("Checking that NVIPAM CIDRPool CR is created in the DPU clusters")
 	Eventually(func(g Gomega) {
 		cidrPools := &nvipamv1.CIDRPoolList{}
-		g.Expect(dpuClusterClient[0].List(ctx, cidrPools, client.MatchingLabels{
+		g.Expect(DPUClusterClient[0].List(ctx, cidrPools, client.MatchingLabels{
 			"dpu.nvidia.com/dpuserviceipam-name":      dpuServiceIPAM.GetName(),
 			"dpu.nvidia.com/dpuserviceipam-namespace": dpuServiceIPAM.GetNamespace(),
 		})).To(Succeed())
@@ -178,7 +178,7 @@ func ValidateDPUServiceIPAMCreationCidrSplit(ctx context.Context, input *SystemT
 		g.Expect(dpuKSMMetricsURI).NotTo(BeEmpty())
 
 		// Use hostClusterRESTClient because in-cluster KSM runs on the management cluster
-		actualMetricsNames := metrics.GetKSMMetrics(g, ctx, hostClusterRESTClient, dpuKSMMetricsURI)
+		actualMetricsNames := metrics.GetKSMMetrics(g, ctx, HostClusterRESTClient, dpuKSMMetricsURI)
 		g.Expect(actualMetricsNames).NotTo(BeEmpty(), "Actual metrics are empty")
 		g.Expect(metrics.VerifyMetrics(expectedCIDRPoolMetricsNames, actualMetricsNames)).To(BeEmpty())
 	}).WithTimeout(10 * time.Second).Should(Succeed())
@@ -208,7 +208,7 @@ func ValidateDPUServiceIPAMDeletionCidrSplit(ctx context.Context, input *SystemT
 	By("Checking that NVIPAM CIDRPool CR is deleted in each DPU cluster")
 	Eventually(func(g Gomega) {
 		cidrPools := &nvipamv1.CIDRPoolList{}
-		g.Expect(dpuClusterClient[0].List(ctx, cidrPools, client.MatchingLabels{
+		g.Expect(DPUClusterClient[0].List(ctx, cidrPools, client.MatchingLabels{
 			"dpu.nvidia.com/dpuserviceipam-name":      dpuServiceIPAM.GetName(),
 			"dpu.nvidia.com/dpuserviceipam-namespace": dpuServiceIPAM.GetNamespace(),
 		})).To(Succeed())

@@ -50,7 +50,7 @@ var leaderElectionTargets = []leaderElectionTarget{
 var _ = Describe("DPF Leader-election failover", Labels{Domain.DPFSystem}, func() {
 	for _, target := range leaderElectionTargets {
 		It(fmt.Sprintf("hands over the lease when the %s leader pod is deleted", target.component), func() {
-			ValidateLeaderElectionFailover(ctx, testClient, target)
+			ValidateLeaderElectionFailover(Ctx, TestClient, target)
 		})
 	}
 })

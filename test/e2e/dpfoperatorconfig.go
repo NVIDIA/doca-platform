@@ -297,7 +297,7 @@ func verifyComponentOverrides(ctx context.Context, input *SystemTestInput, dummy
 			}
 			tracker.By(nameForCluster, "verifying overrides for %s", nameForCluster)
 			daemonSets := appsv1.DaemonSetList{}
-			g.Expect(dpuClusterClient[0].List(ctx, &daemonSets)).To(Succeed())
+			g.Expect(DPUClusterClient[0].List(ctx, &daemonSets)).To(Succeed())
 
 			var matchingDaemonSets []appsv1.DaemonSet
 			for _, ds := range daemonSets.Items {
@@ -338,7 +338,7 @@ func verifyComponentOverrides(ctx context.Context, input *SystemTestInput, dummy
 func ValidateDPFOperatorMTUCurrentConfiguration(ctx context.Context, input *SystemTestInput) {
 	By("Verify flannel configmap for cluster " + input.DPUClusters[0].Name)
 	flannelConfigMap := &corev1.ConfigMap{}
-	Expect(dpuClusterClient[0].Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: "kube-flannel-cfg"}, flannelConfigMap)).To(Succeed())
+	Expect(DPUClusterClient[0].Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: "kube-flannel-cfg"}, flannelConfigMap)).To(Succeed())
 	Expect(flannelConfigMap.Data["net-conf.json"]).To(ContainSubstring("MTU\": 1500,"))
 }
 
@@ -360,7 +360,7 @@ func ValidateDPFOperatorMTUConfigurationChange(ctx context.Context, input *Syste
 	By("Verify flannel and multus for cluster " + input.DPUClusters[0].Name)
 	Eventually(func(g Gomega) {
 		flannelConfigMap := &corev1.ConfigMap{}
-		g.Expect(dpuClusterClient[0].Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: "kube-flannel-cfg"}, flannelConfigMap)).To(Succeed())
+		g.Expect(DPUClusterClient[0].Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: "kube-flannel-cfg"}, flannelConfigMap)).To(Succeed())
 		g.Expect(flannelConfigMap.Data["net-conf.json"]).To(ContainSubstring(fmt.Sprintf(`MTU": %d`, testMTUValue)))
 
 		netAttachDef := &unstructured.Unstructured{}
@@ -370,13 +370,13 @@ func ValidateDPFOperatorMTUConfigurationChange(ctx context.Context, input *Syste
 			Kind:    "NetworkAttachmentDefinition",
 		})
 
-		g.Expect(dpuClusterClient[0].Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: "mybrsfc"}, netAttachDef)).To(Succeed())
+		g.Expect(DPUClusterClient[0].Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: "mybrsfc"}, netAttachDef)).To(Succeed())
 		netAttachConfig, exists, err := unstructured.NestedString(netAttachDef.Object, "spec", "config")
 		g.Expect(err).ToNot(HaveOccurred())
 		g.Expect(exists).To(BeTrue())
 		g.Expect(netAttachConfig).To(ContainSubstring("mtu\": 9000,"))
 
-		g.Expect(dpuClusterClient[0].Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: "mybrhbn"}, netAttachDef)).To(Succeed())
+		g.Expect(DPUClusterClient[0].Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: "mybrhbn"}, netAttachDef)).To(Succeed())
 		netAttachConfig, exists, err = unstructured.NestedString(netAttachDef.Object, "spec", "config")
 		g.Expect(err).ToNot(HaveOccurred())
 		g.Expect(exists).To(BeTrue())
@@ -405,7 +405,7 @@ func ValidateDPFOperatorMTUConfigurationChange(ctx context.Context, input *Syste
 			}
 			g.Expect(runningPods).ToNot(BeEmpty())
 			for _, pod := range runningPods {
-				stdout, err := netshoot.ExecInContainerOnce(hostClusterRESTClient, input.RestConfig,
+				stdout, err := netshoot.ExecInContainerOnce(HostClusterRESTClient, input.RestConfig,
 					pod.Namespace, pod.Name, "hostagent", []string{"cat", fmt.Sprintf("/sys/class/net/%s/mtu", bridgeName)})
 				g.Expect(err).NotTo(HaveOccurred(), "exec on pod %s/%s container hostagent: %s", pod.Namespace, pod.Name, stdout)
 				g.Expect(strings.TrimSpace(stdout)).To(Equal(fmt.Sprintf("%d", testMTUValue)))
@@ -512,7 +512,7 @@ func ValidateDPFOperatorOOBBridgePostProvisioning(ctx context.Context, input *Sy
 	for _, pod := range runningPods {
 		By(fmt.Sprintf("Verify VF is attached to bridge %s on pod %s", bridgeName, pod.Name))
 		Eventually(func(g Gomega) {
-			stdout, err := netshoot.ExecInContainerOnce(hostClusterRESTClient, input.RestConfig,
+			stdout, err := netshoot.ExecInContainerOnce(HostClusterRESTClient, input.RestConfig,
 				pod.Namespace, pod.Name, "hostagent",
 				[]string{"sh", "-c", fmt.Sprintf("ls /sys/class/net/%s/brif/ 2>/dev/null", bridgeName)})
 			g.Expect(err).NotTo(HaveOccurred(), "failed to list bridge members on pod %s: %s", pod.Name, stdout)
@@ -522,7 +522,7 @@ func ValidateDPFOperatorOOBBridgePostProvisioning(ctx context.Context, input *Sy
 
 		By(fmt.Sprintf("Verify netplan file %s exists and references bridge %s", hostutil.BridgeMTUNetplanFile, bridgeName))
 		Eventually(func(g Gomega) {
-			stdout, err := netshoot.ExecInContainerOnce(hostClusterRESTClient, input.RestConfig,
+			stdout, err := netshoot.ExecInContainerOnce(HostClusterRESTClient, input.RestConfig,
 				pod.Namespace, pod.Name, "hostagent",
 				[]string{"cat", hostutil.BridgeMTUNetplanFile})
 			g.Expect(err).NotTo(HaveOccurred(), "netplan file not found on pod %s: %s", pod.Name, stdout)
@@ -531,7 +531,7 @@ func ValidateDPFOperatorOOBBridgePostProvisioning(ctx context.Context, input *Sy
 		}, time.Minute).Should(Succeed())
 
 		By(fmt.Sprintf("Verify legacy netplan file %s is removed", hostutil.LegacyBridgeMTUNetplanFile))
-		stdout, err := netshoot.ExecInContainerOnce(hostClusterRESTClient, input.RestConfig,
+		stdout, err := netshoot.ExecInContainerOnce(HostClusterRESTClient, input.RestConfig,
 			pod.Namespace, pod.Name, "hostagent",
 			[]string{"sh", "-c", fmt.Sprintf("test -f %s && echo EXISTS || echo GONE", hostutil.LegacyBridgeMTUNetplanFile)})
 		Expect(err).NotTo(HaveOccurred())
@@ -557,7 +557,7 @@ func ValidateDPFOperatorFlannelPodCIDRChange(ctx context.Context, input *SystemT
 	By("Verify flannel configmap for cluster " + input.DPUClusters[0].Name)
 	Eventually(func(g Gomega) {
 		flannelConfigMap := &corev1.ConfigMap{}
-		g.Expect(dpuClusterClient[0].Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: "kube-flannel-cfg"}, flannelConfigMap)).To(Succeed())
+		g.Expect(DPUClusterClient[0].Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: "kube-flannel-cfg"}, flannelConfigMap)).To(Succeed())
 		g.Expect(flannelConfigMap.Data["net-conf.json"]).To(ContainSubstring("10.255.0.0/14"))
 	}, time.Second*30).Should(Succeed())
 
@@ -686,7 +686,7 @@ func ValidateDPFOperatorPathConfiguration(ctx context.Context, input *SystemTest
 			if prereqsNamespace != "" {
 				trackingAnnotationValuePrefix = fmt.Sprintf("%s_%s", dpfOperatorSystemNamespace, nameForCluster)
 			}
-			g.Expect(dpuClusterClient[0].List(ctx, &daemonSets)).To(Succeed())
+			g.Expect(DPUClusterClient[0].List(ctx, &daemonSets)).To(Succeed())
 
 			var matchingDaemonSets []appsv1.DaemonSet
 			for _, ds := range daemonSets.Items {
@@ -933,13 +933,13 @@ func ValidateDPFOperatorConfigCleanupPrerequisites(ctx context.Context, input *S
 			// ServiceInterface objects are created per K8s node in the DPU cluster, and each DPU device
 			// becomes a separate K8s node, so the count equals totalDPUs() (nodes * DPUs per node).
 			standaloneServiceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
-			g.Expect(dpuClusterClient[0].List(ctx, standaloneServiceInterfaceList, client.InNamespace(dpuServiceInterfaceNamespace))).To(Succeed())
+			g.Expect(DPUClusterClient[0].List(ctx, standaloneServiceInterfaceList, client.InNamespace(dpuServiceInterfaceNamespace))).To(Succeed())
 			g.Expect(standaloneServiceInterfaceList.Items).To(HaveLen(input.TotalDPUs()))
 
 			// Expect ServiceInterface for DPUDeployment owned DPUServiceInterface to exist
 			for _, serviceInterfaceLabels := range dpuDeploymentOwnedServiceInterfaceLabels {
 				dpudeploymentOwnedServiceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
-				g.Expect(dpuClusterClient[0].List(ctx, dpudeploymentOwnedServiceInterfaceList, client.MatchingLabels(serviceInterfaceLabels))).To(Succeed())
+				g.Expect(DPUClusterClient[0].List(ctx, dpudeploymentOwnedServiceInterfaceList, client.MatchingLabels(serviceInterfaceLabels))).To(Succeed())
 				g.Expect(dpudeploymentOwnedServiceInterfaceList.Items).To(HaveLen(input.TotalDPUs()))
 			}
 		}).WithTimeout(2 * time.Minute).Should(Succeed())

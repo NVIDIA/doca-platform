@@ -32,7 +32,7 @@ var _ = Describe("DPF scale tests", Labels{Domain.Scale}, func() {
 
 	Context("Validate DPU Operator Cleanup", Labels{Domain.RequiresNodes}, Serial, Ordered, func() {
 		It("should validate DPU Operator Cleanup", func() {
-			ValidateDPUDeploymentFullCreation(ctx, input)
+			ValidateDPUDeploymentFullCreation(Ctx, input)
 		})
 	})
 })
@@ -42,7 +42,7 @@ func CreateDPUWorkerNodes(ctx context.Context, n int) {
 	// Get the name of the mock-dms pod
 
 	mockDMSPod := &corev1.PodList{}
-	Expect(testClient.List(ctx, mockDMSPod, client.InNamespace(dpfOperatorSystemNamespace), client.MatchingLabels{"app.kubernetes.io/instance": "mock-dms"})).To(Succeed())
+	Expect(TestClient.List(ctx, mockDMSPod, client.InNamespace(dpfOperatorSystemNamespace), client.MatchingLabels{"app.kubernetes.io/instance": "mock-dms"})).To(Succeed())
 	Expect(mockDMSPod.Items).To(HaveLen(1))
 	mockDMSPodName := mockDMSPod.Items[0].Name
 
@@ -62,7 +62,7 @@ func CreateDPUWorkerNodes(ctx context.Context, n int) {
 
 	mockDMSIPAddress := ""
 	nodes := &corev1.NodeList{}
-	Expect(testClient.List(ctx, nodes)).To(Succeed())
+	Expect(TestClient.List(ctx, nodes)).To(Succeed())
 	Expect(nodes.Items).To(HaveLen(1))
 	for addr := range nodes.Items[0].Status.Addresses {
 		if nodes.Items[0].Status.Addresses[addr].Type == corev1.NodeInternalIP {
@@ -85,7 +85,7 @@ func CreateDPUWorkerNodes(ctx context.Context, n int) {
 				APIVersion: "v1",
 			},
 		}
-		Expect(testClient.Create(ctx, node)).To(Succeed())
+		Expect(TestClient.Create(ctx, node)).To(Succeed())
 		original := node.DeepCopy()
 		node.Status.Addresses = []corev1.NodeAddress{
 			{
@@ -93,6 +93,6 @@ func CreateDPUWorkerNodes(ctx context.Context, n int) {
 				Address: mockDMSIPAddress,
 			},
 		}
-		Expect(testClient.Status().Patch(ctx, node, client.MergeFrom(original))).To(Succeed())
+		Expect(TestClient.Status().Patch(ctx, node, client.MergeFrom(original))).To(Succeed())
 	}
 }
