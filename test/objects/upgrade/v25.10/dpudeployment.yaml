@@ -1,0 +1,45 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUDeployment
+metadata:
+  name: upgrade-test
+  namespace: dpf-operator-system
+spec:
+  dpus:
+    bfb: bf-bundle
+    dpuSets:
+      - dpuAnnotations:
+          doMagic: "true"
+        nameSuffix: dpuset1
+        dpuSelector:
+          provisioning.dpu.nvidia.com/dpudevice-pciAddress: "0000-2b-00"
+        nodeSelector:
+          matchLabels:
+            kubernetes.io/hostname: replace
+    flavor: flavor
+    nodeEffect:
+      drain: true
+  revisionHistoryLimit: 10
+  serviceChains:
+    switches:
+      - ports:
+          - service:
+              interface: net1
+              name: example
+              ipam:
+                matchLabels:
+                  svc.dpu.nvidia.com/pool: pool1
+          - service:
+              interface: net2
+              name: example-2
+              ipam:
+                matchLabels:
+                  svc.dpu.nvidia.com/pool: pool1
+    upgradePolicy:
+      applyNodeEffect: true
+  services:
+    example:
+      serviceConfiguration: example
+      serviceTemplate: example
+    example-2:
+      serviceConfiguration: example-2
+      serviceTemplate: example-2

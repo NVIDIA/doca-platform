@@ -305,7 +305,7 @@ var _ = BeforeSuite(func() {
 	By(fmt.Sprintf("Running BeforeSuite based on label selector: %v ", GinkgoLabelFilter()))
 
 	if !skipProvisioning() {
-		SystemSetupBeforeSuite()
+		SystemSetupBeforeSuite(false)
 		By("Pre-provisioning DPU cluster setup")
 		// TODO: can be replaced with functions calls from provisioning_test.go
 		// BeforeProvisioning(ctx, input)
@@ -322,7 +322,7 @@ var _ = BeforeSuite(func() {
 	if isGinkgoLabelApplied(Domain.Provisioning) {
 		// SystemSetupBeforeSuite must run first to deploy the DPF operator and system components
 		// Provisioning tests need the operator running but will provision DPUs from scratch (no pre-provisioning)
-		SystemSetupBeforeSuite()
+		SystemSetupBeforeSuite(false)
 		ProvisioningBeforeSuite()
 	}
 
@@ -352,7 +352,7 @@ var _ = BeforeSuite(func() {
 	// IgnoreAlreadyExists handles objects already present (e.g. on re-runs).
 	// Per RDG, service object creation precedes the DPU provisioning wait.
 	if isGinkgoLabelApplied(Domain.Performance) && isGinkgoLabelApplied(Domain.OVNKHBN) {
-		SystemSetupBeforeSuite()
+		SystemSetupBeforeSuite(false)
 		By("Maximizing maintenance operator parallelism for performance provisioning")
 		restoreMaintenanceConfig := SetMaintenanceOperatorMaxParallelOperations(ctx, testClient, 50)
 		defer restoreMaintenanceConfig()

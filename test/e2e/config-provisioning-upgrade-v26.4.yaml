@@ -1,0 +1,26 @@
+provisioningControllerPVC: "../objects/infrastructure/pvc-provisioning.yaml"
+bfb: "../objects/upgrade/v26.4/bfb.yaml"
+dpuClusters:
+  - "../objects/upgrade/v26.4/dpucluster.yaml"
+dpuFlavor: "../objects/upgrade/v26.4/dpuflavor.yaml"
+dpuDeployment: "../objects/upgrade/v26.4/dpudeployment-physical.yaml"
+dpuServiceConfiguration: "../objects/upgrade/v26.4/dpuserviceconfiguration.yaml"
+additionalDPUServiceConfiguration: "../objects/upgrade/v26.4/dpuserviceconfiguration-2.yaml"
+dpuServiceTemplate: "../objects/upgrade/v26.4/dpuservicetemplate.yaml"
+additionalDPUServiceTemplate: "../objects/upgrade/v26.4/dpuservicetemplate-2.yaml"
+numberOfDPUNodes: 2
+numberOfDPUsPerNode: 1
+
+# Unused, but still needed for the e2e tests to run.
+dpuSet: "../objects/infrastructure/dpuset-physical.yaml"
+dpuServiceInterface: "../objects/application/dpuserviceinterface_service_type.yaml"
+dpuServiceInterfaceTemplate: "../objects/application/dpuserviceinterfacetemplate.yaml"
+dpuServiceChain: "../objects/application/dpuservicechain.yaml"
+dpuServiceChainTemplate: "../objects/application/dpuservicechaintemplate.yaml"
+dpuServiceCredentialRequest: "../objects/application/dpuservicecredentialrequest.yaml"
+ipPoolDPUServiceIPAM: "../objects/application/dpuserviceipam_subnet.yaml"
+cidrPoolDPUServiceIPAM: "../objects/application/dpuserviceipam_cidr.yaml"
+dpuServiceIPAMTemplate: "../objects/application/dpuserviceipamtemplate.yaml"
+dpuService: "../objects/application/dpuservice.yaml"
+dpuServiceHBN: "../objects/application/dpuservicehbn.yaml"
+dhcpDaemonSet: "../objects/application/vpc/dhcp.yaml"
