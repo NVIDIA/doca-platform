@@ -38,7 +38,7 @@ import (
 )
 
 var input *SystemTestInput
-var vpcOvnInput = &vpcOvnTestInput{}
+var VPCOVNInput = &VPCOVNTestInput{}
 
 func SetInput() *SystemTestInput {
 	By("Validating the input")
