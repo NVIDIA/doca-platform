@@ -49,12 +49,12 @@ func expectedDPUServicesCurrent(input *SystemTestInput) []string {
 // expectedChangesCurrent lists the spec changes an upgrade to the current HEAD
 // release intentionally introduces. Shared by every hop that lands on HEAD: the
 // regular previous-GA → HEAD upgrade and the BFB LTS v26.4 → v26.7 hop.
-var expectedChangesCurrent = []upgradeExpectedChange{
+var expectedChangesCurrent = []UpgradeExpectedChange{
 	// DPUService .spec.security is newly defaulted at HEAD: "before" lacks it while
 	// "after" has it, so strip it from "after" (before's generation is bumped by one).
 	{
-		gvk: dpuservicev1.GroupVersion.WithKind("DPUService"),
-		transform: func(artifact map[string]interface{}) {
+		GVK: dpuservicev1.GroupVersion.WithKind("DPUService"),
+		Transform: func(artifact map[string]interface{}) {
 			unstructured.RemoveNestedField(artifact, "spec", "security")
 		},
 	},
@@ -65,24 +65,24 @@ var expectedChangesCurrent = []upgradeExpectedChange{
 // operator has been upgraded externally. Each phase is its own labeled Ginkgo
 // container, selected by CI via its label.
 var _ = Describe("DPF Upgrade", func() {
-	installPhase("previous GA", installPhaseInput{
-		label:           Domain.DPFUpgrade,
-		skipBFBImageURL: true,
+	InstallPhase("previous GA", InstallPhaseInput{
+		Label:           Domain.DPFUpgrade,
+		SkipBFBImageURL: true,
 		// The previous GA (LAST_STABLE_DPF_VERSION, default v26.4.0) pins its own
 		// Kubernetes version, which differs from HEAD's util.KubernetesVersion.
-		expectedKubernetesVersion: "v1.34.0",
-		artifactsKey:              "before",
-		expectedDPUServices:       expectedDPUServicesCurrent,
+		ExpectedKubernetesVersion: "v1.34.0",
+		ArtifactsKey:              "before",
+		ExpectedDPUServices:       expectedDPUServicesCurrent,
 	})
 
-	validationPhase("GA-to-current", validationPhaseInput{
-		label:                Domain.DPFUpgradeValidation,
-		patchDeploymentMode:  true,
-		captureBeforeRollout: true,
-		artifactsKey:         "after",
-		prevArtifactsKey:     "before",
-		rolloutDependencies:  true,
-		expectedChanges:      expectedChangesCurrent,
-		expectedDPUServices:  expectedDPUServicesCurrent,
+	ValidationPhase("GA-to-current", ValidationPhaseInput{
+		Label:                Domain.DPFUpgradeValidation,
+		PatchDeploymentMode:  true,
+		CaptureBeforeRollout: true,
+		ArtifactsKey:         "after",
+		PrevArtifactsKey:     "before",
+		RolloutDependencies:  true,
+		ExpectedChanges:      expectedChangesCurrent,
+		ExpectedDPUServices:  expectedDPUServicesCurrent,
 	})
 })

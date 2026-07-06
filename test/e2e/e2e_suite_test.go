@@ -268,7 +268,7 @@ var _ = BeforeSuite(func() {
 	// isUpgradeValidationPhase matches the active label filter against every label
 	// registered by validationPhase, so no per-phase update is needed here when a new
 	// phase is added.
-	if isUpgradeValidationPhase() {
+	if IsUpgradeValidationPhase() {
 		return
 	}
 

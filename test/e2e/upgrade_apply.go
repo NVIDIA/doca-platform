@@ -28,10 +28,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// createDPUServiceTemplate creates a DPUServiceTemplate from a config-loaded
+// CreateDPUServiceTemplate creates a DPUServiceTemplate from a config-loaded
 // manifest, with the dummy chart override that Phase 1 needs. No-op if the
 // manifest pointer is nil.
-func createDPUServiceTemplate(ctx context.Context, input *SystemTestInput, manifest *dpuservicev1.DPUServiceTemplate) {
+func CreateDPUServiceTemplate(ctx context.Context, input *SystemTestInput, manifest *dpuservicev1.DPUServiceTemplate) {
 	Expect(manifest).ToNot(BeNil())
 	obj := manifest.DeepCopy()
 	obj.SetLabels(CleanupScope.Suite)
@@ -40,9 +40,9 @@ func createDPUServiceTemplate(ctx context.Context, input *SystemTestInput, manif
 	Expect(input.Client.Create(ctx, obj)).To(Succeed())
 }
 
-// createDPUServiceConfiguration creates a DPUServiceConfiguration from a
+// CreateDPUServiceConfiguration creates a DPUServiceConfiguration from a
 // config-loaded manifest. No-op if nil.
-func createDPUServiceConfiguration(ctx context.Context, input *SystemTestInput, manifest *dpuservicev1.DPUServiceConfiguration) {
+func CreateDPUServiceConfiguration(ctx context.Context, input *SystemTestInput, manifest *dpuservicev1.DPUServiceConfiguration) {
 	Expect(manifest).ToNot(BeNil())
 	obj := manifest.DeepCopy()
 	obj.SetLabels(CleanupScope.Suite)
@@ -50,7 +50,7 @@ func createDPUServiceConfiguration(ctx context.Context, input *SystemTestInput, 
 	Expect(input.Client.Create(ctx, obj)).To(Succeed())
 }
 
-func createAdditionalDPUServiceDependencies(ctx context.Context, input *SystemTestInput) {
+func CreateAdditionalDPUServiceDependencies(ctx context.Context, input *SystemTestInput) {
 	if input.AdditionalDPUServiceTemplate == nil && input.AdditionalDPUServiceConfiguration == nil {
 		return
 	}
@@ -58,15 +58,15 @@ func createAdditionalDPUServiceDependencies(ctx context.Context, input *SystemTe
 		"additional DPUService configuration requires additional DPUService template")
 	Expect(input.AdditionalDPUServiceConfiguration).NotTo(BeNil(),
 		"additional DPUService template requires additional DPUService configuration")
-	createDPUServiceTemplate(ctx, input, input.AdditionalDPUServiceTemplate)
-	createDPUServiceConfiguration(ctx, input, input.AdditionalDPUServiceConfiguration)
+	CreateDPUServiceTemplate(ctx, input, input.AdditionalDPUServiceTemplate)
+	CreateDPUServiceConfiguration(ctx, input, input.AdditionalDPUServiceConfiguration)
 }
 
-// createDPUServiceIPAMPool1 creates the dpudeployment-ipam-pool1 IPAM resource
+// CreateDPUServiceIPAMPool1 creates the dpudeployment-ipam-pool1 IPAM resource
 // the upgrade tests reference. The base IPAM manifest is reused across many
 // test suites, so the upgrade-specific bits (name override, no NodeSelector)
 // are set in code here.
-func createDPUServiceIPAMPool1(ctx context.Context, input *SystemTestInput) {
+func CreateDPUServiceIPAMPool1(ctx context.Context, input *SystemTestInput) {
 	dpuServiceIPAM := input.IPPoolDPUServiceIPAM.DeepCopy()
 	dpuServiceIPAM.SetLabels(CleanupScope.Suite)
 	dpuServiceIPAM.SetName("dpudeployment-ipam-pool1")
@@ -76,11 +76,11 @@ func createDPUServiceIPAMPool1(ctx context.Context, input *SystemTestInput) {
 	Expect(input.Client.Create(ctx, dpuServiceIPAM)).To(Succeed())
 }
 
-// patchDPFOperatorConfigForSpecDeploymentMode supports the breaking change that
+// PatchDPFOperatorConfigForSpecDeploymentMode supports the breaking change that
 // introduced DPFOperatorConfig.spec.deploymentMode as a required field. Upgrade
 // validation runs preserve resources from the previous phase, so a cluster
 // upgraded from an older build can still have no deploymentMode.
-func patchDPFOperatorConfigForSpecDeploymentMode(ctx context.Context, input *SystemTestInput) {
+func PatchDPFOperatorConfigForSpecDeploymentMode(ctx context.Context, input *SystemTestInput) {
 	cfg := &operatorv1.DPFOperatorConfig{}
 	Expect(input.Client.Get(ctx, client.ObjectKey{
 		Name:      ConfigName,
