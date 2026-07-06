@@ -328,7 +328,7 @@ _Appears in:_
 | `overrides` _[Overrides](#overrides)_ |  |  | Optional: \{\} <br /> |
 | `networking` _[Networking](#networking)_ |  | \{ controlPlaneMTU:1500 \} | Optional: \{\} <br /> |
 | `monitoring` _[MonitoringConfiguration](#monitoringconfiguration)_ | Monitoring is the configuration for monitoring resources. |  | Optional: \{\} <br /> |
-| `security` _[SecurityConfiguration](#securityconfiguration)_ | Security groups security-related cluster settings. |  | Optional: \{\} <br /> |
+| `security` _[SecurityConfiguration](#securityconfiguration)_ | Security groups configuration for security-related components managed by the DPF Operator. |  | Optional: \{\} <br /> |
 | `imagePullSecrets` _string array_ | List of secret names which are used to pull images for DPF system components and DPUServices.<br />These secrets must be in the same namespace as the DPF Operator Config and should be created before the config is created.<br />System reconciliation will not proceed until these secrets are available. |  | Optional: \{\} <br /> |
 | `deploymentMode` _[DeploymentMode](#deploymentmode)_ | DeploymentMode selects zero-trust vs host-trusted deployment alignment.<br />Required: operators must set this explicitly; provisioning controllers propagate this to DPU.status.deploymentMode. |  | Enum: [zero-trust host-trusted] <br />Required: \{\} <br /> |
 | `dpuServiceController` _[DPUServiceControllerConfiguration](#dpuservicecontrollerconfiguration)_ | DPUServiceController is the configuration for the DPUServiceController |  | Optional: \{\} <br /> |
@@ -345,7 +345,6 @@ _Appears in:_
 | `kamajiClusterManager` _[KamajiClusterManagerConfiguration](#kamajiclustermanagerconfiguration)_ | KamajiClusterManager is the configuration for the kamaji-cluster-manager |  | Optional: \{\} <br /> |
 | `staticClusterManager` _[StaticClusterManagerConfiguration](#staticclustermanagerconfiguration)_ | StaticClusterManager is the configuration for the static-cluster-manager |  | Optional: \{\} <br /> |
 | `nodeSRIOVDevicePluginController` _[NodeSRIOVDevicePluginControllerConfiguration](#nodesriovdeviceplugincontrollerconfiguration)_ | NodeSRIOVDevicePluginController is the configuration for the NodeSRIOVDevicePlugin controller.<br />This controller manages per-node SRIOV device plugin pods based on DPU configurations.<br />The controller is disabled by default. |  | Optional: \{\} <br /> |
-| `kataContainers` _[KataContainersConfiguration](#katacontainersconfiguration)_ | KataContainers is the configuration for Kata Containers.<br />Kata Containers provides VM-based isolation for untrusted workloads on DPU nodes.<br />This component is disabled by default; set disable to false to enable. |  | Optional: \{\} <br /> |
 
 
 #### DPFOperatorConfigStatus
@@ -708,7 +707,7 @@ _Appears in:_
 
 
 _Appears in:_
-- [DPFOperatorConfigSpec](#dpfoperatorconfigspec)
+- [SecurityConfiguration](#securityconfiguration)
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
@@ -1222,7 +1221,8 @@ _Appears in:_
 
 
 
-SecurityConfiguration groups security-related cluster settings.
+SecurityConfiguration groups configuration for security-related configurations
+managed by the DPF Operator.
 
 
 
@@ -1231,6 +1231,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
+| `privilegedPodEnforcement` _boolean_ | PrivilegedPodEnforcement controls whether privileged pods are rejected<br />unless explicitly allowed by the workload API. The DPUService controller<br />currently implements this by applying the PrivilegedPodEnforcement<br />ValidatingAdmissionPolicy to DPUService workloads.<br />When disabled, the policy and its binding are kept but the binding is<br />switched to Audit, so privileged pods are only logged to the audit log and<br />never denied; the allowlist is kept populated so the audit log only flags<br />pods that would otherwise be denied. The objects are intentionally not<br />deleted to avoid a Kubernetes paramRef informer bug<br />(https://github.com/kubernetes/kubernetes/issues/133827).<br />Intended as a breakglass to restore functionality when the policy causes<br />unexpected issues. Defaults to true. | true | Optional: \{\} <br /> |
+| `kata` _[KataContainersConfiguration](#katacontainersconfiguration)_ | Kata is the configuration for Kata Containers.<br />Kata Containers provides VM-based isolation for untrusted workloads on DPU nodes.<br />This component is disabled by default; set disable to false to enable. |  | Optional: \{\} <br /> |
 | `spiffe` _[SPIFFEConfiguration](#spiffeconfiguration)_ | spiffe configures the SPIFFE-based DPU Agent identity flow. Edits are accepted post-bootstrap<br />but do NOT retro-apply to already-provisioned DPUs. |  | Optional: \{\} <br /> |
 
 

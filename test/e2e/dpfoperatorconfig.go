@@ -37,6 +37,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -174,9 +175,11 @@ func ValidateDPFOperatorBaseConfiguration(ctx context.Context, input *systemTest
 			},
 		}
 	}
-	modifiedConfig.Spec.KataContainers = &operatorv1.KataContainersConfiguration{
-		Daemon: &operatorv1.ImageComponentConfig{
-			Image: ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.KataContainersName)),
+	modifiedConfig.Spec.Security = &operatorv1.SecurityConfiguration{
+		Kata: &operatorv1.KataContainersConfiguration{
+			Daemon: &operatorv1.ImageComponentConfig{
+				Image: ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.KataContainersName)),
+			},
 		},
 	}
 
@@ -212,7 +215,7 @@ func ValidateDPFOperatorBaseConfiguration(ctx context.Context, input *systemTest
 	if !isGinkgoLabelApplied(Domain.ZeroTrust) {
 		modifiedConfig.Spec.NodeSRIOVDevicePluginController.Controller.Image = ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.NodeSRIOVDevicePluginControllerName))
 	}
-	modifiedConfig.Spec.KataContainers.Daemon.Image = ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.KataContainersName))
+	modifiedConfig.Spec.Security.Kata.Daemon.Image = ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.KataContainersName))
 	Expect(input.client.Patch(ctx, modifiedConfig, client.MergeFrom(configCopy))).To(Succeed())
 
 	By("Verifying component overrides")
@@ -967,4 +970,93 @@ func DeleteDPFOperatorConfig(ctx context.Context, testClient client.Client) {
 // getPerClusterDPUServiceName returns the per-cluster DPUService name for a given component and DPUCluster.
 func getPerClusterDPUServiceName(componentName operatorv1.ComponentName, clusterName string, clusterNamespace string) string {
 	return fmt.Sprintf("%s-%s", componentName, digest.Short(digest.FromObjects(clusterName, clusterNamespace), 10))
+}
+
+// ValidatePrivilegedPodEnforcementToggle verifies the breakglass toggle for
+// PrivilegedPodEnforcement in DPFOperatorConfig. Disabling the field must keep
+// the ValidatingAdmissionPolicy, its binding, and the allowlist ConfigMap in the
+// DPU cluster, switching the binding's validationActions to Audit (so admission
+// is logged, not denied) while keeping the allowlist ConfigMap maintained (not
+// cleared) so the audit log only flags pods that enforcement would have denied.
+// The objects are never deleted, to avoid the Kubernetes VAP paramRef informer
+// bug on re-enable (https://github.com/kubernetes/kubernetes/issues/133827).
+// Re-enabling must switch the binding back to Deny.
+func ValidatePrivilegedPodEnforcementToggle(ctx context.Context, input *systemTestInput) {
+	vapName := "dpf-deny-privileged-pods"
+
+	By("Getting the current DPFOperatorConfig")
+	originalConfig := &operatorv1.DPFOperatorConfig{}
+	Expect(input.client.Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: configName}, originalConfig)).To(Succeed())
+
+	By("Capturing the allowlist ConfigMap while enforcement is active")
+	enforcingAllowlist := map[string]string{}
+	Eventually(func(g Gomega) {
+		cm := &corev1.ConfigMap{}
+		g.Expect(dpuClusterClient[0].Get(ctx, client.ObjectKey{
+			Name:      "dpf-deny-privileged-pods-allowlist",
+			Namespace: dpfOperatorSystemNamespace,
+		}, cm)).To(Succeed())
+		enforcingAllowlist = cm.Data
+	}).WithTimeout(time.Minute).Should(Succeed())
+
+	By("Disabling PrivilegedPodEnforcement in the operatorConfig")
+	configWithDisabled := originalConfig.DeepCopy()
+	if configWithDisabled.Spec.Security == nil {
+		configWithDisabled.Spec.Security = &operatorv1.SecurityConfiguration{}
+	}
+	configWithDisabled.Spec.Security.PrivilegedPodEnforcement = ptr.To(false)
+	Expect(input.client.Patch(ctx, configWithDisabled, client.MergeFrom(originalConfig))).To(Succeed())
+
+	// bindingValidationActions reads spec.validationActions from the binding.
+	bindingValidationActions := func(g Gomega) []admissionregistrationv1.ValidationAction {
+		binding := &admissionregistrationv1.ValidatingAdmissionPolicyBinding{}
+		g.Expect(dpuClusterClient[0].Get(ctx, client.ObjectKey{Name: vapName}, binding)).To(Succeed())
+		return binding.Spec.ValidationActions
+	}
+
+	By("Verifying the VAP and binding are retained, the binding switched to Audit, and the allowlist ConfigMap kept maintained")
+	Eventually(func(g Gomega) {
+		vap := &admissionregistrationv1.ValidatingAdmissionPolicy{}
+		g.Expect(dpuClusterClient[0].Get(ctx, client.ObjectKey{Name: vapName}, vap)).To(Succeed(),
+			"ValidatingAdmissionPolicy should be retained when enforcement is disabled")
+
+		// The binding is kept but switched to Audit so nothing is denied anymore.
+		g.Expect(bindingValidationActions(g)).To(ConsistOf(admissionregistrationv1.Audit),
+			"binding should be in Audit mode when enforcement is disabled")
+
+		// The allowlist ConfigMap is never deleted (so the VAP paramRef informer does
+		// not hit the Kubernetes informer-list race on re-enable) and is kept
+		// maintained rather than cleared: in Audit mode the VAP still evaluates every
+		// in-scope pod, so keeping the real allowlist means the audit log only flags
+		// privileged pods that enforcement would have denied.
+		cm := &corev1.ConfigMap{}
+		g.Expect(dpuClusterClient[0].Get(ctx, client.ObjectKey{
+			Name:      "dpf-deny-privileged-pods-allowlist",
+			Namespace: dpfOperatorSystemNamespace,
+		}, cm)).To(Succeed(), "allowlist ConfigMap should still exist when enforcement is disabled")
+		g.Expect(cm.Data).To(Equal(enforcingAllowlist), "allowlist ConfigMap data should be maintained (not cleared) when enforcement is disabled")
+	}).WithTimeout(5 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+
+	By("Re-enabling PrivilegedPodEnforcement by reverting the operatorConfig")
+	Eventually(func(g Gomega) {
+		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(configWithDisabled), configWithDisabled)).To(Succeed())
+		resetConfig := configWithDisabled.DeepCopy()
+		resetConfig.Spec = originalConfig.Spec
+		g.Expect(input.client.Patch(ctx, resetConfig, client.MergeFrom(configWithDisabled))).To(Succeed())
+	}).WithTimeout(30 * time.Second).Should(Succeed())
+
+	By("Verifying the VAP and allowlist ConfigMap are present and the binding is back to Deny after re-enable")
+	Eventually(func(g Gomega) {
+		vap := &admissionregistrationv1.ValidatingAdmissionPolicy{}
+		g.Expect(dpuClusterClient[0].Get(ctx, client.ObjectKey{Name: vapName}, vap)).To(Succeed())
+
+		g.Expect(bindingValidationActions(g)).To(ConsistOf(admissionregistrationv1.Deny),
+			"binding should be back in Deny mode when enforcement is re-enabled")
+
+		cm := &corev1.ConfigMap{}
+		g.Expect(dpuClusterClient[0].Get(ctx, client.ObjectKey{
+			Name:      "dpf-deny-privileged-pods-allowlist",
+			Namespace: dpfOperatorSystemNamespace,
+		}, cm)).To(Succeed())
+	}).WithTimeout(5 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 }

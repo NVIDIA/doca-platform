@@ -423,7 +423,18 @@ var _ = AfterSuite(func() {
 	}
 
 	if !cleanupFlags.SkipSuiteCleanupAfter {
+		deletionCompleted := false
+		defer func() {
+			if !deletionCompleted {
+				By("Collecting resources for the clusters after suite (DPF operator config deletion stuck)")
+				if err := collectKubernetesResources(ctx, collectInput, "dpf-operator-config-deletion-stuck"); err != nil {
+					GinkgoLogr.Error(err, "failed to collect resources for the clusters (DPF operator config deletion stuck)")
+				}
+			}
+		}()
+
 		DeleteDPFOperatorConfig(ctx, testClient)
+		deletionCompleted = true
 
 		By("Collecting resources for the clusters after suite (post-DPF operator config cleanup)")
 		if err := collectKubernetesResources(ctx, collectInput, "post-dpf-operator-config-cleanup"); err != nil {

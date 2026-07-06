@@ -37,8 +37,9 @@ metadata:
   name: dpfoperatorconfig
   namespace: dpf-operator-system
 spec:
-  kataContainers:
-    disable: false
+  security:
+    kata:
+      disable: false
 ```
 
 This deploys kata-deploy with the default settings (`qemu` shim,
@@ -46,17 +47,18 @@ This deploys kata-deploy with the default settings (`qemu` shim,
 
 # Configuration
 
-All fields under `spec.kataContainers` are optional. For the full and up-to-date field reference,
+All fields under `spec.security.kata` are optional. For the full and up-to-date field reference,
 refer to the [DPFOperatorConfig API documentation](../../developer-guides/api/api.md).
 
 ## Example: restrict to labelled nodes
 
 ```yaml
 spec:
-  kataContainers:
-    disable: false
-    nodeSelector:
-      kata-containers: "enabled"
+  security:
+    kata:
+      disable: false
+      nodeSelector:
+        kata-containers: "enabled"
 ```
 
 Kata will only be installed on nodes with the label `kata-containers: enabled`. Nodes without
@@ -66,10 +68,11 @@ the label are not affected.
 
 ```yaml
 spec:
-  kataContainers:
-    disable: false
-    daemon:
-      image: my-registry.example.com/kata-deploy:3.30.0
+  security:
+    kata:
+      disable: false
+      daemon:
+        image: my-registry.example.com/kata-deploy:3.30.0
 ```
 
 # Running workloads with Kata isolation

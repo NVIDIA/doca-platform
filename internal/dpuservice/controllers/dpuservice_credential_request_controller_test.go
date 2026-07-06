@@ -268,7 +268,11 @@ var _ = Describe("DPUServiceCredentialRequest Controller", func() {
 				},
 			}
 			Expect(targetClient.Create(ctx, existingSA)).To(Succeed())
-			DeferCleanup(targetClient.Delete, ctx, existingSA)
+			// The reconcile under test may delete this ServiceAccount, so tolerate
+			// NotFound during cleanup instead of failing the spec.
+			DeferCleanup(func() {
+				Expect(client.IgnoreNotFound(targetClient.Delete(ctx, existingSA))).To(Succeed())
+			})
 
 			By("Creating the DPUServiceCredentialRequest")
 			Expect(testClient.Create(ctx, dsr)).To(Succeed())

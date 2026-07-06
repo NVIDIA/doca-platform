@@ -505,63 +505,6 @@ spec:
                 - message: only either 'image' (deprecated) or 'controller.image'
                     can be set, but not both
                   rule: '!has(self.image) || !has(self.controller) || !has(self.controller.image)'
-              kataContainers:
-                description: |-
-                  KataContainers is the configuration for Kata Containers.
-                  Kata Containers provides VM-based isolation for untrusted workloads on DPU nodes.
-                  This component is disabled by default; set disable to false to enable.
-                properties:
-                  containerdConfigFileName:
-                    description: |-
-                      ContainerdConfigFileName overrides the containerd config file name
-                      on the target nodes. Defaults to "config-mlnx.toml".
-                    type: string
-                  daemon:
-                    description: |-
-                      Daemon contains the configuration for the kata-deploy component.
-                      It contains the image for the kata-deploy container.
-                    properties:
-                      image:
-                        description: Image is a reference to a container image.
-                        pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
-                        type: string
-                    type: object
-                  disable:
-                    description: Disable ensures the component is not deployed when
-                      set to true.
-                    type: boolean
-                  helmChart:
-                    description: |-
-                      HelmChart overrides the helm chart used by the ServiceSet controller.
-                      The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid
-                      OCI registry or a web-based repository.
-                    pattern: ^(oci://|https://).+$
-                    type: string
-                  nodeSelector:
-                    additionalProperties:
-                      type: string
-                    description: |-
-                      NodeSelector restricts which nodes kata-deploy runs on.
-                      This is passed as the Helm chart's nodeSelector value.
-                    type: object
-                  shims:
-                    description: |-
-                      Shims selects which Kata hypervisor shims to enable.
-                      Defaults to ["qemu"] if empty.
-                    items:
-                      allOf:
-                      - enum:
-                        - qemu
-                      - enum:
-                        - qemu
-                      description: |-
-                        KataShim identifies a Kata hypervisor shim variant.
-                        Values must match the shim keys in the kata-deploy Helm chart's
-                        `shims.<name>.enabled` values.
-                        Only arm64-compatible shims are supported.
-                      type: string
-                    type: array
-                type: object
               monitoring:
                 description: Monitoring is the configuration for monitoring resources.
                 properties:
@@ -1623,8 +1566,82 @@ spec:
                   rule: '!(has(self.bfCFGTemplateConfigMap) && has(self.enableDynamicBFCFGTemplates)
                     && self.enableDynamicBFCFGTemplates)'
               security:
-                description: Security groups security-related cluster settings.
+                description: Security groups configuration for security-related components
+                  managed by the DPF Operator.
                 properties:
+                  kata:
+                    description: |-
+                      Kata is the configuration for Kata Containers.
+                      Kata Containers provides VM-based isolation for untrusted workloads on DPU nodes.
+                      This component is disabled by default; set disable to false to enable.
+                    properties:
+                      containerdConfigFileName:
+                        description: |-
+                          ContainerdConfigFileName overrides the containerd config file name
+                          on the target nodes. Defaults to "config-mlnx.toml".
+                        type: string
+                      daemon:
+                        description: |-
+                          Daemon contains the configuration for the kata-deploy component.
+                          It contains the image for the kata-deploy container.
+                        properties:
+                          image:
+                            description: Image is a reference to a container image.
+                            pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
+                            type: string
+                        type: object
+                      disable:
+                        description: Disable ensures the component is not deployed
+                          when set to true.
+                        type: boolean
+                      helmChart:
+                        description: |-
+                          HelmChart overrides the helm chart used by the ServiceSet controller.
+                          The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid
+                          OCI registry or a web-based repository.
+                        pattern: ^(oci://|https://).+$
+                        type: string
+                      nodeSelector:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          NodeSelector restricts which nodes kata-deploy runs on.
+                          This is passed as the Helm chart's nodeSelector value.
+                        type: object
+                      shims:
+                        description: |-
+                          Shims selects which Kata hypervisor shims to enable.
+                          Defaults to ["qemu"] if empty.
+                        items:
+                          allOf:
+                          - enum:
+                            - qemu
+                          - enum:
+                            - qemu
+                          description: |-
+                            KataShim identifies a Kata hypervisor shim variant.
+                            Values must match the shim keys in the kata-deploy Helm chart's
+                            `shims.<name>.enabled` values.
+                            Only arm64-compatible shims are supported.
+                          type: string
+                        type: array
+                    type: object
+                  privilegedPodEnforcement:
+                    default: true
+                    description: |-
+                      PrivilegedPodEnforcement controls whether privileged pods are rejected
+                      unless explicitly allowed by the workload API. The DPUService controller
+                      currently implements this by applying the PrivilegedPodEnforcement
+                      ValidatingAdmissionPolicy to DPUService workloads.
+                      When disabled, the policy and its binding are kept but the binding is
+                      switched to Audit, so privileged pods are only logged to the audit log and
+                      never denied; the allowlist is kept populated so the audit log only flags
+                      pods that would otherwise be denied. The objects are intentionally not
+                      deleted to avoid a Kubernetes paramRef informer bug
+                      (https://github.com/kubernetes/kubernetes/issues/133827).
+                      Intended as a breakglass to restore functionality when the policy causes
+                      unexpected issues. Defaults to true.
+                    type: boolean
                   spiffe:
                     description: |-
                       spiffe configures the SPIFFE-based DPU Agent identity flow. Edits are accepted post-bootstrap
