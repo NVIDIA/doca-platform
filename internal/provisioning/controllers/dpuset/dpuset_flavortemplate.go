@@ -24,9 +24,11 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuflavortemplate"
+	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	"github.com/fluxcd/pkg/runtime/patch"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -44,6 +46,49 @@ func isTemplateMode(dpuSet *provisioningv1.DPUSet) bool {
 // (it carries the template-name label stamped at creation).
 func isTemplateModeDPU(dpu *provisioningv1.DPU) bool {
 	return dpu.Labels[cutil.DPUFlavorTemplateNameLabel] != ""
+}
+
+// reasonDPUFlavorTemplateNotFound is the ConditionDPUFlavorTemplateExists=False reason for a
+// DPUSet whose referenced DPUFlavorTemplate does not exist.
+const reasonDPUFlavorTemplateNotFound = "DPUFlavorTemplateNotFound"
+
+// dpuFlavorTemplateExists reports whether the DPUFlavorTemplate referenced by the DPUSet
+// exists in the DPUSet's namespace. A NotFound is reported as (false, nil); any other read
+// error is returned so the caller does not mistake a transient failure for a missing template.
+func (r *DPUSetReconciler) dpuFlavorTemplateExists(ctx context.Context, dpuSet *provisioningv1.DPUSet) (bool, error) {
+	name := dpuSet.Spec.DPUTemplate.Spec.DPUFlavorTemplate
+	err := r.Get(ctx, types.NamespacedName{Namespace: dpuSet.Namespace, Name: name}, &provisioningv1.DPUFlavorTemplate{})
+	if err == nil {
+		return true, nil
+	}
+	if apierrors.IsNotFound(err) {
+		return false, nil
+	}
+	return false, fmt.Errorf("failed to get DPUFlavorTemplate %s: %w", name, err)
+}
+
+// reconcileDPUFlavorTemplateCondition sets ConditionDPUFlavorTemplateExists on a template-mode
+// DPUSet (True when the referenced DPUFlavorTemplate exists, False/DPUFlavorTemplateNotFound when
+// missing). The condition is owned-but-not-ensured, so a static-flavor DPUSet clears any leftover
+// condition.
+func (r *DPUSetReconciler) reconcileDPUFlavorTemplateCondition(ctx context.Context, dpuSet *provisioningv1.DPUSet) error {
+	if !isTemplateMode(dpuSet) {
+		meta.RemoveStatusCondition(&dpuSet.Status.Conditions, string(provisioningv1.ConditionDPUFlavorTemplateExists))
+		return nil
+	}
+	present, err := r.dpuFlavorTemplateExists(ctx, dpuSet)
+	if err != nil {
+		return err
+	}
+	if present {
+		conditions.AddTrue(dpuSet, provisioningv1.ConditionDPUFlavorTemplateExists)
+		return nil
+	}
+	name := dpuSet.Spec.DPUTemplate.Spec.DPUFlavorTemplate
+	conditions.AddFalse(dpuSet, provisioningv1.ConditionDPUFlavorTemplateExists,
+		conditions.ConditionReason(reasonDPUFlavorTemplateNotFound),
+		conditions.ConditionMessage(fmt.Sprintf("DPUFlavorTemplate %q not found", name)))
+	return nil
 }
 
 // templateEval is the read-only result of evaluating an existing template-mode DPU
@@ -173,8 +218,8 @@ func (r *DPUSetReconciler) createTemplateModeDPU(ctx context.Context, dpuSet *pr
 // All DPUs in the set are evaluated, not only those already carrying the template label: a
 // DPUSet can be switched from a static dpuFlavor to a dpuFlavorTemplate (the spec is not
 // immutable), leaving pre-existing DPUs without the label. evalTemplateDPU treats that missing
-// label as a template/mode swap (disrupt=true) so those DPUs migrate instead of being silently
-// skipped here.
+// label as a template/mode swap (disrupt=true when the template exists) so those DPUs migrate
+// instead of being silently skipped here.
 //
 // Invariant: the returned map is the single source of truth for template-mode decisions in a
 // reconcile. The caller's dpuMap is a read-only snapshot - reconcileTemplateDPUs patches DPU
@@ -200,25 +245,25 @@ func (r *DPUSetReconciler) evalTemplateDPU(ctx context.Context, dpuSet provision
 
 	liveName := dpuSet.Spec.DPUTemplate.Spec.DPUFlavorTemplate
 	recordedName := dpu.Labels[cutil.DPUFlavorTemplateNameLabel]
-	// Mode/template swap is structural and always disruptive: the DPU's flavor reference,
-	// finalizer, and labels cannot be transitioned in place.
+	// A missing or unreadable template is never disruptive: hold the DPU at its last-good render
+	// until the template (re)appears. Covers both a swap toward a missing template and a deleted
+	// same-name template.
+	template := &provisioningv1.DPUFlavorTemplate{}
+	if err := r.Get(ctx, types.NamespacedName{Namespace: dpuSet.Namespace, Name: liveName}, template); err != nil {
+		logger.Error(err, "Failed to get DPUFlavorTemplate; not disrupting DPU", "template", liveName)
+		return templateEval{}
+	}
+
+	// A template-name swap needs reprovisioning: the flavor reference and labels can't change in place.
 	if liveName != recordedName {
 		return templateEval{disrupt: true}
 	}
 
-	// Read/hash failures below deliberately return the zero templateEval (no disruption): a flaky
-	// or transient read must not tear down a healthy DPU ("don't disrupt on uncertainty"). A
-	// persistent failure (e.g. a deleted user-managed template) keeps the DPU at its last good
-	// render and is visible via these logs.
+	// Compare current render inputs against the DPU's recorded hashes. Read/hash
+	// failures below hold (no disruption) rather than tear down a healthy DPU.
 	dpuDevice := &provisioningv1.DPUDevice{}
 	if err := r.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.DPUDeviceName}, dpuDevice); err != nil {
 		logger.Error(err, "Failed to get DPUDevice for template evaluation", "DPU", dpu.Name)
-		return templateEval{}
-	}
-
-	template := &provisioningv1.DPUFlavorTemplate{}
-	if err := r.Get(ctx, types.NamespacedName{Namespace: dpuSet.Namespace, Name: liveName}, template); err != nil {
-		logger.Error(err, "Failed to get DPUFlavorTemplate for evaluation", "template", liveName)
 		return templateEval{}
 	}
 
@@ -259,7 +304,38 @@ func (r *DPUSetReconciler) evalTemplateDPU(ctx context.Context, dpuSet provision
 		return templateEval{}
 	}
 
-	if reflect.DeepEqual(rendered.Spec, generated.Spec) {
+	return r.classifyRenderedDrift(ctx, rendered, generated, dpu, liveHash, liveValuesHash)
+}
+
+// classifyRenderedDrift decides whether a freshly rendered flavor diverges from the stored
+// generated flavor. It normalizes the rendered spec through a server-side dry-run CREATE so it
+// carries the same CRD defaults as the stored flavor (which was read back defaulted); The dry-run
+// also runs admission, so an un-admittable render is surfaced as a non-disruptive render failure
+// (DPUFlavorRendered=False) instead of tearing the DPU down and failing on recreate.
+func (r *DPUSetReconciler) classifyRenderedDrift(ctx context.Context, rendered, generated *provisioningv1.DPUFlavor,
+	dpu provisioningv1.DPU, liveHash, liveValuesHash string) templateEval {
+	logger := log.FromContext(ctx)
+
+	probe := rendered.DeepCopy()
+	// Use GenerateName (not a deterministic name): a fixed name could collide with a real
+	// DPUFlavor, and the resulting AlreadyExists would be misread as a transient hold, silently
+	// disabling drift detection for that DPU.
+	probe.Name = ""
+	probe.GenerateName = "dpuflavor-drift-probe-"
+	probe.Namespace = dpu.Namespace
+	if err := r.Create(ctx, probe, client.DryRunAll); err != nil {
+		// An un-admittable render must not reprovision: surface it like a render failure so the
+		// DPU keeps running and DPUFlavorRendered goes False (reason RenderFailedOnUpdate).
+		if apierrors.IsInvalid(err) || apierrors.IsBadRequest(err) {
+			return templateEval{renderErr: err, liveTemplateHash: liveHash, liveValuesHash: liveValuesHash}
+		}
+		// Transient/unexpected dry-run error: don't disrupt on uncertainty.
+		logger.Error(err, "Dry-run of rendered DPUFlavor failed; not disrupting DPU", "DPU", dpu.Name)
+		return templateEval{}
+	}
+
+	// Both specs are now server-defaulted, so the comparison is apples-to-apples.
+	if reflect.DeepEqual(probe.Spec, generated.Spec) {
 		return templateEval{equalButStale: true, liveTemplateHash: liveHash, liveValuesHash: liveValuesHash}
 	}
 	return templateEval{disrupt: true}

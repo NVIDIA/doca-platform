@@ -96,7 +96,7 @@ func (r *DPUSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ c
 		if err := patcher.Patch(ctx, dpuSet,
 			patch.WithFieldOwner(DPUSetControllerName),
 			patch.WithStatusObservedGeneration{},
-			patch.WithOwnedConditions{Conditions: conditions.TypesAsStrings(provisioningv1.DPUSetConditions)},
+			patch.WithOwnedConditions{Conditions: conditions.TypesAsStrings(provisioningv1.DPUSetOwnedConditions)},
 		); err != nil {
 			reterr = kerrors.NewAggregate([]error{reterr, err})
 		}
@@ -234,6 +234,12 @@ func (r *DPUSetReconciler) Handle(ctx context.Context, dpuSet *provisioningv1.DP
 	dpuMap, err := r.GetDPUsMap(ctx, dpuSet)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to get DPU map %w", err)
+	}
+
+	// Template mode: surface whether the referenced DPUFlavorTemplate exists on
+	// ConditionDPUFlavorTemplateExists.
+	if err := r.reconcileDPUFlavorTemplateCondition(ctx, dpuSet); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	dpusCreated, dpusOwnedByOtherDPUSet, err := r.createMissingDPUs(ctx, dpuSet, dpuDeviceMap, dpuMap)
