@@ -45,6 +45,11 @@ const (
 	// ConditionDPUSetReconciled is the condition type that indicates that the
 	// DPUSet is reconciled.
 	ConditionDPUSetReconciled conditions.ConditionType = "DPUSetPrereqsReconciled"
+	// ConditionDPUFlavorTemplateExists indicates whether the DPUFlavorTemplate referenced by a
+	// template-mode DPUSet exists. It is only meaningful for template-mode DPUSets, so it is
+	// owned but NOT ensured: it is set on demand (and cleared when the DPUSet reverts to a static
+	// DPUFlavor) rather than pre-seeded as Unknown on every DPUSet.
+	ConditionDPUFlavorTemplateExists conditions.ConditionType = "DPUFlavorTemplateExists"
 )
 
 var (
@@ -52,6 +57,9 @@ var (
 		conditions.TypeReady,
 		ConditionDPUSetReconciled,
 	}
+
+	DPUSetOwnedConditions = append(append([]conditions.ConditionType{}, DPUSetConditions...),
+		ConditionDPUFlavorTemplateExists)
 )
 
 var _ conditions.GetSet = &DPUSet{}
