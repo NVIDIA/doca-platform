@@ -564,7 +564,7 @@ func rolloutDependencies(ctx context.Context, input *systemTestInput) {
 	By("Updating selected DPUDeployment to reference current BFB, DPUFlavor, DPUServiceTemplate and DPUServiceConfiguration")
 	original := selectedDPUDeployment.DeepCopy()
 	selectedDPUDeployment.Spec.DPUs.BFB = ptr.To(input.bfb.Name)
-	selectedDPUDeployment.Spec.DPUs.Flavor = input.dpuFlavor.Name
+	selectedDPUDeployment.Spec.DPUs.Flavor = ptr.To(input.dpuFlavor.Name)
 	primaryServiceName := input.dpuServiceTemplate.Name
 	svc, ok := selectedDPUDeployment.Spec.Services[primaryServiceName]
 	Expect(ok).To(BeTrue(), "DPUDeployment %s should contain service %s", selectedDPUDeployment.Name, primaryServiceName)
@@ -611,9 +611,15 @@ func verifyDPUDeploymentDependencyTracking(ctx context.Context, input *systemTes
 		for i := range deployments.Items {
 			deployment := &deployments.Items[i]
 			g.Expect(ptr.Deref(deployment.Spec.DPUs.BFB, "")).NotTo(BeEmpty(), "DPUDeployment %s should reference a BFB", deployment.Name)
-			g.Expect(deployment.Spec.DPUs.Flavor).NotTo(BeEmpty(), "DPUDeployment %s should reference a DPUFlavor", deployment.Name)
+			// A DPUDeployment references exactly one of DPUFlavor or DPUFlavorTemplate (CEL XOR).
+			hasFlavor := deployment.Spec.DPUs.Flavor != nil
+			hasFlavorTemplate := deployment.Spec.DPUs.FlavorTemplate != nil
+			g.Expect(hasFlavor).ToNot(Equal(hasFlavorTemplate),
+				"DPUDeployment %s should reference exactly one of DPUFlavor or DPUFlavorTemplate", deployment.Name)
 			activeBFBs[ptr.Deref(deployment.Spec.DPUs.BFB, "")] = true
-			activeFlavors[deployment.Spec.DPUs.Flavor] = true
+			if hasFlavor {
+				activeFlavors[*deployment.Spec.DPUs.Flavor] = true
+			}
 			for serviceName, service := range deployment.Spec.Services {
 				g.Expect(service.ServiceConfiguration).NotTo(BeEmpty(),
 					"DPUDeployment %s service %s should reference a DPUServiceConfiguration", deployment.Name, serviceName)

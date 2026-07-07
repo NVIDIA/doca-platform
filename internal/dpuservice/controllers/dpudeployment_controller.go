@@ -71,6 +71,11 @@ const (
 	// DPUServiceInterfaces to unblock the DPUs and make them Ready.
 	// TODO: Remove after implementing lazy loading for DPUServiceInterfaces
 	skipDPUServiceChainRequestorAnnotationKey = "svc.dpu.nvidia.com/dpudeployment-skip-chain-requestor"
+
+	// errMarkDependencyFmt is the wrap format used when marking a dependency fails.
+	errMarkDependencyFmt = "unable to mark dependency %s %s: %w"
+	// errUnmarkDependencyFmt is the wrap format used when unmarking a dependency fails.
+	errUnmarkDependencyFmt = "unable to unmark dependency %s %s: %w"
 )
 
 // pauseDPUDeploymentReconciler pauses the DPUDeployment Reconciler by doing noop reconciliation loops. This is helpful
@@ -80,8 +85,8 @@ var pauseDPUDeploymentReconciler atomic.Bool
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=dpudeployments,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=dpudeployments/finalizers,verbs=update
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=dpudeployments/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=bfbs;dpuflavors;bluefieldsoftwares,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=bfbs/finalizers;dpuflavors/finalizers;bluefieldsoftwares/finalizers,verbs=update
+// +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=bfbs;dpuflavors;dpuflavortemplates;bluefieldsoftwares,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=bfbs/finalizers;dpuflavors/finalizers;dpuflavortemplates/finalizers;bluefieldsoftwares/finalizers,verbs=update
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=dpuserviceconfigurations;dpuservicetemplates,verbs=get;list;watch;update;patch
 
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpusets,verbs=get;list;watch;create;update;patch;delete;deletecollection
@@ -108,6 +113,7 @@ func (r *DPUDeploymentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&provisioningv1.BFB{}, handler.EnqueueRequestsFromMapFunc(r.BFBToDPUDeployment)).
 		Watches(&provisioningv1.BlueFieldSoftware{}, handler.EnqueueRequestsFromMapFunc(r.BlueFieldSoftwareToDPUDeployment)).
 		Watches(&provisioningv1.DPUFlavor{}, handler.EnqueueRequestsFromMapFunc(r.DPUFlavorToDPUDeployment)).
+		Watches(&provisioningv1.DPUFlavorTemplate{}, handler.EnqueueRequestsFromMapFunc(r.DPUFlavorTemplateToDPUDeployment)).
 		Watches(&dpuservicev1.DPUServiceConfiguration{}, handler.EnqueueRequestsFromMapFunc(r.DPUServiceConfigurationToDPUDeployment)).
 		Watches(&dpuservicev1.DPUServiceTemplate{}, handler.EnqueueRequestsFromMapFunc(r.DPUServiceTemplateToDPUDeployment)).
 		// Child objects
@@ -201,7 +207,29 @@ func (r *DPUDeploymentReconciler) DPUFlavorToDPUDeployment(ctx context.Context, 
 	}
 
 	for _, dpuDeployment := range dpuDeploymentList.Items {
-		if dpuDeployment.Spec.DPUs.Flavor == o.GetName() {
+		if dpuDeployment.Spec.DPUs.Flavor != nil && *dpuDeployment.Spec.DPUs.Flavor == o.GetName() {
+			result = append(result, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(&dpuDeployment)})
+		}
+	}
+
+	return result
+}
+
+// DPUFlavorTemplateToDPUDeployment returns the DPUDeployments associated with a DPUFlavorTemplate
+func (r *DPUDeploymentReconciler) DPUFlavorTemplateToDPUDeployment(ctx context.Context, o client.Object) []ctrl.Request {
+	dpuFlavorTemplate, ok := o.(*provisioningv1.DPUFlavorTemplate)
+	if !ok {
+		return nil
+	}
+
+	result := []ctrl.Request{}
+	dpuDeploymentList := &dpuservicev1.DPUDeploymentList{}
+	if r.Client.List(ctx, dpuDeploymentList, client.InNamespace(dpuFlavorTemplate.GetNamespace())) != nil {
+		return nil
+	}
+
+	for _, dpuDeployment := range dpuDeploymentList.Items {
+		if dpuDeployment.Spec.DPUs.FlavorTemplate != nil && *dpuDeployment.Spec.DPUs.FlavorTemplate == dpuFlavorTemplate.GetName() {
 			result = append(result, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(&dpuDeployment)})
 		}
 	}
@@ -210,12 +238,28 @@ func (r *DPUDeploymentReconciler) DPUFlavorToDPUDeployment(ctx context.Context, 
 }
 
 // dpuDeploymentDependencies is a struct that holds the parsed dependencies a DPUDeployment has.
+// Exactly one of DPUFlavor or DPUFlavorTemplate is set, mirroring the mutually exclusive
+// spec.dpus.flavor / spec.dpus.flavorTemplate fields.
 type dpuDeploymentDependencies struct {
 	BFB                      *provisioningv1.BFB
 	BlueFieldSoftware        *provisioningv1.BlueFieldSoftware
 	DPUFlavor                *provisioningv1.DPUFlavor
+	DPUFlavorTemplate        *provisioningv1.DPUFlavorTemplate
 	DPUServiceConfigurations map[string]*dpuservicev1.DPUServiceConfiguration
 	DPUServiceTemplates      map[string]*dpuservicev1.DPUServiceTemplate
+}
+
+// flavorResources returns the resource-fitting fields from whichever flavor source is set. For a
+// DPUFlavorTemplate these are the structured (non-templated) sibling fields read directly off the
+// template, so resource fitting needs no rendering or per-DPU context.
+func (d *dpuDeploymentDependencies) flavorResources() (dpuResources, systemReservedResources corev1.ResourceList) {
+	if d.DPUFlavorTemplate != nil {
+		return d.DPUFlavorTemplate.Spec.DPUResources, d.DPUFlavorTemplate.Spec.SystemReservedResources
+	}
+	if d.DPUFlavor != nil {
+		return d.DPUFlavor.Spec.DPUResources, d.DPUFlavor.Spec.SystemReservedResources
+	}
+	return nil, nil
 }
 
 // Reconcile reconciles changes in a DPUDeployment object
@@ -424,27 +468,33 @@ func updateDependencies(ctx context.Context, c client.Client, dpuDeployment *dpu
 func markAllCurrentDependencies(ctx context.Context, c client.Client, dpuDeployment *dpuservicev1.DPUDeployment, deps *dpuDeploymentDependencies) error {
 	if deps.BFB != nil {
 		if err := markDependency(ctx, c, deps.BFB, dpuDeployment); err != nil {
-			return fmt.Errorf("error while marking dependency %s %s: %w", deps.BFB.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(deps.BFB), err)
+			return fmt.Errorf(errMarkDependencyFmt, deps.BFB.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(deps.BFB), err)
 		}
 	}
 	if deps.BlueFieldSoftware != nil {
 		if err := markDependency(ctx, c, deps.BlueFieldSoftware, dpuDeployment); err != nil {
-			return fmt.Errorf("error while marking dependency %s %s: %w", deps.BlueFieldSoftware.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(deps.BlueFieldSoftware), err)
+			return fmt.Errorf(errMarkDependencyFmt, deps.BlueFieldSoftware.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(deps.BlueFieldSoftware), err)
 		}
 	}
 
-	if err := markDependency(ctx, c, deps.DPUFlavor, dpuDeployment); err != nil {
-		return fmt.Errorf("error while marking dependency %s %s: %w", deps.DPUFlavor.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(deps.DPUFlavor), err)
+	if deps.DPUFlavorTemplate != nil {
+		if err := markDependency(ctx, c, deps.DPUFlavorTemplate, dpuDeployment); err != nil {
+			return fmt.Errorf(errMarkDependencyFmt, deps.DPUFlavorTemplate.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(deps.DPUFlavorTemplate), err)
+		}
+	} else if deps.DPUFlavor != nil {
+		if err := markDependency(ctx, c, deps.DPUFlavor, dpuDeployment); err != nil {
+			return fmt.Errorf(errMarkDependencyFmt, deps.DPUFlavor.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(deps.DPUFlavor), err)
+		}
 	}
 
 	for _, serviceConfig := range deps.DPUServiceConfigurations {
 		if err := markDependency(ctx, c, serviceConfig, dpuDeployment); err != nil {
-			return fmt.Errorf("error while marking dependency %s %s: %w", serviceConfig.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(serviceConfig), err)
+			return fmt.Errorf(errMarkDependencyFmt, serviceConfig.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(serviceConfig), err)
 		}
 	}
 	for _, serviceTemplate := range deps.DPUServiceTemplates {
 		if err := markDependency(ctx, c, serviceTemplate, dpuDeployment); err != nil {
-			return fmt.Errorf("error while marking dependency %s %s: %w", serviceTemplate.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(serviceTemplate), err)
+			return fmt.Errorf(errMarkDependencyFmt, serviceTemplate.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(serviceTemplate), err)
 		}
 	}
 	return nil
@@ -458,6 +508,7 @@ func cleanAllStaleDependencies(ctx context.Context, c client.Client, dpuDeployme
 		&provisioningv1.BFBList{},
 		&provisioningv1.BlueFieldSoftwareList{},
 		&provisioningv1.DPUFlavorList{},
+		&provisioningv1.DPUFlavorTemplateList{},
 	} {
 		if err := c.List(ctx,
 			obj,
@@ -468,6 +519,7 @@ func cleanAllStaleDependencies(ctx context.Context, c client.Client, dpuDeployme
 		); err != nil {
 			return fmt.Errorf("error while listing %T: %w", obj, err)
 		}
+
 		switch t := obj.(type) {
 		case *dpuservicev1.DPUServiceConfigurationList:
 			objs := obj.(*dpuservicev1.DPUServiceConfigurationList).Items
@@ -478,7 +530,7 @@ func cleanAllStaleDependencies(ctx context.Context, c client.Client, dpuDeployme
 					}
 				}
 				if err := unmarkDependency(ctx, c, &dpuServiceConfiguration, dpuDeployment); err != nil {
-					return fmt.Errorf("error while unmarking dependency %s %s: %w", dpuServiceConfiguration.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&dpuServiceConfiguration), err)
+					return fmt.Errorf(errUnmarkDependencyFmt, dpuServiceConfiguration.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&dpuServiceConfiguration), err)
 				}
 			}
 		case *dpuservicev1.DPUServiceTemplateList:
@@ -490,7 +542,7 @@ func cleanAllStaleDependencies(ctx context.Context, c client.Client, dpuDeployme
 					}
 				}
 				if err := unmarkDependency(ctx, c, &dpuServiceTemplate, dpuDeployment); err != nil {
-					return fmt.Errorf("error while unmarking dependency %s %s: %w", dpuServiceTemplate.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&dpuServiceTemplate), err)
+					return fmt.Errorf(errUnmarkDependencyFmt, dpuServiceTemplate.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&dpuServiceTemplate), err)
 				}
 			}
 		case *provisioningv1.BFBList:
@@ -500,7 +552,7 @@ func cleanAllStaleDependencies(ctx context.Context, c client.Client, dpuDeployme
 					continue
 				}
 				if err := unmarkDependency(ctx, c, &bfb, dpuDeployment); err != nil {
-					return fmt.Errorf("error while unmarking dependency %s %s: %w", bfb.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&bfb), err)
+					return fmt.Errorf(errUnmarkDependencyFmt, bfb.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&bfb), err)
 				}
 			}
 		case *provisioningv1.BlueFieldSoftwareList:
@@ -510,21 +562,39 @@ func cleanAllStaleDependencies(ctx context.Context, c client.Client, dpuDeployme
 					continue
 				}
 				if err := unmarkDependency(ctx, c, &bfs, dpuDeployment); err != nil {
-					return fmt.Errorf("error while unmarking dependency %s %s: %w", bfs.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&bfs), err)
+					return fmt.Errorf(errUnmarkDependencyFmt, bfs.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&bfs), err)
 				}
 			}
 		case *provisioningv1.DPUFlavorList:
 			objs := obj.(*provisioningv1.DPUFlavorList).Items
 			for _, dpuFlavor := range objs {
-				if dpuFlavor.Name == deps.DPUFlavor.Name {
+				if deps.DPUFlavor != nil && dpuFlavor.Name == deps.DPUFlavor.Name {
 					continue
 				}
 				if err := unmarkDependency(ctx, c, &dpuFlavor, dpuDeployment); err != nil {
-					return fmt.Errorf("error while unmarking dependency %s %s: %w", dpuFlavor.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&dpuFlavor), err)
+					return fmt.Errorf(errUnmarkDependencyFmt, dpuFlavor.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&dpuFlavor), err)
 				}
+			}
+		case *provisioningv1.DPUFlavorTemplateList:
+			if err := cleanStaleDPUFlavorTemplates(ctx, c, dpuDeployment, t.Items, deps.DPUFlavorTemplate); err != nil {
+				return err
 			}
 		default:
 			panic(fmt.Sprintf("type %v not handled", t))
+		}
+	}
+	return nil
+}
+
+// cleanStaleDPUFlavorTemplates unmarks every DPUFlavorTemplate in items that is no longer the current
+// dependency of the DPUDeployment.
+func cleanStaleDPUFlavorTemplates(ctx context.Context, c client.Client, dpuDeployment *dpuservicev1.DPUDeployment, items []provisioningv1.DPUFlavorTemplate, current *provisioningv1.DPUFlavorTemplate) error {
+	for _, dpuFlavorTemplate := range items {
+		if current != nil && dpuFlavorTemplate.Name == current.Name {
+			continue
+		}
+		if err := unmarkDependency(ctx, c, &dpuFlavorTemplate, dpuDeployment); err != nil {
+			return fmt.Errorf(errUnmarkDependencyFmt, dpuFlavorTemplate.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&dpuFlavorTemplate), err)
 		}
 	}
 	return nil
@@ -593,7 +663,8 @@ func unmarkDependency(ctx context.Context, c client.Client, obj client.Object, d
 // verifyResourceFitting verifies that the user provided resources for DPUServices can fit the resources defined in the
 // DPUFlavor
 func verifyResourceFitting(dependencies *dpuDeploymentDependencies) error {
-	availableResources, err := dpfutils.GetAllocatableResources(dependencies.DPUFlavor.Spec.DPUResources, dependencies.DPUFlavor.Spec.SystemReservedResources)
+	dpuResources, systemReservedResources := dependencies.flavorResources()
+	availableResources, err := dpfutils.GetAllocatableResources(dpuResources, systemReservedResources)
 	if err != nil {
 		return fmt.Errorf("can't calculate available DPU resources: %w", err)
 	}
@@ -696,12 +767,23 @@ func getDependencies(ctx context.Context, c client.Client, dpuDeployment *dpuser
 		deps.BlueFieldSoftware = blueFieldSoftware
 	}
 
-	dpuFlavor := &provisioningv1.DPUFlavor{}
-	key := client.ObjectKey{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Spec.DPUs.Flavor}
-	if err := c.Get(ctx, key, dpuFlavor); err != nil {
-		return deps, fmt.Errorf("error while getting %s %s: %w", provisioningv1.DPUFlavorGroupVersionKind.String(), key.String(), err)
+	if dpuDeployment.Spec.DPUs.FlavorTemplate != nil {
+		dpuFlavorTemplate := &provisioningv1.DPUFlavorTemplate{}
+		key := client.ObjectKey{Namespace: dpuDeployment.Namespace, Name: *dpuDeployment.Spec.DPUs.FlavorTemplate}
+		if err := c.Get(ctx, key, dpuFlavorTemplate); err != nil {
+			return deps, fmt.Errorf("error while getting %s %s: %w", provisioningv1.DPUFlavorTemplateGroupVersionKind.String(), key.String(), err)
+		}
+		deps.DPUFlavorTemplate = dpuFlavorTemplate
+	} else if dpuDeployment.Spec.DPUs.Flavor != nil {
+		dpuFlavor := &provisioningv1.DPUFlavor{}
+		key := client.ObjectKey{Namespace: dpuDeployment.Namespace, Name: *dpuDeployment.Spec.DPUs.Flavor}
+		if err := c.Get(ctx, key, dpuFlavor); err != nil {
+			return deps, fmt.Errorf("error while getting %s %s: %w", provisioningv1.DPUFlavorGroupVersionKind.String(), key.String(), err)
+		}
+		deps.DPUFlavor = dpuFlavor
+	} else {
+		return deps, errors.New("exactly one of flavor or flavorTemplate must be set")
 	}
-	deps.DPUFlavor = dpuFlavor
 
 	for service, config := range dpuDeployment.Spec.Services {
 		serviceTemplate := &dpuservicev1.DPUServiceTemplate{}
@@ -824,9 +906,10 @@ func generateDPUSet(dpuDeploymentNamespacedName types.NamespacedName,
 			DPUTemplate: provisioningv1.DPUTemplate{
 				Annotations: dpuSetSettings.DPUAnnotations,
 				Spec: provisioningv1.DPUTemplateSpec{
-					DPUFlavor:    dpuDeployment.Spec.DPUs.Flavor,
-					SecureBoot:   dpuDeployment.Spec.DPUs.SecureBoot,
-					AstraEnabled: dpuDeployment.Spec.DPUs.AstraEnabled,
+					DPUFlavor:         ptr.Deref(dpuDeployment.Spec.DPUs.Flavor, ""),
+					DPUFlavorTemplate: ptr.Deref(dpuDeployment.Spec.DPUs.FlavorTemplate, ""),
+					SecureBoot:        dpuDeployment.Spec.DPUs.SecureBoot,
+					AstraEnabled:      dpuDeployment.Spec.DPUs.AstraEnabled,
 				},
 			},
 		},
@@ -1085,6 +1168,7 @@ func releaseAllDependencies(ctx context.Context, c client.Client, dpuDeployment 
 		&provisioningv1.BFBList{},
 		&provisioningv1.BlueFieldSoftwareList{},
 		&provisioningv1.DPUFlavorList{},
+		&provisioningv1.DPUFlavorTemplateList{},
 	} {
 		if err := c.List(ctx,
 			obj,
@@ -1100,35 +1184,42 @@ func releaseAllDependencies(ctx context.Context, c client.Client, dpuDeployment 
 			objs := obj.(*dpuservicev1.DPUServiceConfigurationList).Items
 			for _, o := range objs {
 				if err := unmarkDependency(ctx, c, &o, dpuDeployment); err != nil {
-					return fmt.Errorf("error while unmarking dependency %s %s: %w", o.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&o), err)
+					return fmt.Errorf(errUnmarkDependencyFmt, o.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&o), err)
 				}
 			}
 		case *dpuservicev1.DPUServiceTemplateList:
 			objs := obj.(*dpuservicev1.DPUServiceTemplateList).Items
 			for _, o := range objs {
 				if err := unmarkDependency(ctx, c, &o, dpuDeployment); err != nil {
-					return fmt.Errorf("error while unmarking dependency %s %s: %w", o.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&o), err)
+					return fmt.Errorf(errUnmarkDependencyFmt, o.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&o), err)
 				}
 			}
 		case *provisioningv1.BFBList:
 			objs := obj.(*provisioningv1.BFBList).Items
 			for _, o := range objs {
 				if err := unmarkDependency(ctx, c, &o, dpuDeployment); err != nil {
-					return fmt.Errorf("error while unmarking dependency %s %s: %w", o.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&o), err)
+					return fmt.Errorf(errUnmarkDependencyFmt, o.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&o), err)
 				}
 			}
 		case *provisioningv1.BlueFieldSoftwareList:
 			objs := obj.(*provisioningv1.BlueFieldSoftwareList).Items
 			for _, o := range objs {
 				if err := unmarkDependency(ctx, c, &o, dpuDeployment); err != nil {
-					return fmt.Errorf("error while unmarking dependency %s %s: %w", o.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&o), err)
+					return fmt.Errorf(errUnmarkDependencyFmt, o.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&o), err)
 				}
 			}
 		case *provisioningv1.DPUFlavorList:
 			objs := obj.(*provisioningv1.DPUFlavorList).Items
 			for _, o := range objs {
 				if err := unmarkDependency(ctx, c, &o, dpuDeployment); err != nil {
-					return fmt.Errorf("error while unmarking dependency %s %s: %w", o.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&o), err)
+					return fmt.Errorf(errUnmarkDependencyFmt, o.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&o), err)
+				}
+			}
+		case *provisioningv1.DPUFlavorTemplateList:
+			objs := obj.(*provisioningv1.DPUFlavorTemplateList).Items
+			for _, o := range objs {
+				if err := unmarkDependency(ctx, c, &o, dpuDeployment); err != nil {
+					return fmt.Errorf(errUnmarkDependencyFmt, o.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&o), err)
 				}
 			}
 		default:

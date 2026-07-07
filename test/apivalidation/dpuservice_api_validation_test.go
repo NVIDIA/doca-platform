@@ -677,6 +677,25 @@ var _ = Describe("API Validations for DPUDeployment related objects", func() {
 			Entry("bfb set to empty string", ptr.To(""), nil, true),
 			Entry("blueFieldSoftware set to empty string", nil, ptr.To(""), true),
 		)
+		DescribeTable("Validates mutual exclusivity of flavor and flavorTemplate fields", func(flavor *string, flavorTemplate *string, expectError bool) {
+			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
+			dpuDeployment.Spec.DPUs.Flavor = flavor
+			dpuDeployment.Spec.DPUs.FlavorTemplate = flavorTemplate
+			err := testClient.Create(ctx, dpuDeployment)
+			if expectError {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
+			}
+		},
+			Entry("neither flavor nor flavorTemplate set", nil, nil, true),
+			Entry("both flavor and flavorTemplate set", ptr.To("someflavor"), ptr.To("sometemplate"), true),
+			Entry("only flavor set", ptr.To("someflavor"), nil, false),
+			Entry("only flavorTemplate set", nil, ptr.To("sometemplate"), false),
+			Entry("flavor set to empty string", ptr.To(""), nil, true),
+			Entry("flavorTemplate set to empty string", nil, ptr.To(""), true),
+		)
 	})
 })
 
@@ -688,7 +707,7 @@ func getMinimalDPUDeployment(namespace string) *dpuservicev1.DPUDeployment {
 		},
 		Spec: dpuservicev1.DPUDeploymentSpec{
 			DPUs: dpuservicev1.DPUs{
-				Flavor:         "someflavor",
+				Flavor:         ptr.To("someflavor"),
 				NodeEffect:     provisioningv1.Action{NoEffect: ptr.To(true)},
 				DPUSetStrategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},
 			},
