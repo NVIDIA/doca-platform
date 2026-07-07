@@ -57,8 +57,8 @@ var nicFirmwareDir = string(os.PathSeparator) + "nic-firmware"
 const (
 	cx9NICDeviceType          = "1025"
 	nicFirmwareInstallTimeout = 15 * time.Minute
-	nicNVConfigApplyTimeout   = 5 * time.Minute
-	nicRuntimeApplyTimeout    = 5 * time.Minute
+	nicNVConfigApplyTimeout   = 30 * time.Minute
+	nicRuntimeApplyTimeout    = 30 * time.Minute
 	invalidImageSignature     = "Invalid Image signature"
 	// TODO: The NIC Operator team will remove this constraint in the near future, and we will need to update the code.
 	spectrumXConfigDir = "/bindata/spectrum-x"
