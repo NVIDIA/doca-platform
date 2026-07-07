@@ -1,0 +1,57 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: dpucluster-control-plane-aggregates
+  namespace: dpf-operator-system
+  labels:
+    app.kubernetes.io/name: dpf-operator
+    app.kubernetes.io/instance: dpf-operator
+    app.kubernetes.io/part-of: doca-platform-framework
+    # Required by the default kube-prometheus-stack ruleSelector. Adjust or drop
+    # to match your Prometheus instance's ruleSelector.
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: dpucluster-control-plane-aggregates
+      interval: 30s
+      # cluster!="management" keeps these series scoped to DPU cluster control
+      # planes; the management cluster's own apiserver and kube-controller-manager
+      # arrive under the same job names, distinguished only by the cluster label.
+      rules:
+        - record: dpf:dpucluster:apiserver_request:rate5m
+          expr: sum by(cluster, verb) (rate(apiserver_request_total{cluster!="management"}[5m]))
+          labels:
+            service: doca-platform-framework
+        - record: dpf:dpucluster:apiserver_request_duration:p99
+          expr: |
+            histogram_quantile(
+              0.99,
+              sum by(le, cluster, verb) (
+                rate(apiserver_request_duration_seconds_bucket{verb!~"WATCH|WATCHLIST|CONNECT", cluster!="management"}[5m])
+              )
+            )
+          labels:
+            quantile: "0.99"
+            service: doca-platform-framework
+        - record: dpf:dpucluster:etcd_request_duration:p99
+          expr: |
+            histogram_quantile(
+              0.99,
+              sum by(le, cluster, operation) (
+                rate(etcd_request_duration_seconds_bucket{cluster!="management"}[5m])
+              )
+            )
+          labels:
+            quantile: "0.99"
+            service: doca-platform-framework
+        - record: dpf:dpucluster:workqueue_work_duration:p99
+          expr: |
+            histogram_quantile(
+              0.99,
+              sum by(le, cluster, name) (
+                rate(workqueue_work_duration_seconds_bucket{job="kube-controller-manager", cluster!="management"}[5m])
+              )
+            )
+          labels:
+            quantile: "0.99"
+            service: doca-platform-framework

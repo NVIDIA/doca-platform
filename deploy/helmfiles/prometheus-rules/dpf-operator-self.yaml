@@ -1,0 +1,83 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: dpf-operator-self
+  namespace: dpf-operator-system
+  labels:
+    app.kubernetes.io/name: dpf-operator
+    app.kubernetes.io/instance: dpf-operator
+    app.kubernetes.io/part-of: doca-platform-framework
+    # Required by the default kube-prometheus-stack ruleSelector. Adjust or drop
+    # to match your Prometheus instance's ruleSelector.
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: dpf-operator-self
+      rules:
+        - alert: DPFOperatorPodNotReady
+          expr: kube_pod_status_ready{namespace="dpf-operator-system", pod=~"dpf-operator-controller-manager-.*", condition="true"} == 0
+          for: 5m
+          labels:
+            severity: critical
+            service: doca-platform-framework
+          annotations:
+            summary: "DPF operator pod {{ $labels.pod }} is not Ready"
+            description: "Pod {{ $labels.pod }} in namespace dpf-operator-system has been Ready=False for 5 minutes. While the operator pod is down, no DPF custom resources are reconciled."
+        - alert: DPFOperatorPodCrashLooping
+          expr: increase(kube_pod_container_status_restarts_total{namespace="dpf-operator-system", pod=~"dpf-operator-controller-manager-.*"}[15m]) > 3
+          for: 0m
+          labels:
+            severity: warning
+            service: doca-platform-framework
+          annotations:
+            summary: "DPF operator pod {{ $labels.pod }} restarting more than 3 times in 15 minutes"
+            description: "Container {{ $labels.container }} in pod {{ $labels.pod }} has restarted more than 3 times in the last 15 minutes. Check the pod logs for panics, OOM, or failed leader election."
+        - alert: DPFOperatorMetricsDown
+          expr: up{job="doca-platform-framework"} == 0
+          for: 5m
+          labels:
+            severity: critical
+            service: doca-platform-framework
+          annotations:
+            summary: "Prometheus cannot scrape DPF controller-manager pod {{ $labels.pod }}"
+            description: "Prometheus has been unable to scrape the metrics endpoint of pod {{ $labels.pod }} (job=doca-platform-framework, which covers every DPF controller-manager) for 5 minutes. This blinds every DPF alert that depends on controller-runtime metrics from this pod."
+        - alert: DPFOperatorMetricsAbsent
+          expr: absent(up{job="doca-platform-framework"})
+          for: 10m
+          labels:
+            severity: critical
+            service: doca-platform-framework
+          annotations:
+            summary: "No DPF controller-manager scrape targets exist (job=doca-platform-framework)"
+            description: "Prometheus has no targets at all for job doca-platform-framework. Either no DPF controller-manager pods are running or the scrape configuration is broken. Unlike DPFOperatorMetricsDown, this also catches the case where the targets disappeared entirely."
+        - alert: DPFKubeStateMetricsDown
+          expr: up{job="kube-state-metrics"} == 0 or absent(up{job="kube-state-metrics"})
+          for: 5m
+          labels:
+            severity: critical
+            service: doca-platform-framework
+          annotations:
+            summary: "kube-state-metrics is down; DPF resource metrics are stale"
+            description: "Prometheus cannot scrape kube-state-metrics for 5 minutes. Every DPF component-health and lifecycle alert reads kube-state-metrics custom-resource series, so all of them silently stop firing while this is down."
+        - alert: DPFControllerReconcileErrors
+          expr: |
+            sum by(controller) (rate(controller_runtime_reconcile_errors_total{job="doca-platform-framework"}[5m]))
+              /
+            sum by(controller) (rate(controller_runtime_reconcile_total{job="doca-platform-framework"}[5m]))
+              > 0.1
+          for: 15m
+          labels:
+            severity: warning
+            service: doca-platform-framework
+          annotations:
+            summary: "DPF controller {{ $labels.controller }} reconcile error ratio above 10%"
+            description: "More than 10% ({{ $value | humanizePercentage }}) of the reconciles of DPF controller {{ $labels.controller }} (management cluster, job doca-platform-framework) have failed for 15 minutes. Occasional conflict retries are normal; a sustained ratio this high is not. Check the controller logs."
+        - alert: DPFControllerReconcileLatencyHigh
+          expr: histogram_quantile(0.99, sum by(le, controller) (rate(controller_runtime_reconcile_time_seconds_bucket{job="doca-platform-framework"}[5m]))) > 30
+          for: 10m
+          labels:
+            severity: warning
+            service: doca-platform-framework
+          annotations:
+            summary: "DPF controller {{ $labels.controller }} reconcile p99 latency above 30s"
+            description: "DPF controller p99 reconcile time has been above 30s ({{ $value | humanizeDuration }}) for 10 minutes. Slow reconciles back up workqueues and delay object state convergence."
