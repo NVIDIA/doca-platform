@@ -80,45 +80,14 @@ type vpcOvnTestInput struct {
 }
 
 func (t *vpcOvnTestInput) applyVPCOVNConfig(conf config) {
-	dpuServiceIPAMTemplate := &dpuservicev1.DPUServiceIPAM{}
-	ipam := unstructuredFromFile(conf.DPUServiceIPAMTemplatePath)
-	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(ipam.Object, dpuServiceIPAMTemplate)).To(Succeed())
-	t.dpuServiceIPAMTemplate = dpuServiceIPAMTemplate
-
-	dpuServiceInterfaceTemplate := &dpuservicev1.DPUServiceInterface{}
-	dsiTemplate := unstructuredFromFile(conf.DPUServiceInterfaceTemplatePath)
-	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(dsiTemplate.Object, dpuServiceInterfaceTemplate)).To(Succeed())
-	t.dpuServiceInterfaceTemplate = dpuServiceInterfaceTemplate
-
-	dpuServiceChainTemplate := &dpuservicev1.DPUServiceChain{}
-	chainTemplate := unstructuredFromFile(conf.DPUServiceChainTemplatePath)
-	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(chainTemplate.Object, dpuServiceChainTemplate)).To(Succeed())
-	t.dpuServiceChainTemplate = dpuServiceChainTemplate
-
-	dpuServiceOVNCentral := &dpuservicev1.DPUService{}
-	svcOVNCentral := unstructuredFromFile(conf.DPUServiceOVNCentralPath)
-	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(svcOVNCentral.Object, dpuServiceOVNCentral)).To(Succeed())
-	t.dpuServiceOVNCentral = dpuServiceOVNCentral
-
-	dpuServiceOVNController := &dpuservicev1.DPUService{}
-	svcOVNController := unstructuredFromFile(conf.DPUServiceOVNControllerPath)
-	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(svcOVNController.Object, dpuServiceOVNController)).To(Succeed())
-	t.dpuServiceOVNController = dpuServiceOVNController
-
-	dpuServiceVPCOVNController := &dpuservicev1.DPUService{}
-	svcVPCOVNController := unstructuredFromFile(conf.DPUServiceVPCOVNControllerPath)
-	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(svcVPCOVNController.Object, dpuServiceVPCOVNController)).To(Succeed())
-	t.dpuServiceVPCOVNController = dpuServiceVPCOVNController
-
-	dpuServiceVPCOVNNode := &dpuservicev1.DPUService{}
-	svcVPCOVNNode := unstructuredFromFile(conf.DPUServiceVPCOVNNodePath)
-	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(svcVPCOVNNode.Object, dpuServiceVPCOVNNode)).To(Succeed())
-	t.dpuServiceVPCOVNNode = dpuServiceVPCOVNNode
-
-	dhcpDaemonSet := &appsv1.DaemonSet{}
-	dhcpObj := unstructuredFromFile(conf.DHCPDaemonSetPath)
-	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(dhcpObj.Object, dhcpDaemonSet)).To(Succeed())
-	t.dhcpDaemonSet = dhcpDaemonSet
+	t.dpuServiceIPAMTemplate = requiredObjectFromFile[dpuservicev1.DPUServiceIPAM](Domain.DPFVPCOVN, "dpuServiceIPAMTemplate", conf.DPUServiceIPAMTemplatePath)
+	t.dpuServiceInterfaceTemplate = requiredObjectFromFile[dpuservicev1.DPUServiceInterface](Domain.DPFVPCOVN, "dpuServiceInterfaceTemplate", conf.DPUServiceInterfaceTemplatePath)
+	t.dpuServiceChainTemplate = requiredObjectFromFile[dpuservicev1.DPUServiceChain](Domain.DPFVPCOVN, "dpuServiceChainTemplate", conf.DPUServiceChainTemplatePath)
+	t.dpuServiceOVNCentral = requiredObjectFromFile[dpuservicev1.DPUService](Domain.DPFVPCOVN, "dpuServiceOVNCentral", conf.DPUServiceOVNCentralPath)
+	t.dpuServiceOVNController = requiredObjectFromFile[dpuservicev1.DPUService](Domain.DPFVPCOVN, "dpuServiceOVNController", conf.DPUServiceOVNControllerPath)
+	t.dpuServiceVPCOVNController = requiredObjectFromFile[dpuservicev1.DPUService](Domain.DPFVPCOVN, "dpuServiceVPCOVNController", conf.DPUServiceVPCOVNControllerPath)
+	t.dpuServiceVPCOVNNode = requiredObjectFromFile[dpuservicev1.DPUService](Domain.DPFVPCOVN, "dpuServiceVPCOVNNode", conf.DPUServiceVPCOVNNodePath)
+	t.dhcpDaemonSet = requiredObjectFromFile[appsv1.DaemonSet](Domain.DPFVPCOVN, "dhcpDaemonSet", conf.DHCPDaemonSetPath)
 }
 
 func createVtepDPUServiceIPAM(ctx context.Context, input *systemTestInput) {

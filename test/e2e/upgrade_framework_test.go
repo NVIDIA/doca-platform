@@ -154,12 +154,42 @@ type validationPhaseInput struct {
 // (via isUpgradeValidationPhase) to skip cleanup between phases.
 var validationPhaseLabels []string
 
+// installPhaseLabels collects the Ginkgo label of every registered install
+// phase as a side effect of installPhase. BeforeSuite consults it via
+// isUpgradeInstallPhase.
+var installPhaseLabels []string
+
 // isUpgradeValidationPhase reports whether the active Ginkgo label filter
 // matches any upgrade *validation* phase. Used by BeforeSuite to skip cleanup
 // between phases. Install phases are NOT covered here because Phase 1 needs
 // normal pre-test cleanup.
 func isUpgradeValidationPhase() bool {
-	for _, label := range validationPhaseLabels {
+	return anyLabelMatchesFilter(validationPhaseLabels)
+}
+
+// isUpgradeInstallPhase reports whether the active Ginkgo label filter matches
+// any upgrade *install* phase. Used by BeforeSuite to skip the domain-specific
+// setup hooks (SDN, SNAP, VPC OVN, Weave): install phases drive all setup
+// from their own phase steps, so the upgrade configs may omit those domains'
+// config fields.
+func isUpgradeInstallPhase() bool {
+	return anyLabelMatchesFilter(installPhaseLabels)
+}
+
+// isUpgradePhase reports whether the active Ginkgo label filter matches any
+// phase of an upgrade path, install or validation. Upgrade phases only load
+// the config fields they declare, so config validation relaxes the fields the
+// other suites require. Upgrade phases are designed to run in dedicated
+// invocations; a filter that selects an upgrade phase alongside non-upgrade
+// suites is not supported.
+func isUpgradePhase() bool {
+	return isUpgradeInstallPhase() || isUpgradeValidationPhase()
+}
+
+// anyLabelMatchesFilter reports whether any of the given phase labels matches
+// the active Ginkgo label filter.
+func anyLabelMatchesFilter(labels []string) bool {
+	for _, label := range labels {
 		if Label(label).MatchesLabelFilter(GinkgoLabelFilter()) {
 			return true
 		}
@@ -176,6 +206,7 @@ func installPhase(description string, in installPhaseInput) {
 	if in.expectedDPUServices == nil {
 		panic(fmt.Sprintf("install phase %q must set expectedDPUServices", description))
 	}
+	installPhaseLabels = append(installPhaseLabels, in.label)
 	Context("install: "+description, Labels{in.label, Domain.RequiresNodes}, Serial, Ordered, func() {
 
 		It("create DPFOperatorConfig", func() {
