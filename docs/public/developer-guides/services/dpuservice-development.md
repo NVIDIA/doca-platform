@@ -89,6 +89,13 @@ implement these, users may face issues deploying the chart in e.g. air-gapped or
 * If the application needs to access resources in a different cluster than the one the application is deployed in, the
   chart should allow for configurable `volumes`, `volumeMounts` and `env` so that a [DPUServiceCredentialRequest](../api/dpuservice-credential-request.md)
   can be used.
+* Do not strip the `svc.dpu.nvidia.com/service` label from pod templates in your chart. The DPUService
+  controller injects this label so that [privileged pod enforcement](#privileged-containers)
+  can match your workloads. If the label is removed from a pod template, the parent workload is admitted
+  but its Pods are denied at admission time when the chart runs privileged containers.
+* If your chart needs to run privileged containers (`securityContext.privileged: true`) in a DPUCluster,
+  document this so the DPUService is deployed with `spec.security.privileged: true`. See
+  [Privileged Containers](#privileged-containers).
 
 ## Developing a DPUService
 
@@ -282,6 +289,39 @@ For advanced troubleshooting that requires inspecting workloads directly on the 
 [Accessing the Kamaji DPU Cluster](../../operational-readiness/troubleshooting/kamaji-cluster-access.md).
 
 ## Additional Information About Supported Features
+
+### Privileged Containers
+
+By default, a DPUService that targets a DPUCluster may not run containers with
+`securityContext.privileged: true`. If your chart requires privileged containers, the DPUService must
+opt in by setting `spec.security.privileged: true`:
+
+```yaml
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUService
+metadata:
+  name: dummydpuservice
+  namespace: dummydpuservice
+spec:
+  security:
+    privileged: true
+  # ...
+```
+
+> [!IMPORTANT]
+> **Set `spec.security.privileged` explicitly** on DPUServices that target a DPUCluster
+> (`spec.deployInCluster: false`) — `true` if the chart needs privileged containers, otherwise
+> `false`. For charts that inherently require privilege, set `spec.security.privileged: true` on the
+> `DPUServiceTemplate` instead, so the value is propagated to the generated DPUServices.
+>
+> Enforcement matches workloads via the `svc.dpu.nvidia.com/service` label that the controller
+> injects, so charts must not strip this label from their pod templates. In this release, leaving the
+> field unset currently defaults to allowing privileged workloads; that default is planned to change
+> to deny in a future release, which is why setting it explicitly now matters.
+
+For the full behaviour and scope, and how enforcement can be disabled via
+`DPFOperatorConfig.spec.security.privilegedPodEnforcement`, see
+[Privileged Pod Enforcement](../../operational-readiness/security/privileged-pod-enforcement.md).
 
 ### Version Constraints
 
