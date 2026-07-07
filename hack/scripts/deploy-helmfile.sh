@@ -292,9 +292,6 @@ collect_resources_on_failure() {
 deploy_helmfile() {
 	local helmfilePath="$1"
 
-	# Make apply-crds.sh executable
-	chmod +x "$(dirname "$helmfilePath")/apply-crds.sh"
-
 	# Create temp helmfile with cleanupOnFail set based on parameter.
 	# Cannot use process substitution `<()` here, the fd would close before command execution.
 	# Creating a persistent temp file instead.

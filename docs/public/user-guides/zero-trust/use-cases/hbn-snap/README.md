@@ -155,6 +155,10 @@ kubectl create secret generic -n dpf-operator-system bmc-shared-password --from-
 > BMC password to individual DPUs instead, see
 > [Per-DPU BMC Credentials](../../../../advanced-configuration/per-dpu-bmc-credentials.md).
 
+> [!NOTE]
+> For production deployments, consider managing this Secret from an external secret store with External Secrets Operator.
+> See [Encrypted Secrets](../../../../advanced-configuration/encrypted-secrets.md) for an example.
+
 #### Additional Dependencies
 
 Before deploying the DPF Operator, ensure that Helm is properly configured according to the
@@ -1229,6 +1233,11 @@ spec:
 </details>
 
 <details markdown="1"><summary><b>Secret for SPDK CSI</b></summary>
+
+> [!NOTE]
+> The Secret below contains credentials. For production deployments, consider managing this Secret from an external
+> secret store with External Secrets Operator. See
+> [Encrypted Secrets](../../../../advanced-configuration/encrypted-secrets.md) for an example.
 
 [embedmd]:#(manifests/03.1-dpudeployment-installation-nvme/spdk-csi-secret.yaml)
 ```yaml
