@@ -1421,6 +1421,16 @@ func (in *DPUs) DeepCopyInto(out *DPUs) {
 		*out = new(string)
 		**out = **in
 	}
+	if in.Flavor != nil {
+		in, out := &in.Flavor, &out.Flavor
+		*out = new(string)
+		**out = **in
+	}
+	if in.FlavorTemplate != nil {
+		in, out := &in.FlavorTemplate, &out.FlavorTemplate
+		*out = new(string)
+		**out = **in
+	}
 	if in.AstraEnabled != nil {
 		in, out := &in.AstraEnabled, &out.AstraEnabled
 		*out = new(bool)

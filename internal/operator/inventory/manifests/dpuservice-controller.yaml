@@ -140,6 +140,7 @@ rules:
   - bfbs
   - bluefieldsoftwares
   - dpuflavors
+  - dpuflavortemplates
   - dpunodemaintenances
   verbs:
   - get
@@ -153,6 +154,7 @@ rules:
   - bfbs/finalizers
   - bluefieldsoftwares/finalizers
   - dpuflavors/finalizers
+  - dpuflavortemplates/finalizers
   verbs:
   - update
 - apiGroups:

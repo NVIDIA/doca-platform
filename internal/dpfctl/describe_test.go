@@ -1045,7 +1045,7 @@ func defaultDPUDeployment() *dpuservicev1.DPUDeployment {
 		Spec: dpuservicev1.DPUDeploymentSpec{
 			DPUs: dpuservicev1.DPUs{
 				BFB:            ptr.To("test"),
-				Flavor:         "test-flavor",
+				Flavor:         ptr.To("test-flavor"),
 				NodeEffect:     provisioningv1.Action{NoEffect: ptr.To(true)},
 				DPUSetStrategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},
 			},

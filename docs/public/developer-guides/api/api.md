@@ -5219,7 +5219,8 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `bfb` _string_ | BFB is the name of the BFB object to be used in this DPUDeployment. It must be in the same namespace as the<br />DPUDeployment. |  | MinLength: 1 <br />Optional: \{\} <br /> |
 | `blueFieldSoftware` _string_ | BlueFieldSoftware is the name of the BlueFieldSoftware object to be used in this DPUDeployment. It must be in the<br />same namespace as the DPUDeployment. |  | MinLength: 1 <br />Optional: \{\} <br /> |
-| `flavor` _string_ | Flavor is the name of the DPUFlavor object to be used in this DPUDeployment. It must be in the same namespace as<br />the DPUDeployment. |  | Required: \{\} <br /> |
+| `flavor` _string_ | Flavor is the name of the DPUFlavor object to be used in this DPUDeployment. It must be in the same namespace as<br />the DPUDeployment. Exactly one of flavor or flavorTemplate must be set (mutually exclusive). |  | MinLength: 1 <br />Optional: \{\} <br /> |
+| `flavorTemplate` _string_ | FlavorTemplate is the name of the DPUFlavorTemplate object to be rendered per-DPU (against each<br />DPUDevice.spec.values) into a generated DPUFlavor. It must be in the same namespace as the DPUDeployment.<br />Exactly one of flavor or flavorTemplate must be set (mutually exclusive). |  | MinLength: 1 <br />Optional: \{\} <br /> |
 | `astraEnabled` _boolean_ | AstraEnabled indicates whether E/W NIC configuration (Astra) is enabled |  | Optional: \{\} <br /> |
 | `dpuSets` _[DPUSet](#dpuset) array_ | DPUSets contains configuration for each DPUSet that is going to be created by the DPUDeployment |  | MaxItems: 50 <br />MinItems: 1 <br />Optional: \{\} <br /> |
 | `nodeEffect` _[Action](#action)_ | NodeEffect is the effect the DPU has on Nodes during provisioning. |  | Required: \{\} <br /> |
