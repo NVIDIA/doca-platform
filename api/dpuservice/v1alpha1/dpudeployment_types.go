@@ -167,6 +167,7 @@ func (u *UpgradePolicy) ShouldApplyNodeEffect() bool {
 
 // DPUs contains the DPU related configuration
 // +kubebuilder:validation:XValidation:rule="(has(self.bfb) && !has(self.blueFieldSoftware)) || (!has(self.bfb) && has(self.blueFieldSoftware))",message="exactly one of bfb or blueFieldSoftware must be specified"
+// +kubebuilder:validation:XValidation:rule="has(self.flavor) != has(self.flavorTemplate)",message="exactly one of flavor or flavorTemplate must be set"
 type DPUs struct {
 	// BFB is the name of the BFB object to be used in this DPUDeployment. It must be in the same namespace as the
 	// DPUDeployment.
@@ -181,9 +182,17 @@ type DPUs struct {
 	BlueFieldSoftware *string `json:"blueFieldSoftware,omitempty"`
 
 	// Flavor is the name of the DPUFlavor object to be used in this DPUDeployment. It must be in the same namespace as
-	// the DPUDeployment.
-	// +required
-	Flavor string `json:"flavor"`
+	// the DPUDeployment. Exactly one of flavor or flavorTemplate must be set (mutually exclusive).
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	Flavor *string `json:"flavor,omitempty"`
+
+	// FlavorTemplate is the name of the DPUFlavorTemplate object to be rendered per-DPU (against each
+	// DPUDevice.spec.values) into a generated DPUFlavor. It must be in the same namespace as the DPUDeployment.
+	// Exactly one of flavor or flavorTemplate must be set (mutually exclusive).
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	FlavorTemplate *string `json:"flavorTemplate,omitempty"`
 
 	// AstraEnabled indicates whether E/W NIC configuration (Astra) is enabled
 	// +optional

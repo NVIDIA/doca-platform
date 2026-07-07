@@ -1131,6 +1131,67 @@ var _ = Describe("DPUDeployment Controller", func() {
 					},
 				}))
 			})
+			It("should return the DPUFlavorTemplate when spec.dpus.flavorTemplate is set", func() {
+				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
+				dpuDeployment.Spec.DPUs.Flavor = nil
+				dpuDeployment.Spec.DPUs.FlavorTemplate = ptr.To("sometemplate-flavor")
+				By("Creating the dependencies")
+				bfb := createMinimalBFBWithStatus("somebfb", testNS.Name)
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, bfb)
+
+				dpuFlavorTemplate := getMinimalDPUFlavorTemplate(testNS.Name)
+				Expect(testClient.Create(ctx, dpuFlavorTemplate)).To(Succeed())
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuFlavorTemplate)
+
+				dpuServiceConfiguration := getMinimalDPUServiceConfiguration(testNS.Name)
+				Expect(testClient.Create(ctx, dpuServiceConfiguration)).To(Succeed())
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceConfiguration)
+
+				dpuServiceTemplate := createMinimalDPUServiceTemplateWithStatus(testNS.Name)
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceTemplate)
+
+				bfb.SetGroupVersionKind(schema.EmptyObjectKind.GroupVersionKind())
+				dpuServiceTemplate.SetGroupVersionKind(schema.EmptyObjectKind.GroupVersionKind())
+
+				By("Checking the output of the function")
+				deps, err := getDependencies(ctx, testClient, dpuDeployment)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(deps.DPUFlavor).To(BeNil())
+				Expect(deps).To(BeComparableTo(&dpuDeploymentDependencies{
+					DPUFlavorTemplate: dpuFlavorTemplate,
+					BFB:               bfb,
+					DPUServiceConfigurations: map[string]*dpuservicev1.DPUServiceConfiguration{
+						"someservice": dpuServiceConfiguration,
+					},
+					DPUServiceTemplates: map[string]*dpuservicev1.DPUServiceTemplate{
+						"someservice": dpuServiceTemplate,
+					},
+				}))
+			})
+			It("should error if the DPUFlavorTemplate doesn't exist", func() {
+				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
+				dpuDeployment.Spec.DPUs.Flavor = nil
+				dpuDeployment.Spec.DPUs.FlavorTemplate = ptr.To("sometemplate-flavor")
+				By("Creating the dependencies")
+				bfb := createMinimalBFBWithStatus("somebfb", testNS.Name)
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, bfb)
+
+				dpuServiceConfiguration := getMinimalDPUServiceConfiguration(testNS.Name)
+				Expect(testClient.Create(ctx, dpuServiceConfiguration)).To(Succeed())
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceConfiguration)
+
+				dpuServiceTemplate := createMinimalDPUServiceTemplateWithStatus(testNS.Name)
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceTemplate)
+
+				By("Checking the output of the function")
+				_, err := getDependencies(ctx, testClient, dpuDeployment)
+				Expect(err).To(HaveOccurred())
+				// Assert the failure came from the DPUFlavorTemplate lookup specifically, so this test
+				// can't pass via the DPUFlavor branch if the flavor/template selection ever regresses.
+				Expect(err).To(MatchError(ContainSubstring("DPUFlavorTemplate")))
+			})
 			It("should error if a dependency doesn't exist", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
 				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
@@ -1411,6 +1472,40 @@ var _ = Describe("DPUDeployment Controller", func() {
 					Expect(obj.GetLabels()).ToNot(HaveKeyWithValue(dpuDeployment.GetDependentLabelKey(), dpuservicev1.DependentDPUDeploymentLabelValue), fmt.Sprintf("%T", obj))
 				}
 			})
+			It("should mark the DPUFlavorTemplate and not the unused DPUFlavor (using FlavorTemplate)", func() {
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
+				dpuDeployment.Spec.DPUs.Flavor = nil
+				dpuDeployment.Spec.DPUs.FlavorTemplate = ptr.To("sometemplate-flavor")
+
+				By("Creating the DPUFlavorTemplate dependency")
+				dpuFlavorTemplate := getMinimalDPUFlavorTemplate(testNS.Name)
+				Expect(testClient.Create(ctx, dpuFlavorTemplate)).To(Succeed())
+				// DeferCleanup is LIFO: register CleanupAndWait first so the finalizer removal below
+				// runs before it, otherwise the delete blocks on the finalizer this test adds.
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuFlavorTemplate)
+				DeferCleanup(func() {
+					Expect(testClient.Patch(ctx, dpuFlavorTemplate, client.RawPatch(types.MergePatchType, []byte(`{"metadata":{"finalizers":[]}}`)))).To(Succeed())
+				})
+
+				By("Constructing the dependencies object")
+				deps, err := getDependencies(ctx, testClient, dpuDeployment)
+				Expect(err).ToNot(HaveOccurred())
+
+				By("Updating the dependencies")
+				Expect(updateDependencies(ctx, testClient, dpuDeployment, deps)).To(Succeed())
+
+				By("Checking the DPUFlavorTemplate is marked")
+				gotTemplate := &provisioningv1.DPUFlavorTemplate{}
+				Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuFlavorTemplate), gotTemplate)).To(Succeed())
+				Expect(gotTemplate.GetFinalizers()).To(ContainElement(dpuservicev1.DPUDeploymentFinalizer))
+				Expect(gotTemplate.GetLabels()).To(HaveKeyWithValue(dpuDeployment.GetDependentLabelKey(), dpuservicev1.DependentDPUDeploymentLabelValue))
+
+				By("Checking the unused DPUFlavor is not marked")
+				gotFlavor := &provisioningv1.DPUFlavor{}
+				Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuFlavor), gotFlavor)).To(Succeed())
+				Expect(gotFlavor.GetFinalizers()).ToNot(ContainElement(dpuservicev1.DPUDeploymentFinalizer))
+				Expect(gotFlavor.GetLabels()).ToNot(HaveKeyWithValue(dpuDeployment.GetDependentLabelKey(), dpuservicev1.DependentDPUDeploymentLabelValue))
+			})
 			It("should clean only the stale dependencies (using BFB)", func() {
 				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 
@@ -1451,7 +1546,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 				}
 				dpuDeployment.Spec.Services["someservice"] = svc
 				dpuDeployment.Spec.DPUs.BFB = ptr.To(extraBFB.Name)
-				dpuDeployment.Spec.DPUs.Flavor = extraDPUFlavor.Name
+				dpuDeployment.Spec.DPUs.Flavor = ptr.To(extraDPUFlavor.Name)
 
 				By("Constructing the dependencies object")
 				deps, err = getDependencies(ctx, testClient, dpuDeployment)
@@ -1551,7 +1646,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 				}
 				dpuDeployment.Spec.Services["someservice"] = svc
 				dpuDeployment.Spec.DPUs.BFB = ptr.To(extraBFB.Name)
-				dpuDeployment.Spec.DPUs.Flavor = extraDPUFlavor.Name
+				dpuDeployment.Spec.DPUs.Flavor = ptr.To(extraDPUFlavor.Name)
 
 				By("Constructing the dependencies object")
 				deps, err = getDependencies(ctx, testClient, dpuDeployment)
@@ -1666,7 +1761,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 				}
 				dpuDeployment.Spec.Services["someservice"] = svc
 				dpuDeployment.Spec.DPUs.BlueFieldSoftware = ptr.To(extraBfs.Name)
-				dpuDeployment.Spec.DPUs.Flavor = extraDPUFlavor.Name
+				dpuDeployment.Spec.DPUs.Flavor = ptr.To(extraDPUFlavor.Name)
 
 				By("Constructing the dependencies object")
 				deps, err = getDependencies(ctx, testClient, dpuDeployment)
@@ -1767,7 +1862,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 				}
 				dpuDeployment.Spec.Services["someservice"] = svc
 				dpuDeployment.Spec.DPUs.BlueFieldSoftware = ptr.To(extraBfs.Name)
-				dpuDeployment.Spec.DPUs.Flavor = extraDPUFlavor.Name
+				dpuDeployment.Spec.DPUs.Flavor = ptr.To(extraDPUFlavor.Name)
 
 				By("Constructing the dependencies object")
 				deps, err = getDependencies(ctx, testClient, dpuDeployment)
@@ -2025,6 +2120,69 @@ var _ = Describe("DPUDeployment Controller", func() {
 					}
 
 					By("checking the specs")
+					specs := make([]provisioningv1.DPUSetSpec, 0, len(gotDPUSetList.Items))
+					for _, dpuSet := range gotDPUSetList.Items {
+						specs = append(specs, dpuSet.Spec)
+					}
+					g.Expect(specs).To(ConsistOf(expectedDPUSetSpecs))
+				}).WithTimeout(30 * time.Second).Should(Succeed())
+			})
+			It("should set DPUFlavorTemplate on the generated DPUSets when spec.dpus.flavorTemplate is used", func() {
+				By("Creating the DPUFlavorTemplate dependency")
+				dpuFlavorTemplate := getMinimalDPUFlavorTemplate(testNS.Name)
+				Expect(testClient.Create(ctx, dpuFlavorTemplate)).To(Succeed())
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuFlavorTemplate)
+
+				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
+				dpuDeployment.Spec.DPUs.Flavor = nil
+				dpuDeployment.Spec.DPUs.FlavorTemplate = ptr.To(dpuFlavorTemplate.Name)
+				dpuDeployment.Spec.DPUs.DPUSets = initialDPUSetSettings
+				dpuDeployment.Spec.ServiceChains = initialServiceChainsSettings
+				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
+
+				By("retrieving the DPUServiceChain and DPUService")
+				var dpuServiceChain *dpuservicev1.DPUServiceChain
+				Eventually(func(g Gomega) {
+					dpuServiceChainList := getDPUServiceChainList()
+					g.Expect(dpuServiceChainList.Items).To(HaveLen(1))
+					dpuServiceChain = &dpuServiceChainList.Items[0]
+					g.Expect(dpuServiceChain).ToNot(BeNil())
+				}).WithTimeout(30 * time.Second).Should(Succeed())
+
+				var dpuService *dpuservicev1.DPUService
+				Eventually(func(g Gomega) {
+					dpuServiceList := getDPUServiceList()
+					g.Expect(dpuServiceList.Items).To(HaveLen(1))
+					dpuService = &dpuServiceList.Items[0]
+					g.Expect(dpuService).ToNot(BeNil())
+				}).WithTimeout(30 * time.Second).Should(Succeed())
+
+				By("expecting the generated DPUSets to reference the DPUFlavorTemplate instead of a DPUFlavor")
+				for i := range expectedDPUSetSpecs {
+					if expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster == nil {
+						expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster = &provisioningv1.ClusterSpec{}
+					}
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster.NodeLabels = map[string]string{
+						"svc.dpu.nvidia.com/dpuservicechain-version":        dpuServiceChain.Name,
+						"svc.dpu.nvidia.com/dpuservice-someservice-version": dpuService.Name,
+						dpuservicev1.ParentDPUDeploymentNameLabel:           fmt.Sprintf("%s_%s", dpuDeployment.Namespace, dpuDeployment.Name),
+					}
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = []string{
+						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), dpuServiceChain.Name),
+						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), dpuService.Name),
+					}
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.DPUFlavor = ""
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.DPUFlavorTemplate = dpuFlavorTemplate.Name
+				}
+
+				By("checking that correct DPUSets are created")
+				Eventually(func(g Gomega) {
+					gotDPUSetList := &provisioningv1.DPUSetList{}
+					g.Expect(testClient.List(ctx, gotDPUSetList)).To(Succeed())
+					g.Expect(gotDPUSetList.Items).To(HaveLen(2))
+
 					specs := make([]provisioningv1.DPUSetSpec, 0, len(gotDPUSetList.Items))
 					for _, dpuSet := range gotDPUSetList.Items {
 						specs = append(specs, dpuSet.Spec)
@@ -8317,6 +8475,54 @@ var _ = Describe("DPUDeployment Controller", func() {
 						},
 					},
 				}, true),
+				Entry("DPUFlavorTemplate resources are used and requested resources fit", &dpuDeploymentDependencies{
+					DPUFlavorTemplate: &provisioningv1.DPUFlavorTemplate{
+						Spec: provisioningv1.DPUFlavorTemplateSpec{
+							DPUResources: corev1.ResourceList{
+								"cpu":    resource.MustParse("2"),
+								"memory": resource.MustParse("4Gi"),
+							},
+							SystemReservedResources: corev1.ResourceList{
+								"cpu":    resource.MustParse("1"),
+								"memory": resource.MustParse("2Gi"),
+							},
+						},
+					},
+					DPUServiceTemplates: map[string]*dpuservicev1.DPUServiceTemplate{
+						"service-1": {
+							Spec: dpuservicev1.DPUServiceTemplateSpec{
+								ResourceRequirements: corev1.ResourceList{
+									"cpu":    resource.MustParse("0.5"),
+									"memory": resource.MustParse("100Mi"),
+								},
+							},
+						},
+					},
+				}, false),
+				Entry("DPUFlavorTemplate resources are used and requested resources don't fit", &dpuDeploymentDependencies{
+					DPUFlavorTemplate: &provisioningv1.DPUFlavorTemplate{
+						Spec: provisioningv1.DPUFlavorTemplateSpec{
+							DPUResources: corev1.ResourceList{
+								"cpu":    resource.MustParse("1"),
+								"memory": resource.MustParse("2Gi"),
+							},
+							SystemReservedResources: corev1.ResourceList{
+								"cpu":    resource.MustParse("0.5"),
+								"memory": resource.MustParse("1Gi"),
+							},
+						},
+					},
+					DPUServiceTemplates: map[string]*dpuservicev1.DPUServiceTemplate{
+						"service-1": {
+							Spec: dpuservicev1.DPUServiceTemplateSpec{
+								ResourceRequirements: corev1.ResourceList{
+									"cpu":    resource.MustParse("1"),
+									"memory": resource.MustParse("3Gi"),
+								},
+							},
+						},
+					},
+				}, true),
 			)
 		})
 
@@ -10556,7 +10762,7 @@ func getMinimalDPUDeployment(namespace string) *dpuservicev1.DPUDeployment {
 		},
 		Spec: dpuservicev1.DPUDeploymentSpec{
 			DPUs: dpuservicev1.DPUs{
-				Flavor:         "someflavor",
+				Flavor:         ptr.To("someflavor"),
 				NodeEffect:     provisioningv1.Action{Drain: ptr.To(true)},
 				DPUSetStrategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.RollingUpdateStrategyType},
 			},
@@ -10629,6 +10835,18 @@ func getMinimalDPUFlavor(namespace string) *provisioningv1.DPUFlavor {
 			Sysctl: provisioningv1.DPUFLavorSysctl{
 				Parameters: []string{},
 			},
+		},
+	}
+}
+
+func getMinimalDPUFlavorTemplate(namespace string) *provisioningv1.DPUFlavorTemplate {
+	return &provisioningv1.DPUFlavorTemplate{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "sometemplate-flavor",
+			Namespace: namespace,
+		},
+		Spec: provisioningv1.DPUFlavorTemplateSpec{
+			Template: "grub:\n  kernelParameters: []\nsysctl:\n  parameters: []\n",
 		},
 	}
 }

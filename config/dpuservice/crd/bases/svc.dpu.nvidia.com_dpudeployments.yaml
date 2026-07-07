@@ -304,7 +304,15 @@ spec:
                   flavor:
                     description: |-
                       Flavor is the name of the DPUFlavor object to be used in this DPUDeployment. It must be in the same namespace as
-                      the DPUDeployment.
+                      the DPUDeployment. Exactly one of flavor or flavorTemplate must be set (mutually exclusive).
+                    minLength: 1
+                    type: string
+                  flavorTemplate:
+                    description: |-
+                      FlavorTemplate is the name of the DPUFlavorTemplate object to be rendered per-DPU (against each
+                      DPUDevice.spec.values) into a generated DPUFlavor. It must be in the same namespace as the DPUDeployment.
+                      Exactly one of flavor or flavorTemplate must be set (mutually exclusive).
+                    minLength: 1
                     type: string
                   nodeEffect:
                     description: NodeEffect is the effect the DPU has on Nodes during
@@ -373,13 +381,14 @@ spec:
                     type: boolean
                 required:
                 - dpuSetStrategy
-                - flavor
                 - nodeEffect
                 type: object
                 x-kubernetes-validations:
                 - message: exactly one of bfb or blueFieldSoftware must be specified
                   rule: (has(self.bfb) && !has(self.blueFieldSoftware)) || (!has(self.bfb)
                     && has(self.blueFieldSoftware))
+                - message: exactly one of flavor or flavorTemplate must be set
+                  rule: has(self.flavor) != has(self.flavorTemplate)
               revisionHistoryLimit:
                 default: 10
                 description: |-

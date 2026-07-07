@@ -335,6 +335,7 @@ rules:
   - dpudevices/finalizers
   - dpudiscoveries/finalizers
   - dpuflavors/finalizers
+  - dpuflavortemplates/finalizers
   - dpunodemaintenances/finalizers
   - dpunodes/finalizers
   - dpus/finalizers
