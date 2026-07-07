@@ -1631,14 +1631,13 @@ spec:
                       unless explicitly allowed by the workload API. The DPUService controller
                       currently implements this by applying the PrivilegedPodEnforcement
                       ValidatingAdmissionPolicy to DPUService workloads.
-                      When disabled, the policy and its binding are kept but the binding is
-                      switched to Audit, so privileged pods are only logged to the audit log and
-                      never denied; the allowlist is kept populated so the audit log only flags
-                      pods that would otherwise be denied. The objects are intentionally not
-                      deleted to avoid a Kubernetes paramRef informer bug
-                      (https://github.com/kubernetes/kubernetes/issues/133827).
-                      Intended as a breakglass to restore functionality when the policy causes
-                      unexpected issues. Defaults to true.
+                      Setting it to false does not fully opt out of enforcement: the policy and its
+                      binding are kept, but the binding is switched from Deny to Audit, so privileged
+                      pods are no longer denied and are only recorded in the audit log. The allowlist
+                      is kept populated so the audit log only flags pods that would otherwise be
+                      denied. The objects are intentionally not deleted to avoid a Kubernetes paramRef
+                      informer bug (https://github.com/kubernetes/kubernetes/issues/133827).
+                      Defaults to true.
                     type: boolean
                   spiffe:
                     description: |-
