@@ -566,15 +566,16 @@ func (n *NICProvisioning) applyNVConfig(execCtx context.Context, optCtx *operati
 		forceNVApply = ewNICCfg.Force
 	}
 	applyOptions := &nictypes.ConfigurationOptions{
-		SkipReset:   true,
-		WithDefault: true,
-		Force:       forceNVApply,
+		SkipReset: true,
+		// Temporarily disable WithDefault due to a NIC FW issue where NIC can disappear after host reboot.
+		// WithDefault: true,
+		Force: forceNVApply,
 	}
 	applyCtx, cancel := context.WithTimeout(execCtx, nicNVConfigApplyTimeout)
 	defer cancel()
 
 	errCh := make(chan error, len(n.discoveredNICDevices))
-	partialAppliedCh := make(chan bool, len(n.discoveredNICDevices))
+	rebootRequiredCh := make(chan bool, len(n.discoveredNICDevices))
 	var wg sync.WaitGroup
 	for _, discoveredDevice := range n.discoveredNICDevices {
 		device := discoveredDevice
@@ -590,8 +591,8 @@ func (n *NICProvisioning) applyNVConfig(execCtx context.Context, optCtx *operati
 					device.Status.SerialNumber, device.Status.Type, applyErr)
 				return
 			}
-			if result.Status == nictypes.ApplyStatusPartiallyApplied {
-				partialAppliedCh <- true
+			if result.Status == nictypes.ApplyStatusPartiallyApplied || result.Status == nictypes.ApplyStatusSuccess {
+				rebootRequiredCh <- true
 			}
 			klog.InfoS("NIC provisioning: NV config applied",
 				"serialNumber", device.Status.SerialNumber,
@@ -603,7 +604,7 @@ func (n *NICProvisioning) applyNVConfig(execCtx context.Context, optCtx *operati
 
 	wg.Wait()
 	close(errCh)
-	close(partialAppliedCh)
+	close(rebootRequiredCh)
 
 	applyErrs := make([]string, 0, len(n.discoveredNICDevices))
 	for applyErr := range errCh {
@@ -612,8 +613,8 @@ func (n *NICProvisioning) applyNVConfig(execCtx context.Context, optCtx *operati
 	if len(applyErrs) > 0 {
 		return fmt.Errorf("NIC NV config apply failed: %s", strings.Join(applyErrs, "; "))
 	}
-	for partialApplied := range partialAppliedCh {
-		if partialApplied {
+	for rebootRequired := range rebootRequiredCh {
+		if rebootRequired {
 			optCtx.NICFirmwareRebootRequired = true
 			klog.InfoS("NIC provisioning: reboot required after NIC NV config apply")
 			break
