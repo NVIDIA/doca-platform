@@ -1,7 +1,3 @@
-image:
-  reference: quay.io/fidencio/kata-containers/kata-deploy
-  tag: vf-coldplug
-
 snapshotter:
   setup: []
 
