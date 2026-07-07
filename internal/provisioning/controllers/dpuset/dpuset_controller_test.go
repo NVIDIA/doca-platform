@@ -25,6 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -570,6 +571,205 @@ var _ = Describe("DPUSetReconciler getDPUDeviceMap", func() {
 			Expect(err).ToNot(HaveOccurred())
 			// Should return empty map even for recently deleted node
 			Expect(dpuDeviceMap).To(BeEmpty())
+		})
+	})
+})
+
+var _ = Describe("DPUSetReconciler BlueFieldSoftware finalizer", func() {
+	var (
+		ctx    context.Context
+		scheme *runtime.Scheme
+	)
+
+	const bfsName = "test-bfs"
+
+	BeforeEach(func() {
+		ctx = context.Background()
+		scheme = runtime.NewScheme()
+		Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
+	})
+
+	newDPUSet := func() *provisioningv1.DPUSet {
+		return &provisioningv1.DPUSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-dpuset",
+				Namespace: testNamespace,
+			},
+			Spec: provisioningv1.DPUSetSpec{
+				DPUTemplate: provisioningv1.DPUTemplate{
+					Spec: provisioningv1.DPUTemplateSpec{
+						DPUFlavor:         "test-flavor",
+						BlueFieldSoftware: &provisioningv1.BlueFieldSoftwareReference{Name: bfsName},
+						Cluster:           &provisioningv1.ClusterSpec{},
+						NodeEffect:        provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
+					},
+				},
+			},
+		}
+	}
+
+	Context("createDPU", func() {
+		It("should add the finalizer to the referenced BlueFieldSoftware and set it on the DPU", func() {
+			bfs := &provisioningv1.BlueFieldSoftware{
+				ObjectMeta: metav1.ObjectMeta{Name: bfsName, Namespace: testNamespace},
+			}
+			dpuDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "device-1",
+					Namespace: testNamespace,
+					Labels:    map[string]string{provisioningv1.DPUNodeNameLabel: "node-1"},
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(bfs, dpuDevice).
+				Build()
+			reconciler := &DPUSetReconciler{
+				Client:   fakeClient,
+				Scheme:   scheme,
+				Recorder: record.NewFakeRecorder(10),
+			}
+
+			Expect(reconciler.createDPU(ctx, newDPUSet(), dpuDevice)).To(Succeed())
+
+			updatedBFS := &provisioningv1.BlueFieldSoftware{}
+			Expect(fakeClient.Get(ctx, client.ObjectKeyFromObject(bfs), updatedBFS)).To(Succeed())
+			Expect(updatedBFS.Finalizers).To(ContainElement(provisioningv1.BlueFieldSoftwareFinalizer))
+
+			dpuList := &provisioningv1.DPUList{}
+			Expect(fakeClient.List(ctx, dpuList, client.InNamespace(testNamespace))).To(Succeed())
+			Expect(dpuList.Items).To(HaveLen(1))
+			Expect(dpuList.Items[0].Spec.BlueFieldSoftware).To(HaveValue(Equal(bfsName)))
+		})
+
+		It("should return an error when the referenced BlueFieldSoftware does not exist", func() {
+			dpuDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "device-1",
+					Namespace: testNamespace,
+					Labels:    map[string]string{provisioningv1.DPUNodeNameLabel: "node-1"},
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(dpuDevice).
+				Build()
+			reconciler := &DPUSetReconciler{
+				Client:   fakeClient,
+				Scheme:   scheme,
+				Recorder: record.NewFakeRecorder(10),
+			}
+
+			Expect(reconciler.createDPU(ctx, newDPUSet(), dpuDevice)).To(HaveOccurred())
+		})
+	})
+
+	Context("reconcileDelete", func() {
+		It("should remove the finalizer from the referenced BlueFieldSoftware once all DPUs are gone", func() {
+			bfs := &provisioningv1.BlueFieldSoftware{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       bfsName,
+					Namespace:  testNamespace,
+					Finalizers: []string{provisioningv1.BlueFieldSoftwareFinalizer},
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(bfs).
+				Build()
+			reconciler := &DPUSetReconciler{
+				Client:   fakeClient,
+				Scheme:   scheme,
+				Recorder: record.NewFakeRecorder(10),
+			}
+
+			Expect(reconciler.reconcileDelete(ctx, newDPUSet())).To(Succeed())
+
+			updatedBFS := &provisioningv1.BlueFieldSoftware{}
+			Expect(fakeClient.Get(ctx, client.ObjectKeyFromObject(bfs), updatedBFS)).To(Succeed())
+			Expect(updatedBFS.Finalizers).ToNot(ContainElement(provisioningv1.BlueFieldSoftwareFinalizer))
+		})
+
+		It("should skip gracefully when the BlueFieldSoftware is already gone", func() {
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				Build()
+			reconciler := &DPUSetReconciler{
+				Client:   fakeClient,
+				Scheme:   scheme,
+				Recorder: record.NewFakeRecorder(10),
+			}
+
+			Expect(reconciler.reconcileDelete(ctx, newDPUSet())).To(Succeed())
+		})
+
+		It("should keep the finalizer when another DPUSet still references the same BlueFieldSoftware", func() {
+			bfs := &provisioningv1.BlueFieldSoftware{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       bfsName,
+					Namespace:  testNamespace,
+					Finalizers: []string{provisioningv1.BlueFieldSoftwareFinalizer},
+				},
+			}
+			otherDPUSet := newDPUSet()
+			otherDPUSet.Name = "other-dpuset"
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(bfs, otherDPUSet).
+				Build()
+			reconciler := &DPUSetReconciler{
+				Client:   fakeClient,
+				Scheme:   scheme,
+				Recorder: record.NewFakeRecorder(10),
+			}
+
+			Expect(reconciler.reconcileDelete(ctx, newDPUSet())).To(Succeed())
+
+			updatedBFS := &provisioningv1.BlueFieldSoftware{}
+			Expect(fakeClient.Get(ctx, client.ObjectKeyFromObject(bfs), updatedBFS)).To(Succeed())
+			Expect(updatedBFS.Finalizers).To(ContainElement(provisioningv1.BlueFieldSoftwareFinalizer))
+		})
+
+		It("should not touch the BlueFieldSoftware finalizer while owned DPUs still exist", func() {
+			bfs := &provisioningv1.BlueFieldSoftware{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       bfsName,
+					Namespace:  testNamespace,
+					Finalizers: []string{provisioningv1.BlueFieldSoftwareFinalizer},
+				},
+			}
+			ownedDPU := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "owned-dpu",
+					Namespace: testNamespace,
+					Labels: map[string]string{
+						cutil.DPUSetNameLabel:      "test-dpuset",
+						cutil.DPUSetNamespaceLabel: testNamespace,
+					},
+					// Keep the DPU around after the delete call so cleanup is still pending.
+					Finalizers: []string{"test-finalizer"},
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(bfs, ownedDPU).
+				Build()
+			reconciler := &DPUSetReconciler{
+				Client:   fakeClient,
+				Scheme:   scheme,
+				Recorder: record.NewFakeRecorder(10),
+			}
+
+			Expect(reconciler.reconcileDelete(ctx, newDPUSet())).To(HaveOccurred())
+
+			updatedBFS := &provisioningv1.BlueFieldSoftware{}
+			Expect(fakeClient.Get(ctx, client.ObjectKeyFromObject(bfs), updatedBFS)).To(Succeed())
+			Expect(updatedBFS.Finalizers).To(ContainElement(provisioningv1.BlueFieldSoftwareFinalizer))
 		})
 	})
 })
