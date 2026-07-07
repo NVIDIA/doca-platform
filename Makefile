@@ -664,6 +664,10 @@ test-e2e: stern ## Run e2e tests
 	STERN=$(STERN) $(CURDIR)/hack/scripts/log-collector.sh \
 	  go test -timeout 0 ./test/e2e/ $(E2E_TEST_DEFAULTS) $(E2E_TEST_ARGS)
 
+.PHONY: generate-htmlreports
+generate-htmlreports: binary-dpfdev ## Generate HTML artifact viewers for all resource dumps under ARTIFACTS_DIR
+	$(LOCALBIN)/dpfdev htmlreport "$(ARTIFACTS_DIR)"
+
 ##@ validate commit
 .PHONY: commit-check
 commit-check: conform ## Run conform to validate commit message
