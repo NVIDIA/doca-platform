@@ -100,121 +100,156 @@ func isPreUpgradeFromLastReleasedGA(ctx context.Context, kclient client.Client, 
 // - Passed to individual test functions as the primary test context
 // - Provides all necessary objects and configuration for test execution
 // - Depends on `config` struct for file paths and basic configuration
+//
+// Fields are grouped to mirror the config struct; suite-specific fields stay
+// nil unless the selected suites load them.
 type systemTestInput struct {
-	namespace                         string
-	config                            *operatorv1.DPFOperatorConfig
-	pvc                               *corev1.PersistentVolumeClaim
-	dpuClusterPrerequisites           []client.Object
-	dpuClusters                       []*provisioningv1.DPUCluster
-	dpuFlavor                         *provisioningv1.DPUFlavor
-	dpuDiscovery                      *provisioningv1.DPUDiscovery
-	dpuService                        *dpuservicev1.DPUService
-	dpuServiceHBN                     *dpuservicev1.DPUService
-	dpuServiceInterface               *dpuservicev1.DPUServiceInterface
-	dpuServiceInterfaceTemplate       *dpuservicev1.DPUServiceInterface
-	dpuServiceChain                   *dpuservicev1.DPUServiceChain
-	dpuServiceChainTemplate           *dpuservicev1.DPUServiceChain
-	bfb                               *provisioningv1.BFB
-	blueFieldSoftware                 *provisioningv1.BlueFieldSoftware
-	dpuSet                            *provisioningv1.DPUSet
-	bfsOsIsoURL                       string
-	bfsPldmFwBundleURL                string
-	dpuDeployment                     *dpuservicev1.DPUDeployment
-	dpuServiceConfiguration           *dpuservicev1.DPUServiceConfiguration
-	dpuServiceInterfacesHBN           []*dpuservicev1.DPUServiceInterface
-	dpuServiceInterfaceOVN            *dpuservicev1.DPUServiceInterface
-	dpuServiceTemplate                *dpuservicev1.DPUServiceTemplate
-	additionalDPUServiceTemplate      *dpuservicev1.DPUServiceTemplate
-	dpuServiceTemplateOVN             *dpuservicev1.DPUServiceTemplate
-	dpuServiceTemplateHBN             *dpuservicev1.DPUServiceTemplate
-	dpuServiceConfigurationOVN        *dpuservicev1.DPUServiceConfiguration
-	dpuServiceConfigurationHBN        *dpuservicev1.DPUServiceConfiguration
+	// Loaded from the config fields required by every suite.
+	dpuClusters             []*provisioningv1.DPUCluster
+	dpuDeployment           *dpuservicev1.DPUDeployment
+	dpuServiceConfiguration *dpuservicev1.DPUServiceConfiguration
+	dpuServiceTemplate      *dpuservicev1.DPUServiceTemplate
+	ipPoolDPUServiceIPAM    *dpuservicev1.DPUServiceIPAM
+
+	// Loaded from the config fields required by every suite except upgrade
+	// phases; nil when the config omits them.
+	cidrDPUServiceIPAM          *dpuservicev1.DPUServiceIPAM
+	dpuService                  *dpuservicev1.DPUService
+	dpuServiceChain             *dpuservicev1.DPUServiceChain
+	dpuServiceCredentialRequest *dpuservicev1.DPUServiceCredentialRequest
+	dpuServiceInterface         *dpuservicev1.DPUServiceInterface
+	dpuSet                      *provisioningv1.DPUSet
+
+	// SDN suite only; set by applySDNConfig, nil otherwise.
+	dpuServiceChainTemplate     *dpuservicev1.DPUServiceChain
+	dpuServiceHBN               *dpuservicev1.DPUService
+	dpuServiceInterfaceTemplate *dpuservicev1.DPUServiceInterface
+	dpuServiceIPAMTemplate      *dpuservicev1.DPUServiceIPAM
+	dpuServiceNAD               *dpuservicev1.DPUServiceNAD
+
+	// OVN Kubernetes/HBN performance scenario; nil (or empty) unless the
+	// config sets the corresponding paths.
+	dpuServiceConfigurationHBN *dpuservicev1.DPUServiceConfiguration
+	dpuServiceConfigurationOVN *dpuservicev1.DPUServiceConfiguration
+	dpuServiceInterfaceOVN     *dpuservicev1.DPUServiceInterface
+	dpuServiceInterfacesHBN    []*dpuservicev1.DPUServiceInterface
+	dpuServiceTemplateHBN      *dpuservicev1.DPUServiceTemplate
+	dpuServiceTemplateOVN      *dpuservicev1.DPUServiceTemplate
+	ovnCredentialRequest       *dpuservicev1.DPUServiceCredentialRequest
+
+	// Upgrade suite: the extra DPUServiceTemplate/DPUServiceConfiguration
+	// revision the upgrade phases roll the DPUDeployment to.
 	additionalDPUServiceConfiguration *dpuservicev1.DPUServiceConfiguration
-	dpuServiceIPAMTemplate            *dpuservicev1.DPUServiceIPAM
-	dpuServiceNAD                     *dpuservicev1.DPUServiceNAD
-	cidrDPUServiceIPAM                *dpuservicev1.DPUServiceIPAM
-	ipPoolDPUServiceIPAM              *dpuservicev1.DPUServiceIPAM
-	dpuServiceCredentialRequest       *dpuservicev1.DPUServiceCredentialRequest
-	ovnCredentialRequest              *dpuservicev1.DPUServiceCredentialRequest
-	numberOfDPUNodes                  int
-	numberOfDPUsPerNode               int
-	pullSecretNames                   []string
-	client                            client.Client
-	cleanupFlags                      *cleanup.CleanupFlags
-	bfbImageURL                       string
-	restConfig                        *rest.Config
-	nodeRebootConfigMap               string
-	nodeRebootConfigMapPath           string
-	useExternalNodeReboot             bool
-	dpuNodeBMCs                       map[string]string
+	additionalDPUServiceTemplate      *dpuservicev1.DPUServiceTemplate
+
+	// Provisioning objects and environment settings.
+	bfb                     *provisioningv1.BFB
+	blueFieldSoftware       *provisioningv1.BlueFieldSoftware
+	dpuClusterPrerequisites []client.Object
+	dpuDiscovery            *provisioningv1.DPUDiscovery
+	dpuFlavor               *provisioningv1.DPUFlavor
+	nodeRebootConfigMap     string
+	nodeRebootConfigMapPath string
+	numberOfDPUNodes        int
+	numberOfDPUsPerNode     int
+	pvc                     *corev1.PersistentVolumeClaim
+	useExternalNodeReboot   bool
+
+	// Runtime state assembled by SetInput and the suite, not read from the
+	// config file.
+	bfbImageURL        string
+	bfsOsIsoURL        string
+	bfsPldmFwBundleURL string
+	cleanupFlags       *cleanup.CleanupFlags
+	client             client.Client
+	config             *operatorv1.DPFOperatorConfig
+	dpuNodeBMCs        map[string]string
+	namespace          string
+	pullSecretNames    []string
+	restConfig         *rest.Config
+}
+
+// unstructuredFromFile loads the manifest at path as an unstructured object
+// and stamps it with the suite cleanup labels.
+func unstructuredFromFile(path string) *unstructured.Unstructured {
+	data, err := os.ReadFile(path)
+	Expect(err).ToNot(HaveOccurred())
+	obj := &unstructured.Unstructured{}
+	Expect(yaml.Unmarshal(data, obj)).To(Succeed())
+	obj.SetLabels(CleanupScope.Suite)
+	return obj
+}
+
+// objectFromFile decodes the manifest at path into a new T. It goes through
+// unstructuredFromFile so the suite cleanup labels are applied.
+func objectFromFile[T any](path string) *T {
+	obj := new(T)
+	u := unstructuredFromFile(path)
+	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(u.Object, obj)).To(Succeed())
+	return obj
+}
+
+// optionalObjectFromFile returns nil when the e2e config field is unset.
+func optionalObjectFromFile[T any](path *string) *T {
+	if path == nil {
+		return nil
+	}
+	return objectFromFile[T](*path)
+}
+
+// requiredObjectFromFile fails with the e2e config field name when a field
+// the selected suite needs is unset, then loads it.
+func requiredObjectFromFile[T any](suite, fieldName string, path *string) *T {
+	return objectFromFile[T](requireConfigField(suite, fieldName, path))
+}
+
+// requireConfigField fails when the given e2e config field is unset and
+// returns the configured path otherwise. Suite-specific loaders use it so a
+// config missing a field the selected suite needs fails fast with the field
+// name instead of an unreadable file error. The suite name tells the operator
+// which label to exclude if the suite was selected unintentionally (e.g. !SDN).
+func requireConfigField(suite, fieldName string, path *string) string {
+	Expect(path).ToNot(BeNil(),
+		"e2e config file must set `%s` to run %s tests (set it or exclude the tests with the label filter !%s)", fieldName, suite, suite)
+	return *path
 }
 
 func (t *systemTestInput) applySDNConfig(conf config) {
-	dpuServiceInterfaceTemplate := &dpuservicev1.DPUServiceInterface{}
-	dsiTemplate := unstructuredFromFile(conf.DPUServiceInterfaceTemplatePath)
-	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(dsiTemplate.Object, dpuServiceInterfaceTemplate)).To(Succeed())
-	t.dpuServiceInterfaceTemplate = dpuServiceInterfaceTemplate
+	t.dpuServiceInterfaceTemplate = requiredObjectFromFile[dpuservicev1.DPUServiceInterface](Domain.SDN, "dpuServiceInterfaceTemplate", conf.DPUServiceInterfaceTemplatePath)
+	t.dpuServiceIPAMTemplate = requiredObjectFromFile[dpuservicev1.DPUServiceIPAM](Domain.SDN, "dpuServiceIPAMTemplate", conf.DPUServiceIPAMTemplatePath)
+	t.dpuServiceNAD = requiredObjectFromFile[dpuservicev1.DPUServiceNAD](Domain.SDN, "dpuServiceNAD", conf.DPUServiceNADPath)
+	t.dpuServiceChainTemplate = requiredObjectFromFile[dpuservicev1.DPUServiceChain](Domain.SDN, "dpuServiceChainTemplate", conf.DPUServiceChainTemplatePath)
 
-	dpuServiceHBN := &dpuservicev1.DPUService{}
-	svcHBN := unstructuredFromFile(conf.DPUServiceHBNPath)
+	// The HBN DPUService takes its overrides on the unstructured object, so it
+	// cannot go through the typed loaders.
+	svcHBN := unstructuredFromFile(requireConfigField(Domain.SDN, "dpuServiceHBN", conf.DPUServiceHBNPath))
 
 	// Override HBN image if HBN_IMAGE_URL is set
 	if hbnImageURL != "" {
 		parts := strings.SplitN(hbnImageURL, ":", 2)
-		repository := parts[0]
-		tag := parts[1]
-		updateHBNImage(svcHBN, repository, tag)
+		setNestedField(svcHBN, parts[0], "spec", "helmChart", "values", "image", "repository")
+		setNestedField(svcHBN, parts[1], "spec", "helmChart", "values", "image", "tag")
 	}
 	if repoURL, found := os.LookupEnv("HBN_CHART_REPO"); found {
-		updateHBNChartRepo(svcHBN, repoURL)
+		setNestedField(svcHBN, repoURL, "spec", "helmChart", "source", "repoURL")
 	}
 	if chartVersion, found := os.LookupEnv("HBN_CHART_VERSION"); found {
-		updateHBNChartVersion(svcHBN, chartVersion)
+		setNestedField(svcHBN, chartVersion, "spec", "helmChart", "source", "version")
 	}
 
 	if ngcAPIKey != "" {
 		updateImagePullSecret(svcHBN, ngcPullSecretName)
 	}
 
+	dpuServiceHBN := &dpuservicev1.DPUService{}
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(svcHBN.Object, dpuServiceHBN)).To(Succeed())
 	t.dpuServiceHBN = dpuServiceHBN
-
-	dpuServiceIPAMTemplate := &dpuservicev1.DPUServiceIPAM{}
-	ipam := unstructuredFromFile(conf.DPUServiceIPAMTemplatePath)
-	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(ipam.Object, dpuServiceIPAMTemplate)).To(Succeed())
-	t.dpuServiceIPAMTemplate = dpuServiceIPAMTemplate
-
-	dpuServiceNAD := &dpuservicev1.DPUServiceNAD{}
-	nad := unstructuredFromFile(conf.DPUServiceNADPath)
-	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(nad.Object, dpuServiceNAD)).To(Succeed())
-	t.dpuServiceNAD = dpuServiceNAD
-
-	dpuServiceChainTemplate := &dpuservicev1.DPUServiceChain{}
-	chainTemplate := unstructuredFromFile(conf.DPUServiceChainTemplatePath)
-	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(chainTemplate.Object, dpuServiceChainTemplate)).To(Succeed())
-	t.dpuServiceChainTemplate = dpuServiceChainTemplate
 }
 
-func updateHBNImage(svcHBN *unstructured.Unstructured, repository, tag string) {
-	err := unstructured.SetNestedField(svcHBN.Object, repository,
-		"spec", "helmChart", "values", "image", "repository")
-	Expect(err).ToNot(HaveOccurred())
-
-	err = unstructured.SetNestedField(svcHBN.Object, tag,
-		"spec", "helmChart", "values", "image", "tag")
-	Expect(err).ToNot(HaveOccurred())
-}
-
-func updateHBNChartRepo(svcHBN *unstructured.Unstructured, repoURL string) {
-	err := unstructured.SetNestedField(svcHBN.Object, repoURL,
-		"spec", "helmChart", "source", "repoURL")
-	Expect(err).ToNot(HaveOccurred())
-}
-
-func updateHBNChartVersion(svcHBN *unstructured.Unstructured, chartVersion string) {
-	err := unstructured.SetNestedField(svcHBN.Object, chartVersion,
-		"spec", "helmChart", "source", "version")
-	Expect(err).ToNot(HaveOccurred())
+// setNestedField sets a nested string field on an unstructured object,
+// failing the test on error.
+func setNestedField(obj *unstructured.Unstructured, value string, fields ...string) {
+	Expect(unstructured.SetNestedField(obj.Object, value, fields...)).To(Succeed())
 }
 
 func updateImagePullSecret(svc *unstructured.Unstructured, secretName string) {
@@ -231,38 +266,15 @@ func updateImagePullSecret(svc *unstructured.Unstructured, secretName string) {
 }
 
 func (t *systemTestInput) applyConfig(conf config) {
-	if conf.BFBPath != nil {
-		bfb := &provisioningv1.BFB{}
-		bfbUnstructured := unstructuredFromFile(*conf.BFBPath)
-		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(bfbUnstructured.Object, bfb)).To(Succeed())
-		t.bfb = bfb
-	}
-
-	if conf.BlueFieldSoftwarePath != nil {
-		blueFieldSoftware := &provisioningv1.BlueFieldSoftware{}
-		bfsUnstructured := unstructuredFromFile(*conf.BlueFieldSoftwarePath)
-		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(bfsUnstructured.Object, blueFieldSoftware)).To(Succeed())
-		t.blueFieldSoftware = blueFieldSoftware
-	}
-
-	dpuSet := &provisioningv1.DPUSet{}
-	dpuSetUnstructured := unstructuredFromFile(conf.DPUSetPath)
-	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(dpuSetUnstructured.Object, dpuSet)).To(Succeed())
-	t.dpuSet = dpuSet
-
-	pvc := &corev1.PersistentVolumeClaim{}
-	if conf.ProvisioningControllerPVCPath != nil {
-		pvcUnstructured := unstructuredFromFile(*conf.ProvisioningControllerPVCPath)
-		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(pvcUnstructured.Object, pvc)).To(Succeed())
-		t.pvc = pvc
-	}
+	t.bfb = optionalObjectFromFile[provisioningv1.BFB](conf.BFBPath)
+	t.blueFieldSoftware = optionalObjectFromFile[provisioningv1.BlueFieldSoftware](conf.BlueFieldSoftwarePath)
+	t.dpuSet = optionalObjectFromFile[provisioningv1.DPUSet](conf.DPUSetPath)
+	t.pvc = optionalObjectFromFile[corev1.PersistentVolumeClaim](conf.ProvisioningControllerPVCPath)
 
 	// Load all DPU clusters
 	t.dpuClusters = make([]*provisioningv1.DPUCluster, 0, len(conf.DPUClusterPaths))
 	for _, dpuClusterPath := range conf.DPUClusterPaths {
-		dpuCluster := &provisioningv1.DPUCluster{}
-		dpuClusterUnstructured := unstructuredFromFile(dpuClusterPath)
-		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(dpuClusterUnstructured.Object, dpuCluster)).To(Succeed())
+		dpuCluster := objectFromFile[provisioningv1.DPUCluster](dpuClusterPath)
 		// Override interface if DPUCLUSTER_INTERFACE environment variable is set
 		if dpuClusterInterface != "" && dpuCluster.Spec.ClusterEndpoint != nil && dpuCluster.Spec.ClusterEndpoint.Keepalived != nil {
 			By(fmt.Sprintf("Overriding DPUCluster interface with DPUCLUSTER_INTERFACE=%s", dpuClusterInterface))
@@ -271,22 +283,9 @@ func (t *systemTestInput) applyConfig(conf config) {
 		t.dpuClusters = append(t.dpuClusters, dpuCluster)
 	}
 
-	if conf.DPUDiscoveryPath != nil {
-		dpuDiscovery := &provisioningv1.DPUDiscovery{}
-		dpuDiscoveryUnstructured := unstructuredFromFile(*conf.DPUDiscoveryPath)
-		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(dpuDiscoveryUnstructured.Object, dpuDiscovery)).To(Succeed())
-		t.dpuDiscovery = dpuDiscovery
-	}
-
-	dpuServiceInterface := &dpuservicev1.DPUServiceInterface{}
-	dsi := unstructuredFromFile(conf.DPUServiceInterfacePath)
-	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(dsi.Object, dpuServiceInterface)).To(Succeed())
-	t.dpuServiceInterface = dpuServiceInterface
-
-	dpuService := &dpuservicev1.DPUService{}
-	svc := unstructuredFromFile(conf.DPUServicePath)
-	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(svc.Object, dpuService)).To(Succeed())
-	t.dpuService = dpuService
+	t.dpuDiscovery = optionalObjectFromFile[provisioningv1.DPUDiscovery](conf.DPUDiscoveryPath)
+	t.dpuServiceInterface = optionalObjectFromFile[dpuservicev1.DPUServiceInterface](conf.DPUServiceInterfacePath)
+	t.dpuService = optionalObjectFromFile[dpuservicev1.DPUService](conf.DPUServicePath)
 
 	dpuClusterPrerequisiteObjects := []client.Object{}
 	for _, path := range conf.DPUClusterPrerequisiteObjectPaths {
@@ -294,123 +293,56 @@ func (t *systemTestInput) applyConfig(conf config) {
 	}
 	t.dpuClusterPrerequisites = dpuClusterPrerequisiteObjects
 
-	dpuServiceTemplate := &dpuservicev1.DPUServiceTemplate{}
-	tmp := unstructuredFromFile(conf.DPUServiceTemplatePath)
-	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(tmp.Object, dpuServiceTemplate)).To(Succeed())
-	t.dpuServiceTemplate = dpuServiceTemplate
-
-	dpuServiceConfiguration := &dpuservicev1.DPUServiceConfiguration{}
-	svcConfig := unstructuredFromFile(conf.DPUServiceConfiguration)
-	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(svcConfig.Object, dpuServiceConfiguration)).To(Succeed())
-	t.dpuServiceConfiguration = dpuServiceConfiguration
-
-	if conf.AdditionalDPUServiceTemplatePath != nil {
-		additionalTemplate := &dpuservicev1.DPUServiceTemplate{}
-		tmp := unstructuredFromFile(*conf.AdditionalDPUServiceTemplatePath)
-		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(tmp.Object, additionalTemplate)).To(Succeed())
-		t.additionalDPUServiceTemplate = additionalTemplate
-	}
-
-	if conf.AdditionalDPUServiceConfigurationPath != nil {
-		additionalConfiguration := &dpuservicev1.DPUServiceConfiguration{}
-		svcConfig := unstructuredFromFile(*conf.AdditionalDPUServiceConfigurationPath)
-		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(svcConfig.Object, additionalConfiguration)).To(Succeed())
-		t.additionalDPUServiceConfiguration = additionalConfiguration
-	}
+	t.dpuServiceTemplate = objectFromFile[dpuservicev1.DPUServiceTemplate](conf.DPUServiceTemplatePath)
+	t.dpuServiceConfiguration = objectFromFile[dpuservicev1.DPUServiceConfiguration](conf.DPUServiceConfiguration)
+	t.additionalDPUServiceTemplate = optionalObjectFromFile[dpuservicev1.DPUServiceTemplate](conf.AdditionalDPUServiceTemplatePath)
+	t.additionalDPUServiceConfiguration = optionalObjectFromFile[dpuservicev1.DPUServiceConfiguration](conf.AdditionalDPUServiceConfigurationPath)
 
 	t.dpuServiceInterfacesHBN = make([]*dpuservicev1.DPUServiceInterface, 0, len(conf.DPUServiceInterfacesHBNPaths))
 	for _, path := range conf.DPUServiceInterfacesHBNPaths {
-		iface := &dpuservicev1.DPUServiceInterface{}
-		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(unstructuredFromFile(path).Object, iface)).To(Succeed())
-		t.dpuServiceInterfacesHBN = append(t.dpuServiceInterfacesHBN, iface)
+		t.dpuServiceInterfacesHBN = append(t.dpuServiceInterfacesHBN, objectFromFile[dpuservicev1.DPUServiceInterface](path))
 	}
 
-	if conf.DPUServiceInterfaceOVNPath != nil {
-		ovnIface := &dpuservicev1.DPUServiceInterface{}
-		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(unstructuredFromFile(*conf.DPUServiceInterfaceOVNPath).Object, ovnIface)).To(Succeed())
-		t.dpuServiceInterfaceOVN = ovnIface
-	}
+	t.dpuServiceInterfaceOVN = optionalObjectFromFile[dpuservicev1.DPUServiceInterface](conf.DPUServiceInterfaceOVNPath)
 
-	if conf.DPUServiceTemplateOVNPath != nil {
-		dpuServiceTemplateOVN := &dpuservicev1.DPUServiceTemplate{}
-		ovnTmp := unstructuredFromFile(*conf.DPUServiceTemplateOVNPath)
-		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(ovnTmp.Object, dpuServiceTemplateOVN)).To(Succeed())
+	t.dpuServiceTemplateOVN = optionalObjectFromFile[dpuservicev1.DPUServiceTemplate](conf.DPUServiceTemplateOVNPath)
+	if t.dpuServiceTemplateOVN != nil {
 		if repoURL, found := os.LookupEnv("OVN_KUBERNETES_REPO_URL"); found {
-			dpuServiceTemplateOVN.Spec.HelmChart.Source.RepoURL = repoURL
+			t.dpuServiceTemplateOVN.Spec.HelmChart.Source.RepoURL = repoURL
 		}
 		if chartTag, found := os.LookupEnv("OVN_KUBERNETES_CHART_TAG"); found {
-			dpuServiceTemplateOVN.Spec.HelmChart.Source.Version = chartTag
+			t.dpuServiceTemplateOVN.Spec.HelmChart.Source.Version = chartTag
 		}
-		t.dpuServiceTemplateOVN = dpuServiceTemplateOVN
 	}
 
-	if conf.DPUServiceTemplateHBNPath != nil {
-		dpuServiceTemplateHBN := &dpuservicev1.DPUServiceTemplate{}
-		hbnTmp := unstructuredFromFile(*conf.DPUServiceTemplateHBNPath)
-		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(hbnTmp.Object, dpuServiceTemplateHBN)).To(Succeed())
+	t.dpuServiceTemplateHBN = optionalObjectFromFile[dpuservicev1.DPUServiceTemplate](conf.DPUServiceTemplateHBNPath)
+	if t.dpuServiceTemplateHBN != nil {
 		if repoURL, found := os.LookupEnv("HBN_CHART_REPO"); found {
-			dpuServiceTemplateHBN.Spec.HelmChart.Source.RepoURL = repoURL
+			t.dpuServiceTemplateHBN.Spec.HelmChart.Source.RepoURL = repoURL
 		}
 		if chartVersion, found := os.LookupEnv("HBN_CHART_VERSION"); found {
-			dpuServiceTemplateHBN.Spec.HelmChart.Source.Version = chartVersion
+			t.dpuServiceTemplateHBN.Spec.HelmChart.Source.Version = chartVersion
 		}
-		t.dpuServiceTemplateHBN = dpuServiceTemplateHBN
 	}
 
-	if conf.DPUServiceConfigurationOVNPath != nil {
-		dpuServiceConfigurationOVN := &dpuservicev1.DPUServiceConfiguration{}
-		ovnCfg := unstructuredFromFile(*conf.DPUServiceConfigurationOVNPath)
-		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(ovnCfg.Object, dpuServiceConfigurationOVN)).To(Succeed())
-		t.dpuServiceConfigurationOVN = dpuServiceConfigurationOVN
-	}
+	t.dpuServiceConfigurationOVN = optionalObjectFromFile[dpuservicev1.DPUServiceConfiguration](conf.DPUServiceConfigurationOVNPath)
+	t.dpuServiceConfigurationHBN = optionalObjectFromFile[dpuservicev1.DPUServiceConfiguration](conf.DPUServiceConfigurationHBNPath)
 
-	if conf.DPUServiceConfigurationHBNPath != nil {
-		dpuServiceConfigurationHBN := &dpuservicev1.DPUServiceConfiguration{}
-		hbnCfg := unstructuredFromFile(*conf.DPUServiceConfigurationHBNPath)
-		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(hbnCfg.Object, dpuServiceConfigurationHBN)).To(Succeed())
-		t.dpuServiceConfigurationHBN = dpuServiceConfigurationHBN
-	}
+	t.dpuDeployment = objectFromFile[dpuservicev1.DPUDeployment](conf.DPUDeploymentPath)
 
-	dpuDeployment := &dpuservicev1.DPUDeployment{}
-	deployment := unstructuredFromFile(conf.DPUDeploymentPath)
-	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(deployment.Object, dpuDeployment)).To(Succeed())
-	t.dpuDeployment = dpuDeployment
-
-	dpuFlavor := &provisioningv1.DPUFlavor{}
 	if conf.DPUFlavorPath != nil {
-		dpuFlavorUnstructured := unstructuredFromFile(*conf.DPUFlavorPath)
-		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(dpuFlavorUnstructured.Object, dpuFlavor)).To(Succeed())
-		t.dpuFlavor = dpuFlavor
-		t.dpuDeployment.Spec.DPUs.Flavor = ptr.To(dpuFlavor.Name)
-		t.dpuSet.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor.Name
+		t.dpuFlavor = objectFromFile[provisioningv1.DPUFlavor](*conf.DPUFlavorPath)
+		t.dpuDeployment.Spec.DPUs.Flavor = ptr.To(t.dpuFlavor.Name)
+		if t.dpuSet != nil {
+			t.dpuSet.Spec.DPUTemplate.Spec.DPUFlavor = t.dpuFlavor.Name
+		}
 	}
 
-	ipPoolDPUServiceIPAM := &dpuservicev1.DPUServiceIPAM{}
-	subnetIPAM := unstructuredFromFile(conf.IPPoolDPUServiceIPAMPath)
-	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(subnetIPAM.Object, ipPoolDPUServiceIPAM)).To(Succeed())
-	t.ipPoolDPUServiceIPAM = ipPoolDPUServiceIPAM
-
-	cidrDPUServiceIPAM := &dpuservicev1.DPUServiceIPAM{}
-	cidrIPAM := unstructuredFromFile(conf.CIDRPoolDPUServiceIPAMPath)
-	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(cidrIPAM.Object, cidrDPUServiceIPAM)).To(Succeed())
-	t.cidrDPUServiceIPAM = cidrDPUServiceIPAM
-
-	dpuServiceChain := &dpuservicev1.DPUServiceChain{}
-	chain := unstructuredFromFile(conf.DPUServiceChainPath)
-	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(chain.Object, dpuServiceChain)).To(Succeed())
-	t.dpuServiceChain = dpuServiceChain
-
-	dpuServiceCredentialRequest := &dpuservicev1.DPUServiceCredentialRequest{}
-	request := unstructuredFromFile(conf.DPUServiceCredentialRequestPath)
-	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(request.Object, dpuServiceCredentialRequest)).To(Succeed())
-	t.dpuServiceCredentialRequest = dpuServiceCredentialRequest
-
-	if conf.OVNCredentialRequestPath != nil {
-		ovnCredentialRequest := &dpuservicev1.DPUServiceCredentialRequest{}
-		ovnCR := unstructuredFromFile(*conf.OVNCredentialRequestPath)
-		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(ovnCR.Object, ovnCredentialRequest)).To(Succeed())
-		t.ovnCredentialRequest = ovnCredentialRequest
-	}
+	t.ipPoolDPUServiceIPAM = objectFromFile[dpuservicev1.DPUServiceIPAM](conf.IPPoolDPUServiceIPAMPath)
+	t.cidrDPUServiceIPAM = optionalObjectFromFile[dpuservicev1.DPUServiceIPAM](conf.CIDRPoolDPUServiceIPAMPath)
+	t.dpuServiceChain = optionalObjectFromFile[dpuservicev1.DPUServiceChain](conf.DPUServiceChainPath)
+	t.dpuServiceCredentialRequest = optionalObjectFromFile[dpuservicev1.DPUServiceCredentialRequest](conf.DPUServiceCredentialRequestPath)
+	t.ovnCredentialRequest = optionalObjectFromFile[dpuservicev1.DPUServiceCredentialRequest](conf.OVNCredentialRequestPath)
 
 	t.numberOfDPUNodes = conf.NumberOfDPUNodes
 	t.numberOfDPUsPerNode = conf.NumberOfDPUsPerNode
@@ -1481,15 +1413,6 @@ func PatchDPUNodesForScriptReboot(ctx context.Context, c client.Client,
 			dpuNode.Name, configMapName, bmcIP))
 		Expect(c.Patch(ctx, dpuNode, patch)).To(Succeed())
 	}
-}
-
-func unstructuredFromFile(path string) *unstructured.Unstructured {
-	data, err := os.ReadFile(path)
-	Expect(err).ToNot(HaveOccurred())
-	obj := &unstructured.Unstructured{}
-	Expect(yaml.Unmarshal(data, obj)).To(Succeed())
-	obj.SetLabels(CleanupScope.Suite)
-	return obj
 }
 
 type collectResourcesInput struct {

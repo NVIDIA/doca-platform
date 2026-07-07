@@ -296,6 +296,15 @@ var _ = BeforeSuite(func() {
 	By("Performing before suite cleanup")
 	cleanupTracker.HandleScopeLifecycle(nil, cleanup.GinkgoHook.BeforeSuite)
 
+	// Upgrade install phases (validation phases returned above) provision and
+	// create everything from their own phase steps; none of the domain-specific
+	// setup below applies to them, so the upgrade configs may omit those
+	// domains' config fields.
+	if isUpgradeInstallPhase() {
+		By("Skipping domain-specific BeforeSuite hooks for the upgrade install phase")
+		return
+	}
+
 	// Label filter examples supported:
 	// (Domain.DPFSystem)                  -> all tests with Domain.DPFSystem running. SDN, SNAP included
 	// (Domain.Scale)                      -> only Domain.Scale tests running
@@ -448,6 +457,46 @@ var _ = AfterSuite(func() {
 	By("Performing final suite cleanup")
 	cleanupTracker.HandleScopeLifecycle(nil, cleanup.GinkgoHook.AfterSuite)
 })
+
+// validateRequiredConfigFields fails fast when the e2e config file omits a
+// field the selected suites load unconditionally. Upgrade phases (install and
+// validation) create only the objects they declare and skip the
+// domain-specific BeforeSuite hooks, so their configs may omit everything the
+// other suites need. Fields loaded only by such a hook (SDN, VPC OVN, Weave)
+// are validated where they are loaded instead (see requireConfigField).
+func validateRequiredConfigFields() {
+	type requiredField struct {
+		name  string
+		isSet bool
+	}
+	required := []requiredField{
+		{"dpuClusters", len(conf.DPUClusterPaths) > 0},
+		{"dpuDeployment", conf.DPUDeploymentPath != ""},
+		{"dpuServiceTemplate", conf.DPUServiceTemplatePath != ""},
+		{"dpuServiceConfiguration", conf.DPUServiceConfiguration != ""},
+		{"ipPoolDPUServiceIPAM", conf.IPPoolDPUServiceIPAMPath != ""},
+	}
+	if !isUpgradePhase() {
+		required = append(required,
+			requiredField{"dpuSet", conf.DPUSetPath != nil},
+			requiredField{"dpuService", conf.DPUServicePath != nil},
+			requiredField{"dpuServiceInterface", conf.DPUServiceInterfacePath != nil},
+			requiredField{"dpuServiceChain", conf.DPUServiceChainPath != nil},
+			requiredField{"dpuServiceCredentialRequest", conf.DPUServiceCredentialRequestPath != nil},
+			requiredField{"cidrPoolDPUServiceIPAM", conf.CIDRPoolDPUServiceIPAMPath != nil},
+		)
+	}
+
+	missing := []string{}
+	for _, field := range required {
+		if !field.isSet {
+			missing = append(missing, "`"+field.name+"`")
+		}
+	}
+	if len(missing) > 0 {
+		panic(fmt.Sprintf("e2e config file must set: %s", strings.Join(missing, ", ")))
+	}
+}
 
 func validateFlags() {
 	if !isGinkgoLabelApplied(Domain.ZeroTrust) {
