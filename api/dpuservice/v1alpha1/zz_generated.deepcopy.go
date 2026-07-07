@@ -719,6 +719,11 @@ func (in *DPUServiceCredentialRequestStatus) DeepCopyInto(out *DPUServiceCredent
 		*out = new(string)
 		**out = **in
 	}
+	if in.TargetClusterUID != nil {
+		in, out := &in.TargetClusterUID, &out.TargetClusterUID
+		*out = new(string)
+		**out = **in
+	}
 	if in.ExpirationTimestamp != nil {
 		in, out := &in.ExpirationTimestamp, &out.ExpirationTimestamp
 		*out = (*in).DeepCopy()
