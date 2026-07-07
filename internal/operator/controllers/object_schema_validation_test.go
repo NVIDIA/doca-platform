@@ -140,7 +140,7 @@ func TestValidateObjectSchemaForCRDMissingRequiredField(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "missing-field", Namespace: "dpf-operator-system"},
 		Spec: dpuservicev1.DPUDeploymentSpec{
 			DPUs: dpuservicev1.DPUs{
-				Flavor:         "flavor",
+				Flavor:         ptr.To("flavor"),
 				NodeEffect:     provisioningv1.Action{Drain: ptr.To(true)},
 				DPUSetStrategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.RollingUpdateStrategyType},
 			},

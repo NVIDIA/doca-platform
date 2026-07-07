@@ -56,6 +56,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -380,7 +381,7 @@ func (t *systemTestInput) applyConfig(conf config) {
 		dpuFlavorUnstructured := unstructuredFromFile(*conf.DPUFlavorPath)
 		Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(dpuFlavorUnstructured.Object, dpuFlavor)).To(Succeed())
 		t.dpuFlavor = dpuFlavor
-		t.dpuDeployment.Spec.DPUs.Flavor = dpuFlavor.Name
+		t.dpuDeployment.Spec.DPUs.Flavor = ptr.To(dpuFlavor.Name)
 		t.dpuSet.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor.Name
 	}
 

@@ -111,7 +111,7 @@ type DPFOperatorConfigReconcilerSettings struct {
 // Provisioning objects
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpusets;dpuflavors;dpuflavortemplates;bfbs;bluefieldsoftwares;dpus;dpuclusters;dpudevices;dpunodes;dpudiscoveries;dpunodemaintenances,verbs=create;delete;get;list;watch;patch;update;deletecollection
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpusets/status;dpus/status;bfbs/status;bluefieldsoftwares/status;dpuclusters/status;dpunodes/status;dpudevices/status;dpudiscoveries/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpusets/finalizers;bfbs/finalizers;bluefieldsoftwares/finalizers;dpus/finalizers;dpuflavors/finalizers;dpuclusters/finalizers;dpudevices/finalizers;dpunodes/finalizers;dpudiscoveries/finalizers,verbs=update
+// +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpusets/finalizers;bfbs/finalizers;bluefieldsoftwares/finalizers;dpus/finalizers;dpuflavors/finalizers;dpuflavortemplates/finalizers;dpuclusters/finalizers;dpudevices/finalizers;dpunodes/finalizers;dpudiscoveries/finalizers,verbs=update
 
 // VPC objects
 // +kubebuilder:rbac:groups=vpc.dpu.nvidia.com,resources=dpuvpcs;dpuvirtualnetworks;isolationclasses,verbs=get;list;watch;create;update;patch;delete;deletecollection
