@@ -92,22 +92,21 @@ var runnerListCmd = &cobra.Command{
 		// Filter runners
 		filteredRunners := filterRunners(runners)
 
-		// Fetch detailed runner information and current job state
+		// Project-side running jobs by runner; names jobs on shared runners we
+		// do not own (see gitlab.Client.ListProjectRunningJobs).
+		projectJobs := runningJobsByRunner(client)
+
+		// Fetch detailed runner information and current job state. The per-runner
+		// endpoints can 403 for a Maintainer on group runners, so they are
+		// best-effort enrichment over the list data rather than fatal.
 		runnerList := make([]runnerWithJob, 0, len(filteredRunners))
 		for _, runner := range filteredRunners {
-			runnerDetails, err := client.GetRunnerDetails(runner.ID)
-			if err != nil {
-				return fmt.Errorf("failed to fetch runner details: %v", err)
+			details := runnerDetailsFromRunner(runner)
+			if full, err := client.GetRunnerDetails(runner.ID); err == nil {
+				details = full
 			}
-			jobState := "idle"
-			runningJobs, err := client.GetRunnerJobs(runner.ID, "running", 1)
-			if err != nil {
-				return fmt.Errorf("failed to fetch runner jobs: %v", err)
-			}
-			if len(runningJobs) > 0 {
-				jobState = fmt.Sprintf("running: %s", runningJobs[0].Name)
-			}
-			runnerList = append(runnerList, runnerWithJob{Details: runnerDetails, Job: jobState})
+
+			runnerList = append(runnerList, runnerWithJob{Details: details, Job: runnerJobState(client, runner, projectJobs)})
 		}
 
 		// Sort runners by description (alphabetically, stable ordering)
@@ -151,6 +150,103 @@ func filterRunners(runners []gitlab.Runner) []gitlab.Runner {
 type runnerWithJob struct {
 	Details *gitlab.RunnerDetails
 	Job     string
+}
+
+// runnerJobClient is the subset of the GitLab client used to determine a
+// runner's job state. It is an interface so the logic can be unit tested.
+type runnerJobClient interface {
+	GetRunnerJobExecutionStatus(runnerID int) (string, error)
+	GetRunnerJobs(runnerID int, status string, limit int) ([]gitlab.Job, error)
+}
+
+// runnerJobInfo determines a runner's job state and, when the running job is
+// visible to the caller, returns it. States: "running" (job populated), "busy"
+// (running a job the caller cannot see), "idle", and "unknown" (GraphQL status
+// unavailable on a shared runner, whose idle state cannot be trusted).
+//
+// The GraphQL jobExecutionStatus is the busy/idle source of truth: unlike the
+// job listings it is readable even for shared runners the caller does not own
+// (see GetRunnerJobExecutionStatus). The job itself comes from the prefetched
+// project jobs, falling back to the runner-scoped endpoint for runners we own.
+func runnerJobInfo(client runnerJobClient, runner gitlab.Runner, projectJobs map[int]gitlab.Job) (string, gitlab.Job) {
+	if job, ok := projectJobs[runner.ID]; ok {
+		return "running", job
+	}
+
+	status, err := client.GetRunnerJobExecutionStatus(runner.ID)
+	statusKnown := err == nil && status != ""
+	if statusKnown && status != "active" {
+		return "idle", gitlab.Job{}
+	}
+
+	// Active or status unavailable: the runner-scoped endpoint may still have
+	// the job (it works for runners we own).
+	if jobs, err := client.GetRunnerJobs(runner.ID, "running", 1); err == nil && len(jobs) > 0 {
+		return "running", jobs[0]
+	}
+
+	switch {
+	case statusKnown: // active, but the job is not visible to this token
+		return "busy", gitlab.Job{}
+	case isSharedRunner(runner):
+		return "unknown", gitlab.Job{}
+	}
+	return "idle", gitlab.Job{}
+}
+
+// runnerJobState renders runnerJobInfo's result as the JOB column value.
+func runnerJobState(client runnerJobClient, runner gitlab.Runner, projectJobs map[int]gitlab.Job) string {
+	state, job := runnerJobInfo(client, runner, projectJobs)
+	if state == "running" {
+		return "running: " + job.Name
+	}
+	return state
+}
+
+// runningJobsByRunner fetches the configured project's running jobs and indexes
+// them by the runner executing them. It is best-effort: an error yields an empty
+// map, and job-naming simply degrades to the runner-scoped lookup.
+func runningJobsByRunner(client *gitlab.Client) map[int]gitlab.Job {
+	byRunner := map[int]gitlab.Job{}
+	jobs, err := client.ListProjectRunningJobs()
+	if err != nil {
+		return byRunner
+	}
+	for _, job := range jobs {
+		if job.Runner != nil {
+			byRunner[job.Runner.ID] = job
+		}
+	}
+	return byRunner
+}
+
+// isSharedRunner reports whether the runner is shared beyond a single project,
+// i.e. an instance or group runner. Job visibility for these runners is scoped
+// to projects the caller can access (Reporter role or above), so a non-owner
+// caller cannot see jobs the runner is executing for projects it is not a
+// member of. Their reported "idle" state therefore cannot be trusted: only
+// project runners report a job state we can rely on.
+func isSharedRunner(r gitlab.Runner) bool {
+	return r.IsShared || r.RunnerType == "instance_type" || r.RunnerType == "group_type"
+}
+
+// runnerDetailsFromRunner builds a RunnerDetails from the entry returned by the
+// project runners list. It is used as a fallback when the per-runner details
+// endpoint is not accessible (e.g. group runners for a project Maintainer).
+// Tags and project associations are unavailable in this case and are left empty.
+func runnerDetailsFromRunner(r gitlab.Runner) *gitlab.RunnerDetails {
+	return &gitlab.RunnerDetails{
+		Active:      r.Active,
+		Paused:      r.Paused,
+		Description: r.Description,
+		ID:          r.ID,
+		IPAddress:   r.IPAddress,
+		IsShared:    r.IsShared,
+		RunnerType:  r.RunnerType,
+		Name:        r.Name,
+		Online:      r.Online,
+		Status:      r.Status,
+	}
 }
 
 // printRunners prints the runner list in a formatted table
@@ -201,6 +297,7 @@ const (
 	ansiGreen  = "\033[32m"
 	ansiYellow = "\033[33m"
 	ansiCyan   = "\033[36m"
+	ansiGray   = "\033[90m"
 )
 
 func colorEnabled() bool {
@@ -235,16 +332,21 @@ func runnerStatusBadge(runner *gitlab.RunnerDetails, color bool) string {
 }
 
 func jobStatusBadge(job string, color bool) string {
-	if job == "idle" {
-		if color {
-			return ansiCyan + "• IDLE" + ansiReset
-		}
-		return "• IDLE"
+	text := "▶ " + strings.TrimPrefix(job, "running: ")
+	ansiColor := ansiYellow
+
+	switch job {
+	case "idle":
+		text, ansiColor = "• IDLE", ansiCyan
+	case "unknown":
+		text, ansiColor = "• N/A", ansiGray
+	case "busy":
+		// Running a job whose name is not visible to the caller.
+		text = "▶ RUNNING"
 	}
 
-	text := "▶ " + strings.TrimPrefix(job, "running: ")
-	if color {
-		return ansiYellow + text + ansiReset
+	if !color {
+		return text
 	}
-	return text
+	return ansiColor + text + ansiReset
 }
