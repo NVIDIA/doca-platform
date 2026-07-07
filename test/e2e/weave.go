@@ -34,7 +34,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	machineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -190,10 +189,7 @@ type weaveTestInput struct {
 }
 
 func (t *weaveTestInput) applyWeaveConfig(conf config) {
-	dhcpDaemonSet := &appsv1.DaemonSet{}
-	dhcpObj := unstructuredFromFile(conf.DHCPDaemonSetPath)
-	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(dhcpObj.Object, dhcpDaemonSet)).To(Succeed())
-	t.dhcpDaemonSet = dhcpDaemonSet
+	t.dhcpDaemonSet = requiredObjectFromFile[appsv1.DaemonSet](Domain.Weave, "dhcpDaemonSet", conf.DHCPDaemonSetPath)
 }
 
 // WeaveBeforeSuite is called from the e2e BeforeSuite to load Weave test artifacts from config.
