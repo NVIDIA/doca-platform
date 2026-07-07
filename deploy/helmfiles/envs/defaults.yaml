@@ -5,3 +5,9 @@
 #   helmfile --state-values-file envs/all.yaml sync        # all.yaml: all features enabled
 kata:
   enabled: false
+
+openbao:
+  enabled: false
+
+external-secrets:
+  enabled: false

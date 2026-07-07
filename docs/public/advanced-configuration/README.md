@@ -18,3 +18,4 @@ This page contains advanced configuration documentation for the DOCA Platform Fr
 * [Host Trusted Multi-DPU support OVN-Kubernetes and HBN Services](multi-dpu-ovnk-hbn.md) - Guide that describes how to target particular DPUs for provisioning and service orchestration of OVN-Kubernetes and HBN Services.
 * [Per-DPU BMC Credentials](per-dpu-bmc-credentials.md) - Configuration for using unique BMC credentials per DPU device instead of the shared password
 * [Kata Containers on Host Nodes](kata-containers.md) - Guide for running pods with Kata VM isolation on host worker nodes, including SR-IOV VF passthrough with DOCA hardware offload
+* [Encrypted Secrets](encrypted-secrets.md) - Configuration for storing secret data in an external secret store and replicating it to the management cluster with External Secrets Operator
