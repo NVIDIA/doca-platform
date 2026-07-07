@@ -156,12 +156,63 @@ func (r *DPUSetReconciler) reconcileDelete(ctx context.Context, dpuSet *provisio
 		return fmt.Errorf("not all DPUs are deleted")
 	}
 
+	// All owned DPUs are gone, so the referenced BlueFieldSoftware is no longer in
+	// use by this DPUSet and its protection finalizer can be released.
+	if err := r.removeBlueFieldSoftwareFinalizer(ctx, dpuSet); err != nil {
+		return err
+	}
+
 	if err := r.cleanupCollisionLabels(ctx, dpuSet); err != nil {
 		return fmt.Errorf("failed to clean up collision labels: %w", err)
 	}
 
 	controllerutil.RemoveFinalizer(dpuSet, provisioningv1.DPUSetFinalizer)
 
+	return nil
+}
+
+// removeBlueFieldSoftwareFinalizer releases the protection finalizer this DPUSet
+// placed on its referenced BlueFieldSoftware. A NotFound is treated as success so
+// deletion is not blocked when the BlueFieldSoftware is already gone.
+func (r *DPUSetReconciler) removeBlueFieldSoftwareFinalizer(ctx context.Context, dpuSet *provisioningv1.DPUSet) error {
+	if dpuSet.Spec.DPUTemplate.Spec.BlueFieldSoftware == nil || dpuSet.Spec.DPUTemplate.Spec.BlueFieldSoftware.Name == "" {
+		return nil
+	}
+	bfsName := dpuSet.Spec.DPUTemplate.Spec.BlueFieldSoftware.Name
+
+	// The finalizer is a single shared string, so it must only be removed once the last
+	// DPUSet referencing this BlueFieldSoftware is gone. If any other DPUSet in the
+	// namespace still references it, leave the finalizer in place.
+	dpuSetList := &provisioningv1.DPUSetList{}
+	if err := r.List(ctx, dpuSetList, client.InNamespace(dpuSet.Namespace)); err != nil {
+		return fmt.Errorf("failed to list DPUSets: %w", err)
+	}
+	for i := range dpuSetList.Items {
+		other := &dpuSetList.Items[i]
+		if other.Name == dpuSet.Name {
+			continue
+		}
+		if other.Spec.DPUTemplate.Spec.BlueFieldSoftware != nil && other.Spec.DPUTemplate.Spec.BlueFieldSoftware.Name == bfsName {
+			return nil
+		}
+	}
+
+	bluefieldSoftware := &provisioningv1.BlueFieldSoftware{}
+	err := r.Get(ctx, types.NamespacedName{
+		Name:      bfsName,
+		Namespace: dpuSet.Namespace,
+	}, bluefieldSoftware)
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("failed to get BlueFieldSoftware: %w", err)
+	}
+	if controllerutil.RemoveFinalizer(bluefieldSoftware, provisioningv1.BlueFieldSoftwareFinalizer) {
+		if err := r.Update(ctx, bluefieldSoftware); err != nil {
+			return fmt.Errorf("failed to update BlueFieldSoftware: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -581,7 +632,20 @@ func (r *DPUSetReconciler) createDPU(ctx context.Context, dpuSet *provisioningv1
 		dpu.Spec.BFB = ptr.To(dpuSet.Spec.DPUTemplate.Spec.BFB.Name)
 	}
 	if dpuSet.Spec.DPUTemplate.Spec.BlueFieldSoftware != nil && dpuSet.Spec.DPUTemplate.Spec.BlueFieldSoftware.Name != "" {
-		dpu.Spec.BlueFieldSoftware = ptr.To(dpuSet.Spec.DPUTemplate.Spec.BlueFieldSoftware.Name)
+		bluefieldSoftware := &provisioningv1.BlueFieldSoftware{}
+		err := r.Get(ctx, types.NamespacedName{
+			Name:      dpuSet.Spec.DPUTemplate.Spec.BlueFieldSoftware.Name,
+			Namespace: dpuSet.Namespace,
+		}, bluefieldSoftware)
+		if err != nil {
+			return fmt.Errorf("failed to get BlueFieldSoftware: %w", err)
+		}
+		if controllerutil.AddFinalizer(bluefieldSoftware, provisioningv1.BlueFieldSoftwareFinalizer) {
+			if err := r.Update(ctx, bluefieldSoftware); err != nil {
+				return fmt.Errorf("failed to update BlueFieldSoftware: %w", err)
+			}
+		}
+		dpu.Spec.BlueFieldSoftware = ptr.To(bluefieldSoftware.Name)
 	}
 
 	if dpuSet.Spec.DPUTemplate.Spec.Cluster != nil && dpuSet.Spec.DPUTemplate.Spec.Cluster.Selector != nil {
