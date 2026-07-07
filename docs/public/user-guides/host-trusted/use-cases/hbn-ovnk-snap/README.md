@@ -1528,6 +1528,11 @@ spec:
 
 <details markdown="1"><summary><b>Secret for SPDK CSI credentials</b></summary>
 
+> [!NOTE]
+> The Secret below contains credentials. For production deployments, consider managing this Secret from an external
+> secret store with External Secrets Operator. See
+> [Encrypted Secrets](../../../../advanced-configuration/encrypted-secrets.md) for an example.
+
 [embedmd]:#(manifests/05-dpudeployment-installation/secret_spdk-csi.yaml)
 ```yaml
 ---

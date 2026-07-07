@@ -29,6 +29,8 @@ DPF uses the following components:
 | Etcd Defrag                 | Community (OSS) | ghcr.io/ahrtr                                                      | etcd-defrag                                   | v0.22.0 | Optional |
 | Kamaji                      | Community (OSS) | ghcr.io/nvidia                                                     | kamaji                                        | v1.35.0-26.4.4 | Conditional |
 | Local Path Provisioner      | Community (OSS) | docker.io/rancher                                                  | local-path-provisioner                        | v0.0.34 | Conditional |
+| OpenBao                     | Community (OSS) | quay.io/openbao                                                    | openbao                                       | v2.5.5  | Optional |
+| External Secrets            | Community (OSS) | ghcr.io/external-secrets                                           | external-secrets                              | v2.7.0  | Optional |
 | Kube State Metrics          | Community (OSS) | registry.k8s.io/kube-state-metrics                                 | kube-state-metrics                            | v2.18.0 | Optional |
 | Node Problem Detector       | Community (OSS) | registry.k8s.io/node-problem-detector                              | node-problem-detector                         | v1.35.1 | Optional |
 | Prometheus                  | Community (OSS) | quay.io/prometheus                                                 | prometheus                                    | v2.54.1 | Optional |

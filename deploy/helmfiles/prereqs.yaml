@@ -20,6 +20,10 @@ repositories:
     url: https://charts.jetstack.io
   - name: local-storage
     url: git+https://github.com/rancher/local-path-provisioner@deploy/chart?ref=v0.0.34
+  - name: openbao
+    url: https://openbao.github.io/openbao-helm
+  - name: external-secrets
+    url: https://charts.external-secrets.io
 
 helmDefaults:
   skipDeps: false
@@ -46,6 +50,52 @@ releases:
         args: ["wait", "--for=jsonpath={.webhooks[0].clientConfig.caBundle}", "--timeout=300s", "mutatingwebhookconfiguration", "cert-manager-webhook"]
         showlogs: true
 
+  - name: openbao
+    namespace: openbao
+    createNamespace: true
+    chart: openbao/openbao
+    version: 0.28.4
+    condition: openbao.enabled
+    # OpenBao is not ready until initialized. Disable Helm's built-in wait so
+    # the postsync initialization hook can run, then wait for true readiness.
+    wait: false
+    labels:
+      app: openbao
+    values:
+      - values/openbao.yaml
+    needs:
+      - cert-manager/cert-manager
+    hooks:
+      - events: [ "preapply", "presync" ]
+        command: "/bin/bash"
+        args: ["./hooks/openbao-create-static-seal-secret.sh", "openbao", "openbao-static-seal", "unseal.key"]
+        showlogs: true
+      - events: [ "postsync" ]
+        command: "/bin/bash"
+        args: ["./hooks/openbao-initialize.sh", "openbao", "openbao-0", "openbao-root-token"]
+        showlogs: true
+      - events: [ "postsync" ]
+        command: "kubectl"
+        args: ["wait", "-n", "openbao", "--for=condition=Ready", "--timeout=600s", "pod/openbao-0"]
+        showlogs: true
+      - events: [ "postsync" ]
+        command: "/bin/bash"
+        args: ["./hooks/copy-ca-from-certificate.sh", "openbao", "openbao-server-tls", "openbao-ca", "dpf-operator-system", "external-secrets"]
+        showlogs: true
+
+  - name: external-secrets
+    namespace: external-secrets
+    createNamespace: true
+    chart: external-secrets/external-secrets
+    version: 2.7.0
+    condition: external-secrets.enabled
+    labels:
+      app: external-secrets
+    values:
+      - values/external-secrets.yaml
+    needs:
+      - cert-manager/cert-manager
+
   - name: kamaji
     namespace: dpf-operator-system
     createNamespace: true
@@ -60,7 +110,7 @@ releases:
       - cert-manager/cert-manager
     hooks:
       - events: [ "preapply" ]
-        command: "./apply-crds.sh"
+        command: "./hooks/apply-crds.sh"
         args: ["oci://ghcr.io/nvidia/charts/kamaji", "1.4.0"]
         showlogs: true
 
@@ -77,7 +127,7 @@ releases:
       - cert-manager/cert-manager
     hooks:
       - events: [ "preapply" ]
-        command: "./apply-crds.sh"
+        command: "./hooks/apply-crds.sh"
         args: ["oci://ghcr.io/mellanox/maintenance-operator-chart", "0.3.0"]
         showlogs: true
 
@@ -129,7 +179,7 @@ releases:
       - values/node-feature-discovery.yaml
     hooks:
       - events: [ "preapply" ]
-        command: "./apply-crds.sh"
+        command: "./hooks/apply-crds.sh"
         args: ["node-feature-discovery/node-feature-discovery", "0.18.3"]
         showlogs: true
 
