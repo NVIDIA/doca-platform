@@ -157,6 +157,11 @@ type DPUServiceCredentialRequestStatus struct {
 	// +optional
 	TargetCluster *string `json:"targetCluster,omitempty"`
 
+	// TargetClusterUID is the UID of the DPUCluster the credentials were last issued against.
+	// Used to detect cluster recreation with the same name and force credential refresh.
+	// +optional
+	TargetClusterUID *string `json:"targetClusterUID,omitempty"`
+
 	// ExpirationTimestamp is the time when the token will expire.
 	// +optional
 	ExpirationTimestamp *metav1.Time `json:"expirationTimestamp,omitempty"`

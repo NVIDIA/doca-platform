@@ -32,6 +32,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/utils"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
+	predicateutils "github.com/nvidia/doca-platform/pkg/utils/predicates"
 
 	"github.com/fluxcd/pkg/runtime/patch"
 	authenticationv1 "k8s.io/api/authentication/v1"
@@ -45,8 +46,10 @@ import (
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -75,6 +78,7 @@ type DPUServiceCredentialRequestReconciler struct {
 func (r *DPUServiceCredentialRequestReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&dpuservicev1.DPUServiceCredentialRequest{}).
+		Watches(&provisioningv1.DPUCluster{}, handler.EnqueueRequestsFromMapFunc(r.DPUClusterToCredentialRequests), builder.WithPredicates(predicateutils.ReadyConditionChanged())).
 		Complete(r)
 }
 
@@ -122,9 +126,34 @@ func (r *DPUServiceCredentialRequestReconciler) reconcile(ctx context.Context, o
 	log := ctrllog.FromContext(ctx)
 
 	targetClient := r.Client
-	var dpuClusterConfig *dpucluster.Config
+	var (
+		dpuClusterConfig  *dpucluster.Config
+		currentClusterUID types.UID
+	)
 	if obj.Spec.TargetCluster != nil {
-		c, clusterConfig, err := r.getCluster(ctx, obj.Spec.TargetCluster)
+		dpuCluster, err := r.getDPUCluster(ctx, obj.Spec.TargetCluster)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				return r.reconcileTargetClusterUnavailable(ctx, obj, nil)
+			}
+			conditions.AddFalse(
+				obj,
+				dpuservicev1.ConditionServiceAccountReconciled,
+				conditions.ReasonError,
+				conditions.ConditionMessage(fmt.Sprintf("Error occurred: %v", err)),
+			)
+			return ctrl.Result{}, err
+		}
+
+		if !dpuCluster.DeletionTimestamp.IsZero() {
+			c, _, err := r.getClusterClient(ctx, dpuCluster)
+			if err != nil {
+				log.Info("Could not get cluster client while target DPUCluster is deleting, skipping ServiceAccount cleanup", "error", err)
+			}
+			return r.reconcileTargetClusterUnavailable(ctx, obj, c)
+		}
+
+		c, clusterConfig, err := r.getClusterClient(ctx, dpuCluster)
 		if err != nil {
 			conditions.AddFalse(
 				obj,
@@ -136,9 +165,10 @@ func (r *DPUServiceCredentialRequestReconciler) reconcile(ctx context.Context, o
 		}
 		targetClient = c
 		dpuClusterConfig = clusterConfig
+		currentClusterUID = dpuCluster.UID
 	}
 
-	tr, err := reconcileServiceAccount(ctx, obj, targetClient)
+	tr, err := reconcileServiceAccount(ctx, obj, targetClient, currentClusterUID)
 	if err != nil {
 		conditions.AddFalse(
 			obj,
@@ -155,6 +185,9 @@ func (r *DPUServiceCredentialRequestReconciler) reconcile(ctx context.Context, o
 	obj.Status.ServiceAccount = ptr.To(obj.Spec.ServiceAccount.String())
 	if obj.Spec.TargetCluster != nil {
 		obj.Status.TargetCluster = ptr.To(obj.Spec.TargetCluster.String())
+		if currentClusterUID != "" {
+			obj.Status.TargetClusterUID = ptr.To(string(currentClusterUID))
+		}
 	}
 
 	var token string
@@ -194,7 +227,7 @@ func (r *DPUServiceCredentialRequestReconciler) reconcile(ctx context.Context, o
 // reconcileServiceAccount reconciles the ServiceAccount for the DPUServiceCredentialRequest.
 // It returns the TokenRequest if the reconciliation was successful.
 // Labels are used to identify the ServiceAccount since it may be in a remote cluster where ownerReferences don't work.
-func reconcileServiceAccount(ctx context.Context, obj *dpuservicev1.DPUServiceCredentialRequest, targetClient client.Client) (*authenticationv1.TokenRequest, error) {
+func reconcileServiceAccount(ctx context.Context, obj *dpuservicev1.DPUServiceCredentialRequest, targetClient client.Client, currentClusterUID types.UID) (*authenticationv1.TokenRequest, error) {
 	log := ctrllog.FromContext(ctx)
 
 	// The ServiceAccount name and/or namespace diverges or the DPUServiceCredentialRequest
@@ -207,8 +240,8 @@ func reconcileServiceAccount(ctx context.Context, obj *dpuservicev1.DPUServiceCr
 		}
 	}
 
-	// The target cluster name diverges, delete the ServiceAccount if it exists.
-	if !equalName(obj.Status.TargetCluster, obj.Spec.TargetCluster) && obj.Status.ServiceAccount != nil {
+	// The target cluster diverges by name or UID (e.g. recreated with the same name), delete the ServiceAccount if it exists.
+	if targetClusterChanged(obj, currentClusterUID) && obj.Status.ServiceAccount != nil {
 		if err := deleteServiceAccount(ctx, obj, targetClient); err != nil {
 			return nil, err
 		}
@@ -319,20 +352,32 @@ func (r *DPUServiceCredentialRequestReconciler) reconcileSecret(ctx context.Cont
 	return r.patchSecret(ctx, obj, config)
 }
 
-func (r *DPUServiceCredentialRequestReconciler) getCluster(ctx context.Context, cluster *dpuservicev1.NamespacedName) (client.Client, *dpucluster.Config, error) {
+func (r *DPUServiceCredentialRequestReconciler) getDPUCluster(ctx context.Context, cluster *dpuservicev1.NamespacedName) (*provisioningv1.DPUCluster, error) {
 	dpc := &provisioningv1.DPUCluster{}
 	err := r.Client.Get(ctx, types.NamespacedName{Name: cluster.Name, Namespace: cluster.GetNamespace()}, dpc)
 	if err != nil {
-		return nil, nil, fmt.Errorf("error while getting DPU cluster %v: %w", cluster.Name, err)
+		return nil, fmt.Errorf("error while getting DPU cluster %v: %w", cluster.Name, err)
+	}
+	return dpc, nil
+}
+
+func (r *DPUServiceCredentialRequestReconciler) getCluster(ctx context.Context, cluster *dpuservicev1.NamespacedName) (client.Client, *dpucluster.Config, error) {
+	dpc, err := r.getDPUCluster(ctx, cluster)
+	if err != nil {
+		return nil, nil, err
 	}
 
+	return r.getClusterClient(ctx, dpc)
+}
+
+func (r *DPUServiceCredentialRequestReconciler) getClusterClient(ctx context.Context, dpc *provisioningv1.DPUCluster) (client.Client, *dpucluster.Config, error) {
 	dpuClusterConfig := dpucluster.NewConfig(r.Client, dpc)
-	client, err := dpuClusterConfig.Client(ctx)
+	clusterClient, err := dpuClusterConfig.Client(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error while getting client for cluster %v: %w", dpuClusterConfig.Cluster.Name, err)
 	}
 
-	return client, dpuClusterConfig, nil
+	return clusterClient, dpuClusterConfig, nil
 }
 
 // createKubeconfigWithToken creates a kubeconfig with the given token.
@@ -510,7 +555,7 @@ func (r *DPUServiceCredentialRequestReconciler) reconcileDelete(ctx context.Cont
 
 	// delete the ServiceAccount if target client is available
 	if targetClient != nil {
-		if _, err := reconcileServiceAccount(ctx, obj, targetClient); err != nil {
+		if _, err := reconcileServiceAccount(ctx, obj, targetClient, ""); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
@@ -542,7 +587,10 @@ func deleteServiceAccount(ctx context.Context, obj *dpuservicev1.DPUServiceCrede
 			return fmt.Errorf("error while getting ServiceAccount %s: %w", namespacedName, err)
 		}
 		if err == nil {
-			if err := targetClient.Delete(ctx, &sa); err != nil {
+			// check if it's managed by this controller for this credential request
+			if err := validateManagedLabels(sa.GetLabels(), obj, "service account "+*obj.Status.ServiceAccount); err != nil {
+				log.Info("Skipping ServiceAccount delete because it is not managed by this controller", "namespace", ns, "name", name, "error", err)
+			} else if err := targetClient.Delete(ctx, &sa); err != nil {
 				return fmt.Errorf("error while deleting ServiceAccount %s: %w", namespacedName, err)
 			}
 		}
@@ -551,6 +599,7 @@ func deleteServiceAccount(ctx context.Context, obj *dpuservicev1.DPUServiceCrede
 		// Clear the ServiceAccount related fields in the status.
 		obj.Status.ServiceAccount = nil
 		obj.Status.TargetCluster = nil
+		obj.Status.TargetClusterUID = nil
 		obj.Status.ExpirationTimestamp = nil
 		obj.Status.IssuedAt = nil
 	}
@@ -698,4 +747,99 @@ func getManagedLabels(obj *dpuservicev1.DPUServiceCredentialRequest) map[string]
 		dpuservicev1.CredentialRequestNameLabelKey:                obj.Name,
 		dpuservicev1.CredentialRequestNamespaceLabelKey:           obj.Namespace,
 	}
+}
+
+func (r *DPUServiceCredentialRequestReconciler) DPUClusterToCredentialRequests(ctx context.Context, o client.Object) []ctrl.Request {
+	cluster, ok := o.(*provisioningv1.DPUCluster)
+	if !ok {
+		return nil
+	}
+
+	credReqList := &dpuservicev1.DPUServiceCredentialRequestList{}
+	if err := r.Client.List(ctx, credReqList); err != nil {
+		return nil
+	}
+
+	clusterRef := &dpuservicev1.NamespacedName{
+		Name:      cluster.Name,
+		Namespace: ptr.To(cluster.Namespace),
+	}
+
+	result := make([]ctrl.Request, 0)
+	for _, credReq := range credReqList.Items {
+		if credentialRequestTargetsCluster(&credReq, clusterRef) {
+			result = append(result, ctrl.Request{
+				NamespacedName: client.ObjectKeyFromObject(&credReq),
+			})
+		}
+	}
+	return result
+}
+
+func credentialRequestTargetsCluster(credReq *dpuservicev1.DPUServiceCredentialRequest, cluster *dpuservicev1.NamespacedName) bool {
+	if credReq.Spec.TargetCluster == nil {
+		return false
+	}
+	return credReq.Spec.TargetCluster.Name == cluster.Name &&
+		credReq.Spec.TargetCluster.GetNamespace() == cluster.GetNamespace()
+}
+
+func (r *DPUServiceCredentialRequestReconciler) reconcileTargetClusterUnavailable(ctx context.Context, obj *dpuservicev1.DPUServiceCredentialRequest, targetClient client.Client) (ctrl.Result, error) {
+	log := ctrllog.FromContext(ctx)
+	log.Info("Target DPUCluster unavailable, clearing credentials", "targetCluster", obj.Spec.TargetCluster.String())
+
+	if err := r.cleanupCredentialRequest(ctx, obj, targetClient); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	conditions.AddFalse(
+		obj,
+		dpuservicev1.ConditionServiceAccountReconciled,
+		conditions.ReasonPending,
+		conditions.ConditionMessage("waiting for target DPUCluster"),
+	)
+	conditions.AddFalse(
+		obj,
+		dpuservicev1.ConditionSecretReconciled,
+		conditions.ReasonPending,
+		conditions.ConditionMessage("waiting for target DPUCluster"),
+	)
+	return ctrl.Result{}, nil
+}
+
+func (r *DPUServiceCredentialRequestReconciler) cleanupCredentialRequest(ctx context.Context, obj *dpuservicev1.DPUServiceCredentialRequest, targetClient client.Client) error {
+	if targetClient != nil {
+		if err := deleteServiceAccount(ctx, obj, targetClient); err != nil {
+			return err
+		}
+	} else {
+		clearCredentialStatus(obj)
+	}
+
+	if _, err := r.deleteSecret(ctx, obj); err != nil {
+		return err
+	}
+	return nil
+}
+
+func clearCredentialStatus(obj *dpuservicev1.DPUServiceCredentialRequest) {
+	obj.Status.ServiceAccount = nil
+	obj.Status.TargetCluster = nil
+	obj.Status.TargetClusterUID = nil
+	obj.Status.ExpirationTimestamp = nil
+	obj.Status.IssuedAt = nil
+}
+
+func targetClusterChanged(obj *dpuservicev1.DPUServiceCredentialRequest, currentClusterUID types.UID) bool {
+	if !equalName(obj.Status.TargetCluster, obj.Spec.TargetCluster) {
+		return true
+	}
+	return targetClusterUIDChanged(obj.Status.TargetClusterUID, currentClusterUID)
+}
+
+func targetClusterUIDChanged(statusUID *string, currentUID types.UID) bool {
+	if statusUID == nil || currentUID == "" {
+		return false
+	}
+	return *statusUID != string(currentUID)
 }
