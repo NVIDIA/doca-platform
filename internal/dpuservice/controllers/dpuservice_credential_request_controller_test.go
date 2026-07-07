@@ -337,6 +337,148 @@ var _ = Describe("DPUServiceCredentialRequest Controller", func() {
 	})
 })
 
+var _ = Describe("targetClusterUIDChanged", func() {
+	It("returns false when status UID is unset", func() {
+		Expect(targetClusterUIDChanged(nil, types.UID("abc"))).To(BeFalse())
+	})
+
+	It("returns false when current UID is empty", func() {
+		Expect(targetClusterUIDChanged(ptr.To("abc"), "")).To(BeFalse())
+	})
+
+	It("returns false when UIDs match", func() {
+		Expect(targetClusterUIDChanged(ptr.To("abc"), types.UID("abc"))).To(BeFalse())
+	})
+
+	It("returns true when UIDs differ", func() {
+		Expect(targetClusterUIDChanged(ptr.To("old"), types.UID("new"))).To(BeTrue())
+	})
+})
+
+var _ = Describe("targetClusterChanged", func() {
+	clusterA := &dpuservicev1.NamespacedName{Name: "cluster-a", Namespace: ptr.To("ns")}
+
+	It("returns true when target cluster name diverges", func() {
+		obj := &dpuservicev1.DPUServiceCredentialRequest{
+			Spec: dpuservicev1.DPUServiceCredentialRequestSpec{
+				TargetCluster: &dpuservicev1.NamespacedName{Name: "cluster-b", Namespace: ptr.To("ns")},
+			},
+			Status: dpuservicev1.DPUServiceCredentialRequestStatus{
+				TargetCluster: ptr.To(clusterA.String()),
+			},
+		}
+		Expect(targetClusterChanged(obj, types.UID("uid"))).To(BeTrue())
+	})
+
+	It("returns true when target cluster UID diverges with the same name", func() {
+		obj := &dpuservicev1.DPUServiceCredentialRequest{
+			Spec: dpuservicev1.DPUServiceCredentialRequestSpec{
+				TargetCluster: clusterA,
+			},
+			Status: dpuservicev1.DPUServiceCredentialRequestStatus{
+				TargetCluster:    ptr.To(clusterA.String()),
+				TargetClusterUID: ptr.To("old-uid"),
+			},
+		}
+		Expect(targetClusterChanged(obj, types.UID("new-uid"))).To(BeTrue())
+	})
+
+	It("returns false when name and UID match", func() {
+		obj := &dpuservicev1.DPUServiceCredentialRequest{
+			Spec: dpuservicev1.DPUServiceCredentialRequestSpec{
+				TargetCluster: clusterA,
+			},
+			Status: dpuservicev1.DPUServiceCredentialRequestStatus{
+				TargetCluster:    ptr.To(clusterA.String()),
+				TargetClusterUID: ptr.To("same-uid"),
+			},
+		}
+		Expect(targetClusterChanged(obj, types.UID("same-uid"))).To(BeFalse())
+	})
+})
+
+var _ = Describe("DPUServiceCredentialRequest DPUCluster lifecycle", func() {
+	Context("When the target DPUCluster changes", func() {
+		var (
+			testNS      *corev1.Namespace
+			clusterNS   *corev1.Namespace
+			cleanupObjs []client.Object
+			name        string
+			dpuCluster  provisioningv1.DPUCluster
+		)
+
+		BeforeEach(func() {
+			testNS = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "testns-"}}
+			clusterNS = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "dpu-dsr-"}}
+			Expect(testClient.Create(ctx, testNS)).To(Succeed())
+			Expect(testClient.Create(ctx, clusterNS)).To(Succeed())
+
+			dpuCluster = testutils.GetTestDPUCluster(testNS.Name, clusterNS.Name)
+			kamajiSecret, err := testutils.GetFakeKamajiClusterSecretFromEnvtest(dpuCluster, cfg)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(testClient.Create(ctx, kamajiSecret)).To(Succeed())
+			cleanupObjs = append(cleanupObjs, kamajiSecret)
+
+			Expect(testClient.Create(ctx, &dpuCluster)).To(Succeed())
+			cleanupObjs = append(cleanupObjs, &dpuCluster)
+
+			name = "cluster-lifecycle-" + clusterNS.Name
+		})
+
+		AfterEach(func() {
+			Expect(testutils.CleanupAndWait(ctx, testClient, cleanupObjs...)).To(Succeed())
+			Expect(testClient.Delete(ctx, testNS)).To(Succeed())
+			Expect(testClient.Delete(ctx, clusterNS)).To(Succeed())
+		})
+
+		It("should cleanup credentials when the DPUCluster is deleted and reissue them on recreate", func() {
+			dsr := getMinimalDPUServiceCredentialRequest(name, testNS.Name, dpuservicev1.SecretTypeKubeconfig, &dpuservicev1.NamespacedName{Name: clusterNS.Name, Namespace: &testNS.Name})
+			Expect(testClient.Create(ctx, dsr)).To(Succeed())
+
+			var previousUID string
+			Eventually(func(g Gomega) {
+				assertDPUServiceCredentialRequestCondition(g, testClient, dsr)
+				gotDsr := &dpuservicev1.DPUServiceCredentialRequest{}
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dsr), gotDsr)).To(Succeed())
+				g.Expect(gotDsr.Status.TargetClusterUID).NotTo(BeNil())
+				previousUID = *gotDsr.Status.TargetClusterUID
+			}).WithTimeout(30 * time.Second).Should(Succeed())
+
+			By("Deleting the DPUCluster")
+			Expect(testClient.Delete(ctx, &dpuCluster)).To(Succeed())
+
+			Eventually(func(g Gomega) {
+				gotDsr := &dpuservicev1.DPUServiceCredentialRequest{}
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dsr), gotDsr)).To(Succeed())
+				g.Expect(gotDsr.Status.ExpirationTimestamp).To(BeNil())
+				g.Expect(gotDsr.Status.TargetClusterUID).To(BeNil())
+				g.Expect(gotDsr.Status.Secret).To(BeNil())
+
+				err := testClient.Get(ctx, types.NamespacedName{Name: dsr.Spec.Secret.Name, Namespace: dsr.Spec.Secret.GetNamespace()}, &corev1.Secret{})
+				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+
+				err = testClient.Get(ctx, client.ObjectKeyFromObject(&dpuCluster), &provisioningv1.DPUCluster{})
+				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+			}).WithTimeout(30 * time.Second).Should(Succeed())
+
+			By("Recreating the DPUCluster")
+			recreatedCluster := testutils.GetTestDPUCluster(testNS.Name, clusterNS.Name)
+			Expect(testClient.Create(ctx, &recreatedCluster)).To(Succeed())
+			cleanupObjs = append(cleanupObjs, &recreatedCluster)
+
+			Eventually(func(g Gomega) {
+				assertDPUServiceCredentialRequestCondition(g, testClient, dsr)
+				gotDsr := &dpuservicev1.DPUServiceCredentialRequest{}
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dsr), gotDsr)).To(Succeed())
+				g.Expect(gotDsr.Status.TargetClusterUID).NotTo(BeNil())
+				g.Expect(*gotDsr.Status.TargetClusterUID).NotTo(Equal(previousUID))
+			}).WithTimeout(30 * time.Second).Should(Succeed())
+
+			assertDPUServiceCredentialRequestSecret(testClient, dsr, clusterNS.Name)
+		})
+	})
+})
+
 func assertDPUServiceCredentialRequest(g Gomega, testClient client.Client, dsr *dpuservicev1.DPUServiceCredentialRequest) {
 	gotDsr := &dpuservicev1.DPUServiceCredentialRequest{}
 	g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dsr), gotDsr)).To(Succeed())

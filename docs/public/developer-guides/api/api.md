@@ -4288,6 +4288,7 @@ _Appears in:_
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions defines current service state. |  | Optional: \{\} <br /> |
 | `serviceAccount` _string_ | ServiceAccount is the namespaced name of the ServiceAccount resource created by<br />the controller for the DPUServiceCredentialRequest. |  |  |
 | `targetCluster` _string_ | TargetCluster is the cluster where the service account was created.<br />It has to be persisted in the status to be able to delete the service account<br />when the DPUServiceCredentialRequest is updated. |  | Optional: \{\} <br /> |
+| `targetClusterUID` _string_ | TargetClusterUID is the UID of the DPUCluster the credentials were last issued against.<br />Used to detect cluster recreation with the same name and force credential refresh. |  | Optional: \{\} <br /> |
 | `expirationTimestamp` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | ExpirationTimestamp is the time when the token will expire. |  | Optional: \{\} <br /> |
 | `issuedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | IssuedAt is the time when the token was issued. |  | Optional: \{\} <br /> |
 | `secret` _string_ | Sercet is the namespaced name of the Secret resource created by the controller for<br />the DPUServiceCredentialRequest. |  |  |
