@@ -1035,7 +1035,7 @@ func ValidatePrivilegedPodEnforcementToggle(ctx context.Context, input *systemTe
 			Namespace: dpfOperatorSystemNamespace,
 		}, cm)).To(Succeed(), "allowlist ConfigMap should still exist when enforcement is disabled")
 		g.Expect(cm.Data).To(Equal(enforcingAllowlist), "allowlist ConfigMap data should be maintained (not cleared) when enforcement is disabled")
-	}).WithTimeout(5 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+	}).WithTimeout(5 * time.Minute).WithPolling(time.Second).Should(Succeed())
 
 	By("Re-enabling PrivilegedPodEnforcement by reverting the operatorConfig")
 	Eventually(func(g Gomega) {
@@ -1058,5 +1058,5 @@ func ValidatePrivilegedPodEnforcementToggle(ctx context.Context, input *systemTe
 			Name:      "dpf-deny-privileged-pods-allowlist",
 			Namespace: dpfOperatorSystemNamespace,
 		}, cm)).To(Succeed())
-	}).WithTimeout(5 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+	}).WithTimeout(5 * time.Minute).WithPolling(time.Second).Should(Succeed())
 }
