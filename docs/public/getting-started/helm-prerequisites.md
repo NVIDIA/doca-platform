@@ -28,6 +28,8 @@ and purposes:
 | [maintenance-operator]    | 0.3.0   | Manages node maintenance operations and ensures graceful handling of node updates              | Yes      | Pre-installation      |
 | [kamaji]                  | 1.4.0   | Kubernetes cluster management platform for creating and managing the DPU Kubernetes clusters   | Conditional | Pre-installation      |
 | [local-path-provisioner]  | 0.0.34  | Provides the `local-path` storage class used by the default Kamaji etcd configuration          | Conditional | Pre-installation      |
+| [openbao]                 | 0.28.4  | Secrets management service that can be used as a backend for secret storage workflows          | No       | Pre-installation      |
+| [external-secrets]        | 2.7.0   | Synchronizes secrets from external secret stores into Kubernetes Secrets                       | No       | Pre-installation      |
 | [kata-containers]         | 3.32.0  | Secure container runtime using lightweight VMs for workload isolation on host nodes            | Conditional | Pre-installation      |
 | [kube-state-metrics]      | 5.25.1  | Exposes DPF Operator related objects as metrics                                                | No       | Post-installation     |
 | [kube-prometheus-stack]   | 80.4.1  | Complete monitoring stack with Prometheus and Grafana for collecting and visualizing metrics   | No       | Post-installation     |
@@ -51,6 +53,8 @@ See [Running Kube-State-Metrics in a separate namespace](#running-kube-state-met
 [maintenance-operator]: https://github.com/Mellanox/maintenance-operator/tree/main/deployment/maintenance-operator-chart
 [kamaji]: https://github.com/clastix/kamaji/tree/master/charts/kamaji
 [local-path-provisioner]: https://github.com/rancher/local-path-provisioner/
+[openbao]: https://openbao.org/docs/platform/k8s/helm/
+[external-secrets]: https://external-secrets.io/latest/
 [kata-containers]: https://github.com/kata-containers/kata-containers
 [kube-state-metrics]: https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-state-metrics
 [kube-prometheus-stack]: https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack
@@ -164,6 +168,185 @@ webhook:
     - operator: Exists
       effect: NoSchedule
       key: node-role.kubernetes.io/master
+```
+
+</details>
+
+<details markdown="1"><summary><b>openbao</b></summary>
+
+> [!NOTE]
+> Applying the values below is not sufficient to bootstrap a usable OpenBao instance. A few extra bootstrap actions are
+> required: create the static seal key before installation, initialize OpenBao after installation, and configure the
+> Kubernetes auth mount. Refer to the Helmfile hooks in the DPF repository for an example of this flow.
+>
+> [!WARNING]
+> In the provided bootstrap flow, the static seal key is stored in the `openbao/openbao-static-seal` Kubernetes Secret to
+> support automatic unseal, and the generated root token is stored in the `openbao/openbao-root-token` Kubernetes Secret.
+> Treat access to these secrets as full administrative access to OpenBao. For production deployments, restrict RBAC access
+> to the `openbao` namespace, enable Kubernetes secret encryption at rest, and consider replacing the static seal and
+> stored root token workflow with an external key management and token lifecycle process that matches your security
+> requirements. Review the
+> [OpenBao production deployment checklist](https://openbao.org/docs/platform/k8s/helm/run/#production-deployment-checklist)
+> before using OpenBao in production.
+
+[embedmd]:#(../../../deploy/helmfiles/values/openbao.yaml)
+```yaml
+global:
+  tlsDisable: false
+
+server:
+  authDelegator:
+    enabled: true
+  dataStorage:
+    storageClass: local-path
+  standalone:
+    config: |
+      ui = true
+
+      listener "tcp" {
+        address = "[::]:8200"
+        cluster_address = "[::]:8201"
+        tls_cert_file = "/openbao/tls/tls.crt"
+        tls_key_file = "/openbao/tls/tls.key"
+      }
+
+      storage "file" {
+        path = "/openbao/data"
+      }
+
+      seal "static" {
+        current_key_id = "static-key-1"
+        current_key = "file:///openbao/static-seal/unseal.key"
+      }
+  volumes:
+    - name: openbao-server-tls
+      secret:
+        secretName: openbao-server-tls
+    - name: openbao-static-seal
+      secret:
+        secretName: openbao-static-seal
+  volumeMounts:
+    - name: openbao-server-tls
+      mountPath: /openbao/tls
+      readOnly: true
+    - name: openbao-static-seal
+      mountPath: /openbao/static-seal
+      readOnly: true
+  extraEnvironmentVars:
+    BAO_CACERT: /openbao/tls/ca.crt
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: "node-role.kubernetes.io/master"
+                operator: Exists
+          - matchExpressions:
+              - key: "node-role.kubernetes.io/control-plane"
+                operator: Exists
+  tolerations:
+    - operator: Exists
+      effect: NoSchedule
+      key: node-role.kubernetes.io/control-plane
+    - operator: Exists
+      effect: NoSchedule
+      key: node-role.kubernetes.io/master
+
+injector:
+  enabled: false
+
+csi:
+  enabled: false
+
+extraObjects:
+  - apiVersion: cert-manager.io/v1
+    kind: Issuer
+    metadata:
+      name: openbao-selfsigned-issuer
+    spec:
+      selfSigned: {}
+  - apiVersion: cert-manager.io/v1
+    kind: Certificate
+    metadata:
+      name: openbao-server-tls
+    spec:
+      dnsNames:
+        - localhost
+        - "{{ include \"openbao.fullname\" . }}"
+        - "{{ include \"openbao.fullname\" . }}.{{ include \"openbao.namespace\" . }}"
+        - "{{ include \"openbao.fullname\" . }}.{{ include \"openbao.namespace\" . }}.svc"
+        - "{{ include \"openbao.fullname\" . }}.{{ include \"openbao.namespace\" . }}.svc.cluster.local"
+      ipAddresses:
+        - 127.0.0.1
+      issuerRef:
+        kind: Issuer
+        name: openbao-selfsigned-issuer
+      secretName: openbao-server-tls
+```
+
+</details>
+
+<details markdown="1"><summary><b>external-secrets</b></summary>
+
+[embedmd]:#(../../../deploy/helmfiles/values/external-secrets.yaml)
+```yaml
+installCRDs: true
+
+extraObjects:
+  - apiVersion: cert-manager.io/v1
+    kind: Issuer
+    metadata:
+      name: external-secrets-selfsigned-issuer
+      namespace: "{{ .Release.Namespace }}"
+    spec:
+      selfSigned: {}
+
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: "node-role.kubernetes.io/master"
+              operator: Exists
+        - matchExpressions:
+            - key: "node-role.kubernetes.io/control-plane"
+              operator: Exists
+tolerations:
+  - key: node-role.kubernetes.io/master
+    operator: Exists
+    effect: NoSchedule
+  - key: node-role.kubernetes.io/control-plane
+    operator: Exists
+    effect: NoSchedule
+
+webhook:
+  certManager:
+    enabled: true
+    cert:
+      issuerRef:
+        group: cert-manager.io
+        kind: Issuer
+        name: external-secrets-selfsigned-issuer
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: "node-role.kubernetes.io/master"
+                operator: Exists
+          - matchExpressions:
+              - key: "node-role.kubernetes.io/control-plane"
+                operator: Exists
+  tolerations:
+    - key: node-role.kubernetes.io/master
+      operator: Exists
+      effect: NoSchedule
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+
+certController:
+  create: false
 ```
 
 </details>

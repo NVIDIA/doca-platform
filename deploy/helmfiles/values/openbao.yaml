@@ -1,0 +1,91 @@
+global:
+  tlsDisable: false
+
+server:
+  authDelegator:
+    enabled: true
+  dataStorage:
+    storageClass: local-path
+  standalone:
+    config: |
+      ui = true
+
+      listener "tcp" {
+        address = "[::]:8200"
+        cluster_address = "[::]:8201"
+        tls_cert_file = "/openbao/tls/tls.crt"
+        tls_key_file = "/openbao/tls/tls.key"
+      }
+
+      storage "file" {
+        path = "/openbao/data"
+      }
+
+      seal "static" {
+        current_key_id = "static-key-1"
+        current_key = "file:///openbao/static-seal/unseal.key"
+      }
+  volumes:
+    - name: openbao-server-tls
+      secret:
+        secretName: openbao-server-tls
+    - name: openbao-static-seal
+      secret:
+        secretName: openbao-static-seal
+  volumeMounts:
+    - name: openbao-server-tls
+      mountPath: /openbao/tls
+      readOnly: true
+    - name: openbao-static-seal
+      mountPath: /openbao/static-seal
+      readOnly: true
+  extraEnvironmentVars:
+    BAO_CACERT: /openbao/tls/ca.crt
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: "node-role.kubernetes.io/master"
+                operator: Exists
+          - matchExpressions:
+              - key: "node-role.kubernetes.io/control-plane"
+                operator: Exists
+  tolerations:
+    - operator: Exists
+      effect: NoSchedule
+      key: node-role.kubernetes.io/control-plane
+    - operator: Exists
+      effect: NoSchedule
+      key: node-role.kubernetes.io/master
+
+injector:
+  enabled: false
+
+csi:
+  enabled: false
+
+extraObjects:
+  - apiVersion: cert-manager.io/v1
+    kind: Issuer
+    metadata:
+      name: openbao-selfsigned-issuer
+    spec:
+      selfSigned: {}
+  - apiVersion: cert-manager.io/v1
+    kind: Certificate
+    metadata:
+      name: openbao-server-tls
+    spec:
+      dnsNames:
+        - localhost
+        - "{{ include \"openbao.fullname\" . }}"
+        - "{{ include \"openbao.fullname\" . }}.{{ include \"openbao.namespace\" . }}"
+        - "{{ include \"openbao.fullname\" . }}.{{ include \"openbao.namespace\" . }}.svc"
+        - "{{ include \"openbao.fullname\" . }}.{{ include \"openbao.namespace\" . }}.svc.cluster.local"
+      ipAddresses:
+        - 127.0.0.1
+      issuerRef:
+        kind: Issuer
+        name: openbao-selfsigned-issuer
+      secretName: openbao-server-tls
