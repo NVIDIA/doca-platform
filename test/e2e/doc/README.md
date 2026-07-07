@@ -81,6 +81,14 @@ Configs reference YAML manifests in `test/objects/`
 2. Framework loads these manifests into K8s objects
 3. Tests use these objects to create/verify resources
 
+Most manifest fields are optional and only required by specific suites: a
+missing field fails fast with the field name and the label filter to exclude
+(e.g. `!SDN`) when the consuming suite loads it. A small core set
+(`dpuClusters`, `dpuDeployment`, `dpuServiceTemplate`, `dpuServiceConfiguration`,
+`ipPoolDPUServiceIPAM`) is validated up front for every run; see
+`validateRequiredConfigFields` in `test/e2e/e2e_suite_test.go` and the field
+groups in `test/e2e/config.go`.
+
 ### Related files
 * `test/e2e/config.go` - config struct definition
 * `test/e2e/system_setup.go` - `systemTestInput` (holds loaded objects), `applyConfig()` (loads manifests)

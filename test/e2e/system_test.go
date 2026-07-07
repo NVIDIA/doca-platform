@@ -43,6 +43,7 @@ var vpcOvnInput = &vpcOvnTestInput{}
 func SetInput() {
 	By("Validating the input")
 	validateFlags()
+	validateRequiredConfigFields()
 
 	By("Get control plane IP")
 	controlPlaneIP := getClusterControlPlaneIP(ctx, testClient)
