@@ -269,6 +269,12 @@ deploy_from_chart() {
 		exit 1
 	fi
 
+	# helm pull --untar does not preserve file permissions, so the hook scripts
+	# shipped in the chart are extracted without the executable bit. Restore it
+	# for all scripts next to the helmfile, wherever the chart version keeps
+	# them (top-level or in the hooks/ subdirectory).
+	find "$(dirname "$helmfilePath")" -name '*.sh' -exec chmod +x {} +
+
 	deploy_helmfile "$helmfilePath"
 }
 
