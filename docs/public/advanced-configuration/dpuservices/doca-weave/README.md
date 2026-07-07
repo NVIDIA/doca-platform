@@ -148,7 +148,7 @@ Example when apply succeeds (`PHASE_READY`):
   "virtualNetwork": {
     "spec": {
       "id": "vnet1",
-      "subnetIpv4": "10.0.0.0/8",
+      "subnetIpv4": "10.0.0.0/12",
       "vni": 100
     },
     "status": {
@@ -167,7 +167,7 @@ Example when apply fails (object is still returned, gRPC call succeeds, `PHASE_E
   "virtualNetwork": {
     "spec": {
       "id": "vnet1",
-      "subnetIpv4": "10.0.0.0/8",
+      "subnetIpv4": "10.0.0.0/12",
       "vni": 100
     },
     "status": {
@@ -190,7 +190,7 @@ A `VirtualNetwork` is the isolation boundary for east-west overlay traffic. It i
 | Field | Description |
 |-------|-------------|
 | `id` | Unique identifier for this virtual network on the DPU |
-| `subnetIpv4` | Overlay subnet (CIDR) |
+| `subnetIpv4` | Overlay subnet (CIDR), prefix length must match `overlayNetworkPrefixLength` in `underlayConfigMapData` |
 | `vni` | VXLAN VNI (20-bit usable value, bits 20-23 of the 24-bit on-wire VNI are reserved, range 1-1048575) |
 | `status.state` | Lifecycle state, see [Status](#status) |
 
@@ -204,7 +204,7 @@ Example when `status.state.phase` is `PHASE_READY`:
   "virtualNetwork": {
     "spec": {
       "id": "vnet1",
-      "subnetIpv4": "10.0.0.0/8",
+      "subnetIpv4": "10.0.0.0/12",
       "vni": 100
     },
     "status": {
@@ -281,7 +281,7 @@ Subcommands: `create-vnet`, `get-vnet`, `list-vnet`, `delete-vnet`, `create-atta
 /vpcctl create-vnet --id <id> --subnet-v4 <subnet_ipv4> --vni <vni>
 ```
 
-Example: `/vpcctl create-vnet --id vnet1 --subnet-v4 10.0.0.0/8 --vni 100`. Confirm `status.state.phase` is `PHASE_READY` before use (see [Status](#status)).
+Example: `/vpcctl create-vnet --id vnet1 --subnet-v4 10.0.0.0/12 --vni 100`. Confirm `status.state.phase` is `PHASE_READY` before use (see [Status](#status)).
 
 ### Create a VirtualNetworkAttachment
 
@@ -342,7 +342,7 @@ One tenant on every participating DPU. Use the same `id`, subnet, and VNI on eac
 | Item | Value |
 |------|-------|
 | Virtual network `id` | `shared-vnet` |
-| Subnet (`--subnet-v4` / `subnetIpv4`) | `10.0.0.0/8` |
+| Subnet (`--subnet-v4` / `subnetIpv4`) | `10.0.0.0/12` |
 | VNI | `100` |
 
 Objects created (IDs are stable across the lab, MACs are examples—use your PF MACs):
@@ -356,7 +356,7 @@ Objects created (IDs are stable across the lab, MACs are examples—use your PF 
 
 ```shell
 # Overlay parameters
-subnetV4=10.0.0.0/8
+subnetV4=10.0.0.0/12
 VNI=100
 
 # --- Worker 1 (first DPU) ---
@@ -402,7 +402,7 @@ Confirm `PHASE_READY` with `get-vnet` / `get-attachment` or `list-vnet` / `list-
   "virtualNetwork": {
     "spec": {
       "id": "shared-vnet",
-      "subnetIpv4": "10.0.0.0/8",
+      "subnetIpv4": "10.0.0.0/12",
       "vni": 100
     },
     "status": {
@@ -546,8 +546,8 @@ Same subnet for both tenants, VNI separates rails. Replicate each virtual networ
 
 | Virtual network `id` | Subnet | VNI | Rail / PF |
 |----------------------|--------|-----|-----------|
-| `vnet-vni100` | `10.0.0.0/8` | `100` | `n0` on each node |
-| `vnet-vni101` | `10.0.0.0/8` | `101` | `n1` on each node |
+| `vnet-vni100` | `10.0.0.0/12` | `100` | `n0` on each node |
+| `vnet-vni101` | `10.0.0.0/12` | `101` | `n1` on each node |
 
 | DPU (pod) | `VirtualNetwork` objects | `VirtualNetworkAttachment` IDs |
 |-----------|--------------------------|--------------------------------|
@@ -557,7 +557,7 @@ Same subnet for both tenants, VNI separates rails. Replicate each virtual networ
 ### Configure
 
 ```shell
-subnetV4=10.0.0.0/8
+subnetV4=10.0.0.0/12
 VNI_A=100   # tenant for rail n0
 VNI_B=101   # tenant for rail n1
 
@@ -607,7 +607,7 @@ Confirm `PHASE_READY` with `get-vnet` / `get-attachment` or `list-vnet` / `list-
   "virtualNetwork": {
     "spec": {
       "id": "vnet-vni100",
-      "subnetIpv4": "10.0.0.0/8",
+      "subnetIpv4": "10.0.0.0/12",
       "vni": 100
     },
     "status": {
@@ -624,7 +624,7 @@ Confirm `PHASE_READY` with `get-vnet` / `get-attachment` or `list-vnet` / `list-
   "virtualNetwork": {
     "spec": {
       "id": "vnet-vni101",
-      "subnetIpv4": "10.0.0.0/8",
+      "subnetIpv4": "10.0.0.0/12",
       "vni": 101
     },
     "status": {

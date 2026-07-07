@@ -16,6 +16,7 @@ spec:
           underlayConfigMapData:
             # underlayInterface must match the underlay OVS bridge names DPUFlavor spec.ovs.rawConfigScript creates per PCI (br-underlay-n* here is illustrative).
             nicIDType: mac
+            overlayNetworkPrefixLength: 12
             interfaces:
               - pciAddress: "0000:01:00.0"
                 underlayInterface: br-underlay-n0
