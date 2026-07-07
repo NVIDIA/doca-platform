@@ -24,6 +24,8 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 )
 
@@ -114,7 +116,7 @@ func (c *Client) ListJobs(w io.Writer, start time.Time) ([]Job, error) {
 	perPage := 100
 
 	for {
-		jobs, err := c.getJobsPage(page, perPage)
+		jobs, err := c.getJobsPage(page, perPage, "")
 		if err != nil {
 			return nil, err
 		}
@@ -164,13 +166,17 @@ func (c *Client) hasOlderJobs(w io.Writer, jobs []Job, start time.Time) bool {
 	return false
 }
 
-// getJobsPage retrieves a single page of jobs from GitLab
-func (c *Client) getJobsPage(page, perPage int) ([]Job, error) {
+// getJobsPage retrieves a single page of the project's jobs from GitLab,
+// optionally filtered by scope (e.g. "running"). Jobs are returned newest first.
+func (c *Client) getJobsPage(page, perPage int, scope string) ([]Job, error) {
 	url := fmt.Sprintf("%s/projects/%s/jobs?page=%d&per_page=%d",
 		c.baseURL,
 		c.projectID,
 		page,
 		perPage)
+	if scope != "" {
+		url += "&scope[]=" + scope
+	}
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -198,6 +204,75 @@ func (c *Client) getJobsPage(page, perPage int) ([]Job, error) {
 	}
 
 	return jobs, nil
+}
+
+// ListProjectRunningJobs returns the currently running jobs for the configured
+// project. It is scoped to the project (which the caller can read as a Maintainer
+// or above), so it surfaces jobs running on shared runners the caller does not
+// own, unlike the runner-scoped GetRunnerJobs which requires the runner's group
+// Owner role. Each returned job carries the runner it executes on.
+func (c *Client) ListProjectRunningJobs() ([]Job, error) {
+	var allJobs []Job
+	page := 1
+	perPage := 100
+
+	for {
+		jobs, err := c.getJobsPage(page, perPage, "running")
+		if err != nil {
+			return nil, err
+		}
+		allJobs = append(allJobs, jobs...)
+		if len(jobs) < perPage {
+			break
+		}
+		page++
+	}
+
+	return allJobs, nil
+}
+
+// ListProjectJobsForRunner returns up to limit of the project's most recent
+// jobs that ran on the given runner. Unlike GetRunnerJobs it is scoped to the
+// project rather than the runner, so it works for a project Maintainer on
+// shared runners it does not own; the trade-off is that only this project's
+// jobs are visible. The jobs endpoint cannot filter by runner, so the candidate
+// pages are fetched concurrently and scanning is capped to bound the number of
+// API requests on busy projects; fewer than limit jobs may be returned.
+func (c *Client) ListProjectJobsForRunner(runnerID, limit int) ([]Job, error) {
+	const maxPages = 10
+	perPage := 100
+
+	pages := make([][]Job, maxPages)
+	errs := make([]error, maxPages)
+	var wg sync.WaitGroup
+	for i := range pages {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			pages[i], errs[i] = c.getJobsPage(i+1, perPage, "")
+		}(i)
+	}
+	wg.Wait()
+
+	var matched []Job
+	for i, jobs := range pages {
+		if errs[i] != nil {
+			return nil, errs[i]
+		}
+		for _, job := range jobs {
+			if job.Runner != nil && job.Runner.ID == runnerID {
+				matched = append(matched, job)
+				if len(matched) >= limit {
+					return matched, nil
+				}
+			}
+		}
+		if len(jobs) < perPage {
+			break
+		}
+	}
+
+	return matched, nil
 }
 
 // ListRunners retrieves all runners for a gitlab project. all enabled runners for the project are listed.
@@ -271,6 +346,10 @@ func (c *Client) getRunnersPage(page, perPage int, tagFilters string, typeFilter
 }
 
 // GetRunnerDetails fetches detailed information about a specific runner by ID.
+// This endpoint is runner-scoped: for group runners it requires the Owner role
+// on the owning namespace, so a project Maintainer receives a 403. Callers that
+// only have Maintainer access should treat failures as non-fatal and fall back
+// to the data returned by ListRunners.
 func (c *Client) GetRunnerDetails(runnerID int) (*RunnerDetails, error) {
 	url := fmt.Sprintf("%s/runners/%d", c.baseURL, runnerID)
 
@@ -378,6 +457,71 @@ func (c *Client) DeleteRunner(runnerID int) error {
 	}
 
 	return nil
+}
+
+// GetRunnerJobExecutionStatus returns the runner's aggregate job execution
+// status ("active" or "idle") via the GraphQL API. Unlike the REST jobs
+// endpoint, this field reflects the runner as a whole and is not scoped to the
+// projects the caller can access, so it reports whether a shared (instance or
+// group) runner is currently busy even for a project Maintainer. The returned
+// value is lowercased; an empty string means the API did not report a status.
+func (c *Client) GetRunnerJobExecutionStatus(runnerID int) (string, error) {
+	// The GraphQL endpoint lives at the instance root, not under /api/v4.
+	endpoint := strings.Replace(c.baseURL, "/api/v4", "/api/graphql", 1)
+
+	payload := map[string]interface{}{
+		"query": "query($id: CiRunnerID!) { runner(id: $id) { jobExecutionStatus } }",
+		"variables": map[string]interface{}{
+			"id": fmt.Sprintf("gid://gitlab/Ci::Runner/%d", runnerID),
+		},
+	}
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal request body: %v", err)
+	}
+
+	req, err := http.NewRequest("POST", endpoint, bytes.NewReader(jsonData))
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %v", err)
+	}
+
+	req.Header.Set("PRIVATE-TOKEN", c.token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to make request: %v", err)
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Data struct {
+			Runner *struct {
+				JobExecutionStatus string `json:"jobExecutionStatus"`
+			} `json:"runner"`
+		} `json:"data"`
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", fmt.Errorf("failed to decode response: %v", err)
+	}
+	if len(result.Errors) > 0 {
+		return "", fmt.Errorf("graphql error: %s", result.Errors[0].Message)
+	}
+	if result.Data.Runner == nil {
+		return "", nil
+	}
+
+	return strings.ToLower(result.Data.Runner.JobExecutionStatus), nil
 }
 
 // GetRunnerJobs retrieves jobs for a specific runner with optional status filter.
