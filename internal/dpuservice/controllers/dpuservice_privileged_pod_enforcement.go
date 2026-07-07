@@ -217,35 +217,35 @@ func (r *DPUServiceReconciler) removePrivilegedPodEnforcementEntries(ctx context
 // concurrent reconciles of different DPUServices. As soon as we have concurrent reconciles, we may
 // need to add a locking mechanism so at most one reconcile at a time handles these parts.
 func (r *DPUServiceReconciler) reconcilePrivilegedPodEnforcement(ctx context.Context, dpuClusterClient client.Client, currentDPUService *dpuservicev1.DPUService, cluster *provisioningv1.DPUCluster, enforce bool) error {
-	// When enforcement is disabled (DPFOperatorConfig spec.security.privilegedPodEnforcement
-	// is false) we keep the VAP, its binding, and the allowlist ConfigMap in
-	// place and only switch the binding to Audit so nothing is denied anymore.
-	// See disablePrivilegedPodEnforcement for why we never delete these objects
-	// and why the allowlist is kept populated rather than cleared.
-	if !enforce {
-		return r.disablePrivilegedPodEnforcement(ctx, dpuClusterClient, cluster)
-	}
-
-	// Rebuild the entire allowlist from all DPUServices before the binding is
-	// (re)applied in Deny mode. reconcilePrivilegedAllowlist also ensures the
-	// namespace and ConfigMap exist, so the binding's paramRef always resolves.
-	// The rebuild is authoritative and independent of which DPUService triggered
-	// this reconcile.
+	// Rebuild the authoritative allowlist from all DPUServices before applying
+	// the binding; this also ensures the namespace and ConfigMap exist so the
+	// binding's paramRef always resolves. The allowlist stays populated in both
+	// modes so Audit-mode violations remain meaningful.
 	if err := r.reconcilePrivilegedAllowlist(ctx, dpuClusterClient, cluster); err != nil {
 		return err
 	}
 
-	// Apply the VAP and binding after the allowlist ConfigMap is up to date.
-	// The API server starts a paramRef informer for the binding, so seeding the
-	// ConfigMap first lets the initial LIST observe the desired allowlist. The
-	// post-apply probe in applyPrivilegedPodPolicyVAP confirms privileged pods are
-	// denied (enforcement is active) before we return.
-	if err := r.applyPrivilegedPodPolicyVAP(ctx, dpuClusterClient, admissionregistrationv1.Deny); err != nil {
+	// Deny when enforcing, Audit when disabled. In both modes we keep the VAP
+	// and its binding and only flip the action — we never delete them (deleting
+	// a binding triggers a K8s paramRef informer bug:
+	// https://github.com/kubernetes/kubernetes/issues/133827).
+	validationAction := admissionregistrationv1.Deny
+	if !enforce {
+		validationAction = admissionregistrationv1.Audit
+	}
+
+	// Apply the VAP and binding once the allowlist ConfigMap is up to date. In
+	// Deny mode applyPrivilegedPodPolicyVAP probes that privileged pods are
+	// denied before returning; in Audit mode that probe is skipped.
+	if err := r.applyPrivilegedPodPolicyVAP(ctx, dpuClusterClient, validationAction); err != nil {
 		return err
 	}
 
-	// Confirm that this DPUService's own privileged pods are admitted when it is
-	// expected to run them (allowlisted on this cluster).
+	// While enforcing, confirm this DPUService's own privileged pods are admitted
+	// when it is expected to run them. Nothing is denied in Audit mode, so skip.
+	if !enforce {
+		return nil
+	}
 	return validateServicePrivilegedPodAdmission(ctx, dpuClusterClient, currentDPUService, cluster)
 }
 
@@ -535,41 +535,6 @@ func (r *DPUServiceReconciler) removePrivilegedDPUServiceEntry(ctx context.Conte
 	}
 
 	return nil
-}
-
-// disablePrivilegedPodEnforcement switches privileged-pod enforcement to a
-// non-enforcing state without deleting any of its objects. The VAP, its
-// binding, and the allowlist ConfigMap are all kept; the binding's
-// validationActions is set to Audit so admission requests are only recorded to
-// the API server audit log and never denied.
-//
-// The allowlist ConfigMap is kept fully populated — reconciled from the live
-// set of privileged DPUServices, exactly as in the enforcing case — rather than
-// cleared. In Audit mode the VAP still evaluates every in-scope pod and records
-// a violation to the audit log whenever a privileged pod is not in the
-// allowlist. Maintaining the real allowlist means only genuinely-disallowed
-// privileged pods produce audit entries — the same set Deny mode would have
-// rejected — so the audit signal stays meaningful. Clearing it would instead
-// make every privileged pod (including legitimately allowlisted ones) look like
-// a violation, rendering the audit log useless.
-//
-// We deliberately avoid deleting and recreating the binding (and VAP). Doing so
-// triggers a Kubernetes paramRef informer bug
-// (https://github.com/kubernetes/kubernetes/issues/133827, see
-// https://github.com/kubernetes/kubernetes/issues/133827#issuecomment-4797423893):
-// once a ValidatingAdmissionPolicyBinding is deleted and recreated, subsequent
-// changes to its paramRef ConfigMap are no longer observed when the policy is
-// evaluated. Keeping the binding in place and only flipping its action avoids
-// the delete/recreate cycle entirely.
-func (r *DPUServiceReconciler) disablePrivilegedPodEnforcement(ctx context.Context, dpuClusterClient client.Client, cluster *provisioningv1.DPUCluster) error {
-	// Reconcile the allowlist first: it ensures the namespace and ConfigMap exist
-	// and keeps the allowlist maintained as in the enforcing case, so Audit-mode
-	// violations stay meaningful (see the doc comment above).
-	if err := r.reconcilePrivilegedAllowlist(ctx, dpuClusterClient, cluster); err != nil {
-		return err
-	}
-	// Then apply the VAP and binding in Audit mode so nothing is denied anymore.
-	return r.applyPrivilegedPodPolicyVAP(ctx, dpuClusterClient, admissionregistrationv1.Audit)
 }
 
 // dpuServiceTargetsCluster reports whether the given DPUService targets the
