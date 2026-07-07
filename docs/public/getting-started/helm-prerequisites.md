@@ -835,6 +835,12 @@ prometheus:
     podMonitorSelector: {}
     podMonitorNamespaceSelector: {}
 
+    # Load PrometheusRule resources from all namespaces regardless of labels
+    # (e.g. the DPF alert/recording rules from deploy/helmfiles/prometheus-rules/)
+    ruleSelectorNilUsesHelmValues: false
+    ruleSelector: {}
+    ruleNamespaceSelector: {}
+
 # Grafana configuration
 grafana:
   enabled: true

@@ -1,0 +1,28 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: dpf-replica-health
+  namespace: dpf-operator-system
+  labels:
+    app.kubernetes.io/name: dpf-operator
+    app.kubernetes.io/instance: dpf-operator
+    app.kubernetes.io/part-of: doca-platform-framework
+    # Required by the default kube-prometheus-stack ruleSelector. Adjust or drop
+    # to match your Prometheus instance's ruleSelector.
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: dpf-replica-health
+      # Requires the dpf-aggregates PrometheusRule (recording-rules.md); without
+      # it the dpf:dpuservice:not_ready_replicas series does not exist and this
+      # alert never fires.
+      rules:
+        - alert: DPFDPUServiceReplicasNotHealthy
+          expr: dpf:dpuservice:not_ready_replicas > 0
+          for: 10m
+          labels:
+            severity: warning
+            service: doca-platform-framework
+          annotations:
+            summary: "DPUService {{ $labels.service_id }} on cluster {{ $labels.cluster }} has {{ $value }} unhealthy replicas"
+            description: "DPUService has at least one workload pod (DaemonSet or Deployment) that has not become Ready for 10 minutes."

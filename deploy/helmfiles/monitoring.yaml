@@ -22,6 +22,20 @@ releases:
       type: monitoring
     values:
       - values/kube-prometheus-stack.yaml
+    hooks:
+      # Deploy the Grafana dashboards from ./dashboards as a sidecar-discovered
+      # ConfigMap. These dashboards are monitoring-stack specific and therefore
+      # not part of the dpf-operator Helm chart.
+      - events: [ "postsync" ]
+        command: "./apply-dashboards.sh"
+        args: ["dpf-operator-system"]
+        showlogs: true
+      # Deploy the DPF alert and recording rules from ./prometheus-rules. The
+      # alerts dashboard above reads the ALERTS series and the dpf:* recorded
+      # series these rules produce, so both are deployed together.
+      - events: [ "postsync" ]
+        command: "./apply-prometheus-rules.sh"
+        showlogs: true
 
   - name: kube-state-metrics
     namespace: dpf-operator-system
