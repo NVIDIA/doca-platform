@@ -1915,7 +1915,7 @@ helm-package-operator: $(CHARTSDIR) helm yq ## Package helm chart for DPF Operat
 	@mkdir -p $(OPERATOR_HELM_CHART)/dev/helmfiles
 
 	# Copy helmfile manifests and scripts to the operator helm chart directory.
-	@cp -r $(CURDIR)/deploy/helmfiles/* $(OPERATOR_HELM_CHART)/dev/helmfiles/
+	@cp -a $(CURDIR)/deploy/helmfiles/* $(OPERATOR_HELM_CHART)/dev/helmfiles/
 
 	# Generate the helm chart package.
 	HELM_CHART_DIR="$(OPERATOR_HELM_CHART)" \
