@@ -1,0 +1,85 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: dpf-lifecycle
+  namespace: dpf-operator-system
+  labels:
+    app.kubernetes.io/name: dpf-operator
+    app.kubernetes.io/instance: dpf-operator
+    app.kubernetes.io/part-of: doca-platform-framework
+    # Required by the default kube-prometheus-stack ruleSelector. Adjust or drop
+    # to match your Prometheus instance's ruleSelector.
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: dpf-lifecycle
+      # max by(...) keeps the alert identity independent of kube-state-metrics
+      # scrape labels, so a kube-state-metrics restart does not reset `for:` timers.
+      rules:
+        - alert: DPFDPUProvisioningStuck
+          expr: max by(namespace, name, phase) (dpu_status_phase{phase!~"Ready|Error|Deleting"}) == 1
+          for: 1h
+          labels:
+            severity: warning
+            service: doca-platform-framework
+          annotations:
+            summary: "DPU {{ $labels.namespace }}/{{ $labels.name }} stuck in phase {{ $labels.phase }}"
+            description: "DPU has been in non-terminal phase {{ $labels.phase }} for more than 1 hour. Check the provisioning controller logs and the host node's rshim/BFB pipeline."
+        - alert: DPFDPUErrorPhase
+          expr: max by(namespace, name) (dpu_status_phase{phase="Error"}) == 1
+          for: 15m
+          labels:
+            severity: warning
+            service: doca-platform-framework
+          annotations:
+            summary: "DPU {{ $labels.namespace }}/{{ $labels.name }} is in Error phase"
+            description: "DPU provisioning has failed. The Error phase is terminal: the DPU stays failed until the underlying issue is fixed or the DPU is deleted. Check the provisioning controller logs and the DPU conditions for the failure reason."
+        - alert: DPFDPUDeletingStuck
+          expr: max by(namespace, name) (dpu_status_phase{phase="Deleting"}) == 1
+          for: 1h
+          labels:
+            severity: warning
+            service: doca-platform-framework
+          annotations:
+            summary: "DPU {{ $labels.namespace }}/{{ $labels.name }} stuck in Deleting"
+            description: "DPU has been in the Deleting phase for more than 1 hour. Deletion is likely blocked by node maintenance, a finalizer, or an unreachable DPU; check the provisioning controller logs."
+        - alert: DPFBFBStuck
+          expr: max by(namespace, name, phase) (bfb_status_phase{phase=~"Downloading|Error"}) == 1
+          for: 30m
+          labels:
+            severity: warning
+            service: doca-platform-framework
+          annotations:
+            summary: "BFB {{ $labels.namespace }}/{{ $labels.name }} stuck in phase {{ $labels.phase }}"
+            description: "BFB has been in phase {{ $labels.phase }} for more than 30 minutes. The download URL may be unreachable or the BFB image corrupt; no new DPUs can be flashed from this BFB until it reaches Ready."
+        - alert: DPFDPUClusterPhaseStuck
+          expr: max by(namespace, name, phase) (dpucluster_status_phase{phase=~"Pending|Creating|NotReady|Failed"}) == 1
+          for: 1h
+          labels:
+            severity: warning
+            service: doca-platform-framework
+          annotations:
+            summary: "DPUCluster {{ $labels.namespace }}/{{ $labels.name }} stuck in phase {{ $labels.phase }}"
+            description: "DPUCluster has been in non-Ready phase {{ $labels.phase }} for more than 1 hour. Tenant control plane creation or joining is blocked; check the Kamaji or static cluster manager controller."
+        # The credential controller rotates tokens once 20% of their lifetime
+        # remains (or after 24 hours, whichever is sooner), so the threshold must
+        # be relative to the token lifetime: DPF's built-in credential requests
+        # use 24h tokens, where any absolute multi-day threshold would always be
+        # true. Less than 10% remaining means rotation is overdue.
+        - alert: DPFDPUServiceCredentialExpiringSoon
+          expr: |
+            (max by(namespace, name) (dpuservicecredentialrequest_expiration) - time())
+              /
+            (
+              max by(namespace, name) (dpuservicecredentialrequest_expiration)
+                -
+              max by(namespace, name) (dpuservicecredentialrequest_issued_at)
+            )
+              < 0.1
+          for: 15m
+          labels:
+            severity: warning
+            service: doca-platform-framework
+          annotations:
+            summary: "DPUServiceCredentialRequest {{ $labels.namespace }}/{{ $labels.name }} has {{ $value | humanizePercentage }} of its token lifetime left"
+            description: "The credential has less than 10% of its token lifetime remaining, but the controller rotates tokens once 20% of the lifetime remains. Rotation is overdue and likely failing; check the dpuservice controller logs. If the token expires, the consuming DPUService loses access to its target cluster."

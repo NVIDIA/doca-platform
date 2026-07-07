@@ -38,6 +38,24 @@ Tracks the state of DPF custom resources across the cluster including DPUSets, D
 
 [View Dashboard JSON](https://github.com/NVIDIA/doca-platform/blob/public-main/deploy/charts/dpf-operator/dashboards/doca-platform-framework-state.json)
 
+### Alerts
+
+Summarizes the DPF Prometheus alerts at a glance: total active, firing, pending, critical, and warning counts, a filterable table of active alerts, a per-alert state timeline, and readiness-ratio snapshots. The alert counts require the [Prometheus rule examples](../prometheus-rules/README.md) to be deployed; the readiness ratios additionally require the `dpf-aggregates` recording rules.
+
+Unlike the dashboards above, this one is **not part of the dpf-operator Helm chart**, since it only makes sense together with the user-managed Prometheus rules. The `deploy/helmfiles/monitoring.yaml` helmfile deploys it automatically, together with those rules, via `postsync` hooks on the kube-prometheus-stack release. To deploy it into an existing monitoring stack manually, create a sidecar-discovered ConfigMap from the JSON:
+
+```bash
+kubectl -n dpf-operator-system create configmap dpf-monitoring-grafana-dashboards \
+  --from-file=deploy/helmfiles/dashboards/ --dry-run=client -o yaml \
+  | kubectl label --local -f - grafana_dashboard="1" --dry-run=client -o yaml \
+  | kubectl annotate --local -f - grafana_folder="DOCA Platform Framework" --dry-run=client -o yaml \
+  | kubectl apply --server-side -f -
+```
+
+or run the same helper the helmfile hook uses: `deploy/helmfiles/apply-dashboards.sh [namespace]`.
+
+[View Dashboard JSON](https://github.com/NVIDIA/doca-platform/blob/public-main/deploy/helmfiles/dashboards/doca-platform-framework-alerts.json)
+
 ### DPUCluster Control Plane Performance
 
 Surfaces the health and performance of the Kubernetes control plane running inside a DPUCluster: API server request rate and latency, inflight requests, active watch connections, controller-manager workqueue depth and latency, scheduler pending pods and attempt outcomes, and etcd request latency and storage size. Select the target DPUCluster via the `cluster` variable at the top of the dashboard.
