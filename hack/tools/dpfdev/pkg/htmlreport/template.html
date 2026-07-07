@@ -1,0 +1,1586 @@
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DPF CI Artifacts Browser</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --nv-green:      #76b900;
+    --nv-green-lite: #8fd400;
+    --nv-green-dim:  #4a7500;
+    --nv-green-bg:   rgba(118,185,0,.08);
+    --bg:    #111214;
+    --bg2:   #18191c;
+    --bg3:   #222428;
+    --bg4:   #2a2c31;
+    --border: #2e3035;
+    --border-lite: #3a3d45;
+    --text:       #dfe1e8;
+    --text-dim:   #8c8f9a;
+    --text-mid:   #b4b7c4;
+    --text-bright:#ffffff;
+    --sidebar-w:  420px;
+    --topbar-h:   48px;
+    --radius:     4px;
+  }
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  /* ── Top bar ── */
+  #topbar {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: var(--topbar-h);
+    background: var(--bg2);
+    border-bottom: 2px solid var(--nv-green);
+    display: flex;
+    align-items: center;
+    padding: 0 18px;
+    gap: 14px;
+    z-index: 100;
+    user-select: none;
+  }
+  #topbar .nv-product {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-mid);
+    letter-spacing: .3px;
+  }
+  #topbar .nv-product strong { color: var(--text-bright); font-weight: 600; }
+  #topbar .nv-divider { width: 1px; height: 20px; background: var(--border-lite); flex-shrink: 0; }
+  #topbar-search {
+    width: 220px;
+    background: var(--bg3);
+    border: 1px solid var(--border-lite);
+    color: var(--text);
+    padding: 6px 10px 6px 30px;
+    border-radius: var(--radius);
+    font-size: 12px;
+    outline: none;
+    transition: border-color .15s;
+  }
+  #topbar-search:focus { border-color: var(--nv-green); }
+  .search-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+  .search-wrap svg {
+    position: absolute;
+    left: 8px;
+    width: 14px;
+    height: 14px;
+    fill: var(--text-dim);
+    pointer-events: none;
+  }
+  #topbar-controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+  #topbar-controls label { display: flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; white-space: nowrap; }
+  #topbar-controls input[type=checkbox] { accent-color: var(--nv-green); width: 13px; height: 13px; }
+
+  /* ── Layout ── */
+  #app {
+    display: flex;
+    height: 100vh;
+    padding-top: var(--topbar-h);
+    overflow: hidden;
+  }
+
+  /* ── Sidebar ── */
+  #sidebar {
+    width: var(--sidebar-w);
+    min-width: 160px;
+    max-width: 600px;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg2);
+    border-right: 1px solid var(--border);
+    overflow: hidden;
+    position: relative;
+    flex-shrink: 0;
+  }
+  #sidebar-resize {
+    position: absolute;
+    top: 0; right: -3px; bottom: 0;
+    width: 6px;
+    cursor: col-resize;
+    z-index: 10;
+  }
+  #sidebar-resize:hover, #sidebar-resize.dragging {
+    background: var(--nv-green);
+    opacity: .5;
+  }
+  #sidebar-nav { flex: 1; overflow-y: auto; padding: 8px 0 16px; }
+  #sidebar-legend {
+    padding: 10px 14px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .legend-title {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .8px;
+    color: var(--text-dim);
+    margin-bottom: 3px;
+  }
+  .legend-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  #sidebar-nav::-webkit-scrollbar { width: 5px; }
+  #sidebar-nav::-webkit-scrollbar-track { background: transparent; }
+  #sidebar-nav::-webkit-scrollbar-thumb { background: var(--border-lite); border-radius: 3px; }
+
+  /* top-level category (Resource Dumps / Cluster Logs / CI Logs) */
+  .category-block + .category-block { margin-top: 2px; }
+  .category-header {
+    padding: 11px 14px;
+    background: var(--bg4);
+    border-top: 1px solid var(--border-lite);
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .9px;
+    color: var(--nv-green);
+    user-select: none;
+  }
+
+  /* dump entry (under the Resource Dumps category) */
+  .entry-header {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 9px 14px;
+    background: var(--bg3);
+    border-bottom: 1px solid var(--border);
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: .3px;
+    color: var(--text-bright);
+    cursor: pointer;
+    user-select: none;
+    transition: color .1s;
+    word-break: break-all;
+  }
+  .entry-header:hover { color: var(--nv-green-lite); }
+  .entry-prefix { color: var(--text-dim); font-weight: 400; letter-spacing: 0; }
+  .entry-header .arrow { font-size: 9px; transition: transform .15s; color: var(--text-dim); flex-shrink: 0; }
+  .entry-header.collapsed .arrow { transform: rotate(-90deg); }
+
+  /* cluster block */
+  .cluster-block + .cluster-block { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 2px; }
+  .cluster-header {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 8px 14px 5px 20px;
+    font-size: 14px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--nv-green);
+  }
+  .cluster-prefix { color: var(--text-dim); font-weight: 400; }
+  .cluster-header::before {
+    content: '';
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--nv-green);
+    flex-shrink: 0;
+  }
+  .cluster-header.collapsible { cursor: pointer; user-select: none; transition: color .1s; }
+  .cluster-header.collapsible:hover { color: var(--nv-green-lite); }
+  .cluster-header .arrow { font-size: 9px; transition: transform .15s; color: var(--text-dim); flex-shrink: 0; }
+  .cluster-header.collapsed .arrow { transform: rotate(-90deg); }
+
+  /* section (Resources / Events) */
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 14px;
+    font-size: 14px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .8px;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: color .1s;
+  }
+  .section-header:hover { color: var(--text-mid); }
+  .section-header .arrow { font-size: 9px; transition: transform .15s; color: var(--text-dim); }
+  .section-header.collapsed .arrow { transform: rotate(-90deg); }
+
+  /* domain (top-level: core, k8s.io, nvidia.com …) */
+  .domain-header {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 14px 5px 20px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-mid);
+    cursor: pointer;
+    user-select: none;
+    transition: color .1s;
+  }
+  .domain-header:hover { color: var(--text); }
+  .domain-header .arrow { font-size: 9px; transition: transform .15s; }
+  .domain-header.collapsed .arrow { transform: rotate(-90deg); }
+
+  /* subgroup (admissionregistration, svc.dpu …) */
+  .subgroup-header {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 14px 3px 28px;
+    font-size: 13px;
+    font-style: italic;
+    color: var(--text-dim);
+    cursor: pointer;
+    user-select: none;
+    transition: color .1s;
+  }
+  .subgroup-header:hover { color: var(--text-mid); }
+  .subgroup-header .arrow { font-size: 9px; transition: transform .15s; }
+  .subgroup-header.collapsed .arrow { transform: rotate(-90deg); }
+
+  /* kind — indented relative to its parent via padding-left set in JS */
+  .kind-header {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+    padding-right: 12px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+    cursor: pointer;
+    user-select: none;
+    transition: color .1s;
+  }
+  .kind-header:hover { color: var(--text-bright); }
+  .kind-header .arrow { font-size: 9px; transition: transform .15s; flex-shrink: 0; }
+  .kind-header.collapsed .arrow { transform: rotate(-90deg); }
+  .kind-count {
+    font-size: 10px;
+    color: var(--text-dim);
+    background: var(--bg4);
+    border-radius: 8px;
+    padding: 1px 6px;
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+
+  /* file items — padding-left set in JS */
+  .file-list { list-style: none; }
+  .file-item {
+    position: relative;
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+    padding-right: 12px;
+    font-size: 13px;
+    color: var(--text-dim);
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: background .1s, color .1s;
+    border-left: 2px solid transparent;
+    margin-left: 2px;
+  }
+  .file-item:hover { background: var(--bg3); color: var(--text); border-left-color: var(--border-lite); }
+  .file-item.active {
+    background: var(--nv-green-bg);
+    color: var(--text-bright);
+    border-left-color: var(--nv-green);
+  }
+  .file-item .ns {
+    font-size: 11px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+  .file-item.active .ns { color: var(--text-mid); }
+
+  .hidden { display: none !important; }
+
+  /* ── Main panel ── */
+  #main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--bg);
+  }
+  #breadcrumb-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    height: 38px;
+    min-height: 38px;
+    padding: 0 14px 0 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg2);
+  }
+  #breadcrumb {
+    display: flex;
+    align-items: center;
+    flex: 1;
+    min-width: 0;
+    font-size: 12px;
+    color: var(--text-dim);
+    gap: 2px;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  #content-filter {
+    flex-shrink: 0;
+    width: 220px;
+    background: var(--bg3);
+    border: 1px solid var(--border-lite);
+    color: var(--text);
+    padding: 5px 10px;
+    border-radius: var(--radius);
+    font-size: 12px;
+    font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+    outline: none;
+    transition: border-color .15s;
+  }
+  #content-filter:focus { border-color: var(--nv-green); }
+  #content-filter.invalid { border-color: #e06c75; }
+  .bc-seg { color: var(--text-mid); }
+  .bc-sep { margin: 0 4px; color: var(--border-lite); }
+  .bc-dump { color: var(--text-mid); font-weight: 600; }
+  .bc-cluster { color: var(--nv-green); font-weight: 600; }
+  .bc-av { color: var(--text-dim); font-size: 12px; }
+  .bc-kind { color: var(--text); }
+  .bc-name { color: var(--text-bright); font-weight: 500; }
+  #content {
+    flex: 1;
+    overflow: auto;
+    padding: 20px 24px;
+    background: var(--bg);
+  }
+  #content::-webkit-scrollbar { width: 8px; }
+  #content::-webkit-scrollbar-track { background: transparent; }
+  #content::-webkit-scrollbar-thumb { background: var(--border-lite); border-radius: 4px; }
+
+  #placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    gap: 16px;
+    color: var(--text-dim);
+  }
+  .ph-msg { font-size: 14px; color: var(--text-dim); }
+
+  /* ── YAML viewer ── */
+  pre#yaml {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
+    font-size: 12.5px;
+    line-height: 1.65;
+    white-space: pre-wrap;
+    word-break: break-all;
+    color: var(--text);
+  }
+  .y-line {
+    display: flex;
+  }
+  .y-line.y-hide { display: none; }
+  .y-ln {
+    flex: 0 0 auto;
+    min-width: 4ch; /* reserve 4 digits; auto-expands for 5+ digit line numbers */
+    padding-right: 12px;
+    margin-right: 12px;
+    text-align: right;
+    color: var(--text-dim);
+    border-right: 1px solid var(--bg3);
+    white-space: pre;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .y-code {
+    flex: 1 1 auto;
+    min-width: 0; /* let the content column shrink so long lines wrap in place, not under the number */
+  }
+  .y-key   { color: #7ec8e3; }
+  .y-str   { color: #ce9178; }
+  .y-num   { color: #b5cea8; }
+  .y-bool  { color: var(--nv-green-lite); }
+  .y-null  { color: #569cd6; }
+  .y-sep   { color: var(--text-dim); }
+  .y-cmmt  { color: #5a9a60; font-style: italic; }
+  .y-head  { color: var(--nv-green); font-weight: bold; }
+  /* not-Ready condition highlight (status.conditions[] type=Ready, status!=True) */
+  .y-line.y-alert { background: rgba(240,192,64,.12); box-shadow: inset 3px 0 0 #f0c040; }
+  /* anchored line (click a line to link it via #l=<n>) */
+  .y-line:hover .y-ln { color: var(--text-mid); }
+  .y-line.y-current-line { background: rgba(126,200,227,.16); box-shadow: inset 3px 0 0 #7ec8e3; }
+  .y-line.y-current-line .y-ln { color: #7ec8e3; }
+
+  /* ── Condition badge ── */
+  .cond-badge:empty {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    padding: 0;
+  }
+  .cond-badge {
+    font-size: 10px;
+    font-weight: 700;
+    color: #1a1a00;
+    background: #f0c040;
+    border-radius: 8px;
+    padding: 1px 5px;
+    margin-left: 5px;
+    flex-shrink: 0;
+    line-height: 1.4;
+  }
+</style>
+</head>
+<body>
+<div id="topbar">
+  <div class="nv-product" id="topbar-title">DPF CI <strong>Artifacts Browser</strong></div>
+  <div class="nv-divider"></div>
+  <div class="search-wrap">
+    <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="6.5" cy="6.5" r="5" stroke="currentColor" stroke-width="1.5" fill="none"/>
+      <line x1="10.5" y1="10.5" x2="14" y2="14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+    </svg>
+    <input id="topbar-search" type="text" placeholder="Filter resources…" autocomplete="off">
+  </div>
+  <div id="topbar-controls">
+    <label>
+      <input type="checkbox" id="show-not-ready">
+      not Ready only
+    </label>
+    <label>
+      <input type="checkbox" id="show-all-groups">
+      show all groups
+    </label>
+    <label>
+      <input type="checkbox" id="show-managed-fields">
+      show managed fields
+    </label>
+    <label>
+      <input type="checkbox" id="ansi-colors" checked>
+      ANSI colors
+    </label>
+  </div>
+</div>
+<div id="app">
+  <div id="sidebar">
+    <nav id="sidebar-nav"></nav>
+    <div id="sidebar-resize"></div>
+    <div id="sidebar-legend">
+      <div class="legend-title">Legend</div>
+      <div class="legend-row"><span class="kind-count" style="margin-left:0">1</span> total resources</div>
+      <div class="legend-row"><span class="cond-badge" style="margin-left:0">1</span> Ready condition not True</div>
+    </div>
+  </div>
+  <div id="main">
+    <div id="breadcrumb-bar">
+      <div id="breadcrumb"></div>
+      <input id="content-filter" type="text" placeholder="Filter lines (regex)…" autocomplete="off" spellcheck="false">
+    </div>
+    <div id="content">
+      <div id="placeholder">
+        <div class="ph-msg">Select a resource from the sidebar</div>
+      </div>
+      <pre id="yaml" class="hidden"></pre>
+    </div>
+  </div>
+</div>
+<script>
+const INDEX = {{.}};
+
+let showManagedFields = false;
+let showAllGroups = false;
+let notReadyOnly = false; // filter Resource Dumps to resources with a not-Ready condition
+let ansiColors = true;    // colourise ANSI SGR sequences in log files
+let contentFilter = '';   // regex to filter the shown file's lines
+let activeFilePath = '';
+let activeLine = 0; // 1-based anchored line in the viewer (0 = none)
+let loadToken = 0; // bumped on each file open; guards async renders against races
+const PINNED_DOMAINS = new Set(['core', 'apps', 'nvidia.com']);
+const entryCollapsed = new Map(); // block key → collapsed? Persists across sidebar rebuilds and is encoded in the URL.
+const logClusterKey = name => '\x00clog:' + name; // per Cluster-Logs-cluster collapse key
+const resClusterKey = (entryName, name) => '\x00rclust:' + entryName + '\x00' + name; // per dump-cluster collapse key
+let activeItem = null;
+const pathIndex = new Map();       // path → {el, badgeEl, kindBadgeEl, subBadgeEl, domainBadgeEl, sectionBadgeEl, entryBadgeEl, entryName, clusterName, kind, apiVersion, f}
+const conditionCounts = new Map(); // path → number of status.conditions with a message (pre-computed in Go)
+
+// Seed counts from the embedded index (computed at report generation time).
+for (const entry of INDEX.entries) {
+  for (const cluster of entry.clusters) {
+    for (const section of [cluster.resources, cluster.events]) {
+      if (!section) continue;
+      for (const kg of section) {
+        for (const f of kg.f) {
+          if (f.cm) conditionCounts.set(f.p, f.cm);
+        }
+      }
+    }
+  }
+}
+
+// ── Badge helpers ─────────────────────────────────────────────────────────────
+
+function makeBadge() {
+  const b = document.createElement('span');
+  b.className = 'cond-badge hidden';
+  return b;
+}
+
+function setBadgeCount(el, n) {
+  if (!el) return;
+  if (n > 0) { el.textContent = n; el.classList.remove('hidden'); }
+  else { el.classList.add('hidden'); }
+}
+
+function updateAllBadges() {
+  const totals = new Map();
+  for (const [path, e] of pathIndex) {
+    if (!e.badgeEl) continue; // log entries carry no condition badges
+    const c = conditionCounts.get(path) || 0;
+    // File-level badge: dot only (no number — count is always 0 or 1)
+    if (c > 0) { e.badgeEl.textContent = ''; e.badgeEl.classList.remove('hidden'); }
+    else { e.badgeEl.classList.add('hidden'); }
+    if (c > 0) {
+      for (const b of [e.kindBadgeEl, e.subBadgeEl, e.domainBadgeEl, e.sectionBadgeEl, e.entryBadgeEl]) {
+        if (b) totals.set(b, (totals.get(b) || 0) + c);
+      }
+    }
+  }
+  // Reset all ancestor badges (handles case where counts dropped to 0)
+  const seen = new Set();
+  for (const [, e] of pathIndex) {
+    for (const b of [e.kindBadgeEl, e.subBadgeEl, e.domainBadgeEl, e.sectionBadgeEl, e.entryBadgeEl]) {
+      if (b && !seen.has(b)) { seen.add(b); setBadgeCount(b, totals.get(b) || 0); }
+    }
+  }
+}
+
+// ── Sidebar builder ──────────────────────────────────────────────────────────
+
+function buildSidebar(filterText) {
+  const nav = document.getElementById('sidebar-nav');
+  nav.innerHTML = '';
+  pathIndex.clear();
+  const q = filterText.toLowerCase();
+  const filtering = q.length > 0;
+  // "not Ready only" filters and auto-expands the Resource Dumps only; the log
+  // categories are unaffected by it.
+  const dumpsExpand = filtering || notReadyOnly;
+
+  if (INDEX.entries && INDEX.entries.length) {
+    const el = buildCategory('Resource Dumps', () =>
+      INDEX.entries.map(entry => buildEntry(entry, q, dumpsExpand)).filter(Boolean));
+    if (el) nav.appendChild(el);
+  }
+  if (INDEX.logs && INDEX.logs.length) {
+    const el = buildCategory('Cluster Logs', () =>
+      INDEX.logs.map(cluster => buildLogCluster(cluster, q, filtering)).filter(Boolean));
+    if (el) nav.appendChild(el);
+  }
+  if (INDEX.cilogs && INDEX.cilogs.length) {
+    const el = buildCategory('CI Logs', () =>
+      buildCILogsList(INDEX.cilogs, q));
+    if (el) nav.appendChild(el);
+  }
+  updateAllBadges();
+
+  // The sidebar was rebuilt with new elements, so re-apply the active-file
+  // highlight to the element that now represents the selected file (if shown).
+  activeItem = null;
+  if (activeFilePath) {
+    const e = pathIndex.get(activeFilePath);
+    if (e) { activeItem = e.el; e.el.classList.add('active'); }
+  }
+}
+
+// buildCategory wraps a top-level section (Resource Dumps / Cluster Logs / CI
+// Logs). childrenFn builds the child nodes (and populates pathIndex); the
+// category is hidden entirely when it has no visible children.
+function buildCategory(title, childrenFn) {
+  const kids = childrenFn();
+  if (!kids || kids.length === 0) return null;
+
+  const div = document.createElement('div');
+  div.className = 'category-block';
+  const h = document.createElement('div');
+  h.className = 'category-header';
+  h.textContent = title; // static label — categories are always shown
+  div.appendChild(h);
+
+  const body = document.createElement('div');
+  for (const k of kids) body.appendChild(k);
+  div.appendChild(body);
+  return div;
+}
+
+function buildEntry(entry, q, filtering) {
+  const entryDiv = document.createElement('div');
+  entryDiv.className = 'entry-block';
+
+  // Collapse state persists across rebuilds via entryCollapsed (and the URL) so
+  // toggling e.g. "show all groups" won't re-close dumps the user opened.
+  // Default: a lone dump is expanded; with several they start collapsed.
+  const name = entry.name;
+  if (!entryCollapsed.has(name)) entryCollapsed.set(name, INDEX.entries.length > 1);
+  // While filtering, force-expand so matches are visible without overwriting the
+  // stored preference used once the filter is cleared.
+  const collapsed = filtering ? false : entryCollapsed.get(name);
+
+  const eh = document.createElement('div');
+  eh.className = 'entry-header' + (collapsed ? ' collapsed' : '');
+  const entryBadge = makeBadge();
+  eh.innerHTML = '<span class="arrow">▾</span>' + escHtml(entry.name);
+  eh.appendChild(entryBadge);
+  entryDiv.appendChild(eh);
+
+  const ebody = document.createElement('div');
+  if (collapsed) ebody.classList.add('hidden');
+  eh.addEventListener('click', () => {
+    eh.classList.toggle('collapsed');
+    ebody.classList.toggle('hidden');
+    entryCollapsed.set(name, eh.classList.contains('collapsed'));
+    syncHash();
+  });
+
+  let anyCluster = false;
+  for (const cluster of entry.clusters) {
+    const clDiv = buildCluster(entry.name, cluster, q, filtering, entryBadge);
+    if (clDiv) { ebody.appendChild(clDiv); anyCluster = true; }
+  }
+
+  if (!anyCluster) return null;
+  entryDiv.appendChild(ebody);
+  return entryDiv;
+}
+
+function buildCluster(entryName, cluster, q, filtering, entryBadgeEl) {
+  const key = resClusterKey(entryName, cluster.name);
+  const collapsed = filtering ? false : (entryCollapsed.has(key) ? entryCollapsed.get(key) : false);
+
+  const clDiv = document.createElement('div');
+  clDiv.className = 'cluster-block';
+
+  const ch = document.createElement('div');
+  ch.className = 'cluster-header collapsible' + (collapsed ? ' collapsed' : '');
+  ch.innerHTML = '<span class="arrow">▾</span><span class="cluster-prefix">Cluster: </span>' + escHtml(cluster.name);
+  clDiv.appendChild(ch);
+
+  const body = document.createElement('div');
+  if (collapsed) body.classList.add('hidden');
+  ch.addEventListener('click', () => {
+    ch.classList.toggle('collapsed');
+    body.classList.toggle('hidden');
+    entryCollapsed.set(key, ch.classList.contains('collapsed'));
+    syncHash();
+  });
+
+  let anyVisible = false;
+  for (const [sectionLabel, kinds] of [['Resources', cluster.resources], ['Events', cluster.events]]) {
+    if (!kinds || kinds.length === 0) continue;
+    const secEl = buildSection(entryName, cluster, sectionLabel, kinds, q, filtering, entryBadgeEl);
+    if (secEl) {
+      body.appendChild(secEl);
+      anyVisible = true;
+    }
+  }
+  if (!anyVisible) return null;
+  clDiv.appendChild(body);
+  return clDiv;
+}
+
+function buildSection(entryName, cluster, label, kinds, q, filtering, entryBadgeEl) {
+  // domain/sub pre-computed in Go, stored as kg.d / kg.s
+  const domainMap = new Map();
+  for (const kg of kinds) {
+    const domain = kg.d, sub = kg.s || '';
+    if (!domainMap.has(domain)) domainMap.set(domain, new Map());
+    const subMap = domainMap.get(domain);
+    if (!subMap.has(sub)) subMap.set(sub, []);
+    subMap.get(sub).push(kg);
+  }
+  const sortedDomains = [...domainMap.keys()].sort((a, b) => {
+    if (a === 'core') return -1; if (b === 'core') return 1;
+    return a.localeCompare(b);
+  });
+
+  const secDiv = document.createElement('div');
+  const secHeader = document.createElement('div');
+  secHeader.className = 'section-header';
+  const sectionBadge = makeBadge();
+  secHeader.innerHTML = '<span class="arrow">▾</span>' + label;
+  secHeader.appendChild(sectionBadge);
+  secDiv.appendChild(secHeader);
+
+  const body = document.createElement('div');
+  secHeader.addEventListener('click', () => {
+    secHeader.classList.toggle('collapsed');
+    body.classList.toggle('hidden');
+  });
+
+  let secVisible = false;
+  for (const domain of sortedDomains) {
+    if (!showAllGroups && !PINNED_DOMAINS.has(domain)) continue;
+    const domainEl = buildDomain(entryName, cluster, domain, domainMap.get(domain), q, filtering, sectionBadge, entryBadgeEl);
+    if (domainEl) { body.appendChild(domainEl); secVisible = true; }
+  }
+
+  if (!secVisible) return null;
+  secDiv.appendChild(body);
+  return secDiv;
+}
+
+function buildDomain(entryName, cluster, domain, subMap, q, filtering, sectionBadgeEl, entryBadgeEl) {
+  const domainDiv = document.createElement('div');
+  const dh = document.createElement('div');
+  const collapsed = !filtering;
+  dh.className = 'domain-header' + (collapsed ? ' collapsed' : '');
+  const domainBadge = makeBadge();
+  dh.innerHTML = '<span class="arrow">▾</span>' + escHtml(domain);
+  dh.appendChild(domainBadge);
+  domainDiv.appendChild(dh);
+
+  const dbody = document.createElement('div');
+  if (collapsed) dbody.classList.add('hidden');
+  dh.addEventListener('click', () => {
+    dh.classList.toggle('collapsed');
+    dbody.classList.toggle('hidden');
+  });
+
+  const sortedSubs = [...subMap.keys()].sort((a, b) => {
+    if (a === '') return -1; if (b === '') return 1;
+    return a.localeCompare(b);
+  });
+
+  let domainVisible = false;
+  for (const sub of sortedSubs) {
+    const subKinds = subMap.get(sub);
+    if (sub === '') {
+      for (const kg of subKinds) {
+        const kindEl = buildKind(entryName, cluster, kg, q, filtering, 28, null, domainBadge, sectionBadgeEl, entryBadgeEl);
+        if (kindEl) { dbody.appendChild(kindEl); domainVisible = true; }
+      }
+    } else {
+      const subgroupEl = buildSubgroup(entryName, cluster, sub, subKinds, q, filtering, domainBadge, sectionBadgeEl, entryBadgeEl);
+      if (subgroupEl) { dbody.appendChild(subgroupEl); domainVisible = true; }
+    }
+  }
+
+  if (!domainVisible) return null;
+  domainDiv.appendChild(dbody);
+  return domainDiv;
+}
+
+function buildSubgroup(entryName, cluster, sub, kinds, q, filtering, domainBadgeEl, sectionBadgeEl, entryBadgeEl) {
+  const subDiv = document.createElement('div');
+  const sh = document.createElement('div');
+  const collapsed = !filtering;
+  sh.className = 'subgroup-header' + (collapsed ? ' collapsed' : '');
+  const subBadge = makeBadge();
+  sh.innerHTML = '<span class="arrow">▾</span>' + escHtml(sub);
+  sh.appendChild(subBadge);
+  subDiv.appendChild(sh);
+
+  const sbody = document.createElement('div');
+  if (collapsed) sbody.classList.add('hidden');
+  sh.addEventListener('click', () => {
+    sh.classList.toggle('collapsed');
+    sbody.classList.toggle('hidden');
+  });
+
+  let subVisible = false;
+  for (const kg of kinds) {
+    const kindEl = buildKind(entryName, cluster, kg, q, filtering, 36, subBadge, domainBadgeEl, sectionBadgeEl, entryBadgeEl);
+    if (kindEl) { sbody.appendChild(kindEl); subVisible = true; }
+  }
+
+  if (!subVisible) return null;
+  subDiv.appendChild(sbody);
+  return subDiv;
+}
+
+function buildKind(entryName, cluster, kg, q, filtering, kindPL, subBadgeEl, domainBadgeEl, sectionBadgeEl, entryBadgeEl) {
+  const files = kg.f.filter(f => {
+    if (notReadyOnly && !f.cm) return false;
+    if (!q) return true;
+    return f.n.toLowerCase().includes(q) ||
+           (f.ns && f.ns.toLowerCase().includes(q)) ||
+           kg.k.toLowerCase().includes(q);
+  });
+  if (files.length === 0) return null;
+
+  const filePL = kindPL + 8;
+  const kindDiv = document.createElement('div');
+  const kh = document.createElement('div');
+  const kindCollapsed = !filtering;
+  kh.className = 'kind-header' + (kindCollapsed ? ' collapsed' : '');
+  kh.style.paddingLeft = kindPL + 'px';
+  const kindBadge = makeBadge();
+  // Build inner HTML then append badge after kind-count
+  kh.innerHTML = '<span class="arrow">▾</span>' + escHtml(kg.k);
+  kh.appendChild(kindBadge);
+  const countSpan = document.createElement('span');
+  countSpan.className = 'kind-count';
+  countSpan.textContent = files.length;
+  kh.appendChild(countSpan);
+  kindDiv.appendChild(kh);
+
+  const kbody = document.createElement('ul');
+  kbody.className = 'file-list';
+  if (kindCollapsed) kbody.classList.add('hidden');
+  kh.addEventListener('click', () => {
+    kh.classList.toggle('collapsed');
+    kbody.classList.toggle('hidden');
+  });
+
+  for (const f of files) {
+    const li = document.createElement('li');
+    li.className = 'file-item';
+    li.style.paddingLeft = filePL + 'px';
+    li.dataset.path = f.p;
+    const fileBadge = makeBadge();
+    const nsSpan = f.ns ? '<span class="ns">' + escHtml(f.ns) + '/</span>' : '';
+    li.innerHTML = nsSpan + escHtml(f.n);
+    li.appendChild(fileBadge);
+    const av = kg.av || '';
+    li.addEventListener('click', () => selectFile(li, entryName, cluster.name, kg.k, av, f));
+    kbody.appendChild(li);
+    pathIndex.set(f.p, {
+      el: li, badgeEl: fileBadge,
+      kindBadgeEl: kindBadge, subBadgeEl, domainBadgeEl, sectionBadgeEl, entryBadgeEl,
+      entryName, clusterName: cluster.name, kind: kg.k, apiVersion: av, f,
+    });
+  }
+
+  kindDiv.appendChild(kbody);
+  return kindDiv;
+}
+
+// ── Logs sidebar (cluster → namespace → pod → container) ───────────────────────
+
+// buildCILogsList renders the top-level CI *.log files as a flat file list.
+function buildCILogsList(cilogs, q) {
+  const files = cilogs.filter(f => !q || f.n.toLowerCase().includes(q));
+  if (files.length === 0) return [];
+
+  const ul = document.createElement('ul');
+  ul.className = 'file-list';
+  for (const f of files) {
+    const li = document.createElement('li');
+    li.className = 'file-item';
+    li.style.paddingLeft = '20px';
+    li.dataset.path = f.p;
+    li.innerHTML = escHtml(f.n);
+    li.addEventListener('click', () => selectCILog(li, f));
+    ul.appendChild(li);
+    pathIndex.set(f.p, { el: li, isCILog: true, f });
+  }
+  return [ul];
+}
+
+function buildLogCluster(cluster, q, filtering) {
+  const files = cluster.f.filter(f => matchLog(f, q));
+  if (files.length === 0) return null;
+
+  const key = logClusterKey(cluster.name);
+  // Collapsed by default so Cluster Logs shows just the cluster names (first level).
+  const collapsed = filtering ? false : (entryCollapsed.has(key) ? entryCollapsed.get(key) : true);
+
+  const clDiv = document.createElement('div');
+  clDiv.className = 'cluster-block';
+  const ch = document.createElement('div');
+  ch.className = 'cluster-header collapsible' + (collapsed ? ' collapsed' : '');
+  ch.innerHTML = '<span class="arrow">▾</span><span class="cluster-prefix">Cluster: </span>' + escHtml(cluster.name);
+  clDiv.appendChild(ch);
+
+  const body = document.createElement('div');
+  if (collapsed) body.classList.add('hidden');
+  ch.addEventListener('click', () => {
+    ch.classList.toggle('collapsed');
+    body.classList.toggle('hidden');
+    entryCollapsed.set(key, ch.classList.contains('collapsed'));
+    syncHash();
+  });
+
+  // Group by namespace, then pod.
+  const nsMap = new Map();
+  for (const f of files) {
+    const ns = f.ns || '';
+    if (!nsMap.has(ns)) nsMap.set(ns, []);
+    nsMap.get(ns).push(f);
+  }
+  for (const ns of [...nsMap.keys()].sort((a, b) => a.localeCompare(b))) {
+    body.appendChild(buildLogNamespace(cluster.name, ns, nsMap.get(ns), filtering));
+  }
+  clDiv.appendChild(body);
+  return clDiv;
+}
+
+function buildLogNamespace(clusterName, ns, files, filtering) {
+  const div = document.createElement('div');
+  const h = document.createElement('div');
+  const collapsed = !filtering;
+  h.className = 'domain-header' + (collapsed ? ' collapsed' : '');
+  h.innerHTML = '<span class="arrow">▾</span>' + escHtml(ns || '(cluster)');
+  div.appendChild(h);
+
+  const body = document.createElement('div');
+  if (collapsed) body.classList.add('hidden');
+  h.addEventListener('click', () => { h.classList.toggle('collapsed'); body.classList.toggle('hidden'); });
+
+  const podMap = new Map();
+  for (const f of files) {
+    const pod = f.pod || '';
+    if (!podMap.has(pod)) podMap.set(pod, []);
+    podMap.get(pod).push(f);
+  }
+  for (const pod of [...podMap.keys()].sort((a, b) => a.localeCompare(b))) {
+    body.appendChild(buildLogPod(clusterName, ns, pod, podMap.get(pod), filtering));
+  }
+  div.appendChild(body);
+  return div;
+}
+
+function buildLogPod(clusterName, ns, pod, files, filtering) {
+  const div = document.createElement('div');
+  const h = document.createElement('div');
+  const collapsed = !filtering;
+  h.className = 'kind-header' + (collapsed ? ' collapsed' : '');
+  h.style.paddingLeft = '28px';
+  h.innerHTML = '<span class="arrow">▾</span>' + escHtml(pod || '(pod)');
+  const count = document.createElement('span');
+  count.className = 'kind-count';
+  count.textContent = files.length;
+  h.appendChild(count);
+  div.appendChild(h);
+
+  const ul = document.createElement('ul');
+  ul.className = 'file-list';
+  if (collapsed) ul.classList.add('hidden');
+  h.addEventListener('click', () => { h.classList.toggle('collapsed'); ul.classList.toggle('hidden'); });
+
+  for (const f of files) {
+    const li = document.createElement('li');
+    li.className = 'file-item';
+    li.style.paddingLeft = '36px';
+    li.dataset.path = f.p;
+    li.innerHTML = escHtml(f.c);
+    li.addEventListener('click', () => selectLog(li, clusterName, ns, pod, f));
+    ul.appendChild(li);
+    pathIndex.set(f.p, { el: li, isLog: true, clusterName, ns, pod, f });
+  }
+  div.appendChild(ul);
+  return div;
+}
+
+function matchLog(f, q) {
+  if (!q) return true;
+  return (f.c && f.c.toLowerCase().includes(q)) ||
+         (f.pod && f.pod.toLowerCase().includes(q)) ||
+         (f.ns && f.ns.toLowerCase().includes(q));
+}
+
+// ── File loading ─────────────────────────────────────────────────────────────
+
+async function selectFile(el, entryName, clusterName, kind, apiVersion, f, skipHash) {
+  if (activeItem) activeItem.classList.remove('active');
+  activeItem = el;
+  el.classList.add('active');
+
+  if (!skipHash && f.p !== activeFilePath) activeLine = 0; // new file clears the line anchor
+  activeFilePath = f.p;
+  const token = ++loadToken;
+  if (!skipHash) syncHash();
+
+  const bc = document.getElementById('breadcrumb');
+  const sep = '<span class="bc-sep"> | </span>';
+  // For core group (apiVersion has no "/", e.g. "v1"), combine group+Kind: "core/Node"
+  // For others, show apiVersion and Kind as separate segments.
+  let avKind;
+  if (!apiVersion || !apiVersion.includes('/')) {
+    avKind = sep + '<span class="bc-av">core/' + escHtml(kind) + '</span>';
+  } else {
+    avKind = sep + '<span class="bc-av">' + escHtml(apiVersion) + '</span>' +
+             sep + '<span class="bc-kind">' + escHtml(kind) + '</span>';
+  }
+  const nsName = (f.ns ? '<span class="bc-seg">' + escHtml(f.ns) + '/</span>' : '') +
+                 '<span class="bc-name">' + escHtml(f.n) + '</span>';
+  const dumpSeg = entryName ? '<span class="bc-dump">' + escHtml(entryName) + '</span>' + sep : '';
+  bc.innerHTML = dumpSeg + '<span class="bc-cluster">' + escHtml(clusterName) + '</span>' + avKind + sep + nsName;
+
+  document.getElementById('placeholder').classList.add('hidden');
+  const pre = document.getElementById('yaml');
+  pre.classList.remove('hidden');
+  pre.innerHTML = '<span style="color:var(--text-dim)">Loading…</span>';
+
+  try {
+    const resp = await fetch(f.p);
+    if (!resp.ok) throw new Error(resp.status + ' ' + resp.statusText);
+    const text = await resp.text();
+    if (token !== loadToken) return; // superseded by a newer selection
+    const processed = showManagedFields ? text : stripManagedFields(text);
+    pre.innerHTML = highlightYaml(processed);
+    if (activeLine > 0) {
+      applyLineAnchor();
+    } else {
+      // Otherwise bring a not-Ready condition into view so it's easy to spot.
+      const firstAlert = pre.querySelector('.y-alert');
+      if (firstAlert) firstAlert.scrollIntoView({block: 'center'});
+    }
+    if (contentFilter) applyContentFilter(false);
+  } catch (e) {
+    if (token === loadToken) pre.innerHTML = '<span style="color:#f44">Error: ' + escHtml(String(e)) + '</span>';
+  }
+}
+
+function setActive(el) {
+  if (activeItem) activeItem.classList.remove('active');
+  activeItem = el;
+  el.classList.add('active');
+}
+
+async function selectLog(el, clusterName, ns, pod, f, skipHash) {
+  setActive(el);
+  if (!skipHash && f.p !== activeFilePath) activeLine = 0;
+  activeFilePath = f.p;
+  if (!skipHash) syncHash();
+
+  const sep = '<span class="bc-sep"> | </span>';
+  const nsPod = [ns, pod].filter(Boolean).map(escHtml).join('/');
+  document.getElementById('breadcrumb').innerHTML =
+    '<span class="bc-dump">Cluster Logs</span>' + sep +
+    '<span class="bc-cluster">' + escHtml(clusterName) + '</span>' + sep +
+    (nsPod ? '<span class="bc-seg">' + nsPod + '/</span>' : '') +
+    '<span class="bc-name">' + escHtml(f.c) + '</span>';
+
+  await showPlain(f.p);
+}
+
+async function selectCILog(el, f, skipHash) {
+  setActive(el);
+  if (!skipHash && f.p !== activeFilePath) activeLine = 0;
+  activeFilePath = f.p;
+  if (!skipHash) syncHash();
+
+  const sep = '<span class="bc-sep"> | </span>';
+  document.getElementById('breadcrumb').innerHTML =
+    '<span class="bc-dump">CI Logs</span>' + sep +
+    '<span class="bc-name">' + escHtml(f.n) + '</span>';
+
+  await showPlain(f.p);
+}
+
+// showPlain streams a file and renders it as plain text (used for log files),
+// appending complete lines as they arrive so large logs show up progressively
+// instead of blocking on the full download.
+async function showPlain(path) {
+  document.getElementById('placeholder').classList.add('hidden');
+  const pre = document.getElementById('yaml');
+  pre.classList.remove('hidden');
+  pre.innerHTML = '<span style="color:var(--text-dim)">Loading…</span>';
+  const token = ++loadToken;
+
+  let started = false, lineNo = 1;
+  const ansiState = freshAnsiState(); // ANSI colour state carried across chunks/lines
+  const append = (block) => {
+    if (!started) { pre.innerHTML = ''; started = true; }
+    pre.insertAdjacentHTML('beforeend', plainLinesHtml(block, ansiState, lineNo));
+    lineNo += block.split('\n').length;
+  };
+
+  try {
+    const resp = await fetch(path);
+    if (token !== loadToken) return;
+    if (!resp.ok) throw new Error(resp.status + ' ' + resp.statusText);
+
+    const reader = resp.body && resp.body.getReader ? resp.body.getReader() : null;
+    if (!reader) { // no streaming support: fall back to a single render
+      pre.innerHTML = renderPlain(await resp.text());
+      if (activeLine > 0) applyLineAnchor();
+      if (contentFilter) applyContentFilter(false);
+      return;
+    }
+
+    const decoder = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (token !== loadToken) { reader.cancel(); return; } // superseded
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      // Flush complete lines; keep the trailing partial line buffered.
+      const nl = buf.lastIndexOf('\n');
+      if (nl >= 0) { append(buf.slice(0, nl)); buf = buf.slice(nl + 1); }
+    }
+    buf += decoder.decode();
+    if (buf.length) append(buf);
+    if (!started) pre.innerHTML = '<span class="y-line"><span class="y-ln">1</span><span class="y-code">&#8203;</span></span>'; // empty file
+    if (activeLine > 0) applyLineAnchor();
+    if (contentFilter) applyContentFilter(false);
+  } catch (e) {
+    if (token === loadToken) pre.innerHTML = '<span style="color:#f44">Error: ' + escHtml(String(e)) + '</span>';
+  }
+}
+
+// ── ANSI (bash color) rendering for log files ─────────────────────────────────
+// Standard 16-colour palette tuned for the dark theme: black, red, green,
+// yellow, blue, magenta, cyan, white (indexes 0-7).
+const ANSI_NORMAL = ['#5c6370', '#e06c75', '#98c379', '#d19a66', '#61afef', '#c678dd', '#56b6c2', '#abb2bf'];
+const ANSI_BRIGHT = ['#7f8794', '#ef7079', '#a9d977', '#e5c07b', '#7ec8e3', '#d78ce6', '#66c6d2', '#ffffff'];
+
+function freshAnsiState() {
+  return { fgIdx: null, bgIdx: null, bold: false, dim: false, italic: false, underline: false, bright: false };
+}
+
+// applySGR mutates state per an ANSI SGR parameter string (e.g. "0;36").
+function applySGR(state, param) {
+  const codes = param.split(';');
+  for (let k = 0; k < codes.length; k++) {
+    const n = parseInt(codes[k], 10) || 0; // empty/NaN → 0 (reset)
+    if (n === 0) { state.fgIdx = null; state.bgIdx = null; state.bold = state.dim = state.italic = state.underline = state.bright = false; }
+    else if (n === 1) state.bold = true;
+    else if (n === 2) state.dim = true;
+    else if (n === 3) state.italic = true;
+    else if (n === 4) state.underline = true;
+    else if (n === 22) { state.bold = false; state.dim = false; }
+    else if (n === 23) state.italic = false;
+    else if (n === 24) state.underline = false;
+    else if (n >= 30 && n <= 37) { state.fgIdx = n - 30; state.bright = false; }
+    else if (n === 39) state.fgIdx = null;
+    else if (n >= 90 && n <= 97) { state.fgIdx = n - 90; state.bright = true; }
+    else if (n >= 40 && n <= 47) state.bgIdx = n - 40;
+    else if (n === 49) state.bgIdx = null;
+    else if (n === 38 || n === 48) { // skip extended (256/truecolour) colour params
+      if (codes[k + 1] === '5') k += 2;
+      else if (codes[k + 1] === '2') k += 4;
+    }
+  }
+}
+
+function ansiStyle(s) {
+  const parts = [];
+  if (s.fgIdx != null) parts.push('color:' + (s.bright || s.bold ? ANSI_BRIGHT : ANSI_NORMAL)[s.fgIdx]);
+  if (s.bgIdx != null) parts.push('background:' + ANSI_NORMAL[s.bgIdx]);
+  if (s.bold) parts.push('font-weight:bold');
+  if (s.italic) parts.push('font-style:italic');
+  if (s.underline) parts.push('text-decoration:underline');
+  if (s.dim && s.fgIdx == null) parts.push('opacity:.7');
+  return parts.join(';');
+}
+
+// ansiLineToHtml converts one log line to HTML, honouring ANSI SGR colours and
+// carrying colour state forward via `state` (mutated). Carriage returns and
+// non-SGR escape sequences are stripped.
+function ansiLineToHtml(line, state) {
+  line = line.replace(/\r/g, '');
+  // Colours off: show the original content verbatim, escape sequences included.
+  if (!ansiColors) return escHtml(line);
+  // Some tools log escapes literally (e.g. "\033[0;34m"); normalise the common
+  // literal forms (\033[, \x1b[, \e[) to a real ESC so they colour too.
+  if (line.indexOf('\\') !== -1) line = line.replace(/\\(?:033|x1[bB]|e)\[/g, '\x1b[');
+  const emit = (text) => {
+    if (!text) return '';
+    const esc = escHtml(text);
+    const st = ansiStyle(state);
+    return st ? '<span style="' + st + '">' + esc + '</span>' : esc;
+  };
+  if (line.indexOf('\x1b') === -1) return emit(line); // fast path: no escapes
+
+  let out = '', last = 0, m;
+  const re = /\x1b\[([0-9;]*)m|\x1b\[[0-9;?]*[A-Za-z]/g; // SGR (captured) or other CSI (stripped)
+  while ((m = re.exec(line)) !== null) {
+    out += emit(line.slice(last, m.index));
+    if (m[1] !== undefined) applySGR(state, m[1]);
+    last = re.lastIndex;
+  }
+  out += emit(line.slice(last));
+  return out;
+}
+
+function plainLinesHtml(block, state, startNo) {
+  return block.split('\n').map((l, i) =>
+    '<span class="y-line"><span class="y-ln">' + (startNo + i) + '</span><span class="y-code">' +
+    (ansiLineToHtml(l, state) || '&#8203;') + '</span></span>').join('');
+}
+
+// Render plain text with line numbers, honouring ANSI colours, for log files.
+function renderPlain(text) {
+  const t = text.endsWith('\n') ? text.slice(0, -1) : text;
+  return plainLinesHtml(t, freshAnsiState(), 1);
+}
+
+// ── Line anchors ──────────────────────────────────────────────────────────────
+
+// highlightCurrentLine marks the anchored line (activeLine) in the viewer and
+// returns its element, clearing any previous highlight.
+function highlightCurrentLine() {
+  const pre = document.getElementById('yaml');
+  const prev = pre.querySelector('.y-current-line');
+  if (prev) prev.classList.remove('y-current-line');
+  if (activeLine <= 0) return null;
+  const el = pre.querySelectorAll('.y-line')[activeLine - 1];
+  if (el) el.classList.add('y-current-line');
+  return el || null;
+}
+
+// applyLineAnchor highlights the anchored line and scrolls it into view.
+function applyLineAnchor() {
+  const el = highlightCurrentLine();
+  if (el) el.scrollIntoView({block: 'center'});
+}
+
+// applyContentFilter hides viewer lines that don't match the contentFilter regex
+// (case-insensitive). An empty or invalid regex shows all lines.
+function applyContentFilter(scroll) {
+  const pre = document.getElementById('yaml');
+  const input = document.getElementById('content-filter');
+  let re = null, valid = true;
+  if (contentFilter) {
+    try { re = new RegExp(contentFilter, 'i'); } catch (e) { valid = false; }
+  }
+  if (input) input.classList.toggle('invalid', !valid);
+  let first = null;
+  pre.querySelectorAll('.y-line').forEach(el => {
+    const code = el.querySelector('.y-code');
+    const hide = re && !re.test(code ? code.textContent : el.textContent);
+    el.classList.toggle('y-hide', !!hide);
+    if (re && !hide && !first) first = el;
+  });
+  if (scroll && first) first.scrollIntoView({block: 'start'});
+}
+
+// ── Expand ancestors and navigate to path ────────────────────────────────────
+
+function navigateToPath(path) {
+  const entry = pathIndex.get(path);
+  if (!entry) return;
+  // Walk up the DOM expanding collapsed ancestors
+  let node = entry.el.parentElement;
+  while (node && node.id !== 'sidebar-nav') {
+    if (node.classList.contains('hidden')) node.classList.remove('hidden');
+    // Sync arrow on the sibling header (previous element sibling)
+    const prev = node.previousElementSibling;
+    if (prev && prev.classList.contains('collapsed')) prev.classList.remove('collapsed');
+    node = node.parentElement;
+  }
+  // Keep the containing dump/cluster expanded across future rebuilds.
+  if (entry.isCILog) {
+    selectCILog(entry.el, entry.f, true);
+  } else if (entry.isLog) {
+    entryCollapsed.set(logClusterKey(entry.clusterName), false);
+    selectLog(entry.el, entry.clusterName, entry.ns, entry.pod, entry.f, true);
+  } else {
+    if (entry.entryName) {
+      entryCollapsed.set(entry.entryName, false);
+      entryCollapsed.set(resClusterKey(entry.entryName, entry.clusterName), false);
+    }
+    selectFile(entry.el, entry.entryName, entry.clusterName, entry.kind, entry.apiVersion, entry.f, true);
+  }
+  entry.el.scrollIntoView({block: 'nearest'});
+}
+
+// ── Managed fields stripping ─────────────────────────────────────────────────
+
+function stripManagedFields(yaml) {
+  const lines = yaml.split('\n');
+  const out = [];
+  let skip = false;
+  let skipIndent = 0;
+
+  for (const line of lines) {
+    const trimmed = line.trimStart();
+    const indent = line.length - trimmed.length;
+
+    if (!skip && trimmed.startsWith('managedFields:')) {
+      skipIndent = indent;
+      skip = true;
+      continue;
+    }
+
+    if (skip) {
+      if (!trimmed) continue;
+      if (indent > skipIndent) continue;
+      if (indent === skipIndent && trimmed.startsWith('- ')) continue;
+      skip = false;
+    }
+
+    out.push(line);
+  }
+  return out.join('\n');
+}
+
+// ── YAML syntax highlighting ─────────────────────────────────────────────────
+
+// notReadyConditionLines returns the set of line indices belonging to a
+// status.conditions[] item whose type is "Ready" and status is not "True".
+// Mirrors the Go-side hasNotReadyCondition scan, but records line ranges so the
+// viewer can highlight the offending condition.
+function notReadyConditionLines(lines) {
+  const mark = new Set();
+  const ROOT = 0, STATUS = 1, COND = 2;
+  let state = ROOT;
+  let statusIndent = -1, condIndent = -1;
+  let itemStart = -1, itemType = '', itemStatus = '';
+
+  const readyNotTrue = () =>
+    itemType.toLowerCase() === 'ready' && itemStatus !== '' && itemStatus.toLowerCase() !== 'true';
+  const flush = (end) => {
+    if (itemStart >= 0 && readyNotTrue()) { for (let k = itemStart; k < end; k++) mark.add(k); }
+    itemStart = -1; itemType = ''; itemStatus = '';
+  };
+  const unquote = s => s.trim().replace(/^["']|["']$/g, '');
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.replace(/^[ \t]+/, '');
+    if (trimmed === '') continue;
+    const indent = line.length - trimmed.length;
+
+    if (state === ROOT) {
+      if (trimmed.startsWith('status:')) { state = STATUS; statusIndent = indent; }
+    } else if (state === STATUS) {
+      if (indent <= statusIndent && !trimmed.startsWith('-')) { state = ROOT; i--; continue; }
+      if (trimmed.startsWith('conditions:')) { state = COND; condIndent = indent; itemStart = -1; itemType = ''; itemStatus = ''; }
+    } else { // COND
+      if (indent <= condIndent && !trimmed.startsWith('-')) { flush(i); state = STATUS; i--; continue; }
+      let rest = trimmed;
+      if (indent === condIndent && trimmed.startsWith('- ')) { flush(i); itemStart = i; rest = trimmed.slice(2); }
+      if (rest.startsWith('type:')) itemType = unquote(rest.slice(5));
+      else if (rest.startsWith('status:')) itemStatus = unquote(rest.slice(7));
+    }
+  }
+  if (state === COND) flush(lines.length);
+  return mark;
+}
+
+function highlightYaml(text) {
+  const lines = text.split('\n');
+  // Drop trailing empty line produced by split when text ends with \n
+  if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+  const alert = notReadyConditionLines(lines);
+  return lines.map((line, i) => {
+    const esc = s => escHtml(s);
+    let inner;
+    if (line.startsWith('---') || line.startsWith('...')) {
+      inner = '<span class="y-head">' + esc(line) + '</span>';
+    } else if (/^\s*#/.test(line)) {
+      inner = '<span class="y-cmmt">' + esc(line) + '</span>';
+    } else {
+      const kvMatch = line.match(/^(\s*)([\w\-./~]+)(\s*:\s*)(.*)$/);
+      if (kvMatch) {
+        const [, indent, key, sep, val] = kvMatch;
+        inner = esc(indent) +
+          '<span class="y-key">' + esc(key) + '</span>' +
+          '<span class="y-sep">' + esc(sep) + '</span>' +
+          colorValue(val);
+      } else {
+        const listMatch = line.match(/^(\s*-\s+)(.*)$/);
+        if (listMatch) {
+          const [, prefix, val] = listMatch;
+          inner = '<span class="y-sep">' + esc(prefix) + '</span>' + colorValue(val);
+        } else {
+          inner = esc(line) || '&#8203;'; // zero-width space keeps empty lines from collapsing
+        }
+      }
+    }
+    return '<span class="y-line' + (alert.has(i) ? ' y-alert' : '') + '"><span class="y-ln">' + (i + 1) +
+           '</span><span class="y-code">' + inner + '</span></span>';
+  }).join('');
+}
+
+function colorValue(val) {
+  const esc = s => escHtml(s);
+  if (!val || val === '') return '';
+  if (val === 'true' || val === 'false') return '<span class="y-bool">' + esc(val) + '</span>';
+  if (val === 'null' || val === '~') return '<span class="y-null">' + esc(val) + '</span>';
+  if (/^-?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?$/.test(val)) return '<span class="y-num">' + esc(val) + '</span>';
+  if (val.startsWith('"') || val.startsWith("'")) return '<span class="y-str">' + esc(val) + '</span>';
+  if (val === '|' || val === '|-' || val === '>' || val === '>-') return '<span class="y-sep">' + esc(val) + '</span>';
+  return esc(val);
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// ── URL hash helpers ─────────────────────────────────────────────────────────
+
+function parseHash() {
+  const raw = location.hash.slice(1);
+  if (!raw) return {};
+  // Legacy: bare path (no '=' in hash)
+  if (!raw.includes('=')) return { p: decodeURIComponent(raw) };
+  const params = new URLSearchParams(raw);
+  return { p: params.get('p') || '', mf: params.get('mf') === '1', ag: params.get('ag') === '1', nr: params.get('nr') === '1', ac: params.get('ac'), e: params.getAll('e'), l: parseInt(params.get('l'), 10) || 0 };
+}
+
+function syncHash() {
+  const params = new URLSearchParams();
+  if (activeFilePath) params.set('p', activeFilePath);
+  if (activeLine > 0) params.set('l', String(activeLine));
+  if (showManagedFields) params.set('mf', '1');
+  if (notReadyOnly) params.set('nr', '1');
+  if (!ansiColors) params.set('ac', '0'); // default on; record only when off
+  if (showAllGroups) params.set('ag', '1');
+  // Record which collapsible blocks (categories and dumps) are expanded so a
+  // rebuild (or reload/share) keeps them open. Skip the trivial single-category,
+  // single-dump case, which just uses the defaults.
+  const nCategories = (INDEX.entries && INDEX.entries.length ? 1 : 0) +
+                      (INDEX.logs && INDEX.logs.length ? 1 : 0) +
+                      (INDEX.cilogs && INDEX.cilogs.length ? 1 : 0);
+  if (nCategories > 1 || (INDEX.entries && INDEX.entries.length > 1)) {
+    for (const [name, isCollapsed] of entryCollapsed) {
+      if (!isCollapsed) params.append('e', name);
+    }
+  }
+  const s = params.toString();
+  history.replaceState(null, '', s ? '#' + s : location.pathname + location.search);
+}
+
+// ── Wiring ───────────────────────────────────────────────────────────────────
+
+document.getElementById('topbar-search').addEventListener('input', e => {
+  buildSidebar(e.target.value);
+  updateAllBadges();
+  const { p } = parseHash();
+  if (p) navigateToPath(p);
+});
+
+document.getElementById('show-all-groups').addEventListener('change', e => {
+  showAllGroups = e.target.checked;
+  buildSidebar(document.getElementById('topbar-search').value);
+  updateAllBadges();
+  syncHash();
+});
+
+document.getElementById('show-managed-fields').addEventListener('change', e => {
+  showManagedFields = e.target.checked;
+  syncHash();
+  if (activeItem) activeItem.click();
+});
+
+document.getElementById('show-not-ready').addEventListener('change', e => {
+  notReadyOnly = e.target.checked;
+  buildSidebar(document.getElementById('topbar-search').value);
+  updateAllBadges();
+  syncHash();
+});
+
+document.getElementById('content-filter').addEventListener('input', e => {
+  contentFilter = e.target.value;
+  applyContentFilter(true);
+});
+
+document.getElementById('ansi-colors').addEventListener('change', e => {
+  ansiColors = e.target.checked;
+  syncHash();
+  if (activeItem) activeItem.click(); // re-render the current file
+});
+
+// Click a line in the viewer to anchor it in the URL (ignored while selecting text).
+document.getElementById('yaml').addEventListener('click', e => {
+  const sel = window.getSelection();
+  if (sel && sel.toString()) return; // don't hijack a text selection
+  const lineEl = e.target.closest ? e.target.closest('.y-line') : null;
+  if (!lineEl) return;
+  const lines = document.getElementById('yaml').querySelectorAll('.y-line');
+  const idx = Array.prototype.indexOf.call(lines, lineEl);
+  if (idx < 0) return;
+  activeLine = idx + 1;
+  highlightCurrentLine();
+  syncHash();
+});
+
+document.title = 'DPF CI Artifacts Browser';
+
+// ── Sidebar resize ───────────────────────────────────────────────────────────
+
+(function() {
+  const handle = document.getElementById('sidebar-resize');
+  const sidebar = document.getElementById('sidebar');
+  let startX, startW;
+
+  handle.addEventListener('mousedown', e => {
+    startX = e.clientX;
+    startW = sidebar.offsetWidth;
+    handle.classList.add('dragging');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    function onMove(e) {
+      const w = Math.min(600, Math.max(160, startW + e.clientX - startX));
+      sidebar.style.width = w + 'px';
+    }
+    function onUp() {
+      handle.classList.remove('dragging');
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+})();
+
+// Initial build and restore from hash
+const initialState = parseHash();
+if (initialState.ag) {
+  showAllGroups = true;
+  document.getElementById('show-all-groups').checked = true;
+}
+if (initialState.mf) {
+  showManagedFields = true;
+  document.getElementById('show-managed-fields').checked = true;
+}
+if (initialState.nr) {
+  notReadyOnly = true;
+  document.getElementById('show-not-ready').checked = true;
+}
+if (initialState.ac === '0') {
+  ansiColors = false;
+  document.getElementById('ansi-colors').checked = false;
+}
+// Restore which dumps were expanded (others fall back to the default).
+if (initialState.e && initialState.e.length) {
+  for (const name of initialState.e) entryCollapsed.set(name, false);
+}
+if (initialState.l) activeLine = initialState.l;
+buildSidebar('');
+if (initialState.p) navigateToPath(initialState.p);
+</script>
+</body>
+</html>
