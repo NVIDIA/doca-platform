@@ -76,15 +76,16 @@ $ kubectl -n dpf-operator-system get dpu worker1-mt2413xz0b67 -oyaml | yq -P .st
 
 ## Alerting Example
 
-Use operational conditions for alerting in Prometheus:
+Use operational conditions for alerting in Prometheus. This is the `DPFDPUNotOperational` rule from the [DPF alert rule examples](../prometheus-rules/alerts.md):
 
 ```yaml
-- alert: DPUOperationalNotReady
-  expr: |
-    dpu_operational_conditions{type="OperationalReady",status="True"} == 0
+- alert: DPFDPUNotOperational
+  expr: max by(namespace, name) (dpu_operational_conditions{type="OperationalReady", status="False"}) == 1
   for: 5m
   labels:
-    severity: warning
+    severity: critical
+    service: doca-platform-framework
   annotations:
-    summary: "DPU {{ $labels.name }} is not operationally ready"
+    summary: "DPU {{ $labels.namespace }}/{{ $labels.name }} is not OperationalReady"
+    description: "DPU finished provisioning but its runtime is degraded (OperationalReady=False). Inspect the DPU agent, networking, and the DPU cluster node."
 ```

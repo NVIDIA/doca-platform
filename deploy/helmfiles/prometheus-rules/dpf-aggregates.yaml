@@ -1,0 +1,108 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: dpf-aggregates
+  namespace: dpf-operator-system
+  labels:
+    app.kubernetes.io/name: dpf-operator
+    app.kubernetes.io/instance: dpf-operator
+    app.kubernetes.io/part-of: doca-platform-framework
+    # Required by the default kube-prometheus-stack ruleSelector. Adjust or drop
+    # to match your Prometheus instance's ruleSelector.
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: dpf-aggregates
+      interval: 30s
+      # The :ready rules fall back to 0 via `or on() vector(0)` so the ratio keeps
+      # reporting (as 0) during a full outage instead of going stale. The :total
+      # rules count the objects' `_created` series, so objects that have not
+      # published conditions yet still count towards the denominator.
+      rules:
+        - record: dpf:dpu:ready
+          expr: count(dpu_status_conditions{type="Ready", status="True"} == 1) or on() vector(0)
+          labels:
+            service: doca-platform-framework
+        - record: dpf:dpu:total
+          expr: count(dpu_created)
+          labels:
+            service: doca-platform-framework
+        - record: dpf:dpu:ready_ratio
+          expr: dpf:dpu:ready / dpf:dpu:total
+          labels:
+            service: doca-platform-framework
+        - record: dpf:dpuservice:ready
+          expr: count(dpuservice_status_conditions{type="Ready", status="True"} == 1) or on() vector(0)
+          labels:
+            service: doca-platform-framework
+        - record: dpf:dpuservice:total
+          expr: count(dpuservice_created)
+          labels:
+            service: doca-platform-framework
+        - record: dpf:dpuservice:ready_ratio
+          expr: dpf:dpuservice:ready / dpf:dpuservice:total
+          labels:
+            service: doca-platform-framework
+        - record: dpf:dpudeployment:ready
+          expr: count(dpudeployment_status_conditions{type="Ready", status="True"} == 1) or on() vector(0)
+          labels:
+            service: doca-platform-framework
+        - record: dpf:dpudeployment:total
+          expr: count(dpudeployment_created)
+          labels:
+            service: doca-platform-framework
+        - record: dpf:dpudeployment:ready_ratio
+          expr: dpf:dpudeployment:ready / dpf:dpudeployment:total
+          labels:
+            service: doca-platform-framework
+        - record: dpf:dpucluster:ready
+          expr: count(dpucluster_status_conditions{type="Ready", status="True"} == 1) or on() vector(0)
+          labels:
+            service: doca-platform-framework
+        - record: dpf:dpucluster:total
+          expr: count(dpucluster_created)
+          labels:
+            service: doca-platform-framework
+        - record: dpf:dpucluster:ready_ratio
+          expr: dpf:dpucluster:ready / dpf:dpucluster:total
+          labels:
+            service: doca-platform-framework
+        # The replica rules join and group on `cluster` as well, so the same
+        # DPUService running on several DPU clusters aggregates per cluster
+        # instead of failing the join with a many-to-many matching error.
+        - record: dpf:dpuservice:desired_replicas
+          expr: |
+            label_replace(
+              sum by(cluster, label_svc_dpu_nvidia_com_service) (
+                kube_daemonset_status_desired_number_scheduled
+                  * on(cluster, namespace, daemonset) group_left(label_svc_dpu_nvidia_com_service)
+                    kube_daemonset_labels{label_svc_dpu_nvidia_com_service!=""}
+                or
+                kube_deployment_spec_replicas
+                  * on(cluster, namespace, deployment) group_left(label_svc_dpu_nvidia_com_service)
+                    kube_deployment_labels{label_svc_dpu_nvidia_com_service!=""}
+              ),
+              "service_id", "$1", "label_svc_dpu_nvidia_com_service", "(.*)"
+            )
+          labels:
+            service: doca-platform-framework
+        - record: dpf:dpuservice:healthy_replicas
+          expr: |
+            label_replace(
+              sum by(cluster, label_svc_dpu_nvidia_com_service) (
+                kube_daemonset_status_number_ready
+                  * on(cluster, namespace, daemonset) group_left(label_svc_dpu_nvidia_com_service)
+                    kube_daemonset_labels{label_svc_dpu_nvidia_com_service!=""}
+                or
+                kube_deployment_status_replicas_ready
+                  * on(cluster, namespace, deployment) group_left(label_svc_dpu_nvidia_com_service)
+                    kube_deployment_labels{label_svc_dpu_nvidia_com_service!=""}
+              ),
+              "service_id", "$1", "label_svc_dpu_nvidia_com_service", "(.*)"
+            )
+          labels:
+            service: doca-platform-framework
+        - record: dpf:dpuservice:not_ready_replicas
+          expr: dpf:dpuservice:desired_replicas - dpf:dpuservice:healthy_replicas
+          labels:
+            service: doca-platform-framework

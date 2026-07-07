@@ -1,0 +1,59 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: dpucluster-control-plane
+  namespace: dpf-operator-system
+  labels:
+    app.kubernetes.io/name: dpf-operator
+    app.kubernetes.io/instance: dpf-operator
+    app.kubernetes.io/part-of: doca-platform-framework
+    # Required by the default kube-prometheus-stack ruleSelector. Adjust or drop
+    # to match your Prometheus instance's ruleSelector.
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: dpucluster-control-plane
+      # DPU cluster control planes are scraped under the same job names as the
+      # management cluster (apiserver, kube-controller-manager), distinguished
+      # only by the `cluster` label ("management" vs the DPUCluster name). The
+      # cluster!="management" matcher keeps these alerts scoped to DPU clusters.
+      # The two latency alerts read the recorded series from the companion
+      # dpucluster-control-plane-aggregates PrometheusRule (recording-rules.md),
+      # which must be installed alongside this manifest.
+      rules:
+        - alert: DPFDPUClusterAPIServer5xxRate
+          expr: sum by(cluster) (rate(apiserver_request_total{code=~"5..", cluster!="management"}[5m])) > 1
+          for: 5m
+          labels:
+            severity: warning
+            service: doca-platform-framework
+          annotations:
+            summary: "DPUCluster {{ $labels.cluster }} apiserver is returning 5xx"
+            description: "DPUCluster apiserver has exceeded 1 req/s of 5xx responses ({{ $value | humanize }} req/s) over the last 5 minutes."
+        - alert: DPFDPUClusterAPIServerLatencyHigh
+          expr: dpf:dpucluster:apiserver_request_duration:p99{cluster!="management"} > 1
+          for: 10m
+          labels:
+            severity: warning
+            service: doca-platform-framework
+          annotations:
+            summary: "DPUCluster {{ $labels.cluster }} apiserver p99 latency high"
+            description: "DPUCluster apiserver p99 latency for verb {{ $labels.verb }} is above 1s ({{ $value | humanizeDuration }}) for 10 minutes."
+        - alert: DPFDPUClusterEtcdLatencyHigh
+          expr: dpf:dpucluster:etcd_request_duration:p99{cluster!="management"} > 0.1
+          for: 10m
+          labels:
+            severity: warning
+            service: doca-platform-framework
+          annotations:
+            summary: "DPUCluster {{ $labels.cluster }} etcd p99 latency high"
+            description: "DPUCluster etcd p99 latency for operation {{ $labels.operation }} is above 0.1s ({{ $value | humanizeDuration }}) for 10 minutes."
+        - alert: DPFDPUClusterWorkqueueBacklog
+          expr: workqueue_depth{job="kube-controller-manager", cluster!="management"} > 100
+          for: 10m
+          labels:
+            severity: warning
+            service: doca-platform-framework
+          annotations:
+            summary: "DPUCluster {{ $labels.cluster }} kube-controller-manager workqueue {{ $labels.name }} backlog"
+            description: "Workqueue on kube-controller-manager has more than 100 items pending ({{ $value | humanize }}) for 10 minutes."

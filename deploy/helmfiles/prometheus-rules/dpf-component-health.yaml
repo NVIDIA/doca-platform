@@ -1,0 +1,164 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: dpf-component-health
+  namespace: dpf-operator-system
+  labels:
+    app.kubernetes.io/name: dpf-operator
+    app.kubernetes.io/instance: dpf-operator
+    app.kubernetes.io/part-of: doca-platform-framework
+    # Required by the default kube-prometheus-stack ruleSelector. Adjust or drop
+    # to match your Prometheus instance's ruleSelector.
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: dpf-component-health
+      # Every expr aggregates with max by(namespace, name) so the alert identity
+      # only depends on the object, not on kube-state-metrics scrape labels
+      # (instance, pod, uid). Without this, a kube-state-metrics restart changes
+      # the label set, resets the `for:` timer, and re-pages for ongoing issues.
+      rules:
+        - alert: DPFOperatorConfigNotReady
+          expr: max by(namespace, name) (dpfoperatorconfig_status_conditions{type="Ready", status!="True"}) == 1
+          for: 10m
+          labels:
+            severity: critical
+            service: doca-platform-framework
+          annotations:
+            summary: "DPFOperatorConfig {{ $labels.namespace }}/{{ $labels.name }} is not Ready"
+            description: "The singleton DPFOperatorConfig has reported Ready=False or Unknown for more than 10 minutes. The operator cannot reconcile sub-components until this clears."
+        - alert: DPFDPUNotReady
+          expr: max by(namespace, name) (dpu_status_conditions{type="Ready", status!="True"}) == 1
+          for: 15m
+          labels:
+            severity: warning
+            service: doca-platform-framework
+          annotations:
+            summary: "DPU {{ $labels.namespace }}/{{ $labels.name }} is not Ready"
+            description: "DPU has been Ready=False or Unknown for 15 minutes. Check the provisioning conditions and the host node it is attached to."
+        - alert: DPFDPUNotOperational
+          expr: max by(namespace, name) (dpu_operational_conditions{type="OperationalReady", status!="True"}) == 1
+          for: 5m
+          labels:
+            severity: critical
+            service: doca-platform-framework
+          annotations:
+            summary: "DPU {{ $labels.namespace }}/{{ $labels.name }} is not OperationalReady"
+            description: "DPU finished provisioning but its runtime is degraded (OperationalReady=False or Unknown). Inspect the DPU agent, networking, and the DPU cluster node."
+        - alert: DPFDPUClusterNotReady
+          expr: max by(namespace, name) (dpucluster_status_conditions{type="Ready", status!="True"}) == 1
+          for: 10m
+          labels:
+            severity: critical
+            service: doca-platform-framework
+          annotations:
+            summary: "DPUCluster {{ $labels.namespace }}/{{ $labels.name }} is not Ready"
+            description: "DPUCluster has been Ready=False or Unknown for 10 minutes. Tenant workloads on this cluster cannot reconcile."
+        - alert: DPFDPUDeploymentNotReady
+          expr: max by(namespace, name) (dpudeployment_status_conditions{type="Ready", status!="True"}) == 1
+          for: 10m
+          labels:
+            severity: warning
+            service: doca-platform-framework
+          annotations:
+            summary: "DPUDeployment {{ $labels.namespace }}/{{ $labels.name }} is not Ready"
+            description: "DPUDeployment has been Ready=False or Unknown for 10 minutes. Check the referenced DPUSet, DPUServices, and service chains."
+        - alert: DPFDPUSetNotReady
+          expr: max by(namespace, name) (dpuset_status_conditions{type="Ready", status!="True"}) == 1
+          for: 10m
+          labels:
+            severity: warning
+            service: doca-platform-framework
+          annotations:
+            summary: "DPUSet {{ $labels.namespace }}/{{ $labels.name }} is not Ready"
+            description: "DPUSet has been Ready=False or Unknown for 10 minutes. One or more DPUs in this set are likely stuck or failing."
+        - alert: DPFDPUServiceNotReady
+          expr: max by(namespace, name) (dpuservice_status_conditions{type="Ready", status!="True"}) == 1
+          for: 10m
+          labels:
+            severity: warning
+            service: doca-platform-framework
+          annotations:
+            summary: "DPUService {{ $labels.namespace }}/{{ $labels.name }} is not Ready"
+            description: "DPUService has been Ready=False or Unknown for 10 minutes. Inspect the corresponding ArgoCD Application and the workload on the DPU cluster."
+        - alert: DPFDPUNodeMaintenanceStuck
+          expr: max by(namespace, name) (dpunodemaintenance_status_conditions{type="NodeEffectApplied", status!="True"}) == 1
+          for: 30m
+          labels:
+            severity: warning
+            service: doca-platform-framework
+          annotations:
+            summary: "DPUNodeMaintenance {{ $labels.namespace }}/{{ $labels.name }} stuck"
+            description: "DPUNodeMaintenance has not reached NodeEffectApplied=True for 30 minutes. The maintenance window may be blocked by a workload or a stuck drain."
+        - alert: DPFDPUNodeNotReady
+          expr: max by(namespace, name) (dpunode_status_conditions{type="Ready", status!="True"}) == 1
+          for: 10m
+          labels:
+            severity: warning
+            service: doca-platform-framework
+          annotations:
+            summary: "DPUNode {{ $labels.namespace }}/{{ $labels.name }} is not Ready"
+            description: "DPUNode has been Ready=False or Unknown for 10 minutes. The DPU may have lost contact with rshim, OOB bridge, or its host agent."
+        - alert: DPFDPUServiceChainNotReady
+          expr: max by(namespace, name) (dpuservicechain_status_conditions{type="Ready", status!="True"}) == 1
+          for: 10m
+          labels:
+            severity: warning
+            service: doca-platform-framework
+          annotations:
+            summary: "DPUServiceChain {{ $labels.namespace }}/{{ $labels.name }} is not Ready"
+            description: "DPUServiceChain has been Ready=False or Unknown for 10 minutes. Traffic between chained DPUServices may not flow correctly."
+        - alert: DPFDPUServiceInterfaceNotReady
+          expr: max by(namespace, name) (dpuserviceinterface_status_conditions{type="Ready", status!="True"}) == 1
+          for: 10m
+          labels:
+            severity: warning
+            service: doca-platform-framework
+          annotations:
+            summary: "DPUServiceInterface {{ $labels.namespace }}/{{ $labels.name }} is not Ready"
+            description: "DPUServiceInterface has been Ready=False or Unknown for 10 minutes. The service chain endpoint backing this interface may not be reconciled."
+        - alert: DPFDPUServiceIPAMNotReady
+          expr: max by(namespace, name) (dpuserviceipam_status_conditions{type="Ready", status!="True"}) == 1
+          for: 10m
+          labels:
+            severity: warning
+            service: doca-platform-framework
+          annotations:
+            summary: "DPUServiceIPAM {{ $labels.namespace }}/{{ $labels.name }} is not Ready"
+            description: "DPUServiceIPAM has been Ready=False or Unknown for 10 minutes. IP pools backing chained services may be exhausted or misconfigured."
+        - alert: DPFDPUVPCNotReady
+          expr: max by(namespace, name) (dpuvpc_status_conditions{type="Ready", status!="True"}) == 1
+          for: 10m
+          labels:
+            severity: warning
+            service: doca-platform-framework
+          annotations:
+            summary: "DPUVPC {{ $labels.namespace }}/{{ $labels.name }} is not Ready"
+            description: "DPUVPC has been Ready=False or Unknown for 10 minutes. Tenant networking on this VPC will be degraded."
+        - alert: DPFDPUVirtualNetworkNotReady
+          expr: max by(namespace, name) (dpuvirtualnetwork_status_conditions{type="Ready", status!="True"}) == 1
+          for: 10m
+          labels:
+            severity: warning
+            service: doca-platform-framework
+          annotations:
+            summary: "DPUVirtualNetwork {{ $labels.namespace }}/{{ $labels.name }} is not Ready"
+            description: "DPUVirtualNetwork has been Ready=False or Unknown for 10 minutes. Workloads attached to this network may have no path."
+        - alert: DPFDPUVolumeNotReady
+          expr: max by(namespace, name) (dpuvolume_status_conditions{type="Ready", status!="True"}) == 1
+          for: 10m
+          labels:
+            severity: warning
+            service: doca-platform-framework
+          annotations:
+            summary: "DPUVolume {{ $labels.namespace }}/{{ $labels.name }} is not Ready"
+            description: "DPUVolume has been Ready=False or Unknown for 10 minutes. Backing storage policy or vendor may be unhealthy."
+        - alert: DPFDPUVolumeAttachmentNotReady
+          expr: max by(namespace, name) (dpuvolumeattachment_status_conditions{type="Ready", status!="True"}) == 1
+          for: 10m
+          labels:
+            severity: warning
+            service: doca-platform-framework
+          annotations:
+            summary: "DPUVolumeAttachment {{ $labels.namespace }}/{{ $labels.name }} is not Ready"
+            description: "DPUVolumeAttachment has been Ready=False or Unknown for 10 minutes. A consumer pod is likely stuck pending storage."

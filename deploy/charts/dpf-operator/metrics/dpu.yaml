@@ -81,6 +81,7 @@
           list:
             - Initializing
             - Pending
+            - Update Firmware
             - Config FW Parameters
             - Prepare BFB
             - Node Effect
@@ -89,6 +90,7 @@
             - DPU Config
             - DPU Cluster Config
             - Host Network Configuration
+            - Checking Host Reboot Required
             - Node Effect Removal
             - Ready
             - Error
