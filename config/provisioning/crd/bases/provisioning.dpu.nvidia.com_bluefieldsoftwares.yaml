@@ -48,6 +48,13 @@ spec:
           spec:
             description: BlueFieldSpec defines the desired state of BlueFieldSoftware.
             properties:
+              nicFw:
+                description: |-
+                  NicFw points to the NIC firmware binary used for E/W NIC firmware updates.
+                  Use this when a specific NIC firmware binary is required and is not included in the platform PLDM firmware bundle.
+                  In production, prefer using PlatformPldmFwBundle.
+                minLength: 1
+                type: string
               osIso:
                 description: OS ISO points to the OS ISO used by DPU OS installation
                   flow.
@@ -69,6 +76,9 @@ spec:
             x-kubernetes-validations:
             - message: BlueFieldSpec is immutable
               rule: self == oldSelf
+            - message: nicFw and platformPldmFwBundle are mutually exclusive; set
+                only one
+              rule: '!(has(self.nicFw) && has(self.platformPldmFwBundle))'
           status:
             default:
               phase: Initializing
@@ -136,7 +146,7 @@ spec:
                 description: DownloadedComponents tracks which components have been
                   successfully downloaded
                 properties:
-                  astraNicFw:
+                  nicFw:
                     type: string
                   osIso:
                     type: string

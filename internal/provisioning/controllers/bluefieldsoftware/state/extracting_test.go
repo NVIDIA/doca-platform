@@ -302,7 +302,7 @@ func TestHandle_ExtractSuccess(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 2, callCount)
 	assert.Equal(t, provisioningv1.BlueFieldSoftwareReady, bfs.Status.Phase)
-	assert.Equal(t, "/tmp/CX9_MT_0000001775_82.48.0906_image.bin", bfs.Status.DownloadedComponents.AstraNicFw)
+	assert.Equal(t, "/tmp/CX9_MT_0000001775_82.48.0906_image.bin", bfs.Status.DownloadedComponents.NicFw)
 	assert.Equal(t, "BF4-26.01-4", bfs.Status.Versions.BMCVersion)
 	cond := conditions.Get(bfs, provisioningv1.BlueFieldSoftwareCondReady)
 	require.NotNil(t, cond)
@@ -437,7 +437,7 @@ func TestApplyUnpackedComponentsToDownloaded_BySourceBundle(t *testing.T) {
 	}
 
 	applyUnpackedComponentsToDownloaded(bfs, butil.ComponentTypePlatformFwBundle, components)
-	assert.Equal(t, "/tmp/CX9_MT_0000001775_82.48.0906_image.bin", bfs.Status.DownloadedComponents.AstraNicFw)
+	assert.Equal(t, "/tmp/CX9_MT_0000001775_82.48.0906_image.bin", bfs.Status.DownloadedComponents.NicFw)
 	assert.Equal(t, "82.48.0906", bfs.Status.Versions.AstraNicFwVersion)
 	assert.Empty(t, bfs.Status.Versions.BMCVersion)
 	assert.Empty(t, bfs.Status.Versions.BMCErotVersion)
