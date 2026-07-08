@@ -80,6 +80,7 @@ var (
 
 // BlueFieldSpec defines the desired state of BlueFieldSoftware.
 // +kubebuilder:validation:XValidation:rule="self == oldSelf",message="BlueFieldSpec is immutable"
+// +kubebuilder:validation:XValidation:rule="!(has(self.nicFw) && has(self.platformPldmFwBundle))",message="nicFw and platformPldmFwBundle are mutually exclusive; set only one"
 type BlueFieldSpec struct {
 	// PldmFwBundle points to the BluefieldPLDM firmware bundle for baseline firmware updates.
 	// +optional
@@ -95,6 +96,13 @@ type BlueFieldSpec struct {
 	// +optional
 	// +kubebuilder:validation:MinLength=1
 	PlatformPldmFwBundle *string `json:"platformPldmFwBundle,omitempty"`
+
+	// NicFw points to the NIC firmware binary used for E/W NIC firmware updates.
+	// Use this when a specific NIC firmware binary is required and is not included in the platform PLDM firmware bundle.
+	// In production, prefer using PlatformPldmFwBundle.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	NicFw *string `json:"nicFw,omitempty"`
 }
 
 // BlueFieldSoftwareStatus defines the observed state of BlueFieldSoftware
@@ -137,7 +145,7 @@ type DownloadedComponents struct {
 	PldmFwBundle         string `json:"pldmFwBundle,omitempty"`
 	PlatformPldmFwBundle string `json:"platformPldmFwBundle,omitempty"`
 	OsIso                string `json:"osIso,omitempty"`
-	AstraNicFw           string `json:"astraNicFw,omitempty"`
+	NicFw                string `json:"nicFw,omitempty"`
 }
 
 // +kubebuilder:object:root=true
