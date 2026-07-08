@@ -1,0 +1,20 @@
+apiVersion: operator.dpu.nvidia.com/v1alpha1
+kind: DPFOperatorConfig
+metadata:
+  # The name and namespace are fixed: the operator only reconciles the
+  # singleton dpfoperatorconfig in dpf-operator-system.
+  name: dpfoperatorconfig
+  namespace: dpf-operator-system
+spec:
+  # Must only contain fields the v25.10 CRD schema accepts. v25.10 predates
+  # deploymentMode, monitoring, security, nodeSRIOVDevicePluginController and
+  # the per-component replicas fields.
+  provisioningController:
+    bfbPVCName: bfb-pvc
+  kamajiClusterManager:
+    disable: false
+  staticClusterManager:
+    disable: false
+  imagePullSecrets:
+    - dpf-pull-secret
+    - pull-secret-extra

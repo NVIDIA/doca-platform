@@ -33,6 +33,7 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	machineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -45,10 +46,69 @@ func SetInput() {
 	validateFlags()
 	validateRequiredConfigFields()
 
+	var dpfOperatorConfig *operatorv1.DPFOperatorConfig
+	if conf.DPFOperatorConfigPath != nil {
+		By("Loading operatorConfig for the test from " + *conf.DPFOperatorConfigPath)
+		dpfOperatorConfig = dpfOperatorConfigFromFile(*conf.DPFOperatorConfigPath)
+	} else {
+		By("Setting operatorConfig for the test")
+		dpfOperatorConfig = generateDPFOperatorConfig()
+	}
+
+	input = &systemTestInput{
+		namespace:          dpfOperatorSystemNamespace,
+		config:             dpfOperatorConfig,
+		pullSecretNames:    dpfOperatorConfig.Spec.ImagePullSecrets,
+		client:             testClient,
+		restConfig:         restConfig,
+		cleanupFlags:       cleanupFlags,
+		bfbImageURL:        bfbImageURL,
+		bfsOsIsoURL:        bfsOsIsoURL,
+		bfsPldmFwBundleURL: bfsPldmFwBundleURL,
+	}
+	input.applyConfig(*conf)
+}
+
+// dpfOperatorConfigFromFile loads the DPFOperatorConfig from the manifest
+// referenced by the e2e config file. The upgrade paths set this path so every
+// phase uses the config shape of the release it installs or validates: fields
+// added to the API during the release cycle are expressed in the per-release
+// manifests instead of being generated from the current Go types.
+func dpfOperatorConfigFromFile(path string) *operatorv1.DPFOperatorConfig {
+	dpfOperatorConfig := &operatorv1.DPFOperatorConfig{}
+	obj := unstructuredFromFile(path)
+	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, dpfOperatorConfig)).To(Succeed())
+	Expect(dpfOperatorConfig.GetName()).To(Equal(configName),
+		"DPFOperatorConfig manifest %s must use the singleton name %q", path, configName)
+	Expect(dpfOperatorConfig.GetNamespace()).To(Equal(dpfOperatorSystemNamespace),
+		"DPFOperatorConfig manifest %s must use the namespace %q", path, dpfOperatorSystemNamespace)
+
+	// The OpenTelemetry collector logging endpoint embeds the control plane IP,
+	// a runtime value a static manifest cannot carry. Without an endpoint the
+	// operator does not deploy the opentelemetry-collector DPUService, so inject
+	// it whenever the manifest enables monitoring without configuring the
+	// collector, mirroring the generated config.
+	if dpfOperatorConfig.Spec.Monitoring != nil && dpfOperatorConfig.MonitoringEnabled() &&
+		dpfOperatorConfig.Spec.Monitoring.OpenTelemetryCollector == nil {
+		By("Get control plane IP")
+		controlPlaneIP := getClusterControlPlaneIP(ctx, testClient)
+		dpfOperatorConfig.Spec.Monitoring.OpenTelemetryCollector = &operatorv1.OpenTelemetryCollectorConfiguration{
+			Logging: &operatorv1.OpenTelemetryCollectorLoggingConfiguration{
+				Endpoint: fmt.Sprintf("%s%s:%d", otelEndpointSchema, controlPlaneIP, otelNodePort),
+			},
+		}
+	}
+	return dpfOperatorConfig
+}
+
+// generateDPFOperatorConfig builds the DPFOperatorConfig for suites that test
+// the current release. It embeds runtime values (control plane IP, API server
+// VIP and port) and Ginkgo-label-driven variants, which is why these suites do
+// not load the config from a file.
+func generateDPFOperatorConfig() *operatorv1.DPFOperatorConfig {
 	By("Get control plane IP")
 	controlPlaneIP := getClusterControlPlaneIP(ctx, testClient)
 
-	By("Setting operatorConfig for the test")
 	var bfbPVCName *string
 	if conf.ProvisioningControllerPVCPath != nil {
 		bfbPVCName = ptr.To("bfb-pvc")
@@ -185,18 +245,7 @@ func SetInput() {
 		}
 	}
 
-	input = &systemTestInput{
-		namespace:          dpfOperatorSystemNamespace,
-		config:             dpfOperatorConfig,
-		pullSecretNames:    dpfOperatorConfig.Spec.ImagePullSecrets,
-		client:             testClient,
-		restConfig:         restConfig,
-		cleanupFlags:       cleanupFlags,
-		bfbImageURL:        bfbImageURL,
-		bfsOsIsoURL:        bfsOsIsoURL,
-		bfsPldmFwBundleURL: bfsPldmFwBundleURL,
-	}
-	input.applyConfig(*conf)
+	return dpfOperatorConfig
 }
 
 // SystemSetupBeforeSuite sets up the system components for the e2e tests.

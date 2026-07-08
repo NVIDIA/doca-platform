@@ -1,3 +1,7 @@
+# The DPFOperatorConfig is passed as a per-release manifest instead of being
+# generated from the current Go types, because fields may be added to or
+# removed from the API between DPF releases.
+dpfOperatorConfig: "../objects/upgrade/v26.4/dpfoperatorconfig.yaml"
 provisioningControllerPVC: "../objects/infrastructure/pvc-provisioning.yaml"
 bfb: "../objects/upgrade/v26.4/bfb.yaml"
 dpuClusters:
