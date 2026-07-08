@@ -37,6 +37,11 @@ import (
 // validateRequiredConfigFields enforces the fields that are mandatory for the
 // selected suites before any object is loaded.
 type config struct {
+	// DPFOperatorConfigPath, if set, is the DPFOperatorConfig manifest to use
+	// instead of the one generated in Go. Upgrade path configs set this so each
+	// phase uses the config shape of the release it installs or validates.
+	DPFOperatorConfigPath *string `json:"dpfOperatorConfig,omitempty"`
+
 	// Required by every suite (enforced by validateRequiredConfigFields).
 	DPUClusterPaths          []string `json:"dpuClusters"`
 	DPUDeploymentPath        string   `json:"dpuDeployment"`
