@@ -142,7 +142,7 @@ func TestNICProvisioning_Execute(t *testing.T) {
 			},
 			Status: provisioningv1.BlueFieldSoftwareStatus{
 				DownloadedComponents: provisioningv1.DownloadedComponents{
-					AstraNicFw: nicFWLocation,
+					NicFw: nicFWLocation,
 				},
 			},
 		}
@@ -381,14 +381,17 @@ func TestNICProvisioning_applyNVConfigAndUpdateStatus(t *testing.T) {
 	})
 }
 
-func TestIsPlatformPldmFwBundleConfigured(t *testing.T) {
-	assert.False(t, isPlatformPldmFwBundleConfigured(nil))
-	assert.False(t, isPlatformPldmFwBundleConfigured(&provisioningv1.BlueFieldSoftware{}))
-	assert.False(t, isPlatformPldmFwBundleConfigured(&provisioningv1.BlueFieldSoftware{
+func TestIsNICFirmwareSourceConfigured(t *testing.T) {
+	assert.False(t, isNICFirmwareSourceConfigured(nil))
+	assert.False(t, isNICFirmwareSourceConfigured(&provisioningv1.BlueFieldSoftware{}))
+	assert.False(t, isNICFirmwareSourceConfigured(&provisioningv1.BlueFieldSoftware{
 		Spec: provisioningv1.BlueFieldSpec{PlatformPldmFwBundle: ptr.To("   ")},
 	}))
-	assert.True(t, isPlatformPldmFwBundleConfigured(&provisioningv1.BlueFieldSoftware{
+	assert.True(t, isNICFirmwareSourceConfigured(&provisioningv1.BlueFieldSoftware{
 		Spec: provisioningv1.BlueFieldSpec{PlatformPldmFwBundle: ptr.To("https://example.com/fw.fwpkg")},
+	}))
+	assert.True(t, isNICFirmwareSourceConfigured(&provisioningv1.BlueFieldSoftware{
+		Spec: provisioningv1.BlueFieldSpec{NicFw: ptr.To("https://example.com/nic-fw.fwpkg")},
 	}))
 }
 

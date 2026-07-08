@@ -52,6 +52,7 @@ func TestSpecURLForComponent(t *testing.T) {
 			PldmFwBundle:         ptr.To("https://x/pldm"),
 			PlatformPldmFwBundle: ptr.To("https://x/platform-pldm"),
 			OsIso:                "https://x/iso",
+			NicFw:                ptr.To("https://x/nic.bin"),
 		},
 	}
 	tests := []struct {
@@ -61,6 +62,7 @@ func TestSpecURLForComponent(t *testing.T) {
 		{ComponentTypeFwBundle, "https://x/pldm"},
 		{ComponentTypePlatformFwBundle, "https://x/platform-pldm"},
 		{ComponentTypeOSISO, "https://x/iso"},
+		{ComponentTypeNicFw, "https://x/nic.bin"},
 	}
 	for _, tt := range tests {
 		if got := SpecURLForComponent(bfs, tt.ct); got != tt.want {

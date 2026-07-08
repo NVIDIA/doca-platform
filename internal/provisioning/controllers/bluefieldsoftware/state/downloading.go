@@ -262,6 +262,16 @@ func (st *blueFieldSoftwareDownloadingState) getComponentsToDownload() []compone
 		})
 	}
 
+	// Check NicFw
+	nicFw := ptr.Deref(st.bfs.Spec.NicFw, "")
+	if nicFw != "" &&
+		!st.componentDownloadSatisfied(butil.ComponentTypeNicFw, nicFw, st.bfs.Status.DownloadedComponents.NicFw) {
+		components = append(components, componentInfo{
+			URL:           nicFw,
+			ComponentType: butil.ComponentTypeNicFw,
+		})
+	}
+
 	return components
 }
 
@@ -273,6 +283,8 @@ func (st *blueFieldSoftwareDownloadingState) updateComponentStatus(componentType
 		st.bfs.Status.DownloadedComponents.PlatformPldmFwBundle = destinationPath
 	case butil.ComponentTypeOSISO:
 		st.bfs.Status.DownloadedComponents.OsIso = destinationPath
+	case butil.ComponentTypeNicFw:
+		st.bfs.Status.DownloadedComponents.NicFw = destinationPath
 	}
 	st.recorder.Eventf(st.bfs, corev1.EventTypeNormal, events.EventSuccessfulDownloadBFBReason, fmt.Sprintf("Component %s downloaded successfully", componentType))
 	// Clear retry counter on successful download
@@ -289,6 +301,7 @@ func componentTypesWithDownloads() []butil.ComponentType {
 		butil.ComponentTypeFwBundle,
 		butil.ComponentTypePlatformFwBundle,
 		butil.ComponentTypeOSISO,
+		butil.ComponentTypeNicFw,
 	}
 }
 
@@ -321,6 +334,8 @@ func cleanupPartialComponentFiles(bfs *provisioningv1.BlueFieldSoftware) error {
 			downloaded = bfs.Status.DownloadedComponents.PlatformPldmFwBundle
 		case butil.ComponentTypeOSISO:
 			downloaded = bfs.Status.DownloadedComponents.OsIso
+		case butil.ComponentTypeNicFw:
+			downloaded = bfs.Status.DownloadedComponents.NicFw
 		}
 		if downloaded == destPath {
 			continue

@@ -46,6 +46,8 @@ func (st *blueFieldSoftwareDeletingState) statusPathForComponent(componentType b
 		return st.bfs.Status.DownloadedComponents.PlatformPldmFwBundle
 	case butil.ComponentTypeOSISO:
 		return st.bfs.Status.DownloadedComponents.OsIso
+	case butil.ComponentTypeNicFw:
+		return st.bfs.Status.DownloadedComponents.NicFw
 	}
 	return ""
 }
@@ -93,7 +95,7 @@ func (st *blueFieldSoftwareDeletingState) Handle(ctx context.Context, c client.C
 		butil.ComponentTypeFwBundle,
 		butil.ComponentTypePlatformFwBundle,
 		butil.ComponentTypeOSISO,
-		butil.ComponentTypeAstraNicFw,
+		butil.ComponentTypeNicFw,
 	}
 
 	var errors []error

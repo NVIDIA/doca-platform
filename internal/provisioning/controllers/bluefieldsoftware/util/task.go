@@ -46,7 +46,7 @@ const (
 	ComponentTypeFwBundle         ComponentType = "fwbundle"
 	ComponentTypePlatformFwBundle ComponentType = "platformpldmfwbundle"
 	ComponentTypeOSISO            ComponentType = "osiso"
-	ComponentTypeAstraNicFw       ComponentType = "astranicfw"
+	ComponentTypeNicFw            ComponentType = "nicfw"
 )
 
 // SpecURLForComponent returns the spec value (typically a URL) for componentType.
@@ -59,6 +59,8 @@ func SpecURLForComponent(bfs *provisioningv1.BlueFieldSoftware, componentType Co
 		return ptr.Deref(bfs.Spec.PlatformPldmFwBundle, "")
 	case ComponentTypeOSISO:
 		return bfs.Spec.OsIso
+	case ComponentTypeNicFw:
+		return ptr.Deref(bfs.Spec.NicFw, "")
 	}
 	return ""
 }

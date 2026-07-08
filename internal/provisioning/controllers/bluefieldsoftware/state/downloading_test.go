@@ -202,6 +202,7 @@ func TestRetryCounter_IndependentPerComponent(t *testing.T) {
 		butil.ComponentTypeFwBundle,
 		butil.ComponentTypePlatformFwBundle,
 		butil.ComponentTypeOSISO,
+		butil.ComponentTypeNicFw,
 	}
 
 	// Clear any existing retry counters from previous tests
@@ -215,19 +216,24 @@ func TestRetryCounter_IndependentPerComponent(t *testing.T) {
 		assert.Equal(t, 0, st.getRetryCount(retryKey))
 
 		// Fail each component a different number of times
-		for j := 0; j <= i; j++ {
+		failures := i + 1
+		if failures > maxDownloadRetries {
+			failures = maxDownloadRetries
+		}
+		for j := 0; j < failures; j++ {
 			testErr := errors.New("test error")
 			_ = st.handleDownloadError(testErr, comp)
 		}
 
 		// Verify each component has the expected retry count
-		assert.Equal(t, i+1, st.getRetryCount(retryKey))
+		assert.Equal(t, failures, st.getRetryCount(retryKey))
 	}
 
 	// Verify all counters are still independent
 	assert.Equal(t, 1, st.getRetryCount(st.getRetryKey(butil.ComponentTypeFwBundle)))
 	assert.Equal(t, 2, st.getRetryCount(st.getRetryKey(butil.ComponentTypePlatformFwBundle)))
 	assert.Equal(t, 3, st.getRetryCount(st.getRetryKey(butil.ComponentTypeOSISO)))
+	assert.Equal(t, 3, st.getRetryCount(st.getRetryKey(butil.ComponentTypeNicFw)))
 
 	// Cleanup
 	for _, comp := range components {
@@ -257,6 +263,7 @@ func TestUpdateComponentStatus_ClearsRetryCounter(t *testing.T) {
 		butil.ComponentTypeFwBundle,
 		butil.ComponentTypePlatformFwBundle,
 		butil.ComponentTypeOSISO,
+		butil.ComponentTypeNicFw,
 	}
 
 	for i, comp := range components {
@@ -280,6 +287,7 @@ func TestUpdateComponentStatus_ClearsRetryCounter(t *testing.T) {
 	// Other counters should remain unchanged
 	assert.Equal(t, 2, st.getRetryCount(st.getRetryKey(butil.ComponentTypePlatformFwBundle)))
 	assert.Equal(t, 3, st.getRetryCount(st.getRetryKey(butil.ComponentTypeOSISO)))
+	assert.Equal(t, 4, st.getRetryCount(st.getRetryKey(butil.ComponentTypeNicFw)))
 
 	// Verify status holds the on-disk destination path (not the spec URL)
 	assert.Equal(t, expectedFw, bfs.Status.DownloadedComponents.PldmFwBundle)
@@ -349,6 +357,7 @@ func TestClearRetryCounter(t *testing.T) {
 		butil.ComponentTypeFwBundle,
 		butil.ComponentTypePlatformFwBundle,
 		butil.ComponentTypeOSISO,
+		butil.ComponentTypeNicFw,
 	}
 
 	for _, comp := range components {
@@ -365,6 +374,7 @@ func TestClearRetryCounter(t *testing.T) {
 	// Verify non-cleared counters remain
 	assert.Equal(t, 5, st.getRetryCount(st.getRetryKey(butil.ComponentTypePlatformFwBundle)))
 	assert.Equal(t, 5, st.getRetryCount(st.getRetryKey(butil.ComponentTypeOSISO)))
+	assert.Equal(t, 5, st.getRetryCount(st.getRetryKey(butil.ComponentTypeNicFw)))
 }
 
 func TestIncrementRetryCounter_ThreadSafety(t *testing.T) {
@@ -715,6 +725,7 @@ func TestComponentDestinationPath(t *testing.T) {
 		for _, ct := range []butil.ComponentType{
 			butil.ComponentTypeFwBundle,
 			butil.ComponentTypePlatformFwBundle,
+			butil.ComponentTypeNicFw,
 		} {
 			assert.Equal(t,
 				generateComponentFilePath(fileName),
@@ -744,6 +755,25 @@ func TestComponentDownloadSatisfied(t *testing.T) {
 	t.Run("mismatch", func(t *testing.T) {
 		assert.False(t, st.componentDownloadSatisfied(ct, specURL, "/wrong/path"))
 	})
+}
+
+func TestGetComponentsToDownload_IncludesNicFw(t *testing.T) {
+	bfs := &provisioningv1.BlueFieldSoftware{
+		ObjectMeta: metav1.ObjectMeta{Name: "bfs", Namespace: "ns"},
+		Spec: provisioningv1.BlueFieldSpec{
+			OsIso: "https://example.com/os.iso",
+			NicFw: ptr.To("https://example.com/nic.bin"),
+		},
+	}
+	st := &blueFieldSoftwareDownloadingState{bfs: bfs}
+
+	components := st.getComponentsToDownload()
+
+	require.Len(t, components, 2)
+	assert.Equal(t, butil.ComponentTypeOSISO, components[0].ComponentType)
+	assert.Equal(t, "https://example.com/os.iso", components[0].URL)
+	assert.Equal(t, butil.ComponentTypeNicFw, components[1].ComponentType)
+	assert.Equal(t, "https://example.com/nic.bin", components[1].URL)
 }
 
 const testBF4OsIsoURL = "https://example.com/bf4-os.iso"
