@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	rc "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
@@ -36,7 +37,29 @@ const (
 	hostlessRebootTriggered       string = "RedfishGracefulRestartTriggered"
 	hostlessRebootWaiting         string = "WaitingForDPUOSRunning"
 	hostlessRebootWaitingForAgent string = "WaitingForDPUAgentRestarted"
+
+	// armShutdownWaitTimeout bounds how long we wait for the DPU Arm to report a
+	// powered-off state after a System Level Reset shutdown. The DPU agent's graceful
+	// shutdown completes within seconds; if the BMC has not reported an off state by
+	// this deadline we proceed with the host reboot anyway rather than block
+	// provisioning indefinitely.
+	armShutdownWaitTimeout = 5 * time.Minute
 )
+
+// isDPUArmPoweredOff reports whether the Redfish system state indicates the DPU Arm has
+// completed its graceful shutdown. On BF4 a shut-down Arm reports PowerState "Paused"
+// ("Off" is accepted too); Status.State "StandbyOffline" is the purpose-built offline
+// signal and is checked in addition.
+func isDPUArmPoweredOff(system *rc.SystemInfo) bool {
+	if system == nil {
+		return false
+	}
+	switch system.PowerState {
+	case "Paused", "Off":
+		return true
+	}
+	return system.Status.State == "StandbyOffline"
+}
 
 func Rebooting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
 	logger := log.FromContext(ctx)
@@ -73,6 +96,11 @@ func Rebooting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Cont
 		state.Phase = provisioningv1.DPUError
 		return *state, nil
 	case dpuNode.Spec.NodeRebootMethod.External != nil || dpuNode.Spec.NodeRebootMethod.Script != nil:
+		// For a System Level Reset the DPU agent shuts the Arm down itself. Hold the host
+		// reboot until the Arm has powered off so the External/Script reboot does not power cycle the host.
+		if state.RebootStatus != nil && state.RebootStatus.Phase == provisioningv1.RebootStatusWaitForShutdown {
+			return reconcileWaitForArmShutdown(ctx, dpu, state, ctrlCtx)
+		}
 		return dutil.CompleteRebooting(ctx, dpu, state, ctrlCtx.Options.ZeroTrustProvisioningFlow()), nil
 	case dpuNode.Spec.NodeRebootMethod.None != nil:
 		err := fmt.Errorf("DPUNode %s uses nodeRebootMethod none, but DPU %s is not marked hostless", dpuNode.Name, dpu.Name)
@@ -146,6 +174,69 @@ func reconcileHostlessReboot(ctx context.Context, dpu *provisioningv1.DPU, state
 	dutil.UpdateRebootStatus(state, provisioningv1.RebootStatusSucceeded, "", "")
 	cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondRebooted, "", ""))
 	return dutil.CompleteRebooting(ctx, dpu, state, ctrlCtx.Options.ZeroTrustProvisioningFlow()), nil
+}
+
+// reconcileWaitForArmShutdown holds the External/Script host reboot until the DPU Arm
+// has completed its graceful (soft) shutdown. It polls the DPU-BMC over Redfish and
+// releases the gate (RebootStatus -> Pending) once the ComputerSystem reports the Arm is
+// off, using either PowerState (e.g. "Paused") or Status.State == "StandbyOffline". The
+// DPUNode controller only triggers the host reboot once the status is Pending, so this
+// prevents power cycling the host while a System Level Reset shutdown is still in flight.
+// As a safety net, if the Arm has not reported a powered-off state within
+// armShutdownWaitTimeout, the gate is released anyway so provisioning is not blocked
+// indefinitely.
+func reconcileWaitForArmShutdown(ctx context.Context, dpu *provisioningv1.DPU, state *provisioningv1.DPUStatus, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
+	logger := log.FromContext(ctx)
+
+	client, err := redfishClientForDPU(ctx, dpu, ctrlCtx)
+	if err != nil {
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondRebooted.String(), err, "FailedToCreateClient", err.Error()))
+		return *state, err
+	}
+
+	resp, system, err := client.GetSystem()
+	if err != nil {
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondRebooted.String(), err, "FailedToGetRedfishSystem", err.Error()))
+		return *state, err
+	}
+	if resp.StatusCode() != http.StatusOK {
+		err := fmt.Errorf("failed to get Redfish system status: %s", resp.Status())
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondRebooted.String(), err, "UnexpectedRedfishSystemStatus", err.Error()))
+		return *state, err
+	}
+
+	if !isDPUArmPoweredOff(system) {
+		logger.V(3).Info("waiting for DPU Arm to power off", "dpu", dpu.Name,
+			"powerState", system.PowerState, "statusState", system.Status.State)
+		// Time out relative to when we entered the WaitForShutdown phase, using
+		// RebootStatus.LastTransitionTime as the anchor.
+		timedOut := state.RebootStatus != nil && state.RebootStatus.LastTransitionTime != nil &&
+			time.Since(state.RebootStatus.LastTransitionTime.Time) > armShutdownWaitTimeout
+		if timedOut {
+			logger.Info("timed out waiting for DPU Arm to report a powered-off state; proceeding with host reboot",
+				"severity", "warning", "dpu", dpu.Name, "powerState", system.PowerState,
+				"statusState", system.Status.State, "timeout", armShutdownWaitTimeout.String())
+			dutil.UpdateRebootStatus(state, provisioningv1.RebootStatusPending, "DPUArmShutdownWaitTimeout",
+				fmt.Sprintf("timed out after %s waiting for DPU Arm to power off (last PowerState %q, Status.State %q); proceeding with host reboot",
+					armShutdownWaitTimeout, system.PowerState, system.Status.State))
+			return *state, nil
+		}
+		// Keep the message stable (do not embed the changing PowerState) so
+		// RebootStatus.LastTransitionTime stays anchored for the timeout check.
+		waitErr := fmt.Errorf("waiting for DPU Arm to power off after System Level Reset shutdown")
+		dutil.UpdateRebootStatus(state, provisioningv1.RebootStatusWaitForShutdown, "WaitingForDPUArmShutdown", waitErr.Error())
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondRebooted.String(), waitErr, "WaitingForDPUArmShutdown", ""))
+		return *state, nil
+	}
+
+	// Arm is off: release the gate to Pending. The DPUNode controller then triggers the
+	// External/Script host reboot, and CompleteRebooting derives DPUCondRebooted from the
+	// Pending phase on the next reconcile.
+	logger.Info("DPU Arm reported powered off; releasing host reboot gate", "dpu", dpu.Name,
+		"powerState", system.PowerState, "statusState", system.Status.State)
+	dutil.UpdateRebootStatus(state, provisioningv1.RebootStatusPending, "DPUArmPoweredOff",
+		"DPU Arm reported powered off; releasing host reboot")
+	return *state, nil
 }
 
 func hostlessRebootStarted(reason string) bool {
