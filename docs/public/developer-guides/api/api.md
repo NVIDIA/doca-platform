@@ -3193,7 +3193,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `phase` _[RebootStatusPhase](#rebootstatusphase)_ | Phase is the current host reboot progress. |  | Enum: [Pending Succeeded Failed Unknown] <br /> |
+| `phase` _[RebootStatusPhase](#rebootstatusphase)_ | Phase is the current host reboot progress. |  | Enum: [WaitForShutdown Pending Succeeded Failed Unknown] <br /> |
 | `method` _[RebootMethodType](#rebootmethodtype)_ | Method is the recommended reboot method. |  | Enum: [Unknown NoAction PowerCycle SystemReboot SystemLevelReset FirmwareReset DPUWarmReboot HostlessDPUReboot] <br />Optional: \{\} <br /> |
 | `reason` _string_ | Reason indicates machine-readable reason for current phase. |  | Optional: \{\} <br /> |
 | `message` _string_ | Message provides human-readable details for current phase. |  | Optional: \{\} <br /> |
@@ -3207,13 +3207,14 @@ _Underlying type:_ _string_
 RebootStatusPhase is the host reboot progress phase.
 
 _Validation:_
-- Enum: [Pending Succeeded Failed Unknown]
+- Enum: [WaitForShutdown Pending Succeeded Failed Unknown]
 
 _Appears in:_
 - [RebootStatus](#rebootstatus)
 
 | Field | Description |
 | --- | --- |
+| `WaitForShutdown` | RebootStatusWaitForShutdown means the host reboot is held until the DPU has<br />completed its graceful shutdown. Used in Zero Trust mode for a System Level<br />Reset so the External/Script host reboot is not triggered while the Arm OS is<br />still shutting down.<br /> |
 | `Pending` | RebootStatusPending means reboot is requested but execution has not started yet<br />(for example, waiting for a manual external reboot trigger).<br /> |
 | `Succeeded` | RebootStatusSucceeded means reboot completed successfully.<br /> |
 | `Failed` | RebootStatusFailed means reboot execution failed.<br /> |

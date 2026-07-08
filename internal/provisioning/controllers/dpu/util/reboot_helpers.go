@@ -197,8 +197,20 @@ func InitializeDPURebootStatus(ctx context.Context, dpu *provisioningv1.DPU, sta
 		return err
 	}
 
+	// Zero Trust + System Level Reset: the DPU agent runs "shutdown" on the Arm itself.
+	// Hold the reboot in WaitForShutdown so the DPUNode controller does not trigger the
+	// External/Script host reboot before the Arm has finished shutting down; the Redfish
+	// reboot handler polls the DPU-BMC and releases the gate to Pending once the Arm is off.
+	// Hostless DPUs are excluded: they are handled by the dedicated hostless reboot flow.
+	phase := provisioningv1.RebootStatusPending
+	if sourcePhase == provisioningv1.DPUConfig &&
+		method != nil && *method == provisioningv1.RebootMethodSystemLevelReset &&
+		ctrlCtx.Options.ZeroTrustProvisioningFlow() && !dpu.Status.Hostless {
+		phase = provisioningv1.RebootStatusWaitForShutdown
+	}
+
 	state.RebootStatus = &provisioningv1.RebootStatus{
-		Phase:              provisioningv1.RebootStatusPending,
+		Phase:              phase,
 		Method:             method,
 		Reason:             reason,
 		Message:            message,

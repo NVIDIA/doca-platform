@@ -305,6 +305,18 @@ func (r *RootServiceInfo) IsBF4() bool {
 
 type SystemInfo struct {
 	BootProgress BootProgress `json:"BootProgress,omitempty"`
+	// PowerState is the Redfish ComputerSystem power state. On BF4 a DPU Arm
+	// that has completed a graceful shutdown reports "Paused" ("Off" is another
+	// possible off value). Used to detect that the DPU Arm has powered off.
+	PowerState string `json:"PowerState,omitempty"`
+	// Status carries the Redfish resource state. Status.State == "StandbyOffline"
+	// is the purpose-built signal that the DPU Arm OS is down/offline.
+	Status SystemStatus `json:"Status,omitempty"`
+}
+
+type SystemStatus struct {
+	State  string `json:"State,omitempty"`
+	Health string `json:"Health,omitempty"`
 }
 
 type BootProgress struct {

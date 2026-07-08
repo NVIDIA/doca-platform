@@ -310,6 +310,14 @@ func (r *DPUNodeReconciler) HandleRebootSync(ctx context.Context, dpuNode *provi
 			"dpuPhases", dpuPhases, "specDPUs", dpuNode.Spec.DPUs)
 		return ctrl.Result{RequeueAfter: cutil.RebootSyncInterval}, nil
 	}
+	// A node reboot serves every DPU on the node. In Zero Trust mode a System Level
+	// Reset shuts the DPU Arm down first and the reboot handler holds the DPU in the
+	// WaitForShutdown sub-phase until the Arm is off. Do not trigger the host reboot while
+	// any in-scope DPU is still waiting for its Arm to power off.
+	if anyDPUWaitingForShutdown(inScope) {
+		log.Info("waiting for DPU Arm shutdown to complete before triggering host reboot")
+		return ctrl.Result{RequeueAfter: cutil.RebootSyncInterval}, nil
+	}
 	if result, err := r.rebootNode(ctx, dpuNode, inScope); err != nil || !result.IsZero() {
 		if err != nil {
 			r.Recorder.Event(dpuNode, corev1.EventTypeWarning, "HostRebootError", err.Error())
@@ -957,6 +965,18 @@ func (r *DPUNodeReconciler) ensureMount(mnts []corev1.VolumeMount, name, path st
 //
 // Returns the in-scope DPU snapshot so the caller can iterate it for
 // per-DPU updates without re-listing.
+// anyDPUWaitingForShutdown reports whether any in-scope DPU is still holding in the
+// WaitForShutdown reboot sub-phase. External/Script host reboots must not be triggered
+// while a DPU is still shutting down (see redfish.Rebooting for how the gate is released).
+func anyDPUWaitingForShutdown(dpus []*provisioningv1.DPU) bool {
+	for _, dpu := range dpus {
+		if dpu.Status.RebootStatus != nil && dpu.Status.RebootStatus.Phase == provisioningv1.RebootStatusWaitForShutdown {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *DPUNodeReconciler) aggregateAndPublishRebootMethod(ctx context.Context, dpuNode *provisioningv1.DPUNode) ([]*provisioningv1.DPU, error) {
 	dpus, err := cutil.GetDPUsWithPhase(ctx, r.Client, dpuNode, provisioningv1.DPURebooting)
 	if err != nil {

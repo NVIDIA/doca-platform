@@ -592,10 +592,15 @@ type PendingNVConfigEntry struct {
 }
 
 // RebootStatusPhase is the host reboot progress phase.
-// +kubebuilder:validation:Enum=Pending;Succeeded;Failed;Unknown
+// +kubebuilder:validation:Enum=WaitForShutdown;Pending;Succeeded;Failed;Unknown
 type RebootStatusPhase string
 
 const (
+	// RebootStatusWaitForShutdown means the host reboot is held until the DPU has
+	// completed its graceful shutdown. Used in Zero Trust mode for a System Level
+	// Reset so the External/Script host reboot is not triggered while the Arm OS is
+	// still shutting down.
+	RebootStatusWaitForShutdown RebootStatusPhase = "WaitForShutdown"
 	// RebootStatusPending means reboot is requested but execution has not started yet
 	// (for example, waiting for a manual external reboot trigger).
 	RebootStatusPending RebootStatusPhase = "Pending"
