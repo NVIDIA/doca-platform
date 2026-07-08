@@ -1601,6 +1601,7 @@ _Appears in:_
 | `pldmFwBundle` _string_ | PldmFwBundle points to the BluefieldPLDM firmware bundle for baseline firmware updates. |  | MinLength: 1 <br />Optional: \{\} <br /> |
 | `osIso` _string_ | OS ISO points to the OS ISO used by DPU OS installation flow. |  | MinLength: 1 <br />Required: \{\} <br /> |
 | `platformPldmFwBundle` _string_ | PlatformPldmFwBundle points to the Vera Rubin PLDM firmware bundle used for NIC firmware updates. |  | MinLength: 1 <br />Optional: \{\} <br /> |
+| `nicFw` _string_ | NicFw points to the NIC firmware binary used for E/W NIC firmware updates.<br />Use this when a specific NIC firmware binary is required and is not included in the platform PLDM firmware bundle.<br />In production, prefer using PlatformPldmFwBundle. |  | MinLength: 1 <br />Optional: \{\} <br /> |
 
 
 #### BluefieldSoftwareVersions
@@ -2756,7 +2757,7 @@ _Appears in:_
 | `pldmFwBundle` _string_ |  |  |  |
 | `platformPldmFwBundle` _string_ |  |  |  |
 | `osIso` _string_ |  |  |  |
-| `astraNicFw` _string_ |  |  |  |
+| `nicFw` _string_ |  |  |  |
 
 
 #### DpuModeType
