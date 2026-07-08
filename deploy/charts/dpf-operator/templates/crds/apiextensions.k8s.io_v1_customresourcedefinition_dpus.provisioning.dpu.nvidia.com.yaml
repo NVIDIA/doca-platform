@@ -796,6 +796,7 @@ spec:
                   phase:
                     description: Phase is the current host reboot progress.
                     enum:
+                    - WaitForShutdown
                     - Pending
                     - Succeeded
                     - Failed
