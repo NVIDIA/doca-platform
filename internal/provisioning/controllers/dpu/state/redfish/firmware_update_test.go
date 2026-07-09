@@ -36,13 +36,13 @@ import (
 
 var _ = Describe("FirmwareUpdate", func() {
 	const (
-		defaultDPUName          = "dpu-firmware-update-test"
-		defaultDPUDeviceName    = "dpu-device-firmware-update-test"
-		defaultBlueFieldSWName  = "bluefield-software-firmware-update-test"
-		targetBMCVersion        = "BF-26.04"
-		targetBMCErotVersion    = "01.04.0000.0000"
-		targetSBIOSVersion      = "3.20.00"
-		targetAstraNicFwVersion = "32.44.1014"
+		defaultDPUName         = "dpu-firmware-update-test"
+		defaultDPUDeviceName   = "dpu-device-firmware-update-test"
+		defaultBlueFieldSWName = "bluefield-software-firmware-update-test"
+		targetBMCVersion       = "BF-26.04"
+		targetBMCErotVersion   = "01.04.0000.0000"
+		targetSBIOSVersion     = "3.20.00"
+		targetBFNicFwVersion   = "32.44.1014"
 	)
 
 	createBF4MockRedfishServer := func() *redfishmock.RedfishMockServer {
@@ -52,7 +52,7 @@ var _ = Describe("FirmwareUpdate", func() {
 			targetBMCVersion,
 			targetBMCErotVersion,
 			targetSBIOSVersion,
-			targetAstraNicFwVersion,
+			targetBFNicFwVersion,
 		)
 		server.Start()
 		return server
@@ -140,10 +140,10 @@ var _ = Describe("FirmwareUpdate", func() {
 		}
 		if withVersions {
 			bfs.Status.Versions = &provisioningv1.BluefieldSoftwareVersions{
-				BMCVersion:        targetBMCVersion,
-				BMCErotVersion:    targetBMCErotVersion,
-				SBIOSVersion:      targetSBIOSVersion,
-				AstraNicFwVersion: targetAstraNicFwVersion,
+				BMCVersion:     targetBMCVersion,
+				BMCErotVersion: targetBMCErotVersion,
+				SBIOSVersion:   targetSBIOSVersion,
+				BFNicFwVersion: targetBFNicFwVersion,
 			}
 		}
 		Expect(k8sClient.Status().Patch(ctx, bfs, patch)).To(Succeed())

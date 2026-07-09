@@ -438,7 +438,7 @@ func TestApplyUnpackedComponentsToDownloaded_BySourceBundle(t *testing.T) {
 
 	applyUnpackedComponentsToDownloaded(bfs, butil.ComponentTypePlatformFwBundle, components)
 	assert.Equal(t, "/tmp/CX9_MT_0000001775_82.48.0906_image.bin", bfs.Status.DownloadedComponents.NicFw)
-	assert.Equal(t, "82.48.0906", bfs.Status.Versions.AstraNicFwVersion)
+	assert.Equal(t, "82.48.0906", bfs.Status.Versions.EWNicFwVersion)
 	assert.Empty(t, bfs.Status.Versions.BMCVersion)
 	assert.Empty(t, bfs.Status.Versions.BMCErotVersion)
 	assert.Empty(t, bfs.Status.Versions.SBIOSVersion)

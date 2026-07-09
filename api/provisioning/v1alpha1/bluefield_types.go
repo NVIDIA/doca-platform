@@ -87,6 +87,11 @@ type BlueFieldSpec struct {
 	// +kubebuilder:validation:MinLength=1
 	PldmFwBundle *string `json:"pldmFwBundle,omitempty"`
 
+	// ForceFwUpdate points to the force firmware update flag.
+	// +optional
+	// +kubebuilder:default=false
+	ForceFwUpdate *bool `json:"forceFwUpdate,omitempty"`
+
 	// OS ISO points to the OS ISO used by DPU OS installation flow.
 	// +required
 	// +kubebuilder:validation:MinLength=1
@@ -131,13 +136,15 @@ type BluefieldSoftwareVersions struct {
 
 	OSISOVersion string `json:"osISOVersion,omitempty"`
 
-	AstraNicFwVersion string `json:"astraNicFwVersion,omitempty"`
+	EWNicFwVersion string `json:"ewNicFwVersion,omitempty"`
 
 	BMCVersion string `json:"bmcVersion,omitempty"`
 
 	BMCErotVersion string `json:"bmcErotVersion,omitempty"`
 
 	SBIOSVersion string `json:"sbiosVersion,omitempty"`
+
+	BFNicFwVersion string `json:"bfNicFwVersion,omitempty"`
 }
 
 // DownloadedComponents tracks which components have been downloaded
