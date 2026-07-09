@@ -47,8 +47,8 @@ const (
 
 	bootstrapTokenExpiration = 4 * time.Hour
 
-	LabelDPUName      = "provisioning.dpu.nvidia.com/dpu-name"
-	LabelDPUNamespace = "provisioning.dpu.nvidia.com/dpu-namespace"
+	LabelDPUName      = DPUProvisioningPrefix + "dpu-name"
+	LabelDPUNamespace = DPUProvisioningPrefix + "dpu-namespace"
 
 	// DPUAgentBootstrapGroup is the extra group assigned to bootstrap tokens
 	// for DPU agents. It must match the subject group in the ClusterRoleBinding
@@ -163,9 +163,11 @@ func referencedConfigMapNames(flavor *provisioningv1.DPUFlavor) []string {
 	return names
 }
 
-// CreateDPUAgentRoleBinding creates a per-DPU RoleBinding that binds the
-// certificate username (da-{dpu.name}) to the per-DPU Role.
-func CreateDPUAgentRoleBinding(ctx context.Context, client crclient.Client, scheme *runtime.Scheme, dpu *provisioningv1.DPU) error {
+// CreateDPUAgentRoleBinding creates a per-DPU RoleBinding that binds the given
+// subject username to the per-DPU Role. subjectName is the certificate username
+// (da-{dpu.name}) for bootstrap-token DPUs or the literal SPIFFE-ID URI for
+// SPIFFE-mode DPUs (the subject swap is the only RBAC delta for SPIFFE).
+func CreateDPUAgentRoleBinding(ctx context.Context, client crclient.Client, scheme *runtime.Scheme, dpu *provisioningv1.DPU, subjectName string) error {
 	bindingName := providentity.DPUAgentUsername(dpu.Name)
 	rb := &rbacv1.RoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
@@ -175,7 +177,7 @@ func CreateDPUAgentRoleBinding(ctx context.Context, client crclient.Client, sche
 		Subjects: []rbacv1.Subject{
 			{
 				Kind:     rbacv1.UserKind,
-				Name:     providentity.DPUAgentUsername(dpu.Name),
+				Name:     subjectName,
 				APIGroup: rbacv1.GroupName,
 			},
 		},

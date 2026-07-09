@@ -41,4 +41,16 @@ const (
 	EventSuccessfulExtractBFBReason = "SuccessfulExtract"
 	// EventClusterMetadataConflictReason indicates DPUSet template and DPUDevice cluster metadata disagree.
 	EventClusterMetadataConflictReason = "ClusterMetadataConflict"
+
+	// EventSPIFFEEntryRegisteredReason indicates the per-DPU SPIRE ClusterStaticEntry was created or updated.
+	EventSPIFFEEntryRegisteredReason = "SPIFFEEntryRegistered"
+	// EventSPIFFEEntryRegistrationFailedReason indicates the ClusterStaticEntry could not be created/updated
+	// (e.g. invalid serial, CRD missing, RBAC denial, transient API error).
+	EventSPIFFEEntryRegistrationFailedReason = "SPIFFEEntryRegistrationFailed"
+	// EventSPIFFEEntryMaskedReason indicates another ClusterStaticEntry shadows DPF's per-DPU entry.
+	EventSPIFFEEntryMaskedReason = "SPIFFEEntryMasked"
+	// EventSPIFFEEntryDeleteRequestedReason indicates DPF issued a delete for the ClusterStaticEntry during deprovisioning.
+	EventSPIFFEEntryDeleteRequestedReason = "SPIFFEEntryDeleteRequested"
+	// EventSPIFFEEntrySpecDriftReconciledReason indicates an out-of-band ClusterStaticEntry spec edit was reclaimed.
+	EventSPIFFEEntrySpecDriftReconciledReason = "SPIFFEEntrySpecDriftReconciled"
 )

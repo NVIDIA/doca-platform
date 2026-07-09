@@ -25,6 +25,9 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	providentity "github.com/nvidia/doca-platform/internal/provisioning/utils/certificate/identity"
+	"github.com/nvidia/doca-platform/internal/spire"
+	dpfutils "github.com/nvidia/doca-platform/internal/utils"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -121,18 +124,54 @@ func prepareBF3BFB(ctx context.Context, dpu *provisioningv1.DPU, bfCFG []byte, s
 	return bfCFGPath, nil
 }
 
-func ensureRBAC(ctx context.Context, ctrlCtx *dutil.ControllerContext, dpu *provisioningv1.DPU, flavor *provisioningv1.DPUFlavor) (string, error) {
+// ensureRBAC creates the per-DPU Role and RoleBinding for the DPU agent and returns
+// the bootstrap token to embed in the agent kubeconfig. SPIFFE-mode DPUs authenticate
+// with a SPIRE-issued JWT-SVID rather than a bootstrap token, so they bind the literal
+// SPIFFE-ID subject and return an empty token (the cloud-init render then omits the
+// bootstrap kubeconfig).
+func ensureRBAC(ctx context.Context, ctrlCtx *dutil.ControllerContext, dpu *provisioningv1.DPU, flavor *provisioningv1.DPUFlavor, dpuDevice *provisioningv1.DPUDevice) (string, error) {
 	if err := cutil.CreateDPUAgentRole(ctx, ctrlCtx.Client, ctrlCtx.Client.Scheme(), dpu, flavor); err != nil {
 		return "", fmt.Errorf("creating DPU agent role: %w", err)
 	}
-	if err := cutil.CreateDPUAgentRoleBinding(ctx, ctrlCtx.Client, ctrlCtx.Client.Scheme(), dpu); err != nil {
+
+	subject, err := dpuAgentRoleBindingSubject(ctx, ctrlCtx, dpu, dpuDevice)
+	if err != nil {
+		return "", err
+	}
+	if err := cutil.CreateDPUAgentRoleBinding(ctx, ctrlCtx.Client, ctrlCtx.Client.Scheme(), dpu, subject); err != nil {
 		return "", fmt.Errorf("creating DPU agent role binding: %w", err)
 	}
+
+	if cutil.IsSpiffeDPU(dpu) {
+		return "", nil
+	}
+
 	token, err := cutil.CreateDPUAgentBootstrapToken(ctx, ctrlCtx.Client, dpu)
 	if err != nil {
 		return "", fmt.Errorf("creating DPU agent bootstrap token: %w", err)
 	}
 	return token, nil
+}
+
+// dpuAgentRoleBindingSubject returns the RBAC subject username for the per-DPU
+// RoleBinding: the literal SPIFFE-ID URI (SpireWorkloadID) for SPIFFE-mode DPUs, or the
+// certificate username (da-<dpu>) for bootstrap-token DPUs.
+func dpuAgentRoleBindingSubject(ctx context.Context, ctrlCtx *dutil.ControllerContext, dpu *provisioningv1.DPU, dpuDevice *provisioningv1.DPUDevice) (string, error) {
+	if !cutil.IsSpiffeDPU(dpu) {
+		return providentity.DPUAgentUsername(dpu.Name), nil
+	}
+	cfg, err := dpfutils.GetDPFOperatorConfig(ctx, ctrlCtx.Client)
+	if err != nil {
+		return "", fmt.Errorf("getting DPFOperatorConfig for SPIFFE RBAC subject: %w", err)
+	}
+	if !cutil.SpiffeEnabled(cfg) {
+		return "", fmt.Errorf("DPU %s is SPIFFE-mode but cluster spec.security.spiffe is unset", dpu.Name)
+	}
+	subject, err := spire.SpireWorkloadID(cfg.Spec.Security.SPIFFE.SPIRETrustDomain, dpuDevice.Spec.SerialNumber)
+	if err != nil {
+		return "", fmt.Errorf("building SPIFFE RBAC subject for DPU %s: %w", dpu.Name, err)
+	}
+	return subject, nil
 }
 
 func PrepareBFB(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
@@ -206,7 +245,7 @@ func PrepareBFB(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 		return *state, err
 	}
 
-	bootstrapToken, err := ensureRBAC(ctx, ctrlCtx, dpu, flavor)
+	bootstrapToken, err := ensureRBAC(ctx, ctrlCtx, dpu, flavor, dpuDevice)
 	if err != nil {
 		err = fmt.Errorf("failed to ensure DPU agent RBAC: %w", err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToEnsureRBAC", err.Error()))

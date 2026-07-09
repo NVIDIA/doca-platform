@@ -32,6 +32,8 @@ func TestDPUAgentSpiffePath(t *testing.T) {
 		{name: "already lowercase", serial: "mt2440600yyw", want: "/dpu/mt2440600yyw/process/dpu-agent"},
 		{name: "surrounding whitespace trimmed", serial: "  MT2440600YYW  ", want: "/dpu/mt2440600yyw/process/dpu-agent"},
 		{name: "unreserved punctuation allowed", serial: "mt-24.40_0~1", want: "/dpu/mt-24.40_0~1/process/dpu-agent"},
+		{name: "accept serial at 64-char cap", serial: strings.Repeat("a", 64), want: "/dpu/" + strings.Repeat("a", 64) + "/process/dpu-agent"},
+		{name: "reject serial over 64-char cap", serial: strings.Repeat("a", 65), wantErr: true},
 		{name: "reject empty", serial: "", wantErr: true},
 		{name: "reject whitespace only", serial: "   ", wantErr: true},
 		{name: "reject colon and slash", serial: "MT:24/40", wantErr: true},
@@ -66,6 +68,7 @@ func TestSpireWorkloadID(t *testing.T) {
 	}{
 		{name: "valid", td: "cs.internal", serial: "MT2440600YYW", want: "spiffe://cs.internal/dpu/mt2440600yyw/process/dpu-agent"},
 		{name: "reject invalid serial", td: "cs.internal", serial: "MT:24/40", wantErr: true},
+		{name: "reject serial over 64-char cap", td: "cs.internal", serial: strings.Repeat("a", 65), wantErr: true},
 		{name: "reject empty serial", td: "cs.internal", serial: "", wantErr: true},
 		{name: "reject whitespace trust domain", td: " ", serial: "MT2440600YYW", wantErr: true},
 		{name: "reject slash in trust domain", td: "cs.internal/extra", serial: "MT2440600YYW", wantErr: true},
