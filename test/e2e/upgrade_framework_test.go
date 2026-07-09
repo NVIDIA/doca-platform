@@ -42,6 +42,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/pkg/conditions"
+	"github.com/nvidia/doca-platform/test/utils/dpuservice"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -542,7 +543,7 @@ func verifySystemReady(dpuServiceNames []string) {
 		"example",
 	})
 
-	verifyDPUServicesReady(ctx, input, dpfOperatorSystemNamespace, dpuServiceNames)
+	dpuservice.WaitForDPUServices(ctx, input.client, dpfOperatorSystemNamespace, dpuServiceNames)
 }
 
 // rolloutDependencies simulates a post-upgrade dependency rollout by creating

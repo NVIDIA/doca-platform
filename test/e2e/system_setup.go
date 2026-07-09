@@ -1182,21 +1182,6 @@ func validateSingleDPUAgentStatus(g Gomega, dpu *provisioningv1.DPU, expectedAge
 	}
 }
 
-// verifyDPUServicesReady checks that the DPUService is ready.
-func verifyDPUServicesReady(ctx context.Context, input *systemTestInput, dpuServiceNamespace string, dpuServiceName []string) {
-	tracker := NewByTracker()
-	Eventually(func(g Gomega) {
-		for _, name := range dpuServiceName {
-			tracker.By(name, "verify DPUService %s is ready", name)
-			dpuService := &dpuservicev1.DPUService{}
-			g.Expect(input.client.Get(ctx, client.ObjectKey{Namespace: dpuServiceNamespace, Name: name}, dpuService)).To(Succeed())
-			g.Expect(conditions.IsTrue(dpuService, conditions.TypeReady)).To(BeTrue())
-		}
-		// A timeout of 20 minutes is necessary here. We have alot of trouble pulling our images for all
-		// DPUServices on the DPUCluster, so we need to wait for the images to be pulled and the pods to be ready.
-	}).WithTimeout(20 * time.Minute).Should(Succeed())
-}
-
 // getDPUClusterClient retrieves the DPUCluster client for the cluster at the given index. This function is internal and should not be called directly.
 // Instead, use getDPUClusterClients to retrieve all clients for all clusters.
 func getDPUClusterClient(ctx context.Context, input ProvisionDPUClustersInput, clusterIndex int) {
