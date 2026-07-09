@@ -98,7 +98,18 @@ func (r *DPFOperatorConfigReconciler) reconcileDelete(ctx context.Context, dpfOp
 		return ctrl.Result{}, kerrors.NewAggregate(errs)
 	}
 
+	// Delete the CA trust bundle. The bundle is not an inventory Component so it is not covered by the
+	// loops above, and it is intentionally not owned by the DPFOperatorConfig, so it must be deleted
+	// explicitly here rather than relying on Kubernetes owner-reference cleanup.
+	if err := r.deleteCATrustBundle(ctx, dpfOperatorConfig); err != nil {
+		log.Error(err, "Waiting for the CA trust bundle to be deleted")
+		conditions.AddFalse(dpfOperatorConfig, operatorv1.SystemComponentsReconciledCondition, conditions.ReasonAwaitingDeletion,
+			conditions.ConditionMessage(fmt.Sprintf("CA trust bundle awaiting deletion: %s", err)))
+		return ctrl.Result{}, err
+	}
+
 	conditions.AddTrue(dpfOperatorConfig, operatorv1.SystemComponentsReconciledCondition)
+
 	// Delete the objects deployed by the controller.
 	log.Info("Removing finalizer")
 	controllerutil.RemoveFinalizer(dpfOperatorConfig, operatorv1.DPFOperatorConfigFinalizer)
