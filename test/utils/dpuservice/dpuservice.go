@@ -19,12 +19,14 @@ package dpuservice
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	. "github.com/onsi/gomega"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -56,12 +58,96 @@ type TestDPUServiceInterfaceConfig struct {
 	PeerBridge     string
 }
 
-func WaitForDPUServices(ctx context.Context, client client.Client, namespace string, serviceNames []string) {
+// WaitForDPUServices waits until all expected DPUService objects exist and report Ready.
+// On failure, it prints the expected, found, missing, extra, and not-ready services.
+func WaitForDPUServices(ctx context.Context, testClient client.Client, namespace string, serviceNames []string) {
+	// A timeout of 20 minutes is necessary here because pulling images for all DPUServices
+	// on the DPUCluster can be slow. Polling every second avoids busy-listing the namespace.
 	Eventually(func(g Gomega) {
-		for _, serviceName := range serviceNames {
-			g.Expect(IsDPUServiceReady(ctx, g, client, serviceName, namespace)).To(BeTrue())
+		report, err := newDPUServiceReadinessReport(ctx, testClient, namespace, serviceNames)
+		if err != nil {
+			g.Expect(err).ToNot(HaveOccurred())
+			return
 		}
-	}, 20*time.Minute).Should(Succeed())
+		g.Expect(report.missing).To(BeEmpty(), report.String())
+		g.Expect(report.notReady).To(BeEmpty(), report.String())
+	}).WithTimeout(20 * time.Minute).WithPolling(time.Second).Should(Succeed())
+}
+
+// dpuServiceReadinessReport captures the current DPUService readiness state for diagnostics.
+type dpuServiceReadinessReport struct {
+	namespace string
+	expected  []string
+	found     []string
+	missing   []string
+	extra     []string
+	notReady  []string
+}
+
+// newDPUServiceReadinessReport lists DPUService objects and compares them with the expected service names.
+func newDPUServiceReadinessReport(ctx context.Context, testClient client.Client, namespace string, expected []string) (dpuServiceReadinessReport, error) {
+	dpuServices := &dpuservicev1.DPUServiceList{}
+	if err := testClient.List(ctx, dpuServices, client.InNamespace(namespace)); err != nil {
+		return dpuServiceReadinessReport{}, err
+	}
+
+	expectedSet := sets.New(expected...)
+	report := dpuServiceReadinessReport{
+		namespace: namespace,
+		expected:  sets.List(expectedSet),
+	}
+
+	foundSet := sets.New[string]()
+	servicesByName := make(map[string]dpuservicev1.DPUService, len(dpuServices.Items))
+	for _, service := range dpuServices.Items {
+		foundSet.Insert(service.Name)
+		servicesByName[service.Name] = service
+	}
+
+	report.found = sets.List(foundSet)
+	report.missing = sets.List(expectedSet.Difference(foundSet))
+	report.extra = sets.List(foundSet.Difference(expectedSet))
+
+	for _, name := range sets.List(expectedSet.Intersection(foundSet)) {
+		service := servicesByName[name]
+		if !conditions.IsTrue(&service, conditions.TypeReady) {
+			report.notReady = append(report.notReady, dpuServiceReadyConditionMessage(&service))
+		}
+	}
+
+	return report, nil
+}
+
+// String formats the readiness report as a stable multi-line failure message.
+func (r dpuServiceReadinessReport) String() string {
+	return fmt.Sprintf(
+		"DPUService readiness mismatch in namespace %q\nexpected: %v\nfound: %v\nmissing: %v\nextra: %v\nnot ready: %v",
+		r.namespace, r.expected, r.found, r.missing, r.extra, r.notReady,
+	)
+}
+
+// dpuServiceReadyConditionMessage formats the Ready condition details for one not-ready service.
+func dpuServiceReadyConditionMessage(service *dpuservicev1.DPUService) string {
+	readyCondition := conditions.Get(service, conditions.TypeReady)
+	if readyCondition == nil {
+		return fmt.Sprintf("%s (Ready condition missing, generation=%d)", service.Name, service.Generation)
+	}
+
+	message := strings.TrimSpace(readyCondition.Message)
+	message = strings.ReplaceAll(message, "\n", "; ")
+	if message == "" {
+		message = "<empty>"
+	}
+
+	return fmt.Sprintf(
+		"%s (Ready=%s reason=%s message=%q observedGeneration=%d generation=%d)",
+		service.Name,
+		readyCondition.Status,
+		readyCondition.Reason,
+		message,
+		readyCondition.ObservedGeneration,
+		service.Generation,
+	)
 }
 
 func WaitForDPUDeploymentReady(ctx context.Context, client client.Client, namespace string, deploymentNames []string, timeout time.Duration) {
@@ -76,12 +162,6 @@ func IsDPUServiceInterfaceReady(ctx context.Context, g Gomega, testClient client
 	dpuServiceInterface := &dpuservicev1.DPUServiceInterface{}
 	g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: interfaceName}, dpuServiceInterface)).To(Succeed())
 	return conditions.IsTrue(dpuServiceInterface, conditions.TypeReady)
-}
-
-func IsDPUServiceReady(ctx context.Context, g Gomega, testClient client.Client, serviceName string, namespace string) bool {
-	svc := &dpuservicev1.DPUService{}
-	g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: serviceName}, svc)).To(Succeed())
-	return conditions.IsTrue(svc, conditions.TypeReady)
 }
 
 func IsDPUDeploymentReady(ctx context.Context, g Gomega, testClient client.Client, deploymentName string, namespace string) bool {
