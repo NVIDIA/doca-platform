@@ -25,6 +25,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/digest"
 	"github.com/nvidia/doca-platform/internal/features"
 	"github.com/nvidia/doca-platform/internal/servicechainset/predicates"
+	"github.com/nvidia/doca-platform/internal/utils"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	"github.com/fluxcd/pkg/runtime/patch"
@@ -60,9 +61,6 @@ const (
 	nsiNodeLabel = dpuservicev1.SvcDpuGroupName + "/node"
 	// nsiTypeLabel is stamped on every NodeServiceInterfaces object to record its NSI type shard.
 	nsiTypeLabel = dpuservicev1.SvcDpuGroupName + "/nsi-type"
-
-	// nsiObjectsNamespace is the DPF-owned namespace where all NodeServiceInterfaces objects are created.
-	nsiObjectsNamespace = "dpf-operator-system"
 
 	// interfaceModeAnnotation is set once on the first reconcile to permanently commit
 	// a ServiceInterfaceSet to either the legacy ServiceInterface path or the new
@@ -569,7 +567,7 @@ func (r *ServiceInterfaceSetReconciler) applyNSIEntry(
 	nsi := &dpuservicev1.NodeServiceInterfaces{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      nsiName(nodeName, nType),
-			Namespace: nsiObjectsNamespace,
+			Namespace: utils.NSIObjectsNamespace,
 			Labels: map[string]string{
 				nsiNodeLabel: nodeName,
 				nsiTypeLabel: nType,
@@ -598,7 +596,7 @@ func (r *ServiceInterfaceSetReconciler) deleteNSIIfEmpty(ctx context.Context, ns
 // this ServiceInterfaceSet (identified by entry.Name == interfaceEntryName(ns, name)).
 func (r *ServiceInterfaceSetReconciler) listNSIEntriesForServiceInterfaceSet(ctx context.Context, set *dpuservicev1.ServiceInterfaceSet) ([]ownedNSIEntry, error) {
 	nsiList := &dpuservicev1.NodeServiceInterfacesList{}
-	if err := r.List(ctx, nsiList, client.InNamespace(nsiObjectsNamespace)); err != nil {
+	if err := r.List(ctx, nsiList, client.InNamespace(utils.NSIObjectsNamespace)); err != nil {
 		return nil, err
 	}
 
