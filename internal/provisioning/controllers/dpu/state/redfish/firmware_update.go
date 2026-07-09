@@ -18,6 +18,7 @@ package redfish
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -92,11 +93,20 @@ func FirmwareUpdate(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil
 
 	cond := cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), nil, "Updating", "Updating PLDM Firmware")
 	_, existingCond := cutil.GetDPUCondition(&dpu.Status, cond.Type)
+	forceUpdate := ptr.Deref(blueFieldSoftware.Spec.ForceFwUpdate, false)
 	if existingCond == nil || existingCond.Status != metav1.ConditionTrue {
-		if checkFirmwareVersions(client, blueFieldSoftware) != nil {
-			return updatePldmFwBundle(ctx, dpu, ctrlCtx, blueFieldSoftware.Status.DownloadedComponents.PldmFwBundle)
-		} else {
-			logger.Info("firmware versions match with PLDM bundle- skipping firmware update")
+		if forceUpdate {
+			return updatePldmFwBundle(ctx, dpu, ctrlCtx, blueFieldSoftware.Status.DownloadedComponents.PldmFwBundle, forceUpdate)
+		}
+		switch err := checkFirmwareVersions(client, blueFieldSoftware); {
+		case errors.Is(err, errVersionMismatch):
+			return updatePldmFwBundle(ctx, dpu, ctrlCtx, blueFieldSoftware.Status.DownloadedComponents.PldmFwBundle, forceUpdate)
+		case err != nil:
+			// Read/verification/I/O error: propagate instead of blindly updating firmware.
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), err, "FirmwareVersionCheckFailed", err.Error()))
+			return *state, err
+		default:
+			logger.Info("firmware versions match with PLDM bundle - skipping firmware update")
 			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), nil, "FirmwareVersionsMatch", "Firmware versions match - skipping firmware update"))
 		}
 	} else if dpu.Status.PreviousPhase == provisioningv1.DPURebooting {
@@ -112,6 +122,11 @@ func FirmwareUpdate(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil
 	state.Phase = provisioningv1.DPUPrepareBFB
 	return *state, nil
 }
+
+// errVersionMismatch marks an installed firmware version differing from the target.
+// Read/verification/I/O errors are returned unwrapped so callers can distinguish
+// "needs update" from "could not determine".
+var errVersionMismatch = errors.New("firmware version mismatch")
 
 func checkFirmwareVersions(client *rc.Client, blueFieldSoftware *provisioningv1.BlueFieldSoftware) error {
 	if blueFieldSoftware.Status.Versions == nil {
@@ -130,13 +145,17 @@ func checkFirmwareVersions(client *rc.Client, blueFieldSoftware *provisioningv1.
 		return fmt.Errorf("DPU SBIOS firmware version is not set")
 	}
 
+	if blueFieldSoftware.Status.Versions.BFNicFwVersion == "" {
+		return fmt.Errorf("BF NIC firmware version is not set")
+	}
+
 	_, bmcFirmwareVersion, err := client.CheckBMCFirmware()
 	if err != nil {
 		return fmt.Errorf("failed to check BMC firmware: %w", err)
 	}
 
 	if bmcFirmwareVersion.Version != blueFieldSoftware.Status.Versions.BMCVersion {
-		return fmt.Errorf("BMC firmware version %s is not equal to %s", bmcFirmwareVersion.Version, blueFieldSoftware.Status.Versions.BMCVersion)
+		return fmt.Errorf("BMC firmware version %s is not equal to %s: %w", bmcFirmwareVersion.Version, blueFieldSoftware.Status.Versions.BMCVersion, errVersionMismatch)
 	}
 
 	_, bmcEROTFWVersion, err := client.CheckBMCEROTFW()
@@ -145,7 +164,7 @@ func checkFirmwareVersions(client *rc.Client, blueFieldSoftware *provisioningv1.
 	}
 
 	if bmcEROTFWVersion.Version != blueFieldSoftware.Status.Versions.BMCErotVersion {
-		return fmt.Errorf("BMC ERoT firmware version %s is not equal to %s", bmcEROTFWVersion.Version, blueFieldSoftware.Status.Versions.BMCErotVersion)
+		return fmt.Errorf("BMC ERoT firmware version %s is not equal to %s: %w", bmcEROTFWVersion.Version, blueFieldSoftware.Status.Versions.BMCErotVersion, errVersionMismatch)
 	}
 
 	_, dpuUEFIVersion, err := client.CheckDPUUEFI()
@@ -154,7 +173,16 @@ func checkFirmwareVersions(client *rc.Client, blueFieldSoftware *provisioningv1.
 	}
 
 	if dpuUEFIVersion.Version != blueFieldSoftware.Status.Versions.SBIOSVersion {
-		return fmt.Errorf("DPU SBIOS firmware version %s is not equal to %s", dpuUEFIVersion.Version, blueFieldSoftware.Status.Versions.SBIOSVersion)
+		return fmt.Errorf("DPU SBIOS firmware version %s is not equal to %s: %w", dpuUEFIVersion.Version, blueFieldSoftware.Status.Versions.SBIOSVersion, errVersionMismatch)
+	}
+
+	_, cx9NicFWVersion, err := client.CheckDPUNIC()
+	if err != nil {
+		return fmt.Errorf("failed to check CX9 NIC firmware: %w", err)
+	}
+
+	if cx9NicFWVersion.Version != blueFieldSoftware.Status.Versions.BFNicFwVersion {
+		return fmt.Errorf("BF NIC firmware version %s is not equal to %s: %w", cx9NicFWVersion.Version, blueFieldSoftware.Status.Versions.BFNicFwVersion, errVersionMismatch)
 	}
 
 	return nil
@@ -182,7 +210,7 @@ func monitorTask(ctx context.Context, client *rc.Client, taskID string) (bool, e
 	return true, nil
 }
 
-func updatePldmFwBundle(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext, pldmFwBundle string) (provisioningv1.DPUStatus, error) {
+func updatePldmFwBundle(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext, pldmFwBundle string, force bool) (provisioningv1.DPUStatus, error) {
 	logger := log.FromContext(ctx)
 	state := dpu.Status.DeepCopy()
 	logger.Info("updating PLDM firmware")
@@ -213,7 +241,7 @@ func updatePldmFwBundle(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 			return *state, err
 		}
 		defer func() { _ = fwFile.Close() }()
-		resp, taskInfo, err := client.UpdateBluefieldFirmwareMultipart(fwFile, "")
+		resp, taskInfo, err := client.UpdateBluefieldFirmwareMultipart(fwFile, force)
 		if err != nil {
 			err = fmt.Errorf("failed to update PLDM firmware: %w", err)
 			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToUpdatePldmFwBundle", err.Error()))

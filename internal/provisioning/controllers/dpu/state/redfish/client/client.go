@@ -1365,11 +1365,10 @@ func (c *Client) ChassisReset() (*resty.Response, error) {
 	return resp, nil
 }
 
-func (c *Client) UpdateBluefieldFirmwareMultipart(fwFile *os.File, target string) (*resty.Response, *TaskInfo, error) {
+func (c *Client) UpdateBluefieldFirmwareMultipart(fwFile *os.File, force bool) (*resty.Response, *TaskInfo, error) {
 	updateParameters := make(map[string]interface{})
-	if target != "" {
+	if force {
 		updateParameters["ForceUpdate"] = true
-		updateParameters["Targets"] = []string{target}
 	}
 	updateParametersJSON, err := json.Marshal(updateParameters)
 	if err != nil {
