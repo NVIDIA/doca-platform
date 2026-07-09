@@ -26,6 +26,7 @@ import (
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/features"
+	"github.com/nvidia/doca-platform/internal/utils"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -98,7 +99,7 @@ var _ = BeforeSuite(func() {
 
 	// Create the DPF-owned namespace where NSI objects will be placed.
 	// Writes on the manager client bypass the cache and go directly to the API server.
-	Expect(testClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: nsiObjectsNamespace}})).To(Succeed())
+	Expect(testClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: utils.NSIObjectsNamespace}})).To(Succeed())
 
 	reconciler := &ServiceChainSetReconciler{
 		Client: testClient,

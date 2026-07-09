@@ -25,10 +25,13 @@ import (
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/utils"
 	nvipamv1 "github.com/nvidia/doca-platform/third_party/api/nvipam/api/v1alpha1"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -104,6 +107,8 @@ var _ = BeforeSuite(func() {
 	// Use the manager's client so field indexers are available
 	testClient = testManager.GetClient()
 	Expect(testClient).NotTo(BeNil())
+
+	Expect(testClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: utils.NSIObjectsNamespace}})).To(Succeed())
 
 	// set reconcile time to 1 second to speed up test execution (less polling for results)
 	reconcileRetryTime = 1 * time.Second

@@ -21,6 +21,7 @@ import (
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/features"
+	"github.com/nvidia/doca-platform/internal/utils"
 	"github.com/nvidia/doca-platform/pkg/ecpf"
 	"github.com/nvidia/doca-platform/pkg/ovsutils"
 
@@ -32,10 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
-const (
-	NodeServiceInterfacesController = "nodeserviceinterfacescontroller"
-	nodeServiceInterfacesTypeSFC    = "sfc"
-)
+const NodeServiceInterfacesController = "nodeserviceinterfacescontroller"
 
 // NodeServiceInterfacesReconciler reconciles SFC-owned NodeServiceInterfaces objects.
 type NodeServiceInterfacesReconciler struct {
@@ -69,13 +67,18 @@ func (r *NodeServiceInterfacesReconciler) SetupWithManager(mgr ctrl.Manager) err
 		return nil
 	}
 
+	// Register the spec.node index so that NSI objects can be filtered by node name.
+	if err := utils.SetupNSINodeIndexer(context.Background(), mgr); err != nil {
+		return err
+	}
+
 	nsiPredicate := predicate.NewPredicateFuncs(func(o client.Object) bool {
 		nsi, ok := o.(*dpuservicev1.NodeServiceInterfaces)
 		if !ok {
 			return false
 		}
 
-		return nsi.Spec.Node == r.NodeName && nsi.Spec.Type == nodeServiceInterfacesTypeSFC
+		return nsi.Spec.Node == r.NodeName && nsi.Spec.Type == dpuservicev1.NSITypeSFC
 	})
 
 	return ctrl.NewControllerManagedBy(mgr).

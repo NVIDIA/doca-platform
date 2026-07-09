@@ -22,6 +22,7 @@ import (
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/utils"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 
@@ -202,7 +203,7 @@ var _ = Describe("ServiceInterfaceSet Controller — NSI path", func() {
 			DeferCleanup(testClient.Delete, ctx, testNS)
 		})
 		AfterEach(func() {
-			Expect(cleanupNSIPathTestResources(ctx, testClient, nsiObjectsNamespace, cleanupObjects)).To(Succeed())
+			Expect(cleanupNSIPathTestResources(ctx, testClient, utils.NSIObjectsNamespace, cleanupObjects)).To(Succeed())
 		})
 
 		It("should select the NSI path and commit the mode annotation on first reconcile", func() {
@@ -242,7 +243,7 @@ var _ = Describe("ServiceInterfaceSet Controller — NSI path", func() {
 				for _, node := range []string{"nsi-node1", "nsi-node2"} {
 					nsi := &dpuservicev1.NodeServiceInterfaces{}
 					g.Expect(testClient.Get(ctx, client.ObjectKey{
-						Namespace: nsiObjectsNamespace,
+						Namespace: utils.NSIObjectsNamespace,
 						Name:      nsiName(node, dpuservicev1.NSITypeSFC),
 					}, nsi)).To(Succeed())
 					g.Expect(nsi.Spec.Node).To(Equal(node))
@@ -259,7 +260,7 @@ var _ = Describe("ServiceInterfaceSet Controller — NSI path", func() {
 			Consistently(func(g Gomega) {
 				nsi := &dpuservicev1.NodeServiceInterfaces{}
 				err := testClient.Get(ctx, client.ObjectKey{
-					Namespace: nsiObjectsNamespace,
+					Namespace: utils.NSIObjectsNamespace,
 					Name:      nsiName("nsi-node3", dpuservicev1.NSITypeSFC),
 				}, nsi)
 				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
@@ -283,7 +284,7 @@ var _ = Describe("ServiceInterfaceSet Controller — NSI path", func() {
 				for _, node := range []string{"nsi-node1", "nsi-node2"} {
 					nsi := &dpuservicev1.NodeServiceInterfaces{}
 					g.Expect(testClient.Get(ctx, client.ObjectKey{
-						Namespace: nsiObjectsNamespace,
+						Namespace: utils.NSIObjectsNamespace,
 						Name:      nsiName(node, dpuservicev1.NSITypeSFC),
 					}, nsi)).To(Succeed())
 					g.Expect(nsi.Spec.Interfaces).To(ContainElement(HaveField("Name", entryName)))
@@ -303,7 +304,7 @@ var _ = Describe("ServiceInterfaceSet Controller — NSI path", func() {
 			Eventually(func(g Gomega) {
 				nsi := &dpuservicev1.NodeServiceInterfaces{}
 				g.Expect(testClient.Get(ctx, client.ObjectKey{
-					Namespace: nsiObjectsNamespace,
+					Namespace: utils.NSIObjectsNamespace,
 					Name:      nsiName("nsi-node2", dpuservicev1.NSITypeSFC),
 				}, nsi)).To(Succeed())
 				g.Expect(nsi.Spec.Interfaces).To(ContainElement(And(
@@ -328,7 +329,7 @@ var _ = Describe("ServiceInterfaceSet Controller — NSI path", func() {
 			Eventually(func(g Gomega) {
 				nsi := &dpuservicev1.NodeServiceInterfaces{}
 				g.Expect(testClient.Get(ctx, client.ObjectKey{
-					Namespace: nsiObjectsNamespace,
+					Namespace: utils.NSIObjectsNamespace,
 					Name:      nsiName("nsi-node1", dpuservicev1.NSITypeSFC),
 				}, nsi)).To(Succeed())
 				g.Expect(nsi.Spec.Interfaces).To(ContainElement(HaveField("Name", entryName)))
@@ -347,7 +348,7 @@ var _ = Describe("ServiceInterfaceSet Controller — NSI path", func() {
 			nsi := &dpuservicev1.NodeServiceInterfaces{}
 			Eventually(func(g Gomega) {
 				g.Expect(testClient.Get(ctx, client.ObjectKey{
-					Namespace: nsiObjectsNamespace,
+					Namespace: utils.NSIObjectsNamespace,
 					Name:      nsiName("nsi-node1", dpuservicev1.NSITypeSFC),
 				}, nsi)).To(Succeed())
 				g.Expect(nsi.Spec.Interfaces).To(ContainElement(And(
@@ -360,7 +361,7 @@ var _ = Describe("ServiceInterfaceSet Controller — NSI path", func() {
 			Consistently(func(g Gomega) {
 				got := &dpuservicev1.NodeServiceInterfaces{}
 				g.Expect(testClient.Get(ctx, client.ObjectKey{
-					Namespace: nsiObjectsNamespace,
+					Namespace: utils.NSIObjectsNamespace,
 					Name:      nsiName("nsi-node1", dpuservicev1.NSITypeSFC),
 				}, got)).To(Succeed())
 				g.Expect(got.Spec.Interfaces).To(ContainElement(And(
@@ -378,7 +379,7 @@ var _ = Describe("ServiceInterfaceSet Controller — NSI path", func() {
 			By("Expecting the NSI to be deleted — the single entry was removed leaving it empty")
 			Eventually(func(g Gomega) {
 				err := testClient.Get(ctx, client.ObjectKey{
-					Namespace: nsiObjectsNamespace,
+					Namespace: utils.NSIObjectsNamespace,
 					Name:      nsiName("nsi-node1", dpuservicev1.NSITypeSFC),
 				}, &dpuservicev1.NodeServiceInterfaces{})
 				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
@@ -403,7 +404,7 @@ var _ = Describe("ServiceInterfaceSet Controller — NSI path", func() {
 				for _, node := range []string{"nsi-node1", "nsi-node2"} {
 					nsi := &dpuservicev1.NodeServiceInterfaces{}
 					g.Expect(testClient.Get(ctx, client.ObjectKey{
-						Namespace: nsiObjectsNamespace,
+						Namespace: utils.NSIObjectsNamespace,
 						Name:      nsiName(node, dpuservicev1.NSITypeSFC),
 					}, nsi)).To(Succeed())
 					g.Expect(nsi.Spec.Interfaces).To(ContainElement(HaveField("Name", entryName)))
@@ -419,7 +420,7 @@ var _ = Describe("ServiceInterfaceSet Controller — NSI path", func() {
 				for _, node := range []string{"nsi-node1", "nsi-node2"} {
 					nsi := &dpuservicev1.NodeServiceInterfaces{}
 					g.Expect(testClient.Get(ctx, client.ObjectKey{
-						Namespace: nsiObjectsNamespace,
+						Namespace: utils.NSIObjectsNamespace,
 						Name:      nsiName(node, dpuservicev1.NSITypeSFC),
 					}, nsi)).To(Succeed())
 					g.Expect(nsi.Spec.Interfaces).To(ContainElement(And(
@@ -466,7 +467,7 @@ var _ = Describe("ServiceInterfaceSet Controller — NSI path", func() {
 			nsi := &dpuservicev1.NodeServiceInterfaces{}
 			Eventually(func(g Gomega) {
 				g.Expect(testClient.Get(ctx, client.ObjectKey{
-					Namespace: nsiObjectsNamespace,
+					Namespace: utils.NSIObjectsNamespace,
 					Name:      nsiName("nsi-node1", dpuservicev1.NSITypeSFC),
 				}, nsi)).To(Succeed())
 				g.Expect(nsi.Spec.Interfaces).To(ContainElement(HaveField("Name", entryName)))
@@ -541,7 +542,7 @@ var _ = Describe("ServiceInterfaceSet Controller — NSI path", func() {
 			entryNameA := interfaceEntryName(testNS.Name, svcIfcSetName)
 			entryNameB := interfaceEntryName(testNSB.Name, svcIfcSetName)
 			nsiKey := client.ObjectKey{
-				Namespace: nsiObjectsNamespace,
+				Namespace: utils.NSIObjectsNamespace,
 				Name:      nsiName("nsi-multi-fm-node", dpuservicev1.NSITypeSFC),
 			}
 			nsi := &dpuservicev1.NodeServiceInterfaces{}
@@ -682,7 +683,7 @@ var _ = Describe("ServiceInterfaceSet Controller — NSI path", func() {
 
 			entryName := interfaceEntryName(testNS.Name, svcIfcSetName)
 			nsiKey := client.ObjectKey{
-				Namespace: nsiObjectsNamespace,
+				Namespace: utils.NSIObjectsNamespace,
 				Name:      nsiName("nsi-idem-node", dpuservicev1.NSITypeSFC),
 			}
 
