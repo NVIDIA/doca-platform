@@ -27,6 +27,7 @@ import (
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/digest"
+	"github.com/nvidia/doca-platform/internal/utils"
 	nvipamv1 "github.com/nvidia/doca-platform/third_party/api/nvipam/api/v1alpha1"
 
 	multusclient "gopkg.in/k8snetworkplumbingwg/multus-cni.v4/pkg/k8sclient"
@@ -482,37 +483,8 @@ func filterInvalidNetwork(networks []*multustypes.NetworkSelectionElement) []*mu
 	})
 }
 
-// getServiceInterfaceWithLabels returns ServiceInterface in given namespace that belongs to current node with given labels. if more than one or none matches, error out.
 func getServiceInterfaceWithLabels(ctx context.Context, c client.Client, nodeName string, namespace string, lbls map[string]string) (*dpuservicev1.ServiceInterface, error) {
-	//TODO(adrianc): this needs to be moved to a common place as we need the same thing in sfc-controller
-	sil := &dpuservicev1.ServiceInterfaceList{}
-	listOpts := []client.ListOption{
-		client.MatchingLabelsSelector{Selector: labels.SelectorFromSet(labels.Set(lbls))},
-		client.InNamespace(namespace),
-	}
-	if err := c.List(ctx, sil, listOpts...); err != nil {
-		return nil, err
-	}
-
-	// filter out serviceInterfaces not on this node
-	matching := make([]*dpuservicev1.ServiceInterface, 0, len(sil.Items))
-	for i := range sil.Items {
-		if sil.Items[i].Spec.Node == nil || *sil.Items[i].Spec.Node != nodeName {
-			continue
-		}
-		matching = append(matching, &sil.Items[i])
-	}
-
-	if len(matching) == 0 {
-		return nil, fmt.Errorf("no serviceInterface in namespace(%s) matching labels(%v) on node(%s) found", namespace, lbls, nodeName)
-	}
-
-	if len(matching) > 1 {
-		return nil, fmt.Errorf("expected only one serviceInterface in namespace(%s) to match labels(%v) on node(%s). found %d",
-			namespace, lbls, nodeName, len(matching))
-	}
-
-	return matching[0], nil
+	return utils.ResolveServiceInterfaceByLabels(ctx, c, nodeName, namespace, lbls)
 }
 
 // podMatchLabels returns true if non empty lbls match non empty pod.Labels. returns false otherwise
@@ -566,6 +538,10 @@ func getNVIPAMPoolByMatchLabels(ctx context.Context, c client.Client, ipam *dpus
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *PodIpamReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if err := utils.SetupNSINodeIndexer(context.Background(), mgr); err != nil {
+		return err
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&corev1.Pod{}).
 		Complete(r)
