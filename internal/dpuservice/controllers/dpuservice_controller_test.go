@@ -26,6 +26,7 @@ import (
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/features"
 	operatorcontroller "github.com/nvidia/doca-platform/internal/operator/controllers"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
@@ -48,6 +49,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/json"
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/client-go/util/workqueue"
+	featuregatetesting "k8s.io/component-base/featuregate/testing"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -120,7 +122,7 @@ var _ = Describe("DPUService Controller", func() {
 						// key is the nodeSelector used in the DPUService.
 						"key":                                "dpu-node-1",
 						provisioningv1.DPUNodeNameLabel:      "node-1",
-						provisioningv1.DPUNodeNamespaceLabel: "test-namespace",
+						provisioningv1.DPUNodeNamespaceLabel: testNS.Name,
 					},
 				},
 			}
@@ -134,12 +136,24 @@ var _ = Describe("DPUService Controller", func() {
 					Labels: map[string]string{
 						"non-matching":                       "random",
 						provisioningv1.DPUNodeNameLabel:      "node-2",
-						provisioningv1.DPUNodeNamespaceLabel: "test-namespace",
+						provisioningv1.DPUNodeNamespaceLabel: testNS.Name,
 					},
 				},
 			}
 			Expect(dpuClusterClient.Create(ctx, nonMatchingNode)).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, dpuClusterClient, nonMatchingNode)
+
+			By("Create DPUNodes referenced by the DPUCluster Nodes")
+			for _, dpuNodeName := range []string{"node-1", "node-2"} {
+				dpuNode := &provisioningv1.DPUNode{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      dpuNodeName,
+						Namespace: testNS.Name,
+					},
+				}
+				Expect(testClient.Create(ctx, dpuNode)).To(Succeed())
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuNode)
+			}
 
 			By("Add addresses to the fake Node")
 			patcher := patch.NewSerialPatcher(node, dpuClusterClient)
@@ -239,8 +253,9 @@ var _ = Describe("DPUService Controller", func() {
 			// This is necessary to populate the Service and EndpointSlice on the host cluster.
 			By("create the Service inside the DPUCluster")
 			labels := dpuServices[0].MatchLabels()
-			svc := getExposedService(labels)
+			svc := getExposedService("test-service", testNS.Name, labels)
 			Expect(dpuClusterClient.Create(ctx, svc)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, dpuClusterClient, svc)
 
 			By("check that the ConfigPorts are reconciled with 1 matching corev1.Node")
 			Eventually(func(g Gomega) {
@@ -256,7 +271,7 @@ var _ = Describe("DPUService Controller", func() {
 			// In evntest we are using the same cluster for both management and DPU cluster.
 			// If we don't delete the created service we will have a duplicated service with the same label selector.
 			By("delete exposed service on management cluster")
-			Expect(testClient.Delete(ctx, &corev1.Service{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "test-service"}})).To(Succeed())
+			Expect(testClient.Delete(ctx, svc)).To(Succeed())
 
 			expectedEndpointSliceEndpoint = append(expectedEndpointSliceEndpoint, discoveryv1.Endpoint{
 				Addresses:  []string{"192.168.1.11"},
@@ -278,13 +293,6 @@ var _ = Describe("DPUService Controller", func() {
 			Expect(patcher.Patch(ctx, dpuServices[0], patch.WithFieldOwner(dpuServiceControllerName))).To(Succeed())
 			Expect(dpuServices[0].Status.ConfigPorts).To(BeEmpty())
 
-			By("pause the DPUServices and ensure the application associated with it are paused")
-			for _, dpuService := range dpuServices {
-				patcher := patch.NewSerialPatcher(dpuService, testClient)
-				dpuService.Spec.Paused = ptr.To(true)
-				Expect(patcher.Patch(ctx, dpuService, patch.WithFieldOwner(dpuServiceControllerName))).To(Succeed())
-			}
-
 			By("creating a headless Service with a NodePort should fail")
 			dpuServices[0].Spec.ConfigPorts = configPorts
 			dpuServices[0].Spec.ConfigPorts.ServiceType = corev1.ClusterIPNone
@@ -296,6 +304,13 @@ var _ = Describe("DPUService Controller", func() {
 			patcher = patch.NewSerialPatcher(hostDPUService, testClient)
 			hostDPUService.Spec.Paused = ptr.To(true)
 			Expect(patcher.Patch(ctx, hostDPUService, patch.WithFieldOwner(dpuServiceControllerName))).To(Succeed())
+
+			By("pause the DPUServices and ensure the application associated with it are paused")
+			for _, dpuService := range dpuServices {
+				patcher := patch.NewSerialPatcher(dpuService, testClient)
+				dpuService.Spec.Paused = ptr.To(true)
+				Expect(patcher.Patch(ctx, dpuService, patch.WithFieldOwner(dpuServiceControllerName))).To(Succeed())
+			}
 
 			// Ensure the applications are paused.
 			Eventually(func(g Gomega) {
@@ -1246,6 +1261,129 @@ var _ = Describe("DPUService Controller", func() {
 				g.Expect(gotDPUServices.Items).To(BeEmpty())
 			}).WithTimeout(30 * time.Second).Should(BeNil())
 		})
+
+		It("should reconcile config ports with OVN VTEP IP from host node encap annotation", func() {
+			featuregatetesting.SetFeatureGateDuringTest(GinkgoT(), features.MutableGates, features.ConfigPortsOverHighSpeed, true)
+
+			const (
+				ovnVTEPIP    = "10.0.120.1"
+				hostNodeName = "host-node-ovn"
+				dpuNodeName  = "dpu-node-ovn"
+				dpuName      = "dpu-ovn-1"
+				clusterName  = "cluster-one"
+			)
+
+			clusters := []provisioningv1.DPUCluster{
+				testutils.GetTestDPUCluster(testDPU1NS.Name, clusterName),
+			}
+			createDPUClusters(clusters)
+
+			dpuClusterConfigs, err := dpucluster.GetConfigs(ctx, testClient)
+			Expect(err).ToNot(HaveOccurred())
+			dpuClusterClient, err := dpuClusterConfigs[0].Client(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			By("creating host cluster Node with OVN encap IPs annotation")
+			hostNode := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: hostNodeName,
+					Annotations: map[string]string{
+						ovnNodeEncapIPsAnnotation: `["` + ovnVTEPIP + `"]`,
+					},
+				},
+			}
+			Expect(testClient.Create(ctx, hostNode)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, hostNode)
+
+			By("creating DPUNode linked to the host Node via KubeNodeRef")
+			dpuNode := &provisioningv1.DPUNode{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      dpuNodeName,
+					Namespace: testNS.Name,
+				},
+			}
+			Expect(testClient.Create(ctx, dpuNode)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuNode)
+			dpuNode.Status.KubeNodeRef = ptr.To(hostNodeName)
+			Expect(testClient.Status().Update(ctx, dpuNode)).To(Succeed())
+
+			By("creating DPU referencing the DPUNode")
+			dpu := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      dpuName,
+					Namespace: testNS.Name,
+				},
+				Spec: provisioningv1.DPUSpec{
+					DPUNodeName:   dpuNodeName,
+					DPUDeviceName: "dpu-device-ovn",
+					SerialNumber:  "MT25066004C7",
+					DPUFlavor:     "dpu-flavor",
+					BFB:           ptr.To("test-bfb"),
+					Cluster: provisioningv1.K8sCluster{
+						Namespace: testDPU1NS.Name,
+						Name:      clusterName,
+					},
+					NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
+				},
+			}
+			Expect(testClient.Create(ctx, dpu)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpu)
+
+			By("creating DPU cluster Node with DPUNode labels")
+			dpuClusterNode := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: dpuName,
+					Labels: map[string]string{
+						// key "key" used in the minimal DPUService as selector
+						"key":                                "dpu-node-ovn",
+						provisioningv1.DPUNodeNameLabel:      dpuNodeName,
+						provisioningv1.DPUNodeNamespaceLabel: testNS.Name,
+					},
+				},
+			}
+			Expect(dpuClusterClient.Create(ctx, dpuClusterNode)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, dpuClusterClient, dpuClusterNode)
+
+			nodePatcher := patch.NewSerialPatcher(dpuClusterNode, dpuClusterClient)
+			dpuClusterNode.Status.Addresses = []corev1.NodeAddress{
+				{Type: corev1.NodeInternalIP, Address: "192.168.1.10"},
+				{Type: corev1.NodeHostName, Address: dpuName},
+			}
+			Expect(nodePatcher.Patch(ctx, dpuClusterNode, patch.WithFieldOwner("dpu-service-test"))).To(Succeed())
+
+			By("creating DPUService with config ports")
+			configPorts := &dpuservicev1.ConfigPorts{
+				ServiceType: corev1.ServiceTypeNodePort,
+				Ports: []dpuservicev1.ConfigPort{
+					{
+						Name:     "port-one",
+						Port:     8080,
+						Protocol: corev1.ProtocolTCP,
+					},
+				},
+			}
+			expectedEndpointSliceEndpoint := []discoveryv1.Endpoint{{
+				Addresses:  []string{ovnVTEPIP},
+				NodeName:   ptr.To(dpuNodeName),
+				Conditions: discoveryv1.EndpointConditions{Ready: ptr.To(true)},
+			}}
+			// we only care about dpuServices[0] in this test
+			dpuServices := getMinimalDPUServices(testNS.Name)
+			dpuService := dpuServices[0]
+			dpuService.Spec.ConfigPorts = configPorts
+			Expect(testClient.Create(ctx, dpuService)).To(Succeed())
+			DeferCleanup(cleanupDPUServiceAndApplication, ctx, testClient, dpuService, testConfig.Namespace)
+
+			By("creating exposed Service in DPU cluster for NodePort allocation")
+			exposedService := getExposedService("test-service-ovn", testNS.Name, dpuService.MatchLabels())
+			Expect(dpuClusterClient.Create(ctx, exposedService)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, dpuClusterClient, exposedService)
+
+			By("validating config ports reconciled with OVN VTEP IP in EndpointSlice")
+			Eventually(func(g Gomega) {
+				assertDPUServiceConfigPorts(g, testClient, []*dpuservicev1.DPUService{dpuServices[0]}, configPorts, expectedEndpointSliceEndpoint, clusterName)
+			}).WithTimeout(30 * time.Second).Should(BeNil())
+		})
 	})
 })
 
@@ -1287,6 +1425,12 @@ func cleanupDPUServiceAndApplication(ctx context.Context, testClient client.Clie
 			}
 		}
 		g.Expect(applications.Items).To(BeEmpty())
+	}).WithTimeout(30 * time.Second).Should(Succeed())
+
+	By("Ensuring the DPUService is deleted")
+	Eventually(func(g Gomega) {
+		err := testClient.Get(ctx, client.ObjectKeyFromObject(dpuService), dpuService)
+		g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 	}).WithTimeout(30 * time.Second).Should(Succeed())
 }
 
@@ -2325,13 +2469,12 @@ func getMinimalDPUServiceInterface(namespace string) *dpuservicev1.DPUServiceInt
 	}
 }
 
-func getExposedService(labels map[string]string) *corev1.Service {
+func getExposedService(name string, namespace string, labels map[string]string) *corev1.Service {
 	return &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:         "test-service",
-			Namespace:    "default",
-			GenerateName: "svc-",
-			Labels:       labels,
+			Name:      name,
+			Namespace: namespace,
+			Labels:    labels,
 		},
 		Spec: corev1.ServiceSpec{
 			Ports: []corev1.ServicePort{

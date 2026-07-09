@@ -19,12 +19,14 @@ package controllers
 import (
 	"context"
 	"errors"
+	"strconv"
 	"testing"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/argocd"
+	"github.com/nvidia/doca-platform/internal/features"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 	argov1 "github.com/nvidia/doca-platform/third_party/forked/argoproj/argo-cd/pkg/apis/application/v1alpha1"
 
@@ -35,7 +37,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/component-base/featuregate"
+	featuregatetesting "k8s.io/component-base/featuregate/testing"
 	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -538,4 +543,364 @@ func TestPrivilegedPodEnforcementChangedPredicate(t *testing.T) {
 	newCfg := configWith(ptr.To(true))
 	newCfg.Spec.Networking = &operatorv1.Networking{ControlPlaneMTU: ptr.To(1500)}
 	g.Expect(p.Update(event.UpdateEvent{ObjectOld: oldCfg, ObjectNew: newCfg})).To(BeFalse())
+}
+
+// TestOvnEncapIPFromNode verifies parsing of the OVN-Kubernetes node-encap-ips annotation.
+func TestOvnEncapIPFromNode(t *testing.T) {
+	ctx := context.Background()
+
+	cases := []struct {
+		name          string
+		annotations   map[string]string
+		expectedIP    string
+		hasAnnotation bool
+	}{
+		{
+			name:          "returns first valid IPv4 IP from JSON array",
+			annotations:   map[string]string{ovnNodeEncapIPsAnnotation: `["10.0.120.1"]`},
+			expectedIP:    "10.0.120.1",
+			hasAnnotation: true,
+		},
+		{
+			name:          "returns first valid IPv4 IP when multiple are present",
+			annotations:   map[string]string{ovnNodeEncapIPsAnnotation: `["10.0.120.1","10.0.120.2"]`},
+			expectedIP:    "10.0.120.1",
+			hasAnnotation: true,
+		},
+		{
+			name:          "returns first valid IPv4 IP when IPv6 is present",
+			annotations:   map[string]string{ovnNodeEncapIPsAnnotation: `["fa00:fb00::1","10.0.120.1"]`},
+			expectedIP:    "10.0.120.1",
+			hasAnnotation: true,
+		},
+		{
+			name:          "returns empty when annotation absent",
+			annotations:   nil,
+			expectedIP:    "",
+			hasAnnotation: false,
+		},
+		{
+			name:          "returns empty when annotation is empty string",
+			annotations:   map[string]string{ovnNodeEncapIPsAnnotation: ""},
+			expectedIP:    "",
+			hasAnnotation: true,
+		},
+		{
+			name:          "returns empty when annotation is invalid JSON",
+			annotations:   map[string]string{ovnNodeEncapIPsAnnotation: "not-json"},
+			expectedIP:    "",
+			hasAnnotation: true,
+		},
+		{
+			name:          "returns empty when no valid IP in array",
+			annotations:   map[string]string{ovnNodeEncapIPsAnnotation: `["not-an-ip"]`},
+			expectedIP:    "",
+			hasAnnotation: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			g := NewWithT(t)
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{Name: "host-node-1", Annotations: tc.annotations},
+			}
+			ip, hasAnnotation := ovnEncapIPFromNode(ctx, node)
+			g.Expect(ip).To(Equal(tc.expectedIP))
+			g.Expect(hasAnnotation).To(Equal(tc.hasAnnotation))
+		})
+	}
+}
+
+// TestNodeEndpointAddress verifies endpoint address selection via main-cluster OVN encap IPs
+// and fallback to the DPU-cluster NodeInternalIP.
+func TestNodeEndpointAddress(t *testing.T) {
+	ctx := context.Background()
+	internalIP := corev1.NodeAddress{Type: corev1.NodeInternalIP, Address: "192.168.1.10"}
+
+	dpuClusterNode := func(name string) *corev1.Node {
+		return &corev1.Node{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: name,
+			},
+			Status: corev1.NodeStatus{Addresses: []corev1.NodeAddress{internalIP}},
+		}
+	}
+
+	hostNodeWithOVN := func(hostNodeName, annotation string) *corev1.Node {
+		return &corev1.Node{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: hostNodeName,
+				Annotations: map[string]string{
+					ovnNodeEncapIPsAnnotation: annotation,
+				},
+			},
+		}
+	}
+
+	t.Run("with ConfigPortsOverHighSpeed enabled", func(t *testing.T) {
+		featuregatetesting.SetFeatureGateDuringTest(t, features.Gates.(featuregate.MutableFeatureGate), features.ConfigPortsOverHighSpeed, true)
+
+		t.Run("prefers OVN encap IP from host cluster Node", func(t *testing.T) {
+			g := NewWithT(t)
+			g.Expect(nodeEndpointAddress(ctx, dpuClusterNode("dpu-cluster-node-1"), hostNodeWithOVN("host-node-1", `["10.0.120.1"]`))).To(Equal("10.0.120.1"))
+		})
+
+		t.Run("falls back to DPU-cluster NodeInternalIP when nil host cluster node", func(t *testing.T) {
+			g := NewWithT(t)
+			g.Expect(nodeEndpointAddress(ctx, dpuClusterNode("dpu-cluster-node-1"), nil)).To(Equal("192.168.1.10"))
+		})
+
+		t.Run("falls back to DPU-cluster NodeInternalIP when OVN annotation is absent", func(t *testing.T) {
+			g := NewWithT(t)
+			hostNode := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "host-node-1"}}
+			g.Expect(nodeEndpointAddress(ctx, dpuClusterNode("dpu-cluster-node-1"), hostNode)).To(Equal("192.168.1.10"))
+		})
+
+		t.Run("returns empty when host Node has invalid OVN encap annotation", func(t *testing.T) {
+			g := NewWithT(t)
+			g.Expect(nodeEndpointAddress(ctx, dpuClusterNode("dpu-cluster-node-1"), hostNodeWithOVN("host-node-1", "not-json"))).To(Equal(""))
+		})
+
+		t.Run("returns empty when host Node has empty OVN encap annotation", func(t *testing.T) {
+			g := NewWithT(t)
+			g.Expect(nodeEndpointAddress(ctx, dpuClusterNode("dpu-cluster-node-1"), hostNodeWithOVN("host-node-1", ""))).To(Equal(""))
+		})
+	})
+
+	t.Run("with ConfigPortsOverHighSpeed disabled", func(t *testing.T) {
+		featuregatetesting.SetFeatureGateDuringTest(t, features.Gates.(featuregate.MutableFeatureGate), features.ConfigPortsOverHighSpeed, false)
+
+		t.Run("uses DPU-cluster NodeInternalIP even when host Node has OVN encap IP", func(t *testing.T) {
+			g := NewWithT(t)
+			g.Expect(nodeEndpointAddress(ctx, dpuClusterNode("dpu-cluster-node-1"), hostNodeWithOVN("host-node-1", `["10.0.120.1"]`))).To(Equal("192.168.1.10"))
+		})
+	})
+}
+
+func requestsForHostNodeTestClient(t *testing.T, objs ...client.Object) client.Client {
+	t.Helper()
+	scheme := applicationPrereqsTestScheme(t)
+	return fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(objs...).
+		WithIndex(&provisioningv1.DPUNode{}, dpuNodeKubeNodeRefField, func(obj client.Object) []string {
+			dpuNode, ok := obj.(*provisioningv1.DPUNode)
+			if !ok || dpuNode.Status.KubeNodeRef == nil {
+				return nil
+			}
+			return []string{*dpuNode.Status.KubeNodeRef}
+		}).
+		WithIndex(&provisioningv1.DPU{}, dpuNodeNameField, func(obj client.Object) []string {
+			dpu, ok := obj.(*provisioningv1.DPU)
+			if !ok {
+				return nil
+			}
+			return []string{dpu.Spec.DPUNodeName}
+		}).
+		WithIndex(&dpuservicev1.DPUService{}, dpuServiceConfigPortsField, func(obj client.Object) []string {
+			dpuService, ok := obj.(*dpuservicev1.DPUService)
+			if !ok {
+				return nil
+			}
+			return []string{strconv.FormatBool(dpuService.Spec.ConfigPorts != nil)}
+		}).
+		Build()
+}
+
+func TestRequestsForHostNode(t *testing.T) {
+	ctx := context.Background()
+	scheme := applicationPrereqsTestScheme(t)
+
+	const (
+		hostNodeName     = "host-node-encap"
+		dpuNodeNamespace = "dpu-ns"
+		dpuNodeName      = "dpu-node-encap"
+		dpuName          = "dpu-1"
+		clusterNamespace = "cluster-ns"
+		clusterName      = "test-cluster"
+		serviceNamespace = "svc-ns"
+		serviceName      = "encap-service"
+	)
+
+	hostNode := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: hostNodeName,
+			Annotations: map[string]string{
+				ovnNodeEncapIPsAnnotation: `["10.0.120.1"]`,
+			},
+		},
+	}
+	dpuNode := &provisioningv1.DPUNode{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      dpuNodeName,
+			Namespace: dpuNodeNamespace,
+		},
+		Status: provisioningv1.DPUNodeStatus{
+			KubeNodeRef: ptr.To(hostNodeName),
+		},
+	}
+	dpu := &provisioningv1.DPU{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      dpuName,
+			Namespace: dpuNodeNamespace,
+		},
+		Spec: provisioningv1.DPUSpec{
+			DPUNodeName: dpuNodeName,
+			Cluster: provisioningv1.K8sCluster{
+				Namespace: clusterNamespace,
+				Name:      clusterName,
+			},
+		},
+	}
+	dpuClusterNode := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: dpuName},
+	}
+	dpuService := &dpuservicev1.DPUService{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      serviceName,
+			Namespace: serviceNamespace,
+		},
+		Spec: dpuservicev1.DPUServiceSpec{
+			ConfigPorts: &dpuservicev1.ConfigPorts{
+				ServiceType: corev1.ServiceTypeNodePort,
+				Ports: []dpuservicev1.ConfigPort{{
+					Name:     "port1",
+					Protocol: corev1.ProtocolTCP,
+					Port:     80,
+				}},
+			},
+		},
+	}
+	clusterKey := client.ObjectKey{Namespace: clusterNamespace, Name: clusterName}
+	dpuClusterClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(dpuClusterNode).Build()
+
+	newReconciler := func(objs ...client.Object) *DPUServiceReconciler {
+		t.Helper()
+		return &DPUServiceReconciler{
+			Client: requestsForHostNodeTestClient(t, objs...),
+			Scheme: scheme,
+			RemoteCache: dpucluster.NewStaticClusterClientProvider(map[client.ObjectKey]client.Client{
+				clusterKey: dpuClusterClient,
+			}),
+		}
+	}
+
+	t.Run("enqueues DPUService with config ports when host Node is linked via KubeNodeRef", func(t *testing.T) {
+		g := NewWithT(t)
+		r := newReconciler(hostNode, dpuNode, dpu, dpuService)
+
+		g.Expect(r.requestsForHostNode(ctx, hostNode)).To(ContainElement(ctrl.Request{
+			NamespacedName: types.NamespacedName{Namespace: serviceNamespace, Name: serviceName},
+		}))
+	})
+
+	t.Run("does not enqueue when host Node has no linked DPUNode", func(t *testing.T) {
+		g := NewWithT(t)
+		r := newReconciler(hostNode, dpuService)
+
+		g.Expect(r.requestsForHostNode(ctx, hostNode)).To(BeEmpty())
+	})
+
+	t.Run("does not enqueue when DPUService does not match NodeSelector", func(t *testing.T) {
+		g := NewWithT(t)
+		mismatchedService := dpuService.DeepCopy()
+		mismatchedService.Spec.ServiceDaemonSet = &dpuservicev1.ServiceDaemonSetValues{
+			NodeSelector: &corev1.NodeSelector{
+				NodeSelectorTerms: []corev1.NodeSelectorTerm{{
+					MatchExpressions: []corev1.NodeSelectorRequirement{{
+						Key:      "region",
+						Operator: corev1.NodeSelectorOpIn,
+						Values:   []string{"us-west"},
+					}},
+				}},
+			},
+		}
+		dpuClusterNodeWithLabel := dpuClusterNode.DeepCopy()
+		dpuClusterNodeWithLabel.Labels = map[string]string{"region": "us-east"}
+		dpuClusterClientWithNode := fake.NewClientBuilder().WithScheme(scheme).WithObjects(dpuClusterNodeWithLabel).Build()
+
+		r := &DPUServiceReconciler{
+			Client: requestsForHostNodeTestClient(t, hostNode, dpuNode, dpu, mismatchedService),
+			Scheme: scheme,
+			RemoteCache: dpucluster.NewStaticClusterClientProvider(map[client.ObjectKey]client.Client{
+				clusterKey: dpuClusterClientWithNode,
+			}),
+		}
+
+		g.Expect(r.requestsForHostNode(ctx, hostNode)).To(BeEmpty())
+	})
+}
+
+func TestNodeOVNEncapIPPredicate(t *testing.T) {
+	predicate := nodeOVNEncapIPPredicate()
+	ovnEncapIPValue := `["10.0.120.1"]`
+	ovnEncapIPValueModified := `["10.0.120.2"]`
+
+	getTestNode := func() *corev1.Node {
+		return &corev1.Node{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        "host-node",
+				Annotations: map[string]string{},
+			},
+		}
+	}
+
+	t.Run("returns true when OVN encap IPs annotation changes", func(t *testing.T) {
+		g := NewWithT(t)
+		oldNode := getTestNode()
+		oldNode.Annotations[ovnNodeEncapIPsAnnotation] = ovnEncapIPValue
+
+		newNode := oldNode.DeepCopy()
+		newNode.Annotations[ovnNodeEncapIPsAnnotation] = ovnEncapIPValueModified
+
+		g.Expect(predicate.UpdateFunc(event.UpdateEvent{ObjectOld: oldNode, ObjectNew: newNode})).To(BeTrue())
+	})
+
+	t.Run("returns false when unrelated node annotation change", func(t *testing.T) {
+		g := NewWithT(t)
+		oldNode := getTestNode()
+		oldNode.Annotations[ovnNodeEncapIPsAnnotation] = ovnEncapIPValue
+
+		newNode := oldNode.DeepCopy()
+		newNode.Annotations["key"] = "new"
+
+		g.Expect(predicate.UpdateFunc(event.UpdateEvent{ObjectOld: oldNode, ObjectNew: newNode})).To(BeFalse())
+	})
+
+	t.Run("returns true on create when OVN encap IPs annotation is present", func(t *testing.T) {
+		g := NewWithT(t)
+		node := getTestNode()
+		node.Annotations[ovnNodeEncapIPsAnnotation] = ovnEncapIPValue
+
+		g.Expect(predicate.CreateFunc(event.CreateEvent{Object: node})).To(BeTrue())
+	})
+
+	t.Run("returns false on create when OVN encap IPs annotation is not present", func(t *testing.T) {
+		g := NewWithT(t)
+		node := getTestNode()
+
+		g.Expect(predicate.CreateFunc(event.CreateEvent{Object: node})).To(BeFalse())
+	})
+
+	t.Run("returns true on delete when annotation was present", func(t *testing.T) {
+		g := NewWithT(t)
+		node := getTestNode()
+		node.Annotations[ovnNodeEncapIPsAnnotation] = ovnEncapIPValue
+
+		g.Expect(predicate.DeleteFunc(event.DeleteEvent{Object: node})).To(BeTrue())
+	})
+
+	t.Run("returns false on delete when annotation was not present", func(t *testing.T) {
+		g := NewWithT(t)
+		node := getTestNode()
+
+		g.Expect(predicate.DeleteFunc(event.DeleteEvent{Object: node})).To(BeFalse())
+	})
+
+	t.Run("returns false for generic events", func(t *testing.T) {
+		g := NewWithT(t)
+		node := getTestNode()
+		g.Expect(predicate.GenericFunc(event.GenericEvent{Object: node})).To(BeFalse())
+	})
 }
