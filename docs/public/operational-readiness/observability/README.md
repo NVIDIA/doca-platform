@@ -52,7 +52,7 @@ The architecture centralizes monitoring and logging on the Host Cluster:
 * **[DPF-Operator-Managed Components](deployment/operator-managed-components.md)** - Configure Kube-State-Metrics, Node-Problem-Detector, and OpenTelemetry Collector
 * **[User-Managed Components](deployment/user-managed-components.md)** - Setup Prometheus, Grafana, Loki, dashboards, multi-cluster configuration, and integration with existing monitoring stacks
 * **[Grafana Dashboards](dashboards/README.md)** - Pre-configured Grafana dashboards for fleet health, DPU detail, framework state, and performance
-* **[Prometheus Rules](prometheus-rules/README.md)** - Reference alert and recording rule examples to deploy alongside the dashboards
+* **[Prometheus Rules](prometheus-rules/README.md)** - Reference alert and recording rule examples to deploy alongside the dashboards, plus an Alertmanager routing example
 * **[DPU Operational Readiness](guides/operational-readiness.md)** - Monitor DPU health conditions and configure alerting
 
 
