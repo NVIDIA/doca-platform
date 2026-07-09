@@ -14,7 +14,7 @@ This page documents the reference `PrometheusRule` manifests covering DPF compon
 > [!NOTE]
 > See [Recording Rule Examples](recording-rules.md) for the companion recording-rule manifests. The `DPFDPUServiceReplicasNotHealthy`, `DPFDPUClusterAPIServerLatencyHigh`, and `DPFDPUClusterEtcdLatencyHigh` alerts evaluate recorded series, so they never fire unless the matching recording rules are deployed as well.
 
-Every rule carries `labels.service: doca-platform-framework` so DPF alerts and series can be filtered downstream (e.g. `ALERTS{service="doca-platform-framework"}` in Prometheus, an Alertmanager route matcher, or a Grafana `alertName: "DPF"` prefix filter).
+Every rule carries `labels.service: doca-platform-framework` so DPF alerts and series can be filtered downstream (e.g. `ALERTS{service="doca-platform-framework"}` in Prometheus, an Alertmanager route matcher as shown in the [Alertmanager example](alertmanager.md), or a Grafana `alertName: "DPF"` prefix filter).
 
 Suggested threshold defaults, tune per environment:
 
