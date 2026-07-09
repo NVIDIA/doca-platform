@@ -178,17 +178,17 @@ func (mr *MockAPIMockRecorder) CurrentEndpoint() *gomock.Call {
 }
 
 // DelPort mocks base method.
-func (m *MockAPI) DelPort(ctx context.Context, bridgeName, portName string) error {
+func (m *MockAPI) DelPort(ctx context.Context, bridgeName, portName string, opt *DelPortOpt) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DelPort", ctx, bridgeName, portName)
+	ret := m.ctrl.Call(m, "DelPort", ctx, bridgeName, portName, opt)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // DelPort indicates an expected call of DelPort.
-func (mr *MockAPIMockRecorder) DelPort(ctx, bridgeName, portName any) *gomock.Call {
+func (mr *MockAPIMockRecorder) DelPort(ctx, bridgeName, portName, opt any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DelPort", reflect.TypeOf((*MockAPI)(nil).DelPort), ctx, bridgeName, portName)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DelPort", reflect.TypeOf((*MockAPI)(nil).DelPort), ctx, bridgeName, portName, opt)
 }
 
 // DeleteBridge mocks base method.
