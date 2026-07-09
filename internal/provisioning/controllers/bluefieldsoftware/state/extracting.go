@@ -330,12 +330,14 @@ func applyUnpackedComponentsToDownloaded(
 			if bfs.Status.Versions == nil {
 				bfs.Status.Versions = &provisioningv1.BluefieldSoftwareVersions{}
 			}
-			bfs.Status.Versions.AstraNicFwVersion = component.ComponentVersionString
+			bfs.Status.Versions.EWNicFwVersion = component.ComponentVersionString
 		case butil.ComponentTypeFwBundle:
 			if bfs.Status.Versions == nil {
 				bfs.Status.Versions = &provisioningv1.BluefieldSoftwareVersions{}
 			}
 			switch {
+			case strings.Contains(imageName, "CX9"):
+				bfs.Status.Versions.BFNicFwVersion = component.ComponentVersionString
 			case strings.Contains(imageName, "BMC_BF4"):
 				bfs.Status.Versions.BMCVersion = component.ComponentVersionString
 			case strings.Contains(imageName, "EROT"):
