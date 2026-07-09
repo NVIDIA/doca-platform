@@ -32,6 +32,24 @@ import (
 	. "github.com/onsi/gomega"
 )
 
+const (
+	containerdV1VersionOutput = "containerd github.com/containerd/containerd v1.7.20 8fc6bcff51318944179630522a095cc9dbf9f353"
+	containerdV2VersionOutput = "containerd github.com/containerd/containerd/v2 2.2.1"
+)
+
+// getNestedValue navigates a map by keys and returns the value, or nil if not found.
+func getNestedValue(m map[string]interface{}, keys ...string) interface{} {
+	var val interface{} = m
+	for _, key := range keys {
+		mVal, ok := val.(map[string]interface{})
+		if !ok {
+			return nil
+		}
+		val = mVal[key]
+	}
+	return val
+}
+
 var _ = Describe("Containerd Configuration", func() {
 	var tempDir string
 
@@ -59,7 +77,7 @@ var _ = Describe("Containerd Configuration", func() {
 			operation := &ConfigureContainerd{
 				rootFS: tempDir,
 				getContainerdVersion: func() (string, error) {
-					return "containerd github.com/containerd/containerd v1.7.20 8fc6bcff51318944179630522a095cc9dbf9f353", nil
+					return containerdV1VersionOutput, nil
 				},
 			}
 
@@ -144,7 +162,7 @@ oom_score = 0
 			operation := &ConfigureContainerd{
 				rootFS: tempDir,
 				getContainerdVersion: func() (string, error) {
-					return "containerd github.com/containerd/containerd v1.7.20 8fc6bcff51318944179630522a095cc9dbf9f353", nil
+					return containerdV1VersionOutput, nil
 				},
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 					return bytes.Buffer{}, bytes.Buffer{}, nil
@@ -173,34 +191,21 @@ oom_score = 0
 			_, err = toml.DecodeFile(configPath, &config)
 			Expect(err).NotTo(HaveOccurred())
 
-			// Helper to navigate map safely
-			get := func(m map[string]interface{}, keys ...string) interface{} {
-				var val interface{} = m
-				for _, key := range keys {
-					if mVal, ok := val.(map[string]interface{}); ok {
-						val = mVal[key]
-					} else {
-						return nil
-					}
-				}
-				return val
-			}
-
 			// Check TLS
-			tls := get(config, "plugins", "io.containerd.grpc.v1.cri", "registry", "configs", "nvcr.io", "tls")
+			tls := getNestedValue(config, "plugins", "io.containerd.grpc.v1.cri", "registry", "configs", "nvcr.io", "tls")
 			Expect(tls).NotTo(BeNil())
 			tlsMap := tls.(map[string]interface{})
 			Expect(tlsMap["insecure_skip_verify"]).To(BeTrue())
 
 			// Check Mirrors
-			originalMirror := get(config, "plugins", "io.containerd.grpc.v1.cri", "registry", "mirrors", "docker.io")
+			originalMirror := getNestedValue(config, "plugins", "io.containerd.grpc.v1.cri", "registry", "mirrors", "docker.io")
 			Expect(originalMirror).NotTo(BeNil())
 			originalMirrorMap := originalMirror.(map[string]interface{})
 			originalEndpoints := originalMirrorMap["endpoint"].([]interface{})
 			Expect(originalEndpoints).To(HaveLen(1))
 			Expect(originalEndpoints[0]).To(Equal("dockerhub.nvidia.com"))
 
-			mirror := get(config, "plugins", "io.containerd.grpc.v1.cri", "registry", "mirrors", "nvcr.io")
+			mirror := getNestedValue(config, "plugins", "io.containerd.grpc.v1.cri", "registry", "mirrors", "nvcr.io")
 			Expect(mirror).NotTo(BeNil())
 			mirrorMap := mirror.(map[string]interface{})
 			endpoints := mirrorMap["endpoint"].([]interface{})
@@ -208,8 +213,135 @@ oom_score = 0
 			Expect(endpoints[0]).To(Equal("my.registry.com"))
 
 			// config_path should be removed once mirrors endpoint is configured.
-			configPathValue := get(config, "plugins", "io.containerd.grpc.v1.cri", "registry", "config_path")
+			configPathValue := getNestedValue(config, "plugins", "io.containerd.grpc.v1.cri", "registry", "config_path")
 			Expect(configPathValue).To(BeNil())
+		})
+
+		It("should reuse config_path already declared under the containerd v2 images plugin", func() {
+			originalContent := `
+version = 2
+
+[plugins]
+  [plugins."io.containerd.cri.v1.images"]
+    [plugins."io.containerd.cri.v1.images".registry]
+      config_path = "/etc/containerd/certs.d"
+`
+			configPath := filepath.Join(tempDir, "/etc/containerd/config.toml")
+			Expect(os.WriteFile(configPath, []byte(originalContent), 0644)).To(Succeed())
+
+			operation := &ConfigureContainerd{
+				rootFS: tempDir,
+				getContainerdVersion: func() (string, error) {
+					return containerdV2VersionOutput, nil
+				},
+			}
+
+			err := operation.configureRegistryMirror("my.registry.com")
+			Expect(err).NotTo(HaveOccurred())
+
+			// The mirror must be written as a hosts.toml host-config file.
+			hostsPath := filepath.Join(tempDir, "/etc/containerd/certs.d/nvcr.io/hosts.toml")
+			var hosts map[string]interface{}
+			_, err = toml.DecodeFile(hostsPath, &hosts)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(hosts["server"]).To(Equal("https://nvcr.io"))
+			host := hosts["host"].(map[string]interface{})["https://my.registry.com"].(map[string]interface{})
+			Expect(host["capabilities"].([]interface{})).To(ConsistOf("pull", "resolve"))
+			Expect(host["skip_verify"]).To(BeTrue())
+
+			// The inline registry.mirrors format must NOT be used for containerd v2.
+			var config map[string]interface{}
+			_, err = toml.DecodeFile(configPath, &config)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(getNestedValue(config, "plugins", "io.containerd.cri.v1.images", "registry", "mirrors")).To(BeNil())
+			// The existing images-plugin config_path must be preserved.
+			Expect(getNestedValue(config, "plugins", "io.containerd.cri.v1.images", "registry", "config_path")).To(Equal("/etc/containerd/certs.d"))
+		})
+
+		It("should preserve a scheme-qualified endpoint in containerd v2 hosts.toml", func() {
+			operation := &ConfigureContainerd{
+				rootFS: tempDir,
+				getContainerdVersion: func() (string, error) {
+					return containerdV2VersionOutput, nil
+				},
+			}
+
+			err := operation.configureRegistryMirror("https://my.registry.com")
+			Expect(err).NotTo(HaveOccurred())
+
+			hostsPath := filepath.Join(tempDir, "/etc/containerd/certs.d/nvcr.io/hosts.toml")
+			var hosts map[string]interface{}
+			_, err = toml.DecodeFile(hostsPath, &hosts)
+			Expect(err).NotTo(HaveOccurred())
+			host := hosts["host"].(map[string]interface{})["https://my.registry.com"].(map[string]interface{})
+			Expect(host["capabilities"].([]interface{})).To(ConsistOf("pull", "resolve"))
+			Expect(host["skip_verify"]).To(BeTrue())
+		})
+
+		It("should reuse a legacy v1 config_path but record it under the images plugin for containerd v2", func() {
+			// A system migrated from containerd 1.x may only declare config_path under
+			// the legacy CRI plugin. containerd 2.x reads it from the images plugin, so
+			// the value must be reused there for the mirror to take effect.
+			originalContent := `
+version = 2
+
+[plugins]
+  [plugins."io.containerd.grpc.v1.cri"]
+    [plugins."io.containerd.grpc.v1.cri".registry]
+      config_path = "/etc/containerd/certs.d"
+`
+			configPath := filepath.Join(tempDir, "/etc/containerd/config.toml")
+			Expect(os.WriteFile(configPath, []byte(originalContent), 0644)).To(Succeed())
+
+			operation := &ConfigureContainerd{
+				rootFS: tempDir,
+				getContainerdVersion: func() (string, error) {
+					return containerdV2VersionOutput, nil
+				},
+			}
+
+			err := operation.configureRegistryMirror("my.registry.com")
+			Expect(err).NotTo(HaveOccurred())
+
+			// hosts.toml is written under the reused host-config directory.
+			hostsPath := filepath.Join(tempDir, "/etc/containerd/certs.d/nvcr.io/hosts.toml")
+			var hosts map[string]interface{}
+			_, err = toml.DecodeFile(hostsPath, &hosts)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(hosts["server"]).To(Equal("https://nvcr.io"))
+
+			var config map[string]interface{}
+			_, err = toml.DecodeFile(configPath, &config)
+			Expect(err).NotTo(HaveOccurred())
+			// The reused path must now also be declared under the images plugin that
+			// containerd 2.x actually reads.
+			Expect(getNestedValue(config, "plugins", "io.containerd.cri.v1.images", "registry", "config_path")).To(Equal("/etc/containerd/certs.d"))
+		})
+
+		It("should add config_path for containerd v2 when absent", func() {
+			operation := &ConfigureContainerd{
+				rootFS: tempDir,
+				getContainerdVersion: func() (string, error) {
+					return containerdV2VersionOutput, nil
+				},
+			}
+
+			err := operation.configureRegistryMirror("my.registry.com")
+			Expect(err).NotTo(HaveOccurred())
+
+			configPath := filepath.Join(tempDir, "/etc/containerd/config.toml")
+			var config map[string]interface{}
+			_, err = toml.DecodeFile(configPath, &config)
+			Expect(err).NotTo(HaveOccurred())
+			// config_path should be recorded under the containerd 2.x images plugin.
+			Expect(getNestedValue(config, "plugins", "io.containerd.cri.v1.images", "registry", "config_path")).To(Equal("/etc/containerd/certs.d"))
+
+			// hosts.toml should be created under the default host-config directory.
+			hostsPath := filepath.Join(tempDir, "/etc/containerd/certs.d/nvcr.io/hosts.toml")
+			var hosts map[string]interface{}
+			_, err = toml.DecodeFile(hostsPath, &hosts)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(hosts["server"]).To(Equal("https://nvcr.io"))
 		})
 	})
 
@@ -220,7 +352,7 @@ oom_score = 0
 				expectedVersion *semver.Version
 			}{
 				{
-					output:          "containerd github.com/containerd/containerd v1.7.20 8fc6bcff51318944179630522a095cc9dbf9f353",
+					output:          containerdV1VersionOutput,
 					expectedVersion: semver.MustParse("1.7.20"),
 				},
 				{
