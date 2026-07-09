@@ -195,7 +195,7 @@ var _ = Describe("stale ports cleanup", func() {
 		).Times(1)
 		ovsMock.EXPECT().WhereAll(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(ovsConditionalAPIMock).Times(1)
 
-		ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(1)
+		ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), gomock.Any(), nil).Return(nil).Times(1)
 
 		Expect(sor.removeStalePorts(ctx)).To(Succeed())
 	})
@@ -220,7 +220,7 @@ var _ = Describe("stale ports cleanup", func() {
 		).Times(1)
 		ovsMock.EXPECT().WhereAll(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(ovsConditionalAPIMock).Times(1)
 
-		ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), gomock.Any()).Return(fmt.Errorf("failed to delete port"))
+		ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), gomock.Any(), nil).Return(fmt.Errorf("failed to delete port"))
 
 		Expect(sor.removeStalePorts(ctx)).NotTo(Succeed())
 	})
@@ -280,7 +280,7 @@ var _ = Describe("stale ports cleanup", func() {
 			},
 		).Times(1)
 		ovsMock.EXPECT().WhereAll(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(ovsConditionalAPIMock).Times(1)
-		ovsMock.EXPECT().DelPort(gomock.Any(), SFCBridge, "some-port").Return(nil).Times(1)
+		ovsMock.EXPECT().DelPort(gomock.Any(), SFCBridge, "some-port", nil).Return(nil).Times(1)
 		ECPFManagerMock.EXPECT().GetRepresentorForVFServiceInterface(gomock.Any()).Return("pf0vf3", nil).Times(1)
 
 		Expect(sor.removeStalePorts(ctx)).To(Succeed())

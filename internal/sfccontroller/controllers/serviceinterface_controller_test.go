@@ -478,7 +478,7 @@ var _ = Describe("service interface controller", func() {
 		It("should return success", func() {
 
 			ecpfManagerMock.EXPECT().GetRepresentorForPFServiceInterface(gomock.Any()).Return("pf0hpf", nil)
-			ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+			ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), gomock.Any(), nil).Return(nil)
 
 			result, err := sir.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{
 				Namespace: deletedServiceInterface.Namespace,
@@ -490,7 +490,7 @@ var _ = Describe("service interface controller", func() {
 
 		It("should requeue if failed to delete port", func() {
 			ecpfManagerMock.EXPECT().GetRepresentorForPFServiceInterface(gomock.Any()).Return("pf0hpf", nil)
-			ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("failed to delete port"))
+			ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), gomock.Any(), nil).Return(errors.New("failed to delete port"))
 
 			result, err := sir.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{
 				Namespace: deletedServiceInterface.Namespace,
@@ -541,7 +541,7 @@ var _ = Describe("service interface controller", func() {
 		It("should return success", func() {
 
 			ecpfManagerMock.EXPECT().GetRepresentorForVFServiceInterface(gomock.Any()).Return("pf0hvf2", nil)
-			ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), "pf0hvf2").Return(nil)
+			ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), "pf0hvf2", nil).Return(nil)
 
 			result, err := sir.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{
 				Namespace: deletedServiceInterface.Namespace,
@@ -593,8 +593,8 @@ var _ = Describe("service interface controller", func() {
 
 		It("should return success", func() {
 			// delete patch port between bridges
-			ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
-			ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+			ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), gomock.Any(), nil).Return(nil)
+			ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), gomock.Any(), nil).Return(nil)
 
 			result, err := sir.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{
 				Namespace: deletedServiceInterface.Namespace,
@@ -605,7 +605,7 @@ var _ = Describe("service interface controller", func() {
 		})
 
 		It("should requeue if failed to delete patch port", func() {
-			ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("failed to delete patch port"))
+			ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), gomock.Any(), nil).Return(errors.New("failed to delete patch port"))
 
 			result, err := sir.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{
 				Namespace: deletedServiceInterface.Namespace,
@@ -616,8 +616,8 @@ var _ = Describe("service interface controller", func() {
 		})
 
 		It("should requeue if failed to delete peer patch port", func() {
-			ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
-			ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("failed to delete peer patch port"))
+			ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), gomock.Any(), nil).Return(nil)
+			ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), gomock.Any(), nil).Return(errors.New("failed to delete peer patch port"))
 
 			result, err := sir.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{
 				Namespace: deletedServiceInterface.Namespace,

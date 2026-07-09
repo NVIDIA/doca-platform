@@ -196,7 +196,7 @@ func createPort(ctx context.Context, api ovsutils.API, bridgeName, intfName, con
 	})
 }
 
-// cleanupStaleHbn removes ports tagged hbn_netdev=contIfaceName from br-hbn.
+// cleanupStaleHbn removes plugin-owned ports tagged hbn_netdev=contIfaceName from br-hbn.
 // br-sfc cleanup belongs to cleanupStaleSfc (upstream RM #4690834).
 func cleanupStaleHbn(ctx context.Context, api ovsutils.API, contIfaceName string) error {
 	results, err := arrayByCondition(
@@ -210,14 +210,14 @@ func cleanupStaleHbn(ctx context.Context, api ovsutils.API, contIfaceName string
 	}
 
 	for _, row := range results {
-		if err := api.DelPort(ctx, hbnBridge, row["name"].(string)); err != nil {
+		if err := api.DelPort(ctx, hbnBridge, row["name"].(string), &ovsutils.DelPortOpt{Owner: ovsPortOwner}); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// cleanupStaleSfc removes ports tagged dpf-id=contIfaceName from br-sfc.
+// cleanupStaleSfc removes plugin-owned ports tagged dpf-id=contIfaceName from br-sfc.
 func cleanupStaleSfc(ctx context.Context, api ovsutils.API, contIfaceName string) error {
 	results, err := arrayByCondition(
 		ctx, api,
@@ -230,7 +230,7 @@ func cleanupStaleSfc(ctx context.Context, api ovsutils.API, contIfaceName string
 	}
 
 	for _, row := range results {
-		if err := api.DelPort(ctx, sfcBridge, row["name"].(string)); err != nil {
+		if err := api.DelPort(ctx, sfcBridge, row["name"].(string), &ovsutils.DelPortOpt{Owner: ovsPortOwner}); err != nil {
 			return err
 		}
 	}
@@ -256,7 +256,7 @@ func patchPortName(intfName, bridge string) string {
 }
 
 func addPatchPort(ctx context.Context, api ovsutils.API, bridgeName, portName, peerName, hostIfaceName, contIfaceName string) error {
-	if err := api.DelPort(ctx, bridgeName, portName); err != nil {
+	if err := api.DelPort(ctx, bridgeName, portName, &ovsutils.DelPortOpt{Owner: ovsPortOwner}); err != nil {
 		return fmt.Errorf("delete stale patch port %s: %w", portName, err)
 	}
 
@@ -288,29 +288,6 @@ func addPatchPort(ctx context.Context, api ovsutils.API, bridgeName, portName, p
 		VLANMode:             &vlanMode,
 		WaitForOFPortFree:    ofportPtr != nil,
 	})
-}
-
-// deletePort removes intfName from bridgeName.
-// Errors if the port is missing, not owned by ovs-cni, or on a different bridge.
-func deletePort(ctx context.Context, api ovsutils.API, bridgeName, intfName string) error {
-	port := &ovsmodel.Port{Name: intfName}
-	if err := api.Get(ctx, port); err != nil {
-		return fmt.Errorf("get port %s: %w", intfName, err)
-	}
-
-	if port.ExternalIDs["owner"] != ovsPortOwner {
-		return fmt.Errorf("port not created by ovs-cni")
-	}
-
-	inBridge, err := api.IsIfaceInBr(ctx, bridgeName, intfName)
-	if err != nil {
-		return fmt.Errorf("check port %s on bridge %s: %w", intfName, bridgeName, err)
-	}
-	if !inBridge {
-		return fmt.Errorf("port %s is not on bridge %s", intfName, bridgeName)
-	}
-
-	return api.DelPort(ctx, bridgeName, intfName)
 }
 
 // getOvsPortForContIface returns the ovs port name for a container interface.
