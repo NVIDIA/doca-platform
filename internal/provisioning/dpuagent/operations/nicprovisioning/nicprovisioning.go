@@ -509,19 +509,23 @@ func (n *NICProvisioning) installNICFirmware(execCtx context.Context, optCtx *op
 			device.Spec.Configuration = &nicconfigurationv1alpha1.NicDeviceConfigurationSpec{
 				Template: buildEWNicConfigurationTemplate(optCtx.DPUFlavor.Spec.FirstEWNicConfiguration()),
 			}
+			klog.InfoS("NIC provisioning: calling NCO firmware install API",
+				"serialNumber", device.Status.SerialNumber,
+				"type", device.Status.Type,
+				"firmwarePath", installOptions.FwFilePath)
 			rebootRequired, err := fwMgr.InstallFirmware(installCtx, &device, installOptions)
 			if err != nil {
 				errCh <- fmt.Errorf("failed to install firmware on NIC %q (type %q): %w",
 					device.Status.SerialNumber, device.Status.Type, err)
 				return
 			}
-			if rebootRequired {
-				rebootRequiredCh <- true
-			}
-			klog.InfoS("NIC provisioning: firmware installed successfully",
+			klog.InfoS("NIC provisioning: NCO firmware install API completed",
 				"serialNumber", device.Status.SerialNumber,
 				"type", device.Status.Type,
 				"rebootRequired", rebootRequired)
+			if rebootRequired {
+				rebootRequiredCh <- true
+			}
 		}()
 	}
 
@@ -589,20 +593,24 @@ func (n *NICProvisioning) applyNVConfig(execCtx context.Context, optCtx *operati
 			device.Spec.Configuration = &nicconfigurationv1alpha1.NicDeviceConfigurationSpec{
 				Template: buildEWNicConfigurationTemplate(ewNICCfg),
 			}
+			klog.InfoS("NIC provisioning: calling NCO NV config API",
+				"serialNumber", device.Status.SerialNumber,
+				"type", device.Status.Type,
+				"force", applyOptions.Force)
 			result, applyErr := cfgMgr.ApplyNVConfiguration(applyCtx, &device, applyOptions)
 			if applyErr != nil {
 				errCh <- fmt.Errorf("failed to apply NV config on NIC %q (type %q): %w",
 					device.Status.SerialNumber, device.Status.Type, applyErr)
 				return
 			}
-			if result.Status == nictypes.ApplyStatusPartiallyApplied || result.Status == nictypes.ApplyStatusSuccess {
-				rebootRequiredCh <- true
-			}
-			klog.InfoS("NIC provisioning: NV config applied",
+			klog.InfoS("NIC provisioning: NCO NV config API completed",
 				"serialNumber", device.Status.SerialNumber,
 				"type", device.Status.Type,
 				"status", result.Status,
 				"rebootRequired", result.RebootRequired)
+			if result.Status == nictypes.ApplyStatusPartiallyApplied || result.Status == nictypes.ApplyStatusSuccess {
+				rebootRequiredCh <- true
+			}
 		}()
 	}
 
@@ -659,13 +667,16 @@ func (n *NICProvisioning) applyRuntimeConfig(execCtx context.Context, optCtx *op
 			device.Spec.Configuration = &nicconfigurationv1alpha1.NicDeviceConfigurationSpec{
 				Template: buildEWNicConfigurationTemplate(ewNICCfg),
 			}
+			klog.InfoS("NIC provisioning: calling NCO runtime config API",
+				"serialNumber", device.Status.SerialNumber,
+				"type", device.Status.Type)
 			result, applyErr := cfgMgr.ApplyRuntimeConfiguration(applyCtx, &device)
 			if applyErr != nil {
 				errCh <- fmt.Errorf("failed to apply runtime config on NIC %q (type %q): %w",
 					device.Status.SerialNumber, device.Status.Type, applyErr)
 				return
 			}
-			klog.InfoS("NIC provisioning: runtime config applied",
+			klog.InfoS("NIC provisioning: NCO runtime config API completed",
 				"serialNumber", device.Status.SerialNumber,
 				"type", device.Status.Type,
 				"status", result.Status)
