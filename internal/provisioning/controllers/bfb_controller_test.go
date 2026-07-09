@@ -515,7 +515,7 @@ var _ = Describe("BFB", func() {
 					DPUTemplate: provisioningv1.DPUTemplate{
 						Spec: provisioningv1.DPUTemplateSpec{
 							BFB:        &provisioningv1.BFBReference{Name: obj.Name},
-							DPUFlavor:  "dummy-flavor",
+							DPUFlavor:  ptr.To("dummy-flavor"),
 							NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 						},
 					},

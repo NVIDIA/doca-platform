@@ -79,7 +79,7 @@ func TestDMSServerReconciler(t *testing.T) {
 					BFB: &provisioningv1.BFBReference{
 						Name: bfbName,
 					},
-					DPUFlavor: dpuFlavorName,
+					DPUFlavor: &dpuFlavorName,
 					NodeEffect: provisioningv1.NodeEffect{
 						Action: provisioningv1.Action{
 							NoEffect: ptr.To(true),

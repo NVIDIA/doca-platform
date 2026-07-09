@@ -918,7 +918,7 @@ func defaultDPUSet() *provisioningv1.DPUSet {
 			Strategy: provisioningv1.DPUSetStrategy{Type: provisioningv1.OnDeleteStrategyType},
 			DPUTemplate: provisioningv1.DPUTemplate{
 				Spec: provisioningv1.DPUTemplateSpec{
-					DPUFlavor:  "test-flavor",
+					DPUFlavor:  ptr.To("test-flavor"),
 					BFB:        &provisioningv1.BFBReference{Name: "test"},
 					NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 				},
@@ -1152,7 +1152,7 @@ func defaultDPUSetFromDPUDeployment() *provisioningv1.DPUSet {
 			DPUTemplate: provisioningv1.DPUTemplate{
 				Spec: provisioningv1.DPUTemplateSpec{
 					BFB:        &provisioningv1.BFBReference{Name: "test"},
-					DPUFlavor:  "test-flavor",
+					DPUFlavor:  ptr.To("test-flavor"),
 					NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 				},
 			},

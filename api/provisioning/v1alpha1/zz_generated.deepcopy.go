@@ -1914,6 +1914,16 @@ func (in *DPUTemplateSpec) DeepCopyInto(out *DPUTemplateSpec) {
 		*out = new(ClusterSpec)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.DPUFlavor != nil {
+		in, out := &in.DPUFlavor, &out.DPUFlavor
+		*out = new(string)
+		**out = **in
+	}
+	if in.DPUFlavorTemplate != nil {
+		in, out := &in.DPUFlavorTemplate, &out.DPUFlavorTemplate
+		*out = new(string)
+		**out = **in
+	}
 	if in.AstraEnabled != nil {
 		in, out := &in.AstraEnabled, &out.AstraEnabled
 		*out = new(bool)

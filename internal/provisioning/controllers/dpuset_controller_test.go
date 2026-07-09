@@ -94,7 +94,7 @@ var _ = Describe("DPUSet", func() {
 				DPUTemplate: provisioningv1.DPUTemplate{
 					Spec: provisioningv1.DPUTemplateSpec{
 						BFB:        &provisioningv1.BFBReference{Name: "test-bfb"},
-						DPUFlavor:  "test-flavor",
+						DPUFlavor:  ptr.To("test-flavor"),
 						NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 					},
 				},
@@ -938,7 +938,7 @@ var _ = Describe("DPUSet", func() {
 		It("DPUSet: should propagate DPUFlavor and SecureBoot fields to created DPUs", func() {
 			By("creating dpuset with custom dpuFlavor and SecureBoot enabled")
 			obj := createDPUSet("obj-dpuset")
-			obj.Spec.DPUTemplate.Spec.DPUFlavor = "custom-flavor"
+			obj.Spec.DPUTemplate.Spec.DPUFlavor = ptr.To("custom-flavor")
 			obj.Spec.DPUTemplate.Spec.SecureBoot = ptr.To(true)
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 			DeferCleanup(func() {
@@ -1092,7 +1092,7 @@ var _ = Describe("DPUSet", func() {
 					DPUTemplate: provisioningv1.DPUTemplate{
 						Spec: provisioningv1.DPUTemplateSpec{
 							BFB:       &provisioningv1.BFBReference{Name: "test-bfb"},
-							DPUFlavor: "test-flavor",
+							DPUFlavor: ptr.To("test-flavor"),
 							NodeEffect: provisioningv1.NodeEffect{
 								Action: provisioningv1.Action{
 									Drain: ptr.To(true),
@@ -1263,7 +1263,7 @@ var _ = Describe("DPUSet", func() {
 					DPUTemplate: provisioningv1.DPUTemplate{
 						Spec: provisioningv1.DPUTemplateSpec{
 							BFB:       &provisioningv1.BFBReference{Name: "test-bfb"},
-							DPUFlavor: "test-flavor",
+							DPUFlavor: ptr.To("test-flavor"),
 							NodeEffect: provisioningv1.NodeEffect{
 								Action: provisioningv1.Action{
 									NoEffect: ptr.To(true),
@@ -1377,7 +1377,7 @@ var _ = Describe("DPUSet", func() {
 					DPUTemplate: provisioningv1.DPUTemplate{
 						Spec: provisioningv1.DPUTemplateSpec{
 							BFB:       &provisioningv1.BFBReference{Name: "test-bfb"},
-							DPUFlavor: "test-flavor",
+							DPUFlavor: ptr.To("test-flavor"),
 							NodeEffect: provisioningv1.NodeEffect{
 								Action: provisioningv1.Action{NoEffect: ptr.To(true)},
 								UpgradePolicy: provisioningv1.UpgradePolicy{

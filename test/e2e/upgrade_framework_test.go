@@ -594,8 +594,8 @@ func rolloutDependencies(ctx context.Context, input *systemTestInput) {
 
 	By("Updating selected DPUDeployment to reference current BFB, DPUFlavor, DPUServiceTemplate and DPUServiceConfiguration")
 	original := selectedDPUDeployment.DeepCopy()
-	selectedDPUDeployment.Spec.DPUs.BFB = ptr.To(input.bfb.Name)
-	selectedDPUDeployment.Spec.DPUs.Flavor = ptr.To(input.dpuFlavor.Name)
+	selectedDPUDeployment.Spec.DPUs.BFB = &input.bfb.Name
+	selectedDPUDeployment.Spec.DPUs.Flavor = &input.dpuFlavor.Name
 	primaryServiceName := input.dpuServiceTemplate.Name
 	svc, ok := selectedDPUDeployment.Spec.Services[primaryServiceName]
 	Expect(ok).To(BeTrue(), "DPUDeployment %s should contain service %s", selectedDPUDeployment.Name, primaryServiceName)
