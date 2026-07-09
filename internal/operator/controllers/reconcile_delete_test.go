@@ -313,6 +313,49 @@ func TestMatchLabels(t *testing.T) {
 	}
 }
 
+func TestDeleteDPUNodeMaintenanceResources(t *testing.T) {
+	g := NewWithT(t)
+	scheme := runtime.NewScheme()
+	g.Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
+
+	// A DPUNodeMaintenance with the protection finalizer and a non-empty requestor plus an
+	// existing DPUNode simulates the case where the DPUNodeMaintenance controller would refuse to
+	// release the finalizer, which would otherwise block DPFOperatorConfig teardown indefinitely.
+	blocked := &provisioningv1.DPUNodeMaintenance{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "blocked",
+			Namespace:  "test-ns",
+			Finalizers: []string{provisioningv1.DPUNodeMaintenanceFinalizer},
+		},
+		Spec: provisioningv1.DPUNodeMaintenanceSpec{
+			DPUNodeName: "node-1",
+			Requestor:   []string{"some-dpu"},
+		},
+	}
+	// A DPUNodeMaintenance without the protection finalizer should be deleted directly.
+	unprotected := &provisioningv1.DPUNodeMaintenance{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "unprotected",
+			Namespace: "test-ns",
+		},
+		Spec: provisioningv1.DPUNodeMaintenanceSpec{DPUNodeName: "node-2"},
+	}
+
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(blocked, unprotected).Build()
+
+	// The first pass issues the deletes and strips the protection finalizer. It reports the objects
+	// as still existing so the caller keeps requeueing, matching the deleteResources contract.
+	g.Expect(deleteDPUNodeMaintenanceResources(context.Background(), c)).NotTo(Succeed())
+
+	// After the finalizer is stripped the objects are garbage collected, so a subsequent pass finds
+	// an empty list and succeeds.
+	list := &provisioningv1.DPUNodeMaintenanceList{}
+	g.Expect(c.List(context.Background(), list)).To(Succeed())
+	g.Expect(list.Items).To(BeEmpty(), "all DPUNodeMaintenance objects should be force-deleted")
+
+	g.Expect(deleteDPUNodeMaintenanceResources(context.Background(), c)).To(Succeed())
+}
+
 func TestDPFOperatorConfigReconciler_deleteSystemComponentViaInventory(t *testing.T) {
 	const testNamespace = "test-ns"
 	testComponentName := operatorv1.ComponentName("test-component")
