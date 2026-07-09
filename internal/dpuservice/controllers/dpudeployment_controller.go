@@ -906,8 +906,8 @@ func generateDPUSet(dpuDeploymentNamespacedName types.NamespacedName,
 			DPUTemplate: provisioningv1.DPUTemplate{
 				Annotations: dpuSetSettings.DPUAnnotations,
 				Spec: provisioningv1.DPUTemplateSpec{
-					DPUFlavor:         ptr.Deref(dpuDeployment.Spec.DPUs.Flavor, ""),
-					DPUFlavorTemplate: ptr.Deref(dpuDeployment.Spec.DPUs.FlavorTemplate, ""),
+					DPUFlavor:         dpuDeployment.Spec.DPUs.Flavor,
+					DPUFlavorTemplate: dpuDeployment.Spec.DPUs.FlavorTemplate,
 					SecureBoot:        dpuDeployment.Spec.DPUs.SecureBoot,
 					AstraEnabled:      dpuDeployment.Spec.DPUs.AstraEnabled,
 				},

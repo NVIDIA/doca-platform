@@ -27,6 +27,7 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -130,7 +131,7 @@ func (r *DPUFlavor) ValidateDelete(ctx context.Context, obj runtime.Object) (adm
 	}
 	var ref []string
 	for _, ds := range dpuSetList.Items {
-		if ds.Spec.DPUTemplate.Spec.DPUFlavor == dpuFlavor.Name {
+		if ptr.Deref(ds.Spec.DPUTemplate.Spec.DPUFlavor, "") == dpuFlavor.Name {
 			ref = append(ref, ds.Name)
 		}
 	}

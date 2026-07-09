@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -39,7 +40,7 @@ import (
 // isTemplateMode reports whether the DPUSet renders a DPUFlavorTemplate per DPU
 // instead of referencing a static DPUFlavor.
 func isTemplateMode(dpuSet *provisioningv1.DPUSet) bool {
-	return dpuSet.Spec.DPUTemplate.Spec.DPUFlavorTemplate != ""
+	return dpuSet.Spec.DPUTemplate.Spec.DPUFlavorTemplate != nil
 }
 
 // isTemplateModeDPU reports whether the DPU was created from a DPUFlavorTemplate
@@ -56,7 +57,7 @@ const reasonDPUFlavorTemplateNotFound = "DPUFlavorTemplateNotFound"
 // exists in the DPUSet's namespace. A NotFound is reported as (false, nil); any other read
 // error is returned so the caller does not mistake a transient failure for a missing template.
 func (r *DPUSetReconciler) dpuFlavorTemplateExists(ctx context.Context, dpuSet *provisioningv1.DPUSet) (bool, error) {
-	name := dpuSet.Spec.DPUTemplate.Spec.DPUFlavorTemplate
+	name := ptr.Deref(dpuSet.Spec.DPUTemplate.Spec.DPUFlavorTemplate, "")
 	err := r.Get(ctx, types.NamespacedName{Namespace: dpuSet.Namespace, Name: name}, &provisioningv1.DPUFlavorTemplate{})
 	if err == nil {
 		return true, nil
@@ -84,7 +85,7 @@ func (r *DPUSetReconciler) reconcileDPUFlavorTemplateCondition(ctx context.Conte
 		conditions.AddTrue(dpuSet, provisioningv1.ConditionDPUFlavorTemplateExists)
 		return nil
 	}
-	name := dpuSet.Spec.DPUTemplate.Spec.DPUFlavorTemplate
+	name := ptr.Deref(dpuSet.Spec.DPUTemplate.Spec.DPUFlavorTemplate, "")
 	conditions.AddFalse(dpuSet, provisioningv1.ConditionDPUFlavorTemplateExists,
 		conditions.ConditionReason(reasonDPUFlavorTemplateNotFound),
 		conditions.ConditionMessage(fmt.Sprintf("DPUFlavorTemplate %q not found", name)))
@@ -158,7 +159,7 @@ func (r *DPUSetReconciler) createTemplateModeDPU(ctx context.Context, dpuSet *pr
 	dpuDevice *provisioningv1.DPUDevice, dpu *provisioningv1.DPU) error {
 	logger := log.FromContext(ctx)
 	generatedName := dpu.Name
-	templateName := dpuSet.Spec.DPUTemplate.Spec.DPUFlavorTemplate
+	templateName := ptr.Deref(dpuSet.Spec.DPUTemplate.Spec.DPUFlavorTemplate, "")
 
 	template := &provisioningv1.DPUFlavorTemplate{}
 	if err := r.Get(ctx, types.NamespacedName{Namespace: dpuSet.Namespace, Name: templateName}, template); err != nil {
@@ -243,7 +244,7 @@ func (r *DPUSetReconciler) evalTemplateDPUs(ctx context.Context, dpuSet *provisi
 func (r *DPUSetReconciler) evalTemplateDPU(ctx context.Context, dpuSet provisioningv1.DPUSet, dpu provisioningv1.DPU) templateEval {
 	logger := log.FromContext(ctx)
 
-	liveName := dpuSet.Spec.DPUTemplate.Spec.DPUFlavorTemplate
+	liveName := ptr.Deref(dpuSet.Spec.DPUTemplate.Spec.DPUFlavorTemplate, "")
 	recordedName := dpu.Labels[cutil.DPUFlavorTemplateNameLabel]
 	// A missing or unreadable template is never disruptive: hold the DPU at its last-good render
 	// until the template (re)appears. Covers both a swap toward a missing template and a deleted
@@ -429,7 +430,7 @@ func (r *DPUSetReconciler) templateToDPUSetReq(ctx context.Context, resource cli
 	}
 	requests := []reconcile.Request{}
 	for _, item := range dpuSetList.Items {
-		if item.Spec.DPUTemplate.Spec.DPUFlavorTemplate != template.Name {
+		if ptr.Deref(item.Spec.DPUTemplate.Spec.DPUFlavorTemplate, "") != template.Name {
 			continue
 		}
 		requests = append(requests, reconcile.Request{
