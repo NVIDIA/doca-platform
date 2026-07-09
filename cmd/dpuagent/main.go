@@ -21,6 +21,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"flag"
 	"fmt"
 	"os"
 	"time"
@@ -85,7 +86,17 @@ func main() {
 	pflag.BoolVar(&options.SkipRebootMethodDiscovery, "skip-reboot-method-discovery", false, "Skip MFT-based reboot method discovery")
 	pflag.BoolVar(&options.SkipNodeLabeling, "skip-node-labeling", false, "Skip reporting DPU cluster Node labels from scripts")
 	pflag.BoolVar(&options.SkipAstra, "skip-astra", false, "Skip Astra-specific behavior")
-	pflag.Parse()
+	fs := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
+	klog.InitFlags(fs)
+	pflag.VisitAll(func(f *pflag.Flag) {
+		if fs.Lookup(f.Name) != nil {
+			return
+		}
+		fs.Var(f.Value, f.Name, f.Usage)
+	})
+	if err := fs.Parse(os.Args[1:]); err != nil {
+		klog.Fatalf("failed to parse flags: %v", err)
+	}
 
 	if err := options.Validate(); err != nil {
 		klog.Errorf("failed to validate options: %v", err)
