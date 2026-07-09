@@ -35,6 +35,10 @@ const (
 	// VPC ServiceInterfaceSets (those with a virtualNetwork set).
 	// When disabled, sets fall back to the legacy ServiceInterface path.
 	NSIPathForVPC featuregate.Feature = "NSIPathForVPC"
+
+	// ConfigPortsOverHighSpeed gates the configuration of configPorts over high-speed network.
+	// Applicable only when OVN-Kubernetes is used.
+	ConfigPortsOverHighSpeed featuregate.Feature = "ConfigPortsOverHighSpeed"
 )
 
 var (
@@ -57,6 +61,7 @@ func init() {
 // To add a new feature, define a key for it above and add it here.
 var defaultDPFFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	// Every feature should be registered here:
-	NSIPathForSFC: {Default: false, PreRelease: featuregate.Alpha},
-	NSIPathForVPC: {Default: false, PreRelease: featuregate.Alpha},
+	NSIPathForSFC:            {Default: false, PreRelease: featuregate.Alpha},
+	NSIPathForVPC:            {Default: false, PreRelease: featuregate.Alpha},
+	ConfigPortsOverHighSpeed: {Default: false, PreRelease: featuregate.Alpha},
 }
