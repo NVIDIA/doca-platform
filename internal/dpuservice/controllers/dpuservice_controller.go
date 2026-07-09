@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"reflect"
 	"strconv"
 	"sync/atomic"
@@ -32,10 +33,12 @@ import (
 	"github.com/nvidia/doca-platform/internal/digest"
 	dpuservicepredicates "github.com/nvidia/doca-platform/internal/dpuservice/predicates"
 	dpuserviceutils "github.com/nvidia/doca-platform/internal/dpuservice/utils"
+	"github.com/nvidia/doca-platform/internal/features"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/utils"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
+	"github.com/nvidia/doca-platform/pkg/dpuselector"
 	argov1 "github.com/nvidia/doca-platform/third_party/forked/argoproj/argo-cd/pkg/apis/application/v1alpha1"
 	argohealth "github.com/nvidia/doca-platform/third_party/forked/argoproj/gitops-engine/pkg/health"
 
@@ -90,12 +93,14 @@ var pauseDPUServiceReconciler atomic.Bool
 // +kubebuilder:rbac:groups="",resources=configmaps;secrets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=services;endpoints,verbs=get;list;watch;create;update;patch;delete;deletecollection
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=create
+// +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices,verbs=get;list;watch;create;update;patch;delete;deletecollection
 // +kubebuilder:rbac:groups=argoproj.io,resources=appprojects;applications,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kamaji.clastix.io,resources=tenantcontrolplanes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=operator.dpu.nvidia.com,resources=dpfoperatorconfigs,verbs=get;list;watch
 // +kubebuilder:rbac:groups=operator.dpu.nvidia.com,resources=dpfoperatorconfigs/finalizers,verbs=update
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpuclusters,verbs=get;list;watch
+// +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpunodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpus,verbs=get;list;watch
 
 const (
@@ -104,6 +109,9 @@ const (
 	// TODO: These constants don't belong here and should be moved as they're shared with other packages.
 	networkAnnotationKey          = "k8s.v1.cni.cncf.io/networks"
 	annotationKeyAppSkipReconcile = "argocd.argoproj.io/skip-reconcile"
+
+	// ovnNodeEncapIPsAnnotation is the OVN-Kubernetes node annotation holding the encap IP(s) used by OVN-Kubernetes.
+	ovnNodeEncapIPsAnnotation = "k8s.ovn.org/node-encap-ips"
 )
 
 // applyPatchOptions contains options which are passed to every `client.Apply` patch.
@@ -114,7 +122,8 @@ var applyPatchOptions = []client.PatchOption{
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *DPUServiceReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
-	c, err := ctrl.NewControllerManagedBy(mgr).
+
+	bldr := ctrl.NewControllerManagedBy(mgr).
 		For(&dpuservicev1.DPUService{}).
 		Watches(&argov1.Application{}, handler.EnqueueRequestsFromMapFunc(r.requestsForChangeByLabel)).
 		Watches(
@@ -143,9 +152,17 @@ func (r *DPUServiceReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Ma
 			&operatorv1.DPFOperatorConfig{},
 			handler.EnqueueRequestsFromMapFunc(r.dpfOperatorConfigToDPUServices),
 			builder.WithPredicates(privilegedPodEnforcementChangedPredicate()),
-		).
-		Build(r)
+		)
 
+	if features.Gates.Enabled(features.ConfigPortsOverHighSpeed) {
+		bldr.Watches(
+			&corev1.Node{},
+			handler.EnqueueRequestsFromMapFunc(r.requestsForHostNode),
+			builder.WithPredicates(nodeOVNEncapIPPredicate()),
+		)
+	}
+
+	c, err := bldr.Build(r)
 	if err != nil {
 		return err
 	}
@@ -557,7 +574,7 @@ func (r *DPUServiceReconciler) reconcile(ctx context.Context, dpuService *dpuser
 	conditions.AddTrue(dpuService, dpuservicev1.ConditionApplicationsReconciled)
 
 	// TODO: refactor this to support multi DPUCluster
-	if err = r.reconcileConfigPorts(ctx, dpuService, dpuClusterConfigs); err != nil {
+	if err = r.reconcileConfigPorts(ctx, dpuService, dpuClusterConfigs, dpfOperatorConfig.GetNamespace()); err != nil {
 		message := fmt.Sprintf("Unable to reconcile Config Ports: %v", err)
 		conditions.AddFalse(
 			dpuService,
@@ -1025,7 +1042,12 @@ func (r *DPUServiceReconciler) skipApplicationReconcile(ctx context.Context, dpf
 	return nil
 }
 
-func (r *DPUServiceReconciler) reconcileConfigPorts(ctx context.Context, dpuService *dpuservicev1.DPUService, dpuClusterConfigs []*dpucluster.Config) (reterr error) {
+func (r *DPUServiceReconciler) reconcileConfigPorts(
+	ctx context.Context,
+	dpuService *dpuservicev1.DPUService,
+	dpuClusterConfigs []*dpucluster.Config,
+	dpfOperatorConfigNamespace string,
+) (reterr error) {
 	// If there are no ConfigPorts, we can cleanup the ConfigPorts completely.
 	if dpuService.Spec.ConfigPorts == nil || len(dpuClusterConfigs) == 0 {
 		if err := r.cleanupAllConfigPorts(ctx, dpuService); err != nil {
@@ -1060,7 +1082,7 @@ func (r *DPUServiceReconciler) reconcileConfigPorts(ctx context.Context, dpuServ
 			errs = append(errs, fmt.Errorf("config ports not ready yet for cluster %q: %w", dpuClusterConfig.Cluster.Name, err))
 			continue
 		}
-		if err := r.reconcileConfigPortEndpointSlices(ctx, dpuClusterConfig, dpuService, dpuNodePorts); err != nil {
+		if err := r.reconcileConfigPortEndpointSlices(ctx, dpuClusterConfig, dpuService, dpuNodePorts, dpfOperatorConfigNamespace); err != nil {
 			errs = append(errs, fmt.Errorf("reconcile endpoint slices for cluster %q: %w", dpuClusterConfig.Cluster.Name, err))
 			continue
 		}
@@ -1102,7 +1124,74 @@ func (r *DPUServiceReconciler) cleanupAllConfigPorts(ctx context.Context, dpuSer
 	return nil
 }
 
-func (r *DPUServiceReconciler) reconcileConfigPortEndpointSlices(ctx context.Context, dpuClusterConfig *dpucluster.Config, dpuService *dpuservicev1.DPUService, dpuNodePorts map[string]int32) error {
+// ovnEncapIPFromNode returns the first valid IPv4 address from the OVN-Kubernetes node-encap-ips
+// annotation on a main-cluster Node. Returns ("", false) when the annotation is absent,
+// (ip, true) when the annotation is present and valid, ("", true) when the annotation is present but invalid.
+func ovnEncapIPFromNode(ctx context.Context, node *corev1.Node) (string, bool) {
+	log := ctrllog.FromContext(ctx)
+
+	value, ok := node.Annotations[ovnNodeEncapIPsAnnotation]
+	if !ok {
+		return "", false
+	}
+
+	var ips []string
+	if err := json.Unmarshal([]byte(value), &ips); err != nil {
+		log.Info("Invalid OVN node encap IPs annotation",
+			"Node", klog.KObj(node),
+			"annotation", ovnNodeEncapIPsAnnotation,
+			"value", value,
+			"error", err,
+		)
+		return "", true
+	}
+
+	for _, ip := range ips {
+		if parsed := net.ParseIP(ip); parsed != nil && parsed.To4() != nil {
+			return ip, true
+		}
+	}
+
+	log.Info("Invalid OVN node encap IPs annotation",
+		"Node", klog.KObj(node),
+		"annotation", ovnNodeEncapIPsAnnotation,
+		"value", value,
+	)
+	return "", true
+}
+
+func nodeInternalIP(node *corev1.Node) string {
+	var address string
+	for _, a := range node.Status.Addresses {
+		if a.Type == corev1.NodeInternalIP {
+			address = a.Address
+		}
+	}
+	return address
+}
+
+// nodeEndpointAddress returns the IP address to use for a config port EndpointSlice endpoint
+// for the given DPU-cluster and host cluster nodes. It prefers the OVN-Kubernetes node-encap-ips annotation
+// on the host cluster Node when present, otherwise falls back to
+// the DPU-cluster node's NodeInternalIP.
+func nodeEndpointAddress(ctx context.Context, dpuClusterNode *corev1.Node, hostClusterNode *corev1.Node) string {
+	if features.Gates.Enabled(features.ConfigPortsOverHighSpeed) && hostClusterNode != nil {
+		if ip, hasAnnotation := ovnEncapIPFromNode(ctx, hostClusterNode); hasAnnotation {
+			// NOTE: if annotation is present, we always use it (even if it ends up being invalid).
+			return ip
+		}
+	}
+
+	return nodeInternalIP(dpuClusterNode)
+}
+
+func (r *DPUServiceReconciler) reconcileConfigPortEndpointSlices(
+	ctx context.Context,
+	dpuClusterConfig *dpucluster.Config,
+	dpuService *dpuservicev1.DPUService,
+	dpuNodePorts map[string]int32,
+	dpfOperatorConfigNamespace string,
+) error {
 	log := ctrllog.FromContext(ctx)
 	// First build the EndpointPorts. If there are no ports to expose, return early.
 	endpointPorts := []discoveryv1.EndpointPort{}
@@ -1153,28 +1242,33 @@ func (r *DPUServiceReconciler) reconcileConfigPortEndpointSlices(ctx context.Con
 
 	endpoints := []discoveryv1.Endpoint{}
 	for _, dpuClusterNode := range dpuClusterNodes {
-		var address string
-		for _, a := range dpuClusterNode.Status.Addresses {
-			switch a.Type {
-			case corev1.NodeInternalIP:
-				address = a.Address
+		dpuNodeRef, ok := extractDPUNodeFromNodeLabels(&dpuClusterNode, dpfOperatorConfigNamespace)
+		if !ok {
+			log.Error(fmt.Errorf("DPUNode reference to which the node %s in the DPUCluster belongs to not found", dpuClusterNode.Name), "Failed to get DPUNode reference for node in DPUCluster")
+			continue
+		}
+
+		// Get DPUNode from host cluster
+		dpuNode := &provisioningv1.DPUNode{}
+		if err := r.Client.Get(ctx, dpuNodeRef, dpuNode); err != nil {
+			return fmt.Errorf("failed to get DPUNode %s. %w", dpuNodeRef.String(), err)
+		}
+
+		// Get k8s Node for the retrieved DPUNode from host cluster
+		var hostClusterNode *corev1.Node
+		if dpuNode.Status.KubeNodeRef != nil {
+			hostClusterNode = &corev1.Node{}
+			if err := r.Client.Get(ctx, client.ObjectKey{Name: *dpuNode.Status.KubeNodeRef}, hostClusterNode); err != nil {
+				return fmt.Errorf("failed to get k8s Node %s. %w", *dpuNode.Status.KubeNodeRef, err)
 			}
 		}
-		dpuNodeName, exists := dpuClusterNode.Labels[provisioningv1.DPUNodeNameLabel]
-		if !exists {
-			// Fall back to deprecated HostNameDPULabel for backward compatibility
-			dpuNodeName, exists = dpuClusterNode.Labels[util.HostNameDPULabelKey]
-			if !exists {
-				log.Error(fmt.Errorf("DPUNode reference to which the node %s in the DPUCluster belongs to not found", dpuClusterNode.Name), "Failed to get DPUNode reference for node in DPUCluster")
-				continue
-			}
-		}
-		// We need all information to create a valid Endpoint.
-		if address == "" || dpuNodeName == "" {
-			log.Info("Skipping Node because it has no address or dpuNodeName",
+
+		address := nodeEndpointAddress(ctx, &dpuClusterNode, hostClusterNode)
+		if address == "" {
+			log.Info("Skipping Node because it has no address",
 				"Node", klog.KObj(&dpuClusterNode),
 				"address", address,
-				"dpuNodeName", dpuNodeName,
+				"dpuNodeName", dpuNode.Name,
 			)
 			continue
 		}
@@ -1184,7 +1278,7 @@ func (r *DPUServiceReconciler) reconcileConfigPortEndpointSlices(ctx context.Con
 			Conditions: discoveryv1.EndpointConditions{
 				Ready: ptr.To(true),
 			},
-			NodeName: &dpuNodeName,
+			NodeName: &dpuNode.Name,
 		})
 	}
 
@@ -1823,6 +1917,122 @@ func (r *DPUServiceReconciler) unpauseApplication(ctx context.Context, app *argo
 	return nil
 }
 
+func nodeOVNEncapIPPredicate() predicate.Funcs {
+	return predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			return e.Object.GetAnnotations()[ovnNodeEncapIPsAnnotation] != ""
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldAnno := e.ObjectOld.GetAnnotations()
+			newAnno := e.ObjectNew.GetAnnotations()
+			return oldAnno[ovnNodeEncapIPsAnnotation] != newAnno[ovnNodeEncapIPsAnnotation]
+		},
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			return e.Object.GetAnnotations()[ovnNodeEncapIPsAnnotation] != ""
+		},
+		GenericFunc: func(e event.GenericEvent) bool {
+			return false
+		},
+	}
+}
+
+// requestsForHostNode enqueues DPUServices with config ports which target a DPU associated with the host-cluster node.
+func (r *DPUServiceReconciler) requestsForHostNode(ctx context.Context, obj client.Object) []ctrl.Request {
+	log := ctrllog.FromContext(ctx)
+	hostNode, ok := obj.(*corev1.Node)
+	if !ok {
+		log.Error(fmt.Errorf("event expected a Node but got a %T", obj), "Failed to convert object")
+		return nil
+	}
+
+	// lookup DPUNode by KubeNodeRef
+	dpuNodeList := &provisioningv1.DPUNodeList{}
+	if err := r.Client.List(ctx, dpuNodeList, client.MatchingFields{dpuNodeKubeNodeRefField: hostNode.Name}); err != nil {
+		log.Error(err, "failed to list DPUNodes for host Node change", "node", hostNode.Name)
+		return nil
+	}
+	if len(dpuNodeList.Items) == 0 {
+		return nil
+	}
+
+	if len(dpuNodeList.Items) > 1 {
+		log.Error(fmt.Errorf("multiple DPUNodes found for host Node %s", hostNode.Name), "Failed to get DPU node for host Node")
+		return nil
+	}
+
+	dpuNode := &dpuNodeList.Items[0]
+	// get dpus of the DPU node
+	selector := dpuselector.New(dpuselector.WithIndexerField{FieldName: dpuNodeNameField})
+	dpus, err := selector.ListDPUsForNode(ctx, r.Client, dpuNode)
+	if err != nil {
+		log.Error(err, "failed to list DPUs for DPU node", "dpuNode", dpuNode.Name)
+		return nil
+	}
+
+	// get matching k8s nodes in the DPU cluster
+	dpuK8sNodes := []*corev1.Node{}
+	for _, dpu := range dpus {
+		clusterKey := client.ObjectKey{Namespace: dpu.Spec.Cluster.Namespace, Name: dpu.Spec.Cluster.Name}
+		dpuClusterClient, err := r.RemoteCache.GetClient(clusterKey)
+		if err != nil {
+			log.Error(err, "failed to get DPU cluster client, skipping DPU", "cluster", clusterKey.String(), "dpu", dpu.Name)
+			continue
+		}
+
+		// DPU name is also the name of the K8s node in the DPU cluster
+		dpuK8sNode := &corev1.Node{}
+		err = dpuClusterClient.Get(ctx, client.ObjectKey{Name: dpu.Name}, dpuK8sNode)
+		if err != nil {
+			log.Error(err, "failed to get K8s node for DPU", "cluster", clusterKey.String(), "dpu", dpu.Name)
+			continue
+		}
+
+		dpuK8sNodes = append(dpuK8sNodes, dpuK8sNode)
+	}
+
+	if len(dpuK8sNodes) == 0 {
+		return nil
+	}
+
+	// list all DPUServices with config ports
+	dpuServiceList := &dpuservicev1.DPUServiceList{}
+	if err := r.Client.List(ctx, dpuServiceList, client.MatchingFields{dpuServiceConfigPortsField: "true"}); err != nil {
+		log.Error(err, "failed to list DPUServices for host Node change", "node", hostNode.Name)
+		return nil
+	}
+
+	// enqueue requests for services which target the DPUs associated with the host-cluster node
+	var requests []reconcile.Request
+	for _, dpuService := range dpuServiceList.Items {
+		var nodeSelector *corev1.NodeSelector
+		if dpuService.Spec.ServiceDaemonSet != nil && dpuService.Spec.ServiceDaemonSet.NodeSelector != nil {
+			nodeSelector = dpuService.Spec.ServiceDaemonSet.NodeSelector
+		}
+
+		for _, dpuK8sNode := range dpuK8sNodes {
+			matches, err := nodeMatchesNodeSelector(dpuK8sNode, nodeSelector)
+			if err != nil {
+				log.Error(err, "failed to match DPU K8s Node against NodeSelector",
+					"Node", dpuK8sNode.Name,
+					"DPUService", client.ObjectKeyFromObject(&dpuService).String(),
+					"NodeSelector", nodeSelector)
+				continue
+			}
+
+			if matches {
+				log.V(3).Info("DPU K8s Node matches DPUService NodeSelector, triggering reconciliation",
+					"Node", dpuK8sNode.Name,
+					"DPUService", client.ObjectKeyFromObject(&dpuService).String())
+				requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&dpuService)})
+				// continue to the next DPUService
+				break
+			}
+		}
+	}
+
+	return requests
+}
+
 // WatchNodes sets up a watcher for corev1.Node objects in the DPU clusters.
 func (r *DPUServiceReconciler) WatchNodes(_ context.Context, _ client.Client, _ client.ObjectKey) (dpucluster.Watcher, error) {
 	return dpucluster.NewWatcher(dpucluster.WatcherOptions{
@@ -1873,7 +2083,7 @@ func nodeAddressPredicate() predicate.Funcs {
 			oldAddresses := oldNode.Status.Addresses
 			newAddresses := newNode.Status.Addresses
 
-			// Only trigger if the addresses have changed
+			// trigger if the internal addresses have changed
 			if !equality.Semantic.DeepEqual(oldAddresses, newAddresses) {
 				return true
 			}

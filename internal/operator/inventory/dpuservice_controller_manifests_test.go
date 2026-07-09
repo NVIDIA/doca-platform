@@ -23,6 +23,7 @@ import (
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/argocd"
+	"github.com/nvidia/doca-platform/internal/features"
 	"github.com/nvidia/doca-platform/internal/release"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 	argov1 "github.com/nvidia/doca-platform/third_party/forked/argoproj/argo-cd/pkg/apis/application/v1alpha1"
@@ -38,6 +39,7 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+	featuregatetesting "k8s.io/component-base/featuregate/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
@@ -112,6 +114,30 @@ func TestDPUServiceControllerManifestSetFlag(t *testing.T) {
 
 		deployment = getDeploymentFromGeneratedObjs(g, generatedObjs)
 		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--disable-dpu-ready-taints=true"))
+	})
+
+	t.Run("test propagating feature gates to DPUService controller - disabled gate", func(t *testing.T) {
+		featuregatetesting.SetFeatureGateDuringTest(t, features.MutableGates, features.ConfigPortsOverHighSpeed, false)
+		vars := newDefaultVariables(defaults)
+
+		generatedObjs, err := dpuserviceCtrl.GenerateManifests(context.Background(), vars)
+		g.Expect(err).NotTo(HaveOccurred())
+
+		deployment := getDeploymentFromGeneratedObjs(g, generatedObjs)
+		g.Expect(deployment).NotTo(BeNil())
+		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement(ContainSubstring("--feature-gates=ConfigPortsOverHighSpeed=false")))
+	})
+
+	t.Run("test propagating feature gates to DPUService controller - enabled gate", func(t *testing.T) {
+		featuregatetesting.SetFeatureGateDuringTest(t, features.MutableGates, features.ConfigPortsOverHighSpeed, true)
+		vars := newDefaultVariables(defaults)
+
+		generatedObjs, err := dpuserviceCtrl.GenerateManifests(context.Background(), vars)
+		g.Expect(err).NotTo(HaveOccurred())
+
+		deployment := getDeploymentFromGeneratedObjs(g, generatedObjs)
+		g.Expect(deployment).NotTo(BeNil())
+		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement(ContainSubstring("--feature-gates=ConfigPortsOverHighSpeed=true")))
 	})
 }
 
