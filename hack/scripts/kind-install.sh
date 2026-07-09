@@ -169,3 +169,10 @@ kubectl delete ns local-path-storage || true
 kubectl delete sc standard || true
 
 echo "Kind cluster '${CLUSTER_NAME}' setup complete."
+
+echo "Prepull DPF image. This is just a workaround"
+: ${REGISTRY?:env not set}
+: ${TAG?:env not set}
+docker pull "$REGISTRY/dpf-system:$TAG"
+docker pull "$REGISTRY/bfb-registry:$TAG"
+$KIND_BIN load docker-image -n "$CLUSTER_NAME" "$REGISTRY/dpf-system:$TAG" "$REGISTRY/bfb-registry:$TAG"
