@@ -204,7 +204,7 @@ func (r *StaleObjectRemover) removeStalePorts(ctx context.Context) error {
 	log.V(4).Info(fmt.Sprintf("found stale ports: %s", unwantedPortsSet.UnsortedList()))
 
 	for ovsPortName := range unwantedPortsSet {
-		deleteError := r.OVS.DelPort(ctx, SFCBridge, ovsPortName)
+		deleteError := r.OVS.DelPort(ctx, SFCBridge, ovsPortName, nil)
 		if deleteError != nil {
 			return fmt.Errorf("failed to delete port: %s, with error: %w", ovsPortName, deleteError)
 		}

@@ -588,7 +588,7 @@ func waitLinkUp(ctx context.Context, api ovsutils.API, ofPortName string, retryC
 }
 
 func removeOvsPort(ctx context.Context, api ovsutils.API, bridgeName, portName string) error {
-	return deletePort(ctx, api, bridgeName, portName)
+	return api.DelPort(ctx, bridgeName, portName, &ovsutils.DelPortOpt{Owner: ovsPortOwner})
 }
 
 // CmdDel handles removing a container from the configured network.
