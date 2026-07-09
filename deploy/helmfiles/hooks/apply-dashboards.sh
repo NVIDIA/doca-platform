@@ -17,7 +17,7 @@
 set -euo pipefail
 
 NAMESPACE="${1:-dpf-operator-system}"
-DASHBOARD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/dashboards"
+DASHBOARD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../dashboards"
 
 echo "Applying Grafana dashboards from ${DASHBOARD_DIR} to namespace ${NAMESPACE}"
 
