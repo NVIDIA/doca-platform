@@ -37,17 +37,22 @@ import (
 	"github.com/mcuadros/go-version"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	ctrlbuilder "sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
 const (
@@ -56,12 +61,17 @@ const (
 	hostlessDPUNodePrefix   = "hostless-"
 	maxDPUNodeNameLength    = 48
 	labelValueTrue          = "true"
+
+	// dpuByDPUDeviceNameField indexes DPUs by spec.dpuDeviceName so the SPIFFE entry reconciler
+	// can look up the owning DPU for a DPUDevice without listing every DPU in the namespace.
+	dpuByDPUDeviceNameField = "spec.dpuDeviceName"
 )
 
 // DPUDeviceReconciler reconciles a DPUDevice object
 type DPUDeviceReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder
 }
 
 //+kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpudevices,verbs=get;list;watch;create;update;patch;delete
@@ -70,6 +80,7 @@ type DPUDeviceReconciler struct {
 //+kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpus,verbs=get;list;watch
 //+kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpunodes,verbs=get;list;watch;create;update;patch
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;patch
+//+kubebuilder:rbac:groups=spire.spiffe.io,resources=clusterstaticentries,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -100,22 +111,40 @@ func (r *DPUDeviceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 }
 
 // reconcileDelete handles cleanup when a DPUDevice is being deleted.
+//
+// Deletion is ordered: the per-DPU SPIRE ClusterStaticEntry is deregistered (and observed gone
+// from the K8s API) before the BMC credential finalizer is released, so a reflashed DPU cannot
+// race a stale identity entry.
 func (r *DPUDeviceReconciler) reconcileDelete(ctx context.Context, dpuDevice *provisioningv1.DPUDevice) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
-	if !controllerutil.ContainsFinalizer(dpuDevice, provisioningv1.BMCCredentialFinalizer) {
-		return ctrl.Result{}, nil
+	if controllerutil.ContainsFinalizer(dpuDevice, provisioningv1.SPIFFEDeregistrationFinalizer) {
+		done, err := r.deleteSPIFFEEntry(ctx, dpuDevice)
+		if err != nil {
+			log.Error(err, "Failed to deregister SPIFFE ClusterStaticEntry")
+			return ctrl.Result{}, err
+		}
+		if !done {
+			// CR still present; requeue until K8s GC removes it, then release the finalizer.
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+		}
+		patch := client.MergeFrom(dpuDevice.DeepCopy())
+		controllerutil.RemoveFinalizer(dpuDevice, provisioningv1.SPIFFEDeregistrationFinalizer)
+		if err := r.Client.Patch(ctx, dpuDevice, patch); err != nil {
+			return ctrl.Result{}, fmt.Errorf("failed to remove SPIFFEDeregistrationFinalizer from DPUDevice: %w", err)
+		}
 	}
 
-	if err := r.cleanupCredentialFinalizer(ctx, dpuDevice); err != nil {
-		log.Error(err, "Failed to clean up credential finalizer")
-		return ctrl.Result{}, err
-	}
-
-	patch := client.MergeFrom(dpuDevice.DeepCopy())
-	controllerutil.RemoveFinalizer(dpuDevice, provisioningv1.BMCCredentialFinalizer)
-	if err := r.Client.Patch(ctx, dpuDevice, patch); err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to remove BMCCredentialFinalizer from DPUDevice: %w", err)
+	if controllerutil.ContainsFinalizer(dpuDevice, provisioningv1.BMCCredentialFinalizer) {
+		if err := r.cleanupCredentialFinalizer(ctx, dpuDevice); err != nil {
+			log.Error(err, "Failed to clean up credential finalizer")
+			return ctrl.Result{}, err
+		}
+		patch := client.MergeFrom(dpuDevice.DeepCopy())
+		controllerutil.RemoveFinalizer(dpuDevice, provisioningv1.BMCCredentialFinalizer)
+		if err := r.Client.Patch(ctx, dpuDevice, patch); err != nil {
+			return ctrl.Result{}, fmt.Errorf("failed to remove BMCCredentialFinalizer from DPUDevice: %w", err)
+		}
 	}
 
 	return ctrl.Result{}, nil
@@ -148,13 +177,19 @@ func (r *DPUDeviceReconciler) reconcile(ctx context.Context, dpuDevice *provisio
 		return result, err
 	}
 
-	// 2. For GNOI case skip reconsiliation for now
 	dpfOperatorConfig, err := utils.GetDPFOperatorConfig(ctx, r.Client)
 	if err != nil {
 		log.Error(err, "Failed to get operator config")
 		return ctrl.Result{}, err
 	}
 
+	// Reconcile the per-DPU SPIRE ClusterStaticEntry for SPIFFE-mode DPUs. No-op otherwise.
+	if err := r.reconcileSPIFFEEntry(ctx, dpuDevice, dpfOperatorConfig); err != nil {
+		log.Error(err, "Failed to reconcile SPIFFE ClusterStaticEntry")
+		return ctrl.Result{}, err
+	}
+
+	// 2. For GNOI case skip reconsiliation for now
 	dpuInstallInterface := dpfOperatorConfig.Spec.ProvisioningController.InstallInterface
 
 	//nolint:staticcheck // SA1019: InstallViaGNOI is deprecated but still supported for backward compatibility
@@ -909,7 +944,13 @@ func (r *DPUDeviceReconciler) cleanupCredentialFinalizer(ctx context.Context, dp
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *DPUDeviceReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
+	// Index DPUs by spec.dpuDeviceName so findOwningSpiffeDPU resolves the owning DPU with a
+	// scoped lookup instead of listing all DPUs in the namespace on every DPUDevice reconcile.
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &provisioningv1.DPU{}, dpuByDPUDeviceNameField, indexDPUByDPUDeviceName); err != nil {
+		return fmt.Errorf("indexing DPU by %s: %w", dpuByDPUDeviceNameField, err)
+	}
+
+	builder := ctrl.NewControllerManagedBy(mgr).
 		For(&provisioningv1.DPUDevice{}).
 		Watches(&provisioningv1.DPUNode{}, handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []ctrl.Request {
 			dpuNode := obj.(*provisioningv1.DPUNode)
@@ -924,7 +965,95 @@ func (r *DPUDeviceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			}
 			return requests
 		})).
-		Complete(r)
+		// A DPU becoming SPIFFE-stamped must trigger its DPUDevice so the ClusterStaticEntry is
+		// created promptly (the DPUDevice controller does not otherwise watch DPUs).
+		Watches(&provisioningv1.DPU{},
+			handler.EnqueueRequestsFromMapFunc(mapDPUToDPUDevice),
+			ctrlbuilder.WithPredicates(dpuSpiffeIdentityPredicate()))
+
+	// ClusterStaticEntry is an optional upstream CRD, present only on SPIFFE-enabled clusters.
+	// Registering a watch for a CRD that is not installed fails informer cache startup, which
+	// would break DPUDevice reconciliation on every non-SPIFFE install. Gate the watch on CRD
+	// presence; a cluster that installs the CRD later picks up the watch on the next controller
+	// restart (the operator installs the CRD before SPIFFE is enabled).
+	switch _, err := mgr.GetRESTMapper().RESTMapping(clusterStaticEntryGVK.GroupKind(), clusterStaticEntryGVK.Version); {
+	case err == nil:
+		clusterStaticEntry := &unstructured.Unstructured{}
+		clusterStaticEntry.SetGroupVersionKind(clusterStaticEntryGVK)
+		// Upstream spire-controller-manager owns ClusterStaticEntry status; watch it to re-mirror
+		// into the SPIFFEEntryReady condition. Mapped back to the DPUDevice via stamped labels.
+		builder = builder.Watches(clusterStaticEntry, handler.EnqueueRequestsFromMapFunc(mapClusterStaticEntryToDPUDevice))
+	case meta.IsNoMatchError(err):
+		// The CRD is genuinely absent (non-SPIFFE cluster): skip the watch. A cluster that
+		// installs the CRD later picks it up on the next controller restart.
+		log.Log.Info("ClusterStaticEntry CRD not installed; skipping SPIFFE ClusterStaticEntry watch",
+			"gvk", clusterStaticEntryGVK.String())
+	default:
+		// Any other error (e.g. a transient discovery failure at startup) must fail setup. Treating
+		// it like an absent CRD would permanently disable SPIFFE reconciliation for this
+		// controller's lifetime; failing setup lets the manager restart and retry discovery.
+		return fmt.Errorf("checking ClusterStaticEntry CRD availability: %w", err)
+	}
+
+	return builder.Complete(r)
+}
+
+// indexDPUByDPUDeviceName extracts the spec.dpuDeviceName index value for a DPU.
+func indexDPUByDPUDeviceName(obj client.Object) []string {
+	dpu := obj.(*provisioningv1.DPU)
+	if dpu.Spec.DPUDeviceName == "" {
+		return nil
+	}
+	return []string{dpu.Spec.DPUDeviceName}
+}
+
+func dpuSpiffeIdentityPredicate() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			dpu, ok := dpuFromObject(e.Object)
+			return ok && cutil.IsSpiffeDPU(dpu)
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldDPU, ok := dpuFromObject(e.ObjectOld)
+			if !ok {
+				return false
+			}
+			newDPU, ok := dpuFromObject(e.ObjectNew)
+			return ok && cutil.IsSpiffeDPU(newDPU) && !cutil.IsSpiffeDPU(oldDPU)
+		},
+		DeleteFunc:  func(event.DeleteEvent) bool { return false },
+		GenericFunc: func(event.GenericEvent) bool { return false },
+	}
+}
+
+func dpuFromObject(obj client.Object) (*provisioningv1.DPU, bool) {
+	dpu, ok := obj.(*provisioningv1.DPU)
+	return dpu, ok && dpu != nil
+}
+
+// mapDPUToDPUDevice maps an accepted DPU watch event to the bound DPUDevice; the watch predicate
+// owns SPIFFE relevance filtering.
+func mapDPUToDPUDevice(_ context.Context, obj client.Object) []ctrl.Request {
+	dpu, ok := dpuFromObject(obj)
+	if !ok {
+		return nil
+	}
+	return []ctrl.Request{{NamespacedName: types.NamespacedName{
+		Name:      dpu.Spec.DPUDeviceName,
+		Namespace: dpu.Namespace,
+	}}}
+}
+
+// mapClusterStaticEntryToDPUDevice maps a ClusterStaticEntry watch event back to its owning
+// DPUDevice using the labels stamped at creation time.
+func mapClusterStaticEntryToDPUDevice(ctx context.Context, obj client.Object) []ctrl.Request {
+	labels := obj.GetLabels()
+	name := labels[LabelDPUDeviceName]
+	namespace := labels[LabelDPUDeviceNamespace]
+	if name == "" || namespace == "" {
+		return nil
+	}
+	return []ctrl.Request{{NamespacedName: types.NamespacedName{Name: name, Namespace: namespace}}}
 }
 
 // checkAndUpdateBmcFw checks BMC firmware version and updates it when below the minimum.

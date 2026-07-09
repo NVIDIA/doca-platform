@@ -26,6 +26,9 @@ import (
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/pkg/bfcfg"
+
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 type DefaultDPUArtifactGenerator struct {
@@ -56,11 +59,25 @@ func (g *DefaultDPUArtifactGenerator) GenerateBF4(ctx context.Context, req dutil
 	}, nil
 }
 
+// trustBundleConfigMapKey is the ConfigMap data key holding the SPIRE trust bundle PEM
+// (upstream BundlePublisher k8sconfigmap convention).
+const trustBundleConfigMapKey = "bundle.pem"
+
 func (g *DefaultDPUArtifactGenerator) resolveParamsWithBootstrapKubeconfig(ctx context.Context, req dutil.DPUArtifactRequest) (cloudinit.Params, operatorv1.DPFOperatorConfig, error) {
 	params, dpfOperatorConfig, err := cloudinit.ResolveParams(ctx, req.ControllerContext, req.DPU, req.Flavor)
 	if err != nil {
 		return cloudinit.Params{}, operatorv1.DPFOperatorConfig{}, err
 	}
+
+	// SPIFFE-mode DPUs authenticate with a SPIRE-issued JWT-SVID, not a bootstrap token,
+	// so they get the trust bundle instead of a bootstrap kubeconfig.
+	if cutil.IsSpiffeDPU(req.DPU) {
+		if err := g.applySpiffeParams(ctx, req, &dpfOperatorConfig, &params); err != nil {
+			return cloudinit.Params{}, operatorv1.DPFOperatorConfig{}, err
+		}
+		return params, dpfOperatorConfig, nil
+	}
+
 	apiServerAddress, proxyURL, err := cutil.ResolveAPIServerAddress(dpfOperatorConfig.Spec.Overrides, params.RedfishInterface)
 	if err != nil {
 		return cloudinit.Params{}, operatorv1.DPFOperatorConfig{}, fmt.Errorf("resolving API server address: %w", err)
@@ -75,6 +92,26 @@ func (g *DefaultDPUArtifactGenerator) resolveParamsWithBootstrapKubeconfig(ctx c
 	}
 	params.BootstrapKubeconfig = string(kubeconfigData)
 	return params, dpfOperatorConfig, nil
+}
+
+// applySpiffeParams reads the SPIRE trust bundle from the operator-referenced ConfigMap and
+// sets it as the render param for a SPIFFE-mode DPU. It deliberately leaves BootstrapKubeconfig
+// empty so the cloud-init render omits the bootstrap token kubeconfig.
+func (g *DefaultDPUArtifactGenerator) applySpiffeParams(ctx context.Context, req dutil.DPUArtifactRequest, cfg *operatorv1.DPFOperatorConfig, params *cloudinit.Params) error {
+	if !cutil.SpiffeEnabled(cfg) {
+		return fmt.Errorf("DPU %s is SPIFFE-mode but cluster spec.security.spiffe is unset", req.DPU.Name)
+	}
+	ref := cfg.Spec.Security.SPIFFE.TrustBundle
+	cm := &corev1.ConfigMap{}
+	if err := req.ControllerContext.Get(ctx, types.NamespacedName{Name: ref.Name, Namespace: ref.Namespace}, cm); err != nil {
+		return fmt.Errorf("getting SPIRE trust bundle ConfigMap %s/%s: %w", ref.Namespace, ref.Name, err)
+	}
+	bundle, ok := cm.Data[trustBundleConfigMapKey]
+	if !ok || bundle == "" {
+		return fmt.Errorf("SPIRE trust bundle ConfigMap %s/%s missing non-empty %q key", ref.Namespace, ref.Name, trustBundleConfigMapKey)
+	}
+	params.SPIRETrustBundle = bundle
+	return nil
 }
 
 func (g *DefaultDPUArtifactGenerator) serviceAccountCAPath() string {

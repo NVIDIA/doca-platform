@@ -25,10 +25,12 @@ import (
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/release"
+	dpfutils "github.com/nvidia/doca-platform/internal/utils"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -162,6 +164,23 @@ func Initializing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 		err := fmt.Errorf("DPUCluster %s/%s is being deleted", obj.Namespace, obj.Name)
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondInitialized.String(), err, "DPUClusterDeleting", err.Error()))
 		return *state, err
+	}
+
+	// Stamp the DPU Agent identity mode exactly once, before advancing to Pending.
+	// The mode is derived from the cluster DPFOperatorConfig and is immutable thereafter.
+	if state.IdentityMode == nil {
+		cfg, err := dpfutils.GetDPFOperatorConfig(ctx, ctrlCtx.Client)
+		if err != nil {
+			err = fmt.Errorf("reading DPFOperatorConfig to stamp identity mode: %w", err)
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondInitialized.String(), err, "IdentityModeStampDeferred", err.Error()))
+			return *state, err
+		}
+		mode := provisioningv1.IdentityModeBootstrapToken
+		if cutil.SpiffeEnabled(cfg) {
+			mode = provisioningv1.IdentityModeSpiffe
+		}
+		state.IdentityMode = ptr.To(mode)
+		logger.V(2).Info("stamped DPU identity mode", "identityMode", mode)
 	}
 
 	state.Phase = provisioningv1.DPUPending

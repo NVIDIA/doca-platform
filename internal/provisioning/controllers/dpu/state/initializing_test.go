@@ -20,7 +20,9 @@ import (
 	"context"
 	"fmt"
 
+	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	operatorcontroller "github.com/nvidia/doca-platform/internal/operator/controllers"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/allocator"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
@@ -28,6 +30,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -43,7 +46,67 @@ var _ = Describe("Phase Initializing", func() {
 		strTrue               = "true"
 	)
 
+	// deleteAllDPFOperatorConfigs removes every DPFOperatorConfig so a test can establish
+	// an exact precondition (zero or one). GetDPFOperatorConfig requires exactly one config
+	// cluster-wide, and other specs leave a persistent singleton, so the identity-mode stamp
+	// tests reset this shared state explicitly to stay deterministic regardless of spec order.
+	deleteAllDPFOperatorConfigs := func() {
+		list := &operatorv1.DPFOperatorConfigList{}
+		Expect(k8sClient.List(ctx, list)).To(Succeed())
+		for i := range list.Items {
+			Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, &list.Items[i]))).To(Succeed())
+		}
+	}
+
+	// ensureSingleDPFOperatorConfig deletes any existing configs and creates exactly one in
+	// the singleton namespace, optionally enabling SPIFFE. The DPU identity-mode stamp reads
+	// this config to decide between bootstrap-token and spiffe.
+	ensureSingleDPFOperatorConfig := func(spiffe bool) {
+		deleteAllDPFOperatorConfigs()
+		ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace}}
+		Expect(client.IgnoreAlreadyExists(k8sClient.Create(ctx, ns))).To(Succeed())
+		// SPIFFE is only valid with deploymentMode=zero-trust (enforced by a CRD CEL rule).
+		deploymentMode := operatorv1.DeploymentModeHostTrusted
+		if spiffe {
+			deploymentMode = operatorv1.DeploymentModeZeroTrust
+		}
+		cfg := &operatorv1.DPFOperatorConfig{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      operatorcontroller.DefaultDPFOperatorConfigSingletonName,
+				Namespace: operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace,
+			},
+			Spec: operatorv1.DPFOperatorConfigSpec{
+				DeploymentMode: deploymentMode,
+				ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
+					BFBPersistentVolumeClaimName: ptr.To("bfb-pvc"),
+				},
+			},
+		}
+		if spiffe {
+			// zero-trust requires the Redfish install interface (CRD CEL rule).
+			cfg.Spec.ProvisioningController.InstallInterface = &operatorv1.ProvisioningInstallInterface{
+				InstallViaRedfish: &operatorv1.InstallViaRedfish{},
+			}
+			cfg.Spec.Security = &operatorv1.SecurityConfiguration{
+				SPIFFE: &operatorv1.SPIFFEConfiguration{
+					SPIREServerAddress: "spire-server.spire-system.svc:8081",
+					SPIRETrustDomain:   "cs.internal",
+					KubeAPIAudience:    "spire-dpu",
+					SPIREOIDCURL:       "https://spire-oidc.spire-system.svc",
+					TrustBundle: operatorv1.SPIFFETrustBundleConfigMapReference{
+						Name:      "spire-bundle",
+						Namespace: "spire-system",
+					},
+				},
+			}
+		}
+		Expect(client.IgnoreAlreadyExists(k8sClient.Create(ctx, cfg))).To(Succeed())
+	}
+
 	Context("successful cases", func() {
+		BeforeEach(func() {
+			ensureSingleDPFOperatorConfig(false)
+		})
 		It("should transition to the next phase", func() {
 			By("prepare DPUDevice CR")
 			dpuDevice := dpuDeviceObj(defaultDPUDeviceName)
@@ -199,6 +262,105 @@ var _ = Describe("Phase Initializing", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(status.Hostless).To(BeTrue())
 			Expect(status.Phase).To(Equal(provisioningv1.DPUPending))
+		})
+	})
+
+	Context("identity mode stamp", func() {
+		// newReadyDPU builds the DPUDevice/DPUNode/DPUCluster/DPU set required to reach the
+		// identity-mode stamp (the last step before transitioning to Pending) and returns the
+		// DPU plus the ControllerContext to run Initializing with.
+		newReadyDPU := func() (*provisioningv1.DPU, *dutil.ControllerContext) {
+			dpuDevice := dpuDeviceObj(defaultDPUDeviceName)
+			createObject(dpuDevice)
+
+			dpuNode := dpuNodeObj(defaultDPUNodeName)
+			dpuNode.Finalizers = []string{provisioningv1.DPUNodeFinalizer}
+			dpuNode.Labels[cutil.NodeFeatureDiscoveryLabelPrefix+cutil.DPUOOBBridgeConfiguredLabel] = strTrue
+			dpuNode.Spec.DPUs = []provisioningv1.DPURef{{Name: dpuDevice.Name}}
+			createObject(dpuNode)
+			patchNode := client.MergeFrom(dpuNode.DeepCopy())
+			dpuNode.Status = provisioningv1.DPUNodeStatus{
+				DPUInstallInterface: ptr.To(string(provisioningv1.InstallViaHostAgent)),
+				Conditions: []metav1.Condition{{
+					Type:               string(provisioningv1.DPUNodeConditionBridgeConfigured),
+					Status:             metav1.ConditionTrue,
+					Reason:             "BridgeConfigured",
+					Message:            "Bridge configured",
+					LastTransitionTime: metav1.Now(),
+				}},
+			}
+			Expect(k8sClient.Status().Patch(ctx, dpuNode, patchNode)).To(Succeed())
+
+			dpuCluster := dpuClusterObj(defaultDPUClusterName, "static")
+			createObject(dpuCluster)
+
+			dpu := dpuObj(defaultDPUName)
+			dpu.Spec.PCIAddress = ptr.To("0000-00-00")
+			dpu.Spec.DPUNodeName = dpuNode.Name
+			dpu.Spec.DPUDeviceName = dpuDevice.Name
+			dpu.Spec.Cluster.Namespace = dpuCluster.Namespace
+			dpu.Spec.Cluster.Name = dpuCluster.Name
+			dpu.Status.Phase = provisioningv1.DPUInitializing
+			dpu.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaHostAgent))
+
+			ctrlCtx := &dutil.ControllerContext{
+				Client:  k8sClient,
+				Options: dutil.DPUOptions{DPUInstallInterface: string(provisioningv1.InstallViaHostAgent)},
+			}
+			return dpu, ctrlCtx
+		}
+
+		It("stamps bootstrap-token when SPIFFE is disabled", func() {
+			ensureSingleDPFOperatorConfig(false)
+			dpu, ctrlCtx := newReadyDPU()
+
+			status, err := state.Initializing(ctx, dpu, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUPending))
+			Expect(status.IdentityMode).NotTo(BeNil())
+			Expect(*status.IdentityMode).To(Equal(provisioningv1.IdentityModeBootstrapToken))
+		})
+
+		It("stamps spiffe when SPIFFE is enabled", func() {
+			ensureSingleDPFOperatorConfig(true)
+			dpu, ctrlCtx := newReadyDPU()
+
+			status, err := state.Initializing(ctx, dpu, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUPending))
+			Expect(status.IdentityMode).NotTo(BeNil())
+			Expect(*status.IdentityMode).To(Equal(provisioningv1.IdentityModeSpiffe))
+		})
+
+		It("requeues without stamping or advancing when no DPFOperatorConfig exists", func() {
+			deleteAllDPFOperatorConfigs()
+			dpu, ctrlCtx := newReadyDPU()
+
+			status, err := state.Initializing(ctx, dpu, ctrlCtx)
+			Expect(err).To(HaveOccurred())
+			Expect(status.IdentityMode).To(BeNil())
+			Expect(status.Phase).NotTo(Equal(provisioningv1.DPUPending))
+			Expect(status.Conditions).Should(ContainElements(
+				And(
+					HaveField("Type", provisioningv1.DPUCondInitialized.String()),
+					HaveField("Status", metav1.ConditionFalse),
+					HaveField("Reason", "IdentityModeStampDeferred"),
+				),
+			))
+		})
+
+		It("does not restamp a DPU that already has an identity mode", func() {
+			// Config says SPIFFE, but the DPU is already stamped bootstrap-token; the stamp is
+			// immutable, so the existing mode must be preserved (stamp-once).
+			ensureSingleDPFOperatorConfig(true)
+			dpu, ctrlCtx := newReadyDPU()
+			dpu.Status.IdentityMode = ptr.To(provisioningv1.IdentityModeBootstrapToken)
+
+			status, err := state.Initializing(ctx, dpu, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUPending))
+			Expect(status.IdentityMode).NotTo(BeNil())
+			Expect(*status.IdentityMode).To(Equal(provisioningv1.IdentityModeBootstrapToken))
 		})
 	})
 
