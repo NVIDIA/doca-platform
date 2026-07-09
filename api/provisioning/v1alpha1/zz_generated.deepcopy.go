@@ -383,6 +383,11 @@ func (in *BlueFieldSpec) DeepCopyInto(out *BlueFieldSpec) {
 		*out = new(string)
 		**out = **in
 	}
+	if in.ForceFwUpdate != nil {
+		in, out := &in.ForceFwUpdate, &out.ForceFwUpdate
+		*out = new(bool)
+		**out = **in
+	}
 	if in.PlatformPldmFwBundle != nil {
 		in, out := &in.PlatformPldmFwBundle, &out.PlatformPldmFwBundle
 		*out = new(string)

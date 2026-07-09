@@ -1599,6 +1599,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `pldmFwBundle` _string_ | PldmFwBundle points to the BluefieldPLDM firmware bundle for baseline firmware updates. |  | MinLength: 1 <br />Optional: \{\} <br /> |
+| `forceFwUpdate` _boolean_ | ForceFwUpdate points to the force firmware update flag. | false | Optional: \{\} <br /> |
 | `osIso` _string_ | OS ISO points to the OS ISO used by DPU OS installation flow. |  | MinLength: 1 <br />Required: \{\} <br /> |
 | `platformPldmFwBundle` _string_ | PlatformPldmFwBundle points to the Vera Rubin PLDM firmware bundle used for NIC firmware updates. |  | MinLength: 1 <br />Optional: \{\} <br /> |
 | `nicFw` _string_ | NicFw points to the NIC firmware binary used for E/W NIC firmware updates.<br />Use this when a specific NIC firmware binary is required and is not included in the platform PLDM firmware bundle.<br />In production, prefer using PlatformPldmFwBundle. |  | MinLength: 1 <br />Optional: \{\} <br /> |
@@ -1619,10 +1620,11 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `fwBundleVersion` _string_ |  |  |  |
 | `osISOVersion` _string_ |  |  |  |
-| `astraNicFwVersion` _string_ |  |  |  |
+| `ewNicFwVersion` _string_ |  |  |  |
 | `bmcVersion` _string_ |  |  |  |
 | `bmcErotVersion` _string_ |  |  |  |
 | `sbiosVersion` _string_ |  |  |  |
+| `bfNicFwVersion` _string_ |  |  |  |
 
 
 #### ClusterEndpointSpec
