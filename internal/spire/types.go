@@ -19,18 +19,25 @@ limitations under the License.
 // shapes of the DPU Agent's SPIFFE workload ID, its SPIRE ClusterStaticEntry name,
 // and the on-DPU SPIFFE path.
 //
-// Serial-handling contract (Decision S = reject, not filter): the builders reject
-// serials that contain characters outside their target charset rather than stripping
-// them. Stripping is a many-to-one mapping that can collapse two distinct DPU serials
-// into one identifier -- an identity collision. Since DPU.spec.serialNumber is only
-// length-validated at the API (no charset constraint), the builders fail closed: an
-// out-of-charset serial yields an error and therefore no SPIFFE identity, which the
-// DPUDevice controller surfaces as SPIFFEEntryReady=False / SerialNumberInvalid.
+// Serial-handling contract: the builders reject serials that contain characters
+// outside their target charset rather than stripping them. Stripping is a many-to-one
+// mapping that can collapse two distinct DPU serials into one identifier -- an identity
+// collision. Since DPU.spec.serialNumber is only length-validated at the API (no charset
+// constraint), the builders fail closed: an out-of-charset serial yields an error and
+// therefore no SPIFFE identity, which the DPUDevice controller surfaces as
+// SPIFFEEntryReady=False / SerialNumberInvalid.
+//
+// SPIFFE-path serial validation and trust-domain validation are delegated to the
+// identity package: identity.NormalizeSerial is the single serial policy (RFC 3986
+// unreserved charset + identity.MaxSerialLen cap) shared with the SPIRE NodeAttestor
+// plugin, and identity.ValidateTrustDomain is the single trust-domain policy.
 package spire
 
 import (
 	"fmt"
 	"strings"
+
+	"github.com/nvidia/doca-platform/internal/spire/identity"
 
 	k8svalidation "k8s.io/apimachinery/pkg/util/validation"
 )
@@ -40,26 +47,6 @@ const dpuAgentClusterStaticEntryPrefix = "dpu-agent-"
 // maxClusterStaticEntrySerialLen is the maximum serial length that yields a valid
 // Kubernetes metadata.name after prepending dpu-agent- (253 - len(prefix)).
 const maxClusterStaticEntrySerialLen = k8svalidation.DNS1123SubdomainMaxLength - len(dpuAgentClusterStaticEntryPrefix)
-
-// spiffePathSegment lowercases serial and validates that every character is a
-// member of the RFC 3986 "unreserved" set (a-z, 0-9, and "-._~"). It rejects
-// (returns an error for) an empty serial or any out-of-charset character rather
-// than filtering, to avoid collapsing distinct serials into the same SPIFFE path.
-func spiffePathSegment(serial string) (string, error) {
-	trimmed := strings.ToLower(strings.TrimSpace(serial))
-	if trimmed == "" {
-		return "", fmt.Errorf("serial is empty after trimming")
-	}
-	for _, r := range trimmed {
-		isUnreserved := (r >= 'a' && r <= 'z') ||
-			(r >= '0' && r <= '9') ||
-			r == '-' || r == '.' || r == '_' || r == '~'
-		if !isUnreserved {
-			return "", fmt.Errorf("serial %q contains character %q outside the RFC 3986 unreserved set", serial, r)
-		}
-	}
-	return trimmed, nil
-}
 
 // k8sName lowercases serial and validates that the result is a DNS-1123 subdomain
 // suitable for use as a Kubernetes metadata.name component. It rejects (returns an
@@ -74,28 +61,15 @@ func k8sName(serial string) (string, error) {
 	return trimmed, nil
 }
 
-// spireTrustDomain validates a SPIRE trust domain for interpolation into a SPIFFE ID
-// authority segment. It rejects empty/whitespace-only values and characters (such as '/'
-// or spaces) that would produce a malformed or semantically shifted SPIFFE URI.
-func spireTrustDomain(td string) (string, error) {
-	trimmed := strings.TrimSpace(td)
-	if trimmed == "" {
-		return "", fmt.Errorf("trust domain is empty after trimming")
-	}
-	if errs := k8svalidation.IsDNS1123Subdomain(trimmed); len(errs) > 0 {
-		return "", fmt.Errorf("trust domain %q is not a valid DNS-1123 subdomain: %s", td, strings.Join(errs, "; "))
-	}
-	return trimmed, nil
-}
-
 // DPUAgentSpiffePath returns the on-DPU SPIFFE path for the DPU Agent workload:
-// /dpu/<segment>/process/dpu-agent.
+// /dpu/<segment>/process/dpu-agent. The serial is validated via identity.NormalizeSerial,
+// so serials longer than identity.MaxSerialLen are rejected.
 //
 // NKE caveat: this path shape is stable pending the NKE round-trip on the
 // workload-ID layout. If the layout changes, DPUAgentSpiffePath and SpireWorkloadID
 // must change together (and their golden tests with them).
 func DPUAgentSpiffePath(serial string) (string, error) {
-	segment, err := spiffePathSegment(serial)
+	segment, err := identity.NormalizeSerial(serial)
 	if err != nil {
 		return "", fmt.Errorf("building SPIFFE path for serial %q: %w", serial, err)
 	}
@@ -104,19 +78,28 @@ func DPUAgentSpiffePath(serial string) (string, error) {
 
 // SpireWorkloadID returns the literal DPU Agent workload SPIFFE ID:
 // spiffe://<spireTd>/dpu/<segment>/process/dpu-agent. This is the value used as the
-// RBAC subject for the DPU Agent in SPIFFE identity mode.
+// RBAC subject for the DPU Agent in SPIFFE identity mode. The trust domain is validated
+// via identity.ValidateTrustDomain and the serial via identity.NormalizeSerial.
 //
 // NKE caveat: see DPUAgentSpiffePath.
 func SpireWorkloadID(spireTd, serial string) (string, error) {
-	td, err := spireTrustDomain(spireTd)
+	workloadID, _, err := SpireDPUAgentIDs(spireTd, serial)
+	return workloadID, err
+}
+
+// SpireDPUAgentIDs returns both the DPU Agent workload SPIFFE ID and its parent (agent) SPIFFE ID,
+// validating the trust domain and serial exactly once. See SpireWorkloadID for the workload-ID
+// layout and the NKE caveat.
+func SpireDPUAgentIDs(spireTd, serial string) (workloadID, parentID string, err error) {
+	td, err := identity.ValidateTrustDomain(spireTd)
 	if err != nil {
-		return "", fmt.Errorf("building SPIFFE workload ID for trust domain %q: %w", spireTd, err)
+		return "", "", fmt.Errorf("building SPIFFE IDs for trust domain %q: %w", spireTd, err)
 	}
-	segment, err := spiffePathSegment(serial)
+	segment, err := identity.NormalizeSerial(serial)
 	if err != nil {
-		return "", fmt.Errorf("building SPIFFE workload ID for serial %q: %w", serial, err)
+		return "", "", fmt.Errorf("building SPIFFE IDs for serial %q: %w", serial, err)
 	}
-	return fmt.Sprintf("spiffe://%s/dpu/%s/process/dpu-agent", td, segment), nil
+	return fmt.Sprintf("spiffe://%s/dpu/%s/process/dpu-agent", td, segment), identity.MakeAgentID(td, segment), nil
 }
 
 // DPUAgentClusterStaticEntryName returns the metadata.name for the per-DPU SPIRE

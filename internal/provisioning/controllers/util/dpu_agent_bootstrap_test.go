@@ -178,7 +178,7 @@ var _ = Describe("ZT Bootstrap", func() {
 		It("should create a role binding with correct subject and owner reference", func() {
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 
-			err := CreateDPUAgentRoleBinding(ctx, fakeClient, scheme, dpu)
+			err := CreateDPUAgentRoleBinding(ctx, fakeClient, scheme, dpu, "da-dpu-01")
 			Expect(err).NotTo(HaveOccurred())
 
 			rb := &rbacv1.RoleBinding{}
@@ -201,11 +201,30 @@ var _ = Describe("ZT Bootstrap", func() {
 			Expect(rb.OwnerReferences[0].UID).To(Equal(dpu.UID))
 		})
 
+		It("should create a role binding with a SPIFFE URI subject", func() {
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+			spiffeURI := "spiffe://example.trust.domain/ns/dpf-operator-system/dpu/serial123"
+
+			err := CreateDPUAgentRoleBinding(ctx, fakeClient, scheme, dpu, spiffeURI)
+			Expect(err).NotTo(HaveOccurred())
+
+			rb := &rbacv1.RoleBinding{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{
+				Name:      "da-dpu-01",
+				Namespace: "dpf-operator-system",
+			}, rb)).To(Succeed())
+
+			Expect(rb.Subjects).To(HaveLen(1))
+			Expect(rb.Subjects[0].Kind).To(Equal(rbacv1.UserKind))
+			Expect(rb.Subjects[0].Name).To(Equal(spiffeURI))
+			Expect(rb.Subjects[0].APIGroup).To(Equal(rbacv1.GroupName))
+		})
+
 		It("should not fail when role binding already exists", func() {
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 
-			Expect(CreateDPUAgentRoleBinding(ctx, fakeClient, scheme, dpu)).To(Succeed())
-			Expect(CreateDPUAgentRoleBinding(ctx, fakeClient, scheme, dpu)).To(Succeed())
+			Expect(CreateDPUAgentRoleBinding(ctx, fakeClient, scheme, dpu, "da-dpu-01")).To(Succeed())
+			Expect(CreateDPUAgentRoleBinding(ctx, fakeClient, scheme, dpu, "da-dpu-01")).To(Succeed())
 		})
 	})
 

@@ -240,3 +240,15 @@ rules:
   - delete
   - get
   - list
+- apiGroups:
+  - spire.spiffe.io
+  resources:
+  - clusterstaticentries
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch

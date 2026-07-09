@@ -64,20 +64,24 @@ type Params struct {
 	KubeadmSecretName      string
 	KubeadmSecretNamespace string
 	BootstrapKubeconfig    string
-	ControlPlaneMTU        int
-	DPUName                string
-	DPUNamespace           string
-	DPUUID                 string
-	DPUAgentRepoURL        string
-	DPUFlavorYAML          string
-	UbuntuPassword         string
-	ConfigFiles            []WriteFile
-	OVSRawScript           string
-	OOBNetwork             bool
-	RedfishInterface       bool
-	BFBRegistryURL         string
-	AstraEnabled           bool
-	NICDeviceCount         int
+	// SPIRETrustBundle, when non-empty, is the SPIRE trust bundle PEM emitted to
+	// /etc/spire/agent/trust-bundle.pem on a SPIFFE-mode DPU. It is mutually exclusive
+	// with BootstrapKubeconfig (a DPU uses exactly one identity mode).
+	SPIRETrustBundle string
+	ControlPlaneMTU  int
+	DPUName          string
+	DPUNamespace     string
+	DPUUID           string
+	DPUAgentRepoURL  string
+	DPUFlavorYAML    string
+	UbuntuPassword   string
+	ConfigFiles      []WriteFile
+	OVSRawScript     string
+	OOBNetwork       bool
+	RedfishInterface bool
+	BFBRegistryURL   string
+	AstraEnabled     bool
+	NICDeviceCount   int
 }
 
 // ApplyFlavor populates the flavor-derived fields from the given DPUFlavor.

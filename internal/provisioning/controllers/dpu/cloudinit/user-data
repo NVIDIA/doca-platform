@@ -90,6 +90,13 @@ write_files:
 {{indent 6 .BootstrapKubeconfig}}
 {{- end}}
 
+{{- if .SPIRETrustBundle}}
+  - path: /etc/spire/agent/trust-bundle.pem
+    permissions: '0644'
+    content: |
+{{indent 6 .SPIRETrustBundle}}
+{{- end}}
+
   - path: /etc/apt/sources.list.d/dpf.list
     permissions: '0644'
     content: |

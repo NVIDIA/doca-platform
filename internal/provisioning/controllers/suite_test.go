@@ -274,8 +274,9 @@ var _ = BeforeSuite(func() {
 
 	// Add DPUDevice controller
 	dpuDeviceReconciler := &dpudevice.DPUDeviceReconciler{
-		Client: k8sManager.GetClient(),
-		Scheme: k8sManager.GetScheme(),
+		Client:   k8sManager.GetClient(),
+		Scheme:   k8sManager.GetScheme(),
+		Recorder: k8sManager.GetEventRecorderFor(dpudevice.DPUDeviceControllerName),
 	}
 	err = dpuDeviceReconciler.SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
