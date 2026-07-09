@@ -29,6 +29,7 @@ const (
 	ImagePullSecretsReconciledCondition conditions.ConditionType = "ImagePullSecretsReconciled"
 	SystemComponentsReconciledCondition conditions.ConditionType = "SystemComponentsReconciled"
 	SystemComponentsReadyCondition      conditions.ConditionType = "SystemComponentsReady"
+	CATrustBundleReadyCondition         conditions.ConditionType = "CATrustBundleReady"
 )
 
 var (
@@ -38,7 +39,18 @@ var (
 		ImagePullSecretsReconciledCondition,
 		SystemComponentsReconciledCondition,
 		SystemComponentsReadyCondition,
+		CATrustBundleReadyCondition,
 	}
+)
+
+const (
+	// DefaultCATrustBundleConfigMapName is the default name of the ConfigMap that the DPF Operator
+	// maintains with the public DPF CA certificate(s) in Self-Signed CA case.
+	DefaultCATrustBundleConfigMapName = "dpf-ca-trust-bundle"
+	// CATrustBundleKey is the data key in the CA trust bundle ConfigMap. A single key holding one or
+	// more concatenated PEM certificates is the most portable form for both API readers and volume
+	// mounts (e.g. tools that scan for *.crt files).
+	CATrustBundleKey = "ca.crt"
 )
 
 var (
@@ -405,4 +417,12 @@ func (c *DPFOperatorConfig) GetArgoCDNamespace() string {
 
 func (c *DPFOperatorConfig) MonitoringEnabled() bool {
 	return c.Spec.Monitoring == nil || c.Spec.Monitoring.Disable == nil || !*c.Spec.Monitoring.Disable
+}
+
+// GetCATrustBundleConfigMapName returns the name of the ConfigMap that holds the public provisioning
+// CA certificate(s). Consumers should call this helper to discover the trust bundle name instead of
+// hardcoding it. For now it always returns a fixed default name; a configurable override on the
+// DPFOperatorConfig API is planned for a follow-up task.
+func (c *DPFOperatorConfig) GetCATrustBundleConfigMapName() string {
+	return DefaultCATrustBundleConfigMapName
 }

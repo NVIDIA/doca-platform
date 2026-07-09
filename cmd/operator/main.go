@@ -33,6 +33,7 @@ import (
 	"github.com/spf13/pflag"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -146,6 +147,20 @@ func main() {
 		},
 		Cache: cache.Options{
 			SyncPeriod: &syncPeriod,
+			ByObject: map[client.Object]cache.ByObject{
+				// Scope the Secret informer to the single CA secret the controller watches.
+				// ProvisioningCASecretToDPFOperatorConfig (the watch handler) only enqueues
+				// reconciles for this Secret, so watching others would be wasted overhead.
+				// Note: client.Get/List for Secrets still bypass the cache (DisableFor above)
+				// and hit the API server directly — this entry exists only for event delivery.
+				&corev1.Secret{}: {
+					Namespaces: map[string]cache.Config{
+						configSingletonNamespace: {
+							FieldSelector: fields.OneTermEqualSelector("metadata.name", operatorcontroller.ProvisioningCASecretName),
+						},
+					},
+				},
+			},
 		},
 		LeaderElection: enableLeaderElection,
 		// LeaderElectionID must stay stable across releases: the chart uses RollingUpdate,
