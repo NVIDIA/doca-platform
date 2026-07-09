@@ -474,7 +474,7 @@ func (r *DPUSetReconciler) flavorToDPUSetReq(ctx context.Context, resource clien
 	}
 	requests := []reconcile.Request{}
 	for _, item := range dpuSetList.Items {
-		if item.Spec.DPUTemplate.Spec.DPUFlavor != flavor.Name {
+		if ptr.Deref(item.Spec.DPUTemplate.Spec.DPUFlavor, "") != flavor.Name {
 			continue
 		}
 		requests = append(requests, reconcile.Request{
@@ -620,7 +620,7 @@ func (r *DPUSetReconciler) createDPU(ctx context.Context, dpuSet *provisioningv1
 			Cluster: provisioningv1.K8sCluster{
 				ClusterSpec: clusterSpec,
 			},
-			DPUFlavor:    dpuSet.Spec.DPUTemplate.Spec.DPUFlavor,
+			DPUFlavor:    ptr.Deref(dpuSet.Spec.DPUTemplate.Spec.DPUFlavor, ""),
 			AstraEnabled: dpuSet.Spec.DPUTemplate.Spec.AstraEnabled,
 			SecureBoot:   dpuSet.Spec.DPUTemplate.Spec.SecureBoot,
 			SerialNumber: dpuDevice.Spec.SerialNumber,

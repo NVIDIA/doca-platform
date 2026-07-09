@@ -107,9 +107,9 @@ func (r *DPUSetReconciler) computeDPUDrift(dpuSet provisioningv1.DPUSet, dpu pro
 			d.Reasons = append(d.Reasons, driftReasonDPUFlavor)
 			d.Diffs = append(d.Diffs, "DPUFlavor: generated flavor diverged from DPUFlavorTemplate")
 		}
-	} else if t.DPUFlavor != s.DPUFlavor {
+	} else if ptr.Deref(t.DPUFlavor, "") != s.DPUFlavor {
 		d.Reasons = append(d.Reasons, driftReasonDPUFlavor)
-		d.Diffs = append(d.Diffs, fmt.Sprintf("DPUFlavor: %s -> %s", s.DPUFlavor, t.DPUFlavor))
+		d.Diffs = append(d.Diffs, fmt.Sprintf("DPUFlavor: %s -> %s", s.DPUFlavor, ptr.Deref(t.DPUFlavor, "")))
 	}
 	if !reflect.DeepEqual(t.SecureBoot, s.SecureBoot) {
 		d.Reasons = append(d.Reasons, driftReasonSecureBoot)

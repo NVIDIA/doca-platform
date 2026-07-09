@@ -53,10 +53,14 @@ type driftFixture struct {
 
 func buildDPUSetForDrift(f driftFixture) provisioningv1.DPUSet {
 	tpl := provisioningv1.DPUTemplateSpec{
-		BFB:               &provisioningv1.BFBReference{Name: f.tplBFB},
-		DPUFlavor:         f.tplFlavor,
-		DPUFlavorTemplate: f.tplFlavorTemplate,
-		SecureBoot:        f.tplSecureBoot,
+		BFB:        &provisioningv1.BFBReference{Name: f.tplBFB},
+		SecureBoot: f.tplSecureBoot,
+	}
+	if f.tplFlavor != "" {
+		tpl.DPUFlavor = &f.tplFlavor
+	}
+	if f.tplFlavorTemplate != "" {
+		tpl.DPUFlavorTemplate = &f.tplFlavorTemplate
 	}
 	if f.tplBlueFieldSWName != "" {
 		tpl.BlueFieldSoftware = &provisioningv1.BlueFieldSoftwareReference{Name: f.tplBlueFieldSWName}

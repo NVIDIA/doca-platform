@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -73,7 +74,7 @@ func newDevice(valuesJSON string) *provisioningv1.DPUDevice {
 
 func newTemplateDPUSet() *provisioningv1.DPUSet {
 	ds := &provisioningv1.DPUSet{ObjectMeta: metav1.ObjectMeta{Name: "set", Namespace: tmplNS}}
-	ds.Spec.DPUTemplate.Spec.DPUFlavorTemplate = "tmpl"
+	ds.Spec.DPUTemplate.Spec.DPUFlavorTemplate = ptr.To("tmpl")
 	return ds
 }
 
@@ -235,7 +236,7 @@ var _ = Describe("DPUSet template mode", func() {
 		It("clears the condition for a static-flavor DPUSet", func() {
 			r := tmplReconciler(scheme)
 			dpuSet := newTemplateDPUSet()
-			dpuSet.Spec.DPUTemplate.Spec.DPUFlavorTemplate = ""
+			dpuSet.Spec.DPUTemplate.Spec.DPUFlavorTemplate = nil
 			// A leftover condition from a prior template-mode configuration is cleared on revert.
 			conditions.AddFalse(dpuSet, provisioningv1.ConditionDPUFlavorTemplateExists,
 				conditions.ConditionReason(reasonDPUFlavorTemplateNotFound), conditions.ConditionMessage("stale"))
@@ -352,7 +353,7 @@ var _ = Describe("DPUSet template mode", func() {
 				ObjectMeta: metav1.ObjectMeta{Name: "other", Namespace: tmplNS},
 				Spec:       provisioningv1.DPUFlavorTemplateSpec{Template: okBody},
 			})).To(Succeed())
-			dpuSet.Spec.DPUTemplate.Spec.DPUFlavorTemplate = "other"
+			dpuSet.Spec.DPUTemplate.Spec.DPUFlavorTemplate = ptr.To("other")
 			eval := r.evalTemplateDPU(ctx, dpuSet, dpu)
 			Expect(eval.disrupt).To(BeTrue())
 		})
@@ -361,7 +362,7 @@ var _ = Describe("DPUSet template mode", func() {
 			// Disrupting toward a missing template would delete a healthy DPU that then cannot be
 			// recreated; hold instead until the target template exists.
 			r, dpuSet, dpu := buildExisting(nil, okBody, `{"mtu":9000}`)
-			dpuSet.Spec.DPUTemplate.Spec.DPUFlavorTemplate = "missing-template"
+			dpuSet.Spec.DPUTemplate.Spec.DPUFlavorTemplate = ptr.To("missing-template")
 			eval := r.evalTemplateDPU(ctx, dpuSet, dpu)
 			Expect(eval.disrupt).To(BeFalse())
 		})
@@ -473,7 +474,7 @@ var _ = Describe("DPUSet template mode", func() {
 		It("returns an empty map for a static-flavor DPUSet", func() {
 			r := tmplReconciler(scheme)
 			dpuSet := newTemplateDPUSet()
-			dpuSet.Spec.DPUTemplate.Spec.DPUFlavorTemplate = ""
+			dpuSet.Spec.DPUTemplate.Spec.DPUFlavorTemplate = nil
 			dpu := provisioningv1.DPU{ObjectMeta: metav1.ObjectMeta{Name: "dpu-0", Namespace: tmplNS}}
 			evals := r.evalTemplateDPUs(ctx, dpuSet, map[string]provisioningv1.DPU{dpu.Name: dpu})
 			Expect(evals).To(BeEmpty())
