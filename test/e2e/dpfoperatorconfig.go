@@ -965,6 +965,15 @@ func DeleteDPFOperatorConfig(ctx context.Context, testClient client.Client) {
 		g.Expect(testClient.List(ctx, dpuList)).To(Succeed())
 		g.Expect(dpuList.Items).To(BeEmpty())
 	}).WithTimeout(30 * time.Second).Should(Succeed())
+
+	By("Ensure no leftover DPUNodeMaintenance objects")
+	// DPUNodeMaintenance objects are created during provisioning to drain nodes. They must be cleaned up by the
+	// DPFOperatorConfig removal, otherwise they linger after the provisioning controller is torn down.
+	Eventually(func(g Gomega) {
+		dpuNodeMaintenanceList := &provisioningv1.DPUNodeMaintenanceList{}
+		g.Expect(testClient.List(ctx, dpuNodeMaintenanceList)).To(Succeed())
+		g.Expect(dpuNodeMaintenanceList.Items).To(BeEmpty())
+	}).WithTimeout(30 * time.Second).Should(Succeed())
 }
 
 // getPerClusterDPUServiceName returns the per-cluster DPUService name for a given component and DPUCluster.

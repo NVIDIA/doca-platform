@@ -29,6 +29,7 @@ import (
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 
+	"github.com/fluxcd/pkg/runtime/patch"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -143,6 +144,12 @@ var nodeResourceResources = []schema.GroupVersionKind{
 	noderesourcesv1.NodeSRIOVDevicePluginConfigGroupVersionKind,
 }
 
+// dpuNodeMaintenanceResources tracks the resources which must be force-deleted (i.e. deleted with
+// their protection finalizer stripped) by the DPF Operator during teardown.
+var dpuNodeMaintenanceResources = []schema.GroupVersionKind{
+	provisioningv1.DPUNodeMaintenanceGroupVersionKind,
+}
+
 var orderedDeleteList = []func(ctx context.Context, c client.Client) error{
 	// NodeResource can be deleted first
 	deleteNodeResourceResources,
@@ -152,8 +159,20 @@ var orderedDeleteList = []func(ctx context.Context, c client.Client) error{
 	deleteDpuDeploymentResources,
 	// DPUService objects should be deleted before provisioning objects as their deletion depends on the existence of the DPUCluster.
 	deleteDpuServiceResources,
-	// Provisioning objects can be deleted last.
+	// Provisioning objects (DPUSets, DPUNodes, DPUs, ...) are deleted before DPUNodeMaintenance objects.
 	deleteProvisioningResources,
+	// DPUNodeMaintenance objects are force-cleaned last, after the provisioning objects that create
+	// and target them (DPUSets/DPUs and DPUNodes) are gone. Doing this last is required for two
+	// reasons:
+	//   1. While DPUs still exist their controller can (re)create DPUNodeMaintenance objects, so
+	//      force-deleting them earlier could loop indefinitely at scale as new ones are recreated
+	//      faster than they are removed - deadlocking the teardown.
+	//   2. Once the DPUNodes are gone, the DPUNodeMaintenance controller can no longer release its
+	//      own protection finalizer for node effects other than NoEffect/Hold (its node-effect
+	//      removal errors out on the missing DPUNode), so the finalizer must be force-stripped here.
+	// After the provisioning objects are removed nothing recreates DPUNodeMaintenance objects, so
+	// force-stripping the finalizer converges.
+	deleteDPUNodeMaintenanceResources,
 }
 
 func deleteServiceChainResources(ctx context.Context, c client.Client) error {
@@ -174,6 +193,67 @@ func deleteProvisioningResources(ctx context.Context, c client.Client) error {
 
 func deleteNodeResourceResources(ctx context.Context, c client.Client) error {
 	return deleteResources(ctx, c, nodeResourceResources, []string{})
+}
+
+// deleteDPUNodeMaintenanceResources force-deletes all DPUNodeMaintenance objects during
+// DPFOperatorConfig teardown.
+//
+// DPUNodeMaintenance objects carry a protection finalizer that their controller only releases
+// once the requestor list is empty (i.e. all owning DPUs are deleted) or the owning DPUNode is
+// gone. During DPF removal these preconditions may never be met (e.g. DPUs lingering in Deleting),
+// which would block the whole teardown indefinitely. Since the entire DPF system is being removed,
+// we force deletion by removing the protection finalizer.
+func deleteDPUNodeMaintenanceResources(ctx context.Context, c client.Client) error {
+	return deleteResourcesWithFinalizers(ctx, c, dpuNodeMaintenanceResources, []string{provisioningv1.DPUNodeMaintenanceFinalizer})
+}
+
+// deleteResourcesWithFinalizers behaves like deleteResources but, after issuing the delete, also
+// strips the given finalizers from every listed object. This is required for resources whose
+// controllers only release their finalizers under preconditions that may never be met during
+// DPFOperatorConfig teardown (e.g. DPUNodeMaintenance's protection finalizer).
+//
+// The object is deleted first (which sets the deletion timestamp) and only then is the finalizer
+// stripped. Combined with the controllers guarding their finalizer-add path on a zero deletion
+// timestamp, this ensures the finalizer is not re-added and the object is garbage collected instead
+// of blocking cleanup. Any objects that still exist at the end of the pass are reported as an error
+// so the caller keeps requeueing until they are gone.
+func deleteResourcesWithFinalizers(ctx context.Context, c client.Client, gvkList []schema.GroupVersionKind, finalizers []string) error {
+	var errs []error
+	for _, resource := range gvkList {
+		objListKind := fmt.Sprintf("%vList", resource.Kind)
+		list := &unstructured.UnstructuredList{}
+		list.SetGroupVersionKind(resource.GroupVersion().WithKind(objListKind))
+		if err := c.List(ctx, list); err != nil {
+			return err
+		}
+
+		if len(list.Items) == 0 {
+			continue
+		}
+
+		awaitingDeletion := 0
+		for i := range list.Items {
+			obj := &list.Items[i]
+			awaitingDeletion++
+			if err := c.Delete(ctx, obj); client.IgnoreNotFound(err) != nil {
+				errs = append(errs, err)
+				continue
+			}
+
+			patcher := patch.NewSerialPatcher(obj, c)
+			for _, finalizer := range finalizers {
+				controllerutil.RemoveFinalizer(obj, finalizer)
+			}
+			if err := patcher.Patch(ctx, obj); err != nil {
+				errs = append(errs, err)
+			}
+		}
+
+		if awaitingDeletion > 0 {
+			errs = append(errs, fmt.Errorf("%d instances of resource Kind %v still exist. ", awaitingDeletion, resource))
+		}
+	}
+	return kerrors.NewAggregate(errs)
 }
 
 func deleteResources(ctx context.Context, c client.Client, gvkList []schema.GroupVersionKind, labelExclusionList []string) error {
