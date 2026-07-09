@@ -132,7 +132,7 @@ var _ = Describe("DPUSetReconciler getDPUDeviceMap", func() {
 					DPUDeviceSelector: nil, // Select all devices
 					DPUTemplate: provisioningv1.DPUTemplate{
 						Spec: provisioningv1.DPUTemplateSpec{
-							DPUFlavor:  "test-flavor",
+							DPUFlavor:  ptr.To("test-flavor"),
 							NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 						},
 					},
@@ -218,7 +218,7 @@ var _ = Describe("DPUSetReconciler getDPUDeviceMap", func() {
 					DPUDeviceSelector: nil,
 					DPUTemplate: provisioningv1.DPUTemplate{
 						Spec: provisioningv1.DPUTemplateSpec{
-							DPUFlavor:  "test-flavor",
+							DPUFlavor:  ptr.To("test-flavor"),
 							NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 						},
 					},
@@ -298,7 +298,7 @@ var _ = Describe("DPUSetReconciler getDPUDeviceMap", func() {
 					},
 					DPUTemplate: provisioningv1.DPUTemplate{
 						Spec: provisioningv1.DPUTemplateSpec{
-							DPUFlavor:  "test-flavor",
+							DPUFlavor:  ptr.To("test-flavor"),
 							NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 						},
 					},
@@ -388,7 +388,7 @@ var _ = Describe("DPUSetReconciler getDPUDeviceMap", func() {
 					},
 					DPUTemplate: provisioningv1.DPUTemplate{
 						Spec: provisioningv1.DPUTemplateSpec{
-							DPUFlavor:  "test-flavor",
+							DPUFlavor:  ptr.To("test-flavor"),
 							NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 						},
 					},
@@ -484,7 +484,7 @@ var _ = Describe("DPUSetReconciler getDPUDeviceMap", func() {
 					},
 					DPUTemplate: provisioningv1.DPUTemplate{
 						Spec: provisioningv1.DPUTemplateSpec{
-							DPUFlavor:  "test-flavor",
+							DPUFlavor:  ptr.To("test-flavor"),
 							NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 						},
 					},
@@ -549,7 +549,7 @@ var _ = Describe("DPUSetReconciler getDPUDeviceMap", func() {
 					},
 					DPUTemplate: provisioningv1.DPUTemplate{
 						Spec: provisioningv1.DPUTemplateSpec{
-							DPUFlavor:  "test-flavor",
+							DPUFlavor:  ptr.To("test-flavor"),
 							NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 						},
 					},
@@ -598,7 +598,7 @@ var _ = Describe("DPUSetReconciler BlueFieldSoftware finalizer", func() {
 			Spec: provisioningv1.DPUSetSpec{
 				DPUTemplate: provisioningv1.DPUTemplate{
 					Spec: provisioningv1.DPUTemplateSpec{
-						DPUFlavor:         "test-flavor",
+						DPUFlavor:         ptr.To("test-flavor"),
 						BlueFieldSoftware: &provisioningv1.BlueFieldSoftwareReference{Name: bfsName},
 						Cluster:           &provisioningv1.ClusterSpec{},
 						NodeEffect:        provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
@@ -783,7 +783,7 @@ var _ = Describe("DPUSetReconciler needDisruptDPU", func() {
 
 	type testCase struct {
 		dpuSetBFB      string
-		dpuSetFlavor   string
+		dpuSetFlavor   *string
 		dpuSetSB       *bool
 		dpuBFB         string
 		dpuFlavor      string
@@ -814,32 +814,32 @@ var _ = Describe("DPUSetReconciler needDisruptDPU", func() {
 			Expect(reconciler.needDisruptDPU(dpuSet, dpu, nil, templateEval{})).To(Equal(tc.expectedResult))
 		},
 		Entry("no changes - all fields match", testCase{
-			dpuSetBFB: "bfb-v1", dpuSetFlavor: "flavor-a", dpuSetSB: ptr.To(true),
+			dpuSetBFB: "bfb-v1", dpuSetFlavor: ptr.To("flavor-a"), dpuSetSB: ptr.To(true),
 			dpuBFB: "bfb-v1", dpuFlavor: "flavor-a", dpuSB: ptr.To(true),
 			expectedResult: false,
 		}),
 		Entry("no changes - SecureBoot nil on both sides", testCase{
-			dpuSetBFB: "bfb-v1", dpuSetFlavor: "flavor-a", dpuSetSB: nil,
+			dpuSetBFB: "bfb-v1", dpuSetFlavor: ptr.To("flavor-a"), dpuSetSB: nil,
 			dpuBFB: "bfb-v1", dpuFlavor: "flavor-a", dpuSB: nil,
 			expectedResult: false,
 		}),
 		Entry("BFB changed", testCase{
-			dpuSetBFB: "bfb-v2", dpuSetFlavor: "flavor-a", dpuSetSB: nil,
+			dpuSetBFB: "bfb-v2", dpuSetFlavor: ptr.To("flavor-a"), dpuSetSB: nil,
 			dpuBFB: "bfb-v1", dpuFlavor: "flavor-a", dpuSB: nil,
 			expectedResult: true,
 		}),
 		Entry("DPUFlavor changed", testCase{
-			dpuSetBFB: "bfb-v1", dpuSetFlavor: "flavor-b", dpuSetSB: nil,
+			dpuSetBFB: "bfb-v1", dpuSetFlavor: ptr.To("flavor-b"), dpuSetSB: nil,
 			dpuBFB: "bfb-v1", dpuFlavor: "flavor-a", dpuSB: nil,
 			expectedResult: true,
 		}),
 		Entry("SecureBoot changed from nil to non-nil", testCase{
-			dpuSetBFB: "bfb-v1", dpuSetFlavor: "flavor-a", dpuSetSB: ptr.To(true),
+			dpuSetBFB: "bfb-v1", dpuSetFlavor: ptr.To("flavor-a"), dpuSetSB: ptr.To(true),
 			dpuBFB: "bfb-v1", dpuFlavor: "flavor-a", dpuSB: nil,
 			expectedResult: true,
 		}),
 		Entry("SecureBoot value changed", testCase{
-			dpuSetBFB: "bfb-v1", dpuSetFlavor: "flavor-a", dpuSetSB: ptr.To(false),
+			dpuSetBFB: "bfb-v1", dpuSetFlavor: ptr.To("flavor-a"), dpuSetSB: ptr.To(false),
 			dpuBFB: "bfb-v1", dpuFlavor: "flavor-a", dpuSB: ptr.To(true),
 			expectedResult: true,
 		}),
@@ -852,7 +852,7 @@ var _ = Describe("DPUSetReconciler needDisruptDPU", func() {
 					DPUTemplate: provisioningv1.DPUTemplate{
 						Spec: provisioningv1.DPUTemplateSpec{
 							BlueFieldSoftware: &provisioningv1.BlueFieldSoftwareReference{Name: dpuSetBFS},
-							DPUFlavor:         "bf4-flavor",
+							DPUFlavor:         ptr.To("bf4-flavor"),
 						},
 					},
 				},
@@ -885,7 +885,7 @@ var _ = Describe("DPUSetReconciler rolloutRolling", func() {
 					Strategy: strategy,
 					DPUTemplate: provisioningv1.DPUTemplate{
 						Spec: provisioningv1.DPUTemplateSpec{
-							DPUFlavor:  "test-flavor",
+							DPUFlavor:  ptr.To("test-flavor"),
 							NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 						},
 					},

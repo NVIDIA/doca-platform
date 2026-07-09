@@ -100,24 +100,24 @@ var _ = Describe("Provisioning API Validation", func() {
 				provisioningv1.DPUTemplateSpec{
 					BFB:               &provisioningv1.BFBReference{Name: "somebfb"},
 					BlueFieldSoftware: &provisioningv1.BlueFieldSoftwareReference{Name: "somebfs"},
-					DPUFlavor:         "someflavor",
+					DPUFlavor:         ptr.To("someflavor"),
 					NodeEffect:        provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 				}, true),
 			Entry("only bfb is specified",
 				provisioningv1.DPUTemplateSpec{
 					BFB:        &provisioningv1.BFBReference{Name: "somebfb"},
-					DPUFlavor:  "someflavor",
+					DPUFlavor:  ptr.To("someflavor"),
 					NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 				}, false),
 			Entry("only blueFieldSoftware is specified",
 				provisioningv1.DPUTemplateSpec{
 					BlueFieldSoftware: &provisioningv1.BlueFieldSoftwareReference{Name: "somebfs"},
-					DPUFlavor:         "someflavor",
+					DPUFlavor:         ptr.To("someflavor"),
 					NodeEffect:        provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 				}, false),
 			Entry("neither bfb nor blueFieldSoftware is specified",
 				provisioningv1.DPUTemplateSpec{
-					DPUFlavor:  "someflavor",
+					DPUFlavor:  ptr.To("someflavor"),
 					NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 				}, true),
 		)
@@ -137,20 +137,20 @@ var _ = Describe("Provisioning API Validation", func() {
 			Entry("both dpuFlavor and dpuFlavorTemplate are specified",
 				provisioningv1.DPUTemplateSpec{
 					BFB:               &provisioningv1.BFBReference{Name: "somebfb"},
-					DPUFlavor:         "someflavor",
-					DPUFlavorTemplate: "sometemplate",
+					DPUFlavor:         ptr.To("someflavor"),
+					DPUFlavorTemplate: ptr.To("sometemplate"),
 					NodeEffect:        provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 				}, true),
 			Entry("only dpuFlavor is specified",
 				provisioningv1.DPUTemplateSpec{
 					BFB:        &provisioningv1.BFBReference{Name: "somebfb"},
-					DPUFlavor:  "someflavor",
+					DPUFlavor:  ptr.To("someflavor"),
 					NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 				}, false),
 			Entry("only dpuFlavorTemplate is specified",
 				provisioningv1.DPUTemplateSpec{
 					BFB:               &provisioningv1.BFBReference{Name: "somebfb"},
-					DPUFlavorTemplate: "sometemplate",
+					DPUFlavorTemplate: ptr.To("sometemplate"),
 					NodeEffect:        provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 				}, false),
 			Entry("neither dpuFlavor nor dpuFlavorTemplate is specified",
@@ -797,7 +797,7 @@ func getMinimalDPUSet(namespace string) *provisioningv1.DPUSet {
 					BFB: &provisioningv1.BFBReference{
 						Name: "somebfb",
 					},
-					DPUFlavor:  "someflavor",
+					DPUFlavor:  ptr.To("someflavor"),
 					NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 				},
 			},

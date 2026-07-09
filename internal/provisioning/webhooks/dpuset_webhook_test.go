@@ -60,7 +60,7 @@ var _ = Describe("DPUSet", func() {
 				DPUTemplate: provisioningv1.DPUTemplate{
 					Spec: provisioningv1.DPUTemplateSpec{
 						BFB:        &provisioningv1.BFBReference{Name: "test-bfb"},
-						DPUFlavor:  dpuFlavor,
+						DPUFlavor:  ptr.To(dpuFlavor),
 						NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 					},
 				},
@@ -82,7 +82,7 @@ var _ = Describe("DPUSet", func() {
 
 		It("create and get object", func() {
 			obj := createObj("obj-1")
-			obj.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor
+			obj.Spec.DPUTemplate.Spec.DPUFlavor = ptr.To(dpuFlavor)
 			err := k8sClient.Create(ctx, obj)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -94,7 +94,7 @@ var _ = Describe("DPUSet", func() {
 
 		It("delete object", func() {
 			obj := createObj("obj-2")
-			obj.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor
+			obj.Spec.DPUTemplate.Spec.DPUFlavor = ptr.To(dpuFlavor)
 			err := k8sClient.Create(ctx, obj)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -108,7 +108,7 @@ var _ = Describe("DPUSet", func() {
 
 		It("update object", func() {
 			obj := createObj("obj-3")
-			obj.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor
+			obj.Spec.DPUTemplate.Spec.DPUFlavor = ptr.To(dpuFlavor)
 			err := k8sClient.Create(ctx, obj)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -126,7 +126,7 @@ var _ = Describe("DPUSet", func() {
 			newValue := map[string]string{"k1": "v11", "k2": "v2"}
 
 			obj := createObj("obj-4")
-			obj.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor
+			obj.Spec.DPUTemplate.Spec.DPUFlavor = ptr.To(dpuFlavor)
 			obj.Spec.DPUTemplate.Spec.Cluster = &provisioningv1.ClusterSpec{
 				NodeLabels: refValue,
 			}
@@ -148,7 +148,7 @@ var _ = Describe("DPUSet", func() {
 			newValue := map[string]string{"k1": "v11", "k2": "v2"}
 
 			obj := createObj("node-effect-object")
-			obj.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor
+			obj.Spec.DPUTemplate.Spec.DPUFlavor = ptr.To(dpuFlavor)
 			obj.Spec.DPUTemplate.Spec.Cluster = &provisioningv1.ClusterSpec{
 				NodeLabels: refValue,
 			}
@@ -188,7 +188,7 @@ var _ = Describe("DPUSet", func() {
 			}
 
 			obj := createObj("obj-node-effect-nil")
-			obj.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor
+			obj.Spec.DPUTemplate.Spec.DPUFlavor = ptr.To(dpuFlavor)
 			obj.Spec.DPUTemplate.Spec.NodeEffect = refValue
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 
@@ -199,7 +199,7 @@ var _ = Describe("DPUSet", func() {
 
 		It("spec.dpuTemplate.spec.nodeEffect.applyOnLabelChange defaults to false", func() {
 			obj := createObj("obj-apply-on-label-change-default")
-			obj.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor
+			obj.Spec.DPUTemplate.Spec.DPUFlavor = ptr.To(dpuFlavor)
 			obj.Spec.DPUTemplate.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					NoEffect: ptr.To(true),
@@ -215,7 +215,7 @@ var _ = Describe("DPUSet", func() {
 
 		It("spec.dpuTemplate.spec.nodeEffect.applyOnLabelChange is mutable", func() {
 			obj := createObj("obj-apply-on-label-change-mutable")
-			obj.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor
+			obj.Spec.DPUTemplate.Spec.DPUFlavor = ptr.To(dpuFlavor)
 			obj.Spec.DPUTemplate.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					NoEffect: ptr.To(true),
@@ -238,7 +238,7 @@ var _ = Describe("DPUSet", func() {
 
 		It("spec.dpuTemplate.spec.nodeEffect.nodeMaintenanceAdditionalRequestors is mutable", func() {
 			obj := createObj("obj-additional-requestors-mutable")
-			obj.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor
+			obj.Spec.DPUTemplate.Spec.DPUFlavor = ptr.To(dpuFlavor)
 			obj.Spec.DPUTemplate.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
 					NoEffect: ptr.To(true),
@@ -262,7 +262,7 @@ var _ = Describe("DPUSet", func() {
 
 		It("only one field may be set in spec.nodeEffect", func() {
 			obj := createObj("checking-node-effect")
-			obj.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor
+			obj.Spec.DPUTemplate.Spec.DPUFlavor = ptr.To(dpuFlavor)
 			// Error when creating a DPUSet with a nodeEffect setting taint and customLabel.
 			obj.Spec.DPUTemplate.Spec.NodeEffect = provisioningv1.NodeEffect{
 				Action: provisioningv1.Action{
@@ -379,14 +379,14 @@ spec:
 
 		It("should successfully create DPUSet with valid dpuFlavor", func() {
 			obj := createObj("obj-valid-dpuflavor")
-			obj.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor
+			obj.Spec.DPUTemplate.Spec.DPUFlavor = ptr.To(dpuFlavor)
 			err := k8sClient.Create(ctx, obj)
 			Expect(err).NotTo(HaveOccurred())
 		})
 
 		It("should reject DPUSet with empty spec.dpuTemplate.spec.bfb.name", func() {
 			obj := createObj("obj-empty-bfb-name")
-			obj.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor
+			obj.Spec.DPUTemplate.Spec.DPUFlavor = ptr.To(dpuFlavor)
 			obj.Spec.DPUTemplate.Spec.BFB = &provisioningv1.BFBReference{Name: ""}
 			err := k8sClient.Create(ctx, obj)
 			Expect(err).To(HaveOccurred())
@@ -395,7 +395,7 @@ spec:
 
 		It("should reject DPUSet with empty spec.dpuTemplate.spec.dpuFlavor", func() {
 			obj := createObj("obj-empty-dpuflavor")
-			obj.Spec.DPUTemplate.Spec.DPUFlavor = ""
+			obj.Spec.DPUTemplate.Spec.DPUFlavor = ptr.To("")
 			err := k8sClient.Create(ctx, obj)
 			Expect(err).To(HaveOccurred())
 			Expect(apierrors.IsInvalid(err)).To(BeTrue())
@@ -403,37 +403,37 @@ spec:
 
 		It("should successfully update DPUSet with valid dpuFlavor", func() {
 			obj := createObj("obj-update-valid-dpuflavor")
-			obj.Spec.DPUTemplate.Spec.DPUFlavor = "initial-flavor"
+			obj.Spec.DPUTemplate.Spec.DPUFlavor = ptr.To("initial-flavor")
 			err := k8sClient.Create(ctx, obj)
 			Expect(err).NotTo(HaveOccurred())
 
 			// Update with new valid DPUFlavor
-			obj.Spec.DPUTemplate.Spec.DPUFlavor = "updated-flavor"
+			obj.Spec.DPUTemplate.Spec.DPUFlavor = ptr.To("updated-flavor")
 			err = k8sClient.Update(ctx, obj)
 			Expect(err).NotTo(HaveOccurred())
 
 			objFetched := &provisioningv1.DPUSet{}
 			err = k8sClient.Get(ctx, getObjKey(obj), objFetched)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(objFetched.Spec.DPUTemplate.Spec.DPUFlavor).To(Equal("updated-flavor"))
+			Expect(objFetched.Spec.DPUTemplate.Spec.DPUFlavor).To(Equal(ptr.To("updated-flavor")))
 		})
 
 		It("should create DPUSet with dpuFlavorTemplate and no dpuFlavor", func() {
 			obj := createObj("obj-flavor-template")
-			obj.Spec.DPUTemplate.Spec.DPUFlavor = ""
-			obj.Spec.DPUTemplate.Spec.DPUFlavorTemplate = "some-template"
+			obj.Spec.DPUTemplate.Spec.DPUFlavor = nil
+			obj.Spec.DPUTemplate.Spec.DPUFlavorTemplate = ptr.To("some-template")
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 
 			objFetched := &provisioningv1.DPUSet{}
 			Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
-			Expect(objFetched.Spec.DPUTemplate.Spec.DPUFlavorTemplate).To(Equal("some-template"))
-			Expect(objFetched.Spec.DPUTemplate.Spec.DPUFlavor).To(BeEmpty())
+			Expect(objFetched.Spec.DPUTemplate.Spec.DPUFlavorTemplate).To(Equal(ptr.To("some-template")))
+			Expect(objFetched.Spec.DPUTemplate.Spec.DPUFlavor).To(BeNil())
 		})
 
 		It("should reject DPUSet with both dpuFlavor and dpuFlavorTemplate set", func() {
 			obj := createObj("obj-flavor-and-template")
-			obj.Spec.DPUTemplate.Spec.DPUFlavor = dpuFlavor
-			obj.Spec.DPUTemplate.Spec.DPUFlavorTemplate = "some-template"
+			obj.Spec.DPUTemplate.Spec.DPUFlavor = ptr.To(dpuFlavor)
+			obj.Spec.DPUTemplate.Spec.DPUFlavorTemplate = ptr.To("some-template")
 			err := k8sClient.Create(ctx, obj)
 			Expect(err).To(HaveOccurred())
 			Expect(apierrors.IsInvalid(err)).To(BeTrue())
@@ -633,7 +633,7 @@ spec:
 					DPUTemplate: provisioningv1.DPUTemplate{
 						Spec: provisioningv1.DPUTemplateSpec{
 							BFB:       &provisioningv1.BFBReference{Name: ""},
-							DPUFlavor: "flavor",
+							DPUFlavor: ptr.To("flavor"),
 						},
 					},
 				},
@@ -654,7 +654,7 @@ spec:
 					DPUTemplate: provisioningv1.DPUTemplate{
 						Spec: provisioningv1.DPUTemplateSpec{
 							BFB:               &provisioningv1.BFBReference{Name: "bfb"},
-							DPUFlavorTemplate: "some-template",
+							DPUFlavorTemplate: ptr.To("some-template"),
 						},
 					},
 				},
@@ -720,7 +720,7 @@ spec:
 					DPUTemplate: provisioningv1.DPUTemplate{
 						Spec: provisioningv1.DPUTemplateSpec{
 							BFB:          &provisioningv1.BFBReference{Name: "bfb"},
-							DPUFlavor:    "flavor",
+							DPUFlavor:    ptr.To("flavor"),
 							AstraEnabled: ptr.To(true),
 						},
 					},
@@ -739,7 +739,7 @@ spec:
 					DPUTemplate: provisioningv1.DPUTemplate{
 						Spec: provisioningv1.DPUTemplateSpec{
 							BFB:          &provisioningv1.BFBReference{Name: "bfb"},
-							DPUFlavor:    "flavor",
+							DPUFlavor:    ptr.To("flavor"),
 							AstraEnabled: ptr.To(true),
 						},
 					},
@@ -757,7 +757,7 @@ spec:
 					DPUTemplate: provisioningv1.DPUTemplate{
 						Spec: provisioningv1.DPUTemplateSpec{
 							BFB:          &provisioningv1.BFBReference{Name: "bfb"},
-							DPUFlavor:    "flavor",
+							DPUFlavor:    ptr.To("flavor"),
 							AstraEnabled: ptr.To(true),
 						},
 					},
@@ -776,7 +776,7 @@ spec:
 					DPUTemplate: provisioningv1.DPUTemplate{
 						Spec: provisioningv1.DPUTemplateSpec{
 							BFB:       &provisioningv1.BFBReference{Name: "bfb"},
-							DPUFlavor: "flavor",
+							DPUFlavor: ptr.To("flavor"),
 						},
 					},
 				},
@@ -797,7 +797,7 @@ spec:
 					DPUTemplate: provisioningv1.DPUTemplate{
 						Spec: provisioningv1.DPUTemplateSpec{
 							BFB:       &provisioningv1.BFBReference{Name: "bfb"},
-							DPUFlavor: "flavor",
+							DPUFlavor: ptr.To("flavor"),
 						},
 					},
 				},

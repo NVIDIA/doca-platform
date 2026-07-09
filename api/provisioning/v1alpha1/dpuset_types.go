@@ -154,13 +154,13 @@ type DPUTemplateSpec struct {
 	// Mutually exclusive with DPUFlavorTemplate.
 	// +kubebuilder:validation:MinLength=1
 	// +optional
-	DPUFlavor string `json:"dpuFlavor,omitempty"`
+	DPUFlavor *string `json:"dpuFlavor,omitempty"`
 	// DPUFlavorTemplate is the name of a DPUFlavorTemplate that is rendered per-DPU
 	// (against DPUDevice.spec.values) into a generated DPUFlavor. Mutually exclusive
 	// with DPUFlavor.
 	// +kubebuilder:validation:MinLength=1
 	// +optional
-	DPUFlavorTemplate string `json:"dpuFlavorTemplate,omitempty"`
+	DPUFlavorTemplate *string `json:"dpuFlavorTemplate,omitempty"`
 	// AstraEnabled indicates whether E/W NIC configuration (Astra) is enabled
 	// +optional
 	AstraEnabled *bool `json:"astraEnabled,omitempty"`

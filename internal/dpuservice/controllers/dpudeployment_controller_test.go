@@ -1545,8 +1545,8 @@ var _ = Describe("DPUDeployment Controller", func() {
 					ServiceConfiguration: extraDPUServiceConfiguration.Name,
 				}
 				dpuDeployment.Spec.Services["someservice"] = svc
-				dpuDeployment.Spec.DPUs.BFB = ptr.To(extraBFB.Name)
-				dpuDeployment.Spec.DPUs.Flavor = ptr.To(extraDPUFlavor.Name)
+				dpuDeployment.Spec.DPUs.BFB = &extraBFB.Name
+				dpuDeployment.Spec.DPUs.Flavor = &extraDPUFlavor.Name
 
 				By("Constructing the dependencies object")
 				deps, err = getDependencies(ctx, testClient, dpuDeployment)
@@ -1645,8 +1645,8 @@ var _ = Describe("DPUDeployment Controller", func() {
 					ServiceConfiguration: extraDPUServiceConfiguration.Name,
 				}
 				dpuDeployment.Spec.Services["someservice"] = svc
-				dpuDeployment.Spec.DPUs.BFB = ptr.To(extraBFB.Name)
-				dpuDeployment.Spec.DPUs.Flavor = ptr.To(extraDPUFlavor.Name)
+				dpuDeployment.Spec.DPUs.BFB = &extraBFB.Name
+				dpuDeployment.Spec.DPUs.Flavor = &extraDPUFlavor.Name
 
 				By("Constructing the dependencies object")
 				deps, err = getDependencies(ctx, testClient, dpuDeployment)
@@ -1760,8 +1760,8 @@ var _ = Describe("DPUDeployment Controller", func() {
 					ServiceConfiguration: extraDPUServiceConfiguration.Name,
 				}
 				dpuDeployment.Spec.Services["someservice"] = svc
-				dpuDeployment.Spec.DPUs.BlueFieldSoftware = ptr.To(extraBfs.Name)
-				dpuDeployment.Spec.DPUs.Flavor = ptr.To(extraDPUFlavor.Name)
+				dpuDeployment.Spec.DPUs.BlueFieldSoftware = &extraBfs.Name
+				dpuDeployment.Spec.DPUs.Flavor = &extraDPUFlavor.Name
 
 				By("Constructing the dependencies object")
 				deps, err = getDependencies(ctx, testClient, dpuDeployment)
@@ -1861,8 +1861,8 @@ var _ = Describe("DPUDeployment Controller", func() {
 					ServiceConfiguration: extraDPUServiceConfiguration.Name,
 				}
 				dpuDeployment.Spec.Services["someservice"] = svc
-				dpuDeployment.Spec.DPUs.BlueFieldSoftware = ptr.To(extraBfs.Name)
-				dpuDeployment.Spec.DPUs.Flavor = ptr.To(extraDPUFlavor.Name)
+				dpuDeployment.Spec.DPUs.BlueFieldSoftware = &extraBfs.Name
+				dpuDeployment.Spec.DPUs.Flavor = &extraDPUFlavor.Name
 
 				By("Constructing the dependencies object")
 				deps, err = getDependencies(ctx, testClient, dpuDeployment)
@@ -1972,7 +1972,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 								BFB: &provisioningv1.BFBReference{
 									Name: "somebfb",
 								},
-								DPUFlavor: "someflavor",
+								DPUFlavor: ptr.To("someflavor"),
 								NodeEffect: provisioningv1.NodeEffect{
 									Action: provisioningv1.Action{
 										Drain: ptr.To(true),
@@ -2007,7 +2007,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 								BFB: &provisioningv1.BFBReference{
 									Name: "somebfb",
 								},
-								DPUFlavor: "someflavor",
+								DPUFlavor: ptr.To("someflavor"),
 								NodeEffect: provisioningv1.NodeEffect{
 									Action: provisioningv1.Action{
 										Drain: ptr.To(true),
@@ -2136,7 +2136,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
 				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 				dpuDeployment.Spec.DPUs.Flavor = nil
-				dpuDeployment.Spec.DPUs.FlavorTemplate = ptr.To(dpuFlavorTemplate.Name)
+				dpuDeployment.Spec.DPUs.FlavorTemplate = &dpuFlavorTemplate.Name
 				dpuDeployment.Spec.DPUs.DPUSets = initialDPUSetSettings
 				dpuDeployment.Spec.ServiceChains = initialServiceChainsSettings
 				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
@@ -2173,8 +2173,8 @@ var _ = Describe("DPUDeployment Controller", func() {
 						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), dpuServiceChain.Name),
 						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), dpuService.Name),
 					}
-					expectedDPUSetSpecs[i].DPUTemplate.Spec.DPUFlavor = ""
-					expectedDPUSetSpecs[i].DPUTemplate.Spec.DPUFlavorTemplate = dpuFlavorTemplate.Name
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.DPUFlavor = nil
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.DPUFlavorTemplate = &dpuFlavorTemplate.Name
 				}
 
 				By("checking that correct DPUSets are created")
@@ -2229,7 +2229,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 							Annotations: map[string]string{"annotationkey1": "annotationvalue1"},
 							Spec: provisioningv1.DPUTemplateSpec{
 								BlueFieldSoftware: &provisioningv1.BlueFieldSoftwareReference{Name: "somebfs"},
-								DPUFlavor:         "someflavor",
+								DPUFlavor:         ptr.To("someflavor"),
 								NodeEffect: provisioningv1.NodeEffect{
 									Action: provisioningv1.Action{Drain: ptr.To(true), Force: ptr.To(false)},
 									UpgradePolicy: provisioningv1.UpgradePolicy{
@@ -2262,7 +2262,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 							Annotations: map[string]string{"annotationkey2": "annotationvalue2"},
 							Spec: provisioningv1.DPUTemplateSpec{
 								BlueFieldSoftware: &provisioningv1.BlueFieldSoftwareReference{Name: "somebfs"},
-								DPUFlavor:         "someflavor",
+								DPUFlavor:         ptr.To("someflavor"),
 								NodeEffect: provisioningv1.NodeEffect{
 									Action: provisioningv1.Action{Drain: ptr.To(true), Force: ptr.To(false)},
 									UpgradePolicy: provisioningv1.UpgradePolicy{
@@ -3775,7 +3775,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 								BFB: &provisioningv1.BFBReference{
 									Name: "somebfb",
 								},
-								DPUFlavor: "someflavor",
+								DPUFlavor: ptr.To("someflavor"),
 								NodeEffect: provisioningv1.NodeEffect{
 									Action: provisioningv1.Action{
 										Drain: ptr.To(true),

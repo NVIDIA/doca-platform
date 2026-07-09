@@ -56,7 +56,6 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -332,9 +331,9 @@ func (t *systemTestInput) applyConfig(conf config) {
 
 	if conf.DPUFlavorPath != nil {
 		t.dpuFlavor = objectFromFile[provisioningv1.DPUFlavor](*conf.DPUFlavorPath)
-		t.dpuDeployment.Spec.DPUs.Flavor = ptr.To(t.dpuFlavor.Name)
+		t.dpuDeployment.Spec.DPUs.Flavor = &t.dpuFlavor.Name
 		if t.dpuSet != nil {
-			t.dpuSet.Spec.DPUTemplate.Spec.DPUFlavor = t.dpuFlavor.Name
+			t.dpuSet.Spec.DPUTemplate.Spec.DPUFlavor = &t.dpuFlavor.Name
 		}
 	}
 
