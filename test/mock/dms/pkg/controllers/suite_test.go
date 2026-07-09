@@ -207,8 +207,9 @@ func TestMain(m *testing.M) {
 	}
 	// Add DPUDevice controller
 	dpuDeviceReconciler := &dpudevice.DPUDeviceReconciler{
-		Client: testManager.GetClient(),
-		Scheme: testManager.GetScheme(),
+		Client:   testManager.GetClient(),
+		Scheme:   testManager.GetScheme(),
+		Recorder: testManager.GetEventRecorderFor(dpudevice.DPUDeviceControllerName),
 	}
 	if err := dpuDeviceReconciler.SetupWithManager(testManager); err != nil {
 		panic(fmt.Sprintf("Failed to setup DPUDevice reconciler: %v", err))

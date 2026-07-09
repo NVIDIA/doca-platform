@@ -28,11 +28,14 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/yaml"
 )
@@ -144,16 +147,112 @@ var _ = Describe("DefaultDPUArtifactGenerator", func() {
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("reading CA certificate"))
 	})
+
+	Context("when the DPU is in SPIFFE identity mode", func() {
+		const trustBundlePEM = "-----BEGIN CERTIFICATE-----\nFAKEBUNDLE\n-----END CERTIFICATE-----"
+
+		var fakeClient client.Client
+
+		buildReq := func(objs ...client.Object) {
+			scheme := runtime.NewScheme()
+			utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+			utilruntime.Must(operatorv1.AddToScheme(scheme))
+			utilruntime.Must(provisioningv1.AddToScheme(scheme))
+
+			mtu := 1500
+			dpfConfig := &operatorv1.DPFOperatorConfig{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-config", Namespace: "test-namespace"},
+				Spec: operatorv1.DPFOperatorConfigSpec{
+					DeploymentMode: operatorv1.DeploymentModeZeroTrust,
+					Networking:     &operatorv1.Networking{ControlPlaneMTU: &mtu},
+					Security: &operatorv1.SecurityConfiguration{
+						SPIFFE: &operatorv1.SPIFFEConfiguration{
+							SPIREServerAddress: "spire-server.spire.svc:8081",
+							SPIRETrustDomain:   "cs.internal",
+							KubeAPIAudience:    "dpf",
+							SPIREOIDCURL:       "https://spire-oidc.example.com",
+							TrustBundle: operatorv1.SPIFFETrustBundleConfigMapReference{
+								Name:      "spire-bundle",
+								Namespace: "spire",
+							},
+						},
+					},
+				},
+			}
+			dpu := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-dpu", Namespace: "test-namespace", UID: "test-uid"},
+				Status:     provisioningv1.DPUStatus{IdentityMode: ptr.To(provisioningv1.IdentityModeSpiffe)},
+			}
+			flavor := &provisioningv1.DPUFlavor{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-flavor", Namespace: "test-namespace"},
+			}
+			all := append([]client.Object{dpfConfig}, objs...)
+			fakeClient = fake.NewClientBuilder().WithScheme(scheme).WithObjects(all...).Build()
+			req = dutil.DPUArtifactRequest{
+				ControllerContext: &dutil.ControllerContext{Client: fakeClient},
+				DPU:               dpu,
+				Flavor:            flavor,
+				// SPIFFE DPUs carry no bootstrap token.
+			}
+		}
+
+		trustBundleCM := func() *corev1.ConfigMap {
+			return &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{Name: "spire-bundle", Namespace: "spire"},
+				Data:       map[string]string{"bundle.pem": trustBundlePEM},
+			}
+		}
+
+		It("emits the trust bundle and omits the bootstrap kubeconfig", func() {
+			buildReq(trustBundleCM())
+
+			artifact, err := generator.GenerateBF4(ctx, req)
+			Expect(err).NotTo(HaveOccurred())
+
+			content, found := extractWriteFile(artifact.UserData, "/etc/spire/agent/trust-bundle.pem")
+			Expect(found).To(BeTrue(), "trust-bundle.pem write_files entry should be present")
+			Expect(content).To(ContainSubstring("FAKEBUNDLE"))
+
+			_, bootstrapFound := extractWriteFile(artifact.UserData, "/var/lib/dpf/dpuagent/bootstrap-kubeconfig")
+			Expect(bootstrapFound).To(BeFalse(), "bootstrap kubeconfig must not be rendered for SPIFFE DPUs")
+		})
+
+		It("errors when the trust bundle ConfigMap is absent", func() {
+			buildReq()
+
+			_, err := generator.GenerateBF4(ctx, req)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("getting SPIRE trust bundle ConfigMap"))
+		})
+
+		It("errors when the trust bundle ConfigMap lacks the bundle.pem key", func() {
+			cm := trustBundleCM()
+			cm.Data = map[string]string{"other": "x"}
+			buildReq(cm)
+
+			_, err := generator.GenerateBF4(ctx, req)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("missing non-empty"))
+		})
+	})
 })
 
 func extractBootstrapKubeconfig(userData []byte) []byte {
+	content, found := extractWriteFile(userData, "/var/lib/dpf/dpuagent/bootstrap-kubeconfig")
+	if !found {
+		Fail("bootstrap kubeconfig write_files entry not found")
+	}
+	return []byte(content)
+}
+
+// extractWriteFile returns the content of the write_files entry at path, and whether it exists.
+func extractWriteFile(userData []byte, path string) (string, bool) {
 	parsed := &artifactCloudConfig{}
 	Expect(yaml.Unmarshal(userData, parsed)).To(Succeed())
 	for _, file := range parsed.WriteFiles {
-		if file.Path == "/var/lib/dpf/dpuagent/bootstrap-kubeconfig" {
-			return []byte(file.Content)
+		if file.Path == path {
+			return file.Content, true
 		}
 	}
-	Fail("bootstrap kubeconfig write_files entry not found")
-	return nil
+	return "", false
 }

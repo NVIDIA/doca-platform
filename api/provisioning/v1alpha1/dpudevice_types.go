@@ -30,15 +30,21 @@ const (
 	DPUDeviceKind = "DPUDevice"
 
 	// DPUDeviceFinalizer is the finalizer used to prevent DpuDevice deletion while DPU is using it
-	DPUDeviceFinalizer = "provisioning.dpu.nvidia.com/dpudevice-protection"
+	DPUDeviceFinalizer = DPUProvisioningPrefix + "dpudevice-protection"
 
 	// BMCCredentialFinalizer is the finalizer added to per-device BMC credential secrets
 	// to prevent accidental deletion while the DPUDevice depends on them.
-	BMCCredentialFinalizer = "provisioning.dpu.nvidia.com/bmc-credential"
+	BMCCredentialFinalizer = DPUProvisioningPrefix + "bmc-credential"
 
 	// DPUDeviceLabelSkipHWProvisioning indicates the device should skip
 	// hardware-specific provisioning steps (install, FW config, reboot).
-	DPUDeviceLabelSkipHWProvisioning = "provisioning.dpu.nvidia.com/skip-hw-provisioning"
+	DPUDeviceLabelSkipHWProvisioning = DPUProvisioningPrefix + "skip-hw-provisioning"
+
+	// SPIFFEDeregistrationFinalizer is added to a SPIFFE-mode DPUDevice and held until its
+	// per-DPU SPIRE ClusterStaticEntry CR has been removed from the K8s API. It enforces the
+	// deletion-ordering invariant that the ClusterStaticEntry is GC'd before the DPUDevice,
+	// so a reflashed DPU cannot race a stale identity entry.
+	SPIFFEDeregistrationFinalizer = DPUProvisioningPrefix + "spiffe-deregistration"
 )
 
 // DPUDeviceGroupVersionKind is the GroupVersionKind of the DPUDevice object

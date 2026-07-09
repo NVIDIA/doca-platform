@@ -374,6 +374,18 @@ rules:
   - update
   - watch
 - apiGroups:
+  - spire.spiffe.io
+  resources:
+  - clusterstaticentries
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - storage.dpu.nvidia.com
   resources:
   - dpustoragepolicies

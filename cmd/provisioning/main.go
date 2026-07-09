@@ -334,8 +334,9 @@ func setupControllers(mgr ctrl.Manager, flags *cliFlags, bfbRegistry string, ima
 		os.Exit(1)
 	}
 	if err := (&dpudevice.DPUDeviceReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor(dpudevice.DPUDeviceControllerName),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DPUDevice")
 		os.Exit(1)
