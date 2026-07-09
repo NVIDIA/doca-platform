@@ -91,8 +91,9 @@ func (r *DPUNodeMaintenanceReconciler) Reconcile(ctx context.Context, req ctrl.R
 
 	r.ensureStatusDefaults(dpunodemaintenance)
 
-	// Add finalizer if not set.
-	if !controllerutil.ContainsFinalizer(dpunodemaintenance, provisioningv1.DPUNodeMaintenanceFinalizer) {
+	// Add finalizer only when the object is not being deleted. Adding it during deletion would
+	// re-block teardown (e.g. after the operator strips the finalizer on DPFOperatorConfig removal).
+	if dpunodemaintenance.GetDeletionTimestamp().IsZero() && !controllerutil.ContainsFinalizer(dpunodemaintenance, provisioningv1.DPUNodeMaintenanceFinalizer) {
 		logger.Info("Adding finalizer")
 		controllerutil.AddFinalizer(dpunodemaintenance, provisioningv1.DPUNodeMaintenanceFinalizer)
 		return ctrl.Result{}, nil

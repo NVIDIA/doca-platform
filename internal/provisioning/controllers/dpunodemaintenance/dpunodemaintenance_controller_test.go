@@ -129,6 +129,38 @@ var _ = Describe("DPUNodeMaintenanceReconciler", func() {
 		}
 	})
 
+	It("does not re-add the finalizer while the object is being deleted", func() {
+		now := metav1.Now()
+		obj := &provisioningv1.DPUNodeMaintenance{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:              objName,
+				Namespace:         namespace,
+				DeletionTimestamp: &now,
+				// A placeholder finalizer keeps the object in the fake API after the protection
+				// finalizer has been stripped, as the operator does on DPFOperatorConfig teardown.
+				Finalizers: []string{"test.nvidia.com/keep"},
+			},
+			Spec: provisioningv1.DPUNodeMaintenanceSpec{
+				DPUNodeName: dpuNodeName,
+				NodeEffect: &provisioningv1.NodeEffect{
+					Action: provisioningv1.Action{
+						NoEffect: ptr.To(true),
+					},
+				},
+			},
+		}
+		reconciler, fakeClient := newReconciler(obj)
+
+		_, err := reconciler.Reconcile(ctx, ctrl.Request{
+			NamespacedName: client.ObjectKeyFromObject(obj),
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		got := &provisioningv1.DPUNodeMaintenance{}
+		Expect(fakeClient.Get(ctx, client.ObjectKeyFromObject(obj), got)).To(Succeed())
+		Expect(got.Finalizers).NotTo(ContainElement(provisioningv1.DPUNodeMaintenanceFinalizer))
+	})
+
 	It("keeps finalizer when requestor is set and DPUNode still exists", func() {
 		obj := orphanedNoEffectDPUNodeMaintenance()
 		dpuNode := &provisioningv1.DPUNode{
