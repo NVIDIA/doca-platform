@@ -158,6 +158,7 @@ func TestDPFOperatorConfigReconciler_Conditions(t *testing.T) {
 				"SystemComponentsReconciled": "Pending",
 				"ImagePullSecretsReconciled": "Error",
 				"PreUpgradeValidationReady":  "Success",
+				"CATrustBundleReady":         "Pending",
 			})
 		}).WithTimeout(10 * time.Second).Should(Succeed())
 	})
@@ -178,6 +179,7 @@ func TestDPFOperatorConfigReconciler_Conditions(t *testing.T) {
 				"SystemComponentsReconciled": "Success",
 				"ImagePullSecretsReconciled": "Success",
 				"PreUpgradeValidationReady":  "Success",
+				"CATrustBundleReady":         "Pending",
 			})
 		}).WithTimeout(5*time.Second).Should(Succeed(), fmt.Sprintf("test failed with %v", config))
 	})
@@ -204,6 +206,7 @@ func TestDPFOperatorConfigReconciler_Conditions(t *testing.T) {
 				"SystemComponentsReconciled": "AwaitingDeletion",
 				"ImagePullSecretsReconciled": "Success",
 				"PreUpgradeValidationReady":  "Success",
+				"CATrustBundleReady":         "Pending",
 			})
 		}).WithTimeout(10 * time.Second).Should(Succeed())
 

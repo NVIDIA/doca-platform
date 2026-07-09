@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	_ "embed"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -160,6 +161,7 @@ func (r *DPFOperatorConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&dpuservicev1.DPUService{}, handler.EnqueueRequestsFromMapFunc(r.DPUServiceToDPFOperatorConfig)).
 		Watches(&appsv1.Deployment{}, handler.EnqueueRequestsFromMapFunc(r.DeploymentToDPFOperatorConfig)).
 		Watches(&appsv1.DaemonSet{}, handler.EnqueueRequestsFromMapFunc(r.DaemonSetToDPFOperatorConfig)).
+		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.ProvisioningCASecretToDPFOperatorConfig)).
 		Complete(r)
 }
 
@@ -283,6 +285,29 @@ func (r *DPFOperatorConfigReconciler) reconcile(ctx context.Context, dpfOperator
 		return ctrl.Result{}, err
 	}
 	conditions.AddTrue(dpfOperatorConfig, operatorv1.SystemComponentsReconciledCondition)
+
+	if err := r.reconcileCATrustBundle(ctx, dpfOperatorConfig); err != nil {
+		// The provisioning CA Secret is issued asynchronously by cert-manager. A pending error is not
+		// fatal: surface it on the condition and return.
+		pendingErr := &caTrustBundlePendingError{}
+		if errors.As(err, &pendingErr) {
+			conditions.AddFalse(
+				dpfOperatorConfig,
+				operatorv1.CATrustBundleReadyCondition,
+				conditions.ReasonPending,
+				conditions.ConditionMessage(pendingErr.Error()))
+			return ctrl.Result{}, nil
+		}
+		message := fmt.Sprintf("CA trust bundle must be reconciled for DPF Operator to continue:\n%v",
+			conditions.JoinErrors(err, 1))
+		conditions.AddFalse(
+			dpfOperatorConfig,
+			operatorv1.CATrustBundleReadyCondition,
+			conditions.ReasonError,
+			conditions.ConditionMessage(message))
+		return ctrl.Result{}, err
+	}
+	conditions.AddTrue(dpfOperatorConfig, operatorv1.CATrustBundleReadyCondition)
 
 	// Update the DPF version in the status of the DPFOperatorConfig after a successful reconciliation.
 	dpfOperatorConfig.Status.Version = ptr.To(release.DPFVersion())
