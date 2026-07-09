@@ -227,12 +227,12 @@ func AddPatchPort(ctx context.Context, ovs ovsutils.API, brA, brB string, patchP
 // Returns an error if any OVS operation fails; partial state may remain on failure.
 func DeletePatchPorts(ctx context.Context, ovs ovsutils.API, brA, brB string, patchPort, peerPatchPort string) error {
 	log := ctrllog.FromContext(ctx)
-	err := ovs.DelPort(ctx, brA, patchPort)
+	err := ovs.DelPort(ctx, brA, patchPort, nil)
 	if err != nil {
 		log.Info(fmt.Sprintf("failed to delete port %s", err.Error()))
 		return err
 	}
-	err = ovs.DelPort(ctx, brB, peerPatchPort)
+	err = ovs.DelPort(ctx, brB, peerPatchPort, nil)
 	if err != nil {
 		log.Info(fmt.Sprintf("failed to delete port %s", err.Error()))
 		return err
@@ -442,7 +442,7 @@ func DeleteInterfacesFromOvs(
 	}
 
 	if portName != "" {
-		err := ovs.DelPort(ctx, SFCBridge, portName)
+		err := ovs.DelPort(ctx, SFCBridge, portName, nil)
 		if err != nil {
 			log.Error(err, "failed to delete port")
 			return err

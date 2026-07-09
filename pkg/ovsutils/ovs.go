@@ -36,7 +36,7 @@ import (
 type API interface {
 	ovsclient.Client
 	AddPort(ctx context.Context, portConfig PortConfig) error
-	DelPort(ctx context.Context, bridgeName, portName string) error
+	DelPort(ctx context.Context, bridgeName, portName string, opt *DelPortOpt) error
 	ValidateBridgeExists(ctx context.Context, bridgeName string) error
 	GetInterfaceLinkState(ctx context.Context, name string) (ovsmodel.InterfaceLinkState, error)
 	GetPortVLANState(ctx context.Context, name string) (PortVLANState, error)
@@ -206,6 +206,11 @@ type PortVLANState struct {
 	Trunks []int
 }
 
+// DelPortOpt configures optional DelPort guards.
+type DelPortOpt struct {
+	Owner string
+}
+
 const (
 	InterfaceTypeInternal      = "internal"
 	maxInterfaceNameLen        = 15         // Linux IFNAMSIZ for netdev/port names
@@ -340,10 +345,9 @@ func (c *Client) AddPort(ctx context.Context, portConfig PortConfig) error {
 	return nil
 }
 
-// DelPort performing 4 operations
-// Deleting interface, deleting port, deleting port from a bridge, deleting port transaction
-// The port will not be deleted if it exists on a different bridge
-func (c *Client) DelPort(ctx context.Context, bridgeName, portName string) error {
+// DelPort deletes a port from a bridge.
+// When opt.Owner is set, ports with a different owner are rejected.
+func (c *Client) DelPort(ctx context.Context, bridgeName, portName string, opt *DelPortOpt) error {
 	// get port
 	port := &ovsmodel.Port{
 		Name: portName,
@@ -357,6 +361,10 @@ func (c *Client) DelPort(ctx context.Context, bridgeName, portName string) error
 	}
 	if err != nil {
 		return fmt.Errorf("failed to get port %s: %v", portName, err)
+	}
+
+	if opt != nil && opt.Owner != "" && port.ExternalIDs["owner"] != opt.Owner {
+		return fmt.Errorf("port %s owner %q does not match required owner %q", portName, port.ExternalIDs["owner"], opt.Owner)
 	}
 
 	// Make delete operations non fatal if the port does not exist on the requested bridge

@@ -247,11 +247,11 @@ var _ = Describe("OVSUtils", func() {
 	Describe("DelPort", func() {
 		DescribeTable("should be idempotent",
 			func(description string) {
-				mockAPI.EXPECT().
-					DelPort(ctx, "br-test", "port-test").
+				mockAPI.EXPECT().DelPort(
+					ctx, "br-test", "port-test", nil).
 					Return(nil)
 
-				Expect(mockAPI.DelPort(ctx, "br-test", "port-test")).To(Succeed())
+				Expect(mockAPI.DelPort(ctx, "br-test", "port-test", nil)).To(Succeed())
 			},
 			Entry("when port doesn't exist", "port doesn't exist"),
 			Entry("when port exists on different bridge", "port on different bridge"),
@@ -259,19 +259,19 @@ var _ = Describe("OVSUtils", func() {
 
 		It("should fail when database error occurs", func() {
 			expectedErr := errors.New("database error")
-			mockAPI.EXPECT().
-				DelPort(ctx, "br-test", "port-test").
+			mockAPI.EXPECT().DelPort(
+				ctx, "br-test", "port-test", nil).
 				Return(expectedErr)
 
-			Expect(mockAPI.DelPort(ctx, "br-test", "port-test")).To(MatchError(expectedErr))
+			Expect(mockAPI.DelPort(ctx, "br-test", "port-test", nil)).To(MatchError(expectedErr))
 		})
 
 		It("should succeed when port exists on the bridge", func() {
-			mockAPI.EXPECT().
-				DelPort(ctx, "br-test", "port-test").
+			mockAPI.EXPECT().DelPort(
+				ctx, "br-test", "port-test", nil).
 				Return(nil)
 
-			Expect(mockAPI.DelPort(ctx, "br-test", "port-test")).To(Succeed())
+			Expect(mockAPI.DelPort(ctx, "br-test", "port-test", nil)).To(Succeed())
 		})
 	})
 
@@ -1400,13 +1400,20 @@ var _ = Describe("OVSUtils", func() {
 		})
 
 		Describe("DelPort", func() {
+			var mockConditionalAPI *MockConditionalAPI
+			const requiredOwner = "required-owner"
+
+			BeforeEach(func() {
+				mockConditionalAPI = NewMockConditionalAPI(mockCtrl)
+			})
+
 			DescribeTable("should handle different Get error scenarios",
 				func(getError error, expectError bool) {
 					mockOVSClient.EXPECT().
 						Get(gomock.Any(), gomock.Any()).
 						Return(getError)
 
-					err := client.DelPort(ctx, "br-test", "port-test")
+					err := client.DelPort(ctx, "br-test", "port-test", nil)
 					if expectError {
 						Expect(err).To(HaveOccurred())
 					} else {
@@ -1416,6 +1423,114 @@ var _ = Describe("OVSUtils", func() {
 				Entry("when port not found (idempotent)", ovsclient.ErrNotFound, false),
 				Entry("when Get returns error", errors.New("database error"), true),
 			)
+
+			It("should skip delete when required owner is set and port is missing", func() {
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					Return(ovsclient.ErrNotFound)
+
+				err := client.DelPort(ctx, "br-test", "missing", &DelPortOpt{Owner: requiredOwner})
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("should fail when owner does not match required owner", func() {
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, model interface{}) error {
+						port := model.(*ovsmodel.Port)
+						port.ExternalIDs = map[string]string{"owner": "someone-else"}
+						return nil
+					})
+
+				err := client.DelPort(ctx, "br-test", "port-test", &DelPortOpt{Owner: requiredOwner})
+				Expect(err).To(MatchError(`port port-test owner "someone-else" does not match required owner "required-owner"`))
+			})
+
+			It("should skip delete when owner matches and port is on another bridge", func() {
+				gomock.InOrder(
+					mockOVSClient.EXPECT().
+						Get(gomock.Any(), gomock.Any()).
+						DoAndReturn(func(ctx context.Context, model interface{}) error {
+							port := model.(*ovsmodel.Port)
+							port.UUID = portUUID
+							port.ExternalIDs = map[string]string{"owner": requiredOwner}
+							return nil
+						}),
+					mockOVSClient.EXPECT().
+						Get(gomock.Any(), gomock.Any()).
+						DoAndReturn(func(ctx context.Context, model interface{}) error {
+							port := model.(*ovsmodel.Port)
+							port.UUID = portUUID
+							return nil
+						}),
+					mockOVSClient.EXPECT().
+						WhereAll(gomock.Any(), gomock.Any()).
+						Return(mockConditionalAPI),
+					mockConditionalAPI.EXPECT().
+						List(gomock.Any(), gomock.Any()).
+						DoAndReturn(func(ctx context.Context, result interface{}) error {
+							ptr := result.(*[]ovsmodel.Bridge)
+							*ptr = []ovsmodel.Bridge{{Name: "br-other"}}
+							return nil
+						}),
+				)
+
+				err := client.DelPort(ctx, "br-test", "port-test", &DelPortOpt{Owner: requiredOwner})
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("should delete when owner matches required owner", func() {
+				gomock.InOrder(
+					mockOVSClient.EXPECT().
+						Get(gomock.Any(), gomock.Any()).
+						DoAndReturn(func(ctx context.Context, model interface{}) error {
+							port := model.(*ovsmodel.Port)
+							port.UUID = portUUID
+							port.ExternalIDs = map[string]string{"owner": requiredOwner}
+							return nil
+						}),
+					mockOVSClient.EXPECT().
+						Get(gomock.Any(), gomock.Any()).
+						DoAndReturn(func(ctx context.Context, model interface{}) error {
+							port := model.(*ovsmodel.Port)
+							port.UUID = portUUID
+							return nil
+						}),
+					mockOVSClient.EXPECT().
+						WhereAll(gomock.Any(), gomock.Any()).
+						Return(mockConditionalAPI),
+					mockConditionalAPI.EXPECT().
+						List(gomock.Any(), gomock.Any()).
+						DoAndReturn(func(ctx context.Context, result interface{}) error {
+							ptr := result.(*[]ovsmodel.Bridge)
+							*ptr = []ovsmodel.Bridge{{Name: "br-test"}}
+							return nil
+						}),
+					mockOVSClient.EXPECT().
+						Where(gomock.Any()).
+						Return(mockConditionalAPI),
+					mockConditionalAPI.EXPECT().
+						Delete().
+						Return([]ovsdb.Operation{{Op: "delete", Table: "Interface"}}, nil),
+					mockOVSClient.EXPECT().
+						Where(gomock.Any()).
+						Return(mockConditionalAPI),
+					mockConditionalAPI.EXPECT().
+						Delete().
+						Return([]ovsdb.Operation{{Op: "delete", Table: "Port"}}, nil),
+					mockOVSClient.EXPECT().
+						Where(gomock.Any()).
+						Return(mockConditionalAPI),
+					mockConditionalAPI.EXPECT().
+						Mutate(gomock.Any(), gomock.Any()).
+						Return([]ovsdb.Operation{{Op: "mutate", Table: "Bridge"}}, nil),
+					mockOVSClient.EXPECT().
+						Transact(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+						Return([]ovsdb.OperationResult{{}, {}, {}}, nil),
+				)
+
+				Expect(client.DelPort(ctx, "br-test", "port-test", &DelPortOpt{Owner: requiredOwner})).To(Succeed())
+			})
 		})
 
 		Describe("IsIfaceInBr", func() {
