@@ -29,6 +29,12 @@ controllerManager:
   #     When enabled, VPC ServiceInterfaceSets (those with a virtualNetwork set)
   #     use the NodeServiceInterfaces reconciliation path instead of creating
   #     individual ServiceInterface objects per node.
+  #   ConfigPortsOverHighSpeed (default: false, alpha)
+  #     When enabled, the dpuservice controller configures configPorts over high-speed network.
+  #     Applicable only when OVN-Kubernetes is used.
+  #   Example:
+  #     featureGates:
+  #       ConfigPortsOverHighSpeed: true
   # -- featureGates configures the feature gates for the dpf-operator.
   featureGates: {}
   # Set kubernetes resource requests and limits for the controller.

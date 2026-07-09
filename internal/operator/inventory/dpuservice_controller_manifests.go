@@ -20,9 +20,11 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"strings"
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	argocd "github.com/nvidia/doca-platform/internal/argocd"
+	"github.com/nvidia/doca-platform/internal/features"
 	"github.com/nvidia/doca-platform/internal/operator/utils"
 	"github.com/nvidia/doca-platform/internal/release"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
@@ -33,6 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -220,6 +223,7 @@ func (d *dpuServiceControllerObjects) deploymentEdit(vars Variables) StructuredE
 
 		mods := []func(*appsv1.Deployment, Variables) error{
 			d.setDPUReadyController,
+			d.setFeatureGates,
 		}
 		for _, mod := range mods {
 			if err := mod(deployment, vars); err != nil {
@@ -236,6 +240,26 @@ func (d *dpuServiceControllerObjects) setDPUReadyController(deploy *appsv1.Deplo
 		return fmt.Errorf("container %q not found in DPUService Controller deployment", managerContainerName)
 	}
 	return setFlags(c, fmt.Sprintf("--disable-dpu-ready-taints=%t", vars.DisableDPUReadyTaints))
+}
+
+// setFeatureGates propagates the operator binary's feature-gate to the dpuservice controller deployment so a
+// single operator-side flip toggles the same gate downstream.
+func (d *dpuServiceControllerObjects) setFeatureGates(deploy *appsv1.Deployment, vars Variables) error {
+	c := getManagerContainer(deploy)
+	if c == nil {
+		return fmt.Errorf("container %q not found in DPUService Controller deployment", managerContainerName)
+	}
+
+	gatesForCLI := []featuregate.Feature{
+		features.ConfigPortsOverHighSpeed,
+	}
+
+	cliGatesStrs := make([]string, 0, len(gatesForCLI))
+	for _, gate := range gatesForCLI {
+		cliGatesStrs = append(cliGatesStrs, fmt.Sprintf("%s=%t", gate, features.Gates.Enabled(gate)))
+	}
+
+	return setFlags(c, fmt.Sprintf("--feature-gates=%s", strings.Join(cliGatesStrs, ",")))
 }
 
 // IsReadyForUpgrade reports the readiness of the dpuservice controller objects. It returns an error when the number of Replicas in
