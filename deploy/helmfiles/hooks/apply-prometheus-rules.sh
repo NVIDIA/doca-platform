@@ -16,7 +16,7 @@
 
 set -euo pipefail
 
-RULES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/prometheus-rules"
+RULES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../prometheus-rules"
 
 echo "Applying DPF PrometheusRules from ${RULES_DIR}"
 
