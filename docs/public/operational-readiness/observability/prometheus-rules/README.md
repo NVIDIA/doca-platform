@@ -51,3 +51,4 @@ spec:
 
 * [Alert rule examples](alerts.md)
 * [Recording rule examples](recording-rules.md)
+* [Alertmanager example](alertmanager.md)
