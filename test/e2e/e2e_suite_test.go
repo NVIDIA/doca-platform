@@ -400,6 +400,13 @@ func reportAfterEach(spec SpecReport) {
 			GinkgoLogr.Error(err, "failed to collect resources and logs for the clusters")
 		}
 
+		if isGinkgoLabelApplied(Domain.ZeroTrust) {
+			By(fmt.Sprintf("ReportAfterEach: Test %q failed. Collecting BMC logs", spec.FullText()))
+			if err = collectBMCLogsZT(ctx, spec.LeafNodeText, artifactsDir, testClient, input); err != nil {
+				GinkgoLogr.Error(err, "failed to collect BMC logs")
+			}
+		}
+
 		// Collect SOS reports if enabled (runs at most once per suite via sync.Once).
 		if enableSOSReports {
 			if err = collectSOSReports(ctx, artifactsDir); err != nil {
