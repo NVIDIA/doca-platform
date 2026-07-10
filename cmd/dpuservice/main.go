@@ -253,6 +253,7 @@ func main() {
 				dpuReadyReconciler.WatchServiceChains,
 				dpuReadyReconciler.WatchServiceInterfaces,
 				dpuReadyReconciler.WatchNodes,
+				dpuReadyReconciler.WatchNodeServiceInterfaces,
 				dpuServiceReconciler.WatchNodes,
 			},
 		},

@@ -144,6 +144,7 @@ var _ = BeforeSuite(func() {
 				dpuReadyReconciler.WatchServicePods,
 				dpuReadyReconciler.WatchServiceChains,
 				dpuReadyReconciler.WatchServiceInterfaces,
+				dpuReadyReconciler.WatchNodeServiceInterfaces,
 				dpuReadyReconciler.WatchNodes,
 			},
 		},

@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 
@@ -938,6 +939,23 @@ func (r *DPUReadyReconciler) WatchServiceInterfaces(ctx context.Context, c clien
 	}), nil
 }
 
+// WatchNodeServiceInterfaces sets up watches for NodeServiceInterfaces objects in DPU clusters
+func (r *DPUReadyReconciler) WatchNodeServiceInterfaces(ctx context.Context, c client.Client, cluster client.ObjectKey) (dpucluster.Watcher, error) {
+	dpfOperatorConfig, err := utils.GetDPFOperatorConfig(ctx, r.Client)
+	if err != nil {
+		return nil, err
+	}
+	return dpucluster.NewWatcher(dpucluster.WatcherOptions{
+		Name:         "dpuready-nodeserviceinterfaces-watcher",
+		Kind:         &dpuservicev1.NodeServiceInterfaces{},
+		EventHandler: &nodeServiceInterfacesEventHandler{client: c, dpuNodeDefaultNamespace: dpfOperatorConfig.Namespace},
+		Predicates: []predicate.Predicate{
+			newNodeServiceInterfacesReadyPredicate(),
+		},
+		Watcher: r.controller,
+	}), nil
+}
+
 // WatchNodes sets up watches for Node objects in DPU clusters to detect node condition changes
 // such as those reported by node-problem-detector
 func (r *DPUReadyReconciler) WatchNodes(ctx context.Context, c client.Client, cluster client.ObjectKey) (dpucluster.Watcher, error) {
@@ -1260,4 +1278,74 @@ func newServiceInterfaceReadyPredicate() predicate.Funcs {
 			return false
 		},
 	}
+}
+
+// nodeServiceInterfacesEventHandler is a handler for NodeServiceInterfaces events
+type nodeServiceInterfacesEventHandler struct {
+	client client.Client
+	// dpuNodeDefaultNamespace is the default namespace where to look for the DPUNode.
+	dpuNodeDefaultNamespace string
+}
+
+func (h *nodeServiceInterfacesEventHandler) handleEvent(ctx context.Context, obj client.Object, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
+	nsi, ok := obj.(*dpuservicev1.NodeServiceInterfaces)
+	if !ok {
+		ctrllog.FromContext(ctx).Error(fmt.Errorf("event expected a NodeServiceInterfaces but got a %T", obj), "Failed to convert object")
+		return
+	}
+	if nsi.Spec.Node == "" {
+		return
+	}
+	enqueueDPUNodeFromNodeInDPUCluster(ctx, h.client, nsi.Spec.Node, h.dpuNodeDefaultNamespace, q)
+}
+
+func (h *nodeServiceInterfacesEventHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
+	h.handleEvent(ctx, e.Object, q)
+}
+
+func (h *nodeServiceInterfacesEventHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
+	h.handleEvent(ctx, e.ObjectNew, q)
+}
+
+func (h *nodeServiceInterfacesEventHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
+	h.handleEvent(ctx, e.Object, q)
+}
+
+func (h *nodeServiceInterfacesEventHandler) Generic(ctx context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[ctrl.Request]) {
+	h.handleEvent(ctx, e.Object, q)
+}
+
+// newNodeServiceInterfacesReadyPredicate creates a predicate that filters NodeServiceInterfaces
+// events to only trigger when a per-entry Ready condition changes, avoiding reconciliation bursts on startup.
+func newNodeServiceInterfacesReadyPredicate() predicate.Funcs {
+	return predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			// Skip create events to avoid reconciliation burst during initial cache sync
+			return false
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldNSI := e.ObjectOld.(*dpuservicev1.NodeServiceInterfaces)
+			newNSI := e.ObjectNew.(*dpuservicev1.NodeServiceInterfaces)
+			return nsiInterfaceReadinessChanged(oldNSI.Status.InterfaceStatuses, newNSI.Status.InterfaceStatuses)
+		},
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			return true
+		},
+		GenericFunc: func(e event.GenericEvent) bool {
+			return false
+		},
+	}
+}
+
+// nsiInterfaceReadinessChanged returns true if the Ready condition of any entry changed
+// between the old and new InterfaceStatuses slices.
+func nsiInterfaceReadinessChanged(oldStatuses, newStatuses []dpuservicev1.InterfaceEntryStatus) bool {
+	readiness := func(statuses []dpuservicev1.InterfaceEntryStatus) map[string]bool {
+		m := make(map[string]bool, len(statuses))
+		for _, s := range statuses {
+			m[s.Name] = meta.IsStatusConditionTrue(s.Conditions, string(conditions.TypeReady))
+		}
+		return m
+	}
+	return !maps.Equal(readiness(oldStatuses), readiness(newStatuses))
 }
