@@ -6,6 +6,8 @@ Wants=network-online.target
 [Service]
 Type=simple
 ExecStart=/bin/bash -c '/opt/dpf/dpuagent $(cat /opt/dpf/dpuagent.conf)'
+StandardOutput=journal+console
+StandardError=journal+console
 Restart=on-failure
 RestartSec=5
 TimeoutStartSec=infinity
