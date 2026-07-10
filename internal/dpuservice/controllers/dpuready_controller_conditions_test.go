@@ -17,11 +17,13 @@ limitations under the License.
 package controllers
 
 import (
+	"context"
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/digest"
 	operatorcontroller "github.com/nvidia/doca-platform/internal/operator/controllers"
 	sfcsetcontroller "github.com/nvidia/doca-platform/internal/servicechainset/controllers"
 	"github.com/nvidia/doca-platform/pkg/conditions"
@@ -35,8 +37,10 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 var _ = Describe("Conditions Aggregation", func() {
@@ -252,6 +256,204 @@ var _ = Describe("Conditions Aggregation", func() {
 		Context("when both are empty", func() {
 			It("should return true", func() {
 				Expect(nodeConditionsEqual([]corev1.NodeCondition{}, []corev1.NodeCondition{})).To(BeTrue())
+			})
+		})
+	})
+
+	Describe("aggregateDPUServiceInterfacesCondition NSI path", func() {
+		const (
+			nsiTestServiceInterfaceNamespace = "test-ns"
+			nsiTestDPUName                   = "test-dpu"
+			nsiTestInterfaceName             = "test-interface"
+			// NSI objects live in the DPF-owned namespace, not the ServiceInterfaceSet namespace.
+			nsiObjectsNamespace = operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace
+		)
+
+		nsiName := func(node, nsiType string) string {
+			return digest.GenerateName(node+"-"+nsiType, node, nsiType)
+		}
+
+		newIndexedDPUClusterClient := func(objs ...client.Object) client.Client {
+			return fake.NewClientBuilder().
+				WithScheme(scheme.Scheme).
+				WithObjects(objs...).
+				WithStatusSubresource(&dpuservicev1.ServiceInterface{}, &dpuservicev1.NodeServiceInterfaces{}).
+				WithIndex(&dpuservicev1.ServiceInterface{}, nodeNameField, func(obj client.Object) []string {
+					si := obj.(*dpuservicev1.ServiceInterface)
+					if si.Spec.Node == nil {
+						return nil
+					}
+					return []string{*si.Spec.Node}
+				}).
+				WithIndex(&dpuservicev1.NodeServiceInterfaces{}, nodeNameField, func(obj client.Object) []string {
+					nsi := obj.(*dpuservicev1.NodeServiceInterfaces)
+					if nsi.Spec.Node == "" {
+						return nil
+					}
+					return []string{nsi.Spec.Node}
+				}).
+				Build()
+		}
+
+		dpuServiceInterface := func() *dpuservicev1.DPUServiceInterface {
+			return &dpuservicev1.DPUServiceInterface{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      nsiTestInterfaceName,
+					Namespace: nsiTestServiceInterfaceNamespace,
+					Labels: map[string]string{
+						dpuservicev1.ParentDPUDeploymentNameLabel: "test-deployment",
+					},
+				},
+			}
+		}
+
+		// nsiEntry pairs a spec interface entry name with its simulated readiness.
+		// The name must follow the "<namespace>_<set-name>" format used by interfaceEntryName.
+		type nsiEntry struct {
+			name  string
+			ready bool
+		}
+
+		// nodeServiceInterfaces builds a NodeServiceInterfaces where Spec.Interfaces is the
+		// source of truth and Status.InterfaceStatuses mirrors it with the supplied readiness —
+		// matching the production flow where the serviceinterfaceset controller writes spec
+		// first and the downstream SFC/VPC reconciler fills in status.
+		nodeServiceInterfaces := func(node string, entries ...nsiEntry) *dpuservicev1.NodeServiceInterfaces {
+			specInterfaces := make([]dpuservicev1.InterfaceEntry, 0, len(entries))
+			statuses := make([]dpuservicev1.InterfaceEntryStatus, 0, len(entries))
+			for _, e := range entries {
+				specInterfaces = append(specInterfaces, dpuservicev1.InterfaceEntry{
+					Name:          e.name,
+					InterfaceType: dpuservicev1.InterfaceTypePhysical,
+				})
+				readyStatus := metav1.ConditionFalse
+				if e.ready {
+					readyStatus = metav1.ConditionTrue
+				}
+				statuses = append(statuses, dpuservicev1.InterfaceEntryStatus{
+					Name: e.name,
+					Conditions: []metav1.Condition{{
+						Type:   string(conditions.TypeReady),
+						Status: readyStatus,
+						Reason: "Test",
+					}},
+				})
+			}
+			return &dpuservicev1.NodeServiceInterfaces{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      nsiName(node, dpuservicev1.NSITypeSFC),
+					Namespace: nsiObjectsNamespace,
+				},
+				Spec: dpuservicev1.NodeServiceInterfacesSpec{
+					Node:       node,
+					Type:       dpuservicev1.NSITypeSFC,
+					Interfaces: specInterfaces,
+				},
+				Status: dpuservicev1.NodeServiceInterfacesStatus{
+					InterfaceStatuses: statuses,
+				},
+			}
+		}
+
+		serviceInterface := func(node string, ready bool) *dpuservicev1.ServiceInterface {
+			si := &dpuservicev1.ServiceInterface{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      nsiTestInterfaceName + "-instance",
+					Namespace: nsiTestServiceInterfaceNamespace,
+					Labels: map[string]string{
+						sfcsetcontroller.ServiceInterfaceSetNameLabel:      nsiTestInterfaceName,
+						sfcsetcontroller.ServiceInterfaceSetNamespaceLabel: nsiTestServiceInterfaceNamespace,
+					},
+				},
+				Spec: dpuservicev1.ServiceInterfaceSpec{
+					Node: ptr.To(node),
+				},
+			}
+			meta.SetStatusCondition(&si.Status.Conditions, metav1.Condition{
+				Type:   string(conditions.TypeReady),
+				Status: metav1.ConditionFalse,
+				Reason: "NotReady",
+			})
+			if ready {
+				meta.SetStatusCondition(&si.Status.Conditions, metav1.Condition{
+					Type:   string(conditions.TypeReady),
+					Status: metav1.ConditionTrue,
+					Reason: "Ready",
+				})
+			}
+			return si
+		}
+
+		aggregateInterfacesCondition := func(dpuClusterObjects ...client.Object) metav1.Condition {
+			mgmtClient := fake.NewClientBuilder().
+				WithScheme(scheme.Scheme).
+				WithObjects(dpuServiceInterface()).
+				Build()
+
+			dpuClusterClient := newIndexedDPUClusterClient(dpuClusterObjects...)
+			testReconciler := &DPUReadyReconciler{Client: mgmtClient}
+			dpu := provisioningv1.DPU{ObjectMeta: metav1.ObjectMeta{Name: nsiTestDPUName}}
+			node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: nsiTestDPUName}}
+
+			cond, err := testReconciler.aggregateDPUServiceInterfacesCondition(context.Background(), dpuClusterClient, dpu, node)
+			Expect(err).NotTo(HaveOccurred())
+			return cond
+		}
+
+		entryName := nsiTestServiceInterfaceNamespace + "_" + nsiTestInterfaceName
+
+		Context("when readiness comes from NodeServiceInterfaces", func() {
+			It("should report all interfaces ready for a ready NSI entry", func() {
+				cond := aggregateInterfacesCondition(
+					nodeServiceInterfaces(nsiTestDPUName, nsiEntry{name: entryName, ready: true}),
+				)
+				Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+				Expect(cond.Reason).To(Equal("AllServiceInterfacesReady"))
+			})
+
+			It("should report interfaces not ready for a not-ready NSI entry", func() {
+				cond := aggregateInterfacesCondition(
+					nodeServiceInterfaces(nsiTestDPUName, nsiEntry{name: entryName, ready: false}),
+				)
+				Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+				Expect(cond.Reason).To(Equal("ServiceInterfacesNotReady"))
+				Expect(cond.Message).To(ContainSubstring(nsiTestInterfaceName))
+			})
+
+			It("should skip interface status entries with invalid names", func() {
+				cond := aggregateInterfacesCondition(
+					nodeServiceInterfaces(nsiTestDPUName, nsiEntry{name: "invalid-name-without-underscore", ready: true}),
+				)
+				Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+				Expect(cond.Reason).To(Equal("ServiceInterfacesNotReady"))
+			})
+
+			It("should ignore NSI objects on other nodes", func() {
+				cond := aggregateInterfacesCondition(
+					nodeServiceInterfaces("other-node", nsiEntry{name: entryName, ready: true}),
+				)
+				Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+				Expect(cond.Reason).To(Equal("ServiceInterfacesNotReady"))
+			})
+		})
+
+		Context("when legacy ServiceInterface and NSI both report the same set", func() {
+			It("should not downgrade legacy ready=true with NSI ready=false", func() {
+				cond := aggregateInterfacesCondition(
+					serviceInterface(nsiTestDPUName, true),
+					nodeServiceInterfaces(nsiTestDPUName, nsiEntry{name: entryName, ready: false}),
+				)
+				Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+				Expect(cond.Reason).To(Equal("AllServiceInterfacesReady"))
+			})
+
+			It("should not upgrade legacy ready=false with NSI ready=true", func() {
+				cond := aggregateInterfacesCondition(
+					serviceInterface(nsiTestDPUName, false),
+					nodeServiceInterfaces(nsiTestDPUName, nsiEntry{name: entryName, ready: true}),
+				)
+				Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+				Expect(cond.Reason).To(Equal("ServiceInterfacesNotReady"))
 			})
 		})
 	})
@@ -882,6 +1084,71 @@ var _ = Describe("DPUReadyReconciler Conditions", func() {
 				ObservedGeneration: serviceInterface.Generation,
 			})
 			Expect(dpuClusterClient.Status().Update(ctx, serviceInterface)).To(Succeed())
+
+			Eventually(func(g Gomega) {
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpu), dpu)).To(Succeed())
+				g.Expect(dpu.Status.OperationalConditions).To(ContainElement(
+					And(
+						HaveField("Type", Equal(string(provisioningv1.DPUOperationalCondDPUServiceInterfacesReady))),
+						HaveField("Status", Equal(metav1.ConditionTrue)),
+						HaveField("Reason", Equal("AllServiceInterfacesReady")),
+					),
+				))
+			}).WithTimeout(10 * time.Second).WithPolling(500 * time.Millisecond).Should(Succeed())
+		})
+
+		It("should aggregate service interfaces readiness from NodeServiceInterfaces", func() {
+			By("Creating a DPUServiceInterface")
+			dpuServiceInterface := &dpuservicev1.DPUServiceInterface{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-interface-nsi",
+					Namespace: testNS.Name,
+					Labels: map[string]string{
+						dpuservicev1.ParentDPUDeploymentNameLabel: "test-deployment",
+					},
+				},
+			}
+			dpuServiceInterface.Spec.Template.Spec.Template.Spec.InterfaceType = dpuservicev1.InterfaceTypePhysical
+			dpuServiceInterface.Spec.Template.Spec.Template.Spec.Physical = &dpuservicev1.Physical{
+				InterfaceName: "eth0",
+			}
+			Expect(testClient.Create(ctx, dpuServiceInterface)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceInterface)
+
+			By("Creating a NodeServiceInterfaces object in the DPU cluster")
+			entryName := testNS.Name + "_" + dpuServiceInterface.Name
+			nodeServiceInterfaces := &dpuservicev1.NodeServiceInterfaces{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      digest.GenerateName(dpu.Name+"-"+dpuservicev1.NSITypeSFC, dpu.Name, dpuservicev1.NSITypeSFC),
+					Namespace: operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace,
+				},
+				Spec: dpuservicev1.NodeServiceInterfacesSpec{
+					Node: dpu.Name,
+					Type: dpuservicev1.NSITypeSFC,
+					Interfaces: []dpuservicev1.InterfaceEntry{{
+						Name:          entryName,
+						InterfaceType: dpuservicev1.InterfaceTypePhysical,
+						Physical: &dpuservicev1.Physical{
+							InterfaceName: "eth0",
+						},
+					}},
+				},
+			}
+			Expect(dpuClusterClient.Create(ctx, nodeServiceInterfaces)).To(Succeed())
+			DeferCleanup(dpuClusterClient.Delete, ctx, nodeServiceInterfaces)
+
+			By("Setting NodeServiceInterfaces entry status as ready")
+			Expect(dpuClusterClient.Get(ctx, client.ObjectKeyFromObject(nodeServiceInterfaces), nodeServiceInterfaces)).To(Succeed())
+			nodeServiceInterfaces.Status.InterfaceStatuses = []dpuservicev1.InterfaceEntryStatus{{
+				Name: entryName,
+			}}
+			meta.SetStatusCondition(&nodeServiceInterfaces.Status.InterfaceStatuses[0].Conditions, metav1.Condition{
+				Type:               string(conditions.TypeReady),
+				Status:             metav1.ConditionTrue,
+				Reason:             "Ready",
+				ObservedGeneration: nodeServiceInterfaces.Generation,
+			})
+			Expect(dpuClusterClient.Status().Update(ctx, nodeServiceInterfaces)).To(Succeed())
 
 			Eventually(func(g Gomega) {
 				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpu), dpu)).To(Succeed())
