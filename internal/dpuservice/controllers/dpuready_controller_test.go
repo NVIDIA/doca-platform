@@ -3263,3 +3263,327 @@ var _ = Describe("serviceChainEventHandler", func() {
 		})
 	})
 })
+
+var _ = Describe("nsiInterfaceReadinessChanged", func() {
+	readyCondition := func(ready bool) []metav1.Condition {
+		status := metav1.ConditionFalse
+		if ready {
+			status = metav1.ConditionTrue
+		}
+		return []metav1.Condition{
+			{
+				Type:               string(conditions.TypeReady),
+				Status:             status,
+				Reason:             "Test",
+				LastTransitionTime: metav1.Now(),
+			},
+		}
+	}
+
+	It("returns false when both slices are empty", func() {
+		Expect(nsiInterfaceReadinessChanged(nil, nil)).To(BeFalse())
+	})
+
+	It("returns false when readiness is unchanged", func() {
+		old := []dpuservicev1.InterfaceEntryStatus{
+			{Name: "ns1_set1", Conditions: readyCondition(true)},
+			{Name: "ns1_set2", Conditions: readyCondition(false)},
+		}
+		Expect(nsiInterfaceReadinessChanged(old, old)).To(BeFalse())
+	})
+
+	It("returns true when an entry transitions not-ready → ready", func() {
+		old := []dpuservicev1.InterfaceEntryStatus{
+			{Name: "ns1_set1", Conditions: readyCondition(false)},
+		}
+		new := []dpuservicev1.InterfaceEntryStatus{
+			{Name: "ns1_set1", Conditions: readyCondition(true)},
+		}
+		Expect(nsiInterfaceReadinessChanged(old, new)).To(BeTrue())
+	})
+
+	It("returns true when an entry transitions ready → not-ready", func() {
+		old := []dpuservicev1.InterfaceEntryStatus{
+			{Name: "ns1_set1", Conditions: readyCondition(true)},
+		}
+		new := []dpuservicev1.InterfaceEntryStatus{
+			{Name: "ns1_set1", Conditions: readyCondition(false)},
+		}
+		Expect(nsiInterfaceReadinessChanged(old, new)).To(BeTrue())
+	})
+
+	It("returns true when a new entry appears", func() {
+		old := []dpuservicev1.InterfaceEntryStatus{
+			{Name: "ns1_set1", Conditions: readyCondition(true)},
+		}
+		new := []dpuservicev1.InterfaceEntryStatus{
+			{Name: "ns1_set1", Conditions: readyCondition(true)},
+			{Name: "ns1_set2", Conditions: readyCondition(false)},
+		}
+		Expect(nsiInterfaceReadinessChanged(old, new)).To(BeTrue())
+	})
+
+	It("returns true when an entry is removed", func() {
+		old := []dpuservicev1.InterfaceEntryStatus{
+			{Name: "ns1_set1", Conditions: readyCondition(true)},
+			{Name: "ns1_set2", Conditions: readyCondition(true)},
+		}
+		new := []dpuservicev1.InterfaceEntryStatus{
+			{Name: "ns1_set1", Conditions: readyCondition(true)},
+		}
+		Expect(nsiInterfaceReadinessChanged(old, new)).To(BeTrue())
+	})
+
+	It("returns true when only one of multiple entries changes", func() {
+		old := []dpuservicev1.InterfaceEntryStatus{
+			{Name: "ns1_set1", Conditions: readyCondition(true)},
+			{Name: "ns1_set2", Conditions: readyCondition(true)},
+		}
+		new := []dpuservicev1.InterfaceEntryStatus{
+			{Name: "ns1_set1", Conditions: readyCondition(true)},
+			{Name: "ns1_set2", Conditions: readyCondition(false)},
+		}
+		Expect(nsiInterfaceReadinessChanged(old, new)).To(BeTrue())
+	})
+
+	It("returns false when multiple entries are all unchanged", func() {
+		statuses := []dpuservicev1.InterfaceEntryStatus{
+			{Name: "ns1_set1", Conditions: readyCondition(true)},
+			{Name: "ns1_set2", Conditions: readyCondition(false)},
+			{Name: "ns2_set1", Conditions: readyCondition(true)},
+		}
+		Expect(nsiInterfaceReadinessChanged(statuses, statuses)).To(BeFalse())
+	})
+})
+
+var _ = Describe("newNodeServiceInterfacesReadyPredicate", func() {
+	var p predicate.Predicate
+
+	readyNSI := func(ready bool) *dpuservicev1.NodeServiceInterfaces {
+		status := metav1.ConditionFalse
+		if ready {
+			status = metav1.ConditionTrue
+		}
+		return &dpuservicev1.NodeServiceInterfaces{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-nsi", Namespace: "default"},
+			Spec:       dpuservicev1.NodeServiceInterfacesSpec{Node: "dpu-node", Type: "sfc"},
+			Status: dpuservicev1.NodeServiceInterfacesStatus{
+				InterfaceStatuses: []dpuservicev1.InterfaceEntryStatus{
+					{
+						Name: "ns1_set1",
+						Conditions: []metav1.Condition{
+							{
+								Type:               string(conditions.TypeReady),
+								Status:             status,
+								Reason:             "Test",
+								LastTransitionTime: metav1.Now(),
+							},
+						},
+					},
+				},
+			},
+		}
+	}
+
+	BeforeEach(func() {
+		p = newNodeServiceInterfacesReadyPredicate()
+	})
+
+	Describe("Create", func() {
+		It("always returns false to avoid reconciliation burst on cache sync", func() {
+			Expect(p.Create(event.CreateEvent{Object: readyNSI(true)})).To(BeFalse())
+			Expect(p.Create(event.CreateEvent{Object: readyNSI(false)})).To(BeFalse())
+		})
+	})
+
+	Describe("Update", func() {
+		It("returns false when no entry readiness changed", func() {
+			nsi := readyNSI(true)
+			Expect(p.Update(event.UpdateEvent{ObjectOld: nsi, ObjectNew: nsi})).To(BeFalse())
+		})
+
+		It("returns true when an entry transitions not-ready → ready", func() {
+			Expect(p.Update(event.UpdateEvent{
+				ObjectOld: readyNSI(false),
+				ObjectNew: readyNSI(true),
+			})).To(BeTrue())
+		})
+
+		It("returns true when an entry transitions ready → not-ready", func() {
+			Expect(p.Update(event.UpdateEvent{
+				ObjectOld: readyNSI(true),
+				ObjectNew: readyNSI(false),
+			})).To(BeTrue())
+		})
+	})
+
+	Describe("Delete", func() {
+		It("always returns true", func() {
+			Expect(p.Delete(event.DeleteEvent{Object: readyNSI(true)})).To(BeTrue())
+			Expect(p.Delete(event.DeleteEvent{Object: readyNSI(false)})).To(BeTrue())
+		})
+	})
+
+	Describe("Generic", func() {
+		It("always returns false", func() {
+			Expect(p.Generic(event.GenericEvent{Object: readyNSI(true)})).To(BeFalse())
+		})
+	})
+})
+
+var _ = Describe("nodeServiceInterfacesEventHandler", func() {
+	var (
+		handler     *nodeServiceInterfacesEventHandler
+		queue       workqueue.TypedRateLimitingInterface[ctrl.Request]
+		dpuNodeName string
+		nodeName    string
+	)
+
+	BeforeEach(func() {
+		dpuNodeName = "dpu-node"
+		nodeName = "dpu-node"
+		handler = &nodeServiceInterfacesEventHandler{
+			client:                  testClient,
+			dpuNodeDefaultNamespace: testNamespace,
+		}
+		queue = workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[ctrl.Request]())
+		DeferCleanup(func() { queue.ShutDown() })
+	})
+
+	nsi := func(node string) *dpuservicev1.NodeServiceInterfaces {
+		return &dpuservicev1.NodeServiceInterfaces{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-nsi", Namespace: "default"},
+			Spec:       dpuservicev1.NodeServiceInterfacesSpec{Node: node, Type: "sfc"},
+		}
+	}
+
+	nodeWithLabels := func() *corev1.Node {
+		return &corev1.Node{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: nodeName,
+				Labels: map[string]string{
+					provisioningv1.DPUNodeNameLabel:      dpuNodeName,
+					provisioningv1.DPUNodeNamespaceLabel: testNamespace,
+				},
+			},
+		}
+	}
+
+	Describe("Create", func() {
+		It("enqueues the DPUNode when the referenced node exists with DPUNode labels", func() {
+			node := nodeWithLabels()
+			Expect(testClient.Create(ctx, node)).To(Succeed())
+			DeferCleanup(testClient.Delete, ctx, node)
+
+			handler.Create(ctx, event.CreateEvent{Object: nsi(nodeName)}, queue)
+
+			Eventually(func() bool {
+				item, shutdown := queue.Get()
+				if shutdown {
+					return false
+				}
+				defer queue.Done(item)
+				return item.Name == dpuNodeName && item.Namespace == testNamespace
+			}).Should(BeTrue())
+		})
+
+		It("does not enqueue when Spec.Node is empty", func() {
+			handler.Create(ctx, event.CreateEvent{Object: nsi("")}, queue)
+
+			Consistently(func() int {
+				return queue.Len()
+			}, 1*time.Second).Should(Equal(0))
+		})
+
+		It("handles non-NodeServiceInterfaces objects gracefully", func() {
+			handler.Create(ctx, event.CreateEvent{Object: &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "other"}}}, queue)
+
+			Consistently(func() int {
+				return queue.Len()
+			}, 1*time.Second).Should(Equal(0))
+		})
+	})
+
+	Describe("Update", func() {
+		It("enqueues the DPUNode when the referenced node exists with DPUNode labels", func() {
+			node := nodeWithLabels()
+			Expect(testClient.Create(ctx, node)).To(Succeed())
+			DeferCleanup(testClient.Delete, ctx, node)
+
+			obj := nsi(nodeName)
+			handler.Update(ctx, event.UpdateEvent{ObjectOld: obj, ObjectNew: obj}, queue)
+
+			Eventually(func() bool {
+				item, shutdown := queue.Get()
+				if shutdown {
+					return false
+				}
+				defer queue.Done(item)
+				return item.Name == dpuNodeName && item.Namespace == testNamespace
+			}).Should(BeTrue())
+		})
+
+		It("handles non-NodeServiceInterfaces objects gracefully", func() {
+			other := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "other"}}
+			handler.Update(ctx, event.UpdateEvent{ObjectOld: other, ObjectNew: other}, queue)
+
+			Consistently(func() int {
+				return queue.Len()
+			}, 1*time.Second).Should(Equal(0))
+		})
+	})
+
+	Describe("Delete", func() {
+		It("enqueues the DPUNode when the referenced node exists with DPUNode labels", func() {
+			node := nodeWithLabels()
+			Expect(testClient.Create(ctx, node)).To(Succeed())
+			DeferCleanup(testClient.Delete, ctx, node)
+
+			handler.Delete(ctx, event.DeleteEvent{Object: nsi(nodeName)}, queue)
+
+			Eventually(func() bool {
+				item, shutdown := queue.Get()
+				if shutdown {
+					return false
+				}
+				defer queue.Done(item)
+				return item.Name == dpuNodeName && item.Namespace == testNamespace
+			}).Should(BeTrue())
+		})
+
+		It("handles non-NodeServiceInterfaces objects gracefully", func() {
+			handler.Delete(ctx, event.DeleteEvent{Object: &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "other"}}}, queue)
+
+			Consistently(func() int {
+				return queue.Len()
+			}, 1*time.Second).Should(Equal(0))
+		})
+	})
+
+	Describe("Generic", func() {
+		It("enqueues the DPUNode when the referenced node exists with DPUNode labels", func() {
+			node := nodeWithLabels()
+			Expect(testClient.Create(ctx, node)).To(Succeed())
+			DeferCleanup(testClient.Delete, ctx, node)
+
+			handler.Generic(ctx, event.GenericEvent{Object: nsi(nodeName)}, queue)
+
+			Eventually(func() bool {
+				item, shutdown := queue.Get()
+				if shutdown {
+					return false
+				}
+				defer queue.Done(item)
+				return item.Name == dpuNodeName && item.Namespace == testNamespace
+			}).Should(BeTrue())
+		})
+
+		It("handles non-NodeServiceInterfaces objects gracefully", func() {
+			handler.Generic(ctx, event.GenericEvent{Object: &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "other"}}}, queue)
+
+			Consistently(func() int {
+				return queue.Len()
+			}, 1*time.Second).Should(Equal(0))
+		})
+	})
+})
