@@ -1168,7 +1168,7 @@ GO_GCFLAGS=-trimpath
 
 BUILD_TARGETS ?= $(DPU_ARCH_BUILD_TARGETS)
 DPF_SYSTEM_BUILD_TARGETS ?= operator provisioning dpuservice servicechainset kamaji-cluster-manager static-cluster-manager \
-	sfc-controller dpfctl dpudetector nodesriovdeviceplugin-controller nodesriovdeviceplugin-init
+	sfc-controller dpfctl dpudetector nodesriovdeviceplugin-controller nodesriovdeviceplugin-init dpf-kms-plugin
 DPU_ARCH_BUILD_TARGETS ?=
 # contains list of storage-related binaries that have no system-level dependencies
 STORAGE_SYSTEM_BUILD_TARGETS ?= storage-snap-host-controller storage-snap-node-driver block-storage-vendor-dpu-plugin storage-snap-csi-plugin storage-nvidia-external-attacher nfs-storage-vendor-dpu-plugin
@@ -1232,6 +1232,10 @@ binary-servicechainset: ## Build the servicechainset controller binary.
 .PHONY: binary-sfc-controller
 binary-sfc-controller: ## Build the Host CNI Provisioner binary.
 	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/sfc-controller github.com/nvidia/doca-platform/cmd/sfc-controller
+
+.PHONY: binary-dpf-kms-plugin
+binary-dpf-kms-plugin: ## Build the Vault KMS v2 plugin binary.
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/dpf-kms-plugin github.com/nvidia/doca-platform/cmd/dpf-kms-plugin
 
 .PHONY: binary-ipallocator
 binary-ipallocator: ## Build the IP allocator binary.
