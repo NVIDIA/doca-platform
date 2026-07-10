@@ -143,5 +143,16 @@ func SetupCacheIndexers(ctx context.Context, cache cache.Cache) error {
 		return fmt.Errorf("failed to add spec.node index for service interfaces: %w", err)
 	}
 
+	// Set up index for NodeServiceInterfaces by the Node name
+	if err := cache.IndexField(ctx, &dpuservicev1.NodeServiceInterfaces{}, nodeNameField, func(obj client.Object) []string {
+		nsi := obj.(*dpuservicev1.NodeServiceInterfaces)
+		if nsi.Spec.Node == "" {
+			return nil
+		}
+		return []string{nsi.Spec.Node}
+	}); err != nil {
+		return fmt.Errorf("failed to add spec.node index for node service interfaces: %w", err)
+	}
+
 	return nil
 }

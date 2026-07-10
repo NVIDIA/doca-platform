@@ -423,7 +423,10 @@ func (r *DPUReadyReconciler) aggregateDPUServicePodsConditions(ctx context.Conte
 	return criticalCondition, nonCriticalCondition, nil
 }
 
-// aggregateDPUServiceInterfacesCondition aggregates the interfaces condition
+// aggregateDPUServiceInterfacesCondition aggregates the interfaces condition.
+// It collects readiness from both the legacy ServiceInterface objects and the new
+// NodeServiceInterfaces objects, merging them into a single readiness map keyed by
+// "<setNamespace>/<setName>".
 func (r *DPUReadyReconciler) aggregateDPUServiceInterfacesCondition(ctx context.Context, dpuClusterClient client.Client, dpu provisioningv1.DPU, node *corev1.Node) (metav1.Condition, error) {
 	// Get all DPUServiceInterfaces from management cluster
 	dpuServiceInterfaceList := &dpuservicev1.DPUServiceInterfaceList{}
@@ -433,15 +436,15 @@ func (r *DPUReadyReconciler) aggregateDPUServiceInterfacesCondition(ctx context.
 		return metav1.Condition{}, fmt.Errorf("failed to list DPUServiceInterfaces: %w", err)
 	}
 
-	// Fetch ServiceInterfaces from DPU cluster
+	serviceInterfaceReadiness := make(map[string]bool)
+
+	// Legacy path: ServiceInterface objects
 	serviceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
 	if err := dpuClusterClient.List(ctx, serviceInterfaceList,
 		client.MatchingFields{nodeNameField: dpu.Name},
 	); err != nil {
 		return metav1.Condition{}, fmt.Errorf("failed to list ServiceInterfaces: %w", err)
 	}
-
-	serviceInterfaceReadiness := make(map[string]bool, len(serviceInterfaceList.Items))
 	for _, si := range serviceInterfaceList.Items {
 		setName := si.Labels[sfcsetcontroller.ServiceInterfaceSetNameLabel]
 		setNamespace := si.Labels[sfcsetcontroller.ServiceInterfaceSetNamespaceLabel]
@@ -450,6 +453,30 @@ func (r *DPUReadyReconciler) aggregateDPUServiceInterfacesCondition(ctx context.
 		}
 		key := setNamespace + "/" + setName
 		serviceInterfaceReadiness[key] = conditions.IsTrue(&si, conditions.TypeReady)
+	}
+
+	// NSI path: NodeServiceInterfaces objects
+	nsiList := &dpuservicev1.NodeServiceInterfacesList{}
+	if err := dpuClusterClient.List(ctx, nsiList,
+		client.MatchingFields{nodeNameField: dpu.Name},
+	); err != nil {
+		return metav1.Condition{}, fmt.Errorf("failed to list NodeServiceInterfaces: %w", err)
+	}
+	for _, nsi := range nsiList.Items {
+		for _, status := range nsi.Status.InterfaceStatuses {
+			entry := dpuservicev1.InterfaceEntry{Name: status.Name}
+			setNamespace, setName := entry.GetNamespacedName()
+			if setNamespace == "" || setName == "" {
+				continue
+			}
+			key := setNamespace + "/" + setName
+			// Only record a readiness value if this set hasn't already been reported
+			// by the legacy path (avoids downgrading a ready=true from a legacy SI).
+			if _, alreadySet := serviceInterfaceReadiness[key]; alreadySet {
+				continue
+			}
+			serviceInterfaceReadiness[key] = meta.IsStatusConditionTrue(status.Conditions, string(conditions.TypeReady))
+		}
 	}
 
 	// Build and return condition
