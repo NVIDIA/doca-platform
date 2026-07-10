@@ -26,6 +26,7 @@ import (
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 
+	"github.com/fluxcd/pkg/runtime/patch"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -430,18 +431,20 @@ var _ = Describe("ServiceChainSet Controller", func() {
 
 			// we set a new label and annotation, and override label and annotation from ServiceChainSet
 			// expected result is that the labels and annotaions from ServiceChainSet are restored.
+			patcher := patch.NewSerialPatcher(sc, testClient)
 			sc.Annotations[fooAnnotKey] = fooAnnotOverrideValue
 			sc.Annotations[someOtherAnnotKey] = someOtherAnnotValue
 			sc.Labels[fooLabelKey] = fooLabelOverrideValue
 			sc.Labels[someOtherLabelKey] = someOtherLabelValue
-			Expect(testClient.Update(ctx, sc)).To(Succeed())
+			Expect(patcher.Patch(ctx, sc)).To(Succeed())
 
 			By("update ServiceChainSet node selector to trigger reconcile")
 			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(scs), scs)).To(Succeed())
+			patcher = patch.NewSerialPatcher(scs, testClient)
 			scs.Spec.NodeSelector = &metav1.LabelSelector{
 				MatchLabels: nodeLabels,
 			}
-			Expect(testClient.Update(ctx, scs)).To(Succeed())
+			Expect(patcher.Patch(ctx, scs)).To(Succeed())
 
 			By("Verify ServiceChain has expected labels and annotations")
 			Eventually(func(g Gomega) {
