@@ -96,42 +96,23 @@ func CreateDPUAgentRole(ctx context.Context, client crclient.Client, scheme *run
 		})
 	}
 
-	key := crclient.ObjectKey{Name: roleName, Namespace: dpu.Namespace}
-	role := &rbacv1.Role{}
-	if err := client.Get(ctx, key, role); err != nil {
-		if !apierrors.IsNotFound(err) {
-			return fmt.Errorf("getting role %s: %w", roleName, err)
-		}
-		role = &rbacv1.Role{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      roleName,
-				Namespace: dpu.Namespace,
-			},
-			Rules: rules,
-		}
+	role := &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      roleName,
+			Namespace: dpu.Namespace,
+		},
+	}
+	if _, err := controllerutil.CreateOrUpdate(ctx, client, role, func() error {
+		role.Rules = rules
 		if err := controllerutil.SetOwnerReference(dpu, role, scheme); err != nil {
 			return fmt.Errorf("setting owner reference on role %s: %w", roleName, err)
 		}
-		if err := client.Create(ctx, role); err != nil {
-			if !apierrors.IsAlreadyExists(err) {
-				return fmt.Errorf("creating role %s: %w", roleName, err)
-			}
-			// Race: the role may appear between Get(NotFound) and Create.
-			// Re-get and continue with update path below.
-			if err := client.Get(ctx, key, role); err != nil {
-				return fmt.Errorf("re-getting role %s after already exists: %w", roleName, err)
-			}
-		} else {
+		return nil
+	}); err != nil {
+		if apierrors.IsAlreadyExists(err) {
 			return nil
 		}
-	}
-
-	role.Rules = rules
-	if err := controllerutil.SetOwnerReference(dpu, role, scheme); err != nil {
-		return fmt.Errorf("setting owner reference on role %s: %w", roleName, err)
-	}
-	if err := client.Update(ctx, role); err != nil {
-		return fmt.Errorf("updating role %s: %w", roleName, err)
+		return fmt.Errorf("creating or updating role %s: %w", roleName, err)
 	}
 	return nil
 }
