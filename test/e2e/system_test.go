@@ -665,6 +665,9 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 			By("Should validate DPUDeployment and underlying objects creation")
 			ValidateDPUDeploymentFullCreation(ctx, input)
 		})
+		It("should validate per-DPU DPUFlavorTemplate node labels on tenant Nodes", func() {
+			ValidateDPUFlavorTemplatePerDeviceNodeLabels(ctx, input)
+		})
 		It("should validate DPUDeployment becomes ready", Labels{Domain.ZeroTrust}, func() {
 			VerifyDPUDeploymentIsReady(ctx, input)
 		})

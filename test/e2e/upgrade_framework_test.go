@@ -593,10 +593,19 @@ func rolloutDependencies(ctx context.Context, input *systemTestInput) {
 	selectedDPUDeployment := &dpuDeploymentList.Items[0]
 	By(fmt.Sprintf("Selected DPUDeployment: %s", selectedDPUDeployment.GetName()))
 
-	By("Updating selected DPUDeployment to reference current BFB, DPUFlavor, DPUServiceTemplate and DPUServiceConfiguration")
+	By("Updating selected DPUDeployment to reference current BFB, DPUFlavor/DPUFlavorTemplate, DPUServiceTemplate and DPUServiceConfiguration")
 	original := selectedDPUDeployment.DeepCopy()
-	selectedDPUDeployment.Spec.DPUs.BFB = &input.bfb.Name
-	selectedDPUDeployment.Spec.DPUs.Flavor = &input.dpuFlavor.Name
+	selectedDPUDeployment.Spec.DPUs.BFB = ptr.To(input.bfb.Name)
+	// input.dpuFlavor and input.dpuFlavorTemplate are mutually exclusive (enforced in applyConfig).
+	// Guard each patch behind its nil check and clear the counterpart so the XOR contract holds
+	// regardless of which flavor object the active config supplies.
+	if input.dpuFlavor != nil {
+		selectedDPUDeployment.Spec.DPUs.Flavor = ptr.To(input.dpuFlavor.Name)
+		selectedDPUDeployment.Spec.DPUs.FlavorTemplate = nil
+	} else if input.dpuFlavorTemplate != nil {
+		selectedDPUDeployment.Spec.DPUs.FlavorTemplate = ptr.To(input.dpuFlavorTemplate.Name)
+		selectedDPUDeployment.Spec.DPUs.Flavor = nil
+	}
 	primaryServiceName := input.dpuServiceTemplate.Name
 	svc, ok := selectedDPUDeployment.Spec.Services[primaryServiceName]
 	Expect(ok).To(BeTrue(), "DPUDeployment %s should contain service %s", selectedDPUDeployment.Name, primaryServiceName)
@@ -635,6 +644,7 @@ func verifyDPUDeploymentDependencyTracking(ctx context.Context, input *systemTes
 	Eventually(func(g Gomega) {
 		activeBFBs := map[string]bool{}
 		activeFlavors := map[string]bool{}
+		activeFlavorTemplates := map[string]bool{}
 		activeServiceConfigurations := map[string]bool{}
 		activeServiceTemplates := map[string]bool{}
 		deployments := &dpuservicev1.DPUDeploymentList{}
@@ -651,6 +661,8 @@ func verifyDPUDeploymentDependencyTracking(ctx context.Context, input *systemTes
 			activeBFBs[ptr.Deref(deployment.Spec.DPUs.BFB, "")] = true
 			if hasFlavor {
 				activeFlavors[*deployment.Spec.DPUs.Flavor] = true
+			} else if hasFlavorTemplate {
+				activeFlavorTemplates[*deployment.Spec.DPUs.FlavorTemplate] = true
 			}
 			for serviceName, service := range deployment.Spec.Services {
 				g.Expect(service.ServiceConfiguration).NotTo(BeEmpty(),
@@ -666,9 +678,22 @@ func verifyDPUDeploymentDependencyTracking(ctx context.Context, input *systemTes
 		g.Expect(input.client.List(ctx, bfbs, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
 		assertDependencyLabels(g, "BFB", activeBFBs, ToClientObjectSlice(bfbs.Items))
 
+		// DPUFlavor and DPUFlavorTemplate are mutually exclusive (CEL XOR), so a given
+		// suite exercises only one of them and the other list is legitimately empty.
+		// Guard each assertion so an empty list is skipped rather than failing
+		// assertDependencyLabels' non-empty precondition; when references exist the
+		// assertion still runs and validates consumed-by labels/finalizers.
 		flavors := &provisioningv1.DPUFlavorList{}
 		g.Expect(input.client.List(ctx, flavors, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
-		assertDependencyLabels(g, "DPUFlavor", activeFlavors, ToClientObjectSlice(flavors.Items))
+		if len(activeFlavors) > 0 || len(flavors.Items) > 0 {
+			assertDependencyLabels(g, "DPUFlavor", activeFlavors, ToClientObjectSlice(flavors.Items))
+		}
+
+		flavorTemplates := &provisioningv1.DPUFlavorTemplateList{}
+		g.Expect(input.client.List(ctx, flavorTemplates, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		if len(activeFlavorTemplates) > 0 || len(flavorTemplates.Items) > 0 {
+			assertDependencyLabels(g, "DPUFlavorTemplate", activeFlavorTemplates, ToClientObjectSlice(flavorTemplates.Items))
+		}
 
 		configurations := &dpuservicev1.DPUServiceConfigurationList{}
 		g.Expect(input.client.List(ctx, configurations, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
