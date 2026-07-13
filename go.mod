@@ -12,7 +12,7 @@ require (
 	github.com/Masterminds/semver/v3 v3.4.0
 	github.com/Masterminds/sprig/v3 v3.3.0
 	github.com/Mellanox/maintenance-operator/api v0.3.0
-	github.com/Mellanox/nic-configuration-operator v1.3.2-0.20260709125715-8b67a10c1070
+	github.com/Mellanox/nic-configuration-operator v1.3.2-0.20260713095731-77a61397f2bb
 	github.com/containernetworking/cni v1.2.3
 	github.com/containernetworking/plugins v1.5.1
 	github.com/diskfs/go-diskfs v1.9.3
