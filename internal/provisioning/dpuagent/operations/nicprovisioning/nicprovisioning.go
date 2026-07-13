@@ -73,6 +73,7 @@ var embeddedSpectrumXConfigs embed.FS
 // DPU agent pipeline (modules, netplan, etc.).
 type NICProvisioning struct {
 	dmsServer                 nicdms.DMSServer
+	spectrumXMgr              nicspectrumx.SpectrumXManager
 	discoveredNICDevices      []nicconfigurationv1alpha1.NicDevice
 	runBash                   func(cmd string) (bytes.Buffer, bytes.Buffer, error)
 	prepareLocalDMSServerFn   func(optCtx *operations.Context) error
@@ -457,6 +458,7 @@ func (n *NICProvisioning) prepareLocalDMSServer(optCtx *operations.Context) erro
 		return fmt.Errorf("failed to start local DMS server: %w", err)
 	}
 	n.dmsServer = dmsServer
+	n.spectrumXMgr = nil
 	n.discoveredNICDevices = devices
 	klog.InfoS("NIC provisioning: local DMS server started", "deviceCount", len(devices))
 	return nil
@@ -560,12 +562,11 @@ func (n *NICProvisioning) applyNVConfig(execCtx context.Context, optCtx *operati
 		return fmt.Errorf("no discovered NIC devices available for NV config apply")
 	}
 
-	spectrumXConfigs, err := loadSpectrumXConfigs(spectrumXConfigDir)
-	if err != nil {
-		return fmt.Errorf("failed to load Spectrum-X configs: %w", err)
-	}
 	nvUtils := nicnvconfig.NewNVConfigUtils()
-	spectrumXMgr := nicspectrumx.NewSpectrumXConfigManager(n.dmsServer, spectrumXConfigs)
+	spectrumXMgr, err := n.getOrCreateSpectrumXConfigManager()
+	if err != nil {
+		return err
+	}
 	cfgMgr := nicconfiguration.NewConfigurationManager(nil, n.dmsServer, nvUtils, spectrumXMgr)
 	ewNICCfg := optCtx.DPUFlavor.Spec.FirstEWNicConfiguration()
 	warnUnrecognizedNetworkBayTargets(ewNICCfg, n.discoveredNICDevices)
@@ -646,12 +647,11 @@ func (n *NICProvisioning) applyRuntimeConfig(execCtx context.Context, optCtx *op
 		return fmt.Errorf("no discovered NIC devices available for runtime config apply")
 	}
 
-	spectrumXConfigs, err := loadSpectrumXConfigs(spectrumXConfigDir)
-	if err != nil {
-		return fmt.Errorf("failed to load Spectrum-X configs: %w", err)
-	}
 	nvUtils := nicnvconfig.NewNVConfigUtils()
-	spectrumXMgr := nicspectrumx.NewSpectrumXConfigManager(n.dmsServer, spectrumXConfigs)
+	spectrumXMgr, err := n.getOrCreateSpectrumXConfigManager()
+	if err != nil {
+		return err
+	}
 	cfgMgr := nicconfiguration.NewConfigurationManager(nil, n.dmsServer, nvUtils, spectrumXMgr)
 	ewNICCfg := optCtx.DPUFlavor.Spec.FirstEWNicConfiguration()
 	applyCtx, cancel := context.WithTimeout(execCtx, nicRuntimeApplyTimeout)
@@ -824,6 +824,18 @@ func loadSpectrumXConfigs(configDir string) (map[string]*nictypes.SpectrumXConfi
 		configs[configName] = config
 	}
 	return configs, nil
+}
+
+func (n *NICProvisioning) getOrCreateSpectrumXConfigManager() (nicspectrumx.SpectrumXManager, error) {
+	if n.spectrumXMgr != nil {
+		return n.spectrumXMgr, nil
+	}
+	spectrumXConfigs, err := loadSpectrumXConfigs(spectrumXConfigDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load Spectrum-X configs: %w", err)
+	}
+	n.spectrumXMgr = nicspectrumx.NewSpectrumXConfigManager(n.dmsServer, spectrumXConfigs)
+	return n.spectrumXMgr, nil
 }
 
 func setAgentCondition(optCtx *operations.Context, conditionType string, status metav1.ConditionStatus, reason, message string) {
