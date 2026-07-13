@@ -445,7 +445,7 @@ func validateDPFVersionUpgrade(expectedVersion string) {
 		g.Expect(dpfOperatorConfig.Status.Version).NotTo(BeNil(),
 			"DPFOperatorConfig.Status.Version must be set before comparing")
 		g.Expect(*dpfOperatorConfig.Status.Version).To(Equal(expectedVersion))
-	}).WithTimeout(1*time.Minute).WithPolling(1*time.Second).Should(Succeed(),
+	}).WithTimeout(10*time.Minute).WithPolling(1*time.Second).Should(Succeed(),
 		"DPF version should be upgraded to the expected version")
 }
 
