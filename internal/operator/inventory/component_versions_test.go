@@ -53,6 +53,20 @@ func TestShouldSkipUpgradeCheck(t *testing.T) {
 			wantSkip:           false,
 			wantErr:            false,
 		},
+		{
+			name:               "vault-kms introduced after v26.4.0 should skip",
+			componentName:      operatorv1.VaultKMSName,
+			upgradeFromVersion: "v26.4.0",
+			wantSkip:           true,
+			wantErr:            false,
+		},
+		{
+			name:               "vault-kms upgrading from same version should not skip",
+			componentName:      operatorv1.VaultKMSName,
+			upgradeFromVersion: "v26.10.0",
+			wantSkip:           false,
+			wantErr:            false,
+		},
 		// Prerelease handling is about the upgrade source version. Without normalizing
 		// v26.4.0-rc.1, semver would sort it before v26.4.0 and incorrectly skip
 		// checks when upgrading from the prerelease to a later build.

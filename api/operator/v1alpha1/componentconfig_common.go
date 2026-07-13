@@ -47,6 +47,7 @@ var (
 	OpenTelemetryCollectorName          ComponentName = "opentelemetry-collector"
 	PLDMUnpackContainerName             ComponentName = "pldmunpack"
 	KataContainersName                  ComponentName = "kata-containers"
+	VaultKMSName                        ComponentName = "vault-kms"
 )
 
 type ComponentName string
@@ -89,6 +90,8 @@ var (
 	OpenTelemetryCollectorContainer ContainerName = "opentelemetry-collector"
 	// KataDeployContainer is the default name of the kata-deploy container.
 	KataDeployContainer ContainerName = "kata-deploy"
+	// VaultKMSContainer is the default name of the Vault KMS plugin container.
+	VaultKMSContainer ContainerName = "vault-kms"
 )
 
 type ContainerName string
@@ -144,6 +147,9 @@ func (c *DPFOperatorConfig) ComponentConfigs() []ComponentConfigurable {
 	}
 	if c.Spec.Security != nil && c.Spec.Security.Kata != nil {
 		out = append(out, c.Spec.Security.Kata)
+	}
+	if c.Spec.Security != nil && c.Spec.Security.VaultKMS != nil {
+		out = append(out, c.Spec.Security.VaultKMS)
 	}
 	if c.Spec.Monitoring != nil && c.Spec.Monitoring.KubeStateMetrics != nil {
 		out = append(out, c.Spec.Monitoring.KubeStateMetrics)
