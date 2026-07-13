@@ -509,13 +509,14 @@ var _ = Describe("Kamaji Handler - Helper Functions", func() {
 			Expect(endpoints).To(HaveLen(3))
 
 			expectedEndpoints := []struct {
-				name             string
-				port             string
-				relabelingsCount int
+				name                   string
+				port                   string
+				relabelingsCount       int
+				metricRelabelingsCount int
 			}{
-				{"kube-apiserver", "kube-apiserver-metrics", 2},
-				{"kube-controller-manager", "kube-controller-manager-metrics", 2},
-				{"kube-scheduler", "kube-scheduler-metrics", 2},
+				{"kube-apiserver", "kube-apiserver-metrics", 2, 2},
+				{"kube-controller-manager", "kube-controller-manager-metrics", 2, 1},
+				{"kube-scheduler", "kube-scheduler-metrics", 2, 1},
 			}
 
 			for i, expected := range expectedEndpoints {
@@ -536,6 +537,16 @@ var _ = Describe("Kamaji Handler - Helper Functions", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(found).To(BeTrue())
 				Expect(relabelings).To(HaveLen(expected.relabelingsCount))
+
+				metricRelabelings, found, err := unstructured.NestedSlice(endpoint, "metricRelabelings")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(found).To(BeTrue())
+				Expect(metricRelabelings).To(HaveLen(expected.metricRelabelingsCount))
+
+				keep, ok := metricRelabelings[0].(map[string]any)
+				Expect(ok).To(BeTrue())
+				Expect(keep["action"]).To(Equal("keep"))
+				Expect(keep["sourceLabels"]).To(Equal([]any{"__name__"}))
 			}
 		})
 	})

@@ -61,6 +61,12 @@ spec:
         - --port=8080
         - --custom-resource-state-config-file=/etc/customresourcestate/config.yaml
         - --metric-labels-allowlist=pods=[svc.dpu.nvidia.com/service],daemonsets=[svc.dpu.nvidia.com/service],deployments=[svc.dpu.nvidia.com/service]
+        # Only run the collectors for resources that are relevant for observing
+        # DPU clusters. The pod metrics are the main cardinality driver and are
+        # further filtered in the ServiceMonitor. The DPU networking resource
+        # state metrics come from the custom resource state config and are not
+        # affected by this list.
+        - --resources={{ join "," .Values.collectors }}
         ports:
         - name: http-metrics
           containerPort: 8080

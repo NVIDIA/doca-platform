@@ -585,6 +585,24 @@ func getMetricsService(dc *provisioningv1.DPUCluster, nodePort int32) *corev1.Se
 	return svc
 }
 
+// processMetricsRegex matches the process metrics kept for every DPU cluster
+// control plane component.
+const processMetricsRegex = "process_cpu_seconds_total|process_resident_memory_bytes|process_start_time_seconds"
+
+// keepMetricsRelabeling returns a metric relabeling that keeps only the metrics
+// matching the given regex. The allowlists passed to it mirror the ones applied
+// to the management cluster control plane in
+// deploy/helmfiles/values/kube-prometheus-stack.yaml; keep the two in sync.
+func keepMetricsRelabeling(regex string) map[string]interface{} {
+	return map[string]interface{}{
+		"action": "keep",
+		"regex":  regex,
+		"sourceLabels": []interface{}{
+			"__name__",
+		},
+	}
+}
+
 func getServiceMonitorResource(dc *provisioningv1.DPUCluster, gvk schema.GroupVersionKind) *unstructured.Unstructured {
 	clusterName := dc.GetName()
 	secretName := clusterName + "-api-server-kubelet-client-certificate"
@@ -625,9 +643,15 @@ func getServiceMonitorResource(dc *provisioningv1.DPUCluster, gvk schema.GroupVe
 					},
 				},
 				"metricRelabelings": []interface{}{
+					// Keep only the metrics consumed by the DPF dashboards and
+					// alert/recording rules for the DPU cluster control plane.
+					keepMetricsRelabeling("apiserver_request_total|apiserver_request_duration_seconds_(bucket|sum|count)|apiserver_current_inflight_requests|apiserver_longrunning_requests|apiserver_storage_size_bytes|apiserver_storage_objects|etcd_requests_total|etcd_request_errors_total|etcd_request_duration_seconds_(bucket|sum|count)|" + processMetricsRegex),
+					// Drop the same histogram buckets the kube-prometheus-stack
+					// chart drops by default, restricted to the histogram
+					// families the keep rule lets through.
 					map[string]interface{}{
 						"action": "drop",
-						"regex":  "apiserver_request_duration_seconds_bucket;(0.15|0.2|0.3|0.35|0.4|0.45|0.6|0.7|0.8|0.9|1.25|1.5|1.75|2|3|3.5|4|4.5|6|7|8|9|15|25|40|50)",
+						"regex":  `(etcd_request|apiserver_request)_duration_seconds_bucket;(0\.15|0\.2|0\.3|0\.35|0\.4|0\.45|0\.6|0\.7|0\.8|0\.9|1\.25|1\.5|1\.75|2|3|3\.5|4|4\.5|6|7|8|9|15|25|30|50)(\.0)?`,
 						"sourceLabels": []interface{}{
 							"__name__",
 							"le",
@@ -666,6 +690,11 @@ func getServiceMonitorResource(dc *provisioningv1.DPUCluster, gvk schema.GroupVe
 						"key":  "apiserver-kubelet-client.key",
 					},
 				},
+				"metricRelabelings": []interface{}{
+					// Keep only the metrics consumed by the DPF dashboards and
+					// alert/recording rules for the DPU cluster control plane.
+					keepMetricsRelabeling("workqueue_(depth|adds_total|retries_total|queue_duration_seconds_(bucket|sum|count)|work_duration_seconds_(bucket|sum|count))|rest_client_requests_total|leader_election_master_status|" + processMetricsRegex),
+				},
 				"relabelings": []interface{}{
 					map[string]interface{}{
 						"action":      "replace",
@@ -697,6 +726,11 @@ func getServiceMonitorResource(dc *provisioningv1.DPUCluster, gvk schema.GroupVe
 						"name": secretName,
 						"key":  "apiserver-kubelet-client.key",
 					},
+				},
+				"metricRelabelings": []interface{}{
+					// Keep only the metrics consumed by the DPF dashboards and
+					// alert/recording rules for the DPU cluster control plane.
+					keepMetricsRelabeling("scheduler_pending_pods|scheduler_schedule_attempts_total|scheduler_scheduling_attempt_duration_seconds_(bucket|sum|count)|" + processMetricsRegex),
 				},
 				"relabelings": []interface{}{
 					map[string]interface{}{

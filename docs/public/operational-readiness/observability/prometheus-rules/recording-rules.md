@@ -41,16 +41,14 @@ Manifest: [`dpf-aggregates.yaml`](https://github.com/NVIDIA/doca-platform/blob/p
 
 ## DPUCluster Control-Plane Aggregates
 
-Histogram quantiles for API server request duration, etcd request duration, and kube-controller-manager work duration, plus the rolling API request rate, all scoped to DPU cluster control planes via `cluster!="management"`. The two request-duration quantiles are what the `DPFDPUClusterAPIServerLatencyHigh` and `DPFDPUClusterEtcdLatencyHigh` alerts evaluate against — deploy this manifest before (or together with) `dpucluster-control-plane.yaml`. The remaining series are cheap pre-aggregations for ad-hoc queries and custom dashboards.
+Histogram quantiles for API server request duration and etcd request duration, scoped to DPU cluster control planes via `cluster!="management"`. These quantiles are what the `DPFDPUClusterAPIServerLatencyHigh` and `DPFDPUClusterEtcdLatencyHigh` alerts evaluate against — deploy this manifest before (or together with) `dpucluster-control-plane.yaml`.
 
 Manifest: [`dpucluster-control-plane-aggregates.yaml`](https://github.com/NVIDIA/doca-platform/blob/public-main/deploy/helmfiles/prometheus-rules/dpucluster-control-plane-aggregates.yaml)
 
 | Record | Records |
 |--------|---------|
-| `dpf:dpucluster:apiserver_request:rate5m` | apiserver request rate per DPUCluster and verb over 5 minutes |
 | `dpf:dpucluster:apiserver_request_duration:p99` | apiserver p99 request duration per DPUCluster and verb |
 | `dpf:dpucluster:etcd_request_duration:p99` | etcd p99 request duration per DPUCluster and operation |
-| `dpf:dpucluster:workqueue_work_duration:p99` | kube-controller-manager p99 workqueue work duration per DPUCluster and queue |
 
 ## Deploying
 

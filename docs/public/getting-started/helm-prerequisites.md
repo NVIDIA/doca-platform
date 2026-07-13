@@ -617,6 +617,26 @@ tolerations:
 extraArgs:
   - --custom-resource-state-config-file=/etc/customresourcestate/config.yaml
   - --metric-labels-allowlist=pods=[svc.dpu.nvidia.com/service],daemonsets=[svc.dpu.nvidia.com/service],deployments=[svc.dpu.nvidia.com/service]
+# Only run the collectors for resources that are relevant for observing DPF.
+# These are all low-cardinality; the pod metrics are the main cardinality
+# driver and are further filtered in the ServiceMonitor. The DPF resource
+# state metrics come from the custom resource state config and are not
+# affected by this list.
+collectors:
+  - cronjobs
+  - daemonsets
+  - deployments
+  - endpoints
+  - jobs
+  - namespaces
+  - nodes
+  - persistentvolumeclaims
+  - persistentvolumes
+  - pods
+  - replicasets
+  - resourcequotas
+  - services
+  - statefulsets
 volumes:
   - configMap:
       defaultMode: 420
@@ -631,6 +651,14 @@ prometheus:
     enabled: true
     http:
       honorLabels: true
+      # Keep the DPF custom resource state metrics and the kube_* metrics of
+      # the low-cardinality resources. Pod metrics are the main cardinality
+      # driver and are limited to the ones consumed by the DPF dashboards and
+      # alert/recording rules.
+      metricRelabelings:
+        - sourceLabels: [__name__]
+          action: keep
+          regex: (bfb|dpfoperatorconfig|dpu[a-z]*)_.+|kube_pod_info|kube_pod_labels|kube_pod_status_phase|kube_pod_status_ready|kube_pod_container_info|kube_pod_container_status_restarts_total|kube_pod_container_status_waiting_reason|kube_(cronjob|daemonset|deployment|endpoint|job|namespace|node|persistentvolumeclaim|persistentvolume|replicaset|resourcequota|service|statefulset)(_.+)?
 rbac:
   extraRules:
     - apiGroups:
@@ -674,6 +702,14 @@ kubeStateMetrics:
 
 nodeExporter:
   enabled: false
+
+# Do not create the chart's built-in default alert and recording rules. The
+# metric allowlists below drop many of their inputs (e.g. kube_pod_owner,
+# apiserver_request_sli_duration_seconds, scheduler recording-rule inputs), so
+# they would evaluate over empty vectors and never fire. DPF ships its own
+# curated alert and recording rules instead.
+defaultRules:
+  create: false
 
 alertmanager:
   enabled: false
@@ -727,18 +763,48 @@ kubeApiServer:
       - action: replace
         targetLabel: cluster
         replacement: management
+    # Keep only the metrics consumed by the DPF dashboards and alert/recording
+    # rules, mirroring the allowlist applied to the DPU cluster control planes
+    # in the kamaji cluster manager (getServiceMonitorResource).
+    # Note: setting metricRelabelings replaces the chart default, so the chart
+    # default histogram bucket drop rule is re-applied after the keep rule,
+    # restricted to the histogram families the keep rule lets through.
+    metricRelabelings:
+      - action: keep
+        regex: apiserver_request_total|apiserver_request_duration_seconds_(bucket|sum|count)|apiserver_current_inflight_requests|apiserver_longrunning_requests|apiserver_storage_size_bytes|apiserver_storage_objects|etcd_requests_total|etcd_request_errors_total|etcd_request_duration_seconds_(bucket|sum|count)|process_cpu_seconds_total|process_resident_memory_bytes|process_start_time_seconds
+        sourceLabels:
+          - __name__
+      - action: drop
+        regex: (etcd_request|apiserver_request)_duration_seconds_bucket;(0\.15|0\.2|0\.3|0\.35|0\.4|0\.45|0\.6|0\.7|0\.8|0\.9|1\.25|1\.5|1\.75|2|3|3\.5|4|4\.5|6|7|8|9|15|25|30|50)(\.0)?
+        sourceLabels:
+          - __name__
+          - le
 kubeControllerManager:
   serviceMonitor:
     relabelings:
       - action: replace
         targetLabel: cluster
         replacement: management
+    # Keep only the metrics consumed by the DPF dashboards and alert/recording
+    # rules, mirroring the allowlist applied to the DPU cluster control planes.
+    metricRelabelings:
+      - action: keep
+        regex: workqueue_(depth|adds_total|retries_total|queue_duration_seconds_(bucket|sum|count)|work_duration_seconds_(bucket|sum|count))|rest_client_requests_total|leader_election_master_status|process_cpu_seconds_total|process_resident_memory_bytes|process_start_time_seconds
+        sourceLabels:
+          - __name__
 kubeScheduler:
   serviceMonitor:
     relabelings:
       - action: replace
         targetLabel: cluster
         replacement: management
+    # Keep only the metrics consumed by the DPF dashboards and alert/recording
+    # rules, mirroring the allowlist applied to the DPU cluster control planes.
+    metricRelabelings:
+      - action: keep
+        regex: scheduler_pending_pods|scheduler_schedule_attempts_total|scheduler_scheduling_attempt_duration_seconds_(bucket|sum|count)|process_cpu_seconds_total|process_resident_memory_bytes|process_start_time_seconds
+        sourceLabels:
+          - __name__
 kubelet:
   serviceMonitor:
     relabelings:
@@ -818,6 +884,14 @@ prometheus:
         # Note: The control plane components (kube-apiserver, kube-controller-manager, kube-scheduler)
         # already have cluster labels via their ServiceMonitor relabelings above
         metric_relabel_configs:
+          # Keep only the metrics consumed by the DPF dashboards and alert/recording
+          # rules. The DPF controllers expose the standard controller-runtime metric
+          # set; DPF resource state metrics come from kube-state-metrics instead.
+          # The go_* and process_* runtime gauges are kept wholesale for the debug
+          # dashboards; they are a handful of series per controller pod.
+          - source_labels: [__name__]
+            action: keep
+            regex: (controller_runtime_.+|workqueue_.+|rest_client_requests_total|leader_election_master_status|certwatcher_read_certificate_errors_total|process_.+|go_.+)
           - action: replace
             target_label: cluster
             replacement: management
@@ -1299,6 +1373,12 @@ serviceMonitor:
   enabled: true
   metricsEndpoints:
     - port: metrics
+      # Keep only the collector self-observability metrics (pipeline throughput,
+      # queue state, resource usage) and the Prometheus handler error counter.
+      metricRelabelings:
+        - sourceLabels: [__name__]
+          action: keep
+          regex: otelcol_.+|promhttp_metric_handler_errors_total
 ```
 
 </details>
