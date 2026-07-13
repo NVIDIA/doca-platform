@@ -59,3 +59,21 @@ annotations
 {{- toYaml . }}
 {{- end }}
 {{- end }}
+
+{{/*
+Regex alternation matching the kube_* metric name prefixes of the enabled
+collectors. Collector names are plural resource names while the metric
+prefixes use the singular form, which for all supported collectors is the
+plural minus the trailing "s". Pods are excluded: their metrics are the main
+cardinality driver and are kept via an explicit allowlist in the
+ServiceMonitor instead.
+*/}}
+{{- define "kube-state-metrics.collectorMetricRegex" -}}
+{{- $singulars := list }}
+{{- range .Values.collectors }}
+{{- if ne . "pods" }}
+{{- $singulars = append $singulars (trimSuffix "s" .) }}
+{{- end }}
+{{- end }}
+{{- join "|" $singulars }}
+{{- end }}
