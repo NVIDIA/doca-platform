@@ -168,3 +168,9 @@ serviceMonitor:
   enabled: true
   metricsEndpoints:
     - port: metrics
+      # Keep only the collector self-observability metrics (pipeline throughput,
+      # queue state, resource usage) and the Prometheus handler error counter.
+      metricRelabelings:
+        - sourceLabels: [__name__]
+          action: keep
+          regex: otelcol_.+|promhttp_metric_handler_errors_total

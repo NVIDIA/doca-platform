@@ -8,6 +8,7 @@ Kube-state-metrics for DPU custom resources
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
+| collectors | list | `["cronjobs","daemonsets","deployments","endpoints","jobs","namespaces","nodes","persistentvolumeclaims","persistentvolumes","pods","replicasets","resourcequotas","services","statefulsets"]` | collectors is the list of resources kube-state-metrics collects state metrics for. The container --resources argument, the ClusterRole rules and the ServiceMonitor metric allowlist are all derived from this list. Only resources from the core, apps and batch API groups are supported; pod metrics are additionally filtered to a low-cardinality allowlist in the ServiceMonitor. |
 | deployDPUManifests | bool | `false` | deployDPUManifests controls whether the manifests that are required in the DPUCluster should be deployed. |
 | deployHostManifests | bool | `false` | deployHostManifests controls whether the manifests that are required in the host cluster should be deployed. |
 | env | list | `[]` |  |

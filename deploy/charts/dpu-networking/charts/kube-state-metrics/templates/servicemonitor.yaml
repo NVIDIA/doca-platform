@@ -14,4 +14,12 @@ spec:
     - port: http-metrics
       interval: 30s
       scrapeTimeout: 10s
+      # Keep the DPU networking resource state metrics and the kube_* metrics
+      # of the enabled collectors. Pod metrics are the main cardinality driver
+      # and are limited to the ones consumed by the DPF dashboards and
+      # alert/recording rules.
+      metricRelabelings:
+        - sourceLabels: [__name__]
+          action: keep
+          regex: (servicechain|servicechainset|serviceinterface|serviceinterfaceset|cidrpool|ippool|network_attachment_definition)_.+|kube_pod_info|kube_pod_labels|kube_pod_status_phase|kube_pod_status_ready|kube_pod_container_info|kube_pod_container_status_restarts_total|kube_pod_container_status_waiting_reason|kube_({{ include "kube-state-metrics.collectorMetricRegex" . }})(_.+)?
 {{- end }}
