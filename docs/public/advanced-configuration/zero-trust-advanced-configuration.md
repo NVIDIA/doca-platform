@@ -6,6 +6,12 @@ title: "Zero Trust Advanced Configuration"
 
 This section includes advanced configuration and additional information for the Zero Trust use case.
 
+# Kubernetes API Server Access
+
+In Zero Trust mode, `DPFOperatorConfig.spec.overrides.kubernetesAPIServerVIP` and
+`DPFOperatorConfig.spec.overrides.kubernetesAPIServerPort` are required. Set them to the Kubernetes API server endpoint
+of the DPF cluster.
+
 # DPU Discovery and DPUNode and DPUDevice Object Creation
 
 DPF provides two approaches for discovering and creating DPU resources:
