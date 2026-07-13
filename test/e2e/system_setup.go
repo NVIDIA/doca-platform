@@ -147,6 +147,7 @@ type systemTestInput struct {
 	dpuClusterPrerequisites []client.Object
 	dpuDiscovery            *provisioningv1.DPUDiscovery
 	dpuFlavor               *provisioningv1.DPUFlavor
+	dpuFlavorTemplate       *provisioningv1.DPUFlavorTemplate
 	nodeRebootConfigMap     string
 	nodeRebootConfigMapPath string
 	numberOfDPUNodes        int
