@@ -346,6 +346,12 @@ type SecurityConfiguration struct {
 	// but do NOT retro-apply to already-provisioned DPUs.
 	// +optional
 	SPIFFE *SPIFFEConfiguration `json:"spiffe,omitempty"`
+
+	// VaultKMS is the configuration for the standalone Vault/OpenBao KMS plugin component.
+	// It is deployed as a DaemonSet on control-plane nodes and is disabled by default.
+	// The plugin is used for encryption at rest for DPUClusters.
+	// +optional
+	VaultKMS *VaultKMSConfiguration `json:"vaultKMS,omitempty"`
 }
 
 // PrivilegedPodEnforcementEnabled reports whether privileged pod enforcement is enabled.

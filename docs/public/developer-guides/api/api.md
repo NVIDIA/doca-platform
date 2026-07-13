@@ -221,6 +221,7 @@ _Appears in:_
 - [SRIOVDevicePluginConfiguration](#sriovdevicepluginconfiguration)
 - [ServiceSetControllerConfiguration](#servicesetcontrollerconfiguration)
 - [StaticClusterManagerConfiguration](#staticclustermanagerconfiguration)
+- [VaultKMSConfiguration](#vaultkmsconfiguration)
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
@@ -270,6 +271,23 @@ _Appears in:_
 
 
 
+
+
+#### ConfigMapKeyRef
+
+
+
+ConfigMapKeyRef selects a single key from a ConfigMap living in the same namespace as the DPFOperatorConfig.
+
+
+
+_Appears in:_
+- [VaultKMSTLS](#vaultkmstls)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `name` _string_ | Name is the name of the ConfigMap. |  | MinLength: 1 <br />Required: \{\} <br /> |
+| `key` _string_ | Key is the key within the ConfigMap data to select. |  | MinLength: 1 <br />Required: \{\} <br /> |
 
 
 
@@ -427,6 +445,7 @@ _Appears in:_
 - [SRIOVDevicePluginConfiguration](#sriovdevicepluginconfiguration)
 - [ServiceSetControllerConfiguration](#servicesetcontrollerconfiguration)
 - [StaticClusterManagerConfiguration](#staticclustermanagerconfiguration)
+- [VaultKMSConfiguration](#vaultkmsconfiguration)
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
@@ -1217,6 +1236,24 @@ _Appears in:_
 | `deviceplugin` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | DevicePlugin contains the configuration for the SRIOV Device Plugin component.<br />It contains the image for the controller and its resource requirements. |  | Optional: \{\} <br /> |
 
 
+#### SecretKeyRef
+
+
+
+SecretKeyRef selects a single key from a Secret living in the same namespace as the DPFOperatorConfig.
+
+
+
+_Appears in:_
+- [VaultKMSJWTAuth](#vaultkmsjwtauth)
+- [VaultKMSTokenAuth](#vaultkmstokenauth)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `name` _string_ | Name is the name of the Secret. |  | MinLength: 1 <br />Required: \{\} <br /> |
+| `key` _string_ | Key is the key within the Secret data to select. |  | MinLength: 1 <br />Required: \{\} <br /> |
+
+
 #### SecurityConfiguration
 
 
@@ -1234,6 +1271,7 @@ _Appears in:_
 | `privilegedPodEnforcement` _boolean_ | PrivilegedPodEnforcement controls whether privileged pods are rejected<br />unless explicitly allowed by the workload API. The DPUService controller<br />currently implements this by applying the PrivilegedPodEnforcement<br />ValidatingAdmissionPolicy to DPUService workloads.<br />Setting it to false does not fully opt out of enforcement: the policy and its<br />binding are kept, but the binding is switched from Deny to Audit, so privileged<br />pods are no longer denied and are only recorded in the audit log. The allowlist<br />is kept populated so the audit log only flags pods that would otherwise be<br />denied.<br />The objects are intentionally not deleted to avoid a Kubernetes paramRef<br />informer bug (https://github.com/kubernetes/kubernetes/issues/133827).<br />Defaults to true. | true | Optional: \{\} <br /> |
 | `kata` _[KataContainersConfiguration](#katacontainersconfiguration)_ | Kata is the configuration for Kata Containers.<br />Kata Containers provides VM-based isolation for untrusted workloads on DPU nodes.<br />This component is disabled by default; set disable to false to enable. |  | Optional: \{\} <br /> |
 | `spiffe` _[SPIFFEConfiguration](#spiffeconfiguration)_ | spiffe configures the SPIFFE-based DPU Agent identity flow. Edits are accepted post-bootstrap<br />but do NOT retro-apply to already-provisioned DPUs. |  | Optional: \{\} <br /> |
+| `vaultKMS` _[VaultKMSConfiguration](#vaultkmsconfiguration)_ | VaultKMS is the configuration for the standalone Vault/OpenBao KMS plugin component.<br />It is deployed as a DaemonSet on control-plane nodes and is disabled by default.<br />The plugin is used for encryption at rest for DPUClusters. |  | Optional: \{\} <br /> |
 
 
 #### ServiceSetControllerConfiguration
@@ -1273,6 +1311,197 @@ _Appears in:_
 | `replicas` _integer_ | Replicas is the number of replicas for the controller deployment.<br />Used for High Availability via leader election. | 2 | Maximum: 3 <br />Minimum: 1 <br />Optional: \{\} <br /> |
 | `image` _[Image](#image)_ | Image overrides the container image used by the Static Cluster Manager.<br />Deprecated: This field is deprecated and will be removed with v26.7.0.<br />Use the new field `controller` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br />Optional: \{\} <br /> |
 | `controller` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Controller contains the configuration for the Static Cluster Manager controller component.<br />It contains the image for the controller and its resource requirements. |  | Optional: \{\} <br /> |
+
+
+#### VaultKMSAppRoleAuth
+
+
+
+VaultKMSAppRoleAuth configures the AppRole auth method using a single merged Secret.
+
+
+
+_Appears in:_
+- [VaultKMSAuth](#vaultkmsauth)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `secretName` _string_ | SecretName is the name of the Secret holding the AppRole role ID and secret ID. |  | MinLength: 1 <br />Required: \{\} <br /> |
+| `authEngineMountPath` _string_ | AuthEngineMountPath optionally overrides the Vault auth engine mount path. It is not the transit mount. |  | MaxLength: 512 <br />MinLength: 1 <br />Optional: \{\} <br /> |
+| `roleIDKey` _string_ | RoleIDKey is the Secret data key holding the AppRole role ID. |  | MinLength: 1 <br />Required: \{\} <br /> |
+| `secretIDKey` _string_ | SecretIDKey is the Secret data key holding the AppRole secret ID. |  | MinLength: 1 <br />Required: \{\} <br /> |
+
+
+#### VaultKMSAuth
+
+
+
+VaultKMSAuth configures the Vault/OpenBao auth method. Exactly one auth block matching method must be set.
+
+
+
+_Appears in:_
+- [VaultKMSConfiguration](#vaultkmsconfiguration)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `method` _[VaultKMSAuthMethod](#vaultkmsauthmethod)_ | Method selects the Vault auth method. |  | Enum: [token approle userpass kubernetes jwt] <br />Required: \{\} <br /> |
+| `token` _[VaultKMSTokenAuth](#vaultkmstokenauth)_ | Token configures token auth. |  | Optional: \{\} <br /> |
+| `appRole` _[VaultKMSAppRoleAuth](#vaultkmsapproleauth)_ | AppRole configures AppRole auth. |  | Optional: \{\} <br /> |
+| `userpass` _[VaultKMSUserpassAuth](#vaultkmsuserpassauth)_ | Userpass configures userpass auth. |  | Optional: \{\} <br /> |
+| `kubernetes` _[VaultKMSKubernetesAuth](#vaultkmskubernetesauth)_ | Kubernetes configures Kubernetes auth. |  | Optional: \{\} <br /> |
+| `jwt` _[VaultKMSJWTAuth](#vaultkmsjwtauth)_ | JWT configures JWT auth. |  | Optional: \{\} <br /> |
+
+
+#### VaultKMSAuthMethod
+
+_Underlying type:_ _string_
+
+VaultKMSAuthMethod selects the Vault/OpenBao auth method used by the KMS plugin.
+
+_Validation:_
+- Enum: [token approle userpass kubernetes jwt]
+
+_Appears in:_
+- [VaultKMSAuth](#vaultkmsauth)
+
+| Field | Description |
+| --- | --- |
+| `token` | VaultKMSAuthMethodToken authenticates using a Vault token.<br /> |
+| `approle` | VaultKMSAuthMethodAppRole authenticates using the AppRole auth method.<br /> |
+| `userpass` | VaultKMSAuthMethodUserpass authenticates using the userpass auth method.<br /> |
+| `kubernetes` | VaultKMSAuthMethodKubernetes authenticates using the Kubernetes auth method.<br /> |
+| `jwt` | VaultKMSAuthMethodJWT authenticates using the JWT auth method.<br /> |
+
+
+#### VaultKMSConfiguration
+
+
+
+VaultKMSConfiguration configures the standalone Vault/OpenBao KMS plugin component.
+The component is deployed as a DaemonSet on control-plane nodes and is disabled by default.
+The plugin is used for encryption at rest for DPUClusters.
+
+
+
+_Appears in:_
+- [SecurityConfiguration](#securityconfiguration)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  | Optional: \{\} <br /> |
+| `daemon` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Daemon contains the image and resource overrides for the KMS plugin DaemonSet. |  | Optional: \{\} <br /> |
+| `tls` _[VaultKMSTLS](#vaultkmstls)_ | TLS configures TLS settings used to connect to Vault/OpenBao. |  | Optional: \{\} <br /> |
+| `auth` _[VaultKMSAuth](#vaultkmsauth)_ | Auth configures how the plugin authenticates to Vault/OpenBao. |  | Required: \{\} <br /> |
+| `tokenCheckIntervalSeconds` _integer_ | TokenCheckIntervalSeconds optionally overrides how often the plugin checks and renews the current Vault token, in seconds.<br />This is an advanced setting. The plugin default should work for most environments.<br />Must be at least 5 seconds. |  | Minimum: 5 <br />Optional: \{\} <br /> |
+| `loginTimeoutSeconds` _integer_ | LoginTimeoutSeconds optionally overrides the maximum time for one Vault token check cycle, including authentication, in seconds.<br />This is an advanced setting. The plugin default should work for most environments.<br />Must be at least 1 second. |  | Minimum: 1 <br />Optional: \{\} <br /> |
+| `address` _string_ | Address is the Vault/OpenBao server address.<br />WARNING: Changing this field does not automatically rotate the encryption key or<br />re-encrypt existing DPU cluster secrets. Do not change it while active DPU clusters<br />depend on this KMS plugin unless the new endpoint provides access to the key material<br />used by the previous endpoint. Otherwise, those clusters will be unable to decrypt<br />their existing secrets, causing an outage. |  | MaxLength: 2048 <br />MinLength: 1 <br />Pattern: `^https://.+$` <br />Required: \{\} <br /> |
+| `transit` _[VaultKMSTransit](#vaultkmstransit)_ | Transit configures the Vault Transit secrets engine used for encrypt/decrypt.<br />WARNING: Changing this field does not automatically rotate the encryption key or<br />re-encrypt existing DPU cluster secrets. Do not change it while active DPU clusters<br />depend on this KMS plugin unless the new Transit configuration provides access to all<br />key material used by the previous configuration. Otherwise, those clusters will be<br />unable to decrypt their existing secrets, causing an outage. |  | Required: \{\} <br /> |
+| `namespace` _string_ | Namespace optionally configures the Vault/OpenBao namespace used for requests.<br />This is a Vault/OpenBao namespace, not a Kubernetes namespace.<br />WARNING: Changing this field does not automatically rotate the encryption key or<br />re-encrypt existing DPU cluster secrets. Do not change it while active DPU clusters<br />depend on this KMS plugin unless the new namespace provides access to the key material<br />used by the previous namespace. Otherwise, those clusters will be unable to decrypt<br />their existing secrets, causing an outage. |  | MaxLength: 512 <br />MinLength: 1 <br />Optional: \{\} <br /> |
+
+
+#### VaultKMSJWTAuth
+
+
+
+VaultKMSJWTAuth configures the JWT auth method.
+
+
+
+_Appears in:_
+- [VaultKMSAuth](#vaultkmsauth)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `role` _string_ | Role is the Vault JWT auth role name. |  | MinLength: 1 <br />Required: \{\} <br /> |
+| `jwtSecretRef` _[SecretKeyRef](#secretkeyref)_ | JWTSecretRef selects the JWT presented to Vault from a Secret in the DPFOperatorConfig namespace. |  | Required: \{\} <br /> |
+| `authEngineMountPath` _string_ | AuthEngineMountPath optionally overrides the Vault auth engine mount path. It is not the transit mount. |  | MaxLength: 512 <br />MinLength: 1 <br />Optional: \{\} <br /> |
+
+
+#### VaultKMSKubernetesAuth
+
+
+
+VaultKMSKubernetesAuth configures the Kubernetes auth method.
+
+
+
+_Appears in:_
+- [VaultKMSAuth](#vaultkmsauth)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `role` _string_ | Role is the Vault Kubernetes auth role name (not a Kubernetes RBAC role). |  | MinLength: 1 <br />Required: \{\} <br /> |
+| `audience` _string_ | Audience optionally sets the audience for the projected Kubernetes service account token.<br />Use this when the Vault Kubernetes auth role is configured with bound audiences. |  | MaxLength: 512 <br />MinLength: 1 <br />Optional: \{\} <br /> |
+| `authEngineMountPath` _string_ | AuthEngineMountPath optionally overrides the Vault auth engine mount path. It is not the transit mount. |  | MaxLength: 512 <br />MinLength: 1 <br />Optional: \{\} <br /> |
+
+
+#### VaultKMSTLS
+
+
+
+VaultKMSTLS configures TLS settings for the connection to Vault/OpenBao.
+
+
+
+_Appears in:_
+- [VaultKMSConfiguration](#vaultkmsconfiguration)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `caConfigMapRef` _[ConfigMapKeyRef](#configmapkeyref)_ | CACertConfigMapRef selects a CA bundle key from a ConfigMap used to verify the<br />Vault/OpenBao server certificate. It is mounted as a file. |  | Optional: \{\} <br /> |
+
+
+#### VaultKMSTokenAuth
+
+
+
+VaultKMSTokenAuth configures the token auth method.
+
+
+
+_Appears in:_
+- [VaultKMSAuth](#vaultkmsauth)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `tokenSecretRef` _[SecretKeyRef](#secretkeyref)_ | TokenSecretRef selects the Vault token from a Secret in the DPFOperatorConfig namespace. |  | Required: \{\} <br /> |
+
+
+#### VaultKMSTransit
+
+
+
+VaultKMSTransit configures the Vault Transit secrets engine.
+
+
+
+_Appears in:_
+- [VaultKMSConfiguration](#vaultkmsconfiguration)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `keyName` _string_ | KeyName is the Transit key used for encrypt and decrypt operations. |  | MinLength: 1 <br />Pattern: `^\w(([\w-.]+)?\w)?$` <br />Required: \{\} <br /> |
+| `mount` _string_ | Mount is the Transit secrets engine mount path. Defaults to "transit". | transit | MaxLength: 512 <br />MinLength: 1 <br />Pattern: `^/?[^/\s][^\s]*$` <br />Optional: \{\} <br /> |
+
+
+#### VaultKMSUserpassAuth
+
+
+
+VaultKMSUserpassAuth configures the userpass auth method using a single merged Secret.
+
+
+
+_Appears in:_
+- [VaultKMSAuth](#vaultkmsauth)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `secretName` _string_ | SecretName is the name of the Secret holding the username and password. |  | MinLength: 1 <br />Required: \{\} <br /> |
+| `authEngineMountPath` _string_ | AuthEngineMountPath optionally overrides the Vault auth engine mount path. It is not the transit mount. |  | MaxLength: 512 <br />MinLength: 1 <br />Optional: \{\} <br /> |
+| `usernameKey` _string_ | UsernameKey is the Secret data key holding the username. |  | MinLength: 1 <br />Required: \{\} <br /> |
+| `passwordKey` _string_ | PasswordKey is the Secret data key holding the password. |  | MinLength: 1 <br />Required: \{\} <br /> |
 
 
 

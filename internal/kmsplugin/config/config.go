@@ -205,6 +205,9 @@ func (c *Config) Validate() error {
 	if c.VaultAddress == "" {
 		return missingError(FlagVaultAddress)
 	}
+	if !strings.HasPrefix(c.VaultAddress, "https://") {
+		return fmt.Errorf("flag --%s must use https://", FlagVaultAddress)
+	}
 	if c.KeyName == "" {
 		return missingError(FlagKeyName)
 	}
