@@ -164,8 +164,8 @@ For detailed configuration options and architecture, see [DPF-Operator-Managed C
 ### Optional Component Configurations
 
 The following components can be configured to enable/disable features or specify a different container image.  
-By default, all components are enabled with preconfigured images, and changes are usually only needed for development,
-testing, or specific deployments.
+Most components are enabled by default with preconfigured images. Some components, such as `staticClusterManager`
+and `nodeSRIOVDevicePluginController`, are disabled by default and can be enabled when needed.
 
 ```yaml
 spec:
@@ -175,6 +175,7 @@ spec:
   flannel: { }
   kamajiClusterManager: { }
   multus: { }
+  nodeSRIOVDevicePluginController: { }
   nvipam: { }
   ovsCNI: { }
   provisioningController: { }
@@ -193,6 +194,16 @@ spec:
   dpuDetector:
     daemon:
       image: "my-registry/my-dpu-detector:latest"
+```
+
+To enable a component that is disabled by default, set `disable` to `false`:
+
+```yaml
+spec:
+  nodeSRIOVDevicePluginController:
+    disable: false
+  staticClusterManager:
+    disable: false
 ```
 
 > [!WARNING]

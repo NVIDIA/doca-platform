@@ -14,7 +14,6 @@ The DPUNode resource serves as a bridge between physical host nodes and DPU devi
 
 * **Node-Level Management**: Manages DPU operations at the host node level
 * **Reboot Control**: Configurable host reboot methods (`hostAgent` [default], `external`, `script`; `gNOI` is deprecated)
-* **DMS Integration**: Integration with Device Management Service (DMS)
 * **DPU Association**: Links multiple DPU devices to a single node
 * **Kubernetes Integration**: Optional integration with Kubernetes Node objects
 
@@ -27,7 +26,7 @@ The `spec` section defines the desired configuration for the DPU node:
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `nodeRebootMethod` | NodeRebootMethod | No | Method for rebooting the host (default: `hostAgent`) |
-| `nodeDMSAddress` | DMSAddress | No | IP and port for DMS communication |
+| `nodeDMSAddress` | DMSAddress | No | Deprecated. Retained for API compatibility, but no longer used |
 | `dpus` | []DPURef | No | List of DPU devices attached to this node |
 
 ### NodeRebootMethod
@@ -37,13 +36,13 @@ Defines how the host should be rebooted during DPU operations. Exactly one of th
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `hostAgent` | HostAgent | No | (default) Use the on-host DPF agent to reboot the host |
-| `gNOI` | GNOI | No | **Deprecated**, use `hostAgent` instead. Use the DPU's DMS interface to reboot the host |
 | `external` | External | No | Reboot via external means (not controlled by DPU controller) |
 | `script` | Script | No | Reboot by executing a custom script |
+| `gNOI` | GNOI | No | Deprecated. Still honored for compatibility and uses the host-agent reboot flow; use `hostAgent` instead |
 
 ### DMSAddress
 
-Configuration for Device Management Service communication:
+Deprecated configuration for Device Management Service communication. This type is retained for API compatibility through the deprecated `nodeDMSAddress` field, but is no longer used.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -65,7 +64,7 @@ The `status` section contains the observed state of the DPU node:
 | Field | Type | Description |
 |-------|------|-------------|
 | `conditions` | array | Array of condition objects describing node state |
-| `dpuInstallInterface` | string | Interface used for DPU installation (gNOI or redfish) |
+| `dpuInstallInterface` | string | Interface used for DPU installation (`hostAgent`, `redfish`, or legacy `gNOI`) |
 | `kubeNodeRef` | string | Name of the Kubernetes Node object (immutable) |
 | `rebootInProgress` | bool | Indicates if the node is currently rebooting |
 | `rebootMethod` | string | Host-level reboot method aggregated from child DPUs in `DPURebooting` phase (see [Aggregated reboot method](#aggregated-reboot-method)) |
@@ -97,6 +96,7 @@ The DPUNode resource uses several condition types to track its state:
 * **NeedHostAgentUpgrade**: The host agent needs to be upgraded
 * **OOBBridgeConfigured**: The out-of-band bridge (br-dpu) is configured
 * **RshimAvailable**: The rshim interface is available
+* **DPUNodeNodeEffectInProgress**: A node effect is being applied on the node
 
 ## Example Usage
 
@@ -112,9 +112,6 @@ metadata:
 spec:
   nodeRebootMethod:
     hostAgent: {}
-  nodeDMSAddress:
-    ip: "192.168.1.100"
-    port: 443
   dpus:
   - name: dpu-device-001
   - name: dpu-device-002
@@ -250,13 +247,6 @@ Uses the on-host DPF agent to reboot the host. This is the default and recommend
 **Requirements:**
 * Host agent installed and running on the node
 
-### gNOI (Deprecated)
-Uses the DPU's Device Management Service interface to reboot the host. **Deprecated** in favour of `hostAgent`; retained for backwards compatibility only and may be removed in a future release.
-
-**Requirements:**
-* DMS must be accessible
-* Valid DMS address configuration
-
 ### External
 Reboots the host via external means not controlled by the DPU controller. This method requires manual intervention or external automation.
 
@@ -282,6 +272,9 @@ Executes a custom script to reboot the host. The script is defined in a ConfigMa
 * Script must exit successfully
 * Proper RBAC permissions
 
+### gNOI (Deprecated)
+Retained for API compatibility. This method uses the host-agent reboot flow. Use `hostAgent` for new deployments.
+
 ## Integration with Kubernetes
 
 ### Node Association
@@ -298,7 +291,7 @@ This association enables:
 * Resource management alignment
 
 ### Annotations
-DPUNode supports the following annotation for external reboot requirements:
+For external reboot, the controller adds the following annotation when the host must be rebooted manually:
 
 ```yaml
 metadata:
@@ -312,12 +305,13 @@ metadata:
 DPUNode resources are typically created:
 * **Manually**: By administrators for known nodes
 * **Automatically**: Via discovery processes
-* **Via DPUSet**: As part of bulk node management
+* **Via host agent/node manager**: In host-trusted deployments
 
 ### Updates
-Most fields in DPUNode can be updated, but some restrictions apply:
+Some DPUNode fields can be updated, but updates during active provisioning are restricted:
 * `kubeNodeRef` is immutable once set
 * `dpus` list can be modified to add/remove devices
+* `nodeRebootMethod` should not be changed while associated DPUs are actively provisioning
 
 ### Deletion
 DPUNode resources are protected by a finalizer (`provisioning.dpu.nvidia.com/dpunode-protection`) to prevent deletion while DPUs are in use.
