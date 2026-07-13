@@ -21,7 +21,7 @@ spec:
         - PF_BAR2_ENABLE=0
         - PER_PF_NUM_SF=1
         - PF_TOTAL_SF=20
-        - PF_SF_BAR_SIZE=10
+        - PF_SF_BAR_SIZE=14
         - NUM_PF_MSIX_VALID=0
         - PF_NUM_PF_MSIX_VALID=1
         - PF_NUM_PF_MSIX=228
