@@ -20,8 +20,11 @@ package e2e
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"slices"
+	"strings"
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
@@ -49,7 +52,17 @@ const (
 	// NodeUnschedulableTaintKey is the well known taint key that indicates a node is unschedulable, typically used when
 	// draining a node
 	NodeUnschedulableTaintKey = "node.kubernetes.io/unschedulable"
+
+	// useFlavorTemplateEnvVar, when set to "true", makes the DPUDeployment full-creation flow
+	// exercise the DPUFlavorTemplate path instead of a static DPUFlavor.
+	useFlavorTemplateEnvVar = "E2E_USE_FLAVOR_TEMPLATE"
 )
+
+// useFlavorTemplate reports whether the DPUDeployment full-creation flow should render a
+// per-DPU DPUFlavor from a DPUFlavorTemplate instead of referencing a static DPUFlavor.
+func useFlavorTemplate() bool {
+	return os.Getenv(useFlavorTemplateEnvVar) == "true"
+}
 
 func ValidateDPUDeploymentCreation(ctx context.Context, input *systemTestInput) {
 	By("Creating the dependencies")
@@ -351,6 +364,15 @@ func VerifyDeploymentUnderlyingObjectsCreated(ctx context.Context, g Gomega, tes
 		})).To(Succeed())
 	g.Expect(gotDPUSetList.Items).To(HaveLen(len(dpuDeployment.Spec.DPUs.DPUSets)))
 
+	if dpuDeployment.Spec.DPUs.FlavorTemplate != nil {
+		for _, dpuSet := range gotDPUSetList.Items {
+			g.Expect(dpuSet.Spec.DPUTemplate.Spec.DPUFlavorTemplate).To(HaveValue(Equal(*dpuDeployment.Spec.DPUs.FlavorTemplate)),
+				"generated DPUSet %s should reference the DPUFlavorTemplate", dpuSet.Name)
+			g.Expect(dpuSet.Spec.DPUTemplate.Spec.DPUFlavor).To(BeNil(),
+				"generated DPUSet %s should not reference a DPUFlavor when a template is used", dpuSet.Name)
+		}
+	}
+
 	gotDPUServiceList := &dpuservicev1.DPUServiceList{}
 	g.Expect(testClient.List(ctx,
 		gotDPUServiceList,
@@ -489,6 +511,26 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 				},
 			},
 		},
+	}
+
+	// The DPUDeployment renders a per-DPU DPUFlavor from a template (against each DPUDevice.spec.values) instead of
+	// referencing a static DPUFlavor.
+	//  DPUSet coverage is transitive: the DPUDeployment generates DPUSets carrying the template.
+	if useFlavorTemplate() {
+		By("Creating the DPUFlavorTemplate and switching the DPUDeployment to reference it")
+		dpuFlavorTemplate := objectFromFile[provisioningv1.DPUFlavorTemplate]("../objects/infrastructure/dpuflavortemplate-physical.yaml")
+		dpuFlavorTemplate.SetLabels(CleanupScope.Suite)
+		Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuFlavorTemplate))).To(Succeed())
+		input.dpuFlavorTemplate = dpuFlavorTemplate
+
+		// The DPUSet controller renders the template at DPU-create time with
+		// missingkey=error, so every placeholder the body references must already be in
+		// DPUDevice.spec.values. DPUDevices persist across the DPUSet/DPU deletion above,
+		// so patch them now, before the DPUDeployment creates its DPUSets.
+		PatchDPUDeviceValuesForFlavorTemplate(ctx, input)
+
+		dpuDeployment.Spec.DPUs.Flavor = nil
+		dpuDeployment.Spec.DPUs.FlavorTemplate = &dpuFlavorTemplate.Name
 	}
 
 	Expect(input.client.Create(ctx, dpuDeployment)).To(Succeed())
@@ -2468,4 +2510,99 @@ func verifyPodsRecreated(ctx context.Context, c client.Client, namespace, servic
 				fmt.Sprintf("expected pod %s to be running", pod.Name))
 		}
 	}).WithTimeout(5 * time.Minute).WithPolling(250 * time.Millisecond).Should(Succeed())
+}
+
+// dpuFlavorTemplateNodeLabelKey is the tenant-Node label produced by the templated
+// node-labeling-flavortemplate.sh script embedded in dpuflavortemplate-physical.yaml.
+// The label value is the labelSuffix injected into DPUDevice.spec.values, so it
+// proves that the DPUFlavorTemplate was rendered per-DPU using DPUDevice values.
+const dpuFlavorTemplateNodeLabelKey = "scripts.dpu.nvidia.com/node-labeling-flavortemplate.sh"
+
+// labelSuffixForDPUDevice returns a label-value-safe suffix that identifies a
+// single DPUDevice. Used by PatchDPUDeviceValuesForFlavorTemplate to inject a
+// per-device value into DPUDevice.spec.values and by ValidateDPUFlavorTemplatePerDeviceNodeLabels
+// to reconstruct the expected label value; both must agree, hence the shared helper.
+func labelSuffixForDPUDevice(dpuDevice *provisioningv1.DPUDevice) string {
+	const maxLabelValueLength = 63
+	suffix := dpuDevice.Name
+	if len(suffix) > maxLabelValueLength {
+		suffix = suffix[:maxLabelValueLength]
+	}
+	// Truncation can land on a separator; a label value must end alphanumeric.
+	return strings.TrimRight(suffix, "-_.")
+}
+
+// PatchDPUDeviceValuesForFlavorTemplate patches each DPUDevice.spec.values with a
+// per-device labelSuffix so the DPUFlavorTemplate body renders with real data.
+// Rendering runs with missingkey=error, so unset keys would fail the render and
+// starve the DPUSet controller.
+func PatchDPUDeviceValuesForFlavorTemplate(ctx context.Context, input *systemTestInput) {
+	By("Patching DPUDevice.spec.values so the DPUFlavorTemplate render has per-device data")
+	// dpuDiscovery creates one DPUDevice per physical DPU, which can exceed the number of
+	// provisioned DPUs (totalDPUs) on hosts that expose multiple DPUs. Wait for at least that
+	// many, then patch every discovered device: patching extras is harmless because the
+	// per-device node-label check only inspects DPUDevices that back provisioned DPUs.
+	Eventually(func(g Gomega) {
+		dpuDeviceList := &provisioningv1.DPUDeviceList{}
+		g.Expect(input.client.List(ctx, dpuDeviceList)).To(Succeed())
+		g.Expect(len(dpuDeviceList.Items)).To(BeNumerically(">=", input.totalDPUs()),
+			"expected at least %d DPUDevice objects, got %d", input.totalDPUs(), len(dpuDeviceList.Items))
+	}).WithTimeout(5 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+
+	dpuDeviceList := &provisioningv1.DPUDeviceList{}
+	Expect(input.client.List(ctx, dpuDeviceList)).To(Succeed())
+	for i := range dpuDeviceList.Items {
+		dpuDevice := &dpuDeviceList.Items[i]
+		original := dpuDevice.DeepCopy()
+		suffix := labelSuffixForDPUDevice(dpuDevice)
+		raw, err := json.Marshal(map[string]string{"labelSuffix": suffix})
+		Expect(err).NotTo(HaveOccurred())
+		dpuDevice.Spec.Values = &machineryruntime.RawExtension{Raw: raw}
+		Expect(input.client.Patch(ctx, dpuDevice, client.MergeFrom(original))).To(Succeed(),
+			"failed to patch DPUDevice %s spec.values", dpuDevice.Name)
+	}
+}
+
+// ValidateDPUFlavorTemplatePerDeviceNodeLabels verifies that each tenant Node
+// carries a node label whose value equals the labelSuffix injected into its
+// DPUDevice.spec.values. This proves the DPUFlavorTemplate was rendered per-DPU
+// with data pulled from DPUDevice.spec.values and applied on the DPU by dpuagent.
+func ValidateDPUFlavorTemplatePerDeviceNodeLabels(ctx context.Context, input *systemTestInput) {
+	if input.dpuFlavorTemplate == nil {
+		Skip("Config does not supply a DPUFlavorTemplate; skipping per-device template node label validation")
+	}
+	if !input.hasDpuNodes() {
+		Skip("Skip test as DPU nodes are required")
+	}
+	if len(dpuClusterClient) == 0 || dpuClusterClient[0] == nil {
+		Fail("DPUCluster client is not initialized; expected ValidateDPUDeploymentFullCreation to run first")
+	}
+
+	By("Waiting for tenant Nodes to report the templated DPUFlavor node label per DPUDevice")
+	Eventually(func(g Gomega) {
+		dpuList := &provisioningv1.DPUList{}
+		g.Expect(input.client.List(ctx, dpuList)).To(Succeed())
+		g.Expect(dpuList.Items).To(HaveLen(input.totalDPUs()))
+
+		for i := range dpuList.Items {
+			dpu := &dpuList.Items[i]
+			dpuDevice, err := getDPUDeviceByName(ctx, input.client, dpu.Spec.DPUDeviceName)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(dpuDevice).NotTo(BeNil())
+			if dpuDevice == nil {
+				return
+			}
+			expected := labelSuffixForDPUDevice(dpuDevice)
+
+			node, err := getTenantNode(ctx, dpuClusterClient[0], dpu.Name)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(node).NotTo(BeNil())
+			if node == nil {
+				return
+			}
+			g.Expect(node.Labels).To(HaveKeyWithValue(dpuFlavorTemplateNodeLabelKey, expected),
+				"tenant Node %s should carry label %s=%s produced by templated node-labeling-flavortemplate.sh on DPUDevice %s",
+				node.Name, dpuFlavorTemplateNodeLabelKey, expected, dpuDevice.Name)
+		}
+	}).WithTimeout(15 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
 }
