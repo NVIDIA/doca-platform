@@ -164,7 +164,7 @@ For detailed configuration options and architecture, see [DPF-Operator-Managed C
 ### Optional Component Configurations
 
 The following components can be configured to enable/disable features or specify a different container image.  
-Most components are enabled by default with preconfigured images. Some components, such as `staticClusterManager`
+Most components are enabled by default with preconfigured images. Some components, such as `staticClusterManager`,
 and `nodeSRIOVDevicePluginController`, are disabled by default and can be enabled when needed.
 
 ```yaml

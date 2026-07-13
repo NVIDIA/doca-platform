@@ -27,6 +27,7 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -426,6 +427,204 @@ var _ = Describe("Operator API Validation", func() {
 				}, true, "spec.security.spiffe cannot be removed once set"),
 			)
 		})
+
+		Context("Validate vaultKMS auth", func() {
+			It("accepts an enabled vaultKMS with token auth", func() {
+				config := getMinimalDPFOperatorConfig(testNs.Name)
+				setVaultKMSConfig(config, enabledVaultKMS())
+				validateConfigCreation(config, false, "", &cleanupObjs)
+			})
+
+			It("rejects token method without a token block", func() {
+				config := getMinimalDPFOperatorConfig(testNs.Name)
+				v := enabledVaultKMS()
+				v.Auth = operatorv1.VaultKMSAuth{Method: operatorv1.VaultKMSAuthMethodToken}
+				setVaultKMSConfig(config, v)
+				validateConfigCreation(config, true, "token is required when method is token", &cleanupObjs)
+			})
+
+			It("rejects an auth block that does not match the method", func() {
+				config := getMinimalDPFOperatorConfig(testNs.Name)
+				v := enabledVaultKMS()
+				v.Auth.AppRole = &operatorv1.VaultKMSAppRoleAuth{
+					SecretName:  "approle",
+					RoleIDKey:   "role_id",
+					SecretIDKey: "secret_id",
+				}
+				setVaultKMSConfig(config, v)
+				validateConfigCreation(config, true, "appRole must only be set when method is approle", &cleanupObjs)
+			})
+
+			It("accepts kubernetes auth", func() {
+				config := getMinimalDPFOperatorConfig(testNs.Name)
+				v := enabledVaultKMS()
+				v.Auth = operatorv1.VaultKMSAuth{
+					Method:     operatorv1.VaultKMSAuthMethodKubernetes,
+					Kubernetes: &operatorv1.VaultKMSKubernetesAuth{Role: "dpf-kms", Audience: ptr.To("vault")},
+				}
+				setVaultKMSConfig(config, v)
+				validateConfigCreation(config, false, "", &cleanupObjs)
+			})
+
+			It("accepts userpass auth", func() {
+				config := getMinimalDPFOperatorConfig(testNs.Name)
+				v := enabledVaultKMS()
+				v.Auth = operatorv1.VaultKMSAuth{
+					Method: operatorv1.VaultKMSAuthMethodUserpass,
+					Userpass: &operatorv1.VaultKMSUserpassAuth{
+						SecretName:  "vault-userpass",
+						UsernameKey: "username",
+						PasswordKey: "password",
+					},
+				}
+				setVaultKMSConfig(config, v)
+				validateConfigCreation(config, false, "", &cleanupObjs)
+			})
+
+			It("accepts optional token manager timing", func() {
+				config := getMinimalDPFOperatorConfig(testNs.Name)
+				v := enabledVaultKMS()
+				v.TokenCheckIntervalSeconds = ptr.To[int32](30)
+				v.LoginTimeoutSeconds = ptr.To[int32](10)
+				setVaultKMSConfig(config, v)
+				validateConfigCreation(config, false, "", &cleanupObjs)
+			})
+
+			It("accepts namespace", func() {
+				config := getMinimalDPFOperatorConfig(testNs.Name)
+				v := enabledVaultKMS()
+				v.Namespace = ptr.To("platform/kubernetes")
+				setVaultKMSConfig(config, v)
+				validateConfigCreation(config, false, "", &cleanupObjs)
+			})
+
+			It("rejects tokenCheckIntervalSeconds below 5", func() {
+				config := getMinimalDPFOperatorConfig(testNs.Name)
+				v := enabledVaultKMS()
+				v.TokenCheckIntervalSeconds = ptr.To[int32](4)
+				setVaultKMSConfig(config, v)
+				validateConfigCreation(config, true, "tokenCheckIntervalSeconds", &cleanupObjs)
+			})
+
+			It("rejects loginTimeoutSeconds below 1", func() {
+				config := getMinimalDPFOperatorConfig(testNs.Name)
+				v := enabledVaultKMS()
+				v.LoginTimeoutSeconds = ptr.To[int32](0)
+				setVaultKMSConfig(config, v)
+				validateConfigCreation(config, true, "loginTimeoutSeconds", &cleanupObjs)
+			})
+
+			DescribeTable("rejects invalid hardened vaultKMS fields",
+				func(mutate func(*operatorv1.VaultKMSConfiguration), errorMessage string) {
+					config := getMinimalDPFOperatorConfig(testNs.Name)
+					v := enabledVaultKMS()
+					mutate(v)
+					setVaultKMSConfig(config, v)
+					validateConfigCreation(config, true, errorMessage, &cleanupObjs)
+				},
+				Entry("address without http scheme", func(v *operatorv1.VaultKMSConfiguration) {
+					v.Address = "vault.example:8200"
+				}, "Invalid value"),
+				Entry("address with plaintext http scheme", func(v *operatorv1.VaultKMSConfiguration) {
+					v.Address = "http://vault.example:8200"
+				}, "Invalid value"),
+				Entry("transit key contains slash", func(v *operatorv1.VaultKMSConfiguration) {
+					v.Transit.KeyName = "k8s/etcd"
+				}, "Invalid value"),
+				Entry("transit mount is whitespace", func(v *operatorv1.VaultKMSConfiguration) {
+					v.Transit.Mount = ptr.To("   ")
+				}, "Invalid value"),
+				Entry("transit mount is slash-only", func(v *operatorv1.VaultKMSConfiguration) {
+					v.Transit.Mount = ptr.To("///")
+				}, "Invalid value"),
+				Entry("kubernetes audience is too long", func(v *operatorv1.VaultKMSConfiguration) {
+					v.Auth = operatorv1.VaultKMSAuth{
+						Method: operatorv1.VaultKMSAuthMethodKubernetes,
+						Kubernetes: &operatorv1.VaultKMSKubernetesAuth{
+							Role:     "dpf-kms",
+							Audience: ptr.To(strings.Repeat("a", 513)),
+						},
+					}
+				}, "Too long"),
+			)
+
+			It("rejects an explicit empty transit mount", func() {
+				config := &unstructured.Unstructured{
+					Object: map[string]interface{}{
+						"apiVersion": operatorv1.GroupVersion.String(),
+						"kind":       operatorv1.DPFOperatorConfigKind,
+						"metadata": map[string]interface{}{
+							"name":      "test-config",
+							"namespace": testNs.Name,
+						},
+						"spec": map[string]interface{}{
+							"deploymentMode": "host-trusted",
+							"provisioningController": map[string]interface{}{
+								"bfbPVCName": "test-bfb-pvc",
+							},
+							"security": map[string]interface{}{
+								"vaultKMS": map[string]interface{}{
+									"disable": false,
+									"address": "https://vault.example:8200",
+									"transit": map[string]interface{}{
+										"keyName": "k8s-etcd",
+										"mount":   "",
+									},
+									"auth": map[string]interface{}{
+										"method": "token",
+										"token": map[string]interface{}{
+											"tokenSecretRef": map[string]interface{}{
+												"name": "vault-token",
+												"key":  "token",
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				}
+
+				err := testClient.Create(ctx, config)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("Invalid value"))
+			})
+
+			It("accepts jwt auth", func() {
+				config := getMinimalDPFOperatorConfig(testNs.Name)
+				v := enabledVaultKMS()
+				v.Auth = operatorv1.VaultKMSAuth{
+					Method: operatorv1.VaultKMSAuthMethodJWT,
+					JWT:    &operatorv1.VaultKMSJWTAuth{Role: "dpf-kms", JWTSecretRef: operatorv1.SecretKeyRef{Name: "dpf-jwt", Key: "jwt"}},
+				}
+				setVaultKMSConfig(config, v)
+				validateConfigCreation(config, false, "", &cleanupObjs)
+			})
+
+			It("rejects jwt method without a jwt block", func() {
+				config := getMinimalDPFOperatorConfig(testNs.Name)
+				v := enabledVaultKMS()
+				v.Auth = operatorv1.VaultKMSAuth{Method: operatorv1.VaultKMSAuthMethodJWT}
+				setVaultKMSConfig(config, v)
+				validateConfigCreation(config, true, "jwt is required when method is jwt", &cleanupObjs)
+			})
+
+			It("rejects userpass method without a userpass block", func() {
+				config := getMinimalDPFOperatorConfig(testNs.Name)
+				v := enabledVaultKMS()
+				v.Auth = operatorv1.VaultKMSAuth{Method: operatorv1.VaultKMSAuthMethodUserpass}
+				setVaultKMSConfig(config, v)
+				validateConfigCreation(config, true, "userpass is required when method is userpass", &cleanupObjs)
+			})
+
+			It("rejects a secret ref with an empty key", func() {
+				config := getMinimalDPFOperatorConfig(testNs.Name)
+				v := enabledVaultKMS()
+				v.Auth.Token.TokenSecretRef.Key = ""
+				setVaultKMSConfig(config, v)
+				validateConfigCreation(config, true, "", &cleanupObjs)
+			})
+		})
 	})
 })
 
@@ -634,6 +833,13 @@ func setSPIFFEConfig(config *operatorv1.DPFOperatorConfig, spiffe *operatorv1.SP
 	config.Spec.Security.SPIFFE = spiffe
 }
 
+func setVaultKMSConfig(config *operatorv1.DPFOperatorConfig, vaultKMS *operatorv1.VaultKMSConfiguration) {
+	if config.Spec.Security == nil {
+		config.Spec.Security = &operatorv1.SecurityConfiguration{}
+	}
+	config.Spec.Security.VaultKMS = vaultKMS
+}
+
 func getValidSPIFFEConfiguration() *operatorv1.SPIFFEConfiguration {
 	return &operatorv1.SPIFFEConfiguration{
 		SPIREServerAddress: "spire-server.spire-system.svc:8081",
@@ -643,6 +849,19 @@ func getValidSPIFFEConfiguration() *operatorv1.SPIFFEConfiguration {
 		TrustBundle: operatorv1.SPIFFETrustBundleConfigMapReference{
 			Name:      "spire-bundle",
 			Namespace: "spire-system",
+		},
+	}
+}
+
+// enabledVaultKMS returns a minimal, valid, enabled VaultKMS configuration using token auth.
+func enabledVaultKMS() *operatorv1.VaultKMSConfiguration {
+	return &operatorv1.VaultKMSConfiguration{
+		BaseComponentConfig: operatorv1.BaseComponentConfig{Disable: ptr.To(false)},
+		Address:             "https://vault.example:8200",
+		Transit:             operatorv1.VaultKMSTransit{KeyName: "k8s-etcd"},
+		Auth: operatorv1.VaultKMSAuth{
+			Method: operatorv1.VaultKMSAuthMethodToken,
+			Token:  &operatorv1.VaultKMSTokenAuth{TokenSecretRef: operatorv1.SecretKeyRef{Name: "vault-token", Key: "token"}},
 		},
 	}
 }

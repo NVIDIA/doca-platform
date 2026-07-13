@@ -282,6 +282,35 @@ exclusions: # Is used to define exclusions on a per-chart basis when analyzing a
     evaluated_keys:
       - spec/template/spec/containers/[0]/image
 
+  vault-kms:
+  # Backend outages must make the pod NotReady without restarting it.
+  - check_id: CKV_K8S_8 # Liveness Probe Should be Configured
+    resource: DaemonSet.dpf-operator-system.dpf-vault-kms
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/livenessProbe
+  # The embedded manifest only carries defaults; resources can be set via DPFOperatorConfig.
+  - check_id: CKV_K8S_11 # CPU limits should be set
+    resource: DaemonSet.dpf-operator-system.dpf-vault-kms
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/resources/limits/cpu
+  - check_id: CKV_K8S_13 # Memory limits should be set
+    resource: DaemonSet.dpf-operator-system.dpf-vault-kms
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/resources/limits/memory
+  # Should be set to image with digest via DPFOperatorConfig.
+  - check_id: CKV_K8S_15 # Image Pull Policy should be Always
+    resource: DaemonSet.dpf-operator-system.dpf-vault-kms
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/image
+      - spec/template/spec/containers/[0]/imagePullPolicy
+  # The plugin runs as root to create and own the node-local KMS socket.
+  - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
+    resource: DaemonSet.dpf-operator-system.dpf-vault-kms
+  - check_id: CKV_K8S_43 # Image should use digest
+    resource: DaemonSet.dpf-operator-system.dpf-vault-kms
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/image
+
   ## VPC chart components
 
   vpc-ovn-host: []

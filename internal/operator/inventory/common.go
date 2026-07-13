@@ -256,6 +256,16 @@ func (p *simpleDeploymentObjects) IsReady(ctx context.Context, c client.Client, 
 // daemonSetReadyCheck can be used to check for readiness of an inventory Component that has exactly one Kubernetes DaemonSet of interest.
 // The Component returns and error when the number of Ready is zero or below the current number of desiredNumberScheduled.
 func daemonSetReadyCheck(ctx context.Context, c client.Client, namespace string, objects []*unstructured.Unstructured, versionValidation bool) error {
+	return daemonSetReadyCheckWithOptions(ctx, c, namespace, objects, versionValidation, false)
+}
+
+// daemonSetReadyCheckWithScheduledPods is for DaemonSet components that are only useful
+// when they have at least one eligible node.
+func daemonSetReadyCheckWithScheduledPods(ctx context.Context, c client.Client, namespace string, objects []*unstructured.Unstructured, versionValidation bool) error {
+	return daemonSetReadyCheckWithOptions(ctx, c, namespace, objects, versionValidation, true)
+}
+
+func daemonSetReadyCheckWithOptions(ctx context.Context, c client.Client, namespace string, objects []*unstructured.Unstructured, versionValidation bool, requireScheduledPods bool) error {
 	daemonset := &appsv1.DaemonSet{}
 	found := false
 	for _, obj := range objects {
@@ -285,6 +295,9 @@ func daemonSetReadyCheck(ctx context.Context, c client.Client, namespace string,
 		daemonset.Status.NumberAvailable != daemonset.Status.DesiredNumberScheduled {
 		return fmt.Errorf("DaemonSet %s/%s has %d available and %d up-to-date, want %d",
 			daemonset.GetNamespace(), daemonset.GetName(), daemonset.Status.NumberAvailable, daemonset.Status.UpdatedNumberScheduled, daemonset.Status.DesiredNumberScheduled)
+	}
+	if requireScheduledPods && daemonset.Status.DesiredNumberScheduled == 0 {
+		return fmt.Errorf("DaemonSet %s/%s has no scheduled pods", daemonset.GetNamespace(), daemonset.GetName())
 	}
 	return nil
 }
