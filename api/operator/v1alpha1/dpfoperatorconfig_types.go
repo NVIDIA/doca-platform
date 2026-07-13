@@ -205,11 +205,16 @@ const (
 	DeploymentModeHostTrusted DeploymentMode = "host-trusted"
 )
 
+// TODO: remove after v26.10.
+// Rules referencing deploymentMode must guard with !has(self.deploymentMode): x-kubernetes-validations
+// run on status-subresource writes too, and stored objects from releases predating the field would
+// otherwise fail rule evaluation with "no such key", blocking all status updates.
+
 // DPFOperatorConfigSpec defines the desired state of DPFOperatorConfig
-// +kubebuilder:validation:XValidation:rule="self.deploymentMode != 'zero-trust' || (has(self.provisioningController.installInterface) && has(self.provisioningController.installInterface.installViaRedfish))",message="deploymentMode zero-trust requires provisioningController.installInterface.installViaRedfish"
-// +kubebuilder:validation:XValidation:rule="self.deploymentMode != 'host-trusted' || !has(self.provisioningController.installInterface) || !has(self.provisioningController.installInterface.installViaRedfish)",message="deploymentMode host-trusted does not support provisioningController.installInterface.installViaRedfish"
-// +kubebuilder:validation:XValidation:rule="self.deploymentMode == 'host-trusted' || !has(self.networking.dpuNodeOOBBridgeName) || self.networking.dpuNodeOOBBridgeName == 'br-dpu'",message="dpuNodeOOBBridgeName is only configurable in host-trusted mode"
-// +kubebuilder:validation:XValidation:rule="self.deploymentMode != 'zero-trust' || !has(self.networking) || !has(self.networking.controlPlaneMTU) || self.networking.controlPlaneMTU <= 1500",message="controlPlaneMTU must not exceed 1500 in zero-trust mode because DPU OOB interfaces do not support jumbo frames"
+// +kubebuilder:validation:XValidation:rule="!has(self.deploymentMode) || self.deploymentMode != 'zero-trust' || (has(self.provisioningController.installInterface) && has(self.provisioningController.installInterface.installViaRedfish))",message="deploymentMode zero-trust requires provisioningController.installInterface.installViaRedfish"
+// +kubebuilder:validation:XValidation:rule="!has(self.deploymentMode) || self.deploymentMode != 'host-trusted' || !has(self.provisioningController.installInterface) || !has(self.provisioningController.installInterface.installViaRedfish)",message="deploymentMode host-trusted does not support provisioningController.installInterface.installViaRedfish"
+// +kubebuilder:validation:XValidation:rule="!has(self.deploymentMode) || self.deploymentMode == 'host-trusted' || !has(self.networking.dpuNodeOOBBridgeName) || self.networking.dpuNodeOOBBridgeName == 'br-dpu'",message="dpuNodeOOBBridgeName is only configurable in host-trusted mode"
+// +kubebuilder:validation:XValidation:rule="!has(self.deploymentMode) || self.deploymentMode != 'zero-trust' || !has(self.networking) || !has(self.networking.controlPlaneMTU) || self.networking.controlPlaneMTU <= 1500",message="controlPlaneMTU must not exceed 1500 in zero-trust mode because DPU OOB interfaces do not support jumbo frames"
 // +kubebuilder:validation:XValidation:rule="!has(self.security) || !has(self.security.spiffe) || self.deploymentMode == 'zero-trust'",message="spiffe configuration requires deploymentMode=zero-trust"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.security) || !has(oldSelf.security.spiffe) || (has(self.security) && has(self.security.spiffe))",message="spec.security.spiffe cannot be removed once set; SPIFFE-mode DPUs depend on this configuration. Disable SPIFFE for the cluster by deleting and recreating DPFOperatorConfig (DR escape hatch); existing SPIFFE-mode DPUs require re-provisioning."
 type DPFOperatorConfigSpec struct {
