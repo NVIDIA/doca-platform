@@ -1142,3 +1142,291 @@ func (c *KataContainersConfiguration) GetImages() map[ContainerName]*string {
 	}
 	return images
 }
+
+// SecretKeyRef selects a single key from a Secret living in the same namespace as the DPFOperatorConfig.
+type SecretKeyRef struct {
+	// Name is the name of the Secret.
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	Name string `json:"name,omitempty"`
+
+	// Key is the key within the Secret data to select.
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	Key string `json:"key,omitempty"`
+}
+
+// ConfigMapKeyRef selects a single key from a ConfigMap living in the same namespace as the DPFOperatorConfig.
+type ConfigMapKeyRef struct {
+	// Name is the name of the ConfigMap.
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	Name string `json:"name,omitempty"`
+
+	// Key is the key within the ConfigMap data to select.
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	Key string `json:"key,omitempty"`
+}
+
+// VaultKMSAuthMethod selects the Vault/OpenBao auth method used by the KMS plugin.
+// +kubebuilder:validation:Enum=token;approle;userpass;kubernetes;jwt
+type VaultKMSAuthMethod string
+
+const (
+	// VaultKMSAuthMethodToken authenticates using a Vault token.
+	VaultKMSAuthMethodToken VaultKMSAuthMethod = "token"
+	// VaultKMSAuthMethodAppRole authenticates using the AppRole auth method.
+	VaultKMSAuthMethodAppRole VaultKMSAuthMethod = "approle"
+	// VaultKMSAuthMethodUserpass authenticates using the userpass auth method.
+	VaultKMSAuthMethodUserpass VaultKMSAuthMethod = "userpass"
+	// VaultKMSAuthMethodKubernetes authenticates using the Kubernetes auth method.
+	VaultKMSAuthMethodKubernetes VaultKMSAuthMethod = "kubernetes"
+	// VaultKMSAuthMethodJWT authenticates using the JWT auth method.
+	VaultKMSAuthMethodJWT VaultKMSAuthMethod = "jwt"
+)
+
+// VaultKMSConfiguration configures the standalone Vault/OpenBao KMS plugin component.
+// The component is deployed as a DaemonSet on control-plane nodes and is disabled by default.
+// The plugin is used for encryption at rest for DPUClusters.
+type VaultKMSConfiguration struct {
+	BaseComponentConfig `json:",inline"`
+
+	// Daemon contains the image and resource overrides for the KMS plugin DaemonSet.
+	// +optional
+	Daemon *DefaultOverridesConfiguration `json:"daemon,omitempty"`
+
+	// TLS configures TLS settings used to connect to Vault/OpenBao.
+	// +optional
+	TLS *VaultKMSTLS `json:"tls,omitempty"`
+
+	// Auth configures how the plugin authenticates to Vault/OpenBao.
+	// +required
+	Auth VaultKMSAuth `json:"auth,omitzero"`
+
+	// TokenCheckIntervalSeconds optionally overrides how often the plugin checks and renews the current Vault token, in seconds.
+	// This is an advanced setting. The plugin default should work for most environments.
+	// Must be at least 5 seconds.
+	// +kubebuilder:validation:Minimum=5
+	// +optional
+	TokenCheckIntervalSeconds *int32 `json:"tokenCheckIntervalSeconds,omitempty"`
+
+	// LoginTimeoutSeconds optionally overrides the maximum time for one Vault token check cycle, including authentication, in seconds.
+	// This is an advanced setting. The plugin default should work for most environments.
+	// Must be at least 1 second.
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	LoginTimeoutSeconds *int32 `json:"loginTimeoutSeconds,omitempty"`
+
+	// Address is the Vault/OpenBao server address.
+	// WARNING: Changing this field does not automatically rotate the encryption key or
+	// re-encrypt existing DPU cluster secrets. Do not change it while active DPU clusters
+	// depend on this KMS plugin unless the new endpoint provides access to the key material
+	// used by the previous endpoint. Otherwise, those clusters will be unable to decrypt
+	// their existing secrets, causing an outage.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=2048
+	// +kubebuilder:validation:Pattern=`^https://.+$`
+	// +required
+	Address string `json:"address,omitempty"`
+
+	// Transit configures the Vault Transit secrets engine used for encrypt/decrypt.
+	// WARNING: Changing this field does not automatically rotate the encryption key or
+	// re-encrypt existing DPU cluster secrets. Do not change it while active DPU clusters
+	// depend on this KMS plugin unless the new Transit configuration provides access to all
+	// key material used by the previous configuration. Otherwise, those clusters will be
+	// unable to decrypt their existing secrets, causing an outage.
+	// +required
+	Transit VaultKMSTransit `json:"transit,omitzero"`
+
+	// Namespace optionally configures the Vault/OpenBao namespace used for requests.
+	// This is a Vault/OpenBao namespace, not a Kubernetes namespace.
+	// WARNING: Changing this field does not automatically rotate the encryption key or
+	// re-encrypt existing DPU cluster secrets. Do not change it while active DPU clusters
+	// depend on this KMS plugin unless the new namespace provides access to the key material
+	// used by the previous namespace. Otherwise, those clusters will be unable to decrypt
+	// their existing secrets, causing an outage.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=512
+	// +optional
+	Namespace *string `json:"namespace,omitempty"`
+}
+
+// VaultKMSTLS configures TLS settings for the connection to Vault/OpenBao.
+type VaultKMSTLS struct {
+	// CACertConfigMapRef selects a CA bundle key from a ConfigMap used to verify the
+	// Vault/OpenBao server certificate. It is mounted as a file.
+	// +optional
+	CACertConfigMapRef *ConfigMapKeyRef `json:"caConfigMapRef,omitempty"`
+}
+
+// VaultKMSTransit configures the Vault Transit secrets engine.
+type VaultKMSTransit struct {
+	// KeyName is the Transit key used for encrypt and decrypt operations.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:Pattern=`^\w(([\w-.]+)?\w)?$`
+	// +required
+	KeyName string `json:"keyName,omitempty"`
+
+	// Mount is the Transit secrets engine mount path. Defaults to "transit".
+	// +kubebuilder:default="transit"
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=512
+	// +kubebuilder:validation:Pattern=`^/?[^/\s][^\s]*$`
+	// +optional
+	Mount *string `json:"mount,omitempty"`
+}
+
+// VaultKMSAuth configures the Vault/OpenBao auth method. Exactly one auth block matching method must be set.
+// +kubebuilder:validation:XValidation:rule="self.method != 'token' || has(self.token)",message="token is required when method is token"
+// +kubebuilder:validation:XValidation:rule="self.method == 'token' || !has(self.token)",message="token must only be set when method is token"
+// +kubebuilder:validation:XValidation:rule="self.method != 'approle' || has(self.appRole)",message="appRole is required when method is approle"
+// +kubebuilder:validation:XValidation:rule="self.method == 'approle' || !has(self.appRole)",message="appRole must only be set when method is approle"
+// +kubebuilder:validation:XValidation:rule="self.method != 'userpass' || has(self.userpass)",message="userpass is required when method is userpass"
+// +kubebuilder:validation:XValidation:rule="self.method == 'userpass' || !has(self.userpass)",message="userpass must only be set when method is userpass"
+// +kubebuilder:validation:XValidation:rule="self.method != 'kubernetes' || has(self.kubernetes)",message="kubernetes is required when method is kubernetes"
+// +kubebuilder:validation:XValidation:rule="self.method == 'kubernetes' || !has(self.kubernetes)",message="kubernetes must only be set when method is kubernetes"
+// +kubebuilder:validation:XValidation:rule="self.method != 'jwt' || has(self.jwt)",message="jwt is required when method is jwt"
+// +kubebuilder:validation:XValidation:rule="self.method == 'jwt' || !has(self.jwt)",message="jwt must only be set when method is jwt"
+type VaultKMSAuth struct {
+	// Method selects the Vault auth method.
+	// +required
+	Method VaultKMSAuthMethod `json:"method,omitempty"`
+
+	// Token configures token auth.
+	// +optional
+	Token *VaultKMSTokenAuth `json:"token,omitempty"`
+
+	// AppRole configures AppRole auth.
+	// +optional
+	AppRole *VaultKMSAppRoleAuth `json:"appRole,omitempty"`
+
+	// Userpass configures userpass auth.
+	// +optional
+	Userpass *VaultKMSUserpassAuth `json:"userpass,omitempty"`
+
+	// Kubernetes configures Kubernetes auth.
+	// +optional
+	Kubernetes *VaultKMSKubernetesAuth `json:"kubernetes,omitempty"`
+
+	// JWT configures JWT auth.
+	// +optional
+	JWT *VaultKMSJWTAuth `json:"jwt,omitempty"`
+}
+
+// VaultKMSTokenAuth configures the token auth method.
+type VaultKMSTokenAuth struct {
+	// TokenSecretRef selects the Vault token from a Secret in the DPFOperatorConfig namespace.
+	// +required
+	TokenSecretRef SecretKeyRef `json:"tokenSecretRef,omitzero"`
+}
+
+// VaultKMSAppRoleAuth configures the AppRole auth method using a single merged Secret.
+type VaultKMSAppRoleAuth struct {
+	// SecretName is the name of the Secret holding the AppRole role ID and secret ID.
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	SecretName string `json:"secretName,omitempty"`
+
+	// AuthEngineMountPath optionally overrides the Vault auth engine mount path. It is not the transit mount.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=512
+	// +optional
+	AuthEngineMountPath *string `json:"authEngineMountPath,omitempty"`
+
+	// RoleIDKey is the Secret data key holding the AppRole role ID.
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	RoleIDKey string `json:"roleIDKey,omitempty"`
+
+	// SecretIDKey is the Secret data key holding the AppRole secret ID.
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	SecretIDKey string `json:"secretIDKey,omitempty"`
+}
+
+// VaultKMSUserpassAuth configures the userpass auth method using a single merged Secret.
+type VaultKMSUserpassAuth struct {
+	// SecretName is the name of the Secret holding the username and password.
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	SecretName string `json:"secretName,omitempty"`
+
+	// AuthEngineMountPath optionally overrides the Vault auth engine mount path. It is not the transit mount.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=512
+	// +optional
+	AuthEngineMountPath *string `json:"authEngineMountPath,omitempty"`
+
+	// UsernameKey is the Secret data key holding the username.
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	UsernameKey string `json:"usernameKey,omitempty"`
+
+	// PasswordKey is the Secret data key holding the password.
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	PasswordKey string `json:"passwordKey,omitempty"`
+}
+
+// VaultKMSKubernetesAuth configures the Kubernetes auth method.
+type VaultKMSKubernetesAuth struct {
+	// Role is the Vault Kubernetes auth role name (not a Kubernetes RBAC role).
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	Role string `json:"role,omitempty"`
+
+	// Audience optionally sets the audience for the projected Kubernetes service account token.
+	// Use this when the Vault Kubernetes auth role is configured with bound audiences.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=512
+	// +optional
+	Audience *string `json:"audience,omitempty"`
+
+	// AuthEngineMountPath optionally overrides the Vault auth engine mount path. It is not the transit mount.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=512
+	// +optional
+	AuthEngineMountPath *string `json:"authEngineMountPath,omitempty"`
+}
+
+// VaultKMSJWTAuth configures the JWT auth method.
+type VaultKMSJWTAuth struct {
+	// Role is the Vault JWT auth role name.
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	Role string `json:"role,omitempty"`
+
+	// JWTSecretRef selects the JWT presented to Vault from a Secret in the DPFOperatorConfig namespace.
+	// +required
+	JWTSecretRef SecretKeyRef `json:"jwtSecretRef,omitzero"`
+
+	// AuthEngineMountPath optionally overrides the Vault auth engine mount path. It is not the transit mount.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=512
+	// +optional
+	AuthEngineMountPath *string `json:"authEngineMountPath,omitempty"`
+}
+
+func (c *VaultKMSConfiguration) Name() string {
+	return VaultKMSName.String()
+}
+
+// GetImages returns a map of container names to their images.
+func (c *VaultKMSConfiguration) GetImages() map[ContainerName]*string {
+	images := make(map[ContainerName]*string)
+	if c.Daemon != nil {
+		images[VaultKMSContainer] = c.Daemon.GetImage()
+	}
+	return images
+}
+
+// GetResources returns a map of container names to their resource requirements.
+func (c *VaultKMSConfiguration) GetResources() map[ContainerName]*corev1.ResourceRequirements {
+	if c.Daemon == nil {
+		return nil
+	}
+	return map[ContainerName]*corev1.ResourceRequirements{
+		VaultKMSContainer: c.Daemon.GetResource(),
+	}
+}

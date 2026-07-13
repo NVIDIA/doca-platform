@@ -928,7 +928,7 @@ verify-manifest-kamaji-keepalived: $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dp
 	  MANIFEST_NAME="kamaji-keepalived" \
 	  hack/scripts/validate-manifest-checkov.sh
 
-VERIFY_OPERATOR_EMBEDDED_MANIFESTS ?= cni-installer dpu-detector dpuservice-controller flannel kamaji-cluster-manager multus nv-k8s-ipam provisioning-controller servicefunctionchainset-controller sfc-controller sriov-device-plugin static-cluster-manager
+VERIFY_OPERATOR_EMBEDDED_MANIFESTS ?= cni-installer dpu-detector dpuservice-controller flannel kamaji-cluster-manager multus nv-k8s-ipam provisioning-controller servicefunctionchainset-controller sfc-controller sriov-device-plugin static-cluster-manager vault-kms
 
 verify-manifests-operator-embedded-all: $(addprefix verify-manifest-operator-embedded-,$(VERIFY_OPERATOR_EMBEDDED_MANIFESTS)) ## Run manifest verification for manifests embedded into dpf-operator
 

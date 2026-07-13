@@ -183,4 +183,25 @@ func Test_deamonsetReadyCheck(t *testing.T) {
 			g.Expect(err != nil).To(Equal(tt.wantErr), err)
 		})
 	}
+
+	t.Run("strict check errors if daemonset targets zero nodes", func(t *testing.T) {
+		daemonset.Status = appsv1.DaemonSetStatus{}
+		testClient := fake.NewClientBuilder().WithScheme(s).WithObjects(daemonset).Build()
+
+		objects := []*unstructured.Unstructured{
+			{
+				Object: map[string]interface{}{
+					"apiVersion": "apps/v1",
+					"kind":       "DaemonSet",
+					"metadata": map[string]interface{}{
+						"name":      daemonset.Name,
+						"namespace": daemonset.Namespace,
+					},
+				},
+			},
+		}
+		err := daemonSetReadyCheckWithScheduledPods(context.Background(), testClient, daemonset.Namespace, objects, true)
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(err.Error()).To(ContainSubstring("has no scheduled pods"))
+	})
 }

@@ -99,6 +99,7 @@ type SystemComponents struct {
 	NodeProblemDetector             Component
 	OpenTelemetryCollector          Component
 	KataContainers                  Component
+	VaultKMS                        Component
 }
 
 // Embed manifests for Kubernetes objects created by the controller.
@@ -156,6 +157,9 @@ var (
 
 	//go:embed manifests/kata-containers.yaml
 	kataContainersData []byte
+
+	//go:embed manifests/vault-kms.yaml
+	vaultKMSData []byte
 )
 
 // New returns a new SystemComponents inventory with data preloaded but parsing not completed.
@@ -209,6 +213,9 @@ func New() *SystemComponents {
 			name: operatorv1.KataContainersName,
 			data: kataContainersData,
 		},
+		VaultKMS: &vaultKMSObjects{
+			data: vaultKMSData,
+		},
 	}
 }
 
@@ -250,6 +257,7 @@ func (s *SystemComponents) AllComponents() []Component {
 		s.NodeProblemDetector,
 		s.OpenTelemetryCollector,
 		s.KataContainers,
+		s.VaultKMS,
 	}
 }
 

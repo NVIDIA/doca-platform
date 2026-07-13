@@ -61,6 +61,8 @@ func newDefaultVariables(defaults *release.Defaults) Variables {
 			operatorv1.NodeSRIOVDevicePluginControllerName: true,
 			// KataContainers is disabled by default (opt-in).
 			operatorv1.KataContainersName: true,
+			// VaultKMS is disabled by default (opt-in).
+			operatorv1.VaultKMSName: true,
 		},
 		Images: map[string]string{
 			// Images built as part of the DPF Operator release.
@@ -74,6 +76,7 @@ func newDefaultVariables(defaults *release.Defaults) Variables {
 			operatorv1.CNIInstallerName.WithContainer(operatorv1.CNIInstallerContainer):                         defaults.CNIInstallerImage,
 			operatorv1.NodeSRIOVDevicePluginControllerName.WithContainer(operatorv1.ControllerManagerContainer): defaults.DPFSystemImage,
 			operatorv1.KataContainersName.WithContainer(operatorv1.KataDeployContainer):                         defaults.KataDeployImage,
+			operatorv1.VaultKMSName.WithContainer(operatorv1.VaultKMSContainer):                                 defaults.DPFSystemImage,
 			// BFBRegistry is not configurable via the DPFOperatorConfig, thus it does not need to have the container name included.
 			operatorv1.BFBRegistryName.String(): defaults.BFBRegistryImage,
 		},
@@ -139,6 +142,7 @@ type Variables struct {
 	Resources                        map[string]corev1.ResourceRequirements
 	Replicas                         map[operatorv1.ComponentName]*int32
 	ArgoCDNamespace                  string
+	VaultKMS                         *operatorv1.VaultKMSConfiguration
 }
 
 type DPFProvisioningVariables struct {
@@ -416,6 +420,10 @@ func setAdditionalConfigs(variables Variables, config *operatorv1.DPFOperatorCon
 		}
 		variables.KataContainers.ContainerdConfigFileName = kata.ContainerdConfigFileName
 		variables.KataContainers.NodeSelector = kata.NodeSelector
+	}
+
+	if config.Spec.Security != nil && config.Spec.Security.VaultKMS != nil {
+		variables.VaultKMS = config.Spec.Security.VaultKMS
 	}
 	return variables
 }

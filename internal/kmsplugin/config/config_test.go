@@ -176,6 +176,13 @@ var _ = Describe("BindFlags and Validate", func() {
 			"--vault-auth-method=token",
 			"--vault-token-file=/t",
 		}),
+		Entry("plaintext vault address", []string{
+			"--socket-path=/s",
+			"--vault-address=http://vault.example:8200",
+			"--vault-key-name=k8s",
+			"--vault-auth-method=token",
+			"--vault-token-file=/t",
+		}),
 		Entry("missing key name", []string{
 			"--socket-path=/s",
 			"--vault-address=https://vault.example:8200",
