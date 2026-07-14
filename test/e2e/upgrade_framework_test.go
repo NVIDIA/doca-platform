@@ -121,6 +121,10 @@ type validationPhaseInput struct {
 	// after a v25.10 → v26.4 upgrade non-selected DPUDevices can retain the legacy
 	// finalizer and stall the eventual teardown (#5048585).
 	removeStaleDPUDeviceFinalizers bool
+	// skipDPUFlavorTemplateValidation, if true, skips DPUFlavorTemplate-related
+	// assertions in verifyDPUDeploymentDependencyTracking. Set for phases where
+	// DPUFlavorTemplate was not yet a supported resource (v26.4 and earlier).
+	skipDPUFlavorTemplateValidation bool
 	// artifactsKey captures a snapshot to upgrade-artifacts-<key>.json.
 	artifactsKey string
 	// prevArtifactsKey compares the current snapshot against this previously
@@ -359,7 +363,7 @@ func validationPhase(description string, in validationPhaseInput) {
 
 		if in.rolloutDependencies {
 			It("perform DPU and DPUService rollout test", func() {
-				rolloutDependencies(ctx, input)
+				rolloutDependencies(ctx, input, in.skipDPUFlavorTemplateValidation)
 			})
 		}
 
@@ -550,7 +554,7 @@ func verifySystemReady(dpuServiceNames []string) {
 // the current BFB, DPUFlavor, "-rollout"-suffixed DPUServiceTemplate, and
 // DPUServiceConfiguration objects from the current manifests and updating one
 // DPUDeployment to reference them.
-func rolloutDependencies(ctx context.Context, input *systemTestInput) {
+func rolloutDependencies(ctx context.Context, input *systemTestInput, skipDPUFlavorTemplateValidation bool) {
 	By("Creating current BFB and DPUFlavor")
 	ProvisionBFBOrBlueFieldSoftwareAndDPUFlavor(ctx, getProvisionDPUClustersInput())
 
@@ -628,7 +632,7 @@ func rolloutDependencies(ctx context.Context, input *systemTestInput) {
 		}
 	}).WithTimeout(20 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
 
-	verifyDPUDeploymentDependencyTracking(ctx, input)
+	verifyDPUDeploymentDependencyTracking(ctx, input, skipDPUFlavorTemplateValidation)
 }
 
 // verifyDPUDeploymentDependencyTracking asserts that consumed-by-DPUDeployment
@@ -639,7 +643,7 @@ func rolloutDependencies(ctx context.Context, input *systemTestInput) {
 //
 // Wrapped in Eventually because dependency tracking is reconciler-driven and
 // may lag the DPUDeployment patch by a few seconds.
-func verifyDPUDeploymentDependencyTracking(ctx context.Context, input *systemTestInput) {
+func verifyDPUDeploymentDependencyTracking(ctx context.Context, input *systemTestInput, skipDPUFlavorTemplateValidation bool) {
 	By("Verifying dependency consumed-by-DPUDeployment labels match current references")
 	Eventually(func(g Gomega) {
 		activeBFBs := map[string]bool{}
@@ -689,10 +693,12 @@ func verifyDPUDeploymentDependencyTracking(ctx context.Context, input *systemTes
 			assertDependencyLabels(g, "DPUFlavor", activeFlavors, ToClientObjectSlice(flavors.Items))
 		}
 
-		flavorTemplates := &provisioningv1.DPUFlavorTemplateList{}
-		g.Expect(input.client.List(ctx, flavorTemplates, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
-		if len(activeFlavorTemplates) > 0 || len(flavorTemplates.Items) > 0 {
-			assertDependencyLabels(g, "DPUFlavorTemplate", activeFlavorTemplates, ToClientObjectSlice(flavorTemplates.Items))
+		if !skipDPUFlavorTemplateValidation {
+			flavorTemplates := &provisioningv1.DPUFlavorTemplateList{}
+			g.Expect(input.client.List(ctx, flavorTemplates, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+			if len(activeFlavorTemplates) > 0 || len(flavorTemplates.Items) > 0 {
+				assertDependencyLabels(g, "DPUFlavorTemplate", activeFlavorTemplates, ToClientObjectSlice(flavorTemplates.Items))
+			}
 		}
 
 		configurations := &dpuservicev1.DPUServiceConfigurationList{}
