@@ -295,6 +295,25 @@ The `secureBoot` field on a `DPU` object is **immutable**. Changing `secureBoot`
 DPUSet template triggers a **disruptive update**: existing DPUs are deleted and recreated with the new value, following
 the DPUSet's update strategy (e.g. `RollingUpdate`).
 
+## DPUFlavorTemplate
+
+The DPUSet template accepts either a static `dpuFlavor` (all DPUs share one flavor) or a `dpuFlavorTemplate` that is
+rendered **per DPU** against each `DPUDevice.spec.values` into a generated `DPUFlavor`. The two fields are mutually
+exclusive; setting both is rejected by admission.
+
+```yaml
+spec:
+  dpuTemplate:
+    spec:
+      dpuFlavorTemplate: per-device-label
+```
+
+For each DPU, the DPUSet controller renders the template against the target `DPUDevice.spec.values` and creates a
+generated `DPUFlavor` named identically to the DPU. See [DPUFlavorTemplate](dpuflavortemplate.md) for the CRD reference
+and [DPUFlavorTemplate: Per-DPU Flavor Rendering](../../advanced-configuration/dpuflavortemplate-per-dpu-config.md) for
+the operational walkthrough (populating `DPUDevice.spec.values`, observing the generated flavor, diagnosing render
+failures).
+
 ## IPMI Command Annotation for Kubernetes Worker Node
 
 The provisioning controller will issue a `ipmi` command to the host to do host power-cycle(cold boot) or warm reboot

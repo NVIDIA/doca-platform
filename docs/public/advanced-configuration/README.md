@@ -16,6 +16,7 @@ This page contains advanced configuration documentation for the DOCA Platform Fr
 * [Secondary Network support for HBN-OVNK use case](secondary-networks/README.md) - Documentation for enabling secondary network support for Host Based Networking and OVN Kubernetes
 * [Host Trusted Multi-DPU support OVN-Kubernetes and HBN Services](multi-dpu-ovnk-hbn.md) - Guide that describes how to target particular DPUs for provisioning and service orchestration of OVN-Kubernetes and HBN Services.
 * [Per-DPU BMC Credentials](per-dpu-bmc-credentials.md) - Configuration for using unique BMC credentials per DPU device instead of the shared password
+* [DPUFlavorTemplate: Per-DPU Flavor Rendering](dpuflavortemplate-per-dpu-config.md) - How to render a per-DPU DPUFlavor from a template using values in DPUDevice.spec.values
 * [Kata Containers on Host Nodes](kata-containers.md) - Guide for running pods with Kata VM isolation on host worker nodes, including SR-IOV VF passthrough with DOCA hardware offload
 * [Encrypted Secrets](encrypted-secrets.md) - Configuration for storing secret data in an external secret store and replicating it to the management cluster with External Secrets Operator
 * [Telemetry Level Labels](telemetry-level-labels.md) - Per-DPU generation of the DOCA telemetry `level_labels.ini` from DPUDevice values with a DPUFlavorTemplate
