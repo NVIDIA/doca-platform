@@ -473,7 +473,13 @@ The following fields are available in the `spec.dpus`:
   namespace as the `DPUDeployment`.
 * `flavor`: The `DPUFlavor` object that describes the configuration to be applied
   on the DPU during the provisioning. It must exist in the same namespace as the
-  `DPUDeployment`.
+  `DPUDeployment`. Mutually exclusive with `flavorTemplate`.
+* `flavorTemplate`: The `DPUFlavorTemplate` object that is rendered **per DPU**
+  (against each `DPUDevice.spec.values`) into a generated `DPUFlavor`. It must
+  exist in the same namespace as the `DPUDeployment`. Mutually exclusive with
+  `flavor`. See [DPUFlavorTemplate](dpuflavortemplate.md) for the CRD reference
+  and [DPUFlavorTemplate: Per-DPU Flavor Rendering](../../advanced-configuration/dpuflavortemplate-per-dpu-config.md)
+  for the workflow.
 * `secureBoot` (optional): When set to `true`, enables UEFI Secure Boot on the DPUs. See
   [Secure Boot](./dpuset.md#secure-boot) for mode-specific behavior and details.
 * `dpuSets`: A list of `DPUSet` configurations that describe the DPUs to be targeted
