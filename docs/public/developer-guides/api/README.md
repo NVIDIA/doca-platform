@@ -14,6 +14,7 @@ to the API source code in the repository.
 
 * [API](api.md) - Complete API reference with all CRD specifications
 * [DPUFlavor](dpuflavor.md) - DPUFlavor CRD defining configuration templates for DPU system-level settings
+* [DPUFlavorTemplate](dpuflavortemplate.md) - DPUFlavorTemplate CRD for per-DPU DPUFlavor rendering from a template using DPUDevice.spec.values
 * [DPUService](dpuservice.md) - DPUService CRD for deploying applications on DPU nodes
 * [DPUDeployment](dpudeployment.md) - DPUDeployment CRD for provisioning multiple DPUs with multiple DPUServices running
     on top of them
