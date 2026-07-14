@@ -51,6 +51,14 @@ var _ = Describe("DPF System tests - Provisioning", Labels{Domain.Provisioning},
 		VerifyProvisioning(ctx, input)
 	})
 
+	It("change the OOB bridge name in the operatorConfig and verify DPUNode condition updates", Labels{Domain.RequiresNodes}, func() {
+		ValidateDPFOperatorOOBBridgeNameChange(ctx, input)
+	})
+
+	It("verify OOB bridge VF attachment and netplan after provisioning", Labels{Domain.RequiresNodes}, func() {
+		ValidateDPFOperatorOOBBridgePostProvisioning(ctx, input)
+	})
+
 	It("delete all provisioning resources", func() {
 		if cleanupFlags.SkipCleanup {
 			Skip("Skipping deprovisioning tests because skipCleanup is enabled")

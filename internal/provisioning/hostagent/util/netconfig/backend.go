@@ -60,8 +60,9 @@ type Backend interface {
 func ConfigureNetwork(backend Backend, pciAddress string, portConfigs []hostutil.PortConfig, controlPlaneMTU int) error {
 	backend.ResetPendingChanges()
 
-	if _, err := netlink.LinkByName(hostutil.BridgeName); err != nil {
-		return fmt.Errorf("bridge %s not found - cannot configure network: %w", hostutil.BridgeName, err)
+	bridgeName := hostutil.OOBBridge.GetBridgeName()
+	if _, err := netlink.LinkByName(bridgeName); err != nil {
+		return fmt.Errorf("bridge %s not found - cannot configure network: %w", bridgeName, err)
 	}
 
 	pfNeedsApply, err := backend.ConfigurePFInterfaces(pciAddress, portConfigs)
@@ -69,7 +70,7 @@ func ConfigureNetwork(backend Backend, pciAddress string, portConfigs []hostutil
 		return fmt.Errorf("failed to configure PF interfaces: %w", err)
 	}
 
-	bridgeNeedsApply, err := backend.ConfigureBridgeMTU(hostutil.BridgeName, controlPlaneMTU)
+	bridgeNeedsApply, err := backend.ConfigureBridgeMTU(bridgeName, controlPlaneMTU)
 	if err != nil {
 		return fmt.Errorf("failed to configure bridge MTU: %w", err)
 	}

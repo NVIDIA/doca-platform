@@ -137,6 +137,11 @@ type Overrides struct {
 	ArgoCDNamespace *string `json:"argoCDNamespace,omitempty"`
 }
 
+const (
+	// DefaultDPUNodeOOBBridgeName is the default out-of-band bridge name on host-trusted worker nodes.
+	DefaultDPUNodeOOBBridgeName = "br-dpu"
+)
+
 // Networking defines the networking configuration for the system components.
 type Networking struct {
 	// ControlPlaneMTU is the MTU value to be set on the management network.
@@ -154,6 +159,24 @@ type Networking struct {
 	// +kubebuilder:default=1500
 	// +optional
 	HighSpeedMTU *int `json:"highSpeedMTU,omitempty"`
+
+	// DPUNodeOOBBridgeName is the name of the Linux bridge on the host used for
+	// out-of-band DPU management traffic. If not specified, defaults to "br-dpu".
+	// This setting applies only to host-trusted deployments.
+	// +kubebuilder:default="br-dpu"
+	// +kubebuilder:validation:Pattern=`^[a-z][a-z0-9-]*$`
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=15
+	// +optional
+	DPUNodeOOBBridgeName *string `json:"dpuNodeOOBBridgeName,omitempty"`
+}
+
+// GetDPUNodeOOBBridgeName returns the configured OOB bridge name, defaulting to br-dpu.
+func (n *Networking) GetDPUNodeOOBBridgeName() string {
+	if n == nil || n.DPUNodeOOBBridgeName == nil || *n.DPUNodeOOBBridgeName == "" {
+		return DefaultDPUNodeOOBBridgeName
+	}
+	return *n.DPUNodeOOBBridgeName
 }
 
 // DPFOperatorConfigSpec defines the desired state of DPFOperatorConfig

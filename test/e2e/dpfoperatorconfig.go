@@ -31,7 +31,9 @@ import (
 	"github.com/nvidia/doca-platform/internal/digest"
 	"github.com/nvidia/doca-platform/internal/operator/inventory"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 	testutils "github.com/nvidia/doca-platform/test/utils"
+	"github.com/nvidia/doca-platform/test/utils/netshoot"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -384,6 +386,122 @@ func ValidateDPFOperatorMTUConfigurationChange(ctx context.Context, input *syste
 		g.Expect(input.client.Patch(ctx, resetConfig, client.MergeFrom(modifiedConfig))).To(Succeed())
 		// Ensure the changes are reverted before continuing.
 	}).Should(Succeed())
+}
+
+func ValidateDPFOperatorOOBBridgeNameChange(ctx context.Context, input *systemTestInput) {
+	if !input.hasDpuNodes() {
+		Skip("Skip OOB bridge name test as there are no DPU nodes")
+	}
+
+	By("Get the operatorConfig")
+	modifiedConfig := &operatorv1.DPFOperatorConfig{}
+	Expect(input.client.Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: configName}, modifiedConfig)).To(Succeed())
+	originalConfig := modifiedConfig.DeepCopy()
+
+	By("Set a non-existent bridge name in the operatorConfig")
+	fakeBridgeName := "br-notexists"
+	if modifiedConfig.Spec.Networking == nil {
+		modifiedConfig.Spec.Networking = &operatorv1.Networking{}
+	}
+	modifiedConfig.Spec.Networking.DPUNodeOOBBridgeName = ptr.To(fakeBridgeName)
+	Eventually(func(g Gomega) {
+		g.Expect(input.client.Patch(ctx, modifiedConfig, client.MergeFrom(originalConfig))).To(Succeed())
+	}).Should(Succeed())
+
+	By("Verify DPUNode OOBBridgeConfigured condition becomes False")
+	Eventually(func(g Gomega) {
+		dpuNodeList := &provisioningv1.DPUNodeList{}
+		g.Expect(input.client.List(ctx, dpuNodeList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(dpuNodeList.Items).ToNot(BeEmpty())
+		for _, dpuNode := range dpuNodeList.Items {
+			for _, cond := range dpuNode.Status.Conditions {
+				if cond.Type == string(provisioningv1.DPUNodeConditionBridgeConfigured) {
+					g.Expect(cond.Status).To(Equal(metav1.ConditionFalse),
+						"DPUNode %s OOBBridgeConfigured should be False for non-existent bridge %q", dpuNode.Name, fakeBridgeName)
+					g.Expect(cond.Reason).To(Equal("BridgeNotFound"))
+				}
+			}
+		}
+	}, 3*time.Minute).Should(Succeed())
+
+	By("Revert the bridge name to its original setting")
+	Eventually(func(g Gomega) {
+		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(modifiedConfig), modifiedConfig)).To(Succeed())
+		resetConfig := modifiedConfig.DeepCopy()
+		resetConfig.Spec = originalConfig.Spec
+		g.Expect(input.client.Patch(ctx, resetConfig, client.MergeFrom(modifiedConfig))).To(Succeed())
+	}).Should(Succeed())
+
+	By("Verify DPUNode OOBBridgeConfigured condition recovers to True")
+	Eventually(func(g Gomega) {
+		dpuNodeList := &provisioningv1.DPUNodeList{}
+		g.Expect(input.client.List(ctx, dpuNodeList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(dpuNodeList.Items).ToNot(BeEmpty())
+		for _, dpuNode := range dpuNodeList.Items {
+			for _, cond := range dpuNode.Status.Conditions {
+				if cond.Type == string(provisioningv1.DPUNodeConditionBridgeConfigured) {
+					g.Expect(cond.Status).To(Equal(metav1.ConditionTrue),
+						"DPUNode %s OOBBridgeConfigured should recover to True after reverting bridge name", dpuNode.Name)
+				}
+			}
+		}
+	}, 3*time.Minute).Should(Succeed())
+}
+
+func ValidateDPFOperatorOOBBridgePostProvisioning(ctx context.Context, input *systemTestInput) {
+	if !input.hasDpuNodes() {
+		Skip("Skip OOB bridge post-provisioning test as there are no DPU nodes")
+	}
+
+	By("Get configured OOB bridge name from DPFOperatorConfig")
+	config := &operatorv1.DPFOperatorConfig{}
+	Expect(input.client.Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: configName}, config)).To(Succeed())
+	bridgeName := config.Spec.Networking.GetDPUNodeOOBBridgeName()
+
+	By("Get hostagent pods")
+	pods := corev1.PodList{}
+	Expect(input.client.List(ctx, &pods,
+		client.MatchingLabels{cutil.ProvisioningComponentLabelKey: "hostagent"})).To(Succeed())
+	runningPods := make([]corev1.Pod, 0, len(pods.Items))
+	for _, pod := range pods.Items {
+		if pod.DeletionTimestamp != nil {
+			continue
+		}
+		if pod.Status.Phase == corev1.PodRunning {
+			runningPods = append(runningPods, pod)
+		}
+	}
+	Expect(runningPods).ToNot(BeEmpty(), "no running hostagent pods found")
+
+	for _, pod := range runningPods {
+		By(fmt.Sprintf("Verify VF is attached to bridge %s on pod %s", bridgeName, pod.Name))
+		Eventually(func(g Gomega) {
+			stdout, err := netshoot.ExecInContainerOnce(hostClusterRESTClient, input.restConfig,
+				pod.Namespace, pod.Name, "hostagent",
+				[]string{"sh", "-c", fmt.Sprintf("ls /sys/class/net/%s/brif/ 2>/dev/null", bridgeName)})
+			g.Expect(err).NotTo(HaveOccurred(), "failed to list bridge members on pod %s: %s", pod.Name, stdout)
+			g.Expect(strings.TrimSpace(stdout)).ToNot(BeEmpty(),
+				"bridge %s on pod %s should have at least one member interface (VF)", bridgeName, pod.Name)
+		}, 2*time.Minute).Should(Succeed())
+
+		By(fmt.Sprintf("Verify netplan file %s exists and references bridge %s", hostutil.BridgeMTUNetplanFile, bridgeName))
+		Eventually(func(g Gomega) {
+			stdout, err := netshoot.ExecInContainerOnce(hostClusterRESTClient, input.restConfig,
+				pod.Namespace, pod.Name, "hostagent",
+				[]string{"cat", hostutil.BridgeMTUNetplanFile})
+			g.Expect(err).NotTo(HaveOccurred(), "netplan file not found on pod %s: %s", pod.Name, stdout)
+			g.Expect(stdout).To(ContainSubstring(bridgeName),
+				"netplan file on pod %s should reference bridge %s", pod.Name, bridgeName)
+		}, time.Minute).Should(Succeed())
+
+		By(fmt.Sprintf("Verify legacy netplan file %s is removed", hostutil.LegacyBridgeMTUNetplanFile))
+		stdout, err := netshoot.ExecInContainerOnce(hostClusterRESTClient, input.restConfig,
+			pod.Namespace, pod.Name, "hostagent",
+			[]string{"sh", "-c", fmt.Sprintf("test -f %s && echo EXISTS || echo GONE", hostutil.LegacyBridgeMTUNetplanFile)})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(strings.TrimSpace(stdout)).To(Equal("GONE"),
+			"legacy netplan file %s should be removed on pod %s", hostutil.LegacyBridgeMTUNetplanFile, pod.Name)
+	}
 }
 
 func ValidateDPFOperatorFlannelPodCIDRChange(ctx context.Context, input *systemTestInput) {

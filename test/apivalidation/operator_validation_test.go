@@ -228,6 +228,39 @@ var _ = Describe("Operator API Validation", func() {
 				Entry("invalid - replicas is negative", ptr.To(int32(-1)), true, "should be greater than or equal to 1"),
 			)
 		})
+
+		Context("Validate OOB bridge name", func() {
+			DescribeTable("DPFOperatorConfig dpuNodeOOBBridgeName validation",
+				func(bridgeName *string, expectError bool, errorMessage string) {
+					config := getMinimalDPFOperatorConfig(testNs.Name)
+					config.Spec.Networking = &operatorv1.Networking{
+						ControlPlaneMTU:      ptr.To(1500),
+						DPUNodeOOBBridgeName: bridgeName,
+					}
+					validateConfigCreation(config, expectError, errorMessage, &cleanupObjs)
+				},
+				Entry("valid - default bridge name omitted", nil, false, ""),
+				Entry("valid - br-ex", ptr.To("br-ex"), false, ""),
+				Entry("valid - mgmt-br", ptr.To("mgmt-br"), false, ""),
+				Entry("invalid - uppercase bridge name", ptr.To("BR-DPU"), true, "Invalid value"),
+				Entry("invalid - bridge name starts with digit", ptr.To("1br"), true, "Invalid value"),
+				Entry("invalid - bridge name too long", ptr.To("abcdefghijklmnop"), true, "Invalid value"),
+			)
+
+			It("accepts update from br-dpu to br-ex", func() {
+				config := getMinimalDPFOperatorConfig(testNs.Name)
+				config.Spec.Networking = &operatorv1.Networking{
+					ControlPlaneMTU:      ptr.To(1500),
+					DPUNodeOOBBridgeName: ptr.To("br-dpu"),
+				}
+				Expect(testClient.Create(ctx, config)).To(Succeed())
+				cleanupObjs = append(cleanupObjs, config)
+
+				updated := config.DeepCopy()
+				updated.Spec.Networking.DPUNodeOOBBridgeName = ptr.To("br-ex")
+				Expect(testClient.Update(ctx, updated)).To(Succeed())
+			})
+		})
 	})
 })
 

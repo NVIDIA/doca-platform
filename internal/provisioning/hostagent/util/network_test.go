@@ -30,12 +30,19 @@ var _ = Describe("Network", func() {
 			Expect(NetplanConfigFilePrefix).To(Equal("/etc/netplan/99-dpu"))
 		})
 
-		It("should have correct BridgeName", func() {
-			Expect(BridgeName).To(Equal("br-dpu"))
+		It("should default to br-dpu bridge name", func() {
+			OOBBridge.SetBridgeName("")
+			Expect(OOBBridge.GetBridgeName()).To(Equal("br-dpu"))
+		})
+
+		It("should update bridge name via SetBridgeName", func() {
+			OOBBridge.SetBridgeName("br-ex")
+			Expect(OOBBridge.GetBridgeName()).To(Equal("br-ex"))
+			OOBBridge.SetBridgeName("")
 		})
 
 		It("should have correct BridgeMTUNetplanFile", func() {
-			Expect(BridgeMTUNetplanFile).To(Equal("/etc/netplan/99-br-dpu-interfaces-mtu.yaml"))
+			Expect(BridgeMTUNetplanFile).To(Equal("/etc/netplan/99-dpf-oob-bridge-mtu.yaml"))
 		})
 	})
 

@@ -840,6 +840,16 @@ spec:
                     maximum: 9216
                     minimum: 1280
                     type: integer
+                  dpuNodeOOBBridgeName:
+                    default: br-dpu
+                    description: |-
+                      DPUNodeOOBBridgeName is the name of the Linux bridge on the host used for
+                      out-of-band DPU management traffic. If not specified, defaults to "br-dpu".
+                      This setting applies only to host-trusted deployments.
+                    maxLength: 15
+                    minLength: 1
+                    pattern: ^[a-z][a-z0-9-]*$
+                    type: string
                   highSpeedMTU:
                     default: 1500
                     description: |-

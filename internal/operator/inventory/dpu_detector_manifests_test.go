@@ -27,6 +27,7 @@ import (
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -118,7 +119,20 @@ func TestDPUDetectorObjects_GenerateManifests(t *testing.T) {
 		objs, err := dpuDetectorCtrl.GenerateManifests(context.Background(), vars)
 		g.Expect(err).NotTo(HaveOccurred())
 		for _, obj := range objs {
-			g.Expect(obj.GetNamespace()).To(Equal(testNS))
+			switch ObjectKind(obj.GetObjectKind().GroupVersionKind().Kind) {
+			case ClusterRoleKind:
+				continue
+			case ClusterRoleBindingKind:
+				crb := &rbacv1.ClusterRoleBinding{}
+				uns, ok := obj.(*unstructured.Unstructured)
+				g.Expect(ok).To(BeTrue())
+				g.Expect(runtime.DefaultUnstructuredConverter.FromUnstructured(uns.UnstructuredContent(), crb)).To(Succeed())
+				for _, subject := range crb.Subjects {
+					g.Expect(subject.Namespace).To(Equal(testNS))
+				}
+			default:
+				g.Expect(obj.GetNamespace()).To(Equal(testNS))
+			}
 		}
 	})
 

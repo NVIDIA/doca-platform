@@ -26,17 +26,13 @@ import (
 	"github.com/vishvananda/netlink"
 )
 
-const (
-	bridgeName = "br-dpu"
-)
-
-func isOOBBridgeConfigured() bool {
-	if err := verifyIfBridgeExists(); err != nil {
+func isOOBBridgeConfigured(bridgeName string) bool {
+	if err := verifyIfBridgeExists(bridgeName); err != nil {
 		glog.Error(err)
 		return false
 	}
 
-	if err := verifyDefaultRoute(); err != nil {
+	if err := verifyDefaultRoute(bridgeName); err != nil {
 		glog.Error(err)
 		return false
 	}
@@ -44,7 +40,7 @@ func isOOBBridgeConfigured() bool {
 	return true
 }
 
-func verifyIfBridgeExists() error {
+func verifyIfBridgeExists(bridgeName string) error {
 	link, err := netlink.LinkByName(bridgeName)
 	if err != nil {
 		return fmt.Errorf("bridge %s does not exist", bridgeName)
@@ -55,7 +51,7 @@ func verifyIfBridgeExists() error {
 	return nil
 }
 
-func verifyDefaultRoute() error {
+func verifyDefaultRoute(bridgeName string) error {
 	routes, err := netlink.RouteList(nil, netlink.FAMILY_V4)
 	if err != nil {
 		return err

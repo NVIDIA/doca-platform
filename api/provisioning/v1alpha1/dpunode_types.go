@@ -57,7 +57,7 @@ const (
 	DPUNodeConditionDPUUpdateInProgress DPUNodeConditionType = "DPUUpdateInProgress"
 	// DPUNodeConditionNeedDMSUpgrade means the DMS needs to be upgraded.
 	DPUNodeConditionNeedHostAgentUpgrade DPUNodeConditionType = "NeedHostAgentUpgrade"
-	// DPUNodeConditionBridgeConfigured means the bridge br-dpu is configured.
+	// DPUNodeConditionBridgeConfigured means the out-of-band management bridge is configured.
 	DPUNodeConditionBridgeConfigured DPUNodeConditionType = "OOBBridgeConfigured"
 	// DPUNodeConditionRshimAvailable means the rshim is available.
 	DPUNodeConditionRshimAvailable DPUNodeConditionType = "RshimAvailable"

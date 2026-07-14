@@ -88,11 +88,16 @@ spec:
 There are networking options that can be configured. The MTU for the control plane and high-speed interfaces can be
 configured. The default value is set to 1500, however it can be adjusted if required.
 
+In host-trusted deployments, the out-of-band bridge name can also be configured. The bridge must exist on worker nodes
+before DPF components start; DPF does not create it. Changing the bridge name on a running cluster is a destructive
+operation: update the bridge on all nodes first, then immediately update `DPFOperatorConfig` with the new name.
+
 ```yaml
 spec:
   networking:
     controlPlaneMTU: 1500    # Management network MTU (range: 1280-9216, default: 1500)
     highSpeedMTU: 1500       # High-speed interface MTU (range: 1280-9216, default: 1500)
+    dpuNodeOOBBridgeName: br-dpu  # Host-trusted OOB bridge name (default: br-dpu, max 15 chars)
 ```
 
 ### Image Pull Secrets

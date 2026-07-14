@@ -501,6 +501,47 @@ func executeCommandOnce(restClient *rest.RESTClient, config *rest.Config, namesp
 	return stdoutStr, nil
 }
 
+// ExecInContainerOnce executes a command in a specific container of a pod and returns the output and error.
+// Use this instead of executeCommandOnce when the pod has multiple containers.
+func ExecInContainerOnce(restClient *rest.RESTClient, config *rest.Config, namespace, podName, containerName string, command []string) (string, error) {
+	execTimeout := DefaultExecTimeout
+	req := restClient.Post().
+		Resource("pods").
+		Name(podName).
+		Namespace(namespace).
+		SubResource("exec").
+		VersionedParams(&corev1.PodExecOptions{
+			Container: containerName,
+			Command:   command,
+			Stdout:    true,
+			Stderr:    true,
+		}, scheme.ParameterCodec)
+
+	exec, err := remotecommand.NewSPDYExecutor(config, "POST", req.URL())
+	if err != nil {
+		fmt.Printf("failed to create executor: %v", err)
+		return "", ErrCreateExecutor
+	}
+
+	var stdout, stderr bytes.Buffer
+
+	ctx, cancel := context.WithTimeout(context.Background(), execTimeout)
+	defer cancel()
+
+	err = exec.StreamWithContext(ctx, remotecommand.StreamOptions{
+		Stdout: &stdout,
+		Stderr: &stderr,
+	})
+	stdoutStr := stdout.String()
+	stderrStr := stderr.String()
+
+	if err != nil {
+		return fmt.Sprintf("%v (stderr: %s, stdout: %s)", err, stderrStr, stdoutStr), ErrExecFailed
+	}
+
+	return stdoutStr, nil
+}
+
 // AssertPingSuccess asserts that ping between pods succeeds
 func AssertPingSuccess(restClient **rest.RESTClient, config **rest.Config, namespace, fromPod, toPodIP string) {
 	execCommandEventually(restClient, config, namespace, fromPod, []string{"ping", "-c", "2", toPodIP}, 30*time.Second, DefaultExecTimeout, DefaultErrorParser)
