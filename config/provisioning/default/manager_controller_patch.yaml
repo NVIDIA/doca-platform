@@ -15,6 +15,7 @@ spec:
         - "--v=3"
         - --dms-image=example.com/doca-platform-foundation/dpf-provisioning-controller/hostdriver:v0.1.0
         - --bfb-pvc=bfb-pvc
+        - --redfish-client-cert-dir=/etc/dpf/redfish-client-cert
         volumeMounts:
           - mountPath: /bfb
             name: bfb-volume

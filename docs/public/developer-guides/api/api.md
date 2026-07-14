@@ -1059,6 +1059,7 @@ _Appears in:_
 | `firmwareUpdateTimeout` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#duration-v1-meta)_ | FirmwareUpdateTimeout is the maximum time allowed for BF4 firmware update in zero-trust mode.<br />If the update exceeds this timeout, the DPU will transition to an error state.<br />When unset, the provisioning controller defaults to 45m. |  | Format: duration <br />Pattern: `^([0-9]+(h\|m\|s\|ms\|us\|µs\|ns))+$` <br />Type: string <br />Optional: \{\} <br /> |
 | `nodeEffectRemovalTimeout` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#duration-v1-meta)_ | NodeEffectRemovalTimeout is the maximum time allowed for the Node Effect Removal phase.<br />If the DPUNodeMaintenance CR still has requestors after this timeout, the DPU will transition to an error state.<br />When unset, the provisioning controller defaults to 0s (timeout disabled). |  | Format: duration <br />Pattern: `^([0-9]+(h\|m\|s\|ms\|us\|µs\|ns))+$` <br />Type: string <br />Optional: \{\} <br /> |
 | `hostAgentDNSPolicy` _[DNSPolicy](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#dnspolicy-v1-core)_ | HostAgentDNSPolicy sets the DNS policy for the hostagent pod.<br />Valid values are 'ClusterFirstWithHostNet', 'ClusterFirst', 'Default' or 'None'.<br />Defaults to 'ClusterFirstWithHostNet'. |  | Enum: [ClusterFirstWithHostNet ClusterFirst Default None] <br />Optional: \{\} <br /> |
+| `bmcServerCertRenewBefore` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#duration-v1-meta)_ | BMCServerCertRenewBefore is how long before expiry DPF rotates the DPU BMC mTLS<br />server certificate.<br />When unset, the provisioning controller defaults to 720h (30 days). |  | Format: duration <br />Pattern: `^([0-9]+(h\|m\|s\|ms\|us\|µs\|ns))+$` <br />Type: string <br />Optional: \{\} <br /> |
 
 
 #### ProvisioningInstallInterface
@@ -1856,6 +1857,24 @@ _Appears in:_
 | `bfNicFwVersion` _string_ |  |  |  |
 
 
+#### CertificateStatus
+
+
+
+CertificateStatus reports the rotation state of a DPF-managed certificate.
+
+
+
+_Appears in:_
+- [DPUDeviceStatus](#dpudevicestatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `notAfter` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | NotAfter is the expiry time of the certificate currently installed. It is taken<br />from the issued certificate at rotation time. |  | Optional: \{\} <br /> |
+| `lastRotationTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | LastRotationTime is the time DPF last successfully rotated the certificate. |  | Optional: \{\} <br /> |
+| `observedManualTrigger` _string_ | ObservedManualTrigger records the value of the manual rotation annotation that<br />was last honored, so the same trigger is not processed twice. |  | Optional: \{\} <br /> |
+
+
 #### ClusterEndpointSpec
 
 
@@ -2212,6 +2231,7 @@ _Appears in:_
 | `dpuMode` _[DpuModeType](#dpumodetype)_ | DPUMode is the mode of the DPU. | dpu | Enum: [dpu nic] <br />Optional: \{\} <br /> |
 | `secureBoot` _[SecureBootStatus](#securebootstatus)_ | SecureBoot indicates the current UEFI Secure Boot state. |  | Optional: \{\} <br /> |
 | `bmcCredentialSecretName` _string_ | BMCCredentialSecretName is the name of the Secret last used successfully for BMC authentication. |  | Optional: \{\} <br /> |
+| `bmcServerCertificate` _[CertificateStatus](#certificatestatus)_ | BMCServerCertificate reports the BMC mTLS server certificate rotation state. |  | Optional: \{\} <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ |  |  | Optional: \{\} <br /> |
 
 

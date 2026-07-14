@@ -606,6 +606,7 @@ spec:
         - --v=3
         - --dms-image=example.com/doca-platform-foundation/dpf-provisioning-controller/hostdriver:v0.1.0
         - --bfb-pvc=bfb-pvc
+        - --redfish-client-cert-dir=/etc/dpf/redfish-client-cert
         command:
         - /provisioning
         env:
@@ -661,6 +662,12 @@ spec:
           readOnly: true
         - mountPath: /var/run/dpf
           name: pldm-unpack-socket
+        - mountPath: /etc/dpf/redfish-client-cert
+          name: redfish-client-cert
+          readOnly: true
+        - mountPath: /etc/dpf/redfish-client-cert-bf4
+          name: redfish-client-cert-bf4
+          readOnly: true
       - args:
         - --socket-path=/var/run/dpf/pldm-unpack.sock
         - --script-path=/opt/pldm-unpack/fwpkg_unpack.py
@@ -717,6 +724,16 @@ spec:
           claimName: bfb-pvc
       - emptyDir: {}
         name: pldm-unpack-socket
+      - name: redfish-client-cert
+        secret:
+          defaultMode: 420
+          optional: true
+          secretName: dpf-provisioning-redfish-client-secret
+      - name: redfish-client-cert-bf4
+        secret:
+          defaultMode: 420
+          optional: true
+          secretName: dpf-provisioning-redfish-client-secret-bf4
       - name: kube-api-access
         projected:
           defaultMode: 420

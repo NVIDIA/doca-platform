@@ -144,6 +144,80 @@ For configuration details, mode-specific behavior, and the impact of changing th
 For more information on BlueField Secure Boot, see
 [Secure Boot](https://networking-docs.nvidia.com/bsp/4.15.0/secure-boot) in the NVIDIA documentation.
 
+# BMC mTLS Server Certificate Rotation
+
+In Zero Trust mode the provisioning controller talks to each DPU BMC over the Redfish API using
+mTLS. During provisioning the controller bootstraps mTLS on the BMC: it installs the DPF CA,
+requests a BMC **server** certificate through cert-manager, replaces the BMC's server
+certificate, and enables mTLS. From that point the controller connects to the BMC with full
+certificate verification (it validates the BMC server certificate against the DPF CA and pins the
+BMC IP), so the served server certificate must stay valid for the lifetime of the DPU.
+
+The BMC server certificate is issued for **365 days**. To avoid expiry the provisioning controller
+automatically rotates it before it expires.
+
+## Automatic rotation
+
+* Each `DPUDevice` tracks its BMC server certificate under `status.bmcServerCertificate`:
+    * `notAfter` — the expiry of the currently installed BMC server certificate.
+    * `lastRotationTime` — when the controller last rotated the certificate.
+    * `observedManualTrigger` — the last manual-rotation token the controller has already processed
+        (see [Manual rotation](#manual-rotation)).
+* The controller renews the certificate once it enters the renewal window, which defaults to
+    **30 days** before expiry. This window is configurable cluster-wide via
+    `DPFOperatorConfig.spec.provisioningController.bmcServerCertRenewBefore`
+    (see [Provisioning Controller Configuration Options](../developer-guides/api/dpfoperatorconfig.md#provisioning-controller-configuration-options)).
+* For DPUs that were provisioned before this feature existed, the controller backfills `notAfter`
+    by reading the certificate the BMC is currently serving, rather than forcing an immediate
+    fleet-wide rotation.
+* Rotation progress is reported through the `BMCServerCertificateReady` condition on the
+    `DPUDevice`:
+
+| Condition status | Reason                               | Meaning                                                                                                        |
+|------------------|--------------------------------------|----------------------------------------------------------------------------------------------------------------|
+| `True`           | `Success`                            | The certificate is installed and outside the renewal window.                                                   |
+| `False`          | `BMCServerCertificateRotating`       | A rotation is in progress (a new CSR was generated and the cert-manager `CertificateRequest` is being issued). |
+| `False`          | `BMCServerCertificateRotationFailed` | The last rotation attempt failed; the controller retries automatically.                                        |
+
+No user action is required for automatic rotation.
+
+## Manual rotation
+
+You can force an immediate rotation of a single DPU's BMC server certificate by annotating the
+`DPUDevice` with `provisioning.dpu.nvidia.com/rotate-bmc-server-certificate`. The annotation value
+is an opaque token — any non-empty string (a timestamp or UUID is recommended). Rotation runs
+whenever the annotation value differs from `status.bmcServerCertificate.observedManualTrigger`;
+after a successful rotation the controller copies the value into `observedManualTrigger`, so the
+same token is never processed twice.
+
+```bash
+kubectl -n dpf-operator-system annotate dpudevice $DPUDEVICE_NAME \
+  provisioning.dpu.nvidia.com/rotate-bmc-server-certificate="$(date +%s)" --overwrite
+```
+
+Watch the rotation complete:
+
+```bash
+kubectl -n dpf-operator-system get dpudevice $DPUDEVICE_NAME \
+  -o jsonpath='{range .status.conditions[?(@.type=="BMCServerCertificateReady")]}{.status}{"\t"}{.reason}{"\n"}{end}'
+```
+
+## Expired certificate recovery
+
+Manual rotation requires the provisioning controller to connect to the BMC with mTLS. If the BMC
+server certificate has already expired, or otherwise no longer verifies against the trusted CA, the
+controller cannot open the mTLS connection needed to request and install a new certificate.
+In this case the controller reports `BMCServerCertificateReady=False` with reason
+`BMCServerCertificateRotationFailed`.
+
+DPF does not automatically re-run bootstrap when this happens because bootstrap uses basic-auth
+access to the BMC. To recover, delete and recreate the affected `DPUDevice` so DPF performs the
+mTLS bootstrap flow again and installs a fresh BMC server certificate.
+
+```bash
+kubectl -n dpf-operator-system delete dpudevice $DPUDEVICE_NAME
+```
+
 # External Host Reboot
 
 In the Zero Trust scenario, DPF cannot manage the DPU's host machine. During the DPU provisioning process, when the DPU

@@ -598,6 +598,18 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 		})
 	})
 
+	Context("BMC Server Certificate Rotation", Labels{Domain.ZeroTrust, Domain.RequiresNodes}, Serial, func() {
+		It("manually rotates the BMC mTLS server certificate for each DPUDevice", func() {
+			if !isGinkgoLabelApplied(Domain.ZeroTrust) {
+				Skip("Skip BMC server certificate rotation test: only applies to the Zero-Trust / Redfish install path")
+			}
+			if !input.hasDpuNodes() {
+				Skip("Skip BMC server certificate rotation test as there are no DPU nodes")
+			}
+			ValidateBMCServerCertificateRotation(ctx, input)
+		})
+	})
+
 	Context("DPU Service Kata Containers", Labels{Domain.RequiresNodes}, func() {
 		It("deploy a DPUService pod with kata-qemu RuntimeClass and an SF", func() {
 			ValidateDPUServiceKataRuntimeClass(ctx, input)

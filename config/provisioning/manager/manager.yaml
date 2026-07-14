@@ -34,6 +34,7 @@ spec:
         - /provisioning
         args:
         - --leader-elect
+        - --redfish-client-cert-dir=/etc/dpf/redfish-client-cert
         image: controller
         name: manager
         securityContext:
@@ -80,6 +81,12 @@ spec:
           readOnly: true
         - mountPath: /var/run/dpf
           name: pldm-unpack-socket
+        - mountPath: /etc/dpf/redfish-client-cert
+          name: redfish-client-cert
+          readOnly: true
+        - mountPath: /etc/dpf/redfish-client-cert-bf4
+          name: redfish-client-cert-bf4
+          readOnly: true
       # PLDM fwpkg unpack HTTP API over a Unix domain socket (shared with manager).
       - name: pldmunpack
         image: bfb-registry
@@ -126,6 +133,18 @@ spec:
       volumes:
       - name: pldm-unpack-socket
         emptyDir: {}
+      # Redfish client mTLS identity (kept in sync by kubelet when cert-manager renews the Secret).
+      # optional=true so the controller pod can still start before the cert-manager Secret exists.
+      - name: redfish-client-cert
+        secret:
+          defaultMode: 420
+          optional: true
+          secretName: dpf-provisioning-redfish-client-secret
+      - name: redfish-client-cert-bf4
+        secret:
+          defaultMode: 420
+          optional: true
+          secretName: dpf-provisioning-redfish-client-secret-bf4
       - name: kube-api-access
         projected:
           defaultMode: 420
