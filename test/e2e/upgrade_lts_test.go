@@ -84,6 +84,9 @@ var _ = Describe("DPF Upgrade LTS", func() {
 		rolloutDependencies:    true,
 		verifyKubeletVersion:   true,
 
+		// DPUFlavorTemplate was introduced after v26.4; skip its dependency validation.
+		skipDPUFlavorTemplateValidation: true,
+
 		expectedDPFVersion:        envOrDefault("DPF_V264_VERSION", "v26.4.0"),
 		expectedKubernetesVersion: "v1.34.0",
 		// Phase runs with -e2e.skip-cleanup, so clear the stale dpudevice-protection
