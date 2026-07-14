@@ -105,7 +105,7 @@ func (n *NICProvisioning) ShouldUpdateStatusBeforeContinue(_ *operations.Context
 	return false
 }
 
-func (n *NICProvisioning) Execute(execCtx context.Context, optCtx *operations.Context) (err error) {
+func (n *NICProvisioning) Execute(execCtx context.Context, optCtx *operations.Context) error {
 	if !dpuagentutil.IsBlueField4(optCtx.LatestDPU) {
 		return fmt.Errorf("DPU type is not BlueField4")
 	}
@@ -141,19 +141,6 @@ func (n *NICProvisioning) Execute(execCtx context.Context, optCtx *operations.Co
 	}
 	if err := prepareDMSServer(optCtx); err != nil {
 		return err
-	}
-	if n.dmsServer != nil && n.dmsServer.IsRunning() {
-		defer func() {
-			stopErr := n.stopLocalDMSServer()
-			if stopErr == nil {
-				return
-			}
-			if err == nil {
-				err = stopErr
-				return
-			}
-			klog.ErrorS(stopErr, "NIC provisioning: failed to stop local DMS server while unwinding execute")
-		}()
 	}
 	// 3. Install NIC firmware (skipped when BlueFieldSoftware has no PlatformPldmFwBundle)
 	if !skipNICFirmware {
@@ -458,6 +445,7 @@ func (n *NICProvisioning) prepareLocalDMSServer(optCtx *operations.Context) erro
 		return fmt.Errorf("failed to start local DMS server: %w", err)
 	}
 	n.dmsServer = dmsServer
+	// Drop cached SpectrumXManager so it is recreated against the new DMS server.
 	n.spectrumXMgr = nil
 	n.discoveredNICDevices = devices
 	klog.InfoS("NIC provisioning: local DMS server started", "deviceCount", len(devices))
@@ -861,6 +849,32 @@ func (n *NICProvisioning) stopLocalDMSServer() error {
 	}
 	klog.Info("NIC provisioning: local DMS server stopped")
 	return nil
+}
+
+// Shutdown stops the local DMS server after the DPU agent has finished using it.
+func (n *NICProvisioning) Shutdown() error {
+	return n.stopLocalDMSServer()
+}
+
+// LogRetainedResources logs whether long-lived NIC provisioning resources are still
+// held after Execute completes (spectrumXMgr, dmsServer, discoveredNICDevices).
+func (n *NICProvisioning) LogRetainedResources() {
+	dmsAlive := n.dmsServer != nil
+	dmsRunning := dmsAlive && n.dmsServer.IsRunning()
+	deviceSummaries := make([]string, 0, len(n.discoveredNICDevices))
+	for _, device := range n.discoveredNICDevices {
+		deviceSummaries = append(deviceSummaries, fmt.Sprintf("%s/%s",
+			device.Status.SerialNumber, device.Status.Type))
+	}
+	klog.InfoS("NIC provisioning: retained resources after Run",
+		"spectrumXMgrAlive", n.spectrumXMgr != nil,
+		"spectrumXMgrPtr", fmt.Sprintf("%p", n.spectrumXMgr),
+		"dmsServerAlive", dmsAlive,
+		"dmsServerRunning", dmsRunning,
+		"dmsServerPtr", fmt.Sprintf("%p", n.dmsServer),
+		"discoveredNICDeviceCount", len(n.discoveredNICDevices),
+		"discoveredNICDevices", deviceSummaries,
+	)
 }
 
 func (n *NICProvisioning) stopSystemDMSDServiceIfExists() error {

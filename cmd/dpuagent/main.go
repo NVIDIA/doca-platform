@@ -131,11 +131,18 @@ func main() {
 	}
 
 	execCtx := klog.NewContext(ctrl.SetupSignalHandler(), klog.Background())
-	if err := dpuagent.NewDPUAgent(optCtx).Run(execCtx); err != nil {
+	agent := dpuagent.NewDPUAgent(optCtx)
+	if err := agent.Run(execCtx); err != nil {
+		if shutdownErr := agent.Shutdown(); shutdownErr != nil {
+			klog.ErrorS(shutdownErr, "failed to stop local DMS server after DPU agent error")
+		}
 		klog.Fatalf("failed to run DPU agent: %v", err)
 	}
 	klog.Info("DPUAgent successfully completed all operations")
 	<-execCtx.Done()
+	if err := agent.Shutdown(); err != nil {
+		klog.ErrorS(err, "failed to stop local DMS server during DPU agent shutdown")
+	}
 	klog.Info("DPUAgent stop signal received")
 }
 

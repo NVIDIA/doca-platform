@@ -236,7 +236,7 @@ func TestNICProvisioning_Execute(t *testing.T) {
 		assert.False(t, runtimeCalled)
 	})
 
-	t.Run("stop local dms server when execute returns", func(t *testing.T) {
+	t.Run("keeps local dms server running when execute returns", func(t *testing.T) {
 		existingFile := filepath.Join(tempDir, "astra-nic-fw-stop.fwpkg")
 		require.NoError(t, os.WriteFile(existingFile, []byte("already here"), 0600))
 		dmsServer := &fakeDMSServer{running: true}
@@ -256,6 +256,10 @@ func TestNICProvisioning_Execute(t *testing.T) {
 		ctx := newOptCtx(fakeClient, "https://registry.example.com")
 
 		require.NoError(t, opWithRunningDMS.Execute(context.Background(), ctx))
+		assert.False(t, dmsServer.stopCalled)
+		assert.True(t, dmsServer.running)
+
+		require.NoError(t, opWithRunningDMS.Shutdown())
 		assert.True(t, dmsServer.stopCalled)
 		assert.False(t, dmsServer.running)
 	})
@@ -286,7 +290,7 @@ func TestNICProvisioning_Execute(t *testing.T) {
 		assert.False(t, installCalled)
 	})
 
-	t.Run("return error when stop local dms server fails", func(t *testing.T) {
+	t.Run("return error when shutdown cannot stop local dms server", func(t *testing.T) {
 		existingFile := filepath.Join(tempDir, "astra-nic-fw-stop-error.fwpkg")
 		require.NoError(t, os.WriteFile(existingFile, []byte("already here"), 0600))
 		dmsServer := &fakeDMSServer{
@@ -308,7 +312,9 @@ func TestNICProvisioning_Execute(t *testing.T) {
 		fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(bfs).Build()
 		ctx := newOptCtx(fakeClient, "https://registry.example.com")
 
-		err := opWithRunningDMS.Execute(context.Background(), ctx)
+		require.NoError(t, opWithRunningDMS.Execute(context.Background(), ctx))
+
+		err := opWithRunningDMS.Shutdown()
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to stop local DMS server")
 		assert.True(t, dmsServer.stopCalled)
