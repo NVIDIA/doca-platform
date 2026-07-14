@@ -69,10 +69,10 @@ func setupInstallingEnv(dpuName string) *installingTestEnv {
 	}
 	Expect(k8sClient.Create(ctx, bmcSecret)).To(Succeed())
 
-	caCrt, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(mockServer.GetIPAddress())
+	_, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(mockServer.GetIPAddress())
 	caSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "dpf-provisioning-ca-secret", Namespace: testNS.Name},
-		Data:       map[string][]byte{"tls.crt": caCrt},
+		Data:       map[string][]byte{"tls.crt": mockServer.GetServerCertPEM()},
 	}
 	Expect(k8sClient.Create(ctx, caSecret)).To(Succeed())
 	clientSecret := &corev1.Secret{
@@ -241,16 +241,17 @@ var _ = Describe("Installing", func() {
 
 		By("create CA and client certificate secrets for mTLS")
 		// Generate mTLS certificates for testing
-		caCrt, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(mockServer.GetIPAddress())
+		_, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(mockServer.GetIPAddress())
 
-		// Create CA certificate secret
+		// Create CA certificate secret. The verified mTLS client validates the served cert, so the
+		// CA secret must trust the cert the mock actually serves (its httptest leaf with the IP SAN).
 		caSecret := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "dpf-provisioning-ca-secret",
 				Namespace: testNS.Name,
 			},
 			Data: map[string][]byte{
-				"tls.crt": caCrt,
+				"tls.crt": mockServer.GetServerCertPEM(),
 			},
 		}
 		Expect(k8sClient.Create(ctx, caSecret)).To(Succeed())
@@ -379,16 +380,17 @@ var _ = Describe("Installing", func() {
 
 		By("create CA and client certificate secrets for mTLS")
 		// Generate mTLS certificates for testing
-		caCrt, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(mockServer.GetIPAddress())
+		_, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(mockServer.GetIPAddress())
 
-		// Create CA certificate secret
+		// Create CA certificate secret. The verified mTLS client validates the served cert, so the
+		// CA secret must trust the cert the mock actually serves (its httptest leaf with the IP SAN).
 		caSecret := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "dpf-provisioning-ca-secret",
 				Namespace: testNS.Name,
 			},
 			Data: map[string][]byte{
-				"tls.crt": caCrt,
+				"tls.crt": mockServer.GetServerCertPEM(),
 			},
 		}
 		Expect(k8sClient.Create(ctx, caSecret)).To(Succeed())
@@ -492,14 +494,14 @@ var _ = Describe("Installing", func() {
 			Expect(k8sClient.Create(ctx, bmcSecret)).To(Succeed())
 
 			By("create CA and client certificate secrets for mTLS")
-			caCrt, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(mockServer.GetIPAddress())
+			_, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(mockServer.GetIPAddress())
 			caSecret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "dpf-provisioning-ca-secret",
 					Namespace: testNS.Name,
 				},
 				Data: map[string][]byte{
-					"tls.crt": caCrt,
+					"tls.crt": mockServer.GetServerCertPEM(),
 				},
 			}
 			Expect(k8sClient.Create(ctx, caSecret)).To(Succeed())
@@ -872,17 +874,17 @@ var _ = Describe("Installing", func() {
 			return server
 		}
 
-		createBF4InstallingSecrets := func(mockServerIP string) {
+		createBF4InstallingSecrets := func(mockServer *redfishmock.RedfishMockServer) {
 			bmcSecret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{Name: "bmc-shared-password", Namespace: testNS.Name},
 				Data:       map[string][]byte{"password": []byte("password")},
 			}
 			Expect(k8sClient.Create(ctx, bmcSecret)).To(Succeed())
 
-			caCrt, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(mockServerIP)
+			_, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(mockServer.GetIPAddress())
 			caSecret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{Name: "dpf-provisioning-ca-secret", Namespace: testNS.Name},
-				Data:       map[string][]byte{"tls.crt": caCrt},
+				Data:       map[string][]byte{"tls.crt": mockServer.GetServerCertPEM()},
 			}
 			Expect(k8sClient.Create(ctx, caSecret)).To(Succeed())
 			clientSecret := &corev1.Secret{
@@ -912,7 +914,7 @@ var _ = Describe("Installing", func() {
 			mockServer := createBF4InstallingMockServer()
 			defer mockServer.Stop()
 
-			createBF4InstallingSecrets(mockServer.GetIPAddress())
+			createBF4InstallingSecrets(mockServer)
 			createReadyBlueFieldSoftware()
 
 			dpuDevice := dpuDeviceObj(bf4DPUDeviceName)
@@ -1028,10 +1030,10 @@ var _ = Describe("Installing", func() {
 			}
 			Expect(k8sClient.Create(ctx, bmcSecret)).To(Succeed())
 
-			caCrt, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(mockServer.GetIPAddress())
+			_, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(mockServer.GetIPAddress())
 			caSecret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{Name: "dpf-provisioning-ca-secret", Namespace: testNS.Name},
-				Data:       map[string][]byte{"tls.crt": caCrt},
+				Data:       map[string][]byte{"tls.crt": mockServer.GetServerCertPEM()},
 			}
 			Expect(k8sClient.Create(ctx, caSecret)).To(Succeed())
 			clientSecret := &corev1.Secret{

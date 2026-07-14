@@ -45,6 +45,14 @@ const (
 	// deletion-ordering invariant that the ClusterStaticEntry is GC'd before the DPUDevice,
 	// so a reflashed DPU cannot race a stale identity entry.
 	SPIFFEDeregistrationFinalizer = DPUProvisioningPrefix + "spiffe-deregistration"
+
+	// RotateBMCServerCertificateAnnotation requests a manual rotation of the DPU BMC mTLS
+	// server certificate. The annotation value is an opaque token (any non-empty string;
+	// a timestamp or UUID is recommended). Rotation is triggered when the value differs from
+	// status.bmcServerCertificate.observedManualTrigger; after a successful rotation the
+	// controller copies the value into observedManualTrigger so the same trigger is not
+	// processed twice.
+	RotateBMCServerCertificateAnnotation = DPUProvisioningPrefix + "rotate-bmc-server-certificate"
 )
 
 // DPUDeviceGroupVersionKind is the GroupVersionKind of the DPUDevice object
@@ -69,6 +77,17 @@ const (
 	// ConditionSPIFFEEntryReady reports whether the per-DPU SPIRE ClusterStaticEntry has been
 	// registered and rendered (L1 composite mirror of the upstream entry status).
 	ConditionSPIFFEEntryReady conditions.ConditionType = "SPIFFEEntryReady"
+	// ConditionDpuDeviceBMCServerCertificateReady indicates the BMC mTLS server
+	// certificate is installed, valid, and not within its renew-before window.
+	ConditionDpuDeviceBMCServerCertificateReady conditions.ConditionType = "BMCServerCertificateReady"
+)
+
+// BMCServerCertificateReady condition reasons
+const (
+	// ReasonBMCServerCertificateRotating indicates a rotation is in progress (CSR generated / CR pending).
+	ReasonBMCServerCertificateRotating = "BMCServerCertificateRotating"
+	// ReasonBMCServerCertificateRotationFailed indicates the last rotation attempt failed.
+	ReasonBMCServerCertificateRotationFailed = "BMCServerCertificateRotationFailed"
 )
 
 // BMCCredentialsReady condition reasons
@@ -96,6 +115,7 @@ var (
 		ConditionDpuDeviceReady,
 		ConditionBMCCredentialsReady,
 		ConditionSPIFFEEntryReady,
+		ConditionDpuDeviceBMCServerCertificateReady,
 	}
 )
 
@@ -274,8 +294,29 @@ type DPUDeviceStatus struct {
 	// +optional
 	BMCCredentialSecretName *string `json:"bmcCredentialSecretName,omitempty"`
 
+	// BMCServerCertificate reports the BMC mTLS server certificate rotation state.
+	// +optional
+	BMCServerCertificate *CertificateStatus `json:"bmcServerCertificate,omitempty"`
+
 	// +optional
 	Conditions []metav1.Condition `json:"conditions"`
+}
+
+// CertificateStatus reports the rotation state of a DPF-managed certificate.
+type CertificateStatus struct {
+	// NotAfter is the expiry time of the certificate currently installed. It is taken
+	// from the issued certificate at rotation time.
+	// +optional
+	NotAfter *metav1.Time `json:"notAfter,omitempty"`
+
+	// LastRotationTime is the time DPF last successfully rotated the certificate.
+	// +optional
+	LastRotationTime *metav1.Time `json:"lastRotationTime,omitempty"`
+
+	// ObservedManualTrigger records the value of the manual rotation annotation that
+	// was last honored, so the same trigger is not processed twice.
+	// +optional
+	ObservedManualTrigger *string `json:"observedManualTrigger,omitempty"`
 }
 
 // SecureBootStatus represents the UEFI Secure Boot configuration status on the DPU.

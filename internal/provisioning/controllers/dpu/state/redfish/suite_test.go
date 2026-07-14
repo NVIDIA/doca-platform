@@ -19,6 +19,7 @@ package redfish
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -26,7 +27,9 @@ import (
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	rfclient "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	testutils "github.com/nvidia/doca-platform/test/utils"
 
 	nvidiaNodeMaintenancev1 "github.com/Mellanox/maintenance-operator/api/v1alpha1"
 	. "github.com/onsi/ginkgo/v2"
@@ -91,6 +94,22 @@ var _ = BeforeSuite(func() {
 	k8sClient, err = client.New(cfg, client.Options{Scheme: testScheme})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
+
+	// The verified mTLS client reads its key pair from a mounted directory. Provide one for the
+	// suite so NewTLSClient can build the client (the mock BMC does not require client auth).
+	_, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts("127.0.0.1")
+	certDir, mkErr := os.MkdirTemp("", "redfish-client-cert")
+	Expect(mkErr).NotTo(HaveOccurred())
+	for _, d := range []string{certDir, certDir + "-bf4"} {
+		Expect(os.MkdirAll(d, 0o755)).To(Succeed())
+		Expect(os.WriteFile(filepath.Join(d, corev1.TLSCertKey), clientCrt, 0o600)).To(Succeed())
+		Expect(os.WriteFile(filepath.Join(d, corev1.TLSPrivateKeyKey), clientKey, 0o600)).To(Succeed())
+	}
+	rfclient.SetClientCertDir(certDir)
+	DeferCleanup(func() {
+		_ = os.RemoveAll(certDir)
+		_ = os.RemoveAll(certDir + "-bf4")
+	})
 })
 
 var _ = BeforeEach(func() {

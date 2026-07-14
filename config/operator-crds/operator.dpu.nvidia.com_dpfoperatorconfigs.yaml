@@ -1320,6 +1320,14 @@ spec:
                       BFBPersistentVolumeClaimName is the name of the PersistentVolumeClaim used by dpf-provisioning-controller
                       If not provided, the controller will use local host storage (hostPath)
                     type: string
+                  bmcServerCertRenewBefore:
+                    description: |-
+                      BMCServerCertRenewBefore is how long before expiry DPF rotates the DPU BMC mTLS
+                      server certificate.
+                      When unset, the provisioning controller defaults to 720h (30 days).
+                    format: duration
+                    pattern: ^([0-9]+(h|m|s|ms|us|µs|ns))+$
+                    type: string
                   controller:
                     description: |-
                       Controller contains the configuration for the Provisioning controller component.
