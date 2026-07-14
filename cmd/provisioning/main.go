@@ -34,6 +34,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/discovery"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state"
+	rfclient "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpucluster"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpudevice"
@@ -132,6 +133,7 @@ type cliFlags struct {
 	nodeEffectRemovalTimeout       time.Duration
 	hostAgentDNSPolicy             string
 	deploymentMode                 string
+	redfishClientCertDir           string
 }
 
 func parseFlags() *cliFlags {
@@ -170,6 +172,7 @@ func parseFlags() *cliFlags {
 	fs.DurationVar(&flags.nodeEffectRemovalTimeout, "node-effect-removal-timeout", DefaultNodeEffectRemovalTimeout, "Maximum time allowed for the Node Effect Removal phase before transitioning to error. 0 means no timeout.")
 	fs.StringVar(&flags.hostAgentDNSPolicy, "hostagent-dns-policy", string(corev1.DNSClusterFirstWithHostNet), "DNS policy for the hostagent pod")
 	fs.StringVar(&flags.deploymentMode, "deployment-mode", "", "required: cluster deployment mode from DPFOperatorConfig (zero-trust or host-trusted)")
+	fs.StringVar(&flags.redfishClientCertDir, "redfish-client-cert-dir", rfclient.DefaultClientCertDir, "Directory holding the mounted Redfish client key pair (tls.crt/tls.key). The BF4 key pair is read from '<dir>-bf4'.")
 
 	logsv1.AddFlags(logOptions, fs)
 
@@ -333,6 +336,9 @@ func setupControllers(mgr ctrl.Manager, flags *cliFlags, bfbRegistry string, ima
 		setupLog.Error(err, "unable to create controller", "controller", "DPUCluster")
 		os.Exit(1)
 	}
+	// When a client cert directory is configured the verified mTLS client reads its client key pair
+	// from the mounted volume instead of the Kubernetes API (from a secret in the same namespace).
+	rfclient.SetClientCertDir(flags.redfishClientCertDir)
 	if err := (&dpudevice.DPUDeviceReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),

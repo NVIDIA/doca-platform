@@ -19,12 +19,16 @@ package dpudevice
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	rfclient "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/mock"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
@@ -46,10 +50,31 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
+// testNamespace is the namespace used by the BMC server-certificate rotation tests.
+const testNamespace = "test-namespace"
+
 func TestDPUDeviceController(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "DPUDevice Controller Non exported Suite")
 }
+
+// The verified mTLS client reads its key pair from a mounted directory. Provide one for the suite so
+// NewTLSClient can build the client in tests (the mock BMC does not require client auth).
+var _ = BeforeSuite(func() {
+	_, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts("127.0.0.1")
+	certDir, err := os.MkdirTemp("", "dpudevice-client-cert")
+	Expect(err).NotTo(HaveOccurred())
+	for _, d := range []string{certDir, certDir + "-bf4"} {
+		Expect(os.MkdirAll(d, 0o755)).To(Succeed())
+		Expect(os.WriteFile(filepath.Join(d, corev1.TLSCertKey), clientCrt, 0o600)).To(Succeed())
+		Expect(os.WriteFile(filepath.Join(d, corev1.TLSPrivateKeyKey), clientKey, 0o600)).To(Succeed())
+	}
+	rfclient.SetClientCertDir(certDir)
+	DeferCleanup(func() {
+		_ = os.RemoveAll(certDir)
+		_ = os.RemoveAll(certDir + "-bf4")
+	})
+})
 
 var _ = Describe("DPUDeviceController Non exported", func() {
 	Context("generateCR", func() {
@@ -64,7 +89,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			dpuDevice = &provisioningv1.DPUDevice{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-dpudevice",
-					Namespace: "test-namespace",
+					Namespace: testNamespace,
 					UID:       types.UID("test-uid-123"),
 				},
 			}
@@ -86,8 +111,8 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			cr, err := reconciler.generateCR(dpuDevice, testCSR)
 			Expect(err).NotTo(HaveOccurred())
 
-			Expect(cr.GetName()).To(Equal("test-dpudevice"))
-			Expect(cr.GetNamespace()).To(Equal("test-namespace"))
+			Expect(cr.GetName()).To(Equal("test-dpudevice-server"))
+			Expect(cr.GetNamespace()).To(Equal(testNamespace))
 		})
 
 		It("should set owner reference to DPUDevice", func() {
@@ -154,7 +179,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 		})
 	})
 
-	Context("createCR", func() {
+	Context("createServerCertCR", func() {
 		var (
 			reconciler *DPUDeviceReconciler
 			dpuDevice  *provisioningv1.DPUDevice
@@ -171,7 +196,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			dpuDevice = &provisioningv1.DPUDevice{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-dpudevice",
-					Namespace: "test-namespace",
+					Namespace: testNamespace,
 					UID:       types.UID("test-uid-123"),
 				},
 			}
@@ -188,27 +213,27 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 		})
 
 		It("should create CertificateRequest successfully", func() {
-			err := reconciler.createCR(ctx, dpuDevice, testCSR)
+			err := reconciler.createServerCertCR(ctx, dpuDevice, testCSR)
 			Expect(err).NotTo(HaveOccurred())
 
 			// Verify the CR was created
 			createdCR := &unstructured.Unstructured{}
 			createdCR.SetGroupVersionKind(crGVK())
 			err = fakeClient.Get(ctx, types.NamespacedName{
-				Name:      "test-dpudevice",
-				Namespace: "test-namespace",
+				Name:      "test-dpudevice-server",
+				Namespace: testNamespace,
 			}, createdCR)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(createdCR.GetName()).To(Equal("test-dpudevice"))
+			Expect(createdCR.GetName()).To(Equal("test-dpudevice-server"))
 		})
 
 		It("should fail if CR already exists", func() {
 			// Create the CR first time
-			err := reconciler.createCR(ctx, dpuDevice, testCSR)
+			err := reconciler.createServerCertCR(ctx, dpuDevice, testCSR)
 			Expect(err).NotTo(HaveOccurred())
 
 			// Try to create again - should fail
-			err = reconciler.createCR(ctx, dpuDevice, testCSR)
+			err = reconciler.createServerCertCR(ctx, dpuDevice, testCSR)
 			Expect(err).To(HaveOccurred())
 		})
 	})
@@ -229,7 +254,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			dpuDevice := &provisioningv1.DPUDevice{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "bf3-cmx-01",
-					Namespace: "test-namespace",
+					Namespace: testNamespace,
 					UID:       types.UID("hostless-device-uid"),
 					Labels: map[string]string{
 						"provisioning.dpu.nvidia.com/hostless": "true",
@@ -258,7 +283,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			Expect(findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceNodeAttached)).Status).To(Equal(metav1.ConditionTrue))
 
 			dpuNode := &provisioningv1.DPUNode{}
-			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: "hostless-bf3-cmx-01", Namespace: "test-namespace"}, dpuNode)).To(Succeed())
+			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: "hostless-bf3-cmx-01", Namespace: testNamespace}, dpuNode)).To(Succeed())
 			Expect(dpuNode.Spec.DPUs).To(Equal([]provisioningv1.DPURef{{Name: "bf3-cmx-01"}}))
 			Expect(dpuNode.Spec.NodeRebootMethod).NotTo(BeNil())
 			Expect(dpuNode.Spec.NodeRebootMethod.None).NotTo(BeNil())
@@ -298,7 +323,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			dpuDevice = &provisioningv1.DPUDevice{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-dpudevice",
-					Namespace: "test-namespace",
+					Namespace: testNamespace,
 				},
 				Status: provisioningv1.DPUDeviceStatus{
 					BMCIP: nil, // BMCIP is not set
@@ -330,7 +355,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			dpuDevice = &provisioningv1.DPUDevice{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-dpudevice",
-					Namespace: "test-namespace",
+					Namespace: testNamespace,
 				},
 				Status: provisioningv1.DPUDeviceStatus{
 					BMCIP: &bmcIP,
@@ -381,7 +406,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			dpuDevice := &provisioningv1.DPUDevice{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-dpudevice",
-					Namespace: "test-namespace",
+					Namespace: testNamespace,
 				},
 				Status: provisioningv1.DPUDeviceStatus{
 					BMCIP: &bmcIP,
@@ -412,7 +437,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			dpuDevice := &provisioningv1.DPUDevice{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-dpudevice-bf3",
-					Namespace: "test-namespace",
+					Namespace: testNamespace,
 				},
 				Spec: provisioningv1.DPUDeviceSpec{
 					SerialNumber: mock.DpuSerialNumber,
@@ -425,17 +450,17 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 
 			// Create TLS secrets for the mock server
 			// Generate mTLS certificates for testing
-			caCrt, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(bmcIP)
+			_, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(bmcIP)
 
 			// CA secret that the client expects
 			caSecret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "dpf-provisioning-ca-secret",
-					Namespace: "test-namespace",
+					Namespace: testNamespace,
 				},
 				Type: corev1.SecretTypeTLS,
 				Data: map[string][]byte{
-					"tls.crt": caCrt,
+					"tls.crt": mockServer.GetServerCertPEM(),
 				},
 			}
 
@@ -443,7 +468,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			clientSecret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "dpf-provisioning-redfish-client-secret",
-					Namespace: "test-namespace",
+					Namespace: testNamespace,
 				},
 				Type: corev1.SecretTypeTLS,
 				Data: map[string][]byte{
@@ -576,7 +601,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			dpuDevice := &provisioningv1.DPUDevice{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-dpudevice-unknown",
-					Namespace: "test-namespace",
+					Namespace: testNamespace,
 				},
 				Spec: provisioningv1.DPUDeviceSpec{
 					SerialNumber: mock.DpuSerialNumber,
@@ -588,23 +613,23 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			}
 
 			// Create TLS secrets for the mock server
-			caCrt, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(bmcIP)
+			_, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(bmcIP)
 
 			caSecret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "dpf-provisioning-ca-secret",
-					Namespace: "test-namespace",
+					Namespace: testNamespace,
 				},
 				Type: corev1.SecretTypeTLS,
 				Data: map[string][]byte{
-					"tls.crt": caCrt,
+					"tls.crt": mockServer.GetServerCertPEM(),
 				},
 			}
 
 			clientSecret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "dpf-provisioning-redfish-client-secret",
-					Namespace: "test-namespace",
+					Namespace: testNamespace,
 				},
 				Type: corev1.SecretTypeTLS,
 				Data: map[string][]byte{
@@ -659,7 +684,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			dpuDevice := &provisioningv1.DPUDevice{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-dpudevice-nic-unknown",
-					Namespace: "test-namespace",
+					Namespace: testNamespace,
 				},
 				Spec: provisioningv1.DPUDeviceSpec{
 					SerialNumber: mock.DpuSerialNumber,
@@ -671,23 +696,23 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			}
 
 			// Create TLS secrets for the mock server
-			caCrt, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(bmcIP)
+			_, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(bmcIP)
 
 			caSecret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "dpf-provisioning-ca-secret",
-					Namespace: "test-namespace",
+					Namespace: testNamespace,
 				},
 				Type: corev1.SecretTypeTLS,
 				Data: map[string][]byte{
-					"tls.crt": caCrt,
+					"tls.crt": mockServer.GetServerCertPEM(),
 				},
 			}
 
 			clientSecret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "dpf-provisioning-redfish-client-secret",
-					Namespace: "test-namespace",
+					Namespace: testNamespace,
 				},
 				Type: corev1.SecretTypeTLS,
 				Data: map[string][]byte{
@@ -750,7 +775,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			dpuDevice = &provisioningv1.DPUDevice{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      testDeviceName,
-					Namespace: "test-namespace",
+					Namespace: testNamespace,
 					UID:       types.UID(testUID),
 				},
 				Status: provisioningv1.DPUDeviceStatus{
@@ -762,7 +787,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			passwdSecret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "bmc-shared-password",
-					Namespace: "test-namespace",
+					Namespace: testNamespace,
 				},
 				Data: map[string][]byte{
 					"password": []byte("testpassword"),
@@ -845,7 +870,6 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 
 	Context("resolveAndAuthenticateBMC status updates", func() {
 		const (
-			testNS            = "test-namespace"
 			perDeviceSecretV1 = "my-dpu-bmc-v1"
 			perDeviceSecretV2 = "my-dpu-bmc-v2"
 			sharedSecretName  = "bmc-shared-password"
@@ -875,7 +899,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			dpuDevice = &provisioningv1.DPUDevice{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-dpudevice-cred",
-					Namespace: testNS,
+					Namespace: testNamespace,
 					UID:       types.UID("test-uid-cred"),
 				},
 				Spec: provisioningv1.DPUDeviceSpec{
@@ -890,7 +914,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			perDeviceSecret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      perDeviceSecretV1,
-					Namespace: testNS,
+					Namespace: testNamespace,
 				},
 				Data: map[string][]byte{
 					"password": []byte(password),
@@ -923,7 +947,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			dpuDevice = &provisioningv1.DPUDevice{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-dpudevice-cred",
-					Namespace: testNS,
+					Namespace: testNamespace,
 					UID:       types.UID("test-uid-cred"),
 				},
 				Status: provisioningv1.DPUDeviceStatus{
@@ -935,7 +959,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			sharedSecret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      sharedSecretName,
-					Namespace: testNS,
+					Namespace: testNamespace,
 				},
 				Data: map[string][]byte{
 					"password": []byte(password),
@@ -989,7 +1013,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			dpuDevice = &provisioningv1.DPUDevice{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-dpudevice-cred",
-					Namespace: testNS,
+					Namespace: testNamespace,
 					UID:       types.UID("test-uid-cred"),
 				},
 				Spec: provisioningv1.DPUDeviceSpec{
@@ -1034,7 +1058,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			dpuDevice = &provisioningv1.DPUDevice{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-dpudevice-cred",
-					Namespace: testNS,
+					Namespace: testNamespace,
 				},
 				Spec: provisioningv1.DPUDeviceSpec{
 					BMCCredentialSecretName: ptr.To("nonexistent-secret"),
@@ -1070,7 +1094,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			invalidSecret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      perDeviceSecretV1,
-					Namespace: testNS,
+					Namespace: testNamespace,
 				},
 				Data: map[string][]byte{
 					"password": []byte(""),
@@ -1080,7 +1104,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			dpuDevice = &provisioningv1.DPUDevice{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-dpudevice-cred",
-					Namespace: testNS,
+					Namespace: testNamespace,
 				},
 				Spec: provisioningv1.DPUDeviceSpec{
 					BMCCredentialSecretName: ptr.To(perDeviceSecretV1),
@@ -1112,7 +1136,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			dpuDevice = &provisioningv1.DPUDevice{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-dpudevice-cred",
-					Namespace: testNS,
+					Namespace: testNamespace,
 				},
 			}
 
@@ -1129,7 +1153,6 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 
 	Context("reconcile credential lifecycle", func() {
 		const (
-			testNS            = "test-namespace"
 			testDeviceName    = "test-dpudevice"
 			perDeviceSecretV1 = "my-dpu-bmc-v1"
 			perDeviceSecretV2 = "my-dpu-bmc-v2"
@@ -1157,7 +1180,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			return &operatorv1.DPFOperatorConfig{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "dpfoperatorconfig",
-					Namespace: testNS,
+					Namespace: testNamespace,
 				},
 				Spec: operatorv1.DPFOperatorConfigSpec{
 					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
@@ -1173,7 +1196,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			return &provisioningv1.DPUNode{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-dpunode",
-					Namespace: testNS,
+					Namespace: testNamespace,
 				},
 				Spec: provisioningv1.DPUNodeSpec{
 					DPUs: []provisioningv1.DPURef{{Name: testDeviceName}},
@@ -1185,7 +1208,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			device := &provisioningv1.DPUDevice{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      testDeviceName,
-					Namespace: testNS,
+					Namespace: testNamespace,
 				},
 				Status: provisioningv1.DPUDeviceStatus{
 					BMCIP:   &bmcIP,
@@ -1294,7 +1317,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			perDeviceSecret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      perDeviceSecretV1,
-					Namespace: testNS,
+					Namespace: testNamespace,
 				},
 				Data: map[string][]byte{"password": []byte(testPassword)},
 			}
@@ -1318,7 +1341,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			Expect(condition.Status).To(Equal(metav1.ConditionTrue))
 
 			updated := &corev1.Secret{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: perDeviceSecretV1, Namespace: testNS}, updated)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: perDeviceSecretV1, Namespace: testNamespace}, updated)).To(Succeed())
 			Expect(updated.Finalizers).To(ContainElement(provisioningv1.BMCCredentialFinalizer))
 
 			Expect(controllerutil.ContainsFinalizer(dpuDevice, provisioningv1.BMCCredentialFinalizer)).To(BeTrue(),
@@ -1343,7 +1366,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			oldSecret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:       perDeviceSecretV1,
-					Namespace:  testNS,
+					Namespace:  testNamespace,
 					Finalizers: []string{provisioningv1.BMCCredentialFinalizer},
 				},
 				Data: map[string][]byte{"password": []byte(testPassword)},
@@ -1351,7 +1374,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			newSecret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      perDeviceSecretV2,
-					Namespace: testNS,
+					Namespace: testNamespace,
 				},
 				Data: map[string][]byte{"password": []byte(testPassword)},
 			}
@@ -1374,11 +1397,11 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			Expect(condition.Status).To(Equal(metav1.ConditionTrue))
 
 			updatedOld := &corev1.Secret{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: perDeviceSecretV1, Namespace: testNS}, updatedOld)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: perDeviceSecretV1, Namespace: testNamespace}, updatedOld)).To(Succeed())
 			Expect(updatedOld.Finalizers).NotTo(ContainElement(provisioningv1.BMCCredentialFinalizer))
 
 			updatedNew := &corev1.Secret{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: perDeviceSecretV2, Namespace: testNS}, updatedNew)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: perDeviceSecretV2, Namespace: testNamespace}, updatedNew)).To(Succeed())
 			Expect(updatedNew.Finalizers).To(ContainElement(provisioningv1.BMCCredentialFinalizer))
 		})
 
@@ -1434,7 +1457,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			newSecret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      perDeviceSecretV2,
-					Namespace: testNS,
+					Namespace: testNamespace,
 				},
 				Data: map[string][]byte{"password": []byte(testPassword)},
 			}
@@ -1469,11 +1492,11 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			dpuDevice.Status.BMCCredentialSecretName = ptr.To(sharedSecretName)
 
 			sharedSecret := &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{Name: sharedSecretName, Namespace: testNS},
+				ObjectMeta: metav1.ObjectMeta{Name: sharedSecretName, Namespace: testNamespace},
 				Data:       map[string][]byte{"password": []byte(testPassword)},
 			}
 			perDeviceSecret := &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{Name: perDeviceSecretV1, Namespace: testNS},
+				ObjectMeta: metav1.ObjectMeta{Name: perDeviceSecretV1, Namespace: testNamespace},
 				Data:       map[string][]byte{"password": []byte(testPassword)},
 			}
 
@@ -1491,7 +1514,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			Expect(*dpuDevice.Status.BMCCredentialSecretName).To(Equal(perDeviceSecretV1))
 
 			updated := &corev1.Secret{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: perDeviceSecretV1, Namespace: testNS}, updated)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: perDeviceSecretV1, Namespace: testNamespace}, updated)).To(Succeed())
 			Expect(updated.Finalizers).To(ContainElement(provisioningv1.BMCCredentialFinalizer))
 		})
 	})
@@ -1602,7 +1625,6 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 
 	Context("credential finalizer management", func() {
 		const (
-			testNS            = "test-namespace"
 			perDeviceSecretV1 = "my-dpu-bmc-v1"
 			perDeviceSecretV2 = "my-dpu-bmc-v2"
 			sharedSecretName  = "bmc-shared-password"
@@ -1633,17 +1655,17 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			secret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      perDeviceSecretV1,
-					Namespace: testNS,
+					Namespace: testNamespace,
 				},
 				Data: map[string][]byte{"password": []byte("pass")},
 			}
 			Expect(fakeClient.Create(ctx, secret)).To(Succeed())
 
-			err := reconciler.ensureCredentialFinalizer(ctx, testNS, perDeviceSecretV1)
+			err := reconciler.ensureCredentialFinalizer(ctx, testNamespace, perDeviceSecretV1)
 			Expect(err).NotTo(HaveOccurred())
 
 			updated := &corev1.Secret{}
-			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: perDeviceSecretV1, Namespace: testNS}, updated)).To(Succeed())
+			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: perDeviceSecretV1, Namespace: testNamespace}, updated)).To(Succeed())
 			Expect(updated.Finalizers).To(ContainElement(provisioningv1.BMCCredentialFinalizer))
 		})
 
@@ -1651,17 +1673,17 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			secret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      perDeviceSecretV1,
-					Namespace: testNS,
+					Namespace: testNamespace,
 				},
 				Data: map[string][]byte{"password": []byte("pass")},
 			}
 			Expect(fakeClient.Create(ctx, secret)).To(Succeed())
 
-			err := reconciler.ensureCredentialFinalizer(ctx, testNS, perDeviceSecretV1)
+			err := reconciler.ensureCredentialFinalizer(ctx, testNamespace, perDeviceSecretV1)
 			Expect(err).NotTo(HaveOccurred())
 
 			updated := &corev1.Secret{}
-			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: perDeviceSecretV1, Namespace: testNS}, updated)).To(Succeed())
+			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: perDeviceSecretV1, Namespace: testNamespace}, updated)).To(Succeed())
 			Expect(updated.Immutable).NotTo(BeNil())
 			Expect(*updated.Immutable).To(BeTrue())
 		})
@@ -1670,18 +1692,18 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			secret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:       perDeviceSecretV1,
-					Namespace:  testNS,
+					Namespace:  testNamespace,
 					Finalizers: []string{provisioningv1.BMCCredentialFinalizer},
 				},
 				Data: map[string][]byte{"password": []byte("pass")},
 			}
 			Expect(fakeClient.Create(ctx, secret)).To(Succeed())
 
-			err := reconciler.ensureCredentialFinalizer(ctx, testNS, perDeviceSecretV1)
+			err := reconciler.ensureCredentialFinalizer(ctx, testNamespace, perDeviceSecretV1)
 			Expect(err).NotTo(HaveOccurred())
 
 			updated := &corev1.Secret{}
-			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: perDeviceSecretV1, Namespace: testNS}, updated)).To(Succeed())
+			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: perDeviceSecretV1, Namespace: testNamespace}, updated)).To(Succeed())
 			count := 0
 			for _, f := range updated.Finalizers {
 				if f == provisioningv1.BMCCredentialFinalizer {
@@ -1695,23 +1717,23 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			secret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:       perDeviceSecretV1,
-					Namespace:  testNS,
+					Namespace:  testNamespace,
 					Finalizers: []string{provisioningv1.BMCCredentialFinalizer},
 				},
 				Data: map[string][]byte{"password": []byte("pass")},
 			}
 			Expect(fakeClient.Create(ctx, secret)).To(Succeed())
 
-			err := reconciler.removeCredentialFinalizer(ctx, testNS, perDeviceSecretV1)
+			err := reconciler.removeCredentialFinalizer(ctx, testNamespace, perDeviceSecretV1)
 			Expect(err).NotTo(HaveOccurred())
 
 			updated := &corev1.Secret{}
-			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: perDeviceSecretV1, Namespace: testNS}, updated)).To(Succeed())
+			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: perDeviceSecretV1, Namespace: testNamespace}, updated)).To(Succeed())
 			Expect(updated.Finalizers).NotTo(ContainElement(provisioningv1.BMCCredentialFinalizer))
 		})
 
 		It("should not error when removing finalizer from nonexistent secret", func() {
-			err := reconciler.removeCredentialFinalizer(ctx, testNS, "nonexistent-secret")
+			err := reconciler.removeCredentialFinalizer(ctx, testNamespace, "nonexistent-secret")
 			Expect(err).NotTo(HaveOccurred())
 		})
 
@@ -1719,7 +1741,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			oldSecret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:       perDeviceSecretV1,
-					Namespace:  testNS,
+					Namespace:  testNamespace,
 					Finalizers: []string{provisioningv1.BMCCredentialFinalizer},
 				},
 				Data: map[string][]byte{"password": []byte("old-pass")},
@@ -1727,7 +1749,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			newSecret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      perDeviceSecretV2,
-					Namespace: testNS,
+					Namespace: testNamespace,
 				},
 				Data: map[string][]byte{"password": []byte("new-pass")},
 			}
@@ -1735,30 +1757,30 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			Expect(fakeClient.Create(ctx, newSecret)).To(Succeed())
 
 			dpuDevice := &provisioningv1.DPUDevice{
-				ObjectMeta: metav1.ObjectMeta{Namespace: testNS},
+				ObjectMeta: metav1.ObjectMeta{Namespace: testNamespace},
 			}
 
 			err := reconciler.moveCredentialFinalizer(ctx, dpuDevice, perDeviceSecretV1, perDeviceSecretV2)
 			Expect(err).NotTo(HaveOccurred())
 
 			updatedOld := &corev1.Secret{}
-			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: perDeviceSecretV1, Namespace: testNS}, updatedOld)).To(Succeed())
+			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: perDeviceSecretV1, Namespace: testNamespace}, updatedOld)).To(Succeed())
 			Expect(updatedOld.Finalizers).NotTo(ContainElement(provisioningv1.BMCCredentialFinalizer))
 
 			updatedNew := &corev1.Secret{}
-			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: perDeviceSecretV2, Namespace: testNS}, updatedNew)).To(Succeed())
+			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: perDeviceSecretV2, Namespace: testNamespace}, updatedNew)).To(Succeed())
 			Expect(updatedNew.Finalizers).To(ContainElement(provisioningv1.BMCCredentialFinalizer))
 		})
 
 		It("should skip finalizer operations for bmc-shared-password", func() {
 			dpuDevice := &provisioningv1.DPUDevice{
-				ObjectMeta: metav1.ObjectMeta{Namespace: testNS},
+				ObjectMeta: metav1.ObjectMeta{Namespace: testNamespace},
 			}
 
 			newSecret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      perDeviceSecretV1,
-					Namespace: testNS,
+					Namespace: testNamespace,
 				},
 				Data: map[string][]byte{"password": []byte("pass")},
 			}
@@ -1768,7 +1790,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			updatedNew := &corev1.Secret{}
-			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: perDeviceSecretV1, Namespace: testNS}, updatedNew)).To(Succeed())
+			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: perDeviceSecretV1, Namespace: testNamespace}, updatedNew)).To(Succeed())
 			Expect(updatedNew.Finalizers).To(ContainElement(provisioningv1.BMCCredentialFinalizer))
 		})
 
@@ -1776,7 +1798,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			secret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:       perDeviceSecretV1,
-					Namespace:  testNS,
+					Namespace:  testNamespace,
 					Finalizers: []string{provisioningv1.BMCCredentialFinalizer},
 				},
 				Data: map[string][]byte{"password": []byte("pass")},
@@ -1784,7 +1806,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			Expect(fakeClient.Create(ctx, secret)).To(Succeed())
 
 			dpuDevice := &provisioningv1.DPUDevice{
-				ObjectMeta: metav1.ObjectMeta{Namespace: testNS},
+				ObjectMeta: metav1.ObjectMeta{Namespace: testNamespace},
 				Status: provisioningv1.DPUDeviceStatus{
 					BMCCredentialSecretName: ptr.To(perDeviceSecretV1),
 				},
@@ -1794,13 +1816,13 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			updated := &corev1.Secret{}
-			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: perDeviceSecretV1, Namespace: testNS}, updated)).To(Succeed())
+			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: perDeviceSecretV1, Namespace: testNamespace}, updated)).To(Succeed())
 			Expect(updated.Finalizers).NotTo(ContainElement(provisioningv1.BMCCredentialFinalizer))
 		})
 
 		It("should not error on DPUDevice deletion with shared secret", func() {
 			dpuDevice := &provisioningv1.DPUDevice{
-				ObjectMeta: metav1.ObjectMeta{Namespace: testNS},
+				ObjectMeta: metav1.ObjectMeta{Namespace: testNamespace},
 				Status: provisioningv1.DPUDeviceStatus{
 					BMCCredentialSecretName: ptr.To(sharedSecretName),
 				},
@@ -1812,7 +1834,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 
 		It("should not error on DPUDevice deletion with nil status secret name", func() {
 			dpuDevice := &provisioningv1.DPUDevice{
-				ObjectMeta: metav1.ObjectMeta{Namespace: testNS},
+				ObjectMeta: metav1.ObjectMeta{Namespace: testNamespace},
 				Status:     provisioningv1.DPUDeviceStatus{},
 			}
 
@@ -1824,7 +1846,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			secret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:       perDeviceSecretV1,
-					Namespace:  testNS,
+					Namespace:  testNamespace,
 					Finalizers: []string{provisioningv1.BMCCredentialFinalizer},
 				},
 				Data: map[string][]byte{"password": []byte("pass")},
@@ -1834,13 +1856,13 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			Expect(fakeClient.Delete(ctx, secret)).To(Succeed())
 
 			deleting := &corev1.Secret{}
-			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: perDeviceSecretV1, Namespace: testNS}, deleting)).To(Succeed())
+			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: perDeviceSecretV1, Namespace: testNamespace}, deleting)).To(Succeed())
 			Expect(deleting.DeletionTimestamp.IsZero()).To(BeFalse(), "secret should have a deletion timestamp")
 			Expect(deleting.Finalizers).To(ContainElement(provisioningv1.BMCCredentialFinalizer),
 				"finalizer should still be present before cleanup")
 
 			dpuDevice := &provisioningv1.DPUDevice{
-				ObjectMeta: metav1.ObjectMeta{Namespace: testNS},
+				ObjectMeta: metav1.ObjectMeta{Namespace: testNamespace},
 				Status: provisioningv1.DPUDeviceStatus{
 					BMCCredentialSecretName: ptr.To(perDeviceSecretV1),
 				},
@@ -1850,7 +1872,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			finalSecret := &corev1.Secret{}
-			err = fakeClient.Get(ctx, types.NamespacedName{Name: perDeviceSecretV1, Namespace: testNS}, finalSecret)
+			err = fakeClient.Get(ctx, types.NamespacedName{Name: perDeviceSecretV1, Namespace: testNamespace}, finalSecret)
 			Expect(apierrors.IsNotFound(err)).To(BeTrue(),
 				"secret should be gone after finalizer removal since it was already marked for deletion")
 		})
@@ -1859,7 +1881,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			secret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:       perDeviceSecretV1,
-					Namespace:  testNS,
+					Namespace:  testNamespace,
 					Finalizers: []string{provisioningv1.BMCCredentialFinalizer},
 				},
 				Data: map[string][]byte{"password": []byte("pass")},
@@ -1868,7 +1890,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			dpuDevice := &provisioningv1.DPUDevice{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:       "test-dpudevice",
-					Namespace:  testNS,
+					Namespace:  testNamespace,
 					Finalizers: []string{provisioningv1.BMCCredentialFinalizer},
 				},
 				Status: provisioningv1.DPUDeviceStatus{
@@ -1893,23 +1915,454 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 
 			// Reconcile should clean up both finalizers
 			result, err := r.Reconcile(ctx, ctrl.Request{
-				NamespacedName: types.NamespacedName{Name: "test-dpudevice", Namespace: testNS},
+				NamespacedName: types.NamespacedName{Name: "test-dpudevice", Namespace: testNamespace},
 			})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(ctrl.Result{}))
 
 			// Secret should have its finalizer removed
 			updatedSecret := &corev1.Secret{}
-			Expect(cl.Get(ctx, types.NamespacedName{Name: perDeviceSecretV1, Namespace: testNS}, updatedSecret)).To(Succeed())
+			Expect(cl.Get(ctx, types.NamespacedName{Name: perDeviceSecretV1, Namespace: testNamespace}, updatedSecret)).To(Succeed())
 			Expect(updatedSecret.Finalizers).NotTo(ContainElement(provisioningv1.BMCCredentialFinalizer))
 
 			// DPUDevice should have its finalizer removed
 			updatedDevice := &provisioningv1.DPUDevice{}
-			err = cl.Get(ctx, types.NamespacedName{Name: "test-dpudevice", Namespace: testNS}, updatedDevice)
+			err = cl.Get(ctx, types.NamespacedName{Name: "test-dpudevice", Namespace: testNamespace}, updatedDevice)
 			if err == nil {
 				Expect(controllerutil.ContainsFinalizer(updatedDevice, provisioningv1.BMCCredentialFinalizer)).To(BeFalse(),
 					"BMCCredentialFinalizer should be removed from DPUDevice after deletion reconcile")
 			}
+		})
+	})
+
+	Context("certNotAfter", func() {
+		It("returns the NotAfter of a valid certificate", func() {
+			_, certPEM, _, _, _ := testutils.CreateMTLSCerts("127.0.0.1")
+
+			notAfter, err := certNotAfter(string(certPEM))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(notAfter.IsZero()).To(BeFalse())
+			Expect(notAfter.After(time.Now())).To(BeTrue())
+		})
+
+		It("fails when the input contains no PEM block", func() {
+			_, err := certNotAfter("not a pem")
+			Expect(err).To(MatchError(ContainSubstring("no PEM block")))
+		})
+
+		It("fails when the PEM block is not a parseable certificate", func() {
+			notACert := "-----BEGIN CERTIFICATE-----\naGVsbG8=\n-----END CERTIFICATE-----\n"
+			_, err := certNotAfter(notACert)
+			Expect(err).To(MatchError(ContainSubstring("failed to parse certificate")))
+		})
+	})
+
+	Context("requeueUntil", func() {
+		It("floors the requeue at minServerCertRequeue when the renew boundary is past", func() {
+			// Already expired: time until the renew boundary is negative.
+			Expect(requeueUntil(time.Now().Add(-time.Hour), defaultBMCServerCertRenewBefore)).To(Equal(minServerCertRequeue))
+		})
+
+		It("caps the requeue at maxServerCertRequeue for far-future certificates", func() {
+			Expect(requeueUntil(time.Now().Add(serverCertDuration), defaultBMCServerCertRenewBefore)).To(Equal(maxServerCertRequeue))
+		})
+
+		It("returns the time until the renew boundary when within bounds", func() {
+			// Renew boundary ~2h out (renewBefore zero): between min (1m) and max (24h).
+			got := requeueUntil(time.Now().Add(2*time.Hour), 0)
+			Expect(got).To(BeNumerically(">", minServerCertRequeue))
+			Expect(got).To(BeNumerically("<", maxServerCertRequeue))
+		})
+	})
+
+	Context("bmcServerCertRenewBefore", func() {
+		It("falls back to the default when config is nil", func() {
+			Expect(bmcServerCertRenewBefore(nil)).To(Equal(defaultBMCServerCertRenewBefore))
+		})
+
+		It("honors a configured value", func() {
+			cfg := &operatorv1.DPFOperatorConfig{
+				Spec: operatorv1.DPFOperatorConfigSpec{
+					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
+						BMCServerCertRenewBefore: &metav1.Duration{Duration: 100 * time.Hour},
+					},
+				},
+			}
+			Expect(bmcServerCertRenewBefore(cfg)).To(Equal(100 * time.Hour))
+		})
+
+		It("clamps a zero value to half the cert duration", func() {
+			cfg := &operatorv1.DPFOperatorConfig{
+				Spec: operatorv1.DPFOperatorConfigSpec{
+					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
+						BMCServerCertRenewBefore: &metav1.Duration{Duration: 0},
+					},
+				},
+			}
+			Expect(bmcServerCertRenewBefore(cfg)).To(Equal(serverCertDuration / 2))
+		})
+
+		It("clamps a value >= the cert duration to half the cert duration", func() {
+			cfg := &operatorv1.DPFOperatorConfig{
+				Spec: operatorv1.DPFOperatorConfigSpec{
+					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
+						BMCServerCertRenewBefore: &metav1.Duration{Duration: serverCertDuration + time.Hour},
+					},
+				},
+			}
+			Expect(bmcServerCertRenewBefore(cfg)).To(Equal(serverCertDuration / 2))
+		})
+	})
+
+	Context("installIssuedServerCert", func() {
+		var (
+			ctx       context.Context
+			dpuDevice *provisioningv1.DPUDevice
+		)
+
+		BeforeEach(func() {
+			ctx = context.Background()
+			dpuDevice = &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-dpudevice", Namespace: testNamespace},
+			}
+		})
+
+		It("errors when the CertificateRequest vanished mid-rotation", func() {
+			reconciler := &DPUDeviceReconciler{}
+			cr := newServerCertRequest(dpuDevice)
+
+			// mtlsClient is nil because it must not be used on this path.
+			result, err := reconciler.installIssuedServerCert(nil, cr, apierrors.NewNotFound(schema.GroupResource{}, cr.GetName()))
+			Expect(result).To(BeNil())
+			Expect(err).To(MatchError(ContainSubstring("not found during rotation")))
+		})
+
+		It("returns errCertRequestPending while the request is unsigned", func() {
+			reconciler := &DPUDeviceReconciler{}
+			cr := newServerCertRequest(dpuDevice)
+
+			result, err := reconciler.installIssuedServerCert(nil, cr, nil)
+			Expect(result).To(BeNil())
+			Expect(errors.Is(err, errCertRequestPending)).To(BeTrue())
+		})
+
+		setConditions := func(cr *unstructured.Unstructured, conds ...map[string]interface{}) {
+			slice := make([]interface{}, 0, len(conds))
+			for _, c := range conds {
+				slice = append(slice, c)
+			}
+			Expect(unstructured.SetNestedSlice(cr.Object, slice, "status", "conditions")).To(Succeed())
+		}
+
+		It("returns a terminal error when cert-manager denied the request", func() {
+			reconciler := &DPUDeviceReconciler{}
+			cr := newServerCertRequest(dpuDevice)
+			setConditions(cr, map[string]interface{}{"type": "Denied", "status": "True", "message": "not approved"})
+
+			result, err := reconciler.installIssuedServerCert(nil, cr, nil)
+			Expect(result).To(BeNil())
+			Expect(errors.Is(err, errCertRequestPending)).To(BeFalse())
+			Expect(err).To(MatchError(ContainSubstring("denied")))
+		})
+
+		It("returns a terminal error when the request is invalid", func() {
+			reconciler := &DPUDeviceReconciler{}
+			cr := newServerCertRequest(dpuDevice)
+			setConditions(cr, map[string]interface{}{"type": "InvalidRequest", "status": "True", "message": "bad CSR"})
+
+			result, err := reconciler.installIssuedServerCert(nil, cr, nil)
+			Expect(result).To(BeNil())
+			Expect(errors.Is(err, errCertRequestPending)).To(BeFalse())
+			Expect(err).To(MatchError(ContainSubstring("invalid")))
+		})
+
+		It("returns a terminal error when issuance failed", func() {
+			reconciler := &DPUDeviceReconciler{}
+			cr := newServerCertRequest(dpuDevice)
+			setConditions(cr, map[string]interface{}{"type": "Ready", "status": "False", "reason": "Failed", "message": "issuer error"})
+
+			result, err := reconciler.installIssuedServerCert(nil, cr, nil)
+			Expect(result).To(BeNil())
+			Expect(errors.Is(err, errCertRequestPending)).To(BeFalse())
+			Expect(err).To(MatchError(ContainSubstring("failed to issue")))
+		})
+
+		It("keeps waiting while Ready is False with a pending reason", func() {
+			reconciler := &DPUDeviceReconciler{}
+			cr := newServerCertRequest(dpuDevice)
+			setConditions(cr, map[string]interface{}{"type": "Ready", "status": "False", "reason": "Pending", "message": "waiting for approval"})
+
+			result, err := reconciler.installIssuedServerCert(nil, cr, nil)
+			Expect(result).To(BeNil())
+			Expect(errors.Is(err, errCertRequestPending)).To(BeTrue())
+		})
+
+		It("installs the issued certificate and returns its NotAfter", func() {
+			mockServer, reconciler := setupDiscoveryTest()
+			defer mockServer.Stop()
+
+			dpuDevice = createTestDPUDevice(mockServer, "test-dpudevice-install")
+			mtlsClient, err := rfclient.NewTLSClient(ctx, dpuDevice.BMCAddress(), dpuDevice.Namespace, reconciler.Client)
+			Expect(err).NotTo(HaveOccurred())
+
+			// A real, parseable certificate to stand in for the cert-manager-issued one.
+			_, issuedCrt, _, _, _ := testutils.CreateMTLSCerts(mockServer.GetIPAddress())
+			expectedNotAfter, err := certNotAfter(string(issuedCrt))
+			Expect(err).NotTo(HaveOccurred())
+
+			cr := newServerCertRequest(dpuDevice)
+			Expect(unstructured.SetNestedField(cr.Object, base64.StdEncoding.EncodeToString(issuedCrt), "status", "certificate")).To(Succeed())
+
+			result, err := reconciler.installIssuedServerCert(mtlsClient, cr, nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).NotTo(BeNil())
+			Expect(result.Time.Equal(expectedNotAfter)).To(BeTrue())
+		})
+	})
+
+	Context("rotateServerCert dispatch", func() {
+		var (
+			ctx       context.Context
+			dpuDevice *provisioningv1.DPUDevice
+		)
+
+		BeforeEach(func() {
+			ctx = context.Background()
+			dpuDevice = &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-dpudevice", Namespace: testNamespace, UID: types.UID("uid")},
+			}
+		})
+
+		newReconciler := func(objs ...client.Object) *DPUDeviceReconciler {
+			scheme := runtime.NewScheme()
+			Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
+			return &DPUDeviceReconciler{
+				Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build(),
+			}
+		}
+
+		It("errors when in-progress rotation finds no CertificateRequest", func() {
+			reconciler := newReconciler()
+
+			result, err := reconciler.rotateServerCert(ctx, dpuDevice, nil, true)
+			Expect(result).To(BeNil())
+			Expect(err).To(MatchError(ContainSubstring("not found during rotation")))
+		})
+
+		It("returns errCertRequestPending when the CertificateRequest exists but is unsigned", func() {
+			reconciler := newReconciler()
+			Expect(reconciler.createServerCertCR(ctx, dpuDevice, "dummy-csr")).To(Succeed())
+
+			result, err := reconciler.rotateServerCert(ctx, dpuDevice, nil, true)
+			Expect(result).To(BeNil())
+			Expect(errors.Is(err, errCertRequestPending)).To(BeTrue())
+		})
+	})
+
+	Context("backfillServerCertExpiry", func() {
+		var ctx context.Context
+
+		BeforeEach(func() {
+			ctx = context.Background()
+		})
+
+		It("records the served certificate's expiry and signals handled when outside the renew window", func() {
+			mockServer, reconciler := setupDiscoveryTest()
+			defer mockServer.Stop()
+
+			dpuDevice := createTestDPUDevice(mockServer, "test-dpudevice-backfill")
+			dpuDevice.Status.BMCServerCertificate = &provisioningv1.CertificateStatus{}
+			mtlsClient, err := rfclient.NewTLSClient(ctx, dpuDevice.BMCAddress(), dpuDevice.Namespace, reconciler.Client)
+			Expect(err).NotTo(HaveOccurred())
+
+			handled, result := reconciler.backfillServerCertExpiry(ctx, dpuDevice, mtlsClient, defaultBMCServerCertRenewBefore)
+			Expect(handled).To(BeTrue())
+			Expect(dpuDevice.Status.BMCServerCertificate.NotAfter).NotTo(BeNil())
+			Expect(result.RequeueAfter).To(BeNumerically(">", time.Duration(0)))
+			Expect(result.RequeueAfter).To(BeNumerically("<=", maxServerCertRequeue))
+			Expect(findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceBMCServerCertificateReady)).Status).To(Equal(metav1.ConditionTrue))
+		})
+
+		It("records the expiry but signals not-handled when the served cert is already in the renew window", func() {
+			mockServer, reconciler := setupDiscoveryTest()
+			defer mockServer.Stop()
+
+			dpuDevice := createTestDPUDevice(mockServer, "test-dpudevice-backfill-inwindow")
+			dpuDevice.Status.BMCServerCertificate = &provisioningv1.CertificateStatus{}
+			mtlsClient, err := rfclient.NewTLSClient(ctx, dpuDevice.BMCAddress(), dpuDevice.Namespace, reconciler.Client)
+			Expect(err).NotTo(HaveOccurred())
+
+			// renewBefore larger than the served cert's remaining lifetime => already in window.
+			handled, _ := reconciler.backfillServerCertExpiry(ctx, dpuDevice, mtlsClient, 100*365*24*time.Hour)
+			Expect(handled).To(BeFalse())
+			Expect(dpuDevice.Status.BMCServerCertificate.NotAfter).NotTo(BeNil())
+		})
+	})
+
+	Context("reconcileServerCertRotation", func() {
+		var ctx context.Context
+
+		BeforeEach(func() {
+			ctx = context.Background()
+		})
+
+		It("is a no-op (Ready) when the expiry is known and outside the renew window", func() {
+			scheme := runtime.NewScheme()
+			Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
+			reconciler := &DPUDeviceReconciler{Client: fake.NewClientBuilder().WithScheme(scheme).Build()}
+
+			dpuDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-dpudevice", Namespace: testNamespace},
+				Status: provisioningv1.DPUDeviceStatus{
+					BMCServerCertificate: &provisioningv1.CertificateStatus{
+						NotAfter: &metav1.Time{Time: time.Now().Add(200 * 24 * time.Hour)},
+					},
+				},
+			}
+
+			result, err := reconciler.reconcileServerCertRotation(ctx, dpuDevice, defaultBMCServerCertRenewBefore)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(BeNumerically(">", time.Duration(0)))
+			Expect(result.RequeueAfter).To(BeNumerically("<=", maxServerCertRequeue))
+			Expect(findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceBMCServerCertificateReady)).Status).To(Equal(metav1.ConditionTrue))
+		})
+
+		It("keeps an in-progress rotation active when expiry is outside the renew window", func() {
+			mockServer, reconciler := setupDiscoveryTest()
+			defer mockServer.Stop()
+
+			dpuDevice := createTestDPUDevice(mockServer, "test-dpudevice-rotation-in-progress")
+			dpuDevice.UID = types.UID("test-dpudevice-rotation-in-progress")
+			dpuDevice.Status.BMCServerCertificate = &provisioningv1.CertificateStatus{
+				NotAfter: &metav1.Time{Time: time.Now().Add(200 * 24 * time.Hour)},
+			}
+			dpuDevice.Status.Conditions = []metav1.Condition{
+				{
+					Type:   string(provisioningv1.ConditionDpuDeviceBMCServerCertificateReady),
+					Status: metav1.ConditionFalse,
+					Reason: provisioningv1.ReasonBMCServerCertificateRotating,
+				},
+			}
+			Expect(reconciler.createServerCertCR(ctx, dpuDevice, "dummy-csr")).To(Succeed())
+
+			result, err := reconciler.reconcileServerCertRotation(ctx, dpuDevice, defaultBMCServerCertRenewBefore)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(serverCertIssuanceRequeue))
+
+			cond := findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceBMCServerCertificateReady))
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+			Expect(cond.Reason).To(Equal(provisioningv1.ReasonBMCServerCertificateRotating))
+		})
+
+		It("backfills the expiry on cold start instead of rotating", func() {
+			mockServer, reconciler := setupDiscoveryTest()
+			defer mockServer.Stop()
+
+			dpuDevice := createTestDPUDevice(mockServer, "test-dpudevice-coldstart")
+
+			result, err := reconciler.reconcileServerCertRotation(ctx, dpuDevice, defaultBMCServerCertRenewBefore)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(dpuDevice.Status.BMCServerCertificate).NotTo(BeNil())
+			Expect(dpuDevice.Status.BMCServerCertificate.NotAfter).NotTo(BeNil())
+			Expect(result.RequeueAfter).To(BeNumerically(">", time.Duration(0)))
+			Expect(findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceBMCServerCertificateReady)).Status).To(Equal(metav1.ConditionTrue))
+		})
+
+		It("marks rotation failed and backs off when the mTLS client cannot be opened", func() {
+			scheme := runtime.NewScheme()
+			Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
+			Expect(corev1.AddToScheme(scheme)).To(Succeed())
+			// No TLS secrets => NewTLSClient fails.
+			reconciler := &DPUDeviceReconciler{Client: fake.NewClientBuilder().WithScheme(scheme).Build()}
+
+			bmcIP := "127.0.0.1"
+			bmcPort := uint32(1) // nothing is listening here
+			dpuDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-dpudevice-nofail", Namespace: testNamespace},
+				Status:     provisioningv1.DPUDeviceStatus{BMCIP: &bmcIP, BMCPort: &bmcPort},
+			}
+
+			result, err := reconciler.reconcileServerCertRotation(ctx, dpuDevice, defaultBMCServerCertRenewBefore)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(serverCertRotationBackoff))
+			cond := findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceBMCServerCertificateReady))
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+			Expect(cond.Reason).To(Equal(provisioningv1.ReasonBMCServerCertificateRotationFailed))
+		})
+	})
+
+	Context("setUpMTLS server-cert self-heal", func() {
+		var ctx context.Context
+
+		BeforeEach(func() {
+			ctx = context.Background()
+		})
+
+		// newIssuedServerCertCR pre-creates the fixed-name CertificateRequest carrying an already
+		// issued certificate, so setUpMTLS skips GenerateCSR and reaches the ReplaceServerCert step.
+		newIssuedServerCertCR := func(reconciler *DPUDeviceReconciler, dpuDevice *provisioningv1.DPUDevice, certPEM []byte) {
+			cr := &unstructured.Unstructured{}
+			cr.SetGroupVersionKind(crGVK())
+			cr.SetName(cutil.GenerateBMCServerCertRequestName(dpuDevice.Name))
+			cr.SetNamespace(dpuDevice.Namespace)
+			Expect(unstructured.SetNestedField(cr.Object,
+				base64.StdEncoding.EncodeToString(certPEM), "status", "certificate")).To(Succeed())
+			Expect(reconciler.Client.Create(ctx, cr)).To(Succeed())
+		}
+
+		serverCertCRExists := func(reconciler *DPUDeviceReconciler, dpuDevice *provisioningv1.DPUDevice) bool {
+			cr := &unstructured.Unstructured{}
+			cr.SetGroupVersionKind(crGVK())
+			err := reconciler.Client.Get(ctx, types.NamespacedName{
+				Name:      cutil.GenerateBMCServerCertRequestName(dpuDevice.Name),
+				Namespace: dpuDevice.Namespace,
+			}, cr)
+			if apierrors.IsNotFound(err) {
+				return false
+			}
+			Expect(err).NotTo(HaveOccurred())
+			return true
+		}
+
+		It("deletes the stale CertificateRequest when the BMC rejects the server certificate", func() {
+			mockServer, reconciler := setupDiscoveryTest()
+			defer mockServer.Stop()
+			// Emulate a BMC key mismatch: ReplaceCertificate returns 500.
+			mockServer.SetReplaceCertError(true)
+
+			dpuDevice := createTestDPUDevice(mockServer, "test-dpudevice-mtls-selfheal")
+			newIssuedServerCertCR(reconciler, dpuDevice, mockServer.GetServerCertPEM())
+
+			basicAuthClient, err := rfclient.NewBasicAuthClient(dpuDevice.BMCAddress(), "root", "testpassword")
+			Expect(err).NotTo(HaveOccurred())
+
+			_, err = reconciler.setUpMTLS(ctx, dpuDevice, basicAuthClient)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("replace server cert"))
+
+			// The stale CertificateRequest must be deleted so the next pass regenerates a fresh CSR
+			// against the BMC's current key instead of retrying the same orphaned certificate.
+			Expect(serverCertCRExists(reconciler, dpuDevice)).To(BeFalse())
+		})
+
+		It("keeps the CertificateRequest when the server certificate installs successfully", func() {
+			mockServer, reconciler := setupDiscoveryTest()
+			defer mockServer.Stop()
+
+			dpuDevice := createTestDPUDevice(mockServer, "test-dpudevice-mtls-success")
+			newIssuedServerCertCR(reconciler, dpuDevice, mockServer.GetServerCertPEM())
+
+			basicAuthClient, err := rfclient.NewBasicAuthClient(dpuDevice.BMCAddress(), "root", "testpassword")
+			Expect(err).NotTo(HaveOccurred())
+
+			needReset, err := reconciler.setUpMTLS(ctx, dpuDevice, basicAuthClient)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(needReset).To(BeFalse())
+
+			// A successful install must NOT delete the CertificateRequest.
+			Expect(serverCertCRExists(reconciler, dpuDevice)).To(BeTrue())
 		})
 	})
 })
@@ -1933,23 +2386,23 @@ func setupDiscoveryTest() (*mock.RedfishMockServer, *DPUDeviceReconciler) {
 	Expect(err).NotTo(HaveOccurred())
 
 	bmcIP := mockServer.GetIPAddress()
-	caCrt, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(bmcIP)
+	_, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(bmcIP)
 
 	caSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "dpf-provisioning-ca-secret",
-			Namespace: "test-namespace",
+			Namespace: testNamespace,
 		},
 		Type: corev1.SecretTypeTLS,
 		Data: map[string][]byte{
-			"tls.crt": caCrt,
+			"tls.crt": mockServer.GetServerCertPEM(),
 		},
 	}
 
 	clientSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "dpf-provisioning-redfish-client-secret",
-			Namespace: "test-namespace",
+			Namespace: testNamespace,
 		},
 		Type: corev1.SecretTypeTLS,
 		Data: map[string][]byte{
@@ -1961,7 +2414,7 @@ func setupDiscoveryTest() (*mock.RedfishMockServer, *DPUDeviceReconciler) {
 	clientSecretBF4 := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "dpf-provisioning-redfish-client-secret-bf4",
-			Namespace: "test-namespace",
+			Namespace: testNamespace,
 		},
 		Type: corev1.SecretTypeTLS,
 		Data: map[string][]byte{
@@ -1990,7 +2443,7 @@ func createTestDPUDevice(mockServer *mock.RedfishMockServer, name string) *provi
 	return &provisioningv1.DPUDevice{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
-			Namespace: "test-namespace",
+			Namespace: testNamespace,
 		},
 		Spec: provisioningv1.DPUDeviceSpec{
 			SerialNumber: mock.DpuSerialNumber,

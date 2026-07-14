@@ -787,6 +787,13 @@ func GenerateDPUName(dpuNodeName string, dpuDeviceName string) string {
 	return fmt.Sprintf("%s-%s", dpuNodeName, dpuDeviceName)
 }
 
+// GenerateBMCServerCertRequestName returns the fixed, deterministic name of the cert-manager
+// CertificateRequest used for a DPUDevice's BMC mTLS server certificate. Bootstrap, rotation, and
+// the DPU delete path all use this name so there is a single, consistent server-cert-CR lifecycle.
+func GenerateBMCServerCertRequestName(dpuDeviceName string) string {
+	return fmt.Sprintf("%s-server", dpuDeviceName)
+}
+
 func MarshalJSON(obj interface{}) (string, error) {
 	json, err := json.Marshal(obj)
 	if err != nil {

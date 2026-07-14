@@ -38,6 +38,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
+// managerIDPlaceholder is the token substituted with the resolved BMC manager ID in Manager-scoped
+// Redfish API paths.
+const managerIDPlaceholder = "{MANAGER_ID}"
+
 const (
 	APIChangePasswd                 = "redfish/v1/AccountService/Accounts/{USER}"
 	APICheckBMCFW                   = "redfish/v1/UpdateService/FirmwareInventory/{BMC_FW_ID}"
@@ -61,6 +65,7 @@ const (
 	APIBluefieldSettings            = "redfish/v1/Systems/{SYSTEM_ID}/Settings"
 	APIDisableHostRshim             = "redfish/v1/Systems/Bluefield/Oem/Nvidia/Actions/HostRshim.Set"
 	APIInstallCert                  = "redfish/v1/Managers/{MANAGER_ID}/Truststore/Certificates"
+	APIServerCert                   = "redfish/v1/Managers/{MANAGER_ID}/NetworkProtocol/HTTPS/Certificates/1"
 	APIReplaceCert                  = "redfish/v1/CertificateService/Actions/CertificateService.ReplaceCertificate"
 	APIUpdateBluefieldFWMultipart   = "redfish/v1/UpdateService/update-multipart"
 	APIActivatePendingBundle        = "redfish/v1/UpdateService/Actions/UpdateService.Activate"
@@ -91,7 +96,10 @@ const (
 	CASecret = "dpf-provisioning-ca-secret"
 	// Issuer is a cert-manager Issuer deployed by DPF
 	Issuer = "dpf-provisioning-issuer"
-	// ClientCertSecret is created by the cert-manager Certificate deployed by DPF,
+	// ClientCertSecret and ClientCertSecretBF4 are created by the cert-manager Certificates deployed
+	// by DPF and mounted into the provisioning controller at the client-cert directory (see
+	// DefaultClientCertDir and the --redfish-client-cert-dir flag). The controller reads the client
+	// key pair from those mounted files, not from the Kubernetes API.
 	ClientCertSecret    = "dpf-provisioning-redfish-client-secret"
 	ClientCertSecretBF4 = "dpf-provisioning-redfish-client-secret-bf4"
 )
@@ -358,7 +366,7 @@ func (c *Client) InstallCert(caCert string) (*resty.Response, *ExtendedInfo, err
 		return c.Client.R().
 			SetHeader("Content-Type", "application/json").
 			SetBody(caCertJSON).
-			Post(strings.Replace(APIInstallCert, "{MANAGER_ID}", *managerID, 1))
+			Post(strings.Replace(APIInstallCert, managerIDPlaceholder, *managerID, 1))
 	})
 }
 
@@ -394,6 +402,25 @@ func (c *Client) ReplaceServerCert(srvCert string) (*resty.Response, *ExtendedIn
 		},
 	}
 	return c.ReplaceCert(srvCertJSON)
+}
+
+// ServerCertInfo carries the certificate the BMC is currently serving for HTTPS.
+type ServerCertInfo struct {
+	// CertificateString is the PEM-encoded certificate the BMC serves on its HTTPS endpoint.
+	CertificateString string `json:"CertificateString,omitempty"`
+}
+
+// GetServerCert fetches the certificate the BMC is actually serving on its HTTPS endpoint.
+// It is used for cold-start backfill of the recorded expiry and to detect out-of-band
+// changes to the BMC server certificate.
+func (c *Client) GetServerCert() (*resty.Response, *ServerCertInfo, error) {
+	managerID, err := getBMCManagerID(c)
+	if err != nil {
+		return nil, nil, err
+	}
+	return do[ServerCertInfo](func() (*resty.Response, error) {
+		return c.Client.R().Get(strings.Replace(APIServerCert, managerIDPlaceholder, *managerID, 1))
+	})
 }
 
 // ReplaceCert replaces existing certificate. For more information, refer to
@@ -596,7 +623,7 @@ func (c *Client) FactoryResetBMC() (*resty.Response, *ExtendedInfo, error) {
 	return do[ExtendedInfo](func() (*resty.Response, error) {
 		return c.Client.R().
 			SetBody(reqBody).
-			Post(strings.Replace(APIFactoryResetBMC, "{MANAGER_ID}", *managerID, 1))
+			Post(strings.Replace(APIFactoryResetBMC, managerIDPlaceholder, *managerID, 1))
 	})
 }
 
@@ -611,7 +638,7 @@ func (c *Client) ResetBMC() (*resty.Response, *ExtendedInfo, error) {
 	return do[ExtendedInfo](func() (*resty.Response, error) {
 		return c.Client.R().
 			SetBody(reqBody).
-			Post(strings.Replace(APIResetBMC, "{MANAGER_ID}", *managerID, 1))
+			Post(strings.Replace(APIResetBMC, managerIDPlaceholder, *managerID, 1))
 	})
 }
 
@@ -839,7 +866,11 @@ func NewRawClient(bmcAddress string) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Client{Client: resty.New().SetBaseURL(u.String()).SetTLSClientConfig(newRedfishTLSConfig(nil, nil))}, nil
+	tlsCfg, err := newRedfishTLSConfig(nil, nil, true, "")
+	if err != nil {
+		return nil, err
+	}
+	return &Client{Client: resty.New().SetBaseURL(u.String()).SetTLSClientConfig(tlsCfg)}, nil
 }
 
 // GetRootService returns the root service of the BMC
@@ -1022,8 +1053,12 @@ func NewBasicAuthClient(bmcAddress, user, passwd string) (*Client, error) {
 		return nil, err
 	}
 
+	tlsCfg, err := newRedfishTLSConfig(nil, nil, true, "")
+	if err != nil {
+		return nil, err
+	}
 	c := resty.New().
-		SetTLSClientConfig(newRedfishTLSConfig(nil, nil)).
+		SetTLSClientConfig(tlsCfg).
 		SetBaseURL(bmcAddress).
 		SetBasicAuth(user, passwd)
 
@@ -1046,13 +1081,19 @@ func tlsClientError(bmcAddress string, err error) error {
 	return fmt.Errorf("failed to create TLS client for %s: %w", bmcAddress, err)
 }
 
-// NewTLSClient returns a Client using mTLS
+// NewTLSClient returns a Client using verified mTLS. The BMC server certificate is verified
+// against the DPF CA (CA-pinned chain + IP-or-CN identity pinning); client-side auth is provided by
+// the Redfish client key pair sourced via CertSource (Kubernetes API or mounted files).
 func NewTLSClient(ctx context.Context, bmcAddress string, namespace string, k8sClient client.Client) (*Client, error) {
 	if !strings.HasPrefix(bmcAddress, httpsPrefix) {
 		bmcAddress = httpsPrefix + bmcAddress
 	}
 
-	clientCertSecret := ClientCertSecret
+	bmcURL, err := url.Parse(bmcAddress)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse BMC address %q: %w", bmcAddress, err)
+	}
+	serverName := bmcURL.Hostname()
 
 	rawClient, err := NewRawClient(bmcAddress)
 	if err != nil {
@@ -1065,30 +1106,14 @@ func NewTLSClient(ctx context.Context, bmcAddress string, namespace string, k8sC
 	}
 	if rootServiceInfo != nil && rootServiceInfo.IsBF4() {
 		rawClient.IsBF4 = true
-		clientCertSecret = ClientCertSecretBF4
 	}
 
-	caSecret := &corev1.Secret{}
-	if err := k8sClient.Get(ctx, types.NamespacedName{Name: CASecret, Namespace: namespace}, caSecret); err != nil {
+	certSource := newCertSource(k8sClient, namespace)
+	caCert, err := certSource.CACert(ctx)
+	if err != nil {
 		return nil, tlsClientError(bmcAddress, err)
 	}
-	caCert, ok := caSecret.Data["tls.crt"]
-	if !ok {
-		return nil, tlsClientError(bmcAddress, fmt.Errorf("no CA crt in CA secret"))
-	}
-	clientSecret := &corev1.Secret{}
-	if err := k8sClient.Get(ctx, types.NamespacedName{Name: clientCertSecret, Namespace: namespace}, clientSecret); err != nil {
-		return nil, tlsClientError(bmcAddress, err)
-	}
-	clientCert, ok := clientSecret.Data["tls.crt"]
-	if !ok {
-		return nil, tlsClientError(bmcAddress, fmt.Errorf("no client crt in client secret"))
-	}
-	clientKey, ok := clientSecret.Data["tls.key"]
-	if !ok {
-		return nil, tlsClientError(bmcAddress, fmt.Errorf("no client key in client secret"))
-	}
-	clientKeyPair, err := tls.X509KeyPair(clientCert, clientKey)
+	clientKeyPair, err := certSource.ClientKeyPair(ctx, rawClient.IsBF4)
 	if err != nil {
 		return nil, tlsClientError(bmcAddress, err)
 	}
@@ -1096,7 +1121,11 @@ func NewTLSClient(ctx context.Context, bmcAddress string, namespace string, k8sC
 	if !certPool.AppendCertsFromPEM(caCert) {
 		return nil, tlsClientError(bmcAddress, fmt.Errorf("failed to load CA certs"))
 	}
-	c := resty.New().SetBaseURL(bmcAddress).SetTLSClientConfig(newRedfishTLSConfig(certPool, []tls.Certificate{clientKeyPair}))
+	tlsCfg, err := newRedfishTLSConfig(certPool, []tls.Certificate{clientKeyPair}, false, serverName)
+	if err != nil {
+		return nil, tlsClientError(bmcAddress, err)
+	}
+	c := resty.New().SetBaseURL(bmcAddress).SetTLSClientConfig(tlsCfg)
 
 	tlsClient := &Client{Client: c, IsBF4: rawClient.IsBF4}
 
@@ -1106,7 +1135,7 @@ func NewTLSClient(ctx context.Context, bmcAddress string, namespace string, k8sC
 	// We will optimize it after redfish is stable.
 	resp, _, err := tlsClient.GetManagers()
 	if err != nil {
-		return nil, tlsClientError(bmcAddress, fmt.Errorf("verify mtls client failed, err: %v", err))
+		return nil, tlsClientError(bmcAddress, fmt.Errorf("verify mtls client failed, err: %w", err))
 	}
 
 	if resp != nil && resp.StatusCode() != http.StatusOK {
@@ -1297,7 +1326,7 @@ func insertVirtualMedia(c *Client, reqBody map[string]interface{}, mediaID strin
 		"Content-Type": "application/json",
 	}
 
-	ejectVirtualMediaURL := strings.Replace(APIEjectVirtualMedia, "{MANAGER_ID}", *managerID, 1)
+	ejectVirtualMediaURL := strings.Replace(APIEjectVirtualMedia, managerIDPlaceholder, *managerID, 1)
 	ejectVirtualMediaURL = strings.Replace(ejectVirtualMediaURL, "{MEDIA_ID}", mediaID, 1)
 	resp, err := c.Client.R().
 		SetHeaders(headers).
@@ -1309,7 +1338,7 @@ func insertVirtualMedia(c *Client, reqBody map[string]interface{}, mediaID strin
 		return nil, fmt.Errorf("failed to eject virtual media config: %s", resp.Status())
 	}
 
-	virtualMediaURL := strings.Replace(APIInsertVirtualMedia, "{MANAGER_ID}", *managerID, 1)
+	virtualMediaURL := strings.Replace(APIInsertVirtualMedia, managerIDPlaceholder, *managerID, 1)
 	virtualMediaURL = strings.Replace(virtualMediaURL, "{MEDIA_ID}", mediaID, 1)
 
 	resp, err = c.Client.R().

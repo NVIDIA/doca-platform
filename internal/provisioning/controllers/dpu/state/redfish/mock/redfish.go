@@ -18,6 +18,7 @@ package mock
 
 import (
 	"encoding/json"
+	"encoding/pem"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -69,6 +70,7 @@ type RedfishMockServer struct {
 	taskHTTPBody                  string                   // Override raw body when taskHTTPStatus != 0
 	selEntries                    []client.SELEntry        // System Event Log entries returned by GET SEL/Entries
 	hostPrivilegeError            bool                     // Simulate HostPrivilegeConfig endpoint error for testing
+	replaceCertError              bool                     // Simulate CertificateService.ReplaceCertificate returning 500 (BMC key mismatch)
 	hostPrivilegeMode             string                   // Current host privilege mode: "Privileged" or "Restricted"
 	bootSourceOverrideTarget      string                   // BootSourceOverrideTarget returned by GET Settings
 	bootSourceOverrideEnabled     string                   // BootSourceOverrideEnabled returned by GET Settings
@@ -129,6 +131,12 @@ func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 	// ResetBMC
 	mux.HandleFunc("/redfish/v1/Managers/{manager_id}/Actions/Manager.Reset", mock.handleResetBMC)
 
+	// Server certificate management (mTLS server cert rotation)
+	mux.HandleFunc("/redfish/v1/Managers/Bluefield_BMC/NetworkProtocol/HTTPS/Certificates/1", mock.handleGetServerCert)
+	mux.HandleFunc("/redfish/v1/Managers/Bluefield_BMC/Truststore/Certificates", mock.handleInstallTruststoreCert)
+	mux.HandleFunc("/"+client.APIReplaceCert, mock.handleReplaceCert)
+	mux.HandleFunc("/"+client.APIEnableMTLS, mock.handleEnableMTLS)
+
 	// NetworkDeviceFunctions
 	mux.HandleFunc("/redfish/v1/Chassis/Card1/NetworkAdapters/NvidiaNetworkAdapter/NetworkDeviceFunctions/eth0f0", mock.handleGetNetworkDeviceFunction)
 	mux.HandleFunc("/redfish/v1/Chassis/BlueField_0/NetworkAdapters/BlueField_NIC_0/NetworkDeviceFunctions/0", mock.handleGetNetworkDeviceFunctionBF4)
@@ -187,6 +195,20 @@ func (r *RedfishMockServer) GetIPAddress() string {
 		return tcpAddr.IP.String()
 	}
 	return ""
+}
+
+// GetServerCertPEM returns the PEM-encoded leaf certificate the mock TLS server is serving.
+// Tests use it as the trust anchor (it carries the 127.0.0.1 IP SAN) so the verified mTLS client
+// can validate the mock without InsecureSkipVerify. Returns nil before the server is started.
+func (r *RedfishMockServer) GetServerCertPEM() []byte {
+	if r.server == nil {
+		return nil
+	}
+	cert := r.server.Certificate()
+	if cert == nil {
+		return nil
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw})
 }
 
 // GetPort returns the port of the mock server
@@ -587,6 +609,62 @@ func (r *RedfishMockServer) handleGetManagers(w http.ResponseWriter, req *http.R
 	writeJSONResponse(w, response)
 }
 
+// handleGetServerCert returns the certificate the mock BMC is "serving" on its HTTPS endpoint.
+// It echoes the mock TLS server's own leaf certificate so cold-start expiry backfill in rotation
+// tests parses a real, far-future NotAfter.
+func (r *RedfishMockServer) handleGetServerCert(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	writeJSONResponse(w, map[string]interface{}{
+		"@odata.id":         "/redfish/v1/Managers/Bluefield_BMC/NetworkProtocol/HTTPS/Certificates/1",
+		"CertificateString": string(r.GetServerCertPEM()),
+		"CertificateType":   "PEM",
+	})
+}
+
+// handleInstallTruststoreCert acknowledges a CA truststore certificate install (setUpMTLS step 1).
+func (r *RedfishMockServer) handleInstallTruststoreCert(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	writeJSONResponse(w, map[string]interface{}{})
+}
+
+// handleEnableMTLS acknowledges enabling mTLS on the BMC (setUpMTLS step 3).
+func (r *RedfishMockServer) handleEnableMTLS(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPatch {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	writeJSONResponse(w, map[string]interface{}{})
+}
+
+// handleReplaceCert acknowledges a server-certificate replacement request used by rotation tests.
+// When replaceCertError is set it returns 500 to emulate a BMC rejecting the certificate (e.g. the
+// issued cert no longer matches the BMC's current key pair).
+func (r *RedfishMockServer) handleReplaceCert(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if r.replaceCertError {
+		// Mirror a real BMC: a JSON error body with a 500 status (e.g. issued cert/key mismatch).
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": map[string]interface{}{
+				"code":    "Base.1.18.1.InternalError",
+				"message": "The request failed due to an internal service error.",
+			},
+		})
+		return
+	}
+	writeJSONResponse(w, map[string]interface{}{})
+}
+
 func (r *RedfishMockServer) handleResetBMC(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -772,6 +850,12 @@ func (r *RedfishMockServer) SetSystemError(simulateError bool) {
 // SetResetSystemError enables or disables ResetSystem endpoint error simulation for testing
 func (r *RedfishMockServer) SetResetSystemError(simulateError bool) {
 	r.resetSystemError = simulateError
+}
+
+// SetReplaceCertError enables or disables CertificateService.ReplaceCertificate error simulation,
+// emulating a BMC that rejects the issued server certificate (e.g. key mismatch after a reboot).
+func (r *RedfishMockServer) SetReplaceCertError(simulateError bool) {
+	r.replaceCertError = simulateError
 }
 
 // SetProductDescriptionError enables or disables GetProductDescription endpoint error simulation.

@@ -43,7 +43,7 @@ var _ = Describe("ConfigFWParameters", func() {
 		return server
 	}
 
-	createBMCAndMTLSSecretsForBF4 := func(mockServerIP string) {
+	createBMCAndMTLSSecretsForBF4 := func(mockServer *redfishmock.RedfishMockServer) {
 		By("create BMC credentials secret")
 		bmcSecret := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
@@ -57,7 +57,9 @@ var _ = Describe("ConfigFWParameters", func() {
 		Expect(k8sClient.Create(ctx, bmcSecret)).To(Succeed())
 
 		By("create CA and client certificate secrets for mTLS")
-		caCrt, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(mockServerIP)
+		// The verified mTLS client validates the server cert, so the CA secret must trust the
+		// cert the mock server actually serves (its httptest leaf, which carries the 127.0.0.1 SAN).
+		_, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(mockServer.GetIPAddress())
 
 		caSecret := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
@@ -65,7 +67,7 @@ var _ = Describe("ConfigFWParameters", func() {
 				Namespace: testNS.Name,
 			},
 			Data: map[string][]byte{
-				"tls.crt": caCrt,
+				"tls.crt": mockServer.GetServerCertPEM(),
 			},
 		}
 		Expect(k8sClient.Create(ctx, caSecret)).To(Succeed())
@@ -123,7 +125,7 @@ var _ = Describe("ConfigFWParameters", func() {
 		mockServer := createBF4MockRedfishServer()
 		defer mockServer.Stop()
 
-		createBMCAndMTLSSecretsForBF4(mockServer.GetIPAddress())
+		createBMCAndMTLSSecretsForBF4(mockServer)
 
 		dpuDevice := prepareBF4DPUDevice(mockServer)
 
@@ -148,7 +150,7 @@ var _ = Describe("ConfigFWParameters", func() {
 		defer mockServer.Stop()
 		mockServer.SetHostPrivilegeError(true)
 
-		createBMCAndMTLSSecretsForBF4(mockServer.GetIPAddress())
+		createBMCAndMTLSSecretsForBF4(mockServer)
 
 		dpuDevice := prepareBF4DPUDevice(mockServer)
 

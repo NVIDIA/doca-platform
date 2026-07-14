@@ -56,14 +56,15 @@ var _ = Describe("PerformArmForceRestart", func() {
 		}
 		Expect(k8sClient.Create(ctx, bmcSecret)).To(Succeed())
 
-		// Create mTLS certificate secrets
-		caCrt, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(mockServer.GetIPAddress())
+		// Create mTLS certificate secrets. The verified mTLS client validates the served cert, so
+		// the CA secret must trust the cert the mock actually serves (its httptest leaf with IP SAN).
+		_, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(mockServer.GetIPAddress())
 		caSecret := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "dpf-provisioning-ca-secret",
 				Namespace: testNS.Name,
 			},
-			Data: map[string][]byte{"tls.crt": caCrt},
+			Data: map[string][]byte{"tls.crt": mockServer.GetServerCertPEM()},
 		}
 		Expect(k8sClient.Create(ctx, caSecret)).To(Succeed())
 
