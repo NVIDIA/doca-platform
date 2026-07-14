@@ -175,6 +175,26 @@ func (d *DPUAgent) Run(ctx context.Context) error {
 		return fmt.Errorf("failed to write done marker: %w", err)
 	}
 	d.updateStatusUntilSuccess(ctx)
+	d.logNICProvisioningRetainedResources()
+	return nil
+}
+
+func (d *DPUAgent) logNICProvisioningRetainedResources() {
+	for _, op := range d.operations {
+		if nicProvisioning, ok := op.(*nicprovisioning.NICProvisioning); ok {
+			nicProvisioning.LogRetainedResources()
+			return
+		}
+	}
+}
+
+// Shutdown releases resources that remain available after provisioning completes.
+func (d *DPUAgent) Shutdown() error {
+	for _, op := range d.operations {
+		if nicProvisioning, ok := op.(*nicprovisioning.NICProvisioning); ok {
+			return nicProvisioning.Shutdown()
+		}
+	}
 	return nil
 }
 
