@@ -297,6 +297,8 @@ spec:
 
 * `spec.provisioningController.nodeEffectRemovalTimeout`: Maximum time allowed for the Node Effect Removal phase. If the `DPUNodeMaintenance` CR still has requestors after this timeout, the DPU transitions to Error state, which is terminal and requires reprovisioning (deleting and recreating the DPU). The default is `0s`, which disables the timeout entirely (no time limit is enforced). To enable, set to a non-zero duration (e.g. `30m`). Value must be in units accepted by Go `time.ParseDuration` (e.g. `30m`, `1h`, `45m30s`).
 
+* `spec.provisioningController.bmcServerCertRenewBefore`: How long before expiry the provisioning controller automatically rotates the DPU BMC mTLS server certificate (Zero Trust / Redfish only). The certificate is issued for 365 days, and the default renewal window is `720h` (30 days), so each DPU's certificate is renewed about a month before it expires. Value must be in units accepted by Go `time.ParseDuration` (e.g. `720h`, `30m`). If set to `0s` or to a value greater than or equal to the certificate validity period, the controller falls back to renewing at half the certificate lifetime. See [BMC mTLS Server Certificate Rotation](../../advanced-configuration/zero-trust-advanced-configuration.md#bmc-mtls-server-certificate-rotation) for the full rotation flow and the manual-rotation trigger.
+
 * `spec.provisioningController.installInterface`: Method for installing DPU firmware. Choose one:
     * `installViaHostAgent`: Install via host agent
     * `installViaGNOI`: Install via gNOI protocol
@@ -315,6 +317,7 @@ spec:
     replicas: 2
     multiDPUOperationsSyncWaitTime: 30s
     nodeEffectRemovalTimeout: 0s  # Disabled by default. Set to e.g. "30m" to enforce a timeout.
+    bmcServerCertRenewBefore: 720h  # Rotate the BMC mTLS server cert 30 days before expiry (Zero Trust).
     customCASecretName: my-ca-secret
     installInterface:
       installViaRedfish:

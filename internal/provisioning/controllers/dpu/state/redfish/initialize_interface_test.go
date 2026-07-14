@@ -64,7 +64,7 @@ var _ = Describe("InitializeInterface", func() {
 	}
 
 	// Helper function to create BMC and mTLS certificate secrets
-	createBMCAndMTLSSecrets := func(mockServerIP string) {
+	createBMCAndMTLSSecrets := func(mockServer *redfishmock.RedfishMockServer) {
 		By("create BMC credentials secret")
 		bmcSecret := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
@@ -78,8 +78,9 @@ var _ = Describe("InitializeInterface", func() {
 		Expect(k8sClient.Create(ctx, bmcSecret)).To(Succeed())
 
 		By("Create CA and client certificate secrets for mTLS")
-		// Generate mTLS certificates for testing
-		caCrt, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(mockServerIP)
+		// The verified mTLS client validates the server cert, so the CA secret must trust the
+		// cert the mock server actually serves (its httptest leaf, which carries the 127.0.0.1 SAN).
+		_, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(mockServer.GetIPAddress())
 
 		// Create CA certificate secret
 		caSecret := &corev1.Secret{
@@ -88,7 +89,7 @@ var _ = Describe("InitializeInterface", func() {
 				Namespace: testNS.Name,
 			},
 			Data: map[string][]byte{
-				"tls.crt": caCrt,
+				"tls.crt": mockServer.GetServerCertPEM(),
 			},
 		}
 		Expect(k8sClient.Create(ctx, caSecret)).To(Succeed())
@@ -153,7 +154,7 @@ var _ = Describe("InitializeInterface", func() {
 		Expect(err).NotTo(HaveOccurred())
 		defer mockServer.Stop()
 
-		createBMCAndMTLSSecrets(mockServer.GetIPAddress())
+		createBMCAndMTLSSecrets(mockServer)
 
 		prepareDPUFlavor()
 
@@ -280,7 +281,7 @@ var _ = Describe("InitializeInterface", func() {
 		Expect(err).NotTo(HaveOccurred())
 		defer mockServer.Stop()
 
-		createBMCAndMTLSSecrets(mockServer.GetIPAddress())
+		createBMCAndMTLSSecrets(mockServer)
 
 		By("prepare DPUDevice CR with Unknown DPU type")
 		dpuDevice := dpuDeviceObj(defaultDPUDeviceName)
@@ -340,7 +341,7 @@ var _ = Describe("InitializeInterface", func() {
 		Expect(err).NotTo(HaveOccurred())
 		defer mockServer.Stop()
 
-		createBMCAndMTLSSecrets(mockServer.GetIPAddress())
+		createBMCAndMTLSSecrets(mockServer)
 
 		prepareDPUFlavor()
 
@@ -414,7 +415,7 @@ var _ = Describe("InitializeInterface", func() {
 			Expect(err).NotTo(HaveOccurred())
 			mockServer.SetNicMode("DpuMode")
 
-			createBMCAndMTLSSecrets(mockServer.GetIPAddress())
+			createBMCAndMTLSSecrets(mockServer)
 			prepareDPUFlavor()
 
 			dpuDevice = dpuDeviceObj(defaultDPUDeviceName)
@@ -816,7 +817,7 @@ var _ = Describe("InitializeInterface", func() {
 			Expect(err).NotTo(HaveOccurred())
 			mockServer.SetNicMode("DpuMode")
 
-			createBMCAndMTLSSecrets(mockServer.GetIPAddress())
+			createBMCAndMTLSSecrets(mockServer)
 			prepareDPUFlavor()
 
 			dpuDevice = dpuDeviceObj(defaultDPUDeviceName)

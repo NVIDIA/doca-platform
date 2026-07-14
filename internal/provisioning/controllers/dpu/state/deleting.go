@@ -75,13 +75,16 @@ func Deleting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Contr
 	certificate.SetName(cutil.GenerateDMSServerCertName(dpu.Name))
 	certificate.SetNamespace(dpu.Namespace)
 
+	// The BMC server-cert CertificateRequest is owned by the DPUDevice and named after it
+	// (<dpuDeviceName>-server); owner-ref GC covers cleanup when the DPUDevice is deleted, and this
+	// explicit delete remains as a best-effort fast path during DPU teardown.
 	certificateRequest := &unstructured.Unstructured{}
 	certificateRequest.SetGroupVersionKind(schema.GroupVersionKind{
 		Group:   "cert-manager.io",
 		Version: "v1",
 		Kind:    "CertificateRequest",
 	})
-	certificateRequest.SetName(dpu.Name)
+	certificateRequest.SetName(cutil.GenerateBMCServerCertRequestName(dpu.Spec.DPUDeviceName))
 	certificateRequest.SetNamespace(dpu.Namespace)
 
 	// Template-mode DPUs own a generated DPUFlavor named after the DPU. Release its

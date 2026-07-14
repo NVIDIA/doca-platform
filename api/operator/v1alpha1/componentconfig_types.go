@@ -142,6 +142,15 @@ type ProvisioningControllerConfiguration struct {
 	// +kubebuilder:validation:Enum=ClusterFirstWithHostNet;ClusterFirst;Default;None
 	// +optional
 	HostAgentDNSPolicy *corev1.DNSPolicy `json:"hostAgentDNSPolicy,omitempty"`
+
+	// BMCServerCertRenewBefore is how long before expiry DPF rotates the DPU BMC mTLS
+	// server certificate.
+	// When unset, the provisioning controller defaults to 720h (30 days).
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Pattern=`^([0-9]+(h|m|s|ms|us|µs|ns))+$`
+	// +kubebuilder:validation:Format=duration
+	// +optional
+	BMCServerCertRenewBefore *metav1.Duration `json:"bmcServerCertRenewBefore,omitempty"`
 }
 
 func (c *ProvisioningControllerConfiguration) Name() string {
