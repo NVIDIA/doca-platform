@@ -194,4 +194,10 @@ const (
 	// DPUClusterNamespaceLabelKey is the key of the label linking objects to a specific DPU Cluster. The value should
 	// be the namespace of the DPUCluster.
 	DPUClusterNamespaceLabelKey = "dpu.nvidia.com/cluster-namespace"
+	// DPUClusterEtcdEncryptionProviderLabelKey is the key of the label recording the etcd encryption provider used by
+	// the DPUCluster.
+	DPUClusterEtcdEncryptionProviderLabelKey = "provisioning.dpu.nvidia.com/etcd-encryption-provider"
+	// DPUClusterEtcdEncryptionConfigSecretAnnotationKey is the key of the annotation recording the name of the Secret
+	// containing the etcd encryption configuration used by the DPUCluster.
+	DPUClusterEtcdEncryptionConfigSecretAnnotationKey = "provisioning.dpu.nvidia.com/etcd-encryption-config-secret"
 )
