@@ -436,6 +436,12 @@ type KamajiClusterManagerConfiguration struct {
 	// It contains the image for the controller and its resource requirements.
 	// +optional
 	Controller *DefaultOverridesConfiguration `json:"controller,omitempty"`
+
+	// EtcdEncryptionAtRest configures encryption at rest for the etcd datastore of
+	// Kamaji-managed DPU clusters. The configuration is applied only when a Kamaji
+	// cluster is first created and is not changed for existing clusters.
+	// +optional
+	EtcdEncryptionAtRest *EtcdEncryptionAtRestConfiguration `json:"etcdEncryptionAtRest,omitempty"`
 }
 
 func (c *KamajiClusterManagerConfiguration) Name() string {
@@ -1176,6 +1182,44 @@ type ConfigMapKeyRef struct {
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	Key string `json:"key,omitempty"`
+}
+
+// EtcdEncryptionAtRestProvider selects the etcd encryption-at-rest provider.
+// +kubebuilder:validation:Enum=staticKey;vaultKMS
+type EtcdEncryptionAtRestProvider string
+
+const (
+	// EtcdEncryptionProviderStaticKey encrypts etcd data with an AES-GCM key rendered inline into the encryption config.
+	EtcdEncryptionProviderStaticKey EtcdEncryptionAtRestProvider = "staticKey"
+	// EtcdEncryptionProviderVaultKMS encrypts etcd data via the KMS v2 plugin served by the vaultKMS component.
+	EtcdEncryptionProviderVaultKMS EtcdEncryptionAtRestProvider = "vaultKMS"
+)
+
+// EtcdEncryptionAtRestConfiguration is the per-cluster encryption-at-rest selector for Kamaji clusters.
+// +kubebuilder:validation:XValidation:rule="self.provider != 'staticKey' || has(self.staticKey)",message="staticKey is required when provider is staticKey"
+// +kubebuilder:validation:XValidation:rule="self.provider != 'vaultKMS' || !has(self.staticKey)",message="staticKey must not be set when provider is vaultKMS"
+type EtcdEncryptionAtRestConfiguration struct {
+	// Provider selects the encryption-at-rest provider.
+	// +required
+	Provider EtcdEncryptionAtRestProvider `json:"provider,omitempty"`
+
+	// StaticKey configures the staticKey provider. It is required when provider is staticKey and
+	// must not be set otherwise.
+	// +optional
+	StaticKey *StaticKeyConfiguration `json:"staticKey,omitempty"`
+}
+
+// StaticKeyConfiguration configures the staticKey encryption-at-rest provider.
+type StaticKeyConfiguration struct {
+	// KeySecretRef selects the AES-GCM key from a Secret in the DPFOperatorConfig namespace.
+	// The referenced Secret value must be base64-encoded AES key text whose decoded length is 16,
+	// 24, or 32 bytes. For Kubernetes manifests, use stringData.key with the output of
+	// `openssl rand -base64 32`. For External Secrets, configure the external value or template so
+	// the resulting Kubernetes Secret data decodes to that base64 text, not to raw key bytes.
+	// The key value is read once and rendered into the per-cluster encryption configuration
+	// at cluster creation time, so it cannot be rotated afterwards.
+	// +required
+	KeySecretRef SecretKeyRef `json:"keySecretRef,omitzero"`
 }
 
 // VaultKMSAuthMethod selects the Vault/OpenBao auth method used by the KMS plugin.

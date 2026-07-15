@@ -428,6 +428,78 @@ var _ = Describe("Operator API Validation", func() {
 			)
 		})
 
+		Context("Validate etcd encryption at rest", func() {
+			It("accepts provider staticKey with a staticKey ref", func() {
+				config := getMinimalDPFOperatorConfig(testNs.Name)
+				config.Spec.KamajiClusterManager = &operatorv1.KamajiClusterManagerConfiguration{
+					EtcdEncryptionAtRest: &operatorv1.EtcdEncryptionAtRestConfiguration{
+						Provider:  operatorv1.EtcdEncryptionProviderStaticKey,
+						StaticKey: &operatorv1.StaticKeyConfiguration{KeySecretRef: operatorv1.SecretKeyRef{Name: "etcd-key", Key: "key"}},
+					},
+				}
+				validateConfigCreation(config, false, "", &cleanupObjs)
+			})
+
+			It("rejects provider staticKey without a staticKey ref", func() {
+				config := getMinimalDPFOperatorConfig(testNs.Name)
+				config.Spec.KamajiClusterManager = &operatorv1.KamajiClusterManagerConfiguration{
+					EtcdEncryptionAtRest: &operatorv1.EtcdEncryptionAtRestConfiguration{Provider: operatorv1.EtcdEncryptionProviderStaticKey},
+				}
+				validateConfigCreation(config, true, "staticKey is required when provider is staticKey", &cleanupObjs)
+			})
+
+			It("rejects provider vaultKMS when spec.security.vaultKMS is absent", func() {
+				config := getMinimalDPFOperatorConfig(testNs.Name)
+				config.Spec.KamajiClusterManager = &operatorv1.KamajiClusterManagerConfiguration{
+					EtcdEncryptionAtRest: &operatorv1.EtcdEncryptionAtRestConfiguration{Provider: operatorv1.EtcdEncryptionProviderVaultKMS},
+				}
+				validateConfigCreation(config, true, "requires spec.security.vaultKMS to be enabled", &cleanupObjs)
+			})
+
+			It("rejects provider vaultKMS when spec.security.vaultKMS is disabled", func() {
+				config := getMinimalDPFOperatorConfig(testNs.Name)
+				v := enabledVaultKMS()
+				v.Disable = ptr.To(true)
+				setVaultKMSConfig(config, v)
+				config.Spec.KamajiClusterManager = &operatorv1.KamajiClusterManagerConfiguration{
+					EtcdEncryptionAtRest: &operatorv1.EtcdEncryptionAtRestConfiguration{Provider: operatorv1.EtcdEncryptionProviderVaultKMS},
+				}
+				validateConfigCreation(config, true, "requires spec.security.vaultKMS to be enabled", &cleanupObjs)
+			})
+
+			It("accepts provider vaultKMS when spec.security.vaultKMS is enabled", func() {
+				config := getMinimalDPFOperatorConfig(testNs.Name)
+				setVaultKMSConfig(config, enabledVaultKMS())
+				config.Spec.KamajiClusterManager = &operatorv1.KamajiClusterManagerConfiguration{
+					EtcdEncryptionAtRest: &operatorv1.EtcdEncryptionAtRestConfiguration{Provider: operatorv1.EtcdEncryptionProviderVaultKMS},
+				}
+				validateConfigCreation(config, false, "", &cleanupObjs)
+			})
+
+			It("accepts provider vaultKMS when spec.security.vaultKMS disable is omitted", func() {
+				config := getMinimalDPFOperatorConfig(testNs.Name)
+				v := enabledVaultKMS()
+				v.Disable = nil
+				setVaultKMSConfig(config, v)
+				config.Spec.KamajiClusterManager = &operatorv1.KamajiClusterManagerConfiguration{
+					EtcdEncryptionAtRest: &operatorv1.EtcdEncryptionAtRestConfiguration{Provider: operatorv1.EtcdEncryptionProviderVaultKMS},
+				}
+				validateConfigCreation(config, false, "", &cleanupObjs)
+			})
+
+			It("rejects staticKey set together with provider vaultKMS", func() {
+				config := getMinimalDPFOperatorConfig(testNs.Name)
+				setVaultKMSConfig(config, enabledVaultKMS())
+				config.Spec.KamajiClusterManager = &operatorv1.KamajiClusterManagerConfiguration{
+					EtcdEncryptionAtRest: &operatorv1.EtcdEncryptionAtRestConfiguration{
+						Provider:  operatorv1.EtcdEncryptionProviderVaultKMS,
+						StaticKey: &operatorv1.StaticKeyConfiguration{KeySecretRef: operatorv1.SecretKeyRef{Name: "etcd-key", Key: "key"}},
+					},
+				}
+				validateConfigCreation(config, true, "staticKey must not be set when provider is vaultKMS", &cleanupObjs)
+			})
+		})
+
 		Context("Validate vaultKMS auth", func() {
 			It("accepts an enabled vaultKMS with token auth", func() {
 				config := getMinimalDPFOperatorConfig(testNs.Name)
