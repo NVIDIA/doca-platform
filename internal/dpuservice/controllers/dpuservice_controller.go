@@ -573,7 +573,7 @@ func (r *DPUServiceReconciler) reconcile(ctx context.Context, dpuService *dpuser
 	conditions.AddTrue(dpuService, dpuservicev1.ConditionApplicationsReconciled)
 
 	// TODO: refactor this to support multi DPUCluster
-	if err = r.reconcileConfigPorts(ctx, dpuService, dpuClusterConfigs, dpfOperatorConfig.GetNamespace()); err != nil {
+	if err = r.reconcileConfigPorts(ctx, dpuService, dpuClusterConfigs, dpfOperatorConfig); err != nil {
 		message := fmt.Sprintf("Unable to reconcile Config Ports: %v", err)
 		conditions.AddFalse(
 			dpuService,
@@ -1045,7 +1045,7 @@ func (r *DPUServiceReconciler) reconcileConfigPorts(
 	ctx context.Context,
 	dpuService *dpuservicev1.DPUService,
 	dpuClusterConfigs []*dpucluster.Config,
-	dpfOperatorConfigNamespace string,
+	dpfOperatorConfig *operatorv1.DPFOperatorConfig,
 ) (reterr error) {
 	// If there are no ConfigPorts, we can cleanup the ConfigPorts completely.
 	if dpuService.Spec.ConfigPorts == nil || len(dpuClusterConfigs) == 0 {
@@ -1053,6 +1053,10 @@ func (r *DPUServiceReconciler) reconcileConfigPorts(
 			return fmt.Errorf("cleanup config ports: %w", err)
 		}
 		return nil
+	}
+
+	if dpfOperatorConfig.Spec.DeploymentMode == operatorv1.DeploymentModeZeroTrust {
+		return fmt.Errorf("zero-trust deployment mode is not supported with config ports")
 	}
 
 	// TODO: Add support for multiple clusters. Currently this is not supported and must be implemented.
@@ -1081,7 +1085,7 @@ func (r *DPUServiceReconciler) reconcileConfigPorts(
 			errs = append(errs, fmt.Errorf("config ports not ready yet for cluster %q: %w", dpuClusterConfig.Cluster.Name, err))
 			continue
 		}
-		if err := r.reconcileConfigPortEndpointSlices(ctx, dpuClusterConfig, dpuService, dpuNodePorts, dpfOperatorConfigNamespace); err != nil {
+		if err := r.reconcileConfigPortEndpointSlices(ctx, dpuClusterConfig, dpuService, dpuNodePorts, dpfOperatorConfig.GetNamespace()); err != nil {
 			errs = append(errs, fmt.Errorf("reconcile endpoint slices for cluster %q: %w", dpuClusterConfig.Cluster.Name, err))
 			continue
 		}
