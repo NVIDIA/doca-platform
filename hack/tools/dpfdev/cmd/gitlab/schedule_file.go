@@ -69,15 +69,10 @@ type scheduleFile struct {
 	Schedules []scheduleSpec `yaml:"schedules"`
 }
 
-// scheduleSpec describes one scheduled pipeline. When ID is set it is the
-// GitLab pipeline schedule id and the stable match key, so the schedule can be
-// renamed (its description changed) without sync treating it as a delete plus
-// create. A schedule authored by hand can omit the id and is then matched by
-// description; once it exists in GitLab, copy its id (from "dpfdev gitlab schedule
-// list") into the file so future renames stay safe.
+// scheduleSpec describes one scheduled pipeline. Schedules are matched to
+// GitLab by description, so descriptions must be unique across all files.
 type scheduleSpec struct {
 	Description  string `yaml:"description"`
-	ID           int    `yaml:"id,omitempty"`
 	Ref          string `yaml:"ref"`
 	Cron         string `yaml:"cron"`
 	CronTimezone string `yaml:"cron_timezone,omitempty"`
@@ -106,13 +101,11 @@ func (v *variableSpec) variableType() string {
 }
 
 // mergeState tracks cross-file uniqueness and load bookkeeping while includes
-// are resolved. descByName and fileByID map a schedule's description / ID to
-// the file that first defined it (for uniqueness errors); loaded tracks
-// already-loaded absolute paths, which both dedups diamond includes and breaks
-// include cycles.
+// are resolved. descByName maps a schedule's description to the file that
+// first defined it (for uniqueness errors); loaded tracks already-loaded
+// absolute paths, which both dedups diamond includes and breaks include cycles.
 type mergeState struct {
 	descByName map[string]string
-	fileByID   map[int]string
 	loaded     map[string]bool
 }
 
@@ -125,7 +118,6 @@ func loadScheduleFile(path string) (*scheduleFile, error) {
 	merged := &scheduleFile{}
 	state := &mergeState{
 		descByName: map[string]string{},
-		fileByID:   map[int]string{},
 		loaded:     map[string]bool{},
 	}
 	if err := loadScheduleFileInto(path, merged, state); err != nil {
@@ -174,13 +166,6 @@ func loadScheduleFileInto(path string, merged *scheduleFile, state *mergeState) 
 			return fmt.Errorf("schedule %q is defined in both %s and %s; descriptions must be unique", spec.Description, prev, path)
 		}
 		state.descByName[spec.Description] = path
-		if spec.ID != 0 {
-			if prev, ok := state.fileByID[spec.ID]; ok {
-				return fmt.Errorf("schedule id %d is defined in both %s and %s; ids must be unique. "+
-					"If you copied a file to seed a new branch, remove the id lines from the copy so its schedules are created fresh", spec.ID, prev, path)
-			}
-			state.fileByID[spec.ID] = path
-		}
 		merged.Schedules = append(merged.Schedules, spec)
 	}
 
