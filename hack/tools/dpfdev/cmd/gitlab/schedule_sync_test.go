@@ -178,150 +178,6 @@ func TestScheduleSyncApplyIssuesWrites(t *testing.T) {
 	}
 }
 
-// TestScheduleSyncRenameByID proves the point of the id field: when the file
-// keeps the id but changes the description, sync updates the schedule in place
-// rather than deleting the old one and creating a new one.
-func TestScheduleSyncRenameByID(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/projects/1/pipeline_schedules":
-			// GitLab still has the old description.
-			_, _ = w.Write([]byte(`[{"id":10,"description":"old name","ref":"refs/heads/main","cron":"0 1 * * *","active":true,"owner":{"username":"alice"}}]`))
-		case r.URL.Path == "/projects/1/pipeline_schedules/10":
-			_, _ = w.Write([]byte(`{"id":10,"description":"old name","ref":"refs/heads/main","cron":"0 1 * * *","active":true,"owner":{"username":"alice"},"variables":[]}`))
-		default:
-			_, _ = w.Write([]byte(`{"id":10,"description":"new name","ref":"refs/heads/main","cron":"0 1 * * *","active":true,"owner":{"username":"alice"}}`))
-		}
-	}))
-	defer server.Close()
-
-	// Same id, new description, everything else identical.
-	file := &scheduleFile{Schedules: []scheduleSpec{{
-		ID:          10,
-		Description: "new name",
-		Ref:         "refs/heads/main",
-		Cron:        "0 1 * * *",
-	}}}
-
-	client := gitlab.NewClient(server.URL, "token", "1")
-	syncer := &scheduleSyncer{client: client, dryRun: true, prune: true}
-	if err := syncer.sync(file); err != nil {
-		t.Fatalf("sync returned error: %v", err)
-	}
-
-	if syncer.updated != 1 || syncer.created != 0 || syncer.deleted != 0 {
-		t.Fatalf("rename should be a single update, got created=%d updated=%d deleted=%d",
-			syncer.created, syncer.updated, syncer.deleted)
-	}
-}
-
-// TestScheduleSyncCopyHijackWarns checks that an id-matched schedule whose ref
-// and description both change (the signature of a copied file that kept its
-// ids) produces a warning telling the user to remove the id.
-func TestScheduleSyncCopyHijackWarns(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/projects/1/pipeline_schedules":
-			_, _ = w.Write([]byte(`[{"id":10,"description":"release-v26.4: e2e","ref":"refs/heads/release-v26.4","cron":"0 1 * * *","active":true,"owner":{"username":"alice"}}]`))
-		default:
-			_, _ = w.Write([]byte(`{"id":10,"description":"release-v26.4: e2e","ref":"refs/heads/release-v26.4","cron":"0 1 * * *","active":true,"owner":{"username":"alice"},"variables":[]}`))
-		}
-	}))
-	defer server.Close()
-
-	// Copied to a new release: same id, new ref and new description.
-	file := &scheduleFile{Schedules: []scheduleSpec{{
-		ID:          10,
-		Description: "release-v26.5: e2e",
-		Ref:         "refs/heads/release-v26.5",
-		Cron:        "0 1 * * *",
-	}}}
-
-	client := gitlab.NewClient(server.URL, "token", "1")
-	syncer := &scheduleSyncer{client: client, dryRun: true}
-
-	out := captureStdout(t, func() {
-		if err := syncer.sync(file); err != nil {
-			t.Fatalf("sync: %v", err)
-		}
-	})
-	if !strings.Contains(out, "remove its id") {
-		t.Fatalf("expected copy-hijack warning, got:\n%s", out)
-	}
-}
-
-// TestScheduleSyncTakesOwnershipOnForbidden covers the highest-consequence
-// path: modifying a schedule owned by another user. The first update PUT is
-// rejected with 403, so sync must take ownership and then retry the same PUT,
-// which now succeeds. It asserts both that ownership was taken and that the
-// retry happened only after it.
-func TestScheduleSyncTakesOwnershipOnForbidden(t *testing.T) {
-	var mu sync.Mutex
-	var putAttempts int
-	var tookOwnership, ownershipBeforeRetry bool
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.Method == http.MethodGet && r.URL.Path == "/projects/1/pipeline_schedules":
-			_, _ = w.Write([]byte(`[{"id":10,"description":"keep","ref":"refs/heads/main","cron":"0 1 * * *","active":true,"owner":{"username":"bob"}}]`))
-		case r.Method == http.MethodGet && r.URL.Path == "/projects/1/pipeline_schedules/10":
-			_, _ = w.Write([]byte(`{"id":10,"description":"keep","ref":"refs/heads/main","cron":"0 1 * * *","active":true,"owner":{"username":"bob"},"variables":[]}`))
-		case r.Method == http.MethodPost && r.URL.Path == "/projects/1/pipeline_schedules/10/take_ownership":
-			mu.Lock()
-			tookOwnership = true
-			mu.Unlock()
-			_, _ = w.Write([]byte(`{"id":10,"description":"keep","ref":"refs/heads/main","cron":"0 1 * * *","active":true,"owner":{"username":"ci-bot"}}`))
-		case r.Method == http.MethodPut && r.URL.Path == "/projects/1/pipeline_schedules/10":
-			mu.Lock()
-			putAttempts++
-			first := putAttempts == 1
-			if !first {
-				ownershipBeforeRetry = tookOwnership
-			}
-			mu.Unlock()
-			if first {
-				// The token does not own the schedule yet.
-				w.WriteHeader(http.StatusForbidden)
-				_, _ = w.Write([]byte(`{"message":"403 Forbidden"}`))
-				return
-			}
-			_, _ = w.Write([]byte(`{"id":10,"description":"keep","ref":"refs/heads/main","cron":"0 5 * * *","active":true,"owner":{"username":"ci-bot"}}`))
-		default:
-			w.WriteHeader(http.StatusNotFound)
-		}
-	}))
-	defer server.Close()
-
-	file := &scheduleFile{Schedules: []scheduleSpec{{
-		Description: "keep",
-		Ref:         "refs/heads/main",
-		Cron:        "0 5 * * *", // drift forces an update PUT
-	}}}
-
-	client := gitlab.NewClient(server.URL, "token", "1")
-	syncer := &scheduleSyncer{client: client, dryRun: false}
-	_ = captureStdout(t, func() {
-		if err := syncer.sync(file); err != nil {
-			t.Errorf("sync returned error: %v", err)
-		}
-	})
-
-	mu.Lock()
-	defer mu.Unlock()
-	if putAttempts != 2 {
-		t.Fatalf("expected the update PUT to be retried once (2 attempts), got %d", putAttempts)
-	}
-	if !tookOwnership {
-		t.Fatal("sync did not take ownership after the 403")
-	}
-	if !ownershipBeforeRetry {
-		t.Fatal("sync retried the update before taking ownership")
-	}
-	if syncer.updated != 1 {
-		t.Fatalf("expected updated=1, got %d", syncer.updated)
-	}
-}
-
 // TestFetchDetailsConcurrency checks that fetchDetails retrieves every id and
 // never exceeds the configured concurrency.
 func TestFetchDetailsConcurrency(t *testing.T) {
@@ -365,9 +221,10 @@ func TestPlanExitCode(t *testing.T) {
 		want    int
 	}{
 		{name: "in sync", want: planExitInSync},
+		{name: "creates only", created: 1, want: planExitDrift},
 		{name: "updates only", updated: 2, want: planExitDrift},
 		{name: "deletes only", deleted: 1, want: planExitDrift},
-		{name: "create outranks drift", created: 1, updated: 5, deleted: 2, want: planExitCreate},
+		{name: "mixed changes", created: 1, updated: 5, deleted: 2, want: planExitDrift},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -379,29 +236,3 @@ func TestPlanExitCode(t *testing.T) {
 	}
 }
 
-// TestScheduleSyncUnknownID errors when the file references an id that does
-// not exist in GitLab, rather than silently creating a duplicate.
-func TestScheduleSyncUnknownID(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/projects/1/pipeline_schedules" {
-			_, _ = w.Write([]byte(`[]`))
-			return
-		}
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer server.Close()
-
-	file := &scheduleFile{Schedules: []scheduleSpec{{
-		ID:          999,
-		Description: "ghost",
-		Ref:         "refs/heads/main",
-		Cron:        "0 1 * * *",
-	}}}
-
-	client := gitlab.NewClient(server.URL, "token", "1")
-	syncer := &scheduleSyncer{client: client, dryRun: true}
-	err := syncer.sync(file)
-	if err == nil || !strings.Contains(err.Error(), "not in GitLab") {
-		t.Fatalf("expected unknown-id error, got %v", err)
-	}
-}

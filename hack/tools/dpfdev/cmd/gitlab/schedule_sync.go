@@ -41,12 +41,10 @@ func progress(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, format+"\n", args...)
 }
 
-// Plan exit codes reported with --exit-code. They let CI treat drift as a
-// warning but a new schedule as a hard failure (see the schedule-plan job).
+// Plan exit codes reported with --exit-code.
 const (
 	planExitInSync = 0 // no changes
-	planExitDrift  = 2 // updates or prunes to existing schedules
-	planExitCreate = 3 // a schedule in the file does not exist in GitLab yet
+	planExitDrift  = 2 // any changes (creates, updates, deletes)
 )
 
 var (
@@ -64,22 +62,16 @@ func init() {
 	scheduleSyncCmd.Flags().BoolVar(&scheduleSyncApply, "apply", false, "Apply the changes to GitLab; without this flag sync only prints the plan")
 	scheduleSyncCmd.Flags().BoolVar(&scheduleSyncPrune, "prune", false, "Delete GitLab schedules that are not in the file (default: warn only)")
 	scheduleSyncCmd.Flags().BoolVar(&scheduleSyncExitCode, "exit-code", false,
-		"In plan mode, exit 2 when existing schedules would change and 3 when the file adds a new schedule (0 when in sync)")
+		"In plan mode, exit 2 when any schedules would change (0 when in sync)")
 	scheduleSyncCmd.Flags().IntVar(&scheduleSyncConcurrency, "concurrency", defaultSyncConcurrency, "Number of schedule detail fetches to run in parallel")
 }
 
-// planExitCode maps a completed plan to its --exit-code value. A new schedule
-// (create) outranks drift, because it needs a manual local create so its id
-// can be written back to the file before merging.
+// planExitCode maps a completed plan to its --exit-code value.
 func planExitCode(s *scheduleSyncer) int {
-	switch {
-	case s.created > 0:
-		return planExitCreate
-	case s.updated > 0 || s.deleted > 0:
+	if s.created > 0 || s.updated > 0 || s.deleted > 0 {
 		return planExitDrift
-	default:
-		return planExitInSync
 	}
+	return planExitInSync
 }
 
 var scheduleSyncCmd = &cobra.Command{
@@ -87,9 +79,7 @@ var scheduleSyncCmd = &cobra.Command{
 	Short: "Sync the scheduled pipelines file to GitLab",
 	Long: `Sync the scheduled pipelines file to GitLab: create schedules that are
 missing, update drifted fields and variables, and delete variables that were
-removed from the file. Schedules are matched by their GitLab id when the file
-carries one, falling back to the description for schedules that do not yet
-have an id.
+removed from the file. Schedules are matched by description.
 
 The file may split its schedules across several files with an "include" list
 (paths relative to the including file), so the schedules can be organised e.g.
@@ -99,13 +89,7 @@ merged before syncing, and descriptions must be unique across all of them.
 Without --apply only the plan is printed and nothing is changed in GitLab.
 
 Schedules that exist in GitLab but not in the file are reported as unmanaged;
---prune deletes them instead.
-
-Modifying a schedule owned by another user requires taking it over (GitLab
-only lets the owner's token update a schedule, and ownership cannot be given
-away, only taken). Sync takes ownership whenever an update requires it and
-reports every transfer, so run it with the token that should end up owning
-the schedules, e.g. the CI bot account.`,
+--prune deletes them instead.`,
 	Example: `  # Show what would change (the default; nothing is modified)
   dpfdev gitlab schedule sync
 
@@ -132,16 +116,10 @@ the schedules, e.g. the CI bot account.`,
 		}
 
 		// In plan mode, translate the plan into an exit code so CI can flag
-		// drift as a warning and a new schedule as a failure.
+		// any pending changes as a warning.
 		if scheduleSyncExitCode && !scheduleSyncApply {
-			switch planExitCode(syncer) {
-			case planExitCreate:
-				fmt.Println("\nThe file adds a schedule that does not exist in GitLab yet.")
-				fmt.Println("Create it locally with 'dpfdev gitlab schedule sync --apply', then add its")
-				fmt.Println("id (from 'dpfdev gitlab schedule list') to the YAML before merging.")
-				os.Exit(planExitCreate)
-			case planExitDrift:
-				fmt.Println("\nThis will change existing schedules when merged.")
+			if planExitCode(syncer) == planExitDrift {
+				fmt.Println("\nThis will change schedules in GitLab when merged.")
 				os.Exit(planExitDrift)
 			}
 		}
@@ -168,78 +146,26 @@ type plannedAction struct {
 }
 
 func (s *scheduleSyncer) sync(file *scheduleFile) error {
-	// The file already carries the ids it manages, so their details (the slow,
-	// per-schedule part) are fetched concurrently with the list call rather
-	// than after it. The list is only needed afterwards, to find schedules
-	// that exist in GitLab but not in the file.
-	var fileIDs []int
-	for i := range file.Schedules {
-		if file.Schedules[i].ID != 0 {
-			fileIDs = append(fileIDs, file.Schedules[i].ID)
-		}
+	progress("Fetching schedules from GitLab...")
+	slog.Debug("listing pipeline schedules")
+	existing, err := s.client.ListPipelineSchedules()
+	if err != nil {
+		return fmt.Errorf("failed to fetch pipeline schedules: %v", err)
 	}
+	slog.Debug("listed pipeline schedules", "count", len(existing), "file", len(file.Schedules))
 
-	progress("Fetching %d schedules from GitLab...", len(file.Schedules))
-
-	var (
-		existing   []gitlab.PipelineSchedule
-		listErr    error
-		details    map[int]*gitlab.PipelineSchedule
-		detailsErr error
-		wg         sync.WaitGroup
-	)
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		slog.Debug("listing pipeline schedules")
-		existing, listErr = s.client.ListPipelineSchedules()
-		slog.Debug("listed pipeline schedules", "count", len(existing))
-	}()
-	go func() {
-		defer wg.Done()
-		details, detailsErr = s.fetchDetails(fileIDs)
-	}()
-	wg.Wait()
-	if listErr != nil {
-		return fmt.Errorf("failed to fetch pipeline schedules: %v", listErr)
-	}
-	if detailsErr != nil {
-		return detailsErr
-	}
-	slog.Debug("fetched schedules from gitlab", "existing", len(existing), "prefetched", len(details), "file", len(file.Schedules))
-
-	byID := map[int]gitlab.PipelineSchedule{}
 	byDescription := map[string][]gitlab.PipelineSchedule{}
 	for _, schedule := range existing {
-		byID[schedule.ID] = schedule
 		byDescription[schedule.Description] = append(byDescription[schedule.Description], schedule)
 	}
-	// consumed marks GitLab schedules claimed by a spec, so the leftovers can
-	// be pruned and a description fallback never re-matches an id-matched one.
+	// consumed marks GitLab schedules claimed by a spec so the leftovers can
+	// be pruned and a description never matches two specs.
 	consumed := map[int]bool{}
 
-	// Pass 1: resolve every spec to a create or an update, matching by id
-	// first and description second.
+	// Pass 1: resolve every spec to a create or an update, matching by description.
 	var actions []plannedAction
 	for i := range file.Schedules {
 		spec := &file.Schedules[i]
-
-		// Prefer the stable ID: a schedule matched by ID can be renamed in the
-		// file and sync updates it in place instead of deleting and recreating.
-		if spec.ID != 0 {
-			schedule, ok := byID[spec.ID]
-			if !ok {
-				return fmt.Errorf("schedule id %d (%q) is in the file but not in GitLab; "+
-					"remove the id to create it, or fix the id", spec.ID, spec.Description)
-			}
-			slog.Debug("matched schedule by id", "id", spec.ID, "description", spec.Description)
-			consumed[spec.ID] = true
-			actions = append(actions, plannedAction{spec: spec, scheduleID: schedule.ID})
-			continue
-		}
-
-		// No ID yet (a hand-authored schedule): fall back to description,
-		// ignoring GitLab schedules already claimed by an ID.
 		var matches []gitlab.PipelineSchedule
 		for _, schedule := range byDescription[spec.Description] {
 			if !consumed[schedule.ID] {
@@ -255,29 +181,21 @@ func (s *scheduleSyncer) sync(file *scheduleFile) error {
 			consumed[matches[0].ID] = true
 			actions = append(actions, plannedAction{spec: spec, scheduleID: matches[0].ID})
 		default:
-			return fmt.Errorf("schedule description %q exists %d times in GitLab; add an id to the file to disambiguate, or delete the duplicates", spec.Description, len(matches))
+			return fmt.Errorf("schedule description %q exists %d times in GitLab; delete the duplicates", spec.Description, len(matches))
 		}
 	}
 
-	// Details for id-matched schedules were prefetched alongside the list.
-	// Description-matched schedules had no id to prefetch, so fetch them now
-	// (usually none, once ids are backfilled into the file).
-	var missingIDs []int
+	// Fetch full details (including variables) for all matched schedules
+	// concurrently — this is the slow part, one GET per schedule.
+	var matchedIDs []int
 	for _, a := range actions {
 		if !a.create {
-			if _, ok := details[a.scheduleID]; !ok {
-				missingIDs = append(missingIDs, a.scheduleID)
-			}
+			matchedIDs = append(matchedIDs, a.scheduleID)
 		}
 	}
-	if len(missingIDs) > 0 {
-		more, err := s.fetchDetails(missingIDs)
-		if err != nil {
-			return err
-		}
-		for id, d := range more {
-			details[id] = d
-		}
+	details, err := s.fetchDetails(matchedIDs)
+	if err != nil {
+		return err
 	}
 
 	// Pass 2: apply each action in file order, so output stays deterministic.
@@ -290,10 +208,7 @@ func (s *scheduleSyncer) sync(file *scheduleFile) error {
 		}
 		schedule := details[a.scheduleID]
 		if schedule == nil {
-			// The list call returned this id but its detail fetch 404'd (both
-			// on prefetch and re-fetch): the schedule was deleted between the
-			// two calls. Report it cleanly instead of dereferencing nil.
-			return fmt.Errorf("schedule id %d (%q) disappeared from GitLab during sync; re-run", a.scheduleID, a.spec.Description)
+			return fmt.Errorf("schedule %q disappeared from GitLab during sync; re-run", a.spec.Description)
 		}
 		if err := s.update(schedule, a.spec); err != nil {
 			return err
@@ -392,17 +307,6 @@ func (s *scheduleSyncer) update(schedule *gitlab.PipelineSchedule, spec *schedul
 		return fmt.Errorf("GitLab did not return the variables of schedule %d (%s): the token needs the Maintainer role", scheduleID, spec.Description)
 	}
 
-	// Changing both the ref and the description of an id-matched schedule is
-	// the signature of an accidental copy: a group file was duplicated to seed
-	// a new branch without stripping the ids, so this would overwrite the
-	// original schedule instead of creating a new one.
-	if spec.Description != schedule.Description && shortRef(spec.Ref) != shortRef(schedule.Ref) {
-		fmt.Printf("! warning: schedule id %d changes both ref (%s -> %s) and description (%q -> %q).\n",
-			scheduleID, schedule.Ref, spec.Ref, schedule.Description, spec.Description)
-		fmt.Printf("  If you copied this schedule to seed a new branch, remove its id so a new\n")
-		fmt.Printf("  schedule is created instead of overwriting id %d.\n", scheduleID)
-	}
-
 	var changes []string
 	if spec.Description != schedule.Description {
 		changes = append(changes, fmt.Sprintf("  ~ description: %q -> %q", schedule.Description, spec.Description))
@@ -465,33 +369,25 @@ func (s *scheduleSyncer) update(schedule *gitlab.PipelineSchedule, spec *schedul
 			timezone = schedule.CronTimezone
 		}
 		slog.Debug("updating schedule fields", "id", scheduleID)
-		if err := s.withOwnership(scheduleID, func() error {
-			return s.client.UpdatePipelineSchedule(scheduleID, spec.Description, spec.Ref, spec.Cron, timezone, spec.active())
-		}); err != nil {
+		if err := s.client.UpdatePipelineSchedule(scheduleID, spec.Description, spec.Ref, spec.Cron, timezone, spec.active()); err != nil {
 			return fmt.Errorf("failed to update schedule %q: %v", spec.Description, err)
 		}
 	}
 	for _, variable := range createVars {
 		slog.Debug("creating variable", "id", scheduleID, "key", variable.Key)
-		if err := s.withOwnership(scheduleID, func() error {
-			return s.client.CreatePipelineScheduleVariable(scheduleID, variable.Key, variable.Value, variable.variableType())
-		}); err != nil {
+		if err := s.client.CreatePipelineScheduleVariable(scheduleID, variable.Key, variable.Value, variable.variableType()); err != nil {
 			return fmt.Errorf("failed to create variable %s on schedule %q: %v", variable.Key, spec.Description, err)
 		}
 	}
 	for _, variable := range updateVars {
 		slog.Debug("updating variable", "id", scheduleID, "key", variable.Key)
-		if err := s.withOwnership(scheduleID, func() error {
-			return s.client.UpdatePipelineScheduleVariable(scheduleID, variable.Key, variable.Value, variable.variableType())
-		}); err != nil {
+		if err := s.client.UpdatePipelineScheduleVariable(scheduleID, variable.Key, variable.Value, variable.variableType()); err != nil {
 			return fmt.Errorf("failed to update variable %s on schedule %q: %v", variable.Key, spec.Description, err)
 		}
 	}
 	for _, key := range deleteVars {
 		slog.Debug("deleting variable", "id", scheduleID, "key", key)
-		if err := s.withOwnership(scheduleID, func() error {
-			return s.client.DeletePipelineScheduleVariable(scheduleID, key)
-		}); err != nil {
+		if err := s.client.DeletePipelineScheduleVariable(scheduleID, key); err != nil {
 			return fmt.Errorf("failed to delete variable %s on schedule %q: %v", key, spec.Description, err)
 		}
 	}
@@ -517,41 +413,3 @@ func (s *scheduleSyncer) pruneOrWarn(schedule gitlab.PipelineSchedule) error {
 	return nil
 }
 
-// withOwnership runs a schedule modification, taking ownership of the
-// schedule and retrying once if GitLab rejects it for a schedule the token
-// does not own.
-func (s *scheduleSyncer) withOwnership(scheduleID int, modify func() error) error {
-	err := modify()
-	if !gitlab.IsForbidden(err) {
-		return err
-	}
-	slog.Debug("modification forbidden, taking ownership", "id", scheduleID)
-	if err := takeScheduleOwnership(s.client, scheduleID); err != nil {
-		return err
-	}
-	return modify()
-}
-
-// takeScheduleOwnership takes over the schedule and reports the transfer,
-// including the previous owner. Taking ownership is one-way: GitLab has no
-// API to assign ownership to another user, so the previous owner has to take
-// the schedule back themselves, and until then it runs with the new owner's
-// permissions. The schedule is fetched first because the take-ownership
-// response only carries the new owner.
-func takeScheduleOwnership(client *gitlab.Client, scheduleID int) error {
-	previous, err := client.GetPipelineSchedule(scheduleID)
-	if err != nil {
-		return fmt.Errorf("failed to fetch pipeline schedule %d before taking ownership: %v", scheduleID, err)
-	}
-
-	schedule, err := client.TakeOwnershipPipelineSchedule(scheduleID)
-	if err != nil {
-		return fmt.Errorf("failed to take ownership of schedule %d: %v", scheduleID, err)
-	}
-
-	fmt.Printf("⚠ Took ownership of schedule %d (previous owner: %s, new owner: %s).\n",
-		scheduleID, previous.Owner.Username, schedule.Owner.Username)
-	fmt.Printf("  The schedule now runs with %s's permissions. GitLab cannot transfer\n", schedule.Owner.Username)
-	fmt.Printf("  ownership back; ask %s to take ownership again if needed.\n", previous.Owner.Username)
-	return nil
-}
