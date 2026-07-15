@@ -139,6 +139,7 @@ func main() {
 		klog.Fatalf("failed to run DPU agent: %v", err)
 	}
 	klog.Info("DPUAgent successfully completed all operations")
+	agent.StartNICRuntimeConfigLoop(execCtx)
 	<-execCtx.Done()
 	if err := agent.Shutdown(); err != nil {
 		klog.ErrorS(err, "failed to stop local DMS server during DPU agent shutdown")
