@@ -39,41 +39,45 @@ const (
 
 // RedfishMockServer represents a mock Redfish server for testing
 type RedfishMockServer struct {
-	server                        *httptest.Server
-	bmcVersion                    string
-	bmcErotVersion                string
-	sbiosVersion                  string
-	nicVersion                    string
-	password                      string
-	dpuMode                       string                   // Current DPU mode: "NicMode" or "DpuMode"
-	secureBootEnable              bool                     // Configured/desired Secure Boot state (for next boot)
-	secureBootCurrentBoot         bool                     // Actual Secure Boot state of current boot session
-	secureBootError               bool                     // Simulate Secure Boot endpoint error for testing
-	secureBootPatchError          bool                     // Simulate Secure Boot PATCH-only error for testing
-	systemError                   bool                     // Simulate GetSystem endpoint error for testing
-	resetSystemError              bool                     // Simulate ResetSystem endpoint error for testing
-	productDescriptionError       bool                     // Simulate GetProductDescription endpoint error for testing
-	taskProgressError             bool                     // Simulate CheckTaskProgress endpoint error for testing
-	chassisError                  bool                     // Simulate GetChassis endpoint error for testing
-	oemLastState                  string                   // Current ARM OS boot state: "OsIsRunning", "OsStarting", etc.
-	bootLastState                 string                   // BootProgress.LastState for GET System (e.g. OSRunning on BF4)
-	dpuVersion                    DpuVersion               // Current DPU version
-	model                         string                   // DPU model string (optional override)
-	assetTag                      string                   // Chassis AssetTag (PSID) returned by GetChassis
-	taskState                     string                   // Current task state: "Completed", "Exception", etc.
-	taskMessages                  []map[string]interface{} // Task messages for Exception state
-	concurrentUpdateBusyRemaining int                      // Number of InstallBFB calls that return HTTP 400 "Another update is in progress"
-	concurrentUpdateBusyServed    int                      // How many 400 "Another update" responses were actually sent
-	installBFBStatus              int                      // Override HTTP status returned by InstallBFB; 0 means default 202
-	installBFBBody                string                   // Override raw body when installBFBStatus != 0
-	taskHTTPStatus                int                      // Override HTTP status returned by GET task; 0 means default 200
-	taskHTTPBody                  string                   // Override raw body when taskHTTPStatus != 0
-	selEntries                    []client.SELEntry        // System Event Log entries returned by GET SEL/Entries
-	hostPrivilegeError            bool                     // Simulate HostPrivilegeConfig endpoint error for testing
-	replaceCertError              bool                     // Simulate CertificateService.ReplaceCertificate returning 500 (BMC key mismatch)
-	hostPrivilegeMode             string                   // Current host privilege mode: "Privileged" or "Restricted"
-	bootSourceOverrideTarget      string                   // BootSourceOverrideTarget returned by GET Settings
-	bootSourceOverrideEnabled     string                   // BootSourceOverrideEnabled returned by GET Settings
+	server                          *httptest.Server
+	bmcVersion                      string
+	bmcErotVersion                  string
+	sbiosVersion                    string
+	nicVersion                      string
+	password                        string
+	dpuMode                         string                   // Current DPU mode: "NicMode" or "DpuMode"
+	secureBootEnable                bool                     // Configured/desired Secure Boot state (for next boot)
+	secureBootCurrentBoot           bool                     // Actual Secure Boot state of current boot session
+	secureBootError                 bool                     // Simulate Secure Boot endpoint error for testing
+	secureBootPatchError            bool                     // Simulate Secure Boot PATCH-only error for testing
+	systemError                     bool                     // Simulate GetSystem endpoint error for testing
+	resetSystemError                bool                     // Simulate ResetSystem endpoint error for testing
+	productDescriptionError         bool                     // Simulate GetProductDescription endpoint error for testing
+	taskProgressError               bool                     // Simulate CheckTaskProgress endpoint error for testing
+	chassisError                    bool                     // Simulate GetChassis endpoint error for testing
+	erotChassisError                bool                     // Simulate GetErotChassis endpoint error for testing
+	erotChassisOemPresent           bool                     // Include Oem.Nvidia in ERoT chassis response
+	erotBackgroundCopyStatus        string                   // BackgroundCopyStatus value in ERoT chassis Oem.Nvidia
+	erotBackgroundCopyStatusPresent bool                     // Include BackgroundCopyStatus in ERoT chassis Oem.Nvidia
+	oemLastState                    string                   // Current ARM OS boot state: "OsIsRunning", "OsStarting", etc.
+	bootLastState                   string                   // BootProgress.LastState for GET System (e.g. OSRunning on BF4)
+	dpuVersion                      DpuVersion               // Current DPU version
+	model                           string                   // DPU model string (optional override)
+	assetTag                        string                   // Chassis AssetTag (PSID) returned by GetChassis
+	taskState                       string                   // Current task state: "Completed", "Exception", etc.
+	taskMessages                    []map[string]interface{} // Task messages for Exception state
+	concurrentUpdateBusyRemaining   int                      // Number of InstallBFB calls that return HTTP 400 "Another update is in progress"
+	concurrentUpdateBusyServed      int                      // How many 400 "Another update" responses were actually sent
+	installBFBStatus                int                      // Override HTTP status returned by InstallBFB; 0 means default 202
+	installBFBBody                  string                   // Override raw body when installBFBStatus != 0
+	taskHTTPStatus                  int                      // Override HTTP status returned by GET task; 0 means default 200
+	taskHTTPBody                    string                   // Override raw body when taskHTTPStatus != 0
+	selEntries                      []client.SELEntry        // System Event Log entries returned by GET SEL/Entries
+	hostPrivilegeError              bool                     // Simulate HostPrivilegeConfig endpoint error for testing
+	replaceCertError                bool                     // Simulate CertificateService.ReplaceCertificate returning 500 (BMC key mismatch)
+	hostPrivilegeMode               string                   // Current host privilege mode: "Privileged" or "Restricted"
+	bootSourceOverrideTarget        string                   // BootSourceOverrideTarget returned by GET Settings
+	bootSourceOverrideEnabled       string                   // BootSourceOverrideEnabled returned by GET Settings
 }
 
 type DpuVersion int
@@ -86,19 +90,22 @@ const (
 // NewRedfishMockServer creates a new mock Redfish server
 func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 	mock := &RedfishMockServer{
-		bmcVersion:                bmcVersion,
-		password:                  password,
-		dpuMode:                   "DpuMode",                         // Default to DpuMode
-		dpuVersion:                BF3,                               // Default to BF3
-		hostPrivilegeMode:         "Privileged",                      // Default to Privileged
-		secureBootEnable:          true,                              // Default configured state: enabled
-		secureBootCurrentBoot:     true,                              // Default current boot state: enabled
-		oemLastState:              "OsIsRunning",                     // Default to OS running
-		assetTag:                  client.ChassisAssetTagUnavailable, // Default AssetTag when unset on BMC
-		taskState:                 "Completed",                       // Default task state
-		taskMessages:              []map[string]interface{}{},        // Default empty messages
-		bootSourceOverrideTarget:  "None",                            // Default boot target
-		bootSourceOverrideEnabled: "Disabled",                        // Default boot override state
+		bmcVersion:                      bmcVersion,
+		password:                        password,
+		dpuMode:                         "DpuMode",                         // Default to DpuMode
+		dpuVersion:                      BF3,                               // Default to BF3
+		hostPrivilegeMode:               "Privileged",                      // Default to Privileged
+		secureBootEnable:                true,                              // Default configured state: enabled
+		secureBootCurrentBoot:           true,                              // Default current boot state: enabled
+		oemLastState:                    "OsIsRunning",                     // Default to OS running
+		assetTag:                        client.ChassisAssetTagUnavailable, // Default AssetTag when unset on BMC
+		erotChassisOemPresent:           true,
+		erotBackgroundCopyStatus:        "Completed",
+		erotBackgroundCopyStatusPresent: true,
+		taskState:                       "Completed",                // Default task state
+		taskMessages:                    []map[string]interface{}{}, // Default empty messages
+		bootSourceOverrideTarget:        "None",                     // Default boot target
+		bootSourceOverrideEnabled:       "Disabled",                 // Default boot override state
 	}
 
 	mux := http.NewServeMux()
@@ -112,6 +119,7 @@ func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 	// Chassis
 	mux.HandleFunc("/redfish/v1/Chassis/Card1", mock.handleGetChassis)
 	mux.HandleFunc("/redfish/v1/Chassis/BlueField_0", mock.handleGetChassis)
+	mux.HandleFunc("/redfish/v1/Chassis/BlueField_ERoT_BMC_0", mock.handleGetErotChassis)
 
 	// UpdateService
 	mux.HandleFunc("/"+client.APIUpdateFW, mock.handleUpdateService)
@@ -369,6 +377,43 @@ func (r *RedfishMockServer) handleGetChassis(w http.ResponseWriter, req *http.Re
 			"State":  "Enabled",
 			"Health": "OK",
 		},
+	}
+
+	writeJSONResponse(w, response)
+}
+
+// handleGetErotChassis handles ERoT chassis information requests.
+func (r *RedfishMockServer) handleGetErotChassis(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if r.erotChassisError {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("ERoT chassis endpoint unavailable"))
+		return
+	}
+
+	response := map[string]interface{}{
+		"@odata.context": "/redfish/v1/$metadata#Chassis.Chassis",
+		"@odata.id":      "/redfish/v1/Chassis/BlueField_ERoT_BMC_0",
+		"@odata.type":    "#Chassis.v1_20_0.Chassis",
+		"Id":             "BlueField_ERoT_BMC_0",
+		"Name":           "BlueField ERoT BMC",
+	}
+
+	if r.erotChassisOemPresent {
+		nvidiaOem := map[string]interface{}{}
+		if r.erotBackgroundCopyStatusPresent {
+			status := r.erotBackgroundCopyStatus
+			if status == "" {
+				status = "Completed"
+			}
+			nvidiaOem["BackgroundCopyStatus"] = status
+		}
+		response["Oem"] = map[string]interface{}{"Nvidia": nvidiaOem}
 	}
 
 	writeJSONResponse(w, response)
@@ -873,6 +918,26 @@ func (r *RedfishMockServer) SetTaskProgressError(simulateError bool) {
 // SetChassisError enables or disables GetChassis endpoint error simulation for testing
 func (r *RedfishMockServer) SetChassisError(simulateError bool) {
 	r.chassisError = simulateError
+}
+
+// SetErotChassisError enables or disables GetErotChassis endpoint error simulation for testing.
+func (r *RedfishMockServer) SetErotChassisError(simulateError bool) {
+	r.erotChassisError = simulateError
+}
+
+// SetErotBackgroundCopyStatus sets the BackgroundCopyStatus value returned by GetErotChassis.
+func (r *RedfishMockServer) SetErotBackgroundCopyStatus(status string) {
+	r.erotBackgroundCopyStatus = status
+}
+
+// SetErotChassisOemPresent controls whether Oem.Nvidia is included in the GetErotChassis response.
+func (r *RedfishMockServer) SetErotChassisOemPresent(present bool) {
+	r.erotChassisOemPresent = present
+}
+
+// SetErotBackgroundCopyStatusPresent controls whether BackgroundCopyStatus is included in Oem.Nvidia.
+func (r *RedfishMockServer) SetErotBackgroundCopyStatusPresent(present bool) {
+	r.erotBackgroundCopyStatusPresent = present
 }
 
 // SetOemLastState sets the ARM OS boot state for the mock server
