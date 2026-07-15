@@ -24,7 +24,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/cmd/dpuagent/opts"
@@ -126,7 +128,6 @@ func TestNICProvisioning_Execute(t *testing.T) {
 		installNICFirmwareFn:      func(_ context.Context, _ *operations.Context, _ string) error { return nil },
 		prepareSpectrumXConfigsFn: func() error { return nil },
 		applyNVConfigFn:           func(_ context.Context, _ *operations.Context) error { return nil },
-		applyRuntimeConfigFn:      func(_ context.Context, _ *operations.Context) error { return nil },
 		configureRestrictedModeFn: func(_ context.Context, _ *operations.Context) error { return nil },
 	}
 	originalDir := nicFirmwareDir
@@ -210,7 +211,6 @@ func TestNICProvisioning_Execute(t *testing.T) {
 	t.Run("stop after NV config apply when reboot is required", func(t *testing.T) {
 		existingFile := filepath.Join(tempDir, "astra-nic-fw-nv-reboot.fwpkg")
 		require.NoError(t, os.WriteFile(existingFile, []byte("already here"), 0600))
-		runtimeCalled := false
 		opRebootAfterNVConfig := &NICProvisioning{
 			runBash:                   (&fakeBashRunner{}).run,
 			prepareLocalDMSServerFn:   func(_ *operations.Context) error { return nil },
@@ -218,10 +218,6 @@ func TestNICProvisioning_Execute(t *testing.T) {
 			prepareSpectrumXConfigsFn: func() error { return nil },
 			applyNVConfigFn: func(_ context.Context, optCtx *operations.Context) error {
 				optCtx.NICFirmwareRebootRequired = true
-				return nil
-			},
-			applyRuntimeConfigFn: func(_ context.Context, _ *operations.Context) error {
-				runtimeCalled = true
 				return nil
 			},
 			configureRestrictedModeFn: func(_ context.Context, _ *operations.Context) error { return nil },
@@ -233,7 +229,6 @@ func TestNICProvisioning_Execute(t *testing.T) {
 
 		require.NoError(t, opRebootAfterNVConfig.Execute(context.Background(), ctx))
 		assert.True(t, ctx.NICFirmwareRebootRequired)
-		assert.False(t, runtimeCalled)
 	})
 
 	t.Run("keeps local dms server running when execute returns", func(t *testing.T) {
@@ -247,7 +242,6 @@ func TestNICProvisioning_Execute(t *testing.T) {
 			installNICFirmwareFn:      func(_ context.Context, _ *operations.Context, _ string) error { return nil },
 			prepareSpectrumXConfigsFn: func() error { return nil },
 			applyNVConfigFn:           func(_ context.Context, _ *operations.Context) error { return nil },
-			applyRuntimeConfigFn:      func(_ context.Context, _ *operations.Context) error { return nil },
 			configureRestrictedModeFn: func(_ context.Context, _ *operations.Context) error { return nil },
 		}
 
@@ -274,7 +268,6 @@ func TestNICProvisioning_Execute(t *testing.T) {
 			},
 			prepareSpectrumXConfigsFn: func() error { return nil },
 			applyNVConfigFn:           func(_ context.Context, _ *operations.Context) error { return nil },
-			applyRuntimeConfigFn:      func(_ context.Context, _ *operations.Context) error { return nil },
 			configureRestrictedModeFn: func(_ context.Context, _ *operations.Context) error { return nil },
 		}
 
@@ -304,7 +297,6 @@ func TestNICProvisioning_Execute(t *testing.T) {
 			installNICFirmwareFn:      func(_ context.Context, _ *operations.Context, _ string) error { return nil },
 			prepareSpectrumXConfigsFn: func() error { return nil },
 			applyNVConfigFn:           func(_ context.Context, _ *operations.Context) error { return nil },
-			applyRuntimeConfigFn:      func(_ context.Context, _ *operations.Context) error { return nil },
 			configureRestrictedModeFn: func(_ context.Context, _ *operations.Context) error { return nil },
 		}
 
@@ -351,6 +343,87 @@ func TestNICProvisioning_applyRuntimeConfigAndUpdateStatus(t *testing.T) {
 		assert.Equal(t, cutil.AgentCondEWNICConfigured, ctx.Status.Conditions[0].Type)
 		assert.Equal(t, metav1.ConditionFalse, ctx.Status.Conditions[0].Status)
 		assert.Equal(t, "RuntimeConfigApplyFailed", ctx.Status.Conditions[0].Reason)
+	})
+}
+
+func TestNICProvisioning_StartRuntimeConfigLoop(t *testing.T) {
+	t.Run("no-op when dms session was never started", func(t *testing.T) {
+		op := &NICProvisioning{}
+		op.StartRuntimeConfigLoop(context.Background(), &operations.Context{})
+		// Shutdown must not block when the loop was never started.
+		require.NoError(t, op.Shutdown())
+	})
+
+	t.Run("applies runtime config then stops on context cancel", func(t *testing.T) {
+		originalInterval := RuntimeConfigInterval
+		originalRetry := RuntimeConfigRetryInterval
+		RuntimeConfigInterval = time.Hour
+		RuntimeConfigRetryInterval = 10 * time.Millisecond
+		t.Cleanup(func() {
+			RuntimeConfigInterval = originalInterval
+			RuntimeConfigRetryInterval = originalRetry
+		})
+
+		var calls atomic.Int32
+		op := &NICProvisioning{
+			dmsServer: &fakeDMSServer{running: true},
+			applyRuntimeConfigFn: func(_ context.Context, _ *operations.Context) error {
+				calls.Add(1)
+				return nil
+			},
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		optCtx := &operations.Context{
+			Status: provisioningv1.AgentStatus{Conditions: []metav1.Condition{}},
+		}
+
+		op.StartRuntimeConfigLoop(ctx, optCtx)
+		require.Eventually(t, func() bool { return calls.Load() >= 1 }, time.Second, 10*time.Millisecond)
+		cancel()
+		require.NoError(t, op.Shutdown())
+	})
+
+	t.Run("coalesces bursty CC terminations into one reapply", func(t *testing.T) {
+		originalInterval := RuntimeConfigInterval
+		originalRetry := RuntimeConfigRetryInterval
+		originalCoalesce := CCTerminationCoalesceWindow
+		RuntimeConfigInterval = time.Hour
+		RuntimeConfigRetryInterval = 10 * time.Millisecond
+		CCTerminationCoalesceWindow = 50 * time.Millisecond
+		t.Cleanup(func() {
+			RuntimeConfigInterval = originalInterval
+			RuntimeConfigRetryInterval = originalRetry
+			CCTerminationCoalesceWindow = originalCoalesce
+		})
+
+		ccCh := make(chan string, 8)
+		var calls atomic.Int32
+		op := &NICProvisioning{
+			dmsServer:       &fakeDMSServer{running: true},
+			ccTerminationCh: ccCh,
+			applyRuntimeConfigFn: func(_ context.Context, _ *operations.Context) error {
+				calls.Add(1)
+				return nil
+			},
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		optCtx := &operations.Context{
+			Status: provisioningv1.AgentStatus{Conditions: []metav1.Condition{}},
+		}
+
+		op.StartRuntimeConfigLoop(ctx, optCtx)
+		require.Eventually(t, func() bool { return calls.Load() == 1 }, time.Second, 10*time.Millisecond)
+
+		ccCh <- "mlx5_0"
+		ccCh <- "mlx5_1"
+		ccCh <- "mlx5_2"
+		require.Eventually(t, func() bool { return calls.Load() == 2 }, time.Second, 10*time.Millisecond)
+		// Give the coalesce window another beat to ensure we did not get 1:1 applies.
+		time.Sleep(2 * CCTerminationCoalesceWindow)
+		assert.Equal(t, int32(2), calls.Load())
+
+		cancel()
+		require.NoError(t, op.Shutdown())
 	})
 }
 
