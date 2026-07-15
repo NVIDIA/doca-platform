@@ -16,7 +16,11 @@ limitations under the License.
 
 package cmd
 
-import "github.com/spf13/cobra"
+import (
+	"github.com/spf13/cobra"
+
+	"github.com/nvidia/doca-platform/hack/tools/dpfdev/cmd/gitlab"
+)
 
 // Global flags
 var configFile string
@@ -39,4 +43,7 @@ func Execute() error {
 func init() {
 	// Add global flags
 	rootCmd.PersistentFlags().StringVar(&configFile, "config", "$HOME/.config/dpfdev.json", "Path to the configuration file")
+
+	// GitLab-facing commands live in their own package.
+	rootCmd.AddCommand(gitlab.Cmd)
 }
