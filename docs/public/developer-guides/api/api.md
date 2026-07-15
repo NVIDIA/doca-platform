@@ -473,6 +473,41 @@ _Appears in:_
 
 
 
+#### EtcdEncryptionAtRestConfiguration
+
+
+
+EtcdEncryptionAtRestConfiguration is the per-cluster encryption-at-rest selector for Kamaji clusters.
+
+
+
+_Appears in:_
+- [KamajiClusterManagerConfiguration](#kamajiclustermanagerconfiguration)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `provider` _[EtcdEncryptionAtRestProvider](#etcdencryptionatrestprovider)_ | Provider selects the encryption-at-rest provider. |  | Enum: [staticKey vaultKMS] <br />Required: \{\} <br /> |
+| `staticKey` _[StaticKeyConfiguration](#statickeyconfiguration)_ | StaticKey configures the staticKey provider. It is required when provider is staticKey and<br />must not be set otherwise. |  | Optional: \{\} <br /> |
+
+
+#### EtcdEncryptionAtRestProvider
+
+_Underlying type:_ _string_
+
+EtcdEncryptionAtRestProvider selects the etcd encryption-at-rest provider.
+
+_Validation:_
+- Enum: [staticKey vaultKMS]
+
+_Appears in:_
+- [EtcdEncryptionAtRestConfiguration](#etcdencryptionatrestconfiguration)
+
+| Field | Description |
+| --- | --- |
+| `staticKey` | EtcdEncryptionProviderStaticKey encrypts etcd data with an AES-GCM key rendered inline into the encryption config.<br /> |
+| `vaultKMS` | EtcdEncryptionProviderVaultKMS encrypts etcd data via the KMS v2 plugin served by the vaultKMS component.<br /> |
+
+
 #### FlannelCNI
 
 
@@ -715,6 +750,7 @@ _Appears in:_
 | `replicas` _integer_ | Replicas is the number of replicas for the controller deployment.<br />Used for High Availability via leader election. | 2 | Maximum: 3 <br />Minimum: 1 <br />Optional: \{\} <br /> |
 | `image` _[Image](#image)_ | Image overrides the container image used by the Kamaji Cluster Manager.<br />Deprecated: This field is deprecated and will be removed with v26.7.0.<br />Use the new field `controller` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br />Optional: \{\} <br /> |
 | `controller` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Controller contains the configuration for the Kamaji Cluster Manager component.<br />It contains the image for the controller and its resource requirements. |  | Optional: \{\} <br /> |
+| `etcdEncryptionAtRest` _[EtcdEncryptionAtRestConfiguration](#etcdencryptionatrestconfiguration)_ | EtcdEncryptionAtRest configures encryption at rest for the etcd datastore of<br />Kamaji-managed DPU clusters. The configuration is applied only when a Kamaji<br />cluster is first created and is not changed for existing clusters. |  | Optional: \{\} <br /> |
 
 
 #### KataContainersConfiguration
@@ -1246,6 +1282,7 @@ SecretKeyRef selects a single key from a Secret living in the same namespace as 
 
 
 _Appears in:_
+- [StaticKeyConfiguration](#statickeyconfiguration)
 - [VaultKMSJWTAuth](#vaultkmsjwtauth)
 - [VaultKMSTokenAuth](#vaultkmstokenauth)
 
@@ -1312,6 +1349,22 @@ _Appears in:_
 | `replicas` _integer_ | Replicas is the number of replicas for the controller deployment.<br />Used for High Availability via leader election. | 2 | Maximum: 3 <br />Minimum: 1 <br />Optional: \{\} <br /> |
 | `image` _[Image](#image)_ | Image overrides the container image used by the Static Cluster Manager.<br />Deprecated: This field is deprecated and will be removed with v26.7.0.<br />Use the new field `controller` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br />Optional: \{\} <br /> |
 | `controller` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Controller contains the configuration for the Static Cluster Manager controller component.<br />It contains the image for the controller and its resource requirements. |  | Optional: \{\} <br /> |
+
+
+#### StaticKeyConfiguration
+
+
+
+StaticKeyConfiguration configures the staticKey encryption-at-rest provider.
+
+
+
+_Appears in:_
+- [EtcdEncryptionAtRestConfiguration](#etcdencryptionatrestconfiguration)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `keySecretRef` _[SecretKeyRef](#secretkeyref)_ | KeySecretRef selects the AES-GCM key from a Secret in the DPFOperatorConfig namespace.<br />The referenced Secret value must be base64-encoded AES key text whose decoded length is 16,<br />24, or 32 bytes. For Kubernetes manifests, use stringData.key with the output of<br />`openssl rand -base64 32`. For External Secrets, configure the external value or template so<br />the resulting Kubernetes Secret data decodes to that base64 text, not to raw key bytes.<br />The key value is read once and rendered into the per-cluster encryption configuration<br />at cluster creation time, so it cannot be rotated afterwards. |  | Required: \{\} <br /> |
 
 
 #### VaultKMSAppRoleAuth

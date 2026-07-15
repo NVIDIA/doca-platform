@@ -481,6 +481,57 @@ spec:
                     description: Disable ensures the component is not deployed when
                       set to true.
                     type: boolean
+                  etcdEncryptionAtRest:
+                    description: |-
+                      EtcdEncryptionAtRest configures encryption at rest for the etcd datastore of
+                      Kamaji-managed DPU clusters. The configuration is applied only when a Kamaji
+                      cluster is first created and is not changed for existing clusters.
+                    properties:
+                      provider:
+                        description: Provider selects the encryption-at-rest provider.
+                        enum:
+                        - staticKey
+                        - vaultKMS
+                        type: string
+                      staticKey:
+                        description: |-
+                          StaticKey configures the staticKey provider. It is required when provider is staticKey and
+                          must not be set otherwise.
+                        properties:
+                          keySecretRef:
+                            description: |-
+                              KeySecretRef selects the AES-GCM key from a Secret in the DPFOperatorConfig namespace.
+                              The referenced Secret value must be base64-encoded AES key text whose decoded length is 16,
+                              24, or 32 bytes. For Kubernetes manifests, use stringData.key with the output of
+                              `openssl rand -base64 32`. For External Secrets, configure the external value or template so
+                              the resulting Kubernetes Secret data decodes to that base64 text, not to raw key bytes.
+                              The key value is read once and rendered into the per-cluster encryption configuration
+                              at cluster creation time, so it cannot be rotated afterwards.
+                            properties:
+                              key:
+                                description: Key is the key within the Secret data
+                                  to select.
+                                minLength: 1
+                                type: string
+                              name:
+                                description: Name is the name of the Secret.
+                                minLength: 1
+                                type: string
+                            required:
+                            - key
+                            - name
+                            type: object
+                        required:
+                        - keySecretRef
+                        type: object
+                    required:
+                    - provider
+                    type: object
+                    x-kubernetes-validations:
+                    - message: staticKey is required when provider is staticKey
+                      rule: self.provider != 'staticKey' || has(self.staticKey)
+                    - message: staticKey must not be set when provider is vaultKMS
+                      rule: self.provider != 'vaultKMS' || !has(self.staticKey)
                   image:
                     description: |-
                       Image overrides the container image used by the Kamaji Cluster Manager.
@@ -2449,6 +2500,12 @@ spec:
                 SPIFFE-mode DPUs require re-provisioning.
               rule: '!has(oldSelf.security) || !has(oldSelf.security.spiffe) || (has(self.security)
                 && has(self.security.spiffe))'
+            - message: kamajiClusterManager.etcdEncryptionAtRest.provider vaultKMS
+                requires spec.security.vaultKMS to be enabled
+              rule: '!has(self.kamajiClusterManager) || !has(self.kamajiClusterManager.etcdEncryptionAtRest)
+                || self.kamajiClusterManager.etcdEncryptionAtRest.provider != ''vaultKMS''
+                || (has(self.security) && has(self.security.vaultKMS) && (!has(self.security.vaultKMS.disable)
+                || self.security.vaultKMS.disable == false))'
           status:
             description: DPFOperatorConfigStatus defines the observed state of DPFOperatorConfig
             properties:

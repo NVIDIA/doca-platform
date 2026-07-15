@@ -366,11 +366,21 @@ func (cm *clusterHandler) reconcileKamaji(ctx context.Context, dc *provisioningv
 		if nodePort == 0 {
 			return "", 0, nil, fmt.Errorf("missing NodePort for kube-apiserver")
 		}
-		var err error
+		// Encryption at rest and its DPUCluster metadata are applied only at TenantControlPlane
+		// creation time. The plan is derived from an existing per-cluster Secret when present,
+		// otherwise from the current DPFOperatorConfig.
+		encPlan, err := cm.reconcileEncryptionConfig(ctx, dc)
+		if err != nil {
+			return "", 0, nil, fmt.Errorf("failed to reconcile etcd encryption config, err: %v", err)
+		}
 		tcp, err = expectedTenantControlPlane(dc, cm.Scheme, nodePort)
 		if err != nil {
 			return "", 0, nil, fmt.Errorf("failed to generate expected TCP, err: %v", err)
 		}
+		if err := cm.patchDPUClusterEncryptionMetadata(ctx, dc, encPlan); err != nil {
+			return "", 0, nil, err
+		}
+		applyTCPEncryptionIfEnabled(tcp, encPlan)
 		if err := cm.Client.Create(ctx, tcp); err != nil {
 			return "", 0, nil, fmt.Errorf("failed to create cluster request, err: %v", err)
 		}
