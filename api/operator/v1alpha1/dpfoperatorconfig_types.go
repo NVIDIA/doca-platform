@@ -217,6 +217,7 @@ const (
 // +kubebuilder:validation:XValidation:rule="!has(self.deploymentMode) || self.deploymentMode != 'zero-trust' || !has(self.networking) || !has(self.networking.controlPlaneMTU) || self.networking.controlPlaneMTU <= 1500",message="controlPlaneMTU must not exceed 1500 in zero-trust mode because DPU OOB interfaces do not support jumbo frames"
 // +kubebuilder:validation:XValidation:rule="!has(self.security) || !has(self.security.spiffe) || self.deploymentMode == 'zero-trust'",message="spiffe configuration requires deploymentMode=zero-trust"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.security) || !has(oldSelf.security.spiffe) || (has(self.security) && has(self.security.spiffe))",message="spec.security.spiffe cannot be removed once set; SPIFFE-mode DPUs depend on this configuration. Disable SPIFFE for the cluster by deleting and recreating DPFOperatorConfig (DR escape hatch); existing SPIFFE-mode DPUs require re-provisioning."
+// +kubebuilder:validation:XValidation:rule="!has(self.kamajiClusterManager) || !has(self.kamajiClusterManager.etcdEncryptionAtRest) || self.kamajiClusterManager.etcdEncryptionAtRest.provider != 'vaultKMS' || (has(self.security) && has(self.security.vaultKMS) && (!has(self.security.vaultKMS.disable) || self.security.vaultKMS.disable == false))",message="kamajiClusterManager.etcdEncryptionAtRest.provider vaultKMS requires spec.security.vaultKMS to be enabled"
 type DPFOperatorConfigSpec struct {
 	// +optional
 	Overrides *Overrides `json:"overrides,omitempty"`
