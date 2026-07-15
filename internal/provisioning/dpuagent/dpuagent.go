@@ -198,6 +198,18 @@ func (d *DPUAgent) Shutdown() error {
 	return nil
 }
 
+// StartNICRuntimeConfigLoop starts the post-provisioning E/W NIC runtime config
+// loop (first apply with retry, then periodic reapply). No-op when NIC provisioning
+// did not start a DMS session.
+func (d *DPUAgent) StartNICRuntimeConfigLoop(ctx context.Context) {
+	for _, op := range d.operations {
+		if nicProvisioning, ok := op.(*nicprovisioning.NICProvisioning); ok {
+			nicProvisioning.StartRuntimeConfigLoop(ctx, d.optCtx)
+			return
+		}
+	}
+}
+
 // updateStatusUntilSuccess fetches the latest DPU, verifies the UID, merges
 // the in-memory AgentStatus fields, and patches until success.
 func (d *DPUAgent) updateStatusUntilSuccess(ctx context.Context) {
