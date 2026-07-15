@@ -1261,6 +1261,57 @@ var _ = Describe("DPUService Controller", func() {
 			}).WithTimeout(30 * time.Second).Should(BeNil())
 		})
 
+		It("should fail to reconcile config ports in zero-trust deployment mode", func() {
+			By("modifying the DPFOperatorConfig deployment mode to zero-trust")
+			originalOperatorConfig := testConfig.DeepCopy()
+			testConfig.Spec.DeploymentMode = operatorv1.DeploymentModeZeroTrust
+			testConfig.Spec.ProvisioningController.InstallInterface = &operatorv1.ProvisioningInstallInterface{
+				InstallViaRedfish: &operatorv1.InstallViaRedfish{},
+			}
+			Expect(testClient.Patch(ctx, testConfig, client.MergeFrom(originalOperatorConfig))).To(Succeed())
+			DeferCleanup(func() {
+				restoreBase := testConfig.DeepCopy()
+				testConfig.Spec.DeploymentMode = originalOperatorConfig.Spec.DeploymentMode
+				testConfig.Spec.ProvisioningController = originalOperatorConfig.Spec.ProvisioningController
+				Expect(testClient.Patch(ctx, testConfig, client.MergeFrom(restoreBase))).To(Succeed())
+			})
+
+			clusters := []provisioningv1.DPUCluster{
+				testutils.GetTestDPUCluster(testDPU1NS.Name, "cluster-one"),
+			}
+			createDPUClusters(clusters)
+
+			By("creating the DPUService with config ports")
+			configPorts := &dpuservicev1.ConfigPorts{
+				ServiceType: corev1.ServiceTypeNodePort,
+				Ports: []dpuservicev1.ConfigPort{
+					{
+						Name:     "port-one",
+						Port:     8080,
+						Protocol: corev1.ProtocolTCP,
+					},
+				},
+			}
+			// we only care about dpuServices[0] in this test
+			dpuServices := getMinimalDPUServices(testNS.Name)
+			dpuService := dpuServices[0]
+			dpuService.Spec.ConfigPorts = configPorts
+			Expect(testClient.Create(ctx, dpuService)).To(Succeed())
+			DeferCleanup(cleanupDPUServiceAndApplication, ctx, testClient, dpuService, testConfig.Namespace)
+
+			By("validating the ConfigPortsReconciled condition reports the zero-trust failure")
+			Eventually(func(g Gomega) {
+				gotDPUService := &dpuservicev1.DPUService{}
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuService), gotDPUService)).To(Succeed())
+				g.Expect(gotDPUService.Status.Conditions).To(ContainElement(And(
+					HaveField("Type", string(dpuservicev1.ConditionConfigPortsReconciled)),
+					HaveField("Status", metav1.ConditionFalse),
+					HaveField("Reason", string(conditions.ReasonError)),
+					HaveField("Message", ContainSubstring("zero-trust deployment mode is not supported with config ports")),
+				)))
+			}).WithTimeout(30 * time.Second).Should(Succeed())
+		})
+
 		It("should reconcile config ports with OVN VTEP IP from host node encap annotation", func() {
 			featuregatetesting.SetFeatureGateDuringTest(GinkgoT(), features.MutableGates, features.ConfigPortsOverHighSpeed, true)
 
