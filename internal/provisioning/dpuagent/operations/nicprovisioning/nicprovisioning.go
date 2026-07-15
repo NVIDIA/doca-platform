@@ -47,6 +47,7 @@ import (
 	nictypes "github.com/Mellanox/nic-configuration-operator/pkg/types"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -66,6 +67,17 @@ const (
 	embeddedSpectrumXConfigDir = "bindata/spectrum-x"
 )
 
+// RuntimeConfigInterval is how often the post-provisioning runtime config loop reapplies.
+// Overridable in tests.
+var RuntimeConfigInterval = 20 * time.Minute
+
+// RuntimeConfigRetryInterval is the retry interval used for the first runtime config apply.
+var RuntimeConfigRetryInterval = 30 * time.Second
+
+// CCTerminationCoalesceWindow collapses bursty DOCA SPC-X CC termination notifications
+// into a single runtime-config reapply.
+var CCTerminationCoalesceWindow = 2 * time.Second
+
 //go:embed bindata/spectrum-x/*.yaml
 var embeddedSpectrumXConfigs embed.FS
 
@@ -83,6 +95,10 @@ type NICProvisioning struct {
 	applyRuntimeConfigFn      func(execCtx context.Context, optCtx *operations.Context) error
 	// configureRestrictedModeFn overrides the restricted mode step (tests only).
 	configureRestrictedModeFn func(execCtx context.Context, optCtx *operations.Context) error
+	// ccTerminationCh overrides SpectrumXManager.GetCCTerminationChannel (tests only).
+	ccTerminationCh <-chan string
+
+	runtimeConfigWG sync.WaitGroup
 }
 
 func (n *NICProvisioning) Name() string {
@@ -165,13 +181,8 @@ func (n *NICProvisioning) Execute(execCtx context.Context, optCtx *operations.Co
 		return err
 	}
 	if optCtx.NICFirmwareRebootRequired {
-		klog.InfoS("NIC provisioning: reboot required after NIC NV config apply, skipping runtime configuration")
+		klog.InfoS("NIC provisioning: reboot required after NIC NV config apply")
 		return nil
-	}
-
-	// 6. Apply runtime configuration for E/W NIC devices.
-	if err := n.applyRuntimeConfigAndUpdateStatus(execCtx, optCtx); err != nil {
-		return err
 	}
 
 	return nil
@@ -851,9 +862,142 @@ func (n *NICProvisioning) stopLocalDMSServer() error {
 	return nil
 }
 
-// Shutdown stops the local DMS server after the DPU agent has finished using it.
+// Shutdown waits for the runtime-config loop (if running) to exit, then stops
+// the local DMS server. The loop is expected to exit when its ctx is canceled
+// (in production, main cancels execCtx before calling Shutdown).
 func (n *NICProvisioning) Shutdown() error {
+	n.runtimeConfigWG.Wait()
 	return n.stopLocalDMSServer()
+}
+
+// StartRuntimeConfigLoop applies runtime configuration once (retrying until success
+// or ctx cancel), then reapplies every RuntimeConfigInterval until ctx is canceled.
+// No-op when the local DMS session was never started. Callers must invoke this at
+// most once per NICProvisioning instance.
+func (n *NICProvisioning) StartRuntimeConfigLoop(ctx context.Context, optCtx *operations.Context) {
+	if n.dmsServer == nil {
+		klog.Info("NIC provisioning: no local DMS session; skip runtime configuration loop")
+		return
+	}
+	n.runtimeConfigWG.Add(1)
+	klog.Info("NIC provisioning: starting runtime configuration loop")
+	go n.runRuntimeConfigLoop(ctx, optCtx)
+}
+
+func (n *NICProvisioning) runRuntimeConfigLoop(ctx context.Context, optCtx *operations.Context) {
+	defer n.runtimeConfigWG.Done()
+
+	err := wait.PollUntilContextCancel(ctx, RuntimeConfigRetryInterval, true, func(execCtx context.Context) (bool, error) {
+		if err := n.applyRuntimeConfigAndUpdateStatus(execCtx, optCtx); err != nil {
+			klog.Errorf("NIC runtime config apply failed, retrying: %v", err)
+			return false, nil
+		}
+		klog.Info("NIC runtime config first apply succeeded")
+		return true, nil
+	})
+	if err != nil {
+		klog.Errorf("NIC runtime config first apply aborted: %v", err)
+		return
+	}
+
+	ticker := time.NewTicker(RuntimeConfigInterval)
+	defer ticker.Stop()
+
+	ccCh := n.ccTerminationChannel()
+	var (
+		coalesceTimer *time.Timer
+		coalesceC     <-chan time.Time
+	)
+	stopCoalesceTimer := func() {
+		if coalesceTimer == nil {
+			return
+		}
+		if !coalesceTimer.Stop() {
+			select {
+			case <-coalesceTimer.C:
+			default:
+			}
+		}
+		coalesceTimer = nil
+		coalesceC = nil
+	}
+	defer stopCoalesceTimer()
+
+	for {
+		select {
+		case <-ctx.Done():
+			klog.Info("NIC provisioning: runtime configuration loop stopped")
+			return
+		case <-ticker.C:
+			if err := n.applyRuntimeConfigAndUpdateStatus(ctx, optCtx); err != nil {
+				klog.ErrorS(err, "periodic NIC runtime config apply failed")
+			}
+		case iface, ok := <-ccCh:
+			if !ok {
+				klog.Info("NIC provisioning: CC termination channel closed")
+				ccCh = nil
+				continue
+			}
+			ifaces := n.drainCCTerminations(ccCh, iface)
+			klog.InfoS("NIC provisioning: DOCA SPC-X CC process terminated; scheduling runtime config reapply",
+				"rdmaInterfaces", ifaces)
+			if coalesceTimer == nil {
+				coalesceTimer = time.NewTimer(CCTerminationCoalesceWindow)
+				coalesceC = coalesceTimer.C
+			} else {
+				if !coalesceTimer.Stop() {
+					select {
+					case <-coalesceTimer.C:
+					default:
+					}
+				}
+				coalesceTimer.Reset(CCTerminationCoalesceWindow)
+			}
+		case <-coalesceC:
+			coalesceTimer = nil
+			coalesceC = nil
+			// Catch anything that arrived while the timer was firing.
+			ifaces := n.drainCCTerminations(ccCh)
+			if len(ifaces) > 0 {
+				klog.InfoS("NIC provisioning: coalesced additional CC terminations before reapply",
+					"rdmaInterfaces", ifaces)
+			}
+			if err := n.applyRuntimeConfigAndUpdateStatus(ctx, optCtx); err != nil {
+				klog.ErrorS(err, "CC-termination-triggered NIC runtime config apply failed")
+			}
+		}
+	}
+}
+
+func (n *NICProvisioning) ccTerminationChannel() <-chan string {
+	if n.ccTerminationCh != nil {
+		return n.ccTerminationCh
+	}
+	if n.spectrumXMgr == nil {
+		return nil
+	}
+	return n.spectrumXMgr.GetCCTerminationChannel()
+}
+
+// drainCCTerminations reads seed (optional) plus any currently buffered CC termination
+// notifications without blocking, so a burst collapses into one reapply.
+func (n *NICProvisioning) drainCCTerminations(ch <-chan string, seed ...string) []string {
+	ifaces := make([]string, 0, len(seed)+1)
+	ifaces = append(ifaces, seed...)
+	if ch == nil {
+		return ifaces
+	}
+	for {
+		select {
+		case iface, ok := <-ch:
+			if !ok {
+				return ifaces
+			}
+			ifaces = append(ifaces, iface)
+		default:
+			return ifaces
+		}
+	}
 }
 
 // LogRetainedResources logs whether long-lived NIC provisioning resources are still
