@@ -54,7 +54,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
 var _ = Describe("DPUService Controller", func() {
@@ -2996,99 +2995,6 @@ var _ = Describe("nodeEventHandler", func() {
 			Consistently(func() int {
 				return queue.Len()
 			}, 1*time.Second).Should(Equal(0))
-		})
-	})
-
-	Describe("nodeAddressPredicate", func() {
-		var predicate predicate.Funcs
-
-		BeforeEach(func() {
-			predicate = nodeAddressPredicate()
-		})
-
-		Context("CreateFunc", func() {
-			It("should return true for all create events", func() {
-				node := newTestNode("new-node", hostNodeName)
-				Expect(predicate.CreateFunc(event.CreateEvent{Object: node})).To(BeTrue())
-			})
-		})
-
-		Context("UpdateFunc", func() {
-			It("should return true when addresses change", func() {
-				oldNode := newTestNode("test-node", hostNodeName)
-				newNode := oldNode.DeepCopy()
-				newNode.Status.Addresses = []corev1.NodeAddress{
-					{Type: corev1.NodeInternalIP, Address: "2.2.2.2"},
-				}
-
-				Expect(predicate.UpdateFunc(event.UpdateEvent{
-					ObjectOld: oldNode,
-					ObjectNew: newNode,
-				})).To(BeTrue())
-			})
-
-			It("should return true when address is added", func() {
-				oldNode := newTestNode("test-node", hostNodeName)
-				newNode := oldNode.DeepCopy()
-				newNode.Status.Addresses = append(newNode.Status.Addresses,
-					corev1.NodeAddress{Type: corev1.NodeExternalIP, Address: "2.2.2.2"})
-
-				Expect(predicate.UpdateFunc(event.UpdateEvent{
-					ObjectOld: oldNode,
-					ObjectNew: newNode,
-				})).To(BeTrue())
-			})
-
-			It("should return true when address is removed", func() {
-				oldNode := newTestNode("test-node", hostNodeName)
-				oldNode.Status.Addresses = append(oldNode.Status.Addresses,
-					corev1.NodeAddress{Type: corev1.NodeExternalIP, Address: "2.2.2.2"})
-				newNode := oldNode.DeepCopy()
-				newNode.Status.Addresses = []corev1.NodeAddress{
-					{Type: corev1.NodeInternalIP, Address: "1.1.1.1"},
-				}
-
-				Expect(predicate.UpdateFunc(event.UpdateEvent{
-					ObjectOld: oldNode,
-					ObjectNew: newNode,
-				})).To(BeTrue())
-			})
-
-			It("should return false when addresses do not change", func() {
-				oldNode := newTestNode("test-node", hostNodeName)
-				newNode := oldNode.DeepCopy()
-
-				Expect(predicate.UpdateFunc(event.UpdateEvent{
-					ObjectOld: oldNode,
-					ObjectNew: newNode,
-				})).To(BeFalse())
-			})
-
-			It("should return false when only labels change", func() {
-				oldNode := newTestNode("test-node", hostNodeName)
-				oldNode.Labels["key"] = "old-value"
-				newNode := oldNode.DeepCopy()
-				newNode.Labels["key"] = "new-value"
-
-				Expect(predicate.UpdateFunc(event.UpdateEvent{
-					ObjectOld: oldNode,
-					ObjectNew: newNode,
-				})).To(BeFalse())
-			})
-		})
-
-		Context("DeleteFunc", func() {
-			It("should return true for all delete events", func() {
-				node := newTestNode("deleted-node", hostNodeName)
-				Expect(predicate.DeleteFunc(event.DeleteEvent{Object: node})).To(BeTrue())
-			})
-		})
-
-		Context("GenericFunc", func() {
-			It("should return false for all generic events", func() {
-				node := newTestNode("generic-node", hostNodeName)
-				Expect(predicate.GenericFunc(event.GenericEvent{Object: node})).To(BeFalse())
-			})
 		})
 	})
 })

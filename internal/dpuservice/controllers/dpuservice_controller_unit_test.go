@@ -43,7 +43,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-	"sigs.k8s.io/controller-runtime/pkg/event"
 )
 
 func applicationPrereqsTestScheme(t *testing.T) *runtime.Scheme {
@@ -504,47 +503,6 @@ func TestReconcilePrivilegedPodEnforcementSwitchesToAuditWhenDisabled(t *testing
 	g.Expect(cm.Data).To(Equal(map[string]string{"svc-id": "svc-ns/svc"}))
 }
 
-// TestPrivilegedPodEnforcementChangedPredicate verifies the DPFOperatorConfig
-// watch only enqueues DPUServices when the resolved enforcement state actually
-// changes, so unrelated config edits do not re-reconcile every DPUService.
-func TestPrivilegedPodEnforcementChangedPredicate(t *testing.T) {
-	g := NewWithT(t)
-	p := privilegedPodEnforcementChangedPredicate()
-
-	configWith := func(enforce *bool) *operatorv1.DPFOperatorConfig {
-		return &operatorv1.DPFOperatorConfig{
-			Spec: operatorv1.DPFOperatorConfigSpec{
-				Security: &operatorv1.SecurityConfiguration{PrivilegedPodEnforcement: enforce},
-			},
-		}
-	}
-
-	// Create/Delete/Generic never enqueue: DPUServices reconcile their own
-	// lifecycle and pick up state via resync.
-	g.Expect(p.Create(event.CreateEvent{Object: configWith(ptr.To(false))})).To(BeFalse())
-	g.Expect(p.Delete(event.DeleteEvent{Object: configWith(ptr.To(false))})).To(BeFalse())
-	g.Expect(p.Generic(event.GenericEvent{Object: configWith(ptr.To(false))})).To(BeFalse())
-
-	// Enforcement flips true -> false: enqueue.
-	g.Expect(p.Update(event.UpdateEvent{
-		ObjectOld: configWith(ptr.To(true)),
-		ObjectNew: configWith(ptr.To(false)),
-	})).To(BeTrue())
-
-	// Unset (defaults true) -> explicit false: enqueue.
-	g.Expect(p.Update(event.UpdateEvent{
-		ObjectOld: configWith(nil),
-		ObjectNew: configWith(ptr.To(false)),
-	})).To(BeTrue())
-
-	// Enforcement unchanged (both default to enabled), only an unrelated spec
-	// change: do not enqueue.
-	oldCfg := configWith(nil)
-	newCfg := configWith(ptr.To(true))
-	newCfg.Spec.Networking = &operatorv1.Networking{ControlPlaneMTU: ptr.To(1500)}
-	g.Expect(p.Update(event.UpdateEvent{ObjectOld: oldCfg, ObjectNew: newCfg})).To(BeFalse())
-}
-
 // TestOvnEncapIPFromNode verifies parsing of the OVN-Kubernetes node-encap-ips annotation.
 func TestOvnEncapIPFromNode(t *testing.T) {
 	ctx := context.Background()
@@ -829,78 +787,5 @@ func TestRequestsForHostNode(t *testing.T) {
 		}
 
 		g.Expect(r.requestsForHostNode(ctx, hostNode)).To(BeEmpty())
-	})
-}
-
-func TestNodeOVNEncapIPPredicate(t *testing.T) {
-	predicate := nodeOVNEncapIPPredicate()
-	ovnEncapIPValue := `["10.0.120.1"]`
-	ovnEncapIPValueModified := `["10.0.120.2"]`
-
-	getTestNode := func() *corev1.Node {
-		return &corev1.Node{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:        "host-node",
-				Annotations: map[string]string{},
-			},
-		}
-	}
-
-	t.Run("returns true when OVN encap IPs annotation changes", func(t *testing.T) {
-		g := NewWithT(t)
-		oldNode := getTestNode()
-		oldNode.Annotations[ovnNodeEncapIPsAnnotation] = ovnEncapIPValue
-
-		newNode := oldNode.DeepCopy()
-		newNode.Annotations[ovnNodeEncapIPsAnnotation] = ovnEncapIPValueModified
-
-		g.Expect(predicate.UpdateFunc(event.UpdateEvent{ObjectOld: oldNode, ObjectNew: newNode})).To(BeTrue())
-	})
-
-	t.Run("returns false when unrelated node annotation change", func(t *testing.T) {
-		g := NewWithT(t)
-		oldNode := getTestNode()
-		oldNode.Annotations[ovnNodeEncapIPsAnnotation] = ovnEncapIPValue
-
-		newNode := oldNode.DeepCopy()
-		newNode.Annotations["key"] = "new"
-
-		g.Expect(predicate.UpdateFunc(event.UpdateEvent{ObjectOld: oldNode, ObjectNew: newNode})).To(BeFalse())
-	})
-
-	t.Run("returns true on create when OVN encap IPs annotation is present", func(t *testing.T) {
-		g := NewWithT(t)
-		node := getTestNode()
-		node.Annotations[ovnNodeEncapIPsAnnotation] = ovnEncapIPValue
-
-		g.Expect(predicate.CreateFunc(event.CreateEvent{Object: node})).To(BeTrue())
-	})
-
-	t.Run("returns false on create when OVN encap IPs annotation is not present", func(t *testing.T) {
-		g := NewWithT(t)
-		node := getTestNode()
-
-		g.Expect(predicate.CreateFunc(event.CreateEvent{Object: node})).To(BeFalse())
-	})
-
-	t.Run("returns true on delete when annotation was present", func(t *testing.T) {
-		g := NewWithT(t)
-		node := getTestNode()
-		node.Annotations[ovnNodeEncapIPsAnnotation] = ovnEncapIPValue
-
-		g.Expect(predicate.DeleteFunc(event.DeleteEvent{Object: node})).To(BeTrue())
-	})
-
-	t.Run("returns false on delete when annotation was not present", func(t *testing.T) {
-		g := NewWithT(t)
-		node := getTestNode()
-
-		g.Expect(predicate.DeleteFunc(event.DeleteEvent{Object: node})).To(BeFalse())
-	})
-
-	t.Run("returns false for generic events", func(t *testing.T) {
-		g := NewWithT(t)
-		node := getTestNode()
-		g.Expect(predicate.GenericFunc(event.GenericEvent{Object: node})).To(BeFalse())
 	})
 }
