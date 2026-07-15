@@ -46,7 +46,6 @@ import (
 	multusTypes "gopkg.in/k8snetworkplumbingwg/multus-cni.v4/pkg/types"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1771,31 +1770,6 @@ func (r *DPUServiceReconciler) DPUClusterToDPUService(ctx context.Context, _ cli
 	return result
 }
 
-// privilegedPodEnforcementChangedPredicate triggers a DPUService reconcile only
-// when the DPFOperatorConfig's resolved privileged-pod enforcement state
-// changes. Create/Delete/Generic events and unrelated spec edits are ignored:
-// DPUServices reconcile their own lifecycle (and pick up the current state via
-// the periodic resync), so the watch exists purely to make a breakglass toggle
-// converge promptly without re-reconciling every DPUService on every config edit.
-func privilegedPodEnforcementChangedPredicate() predicate.Predicate {
-	return predicate.Funcs{
-		CreateFunc:  func(event.CreateEvent) bool { return false },
-		DeleteFunc:  func(event.DeleteEvent) bool { return false },
-		GenericFunc: func(event.GenericEvent) bool { return false },
-		UpdateFunc: func(e event.UpdateEvent) bool {
-			oldConfig, ok := e.ObjectOld.(*operatorv1.DPFOperatorConfig)
-			if !ok {
-				return false
-			}
-			newConfig, ok := e.ObjectNew.(*operatorv1.DPFOperatorConfig)
-			if !ok {
-				return false
-			}
-			return oldConfig.Spec.Security.PrivilegedPodEnforcementEnabled() != newConfig.Spec.Security.PrivilegedPodEnforcementEnabled()
-		},
-	}
-}
-
 // dpfOperatorConfigToDPUServices enqueues all DPUServices when the
 // DPFOperatorConfig changes, so breakglass toggles (e.g. privileged-pod
 // enforcement) take effect without waiting for the next resync.
@@ -1915,25 +1889,6 @@ func (r *DPUServiceReconciler) unpauseApplication(ctx context.Context, app *argo
 		return fmt.Errorf("unpause ArgoCD application: %w", err)
 	}
 	return nil
-}
-
-func nodeOVNEncapIPPredicate() predicate.Funcs {
-	return predicate.Funcs{
-		CreateFunc: func(e event.CreateEvent) bool {
-			return e.Object.GetAnnotations()[ovnNodeEncapIPsAnnotation] != ""
-		},
-		UpdateFunc: func(e event.UpdateEvent) bool {
-			oldAnno := e.ObjectOld.GetAnnotations()
-			newAnno := e.ObjectNew.GetAnnotations()
-			return oldAnno[ovnNodeEncapIPsAnnotation] != newAnno[ovnNodeEncapIPsAnnotation]
-		},
-		DeleteFunc: func(e event.DeleteEvent) bool {
-			return e.Object.GetAnnotations()[ovnNodeEncapIPsAnnotation] != ""
-		},
-		GenericFunc: func(e event.GenericEvent) bool {
-			return false
-		},
-	}
 }
 
 // requestsForHostNode enqueues DPUServices with config ports which target a DPU associated with the host-cluster node.
@@ -2068,38 +2023,6 @@ func (r *DPUServiceReconciler) getDPUClusterClient(ctx context.Context, dpuClust
 	}
 
 	return dpuClusterClient, nil
-}
-
-func nodeAddressPredicate() predicate.Funcs {
-	return predicate.Funcs{
-		CreateFunc: func(e event.CreateEvent) bool {
-			return true
-		},
-		UpdateFunc: func(e event.UpdateEvent) bool {
-			oldNode := e.ObjectOld.(*corev1.Node)
-			newNode := e.ObjectNew.(*corev1.Node)
-
-			// We only care about transitions to/from the node addresses.
-			oldAddresses := oldNode.Status.Addresses
-			newAddresses := newNode.Status.Addresses
-
-			// trigger if the internal addresses have changed
-			if !equality.Semantic.DeepEqual(oldAddresses, newAddresses) {
-				return true
-			}
-
-			// Ignore all other updates
-			return false
-		},
-		DeleteFunc: func(e event.DeleteEvent) bool {
-			// accept all delete events
-			return true
-		},
-		GenericFunc: func(e event.GenericEvent) bool {
-			// we are not interested in generic events
-			return false
-		},
-	}
 }
 
 // nodeEventHandler is a handler for node events
