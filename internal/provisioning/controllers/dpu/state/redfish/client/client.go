@@ -708,10 +708,11 @@ const ChassisAssetTagUnavailable = "N/A"
 
 // ChassisInfo contains the part number information responded by RedFish API
 type ChassisInfo struct {
-	AssetTag     string `json:"AssetTag"`
-	Model        string `json:"Model"`
-	PartNumber   string `json:"PartNumber"`
-	SerialNumber string `json:"SerialNumber"`
+	AssetTag     string                 `json:"AssetTag"`
+	Model        string                 `json:"Model"`
+	PartNumber   string                 `json:"PartNumber"`
+	SerialNumber string                 `json:"SerialNumber"`
+	Oem          map[string]interface{} `json:"Oem"`
 }
 
 var blueFieldRegex = regexp.MustCompile(`bluefield[- ]?(\d+)`)
@@ -746,6 +747,14 @@ func (c *Client) GetChassis() (*resty.Response, *ChassisInfo, error) {
 
 	return do[ChassisInfo](func() (*resty.Response, error) {
 		return c.Client.R().Get(strings.Replace(APIGetChassis, "{CHASSIS_ID}", chassisID, 1))
+	})
+}
+
+func (c *Client) GetErotChassis() (*resty.Response, *ChassisInfo, error) {
+	chassisID := "BlueField_ERoT_BMC_0"
+	url := strings.Replace(APIGetChassis, "{CHASSIS_ID}", chassisID, 1)
+	return do[ChassisInfo](func() (*resty.Response, error) {
+		return c.Client.R().Get(url)
 	})
 }
 

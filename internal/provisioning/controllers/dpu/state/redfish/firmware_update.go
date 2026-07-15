@@ -234,6 +234,43 @@ func updatePldmFwBundle(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 	cond := cutil.NewCondition(provisioningv1.DPUCondFwBundleSubmitted.String(), nil, "Submitting", "Submitting PLDM Firmware")
 	_, existingCond := cutil.GetDPUCondition(&dpu.Status, cond.Type)
 	if existingCond == nil || existingCond.Status != metav1.ConditionTrue {
+		_, erotChassis, err := client.GetErotChassis()
+		if err != nil {
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToGetErotChassis", err.Error()))
+			return *state, err
+		}
+
+		nvidiaRaw, ok := erotChassis.Oem["Nvidia"]
+		if !ok || nvidiaRaw == nil {
+			err := errors.New("ERoT chassis is not found")
+			logger.Error(err, "ERoT chassis is not found")
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "ERoTChassisNotFound", err.Error()))
+			return *state, err
+		}
+		nvidiaOem, ok := nvidiaRaw.(map[string]interface{})
+		if !ok {
+			err := errors.New("ERoT chassis Nvidia OEM format is invalid")
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "ERoTChassisInvalidFormat", err.Error()))
+			return *state, err
+		}
+		statusRaw, ok := nvidiaOem["BackgroundCopyStatus"]
+		if !ok || statusRaw == nil {
+			err := errors.New("ERoT background copy status is not found")
+			logger.Error(err, "ERoT background copy status is not found")
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "ERoTBackgroundCopyStatusNotFound", err.Error()))
+			return *state, err
+		}
+		backgroundCopyStatus, ok := statusRaw.(string)
+		if !ok || backgroundCopyStatus == "" {
+			err := errors.New("ERoT background copy status format is invalid")
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "ERoTBackgroundCopyStatusInvalidFormat", err.Error()))
+			return *state, err
+		}
+		if backgroundCopyStatus != "Completed" {
+			logger.Info("ERoT background copy is not completed, waiting for it to complete")
+			return *state, nil
+		}
+
 		fwFile, err := os.Open(pldmFwBundle)
 		if err != nil {
 			err = fmt.Errorf("failed to open %s: %w", pldmFwBundle, err)

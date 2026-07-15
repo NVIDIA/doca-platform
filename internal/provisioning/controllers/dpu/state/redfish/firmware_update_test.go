@@ -434,6 +434,110 @@ var _ = Describe("FirmwareUpdate", func() {
 		))
 	})
 
+	Context("ERoT background copy status", func() {
+		preparePldmUpdate := func(mockServer *redfishmock.RedfishMockServer) (*provisioningv1.DPU, string) {
+			createBMCAndMTLSSecretsForBF4(mockServer)
+			prepareBF4DPUDevice(mockServer)
+
+			pldmPath := createTempPldmFwBundle()
+			dpu := dpuObj(defaultDPUName)
+			dpu.Spec.DPUDeviceName = defaultDPUDeviceName
+			dpu.Status.Phase = provisioningv1.DPUUpdateFirmware
+			dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
+			return dpu, pldmPath
+		}
+
+		It("should wait when ERoT background copy is not completed", func() {
+			mockServer := createBF4MockRedfishServer()
+			defer mockServer.Stop()
+			mockServer.SetErotBackgroundCopyStatus("InProgress")
+
+			dpu, pldmPath := preparePldmUpdate(mockServer)
+			defer func() { _ = os.Remove(pldmPath) }()
+
+			status, err := updatePldmFwBundle(ctx, dpu, &dutil.ControllerContext{Client: k8sClient}, pldmPath, false)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.RedfishTaskID).To(BeNil())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUUpdateFirmware))
+		})
+
+		It("should submit PLDM update when ERoT background copy is completed", func() {
+			mockServer := createBF4MockRedfishServer()
+			defer mockServer.Stop()
+			mockServer.SetErotBackgroundCopyStatus("Completed")
+
+			dpu, pldmPath := preparePldmUpdate(mockServer)
+			defer func() { _ = os.Remove(pldmPath) }()
+
+			status, err := updatePldmFwBundle(ctx, dpu, &dutil.ControllerContext{Client: k8sClient}, pldmPath, false)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.RedfishTaskID).NotTo(BeNil())
+			Expect(status.Conditions).To(ContainElement(
+				And(
+					HaveField("Type", provisioningv1.DPUCondFwBundleSubmitted.String()),
+					HaveField("Reason", "Submitting"),
+				),
+			))
+		})
+
+		It("should return error when ERoT chassis cannot be retrieved", func() {
+			mockServer := createBF4MockRedfishServer()
+			defer mockServer.Stop()
+			mockServer.SetErotChassisError(true)
+
+			dpu, pldmPath := preparePldmUpdate(mockServer)
+			defer func() { _ = os.Remove(pldmPath) }()
+
+			status, err := updatePldmFwBundle(ctx, dpu, &dutil.ControllerContext{Client: k8sClient}, pldmPath, false)
+			Expect(err).To(HaveOccurred())
+			Expect(status.RedfishTaskID).To(BeNil())
+			Expect(status.Conditions).To(ContainElement(
+				And(
+					HaveField("Type", provisioningv1.DPUCondFWConfigured.String()),
+					HaveField("Reason", "FailedToGetErotChassis"),
+				),
+			))
+		})
+
+		It("should return error when ERoT chassis Nvidia OEM is not found", func() {
+			mockServer := createBF4MockRedfishServer()
+			defer mockServer.Stop()
+			mockServer.SetErotChassisOemPresent(false)
+
+			dpu, pldmPath := preparePldmUpdate(mockServer)
+			defer func() { _ = os.Remove(pldmPath) }()
+
+			status, err := updatePldmFwBundle(ctx, dpu, &dutil.ControllerContext{Client: k8sClient}, pldmPath, false)
+			Expect(err).To(MatchError("ERoT chassis is not found"))
+			Expect(status.RedfishTaskID).To(BeNil())
+			Expect(status.Conditions).To(ContainElement(
+				And(
+					HaveField("Type", provisioningv1.DPUCondFWConfigured.String()),
+					HaveField("Reason", "ERoTChassisNotFound"),
+				),
+			))
+		})
+
+		It("should return error when ERoT background copy status is not found", func() {
+			mockServer := createBF4MockRedfishServer()
+			defer mockServer.Stop()
+			mockServer.SetErotBackgroundCopyStatusPresent(false)
+
+			dpu, pldmPath := preparePldmUpdate(mockServer)
+			defer func() { _ = os.Remove(pldmPath) }()
+
+			status, err := updatePldmFwBundle(ctx, dpu, &dutil.ControllerContext{Client: k8sClient}, pldmPath, false)
+			Expect(err).To(MatchError("ERoT background copy status is not found"))
+			Expect(status.RedfishTaskID).To(BeNil())
+			Expect(status.Conditions).To(ContainElement(
+				And(
+					HaveField("Type", provisioningv1.DPUCondFWConfigured.String()),
+					HaveField("Reason", "ERoTBackgroundCopyStatusNotFound"),
+				),
+			))
+		})
+	})
+
 	Context("checkFirmwareUpdateTimeout", func() {
 		It("should return nil when timeout is zero", func() {
 			state := &provisioningv1.DPUStatus{}
