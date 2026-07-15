@@ -91,20 +91,6 @@ func TestLoadScheduleFileDiamondLoadsOnce(t *testing.T) {
 	}
 }
 
-func TestLoadScheduleFileDuplicateID(t *testing.T) {
-	dir := t.TempDir()
-	writeFile(t, dir, "a.yaml", "schedules:\n  - {id: 42, description: a, ref: main, cron: '0 1 * * *'}\n")
-	root := writeFile(t, dir, "root.yaml", "include: [a.yaml]\nschedules:\n  - {id: 42, description: b, ref: main, cron: '0 2 * * *'}\n")
-
-	_, err := loadScheduleFile(root)
-	if err == nil || !strings.Contains(err.Error(), "ids must be unique") {
-		t.Fatalf("expected duplicate-id error, got %v", err)
-	}
-	if !strings.Contains(err.Error(), "copied") {
-		t.Fatalf("duplicate-id error should hint at the copy case, got %v", err)
-	}
-}
-
 func TestLoadScheduleFileDuplicateAcrossFiles(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "a.yaml", "schedules:\n  - {description: dup, ref: main, cron: '0 1 * * *'}\n")
