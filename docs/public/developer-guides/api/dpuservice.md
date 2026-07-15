@@ -213,6 +213,7 @@ from the host cluster by creating a new `Service` resource.
 
 For more information on how to write a Helm chart for a `DPUService`, in order to expose ports, see the [DPUService development guide](../services/dpuservice-development.md).
 
+**Note**: ConfigPorts is not supported in zero-trust deployment mode
 
 ## DPUService Update
 
