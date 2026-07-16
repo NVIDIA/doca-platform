@@ -167,6 +167,9 @@ func CreateDPUAgentRoleBinding(ctx context.Context, client crclient.Client, sche
 		return controllerutil.SetOwnerReference(dpu, rb, scheme)
 	})
 	if err != nil {
+		if apierrors.IsAlreadyExists(err) {
+			return nil
+		}
 		return fmt.Errorf("reconciling rolebinding %s: %w", bindingName, err)
 	}
 	return nil
