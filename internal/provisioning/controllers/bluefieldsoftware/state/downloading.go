@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -167,15 +168,52 @@ func (st *blueFieldSoftwareDownloadingState) handleDownloadError(err error, comp
 		return nil
 	}
 
-	// Max retries reached
+	// Max immediate retries reached. Classify the failure so the Error state knows whether
+	// to keep retrying: recoverable (ReasonError) for transient storage/network conditions
+	// such as the /bfb volume being temporarily unavailable after a control-plane node OS
+	// revert, and terminal (ReasonFailure) for issues that need user intervention such as
+	// a bad URL (HTTP 4xx/5xx).
 	st.clearRetryCounter(componentType)
+	reason := conditions.ReasonFailure
+	if isRecoverableDownloadError(err) {
+		reason = conditions.ReasonError
+	}
 	msg := fmt.Sprintf("Download component %s: (%s/%s) failed after %d attempts with error: %s",
 		componentType, st.bfs.Namespace, st.bfs.Name, maxDownloadRetries, err.Error())
 	st.recorder.Eventf(st.bfs, corev1.EventTypeWarning, events.EventFailedDownloadBFBReason, msg)
 	st.bfs.Status.Phase = provisioningv1.BlueFieldSoftwareError
 	conditions.AddFalse(st.bfs, provisioningv1.BlueFieldSoftwareCondDownloaded,
-		conditions.ReasonFailure, conditions.ConditionMessage(msg))
+		reason, conditions.ConditionMessage(msg))
 	return err
+}
+
+// isRecoverableDownloadError reports whether a failed download is caused by a transient
+// condition that is worth retrying (filesystem/storage or network errors), as opposed to
+// a terminal condition that requires user intervention (e.g. an HTTP status error from a
+// bad or missing URL). Unknown errors are treated as terminal to avoid retrying forever
+// on genuine misconfiguration.
+func isRecoverableDownloadError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// Filesystem/storage errors, e.g. "mkdir /bfb/components: no such file or directory"
+	// or "open /bfb/...tmp: permission denied" - exactly the symptoms of a /bfb volume
+	// wiped or made unavailable by a control-plane node OS revert.
+	var pathErr *os.PathError
+	var linkErr *os.LinkError
+	if errors.As(err, &pathErr) || errors.As(err, &linkErr) {
+		return true
+	}
+
+	// Network/transport errors while contacting the download server.
+	var netErr net.Error
+	var urlErr *url.Error
+	if errors.As(err, &netErr) || errors.As(err, &urlErr) {
+		return true
+	}
+
+	return false
 }
 
 func (st *blueFieldSoftwareDownloadingState) handleNewDownload(ctx context.Context, componentType butil.ComponentType, componentURL, taskName string) (bool, error) {
@@ -227,10 +265,22 @@ type componentInfo struct {
 	ComponentType butil.ComponentType
 }
 
-// componentDownloadSatisfied returns true when status reflects a completed download
+// componentDownloadSatisfied returns true when status reflects a completed download.
+// For downloadable (URL) components the recorded file must also still exist on disk;
+// this guards against stale status after the backing storage changed underneath the
+// controller, so a retry re-downloads the missing file instead of advancing to
+// Extracting with a non-existent artifact.
 func (st *blueFieldSoftwareDownloadingState) componentDownloadSatisfied(componentType butil.ComponentType, specValue, downloaded string) bool {
 	expected := componentDestinationPath(componentType, butil.ComponentDownloadFilename(st.bfs, componentType, specValue))
-	return downloaded == expected
+	if downloaded != expected {
+		return false
+	}
+	if isURL(specValue) {
+		if exist, err := isFileExist(expected); err != nil || !exist {
+			return false
+		}
+	}
+	return true
 }
 
 func (st *blueFieldSoftwareDownloadingState) getComponentsToDownload() []componentInfo {
