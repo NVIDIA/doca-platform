@@ -150,34 +150,62 @@ func referencedConfigMapNames(flavor *provisioningv1.DPUFlavor) []string {
 // SPIFFE-mode DPUs (the subject swap is the only RBAC delta for SPIFFE).
 func CreateDPUAgentRoleBinding(ctx context.Context, client crclient.Client, scheme *runtime.Scheme, dpu *provisioningv1.DPU, subjectName string) error {
 	bindingName := providentity.DPUAgentUsername(dpu.Name)
-	rb := &rbacv1.RoleBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      bindingName,
-			Namespace: dpu.Namespace,
-		},
-		Subjects: []rbacv1.Subject{
-			{
-				Kind:     rbacv1.UserKind,
-				Name:     subjectName,
-				APIGroup: rbacv1.GroupName,
-			},
-		},
-		RoleRef: rbacv1.RoleRef{
-			Kind:     "Role",
-			Name:     providentity.DPUAgentUsername(dpu.Name),
+	rb := &rbacv1.RoleBinding{ObjectMeta: metav1.ObjectMeta{Name: bindingName, Namespace: dpu.Namespace}}
+	_, err := controllerutil.CreateOrUpdate(ctx, client, rb, func() error {
+		rb.Subjects = []rbacv1.Subject{{
+			Kind:     rbacv1.UserKind,
+			Name:     subjectName,
 			APIGroup: rbacv1.GroupName,
-		},
-	}
-	if err := controllerutil.SetOwnerReference(dpu, rb, scheme); err != nil {
-		return fmt.Errorf("setting owner reference on rolebinding %s: %w", bindingName, err)
-	}
-	if err := client.Create(ctx, rb); err != nil {
-		if apierrors.IsAlreadyExists(err) {
-			return nil
+		}}
+		if rb.CreationTimestamp.IsZero() {
+			rb.RoleRef = rbacv1.RoleRef{
+				Kind:     "Role",
+				Name:     providentity.DPUAgentUsername(dpu.Name),
+				APIGroup: rbacv1.GroupName,
+			}
 		}
-		return fmt.Errorf("creating rolebinding %s: %w", bindingName, err)
+		return controllerutil.SetOwnerReference(dpu, rb, scheme)
+	})
+	if err != nil {
+		return fmt.Errorf("reconciling rolebinding %s: %w", bindingName, err)
 	}
 	return nil
+}
+
+// GenerateSpiffeKubeconfig returns a kubeconfig that authenticates with a SPIRE-issued
+// JWT read from tokenFilePath. proxyURL, if non-empty, is written into the cluster stanza.
+func GenerateSpiffeKubeconfig(apiServerAddress, tokenFilePath string, caData []byte, proxyURL string) ([]byte, error) {
+	cluster := &clientcmdapi.Cluster{
+		Server:                   apiServerAddress,
+		CertificateAuthorityData: caData,
+	}
+	if proxyURL != "" {
+		cluster.ProxyURL = proxyURL
+	}
+
+	kubeconfig := clientcmdapi.Config{
+		Clusters: map[string]*clientcmdapi.Cluster{
+			"default": cluster,
+		},
+		AuthInfos: map[string]*clientcmdapi.AuthInfo{
+			"default": {
+				TokenFile: tokenFilePath,
+			},
+		},
+		Contexts: map[string]*clientcmdapi.Context{
+			"default": {
+				Cluster:  "default",
+				AuthInfo: "default",
+			},
+		},
+		CurrentContext: "default",
+	}
+
+	data, err := clientcmd.Write(kubeconfig)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling SPIFFE kubeconfig: %w", err)
+	}
+	return data, nil
 }
 
 // GenerateBootstrapKubeconfig returns a kubeconfig that authenticates with the

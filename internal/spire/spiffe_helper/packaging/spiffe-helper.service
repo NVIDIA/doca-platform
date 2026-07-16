@@ -1,0 +1,13 @@
+[Unit]
+Description=SPIFFE Helper
+After=spire-agent.service
+Requires=spire-agent.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/spiffe-helper -config /etc/spiffe-helper/helper.conf
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

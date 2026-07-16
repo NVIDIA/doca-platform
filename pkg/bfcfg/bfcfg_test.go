@@ -302,15 +302,20 @@ write_files:
       # Install dpu-agent with retry.
       # Using "if" so that apt-get failures don't trigger "set -e" exit;
       # bash ignores -e for commands evaluated as part of a condition.
+      installed=false
       for i in $(seq 1 60); do
         if apt-get update -o Dir::Etc::sourcelist="sources.list.d/dpf.list" -o Dir::Etc::sourceparts="-" && apt-get install -y --no-install-recommends dpu-agent; then
+          installed=true
           break
         fi
         echo "apt-get failed, retrying ($i/60)..."
         sleep 10
       done
+      if [ "$installed" != "true" ]; then
+        echo "failed to install dpu-agent after 60 attempts" >&2
+        exit 1
+      fi
 
-      # Enable and start dpu-agent
       # The systemd service file is included in the dpu-agent package.
       # It reads startup parameters from /opt/dpf/dpuagent.conf (written by cloud-init above).
       systemctl daemon-reload

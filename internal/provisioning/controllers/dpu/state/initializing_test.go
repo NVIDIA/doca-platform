@@ -35,6 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 var _ = Describe("Phase Initializing", func() {
@@ -75,32 +76,39 @@ var _ = Describe("Phase Initializing", func() {
 				Name:      operatorcontroller.DefaultDPFOperatorConfigSingletonName,
 				Namespace: operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace,
 			},
-			Spec: operatorv1.DPFOperatorConfigSpec{
+		}
+		// CreateOrUpdate reconciles the singleton's spec in place so identity-mode tests are
+		// deterministic even if a prior config lingers (delete is asynchronous in envtest).
+		// Swallowing AlreadyExists on a bare Create could otherwise keep stale SPIFFE settings.
+		_, err := controllerutil.CreateOrUpdate(ctx, k8sClient, cfg, func() error {
+			cfg.Spec = operatorv1.DPFOperatorConfigSpec{
 				DeploymentMode: deploymentMode,
 				ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 					BFBPersistentVolumeClaimName: ptr.To("bfb-pvc"),
 				},
-			},
-		}
-		if spiffe {
-			// zero-trust requires the Redfish install interface (CRD CEL rule).
-			cfg.Spec.ProvisioningController.InstallInterface = &operatorv1.ProvisioningInstallInterface{
-				InstallViaRedfish: &operatorv1.InstallViaRedfish{},
 			}
-			cfg.Spec.Security = &operatorv1.SecurityConfiguration{
-				SPIFFE: &operatorv1.SPIFFEConfiguration{
-					SPIREServerAddress: "spire-server.spire-system.svc:8081",
-					SPIRETrustDomain:   "cs.internal",
-					KubeAPIAudience:    "spire-dpu",
-					SPIREOIDCURL:       "https://spire-oidc.spire-system.svc",
-					TrustBundle: operatorv1.SPIFFETrustBundleConfigMapReference{
-						Name:      "spire-bundle",
-						Namespace: "spire-system",
+			if spiffe {
+				// zero-trust requires the Redfish install interface (CRD CEL rule).
+				cfg.Spec.ProvisioningController.InstallInterface = &operatorv1.ProvisioningInstallInterface{
+					InstallViaRedfish: &operatorv1.InstallViaRedfish{},
+				}
+				cfg.Spec.Security = &operatorv1.SecurityConfiguration{
+					SPIFFE: &operatorv1.SPIFFEConfiguration{
+						SPIREServerAddress:              "spire-server.spire-system.svc:8081",
+						SPIRETrustDomain:                "cs.internal",
+						KubeAPIAudience:                 "spire-dpu",
+						SPIREOIDCURL:                    "https://spire-oidc.spire-system.svc",
+						SPIREControllerManagerClassName: "spire-mgmt-spire",
+						TrustBundle: operatorv1.SPIFFETrustBundleConfigMapReference{
+							Name:      "spire-bundle",
+							Namespace: "spire-system",
+						},
 					},
-				},
+				}
 			}
-		}
-		Expect(client.IgnoreAlreadyExists(k8sClient.Create(ctx, cfg))).To(Succeed())
+			return nil
+		})
+		Expect(err).NotTo(HaveOccurred())
 	}
 
 	Context("successful cases", func() {
@@ -361,6 +369,41 @@ var _ = Describe("Phase Initializing", func() {
 			Expect(status.Phase).To(Equal(provisioningv1.DPUPending))
 			Expect(status.IdentityMode).NotTo(BeNil())
 			Expect(*status.IdentityMode).To(Equal(provisioningv1.IdentityModeBootstrapToken))
+		})
+
+		It("keeps bootstrap-token DPUs when SPIFFE is enabled for new DPUs", func() {
+			ensureSingleDPFOperatorConfig(false)
+			legacyDPU, ctrlCtx := newReadyDPU()
+			legacyStatus, err := state.Initializing(ctx, legacyDPU, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(*legacyStatus.IdentityMode).To(Equal(provisioningv1.IdentityModeBootstrapToken))
+
+			ensureSingleDPFOperatorConfig(true)
+			secondDevice := dpuDeviceObj("second-device")
+			createObject(secondDevice)
+
+			node := &provisioningv1.DPUNode{}
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: defaultDPUNodeName, Namespace: testNS.Name}, node)).To(Succeed())
+			node.Spec.DPUs = append(node.Spec.DPUs, provisioningv1.DPURef{Name: secondDevice.Name})
+			Expect(k8sClient.Update(ctx, node)).To(Succeed())
+
+			newDPU := dpuObj("second-dpu")
+			newDPU.Spec.PCIAddress = ptr.To("0000-00-01")
+			newDPU.Spec.DPUNodeName = node.Name
+			newDPU.Spec.DPUDeviceName = secondDevice.Name
+			newDPU.Spec.Cluster.Namespace = legacyDPU.Spec.Cluster.Namespace
+			newDPU.Spec.Cluster.Name = legacyDPU.Spec.Cluster.Name
+			newDPU.Status.Phase = provisioningv1.DPUInitializing
+			newDPU.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaHostAgent))
+
+			newStatus, err := state.Initializing(ctx, newDPU, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(*newStatus.IdentityMode).To(Equal(provisioningv1.IdentityModeSpiffe))
+
+			legacyDPU.Status = legacyStatus
+			legacyStatus, err = state.Initializing(ctx, legacyDPU, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(*legacyStatus.IdentityMode).To(Equal(provisioningv1.IdentityModeBootstrapToken))
 		})
 	})
 
