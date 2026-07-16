@@ -900,8 +900,11 @@ func (n *NICProvisioning) runRuntimeConfigLoop(ctx context.Context, optCtx *oper
 		return
 	}
 
-	ticker := time.NewTicker(RuntimeConfigInterval)
-	defer ticker.Stop()
+	// Temporarily disabled: periodic applyRuntimeConfig (every RuntimeConfigInterval)
+	// races with other mlxreg callers in DMS. Keep CC-termination-triggered reapply.
+	// Re-enable the ticker once DMS fixes concurrent mlxreg access.
+	// ticker := time.NewTicker(RuntimeConfigInterval)
+	// defer ticker.Stop()
 
 	ccCh := n.ccTerminationChannel()
 	var (
@@ -928,10 +931,10 @@ func (n *NICProvisioning) runRuntimeConfigLoop(ctx context.Context, optCtx *oper
 		case <-ctx.Done():
 			klog.Info("NIC provisioning: runtime configuration loop stopped")
 			return
-		case <-ticker.C:
-			if err := n.applyRuntimeConfigAndUpdateStatus(ctx, optCtx); err != nil {
-				klog.ErrorS(err, "periodic NIC runtime config apply failed")
-			}
+		// case <-ticker.C:
+		// 	if err := n.applyRuntimeConfigAndUpdateStatus(ctx, optCtx); err != nil {
+		// 		klog.ErrorS(err, "periodic NIC runtime config apply failed")
+		// 	}
 		case iface, ok := <-ccCh:
 			if !ok {
 				klog.Info("NIC provisioning: CC termination channel closed")
