@@ -316,6 +316,13 @@ type SPIFFEConfiguration struct {
 	// +required
 	SPIREOIDCURL string `json:"spireOIDCURL,omitempty"`
 
+	// spireControllerManagerClassName selects the SPIRE controller-manager instance that renders
+	// DPF ClusterStaticEntries.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +required
+	SPIREControllerManagerClassName string `json:"spireControllerManagerClassName,omitempty"`
+
 	// trustBundle references a ConfigMap whose data["bundle.pem"] key holds the SPIRE trust
 	// bundle in PEM form.
 	// +required

@@ -53,4 +53,6 @@ const (
 	EventSPIFFEEntryDeleteRequestedReason = "SPIFFEEntryDeleteRequested"
 	// EventSPIFFEEntrySpecDriftReconciledReason indicates an out-of-band ClusterStaticEntry spec edit was reclaimed.
 	EventSPIFFEEntrySpecDriftReconciledReason = "SPIFFEEntrySpecDriftReconciled"
+	// EventSPIFFEDuplicateDPUReason indicates more than one SPIFFE-mode DPU is bound to a single DPUDevice.
+	EventSPIFFEDuplicateDPUReason = "SPIFFEDuplicateDPU"
 )

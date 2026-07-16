@@ -22,6 +22,7 @@ import (
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/provisioning/constants"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/cloudinit"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
@@ -149,28 +150,33 @@ var _ = Describe("DefaultDPUArtifactGenerator", func() {
 	})
 
 	Context("when the DPU is in SPIFFE identity mode", func() {
-		const trustBundlePEM = "-----BEGIN CERTIFICATE-----\nFAKEBUNDLE\n-----END CERTIFICATE-----"
+		const (
+			trustBundlePEM = "-----BEGIN CERTIFICATE-----\nFAKEBUNDLE\n-----END CERTIFICATE-----"
+			testSerial     = "MT2440600YYW"
+		)
 
 		var fakeClient client.Client
 
-		buildReq := func(objs ...client.Object) {
-			scheme := runtime.NewScheme()
-			utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-			utilruntime.Must(operatorv1.AddToScheme(scheme))
-			utilruntime.Must(provisioningv1.AddToScheme(scheme))
-
+		defaultDPFConfig := func() *operatorv1.DPFOperatorConfig {
 			mtu := 1500
-			dpfConfig := &operatorv1.DPFOperatorConfig{
+			vip := "10.0.110.1"
+			port := 6443
+			return &operatorv1.DPFOperatorConfig{
 				ObjectMeta: metav1.ObjectMeta{Name: "test-config", Namespace: "test-namespace"},
 				Spec: operatorv1.DPFOperatorConfigSpec{
 					DeploymentMode: operatorv1.DeploymentModeZeroTrust,
 					Networking:     &operatorv1.Networking{ControlPlaneMTU: &mtu},
+					Overrides: &operatorv1.Overrides{
+						KubernetesAPIServerVIP:  &vip,
+						KubernetesAPIServerPort: &port,
+					},
 					Security: &operatorv1.SecurityConfiguration{
 						SPIFFE: &operatorv1.SPIFFEConfiguration{
-							SPIREServerAddress: "spire-server.spire.svc:8081",
-							SPIRETrustDomain:   "cs.internal",
-							KubeAPIAudience:    "dpf",
-							SPIREOIDCURL:       "https://spire-oidc.example.com",
+							SPIREServerAddress:              "spire-server.spire.svc:8081",
+							SPIRETrustDomain:                "cs.internal",
+							KubeAPIAudience:                 "dpf",
+							SPIREOIDCURL:                    "https://spire-oidc.example.com",
+							SPIREControllerManagerClassName: "spire-mgmt-spire",
 							TrustBundle: operatorv1.SPIFFETrustBundleConfigMapReference{
 								Name:      "spire-bundle",
 								Namespace: "spire",
@@ -179,21 +185,39 @@ var _ = Describe("DefaultDPUArtifactGenerator", func() {
 					},
 				},
 			}
+		}
+
+		buildReqWith := func(dpfConfig *operatorv1.DPFOperatorConfig, objs ...client.Object) {
+			scheme := runtime.NewScheme()
+			utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+			utilruntime.Must(operatorv1.AddToScheme(scheme))
+			utilruntime.Must(provisioningv1.AddToScheme(scheme))
+
 			dpu := &provisioningv1.DPU{
 				ObjectMeta: metav1.ObjectMeta{Name: "test-dpu", Namespace: "test-namespace", UID: "test-uid"},
-				Status:     provisioningv1.DPUStatus{IdentityMode: ptr.To(provisioningv1.IdentityModeSpiffe)},
+				Spec: provisioningv1.DPUSpec{
+					DPUDeviceName: "test-device",
+				},
+				Status: provisioningv1.DPUStatus{IdentityMode: ptr.To(provisioningv1.IdentityModeSpiffe)},
+			}
+			dpuDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-device", Namespace: "test-namespace"},
+				Spec:       provisioningv1.DPUDeviceSpec{SerialNumber: testSerial},
 			}
 			flavor := &provisioningv1.DPUFlavor{
 				ObjectMeta: metav1.ObjectMeta{Name: "test-flavor", Namespace: "test-namespace"},
 			}
-			all := append([]client.Object{dpfConfig}, objs...)
+			all := append([]client.Object{dpfConfig, dpu, dpuDevice}, objs...)
 			fakeClient = fake.NewClientBuilder().WithScheme(scheme).WithObjects(all...).Build()
 			req = dutil.DPUArtifactRequest{
 				ControllerContext: &dutil.ControllerContext{Client: fakeClient},
 				DPU:               dpu,
 				Flavor:            flavor,
-				// SPIFFE DPUs carry no bootstrap token.
 			}
+		}
+
+		buildReq := func(objs ...client.Object) {
+			buildReqWith(defaultDPFConfig(), objs...)
 		}
 
 		trustBundleCM := func() *corev1.ConfigMap {
@@ -203,7 +227,11 @@ var _ = Describe("DefaultDPUArtifactGenerator", func() {
 			}
 		}
 
-		It("emits the trust bundle and omits the bootstrap kubeconfig", func() {
+		// This is the pipeline (GenerateBF4) test: it asserts only what the resolve step
+		// contributes on top of template rendering -- trust-bundle ConfigMap resolution,
+		// the spireServerAddress host/port split, and bootstrap omission. The rendered
+		// SPIRE/spiffe-helper config substrings are covered by the cloudinit render unit test.
+		It("resolves the trust bundle and SPIRE server address, and omits bootstrap kubeconfig", func() {
 			buildReq(trustBundleCM())
 
 			artifact, err := generator.GenerateBF4(ctx, req)
@@ -213,8 +241,39 @@ var _ = Describe("DefaultDPUArtifactGenerator", func() {
 			Expect(found).To(BeTrue(), "trust-bundle.pem write_files entry should be present")
 			Expect(content).To(ContainSubstring("FAKEBUNDLE"))
 
+			agentConf, agentFound := extractWriteFile(artifact.UserData, constants.SPIREAgentConfigPath)
+			Expect(agentFound).To(BeTrue())
+			Expect(agentConf).To(ContainSubstring(`server_address = "spire-server.spire.svc"`))
+			Expect(agentConf).To(ContainSubstring("server_port = 8081"))
+
 			_, bootstrapFound := extractWriteFile(artifact.UserData, "/var/lib/dpf/dpuagent/bootstrap-kubeconfig")
 			Expect(bootstrapFound).To(BeFalse(), "bootstrap kubeconfig must not be rendered for SPIFFE DPUs")
+		})
+
+		It("writes a SPIFFE kubeconfig with CA data and token file authentication", func() {
+			buildReq(trustBundleCM())
+
+			artifact, err := generator.GenerateBF4(ctx, req)
+			Expect(err).NotTo(HaveOccurred())
+			content, found := extractWriteFile(artifact.UserData, constants.SpiffeKubeconfigPath)
+			Expect(found).To(BeTrue())
+
+			kubeconfig, err := clientcmd.Load([]byte(content))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(kubeconfig.Clusters["default"].Server).To(Equal("https://10.0.110.1:6443"))
+			Expect(kubeconfig.Clusters["default"].CertificateAuthorityData).To(Equal([]byte("fake-ca-data")))
+			Expect(kubeconfig.AuthInfos["default"].TokenFile).To(Equal(constants.SpiffeTokenPath))
+		})
+
+		It("embeds SPIFFE cloud-init in BF3 output", func() {
+			buildReq(trustBundleCM())
+
+			data, err := generator.GenerateBF3(ctx, req)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(data)).To(ContainSubstring("--spiffe-mode=true"))
+			Expect(string(data)).To(ContainSubstring(constants.SpiffeKubeconfigPath))
+			Expect(string(data)).To(ContainSubstring(constants.SpiffeTokenPath))
+			Expect(string(data)).NotTo(ContainSubstring("/var/lib/dpf/dpuagent/bootstrap-kubeconfig"))
 		})
 
 		It("errors when the trust bundle ConfigMap is absent", func() {
@@ -233,6 +292,28 @@ var _ = Describe("DefaultDPUArtifactGenerator", func() {
 			_, err := generator.GenerateBF4(ctx, req)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("missing non-empty"))
+		})
+
+		It("errors when the DPU is SPIFFE-mode but spec.security.spiffe is unset", func() {
+			// The SpiffeEnabled guard runs before readTrustBundle, so no ConfigMap is needed.
+			cfg := defaultDPFConfig()
+			cfg.Spec.Security = nil
+			buildReqWith(cfg)
+
+			_, err := generator.GenerateBF4(ctx, req)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("spec.security.spiffe is unset"))
+		})
+
+		It("errors when the SPIRE server address is malformed", func() {
+			// SplitHostPort runs after readTrustBundle, so the bundle ConfigMap must be present.
+			cfg := defaultDPFConfig()
+			cfg.Spec.Security.SPIFFE.SPIREServerAddress = "no-colon"
+			buildReqWith(cfg, trustBundleCM())
+
+			_, err := generator.GenerateBF4(ctx, req)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("parsing SPIRE server address"))
 		})
 	})
 })

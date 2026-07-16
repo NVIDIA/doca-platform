@@ -21,15 +21,18 @@ import (
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/provisioning/controllers/events"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
@@ -43,6 +46,7 @@ const (
 	testTrustDomain = "cs.internal"
 	testSerial      = "MT2440600YYW"
 	testCSEName     = "dpu-agent-mt2440600yyw"
+	testClassName   = "spire-mgmt-spire"
 	testDeviceName  = "dev-1"
 )
 
@@ -60,10 +64,11 @@ func spiffeConfig(enabled bool) *operatorv1.DPFOperatorConfig {
 	if enabled {
 		cfg.Spec.Security = &operatorv1.SecurityConfiguration{
 			SPIFFE: &operatorv1.SPIFFEConfiguration{
-				SPIREServerAddress: "spire-server.spire-system.svc:8081",
-				SPIRETrustDomain:   testTrustDomain,
-				KubeAPIAudience:    "dpf",
-				SPIREOIDCURL:       "https://spire.example.com",
+				SPIREServerAddress:              "spire-server.spire-system.svc:8081",
+				SPIRETrustDomain:                testTrustDomain,
+				KubeAPIAudience:                 "dpf",
+				SPIREOIDCURL:                    "https://spire.example.com",
+				SPIREControllerManagerClassName: testClassName,
 			},
 		}
 	}
@@ -135,6 +140,35 @@ var _ = Describe("SPIFFE ClusterStaticEntry reconcile", func() {
 		Expect(err).To(HaveOccurred())
 	})
 
+	It("selects deterministically and warns when multiple SPIFFE DPUs bind one device", func() {
+		spiffe := ptr.To(provisioningv1.IdentityModeSpiffe)
+		newSpiffeDPU := func(name string) *provisioningv1.DPU {
+			return &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+				Spec:       provisioningv1.DPUSpec{DPUDeviceName: testDeviceName},
+				Status:     provisioningv1.DPUStatus{IdentityMode: spiffe},
+			}
+		}
+		// Seed in non-sorted order to prove selection does not depend on list/insertion order.
+		build(newSpiffeDPU("dpu-b"), newSpiffeDPU("dpu-a"))
+
+		got, err := reconciler.findOwningSpiffeDPU(ctx, dpuDevice)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(got).NotTo(BeNil())
+		Expect(got.Name).To(Equal("dpu-a"), "the lexicographically-first DPU must be selected deterministically")
+
+		Expect(recorder.Events).To(Receive(ContainSubstring(events.EventSPIFFEDuplicateDPUReason)))
+	})
+
+	It("does not warn when exactly one SPIFFE DPU binds the device", func() {
+		build(dpuBoundTo(ptr.To(provisioningv1.IdentityModeSpiffe)))
+
+		got, err := reconciler.findOwningSpiffeDPU(ctx, dpuDevice)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(got).NotTo(BeNil())
+		Expect(recorder.Events).NotTo(Receive(), "single match must not emit a duplicate warning")
+	})
+
 	It("persists the finalizer before the ClusterStaticEntry, then creates it and reports Pending", func() {
 		cfg := spiffeConfig(true)
 		build(cfg, dpuBoundTo(ptr.To(provisioningv1.IdentityModeSpiffe)), dpuDevice)
@@ -161,8 +195,10 @@ var _ = Describe("SPIFFE ClusterStaticEntry reconcile", func() {
 		Expect(err).NotTo(HaveOccurred())
 		spiffeID, _, _ := unstructured.NestedString(cse.Object, "spec", "spiffeID")
 		parentID, _, _ := unstructured.NestedString(cse.Object, "spec", "parentID")
+		className, _, _ := unstructured.NestedString(cse.Object, "spec", "className")
 		Expect(spiffeID).To(Equal("spiffe://cs.internal/dpu/mt2440600yyw/process/dpu-agent"))
 		Expect(parentID).To(Equal("spiffe://cs.internal/spire/agent/dpu_hw/mt2440600yyw"))
+		Expect(className).To(Equal(testClassName))
 		Expect(cse.GetLabels()).To(HaveKeyWithValue(LabelDPUDeviceName, "dev-1"))
 
 		cond := conditions.Get(dpuDevice, provisioningv1.ConditionSPIFFEEntryReady)
@@ -209,6 +245,46 @@ var _ = Describe("SPIFFE ClusterStaticEntry reconcile", func() {
 		Expect(spiffeID).To(Equal("spiffe://cs.internal/dpu/mt2440600yyw/process/dpu-agent"))
 		Expect(recorder.Events).To(Receive(ContainSubstring("Drift")))
 	})
+
+	It("updates the entry when the trust domain changes", func() {
+		cfg := spiffeConfig(true)
+		dpuDevice.Finalizers = []string{provisioningv1.SPIFFEDeregistrationFinalizer}
+		build(cfg, dpuBoundTo(ptr.To(provisioningv1.IdentityModeSpiffe)))
+
+		Expect(reconciler.reconcileSPIFFEEntry(ctx, dpuDevice, cfg)).To(Succeed())
+		cfg.Spec.Security.SPIFFE.SPIRETrustDomain = "updated.internal"
+		Expect(reconciler.reconcileSPIFFEEntry(ctx, dpuDevice, cfg)).To(Succeed())
+
+		cse, err := getCSE(ctx, reconciler.Client)
+		Expect(err).NotTo(HaveOccurred())
+		spiffeID, _, _ := unstructured.NestedString(cse.Object, "spec", "spiffeID")
+		Expect(spiffeID).To(Equal("spiffe://updated.internal/dpu/mt2440600yyw/process/dpu-agent"))
+	})
+
+	It("reports an actionable error when entry creation is forbidden", func() {
+		dpuDevice.Finalizers = []string{provisioningv1.SPIFFEDeregistrationFinalizer}
+		recorder = record.NewFakeRecorder(20)
+		fakeClient := fake.NewClientBuilder().
+			WithScheme(spiffeScheme()).
+			WithIndex(&provisioningv1.DPU{}, dpuByDPUDeviceNameField, indexDPUByDPUDeviceName).
+			WithObjects(spiffeConfig(true), dpuBoundTo(ptr.To(provisioningv1.IdentityModeSpiffe))).
+			WithInterceptorFuncs(interceptor.Funcs{
+				Create: func(_ context.Context, _ client.WithWatch, obj client.Object, _ ...client.CreateOption) error {
+					if obj.GetObjectKind().GroupVersionKind() == clusterStaticEntryGVK {
+						return apierrors.NewForbidden(schema.GroupResource{Group: clusterStaticEntryGVK.Group, Resource: "clusterstaticentries"}, obj.GetName(), nil)
+					}
+					return nil
+				},
+			}).
+			Build()
+		reconciler = &DPUDeviceReconciler{Client: fakeClient, Recorder: recorder}
+
+		Expect(reconciler.reconcileSPIFFEEntry(ctx, dpuDevice, spiffeConfig(true))).To(MatchError(ContainSubstring("failed to apply ClusterStaticEntry")))
+		cond := conditions.Get(dpuDevice, provisioningv1.ConditionSPIFFEEntryReady)
+		Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+		Expect(cond.Reason).To(Equal(string(conditions.ReasonError)))
+		Expect(recorder.Events).To(Receive(ContainSubstring(events.EventSPIFFEEntryRegistrationFailedReason)))
+	})
 })
 
 var _ = Describe("mirrorSpiffeEntryStatus", func() {
@@ -225,11 +301,14 @@ var _ = Describe("mirrorSpiffeEntryStatus", func() {
 		return cse
 	}
 
-	expectCondition := func(status metav1.ConditionStatus, reason conditions.ConditionReason) {
+	expectCondition := func(status metav1.ConditionStatus, reason conditions.ConditionReason, wantMsgSubstr ...string) {
 		cond := conditions.Get(dpuDevice, provisioningv1.ConditionSPIFFEEntryReady)
 		Expect(cond).NotTo(BeNil())
 		Expect(cond.Status).To(Equal(status))
 		Expect(cond.Reason).To(Equal(string(reason)))
+		for _, substr := range wantMsgSubstr {
+			Expect(cond.Message).To(ContainSubstring(substr))
+		}
 	}
 
 	It("maps Set && Rendered && !Masked to Ready=True", func() {
@@ -238,28 +317,31 @@ var _ = Describe("mirrorSpiffeEntryStatus", func() {
 		expectCondition(metav1.ConditionTrue, conditions.ReasonSuccess)
 	})
 
+	// Regression canary: `set` is not consulted once `rendered=true` (see mirrorSpiffeEntryStatus's
+	// `renderedFound && rendered` case). If that condition is ever tightened to `set && rendered`,
+	// this is the test that must start failing.
+	It("maps Rendered=true and Set=false to Ready=True", func() {
+		masked := (&DPUDeviceReconciler{}).mirrorSpiffeEntryStatus(dpuDevice, cseWithStatus(map[string]bool{"set": false, "rendered": true}))
+		Expect(masked).To(BeFalse())
+		expectCondition(metav1.ConditionTrue, conditions.ReasonSuccess)
+	})
+
 	It("maps an absent status (not yet observed) to False/Pending", func() {
 		masked := (&DPUDeviceReconciler{}).mirrorSpiffeEntryStatus(dpuDevice, cseWithStatus(nil))
 		Expect(masked).To(BeFalse())
-		expectCondition(metav1.ConditionFalse, conditions.ReasonPending)
+		expectCondition(metav1.ConditionFalse, conditions.ReasonPending, "Awaiting spire-controller-manager")
 	})
 
 	It("maps Set && !Rendered to False/Pending", func() {
 		masked := (&DPUDeviceReconciler{}).mirrorSpiffeEntryStatus(dpuDevice, cseWithStatus(map[string]bool{"set": true, "rendered": false}))
 		Expect(masked).To(BeFalse())
-		expectCondition(metav1.ConditionFalse, conditions.ReasonPending)
-	})
-
-	It("maps Set=false (observed) to False/Error", func() {
-		masked := (&DPUDeviceReconciler{}).mirrorSpiffeEntryStatus(dpuDevice, cseWithStatus(map[string]bool{"set": false}))
-		Expect(masked).To(BeFalse())
-		expectCondition(metav1.ConditionFalse, conditions.ReasonError)
+		expectCondition(metav1.ConditionFalse, conditions.ReasonPending, "set; rendering pending")
 	})
 
 	It("maps Masked to False/Error and reports masked", func() {
 		masked := (&DPUDeviceReconciler{}).mirrorSpiffeEntryStatus(dpuDevice, cseWithStatus(map[string]bool{"set": true, "rendered": true, "masked": true}))
 		Expect(masked).To(BeTrue())
-		expectCondition(metav1.ConditionFalse, conditions.ReasonError)
+		expectCondition(metav1.ConditionFalse, conditions.ReasonError, "masked by another entry")
 	})
 })
 
