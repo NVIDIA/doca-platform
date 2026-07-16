@@ -24,6 +24,7 @@ import (
 	"strings"
 
 	"github.com/nvidia/doca-platform/internal/dpfctl/sosreport"
+	"github.com/nvidia/doca-platform/internal/dpfctl/util"
 
 	"github.com/spf13/cobra"
 )
@@ -92,7 +93,7 @@ func runSOSReportDownload(ctx context.Context) error {
 	}
 
 	if shouldCleanup() {
-		sosreport.Step("Cleaning up")
+		util.Step("Cleaning up")
 		sosreport.Cleanup(ctx, targets, sosOpts.namespace, sosOpts.caseID)
 	}
 

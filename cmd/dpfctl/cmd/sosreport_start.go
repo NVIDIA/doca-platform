@@ -20,6 +20,7 @@ import (
 	"fmt"
 
 	"github.com/nvidia/doca-platform/internal/dpfctl/sosreport"
+	"github.com/nvidia/doca-platform/internal/dpfctl/util"
 
 	"github.com/spf13/cobra"
 )
@@ -69,9 +70,9 @@ subdirectory is created automatically (use --nfs-no-subdir to disable).`,
 			return err
 		}
 
-		sosreport.Info("Use 'dpfctl sosreport status' to check progress")
+		util.Info("Use 'dpfctl sosreport status' to check progress")
 		if outputMode() == sosreport.OutputLocal {
-			sosreport.Info("Use 'dpfctl sosreport download' to download completed reports")
+			util.Info("Use 'dpfctl sosreport download' to download completed reports")
 		}
 		return nil
 	},
