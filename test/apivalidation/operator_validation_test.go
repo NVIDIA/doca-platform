@@ -360,12 +360,43 @@ var _ = Describe("Operator API Validation", func() {
 					validateConfigCreation(config, expectError, errorMessage, &cleanupObjs)
 				},
 				Entry("valid - full configuration", func(s *operatorv1.SPIFFEConfiguration) {}, false, ""),
+				Entry("invalid - empty class name", func(s *operatorv1.SPIFFEConfiguration) {
+					s.SPIREControllerManagerClassName = ""
+				}, true, "spireControllerManagerClassName"),
+				Entry("invalid - overlength class name", func(s *operatorv1.SPIFFEConfiguration) {
+					s.SPIREControllerManagerClassName = strings.Repeat("a", 254)
+				}, true, "spireControllerManagerClassName"),
+				Entry("invalid - empty kube API audience", func(s *operatorv1.SPIFFEConfiguration) {
+					s.KubeAPIAudience = ""
+				}, true, "kubeAPIAudience"),
+				Entry("invalid - overlength kube API audience", func(s *operatorv1.SPIFFEConfiguration) {
+					s.KubeAPIAudience = strings.Repeat("a", 513)
+				}, true, "kubeAPIAudience"),
+				Entry("invalid - empty SPIRE OIDC URL", func(s *operatorv1.SPIFFEConfiguration) {
+					s.SPIREOIDCURL = ""
+				}, true, "spireOIDCURL"),
+				Entry("invalid - overlength SPIRE OIDC URL", func(s *operatorv1.SPIFFEConfiguration) {
+					s.SPIREOIDCURL = "https://" + strings.Repeat("a", 2041)
+				}, true, "spireOIDCURL"),
+				Entry("invalid - empty trust bundle namespace", func(s *operatorv1.SPIFFEConfiguration) {
+					s.TrustBundle.Namespace = ""
+				}, true, "trustBundle.namespace"),
+				Entry("invalid - overlength trust bundle namespace", func(s *operatorv1.SPIFFEConfiguration) {
+					s.TrustBundle.Namespace = strings.Repeat("a", 64)
+				}, true, "trustBundle.namespace"),
 				Entry("invalid - address missing port", func(s *operatorv1.SPIFFEConfiguration) {
 					s.SPIREServerAddress = "spire-server.spire-system.svc"
 				}, true, "spireServerAddress must be host:port"),
+				Entry("invalid - address invalid host", func(s *operatorv1.SPIFFEConfiguration) {
+					s.SPIREServerAddress = "bad_host:8081"
+				}, true, "spireServerAddress"),
 				Entry("invalid - address port out of range", func(s *operatorv1.SPIFFEConfiguration) {
 					s.SPIREServerAddress = "spire-server.spire-system.svc:70000"
 				}, true, "spireServerAddress port must be in 1-65535"),
+				// Pattern-valid (single long DNS-1123 label + valid port) but exceeds MaxLength=263.
+				Entry("invalid - overlength address", func(s *operatorv1.SPIFFEConfiguration) {
+					s.SPIREServerAddress = strings.Repeat("a", 259) + ":8081"
+				}, true, "spireServerAddress"),
 				Entry("invalid - empty trust domain", func(s *operatorv1.SPIFFEConfiguration) {
 					s.SPIRETrustDomain = ""
 				}, true, "spireTrustDomain"),
@@ -382,6 +413,9 @@ var _ = Describe("Operator API Validation", func() {
 				}, true, "spireTrustDomain"),
 				Entry("invalid - empty trust bundle name", func(s *operatorv1.SPIFFEConfiguration) {
 					s.TrustBundle.Name = ""
+				}, true, "trustBundle.name"),
+				Entry("invalid - overlength trust bundle name", func(s *operatorv1.SPIFFEConfiguration) {
+					s.TrustBundle.Name = strings.Repeat("a", 254)
 				}, true, "trustBundle.name"),
 			)
 
@@ -914,10 +948,11 @@ func setVaultKMSConfig(config *operatorv1.DPFOperatorConfig, vaultKMS *operatorv
 
 func getValidSPIFFEConfiguration() *operatorv1.SPIFFEConfiguration {
 	return &operatorv1.SPIFFEConfiguration{
-		SPIREServerAddress: "spire-server.spire-system.svc:8081",
-		SPIRETrustDomain:   "cs.internal",
-		KubeAPIAudience:    "https://kubernetes.default.svc",
-		SPIREOIDCURL:       "https://spire-oidc.spire-system.svc",
+		SPIREServerAddress:              "spire-server.spire-system.svc:8081",
+		SPIRETrustDomain:                "cs.internal",
+		KubeAPIAudience:                 "https://kubernetes.default.svc",
+		SPIREOIDCURL:                    "https://spire-oidc.spire-system.svc",
+		SPIREControllerManagerClassName: "spire-mgmt-spire",
 		TrustBundle: operatorv1.SPIFFETrustBundleConfigMapReference{
 			Name:      "spire-bundle",
 			Namespace: "spire-system",

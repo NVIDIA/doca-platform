@@ -150,9 +150,9 @@ RUN mkdir src && \
 FROM --platform=${BUILDPLATFORM} ${builder_image} AS dpu-hw-packager
 WORKDIR /workspace
 
-# Ensure sha256sum (coreutils) is present for the .sha256 sidecar; mirrors the
-# explicit tool install in dpuagent-packager rather than assuming the builder image carries it.
-RUN apt-get update && apt-get install -y --no-install-recommends coreutils && rm -rf /var/lib/apt/lists/*
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends coreutils
 
 # Copy packaging configuration and the agent plugin binary from the builder.
 COPY internal/spire/dpu_hw/packaging/ internal/spire/dpu_hw/packaging/
@@ -168,12 +168,35 @@ RUN mkdir -p /dpu-hw-deb \
     && cp /workspace/bin/dpu-hw-agent_*_arm64.deb /dpu-hw-deb/ \
     && cp /workspace/bin/dpu-hw-agent_*_arm64.deb.sha256 /dpu-hw-deb/
 
+# SPIRE Agent and spiffe-helper packager stage - upstream arm64 binaries as .debs for DPU SPIFFE identity.
+FROM --platform=${BUILDPLATFORM} ${builder_image} AS spire-packager
+WORKDIR /workspace
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends curl ca-certificates
+
+COPY internal/spire/spire_agent/packaging/ internal/spire/spire_agent/packaging/
+COPY internal/spire/spiffe_helper/packaging/ internal/spire/spiffe_helper/packaging/
+
+ARG TAG
+RUN --mount=type=cache,target=/workspace/hack/tools/bin \
+    --mount=type=bind,source=Makefile,target=Makefile \
+    --mount=type=bind,source=hack/tools/tools.mk,target=hack/tools/tools.mk \
+    make deb-spire-agent deb-spiffe-helper
+
+RUN mkdir -p /spire-deb \
+    && cp /workspace/bin/spire-agent_*_arm64.deb /spire-deb/ \
+    && cp /workspace/bin/spiffe-helper_*_arm64.deb /spire-deb/
+
 # DPU Agent packager stage - packages binary with actual TAG version
 FROM --platform=${BUILDPLATFORM} ${builder_image} AS dpuagent-packager
 WORKDIR /workspace
 
 # Install rpm tools (required by nfpm for creating .rpm packages)
-RUN apt-get update && apt-get install -y --no-install-recommends rpm dpkg-dev createrepo-c && rm -rf /var/lib/apt/lists/*
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends rpm dpkg-dev createrepo-c
 
 # Copy packaging configuration and binary from builder
 COPY internal/provisioning/dpuagent/packaging/ internal/provisioning/dpuagent/packaging/
@@ -193,6 +216,9 @@ RUN mkdir -p /deb /rpm \
 
 # Include the dpu_hw agent plugin package (and its .sha256 sidecar) in the same APT repository.
 COPY --from=dpu-hw-packager /dpu-hw-deb/ /deb/
+
+# Include SPIRE Agent and spiffe-helper packages in the same APT repository.
+COPY --from=spire-packager /spire-deb/ /deb/
 
 # Generate APT repository metadata
 WORKDIR /deb

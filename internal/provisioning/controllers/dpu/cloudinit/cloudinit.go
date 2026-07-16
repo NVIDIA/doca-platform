@@ -64,24 +64,40 @@ type Params struct {
 	KubeadmSecretName      string
 	KubeadmSecretNamespace string
 	BootstrapKubeconfig    string
+	// SpiffeMode enables SPIRE/spiffe-helper rendering and SPIFFE dpu-agent flags.
+	SpiffeMode bool
+	// SPIFFEKubeconfig is the tokenFile kubeconfig for SPIFFE-mode DPUs.
+	SPIFFEKubeconfig string
 	// SPIRETrustBundle, when non-empty, is the SPIRE trust bundle PEM emitted to
 	// /etc/spire/agent/trust-bundle.pem on a SPIFFE-mode DPU. It is mutually exclusive
 	// with BootstrapKubeconfig (a DPU uses exactly one identity mode).
-	SPIRETrustBundle string
-	ControlPlaneMTU  int
-	DPUName          string
-	DPUNamespace     string
-	DPUUID           string
-	DPUAgentRepoURL  string
-	DPUFlavorYAML    string
-	UbuntuPassword   string
-	ConfigFiles      []WriteFile
-	OVSRawScript     string
-	OOBNetwork       bool
-	RedfishInterface bool
-	BFBRegistryURL   string
-	AstraEnabled     bool
-	NICDeviceCount   int
+	SPIRETrustBundle      string
+	SPIREServerHost       string
+	SPIREServerPort       int
+	SPIRETrustDomain      string
+	KubeAPIAudience       string
+	SpiffeTokenPath       string
+	SpiffeAgentSocketPath string
+	SpiffePluginPath      string
+	// SpiffeCertDir and SpiffeTokenFileName are SpiffeTokenPath split into the
+	// spiffe-helper cert_dir and the JWT SVID file name (relative to cert_dir).
+	SpiffeCertDir        string
+	SpiffeTokenFileName  string
+	SpiffeAgentSocketDir string
+	ControlPlaneMTU      int
+	DPUName              string
+	DPUNamespace         string
+	DPUUID               string
+	DPUAgentRepoURL      string
+	DPUFlavorYAML        string
+	UbuntuPassword       string
+	ConfigFiles          []WriteFile
+	OVSRawScript         string
+	OOBNetwork           bool
+	RedfishInterface     bool
+	BFBRegistryURL       string
+	AstraEnabled         bool
+	NICDeviceCount       int
 }
 
 // ApplyFlavor populates the flavor-derived fields from the given DPUFlavor.

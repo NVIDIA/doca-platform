@@ -17,9 +17,11 @@ limitations under the License.
 package cloudinit
 
 import (
+	"path"
 	"strings"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/provisioning/constants"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -423,6 +425,76 @@ users:
 		for _, f := range parsed.WriteFiles {
 			Expect(f.Path).NotTo(Equal("/opt/dpf/ovs.sh"))
 		}
+	})
+
+	It("SPIFFE mode: renders SPIRE/spiffe-helper configs, kubeconfig, package install, and service ordering", func() {
+		_, parsed := generateAndParse(Params{
+			DPUHostName:            "test-dpu",
+			KubeadmSecretName:      "test-secret",
+			KubeadmSecretNamespace: "default",
+			SpiffeMode:             true,
+			SPIFFEKubeconfig:       sampleKubeconfig,
+			SPIRETrustBundle:       "bundle-pem",
+			SPIREServerHost:        "spire-server.spire.svc",
+			SPIREServerPort:        8081,
+			SPIRETrustDomain:       "cs.internal",
+			KubeAPIAudience:        "dpf",
+			SpiffeTokenPath:        constants.SpiffeTokenPath,
+			SpiffeCertDir:          path.Dir(constants.SpiffeTokenPath),
+			SpiffeTokenFileName:    path.Base(constants.SpiffeTokenPath),
+			SpiffeAgentSocketPath:  constants.SPIREAgentSocketPath,
+			SpiffeAgentSocketDir:   path.Dir(constants.SPIREAgentSocketPath),
+			SpiffePluginPath:       constants.SPIREPluginPath,
+			RedfishInterface:       true,
+			OOBNetwork:             true,
+			ControlPlaneMTU:        1500,
+			DPUName:                "dpu-1",
+			DPUNamespace:           "ns-1",
+			DPUAgentRepoURL:        "http://bfb-registry:8080/deb",
+		})
+
+		agentConf := getWriteFile(parsed, "/opt/dpf/dpuagent.conf")
+		Expect(agentConf.Content).To(ContainSubstring("--spiffe-mode=true"))
+		Expect(agentConf.Content).To(ContainSubstring("--kubeconfig=/var/lib/dpf/dpuagent/kubeconfig"))
+		Expect(agentConf.Content).To(ContainSubstring("--token-file-path=" + constants.SpiffeTokenPath))
+		Expect(agentConf.Content).NotTo(ContainSubstring("--bootstrap-kubeconfig="))
+
+		kubeconfigFile := getWriteFile(parsed, constants.SpiffeKubeconfigPath)
+		Expect(kubeconfigFile.Permissions).To(Equal("0600"))
+
+		agentCfg := getWriteFile(parsed, constants.SPIREAgentConfigPath)
+		Expect(agentCfg.Content).To(ContainSubstring(constants.SPIREPluginPath))
+
+		helperCfg := getWriteFile(parsed, constants.SpiffeHelperConfigPath)
+		Expect(helperCfg.Content).To(ContainSubstring(constants.SPIREAgentSocketPath))
+		Expect(helperCfg.Content).To(ContainSubstring(`cert_dir = "` + path.Dir(constants.SpiffeTokenPath) + `"`))
+		Expect(helperCfg.Content).To(ContainSubstring(`jwt_audience="dpf"`))
+		Expect(helperCfg.Content).To(ContainSubstring(`jwt_svid_file_name="` + path.Base(constants.SpiffeTokenPath) + `"`))
+		Expect(helperCfg.Content).To(ContainSubstring("jwt_svid_file_mode = 0600"))
+		Expect(helperCfg.Content).NotTo(ContainSubstring("spiffe_id ="))
+
+		dropIn := getWriteFile(parsed, "/etc/systemd/system/dpu-agent.service.d/spiffe.conf")
+		Expect(dropIn.Content).To(ContainSubstring("After=spire-agent.service spiffe-helper.service"))
+		Expect(dropIn.Content).To(ContainSubstring("RestartSec=10"))
+		// StartLimit* are [Unit] directives in systemd; they are ignored under [Service].
+		// Assert presence first so the ordering check below cannot pass on an absent directive (Index == -1).
+		Expect(dropIn.Content).To(ContainSubstring("StartLimitIntervalSec=300"))
+		Expect(dropIn.Content).To(ContainSubstring("StartLimitBurst=30"))
+		Expect(strings.Index(dropIn.Content, "StartLimitIntervalSec=300")).To(BeNumerically("<", strings.Index(dropIn.Content, "[Service]")))
+
+		installScript := getWriteFile(parsed, "/opt/dpf/install-dpu-agent.sh")
+		Expect(installScript.Content).To(ContainSubstring("mkdir -p /var/lib/spire/agent"))
+		Expect(installScript.Content).To(ContainSubstring(path.Dir(constants.SpiffeTokenPath)))
+		Expect(installScript.Content).To(ContainSubstring("exit 1"))
+		Expect(installScript.Content).To(ContainSubstring("SPIRE_PACKAGES=(spire-agent spiffe-helper dpu-hw-agent)"))
+		Expect(installScript.Content).To(ContainSubstring("failed to install SPIRE packages after 60 attempts"))
+		Expect(installScript.Content).To(ContainSubstring("systemctl enable --now spire-agent.service"))
+		Expect(installScript.Content).To(ContainSubstring("systemctl enable --now spiffe-helper.service"))
+		Expect(installScript.Content).To(ContainSubstring("apt-get install -y --no-install-recommends dpu-agent"))
+		Expect(installScript.Content).To(ContainSubstring("systemctl enable --now dpu-agent.service"))
+		spireIdx := strings.Index(installScript.Content, "systemctl enable --now spiffe-helper.service")
+		agentIdx := strings.Index(installScript.Content, "systemctl enable --now dpu-agent.service")
+		Expect(spireIdx).To(BeNumerically("<", agentIdx), "SPIRE services should start before dpu-agent")
 	})
 })
 

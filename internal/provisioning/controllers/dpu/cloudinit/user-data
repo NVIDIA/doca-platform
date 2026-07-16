@@ -79,7 +79,11 @@ write_files:
       --bfb-registry-url={{.BFBRegistryURL}}
 {{- end}}
       --kubeadm-secret-namespace={{.KubeadmSecretNamespace}}
-{{- if .BootstrapKubeconfig}}
+{{- if .SpiffeMode}}
+      --spiffe-mode=true
+      --kubeconfig=/var/lib/dpf/dpuagent/kubeconfig
+      --token-file-path={{.SpiffeTokenPath}}
+{{- else if .BootstrapKubeconfig}}
       --bootstrap-kubeconfig=/var/lib/dpf/dpuagent/bootstrap-kubeconfig
 {{- end}}
 
@@ -90,11 +94,63 @@ write_files:
 {{indent 6 .BootstrapKubeconfig}}
 {{- end}}
 
-{{- if .SPIRETrustBundle}}
+{{- if .SpiffeMode}}
+  - path: /var/lib/dpf/dpuagent/kubeconfig
+    permissions: '0600'
+    content: |
+{{indent 6 .SPIFFEKubeconfig}}
+
   - path: /etc/spire/agent/trust-bundle.pem
     permissions: '0644'
     content: |
 {{indent 6 .SPIRETrustBundle}}
+
+  - path: /etc/spire/agent/agent.conf
+    permissions: '0644'
+    content: |
+      agent {
+        data_dir = "/var/lib/spire/agent"
+        log_level = "INFO"
+        server_address = "{{.SPIREServerHost}}"
+        server_port = {{.SPIREServerPort}}
+        socket_path = "{{.SpiffeAgentSocketPath}}"
+        trust_domain = "{{.SPIRETrustDomain}}"
+        trust_bundle_path = "/etc/spire/agent/trust-bundle.pem"
+      }
+
+      plugins {
+        NodeAttestor "dpu_hw" {
+          plugin_cmd = "{{.SpiffePluginPath}}"
+          plugin_data {}
+        }
+        KeyManager "memory" {
+          plugin_data {}
+        }
+        WorkloadAttestor "unix" {
+          plugin_data {}
+        }
+      }
+
+  - path: /etc/spiffe-helper/helper.conf
+    permissions: '0644'
+    content: |
+      agent_address = "{{.SpiffeAgentSocketPath}}"
+      cert_dir = "{{.SpiffeCertDir}}"
+      jwt_svids = [{jwt_audience="{{.KubeAPIAudience}}", jwt_svid_file_name="{{.SpiffeTokenFileName}}"}]
+      jwt_svid_file_mode = 0600
+
+  - path: /etc/systemd/system/dpu-agent.service.d/spiffe.conf
+    permissions: '0644'
+    content: |
+      [Unit]
+      After=spire-agent.service spiffe-helper.service
+      Wants=spire-agent.service spiffe-helper.service
+      StartLimitIntervalSec=300
+      StartLimitBurst=30
+
+      [Service]
+      Restart=on-failure
+      RestartSec=10
 {{- end}}
 
   - path: /etc/apt/sources.list.d/dpf.list
@@ -110,18 +166,47 @@ write_files:
 
       netplan apply
 
-      # Install dpu-agent with retry.
-      # Using "if" so that apt-get failures don't trigger "set -e" exit;
-      # bash ignores -e for commands evaluated as part of a condition.
+{{- if .SpiffeMode}}
+      # SPIRE agent data dir, socket dir, and the JWT token dir must exist before services start.
+      mkdir -p /var/lib/spire/agent {{.SpiffeAgentSocketDir}} {{.SpiffeCertDir}}
+
+      SPIRE_PACKAGES=(spire-agent spiffe-helper dpu-hw-agent)
+      installed=false
       for i in $(seq 1 60); do
-        if apt-get update -o Dir::Etc::sourcelist="sources.list.d/dpf.list" -o Dir::Etc::sourceparts="-" && apt-get install -y --no-install-recommends dpu-agent; then
+        if apt-get update -o Dir::Etc::sourcelist="sources.list.d/dpf.list" -o Dir::Etc::sourceparts="-" && apt-get install -y --no-install-recommends "${SPIRE_PACKAGES[@]}"; then
+          installed=true
           break
         fi
         echo "apt-get failed, retrying ($i/60)..."
         sleep 10
       done
+      if [ "$installed" != "true" ]; then
+        echo "failed to install SPIRE packages after 60 attempts" >&2
+        exit 1
+      fi
 
-      # Enable and start dpu-agent
+      systemctl daemon-reload
+      systemctl enable --now spire-agent.service
+      systemctl enable --now spiffe-helper.service
+{{- end}}
+
+      # Install dpu-agent with retry.
+      # Using "if" so that apt-get failures don't trigger "set -e" exit;
+      # bash ignores -e for commands evaluated as part of a condition.
+      installed=false
+      for i in $(seq 1 60); do
+        if apt-get update -o Dir::Etc::sourcelist="sources.list.d/dpf.list" -o Dir::Etc::sourceparts="-" && apt-get install -y --no-install-recommends dpu-agent; then
+          installed=true
+          break
+        fi
+        echo "apt-get failed, retrying ($i/60)..."
+        sleep 10
+      done
+      if [ "$installed" != "true" ]; then
+        echo "failed to install dpu-agent after 60 attempts" >&2
+        exit 1
+      fi
+
       # The systemd service file is included in the dpu-agent package.
       # It reads startup parameters from /opt/dpf/dpuagent.conf (written by cloud-init above).
       systemctl daemon-reload

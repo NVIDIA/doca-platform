@@ -24,12 +24,15 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/cmd/dpuagent/opts"
+	"github.com/nvidia/doca-platform/internal/provisioning/constants"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
+	spiffeheartbeat "github.com/nvidia/doca-platform/internal/provisioning/dpuagent/spiffe"
 	provcertificate "github.com/nvidia/doca-platform/internal/provisioning/utils/certificate"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/certificate/bootstrap"
 	providentity "github.com/nvidia/doca-platform/internal/provisioning/utils/certificate/identity"
@@ -49,7 +52,8 @@ import (
 )
 
 const (
-	dpuAgentPairName = "dpu-agent-client"
+	dpuAgentPairName       = "dpu-agent-client"
+	spiffeTokenWaitTimeout = 90 * time.Second
 )
 
 func main() {
@@ -58,9 +62,11 @@ func main() {
 
 	options := opts.Options{}
 	pflag.BoolVar(&options.ZeroTrustMode, "zero-trust-mode", false, "Enable zero trust mode")
+	pflag.BoolVar(&options.SpiffeMode, "spiffe-mode", false, "Enable SPIFFE JWT-SVID authentication via tokenFile kubeconfig")
 	pflag.Int32Var(&options.ControlPlaneMTU, "control-plane-mtu", 1500, "Control plane MTU")
 	pflag.StringVar(&options.Kubeconfig, "kubeconfig", opts.DefaultKubeconfig, "Path to the kubeconfig file")
 	pflag.StringVar(&options.BootstrapKubeconfig, "bootstrap-kubeconfig", "", "Path to the bootstrap kubeconfig file (contains bootstrap token for TLS bootstrapping)")
+	pflag.StringVar(&options.TokenFilePath, "token-file-path", constants.SpiffeTokenPath, "Path to the SPIFFE JWT token file (SPIFFE mode only)")
 	pflag.StringVar(&options.CertDir, "cert-dir", opts.DefaultCertDir, "Directory to store client certificates")
 	pflag.StringVar(&options.DPUName, "dpu-name", "", "Name of the DPU")
 	pflag.StringVar(&options.DPUNamespace, "dpu-namespace", "", "Namespace of the DPU")
@@ -106,7 +112,9 @@ func main() {
 	dpuFlavor := &provisioningv1.DPUFlavor{}
 	parseFileOrDie(options.DPUFlavor, YamlParserFunc, dpuFlavor)
 
-	cfg, err := buildClientConfig(&options)
+	execCtx := klog.NewContext(ctrl.SetupSignalHandler(), klog.Background())
+
+	cfg, err := buildClientConfig(execCtx, &options)
 	if err != nil {
 		klog.Fatalf("failed to build client config: %v", err)
 	}
@@ -130,8 +138,15 @@ func main() {
 		Options:   options,
 	}
 
-	execCtx := klog.NewContext(ctrl.SetupSignalHandler(), klog.Background())
 	agent := dpuagent.NewDPUAgent(optCtx)
+	if options.SpiffeMode {
+		go spiffeheartbeat.Run(execCtx, spiffeheartbeat.Config{
+			Client:       dpuClient,
+			DPUName:      options.DPUName,
+			DPUNamespace: options.DPUNamespace,
+			DPUUID:       options.DPUUID,
+		})
+	}
 	if err := agent.Run(execCtx); err != nil {
 		if shutdownErr := agent.Shutdown(); shutdownErr != nil {
 			klog.ErrorS(shutdownErr, "failed to stop local DMS server after DPU agent error")
@@ -147,7 +162,21 @@ func main() {
 	klog.Info("DPUAgent stop signal received")
 }
 
-func buildClientConfig(options *opts.Options) (*restclient.Config, error) {
+func buildClientConfig(ctx context.Context, options *opts.Options) (*restclient.Config, error) {
+	if options.SpiffeMode {
+		if options.TokenFilePath == "" {
+			return nil, fmt.Errorf("token-file-path is required in SPIFFE mode")
+		}
+		if err := waitForNonEmptyTokenFile(ctx, options.TokenFilePath, spiffeTokenWaitTimeout); err != nil {
+			return nil, err
+		}
+		cfg, err := clientcmd.BuildConfigFromFlags("", options.Kubeconfig)
+		if err != nil {
+			return nil, fmt.Errorf("loading SPIFFE kubeconfig: %w", err)
+		}
+		return cfg, nil
+	}
+
 	if options.BootstrapKubeconfig == "" {
 		return clientcmd.BuildConfigFromFlags("", options.Kubeconfig)
 	}
@@ -190,7 +219,7 @@ func buildClientConfig(options *opts.Options) (*restclient.Config, error) {
 	klog.V(2).InfoS("Starting client certificate rotation")
 	clientCertificateManager.Start()
 
-	err = wait.PollUntilContextCancel(context.TODO(), 10*time.Second, true, func(ctx context.Context) (bool, error) {
+	err = wait.PollUntilContextCancel(ctx, 10*time.Second, true, func(_ context.Context) (bool, error) {
 		if clientCertificateManager.Current() != nil {
 			return true, nil
 		}
@@ -203,6 +232,17 @@ func buildClientConfig(options *opts.Options) (*restclient.Config, error) {
 	klog.InfoS("TLS bootstrapping completed", "cn", commonName)
 
 	return transportConfig, nil
+}
+
+func waitForNonEmptyTokenFile(ctx context.Context, path string, timeout time.Duration) error {
+	err := wait.PollUntilContextTimeout(ctx, time.Second, timeout, true, func(_ context.Context) (bool, error) {
+		data, readErr := os.ReadFile(path)
+		return readErr == nil && len(strings.TrimSpace(string(data))) > 0, nil
+	})
+	if err != nil {
+		return fmt.Errorf("waiting for non-empty SPIFFE token file %s: %w", path, err)
+	}
+	return nil
 }
 
 type ParseFunc func(data []byte, obj interface{}) error
