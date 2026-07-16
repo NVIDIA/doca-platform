@@ -23,6 +23,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nvidia/doca-platform/internal/dpfctl/util"
+
 	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -115,15 +117,15 @@ func ValidateCaseID(caseID string) error {
 // where no jobs exist.
 func Start(ctx context.Context, targets ClusterTargets, hostClient client.Client, opts StartOptions) (ClusterTargets, error) {
 	if opts.Output == OutputNFS && opts.NFSSubDir != "" {
-		Step("Starting SOS report collection (case-id: %s, nfs: %s/%s)", opts.CaseID, opts.NFSPath, opts.NFSSubDir)
+		util.Step("Starting SOS report collection (case-id: %s, nfs: %s/%s)", opts.CaseID, opts.NFSPath, opts.NFSSubDir)
 	} else {
-		Step("Starting SOS report collection (case-id: %s)", opts.CaseID)
+		util.Step("Starting SOS report collection (case-id: %s)", opts.CaseID)
 	}
 
 	var started ClusterTargets
 	for _, target := range targets {
 		if err := startOnCluster(ctx, target, hostClient, opts); err != nil {
-			Failure("cluster %s: %v", target.Name, err)
+			util.Failure("cluster %s: %v", target.Name, err)
 			continue
 		}
 		started = append(started, target)
@@ -177,10 +179,10 @@ func startOnCluster(ctx context.Context, target ClusterTarget, hostClient client
 
 		job, err := CreateJob(ctx, target.Client, jobOpts)
 		if err != nil {
-			Failure("%s/%s: %v", target.Name, nodeName, err)
+			util.Failure("%s/%s: %v", target.Name, nodeName, err)
 			continue
 		}
-		Success("%s/%s (job: %s)", target.Name, job.Spec.Template.Spec.NodeName, job.Name)
+		util.Success("%s/%s (job: %s)", target.Name, job.Spec.Template.Spec.NodeName, job.Name)
 	}
 
 	return nil
@@ -201,7 +203,7 @@ func getTargetNodes(ctx context.Context, target ClusterTarget, filterNodes []str
 			}
 		}
 		if len(matched) == 0 {
-			Warn("Cluster %s: none of the specified nodes %v were found", target.Name, filterNodes)
+			util.Warn("Cluster %s: none of the specified nodes %v were found", target.Name, filterNodes)
 		}
 		return matched, nil
 	}
@@ -210,6 +212,6 @@ func getTargetNodes(ctx context.Context, target ClusterTarget, filterNodes []str
 		return nil, fmt.Errorf("no nodes found on cluster %s", target.Name)
 	}
 
-	Info("Cluster %s: %d node(s)", target.Name, len(nodes))
+	util.Info("Cluster %s: %d node(s)", target.Name, len(nodes))
 	return nodes, nil
 }

@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/dpfctl/util"
 	"github.com/nvidia/doca-platform/internal/utils/tunnel"
 
 	batchv1 "k8s.io/api/batch/v1"
@@ -99,7 +100,7 @@ func (ct *ClusterTarget) EnsureTunnel(ctx context.Context) error {
 		}
 	}
 
-	Warn("Tunnel to %s is unhealthy, reconnecting...", ct.Name)
+	util.Warn("Tunnel to %s is unhealthy, reconnecting...", ct.Name)
 	ct.tunnel.Close()
 
 	restConfig, tun, err := tunnel.NewTunneledRestConfig(ctx, ct.hostClient, ct.hostRESTConfig, ct.dpuCluster)
@@ -156,7 +157,7 @@ func GetClusterTargets(ctx context.Context, clusterFilter, dpuClusterName string
 			if clusterFilter == clusterFilterDPU {
 				return nil, err
 			}
-			Warn("failed to get DPU cluster targets: %v", err)
+			util.Warn("failed to get DPU cluster targets: %v", err)
 		}
 		targets = append(targets, dpuTargets...)
 	}
@@ -226,20 +227,20 @@ func getDPUClusterTargets(ctx context.Context, hostClient client.Client, hostRES
 		}
 
 		if dc.Status.Phase != provisioningv1.PhaseReady {
-			Warn("DPUCluster %s/%s is not ready (phase: %s), skipping", dc.Namespace, dc.Name, dc.Status.Phase)
+			util.Warn("DPUCluster %s/%s is not ready (phase: %s), skipping", dc.Namespace, dc.Name, dc.Status.Phase)
 			continue
 		}
 
 		restConfig, tun, err := tunnel.NewTunneledRestConfig(ctx, hostClient, hostRESTConfig, dc)
 		if err != nil {
-			Warn("failed to tunnel to DPUCluster %s/%s: %v", dc.Namespace, dc.Name, err)
+			util.Warn("failed to tunnel to DPUCluster %s/%s: %v", dc.Namespace, dc.Name, err)
 			continue
 		}
 
 		dpuClient, err := client.New(restConfig, client.Options{Scheme: dpuScheme})
 		if err != nil {
 			tun.Close()
-			Warn("failed to create client for DPUCluster %s/%s: %v", dc.Namespace, dc.Name, err)
+			util.Warn("failed to create client for DPUCluster %s/%s: %v", dc.Namespace, dc.Name, err)
 			continue
 		}
 

@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/nvidia/doca-platform/internal/dpfctl/sosreport"
+	"github.com/nvidia/doca-platform/internal/dpfctl/util"
 	"github.com/nvidia/doca-platform/internal/utils/tunnel"
 
 	"github.com/spf13/cobra"
@@ -72,7 +73,7 @@ The sosreport command creates privileged Jobs on target nodes that run the
 NVIDIA sosreport tool to collect system diagnostics. Reports can be written
 to NFS or downloaded directly to your local machine.`,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		if sosreport.Verbose {
+		if util.Verbose {
 			tunnel.Stdout = os.Stderr
 			tunnel.Stderr = os.Stderr
 		} else {
@@ -110,7 +111,7 @@ func init() {
 
 	f.StringVar(&sosOpts.caseID, "case-id", "", "Case ID for the SOS report (default: dpf-<timestamp>)")
 	f.StringVar(&sosOpts.image, "image", "ghcr.io/nvidia/sosreport:latest", "SOS report container image")
-	f.BoolVarP(&sosreport.Verbose, "verbose", "v", false, "Show debug output including port-forward details")
+	f.BoolVarP(&util.Verbose, "verbose", "v", false, "Show debug output including port-forward details")
 	f.AddGoFlagSet(flag.CommandLine)
 }
 

@@ -19,6 +19,8 @@ package sosreport
 import (
 	"context"
 
+	"github.com/nvidia/doca-platform/internal/dpfctl/util"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -29,12 +31,12 @@ func Cleanup(ctx context.Context, targets ClusterTargets, namespace, caseID stri
 	totalCleaned := 0
 	for i := range targets {
 		if err := targets[i].EnsureTunnel(ctx); err != nil {
-			Failure("cluster %s: %v", targets[i].Name, err)
+			util.Failure("cluster %s: %v", targets[i].Name, err)
 			continue
 		}
 		n, err := cleanupOnCluster(ctx, targets[i], namespace, caseID)
 		if err != nil {
-			Failure("cluster %s: %v", targets[i].Name, err)
+			util.Failure("cluster %s: %v", targets[i].Name, err)
 			continue
 		}
 		totalCleaned += n
@@ -59,9 +61,9 @@ func cleanupOnCluster(ctx context.Context, target ClusterTarget, namespace, case
 	for i := range jobs {
 		job := &jobs[i]
 		nodeName := job.Annotations[annotationNode]
-		Success("Deleting %s/%s (job: %s)", target.Name, nodeName, job.Name)
+		util.Success("Deleting %s/%s (job: %s)", target.Name, nodeName, job.Name)
 		if err := target.Client.Delete(ctx, job, deleteOpts...); err != nil {
-			Warn("failed to delete Job %s: %v", job.Name, err)
+			util.Warn("failed to delete Job %s: %v", job.Name, err)
 		}
 	}
 
@@ -71,7 +73,7 @@ func cleanupOnCluster(ctx context.Context, target ClusterTarget, namespace, case
 		cleanupLabels[labelCaseID] = caseID
 	}
 	if err := CleanupResources(ctx, target.Client, namespace, cleanupLabels); err != nil {
-		Warn("resource cleanup on %s: %v", target.Name, err)
+		util.Warn("resource cleanup on %s: %v", target.Name, err)
 	}
 
 	return len(jobs), nil

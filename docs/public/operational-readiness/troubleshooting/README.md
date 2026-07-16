@@ -26,6 +26,16 @@ Collect system diagnostics from host and DPU cluster nodes for support cases.
 * Investigating complex infrastructure issues
 * Preparing diagnostic data for NVIDIA support
 
+### [Diagnostic Dumps (dpfctl dump)](dpfctl/dump.md)
+
+Collect diagnostic dumps from DPF infrastructure components, such as BlueField BMC diagnostic dumps.
+
+**Use when:**
+
+* A Zero Trust or BMC-driven workflow fails and BMC-side diagnostics are required
+* Kubernetes resources do not contain enough information to debug a provisioning or reboot issue
+* You need Redfish task artifacts and the raw BMC dump archive for escalation
+
 ### [Using the DOCA Debug Image](doca-debug-image.md)
 How to start a privileged DOCA debug container with host networking and use release-aligned DOCA tooling for debugging.
 
@@ -55,6 +65,7 @@ If you cannot resolve the issue using the guides above:
 
 1. **Collect Diagnostic Information**
    * Collect a [sosreport](dpfctl/sosreport.md) for your environment
+   * Collect a [diagnostic dump](dpfctl/dump.md) when BMC-side information is needed
 
 2. **Check Known Issues**
    * Review [Release Notes](../../release-notes/README.md) for known issues
