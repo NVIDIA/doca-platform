@@ -30,6 +30,7 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -37,6 +38,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
 func newTestScheme() *runtime.Scheme {
@@ -227,6 +229,35 @@ var _ = Describe("ZT Bootstrap", func() {
 
 			Expect(CreateDPUAgentRoleBinding(ctx, fakeClient, scheme, dpu, "da-dpu-01")).To(Succeed())
 			Expect(CreateDPUAgentRoleBinding(ctx, fakeClient, scheme, dpu, "da-dpu-01")).To(Succeed())
+		})
+
+		It("should not fail, and should leave the existing binding untouched, when a stale cache causes Create to race an existing role binding", func() {
+			existing := &rbacv1.RoleBinding{ObjectMeta: metav1.ObjectMeta{
+				Name: "da-dpu-01", Namespace: "dpf-operator-system",
+			}}
+			// Simulate a stale-cache miss on the first Get only; later Gets see real state.
+			staleGetDone := false
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+				WithObjects(existing).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+						if _, ok := obj.(*rbacv1.RoleBinding); ok && !staleGetDone {
+							staleGetDone = true
+							return apierrors.NewNotFound(rbacv1.Resource("rolebindings"), key.Name)
+						}
+						return c.Get(ctx, key, obj, opts...)
+					},
+				}).Build()
+
+			Expect(CreateDPUAgentRoleBinding(ctx, fakeClient, scheme, dpu, "da-dpu-01")).To(Succeed())
+
+			// The existing binding is left untouched by this call.
+			rb := &rbacv1.RoleBinding{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{
+				Name:      "da-dpu-01",
+				Namespace: "dpf-operator-system",
+			}, rb)).To(Succeed())
+			Expect(rb.Subjects).To(BeEmpty())
 		})
 
 		It("reconciles a stale subject on an existing binding while leaving RoleRef untouched", func() {
