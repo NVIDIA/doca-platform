@@ -20,6 +20,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/nvidia/doca-platform/internal/dpfctl/util"
 )
 
 // CollectOptions contains the configuration for the full collect workflow.
@@ -62,19 +64,19 @@ func Collect(ctx context.Context, opts CollectOptions) error {
 	startedTargets, err := Start(ctx, targets, hostClient, opts.StartOptions)
 	if err != nil {
 		if ctx.Err() != nil {
-			Warn("Interrupted during start")
+			util.Warn("Interrupted during start")
 			return fmt.Errorf("interrupted")
 		}
 		return fmt.Errorf("start failed: %w", err)
 	}
 
 	// Step 2: Wait
-	Step("Waiting for SOS report Jobs to complete")
+	util.Step("Waiting for SOS report Jobs to complete")
 	if err := WaitForAll(ctx, startedTargets, opts.Namespace, opts.CaseID, opts.Timeout); err != nil {
 		if ctx.Err() != nil {
-			Warn("Interrupted")
+			util.Warn("Interrupted")
 		} else {
-			Warn("%v", err)
+			util.Warn("%v", err)
 		}
 	}
 
@@ -82,17 +84,17 @@ func Collect(ctx context.Context, opts CollectOptions) error {
 	if opts.Output == OutputNFS {
 		if opts.NFSSubDir != "" {
 			if opts.ArchiveOnly {
-				Result("Archive created on NFS: %s/%s.tar.gz", opts.NFSPath, opts.NFSSubDir)
+				util.Result("Archive created on NFS: %s/%s.tar.gz", opts.NFSPath, opts.NFSSubDir)
 			} else {
-				Result("Reports written to NFS: %s/%s", opts.NFSPath, opts.NFSSubDir)
+				util.Result("Reports written to NFS: %s/%s", opts.NFSPath, opts.NFSSubDir)
 				if opts.Archive {
-					Result("Archive created on NFS: %s/%s.tar.gz", opts.NFSPath, opts.NFSSubDir)
+					util.Result("Archive created on NFS: %s/%s.tar.gz", opts.NFSPath, opts.NFSSubDir)
 				}
 			}
 		} else {
-			Result("Reports written to NFS: %s", opts.NFSPath)
+			util.Result("Reports written to NFS: %s", opts.NFSPath)
 		}
-		Step("Cleaning up")
+		util.Step("Cleaning up")
 		Cleanup(context.Background(), startedTargets, opts.Namespace, opts.CaseID)
 		return nil
 	}
@@ -102,9 +104,9 @@ func Collect(ctx context.Context, opts CollectOptions) error {
 	// if the caller interrupted during the wait phase. We still want to
 	// attempt downloading whatever reports are ready.
 	if ctx.Err() != nil {
-		Warn("Wait was interrupted. Proceeding to download all available reports; results may be incomplete")
+		util.Warn("Wait was interrupted. Proceeding to download all available reports; results may be incomplete")
 	}
-	Step("Downloading SOS reports")
+	util.Step("Downloading SOS reports")
 	dlCtx, dlCancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer dlCancel()
 
@@ -116,13 +118,13 @@ func Collect(ctx context.Context, opts CollectOptions) error {
 		ArchiveOnly: opts.ArchiveOnly,
 	}
 	if err := DownloadAndArchive(dlCtx, startedTargets, dlOpts); err != nil {
-		Warn("Download failed: %v", err)
-		Warn("Skipping cleanup — resources preserved for retry via 'dpfctl sosreport download'")
+		util.Warn("Download failed: %v", err)
+		util.Warn("Skipping cleanup — resources preserved for retry via 'dpfctl sosreport download'")
 		return fmt.Errorf("download failed: %w", err)
 	}
 
 	// Always clean up after collect — reuse existing startedTargets.
-	Step("Cleaning up")
+	util.Step("Cleaning up")
 	Cleanup(context.Background(), startedTargets, opts.Namespace, opts.CaseID)
 	return nil
 }

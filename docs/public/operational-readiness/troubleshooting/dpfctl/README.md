@@ -25,6 +25,7 @@ There are 2 ways to run `dpfctl`:
 | Command                   | Description                                                     |
 |---------------------------|-----------------------------------------------------------------|
 | [describe](describe.md)   | Visualize and debug DPU resources, conditions, and dependencies |
+| [dump](dump.md)           | Collect diagnostic dumps from DPF infrastructure components     |
 | [sosreport](sosreport.md) | Collect SOS reports from host and DPU cluster nodes             |
 
 ### Install

@@ -18,6 +18,7 @@ package cmd
 
 import (
 	"github.com/nvidia/doca-platform/internal/dpfctl/sosreport"
+	"github.com/nvidia/doca-platform/internal/dpfctl/util"
 
 	"github.com/spf13/cobra"
 )
@@ -49,12 +50,12 @@ collections or clean up after a completed workflow.`,
 		}
 		defer targets.Close()
 
-		sosreport.Step("Cleaning up SOS report resources")
+		util.Step("Cleaning up SOS report resources")
 		n := sosreport.Cleanup(cmd.Context(), targets, sosOpts.namespace, sosOpts.caseID)
 		if n == 0 {
-			sosreport.Info("No SOS report resources found")
+			util.Info("No SOS report resources found")
 		} else {
-			sosreport.Result("Cleaned up %d Job(s) and associated resources", n)
+			util.Result("Cleaned up %d Job(s) and associated resources", n)
 		}
 		return nil
 	},

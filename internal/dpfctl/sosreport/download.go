@@ -27,6 +27,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nvidia/doca-platform/internal/dpfctl/util"
+
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -61,25 +63,25 @@ func DownloadAndArchive(ctx context.Context, targets ClusterTargets, opts Downlo
 	downloaded := Download(ctx, targets, opts.Namespace, opts.CaseID, outputDir)
 
 	if downloaded == 0 {
-		ResultFail("No completed SOS reports found to download")
+		util.ResultFail("No completed SOS reports found to download")
 		if opts.ShowStatusHint {
-			Info("Use 'dpfctl sosreport status' to check Job progress")
+			util.Info("Use 'dpfctl sosreport status' to check Job progress")
 		}
 		return nil
 	}
 
-	Result("Downloaded %d report(s) to %s", downloaded, outputDir)
+	util.Result("Downloaded %d report(s) to %s", downloaded, outputDir)
 
 	if opts.ArchiveOnly {
 		opts.Archive = true
 	}
 	if opts.Archive {
-		Step("Creating archive")
+		util.Step("Creating archive")
 		archivePath, err := CreateArchive(outputDir)
 		if err != nil {
 			return fmt.Errorf("failed to create archive: %w", err)
 		}
-		Result("Archive created: %s", archivePath)
+		util.Result("Archive created: %s", archivePath)
 		if opts.ArchiveOnly {
 			if err := os.RemoveAll(outputDir); err != nil {
 				return fmt.Errorf("failed to remove report directory: %w", err)
@@ -159,7 +161,7 @@ func Download(ctx context.Context, targets ClusterTargets, namespace, caseID, ou
 	for i := range targets {
 		n, err := downloadFromCluster(ctx, &targets[i], namespace, caseID, outputDir)
 		if err != nil {
-			Failure("cluster %s: %v", targets[i].Name, err)
+			util.Failure("cluster %s: %v", targets[i].Name, err)
 			continue
 		}
 		downloaded += n
@@ -183,35 +185,35 @@ func downloadFromCluster(ctx context.Context, target *ClusterTarget, namespace, 
 		}
 
 		if err := target.EnsureTunnel(ctx); err != nil {
-			Failure("%s/%s: tunnel reconnect failed: %v", clusterName, nodeName, err)
+			util.Failure("%s/%s: tunnel reconnect failed: %v", clusterName, nodeName, err)
 			continue
 		}
 
 		// NFS-mode jobs use a "done" container that exits immediately — reports
 		// live on the NFS share, not inside the pod. Skip download for these.
 		if isNFSJob(&job) {
-			Warn("%s/%s: NFS output mode — reports were written to the NFS share, not downloadable via this command", clusterName, nodeName)
+			util.Warn("%s/%s: NFS output mode — reports were written to the NFS share, not downloadable via this command", clusterName, nodeName)
 			continue
 		}
 
 		runningPod, err := FindReadyDownloadPod(ctx, target.Client, namespace, &job)
 		if err != nil {
-			Failure("%s/%s: %v", clusterName, nodeName, err)
+			util.Failure("%s/%s: %v", clusterName, nodeName, err)
 			continue
 		}
 		if runningPod == nil {
-			Warn("%s/%s: not ready yet", clusterName, nodeName)
+			util.Warn("%s/%s: not ready yet", clusterName, nodeName)
 			continue
 		}
 
-		stopSpinner := StartSpinner("Downloading %s/%s...", clusterName, nodeName)
+		stopSpinner := util.StartSpinner("Downloading %s/%s...", clusterName, nodeName)
 		localPath, err := DownloadToFile(ctx, target.RestConfig, namespace, runningPod.Name, "sleep", outputDir, clusterName, nodeName)
 		stopSpinner()
 		if err != nil {
-			Failure("%s/%s: %v", clusterName, nodeName, err)
+			util.Failure("%s/%s: %v", clusterName, nodeName, err)
 			continue
 		}
-		Success("%s/%s → %s", clusterName, nodeName, localPath)
+		util.Success("%s/%s → %s", clusterName, nodeName, localPath)
 		downloaded++
 	}
 

@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/nvidia/doca-platform/internal/dpfctl/util"
+
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -66,7 +68,7 @@ func WaitForAll(ctx context.Context, targets ClusterTargets, namespace, caseID s
 							stopSpinner = nil
 						}
 						nodeName := job.Annotations[annotationNode]
-						Failure("%s/%s: %s", targets[i].Name, nodeName, msg)
+						util.Failure("%s/%s: %s", targets[i].Name, nodeName, msg)
 					}
 					continue
 				}
@@ -82,7 +84,7 @@ func WaitForAll(ctx context.Context, targets ClusterTargets, namespace, caseID s
 			if stopSpinner != nil {
 				stopSpinner()
 			}
-			stopSpinner = StartSpinner("Waiting for %d job(s) to complete...", waitingCount)
+			stopSpinner = util.StartSpinner("Waiting for %d job(s) to complete...", waitingCount)
 			lastCount = waitingCount
 		}
 
@@ -95,11 +97,11 @@ func WaitForAll(ctx context.Context, targets ClusterTargets, namespace, caseID s
 
 	if err == nil {
 		if len(initContainerFailures) > 0 {
-			Warn("Some jobs had init container failures")
+			util.Warn("Some jobs had init container failures")
 		} else if lastCount >= 0 {
-			Success("All jobs completed")
+			util.Success("All jobs completed")
 		} else {
-			Info("No jobs found")
+			util.Info("No jobs found")
 		}
 		return nil
 	}
