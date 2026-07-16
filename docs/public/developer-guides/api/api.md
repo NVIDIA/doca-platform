@@ -1233,6 +1233,7 @@ _Appears in:_
 | `spireTrustDomain` _string_ | SPIRETrustDomain is the SPIRE-internal trust domain (e.g. "cs.internal") embedded in the<br />DPU Agent SVID URI. |  | MaxLength: 253 <br />MinLength: 1 <br />Pattern: `^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$` <br />Required: \{\} <br /> |
 | `kubeAPIAudience` _string_ | KubeAPIAudience is the audience claim the DPU Agent's JWT-SVID must carry; it must match an<br />entry in the kube-apiserver AuthenticationConfiguration.audiences[] (owned out-of-band). |  | MaxLength: 512 <br />MinLength: 1 <br />Required: \{\} <br /> |
 | `spireOIDCURL` _string_ | SPIREOIDCURL is the OIDC discovery (issuer) URL of the pre-installed SPIRE Server.<br />The matching kube-apiserver AuthenticationConfiguration.jwt[].issuer value is applied out-of-band. |  | MaxLength: 2048 <br />MinLength: 1 <br />Required: \{\} <br /> |
+| `spireControllerManagerClassName` _string_ | spireControllerManagerClassName selects the SPIRE controller-manager instance that renders<br />DPF ClusterStaticEntries. |  | MaxLength: 253 <br />MinLength: 1 <br />Required: \{\} <br /> |
 | `trustBundle` _[SPIFFETrustBundleConfigMapReference](#spiffetrustbundleconfigmapreference)_ | trustBundle references a ConfigMap whose data["bundle.pem"] key holds the SPIRE trust<br />bundle in PEM form. |  | Required: \{\} <br /> |
 
 

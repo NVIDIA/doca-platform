@@ -24,6 +24,8 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 
+	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -88,6 +90,12 @@ func TestDPUAgentRoleBindingSubject(t *testing.T) {
 			objs:    []client.Object{spiffeConfig},
 			wantErr: true,
 		},
+		{
+			name:    "SPIFFE DPU without SPIFFE configuration fails closed",
+			dpu:     spiffeDPU,
+			device:  device("SN123"),
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -109,5 +117,55 @@ func TestDPUAgentRoleBindingSubject(t *testing.T) {
 				t.Fatalf("subject = %q, want %q", subject, tt.wantSubject)
 			}
 		})
+	}
+}
+
+func TestEnsureRBACSkipsBootstrapTokenForSPIFFEDPU(t *testing.T) {
+	scheme := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(operatorv1.AddToScheme(scheme))
+	utilruntime.Must(provisioningv1.AddToScheme(scheme))
+
+	dpu := &provisioningv1.DPU{
+		ObjectMeta: metav1.ObjectMeta{Name: "dpu-01", Namespace: "dpf-operator-system"},
+		Status:     provisioningv1.DPUStatus{IdentityMode: ptr.To(provisioningv1.IdentityModeSpiffe)},
+	}
+	device := &provisioningv1.DPUDevice{
+		ObjectMeta: metav1.ObjectMeta{Name: "device-01", Namespace: dpu.Namespace},
+		Spec:       provisioningv1.DPUDeviceSpec{SerialNumber: "SN123"},
+	}
+	config := &operatorv1.DPFOperatorConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "cfg", Namespace: dpu.Namespace},
+		Spec: operatorv1.DPFOperatorConfigSpec{
+			Security: &operatorv1.SecurityConfiguration{
+				SPIFFE: &operatorv1.SPIFFEConfiguration{SPIRETrustDomain: "cs.internal"},
+			},
+		},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(config).Build()
+	ctrlCtx := &dutil.ControllerContext{Client: fakeClient, Scheme: scheme}
+
+	token, err := ensureRBAC(context.Background(), ctrlCtx, dpu, nil, device)
+	if err != nil {
+		t.Fatalf("ensureRBAC() error = %v", err)
+	}
+	if token != "" {
+		t.Fatalf("ensureRBAC() token = %q, want empty", token)
+	}
+
+	roleBinding := &rbacv1.RoleBinding{}
+	if err := fakeClient.Get(context.Background(), client.ObjectKey{Name: "da-dpu-01", Namespace: dpu.Namespace}, roleBinding); err != nil {
+		t.Fatalf("get RoleBinding: %v", err)
+	}
+	if len(roleBinding.Subjects) != 1 || roleBinding.Subjects[0].Name != "spiffe://cs.internal/dpu/sn123/process/dpu-agent" {
+		t.Fatalf("RoleBinding subjects = %#v", roleBinding.Subjects)
+	}
+
+	secrets := &corev1.SecretList{}
+	if err := fakeClient.List(context.Background(), secrets, client.InNamespace("kube-system")); err != nil {
+		t.Fatalf("list bootstrap secrets: %v", err)
+	}
+	if len(secrets.Items) != 0 {
+		t.Fatalf("bootstrap secrets = %#v, want none", secrets.Items)
 	}
 }

@@ -1,0 +1,22 @@
+name: spiffe-helper
+arch: arm64
+version: "${VERSION}"
+maintainer: NVIDIA DPF Team <dpf@nvidia.com>
+description: |
+  SPIFFE Helper for DPF DPU SPIFFE identity.
+  Fetches JWT-SVIDs from SPIRE Agent for kube-apiserver authentication.
+vendor: SPIFFE
+license: Apache-2.0
+section: admin
+priority: optional
+
+contents:
+  - src: ./spiffe-helper
+    dst: /usr/bin/spiffe-helper
+    file_info:
+      mode: 0755
+
+  - src: ./spiffe-helper.service
+    dst: /usr/lib/systemd/system/spiffe-helper.service
+    file_info:
+      mode: 0644

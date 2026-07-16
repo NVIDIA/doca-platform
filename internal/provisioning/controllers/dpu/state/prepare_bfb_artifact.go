@@ -19,9 +19,13 @@ package state
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
+	"path"
+	"strconv"
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/provisioning/constants"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/cloudinit"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
@@ -94,24 +98,73 @@ func (g *DefaultDPUArtifactGenerator) resolveParamsWithBootstrapKubeconfig(ctx c
 	return params, dpfOperatorConfig, nil
 }
 
-// applySpiffeParams reads the SPIRE trust bundle from the operator-referenced ConfigMap and
-// sets it as the render param for a SPIFFE-mode DPU. It deliberately leaves BootstrapKubeconfig
-// empty so the cloud-init render omits the bootstrap token kubeconfig.
+// applySpiffeParams populates cloud-init SPIFFE/SPIRE params from DPFOperatorConfig
+// and generates the tokenFile kubeconfig. BootstrapKubeconfig is intentionally unset.
 func (g *DefaultDPUArtifactGenerator) applySpiffeParams(ctx context.Context, req dutil.DPUArtifactRequest, cfg *operatorv1.DPFOperatorConfig, params *cloudinit.Params) error {
 	if !cutil.SpiffeEnabled(cfg) {
 		return fmt.Errorf("DPU %s is SPIFFE-mode but cluster spec.security.spiffe is unset", req.DPU.Name)
 	}
-	ref := cfg.Spec.Security.SPIFFE.TrustBundle
+	spiffeCfg := cfg.Spec.Security.SPIFFE
+
+	bundle, err := g.readTrustBundle(ctx, req, spiffeCfg.TrustBundle)
+	if err != nil {
+		return err
+	}
+	host, portStr, err := net.SplitHostPort(spiffeCfg.SPIREServerAddress)
+	if err != nil {
+		return fmt.Errorf("parsing SPIRE server address %q: %w", spiffeCfg.SPIREServerAddress, err)
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return fmt.Errorf("parsing SPIRE server port %q: %w", portStr, err)
+	}
+	kubeconfigData, err := g.generateSpiffeKubeconfig(cfg, params.RedfishInterface)
+	if err != nil {
+		return err
+	}
+
+	params.SpiffeMode = true
+	params.SPIFFEKubeconfig = string(kubeconfigData)
+	params.SPIRETrustBundle = bundle
+	params.SPIREServerHost = host
+	params.SPIREServerPort = port
+	params.SPIRETrustDomain = spiffeCfg.SPIRETrustDomain
+	params.KubeAPIAudience = spiffeCfg.KubeAPIAudience
+	params.SpiffeTokenPath = constants.SpiffeTokenPath
+	params.SpiffeCertDir = path.Dir(constants.SpiffeTokenPath)
+	params.SpiffeTokenFileName = path.Base(constants.SpiffeTokenPath)
+	params.SpiffeAgentSocketPath = constants.SPIREAgentSocketPath
+	params.SpiffeAgentSocketDir = path.Dir(constants.SPIREAgentSocketPath)
+	params.SpiffePluginPath = constants.SPIREPluginPath
+	return nil
+}
+
+func (g *DefaultDPUArtifactGenerator) readTrustBundle(ctx context.Context, req dutil.DPUArtifactRequest, ref operatorv1.SPIFFETrustBundleConfigMapReference) (string, error) {
 	cm := &corev1.ConfigMap{}
 	if err := req.ControllerContext.Get(ctx, types.NamespacedName{Name: ref.Name, Namespace: ref.Namespace}, cm); err != nil {
-		return fmt.Errorf("getting SPIRE trust bundle ConfigMap %s/%s: %w", ref.Namespace, ref.Name, err)
+		return "", fmt.Errorf("getting SPIRE trust bundle ConfigMap %s/%s: %w", ref.Namespace, ref.Name, err)
 	}
 	bundle, ok := cm.Data[trustBundleConfigMapKey]
 	if !ok || bundle == "" {
-		return fmt.Errorf("SPIRE trust bundle ConfigMap %s/%s missing non-empty %q key", ref.Namespace, ref.Name, trustBundleConfigMapKey)
+		return "", fmt.Errorf("SPIRE trust bundle ConfigMap %s/%s missing non-empty %q key", ref.Namespace, ref.Name, trustBundleConfigMapKey)
 	}
-	params.SPIRETrustBundle = bundle
-	return nil
+	return bundle, nil
+}
+
+func (g *DefaultDPUArtifactGenerator) generateSpiffeKubeconfig(cfg *operatorv1.DPFOperatorConfig, redfishInterface bool) ([]byte, error) {
+	apiServerAddress, proxyURL, err := cutil.ResolveAPIServerAddress(cfg.Spec.Overrides, redfishInterface)
+	if err != nil {
+		return nil, fmt.Errorf("resolving API server address for SPIFFE kubeconfig: %w", err)
+	}
+	caData, err := g.readCAData()
+	if err != nil {
+		return nil, err
+	}
+	kubeconfigData, err := cutil.GenerateSpiffeKubeconfig(apiServerAddress, constants.SpiffeTokenPath, caData, proxyURL)
+	if err != nil {
+		return nil, fmt.Errorf("generating SPIFFE kubeconfig: %w", err)
+	}
+	return kubeconfigData, nil
 }
 
 func (g *DefaultDPUArtifactGenerator) serviceAccountCAPath() string {

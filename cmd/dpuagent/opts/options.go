@@ -32,9 +32,11 @@ const (
 
 type Options struct {
 	ZeroTrustMode              bool
+	SpiffeMode                 bool
 	ControlPlaneMTU            int32
 	Kubeconfig                 string
 	BootstrapKubeconfig        string
+	TokenFilePath              string
 	CertDir                    string
 	DPUName                    string
 	DPUNamespace               string
@@ -63,7 +65,17 @@ type Options struct {
 }
 
 func (o Options) Validate() error {
-	if o.Kubeconfig == "" && o.BootstrapKubeconfig == "" {
+	if o.SpiffeMode {
+		if o.BootstrapKubeconfig != "" {
+			return fmt.Errorf("bootstrap-kubeconfig cannot be used with SPIFFE mode")
+		}
+		if o.Kubeconfig == "" {
+			return fmt.Errorf("kubeconfig is required in SPIFFE mode")
+		}
+		if o.TokenFilePath == "" {
+			return fmt.Errorf("token-file-path is required in SPIFFE mode")
+		}
+	} else if o.Kubeconfig == "" && o.BootstrapKubeconfig == "" {
 		return fmt.Errorf("kubeconfig or bootstrap-kubeconfig is required")
 	}
 	if o.BootstrapKubeconfig != "" && o.CertDir == "" {

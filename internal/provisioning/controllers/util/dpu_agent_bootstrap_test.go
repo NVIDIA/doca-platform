@@ -18,7 +18,9 @@ package util
 
 import (
 	"context"
+	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
@@ -226,6 +228,31 @@ var _ = Describe("ZT Bootstrap", func() {
 			Expect(CreateDPUAgentRoleBinding(ctx, fakeClient, scheme, dpu, "da-dpu-01")).To(Succeed())
 			Expect(CreateDPUAgentRoleBinding(ctx, fakeClient, scheme, dpu, "da-dpu-01")).To(Succeed())
 		})
+
+		It("reconciles a stale subject on an existing binding while leaving RoleRef untouched", func() {
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+			// First create with the bootstrap-token subject, then re-run with the SPIFFE URI
+			// subject to simulate an identity-mode subject swap on an already-existing binding.
+			Expect(CreateDPUAgentRoleBinding(ctx, fakeClient, scheme, dpu, "da-dpu-01")).To(Succeed())
+			spiffeURI := "spiffe://example.trust.domain/ns/dpf-operator-system/dpu/serial123"
+			Expect(CreateDPUAgentRoleBinding(ctx, fakeClient, scheme, dpu, spiffeURI)).To(Succeed())
+
+			rb := &rbacv1.RoleBinding{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{
+				Name:      "da-dpu-01",
+				Namespace: "dpf-operator-system",
+			}, rb)).To(Succeed())
+
+			Expect(rb.Subjects).To(HaveLen(1))
+			Expect(rb.Subjects[0].Name).To(Equal(spiffeURI), "stale subject must be reconciled")
+			// RoleRef is immutable and set on create only; it must remain the original value.
+			Expect(rb.RoleRef.Kind).To(Equal("Role"))
+			Expect(rb.RoleRef.Name).To(Equal("da-dpu-01"))
+			Expect(rb.RoleRef.APIGroup).To(Equal(rbacv1.GroupName))
+			Expect(rb.OwnerReferences).To(HaveLen(1))
+			Expect(rb.OwnerReferences[0].UID).To(Equal(dpu.UID))
+		})
 	})
 
 	Describe("CreateDPUAgentBootstrapToken", func() {
@@ -310,6 +337,51 @@ var _ = Describe("ZT Bootstrap", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(cfg.Host).To(Equal("https://kubernetes.default.svc:6443"))
 			Expect(cfg.Proxy).NotTo(BeNil())
+		})
+	})
+
+	Describe("GenerateSpiffeKubeconfig", func() {
+		It("should generate a kubeconfig with BearerTokenFile", func() {
+			tokenPath := filepath.Join(GinkgoT().TempDir(), "token")
+			Expect(os.WriteFile(tokenPath, []byte("jwt"), 0600)).To(Succeed())
+
+			data, err := GenerateSpiffeKubeconfig("https://10.0.0.1:6443", tokenPath, []byte("fake-ca-data"), "")
+			Expect(err).NotTo(HaveOccurred())
+
+			tmpKubeconfig, err := os.CreateTemp("", "spiffe-kubeconfig-test-*")
+			Expect(err).NotTo(HaveOccurred())
+			defer func() { _ = os.Remove(tmpKubeconfig.Name()) }()
+			Expect(os.WriteFile(tmpKubeconfig.Name(), data, 0600)).To(Succeed())
+
+			cfg, err := clientcmd.BuildConfigFromFlags("", tmpKubeconfig.Name())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cfg.Host).To(Equal("https://10.0.0.1:6443"))
+			Expect(cfg.BearerTokenFile).To(Equal(tokenPath))
+			Expect(cfg.CAData).To(Equal([]byte("fake-ca-data")))
+		})
+
+		It("writes proxy-url into the cluster stanza when specified", func() {
+			tokenPath := filepath.Join(GinkgoT().TempDir(), "token")
+			Expect(os.WriteFile(tokenPath, []byte("jwt"), 0600)).To(Succeed())
+
+			data, err := GenerateSpiffeKubeconfig("https://10.0.0.1:6443", tokenPath, []byte("fake-ca-data"), "http://proxy.example.com:3128")
+			Expect(err).NotTo(HaveOccurred())
+
+			tmpKubeconfig, err := os.CreateTemp("", "spiffe-kubeconfig-test-*")
+			Expect(err).NotTo(HaveOccurred())
+			defer func() { _ = os.Remove(tmpKubeconfig.Name()) }()
+			Expect(os.WriteFile(tmpKubeconfig.Name(), data, 0600)).To(Succeed())
+
+			cfg, err := clientcmd.BuildConfigFromFlags("", tmpKubeconfig.Name())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cfg.Proxy).NotTo(BeNil())
+
+			req, err := http.NewRequest(http.MethodGet, "https://10.0.0.1:6443", nil)
+			Expect(err).NotTo(HaveOccurred())
+			proxyURL, err := cfg.Proxy(req)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(proxyURL).NotTo(BeNil())
+			Expect(proxyURL.Host).To(Equal("proxy.example.com:3128"))
 		})
 	})
 

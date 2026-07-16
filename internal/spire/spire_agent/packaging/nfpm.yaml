@@ -1,0 +1,22 @@
+name: spire-agent
+arch: arm64
+version: "${VERSION}"
+maintainer: NVIDIA DPF Team <dpf@nvidia.com>
+description: |
+  SPIRE Agent for DPF DPU SPIFFE identity.
+  Attests the DPU node via the dpu_hw plugin and issues workload SVIDs.
+vendor: SPIFFE
+license: Apache-2.0
+section: admin
+priority: optional
+
+contents:
+  - src: ./spire-agent
+    dst: /usr/bin/spire-agent
+    file_info:
+      mode: 0755
+
+  - src: ./spire-agent.service
+    dst: /usr/lib/systemd/system/spire-agent.service
+    file_info:
+      mode: 0644

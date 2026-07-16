@@ -240,6 +240,7 @@ rules:
   - delete
   - get
   - list
+  - update
 - apiGroups:
   - spire.spiffe.io
   resources:

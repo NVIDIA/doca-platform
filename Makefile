@@ -1306,6 +1306,66 @@ deb-dpu-hw-agent: $(NFPM) ## Package dpu_hw agent plugin as .deb plus a .sha256 
 	$(Q) cd $(LOCALBIN) && sha256sum $(notdir $(DPU_HW_AGENT_DEB)) | cut -d' ' -f1 > $(notdir $(DPU_HW_AGENT_DEB)).sha256
 	@echo "Packaged $(DPU_HW_AGENT_DEB) (+ .sha256)"
 
+# Upstream SPIRE Agent and spiffe-helper binaries for DPU SPIFFE identity (arm64).
+SPIRE_VERSION ?= 1.15.0
+SPIFFE_HELPER_VERSION ?= 0.11.0
+SPIRE_AGENT_BINARY ?= $(LOCALBIN)/spire-agent-$(SPIRE_VERSION)
+SPIFFE_HELPER_BINARY ?= $(LOCALBIN)/spiffe-helper-$(SPIFFE_HELPER_VERSION)
+SPIRE_AGENT_PKG_DIR = $(CURDIR)/internal/spire/spire_agent/packaging
+SPIFFE_HELPER_PKG_DIR = $(CURDIR)/internal/spire/spiffe_helper/packaging
+SPIRE_PKG_VERSION = $(patsubst v%,%,$(TAG))
+SPIRE_AGENT_DEB = $(LOCALBIN)/spire-agent_$(SPIRE_PKG_VERSION)_arm64.deb
+SPIFFE_HELPER_DEB = $(LOCALBIN)/spiffe-helper_$(SPIRE_PKG_VERSION)_arm64.deb
+SPIRE_TARBALL = spire-$(SPIRE_VERSION)-linux-$(DPU_ARCH)-musl.tar.gz
+SPIFFE_HELPER_TARBALL = spiffe-helper_v$(SPIFFE_HELPER_VERSION)_Linux-arm64.tar.gz
+SPIRE_DOWNLOAD_URL = https://github.com/spiffe/spire/releases/download/v$(SPIRE_VERSION)/$(SPIRE_TARBALL)
+SPIFFE_HELPER_DOWNLOAD_URL = https://github.com/spiffe/spiffe-helper/releases/download/v$(SPIFFE_HELPER_VERSION)/$(SPIFFE_HELPER_TARBALL)
+# Pinned SHA256 of the upstream tarballs above. Update when bumping versions.
+SPIRE_SHA256 ?= 0458feaaaa36e82491446bc62379301fba431ea012c530a55e45919da96b1a74
+SPIFFE_HELPER_SHA256 ?= 0386fd6113c4a4fcdd13cbf1663cdc29441d65f25c12a3662c6c9b01505bf329
+
+.PHONY: fetch-spire-agent fetch-spiffe-helper fetch-spire-binaries
+fetch-spire-binaries: fetch-spire-agent fetch-spiffe-helper ## Download SPIRE Agent and spiffe-helper arm64 binaries.
+
+fetch-spire-agent: $(SPIRE_AGENT_BINARY) ## Download SPIRE Agent binary for DPU packaging.
+
+fetch-spiffe-helper: $(SPIFFE_HELPER_BINARY) ## Download spiffe-helper binary for DPU packaging.
+
+$(SPIRE_AGENT_BINARY):
+	$(Q) mkdir -p $(LOCALBIN)
+	$(Q) test -n "$(SPIRE_SHA256)" || { echo "SPIRE_SHA256 is unset; refusing to download $(SPIRE_TARBALL) without checksum verification" >&2; exit 1; }
+	$(Q) curl -fsSL "$(SPIRE_DOWNLOAD_URL)" -o "$(LOCALBIN)/$(SPIRE_TARBALL)"
+	$(Q) echo "$(SPIRE_SHA256)  $(LOCALBIN)/$(SPIRE_TARBALL)" | sha256sum -c -
+	$(Q) tar -xz -O -f "$(LOCALBIN)/$(SPIRE_TARBALL)" spire-$(SPIRE_VERSION)/bin/spire-agent > $(SPIRE_AGENT_BINARY)
+	$(Q) rm -f "$(LOCALBIN)/$(SPIRE_TARBALL)"
+	$(Q) chmod 755 $(SPIRE_AGENT_BINARY)
+
+$(SPIFFE_HELPER_BINARY):
+	$(Q) mkdir -p $(LOCALBIN)
+	$(Q) test -n "$(SPIFFE_HELPER_SHA256)" || { echo "SPIFFE_HELPER_SHA256 is unset; refusing to download $(SPIFFE_HELPER_TARBALL) without checksum verification" >&2; exit 1; }
+	$(Q) curl -fsSL "$(SPIFFE_HELPER_DOWNLOAD_URL)" -o "$(LOCALBIN)/$(SPIFFE_HELPER_TARBALL)"
+	$(Q) echo "$(SPIFFE_HELPER_SHA256)  $(LOCALBIN)/$(SPIFFE_HELPER_TARBALL)" | sha256sum -c -
+	$(Q) tar -xz -O -f "$(LOCALBIN)/$(SPIFFE_HELPER_TARBALL)" spiffe-helper > $(SPIFFE_HELPER_BINARY)
+	$(Q) rm -f "$(LOCALBIN)/$(SPIFFE_HELPER_TARBALL)"
+	$(Q) chmod 755 $(SPIFFE_HELPER_BINARY)
+
+.PHONY: deb-spire-agent deb-spiffe-helper
+deb-spire-agent: $(NFPM) fetch-spire-agent ## Package SPIRE Agent as .deb for the DPU apt repo.
+	$(Q) cp $(SPIRE_AGENT_BINARY) $(SPIRE_AGENT_PKG_DIR)/spire-agent
+	$(Q) cd $(SPIRE_AGENT_PKG_DIR) && \
+		VERSION=$(SPIRE_PKG_VERSION) \
+		$(NFPM) package --packager deb --target $(SPIRE_AGENT_DEB)
+	$(Q) rm -f $(SPIRE_AGENT_PKG_DIR)/spire-agent
+	@echo "Packaged $(SPIRE_AGENT_DEB)"
+
+deb-spiffe-helper: $(NFPM) fetch-spiffe-helper ## Package spiffe-helper as .deb for the DPU apt repo.
+	$(Q) cp $(SPIFFE_HELPER_BINARY) $(SPIFFE_HELPER_PKG_DIR)/spiffe-helper
+	$(Q) cd $(SPIFFE_HELPER_PKG_DIR) && \
+		VERSION=$(SPIRE_PKG_VERSION) \
+		$(NFPM) package --packager deb --target $(SPIFFE_HELPER_DEB)
+	$(Q) rm -f $(SPIFFE_HELPER_PKG_DIR)/spiffe-helper
+	@echo "Packaged $(SPIFFE_HELPER_DEB)"
+
 .PHONY: binary-storage-snap-host-controller
 binary-storage-snap-host-controller: ## Build the snap host controller controller binary.
 	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/snap-host-controller github.com/nvidia/doca-platform/cmd/storage/snap-host-controller

@@ -1716,6 +1716,13 @@ spec:
                         maxLength: 512
                         minLength: 1
                         type: string
+                      spireControllerManagerClassName:
+                        description: |-
+                          spireControllerManagerClassName selects the SPIRE controller-manager instance that renders
+                          DPF ClusterStaticEntries.
+                        maxLength: 253
+                        minLength: 1
+                        type: string
                       spireOIDCURL:
                         description: |-
                           SPIREOIDCURL is the OIDC discovery (issuer) URL of the pre-installed SPIRE Server.
@@ -1761,6 +1768,7 @@ spec:
                         type: object
                     required:
                     - kubeAPIAudience
+                    - spireControllerManagerClassName
                     - spireOIDCURL
                     - spireServerAddress
                     - spireTrustDomain

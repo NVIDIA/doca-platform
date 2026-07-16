@@ -19,6 +19,7 @@ package dpudevice
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -98,6 +99,7 @@ func (r *DPUDeviceReconciler) reconcileSPIFFEEntry(ctx context.Context, dpuDevic
 
 	serial := dpuDevice.Spec.SerialNumber
 	trustDomain := cfg.Spec.Security.SPIFFE.SPIRETrustDomain
+	className := cfg.Spec.Security.SPIFFE.SPIREControllerManagerClassName
 
 	name, spiffeID, parentID, buildErr := buildSpiffeEntryIdentifiers(trustDomain, serial)
 	if buildErr != nil {
@@ -133,7 +135,7 @@ func (r *DPUDeviceReconciler) reconcileSPIFFEEntry(ctx context.Context, dpuDevic
 		labels[LabelDPUDeviceName] = dpuDevice.Name
 		labels[LabelDPUDeviceNamespace] = dpuDevice.Namespace
 		cse.SetLabels(labels)
-		return setSpiffeEntrySpec(cse, spiffeID, parentID)
+		return setSpiffeEntrySpec(cse, spiffeID, parentID, className)
 	})
 	if err != nil {
 		// Transient (CRD missing, RBAC denial, API error): surface and requeue (CRSyncFailed).
@@ -222,12 +224,33 @@ func (r *DPUDeviceReconciler) findOwningSpiffeDPU(ctx context.Context, dpuDevice
 	}
 	// Two-stage filter: the field index narrows to DPUs bound to this device; IsSpiffeDPU then
 	// keeps only SPIFFE-mode DPUs.
+	var matches []*provisioningv1.DPU
 	for i := range dpuList.Items {
 		if dpu := &dpuList.Items[i]; cutil.IsSpiffeDPU(dpu) {
-			return dpu, nil
+			matches = append(matches, dpu)
 		}
 	}
-	return nil, nil
+	if len(matches) == 0 {
+		return nil, nil
+	}
+	// Deterministic selection: do NOT rely on API list order. DPU names are unique within a
+	// namespace, so sorting by name alone yields a stable choice across reconciles.
+	sort.Slice(matches, func(i, j int) bool {
+		return matches[i].Name < matches[j].Name
+	})
+	// More than one SPIFFE DPU bound to a single device is an anomaly (stale object not cleaned
+	// up). Surface it rather than silently picking one, but still proceed deterministically.
+	if len(matches) > 1 {
+		names := make([]string, 0, len(matches))
+		for _, m := range matches {
+			names = append(names, m.Name)
+		}
+		log.FromContext(ctx).Info("multiple SPIFFE-mode DPUs bound to one DPUDevice; selecting deterministically",
+			"dpuDevice", dpuDevice.Name, "candidates", names, "selected", matches[0].Name)
+		r.emitEvent(dpuDevice, corev1.EventTypeWarning, events.EventSPIFFEDuplicateDPUReason,
+			fmt.Sprintf("multiple SPIFFE-mode DPUs %v are bound to DPUDevice %s; selecting %s", names, dpuDevice.Name, matches[0].Name))
+	}
+	return matches[0], nil
 }
 
 // buildSpiffeEntryIdentifiers derives the ClusterStaticEntry name and the spiffeID/parentID for a
@@ -245,7 +268,10 @@ func buildSpiffeEntryIdentifiers(trustDomain, serial string) (name, spiffeID, pa
 	return name, spiffeID, parentID, nil
 }
 
-func setSpiffeEntrySpec(cse *unstructured.Unstructured, spiffeID, parentID string) error {
+func setSpiffeEntrySpec(cse *unstructured.Unstructured, spiffeID, parentID, className string) error {
+	if err := unstructured.SetNestedField(cse.Object, className, "spec", "className"); err != nil {
+		return err
+	}
 	if err := unstructured.SetNestedField(cse.Object, spiffeID, "spec", "spiffeID"); err != nil {
 		return err
 	}
@@ -268,8 +294,8 @@ func setSpiffeEntrySpec(cse *unstructured.Unstructured, spiffeID, parentID strin
 // SPIFFEEntryReady condition. It returns whether the entry is masked so the caller can
 // emit an operator-actionable Event.
 func (r *DPUDeviceReconciler) mirrorSpiffeEntryStatus(dpuDevice *provisioningv1.DPUDevice, cse *unstructured.Unstructured) (masked bool) {
-	set, setFound, setErr := unstructured.NestedBool(cse.Object, "status", "set")
-	rendered, _, renderedErr := unstructured.NestedBool(cse.Object, "status", "rendered")
+	set, _, setErr := unstructured.NestedBool(cse.Object, "status", "set")
+	rendered, renderedFound, renderedErr := unstructured.NestedBool(cse.Object, "status", "rendered")
 	masked, _, maskedErr := unstructured.NestedBool(cse.Object, "status", "masked")
 	if setErr != nil || renderedErr != nil || maskedErr != nil {
 		conditions.AddFalse(dpuDevice, provisioningv1.ConditionSPIFFEEntryReady,
@@ -282,17 +308,15 @@ func (r *DPUDeviceReconciler) mirrorSpiffeEntryStatus(dpuDevice *provisioningv1.
 		conditions.AddFalse(dpuDevice, provisioningv1.ConditionSPIFFEEntryReady,
 			conditions.ReasonError, conditions.ConditionMessage("ClusterStaticEntry is masked by another entry"))
 		return true
-	case !setFound:
-		conditions.AddFalse(dpuDevice, provisioningv1.ConditionSPIFFEEntryReady,
-			conditions.ReasonPending, conditions.ConditionMessage("Awaiting spire-controller-manager to observe ClusterStaticEntry"))
-	case set && rendered:
+	case renderedFound && rendered:
+		// A rendered entry is ready even when the controller-manager does not set status.set.
 		conditions.AddTrue(dpuDevice, provisioningv1.ConditionSPIFFEEntryReady)
 	case set && !rendered:
 		conditions.AddFalse(dpuDevice, provisioningv1.ConditionSPIFFEEntryReady,
 			conditions.ReasonPending, conditions.ConditionMessage("ClusterStaticEntry set; rendering pending"))
-	default: // observed and Set=false
+	default:
 		conditions.AddFalse(dpuDevice, provisioningv1.ConditionSPIFFEEntryReady,
-			conditions.ReasonError, conditions.ConditionMessage("spire-controller-manager reported Set=false"))
+			conditions.ReasonPending, conditions.ConditionMessage("Awaiting spire-controller-manager to observe ClusterStaticEntry"))
 	}
 	return false
 }
