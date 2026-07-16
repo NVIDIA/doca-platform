@@ -274,6 +274,21 @@ func (mr *MockAPIMockRecorder) GetBridgeNameByInterface(ctx, name any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetBridgeNameByInterface", reflect.TypeOf((*MockAPI)(nil).GetBridgeNameByInterface), ctx, name)
 }
 
+// GetBridgeWithName mocks base method.
+func (m *MockAPI) GetBridgeWithName(ctx context.Context, name string) (*ovsmodel.Bridge, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetBridgeWithName", ctx, name)
+	ret0, _ := ret[0].(*ovsmodel.Bridge)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetBridgeWithName indicates an expected call of GetBridgeWithName.
+func (mr *MockAPIMockRecorder) GetBridgeWithName(ctx, name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetBridgeWithName", reflect.TypeOf((*MockAPI)(nil).GetBridgeWithName), ctx, name)
+}
+
 // GetIfaceWithExternalIDs mocks base method.
 func (m *MockAPI) GetIfaceWithExternalIDs(ctx context.Context, externalIDs map[string]string) (*ovsmodel.Interface, error) {
 	m.ctrl.T.Helper()

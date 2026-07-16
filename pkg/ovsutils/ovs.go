@@ -29,31 +29,45 @@ import (
 	"github.com/ovn-org/libovsdb/ovsdb"
 )
 
+var (
+	// ErrNotFound is returned when a resource is not found.
+	ErrNotFound = ovsclient.ErrNotFound
+)
+
 //go:generate mockgen -copyright_file ../../hack/boilerplate.go.txt --build_flags=--mod=mod -package ovsutils -destination mock_ovs_conditional_api.go github.com/ovn-org/libovsdb/client ConditionalAPI
 //go:generate mockgen -copyright_file ../../hack/boilerplate.go.txt --build_flags=--mod=mod -package ovsutils -destination mock_ovs.go . API
 //go:generate mockgen -copyright_file ../../hack/boilerplate.go.txt --build_flags=--mod=mod -package ovsutils -destination mock_ovs_client.go github.com/ovn-org/libovsdb/client Client
 
 type API interface {
 	ovsclient.Client
+
+	// Open vSwitch Commands
+	SetOpenVSwitchExternalIDs(ctx context.Context, externalIDs map[string]string) error
+	GetOpenVSwitchExternalIDs(ctx context.Context) (map[string]string, error)
+
+	// Bridge Commands
+	ValidateBridgeExists(ctx context.Context, bridgeName string) error
+	GetBridgeNameByInterface(ctx context.Context, name string) (string, error)
+	AddBridge(ctx context.Context, bridgeConfig BridgeConfig) error
+	SetBridgeExternalIDs(ctx context.Context, name string, externalIDs map[string]string) error
+	ListBridgesWithExternalIDs(ctx context.Context, externalIDs map[string]string) ([]ovsmodel.Bridge, error)
+	GetBridgeWithName(ctx context.Context, name string) (*ovsmodel.Bridge, error)
+	DeleteBridge(ctx context.Context, name string) error
+
+	// Port Commands
 	AddPort(ctx context.Context, portConfig PortConfig) error
 	DelPort(ctx context.Context, bridgeName, portName string, opt *DelPortOpt) error
-	ValidateBridgeExists(ctx context.Context, bridgeName string) error
-	GetInterfaceLinkState(ctx context.Context, name string) (ovsmodel.InterfaceLinkState, error)
 	GetPortVLANState(ctx context.Context, name string) (PortVLANState, error)
-	GetBridgeNameByInterface(ctx context.Context, name string) (string, error)
+	SetPortExternalIDs(ctx context.Context, name string, externalIDs map[string]string) error
+
+	// Interface Commands
+	GetInterfaceLinkState(ctx context.Context, name string) (ovsmodel.InterfaceLinkState, error)
 	ListInterfacesWithError(ctx context.Context) ([]string, error)
 	SetIfaceExternalIDs(ctx context.Context, name string, externalIDs map[string]string) error
 	GetIfaceWithExternalIDs(ctx context.Context, externalIDs map[string]string) (*ovsmodel.Interface, error)
 	SetIfaceOptions(ctx context.Context, name string, options map[string]string) error
 	IsIfaceInBr(ctx context.Context, bridgeName, portName string) (bool, error)
-	SetPortExternalIDs(ctx context.Context, name string, externalIDs map[string]string) error
-	SetOpenVSwitchExternalIDs(ctx context.Context, externalIDs map[string]string) error
-	GetOpenVSwitchExternalIDs(ctx context.Context) (map[string]string, error)
-	AddBridge(ctx context.Context, bridgeConfig BridgeConfig) error
-	SetBridgeExternalIDs(ctx context.Context, name string, externalIDs map[string]string) error
-	ListBridgesWithExternalIDs(ctx context.Context, externalIDs map[string]string) ([]ovsmodel.Bridge, error)
 	GetIfaceWithName(ctx context.Context, name string) (*ovsmodel.Interface, error)
-	DeleteBridge(ctx context.Context, name string) error
 }
 
 var _ API = (*Client)(nil)
@@ -178,6 +192,8 @@ type BridgeConfig struct {
 	// FailMode controls the bridge's behavior when no OpenFlow controller is connected.
 	// "secure" drops all traffic, "standalone" falls back to normal L2 learning. Nil leaves it unset.
 	FailMode *string
+	// ExternalIDs are the external IDs to set for the bridge.
+	ExternalIDs map[string]string
 }
 
 type PortConfig struct {
@@ -654,6 +670,7 @@ func (c *Client) AddBridge(ctx context.Context, bridgeConfig BridgeConfig) error
 		UUID:         bridgeUUID,
 		DatapathType: bridgeConfig.DatapathType,
 		FailMode:     bridgeConfig.FailMode,
+		ExternalIDs:  bridgeConfig.ExternalIDs,
 	}
 
 	var portOps []ovsdb.Operation
@@ -807,4 +824,18 @@ func (c *Client) GetIfaceWithName(ctx context.Context, name string) (*ovsmodel.I
 		return nil, fmt.Errorf("failed to query interface %q: %w", name, err)
 	}
 	return iface, nil
+}
+
+// GetBridgeWithName gets a bridge by name. Returns ErrNotFound if the bridge is not found.
+func (c *Client) GetBridgeWithName(ctx context.Context, name string) (*ovsmodel.Bridge, error) {
+	if name == "" {
+		return nil, fmt.Errorf("bridge name cannot be empty")
+	}
+
+	bridge := &ovsmodel.Bridge{Name: name}
+	err := c.Get(ctx, bridge)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get bridge %s: %w", name, err)
+	}
+	return bridge, nil
 }
