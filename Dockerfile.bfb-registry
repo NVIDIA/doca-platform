@@ -159,7 +159,7 @@ COPY internal/spire/dpu_hw/packaging/ internal/spire/dpu_hw/packaging/
 COPY --from=dpuagent-builder /workspace/bin/dpu-hw-agent /workspace/bin/dpu-hw-agent
 
 ARG TAG
-RUN --mount=type=cache,target=/workspace/hack/tools/bin \
+RUN --mount=type=cache,target=/workspace/hack/tools/bin,sharing=locked \
     --mount=type=bind,source=Makefile,target=Makefile \
     --mount=type=bind,source=hack/tools/tools.mk,target=hack/tools/tools.mk \
     make deb-dpu-hw-agent
@@ -180,7 +180,7 @@ COPY internal/spire/spire_agent/packaging/ internal/spire/spire_agent/packaging/
 COPY internal/spire/spiffe_helper/packaging/ internal/spire/spiffe_helper/packaging/
 
 ARG TAG
-RUN --mount=type=cache,target=/workspace/hack/tools/bin \
+RUN --mount=type=cache,target=/workspace/hack/tools/bin,sharing=locked \
     --mount=type=bind,source=Makefile,target=Makefile \
     --mount=type=bind,source=hack/tools/tools.mk,target=hack/tools/tools.mk \
     make deb-spire-agent deb-spiffe-helper
@@ -204,7 +204,7 @@ COPY --from=dpuagent-builder /workspace/bin/dpuagent /workspace/bin/dpuagent
 
 # Package with actual TAG version (binary already built, just call packaging targets)
 ARG TAG
-RUN --mount=type=cache,target=/workspace/hack/tools/bin \
+RUN --mount=type=cache,target=/workspace/hack/tools/bin,sharing=locked \
     --mount=type=bind,source=Makefile,target=Makefile \
     --mount=type=bind,source=hack/tools/tools.mk,target=hack/tools/tools.mk \
     make deb-dpuagent rpm-dpuagent
