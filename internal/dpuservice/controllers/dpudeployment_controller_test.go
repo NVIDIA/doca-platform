@@ -2190,6 +2190,98 @@ var _ = Describe("DPUDeployment Controller", func() {
 					g.Expect(specs).To(ConsistOf(expectedDPUSetSpecs))
 				}).WithTimeout(30 * time.Second).Should(Succeed())
 			})
+			It("should update the existing DPUSets when switching from flavorTemplate to flavor in the DPUDeployment", func() {
+				By("Creating the DPUFlavorTemplate dependency")
+				dpuFlavorTemplate := getMinimalDPUFlavorTemplate(testNS.Name)
+				Expect(testClient.Create(ctx, dpuFlavorTemplate)).To(Succeed())
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuFlavorTemplate)
+
+				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
+				dpuDeployment.Spec.DPUs.Flavor = nil
+				dpuDeployment.Spec.DPUs.FlavorTemplate = ptr.To(dpuFlavorTemplate.Name)
+				dpuDeployment.Spec.DPUs.DPUSets = initialDPUSetSettings
+				dpuDeployment.Spec.ServiceChains = initialServiceChainsSettings
+				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
+				patcher := patch.NewSerialPatcher(dpuDeployment, testClient)
+
+				By("retrieving the DPUServiceChain and DPUService")
+				var dpuServiceChain *dpuservicev1.DPUServiceChain
+				Eventually(func(g Gomega) {
+					dpuServiceChainList := getDPUServiceChainList()
+					g.Expect(dpuServiceChainList.Items).To(HaveLen(1))
+					dpuServiceChain = &dpuServiceChainList.Items[0]
+					g.Expect(dpuServiceChain).ToNot(BeNil())
+				}).WithTimeout(30 * time.Second).Should(Succeed())
+
+				var dpuService *dpuservicev1.DPUService
+				Eventually(func(g Gomega) {
+					dpuServiceList := getDPUServiceList()
+					g.Expect(dpuServiceList.Items).To(HaveLen(1))
+					dpuService = &dpuServiceList.Items[0]
+					g.Expect(dpuService).ToNot(BeNil())
+				}).WithTimeout(30 * time.Second).Should(Succeed())
+
+				for i := range expectedDPUSetSpecs {
+					if expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster == nil {
+						expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster = &provisioningv1.ClusterSpec{}
+					}
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.Cluster.NodeLabels = map[string]string{
+						"svc.dpu.nvidia.com/dpuservicechain-version":        dpuServiceChain.Name,
+						"svc.dpu.nvidia.com/dpuservice-someservice-version": dpuService.Name,
+						dpuservicev1.ParentDPUDeploymentNameLabel:           fmt.Sprintf("%s_%s", dpuDeployment.Namespace, dpuDeployment.Name),
+					}
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = []string{
+						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), dpuServiceChain.Name),
+						fmt.Sprintf("%s_%s", getParentDPUDeploymentLabelValue(types.NamespacedName{Namespace: dpuDeployment.Namespace, Name: dpuDeployment.Name}), dpuService.Name),
+					}
+				}
+
+				By("waiting for the initial DPUSets to reference the DPUFlavorTemplate")
+				for i := range expectedDPUSetSpecs {
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.DPUFlavor = nil
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.DPUFlavorTemplate = ptr.To(dpuFlavorTemplate.Name)
+				}
+				firstDPUSetUIDs := make([]types.UID, 0, 2)
+				Eventually(func(g Gomega) {
+					gotDPUSetList := &provisioningv1.DPUSetList{}
+					g.Expect(testClient.List(ctx, gotDPUSetList)).To(Succeed())
+					g.Expect(gotDPUSetList.Items).To(HaveLen(2))
+
+					firstDPUSetUIDs = firstDPUSetUIDs[:0]
+					specs := make([]provisioningv1.DPUSetSpec, 0, len(gotDPUSetList.Items))
+					for _, dpuSet := range gotDPUSetList.Items {
+						firstDPUSetUIDs = append(firstDPUSetUIDs, dpuSet.UID)
+						specs = append(specs, dpuSet.Spec)
+					}
+					g.Expect(specs).To(ConsistOf(expectedDPUSetSpecs))
+				}).WithTimeout(30 * time.Second).Should(Succeed())
+
+				By("switching the DPUDeployment from flavorTemplate to flavor")
+				dpuDeployment.Spec.DPUs.FlavorTemplate = nil
+				dpuDeployment.Spec.DPUs.Flavor = ptr.To(dpuFlavor.Name)
+				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner(dpuDeploymentControllerName))).To(Succeed())
+
+				By("checking that the existing DPUSets are updated to reference the DPUFlavor")
+				for i := range expectedDPUSetSpecs {
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.DPUFlavor = ptr.To(dpuFlavor.Name)
+					expectedDPUSetSpecs[i].DPUTemplate.Spec.DPUFlavorTemplate = nil
+				}
+				Eventually(func(g Gomega) {
+					gotDPUSetList := &provisioningv1.DPUSetList{}
+					g.Expect(testClient.List(ctx, gotDPUSetList)).To(Succeed())
+					g.Expect(gotDPUSetList.Items).To(HaveLen(2))
+
+					specs := make([]provisioningv1.DPUSetSpec, 0, len(gotDPUSetList.Items))
+					for _, dpuSet := range gotDPUSetList.Items {
+						// Validate that the same object is updated in place rather than recreated.
+						g.Expect(firstDPUSetUIDs).To(ContainElement(dpuSet.UID))
+						specs = append(specs, dpuSet.Spec)
+					}
+					g.Expect(specs).To(ConsistOf(expectedDPUSetSpecs))
+				}).WithTimeout(30 * time.Second).Should(Succeed())
+			})
 			It("should propagate BlueFieldSoftware to the generated DPUSets", func() {
 				bfs := createMinimalBlueFieldSoftwareWithStatus("somebfs", testNS.Name)
 				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, bfs)
