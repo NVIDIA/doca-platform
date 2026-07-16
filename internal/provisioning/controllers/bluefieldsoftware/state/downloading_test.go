@@ -23,8 +23,10 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 
@@ -159,7 +161,8 @@ func TestHandleDownloadError_MaxRetriesReached(t *testing.T) {
 	// Phase should be set to Error
 	assert.Equal(t, provisioningv1.BlueFieldSoftwareError, bfs.Status.Phase)
 
-	// Condition should be added with Failure reason
+	// A generic (unclassified) error is treated as terminal (ReasonFailure) so it is not
+	// retried forever on genuine misconfiguration.
 	cond := conditions.Get(bfs, provisioningv1.BlueFieldSoftwareCondDownloaded)
 	require.NotNil(t, cond)
 	assert.Equal(t, metav1.ConditionFalse, cond.Status)
@@ -178,6 +181,56 @@ func TestHandleDownloadError_MaxRetriesReached(t *testing.T) {
 	default:
 		t.Fatal("Expected event to be recorded")
 	}
+}
+
+func TestHandleDownloadError_MaxRetriesRecoverableStorageError(t *testing.T) {
+	bfs := &provisioningv1.BlueFieldSoftware{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "test-bfs",
+			Namespace:  "test-ns",
+			Generation: 1,
+		},
+		Status: provisioningv1.BlueFieldSoftwareStatus{},
+	}
+
+	recorder := record.NewFakeRecorder(10)
+	st := &blueFieldSoftwareDownloadingState{bfs: bfs, recorder: recorder}
+
+	retryKey := st.getRetryKey(butil.ComponentTypeOSISO)
+	st.clearRetryCounter(butil.ComponentTypeOSISO)
+	downloadRetryCounter.Store(retryKey, maxDownloadRetries)
+
+	// Filesystem error mirrors the bug: /bfb wiped by a control-plane node OS revert.
+	storageErr := &os.PathError{Op: "mkdir", Path: "/bfb/components", Err: syscall.ENOENT}
+	err := st.handleDownloadError(storageErr, butil.ComponentTypeOSISO)
+	require.Error(t, err)
+
+	assert.Equal(t, provisioningv1.BlueFieldSoftwareError, bfs.Status.Phase)
+
+	// Storage errors are recoverable (ReasonError) so the Error state retries them.
+	cond := conditions.Get(bfs, provisioningv1.BlueFieldSoftwareCondDownloaded)
+	require.NotNil(t, cond)
+	assert.Equal(t, metav1.ConditionFalse, cond.Status)
+	assert.Equal(t, string(conditions.ReasonError), cond.Reason)
+
+	st.clearRetryCounter(butil.ComponentTypeOSISO)
+}
+
+func TestIsRecoverableDownloadError(t *testing.T) {
+	assert.False(t, isRecoverableDownloadError(nil))
+
+	// HTTP status errors (bad/missing URL) are terminal.
+	assert.False(t, isRecoverableDownloadError(errors.New("failed to get: http://x/y status: 404")))
+	assert.False(t, isRecoverableDownloadError(errors.New("some other error")))
+
+	// Filesystem/storage errors are recoverable.
+	assert.True(t, isRecoverableDownloadError(&os.PathError{Op: "mkdir", Path: "/bfb/components", Err: syscall.ENOENT}))
+	assert.True(t, isRecoverableDownloadError(&os.PathError{Op: "open", Path: "/bfb/x.tmp", Err: syscall.EACCES}))
+	assert.True(t, isRecoverableDownloadError(&os.LinkError{Op: "rename", Old: "/bfb/x.tmp", New: "/bfb/x", Err: syscall.EACCES}))
+	assert.True(t, isRecoverableDownloadError(fmt.Errorf("wrapped: %w", &os.PathError{Op: "open", Path: "/bfb/x", Err: syscall.EACCES})))
+
+	// Network/transport errors are recoverable.
+	assert.True(t, isRecoverableDownloadError(&url.Error{Op: "Get", URL: "http://x", Err: errors.New("dial tcp: connection refused")}))
 }
 
 func TestRetryCounter_IndependentPerComponent(t *testing.T) {
@@ -736,6 +789,8 @@ func TestComponentDestinationPath(t *testing.T) {
 }
 
 func TestComponentDownloadSatisfied(t *testing.T) {
+	defer withTestBFBBaseDir(t)()
+
 	bfs := &provisioningv1.BlueFieldSoftware{
 		ObjectMeta: metav1.ObjectMeta{Name: "bfs", Namespace: "ns"},
 	}
@@ -749,9 +804,23 @@ func TestComponentDownloadSatisfied(t *testing.T) {
 		assert.False(t, st.componentDownloadSatisfied(ct, specURL, "anything"))
 	})
 
-	t.Run("status holds destination path", func(t *testing.T) {
+	t.Run("status holds destination path but file is missing is not satisfied", func(t *testing.T) {
+		assert.False(t, st.componentDownloadSatisfied(ct, specURL, expectedPath))
+	})
+
+	t.Run("status holds destination path and file exists is satisfied", func(t *testing.T) {
+		require.NoError(t, os.MkdirAll(filepath.Dir(expectedPath), 0755))
+		require.NoError(t, os.WriteFile(expectedPath, []byte("downloaded"), 0644))
+		t.Cleanup(func() { _ = os.Remove(expectedPath) })
 		assert.True(t, st.componentDownloadSatisfied(ct, specURL, expectedPath))
 	})
+
+	t.Run("non-URL opaque value only requires status match", func(t *testing.T) {
+		opaque := "opaque-identifier"
+		expectedOpaque := componentDestinationPath(ct, butil.ComponentDownloadFilename(bfs, ct, opaque))
+		assert.True(t, st.componentDownloadSatisfied(ct, opaque, expectedOpaque))
+	})
+
 	t.Run("mismatch", func(t *testing.T) {
 		assert.False(t, st.componentDownloadSatisfied(ct, specURL, "/wrong/path"))
 	})
