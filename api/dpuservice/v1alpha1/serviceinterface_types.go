@@ -149,6 +149,16 @@ func (c *ServiceInterface) GetVirtualNetworkName() string {
 	return c.Spec.GetVirtualNetworkName()
 }
 
+// Getters below implement sfccontroller's interfaceEntrySpec.
+
+func (c *ServiceInterface) GetInterfaceType() string { return c.Spec.InterfaceType }
+func (c *ServiceInterface) GetPhysical() *Physical   { return c.Spec.Physical }
+func (c *ServiceInterface) GetVF() *VF               { return c.Spec.VF }
+func (c *ServiceInterface) GetPF() *PF               { return c.Spec.PF }
+func (c *ServiceInterface) GetOVN() *OVN             { return c.Spec.OVN }
+func (c *ServiceInterface) GetPatch() *PatchDef      { return c.Spec.Patch }
+func (c *ServiceInterface) GetService() *ServiceDef  { return c.Spec.Service }
+
 // Physical Identifies a physical interface
 type Physical struct {
 	// The interface name

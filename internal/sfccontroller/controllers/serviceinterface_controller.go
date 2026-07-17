@@ -20,10 +20,12 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
+	"maps"
 	"strings"
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/utils"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/pkg/ecpf"
 	"github.com/nvidia/doca-platform/pkg/ovsutils"
@@ -66,6 +68,18 @@ const (
 type patchPortOptions struct {
 	portName    string
 	externalIDs map[string]string
+}
+
+// interfaceEntrySpec lets ServiceInterface and InterfaceEntry share the OVS primitives below.
+type interfaceEntrySpec interface {
+	GetInterfaceType() string
+	GetPhysical() *dpuservicev1.Physical
+	GetVF() *dpuservicev1.VF
+	GetPF() *dpuservicev1.PF
+	GetOVN() *dpuservicev1.OVN
+	GetPatch() *dpuservicev1.PatchDef
+	GetService() *dpuservicev1.ServiceDef
+	GetAnnotations() map[string]string
 }
 
 //nolint:unparam
@@ -120,26 +134,26 @@ func AddPort(ctx context.Context, ovs ovsutils.API, portName string, ifaceExtern
 }
 
 // getPatchPortNames generates OVS patch port names for connecting two bridges.
-// Uses PeerPatchName when specified, otherwise derives a deterministic name from the ServiceInterface.
+// Uses PeerPatchName when specified, otherwise derives a deterministic name from metadata.
 // Returns the patch port name for brA and the corresponding peer port name for brB.
 //
 // Examples:
 //   - With PeerPatchName "mypatch", brA="br-sfc", brB="br-ovn":
 //     returns ("p_brsfc_to_mypatch", "mypatch")
-//   - Without PeerPatchName, brA="br-sfc", brB="br-ovn", namespace/name hash 0xabcd1234:
+//   - Without PeerPatchName, brA="br-sfc", brB="br-ovn", metadata hash 0xabcd1234:
 //     returns ("p_brsfc_to_brovn_abcd1234", "p_brovn_to_brsfc_abcd1234")
-func getPatchPortNames(serviceInterface *dpuservicev1.ServiceInterface, brA, brB string) (string, string) {
+func getPatchPortNames(spec interfaceEntrySpec, metadata, brA, brB string) (string, string) {
 	strippedBrA := strings.ReplaceAll(brA, "-", "")
 	strippedBrB := strings.ReplaceAll(brB, "-", "")
 
-	if serviceInterface.Spec.Patch != nil && serviceInterface.Spec.Patch.PeerPatchName != nil {
-		peerPatchName := *serviceInterface.Spec.Patch.PeerPatchName
+	if patch := spec.GetPatch(); patch != nil && patch.PeerPatchName != nil {
+		peerPatchName := *patch.PeerPatchName
 		patchName := fmt.Sprintf(peerPatchNameFormat, strippedBrA, peerPatchName)
 		return patchName, peerPatchName
 	}
 
 	h := fnv.New32a()
-	h.Write([]byte(client.ObjectKeyFromObject(serviceInterface).String()))
+	h.Write([]byte(metadata))
 	interfaceNameHash := h.Sum32()
 
 	brAPatchPortName := fmt.Sprintf(patchPortHashedFormat, strippedBrA, strippedBrB, interfaceNameHash)
@@ -256,28 +270,44 @@ func setTrueServiceInterfaceReconciledCondition(si *dpuservicev1.ServiceInterfac
 	)
 }
 
-func FigureOutName(ctx context.Context, ecpfManager ecpf.ECPFManager, serviceInterface *dpuservicev1.ServiceInterface) (string, error) {
+// isOnlyNotFoundErr reports whether err is nil or consists solely of NotFound errors, unwrapping any nested aggregate.
+func isOnlyNotFoundErr(err error) bool {
+	if err == nil {
+		return true
+	}
+	if agg, ok := err.(kerrors.Aggregate); ok {
+		for _, e := range agg.Errors() {
+			if !isOnlyNotFoundErr(e) {
+				return false
+			}
+		}
+		return true
+	}
+	return apierrors.IsNotFound(err)
+}
+
+func FigureOutName(ctx context.Context, ecpfManager ecpf.ECPFManager, spec interfaceEntrySpec) (string, error) {
 	var err error
 	log := ctrllog.FromContext(ctx)
 	portName := ""
 
-	switch serviceInterface.Spec.InterfaceType {
+	switch spec.GetInterfaceType() {
 	case dpuservicev1.InterfaceTypePhysical:
-		log.Info("matched on physical")
-		portName = serviceInterface.Spec.Physical.InterfaceName
+		log.V(4).Info("matched on physical")
+		portName = spec.GetPhysical().InterfaceName
 	case dpuservicev1.InterfaceTypePF:
-		log.Info("matched on pf")
-		portName, err = ecpfManager.GetRepresentorForPFServiceInterface(serviceInterface.Spec.PF)
+		log.V(4).Info("matched on pf")
+		portName, err = ecpfManager.GetRepresentorForPFServiceInterface(spec.GetPF())
 	case dpuservicev1.InterfaceTypeVF:
-		log.Info("matched on vf")
-		portName, err = ecpfManager.GetRepresentorForVFServiceInterface(serviceInterface.Spec.VF)
+		log.V(4).Info("matched on vf")
+		portName, err = ecpfManager.GetRepresentorForVFServiceInterface(spec.GetVF())
 	case dpuservicev1.InterfaceTypeVLAN:
-		log.Info("matched on vlan skipping")
+		log.V(4).Info("matched on vlan skipping")
 		// TODO for MVP it is out of scope
 		// revisit this once we do not have collisions on patches.
 	case dpuservicev1.InterfaceTypeService:
 		// service interfaces add/remove from ovs is handled part of CNI ADD/DEL flow
-		log.Info("matched on service skipping")
+		log.V(4).Info("matched on service skipping")
 	}
 
 	if err != nil {
@@ -287,10 +317,10 @@ func FigureOutName(ctx context.Context, ecpfManager ecpf.ECPFManager, serviceInt
 	return portName, nil
 }
 
-func getOVNBridge(serviceInterface *dpuservicev1.ServiceInterface) string {
+func getOVNBridge(spec interfaceEntrySpec) string {
 	ovnBridge := OVNBridge // set default value to "br-ovn"
-	if serviceInterface.Spec.OVN != nil {
-		ovnBridge = ptr.Deref(serviceInterface.Spec.OVN.ExternalBridge, OVNBridge)
+	if ovn := spec.GetOVN(); ovn != nil {
+		ovnBridge = ptr.Deref(ovn.ExternalBridge, OVNBridge)
 	}
 	return ovnBridge
 }
@@ -299,87 +329,91 @@ func AddInterfacesToOvs(
 	ctx context.Context,
 	ovs ovsutils.API,
 	ecpfManager ecpf.ECPFManager,
-	serviceInterface *dpuservicev1.ServiceInterface,
+	spec interfaceEntrySpec,
 	metadata string,
 ) error {
+	switch spec.GetInterfaceType() {
+	case dpuservicev1.InterfaceTypeOVN:
+		return addOVNPatchPort(ctx, ovs, spec, metadata)
+	case dpuservicev1.InterfaceTypePatch:
+		return addPeerPatchPort(ctx, ovs, spec, metadata)
+	}
+
 	log := ctrllog.FromContext(ctx)
-	var err error
-	var externalBridge string
-	if serviceInterface.Spec.InterfaceType == dpuservicev1.InterfaceTypeOVN {
-		log.Info("matched on serviceInterfaceType ovn", "name", serviceInterface.Name)
-		externalBridge = getOVNBridge(serviceInterface)
-		log.Info("ovn bridge", "name", externalBridge)
-
-		patchPort := patchPortOptions{
-			externalIDs: map[string]string{ovsutils.DPFIDKey: metadata},
-		}
-		peerPatchPort := patchPortOptions{
-			externalIDs: nil,
-		}
-		patchPort.portName, peerPatchPort.portName = getOVNPatchPortNames(SFCBridge, externalBridge)
-		if err = AddPatchPort(ctx, ovs, SFCBridge, externalBridge, patchPort, peerPatchPort); err != nil {
-			log.Error(err, "failed to add patch port between bridges", "brA", SFCBridge, "brB", externalBridge, "patchPort", patchPort.portName, "patchPortPeer", peerPatchPort.portName)
-			return err
-		}
-		return nil
-	}
-
-	if serviceInterface.Spec.InterfaceType == dpuservicev1.InterfaceTypePatch {
-		log.Info("matched on serviceInterfaceType patch", "name", serviceInterface.Name)
-		if serviceInterface.Spec.Patch == nil || serviceInterface.Spec.Patch.PeerBridge == "" {
-			log.Error(fmt.Errorf("peer bridge is not set or is empty"), "failed to add patch port between bridges", "brA", SFCBridge)
-			return fmt.Errorf("peer bridge is not set or is empty")
-		}
-
-		peerBridge := serviceInterface.Spec.Patch.PeerBridge
-		log.Info("peer bridge", "name", peerBridge)
-
-		patchPort := patchPortOptions{
-			externalIDs: map[string]string{ovsutils.DPFIDKey: metadata},
-		}
-
-		// User should not set the reserved dpf-id
-		if serviceInterface.Spec.Patch.PeerExternalIDs != nil {
-			if _, exists := serviceInterface.Spec.Patch.PeerExternalIDs[ovsutils.DPFIDKey]; exists {
-				log.Info("External ID is reserved and managed internally, it cannot be set by users", "key", ovsutils.DPFIDKey)
-				return fmt.Errorf("external ID %s is a reserved and managed internally, it cannot be set by users", ovsutils.DPFIDKey)
-			}
-		}
-
-		peerPatchPort := patchPortOptions{
-			externalIDs: make(map[string]string),
-		}
-		for k, v := range serviceInterface.Spec.Patch.PeerExternalIDs {
-			peerPatchPort.externalIDs[k] = v
-		}
-		peerPatchPort.externalIDs[ovsutils.DPFIDKey] = metadata
-
-		patchPort.portName, peerPatchPort.portName = getPatchPortNames(serviceInterface, SFCBridge, peerBridge)
-		if err = AddPatchPort(ctx, ovs, SFCBridge, peerBridge, patchPort, peerPatchPort); err != nil {
-			log.Error(err, "failed to add patch port between bridges", "patchPort", patchPort.portName, "peerPatchPort", peerPatchPort.portName)
-			return err
-		}
-		return nil
-	}
-
-	portName, err := FigureOutName(ctx, ecpfManager, serviceInterface)
+	portName, err := FigureOutName(ctx, ecpfManager, spec)
 	if err != nil {
-		log.Error(err, "failed to get port name from serviceInterface")
+		log.Error(err, "failed to get port name")
 		return err
 	}
-
-	if portName != "" {
-		if serviceInterface.Spec.InterfaceType == dpuservicev1.InterfaceTypePhysical {
-			err = AddPort(ctx, ovs, portName, map[string]string{ovsutils.DPFIDKey: metadata}, map[string]string{ovsutils.DPFTypeKey: ovsutils.DPFTypePhysical})
-		} else {
-			err = AddPort(ctx, ovs, portName, map[string]string{ovsutils.DPFIDKey: metadata}, nil)
-		}
-		if err != nil {
-			log.Info(fmt.Sprintf("failed to add port: %s", err.Error()))
-			return err
-		}
+	if portName == "" {
+		return nil
 	}
 
+	var typeExternalIDs map[string]string
+	if spec.GetInterfaceType() == dpuservicev1.InterfaceTypePhysical {
+		typeExternalIDs = map[string]string{ovsutils.DPFTypeKey: ovsutils.DPFTypePhysical}
+	}
+	if err := AddPort(ctx, ovs, portName, map[string]string{ovsutils.DPFIDKey: metadata}, typeExternalIDs); err != nil {
+		log.Info(fmt.Sprintf("failed to add port: %s", err.Error()))
+		return err
+	}
+	return nil
+}
+
+// addOVNPatchPort creates the SFC<->OVN bridge patch port pair for an OVN interface entry.
+func addOVNPatchPort(ctx context.Context, ovs ovsutils.API, spec interfaceEntrySpec, metadata string) error {
+	log := ctrllog.FromContext(ctx)
+	log.V(4).Info("matched on interfaceType ovn", "metadata", metadata)
+	externalBridge := getOVNBridge(spec)
+	log.V(4).Info("ovn bridge", "name", externalBridge)
+
+	patchPort := patchPortOptions{
+		externalIDs: map[string]string{ovsutils.DPFIDKey: metadata},
+	}
+	peerPatchPort := patchPortOptions{
+		externalIDs: nil,
+	}
+	patchPort.portName, peerPatchPort.portName = getOVNPatchPortNames(SFCBridge, externalBridge)
+	if err := AddPatchPort(ctx, ovs, SFCBridge, externalBridge, patchPort, peerPatchPort); err != nil {
+		log.Error(err, "failed to add patch port between bridges", "brA", SFCBridge, "brB", externalBridge, "patchPort", patchPort.portName, "patchPortPeer", peerPatchPort.portName)
+		return err
+	}
+	return nil
+}
+
+// addPeerPatchPort creates the SFC<->peer bridge patch port pair for a Patch interface entry.
+func addPeerPatchPort(ctx context.Context, ovs ovsutils.API, spec interfaceEntrySpec, metadata string) error {
+	log := ctrllog.FromContext(ctx)
+	log.V(4).Info("matched on interfaceType patch", "metadata", metadata)
+	patch := spec.GetPatch()
+	if patch == nil || patch.PeerBridge == "" {
+		log.Error(fmt.Errorf("peer bridge is not set or is empty"), "failed to add patch port between bridges", "brA", SFCBridge)
+		return fmt.Errorf("peer bridge is not set or is empty")
+	}
+
+	peerBridge := patch.PeerBridge
+	log.V(4).Info("peer bridge", "name", peerBridge)
+
+	// User should not set the reserved dpf-id
+	if _, exists := patch.PeerExternalIDs[ovsutils.DPFIDKey]; exists {
+		log.Info("External ID is reserved and managed internally, it cannot be set by users", "key", ovsutils.DPFIDKey)
+		return fmt.Errorf("external ID %s is a reserved and managed internally, it cannot be set by users", ovsutils.DPFIDKey)
+	}
+
+	patchPort := patchPortOptions{
+		externalIDs: map[string]string{ovsutils.DPFIDKey: metadata},
+	}
+	peerPatchPort := patchPortOptions{
+		externalIDs: make(map[string]string, len(patch.PeerExternalIDs)+1),
+	}
+	maps.Copy(peerPatchPort.externalIDs, patch.PeerExternalIDs)
+	peerPatchPort.externalIDs[ovsutils.DPFIDKey] = metadata
+
+	patchPort.portName, peerPatchPort.portName = getPatchPortNames(spec, metadata, SFCBridge, peerBridge)
+	if err := AddPatchPort(ctx, ovs, SFCBridge, peerBridge, patchPort, peerPatchPort); err != nil {
+		log.Error(err, "failed to add patch port between bridges", "patchPort", patchPort.portName, "peerPatchPort", peerPatchPort.portName)
+		return err
+	}
 	return nil
 }
 
@@ -387,77 +421,82 @@ func DeleteInterfacesFromOvs(
 	ctx context.Context,
 	ovs ovsutils.API,
 	ecpfManager ecpf.ECPFManager,
-	serviceInterface *dpuservicev1.ServiceInterface,
+	spec interfaceEntrySpec,
+	metadata string,
 ) error {
 	log := ctrllog.FromContext(ctx)
-	var err error
-	var externalBridge string
-	log.Info("deleteInterfacesFromOvs")
+	log.V(4).Info("deleteInterfacesFromOvs")
 
 	// Skip Physical Interface removal from OVS if annotation is set
-	if serviceInterface.Spec.InterfaceType == dpuservicev1.InterfaceTypePhysical {
-		annotations := serviceInterface.GetAnnotations()
-		if annotations != nil {
-			if _, ok := annotations[noopRemovalPhysicalAnnotationKey]; ok {
-				log.Info("skipping physical interface removal from OVS since annotation exists")
-				return nil
-			}
+	if spec.GetInterfaceType() == dpuservicev1.InterfaceTypePhysical {
+		if _, ok := spec.GetAnnotations()[noopRemovalPhysicalAnnotationKey]; ok {
+			log.Info("skipping physical interface removal from OVS since annotation exists")
+			return nil
 		}
 	}
 
-	if serviceInterface.Spec.InterfaceType == dpuservicev1.InterfaceTypeOVN {
-		log.Info("matched on serviceInterfaceType ovn", "name", serviceInterface.Name)
-		externalBridge = getOVNBridge(serviceInterface)
-		log.Info("ovn bridge", "name", externalBridge)
-
-		patchPortName, patchPortPeerName := getOVNPatchPortNames(SFCBridge, externalBridge)
-		if err = DeletePatchPorts(ctx, ovs, SFCBridge, externalBridge, patchPortName, patchPortPeerName); err != nil {
-			log.Error(err, "failed to delete patch port between bridges", "patchPortName", patchPortName, "patchPortPeerName", patchPortPeerName)
-			return err
-		}
-		return nil
+	switch spec.GetInterfaceType() {
+	case dpuservicev1.InterfaceTypeOVN:
+		return deleteOVNPatchPort(ctx, ovs, spec, metadata)
+	case dpuservicev1.InterfaceTypePatch:
+		return deletePeerPatchPort(ctx, ovs, spec, metadata)
 	}
 
-	if serviceInterface.Spec.InterfaceType == dpuservicev1.InterfaceTypePatch {
-		log.Info("matched on serviceInterfaceType patch", "name", serviceInterface.Name)
-		if serviceInterface.Spec.Patch == nil || serviceInterface.Spec.Patch.PeerBridge == "" {
-			log.Error(fmt.Errorf("peer bridge is not set or is empty"), "failed to delete patch port between bridges", "brA", SFCBridge)
-			return fmt.Errorf("peer bridge is not set or is empty")
-		}
-
-		peerBridge := serviceInterface.Spec.Patch.PeerBridge
-		log.Info("peer bridge", "name", peerBridge)
-		patchPortName, patchPortPeerName := getPatchPortNames(serviceInterface, SFCBridge, peerBridge)
-		if err = DeletePatchPorts(ctx, ovs, SFCBridge, peerBridge, patchPortName, patchPortPeerName); err != nil {
-			log.Error(err, "failed to delete patch port between bridges", "patchPortName", patchPortName, "patchPortPeerName", patchPortPeerName)
-			return err
-		}
-		return nil
-	}
-
-	portName, err := FigureOutName(ctx, ecpfManager, serviceInterface)
+	portName, err := FigureOutName(ctx, ecpfManager, spec)
 	if err != nil {
-		log.Error(err, "failed to get port name from serviceInterface")
+		log.Error(err, "failed to get port name")
 		return err
 	}
+	if portName == "" {
+		return nil
+	}
+	if err := ovs.DelPort(ctx, SFCBridge, portName, nil); err != nil {
+		log.Error(err, "failed to delete port")
+		return err
+	}
+	return nil
+}
 
-	if portName != "" {
-		err := ovs.DelPort(ctx, SFCBridge, portName, nil)
-		if err != nil {
-			log.Error(err, "failed to delete port")
-			return err
-		}
+// deleteOVNPatchPort removes the SFC<->OVN bridge patch port pair for an OVN interface entry.
+func deleteOVNPatchPort(ctx context.Context, ovs ovsutils.API, spec interfaceEntrySpec, metadata string) error {
+	log := ctrllog.FromContext(ctx)
+	log.V(4).Info("matched on interfaceType ovn", "metadata", metadata)
+	externalBridge := getOVNBridge(spec)
+	log.V(4).Info("ovn bridge", "name", externalBridge)
+
+	patchPortName, patchPortPeerName := getOVNPatchPortNames(SFCBridge, externalBridge)
+	if err := DeletePatchPorts(ctx, ovs, SFCBridge, externalBridge, patchPortName, patchPortPeerName); err != nil {
+		log.Error(err, "failed to delete patch port between bridges", "patchPortName", patchPortName, "patchPortPeerName", patchPortPeerName)
+		return err
+	}
+	return nil
+}
+
+// deletePeerPatchPort removes the SFC<->peer bridge patch port pair for a Patch interface entry.
+func deletePeerPatchPort(ctx context.Context, ovs ovsutils.API, spec interfaceEntrySpec, metadata string) error {
+	log := ctrllog.FromContext(ctx)
+	log.V(4).Info("matched on interfaceType patch", "metadata", metadata)
+	patch := spec.GetPatch()
+	if patch == nil || patch.PeerBridge == "" {
+		log.Error(fmt.Errorf("peer bridge is not set or is empty"), "failed to delete patch port between bridges", "brA", SFCBridge)
+		return fmt.Errorf("peer bridge is not set or is empty")
+	}
+
+	peerBridge := patch.PeerBridge
+	log.V(4).Info("peer bridge", "name", peerBridge)
+	patchPortName, patchPortPeerName := getPatchPortNames(spec, metadata, SFCBridge, peerBridge)
+	if err := DeletePatchPorts(ctx, ovs, SFCBridge, peerBridge, patchPortName, patchPortPeerName); err != nil {
+		log.Error(err, "failed to delete patch port between bridges", "patchPortName", patchPortName, "patchPortPeerName", patchPortPeerName)
+		return err
 	}
 	return nil
 }
 
 // reconcileDelete handles the delete reconciliation loop
-//
-//nolint:unparam
 func (r *ServiceInterfaceReconciler) reconcileDelete(ctx context.Context, serviceInterface *dpuservicev1.ServiceInterface, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrllog.FromContext(ctx)
 	log.Info("Reconciling delete")
-	err := DeleteInterfacesFromOvs(ctx, r.OVS, r.ECPFManager, serviceInterface)
+	err := DeleteInterfacesFromOvs(ctx, r.OVS, r.ECPFManager, serviceInterface, req.NamespacedName.String())
 	if err != nil {
 		log.Error(err, "failed to delete DeleteInterfacesFromOvs")
 		setFalseServiceInterfaceReconciledCondition(err, serviceInterface)
@@ -499,8 +538,9 @@ func (r *ServiceInterfaceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 			patch.WithFieldOwner(ServiceInterfaceController),
 			patch.WithStatusObservedGeneration{},
 			patch.WithOwnedConditions{Conditions: conditions.TypesAsStrings(dpuservicev1.ServiceInterfaceConditions)},
-		); err != nil {
-			reterr = kerrors.NewAggregate([]error{reterr, nil})
+		); err != nil && !isOnlyNotFoundErr(err) {
+			// Removing the last finalizer above can race the object's deletion, so a NotFound here is expected, not a failure.
+			reterr = kerrors.NewAggregate([]error{reterr, err})
 		}
 	}()
 
@@ -527,6 +567,10 @@ func (r *ServiceInterfaceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ServiceInterfaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if err := utils.SetupServiceInterfaceNodeIndexer(context.Background(), mgr); err != nil {
+		return err
+	}
+
 	siWithoutVirtualNetworkPredicate := predicate.NewPredicateFuncs(func(o client.Object) bool {
 		si, ok := o.(*dpuservicev1.ServiceInterface)
 		if !ok {

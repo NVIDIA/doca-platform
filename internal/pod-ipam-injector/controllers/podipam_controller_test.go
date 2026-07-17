@@ -23,6 +23,7 @@ import (
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/utils"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 	nvipamv1 "github.com/nvidia/doca-platform/third_party/api/nvipam/api/v1alpha1"
 
@@ -1205,6 +1206,136 @@ var _ = Describe("PodIpam Controller", func() {
 			}).WithTimeout(2 * time.Second).Should(Succeed())
 		})
 
+		It("should return true for pod using virtual network via NSI entry", func() {
+			By("Create NodeServiceInterfaces with a virtual network entry")
+			nsi := createNodeServiceInterfaces(ctx, "nsi-virtual-net", dpuservicev1.NSITypeVPC, dpuservicev1.InterfaceEntry{
+				Name:          defaultNS + "_nsi-virtual-net-entry",
+				InterfaceType: dpuservicev1.InterfaceTypeService,
+				Service: &dpuservicev1.ServiceDef{
+					ServiceID:      serviceName,
+					Network:        "mybrsfc",
+					InterfaceName:  ifcName,
+					VirtualNetwork: ptr.To("virtual-network"),
+				},
+			})
+			cleanupObjects = append(cleanupObjects, nsi)
+
+			By("Create Pod in memory (not in cluster)")
+			testPod = &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pod-virtual-net-nsi",
+					Namespace: defaultNS,
+					Labels: map[string]string{
+						dpuservicev1.DPFServiceIDLabelKey: serviceName,
+					},
+				},
+				Spec: corev1.PodSpec{
+					NodeName: nodeName,
+					Containers: []corev1.Container{
+						{Name: "ctr1", Image: "image"},
+					},
+				},
+			}
+
+			By("Check if pod is using virtual network")
+			Eventually(func(g Gomega) {
+				isVirtual, err := isPodUsingOnlyVirtualNetworks(ctx, testClient, testPod)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(isVirtual).To(BeTrue())
+			}).WithTimeout(2 * time.Second).Should(Succeed())
+		})
+
+		It("should return false for pod not using virtual network via NSI entry", func() {
+			By("Create NodeServiceInterfaces without a virtual network entry")
+			nsi := createNodeServiceInterfaces(ctx, "nsi-non-virtual-net", dpuservicev1.NSITypeSFC, dpuservicev1.InterfaceEntry{
+				Name:          defaultNS + "_nsi-non-virtual-net-entry",
+				InterfaceType: dpuservicev1.InterfaceTypeService,
+				Service: &dpuservicev1.ServiceDef{
+					ServiceID:     serviceName,
+					Network:       "mybrsfc",
+					InterfaceName: ifcName,
+				},
+			})
+			cleanupObjects = append(cleanupObjects, nsi)
+
+			By("Create Pod in memory (not in cluster)")
+			testPod = &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pod-no-virtual-net-nsi",
+					Namespace: defaultNS,
+					Labels: map[string]string{
+						dpuservicev1.DPFServiceIDLabelKey: serviceName,
+					},
+				},
+				Spec: corev1.PodSpec{
+					NodeName: nodeName,
+					Containers: []corev1.Container{
+						{Name: "ctr1", Image: "image"},
+					},
+				},
+			}
+
+			By("Check if pod is not using virtual network")
+			Eventually(func(g Gomega) {
+				isVirtual, err := isPodUsingOnlyVirtualNetworks(ctx, testClient, testPod)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(isVirtual).To(BeFalse())
+			}).WithTimeout(2 * time.Second).Should(Succeed())
+		})
+
+		It("should skip terminating NSI entries when checking virtual networks", func() {
+			By("Create NodeServiceInterfaces with a terminating non-virtual entry and a virtual one")
+			terminatingNSI := createNodeServiceInterfaces(ctx, "nsi-terminating", dpuservicev1.NSITypeSFC,
+				dpuservicev1.InterfaceEntry{
+					Name:          defaultNS + "_nsi-terminating-entry",
+					Terminating:   true,
+					InterfaceType: dpuservicev1.InterfaceTypeService,
+					Service: &dpuservicev1.ServiceDef{
+						ServiceID:     serviceName,
+						Network:       "mybrsfc",
+						InterfaceName: ifcName2,
+					},
+				},
+			)
+			activeNSI := createNodeServiceInterfaces(ctx, "nsi-active", dpuservicev1.NSITypeVPC,
+				dpuservicev1.InterfaceEntry{
+					Name:          defaultNS + "_nsi-active-entry",
+					InterfaceType: dpuservicev1.InterfaceTypeService,
+					Service: &dpuservicev1.ServiceDef{
+						ServiceID:      serviceName,
+						Network:        "mybrsfc",
+						InterfaceName:  ifcName,
+						VirtualNetwork: ptr.To("virtual-network"),
+					},
+				},
+			)
+			cleanupObjects = append(cleanupObjects, terminatingNSI, activeNSI)
+
+			By("Create Pod in memory (not in cluster)")
+			testPod = &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pod-terminating-mix",
+					Namespace: defaultNS,
+					Labels: map[string]string{
+						dpuservicev1.DPFServiceIDLabelKey: serviceName,
+					},
+				},
+				Spec: corev1.PodSpec{
+					NodeName: nodeName,
+					Containers: []corev1.Container{
+						{Name: "ctr1", Image: "image"},
+					},
+				},
+			}
+
+			By("Check that only the non-terminating entry is considered")
+			Eventually(func(g Gomega) {
+				isVirtual, err := isPodUsingOnlyVirtualNetworks(ctx, testClient, testPod)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(isVirtual).To(BeTrue())
+			}).WithTimeout(2 * time.Second).Should(Succeed())
+		})
+
 		Context("networks without virtual network attached", func() {
 			It("should return false when pod has no service ID label", func() {
 				By("Create Pod in memory without service ID label")
@@ -1226,6 +1357,48 @@ var _ = Describe("PodIpam Controller", func() {
 				isVirtual, err := isPodUsingOnlyVirtualNetworks(ctx, testClient, testPod)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(isVirtual).To(BeFalse())
+			})
+
+			It("should return false when no interface matches the pod's serviceID", func() {
+				By("Create a virtual-network ServiceInterface for a different serviceID on the node")
+				otherSI := &dpuservicev1.ServiceInterface{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "unrelated-virtual-net-si",
+						Namespace: defaultNS,
+						Labels:    map[string]string{dpuservicev1.DPFServiceIDLabelKey: "other-service"},
+					},
+					Spec: dpuservicev1.ServiceInterfaceSpec{
+						InterfaceType: dpuservicev1.InterfaceTypeService,
+						Node:          ptr.To(nodeName),
+						Service: &dpuservicev1.ServiceDef{
+							ServiceID:      "other-service",
+							Network:        "mybrsfc",
+							InterfaceName:  ifcName,
+							VirtualNetwork: ptr.To("virtual-network"),
+						},
+					},
+				}
+				Expect(testClient.Create(ctx, otherSI)).To(Succeed())
+				cleanupObjects = append(cleanupObjects, otherSI)
+
+				testPod = &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-pod-mismatched-service",
+						Namespace: defaultNS,
+						Labels:    map[string]string{dpuservicev1.DPFServiceIDLabelKey: serviceName},
+					},
+					Spec: corev1.PodSpec{
+						NodeName:   nodeName,
+						Containers: []corev1.Container{{Name: "ctr1", Image: "image"}},
+					},
+				}
+
+				By("Check that the unrelated virtual-network interface is ignored")
+				Eventually(func(g Gomega) {
+					isVirtual, err := isPodUsingOnlyVirtualNetworks(ctx, testClient, testPod)
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(isVirtual).To(BeFalse())
+				}).WithTimeout(2 * time.Second).Should(Succeed())
 			})
 
 			It("should return false and no error when no service interface exists", func() {
@@ -1397,7 +1570,7 @@ var _ = Describe("PodIpam Controller", func() {
 						dpuservicev1.DPFServiceIDLabelKey: "correct-service",
 					})
 					g.Expect(err).NotTo(HaveOccurred())
-					g.Expect(result.Name).To(Equal("si-correct"))
+					g.Expect(result.GetName()).To(Equal("si-correct"))
 				}).WithTimeout(2 * time.Second).Should(Succeed())
 			})
 
@@ -1450,9 +1623,11 @@ var _ = Describe("PodIpam Controller", func() {
 						dpuservicev1.DPFServiceIDLabelKey: "filter-test-service",
 					})
 					g.Expect(err).NotTo(HaveOccurred())
-					g.Expect(result.Name).To(Equal("si-correct-node"))
+					g.Expect(result.GetName()).To(Equal("si-correct-node"))
 				}).WithTimeout(2 * time.Second).Should(Succeed())
 			})
+
+			// NSI-mode coverage for getServiceInterfaceWithLabels lives in podipam_controller_nsi_test.go.
 		})
 	})
 
@@ -1796,6 +1971,23 @@ func createServiceInterfaceForService(ctx context.Context, name string, svcName 
 	}
 	Expect(testClient.Create(ctx, si)).NotTo(HaveOccurred())
 	return si
+}
+
+// nolint:unparam
+func createNodeServiceInterfaces(ctx context.Context, name, nsiType string, entries ...dpuservicev1.InterfaceEntry) *dpuservicev1.NodeServiceInterfaces {
+	nsi := &dpuservicev1.NodeServiceInterfaces{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: utils.NSIObjectsNamespace,
+		},
+		Spec: dpuservicev1.NodeServiceInterfacesSpec{
+			Node:       nodeName,
+			Type:       nsiType,
+			Interfaces: entries,
+		},
+	}
+	Expect(testClient.Create(ctx, nsi)).NotTo(HaveOccurred())
+	return nsi
 }
 
 // Helper functions for creating test objects
