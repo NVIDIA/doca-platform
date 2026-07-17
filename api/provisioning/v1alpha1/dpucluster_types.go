@@ -160,6 +160,11 @@ type KeepalivedSpec struct {
 // +kubebuilder:printcolumn:name="NodesCount",type="integer",JSONPath=".status.nodesCount",description="number of assigned DPUs"
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 // +kubebuilder:validation:XValidation:rule="self.metadata.name.size() <= 63", message="name length can't be bigger than 63 chars"
+// The DPUCluster name is used as a prefix for Service names created for its DPUServices, which must be valid
+// DNS-1035 labels (start with a lowercase letter). This is enforced on create only. Clusters that already
+// exist with a non-compliant name are exempt (the name is immutable), so their status and finalizers can
+// still be updated.
+// +kubebuilder:validation:XValidation:rule="self.metadata.name.matches('^[a-z]([-a-z0-9]*[a-z0-9])?$') || (oldSelf.hasValue() && oldSelf.value().metadata.name == self.metadata.name)",optionalOldSelf=true,message="name must be a DNS-1035 label: start with a lowercase letter, contain only lowercase alphanumerics or '-', and end with an alphanumeric"
 
 // DPUCluster is the Schema for the dpuclusters API
 type DPUCluster struct {

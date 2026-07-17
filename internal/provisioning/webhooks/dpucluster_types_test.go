@@ -131,6 +131,24 @@ var _ = Describe("DPUCluster", func() {
 			Expect(err).To(HaveOccurred())
 		})
 
+		It("metadata.name must be a DNS-1035 label", func() {
+			obj := createObj("2604-hosted")
+			obj.Spec.Type = DefaultObjType
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("DNS-1035"))
+
+			// A valid DNS-1035 label (starts with a letter) is accepted.
+			obj = createObj("hosted-2604")
+			obj.Spec.Type = DefaultObjType
+			err = k8sClient.Create(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(k8sClient.Delete, ctx, obj)
+
+			obj.Status.Phase = provisioningv1.PhaseReady
+			Expect(k8sClient.Status().Update(ctx, obj)).To(Succeed())
+		})
+
 		It("spec.maxNodes default", func() {
 			obj := createObj(DefaultObjName)
 			obj.Spec.Type = DefaultObjType
