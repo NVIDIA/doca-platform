@@ -57,6 +57,9 @@ type Context struct {
 	// modes use the same client; trusted-host routes through an HTTP proxy.
 	Client client.Client
 
+	// WatchClient watches DPU CR changes for owned-DPU reprovision reconcile.
+	WatchClient client.WithWatch
+
 	// K8sClient is the typed kubernetes clientset, used by operations that need
 	// APIs not exposed by the controller-runtime client (e.g. Discovery).
 	K8sClient kubernetes.Interface
@@ -108,7 +111,8 @@ type Context struct {
 	// It may be invoked twice for the same execution: once from inside Execute
 	// and once from Run() when ShouldUpdateStatusBeforeContinue is true. Calling it twice is safe: the same
 	// status is pushed again, so the result is idempotent; at most it causes one redundant API call.
-	UpdateStatusUntilSuccess func(context.Context)
+	// Returns an error when status update must abort (e.g. reprovision detection).
+	UpdateStatusUntilSuccess func(context.Context) error
 }
 
 // DeferredNVConfigParam is one deferred mlxconfig set request for a PCI device.

@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
+//nolint:gocyclo // state handler intentionally keeps sequential guard checks for readability and condition fidelity.
 func Initializing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
 	logger := log.FromContext(ctx)
 	state := dpu.Status.DeepCopy()
@@ -181,6 +182,12 @@ func Initializing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 		}
 		state.IdentityMode = ptr.To(mode)
 		logger.V(2).Info("stamped DPU identity mode", "identityMode", mode)
+	}
+
+	var proceed bool
+	state, proceed = cutil.WaitPreInstallAgentRegistrationOrProceed(ctx, dpu, state, ctrlCtx.Options.PreInstallAgentRegistrationTimeout)
+	if !proceed {
+		return *state, nil
 	}
 
 	state.Phase = provisioningv1.DPUPending

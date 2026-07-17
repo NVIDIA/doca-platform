@@ -59,6 +59,11 @@ func ConfigFWParameters(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 		return *state, nil
 	}
 
+	if cutil.PreInstallAgentReported(dpu) && !cutil.PreInstallNVConfigReported(dpu) {
+		logger.V(2).Info("reprovision: waiting for agent preInstall NVConfigApplied before Config FW Parameters (Redfish)")
+		return *state, nil
+	}
+
 	client, err := rc.NewTLSClient(ctx, device.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
 	if err != nil {
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUConfigFWParameters), err, "FailedToCreateClient", err.Error()))

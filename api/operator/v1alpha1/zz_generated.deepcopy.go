@@ -1144,6 +1144,11 @@ func (in *ProvisioningControllerConfiguration) DeepCopyInto(out *ProvisioningCon
 		*out = new(v1.Duration)
 		**out = **in
 	}
+	if in.PreInstallAgentRegistrationTimeout != nil {
+		in, out := &in.PreInstallAgentRegistrationTimeout, &out.PreInstallAgentRegistrationTimeout
+		*out = new(v1.Duration)
+		**out = **in
+	}
 	if in.NodeEffectRemovalTimeout != nil {
 		in, out := &in.NodeEffectRemovalTimeout, &out.NodeEffectRemovalTimeout
 		*out = new(v1.Duration)

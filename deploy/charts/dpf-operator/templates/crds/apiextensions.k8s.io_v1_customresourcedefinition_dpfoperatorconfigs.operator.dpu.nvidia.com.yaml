@@ -1579,6 +1579,15 @@ spec:
                     format: duration
                     pattern: ^([0-9]+(h|m|s|ms|us|µs|ns))+$
                     type: string
+                  preInstallAgentRegistrationTimeout:
+                    default: 30s
+                    description: |-
+                      PreInstallAgentRegistrationTimeout is how long Initializing waits for the in-band dpu-agent
+                      to set preInstall.agentReported on a recreated DPU CR (reprovision). When the timeout elapses,
+                      provisioning continues without agent-assisted pre-install for this cycle.
+                    format: duration
+                    pattern: ^([0-9]+(h|m|s|ms|us|µs|ns))+$
+                    type: string
                   registry:
                     description: Registry is the configuration for the BFB Registry
                     properties:
