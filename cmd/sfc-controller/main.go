@@ -25,6 +25,7 @@ import (
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/features"
 	sfccontroller "github.com/nvidia/doca-platform/internal/sfccontroller/controllers"
 	"github.com/nvidia/doca-platform/pkg/ecpf"
 	"github.com/nvidia/doca-platform/pkg/health"
@@ -97,6 +98,7 @@ func main() {
 		"If greater than zero, the timeout for which the API server is unreachable,"+
 			"after which all the flows are deleted to prevent unintended packet leaks.")
 	logsv1.AddFlags(logOptions, fs)
+	features.MutableGates.AddFlag(fs)
 
 	pflag.Parse()
 	if err := logsv1.ValidateAndApply(logOptions, nil); err != nil {
@@ -109,6 +111,7 @@ func main() {
 	nodeName := os.Getenv("SFC_NODE_NAME")
 	if nodeName == "" {
 		setupLog.Error(nil, "SFC_NODE_NAME environment variable must be set")
+		os.Exit(1)
 	}
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
@@ -280,7 +283,7 @@ func main() {
 	}
 
 	staleFlowsRemover := sfccontroller.NewStaleObjectRemover(
-		staleFlowsRemovalPeriod, mgr.GetClient(), ofb, ovsClient, ecpfManager)
+		staleFlowsRemovalPeriod, mgr.GetClient(), nodeName, ofb, ovsClient, ecpfManager)
 	if err = mgr.Add(staleFlowsRemover); err != nil {
 		setupLog.Error(err, "cannot add runnable to manager")
 	}

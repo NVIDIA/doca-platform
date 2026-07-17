@@ -94,16 +94,6 @@ var _ = BeforeSuite(func() {
 			}})
 	Expect(err).ToNot(HaveOccurred())
 
-	// Add field indexer for ServiceInterface spec.node
-	err = testManager.GetFieldIndexer().IndexField(ctx, &dpuservicev1.ServiceInterface{}, "spec.node", func(obj client.Object) []string {
-		si := obj.(*dpuservicev1.ServiceInterface)
-		if si.Spec.Node == nil {
-			return nil
-		}
-		return []string{*si.Spec.Node}
-	})
-	Expect(err).ToNot(HaveOccurred())
-
 	// Use the manager's client so field indexers are available
 	testClient = testManager.GetClient()
 	Expect(testClient).NotTo(BeNil())
@@ -118,6 +108,9 @@ var _ = BeforeSuite(func() {
 	}
 	err = reconciler.SetupWithManager(testManager)
 	Expect(err).ToNot(HaveOccurred())
+
+	// In production ServiceInterfaceSetReconciler registers this index; it's not set up in this suite.
+	Expect(utils.SetupServiceInterfaceNodeIndexer(ctx, testManager)).To(Succeed())
 
 	// Set up PodRestartController
 	podRestartReconciler := &PodRestartController{

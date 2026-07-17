@@ -183,6 +183,12 @@ var _ = Describe("service interface controller", func() {
 		},
 	}
 
+	ovnIfaceSpec := dpuservicev1.ServiceInterfaceSpec{
+		Node:          &testNodeName,
+		InterfaceType: dpuservicev1.InterfaceTypeOVN,
+		OVN:           &dpuservicev1.OVN{},
+	}
+
 	Context("add interface", func() {
 		var si *dpuservicev1.ServiceInterface
 
@@ -436,6 +442,22 @@ var _ = Describe("service interface controller", func() {
 				serviceIfaceSpec,
 				func() {},
 				true),
+			Entry("success ovn interface",
+				ovnIfaceSpec,
+				func() {
+					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any()).Return(nil)
+					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any()).Return(nil)
+					ovsMock.EXPECT().SetIfaceOptions(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+					ovsMock.EXPECT().SetIfaceOptions(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+					ovsMock.EXPECT().SetIfaceExternalIDs(gomock.Any(), gomock.Any(), gomock.Eq(map[string]string{ovsutils.DPFIDKey: client.ObjectKeyFromObject(si).String()})).
+						Return(nil)
+				}, true),
+			Entry("failed to add ovn patch port",
+				ovnIfaceSpec,
+				func() {
+					ovsMock.EXPECT().AddPort(gomock.Any(), gomock.Any()).
+						Return(errors.New("failed to add ovn patch port"))
+				}, false),
 		)
 	})
 
@@ -618,6 +640,54 @@ var _ = Describe("service interface controller", func() {
 		It("should requeue if failed to delete peer patch port", func() {
 			ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), gomock.Any(), nil).Return(nil)
 			ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), gomock.Any(), nil).Return(errors.New("failed to delete peer patch port"))
+
+			result, err := sir.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{
+				Namespace: deletedServiceInterface.Namespace,
+				Name:      deletedServiceInterface.Name,
+			}})
+			Expect(err).To(Succeed())
+			Expect(result.RequeueAfter).NotTo(BeZero())
+		})
+	})
+
+	Context("reconcile delete ovn", func() {
+		var deletedServiceInterface *dpuservicev1.ServiceInterface
+
+		BeforeEach(func() {
+			deletedServiceInterface = &dpuservicev1.ServiceInterface{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "deleted-service-interface",
+					Namespace: ns.Name,
+				},
+				Spec: dpuservicev1.ServiceInterfaceSpec{
+					Node:          &testNodeName,
+					InterfaceType: dpuservicev1.InterfaceTypeOVN,
+					OVN:           &dpuservicev1.OVN{},
+				},
+			}
+
+			controllerutil.AddFinalizer(deletedServiceInterface, ServiceInterfaceFinalizer)
+
+			Expect(testClient.Create(ctx, deletedServiceInterface)).To(Succeed())
+			cleanupObjects = append(cleanupObjects, deletedServiceInterface)
+			Expect(testClient.Delete(ctx, deletedServiceInterface)).To(Succeed())
+		})
+
+		It("should return success", func() {
+			// delete ovn patch port between bridges
+			ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), gomock.Any(), nil).Return(nil)
+			ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), gomock.Any(), nil).Return(nil)
+
+			result, err := sir.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{
+				Namespace: deletedServiceInterface.Namespace,
+				Name:      deletedServiceInterface.Name,
+			}})
+			Expect(err).To(Succeed())
+			Expect(result.RequeueAfter).To(BeZero())
+		})
+
+		It("should requeue if failed to delete ovn patch port", func() {
+			ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), gomock.Any(), nil).Return(errors.New("failed to delete ovn patch port"))
 
 			result, err := sir.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{
 				Namespace: deletedServiceInterface.Namespace,

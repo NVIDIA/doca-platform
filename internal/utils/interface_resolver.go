@@ -24,7 +24,6 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -58,6 +57,76 @@ func ResolveServiceInterfaceByLabels(
 	}
 
 	return resolveFromLegacySI(ctx, c, nodeName, namespace, matchLabels, sel)
+}
+
+// ServiceInterfaceNodeFieldKey is the ServiceInterface spec.node field index key registered by ServiceInterfaceSetReconciler.
+const ServiceInterfaceNodeFieldKey = "spec.node"
+
+// ListInterfacesForNode returns every legacy and non-terminating NSI (restricted to nsiTypes) interface
+// for nodeName as ServiceInterface objects. Interfaces are deduplicated by name, with NSI entries taking
+// priority over a legacy ServiceInterface sharing the same name, mirroring the resolver's precedence.
+func ListInterfacesForNode(
+	ctx context.Context,
+	c client.Client,
+	nodeName, namespace string,
+	nsiTypes ...string,
+) ([]*dpuservicev1.ServiceInterface, error) {
+	sil := &dpuservicev1.ServiceInterfaceList{}
+	if err := c.List(ctx, sil,
+		client.InNamespace(namespace),
+		client.MatchingFields{ServiceInterfaceNodeFieldKey: nodeName},
+	); err != nil {
+		return nil, fmt.Errorf("list ServiceInterfaces for node %s: %w", nodeName, err)
+	}
+
+	order := make([]string, 0, len(sil.Items))
+	byName := make(map[string]*dpuservicev1.ServiceInterface, len(sil.Items))
+	add := func(si *dpuservicev1.ServiceInterface) {
+		if _, seen := byName[si.Name]; !seen {
+			order = append(order, si.Name)
+		}
+		byName[si.Name] = si
+	}
+
+	for i := range sil.Items {
+		add(&sil.Items[i])
+	}
+
+	nsiList := &dpuservicev1.NodeServiceInterfacesList{}
+	if err := c.List(ctx, nsiList,
+		client.InNamespace(NSIObjectsNamespace),
+		client.MatchingFields{NSINodeFieldKey: nodeName},
+	); err != nil {
+		return nil, fmt.Errorf("list NSI shards for node %s: %w", nodeName, err)
+	}
+
+	allowedTypes := make(map[string]bool, len(nsiTypes))
+	for _, t := range nsiTypes {
+		allowedTypes[t] = true
+	}
+
+	for _, nsi := range nsiList.Items {
+		if len(allowedTypes) > 0 && !allowedTypes[nsi.Spec.Type] {
+			continue
+		}
+		for i := range nsi.Spec.Interfaces {
+			entry := &nsi.Spec.Interfaces[i]
+			if entry.Terminating {
+				continue
+			}
+			entryNS, _ := entry.GetNamespacedName()
+			if entryNS != namespace {
+				continue
+			}
+			add(entryToServiceInterface(entry, nodeName, namespace))
+		}
+	}
+
+	interfaces := make([]*dpuservicev1.ServiceInterface, 0, len(order))
+	for _, name := range order {
+		interfaces = append(interfaces, byName[name])
+	}
+	return interfaces, nil
 }
 
 // resolveFromNSI searches NodeServiceInterfaces shards for this node, filtering by
@@ -130,27 +199,20 @@ func resolveFromLegacySI(
 	if err := c.List(ctx, sil,
 		client.MatchingLabelsSelector{Selector: sel},
 		client.InNamespace(namespace),
+		client.MatchingFields{ServiceInterfaceNodeFieldKey: nodeName},
 	); err != nil {
 		return nil, err
 	}
 
-	matching := make([]*dpuservicev1.ServiceInterface, 0, len(sil.Items))
-	for i := range sil.Items {
-		if ptr.Deref(sil.Items[i].Spec.Node, "") != nodeName {
-			continue
-		}
-		matching = append(matching, &sil.Items[i])
-	}
-
-	switch len(matching) {
+	switch len(sil.Items) {
 	case 1:
-		return matching[0], nil
+		return &sil.Items[0], nil
 	case 0:
 		return nil, fmt.Errorf("no serviceInterface in namespace(%s) matching labels(%v) on node(%s) found",
 			namespace, matchLabels, nodeName)
 	default:
 		return nil, fmt.Errorf("expected only one serviceInterface in namespace(%s) to match labels(%v) on node(%s), found %d",
-			namespace, matchLabels, nodeName, len(matching))
+			namespace, matchLabels, nodeName, len(sil.Items))
 	}
 }
 
@@ -162,9 +224,10 @@ func entryToServiceInterface(entry *dpuservicev1.InterfaceEntry, nodeName, names
 	nodeCopy := nodeName
 	return &dpuservicev1.ServiceInterface{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      setName,
-			Namespace: namespace,
-			Labels:    entry.Labels,
+			Name:        setName,
+			Namespace:   namespace,
+			Labels:      entry.Labels,
+			Annotations: entry.Annotations,
 		},
 		Spec: dpuservicev1.ServiceInterfaceSpec{
 			Node:          &nodeCopy,
