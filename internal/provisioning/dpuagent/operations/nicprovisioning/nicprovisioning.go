@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net/url"
@@ -195,11 +196,15 @@ func (n *NICProvisioning) installNICFirmwareAndUpdateStatus(execCtx context.Cont
 	}
 	if err := installNICFirmware(execCtx, optCtx, localNICFWPath); err != nil {
 		setAgentCondition(optCtx, cutil.AgentCondEWNicFirmwareInstalled, metav1.ConditionFalse, "InstallFailed", err.Error())
-		updateStatusUntilSuccess(execCtx, optCtx)
+		if statusErr := updateStatusUntilSuccess(execCtx, optCtx); statusErr != nil {
+			return errors.Join(err, statusErr)
+		}
 		return err
 	}
 	setAgentCondition(optCtx, cutil.AgentCondEWNicFirmwareInstalled, metav1.ConditionTrue, "InstallSucceeded", "E/W NIC firmware installation completed")
-	updateStatusUntilSuccess(execCtx, optCtx)
+	if err := updateStatusUntilSuccess(execCtx, optCtx); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -226,11 +231,15 @@ func (n *NICProvisioning) applyNVConfigAndUpdateStatus(execCtx context.Context, 
 	}
 	if err := applyNVConfig(execCtx, optCtx); err != nil {
 		setAgentCondition(optCtx, cutil.AgentCondEWNICNVConfigApplied, metav1.ConditionFalse, "NICNVConfigApplyFailed", err.Error())
-		updateStatusUntilSuccess(execCtx, optCtx)
+		if statusErr := updateStatusUntilSuccess(execCtx, optCtx); statusErr != nil {
+			return errors.Join(err, statusErr)
+		}
 		return err
 	}
 	setAgentCondition(optCtx, cutil.AgentCondEWNICNVConfigApplied, metav1.ConditionTrue, "NICNVConfigApplied", "E/W NIC NV config apply completed")
-	updateStatusUntilSuccess(execCtx, optCtx)
+	if err := updateStatusUntilSuccess(execCtx, optCtx); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -241,18 +250,23 @@ func (n *NICProvisioning) applyRuntimeConfigAndUpdateStatus(execCtx context.Cont
 	}
 	if err := applyRuntimeConfig(execCtx, optCtx); err != nil {
 		setAgentCondition(optCtx, cutil.AgentCondEWNICConfigured, metav1.ConditionFalse, "RuntimeConfigApplyFailed", err.Error())
-		updateStatusUntilSuccess(execCtx, optCtx)
+		if statusErr := updateStatusUntilSuccess(execCtx, optCtx); statusErr != nil {
+			return errors.Join(err, statusErr)
+		}
 		return err
 	}
 	setAgentCondition(optCtx, cutil.AgentCondEWNICConfigured, metav1.ConditionTrue, "RuntimeConfigApplied", "E/W NIC runtime configuration completed")
-	updateStatusUntilSuccess(execCtx, optCtx)
+	if err := updateStatusUntilSuccess(execCtx, optCtx); err != nil {
+		return err
+	}
 	return nil
 }
 
-func updateStatusUntilSuccess(execCtx context.Context, optCtx *operations.Context) {
-	if optCtx.UpdateStatusUntilSuccess != nil {
-		optCtx.UpdateStatusUntilSuccess(execCtx)
+func updateStatusUntilSuccess(execCtx context.Context, optCtx *operations.Context) error {
+	if optCtx.UpdateStatusUntilSuccess == nil {
+		return nil
 	}
+	return optCtx.UpdateStatusUntilSuccess(execCtx)
 }
 
 func getReferencedBlueFieldSoftware(execCtx context.Context, optCtx *operations.Context) (*provisioningv1.BlueFieldSoftware, error) {

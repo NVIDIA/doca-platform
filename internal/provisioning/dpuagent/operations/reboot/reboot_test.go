@@ -79,7 +79,7 @@ var _ = Describe("Reboot", func() {
 					LatestDPU:                dpu,
 					RebootMethodDiscovery:    false,
 					CurrentBootID:            bootIDStr,
-					UpdateStatusUntilSuccess: func(context.Context) {}, // no-op for unit test
+					UpdateStatusUntilSuccess: func(context.Context) error { return nil }, // no-op for unit test
 				}
 				reboot := &HandleReboot{
 					skipBlock: true,
@@ -156,7 +156,7 @@ var _ = Describe("Reboot", func() {
 					LatestDPU:                dpu,
 					RebootMethodDiscovery:    false,
 					CurrentBootID:            "boot-id",
-					UpdateStatusUntilSuccess: func(context.Context) {},
+					UpdateStatusUntilSuccess: func(context.Context) error { return nil },
 				}
 				reboot := &HandleReboot{
 					skipBlock: true,
@@ -192,7 +192,7 @@ var _ = Describe("Reboot", func() {
 					RebootMethodDiscovery:    false,
 					CurrentBootID:            currentBootIDStr,
 					GrubConfigChanged:        true,
-					UpdateStatusUntilSuccess: func(context.Context) { statusPushed = true },
+					UpdateStatusUntilSuccess: func(context.Context) error { statusPushed = true; return nil },
 				}
 				h := &HandleReboot{
 					skipBlock: true,
@@ -218,7 +218,7 @@ var _ = Describe("Reboot", func() {
 						return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPCIAddress0}}, nil
 					},
 					GrubConfigChanged:        true,
-					UpdateStatusUntilSuccess: func(context.Context) { statusPushed = true },
+					UpdateStatusUntilSuccess: func(context.Context) error { statusPushed = true; return nil },
 				}
 				h := &HandleReboot{
 					skipBlock: true,
@@ -252,7 +252,7 @@ var _ = Describe("Reboot", func() {
 				},
 				RebootMethodDiscovery:    false,
 				CurrentBootID:            "boot-id",
-				UpdateStatusUntilSuccess: func(context.Context) { statusPushed = true },
+				UpdateStatusUntilSuccess: func(context.Context) error { statusPushed = true; return nil },
 			}
 			h := &HandleReboot{
 				skipBlock: true,
@@ -547,7 +547,7 @@ var _ = Describe("Reboot", func() {
 				DiscoverPorts: func() ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
 				},
-				UpdateStatusUntilSuccess: func(context.Context) {},
+				UpdateStatusUntilSuccess: func(context.Context) error { return nil },
 			}
 			h := &HandleReboot{
 				skipBlock: true,
@@ -913,7 +913,7 @@ var _ = Describe("Reboot", func() {
 				DiscoverPorts: func() ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPCIAddress0}}, nil
 				},
-				UpdateStatusUntilSuccess: func(context.Context) {},
+				UpdateStatusUntilSuccess: func(context.Context) error { return nil },
 			}
 			h := &HandleReboot{
 				skipBlock: true,
@@ -1397,7 +1397,7 @@ var _ = Describe("Reboot", func() {
 			It("sets RebootMethod PowerCycle and updates status before blocking", func() {
 				statusPushed := false
 				optCtx := &operations.Context{
-					UpdateStatusUntilSuccess: func(context.Context) { statusPushed = true },
+					UpdateStatusUntilSuccess: func(context.Context) error { statusPushed = true; return nil },
 				}
 				h := &HandleReboot{skipBlock: true}
 				Expect(h.execPowerCycle(context.Background(), optCtx)).To(Succeed())
@@ -1420,7 +1420,7 @@ var _ = Describe("Reboot", func() {
 		Context("execSystemLevelReset", func() {
 			It("sets status and runs shutdown command", func() {
 				optCtx := &operations.Context{
-					UpdateStatusUntilSuccess: func(context.Context) {}, // no-op for unit test
+					UpdateStatusUntilSuccess: func(context.Context) error { return nil }, // no-op for unit test
 				}
 				var shutdownCmd string
 				h := &HandleReboot{
@@ -1443,7 +1443,7 @@ var _ = Describe("Reboot", func() {
 				device := testPCIAddress0
 				cmd := fmt.Sprintf("mlxfwreset -d %s -y reset", device)
 				optCtx := &operations.Context{
-					UpdateStatusUntilSuccess: func(context.Context) {}, // no-op for unit test
+					UpdateStatusUntilSuccess: func(context.Context) error { return nil }, // no-op for unit test
 				}
 				var fwResetCmds []string
 				h := &HandleReboot{
@@ -1464,7 +1464,7 @@ var _ = Describe("Reboot", func() {
 
 			It("runs discovered per-device firmware reset commands without listing devices", func() {
 				optCtx := &operations.Context{
-					UpdateStatusUntilSuccess: func(context.Context) {},
+					UpdateStatusUntilSuccess: func(context.Context) error { return nil },
 				}
 				var ran []string
 				h := &HandleReboot{
@@ -1486,7 +1486,7 @@ var _ = Describe("Reboot", func() {
 			It("runs mlxfwreset reset for every planned device command", func() {
 				devices := []string{testPCIAddress0, testPCIAddress1}
 				optCtx := &operations.Context{
-					UpdateStatusUntilSuccess: func(context.Context) {},
+					UpdateStatusUntilSuccess: func(context.Context) error { return nil },
 				}
 				var ran []string
 				h := &HandleReboot{

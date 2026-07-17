@@ -1093,6 +1093,7 @@ _Appears in:_
 | `maxUnavailableDPUNodes` _integer_ | MaxUnavailableDPUNodes is the maximum number of DPUNodes that are unavailable during the node effect period. | 50 | Minimum: 1 <br />Optional: \{\} <br /> |
 | `osInstallTimeout` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#duration-v1-meta)_ | OSInstallTimeout is the maximum time allowed for OS installation in zero-trust mode.<br />If the installation exceeds this timeout, the DPU will transition to an error state.<br />When unset, the provisioning controller defaults to 60m. |  | Format: duration <br />Pattern: `^([0-9]+(h\|m\|s\|ms\|us\|µs\|ns))+$` <br />Type: string <br />Optional: \{\} <br /> |
 | `firmwareUpdateTimeout` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#duration-v1-meta)_ | FirmwareUpdateTimeout is the maximum time allowed for BF4 firmware update in zero-trust mode.<br />If the update exceeds this timeout, the DPU will transition to an error state.<br />When unset, the provisioning controller defaults to 45m. |  | Format: duration <br />Pattern: `^([0-9]+(h\|m\|s\|ms\|us\|µs\|ns))+$` <br />Type: string <br />Optional: \{\} <br /> |
+| `preInstallAgentRegistrationTimeout` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#duration-v1-meta)_ | PreInstallAgentRegistrationTimeout is how long Initializing waits for the in-band dpu-agent<br />to set preInstall.agentReported on a recreated DPU CR (reprovision). When the timeout elapses,<br />provisioning continues without agent-assisted pre-install for this cycle. | 30s | Format: duration <br />Pattern: `^([0-9]+(h\|m\|s\|ms\|us\|µs\|ns))+$` <br />Type: string <br />Optional: \{\} <br /> |
 | `nodeEffectRemovalTimeout` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#duration-v1-meta)_ | NodeEffectRemovalTimeout is the maximum time allowed for the Node Effect Removal phase.<br />If the DPUNodeMaintenance CR still has requestors after this timeout, the DPU will transition to an error state.<br />When unset, the provisioning controller defaults to 0s (timeout disabled). |  | Format: duration <br />Pattern: `^([0-9]+(h\|m\|s\|ms\|us\|µs\|ns))+$` <br />Type: string <br />Optional: \{\} <br /> |
 | `hostAgentDNSPolicy` _[DNSPolicy](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#dnspolicy-v1-core)_ | HostAgentDNSPolicy sets the DNS policy for the hostagent pod.<br />Valid values are 'ClusterFirstWithHostNet', 'ClusterFirst', 'Default' or 'None'.<br />Defaults to 'ClusterFirstWithHostNet'. |  | Enum: [ClusterFirstWithHostNet ClusterFirst Default None] <br />Optional: \{\} <br /> |
 | `bmcServerCertRenewBefore` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#duration-v1-meta)_ | BMCServerCertRenewBefore is how long before expiry DPF rotates the DPU BMC mTLS<br />server certificate.<br />When unset, the provisioning controller defaults to 720h (30 days). |  | Format: duration <br />Pattern: `^([0-9]+(h\|m\|s\|ms\|us\|µs\|ns))+$` <br />Type: string <br />Optional: \{\} <br /> |
@@ -1613,6 +1614,23 @@ _Appears in:_
 | `force` _boolean_ | Force is the flag to indicate if the node effect should be applied immediately.<br />If true, dpfOperatorConfig.multiDPUOperationsSyncWaitTime and dpfOperatorConfig.maxUnavailableDPUNodes will be ignored when applying node effect for DPUNodeMaintenance CR | false | Optional: \{\} <br /> |
 
 
+#### AgentPreInstallStatus
+
+
+
+AgentPreInstallStatus is agent status for reprovisioning.
+
+
+
+_Appears in:_
+- [AgentStatus](#agentstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `agentReported` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | AgentReported is set with a timestamp when dpu-agent detects a new DPU CR is created for reprovisioning. |  | Optional: \{\} <br /> |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions contains pre-install conditions (e.g. NVConfigApplied for reprovisioning). |  | Optional: \{\} <br /> |
+
+
 #### AgentStatus
 
 
@@ -1632,6 +1650,7 @@ _Appears in:_
 | `lastObservedPendingNvconfig` _[PendingNVConfigState](#pendingnvconfigstate)_ | LastObservedPendingNVConfig stores the last pending NVConfig parameters seen<br />during reboot-method discovery on this boot. It is used on the next boot to<br />ignore repeated parameters that remained unchanged across boots. |  | Optional: \{\} <br /> |
 | `rebootSequenceCount` _integer_ | RebootSequenceCount is the length of the current non-NoAction RebootMethod sequence:<br />it increments on each agent run that reports a RebootMethod other than NoAction and<br />resets to 0 when the agent reports NoAction. Used with RebootMethod to bound host reboot loops. |  | Minimum: 0 <br />Optional: \{\} <br /> |
 | `kubeletVersion` _string_ | KubeletVersion represents the kubelet version running on the DPU. |  |  |
+| `preInstall` _[AgentPreInstallStatus](#agentpreinstallstatus)_ | PreInstall holds agent-reported status for work done before OS install in the reprovisioning process. |  | Optional: \{\} <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions contains the conditions reported from inside the DPU |  | Optional: \{\} <br /> |
 | `spiffe` _[SpiffeStatus](#spiffestatus)_ | Spiffe contains the SPIFFE heartbeat status reported by the DPU Agent when running in<br />SPIFFE identity mode. |  | Optional: \{\} <br /> |
 

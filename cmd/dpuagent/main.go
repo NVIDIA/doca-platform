@@ -123,7 +123,7 @@ func main() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(provisioningv1.AddToScheme(scheme))
 
-	dpuClient, err := crclient.New(cfg, crclient.Options{Scheme: scheme})
+	dpuClient, err := crclient.NewWithWatch(cfg, crclient.Options{Scheme: scheme})
 	if err != nil {
 		klog.Fatalf("failed to create controller-runtime client: %v", err)
 	}
@@ -131,11 +131,13 @@ func main() {
 	if err != nil {
 		klog.Fatalf("failed to create kubernetes clientset: %v", err)
 	}
+
 	optCtx := &operations.Context{
-		Client:    dpuClient,
-		K8sClient: k8sClient,
-		DPUFlavor: *dpuFlavor,
-		Options:   options,
+		Client:      dpuClient,
+		WatchClient: dpuClient,
+		K8sClient:   k8sClient,
+		DPUFlavor:   *dpuFlavor,
+		Options:     options,
 	}
 
 	agent := dpuagent.NewDPUAgent(optCtx)
@@ -148,13 +150,22 @@ func main() {
 		})
 	}
 	if err := agent.Run(execCtx); err != nil {
-		if shutdownErr := agent.Shutdown(); shutdownErr != nil {
-			klog.ErrorS(shutdownErr, "failed to stop local DMS server after DPU agent error")
+		if execCtx.Err() != nil {
+			if shutdownErr := agent.Shutdown(); shutdownErr != nil {
+				klog.ErrorS(shutdownErr, "failed to stop local DMS server after DPU agent error")
+			}
+			klog.Info("DPU agent stopped")
+			return
 		}
-		klog.Fatalf("failed to run DPU agent: %v", err)
+		if !dpuagent.IsBootstrapAbortErr(err) {
+			klog.Fatalf("failed to run DPU agent bootstrap: %v", err)
+		}
+		klog.Info("Bootstrap aborted for reprovision")
+	} else {
+		klog.Info("DPUAgent successfully completed all operations")
 	}
-	klog.Info("DPUAgent successfully completed all operations")
 	agent.StartNICRuntimeConfigLoop(execCtx)
+	agent.StartDPUReconcileLoop(execCtx)
 	<-execCtx.Done()
 	if err := agent.Shutdown(); err != nil {
 		klog.ErrorS(err, "failed to stop local DMS server during DPU agent shutdown")

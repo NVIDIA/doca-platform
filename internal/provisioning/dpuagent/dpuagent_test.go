@@ -85,6 +85,139 @@ func newTestOptCtx(fakeClient client.Client) *operations.Context {
 }
 
 var _ = Describe("DPUAgent", func() {
+	Describe("UID adoption logic", func() {
+		It("keeps in-memory status when adopting a recreated DPU", func() {
+			existingRebootMethod := provisioningv1.RebootMethodNoAction
+			existingCond := metav1.Condition{
+				Type:               "ExistingCondition",
+				Status:             metav1.ConditionTrue,
+				Reason:             "Kept",
+				Message:            "must stay",
+				LastTransitionTime: metav1.NewTime(time.Unix(99, 0)),
+			}
+			existingPending := &provisioningv1.PendingNVConfigState{
+				BootID: "old-boot",
+				Devices: []provisioningv1.PendingNVConfigDevice{
+					{
+						Device: "0000:03:00.0",
+						Entries: []provisioningv1.PendingNVConfigEntry{
+							{Name: "VIRTIO_NET_EMULATION_NUM_MSIX", Current: "0", NextBoot: "2"},
+						},
+					},
+				},
+			}
+			optCtx := &operations.Context{
+				Options: opts.Options{DPUUID: "old-uid"},
+				Status: provisioningv1.AgentStatus{
+					RebootMethod:                &existingRebootMethod,
+					LastObservedPendingNVConfig: existingPending,
+					Conditions:                  []metav1.Condition{existingCond},
+					PreInstall: &provisioningv1.AgentPreInstallStatus{
+						AgentReported: ptr.To(metav1.NewTime(time.Unix(98, 0))),
+						Conditions: []metav1.Condition{
+							{
+								Type:               provisioningv1.DPUAgentConditionNVConfigApplied,
+								Status:             metav1.ConditionTrue,
+								Reason:             "Old",
+								Message:            "must be cleared",
+								LastTransitionTime: metav1.NewTime(time.Unix(98, 0)),
+							},
+						},
+					},
+				},
+			}
+			dpu := &provisioningv1.DPU{ObjectMeta: metav1.ObjectMeta{UID: "new-uid"}}
+
+			changed := dpuUIDChanged(optCtx, dpu)
+
+			Expect(changed).To(BeTrue())
+			Expect(optCtx.Options.DPUUID).To(Equal("old-uid"))
+			Expect(optCtx.Status.RebootMethod).To(Equal(&existingRebootMethod))
+			Expect(optCtx.Status.LastObservedPendingNVConfig).To(BeIdenticalTo(existingPending))
+			Expect(optCtx.Status.Conditions).To(Equal([]metav1.Condition{existingCond}))
+			Expect(optCtx.Status.PreInstall).NotTo(BeNil())
+		})
+
+		It("does not clear LastObservedPendingNVConfig when UID does not change", func() {
+			existing := &provisioningv1.PendingNVConfigState{
+				BootID: "boot-1",
+				Devices: []provisioningv1.PendingNVConfigDevice{
+					{Device: "0000:03:00.0"},
+				},
+			}
+			optCtx := &operations.Context{
+				Options: opts.Options{DPUUID: "same-uid"},
+				Status: provisioningv1.AgentStatus{
+					LastObservedPendingNVConfig: existing,
+				},
+			}
+			dpu := &provisioningv1.DPU{ObjectMeta: metav1.ObjectMeta{UID: "same-uid"}}
+
+			changed := dpuUIDChanged(optCtx, dpu)
+
+			Expect(changed).To(BeFalse())
+			Expect(optCtx.Status.LastObservedPendingNVConfig).To(BeIdenticalTo(existing))
+		})
+	})
+
+	Describe("updatePreInstallStatus", func() {
+		It("patches only agentStatus.preInstall fields", func() {
+			dpu := newTestDPU()
+			existingStartup := metav1.NewTime(time.Unix(100, 0))
+			existingRebootMethod := provisioningv1.RebootMethodNoAction
+			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
+				LastStartupTime: &existingStartup,
+				RebootMethod:    &existingRebootMethod,
+				Conditions: []metav1.Condition{
+					{
+						Type:               "RegularCondition",
+						Status:             metav1.ConditionTrue,
+						Reason:             "Kept",
+						Message:            "keep regular status",
+						LastTransitionTime: metav1.NewTime(time.Unix(101, 0)),
+					},
+				},
+			}
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+
+			agent := &DPUAgent{optCtx: newTestOptCtx(fakeClient)}
+			newStartup := metav1.NewTime(time.Unix(200, 0))
+			preInstallReported := metav1.NewTime(time.Unix(201, 0))
+			agent.optCtx.Status = provisioningv1.AgentStatus{
+				LastStartupTime: &newStartup, // should not be propagated by pre-install-only patch.
+				PreInstall: &provisioningv1.AgentPreInstallStatus{
+					AgentReported: &preInstallReported,
+					Conditions: []metav1.Condition{
+						{
+							Type:               provisioningv1.DPUAgentConditionNVConfigApplied,
+							Status:             metav1.ConditionTrue,
+							Reason:             "Configured",
+							Message:            "pre-install NVConfig done",
+							LastTransitionTime: metav1.NewTime(time.Unix(202, 0)),
+						},
+					},
+				},
+			}
+
+			Expect(agent.updatePreInstallStatus(ctx, agent.optCtx)).To(Succeed())
+
+			latestDPU := &provisioningv1.DPU{}
+			Expect(fakeClient.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: "test-dpu"}, latestDPU)).To(Succeed())
+			Expect(latestDPU.Status.AgentStatus).NotTo(BeNil())
+			Expect(latestDPU.Status.AgentStatus.LastStartupTime).NotTo(BeNil())
+			Expect(latestDPU.Status.AgentStatus.LastStartupTime.Unix()).To(Equal(existingStartup.Unix()))
+			Expect(latestDPU.Status.AgentStatus.RebootMethod).NotTo(BeNil())
+			Expect(*latestDPU.Status.AgentStatus.RebootMethod).To(Equal(existingRebootMethod))
+
+			Expect(latestDPU.Status.AgentStatus.PreInstall).NotTo(BeNil())
+			Expect(latestDPU.Status.AgentStatus.PreInstall.AgentReported).NotTo(BeNil())
+			Expect(latestDPU.Status.AgentStatus.PreInstall.AgentReported.Unix()).To(Equal(preInstallReported.Unix()))
+			cond := meta.FindStatusCondition(latestDPU.Status.AgentStatus.PreInstall.Conditions, provisioningv1.DPUAgentConditionNVConfigApplied)
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+		})
+	})
+
 	Describe("Done marker", func() {
 		It("should write the done marker file after all operations complete successfully", func() {
 			dpu := newTestDPU()
