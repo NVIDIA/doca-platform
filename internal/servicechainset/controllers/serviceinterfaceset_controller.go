@@ -696,6 +696,7 @@ func buildInterfaceEntry(set *dpuservicev1.ServiceInterfaceSet, name, nodeName s
 		}
 	case dpuservicev1.InterfaceTypeVF:
 		entry.VF = &dpuservicev1.VF{
+			NICSelector:    tmpl.Spec.VF.NICSelector.DeepCopy(),
 			VFID:           tmpl.Spec.VF.VFID,
 			PFID:           tmpl.Spec.VF.PFID,
 			VirtualNetwork: tmpl.Spec.VF.VirtualNetwork,
@@ -706,6 +707,7 @@ func buildInterfaceEntry(set *dpuservicev1.ServiceInterfaceSet, name, nodeName s
 	case dpuservicev1.InterfaceTypePF:
 		entry.PF = &dpuservicev1.PF{
 			ID:             tmpl.Spec.PF.ID,
+			NICSelector:    tmpl.Spec.PF.NICSelector.DeepCopy(),
 			VirtualNetwork: tmpl.Spec.PF.VirtualNetwork,
 		}
 	case dpuservicev1.InterfaceTypeService:

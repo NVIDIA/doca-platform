@@ -191,6 +191,26 @@ func cleanupNSIPathTestResources(ctx context.Context, c client.Client, nsiNamesp
 }
 
 var _ = Describe("ServiceInterfaceSet Controller — NSI path", func() {
+	It("preserves PF and VF NIC selectors in NSI entries", func() {
+		selector := &dpuservicev1.NICSelectorSpec{
+			Type: dpuservicev1.NICSelectorTypePCI,
+			PCI:  &dpuservicev1.PCISelector{Address: "0000:03:00.2"},
+		}
+
+		vfSet := getServiceInterfaceSet("default", &metav1.LabelSelector{})
+		vfSet.Spec.Template.Spec.VF.NICSelector = selector
+		vfEntry := buildInterfaceEntry(vfSet, "default_vf", "node-1")
+		Expect(vfEntry.VF.NICSelector).To(Equal(selector))
+		Expect(vfEntry.VF.NICSelector).NotTo(BeIdenticalTo(selector))
+
+		pfSet := getServiceInterfaceSet("default", &metav1.LabelSelector{})
+		pfSet.Spec.Template.Spec.InterfaceType = dpuservicev1.InterfaceTypePF
+		pfSet.Spec.Template.Spec.PF.NICSelector = selector
+		pfEntry := buildInterfaceEntry(pfSet, "default_pf", "node-1")
+		Expect(pfEntry.PF.NICSelector).To(Equal(selector))
+		Expect(pfEntry.PF.NICSelector).NotTo(BeIdenticalTo(selector))
+	})
+
 	Context("When reconciling a new ServiceInterfaceSet", func() {
 		var (
 			cleanupObjects []client.Object

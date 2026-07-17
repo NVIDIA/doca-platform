@@ -25,9 +25,12 @@ import (
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/utils"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -84,6 +87,7 @@ var _ = BeforeSuite(func() {
 	testClient, err = client.New(cfg, client.Options{Scheme: s})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(testClient).NotTo(BeNil())
+	Expect(testClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: utils.NSIObjectsNamespace}})).To(Succeed())
 
 	testManager, err := ctrl.NewManager(cfg,
 		ctrl.Options{
@@ -95,6 +99,8 @@ var _ = BeforeSuite(func() {
 			}})
 	Expect(err).ToNot(HaveOccurred())
 
+	Expect(utils.SetupServiceInterfaceNodeIndexer(ctx, testManager)).To(Succeed())
+	Expect(utils.SetupNSINodeIndexer(ctx, testManager)).To(Succeed())
 	mgrClient = testManager.GetClient()
 
 	// not setting the controller at the moment - we are missing mocks

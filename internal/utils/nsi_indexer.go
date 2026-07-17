@@ -32,6 +32,9 @@ const (
 
 	// NSINodeFieldKey is the cache field-index key for NodeServiceInterfaces.spec.node.
 	NSINodeFieldKey = "spec.node"
+
+	// NSITypeFieldKey is the cache field-index key for NodeServiceInterfaces.spec.type.
+	NSITypeFieldKey = "spec.type"
 )
 
 // NSINodeIndexFunc extracts the node name from a NodeServiceInterfaces object for field indexing.
@@ -39,7 +42,20 @@ func NSINodeIndexFunc(o client.Object) []string {
 	return []string{o.(*dpuservicev1.NodeServiceInterfaces).Spec.Node}
 }
 
-// SetupNSINodeIndexer registers the spec.node field index for NodeServiceInterfaces.
+// NSITypeIndexFunc extracts the type from a NodeServiceInterfaces object for field indexing.
+func NSITypeIndexFunc(o client.Object) []string {
+	return []string{o.(*dpuservicev1.NodeServiceInterfaces).Spec.Type}
+}
+
+func ServiceInterfaceNodeIndexFunc(o client.Object) []string {
+	si := o.(*dpuservicev1.ServiceInterface)
+	if si.Spec.Node == nil {
+		return nil
+	}
+	return []string{*si.Spec.Node}
+}
+
+// SetupNSINodeIndexer registers the spec.node and spec.type field indexes for NodeServiceInterfaces.
 func SetupNSINodeIndexer(ctx context.Context, mgr ctrl.Manager) error {
 	if err := mgr.GetFieldIndexer().IndexField(
 		ctx,
@@ -48,6 +64,26 @@ func SetupNSINodeIndexer(ctx context.Context, mgr ctrl.Manager) error {
 		NSINodeIndexFunc,
 	); err != nil {
 		return fmt.Errorf("register NSI spec.node index: %w", err)
+	}
+	if err := mgr.GetFieldIndexer().IndexField(
+		ctx,
+		&dpuservicev1.NodeServiceInterfaces{},
+		NSITypeFieldKey,
+		NSITypeIndexFunc,
+	); err != nil {
+		return fmt.Errorf("register NSI spec.type index: %w", err)
+	}
+	return nil
+}
+
+func SetupServiceInterfaceNodeIndexer(ctx context.Context, mgr ctrl.Manager) error {
+	if err := mgr.GetFieldIndexer().IndexField(
+		ctx,
+		&dpuservicev1.ServiceInterface{},
+		ServiceInterfaceNodeFieldKey,
+		ServiceInterfaceNodeIndexFunc,
+	); err != nil {
+		return fmt.Errorf("register ServiceInterface spec.node index: %w", err)
 	}
 	return nil
 }

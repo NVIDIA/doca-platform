@@ -22,6 +22,7 @@ import (
 	"math"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/utils"
 	ecpfMock "github.com/nvidia/doca-platform/pkg/ecpf/mock"
 	"github.com/nvidia/doca-platform/pkg/ovsmodel"
 	"github.com/nvidia/doca-platform/pkg/ovsutils"
@@ -50,7 +51,7 @@ var _ = Describe("stale flows cleanup", func() {
 	BeforeEach(func() {
 		ctrl = gomock.NewController(GinkgoT())
 		ofb = NewMockBridge(ctrl)
-		sor = NewStaleObjectRemover(0, testClient, ofb, nil, nil)
+		sor = NewStaleObjectRemover(0, testClient, testNodeName, ofb, nil, nil)
 		cleanupObjects = []client.Object{}
 
 		// create test namespace
@@ -140,7 +141,7 @@ var _ = Describe("stale ports cleanup", func() {
 		ovsConditionalAPIMock = ovsutils.NewMockConditionalAPI(ctrl)
 		ECPFManagerMock = ecpfMock.NewMockECPFManager(ctrl)
 
-		sor = NewStaleObjectRemover(0, testClient, nil, ovsMock, ECPFManagerMock)
+		sor = NewStaleObjectRemover(0, mgrClient, testNodeName, nil, ovsMock, ECPFManagerMock)
 		cleanupObjects = []client.Object{}
 
 		// create test namespace
@@ -230,9 +231,12 @@ var _ = Describe("stale ports cleanup", func() {
 		ovsMock.EXPECT().Get(gomock.Any(), gomock.Any()).Return(nil).Times(1)
 		ECPFManagerMock.EXPECT().GetRepresentorForVFServiceInterface(gomock.Any()).Return("", fmt.Errorf("failed to figure out port name")).Times(1)
 
-		si := getTestVFServiceInterface("dpu-service-interface", testNS.Name, "my-node", 0, 3, nil, nil)
+		si := getTestVFServiceInterface("dpu-service-interface", testNS.Name, testNodeName, 3, nil, nil)
 		Expect(testClient.Create(ctx, si)).To(Succeed())
 		cleanupObjects = append(cleanupObjects, si)
+		Eventually(func() error {
+			return mgrClient.Get(ctx, client.ObjectKeyFromObject(si), &dpuservicev1.ServiceInterface{})
+		}).Should(Succeed())
 
 		Expect(sor.removeStalePorts(ctx)).NotTo(Succeed())
 	})
@@ -244,6 +248,7 @@ var _ = Describe("stale ports cleanup", func() {
 				Namespace: testNS.Name,
 			},
 			Spec: dpuservicev1.ServiceInterfaceSpec{
+				Node:          &testNodeName,
 				InterfaceType: "vf",
 				VF: &dpuservicev1.VF{
 					PFID: 0,
@@ -253,6 +258,9 @@ var _ = Describe("stale ports cleanup", func() {
 		}
 		Expect(testClient.Create(ctx, serviceInterface)).To(Succeed())
 		cleanupObjects = append(cleanupObjects, serviceInterface)
+		Eventually(func() error {
+			return mgrClient.Get(ctx, client.ObjectKeyFromObject(serviceInterface), &dpuservicev1.ServiceInterface{})
+		}).Should(Succeed())
 
 		ovsMock.EXPECT().Get(gomock.Any(), gomock.AssignableToTypeOf(&ovsmodel.Bridge{})).DoAndReturn(
 			func(ctx context.Context, bridge *ovsmodel.Bridge) error {
@@ -281,6 +289,94 @@ var _ = Describe("stale ports cleanup", func() {
 		).Times(1)
 		ovsMock.EXPECT().WhereAll(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(ovsConditionalAPIMock).Times(1)
 		ovsMock.EXPECT().DelPort(gomock.Any(), SFCBridge, "some-port", nil).Return(nil).Times(1)
+		ECPFManagerMock.EXPECT().GetRepresentorForVFServiceInterface(gomock.Any()).Return("pf0vf3", nil).Times(1)
+
+		Expect(sor.removeStalePorts(ctx)).To(Succeed())
+	})
+
+	It("does not remove a port backing a live NSI-mode VF entry", func() {
+		nsi := &dpuservicev1.NodeServiceInterfaces{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-nsi", Namespace: utils.NSIObjectsNamespace},
+			Spec: dpuservicev1.NodeServiceInterfacesSpec{
+				Node: testNodeName,
+				Type: dpuservicev1.NSITypeSFC,
+				Interfaces: []dpuservicev1.InterfaceEntry{{
+					Name:          "nsi-entry-stale-test",
+					InterfaceType: dpuservicev1.InterfaceTypeVF,
+					VF:            &dpuservicev1.VF{PFID: 0, VFID: 3},
+				}},
+			},
+		}
+		Expect(testClient.Create(ctx, nsi)).To(Succeed())
+		cleanupObjects = append(cleanupObjects, nsi)
+		Eventually(func() error {
+			return mgrClient.Get(ctx, client.ObjectKeyFromObject(nsi), &dpuservicev1.NodeServiceInterfaces{})
+		}).Should(Succeed())
+
+		ovsMock.EXPECT().Get(gomock.Any(), gomock.AssignableToTypeOf(&ovsmodel.Bridge{})).DoAndReturn(
+			func(ctx context.Context, bridge *ovsmodel.Bridge) error {
+				bridge.Ports = []string{"1", "2"}
+				return nil
+			},
+		).Times(1)
+
+		ovsConditionalAPIMock.EXPECT().List(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(_ context.Context, ports *[]ovsmodel.Port) error {
+				*ports = []ovsmodel.Port{{Name: "some-port"}}
+				return nil
+			},
+		).Times(1)
+		ovsMock.EXPECT().WhereAll(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(ovsConditionalAPIMock).Times(1)
+
+		// This port backs the NSI VF entry and must survive; only "some-port" may hit DelPort below.
+		ovsConditionalAPIMock.EXPECT().List(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(_ context.Context, ports *[]ovsmodel.Port) error {
+				*ports = []ovsmodel.Port{{Name: "pf0vf3"}}
+				return nil
+			},
+		).Times(1)
+		ovsMock.EXPECT().WhereAll(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(ovsConditionalAPIMock).Times(1)
+		ovsMock.EXPECT().DelPort(gomock.Any(), SFCBridge, "some-port", nil).Return(nil).Times(1)
+		ECPFManagerMock.EXPECT().GetRepresentorForVFServiceInterface(gomock.Any()).Return("pf0vf3", nil).Times(1)
+
+		Expect(sor.removeStalePorts(ctx)).To(Succeed())
+	})
+
+	It("does not remove a port backing a Terminating NSI entry", func() {
+		nsi := &dpuservicev1.NodeServiceInterfaces{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-nsi-terminating", Namespace: utils.NSIObjectsNamespace},
+			Spec: dpuservicev1.NodeServiceInterfacesSpec{
+				Node: testNodeName,
+				Type: dpuservicev1.NSITypeSFC,
+				Interfaces: []dpuservicev1.InterfaceEntry{{
+					Name:          "nsi-entry-terminating",
+					Terminating:   true,
+					InterfaceType: dpuservicev1.InterfaceTypeVF,
+					VF:            &dpuservicev1.VF{PFID: 0, VFID: 3},
+				}},
+			},
+		}
+		Expect(testClient.Create(ctx, nsi)).To(Succeed())
+		cleanupObjects = append(cleanupObjects, nsi)
+		Eventually(func() error {
+			return mgrClient.Get(ctx, client.ObjectKeyFromObject(nsi), &dpuservicev1.NodeServiceInterfaces{})
+		}).Should(Succeed())
+
+		ovsMock.EXPECT().Get(gomock.Any(), gomock.AssignableToTypeOf(&ovsmodel.Bridge{})).DoAndReturn(
+			func(ctx context.Context, bridge *ovsmodel.Bridge) error {
+				bridge.Ports = []string{"1"}
+				return nil
+			},
+		).Times(1)
+
+		ovsConditionalAPIMock.EXPECT().List(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(_ context.Context, ports *[]ovsmodel.Port) error {
+				*ports = []ovsmodel.Port{{Name: "pf0vf3"}}
+				return nil
+			},
+		).Times(1)
+		ovsMock.EXPECT().WhereAll(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(ovsConditionalAPIMock).Times(1)
+		// The terminating entry's port is protected; NodeServiceInterfacesReconciler owns its teardown, so DelPort must not fire.
 		ECPFManagerMock.EXPECT().GetRepresentorForVFServiceInterface(gomock.Any()).Return("pf0vf3", nil).Times(1)
 
 		Expect(sor.removeStalePorts(ctx)).To(Succeed())

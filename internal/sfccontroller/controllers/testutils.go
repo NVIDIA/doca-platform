@@ -31,7 +31,7 @@ func getTestNode(name string) *corev1.Node {
 	}
 }
 
-func getTestVFServiceInterface(name, namespace, node string, pfID, vfID int, label map[string]string, virtualNetwork *string) *dpuservicev1.ServiceInterface {
+func getTestVFServiceInterface(name, namespace, node string, vfID int, label map[string]string, virtualNetwork *string) *dpuservicev1.ServiceInterface {
 	return &dpuservicev1.ServiceInterface{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -42,7 +42,7 @@ func getTestVFServiceInterface(name, namespace, node string, pfID, vfID int, lab
 			InterfaceType: dpuservicev1.InterfaceTypeVF,
 			Node:          &node,
 			VF: &dpuservicev1.VF{
-				PFID:           pfID,
+				PFID:           0,
 				VFID:           vfID,
 				VirtualNetwork: virtualNetwork,
 			},
