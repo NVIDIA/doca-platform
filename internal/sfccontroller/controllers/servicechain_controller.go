@@ -25,6 +25,7 @@ import (
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/features"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	oflow "github.com/nvidia/doca-platform/pkg/openflow"
 	"github.com/nvidia/doca-platform/pkg/ovsmodel"
@@ -38,6 +39,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	kexec "k8s.io/utils/exec"
@@ -45,8 +47,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 // ServiceChainReconciler reconciles a ServiceChain object
@@ -67,8 +71,8 @@ const (
 	BridgeSFC                  = "br-sfc" // Default OVS bridge name for Service Function Chaining
 	RequeueIntervalFlows       = 5 * time.Second
 	podNodeNameKey             = "spec.nodeName"
+	serviceChainNodeNameKey    = "spec.node"
 	ServiceChainFinalizer      = dpuservicev1.SvcDpuGroupName + "/ServiceChain-finalizer"
-	ServiceChainLabel          = dpuservicev1.SvcDpuGroupName + "/service-chain"
 	serviceChainControllerName = "servicechaincontroller"
 
 	LearningTable  = 0
@@ -85,6 +89,8 @@ const (
 	ForwardablePTPMulticastMac    = "01:1b:19:00:00:00" // forwardable PTP multicast MAC address
 	NonForwardablePTPMulticastMac = "01:80:c2:00:00:0e" // unforwardable PTP multicast MAC address
 )
+
+var errPodNotFound = errors.New("pod not found")
 
 //nolint:unparam
 func requeueFlows() (ctrl.Result, error) {
@@ -202,7 +208,7 @@ func (r *ServiceChainReconciler) getPodWithLabels(ctx context.Context, namespace
 	}
 
 	if len(podList.Items) == 0 {
-		return nil, fmt.Errorf("no pod in namespace(%s) matching labels(%v) on node(%s) found", namespace, lbls, r.NodeName)
+		return nil, fmt.Errorf("%w: no pod in namespace(%s) matching labels(%v) on node(%s) found", errPodNotFound, namespace, lbls, r.NodeName)
 	}
 
 	if len(podList.Items) > 1 {
@@ -239,88 +245,12 @@ func (r *ServiceChainReconciler) getServiceInterfaceListWithLabels(ctx context.C
 	return matching, nil
 }
 
-// getServiceInterfaceWithLabels returns ServiceInterface in namespace that belongs to current node with given labels. if more than one or none matches, error out.
-func (r *ServiceChainReconciler) getServiceInterfaceWithLabels(ctx context.Context, namespace string, lbls map[string]string) (*dpuservicev1.ServiceInterface, error) {
-	sil, err := r.getServiceInterfaceListWithLabels(ctx, namespace, lbls)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(sil) == 0 {
-		return nil, fmt.Errorf("no serviceInterface in namespace(%s) matching labels(%v) on node(%s) found", namespace, lbls, r.NodeName)
-	}
-
-	if len(sil) > 1 {
-		return nil, fmt.Errorf("expected only one serviceInterface in namespace(%s) to match labels(%v) on node(%s). found %d",
-			namespace, lbls, r.NodeName, len(sil))
-	}
-
-	return sil[0], nil
-}
-
-// getPortNameForServiceInterface returns the ovs port name matching the given service interface
-func (r *ServiceChainReconciler) getPortNameForServiceInterface(ctx context.Context, namespace string, si *dpuservicev1.ServiceInterface) (string, error) {
-	condition := si.Namespace + "/" + si.Name
-	if si.Spec.InterfaceType == dpuservicev1.InterfaceTypeService {
-		// get pod matching serviceID
-		pod, err := r.getPodWithLabels(ctx, namespace, map[string]string{dpuservicev1.DPFServiceIDLabelKey: si.Spec.Service.ServiceID})
-		if err != nil {
-			return "", err
-		}
-		if si.Spec.Service.InterfaceName == "" {
-			return "", errors.New("empty interface name for serviceInterface of type service")
-		}
-		// construct condition which identifies ovs port for the interface that is associated
-		// with service and serviceInterface.
-		condition = pod.Namespace + "/" + pod.Name + "/" + si.Spec.Service.InterfaceName
-	}
-
-	port, err := findInterface(ctx, r.OVS, condition)
-	if err != nil {
-		return "", err
-	}
-
-	if port == "" {
-		return "", fmt.Errorf("port with condition %s not found", condition)
-	}
-
-	return port, nil
-}
-
-func (r *ServiceChainReconciler) addServiceInterfaceChainLabel(ctx context.Context, si *dpuservicev1.ServiceInterface, serviceChainName string) error {
-	patcher := patch.NewSerialPatcher(si, r.Client)
-	si.Labels[ServiceChainLabel] = serviceChainName
-	return patcher.Patch(ctx, si)
-}
-
-func (r *ServiceChainReconciler) deleteServiceInterfaceChainLabel(ctx context.Context, serviceChainName, namespace string) error {
-	siLabelsToDelete := map[string]string{
-		ServiceChainLabel: serviceChainName,
-	}
-	sil, err := r.getServiceInterfaceListWithLabels(ctx, namespace, siLabelsToDelete)
-	if err != nil {
-		return fmt.Errorf("failed to get interface %v", err)
-	}
-	for _, si := range sil {
-		patcher := patch.NewSerialPatcher(si, r.Client)
-		delete(si.Labels, ServiceChainLabel)
-		if err := patcher.Patch(ctx, si); err != nil {
-			return fmt.Errorf("failed to patch ServiceInterface %v", err)
-		}
-	}
-	return nil
-}
-
 // reconcileDelete handles the delete reconciliation loop
 //
 //nolint:unparam
-func (r *ServiceChainReconciler) reconcileDelete(ctx context.Context, sc *dpuservicev1.ServiceChain, req ctrl.Request, hashedName uint64) (ctrl.Result, error) {
+func (r *ServiceChainReconciler) reconcileDelete(ctx context.Context, sc *dpuservicev1.ServiceChain, hashedName uint64) (ctrl.Result, error) {
 	log := ctrllog.FromContext(ctx)
 	log.Info("Reconciling delete")
-	if err := r.deleteServiceInterfaceChainLabel(ctx, req.Name, req.Namespace); err != nil {
-		log.Error(err, "failed to delete ServiceInterface chain label")
-		return requeueFlows()
-	}
 
 	flowErrors := r.OFBridge.DeleteFlowsByCookie(hashedName, math.MaxUint64)
 	if flowErrors != nil {
@@ -334,11 +264,43 @@ func (r *ServiceChainReconciler) reconcileDelete(ctx context.Context, sc *dpuser
 	return requeueFlows()
 }
 
+// resolveSwitchPort resolves port to a validated interface's OVS interface name, legacy or NSI.
+func (r *ServiceChainReconciler) resolveSwitchPort(ctx context.Context, sc *dpuservicev1.ServiceChain, nsi *dpuservicev1.NodeServiceInterfaces, port dpuservicev1.Port) (string, error) {
+	candidate, err := r.getSingleInterfaceCandidate(ctx, sc.Namespace, nsi, port.ServiceInterface.MatchLabels)
+	if err != nil {
+		return "", err
+	}
+	if isValid, reason := candidate.ready(); !isValid {
+		return "", fmt.Errorf("invalid service interface: %s", reason)
+	}
+	return r.getPortNameForInterfaceEntry(ctx, sc.Namespace, candidate.spec, candidate.condition)
+}
+
+// buildChainPorts resolves every switch's ports to OVS interface names, best-effort.
+func (r *ServiceChainReconciler) buildChainPorts(ctx context.Context, sc *dpuservicev1.ServiceChain, nsi *dpuservicev1.NodeServiceInterfaces) ([][]string, []error) {
+	var errs []error
+	ports := make([][]string, 0, len(sc.Spec.Switches))
+	for swPos, sw := range sc.Spec.Switches {
+		ports = append(ports, []string{})
+		for _, port := range sw.Ports {
+			intfName, err := r.resolveSwitchPort(ctx, sc, nsi, port)
+			if err != nil {
+				errs = append(errs, err)
+			}
+			if intfName != "" {
+				ports[swPos] = append(ports[swPos], intfName)
+			}
+		}
+	}
+	return ports, errs
+}
+
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch;update
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=servicechains,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=servicechains/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=servicechains/finalizers,verbs=update
-// +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=serviceinterfaces,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=serviceinterfaces,verbs=get;list;watch
+// +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=nodeserviceinterfaces,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=nodes;s,verbs=get;list;watch
 
 func (r *ServiceChainReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, reterr error) {
@@ -351,13 +313,7 @@ func (r *ServiceChainReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	if err = r.Client.Get(ctx, req.NamespacedName, sc); err != nil {
 		if apierrors.IsNotFound(err) {
-			// Return early if the object is not found.
-			if err := r.deleteServiceInterfaceChainLabel(ctx, req.Name, req.Namespace); err != nil {
-				log.Error(err, "failed to delete ServiceInterface chain label")
-				return requeueFlows()
-			}
-
-			// Always ensure delete operation in case of errors
+			// The object is gone; ensure its flows are removed regardless.
 			flowErrors := r.OFBridge.DeleteFlowsByCookie(hashedName, math.MaxUint64)
 			if flowErrors != nil {
 				log.Error(flowErrors, "failed to delete flows")
@@ -380,14 +336,14 @@ func (r *ServiceChainReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			patch.WithFieldOwner(serviceChainControllerName),
 			patch.WithStatusObservedGeneration{},
 			patch.WithOwnedConditions{Conditions: conditions.TypesAsStrings(dpuservicev1.ServiceChainConditions)},
-		); err != nil {
+		); err != nil && !isOnlyNotFoundErr(err) {
 			reterr = kerrors.NewAggregate([]error{reterr, err})
 		}
 	}()
 
 	// Handle deletion reconciliation loop.
 	if !sc.ObjectMeta.DeletionTimestamp.IsZero() {
-		return r.reconcileDelete(ctx, sc, req, hashedName)
+		return r.reconcileDelete(ctx, sc, hashedName)
 	}
 
 	// Add finalizer if not set.
@@ -405,44 +361,20 @@ func (r *ServiceChainReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 	}
 
-	var errs []error
+	var nsi *dpuservicev1.NodeServiceInterfaces
+	if features.Gates.Enabled(features.NSIPathForSFC) {
+		nsi, err = r.getSFCNodeServiceInterfaces(ctx)
+		if err != nil {
+			log.Error(err, "failed to get NodeServiceInterfaces")
+			return requeueFlows()
+		}
+	}
 
 	// Construct an array of arrays of ports in order to traverse it
 	// and construct the flows
 	// don't fail immediately, operate on best effort basis to enable partial chains
 	// to enable some of the traffic to pass
-	var ports [][]string
-	for swPos, sw := range sc.Spec.Switches {
-		ports = append(ports, [][]string{{}}...)
-		for _, port := range sw.Ports {
-			si, err := r.getServiceInterfaceWithLabels(ctx, sc.Namespace, port.ServiceInterface.MatchLabels)
-			if err != nil {
-				log.Error(err, "failed to get interface")
-				errs = append(errs, err)
-				continue
-			}
-			if isValid, reason := isValidateServiceInterface(si); !isValid {
-				log.Error(fmt.Errorf("invalid service interface"), reason, "serviceinterface labels", port.ServiceInterface.MatchLabels)
-				errs = append(errs, fmt.Errorf("invalid service interface: %s", reason))
-				continue
-			}
-			intfName, err := r.getPortNameForServiceInterface(ctx, sc.Namespace, si)
-			if err != nil {
-				log.Error(err, "failed to get interface")
-				errs = append(errs, err)
-				continue
-			}
-			if intfName != "" {
-				ports[swPos] = append(ports[swPos], intfName)
-			}
-
-			if err := r.addServiceInterfaceChainLabel(ctx, si, sc.Name); err != nil {
-				log.Error(err, "failed to add ServiceInterface chain label")
-				errs = append(errs, err)
-				continue
-			}
-		}
-	}
+	ports, errs := r.buildChainPorts(ctx, sc, nsi)
 
 	err = r.SC.GenerateAndApplyOpenFlows(ctx, ports, hashedName)
 	if err != nil {
@@ -451,7 +383,7 @@ func (r *ServiceChainReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	// Apply any custom flows for this chain
-	err = r.EnsureCustomFlowsForChain(ctx, sc)
+	err = r.EnsureCustomFlowsForChain(ctx, sc, nsi)
 	if err != nil {
 		log.Error(err, "failed to add custom flows")
 		errs = append(errs, err)
@@ -470,7 +402,18 @@ func (r *ServiceChainReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ServiceChainReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
-	err := mgr.GetCache().IndexField(ctx, &corev1.Pod{}, podNodeNameKey, func(o client.Object) []string {
+	err := mgr.GetCache().IndexField(ctx, &dpuservicev1.ServiceChain{}, serviceChainNodeNameKey, func(o client.Object) []string {
+		sc := o.(*dpuservicev1.ServiceChain)
+		if sc.Spec.Node == nil {
+			return nil
+		}
+		return []string{*sc.Spec.Node}
+	})
+	if err != nil {
+		return err
+	}
+
+	err = mgr.GetCache().IndexField(ctx, &corev1.Pod{}, podNodeNameKey, func(o client.Object) []string {
 		return []string{o.(*corev1.Pod).Spec.NodeName}
 	})
 	if err != nil {
@@ -484,9 +427,70 @@ func (r *ServiceChainReconciler) SetupWithManager(ctx context.Context, mgr ctrl.
 		return *o.(*dpuservicev1.ServiceChain).Spec.Node == r.NodeName
 	})
 
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&dpuservicev1.ServiceChain{}, builder.WithPredicates(p)).
-		Complete(r)
+	// Only this node's "sfc"-typed NodeServiceInterfaces can affect ServiceChains here.
+	nsiPredicate := predicate.NewPredicateFuncs(func(o client.Object) bool {
+		return isSFCNodeShard(o.(*dpuservicev1.NodeServiceInterfaces), r.NodeName)
+	})
+
+	controllerBuilder := ctrl.NewControllerManagedBy(mgr).
+		For(&dpuservicev1.ServiceChain{}, builder.WithPredicates(p))
+	if features.Gates.Enabled(features.NSIPathForSFC) {
+		controllerBuilder = controllerBuilder.Watches(
+			&dpuservicev1.NodeServiceInterfaces{},
+			handler.EnqueueRequestsFromMapFunc(r.mapNSIToServiceChains),
+			builder.WithPredicates(nsiPredicate),
+		)
+	}
+	return controllerBuilder.Complete(r)
+}
+
+// mapNSIToServiceChains enqueues this node's ServiceChains whose ports select an interface entry in the
+// changed SFC NSI shard. EnqueueRequestsFromMapFunc runs this on both the old and new objects for updates,
+// so a chain losing an entry is still enqueued via the old object and its stale port gets torn down.
+func (r *ServiceChainReconciler) mapNSIToServiceChains(ctx context.Context, obj client.Object) []reconcile.Request {
+	nsi, ok := obj.(*dpuservicev1.NodeServiceInterfaces)
+	if !ok {
+		return nil
+	}
+
+	scList := &dpuservicev1.ServiceChainList{}
+	if err := r.List(ctx, scList, client.MatchingFields{serviceChainNodeNameKey: r.NodeName}); err != nil {
+		ctrllog.FromContext(ctx).Error(err, "failed to list ServiceChains for NSI-triggered resync")
+		return nil
+	}
+
+	reqs := make([]reconcile.Request, 0, len(scList.Items))
+	for i := range scList.Items {
+		sc := &scList.Items[i]
+		if sc.Spec.Node == nil || *sc.Spec.Node != r.NodeName {
+			continue
+		}
+		if serviceChainSelectsNSIEntry(sc, nsi) {
+			reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(sc)})
+		}
+	}
+	return reqs
+}
+
+// serviceChainSelectsNSIEntry reports whether any of sc's port selectors match an interface entry in nsi
+// within the chain's namespace.
+func serviceChainSelectsNSIEntry(sc *dpuservicev1.ServiceChain, nsi *dpuservicev1.NodeServiceInterfaces) bool {
+	for i := range nsi.Spec.Interfaces {
+		entry := &nsi.Spec.Interfaces[i]
+		entryNamespace, _ := entry.GetNamespacedName()
+		if entryNamespace != sc.Namespace {
+			continue
+		}
+		entryLabels := labels.Set(entry.Labels)
+		for _, sw := range sc.Spec.Switches {
+			for _, port := range sw.Ports {
+				if labels.SelectorFromSet(port.ServiceInterface.MatchLabels).Matches(entryLabels) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func isValidateServiceInterface(si *dpuservicev1.ServiceInterface) (bool, string) {

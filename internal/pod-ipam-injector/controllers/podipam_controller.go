@@ -52,7 +52,6 @@ const (
 	podIpamControllerName   = "podIpamcontroller"
 	NetworkAttachmentAnnot  = "k8s.v1.cni.cncf.io/networks"
 	NetworkDigestAnnotation = "dpu.nvidia.com/network-digest"
-	ServiceInterfaceNodeKey = "spec.node"
 
 	// The invalid network is used to hold the readiness of the pod until the MTU is injected in the CNI args correctly.
 	// This network is added by the DPUService controller on all DPUServices that have an interface. Depending on the
@@ -267,7 +266,7 @@ func getServiceChainSettingsForInterface(ctx context.Context, c client.Client, p
 
 		for _, sw := range serviceChain.Spec.Switches {
 			for _, port := range sw.Ports {
-				svcIfc, err := getServiceInterfaceWithLabels(ctx, c, pod.Spec.NodeName, pod.Namespace, port.ServiceInterface.MatchLabels)
+				ifc, err := getServiceInterfaceWithLabels(ctx, c, pod.Spec.NodeName, pod.Namespace, port.ServiceInterface.MatchLabels)
 				if err != nil {
 					// Collect the error but continue processing other ports
 					// We'll check later if this error is relevant to the pod
@@ -276,29 +275,32 @@ func getServiceChainSettingsForInterface(ctx context.Context, c client.Client, p
 				}
 
 				// We only care about interfaces of type service since such are attached to the Pods
-				if svcIfc.Spec.InterfaceType != dpuservicev1.InterfaceTypeService {
+				if ifc.GetInterfaceType() != dpuservicev1.InterfaceTypeService {
+					continue
+				}
+				svc := ifc.GetService()
+				if svc == nil {
 					continue
 				}
 
 				// If the pod labels do not have a label that matches the serviceID of the interface in question, we
 				// continue as the interface is not relevant to this pod.
-				if !podMatchLabels(pod, map[string]string{dpuservicev1.DPFServiceIDLabelKey: svcIfc.Spec.Service.ServiceID}) {
+				if !podMatchLabels(pod, map[string]string{dpuservicev1.DPFServiceIDLabelKey: svc.ServiceID}) {
 					continue
 				}
 
 				// If the interface cannot be found in the settingsForNetworkInterface map which is the source of truth
 				// for the interfaces we need to take action for, then we continue as the interface is not relevant to
 				// this pod.
-				if _, ok := networkSettingsForInterface[svcIfc.Spec.Service.InterfaceName]; !ok {
+				if _, ok := networkSettingsForInterface[svc.InterfaceName]; !ok {
 					continue
 				}
 
-				// TODO: check if this is correct and should be checked here instead of higher level controllers
-				if _, ok := serviceChainSettingsForInterface[svcIfc.Spec.Service.InterfaceName]; ok {
-					return nil, fmt.Errorf("interface %s is part of 2 switches, invalid configuration", svcIfc.Spec.Service.InterfaceName)
+				if _, ok := serviceChainSettingsForInterface[svc.InterfaceName]; ok {
+					return nil, fmt.Errorf("interface %s is part of 2 switches, invalid configuration", svc.InterfaceName)
 				}
 
-				serviceChainSettingsForInterface[svcIfc.Spec.Service.InterfaceName] = serviceChainSettings{
+				serviceChainSettingsForInterface[svc.InterfaceName] = serviceChainSettings{
 					IPAM:       port.ServiceInterface.IPAM,
 					ServiceMTU: *sw.ServiceMTU,
 				}
@@ -541,6 +543,7 @@ func (r *PodIpamReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if err := utils.SetupNSINodeIndexer(context.Background(), mgr); err != nil {
 		return err
 	}
+	// The ServiceInterface spec.node index is registered by ServiceInterfaceSetReconciler in the same manager.
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&corev1.Pod{}).
@@ -569,31 +572,31 @@ func calculateNetworkDigest(networks []*multustypes.NetworkSelectionElement) str
 	return digest.FromObjects(filteredNetworks).String()
 }
 
-// isPodUsingOnlyVirtualNetworks checks if the pod is using a virtual network.
-// Note: A pod can have multiple ServiceInterfaces with the same serviceID (one per interface),
-// so we need to check if ANY of them has a virtual network.
+// isPodUsingOnlyVirtualNetworks reports whether every interface backing this pod's serviceID uses a
+// virtual network. It returns false when the pod has no serviceID label or when no interface matches it.
+// Note: a pod can have multiple interfaces (legacy or NSI) sharing a serviceID, one per interface.
 func isPodUsingOnlyVirtualNetworks(ctx context.Context, c client.Client, pod *corev1.Pod) (bool, error) {
-	serviceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
-
-	// Not using the getServiceInterfaceWithLabels function here because we need to check all the service interfaces
-	if err := c.List(ctx, serviceInterfaceList, client.InNamespace(pod.Namespace), client.MatchingFields{ServiceInterfaceNodeKey: pod.Spec.NodeName}); err != nil {
-		return false, err
-	}
-	if len(serviceInterfaceList.Items) == 0 {
+	serviceID, ok := pod.Labels[dpuservicev1.DPFServiceIDLabelKey]
+	if !ok {
 		return false, nil
 	}
 
-	isUsingVirtualNetwork := false
+	// Not using getServiceInterfaceWithLabels here because we need to check all the interfaces.
+	interfaces, err := utils.ListInterfacesForNode(ctx, c, pod.Spec.NodeName, pod.Namespace)
+	if err != nil {
+		return false, err
+	}
 
-	// Check if any of the service interfaces has a virtual network
-	// if it uses only interfaces with virtual network, then it is using a virtual network.
-	for i := range serviceInterfaceList.Items {
-		if serviceInterfaceList.Items[i].HasVirtualNetwork() {
-			isUsingVirtualNetwork = true
-		} else {
+	matched := false
+	for _, ifc := range interfaces {
+		svc := ifc.GetService()
+		if svc == nil || svc.ServiceID != serviceID {
+			continue
+		}
+		matched = true
+		if !ifc.HasVirtualNetwork() {
 			return false, nil
 		}
 	}
-
-	return isUsingVirtualNetwork, nil
+	return matched, nil
 }

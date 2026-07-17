@@ -50,6 +50,9 @@ func fakeClient(t *testing.T, objects ...client.Object) client.Client {
 	return fake.NewClientBuilder().
 		WithScheme(fakeScheme(t)).
 		WithObjects(objects...).
+		WithIndex(&dpuservicev1.ServiceInterface{}, ServiceInterfaceNodeFieldKey, func(o client.Object) []string {
+			return []string{ptr.Deref(o.(*dpuservicev1.ServiceInterface).Spec.Node, "")}
+		}).
 		WithIndex(&dpuservicev1.NodeServiceInterfaces{}, NSINodeFieldKey, NSINodeIndexFunc).
 		Build()
 }
@@ -253,4 +256,46 @@ func TestResolveServiceInterfaceByLabels(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestListInterfacesForNode(t *testing.T) {
+	g := NewWithT(t)
+	legacy := siObject("legacy", testNode, map[string]string{"source": "legacy"}, dpuservicev1.InterfaceTypePF)
+	active := siEntry(testNS, "vpc-set", map[string]string{"source": "nsi"}, dpuservicev1.InterfaceTypeService)
+	active.Annotations = map[string]string{"example": "value"}
+	c := fakeClient(t,
+		legacy,
+		siObject("other-node", "node-2", nil, dpuservicev1.InterfaceTypePF),
+		nsiObject("node-1-sfc", dpuservicev1.NSITypeSFC,
+			terminatingSIEntry(testNS, "terminating", nil, dpuservicev1.InterfaceTypeVF)),
+		nsiObject("node-1-vpc", dpuservicev1.NSITypeVPC,
+			active,
+			siEntry("other-ns", "other-namespace", nil, dpuservicev1.InterfaceTypeService)),
+	)
+
+	interfaces, err := ListInterfacesForNode(context.Background(), c, testNode, testNS)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(interfaces).To(HaveLen(2))
+	g.Expect(interfaces).To(ContainElement(legacy))
+	g.Expect(interfaces).To(ContainElement(And(
+		HaveField("Name", "vpc-set"),
+		HaveField("Annotations", map[string]string{"example": "value"}),
+	)))
+}
+
+func TestListInterfacesForNodeDeduplicates(t *testing.T) {
+	g := NewWithT(t)
+	legacy := siObject("shared", testNode, map[string]string{"source": "legacy"}, dpuservicev1.InterfaceTypePF)
+	c := fakeClient(t,
+		legacy,
+		nsiObject("node-1-sfc", dpuservicev1.NSITypeSFC,
+			siEntry(testNS, "shared", map[string]string{"source": "nsi"}, dpuservicev1.InterfaceTypeService)),
+	)
+
+	interfaces, err := ListInterfacesForNode(context.Background(), c, testNode, testNS)
+	g.Expect(err).NotTo(HaveOccurred())
+	// The legacy and NSI interfaces share a name; the NSI entry wins.
+	g.Expect(interfaces).To(HaveLen(1))
+	g.Expect(interfaces[0].Name).To(Equal("shared"))
+	g.Expect(interfaces[0].Labels).To(HaveKeyWithValue("source", "nsi"))
 }

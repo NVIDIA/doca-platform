@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
@@ -37,93 +38,13 @@ const (
 // retrieves their corresponding OVS ofPorts, and configures specialized multicast flows.
 // Key here is that the firefly pod is correctly labeled with the custom flow label.
 // This function will fail if there are more than one service or physical interfaces per switch.
-func (r *ServiceChainReconciler) addCustomFlowsForFireflyChain(ctx context.Context, sc *dpuservicev1.ServiceChain) error {
-	log := ctrllog.FromContext(ctx)
-
+func (r *ServiceChainReconciler) addCustomFlowsForFireflyChain(ctx context.Context, sc *dpuservicev1.ServiceChain, nsi *dpuservicev1.NodeServiceInterfaces) error {
 	var errs []error
 	// don't fail immediately, operate on best effort basis to enable partial flows
 	// to enable some of the traffic to pass
 	for _, sw := range sc.Spec.Switches {
-		// reset all counters and flags for each switch
-		uplinkOfPort := ""
-		serviceOfPort := ""
-		for _, port := range sw.Ports {
-			si, err := r.getServiceInterfaceWithLabels(ctx, sc.Namespace, port.ServiceInterface.MatchLabels)
-			if err != nil {
-				log.Error(err, "[customflows] failed to get service interface", "serviceinterface labels", port.ServiceInterface.MatchLabels)
-				errs = append(errs, err)
-				continue
-			}
-			if isValid, reason := isValidateServiceInterface(si); !isValid {
-				log.Error(fmt.Errorf("[customflows] invalid service interface"), reason, "serviceinterface labels", port.ServiceInterface.MatchLabels)
-				errs = append(errs, fmt.Errorf("[customflows] invalid service interface: %s", reason))
-				continue
-			}
-
-			switch si.Spec.InterfaceType {
-			case dpuservicev1.InterfaceTypeService: // type `service`
-				searchLabels := map[string]string{dpuservicev1.DPFServiceIDLabelKey: si.Spec.Service.ServiceID}
-				pod, err := r.getPodWithLabels(ctx, sc.Namespace, searchLabels)
-				if err != nil {
-					log.Info("[customflows] failed to get pod for service interface", "searchLabels", searchLabels)
-					continue
-				}
-				// Check if the pod has the custom flow labels
-				if pod == nil || pod.Labels == nil {
-					continue
-				}
-
-				customFlowValue, hasCustomFlow := pod.Labels[CustomFlowsLabelKey] // check for custom flow label
-				if !hasCustomFlow || customFlowValue != CustomFlowsFireflyValue { // we do not have custom flow label or the value is not firefly
-					continue
-				}
-				log.Info("[customflows] found pod with Firefly custom flow label", "pod", pod.Name, "customflow label", CustomFlowsLabelKey, "customflow value", customFlowValue)
-				// Get the ofPort for this service interface
-				ofPort, err := r.getPortNameForServiceInterface(ctx, sc.Namespace, si)
-				if err != nil {
-					log.Error(err, "[customflows] failed to get ofPort for service interface", "serviceinterface labels", port.ServiceInterface.MatchLabels)
-					errs = append(errs, err)
-					continue
-				}
-
-				if ofPort != "" {
-					serviceOfPort = ofPort
-					log.Info("[customflows] using service port", "servicePort", serviceOfPort)
-				}
-
-			case dpuservicev1.InterfaceTypePhysical: // type `physical`
-				// Get the ofPort for this uplink interface
-				ofPort, err := r.getPortNameForServiceInterface(ctx, sc.Namespace, si)
-				if err != nil {
-					log.Error(err, "[customflows] failed to get ofPort for uplink interface", "serviceinterface labels", port.ServiceInterface.MatchLabels)
-					errs = append(errs, err)
-					continue
-				}
-
-				if ofPort != "" {
-					if uplinkOfPort != "" {
-						errs = append(errs, fmt.Errorf("[customflows] firefly chain found more than one physical interface"))
-						continue
-					}
-					uplinkOfPort = ofPort
-					log.Info("[customflows] found uplink port", "uplinkPort", uplinkOfPort)
-				}
-			}
-		}
-
-		// We expect only one service port and one uplink per service chain switch
-		if serviceOfPort != "" {
-			if uplinkOfPort == "" {
-				errs = append(errs, fmt.Errorf("[customflows] Failed to add chain with no uplink port"))
-				continue
-			}
-			namespacedName := sc.Namespace + "/" + sc.Name
-			// Add flow for each pair, but bailout in case of error
-			err := r.ensurePTPMulticastFlows(ctx, namespacedName, serviceOfPort, uplinkOfPort)
-			if err != nil {
-				errs = append(errs, err)
-				continue
-			}
+		if err := r.addCustomFlowsForFireflySwitch(ctx, sc, nsi, sw); err != nil {
+			errs = append(errs, err)
 		}
 	}
 
@@ -131,6 +52,113 @@ func (r *ServiceChainReconciler) addCustomFlowsForFireflyChain(ctx context.Conte
 		return kerrors.NewAggregate(errs)
 	}
 	return nil
+}
+
+// addCustomFlowsForFireflySwitch adds the PTP-multicast flow pair between this switch's single Firefly service port and uplink port, if both exist.
+func (r *ServiceChainReconciler) addCustomFlowsForFireflySwitch(ctx context.Context, sc *dpuservicev1.ServiceChain, nsi *dpuservicev1.NodeServiceInterfaces, sw dpuservicev1.Switch) error {
+	log := ctrllog.FromContext(ctx)
+
+	var errs []error
+	uplinkOfPort := ""
+	serviceOfPort := ""
+	for _, port := range sw.Ports {
+		ofPort, ifaceType, err := r.resolveFireflyPort(ctx, sc, nsi, port)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		if ofPort == "" {
+			continue
+		}
+
+		switch ifaceType {
+		case dpuservicev1.InterfaceTypeService:
+			if serviceOfPort != "" {
+				errs = append(errs, fmt.Errorf("[customflows] firefly chain found more than one service interface"))
+				continue
+			}
+			serviceOfPort = ofPort
+			log.Info("[customflows] Using service port", "servicePort", serviceOfPort)
+		case dpuservicev1.InterfaceTypePhysical:
+			if uplinkOfPort != "" {
+				errs = append(errs, fmt.Errorf("[customflows] firefly chain found more than one physical interface"))
+				continue
+			}
+			uplinkOfPort = ofPort
+			log.Info("[customflows] Found uplink port", "uplinkPort", uplinkOfPort)
+		}
+	}
+
+	// We expect only one service port and one uplink per service chain switch
+	if serviceOfPort != "" {
+		if uplinkOfPort == "" {
+			errs = append(errs, fmt.Errorf("[customflows] add chain with no uplink port"))
+		} else if err := r.ensurePTPMulticastFlows(ctx, sc.Namespace+"/"+sc.Name, serviceOfPort, uplinkOfPort); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	return kerrors.NewAggregate(errs)
+}
+
+// resolveFireflyPort resolves port's OVS ofPort and type, or ("", "", nil) if it should be skipped.
+func (r *ServiceChainReconciler) resolveFireflyPort(ctx context.Context, sc *dpuservicev1.ServiceChain, nsi *dpuservicev1.NodeServiceInterfaces, port dpuservicev1.Port) (string, string, error) {
+	candidate, err := r.getSingleInterfaceCandidate(ctx, sc.Namespace, nsi, port.ServiceInterface.MatchLabels)
+	if err != nil {
+		return "", "", err
+	}
+
+	ifaceType := candidate.spec.GetInterfaceType()
+	if ifaceType != dpuservicev1.InterfaceTypeService && ifaceType != dpuservicev1.InterfaceTypePhysical {
+		return "", "", nil
+	}
+	if ifaceType == dpuservicev1.InterfaceTypeService {
+		service := candidate.spec.GetService()
+		if service == nil {
+			return "", "", fmt.Errorf("[customflows] service interface missing Service definition")
+		}
+		isFirefly, err := r.isFireflyServicePod(ctx, sc.Namespace, service.ServiceID)
+		if err != nil {
+			return "", "", err
+		}
+		if !isFirefly {
+			return "", "", nil
+		}
+	}
+
+	if isValid, reason := candidate.ready(); !isValid {
+		return "", "", fmt.Errorf("[customflows] invalid service interface: %s", reason)
+	}
+
+	ofPort, err := r.getPortNameForInterfaceEntry(ctx, sc.Namespace, candidate.spec, candidate.condition)
+	if err != nil {
+		return "", "", err
+	}
+	return ofPort, ifaceType, nil
+}
+
+// isFireflyServicePod reports whether the pod backing serviceID carries the Firefly label.
+func (r *ServiceChainReconciler) isFireflyServicePod(ctx context.Context, namespace, serviceID string) (bool, error) {
+	log := ctrllog.FromContext(ctx)
+
+	searchLabels := map[string]string{dpuservicev1.DPFServiceIDLabelKey: serviceID}
+	pod, err := r.getPodWithLabels(ctx, namespace, searchLabels)
+	if err != nil {
+		if errors.Is(err, errPodNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	if pod == nil || pod.Labels == nil {
+		return false, nil
+	}
+
+	customFlowValue, hasCustomFlow := pod.Labels[CustomFlowsLabelKey]
+	if !hasCustomFlow || customFlowValue != CustomFlowsFireflyValue {
+		return false, nil
+	}
+	log.Info("[customflows] Found pod with Firefly custom flow label", "pod", pod.Name, "customflow label", CustomFlowsLabelKey, "customflow value", customFlowValue)
+	return true, nil
 }
 
 func (r *ServiceChainReconciler) ensurePTPMulticastFlows(ctx context.Context, namespacedName string, servicePort string, uplinkPort string) error {
@@ -141,7 +169,7 @@ func (r *ServiceChainReconciler) ensurePTPMulticastFlows(ctx context.Context, na
 	flow := fmt.Sprintf("cookie=%d, table=0, priority=%d, in_port=%s, dl_dst=%s, actions=output=%s",
 		hash(namespacedName), PriorityCustomFlows, uplinkPort, NonForwardablePTPMulticastMac, servicePort)
 
-	log.Info(fmt.Sprintf("[customflows] flow lines generated for RX: %s", flow))
+	log.Info(fmt.Sprintf("[customflows] Flow lines generated for RX: %s", flow))
 
 	err := r.OPFlow.AddFlows(ctx, flow, r.BridgeName)
 	if err != nil {
@@ -150,13 +178,13 @@ func (r *ServiceChainReconciler) ensurePTPMulticastFlows(ctx context.Context, na
 	// Add explicit output rule for PTP multicast MAC address, for TX
 	flow = fmt.Sprintf("cookie=%d, table=0, priority=%d, in_port=%s, dl_dst=%s, actions=output=%s",
 		hash(namespacedName), PriorityCustomFlows, servicePort, NonForwardablePTPMulticastMac, uplinkPort)
-	log.Info(fmt.Sprintf("[customflows] flow lines generated for TX: %s", flow))
+	log.Info(fmt.Sprintf("[customflows] Flow lines generated for TX: %s", flow))
 	return r.OPFlow.AddFlows(ctx, flow, r.BridgeName)
 }
 
-func (r *ServiceChainReconciler) EnsureCustomFlowsForChain(ctx context.Context, sc *dpuservicev1.ServiceChain) error {
+func (r *ServiceChainReconciler) EnsureCustomFlowsForChain(ctx context.Context, sc *dpuservicev1.ServiceChain, nsi *dpuservicev1.NodeServiceInterfaces) error {
 
-	if err := r.addCustomFlowsForFireflyChain(ctx, sc); err != nil {
+	if err := r.addCustomFlowsForFireflyChain(ctx, sc, nsi); err != nil {
 		return err
 	}
 	return nil

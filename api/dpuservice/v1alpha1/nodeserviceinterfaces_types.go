@@ -180,6 +180,17 @@ func (i *InterfaceEntry) GetNamespacedName() (namespace, name string) {
 	return parts[0], parts[1]
 }
 
+// Getters below implement sfccontroller's interfaceEntrySpec.
+
+func (i *InterfaceEntry) GetInterfaceType() string          { return i.InterfaceType }
+func (i *InterfaceEntry) GetPhysical() *Physical            { return i.Physical }
+func (i *InterfaceEntry) GetVF() *VF                        { return i.VF }
+func (i *InterfaceEntry) GetPF() *PF                        { return i.PF }
+func (i *InterfaceEntry) GetOVN() *OVN                      { return i.OVN }
+func (i *InterfaceEntry) GetPatch() *PatchDef               { return i.Patch }
+func (i *InterfaceEntry) GetService() *ServiceDef           { return i.Service }
+func (i *InterfaceEntry) GetAnnotations() map[string]string { return i.Annotations }
+
 // NodeServiceInterfacesStatus defines the observed state of NodeServiceInterfaces.
 type NodeServiceInterfacesStatus struct {
 	// Conditions reflect aggregate status.

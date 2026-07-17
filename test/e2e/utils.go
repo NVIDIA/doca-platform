@@ -108,6 +108,7 @@ type TestDomain struct {
 	Observability           string // Observability test suite
 	ImagePullSecretsSync    string // ImagePullSecrets sync/cleanup validation (opt out in CI via !ImagePullSecretsSync)
 	Performance             string // Performance test suite - applies MTU 9000 and extended DMS timeout
+	NSIPathForSFC           string // Tests that rerun SFC scenarios with the NSIPathForSFC feature gate enabled
 }
 
 // Domain is the global instance of test label domains
@@ -136,6 +137,7 @@ var Domain = TestDomain{
 	Observability:           "Observability",
 	ImagePullSecretsSync:    "ImagePullSecretsSync",
 	Performance:             "Performance",
+	NSIPathForSFC:           "NSIPathForSFC",
 }
 
 var (

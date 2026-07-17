@@ -23,6 +23,7 @@ import (
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/utils"
 	"github.com/nvidia/doca-platform/pkg/ecpf"
 	"github.com/nvidia/doca-platform/pkg/ovsmodel"
 	"github.com/nvidia/doca-platform/pkg/ovsutils"
@@ -38,6 +39,7 @@ import (
 type StaleObjectRemover struct {
 	duration    time.Duration
 	client      client.Client
+	NodeName    string
 	OFBridge    openflow.Bridge
 	OVS         ovsutils.API
 	ECPFManager ecpf.ECPFManager
@@ -46,6 +48,7 @@ type StaleObjectRemover struct {
 func NewStaleObjectRemover(
 	duration time.Duration,
 	client client.Client,
+	nodeName string,
 	ofb openflow.Bridge,
 	ovs ovsutils.API,
 	ecpfManager ecpf.ECPFManager,
@@ -53,6 +56,7 @@ func NewStaleObjectRemover(
 	return &StaleObjectRemover{
 		duration:    duration,
 		client:      client,
+		NodeName:    nodeName,
 		OFBridge:    ofb,
 		OVS:         ovs,
 		ECPFManager: ecpfManager,
@@ -127,8 +131,26 @@ func (r *StaleObjectRemover) removeStaleFlows(ctx context.Context) error {
 	return nil
 }
 
+// desiredOvsPortName predicts the OVS port name AddInterfacesToOvs would create for spec, or "" if it creates none.
+func (r *StaleObjectRemover) desiredOvsPortName(ctx context.Context, spec interfaceEntrySpec, metadata string) (string, error) {
+	switch spec.GetInterfaceType() {
+	case dpuservicev1.InterfaceTypeOVN:
+		patchPort, _ := getOVNPatchPortNames(SFCBridge, getOVNBridge(spec))
+		return patchPort, nil
+	case dpuservicev1.InterfaceTypePatch:
+		patch := spec.GetPatch()
+		if patch == nil || patch.PeerBridge == "" {
+			return "", fmt.Errorf("peer bridge is not set or is empty")
+		}
+		patchPort, _ := getPatchPortNames(spec, metadata, SFCBridge, patch.PeerBridge)
+		return patchPort, nil
+	default:
+		return FigureOutName(ctx, r.ECPFManager, spec)
+	}
+}
+
 // removeStalePorts
-// Removes ports on br-sfc which are not defined by ServiceInterface CRs
+// Removes ports on br-sfc which are not defined by ServiceInterface CRs or NSI InterfaceEntries
 // two type of set of ports will be skipped
 //
 //	physical ports added by CRs (this is to ensure we are not deleting the port backing the ESwitch manager)
@@ -140,77 +162,103 @@ func (r *StaleObjectRemover) removeStalePorts(ctx context.Context) error {
 		return fmt.Errorf("failed to list ports on br-sfc: %w", err)
 	}
 
-	desiredPortSet := sets.New[string]()
-	serviceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
-	if err = r.client.List(ctx, serviceInterfaceList); err != nil {
-		return fmt.Errorf("failed to list ServiceInterfaceList: %w", err)
+	legacyPorts, err := r.desiredLegacyPorts(ctx)
+	if err != nil {
+		return err
 	}
-
-	for _, serviceInterface := range serviceInterfaceList.Items {
-		// skip service interfaces with virtual network field set
-		if serviceInterface.HasVirtualNetwork() {
-			continue
-		}
-
-		// For OVN interface types, we need to handle patch ports on `br-sfc` bridge.
-		// If an external bridge is specified in the OVN spec, use that instead of the default OVN bridge (br-ovn)
-		// then calculate the patch port name based on the bridge names and add it to the desired port set (puplinkbrsfcto<externalbridge>)
-		if serviceInterface.Spec.InterfaceType == dpuservicev1.InterfaceTypeOVN {
-			var ovnBridge = OVNBridge
-			if serviceInterface.Spec.OVN != nil {
-				if serviceInterface.Spec.OVN.ExternalBridge != nil && *serviceInterface.Spec.OVN.ExternalBridge != "" {
-					log.Info("ovn bridge is set", "externalBridge", *serviceInterface.Spec.OVN.ExternalBridge)
-					ovnBridge = *serviceInterface.Spec.OVN.ExternalBridge
-				}
-			}
-
-			patchPort, _ := getOVNPatchPortNames(SFCBridge, ovnBridge)
-			desiredPortSet.Insert(patchPort)
-			log.Info("adding patch port", "patchPort", patchPort)
-			continue
-		}
-
-		// For Patch interface types, we need to handle patch ports on `br-sfc` bridge.
-		// Peer bridge must be specified in the Patch spec.
-		// The patch port name will be set in spec or auto-generated based on the bridge names and namespace/name hash
-		if serviceInterface.Spec.InterfaceType == dpuservicev1.InterfaceTypePatch {
-			if serviceInterface.Spec.Patch == nil || serviceInterface.Spec.Patch.PeerBridge == "" {
-				log.Error(fmt.Errorf("peer bridge is not set or is empty"), "failed to add patch port between bridges", "brA", SFCBridge)
-				return fmt.Errorf("peer bridge is not set or is empty")
-			}
-			peerBridge := serviceInterface.Spec.Patch.PeerBridge
-			log.Info("peer bridge is used", "peerBridge", peerBridge)
-			patchPort, _ := getPatchPortNames(&serviceInterface, SFCBridge, peerBridge)
-			desiredPortSet.Insert(patchPort)
-			log.Info("adding patch port", "patchPort", patchPort)
-			continue
-		} else {
-			portName, err := FigureOutName(ctx, r.ECPFManager, &serviceInterface)
-			if err != nil {
-				// Note: we must return error here to not risk unintended removal of ports from br-sfc
-				return fmt.Errorf("failed to get port name from serviceInterface %s. %w", client.ObjectKeyFromObject(&serviceInterface), err)
-			}
-
-			if portName == "" {
-				log.Info("port name is empty for serviceInterface, skipping", "serviceInterface", client.ObjectKeyFromObject(&serviceInterface))
-				continue
-			}
-
-			desiredPortSet.Insert(portName)
-		}
+	nsiPorts, err := r.desiredNSIPorts(ctx)
+	if err != nil {
+		return err
 	}
+	desiredPortSet := legacyPorts.Union(nsiPorts)
 
 	unwantedPortsSet := currentPorts.Difference(desiredPortSet)
 	log.V(4).Info(fmt.Sprintf("found stale ports: %s", unwantedPortsSet.UnsortedList()))
 
-	for ovsPortName := range unwantedPortsSet {
-		deleteError := r.OVS.DelPort(ctx, SFCBridge, ovsPortName, nil)
-		if deleteError != nil {
-			return fmt.Errorf("failed to delete port: %s, with error: %w", ovsPortName, deleteError)
+	return r.deleteOvsPorts(ctx, unwantedPortsSet)
+}
+
+// desiredLegacyPorts returns the OVS ports that should exist for this node's legacy (non-virtual-network) ServiceInterfaces.
+func (r *StaleObjectRemover) desiredLegacyPorts(ctx context.Context) (sets.Set[string], error) {
+	desired := sets.New[string]()
+
+	serviceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
+	if err := r.client.List(ctx, serviceInterfaceList,
+		client.MatchingFields{utils.ServiceInterfaceNodeFieldKey: r.NodeName},
+	); err != nil {
+		return nil, fmt.Errorf("failed to list ServiceInterfaceList: %w", err)
+	}
+	for i := range serviceInterfaceList.Items {
+		si := &serviceInterfaceList.Items[i]
+		// skip service interfaces with virtual network field set
+		if si.HasVirtualNetwork() {
+			continue
+		}
+
+		portName, err := r.desiredOvsPortName(ctx, si, client.ObjectKeyFromObject(si).String())
+		if err != nil {
+			// Note: we must return error here to not risk unintended removal of ports from br-sfc
+			return nil, fmt.Errorf("failed to get port name from serviceInterface %s: %w", client.ObjectKeyFromObject(si), err)
+		}
+		if portName != "" {
+			desired.Insert(portName)
+		}
+	}
+	return desired, nil
+}
+
+// desiredNSIPorts returns the OVS ports that should exist for this node's NSI-mode interface entries, so they aren't deleted as stale.
+func (r *StaleObjectRemover) desiredNSIPorts(ctx context.Context) (sets.Set[string], error) {
+	desired := sets.New[string]()
+
+	nsiList := &dpuservicev1.NodeServiceInterfacesList{}
+	if err := r.client.List(ctx, nsiList,
+		client.InNamespace(utils.NSIObjectsNamespace),
+		client.MatchingFields{
+			utils.NSINodeFieldKey: r.NodeName,
+			utils.NSITypeFieldKey: dpuservicev1.NSITypeSFC,
+		},
+	); err != nil {
+		return nil, fmt.Errorf("failed to list NodeServiceInterfacesList: %w", err)
+	}
+	for i := range nsiList.Items {
+		nsi := &nsiList.Items[i]
+		entryPorts, err := r.desiredNSIEntryPorts(ctx, nsi)
+		if err != nil {
+			return nil, err
+		}
+		desired = desired.Union(entryPorts)
+	}
+	return desired, nil
+}
+
+// desiredNSIEntryPorts returns the OVS ports that should exist for nsi's interface entries.
+// Terminating entries are included so the stale sweeper never races their teardown: their
+// ports are left for NodeServiceInterfacesReconciler to drain and remove.
+func (r *StaleObjectRemover) desiredNSIEntryPorts(ctx context.Context, nsi *dpuservicev1.NodeServiceInterfaces) (sets.Set[string], error) {
+	desired := sets.New[string]()
+	for j := range nsi.Spec.Interfaces {
+		entry := &nsi.Spec.Interfaces[j]
+		portName, err := r.desiredOvsPortName(ctx, entry, entry.Name)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get port name from NodeServiceInterfaces entry %s: %w", entry.Name, err)
+		}
+		if portName != "" {
+			desired.Insert(portName)
+		}
+	}
+	return desired, nil
+}
+
+// deleteOvsPorts deletes every named port from br-sfc.
+func (r *StaleObjectRemover) deleteOvsPorts(ctx context.Context, ports sets.Set[string]) error {
+	log := ctrllog.FromContext(ctx)
+	for ovsPortName := range ports {
+		if err := r.OVS.DelPort(ctx, SFCBridge, ovsPortName, nil); err != nil {
+			return fmt.Errorf("failed to delete port: %s, with error: %w", ovsPortName, err)
 		}
 		log.Info(fmt.Sprintf("deleted OVS port with name: %s", ovsPortName))
 	}
-
 	return nil
 }
 
