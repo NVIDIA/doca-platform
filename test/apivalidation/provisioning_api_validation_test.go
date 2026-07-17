@@ -25,6 +25,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -718,6 +719,138 @@ var _ = Describe("Provisioning API Validation", func() {
 				ContainSubstring("Too long"),
 				ContainSubstring("256"),
 			))
+		})
+	})
+
+	Context("When checking the DPUCluster API validations", func() {
+		DescribeTable("Validates the DPUCluster name is a DNS-1035 label",
+			func(name string, expectError bool) {
+				cluster := &provisioningv1.DPUCluster{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      name,
+						Namespace: testNs.Name,
+					},
+					Spec: provisioningv1.DPUClusterSpec{
+						Type: string(provisioningv1.StaticCluster),
+					},
+				}
+				err := testClient.Create(ctx, cluster)
+				if expectError {
+					Expect(err).To(HaveOccurred())
+					Expect(err.Error()).To(ContainSubstring("DNS-1035"))
+				} else {
+					Expect(err).ToNot(HaveOccurred())
+					DeferCleanup(testClient.Delete, ctx, cluster)
+				}
+			},
+			Entry("name starting with a digit is rejected", "2604-hosted-hbn", true),
+			Entry("name containing a dot is rejected", "hosted.cluster", true),
+			Entry("valid DNS-1035 name is accepted", "hosted-2604-hbn", false),
+		)
+
+		// To simulate a cluster that already existed before the rule was introduced, we temporarily
+		// remove the DNS-1035 validation from the CRD, create the non-compliant cluster, then restore
+		// the rule before asserting that the pre-existing cluster can still be updated.
+		It("allows updates to a pre-existing DPUCluster whose name is not a DNS-1035 label", func() {
+			const crdName = "dpuclusters.provisioning.dpu.nvidia.com"
+			const invalidName = "2604-existing-hbn"
+
+			apiextScheme := runtime.NewScheme()
+			Expect(apiextensionsv1.AddToScheme(apiextScheme)).To(Succeed())
+			crdClient, err := client.New(cfg, client.Options{Scheme: apiextScheme})
+			Expect(err).NotTo(HaveOccurred())
+
+			var removedRule *apiextensionsv1.ValidationRule
+			isDNS1035Rule := func(r apiextensionsv1.ValidationRule) bool {
+				return strings.Contains(r.Rule, "matches(")
+			}
+
+			removeDNS1035Rule := func() {
+				Eventually(func(g Gomega) {
+					crd := &apiextensionsv1.CustomResourceDefinition{}
+					g.Expect(crdClient.Get(ctx, client.ObjectKey{Name: crdName}, crd)).To(Succeed())
+					for i := range crd.Spec.Versions {
+						schema := crd.Spec.Versions[i].Schema
+						if schema == nil || schema.OpenAPIV3Schema == nil {
+							continue
+						}
+						kept := make([]apiextensionsv1.ValidationRule, 0, len(schema.OpenAPIV3Schema.XValidations))
+						for _, r := range schema.OpenAPIV3Schema.XValidations {
+							if isDNS1035Rule(r) {
+								rule := r
+								removedRule = &rule
+								continue
+							}
+							kept = append(kept, r)
+						}
+						schema.OpenAPIV3Schema.XValidations = kept
+					}
+					g.Expect(crdClient.Update(ctx, crd)).To(Succeed())
+				}).Should(Succeed())
+			}
+
+			restoreDNS1035Rule := func() {
+				if removedRule == nil {
+					return
+				}
+				Eventually(func(g Gomega) {
+					crd := &apiextensionsv1.CustomResourceDefinition{}
+					g.Expect(crdClient.Get(ctx, client.ObjectKey{Name: crdName}, crd)).To(Succeed())
+					for i := range crd.Spec.Versions {
+						schema := crd.Spec.Versions[i].Schema
+						if schema == nil || schema.OpenAPIV3Schema == nil {
+							continue
+						}
+						alreadyPresent := false
+						for _, r := range schema.OpenAPIV3Schema.XValidations {
+							if isDNS1035Rule(r) {
+								alreadyPresent = true
+								break
+							}
+						}
+						if !alreadyPresent {
+							schema.OpenAPIV3Schema.XValidations = append(schema.OpenAPIV3Schema.XValidations, *removedRule)
+						}
+					}
+					g.Expect(crdClient.Update(ctx, crd)).To(Succeed())
+				}).Should(Succeed())
+			}
+
+			// Ensure the rule is restored no matter how the test exits.
+			DeferCleanup(restoreDNS1035Rule)
+
+			By("relaxing the CRD so a non-compliant cluster can be created")
+			removeDNS1035Rule()
+			// CEL rule changes are compiled asynchronously, so poll until the create is accepted.
+			Eventually(func(g Gomega) {
+				g.Expect(testClient.Create(ctx, &provisioningv1.DPUCluster{
+					ObjectMeta: metav1.ObjectMeta{Name: invalidName, Namespace: testNs.Name},
+					Spec:       provisioningv1.DPUClusterSpec{Type: string(provisioningv1.StaticCluster)},
+				})).To(Succeed())
+			}).Should(Succeed())
+			DeferCleanup(testClient.Delete, ctx, &provisioningv1.DPUCluster{
+				ObjectMeta: metav1.ObjectMeta{Name: invalidName, Namespace: testNs.Name},
+			})
+
+			By("restoring the DNS-1035 rule and confirming it is active again")
+			restoreDNS1035Rule()
+			Eventually(func(g Gomega) {
+				err := testClient.Create(ctx, &provisioningv1.DPUCluster{
+					ObjectMeta: metav1.ObjectMeta{Name: "2605-another-hbn", Namespace: testNs.Name},
+					Spec:       provisioningv1.DPUClusterSpec{Type: string(provisioningv1.StaticCluster)},
+				})
+				g.Expect(err).To(HaveOccurred())
+				g.Expect(err.Error()).To(ContainSubstring("DNS-1035"))
+			}).Should(Succeed())
+
+			By("verifying the pre-existing non-compliant cluster can still be updated")
+			existing := &provisioningv1.DPUCluster{}
+			Expect(testClient.Get(ctx, client.ObjectKey{Name: invalidName, Namespace: testNs.Name}, existing)).To(Succeed())
+			existing.Labels = map[string]string{"example.com/updated": "true"}
+			Expect(testClient.Update(ctx, existing)).To(Succeed())
+
+			existing.Status.Phase = provisioningv1.PhaseReady
+			Expect(testClient.Status().Update(ctx, existing)).To(Succeed())
 		})
 	})
 })
