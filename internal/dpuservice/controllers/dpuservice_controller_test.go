@@ -764,7 +764,7 @@ var _ = Describe("DPUService Controller", func() {
 		It("should successfully reconcile a DPUService with maximum name length", func() {
 			By("Adding fake kamaji cluster")
 			// 63 is the max name length of a DPUCluster
-			dpuCluster := testutils.GetTestDPUCluster(testNS.Name, utilrand.String(63))
+			dpuCluster := testutils.GetTestDPUCluster(testNS.Name, "a"+utilrand.String(62))
 			createDPUClusters([]provisioningv1.DPUCluster{dpuCluster})
 
 			By("creating the DPUService")
