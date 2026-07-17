@@ -24,6 +24,7 @@ import (
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/digest"
 	"github.com/nvidia/doca-platform/internal/utils"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 	argov1 "github.com/nvidia/doca-platform/third_party/forked/argoproj/argo-cd/pkg/apis/application/v1alpha1"
@@ -32,6 +33,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/tools/clientcmd/api"
 )
 
@@ -44,8 +46,17 @@ const (
 )
 
 // GetApplicationName returns the name of an ArgoCD Application for a given cluster and DPUService.
+// ArgoCD uses this name as the Helm release name when the DPUService does not set one explicitly,
+// and charts commonly derive Service names from the release name. Service names must be valid
+// DNS-1035 labels (max 63 characters, starting with an alphabetic character), so the name is
+// bounded to 63 characters using a deterministic digest suffix when the plain concatenation would
+// overflow. The starting character is guaranteed by the DNS-1035 validation on the DPUCluster name.
 func GetApplicationName(clusterName, dpuServiceName string) string {
-	return fmt.Sprintf("%v-%v", clusterName, dpuServiceName)
+	name := fmt.Sprintf("%v-%v", clusterName, dpuServiceName)
+	if len(name) <= validation.DNS1035LabelMaxLength {
+		return name
+	}
+	return digest.GenerateName(name, clusterName, dpuServiceName)
 }
 
 func NewAppProject(namespace, name string, clusters []types.NamespacedName, sourceNamespace string) *argov1.AppProject {
