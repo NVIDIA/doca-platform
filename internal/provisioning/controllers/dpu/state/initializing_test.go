@@ -159,6 +159,12 @@ var _ = Describe("Phase Initializing", func() {
 			dpu.Spec.Cluster.Name = dpuCluster.Name
 			dpu.Status.Phase = provisioningv1.DPUInitializing
 			dpu.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaGNOI))
+			reportedAt := metav1.Now()
+			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
+				PreInstall: &provisioningv1.AgentPreInstallStatus{
+					AgentReported: &reportedAt,
+				},
+			}
 
 			run := func(installInterface provisioningv1.DPUInstallInterfaceType) {
 				status, err := state.Initializing(ctx, dpu,
@@ -260,6 +266,12 @@ var _ = Describe("Phase Initializing", func() {
 			dpu.Spec.Cluster.Name = dpuCluster.Name
 			dpu.Status.Phase = provisioningv1.DPUInitializing
 			dpu.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaRedFish))
+			reportedAt := metav1.Now()
+			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
+				PreInstall: &provisioningv1.AgentPreInstallStatus{
+					AgentReported: &reportedAt,
+				},
+			}
 
 			status, err := state.Initializing(ctx, dpu, &dutil.ControllerContext{
 				Client: k8sClient,
@@ -310,6 +322,12 @@ var _ = Describe("Phase Initializing", func() {
 			dpu.Spec.Cluster.Name = dpuCluster.Name
 			dpu.Status.Phase = provisioningv1.DPUInitializing
 			dpu.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaHostAgent))
+			reportedAt := metav1.Now()
+			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
+				PreInstall: &provisioningv1.AgentPreInstallStatus{
+					AgentReported: &reportedAt,
+				},
+			}
 
 			ctrlCtx := &dutil.ControllerContext{
 				Client:  k8sClient,

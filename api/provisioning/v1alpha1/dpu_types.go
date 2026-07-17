@@ -26,6 +26,11 @@ import (
 const (
 	// DPUKind is the kind of the DPU object
 	DPUKind = "DPU"
+
+	// DPUAgentConditionNVConfigApplied is reported when mlxconfig has been applied for the current boot.
+	// It may appear on agentStatus.conditions (DPU Config phase) or agentStatus.preInstall.conditions
+	// (best-effort Config FW Parameters phase during reprovision).
+	DPUAgentConditionNVConfigApplied = "NVConfigApplied"
 )
 
 // DPUGroupVersionKind is the GroupVersionKind of the DPU object
@@ -535,6 +540,10 @@ type AgentStatus struct {
 	// KubeletVersion represents the kubelet version running on the DPU.
 	KubeletVersion *string `json:"kubeletVersion,omitempty"`
 
+	// PreInstall holds agent-reported status for work done before OS install in the reprovisioning process.
+	// +optional
+	PreInstall *AgentPreInstallStatus `json:"preInstall,omitempty"`
+
 	// Conditions contains the conditions reported from inside the DPU
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
@@ -571,6 +580,21 @@ type SpiffeStatus struct {
 	// +kubebuilder:validation:MaxLength=256
 	// +optional
 	LastProbeMessage *string `json:"lastProbeMessage,omitempty"`
+}
+
+// AgentPreInstallStatus is agent status for reprovisioning.
+type AgentPreInstallStatus struct {
+	// AgentReported is set with a timestamp when dpu-agent detects a new DPU CR is created for reprovisioning.
+	// +optional
+	AgentReported *metav1.Time `json:"agentReported,omitempty"`
+
+	// Conditions contains pre-install conditions (e.g. NVConfigApplied for reprovisioning).
+	// +patchMergeKey=type
+	// +patchStrategy=merge
+	// +listType=map
+	// +listMapKey=type
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 type PendingNVConfigState struct {

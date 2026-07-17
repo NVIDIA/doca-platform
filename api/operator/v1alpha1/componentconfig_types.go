@@ -127,6 +127,16 @@ type ProvisioningControllerConfiguration struct {
 	// +optional
 	FirmwareUpdateTimeout *metav1.Duration `json:"firmwareUpdateTimeout,omitempty"`
 
+	// PreInstallAgentRegistrationTimeout is how long Initializing waits for the in-band dpu-agent
+	// to set preInstall.agentReported on a recreated DPU CR (reprovision). When the timeout elapses,
+	// provisioning continues without agent-assisted pre-install for this cycle.
+	// +kubebuilder:default="30s"
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Pattern=`^([0-9]+(h|m|s|ms|us|µs|ns))+$`
+	// +kubebuilder:validation:Format=duration
+	// +optional
+	PreInstallAgentRegistrationTimeout *metav1.Duration `json:"preInstallAgentRegistrationTimeout,omitempty"`
+
 	// NodeEffectRemovalTimeout is the maximum time allowed for the Node Effect Removal phase.
 	// If the DPUNodeMaintenance CR still has requestors after this timeout, the DPU will transition to an error state.
 	// When unset, the provisioning controller defaults to 0s (timeout disabled).

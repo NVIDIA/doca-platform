@@ -70,10 +70,11 @@ var _ = Describe("ZT Bootstrap", func() {
 		ctx = context.Background()
 		scheme = newTestScheme()
 		dpu = newTestDPU("dpu-01", "dpf-operator-system")
+		dpu.Spec.DPUFlavor = "dpf-provisioning-hbn"
 	})
 
 	Describe("CreateDPUAgentRole", func() {
-		It("should create a role with correct rules and owner reference", func() {
+		It("should create a role with correct rules", func() {
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 			dpu.Spec.BlueFieldSoftware = ptr.To("bfs-1")
 			flavor := &provisioningv1.DPUFlavor{
@@ -101,11 +102,11 @@ var _ = Describe("ZT Bootstrap", func() {
 				Namespace: "dpf-operator-system",
 			}, role)).To(Succeed())
 
-			Expect(role.Rules).To(HaveLen(5))
+			Expect(role.Rules).To(HaveLen(6))
 			Expect(role.Rules[0].APIGroups).To(Equal([]string{"provisioning.dpu.nvidia.com"}))
 			Expect(role.Rules[0].Resources).To(Equal([]string{"dpus"}))
 			Expect(role.Rules[0].ResourceNames).To(Equal([]string{"dpu-01"}))
-			Expect(role.Rules[0].Verbs).To(Equal([]string{"get"}))
+			Expect(role.Rules[0].Verbs).To(Equal([]string{"get", "list", "watch"}))
 
 			Expect(role.Rules[1].Resources).To(Equal([]string{"dpus/status"}))
 			Expect(role.Rules[1].ResourceNames).To(Equal([]string{"dpu-01"}))
@@ -120,18 +121,36 @@ var _ = Describe("ZT Bootstrap", func() {
 			Expect(role.Rules[3].Resources).To(Equal([]string{"bluefieldsoftwares"}))
 			Expect(role.Rules[3].ResourceNames).To(Equal([]string{"bfs-1"}))
 			Expect(role.Rules[3].Verbs).To(Equal([]string{"get"}))
-			Expect(role.Rules[4].APIGroups).To(Equal([]string{""}))
-			Expect(role.Rules[4].Resources).To(Equal([]string{"configmaps"}))
-			Expect(role.Rules[4].ResourceNames).To(Equal([]string{"doca-profile"}))
+			Expect(role.Rules[4].APIGroups).To(Equal([]string{"provisioning.dpu.nvidia.com"}))
+			Expect(role.Rules[4].Resources).To(Equal([]string{"dpuflavors"}))
+			Expect(role.Rules[4].ResourceNames).To(Equal([]string{"dpf-provisioning-hbn"}))
 			Expect(role.Rules[4].Verbs).To(Equal([]string{"get"}))
+			Expect(role.Rules[5].APIGroups).To(Equal([]string{""}))
+			Expect(role.Rules[5].Resources).To(Equal([]string{"configmaps"}))
+			Expect(role.Rules[5].ResourceNames).To(Equal([]string{"doca-profile"}))
+			Expect(role.Rules[5].Verbs).To(Equal([]string{"get"}))
 
 			Expect(role.OwnerReferences).To(HaveLen(1))
+			Expect(role.OwnerReferences[0].Kind).To(Equal("DPU"))
 			Expect(role.OwnerReferences[0].Name).To(Equal("dpu-01"))
-			Expect(role.OwnerReferences[0].UID).To(Equal(dpu.UID))
 		})
 
-		It("should not fail when role already exists", func() {
-			fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+		It("should reconcile role when it already exists", func() {
+			existingRole := &rbacv1.Role{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "da-dpu-01",
+					Namespace: "dpf-operator-system",
+				},
+				Rules: []rbacv1.PolicyRule{
+					{
+						APIGroups: []string{"provisioning.dpu.nvidia.com"},
+						Resources: []string{"dpus"},
+						Verbs:     []string{"get"},
+					},
+				},
+			}
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existingRole).Build()
+			dpu.Spec.BlueFieldSoftware = ptr.To("bfs-1")
 
 			Expect(CreateDPUAgentRole(ctx, fakeClient, scheme, dpu, nil)).To(Succeed())
 			Expect(CreateDPUAgentRole(ctx, fakeClient, scheme, dpu, nil)).To(Succeed())
@@ -172,14 +191,16 @@ var _ = Describe("ZT Bootstrap", func() {
 				Name:      "da-dpu-01",
 				Namespace: "dpf-operator-system",
 			}, role)).To(Succeed())
-			Expect(role.Rules).To(HaveLen(5))
-			Expect(role.Rules[4].Resources).To(Equal([]string{"configmaps"}))
-			Expect(role.Rules[4].ResourceNames).To(Equal([]string{"cfg-a", "cfg-b"}))
+			Expect(role.Rules).To(HaveLen(6))
+			Expect(role.Rules[0].Verbs).To(Equal([]string{"get", "list", "watch"}))
+			Expect(role.Rules[1].Verbs).To(Equal([]string{"patch"}))
+			Expect(role.Rules[5].Resources).To(Equal([]string{"configmaps"}))
+			Expect(role.Rules[5].ResourceNames).To(Equal([]string{"cfg-a", "cfg-b"}))
 		})
 	})
 
 	Describe("CreateDPUAgentRoleBinding", func() {
-		It("should create a role binding with correct subject and owner reference", func() {
+		It("should create a role binding with correct subject", func() {
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 
 			err := CreateDPUAgentRoleBinding(ctx, fakeClient, scheme, dpu, "da-dpu-01")
@@ -201,6 +222,7 @@ var _ = Describe("ZT Bootstrap", func() {
 			Expect(rb.RoleRef.APIGroup).To(Equal(rbacv1.GroupName))
 
 			Expect(rb.OwnerReferences).To(HaveLen(1))
+			Expect(rb.OwnerReferences[0].Kind).To(Equal("DPU"))
 			Expect(rb.OwnerReferences[0].Name).To(Equal("dpu-01"))
 			Expect(rb.OwnerReferences[0].UID).To(Equal(dpu.UID))
 		})

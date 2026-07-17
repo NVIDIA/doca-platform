@@ -146,21 +146,22 @@ type Variables struct {
 }
 
 type DPFProvisioningVariables struct {
-	BFBPersistentVolumeClaimName   *string
-	DMSTimeout                     *int
-	BFCFGTemplateConfig            *string
-	CustomCASecretName             *string
-	InstallInterface               *operatorv1.ProvisioningInstallInterface
-	MaxDPUParallelInstallations    *int32
-	MultiDPUOperationsSyncWaitTime time.Duration
-	MaxUnavailableDPUNodes         *int32
-	Registry                       *operatorv1.RegistryConfiguration
-	Replicas                       *int32
-	OSInstallTimeout               *metav1.Duration
-	FirmwareUpdateTimeout          *metav1.Duration
-	NodeEffectRemovalTimeout       *metav1.Duration
-	HostAgentDNSPolicy             *corev1.DNSPolicy
-	DeploymentMode                 operatorv1.DeploymentMode
+	BFBPersistentVolumeClaimName       *string
+	DMSTimeout                         *int
+	BFCFGTemplateConfig                *string
+	CustomCASecretName                 *string
+	InstallInterface                   *operatorv1.ProvisioningInstallInterface
+	MaxDPUParallelInstallations        *int32
+	MultiDPUOperationsSyncWaitTime     time.Duration
+	MaxUnavailableDPUNodes             *int32
+	Registry                           *operatorv1.RegistryConfiguration
+	Replicas                           *int32
+	OSInstallTimeout                   *metav1.Duration
+	FirmwareUpdateTimeout              *metav1.Duration
+	PreInstallAgentRegistrationTimeout *metav1.Duration
+	NodeEffectRemovalTimeout           *metav1.Duration
+	HostAgentDNSPolicy                 *corev1.DNSPolicy
+	DeploymentMode                     operatorv1.DeploymentMode
 }
 
 type SFCControllerVariables struct {
@@ -279,18 +280,19 @@ func setBasicConfig(variables Variables, config *operatorv1.DPFOperatorConfig) V
 		BFBPersistentVolumeClaimName: config.Spec.ProvisioningController.BFBPersistentVolumeClaimName,
 		DMSTimeout:                   config.Spec.ProvisioningController.DMSTimeout,
 		//nolint:staticcheck // Intentionally using deprecated field for backward compatibility
-		BFCFGTemplateConfig:         config.Spec.ProvisioningController.BFCFGTemplateConfigMap,
-		CustomCASecretName:          config.Spec.ProvisioningController.CustomCASecretName,
-		InstallInterface:            config.Spec.ProvisioningController.InstallInterface,
-		MaxDPUParallelInstallations: config.Spec.ProvisioningController.MaxDPUParallelInstallations,
-		MaxUnavailableDPUNodes:      config.Spec.ProvisioningController.MaxUnavailableDPUNodes,
-		Registry:                    config.Spec.ProvisioningController.Registry,
-		Replicas:                    config.Spec.ProvisioningController.Replicas,
-		OSInstallTimeout:            config.Spec.ProvisioningController.OSInstallTimeout,
-		FirmwareUpdateTimeout:       config.Spec.ProvisioningController.FirmwareUpdateTimeout,
-		NodeEffectRemovalTimeout:    config.Spec.ProvisioningController.NodeEffectRemovalTimeout,
-		HostAgentDNSPolicy:          config.Spec.ProvisioningController.HostAgentDNSPolicy,
-		DeploymentMode:              config.Spec.DeploymentMode,
+		BFCFGTemplateConfig:                config.Spec.ProvisioningController.BFCFGTemplateConfigMap,
+		CustomCASecretName:                 config.Spec.ProvisioningController.CustomCASecretName,
+		InstallInterface:                   config.Spec.ProvisioningController.InstallInterface,
+		MaxDPUParallelInstallations:        config.Spec.ProvisioningController.MaxDPUParallelInstallations,
+		MaxUnavailableDPUNodes:             config.Spec.ProvisioningController.MaxUnavailableDPUNodes,
+		Registry:                           config.Spec.ProvisioningController.Registry,
+		Replicas:                           config.Spec.ProvisioningController.Replicas,
+		OSInstallTimeout:                   config.Spec.ProvisioningController.OSInstallTimeout,
+		FirmwareUpdateTimeout:              config.Spec.ProvisioningController.FirmwareUpdateTimeout,
+		PreInstallAgentRegistrationTimeout: config.Spec.ProvisioningController.PreInstallAgentRegistrationTimeout,
+		NodeEffectRemovalTimeout:           config.Spec.ProvisioningController.NodeEffectRemovalTimeout,
+		HostAgentDNSPolicy:                 config.Spec.ProvisioningController.HostAgentDNSPolicy,
+		DeploymentMode:                     config.Spec.DeploymentMode,
 	}
 	if config.Spec.ProvisioningController.MultiDPUOperationsSyncWaitTime != nil {
 		variables.DPFProvisioningController.MultiDPUOperationsSyncWaitTime = config.Spec.ProvisioningController.MultiDPUOperationsSyncWaitTime.Duration

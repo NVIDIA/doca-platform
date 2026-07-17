@@ -158,7 +158,9 @@ func (h *HandleReboot) Execute(execCtx context.Context, optCtx *operations.Conte
 
 func (h *HandleReboot) execPowerCycle(execCtx context.Context, optCtx *operations.Context) error {
 	optCtx.Status.RebootMethod = ptr.To(provisioningv1.RebootMethodPowerCycle)
-	optCtx.UpdateStatusUntilSuccess(execCtx)
+	if err := optCtx.UpdateStatusUntilSuccess(execCtx); err != nil {
+		return err
+	}
 	return h.blockUntilReset()
 }
 
@@ -171,7 +173,9 @@ func (h *HandleReboot) execSystemLevelReset(execCtx context.Context, optCtx *ope
 	optCtx.Status.RebootMethod = ptr.To(provisioningv1.RebootMethodSystemLevelReset)
 
 	// Update status until success.
-	optCtx.UpdateStatusUntilSuccess(execCtx)
+	if err := optCtx.UpdateStatusUntilSuccess(execCtx); err != nil {
+		return err
+	}
 
 	// Run the shutdown command.
 	if h.runBash == nil {
@@ -216,7 +220,9 @@ func (h *HandleReboot) execFirmwareReset(execCtx context.Context, optCtx *operat
 	}
 
 	optCtx.Status.RebootMethod = ptr.To(provisioningv1.RebootMethodFirmwareReset)
-	optCtx.UpdateStatusUntilSuccess(execCtx)
+	if err := optCtx.UpdateStatusUntilSuccess(execCtx); err != nil {
+		return err
+	}
 
 	for _, e := range perDeviceCmds {
 		_, stderr, err := h.runBash(e.Cmd)
@@ -230,7 +236,9 @@ func (h *HandleReboot) execFirmwareReset(execCtx context.Context, optCtx *operat
 // execWarmReboot reboots the DPU OS.
 func (h *HandleReboot) execWarmReboot(execCtx context.Context, optCtx *operations.Context) error {
 	optCtx.Status.RebootMethod = ptr.To(provisioningv1.RebootMethodDPUWarmReboot)
-	optCtx.UpdateStatusUntilSuccess(execCtx)
+	if err := optCtx.UpdateStatusUntilSuccess(execCtx); err != nil {
+		return err
+	}
 
 	if h.runBash == nil {
 		h.runBash = bash.Run
