@@ -18,6 +18,7 @@ package dpuagent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -25,6 +26,7 @@ import (
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	dpuagentclient "github.com/nvidia/doca-platform/internal/provisioning/dpuagent/client"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/checkbridge"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/containerd"
@@ -51,6 +53,7 @@ import (
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -140,13 +143,18 @@ func (d *DPUAgent) Run(ctx context.Context) error {
 		return fmt.Errorf("failed to remove stale done marker: %w", err)
 	}
 	for _, op := range d.operations {
+		if err := d.checkBootstrapAbort(ctx); err != nil {
+			return err
+		}
 		if op.ShouldSkip(d.optCtx) {
 			klog.Infof("Skipping operation %s", op.Name())
 			continue
 		}
 
-		// Execute the operations until success
 		err := wait.PollUntilContextCancel(ctx, d.retryInterval, true, func(execCtx context.Context) (bool, error) {
+			if err := d.checkBootstrapAbort(execCtx); err != nil {
+				return false, err
+			}
 			d.optCtx.CondMessage = ""
 			err := op.Execute(execCtx, d.optCtx)
 			if err != nil {
@@ -156,16 +164,22 @@ func (d *DPUAgent) Run(ctx context.Context) error {
 				klog.Infof("[%s] Successfully executed", op.Name())
 				hostutil.NewCondition(op.ConditionType()).Success(dpuutil.TruncateConditionMessage(d.optCtx.CondMessage)).Set(&d.optCtx.Status.Conditions)
 			}
-
 			if err != nil || op.ShouldUpdateStatusBeforeContinue(d.optCtx) {
-				d.updateStatusUntilSuccess(execCtx)
+				if updateErr := d.updateStatusUntilSuccess(execCtx); updateErr != nil {
+					return false, updateErr
+				}
 			}
 			return err == nil, nil
 		})
-		// The only reason for error here is context cancellation
 		if err != nil {
-			return fmt.Errorf("execution of operator %s aborted: %v", op.Name(), err)
+			if isBootstrapAbortErr(err) {
+				return err
+			}
+			return fmt.Errorf("execution of operator %s aborted: %w", op.Name(), err)
 		}
+	}
+	if err := d.checkBootstrapAbort(ctx); err != nil {
+		return err
 	}
 	writeMarker := writeDoneMarker
 	if d.writeDoneMarkerFunc != nil {
@@ -174,7 +188,9 @@ func (d *DPUAgent) Run(ctx context.Context) error {
 	if err := writeMarker(d.runDir); err != nil {
 		return fmt.Errorf("failed to write done marker: %w", err)
 	}
-	d.updateStatusUntilSuccess(ctx)
+	if err := d.updateStatusUntilSuccess(ctx); err != nil {
+		return err
+	}
 	d.logNICProvisioningRetainedResources()
 	return nil
 }
@@ -198,6 +214,80 @@ func (d *DPUAgent) Shutdown() error {
 	return nil
 }
 
+// StartDPUReconcileLoop starts the owned-DPU watch/reconcile loop in background.
+func (d *DPUAgent) StartDPUReconcileLoop(ctx context.Context) {
+	go func() {
+		if err := d.runDPUReconcileLoop(ctx); err != nil && ctx.Err() == nil {
+			klog.Fatalf("failed to run DPU agent reconcile loop: %v", err)
+		}
+	}()
+}
+
+// runDPUReconcileLoop blocks until ctx is canceled. Reconciles the owned DPU on Kubernetes
+// watch wakeups (pre-install NVCONFIG at Config FW Parameters during reprovision).
+func (d *DPUAgent) runDPUReconcileLoop(ctx context.Context) error {
+	klog.Info("Starting owned DPU reconcile loop")
+	trigger := func() {
+		defer func() {
+			if r := recover(); r != nil {
+				klog.Errorf("owned DPU reconcile panicked, recovered: %v", r)
+			}
+		}()
+		if err := d.reconcileOwnedDPU(ctx); err != nil {
+			klog.Warningf("owned DPU reconcile: %v", err)
+		}
+	}
+	if d.optCtx.WatchClient == nil {
+		klog.Info("No watch client configured; skipping owned DPU reconcile loop")
+		return nil
+	}
+	return dpuagentclient.RunDPUWatch(ctx, d.optCtx.WatchClient, d.optCtx.Options.DPUNamespace, d.optCtx.Options.DPUName, trigger)
+}
+
+func (d *DPUAgent) reconcileOwnedDPU(ctx context.Context) error {
+	dpu := &provisioningv1.DPU{}
+	if err := d.optCtx.Client.Get(ctx, client.ObjectKey{Namespace: d.optCtx.Options.DPUNamespace, Name: d.optCtx.Options.DPUName}, dpu); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("get owned DPU: %w", err)
+	}
+	uidChanged := dpuUIDChanged(d.optCtx, dpu)
+
+	localCtx := d.snapshotPreInstallCtx(dpu)
+
+	if uidChanged {
+		localCtx.Status.PreInstall = nil
+		if err := d.reportPreInstallAgentReported(ctx, dpu, &localCtx); err != nil {
+			return err
+		}
+		if nvconfig.ShouldConfigureNVConfig(&localCtx) {
+			klog.Infof("DPU reconcile: best-effort pre-install NVCONFIG for DPU %s/%s phase %s",
+				dpu.Namespace, dpu.Name, dpu.Status.Phase)
+			preInstallOp := &nvconfig.PreInstallConfigureNVConfig{}
+			if err := d.runPreInstallOperationOnce(ctx, preInstallOp, &localCtx); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (d *DPUAgent) snapshotPreInstallCtx(dpu *provisioningv1.DPU) operations.Context {
+	return operations.Context{
+		Options:                  d.optCtx.Options,
+		RebootMethodDiscovery:    d.optCtx.RebootMethodDiscovery,
+		Client:                   d.optCtx.Client,
+		WatchClient:              d.optCtx.WatchClient,
+		K8sClient:                d.optCtx.K8sClient,
+		DPUFlavor:                d.optCtx.DPUFlavor,
+		LatestDPU:                dpu.DeepCopy(),
+		DiscoverPorts:            d.optCtx.DiscoverPorts,
+		CurrentBootID:            d.optCtx.CurrentBootID,
+		UpdateStatusUntilSuccess: d.optCtx.UpdateStatusUntilSuccess,
+	}
+}
+
 // StartNICRuntimeConfigLoop starts the post-provisioning E/W NIC runtime config
 // loop (first apply with retry, then periodic reapply). No-op when NIC provisioning
 // did not start a DMS session.
@@ -210,16 +300,115 @@ func (d *DPUAgent) StartNICRuntimeConfigLoop(ctx context.Context) {
 	}
 }
 
+func (d *DPUAgent) reportPreInstallAgentReported(ctx context.Context, dpu *provisioningv1.DPU, optCtx *operations.Context) error {
+	if preInstallAgentReported(dpu) {
+		return nil
+	}
+	d.ensurePreInstallStatus(optCtx)
+	now := metav1.Now()
+	optCtx.Status.PreInstall.AgentReported = &now
+	klog.Infof("owned DPU reconcile: set preInstall.agentReported=%s for DPU %s/%s uid %s",
+		now.Format(time.RFC3339), dpu.Namespace, dpu.Name, dpu.UID)
+	d.updatePreInstallStatusUntilSuccess(ctx, optCtx)
+	return nil
+}
+
 // updateStatusUntilSuccess fetches the latest DPU, verifies the UID, merges
 // the in-memory AgentStatus fields, and patches until success.
-func (d *DPUAgent) updateStatusUntilSuccess(ctx context.Context) {
-	_ = wait.PollUntilContextCancel(ctx, 2*time.Second, true, func(updateCtx context.Context) (bool, error) {
+func (d *DPUAgent) updateStatusUntilSuccess(ctx context.Context) error {
+	return wait.PollUntilContextCancel(ctx, 2*time.Second, true, func(updateCtx context.Context) (bool, error) {
+		if err := d.checkBootstrapAbort(updateCtx); err != nil {
+			if isBootstrapAbortErr(err) {
+				klog.Info("Skipping status update after DPU reprovision was detected")
+				// Propagate abort so bootstrap can hand over to pre-install reconcile.
+				return false, err
+			}
+			klog.Warningf("Failed to check bootstrap abort before status update: %v", err)
+			return false, nil
+		}
 		if err := d.updateStatus(updateCtx); err != nil {
 			klog.Warningf("Failed to update DPU status: %v", err)
 			return false, nil
 		}
 		return true, nil
 	})
+}
+
+func preInstallAgentReported(dpu *provisioningv1.DPU) bool {
+	if dpu == nil || dpu.Status.AgentStatus == nil || dpu.Status.AgentStatus.PreInstall == nil {
+		return false
+	}
+	reported := dpu.Status.AgentStatus.PreInstall.AgentReported
+	return reported != nil && !reported.IsZero()
+}
+
+func (d *DPUAgent) runPreInstallOperationOnce(ctx context.Context, op operations.Operation, optCtx *operations.Context) error {
+	optCtx.CondMessage = ""
+	execErr := op.Execute(ctx, optCtx)
+	d.ensurePreInstallStatus(optCtx)
+	if execErr != nil {
+		klog.Errorf("[%s] Failed to execute (best-effort pre-install). err: %v", op.Name(), execErr)
+		hostutil.NewCondition(op.ConditionType()).Failure(execErr, "FailedToExecute").Set(&optCtx.Status.PreInstall.Conditions)
+	} else {
+		klog.Infof("[%s] Successfully executed (pre-install)", op.Name())
+		hostutil.NewCondition(op.ConditionType()).Success(dpuutil.TruncateConditionMessage(optCtx.CondMessage)).Set(&optCtx.Status.PreInstall.Conditions)
+	}
+	if op.ShouldUpdateStatusBeforeContinue(optCtx) {
+		d.updatePreInstallStatusUntilSuccess(ctx, optCtx)
+	}
+	return nil
+}
+
+func (d *DPUAgent) ensurePreInstallStatus(optCtx *operations.Context) {
+	if optCtx.Status.PreInstall == nil {
+		optCtx.Status.PreInstall = &provisioningv1.AgentPreInstallStatus{}
+	}
+	if optCtx.Status.PreInstall.Conditions == nil {
+		optCtx.Status.PreInstall.Conditions = []metav1.Condition{}
+	}
+}
+
+func (d *DPUAgent) updatePreInstallStatusUntilSuccess(ctx context.Context, optCtx *operations.Context) {
+	_ = wait.PollUntilContextCancel(ctx, 2*time.Second, true, func(updateCtx context.Context) (bool, error) {
+		if err := d.updatePreInstallStatus(updateCtx, optCtx); err != nil {
+			klog.Warningf("Failed to update DPU pre-install status: %v", err)
+			return false, nil
+		}
+		return true, nil
+	})
+}
+
+// updatePreInstallStatus patches only agentStatus.preInstall.* and intentionally
+// does not merge regular agentStatus fields to avoid old-OS status pollution after adopt.
+func (d *DPUAgent) updatePreInstallStatus(ctx context.Context, optCtx *operations.Context) error {
+	if optCtx.Status.PreInstall == nil {
+		return nil
+	}
+
+	latestDPU := &provisioningv1.DPU{}
+	key := client.ObjectKey{Namespace: optCtx.Options.DPUNamespace, Name: optCtx.Options.DPUName}
+	if err := optCtx.Client.Get(ctx, key, latestDPU); err != nil {
+		return err
+	}
+
+	patch := client.MergeFrom(latestDPU.DeepCopy())
+	if latestDPU.Status.AgentStatus == nil {
+		latestDPU.Status.AgentStatus = &provisioningv1.AgentStatus{
+			Conditions: []metav1.Condition{},
+		}
+	}
+	if latestDPU.Status.AgentStatus.PreInstall == nil {
+		latestDPU.Status.AgentStatus.PreInstall = &provisioningv1.AgentPreInstallStatus{
+			Conditions: []metav1.Condition{},
+		}
+	}
+	if reported := optCtx.Status.PreInstall.AgentReported; reported != nil && !reported.IsZero() {
+		latestDPU.Status.AgentStatus.PreInstall.AgentReported = reported.DeepCopy()
+	}
+	for _, condition := range optCtx.Status.PreInstall.Conditions {
+		meta.SetStatusCondition(&latestDPU.Status.AgentStatus.PreInstall.Conditions, condition)
+	}
+	return optCtx.Client.Status().Patch(ctx, latestDPU, patch)
 }
 
 // updateStatus reads the latest DPU, validates UID, merges AgentStatus
@@ -302,4 +491,46 @@ func writeDoneMarker(dir string) error {
 	}
 	klog.Infof("Configuration complete, marker written to %s", markerPath)
 	return nil
+}
+
+// errBootstrapAbortedForReprovision indicates bootstrap exited so the owned-DPU watch can handle reprovision.
+var errBootstrapAbortedForReprovision = errors.New("bootstrap aborted for DPU reprovision")
+
+// checkBootstrapAbort refreshes the owned DPU and exits bootstrap when reprovision is detected.
+func (d *DPUAgent) checkBootstrapAbort(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	dpu := &provisioningv1.DPU{}
+	err := d.optCtx.Client.Get(ctx, client.ObjectKey{Namespace: d.optCtx.Options.DPUNamespace, Name: d.optCtx.Options.DPUName}, dpu)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			klog.Info("DPU was deleted; aborting bootstrap for reprovision")
+			return errBootstrapAbortedForReprovision
+		}
+		return err
+	}
+	if dpuUIDChanged(d.optCtx, dpu) {
+		klog.Info("DPU was recreated with a new UID; aborting bootstrap for reprovision")
+		return errBootstrapAbortedForReprovision
+	}
+	return nil
+}
+
+func isBootstrapAbortErr(err error) bool {
+	return errors.Is(err, errBootstrapAbortedForReprovision)
+}
+
+// IsBootstrapAbortErr reports whether err indicates bootstrap exited for reprovision.
+func IsBootstrapAbortErr(err error) bool {
+	return isBootstrapAbortErr(err)
+}
+
+// dpuUIDChanged reports whether the runtime DPU UID differs from startup Options.DPUUID.
+// This is a read-only reprovision check used by bootstrap-abort detection.
+func dpuUIDChanged(optCtx *operations.Context, dpu *provisioningv1.DPU) bool {
+	if optCtx == nil || dpu == nil {
+		return false
+	}
+	return optCtx.Options.DPUUID != "" && optCtx.Options.DPUUID != string(dpu.UID)
 }

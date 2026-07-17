@@ -65,7 +65,7 @@ func CreateDPUAgentRole(ctx context.Context, client crclient.Client, scheme *run
 			APIGroups:     []string{ProvisioningGroupName},
 			Resources:     []string{"dpus"},
 			ResourceNames: []string{dpu.Name},
-			Verbs:         []string{"get"},
+			Verbs:         []string{"get", "list", "watch"},
 		},
 		{
 			APIGroups:     []string{ProvisioningGroupName},
@@ -85,6 +85,12 @@ func CreateDPUAgentRole(ctx context.Context, client crclient.Client, scheme *run
 			ResourceNames: []string{ptr.Deref(dpu.Spec.BlueFieldSoftware, "")},
 			Verbs:         []string{"get"},
 		},
+		{
+			APIGroups:     []string{ProvisioningGroupName},
+			Resources:     []string{"dpuflavors"},
+			ResourceNames: []string{dpu.Spec.DPUFlavor},
+			Verbs:         []string{"get"},
+		},
 	}
 	configMapNames := referencedConfigMapNames(flavor)
 	if len(configMapNames) > 0 {
@@ -96,6 +102,10 @@ func CreateDPUAgentRole(ctx context.Context, client crclient.Client, scheme *run
 		})
 	}
 
+	ownerDPUSet, err := getDPUSetOwnerForAgentRBAC(ctx, client, dpu)
+	if err != nil {
+		return fmt.Errorf("resolve RBAC owner for role %s: %w", roleName, err)
+	}
 	role := &rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      roleName,
@@ -104,6 +114,12 @@ func CreateDPUAgentRole(ctx context.Context, client crclient.Client, scheme *run
 	}
 	if _, err := controllerutil.CreateOrUpdate(ctx, client, role, func() error {
 		role.Rules = rules
+		if ownerDPUSet != nil {
+			if err := controllerutil.SetOwnerReference(ownerDPUSet, role, scheme); err != nil {
+				return fmt.Errorf("setting DPUSet owner reference on role %s: %w", roleName, err)
+			}
+			return nil
+		}
 		if err := controllerutil.SetOwnerReference(dpu, role, scheme); err != nil {
 			return fmt.Errorf("setting owner reference on role %s: %w", roleName, err)
 		}
@@ -151,7 +167,11 @@ func referencedConfigMapNames(flavor *provisioningv1.DPUFlavor) []string {
 func CreateDPUAgentRoleBinding(ctx context.Context, client crclient.Client, scheme *runtime.Scheme, dpu *provisioningv1.DPU, subjectName string) error {
 	bindingName := providentity.DPUAgentUsername(dpu.Name)
 	rb := &rbacv1.RoleBinding{ObjectMeta: metav1.ObjectMeta{Name: bindingName, Namespace: dpu.Namespace}}
-	_, err := controllerutil.CreateOrUpdate(ctx, client, rb, func() error {
+	ownerDPUSet, err := getDPUSetOwnerForAgentRBAC(ctx, client, dpu)
+	if err != nil {
+		return fmt.Errorf("resolve RBAC owner for rolebinding %s: %w", bindingName, err)
+	}
+	_, err = controllerutil.CreateOrUpdate(ctx, client, rb, func() error {
 		rb.Subjects = []rbacv1.Subject{{
 			Kind:     rbacv1.UserKind,
 			Name:     subjectName,
@@ -163,6 +183,12 @@ func CreateDPUAgentRoleBinding(ctx context.Context, client crclient.Client, sche
 				Name:     providentity.DPUAgentUsername(dpu.Name),
 				APIGroup: rbacv1.GroupName,
 			}
+		}
+		if ownerDPUSet != nil {
+			if err := controllerutil.SetOwnerReference(ownerDPUSet, rb, scheme); err != nil {
+				return fmt.Errorf("setting DPUSet owner reference on rolebinding %s: %w", bindingName, err)
+			}
+			return nil
 		}
 		return controllerutil.SetOwnerReference(dpu, rb, scheme)
 	})
@@ -209,6 +235,28 @@ func GenerateSpiffeKubeconfig(apiServerAddress, tokenFilePath string, caData []b
 		return nil, fmt.Errorf("marshaling SPIFFE kubeconfig: %w", err)
 	}
 	return data, nil
+}
+
+func getDPUSetOwnerForAgentRBAC(ctx context.Context, client crclient.Client, dpu *provisioningv1.DPU) (*provisioningv1.DPUSet, error) {
+	if dpu == nil || dpu.Labels == nil {
+		return nil, nil
+	}
+	dpuSetName, hasName := dpu.Labels[DPUSetNameLabel]
+	if !hasName || dpuSetName == "" {
+		return nil, nil
+	}
+	dpuSetNamespace := dpu.Labels[DPUSetNamespaceLabel]
+	if dpuSetNamespace == "" {
+		dpuSetNamespace = dpu.Namespace
+	}
+	dpuSet := &provisioningv1.DPUSet{}
+	if err := client.Get(ctx, crclient.ObjectKey{Namespace: dpuSetNamespace, Name: dpuSetName}, dpuSet); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get DPUSet %s/%s: %w", dpuSetNamespace, dpuSetName, err)
+	}
+	return dpuSet, nil
 }
 
 // GenerateBootstrapKubeconfig returns a kubeconfig that authenticates with the

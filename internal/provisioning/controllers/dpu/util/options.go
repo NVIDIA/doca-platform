@@ -60,6 +60,9 @@ type DPUOptions struct {
 	OSInstallTimeout time.Duration
 	// FirmwareUpdateTimeout is the maximum time allowed for firmware update in zero-trust mode.
 	FirmwareUpdateTimeout time.Duration
+	// PreInstallAgentRegistrationTimeout is how long Initializing waits for preInstall.agentReported.
+	// Set via --pre-install-agent-registration-timeout.
+	PreInstallAgentRegistrationTimeout time.Duration
 	// NodeEffectRemovalTimeout is the maximum time allowed for the Node Effect Removal phase.
 	NodeEffectRemovalTimeout time.Duration
 }

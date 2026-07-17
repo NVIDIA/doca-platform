@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
@@ -58,6 +59,7 @@ func (n *ConfigureNVConfig) ShouldSkip(ctx *operations.Context) bool {
 		return false
 	}
 	if ctx.LatestDPU.Status.AgentStatus == nil {
+		klog.Infof("NVConfig execute: no prior agent status condition found")
 		return false
 	}
 	// Re-run NV config when device-query reboot path is active;
@@ -65,7 +67,8 @@ func (n *ConfigureNVConfig) ShouldSkip(ctx *operations.Context) bool {
 	if !ctx.RebootMethodDiscovery {
 		cond := meta.FindStatusCondition(ctx.LatestDPU.Status.AgentStatus.Conditions, CondNVConfigApplied)
 		if cond != nil && cond.Status == metav1.ConditionTrue {
-			klog.Infof("NVConfig already configured, skip")
+			klog.Infof("NVConfig skip: already configured (reason=%s lastTransition=%s)",
+				cond.Reason, cond.LastTransitionTime.Format(time.RFC3339))
 			return true
 		}
 	}
@@ -86,6 +89,8 @@ func (n *ConfigureNVConfig) Execute(execCtx context.Context, optCtx *operations.
 	if n.runBash == nil {
 		n.runBash = bash.Run
 	}
+	klog.Infof("NVConfig start: dpu=%s/%s phase=%s rebootMethodDiscovery=%t flavorNVConfigCount=%d",
+		optCtx.LatestDPU.Namespace, optCtx.LatestDPU.Name, optCtx.LatestDPU.Status.Phase, optCtx.RebootMethodDiscovery, len(optCtx.DPUFlavor.Spec.NVConfig))
 
 	// 1.Get PCI -> netdev map.
 	pciToNetdev, err := n.pciToNetdevMap(optCtx)
@@ -95,10 +100,12 @@ func (n *ConfigureNVConfig) Execute(execCtx context.Context, optCtx *operations.
 	if len(pciToNetdev) == 0 {
 		return fmt.Errorf("no physical ports from devlink (p0/p1)")
 	}
+	klog.Infof("NVConfig discovered ports: %v", pciToNetdev)
 
 	// 2. Build PCI -> NVConfig parameters map.
 	nvconfigs := optCtx.DPUFlavor.Spec.NVConfig
 	pciToParams := pciToNVConfig(nvconfigs, pciToNetdev)
+	klog.Infof("NVConfig desired params by PCI: %v", pciToParams)
 
 	// 3. Build a deterministic PCI order and group reset-only devices first.
 	// In legacy flow, we reset all devices first, then apply set per device.
@@ -173,6 +180,7 @@ func (n *ConfigureNVConfig) Execute(execCtx context.Context, optCtx *operations.
 			return err
 		}
 	}
+	klog.Infof("NVConfig done: dpu=%s/%s condMessage=%q", optCtx.LatestDPU.Namespace, optCtx.LatestDPU.Name, optCtx.CondMessage)
 	return nil
 }
 
@@ -257,6 +265,8 @@ func (n *ConfigureNVConfig) filterParamsForSet(optCtx *operations.Context, dev, 
 	}
 	available := parseMlxconfigQuery(queryOut)
 	toSet, deferred := planParamApply(entries, available)
+	klog.Infof("NVConfig plan for device %s: requested=%s toSet=%s deferred=%s",
+		dev, joinParamEntries(entries), joinParamEntries(toSet), joinParamEntries(deferred))
 	if len(deferred) > 0 {
 		deferredParams := joinParamEntries(deferred)
 		optCtx.DeferredNVConfigParams = append(optCtx.DeferredNVConfigParams, operations.DeferredNVConfigParam{

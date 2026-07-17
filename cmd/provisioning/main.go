@@ -107,33 +107,34 @@ func init() {
 // +kubebuilder:rbac:groups="",resources=services,verbs=create;delete;deletecollection;get;list;patch;update;watch
 
 type cliFlags struct {
-	metricsAddr                    string
-	pprofBindAddr                  string
-	enableLeaderElection           bool
-	insecureMetrics                bool
-	enableHTTP2                    bool
-	probeAddr                      string
-	dmsImage                       string
-	imagePullSecrets               string
-	bfbPVC                         string
-	dmsTimeout                     int
-	dmsPodTimeout                  time.Duration
-	syncPeriod                     time.Duration
-	dpuInstallInterface            string
-	bfCFGTemplateFile              string
-	bfbRegistryLoadBalancerAddress string
-	customCASecretName             string
-	dmsPodEnvs                     []string
-	maxDPUParallelInstallations    int32
-	enableDpuDiscovery             bool
-	multiDPUOperationsSyncWaitTime time.Duration
-	maxUnavailableDPUNodes         int32
-	osInstallTimeout               time.Duration
-	firmwareUpdateTimeout          time.Duration
-	nodeEffectRemovalTimeout       time.Duration
-	hostAgentDNSPolicy             string
-	deploymentMode                 string
-	redfishClientCertDir           string
+	metricsAddr                        string
+	pprofBindAddr                      string
+	enableLeaderElection               bool
+	insecureMetrics                    bool
+	enableHTTP2                        bool
+	probeAddr                          string
+	dmsImage                           string
+	imagePullSecrets                   string
+	bfbPVC                             string
+	dmsTimeout                         int
+	dmsPodTimeout                      time.Duration
+	syncPeriod                         time.Duration
+	dpuInstallInterface                string
+	bfCFGTemplateFile                  string
+	bfbRegistryLoadBalancerAddress     string
+	customCASecretName                 string
+	dmsPodEnvs                         []string
+	maxDPUParallelInstallations        int32
+	enableDpuDiscovery                 bool
+	multiDPUOperationsSyncWaitTime     time.Duration
+	maxUnavailableDPUNodes             int32
+	osInstallTimeout                   time.Duration
+	firmwareUpdateTimeout              time.Duration
+	preInstallAgentRegistrationTimeout time.Duration
+	nodeEffectRemovalTimeout           time.Duration
+	hostAgentDNSPolicy                 string
+	deploymentMode                     string
+	redfishClientCertDir               string
 }
 
 func parseFlags() *cliFlags {
@@ -169,6 +170,7 @@ func parseFlags() *cliFlags {
 	fs.Int32Var(&flags.maxUnavailableDPUNodes, "max-unavailable-dpu-nodes", 50, "The maximum number of DPUNodes that are unavailable during the node effect period")
 	fs.DurationVar(&flags.osInstallTimeout, "os-install-timeout", DefaultOSInstallTimeout, "Maximum time allowed for OS installation in zero-trust mode")
 	fs.DurationVar(&flags.firmwareUpdateTimeout, "firmware-update-timeout", DefaultFirmwareUpdateTimeout, "Maximum time allowed for BF4 firmware update in zero-trust mode")
+	fs.DurationVar(&flags.preInstallAgentRegistrationTimeout, "pre-install-agent-registration-timeout", 30*time.Second, "How long Initializing waits for preInstall.agentReported during reprovisioning")
 	fs.DurationVar(&flags.nodeEffectRemovalTimeout, "node-effect-removal-timeout", DefaultNodeEffectRemovalTimeout, "Maximum time allowed for the Node Effect Removal phase before transitioning to error. 0 means no timeout.")
 	fs.StringVar(&flags.hostAgentDNSPolicy, "hostagent-dns-policy", string(corev1.DNSClusterFirstWithHostNet), "DNS policy for the hostagent pod")
 	fs.StringVar(&flags.deploymentMode, "deployment-mode", "", "required: cluster deployment mode from DPFOperatorConfig (zero-trust or host-trusted)")
@@ -270,18 +272,19 @@ func resolveBFBRegistry(flags *cliFlags) (string, error) {
 func setupControllers(mgr ctrl.Manager, flags *cliFlags, bfbRegistry string, imagePullSecretsReferences []corev1.LocalObjectReference) *dutil.DPUInProvisioningMap {
 	alloc := allocator.NewAllocator(mgr.GetClient())
 	dpuOptions := dutil.DPUOptions{
-		ImagePullSecrets:            imagePullSecretsReferences,
-		DPUInstallInterface:         flags.dpuInstallInterface,
-		DeploymentMode:              flags.deploymentMode,
-		BFCFGTemplateFile:           flags.bfCFGTemplateFile,
-		BFBRegistry:                 bfbRegistry,
-		BFBPVC:                      flags.bfbPVC,
-		BFBRegistryLoadBalancer:     flags.bfbRegistryLoadBalancerAddress,
-		CustomCASecretName:          flags.customCASecretName,
-		MaxDPUParallelInstallations: flags.maxDPUParallelInstallations,
-		OSInstallTimeout:            flags.osInstallTimeout,
-		FirmwareUpdateTimeout:       flags.firmwareUpdateTimeout,
-		NodeEffectRemovalTimeout:    flags.nodeEffectRemovalTimeout,
+		ImagePullSecrets:                   imagePullSecretsReferences,
+		DPUInstallInterface:                flags.dpuInstallInterface,
+		DeploymentMode:                     flags.deploymentMode,
+		BFCFGTemplateFile:                  flags.bfCFGTemplateFile,
+		BFBRegistry:                        bfbRegistry,
+		BFBPVC:                             flags.bfbPVC,
+		BFBRegistryLoadBalancer:            flags.bfbRegistryLoadBalancerAddress,
+		CustomCASecretName:                 flags.customCASecretName,
+		MaxDPUParallelInstallations:        flags.maxDPUParallelInstallations,
+		OSInstallTimeout:                   flags.osInstallTimeout,
+		FirmwareUpdateTimeout:              flags.firmwareUpdateTimeout,
+		PreInstallAgentRegistrationTimeout: flags.preInstallAgentRegistrationTimeout,
+		NodeEffectRemovalTimeout:           flags.nodeEffectRemovalTimeout,
 	}
 
 	setupLog.Info("DPU", "options", dpuOptions)

@@ -217,6 +217,7 @@ func (p *provisioningControllerObjects) dpfProvisioningDeploymentEdit(vars Varia
 			p.setMaxUnavailableDPUNodes,
 			p.setOSInstallTimeout,
 			p.setFirmwareUpdateTimeout,
+			p.setPreInstallAgentRegistrationTimeout,
 			p.setNodeEffectRemovalTimeout,
 			p.setHostAgentDNSPolicy,
 			p.setResources,
@@ -655,6 +656,18 @@ func (p *provisioningControllerObjects) setFirmwareUpdateTimeout(deploy *appsv1.
 		return fmt.Errorf(errManagerContainerNotFoundFmt, managerContainerName)
 	}
 	return setFlags(c, fmt.Sprintf("--firmware-update-timeout=%s", vars.DPFProvisioningController.FirmwareUpdateTimeout.Duration.String()))
+}
+
+func (p *provisioningControllerObjects) setPreInstallAgentRegistrationTimeout(deploy *appsv1.Deployment, vars Variables) error {
+	c := getManagerContainer(deploy)
+	if c == nil {
+		return fmt.Errorf(errManagerContainerNotFoundFmt, managerContainerName)
+	}
+	if vars.DPFProvisioningController.PreInstallAgentRegistrationTimeout == nil {
+		return nil
+	}
+	return setFlags(c, fmt.Sprintf("--pre-install-agent-registration-timeout=%s",
+		vars.DPFProvisioningController.PreInstallAgentRegistrationTimeout.Duration.String()))
 }
 
 func (p *provisioningControllerObjects) setNodeEffectRemovalTimeout(deploy *appsv1.Deployment, vars Variables) error {

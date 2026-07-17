@@ -260,6 +260,105 @@ var _ = Describe("NVConfig Operation", func() {
 			Expect(operation.ShouldSkip(operationCtx)).To(BeFalse())
 		})
 
+		It("PreInstall should skip when pre-install NVConfigApplied is True and RebootMethodDiscovery is false", func() {
+			reportedAt := metav1.Now()
+			operationCtx := &operations.Context{
+				RebootMethodDiscovery: false,
+				LatestDPU: &provisioningv1.DPU{
+					Status: provisioningv1.DPUStatus{
+						Phase: provisioningv1.DPUConfigFWParameters,
+						AgentStatus: &provisioningv1.AgentStatus{
+							PreInstall: &provisioningv1.AgentPreInstallStatus{
+								AgentReported: &reportedAt,
+								Conditions: []metav1.Condition{
+									{
+										Type:   provisioningv1.DPUAgentConditionNVConfigApplied,
+										Status: metav1.ConditionTrue,
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(ShouldConfigureNVConfig(operationCtx)).To(BeFalse())
+		})
+
+		It("PreInstall should skip when pre-install NVConfigApplied is True and RebootMethodDiscovery is true", func() {
+			reportedAt := metav1.Now()
+			operationCtx := &operations.Context{
+				RebootMethodDiscovery: true,
+				LatestDPU: &provisioningv1.DPU{
+					Status: provisioningv1.DPUStatus{
+						Phase: provisioningv1.DPUConfigFWParameters,
+						AgentStatus: &provisioningv1.AgentStatus{
+							PreInstall: &provisioningv1.AgentPreInstallStatus{
+								AgentReported: &reportedAt,
+								Conditions: []metav1.Condition{
+									{
+										Type:   provisioningv1.DPUAgentConditionNVConfigApplied,
+										Status: metav1.ConditionTrue,
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(ShouldConfigureNVConfig(operationCtx)).To(BeFalse())
+		})
+
+		It("PreInstall should skip when pre-install NVConfigApplied is False", func() {
+			reportedAt := metav1.Now()
+			operationCtx := &operations.Context{
+				LatestDPU: &provisioningv1.DPU{
+					Status: provisioningv1.DPUStatus{
+						Phase: provisioningv1.DPUConfigFWParameters,
+						AgentStatus: &provisioningv1.AgentStatus{
+							PreInstall: &provisioningv1.AgentPreInstallStatus{
+								AgentReported: &reportedAt,
+								Conditions: []metav1.Condition{
+									{
+										Type:   provisioningv1.DPUAgentConditionNVConfigApplied,
+										Status: metav1.ConditionFalse,
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(ShouldConfigureNVConfig(operationCtx)).To(BeFalse())
+		})
+
+		It("PreInstall should execute when AgentStatus is missing and in-memory reported is absent", func() {
+			operationCtx := &operations.Context{
+				LatestDPU: &provisioningv1.DPU{
+					Status: provisioningv1.DPUStatus{
+						Phase: provisioningv1.DPUConfigFWParameters,
+					},
+				},
+			}
+			Expect(ShouldConfigureNVConfig(operationCtx)).To(BeTrue())
+		})
+
+		It("PreInstall should execute when AgentStatus is missing but in-memory reported exists", func() {
+			reportedAt := metav1.Now()
+			operationCtx := &operations.Context{
+				Status: provisioningv1.AgentStatus{
+					PreInstall: &provisioningv1.AgentPreInstallStatus{
+						AgentReported: &reportedAt,
+					},
+				},
+				LatestDPU: &provisioningv1.DPU{
+					Status: provisioningv1.DPUStatus{
+						Phase: provisioningv1.DPUConfigFWParameters,
+					},
+				},
+			}
+			Expect(ShouldConfigureNVConfig(operationCtx)).To(BeTrue())
+		})
+
 		It("should succeed with RebootMethodDiscovery true (--with_default per port)", func() {
 			pci0, pci1 := testPci0, testPci1
 
