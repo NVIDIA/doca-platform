@@ -83,15 +83,15 @@ type certSource struct {
 }
 
 func (s *certSource) CACert(ctx context.Context) ([]byte, error) {
-	caSecret := &corev1.Secret{}
-	if err := s.k8sClient.Get(ctx, types.NamespacedName{Name: CASecret, Namespace: s.namespace}, caSecret); err != nil {
-		return nil, err
+	caTrustBundle := &corev1.ConfigMap{}
+	if err := s.k8sClient.Get(ctx, types.NamespacedName{Name: CATrustBundleConfigMap, Namespace: s.namespace}, caTrustBundle); err != nil {
+		return nil, fmt.Errorf("failed to get ConfigMap %q: %w", CATrustBundleConfigMap, err)
 	}
-	caCert, ok := caSecret.Data[corev1.TLSCertKey]
-	if !ok {
-		return nil, fmt.Errorf("no CA crt in CA secret %s", CASecret)
+	bundle := []byte(caTrustBundle.Data[CATrustBundleKey])
+	if len(bundle) == 0 {
+		return nil, fmt.Errorf("no %q in ConfigMap %q", CATrustBundleKey, CATrustBundleConfigMap)
 	}
-	return caCert, nil
+	return bundle, nil
 }
 
 // ClientKeyPair reads the Redfish client key pair (the controller's mTLS identity) from the mounted

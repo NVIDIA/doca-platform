@@ -1062,6 +1062,7 @@ _Appears in:_
 | `kubernetesAPIServerVIP` _string_ | KubernetesAPIServerVIP is the VIP the Kubernetes API server is accessible at.<br />This setting enables specific underlying components deployed directly or indirectly by the DPF Operator to reach<br />the Kubernetes API Server when the ClusterIP Kubernetes Service is not functional.<br />If set, it should be set to an IP to ensure that components work even if DNS is not available in the cluster. |  | Optional: \{\} <br /> |
 | `kubernetesAPIServerPort` _integer_ | KubernetesAPIServerPort is the port the Kubernetes API server is accessible at.<br />This setting is usually used together with the kubernetesAPIServerVIP setting. It enables specific underlying<br />components deployed directly or indirectly by the DPF Operator to reach the Kubernetes API Server when the<br />ClusterIP Kubernetes Service is not functional. |  | Optional: \{\} <br /> |
 | `argoCDNamespace` _string_ | ArgoCDNamespace is the namespace where ArgoCD is deployed.<br />AppProjects and cluster secrets required by DPF will be created in this namespace.<br />Defaults to the namespace of the DPFOperatorConfig. |  | MaxLength: 63 <br />MinLength: 1 <br />Optional: \{\} <br /> |
+| `provisioningIssuerCASecretName` _string_ | ProvisioningIssuerCASecretName overrides the CA secret used by the provisioning Issuer during<br />controlled CA rotation workflows. When unset, the default issuer secret is used. |  | MinLength: 1 <br />Optional: \{\} <br /> |
 
 
 #### ProvisioningControllerConfiguration
@@ -1651,6 +1652,8 @@ _Appears in:_
 | `rebootSequenceCount` _integer_ | RebootSequenceCount is the length of the current non-NoAction RebootMethod sequence:<br />it increments on each agent run that reports a RebootMethod other than NoAction and<br />resets to 0 when the agent reports NoAction. Used with RebootMethod to bound host reboot loops. |  | Minimum: 0 <br />Optional: \{\} <br /> |
 | `kubeletVersion` _string_ | KubeletVersion represents the kubelet version running on the DPU. |  |  |
 | `preInstall` _[AgentPreInstallStatus](#agentpreinstallstatus)_ | PreInstall holds agent-reported status for work done before OS install in the reprovisioning process. |  | Optional: \{\} <br /> |
+| `trustBundleHash` _string_ | TrustBundleHash is the bundle-hash value last applied by the DPU agent. |  | Optional: \{\} <br /> |
+| `trustBundleLastUpdateTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | TrustBundleLastUpdateTime is when the trust bundle was last updated by the DPU agent. |  | Optional: \{\} <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions contains the conditions reported from inside the DPU |  | Optional: \{\} <br /> |
 | `spiffe` _[SpiffeStatus](#spiffestatus)_ | Spiffe contains the SPIFFE heartbeat status reported by the DPU Agent when running in<br />SPIFFE identity mode. |  | Optional: \{\} <br /> |
 
@@ -2305,6 +2308,7 @@ _Appears in:_
 | `secureBoot` _[SecureBootStatus](#securebootstatus)_ | SecureBoot indicates the current UEFI Secure Boot state. |  | Optional: \{\} <br /> |
 | `bmcCredentialSecretName` _string_ | BMCCredentialSecretName is the name of the Secret last used successfully for BMC authentication. |  | Optional: \{\} <br /> |
 | `bmcServerCertificate` _[CertificateStatus](#certificatestatus)_ | BMCServerCertificate reports the BMC mTLS server certificate rotation state. |  | Optional: \{\} <br /> |
+| `caTrustBundle` _[TrustBundleStatus](#trustbundlestatus)_ | CATrustBundle stores trust bundle reconciliation progress for the DPUDevice. |  | Optional: \{\} <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ |  |  | Optional: \{\} <br /> |
 
 
@@ -3663,6 +3667,23 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `name` _string_ | Name is the systemd service name. |  | MaxLength: 253 <br />MinLength: 1 <br /> |
 | `operation` _[SystemdServiceOperation](#systemdserviceoperation)_ | Operation is the systemd operation to perform on the service. |  | Enum: [Start Enable EnableAndStart] <br /> |
+
+
+#### TrustBundleStatus
+
+
+
+TrustBundleStatus reports reconciliation progress for a CA trust bundle.
+
+
+
+_Appears in:_
+- [DPUDeviceStatus](#dpudevicestatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `observedBundleHash` _string_ | ObservedBundleHash records the last successfully applied bundle hash. |  | Optional: \{\} <br /> |
+| `lastUpdateTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | LastUpdateTime is when the last successful reconciliation completed. |  | Optional: \{\} <br /> |
 
 
 #### UpgradePolicy

@@ -146,6 +146,38 @@ func TestAppendCertBlocks(t *testing.T) {
 	})
 }
 
+func TestComputeBundleHash(t *testing.T) {
+	certA := testCertPEM("generation-a")
+	certB := testCertPEM("generation-b")
+
+	t.Run("same effective set yields same generation regardless of order", func(t *testing.T) {
+		g := NewWithT(t)
+		bundleAB := append(append([]byte{}, certA...), certB...)
+		bundleBA := append(append([]byte{}, certB...), certA...)
+
+		genAB, err := computeBundleHash(bundleAB)
+		g.Expect(err).NotTo(HaveOccurred())
+		genBA, err := computeBundleHash(bundleBA)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(genAB).To(Equal(genBA))
+	})
+
+	t.Run("different effective set yields different generation", func(t *testing.T) {
+		g := NewWithT(t)
+		genA, err := computeBundleHash(certA)
+		g.Expect(err).NotTo(HaveOccurred())
+		genB, err := computeBundleHash(certB)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(genA).NotTo(Equal(genB))
+	})
+
+	t.Run("returns error when bundle has no certificate blocks", func(t *testing.T) {
+		g := NewWithT(t)
+		_, err := computeBundleHash([]byte("not a cert"))
+		g.Expect(err).To(HaveOccurred())
+	})
+}
+
 func TestGetCATrustBundleConfigMapName(t *testing.T) {
 	g := NewWithT(t)
 	config := &operatorv1.DPFOperatorConfig{}
@@ -228,6 +260,7 @@ func TestReconcileCATrustBundle(t *testing.T) {
 		cm := &corev1.ConfigMap{}
 		g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: operatorv1.DefaultCATrustBundleConfigMapName}, cm)).To(Succeed())
 		g.Expect(cm.Data[operatorv1.CATrustBundleKey]).To(Equal(string(caCert)))
+		g.Expect(cm.Data[operatorv1.CATrustBundleHashKey]).NotTo(BeEmpty())
 		g.Expect(cm.Labels).To(HaveKeyWithValue(operatorv1.DPFComponentLabelKey, "dpf-operator"))
 		// The bundle is intentionally not owned by the DPFOperatorConfig; it is deleted explicitly.
 		g.Expect(cm.OwnerReferences).To(BeEmpty())
@@ -262,6 +295,7 @@ func TestReconcileCATrustBundle(t *testing.T) {
 		g.Expect(countCerts(bundle)).To(Equal(2))
 		g.Expect(string(bundle)).To(ContainSubstring(string(otherCert)))
 		g.Expect(string(bundle)).To(ContainSubstring(string(caCert)))
+		g.Expect(cm.Data[operatorv1.CATrustBundleHashKey]).NotTo(BeEmpty())
 		// The unrelated key set by another field manager must not be pruned by the Operator's apply.
 		g.Expect(cm.Data).To(HaveKeyWithValue("user-key", "keep-me"))
 	})
@@ -285,6 +319,33 @@ func TestReconcileCATrustBundle(t *testing.T) {
 		cm := &corev1.ConfigMap{}
 		g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: operatorv1.DefaultCATrustBundleConfigMapName}, cm)).To(Succeed())
 		g.Expect(countCerts([]byte(cm.Data[operatorv1.CATrustBundleKey]))).To(Equal(1))
+	})
+
+	t.Run("backfills bundle-hash on pre-existing ConfigMap with unchanged bundle", func(t *testing.T) {
+		g := NewWithT(t)
+		ns := "ca-bundle-backfill-hash"
+		createNamespace(g, ns)
+		caCert := testCertPEM("ca-backfill")
+		g.Expect(testClient.Create(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: ProvisioningCASecretName},
+			Data:       map[string][]byte{corev1.TLSCertKey: caCert},
+		})).To(Succeed())
+
+		// Simulate an older-operator ConfigMap: identical bundle content but missing bundle-hash key.
+		g.Expect(testClient.Create(ctx, &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: operatorv1.DefaultCATrustBundleConfigMapName},
+			Data: map[string]string{
+				operatorv1.CATrustBundleKey: string(caCert),
+			},
+		})).To(Succeed())
+
+		r := newReconciler()
+		g.Expect(r.reconcileCATrustBundle(ctx, newConfig(ns))).To(Succeed())
+
+		cm := &corev1.ConfigMap{}
+		g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: operatorv1.DefaultCATrustBundleConfigMapName}, cm)).To(Succeed())
+		g.Expect(cm.Data[operatorv1.CATrustBundleKey]).To(Equal(string(caCert)))
+		g.Expect(cm.Data[operatorv1.CATrustBundleHashKey]).NotTo(BeEmpty())
 	})
 
 	t.Run("deleteCATrustBundle deletes the bundle ConfigMap", func(t *testing.T) {

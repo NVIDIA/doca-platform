@@ -313,6 +313,11 @@ func (d *DPUAgent) reportPreInstallAgentReported(ctx context.Context, dpu *provi
 	return nil
 }
 
+// StartCACertUpdateLoop starts the background CA certificate update loop.
+func (d *DPUAgent) StartCACertUpdateLoop(ctx context.Context) {
+	d.startCATrustBundleWatcher(ctx)
+}
+
 // updateStatusUntilSuccess fetches the latest DPU, verifies the UID, merges
 // the in-memory AgentStatus fields, and patches until success.
 func (d *DPUAgent) updateStatusUntilSuccess(ctx context.Context) error {
@@ -443,6 +448,12 @@ func (d *DPUAgent) updateStatus(ctx context.Context) error {
 	}
 	if agentStatus.KubeletVersion != nil {
 		latestDPU.Status.AgentStatus.KubeletVersion = agentStatus.KubeletVersion
+	}
+	if agentStatus.TrustBundleHash != nil {
+		latestDPU.Status.AgentStatus.TrustBundleHash = agentStatus.TrustBundleHash
+	}
+	if agentStatus.TrustBundleLastUpdateTime != nil {
+		latestDPU.Status.AgentStatus.TrustBundleLastUpdateTime = agentStatus.TrustBundleLastUpdateTime
 	}
 	if agentStatus.LastObservedPendingNVConfig != nil {
 		latestDPU.Status.AgentStatus.LastObservedPendingNVConfig = agentStatus.LastObservedPendingNVConfig.DeepCopy()

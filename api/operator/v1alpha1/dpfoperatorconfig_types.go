@@ -51,6 +51,8 @@ const (
 	// more concatenated PEM certificates is the most portable form for both API readers and volume
 	// mounts (e.g. tools that scan for *.crt files).
 	CATrustBundleKey = "ca.crt"
+	// CATrustBundleHashKey tracks the effective CA set by a stable hash.
+	CATrustBundleHashKey = "bundle-hash"
 )
 
 var (
@@ -148,6 +150,12 @@ type Overrides struct {
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=63
 	ArgoCDNamespace *string `json:"argoCDNamespace,omitempty"`
+
+	// ProvisioningIssuerCASecretName overrides the CA secret used by the provisioning Issuer during
+	// controlled CA rotation workflows. When unset, the default issuer secret is used.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	ProvisioningIssuerCASecretName *string `json:"provisioningIssuerCASecretName,omitempty"`
 }
 
 const (
