@@ -162,6 +162,7 @@ func (r *DPFOperatorConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&appsv1.Deployment{}, handler.EnqueueRequestsFromMapFunc(r.DeploymentToDPFOperatorConfig)).
 		Watches(&appsv1.DaemonSet{}, handler.EnqueueRequestsFromMapFunc(r.DaemonSetToDPFOperatorConfig)).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.ProvisioningCASecretToDPFOperatorConfig)).
+		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(r.CATrustBundleConfigMapToDPFOperatorConfig)).
 		Complete(r)
 }
 

@@ -20,8 +20,11 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/pem"
 	"fmt"
+	"sort"
+	"strings"
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 
@@ -38,6 +41,7 @@ const (
 	// (certificate and private key). It is defined locally to avoid importing internal provisioning packages.
 	// It is exported so the manager's cache can be scoped to only this Secret (see cmd/operator/main.go).
 	ProvisioningCASecretName = "dpf-provisioning-ca-secret"
+	certificatePEMBlockType  = "CERTIFICATE"
 )
 
 // caTrustBundlePendingError indicates the CA trust bundle cannot be reconciled yet because the
@@ -109,10 +113,18 @@ func (r *DPFOperatorConfigReconciler) reconcileCATrustBundle(ctx context.Context
 				Namespace: config.Namespace,
 			},
 		}
-		setCATrustBundleFields(cm, merged)
+		if err := setCATrustBundleFields(cm, merged); err != nil {
+			return fmt.Errorf("failed to set CA trust bundle fields: %w", err)
+		}
 		if err := r.Client.Create(ctx, cm); err != nil {
 			return fmt.Errorf("failed to create CA trust bundle ConfigMap %s/%s: %w", config.Namespace, bundleName, err)
 		}
+		log.Info("Created CA trust bundle ConfigMap", "namespace", config.Namespace, "name", bundleName)
+		return nil
+	}
+
+	if existing.Data[operatorv1.CATrustBundleKey] == string(merged) &&
+		existing.Data[operatorv1.CATrustBundleHashKey] != "" {
 		return nil
 	}
 
@@ -120,17 +132,24 @@ func (r *DPFOperatorConfigReconciler) reconcileCATrustBundle(ctx context.Context
 	// write with a conflict if the ConfigMap changed since the Get above, so a concurrent edit is retried
 	// instead of overwritten. The merge patch only touches the keys we set and leaves other data untouched.
 	patch := client.MergeFromWithOptions(existing.DeepCopy(), client.MergeFromWithOptimisticLock{})
-	setCATrustBundleFields(existing, merged)
+	if err := setCATrustBundleFields(existing, merged); err != nil {
+		return fmt.Errorf("failed to set CA trust bundle fields: %w", err)
+	}
 	if err := r.Client.Patch(ctx, existing, patch); err != nil {
 		return fmt.Errorf("failed to patch CA trust bundle ConfigMap %s/%s: %w", config.Namespace, bundleName, err)
 	}
+	log.Info("Updated CA trust bundle ConfigMap", "namespace", config.Namespace, "name", bundleName)
 
 	return nil
 }
 
-// setCATrustBundleFields sets the component label and the merged CA bundle on cm, without disturbing any
+// setCATrustBundleFields sets the component label and merged CA bundle fields on cm, without disturbing
 // other labels or data keys. It is shared by the create and patch paths so both write identical fields.
-func setCATrustBundleFields(cm *corev1.ConfigMap, merged []byte) {
+func setCATrustBundleFields(cm *corev1.ConfigMap, merged []byte) error {
+	bundleHash, err := computeBundleHash(merged)
+	if err != nil {
+		return err
+	}
 	if cm.Labels == nil {
 		cm.Labels = map[string]string{}
 	}
@@ -139,6 +158,41 @@ func setCATrustBundleFields(cm *corev1.ConfigMap, merged []byte) {
 		cm.Data = map[string]string{}
 	}
 	cm.Data[operatorv1.CATrustBundleKey] = string(merged)
+	cm.Data[operatorv1.CATrustBundleHashKey] = bundleHash
+	return nil
+}
+
+// computeBundleHash returns a deterministic hash of the effective certificate set in the bundle.
+// It de-duplicates by certificate bytes and ignores ordering differences by sorting certificate fingerprints.
+func computeBundleHash(bundle []byte) (string, error) {
+	rest := bundle
+	seen := map[[sha256.Size]byte]struct{}{}
+	fingerprints := make([]string, 0)
+
+	for {
+		var block *pem.Block
+		block, rest = pem.Decode(rest)
+		if block == nil {
+			break
+		}
+		if block.Type != certificatePEMBlockType {
+			continue
+		}
+		fingerprint := sha256.Sum256(block.Bytes)
+		if _, ok := seen[fingerprint]; ok {
+			continue
+		}
+		seen[fingerprint] = struct{}{}
+		fingerprints = append(fingerprints, hex.EncodeToString(fingerprint[:]))
+	}
+
+	if len(fingerprints) == 0 {
+		return "", fmt.Errorf("CA trust bundle contains no valid certificate PEM blocks")
+	}
+
+	sort.Strings(fingerprints)
+	hashBytes := sha256.Sum256([]byte(strings.Join(fingerprints, "\n")))
+	return hex.EncodeToString(hashBytes[:]), nil
 }
 
 // deleteCATrustBundle deletes the CA trust bundle ConfigMap. The bundle is intentionally not owned by the
@@ -181,7 +235,7 @@ func appendCertBlocks(out *bytes.Buffer, seen map[[sha256.Size]byte]bool, data [
 		if block == nil {
 			break
 		}
-		if block.Type != "CERTIFICATE" {
+		if block.Type != certificatePEMBlockType {
 			continue
 		}
 		fingerprint := sha256.Sum256(block.Bytes)
@@ -189,7 +243,7 @@ func appendCertBlocks(out *bytes.Buffer, seen map[[sha256.Size]byte]bool, data [
 			continue
 		}
 		seen[fingerprint] = true
-		if err := pem.Encode(out, &pem.Block{Type: "CERTIFICATE", Bytes: block.Bytes}); err != nil {
+		if err := pem.Encode(out, &pem.Block{Type: certificatePEMBlockType, Bytes: block.Bytes}); err != nil {
 			return err
 		}
 	}
@@ -205,6 +259,21 @@ func (r *DPFOperatorConfigReconciler) ProvisioningCASecretToDPFOperatorConfig(_ 
 		return result
 	}
 	if o.GetName() != ProvisioningCASecretName {
+		return result
+	}
+	result = append(result, ctrl.Request{NamespacedName: *r.Settings.ConfigSingletonNamespaceName})
+	return result
+}
+
+// CATrustBundleConfigMapToDPFOperatorConfig enqueues a reconcile when the CA trust bundle ConfigMap changes
+// so bundle-hash is recomputed by the operator after bundle edits (e.g. prune phase).
+func (r *DPFOperatorConfigReconciler) CATrustBundleConfigMapToDPFOperatorConfig(_ context.Context, o client.Object) []ctrl.Request {
+	result := []ctrl.Request{}
+	// Ignore this enqueue function if the singletonNamespaceName is not set. This is done to enable easier testing.
+	if r.Settings.ConfigSingletonNamespaceName == nil {
+		return result
+	}
+	if o.GetName() != operatorv1.DefaultCATrustBundleConfigMapName {
 		return result
 	}
 	result = append(result, ctrl.Request{NamespacedName: *r.Settings.ConfigSingletonNamespaceName})

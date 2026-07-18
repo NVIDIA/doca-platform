@@ -1265,6 +1265,12 @@ spec:
                     description: Paused disables all reconciliation of the DPFOperatorConfig
                       when set to true.
                     type: boolean
+                  provisioningIssuerCASecretName:
+                    description: |-
+                      ProvisioningIssuerCASecretName overrides the CA secret used by the provisioning Issuer during
+                      controlled CA rotation workflows. When unset, the default issuer secret is used.
+                    minLength: 1
+                    type: string
                 type: object
               ovsCNI:
                 description: |-

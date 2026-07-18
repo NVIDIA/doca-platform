@@ -80,6 +80,9 @@ const (
 	// ConditionDpuDeviceBMCServerCertificateReady indicates the BMC mTLS server
 	// certificate is installed, valid, and not within its renew-before window.
 	ConditionDpuDeviceBMCServerCertificateReady conditions.ConditionType = "BMCServerCertificateReady"
+	// ConditionDpuDeviceCATrustBundleReady indicates whether the desired CA trust bundle
+	// has been reconciled to the device BMC truststore.
+	ConditionDpuDeviceCATrustBundleReady conditions.ConditionType = "CATrustBundleReady"
 )
 
 // BMCServerCertificateReady condition reasons
@@ -92,6 +95,10 @@ const (
 
 // BMCCredentialsReady condition reasons
 const (
+	// ReasonCATrustBundleSynced indicates CA trust bundle is successfully synced to BMC.
+	ReasonCATrustBundleSynced = "CATrustBundleSynced"
+	// ReasonCATrustBundleSyncing indicates CA trust bundle sync is in progress.
+	ReasonCATrustBundleSyncing = "CATrustBundleSyncing"
 	// ReasonCredentialsValid indicates the credential secret is valid and authentication succeeded.
 	ReasonCredentialsValid = "CredentialsValid"
 	// ReasonCredentialsSecretNotFound indicates the referenced secret does not exist.
@@ -102,6 +109,10 @@ const (
 	ReasonBMCAuthenticationFailed = "BMCAuthenticationFailed"
 	// ReasonModeSwitchNotAllowed indicates an attempt to switch from per-device to shared mode.
 	ReasonModeSwitchNotAllowed = "ModeSwitchNotAllowed"
+	// ReasonCATrustBundleSyncFailed indicates CA trust bundle sync to BMC failed.
+	ReasonCATrustBundleSyncFailed = "CATrustBundleSyncFailed"
+	// ReasonCATrustBundleUnavailable indicates desired CA trust bundle is unavailable or invalid.
+	ReasonCATrustBundleUnavailable = "CATrustBundleUnavailable"
 )
 
 var (
@@ -116,6 +127,7 @@ var (
 		ConditionBMCCredentialsReady,
 		ConditionSPIFFEEntryReady,
 		ConditionDpuDeviceBMCServerCertificateReady,
+		ConditionDpuDeviceCATrustBundleReady,
 	}
 )
 
@@ -297,6 +309,9 @@ type DPUDeviceStatus struct {
 	// BMCServerCertificate reports the BMC mTLS server certificate rotation state.
 	// +optional
 	BMCServerCertificate *CertificateStatus `json:"bmcServerCertificate,omitempty"`
+	// CATrustBundle stores trust bundle reconciliation progress for the DPUDevice.
+	// +optional
+	CATrustBundle *TrustBundleStatus `json:"caTrustBundle,omitempty"`
 
 	// +optional
 	Conditions []metav1.Condition `json:"conditions"`
@@ -317,6 +332,16 @@ type CertificateStatus struct {
 	// was last honored, so the same trigger is not processed twice.
 	// +optional
 	ObservedManualTrigger *string `json:"observedManualTrigger,omitempty"`
+}
+
+// TrustBundleStatus reports reconciliation progress for a CA trust bundle.
+type TrustBundleStatus struct {
+	// ObservedBundleHash records the last successfully applied bundle hash.
+	// +optional
+	ObservedBundleHash *string `json:"observedBundleHash,omitempty"`
+	// LastUpdateTime is when the last successful reconciliation completed.
+	// +optional
+	LastUpdateTime *metav1.Time `json:"lastUpdateTime,omitempty"`
 }
 
 // SecureBootStatus represents the UEFI Secure Boot configuration status on the DPU.
