@@ -134,11 +134,14 @@ func CreateDPUAgentRole(ctx context.Context, client crclient.Client, scheme *run
 }
 
 func referencedConfigMapNames(flavor *provisioningv1.DPUFlavor) []string {
-	if flavor == nil {
-		return nil
-	}
 	seen := map[string]struct{}{}
-	names := make([]string, 0, len(flavor.Spec.ConfigFiles))
+	// dpu-agent CA trust bundle watcher always reads this ConfigMap.
+	seen[operatorv1.DefaultCATrustBundleConfigMapName] = struct{}{}
+	if flavor == nil {
+		return []string{operatorv1.DefaultCATrustBundleConfigMapName}
+	}
+	names := make([]string, 0, len(flavor.Spec.ConfigFiles)+1)
+	names = append(names, operatorv1.DefaultCATrustBundleConfigMapName)
 	for _, file := range flavor.Spec.ConfigFiles {
 		if file.Type == nil || *file.Type != provisioningv1.ConfigFileTypeAgentApplied {
 			continue

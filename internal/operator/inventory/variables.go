@@ -150,6 +150,7 @@ type DPFProvisioningVariables struct {
 	DMSTimeout                         *int
 	BFCFGTemplateConfig                *string
 	CustomCASecretName                 *string
+	ProvisioningIssuerCASecretName     *string
 	InstallInterface                   *operatorv1.ProvisioningInstallInterface
 	MaxDPUParallelInstallations        *int32
 	MultiDPUOperationsSyncWaitTime     time.Duration
@@ -282,6 +283,7 @@ func setBasicConfig(variables Variables, config *operatorv1.DPFOperatorConfig) V
 		//nolint:staticcheck // Intentionally using deprecated field for backward compatibility
 		BFCFGTemplateConfig:                config.Spec.ProvisioningController.BFCFGTemplateConfigMap,
 		CustomCASecretName:                 config.Spec.ProvisioningController.CustomCASecretName,
+		ProvisioningIssuerCASecretName:     nil,
 		InstallInterface:                   config.Spec.ProvisioningController.InstallInterface,
 		MaxDPUParallelInstallations:        config.Spec.ProvisioningController.MaxDPUParallelInstallations,
 		MaxUnavailableDPUNodes:             config.Spec.ProvisioningController.MaxUnavailableDPUNodes,
@@ -293,6 +295,9 @@ func setBasicConfig(variables Variables, config *operatorv1.DPFOperatorConfig) V
 		NodeEffectRemovalTimeout:           config.Spec.ProvisioningController.NodeEffectRemovalTimeout,
 		HostAgentDNSPolicy:                 config.Spec.ProvisioningController.HostAgentDNSPolicy,
 		DeploymentMode:                     config.Spec.DeploymentMode,
+	}
+	if config.Spec.Overrides != nil {
+		variables.DPFProvisioningController.ProvisioningIssuerCASecretName = config.Spec.Overrides.ProvisioningIssuerCASecretName
 	}
 	if config.Spec.ProvisioningController.MultiDPUOperationsSyncWaitTime != nil {
 		variables.DPFProvisioningController.MultiDPUOperationsSyncWaitTime = config.Spec.ProvisioningController.MultiDPUOperationsSyncWaitTime.Duration

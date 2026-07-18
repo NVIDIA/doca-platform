@@ -545,6 +545,15 @@ spec:
                         format: date-time
                         type: string
                     type: object
+                  trustBundleHash:
+                    description: TrustBundleHash is the bundle-hash value last applied
+                      by the DPU agent.
+                    type: string
+                  trustBundleLastUpdateTime:
+                    description: TrustBundleLastUpdateTime is when the trust bundle
+                      was last updated by the DPU agent.
+                    format: date-time
+                    type: string
                 type: object
               bfCFGFile:
                 description: BFCFGFile is the path to the bf.cfg

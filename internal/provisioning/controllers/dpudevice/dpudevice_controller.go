@@ -18,6 +18,7 @@ package dpudevice
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/x509"
 	b64 "encoding/base64"
 	"encoding/pem"
@@ -86,6 +87,10 @@ const (
 	serverCertIssuanceRequeue = 30 * time.Second
 	// serverCertRotationBackoff is used when the mTLS client cannot be opened for rotation.
 	serverCertRotationBackoff = 5 * time.Minute
+
+	CATrustBundleConfigMap = "dpf-ca-trust-bundle"
+	CATrustBundleDataKey   = "ca.crt"
+	BundleHashDataKey      = "bundle-hash"
 )
 
 // errCertRequestPending indicates the server-cert CertificateRequest is not yet issued and the
@@ -106,6 +111,7 @@ type DPUDeviceReconciler struct {
 //+kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpunodes,verbs=get;list;watch;create;update;patch
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;patch
 //+kubebuilder:rbac:groups=spire.spiffe.io,resources=clusterstaticentries,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -308,8 +314,29 @@ func (r *DPUDeviceReconciler) reconcile(ctx context.Context, dpuDevice *provisio
 		return result, nil
 	}
 
+	caResult, err := r.reconcileCATrustBundle(ctx, dpuDevice)
+	if err != nil {
+		return caResult, err
+	}
+	result = soonestRequeue(result, caResult)
+
 	log.Info("DPUDevice reconciled successfully", "dpuDevice", dpuDevice.Name)
 	return result, nil
+}
+
+// soonestRequeue returns the result requesting the earliest requeue. A zero RequeueAfter means no
+// periodic requeue was requested, so a non-zero value always takes precedence over zero.
+func soonestRequeue(a, b ctrl.Result) ctrl.Result {
+	switch {
+	case a.RequeueAfter == 0:
+		return b
+	case b.RequeueAfter == 0:
+		return a
+	case b.RequeueAfter < a.RequeueAfter:
+		return b
+	default:
+		return a
+	}
 }
 
 // checkDPUNodeAttachment checks if the DPUDevice is attached to a DPUNode. Returns whether the caller
@@ -515,6 +542,204 @@ func (r *DPUDeviceReconciler) initializeDPUDevice(ctx context.Context, dpuDevice
 	return nil
 }
 
+type desiredCATrustCert struct {
+	pem         string
+	fingerprint string
+}
+
+func (r *DPUDeviceReconciler) reconcileCATrustBundle(ctx context.Context, dpuDevice *provisioningv1.DPUDevice) (ctrl.Result, error) {
+	log := log.FromContext(ctx)
+	log.Info("Reconciling BMC CA trust bundle", "dpudevice", dpuDevice.Name, "namespace", dpuDevice.Namespace)
+	configMap := &corev1.ConfigMap{}
+	if err := r.Client.Get(ctx, types.NamespacedName{Name: CATrustBundleConfigMap, Namespace: dpuDevice.Namespace}, configMap); err != nil {
+		setCATrustBundleCondition(dpuDevice, metav1.ConditionFalse, provisioningv1.ReasonCATrustBundleUnavailable, fmt.Sprintf("failed to get ConfigMap %s: %v", CATrustBundleConfigMap, err))
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	}
+
+	bundlePEM := configMap.Data[CATrustBundleDataKey]
+	if bundlePEM == "" {
+		err := fmt.Errorf("ConfigMap %s is missing %q", CATrustBundleConfigMap, CATrustBundleDataKey)
+		setCATrustBundleCondition(dpuDevice, metav1.ConditionFalse, provisioningv1.ReasonCATrustBundleUnavailable, err.Error())
+		return ctrl.Result{}, err
+	}
+
+	desiredCerts, err := parseDesiredCATrustBundle(bundlePEM)
+	if err != nil {
+		setCATrustBundleCondition(dpuDevice, metav1.ConditionFalse, provisioningv1.ReasonCATrustBundleUnavailable, err.Error())
+		return ctrl.Result{}, err
+	}
+
+	bundleHash := configMap.Data[BundleHashDataKey]
+	if bundleHash == "" {
+		setCATrustBundleCondition(dpuDevice, metav1.ConditionFalse, provisioningv1.ReasonCATrustBundleUnavailable, fmt.Sprintf("ConfigMap %s is missing %q", CATrustBundleConfigMap, BundleHashDataKey))
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	}
+
+	if dpuDevice.Status.CATrustBundle == nil {
+		dpuDevice.Status.CATrustBundle = &provisioningv1.TrustBundleStatus{}
+	}
+
+	observedHash := ptr.Deref(dpuDevice.Status.CATrustBundle.ObservedBundleHash, "")
+	shouldSync := bundleHash != "" && observedHash != bundleHash
+	if !shouldSync {
+		// If desired and observed bundle hashes already match, keep the readiness condition stable.
+		if bundleHash != "" && observedHash == bundleHash {
+			setCATrustBundleCondition(dpuDevice, metav1.ConditionTrue, provisioningv1.ReasonCATrustBundleSynced, "")
+		}
+		log.Info("Skipping BMC CA trust bundle sync",
+			"dpudevice", dpuDevice.Name,
+			"desired_hash", bundleHash,
+			"observed_hash", observedHash,
+			"desired_cert_count", len(desiredCerts),
+		)
+		// No periodic requeue: the controller watches the CA trust bundle ConfigMap, so a bundle
+		// change re-triggers reconciliation.
+		return ctrl.Result{}, nil
+	}
+	setCATrustBundleCondition(dpuDevice, metav1.ConditionFalse, provisioningv1.ReasonCATrustBundleSyncing, "syncing BMC truststore with desired CA bundle")
+	log.Info("Starting BMC CA trust bundle sync",
+		"dpudevice", dpuDevice.Name,
+		"desired_hash", bundleHash,
+		"observed_hash", observedHash,
+		"desired_cert_count", len(desiredCerts),
+	)
+
+	tlsClient, err := rfclient.NewTLSClient(ctx, dpuDevice.BMCAddress(), dpuDevice.Namespace, r.Client)
+	if err != nil {
+		setCATrustBundleCondition(dpuDevice, metav1.ConditionFalse, provisioningv1.ReasonCATrustBundleSyncFailed, fmt.Sprintf("failed to create mTLS redfish client: %v", err))
+		return ctrl.Result{}, err
+	}
+
+	installedCerts, err := tlsClient.ListTruststoreCerts()
+	if err != nil {
+		setCATrustBundleCondition(dpuDevice, metav1.ConditionFalse, provisioningv1.ReasonCATrustBundleSyncFailed, fmt.Sprintf("failed to list truststore certificates: %v", err))
+		return ctrl.Result{}, err
+	}
+
+	desiredByFingerprint := make(map[string]desiredCATrustCert, len(desiredCerts))
+	for _, cert := range desiredCerts {
+		desiredByFingerprint[cert.fingerprint] = cert
+	}
+	installedByFingerprint := make(map[string]rfclient.TruststoreCert, len(installedCerts))
+	for _, cert := range installedCerts {
+		installedByFingerprint[cert.Fingerprint] = cert
+	}
+
+	log.Info("Calculated BMC truststore diff",
+		"dpudevice", dpuDevice.Name,
+		"desired_cert_count", len(desiredByFingerprint),
+		"installed_cert_count", len(installedByFingerprint),
+	)
+
+	installedCount := 0
+	for fingerprint, cert := range desiredByFingerprint {
+		if _, found := installedByFingerprint[fingerprint]; found {
+			continue
+		}
+		resp, _, err := tlsClient.InstallCert(cert.pem)
+		if err != nil {
+			log.Error(err, "Failed to install truststore certificate", "dpudevice", dpuDevice.Name, "fingerprint", fingerprint)
+			setCATrustBundleCondition(dpuDevice, metav1.ConditionFalse, provisioningv1.ReasonCATrustBundleSyncFailed, fmt.Sprintf("failed to install truststore cert %s: %v", fingerprint, err))
+			return ctrl.Result{}, fmt.Errorf("install truststore cert %s: %w", fingerprint, err)
+		}
+		if resp.StatusCode() != http.StatusOK {
+			log.Info("Unexpected status while installing truststore certificate", "dpudevice", dpuDevice.Name, "fingerprint", fingerprint, "status", resp.Status())
+			setCATrustBundleCondition(dpuDevice, metav1.ConditionFalse, provisioningv1.ReasonCATrustBundleSyncFailed, fmt.Sprintf("install truststore cert %s: unexpected status %s", fingerprint, resp.Status()))
+			return ctrl.Result{}, fmt.Errorf("install truststore cert %s: unexpected status %s", fingerprint, resp.Status())
+		}
+		log.Info("Installed missing truststore certificate", "fingerprint", fingerprint)
+		installedCount++
+	}
+
+	removedCount := 0
+	for fingerprint, cert := range installedByFingerprint {
+		if _, keep := desiredByFingerprint[fingerprint]; keep {
+			continue
+		}
+		resp, _, err := tlsClient.DeleteTruststoreCert(cert.URI)
+		if err != nil {
+			log.Error(err, "Failed to delete truststore certificate", "dpudevice", dpuDevice.Name, "fingerprint", fingerprint, "uri", cert.URI)
+			setCATrustBundleCondition(dpuDevice, metav1.ConditionFalse, provisioningv1.ReasonCATrustBundleSyncFailed, fmt.Sprintf("failed to delete truststore cert %s (%s): %v", fingerprint, cert.URI, err))
+			return ctrl.Result{}, fmt.Errorf("delete truststore cert %s (%s): %w", fingerprint, cert.URI, err)
+		}
+		if resp.StatusCode() != http.StatusOK &&
+			resp.StatusCode() != http.StatusAccepted &&
+			resp.StatusCode() != http.StatusNoContent &&
+			resp.StatusCode() != http.StatusNotFound {
+			log.Info("Unexpected status while deleting truststore certificate", "dpudevice", dpuDevice.Name, "fingerprint", fingerprint, "uri", cert.URI, "status", resp.Status())
+			setCATrustBundleCondition(dpuDevice, metav1.ConditionFalse, provisioningv1.ReasonCATrustBundleSyncFailed, fmt.Sprintf("delete truststore cert %s (%s): unexpected status %s", fingerprint, cert.URI, resp.Status()))
+			return ctrl.Result{}, fmt.Errorf("delete truststore cert %s (%s): unexpected status %s", fingerprint, cert.URI, resp.Status())
+		}
+		log.Info("Removed stale truststore certificate", "fingerprint", fingerprint, "uri", cert.URI)
+		removedCount++
+	}
+
+	if bundleHash != "" {
+		dpuDevice.Status.CATrustBundle.ObservedBundleHash = ptr.To(bundleHash)
+	}
+	now := metav1.Now()
+	dpuDevice.Status.CATrustBundle.LastUpdateTime = &now
+
+	setCATrustBundleCondition(dpuDevice, metav1.ConditionTrue, provisioningv1.ReasonCATrustBundleSynced, "")
+	log.Info("Completed BMC CA trust bundle sync",
+		"dpudevice", dpuDevice.Name,
+		"desired_hash", bundleHash,
+		"installed", installedCount,
+		"removed", removedCount,
+	)
+	// No periodic requeue: the controller watches the CA trust bundle ConfigMap, so a bundle change
+	// re-triggers reconciliation.
+	return ctrl.Result{}, nil
+}
+
+func setCATrustBundleCondition(dpuDevice *provisioningv1.DPUDevice, status metav1.ConditionStatus, reason, message string) {
+	conditionsList := dpuDevice.GetConditions()
+	meta.SetStatusCondition(&conditionsList, metav1.Condition{
+		Type:               string(provisioningv1.ConditionDpuDeviceCATrustBundleReady),
+		Status:             status,
+		Reason:             reason,
+		Message:            message,
+		ObservedGeneration: dpuDevice.GetGeneration(),
+	})
+	dpuDevice.SetConditions(conditionsList)
+}
+
+func parseDesiredCATrustBundle(bundlePEM string) ([]desiredCATrustCert, error) {
+	remaining := []byte(bundlePEM)
+	seen := map[string]struct{}{}
+	ret := []desiredCATrustCert{}
+
+	for {
+		block, rest := pem.Decode(remaining)
+		if block == nil {
+			break
+		}
+		remaining = rest
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("failed parsing certificate in bundle: %w", err)
+		}
+		fingerprintRaw := sha256.Sum256(cert.Raw)
+		fingerprint := fmt.Sprintf("%x", fingerprintRaw)
+		if _, found := seen[fingerprint]; found {
+			continue
+		}
+		seen[fingerprint] = struct{}{}
+		ret = append(ret, desiredCATrustCert{
+			pem:         string(pem.EncodeToMemory(block)),
+			fingerprint: fingerprint,
+		})
+	}
+	if len(ret) == 0 {
+		return nil, fmt.Errorf("trust bundle does not contain any PEM certificates")
+	}
+	return ret, nil
+}
+
 func (r *DPUDeviceReconciler) discoverDPUDevice(ctx context.Context, dpuDevice *provisioningv1.DPUDevice) error {
 	log := log.FromContext(ctx)
 	log.Info("Discovering DPUDevice", "dpuDevice", dpuDevice.Name)
@@ -636,13 +861,9 @@ func (r *DPUDeviceReconciler) discoverDPUDevice(ctx context.Context, dpuDevice *
 
 // setUpMTLS sets up BMC mTLS in the same way as https://github.com/openbmc/bmcweb/blob/master/scripts/generate_auth_certificates.py
 func (r *DPUDeviceReconciler) setUpMTLS(ctx context.Context, dpudevice *provisioningv1.DPUDevice, basicAuthClient *rfclient.Client) (bool, error) {
-	caSecret := &corev1.Secret{}
-	if err := r.Client.Get(ctx, types.NamespacedName{Name: rfclient.CASecret, Namespace: dpudevice.Namespace}, caSecret); err != nil {
-		return false, fmt.Errorf("failed to get CA cert, err: %v", err)
-	}
-	caCert, ok := caSecret.Data["tls.crt"]
-	if !ok {
-		return false, fmt.Errorf("no CA cert in secret %s", caSecret.Name)
+	caCert, err := r.getBootstrapCACert(ctx, dpudevice.Namespace)
+	if err != nil {
+		return false, fmt.Errorf("failed to get bootstrap CA cert: %w", err)
 	}
 
 	// step 1: install or replace CA certificate
@@ -740,6 +961,21 @@ func (r *DPUDeviceReconciler) setUpMTLS(ctx context.Context, dpudevice *provisio
 // generateCR builds a cert-manager CertificateRequest for the BMC server certificate. The CR uses
 // a fixed, deterministic name (<dpudevice.Name>-server) and is owner-referenced to the DPUDevice so
 // cert-manager objects are cleaned up on deletion.
+func (r *DPUDeviceReconciler) getBootstrapCACert(ctx context.Context, namespace string) ([]byte, error) {
+	caTrustBundle := &corev1.ConfigMap{}
+	if err := r.Client.Get(ctx, types.NamespacedName{Name: rfclient.CATrustBundleConfigMap, Namespace: namespace}, caTrustBundle); err != nil {
+		return nil, fmt.Errorf("failed to get ConfigMap %q: %w", rfclient.CATrustBundleConfigMap, err)
+	}
+	bundle := []byte(caTrustBundle.Data[rfclient.CATrustBundleKey])
+	if len(bundle) == 0 {
+		return nil, fmt.Errorf("configmap %s is missing %q", rfclient.CATrustBundleConfigMap, rfclient.CATrustBundleKey)
+	}
+	if _, err := parseDesiredCATrustBundle(string(bundle)); err != nil {
+		return nil, fmt.Errorf("configmap %s contains no valid certificate PEM: %w", rfclient.CATrustBundleConfigMap, err)
+	}
+	return bundle, nil
+}
+
 func (r *DPUDeviceReconciler) generateCR(dpudevice *provisioningv1.DPUDevice, csr string) (*unstructured.Unstructured, error) {
 	cr := &unstructured.Unstructured{}
 	cr.SetGroupVersionKind(schema.GroupVersionKind{
@@ -1287,6 +1523,25 @@ func (r *DPUDeviceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	builder := ctrl.NewControllerManagedBy(mgr).
 		For(&provisioningv1.DPUDevice{}).
 		Owns(certificateRequest).
+		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []ctrl.Request {
+			if obj.GetName() != CATrustBundleConfigMap {
+				return nil
+			}
+			dpuDeviceList := &provisioningv1.DPUDeviceList{}
+			if err := r.List(ctx, dpuDeviceList, client.InNamespace(obj.GetNamespace())); err != nil {
+				return nil
+			}
+			requests := make([]ctrl.Request, 0, len(dpuDeviceList.Items))
+			for _, dpuDevice := range dpuDeviceList.Items {
+				requests = append(requests, ctrl.Request{
+					NamespacedName: types.NamespacedName{
+						Name:      dpuDevice.Name,
+						Namespace: dpuDevice.Namespace,
+					},
+				})
+			}
+			return requests
+		})).
 		Watches(&provisioningv1.DPUNode{}, handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []ctrl.Request {
 			dpuNode := obj.(*provisioningv1.DPUNode)
 			var requests []ctrl.Request

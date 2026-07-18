@@ -18,9 +18,11 @@ package client
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -92,8 +94,10 @@ const (
 	// APIHostPrivilegeConfigSettings is the Settings URI for host privilege configuration (BF4).
 	APIHostPrivilegeConfigSettings = APIRootService + "/Chassis/BlueField_0/NetworkAdapters/BlueField_NIC_0/Oem/Nvidia/HostPrivilegeConfig/Settings"
 
-	// CASecret is created by the cert-manager Certificate deployed by DPF,
-	CASecret = "dpf-provisioning-ca-secret"
+	// CATrustBundleConfigMap is the ConfigMap containing trust bundle PEM set.
+	CATrustBundleConfigMap = "dpf-ca-trust-bundle"
+	// CATrustBundleKey is the data key containing PEM certificate bundle.
+	CATrustBundleKey = "ca.crt"
 	// Issuer is a cert-manager Issuer deployed by DPF
 	Issuer = "dpf-provisioning-issuer"
 	// ClientCertSecret and ClientCertSecretBF4 are created by the cert-manager Certificates deployed
@@ -220,6 +224,26 @@ type Managers struct {
 
 type Manager struct {
 	ODataID string `json:"@odata.id,omitempty"`
+}
+
+type odataRef struct {
+	ODataID string `json:"@odata.id,omitempty"`
+}
+
+// TruststoreCollection is the Redfish truststore certificate collection response.
+type TruststoreCollection struct {
+	Members []odataRef `json:"Members,omitempty"`
+}
+
+// TruststoreCertificate is the Redfish certificate resource response.
+type TruststoreCertificate struct {
+	CertificateString string `json:"CertificateString,omitempty"`
+}
+
+// TruststoreCert contains truststore member URI and certificate fingerprint.
+type TruststoreCert struct {
+	URI         string
+	Fingerprint string
 }
 
 type Systems struct {
@@ -368,6 +392,70 @@ func (c *Client) InstallCert(caCert string) (*resty.Response, *ExtendedInfo, err
 			SetBody(caCertJSON).
 			Post(strings.Replace(APIInstallCert, managerIDPlaceholder, *managerID, 1))
 	})
+}
+
+// ListTruststoreCerts lists BMC truststore certificates and computes SHA-256
+// fingerprints from certificate raw bytes.
+func (c *Client) ListTruststoreCerts() ([]TruststoreCert, error) {
+	managerID, err := getBMCManagerID(c)
+	if err != nil {
+		return nil, err
+	}
+
+	collectionURI := strings.Replace(APIInstallCert, "{MANAGER_ID}", *managerID, 1)
+	collectionResp, collection, err := do[TruststoreCollection](func() (*resty.Response, error) {
+		return c.Client.R().Get(collectionURI)
+	})
+	if err != nil {
+		return nil, err
+	}
+	if collectionResp.StatusCode() != http.StatusOK {
+		return nil, fmt.Errorf("list truststore certificates %q: unexpected status code %d", collectionURI, collectionResp.StatusCode())
+	}
+
+	ret := make([]TruststoreCert, 0, len(collection.Members))
+	for _, member := range collection.Members {
+		uri := normalizeRedfishURI(member.ODataID)
+		if uri == "" {
+			continue
+		}
+		certResp, certResource, err := do[TruststoreCertificate](func() (*resty.Response, error) {
+			return c.Client.R().Get(uri)
+		})
+		if err != nil {
+			return nil, err
+		}
+		if certResp.StatusCode() != http.StatusOK {
+			return nil, fmt.Errorf("get truststore certificate %q: unexpected status code %d", uri, certResp.StatusCode())
+		}
+
+		fingerprint, err := certificateFingerprintSHA256(certResource.CertificateString)
+		if err != nil {
+			return nil, fmt.Errorf("parse truststore certificate %q: %w", uri, err)
+		}
+		ret = append(ret, TruststoreCert{
+			URI:         uri,
+			Fingerprint: fingerprint,
+		})
+	}
+	return ret, nil
+}
+
+// DeleteTruststoreCert deletes a truststore certificate at the given Redfish URI.
+func (c *Client) DeleteTruststoreCert(certURI string) (*resty.Response, *ExtendedInfo, error) {
+	resp, err := c.Client.R().Delete(normalizeRedfishURI(certURI))
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(resp.Body()) == 0 {
+		return resp, nil, nil
+	}
+
+	info := &ExtendedInfo{}
+	if err := json.Unmarshal(resp.Body(), info); err != nil {
+		return resp, nil, err
+	}
+	return resp, info, nil
 }
 
 // ReplaceCACert replaces the trusted CA certificate with the given caCert
@@ -586,9 +674,13 @@ func (c *Client) InstallBFB(imageURI string) (*resty.Response, *TaskInfo, error)
 }
 
 func (c *Client) GetManagers() (*resty.Response, *Managers, error) {
-	return do[Managers](func() (*resty.Response, error) {
+	resp, managers, err := do[Managers](func() (*resty.Response, error) {
 		return c.Client.R().Get(APIGetManagers)
 	})
+	if err != nil {
+		return resp, nil, fmt.Errorf("get managers from %q failed: %w", APIGetManagers, err)
+	}
+	return resp, managers, nil
 }
 
 func getBMCManagerID(c *Client) (*string, error) {
@@ -610,6 +702,26 @@ func getBMCManagerID(c *Client) (*string, error) {
 		return nil, fmt.Errorf("no BMC manager found")
 	}
 	return &managerID, nil
+}
+
+func normalizeRedfishURI(uri string) string {
+	if uri == "" {
+		return uri
+	}
+	return strings.TrimPrefix(uri, "/")
+}
+
+func certificateFingerprintSHA256(certPEM string) (string, error) {
+	block, _ := pem.Decode([]byte(certPEM))
+	if block == nil {
+		return "", fmt.Errorf("no PEM block found")
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(cert.Raw)
+	return fmt.Sprintf("%x", sum), nil
 }
 
 // FactoryResetBMC resets BMC to factory defaults. For more information, refer to
@@ -860,9 +972,23 @@ func do[T any](req reqFunc) (*resty.Response, *T, error) {
 	}
 	var t T
 	if err := json.Unmarshal(resp.Body(), &t); err != nil {
-		return resp, nil, err
+		return resp, nil, fmt.Errorf("failed to decode redfish response: %w (%s)", err, responseDebugSummary(resp))
 	}
 	return resp, &t, nil
+}
+
+func responseDebugSummary(resp *resty.Response) string {
+	if resp == nil {
+		return "response=nil"
+	}
+
+	body := strings.TrimSpace(string(resp.Body()))
+	if len(body) > 256 {
+		body = body[:256] + "...(truncated)"
+	}
+	body = strings.ReplaceAll(body, "\n", "\\n")
+
+	return fmt.Sprintf("status=%s body_len=%d body_snippet=%q", resp.Status(), len(resp.Body()), body)
 }
 
 // NewRawClient creates a client to check if the BMC is reachable
@@ -1118,7 +1244,7 @@ func NewTLSClient(ctx context.Context, bmcAddress string, namespace string, k8sC
 	}
 
 	certSource := newCertSource(k8sClient, namespace)
-	caCert, err := certSource.CACert(ctx)
+	caCertBundle, err := certSource.CACert(ctx)
 	if err != nil {
 		return nil, tlsClientError(bmcAddress, err)
 	}
@@ -1127,8 +1253,8 @@ func NewTLSClient(ctx context.Context, bmcAddress string, namespace string, k8sC
 		return nil, tlsClientError(bmcAddress, err)
 	}
 	certPool := x509.NewCertPool()
-	if !certPool.AppendCertsFromPEM(caCert) {
-		return nil, tlsClientError(bmcAddress, fmt.Errorf("failed to load CA certs"))
+	if !certPool.AppendCertsFromPEM(caCertBundle) {
+		return nil, fmt.Errorf("failed to load CA certs")
 	}
 	tlsCfg, err := newRedfishTLSConfig(certPool, []tls.Certificate{clientKeyPair}, false, serverName)
 	if err != nil {
@@ -1144,11 +1270,11 @@ func NewTLSClient(ctx context.Context, bmcAddress string, namespace string, k8sC
 	// We will optimize it after redfish is stable.
 	resp, _, err := tlsClient.GetManagers()
 	if err != nil {
-		return nil, tlsClientError(bmcAddress, fmt.Errorf("verify mtls client failed, err: %w", err))
+		return nil, tlsClientError(bmcAddress, fmt.Errorf("verify mtls client failed on %q: %w", APIGetManagers, err))
 	}
 
 	if resp != nil && resp.StatusCode() != http.StatusOK {
-		return nil, tlsClientError(bmcAddress, fmt.Errorf("redfish call getManagers failed, status code: %s", resp.Status()))
+		return nil, tlsClientError(bmcAddress, fmt.Errorf("redfish call %q failed: %s (%s)", APIGetManagers, resp.Status(), responseDebugSummary(resp)))
 	}
 
 	return tlsClient, nil

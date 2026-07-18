@@ -207,6 +207,20 @@ spec:
                       was last honored, so the same trigger is not processed twice.
                     type: string
                 type: object
+              caTrustBundle:
+                description: CATrustBundle stores trust bundle reconciliation progress
+                  for the DPUDevice.
+                properties:
+                  lastUpdateTime:
+                    description: LastUpdateTime is when the last successful reconciliation
+                      completed.
+                    format: date-time
+                    type: string
+                  observedBundleHash:
+                    description: ObservedBundleHash records the last successfully
+                      applied bundle hash.
+                    type: string
+                type: object
               conditions:
                 items:
                   description: Condition contains details for one aspect of the current

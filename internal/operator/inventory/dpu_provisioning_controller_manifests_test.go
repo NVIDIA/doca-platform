@@ -329,6 +329,95 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 		}
 	})
 
+	t.Run("test overriding provisioning issuer ca secret name", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		expectedSecretName := "dpf-ca-secret-old"
+		vars := newDefaultVariables(defaults)
+		vars.DPFProvisioningController = DPFProvisioningVariables{
+			BFBPersistentVolumeClaimName:   ptr.To("pvc"),
+			DeploymentMode:                 operatorv1.DeploymentModeHostTrusted,
+			ProvisioningIssuerCASecretName: &expectedSecretName,
+		}
+
+		generatedObjs, err := provCtrl.GenerateManifests(context.Background(), vars)
+		g.Expect(err).NotTo(HaveOccurred())
+
+		var provisioningIssuer *unstructured.Unstructured
+		for _, obj := range generatedObjs {
+			if obj.GetObjectKind().GroupVersionKind().Kind == string(IssuerKind) && obj.GetName() == provisioningIssuerName {
+				uns, ok := obj.(*unstructured.Unstructured)
+				g.Expect(ok).To(BeTrue())
+				provisioningIssuer = uns
+				break
+			}
+		}
+
+		g.Expect(provisioningIssuer).NotTo(BeNil())
+		gotSecretName, found, err := unstructured.NestedString(provisioningIssuer.UnstructuredContent(), "spec", "ca", "secretName")
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(found).To(BeTrue())
+		g.Expect(gotSecretName).To(Equal(expectedSecretName))
+	})
+
+	t.Run("test provisioning issuer ca secret name uses default when unset", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		vars := newDefaultVariables(defaults)
+		vars.DPFProvisioningController = DPFProvisioningVariables{
+			BFBPersistentVolumeClaimName:   ptr.To("pvc"),
+			DeploymentMode:                 operatorv1.DeploymentModeHostTrusted,
+			ProvisioningIssuerCASecretName: nil,
+		}
+
+		generatedObjs, err := provCtrl.GenerateManifests(context.Background(), vars)
+		g.Expect(err).NotTo(HaveOccurred())
+
+		var provisioningIssuer *unstructured.Unstructured
+		for _, obj := range generatedObjs {
+			if obj.GetObjectKind().GroupVersionKind().Kind == string(IssuerKind) && obj.GetName() == provisioningIssuerName {
+				uns, ok := obj.(*unstructured.Unstructured)
+				g.Expect(ok).To(BeTrue())
+				provisioningIssuer = uns
+				break
+			}
+		}
+
+		g.Expect(provisioningIssuer).NotTo(BeNil())
+		gotSecretName, found, err := unstructured.NestedString(provisioningIssuer.UnstructuredContent(), "spec", "ca", "secretName")
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(found).To(BeTrue())
+		g.Expect(gotSecretName).To(Equal(defaultProvisioningIssuerCASecret))
+	})
+
+	t.Run("test provisioning issuer ca secret name falls back on empty value", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		emptySecretName := ""
+		vars := newDefaultVariables(defaults)
+		vars.DPFProvisioningController = DPFProvisioningVariables{
+			BFBPersistentVolumeClaimName:   ptr.To("pvc"),
+			DeploymentMode:                 operatorv1.DeploymentModeHostTrusted,
+			ProvisioningIssuerCASecretName: &emptySecretName,
+		}
+
+		generatedObjs, err := provCtrl.GenerateManifests(context.Background(), vars)
+		g.Expect(err).NotTo(HaveOccurred())
+
+		var provisioningIssuer *unstructured.Unstructured
+		for _, obj := range generatedObjs {
+			if obj.GetObjectKind().GroupVersionKind().Kind == string(IssuerKind) && obj.GetName() == provisioningIssuerName {
+				uns, ok := obj.(*unstructured.Unstructured)
+				g.Expect(ok).To(BeTrue())
+				provisioningIssuer = uns
+				break
+			}
+		}
+
+		g.Expect(provisioningIssuer).NotTo(BeNil())
+		gotSecretName, found, err := unstructured.NestedString(provisioningIssuer.UnstructuredContent(), "spec", "ca", "secretName")
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(found).To(BeTrue())
+		g.Expect(gotSecretName).To(Equal(defaultProvisioningIssuerCASecret))
+	})
+
 	t.Run("test hostPath BFB and init container when no PVC", func(t *testing.T) {
 		g := NewGomegaWithT(t)
 		vars := newDefaultVariables(defaults)
