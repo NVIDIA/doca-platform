@@ -127,7 +127,7 @@ var _ = Describe("ZT Bootstrap", func() {
 			Expect(role.Rules[4].Verbs).To(Equal([]string{"get"}))
 			Expect(role.Rules[5].APIGroups).To(Equal([]string{""}))
 			Expect(role.Rules[5].Resources).To(Equal([]string{"configmaps"}))
-			Expect(role.Rules[5].ResourceNames).To(Equal([]string{"doca-profile"}))
+			Expect(role.Rules[5].ResourceNames).To(Equal([]string{"doca-profile", "dpf-ca-trust-bundle"}))
 			Expect(role.Rules[5].Verbs).To(Equal([]string{"get"}))
 
 			Expect(role.OwnerReferences).To(HaveLen(1))
@@ -154,6 +154,27 @@ var _ = Describe("ZT Bootstrap", func() {
 
 			Expect(CreateDPUAgentRole(ctx, fakeClient, scheme, dpu, nil)).To(Succeed())
 			Expect(CreateDPUAgentRole(ctx, fakeClient, scheme, dpu, nil)).To(Succeed())
+		})
+
+		It("should grant access to dpf-ca-trust-bundle even when flavor has no configmap references", func() {
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+			dpu.Spec.BlueFieldSoftware = ptr.To("bfs-1")
+
+			Expect(CreateDPUAgentRole(ctx, fakeClient, scheme, dpu, nil)).To(Succeed())
+
+			role := &rbacv1.Role{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{
+				Name:      "da-dpu-01",
+				Namespace: "dpf-operator-system",
+			}, role)).To(Succeed())
+			Expect(role.Rules).To(HaveLen(6))
+			Expect(role.Rules[4].APIGroups).To(Equal([]string{"provisioning.dpu.nvidia.com"}))
+			Expect(role.Rules[4].Resources).To(Equal([]string{"dpuflavors"}))
+			Expect(role.Rules[4].ResourceNames).To(Equal([]string{"dpf-provisioning-hbn"}))
+			Expect(role.Rules[4].Verbs).To(Equal([]string{"get"}))
+			Expect(role.Rules[5].Resources).To(Equal([]string{"configmaps"}))
+			Expect(role.Rules[5].ResourceNames).To(Equal([]string{"dpf-ca-trust-bundle"}))
+			Expect(role.Rules[5].Verbs).To(Equal([]string{"get"}))
 		})
 
 		It("should update existing role when configmap references change", func() {
@@ -195,7 +216,7 @@ var _ = Describe("ZT Bootstrap", func() {
 			Expect(role.Rules[0].Verbs).To(Equal([]string{"get", "list", "watch"}))
 			Expect(role.Rules[1].Verbs).To(Equal([]string{"patch"}))
 			Expect(role.Rules[5].Resources).To(Equal([]string{"configmaps"}))
-			Expect(role.Rules[5].ResourceNames).To(Equal([]string{"cfg-a", "cfg-b"}))
+			Expect(role.Rules[5].ResourceNames).To(Equal([]string{"cfg-a", "cfg-b", "dpf-ca-trust-bundle"}))
 		})
 	})
 

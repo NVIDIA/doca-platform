@@ -543,6 +543,13 @@ type AgentStatus struct {
 	// PreInstall holds agent-reported status for work done before OS install in the reprovisioning process.
 	// +optional
 	PreInstall *AgentPreInstallStatus `json:"preInstall,omitempty"`
+	// TrustBundleHash is the bundle-hash value last applied by the DPU agent.
+	// +optional
+	TrustBundleHash *string `json:"trustBundleHash,omitempty"`
+
+	// TrustBundleLastUpdateTime is when the trust bundle was last updated by the DPU agent.
+	// +optional
+	TrustBundleLastUpdateTime *metav1.Time `json:"trustBundleLastUpdateTime,omitempty"`
 
 	// Conditions contains the conditions reported from inside the DPU
 	// +optional

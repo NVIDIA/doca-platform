@@ -28,6 +28,7 @@ import (
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	rfclient "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
+	redfishmock "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/mock"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 
@@ -54,6 +55,10 @@ var (
 	cancel      context.CancelFunc
 	testNS      *corev1.Namespace
 	testObjects []client.Object
+	// testCATrustBundlePEM is a valid CA certificate PEM used to populate the dpf-ca-trust-bundle
+	// ConfigMap that NewTLSClient reads. Individual tests that dial a mock BMC should patch this
+	// bundle with mockServer.GetServerCertPEM() so server chain verification succeeds.
+	testCATrustBundlePEM []byte
 )
 
 func TestRedfish(t *testing.T) {
@@ -95,6 +100,15 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
 
+	// The verified mTLS client validates the BMC server certificate chain against the CA trust
+	// bundle. httptest serves a fixed built-in certificate (carrying the 127.0.0.1 IP SAN) that is
+	// shared by every mock server, so capturing it once here lets the bundle verify all mock BMCs.
+	probeServer, probeErr := redfishmock.CreateMockRedfishServer("BF-24.10", "password")
+	Expect(probeErr).NotTo(HaveOccurred())
+	testCATrustBundlePEM = probeServer.GetServerCertPEM()
+	probeServer.Stop()
+	Expect(testCATrustBundlePEM).NotTo(BeEmpty())
+
 	// The verified mTLS client reads its key pair from a mounted directory. Provide one for the
 	// suite so NewTLSClient can build the client (the mock BMC does not require client auth).
 	_, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts("127.0.0.1")
@@ -118,6 +132,19 @@ var _ = BeforeEach(func() {
 		return k8sClient.Create(ctx, testNS)
 	}).WithTimeout(10 * time.Second).Should(Succeed())
 	testObjects = []client.Object{}
+
+	// NewTLSClient reads the CA bundle from the dpf-ca-trust-bundle ConfigMap in the DPU namespace.
+	// Create it in every test namespace so mTLS Redfish clients can be constructed.
+	caBundleCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      rfclient.CATrustBundleConfigMap,
+			Namespace: testNS.Name,
+		},
+		Data: map[string]string{
+			rfclient.CATrustBundleKey: string(testCATrustBundlePEM),
+		},
+	}
+	Expect(k8sClient.Create(ctx, caBundleCM)).To(Succeed())
 })
 
 var _ = AfterEach(func() {

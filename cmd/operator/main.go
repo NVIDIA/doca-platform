@@ -160,6 +160,15 @@ func main() {
 						},
 					},
 				},
+				// Scope the ConfigMap informer to the single CA trust bundle ConfigMap watched by the
+				// DPFOperatorConfig controller to avoid watching all ConfigMaps cluster-wide.
+				&corev1.ConfigMap{}: {
+					Namespaces: map[string]cache.Config{
+						configSingletonNamespace: {
+							FieldSelector: fields.OneTermEqualSelector("metadata.name", operatorv1.DefaultCATrustBundleConfigMapName),
+						},
+					},
+				},
 			},
 		},
 		LeaderElection: enableLeaderElection,

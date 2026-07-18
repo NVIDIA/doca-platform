@@ -164,6 +164,8 @@ func main() {
 	} else {
 		klog.Info("DPUAgent successfully completed all operations")
 	}
+	klog.Info("DPUAgent successfully completed all operations")
+	agent.StartCACertUpdateLoop(execCtx)
 	agent.StartNICRuntimeConfigLoop(execCtx)
 	agent.StartDPUReconcileLoop(execCtx)
 	<-execCtx.Done()

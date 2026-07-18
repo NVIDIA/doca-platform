@@ -51,8 +51,8 @@ spec:
   - SERVICE_NAME.SERVICE_NAMESPACE.svc.cluster.local
   commonName: dpf-provisioning-ca-cert
   isCA: true
-  duration: 8760h
-  renewBefore: 4360h
+  duration: 26280h
+  renewBefore: 13140h
   issuerRef:
     kind: Issuer
     name: selfsigned-issuer

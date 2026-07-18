@@ -452,15 +452,15 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			// Generate mTLS certificates for testing
 			_, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(bmcIP)
 
-			// CA secret that the client expects
-			caSecret := &corev1.Secret{
+			// CA trust bundle must include the mock BMC server certificate so the verified mTLS
+			// client can validate the httptest self-signed server cert.
+			caSecret := &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "dpf-provisioning-ca-secret",
+					Name:      "dpf-ca-trust-bundle",
 					Namespace: testNamespace,
 				},
-				Type: corev1.SecretTypeTLS,
-				Data: map[string][]byte{
-					"tls.crt": mockServer.GetServerCertPEM(),
+				Data: map[string]string{
+					"ca.crt": string(mockServer.GetServerCertPEM()),
 				},
 			}
 
@@ -615,14 +615,13 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			// Create TLS secrets for the mock server
 			_, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(bmcIP)
 
-			caSecret := &corev1.Secret{
+			caSecret := &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "dpf-provisioning-ca-secret",
+					Name:      "dpf-ca-trust-bundle",
 					Namespace: testNamespace,
 				},
-				Type: corev1.SecretTypeTLS,
-				Data: map[string][]byte{
-					"tls.crt": mockServer.GetServerCertPEM(),
+				Data: map[string]string{
+					"ca.crt": string(mockServer.GetServerCertPEM()),
 				},
 			}
 
@@ -698,14 +697,13 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			// Create TLS secrets for the mock server
 			_, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(bmcIP)
 
-			caSecret := &corev1.Secret{
+			caSecret := &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "dpf-provisioning-ca-secret",
+					Name:      "dpf-ca-trust-bundle",
 					Namespace: testNamespace,
 				},
-				Type: corev1.SecretTypeTLS,
-				Data: map[string][]byte{
-					"tls.crt": mockServer.GetServerCertPEM(),
+				Data: map[string]string{
+					"ca.crt": string(mockServer.GetServerCertPEM()),
 				},
 			}
 
@@ -1148,6 +1146,112 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			Expect(condition.Status).To(Equal(metav1.ConditionFalse))
 			Expect(condition.Reason).To(Equal(provisioningv1.ReasonBMCAuthenticationFailed))
 			Expect(condition.Message).To(ContainSubstring("password is wrong"))
+		})
+	})
+
+	Context("CA trust bundle condition reasons", func() {
+		It("should set CATrustBundleReady=False with CATrustBundleUnavailable when bundle ConfigMap is missing", func() {
+			ctx := context.Background()
+			scheme := runtime.NewScheme()
+			_ = provisioningv1.AddToScheme(scheme)
+			_ = corev1.AddToScheme(scheme)
+
+			k8sClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				Build()
+
+			reconciler := &DPUDeviceReconciler{
+				Client: k8sClient,
+			}
+
+			dpuDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "test-dpudevice-ca-unavailable",
+					Namespace:  "test-namespace",
+					Generation: 3,
+				},
+			}
+
+			result, err := reconciler.reconcileCATrustBundle(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(5 * time.Second))
+
+			condition := findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceCATrustBundleReady))
+			Expect(condition).NotTo(BeNil())
+			Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+			Expect(condition.Reason).To(Equal(provisioningv1.ReasonCATrustBundleUnavailable))
+			Expect(condition.Message).To(ContainSubstring("failed to get ConfigMap"))
+			Expect(condition.ObservedGeneration).To(Equal(int64(3)))
+		})
+
+		It("should set CATrustBundleReady=False with CATrustBundleUnavailable when bundle-hash is missing", func() {
+			ctx := context.Background()
+			scheme := runtime.NewScheme()
+			_ = provisioningv1.AddToScheme(scheme)
+			_ = corev1.AddToScheme(scheme)
+
+			caCrt, _, _, _, _ := testutils.CreateMTLSCerts("127.0.0.1")
+			caTrustBundle := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      CATrustBundleConfigMap,
+					Namespace: "test-namespace",
+				},
+				Data: map[string]string{
+					CATrustBundleDataKey: string(caCrt),
+				},
+			}
+
+			k8sClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(caTrustBundle).
+				Build()
+
+			reconciler := &DPUDeviceReconciler{
+				Client: k8sClient,
+			}
+
+			dpuDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "test-dpudevice-ca-missing-generation",
+					Namespace:  "test-namespace",
+					Generation: 5,
+				},
+			}
+
+			result, err := reconciler.reconcileCATrustBundle(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(5 * time.Second))
+
+			condition := findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceCATrustBundleReady))
+			Expect(condition).NotTo(BeNil())
+			Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+			Expect(condition.Reason).To(Equal(provisioningv1.ReasonCATrustBundleUnavailable))
+			Expect(condition.Message).To(ContainSubstring(`is missing "bundle-hash"`))
+			Expect(condition.ObservedGeneration).To(Equal(int64(5)))
+		})
+
+		It("should write CATrustBundleSyncing reason on condition update", func() {
+			dpuDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "test-dpudevice-ca-syncing",
+					Namespace:  "test-namespace",
+					Generation: 7,
+				},
+			}
+
+			setCATrustBundleCondition(
+				dpuDevice,
+				metav1.ConditionFalse,
+				provisioningv1.ReasonCATrustBundleSyncing,
+				"syncing BMC truststore with desired CA bundle",
+			)
+
+			condition := findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceCATrustBundleReady))
+			Expect(condition).NotTo(BeNil())
+			Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+			Expect(condition.Reason).To(Equal(provisioningv1.ReasonCATrustBundleSyncing))
+			Expect(condition.Message).To(Equal("syncing BMC truststore with desired CA bundle"))
+			Expect(condition.ObservedGeneration).To(Equal(int64(7)))
 		})
 	})
 
@@ -2388,14 +2492,13 @@ func setupDiscoveryTest() (*mock.RedfishMockServer, *DPUDeviceReconciler) {
 	bmcIP := mockServer.GetIPAddress()
 	_, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(bmcIP)
 
-	caSecret := &corev1.Secret{
+	caSecret := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "dpf-provisioning-ca-secret",
+			Name:      "dpf-ca-trust-bundle",
 			Namespace: testNamespace,
 		},
-		Type: corev1.SecretTypeTLS,
-		Data: map[string][]byte{
-			"tls.crt": mockServer.GetServerCertPEM(),
+		Data: map[string]string{
+			"ca.crt": string(mockServer.GetServerCertPEM()),
 		},
 	}
 

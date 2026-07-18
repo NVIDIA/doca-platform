@@ -768,7 +768,7 @@ spec:
   dnsNames:
   - dpf-provisioning-webhook-service.dpf-provisioning.svc
   - dpf-provisioning-webhook-service.dpf-provisioning.svc.cluster.local
-  duration: 8760h
+  duration: 26280h
   isCA: true
   issuerRef:
     kind: Issuer
@@ -776,7 +776,7 @@ spec:
   privateKey:
     algorithm: ECDSA
     size: 256
-  renewBefore: 4360h
+  renewBefore: 13140h
   secretName: dpf-provisioning-ca-secret
 ---
 apiVersion: cert-manager.io/v1

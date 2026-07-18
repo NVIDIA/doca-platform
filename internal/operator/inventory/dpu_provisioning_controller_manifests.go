@@ -44,6 +44,8 @@ const (
 	bfbHostPathPath                      = "/var/lib/nvidia/dpf/bfb"
 	prepareLocalStorageInitContainerName = "prepare-local-storage"
 	webhookServiceName                   = "dpf-provisioning-webhook-service"
+	provisioningIssuerName               = "dpf-provisioning-issuer"
+	defaultProvisioningIssuerCASecret    = "dpf-provisioning-ca-secret"
 	customBFConfigFileName               = "bf.cfg.template"
 	customBFConfigVolumeName             = "bf-cfg-template"
 	errManagerContainerNotFoundFmt       = "container %q not found in Provisioning Controller deployment"
@@ -174,6 +176,7 @@ func (p *provisioningControllerObjects) GenerateManifests(_ context.Context, var
 	if err := NewEdits().
 		AddForAll(NamespaceEdit(vars.Namespace),
 			LabelsEdit(labelsToAdd)).
+		AddForKind(IssuerKind, p.setProvisioningIssuerCASecretEdit(vars)).
 		AddForKindS(DeploymentKind, ImagePullSecretsEditForDeploymentEdit(vars.ImagePullSecrets...)).
 		AddForKindS(DeploymentKind, p.dpfProvisioningDeploymentEdit(vars)).
 		AddForKindS(DeploymentKind, NodeAffinityEdit(&controlPlaneNodeAffinity)).
@@ -190,6 +193,21 @@ func (p *provisioningControllerObjects) GenerateManifests(_ context.Context, var
 	}
 
 	return ret, nil
+}
+
+func (p *provisioningControllerObjects) setProvisioningIssuerCASecretEdit(vars Variables) UnstructuredEdit {
+	return func(obj *unstructured.Unstructured) error {
+		if obj.GetName() != provisioningIssuerName {
+			return nil
+		}
+
+		secretName := defaultProvisioningIssuerCASecret
+		if v := vars.DPFProvisioningController.ProvisioningIssuerCASecretName; v != nil && *v != "" {
+			secretName = *v
+		}
+
+		return unstructured.SetNestedField(obj.Object, secretName, "spec", "ca", "secretName")
+	}
 }
 
 func (p *provisioningControllerObjects) dpfProvisioningDeploymentEdit(vars Variables) StructuredEdit {
