@@ -136,7 +136,7 @@ export KATA_DEPLOY_IMAGE=quay.io/kata-containers/kata-deploy
 export KATA_DEPLOY_TAG=3.30.0@sha256:b31cf13addbaf49af9e211bf6ab38335299015a754e2bc0341aa4ba47d8cb395
 
 # VPC dependencies to be able to build/push images and charts
-VPC_REF=96f9b238cfaa16d7356420bf4769ad84ee491125
+VPC_REF=6f238965a76689dfdf203755dcb7754d10f1ecd0
 VPC_DIR=$(REPOSDIR)/ovn-vpc/ovn-vpc-$(VPC_REF)
 # Token used for gitlab reporistory access, usually needed for CI/CD pipelines.
 # dev envs usually have those set in git credentials.
@@ -570,7 +570,9 @@ test-helper-images: # Build and push the e2e test-helper images and charts (dumm
 		helm-push-dummydpuservice
 
 .PHONY: test-release-e2e-slow
-test-release-e2e-slow: release test-helper-images # Build images required for the slow DPF e2e tests.
+test-release-e2e-slow: ## Build images required for the slow DPF e2e tests.
+	$(MAKE) release-manifest-init RELEASE_MANIFEST_ENABLED=true
+	$(MAKE) RELEASE_MANIFEST_ENABLED=true release test-helper-images
 
 TEST_CLUSTER_NAME := dpf-test
 ADD_CONTROL_PLANE_TAINTS ?= true
@@ -648,8 +650,29 @@ test-deploy-helmfile: helmfile helm helm-diff helm-git yq binary-dpfdev ## Deplo
 		$(if $(strip $(HELMFILE_STATE_VALUES_SET)),--state-values-set "$(HELMFILE_STATE_VALUES_SET)")
 
 ARTIFACTS_DIR ?= $(CURDIR)/artifacts
+RELEASE_MANIFEST ?= $(ARTIFACTS_DIR)/release-manifest.yaml
+# Set to true by test-release-e2e-slow to record each pushed image/chart in RELEASE_MANIFEST.
+RELEASE_MANIFEST_ENABLED ?= false
+
 $(ARTIFACTS_DIR):
 	@mkdir -p $(ARTIFACTS_DIR)
+
+.PHONY: release-manifest-init
+release-manifest-init: $(ARTIFACTS_DIR) ## Initialize the release manifest for the current build.
+	@echo "registry: $(REGISTRY)" > $(RELEASE_MANIFEST)
+	@echo "tag: $(TAG)" >> $(RELEASE_MANIFEST)
+	@echo "commit: $(FULL_COMMIT)" >> $(RELEASE_MANIFEST)
+	@echo "built_at: $$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $(RELEASE_MANIFEST)
+	@echo "artifacts:" >> $(RELEASE_MANIFEST)
+
+# Append one pushed artifact to RELEASE_MANIFEST when RELEASE_MANIFEST_ENABLED=true.
+# Usage: $(call record_release_artifact,type,name,ref,scope)
+define record_release_artifact
+if [ "$(RELEASE_MANIFEST_ENABLED)" = "true" ]; then \
+	printf '  - type: %s\n    name: %s\n    ref: %s\n    scope: %s\n' \
+		"$(1)" "$(2)" "$(3)" "$(4)" >> "$(RELEASE_MANIFEST)"; \
+fi;
+endef
 
 # This is the default registry used for e2e tests, it can be overridden by setting the DOCKER_IO_REGISTRY environment variable.
 # This is useful for testing with a local registry or a registry mirror.
@@ -1128,9 +1151,32 @@ ifeq ($(BUILD_VPC),true)
 release-build-vpc: $(VPC_DIR) ## Build vpc release artifacts
 	@cd $(VPC_DIR); $(MAKE) release-build
 
+DPF_VPC_RELEASE_MANIFEST ?= $(VPC_DIR)/artifacts/dpf-vpc-release-manifest.yaml
+
 .PHONY: release-push-vpc
 release-push-vpc: $(VPC_DIR) ## Push vpc release artifacts
-	@cd $(VPC_DIR); $(MAKE) release-push
+	@cd $(VPC_DIR); $(MAKE) release-push \
+		REGISTRY="$(REGISTRY)" \
+		TAG="$(TAG)" \
+		HELM_REGISTRY="$(HELM_REGISTRY)" \
+		VPC_CHART_TAGS="$(TAG)" \
+		RELEASE_MANIFEST_ENABLED="$(RELEASE_MANIFEST_ENABLED)"
+	@$(MAKE) collect-vpc-release-manifest
+
+.PHONY: collect-vpc-release-manifest
+collect-vpc-release-manifest: $(ARTIFACTS_DIR) ## Copy the VPC release manifest and merge its artifacts into RELEASE_MANIFEST.
+	@if [ "$(RELEASE_MANIFEST_ENABLED)" != "true" ]; then \
+		exit 0; \
+	fi
+	@if [ ! -f "$(DPF_VPC_RELEASE_MANIFEST)" ]; then \
+		echo "VPC release manifest not found: $(DPF_VPC_RELEASE_MANIFEST)" >&2; exit 1; \
+	fi
+	@cp "$(DPF_VPC_RELEASE_MANIFEST)" "$(ARTIFACTS_DIR)/dpf-vpc-release-manifest.yaml"
+	@if [ -f "$(RELEASE_MANIFEST)" ]; then \
+		sed -n '/^artifacts:/,$$p' "$(DPF_VPC_RELEASE_MANIFEST)" | tail -n +2 >> "$(RELEASE_MANIFEST)"; \
+	else \
+		echo "Parent release manifest not found: $(RELEASE_MANIFEST); skipping merge" >&2; \
+	fi
 else
 .PHONY: release-build-vpc
 release-build-vpc: ## Build vpc release artifacts
@@ -1556,6 +1602,7 @@ docker-build-dpf-system-for-%: docker-buildx-setup generate-manifests-release-de
 .PHONY: docker-push-dpf-system # Push a multi-arch image for DPF System using `docker manifest`. The variable DPF_SYSTEM_ARCH defines which architectures this target pushes for.
 docker-push-dpf-system: $(addprefix docker-push-dpf-system-for-,$(DPF_SYSTEM_ARCH))
 	docker manifest push --purge $(DPF_SYSTEM_IMAGE):$(TAG)
+	@$(call record_release_artifact,image,$(DPF_SYSTEM_IMAGE_NAME),$(DPF_SYSTEM_IMAGE):$(TAG),release)
 
 docker-push-dpf-system-for-%:
 	# Tag and push the arch-specific image with the single arch-agnostic tag.
@@ -1704,6 +1751,7 @@ docker-build-storage-system-for-%: docker-buildx-setup $(ARTIFACTS_DIR)
 .PHONY: docker-push-storage-system # Push a multi-arch image for snap-csi-plugin using `docker manifest`. The variable DPF_SYSTEM_ARCH defines which architectures this target pushes for.
 docker-push-storage-system: $(addprefix docker-push-storage-system-for-,$(DPF_SYSTEM_ARCH))
 	docker manifest push --purge $(STORAGE_SYSTEM_IMAGE):$(TAG)
+	@$(call record_release_artifact,image,$(STORAGE_SYSTEM_IMAGE_NAME),$(STORAGE_SYSTEM_IMAGE):$(TAG),release)
 
 docker-push-storage-system-for-%:
 	# Tag and push the arch-specific image with the single arch-agnostic tag.
@@ -1745,6 +1793,7 @@ docker-build-storage-host-for-%: docker-buildx-setup $(ARTIFACTS_DIR)
 .PHONY: docker-push-storage-host # Push a multi-arch image for storage-host using `docker manifest`. The variable DPF_SYSTEM_ARCH defines which architectures this target pushes for.
 docker-push-storage-host: $(addprefix docker-push-storage-host-for-,$(DPF_SYSTEM_ARCH))
 	docker manifest push --purge $(STORAGE_HOST_IMAGE):$(TAG)
+	@$(call record_release_artifact,image,$(STORAGE_HOST_IMAGE_NAME),$(STORAGE_HOST_IMAGE):$(TAG),release)
 
 docker-push-storage-host-for-%:
 	# Tag and push the arch-specific image with the single arch-agnostic tag.
@@ -1781,6 +1830,7 @@ docker-build-keepalived-for-%: docker-buildx-setup $(ARTIFACTS_DIR)
 .PHONY: docker-push-keepalived # Push a multi-arch image for keepalived using docker manifest. The variable DPF_SYSTEM_ARCH defines which architectures this target pushes for.
 docker-push-keepalived: $(addprefix docker-push-keepalived-for-,$(DPF_SYSTEM_ARCH))
 	docker manifest push --purge $(KEEPALIVED_IMAGE):$(TAG)
+	@$(call record_release_artifact,image,$(KEEPALIVED_IMAGE_NAME),$(KEEPALIVED_IMAGE):$(TAG),release)
 
 docker-push-keepalived-for-%:
 	# Tag and push the arch-specific image with the single arch-agnostic tag.
@@ -1839,6 +1889,7 @@ docker-build-cni-installer: docker-buildx-setup $(ARTIFACTS_DIR) ## Build docker
 .PHONY: docker-push-bfb-registry # Push a multi-arch image for BFB Registry using `docker manifest`. The variable DPF_SYSTEM_ARCH defines which architectures this target pushes for.
 docker-push-bfb-registry: $(addprefix docker-push-bfb-registry-for-,$(DPF_SYSTEM_ARCH))
 	docker manifest push --purge $(BFB_REGISTRY_IMAGE):$(TAG)
+	@$(call record_release_artifact,image,$(BFB_REGISTRY_IMAGE_NAME),$(BFB_REGISTRY_IMAGE):$(TAG),release)
 
 docker-push-bfb-registry-for-%:
 	# Tag and push the arch-specific image with the single arch-agnostic tag.
@@ -1884,6 +1935,7 @@ docker-push-dpf-system: ## This is a no-op to allow using DOCKER_BUILD_TARGETS.
 .PHONY: docker-push-hostdriver # Push a multi-arch image for hostdriver using `docker manifest`. The variable DPF_SYSTEM_ARCH defines which architectures this target pushes for.
 docker-push-hostdriver: $(addprefix docker-push-hostdriver-for-,$(DPF_SYSTEM_ARCH))
 	docker manifest push --purge $(HOSTDRIVER_IMAGE):$(TAG)
+	@$(call record_release_artifact,image,$(HOSTDRIVER_IMAGE_NAME),$(HOSTDRIVER_IMAGE):$(TAG),release)
 
 docker-push-hostdriver-for-%:
 	# Tag and push the arch-specific image with the single arch-agnostic tag.
@@ -1903,11 +1955,13 @@ docker-push-ipallocator: ## Push the docker image for IP Allocator.
 .PHONY: docker-push-dummydpuservice
 docker-push-dummydpuservice: ## Push the docker image for dummydpuservice
 	docker push $(DUMMYDPUSERVICE_IMAGE):$(TAG)
+	@$(call record_release_artifact,image,$(DUMMYDPUSERVICE_IMAGE_NAME),$(DUMMYDPUSERVICE_IMAGE):$(TAG),test_helper)
 
 .PHONY: docker-push-netutils # Push a multi-arch image for netutils using `docker manifest`. The variable DPF_SYSTEM_ARCH defines which architectures this target pushes for.
 docker-push-netutils: $(addprefix docker-push-netutils-for-,$(DPF_SYSTEM_ARCH))
 	# Push the final multi-arch manifest
 	docker manifest push --purge $(NETUTILS_IMAGE):$(TAG)
+	@$(call record_release_artifact,image,$(NETUTILS_IMAGE_NAME),$(NETUTILS_IMAGE):$(TAG),test_helper)
 
 docker-push-netutils-for-%:
 	# Tag and push the arch-specific image with the single arch-agnostic tag.
@@ -1927,6 +1981,7 @@ docker-push-mock-dms: ## Push the docker image for dummydpuservice
 .PHONY: docker-push-cni-installer
 docker-push-cni-installer: ## Push the docker image for the CNI installer
 	docker push $(CNIINSTALLER_IMAGE):$(TAG)
+	@$(call record_release_artifact,image,$(CNIINSTALLER_IMAGE_NAME),$(CNIINSTALLER_IMAGE):$(TAG),release)
 
 # helm charts
 
@@ -2015,21 +2070,25 @@ helm-push-all: $(addprefix helm-push-,$(HELM_TARGETS))  ## Push the helm charts 
 
 .PHONY: helm-push-operator
 helm-push-operator: $(CHARTSDIR) helm helm-cm-push ## Push helm chart for dpf-operator
-	for tag in $(OPERATOR_CHART_TAGS); do \
+	@for tag in $(OPERATOR_CHART_TAGS); do \
 		$(HELM) $(HELM_PUSH_CMD) $(CHARTSDIR)/$(OPERATOR_HELM_CHART_NAME)-$$tag.tgz $(HELM_REGISTRY); \
+		$(call record_release_artifact,chart,$(OPERATOR_HELM_CHART_NAME),$(HELM_REGISTRY)/$(OPERATOR_HELM_CHART_NAME):$$tag,release) \
 	done
 
 .PHONY: helm-push-dpu-networking
 helm-push-dpu-networking: $(CHARTSDIR) helm helm-cm-push ## Push helm chart for service chain controller
 	$(HELM) $(HELM_PUSH_CMD) $(CHARTSDIR)/$(DPU_NETWORKING_HELM_CHART_NAME)-$(DPU_NETWORKING_HELM_CHART_VER).tgz $(HELM_REGISTRY)
+	@$(call record_release_artifact,chart,$(DPU_NETWORKING_HELM_CHART_NAME),$(HELM_REGISTRY)/$(DPU_NETWORKING_HELM_CHART_NAME):$(DPU_NETWORKING_HELM_CHART_VER),release)
 
 
 .PHONY: helm-push-dummydpuservice
 helm-push-dummydpuservice: $(CHARTSDIR) helm helm-cm-push ## Push helm chart for dummydpuservice
 	$(HELM) $(HELM_PUSH_CMD) $(CHARTSDIR)/$(DUMMYDPUSERVICE_HELM_CHART_NAME)-$(TAG).tgz $(HELM_REGISTRY)
+	@$(call record_release_artifact,chart,$(DUMMYDPUSERVICE_HELM_CHART_NAME),$(HELM_REGISTRY)/$(DUMMYDPUSERVICE_HELM_CHART_NAME):$(TAG),test_helper)
 
 
 
 .PHONY: helm-push-storage
 helm-push-storage: $(CHARTSDIR) helm helm-cm-push ## Push helm chart for storage
 	$(HELM) $(HELM_PUSH_CMD) $(CHARTSDIR)/$(STORAGE_CHART_NAME)-$(TAG).tgz $(HELM_REGISTRY)
+	@$(call record_release_artifact,chart,$(STORAGE_CHART_NAME),$(HELM_REGISTRY)/$(STORAGE_CHART_NAME):$(TAG),release)
