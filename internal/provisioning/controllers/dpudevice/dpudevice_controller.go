@@ -753,7 +753,7 @@ func (r *DPUDeviceReconciler) discoverDPUDevice(ctx context.Context, dpuDevice *
 
 	resp, productDescription, err := client.GetProductDescription()
 	if err != nil {
-		log.Error(err, "Failed to get product description", "address", bmcAddress, "response", resp)
+		log.Error(err, "Failed to get product description", "address", bmcAddress, "response", rfclient.RespBody(resp))
 		return err
 	}
 
@@ -766,20 +766,20 @@ func (r *DPUDeviceReconciler) discoverDPUDevice(ctx context.Context, dpuDevice *
 
 	resp, chassisInfo, err := client.GetChassis()
 	if err != nil {
-		log.Error(err, "Failed to get chassis info", "address", bmcAddress, "response", resp)
+		log.Error(err, "Failed to get chassis info", "address", bmcAddress, "response", rfclient.RespBody(resp))
 		return err
 	}
 
 	dpuDevice.Status.DPUType = chassisInfo.GetBlueFieldVersion()
 	if dpuDevice.Status.DPUMode == provisioningv1.DpuMode && dpuDevice.Status.DPUType == provisioningv1.DPUTypeUnknown {
 		err = fmt.Errorf("unknown DPU type")
-		log.Error(err, "Failed to get DPU type", "address", bmcAddress, "response", resp)
+		log.Error(err, "Failed to get DPU type", "address", bmcAddress, "response", rfclient.RespBody(resp))
 		return err
 	}
 
 	if chassisInfo.SerialNumber == "" {
 		err = fmt.Errorf("serial number is empty")
-		log.Error(err, "Failed to get chassis info", "address", bmcAddress, "response", resp)
+		log.Error(err, "Failed to get chassis info", "address", bmcAddress, "response", rfclient.RespBody(resp))
 		return err
 	}
 
@@ -802,7 +802,7 @@ func (r *DPUDeviceReconciler) discoverDPUDevice(ctx context.Context, dpuDevice *
 	}
 	resp, pf0, err := client.GetNetworkDeviceFunction(device)
 	if err != nil {
-		log.Error(err, "Failed to get network device function", "address", bmcAddress, "response", resp)
+		log.Error(err, "Failed to get network device function", "address", bmcAddress, "response", rfclient.RespBody(resp))
 		return err
 	}
 
@@ -817,13 +817,13 @@ func (r *DPUDeviceReconciler) discoverDPUDevice(ctx context.Context, dpuDevice *
 	if mac != "" {
 		dpuDevice.Status.PF0MAC = ptr.To(mac)
 	} else {
-		log.Info("No MAC address found for PF0", "address", bmcAddress, "response", resp)
+		log.Info("No MAC address found for PF0", "address", bmcAddress, "response", rfclient.RespBody(resp))
 	}
 
 	if dpuDevice.Status.DPUType == provisioningv1.DPUTypeBlueField3 {
 		resp, secureBootInfo, err := client.GetSecureBoot()
 		if err != nil {
-			log.Error(err, "Failed to get Secure Boot state", "address", bmcAddress, "response", resp)
+			log.Error(err, "Failed to get Secure Boot state", "address", bmcAddress, "response", rfclient.RespBody(resp))
 			return err
 		}
 
