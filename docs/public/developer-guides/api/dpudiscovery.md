@@ -188,10 +188,10 @@ This ensures efficient scanning without overwhelming the cluster resources.
 DPUDiscovery requires specific configuration in the DPFOperatorConfig:
 
 ```yaml
-apiVersion: provisioning.dpu.nvidia.com/v1alpha1
+apiVersion: operator.dpu.nvidia.com/v1alpha1
 kind: DPFOperatorConfig
 metadata:
-  name: dpf-operator-config
+  name: dpfoperatorconfig
   namespace: dpf-operator-system
 spec:
   provisioningController:
