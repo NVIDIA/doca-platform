@@ -66,6 +66,9 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("request failed with status %d: %s", e.StatusCode, e.Body)
 }
 
+// IsForbidden reports whether the error is a GitLab 403 response.
+func IsForbidden(err error) bool { return errorHasStatus(err, http.StatusForbidden) }
+
 // IsNotFound reports whether the error is a GitLab 404 response.
 func IsNotFound(err error) bool { return errorHasStatus(err, http.StatusNotFound) }
 
@@ -210,12 +213,29 @@ func (c *Client) DeletePipelineScheduleVariable(scheduleID int, key string) erro
 	return c.doJSONRequest("DELETE", endpoint, nil, nil)
 }
 
+// TakeOwnershipPipelineSchedule makes the token's user the owner of the
+// schedule and returns the updated schedule. Requires the Maintainer role.
+// This is one-way: GitLab has no way to assign ownership to another user, so
+// the previous owner can only get the schedule back by taking ownership
+// themselves. From this call on, the schedule runs with the new owner's
+// permissions.
+func (c *Client) TakeOwnershipPipelineSchedule(scheduleID int) (*PipelineSchedule, error) {
+	endpoint := fmt.Sprintf("%s/projects/%s/pipeline_schedules/%d/take_ownership", c.baseURL, c.projectID, scheduleID)
+
+	var schedule PipelineSchedule
+	if err := c.doJSONRequest("POST", endpoint, nil, &schedule); err != nil {
+		return nil, err
+	}
+
+	return &schedule, nil
+}
+
 // doJSONRequest performs an authenticated request against the GitLab API and
 // decodes the JSON response into out (if non-nil). Non-2xx responses are
-// returned as *APIError, so callers can classify them with IsNotFound. Form
-// values, if any, are sent url-encoded in the body. It is not tied to
-// schedules; new endpoint wrappers should prefer it over hand-rolling the
-// request/response handling.
+// returned as *APIError, so callers can classify them with IsForbidden and
+// IsNotFound. Form values, if any, are sent url-encoded in the body. It is
+// not tied to schedules; new endpoint wrappers should prefer it over
+// hand-rolling the request/response handling.
 func (c *Client) doJSONRequest(method, endpoint string, form url.Values, out interface{}) error {
 	var reqBody io.Reader
 	if form != nil {
