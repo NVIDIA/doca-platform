@@ -178,6 +178,154 @@ func TestScheduleSyncApplyIssuesWrites(t *testing.T) {
 	}
 }
 
+// TestScheduleSyncTakesOwnershipOnForbidden covers the highest-consequence
+// path: modifying a schedule owned by another user. The first update PUT is
+// rejected with 403, so sync must take ownership and then retry the same PUT,
+// which now succeeds. It asserts both that ownership was taken and that the
+// retry happened only after it.
+func TestScheduleSyncTakesOwnershipOnForbidden(t *testing.T) {
+	var mu sync.Mutex
+	var putAttempts int
+	var tookOwnership, ownershipBeforeRetry bool
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/projects/1/pipeline_schedules":
+			_, _ = w.Write([]byte(`[{"id":10,"description":"keep","ref":"refs/heads/main","cron":"0 1 * * *","active":true,"owner":{"username":"bob"}}]`))
+		case r.Method == http.MethodGet && r.URL.Path == "/projects/1/pipeline_schedules/10":
+			_, _ = w.Write([]byte(`{"id":10,"description":"keep","ref":"refs/heads/main","cron":"0 1 * * *","active":true,"owner":{"username":"bob"},"variables":[]}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/projects/1/pipeline_schedules/10/take_ownership":
+			mu.Lock()
+			tookOwnership = true
+			mu.Unlock()
+			_, _ = w.Write([]byte(`{"id":10,"description":"keep","ref":"refs/heads/main","cron":"0 1 * * *","active":true,"owner":{"username":"ci-bot"}}`))
+		case r.Method == http.MethodPut && r.URL.Path == "/projects/1/pipeline_schedules/10":
+			mu.Lock()
+			putAttempts++
+			first := putAttempts == 1
+			if !first {
+				ownershipBeforeRetry = tookOwnership
+			}
+			mu.Unlock()
+			if first {
+				// The token does not own the schedule yet.
+				w.WriteHeader(http.StatusForbidden)
+				_, _ = w.Write([]byte(`{"message":"403 Forbidden"}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"id":10,"description":"keep","ref":"refs/heads/main","cron":"0 5 * * *","active":true,"owner":{"username":"ci-bot"}}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	file := &scheduleFile{Schedules: []scheduleSpec{{
+		Description: "keep",
+		Ref:         "refs/heads/main",
+		Cron:        "0 5 * * *", // drift forces an update PUT
+	}}}
+
+	client := gitlab.NewClient(server.URL, "token", "1")
+	syncer := &scheduleSyncer{client: client, dryRun: false}
+	out := captureStdout(t, func() {
+		if err := syncer.sync(file); err != nil {
+			t.Errorf("sync returned error: %v", err)
+		}
+	})
+
+	mu.Lock()
+	defer mu.Unlock()
+	if putAttempts != 2 {
+		t.Fatalf("expected the update PUT to be retried once (2 attempts), got %d", putAttempts)
+	}
+	if !tookOwnership {
+		t.Fatal("sync did not take ownership after the 403")
+	}
+	if !ownershipBeforeRetry {
+		t.Fatal("sync retried the update before taking ownership")
+	}
+	if syncer.updated != 1 {
+		t.Fatalf("expected updated=1, got %d", syncer.updated)
+	}
+	// The transfer warning is the most user-visible output this feature adds;
+	// assert it names the schedule and both owners so regressions surface.
+	for _, want := range []string{"Took ownership of schedule 10", "previous owner: bob", "new owner: ci-bot"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("ownership warning missing %q in:\n%s", want, out)
+		}
+	}
+}
+
+// TestScheduleSyncOwnershipTakenOncePerSchedule checks that ownership is
+// claimed at most once per schedule. Variable A is forbidden only until the
+// takeover; variable B keeps returning 403 (a still-forbidden op, e.g. a
+// propagation delay). A naive implementation would take ownership again for
+// B's 403; the dedup must instead surface B's error after a single takeover.
+func TestScheduleSyncOwnershipTakenOncePerSchedule(t *testing.T) {
+	var mu sync.Mutex
+	var takeovers int
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/projects/1/pipeline_schedules":
+			_, _ = w.Write([]byte(`[{"id":10,"description":"keep","ref":"refs/heads/main","cron":"0 1 * * *","active":true,"owner":{"username":"bob"}}]`))
+		case r.Method == http.MethodGet && r.URL.Path == "/projects/1/pipeline_schedules/10":
+			// Two variables drift so update() makes two modifications in order.
+			_, _ = w.Write([]byte(`{"id":10,"description":"keep","ref":"refs/heads/main","cron":"0 1 * * *","active":true,"owner":{"username":"bob"},"variables":[
+				{"key":"A","variable_type":"env_var","value":"old"},
+				{"key":"B","variable_type":"env_var","value":"old"}]}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/projects/1/pipeline_schedules/10/take_ownership":
+			mu.Lock()
+			takeovers++
+			mu.Unlock()
+			_, _ = w.Write([]byte(`{"id":10,"description":"keep","ref":"refs/heads/main","cron":"0 1 * * *","active":true,"owner":{"username":"ci-bot"}}`))
+		case r.Method == http.MethodPut && r.URL.Path == "/projects/1/pipeline_schedules/10/variables/A":
+			mu.Lock()
+			owned := takeovers > 0
+			mu.Unlock()
+			if !owned {
+				w.WriteHeader(http.StatusForbidden)
+				_, _ = w.Write([]byte(`{"message":"403 Forbidden"}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{}`))
+		case r.Method == http.MethodPut && r.URL.Path == "/projects/1/pipeline_schedules/10/variables/B":
+			// Never satisfied, even after ownership: a second, stubborn 403.
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"message":"403 Forbidden"}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	file := &scheduleFile{Schedules: []scheduleSpec{{
+		Description: "keep",
+		Ref:         "refs/heads/main",
+		Cron:        "0 1 * * *",
+		Variables:   []variableSpec{{Key: "A", Value: "new"}, {Key: "B", Value: "new"}},
+	}}}
+
+	client := gitlab.NewClient(server.URL, "token", "1")
+	syncer := &scheduleSyncer{client: client, dryRun: false}
+	var syncErr error
+	_ = captureStdout(t, func() {
+		syncErr = syncer.sync(file)
+	})
+
+	// B's persistent 403 must surface as the failure...
+	if syncErr == nil || !strings.Contains(syncErr.Error(), "variable B") {
+		t.Fatalf("expected B's 403 to surface, got %v", syncErr)
+	}
+	// ...after exactly one takeover (B's 403 did not trigger a second).
+	mu.Lock()
+	defer mu.Unlock()
+	if takeovers != 1 {
+		t.Fatalf("expected exactly one ownership takeover for the schedule, got %d", takeovers)
+	}
+}
+
 // TestFetchDetailsConcurrency checks that fetchDetails retrieves every id and
 // never exceeds the configured concurrency.
 func TestFetchDetailsConcurrency(t *testing.T) {
