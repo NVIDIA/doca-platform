@@ -1167,12 +1167,12 @@ release-push-vpc: $(VPC_DIR) ## Push vpc release artifacts
 collect-vpc-release-manifest: $(ARTIFACTS_DIR) ## Copy the VPC release manifest and merge its artifacts into RELEASE_MANIFEST.
 	@if [ "$(RELEASE_MANIFEST_ENABLED)" != "true" ]; then \
 		exit 0; \
-	fi
-	@if [ ! -f "$(DPF_VPC_RELEASE_MANIFEST)" ]; then \
+	fi; \
+	if [ ! -f "$(DPF_VPC_RELEASE_MANIFEST)" ]; then \
 		echo "VPC release manifest not found: $(DPF_VPC_RELEASE_MANIFEST)" >&2; exit 1; \
-	fi
-	@cp "$(DPF_VPC_RELEASE_MANIFEST)" "$(ARTIFACTS_DIR)/dpf-vpc-release-manifest.yaml"
-	@if [ -f "$(RELEASE_MANIFEST)" ]; then \
+	fi; \
+	cp "$(DPF_VPC_RELEASE_MANIFEST)" "$(ARTIFACTS_DIR)/dpf-vpc-release-manifest.yaml"; \
+	if [ -f "$(RELEASE_MANIFEST)" ]; then \
 		sed -n '/^artifacts:/,$$p' "$(DPF_VPC_RELEASE_MANIFEST)" | tail -n +2 >> "$(RELEASE_MANIFEST)"; \
 	else \
 		echo "Parent release manifest not found: $(RELEASE_MANIFEST); skipping merge" >&2; \
