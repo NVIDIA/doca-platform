@@ -194,7 +194,7 @@ func (c *CrawlerService) worker(ctx context.Context, wg *sync.WaitGroup, jobs <-
 		// Check if it's a DPU BMC by making a Redfish request
 		resp, _, err := client.GetRootService()
 		if err != nil {
-			logger.Error(err, "Failed to get root service", "address", address, "response", resp)
+			logger.Error(err, "Failed to get root service", "address", address, "response", rfclient.RespBody(resp))
 			result.Error = err
 			results <- result
 			continue
@@ -213,7 +213,7 @@ func (c *CrawlerService) worker(ctx context.Context, wg *sync.WaitGroup, jobs <-
 
 		resp, chassisInfo, err := client.GetChassis()
 		if err != nil {
-			logger.Error(err, "Failed to get chassis info", "address", address, "response", resp)
+			logger.Error(err, "Failed to get chassis info", "address", address, "response", rfclient.RespBody(resp))
 			result.Error = err
 			results <- result
 			continue
@@ -221,7 +221,7 @@ func (c *CrawlerService) worker(ctx context.Context, wg *sync.WaitGroup, jobs <-
 
 		if chassisInfo.SerialNumber == "" {
 			err := fmt.Errorf("failed to get serial number")
-			logger.Error(err, "address", address, "response", resp)
+			logger.Error(err, "address", address, "response", rfclient.RespBody(resp))
 			result.Error = err
 			results <- result
 			continue
