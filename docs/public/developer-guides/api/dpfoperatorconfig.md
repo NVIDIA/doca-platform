@@ -23,10 +23,10 @@ This basic config example enables the Kamaji cluster manager.
 You can find the full API documentation in the [API Reference](./api.md#operatordpunvidiacomv1alpha1).
 
 ```yaml
-apiVersion: operator.doca-platform.nvidia.com/v1alpha1
+apiVersion: operator.dpu.nvidia.com/v1alpha1
 kind: DPFOperatorConfig
 metadata:
-  name: dpf-operator-config
+  name: dpfoperatorconfig
   namespace: dpf-operator-system
 spec:
   deploymentMode: host-trusted
@@ -68,10 +68,10 @@ equivalent configuration) so Argo CD reconciles Applications in `dpf-operator-sy
 matching install-time guidance.
 
 ```yaml
-apiVersion: operator.doca-platform.nvidia.com/v1alpha1
+apiVersion: operator.dpu.nvidia.com/v1alpha1
 kind: DPFOperatorConfig
 metadata:
-  name: dpf-operator-config
+  name: dpfoperatorconfig
   namespace: dpf-operator-system
 spec:
   overrides:
