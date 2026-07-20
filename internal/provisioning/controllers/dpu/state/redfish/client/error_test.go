@@ -82,3 +82,9 @@ var _ = Describe("ErrorMessages", func() {
 		Expect(ErrorMessages(`{"error":{}}`)).To(BeNil())
 	})
 })
+
+var _ = Describe("RespBody", func() {
+	It("returns an empty string for a nil response without panicking", func() {
+		Expect(RespBody(nil)).To(Equal(""))
+	})
+})
