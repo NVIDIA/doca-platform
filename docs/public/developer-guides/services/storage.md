@@ -635,7 +635,7 @@ reclaimPolicy: Delete
 In addition, a [DPUStorageVendor](#dpustoragevendor-crd) CR object should be created in the host cluster, and the name of the StorageClass of the storage vendor (that exists in the DPU cluster) should be set in the storageClassName parameter (see example below).
 
 ```yaml
-apiVersion: storage.nvidia.com/v1alpha1
+apiVersion: storage.dpu.nvidia.com/v1alpha1
 kind: DPUStorageVendor
 metadata:
   name: example-vendor
