@@ -89,7 +89,13 @@ merged before syncing, and descriptions must be unique across all of them.
 Without --apply only the plan is printed and nothing is changed in GitLab.
 
 Schedules that exist in GitLab but not in the file are reported as unmanaged;
---prune deletes them instead.`,
+--prune deletes them instead.
+
+Modifying a schedule owned by another user requires taking it over (GitLab
+only lets the owner's token update a schedule, and ownership cannot be given
+away, only taken). Sync takes ownership whenever an update requires it and
+reports every transfer, so run it with the token that should end up owning
+the schedules, e.g. the CI bot account.`,
 	Example: `  # Show what would change (the default; nothing is modified)
   dpfdev gitlab schedule sync
 
@@ -135,6 +141,11 @@ type scheduleSyncer struct {
 	concurrency int
 
 	created, updated, deleted, unmanaged int
+
+	// owned tracks schedules this run has already taken ownership of, so the
+	// several modifications an update makes to one schedule trigger at most one
+	// takeover instead of a redundant self-to-self transfer each.
+	owned map[int]bool
 }
 
 // plannedAction is the resolved outcome of matching one file spec to GitLab:
@@ -369,28 +380,86 @@ func (s *scheduleSyncer) update(schedule *gitlab.PipelineSchedule, spec *schedul
 			timezone = schedule.CronTimezone
 		}
 		slog.Debug("updating schedule fields", "id", scheduleID)
-		if err := s.client.UpdatePipelineSchedule(scheduleID, spec.Description, spec.Ref, spec.Cron, timezone, spec.active()); err != nil {
+		if err := s.withOwnership(scheduleID, func() error {
+			return s.client.UpdatePipelineSchedule(scheduleID, spec.Description, spec.Ref, spec.Cron, timezone, spec.active())
+		}); err != nil {
 			return fmt.Errorf("failed to update schedule %q: %v", spec.Description, err)
 		}
 	}
 	for _, variable := range createVars {
 		slog.Debug("creating variable", "id", scheduleID, "key", variable.Key)
-		if err := s.client.CreatePipelineScheduleVariable(scheduleID, variable.Key, variable.Value, variable.variableType()); err != nil {
+		if err := s.withOwnership(scheduleID, func() error {
+			return s.client.CreatePipelineScheduleVariable(scheduleID, variable.Key, variable.Value, variable.variableType())
+		}); err != nil {
 			return fmt.Errorf("failed to create variable %s on schedule %q: %v", variable.Key, spec.Description, err)
 		}
 	}
 	for _, variable := range updateVars {
 		slog.Debug("updating variable", "id", scheduleID, "key", variable.Key)
-		if err := s.client.UpdatePipelineScheduleVariable(scheduleID, variable.Key, variable.Value, variable.variableType()); err != nil {
+		if err := s.withOwnership(scheduleID, func() error {
+			return s.client.UpdatePipelineScheduleVariable(scheduleID, variable.Key, variable.Value, variable.variableType())
+		}); err != nil {
 			return fmt.Errorf("failed to update variable %s on schedule %q: %v", variable.Key, spec.Description, err)
 		}
 	}
 	for _, key := range deleteVars {
 		slog.Debug("deleting variable", "id", scheduleID, "key", key)
-		if err := s.client.DeletePipelineScheduleVariable(scheduleID, key); err != nil {
+		if err := s.withOwnership(scheduleID, func() error {
+			return s.client.DeletePipelineScheduleVariable(scheduleID, key)
+		}); err != nil {
 			return fmt.Errorf("failed to delete variable %s on schedule %q: %v", key, spec.Description, err)
 		}
 	}
+	return nil
+}
+
+// withOwnership runs a schedule modification. If GitLab rejects it with 403
+// because the token does not own the schedule, it takes ownership once and
+// retries. Ownership is claimed at most once per schedule: a further 403 on a
+// schedule already taken over is surfaced as-is (it is no longer an ownership
+// problem) rather than triggering a redundant self-to-self takeover.
+func (s *scheduleSyncer) withOwnership(scheduleID int, modify func() error) error {
+	err := modify()
+	if !gitlab.IsForbidden(err) || s.owned[scheduleID] {
+		return err
+	}
+	slog.Debug("modification forbidden, taking ownership", "id", scheduleID)
+	if err := takeScheduleOwnership(s.client, scheduleID); err != nil {
+		return err
+	}
+	if s.owned == nil {
+		s.owned = map[int]bool{}
+	}
+	s.owned[scheduleID] = true
+	return modify()
+}
+
+// takeScheduleOwnership takes over the schedule and reports the transfer,
+// including the previous owner. Taking ownership is one-way: GitLab has no
+// API to assign ownership to another user, so the previous owner has to take
+// the schedule back themselves, and until then it runs with the new owner's
+// permissions. The schedule is fetched first because the take-ownership
+// response only carries the new owner.
+func takeScheduleOwnership(client *gitlab.Client, scheduleID int) error {
+	previous, err := client.GetPipelineSchedule(scheduleID)
+	if err != nil {
+		return fmt.Errorf("failed to fetch pipeline schedule %d before taking ownership: %v", scheduleID, err)
+	}
+
+	schedule, err := client.TakeOwnershipPipelineSchedule(scheduleID)
+	if err != nil {
+		// A 403 here is not an ownership problem but a permission one: the
+		// token cannot take ownership at all. Keep the original error visible
+		// and name the likely cause instead of burying it.
+		if gitlab.IsForbidden(err) {
+			return fmt.Errorf("cannot take ownership of schedule %d to modify it: %v; "+
+				"the token needs the Maintainer role and the 'api' scope", scheduleID, err)
+		}
+		return fmt.Errorf("failed to take ownership of schedule %d: %v", scheduleID, err)
+	}
+
+	fmt.Printf("⚠ Took ownership of schedule %d (previous owner: %s, new owner: %s).\n",
+		scheduleID, previous.Owner.Username, schedule.Owner.Username)
 	return nil
 }
 
@@ -412,4 +481,3 @@ func (s *scheduleSyncer) pruneOrWarn(schedule gitlab.PipelineSchedule) error {
 	}
 	return nil
 }
-
