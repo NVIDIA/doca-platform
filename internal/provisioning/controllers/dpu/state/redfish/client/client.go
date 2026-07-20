@@ -964,6 +964,17 @@ func (c *Client) SetDpuMode(desiredMode provisioningv1.DpuModeType) (*resty.Resp
 // reqFunc is a function that sends a request
 type reqFunc func() (*resty.Response, error)
 
+// RespBody returns the response body as a string, guarding against a nil resp.
+// do returns a nil *resty.Response on transport errors, and resty's
+// Response.String() dereferences its receiver without a nil check, so logging a
+// nil resp directly panics.
+func RespBody(resp *resty.Response) string {
+	if resp == nil {
+		return ""
+	}
+	return resp.String()
+}
+
 // do sends a request and unmarshals the response body into the given type
 func do[T any](req reqFunc) (*resty.Response, *T, error) {
 	resp, err := req()
