@@ -220,3 +220,123 @@ func validateSchedules(path string, schedules []scheduleSpec) error {
 func shortRef(ref string) string {
 	return strings.TrimPrefix(ref, "refs/heads/")
 }
+
+// scheduleGroup is one on-disk schedules file kept ungrouped from the rest:
+// its path, verbatim header comment, includes and current schedules, plus the
+// raw bytes it was read from. "pull" rewrites groups in place, so it needs each
+// schedule tied to the file that owns it rather than the merged view
+// loadScheduleFile produces.
+type scheduleGroup struct {
+	path      string
+	header    string
+	include   []string
+	schedules []scheduleSpec
+	raw       []byte
+}
+
+// loadScheduleGroups walks the root file and its includes (deduped by absolute
+// path, breaking cycles) and returns every file that declares schedules as its
+// own group. It enforces the same cross-file description uniqueness as
+// loadScheduleFile.
+func loadScheduleGroups(root string) ([]scheduleGroup, error) {
+	var groups []scheduleGroup
+	seen := map[string]bool{}
+	descByName := map[string]string{}
+
+	var walk func(path string) error
+	walk = func(path string) error {
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			return fmt.Errorf("failed to resolve %s: %v", path, err)
+		}
+		if seen[abs] {
+			return nil
+		}
+		seen[abs] = true
+
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("failed to read %s: %v", path, err)
+		}
+		var file scheduleFile
+		dec := yaml.NewDecoder(bytes.NewReader(data))
+		dec.KnownFields(true)
+		if err := dec.Decode(&file); err != nil {
+			return fmt.Errorf("failed to parse %s: %v", path, err)
+		}
+		if err := validateSchedules(path, file.Schedules); err != nil {
+			return err
+		}
+		for _, spec := range file.Schedules {
+			if prev, ok := descByName[spec.Description]; ok {
+				if prev == path {
+					return fmt.Errorf("%s: duplicate schedule description %q", path, spec.Description)
+				}
+				return fmt.Errorf("schedule %q is defined in both %s and %s; descriptions must be unique", spec.Description, prev, path)
+			}
+			descByName[spec.Description] = path
+		}
+		if len(file.Schedules) > 0 {
+			groups = append(groups, scheduleGroup{
+				path:      path,
+				header:    scheduleFileHeader(data),
+				include:   file.Include,
+				schedules: file.Schedules,
+				raw:       data,
+			})
+		}
+
+		dir := filepath.Dir(path)
+		for _, include := range file.Include {
+			includePath := include
+			if !filepath.IsAbs(includePath) {
+				includePath = filepath.Join(dir, include)
+			}
+			if err := walk(includePath); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	if err := walk(root); err != nil {
+		return nil, err
+	}
+	return groups, nil
+}
+
+// scheduleFileHeader returns the leading comment block of a file verbatim,
+// every comment or blank line before the first YAML key, so rewriting the file
+// keeps its hand-written header. The result ends with a newline when non-empty.
+func scheduleFileHeader(data []byte) string {
+	var header []string
+	for _, line := range strings.Split(string(data), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			header = append(header, line)
+			continue
+		}
+		break
+	}
+	if len(header) == 0 {
+		return ""
+	}
+	return strings.Join(header, "\n") + "\n"
+}
+
+// marshalGroupFile renders a group file: its preserved header comment followed
+// by the YAML body. The 4-space indent matches the format the group files
+// already use, so rewriting a file that did not change is a no-op.
+func marshalGroupFile(header string, file scheduleFile) ([]byte, error) {
+	var buf bytes.Buffer
+	buf.WriteString(header)
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(4)
+	if err := enc.Encode(file); err != nil {
+		return nil, err
+	}
+	if err := enc.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
