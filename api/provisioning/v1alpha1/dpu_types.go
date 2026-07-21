@@ -163,8 +163,6 @@ const (
 	NPDConditionOVSDBHealthy corev1.NodeConditionType = "OVSDBHealthy"
 	// NPDConditionOVSHealthy indicates OVS processes have not been OOM killed recently
 	NPDConditionOVSHealthy corev1.NodeConditionType = "OVSHealthy"
-	// NPDConditionDPUModeCorrect indicates DPU is in the correct separated mode
-	NPDConditionDPUModeCorrect corev1.NodeConditionType = "DPUModeCorrect"
 	// NPDConditionUplinkHealthy indicates the physical uplink interface is up
 	NPDConditionUplinkHealthy corev1.NodeConditionType = "UplinkHealthy"
 	// NPDConditionSRIOVHealthy indicates SR-IOV VF representors are present
@@ -182,7 +180,6 @@ func GetNodeProblemDetectorConditions() []string {
 		string(NPDConditionOVSvSwitchdHealthy),
 		string(NPDConditionOVSDBHealthy),
 		string(NPDConditionOVSHealthy),
-		string(NPDConditionDPUModeCorrect),
 		string(NPDConditionUplinkHealthy),
 		string(NPDConditionSRIOVHealthy),
 		string(NPDConditionMTUConfigured),

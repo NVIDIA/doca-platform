@@ -127,7 +127,6 @@ func VerifyNodeProblemDetectorConditions(ctx context.Context, input *systemTestI
 						HaveField("Type", Equal(provisioningv1.NPDConditionOVSvSwitchdHealthy)),
 						HaveField("Type", Equal(provisioningv1.NPDConditionOVSDBHealthy)),
 						HaveField("Type", Equal(provisioningv1.NPDConditionOVSHealthy)),
-						HaveField("Type", Equal(provisioningv1.NPDConditionDPUModeCorrect)),
 						HaveField("Type", Equal(provisioningv1.NPDConditionUplinkHealthy)),
 						HaveField("Type", Equal(provisioningv1.NPDConditionSRIOVHealthy)),
 						HaveField("Type", Equal(provisioningv1.NPDConditionMTUConfigured)),

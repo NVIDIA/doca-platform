@@ -14,8 +14,12 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-# Check if ovs-vswitchd is active
-if ! nsenter --target 1 --mount systemctl is-active --quiet ovs-vswitchd 2> /dev/null; then
+# Check if ovs-vswitchd is running on the host.
+# The pod runs with hostPID, so host processes are visible in /proc and
+# pidof finds them by name without any privileges, unlike nsenter into the
+# host mount namespace, which requires CAP_SYS_ADMIN.
+# The node-problem-detector image ships pidof but not pgrep or ps.
+if ! pidof ovs-vswitchd > /dev/null 2>&1; then
 	echo "ovs-vswitchd is not running"
 	exit 1
 fi

@@ -14,13 +14,15 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-# Check if p0 MTU is correctly configured (expecting always 9216)
+# Check if p0 MTU is correctly configured (expecting always 9216).
+# /sys in the container is the host sysfs mounted read-only, and sysfs net
+# entries reflect the network namespace of the mount, i.e. the host, so no
+# nsenter is needed. Passes when p0 does not exist, the uplink check covers
+# that case.
 EXPECTED_MTU=9216
-if command -v jq > /dev/null 2>&1; then
-	CURRENT_MTU=$(nsenter --target 1 --mount --net ip -j link show p0 2> /dev/null | jq -r '.[0].mtu // empty')
-	if [ -n "$CURRENT_MTU" ] && [ "$CURRENT_MTU" -ne "$EXPECTED_MTU" ]; then
-		echo "MTU is $CURRENT_MTU, expected $EXPECTED_MTU"
-		exit 1
-	fi
+CURRENT_MTU=$(cat /sys/class/net/p0/mtu 2> /dev/null)
+if [ -n "$CURRENT_MTU" ] && [ "$CURRENT_MTU" -ne "$EXPECTED_MTU" ]; then
+	echo "MTU is $CURRENT_MTU, expected $EXPECTED_MTU"
+	exit 1
 fi
 exit 0
