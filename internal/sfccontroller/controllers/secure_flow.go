@@ -44,6 +44,8 @@ type SecureConnection struct {
 	mgr                       manager.Manager
 	OFBridge                  openflow.Bridge
 	secureFlowDeletionTimeout time.Duration
+
+	OnReconnected func() error
 }
 
 // NewSecureConnection creates a new SecureConnection
@@ -62,6 +64,7 @@ func NewSecureConnection(mgr manager.Manager, bridge openflow.Bridge, timeout ti
 // If it cannot re-establish a connection within the specified time, it flags and process disconnection event handler.
 func (sc *SecureConnection) Monitor(ctx context.Context) {
 	go func() {
+		disconnected := false
 		for {
 			select {
 			case <-ctx.Done():
@@ -69,15 +72,27 @@ func (sc *SecureConnection) Monitor(ctx context.Context) {
 				return
 			case <-time.After(checkInterval):
 				log.Println("[Monitor] Checking server connection...")
-				if err := sc.checkConnectionWithBackoff(ctx); err != nil {
-					log.Printf("[Monitor] API server disconnection noticed: %v\n", err)
-					if err := sc.processDisconnectEvent(); err != nil {
-						log.Printf("[Monitor] Failed processing post disconnect: %v\n", err)
-					}
-				}
+				disconnected = sc.handleConnectionCheck(sc.checkConnectionWithBackoff(ctx), disconnected)
 			}
 		}
 	}()
+}
+
+func (sc *SecureConnection) handleConnectionCheck(connectionErr error, disconnected bool) bool {
+	if connectionErr != nil {
+		log.Printf("[Monitor] API server disconnection noticed: %v\n", connectionErr)
+		if err := sc.processDisconnectEvent(); err != nil {
+			log.Printf("[Monitor] Failed processing post disconnect: %v\n", err)
+		}
+		return true
+	}
+	if disconnected && sc.OnReconnected != nil {
+		if err := sc.OnReconnected(); err != nil {
+			log.Printf("[Monitor] Failed processing reconnect: %v\n", err)
+			return true
+		}
+	}
+	return false
 }
 
 // checkConnectionWithBackoff attempts to connect to the server and uses exponential backoff if the initial attempt fails.
@@ -161,7 +176,8 @@ func (sc *SecureConnection) checkKubernetesAPIServer() error {
 func (sc *SecureConnection) processDisconnectEvent() error {
 	log.Println("[secure flow mode] removing existing flows due to disconnect event")
 
-	if err := sc.DeleteAllFlows(); err != nil {
+	err := sc.DeleteAllFlows()
+	if err != nil {
 		return fmt.Errorf("error deleting all flows: %w", err)
 	}
 	return nil
