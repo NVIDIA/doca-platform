@@ -460,6 +460,7 @@ func (r *DPUReconciler) reconcileBFBRegistry(ctx context.Context, namespace stri
 	logger := log.FromContext(ctx)
 	podName := os.Getenv("POD_NAME")
 	nodeName := os.Getenv("NODE_NAME")
+	nodeIP := os.Getenv("NODE_IP")
 	registryImage := os.Getenv("BFB_REGISTRY_IMAGE")
 	if podName == "" || nodeName == "" || registryImage == "" {
 		logger.V(4).Info("bfb-registry reconcile skipping: required env not set (POD_NAME, NODE_NAME, BFB_REGISTRY_IMAGE)")
@@ -469,7 +470,7 @@ func (r *DPUReconciler) reconcileBFBRegistry(ctx context.Context, namespace stri
 		Client:           r.ctrlCtx.Client,
 		BFBPVC:           r.ctrlCtx.Options.BFBPVC,
 		ImagePullSecrets: r.ctrlCtx.Options.ImagePullSecrets,
-	}, namespace, podName, nodeName, registryImage); err != nil {
+	}, namespace, podName, nodeName, nodeIP, registryImage); err != nil {
 		return fmt.Errorf("ensure bfb-registry: %w", err)
 	}
 	return nil

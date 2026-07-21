@@ -56,6 +56,32 @@ var _ = Describe("EnsureHTTPScheme", func() {
 	})
 })
 
+var _ = Describe("EnsureHTTPSScheme", func() {
+	It("should add https:// when no scheme is present", func() {
+		Expect(httputil.EnsureHTTPSScheme("10.0.110.1:30443")).To(Equal("https://10.0.110.1:30443"))
+	})
+
+	It("should add https:// for hostname:port without scheme", func() {
+		Expect(httputil.EnsureHTTPSScheme("bfb-registry:8443")).To(Equal("https://bfb-registry:8443"))
+	})
+
+	It("should not modify https:// URLs", func() {
+		Expect(httputil.EnsureHTTPSScheme("https://10.0.110.1:30443")).To(Equal("https://10.0.110.1:30443"))
+	})
+
+	It("should preserve an existing http:// scheme unchanged", func() {
+		Expect(httputil.EnsureHTTPSScheme("http://10.0.110.1:30082")).To(Equal("http://10.0.110.1:30082"))
+	})
+
+	It("should not modify URLs with other schemes", func() {
+		Expect(httputil.EnsureHTTPSScheme("ftp://files.example.com")).To(Equal("ftp://files.example.com"))
+	})
+
+	It("should handle address with path", func() {
+		Expect(httputil.EnsureHTTPSScheme("10.0.110.1:30443/deb")).To(Equal("https://10.0.110.1:30443/deb"))
+	})
+})
+
 var _ = Describe("CloseBody", func() {
 	It("should handle nil response safely", func() {
 		// Should not panic when called with nil

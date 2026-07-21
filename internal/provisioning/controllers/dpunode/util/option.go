@@ -42,4 +42,8 @@ type HostAgentPodOptions struct {
 	BFBRegistryAddress string
 	// HostAgentDNSPolicy is the DNS policy for the hostagent pod.
 	HostAgentDNSPolicy corev1.DNSPolicy
+	// CATrustBundleConfigMapName is the name of the ConfigMap holding the dpf CA trust bundle that
+	// the HostAgent mounts to validate the bfb-registry server certificate over HTTPS. When empty,
+	// the dms package falls back to the operator default name.
+	CATrustBundleConfigMapName string
 }

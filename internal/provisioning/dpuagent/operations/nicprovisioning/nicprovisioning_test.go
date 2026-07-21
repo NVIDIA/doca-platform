@@ -475,10 +475,10 @@ func TestIsNICFirmwareSourceConfigured(t *testing.T) {
 }
 
 func TestResolveNICFirmwareDownloadURL(t *testing.T) {
-	t.Run("defaults registry URL scheme to HTTP", func(t *testing.T) {
+	t.Run("defaults registry URL scheme to HTTPS", func(t *testing.T) {
 		got, err := resolveNICFirmwareDownloadURL("10.233.14.188:8082", "/bfb/components/fw.bin")
 		require.NoError(t, err)
-		assert.Equal(t, "http://10.233.14.188:8082/bfb/components/fw.bin", got)
+		assert.Equal(t, "https://10.233.14.188:8082/bfb/components/fw.bin", got)
 	})
 
 	t.Run("keeps absolute firmware URL", func(t *testing.T) {

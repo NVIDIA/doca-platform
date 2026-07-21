@@ -65,7 +65,8 @@ func NewHostAgentReconciler(client client.Client,
 	}
 	bfbRegistry := bfbRegistryAddress
 	if !strings.HasPrefix(bfbRegistry, "http") && !strings.HasPrefix(bfbRegistry, "https") {
-		bfbRegistry = "http://" + bfbRegistry
+		// bfb-registry is HTTPS-only; default a scheme-less address to https.
+		bfbRegistry = "https://" + bfbRegistry
 	}
 	r.handlers = map[provisioningv1.DPUPhase]PhaseHandler{
 		provisioningv1.DPUInitializeInterface:      interfaceinit.NewHandler(client, r.NetworkManager.GetDevice),
