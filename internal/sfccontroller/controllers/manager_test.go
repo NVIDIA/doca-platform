@@ -23,6 +23,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 //nolint:goconst
@@ -33,6 +34,8 @@ var _ = Describe("manager test", func() {
 	var hostPod, otherHostPod *corev1.Pod
 
 	BeforeEach(func() {
+		hostPod = nil
+		otherHostPod = nil
 		ns = &corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
 				GenerateName: "test-ns-",
@@ -42,8 +45,12 @@ var _ = Describe("manager test", func() {
 	})
 
 	AfterEach(func() {
-		Expect(testClient.Delete(ctx, hostPod)).To(Succeed())
-		Expect(testClient.Delete(ctx, otherHostPod)).To(Succeed())
+		if hostPod != nil {
+			Expect(client.IgnoreNotFound(testClient.Delete(ctx, hostPod))).To(Succeed())
+		}
+		if otherHostPod != nil {
+			Expect(client.IgnoreNotFound(testClient.Delete(ctx, otherHostPod))).To(Succeed())
+		}
 		Expect(testClient.Delete(ctx, ns)).To(Succeed())
 	})
 
@@ -94,5 +101,10 @@ var _ = Describe("manager test", func() {
 		By("pod is not cached and expected to be not found")
 		err = mgrClient.Get(ctx, types.NamespacedName{Name: otherHostPod.Name, Namespace: ns.Name}, &corev1.Pod{})
 		Expect(err).To(HaveOccurred())
+	})
+
+	It("leaves SyncPeriod unset so the controller-runtime default resync applies", func() {
+		options := GetMgrCache(testNodeName)
+		Expect(options.SyncPeriod).To(BeNil())
 	})
 })

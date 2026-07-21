@@ -16,15 +16,13 @@ limitations under the License.
 package controller
 
 import (
-	"time"
-
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func GetMgrCache(nodeName string, syncPeriod time.Duration) cache.Options {
+func GetMgrCache(nodeName string) cache.Options {
 	return cache.Options{
 		// To reduce cache memory consumption, only pods on on the same node as the reconciler will be added to the cache:
 		// 1) List calls using the controller Manager client will only return Pods with `spec.nodeName` set to nodeName
@@ -32,6 +30,7 @@ func GetMgrCache(nodeName string, syncPeriod time.Duration) cache.Options {
 		ByObject: map[client.Object]cache.ByObject{
 			&corev1.Pod{}: {Field: fields.SelectorFromSet(map[string]string{"spec.nodeName": nodeName})},
 		},
-		SyncPeriod: &syncPeriod,
+		// SyncPeriod is left unset so controller-runtime's default periodic resync (10h) applies as a slow
+		// safety net for out-of-band OVS/legacy-ServiceInterface drift not covered by watches.
 	}
 }
