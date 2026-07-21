@@ -92,6 +92,7 @@ type Params struct {
 	DPUName              string
 	DPUNamespace         string
 	DPUUID               string
+	DPUType              provisioningv1.DPUType
 	DPUAgentRepoURL      string
 	DPUFlavorYAML        string
 	UbuntuPassword       string
@@ -177,6 +178,7 @@ func ResolveParams(ctx context.Context, controllerCtx *util.ControllerContext, d
 		DPUName:                dpu.Name,
 		DPUNamespace:           dpu.Namespace,
 		DPUUID:                 string(dpu.UID),
+		DPUType:                dpu.Status.DPUType,
 		NICDeviceCount:         provisioningconstants.DefaultNICDeviceCount,
 	}
 	if dpu.Spec.AstraEnabled != nil {

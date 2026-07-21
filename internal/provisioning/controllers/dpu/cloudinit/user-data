@@ -69,6 +69,9 @@ write_files:
       --dpu-name={{.DPUName}}
       --dpu-namespace={{.DPUNamespace}}
       --dpu-uid={{.DPUUID}}
+{{- if .DPUType}}
+      --dpu-type={{.DPUType}}
+{{- end}}
       --dpuflavor=/opt/dpf/dpuflavor.yaml
       --control-plane-mtu={{.ControlPlaneMTU}}
       --zero-trust-mode={{.RedfishInterface}}

@@ -36,13 +36,13 @@ import (
 
 var _ = Describe("SFConfig", func() {
 	var tempDir string
-	discoverTestPorts := func() ([]pciutil.NICPort, error) { //nolint:unparam
+	discoverTestPorts := func(_ pciutil.PortScope) ([]pciutil.NICPort, error) { //nolint:unparam
 		return []pciutil.NICPort{
 			{Netdev: "p0", PCIAddress: "0000:03:00.0"},
 			{Netdev: "p1", PCIAddress: "0000:03:00.1"},
 		}, nil
 	}
-	discoverBF4TestPorts := func() ([]pciutil.NICPort, error) { //nolint:unparam
+	discoverBF4TestPorts := func(_ pciutil.PortScope) ([]pciutil.NICPort, error) { //nolint:unparam
 		return []pciutil.NICPort{
 			{Netdev: "p0", PCIAddress: "0000:03:00.0"},
 			{Netdev: "p1", PCIAddress: "0001:03:00.0"},
