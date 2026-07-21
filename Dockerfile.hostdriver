@@ -72,7 +72,7 @@ COPY --from=builder /workspace/bin/dpuagent /workspace/bin/dpuagent
 
 # Package with actual TAG version (binary already built, just call packaging targets)
 ARG TAG
-RUN --mount=type=cache,target=/workspace/hack/tools/bin \
+RUN --mount=type=cache,target=/workspace/hack/tools/bin,sharing=locked \
     --mount=type=bind,source=Makefile,target=Makefile \
     --mount=type=bind,source=hack/tools/tools.mk,target=hack/tools/tools.mk \
     make deb-dpuagent rpm-dpuagent
