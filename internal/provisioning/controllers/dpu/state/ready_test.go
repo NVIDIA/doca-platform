@@ -170,6 +170,14 @@ var _ = Describe("DPU: Ready", func() {
 				)
 				Expect(err).To(Succeed())
 				Expect(status.Phase).To(Equal(provisioningv1.DPUClusterConfig))
+				Expect(status.Conditions).Should(ContainElement(
+					And(
+						HaveField("Type", provisioningv1.DPUCondReady.String()),
+						HaveField("Status", metav1.ConditionFalse),
+						HaveField("Reason", "RerunClusterConfig"),
+						HaveField("Message", "rerun cluster config"),
+					),
+				))
 			})
 		})
 
@@ -197,6 +205,14 @@ var _ = Describe("DPU: Ready", func() {
 				Expect(err).To(Succeed())
 				Expect(status.Phase).To(Equal(provisioningv1.DPUNodeEffect))
 				Expect(status.PostProvisioningNodeEffect).To(Equal(ptr.To(true)))
+				Expect(status.Conditions).Should(ContainElement(
+					And(
+						HaveField("Type", provisioningv1.DPUCondReady.String()),
+						HaveField("Status", metav1.ConditionFalse),
+						HaveField("Reason", "RerunNodeEffect"),
+						HaveField("Message", "rerun node effect"),
+					),
+				))
 			})
 		})
 	})
