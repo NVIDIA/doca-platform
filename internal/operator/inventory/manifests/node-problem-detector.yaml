@@ -5,7 +5,11 @@ metadata:
   namespace: dpf-operator-system
 spec:
   security:
-    privileged: true
+    # The node-problem-detector runs unprivileged: its checks only read the
+    # host sysfs, /proc process metadata (hostPID) and the persistent journal.
+    # With this set to false the DPUCluster admission policy rejects any
+    # privileged node-problem-detector pod.
+    privileged: false
   helmChart:
     source:
       repoURL: oci://example.com

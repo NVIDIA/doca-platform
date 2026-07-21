@@ -14,8 +14,11 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-# Check if physical uplink p0 is up
-if ! nsenter --target 1 --mount --net ip link show p0 2> /dev/null | grep -q 'state UP'; then
+# Check if physical uplink p0 is up.
+# /sys in the container is the host sysfs mounted read-only, and sysfs net
+# entries reflect the network namespace of the mount, i.e. the host, so no
+# nsenter is needed.
+if [ "$(cat /sys/class/net/p0/operstate 2> /dev/null)" != "up" ]; then
 	echo "Physical uplink p0 is down"
 	exit 1
 fi
