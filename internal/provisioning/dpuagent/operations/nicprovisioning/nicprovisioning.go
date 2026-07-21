@@ -181,10 +181,6 @@ func (n *NICProvisioning) Execute(execCtx context.Context, optCtx *operations.Co
 	if err := n.applyNVConfigAndUpdateStatus(execCtx, optCtx); err != nil {
 		return err
 	}
-	if optCtx.NICFirmwareRebootRequired {
-		klog.InfoS("NIC provisioning: reboot required after NIC NV config apply")
-		return nil
-	}
 
 	return nil
 }
@@ -512,7 +508,6 @@ func (n *NICProvisioning) installNICFirmware(execCtx context.Context, optCtx *op
 	defer cancel()
 
 	errCh := make(chan error, len(n.discoveredNICDevices))
-	rebootRequiredCh := make(chan bool, len(n.discoveredNICDevices))
 	var wg sync.WaitGroup
 	for _, discoveredDevice := range n.discoveredNICDevices {
 		device := discoveredDevice
@@ -539,15 +534,11 @@ func (n *NICProvisioning) installNICFirmware(execCtx context.Context, optCtx *op
 				"serialNumber", device.Status.SerialNumber,
 				"type", device.Status.Type,
 				"rebootRequired", rebootRequired)
-			if rebootRequired {
-				rebootRequiredCh <- true
-			}
 		}()
 	}
 
 	wg.Wait()
 	close(errCh)
-	close(rebootRequiredCh)
 
 	installErrs := make([]string, 0, len(n.discoveredNICDevices))
 	for installErr := range errCh {
@@ -555,12 +546,6 @@ func (n *NICProvisioning) installNICFirmware(execCtx context.Context, optCtx *op
 	}
 	if len(installErrs) > 0 {
 		return fmt.Errorf("NIC firmware installation failed: %s", strings.Join(installErrs, "; "))
-	}
-	for rebootRequired := range rebootRequiredCh {
-		if rebootRequired {
-			optCtx.NICFirmwareRebootRequired = true
-			break
-		}
 	}
 	if err := installCtx.Err(); err != nil && err != context.Canceled {
 		return fmt.Errorf("NIC firmware installation timed out or canceled: %w", err)
@@ -598,7 +583,6 @@ func (n *NICProvisioning) applyNVConfig(execCtx context.Context, optCtx *operati
 	defer cancel()
 
 	errCh := make(chan error, len(n.discoveredNICDevices))
-	rebootRequiredCh := make(chan bool, len(n.discoveredNICDevices))
 	var wg sync.WaitGroup
 	for _, discoveredDevice := range n.discoveredNICDevices {
 		device := discoveredDevice
@@ -623,15 +607,11 @@ func (n *NICProvisioning) applyNVConfig(execCtx context.Context, optCtx *operati
 				"type", device.Status.Type,
 				"status", result.Status,
 				"rebootRequired", result.RebootRequired)
-			if result.Status == nictypes.ApplyStatusPartiallyApplied || result.Status == nictypes.ApplyStatusSuccess {
-				rebootRequiredCh <- true
-			}
 		}()
 	}
 
 	wg.Wait()
 	close(errCh)
-	close(rebootRequiredCh)
 
 	applyErrs := make([]string, 0, len(n.discoveredNICDevices))
 	for applyErr := range errCh {
@@ -639,13 +619,6 @@ func (n *NICProvisioning) applyNVConfig(execCtx context.Context, optCtx *operati
 	}
 	if len(applyErrs) > 0 {
 		return fmt.Errorf("NIC NV config apply failed: %s", strings.Join(applyErrs, "; "))
-	}
-	for rebootRequired := range rebootRequiredCh {
-		if rebootRequired {
-			optCtx.NICFirmwareRebootRequired = true
-			klog.InfoS("NIC provisioning: reboot required after NIC NV config apply")
-			break
-		}
 	}
 	if err := applyCtx.Err(); err != nil && err != context.Canceled {
 		return fmt.Errorf("NIC NV config apply timed out or canceled: %w", err)

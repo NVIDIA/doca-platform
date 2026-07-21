@@ -144,6 +144,43 @@ var _ = Describe("NSPortFilter", func() {
 	})
 })
 
+var _ = Describe("EWPortFilter", func() {
+	It("should return true for known E/W NIC device IDs (ConnectX-9)", func() {
+		Expect(EWPortFilter(&NICPort{DeviceID: connectX9DeviceID})).To(BeTrue())
+	})
+
+	It("should return false for N/S and unknown device IDs", func() {
+		Expect(EWPortFilter(&NICPort{DeviceID: bluefield4DeviceID})).To(BeFalse())
+		Expect(EWPortFilter(&NICPort{DeviceID: "0xffff"})).To(BeFalse())
+		Expect(EWPortFilter(&NICPort{})).To(BeFalse())
+	})
+})
+
+var _ = Describe("FilterForScope", func() {
+	It("should return the matching filter for each scope", func() {
+		nsFilter, err := FilterForScope(PortScopeNS)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(nsFilter(&NICPort{DeviceID: bluefield4DeviceID})).To(BeTrue())
+		Expect(nsFilter(&NICPort{DeviceID: connectX9DeviceID})).To(BeFalse())
+
+		ewFilter, err := FilterForScope(PortScopeEW)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(ewFilter(&NICPort{DeviceID: connectX9DeviceID})).To(BeTrue())
+		Expect(ewFilter(&NICPort{DeviceID: bluefield4DeviceID})).To(BeFalse())
+
+		allFilter, err := FilterForScope(PortScopeAll)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(allFilter(&NICPort{DeviceID: bluefield4DeviceID})).To(BeTrue())
+		Expect(allFilter(&NICPort{DeviceID: connectX9DeviceID})).To(BeTrue())
+		Expect(allFilter(&NICPort{DeviceID: "0xffff"})).To(BeFalse())
+	})
+
+	It("should reject unknown scopes", func() {
+		_, err := FilterForScope(PortScope("other"))
+		Expect(err).To(HaveOccurred())
+	})
+})
+
 var _ = Describe("DiscoverNSPFRepresentors", func() {
 	It("should discover PF representors from N/S ECPF sysfs devices and devlink", func() {
 		root := GinkgoT().TempDir()
@@ -176,7 +213,7 @@ var _ = Describe("DiscoverNSPFRepresentors", func() {
 	})
 })
 
-var _ = Describe("DiscoverPorts", func() {
+var _ = Describe("DiscoverPhysicalPort", func() {
 	It("should join devlink and sysfs data and apply filter", func() {
 		root := GinkgoT().TempDir()
 
@@ -258,6 +295,36 @@ var _ = Describe("DiscoverPorts", func() {
 		Expect(portMap["p0"].DeviceID).To(Equal(bluefield3DeviceID))
 		Expect(portMap["p1"].DeviceID).To(Equal(bluefield4DeviceID))
 		Expect(portMap).NotTo(HaveKey("eth0"))
+	})
+
+	It("should discover E/W ports", func() {
+		root := GinkgoT().TempDir()
+
+		netRoot := filepath.Join(root, "sys", "class", "net")
+		writeUevent(netRoot, "p0", "0000:03:00.0")
+		writeUevent(netRoot, "eth0", "000a:01:00.0")
+		writeUevent(netRoot, "eth1", "000b:01:00.0")
+
+		pciDevicesRoot := filepath.Join(root, "sys", "bus", "pci", "devices")
+		writePCIDeviceID(pciDevicesRoot, "0000:03:00.0", bluefield4DeviceID)
+		writePCIDeviceID(pciDevicesRoot, "000a:01:00.0", connectX9DeviceID)
+		writePCIDeviceID(pciDevicesRoot, "000b:01:00.0", "0xffff")
+		overridePathVars(netRoot)
+
+		d := &PortDiscoverer{
+			runBash: mockRunBash(devlinkJSON(map[string]DevlinkPortEntry{
+				"auxiliary/mlx5_core.eth.0/262143": {Netdev: "p0", Flavor: "physical"},
+				"auxiliary/mlx5_core.eth.1/327679": {Netdev: "eth0", Flavor: "physical"},
+				"auxiliary/mlx5_core.eth.2/393215": {Netdev: "eth1", Flavor: "physical"},
+			})),
+		}
+
+		ports, err := d.DiscoverPhysicalPort(EWPortFilter)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(ports).To(HaveLen(1))
+		Expect(ports[0].Netdev).To(Equal("eth0"))
+		Expect(ports[0].PCIAddress).To(Equal("000a:01:00.0"))
+		Expect(ports[0].DeviceID).To(Equal(connectX9DeviceID))
 	})
 
 })

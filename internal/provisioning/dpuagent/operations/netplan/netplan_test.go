@@ -35,7 +35,7 @@ import (
 
 var _ = Describe("Netplan", func() {
 	var tempDir string
-	discoverOnePort := func() ([]pciutil.NICPort, error) { //nolint:unparam
+	discoverOnePort := func(_ pciutil.PortScope) ([]pciutil.NICPort, error) { //nolint:unparam
 		return []pciutil.NICPort{
 			{Netdev: "p0", PCIAddress: "0000:00:00.0"},
 		}, nil
@@ -180,7 +180,7 @@ var _ = Describe("Netplan", func() {
 			}
 			Expect(operation.Execute(ctx, &operations.Context{
 				Options: opts.Options{ZeroTrustMode: true},
-				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{
 						{Netdev: "p0", PCIAddress: "0000:00:00.0"},
 						{Netdev: "p1", PCIAddress: "0000:00:00.1"},

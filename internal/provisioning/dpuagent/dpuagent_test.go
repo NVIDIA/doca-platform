@@ -75,7 +75,7 @@ func newTestOptCtx(fakeClient client.Client) *operations.Context {
 			DPUNamespace: "test-ns",
 			DPUUID:       "test-uid",
 		},
-		DiscoverPorts: func() ([]pciutil.NICPort, error) {
+		DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 			return []pciutil.NICPort{
 				{Netdev: "p0", PCIAddress: "0000:03:00.0"},
 				{Netdev: "p1", PCIAddress: "0000:03:00.1"},
@@ -424,6 +424,32 @@ var _ = Describe("DPUAgent", func() {
 			Expect(discovery).To(BeTrue())
 		})
 
+		It("sets RebootMethodDiscovery true for BlueField4 without probing MFT versions", func() {
+			dpu := newTestDPU()
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+
+			var discovery bool
+			optCtx := newTestOptCtx(fakeClient)
+			optCtx.Options.DPUType = string(provisioningv1.DPUTypeBlueField4)
+			agent := &DPUAgent{
+				retryInterval:       testRetryInterval,
+				writeDoneMarkerFunc: noopMarker,
+				rebootMethodDiscoveryFunc: func(context.Context) bool {
+					Fail("MFT version discovery should not run for BlueField4")
+					return false
+				},
+				optCtx: optCtx,
+				operations: []operations.Operation{
+					&mockOperation{name: "op1", conditionType: "Op1Condition", executeFunc: func(_ context.Context, optCtx *operations.Context) error {
+						discovery = optCtx.RebootMethodDiscovery
+						return nil
+					}},
+				},
+			}
+			Expect(agent.Run(ctx)).To(Succeed())
+			Expect(discovery).To(BeTrue())
+		})
+
 		It("sets RebootMethodDiscovery false when SkipRebootMethodDiscovery is true", func() {
 			dpu := newTestDPU()
 			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
@@ -431,6 +457,7 @@ var _ = Describe("DPUAgent", func() {
 			var discovery bool
 			optCtx := newTestOptCtx(fakeClient)
 			optCtx.Options.SkipRebootMethodDiscovery = true
+			optCtx.Options.DPUType = string(provisioningv1.DPUTypeBlueField4)
 			agent := &DPUAgent{
 				retryInterval:             testRetryInterval,
 				writeDoneMarkerFunc:       noopMarker,

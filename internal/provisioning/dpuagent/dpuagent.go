@@ -469,6 +469,10 @@ func (d *DPUAgent) resolveRebootMethodDiscovery(ctx context.Context) bool {
 		klog.Infof("RebootMethodDiscovery=false: skip-reboot-method-discovery is set (legacy boot-ID path)")
 		return false
 	}
+	if d.optCtx.Options.DPUType == string(provisioningv1.DPUTypeBlueField4) {
+		klog.Info("RebootMethodDiscovery=true: BlueField4 supports device-query path")
+		return true
+	}
 	if d.rebootMethodDiscoveryFunc != nil {
 		return d.rebootMethodDiscoveryFunc(ctx)
 	}

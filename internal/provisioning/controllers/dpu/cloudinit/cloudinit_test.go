@@ -173,7 +173,7 @@ network:
 	})
 
 	It("should return user-data with correct path and permissions", func() {
-		userData, _ := generateAndParse(Params{
+		userData, parsed := generateAndParse(Params{
 			DPUHostName:            "test-dpu",
 			KubeadmSecretName:      "test-secret",
 			KubeadmSecretNamespace: "default",
@@ -185,6 +185,8 @@ network:
 
 		Expect(userData.Path).To(Equal(UserDataPath))
 		Expect(userData.Permissions).To(Equal(UserDataPerms))
+		agentConf := getWriteFile(parsed, "/opt/dpf/dpuagent.conf")
+		Expect(agentConf.Content).NotTo(ContainSubstring("--dpu-type="))
 	})
 
 	It("should produce valid YAML with all branches enabled", func() {
@@ -198,6 +200,7 @@ network:
 			ControlPlaneMTU:        1500,
 			DPUName:                "dpu-1",
 			DPUNamespace:           "ns-1",
+			DPUType:                provisioningv1.DPUTypeBlueField4,
 			DPUAgentRepoURL:        "http://bfb-registry:8080/deb",
 			BFBRegistryURL:         "http://bfb-registry:8080",
 			AstraEnabled:           true,
@@ -241,6 +244,7 @@ ovs-vsctl add-br br-test
 --dpu-name=dpu-1
 --dpu-namespace=ns-1
 --dpu-uid=
+--dpu-type=BlueField4
 --dpuflavor=/opt/dpf/dpuflavor.yaml
 --control-plane-mtu=1500
 --zero-trust-mode=true

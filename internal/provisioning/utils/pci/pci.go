@@ -40,6 +40,9 @@ const (
 	bluefield2DeviceID = "0xa2d6"
 	bluefield3DeviceID = "0xa2dc"
 	bluefield4DeviceID = "0xa2df"
+
+	// Supported ConnectX E/W NIC PCI device IDs as advertised in https://admin.pci-ids.ucw.cz/read/PC/15b3
+	connectX9DeviceID = "0x1025"
 )
 
 var (
@@ -47,7 +50,10 @@ var (
 	sysfsPCIDevicesPath = "/sys/bus/pci/devices"
 )
 
-var nsNICDeviceIDs = sets.New(bluefield2DeviceID, bluefield3DeviceID, bluefield4DeviceID)
+var (
+	nsNICDeviceIDs = sets.New(bluefield2DeviceID, bluefield3DeviceID, bluefield4DeviceID)
+	ewNICDeviceIDs = sets.New(connectX9DeviceID)
+)
 
 // NormalizeAddress normalizes a PCI address for comparisons.
 func NormalizeAddress(address string) string {
@@ -79,9 +85,43 @@ func NetdevPCI(netdev string) (string, error) {
 	return "", nil
 }
 
+// PortScope selects which physical NIC ports to discover.
+type PortScope string
+
+const (
+	// PortScopeNS discovers North/South (BlueField) NIC ports.
+	PortScopeNS PortScope = "ns"
+	// PortScopeEW discovers East/West (e.g. ConnectX-9) NIC ports.
+	PortScopeEW PortScope = "ew"
+	// PortScopeAll discovers both N/S and E/W NIC ports.
+	PortScopeAll PortScope = "all"
+)
+
+// FilterForScope returns the NICPort filter for scope.
+// PortScopeAll returns a filter that matches known N/S or E/W device IDs.
+func FilterForScope(scope PortScope) (func(*NICPort) bool, error) {
+	switch scope {
+	case PortScopeNS:
+		return NSPortFilter, nil
+	case PortScopeEW:
+		return EWPortFilter, nil
+	case PortScopeAll:
+		return func(port *NICPort) bool {
+			return NSPortFilter(port) || EWPortFilter(port)
+		}, nil
+	default:
+		return nil, fmt.Errorf("unknown port scope %q", scope)
+	}
+}
+
 // NSPortFilter returns true for ports backed by a known N/S NIC device ID.
 func NSPortFilter(port *NICPort) bool {
 	return nsNICDeviceIDs.Has(port.DeviceID)
+}
+
+// EWPortFilter returns true for ports backed by a known E/W NIC device ID.
+func EWPortFilter(port *NICPort) bool {
+	return ewNICDeviceIDs.Has(port.DeviceID)
 }
 
 func pciDeviceID(pciAddress string) (string, error) {
