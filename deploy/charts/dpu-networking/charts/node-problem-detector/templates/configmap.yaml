@@ -6,11 +6,21 @@ metadata:
   labels:
     {{- include "node-problem-detector.labels" . | nindent 4 }}
 data:
-  # Copied from https://github.com/kubernetes/node-problem-detector/blob/master/deployment/node-problem-detector-config.yaml
+  # Rules copied from https://github.com/kubernetes/node-problem-detector/blob/master/deployment/node-problem-detector-config.yaml
+  # Kernel messages are read with the journald plugin from the persistent journal files
+  # under /var/log/journal (mounted read-only) instead of the kmsg plugin: opening
+  # /dev/kmsg from a container requires a device-cgroup exception that only privileged
+  # pods get, and this DaemonSet deliberately runs unprivileged. The journal files are
+  # owned by root, so the container reads them as uid 0 without any added capabilities.
+  # OVS OOM detection lives here as a log rule (condition OVSHealthy) for the same
+  # reason: it previously shelled out to journalctl on the host via nsenter.
   kernel-monitor.json: |
     {
-      "plugin": "kmsg",
-      "logPath": "/dev/kmsg",
+      "plugin": "journald",
+      "pluginConfig": {
+        "source": "kernel"
+      },
+      "logPath": "/var/log/journal",
       "lookback": "5m",
       "bufferSize": 10,
       "source": "kernel-monitor",
@@ -24,6 +34,11 @@ data:
           "type": "ReadonlyFilesystem",
           "reason": "FilesystemIsNotReadOnly",
           "message": "Filesystem is not read-only"
+        },
+        {
+          "type": "OVSHealthy",
+          "reason": "IsHealthy",
+          "message": "OVS processes have not been OOM killed"
         }
       ],
       "rules": [
@@ -68,6 +83,12 @@ data:
           "condition": "ReadonlyFilesystem",
           "reason": "FilesystemIsReadOnly",
           "pattern": "Remounting filesystem read-only"
+        },
+        {
+          "type": "permanent",
+          "condition": "OVSHealthy",
+          "reason": "OOMKilled",
+          "pattern": ".*Killed process \\d+ \\((ovs-vswitchd|ovsdb-server)\\).*"
         }
       ]
     }
@@ -109,11 +130,6 @@ data:
           "message": "ovsdb-server service is running"
         },
         {
-          "type": "OVSHealthy",
-          "reason": "IsHealthy",
-          "message": "OVS processes have not been OOM killed recently"
-        },
-        {
           "type": "SRIOVHealthy",
           "reason": "VFsFound",
           "message": "SR-IOV VF representors are present"
@@ -122,11 +138,6 @@ data:
           "type": "UplinkHealthy",
           "reason": "IsUp",
           "message": "Physical uplink is up"
-        },
-        {
-          "type": "DPUModeCorrect",
-          "reason": "ModeSet",
-          "message": "DPU is in correct mode"
         },
         {
           "type": "MTUConfigured",
@@ -151,13 +162,6 @@ data:
         },
         {
           "type": "permanent",
-          "condition": "OVSHealthy",
-          "reason": "OOMKilled",
-          "path": "/config/check_ovs_oom.sh",
-          "timeout": "3s"
-        },
-        {
-          "type": "permanent",
           "condition": "SRIOVHealthy",
           "reason": "VFRepresentorsMissing",
           "path": "/config/check_sriov_vfs.sh",
@@ -169,13 +173,6 @@ data:
           "reason": "UplinkDown",
           "path": "/config/check_uplink.sh",
           "timeout": "3s"
-        },
-        {
-          "type": "permanent",
-          "condition": "DPUModeCorrect",
-          "reason": "EmbeddedModeNotSet",
-          "path": "/config/check_dpu_mode.sh",
-          "timeout": "5s"
         },
         {
           "type": "permanent",

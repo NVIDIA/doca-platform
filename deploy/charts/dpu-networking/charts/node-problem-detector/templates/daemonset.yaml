@@ -21,9 +21,19 @@ spec:
       automountServiceAccountToken: false
       serviceAccountName: {{ include "node-problem-detector.serviceAccountName" . }}
       imagePullSecrets: {{ .Values.imagePullSecrets | default list | toJson }}
+      # hostNetwork so that node health keeps being reported even when pod
+      # networking on the node is broken, which is one of the failure modes
+      # this DaemonSet exists to detect.
       hostNetwork: true
+      # hostPID so the OVS liveness checks can see host processes in /proc.
+      # Process names used by the checks are world-readable, and without
+      # CAP_SYS_PTRACE and CAP_SYS_ADMIN the host processes cannot be traced
+      # and their namespaces cannot be entered.
       hostPID: true
       securityContext:
+        # The persistent journal files under /var/log/journal are mode 0640
+        # and owned by root, so uid 0 reads them by ownership alone without
+        # any added capabilities.
         runAsNonRoot: false
         runAsUser: 0
       tolerations:
@@ -36,12 +46,12 @@ spec:
         image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
         imagePullPolicy: {{ .Values.image.pullPolicy }}
         securityContext:
-          privileged: true
-          readOnlyRootFilesystem: false
+          privileged: false
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          seccompProfile:
+            type: RuntimeDefault
           capabilities:
-            add:
-            - SYS_PTRACE
-            - SYS_ADMIN
             drop:
             - ALL
         command:
@@ -85,12 +95,11 @@ spec:
         - name: log
           mountPath: /var/log
           readOnly: true
-        - name: kmsg
-          mountPath: /dev/kmsg
-          readOnly: true
         - name: host-sys
           mountPath: /sys
           readOnly: true
+        - name: tmp
+          mountPath: /tmp
       volumes:
       - name: kube-api-access
         projected:
@@ -116,9 +125,9 @@ spec:
       - name: log
         hostPath:
           path: /var/log
-      - name: kmsg
-        hostPath:
-          path: /dev/kmsg
       - name: host-sys
         hostPath:
           path: /sys
+      - name: tmp
+        emptyDir:
+          sizeLimit: 16Mi
