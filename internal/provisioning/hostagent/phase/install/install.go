@@ -33,7 +33,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/wait"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -134,7 +133,7 @@ func (h *Handler) handle(ctx context.Context, dev hostutil.Device, dpu *provisio
 	if err := h.download(ctx, dpu.Status.BFBFile, bfbFile); err != nil {
 		return err
 	}
-	return h.installBFB(ctx, dpu, dev.Address, bfbFile, bfcfgFile)
+	return h.installBFB(dev.Address, bfbFile, bfcfgFile)
 }
 
 func (h *Handler) download(ctx context.Context, filename string, dst string) error {
@@ -165,8 +164,7 @@ func (h *Handler) download(ctx context.Context, filename string, dst string) err
 	return origErr
 }
 
-func (h *Handler) installBFB(ctx context.Context, dpu *provisioningv1.DPU, pciAddress, bfbFile, bfcfgFile string) error {
-	logger := log.FromContext(ctx)
+func (h *Handler) installBFB(pciAddress, bfbFile, bfcfgFile string) error {
 	cmd := fmt.Sprintf("/opt/mellanox/doca/services/dms/dmsc --insecure os install --address 127.0.0.1:9339 --target %s --pkg %s --version %s", pciAddress, bfbFile, filepath.Base(bfbFile))
 	if _, stderr, err := hostutil.RunBash(cmd); err != nil {
 		return fmt.Errorf("failed to run cmd: %s, err: %w, stderr: %s", cmd, err, stderr.String())
@@ -181,24 +179,7 @@ func (h *Handler) installBFB(ctx context.Context, dpu *provisioningv1.DPU, pciAd
 	if _, stderr, err := hostutil.RunBash(cmd); err != nil {
 		return fmt.Errorf("failed to run cmd: %s, err: %w, stderr: %s", cmd, err, stderr.String())
 	}
-
-	// wait until the DPU agent is started
-	timeoutCtx, cancel := context.WithTimeout(ctx, 20*time.Minute)
-	defer cancel()
-	return wait.PollUntilContextCancel(timeoutCtx, 30*time.Second, true, func(ctx context.Context) (bool, error) {
-		latestDPU := &provisioningv1.DPU{}
-		if err := h.Client.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Name}, latestDPU); err != nil {
-			logger.Error(err, "failed to get latest DPU, retry until timeout")
-			return false, nil
-		}
-		agentStarted := latestDPU.Status.AgentStatus != nil && latestDPU.Status.AgentStatus.LastStartupTime != nil
-		if !agentStarted {
-			logger.Info("Waiting for DPU agent to start", "agentStatus", latestDPU.Status.AgentStatus)
-		} else {
-			logger.Info("DPU agent started", "lastStartupTime", latestDPU.Status.AgentStatus.LastStartupTime)
-		}
-		return agentStarted, nil
-	})
+	return nil
 }
 
 // downloadWithViaEnv is a helper function to download a file from a URL using the environment variables BFB_REGISTRY_SERVICE_HOST and BFB_REGISTRY_SERVICE_PORT
