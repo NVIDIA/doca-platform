@@ -79,10 +79,12 @@ func Ready(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Controll
 				state.PostProvisioningNodeEffect = ptr.To(true)
 				// Transition to nodeEffect state instead of DPUClusterConfig
 				state.Phase = provisioningv1.DPUNodeEffect
+				updateFalseDPUCondReady(state, "RerunNodeEffect", "rerun node effect")
 				logger.V(3).Info(fmt.Sprintf("node %s needs to update cluster node metadata, triggering node effect", node.Name))
 				return *state, nil
 			}
 			state.Phase = provisioningv1.DPUClusterConfig
+			updateFalseDPUCondReady(state, "RerunClusterConfig", "rerun cluster config")
 			logger.V(3).Info(fmt.Sprintf("node %s needs to update cluster node labels or annotations", node.Name))
 			return *state, nil
 		}
