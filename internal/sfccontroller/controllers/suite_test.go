@@ -22,7 +22,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
-	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/utils"
@@ -93,7 +92,7 @@ var _ = BeforeSuite(func() {
 		ctrl.Options{
 			Scheme: scheme.Scheme,
 			// Set metrics server bind address to 0 to disable it.
-			Cache: GetMgrCache(testNodeName, 10*time.Minute),
+			Cache: GetMgrCache(testNodeName),
 			Metrics: server.Options{
 				BindAddress: "0",
 			}})

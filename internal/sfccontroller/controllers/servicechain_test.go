@@ -15,11 +15,13 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/features"
 	"github.com/nvidia/doca-platform/internal/utils"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/pkg/openflow"
@@ -32,16 +34,21 @@ import (
 	ovsclient "github.com/ovn-org/libovsdb/client"
 	"go.uber.org/mock/gomock"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/client-go/kubernetes/scheme"
 	kexecTesting "k8s.io/utils/exec/testing"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	ctrlConfig "sigs.k8s.io/controller-runtime/pkg/config"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 //nolint:goconst
@@ -1223,5 +1230,521 @@ var _ = Describe("service chain controller", func() {
 				HaveField("Reason", "Pending"),
 			)))
 		}).WithPolling(500 * time.Millisecond).WithTimeout(5 * time.Second).Should(Succeed())
+	})
+})
+
+var _ = Describe("service chain controller flow application", func() {
+	var (
+		mockCtrl       *gomock.Controller
+		cleanupObjects []client.Object
+		scr            *ServiceChainReconciler
+		ofb            *MockBridge
+		ovsMock        *ovsutils.MockAPI
+		scMock         *MockServiceChainAPI
+		ctx            = context.Background()
+		testNS         *corev1.Namespace
+		node           *corev1.Node
+		testNode       = "test-node-flow-apply"
+		nn             types.NamespacedName
+		si             *dpuservicev1.ServiceInterface
+	)
+
+	BeforeEach(func() {
+		mockCtrl = gomock.NewController(GinkgoT())
+		ofb = NewMockBridge(mockCtrl)
+		ovsMock = ovsutils.NewMockAPI(mockCtrl)
+		scMock = NewMockServiceChainAPI(mockCtrl)
+
+		scr = &ServiceChainReconciler{
+			Client:     testClient,
+			NodeName:   testNode,
+			BridgeName: BridgeSFC,
+			OFBridge:   ofb,
+			OVS:        ovsMock,
+			SC:         scMock,
+		}
+
+		By("creating namespace")
+		testNS = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "test-ns-flow-apply-"}}
+		Expect(testClient.Create(ctx, testNS)).Should(Succeed())
+
+		By("creating node")
+		node = getTestNode(testNode)
+		Expect(testClient.Create(ctx, node)).To(Succeed())
+		cleanupObjects = append(cleanupObjects, node)
+
+		By("creating a ready service interface")
+		si = getTestVFServiceInterface(
+			"test-service-interface",
+			testNS.Name,
+			testNode,
+			1,
+			map[string]string{"svc.dpu.nvidia.com/interface": "p0vf1"},
+			nil,
+		)
+		Expect(testClient.Create(ctx, si)).To(Succeed())
+		cleanupObjects = append(cleanupObjects, si)
+
+		si.Status.Conditions = []metav1.Condition{
+			{
+				Type:               string(conditions.TypeReady),
+				Status:             metav1.ConditionTrue,
+				Reason:             "Success",
+				Message:            "",
+				LastTransitionTime: metav1.Now(),
+				ObservedGeneration: si.Generation,
+			},
+		}
+		Expect(testClient.Status().Update(ctx, si)).To(Succeed())
+
+		nn = types.NamespacedName{
+			Namespace: testNS.Name,
+			Name:      "test-service-chain",
+		}
+
+		By("creating service chain")
+		sc := &dpuservicev1.ServiceChain{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      nn.Name,
+				Namespace: nn.Namespace,
+			},
+			Spec: dpuservicev1.ServiceChainSpec{
+				Node: &testNode,
+				Switches: []dpuservicev1.Switch{
+					{
+						Ports: []dpuservicev1.Port{
+							{
+								ServiceInterface: dpuservicev1.ServiceIfc{
+									MatchLabels: si.Labels,
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		Expect(testClient.Create(ctx, sc)).To(Succeed())
+		cleanupObjects = append(cleanupObjects, sc)
+	})
+
+	AfterEach(func() {
+		// Strip the finalizer directly: these tests call Reconcile without a manager, so reconcileDelete never runs.
+		sc := &dpuservicev1.ServiceChain{}
+		if testClient.Get(ctx, nn, sc) == nil {
+			sc.Finalizers = nil
+			Expect(testClient.Update(ctx, sc)).To(Succeed())
+		}
+
+		Expect(testutils.CleanupAndWait(ctx, testClient, cleanupObjects...)).To(Succeed())
+		Expect(testClient.Delete(ctx, testNS)).To(Succeed())
+		mockCtrl.Finish()
+	})
+
+	// expectPortLookup sets up OVS mock expectations for resolving the test ServiceInterface's ofport.
+	expectPortLookup := func() {
+		condition := si.Namespace + "/" + si.Name
+		ofport := 7
+		iface := ovsmodel.Interface{
+			Name:        "test-iface",
+			Ofport:      &ofport,
+			ExternalIDs: map[string]string{ovsutils.DPFIDKey: condition},
+		}
+		ovsMock.EXPECT().WhereAll(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(model interface{}, conds ...interface{}) ovsclient.ConditionalAPI {
+				mockConditional := ovsutils.NewMockConditionalAPI(mockCtrl)
+				mockConditional.EXPECT().List(gomock.Any(), gomock.Any()).DoAndReturn(
+					func(ctx context.Context, result interface{}) error {
+						*(result.(*[]ovsmodel.Interface)) = []ovsmodel.Interface{iface}
+						return nil
+					},
+				)
+				return mockConditional
+			},
+		)
+		ovsMock.EXPECT().IsIfaceInBr(gomock.Any(), SFCBridge, "test-iface").Return(true, nil)
+	}
+
+	It("applies flows on every reconcile, even across repeated reconciles with nothing changed", func() {
+		// 1st reconcile: only adds the finalizer, ports aren't resolved yet.
+		_, err := scr.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+		Expect(err).ToNot(HaveOccurred())
+
+		// Every subsequent reconcile resolves ports and re-applies flows fire-and-forget, even if unchanged.
+		for range 3 {
+			expectPortLookup()
+			scMock.EXPECT().GenerateAndApplyOpenFlows(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(1)
+			_, err = scr.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+			Expect(err).ToNot(HaveOccurred())
+		}
+	})
+
+	// onlyNotFound reports whether err is nil or only "not found" errors, unwrapping Reconcile's aggregate.
+	var onlyNotFound func(err error) bool
+	onlyNotFound = func(err error) bool {
+		if err == nil {
+			return true
+		}
+		if agg, ok := err.(kerrors.Aggregate); ok {
+			for _, e := range agg.Errors() {
+				if !onlyNotFound(e) {
+					return false
+				}
+			}
+			return true
+		}
+		return apierrors.IsNotFound(err)
+	}
+
+	It("deletes flows when the ServiceChain is deleted", func() {
+		_, err := scr.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+		Expect(err).ToNot(HaveOccurred())
+
+		expectPortLookup()
+		scMock.EXPECT().GenerateAndApplyOpenFlows(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(1)
+		_, err = scr.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+		Expect(err).ToNot(HaveOccurred())
+
+		By("deleting the ServiceChain")
+		existing := &dpuservicev1.ServiceChain{}
+		Expect(testClient.Get(ctx, nn, existing)).To(Succeed())
+		Expect(testClient.Delete(ctx, existing)).To(Succeed())
+
+		// Removing the finalizer here can race the reconciler's own status patch into a tolerated NotFound.
+		ofb.EXPECT().DeleteFlowsByCookie(hash(nn.String()), gomock.Any()).Return(nil).Times(1)
+		_, err = scr.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+		Expect(onlyNotFound(err)).To(BeTrue(), "unexpected error: %v", err)
+
+		Expect(apierrors.IsNotFound(testClient.Get(ctx, nn, &dpuservicev1.ServiceChain{}))).To(BeTrue())
+	})
+
+	It("deletes flows when reconciling a ServiceChain that is already gone", func() {
+		_, err := scr.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+		Expect(err).ToNot(HaveOccurred())
+
+		expectPortLookup()
+		scMock.EXPECT().GenerateAndApplyOpenFlows(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(1)
+		_, err = scr.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+		Expect(err).ToNot(HaveOccurred())
+
+		By("removing the ServiceChain without going through reconcileDelete")
+		existing := &dpuservicev1.ServiceChain{}
+		Expect(testClient.Get(ctx, nn, existing)).To(Succeed())
+		existing.Finalizers = nil
+		Expect(testClient.Update(ctx, existing)).To(Succeed())
+		Expect(testClient.Delete(ctx, existing)).To(Succeed())
+
+		ofb.EXPECT().DeleteFlowsByCookie(hash(nn.String()), gomock.Any()).Return(nil).Times(1)
+		_, err = scr.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+		Expect(err).ToNot(HaveOccurred())
+	})
+
+	It("re-applies flows when the spec generation changes even if the resolved ports end up identical", func() {
+		_, err := scr.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+		Expect(err).ToNot(HaveOccurred())
+
+		expectPortLookup()
+		scMock.EXPECT().GenerateAndApplyOpenFlows(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(1)
+		_, err = scr.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+		Expect(err).ToNot(HaveOccurred())
+
+		By("bumping the ServiceChain's generation without changing the resolved ports")
+		existing := &dpuservicev1.ServiceChain{}
+		Expect(testClient.Get(ctx, nn, existing)).To(Succeed())
+		existing.Spec.Switches[0].ServiceMTU = ptr.To(9000)
+		Expect(testClient.Update(ctx, existing)).To(Succeed())
+
+		// On generation change, flows are force-deleted then unconditionally re-applied once ports resolve.
+		ofb.EXPECT().DeleteFlowsByCookie(hash(nn.String()), gomock.Any()).Return(nil).Times(1)
+		expectPortLookup()
+		scMock.EXPECT().GenerateAndApplyOpenFlows(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(1)
+		_, err = scr.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+		Expect(err).ToNot(HaveOccurred())
+	})
+})
+
+var _ = Describe("ServiceChainReconciler TriggerResync", func() {
+	var (
+		fakeClient client.Client
+		scr        *ServiceChainReconciler
+		ctx        = context.Background()
+		testNS     = "test-ns-resync"
+		testNode   = "test-node-resync"
+		otherNode  = "test-node-resync-other"
+	)
+
+	BeforeEach(func() {
+		fakeClient = fake.NewClientBuilder().
+			WithScheme(scheme.Scheme).
+			WithIndex(&dpuservicev1.ServiceChain{}, serviceChainNodeNameKey, func(o client.Object) []string {
+				sc := o.(*dpuservicev1.ServiceChain)
+				if sc.Spec.Node == nil {
+					return nil
+				}
+				return []string{*sc.Spec.Node}
+			}).
+			WithIndex(&dpuservicev1.ServiceInterface{}, utils.ServiceInterfaceNodeFieldKey, utils.ServiceInterfaceNodeIndexFunc).
+			Build()
+		scr = &ServiceChainReconciler{
+			Client:   fakeClient,
+			NodeName: testNode,
+			resyncCh: make(chan event.GenericEvent),
+		}
+	})
+
+	AfterEach(func() {
+		// Closing resyncCh lets any spawned forwarding goroutine exit instead of leaking into the next spec.
+		close(scr.resyncCh)
+	})
+
+	newChain := func(name, node string) *dpuservicev1.ServiceChain {
+		sc := &dpuservicev1.ServiceChain{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: testNS,
+			},
+			Spec: dpuservicev1.ServiceChainSpec{
+				Node: &node,
+				Switches: []dpuservicev1.Switch{{Ports: []dpuservicev1.Port{{
+					ServiceInterface: dpuservicev1.ServiceIfc{MatchLabels: map[string]string{"k": "v"}},
+				}}}},
+			},
+		}
+		Expect(fakeClient.Create(ctx, sc)).To(Succeed())
+		return sc
+	}
+
+	It("emits a GenericEvent only for ServiceChains on this node", func() {
+		mine := newChain("chain-mine", testNode)
+		newChain("chain-other-node", otherNode)
+
+		ch := scr.resyncCh
+		received := make(chan event.GenericEvent, 10)
+		go func() {
+			for e := range ch {
+				received <- e
+			}
+		}()
+
+		Expect(scr.TriggerResync(ctx)).To(Succeed())
+
+		var got event.GenericEvent
+		Eventually(received).WithTimeout(2 * time.Second).Should(Receive(&got))
+		Expect(got.Object.(*dpuservicev1.ServiceChain).Name).To(Equal(mine.Name))
+
+		Consistently(received).WithTimeout(200 * time.Millisecond).ShouldNot(Receive())
+	})
+
+	It("maps a service Pod only to chains using its ServiceInterface", func() {
+		mine := newChain("chain-mine", testNode)
+		unrelated := &dpuservicev1.ServiceChain{
+			ObjectMeta: metav1.ObjectMeta{Name: "chain-unrelated", Namespace: testNS},
+			Spec: dpuservicev1.ServiceChainSpec{
+				Node: &testNode,
+				Switches: []dpuservicev1.Switch{{Ports: []dpuservicev1.Port{{
+					ServiceInterface: dpuservicev1.ServiceIfc{MatchLabels: map[string]string{"other": "labels"}},
+				}}}},
+			},
+		}
+		Expect(fakeClient.Create(ctx, unrelated)).To(Succeed())
+
+		serviceID := "test-service"
+		si := &dpuservicev1.ServiceInterface{
+			ObjectMeta: metav1.ObjectMeta{Name: "service-interface", Namespace: testNS, Labels: map[string]string{"k": "v"}},
+			Spec: dpuservicev1.ServiceInterfaceSpec{
+				Node:          &testNode,
+				InterfaceType: dpuservicev1.InterfaceTypeService,
+				Service: &dpuservicev1.ServiceDef{
+					ServiceID:     serviceID,
+					Network:       "test-network",
+					InterfaceName: "eth0",
+				},
+			},
+		}
+		Expect(fakeClient.Create(ctx, si)).To(Succeed())
+
+		pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+			Namespace: testNS,
+			Labels:    map[string]string{dpuservicev1.DPFServiceIDLabelKey: serviceID},
+		}}
+		reqs := scr.serviceChainsForPod(ctx, pod)
+		Expect(reqs).To(ConsistOf(reconcile.Request{NamespacedName: client.ObjectKeyFromObject(mine)}))
+	})
+
+	It("maps a service Pod to chains via NSI entries when the NSI path is enabled", func() {
+		Expect(features.MutableGates.Set(fmt.Sprintf("%s=true", features.NSIPathForSFC))).To(Succeed())
+		DeferCleanup(func() {
+			Expect(features.MutableGates.Set(fmt.Sprintf("%s=false", features.NSIPathForSFC))).To(Succeed())
+		})
+
+		serviceID := "test-service"
+		nsiClient := fake.NewClientBuilder().
+			WithScheme(scheme.Scheme).
+			WithIndex(&dpuservicev1.ServiceChain{}, serviceChainNodeNameKey, func(o client.Object) []string {
+				sc := o.(*dpuservicev1.ServiceChain)
+				if sc.Spec.Node == nil {
+					return nil
+				}
+				return []string{*sc.Spec.Node}
+			}).
+			WithIndex(&dpuservicev1.NodeServiceInterfaces{}, utils.NSINodeFieldKey, utils.NSINodeIndexFunc).
+			WithIndex(&dpuservicev1.NodeServiceInterfaces{}, utils.NSITypeFieldKey, utils.NSITypeIndexFunc).
+			WithIndex(&dpuservicev1.ServiceInterface{}, utils.ServiceInterfaceNodeFieldKey, utils.ServiceInterfaceNodeIndexFunc).
+			Build()
+		nsiScr := &ServiceChainReconciler{Client: nsiClient, NodeName: testNode}
+
+		mine := &dpuservicev1.ServiceChain{
+			ObjectMeta: metav1.ObjectMeta{Name: "chain-nsi", Namespace: testNS},
+			Spec: dpuservicev1.ServiceChainSpec{
+				Node: &testNode,
+				Switches: []dpuservicev1.Switch{{Ports: []dpuservicev1.Port{{
+					ServiceInterface: dpuservicev1.ServiceIfc{MatchLabels: map[string]string{"k": "v"}},
+				}}}},
+			},
+		}
+		Expect(nsiClient.Create(ctx, mine)).To(Succeed())
+
+		// No legacy ServiceInterface exists for this service; only an NSI entry backs it.
+		nsi := &dpuservicev1.NodeServiceInterfaces{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-nsi", Namespace: utils.NSIObjectsNamespace},
+			Spec: dpuservicev1.NodeServiceInterfacesSpec{
+				Node: testNode,
+				Type: dpuservicev1.NSITypeSFC,
+				Interfaces: []dpuservicev1.InterfaceEntry{{
+					Name:          testNS + "_nsi-entry",
+					Labels:        map[string]string{"k": "v"},
+					InterfaceType: dpuservicev1.InterfaceTypeService,
+					Service:       &dpuservicev1.ServiceDef{ServiceID: serviceID, Network: "test-network", InterfaceName: "eth0"},
+				}},
+			},
+		}
+		Expect(nsiClient.Create(ctx, nsi)).To(Succeed())
+
+		pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+			Namespace: testNS,
+			Labels:    map[string]string{dpuservicev1.DPFServiceIDLabelKey: serviceID},
+		}}
+		reqs := nsiScr.serviceChainsForPod(ctx, pod)
+		Expect(reqs).To(ConsistOf(reconcile.Request{NamespacedName: client.ObjectKeyFromObject(mine)}))
+	})
+
+	It("skips ServiceChains with no node set", func() {
+		newChain("chain-empty-node", "")
+		unset := &dpuservicev1.ServiceChain{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "chain-nil-node",
+				Namespace: testNS,
+			},
+			Spec: dpuservicev1.ServiceChainSpec{
+				Switches: []dpuservicev1.Switch{{Ports: []dpuservicev1.Port{{
+					ServiceInterface: dpuservicev1.ServiceIfc{MatchLabels: map[string]string{"k": "v"}},
+				}}}},
+			},
+		}
+		Expect(fakeClient.Create(ctx, unset)).To(Succeed())
+
+		ch := scr.resyncCh
+		received := make(chan event.GenericEvent, 10)
+		go func() {
+			for e := range ch {
+				received <- e
+			}
+		}()
+
+		Expect(scr.TriggerResync(ctx)).To(Succeed())
+		Consistently(received).WithTimeout(200 * time.Millisecond).ShouldNot(Receive())
+	})
+
+	It("returns the context error if canceled while blocked sending", func() {
+		newChain("chain-blocked", testNode)
+
+		sendCtx, cancelSend := context.WithCancel(ctx)
+		defer cancelSend()
+		errCh := make(chan error, 1)
+		go func() {
+			// No consumer on resyncCh: TriggerResync must block on the send.
+			errCh <- scr.TriggerResync(sendCtx)
+		}()
+
+		Consistently(errCh).WithTimeout(200 * time.Millisecond).ShouldNot(Receive())
+
+		cancelSend()
+		var err error
+		Eventually(errCh).WithTimeout(2 * time.Second).Should(Receive(&err))
+		Expect(err).To(MatchError(context.Canceled))
+	})
+
+	It("returns immediately with an error if canceled before the call, without blocking on the send", func() {
+		newChain("chain-precanceled", testNode)
+
+		cancelCtx, cancel := context.WithCancel(ctx)
+		cancel()
+
+		err := scr.TriggerResync(cancelCtx)
+		Expect(err).To(MatchError(context.Canceled))
+	})
+
+	It("does not block a second caller while a resync is in flight and coalesces it", func() {
+		newChain("chain-inflight", testNode)
+
+		// First caller: nothing drains resyncCh, so it blocks on the send and holds resyncActive.
+		firstCtx, cancelFirst := context.WithCancel(ctx)
+		defer cancelFirst()
+		firstErr := make(chan error, 1)
+		go func() {
+			defer GinkgoRecover()
+			firstErr <- scr.TriggerResync(firstCtx)
+		}()
+
+		Eventually(func() bool {
+			scr.resyncMu.Lock()
+			defer scr.resyncMu.Unlock()
+			return scr.resyncActive
+		}).WithTimeout(2 * time.Second).Should(BeTrue())
+
+		// Second caller must return promptly instead of blocking behind the first, marking a pass pending.
+		secondErr := make(chan error, 1)
+		go func() {
+			defer GinkgoRecover()
+			secondErr <- scr.TriggerResync(ctx)
+		}()
+		Eventually(secondErr).WithTimeout(2 * time.Second).Should(Receive(BeNil()))
+
+		scr.resyncMu.Lock()
+		pending := scr.resyncPending
+		scr.resyncMu.Unlock()
+		Expect(pending).To(BeTrue(), "the coalesced caller should mark another pass pending")
+
+		cancelFirst()
+		Eventually(firstErr).WithTimeout(2 * time.Second).Should(Receive(MatchError(context.Canceled)))
+	})
+
+	It("retries a pending resync even if the running pass fails", func() {
+		newChain("chain-retry", testNode)
+
+		callCount := 0
+		scr.Client = interceptor.NewClient(fakeClient.(client.WithWatch), interceptor.Funcs{
+			List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+				if _, ok := list.(*dpuservicev1.ServiceChainList); ok {
+					callCount++
+					if callCount == 1 {
+						// Simulate a concurrent caller marking another pass pending during this run,
+						// then fail it: the loop must retry rather than drop the pending request.
+						scr.resyncMu.Lock()
+						scr.resyncPending = true
+						scr.resyncMu.Unlock()
+						return errors.New("transient list error")
+					}
+				}
+				return c.List(ctx, list, opts...)
+			},
+		})
+
+		go func() {
+			for range scr.resyncCh {
+			}
+		}()
+
+		Expect(scr.TriggerResync(ctx)).To(Succeed())
+		Expect(callCount).To(Equal(2), "the pending request must trigger a second pass after the first failed")
 	})
 })
