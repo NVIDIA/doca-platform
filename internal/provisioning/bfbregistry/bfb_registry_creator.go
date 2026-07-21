@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"time"
 
@@ -27,6 +28,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/utils/ptr"
@@ -42,7 +45,29 @@ const (
 	LabelDPUComponent = "dpu.nvidia.com/component"
 	LabelValue        = "bfb-registry"
 	ContainerPort     = 8082
-	BFBHostPath       = "/var/lib/nvidia/dpf/bfb"
+	// HTTPSContainerPort is the only port the bfb-registry container exposes after the
+	// HTTPS migration; the plain-HTTP listener is removed (LLD task 4 §5).
+	HTTPSContainerPort = 8443
+	BFBHostPath        = "/var/lib/nvidia/dpf/bfb"
+
+	// ServerCertSecretName is the Secret (and Certificate CR) holding the bfb-registry
+	// HTTPS server certificate, issued by the provisioning CA Issuer.
+	ServerCertSecretName = "bfb-registry-server-cert"
+	// ServerCertIssuerName is the cert-manager CA Issuer that signs the server certificate.
+	ServerCertIssuerName = "dpf-provisioning-issuer"
+	// ServerCertMountPath is where the server certificate Secret is mounted into the Pod.
+	ServerCertMountPath = "/etc/bfb-registry/tls"
+
+	// volumeNameNginxTmp is the emptyDir volume shared between the nginx and
+	// cert-reloader containers (holds the rendered nginx.conf and nginx.pid).
+	volumeNameNginxTmp = "nginx-tmp"
+	// volumeNameServerCert is the volume backed by the HTTPS server certificate Secret.
+	volumeNameServerCert = "server-cert"
+
+	// serverCertDuration / serverCertRenewBefore follow the HLD's 30-90 day leaf certs:
+	// 90-day lifetime, renewed 30 days early to trigger rotation well ahead of expiry.
+	serverCertDuration    = 2160 * time.Hour
+	serverCertRenewBefore = 720 * time.Hour
 
 	// bfbRegistryPodDeleteMaxWait bounds how long we block waiting for the API server to
 	// finish deleting the bfb-registry Pod after we issue Delete. On deadline, we log and
@@ -64,6 +89,7 @@ func (r *BFBRegistryRunnable) Start(ctx context.Context) error {
 	namespace := os.Getenv("POD_NAMESPACE")
 	podName := os.Getenv("POD_NAME")
 	nodeName := os.Getenv("NODE_NAME")
+	nodeIP := os.Getenv("NODE_IP")
 	registryImage := os.Getenv("BFB_REGISTRY_IMAGE")
 	if namespace == "" || podName == "" || nodeName == "" || registryImage == "" {
 		logger.Info("bfb-registry leader runnable skipping: required env not set (POD_NAMESPACE, POD_NAME, NODE_NAME, BFB_REGISTRY_IMAGE)",
@@ -78,6 +104,11 @@ func (r *BFBRegistryRunnable) Start(ctx context.Context) error {
 	}
 
 	if err := r.removeLegacyDaemonSet(ctx, namespace); err != nil {
+		return err
+	}
+	// Ensure the server certificate before the Pod: the server-cert volume is
+	// optional: false, so the Pod stays in ContainerCreating until the Secret is ready.
+	if err := r.ensureServerCertificate(ctx, namespace, nodeIP, pod); err != nil {
 		return err
 	}
 	if err := r.ensurePod(ctx, namespace, nodeName, registryImage, pod); err != nil {
@@ -211,6 +242,9 @@ func (r *BFBRegistryRunnable) desiredPod(namespace, nodeName, image string, owne
 			NodeName:                      nodeName,
 			ImagePullSecrets:              r.ImagePullSecrets,
 			TerminationGracePeriodSeconds: ptr.To(int64(0)),
+			// Share the PID namespace so the cert-reloader sidecar can send SIGHUP
+			// (nginx -s reload) to the nginx master in the other container.
+			ShareProcessNamespace: ptr.To(true),
 			SecurityContext: &corev1.PodSecurityContext{
 				FSGroup: ptr.To(int64(65532)),
 			},
@@ -218,9 +252,9 @@ func (r *BFBRegistryRunnable) desiredPod(namespace, nodeName, image string, owne
 				{
 					Name:    "bfb-registry",
 					Image:   image,
-					Command: []string{"/bin/sh", "-c", "envsubst '${NGINX_PORT}' < /nginx/nginx.conf.template > /nginx/nginx.conf && /usr/local/nginx/sbin/nginx -c /nginx/nginx.conf -g \"daemon off;\""},
-					Ports:   []corev1.ContainerPort{{Name: "http", ContainerPort: ContainerPort}},
-					Env:     []corev1.EnvVar{{Name: "NGINX_PORT", Value: fmt.Sprintf("%d", ContainerPort)}},
+					Command: []string{"/bin/sh", "-c", "envsubst '${NGINX_HTTPS_PORT}' < /nginx/nginx.conf.template > /nginx/nginx.conf && /usr/local/nginx/sbin/nginx -c /nginx/nginx.conf -g \"daemon off;\""},
+					Ports:   []corev1.ContainerPort{{Name: "https", ContainerPort: HTTPSContainerPort}},
+					Env:     []corev1.EnvVar{{Name: "NGINX_HTTPS_PORT", Value: fmt.Sprintf("%d", HTTPSContainerPort)}},
 					SecurityContext: &corev1.SecurityContext{
 						RunAsUser:  ptr.To(int64(65532)),
 						RunAsGroup: ptr.To(int64(65532)),
@@ -229,7 +263,48 @@ func (r *BFBRegistryRunnable) desiredPod(namespace, nodeName, image string, owne
 					VolumeMounts: []corev1.VolumeMount{
 						{Name: "bfb", MountPath: "/bfb"},
 						{Name: "config", MountPath: "/nginx/nginx.conf.template", SubPath: "nginx.conf", ReadOnly: true},
-						{Name: "nginx-tmp", MountPath: "/nginx"},
+						{Name: volumeNameNginxTmp, MountPath: "/nginx"},
+						// non-subPath so kubelet refreshes the mount in place on cert rotation.
+						{Name: volumeNameServerCert, MountPath: ServerCertMountPath, ReadOnly: true},
+					},
+				},
+				{
+					Name:  "cert-reloader",
+					Image: image,
+					Command: []string{
+						"/usr/local/bin/certreloader",
+						"-cert-dir", ServerCertMountPath,
+						"-nginx-bin", "/usr/local/nginx/sbin/nginx",
+						"-nginx-conf", "/nginx/nginx.conf",
+					},
+					SecurityContext: &corev1.SecurityContext{
+						RunAsUser:  ptr.To(int64(65532)),
+						RunAsGroup: ptr.To(int64(65532)),
+						// The nginx container is privileged and therefore runs AppArmor
+						// "unconfined". AppArmor mediates signals by profile: a container
+						// under the default containerd profile may only signal peers in the
+						// same profile, so "nginx -s reload" (SIGHUP to the nginx master in
+						// the other container) is denied with EPERM. Run the reloader
+						// unconfined too so it shares the nginx AppArmor domain and the
+						// graceful reload succeeds.
+						//
+						// This "unconfined" workaround only exists because the nginx
+						// container is privileged (added in commit 0d51c1da6 "fix: add
+						// privilege for init-container and registry pod", to let the non-root
+						// uid 65532 nginx read the root-owned hostPath BFB directory). We
+						// should drop Privileged from the nginx container (e.g. serve BFBs
+						// from a PVC, or fix the hostPath ownership/fsGroup) so both
+						// containers run under the same default AppArmor profile; then this
+						// explicit Unconfined override can be removed and the reload will be
+						// allowed as a same-profile signal.
+						AppArmorProfile: &corev1.AppArmorProfile{
+							Type: corev1.AppArmorProfileTypeUnconfined,
+						},
+					},
+					VolumeMounts: []corev1.VolumeMount{
+						// Shares /nginx (nginx.pid) and the cert dir with the nginx container.
+						{Name: volumeNameNginxTmp, MountPath: "/nginx"},
+						{Name: volumeNameServerCert, MountPath: ServerCertMountPath, ReadOnly: true},
 					},
 				},
 			},
@@ -242,7 +317,19 @@ func (r *BFBRegistryRunnable) desiredPod(namespace, nodeName, image string, owne
 						},
 					},
 				},
-				{Name: "nginx-tmp", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+				{Name: volumeNameNginxTmp, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+				{
+					// optional: false keeps the Pod in ContainerCreating until the cert
+					// Secret exists; non-subPath so kubelet syncs rotations into the mount.
+					Name: volumeNameServerCert,
+					VolumeSource: corev1.VolumeSource{
+						Secret: &corev1.SecretVolumeSource{
+							SecretName:  ServerCertSecretName,
+							DefaultMode: ptr.To(int32(0o440)),
+							Optional:    ptr.To(false),
+						},
+					},
+				},
 				bfbVol,
 			},
 		},
@@ -273,9 +360,9 @@ func (r *BFBRegistryRunnable) ensureService(ctx context.Context, namespace strin
 		svc.Spec.Selector = bfbRegistryPodLabels()
 		svc.Spec.Ports = []corev1.ServicePort{
 			{
-				Name:       "http",
-				Port:       int32(ContainerPort),
-				TargetPort: intstr.FromInt(ContainerPort),
+				Name:       "https",
+				Port:       int32(HTTPSContainerPort),
+				TargetPort: intstr.FromInt(HTTPSContainerPort),
 			},
 		}
 		return nil
@@ -294,6 +381,76 @@ func (r *BFBRegistryRunnable) ensureService(ctx context.Context, namespace strin
 	return nil
 }
 
+var certificateGVK = schema.GroupVersionKind{Group: "cert-manager.io", Version: "v1", Kind: "Certificate"}
+
+// serverCertSANs returns the DNS names and IP addresses the bfb-registry server
+// certificate must cover.
+func serverCertSANs(namespace, nodeIP string) (dnsNames, ipAddresses []string) {
+	dnsNames = []string{
+		PodName,
+		fmt.Sprintf("%s.%s", PodName, namespace),
+		fmt.Sprintf("%s.%s.svc", PodName, namespace),
+		fmt.Sprintf("%s.%s.svc.cluster.local", PodName, namespace),
+	}
+	if net.ParseIP(nodeIP) != nil {
+		ipAddresses = []string{nodeIP}
+	}
+	return dnsNames, ipAddresses
+}
+
+// ensureServerCertificate creates or updates the cert-manager Certificate that
+// produces the bfb-registry HTTPS server cert.
+func (r *BFBRegistryRunnable) ensureServerCertificate(ctx context.Context, namespace, nodeIP string, leaderPod *corev1.Pod) error {
+	if nodeIP == "" {
+		return fmt.Errorf("NODE_IP is empty, cannot build bfb-registry server certificate SANs")
+	}
+	dnsNames, ipAddresses := serverCertSANs(namespace, nodeIP)
+
+	cert := &unstructured.Unstructured{}
+	cert.SetGroupVersionKind(certificateGVK)
+	cert.SetNamespace(namespace)
+	cert.SetName(ServerCertSecretName)
+
+	mutateFn := func() error {
+		cert.SetOwnerReferences([]metav1.OwnerReference{*leaderControllerRef(leaderPod)})
+		spec := map[string]interface{}{
+			"secretName":  ServerCertSecretName,
+			"commonName":  PodName,
+			"duration":    metav1.Duration{Duration: serverCertDuration}.ToUnstructured(),
+			"renewBefore": metav1.Duration{Duration: serverCertRenewBefore}.ToUnstructured(),
+			"privateKey": map[string]interface{}{
+				"algorithm": "ECDSA",
+				"size":      int64(256),
+			},
+			"usages":      []interface{}{"server auth", "digital signature", "key encipherment"},
+			"dnsNames":    toInterfaceSlice(dnsNames),
+			"ipAddresses": toInterfaceSlice(ipAddresses),
+			"issuerRef": map[string]interface{}{
+				"name":  ServerCertIssuerName,
+				"kind":  "Issuer",
+				"group": "cert-manager.io",
+			},
+		}
+		return unstructured.SetNestedMap(cert.Object, spec, "spec")
+	}
+
+	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, cert, mutateFn); err != nil {
+		if apierrors.IsAlreadyExists(err) {
+			return nil
+		}
+		return fmt.Errorf("ensure bfb-registry server certificate: %w", err)
+	}
+	return nil
+}
+
+func toInterfaceSlice(in []string) []interface{} {
+	out := make([]interface{}, len(in))
+	for i, v := range in {
+		out[i] = v
+	}
+	return out
+}
+
 // EnsureBFBRegistryDeps carries client and controller options used when ensuring bfb-registry objects.
 type EnsureBFBRegistryDeps struct {
 	Client           client.Client
@@ -301,8 +458,9 @@ type EnsureBFBRegistryDeps struct {
 	ImagePullSecrets []corev1.LocalObjectReference
 }
 
-// EnsureBFBRegistry ensures the bfb-registry Pod and Service exist in the given namespace.
-func EnsureBFBRegistry(ctx context.Context, deps EnsureBFBRegistryDeps, namespace, leaderPodName, nodeName, registryImage string) error {
+// EnsureBFBRegistry ensures the bfb-registry server Certificate, Pod and Service
+// exist in the given namespace.
+func EnsureBFBRegistry(ctx context.Context, deps EnsureBFBRegistryDeps, namespace, leaderPodName, nodeName, nodeIP, registryImage string) error {
 	leaderPod := &corev1.Pod{}
 	if err := deps.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: leaderPodName}, leaderPod); err != nil {
 		return fmt.Errorf("get leader pod %s/%s: %w", namespace, leaderPodName, err)
@@ -312,6 +470,9 @@ func EnsureBFBRegistry(ctx context.Context, deps EnsureBFBRegistryDeps, namespac
 		Client:           deps.Client,
 		BFBPVC:           deps.BFBPVC,
 		ImagePullSecrets: deps.ImagePullSecrets,
+	}
+	if err := run.ensureServerCertificate(ctx, namespace, nodeIP, leaderPod); err != nil {
+		return err
 	}
 	if err := run.ensurePod(ctx, namespace, nodeName, registryImage, leaderPod); err != nil {
 		return err

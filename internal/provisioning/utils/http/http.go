@@ -40,6 +40,15 @@ func EnsureHTTPScheme(address string) string {
 	return "http://" + address
 }
 
+// EnsureHTTPSScheme adds "https://" to the address if no scheme is present. An
+// existing scheme (including a plain http://) is preserved unchanged.
+func EnsureHTTPSScheme(address string) string {
+	if schemeRegexp.MatchString(address) {
+		return address
+	}
+	return "https://" + address
+}
+
 // CloseBody fully reads and closes the response body to enable HTTP connection reuse.
 // For connections to be returned to the pool, the body must be fully read before closing.
 // This function safely handles nil responses and bodies.

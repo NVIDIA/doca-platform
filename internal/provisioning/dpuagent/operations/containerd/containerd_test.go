@@ -126,7 +126,7 @@ var _ = Describe("Containerd Configuration", func() {
 			Expect(executedCmd).To(Equal("systemctl enable --now containerd"))
 		})
 
-		It("should add TLS and mirrors", func() {
+		It("should add mirrors and not disable TLS verification", func() {
 			originalContent := `
 version = 2
 root = "/var/lib/containerd"
@@ -191,11 +191,12 @@ oom_score = 0
 			_, err = toml.DecodeFile(configPath, &config)
 			Expect(err).NotTo(HaveOccurred())
 
-			// Check TLS
+			// TLS verification must not be disabled: the registry configs section is
+			// written with insecure_skip_verify set to false for the nvcr.io mirror.
 			tls := getNestedValue(config, "plugins", "io.containerd.grpc.v1.cri", "registry", "configs", "nvcr.io", "tls")
 			Expect(tls).NotTo(BeNil())
 			tlsMap := tls.(map[string]interface{})
-			Expect(tlsMap["insecure_skip_verify"]).To(BeTrue())
+			Expect(tlsMap["insecure_skip_verify"]).To(BeFalse())
 
 			// Check Mirrors
 			originalMirror := getNestedValue(config, "plugins", "io.containerd.grpc.v1.cri", "registry", "mirrors", "docker.io")
@@ -247,7 +248,7 @@ version = 2
 			Expect(hosts["server"]).To(Equal("https://nvcr.io"))
 			host := hosts["host"].(map[string]interface{})["https://my.registry.com"].(map[string]interface{})
 			Expect(host["capabilities"].([]interface{})).To(ConsistOf("pull", "resolve"))
-			Expect(host["skip_verify"]).To(BeTrue())
+			Expect(host["skip_verify"]).To(BeFalse())
 
 			// The inline registry.mirrors format must NOT be used for containerd v2.
 			var config map[string]interface{}
@@ -275,7 +276,7 @@ version = 2
 			Expect(err).NotTo(HaveOccurred())
 			host := hosts["host"].(map[string]interface{})["https://my.registry.com"].(map[string]interface{})
 			Expect(host["capabilities"].([]interface{})).To(ConsistOf("pull", "resolve"))
-			Expect(host["skip_verify"]).To(BeTrue())
+			Expect(host["skip_verify"]).To(BeFalse())
 		})
 
 		It("should reuse a legacy v1 config_path but record it under the images plugin for containerd v2", func() {

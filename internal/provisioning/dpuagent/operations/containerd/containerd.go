@@ -51,7 +51,6 @@ const (
 
 type ConfigureContainerd struct {
 	rootFS               string
-	registryCAFile       string
 	getContainerdVersion func() (string, error)
 	runBash              func(cmd string) (bytes.Buffer, bytes.Buffer, error)
 }
@@ -159,10 +158,7 @@ func (c *ConfigureContainerd) configureRegistryMirrorV1(endpoint string) error {
 		tls = make(map[string]interface{})
 		nvcrConfig["tls"] = tls
 	}
-	tls["insecure_skip_verify"] = true
-	if c.registryCAFile != "" {
-		tls["ca_file"] = c.registryCAFile
-	}
+	tls["insecure_skip_verify"] = false
 
 	mirrors, ok := registry["mirrors"].(map[string]interface{})
 	if !ok {
@@ -294,7 +290,6 @@ type hostsConfig struct {
 type hostEntry struct {
 	Capabilities []string `toml:"capabilities"`
 	SkipVerify   bool     `toml:"skip_verify"`
-	CA           []string `toml:"ca,omitempty"`
 }
 
 // writeRegistryHostsConfig writes a containerd hosts.toml host-config file that
@@ -315,8 +310,7 @@ func (c *ConfigureContainerd) writeRegistryHostsConfig(registryConfigPath, endpo
 		Host: map[string]hostEntry{
 			hostEndpoint: {
 				Capabilities: []string{"pull", "resolve"},
-				SkipVerify:   true,
-				CA:           c.registryCAFiles(),
+				SkipVerify:   false,
 			},
 		},
 	}
@@ -333,20 +327,6 @@ func (c *ConfigureContainerd) writeRegistryHostsConfig(registryConfigPath, endpo
 
 	klog.Infof("Wrote containerd registry host config %s", hostsFile)
 	return nil
-}
-
-func (c *ConfigureContainerd) registryCAFiles() []string {
-	if c.registryCAFile == "" {
-		return nil
-	}
-	return []string{c.registryCAFile}
-}
-
-// ConfigureRegistryMirrorCAFile updates the containerd nvcr.io mirror CA file path while preserving
-// the existing endpoint and skip-verify behavior for the detected containerd version.
-func (c *ConfigureContainerd) ConfigureRegistryMirrorCAFile(endpoint, caFile string) error {
-	c.registryCAFile = caFile
-	return c.configureRegistryMirror(endpoint)
 }
 
 func (c *ConfigureContainerd) resolveContainerdConfigPath() (string, error) {

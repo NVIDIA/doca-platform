@@ -397,7 +397,8 @@ func resolveNICFirmwareDownloadURL(registryURL, nicFWLocation string) (string, e
 
 	base := strings.TrimRight(strings.TrimSpace(registryURL), "/")
 	if base != "" && !strings.Contains(base, "://") {
-		base = "http://" + base
+		// bfb-registry is HTTPS-only; default a scheme-less address to https.
+		base = "https://" + base
 	}
 	joinedURL, err := url.JoinPath(base, strings.TrimLeft(strings.TrimSpace(nicFWLocation), "/"))
 	if err != nil {

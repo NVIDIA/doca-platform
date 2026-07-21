@@ -26,7 +26,6 @@ import (
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
-	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/containerd"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
 
 	corev1 "k8s.io/api/core/v1"
@@ -90,16 +89,6 @@ func (d *DPUAgent) reconcileCATrustBundle(ctx context.Context) {
 		return
 	}
 
-	klog.Infof("CA trust bundle watcher: evaluating containerd registry CA update for hash %s", bundleHash)
-	containerdUpdated, err := d.updateContainerdRegistryCA(bundleHash)
-	if err != nil {
-		klog.Errorf("CA trust bundle watcher: failed to update containerd CA file for hash %s: %v", bundleHash, err)
-		return
-	}
-	if containerdUpdated {
-		klog.Infof("CA trust bundle watcher: containerd registry CA update completed for hash %s", bundleHash)
-	}
-
 	now := metav1.Now()
 	d.optCtx.Status.TrustBundleHash = &bundleHash
 	d.optCtx.Status.TrustBundleLastUpdateTime = &now
@@ -141,22 +130,4 @@ func applyTrustBundleToDPU(bundlePEM string) error {
 		return fmt.Errorf("run update-ca-certificates: %w, stdout: %s, stderr: %s", err, stdout.String(), stderr.String())
 	}
 	return nil
-}
-
-func (d *DPUAgent) updateContainerdRegistryCA(generation string) (bool, error) {
-	if d.optCtx.Options.SkipContainerdConfigration {
-		klog.Infof("CA trust bundle watcher: skip containerd update for generation %s (--skip-containerd-config)", generation)
-		return false, nil
-	}
-	endpoint := strings.TrimSpace(d.optCtx.DPUFlavor.Spec.ContainerdConfig.RegistryEndpoint)
-	if endpoint == "" {
-		klog.Infof("CA trust bundle watcher: skip containerd update for generation %s (no registry endpoint)", generation)
-		return false, nil
-	}
-
-	configurer := &containerd.ConfigureContainerd{}
-	if err := configurer.ConfigureRegistryMirrorCAFile(endpoint, dpuAgentCABundlePath); err != nil {
-		return false, err
-	}
-	return true, nil
 }

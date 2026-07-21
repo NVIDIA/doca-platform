@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/provisioning/bfbregistry"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -730,5 +731,58 @@ var _ = Describe("Util", func() {
 			Expect(err).To(HaveOccurred())
 			Expect(skip).To(BeFalse())
 		})
+	})
+})
+
+var _ = Describe("GetBFBRegistryAddressWithPort", func() {
+	const ns = "dpf-provisioning"
+
+	newClientWithService := func(nodePort int32) client.Client {
+		svc := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{Name: bfbregistry.PodName, Namespace: ns},
+			Spec: corev1.ServiceSpec{
+				Type:  corev1.ServiceTypeNodePort,
+				Ports: []corev1.ServicePort{{Name: "https", Port: 8443, NodePort: nodePort}},
+			},
+		}
+		return fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(svc).Build()
+	}
+
+	It("appends the NodePort and preserves a scheme-less host", func() {
+		c := newClientWithService(30443)
+		addr, err := GetBFBRegistryAddressWithPort(context.Background(), c, ns, "bfb-registry")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(addr).To(Equal("bfb-registry:30443"))
+	})
+
+	It("preserves an explicit https scheme", func() {
+		c := newClientWithService(30443)
+		addr, err := GetBFBRegistryAddressWithPort(context.Background(), c, ns, "https://bfb-registry")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(addr).To(Equal("https://bfb-registry:30443"))
+	})
+
+	It("returns an error when the base address is empty", func() {
+		c := newClientWithService(30443)
+		_, err := GetBFBRegistryAddressWithPort(context.Background(), c, ns, "")
+		Expect(err).To(HaveOccurred())
+	})
+
+	It("returns an error when the base address already contains a port", func() {
+		c := newClientWithService(30443)
+		_, err := GetBFBRegistryAddressWithPort(context.Background(), c, ns, "bfb-registry:8443")
+		Expect(err).To(HaveOccurred())
+	})
+
+	It("returns an error when the Service has no NodePort allocated", func() {
+		c := newClientWithService(0)
+		_, err := GetBFBRegistryAddressWithPort(context.Background(), c, ns, "bfb-registry")
+		Expect(err).To(HaveOccurred())
+	})
+
+	It("returns an error when the Service does not exist", func() {
+		c := fake.NewClientBuilder().WithScheme(scheme.Scheme).Build()
+		_, err := GetBFBRegistryAddressWithPort(context.Background(), c, ns, "bfb-registry")
+		Expect(err).To(HaveOccurred())
 	})
 })
