@@ -71,6 +71,7 @@ func main() {
 	pflag.StringVar(&options.DPUName, "dpu-name", "", "Name of the DPU")
 	pflag.StringVar(&options.DPUNamespace, "dpu-namespace", "", "Namespace of the DPU")
 	pflag.StringVar(&options.DPUUID, "dpu-uid", "", "UID of the DPU object, used to reject stale agent status updates")
+	pflag.StringVar(&options.DPUType, "dpu-type", string(provisioningv1.DPUTypeUnknown), "DPU hardware type")
 	pflag.StringVar(&options.DPUFlavor, "dpuflavor", "", "Path to the DPU flavor YAML file")
 	pflag.StringVar(&options.KubeadmSecretName, "kubeadm-secret-name", "", "Name of the Secret containing the Kubeadm join command")
 	pflag.StringVar(&options.KubeadmSecretNamespace, "kubeadm-secret-namespace", "", "Namespace of the Secret containing the Kubeadm join command")

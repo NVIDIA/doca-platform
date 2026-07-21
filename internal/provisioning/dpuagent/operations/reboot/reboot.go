@@ -34,6 +34,7 @@ import (
 	dpuutil "github.com/nvidia/doca-platform/internal/provisioning/dpuagent/util"
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
+	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
 
 	"github.com/Masterminds/semver/v3"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -194,13 +195,14 @@ func isHostlessDPU(optCtx *operations.Context) bool {
 	return optCtx != nil && optCtx.LatestDPU != nil && optCtx.LatestDPU.Status.Hostless
 }
 
-// getDevices returns the selected target PCI devices for MFT commands.
-func (h *HandleReboot) getDevices(optCtx *operations.Context) ([]string, error) {
-	ports, err := optCtx.NSPorts()
+// getDevices returns PCI addresses for physical NIC ports matching scope:
+// PortScopeNS → N/S only, PortScopeEW → E/W only, PortScopeAll → both.
+func (h *HandleReboot) getDevices(optCtx *operations.Context, scope pciutil.PortScope) ([]string, error) {
+	ports, err := optCtx.Ports(scope)
 	if err != nil {
 		return nil, err
 	}
-	var devices []string
+	devices := make([]string, 0, len(ports))
 	for _, p := range ports {
 		if p.PCIAddress != "" {
 			devices = append(devices, p.PCIAddress)
@@ -318,7 +320,7 @@ func (p *pendingParamList) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// mlxfwresetStatusJSON is the subset of `mlxfwreset -d <pci_device> s --json` output we need for reboot decisions.
+// mlxfwresetStatusJSON is the subset of `mlxfwreset -d <pci_device> status --json` output we need for reboot decisions.
 // Other fields remain in the raw JSON string passed to the discovery condition Message.
 type mlxfwresetStatusJSON struct {
 	ResetNeeded *bool `json:"reset_needed"`
@@ -518,7 +520,11 @@ func (h *HandleReboot) getRebootMethodDeviceQuery(optCtx *operations.Context) (*
 	h.allowFirmwareReset = agentAnnotationAllowsFirmwareResetReboot(optCtx)
 	defer func() { h.allowFirmwareReset = false }()
 
-	devices, err := h.getDevices(optCtx)
+	scope := pciutil.PortScopeNS
+	if dpuutil.IsBlueField4(optCtx.LatestDPU) && optCtx.Options.AstraEnabled {
+		scope = pciutil.PortScopeAll
+	}
+	devices, err := h.getDevices(optCtx, scope)
 	if err != nil {
 		return nil, err
 	}
@@ -529,7 +535,7 @@ func (h *HandleReboot) getRebootMethodDeviceQuery(optCtx *operations.Context) (*
 	finalRebootMethod := provisioningv1.RebootMethodNoAction
 	rawParts := make([]string, 0, len(devices))
 	for _, device := range devices {
-		cmd := fmt.Sprintf("mlxfwreset -d %s s --json", device)
+		cmd := fmt.Sprintf("mlxfwreset -d %s status --json", device)
 		stdout, stderr, err := h.runBash(cmd)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w (stderr: %s)", cmd, err, stderr.String())
@@ -563,13 +569,6 @@ func (h *HandleReboot) getRebootMethodDeviceQuery(optCtx *operations.Context) (*
 			finalRebootMethod = m
 		}
 		klog.Infof("PCI device %s requires reboot method %s, (current selected method: %s)", device, m, finalRebootMethod)
-	}
-
-	if optCtx.NICFirmwareRebootRequired && rebootMethodTakesPrecedenceOver(provisioningv1.RebootMethodSystemReboot, finalRebootMethod) {
-		nicFirmwareRebootMsg := "NIC provisioning requires host reboot, using SystemReboot"
-		klog.Info(nicFirmwareRebootMsg)
-		rawParts = append(rawParts, nicFirmwareRebootMsg)
-		finalRebootMethod = provisioningv1.RebootMethodSystemReboot
 	}
 
 	// If a higher-priority method wins (e.g. PowerCycle), drop those cmds—they only apply when finalRebootMethod is FirmwareReset.

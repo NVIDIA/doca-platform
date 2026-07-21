@@ -208,29 +208,6 @@ func TestNICProvisioning_Execute(t *testing.T) {
 		assert.Equal(t, []string{"flint -i '" + localFile + "' q"}, runner.commands)
 	})
 
-	t.Run("stop after NV config apply when reboot is required", func(t *testing.T) {
-		existingFile := filepath.Join(tempDir, "astra-nic-fw-nv-reboot.fwpkg")
-		require.NoError(t, os.WriteFile(existingFile, []byte("already here"), 0600))
-		opRebootAfterNVConfig := &NICProvisioning{
-			runBash:                   (&fakeBashRunner{}).run,
-			prepareLocalDMSServerFn:   func(_ *operations.Context) error { return nil },
-			installNICFirmwareFn:      func(_ context.Context, _ *operations.Context, _ string) error { return nil },
-			prepareSpectrumXConfigsFn: func() error { return nil },
-			applyNVConfigFn: func(_ context.Context, optCtx *operations.Context) error {
-				optCtx.NICFirmwareRebootRequired = true
-				return nil
-			},
-			configureRestrictedModeFn: func(_ context.Context, _ *operations.Context) error { return nil },
-		}
-
-		bfs := newBFS("downloads/astra-nic-fw-nv-reboot.fwpkg")
-		fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(bfs).Build()
-		ctx := newOptCtx(fakeClient, "https://registry.example.com")
-
-		require.NoError(t, opRebootAfterNVConfig.Execute(context.Background(), ctx))
-		assert.True(t, ctx.NICFirmwareRebootRequired)
-	})
-
 	t.Run("keeps local dms server running when execute returns", func(t *testing.T) {
 		existingFile := filepath.Join(tempDir, "astra-nic-fw-stop.fwpkg")
 		require.NoError(t, os.WriteFile(existingFile, []byte("already here"), 0600))

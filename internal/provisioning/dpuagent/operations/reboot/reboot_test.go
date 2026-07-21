@@ -44,30 +44,6 @@ const (
 )
 
 var _ = Describe("Reboot", func() {
-	It("getRebootMethod uses boot-ID logic when NIC firmware requires reboot and discovery is disabled", func() {
-		bootID, err := os.ReadFile(bootIDFile)
-		Expect(err).NotTo(HaveOccurred())
-		currentBootIDStr := strings.TrimSpace(string(bootID))
-		optCtx := &operations.Context{
-			LatestDPU: &provisioningv1.DPU{
-				Status: provisioningv1.DPUStatus{
-					AgentStatus: &provisioningv1.AgentStatus{
-						InitialBootID: ptr.To(currentBootIDStr + "-previous"),
-					},
-				},
-			},
-			RebootMethodDiscovery:     false,
-			NICFirmwareRebootRequired: true,
-			CurrentBootID:             currentBootIDStr,
-		}
-		h := &HandleReboot{}
-
-		m, err := h.getRebootMethod(optCtx)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(m).NotTo(BeNil())
-		Expect(*m).To(Equal(provisioningv1.RebootMethodNoAction))
-	})
-
 	Describe("RebootMethodDiscovery false (boot-ID based)", func() {
 		Context("HandleReboot", func() {
 			It("should reboot the host if DPU ARM has not been booted", func() {
@@ -214,7 +190,7 @@ var _ = Describe("Reboot", func() {
 				optCtx := &operations.Context{
 					RebootMethodDiscovery: true,
 					CurrentBootID:         "boot-id",
-					DiscoverPorts: func() ([]pciutil.NICPort, error) {
+					DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 						return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPCIAddress0}}, nil
 					},
 					GrubConfigChanged:        true,
@@ -311,43 +287,13 @@ var _ = Describe("Reboot", func() {
 	})
 
 	Describe("RebootMethodDiscovery true (Device Query based)", func() {
-		It("getRebootMethod returns SystemReboot when NIC firmware requires reboot", func() {
-			device := testPCIAddress0
-
-			optCtx := &operations.Context{
-				RebootMethodDiscovery:     true,
-				NICFirmwareRebootRequired: true,
-				CurrentBootID:             "boot-id",
-				DiscoverPorts: func() ([]pciutil.NICPort, error) {
-					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
-				},
-			}
-			h := &HandleReboot{
-				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
-					Expect(cmd).To(Equal(fmt.Sprintf("mlxfwreset -d %s s --json", device)))
-					var b bytes.Buffer
-					_, _ = b.WriteString(`{"reset_needed":false}`)
-					return b, bytes.Buffer{}, nil
-				},
-			}
-
-			m, err := h.getRebootMethod(optCtx)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(m).NotTo(BeNil())
-			Expect(*m).To(Equal(provisioningv1.RebootMethodSystemReboot))
-			cond := meta.FindStatusCondition(optCtx.Status.Conditions, cutil.AgentCondRebootMethodDiscovery)
-			Expect(cond).NotTo(BeNil())
-			Expect(cond.Reason).To(Equal(string(provisioningv1.RebootMethodSystemReboot)))
-			Expect(cond.Message).To(Equal("NIC provisioning requires host reboot, using SystemReboot"))
-		})
-
 		It("getRebootMethod returns SystemLevelReset when reset_needed is true", func() {
 			device := testPCIAddress0
 
 			optCtx := &operations.Context{
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
-				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
 				},
 			}
@@ -362,7 +308,7 @@ var _ = Describe("Reboot", func() {
 			}
 			m, err := h.getRebootMethod(optCtx)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(ran).To(Equal(fmt.Sprintf("mlxfwreset -d %s s --json", device)))
+			Expect(ran).To(Equal(fmt.Sprintf("mlxfwreset -d %s status --json", device)))
 			Expect(m).NotTo(BeNil())
 			Expect(*m).To(Equal(provisioningv1.RebootMethodSystemLevelReset))
 		})
@@ -374,7 +320,7 @@ var _ = Describe("Reboot", func() {
 			optCtx := &operations.Context{
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
-				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{
 						{Netdev: "p0", PCIAddress: devA},
 						{Netdev: "p1", PCIAddress: devB},
@@ -407,13 +353,13 @@ var _ = Describe("Reboot", func() {
 			optCtx := &operations.Context{
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
-				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
 				},
 			}
 			h := &HandleReboot{
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
-					Expect(cmd).To(Equal(fmt.Sprintf("mlxfwreset -d %s s --json", device)))
+					Expect(cmd).To(Equal(fmt.Sprintf("mlxfwreset -d %s status --json", device)))
 					var b bytes.Buffer
 					_, _ = b.WriteString(`{"reset_needed":false}`)
 					return b, bytes.Buffer{}, nil
@@ -436,7 +382,7 @@ var _ = Describe("Reboot", func() {
 			optCtx := &operations.Context{
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
-				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{
 						{Netdev: "p0", PCIAddress: target0},
 						{Netdev: "p1", PCIAddress: target1},
@@ -457,8 +403,8 @@ var _ = Describe("Reboot", func() {
 			Expect(m).NotTo(BeNil())
 			Expect(*m).To(Equal(provisioningv1.RebootMethodNoAction))
 			Expect(ran).To(Equal([]string{
-				fmt.Sprintf("mlxfwreset -d %s s --json", target0),
-				fmt.Sprintf("mlxfwreset -d %s s --json", target1),
+				fmt.Sprintf("mlxfwreset -d %s status --json", target0),
+				fmt.Sprintf("mlxfwreset -d %s status --json", target1),
 			}))
 		})
 
@@ -468,13 +414,13 @@ var _ = Describe("Reboot", func() {
 			optCtx := &operations.Context{
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
-				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
 				},
 			}
 			h := &HandleReboot{
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
-					Expect(cmd).To(Equal(fmt.Sprintf("mlxfwreset -d %s s --json", device)))
+					Expect(cmd).To(Equal(fmt.Sprintf("mlxfwreset -d %s status --json", device)))
 					var b bytes.Buffer
 					// Omitted reset_needed unmarshals to *bool nil; must not be treated as reset required.
 					_, _ = b.WriteString(`{"fw_version":"1.2.3"}`)
@@ -502,7 +448,7 @@ var _ = Describe("Reboot", func() {
 				DeferredNVConfigParams: []operations.DeferredNVConfigParam{
 					{Device: device, Params: "INVALID_PARAM=1"},
 				},
-				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
 				},
 				Status: provisioningv1.AgentStatus{
@@ -544,7 +490,7 @@ var _ = Describe("Reboot", func() {
 				DeferredNVConfigParams: []operations.DeferredNVConfigParam{
 					{Device: device, Params: "INTERNAL_CPU_MODEL=1"},
 				},
-				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
 				},
 				UpdateStatusUntilSuccess: func(context.Context) error { return nil },
@@ -584,7 +530,7 @@ var _ = Describe("Reboot", func() {
 				optCtx := &operations.Context{
 					RebootMethodDiscovery: true,
 					CurrentBootID:         currentBootID,
-					DiscoverPorts: func() ([]pciutil.NICPort, error) {
+					DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 						return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
 					},
 				}
@@ -624,7 +570,7 @@ var _ = Describe("Reboot", func() {
 				optCtx := &operations.Context{
 					RebootMethodDiscovery: true,
 					CurrentBootID:         "boot-id",
-					DiscoverPorts: func() ([]pciutil.NICPort, error) {
+					DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 						return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
 					},
 				}
@@ -664,7 +610,7 @@ var _ = Describe("Reboot", func() {
 }`, cmd)
 				optCtx := &operations.Context{
 					RebootMethodDiscovery: true,
-					DiscoverPorts: func() ([]pciutil.NICPort, error) {
+					DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 						return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
 					},
 					CurrentBootID: currentBootID,
@@ -728,7 +674,7 @@ var _ = Describe("Reboot", func() {
 }`, cmd)
 				optCtx := &operations.Context{
 					RebootMethodDiscovery: true,
-					DiscoverPorts: func() ([]pciutil.NICPort, error) {
+					DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 						return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
 					},
 					CurrentBootID: "current-boot-id",
@@ -785,7 +731,7 @@ var _ = Describe("Reboot", func() {
 }`
 				optCtx := &operations.Context{
 					RebootMethodDiscovery: true,
-					DiscoverPorts: func() ([]pciutil.NICPort, error) {
+					DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 						return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
 					},
 					CurrentBootID: currentBootID,
@@ -851,7 +797,7 @@ var _ = Describe("Reboot", func() {
 }`, cmd)
 				optCtx := &operations.Context{
 					RebootMethodDiscovery: true,
-					DiscoverPorts: func() ([]pciutil.NICPort, error) {
+					DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 						return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
 					},
 					CurrentBootID: currentBootID,
@@ -890,7 +836,7 @@ var _ = Describe("Reboot", func() {
 			optCtx := &operations.Context{
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
-				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 					return nil, fmt.Errorf("no PCI devices found")
 				},
 			}
@@ -910,7 +856,7 @@ var _ = Describe("Reboot", func() {
 			optCtx := &operations.Context{
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
-				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPCIAddress0}}, nil
 				},
 				UpdateStatusUntilSuccess: func(context.Context) error { return nil },
@@ -948,7 +894,7 @@ var _ = Describe("Reboot", func() {
 
 			optCtx := &operations.Context{
 				RebootMethodDiscovery: true,
-				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPCIAddress0}}, nil
 				},
 				CurrentBootID: "boot-id",
@@ -972,7 +918,7 @@ var _ = Describe("Reboot", func() {
 		It("stores full mlxfwreset JSON in condition Message (device, FW versions, nvconfig, reasons)", func() {
 			device := testPCIAddress0
 
-			// Representative `mlxfwreset -d <pci> s --json` output (embedded fixture, same style as dpuflavor webhook YAML tests).
+			// Representative `mlxfwreset -d <pci> status --json` output (embedded fixture, same style as dpuflavor webhook YAML tests).
 			mlxfwresetFullJSON := strings.TrimSpace(`
 {
   "device": "0000:03:00.0",
@@ -998,7 +944,7 @@ var _ = Describe("Reboot", func() {
 
 			optCtx := &operations.Context{
 				RebootMethodDiscovery: true,
-				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
 				},
 				CurrentBootID: "boot-id",
@@ -1012,7 +958,7 @@ var _ = Describe("Reboot", func() {
 			}
 			h := &HandleReboot{
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
-					Expect(cmd).To(Equal(fmt.Sprintf("mlxfwreset -d %s s --json", device)))
+					Expect(cmd).To(Equal(fmt.Sprintf("mlxfwreset -d %s status --json", device)))
 					var b bytes.Buffer
 					_, _ = b.WriteString(mlxfwresetFullJSON)
 					return b, bytes.Buffer{}, nil
@@ -1037,7 +983,7 @@ var _ = Describe("Reboot", func() {
 			optCtx := &operations.Context{
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
-				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPCIAddress0}}, nil
 				},
 			}
@@ -1066,7 +1012,7 @@ var _ = Describe("Reboot", func() {
 			optCtx := &operations.Context{
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
-				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPCIAddress0}}, nil
 				},
 			}
@@ -1096,7 +1042,7 @@ var _ = Describe("Reboot", func() {
 			optCtx := &operations.Context{
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
-				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPCIAddress0}}, nil
 				},
 			}
@@ -1126,7 +1072,7 @@ var _ = Describe("Reboot", func() {
 			optCtx := &operations.Context{
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
-				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPCIAddress0}}, nil
 				},
 			}
@@ -1150,7 +1096,7 @@ var _ = Describe("Reboot", func() {
 			optCtx := &operations.Context{
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
-				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPCIAddress0}}, nil
 				},
 			}
@@ -1175,7 +1121,7 @@ var _ = Describe("Reboot", func() {
 			optCtx := &operations.Context{
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
-				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{
 						{Netdev: "p0", PCIAddress: devA},
 						{Netdev: "p1", PCIAddress: devB},
@@ -1213,7 +1159,7 @@ var _ = Describe("Reboot", func() {
 			optCtx := &operations.Context{
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
-				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{
 						{Netdev: "p0", PCIAddress: devA},
 						{Netdev: "p1", PCIAddress: devB},
@@ -1249,7 +1195,7 @@ var _ = Describe("Reboot", func() {
 			jsonB := `{"reset_needed":true,"tag":"b"}`
 			optCtx := &operations.Context{
 				RebootMethodDiscovery: true,
-				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{
 						{Netdev: "p0", PCIAddress: devA},
 						{Netdev: "p1", PCIAddress: devB},
@@ -1282,7 +1228,7 @@ var _ = Describe("Reboot", func() {
 			jsonB := `{"reset_needed":true,"command_required":"` + cmdB + `"}`
 			optCtx := &operations.Context{
 				RebootMethodDiscovery: true,
-				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{
 						{Netdev: "p0", PCIAddress: devA},
 						{Netdev: "p1", PCIAddress: devB},
@@ -1321,7 +1267,7 @@ var _ = Describe("Reboot", func() {
 			optCtx := &operations.Context{
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
-				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPCIAddress0}}, nil
 				},
 			}

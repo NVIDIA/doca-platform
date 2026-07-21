@@ -18,6 +18,7 @@ package operations
 
 import (
 	"context"
+	"fmt"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/cmd/dpuagent/opts"
@@ -92,18 +93,18 @@ type Context struct {
 	// nsPorts caches the discovered N/S NIC ports. Access via NSPorts().
 	nsPorts []pciutil.NICPort
 
-	// DiscoverPorts is the function used to discover NIC ports. If nil,
-	// NewPortDiscoverer().DiscoverPorts is used.
-	DiscoverPorts func() ([]pciutil.NICPort, error)
+	// ewPorts caches the discovered E/W NIC ports. Access via EWPorts().
+	ewPorts []pciutil.NICPort
+
+	// DiscoverPorts discovers physical NIC ports for the given scope.
+	// If nil, DefaultPortDiscoverer.DiscoverPhysicalPort(FilterForScope(scope)) is used.
+	// Tests inject this to stub discovery for N/S, E/W, or all.
+	DiscoverPorts func(scope pciutil.PortScope) ([]pciutil.NICPort, error)
 
 	// GrubConfigChanged is set by ConfigureKernelCmdLine when it writes a new grub config
 	// and runs update-grub. HandleReboot uses this to force a reboot even when the reboot
 	// method is NoAction, so that the new kernel parameters take effect.
 	GrubConfigChanged bool
-
-	// NICFirmwareRebootRequired is set by NICProvisioning when E/W NIC firmware
-	// or configuration changes require a reboot before provisioning can continue.
-	NICFirmwareRebootRequired bool
 
 	// UpdateStatusUntilSuccess, when set, pushes Status to the API until success (e.g. agent's updateStatusUntilSuccess).
 	// Used by operations that must ensure status is persisted before continuing (e.g. before shutdown).
@@ -125,19 +126,54 @@ type DeferredNVConfigParam struct {
 // successful call and caching the result. Errors are NOT cached so that the
 // caller's retry loop will re-attempt discovery.
 func (ctx *Context) NSPorts() ([]pciutil.NICPort, error) {
-	if ctx.nsPorts != nil {
-		return ctx.nsPorts, nil
-	}
-	discover := ctx.DiscoverPorts
-	if discover == nil {
-		discover = func() ([]pciutil.NICPort, error) {
-			return pciutil.DefaultPortDiscoverer.DiscoverPhysicalPort(pciutil.NSPortFilter)
+	return ctx.Ports(pciutil.PortScopeNS)
+}
+
+// EWPorts returns the discovered E/W NIC ports, running discovery on the first
+// successful call and caching the result. Errors are NOT cached so that the
+// caller's retry loop will re-attempt discovery.
+func (ctx *Context) EWPorts() ([]pciutil.NICPort, error) {
+	return ctx.Ports(pciutil.PortScopeEW)
+}
+
+// Ports returns physical NIC ports for scope. N/S and E/W results are cached
+// separately on first success; PortScopeAll is not cached.
+func (ctx *Context) Ports(scope pciutil.PortScope) ([]pciutil.NICPort, error) {
+	switch scope {
+	case pciutil.PortScopeNS:
+		if ctx.nsPorts != nil {
+			return ctx.nsPorts, nil
 		}
+	case pciutil.PortScopeEW:
+		if ctx.ewPorts != nil {
+			return ctx.ewPorts, nil
+		}
+	case pciutil.PortScopeAll:
+		// no dedicated cache; discover once per call
+	default:
+		return nil, fmt.Errorf("unknown port scope %q", scope)
 	}
-	ports, err := discover()
+
+	ports, err := ctx.discoverPorts(scope)
 	if err != nil {
 		return nil, err
 	}
-	ctx.nsPorts = ports
+	switch scope {
+	case pciutil.PortScopeNS:
+		ctx.nsPorts = ports
+	case pciutil.PortScopeEW:
+		ctx.ewPorts = ports
+	}
 	return ports, nil
+}
+
+func (ctx *Context) discoverPorts(scope pciutil.PortScope) ([]pciutil.NICPort, error) {
+	if ctx.DiscoverPorts != nil {
+		return ctx.DiscoverPorts(scope)
+	}
+	filter, err := pciutil.FilterForScope(scope)
+	if err != nil {
+		return nil, err
+	}
+	return pciutil.DefaultPortDiscoverer.DiscoverPhysicalPort(filter)
 }
