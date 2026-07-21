@@ -153,6 +153,13 @@ write_files:
       RestartSec=10
 {{- end}}
 
+{{- if .CATrustBundle}}
+  - path: /usr/local/share/ca-certificates/dpf-ca.crt
+    permissions: '0644'
+    content: |
+{{indent 6 .CATrustBundle}}
+{{- end}}
+
   - path: /etc/apt/sources.list.d/dpf.list
     permissions: '0644'
     content: |
@@ -214,4 +221,7 @@ write_files:
 
 runcmd:
   - [ hostnamectl, set-hostname, {{.DPUHostName}} ]
+{{- if .CATrustBundle}}
+  - [ update-ca-certificates ]
+{{- end}}
   - [ /opt/dpf/install-dpu-agent.sh ]

@@ -1299,6 +1299,10 @@ binary-dpuagent: ## Build the DPU agent binary.
 binary-pldmunpackserver: ## Build the PLDM unpack HTTP server (Unix socket) binary.
 	CGO_ENABLED=0 GOOS=linux GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/pldmunpackserver github.com/nvidia/doca-platform/cmd/provisioning/pldmunpackserver
 
+.PHONY: binary-certreloader
+binary-certreloader: ## Build the bfb-registry cert-reloader sidecar binary.
+	CGO_ENABLED=0 GOOS=linux GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/certreloader github.com/nvidia/doca-platform/cmd/provisioning/certreloader
+
 # DPU Agent packaging variables
 DPUAGENT_PKG_DIR = $(CURDIR)/internal/provisioning/dpuagent/packaging
 # Strip the leading "v" from TAG: Debian policy requires package versions to start with a digit.

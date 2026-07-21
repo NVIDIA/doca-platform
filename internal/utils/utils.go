@@ -18,6 +18,8 @@ package utils
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -156,6 +158,16 @@ func EnsureNamespace(ctx context.Context, c client.Client, namespace string) err
 
 // DownloadFile downloads a file from a URL to a destination file.
 func DownloadFile(ctx context.Context, url string, dst string, fileMode os.FileMode) error {
+	return DownloadFileWithClient(ctx, http.DefaultClient, url, dst, fileMode)
+}
+
+// DownloadFileWithClient behaves like DownloadFile but performs the request with the provided
+// HTTP client. This lets callers supply a custom TLS configuration (e.g. RootCAs built from the
+// DPF CA trust bundle) when downloading from an HTTPS endpoint such as the bfb-registry.
+func DownloadFileWithClient(ctx context.Context, httpClient *http.Client, url string, dst string, fileMode os.FileMode) error {
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
 	if _, err := os.Stat(dst); err == nil {
 		return nil
 	}
@@ -174,7 +186,7 @@ func DownloadFile(ctx context.Context, url string, dst string, fileMode os.FileM
 		return err
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -184,30 +196,9 @@ func DownloadFile(ctx context.Context, url string, dst string, fileMode os.FileM
 	defer resp.Body.Close() //nolint: errcheck
 
 	expectedSize := resp.ContentLength
-	var totalWritten int64 = 0
-
-	buf := make([]byte, 128*1024*1024)
-copyLoop:
-	for {
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("download canceled")
-		default:
-			n, err := resp.Body.Read(buf)
-			if err != nil && err != io.EOF {
-				if errors.Is(err, context.Canceled) {
-					return ctx.Err()
-				}
-				return fmt.Errorf("failed to read from source file: %w", err)
-			}
-			if n == 0 {
-				break copyLoop
-			}
-			if _, writeErr := tempFile.Write(buf[:n]); writeErr != nil {
-				return writeErr
-			}
-			totalWritten += int64(n)
-		}
+	totalWritten, err := copyBodyToFile(ctx, tempFile, resp.Body)
+	if err != nil {
+		return err
 	}
 
 	// Validate downloaded file size against Content-Length header from this GET response.
@@ -233,10 +224,74 @@ copyLoop:
 	return nil
 }
 
+// copyBodyToFile streams src into dst, honoring ctx cancellation between reads, and returns the
+// total number of bytes written.
+func copyBodyToFile(ctx context.Context, dst io.Writer, src io.Reader) (int64, error) {
+	var totalWritten int64
+	buf := make([]byte, 128*1024*1024)
+	for {
+		if ctx.Err() != nil {
+			return totalWritten, fmt.Errorf("download canceled")
+		}
+		n, err := src.Read(buf)
+		if err != nil && err != io.EOF {
+			if errors.Is(err, context.Canceled) {
+				return totalWritten, ctx.Err()
+			}
+			return totalWritten, fmt.Errorf("failed to read from source file: %w", err)
+		}
+		if n == 0 {
+			return totalWritten, nil
+		}
+		if _, writeErr := dst.Write(buf[:n]); writeErr != nil {
+			return totalWritten, writeErr
+		}
+		totalWritten += int64(n)
+	}
+}
+
 func GetRandomKVPair[T any](m map[string]T) (string, T) {
 	var result T
 	for k, v := range m {
 		return k, v
 	}
 	return "", result
+}
+
+// HTTPClientWithCABundle returns an HTTP client whose TLS config trusts the host's system
+// roots plus any PEM certificates found in caBundlePath. Callers that need CA rotation to take
+// effect without a restart should call this before each request so the bundle is re-read from
+// disk (e.g. a non-subPath ConfigMap volume that kubelet keeps in sync).
+//
+// When caBundlePath is empty or the file does not exist, the returned client falls back to the
+// system trust store only. A present-but-unparseable bundle is treated as a configuration error.
+func HTTPClientWithCABundle(caBundlePath string) (*http.Client, error) {
+	pool, err := x509.SystemCertPool()
+	if err != nil || pool == nil {
+		pool = x509.NewCertPool()
+	}
+
+	if caBundlePath != "" {
+		pemBytes, readErr := os.ReadFile(caBundlePath)
+		switch {
+		case readErr == nil:
+			if len(pemBytes) > 0 && !pool.AppendCertsFromPEM(pemBytes) {
+				return nil, fmt.Errorf("no valid certificates found in CA bundle %q", caBundlePath)
+			}
+		case errors.Is(readErr, os.ErrNotExist):
+			// The bundle is not mounted yet; fall back to system roots. The request will fail
+			// TLS verification if it targets the DPF CA, and the caller is expected to retry.
+		default:
+			return nil, fmt.Errorf("read CA bundle %q: %w", caBundlePath, readErr)
+		}
+	}
+
+	return &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				MinVersion: tls.VersionTLS12,
+				RootCAs:    pool,
+			},
+		},
+	}, nil
 }

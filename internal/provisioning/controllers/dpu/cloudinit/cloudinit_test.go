@@ -17,14 +17,23 @@ limitations under the License.
 package cloudinit
 
 import (
+	"context"
 	"path"
 	"strings"
 
+	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/constants"
+	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/yaml"
 )
 
@@ -495,6 +504,119 @@ users:
 		spireIdx := strings.Index(installScript.Content, "systemctl enable --now spiffe-helper.service")
 		agentIdx := strings.Index(installScript.Content, "systemctl enable --now dpu-agent.service")
 		Expect(spireIdx).To(BeNumerically("<", agentIdx), "SPIRE services should start before dpu-agent")
+	})
+
+	It("writes the CA trust bundle and runs update-ca-certificates when set", func() {
+		caBundle := skipFirstEmptyLine(`
+-----BEGIN CERTIFICATE-----
+MIIBdummycertbase64contentline1
+MIIBdummycertbase64contentline2
+-----END CERTIFICATE-----`)
+		_, parsed := generateAndParse(Params{
+			DPUHostName:            "test-dpu",
+			KubeadmSecretName:      "s",
+			KubeadmSecretNamespace: "ns",
+			ControlPlaneMTU:        1500,
+			DPUName:                "dpu-1",
+			DPUNamespace:           "ns-1",
+			DPUAgentRepoURL:        "http://example/deb",
+			CATrustBundle:          caBundle,
+		})
+
+		caFile := getWriteFile(parsed, "/usr/local/share/ca-certificates/dpf-ca.crt")
+		Expect(caFile.Permissions).To(Equal("0644"))
+		Expect(caFile.Content).To(Equal(caBundle + "\n"))
+
+		// update-ca-certificates must run after hostnamectl and before installing the agent
+		// (which fetches packages over HTTPS).
+		Expect(parsed.RunCmd).To(Equal([][]string{
+			{"hostnamectl", "set-hostname", "test-dpu"},
+			{"update-ca-certificates"},
+			{"/opt/dpf/install-dpu-agent.sh"},
+		}))
+	})
+
+	It("omits the CA trust bundle file and update-ca-certificates when empty", func() {
+		_, parsed := generateAndParse(Params{
+			DPUHostName:            "test-dpu",
+			KubeadmSecretName:      "s",
+			KubeadmSecretNamespace: "ns",
+			ControlPlaneMTU:        1500,
+			DPUName:                "dpu-1",
+			DPUNamespace:           "ns-1",
+			DPUAgentRepoURL:        "http://example/deb",
+		})
+		for _, f := range parsed.WriteFiles {
+			Expect(f.Path).NotTo(Equal("/usr/local/share/ca-certificates/dpf-ca.crt"))
+		}
+		Expect(parsed.RunCmd).To(Equal([][]string{
+			{"hostnamectl", "set-hostname", "test-dpu"},
+			{"/opt/dpf/install-dpu-agent.sh"},
+		}))
+	})
+})
+
+var _ = Describe("resolveCATrustBundle", func() {
+	const ns = "dpf-operator-system"
+
+	newControllerCtx := func(objs ...client.Object) *util.ControllerContext {
+		scheme := runtime.NewScheme()
+		Expect(corev1.AddToScheme(scheme)).To(Succeed())
+		Expect(operatorv1.AddToScheme(scheme)).To(Succeed())
+		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
+		return &util.ControllerContext{Client: c}
+	}
+
+	config := &operatorv1.DPFOperatorConfig{ObjectMeta: metav1.ObjectMeta{Name: "config", Namespace: ns}}
+
+	It("returns the trimmed PEM bundle from the ConfigMap", func() {
+		cm := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: operatorv1.DefaultCATrustBundleConfigMapName, Namespace: ns},
+			Data:       map[string]string{operatorv1.CATrustBundleKey: "\n-----BEGIN CERTIFICATE-----\nabc\n-----END CERTIFICATE-----\n\n"},
+		}
+		ctrlCtx := newControllerCtx(cm)
+		bundle, err := resolveCATrustBundle(context.Background(), ctrlCtx, config)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(bundle).To(Equal("-----BEGIN CERTIFICATE-----\nabc\n-----END CERTIFICATE-----"))
+	})
+
+	It("returns an empty bundle (no error) when the ConfigMap does not exist", func() {
+		ctrlCtx := newControllerCtx()
+		bundle, err := resolveCATrustBundle(context.Background(), ctrlCtx, config)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(bundle).To(BeEmpty())
+	})
+})
+
+var _ = Describe("ResolveParams registry scheme", func() {
+	It("resolves the dpu-agent repo and registry URLs to https in zero-trusted mode", func() {
+		scheme := runtime.NewScheme()
+		Expect(corev1.AddToScheme(scheme)).To(Succeed())
+		Expect(operatorv1.AddToScheme(scheme)).To(Succeed())
+		Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
+
+		operatorConfig := &operatorv1.DPFOperatorConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "config", Namespace: "dpf-operator-system"},
+			Spec: operatorv1.DPFOperatorConfigSpec{
+				Networking: &operatorv1.Networking{ControlPlaneMTU: ptr.To(1500)},
+			},
+		}
+		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(operatorConfig).Build()
+		ctrlCtx := &util.ControllerContext{
+			Client: c,
+			Options: util.DPUOptions{
+				DPUInstallInterface: string(provisioningv1.InstallViaRedFish),
+				// A scheme-less load balancer address must be resolved to https.
+				BFBRegistryLoadBalancer: "bfb-registry.example.com",
+			},
+		}
+		dpu := &provisioningv1.DPU{ObjectMeta: metav1.ObjectMeta{Name: "dpu-1", Namespace: "default"}}
+		flavor := &provisioningv1.DPUFlavor{}
+
+		params, _, err := ResolveParams(context.Background(), ctrlCtx, dpu, flavor)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(params.BFBRegistryURL).To(Equal("https://bfb-registry.example.com"))
+		Expect(params.DPUAgentRepoURL).To(Equal("https://bfb-registry.example.com/deb"))
 	})
 })
 

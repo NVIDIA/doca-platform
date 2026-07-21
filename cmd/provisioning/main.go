@@ -76,7 +76,8 @@ var (
 )
 
 // defaultBFBRegistryAddress is the in-cluster service address when --bfb-registry is not set.
-const defaultBFBRegistryAddress = "bfb-registry:8082"
+// bfb-registry is HTTPS-only and the Service exposes the HTTPS port (see bfbregistry.HTTPSContainerPort).
+const defaultBFBRegistryAddress = "bfb-registry:8443"
 
 // DefaultOSInstallTimeout is the provisioning-controller default for OS installation.
 // Documented on DPFOperatorConfig.spec.provisioningController.osInstallTimeout when unset.
@@ -135,6 +136,7 @@ type cliFlags struct {
 	hostAgentDNSPolicy                 string
 	deploymentMode                     string
 	redfishClientCertDir               string
+	caTrustBundleConfigMapName         string
 }
 
 func parseFlags() *cliFlags {
@@ -175,6 +177,7 @@ func parseFlags() *cliFlags {
 	fs.StringVar(&flags.hostAgentDNSPolicy, "hostagent-dns-policy", string(corev1.DNSClusterFirstWithHostNet), "DNS policy for the hostagent pod")
 	fs.StringVar(&flags.deploymentMode, "deployment-mode", "", "required: cluster deployment mode from DPFOperatorConfig (zero-trust or host-trusted)")
 	fs.StringVar(&flags.redfishClientCertDir, "redfish-client-cert-dir", rfclient.DefaultClientCertDir, "Directory holding the mounted Redfish client key pair (tls.crt/tls.key). The BF4 key pair is read from '<dir>-bf4'.")
+	fs.StringVar(&flags.caTrustBundleConfigMapName, "ca-trust-bundle-configmap-name", operatorv1.DefaultCATrustBundleConfigMapName, "Name of the ConfigMap holding the dpf CA trust bundle mounted into the HostAgent to validate the bfb-registry server certificate.")
 
 	logsv1.AddFlags(logOptions, fs)
 
@@ -257,14 +260,14 @@ func resolveBFBRegistry(flags *cliFlags) (string, error) {
 			if nodeIP == "" {
 				return "", fmt.Errorf("NODE_IP is empty, can not build the bfb-registry address")
 			}
-			registryAddress = "http://" + nodeIP
+			registryAddress = "https://" + nodeIP
 		} else {
 			registryAddress = defaultBFBRegistryAddress
 		}
 	} else {
 		registryAddress = flags.bfbRegistryLoadBalancerAddress
 	}
-	registryAddress = httputils.EnsureHTTPScheme(registryAddress)
+	registryAddress = httputils.EnsureHTTPSScheme(registryAddress)
 	setupLog.Info("bfb-registry address for downloading BFB files", "bfbRegistry", registryAddress)
 	return registryAddress, nil
 }
@@ -353,13 +356,14 @@ func setupControllers(mgr ctrl.Manager, flags *cliFlags, bfbRegistry string, ima
 
 	// Step 8: pass bfb-registry-address to DMS options (already defaulted above when empty).
 	dmsPodOptions := dnutil.HostAgentPodOptions{
-		HostAgentImageWithTag: flags.dmsImage,
-		ImagePullSecrets:      imagePullSecretsReferences,
-		DMSTimeout:            flags.dmsTimeout,
-		DMSPodTimeout:         flags.dmsPodTimeout,
-		DMSPodEnvs:            flags.dmsPodEnvs,
-		BFBRegistryAddress:    bfbRegistry,
-		HostAgentDNSPolicy:    corev1.DNSPolicy(flags.hostAgentDNSPolicy),
+		HostAgentImageWithTag:      flags.dmsImage,
+		ImagePullSecrets:           imagePullSecretsReferences,
+		DMSTimeout:                 flags.dmsTimeout,
+		DMSPodTimeout:              flags.dmsPodTimeout,
+		DMSPodEnvs:                 flags.dmsPodEnvs,
+		BFBRegistryAddress:         bfbRegistry,
+		HostAgentDNSPolicy:         corev1.DNSPolicy(flags.hostAgentDNSPolicy),
+		CATrustBundleConfigMapName: flags.caTrustBundleConfigMapName,
 	}
 	setupLog.Info("DPUNode", "options", dmsPodOptions)
 

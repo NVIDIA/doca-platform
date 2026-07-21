@@ -724,15 +724,22 @@ var _ = Describe("DPU UpdateDPUStatus", func() {
 	})
 })
 
-// setEnvForBFBRegistry sets POD_NAME, NODE_NAME, BFB_REGISTRY_IMAGE and returns a restore func.
+// setEnvForBFBRegistry sets POD_NAME, NODE_NAME, NODE_IP, BFB_REGISTRY_IMAGE and returns a restore func.
 func setEnvForBFBRegistry(podName, nodeName, registryImage string) func() {
 	old := map[string]string{
 		"POD_NAME":           os.Getenv("POD_NAME"),
 		"NODE_NAME":          os.Getenv("NODE_NAME"),
+		"NODE_IP":            os.Getenv("NODE_IP"),
 		"BFB_REGISTRY_IMAGE": os.Getenv("BFB_REGISTRY_IMAGE"),
 	}
 	Expect(os.Setenv("POD_NAME", podName)).To(Succeed())
 	Expect(os.Setenv("NODE_NAME", nodeName)).To(Succeed())
+	// NODE_IP feeds the server certificate IP SAN; only set it when a leader is simulated.
+	if podName != "" {
+		Expect(os.Setenv("NODE_IP", "10.0.0.1")).To(Succeed())
+	} else {
+		Expect(os.Unsetenv("NODE_IP")).To(Succeed())
+	}
 	Expect(os.Setenv("BFB_REGISTRY_IMAGE", registryImage)).To(Succeed())
 	return func() {
 		for k, v := range old {

@@ -54,6 +54,7 @@ const (
 type Handler struct {
 	client.Client
 	bfbRegistryAddr string
+	caBundlePath    string
 	taskManager     *future.TaskManager
 	GetDevice       func(string) (hostutil.Device, bool)
 }
@@ -62,9 +63,22 @@ func NewHandler(client client.Client, bfbRegistryAddr string, getDevice func(str
 	return &Handler{
 		Client:          client,
 		bfbRegistryAddr: bfbRegistryAddr,
+		caBundlePath:    hostutil.CATrustBundleFile,
 		taskManager:     future.NewTaskManager(MaxRun),
 		GetDevice:       getDevice,
 	}
+}
+
+// downloadFile downloads url to dst over HTTPS, validating the bfb-registry server certificate
+// against the dpf CA trust bundle. The bundle is re-read from the mounted volume on every call so
+// CA rotation (the operator appending a new CA into the bundle) takes effect without restarting
+// the HostAgent.
+func (h *Handler) downloadFile(ctx context.Context, url, dst string) error {
+	httpClient, err := utils.HTTPClientWithCABundle(h.caBundlePath)
+	if err != nil {
+		return fmt.Errorf("failed to build HTTP client from CA trust bundle %q: %w", h.caBundlePath, err)
+	}
+	return utils.DownloadFileWithClient(ctx, httpClient, url, dst, 0644)
 }
 
 func (h *Handler) Handle(ctx context.Context, dpu *provisioningv1.DPU) (provisioningv1.DPUStatus, ctrl.Result, error) {
@@ -135,7 +149,7 @@ func (h *Handler) download(ctx context.Context, filename string, dst string) err
 		return err
 	}
 	logger.Info("start downloading", "url", httpURL, "dst", dst)
-	origErr := utils.DownloadFile(ctx, httpURL, dst, 0644)
+	origErr := h.downloadFile(ctx, httpURL, dst)
 	if origErr == nil {
 		logger.Info("download finished", "url", filename, "dst", dst)
 		return nil
@@ -199,13 +213,13 @@ func (h *Handler) downloadWithBFBRegistryServiceEnv(ctx context.Context, filenam
 		logger.Error(err, "skip download with BFB Registry Service env", bfbRegistryServiceHostEnv, bfbRegistryServiceHost, bfbRegistryServicePortEnv, bfbRegistryServicePort)
 		return err
 	}
-	httpURL, err := url.JoinPath(fmt.Sprintf("http://%s:%s", bfbRegistryServiceHost, bfbRegistryServicePort), filename)
+	httpURL, err := url.JoinPath(fmt.Sprintf("https://%s:%s", bfbRegistryServiceHost, bfbRegistryServicePort), filename)
 	if err != nil {
 		logger.Error(err, "failed to generate URL from BFB Registry Service host and port", bfbRegistryServiceHostEnv, bfbRegistryServiceHost, bfbRegistryServicePortEnv, bfbRegistryServicePort, "filename", filename)
 		return err
 	}
 	logger.Info("workaround 1: download with bfb-registry service address read from env", "url", httpURL, "dst", dst)
-	err = utils.DownloadFile(ctx, httpURL, dst, 0644)
+	err = h.downloadFile(ctx, httpURL, dst)
 	if err != nil {
 		logger.Error(fmt.Errorf("workaround 1 failed to download file: %w", err), "url", httpURL, "dst", dst)
 	}
@@ -229,7 +243,7 @@ func (h *Handler) downloadWithKubernetesAPIServerVIP(ctx context.Context, filena
 		return err
 	}
 	kubernetesAPIServerPort := u.Port()
-	httpURL := fmt.Sprintf("http://%s", kubernetesAPIServerVIP)
+	httpURL := fmt.Sprintf("https://%s", kubernetesAPIServerVIP)
 	if kubernetesAPIServerPort != "" {
 		httpURL += fmt.Sprintf(":%s", kubernetesAPIServerPort)
 	}
@@ -239,7 +253,7 @@ func (h *Handler) downloadWithKubernetesAPIServerVIP(ctx context.Context, filena
 		return err
 	}
 	logger.Info("workaround 2: download with kubernetesAPIServerVIP read from env KUBERNETES_SERVICE_HOST", "kubernetesAPIServerVIP", kubernetesAPIServerVIP, "httpURL", httpURL)
-	err = utils.DownloadFile(ctx, httpURL, dst, 0644)
+	err = h.downloadFile(ctx, httpURL, dst)
 	if err != nil {
 		logger.Error(fmt.Errorf("workaround 2 failed to download file: %w", err), "url", httpURL, "dst", dst)
 		// get bfb-registry nodeport port and download with kubernetesAPIServerVIP:nodeport
@@ -248,14 +262,14 @@ func (h *Handler) downloadWithKubernetesAPIServerVIP(ctx context.Context, filena
 			logger.Error(err, "failed to get bfb-registry nodeport")
 			return err
 		}
-		httpURL = fmt.Sprintf("http://%s:%s", kubernetesAPIServerVIP, port)
+		httpURL = fmt.Sprintf("https://%s:%s", kubernetesAPIServerVIP, port)
 		httpURL, err = url.JoinPath(httpURL, filename)
 		if err != nil {
 			logger.Error(err, "failed to join path with kubernetes API server VIP and nodeport", "httpURL", httpURL, "filename", filename)
 			return err
 		}
 		logger.Info("download with kubernetesAPIServerVIP:nodeport", "httpURL", httpURL, "filename", filename)
-		err = utils.DownloadFile(ctx, httpURL, dst, 0644)
+		err = h.downloadFile(ctx, httpURL, dst)
 		if err != nil {
 			logger.Error(fmt.Errorf("workaround 3 failed to download file: %w", err), "url", httpURL, "dst", dst)
 			return err
