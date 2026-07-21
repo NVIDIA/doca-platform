@@ -82,7 +82,7 @@ func main() {
 	var probeAddr string
 	var insecureMetrics bool
 	var enableHTTP2 bool
-	var syncPeriod, staleFlowsRemovalPeriod, secureFlowDeletionTimeout time.Duration
+	var staleFlowsRemovalPeriod, secureFlowDeletionTimeout time.Duration
 	fs.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	fs.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	fs.StringVar(&pprofAddr, "pprof-bind-address", "", "The address the pprof endpoint binds to.")
@@ -90,8 +90,6 @@ func main() {
 		"If set the metrics endpoint is served insecure without AuthN/AuthZ.")
 	fs.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
-	fs.DurationVar(&syncPeriod, "sync-period", 10*time.Minute,
-		"The minimum interval at which watched resources are reconciled.")
 	fs.DurationVar(&staleFlowsRemovalPeriod, "stale-flows-removal-period", 1*time.Minute,
 		"The interval at which any stale flows on the bridge would be removed.")
 	fs.DurationVar(&secureFlowDeletionTimeout, "secure-flow-deletion-timeout", 0*time.Second,
@@ -149,7 +147,7 @@ func main() {
 		Metrics:                metricsOpts,
 		WebhookServer:          webhookServer,
 		HealthProbeBindAddress: probeAddr,
-		Cache:                  sfccontroller.GetMgrCache(nodeName, syncPeriod),
+		Cache:                  sfccontroller.GetMgrCache(nodeName),
 		PprofBindAddress:       pprofAddr,
 		// No LeaderElection: see comment above.
 	})
@@ -258,7 +256,7 @@ func main() {
 
 	oFlow := &oflow.OpenFlow{Exec: kexec.New()}
 
-	if err = (&sfccontroller.ServiceChainReconciler{
+	serviceChainReconciler := &sfccontroller.ServiceChainReconciler{
 		Client:     mgr.GetClient(),
 		Scheme:     mgr.GetScheme(),
 		NodeName:   nodeName,
@@ -268,8 +266,19 @@ func main() {
 		Exec:       kexec.New(),
 		SC:         &sfccontroller.ServiceChain{OPFlow: oFlow},
 		OPFlow:     oFlow,
-	}).SetupWithManager(ctx, mgr); err != nil {
+	}
+	if err = serviceChainReconciler.SetupWithManager(ctx, mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ServiceChain")
+		os.Exit(1)
+	}
+
+	// Re-apply flows for every ServiceChain on this node when ovs-vswitchd restarts.
+	// TODO: In a follow-up, share the Weave file watcher and wire its channel directly into the controller source.
+	if err := sfccontroller.WatchVSwitchdRestarts(ctx, sfccontroller.DefaultOVSVswitchdPidFile, func(ctx context.Context) {
+		// TriggerResync logs its own per-pass failures; nothing to add here.
+		_ = serviceChainReconciler.TriggerResync(ctx)
+	}); err != nil {
+		setupLog.Error(err, "unable to watch ovs-vswitchd pidfile")
 		os.Exit(1)
 	}
 
@@ -295,9 +304,13 @@ func main() {
 		sc, err := sfccontroller.NewSecureConnection(mgr, ofb, secureFlowDeletionTimeout)
 		if err != nil {
 			setupLog.Error(err, "Failed to create SecureConnection object")
+			os.Exit(1)
+		}
+		sc.OnReconnected = func() error {
+			return serviceChainReconciler.TriggerResync(ctx)
 		}
 
-		sc.Monitor(ctx) // monitor the connection and handle if there is disconnect
+		sc.Monitor(ctx)
 		defer func() {
 			_ = sc.DeleteAllFlows()
 		}()
