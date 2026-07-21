@@ -28,6 +28,14 @@ const (
 	NodeNameEnv           = "NODE_NAME"
 	K8sNodeNameEnv        = "KUBERNETES_NODE_NAME"
 	K8sPodNamespaceEnv    = "POD_NAMESPACE"
+
+	// CATrustBundleDir is the directory where the dpf CA trust bundle ConfigMap is mounted into the
+	// HostAgent (DMS) Pod. It is a non-subPath volume so kubelet keeps it in sync as the bundle is
+	// updated during CA rotation.
+	CATrustBundleDir = "/etc/dpf/ca"
+	// CATrustBundleFile is the full path to the CA trust bundle PEM inside the HostAgent Pod. The
+	// file name matches the ConfigMap data key (operatorv1.CATrustBundleKey = "ca.crt").
+	CATrustBundleFile = CATrustBundleDir + "/ca.crt"
 )
 
 // GetNodeName returns the name of the DPUNode.

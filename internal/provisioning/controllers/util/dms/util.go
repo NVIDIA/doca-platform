@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"strings"
 
+	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	dnutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpunode/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
@@ -92,6 +93,11 @@ func CreateHostAgentPod(ctx context.Context, client client.Client, node *corev1.
 			},
 		},
 	})
+
+	caTrustBundleConfigMapName := option.CATrustBundleConfigMapName
+	if caTrustBundleConfigMapName == "" {
+		caTrustBundleConfigMapName = operatorv1.DefaultCATrustBundleConfigMapName
+	}
 
 	hostPathType := corev1.HostPathDirectory
 	pod := &corev1.Pod{
@@ -223,6 +229,11 @@ func CreateHostAgentPod(ctx context.Context, client client.Client, node *corev1.
 							Name:      "systemd-network",
 							MountPath: "/usr/lib/systemd/network",
 						},
+						{
+							Name:      "ca-trust-bundle",
+							MountPath: hostutil.CATrustBundleDir,
+							ReadOnly:  true,
+						},
 					},
 				},
 			},
@@ -313,6 +324,20 @@ func CreateHostAgentPod(ctx context.Context, client client.Client, node *corev1.
 						HostPath: &corev1.HostPathVolumeSource{
 							Path: "/usr/lib/systemd/network",
 							Type: ptr.To(corev1.HostPathDirectory),
+						},
+					},
+				},
+				{
+					// dpf CA trust bundle used by the HostAgent to validate the bfb-registry server
+					// certificate over HTTPS. Mounted as a non-subPath ConfigMap volume so kubelet
+					// keeps it in sync, letting CA rotation take effect without recreating the Pod.
+					// Optional so the Pod still starts before the operator publishes the bundle; the
+					// HostAgent re-reads it per download and retries until validation succeeds.
+					Name: "ca-trust-bundle",
+					VolumeSource: corev1.VolumeSource{
+						ConfigMap: &corev1.ConfigMapVolumeSource{
+							LocalObjectReference: corev1.LocalObjectReference{Name: caTrustBundleConfigMapName},
+							Optional:             ptr.To(true),
 						},
 					},
 				},

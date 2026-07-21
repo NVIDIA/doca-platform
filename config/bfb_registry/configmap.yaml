@@ -33,8 +33,14 @@ data:
         keepalive_timeout  65;
 
         server {
-            listen       ${NGINX_PORT};
+            listen       ${NGINX_HTTPS_PORT} ssl;
             server_name  _;
+
+            ssl_certificate     /etc/bfb-registry/tls/tls.crt;
+            ssl_certificate_key /etc/bfb-registry/tls/tls.key;
+            ssl_protocols       TLSv1.2 TLSv1.3;
+            # TLS 1.2 fallback ciphers: high-strength only, no anonymous (unauthenticated) suites, no MD5. TLS 1.3 suites are negotiated separately and safe by default.
+            ssl_ciphers         HIGH:!aNULL:!MD5;
 
             location / {
                 root   html;

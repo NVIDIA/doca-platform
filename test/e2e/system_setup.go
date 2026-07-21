@@ -19,6 +19,8 @@ package e2e
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -647,20 +649,33 @@ func ProvisionBFB(ctx context.Context, input ProvisionDPUClustersInput) {
 		}, bfb)).To(Succeed())
 		Expect(bfb.Status.FileName).ToNot(BeEmpty(), "BFB status should have a FileName after reaching Ready")
 
-		controlPlaneIP := getClusterControlPlaneIP(ctx, input.client)
 		svc := &corev1.Service{}
 		Expect(input.client.Get(ctx, client.ObjectKey{
-			Namespace: input.bfb.Namespace,
+			Namespace: dpfOperatorSystemNamespace,
 			Name:      "bfb-registry",
 		}, svc)).To(Succeed())
 		Expect(svc.Spec.Ports).ToNot(BeEmpty(), "bfb-registry Service should have ports")
 		nodePort := svc.Spec.Ports[0].NodePort
 		Expect(nodePort).ToNot(BeZero(), "bfb-registry Service should have a NodePort")
 
-		bfbURL := fmt.Sprintf("http://%s:%d/bfb/%s", controlPlaneIP, nodePort, bfb.Status.FileName)
+		// bfb-registry is HTTPS-only. The server certificate SAN only covers the IP of the node the
+		// bfb-registry Pod runs on (its NODE_IP). In a multi control-plane-node setup the Pod may run on
+		// any control-plane node, so we must reach it via that Pod's HostIP rather than guessing a
+		// control-plane IP. Validate the endpoint against the DPF CA trust bundle rather than skipping
+		// verification. The Pod and the CA trust bundle ConfigMap are created by the operator in the DPF
+		// operator-system namespace, not the BFB's namespace.
+		registryIP := getBFBRegistryHostIP(ctx, input.client, dpfOperatorSystemNamespace)
+		caPool := getDPFCATrustBundlePool(ctx, input.client, dpfOperatorSystemNamespace)
+
+		bfbURL := fmt.Sprintf("https://%s:%d/bfb/%s", registryIP, nodePort, bfb.Status.FileName)
 		By(fmt.Sprintf("Checking BFB is reachable at %s", bfbURL))
 		Eventually(func(g Gomega) {
-			httpClient := &http.Client{Timeout: 10 * time.Second}
+			httpClient := &http.Client{
+				Timeout: 10 * time.Second,
+				Transport: &http.Transport{
+					TLSClientConfig: &tls.Config{RootCAs: caPool},
+				},
+			}
 			resp, err := httpClient.Head(bfbURL)
 			g.Expect(err).NotTo(HaveOccurred())
 			defer resp.Body.Close() //nolint:errcheck
@@ -668,6 +683,54 @@ func ProvisionBFB(ctx context.Context, input ProvisionDPUClustersInput) {
 				fmt.Sprintf("BFB file should be reachable at %s, got status %d", bfbURL, resp.StatusCode))
 		}).WithTimeout(10 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
 	}
+}
+
+// getBFBRegistryHostIP returns the HostIP of the running bfb-registry Pod. This IP is the one written
+// into the server certificate SAN, so it is the only address that passes TLS verification regardless
+// of which control-plane node the Pod is scheduled on.
+func getBFBRegistryHostIP(ctx context.Context, testClient client.Client, namespace string) string {
+	var hostIP string
+	Eventually(func(g Gomega) {
+		hostIP = ""
+		pods := &corev1.PodList{}
+		g.Expect(testClient.List(ctx, pods,
+			client.InNamespace(namespace),
+			client.MatchingLabels(map[string]string{
+				"app.kubernetes.io/part-of": "bfb-registry",
+				"dpu.nvidia.com/component":  "bfb-registry",
+			}),
+		)).To(Succeed())
+		for i := range pods.Items {
+			pod := &pods.Items[i]
+			if pod.Status.Phase == corev1.PodRunning && pod.Status.HostIP != "" {
+				hostIP = pod.Status.HostIP
+				break
+			}
+		}
+		g.Expect(hostIP).ToNot(BeEmpty(), "no running bfb-registry Pod with a HostIP found in namespace %s", namespace)
+	}).WithTimeout(2 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
+	return hostIP
+}
+
+// getDPFCATrustBundlePool builds an x509 cert pool from the DPF CA trust bundle ConfigMap so HTTPS
+// connections to the bfb-registry can be validated without skipping verification.
+func getDPFCATrustBundlePool(ctx context.Context, testClient client.Client, namespace string) *x509.CertPool {
+	var pool *x509.CertPool
+	// The CA trust bundle ConfigMap is created and populated by a controller, so it may not be
+	// present or fully populated immediately. Retry rather than failing on a single transient miss.
+	Eventually(func(g Gomega) {
+		cm := &corev1.ConfigMap{}
+		g.Expect(testClient.Get(ctx, client.ObjectKey{
+			Namespace: namespace,
+			Name:      operatorv1.DefaultCATrustBundleConfigMapName,
+		}, cm)).To(Succeed(), "DPF CA trust bundle ConfigMap should exist")
+		pem := cm.Data[operatorv1.CATrustBundleKey]
+		g.Expect(pem).ToNot(BeEmpty(), "DPF CA trust bundle ConfigMap should contain %q", operatorv1.CATrustBundleKey)
+		p := x509.NewCertPool()
+		g.Expect(p.AppendCertsFromPEM([]byte(pem))).To(BeTrue(), "DPF CA trust bundle should be valid PEM")
+		pool = p
+	}).WithTimeout(2 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
+	return pool
 }
 
 // ProvisionBlueFieldSoftware creates the BlueFieldSoftware resource and waits for it to reach Ready phase.

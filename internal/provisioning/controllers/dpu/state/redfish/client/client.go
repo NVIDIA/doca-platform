@@ -661,7 +661,7 @@ func (c *Client) InstallBFB(imageURI string) (*resty.Response, *TaskInfo, error)
 		"Content-Type": "application/json",
 	}
 	reqBody := map[string]interface{}{
-		"TransferProtocol": "HTTP",
+		"TransferProtocol": "HTTPS",
 		"ImageURI":         imageURI,
 		"Targets":          []string{"redfish/v1/UpdateService/FirmwareInventory/DPU_OS"},
 	}
@@ -1388,7 +1388,7 @@ func (c *Client) InstallBluefieldArmImage(imageURI string) (*resty.Response, *Ta
 		"Content-Type": "application/json",
 	}
 	reqBody := map[string]interface{}{
-		"TransferProtocol": "HTTP",
+		"TransferProtocol": "HTTPS",
 		"ImageURI":         imageURI,
 		"Targets":          []string{"redfish/v1/UpdateService/FirmwareInventory/BlueField_OS_Image_CPU_0"},
 	}
@@ -1405,7 +1405,7 @@ func (c *Client) InstallBluefieldArmConfig(imageURI string) (*resty.Response, *T
 		"Content-Type": "application/json",
 	}
 	reqBody := map[string]interface{}{
-		"TransferProtocol": "HTTP",
+		"TransferProtocol": "HTTPS",
 		"ImageURI":         imageURI,
 		"Targets":          []string{"redfish/v1/UpdateService/FirmwareInventory/BlueField_OS_Config_CPU_0"},
 	}

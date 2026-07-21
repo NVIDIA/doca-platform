@@ -30,9 +30,13 @@ import (
 	provisioningconstants "github.com/nvidia/doca-platform/internal/provisioning/constants"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	httputils "github.com/nvidia/doca-platform/internal/provisioning/utils/http"
 
 	"github.com/Masterminds/sprig/v3"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/yaml"
 )
 
@@ -98,6 +102,10 @@ type Params struct {
 	BFBRegistryURL       string
 	AstraEnabled         bool
 	NICDeviceCount       int
+	// CATrustBundle holds one or more concatenated PEM certificates for the DPF CA. When set, it is
+	// written to the DPU OS trust store via cloud-init and installed with update-ca-certificates so
+	// the DPU OS (apt over HTTPS, etc.) validates the bfb-registry server certificate.
+	CATrustBundle string
 }
 
 // ApplyFlavor populates the flavor-derived fields from the given DPUFlavor.
@@ -181,25 +189,58 @@ func ResolveParams(ctx context.Context, controllerCtx *util.ControllerContext, d
 	params.NICDeviceCount = nicDeviceCount
 
 	if isRedfish {
-		var bfbRegistryAddr string
-		if controllerCtx.Options.BFBRegistryLoadBalancer != "" {
-			bfbRegistryAddr = controllerCtx.Options.BFBRegistryLoadBalancer
-		} else {
-			bfbRegistryAddr, err = cutil.GetBFBRegistryAddressWithPort(ctx, controllerCtx.Client, os.Getenv("POD_NAMESPACE"), controllerCtx.Options.BFBRegistry)
-			if err != nil {
-				return Params{}, operatorv1.DPFOperatorConfig{}, fmt.Errorf("bfb-registry address with port: %w", err)
-			}
+		if err := resolveRedfishRepoURLs(ctx, controllerCtx, &params); err != nil {
+			return Params{}, operatorv1.DPFOperatorConfig{}, err
 		}
-		base := strings.TrimRight(bfbRegistryAddr, "/")
-		params.DPUAgentRepoURL = base + "/deb"
-		params.BFBRegistryURL = base
 	} else {
 		params.DPUAgentRepoURL = "http://[fe80::1%25tmfifo_net0]:11029/deb"
 	}
 	if err := params.ApplyFlavor(flavor); err != nil {
 		return Params{}, operatorv1.DPFOperatorConfig{}, fmt.Errorf("applying flavor: %w", err)
 	}
+
+	caBundle, err := resolveCATrustBundle(ctx, controllerCtx, &dpfOperatorConfig)
+	if err != nil {
+		return Params{}, operatorv1.DPFOperatorConfig{}, err
+	}
+	params.CATrustBundle = caBundle
+
 	return params, dpfOperatorConfig, nil
+}
+
+// resolveRedfishRepoURLs sets the dpu-agent apt repo and bfb-registry URLs on params for the
+// zero-trusted (Redfish) install mode. bfb-registry is HTTPS-only; the DPU OS trusts the DPF CA
+// (delivered via cloud-init), so the dpu-agent apt repo (dpf.list) and the NIC firmware base both
+// resolve to https here. The host-trusted tmfifo repo (non-Redfish) stays HTTP (out of scope).
+func resolveRedfishRepoURLs(ctx context.Context, controllerCtx *util.ControllerContext, params *Params) error {
+	bfbRegistryAddr := controllerCtx.Options.BFBRegistryLoadBalancer
+	if bfbRegistryAddr == "" {
+		addr, err := cutil.GetBFBRegistryAddressWithPort(ctx, controllerCtx.Client, os.Getenv("POD_NAMESPACE"), controllerCtx.Options.BFBRegistry)
+		if err != nil {
+			return fmt.Errorf("bfb-registry address with port: %w", err)
+		}
+		bfbRegistryAddr = addr
+	}
+	base := httputils.EnsureHTTPSScheme(strings.TrimRight(bfbRegistryAddr, "/"))
+	params.DPUAgentRepoURL = base + "/deb"
+	params.BFBRegistryURL = base
+	return nil
+}
+
+// resolveCATrustBundle reads the public DPF CA trust bundle the Operator maintains so it can be
+// delivered to the DPU OS via cloud-init. It is best-effort: a missing ConfigMap or key yields an
+// empty bundle (the cloud-init template then skips writing it) rather than failing provisioning.
+func resolveCATrustBundle(ctx context.Context, controllerCtx *util.ControllerContext, dpfOperatorConfig *operatorv1.DPFOperatorConfig) (string, error) {
+	name := dpfOperatorConfig.GetCATrustBundleConfigMapName()
+	cm := &corev1.ConfigMap{}
+	if err := controllerCtx.Get(ctx, types.NamespacedName{Namespace: dpfOperatorConfig.Namespace, Name: name}, cm); err != nil {
+		if apierrors.IsNotFound(err) {
+			log.FromContext(ctx).Info("CA trust bundle ConfigMap not found; DPU OS will not receive a DPF CA certificate", "configMap", name, "namespace", dpfOperatorConfig.Namespace)
+			return "", nil
+		}
+		return "", fmt.Errorf("getting CA trust bundle ConfigMap %s/%s: %w", dpfOperatorConfig.Namespace, name, err)
+	}
+	return strings.TrimSpace(cm.Data[operatorv1.CATrustBundleKey]), nil
 }
 
 // GenerateNetworkCfg returns the dpf.cfg file that disables cloud-init's
