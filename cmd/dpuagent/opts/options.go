@@ -41,6 +41,7 @@ type Options struct {
 	DPUName                    string
 	DPUNamespace               string
 	DPUUID                     string
+	DPUType                    string
 	DPUFlavor                  string
 	KubeadmSecretName          string
 	KubeadmSecretNamespace     string

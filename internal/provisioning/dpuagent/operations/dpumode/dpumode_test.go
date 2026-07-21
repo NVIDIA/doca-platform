@@ -56,7 +56,7 @@ var _ = Describe("Ensure Mode", func() {
 						DeploymentMode: provisioningv1.DeploymentModeZeroTrust,
 					},
 				},
-				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{
 						{PCIAddress: "0000:03:00.0"},
 						{PCIAddress: "0000:03:00.1"},
@@ -83,7 +83,7 @@ var _ = Describe("Ensure Mode", func() {
 						DeploymentMode: provisioningv1.DeploymentModeHostTrusted,
 					},
 				},
-				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{
 						{PCIAddress: "0000:03:00.0"},
 						{PCIAddress: "0000:03:00.1"},
@@ -108,7 +108,7 @@ var _ = Describe("Ensure Mode", func() {
 						DeploymentMode: provisioningv1.DeploymentModeZeroTrust,
 					},
 				},
-				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{
 						{PCIAddress: "0000:03:00.0"},
 						{PCIAddress: "0000:03:00.1"},

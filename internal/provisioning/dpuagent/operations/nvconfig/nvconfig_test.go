@@ -38,8 +38,8 @@ const (
 
 // discoverPortsForTest returns a DiscoverPorts function that yields the two
 // physical NIC ports used throughout the nvconfig tests.
-func discoverPortsForTest() func() ([]pciutil.NICPort, error) {
-	return func() ([]pciutil.NICPort, error) {
+func discoverPortsForTest() func(pciutil.PortScope) ([]pciutil.NICPort, error) {
+	return func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 		return []pciutil.NICPort{
 			{Netdev: "p0", PCIAddress: testPci0},
 			{Netdev: "p1", PCIAddress: testPci1},
@@ -519,7 +519,7 @@ var _ = Describe("NVConfig Operation", func() {
 				runBash: runBashWithQuery(&recorded, queryOutputForParams(params)),
 			}
 			operationCtx := &operations.Context{
-				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{
 						{Netdev: "p0", PCIAddress: testPci0},
 					}, nil
@@ -550,7 +550,7 @@ var _ = Describe("NVConfig Operation", func() {
 				runBash: runBashWithQuery(&recorded, queryOut),
 			}
 			operationCtx := &operations.Context{
-				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPci0}}, nil
 				},
 				RebootMethodDiscovery: true,
@@ -578,7 +578,7 @@ var _ = Describe("NVConfig Operation", func() {
 				runBash: runBashWithQuery(&recorded, ""),
 			}
 			operationCtx := &operations.Context{
-				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPci0}}, nil
 				},
 				RebootMethodDiscovery: true,
@@ -638,7 +638,7 @@ var _ = Describe("NVConfig Operation", func() {
 				runBash: runBashWithQuery(&recorded, queryOut),
 			}
 			operationCtx := &operations.Context{
-				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPci0}}, nil
 				},
 				RebootMethodDiscovery: true,
@@ -669,7 +669,7 @@ var _ = Describe("NVConfig Operation", func() {
 				runBash: runBashWithQuery(&recorded, ""),
 			}
 			operationCtx := &operations.Context{
-				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPci0}}, nil
 				},
 				RebootMethodDiscovery: true,
@@ -706,7 +706,7 @@ var _ = Describe("NVConfig Operation", func() {
 		It("should fail when DiscoverPorts returns an error", func() {
 			operation := ConfigureNVConfig{}
 			operationCtx := &operations.Context{
-				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 					return nil, fmt.Errorf("discovery failed")
 				},
 			}
@@ -718,7 +718,7 @@ var _ = Describe("NVConfig Operation", func() {
 		It("should return empty map when no ports discovered", func() {
 			operation := ConfigureNVConfig{}
 			operationCtx := &operations.Context{
-				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{}, nil
 				},
 			}
@@ -730,7 +730,7 @@ var _ = Describe("NVConfig Operation", func() {
 		It("should return single-port map when only one port is discovered", func() {
 			operation := ConfigureNVConfig{}
 			operationCtx := &operations.Context{
-				DiscoverPorts: func() ([]pciutil.NICPort, error) {
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{
 						{Netdev: "p0", PCIAddress: testPci0},
 					}, nil
