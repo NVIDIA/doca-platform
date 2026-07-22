@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sync"
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -36,6 +37,13 @@ import (
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+)
+
+const maxDownloadRetries = 3
+
+var (
+	downloadRetryCounter     sync.Map
+	downloadRetryCounterLock sync.Mutex
 )
 
 type bfbDownloadingState struct {
@@ -55,6 +63,7 @@ func (st *bfbDownloadingState) Handle(ctx context.Context, _ client.Client) erro
 			butil.DownloadingTaskMap.Delete(bfbTaskName)
 			butil.DownloadingTaskMap.Delete(bfbTaskName + "cancel")
 		}
+		st.clearRetryCounter(bfbTaskName)
 		st.bfb.Status.Phase = provisioningv1.BFBDeleting
 		conditions.AddFalse(st.bfb, provisioningv1.BFBCondDownloaded,
 			conditions.ReasonAwaitingDeletion, "BFB is being deleted")
@@ -83,20 +92,9 @@ func (st *bfbDownloadingState) Handle(ctx context.Context, _ client.Client) erro
 		butil.DownloadingTaskMap.Delete(bfbTaskName + "cancel")
 		// Check task result
 		if _, err := result.GetResult(); err != nil {
-			if errors.Is(err, context.Canceled) {
-				st.bfb.Status.Phase = provisioningv1.BFBDeleting
-				conditions.AddFalse(st.bfb, provisioningv1.BFBCondDownloaded,
-					conditions.ReasonAwaitingDeletion, "BFB download canceled, deletion in progress")
-				return nil
-			} else {
-				msg := fmt.Sprintf("Download BFB: (%s/%s) failed with error :%s", st.bfb.Namespace, st.bfb.Name, err.Error())
-				st.recorder.Eventf(st.bfb, corev1.EventTypeWarning, events.EventFailedDownloadBFBReason, msg)
-				st.bfb.Status.Phase = provisioningv1.BFBError
-				conditions.AddFalse(st.bfb, provisioningv1.BFBCondDownloaded,
-					conditions.ReasonError, conditions.ConditionMessage(err.Error()))
-				return err
-			}
+			return st.handleDownloadError(err, bfbTaskName)
 		}
+		st.clearRetryCounter(bfbTaskName)
 	} else if !exist {
 		// Start BFB downloading task
 		bfbTask := butil.BFBTask{
@@ -132,12 +130,67 @@ func (st *bfbDownloadingState) Handle(ctx context.Context, _ client.Client) erro
 		st.bfb.Status.Versions = *versions
 	}
 
+	st.clearRetryCounter(bfbTaskName)
 	st.bfb.Status.Phase = provisioningv1.BFBReady
 	msg := fmt.Sprintf("Download BFB: (%s/%s) successful", st.bfb.Namespace, st.bfb.Name)
 	st.recorder.Eventf(st.bfb, corev1.EventTypeNormal, events.EventSuccessfulDownloadBFBReason, msg)
 	conditions.AddTrue(st.bfb, provisioningv1.BFBCondDownloaded)
 
 	return nil
+}
+
+func (st *bfbDownloadingState) handleDownloadError(err error, taskName string) error {
+	if errors.Is(err, context.Canceled) {
+		st.clearRetryCounter(taskName)
+		st.bfb.Status.Phase = provisioningv1.BFBDeleting
+		conditions.AddFalse(st.bfb, provisioningv1.BFBCondDownloaded,
+			conditions.ReasonAwaitingDeletion, "BFB download canceled, deletion in progress")
+		return nil
+	}
+
+	currentRetries := st.getRetryCount(taskName)
+	if currentRetries < maxDownloadRetries {
+		st.incrementRetryCounter(taskName)
+		msg := fmt.Sprintf("Download BFB: (%s/%s) failed with error: %s. Retry attempt %d/%d",
+			st.bfb.Namespace, st.bfb.Name, err.Error(), currentRetries+1, maxDownloadRetries)
+		st.recorder.Eventf(st.bfb, corev1.EventTypeWarning, events.EventFailedDownloadBFBReason, msg)
+		st.bfb.Status.Phase = provisioningv1.BFBDownloading
+		conditions.AddFalse(st.bfb, provisioningv1.BFBCondDownloaded,
+			conditions.ReasonRetrying, conditions.ConditionMessage(msg))
+		return nil
+	}
+
+	st.clearRetryCounter(taskName)
+	reason := conditions.ReasonFailure
+	if cutil.IsRecoverableDownloadError(err) {
+		reason = conditions.ReasonError
+	}
+	msg := fmt.Sprintf("Download BFB: (%s/%s) failed after %d retries with error: %s",
+		st.bfb.Namespace, st.bfb.Name, maxDownloadRetries, err.Error())
+	st.recorder.Eventf(st.bfb, corev1.EventTypeWarning, events.EventFailedDownloadBFBReason, msg)
+	st.bfb.Status.Phase = provisioningv1.BFBError
+	conditions.AddFalse(st.bfb, provisioningv1.BFBCondDownloaded,
+		reason, conditions.ConditionMessage(msg))
+	return err
+}
+
+func (st *bfbDownloadingState) getRetryCount(taskName string) int {
+	if value, ok := downloadRetryCounter.Load(taskName); ok {
+		return value.(int)
+	}
+	return 0
+}
+
+func (st *bfbDownloadingState) incrementRetryCounter(taskName string) {
+	downloadRetryCounterLock.Lock()
+	defer downloadRetryCounterLock.Unlock()
+	downloadRetryCounter.Store(taskName, st.getRetryCount(taskName)+1)
+}
+
+func (st *bfbDownloadingState) clearRetryCounter(taskName string) {
+	downloadRetryCounterLock.Lock()
+	defer downloadRetryCounterLock.Unlock()
+	downloadRetryCounter.Delete(taskName)
 }
 
 func downloadBFB(ctx context.Context, bfbTask butil.BFBTask) {
@@ -204,13 +257,12 @@ func downloadBFB(ctx context.Context, bfbTask butil.BFBTask) {
 			return nil, err
 		}
 
-		// Rename the temp file to the final destination
 		bfbfile := cutil.GenerateBFBFilePath(bfbTask.FileName)
-		if err := os.Rename(tempFile.Name(), bfbfile); err != nil {
+		if err := os.Chmod(tempFile.Name(), 0644); err != nil {
 			return nil, err
 		}
 
-		if err := os.Chmod(bfbfile, 0644); err != nil {
+		if err := os.Rename(tempFile.Name(), bfbfile); err != nil {
 			return nil, err
 		}
 
