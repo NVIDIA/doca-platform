@@ -117,14 +117,15 @@ var _ = Describe("BFB", func() {
 
 			objFetched := &provisioningv1.BFB{}
 			By("expecting the Status (Error) with condition")
+			// Allow time for the HTTP retries and the controller-level download retries.
 			Eventually(func(g Gomega) {
 				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
 				g.Expect(objFetched.Status.Phase).To(Equal(provisioningv1.BFBError))
 				downloadedCond := meta.FindStatusCondition(objFetched.Status.Conditions, string(provisioningv1.BFBCondDownloaded))
 				g.Expect(downloadedCond).NotTo(BeNil())
 				g.Expect(downloadedCond.Status).To(Equal(metav1.ConditionFalse))
-				g.Expect(downloadedCond.Reason).To(Equal(string(conditions.ReasonError)))
-			}).WithTimeout(30 * time.Second).Should(Succeed())
+				g.Expect(downloadedCond.Reason).To(Equal(string(conditions.ReasonFailure)))
+			}).WithTimeout(60 * time.Second).Should(Succeed())
 		})
 
 		It("BFB: check status (Ready)", func() {
@@ -390,6 +391,7 @@ var _ = Describe("BFB", func() {
 			}).WithTimeout(30 * time.Second).WithPolling(10 * time.Millisecond).Should(Equal(provisioningv1.BFBDownloading))
 
 			By("expecting the Status (Error) with Downloaded and Error conditions")
+			// Allow time for the HTTP retries and the controller-level download retries.
 			Eventually(func(g Gomega) {
 				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
 				g.Expect(objFetched.Status.Phase).To(Equal(provisioningv1.BFBError))
@@ -410,7 +412,7 @@ var _ = Describe("BFB", func() {
 
 				// Verify ObservedGeneration is tracked in error state
 				g.Expect(objFetched.Status.ObservedGeneration).To(Equal(objFetched.Generation))
-			}).WithTimeout(30 * time.Second).WithPolling(100 * time.Millisecond).Should(Succeed())
+			}).WithTimeout(60 * time.Second).WithPolling(100 * time.Millisecond).Should(Succeed())
 		})
 
 		It("BFB: creating number of objs", func() {

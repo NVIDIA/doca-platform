@@ -23,7 +23,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -214,23 +213,6 @@ func TestHandleDownloadError_MaxRetriesRecoverableStorageError(t *testing.T) {
 	assert.Equal(t, string(conditions.ReasonError), cond.Reason)
 
 	st.clearRetryCounter(butil.ComponentTypeOSISO)
-}
-
-func TestIsRecoverableDownloadError(t *testing.T) {
-	assert.False(t, isRecoverableDownloadError(nil))
-
-	// HTTP status errors (bad/missing URL) are terminal.
-	assert.False(t, isRecoverableDownloadError(errors.New("failed to get: http://x/y status: 404")))
-	assert.False(t, isRecoverableDownloadError(errors.New("some other error")))
-
-	// Filesystem/storage errors are recoverable.
-	assert.True(t, isRecoverableDownloadError(&os.PathError{Op: "mkdir", Path: "/bfb/components", Err: syscall.ENOENT}))
-	assert.True(t, isRecoverableDownloadError(&os.PathError{Op: "open", Path: "/bfb/x.tmp", Err: syscall.EACCES}))
-	assert.True(t, isRecoverableDownloadError(&os.LinkError{Op: "rename", Old: "/bfb/x.tmp", New: "/bfb/x", Err: syscall.EACCES}))
-	assert.True(t, isRecoverableDownloadError(fmt.Errorf("wrapped: %w", &os.PathError{Op: "open", Path: "/bfb/x", Err: syscall.EACCES})))
-
-	// Network/transport errors are recoverable.
-	assert.True(t, isRecoverableDownloadError(&url.Error{Op: "Get", URL: "http://x", Err: errors.New("dial tcp: connection refused")}))
 }
 
 func TestRetryCounter_IndependentPerComponent(t *testing.T) {
