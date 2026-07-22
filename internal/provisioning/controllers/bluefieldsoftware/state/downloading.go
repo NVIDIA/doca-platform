@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -175,7 +174,7 @@ func (st *blueFieldSoftwareDownloadingState) handleDownloadError(err error, comp
 	// a bad URL (HTTP 4xx/5xx).
 	st.clearRetryCounter(componentType)
 	reason := conditions.ReasonFailure
-	if isRecoverableDownloadError(err) {
+	if cutil.IsRecoverableDownloadError(err) {
 		reason = conditions.ReasonError
 	}
 	msg := fmt.Sprintf("Download component %s: (%s/%s) failed after %d attempts with error: %s",
@@ -185,35 +184,6 @@ func (st *blueFieldSoftwareDownloadingState) handleDownloadError(err error, comp
 	conditions.AddFalse(st.bfs, provisioningv1.BlueFieldSoftwareCondDownloaded,
 		reason, conditions.ConditionMessage(msg))
 	return err
-}
-
-// isRecoverableDownloadError reports whether a failed download is caused by a transient
-// condition that is worth retrying (filesystem/storage or network errors), as opposed to
-// a terminal condition that requires user intervention (e.g. an HTTP status error from a
-// bad or missing URL). Unknown errors are treated as terminal to avoid retrying forever
-// on genuine misconfiguration.
-func isRecoverableDownloadError(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	// Filesystem/storage errors, e.g. "mkdir /bfb/components: no such file or directory"
-	// or "open /bfb/...tmp: permission denied" - exactly the symptoms of a /bfb volume
-	// wiped or made unavailable by a control-plane node OS revert.
-	var pathErr *os.PathError
-	var linkErr *os.LinkError
-	if errors.As(err, &pathErr) || errors.As(err, &linkErr) {
-		return true
-	}
-
-	// Network/transport errors while contacting the download server.
-	var netErr net.Error
-	var urlErr *url.Error
-	if errors.As(err, &netErr) || errors.As(err, &urlErr) {
-		return true
-	}
-
-	return false
 }
 
 func (st *blueFieldSoftwareDownloadingState) handleNewDownload(ctx context.Context, componentType butil.ComponentType, componentURL, taskName string) (bool, error) {
