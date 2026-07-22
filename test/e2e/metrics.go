@@ -104,13 +104,9 @@ func VerifyNodeProblemDetectorConditions(ctx context.Context, input *systemTestI
 				fmt.Sprintf("No nodes found in DPUCluster %s", dpuCluster.Name))
 
 			for _, node := range nodes.Items {
-				nodeConditions := make(map[string]corev1.ConditionStatus)
-				for _, condition := range node.Status.Conditions {
-					nodeConditions[string(condition.Type)] = condition.Status
-				}
-
 				// Verify that the full set of Node conditions on DPUCluster nodes matches exactly
-				// the expected NPD and kubelet condition types.
+				// the expected NPD and kubelet condition types, and that each is in its happy-path
+				// status (no problems detected, healthy services).
 				//
 				// This assertion is intentionally strict: it will fail if any condition type is
 				// added, removed, or renamed (including non-NPD conditions). This guards against
@@ -120,22 +116,26 @@ func VerifyNodeProblemDetectorConditions(ctx context.Context, input *systemTestI
 				// accordingly.
 				//
 				// Keep in sync with GetNodeProblemDetectorConditions() in api/provisioning/v1alpha1/dpu_types.go:168
-				Expect(node.Status.Conditions).
+				g.Expect(node.Status.Conditions).
 					To(ConsistOf(
-						HaveField("Type", Equal(provisioningv1.NPDConditionKernelDeadlock)),
-						HaveField("Type", Equal(provisioningv1.NPDConditionReadonlyFilesystem)),
-						HaveField("Type", Equal(provisioningv1.NPDConditionOVSvSwitchdHealthy)),
-						HaveField("Type", Equal(provisioningv1.NPDConditionOVSDBHealthy)),
-						HaveField("Type", Equal(provisioningv1.NPDConditionOVSHealthy)),
-						HaveField("Type", Equal(provisioningv1.NPDConditionUplinkHealthy)),
-						HaveField("Type", Equal(provisioningv1.NPDConditionSRIOVHealthy)),
-						HaveField("Type", Equal(provisioningv1.NPDConditionMTUConfigured)),
+						// All NPD conditions: False = no problem detected (happy path).
+						// NPD permanent rules set status to True when a problem script fires;
+						// the default (no problem) state is always False regardless of the
+						// condition's name (including "Healthy"-named ones).
+						And(HaveField("Type", Equal(provisioningv1.NPDConditionKernelDeadlock)), HaveField("Status", Equal(corev1.ConditionFalse))),
+						And(HaveField("Type", Equal(provisioningv1.NPDConditionReadonlyFilesystem)), HaveField("Status", Equal(corev1.ConditionFalse))),
+						And(HaveField("Type", Equal(provisioningv1.NPDConditionOVSvSwitchdHealthy)), HaveField("Status", Equal(corev1.ConditionFalse))),
+						And(HaveField("Type", Equal(provisioningv1.NPDConditionOVSDBHealthy)), HaveField("Status", Equal(corev1.ConditionFalse))),
+						And(HaveField("Type", Equal(provisioningv1.NPDConditionOVSHealthy)), HaveField("Status", Equal(corev1.ConditionFalse))),
+						And(HaveField("Type", Equal(provisioningv1.NPDConditionUplinkHealthy)), HaveField("Status", Equal(corev1.ConditionFalse))),
+						And(HaveField("Type", Equal(provisioningv1.NPDConditionSRIOVHealthy)), HaveField("Status", Equal(corev1.ConditionFalse))),
+						And(HaveField("Type", Equal(provisioningv1.NPDConditionMTUConfigured)), HaveField("Status", Equal(corev1.ConditionFalse))),
 						// Kubelet conditions, not part of GetNodeProblemDetectorConditions()
-						HaveField("Type", Equal(corev1.NodeReady)),
-						HaveField("Type", Equal(corev1.NodeMemoryPressure)),
-						HaveField("Type", Equal(corev1.NodeDiskPressure)),
-						HaveField("Type", Equal(corev1.NodePIDPressure)),
-						HaveField("Type", Equal(corev1.NodeNetworkUnavailable)),
+						And(HaveField("Type", Equal(corev1.NodeReady)), HaveField("Status", Equal(corev1.ConditionTrue))),
+						And(HaveField("Type", Equal(corev1.NodeMemoryPressure)), HaveField("Status", Equal(corev1.ConditionFalse))),
+						And(HaveField("Type", Equal(corev1.NodeDiskPressure)), HaveField("Status", Equal(corev1.ConditionFalse))),
+						And(HaveField("Type", Equal(corev1.NodePIDPressure)), HaveField("Status", Equal(corev1.ConditionFalse))),
+						And(HaveField("Type", Equal(corev1.NodeNetworkUnavailable)), HaveField("Status", Equal(corev1.ConditionFalse))),
 					), "Node conditions do not match expected conditions")
 			}
 		}
