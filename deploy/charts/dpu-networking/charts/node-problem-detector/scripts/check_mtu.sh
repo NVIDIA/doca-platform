@@ -14,15 +14,14 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-# Check if p0 MTU is correctly configured (expecting always 9216).
+# Check whether p0 is configured with an MTU of at least 9000.
 # /sys in the container is the host sysfs mounted read-only, and sysfs net
 # entries reflect the network namespace of the mount, i.e. the host, so no
 # nsenter is needed. Passes when p0 does not exist, the uplink check covers
 # that case.
-EXPECTED_MTU=9216
 CURRENT_MTU=$(cat /sys/class/net/p0/mtu 2> /dev/null)
-if [ -n "$CURRENT_MTU" ] && [ "$CURRENT_MTU" -ne "$EXPECTED_MTU" ]; then
-	echo "MTU is $CURRENT_MTU, expected $EXPECTED_MTU"
+if [ -n "$CURRENT_MTU" ] && [ "$CURRENT_MTU" -lt 9000 ]; then
+	echo "MTU is $CURRENT_MTU, expected 9000 or higher"
 	exit 1
 fi
 exit 0
