@@ -54,6 +54,7 @@ const (
 	APICheckDPUUEFI                 = "redfish/v1/UpdateService/FirmwareInventory/{DPU_UEFI_ID}"
 	APICheckPendingBundle           = "redfish/v1/UpdateService/FirmwareInventory/Pending_Bundle"
 	APIInstallBFB                   = "redfish/v1/UpdateService/Actions/UpdateService.SimpleUpdate"
+	APIGetVirtualMedia              = "redfish/v1/Managers/{MANAGER_ID}/VirtualMedia/{MEDIA_ID}"
 	APIInsertVirtualMedia           = "redfish/v1/Managers/{MANAGER_ID}/VirtualMedia/{MEDIA_ID}/Actions/VirtualMedia.InsertMedia"
 	APIEjectVirtualMedia            = "redfish/v1/Managers/{MANAGER_ID}/VirtualMedia/{MEDIA_ID}/Actions/VirtualMedia.EjectMedia"
 	APIUpdateFW                     = "redfish/v1/UpdateService"
@@ -264,6 +265,12 @@ type BootSettings struct {
 	BootSourceOverrideEnabled string   `json:"BootSourceOverrideEnabled,omitempty"`
 	BootOrder                 []string `json:"BootOrder,omitempty"`
 	AutomaticRetryConfig      string   `json:"AutomaticRetryConfig,omitempty"`
+}
+
+type VirtualMedia struct {
+	Inserted   bool     `json:"Inserted"`
+	Image      string   `json:"Image"`
+	MediaTypes []string `json:"MediaTypes"`
 }
 
 // MessageExtendedInfo contains the Message.ExtendedInfo responded by RedFish API
@@ -1462,6 +1469,18 @@ func (c *Client) GetSettings() (*resty.Response, *Settings, error) {
 	})
 }
 
+func (c *Client) GetVirtualMedia(mediaID string) (*resty.Response, *VirtualMedia, error) {
+	managerID, err := getBMCManagerID(c)
+	if err != nil {
+		return nil, nil, err
+	}
+	url := strings.Replace(APIGetVirtualMedia, managerIDPlaceholder, *managerID, 1)
+	url = strings.Replace(url, "{MEDIA_ID}", mediaID, 1)
+	return do[VirtualMedia](func() (*resty.Response, error) {
+		return c.Client.R().Get(url)
+	})
+}
+
 func insertVirtualMedia(c *Client, reqBody map[string]interface{}, mediaID string) (*resty.Response, error) {
 	managerID, err := getBMCManagerID(c)
 	if err != nil {
@@ -1481,7 +1500,17 @@ func insertVirtualMedia(c *Client, reqBody map[string]interface{}, mediaID strin
 		return nil, err
 	}
 	if resp.StatusCode() != http.StatusOK {
-		return nil, fmt.Errorf("failed to eject virtual media config: %s", resp.Status())
+		return nil, fmt.Errorf("failed to eject virtual media %s: %s", mediaID, resp.Status())
+	}
+	resp, virtualMedia, err := c.GetVirtualMedia(mediaID)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode() != http.StatusOK {
+		return nil, fmt.Errorf("failed to get virtual media %s: %s", mediaID, resp.Status())
+	}
+	if virtualMedia.Inserted {
+		return nil, fmt.Errorf("failed to eject virtual media %s: virtual media is still inserted", mediaID)
 	}
 
 	virtualMediaURL := strings.Replace(APIInsertVirtualMedia, managerIDPlaceholder, *managerID, 1)
@@ -1496,10 +1525,22 @@ func insertVirtualMedia(c *Client, reqBody map[string]interface{}, mediaID strin
 		return nil, err
 	}
 	if resp.StatusCode() != http.StatusOK {
-		return nil, fmt.Errorf("failed to insert virtual media config: %s", resp.Status())
+		return nil, fmt.Errorf("failed to insert virtual media %s: %s", mediaID, resp.Status())
 	}
-	return resp, nil
 
+	resp, virtualMedia, err = c.GetVirtualMedia(mediaID)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode() != http.StatusOK {
+		return nil, fmt.Errorf("failed to get virtual media %s: %s", mediaID, resp.Status())
+	}
+
+	if !virtualMedia.Inserted {
+		return nil, fmt.Errorf("failed to insert virtual media %s: virtual media is not inserted", mediaID)
+	}
+
+	return resp, nil
 }
 
 func (c *Client) InsertVirtualMediaConfig() (*resty.Response, error) {

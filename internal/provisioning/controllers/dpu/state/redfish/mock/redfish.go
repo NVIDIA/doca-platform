@@ -78,6 +78,7 @@ type RedfishMockServer struct {
 	hostPrivilegeMode               string                   // Current host privilege mode: "Privileged" or "Restricted"
 	bootSourceOverrideTarget        string                   // BootSourceOverrideTarget returned by GET Settings
 	bootSourceOverrideEnabled       string                   // BootSourceOverrideEnabled returned by GET Settings
+	virtualMediaInserted            map[string]bool          // Inserted state per VirtualMedia ID (IMAGE, CONFIG)
 }
 
 type DpuVersion int
@@ -106,6 +107,7 @@ func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 		taskMessages:                    []map[string]interface{}{}, // Default empty messages
 		bootSourceOverrideTarget:        "None",                     // Default boot target
 		bootSourceOverrideEnabled:       "Disabled",                 // Default boot override state
+		virtualMediaInserted:            map[string]bool{},          // Default: nothing inserted
 	}
 
 	mux := http.NewServeMux()
@@ -1086,16 +1088,52 @@ func (r *RedfishMockServer) bootProgressLastState() string {
 	return "OEM"
 }
 
-// handleVirtualMedia handles VirtualMedia.InsertMedia and VirtualMedia.EjectMedia for BF4 OS install.
+// handleVirtualMedia handles GET VirtualMedia and InsertMedia/EjectMedia for BF4 OS install.
 func (r *RedfishMockServer) handleVirtualMedia(w http.ResponseWriter, req *http.Request) {
-	if req.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	const prefix = "/redfish/v1/Managers/Bluefield_BMC/VirtualMedia/"
+	rest := strings.TrimPrefix(req.URL.Path, prefix)
+	parts := strings.Split(rest, "/")
+	if len(parts) == 0 || parts[0] == "" {
+		http.Error(w, "Not found", http.StatusNotFound)
 		return
 	}
-	w.WriteHeader(http.StatusOK)
-	writeJSONResponse(w, map[string]interface{}{
-		"@odata.id": req.URL.Path,
-	})
+	mediaID := parts[0]
+
+	switch req.Method {
+	case http.MethodGet:
+		if len(parts) != 1 {
+			http.Error(w, "Not found", http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		writeJSONResponse(w, map[string]interface{}{
+			"@odata.id":  req.URL.Path,
+			"Id":         mediaID,
+			"Inserted":   r.virtualMediaInserted[mediaID],
+			"Image":      "",
+			"MediaTypes": []string{"CD", "USBStick"},
+		})
+	case http.MethodPost:
+		if len(parts) != 3 || parts[1] != "Actions" {
+			http.Error(w, "Not found", http.StatusNotFound)
+			return
+		}
+		switch parts[2] {
+		case "VirtualMedia.InsertMedia":
+			r.virtualMediaInserted[mediaID] = true
+		case "VirtualMedia.EjectMedia":
+			r.virtualMediaInserted[mediaID] = false
+		default:
+			http.Error(w, "Not found", http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		writeJSONResponse(w, map[string]interface{}{
+			"@odata.id": req.URL.Path,
+		})
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
 }
 
 // handleBluefieldSystemSettings handles GET/PATCH boot settings for BF4 OS install.
