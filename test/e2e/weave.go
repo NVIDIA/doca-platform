@@ -110,9 +110,11 @@ const (
 	// weaveMetricBurstCount is the ICMP echo count per ping-based metric-delta burst.
 	weaveMetricBurstCount = 30
 
-	// weaveTxAccountingSlack is the acceptable gap, in packets, between host_tx and (tx_sent+tx_dropped). The gap
-	// exists because broadcast/ARP/DHCP are counted in host_tx but not in tx_sent or tx_dropped.
-	weaveTxAccountingSlack = 2
+	// weaveDHCPTxSlack is the acceptable gap, in packets, between host_tx and (tx_sent+tx_dropped). The only
+	// legitimate host_tx traffic that carries no weave cookie (so lands in neither tx_sent nor tx_dropped) is the
+	// DHCP exchange. Allow a small margin to cover it plus a resend if a packet is lost. Anything above this
+	// means TX traffic is leaking through the DHCP port instead of being encapsulated or dropped.
+	weaveDHCPTxSlack = 5
 
 	// weaveCrossNodePacketDriftTolerance is the maximum allowed drift, in packets, between matching sender/receiver
 	// this is just a small margin for a rare in-flight/lost packet across the tunnel.
@@ -492,8 +494,9 @@ func assertMetricDeltas(g Gomega, before, after weaveMetrics, bridge string, exp
 	}
 }
 
-// assertTxPacketsAccountedFor asserts every host_tx packet is accounted for as tx_sent or tx_dropped,
-// leaving only a small remainder (DHCP/ARP) under slack — i.e. no TX packets silently vanish.
+// assertTxPacketsAccountedFor asserts every host_tx packet is accounted for as either encapsulated (tx_sent) or
+// dropped (tx_dropped), give or take the cookieless DHCP exchange allowed by weaveDHCPTxSlack. Ensure no TX packet
+// leaks out through the DHCP port instead of being sent or dropped.
 func assertTxPacketsAccountedFor(g Gomega, before, after weaveMetrics, bridge string) {
 	hostTx := metricDelta(g, before, after, bridge, weaveMetricHostTx)
 	txSent := metricDelta(g, before, after, bridge, weaveMetricTxSent)
@@ -501,8 +504,8 @@ func assertTxPacketsAccountedFor(g Gomega, before, after weaveMetrics, bridge st
 	accounted := txSent + txDropped
 	g.Expect(hostTx).To(BeNumerically(">=", accounted),
 		"tx accounting on %s: tx_sent(%d)+tx_dropped(%d)=%d exceeds host_tx delta %d", bridge, txSent, txDropped, accounted, hostTx)
-	g.Expect(hostTx).To(BeNumerically("<", accounted+weaveTxAccountingSlack),
-		"tx accounting on %s: host_tx delta %d exceeds tx_sent(%d)+tx_dropped(%d)=%d by >= slack %d", bridge, hostTx, txSent, txDropped, accounted, weaveTxAccountingSlack)
+	g.Expect(hostTx).To(BeNumerically("<=", accounted+weaveDHCPTxSlack),
+		"tx accounting on %s: host_tx delta %d exceeds tx_sent(%d)+tx_dropped(%d)=%d by > slack %d", bridge, hostTx, txSent, txDropped, accounted, weaveDHCPTxSlack)
 }
 
 // metricRef identifies one weave counter sampled before and after traffic: a counter name on a
