@@ -19,6 +19,7 @@ package state
 import (
 	"context"
 	"errors"
+	"net/url"
 	"os"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -40,6 +41,7 @@ func cleanupDownloadTasks(bfb *provisioningv1.BFB) {
 	taskName := cutil.GenerateBFBTaskName(*bfb)
 	butil.DownloadingTaskMap.Delete(taskName)
 	butil.DownloadingTaskMap.Delete(taskName + "cancel")
+	downloadRetryCounter.Delete(taskName)
 }
 
 var _ = Describe("BFB Downloading State Error Handling", func() {
@@ -330,6 +332,102 @@ var _ = Describe("BFB Downloading State Error Handling", func() {
 			downloadedCond := conditions.Get(bfb, provisioningv1.BFBCondDownloaded)
 			Expect(downloadedCond.Reason).To(Equal(string(conditions.ReasonFailure)),
 				"version parse errors use ReasonFailure - not eligible for retry")
+		})
+	})
+
+	Describe("download task retries", func() {
+		It("keeps the BFB downloading while retries remain", func() {
+			st := &bfbDownloadingState{
+				bfb:        bfb,
+				recorder:   recorder,
+				checkBFB:   checkBFB,
+				versionBFB: versionBFB,
+			}
+			taskName := cutil.GenerateBFBTaskName(*bfb)
+
+			err := st.handleDownloadError(errors.New("stream reset"), taskName)
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(bfb.Status.Phase).To(Equal(provisioningv1.BFBDownloading))
+			Expect(st.getRetryCount(taskName)).To(Equal(1))
+			downloadedCond := conditions.Get(bfb, provisioningv1.BFBCondDownloaded)
+			Expect(downloadedCond).NotTo(BeNil())
+			Expect(downloadedCond.Reason).To(Equal(string(conditions.ReasonRetrying)))
+			Expect(downloadedCond.Message).To(ContainSubstring("Retry attempt 1/3"))
+		})
+
+		It("transitions to terminal Error after an unclassified error exhausts the retry budget", func() {
+			st := &bfbDownloadingState{
+				bfb:        bfb,
+				recorder:   recorder,
+				checkBFB:   checkBFB,
+				versionBFB: versionBFB,
+			}
+			taskName := cutil.GenerateBFBTaskName(*bfb)
+			downloadErr := errors.New("stream reset")
+
+			for attempt := 1; attempt <= maxDownloadRetries; attempt++ {
+				Expect(st.handleDownloadError(downloadErr, taskName)).To(Succeed())
+				Expect(st.getRetryCount(taskName)).To(Equal(attempt))
+			}
+			err := st.handleDownloadError(downloadErr, taskName)
+
+			Expect(err).To(MatchError(downloadErr))
+			Expect(bfb.Status.Phase).To(Equal(provisioningv1.BFBError))
+			Expect(st.getRetryCount(taskName)).To(BeZero())
+			downloadedCond := conditions.Get(bfb, provisioningv1.BFBCondDownloaded)
+			Expect(downloadedCond).NotTo(BeNil())
+			Expect(downloadedCond.Reason).To(Equal(string(conditions.ReasonFailure)))
+			Expect(downloadedCond.Message).To(ContainSubstring("failed after 3 retries"))
+		})
+
+		It("transitions to recoverable Error after a network error exhausts the retry budget", func() {
+			st := &bfbDownloadingState{
+				bfb:        bfb,
+				recorder:   recorder,
+				checkBFB:   checkBFB,
+				versionBFB: versionBFB,
+			}
+			taskName := cutil.GenerateBFBTaskName(*bfb)
+			downloadErr := &url.Error{
+				Op:  "Get",
+				URL: bfb.Spec.URL,
+				Err: errors.New("connection refused"),
+			}
+
+			for range maxDownloadRetries {
+				Expect(st.handleDownloadError(downloadErr, taskName)).To(Succeed())
+			}
+			err := st.handleDownloadError(downloadErr, taskName)
+
+			Expect(err).To(MatchError(downloadErr))
+			Expect(bfb.Status.Phase).To(Equal(provisioningv1.BFBError))
+			downloadedCond := conditions.Get(bfb, provisioningv1.BFBCondDownloaded)
+			Expect(downloadedCond).NotTo(BeNil())
+			Expect(downloadedCond.Reason).To(Equal(string(conditions.ReasonError)))
+		})
+
+		It("does not retry a canceled download", func() {
+			st := &bfbDownloadingState{
+				bfb:        bfb,
+				recorder:   recorder,
+				checkBFB:   checkBFB,
+				versionBFB: versionBFB,
+			}
+			taskName := cutil.GenerateBFBTaskName(*bfb)
+			downloadRetryCounter.Store(taskName, 1)
+			DeferCleanup(func() {
+				downloadRetryCounter.Delete(taskName)
+			})
+
+			err := st.handleDownloadError(context.Canceled, taskName)
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(bfb.Status.Phase).To(Equal(provisioningv1.BFBDeleting))
+			Expect(st.getRetryCount(taskName)).To(BeZero())
+			downloadedCond := conditions.Get(bfb, provisioningv1.BFBCondDownloaded)
+			Expect(downloadedCond).NotTo(BeNil())
+			Expect(downloadedCond.Reason).To(Equal(string(conditions.ReasonAwaitingDeletion)))
 		})
 	})
 })
