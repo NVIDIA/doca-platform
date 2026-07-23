@@ -95,7 +95,7 @@ func (r *DPUClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	allTrue, isCreated := true, false
 	for _, cond := range dc.Status.Conditions {
-		if cond.Type == string(provisioningv1.ConditionReady) {
+		if isDPUClusterReadinessAggregationIgnoredCondition(provisioningv1.ConditionType(cond.Type)) {
 			continue
 		}
 		allTrue = allTrue && (cond.Status == metav1.ConditionTrue)
@@ -145,6 +145,20 @@ func (r *DPUClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, kerrors.NewAggregate(errList)
 	}
 	return ctrl.Result{}, kerrors.NewAggregate(errList)
+}
+
+func isDPUClusterReadinessAggregationIgnoredCondition(conditionType provisioningv1.ConditionType) bool {
+	switch conditionType {
+	case provisioningv1.ConditionReady:
+		return true
+	case provisioningv1.ConditionEtcdEncryptionRotationInProgress,
+		provisioningv1.ConditionEtcdEncryptionRotationBlocked:
+		// Rotation conditions describe encryption-at-rest progress. Their healthy
+		// steady state is False, so they must not gate DPUCluster readiness.
+		return true
+	default:
+		return false
+	}
 }
 
 // SetupWithManager sets up the controller with the Manager.

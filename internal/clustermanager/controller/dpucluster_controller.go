@@ -26,6 +26,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -39,10 +40,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
 var (
-	watches []*watchItem
+	watches    []*watchItem
+	rawWatches []*rawWatchItem
 )
 
 type watchItem struct {
@@ -51,10 +54,21 @@ type watchItem struct {
 	opts    []builder.WatchesOption
 }
 
+type rawWatchItem struct {
+	source source.TypedSource[reconcile.Request]
+}
+
 func RegisterWatch(object client.Object, eventHandler handler.EventHandler, opts ...builder.WatchesOption) {
 	log.FromContext(context.Background()).V(1).Info("RegisterWatch start")
-	watches = append(watches, &watchItem{object, eventHandler, opts})
+	watches = append(watches, &watchItem{object: object, handler: eventHandler, opts: opts})
 	log.FromContext(context.Background()).V(1).Info("RegisterWatch end", "watch", watches)
+}
+
+// RegisterRawWatch registers a typed source watch.
+func RegisterRawWatch(src source.TypedSource[reconcile.Request]) {
+	log.FromContext(context.Background()).V(1).Info("RegisterRawWatch start")
+	rawWatches = append(rawWatches, &rawWatchItem{source: src})
+	log.FromContext(context.Background()).V(1).Info("RegisterRawWatch end", "watch", rawWatches)
 }
 
 type ClusterHandler interface {
@@ -144,6 +158,7 @@ func (r *DPUClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	switch dc.Status.Phase {
 	case provisioningv1.PhaseCreating, provisioningv1.PhaseReady, provisioningv1.PhaseNotReady:
 		var errList []error
+		originalStatus := dc.Status.DeepCopy()
 		kubeconfig, conds, recErr := r.ClusterHandler.ReconcileCluster(ctx, dc)
 		if recErr != nil {
 			// For a better debugability, we will update the conditions even if the ReconcileCluster() returns an error
@@ -153,11 +168,13 @@ func (r *DPUClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		// update kubeconfig first, because the Created condition indicates that the cluster has been created
 		if kubeconfig != "" && dc.Spec.Kubeconfig == "" {
 			logger.V(3).Info(fmt.Sprintf("set kubeconfig as %s", kubeconfig))
+			desiredStatus := dc.Status.DeepCopy()
 			dc.Spec.Kubeconfig = kubeconfig
 			if err := r.Client.Update(ctx, dc); err != nil {
 				errList = append(errList, fmt.Errorf("failed to set kubeconfig, err: %v", err))
 				return ctrl.Result{}, kerrors.NewAggregate(errList)
 			}
+			dc.Status = *desiredStatus
 		}
 
 		changed := false
@@ -166,10 +183,11 @@ func (r *DPUClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				changed = true
 			}
 		}
-		if changed {
-			logger.V(3).Info("update status condition(s)")
+		statusChanged := changed || !apiequality.Semantic.DeepEqual(*originalStatus, dc.Status)
+		if statusChanged {
+			logger.V(3).Info("update status")
 			if err := r.Client.Status().Update(ctx, dc); err != nil {
-				errList = append(errList, fmt.Errorf("failed to update status conditions, err: %v", err))
+				errList = append(errList, fmt.Errorf("failed to update status, err: %v", err))
 				return ctrl.Result{}, kerrors.NewAggregate(errList)
 			}
 		}
@@ -194,6 +212,9 @@ func (r *DPUClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(r.DPFOperatorConfigToDPUClusters))
 	for _, w := range watches {
 		b.Watches(w.object, w.handler, w.opts...)
+	}
+	for _, w := range rawWatches {
+		b.WatchesRawSource(w.source)
 	}
 	return b.Complete(r)
 }
