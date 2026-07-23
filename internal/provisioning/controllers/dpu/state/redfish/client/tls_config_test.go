@@ -23,6 +23,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/pem"
 	"math/big"
 	"net"
 	"time"
@@ -143,6 +144,7 @@ var _ = Describe("Redfish TLS config", func() {
 			err := verifyBMCServerCert(pool, "10.1.2.3")([][]byte{der}, nil)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("identity mismatch"))
+			Expect(IsBMCServerCertUntrusted(err)).To(BeTrue())
 		})
 
 		It("rejects a cert that does not chain to the DPF CA", func() {
@@ -151,11 +153,13 @@ var _ = Describe("Redfish TLS config", func() {
 			err := verifyBMCServerCert(pool, "10.1.2.3")([][]byte{der}, nil)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("chain verification"))
+			Expect(IsBMCServerCertUntrusted(err)).To(BeTrue())
 		})
 
 		It("rejects when no certificate is presented", func() {
 			err := verifyBMCServerCert(pool, "10.1.2.3")(nil, nil)
 			Expect(err).To(HaveOccurred())
+			Expect(IsBMCServerCertUntrusted(err)).To(BeFalse())
 		})
 
 		It("fails closed when the expected host is empty", func() {
@@ -163,6 +167,48 @@ var _ = Describe("Redfish TLS config", func() {
 			err := verifyBMCServerCert(pool, "")([][]byte{der}, nil)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("no expected host provided"))
+			Expect(IsBMCServerCertUntrusted(err)).To(BeFalse())
+		})
+	})
+
+	Describe("verifyClientKeyPairChainsToCA", func() {
+		It("accepts a client leaf that chains to the DPF CA", func() {
+			caCert, caKey := newTestCA()
+			leafDER, leafKey := signClientLeaf(caCert, caKey, "root")
+			keyPair := tls.Certificate{Certificate: [][]byte{leafDER}, PrivateKey: leafKey}
+			err := verifyClientKeyPairChainsToCA(keyPair, pemEncodeCert(caCert.Raw))
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("rejects a client leaf signed by a different CA", func() {
+			caCert, _ := newTestCA()
+			otherCA, otherKey := newTestCA()
+			leafDER, leafKey := signClientLeaf(otherCA, otherKey, "root")
+			keyPair := tls.Certificate{Certificate: [][]byte{leafDER}, PrivateKey: leafKey}
+			err := verifyClientKeyPairChainsToCA(keyPair, pemEncodeCert(caCert.Raw))
+			Expect(err).To(HaveOccurred())
+			Expect(IsRedfishClientCertStale(err)).To(BeTrue())
 		})
 	})
 })
+
+// signClientLeaf signs a client-auth leaf certificate with the given CA.
+func signClientLeaf(caCert *x509.Certificate, caKey *ecdsa.PrivateKey, commonName string) ([]byte, *ecdsa.PrivateKey) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	Expect(err).NotTo(HaveOccurred())
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(3),
+		Subject:      pkix.Name{CommonName: commonName},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, caCert, &key.PublicKey, caKey)
+	Expect(err).NotTo(HaveOccurred())
+	return der, key
+}
+
+func pemEncodeCert(der []byte) []byte {
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+}
