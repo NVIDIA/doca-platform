@@ -124,7 +124,36 @@ func NewTunneledRestConfig(ctx context.Context, hostClient client.Client, hostRE
 	// Update the host to use local port
 	restConfig.Host = fmt.Sprintf("https://localhost:%d", tun.LocalPort())
 
+	// waitForReady only confirms the local listener bound. Probe the apiserver
+	// end-to-end so a tunnel to a pod that is not actually serving is rejected
+	// here (and retried) instead of being handed back as healthy.
+	if err := verifyAPIServerReachable(restConfig); err != nil {
+		tun.Close()
+		return nil, nil, fmt.Errorf("verify DPU cluster apiserver reachable: %w", err)
+	}
+
 	return restConfig, tun, nil
+}
+
+// verifyAPIServerReachable confirms the tunnel actually reaches a live DPU
+// cluster apiserver by calling ServerVersion (a GET /version) through it. This
+// mirrors the reachability check used elsewhere for DPU clusters (see
+// pkg/dpucluster and the dpucluster controller) and exercises the full path
+// (local listener -> SPDY stream -> apiserver), so a tunnel to a dead or
+// terminating pod fails here instead of later during real use. /version is
+// served regardless of cluster readiness, so debugging callers such as dpfctl
+// sosreport still work against a degraded-but-reachable apiserver.
+func verifyAPIServerReachable(restConfig *rest.Config) error {
+	cfg := rest.CopyConfig(restConfig)
+	cfg.Timeout = 10 * time.Second
+	clientset, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		return fmt.Errorf("create clientset: %w", err)
+	}
+	if _, err := clientset.Discovery().ServerVersion(); err != nil {
+		return fmt.Errorf("apiserver not reachable: %w", err)
+	}
+	return nil
 }
 
 // setupPortForward sets up port forwarding to the Kamaji cluster service
@@ -177,7 +206,10 @@ func getKamajiServicePort(ctx context.Context, hostClient client.Client, dpuClus
 	return 0, fmt.Errorf("kube-apiserver port not found in service %s/%s", dpuCluster.Namespace, dpuCluster.Name)
 }
 
-// getKamajiControlPlanePod finds the Kamaji control plane pod
+// getKamajiControlPlanePod finds a Running and Ready Kamaji control plane pod.
+// A non-ready pod is skipped: during a control-plane roll the first listed pod
+// can be starting or terminating, and forwarding to it would immediately fail.
+// Returning an error when none are ready lets the caller retry with backoff.
 func getKamajiControlPlanePod(ctx context.Context, hostClient client.Client, dpuCluster *provisioningv1.DPUCluster) (*corev1.Pod, error) {
 	podList := &corev1.PodList{}
 	err := hostClient.List(ctx, podList,
@@ -191,7 +223,27 @@ func getKamajiControlPlanePod(ctx context.Context, hostClient client.Client, dpu
 		return nil, fmt.Errorf("no Kamaji control plane pods found for DPUCluster %s/%s", dpuCluster.Namespace, dpuCluster.Name)
 	}
 
-	return &podList.Items[0], nil
+	for i := range podList.Items {
+		if isPodRunningAndReady(&podList.Items[i]) {
+			return &podList.Items[i], nil
+		}
+	}
+	return nil, fmt.Errorf("no Running and Ready Kamaji control plane pod found for DPUCluster %s/%s (found %d pod(s))",
+		dpuCluster.Namespace, dpuCluster.Name, len(podList.Items))
+}
+
+// isPodRunningAndReady reports whether the pod is Running, has a True Ready
+// condition, and is not being deleted.
+func isPodRunningAndReady(pod *corev1.Pod) bool {
+	if pod.DeletionTimestamp != nil || pod.Status.Phase != corev1.PodRunning {
+		return false
+	}
+	for _, cond := range pod.Status.Conditions {
+		if cond.Type == corev1.PodReady {
+			return cond.Status == corev1.ConditionTrue
+		}
+	}
+	return false
 }
 
 // createPortForwarder creates and starts the port forwarder
