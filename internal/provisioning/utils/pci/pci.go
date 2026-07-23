@@ -39,7 +39,8 @@ const (
 	// Supported BlueField N/S NIC PCI device IDs as advertised in https://admin.pci-ids.ucw.cz/read/PC/15b3
 	bluefield2DeviceID = "0xa2d6"
 	bluefield3DeviceID = "0xa2dc"
-	bluefield4DeviceID = "0xa2df"
+	// BlueField4DeviceID is the BlueField-4 N/S NIC (ECPF) PCI device ID.
+	BlueField4DeviceID = "0xa2df"
 
 	// Supported ConnectX E/W NIC PCI device IDs as advertised in https://admin.pci-ids.ucw.cz/read/PC/15b3
 	connectX9DeviceID = "0x1025"
@@ -51,7 +52,7 @@ var (
 )
 
 var (
-	nsNICDeviceIDs = sets.New(bluefield2DeviceID, bluefield3DeviceID, bluefield4DeviceID)
+	nsNICDeviceIDs = sets.New(bluefield2DeviceID, bluefield3DeviceID, BlueField4DeviceID)
 	ewNICDeviceIDs = sets.New(connectX9DeviceID)
 )
 

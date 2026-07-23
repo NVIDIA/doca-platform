@@ -102,6 +102,42 @@ type DPUFlavorSpec struct {
 	// +listType=atomic
 	// +optional
 	EWNicConfigurations []NicConfiguration `json:"ewNicConfigurations,omitempty"`
+
+	// ScalableFunctions configures Scalable Functions (SFs) created on the DPU.
+	// +optional
+	ScalableFunctions *ScalableFunctions `json:"scalableFunctions,omitempty"`
+}
+
+// ScalableFunctions groups the agent-managed Scalable Function configuration.
+type ScalableFunctions struct {
+	// DMA configures the DMA SF that e.g. SNAP DOCA service uses to DMA host
+	// memory over the second Grace PCI link on BlueField-4 socket-direct
+	// systems.
+	// +optional
+	DMA *DMAScalableFunction `json:"dma,omitempty"`
+}
+
+// DMAScalableFunction configures the DMA SF that the dpu-agent creates on
+// BlueField-4 socket-direct systems when Enabled is true.
+type DMAScalableFunction struct {
+	// Enabled controls whether the dpu-agent creates the DMA SF. The presence of
+	// the dma struct alone does not enable creation; enabled must be set
+	// explicitly. Only takes effect on BlueField-4 socket-direct systems.
+	// +required
+	Enabled *bool `json:"enabled"`
+
+	// SFNum is the number of the DMA Scalable Function. Defaults to 8000 when
+	// unset. Only takes effect on BlueField-4 socket-direct systems.
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	SFNum *int32 `json:"sfNum,omitempty"`
+
+	// MACAddress pins the DMA SF's MAC address (canonical colon-separated
+	// 48-bit form, e.g. "02:40:51:7c:e3:0f"). Defaults to a deterministic,
+	// vendor-compatible derivation when unset.
+	// +kubebuilder:validation:Pattern=`^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$`
+	// +optional
+	MACAddress *string `json:"macAddress,omitempty"`
 }
 
 // FirstEWNicConfiguration returns the E/W NIC configuration used by provisioning in this release.

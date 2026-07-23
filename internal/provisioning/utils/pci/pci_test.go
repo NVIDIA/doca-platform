@@ -135,7 +135,7 @@ var _ = Describe("NSPortFilter", func() {
 	It("should return true for known N/S NIC device IDs (BF2, BF3, BF4)", func() {
 		Expect(NSPortFilter(&NICPort{DeviceID: bluefield2DeviceID})).To(BeTrue())
 		Expect(NSPortFilter(&NICPort{DeviceID: bluefield3DeviceID})).To(BeTrue())
-		Expect(NSPortFilter(&NICPort{DeviceID: bluefield4DeviceID})).To(BeTrue())
+		Expect(NSPortFilter(&NICPort{DeviceID: BlueField4DeviceID})).To(BeTrue())
 	})
 
 	It("should return false for unknown device IDs", func() {
@@ -150,7 +150,7 @@ var _ = Describe("EWPortFilter", func() {
 	})
 
 	It("should return false for N/S and unknown device IDs", func() {
-		Expect(EWPortFilter(&NICPort{DeviceID: bluefield4DeviceID})).To(BeFalse())
+		Expect(EWPortFilter(&NICPort{DeviceID: BlueField4DeviceID})).To(BeFalse())
 		Expect(EWPortFilter(&NICPort{DeviceID: "0xffff"})).To(BeFalse())
 		Expect(EWPortFilter(&NICPort{})).To(BeFalse())
 	})
@@ -160,17 +160,17 @@ var _ = Describe("FilterForScope", func() {
 	It("should return the matching filter for each scope", func() {
 		nsFilter, err := FilterForScope(PortScopeNS)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(nsFilter(&NICPort{DeviceID: bluefield4DeviceID})).To(BeTrue())
+		Expect(nsFilter(&NICPort{DeviceID: BlueField4DeviceID})).To(BeTrue())
 		Expect(nsFilter(&NICPort{DeviceID: connectX9DeviceID})).To(BeFalse())
 
 		ewFilter, err := FilterForScope(PortScopeEW)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(ewFilter(&NICPort{DeviceID: connectX9DeviceID})).To(BeTrue())
-		Expect(ewFilter(&NICPort{DeviceID: bluefield4DeviceID})).To(BeFalse())
+		Expect(ewFilter(&NICPort{DeviceID: BlueField4DeviceID})).To(BeFalse())
 
 		allFilter, err := FilterForScope(PortScopeAll)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(allFilter(&NICPort{DeviceID: bluefield4DeviceID})).To(BeTrue())
+		Expect(allFilter(&NICPort{DeviceID: BlueField4DeviceID})).To(BeTrue())
 		Expect(allFilter(&NICPort{DeviceID: connectX9DeviceID})).To(BeTrue())
 		Expect(allFilter(&NICPort{DeviceID: "0xffff"})).To(BeFalse())
 	})
@@ -228,8 +228,8 @@ var _ = Describe("DiscoverPhysicalPort", func() {
 		pciDevicesRoot := filepath.Join(root, "sys", "bus", "pci", "devices")
 		writePCIDeviceID(pciDevicesRoot, "0000:03:00.0", bluefield3DeviceID)
 		writePCIDeviceID(pciDevicesRoot, "0000:03:00.1", bluefield3DeviceID)
-		writePCIDeviceID(pciDevicesRoot, "0002:01:00.0", bluefield4DeviceID)
-		writePCIDeviceID(pciDevicesRoot, "0006:01:00.0", bluefield4DeviceID)
+		writePCIDeviceID(pciDevicesRoot, "0002:01:00.0", BlueField4DeviceID)
+		writePCIDeviceID(pciDevicesRoot, "0006:01:00.0", BlueField4DeviceID)
 		overridePathVars(netRoot)
 
 		d := &PortDiscoverer{
@@ -293,7 +293,7 @@ var _ = Describe("DiscoverPhysicalPort", func() {
 			portMap[p.Netdev] = p
 		}
 		Expect(portMap["p0"].DeviceID).To(Equal(bluefield3DeviceID))
-		Expect(portMap["p1"].DeviceID).To(Equal(bluefield4DeviceID))
+		Expect(portMap["p1"].DeviceID).To(Equal(BlueField4DeviceID))
 		Expect(portMap).NotTo(HaveKey("eth0"))
 	})
 
@@ -306,7 +306,7 @@ var _ = Describe("DiscoverPhysicalPort", func() {
 		writeUevent(netRoot, "eth1", "000b:01:00.0")
 
 		pciDevicesRoot := filepath.Join(root, "sys", "bus", "pci", "devices")
-		writePCIDeviceID(pciDevicesRoot, "0000:03:00.0", bluefield4DeviceID)
+		writePCIDeviceID(pciDevicesRoot, "0000:03:00.0", BlueField4DeviceID)
 		writePCIDeviceID(pciDevicesRoot, "000a:01:00.0", connectX9DeviceID)
 		writePCIDeviceID(pciDevicesRoot, "000b:01:00.0", "0xffff")
 		overridePathVars(netRoot)
