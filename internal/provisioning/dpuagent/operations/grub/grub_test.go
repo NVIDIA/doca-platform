@@ -378,7 +378,7 @@ var _ = Describe("CheckKernelCmdLine Operation", func() {
 	})
 
 	Context("ShouldSkip", func() {
-		It("should not be skipped even if grub configuration is skipped", func() {
+		It("should be skipped if SkipKernelCmdLine is true", func() {
 			operation := &CheckKernelCmdLine{}
 			Expect(operation.ShouldSkip(&operations.Context{
 				Options: opts.Options{
@@ -391,7 +391,7 @@ var _ = Describe("CheckKernelCmdLine Operation", func() {
 						},
 					},
 				},
-			})).To(BeFalse())
+			})).To(BeTrue())
 		})
 
 		It("should be skipped if no kernel parameters are specified", func() {
