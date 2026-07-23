@@ -82,8 +82,8 @@ func ValidateDPUServiceChainMetrics(ctx context.Context, input *systemTestInput)
 
 	By("Verify DPUServiceChain and DPUServiceInterface metrics in KSM")
 	expectedMetricsNames := map[string][]string{
-		"dpuservicechain":     {"created", "info", "status_conditions", "status_condition_last_transition_time"},
-		"dpuserviceinterface": {"created", "info", "status_conditions", "status_condition_last_transition_time"},
+		"dpf_dpuservicechain":     {"created", "info", "status_conditions", "status_condition_last_transition_time"},
+		"dpf_dpuserviceinterface": {"created", "info", "status_conditions", "status_condition_last_transition_time"},
 	}
 
 	Eventually(func(g Gomega) {
@@ -103,8 +103,8 @@ func ValidateDPUServiceChainMetrics(ctx context.Context, input *systemTestInput)
 	// TODO: add validation for ServiceChain and ServiceInterface metrics when DPU nodes are present
 	By("Verify ServiceChainSet, ServiceInterfaceSet metrics in DPU cluster KSM")
 	expectedDPUMetricsNames := map[string][]string{
-		"servicechainset":     {"created", "info", "status_conditions", "status_condition_last_transition_time", "status_number_applied", "status_number_ready"},
-		"serviceinterfaceset": {"created", "info", "status_conditions", "status_condition_last_transition_time", "status_number_applied", "status_number_ready"},
+		"dpf_servicechainset":     {"created", "info", "status_conditions", "status_condition_last_transition_time", "status_number_applied", "status_number_ready"},
+		"dpf_serviceinterfaceset": {"created", "info", "status_conditions", "status_condition_last_transition_time", "status_number_applied", "status_number_ready"},
 	}
 
 	Eventually(func(g Gomega) {

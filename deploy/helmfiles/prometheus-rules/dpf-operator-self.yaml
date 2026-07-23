@@ -61,9 +61,9 @@ spec:
             description: "Prometheus cannot scrape kube-state-metrics for 5 minutes. Every DPF component-health and lifecycle alert reads kube-state-metrics custom-resource series, so all of them silently stop firing while this is down."
         - alert: DPFControllerReconcileErrors
           expr: |
-            sum by(controller) (rate(controller_runtime_reconcile_errors_total{job="doca-platform-framework"}[5m]))
+            sum by(controller) (rate(dpf_controller_runtime_reconcile_errors_total{job="doca-platform-framework"}[5m]))
               /
-            sum by(controller) (rate(controller_runtime_reconcile_total{job="doca-platform-framework"}[5m]))
+            sum by(controller) (rate(dpf_controller_runtime_reconcile_total{job="doca-platform-framework"}[5m]))
               > 0.1
           for: 15m
           labels:
@@ -73,7 +73,7 @@ spec:
             summary: "DPF controller {{ $labels.controller }} reconcile error ratio above 10%"
             description: "More than 10% ({{ $value | humanizePercentage }}) of the reconciles of DPF controller {{ $labels.controller }} (management cluster, job doca-platform-framework) have failed for 15 minutes. Occasional conflict retries are normal; a sustained ratio this high is not. Check the controller logs."
         - alert: DPFControllerReconcileLatencyHigh
-          expr: histogram_quantile(0.99, sum by(le, controller) (rate(controller_runtime_reconcile_time_seconds_bucket{job="doca-platform-framework"}[5m]))) > 30
+          expr: histogram_quantile(0.99, sum by(le, controller) (rate(dpf_controller_runtime_reconcile_time_seconds_bucket{job="doca-platform-framework"}[5m]))) > 30
           for: 10m
           labels:
             severity: warning

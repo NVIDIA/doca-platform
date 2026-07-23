@@ -117,7 +117,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "max(dpu_status_conditions{name=\"$dpu\",namespace=\"$namespace\",type=\"Ready\",status=\"True\"}) OR vector(0)",
+          "expr": "max(dpf_dpu_status_conditions{name=\"$dpu\",namespace=\"$namespace\",type=\"Ready\",status=\"True\"}) OR vector(0)",
           "instant": true,
           "legendFormat": "Provisioning",
           "range": false,
@@ -210,7 +210,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "max(dpu_operational_conditions{name=\"$dpu\",namespace=\"$namespace\",type=\"OperationalReady\",status=\"True\"}) OR vector(0)",
+          "expr": "max(dpf_dpu_operational_conditions{name=\"$dpu\",namespace=\"$namespace\",type=\"OperationalReady\",status=\"True\"}) OR vector(0)",
           "instant": true,
           "legendFormat": "Operational",
           "range": false,
@@ -322,7 +322,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "dpu_status_phase{name=\"$dpu\",namespace=\"$namespace\"} == 1",
+          "expr": "dpf_dpu_status_phase{name=\"$dpu\",namespace=\"$namespace\"} == 1",
           "instant": true,
           "legendFormat": "{{phase}}",
           "range": false,
@@ -388,7 +388,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "dpu_info{name=\"$dpu\",namespace=\"$namespace\"}",
+          "expr": "dpf_dpu_info{name=\"$dpu\",namespace=\"$namespace\"}",
           "format": "table",
           "instant": true,
           "range": false,
@@ -590,7 +590,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "(\n  (\n    kube_pod_info{node=\"$dpu\", exported_pod!=\"\"}\n      * on(exported_pod, exported_namespace) group_left(label_svc_dpu_nvidia_com_service)\n        kube_pod_labels{exported_pod!=\"\"}\n  )\n    * on(exported_pod, exported_namespace) group_left()\n      kube_pod_status_ready{condition=\"true\", exported_pod!=\"\"}\n    * on(label_svc_dpu_nvidia_com_service) group_left(dpuservice)\n      label_replace(\n        label_replace(dpuservice_info, \"dpuservice\", \"$1\", \"name\", \"(.*)\"),\n        \"label_svc_dpu_nvidia_com_service\", \"$1\", \"service_id\", \"(.*)\"\n      )\n)\nor on(exported_pod, exported_namespace)\n(\n  (\n    kube_pod_info{node=\"$dpu\", exported_pod!=\"\"}\n      * on(exported_pod, exported_namespace) group_left(label_svc_dpu_nvidia_com_service)\n        kube_pod_labels{exported_pod!=\"\"}\n  )\n    * on(exported_pod, exported_namespace) group_left()\n      kube_pod_status_ready{condition=\"true\", exported_pod!=\"\"}\n)",
+          "expr": "(\n  (\n    kube_pod_info{node=\"$dpu\", exported_pod!=\"\"}\n      * on(exported_pod, exported_namespace) group_left(label_svc_dpu_nvidia_com_service)\n        kube_pod_labels{exported_pod!=\"\"}\n  )\n    * on(exported_pod, exported_namespace) group_left()\n      kube_pod_status_ready{condition=\"true\", exported_pod!=\"\"}\n    * on(label_svc_dpu_nvidia_com_service) group_left(dpuservice)\n      label_replace(\n        label_replace(dpf_dpuservice_info, \"dpuservice\", \"$1\", \"name\", \"(.*)\"),\n        \"label_svc_dpu_nvidia_com_service\", \"$1\", \"service_id\", \"(.*)\"\n      )\n)\nor on(exported_pod, exported_namespace)\n(\n  (\n    kube_pod_info{node=\"$dpu\", exported_pod!=\"\"}\n      * on(exported_pod, exported_namespace) group_left(label_svc_dpu_nvidia_com_service)\n        kube_pod_labels{exported_pod!=\"\"}\n  )\n    * on(exported_pod, exported_namespace) group_left()\n      kube_pod_status_ready{condition=\"true\", exported_pod!=\"\"}\n)",
           "format": "table",
           "instant": true,
           "legendFormat": "__auto",
@@ -750,7 +750,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sort(dpu_status_conditions{name=\"$dpu\",namespace=\"$namespace\",status=\"True\"})",
+          "expr": "sort(dpf_dpu_status_conditions{name=\"$dpu\",namespace=\"$namespace\",status=\"True\"})",
           "instant": true,
           "legendFormat": "{{type}}",
           "range": false,
@@ -853,7 +853,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sort(dpu_operational_conditions{name=\"$dpu\",namespace=\"$namespace\",status=\"True\"})",
+          "expr": "sort(dpf_dpu_operational_conditions{name=\"$dpu\",namespace=\"$namespace\",status=\"True\"})",
           "instant": true,
           "legendFormat": "{{type}}",
           "range": false,
@@ -1085,7 +1085,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "max by (type) (dpu_status_conditions{name=\"$dpu\",namespace=\"$namespace\",status=\"True\"}) * 2 + max by (type) (dpu_status_conditions{name=\"$dpu\",namespace=\"$namespace\",status=\"Unknown\"})",
+          "expr": "max by (type) (dpf_dpu_status_conditions{name=\"$dpu\",namespace=\"$namespace\",status=\"True\"}) * 2 + max by (type) (dpf_dpu_status_conditions{name=\"$dpu\",namespace=\"$namespace\",status=\"Unknown\"})",
           "legendFormat": "{{type}}",
           "range": true,
           "refId": "A"
@@ -1186,7 +1186,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "max by (type) (dpu_operational_conditions{name=\"$dpu\",namespace=\"$namespace\",status=\"True\"}) * 2 + max by (type) (dpu_operational_conditions{name=\"$dpu\",namespace=\"$namespace\",status=\"Unknown\"})",
+          "expr": "max by (type) (dpf_dpu_operational_conditions{name=\"$dpu\",namespace=\"$namespace\",status=\"True\"}) * 2 + max by (type) (dpf_dpu_operational_conditions{name=\"$dpu\",namespace=\"$namespace\",status=\"Unknown\"})",
           "legendFormat": "{{type}}",
           "range": true,
           "refId": "A"
@@ -1412,7 +1412,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sort(dpu_agent_conditions{name=\"$dpu\",namespace=\"$namespace\",status=\"True\"})",
+              "expr": "sort(dpf_dpu_agent_conditions{name=\"$dpu\",namespace=\"$namespace\",status=\"True\"})",
               "instant": true,
               "legendFormat": "{{type}}",
               "range": false,
@@ -1514,7 +1514,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "max by (type) (dpu_agent_conditions{name=\"$dpu\",namespace=\"$namespace\",status=\"True\"}) * 2 + max by (type) (dpu_agent_conditions{name=\"$dpu\",namespace=\"$namespace\",status=\"Unknown\"})",
+              "expr": "max by (type) (dpf_dpu_agent_conditions{name=\"$dpu\",namespace=\"$namespace\",status=\"True\"}) * 2 + max by (type) (dpf_dpu_agent_conditions{name=\"$dpu\",namespace=\"$namespace\",status=\"Unknown\"})",
               "legendFormat": "{{type}}",
               "range": true,
               "refId": "A"
@@ -1543,13 +1543,13 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(dpu_status_conditions, namespace)",
+        "definition": "label_values(dpf_dpu_status_conditions, namespace)",
         "includeAll": false,
         "name": "namespace",
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(dpu_status_conditions, namespace)"
+          "query": "label_values(dpf_dpu_status_conditions, namespace)"
         },
         "refresh": 2,
         "type": "query"
@@ -1563,13 +1563,13 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(dpu_status_conditions{namespace=\"$namespace\"}, name)",
+        "definition": "label_values(dpf_dpu_status_conditions{namespace=\"$namespace\"}, name)",
         "includeAll": false,
         "name": "dpu",
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(dpu_status_conditions{namespace=\"$namespace\"}, name)"
+          "query": "label_values(dpf_dpu_status_conditions{namespace=\"$namespace\"}, name)"
         },
         "refresh": 2,
         "type": "query"

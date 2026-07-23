@@ -21,5 +21,5 @@ spec:
       metricRelabelings:
         - sourceLabels: [__name__]
           action: keep
-          regex: (servicechain|servicechainset|serviceinterface|serviceinterfaceset|cidrpool|ippool|network_attachment_definition)_.+|kube_pod_info|kube_pod_labels|kube_pod_status_phase|kube_pod_status_ready|kube_pod_container_info|kube_pod_container_status_restarts_total|kube_pod_container_status_waiting_reason|kube_({{ include "kube-state-metrics.collectorMetricRegex" . }})(_.+)?
+          regex: dpf_(servicechain|servicechainset|serviceinterface|serviceinterfaceset|cidrpool|ippool|network_attachment_definition)_.+|kube_pod_info|kube_pod_labels|kube_pod_status_phase|kube_pod_status_ready|kube_pod_container_info|kube_pod_container_status_restarts_total|kube_pod_container_status_waiting_reason|kube_({{ include "kube-state-metrics.collectorMetricRegex" . }})(_.+)?
 {{- end }}

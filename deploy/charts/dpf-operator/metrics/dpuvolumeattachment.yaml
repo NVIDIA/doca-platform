@@ -12,7 +12,7 @@
     uid:
       - metadata
       - uid
-  metricNamePrefix: dpuvolumeattachment
+  metricNamePrefix: dpf_dpuvolumeattachment
   metrics:
     - name: created
       help: Unix creation timestamp.

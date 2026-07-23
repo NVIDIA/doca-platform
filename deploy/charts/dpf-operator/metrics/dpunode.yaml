@@ -12,7 +12,7 @@
     uid:
       - metadata
       - uid
-  metricNamePrefix: dpunode
+  metricNamePrefix: dpf_dpunode
   metrics:
     - name: created
       help: Unix creation timestamp.

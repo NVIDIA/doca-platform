@@ -12,7 +12,7 @@
     uid:
       - metadata
       - uid
-  metricNamePrefix: dpudevice
+  metricNamePrefix: dpf_dpudevice
   metrics:
     - name: created
       help: Unix creation timestamp.

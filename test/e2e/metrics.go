@@ -61,12 +61,12 @@ func VerifyDPUKSMMetricsCollection(ctx context.Context, input *systemTestInput) 
 func ValidateGeneralDPFMetrics(ctx context.Context, input *systemTestInput) {
 	By("Verify metrics are being collected")
 	expectedMetricsNames := map[string][]string{
-		"dpfoperatorconfig": {"created", "info", "status_conditions", "status_condition_last_transition_time", "version"}, // "paused" missed
-		"dpucluster":        {"created", "info", "status_phase", "status_conditions", "status_condition_last_transition_time", "status_nodes_count"},
+		"dpf_dpfoperatorconfig": {"created", "info", "status_conditions", "status_condition_last_transition_time", "version"}, // "paused" missed
+		"dpf_dpucluster":        {"created", "info", "status_phase", "status_conditions", "status_condition_last_transition_time", "status_nodes_count"},
 	}
 
 	if input.bfb != nil {
-		expectedMetricsNames["bfb"] = []string{"created", "info", "status_phase", "version_bsp", "version_doca", "version_uefi", "version_atf", "file_name"}
+		expectedMetricsNames["dpf_bfb"] = []string{"created", "info", "status_phase", "version_bsp", "version_doca", "version_uefi", "version_atf", "file_name"}
 	}
 
 	if input.hasDpuNodes() {
@@ -79,10 +79,10 @@ func ValidateGeneralDPFMetrics(ctx context.Context, input *systemTestInput) {
 			g.Expect(dpus.Items).To(HaveLen(input.totalDPUs()))
 		}).WithTimeout(60 * time.Second).Should(Succeed())
 
-		expectedMetricsNames["dpu"] = []string{"created", "info", "required_reset", "status_phase", "status_conditions", "status_condition_last_transition_time", "operational_conditions", "operational_condition_last_transition_time", "agent_conditions", "agent_condition_last_transition_time", "outdated_timestamp", "outdated_reason"}
-		expectedMetricsNames["dpuset"] = []string{"created", "info", "status_dpu_statistics", "status_conditions", "status_condition_last_transition_time"}
-		expectedMetricsNames["dpunode"] = []string{"created", "info", "reboot_in_progress", "status_conditions", "status_condition_last_transition_time"}
-		expectedMetricsNames["dpudevice"] = []string{"created", "info", "status_conditions", "status_condition_last_transition_time"}
+		expectedMetricsNames["dpf_dpu"] = []string{"created", "info", "required_reset", "status_phase", "status_conditions", "status_condition_last_transition_time", "operational_conditions", "operational_condition_last_transition_time", "agent_conditions", "agent_condition_last_transition_time", "outdated_timestamp", "outdated_reason"}
+		expectedMetricsNames["dpf_dpuset"] = []string{"created", "info", "status_dpu_statistics", "status_conditions", "status_condition_last_transition_time"}
+		expectedMetricsNames["dpf_dpunode"] = []string{"created", "info", "reboot_in_progress", "status_conditions", "status_condition_last_transition_time"}
+		expectedMetricsNames["dpf_dpudevice"] = []string{"created", "info", "status_conditions", "status_condition_last_transition_time"}
 	}
 
 	Eventually(func(g Gomega) {

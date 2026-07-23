@@ -79,7 +79,7 @@ func ValidateDPUServiceIPAMMetrics(ctx context.Context, input *systemTestInput) 
 
 	By("Verify DPUServiceIPAM metrics in host cluster KSM")
 	expectedHostMetricsNames := map[string][]string{
-		"dpuserviceipam": {"created", "info", "status_conditions", "status_condition_last_transition_time"}, //  "network_info", "subnet_info" missed
+		"dpf_dpuserviceipam": {"created", "info", "status_conditions", "status_condition_last_transition_time"}, //  "network_info", "subnet_info" missed
 	}
 	Eventually(func(g Gomega) {
 		actualMetricsNames := metrics.GetKSMMetrics(g, ctx, hostClusterRESTClient, metricsURI)
@@ -102,7 +102,7 @@ func ValidateDPUServiceIPAMMetrics(ctx context.Context, input *systemTestInput) 
 
 	By("Verify IPPool metrics in DPU cluster KSM")
 	expectedDPUMetricsNames := map[string][]string{
-		"ippool": {"created", "info", "allocation_info"},
+		"dpf_ippool": {"created", "info", "allocation_info"},
 	}
 	Eventually(func(g Gomega) {
 		g.Expect(input.dpuClusters).ToNot(BeEmpty(), "No DPUClusters found in test input")
@@ -169,7 +169,7 @@ func ValidateDPUServiceIPAMCreationCidrSplit(ctx context.Context, input *systemT
 
 	By("Verify CIDRPool metrics in DPU cluster KSM")
 	expectedCIDRPoolMetricsNames := map[string][]string{
-		"cidrpool": {"created", "info", "allocation_info"},
+		"dpf_cidrpool": {"created", "info", "allocation_info"},
 	}
 	Eventually(func(g Gomega) {
 		g.Expect(input.dpuClusters).ToNot(BeEmpty(), "No DPUClusters found in test input")

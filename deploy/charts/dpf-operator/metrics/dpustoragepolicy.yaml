@@ -12,7 +12,7 @@
     uid:
       - metadata
       - uid
-  metricNamePrefix: dpustoragepolicy
+  metricNamePrefix: dpf_dpustoragepolicy
   metrics:
     - name: created
       help: Unix creation timestamp.
