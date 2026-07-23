@@ -22,6 +22,8 @@ import (
 	_ "embed"
 	"fmt"
 	"reflect"
+	"strings"
+	"sync/atomic"
 	"text/template"
 	"time"
 
@@ -31,6 +33,7 @@ import (
 	operatorutils "github.com/nvidia/doca-platform/internal/operator/utils"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/utils"
+	"github.com/nvidia/doca-platform/pkg/dpucluster"
 	kamajiv1 "github.com/nvidia/doca-platform/third_party/forked/github.com/clastix/kamaji/api/v1alpha1"
 
 	"github.com/Masterminds/sprig/v3"
@@ -46,6 +49,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
@@ -54,14 +58,18 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
 // +kubebuilder:rbac:groups=kamaji.clastix.io,resources=tenantcontrolplanes,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=monitoring.coreos.com,resources=servicemonitors,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=apps,resources=daemonsets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 const (
 	kubernetesNodeRoleMaster       = "node-role.kubernetes.io/master"
@@ -134,25 +142,88 @@ var (
 			},
 		},
 	}
+	staticKeySecretWatchClient atomic.Value
 )
 
 func init() {
 	controller.RegisterWatch(&kamajiv1.TenantControlPlane{}, handler.EnqueueRequestsFromMapFunc(tcpToDPUCluster))
 	controller.RegisterWatch(&appsv1.DaemonSet{}, handler.EnqueueRequestsFromMapFunc(daemonsetToDPUCluster))
+	controller.RegisterWatch(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(secretToDPUClusters))
+	controller.RegisterRawWatch(source.Channel(dpuClusterRequeueEvents, &handler.EnqueueRequestForObject{}))
 }
 
 type clusterHandler struct {
 	client.Client
-	Scheme          *runtime.Scheme
-	keepalivedImage string
+	Scheme           *runtime.Scheme
+	keepalivedImage  string
+	requeueScheduler requeueScheduler
+	requeueAfter     time.Duration
+	reloadVerifier   reloadVerifier
+	tenantClient     tenantClientProvider
+	recorder         record.EventRecorder
 }
 
-func NewHandler(client client.Client, scheme *runtime.Scheme, keepalivedImage string) controller.ClusterHandler {
-	return &clusterHandler{
-		Client:          client,
-		Scheme:          scheme,
-		keepalivedImage: keepalivedImage,
+// HandlerOption configures a cluster handler.
+type HandlerOption func(*clusterHandler)
+
+// WithRequeueScheduler configures the static key rotation requeue scheduler.
+func WithRequeueScheduler(scheduler requeueScheduler) HandlerOption {
+	return func(handler *clusterHandler) {
+		handler.requeueScheduler = scheduler
 	}
+}
+
+// WithRequeueAfter configures the static key rotation requeue interval.
+func WithRequeueAfter(requeueAfter time.Duration) HandlerOption {
+	return func(handler *clusterHandler) {
+		handler.requeueAfter = requeueAfter
+	}
+}
+
+// WithReloadVerifier configures the static key reload verifier.
+func WithReloadVerifier(verifier reloadVerifier) HandlerOption {
+	return func(handler *clusterHandler) {
+		handler.reloadVerifier = verifier
+	}
+}
+
+// WithEventRecorder configures the event recorder.
+func WithEventRecorder(recorder record.EventRecorder) HandlerOption {
+	return func(handler *clusterHandler) {
+		handler.recorder = recorder
+	}
+}
+
+// NewHandler creates a Kamaji cluster handler.
+func NewHandler(client client.Client, scheme *runtime.Scheme, keepalivedImage string, opts ...HandlerOption) controller.ClusterHandler {
+	staticKeySecretWatchClient.Store(client)
+	h := &clusterHandler{
+		Client:           client,
+		Scheme:           scheme,
+		keepalivedImage:  keepalivedImage,
+		requeueScheduler: defaultDPUClusterRequeueScheduler,
+		reloadVerifier:   &metricsReloadVerifier{client: client},
+		requeueAfter:     defaultStaticKeyRotationRequeueAfter,
+		tenantClient:     &dpuClusterTenantClientProvider{hostClient: client, scheme: scheme},
+	}
+	for _, opt := range opts {
+		opt(h)
+	}
+	return h
+}
+
+type tenantClientProvider interface {
+	Client(context.Context, *provisioningv1.DPUCluster) (client.Client, error)
+}
+
+type dpuClusterTenantClientProvider struct {
+	hostClient client.Reader
+	scheme     *runtime.Scheme
+}
+
+// Client returns a tenant cluster client for the DPUCluster.
+func (p *dpuClusterTenantClientProvider) Client(ctx context.Context, dc *provisioningv1.DPUCluster) (client.Client, error) {
+	return dpucluster.NewConfig(p.hostClient, dc).Client(ctx, dpucluster.ClientOptionScheme{Scheme: p.scheme})
 }
 
 func (cm *clusterHandler) ReconcileCluster(ctx context.Context, dc *provisioningv1.DPUCluster) (string, []metav1.Condition, error) {
@@ -163,6 +234,14 @@ func (cm *clusterHandler) ReconcileCluster(ctx context.Context, dc *provisioning
 	}
 	if cond != nil {
 		conds = append(conds, *cond)
+	}
+
+	rotationResult, err := cm.reconcileStaticKeyRotation(ctx, dc)
+	if err != nil {
+		return "", nil, err
+	}
+	if rotationResult != nil {
+		conds = append(conds, rotationResult.conditions...)
 	}
 
 	cond, err = cm.reconcileKeepalived(ctx, dc, nodePort)
@@ -377,9 +456,7 @@ func (cm *clusterHandler) reconcileKamaji(ctx context.Context, dc *provisioningv
 		if err != nil {
 			return "", 0, nil, fmt.Errorf("failed to generate expected TCP, err: %v", err)
 		}
-		if err := cm.patchDPUClusterEncryptionMetadata(ctx, dc, encPlan); err != nil {
-			return "", 0, nil, err
-		}
+		cm.patchDPUClusterEncryptionMetadata(dc, encPlan)
 		applyTCPEncryptionIfEnabled(tcp, encPlan)
 		if err := cm.Client.Create(ctx, tcp); err != nil {
 			return "", 0, nil, fmt.Errorf("failed to create cluster request, err: %v", err)
@@ -559,10 +636,15 @@ func ownedBy(obj metav1.Object, owner metav1.Object) bool {
 	return false
 }
 
+// metricsServiceName returns the per-cluster Kamaji metrics Service name.
+func metricsServiceName(dc metav1.Object) string {
+	return fmt.Sprintf("%s-metrics", dc.GetName())
+}
+
 func getMetricsService(dc *provisioningv1.DPUCluster, nodePort int32) *corev1.Service {
 	svc := &corev1.Service{}
 	svc.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("Service"))
-	svc.SetName(fmt.Sprintf("%s-metrics", dc.GetName()))
+	svc.SetName(metricsServiceName(dc))
 	svc.SetNamespace(dc.GetNamespace())
 	svc.SetLabels(map[string]string{
 		"kamaji.clastix.io/name": dc.GetName() + "-metrics",
@@ -613,9 +695,14 @@ func keepMetricsRelabeling(regex string) map[string]interface{} {
 	}
 }
 
+// apiserverMetricsClientSecretName returns the conventional Kamaji Secret name used in ServiceMonitor configuration.
+func apiserverMetricsClientSecretName(dc metav1.Object) string {
+	return dc.GetName() + "-api-server-kubelet-client-certificate"
+}
+
 func getServiceMonitorResource(dc *provisioningv1.DPUCluster, gvk schema.GroupVersionKind) *unstructured.Unstructured {
 	clusterName := dc.GetName()
-	secretName := clusterName + "-api-server-kubelet-client-certificate"
+	secretName := apiserverMetricsClientSecretName(dc)
 
 	sm := &unstructured.Unstructured{}
 	sm.SetName(clusterName)
@@ -1153,4 +1240,50 @@ func (cm *clusterHandler) DPFOperatorConfigToDPUClusters(ctx context.Context, o 
 		})
 	}
 	return requests
+}
+
+// secretToDPUClusters maps Secret changes relevant to staticKey encryption-at-rest to DPUCluster reconcile requests.
+func secretToDPUClusters(ctx context.Context, o client.Object) []reconcile.Request {
+	c, ok := staticKeySecretWatchClient.Load().(client.Client)
+	if !ok || c == nil {
+		return nil
+	}
+	if clusterName := o.GetLabels()[provisioningv1.DPUClusterNameLabelKey]; clusterName != "" &&
+		strings.HasPrefix(o.GetName(), encryptionConfigSecretNamePrefix+"-") {
+		return []reconcile.Request{{
+			NamespacedName: types.NamespacedName{Name: clusterName, Namespace: o.GetNamespace()},
+		}}
+	}
+
+	if !isConfiguredStaticKeySourceSecret(ctx, c, o) {
+		return nil
+	}
+
+	dcList := &provisioningv1.DPUClusterList{}
+	if err := c.List(ctx, dcList); err != nil {
+		klog.Errorf("failed to list DPUClusters for staticKey Secret %s: %v", klog.KObj(o), err)
+		return nil
+	}
+	requests := make([]reconcile.Request, 0, len(dcList.Items))
+	for _, dc := range dcList.Items {
+		if dc.Spec.Type != string(provisioningv1.KamajiCluster) {
+			continue
+		}
+		requests = append(requests, reconcile.Request{NamespacedName: types.NamespacedName{Name: dc.Name, Namespace: dc.Namespace}})
+	}
+	return requests
+}
+
+// isConfiguredStaticKeySourceSecret reports whether the Secret is the staticKey source configured in DPFOperatorConfig.
+func isConfiguredStaticKeySourceSecret(ctx context.Context, c client.Client, secret client.Object) bool {
+	cfg, err := utils.GetDPFOperatorConfig(ctx, c)
+	if err != nil {
+		return false
+	}
+	staticKey, ok := staticKeyConfiguration(cfg)
+	if !ok {
+		return false
+	}
+	ref := staticKey.KeySecretRef
+	return secret.GetNamespace() == cfg.Namespace && secret.GetName() == ref.Name
 }

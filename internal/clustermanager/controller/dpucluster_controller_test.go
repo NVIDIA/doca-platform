@@ -73,6 +73,77 @@ var _ = Describe("DPUCluster Controller", func() {
 			// Example: If you expect a certain status condition after reconciliation, verify it here.
 		})
 
+		It("persists status fields changed by the cluster handler without returned conditions", func() {
+			clusterHandler := &dummyHandler{
+				handlerType: "kamaji",
+				reconcileCluster: func(_ context.Context, dc *provisioningv1.DPUCluster) (string, []metav1.Condition, error) {
+					dc.Status.EtcdEncryptionAtRest = &provisioningv1.DPUClusterEtcdEncryptionAtRestStatus{
+						Provider: "staticKey",
+					}
+					return "", nil, nil
+				},
+			}
+			controllerReconciler := &DPUClusterReconciler{
+				Client:         k8sClient,
+				Scheme:         k8sClient.Scheme(),
+				rvCache:        make(map[types.NamespacedName]int64),
+				ClusterHandler: clusterHandler,
+			}
+			dpuCluster := getMinimalDPUCluster(testNS.Name)
+			dpuCluster.Spec.Type = clusterHandler.Type()
+			dpuCluster.Spec.MaxNodes = 1000
+			Expect(k8sClient.Create(ctx, dpuCluster)).To(Succeed())
+			DeferCleanup(testutils.CleanupWithFinalizerRemovalAndWait, ctx, k8sClient, dpuCluster)
+			dpuCluster.Status.Phase = provisioningv1.PhaseCreating
+			Expect(k8sClient.Status().Update(ctx, dpuCluster)).To(Succeed())
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: client.ObjectKeyFromObject(dpuCluster),
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			current := &provisioningv1.DPUCluster{}
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dpuCluster), current)).To(Succeed())
+			Expect(current.Status.EtcdEncryptionAtRest).NotTo(BeNil())
+			Expect(current.Status.EtcdEncryptionAtRest.Provider).To(Equal("staticKey"))
+		})
+
+		It("persists status fields changed by the cluster handler when kubeconfig is also updated", func() {
+			clusterHandler := &dummyHandler{
+				handlerType: "kamaji",
+				reconcileCluster: func(_ context.Context, dc *provisioningv1.DPUCluster) (string, []metav1.Condition, error) {
+					dc.Status.EtcdEncryptionAtRest = &provisioningv1.DPUClusterEtcdEncryptionAtRestStatus{
+						Provider: "vaultKMS",
+					}
+					return "admin-kubeconfig", nil, nil
+				},
+			}
+			controllerReconciler := &DPUClusterReconciler{
+				Client:         k8sClient,
+				Scheme:         k8sClient.Scheme(),
+				rvCache:        make(map[types.NamespacedName]int64),
+				ClusterHandler: clusterHandler,
+			}
+			dpuCluster := getMinimalDPUCluster(testNS.Name)
+			dpuCluster.Spec.Type = clusterHandler.Type()
+			dpuCluster.Spec.MaxNodes = 1000
+			Expect(k8sClient.Create(ctx, dpuCluster)).To(Succeed())
+			DeferCleanup(testutils.CleanupWithFinalizerRemovalAndWait, ctx, k8sClient, dpuCluster)
+			dpuCluster.Status.Phase = provisioningv1.PhaseCreating
+			Expect(k8sClient.Status().Update(ctx, dpuCluster)).To(Succeed())
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: client.ObjectKeyFromObject(dpuCluster),
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			current := &provisioningv1.DPUCluster{}
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dpuCluster), current)).To(Succeed())
+			Expect(current.Spec.Kubeconfig).To(Equal("admin-kubeconfig"))
+			Expect(current.Status.EtcdEncryptionAtRest).NotTo(BeNil())
+			Expect(current.Status.EtcdEncryptionAtRest.Provider).To(Equal("vaultKMS"))
+		})
+
 		It("should fail to create a resource with name exceeding the maximum length", func() {
 			By("Creating the resource")
 			dpuCluster := getMinimalDPUCluster(testNS.Name)
@@ -82,9 +153,15 @@ var _ = Describe("DPUCluster Controller", func() {
 	})
 })
 
-type dummyHandler struct{}
+type dummyHandler struct {
+	handlerType      string
+	reconcileCluster func(context.Context, *provisioningv1.DPUCluster) (string, []metav1.Condition, error)
+}
 
-func (h *dummyHandler) ReconcileCluster(_ context.Context, _ *provisioningv1.DPUCluster) (string, []metav1.Condition, error) {
+func (h *dummyHandler) ReconcileCluster(ctx context.Context, dc *provisioningv1.DPUCluster) (string, []metav1.Condition, error) {
+	if h.reconcileCluster != nil {
+		return h.reconcileCluster(ctx, dc)
+	}
 	return "", nil, nil
 }
 
@@ -97,6 +174,9 @@ func (h *dummyHandler) DPFOperatorConfigToDPUClusters(_ context.Context, _ clien
 }
 
 func (h *dummyHandler) Type() string {
+	if h.handlerType != "" {
+		return h.handlerType
+	}
 	return "dummy"
 }
 

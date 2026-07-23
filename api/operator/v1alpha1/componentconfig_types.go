@@ -455,8 +455,8 @@ type KamajiClusterManagerConfiguration struct {
 	Controller *DefaultOverridesConfiguration `json:"controller,omitempty"`
 
 	// EtcdEncryptionAtRest configures encryption at rest for the etcd datastore of
-	// Kamaji-managed DPU clusters. The configuration is applied only when a Kamaji
-	// cluster is first created and is not changed for existing clusters.
+	// Kamaji-managed DPU clusters. The provider selection is applied only when a
+	// Kamaji cluster is first created and is not changed for existing clusters.
 	// +optional
 	EtcdEncryptionAtRest *EtcdEncryptionAtRestConfiguration `json:"etcdEncryptionAtRest,omitempty"`
 }
@@ -1233,10 +1233,17 @@ type StaticKeyConfiguration struct {
 	// 24, or 32 bytes. For Kubernetes manifests, use stringData.key with the output of
 	// `openssl rand -base64 32`. For External Secrets, configure the external value or template so
 	// the resulting Kubernetes Secret data decodes to that base64 text, not to raw key bytes.
-	// The key value is read once and rendered into the per-cluster encryption configuration
-	// at cluster creation time, so it cannot be rotated afterwards.
+	// The referenced key is used as the desired static key source. Changing the referenced
+	// Secret value triggers automatic rotation for existing staticKey-encrypted Kamaji clusters.
+	// The per-cluster rendered encryption configuration must be backed up together with the
+	// cluster etcd backup because Kubernetes encrypted data references encryption config key names.
 	// +required
 	KeySecretRef SecretKeyRef `json:"keySecretRef,omitzero"`
+
+	// AutomaticRotationDisabled disables automatic staticKey rotation for existing Kamaji clusters.
+	// In-flight rotations stop at the next stable checkpoint; encryption at rest remains enabled.
+	// +optional
+	AutomaticRotationDisabled *bool `json:"automaticRotationDisabled,omitempty"`
 }
 
 // VaultKMSAuthMethod selects the Vault/OpenBao auth method used by the KMS plugin.

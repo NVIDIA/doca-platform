@@ -41,6 +41,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 )
 
+const (
+	spiffeEnvtestEventuallyTimeout  = 10 * time.Second
+	spiffeEnvtestEventuallyInterval = 200 * time.Millisecond
+)
+
 var _ = Describe("DPUDevice SPIFFE reconcile (envtest)", Ordered, func() {
 	var (
 		testEnv   *envtest.Environment
@@ -97,7 +102,7 @@ var _ = Describe("DPUDevice SPIFFE reconcile (envtest)", Ordered, func() {
 		go func() {
 			cacheSynced <- mgr.GetCache().WaitForCacheSync(envCtx)
 		}()
-		Eventually(cacheSynced).Should(Receive(BeTrue()))
+		Eventually(cacheSynced).WithTimeout(spiffeEnvtestEventuallyTimeout).Should(Receive(BeTrue()))
 	})
 
 	AfterAll(func() {
@@ -188,7 +193,7 @@ var _ = Describe("DPUDevice SPIFFE reconcile (envtest)", Ordered, func() {
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(found).To(BeTrue())
 			g.Expect(className).To(Equal("spire-mgmt-spire"))
-		}).WithTimeout(10 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
+		}).WithTimeout(spiffeEnvtestEventuallyTimeout).WithPolling(spiffeEnvtestEventuallyInterval).Should(Succeed())
 
 		Expect(unstructured.SetNestedField(cse.Object, true, "status", "rendered")).To(Succeed())
 		Expect(unstructured.SetNestedField(cse.Object, false, "status", "set")).To(Succeed())
@@ -203,6 +208,6 @@ var _ = Describe("DPUDevice SPIFFE reconcile (envtest)", Ordered, func() {
 		Expect(k8sClient.Delete(envCtx, device)).To(Succeed())
 		Eventually(func() bool {
 			return apierrors.IsNotFound(k8sClient.Get(envCtx, client.ObjectKey{Name: cseName}, newClusterStaticEntry()))
-		}).WithTimeout(10 * time.Second).WithPolling(200 * time.Millisecond).Should(BeTrue())
+		}).WithTimeout(spiffeEnvtestEventuallyTimeout).WithPolling(spiffeEnvtestEventuallyInterval).Should(BeTrue())
 	})
 })

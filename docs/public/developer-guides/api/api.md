@@ -750,7 +750,7 @@ _Appears in:_
 | `replicas` _integer_ | Replicas is the number of replicas for the controller deployment.<br />Used for High Availability via leader election. | 2 | Maximum: 3 <br />Minimum: 1 <br />Optional: \{\} <br /> |
 | `image` _[Image](#image)_ | Image overrides the container image used by the Kamaji Cluster Manager.<br />Deprecated: This field is deprecated and will be removed with v26.7.0.<br />Use the new field `controller` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br />Optional: \{\} <br /> |
 | `controller` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Controller contains the configuration for the Kamaji Cluster Manager component.<br />It contains the image for the controller and its resource requirements. |  | Optional: \{\} <br /> |
-| `etcdEncryptionAtRest` _[EtcdEncryptionAtRestConfiguration](#etcdencryptionatrestconfiguration)_ | EtcdEncryptionAtRest configures encryption at rest for the etcd datastore of<br />Kamaji-managed DPU clusters. The configuration is applied only when a Kamaji<br />cluster is first created and is not changed for existing clusters. |  | Optional: \{\} <br /> |
+| `etcdEncryptionAtRest` _[EtcdEncryptionAtRestConfiguration](#etcdencryptionatrestconfiguration)_ | EtcdEncryptionAtRest configures encryption at rest for the etcd datastore of<br />Kamaji-managed DPU clusters. The provider selection is applied only when a<br />Kamaji cluster is first created and is not changed for existing clusters. |  | Optional: \{\} <br /> |
 
 
 #### KataContainersConfiguration
@@ -1367,7 +1367,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `keySecretRef` _[SecretKeyRef](#secretkeyref)_ | KeySecretRef selects the AES-GCM key from a Secret in the DPFOperatorConfig namespace.<br />The referenced Secret value must be base64-encoded AES key text whose decoded length is 16,<br />24, or 32 bytes. For Kubernetes manifests, use stringData.key with the output of<br />`openssl rand -base64 32`. For External Secrets, configure the external value or template so<br />the resulting Kubernetes Secret data decodes to that base64 text, not to raw key bytes.<br />The key value is read once and rendered into the per-cluster encryption configuration<br />at cluster creation time, so it cannot be rotated afterwards. |  | Required: \{\} <br /> |
+| `keySecretRef` _[SecretKeyRef](#secretkeyref)_ | KeySecretRef selects the AES-GCM key from a Secret in the DPFOperatorConfig namespace.<br />The referenced Secret value must be base64-encoded AES key text whose decoded length is 16,<br />24, or 32 bytes. For Kubernetes manifests, use stringData.key with the output of<br />`openssl rand -base64 32`. For External Secrets, configure the external value or template so<br />the resulting Kubernetes Secret data decodes to that base64 text, not to raw key bytes.<br />The referenced key is used as the desired static key source. Changing the referenced<br />Secret value triggers automatic rotation for existing staticKey-encrypted Kamaji clusters.<br />The per-cluster rendered encryption configuration must be backed up together with the<br />cluster etcd backup because Kubernetes encrypted data references encryption config key names. |  | Required: \{\} <br /> |
+| `automaticRotationDisabled` _boolean_ | AutomaticRotationDisabled disables automatic staticKey rotation for existing Kamaji clusters.<br />In-flight rotations stop at the next stable checkpoint; encryption at rest remains enabled. |  | Optional: \{\} <br /> |
 
 
 #### VaultKMSAppRoleAuth
@@ -2160,6 +2161,23 @@ _Appears in:_
 | `status` _[DPUClusterStatus](#dpuclusterstatus)_ |  | \{ phase:Pending \} | Optional: \{\} <br /> |
 
 
+#### DPUClusterEtcdEncryptionAtRestStatus
+
+
+
+DPUClusterEtcdEncryptionAtRestStatus defines the observed encryption-at-rest state for a DPUCluster.
+
+
+
+_Appears in:_
+- [DPUClusterStatus](#dpuclusterstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `provider` _string_ | Provider is the committed encryption-at-rest provider for the cluster. |  | Enum: [staticKey vaultKMS] <br />Required: \{\} <br /> |
+| `staticKey` _[DPUClusterStaticKeyEncryptionStatus](#dpuclusterstatickeyencryptionstatus)_ | StaticKey exposes staticKey-specific observed state. |  | Optional: \{\} <br /> |
+
+
 #### DPUClusterList
 
 
@@ -2197,6 +2215,22 @@ _Appears in:_
 | `clusterEndpoint` _[ClusterEndpointSpec](#clusterendpointspec)_ | ClusterEndpoint contains configurations of the cluster entry point |  | Optional: \{\} <br /> |
 
 
+#### DPUClusterStaticKeyEncryptionStatus
+
+
+
+DPUClusterStaticKeyEncryptionStatus defines observed staticKey encryption-at-rest state.
+
+
+
+_Appears in:_
+- [DPUClusterEtcdEncryptionAtRestStatus](#dpuclusteretcdencryptionatreststatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `activeKeyRef` _[ObservedSecretKeyRef](#observedsecretkeyref)_ | ActiveKeyRef is the source Secret observed for the currently active key.<br />This field is informational and must not be used by controllers to select desired key material. |  | Optional: \{\} <br /> |
+
+
 #### DPUClusterStatus
 
 
@@ -2213,6 +2247,7 @@ _Appears in:_
 | `phase` _[ClusterPhase](#clusterphase)_ |  | Pending | Enum: [Pending Creating Ready NotReady Failed] <br /> |
 | `version` _string_ | Version is the K8s control-plane version of the cluster |  | Optional: \{\} <br /> |
 | `nodesCount` _integer_ | NodesCount is the number of DPUs assigned to the cluster |  | Minimum: 0 <br />Optional: \{\} <br /> |
+| `etcdEncryptionAtRest` _[DPUClusterEtcdEncryptionAtRestStatus](#dpuclusteretcdencryptionatreststatus)_ | EtcdEncryptionAtRest exposes the observed encryption-at-rest state for the cluster. |  | Optional: \{\} <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ |  |  | Optional: \{\} <br /> |
 
 
@@ -3394,6 +3429,26 @@ _Appears in:_
 _Appears in:_
 - [NodeRebootMethod](#noderebootmethod)
 
+
+
+#### ObservedSecretKeyRef
+
+
+
+ObservedSecretKeyRef identifies an observed source Secret version.
+
+
+
+_Appears in:_
+- [DPUClusterStaticKeyEncryptionStatus](#dpuclusterstatickeyencryptionstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `name` _string_ | Name is the name of the Secret. |  | MinLength: 1 <br />Required: \{\} <br /> |
+| `key` _string_ | Key is the key within the Secret data. |  | MinLength: 1 <br />Required: \{\} <br /> |
+| `namespace` _string_ | Namespace is the namespace of the Secret. |  | MinLength: 1 <br />Required: \{\} <br /> |
+| `uid` _string_ | UID is the UID of the Secret. |  | MinLength: 1 <br />Required: \{\} <br /> |
+| `resourceVersion` _string_ | ResourceVersion is the resourceVersion of the Secret. |  | MinLength: 1 <br />Required: \{\} <br /> |
 
 
 #### PackageSpec
