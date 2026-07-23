@@ -12,7 +12,7 @@
     uid:
       - metadata
       - uid
-  metricNamePrefix: network_attachment_definition
+  metricNamePrefix: dpf_network_attachment_definition
   metrics:
     - name: created
       help: Unix creation timestamp.

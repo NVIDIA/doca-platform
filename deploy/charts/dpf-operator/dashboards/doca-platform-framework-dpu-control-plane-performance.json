@@ -89,7 +89,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(apiserver_request_total{cluster=\"$cluster\"}[$__rate_interval]))",
+          "expr": "sum(rate(dpf_apiserver_request_total{cluster=\"$cluster\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "Value",
           "range": true,
@@ -155,7 +155,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(apiserver_request_total{cluster=\"$cluster\", code=~\"5..\"}[$__rate_interval]))",
+          "expr": "sum(rate(dpf_apiserver_request_total{cluster=\"$cluster\", code=~\"5..\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "Value",
           "range": true,
@@ -221,7 +221,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(apiserver_storage_size_bytes{cluster=\"$cluster\"})",
+          "expr": "sum(dpf_apiserver_storage_size_bytes{cluster=\"$cluster\"})",
           "instant": false,
           "legendFormat": "Value",
           "range": true,
@@ -230,7 +230,7 @@
       ],
       "title": "etcd DB Size",
       "type": "stat",
-      "description": "apiserver_storage_size_bytes (etcd DB size proxy)"
+      "description": "dpf_apiserver_storage_size_bytes (etcd DB size proxy)"
     },
     {
       "datasource": {
@@ -287,7 +287,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(apiserver_longrunning_requests{cluster=\"$cluster\", verb=\"WATCH\"})",
+          "expr": "sum(dpf_apiserver_longrunning_requests{cluster=\"$cluster\", verb=\"WATCH\"})",
           "instant": false,
           "legendFormat": "Value",
           "range": true,
@@ -401,7 +401,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (verb) (rate(apiserver_request_total{cluster=\"$cluster\"}[$__rate_interval]))",
+          "expr": "sum by (verb) (rate(dpf_apiserver_request_total{cluster=\"$cluster\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "{{verb}}",
           "range": true,
@@ -502,7 +502,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.50, sum by (le, verb) (rate(apiserver_request_duration_seconds_bucket{cluster=\"$cluster\", verb!~\"WATCH|WATCHLIST|CONNECT\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.50, sum by (le, verb) (rate(dpf_apiserver_request_duration_seconds_bucket{cluster=\"$cluster\", verb!~\"WATCH|WATCHLIST|CONNECT\"}[$__rate_interval])))",
           "instant": false,
           "legendFormat": "p50 {{verb}}",
           "range": true,
@@ -515,7 +515,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.99, sum by (le, verb) (rate(apiserver_request_duration_seconds_bucket{cluster=\"$cluster\", verb!~\"WATCH|WATCHLIST|CONNECT\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.99, sum by (le, verb) (rate(dpf_apiserver_request_duration_seconds_bucket{cluster=\"$cluster\", verb!~\"WATCH|WATCHLIST|CONNECT\"}[$__rate_interval])))",
           "instant": false,
           "legendFormat": "p99 {{verb}}",
           "range": true,
@@ -616,7 +616,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (resource) (apiserver_longrunning_requests{cluster=\"$cluster\", verb=\"WATCH\"})",
+          "expr": "sum by (resource) (dpf_apiserver_longrunning_requests{cluster=\"$cluster\", verb=\"WATCH\"})",
           "instant": false,
           "legendFormat": "{{resource}}",
           "range": true,
@@ -717,7 +717,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (request_kind) (apiserver_current_inflight_requests{cluster=\"$cluster\"})",
+          "expr": "sum by (request_kind) (dpf_apiserver_current_inflight_requests{cluster=\"$cluster\"})",
           "instant": false,
           "legendFormat": "{{request_kind}}",
           "range": true,
@@ -818,7 +818,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (code) (rate(apiserver_request_total{cluster=\"$cluster\", code=~\"4..|5..\"}[$__rate_interval]))",
+          "expr": "sum by (code) (rate(dpf_apiserver_request_total{cluster=\"$cluster\", code=~\"4..|5..\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "{{code}}",
           "range": true,
@@ -932,7 +932,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (name) (workqueue_depth{cluster=\"$cluster\", job=\"kube-controller-manager\"})",
+          "expr": "sum by (name) (dpf_workqueue_depth{cluster=\"$cluster\", job=\"kube-controller-manager\"})",
           "instant": false,
           "legendFormat": "{{name}}",
           "range": true,
@@ -1033,7 +1033,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.99, sum by (le, name) (rate(workqueue_queue_duration_seconds_bucket{cluster=\"$cluster\", job=\"kube-controller-manager\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.99, sum by (le, name) (rate(dpf_workqueue_queue_duration_seconds_bucket{cluster=\"$cluster\", job=\"kube-controller-manager\"}[$__rate_interval])))",
           "instant": false,
           "legendFormat": "{{name}}",
           "range": true,
@@ -1135,7 +1135,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (name) (rate(workqueue_retries_total{cluster=\"$cluster\", job=\"kube-controller-manager\"}[$__rate_interval]))",
+          "expr": "sum by (name) (rate(dpf_workqueue_retries_total{cluster=\"$cluster\", job=\"kube-controller-manager\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "{{name}}",
           "range": true,
@@ -1236,7 +1236,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.99, sum by (le, name) (rate(workqueue_work_duration_seconds_bucket{cluster=\"$cluster\", job=\"kube-controller-manager\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.99, sum by (le, name) (rate(dpf_workqueue_work_duration_seconds_bucket{cluster=\"$cluster\", job=\"kube-controller-manager\"}[$__rate_interval])))",
           "instant": false,
           "legendFormat": "{{name}}",
           "range": true,
@@ -1246,7 +1246,7 @@
       ],
       "title": "Reconcile Time (p99)",
       "type": "timeseries",
-      "description": "Per-controller reconcile / item processing time. Derived from workqueue_work_duration_seconds_bucket: the time a worker spends processing each queued item."
+      "description": "Per-controller reconcile / item processing time. Derived from dpf_workqueue_work_duration_seconds_bucket: the time a worker spends processing each queued item."
     },
     {
       "datasource": {
@@ -1338,7 +1338,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (name) (rate(workqueue_adds_total{cluster=\"$cluster\", job=\"kube-controller-manager\"}[$__rate_interval]))",
+          "expr": "sum by (name) (rate(dpf_workqueue_adds_total{cluster=\"$cluster\", job=\"kube-controller-manager\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "{{name}}",
           "range": true,
@@ -1452,7 +1452,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (queue) (scheduler_pending_pods{cluster=\"$cluster\"})",
+          "expr": "sum by (queue) (dpf_scheduler_pending_pods{cluster=\"$cluster\"})",
           "instant": false,
           "legendFormat": "{{queue}}",
           "range": true,
@@ -1553,7 +1553,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (result) (rate(scheduler_schedule_attempts_total{cluster=\"$cluster\"}[$__rate_interval]))",
+          "expr": "sum by (result) (rate(dpf_scheduler_schedule_attempts_total{cluster=\"$cluster\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "{{result}}",
           "range": true,
@@ -1655,7 +1655,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.99, sum by (le, result) (rate(scheduler_scheduling_attempt_duration_seconds_bucket{cluster=\"$cluster\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.99, sum by (le, result) (rate(dpf_scheduler_scheduling_attempt_duration_seconds_bucket{cluster=\"$cluster\"}[$__rate_interval])))",
           "instant": false,
           "legendFormat": "p99 {{result}}",
           "range": true,
@@ -1769,7 +1769,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (resource) (apiserver_storage_size_bytes{cluster=\"$cluster\"})",
+          "expr": "sum by (resource) (dpf_apiserver_storage_size_bytes{cluster=\"$cluster\"})",
           "instant": false,
           "legendFormat": "{{resource}}",
           "range": true,
@@ -1779,7 +1779,7 @@
       ],
       "title": "Storage Size by Resource (etcd DB proxy)",
       "type": "timeseries",
-      "description": "apiserver_storage_size_bytes - proxy for etcd db size per resource"
+      "description": "dpf_apiserver_storage_size_bytes - proxy for etcd db size per resource"
     },
     {
       "datasource": {
@@ -1871,7 +1871,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.99, sum by (le, operation) (rate(etcd_request_duration_seconds_bucket{cluster=\"$cluster\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.99, sum by (le, operation) (rate(dpf_etcd_request_duration_seconds_bucket{cluster=\"$cluster\"}[$__rate_interval])))",
           "instant": false,
           "legendFormat": "{{operation}}",
           "range": true,
@@ -1973,7 +1973,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (operation) (rate(etcd_requests_total{cluster=\"$cluster\"}[$__rate_interval]))",
+          "expr": "sum by (operation) (rate(dpf_etcd_requests_total{cluster=\"$cluster\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "{{operation}}",
           "range": true,
@@ -2074,7 +2074,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (operation) (rate(etcd_request_errors_total{cluster=\"$cluster\"}[$__rate_interval]))",
+          "expr": "sum by (operation) (rate(dpf_etcd_request_errors_total{cluster=\"$cluster\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "{{operation}}",
           "range": true,
@@ -2101,14 +2101,14 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(apiserver_current_inflight_requests, cluster)",
+        "definition": "label_values(dpf_apiserver_current_inflight_requests, cluster)",
         "includeAll": false,
         "label": "DPUCluster",
         "name": "cluster",
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(apiserver_current_inflight_requests, cluster)"
+          "query": "label_values(dpf_apiserver_current_inflight_requests, cluster)"
         },
         "refresh": 2,
         "type": "query"

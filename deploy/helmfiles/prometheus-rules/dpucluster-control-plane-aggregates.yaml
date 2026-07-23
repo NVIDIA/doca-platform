@@ -23,7 +23,7 @@ spec:
             histogram_quantile(
               0.99,
               sum by(le, cluster, verb) (
-                rate(apiserver_request_duration_seconds_bucket{verb!~"WATCH|WATCHLIST|CONNECT", cluster!="management"}[5m])
+                rate(dpf_apiserver_request_duration_seconds_bucket{verb!~"WATCH|WATCHLIST|CONNECT", cluster!="management"}[5m])
               )
             )
           labels:
@@ -34,7 +34,7 @@ spec:
             histogram_quantile(
               0.99,
               sum by(le, cluster, operation) (
-                rate(etcd_request_duration_seconds_bucket{cluster!="management"}[5m])
+                rate(dpf_etcd_request_duration_seconds_bucket{cluster!="management"}[5m])
               )
             )
           labels:

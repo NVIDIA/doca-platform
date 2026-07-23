@@ -12,7 +12,7 @@
     uid:
       - metadata
       - uid
-  metricNamePrefix: dpuservicechain
+  metricNamePrefix: dpf_dpuservicechain
   metrics:
     - name: created
       help: Unix creation timestamp.

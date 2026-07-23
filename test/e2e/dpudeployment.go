@@ -88,7 +88,7 @@ func ValidateDPUDeploymentMetrics(ctx context.Context, input *systemTestInput) {
 
 	By("Verify DPUDeployment and DPUServiceInterface metrics are in KSM")
 	expectedMetricsNames := map[string][]string{
-		"dpudeployment": {"created", "info", "status_conditions", "status_condition_last_transition_time"},
+		"dpf_dpudeployment": {"created", "info", "status_conditions", "status_condition_last_transition_time"},
 	}
 
 	Eventually(func(g Gomega) {

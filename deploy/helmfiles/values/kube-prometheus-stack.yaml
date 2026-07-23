@@ -209,6 +209,14 @@ prometheus:
           - source_labels: [__name__]
             action: keep
             regex: (controller_runtime_.+|workqueue_.+|rest_client_requests_total|leader_election_master_status|certwatcher_read_certificate_errors_total|process_.+|go_.+)
+          # Prefix all kept metrics with dpf_ so the DPF controller metrics are
+          # namespaced as DPF metrics, consistent with the kube-state-metrics and
+          # DPU cluster control-plane (Kamaji) metrics.
+          - source_labels: [__name__]
+            action: replace
+            regex: (.+)
+            target_label: __name__
+            replacement: dpf_${1}
           - action: replace
             target_label: cluster
             replacement: management

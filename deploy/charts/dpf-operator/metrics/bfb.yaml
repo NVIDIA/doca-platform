@@ -12,7 +12,7 @@
     uid:
       - metadata
       - uid
-  metricNamePrefix: bfb
+  metricNamePrefix: dpf_bfb
   metrics:
     - name: created
       help: Unix creation timestamp.

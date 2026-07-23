@@ -12,7 +12,7 @@
     uid:
       - metadata
       - uid
-  metricNamePrefix: dpfoperatorconfig
+  metricNamePrefix: dpf_dpfoperatorconfig
   metrics:
     - name: created
       help: Unix creation timestamp.
