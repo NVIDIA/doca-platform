@@ -671,13 +671,23 @@ func (r *RedfishMockServer) handleGetServerCert(w http.ResponseWriter, req *http
 	})
 }
 
-// handleInstallTruststoreCert acknowledges a CA truststore certificate install (setUpMTLS step 1).
+// handleInstallTruststoreCert serves the BMC truststore certificate collection (setUpMTLS step 1).
+// GET returns the installed CA truststore collection (empty by default, so installBootstrapCA
+// installs the desired DPF CA); POST acknowledges a CA truststore certificate install.
 func (r *RedfishMockServer) handleInstallTruststoreCert(w http.ResponseWriter, req *http.Request) {
-	if req.Method != http.MethodPost {
+	switch req.Method {
+	case http.MethodGet:
+		// An empty collection makes ListTruststoreCerts return no installed certs, so the
+		// bootstrap CA reconcile installs the desired CA via POST instead of diffing/deleting.
+		writeJSONResponse(w, map[string]interface{}{
+			"Members":             []interface{}{},
+			"Members@odata.count": 0,
+		})
+	case http.MethodPost:
+		writeJSONResponse(w, map[string]interface{}{})
+	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
 	}
-	writeJSONResponse(w, map[string]interface{}{})
 }
 
 // handleEnableMTLS acknowledges enabling mTLS on the BMC (setUpMTLS step 3).

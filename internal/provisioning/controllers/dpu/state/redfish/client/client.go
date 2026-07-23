@@ -1270,6 +1270,9 @@ func NewTLSClient(ctx context.Context, bmcAddress string, namespace string, k8sC
 	if err != nil {
 		return nil, tlsClientError(bmcAddress, err)
 	}
+	if err := verifyClientKeyPairChainsToCA(clientKeyPair, caCertBundle); err != nil {
+		return nil, tlsClientError(bmcAddress, err)
+	}
 	certPool := x509.NewCertPool()
 	if !certPool.AppendCertsFromPEM(caCertBundle) {
 		return nil, fmt.Errorf("failed to load CA certs")

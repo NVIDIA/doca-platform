@@ -282,9 +282,11 @@ func (r *DPUDeviceReconciler) reconcile(ctx context.Context, dpuDevice *provisio
 		if condition == nil || condition.Status == metav1.ConditionFalse {
 			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
-	} else if _, err := r.resolveAndAuthenticateBMC(ctx, dpuDevice, dpuDevice.BMCAddress(), true); err != nil {
-		log.Error(err, "Failed to reconcile BMC credentials")
-		return ctrl.Result{}, err
+	} else {
+		if _, err := r.resolveAndAuthenticateBMC(ctx, dpuDevice, dpuDevice.BMCAddress(), true); err != nil {
+			log.Error(err, "Failed to reconcile BMC credentials")
+			return ctrl.Result{}, err
+		}
 	}
 
 	condition = conditions.Get(dpuDevice, provisioningv1.ConditionDpuDeviceDiscovered)
@@ -515,6 +517,19 @@ func (r *DPUDeviceReconciler) initializeDPUDevice(ctx context.Context, dpuDevice
 
 	_, err = rfclient.NewTLSClient(ctx, bmcAddress, dpuDevice.Namespace, r.Client)
 	if err != nil {
+		// Stale controller client leaf (CA re-issued without client renewal) cannot be healed by
+		// setUpMTLS; force cert-manager to reissue and retry. Do not fall through to BMC bootstrap.
+		if rfclient.IsRedfishClientCertStale(err) {
+			log.Info("Redfish client certificate does not chain to current DPF CA; forcing reissue", "err", err.Error())
+			if reissueErr := r.forceReissueRedfishClientCerts(ctx, dpuDevice.Namespace); reissueErr != nil {
+				err = fmt.Errorf("failed to reissue Redfish client certificate: %w", reissueErr)
+				cutil.SetDPUDeviceCondition(dpuDevice, cutil.NewCondition(string(provisioningv1.ConditionDpuDeviceInitialized), err, provisioningv1.ReasonRedfishClientCertStale, err.Error()))
+				return err
+			}
+			err = fmt.Errorf("waiting for Redfish client certificate reissue: %w", err)
+			cutil.SetDPUDeviceCondition(dpuDevice, cutil.NewCondition(string(provisioningv1.ConditionDpuDeviceInitialized), err, provisioningv1.ReasonRedfishClientCertStale, err.Error()))
+			return err
+		}
 		log.Error(err, "failed to create tls client, setting up mTLS")
 		if needBmcReset, err := r.setUpMTLS(ctx, dpuDevice, basicAuthClient); err != nil {
 			condition := conditions.Get(dpuDevice, provisioningv1.ConditionDpuDeviceResettingBMC)
@@ -866,49 +881,21 @@ func (r *DPUDeviceReconciler) setUpMTLS(ctx context.Context, dpudevice *provisio
 		return false, fmt.Errorf("failed to get bootstrap CA cert: %w", err)
 	}
 
-	// step 1: install or replace CA certificate
-	resp, _, err := basicAuthClient.InstallCert(string(caCert))
-	if err != nil {
-		return true, fmt.Errorf("failed to install CA cert, err: %v", err)
-	} else if resp.StatusCode() == http.StatusInternalServerError {
-		log.FromContext(ctx).Info("An existing CA certificate is likely already installed. Replacing...")
-		resp, _, err = basicAuthClient.ReplaceCACert(string(caCert))
-		if err != nil {
-			return true, fmt.Errorf("failed to replace CA cert, err: %v", err)
-		} else if resp.StatusCode() != http.StatusOK {
-			return true, fmt.Errorf("failed to replace CA cert, unexpected response status: %s", resp.Status())
-		}
-		log.FromContext(ctx).Info("Successfully replaced CA certificate")
-	} else if resp.StatusCode() != http.StatusOK {
-		return true, fmt.Errorf("failed to install CA cert, unexpected response status: %s", resp.Status())
+	// step 1: reconcile the DPF CA in the BMC truststore by fingerprint (no hardcoded /1).
+	if err := r.installBootstrapCA(ctx, basicAuthClient, string(caCert)); err != nil {
+		return true, err
 	}
 
 	// step 2: replace server certificate
 	log.FromContext(ctx).Info("Replace server certificate...")
-	cr := &unstructured.Unstructured{}
-	cr.SetGroupVersionKind(schema.GroupVersionKind{
-		Group:   certManagerGroup,
-		Version: "v1",
-		Kind:    "CertificateRequest",
-	})
-	err = r.Client.Get(ctx, types.NamespacedName{Name: cutil.GenerateBMCServerCertRequestName(dpudevice.Name), Namespace: dpudevice.Namespace}, cr)
+	cr := newServerCertRequest(dpudevice)
+	err = r.Client.Get(ctx, types.NamespacedName{Name: cr.GetName(), Namespace: cr.GetNamespace()}, cr)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			log.FromContext(ctx).Info("cert-manager CertificateRequest does not exist, try create one...")
-			resp, csrInfo, err := basicAuthClient.GenerateCSR(*dpudevice.Status.BMCIP)
-			if err != nil {
-				return true, fmt.Errorf("failed to generate CSR, err: %v", err)
-			} else if resp.StatusCode() != http.StatusOK {
-				return true, fmt.Errorf("failed to generate CSR, unexpected response status: %s", resp.Status())
-			}
-			if err := r.createServerCertCR(ctx, dpudevice, csrInfo.CSRString); err != nil {
-				return false, fmt.Errorf("failed to create cert-manager CertificateRequest, err: %v", err)
-			}
-			log.FromContext(ctx).Info("successfully created cert-manager CertificateRequest")
-		} else {
-			return false, fmt.Errorf("failed to get existing cert-manager CertificateRequest, err: %v", err)
-
+			return r.createServerCertFromCSR(ctx, dpudevice, basicAuthClient)
 		}
+		return false, fmt.Errorf("failed to get existing cert-manager CertificateRequest, err: %v", err)
 	}
 
 	certificate, found, err := unstructured.NestedString(cr.Object, "status", "certificate")
@@ -927,7 +914,22 @@ func (r *DPUDeviceReconciler) setUpMTLS(ctx context.Context, dpudevice *provisio
 		return false, fmt.Errorf("failed to base64 decode certificate %w", err)
 	}
 
-	resp, _, err = basicAuthClient.ReplaceServerCert(string(decodedCert))
+	// An existing CertificateRequest is immutable: if it no longer verifies for the current BMC
+	// (wrong CA after upgrade, expired leaf, or identity mismatch after BMC IP change),
+	// reinstalling it leaves mTLS broken forever. Drop it and regenerate against the current BMC.
+	expectedHost := ""
+	if dpudevice.Status.BMCIP != nil {
+		expectedHost = *dpudevice.Status.BMCIP
+	}
+	if err := issuedServerCertUsableForBMC(decodedCert, caCert, expectedHost); err != nil {
+		log.FromContext(ctx).Info("stale server CertificateRequest is not usable for current BMC; regenerating", "err", err)
+		if delErr := r.Client.Delete(ctx, cr); delErr != nil && !apierrors.IsNotFound(delErr) {
+			return false, fmt.Errorf("failed to delete stale server CertificateRequest: %w", delErr)
+		}
+		return r.createServerCertFromCSR(ctx, dpudevice, basicAuthClient)
+	}
+
+	resp, _, err := basicAuthClient.ReplaceServerCert(string(decodedCert))
 	if err != nil {
 		return true, fmt.Errorf("failed to replace server cert, err: %v", err)
 	} else if resp.StatusCode() != http.StatusOK {
@@ -939,7 +941,9 @@ func (r *DPUDeviceReconciler) setUpMTLS(ctx context.Context, dpudevice *provisio
 		if delErr := r.Client.Delete(ctx, cr); delErr != nil && !apierrors.IsNotFound(delErr) {
 			log.FromContext(ctx).Error(delErr, "failed to delete stale server CertificateRequest after install failure")
 		}
-		return true, fmt.Errorf("failed to replace server cert, unexpected response status: %s", resp.Status())
+		// Retryable: delete the CR so the next pass regenerates a CSR against the BMC's current
+		// key. Do not request a BMC factory reset — key mismatch is recovered by re-issuing.
+		return false, fmt.Errorf("failed to replace server cert, unexpected response status: %s", resp.Status())
 	}
 	log.FromContext(ctx).Info("Successfully replaced server certificate")
 
@@ -958,9 +962,117 @@ func (r *DPUDeviceReconciler) setUpMTLS(ctx context.Context, dpudevice *provisio
 	return false, nil
 }
 
-// generateCR builds a cert-manager CertificateRequest for the BMC server certificate. The CR uses
-// a fixed, deterministic name (<dpudevice.Name>-server) and is owner-referenced to the DPUDevice so
-// cert-manager objects are cleaned up on deletion.
+// installBootstrapCA reconciles the BMC truststore to hold the desired DPF CA bundle over the
+// basic-auth channel used during mTLS bootstrap and recovery. It diffs installed vs desired certs by
+// SHA-256 fingerprint, installs any desired CA that is missing, and deletes truststore certs that are
+// no longer desired. This avoids the old InstallCert→ReplaceCACert(.../Certificates/1) sequence,
+// which fails with HTTP 500 when the desired CA is already present or lives at a different index.
+func (r *DPUDeviceReconciler) installBootstrapCA(ctx context.Context, basicAuthClient *rfclient.Client, caBundlePEM string) error {
+	log := log.FromContext(ctx)
+
+	desiredCerts, err := parseDesiredCATrustBundle(caBundlePEM)
+	if err != nil {
+		return fmt.Errorf("failed to parse bootstrap CA bundle: %w", err)
+	}
+
+	installedCerts, err := basicAuthClient.ListTruststoreCerts()
+	if err != nil {
+		return fmt.Errorf("failed to list BMC truststore certificates: %w", err)
+	}
+
+	desiredByFingerprint := make(map[string]desiredCATrustCert, len(desiredCerts))
+	for _, cert := range desiredCerts {
+		desiredByFingerprint[cert.fingerprint] = cert
+	}
+	installedByFingerprint := make(map[string]rfclient.TruststoreCert, len(installedCerts))
+	for _, cert := range installedCerts {
+		installedByFingerprint[cert.Fingerprint] = cert
+	}
+
+	for fingerprint, cert := range desiredByFingerprint {
+		if _, found := installedByFingerprint[fingerprint]; found {
+			continue
+		}
+		resp, _, err := basicAuthClient.InstallCert(cert.pem)
+		if err != nil {
+			return fmt.Errorf("failed to install CA cert %s in BMC truststore: %w", fingerprint, err)
+		}
+		if resp.StatusCode() != http.StatusOK {
+			return fmt.Errorf("failed to install CA cert %s in BMC truststore, unexpected response status: %s", fingerprint, resp.Status())
+		}
+		log.Info("Installed DPF CA certificate in BMC truststore", "fingerprint", fingerprint)
+	}
+
+	for fingerprint, cert := range installedByFingerprint {
+		if _, keep := desiredByFingerprint[fingerprint]; keep {
+			continue
+		}
+		resp, _, err := basicAuthClient.DeleteTruststoreCert(cert.URI)
+		if err != nil {
+			return fmt.Errorf("failed to delete stale CA cert %s (%s) from BMC truststore: %w", fingerprint, cert.URI, err)
+		}
+		if resp.StatusCode() != http.StatusOK &&
+			resp.StatusCode() != http.StatusAccepted &&
+			resp.StatusCode() != http.StatusNoContent &&
+			resp.StatusCode() != http.StatusNotFound {
+			return fmt.Errorf("failed to delete stale CA cert %s (%s) from BMC truststore, unexpected response status: %s", fingerprint, cert.URI, resp.Status())
+		}
+		log.Info("Removed stale CA certificate from BMC truststore", "fingerprint", fingerprint, "uri", cert.URI)
+	}
+
+	return nil
+}
+
+// createServerCertFromCSR asks the BMC for a fresh CSR and creates the fixed-name CertificateRequest.
+// Issuance is asynchronous, so it always returns a retryable "not issued yet" error on success.
+func (r *DPUDeviceReconciler) createServerCertFromCSR(ctx context.Context, dpudevice *provisioningv1.DPUDevice, basicAuthClient *rfclient.Client) (bool, error) {
+	if dpudevice.Status.BMCIP == nil {
+		return false, fmt.Errorf("cannot generate CSR: DPUDevice %s has no BMCIP set", dpudevice.Name)
+	}
+	resp, csrInfo, err := basicAuthClient.GenerateCSR(*dpudevice.Status.BMCIP)
+	if err != nil {
+		return true, fmt.Errorf("failed to generate CSR, err: %v", err)
+	} else if resp.StatusCode() != http.StatusOK {
+		return true, fmt.Errorf("failed to generate CSR, unexpected response status: %s", resp.Status())
+	}
+	if err := r.createServerCertCR(ctx, dpudevice, csrInfo.CSRString); err != nil {
+		return false, fmt.Errorf("failed to create cert-manager CertificateRequest, err: %v", err)
+	}
+	log.FromContext(ctx).Info("successfully created cert-manager CertificateRequest")
+	return false, fmt.Errorf("cert-manager CertificateRequest is not issued yet, retry later")
+}
+
+// issuedServerCertUsableForBMC reports whether certPEM (the leaf from a CertificateRequest status)
+// can be installed for the current BMC: it must chain to the current DPF CA trust bundle and pin
+// expectedHost (BMC IP) as an IP SAN, DNS SAN, or Common Name. A failure means the
+// CertificateRequest must be regenerated.
+//
+// x509.Verify also rejects expired certificates. That is intentional here: setUpMTLS only runs when
+// NewTLSClient already failed (wrong CA, expired leaf, or identity mismatch), and
+// reconcileServerCertRotation cannot renew without a working mTLS connection, so bootstrap must
+// reissue in all of those cases.
+func issuedServerCertUsableForBMC(certPEM, caBundlePEM []byte, expectedHost string) error {
+	block, _ := pem.Decode(certPEM)
+	if block == nil {
+		return fmt.Errorf("no PEM certificate in CertificateRequest status")
+	}
+	leaf, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return fmt.Errorf("failed to parse CertificateRequest certificate: %w", err)
+	}
+	roots := x509.NewCertPool()
+	if !roots.AppendCertsFromPEM(caBundlePEM) {
+		return fmt.Errorf("failed to load current DPF CA pool")
+	}
+	if _, err := leaf.Verify(x509.VerifyOptions{Roots: roots}); err != nil {
+		return fmt.Errorf("issued server certificate does not chain to current DPF CA: %w", err)
+	}
+	if err := rfclient.VerifyBMCIdentity(leaf, expectedHost); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (r *DPUDeviceReconciler) getBootstrapCACert(ctx context.Context, namespace string) ([]byte, error) {
 	caTrustBundle := &corev1.ConfigMap{}
 	if err := r.Client.Get(ctx, types.NamespacedName{Name: rfclient.CATrustBundleConfigMap, Namespace: namespace}, caTrustBundle); err != nil {
@@ -976,6 +1088,9 @@ func (r *DPUDeviceReconciler) getBootstrapCACert(ctx context.Context, namespace 
 	return bundle, nil
 }
 
+// generateCR builds a cert-manager CertificateRequest for the BMC server certificate. The CR uses
+// a fixed, deterministic name (<dpudevice.Name>-server) and is owner-referenced to the DPUDevice so
+// cert-manager objects are cleaned up on deletion.
 func (r *DPUDeviceReconciler) generateCR(dpudevice *provisioningv1.DPUDevice, csr string) (*unstructured.Unstructured, error) {
 	cr := &unstructured.Unstructured{}
 	cr.SetGroupVersionKind(schema.GroupVersionKind{
@@ -1109,8 +1224,16 @@ func (r *DPUDeviceReconciler) reconcileServerCertRotation(ctx context.Context, d
 	bmcAddress := dpuDevice.BMCAddress()
 	mtlsClient, err := rfclient.NewTLSClient(ctx, bmcAddress, dpuDevice.Namespace, r.Client)
 	if err != nil {
-		// Do not auto re-bootstrap: bootstrap uses basic auth and is privileged, so it must be
-		// operator-initiated (delete + recreate the DPUDevice) rather than triggered automatically.
+		// A server-certificate verification failure cannot be healed over mTLS: rotation needs a
+		// verified mTLS connection, which is exactly what is broken. Re-run setUpMTLS over basic
+		// auth only — do not clear Initialized / re-enter initializeDPUDevice, which can factory-
+		// reset the BMC on ReplaceServerCert failures.
+		if rfclient.IsBMCServerCertUntrusted(err) {
+			return r.recoverServerCert(ctx, dpuDevice, serverCertStatus, err)
+		}
+		if rfclient.IsRedfishClientCertStale(err) {
+			return r.recoverRedfishClientCert(ctx, dpuDevice, err)
+		}
 		log.Error(err, "failed to open mTLS client for server cert rotation")
 		conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceBMCServerCertificateReady,
 			conditions.ConditionReason(provisioningv1.ReasonBMCServerCertificateRotationFailed),
@@ -1153,6 +1276,93 @@ func (r *DPUDeviceReconciler) reconcileServerCertRotation(ctx context.Context, d
 	conditions.AddTrue(dpuDevice, provisioningv1.ConditionDpuDeviceBMCServerCertificateReady)
 	log.Info("rotated BMC server certificate", "notAfter", issuedNotAfter.Time)
 	return ctrl.Result{RequeueAfter: requeueUntil(issuedNotAfter.Time, renewBefore)}, nil
+}
+
+// recoverRedfishClientCert forces cert-manager to reissue the shared Redfish client certificates
+// when the mounted leaf no longer chains to the current DPF CA (typical after CA replacement).
+// Deleting the target Secrets is the standard cert-manager force-renew path; the Certificate
+// resources recreate them. The controller re-reads the mounted files on the next NewTLSClient call.
+func (r *DPUDeviceReconciler) recoverRedfishClientCert(ctx context.Context, dpuDevice *provisioningv1.DPUDevice, cause error) (ctrl.Result, error) {
+	log := log.FromContext(ctx)
+	log.Info("Redfish client certificate does not chain to current DPF CA; forcing reissue", "err", cause.Error())
+
+	if err := r.forceReissueRedfishClientCerts(ctx, dpuDevice.Namespace); err != nil {
+		conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceBMCServerCertificateReady,
+			conditions.ConditionReason(provisioningv1.ReasonBMCServerCertificateRotationFailed),
+			conditions.ConditionMessage(fmt.Sprintf("failed to reissue Redfish client certificate: %v", err)))
+		return ctrl.Result{RequeueAfter: serverCertRotationBackoff}, nil
+	}
+
+	conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceBMCServerCertificateReady,
+		conditions.ConditionReason(provisioningv1.ReasonRedfishClientCertStale),
+		conditions.ConditionMessage("Redfish client certificate reissue in progress; waiting for mounted secret to update"))
+	return ctrl.Result{RequeueAfter: serverCertIssuanceRequeue}, nil
+}
+
+// forceReissueRedfishClientCerts deletes the Redfish client-cert Secrets so cert-manager Certificate
+// controllers recreate them under the current Issuer/CA. Both BF3 and BF4 secrets are renewed: after
+// a CA replacement either (or both) can be stale, and renewal is rare and idempotent.
+func (r *DPUDeviceReconciler) forceReissueRedfishClientCerts(ctx context.Context, namespace string) error {
+	for _, name := range []string{rfclient.ClientCertSecret, rfclient.ClientCertSecretBF4} {
+		secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}}
+		if err := r.Client.Delete(ctx, secret); err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("failed to delete Secret %s/%s: %w", namespace, name, err)
+		}
+	}
+	return nil
+}
+
+// recoverServerCert re-bootstraps BMC mTLS for an already-initialized DPUDevice whose server
+// certificate no longer verifies against the DPF CA. It runs setUpMTLS over basic auth only and
+// never clears Initialized / re-enters initializeDPUDevice, so ReplaceServerCert failures cannot
+// trigger a BMC factory reset.
+func (r *DPUDeviceReconciler) recoverServerCert(ctx context.Context, dpuDevice *provisioningv1.DPUDevice, serverCertStatus *provisioningv1.CertificateStatus, verifyErr error) (ctrl.Result, error) {
+	log := log.FromContext(ctx)
+	log.Info("BMC server certificate failed verification; re-running setUpMTLS over basic auth", "verifyErr", verifyErr.Error())
+
+	basicAuthClient, err := r.basicAuthClientForRecovery(ctx, dpuDevice)
+	if err != nil {
+		log.Error(err, "failed to authenticate to BMC for mTLS recovery")
+		conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceBMCServerCertificateReady,
+			conditions.ConditionReason(provisioningv1.ReasonBMCServerCertificateRotationFailed),
+			conditions.ConditionMessage(fmt.Sprintf("failed to authenticate to BMC for mTLS recovery: %v", err)))
+		return ctrl.Result{RequeueAfter: serverCertRotationBackoff}, nil
+	}
+
+	// Ignore needBmcReset: recovery must not factory-reset. ReplaceServerCert key mismatches are
+	// healed by deleting the CertificateRequest (done inside setUpMTLS) and retrying.
+	if _, err := r.setUpMTLS(ctx, dpuDevice, basicAuthClient); err != nil {
+		log.Info("BMC mTLS recovery not complete yet", "err", err.Error())
+		conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceBMCServerCertificateReady,
+			conditions.ConditionReason(provisioningv1.ReasonBMCServerCertificateUntrusted),
+			conditions.ConditionMessage(fmt.Sprintf("BMC mTLS recovery in progress: %v", err)))
+		return ctrl.Result{RequeueAfter: serverCertIssuanceRequeue}, nil
+	}
+
+	// Fresh CA-valid server certificate installed. Clear expiry so the next reconcile backfills
+	// notAfter over verified mTLS.
+	serverCertStatus.NotAfter = nil
+	conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceBMCServerCertificateReady,
+		conditions.ConditionReason(provisioningv1.ReasonBMCServerCertificateRotating),
+		conditions.ConditionMessage("BMC mTLS re-bootstrapped; verifying"))
+	log.Info("BMC mTLS setUpMTLS recovery succeeded")
+	return ctrl.Result{RequeueAfter: serverCertIssuanceRequeue}, nil
+}
+
+// basicAuthClientForRecovery resolves the current BMC credential and returns a basic-auth Redfish
+// client. Unlike resolveAndAuthenticateBMC(..., alreadyInitialized=true), it always returns a usable
+// client even when the shared credential is unchanged, because recovery must talk to the BMC over
+// basic auth when mTLS is broken.
+func (r *DPUDeviceReconciler) basicAuthClientForRecovery(ctx context.Context, dpuDevice *provisioningv1.DPUDevice) (*rfclient.Client, error) {
+	cred, err := rfclient.ResolveBMCCredential(ctx, dpuDevice.Namespace, dpuDevice.Spec.BMCCredentialSecretName, r.Client)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve BMC credential: %w", err)
+	}
+	basicAuthClient, _, err := rfclient.VerifyBMCCredential(dpuDevice.BMCAddress(), cred.Password)
+	if err != nil {
+		return nil, fmt.Errorf("failed to authenticate to BMC over basic auth: %w", err)
+	}
+	return basicAuthClient, nil
 }
 
 // backfillServerCertExpiry handles the cold-start case where the BMC already serves a server
