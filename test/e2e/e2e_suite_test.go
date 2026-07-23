@@ -17,6 +17,7 @@ limitations under the License.
 package e2e
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -44,6 +45,7 @@ import (
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -188,6 +190,42 @@ func getEnvVariables() {
 	}
 }
 
+// filterBenignPortForwardErrors wraps the global apimachinery error handlers so
+// that expected SPDY port-forward failures do not clutter the default output. The
+// DPUCluster tunnel (see getDPUClusterClient) is torn down and rebuilt whenever
+// its health check fails, which is routine during upgrades as the Kamaji
+// control-plane pod rolls and DPU network namespaces churn. Each teardown makes
+// client-go call runtime.HandleError, printing "Unhandled Error" lines about
+// forwarding, closed listeners, and closed network namespaces.
+//
+// These are noise, not test failures. Rather than drop them outright they are
+// downgraded to GinkgoWriter, which is only surfaced on spec failure or in
+// verbose mode, so they stay retrievable when debugging a genuine tunnel problem.
+// Every other error is passed through to the default handlers unchanged.
+func filterBenignPortForwardErrors() {
+	benignSubstrings := []string{
+		"an error occurred forwarding",
+		"error closing listener",
+		"network namespace for sandbox",
+	}
+	wrapped := utilruntime.ErrorHandlers
+	utilruntime.ErrorHandlers = []utilruntime.ErrorHandler{
+		func(ctx context.Context, err error, msg string, keysAndValues ...interface{}) {
+			if err != nil {
+				for _, s := range benignSubstrings {
+					if strings.Contains(err.Error(), s) {
+						GinkgoWriter.Printf("benign port-forward error (downgraded): %v\n", err)
+						return
+					}
+				}
+			}
+			for _, fn := range wrapped {
+				fn(ctx, err, msg, keysAndValues...)
+			}
+		},
+	}
+}
+
 // Run e2e tests using the Ginkgo runner.
 func TestE2E(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -197,6 +235,7 @@ func TestE2E(t *testing.T) {
 	_, err = fmt.Fprintf(GinkgoWriter, "E2E Tests Suite starting...\n\n")
 	Expect(err).ToNot(HaveOccurred())
 	ctrl.SetLogger(klog.Background())
+	filterBenignPortForwardErrors()
 
 	Expect(dpuservicev1.AddToScheme(scheme.Scheme)).To(Succeed())
 	Expect(noderesourcesv1.AddToScheme(scheme.Scheme)).To(Succeed())
