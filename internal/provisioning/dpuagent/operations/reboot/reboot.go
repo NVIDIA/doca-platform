@@ -102,7 +102,7 @@ func (h *HandleReboot) ConditionType() string {
 	return "RebootHandled"
 }
 
-func (h *HandleReboot) ShouldSkip(ctx *operations.Context) bool {
+func (h *HandleReboot) ShouldSkip(_ *operations.Context) bool {
 	return false
 }
 
@@ -112,6 +112,12 @@ func (h *HandleReboot) ShouldUpdateStatusBeforeContinue(ctx *operations.Context)
 }
 
 func (h *HandleReboot) Execute(execCtx context.Context, optCtx *operations.Context) error {
+	if optCtx.Options.SkipReboot {
+		optCtx.Status.InitialBootID = nil
+		optCtx.Status.RebootMethod = ptr.To(provisioningv1.RebootMethodNoAction)
+		return nil
+	}
+
 	if isHostlessDPU(optCtx) {
 		optCtx.Status.RebootMethod = ptr.To(provisioningv1.RebootMethodHostlessDPUReboot)
 		return nil

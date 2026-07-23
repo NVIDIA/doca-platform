@@ -54,6 +54,9 @@ func (n *ConfigureNVConfig) ConditionType() string {
 }
 
 func (n *ConfigureNVConfig) ShouldSkip(ctx *operations.Context) bool {
+	if ctx.Options.SkipNVConfig {
+		return true
+	}
 	if ctx.LatestDPU == nil {
 		klog.Error("Latest DPU not retrieved, will return error during execution. (this should never happen)")
 		return false

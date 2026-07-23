@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	opts "github.com/nvidia/doca-platform/cmd/dpuagent/opts"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
 	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
 
@@ -226,6 +227,11 @@ var _ = Describe("NVConfig Operation", func() {
 				},
 			}
 			Expect(operation.ShouldSkip(operationCtx)).To(BeTrue())
+		})
+
+		It("should skip when SkipNVConfig is true regardless of NVConfig condition", func() {
+			operation := ConfigureNVConfig{runBash: func(string) (bytes.Buffer, bytes.Buffer, error) { return bytes.Buffer{}, bytes.Buffer{}, nil }}
+			Expect(operation.ShouldSkip(&operations.Context{Options: opts.Options{SkipNVConfig: true}})).To(BeTrue())
 		})
 
 		It("should not skip when NVConfig is already configured if RebootMethodDiscovery is true", func() {

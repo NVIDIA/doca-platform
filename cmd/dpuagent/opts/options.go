@@ -63,6 +63,9 @@ type Options struct {
 	SkipRebootMethodDiscovery  bool
 	SkipNodeLabeling           bool
 	SkipAstra                  bool
+	SkipDPUMode                bool
+	SkipNVConfig               bool
+	SkipReboot                 bool
 }
 
 func (o Options) Validate() error {
