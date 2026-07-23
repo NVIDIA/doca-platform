@@ -25,6 +25,7 @@ import (
 	"strings"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	opts "github.com/nvidia/doca-platform/cmd/dpuagent/opts"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/nvconfig"
@@ -44,6 +45,33 @@ const (
 )
 
 var _ = Describe("Reboot", func() {
+	It("should not skip when SkipHWProvisioning is false", func() {
+		h := &HandleReboot{}
+		Expect(h.ShouldSkip(&operations.Context{})).To(BeFalse())
+	})
+
+	It("should not skip when SkipReboot is true", func() {
+		h := &HandleReboot{}
+		Expect(h.ShouldSkip(&operations.Context{Options: opts.Options{SkipReboot: true}})).To(BeFalse())
+	})
+
+	It("should report NoAction when SkipReboot is true", func() {
+		h := &HandleReboot{}
+		optCtx := &operations.Context{
+			Options: opts.Options{SkipReboot: true},
+			Status: provisioningv1.AgentStatus{
+				InitialBootID: ptr.To("previous-boot-id"),
+				RebootMethod:  ptr.To(provisioningv1.RebootMethodUnknown),
+			},
+		}
+
+		err := h.Execute(context.Background(), optCtx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(optCtx.Status.InitialBootID).To(BeNil())
+		Expect(optCtx.Status.RebootMethod).NotTo(BeNil())
+		Expect(*optCtx.Status.RebootMethod).To(Equal(provisioningv1.RebootMethodNoAction))
+	})
+
 	Describe("RebootMethodDiscovery false (boot-ID based)", func() {
 		Context("HandleReboot", func() {
 			It("should reboot the host if DPU ARM has not been booted", func() {

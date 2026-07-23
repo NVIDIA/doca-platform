@@ -123,6 +123,9 @@ func (c *CheckKernelCmdLine) ConditionType() string {
 }
 
 func (c *CheckKernelCmdLine) ShouldSkip(ctx *operations.Context) bool {
+	if ctx.Options.SkipKernelCmdLine {
+		return true
+	}
 	return len(ctx.DPUFlavor.Spec.Grub.KernelParameters) == 0
 }
 

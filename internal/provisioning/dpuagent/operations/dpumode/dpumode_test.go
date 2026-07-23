@@ -24,6 +24,7 @@ import (
 	"strings"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	opts "github.com/nvidia/doca-platform/cmd/dpuagent/opts"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
 	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
 
@@ -33,9 +34,14 @@ import (
 
 var _ = Describe("Ensure Mode", func() {
 	Context("setting DPU mode", func() {
-		It("should never be skipped", func() {
+		It("should not be skipped when SkipHWProvisioning is false", func() {
 			operation := &EnsureMode{}
 			Expect(operation.ShouldSkip(&operations.Context{})).To(BeFalse())
+		})
+
+		It("should be skipped when SkipDPUMode is true", func() {
+			operation := &EnsureMode{}
+			Expect(operation.ShouldSkip(&operations.Context{Options: opts.Options{SkipDPUMode: true}})).To(BeTrue())
 		})
 
 		It("should set BF3 DPU mode to zero-trust", func() {

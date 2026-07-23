@@ -41,7 +41,7 @@ func (d *EnsureMode) ConditionType() string {
 }
 
 func (d *EnsureMode) ShouldSkip(ctx *operations.Context) bool {
-	return false
+	return ctx.Options.SkipDPUMode
 }
 
 func (d *EnsureMode) ShouldUpdateStatusBeforeContinue(ctx *operations.Context) bool {
