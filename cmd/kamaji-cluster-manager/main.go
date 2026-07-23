@@ -29,6 +29,7 @@ import (
 	"github.com/nvidia/doca-platform/pkg/health"
 	kamajiv1 "github.com/nvidia/doca-platform/third_party/forked/github.com/clastix/kamaji/api/v1alpha1"
 
+	storagemigrationv1 "k8s.io/api/storagemigration/v1beta1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -53,6 +54,8 @@ func init() {
 	utilruntime.Must(kamajiv1.AddToScheme(scheme))
 
 	utilruntime.Must(operatorv1.AddToScheme(scheme))
+
+	utilruntime.Must(storagemigrationv1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -140,10 +143,12 @@ func main() {
 	}
 
 	ctx := ctrl.SetupSignalHandler()
+	recorder := mgr.GetEventRecorderFor("kamaji-cluster-manager")
 	if err = (&controller.DPUClusterReconciler{
-		Client:         mgr.GetClient(),
-		Scheme:         mgr.GetScheme(),
-		ClusterHandler: kamajicm.NewHandler(mgr.GetClient(), mgr.GetScheme(), keepalivedImage),
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+		ClusterHandler: kamajicm.NewHandler(mgr.GetClient(), mgr.GetScheme(), keepalivedImage,
+			kamajicm.WithEventRecorder(recorder)),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DPUCluster")
 		os.Exit(1)
