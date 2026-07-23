@@ -12,7 +12,7 @@
     uid:
       - metadata
       - uid
-  metricNamePrefix: dpustoragevendor
+  metricNamePrefix: dpf_dpustoragevendor
   metrics:
     - name: created
       help: Unix creation timestamp.

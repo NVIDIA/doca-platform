@@ -107,7 +107,7 @@ func ValidateDPUServiceNADConsumedByPod(ctx context.Context, input *systemTestIn
 func ValidateDPUServiceNADMetrics(ctx context.Context) {
 	By("Verify DPUServiceNAD metrics in KSM")
 	expectedMetricsNames := map[string][]string{
-		"dpuservicenad": {"created", "info", "status_conditions", "status_condition_last_transition_time"},
+		"dpf_dpuservicenad": {"created", "info", "status_conditions", "status_condition_last_transition_time"},
 	}
 
 	Eventually(func(g Gomega) {

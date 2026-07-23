@@ -115,7 +115,7 @@
             "xTickLabelSpacing": 0
           },
           "pluginVersion": "12.3.0",
-          "repeat": "dpu_conditions",
+          "repeat": "dpf_dpu_conditions",
           "repeatDirection": "h",
           "targets": [
             {
@@ -125,14 +125,14 @@
               },
               "editorMode": "code",
               "exemplar": false,
-              "expr": "max(dpu_status_condition_last_transition_time{status=\"True\",type=\"$dpu_conditions\"} - on(uid) group_left () dpu_created{}) by (uid, name)",
+              "expr": "max(dpf_dpu_status_condition_last_transition_time{status=\"True\",type=\"$dpf_dpu_conditions\"} - on(uid) group_left () dpf_dpu_created{}) by (uid, name)",
               "instant": true,
               "legendFormat": "{{name}}",
               "range": false,
               "refId": "A"
             }
           ],
-          "title": "DPU time until $dpu_conditions since creationTimestamp",
+          "title": "DPU time until $dpf_dpu_conditions since creationTimestamp",
           "type": "barchart"
         }
       ],
@@ -233,7 +233,7 @@
             "xTickLabelSpacing": 0
           },
           "pluginVersion": "12.3.0",
-          "repeat": "dpfoperatorconfig_conditions",
+          "repeat": "dpf_dpfoperatorconfig_conditions",
           "repeatDirection": "h",
           "targets": [
             {
@@ -243,14 +243,14 @@
               },
               "editorMode": "code",
               "exemplar": false,
-              "expr": "max(dpfoperatorconfig_status_condition_last_transition_time{status=\"True\",type=\"$dpfoperatorconfig_conditions\"} - on(uid) group_left () dpfoperatorconfig_created{}) by (uid, name)",
+              "expr": "max(dpf_dpfoperatorconfig_status_condition_last_transition_time{status=\"True\",type=\"$dpf_dpfoperatorconfig_conditions\"} - on(uid) group_left () dpf_dpfoperatorconfig_created{}) by (uid, name)",
               "instant": true,
               "legendFormat": "{{name}}",
               "range": false,
               "refId": "A"
             }
           ],
-          "title": "DPFOperatorConfig time until $dpfoperatorconfig_conditions since creationTimestamp",
+          "title": "DPFOperatorConfig time until $dpf_dpfoperatorconfig_conditions since creationTimestamp",
           "type": "barchart"
         }
       ],
@@ -351,7 +351,7 @@
             "xTickLabelSpacing": 0
           },
           "pluginVersion": "12.3.0",
-          "repeat": "dpucluster_conditions",
+          "repeat": "dpf_dpucluster_conditions",
           "repeatDirection": "h",
           "targets": [
             {
@@ -361,14 +361,14 @@
               },
               "editorMode": "code",
               "exemplar": false,
-              "expr": "max(dpucluster_status_condition_last_transition_time{status=\"True\",type=\"$dpucluster_conditions\"} - on(uid) group_left () dpucluster_created{}) by (uid, name)",
+              "expr": "max(dpf_dpucluster_status_condition_last_transition_time{status=\"True\",type=\"$dpf_dpucluster_conditions\"} - on(uid) group_left () dpf_dpucluster_created{}) by (uid, name)",
               "instant": true,
               "legendFormat": "{{name}}",
               "range": false,
               "refId": "A"
             }
           ],
-          "title": "DPUCluster time until $dpucluster_conditions since creationTimestamp",
+          "title": "DPUCluster time until $dpf_dpucluster_conditions since creationTimestamp",
           "type": "barchart"
         }
       ],
@@ -469,7 +469,7 @@
             "xTickLabelSpacing": 0
           },
           "pluginVersion": "12.3.0",
-          "repeat": "dpudeployment_conditions",
+          "repeat": "dpf_dpudeployment_conditions",
           "repeatDirection": "h",
           "targets": [
             {
@@ -479,14 +479,14 @@
               },
               "editorMode": "code",
               "exemplar": false,
-              "expr": "max(dpudeployment_status_condition_last_transition_time{status=\"True\",type=\"$dpudeployment_conditions\"} - on(uid) group_left () dpudeployment_created{}) by (uid, name)",
+              "expr": "max(dpf_dpudeployment_status_condition_last_transition_time{status=\"True\",type=\"$dpf_dpudeployment_conditions\"} - on(uid) group_left () dpf_dpudeployment_created{}) by (uid, name)",
               "instant": true,
               "legendFormat": "{{name}}",
               "range": false,
               "refId": "A"
             }
           ],
-          "title": "DPUDeployment time until $dpudeployment_conditions since creationTimestamp",
+          "title": "DPUDeployment time until $dpf_dpudeployment_conditions since creationTimestamp",
           "type": "barchart"
         }
       ],
@@ -587,7 +587,7 @@
             "xTickLabelSpacing": 0
           },
           "pluginVersion": "12.3.0",
-          "repeat": "dpuservice_conditions",
+          "repeat": "dpf_dpuservice_conditions",
           "repeatDirection": "h",
           "targets": [
             {
@@ -597,14 +597,14 @@
               },
               "editorMode": "code",
               "exemplar": false,
-              "expr": "max(dpuservice_status_condition_last_transition_time{status=\"True\",type=\"$dpuservice_conditions\"} - on(uid) group_left () dpuservice_created{}) by (uid, name)",
+              "expr": "max(dpf_dpuservice_status_condition_last_transition_time{status=\"True\",type=\"$dpf_dpuservice_conditions\"} - on(uid) group_left () dpf_dpuservice_created{}) by (uid, name)",
               "instant": true,
               "legendFormat": "{{name}}",
               "range": false,
               "refId": "A"
             }
           ],
-          "title": "DPUService time until $dpuservice_conditions since creationTimestamp",
+          "title": "DPUService time until $dpf_dpuservice_conditions since creationTimestamp",
           "type": "barchart"
         }
       ],
@@ -705,7 +705,7 @@
             "xTickLabelSpacing": 0
           },
           "pluginVersion": "12.3.0",
-          "repeat": "dpuservicecredentialrequest_conditions",
+          "repeat": "dpf_dpuservicecredentialrequest_conditions",
           "repeatDirection": "h",
           "targets": [
             {
@@ -715,14 +715,14 @@
               },
               "editorMode": "code",
               "exemplar": false,
-              "expr": "max(dpuservicecredentialrequest_status_condition_last_transition_time{status=\"True\",type=\"$dpuservicecredentialrequest_conditions\"} - on(uid) group_left () dpuservicecredentialrequest_created{}) by (uid, name)",
+              "expr": "max(dpf_dpuservicecredentialrequest_status_condition_last_transition_time{status=\"True\",type=\"$dpf_dpuservicecredentialrequest_conditions\"} - on(uid) group_left () dpf_dpuservicecredentialrequest_created{}) by (uid, name)",
               "instant": true,
               "legendFormat": "{{name}}",
               "range": false,
               "refId": "A"
             }
           ],
-          "title": "DPUServiceCredentialRequest time until $dpuservicecredentialrequest_conditions since creationTimestamp",
+          "title": "DPUServiceCredentialRequest time until $dpf_dpuservicecredentialrequest_conditions since creationTimestamp",
           "type": "barchart"
         }
       ],
@@ -823,7 +823,7 @@
             "xTickLabelSpacing": 0
           },
           "pluginVersion": "12.3.0",
-          "repeat": "dpuservicechain_conditions",
+          "repeat": "dpf_dpuservicechain_conditions",
           "repeatDirection": "h",
           "targets": [
             {
@@ -833,14 +833,14 @@
               },
               "editorMode": "code",
               "exemplar": false,
-              "expr": "max(dpuservicechain_status_condition_last_transition_time{status=\"True\",type=\"$dpuservicechain_conditions\"} - on(uid) group_left () dpuservicechain_created{}) by (uid, name)",
+              "expr": "max(dpf_dpuservicechain_status_condition_last_transition_time{status=\"True\",type=\"$dpf_dpuservicechain_conditions\"} - on(uid) group_left () dpf_dpuservicechain_created{}) by (uid, name)",
               "instant": true,
               "legendFormat": "{{name}}",
               "range": false,
               "refId": "A"
             }
           ],
-          "title": "DPUServiceChain time until $dpuservicechain_conditions since creationTimestamp",
+          "title": "DPUServiceChain time until $dpf_dpuservicechain_conditions since creationTimestamp",
           "type": "barchart"
         }
       ],
@@ -941,7 +941,7 @@
             "xTickLabelSpacing": 0
           },
           "pluginVersion": "12.3.0",
-          "repeat": "dpuserviceinterface_conditions",
+          "repeat": "dpf_dpuserviceinterface_conditions",
           "repeatDirection": "h",
           "targets": [
             {
@@ -951,14 +951,14 @@
               },
               "editorMode": "code",
               "exemplar": false,
-              "expr": "max(dpuserviceinterface_status_condition_last_transition_time{status=\"True\",type=\"$dpuserviceinterface_conditions\"} - on(uid) group_left () dpuserviceinterface_created{}) by (uid, name)",
+              "expr": "max(dpf_dpuserviceinterface_status_condition_last_transition_time{status=\"True\",type=\"$dpf_dpuserviceinterface_conditions\"} - on(uid) group_left () dpf_dpuserviceinterface_created{}) by (uid, name)",
               "instant": true,
               "legendFormat": "{{name}}",
               "range": false,
               "refId": "A"
             }
           ],
-          "title": "DPUServiceInterface time until $dpuserviceinterface_conditions since creationTimestamp",
+          "title": "DPUServiceInterface time until $dpf_dpuserviceinterface_conditions since creationTimestamp",
           "type": "barchart"
         }
       ],
@@ -1059,7 +1059,7 @@
             "xTickLabelSpacing": 0
           },
           "pluginVersion": "12.3.0",
-          "repeat": "dpuserviceipam_conditions",
+          "repeat": "dpf_dpuserviceipam_conditions",
           "repeatDirection": "h",
           "targets": [
             {
@@ -1069,14 +1069,14 @@
               },
               "editorMode": "code",
               "exemplar": false,
-              "expr": "max(dpuserviceipam_status_condition_last_transition_time{status=\"True\",type=\"$dpuserviceipam_conditions\"} - on(uid) group_left () dpuserviceipam_created{}) by (uid, name)",
+              "expr": "max(dpf_dpuserviceipam_status_condition_last_transition_time{status=\"True\",type=\"$dpf_dpuserviceipam_conditions\"} - on(uid) group_left () dpf_dpuserviceipam_created{}) by (uid, name)",
               "instant": true,
               "legendFormat": "{{name}}",
               "range": false,
               "refId": "A"
             }
           ],
-          "title": "DPUServiceIPAM time until $dpuserviceipam_conditions since creationTimestamp",
+          "title": "DPUServiceIPAM time until $dpf_dpuserviceipam_conditions since creationTimestamp",
           "type": "barchart"
         }
       ],
@@ -1177,7 +1177,7 @@
             "xTickLabelSpacing": 0
           },
           "pluginVersion": "12.3.0",
-          "repeat": "dpudevice_conditions",
+          "repeat": "dpf_dpudevice_conditions",
           "repeatDirection": "h",
           "targets": [
             {
@@ -1187,14 +1187,14 @@
               },
               "editorMode": "code",
               "exemplar": false,
-              "expr": "max(dpudevice_status_condition_last_transition_time{status=\"True\",type=\"$dpudevice_conditions\"} - on(uid) group_left () dpudevice_created{}) by (uid, name)",
+              "expr": "max(dpf_dpudevice_status_condition_last_transition_time{status=\"True\",type=\"$dpf_dpudevice_conditions\"} - on(uid) group_left () dpf_dpudevice_created{}) by (uid, name)",
               "instant": true,
               "legendFormat": "{{name}}",
               "range": false,
               "refId": "A"
             }
           ],
-          "title": "DPUDevice time until $dpudevice_conditions since creationTimestamp",
+          "title": "DPUDevice time until $dpf_dpudevice_conditions since creationTimestamp",
           "type": "barchart"
         }
       ],
@@ -1295,7 +1295,7 @@
             "xTickLabelSpacing": 0
           },
           "pluginVersion": "12.3.0",
-          "repeat": "dpunode_conditions",
+          "repeat": "dpf_dpunode_conditions",
           "repeatDirection": "h",
           "targets": [
             {
@@ -1305,14 +1305,14 @@
               },
               "editorMode": "code",
               "exemplar": false,
-              "expr": "max(dpunode_status_condition_last_transition_time{status=\"True\",type=\"$dpunode_conditions\"} - on(uid) group_left () dpunode_created{}) by (uid, name)",
+              "expr": "max(dpf_dpunode_status_condition_last_transition_time{status=\"True\",type=\"$dpf_dpunode_conditions\"} - on(uid) group_left () dpf_dpunode_created{}) by (uid, name)",
               "instant": true,
               "legendFormat": "{{name}}",
               "range": false,
               "refId": "A"
             }
           ],
-          "title": "DPUNode time until $dpunode_conditions since creationTimestamp",
+          "title": "DPUNode time until $dpf_dpunode_conditions since creationTimestamp",
           "type": "barchart"
         }
       ],
@@ -1413,7 +1413,7 @@
             "xTickLabelSpacing": 0
           },
           "pluginVersion": "12.3.0",
-          "repeat": "dpunodemaintenance_conditions",
+          "repeat": "dpf_dpunodemaintenance_conditions",
           "repeatDirection": "h",
           "targets": [
             {
@@ -1423,14 +1423,14 @@
               },
               "editorMode": "code",
               "exemplar": false,
-              "expr": "max(dpunodemaintenance_status_condition_last_transition_time{status=\"True\",type=\"$dpunodemaintenance_conditions\"} - on(uid) group_left () dpunodemaintenance_created{}) by (uid, name)",
+              "expr": "max(dpf_dpunodemaintenance_status_condition_last_transition_time{status=\"True\",type=\"$dpf_dpunodemaintenance_conditions\"} - on(uid) group_left () dpf_dpunodemaintenance_created{}) by (uid, name)",
               "instant": true,
               "legendFormat": "{{name}}",
               "range": false,
               "refId": "A"
             }
           ],
-          "title": "DPUNodeMaintenance time until $dpunodemaintenance_conditions since creationTimestamp",
+          "title": "DPUNodeMaintenance time until $dpf_dpunodemaintenance_conditions since creationTimestamp",
           "type": "barchart"
         }
       ],
@@ -1531,7 +1531,7 @@
             "xTickLabelSpacing": 0
           },
           "pluginVersion": "12.3.0",
-          "repeat": "dpuservicenad_conditions",
+          "repeat": "dpf_dpuservicenad_conditions",
           "repeatDirection": "h",
           "targets": [
             {
@@ -1541,14 +1541,14 @@
               },
               "editorMode": "code",
               "exemplar": false,
-              "expr": "max(dpuservicenad_status_condition_last_transition_time{status=\"True\",type=\"$dpuservicenad_conditions\"} - on(uid) group_left () dpuservicenad_created{}) by (uid, name)",
+              "expr": "max(dpf_dpuservicenad_status_condition_last_transition_time{status=\"True\",type=\"$dpf_dpuservicenad_conditions\"} - on(uid) group_left () dpf_dpuservicenad_created{}) by (uid, name)",
               "instant": true,
               "legendFormat": "{{name}}",
               "range": false,
               "refId": "A"
             }
           ],
-          "title": "DPUServiceNAD time until $dpuservicenad_conditions since creationTimestamp",
+          "title": "DPUServiceNAD time until $dpf_dpuservicenad_conditions since creationTimestamp",
           "type": "barchart"
         }
       ],
@@ -1649,7 +1649,7 @@
             "xTickLabelSpacing": 0
           },
           "pluginVersion": "12.3.0",
-          "repeat": "dpuset_conditions",
+          "repeat": "dpf_dpuset_conditions",
           "repeatDirection": "h",
           "targets": [
             {
@@ -1659,14 +1659,14 @@
               },
               "editorMode": "code",
               "exemplar": false,
-              "expr": "max(dpuset_status_condition_last_transition_time{status=\"True\",type=\"$dpuset_conditions\"} - on(uid) group_left () dpuset_created{}) by (uid, name)",
+              "expr": "max(dpf_dpuset_status_condition_last_transition_time{status=\"True\",type=\"$dpf_dpuset_conditions\"} - on(uid) group_left () dpf_dpuset_created{}) by (uid, name)",
               "instant": true,
               "legendFormat": "{{name}}",
               "range": false,
               "refId": "A"
             }
           ],
-          "title": "DPUSet time until $dpuset_conditions since creationTimestamp",
+          "title": "DPUSet time until $dpf_dpuset_conditions since creationTimestamp",
           "type": "barchart"
         }
       ],
@@ -1767,7 +1767,7 @@
             "xTickLabelSpacing": 0
           },
           "pluginVersion": "12.3.0",
-          "repeat": "dpustoragepolicy_conditions",
+          "repeat": "dpf_dpustoragepolicy_conditions",
           "repeatDirection": "h",
           "targets": [
             {
@@ -1777,14 +1777,14 @@
               },
               "editorMode": "code",
               "exemplar": false,
-              "expr": "max(dpustoragepolicy_status_condition_last_transition_time{status=\"True\",type=\"$dpustoragepolicy_conditions\"} - on(uid) group_left () dpustoragepolicy_created{}) by (uid, name)",
+              "expr": "max(dpf_dpustoragepolicy_status_condition_last_transition_time{status=\"True\",type=\"$dpf_dpustoragepolicy_conditions\"} - on(uid) group_left () dpf_dpustoragepolicy_created{}) by (uid, name)",
               "instant": true,
               "legendFormat": "{{name}}",
               "range": false,
               "refId": "A"
             }
           ],
-          "title": "DPUStoragePolicy time until $dpustoragepolicy_conditions since creationTimestamp",
+          "title": "DPUStoragePolicy time until $dpf_dpustoragepolicy_conditions since creationTimestamp",
           "type": "barchart"
         }
       ],
@@ -1885,7 +1885,7 @@
             "xTickLabelSpacing": 0
           },
           "pluginVersion": "12.3.0",
-          "repeat": "dpustoragevendor_conditions",
+          "repeat": "dpf_dpustoragevendor_conditions",
           "repeatDirection": "h",
           "targets": [
             {
@@ -1895,14 +1895,14 @@
               },
               "editorMode": "code",
               "exemplar": false,
-              "expr": "max(dpustoragevendor_status_condition_last_transition_time{status=\"True\",type=\"$dpustoragevendor_conditions\"} - on(uid) group_left () dpustoragevendor_created{}) by (uid, name)",
+              "expr": "max(dpf_dpustoragevendor_status_condition_last_transition_time{status=\"True\",type=\"$dpf_dpustoragevendor_conditions\"} - on(uid) group_left () dpf_dpustoragevendor_created{}) by (uid, name)",
               "instant": true,
               "legendFormat": "{{name}}",
               "range": false,
               "refId": "A"
             }
           ],
-          "title": "DPUStorageVendor time until $dpustoragevendor_conditions since creationTimestamp",
+          "title": "DPUStorageVendor time until $dpf_dpustoragevendor_conditions since creationTimestamp",
           "type": "barchart"
         }
       ],
@@ -2003,7 +2003,7 @@
             "xTickLabelSpacing": 0
           },
           "pluginVersion": "12.3.0",
-          "repeat": "dpuvolume_conditions",
+          "repeat": "dpf_dpuvolume_conditions",
           "repeatDirection": "h",
           "targets": [
             {
@@ -2013,14 +2013,14 @@
               },
               "editorMode": "code",
               "exemplar": false,
-              "expr": "max(dpuvolume_status_condition_last_transition_time{status=\"True\",type=\"$dpuvolume_conditions\"} - on(uid) group_left () dpuvolume_created{}) by (uid, name)",
+              "expr": "max(dpf_dpuvolume_status_condition_last_transition_time{status=\"True\",type=\"$dpf_dpuvolume_conditions\"} - on(uid) group_left () dpf_dpuvolume_created{}) by (uid, name)",
               "instant": true,
               "legendFormat": "{{name}}",
               "range": false,
               "refId": "A"
             }
           ],
-          "title": "DPUVolume time until $dpuvolume_conditions since creationTimestamp",
+          "title": "DPUVolume time until $dpf_dpuvolume_conditions since creationTimestamp",
           "type": "barchart"
         }
       ],
@@ -2121,7 +2121,7 @@
             "xTickLabelSpacing": 0
           },
           "pluginVersion": "12.3.0",
-          "repeat": "dpuvolumeattachment_conditions",
+          "repeat": "dpf_dpuvolumeattachment_conditions",
           "repeatDirection": "h",
           "targets": [
             {
@@ -2131,14 +2131,14 @@
               },
               "editorMode": "code",
               "exemplar": false,
-              "expr": "max(dpuvolumeattachment_status_condition_last_transition_time{status=\"True\",type=\"$dpuvolumeattachment_conditions\"} - on(uid) group_left () dpuvolumeattachment_created{}) by (uid, name)",
+              "expr": "max(dpf_dpuvolumeattachment_status_condition_last_transition_time{status=\"True\",type=\"$dpf_dpuvolumeattachment_conditions\"} - on(uid) group_left () dpf_dpuvolumeattachment_created{}) by (uid, name)",
               "instant": true,
               "legendFormat": "{{name}}",
               "range": false,
               "refId": "A"
             }
           ],
-          "title": "DPUVolumeAttachment time until $dpuvolumeattachment_conditions since creationTimestamp",
+          "title": "DPUVolumeAttachment time until $dpf_dpuvolumeattachment_conditions since creationTimestamp",
           "type": "barchart"
         }
       ],
@@ -2239,7 +2239,7 @@
             "xTickLabelSpacing": 0
           },
           "pluginVersion": "12.3.0",
-          "repeat": "dpuvirtualnetwork_conditions",
+          "repeat": "dpf_dpuvirtualnetwork_conditions",
           "repeatDirection": "h",
           "targets": [
             {
@@ -2249,14 +2249,14 @@
               },
               "editorMode": "code",
               "exemplar": false,
-              "expr": "max(dpuvirtualnetwork_status_condition_last_transition_time{status=\"True\",type=\"$dpuvirtualnetwork_conditions\"} - on(uid) group_left () dpuvirtualnetwork_created{}) by (uid, name)",
+              "expr": "max(dpf_dpuvirtualnetwork_status_condition_last_transition_time{status=\"True\",type=\"$dpf_dpuvirtualnetwork_conditions\"} - on(uid) group_left () dpf_dpuvirtualnetwork_created{}) by (uid, name)",
               "instant": true,
               "legendFormat": "{{name}}",
               "range": false,
               "refId": "A"
             }
           ],
-          "title": "DPUVirtualNetwork time until $dpuvirtualnetwork_conditions since creationTimestamp",
+          "title": "DPUVirtualNetwork time until $dpf_dpuvirtualnetwork_conditions since creationTimestamp",
           "type": "barchart"
         }
       ],
@@ -2357,7 +2357,7 @@
             "xTickLabelSpacing": 0
           },
           "pluginVersion": "12.3.0",
-          "repeat": "dpuvpc_conditions",
+          "repeat": "dpf_dpuvpc_conditions",
           "repeatDirection": "h",
           "targets": [
             {
@@ -2367,14 +2367,14 @@
               },
               "editorMode": "code",
               "exemplar": false,
-              "expr": "max(dpuvpc_status_condition_last_transition_time{status=\"True\",type=\"$dpuvpc_conditions\"} - on(uid) group_left () dpuvpc_created{}) by (uid, name)",
+              "expr": "max(dpf_dpuvpc_status_condition_last_transition_time{status=\"True\",type=\"$dpf_dpuvpc_conditions\"} - on(uid) group_left () dpf_dpuvpc_created{}) by (uid, name)",
               "instant": true,
               "legendFormat": "{{name}}",
               "range": false,
               "refId": "A"
             }
           ],
-          "title": "DPUVPC time until $dpuvpc_conditions since creationTimestamp",
+          "title": "DPUVPC time until $dpf_dpuvpc_conditions since creationTimestamp",
           "type": "barchart"
         }
       ],
@@ -2475,7 +2475,7 @@
             "xTickLabelSpacing": 0
           },
           "pluginVersion": "12.3.0",
-          "repeat": "dpuservicechain_conditions",
+          "repeat": "dpf_dpuservicechain_conditions",
           "repeatDirection": "h",
           "targets": [
             {
@@ -2485,14 +2485,14 @@
               },
               "editorMode": "code",
               "exemplar": false,
-              "expr": "max(servicechain_status_condition_last_transition_time{status=\"True\",type=\"$servicechain_conditions\"} - on(uid) group_left () servicechain_created{}) by (uid, name)",
+              "expr": "max(dpf_servicechain_status_condition_last_transition_time{status=\"True\",type=\"$dpf_servicechain_conditions\"} - on(uid) group_left () dpf_servicechain_created{}) by (uid, name)",
               "instant": true,
               "legendFormat": "{{name}}",
               "range": false,
               "refId": "A"
             }
           ],
-          "title": "ServiceChain time until $servicechain_conditions since creationTimestamp",
+          "title": "ServiceChain time until $dpf_servicechain_conditions since creationTimestamp",
           "type": "barchart"
         }
       ],
@@ -2593,7 +2593,7 @@
             "xTickLabelSpacing": 0
           },
           "pluginVersion": "12.3.0",
-          "repeat": "dpuservicechain_conditions",
+          "repeat": "dpf_dpuservicechain_conditions",
           "repeatDirection": "h",
           "targets": [
             {
@@ -2603,14 +2603,14 @@
               },
               "editorMode": "code",
               "exemplar": false,
-              "expr": "max(servicechainset_status_condition_last_transition_time{status=\"True\",type=\"$servicechainset_conditions\"} - on(uid) group_left () servicechainset_created{}) by (uid, name)",
+              "expr": "max(dpf_servicechainset_status_condition_last_transition_time{status=\"True\",type=\"$dpf_servicechainset_conditions\"} - on(uid) group_left () dpf_servicechainset_created{}) by (uid, name)",
               "instant": true,
               "legendFormat": "{{name}}",
               "range": false,
               "refId": "A"
             }
           ],
-          "title": "ServiceChainSet time until $servicechainset_conditions since creationTimestamp",
+          "title": "ServiceChainSet time until $dpf_servicechainset_conditions since creationTimestamp",
           "type": "barchart"
         }
       ],
@@ -2711,7 +2711,7 @@
             "xTickLabelSpacing": 0
           },
           "pluginVersion": "12.3.0",
-          "repeat": "dpuservicechain_conditions",
+          "repeat": "dpf_dpuservicechain_conditions",
           "repeatDirection": "h",
           "targets": [
             {
@@ -2721,14 +2721,14 @@
               },
               "editorMode": "code",
               "exemplar": false,
-              "expr": "max(serviceinterface_status_condition_last_transition_time{status=\"True\",type=\"$serviceinterface_conditions\"} - on(uid) group_left () serviceinterface_created{}) by (uid, name)",
+              "expr": "max(dpf_serviceinterface_status_condition_last_transition_time{status=\"True\",type=\"$dpf_serviceinterface_conditions\"} - on(uid) group_left () dpf_serviceinterface_created{}) by (uid, name)",
               "instant": true,
               "legendFormat": "{{name}}",
               "range": false,
               "refId": "A"
             }
           ],
-          "title": "ServiceInterface time until $serviceinterface_conditions since creationTimestamp",
+          "title": "ServiceInterface time until $dpf_serviceinterface_conditions since creationTimestamp",
           "type": "barchart"
         }
       ],
@@ -2829,7 +2829,7 @@
             "xTickLabelSpacing": 0
           },
           "pluginVersion": "12.3.0",
-          "repeat": "dpuservicechain_conditions",
+          "repeat": "dpf_dpuservicechain_conditions",
           "repeatDirection": "h",
           "targets": [
             {
@@ -2839,14 +2839,14 @@
               },
               "editorMode": "code",
               "exemplar": false,
-              "expr": "max(serviceinterfaceset_status_condition_last_transition_time{status=\"True\",type=\"$serviceinterfaceset_conditions\"} - on(uid) group_left () serviceinterfaceset_created{}) by (uid, name)",
+              "expr": "max(dpf_serviceinterfaceset_status_condition_last_transition_time{status=\"True\",type=\"$dpf_serviceinterfaceset_conditions\"} - on(uid) group_left () dpf_serviceinterfaceset_created{}) by (uid, name)",
               "instant": true,
               "legendFormat": "{{name}}",
               "range": false,
               "refId": "A"
             }
           ],
-          "title": "ServiceInterfaceSet time until $serviceinterfaceset_conditions since creationTimestamp",
+          "title": "ServiceInterfaceSet time until $dpf_serviceinterfaceset_conditions since creationTimestamp",
           "type": "barchart"
         }
       ],
@@ -2952,7 +2952,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum (dpfoperatorconfig_info)",
+              "expr": "sum (dpf_dpfoperatorconfig_info)",
               "legendFormat": "All",
               "range": true,
               "refId": "A"
@@ -2963,7 +2963,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(dpfoperatorconfig_status_conditions{status=\"True\"} == 1) by (type)",
+              "expr": "sum(dpf_dpfoperatorconfig_status_conditions{status=\"True\"} == 1) by (type)",
               "hide": false,
               "legendFormat": "{{type}}",
               "range": true,
@@ -2975,7 +2975,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(dpfoperatorconfig_status_conditions{status=\"False\"} == 1) by (type)",
+              "expr": "sum(dpf_dpfoperatorconfig_status_conditions{status=\"False\"} == 1) by (type)",
               "hide": false,
               "legendFormat": "{{type}} (False)",
               "range": true,
@@ -3074,7 +3074,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum (dpudeployment_info)",
+              "expr": "sum (dpf_dpudeployment_info)",
               "legendFormat": "All",
               "range": true,
               "refId": "A"
@@ -3085,7 +3085,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(dpudeployment_status_conditions{status=\"True\"} == 1) by (type)",
+              "expr": "sum(dpf_dpudeployment_status_conditions{status=\"True\"} == 1) by (type)",
               "hide": false,
               "legendFormat": "{{type}}",
               "range": true,
@@ -3097,7 +3097,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(dpudeployment_status_conditions{status=\"False\"} == 1) by (type)",
+              "expr": "sum(dpf_dpudeployment_status_conditions{status=\"False\"} == 1) by (type)",
               "hide": false,
               "legendFormat": "{{type}} (False)",
               "range": true,
@@ -3196,7 +3196,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum (dpuservice_info)",
+              "expr": "sum (dpf_dpuservice_info)",
               "legendFormat": "All",
               "range": true,
               "refId": "A"
@@ -3207,7 +3207,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(dpuservice_status_conditions{status=\"True\"} == 1) by (type)",
+              "expr": "sum(dpf_dpuservice_status_conditions{status=\"True\"} == 1) by (type)",
               "hide": false,
               "legendFormat": "{{type}}",
               "range": true,
@@ -3219,7 +3219,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(dpuservice_status_conditions{status=\"False\"} == 1) by (type)",
+              "expr": "sum(dpf_dpuservice_status_conditions{status=\"False\"} == 1) by (type)",
               "hide": false,
               "legendFormat": "{{type}} (False)",
               "range": true,
@@ -3318,7 +3318,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum (dpuservicechain_info)",
+              "expr": "sum (dpf_dpuservicechain_info)",
               "legendFormat": "All",
               "range": true,
               "refId": "A"
@@ -3329,7 +3329,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(dpuservicechain_status_conditions{status=\"True\"} == 1) by (type)",
+              "expr": "sum(dpf_dpuservicechain_status_conditions{status=\"True\"} == 1) by (type)",
               "hide": false,
               "legendFormat": "{{type}}",
               "range": true,
@@ -3341,7 +3341,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(dpuservicechain_status_conditions{status=\"False\"} == 1) by (type)",
+              "expr": "sum(dpf_dpuservicechain_status_conditions{status=\"False\"} == 1) by (type)",
               "hide": false,
               "legendFormat": "{{type}} (False)",
               "range": true,
@@ -3440,7 +3440,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum (dpuserviceinterface_info)",
+              "expr": "sum (dpf_dpuserviceinterface_info)",
               "legendFormat": "All",
               "range": true,
               "refId": "A"
@@ -3451,7 +3451,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(dpuserviceinterface_status_conditions{status=\"True\"} == 1) by (type)",
+              "expr": "sum(dpf_dpuserviceinterface_status_conditions{status=\"True\"} == 1) by (type)",
               "hide": false,
               "legendFormat": "{{type}}",
               "range": true,
@@ -3463,7 +3463,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(dpuserviceinterface_status_conditions{status=\"False\"} == 1) by (type)",
+              "expr": "sum(dpf_dpuserviceinterface_status_conditions{status=\"False\"} == 1) by (type)",
               "hide": false,
               "legendFormat": "{{type}} (False)",
               "range": true,
@@ -3562,7 +3562,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum (dpuserviceipam_info)",
+              "expr": "sum (dpf_dpuserviceipam_info)",
               "legendFormat": "All",
               "range": true,
               "refId": "A"
@@ -3573,7 +3573,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(dpuserviceipam_status_condition{status=\"True\"} == 1) by (type)",
+              "expr": "sum(dpf_dpuserviceipam_status_condition{status=\"True\"} == 1) by (type)",
               "hide": false,
               "legendFormat": "{{type}}",
               "range": true,
@@ -3585,7 +3585,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(dpuserviceipam_status_condition{status=\"False\"} == 1) by (type)",
+              "expr": "sum(dpf_dpuserviceipam_status_condition{status=\"False\"} == 1) by (type)",
               "hide": false,
               "legendFormat": "{{type}} (False)",
               "range": true,
@@ -3684,7 +3684,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum (dpu_info)",
+              "expr": "sum (dpf_dpu_info)",
               "legendFormat": "All",
               "range": true,
               "refId": "A"
@@ -3695,7 +3695,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(dpu_status_conditions{status=\"True\"} == 1) by (type)",
+              "expr": "sum(dpf_dpu_status_conditions{status=\"True\"} == 1) by (type)",
               "hide": false,
               "legendFormat": "{{type}}",
               "range": true,
@@ -3707,7 +3707,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(dpu_status_conditions{status=\"False\"} == 1) by (type)",
+              "expr": "sum(dpf_dpu_status_conditions{status=\"False\"} == 1) by (type)",
               "hide": false,
               "legendFormat": "{{type}} (False)",
               "range": true,
@@ -3806,7 +3806,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum (dpudevice_info)",
+              "expr": "sum (dpf_dpudevice_info)",
               "legendFormat": "All",
               "range": true,
               "refId": "A"
@@ -3817,7 +3817,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(dpudevice_status_conditions{status=\"True\"} == 1) by (type)",
+              "expr": "sum(dpf_dpudevice_status_conditions{status=\"True\"} == 1) by (type)",
               "hide": false,
               "legendFormat": "{{type}}",
               "range": true,
@@ -3829,7 +3829,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(dpudevice_status_conditions{status=\"False\"} == 1) by (type)",
+              "expr": "sum(dpf_dpudevice_status_conditions{status=\"False\"} == 1) by (type)",
               "hide": false,
               "legendFormat": "{{type}} (False)",
               "range": true,
@@ -3928,7 +3928,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum (dpunode_info)",
+              "expr": "sum (dpf_dpunode_info)",
               "legendFormat": "All",
               "range": true,
               "refId": "A"
@@ -3939,7 +3939,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(dpunode_status_conditions{status=\"True\"} == 1) by (type)",
+              "expr": "sum(dpf_dpunode_status_conditions{status=\"True\"} == 1) by (type)",
               "hide": false,
               "legendFormat": "{{type}}",
               "range": true,
@@ -3951,7 +3951,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(dpunode_status_conditions{status=\"False\"} == 1) by (type)",
+              "expr": "sum(dpf_dpunode_status_conditions{status=\"False\"} == 1) by (type)",
               "hide": false,
               "legendFormat": "{{type}} (False)",
               "range": true,
@@ -4050,7 +4050,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum (dpunodemaintenance_info)",
+              "expr": "sum (dpf_dpunodemaintenance_info)",
               "legendFormat": "All",
               "range": true,
               "refId": "A"
@@ -4061,7 +4061,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(dpunodemaintenance_status_conditions{status=\"True\"} == 1) by (type)",
+              "expr": "sum(dpf_dpunodemaintenance_status_conditions{status=\"True\"} == 1) by (type)",
               "hide": false,
               "legendFormat": "{{type}}",
               "range": true,
@@ -4073,7 +4073,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(dpunodemaintenance_status_conditions{status=\"False\"} == 1) by (type)",
+              "expr": "sum(dpf_dpunodemaintenance_status_conditions{status=\"False\"} == 1) by (type)",
               "hide": false,
               "legendFormat": "{{type}} (False)",
               "range": true,
@@ -4172,7 +4172,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum (dpuservicenad_info)",
+              "expr": "sum (dpf_dpuservicenad_info)",
               "legendFormat": "All",
               "range": true,
               "refId": "A"
@@ -4183,7 +4183,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(dpuservicenad_status_conditions{status=\"True\"} == 1) by (type)",
+              "expr": "sum(dpf_dpuservicenad_status_conditions{status=\"True\"} == 1) by (type)",
               "hide": false,
               "legendFormat": "{{type}}",
               "range": true,
@@ -4195,7 +4195,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(dpuservicenad_status_conditions{status=\"False\"} == 1) by (type)",
+              "expr": "sum(dpf_dpuservicenad_status_conditions{status=\"False\"} == 1) by (type)",
               "hide": false,
               "legendFormat": "{{type}} (False)",
               "range": true,
@@ -4294,7 +4294,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum (dpuset_info)",
+              "expr": "sum (dpf_dpuset_info)",
               "legendFormat": "All",
               "range": true,
               "refId": "A"
@@ -4305,7 +4305,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(dpuset_status_conditions{status=\"True\"} == 1) by (type)",
+              "expr": "sum(dpf_dpuset_status_conditions{status=\"True\"} == 1) by (type)",
               "hide": false,
               "legendFormat": "{{type}}",
               "range": true,
@@ -4317,7 +4317,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(dpuset_status_conditions{status=\"False\"} == 1) by (type)",
+              "expr": "sum(dpf_dpuset_status_conditions{status=\"False\"} == 1) by (type)",
               "hide": false,
               "legendFormat": "{{type}} (False)",
               "range": true,
@@ -4416,7 +4416,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum (dpustoragepolicy_info)",
+              "expr": "sum (dpf_dpustoragepolicy_info)",
               "legendFormat": "All",
               "range": true,
               "refId": "A"
@@ -4427,7 +4427,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(dpustoragepolicy_status_conditions{status=\"True\"} == 1) by (type)",
+              "expr": "sum(dpf_dpustoragepolicy_status_conditions{status=\"True\"} == 1) by (type)",
               "hide": false,
               "legendFormat": "{{type}}",
               "range": true,
@@ -4439,7 +4439,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(dpustoragepolicy_status_conditions{status=\"False\"} == 1) by (type)",
+              "expr": "sum(dpf_dpustoragepolicy_status_conditions{status=\"False\"} == 1) by (type)",
               "hide": false,
               "legendFormat": "{{type}} (False)",
               "range": true,
@@ -4538,7 +4538,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum (dpustoragevendor_info)",
+              "expr": "sum (dpf_dpustoragevendor_info)",
               "legendFormat": "All",
               "range": true,
               "refId": "A"
@@ -4549,7 +4549,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(dpustoragevendor_status_conditions{status=\"True\"} == 1) by (type)",
+              "expr": "sum(dpf_dpustoragevendor_status_conditions{status=\"True\"} == 1) by (type)",
               "hide": false,
               "legendFormat": "{{type}}",
               "range": true,
@@ -4561,7 +4561,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(dpustoragevendor_status_conditions{status=\"False\"} == 1) by (type)",
+              "expr": "sum(dpf_dpustoragevendor_status_conditions{status=\"False\"} == 1) by (type)",
               "hide": false,
               "legendFormat": "{{type}} (False)",
               "range": true,
@@ -4660,7 +4660,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum (dpuvolume_info)",
+              "expr": "sum (dpf_dpuvolume_info)",
               "legendFormat": "All",
               "range": true,
               "refId": "A"
@@ -4671,7 +4671,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(dpuvolume_status_conditions{status=\"True\"} == 1) by (type)",
+              "expr": "sum(dpf_dpuvolume_status_conditions{status=\"True\"} == 1) by (type)",
               "hide": false,
               "legendFormat": "{{type}}",
               "range": true,
@@ -4683,7 +4683,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(dpuvolume_status_conditions{status=\"False\"} == 1) by (type)",
+              "expr": "sum(dpf_dpuvolume_status_conditions{status=\"False\"} == 1) by (type)",
               "hide": false,
               "legendFormat": "{{type}} (False)",
               "range": true,
@@ -4782,7 +4782,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum (dpuvolumeattachment_info)",
+              "expr": "sum (dpf_dpuvolumeattachment_info)",
               "legendFormat": "All",
               "range": true,
               "refId": "A"
@@ -4793,7 +4793,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(dpuvolumeattachment_status_conditions{status=\"True\"} == 1) by (type)",
+              "expr": "sum(dpf_dpuvolumeattachment_status_conditions{status=\"True\"} == 1) by (type)",
               "hide": false,
               "legendFormat": "{{type}}",
               "range": true,
@@ -4805,7 +4805,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(dpuvolumeattachment_status_conditions{status=\"False\"} == 1) by (type)",
+              "expr": "sum(dpf_dpuvolumeattachment_status_conditions{status=\"False\"} == 1) by (type)",
               "hide": false,
               "legendFormat": "{{type}} (False)",
               "range": true,
@@ -4904,7 +4904,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum (dpuvirtualnetwork_info)",
+              "expr": "sum (dpf_dpuvirtualnetwork_info)",
               "legendFormat": "All",
               "range": true,
               "refId": "A"
@@ -4915,7 +4915,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(dpuvirtualnetwork_status_conditions{status=\"True\"} == 1) by (type)",
+              "expr": "sum(dpf_dpuvirtualnetwork_status_conditions{status=\"True\"} == 1) by (type)",
               "hide": false,
               "legendFormat": "{{type}}",
               "range": true,
@@ -4927,7 +4927,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(dpuvirtualnetwork_status_conditions{status=\"False\"} == 1) by (type)",
+              "expr": "sum(dpf_dpuvirtualnetwork_status_conditions{status=\"False\"} == 1) by (type)",
               "hide": false,
               "legendFormat": "{{type}} (False)",
               "range": true,
@@ -5026,7 +5026,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum (dpuvpc_info)",
+              "expr": "sum (dpf_dpuvpc_info)",
               "legendFormat": "All",
               "range": true,
               "refId": "A"
@@ -5037,7 +5037,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(dpuvpc_status_conditions{status=\"True\"} == 1) by (type)",
+              "expr": "sum(dpf_dpuvpc_status_conditions{status=\"True\"} == 1) by (type)",
               "hide": false,
               "legendFormat": "{{type}}",
               "range": true,
@@ -5049,7 +5049,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(dpuvpc_status_conditions{status=\"False\"} == 1) by (type)",
+              "expr": "sum(dpf_dpuvpc_status_conditions{status=\"False\"} == 1) by (type)",
               "hide": false,
               "legendFormat": "{{type}} (False)",
               "range": true,
@@ -5162,7 +5162,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(dpu_status_phase == 1) by (phase)",
+              "expr": "sum(dpf_dpu_status_phase == 1) by (phase)",
               "legendFormat": "{{phase}}",
               "range": true,
               "refId": "A"
@@ -5260,7 +5260,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(bfb_status_phase == 1) by (phase)",
+              "expr": "sum(dpf_bfb_status_phase == 1) by (phase)",
               "legendFormat": "{{phase}}",
               "range": true,
               "refId": "A"
@@ -5291,16 +5291,16 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(dpu_status_conditions,type)",
+        "definition": "label_values(dpf_dpu_status_conditions,type)",
         "hide": 2,
         "includeAll": true,
         "label": "DPU Conditions",
         "multi": true,
-        "name": "dpu_conditions",
+        "name": "dpf_dpu_conditions",
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(dpu_status_conditions,type)",
+          "query": "label_values(dpf_dpu_status_conditions,type)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
@@ -5318,16 +5318,16 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(dpuservice_status_conditions,type)",
+        "definition": "label_values(dpf_dpuservice_status_conditions,type)",
         "hide": 2,
         "includeAll": true,
         "label": "DPUService Conditions",
         "multi": true,
-        "name": "dpuservice_conditions",
+        "name": "dpf_dpuservice_conditions",
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(dpuservice_status_conditions,type)",
+          "query": "label_values(dpf_dpuservice_status_conditions,type)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
@@ -5345,16 +5345,16 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(dpfoperatorconfig_status_conditions,type)",
+        "definition": "label_values(dpf_dpfoperatorconfig_status_conditions,type)",
         "hide": 2,
         "includeAll": true,
         "label": "DPFOperatorConfig Conditions",
         "multi": true,
-        "name": "dpfoperatorconfig_conditions",
+        "name": "dpf_dpfoperatorconfig_conditions",
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(dpfoperatorconfig_status_conditions,type)",
+          "query": "label_values(dpf_dpfoperatorconfig_status_conditions,type)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
@@ -5372,16 +5372,16 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(dpuserviceinterface_status_conditions,type)",
+        "definition": "label_values(dpf_dpuserviceinterface_status_conditions,type)",
         "hide": 2,
         "includeAll": true,
         "label": "DPUServiceInterface Conditions",
         "multi": true,
-        "name": "dpuserviceinterface_conditions",
+        "name": "dpf_dpuserviceinterface_conditions",
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(dpuserviceinterface_status_conditions,type)",
+          "query": "label_values(dpf_dpuserviceinterface_status_conditions,type)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
@@ -5399,16 +5399,16 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(dpuservicechain_status_conditions,type)",
+        "definition": "label_values(dpf_dpuservicechain_status_conditions,type)",
         "hide": 2,
         "includeAll": true,
         "label": "DPUServiceChain Conditions",
         "multi": true,
-        "name": "dpuservicechain_conditions",
+        "name": "dpf_dpuservicechain_conditions",
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(dpuservicechain_status_conditions,type)",
+          "query": "label_values(dpf_dpuservicechain_status_conditions,type)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
@@ -5426,16 +5426,16 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(dpuserviceipam_status_conditions,type)",
+        "definition": "label_values(dpf_dpuserviceipam_status_conditions,type)",
         "hide": 2,
         "includeAll": true,
         "label": "DPUServiceIPAM Conditions",
         "multi": true,
-        "name": "dpuserviceipam_conditions",
+        "name": "dpf_dpuserviceipam_conditions",
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(dpuserviceipam_status_conditions,type)",
+          "query": "label_values(dpf_dpuserviceipam_status_conditions,type)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
@@ -5453,16 +5453,16 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(dpudeployment_status_conditions,type)",
+        "definition": "label_values(dpf_dpudeployment_status_conditions,type)",
         "hide": 2,
         "includeAll": true,
         "label": "DPUDeployment Conditions",
         "multi": true,
-        "name": "dpudeployment_conditions",
+        "name": "dpf_dpudeployment_conditions",
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(dpudeployment_status_conditions,type)",
+          "query": "label_values(dpf_dpudeployment_status_conditions,type)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
@@ -5480,16 +5480,16 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(dpuservicecredentialrequest_status_conditions,type)",
+        "definition": "label_values(dpf_dpuservicecredentialrequest_status_conditions,type)",
         "hide": 2,
         "includeAll": true,
         "label": "DPUServiceCredentialRequest Conditions",
         "multi": true,
-        "name": "dpuservicecredentialrequest_conditions",
+        "name": "dpf_dpuservicecredentialrequest_conditions",
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(dpuservicecredentialrequest_status_conditions,type)",
+          "query": "label_values(dpf_dpuservicecredentialrequest_status_conditions,type)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
@@ -5507,16 +5507,16 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(dpucluster_status_conditions,type)",
+        "definition": "label_values(dpf_dpucluster_status_conditions,type)",
         "hide": 2,
         "includeAll": true,
         "label": "DPUCluster Conditions",
         "multi": true,
-        "name": "dpucluster_conditions",
+        "name": "dpf_dpucluster_conditions",
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(dpucluster_status_conditions,type)",
+          "query": "label_values(dpf_dpucluster_status_conditions,type)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
@@ -5534,16 +5534,16 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(dpudevice_status_conditions,type)",
+        "definition": "label_values(dpf_dpudevice_status_conditions,type)",
         "hide": 2,
         "includeAll": true,
         "label": "DPUDevice Conditions",
         "multi": true,
-        "name": "dpudevice_conditions",
+        "name": "dpf_dpudevice_conditions",
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(dpudevice_status_conditions,type)",
+          "query": "label_values(dpf_dpudevice_status_conditions,type)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
@@ -5561,16 +5561,16 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(dpunode_status_conditions,type)",
+        "definition": "label_values(dpf_dpunode_status_conditions,type)",
         "hide": 2,
         "includeAll": true,
         "label": "DPUNode Conditions",
         "multi": true,
-        "name": "dpunode_conditions",
+        "name": "dpf_dpunode_conditions",
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(dpunode_status_conditions,type)",
+          "query": "label_values(dpf_dpunode_status_conditions,type)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
@@ -5586,16 +5586,16 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(dpunodemaintenance_status_conditions,type)",
+        "definition": "label_values(dpf_dpunodemaintenance_status_conditions,type)",
         "hide": 2,
         "includeAll": true,
         "label": "DPUNodeMaintenance Conditions",
         "multi": true,
-        "name": "dpunodemaintenance_conditions",
+        "name": "dpf_dpunodemaintenance_conditions",
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(dpunodemaintenance_status_conditions,type)",
+          "query": "label_values(dpf_dpunodemaintenance_status_conditions,type)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
@@ -5613,16 +5613,16 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(dpuservicenad_status_conditions,type)",
+        "definition": "label_values(dpf_dpuservicenad_status_conditions,type)",
         "hide": 2,
         "includeAll": true,
         "label": "DPUServiceNAD Conditions",
         "multi": true,
-        "name": "dpuservicenad_conditions",
+        "name": "dpf_dpuservicenad_conditions",
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(dpuservicenad_status_conditions,type)",
+          "query": "label_values(dpf_dpuservicenad_status_conditions,type)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
@@ -5640,16 +5640,16 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(dpuset_status_conditions,type)",
+        "definition": "label_values(dpf_dpuset_status_conditions,type)",
         "hide": 2,
         "includeAll": true,
         "label": "DPUSet Conditions",
         "multi": true,
-        "name": "dpuset_conditions",
+        "name": "dpf_dpuset_conditions",
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(dpuset_status_conditions,type)",
+          "query": "label_values(dpf_dpuset_status_conditions,type)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
@@ -5665,16 +5665,16 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(dpustoragepolicy_status_conditions,type)",
+        "definition": "label_values(dpf_dpustoragepolicy_status_conditions,type)",
         "hide": 2,
         "includeAll": true,
         "label": "DPUStoragePolicy Conditions",
         "multi": true,
-        "name": "dpustoragepolicy_conditions",
+        "name": "dpf_dpustoragepolicy_conditions",
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(dpustoragepolicy_status_conditions,type)",
+          "query": "label_values(dpf_dpustoragepolicy_status_conditions,type)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
@@ -5690,16 +5690,16 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(dpustoragevendor_status_conditions,type)",
+        "definition": "label_values(dpf_dpustoragevendor_status_conditions,type)",
         "hide": 2,
         "includeAll": true,
         "label": "DPUStorageVendor Conditions",
         "multi": true,
-        "name": "dpustoragevendor_conditions",
+        "name": "dpf_dpustoragevendor_conditions",
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(dpustoragevendor_status_conditions,type)",
+          "query": "label_values(dpf_dpustoragevendor_status_conditions,type)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
@@ -5715,16 +5715,16 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(dpuvolume_status_conditions,type)",
+        "definition": "label_values(dpf_dpuvolume_status_conditions,type)",
         "hide": 2,
         "includeAll": true,
         "label": "DPUVolume Conditions",
         "multi": true,
-        "name": "dpuvolume_conditions",
+        "name": "dpf_dpuvolume_conditions",
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(dpuvolume_status_conditions,type)",
+          "query": "label_values(dpf_dpuvolume_status_conditions,type)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
@@ -5740,16 +5740,16 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(dpuvolumeattachment_status_conditions,type)",
+        "definition": "label_values(dpf_dpuvolumeattachment_status_conditions,type)",
         "hide": 2,
         "includeAll": true,
         "label": "DPUVolumeAttachment Conditions",
         "multi": true,
-        "name": "dpuvolumeattachment_conditions",
+        "name": "dpf_dpuvolumeattachment_conditions",
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(dpuvolumeattachment_status_conditions,type)",
+          "query": "label_values(dpf_dpuvolumeattachment_status_conditions,type)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
@@ -5765,16 +5765,16 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(dpuvirtualnetwork_status_conditions,type)",
+        "definition": "label_values(dpf_dpuvirtualnetwork_status_conditions,type)",
         "hide": 2,
         "includeAll": true,
         "label": "DPUVirtualNetwork Conditions",
         "multi": true,
-        "name": "dpuvirtualnetwork_conditions",
+        "name": "dpf_dpuvirtualnetwork_conditions",
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(dpuvirtualnetwork_status_conditions,type)",
+          "query": "label_values(dpf_dpuvirtualnetwork_status_conditions,type)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
@@ -5790,16 +5790,16 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(dpuvpc_status_conditions,type)",
+        "definition": "label_values(dpf_dpuvpc_status_conditions,type)",
         "hide": 2,
         "includeAll": true,
         "label": "DPUVPC Conditions",
         "multi": true,
-        "name": "dpuvpc_conditions",
+        "name": "dpf_dpuvpc_conditions",
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(dpuvpc_status_conditions,type)",
+          "query": "label_values(dpf_dpuvpc_status_conditions,type)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
@@ -5815,13 +5815,13 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(servicechain_status_conditions,type)",
+        "definition": "label_values(dpf_servicechain_status_conditions,type)",
         "includeAll": false,
-        "name": "servicechain_conditions",
+        "name": "dpf_servicechain_conditions",
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(servicechain_status_conditions,type)",
+          "query": "label_values(dpf_servicechain_status_conditions,type)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 1,
@@ -5837,13 +5837,13 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(servicechainset_status_conditions,type)",
+        "definition": "label_values(dpf_servicechainset_status_conditions,type)",
         "includeAll": false,
-        "name": "servicechainset_conditions",
+        "name": "dpf_servicechainset_conditions",
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(servicechainset_status_conditions,type)",
+          "query": "label_values(dpf_servicechainset_status_conditions,type)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 1,
@@ -5859,13 +5859,13 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(serviceinterface_status_conditions,type)",
+        "definition": "label_values(dpf_serviceinterface_status_conditions,type)",
         "includeAll": false,
-        "name": "serviceinterface_conditions",
+        "name": "dpf_serviceinterface_conditions",
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(serviceinterface_status_conditions,type)",
+          "query": "label_values(dpf_serviceinterface_status_conditions,type)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 1,
@@ -5881,13 +5881,13 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(serviceinterfaceset_status_conditions,type)",
+        "definition": "label_values(dpf_serviceinterfaceset_status_conditions,type)",
         "includeAll": false,
-        "name": "serviceinterfaceset_conditions",
+        "name": "dpf_serviceinterfaceset_conditions",
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(serviceinterfaceset_status_conditions,type)",
+          "query": "label_values(dpf_serviceinterfaceset_status_conditions,type)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 1,

@@ -400,7 +400,7 @@ prometheus:
       metricRelabelings:
         - sourceLabels: [__name__]
           action: keep
-          regex: (bfb|dpfoperatorconfig|dpu[a-z]*)_.+|kube_pod_info|kube_pod_labels|kube_pod_status_phase|kube_pod_status_ready|kube_pod_container_info|kube_pod_container_status_restarts_total|kube_pod_container_status_waiting_reason|kube_(cronjob|daemonset|deployment|endpoint|job|namespace|node|persistentvolumeclaim|persistentvolume|replicaset|resourcequota|service|statefulset)(_.+)?
+          regex: dpf_(bfb|dpfoperatorconfig|dpu[a-z]*)_.+|kube_pod_info|kube_pod_labels|kube_pod_status_phase|kube_pod_status_ready|kube_pod_container_info|kube_pod_container_status_restarts_total|kube_pod_container_status_waiting_reason|kube_(cronjob|daemonset|deployment|endpoint|job|namespace|node|persistentvolumeclaim|persistentvolume|replicaset|resourcequota|service|statefulset)(_.+)?
 rbac:
   extraRules:
     - apiGroups:

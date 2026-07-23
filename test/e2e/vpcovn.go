@@ -484,8 +484,8 @@ func createDummyDPUService(ctx context.Context, testClient client.Client, namesp
 func validateVPCMetrics(ctx context.Context) {
 	By("Verify DPUVPC and DPUVirtualNetwork metrics in KSM")
 	expectedMetricsNames := map[string][]string{
-		"dpuvpc":            {"created", "info", "inter_network_access", "status_conditions", "status_condition_last_transition_time"},
-		"dpuvirtualnetwork": {"created", "info", "externally_routed", "masquerade", "status_conditions", "status_condition_last_transition_time"},
+		"dpf_dpuvpc":            {"created", "info", "inter_network_access", "status_conditions", "status_condition_last_transition_time"},
+		"dpf_dpuvirtualnetwork": {"created", "info", "externally_routed", "masquerade", "status_conditions", "status_condition_last_transition_time"},
 	}
 
 	Eventually(func(g Gomega) {

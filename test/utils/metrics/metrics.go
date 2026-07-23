@@ -77,10 +77,24 @@ func VerifyMetrics(expectedMetrics map[string][]string, actualMetrics map[string
 	return diffMetrics
 }
 
-// addMetricToMap Adds metric to the map, transforms full_name to pref[name], appends only unique entries
+// addMetricToMap Adds metric to the map, transforms full_name to pref[name], appends only unique entries.
+// For dpf_ prefixed metrics, the key is dpf_<resource> (two segments) so that all DPF resource types
+// remain distinct in the map (e.g. dpf_dpu, dpf_dpucluster, dpf_bfb).
 func addMetricToMap(metricMap map[string][]string, fullName string) map[string][]string {
-	pref := strings.Split(fullName, "_")[0]
-	name := fullName[len(pref+"_"):]
+	var pref, name string
+	if strings.HasPrefix(fullName, "dpf_") {
+		rest := fullName[len("dpf_"):]
+		if sep := strings.Index(rest, "_"); sep >= 0 {
+			pref = "dpf_" + rest[:sep]
+			name = rest[sep+1:]
+		} else {
+			pref = fullName
+			name = ""
+		}
+	} else {
+		pref = strings.Split(fullName, "_")[0]
+		name = fullName[len(pref+"_"):]
+	}
 	if !slices.Contains(metricMap[pref], name) {
 		metricMap[pref] = append(metricMap[pref], name)
 	}
