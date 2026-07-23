@@ -695,6 +695,21 @@ func keepMetricsRelabeling(regex string) map[string]interface{} {
 	}
 }
 
+// renameToDPFPrefixRelabeling returns a metric relabeling that renames all
+// metrics by prepending "dpf_", so that DPU cluster control-plane metrics are
+// clearly namespaced as DPF metrics in the management cluster's Prometheus.
+func renameToDPFPrefixRelabeling() map[string]interface{} {
+	return map[string]interface{}{
+		"action": "replace",
+		"regex":  "(.+)",
+		"sourceLabels": []interface{}{
+			"__name__",
+		},
+		"targetLabel": "__name__",
+		"replacement": "dpf_${1}",
+	}
+}
+
 // apiserverMetricsClientSecretName returns the conventional Kamaji Secret name used in ServiceMonitor configuration.
 func apiserverMetricsClientSecretName(dc metav1.Object) string {
 	return dc.GetName() + "-api-server-kubelet-client-certificate"
@@ -754,6 +769,9 @@ func getServiceMonitorResource(dc *provisioningv1.DPUCluster, gvk schema.GroupVe
 							"le",
 						},
 					},
+					// Prefix all metrics with dpf_ so DPU cluster control-plane
+					// metrics are namespaced in the management cluster's Prometheus.
+					renameToDPFPrefixRelabeling(),
 				},
 				"relabelings": []interface{}{
 					map[string]interface{}{
@@ -791,6 +809,9 @@ func getServiceMonitorResource(dc *provisioningv1.DPUCluster, gvk schema.GroupVe
 					// Keep only the metrics consumed by the DPF dashboards and
 					// alert/recording rules for the DPU cluster control plane.
 					keepMetricsRelabeling("workqueue_(depth|adds_total|retries_total|queue_duration_seconds_(bucket|sum|count)|work_duration_seconds_(bucket|sum|count))|rest_client_requests_total|leader_election_master_status|" + processMetricsRegex),
+					// Prefix all metrics with dpf_ so DPU cluster control-plane
+					// metrics are namespaced in the management cluster's Prometheus.
+					renameToDPFPrefixRelabeling(),
 				},
 				"relabelings": []interface{}{
 					map[string]interface{}{
@@ -828,6 +849,9 @@ func getServiceMonitorResource(dc *provisioningv1.DPUCluster, gvk schema.GroupVe
 					// Keep only the metrics consumed by the DPF dashboards and
 					// alert/recording rules for the DPU cluster control plane.
 					keepMetricsRelabeling("scheduler_pending_pods|scheduler_schedule_attempts_total|scheduler_scheduling_attempt_duration_seconds_(bucket|sum|count)|" + processMetricsRegex),
+					// Prefix all metrics with dpf_ so DPU cluster control-plane
+					// metrics are namespaced in the management cluster's Prometheus.
+					renameToDPFPrefixRelabeling(),
 				},
 				"relabelings": []interface{}{
 					map[string]interface{}{

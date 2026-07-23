@@ -90,7 +90,7 @@ func ValidateDPUServiceMetrics(ctx context.Context, input *systemTestInput) {
 
 	By("Verify DPUService metrics in KSM")
 	expectedMetricsNames := map[string][]string{
-		"dpuservice": {"created", "info", "status_conditions", "status_condition_last_transition_time"},
+		"dpf_dpuservice": {"created", "info", "status_conditions", "status_condition_last_transition_time"},
 	}
 	Eventually(func(g Gomega) {
 		actualMetricsNames := metrics.GetKSMMetrics(g, ctx, hostClusterRESTClient, metricsURI)
@@ -253,7 +253,7 @@ func VerifyDPUServiceTemplateMetrics(ctx context.Context, input *systemTestInput
 
 	By("Verify DPUServiceTemplate metrics in KSM")
 	expectedMetricsNames := map[string][]string{
-		"dpuservicetemplate": {"created", "info", "status_conditions", "status_condition_last_transition_time"},
+		"dpf_dpuservicetemplate": {"created", "info", "status_conditions", "status_condition_last_transition_time"},
 	}
 	Eventually(func(g Gomega) {
 		actualMetricsNames := metrics.GetKSMMetrics(g, ctx, hostClusterRESTClient, metricsURI)

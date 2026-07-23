@@ -1068,7 +1068,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(controller_runtime_active_workers{pod=~\"$Pod\",controller=~\"$Controller\"}) by (pod,controller)",
+              "expr": "sum(dpf_controller_runtime_active_workers{pod=~\"$Pod\",controller=~\"$Controller\"}) by (pod,controller)",
               "legendFormat": "{{pod}}: {{controller}}",
               "range": true,
               "refId": "A"
@@ -1160,7 +1160,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(controller_runtime_active_workers{pod=~\"$Pod\",controller=~\"$Controller\"}) by (pod,controller) / sum(controller_runtime_max_concurrent_reconciles{pod=~\"$Pod\",controller=~\"$Controller\"}) by (pod,controller)",
+              "expr": "sum(dpf_controller_runtime_active_workers{pod=~\"$Pod\",controller=~\"$Controller\"}) by (pod,controller) / sum(dpf_controller_runtime_max_concurrent_reconciles{pod=~\"$Pod\",controller=~\"$Controller\"}) by (pod,controller)",
               "legendFormat": "{{pod}}: {{controller}}",
               "range": true,
               "refId": "A"
@@ -1266,7 +1266,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(rate(controller_runtime_reconcile_total{pod=~\"$Pod\",controller=~\"$Controller\"}[5m])) by (pod)",
+              "expr": "sum(rate(dpf_controller_runtime_reconcile_total{pod=~\"$Pod\",controller=~\"$Controller\"}[5m])) by (pod)",
               "legendFormat": "{{pod}}",
               "range": true,
               "refId": "A"
@@ -1358,7 +1358,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(rate(controller_runtime_reconcile_total{pod=~\"$Pod\",controller=~\"$Controller\"}[5m])) by (pod,controller)",
+              "expr": "sum(rate(dpf_controller_runtime_reconcile_total{pod=~\"$Pod\",controller=~\"$Controller\"}[5m])) by (pod,controller)",
               "legendFormat": "{{pod}}: {{controller}}",
               "range": true,
               "refId": "A"
@@ -1450,7 +1450,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(rate(controller_runtime_reconcile_total{pod=~\"$Pod\",controller=~\"$Controller\"}[5m])) by (pod,result)",
+              "expr": "sum(rate(dpf_controller_runtime_reconcile_total{pod=~\"$Pod\",controller=~\"$Controller\"}[5m])) by (pod,result)",
               "legendFormat": "{{pod}}: {{result}}",
               "range": true,
               "refId": "A"
@@ -1542,7 +1542,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(rate(controller_runtime_reconcile_total{pod=~\"$Pod\",controller=~\"$Controller\"}[5m])) by (pod,controller,result)",
+              "expr": "sum(rate(dpf_controller_runtime_reconcile_total{pod=~\"$Pod\",controller=~\"$Controller\"}[5m])) by (pod,controller,result)",
               "legendFormat": "{{pod}}: {{controller}}: {{result}}",
               "range": true,
               "refId": "A"
@@ -1634,7 +1634,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(rate(controller_runtime_reconcile_errors_total{pod=~\"$Pod\",controller=~\"$Controller\"}[5m])) by (pod)",
+              "expr": "sum(rate(dpf_controller_runtime_reconcile_errors_total{pod=~\"$Pod\",controller=~\"$Controller\"}[5m])) by (pod)",
               "legendFormat": "{{pod}}",
               "range": true,
               "refId": "A"
@@ -1726,7 +1726,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(rate(controller_runtime_reconcile_errors_total{pod=~\"$Pod\",controller=~\"$Controller\"}[5m])) by (pod,controller)",
+              "expr": "sum(rate(dpf_controller_runtime_reconcile_errors_total{pod=~\"$Pod\",controller=~\"$Controller\"}[5m])) by (pod,controller)",
               "legendFormat": "{{pod}}: {{controller}}",
               "range": true,
               "refId": "A"
@@ -1832,7 +1832,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(rate(controller_runtime_reconcile_time_seconds_sum{pod=~\"$Pod\"}[5m])) by (pod) / sum(rate(controller_runtime_reconcile_time_seconds_count{pod=~\"$Pod\"}[5m])) by (pod)",
+              "expr": "sum(rate(dpf_controller_runtime_reconcile_time_seconds_sum{pod=~\"$Pod\"}[5m])) by (pod) / sum(rate(dpf_controller_runtime_reconcile_time_seconds_count{pod=~\"$Pod\"}[5m])) by (pod)",
               "legendFormat": "{{pod}}",
               "range": true,
               "refId": "A"
@@ -1925,7 +1925,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "histogram_quantile(0.50, sum(rate(controller_runtime_reconcile_time_seconds_bucket{pod=~\"$Pod\"}[5m])) by (pod, le))",
+              "expr": "histogram_quantile(0.50, sum(rate(dpf_controller_runtime_reconcile_time_seconds_bucket{pod=~\"$Pod\"}[5m])) by (pod, le))",
               "hide": false,
               "legendFormat": "P50 {{pod}}",
               "range": true,
@@ -1937,7 +1937,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "histogram_quantile(0.90, sum(rate(controller_runtime_reconcile_time_seconds_bucket{pod=~\"$Pod\"}[5m])) by (pod, le))",
+              "expr": "histogram_quantile(0.90, sum(rate(dpf_controller_runtime_reconcile_time_seconds_bucket{pod=~\"$Pod\"}[5m])) by (pod, le))",
               "hide": false,
               "legendFormat": "P90 {{pod}}",
               "range": true,
@@ -1949,7 +1949,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "histogram_quantile(0.99, sum(rate(controller_runtime_reconcile_time_seconds_bucket{pod=~\"$Pod\"}[5m])) by (pod, le))",
+              "expr": "histogram_quantile(0.99, sum(rate(dpf_controller_runtime_reconcile_time_seconds_bucket{pod=~\"$Pod\"}[5m])) by (pod, le))",
               "hide": false,
               "legendFormat": "P99 {{pod}}",
               "range": true,
@@ -2042,7 +2042,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(rate(controller_runtime_reconcile_time_seconds_sum{pod=~\"$Pod\",controller=~\"$Controller\"}[5m])) by (pod,controller) / sum(rate(controller_runtime_reconcile_time_seconds_count{pod=~\"$Pod\",controller=~\"$Controller\"}[5m])) by (pod,controller)",
+              "expr": "sum(rate(dpf_controller_runtime_reconcile_time_seconds_sum{pod=~\"$Pod\",controller=~\"$Controller\"}[5m])) by (pod,controller) / sum(rate(dpf_controller_runtime_reconcile_time_seconds_count{pod=~\"$Pod\",controller=~\"$Controller\"}[5m])) by (pod,controller)",
               "legendFormat": "{{pod}}: {{controller}}",
               "range": true,
               "refId": "A"
@@ -2135,7 +2135,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "histogram_quantile(0.50, sum(rate(controller_runtime_reconcile_time_seconds_bucket{pod=~\"$Pod\",controller=~\"$Controller\"}[5m])) by (pod, controller, le))",
+              "expr": "histogram_quantile(0.50, sum(rate(dpf_controller_runtime_reconcile_time_seconds_bucket{pod=~\"$Pod\",controller=~\"$Controller\"}[5m])) by (pod, controller, le))",
               "hide": false,
               "legendFormat": "P50 {{pod}} {{controller}} ",
               "range": true,
@@ -2147,7 +2147,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "histogram_quantile(0.90, sum(rate(controller_runtime_reconcile_time_seconds_bucket{pod=~\"$Pod\",controller=~\"$Controller\"}[5m])) by (pod, controller, le))",
+              "expr": "histogram_quantile(0.90, sum(rate(dpf_controller_runtime_reconcile_time_seconds_bucket{pod=~\"$Pod\",controller=~\"$Controller\"}[5m])) by (pod, controller, le))",
               "hide": false,
               "legendFormat": "P90 {{pod}} {{controller}} ",
               "range": true,
@@ -2159,7 +2159,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "histogram_quantile(0.99, sum(rate(controller_runtime_reconcile_time_seconds_bucket{pod=~\"$Pod\",controller=~\"$Controller\"}[5m])) by (pod, controller, le))",
+              "expr": "histogram_quantile(0.99, sum(rate(dpf_controller_runtime_reconcile_time_seconds_bucket{pod=~\"$Pod\",controller=~\"$Controller\"}[5m])) by (pod, controller, le))",
               "hide": false,
               "legendFormat": "P99 {{pod}} {{controller}} ",
               "range": true,
@@ -2239,7 +2239,7 @@
               },
               "editorMode": "code",
               "exemplar": true,
-              "expr": "rate(controller_runtime_reconcile_time_seconds_bucket{pod=~\"$Pod\", controller=~\"$Controller\"}[$__rate_interval])",
+              "expr": "rate(dpf_controller_runtime_reconcile_time_seconds_bucket{pod=~\"$Pod\", controller=~\"$Controller\"}[$__rate_interval])",
               "format": "heatmap",
               "legendFormat": "{{le}}",
               "range": true,
@@ -2346,7 +2346,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "workqueue_depth{pod=~\"$Pod\",name=~\"$Controller\"}",
+              "expr": "dpf_workqueue_depth{pod=~\"$Pod\",name=~\"$Controller\"}",
               "legendFormat": "{{pod}}: {{name}}",
               "range": true,
               "refId": "A"
@@ -2438,7 +2438,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "rate(workqueue_adds_total{pod=~\"$Pod\",name=~\"$Controller\"}[5m])",
+              "expr": "rate(dpf_workqueue_adds_total{pod=~\"$Pod\",name=~\"$Controller\"}[5m])",
               "legendFormat": "{{pod}}: {{name}}",
               "range": true,
               "refId": "A"
@@ -2531,7 +2531,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "rate(workqueue_retries_total{pod=~\"$Pod\",name=~\"$Controller\"}[5m])",
+              "expr": "rate(dpf_workqueue_retries_total{pod=~\"$Pod\",name=~\"$Controller\"}[5m])",
               "legendFormat": "{{pod}}: {{name}}",
               "range": true,
               "refId": "A"
@@ -2624,7 +2624,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "workqueue_longest_running_processor_seconds{pod=~\"$Pod\",name=~\"$Controller\"}",
+              "expr": "dpf_workqueue_longest_running_processor_seconds{pod=~\"$Pod\",name=~\"$Controller\"}",
               "legendFormat": "{{pod}}: {{name}}",
               "range": true,
               "refId": "A"
@@ -2717,7 +2717,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "workqueue_unfinished_work_seconds{pod=~\"$Pod\",name=~\"$Controller\"}",
+              "expr": "dpf_workqueue_unfinished_work_seconds{pod=~\"$Pod\",name=~\"$Controller\"}",
               "legendFormat": "{{pod}}: {{name}}",
               "range": true,
               "refId": "A"
@@ -2810,7 +2810,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "histogram_quantile(0.50, sum(rate(workqueue_work_duration_seconds_bucket{pod=~\"$Pod\",name=~\"$Controller\"}[5m])) by (pod, name, le))",
+              "expr": "histogram_quantile(0.50, sum(rate(dpf_workqueue_work_duration_seconds_bucket{pod=~\"$Pod\",name=~\"$Controller\"}[5m])) by (pod, name, le))",
               "hide": false,
               "legendFormat": "P50 {{pod}} {{name}} ",
               "range": true,
@@ -2822,7 +2822,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "histogram_quantile(0.90, sum(rate(workqueue_work_duration_seconds_bucket{pod=~\"$Pod\",name=~\"$Controller\"}[5m])) by (pod, name, le))",
+              "expr": "histogram_quantile(0.90, sum(rate(dpf_workqueue_work_duration_seconds_bucket{pod=~\"$Pod\",name=~\"$Controller\"}[5m])) by (pod, name, le))",
               "hide": false,
               "legendFormat": "P90 {{pod}} {{name}} ",
               "range": true,
@@ -2834,7 +2834,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "histogram_quantile(0.99, sum(rate(workqueue_work_duration_seconds_bucket{pod=~\"$Pod\",name=~\"$Controller\"}[5m])) by (pod, name, le))",
+              "expr": "histogram_quantile(0.99, sum(rate(dpf_workqueue_work_duration_seconds_bucket{pod=~\"$Pod\",name=~\"$Controller\"}[5m])) by (pod, name, le))",
               "hide": false,
               "legendFormat": "P99 {{pod}} {{name}} ",
               "range": true,
@@ -2928,7 +2928,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "histogram_quantile(0.50, sum(rate(workqueue_queue_duration_seconds_bucket{pod=~\"$Pod\",name=~\"$Controller\"}[5m])) by (pod, name, le))",
+              "expr": "histogram_quantile(0.50, sum(rate(dpf_workqueue_queue_duration_seconds_bucket{pod=~\"$Pod\",name=~\"$Controller\"}[5m])) by (pod, name, le))",
               "hide": false,
               "legendFormat": "P50 {{pod}} {{name}} ",
               "range": true,
@@ -2940,7 +2940,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "histogram_quantile(0.90, sum(rate(workqueue_queue_duration_seconds_bucket{pod=~\"$Pod\",name=~\"$Controller\"}[5m])) by (pod, name, le))",
+              "expr": "histogram_quantile(0.90, sum(rate(dpf_workqueue_queue_duration_seconds_bucket{pod=~\"$Pod\",name=~\"$Controller\"}[5m])) by (pod, name, le))",
               "hide": false,
               "legendFormat": "P90 {{pod}} {{name}} ",
               "range": true,
@@ -2952,7 +2952,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "histogram_quantile(0.99, sum(rate(workqueue_queue_duration_seconds_bucket{pod=~\"$Pod\",name=~\"$Controller\"}[5m])) by (pod, name, le))",
+              "expr": "histogram_quantile(0.99, sum(rate(dpf_workqueue_queue_duration_seconds_bucket{pod=~\"$Pod\",name=~\"$Controller\"}[5m])) by (pod, name, le))",
               "hide": false,
               "legendFormat": "P99 {{pod}} {{name}} ",
               "range": true,
@@ -3033,7 +3033,7 @@
               },
               "editorMode": "code",
               "exemplar": true,
-              "expr": "rate(workqueue_work_duration_seconds_bucket{pod=~\"$Pod\", name=~\"$Controller\"}[$__rate_interval])",
+              "expr": "rate(dpf_workqueue_work_duration_seconds_bucket{pod=~\"$Pod\", name=~\"$Controller\"}[$__rate_interval])",
               "format": "heatmap",
               "legendFormat": "{{le}}",
               "range": true,
@@ -3114,7 +3114,7 @@
               },
               "editorMode": "code",
               "exemplar": true,
-              "expr": "rate(workqueue_queue_duration_seconds_bucket{pod=~\"$Pod\", name=~\"$Controller\"}[$__rate_interval])",
+              "expr": "rate(dpf_workqueue_queue_duration_seconds_bucket{pod=~\"$Pod\", name=~\"$Controller\"}[$__rate_interval])",
               "format": "heatmap",
               "legendFormat": "{{le}}",
               "range": true,
@@ -3221,7 +3221,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(rate(controller_runtime_webhook_requests_total{pod=~\"$Pod\",webhook=~\"/mutate-.*\"}[5m])) by (pod)",
+              "expr": "sum(rate(dpf_controller_runtime_webhook_requests_total{pod=~\"$Pod\",webhook=~\"/mutate-.*\"}[5m])) by (pod)",
               "legendFormat": "{{pod}}: Mutate",
               "range": true,
               "refId": "A"
@@ -3232,7 +3232,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(rate(controller_runtime_webhook_requests_total{pod=~\"$Pod\",webhook=~\"/validate-.*\"}[5m])) by (pod)",
+              "expr": "sum(rate(dpf_controller_runtime_webhook_requests_total{pod=~\"$Pod\",webhook=~\"/validate-.*\"}[5m])) by (pod)",
               "hide": false,
               "legendFormat": "{{pod}}: Validate",
               "range": true,
@@ -3244,7 +3244,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(rate(controller_runtime_webhook_requests_total{pod=~\"$Pod\",webhook=~\"/convert\"}[5m])) by (pod)",
+              "expr": "sum(rate(dpf_controller_runtime_webhook_requests_total{pod=~\"$Pod\",webhook=~\"/convert\"}[5m])) by (pod)",
               "hide": false,
               "legendFormat": "{{pod}}: Convert",
               "range": true,
@@ -3337,7 +3337,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(rate(controller_runtime_webhook_requests_total{pod=~\"$Pod\"}[5m])) by (pod,code,webhook) > 0",
+              "expr": "sum(rate(dpf_controller_runtime_webhook_requests_total{pod=~\"$Pod\"}[5m])) by (pod,code,webhook) > 0",
               "legendFormat": "{{pod}}: {{code}}: {{webhook}}",
               "range": true,
               "refId": "A"
@@ -3429,7 +3429,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(rate(controller_runtime_webhook_requests_total{pod=~\"$Pod\",code!=\"200\"}[5m])) by (pod,code,webhook) > 0",
+              "expr": "sum(rate(dpf_controller_runtime_webhook_requests_total{pod=~\"$Pod\",code!=\"200\"}[5m])) by (pod,code,webhook) > 0",
               "legendFormat": "{{pod}}: {{code}}: {{webhook}}",
               "range": true,
               "refId": "A"
@@ -3521,7 +3521,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(rate(controller_runtime_webhook_latency_seconds_sum{pod=~\"$Pod\"}[5m])) by (pod,webhook) / sum(rate(controller_runtime_webhook_latency_seconds_count{pod=~\"$Pod\"}[5m])) by (pod,webhook) > 0",
+              "expr": "sum(rate(dpf_controller_runtime_webhook_latency_seconds_sum{pod=~\"$Pod\"}[5m])) by (pod,webhook) / sum(rate(dpf_controller_runtime_webhook_latency_seconds_count{pod=~\"$Pod\"}[5m])) by (pod,webhook) > 0",
               "legendFormat": "{{pod}}: {{code}}: {{webhook}}",
               "range": true,
               "refId": "A"
@@ -3627,7 +3627,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(rate(rest_client_requests_total{pod=~\"$Pod\"}[5m])) by (pod, code, method) > 0",
+              "expr": "sum(rate(dpf_rest_client_requests_total{pod=~\"$Pod\"}[5m])) by (pod, code, method) > 0",
               "legendFormat": "{{pod}}: {{method}}: {{code}}",
               "range": true,
               "refId": "A"
@@ -3733,7 +3733,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "process_open_fds{pod=~\"$Pod\"}",
+              "expr": "dpf_process_open_fds{pod=~\"$Pod\"}",
               "legendFormat": "{{pod}}",
               "range": true,
               "refId": "A"
@@ -3825,7 +3825,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "deriv(process_open_fds{pod=~\"$Pod\"}[5m])",
+              "expr": "deriv(dpf_process_open_fds{pod=~\"$Pod\"}[5m])",
               "legendFormat": "{{pod}}",
               "range": true,
               "refId": "A"
@@ -3932,7 +3932,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "go_goroutines{pod=~\"$Pod\"}",
+              "expr": "dpf_go_goroutines{pod=~\"$Pod\"}",
               "legendFormat": "{{pod}}",
               "range": true,
               "refId": "A"
@@ -4039,7 +4039,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "go_memstats_sys_bytes{pod=~\"$Pod\"}",
+              "expr": "dpf_go_memstats_sys_bytes{pod=~\"$Pod\"}",
               "legendFormat": "{{pod}}: memstats sys",
               "range": true,
               "refId": "A"
@@ -4132,7 +4132,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "go_memstats_stack_inuse_bytes{pod=~\"$Pod\"}",
+              "expr": "dpf_go_memstats_stack_inuse_bytes{pod=~\"$Pod\"}",
               "legendFormat": "{{pod}}: stack inuse",
               "range": true,
               "refId": "A"
@@ -4143,7 +4143,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "go_memstats_stack_sys_bytes{pod=~\"$Pod\"}",
+              "expr": "dpf_go_memstats_stack_sys_bytes{pod=~\"$Pod\"}",
               "hide": false,
               "legendFormat": "{{pod}}: stack sys",
               "range": true,
@@ -4237,7 +4237,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "go_memstats_heap_alloc_bytes{pod=~\"$Pod\"}",
+              "expr": "dpf_go_memstats_heap_alloc_bytes{pod=~\"$Pod\"}",
               "legendFormat": "{{pod}}: heap alloc",
               "range": true,
               "refId": "A"
@@ -4248,7 +4248,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "go_memstats_heap_sys_bytes{pod=~\"$Pod\"}",
+              "expr": "dpf_go_memstats_heap_sys_bytes{pod=~\"$Pod\"}",
               "hide": false,
               "legendFormat": "{{pod}}: heap sys",
               "range": true,
@@ -4260,7 +4260,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "go_memstats_heap_idle_bytes{pod=~\"$Pod\"}",
+              "expr": "dpf_go_memstats_heap_idle_bytes{pod=~\"$Pod\"}",
               "hide": false,
               "legendFormat": "{{pod}}: heap idle",
               "range": true,
@@ -4272,7 +4272,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "go_memstats_heap_inuse_bytes{pod=~\"$Pod\"}",
+              "expr": "dpf_go_memstats_heap_inuse_bytes{pod=~\"$Pod\"}",
               "hide": false,
               "legendFormat": "{{pod}}: heap inuse",
               "range": true,
@@ -4284,7 +4284,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "go_memstats_heap_released_bytes{pod=~\"$Pod\"}",
+              "expr": "dpf_go_memstats_heap_released_bytes{pod=~\"$Pod\"}",
               "hide": false,
               "legendFormat": "{{pod}}: heap released",
               "range": true,
@@ -4378,7 +4378,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "go_memstats_mspan_inuse_bytes{pod=~\"$Pod\"}",
+              "expr": "dpf_go_memstats_mspan_inuse_bytes{pod=~\"$Pod\"}",
               "legendFormat": "{{pod}}: mspan inuse",
               "range": true,
               "refId": "A"
@@ -4389,7 +4389,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "go_memstats_mspan_sys_bytes{pod=~\"$Pod\"}",
+              "expr": "dpf_go_memstats_mspan_sys_bytes{pod=~\"$Pod\"}",
               "hide": false,
               "legendFormat": "{{pod}}: mspan sys",
               "range": true,
@@ -4401,7 +4401,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "go_memstats_mcache_inuse_bytes{pod=~\"$Pod\"}",
+              "expr": "dpf_go_memstats_mcache_inuse_bytes{pod=~\"$Pod\"}",
               "hide": false,
               "legendFormat": "{{pod}}: mcache inuse",
               "range": true,
@@ -4413,7 +4413,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "go_memstats_mcache_sys_bytes{pod=~\"$Pod\"}",
+              "expr": "dpf_go_memstats_mcache_sys_bytes{pod=~\"$Pod\"}",
               "hide": false,
               "legendFormat": "{{pod}}: mcache sys",
               "range": true,
@@ -4425,7 +4425,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "go_memstats_buck_hash_sys_bytes{pod=~\"$Pod\"}",
+              "expr": "dpf_go_memstats_buck_hash_sys_bytes{pod=~\"$Pod\"}",
               "hide": false,
               "legendFormat": "{{pod}}: bucket hash sys",
               "range": true,
@@ -4437,7 +4437,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "go_memstats_gc_sys_bytes{pod=~\"$Pod\"}",
+              "expr": "dpf_go_memstats_gc_sys_bytes{pod=~\"$Pod\"}",
               "hide": false,
               "legendFormat": "{{pod}}: gc sys",
               "range": true,
@@ -4449,7 +4449,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "go_memstats_other_sys_bytes{pod=~\"$Pod\"}",
+              "expr": "dpf_go_memstats_other_sys_bytes{pod=~\"$Pod\"}",
               "hide": false,
               "legendFormat": "{{pod}}: other sys",
               "range": true,
@@ -4461,7 +4461,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "go_memstats_next_gc_bytes{pod=~\"$Pod\"}",
+              "expr": "dpf_go_memstats_next_gc_bytes{pod=~\"$Pod\"}",
               "hide": false,
               "legendFormat": "{{pod}}: next gc",
               "range": true,
@@ -4555,7 +4555,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "go_memstats_mallocs_total{pod=~\"$Pod\"} - go_memstats_frees_total{pod=~\"$Pod\"}",
+              "expr": "dpf_go_memstats_mallocs_total{pod=~\"$Pod\"} - dpf_go_memstats_frees_total{pod=~\"$Pod\"}",
               "legendFormat": "{{pod}}",
               "range": true,
               "refId": "A"
@@ -4648,7 +4648,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "rate(go_memstats_lookups_total{pod=~\"$Pod\"}[5m])",
+              "expr": "rate(dpf_go_memstats_lookups_total{pod=~\"$Pod\"}[5m])",
               "legendFormat": "{{pod}}",
               "range": true,
               "refId": "A"
@@ -4741,7 +4741,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "rate(go_memstats_mallocs_total{pod=~\"$Pod\"}[5m])",
+              "expr": "rate(dpf_go_memstats_mallocs_total{pod=~\"$Pod\"}[5m])",
               "legendFormat": "{{pod}}",
               "range": true,
               "refId": "A"
@@ -4834,7 +4834,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "rate(go_memstats_alloc_bytes_total{pod=~\"$Pod\"}[5m])",
+              "expr": "rate(dpf_go_memstats_alloc_bytes_total{pod=~\"$Pod\"}[5m])",
               "legendFormat": "{{pod}}",
               "range": true,
               "refId": "A"
@@ -4927,7 +4927,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "go_gc_duration_seconds{pod=~\"$Pod\"}",
+              "expr": "dpf_go_gc_duration_seconds{pod=~\"$Pod\"}",
               "legendFormat": "{{pod}}: {{quantile}}",
               "range": true,
               "refId": "A"
@@ -5057,7 +5057,7 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(controller_runtime_active_workers,controller)",
+        "definition": "label_values(dpf_controller_runtime_active_workers,controller)",
         "hide": 0,
         "includeAll": true,
         "label": "Controller",
@@ -5065,7 +5065,7 @@
         "name": "Controller",
         "options": [],
         "query": {
-          "query": "label_values(controller_runtime_active_workers,controller)",
+          "query": "label_values(dpf_controller_runtime_active_workers,controller)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 1,

@@ -78,7 +78,7 @@ func ValidateDPUServiceCredentialRequestMetrics(ctx context.Context, input *syst
 
 	By("Verify DPUServiceCredentialRequest metrics in KSM")
 	expectedMetricsNames := map[string][]string{
-		"dpuservicecredentialrequest": {"created", "info", "expiration", "issued_at", "status_conditions", "status_condition_last_transition_time"},
+		"dpf_dpuservicecredentialrequest": {"created", "info", "expiration", "issued_at", "status_conditions", "status_condition_last_transition_time"},
 	}
 	Eventually(func(g Gomega) {
 		actualMetricsNames := metrics.GetKSMMetrics(g, ctx, hostClusterRESTClient, metricsURI)

@@ -658,7 +658,7 @@ prometheus:
       metricRelabelings:
         - sourceLabels: [__name__]
           action: keep
-          regex: (bfb|dpfoperatorconfig|dpu[a-z]*)_.+|kube_pod_info|kube_pod_labels|kube_pod_status_phase|kube_pod_status_ready|kube_pod_container_info|kube_pod_container_status_restarts_total|kube_pod_container_status_waiting_reason|kube_(cronjob|daemonset|deployment|endpoint|job|namespace|node|persistentvolumeclaim|persistentvolume|replicaset|resourcequota|service|statefulset)(_.+)?
+          regex: dpf_(bfb|dpfoperatorconfig|dpu[a-z]*)_.+|kube_pod_info|kube_pod_labels|kube_pod_status_phase|kube_pod_status_ready|kube_pod_container_info|kube_pod_container_status_restarts_total|kube_pod_container_status_waiting_reason|kube_(cronjob|daemonset|deployment|endpoint|job|namespace|node|persistentvolumeclaim|persistentvolume|replicaset|resourcequota|service|statefulset)(_.+)?
 rbac:
   extraRules:
     - apiGroups:
@@ -892,6 +892,14 @@ prometheus:
           - source_labels: [__name__]
             action: keep
             regex: (controller_runtime_.+|workqueue_.+|rest_client_requests_total|leader_election_master_status|certwatcher_read_certificate_errors_total|process_.+|go_.+)
+          # Prefix all kept metrics with dpf_ so the DPF controller metrics are
+          # namespaced as DPF metrics, consistent with the kube-state-metrics and
+          # DPU cluster control-plane (Kamaji) metrics.
+          - source_labels: [__name__]
+            action: replace
+            regex: (.+)
+            target_label: __name__
+            replacement: dpf_${1}
           - action: replace
             target_label: cluster
             replacement: management

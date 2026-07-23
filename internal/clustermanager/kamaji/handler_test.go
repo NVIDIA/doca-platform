@@ -514,9 +514,9 @@ var _ = Describe("Kamaji Handler - Helper Functions", func() {
 				relabelingsCount       int
 				metricRelabelingsCount int
 			}{
-				{"kube-apiserver", "kube-apiserver-metrics", 2, 2},
-				{"kube-controller-manager", "kube-controller-manager-metrics", 2, 1},
-				{"kube-scheduler", "kube-scheduler-metrics", 2, 1},
+				{"kube-apiserver", "kube-apiserver-metrics", 2, 3},
+				{"kube-controller-manager", "kube-controller-manager-metrics", 2, 2},
+				{"kube-scheduler", "kube-scheduler-metrics", 2, 2},
 			}
 
 			for i, expected := range expectedEndpoints {
