@@ -91,6 +91,13 @@ const (
 	ReasonBMCServerCertificateRotating = "BMCServerCertificateRotating"
 	// ReasonBMCServerCertificateRotationFailed indicates the last rotation attempt failed.
 	ReasonBMCServerCertificateRotationFailed = "BMCServerCertificateRotationFailed"
+	// ReasonBMCServerCertificateUntrusted indicates the BMC presents a server certificate that
+	// does not chain to the current DPF CA (or fails identity pinning). The controller re-runs
+	// setUpMTLS over basic auth without clearing Initialized / factory-resetting the BMC.
+	ReasonBMCServerCertificateUntrusted = "BMCServerCertificateUntrusted"
+	// ReasonRedfishClientCertStale indicates the controller's Redfish client certificate does not
+	// chain to the current DPF CA. The controller forces cert-manager to reissue it.
+	ReasonRedfishClientCertStale = "RedfishClientCertStale"
 )
 
 // BMCCredentialsReady condition reasons

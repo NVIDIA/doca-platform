@@ -101,17 +101,22 @@ var _ = BeforeSuite(func() {
 	Expect(k8sClient).NotTo(BeNil())
 
 	// The verified mTLS client validates the BMC server certificate chain against the CA trust
-	// bundle. httptest serves a fixed built-in certificate (carrying the 127.0.0.1 IP SAN) that is
-	// shared by every mock server, so capturing it once here lets the bundle verify all mock BMCs.
+	// bundle, and also self-checks that its own client key pair chains to that same bundle.
+	// httptest serves a fixed built-in certificate (carrying the 127.0.0.1 IP SAN) that is shared
+	// by every mock server, so capturing it once here lets the bundle verify all mock BMCs.
 	probeServer, probeErr := redfishmock.CreateMockRedfishServer("BF-24.10", "password")
 	Expect(probeErr).NotTo(HaveOccurred())
-	testCATrustBundlePEM = probeServer.GetServerCertPEM()
+	serverCertPEM := probeServer.GetServerCertPEM()
 	probeServer.Stop()
-	Expect(testCATrustBundlePEM).NotTo(BeEmpty())
+	Expect(serverCertPEM).NotTo(BeEmpty())
 
 	// The verified mTLS client reads its key pair from a mounted directory. Provide one for the
-	// suite so NewTLSClient can build the client (the mock BMC does not require client auth).
-	_, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts("127.0.0.1")
+	// suite so NewTLSClient can build the client (the mock BMC does not require client auth). The
+	// client leaf is signed by the CA returned from CreateMTLSCerts, so that CA must be in the
+	// trust bundle for the client-cert chain self-check in NewTLSClient to pass.
+	clientCACrt, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts("127.0.0.1")
+	// The bundle must verify both the mock BMC server certificate and the Redfish client cert.
+	testCATrustBundlePEM = append(append([]byte{}, serverCertPEM...), clientCACrt...)
 	certDir, mkErr := os.MkdirTemp("", "redfish-client-cert")
 	Expect(mkErr).NotTo(HaveOccurred())
 	for _, d := range []string{certDir, certDir + "-bf4"} {
