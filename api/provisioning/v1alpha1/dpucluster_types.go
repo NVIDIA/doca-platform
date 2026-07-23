@@ -41,6 +41,10 @@ const (
 	ConditionCreated  ConditionType = "Created"
 	ConditionReady    ConditionType = "Ready"
 	ConditionUpgraded ConditionType = "Upgraded"
+	// ConditionEtcdEncryptionRotationInProgress indicates static key rotation is in progress.
+	ConditionEtcdEncryptionRotationInProgress ConditionType = "EtcdEncryptionRotationInProgress"
+	// ConditionEtcdEncryptionRotationBlocked indicates static key rotation is blocked.
+	ConditionEtcdEncryptionRotationBlocked ConditionType = "EtcdEncryptionRotationBlocked"
 )
 
 // ClusterPhase describes current state of DPUCluster.
@@ -119,8 +123,60 @@ type DPUClusterStatus struct {
 	// +optional
 	NodesCount int `json:"nodesCount"`
 
+	// EtcdEncryptionAtRest exposes the observed encryption-at-rest state for the cluster.
+	// +optional
+	EtcdEncryptionAtRest *DPUClusterEtcdEncryptionAtRestStatus `json:"etcdEncryptionAtRest,omitempty"`
+
 	// +optional
 	Conditions []metav1.Condition `json:"conditions"`
+}
+
+// DPUClusterEtcdEncryptionAtRestStatus defines the observed encryption-at-rest state for a DPUCluster.
+type DPUClusterEtcdEncryptionAtRestStatus struct {
+	// Provider is the committed encryption-at-rest provider for the cluster.
+	// +kubebuilder:validation:Enum=staticKey;vaultKMS
+	// +required
+	Provider string `json:"provider,omitempty"`
+
+	// StaticKey exposes staticKey-specific observed state.
+	// +optional
+	StaticKey *DPUClusterStaticKeyEncryptionStatus `json:"staticKey,omitempty"`
+}
+
+// DPUClusterStaticKeyEncryptionStatus defines observed staticKey encryption-at-rest state.
+type DPUClusterStaticKeyEncryptionStatus struct {
+	// ActiveKeyRef is the source Secret observed for the currently active key.
+	// This field is informational and must not be used by controllers to select desired key material.
+	// +optional
+	ActiveKeyRef *ObservedSecretKeyRef `json:"activeKeyRef,omitempty"`
+}
+
+// ObservedSecretKeyRef identifies an observed source Secret version.
+type ObservedSecretKeyRef struct {
+	// Name is the name of the Secret.
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	Name string `json:"name,omitempty"`
+
+	// Key is the key within the Secret data.
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	Key string `json:"key,omitempty"`
+
+	// Namespace is the namespace of the Secret.
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	Namespace string `json:"namespace,omitempty"`
+
+	// UID is the UID of the Secret.
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	UID string `json:"uid,omitempty"`
+
+	// ResourceVersion is the resourceVersion of the Secret.
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	ResourceVersion string `json:"resourceVersion,omitempty"`
 }
 
 type ClusterEndpointSpec struct {
@@ -199,10 +255,4 @@ const (
 	// DPUClusterNamespaceLabelKey is the key of the label linking objects to a specific DPU Cluster. The value should
 	// be the namespace of the DPUCluster.
 	DPUClusterNamespaceLabelKey = "dpu.nvidia.com/cluster-namespace"
-	// DPUClusterEtcdEncryptionProviderLabelKey is the key of the label recording the etcd encryption provider used by
-	// the DPUCluster.
-	DPUClusterEtcdEncryptionProviderLabelKey = "provisioning.dpu.nvidia.com/etcd-encryption-provider"
-	// DPUClusterEtcdEncryptionConfigSecretAnnotationKey is the key of the annotation recording the name of the Secret
-	// containing the etcd encryption configuration used by the DPUCluster.
-	DPUClusterEtcdEncryptionConfigSecretAnnotationKey = "provisioning.dpu.nvidia.com/etcd-encryption-config-secret"
 )
