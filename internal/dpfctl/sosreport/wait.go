@@ -25,6 +25,7 @@ import (
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -137,8 +138,29 @@ func checkInitContainerFailure(ctx context.Context, c client.Client, namespace s
 			if msg == "" {
 				msg = cs.State.Terminated.Reason
 			}
-			return fmt.Sprintf("init container %q failed (exit %d): %s", cs.Name, cs.State.Terminated.ExitCode, msg)
+			failure := fmt.Sprintf("init container %q failed (exit %d): %s", cs.Name, cs.State.Terminated.ExitCode, msg)
+			if cs.State.Terminated.Reason == "OOMKilled" && cs.Name == sosreportContainerName {
+				cur := initContainerMemoryLimit(&pod, cs.Name)
+				suggested := cur.DeepCopy()
+				suggested.Add(cur)
+				failure += fmt.Sprintf(" - the container exceeded its memory limit (%s); retry with a larger --limits.memory value (e.g. --limits.memory %s)", cur.String(), suggested.String())
+			}
+			return failure
 		}
 	}
 	return ""
+}
+
+// initContainerMemoryLimit returns the memory limit of the named init container,
+// falling back to DefaultMemoryLimit if the limit is not set in the pod spec.
+func initContainerMemoryLimit(pod *corev1.Pod, containerName string) resource.Quantity {
+	for _, c := range pod.Spec.InitContainers {
+		if c.Name != containerName {
+			continue
+		}
+		if q, ok := c.Resources.Limits[corev1.ResourceMemory]; ok {
+			return q
+		}
+	}
+	return resource.MustParse(DefaultMemoryLimit)
 }
