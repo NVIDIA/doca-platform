@@ -283,6 +283,7 @@ var _ = Describe("Phase Initializing", func() {
 			Expect(status.Hostless).To(BeTrue())
 			Expect(status.Phase).To(Equal(provisioningv1.DPUPending))
 		})
+
 	})
 
 	Context("identity mode stamp", func() {

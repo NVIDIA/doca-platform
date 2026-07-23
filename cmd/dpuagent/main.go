@@ -93,6 +93,9 @@ func main() {
 	pflag.BoolVar(&options.SkipRebootMethodDiscovery, "skip-reboot-method-discovery", false, "Skip MFT-based reboot method discovery")
 	pflag.BoolVar(&options.SkipNodeLabeling, "skip-node-labeling", false, "Skip reporting DPU cluster Node labels from scripts")
 	pflag.BoolVar(&options.SkipAstra, "skip-astra", false, "Skip Astra-specific behavior")
+	pflag.BoolVar(&options.SkipDPUMode, "skip-dpu-mode", false, "Skip DPU privilege mode enforcement (mlxprivhost)")
+	pflag.BoolVar(&options.SkipNVConfig, "skip-nvconfig", false, "Skip NIC NVConfig application (mlxconfig)")
+	pflag.BoolVar(&options.SkipReboot, "skip-reboot", false, "Report NoAction without performing host reboot")
 	fs := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	klog.InitFlags(fs)
 	pflag.VisitAll(func(f *pflag.Flag) {
