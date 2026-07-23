@@ -23,6 +23,7 @@ import (
 	. "github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -108,6 +109,78 @@ func TestCheckInitContainerFailure(t *testing.T) {
 				},
 			},
 			wantMsg: `init container "mkdir" failed (exit 126): Permission denied`,
+		},
+		{
+			name: "sosreport container OOMKilled uses actual memory limit from pod spec",
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{Name: "pod-5", Namespace: "default", Labels: labels},
+				Spec: corev1.PodSpec{
+					InitContainers: []corev1.Container{
+						{
+							Name: "sosreport",
+							Resources: corev1.ResourceRequirements{
+								Limits: corev1.ResourceList{
+									corev1.ResourceMemory: resource.MustParse("3Gi"),
+								},
+							},
+						},
+					},
+				},
+				Status: corev1.PodStatus{
+					InitContainerStatuses: []corev1.ContainerStatus{
+						{
+							Name: "sosreport",
+							State: corev1.ContainerState{
+								Terminated: &corev1.ContainerStateTerminated{
+									ExitCode: 137,
+									Reason:   "OOMKilled",
+								},
+							},
+						},
+					},
+				},
+			},
+			wantMsg: `init container "sosreport" failed (exit 137): OOMKilled - the container exceeded its memory limit (3Gi); retry with a larger --limits.memory value (e.g. --limits.memory 6Gi)`,
+		},
+		{
+			name: "sosreport container OOMKilled falls back to default when limit not in spec",
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{Name: "pod-5b", Namespace: "default", Labels: labels},
+				Status: corev1.PodStatus{
+					InitContainerStatuses: []corev1.ContainerStatus{
+						{
+							Name: "sosreport",
+							State: corev1.ContainerState{
+								Terminated: &corev1.ContainerStateTerminated{
+									ExitCode: 137,
+									Reason:   "OOMKilled",
+								},
+							},
+						},
+					},
+				},
+			},
+			wantMsg: `init container "sosreport" failed (exit 137): OOMKilled - the container exceeded its memory limit (1Gi); retry with a larger --limits.memory value (e.g. --limits.memory 2Gi)`,
+		},
+		{
+			name: "non-sosreport OOMKilled does not append memory hint",
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{Name: "pod-6", Namespace: "default", Labels: labels},
+				Status: corev1.PodStatus{
+					InitContainerStatuses: []corev1.ContainerStatus{
+						{
+							Name: "mkdir",
+							State: corev1.ContainerState{
+								Terminated: &corev1.ContainerStateTerminated{
+									ExitCode: 137,
+									Reason:   "OOMKilled",
+								},
+							},
+						},
+					},
+				},
+			},
+			wantMsg: `init container "mkdir" failed (exit 137): OOMKilled`,
 		},
 		{
 			name:    "no pods",
