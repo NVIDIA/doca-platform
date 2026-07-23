@@ -2084,6 +2084,25 @@ _Appears in:_
 | `registryEndpoint` _string_ | RegistryEndpoint is the endpoint of the container registry. |  | Optional: \{\} <br /> |
 
 
+#### DMAScalableFunction
+
+
+
+DMAScalableFunction configures the DMA SF that the dpu-agent creates on
+BlueField-4 socket-direct systems when Enabled is true.
+
+
+
+_Appears in:_
+- [ScalableFunctions](#scalablefunctions)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `enabled` _boolean_ | Enabled controls whether the dpu-agent creates the DMA SF. The presence of<br />the dma struct alone does not enable creation; enabled must be set<br />explicitly. Only takes effect on BlueField-4 socket-direct systems. |  | Required: \{\} <br /> |
+| `sfNum` _integer_ | SFNum is the number of the DMA Scalable Function. Defaults to 8000 when<br />unset. Only takes effect on BlueField-4 socket-direct systems. |  | Minimum: 1 <br />Optional: \{\} <br /> |
+| `macAddress` _string_ | MACAddress pins the DMA SF's MAC address (canonical colon-separated<br />48-bit form, e.g. "02:40:51:7c:e3:0f"). Defaults to a deterministic,<br />vendor-compatible derivation when unset. |  | Pattern: `^([0-9A-Fa-f]\{2\}:)\{5\}[0-9A-Fa-f]\{2\}$` <br />Optional: \{\} <br /> |
+
+
 #### DMSAddress
 
 
@@ -2516,6 +2535,7 @@ _Appears in:_
 | `dpuMode` _[DpuModeType](#dpumodetype)_ | DpuMode is deprecated and no longer used by provisioning workflows.<br />Deployment mode is sourced from DPFOperatorConfig and exposed on DPU.status.deploymentMode. |  | Enum: [dpu zero-trust nic] <br />Optional: \{\} <br /> |
 | `hostNetworkInterfaceConfigs` _[NetworkInterfaceConfig](#networkinterfaceconfig) array_ | HostNetworkInterfaceConfigs contains the configuration for the host-side network interfaces. |  | Optional: \{\} <br /> |
 | `ewNicConfigurations` _[NicConfiguration](#nicconfiguration) array_ | EWNicConfigurations lists per-NIC configuration for the E/W NICs.<br />Only the first entry is applied in this release; additional entries are ignored until a future<br />release adds multi-NIC support. The field is modeled as a list now so the API shape does not<br />need to change when multiple entries are supported. |  | MaxItems: 16 <br />Optional: \{\} <br /> |
+| `scalableFunctions` _[ScalableFunctions](#scalablefunctions)_ | ScalableFunctions configures Scalable Functions (SFs) created on the DPU. |  | Optional: \{\} <br /> |
 
 
 #### DPUFlavorTemplate
@@ -3563,6 +3583,22 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `maxUnavailable` _[IntOrString](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#intorstring-intstr-util)_ | MaxUnavailable is the maximum number of DPUs that can be unavailable during the update.<br />Deprecated: This field is deprecated and will be removed with v26.7.0. |  | Optional: \{\} <br /> |
+
+
+#### ScalableFunctions
+
+
+
+ScalableFunctions groups the agent-managed Scalable Function configuration.
+
+
+
+_Appears in:_
+- [DPUFlavorSpec](#dpuflavorspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `dma` _[DMAScalableFunction](#dmascalablefunction)_ | DMA configures the DMA SF that e.g. SNAP DOCA service uses to DMA host<br />memory over the second Grace PCI link on BlueField-4 socket-direct<br />systems. |  | Optional: \{\} <br /> |
 
 
 #### Script

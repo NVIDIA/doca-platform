@@ -38,6 +38,21 @@ DPUFlavor is a Kubernetes Custom Resource Definition (CRD) that defines configur
 | `dpuResources` | ResourceList | Minimum resources needed for BFB installation |
 | `systemReservedResources` | ResourceList | Resources reserved for system use |
 | `hostNetworkInterfaceConfigs` | [][NetworkInterfaceConfig](#networkinterfaceconfig) | Host-side network interface configuration |
+| `scalableFunctions` | [ScalableFunctions](#scalablefunctions) | Configures Scalable Functions (SFs) created on the DPU |
+
+### ScalableFunctions
+
+| Field | Type | Description |
+|-------|------|--------------|
+| `dma` | [DMAScalableFunction](#dmascalablefunction) | Configures the DMA SF used by SNAP on BlueField-4 socket-direct systems |
+
+### DMAScalableFunction
+
+| Field | Type | Description |
+|-------|------|--------------|
+| `enabled` | *bool | **Enables DMA SF creation by the dpu-agent.** The presence of the `dma` struct alone does not enable it; `enabled` must be set explicitly. Only takes effect on BlueField-4 socket-direct systems |
+| `sfNum` | *int32 | The DMA SF's number. Defaults to `8000` when unset. Only takes effect on BlueField-4 socket-direct systems |
+| `macAddress` | *string | Pins the DMA SF's MAC (canonical colon-separated 48-bit form). Defaults to a deterministic, vendor-compatible derivation when unset |
 
 ### DPUFlavorGrub
 
