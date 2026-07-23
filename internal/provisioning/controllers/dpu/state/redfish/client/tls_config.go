@@ -19,9 +19,34 @@ package client
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"net"
 )
+
+// ErrBMCServerCertUntrusted marks a failure caused by the BMC presenting a server certificate that
+// does not chain to the DPF CA, or whose identity does not match the dialed BMC. This cannot be
+// repaired over mTLS: the DPF CA and a fresh server certificate must be re-installed on the BMC via
+// the privileged basic-auth bootstrap. Callers detect it with IsBMCServerCertUntrusted.
+var ErrBMCServerCertUntrusted = errors.New("BMC server certificate not trusted by DPF CA")
+
+// ErrRedfishClientCertStale marks a failure caused by the controller's Redfish client certificate
+// not chaining to the current DPF CA (e.g. CA was re-issued but the client leaf was not). Callers
+// detect it with IsRedfishClientCertStale and can force cert-manager to reissue the client cert.
+var ErrRedfishClientCertStale = errors.New("redfish client certificate does not chain to current DPF CA")
+
+// IsBMCServerCertUntrusted reports whether err (from NewTLSClient or verifyBMCServerCert) was caused
+// by the BMC presenting a server certificate that does not chain to the DPF CA or fails identity
+// pinning, i.e. a condition only the basic-auth bootstrap can recover.
+func IsBMCServerCertUntrusted(err error) bool {
+	return errors.Is(err, ErrBMCServerCertUntrusted)
+}
+
+// IsRedfishClientCertStale reports whether err was caused by the controller's Redfish client
+// certificate not chaining to the current DPF CA trust bundle.
+func IsRedfishClientCertStale(err error) bool {
+	return errors.Is(err, ErrRedfishClientCertStale)
+}
 
 // TLSRedfishCipherSuites defines the allowed TLS 1.2 cipher suites for HTTPS to BlueField BMC Redfish.
 var TLSRedfishCipherSuites = []uint16{
@@ -98,16 +123,16 @@ func verifyBMCServerCert(rootCAs *x509.CertPool, expectedHost string) func([][]b
 			Roots:         rootCAs,
 			Intermediates: intermediates,
 		}); err != nil {
-			return fmt.Errorf("BMC server certificate failed chain verification against DPF CA: %w", err)
+			return fmt.Errorf("%w: BMC server certificate failed chain verification against DPF CA: %v", ErrBMCServerCertUntrusted, err)
 		}
 
-		return verifyBMCIdentity(certs[0], expectedHost)
+		return VerifyBMCIdentity(certs[0], expectedHost)
 	}
 }
 
-// verifyBMCIdentity pins the BMC identity: it requires expectedHost to appear as an IP SAN, a DNS
-// SAN, or in the certificate Common Name. An empty expectedHost is treated as a failure
-func verifyBMCIdentity(leaf *x509.Certificate, expectedHost string) error {
+// VerifyBMCIdentity pins the BMC identity: it requires expectedHost to appear as an IP SAN, a DNS
+// SAN, or in the certificate Common Name. An empty expectedHost is treated as a failure.
+func VerifyBMCIdentity(leaf *x509.Certificate, expectedHost string) error {
 	if expectedHost == "" {
 		return fmt.Errorf("cannot verify BMC server certificate identity: no expected host provided")
 	}
@@ -126,6 +151,35 @@ func verifyBMCIdentity(leaf *x509.Certificate, expectedHost string) error {
 	if leaf.Subject.CommonName == expectedHost {
 		return nil
 	}
-	return fmt.Errorf("BMC server certificate identity mismatch: %q not found in IP SANs %v, DNS SANs %v, or Common Name %q",
-		expectedHost, leaf.IPAddresses, leaf.DNSNames, leaf.Subject.CommonName)
+	return fmt.Errorf("%w: BMC server certificate identity mismatch: %q not found in IP SANs %v, DNS SANs %v, or Common Name %q",
+		ErrBMCServerCertUntrusted, expectedHost, leaf.IPAddresses, leaf.DNSNames, leaf.Subject.CommonName)
+}
+
+// verifyClientKeyPairChainsToCA reports whether the leaf in clientKeyPair chains to caBundlePEM.
+// A failure means the mounted Redfish client certificate is stale relative to the current DPF CA
+// (typical after CA re-issue without client-cert renewal) and must be reissued.
+func verifyClientKeyPairChainsToCA(clientKeyPair tls.Certificate, caBundlePEM []byte) error {
+	if len(clientKeyPair.Certificate) == 0 {
+		return fmt.Errorf("client key pair has no certificate")
+	}
+	leaf, err := x509.ParseCertificate(clientKeyPair.Certificate[0])
+	if err != nil {
+		return fmt.Errorf("failed to parse client certificate: %w", err)
+	}
+	roots := x509.NewCertPool()
+	if !roots.AppendCertsFromPEM(caBundlePEM) {
+		return fmt.Errorf("failed to load DPF CA pool")
+	}
+	intermediates := x509.NewCertPool()
+	for _, raw := range clientKeyPair.Certificate[1:] {
+		cert, err := x509.ParseCertificate(raw)
+		if err != nil {
+			return fmt.Errorf("failed to parse client intermediate certificate: %w", err)
+		}
+		intermediates.AddCert(cert)
+	}
+	if _, err := leaf.Verify(x509.VerifyOptions{Roots: roots, Intermediates: intermediates, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}); err != nil {
+		return fmt.Errorf("%w: %v", ErrRedfishClientCertStale, err)
+	}
+	return nil
 }

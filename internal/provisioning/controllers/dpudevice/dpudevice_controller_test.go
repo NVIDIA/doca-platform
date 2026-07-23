@@ -18,9 +18,17 @@ package dpudevice
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
+	"encoding/pem"
 	"errors"
 	"fmt"
+	"math/big"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -53,6 +61,23 @@ import (
 // testNamespace is the namespace used by the BMC server-certificate rotation tests.
 const testNamespace = "test-namespace"
 
+// redfishClientCACertPEM is the CA that signed the Redfish client key pair mounted for the suite
+// (see BeforeSuite). NewTLSClient self-checks that the mounted client cert chains to the CA trust
+// bundle, so every dpf-ca-trust-bundle ConfigMap used with the verified mTLS client must include
+// this CA in addition to the mock BMC server certificate. Use caTrustBundleWithClientCA to build
+// such a bundle.
+var redfishClientCACertPEM []byte
+
+// caTrustBundleWithClientCA returns a PEM trust bundle containing both the mock BMC server
+// certificate (so the BMC server cert verifies) and the Redfish client CA (so the mounted client
+// cert passes the NewTLSClient chain self-check).
+func caTrustBundleWithClientCA(serverCertPEM []byte) string {
+	bundle := append([]byte{}, serverCertPEM...)
+	bundle = append(bundle, '\n')
+	bundle = append(bundle, redfishClientCACertPEM...)
+	return string(bundle)
+}
+
 func TestDPUDeviceController(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "DPUDevice Controller Non exported Suite")
@@ -61,7 +86,8 @@ func TestDPUDeviceController(t *testing.T) {
 // The verified mTLS client reads its key pair from a mounted directory. Provide one for the suite so
 // NewTLSClient can build the client in tests (the mock BMC does not require client auth).
 var _ = BeforeSuite(func() {
-	_, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts("127.0.0.1")
+	clientCACrt, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts("127.0.0.1")
+	redfishClientCACertPEM = clientCACrt
 	certDir, err := os.MkdirTemp("", "dpudevice-client-cert")
 	Expect(err).NotTo(HaveOccurred())
 	for _, d := range []string{certDir, certDir + "-bf4"} {
@@ -453,14 +479,15 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			_, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(bmcIP)
 
 			// CA trust bundle must include the mock BMC server certificate so the verified mTLS
-			// client can validate the httptest self-signed server cert.
+			// client can validate the httptest self-signed server cert, and the Redfish client CA
+			// so the mounted client cert passes the NewTLSClient chain self-check.
 			caSecret := &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "dpf-ca-trust-bundle",
 					Namespace: testNamespace,
 				},
 				Data: map[string]string{
-					"ca.crt": string(mockServer.GetServerCertPEM()),
+					"ca.crt": caTrustBundleWithClientCA(mockServer.GetServerCertPEM()),
 				},
 			}
 
@@ -621,7 +648,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 					Namespace: testNamespace,
 				},
 				Data: map[string]string{
-					"ca.crt": string(mockServer.GetServerCertPEM()),
+					"ca.crt": caTrustBundleWithClientCA(mockServer.GetServerCertPEM()),
 				},
 			}
 
@@ -703,7 +730,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 					Namespace: testNamespace,
 				},
 				Data: map[string]string{
-					"ca.crt": string(mockServer.GetServerCertPEM()),
+					"ca.crt": caTrustBundleWithClientCA(mockServer.GetServerCertPEM()),
 				},
 			}
 
@@ -2468,6 +2495,123 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			// A successful install must NOT delete the CertificateRequest.
 			Expect(serverCertCRExists(reconciler, dpuDevice)).To(BeTrue())
 		})
+
+		It("regenerates the CertificateRequest when the issued cert does not chain to the current CA", func() {
+			mockServer, reconciler := setupDiscoveryTest()
+			defer mockServer.Stop()
+
+			dpuDevice := createTestDPUDevice(mockServer, "test-dpudevice-mtls-stale-ca")
+			// Seed a CR whose leaf is signed by an unrelated CA so chain verification against the
+			// current trust bundle fails (upgrade/self-heal path).
+			newIssuedServerCertCR(reconciler, dpuDevice, generateUnrelatedServerCertPEM())
+
+			basicAuthClient, err := rfclient.NewBasicAuthClient(dpuDevice.BMCAddress(), "root", "testpassword")
+			Expect(err).NotTo(HaveOccurred())
+
+			_, err = reconciler.setUpMTLS(ctx, dpuDevice, basicAuthClient)
+			Expect(err).To(HaveOccurred())
+
+			// Stale issued CR must be deleted so the next reconcile creates a fresh CSR/CR against
+			// the current CA (same effect as the manual kubectl delete workaround).
+			Expect(serverCertCRExists(reconciler, dpuDevice)).To(BeFalse())
+		})
+
+		It("regenerates the CertificateRequest when the issued cert identity does not match the BMC IP", func() {
+			mockServer, reconciler := setupDiscoveryTest()
+			defer mockServer.Stop()
+
+			dpuDevice := createTestDPUDevice(mockServer, "test-dpudevice-mtls-stale-identity")
+			caPEM, leafPEM := generateCAAndLeafServerCertPEM("10.9.9.9")
+			// Replace the trust bundle with a CA we control so the leaf chains, but pins the wrong IP.
+			cm := &corev1.ConfigMap{}
+			Expect(reconciler.Client.Get(ctx, types.NamespacedName{
+				Name:      "dpf-ca-trust-bundle",
+				Namespace: testNamespace,
+			}, cm)).To(Succeed())
+			cm.Data["ca.crt"] = string(caPEM)
+			Expect(reconciler.Client.Update(ctx, cm)).To(Succeed())
+			newIssuedServerCertCR(reconciler, dpuDevice, leafPEM)
+
+			basicAuthClient, err := rfclient.NewBasicAuthClient(dpuDevice.BMCAddress(), "root", "testpassword")
+			Expect(err).NotTo(HaveOccurred())
+
+			_, err = reconciler.setUpMTLS(ctx, dpuDevice, basicAuthClient)
+			Expect(err).To(HaveOccurred())
+			Expect(serverCertCRExists(reconciler, dpuDevice)).To(BeFalse())
+		})
+	})
+})
+
+// generateUnrelatedServerCertPEM returns a self-signed leaf that does not chain to the mock BMC CA
+// trust bundle used by setupDiscoveryTest.
+func generateUnrelatedServerCertPEM() []byte {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	Expect(err).NotTo(HaveOccurred())
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "stale-bmc-server"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	Expect(err).NotTo(HaveOccurred())
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+}
+
+// generateCAAndLeafServerCertPEM returns a CA PEM and a leaf signed by that CA whose identity is
+// pinned to leafHost (CN and IP SAN when leafHost is an IP).
+func generateCAAndLeafServerCertPEM(leafHost string) (caPEM, leafPEM []byte) {
+	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	Expect(err).NotTo(HaveOccurred())
+	caTmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "test-ca"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign,
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+	}
+	caDER, err := x509.CreateCertificate(rand.Reader, caTmpl, caTmpl, &caKey.PublicKey, caKey)
+	Expect(err).NotTo(HaveOccurred())
+	caPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER})
+
+	leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	Expect(err).NotTo(HaveOccurred())
+	leafTmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		Subject:      pkix.Name{CommonName: leafHost},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	if ip := net.ParseIP(leafHost); ip != nil {
+		leafTmpl.IPAddresses = []net.IP{ip}
+	}
+	leafDER, err := x509.CreateCertificate(rand.Reader, leafTmpl, caTmpl, &leafKey.PublicKey, caKey)
+	Expect(err).NotTo(HaveOccurred())
+	leafPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leafDER})
+	return caPEM, leafPEM
+}
+
+var _ = Describe("issuedServerCertUsableForBMC", func() {
+	It("accepts a leaf that chains to the CA and matches the BMC host", func() {
+		caPEM, leafPEM := generateCAAndLeafServerCertPEM("10.1.2.3")
+		Expect(issuedServerCertUsableForBMC(leafPEM, caPEM, "10.1.2.3")).To(Succeed())
+	})
+
+	It("rejects a leaf that does not chain to the provided CA bundle", func() {
+		Expect(issuedServerCertUsableForBMC(generateUnrelatedServerCertPEM(), generateUnrelatedServerCertPEM(), "10.1.2.3")).NotTo(Succeed())
+	})
+
+	It("rejects a leaf that chains but does not match the BMC host", func() {
+		caPEM, leafPEM := generateCAAndLeafServerCertPEM("10.9.9.9")
+		err := issuedServerCertUsableForBMC(leafPEM, caPEM, "10.1.2.3")
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("identity mismatch"))
 	})
 })
 
@@ -2498,7 +2642,7 @@ func setupDiscoveryTest() (*mock.RedfishMockServer, *DPUDeviceReconciler) {
 			Namespace: testNamespace,
 		},
 		Data: map[string]string{
-			"ca.crt": string(mockServer.GetServerCertPEM()),
+			"ca.crt": caTrustBundleWithClientCA(mockServer.GetServerCertPEM()),
 		},
 	}
 
