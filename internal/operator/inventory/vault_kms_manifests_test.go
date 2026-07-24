@@ -401,6 +401,19 @@ func TestVaultKMSObjects_GenerateManifests(t *testing.T) {
 		g.Expect(caVol.ConfigMap.Name).To(Equal("vault-ca"))
 		g.Expect(caVol.ConfigMap.Items).To(ConsistOf(corev1.KeyToPath{Key: "ca.crt", Path: "ca.crt"}))
 
+		var caMount *corev1.VolumeMount
+		for i := range c.VolumeMounts {
+			if c.VolumeMounts[i].Name == "vault-kms-ca" {
+				caMount = &c.VolumeMounts[i]
+				break
+			}
+		}
+		g.Expect(caMount).NotTo(BeNil())
+		g.Expect(caMount.MountPath).To(Equal("/etc/dpf/kms/tls"))
+		g.Expect(caMount.ReadOnly).To(BeTrue())
+		g.Expect(caMount.SubPath).To(BeEmpty())
+		g.Expect(caMount.SubPathExpr).To(BeEmpty())
+
 		g.Expect(c.Env).NotTo(ContainElement(corev1.EnvVar{Name: "VAULT_NAMESPACE", Value: "admin"}))
 	})
 }

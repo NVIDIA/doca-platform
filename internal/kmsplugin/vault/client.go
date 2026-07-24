@@ -24,9 +24,11 @@ package vault
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 
+	"github.com/go-logr/logr"
 	vaultapi "github.com/hashicorp/vault/api"
 )
 
@@ -79,12 +81,19 @@ type LimitedVaultClient interface {
 	VaultTokenClient
 }
 
-// apiClientAdapter adapts *vaultapi.Client to the LimitedVaultClient interface.
-type apiClientAdapter struct {
-	client *vaultapi.Client
+// Client is the production Vault client and its background CA reload loop.
+type Client interface {
+	LimitedVaultClient
+	Run(ctx context.Context)
 }
 
-var _ LimitedVaultClient = (*apiClientAdapter)(nil)
+// apiClientAdapter adapts *vaultapi.Client to the LimitedVaultClient interface.
+type apiClientAdapter struct {
+	client     *vaultapi.Client
+	caReloader *caReloader
+}
+
+var _ Client = (*apiClientAdapter)(nil)
 
 // newLimitedVaultClient wraps a Vault client so it satisfies the LimitedVaultClient interface.
 func newLimitedVaultClient(client *vaultapi.Client) LimitedVaultClient {
@@ -121,49 +130,72 @@ func (a *apiClientAdapter) LookupSelf(ctx context.Context) (*vaultapi.Secret, er
 	return a.client.Auth().Token().LookupSelfWithContext(ctx)
 }
 
+// Run reloads the configured CA certificate until the context is canceled.
+// It returns immediately when no CA file was configured.
+func (a *apiClientAdapter) Run(ctx context.Context) {
+	if a.caReloader != nil {
+		a.caReloader.Run(ctx)
+	}
+}
+
 // NewClient builds the limited Vault client used by the KMS plugin from
 // explicit plugin configuration.
-func NewClient(address, caCertFile, namespace string) (LimitedVaultClient, error) {
-	client, err := newAPIClient(address, caCertFile, namespace)
+func NewClient(address, caCertFile, namespace string, log logr.Logger) (Client, error) {
+	client, caReloader, err := newAPIClient(address, caCertFile, namespace, log)
 	if err != nil {
 		return nil, err
 	}
-	return newLimitedVaultClient(client), nil
+	return &apiClientAdapter{client: client, caReloader: caReloader}, nil
 }
 
-// newAPIClient builds a raw Vault API client from explicit plugin
-// configuration.
+// newAPIClient builds a raw Vault API client and optional CA reload loop from
+// explicit plugin configuration.
 // All VAULT_* environment variables are removed before constructing the
 // client so they cannot affect its address, namespace, TLS, proxy or
 // authentication settings.
-func newAPIClient(address, caCertFile, namespace string) (*vaultapi.Client, error) {
+func newAPIClient(address, caCertFile, namespace string, log logr.Logger) (*vaultapi.Client, *caReloader, error) {
 	if err := unsetVaultEnvironmentVariables(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	cfg := vaultapi.DefaultConfig()
 	if cfg.Error != nil {
-		return nil, cfg.Error
+		return nil, nil, cfg.Error
 	}
 
 	if address != "" {
 		cfg.Address = address
 	}
+
+	var caReloader *caReloader
 	if caCertFile != "" {
-		if err := cfg.ConfigureTLS(&vaultapi.TLSConfig{CACert: caCertFile}); err != nil {
-			return nil, err
+		caBundle, err := os.ReadFile(caCertFile)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to read Vault CA certificate %q: %w", caCertFile, err)
 		}
+		if err := validateCABundle(caBundle); err != nil {
+			return nil, nil, fmt.Errorf("invalid Vault CA certificate %q: %w", caCertFile, err)
+		}
+		if err := cfg.ConfigureTLS(&vaultapi.TLSConfig{CACertBytes: caBundle}); err != nil {
+			return nil, nil, err
+		}
+		transport, ok := cfg.HttpClient.Transport.(*http.Transport)
+		if !ok {
+			return nil, nil, fmt.Errorf("unexpected Vault HTTP transport type %T", cfg.HttpClient.Transport)
+		}
+		caReloader = newCAReloader(caCertFile, caBundle, transport, log)
+		cfg.HttpClient.Transport = caReloader.transport
 	}
 
 	client, err := vaultapi.NewClient(cfg)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if namespace != "" {
 		client.SetNamespace(namespace)
 	}
 
-	return client, nil
+	return client, caReloader, nil
 }
 
 func unsetVaultEnvironmentVariables() error {
