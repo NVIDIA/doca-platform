@@ -38,11 +38,19 @@ import (
 
 type mockNetworkConfigurator struct {
 	addNetworkRequestFunc func(dpu *provisioningv1.DPU, vfCount *int) error
+	rebindHostDriverFunc  func(ctx context.Context, dpu *provisioningv1.DPU) error
 }
 
 func (m *mockNetworkConfigurator) AddNetworkRequest(dpu *provisioningv1.DPU, vfCount *int) error {
 	if m.addNetworkRequestFunc != nil {
 		return m.addNetworkRequestFunc(dpu, vfCount)
+	}
+	return nil
+}
+
+func (m *mockNetworkConfigurator) RebindHostDriver(ctx context.Context, dpu *provisioningv1.DPU) error {
+	if m.rebindHostDriverFunc != nil {
+		return m.rebindHostDriverFunc(ctx, dpu)
 	}
 	return nil
 }
@@ -624,6 +632,143 @@ var _ = Describe("InstallationService", func() {
 				Expect(receivedDPUNode.Namespace).To(Equal(dpuNode.Namespace))
 				Expect(receivedDPUs).To(HaveLen(1))
 				Expect(receivedDPUs[0].Name).To(Equal(dpu.Name))
+			})
+		})
+	})
+
+	Context("rebind host driver", func() {
+		var rebindServer *httptest.Server
+		var rebindURL string
+
+		BeforeEach(func() {
+			rebindServer = httptest.NewServer(installationService.handler)
+			rebindURL = rebindServer.URL + "/rebind-host-driver"
+		})
+
+		AfterEach(func() {
+			rebindServer.Close()
+		})
+
+		It("should return 400 when request body is malformed", func() {
+			resp, err := http.Post(rebindURL, "application/json", bytes.NewBufferString("not-json"))
+			Expect(err).To(Succeed())
+			Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+		})
+
+		It("should return 503 when network manager is not configured", func() {
+			dpu := createDPU("test-dpu", testNS.Name)
+
+			request := types.RebindHostDriverRequest{
+				DPUName:      dpu.Name,
+				DPUNamespace: dpu.Namespace,
+				DPUUID:       string(dpu.UID),
+			}
+			req, err := json.Marshal(request)
+			Expect(err).To(Succeed())
+
+			resp, err := http.Post(rebindURL, "application/json", bytes.NewBuffer(req))
+			Expect(err).To(Succeed())
+			Expect(resp.StatusCode).To(Equal(http.StatusServiceUnavailable))
+		})
+
+		Context("when network manager is configured", func() {
+			var mockNM *mockNetworkConfigurator
+
+			BeforeEach(func() {
+				mockNM = &mockNetworkConfigurator{}
+				installationService.networkManager = mockNM
+			})
+
+			It("should return 404 when DPU is not found", func() {
+				request := types.RebindHostDriverRequest{
+					DPUName:      "missing-dpu",
+					DPUNamespace: testNS.Name,
+					DPUUID:       "some-uid",
+				}
+				req, err := json.Marshal(request)
+				Expect(err).To(Succeed())
+
+				resp, err := http.Post(rebindURL, "application/json", bytes.NewBuffer(req))
+				Expect(err).To(Succeed())
+				Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
+			})
+
+			It("should return 409 when DPU UID does not match", func() {
+				dpu := createDPU("test-dpu", testNS.Name)
+
+				request := types.RebindHostDriverRequest{
+					DPUName:      dpu.Name,
+					DPUNamespace: dpu.Namespace,
+					DPUUID:       "stale-uid",
+				}
+				req, err := json.Marshal(request)
+				Expect(err).To(Succeed())
+
+				resp, err := http.Post(rebindURL, "application/json", bytes.NewBuffer(req))
+				Expect(err).To(Succeed())
+				Expect(resp.StatusCode).To(Equal(http.StatusConflict))
+			})
+
+			It("should return 200 when rebind succeeds", func() {
+				dpu := createDPU("test-dpu", testNS.Name)
+				var rebound *provisioningv1.DPU
+				mockNM.rebindHostDriverFunc = func(_ context.Context, got *provisioningv1.DPU) error {
+					rebound = got
+					return nil
+				}
+
+				request := types.RebindHostDriverRequest{
+					DPUName:      dpu.Name,
+					DPUNamespace: dpu.Namespace,
+					DPUUID:       string(dpu.UID),
+				}
+				req, err := json.Marshal(request)
+				Expect(err).To(Succeed())
+
+				resp, err := http.Post(rebindURL, "application/json", bytes.NewBuffer(req))
+				Expect(err).To(Succeed())
+				Expect(resp.StatusCode).To(Equal(http.StatusOK))
+				Expect(rebound).NotTo(BeNil())
+				Expect(rebound.Name).To(Equal(dpu.Name))
+				Expect(rebound.UID).To(Equal(dpu.UID))
+			})
+
+			It("should return 500 when rebind fails", func() {
+				dpu := createDPU("test-dpu", testNS.Name)
+				mockNM.rebindHostDriverFunc = func(_ context.Context, _ *provisioningv1.DPU) error {
+					return fmt.Errorf("rebind failed")
+				}
+
+				request := types.RebindHostDriverRequest{
+					DPUName:      dpu.Name,
+					DPUNamespace: dpu.Namespace,
+					DPUUID:       string(dpu.UID),
+				}
+				req, err := json.Marshal(request)
+				Expect(err).To(Succeed())
+
+				resp, err := http.Post(rebindURL, "application/json", bytes.NewBuffer(req))
+				Expect(err).To(Succeed())
+				Expect(resp.StatusCode).To(Equal(http.StatusInternalServerError))
+			})
+
+			It("should return 409 when rebind is already in progress", func() {
+				dpu := createDPU("test-dpu", testNS.Name)
+				mockNM.rebindHostDriverFunc = func(_ context.Context, _ *provisioningv1.DPU) error {
+					return fmt.Errorf("%w for DPU %s/%s", types.ErrRebindInProgress, dpu.Namespace, dpu.Name)
+				}
+
+				request := types.RebindHostDriverRequest{
+					DPUName:      dpu.Name,
+					DPUNamespace: dpu.Namespace,
+					DPUUID:       string(dpu.UID),
+				}
+				req, err := json.Marshal(request)
+				Expect(err).To(Succeed())
+
+				resp, err := http.Post(rebindURL, "application/json", bytes.NewBuffer(req))
+				Expect(err).To(Succeed())
+				Expect(resp.StatusCode).To(Equal(http.StatusConflict))
 			})
 		})
 	})
