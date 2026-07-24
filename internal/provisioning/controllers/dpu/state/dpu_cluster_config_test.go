@@ -112,7 +112,7 @@ var _ = Describe("DPU: cluster config", func() {
 					},
 				)
 				Expect(err).To(Succeed())
-				Expect(status.Phase).To(Equal(provisioningv1.DPUNodeEffectRemoval))
+				Expect(status.Phase).To(Equal(provisioningv1.DPUHostOSInitRelease))
 
 				nodeInDPUCluster := &corev1.Node{}
 				Expect(dpuClusterClient.Get(ctx, client.ObjectKey{Namespace: dpu.Namespace, Name: dpu.Name}, nodeInDPUCluster)).To(Succeed())
@@ -134,7 +134,7 @@ var _ = Describe("DPU: cluster config", func() {
 					},
 				)
 				Expect(err).To(Succeed())
-				Expect(status.Phase).To(Equal(provisioningv1.DPUNodeEffectRemoval))
+				Expect(status.Phase).To(Equal(provisioningv1.DPUHostOSInitRelease))
 
 				nodeInDPUCluster := &corev1.Node{}
 				Expect(dpuClusterClient.Get(ctx, client.ObjectKey{Namespace: dpu.Namespace, Name: dpu.Name}, nodeInDPUCluster)).To(Succeed())

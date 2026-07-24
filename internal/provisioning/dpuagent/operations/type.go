@@ -18,6 +18,7 @@ package operations
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -30,6 +31,9 @@ import (
 
 // DefaultKubeletKubeconfigPath is the default path to the kubelet kubeconfig on DPU nodes.
 const DefaultKubeletKubeconfigPath = "/etc/kubernetes/kubelet.conf"
+
+// ErrBootstrapAborted indicates bootstrap exited so the owned-DPU watch can handle reprovision.
+var ErrBootstrapAborted = errors.New("bootstrap aborted for DPU reprovision")
 
 // Operation is the interface for all operations.
 // The same optCtx instance is passed to all operations, which can be used to pass data between operations.
@@ -93,6 +97,11 @@ type Context struct {
 	// nsPorts caches the discovered N/S NIC ports. Access via NSPorts().
 	nsPorts []pciutil.NICPort
 
+	// resolvedNVConfig caches the once-resolved PCI→NVConfig params and host-OS-init
+	// release PCI. Set only after a successful EnsureResolved (nvconfig package).
+	// snapshotPreInstallCtx must not copy this field — pre-install may swap DPUFlavor.
+	resolvedNVConfig *ResolvedNVConfig
+
 	// ewPorts caches the discovered E/W NIC ports. Access via EWPorts().
 	ewPorts []pciutil.NICPort
 
@@ -114,12 +123,36 @@ type Context struct {
 	// status is pushed again, so the result is idempotent; at most it causes one redundant API call.
 	// Returns an error when status update must abort (e.g. reprovision detection).
 	UpdateStatusUntilSuccess func(context.Context) error
+
+	// ClearHostOSInit requests a null merge patch of agentStatus.hostOSInit on the next status update.
+	ClearHostOSInit bool
 }
 
 // DeferredNVConfigParam is one deferred mlxconfig set request for a PCI device.
 type DeferredNVConfigParam struct {
 	Device string
 	Params string
+}
+
+// ResolvedNVConfig is the once-resolved view of DPUFlavor.spec.nvconfig against discovered N/S ports.
+type ResolvedNVConfig struct {
+	// PCIToParams maps PCI address to space-joined NVConfig parameters (empty = reset-only).
+	PCIToParams map[string]string
+	// HostOSInitPCIs are the sorted PCI devices used for mlxreg host OS init release.
+	HostOSInitPCIs []string
+	// HostOSInitRequired is true when flavor nvconfig requests DELAY_HOST_OS_INIT user-mode (0x3).
+	HostOSInitRequired bool
+}
+
+// GetResolvedNVConfig returns the cached ResolvedNVConfig, or nil if not yet resolved.
+func (ctx *Context) GetResolvedNVConfig() *ResolvedNVConfig {
+	return ctx.resolvedNVConfig
+}
+
+// SetResolvedNVConfig caches a successful resolve. Call only after full success; do not
+// cache errors (same semantics as NSPorts).
+func (ctx *Context) SetResolvedNVConfig(r *ResolvedNVConfig) {
+	ctx.resolvedNVConfig = r
 }
 
 // NSPorts returns the discovered N/S NIC ports, running discovery on the first

@@ -34,6 +34,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/dpumode"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/getdpu"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/grub"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/hostosinit"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/kernelmodule"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/kubelet"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/laststartuptime"
@@ -114,6 +115,7 @@ func NewDPUAgent(optCtx *operations.Context) *DPUAgent {
 		&kubelet.ConfigureKubelet{},
 		&kubelet.StartKubelet{},
 		&nodelabels.ReportNodeLabels{},
+		&hostosinit.ReleaseHostOSInit{},
 	}
 	return &DPUAgent{
 		optCtx:     optCtx,
@@ -274,6 +276,8 @@ func (d *DPUAgent) reconcileOwnedDPU(ctx context.Context) error {
 }
 
 func (d *DPUAgent) snapshotPreInstallCtx(dpu *provisioningv1.DPU) operations.Context {
+	// Deliberately omit resolvedNVConfig / nsPorts caches: pre-install may swap
+	// DPUFlavor and must re-resolve against discovery on this snapshot.
 	return operations.Context{
 		Options:                  d.optCtx.Options,
 		RebootMethodDiscovery:    d.optCtx.RebootMethodDiscovery,
@@ -458,6 +462,11 @@ func (d *DPUAgent) updateStatus(ctx context.Context) error {
 	if agentStatus.LastObservedPendingNVConfig != nil {
 		latestDPU.Status.AgentStatus.LastObservedPendingNVConfig = agentStatus.LastObservedPendingNVConfig.DeepCopy()
 	}
+	if d.optCtx.ClearHostOSInit {
+		latestDPU.Status.AgentStatus.HostOSInit = nil
+	} else if agentStatus.HostOSInit != nil {
+		latestDPU.Status.AgentStatus.HostOSInit = agentStatus.HostOSInit.DeepCopy()
+	}
 	for _, condition := range agentStatus.Conditions {
 		meta.SetStatusCondition(&latestDPU.Status.AgentStatus.Conditions, condition)
 	}
@@ -509,7 +518,7 @@ func writeDoneMarker(dir string) error {
 }
 
 // errBootstrapAbortedForReprovision indicates bootstrap exited so the owned-DPU watch can handle reprovision.
-var errBootstrapAbortedForReprovision = errors.New("bootstrap aborted for DPU reprovision")
+var errBootstrapAbortedForReprovision = operations.ErrBootstrapAborted
 
 // checkBootstrapAbort refreshes the owned DPU and exits bootstrap when reprovision is detected.
 func (d *DPUAgent) checkBootstrapAbort(ctx context.Context) error {
@@ -533,7 +542,7 @@ func (d *DPUAgent) checkBootstrapAbort(ctx context.Context) error {
 }
 
 func isBootstrapAbortErr(err error) bool {
-	return errors.Is(err, errBootstrapAbortedForReprovision)
+	return errors.Is(err, operations.ErrBootstrapAborted)
 }
 
 // IsBootstrapAbortErr reports whether err indicates bootstrap exited for reprovision.

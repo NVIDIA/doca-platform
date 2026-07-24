@@ -39,7 +39,7 @@ var DPUGroupVersionKind = GroupVersion.WithKind(DPUKind)
 // DPUPhase describes current state of DPU.
 // Only one of the following state may be specified.
 // Default is Initializing.
-// +kubebuilder:validation:Enum="Initializing";"Node Effect";"Pending";"Update Firmware";"Config FW Parameters";"Prepare BFB";"OS Installing";"DPU Config";"DPU Cluster Config";"Host Network Configuration";"Ready";"Error";"Deleting";"Rebooting";"Perform ARM Force Restart";"Initialize Interface";"Node Effect Removal";"Checking Host Reboot Required"
+// +kubebuilder:validation:Enum="Initializing";"Node Effect";"Pending";"Update Firmware";"Config FW Parameters";"Prepare BFB";"OS Installing";"DPU Config";"DPU Cluster Config";"Host Network Configuration";"Host OS Init Release";"Ready";"Error";"Deleting";"Rebooting";"Perform ARM Force Restart";"Initialize Interface";"Node Effect Removal";"Checking Host Reboot Required"
 type DPUPhase string
 
 // These are the valid statuses of DPU.
@@ -71,6 +71,8 @@ const (
 	DPUClusterConfig DPUPhase = "DPU Cluster Config"
 	// DPUHostNetworkConfiguration means the host network configuration is running.
 	DPUHostNetworkConfiguration DPUPhase = "Host Network Configuration"
+	// DPUHostOSInitRelease waits for the DPU agent to release host OS init when configured.
+	DPUHostOSInitRelease DPUPhase = "Host OS Init Release"
 	// DPUNodeEffectRemoval means the controller will remove the node effect from the DPU.
 	DPUNodeEffectRemoval DPUPhase = "Node Effect Removal"
 	// DPUReady means the DPU is ready to use.
@@ -111,6 +113,7 @@ const (
 	DPUCondHostNetworkReady       DPUConditionType = "HostNetworkReady"
 	DPUCondDPUClusterReady        DPUConditionType = "DPUClusterReady"
 	DPUCondDPUConfig              DPUConditionType = "DPUConfig"
+	DPUCondHostOSInitRelease      DPUConditionType = "HostOSInitRelease"
 	DPUCondNodeEffectRemoved      DPUConditionType = "NodeEffectRemoved"
 	DPUCondDeleting               DPUConditionType = "Deleting"
 	DPUCondReady                  DPUConditionType = "Ready"
@@ -556,6 +559,39 @@ type AgentStatus struct {
 	// SPIFFE identity mode.
 	// +optional
 	Spiffe *SpiffeStatus `json:"spiffe,omitempty"`
+
+	// hostOSInit reports terminal host OS init release status from the DPU agent.
+	// Unset while the agent is polling or has not reached ReleaseHostOSInit.
+	// +optional
+	HostOSInit *HostOSInitStatus `json:"hostOSInit,omitempty"`
+}
+
+// HostOSInitStatus is the agent-reported terminal status for host OS init release.
+// +kubebuilder:validation:XValidation:rule="(has(self.skipped) ? 1 : 0) + (has(self.succeeded) ? 1 : 0) == 1",message="exactly one of skipped or succeeded must be set"
+type HostOSInitStatus struct {
+	// skipped indicates release was not required for this DPU.
+	// +optional
+	Skipped *HostOSInitSkipped `json:"skipped,omitempty"`
+	// succeeded indicates host OS init was released or was already cleared.
+	// +optional
+	Succeeded *HostOSInitSucceeded `json:"succeeded,omitempty"`
+}
+
+// HostOSInitSkipped reports that host OS init release was not required.
+type HostOSInitSkipped struct {
+	// reason is a stable machine-readable outcome code.
+	// +optional
+	Reason *string `json:"reason,omitempty"`
+	// message is a human-readable explanation.
+	// +optional
+	Message *string `json:"message,omitempty"`
+}
+
+// HostOSInitSucceeded reports successful host OS init release.
+type HostOSInitSucceeded struct {
+	// releaseAfter echoes the effective gate used for release.
+	// +optional
+	ReleaseAfter *HostOSInitReleaseAfter `json:"releaseAfter,omitempty"`
 }
 
 // IdentityMode records which authentication mechanism the DPU Agent uses to reach the

@@ -192,6 +192,34 @@ var _ = Describe("NVConfig Operation", func() {
 			}))
 		})
 
+		It("fails before mlxconfig when DELAY_HOST_OS_INIT targets a missing port", func() {
+			ranBash := false
+			operation := ConfigureNVConfig{
+				runBash: func(string) (bytes.Buffer, bytes.Buffer, error) {
+					ranBash = true
+					return bytes.Buffer{}, bytes.Buffer{}, nil
+				},
+			}
+			operationCtx := &operations.Context{
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
+					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPci0}}, nil
+				},
+				DPUFlavor: provisioningv1.DPUFlavor{
+					Spec: provisioningv1.DPUFlavorSpec{
+						NVConfig: []provisioningv1.NVConfig{
+							{Device: ptr.To("p1"), Parameters: []string{"DELAY_HOST_OS_INIT=0x3"}},
+						},
+					},
+				},
+				LatestDPU: &provisioningv1.DPU{Status: provisioningv1.DPUStatus{AgentStatus: &provisioningv1.AgentStatus{Conditions: []metav1.Condition{}}}},
+			}
+			err := operation.Execute(ctx, operationCtx)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("no PCI device found"))
+			Expect(ranBash).To(BeFalse())
+			Expect(operationCtx.GetResolvedNVConfig()).To(BeNil())
+		})
+
 		It("should skip if NVConfig is already configured", func() {
 			dpuFlavor := provisioningv1.DPUFlavor{
 				Spec: provisioningv1.DPUFlavorSpec{
