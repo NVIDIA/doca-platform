@@ -355,7 +355,7 @@ var _ = Describe("ensureServerCertificate", func() {
 })
 
 var _ = Describe("serverCertSANs", func() {
-	It("includes only the node IP and the service DNS names (never an LB address)", func() {
+	It("includes the node IP and the service DNS names", func() {
 		dns, ips := serverCertSANs("dpf-provisioning", "192.168.1.10")
 		Expect(dns).To(ConsistOf(
 			"bfb-registry",
@@ -369,6 +369,18 @@ var _ = Describe("serverCertSANs", func() {
 	It("omits the IP SAN when the node IP is not a valid IP", func() {
 		_, ips := serverCertSANs("dpf-provisioning", "not-an-ip")
 		Expect(ips).To(BeEmpty())
+	})
+
+	It("includes the kube-vip VIP from KUBERNETES_SERVICE_HOST when it differs from the node IP", func() {
+		GinkgoT().Setenv("KUBERNETES_SERVICE_HOST", "10.0.0.10")
+		_, ips := serverCertSANs("dpf-provisioning", "10.0.0.3")
+		Expect(ips).To(ConsistOf("10.0.0.3", "10.0.0.10"))
+	})
+
+	It("does not duplicate the node IP when KUBERNETES_SERVICE_HOST matches it", func() {
+		GinkgoT().Setenv("KUBERNETES_SERVICE_HOST", "10.0.0.3")
+		_, ips := serverCertSANs("dpf-provisioning", "10.0.0.3")
+		Expect(ips).To(ConsistOf("10.0.0.3"))
 	})
 })
 

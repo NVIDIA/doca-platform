@@ -395,6 +395,12 @@ func serverCertSANs(namespace, nodeIP string) (dnsNames, ipAddresses []string) {
 	if net.ParseIP(nodeIP) != nil {
 		ipAddresses = []string{nodeIP}
 	}
+	// Include the Kubernetes API server VIP so the NodePort fallback in the
+	// hostagent BFB download (which uses KUBERNETES_SERVICE_HOST) passes TLS
+	// verification even when the VIP differs from the node IP.
+	if vip := os.Getenv("KUBERNETES_SERVICE_HOST"); vip != "" && net.ParseIP(vip) != nil && vip != nodeIP {
+		ipAddresses = append(ipAddresses, vip)
+	}
 	return dnsNames, ipAddresses
 }
 
