@@ -106,6 +106,12 @@ type DPUFlavorSpec struct {
 	// ScalableFunctions configures Scalable Functions (SFs) created on the DPU.
 	// +optional
 	ScalableFunctions *ScalableFunctions `json:"scalableFunctions,omitempty"`
+
+	// hostOSInit configures when the DPU agent releases host OS init after DELAY_HOST_OS_INIT=0x3
+	// (ENABLE_USER) is set in nvconfig. Omitted releaseAfter defaults to dpuServiceCriticalPodsReady
+	// at agent runtime.
+	// +optional
+	HostOSInit *HostOSInit `json:"hostOSInit,omitempty"`
 }
 
 // ScalableFunctions groups the agent-managed Scalable Function configuration.
@@ -139,6 +145,28 @@ type DMAScalableFunction struct {
 	// +optional
 	MACAddress *string `json:"macAddress,omitempty"`
 }
+
+// HostOSInit configures the readiness gate for host OS init release.
+type HostOSInit struct {
+	// releaseAfter selects which operational readiness gate must be True before the agent
+	// calls mlxreg to release the host. When omitted, dpuServiceCriticalPodsReady is used.
+	// +optional
+	ReleaseAfter *HostOSInitReleaseAfter `json:"releaseAfter,omitempty"`
+}
+
+// HostOSInitReleaseAfter is a one-of selector for the host OS init release gate.
+// +kubebuilder:validation:XValidation:rule="(has(self.operationalReady) ? 1 : 0) + (has(self.dpuServiceCriticalPodsReady) ? 1 : 0) == 1",message="exactly one of operationalReady or dpuServiceCriticalPodsReady must be set"
+type HostOSInitReleaseAfter struct {
+	// operationalReady waits for DPU.status.operationalConditions[OperationalReady] == True.
+	// +optional
+	OperationalReady *HostOSInitGate `json:"operationalReady,omitempty"`
+	// dpuServiceCriticalPodsReady waits for DPU.status.operationalConditions[DPUServiceCriticalPodsReady] == True.
+	// +optional
+	DPUServiceCriticalPodsReady *HostOSInitGate `json:"dpuServiceCriticalPodsReady,omitempty"`
+}
+
+// HostOSInitGate marks a release gate branch in a one-of union.
+type HostOSInitGate struct{}
 
 // FirstEWNicConfiguration returns the E/W NIC configuration used by provisioning in this release.
 // Only index 0 of Spec.EWNicConfigurations is honored; further entries are reserved for future multi-NIC support.

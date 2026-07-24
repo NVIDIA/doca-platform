@@ -99,7 +99,7 @@ func ClusterConfig(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.
 	logger.V(3).Info(fmt.Sprintf("DPU %s joins the %s DPU Cluster", dpuName, dpuCluster.Name))
 
 	cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondDPUClusterReady, "", "cluster configured"))
-	state.Phase = provisioningv1.DPUNodeEffectRemoval
+	state.Phase = provisioningv1.DPUHostOSInitRelease
 	return *state, nil
 }
 

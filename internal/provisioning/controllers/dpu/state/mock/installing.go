@@ -145,8 +145,8 @@ func ClusterConfig(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.
 		return *state, nil
 	}
 
-	state.Phase = provisioningv1.DPUNodeEffectRemoval
-	cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondNodeEffectRemoved, "", ""))
+	state.Phase = provisioningv1.DPUHostOSInitRelease
+	cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondHostOSInitRelease, "", ""))
 
 	return *state, nil
 }
