@@ -36,6 +36,17 @@ spec:
         image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
         imagePullPolicy: {{ .Values.image.pullPolicy }}
         env:
+        - name: K8S_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        # Node IP is used as the kubeletstats endpoint. The node hostname is not
+        # guaranteed to be DNS-resolvable from within the DPU cluster, so connect
+        # to the kubelet by IP instead.
+        - name: K8S_NODE_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.hostIP
         - name: CLUSTER_NAME
           valueFrom:
             fieldRef:

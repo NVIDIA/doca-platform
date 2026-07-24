@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/nvidia/doca-platform/test/utils/loki"
+	"github.com/nvidia/doca-platform/test/utils/prometheus"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -65,6 +66,11 @@ func ValidateDPUClusterOpenTelemetryConfiguration(ctx context.Context, input *sy
 				"ConfigMap should contain /var/log/doca path")
 			g.Expect(c).To(ContainSubstring("**/*.log"),
 				"ConfigMap should contain log file pattern")
+			// Verify metrics receiver and exporter configuration
+			g.Expect(c).To(ContainSubstring("kubeletstats:"),
+				"ConfigMap should contain kubeletstats receiver")
+			g.Expect(c).To(ContainSubstring("otlphttp/metrics:"),
+				"ConfigMap should contain OTLP HTTP exporter for metrics")
 		}).WithTimeout(10 * time.Second).WithPolling(time.Second).Should(Succeed())
 	}
 }
@@ -155,6 +161,31 @@ func ValidateDPUClusterLogFlow(ctx context.Context, input *systemTestInput) {
 		}
 		g.Expect(found).To(BeTrue(), "Expected log message not found in Loki")
 	}).WithTimeout(time.Minute).WithPolling(time.Second).Should(Succeed())
+}
+
+// ValidateDPUClusterMetricsFlow verifies that container, pod, and node metrics
+// scraped by the DPU cluster collector's kubeletstats receiver are streamed to
+// the host cluster and land in the host Prometheus. The DPU collector stamps
+// every series with cluster=<DPUCluster name>, which uniquely identifies
+// DPU-origin metrics and distinguishes them from host cadvisor metrics. The test
+// queries Prometheus for kubelet-origin workload series carrying that label.
+func ValidateDPUClusterMetricsFlow(ctx context.Context, input *systemTestInput) {
+	promClient := prometheus.NewClient(hostClusterRESTClient, dpfOperatorSystemNamespace)
+	clusterName := input.dpuClusters[0].Name
+
+	By(fmt.Sprintf("Querying host Prometheus for kubelet metrics streamed from DPU cluster %s", clusterName))
+	// Match the kubeletstats-derived pod and container series (names carry unit
+	// and _total suffixes added by the prometheusremotewrite exporter, so match
+	// by prefix regex) that are attributed to the DPU cluster.
+	query := fmt.Sprintf(`count({__name__=~"k8s_pod_.+|container_.+", cluster=%q})`, clusterName)
+	Eventually(func(g Gomega) {
+		samples, err := promClient.QueryInstant(ctx, query)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(samples).NotTo(BeEmpty(),
+			fmt.Sprintf("No kubelet metrics found in host Prometheus for DPU cluster %s", clusterName))
+		g.Expect(samples[0].Value).To(BeNumerically(">", 0),
+			fmt.Sprintf("Expected streamed kubelet metrics for DPU cluster %s, found none", clusterName))
+	}).WithTimeout(5 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
 }
 
 // createLogGeneratorPod creates a busybox pod that continuously echoes a unique log message
