@@ -451,6 +451,29 @@ var _ = Describe("Provisioning API Validation", func() {
 				})
 			})
 		})
+
+		DescribeTable("Validates exactly one HostOSInit releaseAfter gate",
+			func(releaseAfter *provisioningv1.HostOSInitReleaseAfter, expectError bool) {
+				obj := getMinimalDPUFlavor(testNs.Name)
+				obj.Spec.HostOSInit = &provisioningv1.HostOSInit{ReleaseAfter: releaseAfter}
+				err := testClient.Create(ctx, obj)
+				if expectError {
+					Expect(err).To(HaveOccurred())
+					Expect(err.Error()).To(ContainSubstring("exactly one of operationalReady or dpuServiceCriticalPodsReady must be set"))
+				} else {
+					Expect(err).ToNot(HaveOccurred())
+				}
+			},
+			Entry("only operationalReady is specified",
+				&provisioningv1.HostOSInitReleaseAfter{OperationalReady: &provisioningv1.HostOSInitGate{}}, false),
+			Entry("neither gate is specified",
+				&provisioningv1.HostOSInitReleaseAfter{}, true),
+			Entry("both gates are specified",
+				&provisioningv1.HostOSInitReleaseAfter{
+					OperationalReady:            &provisioningv1.HostOSInitGate{},
+					DPUServiceCriticalPodsReady: &provisioningv1.HostOSInitGate{},
+				}, true),
+		)
 	})
 
 	Context("When checking the DPUFlavorTemplate API validations", func() {

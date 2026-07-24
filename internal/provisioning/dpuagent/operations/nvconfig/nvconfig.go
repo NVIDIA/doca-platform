@@ -27,7 +27,6 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
-	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -95,19 +94,15 @@ func (n *ConfigureNVConfig) Execute(execCtx context.Context, optCtx *operations.
 	klog.Infof("NVConfig start: dpu=%s/%s phase=%s rebootMethodDiscovery=%t flavorNVConfigCount=%d",
 		optCtx.LatestDPU.Namespace, optCtx.LatestDPU.Name, optCtx.LatestDPU.Status.Phase, optCtx.RebootMethodDiscovery, len(optCtx.DPUFlavor.Spec.NVConfig))
 
-	// 1.Get PCI -> netdev map.
-	pciToNetdev, err := n.pciToNetdevMap(optCtx)
+	// 1–2. Resolve PCI → NVConfig params once (shared with ReleaseHostOSInit).
+	resolved, err := EnsureResolved(optCtx)
 	if err != nil {
 		return fmt.Errorf("get devices from devlink: %w", err)
 	}
-	if len(pciToNetdev) == 0 {
+	pciToParams := resolved.PCIToParams
+	if len(pciToParams) == 0 {
 		return fmt.Errorf("no physical ports from devlink (p0/p1)")
 	}
-	klog.Infof("NVConfig discovered ports: %v", pciToNetdev)
-
-	// 2. Build PCI -> NVConfig parameters map.
-	nvconfigs := optCtx.DPUFlavor.Spec.NVConfig
-	pciToParams := pciToNVConfig(nvconfigs, pciToNetdev)
 	klog.Infof("NVConfig desired params by PCI: %v", pciToParams)
 
 	// 3. Build a deterministic PCI order and group reset-only devices first.
@@ -225,11 +220,7 @@ func (n *ConfigureNVConfig) pciToNetdevMap(optCtx *operations.Context) (map[stri
 	if err != nil {
 		return nil, err
 	}
-	pciToNetdev := make(map[string]string, len(ports))
-	for _, port := range ports {
-		pciToNetdev[pciutil.NormalizeAddress(port.PCIAddress)] = port.Netdev
-	}
-	return pciToNetdev, nil
+	return portsToPCINetdev(ports), nil
 }
 
 // runMlxconfig runs an mlxconfig command via bash and returns a wrapped error on failure.

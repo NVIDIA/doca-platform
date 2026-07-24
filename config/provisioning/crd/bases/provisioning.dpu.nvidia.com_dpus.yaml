@@ -370,6 +370,52 @@ spec:
                       - type
                       type: object
                     type: array
+                  hostOSInit:
+                    description: |-
+                      hostOSInit reports terminal host OS init release status from the DPU agent.
+                      Unset while the agent is polling or has not reached ReleaseHostOSInit.
+                    properties:
+                      skipped:
+                        description: skipped indicates release was not required for
+                          this DPU.
+                        properties:
+                          message:
+                            description: message is a human-readable explanation.
+                            type: string
+                          reason:
+                            description: reason is a stable machine-readable outcome
+                              code.
+                            type: string
+                        type: object
+                      succeeded:
+                        description: succeeded indicates host OS init was released
+                          or was already cleared.
+                        properties:
+                          releaseAfter:
+                            description: releaseAfter echoes the effective gate used
+                              for release.
+                            properties:
+                              dpuServiceCriticalPodsReady:
+                                description: dpuServiceCriticalPodsReady waits for
+                                  DPU.status.operationalConditions[DPUServiceCriticalPodsReady]
+                                  == True.
+                                type: object
+                              operationalReady:
+                                description: operationalReady waits for DPU.status.operationalConditions[OperationalReady]
+                                  == True.
+                                type: object
+                            type: object
+                            x-kubernetes-validations:
+                            - message: exactly one of operationalReady or dpuServiceCriticalPodsReady
+                                must be set
+                              rule: '(has(self.operationalReady) ? 1 : 0) + (has(self.dpuServiceCriticalPodsReady)
+                                ? 1 : 0) == 1'
+                        type: object
+                    type: object
+                    x-kubernetes-validations:
+                    - message: exactly one of skipped or succeeded must be set
+                      rule: '(has(self.skipped) ? 1 : 0) + (has(self.succeeded) ?
+                        1 : 0) == 1'
                   initialBootID:
                     description: InitialBootID is the boot ID of the DPU OS during
                       the first boot
@@ -798,6 +844,7 @@ spec:
                 - DPU Config
                 - DPU Cluster Config
                 - Host Network Configuration
+                - Host OS Init Release
                 - Ready
                 - Error
                 - Deleting
@@ -827,6 +874,7 @@ spec:
                 - DPU Config
                 - DPU Cluster Config
                 - Host Network Configuration
+                - Host OS Init Release
                 - Ready
                 - Error
                 - Deleting

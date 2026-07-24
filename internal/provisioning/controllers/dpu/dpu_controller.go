@@ -88,6 +88,7 @@ func NewDPUReconciler(mgr manager.Manager, alloc allocator.Allocator, joinComman
 		provisioningv1.DPUPrepareBFB:        state.PrepareBFB,
 		provisioningv1.DPUConfig:            state.DPUConfig,
 		provisioningv1.DPUClusterConfig:     state.ClusterConfig,
+		provisioningv1.DPUHostOSInitRelease: state.HostOSInitRelease,
 		provisioningv1.DPUNodeEffectRemoval: state.NodeEffectRemoval,
 		provisioningv1.DPUReady:             state.Ready,
 		provisioningv1.DPUDeleting:          state.Deleting,
@@ -114,6 +115,7 @@ func NewDPUReconciler(mgr manager.Manager, alloc allocator.Allocator, joinComman
 		handlers[provisioningv1.DPUPrepareBFB] = mock.PrepareBFB
 		handlers[provisioningv1.DPUOSInstalling] = mock.Installing
 		handlers[provisioningv1.DPUClusterConfig] = mock.ClusterConfig
+		handlers[provisioningv1.DPUHostOSInitRelease] = mock.HostOSInitRelease
 		handlers[provisioningv1.DPUNodeEffectRemoval] = mock.NodeEffectRemoval
 		handlers[provisioningv1.DPUDeleting] = mock.Deleting
 		handlers[provisioningv1.DPURebooting] = mock.Rebooting
