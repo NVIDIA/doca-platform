@@ -38,6 +38,13 @@ data:
           http:
             endpoint: 0.0.0.0:4318
 
+      kubeletstats:
+        collection_interval: 30s
+        auth_type: serviceAccount
+        endpoint: "https://${env:K8S_NODE_IP}:10250"
+        insecure_skip_verify: true
+        metric_groups: [container, pod, node]
+
     processors:
       memory_limiter:
         check_interval: 5s
@@ -79,10 +86,26 @@ data:
           - key: cluster_namespace
             value: ${env:CLUSTER_NAMESPACE}
             action: upsert
+          # Each collector only scrapes its own node's kubelet, so the node the
+          # collector runs on identifies every pod and container metric it emits.
+          # This lets metrics be filtered by DPU node.
+          - key: k8s.node.name
+            value: ${env:K8S_NODE_NAME}
+            action: upsert
 
     exporters:
       otlphttp/log:
         endpoint: {{ .Values.logging.endpoint | quote }}
+        tls:
+          insecure: true
+        retry_on_failure:
+          enabled: true
+          initial_interval: 5s
+          max_interval: 30s
+          max_elapsed_time: 1h
+
+      otlphttp/metrics:
+        endpoint: {{ .Values.metrics.endpoint | quote }}
         tls:
           insecure: true
         retry_on_failure:
@@ -115,6 +138,6 @@ data:
           exporters: [otlphttp/log, debug]
 
         metrics:
-          receivers: [otlp]
+          receivers: [kubeletstats, otlp]
           processors: [memory_limiter, k8sattributes, resource, batch]
-          exporters: [debug]
+          exporters: [otlphttp/metrics, debug]

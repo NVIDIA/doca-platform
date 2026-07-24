@@ -807,6 +807,20 @@ spec:
                         required:
                         - endpoint
                         type: object
+                      metrics:
+                        description: |-
+                          Metrics contains the configuration for the opentelemetry-collector metrics component.
+                          If not specified, metrics will not be streamed from DPU clusters.
+                        properties:
+                          endpoint:
+                            description: |-
+                              Endpoint is the OTLP endpoint where the DPU cluster opentelemetry-collector sends metrics to.
+                              This could be the management cluster's opentelemetry-collector endpoint.
+                              If not specified, metrics will not be forwarded from DPU clusters.
+                            type: string
+                        required:
+                        - endpoint
+                        type: object
                     type: object
                 type: object
               multus:

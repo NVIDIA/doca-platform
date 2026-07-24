@@ -1017,6 +1017,7 @@ _Appears in:_
 | `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br />Optional: \{\} <br /> |
 | `daemon` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Daemon contains the configuration for the opentelemetry-collector component.<br />It contains the image for opentelemetry-collector and its resource requirements. |  | Optional: \{\} <br /> |
 | `logging` _[OpenTelemetryCollectorLoggingConfiguration](#opentelemetrycollectorloggingconfiguration)_ | Logging contains the configuration for the opentelemetry-collector logging component.<br />If not specified, logging will not be streamed. |  | Optional: \{\} <br /> |
+| `metrics` _[OpenTelemetryCollectorMetricsConfiguration](#opentelemetrycollectormetricsconfiguration)_ | Metrics contains the configuration for the opentelemetry-collector metrics component.<br />If not specified, metrics will not be streamed from DPU clusters. |  | Optional: \{\} <br /> |
 
 
 #### OpenTelemetryCollectorLoggingConfiguration
@@ -1033,6 +1034,22 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `endpoint` _string_ | Endpoint is the OTLP endpoint where the DPU cluster opentelemetry-collector sends data to.<br />This could be the management cluster's opentelemetry-collector endpoint.<br />If not specified, nothing will be forwarded from DPU clusters. |  | Required: \{\} <br /> |
+
+
+#### OpenTelemetryCollectorMetricsConfiguration
+
+
+
+
+
+
+
+_Appears in:_
+- [OpenTelemetryCollectorConfiguration](#opentelemetrycollectorconfiguration)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `endpoint` _string_ | Endpoint is the OTLP endpoint where the DPU cluster opentelemetry-collector sends metrics to.<br />This could be the management cluster's opentelemetry-collector endpoint.<br />If not specified, metrics will not be forwarded from DPU clusters. |  | Required: \{\} <br /> |
 
 
 #### Overrides
