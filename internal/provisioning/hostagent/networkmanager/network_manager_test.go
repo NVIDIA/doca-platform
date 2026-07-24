@@ -19,10 +19,14 @@ limitations under the License.
 package networkmanager
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
+	"sync"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	hostagenttypes "github.com/nvidia/doca-platform/internal/provisioning/hostagent/service/types"
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -298,6 +302,84 @@ var _ = Describe("NetworkManager", func() {
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("PCI address of device"))
 			Expect(err.Error()).To(ContainSubstring("not found"))
+		})
+	})
+
+	Context("NetworkManager.RebindHostDriver", Label("RebindHostDriver"), func() {
+		It("should rebind every PF and clear the in-progress marker", func() {
+			nm := NewNetworkManager(nil)
+			nm.initialized = true
+			nm.devicesBySN["test-serial"] = hostutil.Device{
+				Address:      "0000:03:00",
+				SerialNumber: "test-serial",
+				NumOfPFs:     2,
+			}
+
+			dpu := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dpu",
+					Namespace: "default",
+					UID:       "test-uid",
+				},
+				Spec: provisioningv1.DPUSpec{SerialNumber: "test-serial"},
+			}
+
+			var reboundPFs []int
+			nm.rebindHostDriverPF = func(_ context.Context, address string, pf int) error {
+				Expect(address).To(Equal("0000:03:00"))
+				Expect(nm.rebinding).To(HaveKey("test-uid"))
+				reboundPFs = append(reboundPFs, pf)
+				return nil
+			}
+
+			Expect(nm.RebindHostDriver(context.Background(), dpu)).To(Succeed())
+			Expect(reboundPFs).To(Equal([]int{0, 1}))
+			Expect(nm.rebinding).NotTo(HaveKey("test-uid"))
+		})
+
+		It("should reject a concurrent rebind for the same UID", func() {
+			nm := NewNetworkManager(nil)
+			nm.initialized = true
+			nm.devicesBySN["test-serial"] = hostutil.Device{
+				Address:      "0000:03:00",
+				SerialNumber: "test-serial",
+				NumOfPFs:     1,
+			}
+
+			dpu := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dpu",
+					Namespace: "default",
+					UID:       "test-uid",
+				},
+				Spec: provisioningv1.DPUSpec{SerialNumber: "test-serial"},
+			}
+
+			started := make(chan struct{})
+			release := make(chan struct{})
+			nm.rebindHostDriverPF = func(_ context.Context, _ string, _ int) error {
+				close(started)
+				<-release
+				return nil
+			}
+
+			var firstErr error
+			var wg sync.WaitGroup
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				firstErr = nm.RebindHostDriver(context.Background(), dpu)
+			}()
+
+			Eventually(started).Should(BeClosed())
+			err := nm.RebindHostDriver(context.Background(), dpu)
+			Expect(errors.Is(err, hostagenttypes.ErrRebindInProgress)).To(BeTrue())
+			Expect(nm.rebinding).To(HaveKey("test-uid"))
+
+			close(release)
+			wg.Wait()
+			Expect(firstErr).NotTo(HaveOccurred())
+			Expect(nm.rebinding).NotTo(HaveKey("test-uid"))
 		})
 	})
 

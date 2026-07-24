@@ -17,8 +17,13 @@ limitations under the License.
 package types
 
 import (
+	"errors"
+
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 )
+
+// ErrRebindInProgress is returned when a host driver rebind is already running for the DPU UID.
+var ErrRebindInProgress = errors.New("host driver rebind already in progress")
 
 type UpdateStatusRequest struct {
 	DPUName      string                     `json:"dpuName"`
@@ -38,4 +43,10 @@ type TriggerRebootRequest struct {
 	DPUNamespace string                          `json:"dpuNamespace"`
 	DPUUID       string                          `json:"dpuUID"`
 	RebootMethod provisioningv1.RebootMethodType `json:"rebootMethod"`
+}
+
+type RebindHostDriverRequest struct {
+	DPUName      string `json:"dpuName"`
+	DPUNamespace string `json:"dpuNamespace"`
+	DPUUID       string `json:"dpuUID"`
 }
