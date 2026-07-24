@@ -17,12 +17,15 @@ limitations under the License.
 package util
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 )
 
@@ -50,6 +53,10 @@ const (
 	DeviceIDBlueField2 = "0xa2d6"
 	DeviceIDBlueField3 = "0xa2dc"
 	DeviceIDBlueField4 = "0xa2df"
+
+	MLX5CoreDriver = "mlx5_core"
+
+	defaultDriverRebindPollInterval = 4 * time.Second
 )
 
 type PCIHelper struct {
@@ -238,6 +245,67 @@ func (h *PCIHelper) BindDriver(driverName string) error {
 	bindPath := filepath.Join(h.sysFSRoot, "bus/pci/drivers", driverName, "bind")
 	if err := os.WriteFile(bindPath, []byte(bdf), 0644); err != nil {
 		return fmt.Errorf("failed to bind %s to %s: %w", bdf, driverName, err)
+	}
+	return nil
+}
+
+// UnbindDriver removes the current driver binding for this PCI device.
+func (h *PCIHelper) UnbindDriver() error {
+	boundDriver, err := h.BoundDriver()
+	if err != nil {
+		return err
+	}
+	if boundDriver == "" {
+		return nil
+	}
+	bdf := filepath.Base(h.Path())
+	unbindPath := filepath.Join(h.sysFSRoot, "bus/pci/drivers", boundDriver, "unbind")
+	if err := os.WriteFile(unbindPath, []byte(bdf), 0644); err != nil {
+		return fmt.Errorf("failed to unbind %s from %s: %w", bdf, boundDriver, err)
+	}
+	return nil
+}
+
+func (h *PCIHelper) waitForNetdev(ctx context.Context, driverName string) error {
+	deadlineCtx := ctx
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		deadlineCtx, cancel = context.WithTimeout(ctx, 2*time.Minute)
+		defer cancel()
+	}
+	return wait.PollUntilContextCancel(deadlineCtx, defaultDriverRebindPollInterval, true, func(pollCtx context.Context) (bool, error) {
+		bound, err := h.BoundDriver()
+		if err != nil {
+			return false, err
+		}
+		if bound != driverName {
+			return false, nil
+		}
+		_, err = h.InterfaceName()
+		return err == nil, nil
+	})
+}
+
+// RebindDriver unbinds and rebinds a PF to driverName, then waits until a netdev appears.
+// Callers should pass a ctx with a deadline; if none is set, waitForNetdev falls back to a
+// 2-minute timeout so a missing netdev cannot poll forever.
+func (h *PCIHelper) RebindDriver(ctx context.Context, driverName string) error {
+	bound, err := h.BoundDriver()
+	if err != nil {
+		return err
+	}
+	if bound != "" {
+		if err := h.UnbindDriver(); err != nil {
+			return fmt.Errorf("unbind before rebind on %s: %w", h.Path(), err)
+		}
+	}
+
+	if err := h.BindDriver(driverName); err != nil {
+		return err
+	}
+
+	if err := h.waitForNetdev(ctx, driverName); err != nil {
+		return fmt.Errorf("wait for netdev on %s: %w", h.Path(), err)
 	}
 	return nil
 }
