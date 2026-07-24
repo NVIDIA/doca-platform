@@ -83,7 +83,12 @@ func runServer() error {
 		return fmt.Errorf("invalid configuration: %w", err)
 	}
 
-	vaultClient, err := vault.NewClient(cfg.VaultAddress, cfg.VaultCACertFile, cfg.VaultNamespace)
+	// SIGHUP intentionally shuts down instead of reloading configuration:
+	// credential and CA files are reloaded automatically while the plugin runs.
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
+	defer cancel()
+
+	vaultClient, err := vault.NewClient(cfg.VaultAddress, cfg.VaultCACertFile, cfg.VaultNamespace, log.WithName("vault-client"))
 	if err != nil {
 		return fmt.Errorf("failed to build Vault client: %w", err)
 	}
@@ -98,11 +103,6 @@ func runServer() error {
 		vault.WithLoginTimeout(cfg.LoginTimeout))
 	transitService := vault.NewTransitService(vaultClient, cfg.TransitMount, cfg.KeyName)
 
-	// SIGHUP intentionally shuts down instead of reloading configuration:
-	// credential files are re-read on each authentication attempt already.
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
-	defer cancel()
-
 	listener, err := server.ListenUnix(cfg.SocketPath)
 	if err != nil {
 		return fmt.Errorf("failed to listen on KMS plugin socket: %w", err)
@@ -114,6 +114,7 @@ func runServer() error {
 	// process-wide umask. Failed authentication is not fatal: the Status RPC
 	// will report the plugin unhealthy and Run keeps retrying, so the plugin
 	// recovers automatically once Vault becomes reachable.
+	go vaultClient.Run(ctx)
 	go tokenManager.Run(ctx)
 
 	kms := server.New(transitService, log.WithName("kms"))
