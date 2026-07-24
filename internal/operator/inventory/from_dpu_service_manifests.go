@@ -301,10 +301,14 @@ func nvipamEdits(vars Variables) ([]StructuredEdit, error) {
 func openTelemetryCollectorEdits(vars Variables) ([]StructuredEdit, error) {
 	edits := []StructuredEdit{}
 
-	// Set the management endpoint if provided
 	if vars.OpenTelemetryCollector.LoggingEndpoint != "" {
 		edits = append(edits, dpuServiceAddValueEdit(vars.OpenTelemetryCollector.LoggingEndpoint,
 			operatorv1.OpenTelemetryCollectorName.String(), "logging", "endpoint"))
+	}
+
+	if vars.OpenTelemetryCollector.MetricsEndpoint != "" {
+		edits = append(edits, dpuServiceAddValueEdit(vars.OpenTelemetryCollector.MetricsEndpoint,
+			operatorv1.OpenTelemetryCollectorName.String(), "metrics", "endpoint"))
 	}
 
 	return edits, nil

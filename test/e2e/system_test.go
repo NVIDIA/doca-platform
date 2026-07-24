@@ -96,6 +96,9 @@ func dpfOperatorConfigFromFile(path string) *operatorv1.DPFOperatorConfig {
 			Logging: &operatorv1.OpenTelemetryCollectorLoggingConfiguration{
 				Endpoint: fmt.Sprintf("%s%s:%d", otelEndpointSchema, controlPlaneIP, otelNodePort),
 			},
+			Metrics: &operatorv1.OpenTelemetryCollectorMetricsConfiguration{
+				Endpoint: fmt.Sprintf("%s%s:%d", otelEndpointSchema, controlPlaneIP, otelNodePort),
+			},
 		}
 	}
 	return dpfOperatorConfig
@@ -140,6 +143,9 @@ func generateDPFOperatorConfig() *operatorv1.DPFOperatorConfig {
 				Disable: ptr.To(false),
 				OpenTelemetryCollector: &operatorv1.OpenTelemetryCollectorConfiguration{
 					Logging: &operatorv1.OpenTelemetryCollectorLoggingConfiguration{
+						Endpoint: fmt.Sprintf("%s%s:%d", otelEndpointSchema, controlPlaneIP, otelNodePort),
+					},
+					Metrics: &operatorv1.OpenTelemetryCollectorMetricsConfiguration{
 						Endpoint: fmt.Sprintf("%s%s:%d", otelEndpointSchema, controlPlaneIP, otelNodePort),
 					},
 				},
@@ -514,6 +520,9 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 					By("Validating DPU cluster kube-state-metrics accessibility")
 					VerifyDPUKSMMetricsCollection(ctx, input)
 				})
+				It("validate DPF metrics are scraped into Prometheus", func() {
+					ValidateDPFMetricsScrapedByPrometheus(ctx)
+				})
 			})
 
 			Context("Node Problem Detector", Labels{Domain.ZeroTrust, Domain.RequiresNodes}, func() {
@@ -562,6 +571,15 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 						Skip("Skip test as there are no DPU nodes")
 					}
 					ValidateDPUClusterLogFlow(ctx, input)
+				})
+			})
+
+			Context("Metrics Flow", func() {
+				It("should collect and forward metrics from DPU cluster to the host collector", Labels{Domain.RequiresNodes}, func() {
+					if !input.hasDpuNodes() {
+						Skip("Skip test as there are no DPU nodes")
+					}
+					ValidateDPUClusterMetricsFlow(ctx, input)
 				})
 			})
 		})
