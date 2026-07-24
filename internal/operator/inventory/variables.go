@@ -186,6 +186,7 @@ type NodeSRIOVDevicePluginControllerVariables struct {
 
 type OpenTelemetryCollectorVariables struct {
 	LoggingEndpoint string
+	MetricsEndpoint string
 }
 
 // KataContainersVariables holds variables specific to the Kata Containers component.
@@ -468,10 +469,15 @@ func setMonitoringConfigs(variables Variables, config *operatorv1.DPFOperatorCon
 	if otelConfig := config.Spec.Monitoring.OpenTelemetryCollector; otelConfig != nil {
 		if otelConfig.Disabled() {
 			variables.DisableSystemComponents[operatorv1.OpenTelemetryCollectorName] = true
-		} else if otelConfig.Logging != nil {
-			// Only enable if endpoint is explicitly provided
+		} else if otelConfig.Logging != nil || otelConfig.Metrics != nil {
+			// Only enable if at least one endpoint is explicitly provided
 			variables.DisableSystemComponents[operatorv1.OpenTelemetryCollectorName] = false
-			variables.OpenTelemetryCollector.LoggingEndpoint = otelConfig.Logging.Endpoint
+			if otelConfig.Logging != nil {
+				variables.OpenTelemetryCollector.LoggingEndpoint = otelConfig.Logging.Endpoint
+			}
+			if otelConfig.Metrics != nil {
+				variables.OpenTelemetryCollector.MetricsEndpoint = otelConfig.Metrics.Endpoint
+			}
 		}
 		// If enabled but no endpoint provided, it remains disabled
 	}

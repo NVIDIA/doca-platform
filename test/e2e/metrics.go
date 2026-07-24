@@ -23,6 +23,7 @@ import (
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/test/utils/metrics"
+	"github.com/nvidia/doca-platform/test/utils/prometheus"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -90,6 +91,23 @@ func ValidateGeneralDPFMetrics(ctx context.Context, input *systemTestInput) {
 		g.Expect(actualMetricsNames).NotTo(BeEmpty(), "Actual metrics are empty")
 		g.Expect(metrics.VerifyMetrics(expectedMetricsNames, actualMetricsNames)).To(BeEmpty())
 	}).WithTimeout(5 * time.Second).Should(Succeed())
+}
+
+// ValidateDPFMetricsScrapedByPrometheus confirms that DPF kube-state-metrics are
+// not only produced but actually scraped into Prometheus, where the dashboards
+// read them. ValidateGeneralDPFMetrics checks the KSM endpoint directly, which
+// isolates producer correctness but does not exercise the Prometheus scrape
+// config; this closes that gap. dpfoperatorconfig is a singleton, so
+// dpf_dpfoperatorconfig_info is always present once the scrape has run.
+func ValidateDPFMetricsScrapedByPrometheus(ctx context.Context) {
+	By("Verify DPF metrics are scraped into Prometheus")
+	promClient := prometheus.NewClient(hostClusterRESTClient, dpfOperatorSystemNamespace)
+	Eventually(func(g Gomega) {
+		samples, err := promClient.QueryInstant(ctx, "dpf_dpfoperatorconfig_info")
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(samples).NotTo(BeEmpty(),
+			"No dpf_dpfoperatorconfig_info series in Prometheus; the kube-state-metrics scrape may be misconfigured")
+	}).WithTimeout(2 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
 }
 
 func VerifyNodeProblemDetectorConditions(ctx context.Context, input *systemTestInput) {

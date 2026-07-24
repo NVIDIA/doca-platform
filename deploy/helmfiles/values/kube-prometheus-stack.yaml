@@ -138,6 +138,11 @@ prometheus:
     externalLabels:
       cluster: management
 
+    # Enable the remote-write receiver (--web.enable-remote-write-receiver) so the
+    # OpenTelemetry Collector can push DPU cluster metrics into Prometheus via its
+    # prometheusremotewrite exporter.
+    enableRemoteWriteReceiver: true
+
     affinity:
       nodeAffinity:
         requiredDuringSchedulingIgnoredDuringExecution:

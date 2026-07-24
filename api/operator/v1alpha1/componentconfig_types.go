@@ -1093,12 +1093,25 @@ type OpenTelemetryCollectorConfiguration struct {
 	// If not specified, logging will not be streamed.
 	// +optional
 	Logging *OpenTelemetryCollectorLoggingConfiguration `json:"logging,omitempty"`
+
+	// Metrics contains the configuration for the opentelemetry-collector metrics component.
+	// If not specified, metrics will not be streamed from DPU clusters.
+	// +optional
+	Metrics *OpenTelemetryCollectorMetricsConfiguration `json:"metrics,omitempty"`
 }
 
 type OpenTelemetryCollectorLoggingConfiguration struct {
 	// Endpoint is the OTLP endpoint where the DPU cluster opentelemetry-collector sends data to.
 	// This could be the management cluster's opentelemetry-collector endpoint.
 	// If not specified, nothing will be forwarded from DPU clusters.
+	// +required
+	Endpoint string `json:"endpoint,omitempty"`
+}
+
+type OpenTelemetryCollectorMetricsConfiguration struct {
+	// Endpoint is the OTLP endpoint where the DPU cluster opentelemetry-collector sends metrics to.
+	// This could be the management cluster's opentelemetry-collector endpoint.
+	// If not specified, metrics will not be forwarded from DPU clusters.
 	// +required
 	Endpoint string `json:"endpoint,omitempty"`
 }
