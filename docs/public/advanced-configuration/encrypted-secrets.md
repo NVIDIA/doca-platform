@@ -28,7 +28,9 @@ it from the Secret and export it as `OPENBAO_ROOT_TOKEN`:
 > [!WARNING]
 > The OpenBao root token is for bootstrap purposes only and should be stored offline securely. This example assumes the
 > token is available in a Kubernetes Secret, which is not recommended for production deployments.
-
+> Treat any shell variable or environment variable that contains tokens, keys, or other secret material as sensitive.
+> Unset these variables after completing the configuration, and avoid pasting raw secret values into commands so they
+> are not written to shell history.
 
 ```bash
 export OPENBAO_ROOT_TOKEN="$(kubectl -n openbao get secret openbao-root-token -o jsonpath='{.data.token}' | base64 -d)"
@@ -101,6 +103,12 @@ The `sample-application-secret-reader` role is bound to the service account used
 External Secrets Operator is installed in a different namespace, update the reader service account, OpenBao role binding,
 and `ClusterSecretStore` service account reference.
 
+After completing this initial OpenBao configuration, unset the root token environment variable:
+
+```bash
+unset OPENBAO_ROOT_TOKEN
+```
+
 ## Store Secret Data in OpenBao
 
 Authenticate to OpenBao with the sample application writer service account:
@@ -121,6 +129,8 @@ kubectl -n openbao exec openbao-0 -- env BAO_TOKEN="${OPENBAO_WRITER_TOKEN}" \
   bao kv put application-secrets/sample-application/credentials \
   username='sample-user' \
   password='sample-password'
+
+unset WRITER_JWT OPENBAO_WRITER_TOKEN
 ```
 
 ## Configure External Secrets Operator

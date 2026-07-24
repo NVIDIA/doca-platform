@@ -19,4 +19,5 @@ This page contains advanced configuration documentation for the DOCA Platform Fr
 * [DPUFlavorTemplate: Per-DPU Flavor Rendering](dpuflavortemplate-per-dpu-config.md) - How to render a per-DPU DPUFlavor from a template using values in DPUDevice.spec.values
 * [Kata Containers on Host Nodes](kata-containers.md) - Guide for running pods with Kata VM isolation on host worker nodes, including SR-IOV VF passthrough with DOCA hardware offload
 * [Encrypted Secrets](encrypted-secrets.md) - Configuration for storing secret data in an external secret store and replicating it to the management cluster with External Secrets Operator
+* [Kamaji Encryption at Rest](kamaji-encryption-at-rest.md) - Configuration for encrypting Secrets and ConfigMaps in Kamaji-managed DPU cluster etcd datastores
 * [Telemetry Level Labels](telemetry-level-labels.md) - Per-DPU generation of the DOCA telemetry `level_labels.ini` from DPUDevice values with a DPUFlavorTemplate
