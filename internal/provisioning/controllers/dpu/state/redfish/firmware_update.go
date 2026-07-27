@@ -61,6 +61,15 @@ func FirmwareUpdate(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil
 	}
 
 	if blueFieldSoftware.Status.DownloadedComponents.PldmFwBundle == "" {
+		// PLDM is configured but local path is still unavailable (e.g. re-download after
+		// provisioning controller pod restart). Wait/requeue instead of treating it as
+		// "no PLDM configured".
+		if ptr.Deref(blueFieldSoftware.Spec.PldmFwBundle, "") != "" {
+			err := fmt.Errorf("waiting for PLDM firmware bundle download (BlueFieldSoftware phase %s)", blueFieldSoftware.Status.Phase)
+			logger.Info(err.Error())
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), err, "WaitingForPldmFwBundle", err.Error()))
+			return *state, err
+		}
 		logger.Info("no PLDM firmware bundle provided - skipping firmware update")
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), nil, "NoPldmFwBundle", "no PLDM firmware bundle provided - skipping firmware update"))
 		state.Phase = provisioningv1.DPUPrepareBFB
