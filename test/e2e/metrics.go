@@ -111,9 +111,10 @@ func ValidateDPFMetricsScrapedByPrometheus(ctx context.Context) {
 }
 
 func VerifyNodeProblemDetectorConditions(ctx context.Context, input *systemTestInput) {
+	t := NewByTracker()
 	Eventually(func(g Gomega) {
 		for i, dpuCluster := range input.dpuClusters {
-			By(fmt.Sprintf("Checking node conditions in DPUCluster %s", dpuCluster.Name))
+			t.By(dpuCluster.Name, "Checking node conditions in DPUCluster %s", dpuCluster.Name)
 
 			nodes := &corev1.NodeList{}
 			g.Expect(dpuClusterClient[i].List(ctx, nodes)).To(Succeed(),
@@ -146,7 +147,7 @@ func VerifyNodeProblemDetectorConditions(ctx context.Context, input *systemTestI
 						And(HaveField("Type", Equal(provisioningv1.NPDConditionOVSDBHealthy)), HaveField("Status", Equal(corev1.ConditionFalse))),
 						And(HaveField("Type", Equal(provisioningv1.NPDConditionOVSHealthy)), HaveField("Status", Equal(corev1.ConditionFalse))),
 						And(HaveField("Type", Equal(provisioningv1.NPDConditionUplinkHealthy)), HaveField("Status", Equal(corev1.ConditionFalse))),
-						And(HaveField("Type", Equal(provisioningv1.NPDConditionSRIOVHealthy)), HaveField("Status", Equal(corev1.ConditionFalse))),
+						And(HaveField("Type", Equal(provisioningv1.NPDConditionPFRepresentorsHealthy)), HaveField("Status", Equal(corev1.ConditionFalse))),
 						And(HaveField("Type", Equal(provisioningv1.NPDConditionMTUConfigured)), HaveField("Status", Equal(corev1.ConditionFalse))),
 						// Kubelet conditions, not part of GetNodeProblemDetectorConditions()
 						And(HaveField("Type", Equal(corev1.NodeReady)), HaveField("Status", Equal(corev1.ConditionTrue))),
