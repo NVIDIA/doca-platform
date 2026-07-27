@@ -168,8 +168,8 @@ const (
 	NPDConditionOVSHealthy corev1.NodeConditionType = "OVSHealthy"
 	// NPDConditionUplinkHealthy indicates the physical uplink interface is up
 	NPDConditionUplinkHealthy corev1.NodeConditionType = "UplinkHealthy"
-	// NPDConditionSRIOVHealthy indicates SR-IOV VF representors are present
-	NPDConditionSRIOVHealthy corev1.NodeConditionType = "SRIOVHealthy"
+	// NPDConditionPFRepresentorsHealthy indicates host PF representors are present on the DPU eswitch
+	NPDConditionPFRepresentorsHealthy corev1.NodeConditionType = "PFRepresentorsHealthy"
 	// NPDConditionMTUConfigured indicates network MTU is correctly configured
 	NPDConditionMTUConfigured corev1.NodeConditionType = "MTUConfigured"
 )
@@ -184,7 +184,7 @@ func GetNodeProblemDetectorConditions() []string {
 		string(NPDConditionOVSDBHealthy),
 		string(NPDConditionOVSHealthy),
 		string(NPDConditionUplinkHealthy),
-		string(NPDConditionSRIOVHealthy),
+		string(NPDConditionPFRepresentorsHealthy),
 		string(NPDConditionMTUConfigured),
 	}
 }

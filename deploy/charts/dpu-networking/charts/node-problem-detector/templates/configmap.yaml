@@ -130,9 +130,9 @@ data:
           "message": "ovsdb-server service is running"
         },
         {
-          "type": "SRIOVHealthy",
-          "reason": "VFsFound",
-          "message": "SR-IOV VF representors are present"
+          "type": "PFRepresentorsHealthy",
+          "reason": "PFRepresentorsFound",
+          "message": "Host PF representors are present"
         },
         {
           "type": "UplinkHealthy",
@@ -162,9 +162,9 @@ data:
         },
         {
           "type": "permanent",
-          "condition": "SRIOVHealthy",
-          "reason": "VFRepresentorsMissing",
-          "path": "/config/check_sriov_vfs.sh",
+          "condition": "PFRepresentorsHealthy",
+          "reason": "PFRepresentorsMissing",
+          "path": "/config/check_pf_representors.sh",
           "timeout": "3s"
         },
         {
