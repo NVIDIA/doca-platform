@@ -18,6 +18,7 @@ spec:
           doMagic: "true"
     dpuSetStrategy:
       type: OnDelete
+    secureBoot: true
     nodeEffect:
       hold: true
   services:
