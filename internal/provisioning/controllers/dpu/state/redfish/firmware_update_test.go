@@ -172,7 +172,79 @@ var _ = Describe("FirmwareUpdate", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(status.Phase).To(Equal(provisioningv1.DPUPrepareBFB))
 		Expect(status.Conditions).To(ContainElement(
-			HaveField("Type", provisioningv1.DPUCondFwBundleUpdated.String()),
+			And(
+				HaveField("Type", provisioningv1.DPUCondFwBundleUpdated.String()),
+				HaveField("Reason", "NoPldmFwBundle"),
+				HaveField("Status", metav1.ConditionTrue),
+			),
+		))
+	})
+
+	It("should wait when PLDM is configured but BlueFieldSoftware is re-downloading", func() {
+		bfs := &provisioningv1.BlueFieldSoftware{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      defaultBlueFieldSWName,
+				Namespace: testNS.Name,
+			},
+			Spec: provisioningv1.BlueFieldSpec{
+				OsIso:        "https://test.com/os.iso",
+				PldmFwBundle: ptr.To("https://test.com/fw.fwpkg"),
+			},
+		}
+		createObject(bfs)
+
+		patch := client.MergeFrom(bfs.DeepCopy())
+		bfs.Status.Phase = provisioningv1.BlueFieldSoftwareDownloading
+		Expect(k8sClient.Status().Patch(ctx, bfs, patch)).To(Succeed())
+
+		dpu := dpuObj(defaultDPUName)
+		dpu.Spec.BlueFieldSoftware = ptr.To(defaultBlueFieldSWName)
+		dpu.Status.Phase = provisioningv1.DPUUpdateFirmware
+		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
+
+		status, err := FirmwareUpdate(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+		Expect(err).To(HaveOccurred())
+		Expect(status.Phase).To(Equal(provisioningv1.DPUUpdateFirmware))
+		Expect(status.Conditions).To(ContainElement(
+			And(
+				HaveField("Type", provisioningv1.DPUCondFwBundleUpdated.String()),
+				HaveField("Reason", "WaitingForPldmFwBundle"),
+				HaveField("Status", metav1.ConditionFalse),
+			),
+		))
+	})
+
+	It("should wait when PLDM is configured, BlueFieldSoftware is Ready, but downloaded path is empty", func() {
+		bfs := &provisioningv1.BlueFieldSoftware{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      defaultBlueFieldSWName,
+				Namespace: testNS.Name,
+			},
+			Spec: provisioningv1.BlueFieldSpec{
+				OsIso:        "https://test.com/os.iso",
+				PldmFwBundle: ptr.To("https://test.com/fw.fwpkg"),
+			},
+		}
+		createObject(bfs)
+
+		patch := client.MergeFrom(bfs.DeepCopy())
+		bfs.Status.Phase = provisioningv1.BlueFieldSoftwareReady
+		Expect(k8sClient.Status().Patch(ctx, bfs, patch)).To(Succeed())
+
+		dpu := dpuObj(defaultDPUName)
+		dpu.Spec.BlueFieldSoftware = ptr.To(defaultBlueFieldSWName)
+		dpu.Status.Phase = provisioningv1.DPUUpdateFirmware
+		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
+
+		status, err := FirmwareUpdate(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+		Expect(err).To(HaveOccurred())
+		Expect(status.Phase).To(Equal(provisioningv1.DPUUpdateFirmware))
+		Expect(status.Conditions).To(ContainElement(
+			And(
+				HaveField("Type", provisioningv1.DPUCondFwBundleUpdated.String()),
+				HaveField("Reason", "WaitingForPldmFwBundle"),
+				HaveField("Status", metav1.ConditionFalse),
+			),
 		))
 	})
 
