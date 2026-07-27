@@ -31,6 +31,7 @@ import (
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	hostagenttypes "github.com/nvidia/doca-platform/internal/provisioning/hostagent/service/types"
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/hostagent/util/netconfig"
 	"github.com/nvidia/doca-platform/internal/utils"
@@ -55,6 +56,8 @@ type Interface interface {
 	// AddNetworkRequest adds a network request for a DPU.
 	// If vfCount is non-nil it overrides the value derived from the DPUFlavor.
 	AddNetworkRequest(dpu *provisioningv1.DPU, vfCount *int) error
+	// RebindHostDriver unbinds and rebinds mlx5 on the DPU PFs.
+	RebindHostDriver(ctx context.Context, dpu *provisioningv1.DPU) error
 }
 
 type NetworkManager struct {
@@ -65,6 +68,11 @@ type NetworkManager struct {
 	devicesBySN map[string]hostutil.Device
 	// reqs is a map of DPU CR UID to its network request
 	reqs map[string]NetworkRequest
+	// rebinding tracks DPU UIDs undergoing host driver rebind to avoid racing host-network ops.
+	// At most one rebind may be in flight per UID; a second request is rejected until the first completes.
+	rebinding map[string]struct{}
+	// rebindHostDriverPF performs the driver rebind for one PF.
+	rebindHostDriverPF func(context.Context, string, int) error
 	// netBackend is the network configuration backend (NetworkManager or systemd-networkd)
 	netBackend netconfig.Backend
 }
@@ -76,9 +84,11 @@ type networkOperation struct {
 
 func NewNetworkManager(client client.Client) *NetworkManager {
 	return &NetworkManager{
-		Client:      client,
-		devicesBySN: make(map[string]hostutil.Device),
-		reqs:        make(map[string]NetworkRequest),
+		Client:             client,
+		devicesBySN:        make(map[string]hostutil.Device),
+		reqs:               make(map[string]NetworkRequest),
+		rebinding:          make(map[string]struct{}),
+		rebindHostDriverPF: rebindHostDriverPF,
 	}
 }
 
@@ -171,6 +181,11 @@ func (nm *NetworkManager) run() {
 }
 
 func (nm *NetworkManager) processNetworkRequest(nr NetworkRequest) error {
+	if _, rebinding := nm.rebinding[nr.UID]; rebinding {
+		klog.V(3).Infof("Skipping network request for DPU %s/%s while host driver rebind is in progress", nr.DPUNamespace, nr.DpuName)
+		return nil
+	}
+
 	nn := types.NamespacedName{Namespace: nr.DPUNamespace, Name: nr.DpuName}
 	dpu := &provisioningv1.DPU{}
 	err := nm.Get(context.TODO(), nn, dpu)
@@ -280,6 +295,59 @@ func (nm *NetworkManager) processNetworkRequest(nr NetworkRequest) error {
 	hostutil.NewCondition(condition).Success("").Set(&cpy.Status.Conditions)
 	if updateErr := nm.Status().Update(context.TODO(), cpy); updateErr != nil {
 		return fmt.Errorf("failed to update DPU status: %w", updateErr)
+	}
+	return nil
+}
+
+func (nm *NetworkManager) RebindHostDriver(ctx context.Context, dpu *provisioningv1.DPU) error {
+	if dpu == nil {
+		return fmt.Errorf("DPU is nil")
+	}
+
+	nm.Lock()
+	if !nm.initialized {
+		nm.Unlock()
+		return fmt.Errorf("network manager is not initialized")
+	}
+	dev, ok := nm.devicesBySN[dpu.Spec.SerialNumber]
+	if !ok {
+		nm.Unlock()
+		return fmt.Errorf("PCI address of device %s not found", dpu.Spec.SerialNumber)
+	}
+	uid := string(dpu.UID)
+	if _, inProgress := nm.rebinding[uid]; inProgress {
+		nm.Unlock()
+		return fmt.Errorf("%w for DPU %s/%s", hostagenttypes.ErrRebindInProgress, dpu.Namespace, dpu.Name)
+	}
+	nm.rebinding[uid] = struct{}{}
+	nm.Unlock()
+	defer func() {
+		nm.Lock()
+		delete(nm.rebinding, uid)
+		nm.Unlock()
+	}()
+
+	klog.Infof("Rebinding host driver %s for DPU %s/%s at PCI %s", hostutil.MLX5CoreDriver, dpu.Namespace, dpu.Name, dev.Address)
+	for pf := 0; pf < dev.NumOfPFs; pf++ {
+		if err := nm.rebindHostDriverPF(ctx, dev.Address, pf); err != nil {
+			return err
+		}
+	}
+	klog.Infof("Host driver rebind succeeded for DPU %s/%s", dpu.Namespace, dpu.Name)
+	return nil
+}
+
+func rebindHostDriverPF(ctx context.Context, address string, pf int) error {
+	pfHelper := hostutil.NewPCIHelper(address).PF(pf)
+	isDPU, err := pfHelper.IsDPU()
+	if err != nil {
+		return fmt.Errorf("check PF%d (%s) is DPU: %w", pf, pfHelper.Path(), err)
+	}
+	if !isDPU {
+		return fmt.Errorf("PF%d (%s) is not a DPU device", pf, pfHelper.Path())
+	}
+	if err := pfHelper.RebindDriver(ctx, hostutil.MLX5CoreDriver); err != nil {
+		return fmt.Errorf("rebind PF%d (%s): %w", pf, pfHelper.Path(), err)
 	}
 	return nil
 }

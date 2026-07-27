@@ -17,6 +17,7 @@ limitations under the License.
 package util
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 
@@ -641,6 +642,52 @@ var _ = Describe("PCI", func() {
 			err := helper.BindDriver("mlx5_core")
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("failed to bind 0000:b1:00.0 to mlx5_core"))
+		})
+	})
+
+	Context("PCIHelper.UnbindDriver", Label("PCIHelper", "UnbindDriver"), func() {
+		It("should write BDF to the current driver's unbind file", func() {
+			mock := createMockSysfs("0000:b1:00.0", "0xa2dc\n", "", nil, "")
+			defer mock.Cleanup()
+
+			driverTarget := filepath.Join(mock.TempSysfsDir(), "bus/pci/drivers/mlx5_core")
+			Expect(os.MkdirAll(driverTarget, 0755)).To(Succeed())
+			unbindPath := filepath.Join(driverTarget, "unbind")
+			Expect(os.WriteFile(unbindPath, []byte{}, 0644)).To(Succeed())
+			driverSymlink := filepath.Join(mock.PCIDevicesDir(), "0000:b1:00.0", "driver")
+			Expect(os.Symlink(driverTarget, driverSymlink)).To(Succeed())
+
+			helper := NewPCIHelper("0000:b1:00.0").SetSysFS(mock.TempSysfsDir())
+			Expect(helper.UnbindDriver()).To(Succeed())
+
+			content, err := os.ReadFile(unbindPath)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(content)).To(Equal("0000:b1:00.0"))
+		})
+	})
+
+	Context("PCIHelper.RebindDriver", Label("PCIHelper", "RebindDriver"), func() {
+		It("should unbind and rebind when driver is bound and netdev exists", func() {
+			mock := createMockSysfs("0000:b1:00.0", "0xa2dc\n", "ens2f0np0", nil, "")
+			defer mock.Cleanup()
+
+			driverTarget := filepath.Join(mock.TempSysfsDir(), "bus/pci/drivers/mlx5_core")
+			Expect(os.MkdirAll(driverTarget, 0755)).To(Succeed())
+			driverSymlink := filepath.Join(mock.PCIDevicesDir(), "0000:b1:00.0", "driver")
+			Expect(os.Symlink(driverTarget, driverSymlink)).To(Succeed())
+
+			helper := NewPCIHelper("0000:b1:00.0").SetSysFS(mock.TempSysfsDir())
+			Expect(helper.RebindDriver(context.Background(), MLX5CoreDriver)).To(Succeed())
+		})
+
+		It("should return error when bind path is missing", func() {
+			mock := createMockSysfs("0000:b1:00.0", "0xa2dc\n", "", nil, "")
+			defer mock.Cleanup()
+
+			helper := NewPCIHelper("0000:b1:00.0").SetSysFS(mock.TempSysfsDir())
+			err := helper.RebindDriver(context.Background(), MLX5CoreDriver)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("failed to bind"))
 		})
 	})
 

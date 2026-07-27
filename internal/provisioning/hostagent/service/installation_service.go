@@ -18,6 +18,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -62,12 +63,15 @@ const (
 	debRepoDir = "/deb"
 	// rpmRepoDir contains dpu-agent .rpm packages and YUM metadata, baked into the image at build time.
 	rpmRepoDir = "/rpm"
+
+	rebindHostDriverTimeout = 2 * time.Minute
 )
 
 // NetworkConfigurator is an interface for triggering host network configuration.
 // It is satisfied by networkmanager.NetworkManager.
 type NetworkConfigurator interface {
 	AddNetworkRequest(dpu *provisioningv1.DPU, vfCount *int) error
+	RebindHostDriver(ctx context.Context, dpu *provisioningv1.DPU) error
 }
 
 type RebootHandler interface {
@@ -122,6 +126,11 @@ func NewInstallationService(client client.Client, nm NetworkConfigurator, rh Reb
 			Consumes(restful.MIME_JSON).
 			Produces(restful.MIME_JSON).
 			To(s.TriggerReboot))
+	ws.Route(
+		ws.POST("/rebind-host-driver").
+			Consumes(restful.MIME_JSON).
+			Produces(restful.MIME_JSON).
+			To(s.RebindHostDriver))
 	ws.Route(ws.GET("/healthz").To(s.HealthCheck))
 	// Package repositories: serve .deb and .rpm packages for DPU provisioning.
 	ws.Route(ws.GET("/deb/{subpath:*}").To(serveRepoFile(debRepoDir)))
@@ -348,6 +357,56 @@ func (s *InstallationService) ConfigureHostVFs(req *restful.Request, resp *restf
 	}
 
 	klog.Infof("Successfully added network request for DPU %s/%s", request.DPUNamespace, request.DPUName)
+	resp.WriteHeader(http.StatusOK)
+}
+
+func (s *InstallationService) RebindHostDriver(req *restful.Request, resp *restful.Response) {
+	var request types.RebindHostDriverRequest
+	if err := req.ReadEntity(&request); err != nil {
+		klog.Errorf("failed to read rebind host driver request: %v", err)
+		_ = resp.WriteError(http.StatusBadRequest, err)
+		return
+	}
+	klog.Infof("Received rebind host driver request: %#v", request)
+
+	if s.networkManager == nil {
+		klog.Errorf("network manager is not configured")
+		_ = resp.WriteError(http.StatusServiceUnavailable, fmt.Errorf("network manager is not configured"))
+		return
+	}
+
+	ctx := req.Request.Context()
+	dpu := &provisioningv1.DPU{}
+	if err := s.Get(ctx, client.ObjectKey{Namespace: request.DPUNamespace, Name: request.DPUName}, dpu); err != nil {
+		klog.Errorf("failed to get DPU %s/%s: %v", request.DPUNamespace, request.DPUName, err)
+		if apierrors.IsNotFound(err) {
+			_ = resp.WriteError(http.StatusNotFound, err)
+		} else {
+			_ = resp.WriteError(http.StatusInternalServerError, err)
+		}
+		return
+	}
+
+	if string(dpu.UID) != request.DPUUID {
+		klog.Warningf("Rejecting rebind host driver request for DPU %s/%s: request UID %q does not match current DPU UID %q",
+			request.DPUNamespace, request.DPUName, request.DPUUID, dpu.UID)
+		_ = resp.WriteError(http.StatusConflict, fmt.Errorf("stale DPU object: expected UID %q but got %q", request.DPUUID, dpu.UID))
+		return
+	}
+
+	rebindCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), rebindHostDriverTimeout)
+	defer cancel()
+	if err := s.networkManager.RebindHostDriver(rebindCtx, dpu); err != nil {
+		klog.Errorf("failed to rebind host driver for DPU %s/%s: %v", request.DPUNamespace, request.DPUName, err)
+		if errors.Is(err, types.ErrRebindInProgress) {
+			_ = resp.WriteError(http.StatusConflict, err)
+			return
+		}
+		_ = resp.WriteError(http.StatusInternalServerError, err)
+		return
+	}
+
+	klog.Infof("Successfully rebound host driver for DPU %s/%s", request.DPUNamespace, request.DPUName)
 	resp.WriteHeader(http.StatusOK)
 }
 
