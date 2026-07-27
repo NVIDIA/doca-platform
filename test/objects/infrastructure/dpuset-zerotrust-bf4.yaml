@@ -17,5 +17,6 @@ spec:
       dpuFlavor: dpf-provisioning-hbn-ovn
       blueFieldSoftware:
         name: "bf4"
+      secureBoot: true
       nodeEffect:
         hold: true
