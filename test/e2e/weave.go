@@ -31,6 +31,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/prometheus/common/expfmt"
+	"github.com/prometheus/common/model"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -423,7 +424,8 @@ func scrapeWeaveMetrics(g Gomega, pod *corev1.Pod) weaveMetrics {
 	out, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name, cmd)
 	g.Expect(err).ToNot(HaveOccurred(), "ovs-appctl metrics/show failed on pod %s: %s", pod.Name, out)
 
-	families, perr := (&expfmt.TextParser{}).TextToMetricFamilies(strings.NewReader(out))
+	parser := expfmt.NewTextParser(model.UTF8Validation)
+	families, perr := parser.TextToMetricFamilies(strings.NewReader(out))
 	if perr != nil && len(families) == 0 {
 		g.Expect(perr).ToNot(HaveOccurred(), "fatal parse error in metrics/show output on pod %s: %s", pod.Name, out)
 	}
