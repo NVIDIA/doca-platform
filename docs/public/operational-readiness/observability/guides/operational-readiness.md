@@ -80,12 +80,12 @@ Use operational conditions for alerting in Prometheus. This is the `DPFDPUNotOpe
 
 ```yaml
 - alert: DPFDPUNotOperational
-  expr: max by(namespace, name) (dpu_operational_conditions{type="OperationalReady", status="False"}) == 1
+  expr: max by(namespace, name) (dpf_dpu_operational_conditions{type="OperationalReady", status!="True"}) == 1
   for: 5m
   labels:
     severity: critical
     service: doca-platform-framework
   annotations:
     summary: "DPU {{ $labels.namespace }}/{{ $labels.name }} is not OperationalReady"
-    description: "DPU finished provisioning but its runtime is degraded (OperationalReady=False). Inspect the DPU agent, networking, and the DPU cluster node."
+    description: "DPU finished provisioning but its runtime is degraded (OperationalReady=False or Unknown). Inspect the DPU agent, networking, and the DPU cluster node."
 ```
