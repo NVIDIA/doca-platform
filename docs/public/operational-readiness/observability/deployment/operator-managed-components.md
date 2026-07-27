@@ -101,14 +101,14 @@ Node-Problem-Detector (NPD) monitors DPU node health and reports problems as Nod
 
 NPD includes DPU-specific health checks that run every 30 seconds:
 
-| Condition Type       | Check Description                           |
-|----------------------|---------------------------------------------|
-| `OVSvSwitchdHealthy` | Verifies ovs-vswitchd process is running    |
-| `OVSDBHealthy`       | Verifies ovsdb-server process is running    |
-| `OVSHealthy`         | Checks for OVS process OOM kills            |
-| `SRIOVHealthy`       | Verifies SR-IOV VF representors are present |
-| `UplinkHealthy`      | Checks physical uplink is operational       |
-| `MTUConfigured`      | Validates network MTU configuration         |
+| Condition Type          | Check Description                         |
+|-------------------------|-------------------------------------------|
+| `OVSvSwitchdHealthy`    | Verifies ovs-vswitchd process is running  |
+| `OVSDBHealthy`          | Verifies ovsdb-server process is running  |
+| `OVSHealthy`            | Checks for OVS process OOM kills          |
+| `PFRepresentorsHealthy` | Verifies host PF representors are present |
+| `UplinkHealthy`         | Checks physical uplink is operational     |
+| `MTUConfigured`         | Validates network MTU configuration       |
 
 Additionally, NPD monitors standard Kubernetes node problems (kernel deadlocks, read-only filesystems, disk pressure, OOM events). DPU mode (embedded vs separated) is enforced at provisioning time by the DPU agent and is not re-checked by NPD, since querying it requires privileged device access.
 
