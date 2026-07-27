@@ -14,12 +14,26 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-# Check if physical uplink p0 is up.
-# /sys in the container is the host sysfs mounted read-only, and sysfs net
-# entries reflect the network namespace of the mount, i.e. the host, so no
-# nsenter is needed.
-if [ "$(cat /sys/class/net/p0/operstate 2> /dev/null)" != "up" ]; then
-	echo "Physical uplink p0 is down"
-	exit 1
+# Check that at least one physical uplink is up.
+#
+# The uplinks are the netdevs named p0..p3. DPF addresses them by this name in the
+# DPUFlavor OVS configuration (e.g. ovs-vsctl set Interface p0 ...), so these names are
+# the contract the data path already relies on. One uplink up is enough for a working
+# physical path, so a second, intentionally-uncabled port does not fail the check.
+#
+# /sys in the container is the host sysfs mounted read-only, so no nsenter is needed.
+
+found=0
+for p in p0 p1 p2 p3; do
+	dev="/sys/class/net/$p"
+	[ -e "$dev" ] || continue
+	found=1
+	[ "$(cat "$dev/operstate" 2> /dev/null)" = "up" ] && exit 0
+done
+
+if [ "$found" -eq 0 ]; then
+	echo "No physical uplink (p0-p3) found"
+else
+	echo "No physical uplink is up"
 fi
-exit 0
+exit 1
