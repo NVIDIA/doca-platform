@@ -1614,7 +1614,8 @@ Package v1alpha1 contains API Schema definitions for the provisioning.dpu v1alph
 
 
 
-
+Action defines the mutually exclusive node effect applied during provisioning.
+Exactly one of taint, noEffect=true, drain=true, non-empty customLabel, non-empty customAction, or hold=true must be set.
 
 
 

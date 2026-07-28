@@ -249,6 +249,65 @@ var _ = Describe("Util", func() {
 			Expect(name).To(BeEmpty())
 		})
 
+		It("should return error when hold is false", func() {
+			hold := false
+			nodeEffect := provisioningv1.NodeEffect{
+				Action: provisioningv1.Action{
+					Hold: &hold,
+				},
+			}
+			name, err := GenerateDPUNodeMaintenanceObjectName("test-node", nodeEffect)
+			Expect(err).To(HaveOccurred())
+			Expect(name).To(BeEmpty())
+		})
+
+		It("should return error when noEffect is false", func() {
+			noEffect := false
+			nodeEffect := provisioningv1.NodeEffect{
+				Action: provisioningv1.Action{
+					NoEffect: &noEffect,
+				},
+			}
+			name, err := GenerateDPUNodeMaintenanceObjectName("test-node", nodeEffect)
+			Expect(err).To(HaveOccurred())
+			Expect(name).To(BeEmpty())
+		})
+
+		It("should return error when drain is false", func() {
+			drain := false
+			nodeEffect := provisioningv1.NodeEffect{
+				Action: provisioningv1.Action{
+					Drain: &drain,
+				},
+			}
+			name, err := GenerateDPUNodeMaintenanceObjectName("test-node", nodeEffect)
+			Expect(err).To(HaveOccurred())
+			Expect(name).To(BeEmpty())
+		})
+
+		It("should return error when customAction is empty", func() {
+			customAction := ""
+			nodeEffect := provisioningv1.NodeEffect{
+				Action: provisioningv1.Action{
+					CustomAction: &customAction,
+				},
+			}
+			name, err := GenerateDPUNodeMaintenanceObjectName("test-node", nodeEffect)
+			Expect(err).To(HaveOccurred())
+			Expect(name).To(BeEmpty())
+		})
+
+		It("should return error when customLabel is empty", func() {
+			nodeEffect := provisioningv1.NodeEffect{
+				Action: provisioningv1.Action{
+					CustomLabel: map[string]string{},
+				},
+			}
+			name, err := GenerateDPUNodeMaintenanceObjectName("test-node", nodeEffect)
+			Expect(err).To(HaveOccurred())
+			Expect(name).To(BeEmpty())
+		})
+
 		It("should generate name for Drain effect", func() {
 			drain := true
 			nodeEffect := provisioningv1.NodeEffect{
