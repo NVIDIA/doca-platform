@@ -35,9 +35,22 @@
 #
 # /sys in the container is the host sysfs mounted read-only, so no nsenter is needed.
 
+# Both loops run over every PCI device and every netdev, and a DPU can expose hundreds of
+# them (one netdev per VF/SF representor). Read the sysfs attributes with the read builtin
+# and match with [[ ]] instead of $(cat) and grep: a command substitution or a grep forks a
+# process per file, which is what makes this check slow enough to hit the NPD timeout.
+# read_attr stores the first line of $1 in REPLY, empty if the attribute is unreadable
+# (sysfs returns an error for attributes a device does not implement).
+read_attr() {
+	REPLY=""
+	{ read -r REPLY < "$1"; } 2> /dev/null
+	return 0
+}
+
 bf_pfs=0
 for pci in /sys/bus/pci/devices/*; do
-	case "$(cat "$pci/device" 2> /dev/null)" in
+	read_attr "$pci/device"
+	case "$REPLY" in
 	0xa2d6 | 0xa2dc | 0xa2df) ;;
 	*) continue ;;
 	esac
@@ -52,10 +65,14 @@ done
 # raw netdev count.
 declare -A pf_seen
 for dev in /sys/class/net/*; do
+	# Match the name first: it rejects uplinks and VF/SF representors, which are the bulk
+	# of the netdevs, without reading a second attribute for them.
+	read_attr "$dev/phys_port_name"
+	[[ "$REPLY" =~ ^(c[0-9]+)?pf[0-9]+$ ]] || continue
+	name=$REPLY
 	# Only eswitch (switchdev) ports have a non-empty phys_switch_id.
-	[ -n "$(cat "$dev/phys_switch_id" 2> /dev/null)" ] || continue
-	name=$(cat "$dev/phys_port_name" 2> /dev/null)
-	[[ "$name" =~ ^(c[0-9]+)?pf[0-9]+$ ]] && pf_seen["$name"]=1
+	read_attr "$dev/phys_switch_id"
+	[ -n "$REPLY" ] && pf_seen["$name"]=1
 done
 pf_reps=${#pf_seen[@]}
 
