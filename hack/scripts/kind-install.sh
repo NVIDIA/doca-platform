@@ -123,56 +123,19 @@ if [[ "$ADD_CONTROL_PLANE_TAINTS" == "true" ]]; then
 	kubectl taint node "${CLUSTER_NAME}-control-plane" node-role.kubernetes.io/master:NoSchedule --overwrite
 fi
 
-# Install MetalLB
-kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.13.7/config/manifests/metallb-native.yaml
-
-# If we're adding taints, patch the MetalLB controller to tolerate them
-if [[ "$ADD_CONTROL_PLANE_TAINTS" == "true" ]]; then
-	echo "Patching MetalLB controller deployment to tolerate control-plane and master taints..."
-	kubectl -n metallb-system patch deployment controller -p '{"spec":{"template":{"spec":{"tolerations":[{"key":"node-role.kubernetes.io/master","operator":"Exists","effect":"NoSchedule"},{"key":"node-role.kubernetes.io/control-plane","operator":"Exists","effect":"NoSchedule"}]}}}}'
-fi
-
-# Wait for MetalLB controller deployment to exist
-echo "Waiting for MetalLB controller deployment to be ready."
-kubectl -n metallb-system rollout status deployment/controller --timeout=180s
-
-# Create the MetalLB config.
-kubectl get namespace metallb-system || kubectl create namespace metallb-system
-
-# Configure MetalLB with a range of IPs from the kind docker network
-DOCKER_NETWORK_CIDR=$(docker network inspect kind | jq -r '.[0].IPAM.Config[].Subnet' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+')
-NETWORK_PREFIX=$(echo $DOCKER_NETWORK_CIDR | sed -E 's/([0-9]+\.[0-9]+\.[0-9]+)\.[0-9]+.*/\1/')
-METALLB_IP_RANGE="${NETWORK_PREFIX}.200-${NETWORK_PREFIX}.250"
-
-cat << EOF | kubectl apply -f -
-apiVersion: metallb.io/v1beta1
-kind: IPAddressPool
-metadata:
-  name: default
-  namespace: metallb-system
-spec:
-  addresses:
-  - ${METALLB_IP_RANGE}
----
-apiVersion: metallb.io/v1beta1
-kind: L2Advertisement
-metadata:
-  name: default
-  namespace: metallb-system
-spec:
-  ipAddressPools:
-  - default
-EOF
-
 echo "Delete local-path-provisioner and standard storage class if they exist."
 kubectl delete ns local-path-storage || true
 kubectl delete sc standard || true
 
 echo "Kind cluster '${CLUSTER_NAME}' setup complete."
 
-echo "Prepull DPF image. This is just a workaround"
+echo "Prepull DPF host images."
 : ${REGISTRY?:env not set}
 : ${TAG?:env not set}
 docker pull "$REGISTRY/dpf-system:$TAG"
 docker pull "$REGISTRY/bfb-registry:$TAG"
-$KIND_BIN load docker-image -n "$CLUSTER_NAME" "$REGISTRY/dpf-system:$TAG" "$REGISTRY/bfb-registry:$TAG"
+docker pull "$REGISTRY/dpf-keepalived:$TAG"
+$KIND_BIN load docker-image -n "$CLUSTER_NAME" \
+	"$REGISTRY/dpf-system:$TAG" \
+	"$REGISTRY/bfb-registry:$TAG" \
+	"$REGISTRY/dpf-keepalived:$TAG"

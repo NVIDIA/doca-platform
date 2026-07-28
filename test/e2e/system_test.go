@@ -132,8 +132,6 @@ func generateDPFOperatorConfig() *operatorv1.DPFOperatorConfig {
 					Disable: ptr.To(false),
 				},
 			},
-			// Disable the Kamaji cluster manager so only one cluster manager is running.
-			// TODO: Enable Kamaji by default in the e2e tests.
 			KamajiClusterManager: &operatorv1.KamajiClusterManagerConfiguration{
 				BaseComponentConfig: operatorv1.BaseComponentConfig{
 					Disable: ptr.To(false),
