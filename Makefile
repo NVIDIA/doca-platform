@@ -136,7 +136,7 @@ export KATA_DEPLOY_IMAGE=quay.io/kata-containers/kata-deploy
 export KATA_DEPLOY_TAG=3.30.0@sha256:b31cf13addbaf49af9e211bf6ab38335299015a754e2bc0341aa4ba47d8cb395
 
 # VPC dependencies to be able to build/push images and charts
-VPC_REF=1f8f4e1ef7f4778376b1c8256f7eec76f506d869
+VPC_REF=5ed62509d0bf7f221d67336c4c11ca815ce2f8df
 VPC_DIR=$(REPOSDIR)/ovn-vpc/ovn-vpc-$(VPC_REF)
 # Token used for gitlab reporistory access, usually needed for CI/CD pipelines.
 # dev envs usually have those set in git credentials.
@@ -551,23 +551,23 @@ test-benchmark: envtest ## Run the build-tagged gmeasure benchmarks only
 
 .PHONY: test-release-e2e-quick
 test-release-e2e-quick: # Build images required for the quick DPF e2e test.
-	$(MAKE) docker-build-dpf-system-for-$(ARCH) docker-push-dpf-system-for-$(ARCH)
-	$(MAKE) docker-build-dummydpuservice docker-push-dummydpuservice
-	$(MAKE) docker-build-mock-dms docker-push-mock-dms
-	$(MAKE) docker-build-bfb-registry docker-push-bfb-registry
+	# Only the local architecture is needed here, so override the image's
+	# architecture list to keep the build single-arch.
+	$(MAKE) docker-build-and-push-dpf-system DPF_SYSTEM_ARCH=$(ARCH)
+	$(MAKE) docker-build-and-push-dummydpuservice
+	$(MAKE) docker-build-and-push-mock-dms
+	$(MAKE) docker-build-and-push-bfb-registry DPF_SYSTEM_ARCH=$(ARCH)
 	# Build and push all the helm charts
 	$(MAKE) helm-package-all helm-push-all
 	$(MAKE) helm-package-dummydpuservice helm-push-dummydpuservice
 
 .PHONY: test-helper-images
 test-helper-images: # Build and push the e2e test-helper images and charts (dummydpuservice, netutils).
-	$(MAKE) docker-build-dummydpuservice \
-		docker-build-netutils \
+	$(MAKE) docker-build-and-push-dummydpuservice \
+		docker-build-and-push-netutils \
 		helm-package-dummydpuservice
-	# Push operations should wait for builds to complete
-	$(MAKE) docker-push-dummydpuservice \
-		docker-push-netutils \
-		helm-push-dummydpuservice
+	# The chart push has to wait for the packaging above to complete.
+	$(MAKE) helm-push-dummydpuservice
 
 .PHONY: test-release-e2e-slow
 test-release-e2e-slow: ## Build images required for the slow DPF e2e tests.
@@ -1107,10 +1107,11 @@ release-build: generate ## Build helm and container images for release.
 export RELEASE_PUSH_HELM_CHARTS_TO_REGISTRY ?= false
 
 .PHONY: release
+# PUSH=true turns every docker-build-* below, here and in the VPC sub-build, into
+# a single buildx --push, so the images are published by the build that produces
+# them. There is no separate image push step.
+release: export PUSH := true
 release: release-build release-dpfctl-ngc ## Build and push helm and container images for release.
-
-	# Push all of the images
-	$(MAKE) docker-push-all
 
 	# Push the helm charts.
 	$(MAKE) helm-push-all
@@ -1500,6 +1501,31 @@ DOCKER_BUILD_TARGETS=$(DPU_ARCH_DOCKER_BUILD_TARGETS) $(MULTI_ARCH_DOCKER_BUILD_
 DPU_ARCH_DOCKER_BUILD_TARGETS=$(DPU_ARCH_BUILD_TARGETS) cni-installer
 MULTI_ARCH_DOCKER_BUILD_TARGETS= dpf-system hostdriver storage-system storage-host bfb-registry keepalived
 
+# Release builds (the `release` target exports PUSH=true) build the full
+# multi-arch manifest and push it in a single buildx step, which is far faster
+# than the per-arch --load build followed by docker push + docker manifest
+# assembly. Every other caller (local dev, warm-cache, single-arch e2e) leaves
+# PUSH empty and builds --load, one architecture at a time.
+COMMA := ,
+EMPTY :=
+SPACE := $(EMPTY) $(EMPTY)
+# platform_list: "amd64 arm64" -> "linux/amd64,linux/arm64" for buildx --platform.
+platform_list = $(subst $(SPACE),$(COMMA),$(patsubst %,linux/%,$(1)))
+# The small switch every image build uses: --push (release) vs --load (default).
+DOCKER_OUTPUT = $(if $(filter true,$(PUSH)),--push,--load)
+# build_platforms: all of an image's arches when pushing a manifest; just the
+# target arch when loading locally (buildx can only --load one platform).
+build_platforms = $(if $(filter true,$(PUSH)),$(call platform_list,$(1)),linux/$(ARCH))
+
+# docker-build-and-push-<image> is docker-build-<image> with PUSH=true, which
+# switches that build to --push and records the published artifact. There is no
+# docker-push-<image>: a multi-arch image cannot be loaded into the local docker
+# daemon, so it can only be published by the build that produces it. This one
+# pattern rule covers every image, including ones added later.
+docker-build-and-push-%: PUSH := true
+docker-build-and-push-%: docker-build-%
+	@:
+
 .PHONY: binary-hostagent
 binary-hostagent: ## Build the hostagent binary.
 	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/hostagent github.com/nvidia/doca-platform/cmd/hostagent
@@ -1579,13 +1605,12 @@ PACKAGE_SOURCES ?= true
 ## Control whether to create BuildKit history logs for the docker builds.
 DOCKER_BUILD_LOGGING ?= false
 
-.PHONY: docker-build-dpf-system # Build a multi-arch image for DPF System. The variable DPF_SYSTEM_ARCH defines which architectures this target builds for.
-docker-build-dpf-system: $(addprefix docker-build-dpf-system-for-,$(DPF_SYSTEM_ARCH))
-
-docker-build-dpf-system-for-%: docker-buildx-setup generate-manifests-release-defaults $(ARTIFACTS_DIR)
+.PHONY: docker-build-dpf-system # Build the DPF System image. Release (PUSH=true) builds all $(DPF_SYSTEM_ARCH) and pushes the manifest in one step; otherwise loads linux/$(ARCH) locally.
+docker-build-dpf-system: docker-buildx-setup generate-manifests-release-defaults $(ARTIFACTS_DIR)
 	# Provenance false ensures this target builds an image rather than a manifest when using buildx.
 	$(CURDIR)/hack/scripts/docker-build.sh \
-		--load \
+		$(DOCKER_OUTPUT) \
+		--platform=$(call build_platforms,$(DPF_SYSTEM_ARCH)) \
 		--label=org.opencontainers.image.created=$(DATE) \
 		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
 		--label=org.opencontainers.image.revision=$(FULL_COMMIT) \
@@ -1593,7 +1618,6 @@ docker-build-dpf-system-for-%: docker-buildx-setup generate-manifests-release-de
 		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
 		--provenance=false \
 		--progress=plain \
-		--platform=linux/$* \
 		--build-arg builder_image=$(BUILD_IMAGE) \
 		--build-arg base_image=$(BASE_IMAGE) \
 		--build-arg ldflags="$(GO_LDFLAGS)" \
@@ -1601,29 +1625,14 @@ docker-build-dpf-system-for-%: docker-buildx-setup generate-manifests-release-de
 		--build-arg TAG=$(TAG) \
 		-f Dockerfile.dpf-system \
 		. \
-		-t $(DPF_SYSTEM_IMAGE):$(TAG)-$*
-
-.PHONY: docker-push-dpf-system # Push a multi-arch image for DPF System using `docker manifest`. The variable DPF_SYSTEM_ARCH defines which architectures this target pushes for.
-docker-push-dpf-system: $(addprefix docker-push-dpf-system-for-,$(DPF_SYSTEM_ARCH))
-	docker manifest push --purge $(DPF_SYSTEM_IMAGE):$(TAG)
-	@$(call record_release_artifact,image,$(DPF_SYSTEM_IMAGE_NAME),$(DPF_SYSTEM_IMAGE):$(TAG),release)
-
-docker-push-dpf-system-for-%:
-	# Tag and push the arch-specific image with the single arch-agnostic tag.
-	docker tag $(DPF_SYSTEM_IMAGE):$(TAG)-$* $(DPF_SYSTEM_IMAGE):$(TAG)
-	docker push $(DPF_SYSTEM_IMAGE):$(TAG)
-	# This must be called in a separate target to ensure the shell command is called in the correct order.
-	$(MAKE) docker-create-manifest-for-dpf-system
-
-docker-create-manifest-for-dpf-system:
-	# Note: If you tag an image with multiple registries this push might fail. This can be fixed by pruning existing docker images.
-	docker manifest create --amend $(DPF_SYSTEM_IMAGE):$(TAG) $(shell docker inspect --format='{{index .RepoDigests 0}}' $(DPF_SYSTEM_IMAGE):$(TAG))
+		-t $(DPF_SYSTEM_IMAGE):$(TAG)
+	$(if $(filter true,$(PUSH)),@$(call record_release_artifact,image,$(DPF_SYSTEM_IMAGE_NAME),$(DPF_SYSTEM_IMAGE):$(TAG),release))
 
 .PHONY: docker-build-ipallocator
 docker-build-ipallocator: docker-buildx-setup $(ARTIFACTS_DIR) ## Build docker image for the IP Allocator
 	# Base image can't be distroless because of the readiness probe that is using cat which doesn't exist in distroless
 	$(CURDIR)/hack/scripts/docker-build.sh \
-		--load \
+		$(DOCKER_OUTPUT) \
 		--label=org.opencontainers.image.created=$(DATE) \
 		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
 		--label=org.opencontainers.image.revision=$(FULL_COMMIT) \
@@ -1641,21 +1650,19 @@ docker-build-ipallocator: docker-buildx-setup $(ARTIFACTS_DIR) ## Build docker i
 		. \
 		-t $(IPALLOCATOR_IMAGE):$(TAG)
 
-.PHONY: docker-build-hostdriver # Build a multi-arch image for hostdriver. The variable DPF_SYSTEM_ARCH defines which architectures this target builds for.
-docker-build-hostdriver: $(addprefix docker-build-hostdriver-for-,$(DPF_SYSTEM_ARCH))
-
-docker-build-hostdriver-for-%: docker-buildx-setup $(ARTIFACTS_DIR)
+.PHONY: docker-build-hostdriver # Build the hostdriver image. Release (PUSH=true) builds all $(DPF_SYSTEM_ARCH) and pushes the manifest in one step; otherwise loads linux/$(ARCH) locally.
+docker-build-hostdriver: docker-buildx-setup $(ARTIFACTS_DIR)
 	# Provenance false ensures this target builds an image rather than a manifest when using buildx.
 	$(CURDIR)/hack/scripts/docker-build.sh \
 		--pull \
-		--load \
+		$(DOCKER_OUTPUT) \
 		--label=org.opencontainers.image.created=$(DATE) \
 		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
 		--label=org.opencontainers.image.revision=$(FULL_COMMIT) \
 		--label=org.opencontainers.image.version=$(TAG) \
 		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
 		--provenance=false \
-		--platform=linux/$* \
+		--platform=$(call build_platforms,$(DPF_SYSTEM_ARCH)) \
 		--progress=plain \
 		--build-arg builder_image=$(BUILD_IMAGE) \
 		--build-arg hostdriver_base_image=$(HOSTDRIVER_BASE_IMAGE) \
@@ -1664,14 +1671,15 @@ docker-build-hostdriver-for-%: docker-buildx-setup $(ARTIFACTS_DIR)
 		--build-arg ubuntu_mirror=$(UBUNTU_MIRROR) \
 		--build-arg PACKAGE_SOURCES=$(PACKAGE_SOURCES) \
 		--build-arg TAG=$(TAG) \
-		-t $(HOSTDRIVER_IMAGE):$(TAG)-$* \
+		-t $(HOSTDRIVER_IMAGE):$(TAG) \
 		-f Dockerfile.hostdriver \
 		.
+	$(if $(filter true,$(PUSH)),@$(call record_release_artifact,image,$(HOSTDRIVER_IMAGE_NAME),$(HOSTDRIVER_IMAGE):$(TAG),release))
 
 .PHONY: docker-build-dummydpuservice
 docker-build-dummydpuservice: docker-buildx-setup $(ARTIFACTS_DIR) ## Build docker images for the dummydpuservice
 	$(CURDIR)/hack/scripts/docker-build.sh \
-		--load \
+		$(DOCKER_OUTPUT) \
 		--label=org.opencontainers.image.created=$(DATE) \
 		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
 		--label=org.opencontainers.image.revision=$(FULL_COMMIT) \
@@ -1688,30 +1696,30 @@ docker-build-dummydpuservice: docker-buildx-setup $(ARTIFACTS_DIR) ## Build dock
 		-f Dockerfile \
 		. \
 		-t $(DUMMYDPUSERVICE_IMAGE):$(TAG)
+	$(if $(filter true,$(PUSH)),@$(call record_release_artifact,image,$(DUMMYDPUSERVICE_IMAGE_NAME),$(DUMMYDPUSERVICE_IMAGE):$(TAG),test_helper))
 
-.PHONY: docker-build-netutils # Build a multi-arch image for netutils. The variable DPF_SYSTEM_ARCH defines which architectures this target builds for.
-docker-build-netutils: $(addprefix docker-build-netutils-for-,$(DPF_SYSTEM_ARCH))
-
-docker-build-netutils-for-%: $(ARTIFACTS_DIR)
+.PHONY: docker-build-netutils # Build the netutils image. Release (PUSH=true) builds all $(DPF_SYSTEM_ARCH) and pushes the manifest in one step; otherwise loads linux/$(ARCH) locally.
+docker-build-netutils: docker-buildx-setup $(ARTIFACTS_DIR)
 	# Provenance false ensures this target builds an image rather than a manifest when using buildx.
 	$(CURDIR)/hack/scripts/docker-build.sh \
-		--load \
+		$(DOCKER_OUTPUT) \
 		--label=org.opencontainers.image.created=$(DATE) \
 		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
 		--label=org.opencontainers.image.revision=$(FULL_COMMIT) \
 		--label=org.opencontainers.image.version=$(TAG) \
 		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
 		--provenance=false \
-		--platform=linux/$* \
+		--platform=$(call build_platforms,$(DPF_SYSTEM_ARCH)) \
 		--progress=plain \
 		-f Dockerfile.netutils \
 		. \
-		-t $(NETUTILS_IMAGE):$(TAG)-$*
+		-t $(NETUTILS_IMAGE):$(TAG)
+	$(if $(filter true,$(PUSH)),@$(call record_release_artifact,image,$(NETUTILS_IMAGE_NAME),$(NETUTILS_IMAGE):$(TAG),test_helper))
 
 .PHONY: docker-build-mock-dms
 docker-build-mock-dms: docker-buildx-setup $(ARTIFACTS_DIR) ## Build docker images for the mock-dms
 	$(CURDIR)/hack/scripts/docker-build.sh \
-		--load \
+		$(DOCKER_OUTPUT) \
 		--label=org.opencontainers.image.created=$(DATE) \
 		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
 		--label=org.opencontainers.image.revision=$(FULL_COMMIT) \
@@ -1728,20 +1736,18 @@ docker-build-mock-dms: docker-buildx-setup $(ARTIFACTS_DIR) ## Build docker imag
 		. \
 		-t $(MOCK_DMS_IMAGE):$(TAG)
 
-.PHONY: docker-build-storage-system # Build a multi-arch image for DPF storage system. The variable DPF_SYSTEM_ARCH defines which architectures this target builds for.
-docker-build-storage-system: $(addprefix docker-build-storage-system-for-,$(DPF_SYSTEM_ARCH))
-
-docker-build-storage-system-for-%: docker-buildx-setup $(ARTIFACTS_DIR)
+.PHONY: docker-build-storage-system # Build the DPF storage system image. Release (PUSH=true) builds all $(DPF_SYSTEM_ARCH) and pushes the manifest in one step; otherwise loads linux/$(ARCH) locally.
+docker-build-storage-system: docker-buildx-setup $(ARTIFACTS_DIR)
 	# Provenance false ensures this target builds an image rather than a manifest when using buildx.
 	$(CURDIR)/hack/scripts/docker-build.sh \
-		--load \
+		$(DOCKER_OUTPUT) \
 		--label=org.opencontainers.image.created=$(DATE) \
 		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
 		--label=org.opencontainers.image.revision=$(FULL_COMMIT) \
 		--label=org.opencontainers.image.version=$(TAG) \
 		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
 		--provenance=false \
-		--platform=linux/$* \
+		--platform=$(call build_platforms,$(DPF_SYSTEM_ARCH)) \
 		--progress=plain \
 		--build-arg builder_image=$(BUILD_IMAGE) \
 		--build-arg base_image=$(BASE_IMAGE) \
@@ -1750,38 +1756,21 @@ docker-build-storage-system-for-%: docker-buildx-setup $(ARTIFACTS_DIR)
 		--build-arg TAG=$(TAG) \
 		-f Dockerfile.storage-system \
 		. \
-		-t $(STORAGE_SYSTEM_IMAGE):$(TAG)-$*
+		-t $(STORAGE_SYSTEM_IMAGE):$(TAG)
+	$(if $(filter true,$(PUSH)),@$(call record_release_artifact,image,$(STORAGE_SYSTEM_IMAGE_NAME),$(STORAGE_SYSTEM_IMAGE):$(TAG),release))
 
-.PHONY: docker-push-storage-system # Push a multi-arch image for snap-csi-plugin using `docker manifest`. The variable DPF_SYSTEM_ARCH defines which architectures this target pushes for.
-docker-push-storage-system: $(addprefix docker-push-storage-system-for-,$(DPF_SYSTEM_ARCH))
-	docker manifest push --purge $(STORAGE_SYSTEM_IMAGE):$(TAG)
-	@$(call record_release_artifact,image,$(STORAGE_SYSTEM_IMAGE_NAME),$(STORAGE_SYSTEM_IMAGE):$(TAG),release)
-
-docker-push-storage-system-for-%:
-	# Tag and push the arch-specific image with the single arch-agnostic tag.
-	docker tag $(STORAGE_SYSTEM_IMAGE):$(TAG)-$* $(STORAGE_SYSTEM_IMAGE):$(TAG)
-	docker push $(STORAGE_SYSTEM_IMAGE):$(TAG)
-	# This must be called in a separate target to ensure the shell command is called in the correct order.
-	$(MAKE) docker-create-manifest-for-storage-system
-
-docker-create-manifest-for-storage-system:
-	# Note: If you tag an image with multiple registries this push might fail. This can be fixed by pruning existing docker images.
-	docker manifest create --amend $(STORAGE_SYSTEM_IMAGE):$(TAG) $(shell docker inspect --format='{{index .RepoDigests 0}}' $(STORAGE_SYSTEM_IMAGE):$(TAG))
-
-.PHONY: docker-build-storage-host # Build a multi-arch image for storage-host. The variable DPF_SYSTEM_ARCH defines which architectures this target builds for.
-docker-build-storage-host: $(addprefix docker-build-storage-host-for-,$(DPF_SYSTEM_ARCH))
-
-docker-build-storage-host-for-%: docker-buildx-setup $(ARTIFACTS_DIR)
+.PHONY: docker-build-storage-host # Build the storage-host image. Release (PUSH=true) builds all $(DPF_SYSTEM_ARCH) and pushes the manifest in one step; otherwise loads linux/$(ARCH) locally.
+docker-build-storage-host: docker-buildx-setup $(ARTIFACTS_DIR)
 	# Provenance false ensures this target builds an image rather than a manifest when using buildx.
 	$(CURDIR)/hack/scripts/docker-build.sh \
-		--load \
+		$(DOCKER_OUTPUT) \
 		--label=org.opencontainers.image.created=$(DATE) \
 		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
 		--label=org.opencontainers.image.revision=$(FULL_COMMIT) \
 		--label=org.opencontainers.image.version=$(TAG) \
 		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
 		--provenance=false \
-		--platform=linux/$* \
+		--platform=$(call build_platforms,$(DPF_SYSTEM_ARCH)) \
 		--progress=plain \
 		--build-arg builder_image=$(BUILD_IMAGE) \
 		--build-arg storage_host_base_image=$(STORAGE_HOST_BASE_IMAGE) \
@@ -1792,31 +1781,14 @@ docker-build-storage-host-for-%: docker-buildx-setup $(ARTIFACTS_DIR)
 		--build-arg PACKAGE_SOURCES=$(PACKAGE_SOURCES) \
 		-f Dockerfile.storage-host \
 		. \
-		-t $(STORAGE_HOST_IMAGE):$(TAG)-$*
+		-t $(STORAGE_HOST_IMAGE):$(TAG)
+	$(if $(filter true,$(PUSH)),@$(call record_release_artifact,image,$(STORAGE_HOST_IMAGE_NAME),$(STORAGE_HOST_IMAGE):$(TAG),release))
 
-.PHONY: docker-push-storage-host # Push a multi-arch image for storage-host using `docker manifest`. The variable DPF_SYSTEM_ARCH defines which architectures this target pushes for.
-docker-push-storage-host: $(addprefix docker-push-storage-host-for-,$(DPF_SYSTEM_ARCH))
-	docker manifest push --purge $(STORAGE_HOST_IMAGE):$(TAG)
-	@$(call record_release_artifact,image,$(STORAGE_HOST_IMAGE_NAME),$(STORAGE_HOST_IMAGE):$(TAG),release)
-
-docker-push-storage-host-for-%:
-	# Tag and push the arch-specific image with the single arch-agnostic tag.
-	docker tag $(STORAGE_HOST_IMAGE):$(TAG)-$* $(STORAGE_HOST_IMAGE):$(TAG)
-	docker push $(STORAGE_HOST_IMAGE):$(TAG)
-	# This must be called in a separate target to ensure the shell command is called in the correct order.
-	$(MAKE) docker-create-manifest-for-storage-host
-
-docker-create-manifest-for-storage-host:
-	# Note: If you tag an image with multiple registries this push might fail. This can be fixed by pruning existing docker images.
-	docker manifest create --amend $(STORAGE_HOST_IMAGE):$(TAG) $(shell docker inspect --format='{{index .RepoDigests 0}}' $(STORAGE_HOST_IMAGE):$(TAG))
-
-.PHONY: docker-build-keepalived # Build a multi-arch image for keepalived. The variable DPF_SYSTEM_ARCH defines which architectures this target builds for.
-docker-build-keepalived: $(addprefix docker-build-keepalived-for-,$(DPF_SYSTEM_ARCH))
-
-docker-build-keepalived-for-%: docker-buildx-setup $(ARTIFACTS_DIR)
+.PHONY: docker-build-keepalived # Build the keepalived image. Release (PUSH=true) builds all $(DPF_SYSTEM_ARCH) and pushes the manifest in one step; otherwise loads linux/$(ARCH) locally.
+docker-build-keepalived: docker-buildx-setup $(ARTIFACTS_DIR)
 	# Provenance false ensures this target builds an image rather than a manifest when using buildx.
 	$(CURDIR)/hack/scripts/docker-build.sh \
-		--load \
+		$(DOCKER_OUTPUT) \
 		--label=org.opencontainers.image.created=$(DATE) \
 		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
 		--label=org.opencontainers.image.revision=$(FULL_COMMIT) \
@@ -1826,34 +1798,17 @@ docker-build-keepalived-for-%: docker-buildx-setup $(ARTIFACTS_DIR)
 		--build-arg PACKAGE_SOURCES=$(PACKAGE_SOURCES) \
 		--provenance=false \
 		--progress=plain \
-		--platform=linux/$* \
-		-t $(KEEPALIVED_IMAGE):$(TAG)-$* \
+		--platform=$(call build_platforms,$(DPF_SYSTEM_ARCH)) \
+		-t $(KEEPALIVED_IMAGE):$(TAG) \
 		-f Dockerfile.keepalived \
 		.
+	$(if $(filter true,$(PUSH)),@$(call record_release_artifact,image,$(KEEPALIVED_IMAGE_NAME),$(KEEPALIVED_IMAGE):$(TAG),release))
 
-.PHONY: docker-push-keepalived # Push a multi-arch image for keepalived using docker manifest. The variable DPF_SYSTEM_ARCH defines which architectures this target pushes for.
-docker-push-keepalived: $(addprefix docker-push-keepalived-for-,$(DPF_SYSTEM_ARCH))
-	docker manifest push --purge $(KEEPALIVED_IMAGE):$(TAG)
-	@$(call record_release_artifact,image,$(KEEPALIVED_IMAGE_NAME),$(KEEPALIVED_IMAGE):$(TAG),release)
-
-docker-push-keepalived-for-%:
-	# Tag and push the arch-specific image with the single arch-agnostic tag.
-	docker tag $(KEEPALIVED_IMAGE):$(TAG)-$* $(KEEPALIVED_IMAGE):$(TAG)
-	docker push $(KEEPALIVED_IMAGE):$(TAG)
-	# This must be called in a separate target to ensure the shell command is called in the correct order.
-	$(MAKE) docker-create-manifest-for-keepalived
-
-docker-create-manifest-for-keepalived:
-	# Note: If you tag an image with multiple registries this push might fail. This can be fixed by pruning existing docker images.
-	docker manifest create --amend $(KEEPALIVED_IMAGE):$(TAG) $(shell docker inspect --format='{{index .RepoDigests 0}}' $(KEEPALIVED_IMAGE):$(TAG))
-
-.PHONY: docker-build-bfb-registry # Build a multi-arch image for BFB Registry. The variable DPF_SYSTEM_ARCH defines which architectures this target builds for.
-docker-build-bfb-registry: $(addprefix docker-build-bfb-registry-for-,$(DPF_SYSTEM_ARCH))
-
-docker-build-bfb-registry-for-%: docker-buildx-setup $(ARTIFACTS_DIR)
+.PHONY: docker-build-bfb-registry # Build the BFB Registry image. Release (PUSH=true) builds all $(DPF_SYSTEM_ARCH) and pushes the manifest in one step; otherwise loads linux/$(ARCH) locally.
+docker-build-bfb-registry: docker-buildx-setup $(ARTIFACTS_DIR)
 	# Provenance false ensures this target builds an image rather than a manifest when using buildx.
 	$(CURDIR)/hack/scripts/docker-build.sh \
-		--load \
+		$(DOCKER_OUTPUT) \
 		--label=org.opencontainers.image.created=$(DATE) \
 		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
 		--label=org.opencontainers.image.revision=$(FULL_COMMIT) \
@@ -1864,16 +1819,17 @@ docker-build-bfb-registry-for-%: docker-buildx-setup $(ARTIFACTS_DIR)
 		--build-arg builder_image=$(BUILD_IMAGE) \
 		--build-arg bfb_registry_base_image=$(BFB_REGISTRY_BASE_IMAGE) \
 		--provenance=false \
-		--platform=linux/$* \
+		--platform=$(call build_platforms,$(DPF_SYSTEM_ARCH)) \
 		--progress=plain \
 		-f Dockerfile.bfb-registry \
 		. \
-		-t $(BFB_REGISTRY_IMAGE):$(TAG)-$*
+		-t $(BFB_REGISTRY_IMAGE):$(TAG)
+	$(if $(filter true,$(PUSH)),@$(call record_release_artifact,image,$(BFB_REGISTRY_IMAGE_NAME),$(BFB_REGISTRY_IMAGE):$(TAG),release))
 
 .PHONY: docker-build-cni-installer
 docker-build-cni-installer: docker-buildx-setup $(ARTIFACTS_DIR) ## Build docker image for the CNI installer
 	$(CURDIR)/hack/scripts/docker-build.sh \
-		--load \
+		$(DOCKER_OUTPUT) \
 		--label=org.opencontainers.image.created=$(DATE) \
 		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
 		--label=org.opencontainers.image.revision=$(FULL_COMMIT) \
@@ -1889,29 +1845,14 @@ docker-build-cni-installer: docker-buildx-setup $(ARTIFACTS_DIR) ## Build docker
 		-f Dockerfile.cni-installer \
 		. \
 		-t $(CNIINSTALLER_IMAGE):$(TAG)
-
-.PHONY: docker-push-bfb-registry # Push a multi-arch image for BFB Registry using `docker manifest`. The variable DPF_SYSTEM_ARCH defines which architectures this target pushes for.
-docker-push-bfb-registry: $(addprefix docker-push-bfb-registry-for-,$(DPF_SYSTEM_ARCH))
-	docker manifest push --purge $(BFB_REGISTRY_IMAGE):$(TAG)
-	@$(call record_release_artifact,image,$(BFB_REGISTRY_IMAGE_NAME),$(BFB_REGISTRY_IMAGE):$(TAG),release)
-
-docker-push-bfb-registry-for-%:
-	# Tag and push the arch-specific image with the single arch-agnostic tag.
-	docker tag $(BFB_REGISTRY_IMAGE):$(TAG)-$* $(BFB_REGISTRY_IMAGE):$(TAG)
-	docker push $(BFB_REGISTRY_IMAGE):$(TAG)
-	# This must be called in a separate target to ensure the shell command is called in the correct order.
-	$(MAKE) docker-create-manifest-for-bfb-registry
-
-docker-create-manifest-for-bfb-registry:
-	# Note: If you tag an image with multiple registries this push might fail. This can be fixed by pruning existing docker images.
-	docker manifest create --amend $(BFB_REGISTRY_IMAGE):$(TAG) $(shell docker inspect --format='{{index .RepoDigests 0}}' $(BFB_REGISTRY_IMAGE):$(TAG))
+	$(if $(filter true,$(PUSH)),@$(call record_release_artifact,image,$(CNIINSTALLER_IMAGE_NAME),$(CNIINSTALLER_IMAGE):$(TAG),release))
 
 # Special-purpose image (HOST_ARCH only) not in default builds - built explicitly in CI
 .PHONY: docker-build-bfb-dpuagent
 docker-build-bfb-dpuagent: ## Build OCI image containing BFB with dpuagent
 	# BFB_FILENAME is read from build/.bfb-dpuagent-target generated by BFB build script.
 	$(CURDIR)/hack/scripts/docker-build.sh \
-		--load \
+		$(DOCKER_OUTPUT) \
 		--label=org.opencontainers.image.created=$(DATE) \
 		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
 		--label=org.opencontainers.image.revision=$(FULL_COMMIT) \
@@ -1926,66 +1867,8 @@ docker-build-bfb-dpuagent: ## Build OCI image containing BFB with dpuagent
 		. \
 		-t $(BFB_DPUAGENT_IMAGE):$(TAG)
 
-.PHONY: docker-push-bfb-dpuagent
-docker-push-bfb-dpuagent: ## Push the OCI image containing BFB with dpuagent
-	docker push $(BFB_DPUAGENT_IMAGE):$(TAG)
-
-.PHONY: docker-push-all
-docker-push-all: $(addprefix docker-push-,$(DOCKER_BUILD_TARGETS))  ## Push the docker images for all DOCKER_BUILD_TARGETS.
-
-.PHONY: docker-push-dpf-system
-docker-push-dpf-system: ## This is a no-op to allow using DOCKER_BUILD_TARGETS.
-
-.PHONY: docker-push-hostdriver # Push a multi-arch image for hostdriver using `docker manifest`. The variable DPF_SYSTEM_ARCH defines which architectures this target pushes for.
-docker-push-hostdriver: $(addprefix docker-push-hostdriver-for-,$(DPF_SYSTEM_ARCH))
-	docker manifest push --purge $(HOSTDRIVER_IMAGE):$(TAG)
-	@$(call record_release_artifact,image,$(HOSTDRIVER_IMAGE_NAME),$(HOSTDRIVER_IMAGE):$(TAG),release)
-
-docker-push-hostdriver-for-%:
-	# Tag and push the arch-specific image with the single arch-agnostic tag.
-	docker tag $(HOSTDRIVER_IMAGE):$(TAG)-$* $(HOSTDRIVER_IMAGE):$(TAG)
-	docker push $(HOSTDRIVER_IMAGE):$(TAG)
-	# This must be called in a separate target to ensure the shell command is called in the correct order.
-	$(MAKE) docker-create-manifest-for-hostdriver
-
-docker-create-manifest-for-hostdriver:
-	# Note: If you tag an image with multiple registries this push might fail. This can be fixed by pruning existing docker images.
-	docker manifest create --amend $(HOSTDRIVER_IMAGE):$(TAG) $(shell docker inspect --format='{{index .RepoDigests 0}}' $(HOSTDRIVER_IMAGE):$(TAG))
-
-.PHONY: docker-push-ipallocator
-docker-push-ipallocator: ## Push the docker image for IP Allocator.
-	docker push $(IPALLOCATOR_IMAGE):$(TAG)
-
-.PHONY: docker-push-dummydpuservice
-docker-push-dummydpuservice: ## Push the docker image for dummydpuservice
-	docker push $(DUMMYDPUSERVICE_IMAGE):$(TAG)
-	@$(call record_release_artifact,image,$(DUMMYDPUSERVICE_IMAGE_NAME),$(DUMMYDPUSERVICE_IMAGE):$(TAG),test_helper)
-
-.PHONY: docker-push-netutils # Push a multi-arch image for netutils using `docker manifest`. The variable DPF_SYSTEM_ARCH defines which architectures this target pushes for.
-docker-push-netutils: $(addprefix docker-push-netutils-for-,$(DPF_SYSTEM_ARCH))
-	# Push the final multi-arch manifest
-	docker manifest push --purge $(NETUTILS_IMAGE):$(TAG)
-	@$(call record_release_artifact,image,$(NETUTILS_IMAGE_NAME),$(NETUTILS_IMAGE):$(TAG),test_helper)
-
-docker-push-netutils-for-%:
-	# Tag and push the arch-specific image with the single arch-agnostic tag.
-	docker tag $(NETUTILS_IMAGE):$(TAG)-$* $(NETUTILS_IMAGE):$(TAG)
-	docker push $(NETUTILS_IMAGE):$(TAG)
-	# Add this architecture's RepoDigest to the multi-arch manifest
-	$(MAKE) docker-create-manifest-for-netutils
-
-docker-create-manifest-for-netutils:
-	# Note: If you tag an image with multiple registries this push might fail. This can be fixed by pruning existing docker images.
-	docker manifest create --amend $(NETUTILS_IMAGE):$(TAG) $(shell docker inspect --format='{{index .RepoDigests 0}}' $(NETUTILS_IMAGE):$(TAG))
-
-.PHONY: docker-push-mock-dms
-docker-push-mock-dms: ## Push the docker image for dummydpuservice
-	docker push $(MOCK_DMS_IMAGE):$(TAG)
-
-.PHONY: docker-push-cni-installer
-docker-push-cni-installer: ## Push the docker image for the CNI installer
-	docker push $(CNIINSTALLER_IMAGE):$(TAG)
-	@$(call record_release_artifact,image,$(CNIINSTALLER_IMAGE_NAME),$(CNIINSTALLER_IMAGE):$(TAG),release)
+.PHONY: docker-build-and-push-all
+docker-build-and-push-all: $(addprefix docker-build-and-push-,$(DOCKER_BUILD_TARGETS))  ## Build and push the docker images for all DOCKER_BUILD_TARGETS.
 
 # helm charts
 
