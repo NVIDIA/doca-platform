@@ -292,12 +292,24 @@ Example: `/vpcctl create-vnet --id vnet1 --subnet-v4 10.0.0.0/12 --vni 100`. Con
 | `--nic-id` | NIC identifier this virtual network is bound to, MAC address of one of the NIC's host-facing PFs |
 | `--type` | `pf` only |
 | `--pf` | MAC of the specific host PF to attach (`attachmentPf.pfId`) |
+| `--rep` | Representor netdev of the host attachment. When set, `--nic-id`, and `--pf` are derived from the matching devlink port and must not be provided |
 
 ```shell
+# with nic-id and pf
 /vpcctl create-attachment --id <id> --vnet-id <vnet_id> --type pf --nic-id <nic_mac> --pf <pf>
+# with rep
+/vpcctl create-attachment --id <id> --vnet-id <vnet_id> --type pf --rep <rep>
 ```
 
-Example: `/vpcctl create-attachment --id attach1 --vnet-id vnet1 --type pf --nic-id 94:6d:ae:4f:41:50 --pf 94:6d:ae:4f:41:50`. See [VirtualNetworkAttachment](#virtualnetworkattachment) for response fields.
+Examples:
+```shell
+# with nic-id and pf
+/vpcctl create-attachment --id attach1 --vnet-id vnet1 --type pf --nic-id 94:6d:ae:4f:41:50 --pf 94:6d:ae:4f:41:50
+# with rep
+/vpcctl create-attachment --id attach1 --vnet-id vnet1 --type pf --rep A1c1pf0
+```
+
+Refer to [VirtualNetworkAttachment](#virtualnetworkattachment) for response fields.
 
 ### Get, list, and delete
 
