@@ -450,6 +450,33 @@ var _ = Describe("API Validations for DPUDeployment related objects", func() {
 		})
 	})
 	Context("When checking the DPUDeployment API validations", func() {
+		DescribeTable("validates nodeEffect actions", func(nodeEffect provisioningv1.Action, expectError bool) {
+			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+			dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
+			dpuDeployment.Spec.DPUs.NodeEffect = nodeEffect
+
+			err := testClient.Create(ctx, dpuDeployment)
+			if expectError {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
+			}
+		},
+			Entry("noEffect true", provisioningv1.Action{NoEffect: ptr.To(true)}, false),
+			Entry("hold true", provisioningv1.Action{Hold: ptr.To(true)}, false),
+			Entry("drain true", provisioningv1.Action{Drain: ptr.To(true)}, false),
+			Entry("non-empty customAction", provisioningv1.Action{CustomAction: ptr.To("my-action")}, false),
+			Entry("non-empty customLabel", provisioningv1.Action{CustomLabel: map[string]string{"key": "value"}}, false),
+			Entry("taint", provisioningv1.Action{Taint: &corev1.Taint{Key: "test-key", Effect: corev1.TaintEffectNoSchedule}}, false),
+			Entry("no action", provisioningv1.Action{}, true),
+			Entry("noEffect false", provisioningv1.Action{NoEffect: ptr.To(false)}, true),
+			Entry("drain false", provisioningv1.Action{Drain: ptr.To(false)}, true),
+			Entry("hold false", provisioningv1.Action{Hold: ptr.To(false)}, true),
+			Entry("empty customAction", provisioningv1.Action{CustomAction: ptr.To("")}, true),
+			Entry("empty customLabel", provisioningv1.Action{CustomLabel: map[string]string{}}, true),
+			Entry("multiple actions", provisioningv1.Action{NoEffect: ptr.To(true), Hold: ptr.To(true)}, true),
+		)
+
 		It("should not create the DPUDeployment if system annotations are present", func() {
 			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
 			dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
