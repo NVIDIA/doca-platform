@@ -1,0 +1,15 @@
+apiVersion: provisioning.dpu.nvidia.com/v1alpha1
+kind: DPUCluster
+metadata:
+  name: dpu-cluster-1
+  namespace: dpf-operator-system
+spec:
+  type: kamaji
+  clusterEndpoint:
+    keepalived:
+      interface: eth0
+      # local to kind node, not reachable from outside the kind container
+      vip: 192.0.2.199
+      virtualRouterID: 126
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
