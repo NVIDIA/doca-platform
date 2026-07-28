@@ -32,8 +32,11 @@ package e2e
 //   upgrade_artifacts_test.go  — artifact snapshot + comparison
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -237,28 +240,7 @@ func installPhase(description string, in installPhaseInput) {
 		})
 
 		It("create DPUDeployment objects", func() {
-			By("Get worker nodes")
-			nodes := &corev1.NodeList{}
-			Expect(input.client.List(ctx, nodes,
-				client.MatchingLabels{"node-role.kubernetes.io/worker": ""})).To(Succeed())
-
-			By("Creating DPUDeployment objects for each DPU node")
-			for i := 0; i < input.numberOfDPUNodes; i++ {
-				node := &nodes.Items[i]
-				dpuDeployment := input.dpuDeployment.DeepCopy()
-				dpuDeployment.SetLabels(CleanupScope.Suite)
-				dpuDeployment.SetName(node.GetName())
-				// Per-node hostname selector — the only field that has to be
-				// patched inline because it varies per worker node. Using
-				// the deprecated NodeSelector intentionally: install runs
-				// against the previous-release CRD schema. Unit tests cover
-				// the new DPUNodeSelector field.
-				//nolint:staticcheck
-				dpuDeployment.Spec.DPUs.DPUSets[0].NodeSelector = &metav1.LabelSelector{
-					MatchLabels: map[string]string{"kubernetes.io/hostname": node.GetName()},
-				}
-				Expect(input.client.Create(ctx, dpuDeployment)).To(Succeed())
-			}
+			createUpgradeDPUDeployments(ctx, input)
 		})
 
 		It("get DPUCluster client", func() {
@@ -278,6 +260,81 @@ func installPhase(description string, in installPhaseInput) {
 			})
 		}
 	})
+}
+
+func createUpgradeDPUDeployments(ctx context.Context, systemInput *systemTestInput) {
+	Expect(systemInput.numberOfDPUsPerNode).To(Equal(1),
+		"dynamic upgrade DPU selection currently supports one DPU per node")
+
+	By("Get worker nodes")
+	nodes := &corev1.NodeList{}
+	Expect(systemInput.client.List(ctx, nodes,
+		client.MatchingLabels{"node-role.kubernetes.io/worker": ""})).To(Succeed())
+
+	By("Creating DPUDeployment objects for each DPU node")
+	for i := 0; i < systemInput.numberOfDPUNodes; i++ {
+		node := &nodes.Items[i]
+		dpuDeployment := systemInput.dpuDeployment.DeepCopy()
+		dpuDeployment.SetLabels(CleanupScope.Suite)
+		dpuDeployment.SetName(node.GetName())
+		// Per-node hostname selector uses the previous-release CRD schema.
+		//nolint:staticcheck
+		dpuDeployment.Spec.DPUs.DPUSets[0].NodeSelector = &metav1.LabelSelector{
+			MatchLabels: map[string]string{"kubernetes.io/hostname": node.GetName()},
+		}
+		dpuDevices := waitForDPUDevicesWithPCIAddress(ctx, systemInput.client, node.Name)
+		selectedDPUDevice, err := selectDPUDeviceWithPCIAddress(dpuDevices)
+		Expect(err).NotTo(HaveOccurred())
+		pciAddress := selectedDPUDevice.Labels[util.DPUDevicePCIAddressLabel]
+		By(fmt.Sprintf("Selecting DPUDevice with PCI address %s on worker %s", pciAddress, node.Name))
+		//nolint:staticcheck // Install runs against the previous-release CRD schema.
+		dpuDeployment.Spec.DPUs.DPUSets[0].DPUSelector = map[string]string{
+			util.DPUDevicePCIAddressLabel: pciAddress,
+		}
+		Expect(systemInput.client.Create(ctx, dpuDeployment)).To(Succeed())
+	}
+}
+
+func waitForDPUDevicesWithPCIAddress(ctx context.Context, c client.Client, nodeName string) []provisioningv1.DPUDevice {
+	var discovered []provisioningv1.DPUDevice
+	Eventually(func(g Gomega) {
+		dpuDevices := &provisioningv1.DPUDeviceList{}
+		g.Expect(c.List(ctx, dpuDevices,
+			client.InNamespace(dpfOperatorSystemNamespace),
+			client.MatchingLabels{provisioningv1.DPUNodeNameLabel: nodeName},
+		)).To(Succeed())
+
+		discovered = dpuDevices.Items
+		hasPCIAddress := slices.ContainsFunc(discovered, func(dpuDevice provisioningv1.DPUDevice) bool {
+			return dpuDevice.Labels[util.DPUDevicePCIAddressLabel] != ""
+		})
+		g.Expect(hasPCIAddress).To(BeTrue(), "waiting for a DPUDevice with a PCI address on worker %s", nodeName)
+	}).WithTimeout(5 * time.Minute).WithPolling(time.Second).Should(Succeed())
+
+	return discovered
+}
+
+func selectDPUDeviceWithPCIAddress(dpuDevices []provisioningv1.DPUDevice) (provisioningv1.DPUDevice, error) {
+	candidates := make([]provisioningv1.DPUDevice, 0, len(dpuDevices))
+	for _, dpuDevice := range dpuDevices {
+		if dpuDevice.Labels[util.DPUDevicePCIAddressLabel] != "" {
+			candidates = append(candidates, dpuDevice)
+		}
+	}
+	if len(candidates) == 0 {
+		return provisioningv1.DPUDevice{}, fmt.Errorf("no DPUDevice has a PCI address label")
+	}
+
+	slices.SortFunc(candidates, func(a, b provisioningv1.DPUDevice) int {
+		if byPCIAddress := cmp.Compare(
+			strings.ToLower(a.Labels[util.DPUDevicePCIAddressLabel]),
+			strings.ToLower(b.Labels[util.DPUDevicePCIAddressLabel]),
+		); byPCIAddress != 0 {
+			return byPCIAddress
+		}
+		return cmp.Compare(a.Name, b.Name)
+	})
+	return candidates[0], nil
 }
 
 // validationPhase emits the Ginkgo container for one validation phase. The
@@ -583,13 +640,10 @@ func rolloutDependencies(ctx context.Context, input *systemTestInput, skipDPUFla
 		dpuDeployment := &dpuDeploymentList.Items[i]
 		patchBase := dpuDeployment.DeepCopy()
 		desiredSpec := input.dpuDeployment.DeepCopy().Spec
-		for j := range desiredSpec.DPUs.DPUSets {
-			if j < len(dpuDeployment.Spec.DPUs.DPUSets) {
-				// NodeSelector is filled in per worker node at install, not in the manifest.
-				//nolint:staticcheck
-				desiredSpec.DPUs.DPUSets[j].NodeSelector = dpuDeployment.Spec.DPUs.DPUSets[j].NodeSelector
-			}
-		}
+		preserveDPUSetRuntimeSelectors(
+			desiredSpec.DPUs.DPUSets,
+			dpuDeployment.Spec.DPUs.DPUSets,
+		)
 		dpuDeployment.Spec = desiredSpec
 		Expect(input.client.Patch(ctx, dpuDeployment, client.MergeFrom(patchBase))).To(Succeed())
 	}
@@ -633,6 +687,20 @@ func rolloutDependencies(ctx context.Context, input *systemTestInput, skipDPUFla
 	}).WithTimeout(20 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
 
 	verifyDPUDeploymentDependencyTracking(ctx, input, skipDPUFlavorTemplateValidation)
+}
+
+func preserveDPUSetRuntimeSelectors(desired, installed []dpuservicev1.DPUSet) {
+	for i := range desired {
+		if i >= len(installed) {
+			return
+		}
+		// NodeSelector is filled in per worker node at install, not in the manifest.
+		//nolint:staticcheck
+		desired[i].NodeSelector = installed[i].NodeSelector.DeepCopy()
+		//nolint:staticcheck // The installed object may use the previous-release field.
+		desired[i].DPUSelector = maps.Clone(installed[i].DPUSelector)
+		desired[i].DPUDeviceSelector = installed[i].DPUDeviceSelector.DeepCopy()
+	}
 }
 
 // verifyDPUDeploymentDependencyTracking asserts that consumed-by-DPUDeployment
