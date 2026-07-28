@@ -557,6 +557,7 @@ test-release-e2e-quick: # Build images required for the quick DPF e2e test.
 	$(MAKE) docker-build-and-push-dummydpuservice
 	$(MAKE) docker-build-and-push-mock-dms
 	$(MAKE) docker-build-and-push-bfb-registry DPF_SYSTEM_ARCH=$(ARCH)
+	$(MAKE) docker-build-and-push-keepalived DPF_SYSTEM_ARCH=$(ARCH)
 	# Build and push all the helm charts
 	$(MAKE) helm-package-all helm-push-all
 	$(MAKE) helm-package-dummydpuservice helm-push-dummydpuservice

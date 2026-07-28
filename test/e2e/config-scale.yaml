@@ -1,16 +1,14 @@
 provisioningControllerPVC: "../objects/infrastructure/pvc-quick.yaml"
 bfb: "../objects/infrastructure/fake-bfb.yaml"
 dpuClusters:
-  - "../objects/infrastructure/dpucluster.yaml"
+  - "../objects/infrastructure/dpucluster-kamaji-kind.yaml"
 dpuSet: "../objects/infrastructure/dpuset.yaml"
 dpuFlavor: "../objects/infrastructure/dpuflavor-hbn-ovn.yaml"
 dpuClusterPrerequisiteObjectPath:
   - "../objects/mock/dpuservice-dpucluster.yaml"
   - "../objects/mock/dpuservice-incluster.yaml"
   - "../objects/mock/dpuservice-stages.yaml"
-  - "../objects/infrastructure/kamaji-quick.yaml"
   - "../objects/mock/dpuservicecredentialrequest.yaml"
-  - "../objects/infrastructure/nodeport-dpucluster.yaml"
 dpuServiceInterface: "../objects/application/dpuserviceinterface_service_type.yaml"
 dpuServiceInterfaceTemplate: "../objects/application/dpuserviceinterfacetemplate.yaml"
 dpuServiceChain: "../objects/application/dpuservicechain.yaml"
