@@ -17,7 +17,6 @@ limitations under the License.
 package e2e
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/nvidia/doca-platform/test/e2e/cleanup"
@@ -194,6 +193,31 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 			verifyIsolationBridgeExists(fcPod2, trafficVNI, weaveDPUPortP1)
 		})
 
+		It("should expose flow metrics with the expected NIC PCI address labels", func() {
+			p0Bridge := isolationBridgeName(trafficVNI, weaveDPUPortP0)
+			p1Bridge := isolationBridgeName(trafficVNI, weaveDPUPortP1)
+			isolationMetricNames := []string{
+				weaveMetricHostTx,
+				weaveMetricHostRx,
+				weaveMetricTxSent,
+				weaveMetricTxDropped,
+				weaveMetricRxDecap,
+				weaveMetricRxDropped,
+			}
+
+			Eventually(func(g Gomega) {
+				for _, pod := range []*corev1.Pod{fcPod1, fcPod2} {
+					metrics := scrapeWeaveMetrics(g, pod)
+					assertMetricLabel(g, metrics, p0Bridge, isolationMetricNames, "pci_address", dpuPortToPCIAddress[weaveDPUPortP0])
+					assertMetricLabel(g, metrics, p1Bridge, isolationMetricNames, "pci_address", dpuPortToPCIAddress[weaveDPUPortP1])
+					assertMetricLabel(g, metrics, dropBridgeName(weaveDPUPortP0),
+						[]string{weaveMetricRxVNIMismatch}, "pci_address", dpuPortToPCIAddress[weaveDPUPortP0])
+					assertMetricLabel(g, metrics, dropBridgeName(weaveDPUPortP1),
+						[]string{weaveMetricRxVNIMismatch}, "pci_address", dpuPortToPCIAddress[weaveDPUPortP1])
+				}
+			}).WithTimeout(weaveOperationTimeout).WithPolling(weaveEventuallyPollInterval).Should(Succeed())
+		})
+
 		It("should create DHCP NADs and netshoot pods on worker nodes", func() {
 			nadP0 := weaveDHCPNADP0
 			nadP1 := weaveDHCPNADP1
@@ -367,7 +391,7 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 		// Should run before the deny-ping below so the source ACL starts unlearned.
 		It("should verify metrics for VNI-mismatch detection", func() {
 			srcBridge := isolationBridgeName(isolVNI1, weaveDPUPortP0)
-			dstBridge := fmt.Sprintf("br-drop-%s", dpuPortToDropNIC[weaveDPUPortP0])
+			dstBridge := dropBridgeName(weaveDPUPortP0)
 
 			baselineMetricsPod1 := readWeaveMetrics(fcPod1)
 			baselineMetricsPod2 := readWeaveMetrics(fcPod2)
