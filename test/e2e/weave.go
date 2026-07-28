@@ -63,9 +63,12 @@ const (
 	weaveDHCPNADP0 = "weave-dhcp-p0"
 	weaveDHCPNADP1 = "weave-dhcp-p1"
 
-	// DPU-side PCI addresses (underscored form used in OVS bridge names) for the two NIC ports.
+	// DPU-side PCI addresses for the two NIC ports. The underscored form is used in OVS bridge names,
+	// while the canonical form is expected in the pci_address metric label.
 	// Pinned by the dpf-bootstrap deployment, see DPUService-weave-flow-controller.yml.
 	// If the underlay config in the DPUService changes, these need to follow.
+	weaveDPUPortP0PCIAddress     = "0000:03:00.0"
+	weaveDPUPortP1PCIAddress     = "0000:03:00.1"
 	weaveDPUPortP0PCIUnderscored = "0000_03_00_0"
 	weaveDPUPortP1PCIUnderscored = "0000_03_00_1"
 
@@ -385,9 +388,9 @@ var dpuPortToPCIUnderscored = map[string]string{
 	weaveDPUPortP1: weaveDPUPortP1PCIUnderscored,
 }
 
-var dpuPortToDropNIC = map[string]string{
-	weaveDPUPortP0: "n0",
-	weaveDPUPortP1: "n1",
+var dpuPortToPCIAddress = map[string]string{
+	weaveDPUPortP0: weaveDPUPortP0PCIAddress,
+	weaveDPUPortP1: weaveDPUPortP1PCIAddress,
 }
 
 // isolationBridgeName returns the OVS isolation bridge name for a VNI on a DPU port.
@@ -395,6 +398,19 @@ func isolationBridgeName(vni uint32, dpuPort string) string {
 	pci, ok := dpuPortToPCIUnderscored[dpuPort]
 	Expect(ok).To(BeTrue(), "unknown DPU port %q", dpuPort)
 	return fmt.Sprintf("br-isol-%d-%s", vni, pci)
+}
+
+// dropBridgeName returns the OVS drop bridge name for a DPU port (br-drop-n0 / br-drop-n1).
+func dropBridgeName(dpuPort string) string {
+	switch dpuPort {
+	case weaveDPUPortP0:
+		return "br-drop-n0"
+	case weaveDPUPortP1:
+		return "br-drop-n1"
+	default:
+		Fail(fmt.Sprintf("unknown DPU port %q", dpuPort))
+		return ""
+	}
 }
 
 // verifyIsolationBridgeExists asserts that the OVS isolation bridge for the given VNI
@@ -410,12 +426,18 @@ func verifyIsolationBridgeExists(pod *corev1.Pod, vni uint32, dpuPort string) {
 }
 
 // weaveMetricFamily is the Prometheus metric family emitted by `ovs-appctl metrics/show` carrying per-flow packet
-// counters. Each sample is labeled with the bridge and the weave_* counter name.
+// counters. Each sample is labeled with the bridge, weave_* counter name, and additional labels such as pci_address.
 const weaveMetricFamily = "ovs_vswitchd_flow_packets_total"
+
+// weaveMetric is one counter sample from a weave metrics scrape, including its full label set.
+type weaveMetric struct {
+	packetCount uint64
+	labels      map[string]string
+}
 
 // weaveMetrics holds weave packet counters from one scrape of a flow-controller pod,
 // keyed by bridge then counter name (e.g. metrics["br-isol-1001-..."]["weave_host_tx"]).
-type weaveMetrics map[string]map[string]uint64
+type weaveMetrics map[string]map[string]weaveMetric
 
 // scrapeWeaveMetrics performs a single weave-metrics scrape of a flow-controller pod, keyed [bridge][name].
 func scrapeWeaveMetrics(g Gomega, pod *corev1.Pod) weaveMetrics {
@@ -432,23 +454,22 @@ func scrapeWeaveMetrics(g Gomega, pod *corev1.Pod) weaveMetrics {
 
 	metrics := weaveMetrics{}
 	for _, m := range families[weaveMetricFamily].GetMetric() {
-		var bridge, name string
+		labels := map[string]string{}
 		for _, l := range m.GetLabel() {
-			switch l.GetName() {
-			case "bridge":
-				bridge = l.GetValue()
-			case "name":
-				name = l.GetValue()
-			}
+			labels[l.GetName()] = l.GetValue()
 		}
+		bridge, name := labels["bridge"], labels["name"]
 		if bridge == "" || !strings.HasPrefix(name, "weave_") {
 			continue
 		}
 		if metrics[bridge] == nil {
-			metrics[bridge] = map[string]uint64{}
+			metrics[bridge] = map[string]weaveMetric{}
 		}
 		// The family is counter-typed, so the value lives in Counter.
-		metrics[bridge][name] = uint64(m.GetCounter().GetValue())
+		metrics[bridge][name] = weaveMetric{
+			packetCount: uint64(m.GetCounter().GetValue()),
+			labels:      labels,
+		}
 	}
 	g.Expect(metrics).ToNot(BeEmpty(), "no weave_* metrics found on pod %s: %s", pod.Name, out)
 	return metrics
@@ -471,8 +492,24 @@ func metricDelta(g Gomega, before, after weaveMetrics, bridge, name string) uint
 	a, aOK := after[bridge][name]
 	g.Expect(bOK).To(BeTrue(), "weave metric %s missing on bridge %s in before scrape", name, bridge)
 	g.Expect(aOK).To(BeTrue(), "weave metric %s missing on bridge %s in after scrape", name, bridge)
-	g.Expect(a).To(BeNumerically(">=", b), "weave metric %s on bridge %s went backwards (%d -> %d): OVS restart?", name, bridge, b, a)
-	return a - b
+	g.Expect(a.packetCount).To(BeNumerically(">=", b.packetCount),
+		"weave metric %s on bridge %s went backwards (%d -> %d): OVS restart?", name, bridge, b.packetCount, a.packetCount)
+	return a.packetCount - b.packetCount
+}
+
+// assertMetricLabel verifies that metrics registered on a bridge carry the expected label value.
+// expectedLabelName is parameterized for future metric labels beyond pci_address.
+//
+//nolint:unparam
+func assertMetricLabel(g Gomega, metrics weaveMetrics, expectedBridge string, counterNames []string, expectedLabelName, expectedLabelValue string) {
+	for _, name := range counterNames {
+		metric, ok := metrics[expectedBridge][name]
+		g.Expect(ok).To(BeTrue(), "weave metric %s missing on bridge %s", name, expectedBridge)
+		actualLabelValue, ok := metric.labels[expectedLabelName]
+		g.Expect(ok).To(BeTrue(), "weave metric %s on bridge %s: label %q missing", name, expectedBridge, expectedLabelName)
+		g.Expect(actualLabelValue).To(Equal(expectedLabelValue),
+			"weave metric %s on bridge %s: label %q mismatch", name, expectedBridge, expectedLabelName)
+	}
 }
 
 // metricDeltaExpect describes how a set of weave counters should move between two scrapes.
