@@ -179,12 +179,14 @@ type DPUTemplate struct {
 
 // NodeEffect is the effect the DPU has on Nodes during provisioning.
 // Only one of Taint, NoEffect, CustomLabel, Drain, CustomAction, Hold can be set.
-// +kubebuilder:validation:XValidation:rule="(has(self.taint) ? 1 : 0) + (has(self.noEffect) ? 1 : 0) + (has(self.customLabel) ? 1 : 0) + (has(self.drain) ? 1 : 0) + (has(self.customAction) ? 1 : 0) + (has(self.hold) ? 1 : 0) == 1", message="only one of taint, noEffect, drain, customLabel, customAction, hold can be set"
 type NodeEffect struct {
 	Action        `json:",inline"`
 	UpgradePolicy `json:",inline"`
 }
 
+// Action defines the mutually exclusive node effect applied during provisioning.
+// Exactly one of taint, noEffect=true, drain=true, non-empty customLabel, non-empty customAction, or hold=true must be set.
+// +kubebuilder:validation:XValidation:rule="(has(self.taint) ? 1 : 0) + ((has(self.noEffect) && self.noEffect) ? 1 : 0) + ((has(self.customLabel) && size(self.customLabel) > 0) ? 1 : 0) + ((has(self.drain) && self.drain) ? 1 : 0) + ((has(self.customAction) && size(self.customAction) > 0) ? 1 : 0) + ((has(self.hold) && self.hold) ? 1 : 0) == 1", message="exactly one of taint, noEffect=true, drain=true, non-empty customLabel, non-empty customAction, hold=true must be set"
 type Action struct {
 	// Add specify taint on the DPU node
 	// +optional
