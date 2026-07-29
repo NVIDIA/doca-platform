@@ -1366,15 +1366,16 @@ func GetDPUNodeToBMCIPs(ctx context.Context, c client.Client,
 	return out
 }
 
-// Name of the Secret referenced by the reboot ConfigMap pod-template to provide the BMC password.
+// Name of the Secret referenced by the reboot ConfigMap pod-template to provide BMC credentials.
 // Must match between Go code and the YAML fixture for script-based node reboot.
 const (
 	bmcCredentialsSecretName = "dpunode-reboot-bmc-credentials"
+	bmcUsernameSecretKey     = "BMC_USERNAME"
 	bmcPasswordSecretKey     = "BMC_PASSWORD"
 )
 
 // ApplyNodeRebootConfigMap creates the BMC credentials Secret (sourced from
-// $E2E_ZT_BMC_PASSWORD) and applies the reboot ConfigMap fixture as-is.
+// $E2E_ZT_BMC_USERNAME / $E2E_ZT_BMC_PASSWORD) and applies the reboot ConfigMap fixture as-is.
 func ApplyNodeRebootConfigMap(ctx context.Context, c client.Client, configMapPath string) {
 
 	applyBMCCredentialsSecret(ctx, c)
@@ -1397,8 +1398,9 @@ func ApplyNodeRebootConfigMap(ctx context.Context, c client.Client, configMapPat
 	Expect(client.IgnoreAlreadyExists(c.Create(ctx, obj))).To(Succeed())
 }
 
-// applyBMCCredentialsSecret creates a suite-scoped Secret for the reboot pod with the BMC password, ensuring it is not exposed in the ConfigMap.
-// bmcPassword is sourced from $E2E_ZT_BMC_PASSWORD by getEnvVariables() and required-ness is enforced by validateFlags() for ZT runs.
+// applyBMCCredentialsSecret creates a suite-scoped Secret for the reboot pod with BMC credentials, ensuring they are not exposed in the ConfigMap.
+// bmcUsername / bmcPassword are sourced from $E2E_ZT_BMC_USERNAME / $E2E_ZT_BMC_PASSWORD by getEnvVariables()
+// and required-ness is enforced by validateFlags() for ZT runs.
 func applyBMCCredentialsSecret(ctx context.Context, c client.Client) {
 	By(fmt.Sprintf("Creating BMC credentials Secret %s/%s",
 		dpfOperatorSystemNamespace, bmcCredentialsSecretName))
@@ -1410,6 +1412,7 @@ func applyBMCCredentialsSecret(ctx context.Context, c client.Client) {
 		},
 		Type: corev1.SecretTypeOpaque,
 		Data: map[string][]byte{
+			bmcUsernameSecretKey: []byte(bmcUsername),
 			bmcPasswordSecretKey: []byte(bmcPassword),
 		},
 	}
