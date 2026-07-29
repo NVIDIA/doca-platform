@@ -89,7 +89,7 @@ func getAnnotationsForChart(ctx context.Context, source dpuservicev1.Application
 }
 
 func getAnnotationsFromHelmRegistry(ctx context.Context, source dpuservicev1.ApplicationSource, username, password string) (_ map[string]string, reterr error) {
-	url := strings.Join([]string{source.RepoURL, "index.yaml"}, "/")
+	url := strings.Join([]string{normalizeRepoURL(source.RepoURL), "index.yaml"}, "/")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed creating request: %v", err)
@@ -173,8 +173,7 @@ func getChartPullCredentials(ctx context.Context, c client.Client, source dpuser
 		return "", "", fmt.Errorf("listing secrets: %w", err)
 	}
 
-	dpuServiceTemplateRepoURL := source.RepoURL
-	dpuServiceTemplateRepoURL, _ = strings.CutPrefix(dpuServiceTemplateRepoURL, "oci://")
+	dpuServiceTemplateRepoURL := normalizeRepoURL(source.RepoURL)
 
 	var username string
 	var password string
@@ -191,7 +190,7 @@ func getChartPullCredentials(ctx context.Context, c client.Client, source dpuser
 			continue
 		}
 		// If the repo for this secret doesn't match the one in the dpuServiceTemplate continue to check the next one.
-		if string(repoURL) != dpuServiceTemplateRepoURL {
+		if normalizeRepoURL(string(repoURL)) != dpuServiceTemplateRepoURL {
 			continue
 		}
 
@@ -214,10 +213,17 @@ func getChartPullCredentials(ctx context.Context, c client.Client, source dpuser
 	return username, password, nil
 }
 
+// normalizeRepoURL brings a repository URL into a canonical form so that URLs which only differ in the oci:// scheme
+// or in trailing slashes are considered equal. Registries treat https://example.com/org and https://example.com/org/
+// as the same repository, so credentials configured with either spelling must be usable.
+func normalizeRepoURL(repoURL string) string {
+	normalized, _ := strings.CutPrefix(repoURL, "oci://")
+	return strings.TrimRight(normalized, "/")
+}
+
 // getAnnotationsFromOCIManifest gets the annotations from the OCI manifest
 func getAnnotationsFromOCIManifest(source dpuservicev1.ApplicationSource, username string, password string) (map[string]string, error) {
-	reg := source.RepoURL
-	reg, _ = strings.CutPrefix(reg, "oci://")
+	reg := normalizeRepoURL(source.RepoURL)
 	repo, err := remote.NewRepository(strings.Join([]string{reg, source.Chart}, "/"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create repository: %w", err)
