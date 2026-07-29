@@ -119,6 +119,99 @@ var _ = Describe("chartutils", Ordered, func() {
 			Expect(username).To(Equal("myuser"))
 			Expect(password).To(Equal("mypassword"))
 		})
+		It("matches a secret whose url differs from the source only by a trailing slash", func() {
+			Expect(testClient.Create(ctx, config)).To(Succeed())
+
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "trailing-slash-in-secret",
+					Namespace: testNS.Name,
+					Labels: map[string]string{
+						"argocd.argoproj.io/secret-type": "repository",
+					},
+				},
+				StringData: map[string]string{
+					"type":     "helm",
+					"url":      "https://example.com/org/repo/",
+					"username": "myuser",
+					"password": "mypassword",
+				},
+			}
+			Expect(testClient.Create(ctx, secret)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, secret)
+
+			username, password, err := getChartPullCredentials(
+				ctx,
+				testClient,
+				dpuservicev1.ApplicationSource{
+					RepoURL: "https://example.com/org/repo",
+				})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(username).To(Equal("myuser"))
+			Expect(password).To(Equal("mypassword"))
+		})
+		It("matches a secret when the source has the trailing slash and the secret does not", func() {
+			Expect(testClient.Create(ctx, config)).To(Succeed())
+
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "trailing-slash-in-source",
+					Namespace: testNS.Name,
+					Labels: map[string]string{
+						"argocd.argoproj.io/secret-type": "repository",
+					},
+				},
+				StringData: map[string]string{
+					"type":     "helm",
+					"url":      "example.com/org/repo",
+					"username": "myuser",
+					"password": "mypassword",
+				},
+			}
+			Expect(testClient.Create(ctx, secret)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, secret)
+
+			username, password, err := getChartPullCredentials(
+				ctx,
+				testClient,
+				dpuservicev1.ApplicationSource{
+					RepoURL: "oci://example.com/org/repo/",
+				})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(username).To(Equal("myuser"))
+			Expect(password).To(Equal("mypassword"))
+		})
+		It("does not match a secret for a different repository", func() {
+			Expect(testClient.Create(ctx, config)).To(Succeed())
+
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "other-repo",
+					Namespace: testNS.Name,
+					Labels: map[string]string{
+						"argocd.argoproj.io/secret-type": "repository",
+					},
+				},
+				StringData: map[string]string{
+					"type":     "helm",
+					"url":      "https://example.com/org/other",
+					"username": "myuser",
+					"password": "mypassword",
+				},
+			}
+			Expect(testClient.Create(ctx, secret)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, secret)
+
+			username, password, err := getChartPullCredentials(
+				ctx,
+				testClient,
+				dpuservicev1.ApplicationSource{
+					RepoURL: "https://example.com/org/repo",
+				})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(username).To(BeEmpty())
+			Expect(password).To(BeEmpty())
+		})
 		It("reads secrets from the ArgoCD namespace override rather than the DPFOperatorConfig namespace", func() {
 			By("Creating a separate namespace for ArgoCD")
 			argoCDNS := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "argocd"}}
