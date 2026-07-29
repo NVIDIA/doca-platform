@@ -5,6 +5,7 @@ dpuClusters:
 dpuSet: "../objects/infrastructure/dpuset.yaml"
 dpuFlavor: "../objects/infrastructure/dpuflavor.yaml"
 dpuClusterPrerequisiteObjectPath:
+  - "../objects/infrastructure/kamaji-audit-policy.yaml"
   - "../objects/infrastructure/kamaji-provisioning.yaml"
   - "../objects/infrastructure/nodeport-dpucluster.yaml"
 dpuServiceInterface: "../objects/application/dpuserviceinterface_service_type.yaml"

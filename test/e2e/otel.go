@@ -163,6 +163,39 @@ func ValidateDPUClusterLogFlow(ctx context.Context, input *systemTestInput) {
 	}).WithTimeout(time.Minute).WithPolling(time.Second).Should(Succeed())
 }
 
+// ValidateKamajiAuditLogFlow verifies that kube-apiserver audit logs from Kamaji DPU
+// clusters are collected by the management cluster otel-agent and forwarded to Loki.
+// It creates a namespace in the DPU cluster (which generates audit events) then checks
+// that matching audit log entries appear in Loki tagged with the DPU cluster name.
+func ValidateKamajiAuditLogFlow(ctx context.Context, input *systemTestInput) {
+	lokiClient := loki.NewClient(hostClusterRESTClient, dpfOperatorSystemNamespace)
+	clusterName := input.dpuClusters[0].Name
+
+	By(fmt.Sprintf("Creating test namespace in DPU cluster %s to generate audit events", clusterName))
+	testNS := createTestNamespaceInCluster(ctx, dpuClusterClient[0], "test-audit-")
+
+	By(fmt.Sprintf("Waiting for audit logs for cluster %s to appear in Loki", clusterName))
+	Eventually(func(g Gomega) {
+		labels := map[string]string{
+			"cluster": clusterName,
+		}
+		entries, err := lokiClient.QueryLogs(ctx, testNS, labels, 5*time.Minute)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(entries).NotTo(BeEmpty(),
+			fmt.Sprintf("No audit logs found in Loki for DPU cluster %s", clusterName))
+
+		found := false
+		for _, entry := range entries {
+			if strings.Contains(entry.Line, testNS) {
+				g.Expect(entry.Stream).To(HaveKeyWithValue("cluster", clusterName))
+				found = true
+				break
+			}
+		}
+		g.Expect(found).To(BeTrue(), "Expected audit log entry not found in Loki")
+	}).WithTimeout(3 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+}
+
 // ValidateDPUClusterMetricsFlow verifies that container, pod, and node metrics
 // scraped by the DPU cluster collector's kubeletstats receiver are streamed to
 // the host cluster and land in the host Prometheus. The DPU collector stamps
