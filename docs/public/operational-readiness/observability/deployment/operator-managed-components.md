@@ -165,16 +165,21 @@ NPD also exposes Prometheus metrics on port 20257.
 
 ## OpenTelemetry Collector
 
-OpenTelemetry Collector (OTEL) provides centralized log collection from DPU clusters to a user-specified endpoint.
+OpenTelemetry Collector (OTEL) forwards observability signals from DPU clusters to a user-specified endpoint. It can stream two independent signals, each enabled by its own endpoint:
+
+* **Logs** — collected from DPU cluster pods and forwarded via OTLP.
+* **Metrics** — container, pod, and node resource metrics scraped from every DPU node's kubelet and streamed to the management cluster, tagged with the originating DPUCluster name (the `cluster` label). This powers the [DPUService Performance dashboard](../dashboards/README.md#dpuservice-performance).
 
 ### Architecture
 
-* **OTEL Collector DaemonSet**: Collects logs from DPU cluster pods and forwards to the configured endpoint, tagged with cluster name
-* **OTEL Collector Endpoint**: Receives logs from DPU clusters via OTLP and exports to a backend
+* **OTEL Collector DaemonSet**: Collects logs and/or metrics from the DPU cluster and forwards them to the configured endpoint(s), tagged with the DPU cluster name
+* **OTEL Collector Endpoint**: Receives signals from DPU clusters via OTLP and exports to a backend (for metrics, typically Prometheus via its remote-write receiver)
 
 ### Configuration
 
-OTEL Collector is **disabled by default** and requires a logging endpoint configuration:
+OTEL Collector is **disabled by default**. It is enabled when at least one of `logging.endpoint` or `metrics.endpoint` is set; each signal is streamed only when its corresponding endpoint is configured.
+
+Stream logs to an OTLP endpoint:
 
 ```yaml
 apiVersion: operator.dpu.nvidia.com/v1alpha1
@@ -189,8 +194,23 @@ spec:
         endpoint: "http://<host-node-ip>:30318"
 ```
 
+Stream DPU cluster workload metrics to the management cluster (both signals can be enabled together):
+
+```yaml
+apiVersion: operator.dpu.nvidia.com/v1alpha1
+kind: DPFOperatorConfig
+metadata:
+  name: dpfoperatorconfig
+  namespace: dpf-operator-system
+spec:
+  monitoring:
+    openTelemetryCollector:
+      metrics:
+        endpoint: "http://<host-node-ip>:30318"
+```
+
 > [!NOTE]
-> The endpoint can be any OTLP-compatible receiver (OpenTelemetry Collector, observability gateway, cloud service, etc.).
+> The endpoint can be any OTLP-compatible receiver (OpenTelemetry Collector, observability gateway, cloud service, etc.). For metrics streaming, the management cluster collector writes the received metrics into Prometheus, so the bundled kube-prometheus-stack values must enable the Prometheus remote-write receiver (`prometheus.prometheusSpec.enableRemoteWriteReceiver: true`). See [Helm Prerequisites](../../../getting-started/helm-prerequisites.md).
 
 If using the OpenTelemetry Collector deployed via Helm values (default configuration), it uses NodePort 30318:
 
