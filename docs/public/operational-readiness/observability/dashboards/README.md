@@ -13,7 +13,7 @@ The dashboard JSON definitions are located in the Helm chart under [`deploy/char
 
 When `grafanaDashboards.enabled` is set to `true` in the Helm values, the chart creates two ConfigMaps:
 
-* `dpf-operator-grafana-dashboards`: contains the fleet health, DPU detail, framework state, and DPUCluster control plane performance dashboards. The ConfigMap carries the annotation `grafana_folder: "DOCA Platform Framework"` so the Grafana sidecar groups all of these dashboards in a dedicated **DOCA Platform Framework** folder.
+* `dpf-operator-grafana-dashboards`: contains the fleet health, DPU detail, framework state, DPUCluster control plane performance, and DPUService performance dashboards. The ConfigMap carries the annotation `grafana_folder: "DOCA Platform Framework"` so the Grafana sidecar groups all of these dashboards in a dedicated **DOCA Platform Framework** folder.
 * `dpf-operator-grafana-debug-dashboards`: contains the controller-runtime and framework performance dashboards. The annotation `grafana_folder: "DOCA Platform Framework/debug"` nests them in a `debug` subfolder under **DOCA Platform Framework**.
 
 Both ConfigMaps are labeled with `grafana_dashboard: "1"`, which allows the Grafana sidecar to automatically discover and load them. No manual import is required, once Grafana is running with the sidecar enabled, the dashboards appear automatically.
@@ -61,6 +61,12 @@ or run the same helper the helmfile hook uses: `deploy/helmfiles/apply-dashboard
 Surfaces the health and performance of the Kubernetes control plane running inside a DPUCluster: API server request rate and latency, inflight requests, active watch connections, controller-manager workqueue depth and latency, scheduler pending pods and attempt outcomes, and etcd request latency and storage size. Select the target DPUCluster via the `cluster` variable at the top of the dashboard.
 
 [View Dashboard JSON](https://github.com/NVIDIA/doca-platform/blob/public-main/deploy/charts/dpf-operator/dashboards/doca-platform-framework-dpu-control-plane-performance.json)
+
+### DPUService Performance
+
+Presents CPU and memory working-set usage of DPUService workloads running on DPU clusters: cluster-level capacity overview, per-namespace CPU and memory working set, and top pods by CPU and memory. The data comes from the container, pod, and node metrics that the DPU cluster OpenTelemetry Collector streams to the management cluster, so it requires [metrics streaming](../deployment/operator-managed-components.md#opentelemetry-collector) to be enabled. Filter by DPU cluster, node, and namespace via the `cluster`, `node`, and `namespace` variables at the top of the dashboard.
+
+[View Dashboard JSON](https://github.com/NVIDIA/doca-platform/blob/public-main/deploy/charts/dpf-operator/dashboards/doca-platform-framework-dpuservice-performance.json)
 
 ### Framework Performance
 
