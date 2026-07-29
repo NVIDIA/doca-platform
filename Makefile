@@ -1197,7 +1197,7 @@ endif
 
 .PHONY: warm-cache
 warm-cache: ## Warm the cache for the tests.
-	$(MAKE) release-build test lint
+	$(MAKE) CACHE_ONLY=true release-build lint
 
 ##@ Build
 
@@ -1519,10 +1519,14 @@ SPACE := $(EMPTY) $(EMPTY)
 # platform_list: "amd64 arm64" -> "linux/amd64,linux/arm64" for buildx --platform.
 platform_list = $(subst $(SPACE),$(COMMA),$(patsubst %,linux/%,$(1)))
 # The small switch every image build uses: --push (release) vs --load (default).
-DOCKER_OUTPUT = $(if $(filter true,$(PUSH)),--push,--load)
-# build_platforms: all of an image's arches when pushing a manifest; just the
-# target arch when loading locally (buildx can only --load one platform).
-build_platforms = $(if $(filter true,$(PUSH)),$(call platform_list,$(1)),linux/$(ARCH))
+# CACHE_ONLY=true skips the export for callers that only want the build cache and
+# never use the image, such as warm-cache.
+DOCKER_OUTPUT = $(if $(filter true,$(PUSH)),--push,$(if $(filter true,$(CACHE_ONLY)),--output=type=cacheonly,--load))
+# build_platforms: all of an image's arches when pushing a manifest or only
+# caching, just the target arch when loading locally, since buildx can only
+# --load one platform. Warming one arch would leave the release build to
+# compile the other from scratch.
+build_platforms = $(if $(or $(filter true,$(PUSH)),$(filter true,$(CACHE_ONLY))),$(call platform_list,$(1)),linux/$(ARCH))
 
 # docker-build-and-push-<image> is docker-build-<image> with PUSH=true, which
 # switches that build to --push and records the published artifact. There is no
