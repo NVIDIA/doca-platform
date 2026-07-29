@@ -43,6 +43,8 @@ type VolumeAttachmentStatusDPU struct {
 	PCIDeviceAddress string `json:"pciDeviceAddress,omitempty"`
 	// The name of the device that was created by the storage vendor plugin
 	DeviceName string `json:"deviceName,omitempty"`
+	// The VUID of the emulated function. For a VF, this is the parent PF VUID.
+	FuncVUID string `json:"funcVUID,omitempty"`
 	// The attributes of the underlying block device
 	// +optional
 	BdevAttrs BdevAttrs `json:"bdevAttrs,omitempty"`

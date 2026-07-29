@@ -564,19 +564,20 @@ func getPciAddrByCtrlID(ctrlID string, emulationFunctions EmulationFunctionListR
 	return "", fmt.Errorf("no PCI address found for NVMe controller ID %s", ctrlID)
 }
 
-// getNamespaceByDeviceName retrieves the namespace ID (NSID) associated with a given block device name
-func getNamespaceByDeviceName(deviceName string, subsystems NvmeSubsystemListResponse) int {
+// getNamespaceByDeviceName retrieves the namespace ID (NSID) and UUID associated with a given block device name.
+// Returns an NSID of -1 when no namespace matches the device.
+func getNamespaceByDeviceName(deviceName string, subsystems NvmeSubsystemListResponse) (int, string) {
 	for _, subsystem := range subsystems {
 		for _, ns := range subsystem.Namespaces {
 			if ns.Bdev == deviceName {
-				klog.Infof("Namespace found for device %s: NSID=%d", deviceName, ns.NSID)
-				return ns.NSID
+				klog.Infof("Namespace found for device %s: NSID=%d, UUID=%s", deviceName, ns.NSID, ns.UUID)
+				return ns.NSID, ns.UUID
 			}
 		}
 	}
 
 	klog.Infof("No namespace found for device %s", deviceName)
-	return -1
+	return -1, ""
 }
 
 // checkNamespaceAttached checks if the namespace exists and if it is attached to the specified controller.
@@ -666,6 +667,41 @@ func isControllerAttachedToNamespace(ctrlID string, nsid int, subsystems NvmeSub
 		}
 	}
 	return false
+}
+
+// getVUIDByCtrlID retrieves the emulated function VUID for a controller ID.
+// For VFs this returns the parent PF VUID.
+func getVUIDByCtrlID(ctrlID string, emulationFunctions EmulationFunctionListResponse, hotplug bool) (string, error) {
+	pciBDF, err := getPciAddrByCtrlID(ctrlID, emulationFunctions, hotplug)
+	if err != nil {
+		return "", err
+	}
+	return getFunctionVUIDByPCIAddress(pciBDF, emulationFunctions)
+}
+
+// getFunctionVUIDByPCIAddress retrieves the function VUID for a PCI address.
+// PFs (including hotplugged PFs) return their own VUID. VFs return their parent PF VUID.
+func getFunctionVUIDByPCIAddress(pciAddress string, emulationFunctions EmulationFunctionListResponse) (string, error) {
+	for _, emFunc := range emulationFunctions {
+		if emFunc.EmulationType != NVMeProtocol {
+			continue
+		}
+		if emFunc.PCIBDF == pciAddress {
+			if emFunc.VUID == "" {
+				return "", fmt.Errorf("VUID is empty for NVMe PF at PCI address %s", pciAddress)
+			}
+			return emFunc.VUID, nil
+		}
+		for _, vf := range emFunc.VFs {
+			if vf.PCIBDF == pciAddress {
+				if emFunc.VUID == "" {
+					return "", fmt.Errorf("parent PF VUID is empty for NVMe VF at PCI address %s", pciAddress)
+				}
+				return emFunc.VUID, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("no NVMe function found for PCI address %s", pciAddress)
 }
 
 // getHotplugVUIDByPCIAddress retrieves the VUID of a hotplugged NVMe device by PCI address

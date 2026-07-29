@@ -100,14 +100,15 @@ func (mr *MockClientMockRecorder) DestroyFSDevice(deviceName, pciAddr any) *gomo
 }
 
 // ExposeBlockDevice mocks base method.
-func (m *MockClient) ExposeBlockDevice(dpuStatus v1alpha1.VolumeAttachmentStatusDPU, spec v1alpha1.VolumeAttachmentSpec, parameters map[string]string) (int, string, string, error) {
+func (m *MockClient) ExposeBlockDevice(dpuStatus v1alpha1.VolumeAttachmentStatusDPU, spec v1alpha1.VolumeAttachmentSpec, parameters map[string]string) (int, string, string, string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ExposeBlockDevice", dpuStatus, spec, parameters)
 	ret0, _ := ret[0].(int)
 	ret1, _ := ret[1].(string)
 	ret2, _ := ret[2].(string)
-	ret3, _ := ret[3].(error)
-	return ret0, ret1, ret2, ret3
+	ret3, _ := ret[3].(string)
+	ret4, _ := ret[4].(error)
+	return ret0, ret1, ret2, ret3, ret4
 }
 
 // ExposeBlockDevice indicates an expected call of ExposeBlockDevice.
@@ -117,17 +118,48 @@ func (mr *MockClientMockRecorder) ExposeBlockDevice(dpuStatus, spec, parameters 
 }
 
 // ExposeFSDevice mocks base method.
-func (m *MockClient) ExposeFSDevice(deviceName string, dpuStatus v1alpha1.VolumeAttachmentStatusDPU, parameters map[string]string) (string, string, error) {
+func (m *MockClient) ExposeFSDevice(deviceName string, dpuStatus v1alpha1.VolumeAttachmentStatusDPU, parameters map[string]string) (string, string, string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ExposeFSDevice", deviceName, dpuStatus, parameters)
 	ret0, _ := ret[0].(string)
 	ret1, _ := ret[1].(string)
-	ret2, _ := ret[2].(error)
-	return ret0, ret1, ret2
+	ret2, _ := ret[2].(string)
+	ret3, _ := ret[3].(error)
+	return ret0, ret1, ret2, ret3
 }
 
 // ExposeFSDevice indicates an expected call of ExposeFSDevice.
 func (mr *MockClientMockRecorder) ExposeFSDevice(deviceName, dpuStatus, parameters any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExposeFSDevice", reflect.TypeOf((*MockClient)(nil).ExposeFSDevice), deviceName, dpuStatus, parameters)
+}
+
+// GetBlockFuncVUID mocks base method.
+func (m *MockClient) GetBlockFuncVUID(pciAddr string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetBlockFuncVUID", pciAddr)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetBlockFuncVUID indicates an expected call of GetBlockFuncVUID.
+func (mr *MockClientMockRecorder) GetBlockFuncVUID(pciAddr any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetBlockFuncVUID", reflect.TypeOf((*MockClient)(nil).GetBlockFuncVUID), pciAddr)
+}
+
+// GetFSFuncVUID mocks base method.
+func (m *MockClient) GetFSFuncVUID(pciAddr string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetFSFuncVUID", pciAddr)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetFSFuncVUID indicates an expected call of GetFSFuncVUID.
+func (mr *MockClientMockRecorder) GetFSFuncVUID(pciAddr any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetFSFuncVUID", reflect.TypeOf((*MockClient)(nil).GetFSFuncVUID), pciAddr)
 }
