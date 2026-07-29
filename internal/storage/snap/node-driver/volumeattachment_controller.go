@@ -190,6 +190,13 @@ func (r *VolumeAttachmentReconciler) handleAttachment(ctx context.Context, volum
 			}
 			return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 1}, nil
 		}
+
+		if err := r.backfillFuncVUID(ctx, client, volumeAttachment, volume); err != nil {
+			klog.ErrorS(err, "Failed to backfill FuncVUID",
+				"Name", volumeAttachment.Name,
+				"PCIDeviceAddress", volumeAttachment.Status.DPU.PCIDeviceAddress)
+		}
+
 		return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 10}, nil
 	}
 
@@ -229,6 +236,7 @@ func (r *VolumeAttachmentReconciler) handleAttachment(ctx context.Context, volum
 	var pciAddr string
 	var nsID int
 	var uuid string
+	var funcVUID string
 	var fsTag string
 
 	// Update status with error message even on failure to provide visibility
@@ -236,12 +244,15 @@ func (r *VolumeAttachmentReconciler) handleAttachment(ctx context.Context, volum
 	// to be created again and what doesn't.
 	switch *volumeMode {
 	case corev1.PersistentVolumeBlock:
-		nsID, pciAddr, uuid, err = r.exposeBlockDeviceOnSNAP(snapProvResp.GetProviderName(), volumeAttachment, storageParameters)
-		if nsID > 0 && uuid != "" {
-			volumeAttachment.Status.DPU.BdevAttrs = snapstoragev1.BdevAttrs{NVMeNsID: int64(nsID), NVMeUUID: uuid}
+		nsID, pciAddr, uuid, funcVUID, err = r.exposeBlockDeviceOnSNAP(snapProvResp.GetProviderName(), volumeAttachment, storageParameters)
+		if nsID > 0 {
+			volumeAttachment.Status.DPU.BdevAttrs.NVMeNsID = int64(nsID)
+		}
+		if uuid != "" {
+			volumeAttachment.Status.DPU.BdevAttrs.NVMeUUID = uuid
 		}
 	case corev1.PersistentVolumeFilesystem:
-		fsTag, pciAddr, err = r.exposeFSDeviceOnSNAP(snapProvResp.GetProviderName(), volumeAttachment, storageParameters)
+		fsTag, pciAddr, funcVUID, err = r.exposeFSDeviceOnSNAP(snapProvResp.GetProviderName(), volumeAttachment, storageParameters)
 		if fsTag != "" {
 			volumeAttachment.Status.DPU.FSdevAttrs = snapstoragev1.FSdevAttrs{FilesystemTag: fsTag}
 		}
@@ -249,10 +260,14 @@ func (r *VolumeAttachmentReconciler) handleAttachment(ctx context.Context, volum
 		return ctrl.Result{}, fmt.Errorf("unsupported volume mode: %v", *volumeMode)
 	}
 
+	if funcVUID != "" {
+		volumeAttachment.Status.DPU.FuncVUID = funcVUID
+	}
+
 	if pciAddr != "" {
 		volumeAttachment.Status.DPU.PCIDeviceAddress = pciAddr
-	} else {
-		return ctrl.Result{}, fmt.Errorf("failed to get PCI device address")
+	} else if err == nil {
+		err = fmt.Errorf("failed to get PCI device address")
 	}
 
 	if err != nil {
@@ -273,6 +288,7 @@ func (r *VolumeAttachmentReconciler) handleAttachment(ctx context.Context, volum
 		klog.InfoS("VolumeAttachment DPU attributes updated",
 			"DeviceName", deviceName,
 			"PCIDeviceAddress", pciAddr,
+			"FuncVUID", funcVUID,
 			"BdevAttrs.NsID", nsID,
 			"BdevAttrs.UUID", uuid,
 		)
@@ -280,6 +296,7 @@ func (r *VolumeAttachmentReconciler) handleAttachment(ctx context.Context, volum
 		klog.InfoS("VolumeAttachment DPU attributes updated",
 			"DeviceName", deviceName,
 			"PCIDeviceAddress", pciAddr,
+			"FuncVUID", funcVUID,
 			"FSdevAttrs", fsTag,
 		)
 	}
@@ -677,10 +694,10 @@ func (r *VolumeAttachmentReconciler) callDeleteDeviceAPI(
 	return nil
 }
 
-func (r *VolumeAttachmentReconciler) exposeBlockDeviceOnSNAP(snapProvider string, volumeAttachment *snapstoragev1.VolumeAttachment, storageParameters map[string]string) (int, string, string, error) {
+func (r *VolumeAttachmentReconciler) exposeBlockDeviceOnSNAP(snapProvider string, volumeAttachment *snapstoragev1.VolumeAttachment, storageParameters map[string]string) (int, string, string, string, error) {
 	client, err := r.createSNAPClient(snapProvider)
 	if err != nil {
-		return 0, "", "", err
+		return 0, "", "", "", err
 	}
 	defer func() {
 		if err := client.Close(); err != nil {
@@ -692,10 +709,10 @@ func (r *VolumeAttachmentReconciler) exposeBlockDeviceOnSNAP(snapProvider string
 }
 
 func (r *VolumeAttachmentReconciler) exposeFSDeviceOnSNAP(snapProvider string,
-	volumeAttachment *snapstoragev1.VolumeAttachment, storageParameters map[string]string) (string, string, error) {
+	volumeAttachment *snapstoragev1.VolumeAttachment, storageParameters map[string]string) (string, string, string, error) {
 	client, err := r.createSNAPClient(snapProvider)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	defer func() {
 		if err := client.Close(); err != nil {
@@ -704,6 +721,74 @@ func (r *VolumeAttachmentReconciler) exposeFSDeviceOnSNAP(snapProvider string,
 	}()
 
 	return client.ExposeFSDevice(volumeAttachment.Status.DPU.DeviceName, volumeAttachment.Status.DPU, storageParameters)
+}
+
+// backfillFuncVUID populates status.dpu.funcVUID for attachments that were exposed
+// before the field existed. It is a no-op once the field is set, and it is skipped
+// when the PCI address is unknown because the VUID is looked up through it.
+func (r *VolumeAttachmentReconciler) backfillFuncVUID(ctx context.Context, pluginClient pb.StoragePluginServiceClient,
+	volumeAttachment *snapstoragev1.VolumeAttachment, volume *snapstoragev1.Volume) error {
+	if volumeAttachment.Status.DPU.FuncVUID != "" {
+		return nil
+	}
+
+	pciAddr := volumeAttachment.Status.DPU.PCIDeviceAddress
+	if pciAddr == "" {
+		klog.InfoS("Skipping FuncVUID backfill, PCI device address is unknown", "Name", volumeAttachment.Name)
+		return nil
+	}
+
+	volumeMode := volume.Spec.Request.VolumeMode
+	if volumeMode == nil {
+		return fmt.Errorf("volume mode is nil")
+	}
+
+	snapProvResp, err := pluginClient.GetSNAPProvider(ctx, &pb.GetSNAPProviderRequest{})
+	if err != nil {
+		r.logGRPCError("GetSNAPProvider", err)
+		return fmt.Errorf("failed to get SNAP provider: %w", err)
+	}
+	if snapProvResp.GetProviderName() == "" {
+		return fmt.Errorf("SNAP provider name is empty")
+	}
+
+	funcVUID, err := r.getFuncVUIDFromSNAP(snapProvResp.GetProviderName(), pciAddr, *volumeMode)
+	if err != nil {
+		return err
+	}
+
+	volumeAttachment.Status.DPU.FuncVUID = funcVUID
+	if err := r.updateVolumeAttachment(ctx, volumeAttachment); err != nil {
+		return fmt.Errorf("failed to update status: %w", err)
+	}
+
+	klog.InfoS("Backfilled FuncVUID on attached VolumeAttachment",
+		"Name", volumeAttachment.Name,
+		"PCIDeviceAddress", pciAddr,
+		"FuncVUID", funcVUID)
+	return nil
+}
+
+// getFuncVUIDFromSNAP queries SNAP for the emulated function VUID exposed at pciAddr
+func (r *VolumeAttachmentReconciler) getFuncVUIDFromSNAP(snapProvider, pciAddr string, volumeMode corev1.PersistentVolumeMode) (string, error) {
+	client, err := r.createSNAPClient(snapProvider)
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		if err := client.Close(); err != nil {
+			klog.ErrorS(err, "Failed to close SNAP client")
+		}
+	}()
+
+	switch volumeMode {
+	case corev1.PersistentVolumeBlock:
+		return client.GetBlockFuncVUID(pciAddr)
+	case corev1.PersistentVolumeFilesystem:
+		return client.GetFSFuncVUID(pciAddr)
+	default:
+		return "", fmt.Errorf("unsupported volume mode: %v", volumeMode)
+	}
 }
 
 func (r *VolumeAttachmentReconciler) detachFromSNAP(snapProvider string, volumeAttachment *snapstoragev1.VolumeAttachment, volumeMode *corev1.PersistentVolumeMode) error {

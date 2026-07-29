@@ -68,6 +68,9 @@ type MockClientForClientFunctions struct {
 	shouldFailDeviceHotunplug     bool
 	deviceGetCallCount            int
 	exposeDevicePattern           bool
+	// Devices created through virtio_fs_device_create, reported by
+	// virtio_fs_get_devices so create/start flows behave like SNAP.
+	createdDevices []FSDevice
 }
 
 func NewMockClientForClientFunctions() *MockClientForClientFunctions {
@@ -254,7 +257,7 @@ func (m *MockClientForClientFunctions) Call(method string, params map[string]int
 		if m.exposeDevicePattern { // For ExposeFSDevice
 			switch m.deviceGetCallCount {
 			case 1:
-				return []FSDevice{
+				return append([]FSDevice{
 					{
 						Name:             "dev_my-fast-volume2",
 						TransportName:    "DOCA",
@@ -273,9 +276,9 @@ func (m *MockClientForClientFunctions) Call(method string, params map[string]int
 						QueueSize:        256,
 						NumRequestQueues: 8,
 					},
-				}, nil
+				}, m.createdDevices...), nil
 			default:
-				return []FSDevice{
+				return append([]FSDevice{
 					{
 						Name:             "dev_my-fast-volume2",
 						TransportName:    "DOCA",
@@ -303,7 +306,7 @@ func (m *MockClientForClientFunctions) Call(method string, params map[string]int
 						QueueSize:        256,
 						NumRequestQueues: 8,
 					},
-				}, nil
+				}, m.createdDevices...), nil
 			}
 		} else { // For DestroyFSDevice
 			switch m.deviceGetCallCount {
@@ -339,6 +342,18 @@ func (m *MockClientForClientFunctions) Call(method string, params map[string]int
 		if m.shouldFailDeviceCreate {
 			return nil, fmt.Errorf("failed to create device")
 		}
+		devName, _ := params["dev_name"].(string)
+		fsdev, _ := params["fsdev"].(string)
+		tag, _ := params["tag"].(string)
+		m.createdDevices = append(m.createdDevices, FSDevice{
+			Name:             devName,
+			TransportName:    "DOCA",
+			State:            "stopped",
+			Fsdev:            fsdev,
+			Tag:              tag,
+			QueueSize:        256,
+			NumRequestQueues: 8,
+		})
 		return map[string]interface{}{"status": "success"}, nil
 
 	case "virtio_fs_doca_device_modify":
@@ -424,6 +439,7 @@ func TestExposeBlockDevice(t *testing.T) {
 		expectedNSID                 int
 		expectedPCIBDF               string
 		expectedUUID                 string
+		expectedFuncVUID             string
 	}{
 		{
 			name:         "Create new namespace and controller successfully",
@@ -435,9 +451,10 @@ func TestExposeBlockDevice(t *testing.T) {
 					FunctionType: "vf",
 				},
 			},
-			expectError:    false,
-			expectedNSID:   2,
-			expectedPCIBDF: "26:0c.1",
+			expectError:      false,
+			expectedNSID:     2,
+			expectedPCIBDF:   "26:0c.1",
+			expectedFuncVUID: "MT2328XZ17DFNVMES0D0F2",
 		},
 		{
 			name:         "Use existing namespace",
@@ -449,9 +466,11 @@ func TestExposeBlockDevice(t *testing.T) {
 					FunctionType: "vf",
 				},
 			},
-			expectError:    false,
-			expectedNSID:   1,
-			expectedPCIBDF: "26:0c.0",
+			expectError:      false,
+			expectedNSID:     1,
+			expectedPCIBDF:   "26:0c.0",
+			expectedUUID:     "263826ad-19a3-4feb-bc25-4bc81ee7748e",
+			expectedFuncVUID: "MT2328XZ17DFNVMES0D0F2",
 		},
 		{
 			name: "Use DPU status values",
@@ -469,10 +488,11 @@ func TestExposeBlockDevice(t *testing.T) {
 					FunctionType: "vf",
 				},
 			},
-			expectError:    false,
-			expectedNSID:   5,
-			expectedPCIBDF: "26:0c.2",
-			expectedUUID:   "550e8400-e29b-41d4-a716-446655440000",
+			expectError:      false,
+			expectedNSID:     5,
+			expectedPCIBDF:   "26:0c.2",
+			expectedUUID:     "550e8400-e29b-41d4-a716-446655440000",
+			expectedFuncVUID: "MT2328XZ17DFNVMES0D0F2",
 		},
 		{
 			name:                    "Emulation function list failure",
@@ -514,9 +534,62 @@ func TestExposeBlockDevice(t *testing.T) {
 					HotplugFunction: true,
 				},
 			},
-			expectError:    false,
-			expectedNSID:   2,
-			expectedPCIBDF: "26:00.3",
+			expectError:      false,
+			expectedNSID:     2,
+			expectedPCIBDF:   "26:00.3",
+			expectedFuncVUID: "MT2323XZ09G2NVMES1D0F0",
+		},
+		{
+			name: "Hotplug reuses persisted FuncVUID without creating function",
+			dpuStatus: snapstoragev1.VolumeAttachmentStatusDPU{
+				DeviceName: "test-device",
+				FuncVUID:   "MT2323XZ09G2NVMES1D0F0",
+			},
+			spec: snapstoragev1.VolumeAttachmentSpec{
+				Parameters: map[string]string{},
+				FunctionTypeConfig: snapstoragev1.FunctionTypeConfig{
+					FunctionType:    "pf",
+					HotplugFunction: true,
+				},
+			},
+			shouldFailNvmeFunctionCreate: true, // proves create is not called
+			expectError:                  false,
+			expectedNSID:                 2,
+			expectedPCIBDF:               "26:00.3",
+			expectedFuncVUID:             "MT2323XZ09G2NVMES1D0F0",
+		},
+		{
+			name: "Hotplug discovers existing controller VUID without creating function",
+			dpuStatus: snapstoragev1.VolumeAttachmentStatusDPU{
+				DeviceName: "hotplug-device",
+			},
+			spec: snapstoragev1.VolumeAttachmentSpec{
+				Parameters: map[string]string{},
+				FunctionTypeConfig: snapstoragev1.FunctionTypeConfig{
+					FunctionType:    "pf",
+					HotplugFunction: true,
+				},
+			},
+			shouldFailNvmeFunctionCreate: true, // proves create is not called
+			expectError:                  false,
+			expectedNSID:                 3,
+			expectedPCIBDF:               "26:00.3",
+			expectedUUID:                 "263826ad-19a3-4feb-bc25-4bc81ee7750e",
+			expectedFuncVUID:             "MT2323XZ09G2NVMES1D0F0",
+		},
+		{
+			name: "Hotplug rejects mismatched persisted FuncVUID and existing controller",
+			dpuStatus: snapstoragev1.VolumeAttachmentStatusDPU{
+				DeviceName: "hotplug-device",
+				FuncVUID:   "WRONG-VUID",
+			},
+			spec: snapstoragev1.VolumeAttachmentSpec{
+				FunctionTypeConfig: snapstoragev1.FunctionTypeConfig{
+					FunctionType:    "pf",
+					HotplugFunction: true,
+				},
+			},
+			expectError: true,
 		},
 		{
 			name:      "NVMe function create failure with hotplug",
@@ -545,7 +618,7 @@ func TestExposeBlockDevice(t *testing.T) {
 
 			client := NewClient(rpcClient)
 
-			nsid, pciBDF, uuid, err := client.ExposeBlockDevice(tt.dpuStatus, tt.spec, tt.parameters)
+			nsid, pciBDF, uuid, funcVUID, err := client.ExposeBlockDevice(tt.dpuStatus, tt.spec, tt.parameters)
 
 			if tt.expectError {
 				if err == nil {
@@ -568,6 +641,9 @@ func TestExposeBlockDevice(t *testing.T) {
 
 			if tt.expectedUUID != "" && uuid != tt.expectedUUID {
 				t.Errorf("Expected UUID %s, got %s", tt.expectedUUID, uuid)
+			}
+			if funcVUID != tt.expectedFuncVUID {
+				t.Errorf("Expected function UUID %s, got %s", tt.expectedFuncVUID, funcVUID)
 			}
 		})
 	}
@@ -592,6 +668,7 @@ func TestExposeFSDevice(t *testing.T) {
 		expectError                   bool
 		expectedTag                   string
 		expectedPCIAddr               string
+		expectedFuncVUID              string
 	}{
 		{
 			name:         "Use existing PCI address",
@@ -600,19 +677,45 @@ func TestExposeFSDevice(t *testing.T) {
 			dpuStatus: snapstoragev1.VolumeAttachmentStatusDPU{
 				PCIDeviceAddress: "26:0c.1",
 			},
-			parameters:      map[string]string{},
-			expectError:     false,
-			expectedTag:     "test-fs-devicetag",
-			expectedPCIAddr: "26:0c.1",
+			parameters:       map[string]string{},
+			expectError:      false,
+			expectedTag:      "test-fs-devicetag",
+			expectedPCIAddr:  "26:0c.1",
+			expectedFuncVUID: "test-vuid-2",
 		},
 		{
-			name:         "Device already exists (skip creation)",
+			name:         "Existing device reuses persisted FuncVUID without creating function",
+			snapProvider: "test-provider",
+			deviceName:   "test-fs-device",
+			dpuStatus: snapstoragev1.VolumeAttachmentStatusDPU{
+				FuncVUID: "test-vuid-2",
+			},
+			parameters:       map[string]string{},
+			expectError:      false,
+			expectedTag:      "test-fs-devicetag",
+			expectedPCIAddr:  "26:0c.1",
+			expectedFuncVUID: "test-vuid-2",
+		},
+		{
+			name:         "Persisted FuncVUID reused for new device without creating function",
+			snapProvider: "test-provider",
+			deviceName:   "new-test-fs-device",
+			dpuStatus: snapstoragev1.VolumeAttachmentStatusDPU{
+				FuncVUID: "test-vuid-1",
+			},
+			parameters:       map[string]string{},
+			expectError:      false,
+			expectedTag:      "new-test-fs-devicetag",
+			expectedPCIAddr:  "26:0c.0",
+			expectedFuncVUID: "test-vuid-1",
+		},
+		{
+			name:         "Existing device without identity refuses to create function",
 			snapProvider: "test-provider",
 			deviceName:   "test-fs-device",
 			dpuStatus:    snapstoragev1.VolumeAttachmentStatusDPU{},
 			parameters:   map[string]string{},
-			expectError:  false,
-			expectedTag:  "test-fs-devicetag",
+			expectError:  true,
 		},
 		{
 			name:                   "Transport get failure",
@@ -698,7 +801,7 @@ func TestExposeFSDevice(t *testing.T) {
 
 			client := NewClient(rpcClient)
 
-			tag, pciAddr, err := client.ExposeFSDevice(tt.deviceName, tt.dpuStatus, tt.parameters)
+			tag, pciAddr, funcVUID, err := client.ExposeFSDevice(tt.deviceName, tt.dpuStatus, tt.parameters)
 
 			if tt.expectError {
 				if err == nil {
@@ -717,6 +820,9 @@ func TestExposeFSDevice(t *testing.T) {
 
 			if pciAddr != tt.expectedPCIAddr {
 				t.Errorf("Expected PCI address %s, got %s", tt.expectedPCIAddr, pciAddr)
+			}
+			if funcVUID != tt.expectedFuncVUID {
+				t.Errorf("Expected function UUID %s, got %s", tt.expectedFuncVUID, funcVUID)
 			}
 		})
 	}

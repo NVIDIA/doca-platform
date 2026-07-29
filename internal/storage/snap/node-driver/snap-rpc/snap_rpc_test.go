@@ -160,6 +160,19 @@ var mockNvmeSubsystemList = NvmeSubsystemListResponse{
 					},
 				},
 			},
+			{
+				NSID:                  3,
+				Bdev:                  "hotplug-device",
+				Ready:                 "Yes",
+				NQN:                   "nqn.2022-10.io.nvda.nvme:0",
+				UUID:                  "263826ad-19a3-4feb-bc25-4bc81ee7750e",
+				MaxInflightsPerWeight: 65535,
+				Controllers: []interface{}{
+					map[string]interface{}{
+						"ctrl_id": "NVMeCtrl_26:00.3",
+					},
+				},
+			},
 		},
 	},
 }
@@ -569,25 +582,32 @@ func TestGetNamespaceByDeviceName(t *testing.T) {
 		name         string
 		deviceName   string
 		expectedNSID int
+		expectedUUID string
 	}{
 		{
 			name:         "Valid Device Name - Should return NSID 1",
 			deviceName:   "null1",
 			expectedNSID: 1,
+			expectedUUID: "263826ad-19a3-4feb-bc25-4bc81ee7748e",
 		},
 		{
 			name:         "Invalid Device Name - Should return -1",
 			deviceName:   "non-existent-device",
 			expectedNSID: -1,
+			expectedUUID: "",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			nsid := getNamespaceByDeviceName(tt.deviceName, mockNvmeSubsystemList)
+			nsid, nsUUID := getNamespaceByDeviceName(tt.deviceName, mockNvmeSubsystemList)
 
 			if nsid != tt.expectedNSID {
 				t.Errorf("Test failed: Expected NSID %d, but got %d", tt.expectedNSID, nsid)
+			}
+
+			if nsUUID != tt.expectedUUID {
+				t.Errorf("Test failed: Expected UUID %q, but got %q", tt.expectedUUID, nsUUID)
 			}
 		})
 	}
@@ -987,6 +1007,54 @@ func TestGetHotplugVUIDByPCIAddress(t *testing.T) {
 	vuid = getHotplugVUIDByPCIAddress("99:99.9", mockEmulationFunctionList)
 	if vuid != "" {
 		t.Errorf("expected empty string for unknown PCI address, got %s", vuid)
+	}
+}
+
+func TestGetFunctionVUIDByPCIAddress(t *testing.T) {
+	tests := []struct {
+		name         string
+		pciAddress   string
+		expectedVUID string
+		expectError  bool
+	}{
+		{
+			name:         "static PF returns its own VUID",
+			pciAddress:   "26:00.2",
+			expectedVUID: "MT2328XZ17DFNVMES0D0F2",
+		},
+		{
+			name:         "hotplugged PF returns its own VUID",
+			pciAddress:   "26:00.3",
+			expectedVUID: "MT2323XZ09G2NVMES1D0F0",
+		},
+		{
+			name:         "VF returns its parent PF VUID",
+			pciAddress:   "26:0c.1",
+			expectedVUID: "MT2328XZ17DFNVMES0D0F2",
+		},
+		{
+			name:        "unknown PCI address returns error",
+			pciAddress:  "99:99.9",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			vuid, err := getFunctionVUIDByPCIAddress(tt.pciAddress, mockEmulationFunctionList)
+			if tt.expectError {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if vuid != tt.expectedVUID {
+				t.Errorf("expected %s, got %s", tt.expectedVUID, vuid)
+			}
+		})
 	}
 }
 
