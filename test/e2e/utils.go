@@ -167,7 +167,9 @@ var (
 	// netutilsImage is the image name of the netutils image produced by the release associated with the e2e tests. This
 	// image is used for testing traffic. The value does not contain the tag.
 	netutilsImage = ""
-	// bmcPassword is the BMC root password used by the in-cluster reboot script Job (ZeroTrust only).
+	// bmcUsername is the BMC username used by the in-cluster reboot script Job (ZeroTrust only).
+	bmcUsername = ""
+	// bmcPassword is the BMC password used by the in-cluster reboot script Job (ZeroTrust only).
 	bmcPassword = ""
 	// bmcInventoryPath is the filesystem path to the lab DPU-serial -> BMC IP inventory YAML (ZeroTrust only).
 	bmcInventoryPath = ""
