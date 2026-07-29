@@ -163,7 +163,7 @@ dpfctl sosreport cleanup --case-id CASE-12345
 
 ## Global Flags
 
-These flags apply to all `sosreport` subcommands:
+These flags are persistent and apply to all `sosreport` subcommands:
 
 | Flag              | Default                           | Description                                                          |
 |-------------------|-----------------------------------|----------------------------------------------------------------------|
@@ -172,7 +172,22 @@ These flags apply to all `sosreport` subcommands:
 | `--nodes`         |                                   | Comma-separated node names (defaults to all)                         |
 | `--node-selector` |                                   | Label selector to filter nodes                                       |
 | `--namespace`     | `default`                         | Namespace for Jobs and Secrets                                       |
+| `--case-id`       |                                   | Case ID for the SOS report (default: `dpf-<timestamp>`)              |
 | `--image`         | `ghcr.io/nvidia/sosreport:latest` | SOS report container image                                           |
-| `--nfs-uid`       | `0`                               | UID for NFS directory creation (use non-zero when NFS has root_squash) |
-| `--archive`       | `false`                           | Create a `.tar.gz` archive of all reports                            |
-| `--archive-only`  | `false`                           | Remove individual report files after archiving (implies `--archive`) |
+| `-v`, `--verbose` | `false`                           | Show debug output including port-forward details                     |
+
+## Collection Flags
+
+These flags apply only to the subcommands that create or download reports
+(`start`, `collect`, and where noted `download`):
+
+| Flag              | Default                           | Subcommands            | Description                                                          |
+|-------------------|-----------------------------------|------------------------|----------------------------------------------------------------------|
+| `--nfs-server`    |                                   | `start`, `collect`     | NFS server address (enables NFS output mode)                         |
+| `--nfs-path`      |                                   | `start`, `collect`     | NFS export path (must exist on the NFS server)                       |
+| `--nfs-no-subdir` | `false`                           | `start`, `collect`     | Write directly to `--nfs-path` without creating a subdirectory       |
+| `--nfs-uid`       | `0`                               | `start`, `collect`     | UID for NFS directory creation (use non-zero when NFS has root_squash) |
+| `--timeout`       | `30m`                             | `start`, `collect`     | Job active deadline timeout                                          |
+| `--archive`       | `false`                           | `start`, `collect`, `download` | Create a `.tar.gz` archive of all reports                    |
+| `--archive-only`  | `false`                           | `start`, `collect`, `download` | Remove individual report files after archiving (implies `--archive`) |
+| `--output-dir`    | `sosreport-<timestamp>`           | `collect`, `download`  | Local directory for downloaded reports                              |
