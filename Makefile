@@ -572,8 +572,9 @@ test-helper-images: # Build and push the e2e test-helper images and charts (dumm
 
 .PHONY: test-release-e2e-slow
 test-release-e2e-slow: ## Build images required for the slow DPF e2e tests.
-	$(MAKE) release-manifest-init RELEASE_MANIFEST_ENABLED=true
-	$(MAKE) RELEASE_MANIFEST_ENABLED=true release test-helper-images
+	$(MAKE) release
+	# release already records scope=release artifacts; also record test helpers.
+	$(MAKE) RELEASE_MANIFEST_ENABLED=true test-helper-images
 
 TEST_CLUSTER_NAME := dpf-test
 ADD_CONTROL_PLANE_TAINTS ?= true
@@ -652,7 +653,7 @@ test-deploy-helmfile: helmfile helm helm-diff helm-git yq binary-dpfdev ## Deplo
 
 ARTIFACTS_DIR ?= $(CURDIR)/artifacts
 RELEASE_MANIFEST ?= $(ARTIFACTS_DIR)/release-manifest.yaml
-# Set to true by test-release-e2e-slow to record each pushed image/chart in RELEASE_MANIFEST.
+# Set to true by release (and test-helper push targets) to record each pushed image/chart in RELEASE_MANIFEST.
 RELEASE_MANIFEST_ENABLED ?= false
 
 $(ARTIFACTS_DIR):
@@ -1112,7 +1113,12 @@ export RELEASE_PUSH_HELM_CHARTS_TO_REGISTRY ?= false
 # a single buildx --push, so the images are published by the build that produces
 # them. There is no separate image push step.
 release: export PUSH := true
-release: release-build release-dpfctl-ngc ## Build and push helm and container images for release.
+release: export RELEASE_MANIFEST_ENABLED := true
+release: ## Build and push helm and container images for release.
+	$(MAKE) release-manifest-init
+	
+	$(MAKE) release-build
+	$(MAKE) release-dpfctl-ngc
 
 	# Push the helm charts.
 	$(MAKE) helm-push-all
