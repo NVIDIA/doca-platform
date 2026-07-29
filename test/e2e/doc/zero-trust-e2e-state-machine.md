@@ -64,12 +64,13 @@ The Zero Trust e2e suite uses a single reboot driver, set by the
 
 - **In-cluster script reboot** — the suite applies the ConfigMap
   fixture as-is to `dpf-operator-system`, creates a sibling Secret
-  `dpunode-reboot-bmc-credentials` populated from `$E2E_ZT_BMC_PASSWORD`,
-   and patches each DPUNode to `spec.nodeRebootMethod.script.name=<configmap>`
+  `dpunode-reboot-bmc-credentials` populated from `$E2E_ZT_BMC_USERNAME`
+  / `$E2E_ZT_BMC_PASSWORD`, and patches each DPUNode to
+  `spec.nodeRebootMethod.script.name=<configmap>`
   plus the `host-bmc-ip` label looked up from the static lab inventory.
   When a DPU enters `DPURebooting`, the DPUNode controller spawns
-  `{dpunode}-script-job` from the pod-template, which reads the BMC
-  password from the Secret and power-cycles the host via Redfish
+  `{dpunode}-script-job` from the pod-template, which reads BMC
+  credentials from the Secret and power-cycles the host via Redfish
   against that BMC. The suite waits for the DPU's `RebootStatus` to
   reach `Succeeded` and the controller's normal flow drives the DPU
   back to `DPUReady`.
@@ -91,8 +92,8 @@ One reboot pod-template fixture ships in
 
 - `dpunode-reboot-redfish.yaml` — used by the ZT physical e2e job.
   Drives reboots through the host BMC over Redfish. Only one label per
-  DPUNode (`host-bmc-ip`) and one CI variable (`$E2E_ZT_BMC_PASSWORD`,
-  paired with hardcoded `root` user) are needed; vendor differences are
+  DPUNode (`host-bmc-ip`) and two CI variables (`$E2E_ZT_BMC_USERNAME`,
+  `$E2E_ZT_BMC_PASSWORD`) are needed; vendor differences are
   side-stepped by discovering the System path at runtime from
   `/redfish/v1/Systems` (`Members[0]."@odata.id"`). Honors
   `DPUNODE_REBOOT_METHOD` by mapping `PowerCycle` to a hard cycle

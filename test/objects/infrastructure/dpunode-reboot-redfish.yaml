@@ -1,9 +1,9 @@
 # Summary:
 # This ConfigMap enables in-cluster DPU node reboots for Zero-Trust E2E tests using Redfish BMC commands.
-# - Applies to DPUNodes labeled with their host's BMC IP. The BMC password is
+# - Applies to DPUNodes labeled with their host's BMC IP. BMC credentials are
 #   sourced at pod runtime from the `dpunode-reboot-bmc-credentials` Secret
-#   (created by the e2e suite from $E2E_ZT_BMC_PASSWORD); credentials never live
-#   in this ConfigMap.
+#   (created by the e2e suite from $E2E_ZT_BMC_USERNAME / $E2E_ZT_BMC_PASSWORD);
+#   credentials never live in this ConfigMap.
 # - Container runs on control-plane nodes; only network reachability to BMC needed.
 # - Supports multiple reboot methods based on $DPUNODE_REBOOT_METHOD:
 #   - NoAction: exit 0;
@@ -33,7 +33,10 @@ data:
           image: curlimages/curl:8.10.1
           env:
             - name: BMC_USER
-              value: "root"
+              valueFrom:
+                secretKeyRef:
+                  name: dpunode-reboot-bmc-credentials
+                  key: BMC_USERNAME
             - name: BMC_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -65,6 +68,7 @@ data:
               BMC_IP=$(grep -E '^host-bmc-ip=' /etc/dpf-pod-info/labels \
                        | head -n1 | cut -d= -f2- | tr -d '"')
               : "${BMC_IP:?label host-bmc-ip missing on DPUNode}"
+              : "${BMC_USER:?BMC_USER not set; CI must export E2E_ZT_BMC_USERNAME}"
               : "${BMC_PASSWORD:?BMC_PASSWORD not set; CI must export E2E_ZT_BMC_PASSWORD}"
 
               BASE="https://${BMC_IP}/redfish/v1"
