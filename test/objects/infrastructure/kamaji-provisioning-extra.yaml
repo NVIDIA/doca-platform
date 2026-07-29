@@ -12,8 +12,30 @@ spec:
         labels:
           tenant.clastix.io: dpu-cluster-2
       extraArgs:
+        apiServer:
+          - "--audit-log-path=/var/log/kubernetes/audit.log"
+          - "--audit-policy-file=/etc/kubernetes/audit-policy.yaml"
+          - "--audit-log-maxage=30"
+          - "--audit-log-maxbackup=10"
+          - "--audit-log-maxsize=100"
         controllerManager: []
         scheduler: []
+      additionalVolumes:
+        - name: audit-policy
+          configMap:
+            name: dpu-cluster-2-audit-policy
+        - name: audit-log
+          hostPath:
+            path: /var/log/kubernetes/kamaji/dpu-cluster-2
+            type: DirectoryOrCreate
+      additionalVolumeMounts:
+        apiServer:
+          - name: audit-policy
+            mountPath: /etc/kubernetes/audit-policy.yaml
+            subPath: audit-policy.yaml
+            readOnly: true
+          - name: audit-log
+            mountPath: /var/log/kubernetes
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:

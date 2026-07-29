@@ -570,6 +570,10 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 					}
 					ValidateDPUClusterLogFlow(ctx, input)
 				})
+
+				It("should collect and forward Kamaji audit logs to Loki", func() {
+					ValidateKamajiAuditLogFlow(ctx, input)
+				})
 			})
 
 			Context("Metrics Flow", func() {
