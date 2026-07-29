@@ -151,6 +151,7 @@ func getEnvVariables() {
 	// ZeroTrust-only env vars; required-ness enforced in validateFlags() once
 	// the ginkgo label filter is known. Reading them here keeps all env-var
 	// loading in one place.
+	bmcUsername = os.Getenv("E2E_ZT_BMC_USERNAME")
 	bmcPassword = os.Getenv("E2E_ZT_BMC_PASSWORD")
 	bmcInventoryPath = os.Getenv("E2E_ZT_BMC_INVENTORY_PATH")
 
@@ -555,8 +556,11 @@ func validateFlags() {
 	if conf.NodeRebootConfigMapPath == "" {
 		panic("ZeroTrust requires `nodeRebootConfigMapPath` to be set in the e2e config file")
 	}
+	if bmcUsername == "" {
+		panic("ZeroTrust requires E2E_ZT_BMC_USERNAME env var (BMC username used by the in-cluster reboot script)")
+	}
 	if bmcPassword == "" {
-		panic("ZeroTrust requires E2E_ZT_BMC_PASSWORD env var (BMC root password used by the in-cluster reboot script)")
+		panic("ZeroTrust requires E2E_ZT_BMC_PASSWORD env var (BMC password used by the in-cluster reboot script)")
 	}
 	if bmcInventoryPath == "" {
 		panic("ZeroTrust requires E2E_ZT_BMC_INVENTORY_PATH env var (path to the lab DPU-serial -> BMC IP inventory YAML)")
