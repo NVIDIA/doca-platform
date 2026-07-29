@@ -20,6 +20,10 @@ tolerations:
     operator: Exists
     effect: NoSchedule
 kamaji-etcd:
+  selfSignedCertificates:
+    enabled: true
+  certManager:
+    enabled: false
   persistentVolumeClaim:
     storageClassName: local-path
   affinity:
@@ -40,6 +44,8 @@ kamaji-etcd:
       operator: Exists
       effect: NoSchedule
   jobs:
+    cfssl:
+      tag: v1.6.5@sha256:c9018c2ddf0b1f8dbef166057cc751d1becd5c3b0b7014cb9fe06972f725106f
     affinity:
       nodeAffinity:
         requiredDuringSchedulingIgnoredDuringExecution:
@@ -64,8 +70,5 @@ kamaji-etcd:
     name: default
 image:
   repository: ghcr.io/nvidia/kamaji
-  tag: v1.34.0-25.9.3
+  tag: v1.36.0-26.6.4
   pullPolicy: Always
-cfssl:
-  image:
-    tag: v1.6.5

@@ -26,7 +26,7 @@ and purposes:
 | [argo-cd]                 | 9.4.1   | GitOps continuous delivery tool for Kubernetes, necessary for DPUService integration           | Yes      | Pre-installation      |
 | [node-feature-discovery]  | 0.18.3  | Discovers and advertises hardware features and capabilities of DPUs in the cluster             | Yes      | Pre-installation      |
 | [maintenance-operator]    | 0.3.0   | Manages node maintenance operations and ensures graceful handling of node updates              | Yes      | Pre-installation      |
-| [kamaji]                  | 1.2.0   | Kubernetes cluster management platform for creating and managing the DPU Kubernetes clusters   | Conditional | Pre-installation      |
+| [kamaji]                  | 1.4.0   | Kubernetes cluster management platform for creating and managing the DPU Kubernetes clusters   | Conditional | Pre-installation      |
 | [local-path-provisioner]  | 0.0.34  | Provides the `local-path` storage class used by the default Kamaji etcd configuration          | Conditional | Pre-installation      |
 | [kata-containers]         | 3.32.0  | Secure container runtime using lightweight VMs for workload isolation on host nodes            | Conditional | Pre-installation      |
 | [kube-state-metrics]      | 5.25.1  | Exposes DPF Operator related objects as metrics                                                | No       | Post-installation     |
@@ -317,6 +317,10 @@ tolerations:
     operator: Exists
     effect: NoSchedule
 kamaji-etcd:
+  selfSignedCertificates:
+    enabled: true
+  certManager:
+    enabled: false
   persistentVolumeClaim:
     storageClassName: local-path
   affinity:
@@ -337,6 +341,8 @@ kamaji-etcd:
       operator: Exists
       effect: NoSchedule
   jobs:
+    cfssl:
+      tag: v1.6.5@sha256:c9018c2ddf0b1f8dbef166057cc751d1becd5c3b0b7014cb9fe06972f725106f
     affinity:
       nodeAffinity:
         requiredDuringSchedulingIgnoredDuringExecution:
@@ -361,11 +367,8 @@ kamaji-etcd:
     name: default
 image:
   repository: ghcr.io/nvidia/kamaji
-  tag: v1.34.0-25.9.3
+  tag: v1.36.0-26.6.4
   pullPolicy: Always
-cfssl:
-  image:
-    tag: v1.6.5
 ```
 
 </details>

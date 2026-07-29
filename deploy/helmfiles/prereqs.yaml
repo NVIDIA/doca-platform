@@ -50,7 +50,8 @@ releases:
     namespace: dpf-operator-system
     createNamespace: true
     chart: oci://ghcr.io/nvidia/charts/kamaji
-    version: 1.2.0
+    version: 1.4.0
+    timeout: 600
     labels:
       app: kamaji
     values:
@@ -60,7 +61,7 @@ releases:
     hooks:
       - events: [ "preapply" ]
         command: "./apply-crds.sh"
-        args: ["oci://ghcr.io/nvidia/charts/kamaji", "1.2.0"]
+        args: ["oci://ghcr.io/nvidia/charts/kamaji", "1.4.0"]
         showlogs: true
 
   - name: maintenance-operator

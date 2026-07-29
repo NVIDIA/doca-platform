@@ -27,7 +27,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/clustermanager/controller"
 	kamajicm "github.com/nvidia/doca-platform/internal/clustermanager/kamaji"
 	"github.com/nvidia/doca-platform/pkg/health"
-	kamajiv1 "github.com/nvidia/doca-platform/third_party/api/kamaji/api/v1alpha1"
+	kamajiv1 "github.com/nvidia/doca-platform/third_party/forked/github.com/clastix/kamaji/api/v1alpha1"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"

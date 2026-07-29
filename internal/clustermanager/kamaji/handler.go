@@ -21,6 +21,7 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"reflect"
 	"text/template"
 	"time"
 
@@ -30,11 +31,12 @@ import (
 	operatorutils "github.com/nvidia/doca-platform/internal/operator/utils"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/utils"
-	kamajiv1 "github.com/nvidia/doca-platform/third_party/api/kamaji/api/v1alpha1"
+	kamajiv1 "github.com/nvidia/doca-platform/third_party/forked/github.com/clastix/kamaji/api/v1alpha1"
 
 	"github.com/Masterminds/sprig/v3"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -114,6 +116,23 @@ var (
 		Group:   "monitoring.coreos.com",
 		Version: "v1",
 		Kind:    "ServiceMonitor",
+	}
+	kamaji134CompatibilityPatches = []kamajiv1.JSONPatch{
+		{
+			Op:   "remove",
+			Path: "/crashLoopBackOff",
+		},
+		{
+			Op:   "remove",
+			Path: "/imagePullCredentialsVerificationPolicy",
+		},
+		{
+			Op:   "add",
+			Path: "/featureGates",
+			Value: &apiextensionsv1.JSON{
+				Raw: []byte(`{"KubeletCrashLoopBackOffMax":false,"KubeletEnsureSecretPulledImages":false}`),
+			},
+		},
 	}
 )
 
@@ -366,8 +385,8 @@ func (cm *clusterHandler) reconcileKamaji(ctx context.Context, dc *provisioningv
 		}
 	} else {
 		nodePort = tcp.Spec.NetworkProfile.Port
-		if tcp.Spec.Kubernetes.Version != cutil.KubernetesVersion {
-			logger.V(1).Info("need to upgrade TCP", "tcp", tcp.Name)
+		if tcp.Spec.Kubernetes.Version != cutil.KubernetesVersion || len(missingCompatibilityPatches(tcp.Spec.Kubernetes.Kubelet)) > 0 {
+			logger.V(1).Info("need to update TCP", "tcp", tcp.Name)
 			// Use retry logic to handle conflicts when the object has been modified
 			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 				// Get the latest version to avoid conflicts
@@ -379,8 +398,13 @@ func (cm *clusterHandler) reconcileKamaji(ctx context.Context, dc *provisioningv
 				// Update the version
 				latest.Spec.Kubernetes.Version = cutil.KubernetesVersion
 
+				// Add the compatibility patches which are not set yet.
+				latest.Spec.Kubernetes.Kubelet.ConfigurationJSONPatches = append(latest.Spec.Kubernetes.Kubelet.ConfigurationJSONPatches,
+					missingCompatibilityPatches(latest.Spec.Kubernetes.Kubelet)...)
+
 				// Clear managedFields to avoid conflicts with server-side apply
 				latest.SetManagedFields(nil)
+				latest.SetGroupVersionKind(kamajiv1.GroupVersion.WithKind("TenantControlPlane"))
 
 				// Apply the update
 				return cm.Client.Patch(ctx, latest, client.Apply, client.FieldOwner("kamaji-cluster-manager"), client.ForceOwnership)
@@ -393,6 +417,24 @@ func (cm *clusterHandler) reconcileKamaji(ctx context.Context, dc *provisioningv
 
 	condition := cm.getClusterCondition(tcp, dc)
 	return adminKubeconfigName(dc), nodePort, condition, nil
+}
+
+// missingCompatibilityPatches returns the compatibility patches which are not set on the given KubeletSpec.
+func missingCompatibilityPatches(kubelet kamajiv1.KubeletSpec) []kamajiv1.JSONPatch {
+	var missing []kamajiv1.JSONPatch
+	for _, expectedPatch := range kamaji134CompatibilityPatches {
+		found := false
+		for _, gotPatch := range kubelet.ConfigurationJSONPatches {
+			if gotPatch.Op == expectedPatch.Op && gotPatch.Path == expectedPatch.Path && reflect.DeepEqual(gotPatch.Value, expectedPatch.Value) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			missing = append(missing, expectedPatch)
+		}
+	}
+	return missing
 }
 
 func (cm *clusterHandler) reconcileMonitoring(ctx context.Context, dc *provisioningv1.DPUCluster, nodePort int32) error {
@@ -943,6 +985,8 @@ func expectedTenantControlPlane(dc *provisioningv1.DPUCluster, scheme *runtime.S
 				Kubelet: kamajiv1.KubeletSpec{
 					CGroupFS:              "systemd",
 					PreferredAddressTypes: []kamajiv1.KubeletPreferredAddressType{kamajiv1.NodeInternalIP, kamajiv1.NodeHostName, kamajiv1.NodeExternalIP},
+					// Required for compatibility with v1.34 kubelet versions.
+					ConfigurationJSONPatches: kamaji134CompatibilityPatches,
 				},
 				AdmissionControllers: kamajiv1.AdmissionControllers{
 					"NamespaceLifecycle",

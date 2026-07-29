@@ -39,6 +39,17 @@ spec:
   kubernetes:
     version: v1.34.0
     kubelet:
+      # Required for compatibility to v1.34 kubelet versions.
+      configurationJSONPatches:
+        - op: remove
+          path: /crashLoopBackOff
+        - op: remove
+          path: /imagePullCredentialsVerificationPolicy
+        - op: add
+          path: /featureGates
+          value:
+            KubeletCrashLoopBackOffMax: false
+            KubeletEnsureSecretPulledImages: false
       cgroupfs: systemd
       preferredAddressTypes: [InternalIP,Hostname,ExternalIP]
     admissionControllers:
