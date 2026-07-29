@@ -268,12 +268,22 @@ var _ = Describe("VolumeAttachment Controller", func() {
 		if volumeMode == corev1.PersistentVolumeBlock {
 			mockSNAPClient.EXPECT().
 				ExposeBlockDevice(gomock.Any(), gomock.Any(), gomock.Any()).
-				Return(1, testPCIAddr, "test-uuid", nil).
+				Return(1, testPCIAddr, "test-uuid", "test-function-vuid", nil).
+				AnyTimes()
+
+			mockSNAPClient.EXPECT().
+				GetBlockFuncVUID(testPCIAddr).
+				Return("test-function-vuid", nil).
 				AnyTimes()
 		} else {
 			mockSNAPClient.EXPECT().
 				ExposeFSDevice(gomock.Any(), gomock.Any(), gomock.Any()).
-				Return("test-tag", testPCIAddr, nil).
+				Return("test-tag", testPCIAddr, "test-function-vuid", nil).
+				AnyTimes()
+
+			mockSNAPClient.EXPECT().
+				GetFSFuncVUID(testPCIAddr).
+				Return("test-function-vuid", nil).
 				AnyTimes()
 		}
 		// Mock detachment calls
@@ -346,6 +356,7 @@ var _ = Describe("VolumeAttachment Controller", func() {
 				g.Expect(volumeAttachment.Status.DPU.Attached).To(BeTrue())
 				g.Expect(volumeAttachment.Status.DPU.DeviceName).NotTo(BeEmpty())
 				g.Expect(volumeAttachment.Status.DPU.PCIDeviceAddress).NotTo(BeEmpty())
+				g.Expect(volumeAttachment.Status.DPU.FuncVUID).To(Equal("test-function-vuid"))
 			}, testTimeout, testInterval).Should(Succeed())
 		})
 
@@ -370,6 +381,33 @@ var _ = Describe("VolumeAttachment Controller", func() {
 				g.Expect(volumeAttachment.Status.DPU.Attached).To(BeTrue())
 				g.Expect(volumeAttachment.Status.DPU.DeviceName).NotTo(BeEmpty())
 				g.Expect(volumeAttachment.Status.DPU.PCIDeviceAddress).NotTo(BeEmpty())
+				g.Expect(volumeAttachment.Status.DPU.FuncVUID).To(Equal("test-function-vuid"))
+			}, testTimeout, testInterval).Should(Succeed())
+		})
+
+		It("should backfill FuncVUID on an attachment exposed before the field existed", func() {
+			By("Setting up mock expectations for block volume")
+			setupMockExpectations(corev1.PersistentVolumeBlock)
+
+			By("Creating Volume with block mode")
+			volume = getVolume(corev1.PersistentVolumeBlock)
+			createVolume(volume)
+			cleanupObjects = append(cleanupObjects, volume)
+
+			By("Creating an attached VolumeAttachment without FuncVUID")
+			volumeAttachment = getVolumeAttachment(true, true)
+			volumeAttachment.Status.DPU.DeviceName = testDeviceName
+			volumeAttachment.Status.DPU.PCIDeviceAddress = testPCIAddr
+			createVolumeAttachment(volumeAttachment)
+			cleanupObjects = append(cleanupObjects, volumeAttachment)
+
+			By("Verifying FuncVUID is filled in without re-exposing the device")
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(testCtx, client.ObjectKeyFromObject(volumeAttachment), volumeAttachment)).NotTo(HaveOccurred())
+				g.Expect(volumeAttachment.Status.DPU.FuncVUID).To(Equal("test-function-vuid"))
+				g.Expect(volumeAttachment.Status.DPU.Attached).To(BeTrue())
+				g.Expect(volumeAttachment.Status.DPU.DeviceName).To(Equal(testDeviceName))
+				g.Expect(volumeAttachment.Status.DPU.PCIDeviceAddress).To(Equal(testPCIAddr))
 			}, testTimeout, testInterval).Should(Succeed())
 		})
 

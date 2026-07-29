@@ -4646,6 +4646,7 @@ _Appears in:_
 | `attached` _boolean_ | Indicates the volume is successfully attached to the DPU node |  |  |
 | `pciDeviceAddress` _string_ | PCI device address in the following format: (bus:device.function) |  |  |
 | `deviceName` _string_ | The name of the device that was created by the storage vendor plugin |  |  |
+| `funcVUID` _string_ | The VUID of the emulated function. For a VF, this is the parent PF VUID. |  |  |
 | `bdevAttrs` _[BdevAttrs](#bdevattrs)_ | The attributes of the underlying block device |  | Optional: \{\} <br /> |
 | `fsdevAttrs` _[FSdevAttrs](#fsdevattrs)_ | The attributes of the underlying filesystem device |  | Optional: \{\} <br /> |
 
