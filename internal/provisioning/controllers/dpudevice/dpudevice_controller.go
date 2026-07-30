@@ -322,6 +322,12 @@ func (r *DPUDeviceReconciler) reconcile(ctx context.Context, dpuDevice *provisio
 	}
 	result = soonestRequeue(result, caResult)
 
+	// Runs last so that a BMC that is only reachable after certificate recovery is not blocked by it.
+	if err := r.reconcileDynamicFields(ctx, dpuDevice); err != nil {
+		log.Error(err, "Failed to reconcile dynamic fields")
+		return result, err
+	}
+
 	log.Info("DPUDevice reconciled successfully", "dpuDevice", dpuDevice.Name)
 	return result, nil
 }
@@ -766,17 +772,9 @@ func (r *DPUDeviceReconciler) discoverDPUDevice(ctx context.Context, dpuDevice *
 		return err
 	}
 
-	resp, productDescription, err := client.GetProductDescription()
-	if err != nil {
-		log.Error(err, "Failed to get product description", "address", bmcAddress, "response", rfclient.RespBody(resp))
+	// The mode is needed before the chassis check below, which tolerates an unknown DPU type only in NIC mode.
+	if err := r.refreshDPUMode(ctx, dpuDevice, client); err != nil {
 		return err
-	}
-
-	switch {
-	case productDescription.Mode != nil && *productDescription.Mode == rfclient.NicMode:
-		dpuDevice.Status.DPUMode = provisioningv1.NicMode
-	default:
-		dpuDevice.Status.DPUMode = provisioningv1.DpuMode
 	}
 
 	resp, chassisInfo, err := client.GetChassis()
@@ -835,21 +833,6 @@ func (r *DPUDeviceReconciler) discoverDPUDevice(ctx context.Context, dpuDevice *
 		log.Info("No MAC address found for PF0", "address", bmcAddress, "response", rfclient.RespBody(resp))
 	}
 
-	if dpuDevice.Status.DPUType == provisioningv1.DPUTypeBlueField3 {
-		resp, secureBootInfo, err := client.GetSecureBoot()
-		if err != nil {
-			log.Error(err, "Failed to get Secure Boot state", "address", bmcAddress, "response", rfclient.RespBody(resp))
-			return err
-		}
-
-		if secureBootInfo != nil {
-			enabled := secureBootInfo.IsCurrentlyActive()
-			dpuDevice.Status.SecureBoot = &provisioningv1.SecureBootStatus{
-				Enabled: ptr.To(enabled),
-			}
-			log.Info("Detected Secure Boot state", "address", bmcAddress, "enabled", enabled)
-		}
-	}
 	// TODO: Get the PCI address once it will be available in the Redfish API
 
 	if dpuDevice.Labels == nil {
@@ -871,6 +854,56 @@ func (r *DPUDeviceReconciler) discoverDPUDevice(ctx context.Context, dpuDevice *
 
 	conditions.AddTrue(dpuDevice, provisioningv1.ConditionDpuDeviceDiscovered)
 	log.Info("DPUDevice discovered successfully", "dpuDevice", dpuDevice.Name)
+	return nil
+}
+
+// refreshDPUMode records the mode (DPU or NIC) the BMC currently reports.
+func (r *DPUDeviceReconciler) refreshDPUMode(ctx context.Context, dpuDevice *provisioningv1.DPUDevice, client *rfclient.Client) error {
+	resp, productDescription, err := client.GetProductDescription()
+	if err != nil {
+		log.FromContext(ctx).Error(err, "Failed to get product description", "address", dpuDevice.BMCAddress(), "response", rfclient.RespBody(resp))
+		return err
+	}
+
+	switch {
+	case productDescription.Mode != nil && *productDescription.Mode == rfclient.NicMode:
+		dpuDevice.Status.DPUMode = provisioningv1.NicMode
+	default:
+		dpuDevice.Status.DPUMode = provisioningv1.DpuMode
+	}
+
+	return nil
+}
+
+// reconcileDynamicFields refreshes the status fields that can change on the device after discovery,
+// so that the DPUDevice keeps reflecting the current state of the hardware.
+func (r *DPUDeviceReconciler) reconcileDynamicFields(ctx context.Context, dpuDevice *provisioningv1.DPUDevice) error {
+	log := log.FromContext(ctx)
+	bmcAddress := dpuDevice.BMCAddress()
+	client, err := rfclient.NewTLSClient(ctx, bmcAddress, dpuDevice.Namespace, r.Client)
+	if err != nil {
+		log.Error(err, "Failed to create TLS client")
+		return err
+	}
+
+	if err := r.refreshDPUMode(ctx, dpuDevice, client); err != nil {
+		return err
+	}
+
+	resp, secureBootInfo, err := client.GetSecureBoot()
+	if err != nil {
+		log.Error(err, "Failed to get Secure Boot state", "address", bmcAddress, "response", rfclient.RespBody(resp))
+		return err
+	}
+
+	if secureBootInfo != nil {
+		enabled := secureBootInfo.IsCurrentlyActive()
+		dpuDevice.Status.SecureBoot = &provisioningv1.SecureBootStatus{
+			Enabled: ptr.To(enabled),
+		}
+		log.Info("Detected Secure Boot state", "address", bmcAddress, "enabled", enabled)
+	}
+
 	return nil
 }
 
