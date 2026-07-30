@@ -53,6 +53,8 @@ const (
 	APICheckDPUOS                   = "redfish/v1/UpdateService/FirmwareInventory/DPU_OS"
 	APICheckDPUUEFI                 = "redfish/v1/UpdateService/FirmwareInventory/{DPU_UEFI_ID}"
 	APICheckPendingBundle           = "redfish/v1/UpdateService/FirmwareInventory/Pending_Bundle"
+	APICheckOSImage                 = "redfish/v1/UpdateService/FirmwareInventory/BlueField_OS_Image_CPU_0"
+	APICheckConfigImage             = "redfish/v1/UpdateService/FirmwareInventory/BlueField_OS_Config_CPU_0"
 	APIInstallBFB                   = "redfish/v1/UpdateService/Actions/UpdateService.SimpleUpdate"
 	APIGetVirtualMedia              = "redfish/v1/Managers/{MANAGER_ID}/VirtualMedia/{MEDIA_ID}"
 	APIInsertVirtualMedia           = "redfish/v1/Managers/{MANAGER_ID}/VirtualMedia/{MEDIA_ID}/Actions/VirtualMedia.InsertMedia"
@@ -1397,10 +1399,11 @@ func (c *Client) InstallBluefieldArmImage(imageURI string) (*resty.Response, *Ta
 	headers := map[string]string{
 		"Content-Type": "application/json",
 	}
+
 	reqBody := map[string]interface{}{
 		"TransferProtocol": "HTTPS",
 		"ImageURI":         imageURI,
-		"Targets":          []string{"redfish/v1/UpdateService/FirmwareInventory/BlueField_OS_Image_CPU_0"},
+		"Targets":          []string{APICheckOSImage},
 	}
 	return do[TaskInfo](func() (*resty.Response, error) {
 		return c.Client.R().
@@ -1414,10 +1417,11 @@ func (c *Client) InstallBluefieldArmConfig(imageURI string) (*resty.Response, *T
 	headers := map[string]string{
 		"Content-Type": "application/json",
 	}
+
 	reqBody := map[string]interface{}{
 		"TransferProtocol": "HTTPS",
 		"ImageURI":         imageURI,
-		"Targets":          []string{"redfish/v1/UpdateService/FirmwareInventory/BlueField_OS_Config_CPU_0"},
+		"Targets":          []string{APICheckConfigImage},
 	}
 	return do[TaskInfo](func() (*resty.Response, error) {
 		return c.Client.R().
@@ -1611,4 +1615,16 @@ func (c *Client) ActivatePendingBundle() (*resty.Response, error) {
 		SetHeader("Content-Type", "application/json").
 		SetBody(reqBody).
 		Post(APIActivatePendingBundle)
+}
+
+func (c *Client) CheckOSImage() (*resty.Response, *VersionInfo, error) {
+	return do[VersionInfo](func() (*resty.Response, error) {
+		return c.Client.R().Get(APICheckOSImage)
+	})
+}
+
+func (c *Client) CheckConfigImage() (*resty.Response, *VersionInfo, error) {
+	return do[VersionInfo](func() (*resty.Response, error) {
+		return c.Client.R().Get(APICheckConfigImage)
+	})
 }
