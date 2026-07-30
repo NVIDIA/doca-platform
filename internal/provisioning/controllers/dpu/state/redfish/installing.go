@@ -166,6 +166,15 @@ func installOsBf4(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 	for _, prefix := range schemes {
 		bfbRegistryAddr = strings.TrimPrefix(bfbRegistryAddr, prefix)
 	}
+
+	resp, _, err := client.CheckOSImage()
+	if err != nil || resp.StatusCode() != http.StatusOK {
+		err = fmt.Errorf("failed to check OS image: %w, response: %s", err, rc.RespBody(resp))
+		logger.Error(err, "Failed to check OS image")
+		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "FailToCheckOSImage", err.Error()))
+		return *state, err
+	}
+
 	imageURI := filepath.Join(bfbRegistryAddr, bluefieldSoftware.Status.DownloadedComponents.OsIso)
 	if err := reconcileBf4ArmTransfer(logger, dpu, state, client, provisioningv1.DPUCondIsoTransferred, imageURI, client.InstallBluefieldArmImage, "ISO"); err != nil {
 		logger.Error(err, "Failed to install ISO", "error", err)
@@ -174,7 +183,22 @@ func installOsBf4(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 	if _, c := cutil.GetDPUCondition(state, string(provisioningv1.DPUCondIsoTransferred)); c == nil || c.Status != metav1.ConditionTrue {
 		return *state, nil
 	}
-	logger.Info("ISO transferred, starting to install config")
+
+	_, osImage, err := client.CheckOSImage()
+	if err != nil {
+		err = fmt.Errorf("failed to check OS image: %w, response: %s", err, rc.RespBody(resp))
+		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "FailToCheckOSImage", err.Error()))
+		return *state, err
+	}
+	logger.Info("ISO transferred, starting to install config", "osImage", osImage.Version)
+
+	resp, _, err = client.CheckConfigImage()
+	if err != nil || resp.StatusCode() != http.StatusOK {
+		err = fmt.Errorf("failed to check config image: %w, response: %s", err, rc.RespBody(resp))
+		logger.Error(err, "Failed to check config image")
+		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "FailToCheckConfigImage", err.Error()))
+		return *state, err
+	}
 
 	configURI := filepath.Join(bfbRegistryAddr, dpu.Status.BFCFGFile)
 	if err := reconcileBf4ArmTransfer(logger, dpu, state, client, provisioningv1.DPUCondConfigTransferred, configURI, client.InstallBluefieldArmConfig, "config"); err != nil {
@@ -185,7 +209,14 @@ func installOsBf4(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 		return *state, nil
 	}
 
-	logger.Info("Config transferred, starting to insert virtual media")
+	_, configImage, err := client.CheckConfigImage()
+	if err != nil {
+		err = fmt.Errorf("failed to check config image: %w", err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "FailToCheckConfigImage", err.Error()))
+		return *state, err
+	}
+
+	logger.Info("Config transferred, starting to insert virtual media", "configImage", configImage.Version)
 
 	_, err = client.InsertVirtualMediaImage()
 	if err != nil {
