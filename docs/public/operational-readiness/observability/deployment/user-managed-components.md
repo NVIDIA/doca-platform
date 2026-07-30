@@ -261,6 +261,10 @@ Loki provides log aggregation and storage for both Host Cluster and DPU cluster 
 
 * **Host Cluster logs**: Collected by OpenTelemetry Collector (filelog receiver)
 * **DPU Cluster logs**: Forwarded by DPU OpenTelemetry Collectors via OTLP
+* **Kamaji DPU cluster audit logs**: The Host Cluster OpenTelemetry Collector also scrapes the
+  kube-apiserver audit logs that each Kamaji-hosted DPU cluster writes to the host at
+  `/var/log/kubernetes/kamaji/<cluster-name>/audit.log`. These entries are tagged with
+  `log.type: k8s-audit` and a per-cluster `cluster` label and forwarded to Loki.
 
 **Integration:**
 
@@ -271,10 +275,14 @@ For querying and configuration details, see the [Loki documentation](https://gra
 
 ## OpenTelemetry Collector
 
-The OpenTelemetry Collector on the Host Cluster runs as a DaemonSet with two purposes:
+The OpenTelemetry Collector on the Host Cluster runs as a DaemonSet with three purposes:
 
-1. **OTLP Receiver**: Receives logs from DPU cluster OpenTelemetry Collectors (gRPC 4317, HTTP 4318, exposed via NodePort 30318)
+1. **OTLP Receiver**: Receives logs from DPU cluster OpenTelemetry Collectors (gRPC 4317, HTTP 4318, exposed via NodePort 30050)
 2. **Local Log Collection**: Collects logs from Host Cluster pods via filelog receiver
+3. **Kamaji Audit Log Collection**: A dedicated `filelog/audit` receiver scrapes the Kamaji DPU
+   cluster kube-apiserver audit logs mounted from the host (`/var/log/kubernetes/kamaji/*/audit.log`)
+   and forwards them to Loki through a separate `logs/audit` pipeline. The collector runs as root so
+   it can read these host-written files.
 
 **Exporters:**
 
