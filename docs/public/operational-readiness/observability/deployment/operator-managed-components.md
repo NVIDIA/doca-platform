@@ -191,7 +191,7 @@ spec:
   monitoring:
     openTelemetryCollector:
       logging:
-        endpoint: "http://<host-node-ip>:30318"
+        endpoint: "http://<host-node-ip>:30050"
 ```
 
 Stream DPU cluster workload metrics to the management cluster (both signals can be enabled together):
@@ -206,19 +206,19 @@ spec:
   monitoring:
     openTelemetryCollector:
       metrics:
-        endpoint: "http://<host-node-ip>:30318"
+        endpoint: "http://<host-node-ip>:30050"
 ```
 
 > [!NOTE]
 > The endpoint can be any OTLP-compatible receiver (OpenTelemetry Collector, observability gateway, cloud service, etc.). For metrics streaming, the management cluster collector writes the received metrics into Prometheus, so the bundled kube-prometheus-stack values must enable the Prometheus remote-write receiver (`prometheus.prometheusSpec.enableRemoteWriteReceiver: true`). See [Helm Prerequisites](../../../getting-started/helm-prerequisites.md).
 
-If using the OpenTelemetry Collector deployed via Helm values (default configuration), it uses NodePort 30318:
+If using the OpenTelemetry Collector deployed via Helm values (default configuration), it uses NodePort 30050:
 
 ```bash
 # Get Host Cluster node IP
 kubectl get nodes -o wide
 
-# Use format: http://<NODE_IP>:30318
+# Use format: http://<NODE_IP>:30050
 ```
 
 <details markdown="1"><summary><b>Expand for Advanced OTEL Configuration</b></summary>
@@ -228,7 +228,7 @@ spec:
   monitoring:
     openTelemetryCollector:
       logging:
-        endpoint: "http://<host-node-ip>:30318"
+        endpoint: "http://<host-node-ip>:30050"
       daemon:
         image: "otel/opentelemetry-collector-contrib:0.146.1"
         resources:

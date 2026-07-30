@@ -154,7 +154,7 @@ spec:
     openTelemetryCollector:
       disable: false
       logging:
-        endpoint: "http://<host-node-ip>:30318"
+        endpoint: "http://<host-node-ip>:30050"
 ```
 
 Each component supports `disable` and `daemon` (image, resources) overrides. To disable all monitoring at once, set `spec.monitoring.disable: true`.
