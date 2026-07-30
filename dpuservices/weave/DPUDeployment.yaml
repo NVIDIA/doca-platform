@@ -6,8 +6,10 @@ metadata:
   namespace: dpf-operator-system
 spec:
   dpus:
-    bfb: bf-bundle-v26.5.0
-    flavor: doca-weave-flavor-v26.5.0
+    astraEnabled: true
+    blueFieldSoftware: bfsw-xplane-weave
+    # flavor should match your specific underlay topology.
+    flavor: flavor-xplane-weave
     nodeEffect:
       noEffect: true
     dpuSets:
