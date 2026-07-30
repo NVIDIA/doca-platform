@@ -605,7 +605,7 @@ spec:
             initContainers:
               vpcOVNDpuProvisioner:
                 env:
-                  ovnSbEndpoint: "tcp:$TARGETCLUSTER_OVN_CENTRAL_IP:30642"
+                  ovnSbEndpoint: "tcp:$TARGETCLUSTER_OVN_CENTRAL_IP:30042"
             ipRequests:
               - name: "vtep"
                 poolName: "vpc-ippool-vtep"
@@ -845,8 +845,8 @@ metadata:
 spec:
   provisioner: ovn.vpc.dpu.nvidia.com
   parameters:
-    ovn-nb-endpoint: "tcp:$TARGETCLUSTER_OVN_CENTRAL_IP:30641"
-    ovn-sb-endpoint: "tcp:$TARGETCLUSTER_OVN_CENTRAL_IP:30642"
+    ovn-nb-endpoint: "tcp:$TARGETCLUSTER_OVN_CENTRAL_IP:30041"
+    ovn-sb-endpoint: "tcp:$TARGETCLUSTER_OVN_CENTRAL_IP:30042"
 ```
 
 </details>
