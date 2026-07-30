@@ -233,8 +233,7 @@ func TestE2E(t *testing.T) {
 	g := NewWithT(t)
 	defer GinkgoRecover()
 	var err error
-	_, err = fmt.Fprintf(GinkgoWriter, "E2E Tests Suite starting...\n\n")
-	Expect(err).ToNot(HaveOccurred())
+	GinkgoWriter.Printf("E2E Tests Suite starting...\n\n")
 	ctrl.SetLogger(klog.Background())
 	filterBenignPortForwardErrors()
 
@@ -264,13 +263,14 @@ func TestE2E(t *testing.T) {
 	}
 
 	// Effective configuration
-	_, _ = fmt.Fprintf(GinkgoWriter, "E2E Test Configuration:\n")
-	_, _ = fmt.Fprintf(GinkgoWriter, "  configPath: %s\n", configPath)
-	_, _ = fmt.Fprintf(GinkgoWriter, "  testKubeconfig: %s\n", testKubeconfig)
-	_, _ = fmt.Fprintf(GinkgoWriter, "  numberOfDPUNodes: %d\n", conf.NumberOfDPUNodes)
-	_, _ = fmt.Fprintf(GinkgoWriter, "  numberOfDPUsPerNode: %d\n", conf.NumberOfDPUsPerNode)
-	_, _ = fmt.Fprintf(GinkgoWriter, "  nodeRebootConfigMap: %q\n", conf.NodeRebootConfigMap)
-	_, _ = fmt.Fprintf(GinkgoWriter, "  nodeRebootConfigMapPath: %q\n", conf.NodeRebootConfigMapPath)
+	GinkgoWriter.Printf("E2E Test Configuration:\n")
+	GinkgoWriter.Printf("  configPath: %s\n", configPath)
+	GinkgoWriter.Printf("  testKubeconfig: %s\n", testKubeconfig)
+	GinkgoWriter.Printf("  numberOfDPUNodes: %d\n", conf.NumberOfDPUNodes)
+	GinkgoWriter.Printf("  numberOfDPUsPerNode: %d\n", conf.NumberOfDPUsPerNode)
+	GinkgoWriter.Printf("  selectDPUDevicesDynamically: %t\n", conf.SelectDPUDevicesDynamically)
+	GinkgoWriter.Printf("  nodeRebootConfigMap: %q\n", conf.NodeRebootConfigMap)
+	GinkgoWriter.Printf("  nodeRebootConfigMapPath: %q\n", conf.NodeRebootConfigMapPath)
 
 	// Create a client to use throughout the test.
 	restConfig, err = clientcmd.BuildConfigFromFlags("", testKubeconfig)
@@ -296,7 +296,7 @@ func TestE2E(t *testing.T) {
 	suiteConfig, _ := GinkgoConfiguration()
 	if cleanupFlags.SkipCleanupOnFailure {
 		suiteConfig.FailFast = true
-		_, _ = fmt.Fprintf(GinkgoWriter, "Auto-enabled fail-fast mode (skip-cleanup-on-failure flag detected)\n")
+		GinkgoWriter.Printf("Auto-enabled fail-fast mode (skip-cleanup-on-failure flag detected)\n")
 	}
 
 	RunSpecs(t, "e2e suite", suiteConfig)

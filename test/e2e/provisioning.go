@@ -325,6 +325,15 @@ func CreateProvisioningDPUSet(ctx context.Context, input *systemTestInput) {
 	}).WithTimeout(1 * time.Minute).Should(Succeed())
 
 	dpuset := input.dpuSet.DeepCopy()
+	if input.selectDPUDevicesDynamically {
+		resolveDPUSetDPUDevicePCISelector(
+			ctx,
+			input.client,
+			dpuset,
+			input.numberOfDPUNodes,
+			input.numberOfDPUsPerNode,
+		)
+	}
 	dpuset.SetLabels(CleanupScope.Suite)
 	By(fmt.Sprintf("Creating DPUSet %s/%s", dpuset.GetNamespace(), dpuset.GetName()))
 	Eventually(func(g Gomega) {

@@ -13,9 +13,6 @@ spec:
       nodeSelector:
         matchLabels:
           nodeKey: "nodeValue"
-      # Physical: first DPU per host (label format 0000-2b-00).
-      dpuSelector:
-        provisioning.dpu.nvidia.com/dpudevice-pciAddress: "0000-2b-00"
       dpuAnnotations:
         doMagic: "true"
     dpuSetStrategy:

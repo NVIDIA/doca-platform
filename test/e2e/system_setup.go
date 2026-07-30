@@ -62,22 +62,23 @@ import (
 )
 
 type ProvisionDPUClustersInput struct {
-	numberOfDPUNodes          int
-	numberOfDPUsPerNode       int
-	dpuClusterPrerequisites   []client.Object
-	dpuClusters               []*provisioningv1.DPUCluster
-	dpuFlavor                 *provisioningv1.DPUFlavor
-	bfb                       *provisioningv1.BFB
-	blueFieldSoftware         *provisioningv1.BlueFieldSoftware
-	dpuSet                    *provisioningv1.DPUSet
-	client                    client.Client
-	bfbImageURL               string
-	bfsOsIsoURL               string
-	bfsPldmFwBundleURL        string
-	restConfig                *rest.Config
-	NodeRebootConfigMap       string
-	DPUNodeBMCs               map[string]string
-	expectedKubernetesVersion string
+	numberOfDPUNodes            int
+	numberOfDPUsPerNode         int
+	dpuClusterPrerequisites     []client.Object
+	dpuClusters                 []*provisioningv1.DPUCluster
+	dpuFlavor                   *provisioningv1.DPUFlavor
+	bfb                         *provisioningv1.BFB
+	blueFieldSoftware           *provisioningv1.BlueFieldSoftware
+	dpuSet                      *provisioningv1.DPUSet
+	client                      client.Client
+	bfbImageURL                 string
+	bfsOsIsoURL                 string
+	bfsPldmFwBundleURL          string
+	restConfig                  *rest.Config
+	NodeRebootConfigMap         string
+	DPUNodeBMCs                 map[string]string
+	expectedKubernetesVersion   string
+	selectDPUDevicesDynamically bool
 }
 
 func isPreUpgradeFromLastReleasedGA(ctx context.Context, kclient client.Client, objectKey client.ObjectKey) (bool, error) {
@@ -144,18 +145,19 @@ type systemTestInput struct {
 	additionalDPUServiceTemplate      *dpuservicev1.DPUServiceTemplate
 
 	// Provisioning objects and environment settings.
-	bfb                     *provisioningv1.BFB
-	blueFieldSoftware       *provisioningv1.BlueFieldSoftware
-	dpuClusterPrerequisites []client.Object
-	dpuDiscovery            *provisioningv1.DPUDiscovery
-	dpuFlavor               *provisioningv1.DPUFlavor
-	dpuFlavorTemplate       *provisioningv1.DPUFlavorTemplate
-	nodeRebootConfigMap     string
-	nodeRebootConfigMapPath string
-	numberOfDPUNodes        int
-	numberOfDPUsPerNode     int
-	pvc                     *corev1.PersistentVolumeClaim
-	useExternalNodeReboot   bool
+	bfb                         *provisioningv1.BFB
+	blueFieldSoftware           *provisioningv1.BlueFieldSoftware
+	dpuClusterPrerequisites     []client.Object
+	dpuDiscovery                *provisioningv1.DPUDiscovery
+	dpuFlavor                   *provisioningv1.DPUFlavor
+	dpuFlavorTemplate           *provisioningv1.DPUFlavorTemplate
+	nodeRebootConfigMap         string
+	nodeRebootConfigMapPath     string
+	numberOfDPUNodes            int
+	numberOfDPUsPerNode         int
+	pvc                         *corev1.PersistentVolumeClaim
+	selectDPUDevicesDynamically bool
+	useExternalNodeReboot       bool
 
 	// Runtime state assembled by SetInput and the suite, not read from the
 	// config file.
@@ -350,6 +352,7 @@ func (t *systemTestInput) applyConfig(conf config) {
 	t.numberOfDPUsPerNode = conf.NumberOfDPUsPerNode
 	t.nodeRebootConfigMap = conf.NodeRebootConfigMap
 	t.nodeRebootConfigMapPath = conf.NodeRebootConfigMapPath
+	t.selectDPUDevicesDynamically = conf.SelectDPUDevicesDynamically
 	t.useExternalNodeReboot = conf.UseExternalNodeReboot
 }
 
@@ -774,12 +777,22 @@ func ProvisionDPUFlavor(ctx context.Context, input ProvisionDPUClustersInput) {
 // ProvisionDPUSet DPUSet that will provision DPUs in the background if the environment has such DPUs.
 // It doesn't check whether the DPUs become ready intentionally to allow for subsequent tests to be executed in the meantime.
 func ProvisionDPUSet(ctx context.Context, input ProvisionDPUClustersInput) {
+	dpuset := input.dpuSet.DeepCopy()
+	if input.selectDPUDevicesDynamically {
+		resolveDPUSetDPUDevicePCISelector(
+			ctx,
+			input.client,
+			dpuset,
+			input.numberOfDPUNodes,
+			input.numberOfDPUsPerNode,
+		)
+	}
+	// TODO: Test the cleanup of the node related to the DPU.
+	dpuset.SetLabels(CleanupScope.Suite)
+
 	Eventually(func(g Gomega) {
 		By("Creating the DPUSet")
-		dpuset := input.dpuSet.DeepCopy()
-		// TODO: Test the cleanup of the node related to the DPU.
-		dpuset.SetLabels(CleanupScope.Suite)
-		g.Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuset))).NotTo(HaveOccurred())
+		g.Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuset.DeepCopy()))).NotTo(HaveOccurred())
 	}).WithTimeout(60 * time.Second).Should(Succeed())
 
 	By("Checking the DPUServices have been mirrored to the target cluster")
