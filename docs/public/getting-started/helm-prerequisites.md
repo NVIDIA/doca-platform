@@ -1270,9 +1270,6 @@ config:
       include_file_path: true
       include_file_name: false
       operators:
-        - type: json_parser
-          id: json-parser
-          on_error: send
         - type: regex_parser
           id: extract-cluster
           parse_from: attributes["log.file.path"]
