@@ -109,6 +109,7 @@ type config struct {
 	NumberOfDPUNodes                  int      `json:"numberOfDPUNodes"`
 	NumberOfDPUsPerNode               int      `json:"numberOfDPUsPerNode,omitempty"`
 	ProvisioningControllerPVCPath     *string  `json:"provisioningControllerPVC,omitempty"`
+	SelectDPUDevicesDynamically       bool     `json:"selectDPUDevicesDynamically,omitempty"`
 	UseExternalNodeReboot             bool     `json:"useExternalNodeReboot,omitempty"`
 }
 

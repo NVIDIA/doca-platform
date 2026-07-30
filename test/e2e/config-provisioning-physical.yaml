@@ -20,3 +20,4 @@ dpuServiceHBN: "../objects/application/dpuservicehbn.yaml"
 dhcpDaemonSet: "../objects/application/vpc/dhcp.yaml"
 numberOfDPUNodes: 2
 numberOfDPUsPerNode: 1
+selectDPUDevicesDynamically: true

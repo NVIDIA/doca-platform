@@ -7,10 +7,6 @@ spec:
   dpuNodeSelector:
     matchLabels:
       feature.node.kubernetes.io/dpu-enabled: "true"
-  # ARM64 physical: first DPU per host (label format 0004-01-00).
-  dpuDeviceSelector:
-    matchLabels:
-      provisioning.dpu.nvidia.com/dpudevice-pciAddress: "0004-01-00"
   strategy:
     rollingUpdate:
       maxUnavailable: 10%
