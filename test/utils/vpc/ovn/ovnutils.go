@@ -59,8 +59,8 @@ const (
 	PoolLabelKey             = "ovn.vpc.dpu.nvidia.com/pool"
 
 	// OVN specific
-	OvnNbPort = 30641
-	OvnSbPort = 30642
+	OvnNbPort = 30041
+	OvnSbPort = 30042
 
 	// Bridge names
 	BrOVNExt = "br-ovn-ext"
