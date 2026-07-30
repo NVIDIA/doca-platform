@@ -19,7 +19,7 @@ spec:
           initContainers:
             vpcOVNDpuProvisioner:
               env:
-                ovnSbEndpoint: "tcp:127.0.0.1:30642"
+                ovnSbEndpoint: "tcp:127.0.0.1:30042"
           imagePullSecrets:
             - name: dpf-pull-secret
           ipRequests:

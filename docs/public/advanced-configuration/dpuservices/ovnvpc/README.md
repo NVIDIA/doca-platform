@@ -141,11 +141,11 @@ spec:
   # OVN-specific parameters
   parameters:
     # OVN northbound database endpoint
-    ovn-nb-endpoint: "tcp:10.1.1.100:30641"
+    ovn-nb-endpoint: "tcp:10.1.1.100:30041"
     # Connection retry interval for northbound database (Default: 5 seconds)
     ovn-nb-reconnect-time: "5"
     # OVN southbound database endpoint
-    ovn-sb-endpoint: "tcp:10.1.1.100:30642"
+    ovn-sb-endpoint: "tcp:10.1.1.100:30042"
     # Connection retry interval for southbound database (Default: 5 seconds)
     ovn-sb-reconnect-time: "5"
 ```
@@ -887,7 +887,7 @@ Verify you have the VPC default route with higher priority as described in the F
 
 **Infrastructure Network Connectivity Issues**:
 
-* Check OVN database connectivity (ports 30641, 30642).
+* Check OVN database connectivity (ports 30041, 30042).
 * Validate VTEP and external network configuration.
 * Verify physical network connectivity between DPU nodes on both VTEP and external networks.
 * Validate the ServiceInterface was properly reconciled and is ready.
