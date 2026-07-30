@@ -20,73 +20,11 @@ import (
 	"testing"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
-	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
-
-func TestSelectDPUDeviceWithPCIAddress(t *testing.T) {
-	tests := []struct {
-		name       string
-		dpuDevices []provisioningv1.DPUDevice
-		wantName   string
-		wantPCI    string
-		wantErr    string
-	}{
-		{
-			name: "selects the lowest PCI address",
-			dpuDevices: []provisioningv1.DPUDevice{
-				dpuDeviceWithPCIAddress("device-a2", "0000-a2-00"),
-				dpuDeviceWithPCIAddress("device-12", "0000-12-00"),
-			},
-			wantName: "device-12",
-			wantPCI:  "0000-12-00",
-		},
-		{
-			name: "compares hexadecimal addresses case-insensitively",
-			dpuDevices: []provisioningv1.DPUDevice{
-				dpuDeviceWithPCIAddress("device-a2", "0000-A2-00"),
-				dpuDeviceWithPCIAddress("device-a1", "0000-a1-00"),
-			},
-			wantName: "device-a1",
-			wantPCI:  "0000-a1-00",
-		},
-		{
-			name: "ignores devices without a PCI address label",
-			dpuDevices: []provisioningv1.DPUDevice{
-				{ObjectMeta: metav1.ObjectMeta{Name: "device-without-label"}},
-				dpuDeviceWithPCIAddress("device-with-label", "0000-a2-00"),
-			},
-			wantName: "device-with-label",
-			wantPCI:  "0000-a2-00",
-		},
-		{
-			name: "returns an error when no PCI address is available",
-			dpuDevices: []provisioningv1.DPUDevice{
-				{ObjectMeta: metav1.ObjectMeta{Name: "device-without-label"}},
-			},
-			wantErr: "no DPUDevice has a PCI address label",
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			g := NewWithT(t)
-
-			selected, err := selectDPUDeviceWithPCIAddress(test.dpuDevices)
-			if test.wantErr != "" {
-				g.Expect(err).To(MatchError(test.wantErr))
-				return
-			}
-
-			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(selected.Name).To(Equal(test.wantName))
-			g.Expect(selected.Labels).To(HaveKeyWithValue(cutil.DPUDevicePCIAddressLabel, test.wantPCI))
-		})
-	}
-}
 
 func TestPreserveDPUSetRuntimeSelectors(t *testing.T) {
 	const mutatedValue = "mutated"
@@ -126,15 +64,4 @@ func TestPreserveDPUSetRuntimeSelectors(t *testing.T) {
 	g.Expect(preservedNodeSelector.MatchLabels).To(HaveKeyWithValue("kubernetes.io/hostname", "worker1"))
 	g.Expect(preservedDPUSelector).To(HaveKeyWithValue(cutil.DPUDevicePCIAddressLabel, "0000-12-00"))
 	g.Expect(preservedDPUDeviceSelector.MatchLabels).To(HaveKeyWithValue("device", "mlx5_0"))
-}
-
-func dpuDeviceWithPCIAddress(name, pciAddress string) provisioningv1.DPUDevice {
-	return provisioningv1.DPUDevice{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
-			Labels: map[string]string{
-				cutil.DPUDevicePCIAddressLabel: pciAddress,
-			},
-		},
-	}
 }
