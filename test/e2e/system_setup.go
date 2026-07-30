@@ -58,17 +58,18 @@ import (
 )
 
 type ProvisionDPUClustersInput struct {
-	numberOfDPUNodes        int
-	numberOfDPUsPerNode     int
-	dpuClusterPrerequisites []client.Object
-	dpuClusters             []*provisioningv1.DPUCluster
-	dpuFlavor               *provisioningv1.DPUFlavor
-	bfb                     *provisioningv1.BFB
-	dpuSet                  *provisioningv1.DPUSet
-	client                  client.Client
-	bfbImageURL             string
-	restConfig              *rest.Config
-	HostRebootScript        string
+	numberOfDPUNodes            int
+	numberOfDPUsPerNode         int
+	dpuClusterPrerequisites     []client.Object
+	dpuClusters                 []*provisioningv1.DPUCluster
+	dpuFlavor                   *provisioningv1.DPUFlavor
+	bfb                         *provisioningv1.BFB
+	dpuSet                      *provisioningv1.DPUSet
+	client                      client.Client
+	bfbImageURL                 string
+	restConfig                  *rest.Config
+	HostRebootScript            string
+	selectDPUDevicesDynamically bool
 }
 
 // systemTestInput represents the fully loaded and processed test environment.
@@ -107,6 +108,7 @@ type systemTestInput struct {
 	dpuServiceCredentialRequest *dpuservicev1.DPUServiceCredentialRequest
 	numberOfDPUNodes            int
 	numberOfDPUsPerNode         int
+	selectDPUDevicesDynamically bool
 	useExternalNodeReboot       bool
 	pullSecretNames             []string
 	client                      client.Client
@@ -293,6 +295,7 @@ func (t *systemTestInput) applyConfig(conf config) {
 
 	t.numberOfDPUNodes = conf.NumberOfDPUNodes
 	t.numberOfDPUsPerNode = conf.NumberOfDPUsPerNode
+	t.selectDPUDevicesDynamically = conf.SelectDPUDevicesDynamically
 	t.useExternalNodeReboot = conf.UseExternalNodeReboot
 }
 
@@ -583,12 +586,22 @@ func ProvisionBFBAndDPUFlavor(ctx context.Context, input ProvisionDPUClustersInp
 // ProvisionDPUSet DPUSet that will provision DPUs in the background if the environment has such DPUs.
 // It doesn't check whether the DPUs become ready intentionally to allow for subsequent tests to be executed in the meantime.
 func ProvisionDPUSet(ctx context.Context, input ProvisionDPUClustersInput) {
+	dpuset := input.dpuSet.DeepCopy()
+	if input.selectDPUDevicesDynamically {
+		resolveDPUSetDPUDevicePCISelector(
+			ctx,
+			input.client,
+			dpuset,
+			input.numberOfDPUNodes,
+			input.numberOfDPUsPerNode,
+		)
+	}
+	// TODO: Test the cleanup of the node related to the DPU.
+	dpuset.SetLabels(CleanupScope.Suite)
+
 	Eventually(func(g Gomega) {
 		By("Creating the DPUSet")
-		dpuset := input.dpuSet.DeepCopy()
-		// TODO: Test the cleanup of the node related to the DPU.
-		dpuset.SetLabels(CleanupScope.Suite)
-		g.Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuset))).NotTo(HaveOccurred())
+		g.Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuset.DeepCopy()))).NotTo(HaveOccurred())
 	}).WithTimeout(60 * time.Second).Should(Succeed())
 
 	By("Checking the DPUServices have been mirrored to the target cluster")

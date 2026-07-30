@@ -532,16 +532,17 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 
 func getProvisionDPUClustersInput() ProvisionDPUClustersInput {
 	return ProvisionDPUClustersInput{
-		numberOfDPUNodes:        input.numberOfDPUNodes,
-		numberOfDPUsPerNode:     input.numberOfDPUsPerNode,
-		dpuClusterPrerequisites: input.dpuClusterPrerequisites,
-		dpuClusters:             input.dpuClusters,
-		dpuSet:                  input.dpuSet,
-		bfb:                     input.bfb,
-		dpuFlavor:               input.dpuFlavor,
-		client:                  input.client,
-		bfbImageURL:             input.bfbImageURL,
-		restConfig:              restConfig,
-		HostRebootScript:        input.HostRebootScript,
+		numberOfDPUNodes:            input.numberOfDPUNodes,
+		numberOfDPUsPerNode:         input.numberOfDPUsPerNode,
+		dpuClusterPrerequisites:     input.dpuClusterPrerequisites,
+		dpuClusters:                 input.dpuClusters,
+		dpuSet:                      input.dpuSet,
+		bfb:                         input.bfb,
+		dpuFlavor:                   input.dpuFlavor,
+		client:                      input.client,
+		bfbImageURL:                 input.bfbImageURL,
+		restConfig:                  restConfig,
+		HostRebootScript:            input.HostRebootScript,
+		selectDPUDevicesDynamically: input.selectDPUDevicesDynamically,
 	}
 }

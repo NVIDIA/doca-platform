@@ -444,9 +444,20 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 	dpuDeployment := testutils.GenerateDPUObj("dpf-dpudeployment", input.dpuDeployment.DeepCopy().Namespace, input.dpuDeployment.DeepCopy(), CleanupScope.Suite)
 	// Intentionally using deprecated field, e2e tests will be updated once we have removed the deprecated field. Unit
 	// tests cover the new field, e2e tests cover the old field since there is no more unit test coverage for the deprecated field.
-	//nolint:staticcheck
-	dpuDeployment.Spec.DPUs.DPUSets[0].NodeSelector = &metav1.LabelSelector{
+	dpuNodeSelector := &metav1.LabelSelector{
 		MatchLabels: map[string]string{"feature.node.kubernetes.io/dpu-enabled": "true"},
+	}
+	//nolint:staticcheck
+	dpuDeployment.Spec.DPUs.DPUSets[0].NodeSelector = dpuNodeSelector
+	if input.selectDPUDevicesDynamically {
+		resolveDPUDeploymentDPUDevicePCISelectors(
+			ctx,
+			input.client,
+			dpuDeployment,
+			dpuNodeSelector,
+			input.numberOfDPUNodes,
+			input.numberOfDPUsPerNode,
+		)
 	}
 	// Add example2 service to the DPUDeployment
 	dpuDeployment.Spec.Services["example-2"] = dpuservicev1.DPUDeploymentServiceConfiguration{

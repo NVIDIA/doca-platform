@@ -166,8 +166,7 @@ func TestE2E(t *testing.T) {
 	g := NewWithT(t)
 	defer GinkgoRecover()
 	var err error
-	_, err = fmt.Fprintf(GinkgoWriter, "E2E Tests Suite starting...\n\n")
-	Expect(err).ToNot(HaveOccurred())
+	GinkgoWriter.Printf("E2E Tests Suite starting...\n\n")
 	ctrl.SetLogger(klog.Background())
 
 	Expect(dpuservicev1.AddToScheme(scheme.Scheme)).To(Succeed())
@@ -200,6 +199,7 @@ func TestE2E(t *testing.T) {
 	_, _ = fmt.Fprintf(GinkgoWriter, "  testKubeconfig: %s\n", testKubeconfig)
 	_, _ = fmt.Fprintf(GinkgoWriter, "  numberOfDPUNodes: %d\n", conf.NumberOfDPUNodes)
 	_, _ = fmt.Fprintf(GinkgoWriter, "  numberOfDPUsPerNode: %d\n", conf.NumberOfDPUsPerNode)
+	_, _ = fmt.Fprintf(GinkgoWriter, "  selectDPUDevicesDynamically: %t\n", conf.SelectDPUDevicesDynamically)
 	_, _ = fmt.Fprintf(GinkgoWriter, "  useExternalNodeReboot: %v\n", conf.UseExternalNodeReboot)
 
 	// Create a client to use throughout the test.
@@ -226,7 +226,7 @@ func TestE2E(t *testing.T) {
 	suiteConfig, _ := GinkgoConfiguration()
 	if cleanupFlags.SkipCleanupOnFailure {
 		suiteConfig.FailFast = true
-		_, _ = fmt.Fprintf(GinkgoWriter, "Auto-enabled fail-fast mode (skip-cleanup-on-failure flag detected)\n")
+		GinkgoWriter.Printf("Auto-enabled fail-fast mode (skip-cleanup-on-failure flag detected)\n")
 	}
 
 	RunSpecs(t, "e2e suite", suiteConfig)
