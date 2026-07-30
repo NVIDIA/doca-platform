@@ -18,9 +18,9 @@ A Helm chart for Kubernetes
 | kubeMultusDs.installMultusBinary.resources.requests.memory | string | `"15Mi"` |  |
 | kubeMultusDs.kubeMultus.containerSecurityContext.privileged | bool | `true` |  |
 | kubeMultusDs.kubeMultus.resources.limits.cpu | string | `"100m"` |  |
-| kubeMultusDs.kubeMultus.resources.limits.memory | string | `"50Mi"` |  |
+| kubeMultusDs.kubeMultus.resources.limits.memory | string | `"100Mi"` |  |
 | kubeMultusDs.kubeMultus.resources.requests.cpu | string | `"100m"` |  |
-| kubeMultusDs.kubeMultus.resources.requests.memory | string | `"50Mi"` |  |
+| kubeMultusDs.kubeMultus.resources.requests.memory | string | `"100Mi"` |  |
 | kubernetesClusterDomain | string | `"cluster.local"` |  |
 | mtu | int | `1500` |  |
 | multus.serviceAccount.annotations | object | `{}` |  |
