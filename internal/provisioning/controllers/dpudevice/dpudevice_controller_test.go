@@ -541,6 +541,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			Expect(dpuDevice.Labels).NotTo(HaveKey("provisioning.dpu.nvidia.com/dpudevice-psid"))
 
 			// Verify Secure Boot detection (default: enabled)
+			Expect(reconciler.reconcileDynamicFields(ctx, dpuDevice)).To(Succeed())
 			Expect(dpuDevice.Status.SecureBoot).NotTo(BeNil())
 			Expect(dpuDevice.Status.SecureBoot.Enabled).NotTo(BeNil())
 			Expect(*dpuDevice.Status.SecureBoot.Enabled).To(BeTrue())
@@ -583,9 +584,8 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 
 			dpuDevice := createTestDPUDevice(mockServer, "test-dpudevice-sb-disabled")
 
-			err := reconciler.discoverDPUDevice(ctx, dpuDevice)
-
-			Expect(err).NotTo(HaveOccurred())
+			Expect(reconciler.discoverDPUDevice(ctx, dpuDevice)).To(Succeed())
+			Expect(reconciler.reconcileDynamicFields(ctx, dpuDevice)).To(Succeed())
 			Expect(dpuDevice.Status.SecureBoot).NotTo(BeNil())
 			Expect(dpuDevice.Status.SecureBoot.Enabled).NotTo(BeNil())
 			Expect(*dpuDevice.Status.SecureBoot.Enabled).To(BeFalse())
@@ -601,9 +601,8 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 
 			dpuDevice := createTestDPUDevice(mockServer, "test-dpudevice-sb-error")
 
-			err := reconciler.discoverDPUDevice(ctx, dpuDevice)
-
-			Expect(err).To(HaveOccurred())
+			Expect(reconciler.discoverDPUDevice(ctx, dpuDevice)).To(Succeed())
+			Expect(reconciler.reconcileDynamicFields(ctx, dpuDevice)).NotTo(Succeed())
 		})
 
 		It("should fail when DPU type is unknown in DPU mode", func() {
