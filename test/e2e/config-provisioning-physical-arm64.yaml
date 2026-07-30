@@ -1,7 +1,7 @@
 bfb: "../objects/infrastructure/bfb.yaml"
 dpuClusters:
   - "../objects/infrastructure/dpucluster-kamaji.yaml"
-# ARM64 physical: 2 nodes, 1 DPU per node; PCI 0004-01-00 via dpuDeviceSelector.
+# ARM64 physical: 2 nodes, 1 dynamically selected common PCI address per node.
 dpuSet: "../objects/infrastructure/dpuset-physical-arm64.yaml"
 dpuFlavor: "../objects/infrastructure/dpuflavor-physical.yaml"
 dpuServiceInterface: "../objects/application/dpuserviceinterface_service_type.yaml"
@@ -21,3 +21,4 @@ dpuServiceHBN: "../objects/application/dpuservicehbn.yaml"
 dhcpDaemonSet: "../objects/application/vpc/dhcp.yaml"
 numberOfDPUNodes: 2
 numberOfDPUsPerNode: 1
+selectDPUDevicesDynamically: true

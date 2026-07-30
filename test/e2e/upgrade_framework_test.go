@@ -32,11 +32,9 @@ package e2e
 //   upgrade_artifacts_test.go  — artifact snapshot + comparison
 
 import (
-	"cmp"
 	"context"
 	"fmt"
 	"maps"
-	"slices"
 	"strings"
 	"time"
 
@@ -282,7 +280,12 @@ func createUpgradeDPUDeployments(ctx context.Context, systemInput *systemTestInp
 		dpuDeployment.Spec.DPUs.DPUSets[0].NodeSelector = &metav1.LabelSelector{
 			MatchLabels: map[string]string{"kubernetes.io/hostname": node.GetName()},
 		}
-		dpuDevices := waitForDPUDevicesWithPCIAddress(ctx, systemInput.client, node.Name)
+		dpuDevices := waitForDPUDevicesWithPCIAddress(
+			ctx,
+			systemInput.client,
+			dpfOperatorSystemNamespace,
+			node.Name,
+		)
 		selectedDPUDevice, err := selectDPUDeviceWithPCIAddress(dpuDevices)
 		Expect(err).NotTo(HaveOccurred())
 		pciAddress := selectedDPUDevice.Labels[util.DPUDevicePCIAddressLabel]
@@ -293,48 +296,6 @@ func createUpgradeDPUDeployments(ctx context.Context, systemInput *systemTestInp
 		}
 		Expect(systemInput.client.Create(ctx, dpuDeployment)).To(Succeed())
 	}
-}
-
-func waitForDPUDevicesWithPCIAddress(ctx context.Context, c client.Client, nodeName string) []provisioningv1.DPUDevice {
-	var discovered []provisioningv1.DPUDevice
-	Eventually(func(g Gomega) {
-		dpuDevices := &provisioningv1.DPUDeviceList{}
-		g.Expect(c.List(ctx, dpuDevices,
-			client.InNamespace(dpfOperatorSystemNamespace),
-			client.MatchingLabels{provisioningv1.DPUNodeNameLabel: nodeName},
-		)).To(Succeed())
-
-		discovered = dpuDevices.Items
-		hasPCIAddress := slices.ContainsFunc(discovered, func(dpuDevice provisioningv1.DPUDevice) bool {
-			return dpuDevice.Labels[util.DPUDevicePCIAddressLabel] != ""
-		})
-		g.Expect(hasPCIAddress).To(BeTrue(), "waiting for a DPUDevice with a PCI address on worker %s", nodeName)
-	}).WithTimeout(5 * time.Minute).WithPolling(time.Second).Should(Succeed())
-
-	return discovered
-}
-
-func selectDPUDeviceWithPCIAddress(dpuDevices []provisioningv1.DPUDevice) (provisioningv1.DPUDevice, error) {
-	candidates := make([]provisioningv1.DPUDevice, 0, len(dpuDevices))
-	for _, dpuDevice := range dpuDevices {
-		if dpuDevice.Labels[util.DPUDevicePCIAddressLabel] != "" {
-			candidates = append(candidates, dpuDevice)
-		}
-	}
-	if len(candidates) == 0 {
-		return provisioningv1.DPUDevice{}, fmt.Errorf("no DPUDevice has a PCI address label")
-	}
-
-	slices.SortFunc(candidates, func(a, b provisioningv1.DPUDevice) int {
-		if byPCIAddress := cmp.Compare(
-			strings.ToLower(a.Labels[util.DPUDevicePCIAddressLabel]),
-			strings.ToLower(b.Labels[util.DPUDevicePCIAddressLabel]),
-		); byPCIAddress != 0 {
-			return byPCIAddress
-		}
-		return cmp.Compare(a.Name, b.Name)
-	})
-	return candidates[0], nil
 }
 
 // validationPhase emits the Ginkgo container for one validation phase. The
