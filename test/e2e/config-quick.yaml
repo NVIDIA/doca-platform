@@ -1,5 +1,6 @@
 provisioningControllerPVC: "../objects/infrastructure/pvc-quick.yaml"
 bfb: "../objects/infrastructure/fake-bfb.yaml"
+kamajiEtcdEncryptionAtRest: "../objects/infrastructure/etcd-encryption-at-rest-static-key.yaml"
 dpuClusters:
   - "../objects/infrastructure/dpucluster-kamaji-kind.yaml"
 dpuSet: "../objects/infrastructure/dpuset.yaml"
