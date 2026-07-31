@@ -104,6 +104,9 @@ var _ = Describe("Netplan", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(string(content)).To(ContainSubstring("tmfifo_net0"))
 			Expect(string(content)).To(ContainSubstring("fe80::2/64"))
+			Expect(string(content)).To(ContainSubstring("oob_net0"))
+			Expect(string(content)).To(ContainSubstring("dhcp6: false"))
+			Expect(string(content)).To(ContainSubstring("accept-ra: false"))
 
 			// 99-dpf-comm-ch.yaml is created only if ZeroTrustMode is false
 			_, err = os.Stat(filepath.Join(tempDir, "99-dpf-comm-ch.yaml"))
