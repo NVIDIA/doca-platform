@@ -597,6 +597,10 @@ clean-test-env: kind ## Clean Kind test environment (delete Kind cluster)
 OPERATOR_NAMESPACE ?= dpf-operator-system
 HELMFILE_ENV ?=
 NFD_WAIT ?= true
+# Enable dependencies required by the default test-e2e label filter so the tests
+# can be deployed and run directly through the documented Makefile workflow.
+# HELMFILE_STATE_VALUES_SET remains a full override for other test configurations.
+TEST_DEPLOY_OPERATOR_HELMFILE_STATE_VALUES_SET = $(if $(HELMFILE_STATE_VALUES_SET),$(HELMFILE_STATE_VALUES_SET),openbao.enabled=true,external-secrets.enabled=true)
 .PHONY: test-deploy-operator-helm
 test-deploy-operator-helm: helm helm-package-operator ## Deploy the DPF Operator using helm
 	# Deploy the DPF Operator prerequisites.
@@ -604,10 +608,10 @@ test-deploy-operator-helm: helm helm-package-operator ## Deploy the DPF Operator
 ifeq ($(NFD_WAIT),false)
 	# When NFD_WAIT=false, deploy all prereqs except NFD first, then deploy NFD without waiting.
 	# This is needed when OVN Kubernetes is the CNI because NFD cannot become ready without a functioning CNI.
-	$(MAKE) HELMFILE_FILE=$(CURDIR)/deploy/helmfiles/prereqs.yaml.tmp HELMFILE_SELECTOR="app!=node-feature-discovery" test-deploy-helmfile
-	$(MAKE) HELMFILE_FILE=$(CURDIR)/deploy/helmfiles/prereqs.yaml.tmp HELMFILE_WAIT=false HELMFILE_SELECTOR="app=node-feature-discovery" test-deploy-helmfile
+	$(MAKE) HELMFILE_FILE=$(CURDIR)/deploy/helmfiles/prereqs.yaml.tmp HELMFILE_SELECTOR="app!=node-feature-discovery" HELMFILE_STATE_VALUES_SET="$(TEST_DEPLOY_OPERATOR_HELMFILE_STATE_VALUES_SET)" test-deploy-helmfile
+	$(MAKE) HELMFILE_FILE=$(CURDIR)/deploy/helmfiles/prereqs.yaml.tmp HELMFILE_WAIT=false HELMFILE_SELECTOR="app=node-feature-discovery" HELMFILE_STATE_VALUES_SET="$(TEST_DEPLOY_OPERATOR_HELMFILE_STATE_VALUES_SET)" test-deploy-helmfile
 else
-	$(MAKE) HELMFILE_FILE=$(CURDIR)/deploy/helmfiles/prereqs.yaml.tmp test-deploy-helmfile
+	$(MAKE) HELMFILE_FILE=$(CURDIR)/deploy/helmfiles/prereqs.yaml.tmp HELMFILE_STATE_VALUES_SET="$(TEST_DEPLOY_OPERATOR_HELMFILE_STATE_VALUES_SET)" test-deploy-helmfile
 endif
 
 	# Deploy the DPF Operator.

@@ -136,6 +136,7 @@ func generateDPFOperatorConfig() *operatorv1.DPFOperatorConfig {
 				BaseComponentConfig: operatorv1.BaseComponentConfig{
 					Disable: ptr.To(false),
 				},
+				EtcdEncryptionAtRest: etcdEncryptionAtRestConfigurationFromFile(conf.KamajiEtcdEncryptionAtRestPath),
 			},
 			Monitoring: &operatorv1.MonitoringConfiguration{
 				Disable: ptr.To(false),
@@ -163,6 +164,8 @@ func generateDPFOperatorConfig() *operatorv1.DPFOperatorConfig {
 			ImagePullSecrets: []string{dpfPullSecretName, "pull-secret-extra"},
 		},
 	}
+	configureGeneratedDPFOperatorConfigVaultKMS(dpfOperatorConfig)
+
 	if isGinkgoLabelApplied(Domain.ZeroTrust) {
 		dpfOperatorConfig.Spec.DeploymentMode = operatorv1.DeploymentModeZeroTrust
 		dpfOperatorConfig.Spec.StaticClusterManager.BaseComponentConfig.Disable = ptr.To(true)
@@ -260,6 +263,13 @@ func SystemSetupBeforeSuite(skipSystemComponentValidation bool) {
 	}
 
 	AnnotateAndLabelNodes(ctx, input.client, input.useExternalNodeReboot)
+	createEtcdEncryptionAtRestPrerequisites(
+		ctx,
+		input.client,
+		hostClusterRESTClient,
+		input.restConfig,
+		input.config,
+	)
 
 	if ngcAPIKey != "" {
 		createNGCImagePullSecret(ctx, input.client)
@@ -408,6 +418,12 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 			By("Waiting for DPFOperatorConfig to be ready")
 			VerifyDPFOperatorConfigReady(ctx, input.client, 20*time.Minute)
 		}
+	})
+
+	Context("Encrypted Secrets", Serial, Labels{Domain.ZeroTrust}, func() {
+		It("replicate and refresh secret data from OpenBao with External Secrets", func() {
+			ValidateExternalSecretsOpenBaoIntegration(ctx, input)
+		})
 	})
 
 	Context("DPU Deployment", Labels{Domain.ZeroTrust}, func() {
@@ -728,6 +744,12 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 		})
 	})
 
+	Context("Etcd Encryption at Rest", Serial, Labels{Domain.ZeroTrust}, func() {
+		It("verify Kamaji DPUCluster data is encrypted in etcd", func() {
+			ValidateDPUClusterEtcdEncryptionAtRest(ctx, input)
+		})
+	})
+
 	// The actual DPFOperatorConfig removal happens in AfterSuite but we need to ensure some resources exist before we
 	// proceed with the removal.
 	Context("Validate DPFOperatorConfig deletion", Serial, Labels{Domain.ZeroTrust}, func() {
@@ -755,5 +777,6 @@ func getProvisionDPUClustersInput() ProvisionDPUClustersInput {
 		NodeRebootConfigMap:         input.nodeRebootConfigMap,
 		DPUNodeBMCs:                 input.dpuNodeBMCs,
 		selectDPUDevicesDynamically: input.selectDPUDevicesDynamically,
+		operatorConfig:              input.config,
 	}
 }
