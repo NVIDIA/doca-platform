@@ -1,4 +1,5 @@
 bfb: "../objects/infrastructure/bfb.yaml"
+kamajiEtcdEncryptionAtRest: "../objects/infrastructure/etcd-encryption-at-rest-vault-kms.yaml"
 dpuClusters:
   - "../objects/infrastructure/dpucluster-kamaji.yaml"
 dpuSet: "../objects/infrastructure/dpuset-physical.yaml"
