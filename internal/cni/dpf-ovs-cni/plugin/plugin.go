@@ -424,7 +424,13 @@ func (d *DpfCNI) CmdAdd(args *skel.CmdArgs) error {
 
 	if err := api.Get(ctx, &ovsmodel.Port{Name: hostIface.Name}); err == nil {
 		log.Printf("CmdAdd port already managed by OVS trying to remove it: %v", hostIface.Name)
-		if err := removeOvsPort(ctx, api, bridgeName, hostIface.Name); err != nil {
+		// the stale port is not necessarily on the bridge we are about to attach to,
+		// so look up the bridge that currently owns it.
+		staleBridgeName, err := api.GetBridgeNameByPort(ctx, hostIface.Name)
+		if err != nil {
+			return err
+		}
+		if err := removeOvsPort(ctx, api, staleBridgeName, hostIface.Name); err != nil {
 			return err
 		}
 	}
