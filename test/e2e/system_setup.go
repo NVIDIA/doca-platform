@@ -79,6 +79,7 @@ type ProvisionDPUClustersInput struct {
 	DPUNodeBMCs                 map[string]string
 	expectedKubernetesVersion   string
 	selectDPUDevicesDynamically bool
+	operatorConfig              *operatorv1.DPFOperatorConfig
 }
 
 func isPreUpgradeFromLastReleasedGA(ctx context.Context, kclient client.Client, objectKey client.ObjectKey) (bool, error) {
@@ -596,6 +597,16 @@ func ProvisionDPUClusters(ctx context.Context, input ProvisionDPUClustersInput) 
 			}
 		}
 	}).WithTimeout(300 * time.Second).Should(Succeed())
+
+	if etcdEncryptionAtRestConfiguration(input.operatorConfig) != nil {
+		for _, dpuCluster := range input.dpuClusters {
+			if dpuCluster.Spec.Type != string(provisioningv1.KamajiCluster) {
+				continue
+			}
+			expectDPUClusterEncryptionAtRest(ctx, input.client, dpuCluster, input.operatorConfig, time.Minute)
+		}
+		updateStaticKeySecretIfConfigured(ctx, input.client, input.operatorConfig)
+	}
 
 	By("Creating a client for the DPUCluster")
 	getDPUClusterClients(ctx, input)
