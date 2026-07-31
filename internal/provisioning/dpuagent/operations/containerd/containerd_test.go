@@ -18,6 +18,7 @@ package containerd
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -25,6 +26,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/cmd/dpuagent/opts"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
+	"github.com/nvidia/doca-platform/internal/provisioning/utils/filesystem"
 
 	"github.com/BurntSushi/toml"
 	"github.com/Masterminds/semver/v3"
@@ -104,12 +106,12 @@ var _ = Describe("Containerd Configuration", func() {
 			})).To(BeTrue())
 		})
 
-		It("should start containerd even when RegistryEndpoint is empty", func() {
-			var executedCmd string
+		It("should configure TLS compatibility and restart containerd when RegistryEndpoint is empty", func() {
+			var executedCmds []string
 			operation := &ConfigureContainerd{
 				rootFS: tempDir,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
-					executedCmd = cmd
+					executedCmds = append(executedCmds, cmd)
 					return bytes.Buffer{}, bytes.Buffer{}, nil
 				},
 			}
@@ -123,7 +125,22 @@ var _ = Describe("Containerd Configuration", func() {
 				},
 			})
 			Expect(err).NotTo(HaveOccurred())
-			Expect(executedCmd).To(Equal("systemctl enable --now containerd"))
+			Expect(executedCmds).To(Equal([]string{
+				"systemctl daemon-reload",
+				"systemctl stop containerd",
+				"systemctl enable --now containerd",
+			}))
+
+			dropInPath := filepath.Join(tempDir, containerdSystemdDropInDir, containerdTLSDropInFile)
+			content, err := os.ReadFile(dropInPath)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(content)).To(Equal(containerdTLSDropInContent))
+			info, err := os.Stat(dropInPath)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(info.Mode().Perm()).To(Equal(os.FileMode(0644)))
+
+			restartMarker := filepath.Join(tempDir, containerdRestartMarker)
+			Expect(restartMarker).NotTo(BeAnExistingFile())
 		})
 
 		It("should add mirrors and not disable TLS verification", func() {
@@ -216,6 +233,9 @@ oom_score = 0
 			// config_path should be removed once mirrors endpoint is configured.
 			configPathValue := getNestedValue(config, "plugins", "io.containerd.grpc.v1.cri", "registry", "config_path")
 			Expect(configPathValue).To(BeNil())
+
+			dropInPath := filepath.Join(tempDir, containerdSystemdDropInDir, containerdTLSDropInFile)
+			Expect(dropInPath).To(BeAnExistingFile())
 		})
 
 		It("should reuse config_path already declared under the containerd v2 images plugin", func() {
@@ -257,6 +277,7 @@ version = 2
 			Expect(getNestedValue(config, "plugins", "io.containerd.cri.v1.images", "registry", "mirrors")).To(BeNil())
 			// The existing images-plugin config_path must be preserved.
 			Expect(getNestedValue(config, "plugins", "io.containerd.cri.v1.images", "registry", "config_path")).To(Equal("/etc/containerd/certs.d"))
+			Expect(filepath.Join(tempDir, containerdRestartMarker)).NotTo(BeAnExistingFile())
 		})
 
 		It("should preserve a scheme-qualified endpoint in containerd v2 hosts.toml", func() {
@@ -343,6 +364,258 @@ version = 2
 			_, err = toml.DecodeFile(hostsPath, &hosts)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(hosts["server"]).To(Equal("https://nvcr.io"))
+			Expect(filepath.Join(tempDir, containerdRestartMarker)).To(BeAnExistingFile())
+		})
+	})
+
+	Context("TLS compatibility drop-in", func() {
+		It("should create the managed drop-in and only mark content changes", func() {
+			operation := &ConfigureContainerd{rootFS: tempDir}
+
+			changed, err := operation.ensureTLSCompatibilityDropIn()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(changed).To(BeTrue())
+
+			dropInPath := filepath.Join(tempDir, containerdSystemdDropInDir, containerdTLSDropInFile)
+			content, err := os.ReadFile(dropInPath)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(content)).To(Equal(containerdTLSDropInContent))
+			info, err := os.Stat(dropInPath)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(info.Mode().Perm()).To(Equal(os.FileMode(0644)))
+
+			Expect(operation.removeRestartMarker()).To(Succeed())
+			changed, err = operation.ensureTLSCompatibilityDropIn()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(changed).To(BeFalse())
+			Expect(filepath.Join(tempDir, containerdRestartMarker)).NotTo(BeAnExistingFile())
+		})
+
+		It("should replace a different drop-in and create the marker first", func() {
+			dropInDir := filepath.Join(tempDir, containerdSystemdDropInDir)
+			Expect(os.MkdirAll(dropInDir, 0755)).To(Succeed())
+			dropInPath := filepath.Join(dropInDir, containerdTLSDropInFile)
+			Expect(os.WriteFile(dropInPath, []byte("old content"), 0600)).To(Succeed())
+
+			operation := &ConfigureContainerd{rootFS: tempDir}
+			changed, err := operation.ensureTLSCompatibilityDropIn()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(changed).To(BeTrue())
+			Expect(os.ReadFile(dropInPath)).To(Equal([]byte(containerdTLSDropInContent)))
+			Expect(filepath.Join(tempDir, containerdRestartMarker)).To(BeAnExistingFile())
+		})
+
+		It("should not modify the drop-in when creating the marker fails", func() {
+			dropInDir := filepath.Join(tempDir, containerdSystemdDropInDir)
+			Expect(os.MkdirAll(dropInDir, 0755)).To(Succeed())
+			dropInPath := filepath.Join(dropInDir, containerdTLSDropInFile)
+			Expect(os.WriteFile(dropInPath, []byte("old content"), 0644)).To(Succeed())
+
+			Expect(os.WriteFile(filepath.Join(tempDir, "run"), []byte("not a directory"), 0644)).To(Succeed())
+			operation := &ConfigureContainerd{rootFS: tempDir}
+			changed, err := operation.ensureTLSCompatibilityDropIn()
+			Expect(err).To(HaveOccurred())
+			Expect(changed).To(BeFalse())
+			content, readErr := os.ReadFile(dropInPath)
+			Expect(readErr).NotTo(HaveOccurred())
+			Expect(string(content)).To(Equal("old content"))
+		})
+
+		It("should create the restart marker idempotently", func() {
+			operation := &ConfigureContainerd{rootFS: tempDir}
+			Expect(operation.createRestartMarker()).To(Succeed())
+			Expect(operation.createRestartMarker()).To(Succeed())
+			Expect(filepath.Join(tempDir, containerdRestartMarker)).To(BeAnExistingFile())
+		})
+
+		It("should preserve the marker and old content when the target write fails", func() {
+			targetPath := filepath.Join(tempDir, "restart-sensitive.conf")
+			Expect(os.WriteFile(targetPath, []byte("old content"), 0644)).To(Succeed())
+
+			operation := &ConfigureContainerd{
+				rootFS: tempDir,
+				atomicWrite: func(name string, data []byte, perm os.FileMode) error {
+					if name == targetPath {
+						return errors.New("injected atomic write failure")
+					}
+					return filesystem.AtomicWrite(name, data, perm)
+				},
+			}
+			changed, err := operation.writeRestartSensitiveFile(targetPath, []byte("new content"))
+			Expect(err).To(HaveOccurred())
+			Expect(changed).To(BeFalse())
+			content, readErr := os.ReadFile(targetPath)
+			Expect(readErr).NotTo(HaveOccurred())
+			Expect(string(content)).To(Equal("old content"))
+			Expect(filepath.Join(tempDir, containerdRestartMarker)).To(BeAnExistingFile())
+		})
+	})
+
+	Context("containerd service reconciliation", func() {
+		It("should restart in order when a marker exists and remove it after success", func() {
+			var executedCmds []string
+			operation := &ConfigureContainerd{
+				rootFS: tempDir,
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					executedCmds = append(executedCmds, cmd)
+					return bytes.Buffer{}, bytes.Buffer{}, nil
+				},
+			}
+			Expect(operation.createRestartMarker()).To(Succeed())
+
+			Expect(operation.reconcileContainerdService()).To(Succeed())
+			Expect(executedCmds).To(Equal([]string{
+				"systemctl daemon-reload",
+				"systemctl stop containerd",
+				"systemctl enable --now containerd",
+			}))
+			Expect(filepath.Join(tempDir, containerdRestartMarker)).NotTo(BeAnExistingFile())
+		})
+
+		It("should only enable containerd when no marker exists", func() {
+			var executedCmds []string
+			operation := &ConfigureContainerd{
+				rootFS: tempDir,
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					executedCmds = append(executedCmds, cmd)
+					return bytes.Buffer{}, bytes.Buffer{}, nil
+				},
+			}
+
+			Expect(operation.reconcileContainerdService()).To(Succeed())
+			Expect(executedCmds).To(Equal([]string{"systemctl enable --now containerd"}))
+		})
+
+		It("should return an error and leave the marker when marker removal fails", func() {
+			markerPath := filepath.Join(tempDir, containerdRestartMarker)
+			Expect(os.MkdirAll(markerPath, 0755)).To(Succeed())
+			Expect(os.WriteFile(filepath.Join(markerPath, "keep"), []byte(""), 0644)).To(Succeed())
+
+			var executedCmds []string
+			operation := &ConfigureContainerd{
+				rootFS: tempDir,
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					executedCmds = append(executedCmds, cmd)
+					return bytes.Buffer{}, bytes.Buffer{}, nil
+				},
+			}
+
+			Expect(operation.reconcileContainerdService()).NotTo(Succeed())
+			Expect(executedCmds).To(Equal([]string{
+				"systemctl daemon-reload",
+				"systemctl stop containerd",
+				"systemctl enable --now containerd",
+			}))
+			Expect(markerPath).To(BeADirectory())
+		})
+
+		DescribeTable("should preserve the marker after a systemctl failure",
+			func(failingCommand string, expectedCommands []string) {
+				var executedCmds []string
+				operation := &ConfigureContainerd{
+					rootFS: tempDir,
+					runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+						executedCmds = append(executedCmds, cmd)
+						if cmd == failingCommand {
+							return bytes.Buffer{}, *bytes.NewBufferString("command failed"), errors.New("failed")
+						}
+						return bytes.Buffer{}, bytes.Buffer{}, nil
+					},
+				}
+				Expect(operation.createRestartMarker()).To(Succeed())
+
+				Expect(operation.reconcileContainerdService()).NotTo(Succeed())
+				Expect(executedCmds).To(Equal(expectedCommands))
+				Expect(filepath.Join(tempDir, containerdRestartMarker)).To(BeAnExistingFile())
+			},
+			Entry("daemon-reload failure",
+				"systemctl daemon-reload",
+				[]string{"systemctl daemon-reload"},
+			),
+			Entry("stop failure",
+				"systemctl stop containerd",
+				[]string{"systemctl daemon-reload", "systemctl stop containerd"},
+			),
+			Entry("enable failure",
+				"systemctl enable --now containerd",
+				[]string{"systemctl daemon-reload", "systemctl stop containerd", "systemctl enable --now containerd"},
+			),
+		)
+
+		It("should recover from a marker left after an interrupted execution", func() {
+			dropInDir := filepath.Join(tempDir, containerdSystemdDropInDir)
+			Expect(os.MkdirAll(dropInDir, 0755)).To(Succeed())
+			Expect(os.WriteFile(
+				filepath.Join(dropInDir, containerdTLSDropInFile),
+				[]byte(containerdTLSDropInContent),
+				0644,
+			)).To(Succeed())
+
+			var executedCmds []string
+			operation := &ConfigureContainerd{
+				rootFS: tempDir,
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					executedCmds = append(executedCmds, cmd)
+					return bytes.Buffer{}, bytes.Buffer{}, nil
+				},
+			}
+			Expect(operation.createRestartMarker()).To(Succeed())
+
+			err := operation.Execute(ctx, &operations.Context{DPUFlavor: provisioningv1.DPUFlavor{}})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(executedCmds).To(Equal([]string{
+				"systemctl daemon-reload",
+				"systemctl stop containerd",
+				"systemctl enable --now containerd",
+			}))
+			Expect(filepath.Join(tempDir, containerdRestartMarker)).NotTo(BeAnExistingFile())
+		})
+
+		It("should not restart containerd again when managed files are unchanged", func() {
+			var executedCmds []string
+			operation := &ConfigureContainerd{
+				rootFS: tempDir,
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					executedCmds = append(executedCmds, cmd)
+					return bytes.Buffer{}, bytes.Buffer{}, nil
+				},
+			}
+			optCtx := &operations.Context{DPUFlavor: provisioningv1.DPUFlavor{}}
+
+			Expect(operation.Execute(ctx, optCtx)).To(Succeed())
+			executedCmds = nil
+			Expect(operation.Execute(ctx, optCtx)).To(Succeed())
+			Expect(executedCmds).To(Equal([]string{"systemctl enable --now containerd"}))
+		})
+
+		It("should stop before writing the drop-in or reconciling when registry configuration fails", func() {
+			configPath := filepath.Join(tempDir, containerdConfigDir, "config.toml")
+			Expect(os.WriteFile(configPath, []byte("invalid = ["), 0644)).To(Succeed())
+
+			var executedCmds []string
+			operation := &ConfigureContainerd{
+				rootFS: tempDir,
+				getContainerdVersion: func() (string, error) {
+					return containerdV1VersionOutput, nil
+				},
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					executedCmds = append(executedCmds, cmd)
+					return bytes.Buffer{}, bytes.Buffer{}, nil
+				},
+			}
+			optCtx := &operations.Context{
+				DPUFlavor: provisioningv1.DPUFlavor{
+					Spec: provisioningv1.DPUFlavorSpec{
+						ContainerdConfig: provisioningv1.ContainerdConfig{
+							RegistryEndpoint: "my.registry.com",
+						},
+					},
+				},
+			}
+
+			Expect(operation.Execute(ctx, optCtx)).NotTo(Succeed())
+			Expect(executedCmds).To(BeEmpty())
+			Expect(filepath.Join(tempDir, containerdSystemdDropInDir, containerdTLSDropInFile)).NotTo(BeAnExistingFile())
 		})
 	})
 
