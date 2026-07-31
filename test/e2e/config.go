@@ -42,6 +42,10 @@ type config struct {
 	// phase uses the config shape of the release it installs or validates.
 	DPFOperatorConfigPath *string `json:"dpfOperatorConfig,omitempty"`
 
+	// KamajiEtcdEncryptionAtRestPath, if set, is the encryption-at-rest
+	// configuration applied to Kamaji DPUClusters created by the suite.
+	KamajiEtcdEncryptionAtRestPath *string `json:"kamajiEtcdEncryptionAtRest,omitempty"`
+
 	// Required by every suite (enforced by validateRequiredConfigFields).
 	DPUClusterPaths          []string `json:"dpuClusters"`
 	DPUDeploymentPath        string   `json:"dpuDeployment"`

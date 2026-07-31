@@ -1,0 +1,5 @@
+provider: staticKey
+staticKey:
+  keySecretRef:
+    name: dpf-e2e-etcd-encryption-key
+    key: key

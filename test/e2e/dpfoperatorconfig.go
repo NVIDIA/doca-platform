@@ -175,11 +175,12 @@ func ValidateDPFOperatorBaseConfiguration(ctx context.Context, input *systemTest
 			},
 		}
 	}
-	modifiedConfig.Spec.Security = &operatorv1.SecurityConfiguration{
-		Kata: &operatorv1.KataContainersConfiguration{
-			Daemon: &operatorv1.ImageComponentConfig{
-				Image: ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.KataContainersName)),
-			},
+	if modifiedConfig.Spec.Security == nil {
+		modifiedConfig.Spec.Security = &operatorv1.SecurityConfiguration{}
+	}
+	modifiedConfig.Spec.Security.Kata = &operatorv1.KataContainersConfiguration{
+		Daemon: &operatorv1.ImageComponentConfig{
+			Image: ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.KataContainersName)),
 		},
 	}
 

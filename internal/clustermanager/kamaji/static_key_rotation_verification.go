@@ -38,6 +38,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -50,12 +51,8 @@ const (
 	apiserverDefaultSecurePort = int32(6443)
 	// apiserverMetricsPath is the kube-apiserver metrics endpoint path.
 	apiserverMetricsPath = "/metrics"
-	// apiserverMetricsClientCertKey is the client certificate key in the Kamaji Secret.
-	apiserverMetricsClientCertKey = "apiserver-kubelet-client.crt"
-	// apiserverMetricsClientKeyKey is the client private key in the Kamaji Secret.
-	apiserverMetricsClientKeyKey = "apiserver-kubelet-client.key"
-	// apiserverMetricsCAKey is the CA certificate key in the Kamaji Secret.
-	apiserverMetricsCAKey = "ca.crt"
+	// apiserverMetricsAdminKubeconfigKey is the in-cluster admin kubeconfig key in the Kamaji Secret.
+	apiserverMetricsAdminKubeconfigKey = "admin.svc"
 	// apiserverMetricsClientTimeout bounds each metrics request.
 	apiserverMetricsClientTimeout = 10 * time.Second
 	// apiserverMetricsMaxResponseBytes bounds each metrics response to 10 MiB.
@@ -179,44 +176,42 @@ func apiserverMetricsPort(tcp *kamajiv1.TenantControlPlane) int32 {
 	return tcp.Spec.NetworkProfile.Port
 }
 
-// metricsTLSConfig returns TLS client settings matching the existing ServiceMonitor scrape configuration.
+// metricsTLSConfig returns TLS client settings from the Kamaji admin kubeconfig.
 func (v *metricsReloadVerifier) metricsTLSConfig(ctx context.Context, dc *provisioningv1.DPUCluster) (*tls.Config, error) {
 	tcp := &kamajiv1.TenantControlPlane{}
 	if err := v.client.Get(ctx, kamajiTCPName(dc), tcp); err != nil {
-		return nil, fmt.Errorf("get TenantControlPlane for kube-apiserver metrics client certificate: %w", err)
+		return nil, fmt.Errorf("get TenantControlPlane for kube-apiserver admin kubeconfig: %w", err)
 	}
-	clientSecretName := tcp.Status.Certificates.APIServerKubeletClient.SecretName
-	if clientSecretName == "" {
-		return nil, fmt.Errorf("TenantControlPlane %s/%s does not report kube-apiserver metrics client certificate Secret", tcp.Namespace, tcp.Name)
+	adminSecretName := tcp.Status.KubeConfig.Admin.SecretName
+	if adminSecretName == "" {
+		return nil, fmt.Errorf("TenantControlPlane %s/%s does not report admin kubeconfig Secret", tcp.Namespace, tcp.Name)
 	}
-	clientSecret := &corev1.Secret{}
+	adminSecret := &corev1.Secret{}
 	if err := v.client.Get(ctx, types.NamespacedName{
-		Name:      clientSecretName,
+		Name:      adminSecretName,
 		Namespace: dc.Namespace,
-	}, clientSecret); err != nil {
-		return nil, fmt.Errorf("get kube-apiserver metrics client certificate Secret: %w", err)
+	}, adminSecret); err != nil {
+		return nil, fmt.Errorf("get kube-apiserver admin kubeconfig Secret: %w", err)
 	}
-	certPEM := clientSecret.Data[apiserverMetricsClientCertKey]
-	keyPEM := clientSecret.Data[apiserverMetricsClientKeyKey]
-	cert, err := tls.X509KeyPair(certPEM, keyPEM)
+	kubeconfigData, ok := adminSecret.Data[apiserverMetricsAdminKubeconfigKey]
+	if !ok {
+		return nil, fmt.Errorf("kube-apiserver admin kubeconfig Secret %s/%s does not contain key %q",
+			adminSecret.Namespace, adminSecret.Name, apiserverMetricsAdminKubeconfigKey)
+	}
+	restConfig, err := clientcmd.RESTConfigFromKubeConfig(kubeconfigData)
 	if err != nil {
-		return nil, fmt.Errorf("parse kube-apiserver metrics client certificate Secret: %w", err)
+		return nil, fmt.Errorf("parse kube-apiserver admin kubeconfig Secret %s/%s key %q: %w",
+			adminSecret.Namespace, adminSecret.Name, apiserverMetricsAdminKubeconfigKey, err)
 	}
-	caSecretName := tcp.Status.Certificates.CA.SecretName
-	if caSecretName == "" {
-		return nil, fmt.Errorf("TenantControlPlane %s/%s does not report kube-apiserver CA Secret", tcp.Namespace, tcp.Name)
+	cert, err := tls.X509KeyPair(restConfig.CertData, restConfig.KeyData)
+	if err != nil {
+		return nil, fmt.Errorf("parse kube-apiserver admin client certificate Secret %s/%s key %q: %w",
+			adminSecret.Namespace, adminSecret.Name, apiserverMetricsAdminKubeconfigKey, err)
 	}
-	caSecret := &corev1.Secret{}
-	if err := v.client.Get(ctx, types.NamespacedName{
-		Name:      caSecretName,
-		Namespace: dc.Namespace,
-	}, caSecret); err != nil {
-		return nil, fmt.Errorf("get kube-apiserver CA Secret: %w", err)
-	}
-	caPEM := caSecret.Data[apiserverMetricsCAKey]
 	roots := x509.NewCertPool()
-	if len(caPEM) == 0 || !roots.AppendCertsFromPEM(caPEM) {
-		return nil, fmt.Errorf("parse kube-apiserver CA Secret %s/%s key %q", caSecret.Namespace, caSecret.Name, apiserverMetricsCAKey)
+	if len(restConfig.CAData) == 0 || !roots.AppendCertsFromPEM(restConfig.CAData) {
+		return nil, fmt.Errorf("parse kube-apiserver CA from admin kubeconfig Secret %s/%s key %q",
+			adminSecret.Namespace, adminSecret.Name, apiserverMetricsAdminKubeconfigKey)
 	}
 	return &tls.Config{
 		Certificates: []tls.Certificate{cert},

@@ -45,6 +45,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/clientcmd"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
@@ -162,12 +164,40 @@ apiserver_encryption_config_controller_last_config_info{apiserver_id_hash="a",ha
 				[]string{fmt.Sprintf("%s.%s.svc", "test-cluster", "test-ns")},
 				[]net.IP{net.ParseIP(address)})
 			_, clientKeyPEM, clientCertPEM := testSignedKeyPair(ca, caKey, nil, nil)
+			adminKubeconfig, err := clientcmd.Write(clientcmdapi.Config{
+				Clusters: map[string]*clientcmdapi.Cluster{
+					"test-cluster": {
+						Server:                   "https://test-cluster.test-ns.svc:6443",
+						CertificateAuthorityData: caPEM,
+					},
+				},
+				AuthInfos: map[string]*clientcmdapi.AuthInfo{
+					"kubernetes-admin": {
+						ClientCertificateData: clientCertPEM,
+						ClientKeyData:         clientKeyPEM,
+					},
+				},
+				Contexts: map[string]*clientcmdapi.Context{
+					"kubernetes-admin@test-cluster": {
+						Cluster:  "test-cluster",
+						AuthInfo: "kubernetes-admin",
+					},
+				},
+				CurrentContext: "kubernetes-admin@test-cluster",
+			})
+			Expect(err).NotTo(HaveOccurred())
 			metricsServer := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				_, _ = fmt.Fprintf(w, "%s{hash=%q} 1\n", encryptionConfigLastConfigInfoMetric, expectedHash)
 			}))
 			Expect(metricsServer.Listener.Close()).To(Succeed())
 			metricsServer.Listener = listener
-			metricsServer.TLS = &tls.Config{Certificates: []tls.Certificate{serverCert}}
+			clientRoots := x509.NewCertPool()
+			Expect(clientRoots.AppendCertsFromPEM(caPEM)).To(BeTrue())
+			metricsServer.TLS = &tls.Config{
+				Certificates: []tls.Certificate{serverCert},
+				ClientAuth:   tls.RequireAndVerifyClientCert,
+				ClientCAs:    clientRoots,
+			}
 			metricsServer.StartTLS()
 			DeferCleanup(metricsServer.Close)
 
@@ -181,9 +211,8 @@ apiserver_encryption_config_controller_last_config_info{apiserver_id_hash="a",ha
 					NetworkProfile: kamajiv1.NetworkProfileSpec{Port: metricsPort},
 				},
 				Status: kamajiv1.TenantControlPlaneStatus{
-					Certificates: kamajiv1.CertificatesStatus{
-						CA:                     kamajiv1.CertificatePrivateKeyPairStatus{SecretName: "cluster-ca"},
-						APIServerKubeletClient: kamajiv1.CertificatePrivateKeyPairStatus{SecretName: "metrics-client"},
+					KubeConfig: kamajiv1.KubeconfigsStatus{
+						Admin: kamajiv1.KubeconfigStatus{SecretName: "admin-kubeconfig"},
 					},
 					Kubernetes: kamajiv1.KubernetesStatus{
 						Deployment: kamajiv1.KubernetesDeploymentStatus{
@@ -221,23 +250,16 @@ apiserver_encryption_config_controller_last_config_info{apiserver_id_hash="a",ha
 					},
 				},
 			}
-			clientSecret := &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{Name: "metrics-client", Namespace: namespace},
+			adminSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: "admin-kubeconfig", Namespace: namespace},
 				Data: map[string][]byte{
-					apiserverMetricsClientCertKey: clientCertPEM,
-					apiserverMetricsClientKeyKey:  clientKeyPEM,
-				},
-			}
-			caSecret := &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{Name: "cluster-ca", Namespace: namespace},
-				Data: map[string][]byte{
-					apiserverMetricsCAKey: caPEM,
+					apiserverMetricsAdminKubeconfigKey: adminKubeconfig,
 				},
 			}
 			verifier := &metricsReloadVerifier{
 				client: fake.NewClientBuilder().
 					WithScheme(scheme.Scheme).
-					WithObjects(tcp, deployment, pod, clientSecret, caSecret).
+					WithObjects(tcp, deployment, pod, adminSecret).
 					Build(),
 			}
 			config := testStaticKeyConfig{
