@@ -803,6 +803,103 @@ var _ = Describe("OVSUtils", func() {
 			})
 		})
 
+		Describe("GetBridgeNameByPort", func() {
+			var mockConditionalAPI *MockConditionalAPI
+
+			BeforeEach(func() {
+				mockConditionalAPI = NewMockConditionalAPI(mockCtrl)
+			})
+
+			It("walks Port to Bridge", func() {
+				gomock.InOrder(
+					mockOVSClient.EXPECT().
+						Get(gomock.Any(), gomock.Any()).
+						DoAndReturn(func(ctx context.Context, model interface{}) error {
+							port := model.(*ovsmodel.Port)
+							port.UUID = "port-uuid"
+							return nil
+						}),
+					mockOVSClient.EXPECT().
+						WhereAll(gomock.Any(), gomock.Any()).
+						Do(func(_ model.Model, condition model.Condition) {
+							Expect(condition.Function).To(Equal(ovsdb.ConditionIncludes))
+							Expect(condition.Value).To(Equal([]string{"port-uuid"}))
+						}).
+						Return(mockConditionalAPI),
+					mockConditionalAPI.EXPECT().
+						List(gomock.Any(), gomock.Any()).
+						DoAndReturn(func(ctx context.Context, result interface{}) error {
+							ptr := result.(*[]ovsmodel.Bridge)
+							*ptr = []ovsmodel.Bridge{{Name: "br-sfc"}}
+							return nil
+						}),
+				)
+
+				bridge, err := client.GetBridgeNameByPort(ctx, "p0")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(bridge).To(Equal("br-sfc"))
+			})
+
+			It("returns error when port lookup fails", func() {
+				mockOVSClient.EXPECT().
+					Get(gomock.Any(), gomock.Any()).
+					Return(ovsclient.ErrNotFound)
+
+				_, err := client.GetBridgeNameByPort(ctx, "missing")
+				Expect(err).To(MatchError(ContainSubstring("failed to find port")))
+			})
+
+			It("returns error when bridge lookup fails", func() {
+				gomock.InOrder(
+					mockOVSClient.EXPECT().
+						Get(gomock.Any(), gomock.Any()).
+						DoAndReturn(func(ctx context.Context, model interface{}) error {
+							port := model.(*ovsmodel.Port)
+							port.UUID = "port-uuid"
+							return nil
+						}),
+					mockOVSClient.EXPECT().
+						WhereAll(gomock.Any(), gomock.Any()).
+						Return(mockConditionalAPI),
+					mockConditionalAPI.EXPECT().
+						List(gomock.Any(), gomock.Any()).
+						DoAndReturn(func(ctx context.Context, result interface{}) error {
+							ptr := result.(*[]ovsmodel.Bridge)
+							*ptr = []ovsmodel.Bridge{}
+							return nil
+						}),
+				)
+
+				_, err := client.GetBridgeNameByPort(ctx, "p0")
+				Expect(err).To(MatchError(ContainSubstring("failed to find bridge")))
+			})
+
+			It("returns error when bridge lookup returns multiple bridges", func() {
+				gomock.InOrder(
+					mockOVSClient.EXPECT().
+						Get(gomock.Any(), gomock.Any()).
+						DoAndReturn(func(ctx context.Context, model interface{}) error {
+							port := model.(*ovsmodel.Port)
+							port.UUID = "port-uuid"
+							return nil
+						}),
+					mockOVSClient.EXPECT().
+						WhereAll(gomock.Any(), gomock.Any()).
+						Return(mockConditionalAPI),
+					mockConditionalAPI.EXPECT().
+						List(gomock.Any(), gomock.Any()).
+						DoAndReturn(func(ctx context.Context, result interface{}) error {
+							ptr := result.(*[]ovsmodel.Bridge)
+							*ptr = []ovsmodel.Bridge{{Name: "br-sfc"}, {Name: "br-hbn"}}
+							return nil
+						}),
+				)
+
+				_, err := client.GetBridgeNameByPort(ctx, "p0")
+				Expect(err).To(MatchError(ContainSubstring("expected 1 bridge, got 2")))
+			})
+		})
+
 		Describe("ListInterfacesWithError", func() {
 			It("returns names of interfaces with non-empty error", func() {
 				emptyErr := ""
