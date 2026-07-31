@@ -136,10 +136,13 @@ func (n *ConfigureNetwork) setOOBAndRshimInterface(zeroTrustMode bool, cpMTU int
 	oob := netplan.Ethernet{}
 	if zeroTrustMode {
 		oob.DHCP4 = ptr.To(true)
+		oob.DHCP6 = ptr.To(false)
+		oob.AcceptRA = ptr.To(false)
 		oob.MTU = ptr.To(cpMTU)
 	} else {
 		oob.DHCP4 = ptr.To(false)
 		oob.DHCP6 = ptr.To(false)
+		oob.AcceptRA = ptr.To(false)
 		oob.LinkLocal = ptr.To([]string{})
 		oob.Optional = ptr.To(true)
 	}

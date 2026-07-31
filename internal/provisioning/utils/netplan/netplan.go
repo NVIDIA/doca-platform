@@ -34,8 +34,11 @@ type Network struct {
 }
 
 type Ethernet struct {
-	DHCP4          *bool          `yaml:"dhcp4,omitempty"`
-	DHCP6          *bool          `yaml:"dhcp6,omitempty"`
+	DHCP4 *bool `yaml:"dhcp4,omitempty"`
+	DHCP6 *bool `yaml:"dhcp6,omitempty"`
+	// AcceptRA controls whether to accept IPv6 Router Advertisements (SLAAC).
+	// When false, the interface will not autoconfigure IPv6 addresses or routes from RAs.
+	AcceptRA       *bool          `yaml:"accept-ra,omitempty"`
 	MTU            *int32         `yaml:"mtu,omitempty"`
 	Addresses      []string       `yaml:"addresses,omitempty"`
 	DHCP4Overrides *DHCPOverrides `yaml:"dhcp4-overrides,omitempty"`
