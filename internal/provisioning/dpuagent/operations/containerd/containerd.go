@@ -26,6 +26,7 @@ import (
 
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
+	"github.com/nvidia/doca-platform/internal/provisioning/utils/filesystem"
 
 	"github.com/BurntSushi/toml"
 	"github.com/Masterminds/semver/v3"
@@ -35,6 +36,10 @@ import (
 const (
 	defaultRootFS       = "/"
 	containerdConfigDir = "/etc/containerd"
+
+	containerdSystemdDropInDir = "/etc/systemd/system/containerd.service.d"
+	containerdTLSDropInFile    = "99-dpf.conf"
+	containerdRestartMarker    = "/run/dpu-agent/containerd-restart-required"
 
 	// mirrorRegistryHost is the upstream registry that is mirrored.
 	mirrorRegistryHost = "nvcr.io"
@@ -49,10 +54,16 @@ const (
 	criPluginV1       = "io.containerd.grpc.v1.cri"
 )
 
+const containerdTLSDropInContent = `# Managed by dpu-agent. Do not edit.
+[Service]
+Environment="GODEBUG=tlsmlkem=0"
+`
+
 type ConfigureContainerd struct {
 	rootFS               string
 	getContainerdVersion func() (string, error)
 	runBash              func(cmd string) (bytes.Buffer, bytes.Buffer, error)
+	atomicWrite          func(name string, data []byte, perm os.FileMode) error
 }
 
 func (c *ConfigureContainerd) Name() string {
@@ -82,17 +93,21 @@ func (c *ConfigureContainerd) Execute(execCtx context.Context, optCtx *operation
 
 	endpoint := optCtx.DPUFlavor.Spec.ContainerdConfig.RegistryEndpoint
 	if endpoint == "" {
-		klog.Info("No registry endpoint configured, skipping containerd configuration")
+		klog.Info("No registry endpoint configured, skipping registry mirror configuration")
 	} else {
 		if err := c.configureRegistryMirror(endpoint); err != nil {
 			return err
 		}
 	}
 
-	if _, stderr, err := c.runBash("systemctl enable --now containerd"); err != nil {
-		return fmt.Errorf("failed to enable and start containerd: %w, stderr: %s", err, stderr.String())
+	if _, err := c.ensureTLSCompatibilityDropIn(); err != nil {
+		return fmt.Errorf("failed to configure containerd TLS compatibility: %w", err)
 	}
-	klog.Info("containerd enabled and started")
+
+	if err := c.reconcileContainerdService(); err != nil {
+		return err
+	}
+	klog.Info("containerd enabled and configured with TLS compatibility mode")
 	return nil
 }
 
@@ -183,7 +198,7 @@ func (c *ConfigureContainerd) configureRegistryMirrorV1(endpoint string) error {
 		return fmt.Errorf("failed to encode containerd config: %w", err)
 	}
 
-	if err := os.WriteFile(configPath, buf.Bytes(), 0644); err != nil {
+	if _, err := c.writeRestartSensitiveFile(configPath, buf.Bytes()); err != nil {
 		return fmt.Errorf("failed to write containerd config: %w", err)
 	}
 
@@ -224,7 +239,7 @@ func (c *ConfigureContainerd) configureRegistryMirrorV2(endpoint string) error {
 		if err := toml.NewEncoder(buf).Encode(config); err != nil {
 			return fmt.Errorf("failed to encode containerd config: %w", err)
 		}
-		if err := os.WriteFile(configPath, buf.Bytes(), 0644); err != nil {
+		if _, err := c.writeRestartSensitiveFile(configPath, buf.Bytes()); err != nil {
 			return fmt.Errorf("failed to write containerd config: %w", err)
 		}
 		klog.Infof("Set containerd registry config_path to %s in %s", registryConfigPath, configPath)
@@ -326,6 +341,112 @@ func (c *ConfigureContainerd) writeRegistryHostsConfig(registryConfigPath, endpo
 	}
 
 	klog.Infof("Wrote containerd registry host config %s", hostsFile)
+	return nil
+}
+
+func (c *ConfigureContainerd) ensureTLSCompatibilityDropIn() (bool, error) {
+	dropInDir := filepath.Join(c.rootFS, containerdSystemdDropInDir)
+	if err := os.MkdirAll(dropInDir, 0755); err != nil {
+		return false, fmt.Errorf("failed to create containerd systemd drop-in directory %s: %w", dropInDir, err)
+	}
+
+	dropInPath := filepath.Join(dropInDir, containerdTLSDropInFile)
+	changed, err := c.writeRestartSensitiveFile(dropInPath, []byte(containerdTLSDropInContent))
+	if err != nil {
+		return false, fmt.Errorf("failed to write containerd TLS compatibility drop-in %s: %w", dropInPath, err)
+	}
+	if changed {
+		klog.Infof("Configured containerd TLS compatibility drop-in at %s; this manages the complete GODEBUG value", dropInPath)
+	}
+	return changed, nil
+}
+
+func (c *ConfigureContainerd) writeRestartSensitiveFile(path string, content []byte) (bool, error) {
+	existingContent, err := os.ReadFile(path)
+	if err == nil && bytes.Equal(existingContent, content) {
+		return false, nil
+	}
+	if err != nil && !os.IsNotExist(err) {
+		return false, fmt.Errorf("failed to read restart-sensitive file %s: %w", path, err)
+	}
+
+	if err := c.createRestartMarker(); err != nil {
+		return false, err
+	}
+	if err := c.writeFileAtomically(path, content, 0644); err != nil {
+		return false, fmt.Errorf("failed to atomically write restart-sensitive file %s: %w", path, err)
+	}
+	return true, nil
+}
+
+func (c *ConfigureContainerd) writeFileAtomically(name string, data []byte, perm os.FileMode) error {
+	if c.atomicWrite != nil {
+		return c.atomicWrite(name, data, perm)
+	}
+	return filesystem.AtomicWrite(name, data, perm)
+}
+
+func (c *ConfigureContainerd) createRestartMarker() error {
+	markerPath := filepath.Join(c.rootFS, containerdRestartMarker)
+	if _, err := os.Stat(markerPath); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("failed to check containerd restart marker %s: %w", markerPath, err)
+	}
+
+	markerDir := filepath.Dir(markerPath)
+	if err := os.MkdirAll(markerDir, 0755); err != nil {
+		return fmt.Errorf("failed to create containerd restart marker directory %s: %w", markerDir, err)
+	}
+	if err := c.writeFileAtomically(markerPath, nil, 0644); err != nil {
+		return fmt.Errorf("failed to create containerd restart marker %s: %w", markerPath, err)
+	}
+	return nil
+}
+
+func (c *ConfigureContainerd) restartMarkerExists() (bool, error) {
+	markerPath := filepath.Join(c.rootFS, containerdRestartMarker)
+	if _, err := os.Stat(markerPath); err == nil {
+		return true, nil
+	} else if os.IsNotExist(err) {
+		return false, nil
+	} else {
+		return false, fmt.Errorf("failed to check containerd restart marker %s: %w", markerPath, err)
+	}
+}
+
+func (c *ConfigureContainerd) removeRestartMarker() error {
+	markerPath := filepath.Join(c.rootFS, containerdRestartMarker)
+	if err := os.Remove(markerPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove containerd restart marker %s: %w", markerPath, err)
+	}
+	return nil
+}
+
+func (c *ConfigureContainerd) reconcileContainerdService() error {
+	restartRequired, err := c.restartMarkerExists()
+	if err != nil {
+		return err
+	}
+
+	if restartRequired {
+		if _, stderr, err := c.runBash("systemctl daemon-reload"); err != nil {
+			return fmt.Errorf("failed to reload systemd configuration: %w, stderr: %s", err, stderr.String())
+		}
+		if _, stderr, err := c.runBash("systemctl stop containerd"); err != nil {
+			return fmt.Errorf("failed to stop containerd: %w, stderr: %s", err, stderr.String())
+		}
+	}
+
+	if _, stderr, err := c.runBash("systemctl enable --now containerd"); err != nil {
+		return fmt.Errorf("failed to enable and start containerd: %w, stderr: %s", err, stderr.String())
+	}
+
+	if restartRequired {
+		if err := c.removeRestartMarker(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
