@@ -1,0 +1,52 @@
+{{ if .Values.kamajiEtcdDefrag.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Release.Name }}-kamaji-etcd-defrag-job
+  namespace: {{ .Release.Namespace }}
+spec:
+  schedule: {{ .Values.kamajiEtcdDefrag.schedule }}
+  successfulJobsHistoryLimit: {{ .Values.kamajiEtcdDefrag.successfulJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      backoffLimit: {{ .Values.kamajiEtcdDefrag.backoffLimit }}
+      template:
+        spec:
+          tolerations:
+          {{- .Values.tolerations | toYaml | nindent 12 }}
+          affinity:
+          {{- .Values.affinity | toYaml | nindent 12 }}
+          containers:
+            - name: etcd-defrag
+              image: {{ .Values.kamajiEtcdDefrag.image }}
+              args:
+                - --endpoints={{- $replicas := .Values.kamajiEtcdDefrag.replicas | int -}}
+                {{- $port := .Values.kamajiEtcdDefrag.clientPort | int -}}
+                {{- $releaseName := .Values.kamajiEtcdDefrag.releaseName -}}
+                {{- $namespace := .Release.Namespace -}}
+                {{- range $i, $_ := until $replicas -}}
+                  {{- printf "https://%s-%d.%s.%s.svc.cluster.local:%d" $releaseName $i $releaseName $namespace $port -}}
+                  {{- if lt (add1 $i) $replicas }},{{ end -}}
+                {{- end }}
+                - --cacert=/opt/certs/ca/ca.crt
+                - --cert=/opt/certs/root-client-certs/tls.crt
+                - --key=/opt/certs/root-client-certs/tls.key
+                - --cluster
+                - --defrag-rule
+                - {{ .Values.kamajiEtcdDefrag.defragRule | quote }}
+              volumeMounts:
+                - mountPath: /opt/certs/root-client-certs
+                  name: root-client-certs
+                - mountPath: /opt/certs/ca
+                  name: certs
+          restartPolicy: OnFailure
+          securityContext:
+            runAsUser: 0
+          volumes:
+            - name: root-client-certs
+              secret:
+                secretName: {{ .Values.kamajiEtcdDefrag.releaseName }}-root-client-certs
+            - name: certs
+              secret:
+                secretName: {{ .Values.kamajiEtcdDefrag.releaseName }}-certs
+{{ end }}

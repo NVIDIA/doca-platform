@@ -1,0 +1,150 @@
+####################
+### DPF contract ###
+####################
+
+# configuration for the service
+serviceDaemonSet:
+  # selects nodes on which this service will run by label. Can be set in DPUService `.spec.serviceDaemonSet.nodeSelector`
+  # nodeSelector:
+  #   nodeSelectorTerms:
+  #   - matchExpressions:
+  #       - key: dpu
+  #         operator: In
+  #         values:
+  #           - dpu
+  # labels on the DaemonSet and pod template. Can be set in DPUService `.spec.serviceDaemonSet.labels`
+  labels: {}
+  # annotations on the DaemonSet and pod template. Can be set in DPUService `.spec.serviceDaemonSet.annotations`
+  annotations: {}
+  # updateStrategy on the DaemonSet. Can be set in DPUService `.spec.serviceDaemonSet.updateStrategy.`
+  updateStrategy: {}
+  #  type: RollingUpdate
+  #  rollingUpdate:
+  #    maxUnavailable: 1
+  # resources on the DaemonSet and pod template. Can be set in DPUService `.spec.serviceDaemonSet.resources`
+  resources: {}
+
+# exposed ports for ovn-central
+exposedPorts:
+  labels: {}           # custom labels for the doca-platform
+  ports:
+    ovnnb: false  # name of the port inside the service
+    ovnsb: false  # name of the port inside the service
+
+# default imagePullSecrets
+imagePullSecrets: []
+
+# Note: This chart includes multiple components but is designed to deploy only one at a time.
+# By default, all components are disabled.
+# To deploy a specific component, explicitly set the "enabled" flag to true.
+
+#######################################
+### Components for the management cluster ###
+#######################################
+management:
+  ### ovn-central ###
+  ovnCentral:
+    # enable deployment of the ovn-central component
+    enabled: false
+    ## Image configuration
+    image:
+      repository: example.com/ovn
+      tag: v0.1.0
+      pullPolicy: IfNotPresent
+
+    # Image pull secrets
+    imagePullSecrets: []
+
+    # Affinity settings
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: "node-role.kubernetes.io/master"
+                  operator: Exists
+            - matchExpressions:
+                - key: "node-role.kubernetes.io/control-plane"
+                  operator: Exists
+
+    # Tolerations
+    tolerations:
+      - key: node-role.kubernetes.io/master
+        operator: Exists
+        effect: NoSchedule
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+
+    # Command to run
+    command:
+      - "/bin/bash"
+
+    # Arguments for the command
+    args:
+      - -c
+      - "/usr/share/ovn/scripts/ovn-ctl --db-nb-create-insecure-remote=yes --db-sb-create-insecure-remote=yes start_northd && tail -f /dev/null"
+
+    # Override name of chart
+    nameOverride: ""
+
+    # Override full name of the chart
+    fullnameOverride: ""
+
+    # Number of replica
+    replicaCount: 1
+
+    # Service configuration
+    service:
+      ovnnb:
+        protocol: TCP
+        port: 6641
+        targetPort: 6641
+        nodePort: 30641
+      ovnsb:
+        protocol: TCP
+        port: 6642
+        targetPort: 6642
+        nodePort: 30642
+
+    # Host volumes
+    hostOvnLibDir: /var/lib/ovn
+
+
+#######################################
+### Components for the DPU cluster ###
+#######################################
+dpu:
+  ### ovn-controller ###
+  ovnController:
+    # enable deployment of the ovn-controller component
+    # Note: Only one component can be enabled at a time.
+    enabled: false
+    # Image configuration
+    image:
+      repository: example.com/ovn
+      tag: v0.1.0
+      pullPolicy: IfNotPresent
+
+    # Image pull secrets
+    imagePullSecrets: []
+
+    # Override name of chart
+    nameOverride: ""
+
+    # Override full name of the chart
+    fullnameOverride: ""
+
+    # Command to run
+    command:
+      - "/bin/bash"
+
+    # Arguments for the command
+    args:
+      - -c
+      - "ovn-controller --pidfile --log-file=/var/log/ovn/ovn-controller.log && tail -f /dev/null"
+
+    # Host volumes
+    hostOpenVSwitchDir: /var/run/openvswitch
+    hostOvnRunDir: /var/run/ovn
+    hostOvnLogDir: /var/log/ovn

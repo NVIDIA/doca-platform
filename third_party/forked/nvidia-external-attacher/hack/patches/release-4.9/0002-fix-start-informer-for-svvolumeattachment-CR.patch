@@ -1,0 +1,25 @@
+From 5556bfe61bf753e2e437aa24b5807c5577612240 Mon Sep 17 00:00:00 2001
+From: Yury Kulazhenkov <ykulazhenkov@nvidia.com>
+Date: Mon, 31 Mar 2025 10:21:25 +0300
+Subject: [PATCH] fix: start informer for svvolumeattachment CR
+
+Signed-off-by: Yury Kulazhenkov <ykulazhenkov@nvidia.com>
+---
+ cmd/csi-attacher/main.go | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/cmd/csi-attacher/main.go b/cmd/csi-attacher/main.go
+index 6da86ad0..6175f382 100644
+--- a/cmd/csi-attacher/main.go
++++ b/cmd/csi-attacher/main.go
+@@ -289,6 +289,7 @@ func main() {
+ 	run := func(ctx context.Context) {
+ 		stopCh := ctx.Done()
+ 		factory.Start(stopCh)
++		dpfSharedInformerFactory.Start(stopCh)
+ 		ctrl.Run(ctx, int(*workerThreads))
+ 	}
+ 
+-- 
+2.34.1
+

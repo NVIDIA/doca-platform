@@ -1,0 +1,372 @@
+{{ include "validate" . }}
+{{- if .Values.host.snapCsiPlugin.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "snap-csi-plugin.fullname" . }}-controller
+  labels:
+    {{- include "snap-csi-plugin.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "snap-csi-plugin.selectorLabels" . | nindent 6 }}
+  replicas: {{ .Values.host.snapCsiPlugin.controller.replicas }}
+  template:
+    metadata:
+      labels:
+        {{- include "snap-csi-plugin.selectorLabels" . | nindent 8 }}
+        {{- with .Values.host.snapCsiPlugin.controller.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        {{- toYaml .Values.host.snapCsiPlugin.controller.podAnnotations | nindent 8 }}
+    spec:
+      {{- with .Values.host.snapCsiPlugin.controller.imagePullSecrets | default .Values.imagePullSecrets | default list }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.host.snapCsiPlugin.controller.podSecurityContext | nindent 8 }}
+      containers:
+        - name: plugin
+          command:
+            - /snap-csi-plugin
+          args:
+           - --mode=controller
+           - --bind-address=unix://csi/csi.sock
+           - --namespace={{ .Release.Namespace }}
+           - --v={{ .Values.host.snapCsiPlugin.controller.plugin.args.logLevel }}
+          image: "{{ .Values.host.snapCsiPlugin.controller.plugin.image.repository }}:{{ .Values.host.snapCsiPlugin.controller.plugin.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.host.snapCsiPlugin.controller.plugin.imagePullPolicy }}
+          securityContext:
+            {{- toYaml .Values.host.snapCsiPlugin.controller.plugin.securityContext | nindent 12 }}
+          ports:
+            - containerPort: 9808
+              name: healthz
+              protocol: TCP
+          livenessProbe:
+            failureThreshold: 5
+            httpGet:
+              path: /healthz
+              port: healthz
+            initialDelaySeconds: 30
+            timeoutSeconds: 10
+            periodSeconds: 30
+          resources:
+            {{- toYaml .Values.host.snapCsiPlugin.controller.plugin.resources | nindent 12 }}
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+        - name: external-provisioner
+          image: "{{ .Values.host.snapCsiPlugin.controller.externalProvisioner.image.repository }}:{{ .Values.host.snapCsiPlugin.controller.externalProvisioner.image.tag }}"
+          args:
+            - "-v=2"
+            - "--timeout=120s"
+            - "--csi-address=/csi/csi.sock"
+            - "--leader-election"
+            - "--leader-election-namespace={{ .Release.Namespace }}"
+          imagePullPolicy: {{ .Values.host.snapCsiPlugin.controller.externalProvisioner.imagePullPolicy }}
+          volumeMounts:
+            - mountPath: /csi
+              name: socket-dir
+          resources: {{- toYaml .Values.host.snapCsiPlugin.controller.externalProvisioner.resources | nindent 12 }}
+        - name: external-attacher
+          image: "{{ .Values.host.snapCsiPlugin.controller.externalAttacher.image.repository }}:{{ .Values.host.snapCsiPlugin.controller.externalAttacher.image.tag }}"
+          args:
+            - "-v=2"
+            - "--timeout=120s"
+            - "--csi-address=/csi/csi.sock"
+            - "--leader-election"
+            - "--leader-election-namespace={{ .Release.Namespace }}"
+          imagePullPolicy: {{ .Values.host.snapCsiPlugin.controller.externalAttacher.imagePullPolicy }}
+          volumeMounts:
+            - mountPath: /csi
+              name: socket-dir
+          resources: {{- toYaml .Values.host.snapCsiPlugin.controller.externalAttacher.resources | nindent 12 }}
+        - name: liveness-probe
+          image:  "{{ .Values.host.snapCsiPlugin.controller.livenessProbe.image.repository }}:{{ .Values.host.snapCsiPlugin.controller.livenessProbe.image.tag }}"
+          args:
+            - --csi-address=/csi/csi.sock
+            - --probe-timeout=3s
+            - --v=2
+          imagePullPolicy: {{ .Values.host.snapCsiPlugin.controller.livenessProbe.imagePullPolicy }}
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+          resources: {{- toYaml .Values.host.snapCsiPlugin.controller.livenessProbe.resources | nindent 12 }}
+      volumes:
+        - name: socket-dir
+          emptyDir: { }
+      serviceAccountName: {{ include "snap-csi-plugin.serviceAccountName" . }}
+      terminationGracePeriodSeconds: 10
+      {{- with .Values.host.snapCsiPlugin.controller.nodeSelector | default dict }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.host.snapCsiPlugin.controller.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.host.snapCsiPlugin.controller.tolerations | default list }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "snap-csi-plugin.roleName" . }}
+  labels:
+    {{- include "snap-csi-plugin.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["volumeattachments"]
+    verbs: ["get", "list", "watch", "patch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["volumeattachments/status"]
+    verbs: ["patch"]
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["get", "list", "watch", "create", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "update"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["list", "watch", "create", "update", "patch"]
+  - apiGroups: ["snapshot.storage.k8s.io"]
+    resources: ["volumesnapshots"]
+    verbs: ["get", "list"]
+  - apiGroups: ["snapshot.storage.k8s.io"]
+    resources: ["volumesnapshotcontents"]
+    verbs: ["get", "list"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["csinodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "watch", "list", "delete", "update", "create"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["csistoragecapacities"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups:
+    - provisioning.dpu.nvidia.com
+    resources: [ "dpus" ]
+    verbs: [ "get", "list", "watch" ]
+  - apiGroups: ["storage.dpu.nvidia.com"]
+    resources: ["dpuvolumes", "dpuvolumeattachments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["storage.dpu.nvidia.com"]
+    resources: ["dpuvolumes/status", "dpuvolumeattachments/status"]
+    verbs: ["get", "update", "patch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "snap-csi-plugin.roleBindingName" . }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "snap-csi-plugin.roleName" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "snap-csi-plugin.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "snap-csi-plugin.serviceAccountName" . }}
+  labels:
+    {{- include "snap-csi-plugin.labels" . | nindent 4 }}
+
+---
+apiVersion: storage.k8s.io/v1
+kind: CSIDriver
+metadata:
+  name: snap.csi.nvidia.com
+spec:
+  attachRequired: true
+  volumeLifecycleModes:
+    - Persistent
+
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "snap-csi-plugin.fullname" . }}-node
+  labels:
+    {{- include "snap-csi-plugin.labels" . | nindent 4 }}
+    {{- with .Values.serviceDaemonSet.labels }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+  annotations:
+    {{- with .Values.serviceDaemonSet.annotations }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  {{- with .Values.serviceDaemonSet.updateStrategy }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "snap-csi-plugin.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "snap-csi-plugin.selectorLabels" . | nindent 8 }}
+        {{- with .Values.serviceDaemonSet.labels }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        {{- with .Values.serviceDaemonSet.annotations }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.host.snapCsiPlugin.node.imagePullSecrets | default .Values.imagePullSecrets | default list }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.host.snapCsiPlugin.node.podSecurityContext | nindent 8 }}
+      containers:
+        - name: plugin
+          command:
+            - /snap-csi-plugin
+          args:
+            - --mode=node
+            - --bind-address=unix:///csi/csi.sock
+            - --node-id=$(NODE_NAME)
+            - --v={{ .Values.host.snapCsiPlugin.node.plugin.args.logLevel }}
+            - --node-snap-controller-device-id={{ .Values.host.snapCsiPlugin.node.config.snapControllerDeviceId }}
+            - --max-volumes-per-node={{ .Values.host.snapCsiPlugin.node.config.maxVolumesPerNode | default 0 }}
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          image: "{{ .Values.host.snapCsiPlugin.node.plugin.image.repository }}:{{ .Values.host.snapCsiPlugin.node.plugin.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.host.snapCsiPlugin.node.plugin.imagePullPolicy }}
+          securityContext:
+            {{- toYaml .Values.host.snapCsiPlugin.node.plugin.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.host.snapCsiPlugin.node.plugin.resources | nindent 12 }}
+          ports:
+            - containerPort: 9808
+              name: healthz
+              protocol: TCP
+          livenessProbe:
+            failureThreshold: 5
+            httpGet:
+              path: /healthz
+              port: healthz
+            initialDelaySeconds: 30
+            timeoutSeconds: 10
+            periodSeconds: 30
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+            - name: pods-mount-dir
+              mountPath: {{ .Values.host.snapCsiPlugin.node.kubeletDir }}/pods
+              mountPropagation: "Bidirectional"
+            - name: sys
+              mountPath: /sys
+            - name: csi-path
+              mountPath: {{ .Values.host.snapCsiPlugin.node.kubeletDir }}/plugins/kubernetes.io/csi
+              mountPropagation: "Bidirectional"
+            - name: dev
+              mountPath: /dev
+            - name: host
+              mountPath: /host
+              mountPropagation: "Bidirectional"
+        - name: liveness-probe
+          image: "{{ .Values.host.snapCsiPlugin.node.livenessProbe.image.repository }}:{{ .Values.host.snapCsiPlugin.node.livenessProbe.image.tag }}"
+          args:
+            - --csi-address=/csi/csi.sock
+            - --probe-timeout=3s
+            - --v=2
+          imagePullPolicy: {{ .Values.host.snapCsiPlugin.node.livenessProbe.imagePullPolicy }}
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+          resources:
+            {{- toYaml .Values.host.snapCsiPlugin.node.livenessProbe.resources | nindent 12 }}
+        - name: node-driver-registrar
+          image: "{{ .Values.host.snapCsiPlugin.node.nodeDriverRegistrar.image.repository }}:{{ .Values.host.snapCsiPlugin.node.nodeDriverRegistrar.image.tag }}"
+          livenessProbe:
+            exec:
+              command:
+                - /csi-node-driver-registrar
+                - --kubelet-registration-path=$(DRIVER_REG_SOCK_PATH)
+                - --mode=kubelet-registration-probe
+            initialDelaySeconds: 30
+            timeoutSeconds: 15
+          args:
+            - --v=2
+            - --csi-address=/csi/csi.sock
+            - --kubelet-registration-path=$(DRIVER_REG_SOCK_PATH)
+          env:
+            - name: DRIVER_REG_SOCK_PATH
+              value: {{ .Values.host.snapCsiPlugin.node.kubeletDir }}/plugins/snap.csi.nvidia.com/csi.sock
+          imagePullPolicy: {{ .Values.host.snapCsiPlugin.node.nodeDriverRegistrar.imagePullPolicy }}
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+            - name: registration-dir
+              mountPath: /registration
+          {{- with toYaml .Values.serviceDaemonSet.resources }}
+          resources:
+            limits:
+              {{- . | nindent 14 }}
+            requests:
+              {{- . | nindent 14 }}
+          {{- end }}
+      volumes:
+        - name: host
+          hostPath:
+            path: /
+        - name: socket-dir
+          hostPath:
+            path: {{ .Values.host.snapCsiPlugin.node.kubeletDir }}/plugins/snap.csi.nvidia.com
+            type: DirectoryOrCreate
+        - name: pods-mount-dir
+          hostPath:
+            path: {{ .Values.host.snapCsiPlugin.node.kubeletDir }}/pods
+            type: Directory
+        - name: registration-dir
+          hostPath:
+            path: {{ .Values.host.snapCsiPlugin.node.kubeletDir }}/plugins_registry
+            type: Directory
+        - name: csi-path
+          hostPath:
+            path: {{ .Values.host.snapCsiPlugin.node.kubeletDir }}/plugins/kubernetes.io/csi
+        - name: dev
+          hostPath:
+            path: /dev
+        - name: sys
+          hostPath:
+            path: /sys
+            type: Directory
+      terminationGracePeriodSeconds: 10
+      {{- with toYaml .Values.serviceDaemonSet.nodeSelector }}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+              {{- . | nindent 12 }}
+      {{- end }}
+      {{- with .Values.host.snapCsiPlugin.node.tolerations | default list  }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

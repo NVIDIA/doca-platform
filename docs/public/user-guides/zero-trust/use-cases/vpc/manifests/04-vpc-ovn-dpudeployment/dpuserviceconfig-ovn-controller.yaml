@@ -1,0 +1,16 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: ovn-controller
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: ovn-controller
+  upgradePolicy:
+    applyNodeEffect: false
+  serviceConfiguration:
+    helmChart:
+      values:
+        dpu:
+          ovnController:
+            enabled: true

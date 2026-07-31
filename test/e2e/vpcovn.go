@@ -1,0 +1,438 @@
+/*
+Copyright 2025 NVIDIA
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package e2e
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"maps"
+	"time"
+
+	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	vpcv1 "github.com/nvidia/doca-platform/api/vpc/v1alpha1"
+	dpuservice "github.com/nvidia/doca-platform/test/utils/dpuservice"
+	vpcutils "github.com/nvidia/doca-platform/test/utils/vpc/ovn"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	machineryruntime "k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+)
+
+var (
+	// vpcContextCleanupLabels is used to cleanup the entire Context of different testcases
+	vpcContextCleanupLabels = map[string]string{"vpc-ctx-cleanup": "true"}
+	// vpcAfterAllCleanupLabels is used to cleanup the pre-requisite services and objects
+	vpcAfterAllCleanupLabels = map[string]string{"vpc-after-all-cleanup": "true"}
+)
+
+const (
+	ovnChartName    = "ovn-chart"
+	vpcOvnChartName = "dpf-vpc-ovn"
+)
+
+// TestVPCConfig holds VPC test configuration
+type TestVPCConfig struct {
+	Name               string
+	Namespace          string
+	Tenant             string
+	VirtualNetworkName string
+	Subnet             string
+	Labels             map[string]string
+}
+
+type vpcOvnTestInput struct {
+	dpuServiceOVNCentral        *dpuservicev1.DPUService
+	dpuServiceOVNController     *dpuservicev1.DPUService
+	dpuServiceVPCOVNController  *dpuservicev1.DPUService
+	dpuServiceVPCOVNNode        *dpuservicev1.DPUService
+	dpuServiceIPAMTemplate      *dpuservicev1.DPUServiceIPAM
+	dpuServiceInterfaceTemplate *dpuservicev1.DPUServiceInterface
+	dpuServiceChainTemplate     *dpuservicev1.DPUServiceChain
+	dhcpDaemonSet               *appsv1.DaemonSet
+}
+
+func (t *vpcOvnTestInput) applyVPCOVNConfig(conf config) {
+	dpuServiceIPAMTemplate := &dpuservicev1.DPUServiceIPAM{}
+	ipam := unstructuredFromFile(conf.DPUServiceIPAMTemplatePath)
+	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(ipam.Object, dpuServiceIPAMTemplate)).To(Succeed())
+	t.dpuServiceIPAMTemplate = dpuServiceIPAMTemplate
+
+	dpuServiceInterfaceTemplate := &dpuservicev1.DPUServiceInterface{}
+	dsiTemplate := unstructuredFromFile(conf.DPUServiceInterfaceTemplatePath)
+	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(dsiTemplate.Object, dpuServiceInterfaceTemplate)).To(Succeed())
+	t.dpuServiceInterfaceTemplate = dpuServiceInterfaceTemplate
+
+	dpuServiceChainTemplate := &dpuservicev1.DPUServiceChain{}
+	chainTemplate := unstructuredFromFile(conf.DPUServiceChainTemplatePath)
+	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(chainTemplate.Object, dpuServiceChainTemplate)).To(Succeed())
+	t.dpuServiceChainTemplate = dpuServiceChainTemplate
+
+	dpuServiceOVNCentral := &dpuservicev1.DPUService{}
+	svcOVNCentral := unstructuredFromFile(conf.DPUServiceOVNCentralPath)
+	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(svcOVNCentral.Object, dpuServiceOVNCentral)).To(Succeed())
+	t.dpuServiceOVNCentral = dpuServiceOVNCentral
+
+	dpuServiceOVNController := &dpuservicev1.DPUService{}
+	svcOVNController := unstructuredFromFile(conf.DPUServiceOVNControllerPath)
+	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(svcOVNController.Object, dpuServiceOVNController)).To(Succeed())
+	t.dpuServiceOVNController = dpuServiceOVNController
+
+	dpuServiceVPCOVNController := &dpuservicev1.DPUService{}
+	svcVPCOVNController := unstructuredFromFile(conf.DPUServiceVPCOVNControllerPath)
+	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(svcVPCOVNController.Object, dpuServiceVPCOVNController)).To(Succeed())
+	t.dpuServiceVPCOVNController = dpuServiceVPCOVNController
+
+	dpuServiceVPCOVNNode := &dpuservicev1.DPUService{}
+	svcVPCOVNNode := unstructuredFromFile(conf.DPUServiceVPCOVNNodePath)
+	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(svcVPCOVNNode.Object, dpuServiceVPCOVNNode)).To(Succeed())
+	t.dpuServiceVPCOVNNode = dpuServiceVPCOVNNode
+
+	dhcpDaemonSet := &appsv1.DaemonSet{}
+	dhcpDaemonSetObj := unstructuredFromFile(conf.DHCPDaemonSetPath)
+	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(dhcpDaemonSetObj.Object, dhcpDaemonSet)).To(Succeed())
+	t.dhcpDaemonSet = dhcpDaemonSet
+}
+
+func createVtepDPUServiceIPAM(ctx context.Context, input *systemTestInput) {
+	vpcVtepIPAMLabels := map[string]string{
+		vpcutils.PoolLabelKey: vpcutils.VtepIPPoolName,
+	}
+	vtepDpuServiceIPAM := generateVPCDPUObj(vpcutils.VtepIPPoolName, dpfOperatorSystemNamespace, input.dpuServiceIPAMTemplate.DeepCopy(), vpcVtepIPAMLabels)
+	vpcutils.SetVPCDPUServiceIPAM(vtepDpuServiceIPAM, vpcutils.VtepIPPoolSubnet, vpcutils.VtepIPPoolGateway, vpcutils.IPPoolPerNodeCount)
+	By("creating vtep dpu service ipam")
+	Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, vtepDpuServiceIPAM))).ToNot(HaveOccurred())
+}
+
+func createGatewayDPUServiceIPAM(ctx context.Context, input *systemTestInput) {
+	vpcGatewayIPAMLabels := map[string]string{
+		vpcutils.PoolLabelKey: vpcutils.GatewayIPPoolName,
+	}
+	gatewayDpuServiceIPAM := generateVPCDPUObj(vpcutils.GatewayIPPoolName, dpfOperatorSystemNamespace, input.dpuServiceIPAMTemplate.DeepCopy(), vpcGatewayIPAMLabels)
+	vpcutils.SetVPCDPUServiceIPAM(gatewayDpuServiceIPAM, vpcutils.GatewayIPPoolSubnet, vpcutils.GatewayIPPoolGateway, vpcutils.IPPoolPerNodeCount)
+	By("creating gateway dpu service ipam")
+	Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, gatewayDpuServiceIPAM))).ToNot(HaveOccurred())
+}
+
+// createDPUService creates a generic DPU service with the given name
+func createDPUService(ctx context.Context, testClient client.Client, serviceName, namespace string, dpuService *dpuservicev1.DPUService) {
+	dpuService = generateVPCDPUObj(serviceName, namespace, dpuService, nil)
+	Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, dpuService))).To(Succeed())
+}
+
+// createOVNCentralDPUService creates an OVN central DPU service
+func createOVNCentralDPUService(ctx context.Context, testClient client.Client, namespace string, dpuServiceTemplate *dpuservicev1.DPUService) {
+	dpuService := dpuServiceTemplate.DeepCopy()
+	dpuService.Spec.HelmChart.Source = dpuservicev1.ApplicationSource{
+		Chart:   ovnChartName,
+		Version: tag,
+		RepoURL: helmRegistry,
+	}
+	By("creating ovn central service")
+	createDPUService(ctx, testClient, vpcutils.OvnCentralService, namespace, dpuService)
+}
+
+// createOVNControllerDPUService creates an OVN controller DPU service
+func createOVNControllerDPUService(ctx context.Context, testClient client.Client, namespace string, dpuServiceTemplate *dpuservicev1.DPUService) {
+	dpuService := dpuServiceTemplate.DeepCopy()
+	dpuService.Spec.HelmChart.Source = dpuservicev1.ApplicationSource{
+		Chart:   ovnChartName,
+		Version: tag,
+		RepoURL: helmRegistry,
+	}
+	By("creating ovn controller service")
+	createDPUService(ctx, testClient, vpcutils.OvnControllerService, namespace, dpuService)
+}
+
+// createVPCOVNControllerDPUService creates a VPC controller DPU service
+func createVPCOVNControllerDPUService(ctx context.Context, testClient client.Client, namespace string, dpuServiceTemplate *dpuservicev1.DPUService) {
+	dpuService := dpuServiceTemplate.DeepCopy()
+	dpuService.Spec.HelmChart.Source = dpuservicev1.ApplicationSource{
+		Chart:   vpcOvnChartName,
+		Version: tag,
+		RepoURL: helmRegistry,
+	}
+	By("creating vpc ovn controller service")
+	createDPUService(ctx, testClient, vpcutils.VpcOVNControllerService, namespace, dpuService)
+}
+
+// createVPCOVNNodeDPUService creates a VPC OVN Node DPU service
+func createVPCOVNNodeDPUService(ctx context.Context, testClient client.Client, namespace string, dpuServiceTemplate *dpuservicev1.DPUService) {
+	dpuService := dpuServiceTemplate.DeepCopy()
+	dpuService.Spec.HelmChart.Source = dpuservicev1.ApplicationSource{
+		Chart:   vpcOvnChartName,
+		Version: tag,
+		RepoURL: helmRegistry,
+	}
+	dpuService = generateVPCDPUObj(vpcutils.VpcOVNNodeService, namespace, dpuService, nil)
+
+	// configure OVN SB endpoint
+	existingData := make(map[string]any)
+	Expect(json.Unmarshal(dpuService.Spec.HelmChart.Values.Raw, &existingData)).To(Succeed())
+
+	dpuSection, ok := existingData["dpu"].(map[string]any)
+	Expect(ok).To(BeTrue(), "missing `dpu` section in Helm values")
+
+	vpcNodeSection, ok := dpuSection["vpcOVNNode"].(map[string]any)
+	Expect(ok).To(BeTrue(), "missing `vpcOVNNode` section in Helm values")
+
+	initContainers, ok := vpcNodeSection["initContainers"].(map[string]any)
+	Expect(ok).To(BeTrue(), "missing `initContainers` in Helm values")
+
+	prov, ok := initContainers["vpcOVNDpuProvisioner"].(map[string]any)
+	Expect(ok).To(BeTrue(), "missing `vpcOVNDpuProvisioner` in Helm values")
+
+	dpuProvisionerEnv, ok := prov["env"].(map[string]any)
+	Expect(ok).To(BeTrue(), "missing `env` map under vpcOVNDpuProvisioner")
+
+	controlPlaneIP := getClusterControlPlaneIP(ctx, testClient)
+	dpuProvisionerEnv["ovnSbEndpoint"] = fmt.Sprintf("tcp:%s:%d", controlPlaneIP, vpcutils.OvnSbPort)
+
+	mergedRaw, err := json.Marshal(existingData)
+	Expect(err).NotTo(HaveOccurred())
+	dpuService.Spec.HelmChart.Values.Raw = mergedRaw
+
+	By("creating vpc ovn node service")
+	Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, dpuService))).To(Succeed())
+}
+
+// createVPCDPUServiceInterface creates a DPU service interface with the given name, type and namespace
+func createVPCDPUServiceInterface(ctx context.Context, input *systemTestInput, config dpuservice.TestDPUServiceInterfaceConfig) {
+	dpuServiceInterface := generateVPCDPUObj(config.Name, config.Namespace, input.dpuServiceInterfaceTemplate.DeepCopy(), config.Labels)
+	if config.NodeName != nil {
+		dpuServiceInterface.Spec.Template.Spec.NodeSelector = &metav1.LabelSelector{
+			MatchExpressions: []metav1.LabelSelectorRequirement{
+				{
+					Key:      vpcutils.TenantNodeLabelKey,
+					Operator: metav1.LabelSelectorOpIn,
+					Values:   []string{*config.NodeName},
+				},
+			},
+		}
+	}
+	switch config.Type {
+	case dpuservicev1.InterfaceTypePhysical:
+		dpuservice.SetDPUServiceInterfacePhysical(dpuServiceInterface, config)
+	case dpuservicev1.InterfaceTypeVF:
+		dpuservice.SetDPUServiceInterfaceVF(dpuServiceInterface, config)
+	case dpuservicev1.InterfaceTypeService:
+		dpuservice.SetDPUServiceInterfaceSF(dpuServiceInterface, config)
+	case dpuservicev1.InterfaceTypeOVN:
+		dpuservice.SetDPUServiceInterfaceOVN(dpuServiceInterface, config)
+	default:
+		Fail(fmt.Sprintf("invalid interface type: %s", config.Type))
+	}
+	By(fmt.Sprintf("creating %s/%s DPUServiceInterface with interface name %s", config.Name, config.Namespace, config.InterfaceName))
+	Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuServiceInterface))).To(Succeed())
+}
+
+func createVPCPrerequisiteDPUServiceInterfaces(ctx context.Context, input *systemTestInput) {
+	physicalServiceInterfaceLabels := map[string]string{
+		vpcutils.InterfaceLabelKey: vpcutils.PhysicalInterface0,
+	}
+	maps.Copy(physicalServiceInterfaceLabels, vpcAfterAllCleanupLabels)
+	brOVNExtLabels := map[string]string{
+		vpcutils.InterfaceLabelKey: vpcutils.OvnExtPatchName,
+	}
+	maps.Copy(brOVNExtLabels, vpcAfterAllCleanupLabels)
+
+	By("creating physical service interface")
+	createVPCDPUServiceInterface(ctx, input, dpuservice.TestDPUServiceInterfaceConfig{
+		Name:           vpcutils.PhysicalInterface0,
+		InterfaceName:  vpcutils.PhysicalInterface0,
+		Type:           dpuservicev1.InterfaceTypePhysical,
+		Namespace:      input.namespace,
+		Labels:         physicalServiceInterfaceLabels,
+		NodeName:       nil,
+		VirtualNetwork: nil,
+	})
+
+	By("creating ovn ext service interface")
+	createVPCDPUServiceInterface(ctx, input, dpuservice.TestDPUServiceInterfaceConfig{
+		Name:           vpcutils.OvnExtPatchName,
+		InterfaceName:  vpcutils.OvnExtPatchName,
+		Type:           dpuservicev1.InterfaceTypeOVN,
+		Namespace:      input.namespace,
+		Labels:         brOVNExtLabels,
+		ExternalBridge: ptr.To(vpcutils.BrOVNExt),
+	})
+}
+
+func createVPCDPUServiceChain(ctx context.Context, input *systemTestInput) {
+	dpuServiceChain := generateVPCDPUObj(vpcutils.VpcOVNServiceChain, input.namespace, input.dpuServiceChainTemplate.DeepCopy(), nil)
+	dpuServiceChain.Spec.Template.Spec.Template.Spec.Switches = []dpuservicev1.Switch{
+		{
+			Ports: []dpuservicev1.Port{
+				{
+					ServiceInterface: dpuservicev1.ServiceIfc{
+						MatchLabels: map[string]string{vpcutils.InterfaceLabelKey: vpcutils.PhysicalInterface0},
+					},
+				},
+				{
+					ServiceInterface: dpuservicev1.ServiceIfc{
+						MatchLabels: map[string]string{vpcutils.InterfaceLabelKey: vpcutils.OvnExtPatchName},
+					},
+				},
+			},
+		},
+	}
+	By("creating vpc ovn service chain")
+	Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuServiceChain))).To(Succeed())
+}
+
+func getDPUNodesInOrder(ctx context.Context, input *systemTestInput) (corev1.Node, corev1.Node) {
+	By("getting DPU cluster nodes in order")
+	worker1, _ := getTwoWorkerNodeNames(ctx, input.client)
+	dpuNodes := getDPUClusterNodes(ctx, dpuClusterClient)
+	Expect(dpuNodes).To(HaveLen(2))
+	if dpuNodes[0].ObjectMeta.Labels["provisioning.dpu.nvidia.com/host"] == worker1 {
+		return dpuNodes[0], dpuNodes[1]
+	} else {
+		return dpuNodes[1], dpuNodes[0]
+	}
+}
+
+// generateVPCDPUObj generates a DPU object with the given name, namespace and labels, it will also add the vpcAfterAllCleanupLabels to the labels
+func generateVPCDPUObj[T client.Object](name, ns string, obj T, customLabels map[string]string) T {
+	obj.SetName(name)
+	obj.SetNamespace(ns)
+	labels := make(map[string]string)
+	maps.Copy(labels, vpcAfterAllCleanupLabels)
+	if customLabels != nil {
+		maps.Copy(labels, customLabels)
+	}
+	obj.SetLabels(labels)
+	return obj
+}
+
+func waitForDHCPDaemonPodsReady(ctx context.Context, testClient client.Client, vpcOvnInput *vpcOvnTestInput) {
+	Eventually(func(g Gomega) {
+		ds := &appsv1.DaemonSet{}
+		g.Expect(testClient.Get(ctx, client.ObjectKey{
+			Namespace: vpcOvnInput.dhcpDaemonSet.GetNamespace(),
+			Name:      vpcOvnInput.dhcpDaemonSet.GetName(),
+		}, ds)).To(Succeed())
+		g.Expect(ds.Status.ObservedGeneration).To(Equal(ds.GetGeneration()))
+		g.Expect(ds.Status.NumberReady).To(BeNumerically(">", 0))
+		g.Expect(ds.Status.NumberReady).To(Equal(ds.Status.DesiredNumberScheduled))
+	}).WithTimeout(5 * time.Minute).Should(Succeed())
+}
+
+// cleanupDPUClusterNodeLabels cleans up the DPU cluster node labels
+func cleanupDPUClusterNodeLabels(ctx context.Context) {
+	dpuNodes := getDPUClusterNodes(ctx, dpuClusterClient)
+	Expect(dpuNodes).To(HaveLen(2))
+
+	// Delete the specific labels
+	for _, dpuNode := range dpuNodes {
+		vpcutils.UpdateDPUNodeLabelsMerge(ctx, dpuClusterClient, dpuNode.Name, nil, []string{vpcutils.TenantNodeLabelKey, vpcutils.TenantLabelKey})
+	}
+}
+
+// createOVNIsolationClass creates an OVN isolation class
+func createOVNIsolationClass(ctx context.Context, testClient client.Client, name string, namespace string, labels map[string]string) {
+	controlPlaneIP := getClusterControlPlaneIP(ctx, testClient)
+	ovnNbEndpoint := fmt.Sprintf("tcp:%s:%d", controlPlaneIP, vpcutils.OvnNbPort)
+	ovni := &vpcv1.IsolationClass{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+			Labels:    labels,
+		},
+		Spec: vpcv1.IsolationClassSpec{
+			Provisioner: name,
+			Parameters: map[string]string{
+				"ovn-nb-endpoint":       ovnNbEndpoint,
+				"ovn-nb-reconnect-time": "5",
+			},
+		},
+	}
+	Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, ovni))).To(Succeed())
+}
+
+// createDPUVPC creates a DPU VPC
+func createDPUVPC(ctx context.Context, testClient client.Client, name, tenant, isolationClassName string, labels map[string]string) {
+	dpuVPC := &vpcv1.DPUVPC{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: dpfOperatorSystemNamespace,
+			Labels:    labels,
+		},
+		Spec: vpcv1.DPUVPCSpec{
+			Tenant:             tenant,
+			IsolationClassName: isolationClassName,
+			InterNetworkAccess: true,
+			NodeSelector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					vpcutils.TenantLabelKey: tenant,
+				},
+			},
+		},
+	}
+	Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, dpuVPC))).To(Succeed())
+}
+
+// createDPUVirtualNetwork creates a DPU virtual network
+func createDPUVirtualNetwork(ctx context.Context, testClient client.Client, name, vpcName, tenant, subnet string, labels map[string]string) {
+	dpuVirtualNetwork := &vpcv1.DPUVirtualNetwork{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: dpfOperatorSystemNamespace,
+			Labels:    labels,
+		},
+		Spec: vpcv1.DPUVirtualNetworkSpec{
+			NodeSelector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					vpcutils.TenantLabelKey: tenant,
+				},
+			},
+			VPCName:          vpcName,
+			Type:             vpcv1.BridgedVirtualNetworkType,
+			ExternallyRouted: true,
+			Masquerade:       ptr.To(true),
+			BridgedNetwork: &vpcv1.BridgedNetworkSpec{
+				IPAM: &vpcv1.BridgedNetworkIPAMSpec{
+					IPv4: &vpcv1.BridgedNetworkIPAMIPv4Spec{
+						DHCP:   true,
+						Subnet: subnet,
+					},
+				},
+			},
+		},
+	}
+	Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, dpuVirtualNetwork))).To(Succeed())
+}
+
+// labelDPUNodesWithTenantAndTenantNode labels DPU nodes with tenant and tenant-node labels
+func labelDPUNodesWithTenantAndTenantNode(ctx context.Context, dpuClusterClient client.Client, dpuNode1, dpuNode2 corev1.Node, tenant1Label, tenant2Label string) {
+	labelsDPUNode1 := map[string]string{
+		vpcutils.TenantNodeLabelKey: dpuNode1.Name,
+		vpcutils.TenantLabelKey:     tenant1Label,
+	}
+	vpcutils.UpdateDPUNodeLabelsMerge(ctx, dpuClusterClient, dpuNode1.Name, labelsDPUNode1, nil)
+
+	labelsDPUNode2 := map[string]string{
+		vpcutils.TenantNodeLabelKey: dpuNode2.Name,
+		vpcutils.TenantLabelKey:     tenant2Label,
+	}
+	vpcutils.UpdateDPUNodeLabelsMerge(ctx, dpuClusterClient, dpuNode2.Name, labelsDPUNode2, nil)
+}

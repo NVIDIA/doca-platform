@@ -1,0 +1,35 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: hbn
+  namespace: dpf-operator-system
+  annotations:
+    svc.dpu.nvidia.com/template-delimiter: "##,##"
+spec:
+  deploymentServiceName: "hbn"
+  serviceConfiguration:
+    serviceDaemonSet:
+      annotations:
+        k8s.v1.cni.cncf.io/networks: |-
+          [
+          {"name": "iprequest", "interface": "ip_lo", "cni-args": {"poolNames": ["loopback"], "poolType": "cidrpool"}},
+          {"name": "iprequest", "interface": "ip_pf2dpu2", "cni-args": {"poolNames": ["pool1"], "poolType": "cidrpool", "allocateDefaultGateway": true}}
+          ]
+    helmChart:
+      values:
+        configuration:
+          startupYAMLJ2: |
+            - set:
+                interface:
+                  pf2dpu2_if:
+                    ip:
+                      address:
+                        {{ ipaddresses.ip_pf2dpu2.cidr }}: {}
+                    type: swp
+                    link:
+                      mtu: 9000
+                router:
+                  bgp:
+                    autonomous-system: {{ config.bgp_autonomous_system }}
+                    enable: ## .enabled_bgp ##
