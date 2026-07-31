@@ -48,6 +48,7 @@ type API interface {
 	// Bridge Commands
 	ValidateBridgeExists(ctx context.Context, bridgeName string) error
 	GetBridgeNameByInterface(ctx context.Context, name string) (string, error)
+	GetBridgeNameByPort(ctx context.Context, name string) (string, error)
 	AddBridge(ctx context.Context, bridgeConfig BridgeConfig) error
 	SetBridgeExternalIDs(ctx context.Context, name string, externalIDs map[string]string) error
 	ListBridgesWithExternalIDs(ctx context.Context, externalIDs map[string]string) ([]ovsmodel.Bridge, error)
@@ -148,6 +149,33 @@ func (c *Client) GetBridgeNameByInterface(ctx context.Context, name string) (str
 			Field:    &bridge.Ports,
 			Function: ovsdb.ConditionIncludes,
 			Value:    []string{ports[0].UUID},
+		},
+	).List(ctx, &bridges)
+	if err != nil {
+		return "", fmt.Errorf("failed to find bridge for %s: %w", name, err)
+	}
+	if len(bridges) != 1 {
+		return "", fmt.Errorf("failed to find bridge for %s: expected 1 bridge, got %d", name, len(bridges))
+	}
+
+	return bridges[0].Name, nil
+}
+
+// GetBridgeNameByPort returns the bridge name that contains a port.
+func (c *Client) GetBridgeNameByPort(ctx context.Context, name string) (string, error) {
+	port := &ovsmodel.Port{Name: name}
+	if err := c.Get(ctx, port); err != nil {
+		return "", fmt.Errorf("failed to find port %s: %w", name, err)
+	}
+
+	var bridges []ovsmodel.Bridge
+	bridge := &ovsmodel.Bridge{}
+	err := c.WhereAll(
+		bridge,
+		model.Condition{
+			Field:    &bridge.Ports,
+			Function: ovsdb.ConditionIncludes,
+			Value:    []string{port.UUID},
 		},
 	).List(ctx, &bridges)
 	if err != nil {
