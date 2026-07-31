@@ -226,11 +226,14 @@ write_files:
 {{- if .OOBNetwork}}
           oob_net0:
             dhcp4: true
+            dhcp6: false
+            accept-ra: false
             mtu: {{.ControlPlaneMTU}}
 {{- else}}
           oob_net0:
             dhcp4: false
             dhcp6: false
+            accept-ra: false
             link-local: []
             optional: true
           tmfifo_net0:
@@ -447,6 +450,8 @@ network:
   ethernets:
     oob_net0:
       dhcp4: true
+      dhcp6: false
+      accept-ra: false
       mtu: 1500
 `)
 				Expect(netplanFile.Content).To(Equal(expectedNetplan))
@@ -526,6 +531,8 @@ network:
   ethernets:
     oob_net0:
       dhcp4: true
+      dhcp6: false
+      accept-ra: false
       mtu: 1500
 `)
 				Expect(netplanFile.Content).To(Equal(expectedNetplan))
@@ -653,6 +660,7 @@ network:
     oob_net0:
       dhcp4: false
       dhcp6: false
+      accept-ra: false
       link-local: []
       optional: true
     tmfifo_net0:
