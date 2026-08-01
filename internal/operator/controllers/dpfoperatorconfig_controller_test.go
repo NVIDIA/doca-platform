@@ -49,9 +49,8 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
-
-const legacyDPFVersionWithoutKubeletSupport = "v25.10.1"
 
 func TestDPFOperatorConfigSettings(t *testing.T) {
 	g := NewWithT(t)
@@ -1477,13 +1476,17 @@ func TestValidateKubernetesVersionSkew(t *testing.T) {
 		}
 	}
 
-	// currentDPFVersion is newer than the legacy v25.10.x releases, simulating
-	// a DPU provisioned by the current operator that supports KubeletVersion reporting.
-	currentDPFVersion := "v26.4.0"
+	ensureClusterSecret := func(cluster *provisioningv1.DPUCluster) *corev1.Secret {
+		if cluster.Spec.Kubeconfig == "" {
+			cluster.Spec.Kubeconfig = fmt.Sprintf("%s-admin-kubeconfig", cluster.Name)
+		}
+		secret, err := testutils.GetFakeKamajiClusterSecretFromEnvtest(*cluster, cfg)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(testClient.Create(ctx, secret)).To(Succeed())
+		return secret
+	}
 
-	// Helper to create a DPU with required fields.
-	// Sets DPFVersion to currentDPFVersion so the DPU is expected to report KubeletVersion.
-	createDPU := func(name string, cluster *provisioningv1.DPUCluster, kubeletVersion *string) *provisioningv1.DPU {
+	createDPU := func(name string, cluster *provisioningv1.DPUCluster, kubeletVersion *string) (*provisioningv1.DPU, *corev1.Node) {
 		dpu := &provisioningv1.DPU{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      name,
@@ -1509,14 +1512,20 @@ func TestValidateKubernetesVersionSkew(t *testing.T) {
 		patcher := patch.NewSerialPatcher(dpu, testClient)
 		dpu.Status = provisioningv1.DPUStatus{
 			Phase:      provisioningv1.DPUReady,
-			DPFVersion: ptr.To(currentDPFVersion),
-			AgentStatus: &provisioningv1.AgentStatus{
-				KubeletVersion: kubeletVersion,
-			},
+			DPFVersion: ptr.To("v26.4.0"),
 		}
 		g.Expect(patcher.Patch(ctx, dpu, patch.WithFieldOwner("test"))).To(Succeed())
 
-		return dpu
+		var node *corev1.Node
+		if kubeletVersion != nil {
+			node = &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: name}}
+			g.Expect(testClient.Create(ctx, node)).To(Succeed())
+			nodePatcher := patch.NewSerialPatcher(node, testClient)
+			node.Status.NodeInfo.KubeletVersion = *kubeletVersion
+			g.Expect(nodePatcher.Patch(ctx, node, patch.WithFieldOwner("test"))).To(Succeed())
+		}
+
+		return dpu, node
 	}
 
 	t.Run("validates static clusters against their actual kube-apiserver version", func(t *testing.T) {
@@ -1526,20 +1535,19 @@ func TestValidateKubernetesVersionSkew(t *testing.T) {
 				Namespace: testNS.Name,
 			},
 			Spec: provisioningv1.DPUClusterSpec{
-				Type: string(provisioningv1.StaticCluster),
+				Type:       string(provisioningv1.StaticCluster),
+				Kubeconfig: "static-cluster-versioned-admin-kubeconfig",
 			},
 		}
 		g.Expect(testClient.Create(ctx, staticCluster)).To(Succeed())
-		// Set the actual kube-apiserver version on the static cluster
+		secret := ensureClusterSecret(staticCluster)
 		patcher := patch.NewSerialPatcher(staticCluster, testClient)
 		staticCluster.Status.Version = "v1.30.0"
 		staticCluster.Status.Phase = provisioningv1.PhaseReady
 		g.Expect(patcher.Patch(ctx, staticCluster)).To(Succeed())
 
-		// Create a DPU with kubelet v1.30.0 — compatible with static cluster's v1.30.0
-		dpuOk := createDPU("dpu-static-ok", staticCluster, ptr.To("v1.30.0"))
-		// Create a DPU with kubelet v1.26.0 — 4 minor versions behind v1.30.0, too old
-		dpuOld := createDPU("dpu-static-old", staticCluster, ptr.To("v1.26.0"))
+		dpuOk, nodeOk := createDPU("dpu-static-ok", staticCluster, ptr.To("v1.30.0"))
+		dpuOld, nodeOld := createDPU("dpu-static-old", staticCluster, ptr.To("v1.26.0"))
 
 		dpuClusters := []*dpucluster.Config{
 			dpucluster.NewConfig(testClient, staticCluster),
@@ -1554,22 +1562,26 @@ func TestValidateKubernetesVersionSkew(t *testing.T) {
 		g.Expect(err.Error()).NotTo(ContainSubstring("dpu-static-ok"))
 
 		g.Expect(testClient.Delete(ctx, dpuOk)).To(Succeed())
+		g.Expect(testClient.Delete(ctx, nodeOk)).To(Succeed())
 		g.Expect(testClient.Delete(ctx, dpuOld)).To(Succeed())
+		g.Expect(testClient.Delete(ctx, nodeOld)).To(Succeed())
+		g.Expect(testClient.Delete(ctx, secret)).To(Succeed())
 		g.Expect(testClient.Delete(ctx, staticCluster)).To(Succeed())
 	})
 
 	t.Run("passes validation when no DPUs are assigned to kamaji cluster", func(t *testing.T) {
-		// Create a kamaji cluster without any DPUs
 		kamajiCluster := &provisioningv1.DPUCluster{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "kamaji-cluster-empty",
 				Namespace: testNS.Name,
 			},
 			Spec: provisioningv1.DPUClusterSpec{
-				Type: string(provisioningv1.KamajiCluster),
+				Type:       string(provisioningv1.KamajiCluster),
+				Kubeconfig: "kamaji-cluster-empty-admin-kubeconfig",
 			},
 		}
 		g.Expect(testClient.Create(ctx, kamajiCluster)).To(Succeed())
+		secret := ensureClusterSecret(kamajiCluster)
 
 		dpuClusters := []*dpucluster.Config{
 			dpucluster.NewConfig(testClient, kamajiCluster),
@@ -1579,21 +1591,23 @@ func TestValidateKubernetesVersionSkew(t *testing.T) {
 		err := r.validateKubernetesVersionSkew(ctx, &operatorv1.DPFOperatorConfig{}, dpuClusters)
 		g.Expect(err).ToNot(HaveOccurred())
 
+		g.Expect(testClient.Delete(ctx, secret)).To(Succeed())
 		g.Expect(testClient.Delete(ctx, kamajiCluster)).To(Succeed())
 	})
 
 	t.Run("passes validation when DPUs have compatible kubelet versions", func(t *testing.T) {
-		// Create a kamaji cluster
 		kamajiCluster := &provisioningv1.DPUCluster{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "kamaji-cluster-compatible",
 				Namespace: testNS.Name,
 			},
 			Spec: provisioningv1.DPUClusterSpec{
-				Type: string(provisioningv1.KamajiCluster),
+				Type:       string(provisioningv1.KamajiCluster),
+				Kubeconfig: "kamaji-cluster-compatible-admin-kubeconfig",
 			},
 		}
 		g.Expect(testClient.Create(ctx, kamajiCluster)).To(Succeed())
+		secret := ensureClusterSecret(kamajiCluster)
 
 		semV, err := semver.NewVersion(util.KubernetesVersion)
 		g.Expect(err).ToNot(HaveOccurred())
@@ -1602,11 +1616,10 @@ func TestValidateKubernetesVersionSkew(t *testing.T) {
 		vMinusTwo := fmt.Sprintf("%d.%d", semV.Major(), semV.Minor()-2)
 		vMinusThree := fmt.Sprintf("%d.%d", semV.Major(), semV.Minor()-3)
 
-		// Create DPUs with compatible kubelet versions (within 3 minor versions)
-		dpu1 := createDPU("dpu-compatible-1", kamajiCluster, &sameVersion)
-		dpu2 := createDPU("dpu-compatible-2", kamajiCluster, &vMinusOne)
-		dpu3 := createDPU("dpu-compatible-3", kamajiCluster, &vMinusTwo)
-		dpu4 := createDPU("dpu-compatible-4", kamajiCluster, &vMinusThree)
+		dpu1, node1 := createDPU("dpu-compatible-1", kamajiCluster, &sameVersion)
+		dpu2, node2 := createDPU("dpu-compatible-2", kamajiCluster, &vMinusOne)
+		dpu3, node3 := createDPU("dpu-compatible-3", kamajiCluster, &vMinusTwo)
+		dpu4, node4 := createDPU("dpu-compatible-4", kamajiCluster, &vMinusThree)
 
 		dpuClusters := []*dpucluster.Config{
 			dpucluster.NewConfig(testClient, kamajiCluster),
@@ -1617,44 +1630,51 @@ func TestValidateKubernetesVersionSkew(t *testing.T) {
 		g.Expect(err).ToNot(HaveOccurred())
 
 		vMinusFour := fmt.Sprintf("%d.%d", semV.Major(), semV.Minor()-4)
-		dpu5 := createDPU("dpu-incompatible", kamajiCluster, &vMinusFour)
+		dpu5, node5 := createDPU("dpu-incompatible", kamajiCluster, &vMinusFour)
 
 		err = r.validateKubernetesVersionSkew(ctx, &operatorv1.DPFOperatorConfig{}, dpuClusters)
 		g.Expect(err).To(HaveOccurred())
 		g.Expect(err.Error()).To(ContainSubstring("/dpu-incompatible: kubelet version"))
 		g.Expect(err.Error()).To(ContainSubstring("is more than 3 minor versions behind kube-apiserver version"))
 		g.Expect(testClient.Delete(ctx, dpu5)).To(Succeed())
+		g.Expect(testClient.Delete(ctx, node5)).To(Succeed())
 
 		vPlusOne := fmt.Sprintf("%d.%d", semV.Major(), semV.Minor()+1)
-		dpu6 := createDPU("dpu-incompatible-too-new", kamajiCluster, &vPlusOne)
+		dpu6, node6 := createDPU("dpu-incompatible-too-new", kamajiCluster, &vPlusOne)
 		err = r.validateKubernetesVersionSkew(ctx, &operatorv1.DPFOperatorConfig{}, dpuClusters)
 		g.Expect(err).To(HaveOccurred())
 		g.Expect(err.Error()).To(ContainSubstring("/dpu-incompatible-too-new: kubelet version"))
 		g.Expect(err.Error()).To(ContainSubstring("cannot be newer than kube-apiserver version"))
 
-		// Cleanup
 		g.Expect(testClient.Delete(ctx, dpu1)).To(Succeed())
+		g.Expect(testClient.Delete(ctx, node1)).To(Succeed())
 		g.Expect(testClient.Delete(ctx, dpu2)).To(Succeed())
+		g.Expect(testClient.Delete(ctx, node2)).To(Succeed())
 		g.Expect(testClient.Delete(ctx, dpu3)).To(Succeed())
+		g.Expect(testClient.Delete(ctx, node3)).To(Succeed())
 		g.Expect(testClient.Delete(ctx, dpu4)).To(Succeed())
+		g.Expect(testClient.Delete(ctx, node4)).To(Succeed())
 		g.Expect(testClient.Delete(ctx, dpu6)).To(Succeed())
+		g.Expect(testClient.Delete(ctx, node6)).To(Succeed())
+		g.Expect(testClient.Delete(ctx, secret)).To(Succeed())
 		g.Expect(testClient.Delete(ctx, kamajiCluster)).To(Succeed())
 	})
 
 	t.Run("fails validation when DPU kubelet has different major version", func(t *testing.T) {
-		// Create a kamaji cluster
 		kamajiCluster := &provisioningv1.DPUCluster{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "kamaji-cluster-major-mismatch",
 				Namespace: testNS.Name,
 			},
 			Spec: provisioningv1.DPUClusterSpec{
-				Type: string(provisioningv1.KamajiCluster),
+				Type:       string(provisioningv1.KamajiCluster),
+				Kubeconfig: "kamaji-cluster-major-mismatch-admin-kubeconfig",
 			},
 		}
 		g.Expect(testClient.Create(ctx, kamajiCluster)).To(Succeed())
+		secret := ensureClusterSecret(kamajiCluster)
 
-		dpu := createDPU("dpu-major-mismatch", kamajiCluster, ptr.To("v2.0.0"))
+		dpu, node := createDPU("dpu-major-mismatch", kamajiCluster, ptr.To("v2.0.0"))
 
 		dpuClusters := []*dpucluster.Config{
 			dpucluster.NewConfig(testClient, kamajiCluster),
@@ -1666,91 +1686,27 @@ func TestValidateKubernetesVersionSkew(t *testing.T) {
 		g.Expect(err.Error()).To(ContainSubstring("major version"))
 		g.Expect(err.Error()).To(ContainSubstring("must match"))
 
-		// Cleanup
 		g.Expect(testClient.Delete(ctx, dpu)).To(Succeed())
+		g.Expect(testClient.Delete(ctx, node)).To(Succeed())
+		g.Expect(testClient.Delete(ctx, secret)).To(Succeed())
 		g.Expect(testClient.Delete(ctx, kamajiCluster)).To(Succeed())
 	})
 
-	t.Run("skips legacy DPUs without KubeletVersion (DPFVersion predates support)", func(t *testing.T) {
-		// Create a kamaji cluster
+	t.Run("skips DPUs in Error phase", func(t *testing.T) {
 		kamajiCluster := &provisioningv1.DPUCluster{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "kamaji-cluster-legacy",
+				Name:      "kamaji-cluster-error-phase",
 				Namespace: testNS.Name,
 			},
 			Spec: provisioningv1.DPUClusterSpec{
-				Type: string(provisioningv1.KamajiCluster),
+				Type:       string(provisioningv1.KamajiCluster),
+				Kubeconfig: "kamaji-cluster-error-phase-admin-kubeconfig",
 			},
 		}
 		g.Expect(testClient.Create(ctx, kamajiCluster)).To(Succeed())
+		secret := ensureClusterSecret(kamajiCluster)
 
-		// Create DPU with old DPFVersion (predates KubeletVersion support) and no KubeletVersion
-		dpuLegacy := &provisioningv1.DPU{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "dpu-legacy",
-				Namespace: testNS.Name,
-			},
-			Spec: provisioningv1.DPUSpec{
-				SerialNumber:  "MT25066004C7",
-				DPUNodeName:   "test-node",
-				DPUDeviceName: "test-device",
-				BFB:           ptr.To("test-bfb"),
-				DPUFlavor:     "test-flavor",
-				Cluster: provisioningv1.K8sCluster{
-					Name:      kamajiCluster.Name,
-					Namespace: kamajiCluster.Namespace,
-				},
-				NodeEffect: provisioningv1.NodeEffect{
-					Action: provisioningv1.Action{NoEffect: ptr.To(true)},
-				},
-			},
-		}
-		g.Expect(testClient.Create(ctx, dpuLegacy)).To(Succeed())
-		patcher := patch.NewSerialPatcher(dpuLegacy, testClient)
-		dpuLegacy.Status = provisioningv1.DPUStatus{
-			Phase:      provisioningv1.DPUReady,
-			DPFVersion: ptr.To(legacyDPFVersionWithoutKubeletSupport),
-		}
-		g.Expect(patcher.Patch(ctx, dpuLegacy)).To(Succeed())
-
-		dpuClusters := []*dpucluster.Config{
-			dpucluster.NewConfig(testClient, kamajiCluster),
-		}
-
-		r := newReconciler()
-		err := r.validateKubernetesVersionSkew(ctx, &operatorv1.DPFOperatorConfig{}, dpuClusters)
-		// Expect dpuNoDPFVer to fail
-		g.Expect(err).ToNot(HaveOccurred())
-
-		// Create DPU with no DPFVersion at all (very old)
-		dpuNoDPFVer := &provisioningv1.DPU{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "dpu-no-dpfversion",
-				Namespace: testNS.Name,
-			},
-			Spec: provisioningv1.DPUSpec{
-				SerialNumber:  "MT25066004C8",
-				DPUNodeName:   "test-node",
-				DPUDeviceName: "test-device",
-				BFB:           ptr.To("test-bfb"),
-				DPUFlavor:     "test-flavor",
-				Cluster: provisioningv1.K8sCluster{
-					Name:      kamajiCluster.Name,
-					Namespace: kamajiCluster.Namespace,
-				},
-				NodeEffect: provisioningv1.NodeEffect{
-					Action: provisioningv1.Action{NoEffect: ptr.To(true)},
-				},
-			},
-		}
-		g.Expect(testClient.Create(ctx, dpuNoDPFVer)).To(Succeed())
-		err = r.validateKubernetesVersionSkew(ctx, &operatorv1.DPFOperatorConfig{}, dpuClusters)
-		g.Expect(err).To(HaveOccurred())
-		g.Expect(err.Error()).To(ContainSubstring("dpu-no-dpfversion: no KubeletVersion"))
-		g.Expect(testClient.Delete(ctx, dpuNoDPFVer)).To(Succeed())
-
-		// Create DPU with old DPFVersion (predates KubeletVersion support) and no KubeletVersion
-		dpuFailedWithoutKubelet := &provisioningv1.DPU{
+		dpu := &provisioningv1.DPU{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "dpu-failed-without-kubelet",
 				Namespace: testNS.Name,
@@ -1770,37 +1726,41 @@ func TestValidateKubernetesVersionSkew(t *testing.T) {
 				},
 			},
 		}
-		g.Expect(testClient.Create(ctx, dpuFailedWithoutKubelet)).To(Succeed())
-		patcher = patch.NewSerialPatcher(dpuFailedWithoutKubelet, testClient)
-		dpuFailedWithoutKubelet.Status = provisioningv1.DPUStatus{
+		g.Expect(testClient.Create(ctx, dpu)).To(Succeed())
+		patcher := patch.NewSerialPatcher(dpu, testClient)
+		dpu.Status = provisioningv1.DPUStatus{
 			Phase:      provisioningv1.DPUError,
 			DPFVersion: ptr.To("v26.4.0"),
 		}
-		g.Expect(patcher.Patch(ctx, dpuFailedWithoutKubelet)).To(Succeed())
-		err = r.validateKubernetesVersionSkew(ctx, &operatorv1.DPFOperatorConfig{}, dpuClusters)
+		g.Expect(patcher.Patch(ctx, dpu)).To(Succeed())
+
+		dpuClusters := []*dpucluster.Config{
+			dpucluster.NewConfig(testClient, kamajiCluster),
+		}
+		r := newReconciler()
+		err := r.validateKubernetesVersionSkew(ctx, &operatorv1.DPFOperatorConfig{}, dpuClusters)
 		g.Expect(err).ToNot(HaveOccurred())
 
-		// Cleanup
-		g.Expect(testClient.Delete(ctx, dpuFailedWithoutKubelet)).To(Succeed())
-		g.Expect(testClient.Delete(ctx, dpuLegacy)).To(Succeed())
+		g.Expect(testClient.Delete(ctx, dpu)).To(Succeed())
+		g.Expect(testClient.Delete(ctx, secret)).To(Succeed())
 		g.Expect(testClient.Delete(ctx, kamajiCluster)).To(Succeed())
 	})
 
-	t.Run("errors when current DPU has no KubeletVersion reported", func(t *testing.T) {
-		// Create a kamaji cluster
+	t.Run("errors when DPU cluster node is missing", func(t *testing.T) {
 		kamajiCluster := &provisioningv1.DPUCluster{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "kamaji-cluster-missing-version",
+				Name:      "kamaji-cluster-missing-node",
 				Namespace: testNS.Name,
 			},
 			Spec: provisioningv1.DPUClusterSpec{
-				Type: string(provisioningv1.KamajiCluster),
+				Type:       string(provisioningv1.KamajiCluster),
+				Kubeconfig: "kamaji-cluster-missing-node-admin-kubeconfig",
 			},
 		}
 		g.Expect(testClient.Create(ctx, kamajiCluster)).To(Succeed())
+		secret := ensureClusterSecret(kamajiCluster)
 
-		// Create DPU with current DPFVersion but no KubeletVersion — should error
-		dpu := createDPU("dpu-missing-kubelet", kamajiCluster, nil)
+		dpu, _ := createDPU("dpu-missing-node", kamajiCluster, nil)
 
 		dpuClusters := []*dpucluster.Config{
 			dpucluster.NewConfig(testClient, kamajiCluster),
@@ -1809,29 +1769,49 @@ func TestValidateKubernetesVersionSkew(t *testing.T) {
 		r := newReconciler()
 		err := r.validateKubernetesVersionSkew(ctx, &operatorv1.DPFOperatorConfig{}, dpuClusters)
 		g.Expect(err).To(HaveOccurred())
-		g.Expect(err.Error()).To(ContainSubstring("kubelet version not reported"))
-		g.Expect(err.Error()).To(ContainSubstring("should support it"))
+		g.Expect(err.Error()).To(ContainSubstring("DPU cluster node dpu-missing-node not found"))
 
-		// Cleanup
 		g.Expect(testClient.Delete(ctx, dpu)).To(Succeed())
+		g.Expect(testClient.Delete(ctx, secret)).To(Succeed())
 		g.Expect(testClient.Delete(ctx, kamajiCluster)).To(Succeed())
 	})
 
+	t.Run("reads kubelet version from DPU cluster node", func(t *testing.T) {
+		kamajiCluster := testutils.GetTestDPUCluster(testNS.Name, "kamaji-cluster-node-version")
+		g.Expect(testClient.Create(ctx, &kamajiCluster)).To(Succeed())
+		secret := ensureClusterSecret(&kamajiCluster)
+
+		dpu, node := createDPU("dpu-node-version", &kamajiCluster, ptr.To(util.KubernetesVersion))
+
+		dpuClusters := []*dpucluster.Config{
+			dpucluster.NewConfig(testClient, &kamajiCluster),
+		}
+
+		r := newReconciler()
+		err := r.validateKubernetesVersionSkew(ctx, &operatorv1.DPFOperatorConfig{}, dpuClusters)
+		g.Expect(err).NotTo(HaveOccurred())
+
+		g.Expect(testClient.Delete(ctx, dpu)).To(Succeed())
+		g.Expect(testClient.Delete(ctx, node)).To(Succeed())
+		g.Expect(testClient.Delete(ctx, secret)).To(Succeed())
+		g.Expect(testClient.Delete(ctx, &kamajiCluster)).To(Succeed())
+	})
+
 	t.Run("returns error for invalid kubelet version format", func(t *testing.T) {
-		// Create a kamaji cluster
 		kamajiCluster := &provisioningv1.DPUCluster{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "kamaji-cluster-invalid-version",
 				Namespace: testNS.Name,
 			},
 			Spec: provisioningv1.DPUClusterSpec{
-				Type: string(provisioningv1.KamajiCluster),
+				Type:       string(provisioningv1.KamajiCluster),
+				Kubeconfig: "kamaji-cluster-invalid-version-admin-kubeconfig",
 			},
 		}
 		g.Expect(testClient.Create(ctx, kamajiCluster)).To(Succeed())
+		secret := ensureClusterSecret(kamajiCluster)
 
-		// Create DPU with invalid version format
-		dpu := createDPU("dpu-invalid-version", kamajiCluster, ptr.To("invalid-version"))
+		dpu, node := createDPU("dpu-invalid-version", kamajiCluster, ptr.To("invalid-version"))
 
 		dpuClusters := []*dpucluster.Config{
 			dpucluster.NewConfig(testClient, kamajiCluster),
@@ -1842,29 +1822,28 @@ func TestValidateKubernetesVersionSkew(t *testing.T) {
 		g.Expect(err).To(HaveOccurred())
 		g.Expect(err.Error()).To(ContainSubstring("invalid kubelet version"))
 
-		// Cleanup
 		g.Expect(testClient.Delete(ctx, dpu)).To(Succeed())
+		g.Expect(testClient.Delete(ctx, node)).To(Succeed())
+		g.Expect(testClient.Delete(ctx, secret)).To(Succeed())
 		g.Expect(testClient.Delete(ctx, kamajiCluster)).To(Succeed())
 	})
 
 	t.Run("aggregates multiple validation errors", func(t *testing.T) {
-		// Create a kamaji cluster
 		kamajiCluster := &provisioningv1.DPUCluster{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "kamaji-cluster-multi-errors",
 				Namespace: testNS.Name,
 			},
 			Spec: provisioningv1.DPUClusterSpec{
-				Type: string(provisioningv1.KamajiCluster),
+				Type:       string(provisioningv1.KamajiCluster),
+				Kubeconfig: "kamaji-cluster-multi-errors-admin-kubeconfig",
 			},
 		}
 		g.Expect(testClient.Create(ctx, kamajiCluster)).To(Succeed())
+		secret := ensureClusterSecret(kamajiCluster)
 
-		// Create DPU with kubelet too old
-		dpu1 := createDPU("dpu-multi-error-1", kamajiCluster, ptr.To("v1.30.0"))
-
-		// Create DPU with kubelet too new
-		dpu2 := createDPU("dpu-multi-error-2", kamajiCluster, ptr.To("v1.36.0"))
+		dpu1, node1 := createDPU("dpu-multi-error-1", kamajiCluster, ptr.To("v1.30.0"))
+		dpu2, node2 := createDPU("dpu-multi-error-2", kamajiCluster, ptr.To("v1.36.0"))
 
 		dpuClusters := []*dpucluster.Config{
 			dpucluster.NewConfig(testClient, kamajiCluster),
@@ -1873,123 +1852,57 @@ func TestValidateKubernetesVersionSkew(t *testing.T) {
 		r := newReconciler()
 		err := r.validateKubernetesVersionSkew(ctx, &operatorv1.DPFOperatorConfig{}, dpuClusters)
 		g.Expect(err).To(HaveOccurred())
-		// Both errors should be included
 		g.Expect(err.Error()).To(ContainSubstring("dpu-multi-error-1"))
 		g.Expect(err.Error()).To(ContainSubstring("dpu-multi-error-2"))
 
-		// Cleanup
 		g.Expect(testClient.Delete(ctx, dpu1)).To(Succeed())
+		g.Expect(testClient.Delete(ctx, node1)).To(Succeed())
 		g.Expect(testClient.Delete(ctx, dpu2)).To(Succeed())
+		g.Expect(testClient.Delete(ctx, node2)).To(Succeed())
+		g.Expect(testClient.Delete(ctx, secret)).To(Succeed())
 		g.Expect(testClient.Delete(ctx, kamajiCluster)).To(Succeed())
 	})
 }
 
-func TestGetDPUKubeletVersion(t *testing.T) {
-	tests := []struct {
-		name        string
-		agentStatus *provisioningv1.AgentStatus
-		dpfVersion  *string
-		wantVersion string
-		wantErr     string
-	}{
-		{
-			name:        "returns kubelet version when present",
-			agentStatus: &provisioningv1.AgentStatus{KubeletVersion: ptr.To("v1.33.3")},
-			dpfVersion:  ptr.To("v26.4.0"),
-			wantVersion: "v1.33.3",
-		},
-		{
-			name:        "errors when DPU has no AgentStatus and no DPFVersion (very old DPU)",
-			agentStatus: nil,
-			dpfVersion:  nil,
-			wantErr:     "no KubeletVersion",
-		},
-		{
-			name:        "skips DPU with legacy DPFVersion v25.10.1",
-			agentStatus: nil,
-			dpfVersion:  ptr.To(legacyDPFVersionWithoutKubeletSupport),
-			wantVersion: "",
-		},
-		{
-			name:        "skips DPU with DPFVersion v25.10.0 (same minor as supported)",
-			agentStatus: nil,
-			dpfVersion:  ptr.To("v25.10.0"),
-			wantVersion: "",
-		},
-		{
-			name:        "skips DPU with DPFVersion v25.10.1-rc.1 prerelease (same minor)",
-			agentStatus: nil,
-			dpfVersion:  ptr.To("v25.10.1-rc.1"),
-			wantVersion: "",
-		},
-		{
-			name:        "errors when DPFVersion is older than v25.10.x",
-			agentStatus: nil,
-			dpfVersion:  ptr.To("v25.7.0"),
-			wantErr:     "unsupported DPF version",
-		},
-		{
-			name:        "skips DPU with DPFVersion v25.10.2 (newer patch but same v25.10.x minor)",
-			agentStatus: nil,
-			dpfVersion:  ptr.To("v25.10.2"),
-			wantVersion: "",
-		},
-		{
-			name:        "errors when DPFVersion is newer minor than legacy kubelet support threshold",
-			agentStatus: nil,
-			dpfVersion:  ptr.To("v26.4.0"),
-			wantErr:     "kubelet version not reported",
-		},
-		{
-			name:        "errors when DPFVersion is unparseable",
-			agentStatus: nil,
-			dpfVersion:  ptr.To("not-a-version"),
-			wantErr:     "failed to parse DPF version",
-		},
-		{
-			name:        "returns kubelet version even when DPFVersion is nil",
-			agentStatus: &provisioningv1.AgentStatus{KubeletVersion: ptr.To("v1.32.0")},
-			dpfVersion:  nil,
-			wantVersion: "v1.32.0",
-		},
-		{
-			name:        "AgentStatus present but KubeletVersion nil with old DPFVersion",
-			agentStatus: &provisioningv1.AgentStatus{KubeletVersion: nil},
-			dpfVersion:  ptr.To("v25.10.0"),
-			wantVersion: "",
-		},
-		{
-			name:        "AgentStatus present but KubeletVersion nil with new DPFVersion",
-			agentStatus: &provisioningv1.AgentStatus{KubeletVersion: nil},
-			dpfVersion:  ptr.To("v26.4.0"),
-			wantErr:     "kubelet version not reported",
-		},
-	}
+func TestResolveDPUKubeletVersion(t *testing.T) {
+	g := NewWithT(t)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			dpu := &provisioningv1.DPU{
-				Status: provisioningv1.DPUStatus{
-					DPFVersion:  tt.dpfVersion,
-					AgentStatus: tt.agentStatus,
-				},
-			}
-			got, err := getDPUKubeletVersion(dpu)
-			if tt.wantErr != "" {
-				if err == nil {
-					t.Fatalf("expected error containing %q, got nil", tt.wantErr)
-				}
-				if !strings.Contains(err.Error(), tt.wantErr) {
-					t.Fatalf("expected error containing %q, got %q", tt.wantErr, err.Error())
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if got != tt.wantVersion {
-				t.Fatalf("expected version %q, got %q", tt.wantVersion, got)
-			}
-		})
-	}
+	t.Run("returns DPU cluster node kubelet version", func(t *testing.T) {
+		node := &corev1.Node{
+			ObjectMeta: metav1.ObjectMeta{Name: "dpu-node-version"},
+			Status: corev1.NodeStatus{
+				NodeInfo: corev1.NodeSystemInfo{KubeletVersion: "v1.32.0"},
+			},
+		}
+		clusterClient := fake.NewClientBuilder().WithObjects(node).Build()
+		dpu := &provisioningv1.DPU{
+			ObjectMeta: metav1.ObjectMeta{Name: "dpu-node-version"},
+		}
+
+		got, err := resolveDPUKubeletVersion(ctx, clusterClient, dpu)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(got).To(Equal("v1.32.0"))
+	})
+
+	t.Run("errors when DPU cluster node is missing", func(t *testing.T) {
+		clusterClient := fake.NewClientBuilder().Build()
+		dpu := &provisioningv1.DPU{
+			ObjectMeta: metav1.ObjectMeta{Name: "dpu-missing-everywhere"},
+		}
+
+		got, err := resolveDPUKubeletVersion(ctx, clusterClient, dpu)
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(err.Error()).To(ContainSubstring("DPU cluster node dpu-missing-everywhere not found"))
+		g.Expect(got).To(BeEmpty())
+	})
+
+	t.Run("errors when cluster client is nil", func(t *testing.T) {
+		dpu := &provisioningv1.DPU{
+			ObjectMeta: metav1.ObjectMeta{Name: "dpu-no-client"},
+		}
+		got, err := resolveDPUKubeletVersion(ctx, nil, dpu)
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(err.Error()).To(ContainSubstring("no DPU cluster client"))
+		g.Expect(got).To(BeEmpty())
+	})
 }
