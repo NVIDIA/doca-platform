@@ -94,6 +94,10 @@ data:
             action: upsert
 
     exporters:
+      # Each signal is only exported when its endpoint is configured. The collector rejects its
+      # whole configuration when an otlphttp exporter has an empty endpoint, so rendering one
+      # unconditionally would crash loop the collector for anyone who configures only one signal.
+{{- if .Values.logging.endpoint }}
       otlphttp/log:
         endpoint: {{ .Values.logging.endpoint | quote }}
         tls:
@@ -103,6 +107,8 @@ data:
           initial_interval: 5s
           max_interval: 30s
           max_elapsed_time: 1h
+{{- end }}
+{{- if .Values.metrics.endpoint }}
 
       otlphttp/metrics:
         endpoint: {{ .Values.metrics.endpoint | quote }}
@@ -113,6 +119,7 @@ data:
           initial_interval: 5s
           max_interval: 30s
           max_elapsed_time: 1h
+{{- end }}
 
       debug:
         verbosity: basic
@@ -122,6 +129,7 @@ data:
     service:
       extensions: [health_check]
       pipelines:
+{{- if .Values.logging.endpoint }}
         logs/pods:
           receivers: [filelog/pods]
           processors: [memory_limiter, k8sattributes, resource, batch]
@@ -136,8 +144,11 @@ data:
           receivers: [otlp]
           processors: [memory_limiter, k8sattributes, resource, batch]
           exporters: [otlphttp/log, debug]
+{{- end }}
+{{- if .Values.metrics.endpoint }}
 
         metrics:
           receivers: [kubeletstats, otlp]
           processors: [memory_limiter, k8sattributes, resource, batch]
           exporters: [otlphttp/metrics, debug]
+{{- end }}
