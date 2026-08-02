@@ -65,10 +65,6 @@ const (
 
 var (
 	applyPatchOptions = []client.PatchOption{client.ForceOwnership, client.FieldOwner(dpfOperatorConfigControllerName)}
-
-	// lastDPFReleaseWithoutKubeletSupport is the last DPF release without kubeletVersion support.
-	// The kubeletVersion will be added by dpuagent starting with DPF v26.4.
-	lastDPFReleaseWithoutKubeletSupport = semver.MustParse("v25.10.1")
 )
 
 // DPFOperatorConfigReconciler reconciles a DPFOperatorConfig object
@@ -470,14 +466,12 @@ func (r *DPFOperatorConfigReconciler) validateSystemComponentsReadiness(ctx cont
 //   - Kamaji clusters: the KubernetesVersion constant (the version being upgraded to)
 //   - Static clusters: the actual version from DPUCluster.Status.Version
 //
-// It then checks every ready DPU assigned to that cluster:
+// It then checks every non-error DPU assigned to that cluster by reading the
+// kubelet version from the corresponding Node in the DPU cluster
+// (node.Status.NodeInfo.KubeletVersion):
 //   - Kubelet major version must match the kube-apiserver major version
 //   - Kubelet minor version must not be newer than the kube-apiserver
 //   - Kubelet minor version must be at most 3 versions behind the kube-apiserver
-//
-// DPUs provisioned by operator versions that predate KubeletVersion reporting
-// (DPFVersion == lastDPFReleaseWithoutKubeletSupport major.minor) are skipped.
-// DPUs with a recent DPFVersion that fail to report KubeletVersion produce a validation error.
 //
 // All errors across clusters and DPUs are aggregated and returned together.
 func (r *DPFOperatorConfigReconciler) validateKubernetesVersionSkew(ctx context.Context, _ *operatorv1.DPFOperatorConfig, dpuClusters []*dpucluster.Config) error {
@@ -519,13 +513,20 @@ func (r *DPFOperatorConfigReconciler) validateKubernetesVersionSkew(ctx context.
 			continue
 		}
 
+		clusterClient, err := dpuCluster.Client(ctx)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("cluster %s/%s: failed to get client: %v",
+				dpuCluster.Cluster.Namespace, dpuCluster.Cluster.Name, err))
+			continue
+		}
+
 		// Validate each DPU's kubelet version
 		for _, dpu := range dpus {
 			// Skip DPUs that are in Error state, we only care about working DPUs with the kubelet version set.
 			if dpu.Status.Phase == provisioningv1.DPUError {
 				continue
 			}
-			if err := r.validateDPUKubeletVersion(&dpu, apiserverVersion); err != nil {
+			if err := r.validateDPUKubeletVersion(ctx, clusterClient, &dpu, apiserverVersion); err != nil {
 				errs = append(errs, fmt.Errorf("cluster %s/%s: %v",
 					dpuCluster.Cluster.Namespace, dpuCluster.Cluster.Name, err))
 			}
@@ -558,14 +559,10 @@ func (r *DPFOperatorConfigReconciler) getDPUsForCluster(ctx context.Context, clu
 	return assignedDPUs, nil
 }
 
-func (r *DPFOperatorConfigReconciler) validateDPUKubeletVersion(dpu *provisioningv1.DPU, apiserverVersion *semver.Version) error {
-	kubeletVersionStr, err := getDPUKubeletVersion(dpu)
+func (r *DPFOperatorConfigReconciler) validateDPUKubeletVersion(ctx context.Context, clusterClient client.Reader, dpu *provisioningv1.DPU, apiserverVersion *semver.Version) error {
+	kubeletVersionStr, err := resolveDPUKubeletVersion(ctx, clusterClient, dpu)
 	if err != nil {
 		return fmt.Errorf("DPU %s/%s: %w", dpu.Namespace, dpu.Name, err)
-	}
-	if kubeletVersionStr == "" {
-		// Legacy DPU, which predates KubeletVersion reporting.
-		return nil
 	}
 
 	// Parse kubelet version
@@ -598,34 +595,24 @@ func (r *DPFOperatorConfigReconciler) validateDPUKubeletVersion(dpu *provisionin
 	return nil
 }
 
-// getDPUKubeletVersion returns the kubelet version string for a DPU.
-// Returns ("", nil) for legacy DPUs that predate KubeletVersion reporting.
-// Returns ("", error) for DPUs that should have reported KubeletVersion but didn't.
-func getDPUKubeletVersion(dpu *provisioningv1.DPU) (string, error) {
-	// If KubeletVersion is present, return it directly.
-	if dpu.Status.AgentStatus != nil && dpu.Status.AgentStatus.KubeletVersion != nil {
-		return *dpu.Status.AgentStatus.KubeletVersion, nil
+// resolveDPUKubeletVersion returns the kubelet version from the DPU cluster Node
+// named after the DPU (node.Status.NodeInfo.KubeletVersion).
+func resolveDPUKubeletVersion(ctx context.Context, clusterClient client.Reader, dpu *provisioningv1.DPU) (string, error) {
+	if clusterClient == nil {
+		return "", fmt.Errorf("no DPU cluster client")
 	}
 
-	if dpu.Status.DPFVersion == nil {
-		return "", fmt.Errorf("no KubeletVersion")
+	node := &corev1.Node{}
+	if err := clusterClient.Get(ctx, types.NamespacedName{Name: dpu.Name}, node); err != nil {
+		if apierrors.IsNotFound(err) {
+			return "", fmt.Errorf("DPU cluster node %s not found", dpu.Name)
+		}
+		return "", fmt.Errorf("failed to get DPU cluster node %s: %w", dpu.Name, err)
 	}
-	dpfVer, err := semver.NewVersion(*dpu.Status.DPFVersion)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse DPF version %s: %v", *dpu.Status.DPFVersion, err)
+	if node.Status.NodeInfo.KubeletVersion == "" {
+		return "", fmt.Errorf("DPU cluster node %s has no kubelet version", dpu.Name)
 	}
-	// DPF v25.10.x DPUs do not report KubeletVersion.
-	// BFB LTS (3.2) DPUs need reprovisioning with DPF v26.4+ to report it.
-	// Skip validation for these DPUs but error for anything older.
-	if dpfVer.Major() == lastDPFReleaseWithoutKubeletSupport.Major() && dpfVer.Minor() == lastDPFReleaseWithoutKubeletSupport.Minor() {
-		return "", nil
-	}
-	if !dpfVer.GreaterThan(lastDPFReleaseWithoutKubeletSupport) {
-		return "", fmt.Errorf("unsupported DPF version %s (minimum supported: v25.10.x)", *dpu.Status.DPFVersion)
-	}
-
-	// DPU has a recent DPFVersion but no KubeletVersion. This is unexpected.
-	return "", fmt.Errorf("kubelet version not reported (DPFVersion %s should support it)", *dpu.Status.DPFVersion)
+	return node.Status.NodeInfo.KubeletVersion, nil
 }
 
 // generateAndPatchObjects generates a component's manifests, creates or patches the objects, deletes stale objects
