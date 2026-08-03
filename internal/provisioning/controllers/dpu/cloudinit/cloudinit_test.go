@@ -42,11 +42,14 @@ func skipFirstEmptyLine(s string) string {
 }
 
 type cloudConfig struct {
-	Debug      debugConfig  `json:"debug"`
-	Users      []userConfig `json:"users"`
-	ChPasswd   chPasswd     `json:"chpasswd"`
-	WriteFiles []writeEntry `json:"write_files"`
-	RunCmd     [][]string   `json:"runcmd"`
+	PreserveHostname *bool        `json:"preserve_hostname"`
+	Hostname         string       `json:"hostname"`
+	ManageEtcHosts   string       `json:"manage_etc_hosts"`
+	Debug            debugConfig  `json:"debug"`
+	Users            []userConfig `json:"users"`
+	ChPasswd         chPasswd     `json:"chpasswd"`
+	WriteFiles       []writeEntry `json:"write_files"`
+	RunCmd           [][]string   `json:"runcmd"`
 }
 
 type debugConfig struct {
@@ -270,8 +273,11 @@ ovs-vsctl add-br br-test
 		installFile := getWriteFile(parsed, "/opt/dpf/install-dpu-agent.sh")
 		Expect(installFile.Permissions).To(Equal("0755"))
 
+		Expect(parsed.PreserveHostname).NotTo(BeNil())
+		Expect(*parsed.PreserveHostname).To(BeFalse())
+		Expect(parsed.Hostname).To(Equal("test-dpu"))
+		Expect(parsed.ManageEtcHosts).To(Equal("localhost"))
 		Expect(parsed.RunCmd).To(Equal([][]string{
-			{"hostnamectl", "set-hostname", "test-dpu"},
 			{"/opt/dpf/install-dpu-agent.sh"},
 		}))
 	})
@@ -536,10 +542,9 @@ MIIBdummycertbase64contentline2
 		Expect(caFile.Permissions).To(Equal("0644"))
 		Expect(caFile.Content).To(Equal(caBundle + "\n"))
 
-		// update-ca-certificates must run after hostnamectl and before installing the agent
+		// update-ca-certificates must run before installing the agent
 		// (which fetches packages over HTTPS).
 		Expect(parsed.RunCmd).To(Equal([][]string{
-			{"hostnamectl", "set-hostname", "test-dpu"},
 			{"update-ca-certificates"},
 			{"/opt/dpf/install-dpu-agent.sh"},
 		}))
@@ -559,7 +564,6 @@ MIIBdummycertbase64contentline2
 			Expect(f.Path).NotTo(Equal("/usr/local/share/ca-certificates/dpf-ca.crt"))
 		}
 		Expect(parsed.RunCmd).To(Equal([][]string{
-			{"hostnamectl", "set-hostname", "test-dpu"},
 			{"/opt/dpf/install-dpu-agent.sh"},
 		}))
 	})
