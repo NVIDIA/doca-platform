@@ -198,6 +198,11 @@ EOF
 
 cat << \EOF > /mnt/var/lib/cloud/seed/nocloud-net/user-data
 #cloud-config
+# BFB images ship with preserve_hostname: true, which makes cloud-init ignore
+# hostname: / update_hostname. Override so DPUHostName is applied.
+preserve_hostname: false
+hostname: {{.DPUHostName}}
+manage_etc_hosts: localhost
 debug:
   verbose: true
 users:
@@ -325,7 +330,6 @@ write_files:
       systemctl enable --now dpu-agent.service
 
 runcmd:
-  - [ hostnamectl, set-hostname, {{.DPUHostName}} ]
   - [ /opt/dpf/install-dpu-agent.sh ]
 EOF
 }
@@ -501,7 +505,6 @@ ovs-vsctl add-br br-test
 				Expect(installFile.Permissions).To(Equal("0755"))
 
 				Expect(parsed.RunCmd).To(Equal([][]string{
-					{"hostnamectl", "set-hostname", "test-dpu"},
 					{"/opt/dpf/install-dpu-agent.sh"},
 				}))
 			})
