@@ -16,6 +16,22 @@ DPU resources expose health information across three condition sets that track d
 
 A DPU can be in `Ready` provisioning state but have `OperationalReady: False` if runtime issues occur (e.g., OVS service down, pod failures).
 
+## Reading `kubectl get dpu`
+
+```bash
+$ kubectl -n dpf-operator-system get dpu
+NAME                   READY   OPERATIONAL   PHASE   AGE
+worker1-mt2413xz0b67   True    True          Ready   73d
+```
+
+| Column        | Meaning                                                 |
+|---------------|-----------------------------------------------------------|
+| `READY`       | Whether the current phase is satisfied right now          |
+| `OPERATIONAL` | Whether the DPU runtime is healthy right now              |
+| `PHASE`       | Which stage of the provisioning lifecycle the DPU is in   |
+
+`PHASE` is a lifecycle stage, not a health indicator: a DPU stays in its phase while its status changes. Read `READY` and `OPERATIONAL` to tell whether a DPU is currently healthy.
+
 ## Operational Condition Types
 
 | Condition Type                   | Description                                              |
@@ -29,16 +45,7 @@ A DPU can be in `Ready` provisioning state but have `OperationalReady: False` if
 
 ## Viewing Operational Conditions
 
-Check DPU operational health:
-
-```bash
-$ kubectl -n dpf-operator-system get dpu
-NAME                   READY   OPERATIONAL   PHASE   AGE
-worker1-mt2413xz0b67   True    True          Ready   73d
-worker2-mt2413xz0b6w   True    True          Ready   73d
-```
-
-Or the `status.operationalConditions` field:
+The `OPERATIONAL` column only reports the aggregate `OperationalReady` condition. To see which individual check failed, read the full `status.operationalConditions` field:
 
 ```bash
 $ kubectl -n dpf-operator-system get dpu worker1-mt2413xz0b67 -oyaml | yq -P .status.operationalConditions
