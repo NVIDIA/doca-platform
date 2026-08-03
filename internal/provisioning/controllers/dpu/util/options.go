@@ -60,6 +60,11 @@ type DPUOptions struct {
 	BFBRegistryLoadBalancer     string
 	CustomCASecretName          string
 	MaxDPUParallelInstallations int32
+	// KubernetesAPIServerVIP is the Kubernetes API server VIP configured for the DMS/hostagent
+	// Pod (from DPFOperatorConfig KubernetesAPIServerVIP, passed via --dms-pod-envs). It is added
+	// to the bfb-registry server certificate SANs so the hostagent's VIP-based NodePort download
+	// passes TLS verification. Empty when no VIP override is configured.
+	KubernetesAPIServerVIP string
 	// OSInstallTimeout is the maximum time allowed for OS installation in zero-trust mode.
 	OSInstallTimeout time.Duration
 	// OSInstallRetries is the maximum number of retryable OS installation attempts in
