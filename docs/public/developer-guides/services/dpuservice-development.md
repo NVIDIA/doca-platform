@@ -48,7 +48,7 @@ A DPUService Helm chart must:
     instances of the service.
 * Include [version constraints](#version-constraints) in the Helm chart annotations  - e.g. `dpu.nvidia.com/doca-version`
     for DOCA version.
-* [Implement certain parameters](#Helm-chart-parameters)
+* [Implement certain parameters](#helm-chart-parameters)
 
 DPUService developers may implement additional parameters in the Helm chart to meet their needs. 
 
