@@ -6,4 +6,4 @@ title: "Observability Guides"
 
 This section provides operational guides for DPF observability.
 
-* **[DPU Operational Readiness](operational-readiness.md)** - Monitor DPU health conditions and configure alerting
+* **[DPU Operational Readiness](operational-readiness.md)** - Read the DPU status columns, monitor health conditions and configure alerting
