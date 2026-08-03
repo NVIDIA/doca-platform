@@ -285,6 +285,7 @@ func setupControllers(mgr ctrl.Manager, flags *cliFlags, bfbRegistry string, ima
 		BFBPVC:                             flags.bfbPVC,
 		BFBRegistryLoadBalancer:            flags.bfbRegistryLoadBalancerAddress,
 		CustomCASecretName:                 flags.customCASecretName,
+		KubernetesAPIServerVIP:             bfbregistry.APIServerVIPFromDMSPodEnvs(flags.dmsPodEnvs),
 		MaxDPUParallelInstallations:        flags.maxDPUParallelInstallations,
 		OSInstallTimeout:                   flags.osInstallTimeout,
 		OSInstallRetries:                   flags.osInstallRetries,
@@ -524,9 +525,10 @@ func main() {
 	setupInitRunnable(mgr, dpuMap)
 
 	if err := mgr.Add(&bfbregistry.BFBRegistryRunnable{
-		Client:           mgr.GetClient(),
-		BFBPVC:           flags.bfbPVC,
-		ImagePullSecrets: imagePullSecretsReferences,
+		Client:                 mgr.GetClient(),
+		BFBPVC:                 flags.bfbPVC,
+		ImagePullSecrets:       imagePullSecretsReferences,
+		KubernetesAPIServerVIP: bfbregistry.APIServerVIPFromDMSPodEnvs(flags.dmsPodEnvs),
 	}); err != nil {
 		setupLog.Error(err, "unable to register bfb-registry runnable")
 		os.Exit(1)
