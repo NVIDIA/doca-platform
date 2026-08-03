@@ -159,7 +159,7 @@ worker1-mt2413xz0b67   True    True          Ready   73d
 worker2-mt2413xz0b6w   True    True          Ready   73d
 ```
 
-See [DPU Operational Readiness](../guides/operational-readiness.md) for more details on operational conditions and alerting.
+Health is reported by the `READY` and `OPERATIONAL` columns; `PHASE` only reports the lifecycle stage. See [DPU Operational Readiness](../guides/operational-readiness.md) for more details on the columns, operational conditions and alerting.
 
 NPD also exposes Prometheus metrics on port 20257.
 
