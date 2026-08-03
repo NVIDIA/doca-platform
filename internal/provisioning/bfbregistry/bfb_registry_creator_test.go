@@ -355,8 +355,13 @@ var _ = Describe("ensureServerCertificate", func() {
 })
 
 var _ = Describe("serverCertSANs", func() {
+	BeforeEach(func() {
+		// Ensure the controller env fallback does not leak in from the test runner.
+		GinkgoT().Setenv("KUBERNETES_SERVICE_HOST", "")
+	})
+
 	It("includes the node IP and the service DNS names", func() {
-		dns, ips := serverCertSANs("dpf-provisioning", "192.168.1.10")
+		dns, ips := serverCertSANs("dpf-provisioning", "192.168.1.10", "")
 		Expect(dns).To(ConsistOf(
 			"bfb-registry",
 			"bfb-registry.dpf-provisioning",
@@ -367,20 +372,50 @@ var _ = Describe("serverCertSANs", func() {
 	})
 
 	It("omits the IP SAN when the node IP is not a valid IP", func() {
-		_, ips := serverCertSANs("dpf-provisioning", "not-an-ip")
+		_, ips := serverCertSANs("dpf-provisioning", "not-an-ip", "")
 		Expect(ips).To(BeEmpty())
 	})
 
-	It("includes the kube-vip VIP from KUBERNETES_SERVICE_HOST when it differs from the node IP", func() {
-		GinkgoT().Setenv("KUBERNETES_SERVICE_HOST", "10.0.0.10")
-		_, ips := serverCertSANs("dpf-provisioning", "10.0.0.3")
+	It("includes the configured API server VIP when it differs from the node IP", func() {
+		_, ips := serverCertSANs("dpf-provisioning", "10.0.0.3", "10.0.0.10")
 		Expect(ips).To(ConsistOf("10.0.0.3", "10.0.0.10"))
 	})
 
-	It("does not duplicate the node IP when KUBERNETES_SERVICE_HOST matches it", func() {
-		GinkgoT().Setenv("KUBERNETES_SERVICE_HOST", "10.0.0.3")
-		_, ips := serverCertSANs("dpf-provisioning", "10.0.0.3")
+	It("includes both the configured VIP and the controller KUBERNETES_SERVICE_HOST env when they differ", func() {
+		GinkgoT().Setenv("KUBERNETES_SERVICE_HOST", "10.96.0.1")
+		_, ips := serverCertSANs("dpf-provisioning", "10.0.0.3", "10.0.0.10")
+		Expect(ips).To(ConsistOf("10.0.0.3", "10.0.0.10", "10.96.0.1"))
+	})
+
+	It("does not duplicate the node IP when the configured VIP matches it", func() {
+		_, ips := serverCertSANs("dpf-provisioning", "10.0.0.3", "10.0.0.3")
 		Expect(ips).To(ConsistOf("10.0.0.3"))
+	})
+
+	It("does not duplicate an IP shared by the configured VIP and the env", func() {
+		GinkgoT().Setenv("KUBERNETES_SERVICE_HOST", "10.0.0.10")
+		_, ips := serverCertSANs("dpf-provisioning", "10.0.0.3", "10.0.0.10")
+		Expect(ips).To(ConsistOf("10.0.0.3", "10.0.0.10"))
+	})
+
+	It("falls back to KUBERNETES_SERVICE_HOST env when no VIP is configured", func() {
+		GinkgoT().Setenv("KUBERNETES_SERVICE_HOST", "10.0.0.10")
+		_, ips := serverCertSANs("dpf-provisioning", "10.0.0.3", "")
+		Expect(ips).To(ConsistOf("10.0.0.3", "10.0.0.10"))
+	})
+})
+
+var _ = Describe("APIServerVIPFromDMSPodEnvs", func() {
+	It("returns the KUBERNETES_SERVICE_HOST value when present", func() {
+		Expect(APIServerVIPFromDMSPodEnvs([]string{
+			"KUBERNETES_SERVICE_HOST=10.0.0.10",
+			"KUBERNETES_SERVICE_PORT=6443",
+		})).To(Equal("10.0.0.10"))
+	})
+
+	It("returns empty when the variable is absent", func() {
+		Expect(APIServerVIPFromDMSPodEnvs([]string{"FOO=bar"})).To(BeEmpty())
+		Expect(APIServerVIPFromDMSPodEnvs(nil)).To(BeEmpty())
 	})
 })
 

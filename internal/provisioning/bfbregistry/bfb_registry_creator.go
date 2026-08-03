@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -82,6 +83,11 @@ type BFBRegistryRunnable struct {
 	Client           client.Client
 	BFBPVC           string
 	ImagePullSecrets []corev1.LocalObjectReference
+	// KubernetesAPIServerVIP is the Kubernetes API server VIP configured for the DMS/hostagent
+	// Pod (via DPFOperatorConfig KubernetesAPIServerVIP). When set it is added to the
+	// bfb-registry server certificate SANs so the hostagent's VIP-based NodePort BFB download
+	// passes TLS verification. Empty when no VIP override is configured.
+	KubernetesAPIServerVIP string
 }
 
 func (r *BFBRegistryRunnable) Start(ctx context.Context) error {
@@ -383,23 +389,50 @@ func (r *BFBRegistryRunnable) ensureService(ctx context.Context, namespace strin
 
 var certificateGVK = schema.GroupVersionKind{Group: "cert-manager.io", Version: "v1", Kind: "Certificate"}
 
+// APIServerVIPFromDMSPodEnvs extracts the KUBERNETES_SERVICE_HOST value from the DMS Pod
+// environment strings ("KEY=VALUE", built from the provisioning controller's --dms-pod-envs
+// flag, which the operator populates from DPFOperatorConfig KubernetesAPIServerVIP). It returns
+// "" when the variable is not present. This is the VIP the hostagent/DMS Pod uses to reach the
+// bfb-registry NodePort, and therefore must be covered by the server certificate SANs.
+func APIServerVIPFromDMSPodEnvs(envs []string) string {
+	const prefix = "KUBERNETES_SERVICE_HOST="
+	for _, e := range envs {
+		if strings.HasPrefix(e, prefix) {
+			return strings.TrimPrefix(e, prefix)
+		}
+	}
+	return ""
+}
+
 // serverCertSANs returns the DNS names and IP addresses the bfb-registry server
 // certificate must cover.
-func serverCertSANs(namespace, nodeIP string) (dnsNames, ipAddresses []string) {
+func serverCertSANs(namespace, nodeIP, apiServerVIP string) (dnsNames, ipAddresses []string) {
 	dnsNames = []string{
 		PodName,
 		fmt.Sprintf("%s.%s", PodName, namespace),
 		fmt.Sprintf("%s.%s.svc", PodName, namespace),
 		fmt.Sprintf("%s.%s.svc.cluster.local", PodName, namespace),
 	}
-	if net.ParseIP(nodeIP) != nil {
-		ipAddresses = []string{nodeIP}
-	}
-	// Include the Kubernetes API server VIP so the NodePort fallback in the
-	// hostagent BFB download (which uses KUBERNETES_SERVICE_HOST) passes TLS
-	// verification even when the VIP differs from the node IP.
-	if vip := os.Getenv("KUBERNETES_SERVICE_HOST"); vip != "" && net.ParseIP(vip) != nil && vip != nodeIP {
-		ipAddresses = append(ipAddresses, vip)
+	// The hostagent BFB download falls back to reaching the bfb-registry NodePort via the
+	// Kubernetes API server VIP (KUBERNETES_SERVICE_HOST in the hostagent/DMS Pod). Include
+	// every address the hostagent may connect to so the fallback passes TLS verification:
+	//   - nodeIP: the node the registry Pod is scheduled on.
+	//   - apiServerVIP: the VIP the operator configured for the DMS Pod (threaded from
+	//     DPFOperatorConfig KubernetesAPIServerVIP via --dms-pod-envs); this is what the
+	//     hostagent uses when the override is set.
+	//   - KUBERNETES_SERVICE_HOST: the provisioning controller's own env (in-cluster ClusterIP,
+	//     or the shared value on setups without a separate VIP).
+	// Add all valid, distinct IPs; duplicates and empty/invalid values are skipped.
+	seen := map[string]struct{}{}
+	for _, ip := range []string{nodeIP, apiServerVIP, os.Getenv("KUBERNETES_SERVICE_HOST")} {
+		if net.ParseIP(ip) == nil {
+			continue
+		}
+		if _, ok := seen[ip]; ok {
+			continue
+		}
+		seen[ip] = struct{}{}
+		ipAddresses = append(ipAddresses, ip)
 	}
 	return dnsNames, ipAddresses
 }
@@ -410,7 +443,7 @@ func (r *BFBRegistryRunnable) ensureServerCertificate(ctx context.Context, names
 	if nodeIP == "" {
 		return fmt.Errorf("NODE_IP is empty, cannot build bfb-registry server certificate SANs")
 	}
-	dnsNames, ipAddresses := serverCertSANs(namespace, nodeIP)
+	dnsNames, ipAddresses := serverCertSANs(namespace, nodeIP, r.KubernetesAPIServerVIP)
 
 	cert := &unstructured.Unstructured{}
 	cert.SetGroupVersionKind(certificateGVK)
@@ -462,6 +495,10 @@ type EnsureBFBRegistryDeps struct {
 	Client           client.Client
 	BFBPVC           string
 	ImagePullSecrets []corev1.LocalObjectReference
+	// KubernetesAPIServerVIP is the Kubernetes API server VIP configured for the DMS/hostagent
+	// Pod; when set it is added to the bfb-registry server certificate SANs. See
+	// BFBRegistryRunnable.KubernetesAPIServerVIP.
+	KubernetesAPIServerVIP string
 }
 
 // EnsureBFBRegistry ensures the bfb-registry server Certificate, Pod and Service
@@ -473,9 +510,10 @@ func EnsureBFBRegistry(ctx context.Context, deps EnsureBFBRegistryDeps, namespac
 	}
 
 	run := &BFBRegistryRunnable{
-		Client:           deps.Client,
-		BFBPVC:           deps.BFBPVC,
-		ImagePullSecrets: deps.ImagePullSecrets,
+		Client:                 deps.Client,
+		BFBPVC:                 deps.BFBPVC,
+		ImagePullSecrets:       deps.ImagePullSecrets,
+		KubernetesAPIServerVIP: deps.KubernetesAPIServerVIP,
 	}
 	if err := run.ensureServerCertificate(ctx, namespace, nodeIP, leaderPod); err != nil {
 		return err
