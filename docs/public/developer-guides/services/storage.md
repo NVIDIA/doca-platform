@@ -412,7 +412,7 @@ sequenceDiagram
 
 ### SNAP CSI Plugin
 
-> **Note:** This component is deployed only for the [trusted Kubernetes cluster on host](#trusted-kubernetes-cluster-on-host) scenario.
+> **Note:** This component is deployed only for the [trusted Kubernetes cluster on host](#kubernetes-cluster-on-host-trusted-mode) scenario.
 
 The **SNAP CSI Plugin** is a Kubernetes CSI plugin responsible for managing the lifecycle of storage resources within the host cluster. It enables the nodes within the host cluster to consume storage resources provisioned by the DPF storage subsystem.
 

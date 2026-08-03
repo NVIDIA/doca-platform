@@ -259,7 +259,7 @@ configuration options.
 
 # DPUDeployment
 
-The complete `DPUDeployment` configuration is in [DPUDeployment.yaml](#DPUDeployment).
+The complete `DPUDeployment` configuration is in [DPUDeployment.yaml](#dpudeployment).
 
 # Output
 
