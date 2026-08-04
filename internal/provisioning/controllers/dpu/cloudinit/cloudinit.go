@@ -72,17 +72,18 @@ type Params struct {
 	SpiffeMode bool
 	// SPIFFEKubeconfig is the tokenFile kubeconfig for SPIFFE-mode DPUs.
 	SPIFFEKubeconfig string
-	// SPIRETrustBundle, when non-empty, is the SPIRE trust bundle PEM emitted to
-	// /etc/spire/agent/trust-bundle.pem on a SPIFFE-mode DPU. It is mutually exclusive
-	// with BootstrapKubeconfig (a DPU uses exactly one identity mode).
-	SPIRETrustBundle      string
-	SPIREServerHost       string
-	SPIREServerPort       int
-	SPIRETrustDomain      string
-	KubeAPIAudience       string
-	SpiffeTokenPath       string
-	SpiffeAgentSocketPath string
-	SpiffePluginPath      string
+	// SPIRETrustBundle, when non-empty, is the initial trust bundle emitted on a SPIFFE-mode DPU.
+	// It is mutually exclusive with BootstrapKubeconfig (a DPU uses exactly one identity mode).
+	SPIRETrustBundle       string
+	SPIRETrustBundlePath   string
+	SPIRETrustBundleFormat string
+	SPIREServerHost        string
+	SPIREServerPort        int
+	SPIRETrustDomain       string
+	KubeAPIAudience        string
+	SpiffeTokenPath        string
+	SpiffeAgentSocketPath  string
+	SpiffePluginPath       string
 	// SpiffeCertDir and SpiffeTokenFileName are SpiffeTokenPath split into the
 	// spiffe-helper cert_dir and the JWT SVID file name (relative to cert_dir).
 	SpiffeCertDir        string

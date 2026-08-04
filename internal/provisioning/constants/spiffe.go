@@ -18,11 +18,12 @@ package constants
 
 // On-DPU SPIFFE/SPIRE paths shared by cloud-init rendering and the dpu-agent.
 const (
-	SpiffeTokenPath        = "/var/lib/dpf/dpuagent/spiffe/token"
-	SpiffeKubeconfigPath   = "/var/lib/dpf/dpuagent/kubeconfig"
-	SPIRETrustBundlePath   = "/etc/spire/agent/trust-bundle.pem"
-	SPIREAgentSocketPath   = "/run/spire/agent.sock"
-	SPIREPluginPath        = "/opt/dpf/spire/plugins/dpu-hw-agent"
-	SPIREAgentConfigPath   = "/etc/spire/agent/agent.conf"
-	SpiffeHelperConfigPath = "/etc/spiffe-helper/helper.conf"
+	SpiffeTokenPath            = "/var/lib/dpf/dpuagent/spiffe/token"
+	SpiffeKubeconfigPath       = "/var/lib/dpf/dpuagent/kubeconfig"
+	SPIRETrustBundlePEMPath    = "/etc/spire/agent/trust-bundle.pem"
+	SPIRETrustBundleSPIFFEPath = "/etc/spire/agent/trust-bundle.spiffe"
+	SPIREAgentSocketPath       = "/run/spire/agent.sock"
+	SPIREPluginPath            = "/opt/dpf/spire/plugins/dpu-hw-agent"
+	SPIREAgentConfigPath       = "/etc/spire/agent/agent.conf"
+	SpiffeHelperConfigPath     = "/etc/spiffe-helper/helper.conf"
 )

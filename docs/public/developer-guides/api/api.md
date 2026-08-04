@@ -1253,15 +1253,14 @@ _Appears in:_
 | `kubeAPIAudience` _string_ | KubeAPIAudience is the audience claim the DPU Agent's JWT-SVID must carry; it must match an<br />entry in the kube-apiserver AuthenticationConfiguration.audiences[] (owned out-of-band). |  | MaxLength: 512 <br />MinLength: 1 <br />Required: \{\} <br /> |
 | `spireOIDCURL` _string_ | SPIREOIDCURL is the OIDC discovery (issuer) URL of the pre-installed SPIRE Server.<br />The matching kube-apiserver AuthenticationConfiguration.jwt[].issuer value is applied out-of-band. |  | MaxLength: 2048 <br />MinLength: 1 <br />Required: \{\} <br /> |
 | `spireControllerManagerClassName` _string_ | spireControllerManagerClassName selects the SPIRE controller-manager instance that renders<br />DPF ClusterStaticEntries. |  | MaxLength: 253 <br />MinLength: 1 <br />Required: \{\} <br /> |
-| `trustBundle` _[SPIFFETrustBundleConfigMapReference](#spiffetrustbundleconfigmapreference)_ | trustBundle references a ConfigMap whose data["bundle.pem"] key holds the SPIRE trust<br />bundle in PEM form. |  | Required: \{\} <br /> |
+| `trustBundle` _[SPIFFETrustBundleConfigMapReference](#spiffetrustbundleconfigmapreference)_ | trustBundle references a ConfigMap holding the initial SPIRE trust bundle. |  | Required: \{\} <br /> |
 
 
 #### SPIFFETrustBundleConfigMapReference
 
 
 
-SPIFFETrustBundleConfigMapReference references the ConfigMap (by name and namespace)
-whose data["bundle.pem"] key holds the SPIRE trust bundle in PEM form.
+SPIFFETrustBundleConfigMapReference references a ConfigMap containing the initial SPIRE trust bundle.
 
 
 
@@ -1272,6 +1271,24 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `name` _string_ | Name is the name of the ConfigMap holding the SPIRE trust bundle. |  | MaxLength: 253 <br />MinLength: 1 <br />Required: \{\} <br /> |
 | `namespace` _string_ | Namespace is the namespace of the ConfigMap holding the SPIRE trust bundle. |  | MaxLength: 63 <br />MinLength: 1 <br />Required: \{\} <br /> |
+| `format` _[SPIFFETrustBundleFormat](#spiffetrustbundleformat)_ | Format selects data["bundle.pem"] or data["bundle.spiffe"] and the matching SPIRE Agent parser. | pem | Enum: [pem spiffe] <br />Optional: \{\} <br /> |
+
+
+#### SPIFFETrustBundleFormat
+
+_Underlying type:_ _string_
+
+SPIFFETrustBundleFormat is a SPIRE Agent initial trust bundle format.
+
+
+
+_Appears in:_
+- [SPIFFETrustBundleConfigMapReference](#spiffetrustbundleconfigmapreference)
+
+| Field | Description |
+| --- | --- |
+| `pem` |  |
+| `spiffe` |  |
 
 
 #### SRIOVDevicePluginConfiguration

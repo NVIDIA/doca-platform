@@ -226,6 +226,12 @@ var _ = Describe("DefaultDPUArtifactGenerator", func() {
 				Data:       map[string]string{"bundle.pem": trustBundlePEM},
 			}
 		}
+		spiffeTrustBundleCM := func() *corev1.ConfigMap {
+			return &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{Name: "spire-bundle", Namespace: "spire"},
+				Data:       map[string]string{"bundle.spiffe": `{"spiffe_sequence":1,"keys":[]}`},
+			}
+		}
 
 		// This is the pipeline (GenerateBF4) test: it asserts only what the resolve step
 		// contributes on top of template rendering -- trust-bundle ConfigMap resolution,
@@ -245,9 +251,27 @@ var _ = Describe("DefaultDPUArtifactGenerator", func() {
 			Expect(agentFound).To(BeTrue())
 			Expect(agentConf).To(ContainSubstring(`server_address = "spire-server.spire.svc"`))
 			Expect(agentConf).To(ContainSubstring("server_port = 8081"))
+			Expect(agentConf).To(ContainSubstring(`trust_bundle_format = "pem"`))
 
 			_, bootstrapFound := extractWriteFile(artifact.UserData, "/var/lib/dpf/dpuagent/bootstrap-kubeconfig")
 			Expect(bootstrapFound).To(BeFalse(), "bootstrap kubeconfig must not be rendered for SPIFFE DPUs")
+		})
+
+		It("configures SPIRE Agent to read a standard SPIFFE bundle", func() {
+			cfg := defaultDPFConfig()
+			cfg.Spec.Security.SPIFFE.TrustBundle.Format = operatorv1.SPIFFETrustBundleFormatSPIFFE
+			buildReqWith(cfg, spiffeTrustBundleCM())
+
+			artifact, err := generator.GenerateBF4(ctx, req)
+			Expect(err).NotTo(HaveOccurred())
+
+			content, found := extractWriteFile(artifact.UserData, constants.SPIRETrustBundleSPIFFEPath)
+			Expect(found).To(BeTrue())
+			Expect(content).To(ContainSubstring(`"spiffe_sequence":1`))
+
+			agentConf, found := extractWriteFile(artifact.UserData, constants.SPIREAgentConfigPath)
+			Expect(found).To(BeTrue())
+			Expect(agentConf).To(ContainSubstring(`trust_bundle_format = "spiffe"`))
 		})
 
 		It("writes a SPIFFE kubeconfig with CA data and token file authentication", func() {
