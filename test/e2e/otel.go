@@ -174,6 +174,12 @@ func ValidateKamajiAuditLogFlow(ctx context.Context, input *systemTestInput) {
 	By(fmt.Sprintf("Creating test namespace in DPU cluster %s to generate audit events", clusterName))
 	testNS := createTestNamespaceInCluster(ctx, dpuClusterClient[0], "test-audit-")
 
+	// At Metadata level objectRef.name comes from the request path, so the create
+	// above (which carries the name in the body) logs no event naming the namespace.
+	// A get by name does.
+	By(fmt.Sprintf("Reading namespace %s back by name to generate a named audit event", testNS))
+	Expect(dpuClusterClient[0].Get(ctx, client.ObjectKey{Name: testNS}, &corev1.Namespace{})).To(Succeed())
+
 	By(fmt.Sprintf("Waiting for audit logs for cluster %s to appear in Loki", clusterName))
 	Eventually(func(g Gomega) {
 		labels := map[string]string{
@@ -181,8 +187,14 @@ func ValidateKamajiAuditLogFlow(ctx context.Context, input *systemTestInput) {
 		}
 		entries, err := lokiClient.QueryLogs(ctx, testNS, labels, 5*time.Minute)
 		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(entries).NotTo(BeEmpty(),
-			fmt.Sprintf("No audit logs found in Loki for DPU cluster %s", clusterName))
+		if len(entries) == 0 {
+			// Repeat the search without the cluster stream selector to tell "never
+			// reached Loki" apart from "reached Loki but not attributed to the cluster".
+			unlabeled, unlabeledErr := lokiClient.QueryLogs(ctx, testNS, nil, 5*time.Minute)
+			g.Expect(entries).NotTo(BeEmpty(), fmt.Sprintf(
+				"No audit logs found in Loki for DPU cluster %s. The same search without the cluster label returned %d entries (err: %v)",
+				clusterName, len(unlabeled), unlabeledErr))
+		}
 
 		found := false
 		for _, entry := range entries {

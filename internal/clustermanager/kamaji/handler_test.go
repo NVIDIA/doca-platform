@@ -908,11 +908,18 @@ var _ = Describe("Kamaji Handler - TenantControlPlane Creation", func() {
 			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs.APIServer).NotTo(BeEmpty())
 
 			By("Verifying audit log parameters")
-			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs.APIServer).To(ContainElement("--audit-log-path=/var/log/kubernetes/audit.log"))
+			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs.APIServer).To(ContainElement("--audit-log-path=-"))
 			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs.APIServer).To(ContainElement("--audit-policy-file=/etc/kubernetes/audit-policy.yaml"))
-			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs.APIServer).To(ContainElement("--audit-log-maxage=30"))
-			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs.APIServer).To(ContainElement("--audit-log-maxbackup=10"))
-			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs.APIServer).To(ContainElement("--audit-log-maxsize=100"))
+
+			By("Verifying no audit log file rotation parameters are set")
+			for _, arg := range tcp.Spec.ControlPlane.Deployment.ExtraArgs.APIServer {
+				Expect(arg).NotTo(HavePrefix("--audit-log-max"))
+			}
+
+			By("Verifying no host path volume is mounted for audit logs")
+			for _, volume := range tcp.Spec.ControlPlane.Deployment.AdditionalVolumes {
+				Expect(volume.Name).NotTo(Equal("audit-log"))
+			}
 
 			By("Verifying security parameters")
 			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs.APIServer).To(ContainElement("--anonymous-auth=true"))
@@ -1007,7 +1014,7 @@ var _ = Describe("Kamaji Handler - TenantControlPlane Creation", func() {
 
 			By("Verifying all ExtraArgs components are present")
 			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs).NotTo(BeNil())
-			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs.APIServer).To(HaveLen(10))
+			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs.APIServer).To(HaveLen(7))
 			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs.ControllerManager).To(HaveLen(1))
 			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs.Scheduler).To(HaveLen(1))
 
