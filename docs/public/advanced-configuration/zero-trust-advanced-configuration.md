@@ -220,11 +220,14 @@ kubectl -n dpf-operator-system delete dpudevice $DPUDEVICE_NAME
 
 # External Host Reboot
 
-In the Zero Trust scenario, DPF cannot manage the DPU's host machine. During the DPU provisioning process, when the DPU
-CR reaches the `rebooting` phase, manual power-cycling is required by the user. The power-cycle operation must be
-completed within two hours; otherwise, the DPU join cluster's secret will expire, causing DPU CR pending in `DPU Cluster
-Config` phase. After the worker node boots up, the `provisioning.dpu.nvidia.com/dpunode-external-reboot-required`
-annotation on the DPUNode must be manually removed.
+In the Zero Trust scenario, DPF cannot manage the DPU's host machine, so the host power cycle must be performed manually
+by the user (or by external automation) during the DPU provisioning process.
+
+DPF signals that a manual power cycle is required by setting the
+`provisioning.dpu.nvidia.com/dpunode-external-reboot-required: "true"` annotation on the DPUNode (equivalently, the DPU
+reports `status.rebootStatus.reason: WaitingForManualPowerCycleOrReboot`). Only once this annotation is present,
+power-cycle the host promptly, and after the node boots up remove the annotation. If the power cycle is delayed too long,
+the DPU join cluster's secret expires and the DPU CR remains pending in the `DPU Cluster Config` phase.
 
 If you use **script-based** host reboot (`nodeRebootMethod.script` on the DPUNode) instead of external power cycle, see
 [DPUNode: Script reboot job failures and recovery](../developer-guides/api/dpunode.md#script-reboot-job-failures-and-recovery)
