@@ -148,6 +148,32 @@ var _ = Describe("Reboot", func() {
 				Expect(err.Error()).To(ContainSubstring("rebootSequenceCount limit exceeded"))
 			})
 
+			It("surfaces NVConfigApplied=False when the reboot limit is reached with deferred NVConfig params", func() {
+				dpu := &provisioningv1.DPU{
+					Status: provisioningv1.DPUStatus{
+						AgentStatus: &provisioningv1.AgentStatus{
+							RebootSequenceCount: ptr.To(int32(5)),
+						},
+					},
+				}
+				optCtx := &operations.Context{
+					LatestDPU:             dpu,
+					RebootMethodDiscovery: false,
+					CurrentBootID:         "boot-id",
+					DeferredNVConfigParams: []operations.DeferredNVConfigParam{
+						{Device: testPCIAddress0, Params: "XYZ=228"},
+					},
+				}
+				reboot := &HandleReboot{skipBlock: true}
+				err := reboot.Execute(context.Background(), optCtx)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("rebootSequenceCount limit exceeded"))
+				Expect(err.Error()).To(ContainSubstring("XYZ=228"))
+				cond := meta.FindStatusCondition(optCtx.Status.Conditions, nvconfig.CondNVConfigApplied)
+				Expect(cond).NotTo(BeNil())
+				Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+			})
+
 			It("increments RebootSequenceCount on each non-NoAction reboot", func() {
 				dpu := &provisioningv1.DPU{
 					Status: provisioningv1.DPUStatus{
