@@ -753,7 +753,16 @@ $(ARTIFACTS_RENDERED_MANIFESTS_DIR): $(ARTIFACTS_DIR)
 # Not yet enabled charts: dpu-networking ovn-kubernetes ovn-kubernetes-resource-injector
 VERIFY_MANIFEST_TARGETS ?= operator kamaji-keepalived vpc-ovn-host vpc-ovn-dpu weave-flow-controllers weave-dhcp-agent storage-host-snap-csi-plugin storage-host-snap-host-controller storage-dpu-snap-node-driver storage-dpu-block-storage-vendor-dpu-plugin storage-dpu-fs-storage-vendor-dpu-plugin storage-dpu-nfs-storage-vendor-dpu-plugin storage-dpu-doca-snap
 
-verify-manifests-all: $(addprefix verify-manifest-,$(VERIFY_MANIFEST_TARGETS)) verify-manifests-dpu-networking-all verify-manifests-operator-embedded-all ## Run all verify-manifest-* targets
+# Manifest verification runs checkov in a container, so it needs a working docker daemon.
+# Setting this to false turns the verify-manifests-all command into a noop.
+VERIFY_MANIFESTS ?= true
+.PHONY: verify-manifests-all
+verify-manifests-all: ## Run all verify-manifest-* targets
+	@if [ "$(VERIFY_MANIFESTS)" != true ]; then \
+		echo "Skipping verify-manifests-all since VERIFY_MANIFESTS is not set to true"; \
+		exit 0; \
+	fi; \
+	$(MAKE) $(addprefix verify-manifest-,$(VERIFY_MANIFEST_TARGETS)) verify-manifests-dpu-networking-all verify-manifests-operator-embedded-all
 
 # Note: This simulates setting the correct digest for the image by using the @sha256:X syntax which is requirement to comply with CKV_K8S_15 and CKV_K8S_43.
 .PHONY: verify-manifest-operator
