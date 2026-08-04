@@ -274,7 +274,7 @@ spec:
 ```
 
 ### DPUNode Integration
-When `skipDpuNodeDiscovery` is false, discovery can also create DPUNode resources for discovered devices.
+When `skipDPUNodeDiscovery` is false, discovery can also create DPUNode resources for discovered devices.
 
 ## Related Resources
 
