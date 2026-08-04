@@ -247,7 +247,7 @@ spec:
 
 #### SFC Controller Configuration Options
 
-* `spec.sfcController.SecureFlowDeletionTimeout`: Used to control the secure flow deletion feature.
+* `spec.sfcController.secureFlowDeletionTimeout`: Used to control the secure flow deletion feature.
 
     The default value is 0, which means that the feature is disabled.  
     When set with a valid duration value, indicating the API server unavailability threshold, 
@@ -258,7 +258,7 @@ spec:
 ```yaml
 spec:
   sfcController:
-    SecureFlowDeletionTimeout: 5m
+    secureFlowDeletionTimeout: 5m
 ```
 
 #### Provisioning Controller Configuration Options
@@ -301,12 +301,12 @@ spec:
 
 * `spec.provisioningController.installInterface`: Method for installing DPU firmware. Choose one:
     * `installViaHostAgent`: Install via host agent
-    * `installViaGNOI`: Install via gNOI protocol
+    * `installViaGNOI`: Install via gNOI protocol (deprecated; use `installViaHostAgent` instead)
     * `installViaRedfish`: Install via Redfish API with additional options:
         * `bfbRegistry.disable`: Disable the BFB registry
         * `bfbRegistry.port`: Port for BFB registry (deprecated)
         * `bfbRegistryAddress`: Address of BFB registry (deprecated)
-        * `skipDpuNodeDiscovery`: Skip automatic DPU node discovery
+        * `skipDPUNodeDiscovery`: Skip automatic DPU node discovery (default: `true`)
 
 ```yaml
 spec:
@@ -321,7 +321,7 @@ spec:
     customCASecretName: my-ca-secret
     installInterface:
       installViaRedfish:
-        skipDpuNodeDiscovery: false
+        skipDPUNodeDiscovery: false
 ```
 
 ### Advanced Overrides
