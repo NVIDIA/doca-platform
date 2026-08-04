@@ -826,8 +826,15 @@ func (r *DPUDeviceReconciler) discoverDPUDevice(ctx context.Context, dpuDevice *
 		return err
 	} else {
 		dpuDevice.Status.SerialNumber = ptr.To(chassisInfo.SerialNumber)
-		if chassisInfo.AssetTag != rfclient.ChassisAssetTagUnavailable {
-			dpuDevice.Status.PSID = ptr.To(chassisInfo.AssetTag)
+	}
+
+	psid, err := client.GetPSID()
+	if err == nil {
+		dpuDevice.Status.PSID = ptr.To(psid)
+	} else {
+		log.Error(err, "Failed to get PSID", "address", bmcAddress, "response", rfclient.RespBody(resp), "psid", psid)
+		if client.IsBF4 {
+			return err
 		}
 	}
 
