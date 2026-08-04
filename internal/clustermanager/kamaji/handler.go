@@ -906,9 +906,13 @@ func expectedService(dc *provisioningv1.DPUCluster) *corev1.Service {
 
 func expectedAuditPolicyConfigMap(dc *provisioningv1.DPUCluster, scheme *runtime.Scheme) (*corev1.ConfigMap, error) {
 	nn := kamajiTCPName(dc)
+	// RequestReceived is omitted because it duplicates every request without the
+	// response code or the authorization decision, which halves the volume.
 	auditPolicy := `# Log all requests at the Metadata level.
 apiVersion: audit.k8s.io/v1
 kind: Policy
+omitStages:
+- RequestReceived
 rules:
 - level: Metadata
 `
@@ -1036,11 +1040,10 @@ func expectedTenantControlPlane(dc *provisioningv1.DPUCluster, scheme *runtime.S
 					},
 					ExtraArgs: &kamajiv1.ControlPlaneExtraArgs{
 						APIServer: []string{
-							"--audit-log-path=/var/log/kubernetes/audit.log",
+							// Audit to stdout. A file path is shared by all API server replicas
+							// and always rotated, which orphans the other replicas' writes.
+							"--audit-log-path=-",
 							"--audit-policy-file=/etc/kubernetes/audit-policy.yaml",
-							"--audit-log-maxage=30",
-							"--audit-log-maxbackup=10",
-							"--audit-log-maxsize=100",
 							// It can be set to true if the RBAC is enabled. refer to https://kubespray.io/#/docs/operations/hardening
 							"--anonymous-auth=true",
 							"--profiling=false",
@@ -1068,15 +1071,6 @@ func expectedTenantControlPlane(dc *provisioningv1.DPUCluster, scheme *runtime.S
 							},
 						},
 						{
-							Name: "audit-log",
-							VolumeSource: corev1.VolumeSource{
-								HostPath: &corev1.HostPathVolumeSource{
-									Path: fmt.Sprintf("/var/log/kubernetes/kamaji/%s", nn.Name),
-									Type: ptr.To(corev1.HostPathDirectoryOrCreate),
-								},
-							},
-						},
-						{
 							Name: "eventratelimit-config",
 							VolumeSource: corev1.VolumeSource{
 								ConfigMap: &corev1.ConfigMapVolumeSource{
@@ -1095,10 +1089,6 @@ func expectedTenantControlPlane(dc *provisioningv1.DPUCluster, scheme *runtime.S
 								MountPath: "/etc/kubernetes/audit-policy.yaml",
 								SubPath:   "audit-policy.yaml",
 								ReadOnly:  true,
-							},
-							{
-								Name:      "audit-log",
-								MountPath: "/var/log/kubernetes",
 							},
 							{
 								Name:      "eventratelimit-config",

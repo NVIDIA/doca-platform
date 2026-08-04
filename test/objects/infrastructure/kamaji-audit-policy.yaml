@@ -5,8 +5,11 @@ metadata:
   namespace: dpf-operator-system
 data:
   audit-policy.yaml: |
-    # Log all requests at the Metadata level.
+    # Log all requests at the Metadata level. RequestReceived is omitted because it
+    # duplicates every request without the response code or authorization decision.
     apiVersion: audit.k8s.io/v1
     kind: Policy
+    omitStages:
+    - RequestReceived
     rules:
     - level: Metadata
