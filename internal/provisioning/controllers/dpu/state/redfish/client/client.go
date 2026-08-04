@@ -48,6 +48,7 @@ const (
 	APIChangePasswd                 = "redfish/v1/AccountService/Accounts/{USER}"
 	APICheckBMCFW                   = "redfish/v1/UpdateService/FirmwareInventory/{BMC_FW_ID}"
 	APICheckBMCEROTFW               = "redfish/v1/UpdateService/FirmwareInventory/BlueField_FW_ERoT_BMC_0"
+	APICheckDpuBoardFW              = "redfish/v1/UpdateService/FirmwareInventory/DPU_BOARD"
 	APICheckDPUBSP                  = "redfish/v1/UpdateService/FirmwareInventory/DPU_BSP"
 	APICheckDPUNIC                  = "redfish/v1/UpdateService/FirmwareInventory/{DPU_NIC_ID}"
 	APICheckDPUOS                   = "redfish/v1/UpdateService/FirmwareInventory/DPU_OS"
@@ -595,6 +596,12 @@ func (c *Client) CheckBMCFirmware() (*resty.Response, *VersionInfo, error) {
 	})
 }
 
+func (c *Client) CheckDpuBoardFW() (*resty.Response, *VersionInfo, error) {
+	return do[VersionInfo](func() (*resty.Response, error) {
+		return c.Client.R().Get(APICheckDpuBoardFW)
+	})
+}
+
 func (c *Client) CheckBMCEROTFW() (*resty.Response, *VersionInfo, error) {
 	return do[VersionInfo](func() (*resty.Response, error) {
 		return c.Client.R().Get(APICheckBMCEROTFW)
@@ -837,6 +844,30 @@ type ChassisInfo struct {
 }
 
 var blueFieldRegex = regexp.MustCompile(`bluefield[- ]?(\d+)`)
+
+func (c *Client) GetPSID() (string, error) {
+	_, chassisInfo, err := c.GetChassis()
+	if err != nil {
+		return "", err
+	}
+	if c.IsBF4 && chassisInfo.AssetTag != ChassisAssetTagUnavailable {
+		return chassisInfo.AssetTag, nil
+	} else if c.IsBF4 {
+		return "", fmt.Errorf("AssetTag is not available")
+	} else {
+		resp, versionInfo, err := c.CheckDpuBoardFW()
+		if err != nil || resp.StatusCode() != http.StatusOK {
+			errMsg := "failed to check DPU board firmware"
+			if err != nil {
+				errMsg = fmt.Sprintf("%s: %v", errMsg, err)
+			} else if resp.StatusCode() != http.StatusOK {
+				errMsg = fmt.Sprintf("%s: unexpected response status: %s", errMsg, RespBody(resp))
+			}
+			return "", fmt.Errorf("%s: %w", errMsg, err)
+		}
+		return versionInfo.Version, nil
+	}
+}
 
 func (c *ChassisInfo) GetBlueFieldVersion() provisioningv1.DPUType {
 	// Extract BlueField version number from model string
