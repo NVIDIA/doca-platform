@@ -34,6 +34,7 @@ const (
 	defaultBMCPassword = "0penBmc"
 	DpuSerialNumber    = "MT25066004C7"
 	DpuPSIDBF4         = "MT_0000001774"
+	DpuPSIDBF3         = "MT_0000000884"
 	DpuOPN             = "900-9D3B4-00SV-EA0"
 )
 
@@ -509,6 +510,9 @@ func (r *RedfishMockServer) firmwareVersionForPath(path string) string {
 		return r.nicVersionOrDefault()
 	case strings.HasSuffix(path, "BlueField_FW_BMC_0"), strings.HasSuffix(path, "BMC_Firmware"):
 		return r.bmcVersion
+	case strings.HasSuffix(path, "DPU_BOARD"):
+		// On BF3 the DPU_BOARD inventory reports the board PSID, not a firmware version.
+		return DpuPSIDBF3
 	default:
 		return r.bmcVersion
 	}

@@ -527,7 +527,8 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			Expect(dpuDevice.Status.OPN).NotTo(BeNil())
 			Expect(*dpuDevice.Status.OPN).To(Equal(mock.DpuOPN))
 
-			Expect(dpuDevice.Status.PSID).To(BeNil())
+			Expect(dpuDevice.Status.PSID).NotTo(BeNil())
+			Expect(*dpuDevice.Status.PSID).To(Equal(mock.DpuPSIDBF3))
 
 			Expect(dpuDevice.Status.DPUMode).To(Equal(provisioningv1.DpuMode))
 
@@ -538,7 +539,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			Expect(dpuDevice.Labels).NotTo(BeNil())
 			Expect(dpuDevice.Labels).To(HaveKey("provisioning.dpu.nvidia.com/dpudevice-bmc-ip"))
 			Expect(dpuDevice.Labels).To(HaveKey("provisioning.dpu.nvidia.com/dpudevice-opn"))
-			Expect(dpuDevice.Labels).NotTo(HaveKey("provisioning.dpu.nvidia.com/dpudevice-psid"))
+			Expect(dpuDevice.Labels).To(HaveKeyWithValue("provisioning.dpu.nvidia.com/dpudevice-psid", mock.DpuPSIDBF3))
 
 			// Verify Secure Boot detection (default: enabled)
 			Expect(reconciler.reconcileDynamicFields(ctx, dpuDevice)).To(Succeed())
@@ -547,7 +548,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			Expect(*dpuDevice.Status.SecureBoot.Enabled).To(BeTrue())
 		})
 
-		It("should not set PSID when chassis AssetTag is N/A", func() {
+		It("should set PSID from the DPU_BOARD firmware inventory on BlueField 3", func() {
 			ctx := context.Background()
 			mockServer, reconciler := setupDiscoveryTest()
 			defer mockServer.Stop()
@@ -555,8 +556,9 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			dpuDevice := createTestDPUDevice(mockServer, "test-dpudevice-psid-na")
 
 			Expect(reconciler.discoverDPUDevice(ctx, dpuDevice)).To(Succeed())
-			Expect(dpuDevice.Status.PSID).To(BeNil())
-			Expect(dpuDevice.Labels).NotTo(HaveKey("provisioning.dpu.nvidia.com/dpudevice-psid"))
+			Expect(dpuDevice.Status.PSID).NotTo(BeNil())
+			Expect(*dpuDevice.Status.PSID).To(Equal(mock.DpuPSIDBF3))
+			Expect(dpuDevice.Labels).To(HaveKeyWithValue("provisioning.dpu.nvidia.com/dpudevice-psid", mock.DpuPSIDBF3))
 		})
 
 		It("should set PSID from chassis AssetTag when it is not N/A", func() {
