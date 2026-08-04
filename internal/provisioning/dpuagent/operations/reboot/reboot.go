@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -609,8 +610,11 @@ func checkRebootSequenceCount(optCtx *operations.Context, method *provisioningv1
 		return nil
 	}
 	if prev >= maxRebootSequenceCount {
-		return fmt.Errorf("rebootSequenceCount limit exceeded (%d >= %d) without an intervening NoAction RebootMethod; refusing further host reboot",
-			prev, maxRebootSequenceCount)
+		return errors.Join(
+			fmt.Errorf("rebootSequenceCount limit exceeded (%d >= %d) without an intervening NoAction RebootMethod; refusing further host reboot",
+				prev, maxRebootSequenceCount),
+			deferredNVConfigWithoutRebootError(optCtx),
+		)
 	}
 	optCtx.Status.RebootSequenceCount = ptr.To(prev + 1)
 	return nil
