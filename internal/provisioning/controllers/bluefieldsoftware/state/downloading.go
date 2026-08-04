@@ -80,6 +80,8 @@ func (st *blueFieldSoftwareDownloadingState) Handle(ctx context.Context, _ clien
 }
 
 func (st *blueFieldSoftwareDownloadingState) markAllComponentsReady() error {
+	st.ensureOSISODOCAVersion()
+
 	st.bfs.Status.Phase = provisioningv1.BlueFieldSoftwareExtracting
 	msg := fmt.Sprintf("Download BlueFieldSoftware: (%s/%s) successful", st.bfs.Namespace, st.bfs.Name)
 	st.recorder.Eventf(st.bfs, corev1.EventTypeNormal, events.EventSuccessfulDownloadBFBReason, msg)
@@ -303,12 +305,39 @@ func (st *blueFieldSoftwareDownloadingState) updateComponentStatus(componentType
 		st.bfs.Status.DownloadedComponents.PlatformPldmFwBundle = destinationPath
 	case butil.ComponentTypeOSISO:
 		st.bfs.Status.DownloadedComponents.OsIso = destinationPath
+		st.ensureOSISODOCAVersion()
 	case butil.ComponentTypeNicFw:
 		st.bfs.Status.DownloadedComponents.NicFw = destinationPath
 	}
 	st.recorder.Eventf(st.bfs, corev1.EventTypeNormal, events.EventSuccessfulDownloadBFBReason, fmt.Sprintf("Component %s downloaded successfully", componentType))
 	// Clear retry counter on successful download
 	st.clearRetryCounter(componentType)
+}
+
+// ensureOSISODOCAVersion derives the DOCA version from the downloaded OS ISO filename and records
+// it in status. Published bf4-os-doca-bundle images encode the version in the filename
+// (e.g. bf4-os-doca-bundle-3.3.0-341_...), so it is re-derived on every call to stay in sync with
+// the current Spec.OsIso even after the URL changes.
+//
+// It is best-effort and never blocks the BlueFieldSoftware from becoming Ready:
+//   - A non-URL OsIso is an opaque identifier that is never downloaded, so there is no ISO file.
+//   - A URL whose filename does not follow the doca-bundle-X.Y.Z convention (custom mirror, renamed
+//     file, future naming change) simply leaves the version unset.
+//
+// verifyVersionMatching surfaces a clear error only when a DPUServiceTemplate declares a version
+// constraint that cannot be checked against a missing DOCA version.
+func (st *blueFieldSoftwareDownloadingState) ensureOSISODOCAVersion() {
+	if st.bfs.Spec.OsIso == "" || !isURL(st.bfs.Spec.OsIso) {
+		return
+	}
+	isoPath := st.bfs.Status.DownloadedComponents.OsIso
+	if isoPath == "" {
+		return
+	}
+	if err := butil.ApplyDOCAVersionFromISO(st.bfs, isoPath); err != nil {
+		st.recorder.Eventf(st.bfs, corev1.EventTypeWarning, events.EventFailedDownloadBFBReason,
+			"Could not derive DOCA version from OS ISO (%s/%s): %s", st.bfs.Namespace, st.bfs.Name, err.Error())
+	}
 }
 
 func (st *blueFieldSoftwareDownloadingState) cancelAllDownloads() {

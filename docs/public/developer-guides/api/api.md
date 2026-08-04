@@ -1944,8 +1944,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
+| `doca` _string_ | DOCA is the formatted, user-facing DOCA version derived from the OS ISO. |  | Optional: \{\} <br /> |
 | `fwBundleVersion` _string_ |  |  |  |
-| `osISOVersion` _string_ |  |  |  |
+| `osISOVersion` _string_ | OSISOVersion is the raw DOCA version for the OS ISO, taken from the ISO filename |  | Optional: \{\} <br /> |
 | `ewNicFwVersion` _string_ |  |  |  |
 | `bmcVersion` _string_ |  |  |  |
 | `bmcErotVersion` _string_ |  |  |  |

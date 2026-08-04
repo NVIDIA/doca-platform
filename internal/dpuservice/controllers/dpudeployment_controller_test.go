@@ -8749,6 +8749,92 @@ var _ = Describe("DPUDeployment Controller", func() {
 						},
 					},
 				}, false),
+				Entry("BlueFieldSoftware with valid version constraints", &dpuDeploymentDependencies{
+					BlueFieldSoftware: &provisioningv1.BlueFieldSoftware{
+						Status: provisioningv1.BlueFieldSoftwareStatus{
+							Versions: &provisioningv1.BluefieldSoftwareVersions{
+								DOCA: "3.3.0",
+							},
+						},
+					},
+					DPUServiceTemplates: map[string]*dpuservicev1.DPUServiceTemplate{
+						"service-1": {
+							Status: dpuservicev1.DPUServiceTemplateStatus{
+								Versions: map[string]string{
+									"dpu.nvidia.com/doca-version": ">=3.3",
+								},
+							},
+						},
+					},
+				}, false),
+				Entry("BlueFieldSoftware with unsatisfied version constraints", &dpuDeploymentDependencies{
+					BlueFieldSoftware: &provisioningv1.BlueFieldSoftware{
+						Status: provisioningv1.BlueFieldSoftwareStatus{
+							Versions: &provisioningv1.BluefieldSoftwareVersions{
+								DOCA: "3.3.0",
+							},
+						},
+					},
+					DPUServiceTemplates: map[string]*dpuservicev1.DPUServiceTemplate{
+						"service-1": {
+							Status: dpuservicev1.DPUServiceTemplateStatus{
+								Versions: map[string]string{
+									"dpu.nvidia.com/doca-version": ">=99.0",
+								},
+							},
+						},
+					},
+				}, true),
+				Entry("BlueFieldSoftware with nil versions and template with constraint", &dpuDeploymentDependencies{
+					BlueFieldSoftware: &provisioningv1.BlueFieldSoftware{
+						Status: provisioningv1.BlueFieldSoftwareStatus{
+							Versions: nil,
+						},
+					},
+					DPUServiceTemplates: map[string]*dpuservicev1.DPUServiceTemplate{
+						"service-1": {
+							Status: dpuservicev1.DPUServiceTemplateStatus{
+								Versions: map[string]string{
+									"dpu.nvidia.com/doca-version": ">=2.9",
+								},
+							},
+						},
+					},
+				}, true),
+				Entry("BlueFieldSoftware with empty DOCA version and template with constraint", &dpuDeploymentDependencies{
+					BlueFieldSoftware: &provisioningv1.BlueFieldSoftware{
+						Status: provisioningv1.BlueFieldSoftwareStatus{
+							Versions: &provisioningv1.BluefieldSoftwareVersions{},
+						},
+					},
+					DPUServiceTemplates: map[string]*dpuservicev1.DPUServiceTemplate{
+						"service-1": {
+							Status: dpuservicev1.DPUServiceTemplateStatus{
+								Versions: map[string]string{
+									"dpu.nvidia.com/doca-version": ">=2.9",
+								},
+							},
+						},
+					},
+				}, true),
+				Entry("BlueFieldSoftware with unparsable DOCA version and template with constraint", &dpuDeploymentDependencies{
+					BlueFieldSoftware: &provisioningv1.BlueFieldSoftware{
+						Status: provisioningv1.BlueFieldSoftwareStatus{
+							Versions: &provisioningv1.BluefieldSoftwareVersions{
+								DOCA: "not-a-version",
+							},
+						},
+					},
+					DPUServiceTemplates: map[string]*dpuservicev1.DPUServiceTemplate{
+						"service-1": {
+							Status: dpuservicev1.DPUServiceTemplateStatus{
+								Versions: map[string]string{
+									"dpu.nvidia.com/doca-version": ">=2.9",
+								},
+							},
+						},
+					},
+				}, true),
 			)
 		})
 

@@ -772,6 +772,9 @@ func ProvisionBlueFieldSoftware(ctx context.Context, input ProvisionDPUClustersI
 			Namespace: input.blueFieldSoftware.Namespace,
 		}, bfs)).To(Succeed())
 		g.Expect(bfs.Status.Phase).To(Equal(provisioningv1.BlueFieldSoftwareReady))
+		g.Expect(bfs.Status.Versions).NotTo(BeNil(), "BlueFieldSoftware versions should be set when Ready")
+		g.Expect(bfs.Status.Versions.DOCA).NotTo(BeEmpty(), "BlueFieldSoftware should have status.versions.doca when Ready")
+		g.Expect(bfs.Status.Versions.OSISOVersion).NotTo(BeEmpty(), "BlueFieldSoftware should have status.versions.osISOVersion when Ready")
 	}).WithTimeout(10 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 }
 

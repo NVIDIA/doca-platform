@@ -163,9 +163,9 @@ func filterVersions(unfilteredVersions map[string]string) map[string]string {
 		return unfilteredVersions
 	}
 	versions := make(map[string]string)
-	serviceVersionKeyToBFBVersionValue := GetServiceVersionKeyToBFBVersionValue()
+	serviceVersionKeyToProvisioningVersionValue := GetServiceVersionKeyToProvisioningVersionValue()
 	for annKey, annValue := range unfilteredVersions {
-		if _, ok := serviceVersionKeyToBFBVersionValue[annKey]; ok {
+		if _, ok := serviceVersionKeyToProvisioningVersionValue[annKey]; ok {
 			versions[annKey] = annValue
 		}
 	}
