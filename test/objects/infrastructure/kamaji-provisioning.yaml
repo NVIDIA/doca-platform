@@ -52,7 +52,7 @@ spec:
           tenant.clastix.io: dpu-cluster-1
       serviceType: ClusterIP
   kubernetes:
-    version: v1.35.4
+    version: v1.35.6
     kubelet:
       # Required for compatibility to v1.34 kubelet versions.
       configurationJSONPatches:
