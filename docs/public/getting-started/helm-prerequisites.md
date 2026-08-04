@@ -1260,22 +1260,6 @@ config:
         http:
           endpoint: 0.0.0.0:4318
 
-    # Scrape Kamaji DPU cluster kube-apiserver audit logs written to the host.
-    # Each DPU cluster writes to its own subdirectory, allowing us to extract
-    # the cluster name from the path and tag logs accordingly.
-    filelog/audit:
-      include:
-        - /var/log/kubernetes/kamaji/*/audit.log
-      start_at: end
-      include_file_path: true
-      include_file_name: false
-      operators:
-        - type: regex_parser
-          id: extract-cluster
-          parse_from: attributes["log.file.path"]
-          regex: 'kamaji/(?P<cluster>[^/]+)/audit\.log'
-          on_error: send
-
   processors:
     batch:
       timeout: 10s
@@ -1309,20 +1293,20 @@ config:
           value: "management"
           action: insert
 
-    resource/audit:
-      attributes:
-        - key: log.type
-          value: "k8s-audit"
-          action: insert
-
-    # Promote the cluster name extracted by the filelog/audit regex_parser
-    # from log-record attributes to resource attributes so that Loki can
-    # index it as a stream label (log attributes are not promoted).
-    transform/audit-cluster:
+    # Kamaji control plane pods run here but belong to the DPU cluster named by
+    # their kamaji.clastix.io/name label. Runs before the resource processor
+    # below, whose insert action then leaves the cluster attribute untouched.
+    transform/kamaji:
+      error_mode: ignore
       log_statements:
         - context: log
           statements:
-            - set(resource.attributes["cluster"], log.attributes["cluster"])
+            - set(resource.attributes["cluster"], resource.attributes["kamaji.clastix.io/name"])
+                where resource.attributes["kamaji.clastix.io/name"] != nil
+            # Audit events share the kube-apiserver stdout with its klog output.
+            # Tag them for `| log_type="k8s-audit"`.
+            - set(log.attributes["log.type"], "k8s-audit")
+                where IsMatch(log.body, "\"apiVersion\":\"audit\\.k8s\\.io/")
 
   exporters:
     # Export logs to Loki via OTLP (directly to Loki, bypassing gateway)
@@ -1347,24 +1331,13 @@ config:
     pipelines:
       logs:
         receivers: [otlp, filelog]
-        processors: [memory_limiter, k8sattributes, resource, batch]
-        exporters: [otlphttp/loki, debug]
-
-      logs/audit:
-        receivers: [filelog/audit]
-        processors: [memory_limiter, resource/audit, transform/audit-cluster, batch]
+        processors: [memory_limiter, k8sattributes, transform/kamaji, resource, batch]
         exporters: [otlphttp/loki, debug]
 
       metrics:
         receivers: [otlp]
         processors: [memory_limiter, k8sattributes, resource, batch]
         exporters: [prometheusremotewrite, debug]
-
-# Run as root so the agent can read kube-apiserver audit logs, which are written
-# as 0600 by the apiserver process (root-owned, not world-readable).
-securityContext:
-  runAsUser: 0
-  runAsGroup: 0
 
 # Resources for the collector deployment
 resources:
@@ -1403,18 +1376,6 @@ ports:
     containerPort: 8888
     servicePort: 8888
     protocol: TCP
-
-# Extra volume to access Kamaji audit logs written to the host
-extraVolumes:
-  - name: kamaji-audit-logs
-    hostPath:
-      path: /var/log/kubernetes/kamaji
-      type: DirectoryOrCreate
-
-extraVolumeMounts:
-  - name: kamaji-audit-logs
-    mountPath: /var/log/kubernetes/kamaji
-    readOnly: true
 
 # ServiceAccount configuration
 serviceAccount:

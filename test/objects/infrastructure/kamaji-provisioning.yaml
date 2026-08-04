@@ -13,29 +13,22 @@ spec:
           tenant.clastix.io: dpu-cluster-1
       extraArgs:
         apiServer:
-          - "--audit-log-path=/var/log/kubernetes/audit.log"
+          # Audit to stdout. A file path is shared by all API server replicas
+          # and always rotated, which orphans the other replicas' writes.
+          - "--audit-log-path=-"
           - "--audit-policy-file=/etc/kubernetes/audit-policy.yaml"
-          - "--audit-log-maxage=30"
-          - "--audit-log-maxbackup=10"
-          - "--audit-log-maxsize=100"
         controllerManager: []
         scheduler: []
       additionalVolumes:
         - name: audit-policy
           configMap:
             name: dpu-cluster-1-audit-policy
-        - name: audit-log
-          hostPath:
-            path: /var/log/kubernetes/kamaji/dpu-cluster-1
-            type: DirectoryOrCreate
       additionalVolumeMounts:
         apiServer:
           - name: audit-policy
             mountPath: /etc/kubernetes/audit-policy.yaml
             subPath: audit-policy.yaml
             readOnly: true
-          - name: audit-log
-            mountPath: /var/log/kubernetes
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
