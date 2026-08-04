@@ -132,8 +132,14 @@ type BlueFieldSoftwareStatus struct {
 
 // BluefieldSoftwareVersions defines the versions of various software components for a Bluefield device.
 type BluefieldSoftwareVersions struct {
+	// DOCA is the formatted, user-facing DOCA version derived from the OS ISO.
+	// +optional
+	DOCA string `json:"doca,omitempty"`
+
 	FwBundleVersion string `json:"fwBundleVersion,omitempty"`
 
+	// OSISOVersion is the raw DOCA version for the OS ISO, taken from the ISO filename
+	// +optional
 	OSISOVersion string `json:"osISOVersion,omitempty"`
 
 	EWNicFwVersion string `json:"ewNicFwVersion,omitempty"`

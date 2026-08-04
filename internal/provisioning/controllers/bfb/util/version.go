@@ -123,11 +123,16 @@ func extractJSONLinesFromBFB(file *os.File) ([]string, error) {
 	return jsonLines, nil
 }
 
-// The DOCA version contains a build version.
-// The first digit of the patch version will be aligned with the user-facing documented version.
-// Anything after a dash is ignored.
-// e.g. 3.0.0058 becomes 3.0.0, 2.9.3008 becomes 2.9.3, 3.0.0058-abcde becomes 3.0.0
+// formatDOCAVersion is a wrapper around FormatDOCAVersion for internal use in this package.
 func formatDOCAVersion(version string) (string, error) {
+	return FormatDOCAVersion(version)
+}
+
+// FormatDOCAVersion normalizes a raw DOCA build version to the user-facing semver used for
+// compatibility checks. The first digit of the patchbuild component becomes the patch version.
+// Anything after a dash in the raw version is ignored before parsing.
+// e.g. 3.0.0058 becomes 3.0.0, 2.9.3008 becomes 2.9.3, 3.3.0202-1.5 becomes 3.3.0
+func FormatDOCAVersion(version string) (string, error) {
 	if version == "" {
 		return "", fmt.Errorf("DOCA version cannot be empty")
 	}
