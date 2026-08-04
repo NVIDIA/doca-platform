@@ -63,9 +63,10 @@ func (g *DefaultDPUArtifactGenerator) GenerateBF4(ctx context.Context, req dutil
 	}, nil
 }
 
-// trustBundleConfigMapKey is the ConfigMap data key holding the SPIRE trust bundle PEM
-// (upstream BundlePublisher k8sconfigmap convention).
-const trustBundleConfigMapKey = "bundle.pem"
+const (
+	trustBundlePEMConfigMapKey    = "bundle.pem"
+	trustBundleSPIFFEConfigMapKey = "bundle.spiffe"
+)
 
 func (g *DefaultDPUArtifactGenerator) resolveParamsWithBootstrapKubeconfig(ctx context.Context, req dutil.DPUArtifactRequest) (cloudinit.Params, operatorv1.DPFOperatorConfig, error) {
 	params, dpfOperatorConfig, err := cloudinit.ResolveParams(ctx, req.ControllerContext, req.DPU, req.Flavor)
@@ -106,7 +107,15 @@ func (g *DefaultDPUArtifactGenerator) applySpiffeParams(ctx context.Context, req
 	}
 	spiffeCfg := cfg.Spec.Security.SPIFFE
 
-	bundle, err := g.readTrustBundle(ctx, req, spiffeCfg.TrustBundle)
+	format := spiffeCfg.TrustBundle.Format
+	if format == "" {
+		format = operatorv1.SPIFFETrustBundleFormatPEM
+	}
+	bundleKey, bundlePath, err := trustBundleSettings(format)
+	if err != nil {
+		return err
+	}
+	bundle, err := g.readTrustBundle(ctx, req, spiffeCfg.TrustBundle, bundleKey)
 	if err != nil {
 		return err
 	}
@@ -126,6 +135,8 @@ func (g *DefaultDPUArtifactGenerator) applySpiffeParams(ctx context.Context, req
 	params.SpiffeMode = true
 	params.SPIFFEKubeconfig = string(kubeconfigData)
 	params.SPIRETrustBundle = bundle
+	params.SPIRETrustBundlePath = bundlePath
+	params.SPIRETrustBundleFormat = string(format)
 	params.SPIREServerHost = host
 	params.SPIREServerPort = port
 	params.SPIRETrustDomain = spiffeCfg.SPIRETrustDomain
@@ -139,14 +150,25 @@ func (g *DefaultDPUArtifactGenerator) applySpiffeParams(ctx context.Context, req
 	return nil
 }
 
-func (g *DefaultDPUArtifactGenerator) readTrustBundle(ctx context.Context, req dutil.DPUArtifactRequest, ref operatorv1.SPIFFETrustBundleConfigMapReference) (string, error) {
+func trustBundleSettings(format operatorv1.SPIFFETrustBundleFormat) (key, path string, err error) {
+	switch format {
+	case operatorv1.SPIFFETrustBundleFormatPEM:
+		return trustBundlePEMConfigMapKey, constants.SPIRETrustBundlePEMPath, nil
+	case operatorv1.SPIFFETrustBundleFormatSPIFFE:
+		return trustBundleSPIFFEConfigMapKey, constants.SPIRETrustBundleSPIFFEPath, nil
+	default:
+		return "", "", fmt.Errorf("unsupported SPIRE trust bundle format %q", format)
+	}
+}
+
+func (g *DefaultDPUArtifactGenerator) readTrustBundle(ctx context.Context, req dutil.DPUArtifactRequest, ref operatorv1.SPIFFETrustBundleConfigMapReference, key string) (string, error) {
 	cm := &corev1.ConfigMap{}
 	if err := req.ControllerContext.Get(ctx, types.NamespacedName{Name: ref.Name, Namespace: ref.Namespace}, cm); err != nil {
 		return "", fmt.Errorf("getting SPIRE trust bundle ConfigMap %s/%s: %w", ref.Namespace, ref.Name, err)
 	}
-	bundle, ok := cm.Data[trustBundleConfigMapKey]
+	bundle, ok := cm.Data[key]
 	if !ok || bundle == "" {
-		return "", fmt.Errorf("SPIRE trust bundle ConfigMap %s/%s missing non-empty %q key", ref.Namespace, ref.Name, trustBundleConfigMapKey)
+		return "", fmt.Errorf("SPIRE trust bundle ConfigMap %s/%s missing non-empty %q key", ref.Namespace, ref.Name, key)
 	}
 	return bundle, nil
 }
