@@ -147,7 +147,7 @@ status:
     message: |-
       Validation must pass for DPF upgrade to continue:
         * Kubernetes Version Skew:
-          * kubernetes version skew violated: cluster dpf-operator-system/dpu-cplane-tenant1: DPU dpf-operator-system/worker-1-0000-08-00: kubelet version (v1.31.0) is more than 3 minor versions behind kube-apiserver version (v1.35.4)
+          * kubernetes version skew violated: cluster dpf-operator-system/dpu-cplane-tenant1: DPU dpf-operator-system/worker-1-0000-08-00: kubelet version (v1.31.0) is more than 3 minor versions behind kube-apiserver version (v1.35.6)
 ```
 
 </details>
