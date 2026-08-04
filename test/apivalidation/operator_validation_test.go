@@ -417,6 +417,12 @@ var _ = Describe("Operator API Validation", func() {
 				Entry("invalid - overlength trust bundle name", func(s *operatorv1.SPIFFEConfiguration) {
 					s.TrustBundle.Name = strings.Repeat("a", 254)
 				}, true, "trustBundle.name"),
+				Entry("valid - SPIFFE trust bundle format", func(s *operatorv1.SPIFFEConfiguration) {
+					s.TrustBundle.Format = operatorv1.SPIFFETrustBundleFormatSPIFFE
+				}, false, ""),
+				Entry("invalid - unsupported trust bundle format", func(s *operatorv1.SPIFFEConfiguration) {
+					s.TrustBundle.Format = "json"
+				}, true, "trustBundle.format"),
 			)
 
 			DescribeTable("SPIFFE no-downgrade transition (K2)",

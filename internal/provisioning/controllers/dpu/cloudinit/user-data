@@ -111,7 +111,7 @@ write_files:
     content: |
 {{indent 6 .SPIFFEKubeconfig}}
 
-  - path: /etc/spire/agent/trust-bundle.pem
+  - path: {{.SPIRETrustBundlePath}}
     permissions: '0644'
     content: |
 {{indent 6 .SPIRETrustBundle}}
@@ -126,7 +126,8 @@ write_files:
         server_port = {{.SPIREServerPort}}
         socket_path = "{{.SpiffeAgentSocketPath}}"
         trust_domain = "{{.SPIRETrustDomain}}"
-        trust_bundle_path = "/etc/spire/agent/trust-bundle.pem"
+        trust_bundle_path = "{{.SPIRETrustBundlePath}}"
+        trust_bundle_format = "{{.SPIRETrustBundleFormat}}"
       }
 
       plugins {

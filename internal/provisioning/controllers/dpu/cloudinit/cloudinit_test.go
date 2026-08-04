@@ -459,6 +459,8 @@ users:
 			SpiffeMode:             true,
 			SPIFFEKubeconfig:       sampleKubeconfig,
 			SPIRETrustBundle:       "bundle-pem",
+			SPIRETrustBundlePath:   constants.SPIRETrustBundlePEMPath,
+			SPIRETrustBundleFormat: "pem",
 			SPIREServerHost:        "spire-server.spire.svc",
 			SPIREServerPort:        8081,
 			SPIRETrustDomain:       "cs.internal",
@@ -488,6 +490,8 @@ users:
 
 		agentCfg := getWriteFile(parsed, constants.SPIREAgentConfigPath)
 		Expect(agentCfg.Content).To(ContainSubstring(constants.SPIREPluginPath))
+		Expect(agentCfg.Content).To(ContainSubstring(`trust_bundle_path = "` + constants.SPIRETrustBundlePEMPath + `"`))
+		Expect(agentCfg.Content).To(ContainSubstring(`trust_bundle_format = "pem"`))
 
 		helperCfg := getWriteFile(parsed, constants.SpiffeHelperConfigPath)
 		Expect(helperCfg.Content).To(ContainSubstring(constants.SPIREAgentSocketPath))
