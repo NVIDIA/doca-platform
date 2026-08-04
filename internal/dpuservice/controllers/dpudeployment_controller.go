@@ -262,6 +262,26 @@ func (d *dpuDeploymentDependencies) flavorResources() (dpuResources, systemReser
 	return nil, nil
 }
 
+// getDOCAVersionFromDPUOSProvisioningObject returns the formatted DOCA version from the BFB or
+// BlueFieldSoftware dependency, or an empty string when neither carries one.
+func (d *dpuDeploymentDependencies) getDOCAVersionFromDPUOSProvisioningObject() string {
+	if d.BFB != nil {
+		return d.BFB.Status.Versions.DOCA
+	}
+	if d.BlueFieldSoftware != nil && d.BlueFieldSoftware.Status.Versions != nil {
+		return d.BlueFieldSoftware.Status.Versions.DOCA
+	}
+	return ""
+}
+
+// getDPUOSProvisioningObjectType returns a label for the provisioning dependency used in error messages.
+func (d *dpuDeploymentDependencies) getDPUOSProvisioningObjectType() string {
+	if d.BFB != nil {
+		return "BFB"
+	}
+	return "BlueFieldSoftware"
+}
+
 // Reconcile reconciles changes in a DPUDeployment object
 func (r *DPUDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, reterr error) {
 	log := ctrllog.FromContext(ctx)
@@ -698,44 +718,56 @@ func verifyResourceFitting(dependencies *dpuDeploymentDependencies) error {
 	return nil
 }
 
-// verifyVersionMatching verifies that the user provided BFB and DPUServices have versions that match
+// verifyVersionMatching verifies that the provisioning software and DPUServiceTemplates have matching versions.
 func verifyVersionMatching(dependencies *dpuDeploymentDependencies) error {
-	// TODO: implement version matching for BlueFieldSoftware
-	if dependencies.BFB == nil {
-		return nil
-	}
+	provObjectType := dependencies.getDPUOSProvisioningObjectType()
+
 	var errs []error
 	for _, dpuServiceTemplate := range dependencies.DPUServiceTemplates {
-		for dpuServiceVersionKey, bfbVersionFunc := range GetServiceVersionKeyToBFBVersionValue() {
-			bfbValue, err := semver.NewVersion(bfbVersionFunc(dependencies.BFB))
-			if err != nil {
-				errs = append(errs, fmt.Errorf("version '%s' found in bfb is not parsable: %w", bfbVersionFunc(dependencies.BFB), err))
-				continue
-			}
-
-			if dpuServiceTemplate.Status.Versions == nil {
-				continue
-			}
-
-			serviceVersionConstraint, ok := dpuServiceTemplate.Status.Versions[dpuServiceVersionKey]
-			if !ok {
-				continue
-			}
-
-			dpuServiceTemplateValue, err := semver.NewConstraint(serviceVersionConstraint)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("version constraint '%s' found in DPUServiceTemplate '%s' is not parsable: %w", serviceVersionConstraint, dpuServiceTemplate.Name, err))
-				continue
-			}
-
-			if !dpuServiceTemplateValue.Check(bfbValue) {
-				errs = append(errs, fmt.Errorf("version constraint for '%s' found in DPUServiceTemplate '%s' is not satisfied by the version '%s' found in the given BFB", dpuServiceVersionKey, dpuServiceTemplate.Name, bfbVersionFunc(dependencies.BFB)))
-				continue
+		for dpuServiceVersionKey, provisioningVersionFunc := range GetServiceVersionKeyToProvisioningVersionValue() {
+			if err := checkVersionConstraint(dpuServiceTemplate, dpuServiceVersionKey, provisioningVersionFunc(dependencies), provObjectType); err != nil {
+				errs = append(errs, err)
 			}
 		}
 	}
 
 	return kerrors.NewAggregate(errs)
+}
+
+// checkVersionConstraint verifies a single DPUServiceTemplate version constraint against the
+// version resolved from the provisioning dependency. It returns nil when the template declares no
+// constraint for the key or when the constraint is satisfied.
+func checkVersionConstraint(dpuServiceTemplate *dpuservicev1.DPUServiceTemplate, dpuServiceVersionKey, provisioningVersion, source string) error {
+	if dpuServiceTemplate.Status.Versions == nil {
+		return nil
+	}
+
+	serviceVersionConstraint, ok := dpuServiceTemplate.Status.Versions[dpuServiceVersionKey]
+	if !ok {
+		return nil
+	}
+
+	if provisioningVersion == "" {
+		return fmt.Errorf("version constraint for '%s' found in DPUServiceTemplate '%s' cannot be checked: %s has no version for '%s'",
+			dpuServiceVersionKey, dpuServiceTemplate.Name, source, dpuServiceVersionKey)
+	}
+
+	provisioningValue, err := semver.NewVersion(provisioningVersion)
+	if err != nil {
+		return fmt.Errorf("version '%s' found in %s is not parsable: %w", provisioningVersion, source, err)
+	}
+
+	dpuServiceTemplateValue, err := semver.NewConstraint(serviceVersionConstraint)
+	if err != nil {
+		return fmt.Errorf("version constraint '%s' found in DPUServiceTemplate '%s' is not parsable: %w", serviceVersionConstraint, dpuServiceTemplate.Name, err)
+	}
+
+	if !dpuServiceTemplateValue.Check(provisioningValue) {
+		return fmt.Errorf("version constraint for '%s' found in DPUServiceTemplate '%s' is not satisfied by the version '%s' found in the given %s",
+			dpuServiceVersionKey, dpuServiceTemplate.Name, provisioningVersion, source)
+	}
+
+	return nil
 }
 
 // getDependencies gets the DPUDeployment dependencies from the Kubernetes API Server.

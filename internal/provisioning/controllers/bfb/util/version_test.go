@@ -64,6 +64,12 @@ func Test_formatDOCAVersion(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name:    "BF4 OS ISO filename version",
+			version: "3.3.0-341",
+			want:    "3.3.0",
+			wantErr: false,
+		},
+		{
 			name:    "error on empty version string",
 			version: "",
 			want:    "",
