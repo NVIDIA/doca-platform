@@ -276,8 +276,15 @@ type RegistryConfiguration struct {
 	LoadBalancerAddress *string `json:"loadBalancerAddress,omitempty"`
 }
 
-// SPIFFETrustBundleConfigMapReference references the ConfigMap (by name and namespace)
-// whose data["bundle.pem"] key holds the SPIRE trust bundle in PEM form.
+// SPIFFETrustBundleFormat is a SPIRE Agent initial trust bundle format.
+type SPIFFETrustBundleFormat string
+
+const (
+	SPIFFETrustBundleFormatPEM    SPIFFETrustBundleFormat = "pem"
+	SPIFFETrustBundleFormatSPIFFE SPIFFETrustBundleFormat = "spiffe"
+)
+
+// SPIFFETrustBundleConfigMapReference references a ConfigMap containing the initial SPIRE trust bundle.
 type SPIFFETrustBundleConfigMapReference struct {
 	// Name is the name of the ConfigMap holding the SPIRE trust bundle.
 	// +kubebuilder:validation:MinLength=1
@@ -290,6 +297,12 @@ type SPIFFETrustBundleConfigMapReference struct {
 	// +kubebuilder:validation:MaxLength=63
 	// +required
 	Namespace string `json:"namespace,omitempty"`
+
+	// Format selects data["bundle.pem"] or data["bundle.spiffe"] and the matching SPIRE Agent parser.
+	// +kubebuilder:validation:Enum=pem;spiffe
+	// +kubebuilder:default=pem
+	// +optional
+	Format SPIFFETrustBundleFormat `json:"format,omitempty"`
 }
 
 // SPIFFEConfiguration is the per-cluster SPIFFE bootstrap parameter set
@@ -333,8 +346,7 @@ type SPIFFEConfiguration struct {
 	// +required
 	SPIREControllerManagerClassName string `json:"spireControllerManagerClassName,omitempty"`
 
-	// trustBundle references a ConfigMap whose data["bundle.pem"] key holds the SPIRE trust
-	// bundle in PEM form.
+	// trustBundle references a ConfigMap holding the initial SPIRE trust bundle.
 	// +required
 	TrustBundle SPIFFETrustBundleConfigMapReference `json:"trustBundle,omitzero"`
 }
