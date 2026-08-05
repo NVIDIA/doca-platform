@@ -85,6 +85,14 @@ func TestFileSerialReaderFallback(t *testing.T) {
 		require.Equal(t, "MT2440600YYW", got)
 	})
 
+	t.Run("uses fallback when board serial is unspecified", func(t *testing.T) {
+		require.NoError(t, os.WriteFile(primary, []byte("Unspecified Base Board Serial Number\n"), 0o600))
+		r := &FileSerialReader{Path: primary, FallbackPath: fallback}
+		got, err := r.ReadSerial(context.Background())
+		require.NoError(t, err)
+		require.Equal(t, "MT2440600YYW", got)
+	})
+
 	t.Run("logs primary failure when fallback succeeds", func(t *testing.T) {
 		var buf bytes.Buffer
 		logger := hclog.New(&hclog.LoggerOptions{
@@ -114,6 +122,13 @@ func TestFileSerialReaderFallback(t *testing.T) {
 		require.Contains(t, err.Error(), noPrimary)
 		require.Contains(t, err.Error(), "fallback")
 		require.Contains(t, err.Error(), noFallback)
+	})
+
+	t.Run("errors when product serial is unspecified", func(t *testing.T) {
+		require.NoError(t, os.WriteFile(fallback, []byte("Unspecified System Serial Number\n"), 0o600))
+		r := &FileSerialReader{Path: primary, FallbackPath: fallback}
+		_, err := r.ReadSerial(context.Background())
+		require.ErrorContains(t, err, "is unspecified")
 	})
 }
 

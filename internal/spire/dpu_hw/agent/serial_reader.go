@@ -26,11 +26,15 @@ import (
 )
 
 // defaultSerialPath and fallbackSerialPath are DMI sysfs nodes that expose the
-// DPU serial on the Arm cores. board_serial is primary; product_serial is the
-// fallback when the primary node is missing or empty.
+// DPU serial on the Arm cores. board_serial is primary. product_serial is the
+// fallback when the primary node is missing, empty, or unspecified.
 const (
 	defaultSerialPath  = "/sys/class/dmi/id/board_serial"
 	fallbackSerialPath = "/sys/class/dmi/id/product_serial"
+	// Source: https://github.com/opiproject/opi-smbios-bridge/blob/8b23ba5667b1cba22622df5284d3256bc6312ad5/README.md#L86-L89
+	unspecifiedBoardSerial = "Unspecified Base Board Serial Number"
+	// Source: https://github.com/opiproject/opi-smbios-bridge/blob/8b23ba5667b1cba22622df5284d3256bc6312ad5/README.md#L77-L82
+	unspecifiedSystemSerial = "Unspecified System Serial Number"
 )
 
 // SerialReader reads the raw DPU hardware serial from the local system.
@@ -67,7 +71,7 @@ func NewFileSerialReader() *FileSerialReader {
 }
 
 // ReadSerial reads the serial from the primary path, falling back to
-// FallbackPath when configured if the primary node is missing or empty.
+// FallbackPath when configured if the primary node is missing or invalid.
 func (r *FileSerialReader) ReadSerial(_ context.Context) (string, error) {
 	primary := r.Path
 	if primary == "" {
@@ -97,7 +101,7 @@ func (r *FileSerialReader) ReadSerial(_ context.Context) (string, error) {
 }
 
 // readTrimmedSerial reads path and returns the whitespace-trimmed contents,
-// treating a missing file or empty/whitespace-only contents as an error.
+// treating a missing file, empty contents, or unspecified serial as an error.
 func readTrimmedSerial(path string) (string, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -106,6 +110,9 @@ func readTrimmedSerial(path string) (string, error) {
 	serial := strings.TrimSpace(string(b))
 	if serial == "" {
 		return "", fmt.Errorf("DPU serial at %q is empty", path)
+	}
+	if serial == unspecifiedBoardSerial || serial == unspecifiedSystemSerial {
+		return "", fmt.Errorf("DPU serial at %q is unspecified", path)
 	}
 	return serial, nil
 }
