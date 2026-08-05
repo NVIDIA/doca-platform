@@ -83,6 +83,9 @@ DPUVolumeAttachments, DPUStoragePolicies, and DPUStorageVendors), without the re
 dpfctl describe storage
 ```
 
+It is equivalent to scoping `dpfctl describe all` to the storage resources with `--show-storage` and
+`--show-resources dpuvolumes,dpuvolumeattachments,dpustoragevendors,dpustoragepolicies`.
+
 ## Visualizing the Output
 
 We can customize the output by using flags.
