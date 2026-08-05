@@ -59,8 +59,8 @@ func (r *ServiceChainReconciler) addCustomFlowsForFireflySwitch(ctx context.Cont
 	log := ctrllog.FromContext(ctx)
 
 	var errs []error
-	uplinkOfPort := ""
 	serviceOfPort := ""
+	var uplinkOfPorts []string
 	for _, port := range sw.Ports {
 		ofPort, ifaceType, err := r.resolveFireflyPort(ctx, sc, nsi, port)
 		if err != nil {
@@ -80,20 +80,23 @@ func (r *ServiceChainReconciler) addCustomFlowsForFireflySwitch(ctx context.Cont
 			serviceOfPort = ofPort
 			log.Info("[customflows] Using service port", "servicePort", serviceOfPort)
 		case dpuservicev1.InterfaceTypePhysical:
-			if uplinkOfPort != "" {
-				errs = append(errs, fmt.Errorf("[customflows] firefly chain found more than one physical interface"))
-				continue
-			}
-			uplinkOfPort = ofPort
-			log.Info("[customflows] Found uplink port", "uplinkPort", uplinkOfPort)
+			uplinkOfPorts = append(uplinkOfPorts, ofPort)
 		}
 	}
 
-	// We expect only one service port and one uplink per service chain switch
-	if serviceOfPort != "" {
-		if uplinkOfPort == "" {
-			errs = append(errs, fmt.Errorf("[customflows] add chain with no uplink port"))
-		} else if err := r.ensurePTPMulticastFlows(ctx, sc.Namespace+"/"+sc.Name, serviceOfPort, uplinkOfPort); err != nil {
+	// Without a Firefly service port, custom flows do not apply to this switch.
+	if serviceOfPort == "" {
+		return kerrors.NewAggregate(errs)
+	}
+
+	// A Firefly switch requires exactly one physical uplink.
+	if len(uplinkOfPorts) == 0 {
+		errs = append(errs, fmt.Errorf("[customflows] firefly chain has no physical uplink interface"))
+	} else if len(uplinkOfPorts) > 1 {
+		errs = append(errs, fmt.Errorf("[customflows] firefly chain found more than one physical interface"))
+	} else {
+		log.Info("[customflows] Found uplink port", "uplinkPort", uplinkOfPorts[0])
+		if err := r.ensurePTPMulticastFlows(ctx, sc.Namespace+"/"+sc.Name, serviceOfPort, uplinkOfPorts[0]); err != nil {
 			errs = append(errs, err)
 		}
 	}

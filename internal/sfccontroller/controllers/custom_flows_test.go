@@ -184,6 +184,70 @@ var _ = Describe("service chain controller custom flows", func() {
 		Expect(isFirefly).To(BeFalse())
 	})
 
+	It("skips custom-flow validation for a physical-only switch", func() {
+		p0Labels := map[string]string{"interface": "p0"}
+		pf0hpfLabels := map[string]string{"interface": "pf0hpf"}
+		p0Entry := dpuservicev1.InterfaceEntry{
+			Name:          "default_p0",
+			Labels:        p0Labels,
+			InterfaceType: dpuservicev1.InterfaceTypePhysical,
+			Physical:      &dpuservicev1.Physical{InterfaceName: "p0"},
+		}
+		pf0hpfEntry := dpuservicev1.InterfaceEntry{
+			Name:          "default_pf0hpf",
+			Labels:        pf0hpfLabels,
+			InterfaceType: dpuservicev1.InterfaceTypePhysical,
+			Physical:      &dpuservicev1.Physical{InterfaceName: "B21c1pf0"},
+		}
+		nsi := &dpuservicev1.NodeServiceInterfaces{
+			Spec: dpuservicev1.NodeServiceInterfacesSpec{
+				Node:       testNodeName,
+				Type:       dpuservicev1.NSITypeSFC,
+				Interfaces: []dpuservicev1.InterfaceEntry{p0Entry, pf0hpfEntry},
+			},
+			Status: dpuservicev1.NodeServiceInterfacesStatus{
+				InterfaceStatuses: []dpuservicev1.InterfaceEntryStatus{
+					{Name: p0Entry.Name, Conditions: []metav1.Condition{{Type: string(conditions.TypeReady), Status: metav1.ConditionTrue}}},
+					{Name: pf0hpfEntry.Name, Conditions: []metav1.Condition{{Type: string(conditions.TypeReady), Status: metav1.ConditionTrue}}},
+				},
+			},
+		}
+
+		registerPhysicalPort := func(entryName, ofPort string) {
+			portNum := 0
+			_, _ = fmt.Sscanf(ofPort, "%d", &portNum)
+			ovsMock.EXPECT().WhereAll(conditionMatcher{entryName}, gomock.Any()).DoAndReturn(
+				func(model interface{}, conds ...interface{}) ovsclient.ConditionalAPI {
+					mockConditional := ovsutils.NewMockConditionalAPI(mockCtrl)
+					mockConditional.EXPECT().List(gomock.Any(), gomock.Any()).DoAndReturn(
+						func(ctx context.Context, result interface{}) error {
+							*(result.(*[]ovsmodel.Interface)) = []ovsmodel.Interface{{Name: entryName, Ofport: &portNum}}
+							return nil
+						},
+					)
+					return mockConditional
+				},
+			)
+			ovsMock.EXPECT().IsIfaceInBr(gomock.Any(), SFCBridge, entryName).Return(true, nil)
+		}
+		registerPhysicalPort(p0Entry.Name, "1")
+		registerPhysicalPort(pf0hpfEntry.Name, "2")
+
+		sc := &dpuservicev1.ServiceChain{
+			ObjectMeta: metav1.ObjectMeta{Name: "passthrough", Namespace: "default"},
+			Spec: dpuservicev1.ServiceChainSpec{
+				Node: &testNodeName,
+				Switches: []dpuservicev1.Switch{{Ports: []dpuservicev1.Port{
+					{ServiceInterface: dpuservicev1.ServiceIfc{MatchLabels: p0Labels}},
+					{ServiceInterface: dpuservicev1.ServiceIfc{MatchLabels: pf0hpfLabels}},
+				}}},
+			},
+		}
+		scr := &ServiceChainReconciler{Client: fake.NewClientBuilder().WithScheme(scheme.Scheme).Build(), NodeName: testNodeName, OVS: ovsMock, OPFlow: opFlow}
+
+		Expect(scr.EnsureCustomFlowsForChain(ctx, sc, nsi)).To(Succeed())
+	})
+
 	It("propagates failures while looking up the service pod", func() {
 		expected := fmt.Errorf("list pods")
 		fakeClient := fake.NewClientBuilder().
