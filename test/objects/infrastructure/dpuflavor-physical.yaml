@@ -32,7 +32,8 @@ spec:
       permissions: "0755"
       raw: |
         #!/bin/bash
-        echo "node-labeling-test-ok"
+        echo "node-labeling-test=ok"
+        echo "node-labeling-test-second=ok2"
   packages:
     - name: tree
       version:

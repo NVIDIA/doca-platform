@@ -127,7 +127,7 @@ spec:
 
 ### Templated node-labeling script
 
-Render a per-DPU node-labeling script whose stdout becomes a tenant-Node label (see [DPU Node Label Scripts](dpuflavor.md#dpu-node-label-scripts) in the DPUFlavor doc for the mechanism):
+Render a per-DPU node-labeling script that emits a tenant-Node label (see [DPU Node Label Scripts](dpuflavor.md#dpu-node-label-scripts) in the DPUFlavor doc for the mechanism):
 
 ```yaml
 apiVersion: provisioning.dpu.nvidia.com/v1alpha1
@@ -144,7 +144,7 @@ spec:
           permissions: "0755"
           raw: |
             #!/bin/bash
-            echo "{{ .rack }}"
+            echo "rack={{ .rack }}"
 ```
 
 Matching `DPUDevice.spec.values`:
@@ -159,7 +159,7 @@ spec:
     rack: "A12"
 ```
 
-Result: the tenant-Node backed by `dpu-0` carries the label `scripts.dpu.nvidia.com/rack.sh=A12`.
+Result: the tenant-Node backed by `dpu-0` carries the label `scripts.dpu.nvidia.com/rack=A12`.
 
 ### Stamped resource fitting
 

@@ -335,15 +335,18 @@ The DPU agent can run executable files on the DPU ARM and report their output as
 
 1. On every provisioning run, the DPU agent scans the directory `/var/lib/dpf/dpuagent/node-label-scripts/` on the DPU.
 2. Each regular, executable file in that directory is run with a 30-second timeout. Shell scripts and compiled binaries are supported.
-3. The trimmed stdout of the file becomes the label value; the file name becomes the label key suffix under the `scripts.dpu.nvidia.com/` prefix.
-4. Labels from previous runs whose files have since been removed are automatically deleted from the Node.
+3. Each non-empty line the file prints on stdout must have the form `<label-key-suffix>=<label-value>` and produces one Node label. The key suffix is namespaced under the `scripts.dpu.nvidia.com/` prefix. A single file can therefore report any number of labels.
+4. Labels from previous runs that are no longer emitted are automatically deleted from the Node.
 
 **Requirements:**
 
-- The file name must be a valid Kubernetes label key suffix (alphanumeric, `-`, `_`, `.`; max 63 characters).
-- The stdout (trimmed) must be a valid Kubernetes label value.
+- Every non-empty stdout line must contain a `=`. Blank lines are ignored, and leading/trailing whitespace around the key and the value is trimmed.
+- The key suffix must be a valid Kubernetes label key suffix (alphanumeric, `-`, `_`, `.`; max 63 characters).
+- The value must be a valid Kubernetes label value.
+- The file name is not part of the label key and has no naming constraints.
 - The file must be a regular file with at least one executable bit set (`chmod +x`).
 - Directories in the scripts directory are silently ignored.
+- If the same label key is emitted more than once, the last occurrence wins. Files run in sorted file name order, and within a file later lines win over earlier ones.
 
 ### Deploying scripts via DPUFlavor
 
@@ -358,14 +361,15 @@ metadata:
 spec:
   configFiles:
     - operation: override
-      path: /var/lib/dpf/dpuagent/node-label-scripts/test-label
+      path: /var/lib/dpf/dpuagent/node-label-scripts/network-info
       permissions: "0755"
       raw: |
         #!/bin/bash
-        echo "some-data"
+        echo "test-label=some-data"
+        echo "link-speed=200G"
 ```
 
-This example produces a Node label `scripts.dpu.nvidia.com/test-label=some-data` on the DPU cluster Node.
+This example produces the Node labels `scripts.dpu.nvidia.com/test-label=some-data` and `scripts.dpu.nvidia.com/link-speed=200G` on the DPU cluster Node.
 
 > [!NOTE]
 > Executables run during the dpuagent provisioning step on the DPU ARM, as root, with access to the DPU's hardware interfaces.

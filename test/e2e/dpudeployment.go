@@ -2527,7 +2527,7 @@ func verifyPodsRecreated(ctx context.Context, c client.Client, namespace, servic
 // node-labeling-flavortemplate.sh script embedded in dpuflavortemplate-physical.yaml.
 // The label value is the labelSuffix injected into DPUDevice.spec.values, so it
 // proves that the DPUFlavorTemplate was rendered per-DPU using DPUDevice values.
-const dpuFlavorTemplateNodeLabelKey = "scripts.dpu.nvidia.com/node-labeling-flavortemplate.sh"
+const dpuFlavorTemplateNodeLabelKey = "scripts.dpu.nvidia.com/node-labeling-flavortemplate"
 
 // labelSuffixForDPUDevice returns a label-value-safe suffix that identifies a
 // single DPUDevice. Used by PatchDPUDeviceValuesForFlavorTemplate to inject a
