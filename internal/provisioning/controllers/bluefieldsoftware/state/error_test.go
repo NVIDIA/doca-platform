@@ -18,16 +18,35 @@ package state
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	butil "github.com/nvidia/doca-platform/internal/provisioning/controllers/bluefieldsoftware/util"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 )
+
+const testPldmFwBundleURL = "https://example.com/fw.fwpkg"
+
+// writeCompletedFwBundle creates a fully-downloaded PldmFwBundle file on disk and records
+// its path in status, mirroring a component that finished before a sibling download failed.
+// It returns the on-disk path.
+func writeCompletedFwBundle(t *testing.T, bfs *provisioningv1.BlueFieldSoftware) string {
+	t.Helper()
+	fileName := butil.ComponentDownloadFilename(bfs, butil.ComponentTypeFwBundle, testPldmFwBundleURL)
+	destPath := componentDestinationPath(butil.ComponentTypeFwBundle, fileName)
+	require.NoError(t, os.MkdirAll(filepath.Dir(destPath), 0755))
+	require.NoError(t, os.WriteFile(destPath, []byte("completed fw bundle"), 0644))
+	bfs.Status.DownloadedComponents.PldmFwBundle = destPath
+	return destPath
+}
 
 // bfsInErrorWithDownloadedCondition builds a BlueFieldSoftware in the Error phase whose
 // Downloaded condition carries the given reason and transitioned at the given time.
@@ -111,6 +130,52 @@ func TestBlueFieldSoftwareErrorState_NoRetryAfterWindow(t *testing.T) {
 	errCond := conditions.Get(bfs, provisioningv1.BlueFieldSoftwareCondError)
 	require.NotNil(t, errCond)
 	assert.Equal(t, metav1.ConditionTrue, errCond.Status)
+}
+
+func TestBlueFieldSoftwareErrorState_TerminalFailureRemovesCompletedSibling(t *testing.T) {
+	defer withTestBFBBaseDir(t)()
+
+	// osIso download failed terminally, but the sibling PldmFwBundle finished before it.
+	bfs := bfsInErrorWithDownloadedCondition(conditions.ReasonFailure, time.Now())
+	bfs.Spec.PldmFwBundle = ptr.To(testPldmFwBundleURL)
+	completedPath := writeCompletedFwBundle(t, bfs)
+
+	st := &blueFieldSoftwareErrorState{bfs: bfs}
+	require.NoError(t, st.Handle(context.Background(), nil))
+
+	assert.Equal(t, provisioningv1.BlueFieldSoftwareError, bfs.Status.Phase)
+	_, err := os.Stat(completedPath)
+	assert.True(t, os.IsNotExist(err), "completed sibling should be removed on terminal error")
+}
+
+func TestBlueFieldSoftwareErrorState_TerminalAfterWindowRemovesCompletedSibling(t *testing.T) {
+	defer withTestBFBBaseDir(t)()
+
+	// Recoverable error whose retry window has elapsed is terminal: clean up siblings.
+	bfs := bfsInErrorWithDownloadedCondition(conditions.ReasonError, time.Now().Add(-(RetryWindow + time.Hour)))
+	bfs.Spec.PldmFwBundle = ptr.To(testPldmFwBundleURL)
+	completedPath := writeCompletedFwBundle(t, bfs)
+
+	st := &blueFieldSoftwareErrorState{bfs: bfs}
+	require.NoError(t, st.Handle(context.Background(), nil))
+
+	_, err := os.Stat(completedPath)
+	assert.True(t, os.IsNotExist(err), "completed sibling should be removed once the retry window expired")
+}
+
+func TestBlueFieldSoftwareErrorState_TransientErrorPreservesCompletedSibling(t *testing.T) {
+	defer withTestBFBBaseDir(t)()
+
+	// Recoverable error, still too soon to retry (within RetryInterval): not terminal, so a
+	// completed sibling must be preserved for the imminent retry to reuse.
+	bfs := bfsInErrorWithDownloadedCondition(conditions.ReasonError, time.Now().Add(-(RetryInterval / 2)))
+	bfs.Spec.PldmFwBundle = ptr.To(testPldmFwBundleURL)
+	completedPath := writeCompletedFwBundle(t, bfs)
+
+	st := &blueFieldSoftwareErrorState{bfs: bfs}
+	require.NoError(t, st.Handle(context.Background(), nil))
+
+	assert.FileExists(t, completedPath, "completed sibling must be preserved during the transient retry window")
 }
 
 func TestBlueFieldSoftwareErrorState_NoRetryWithoutDownloadedCondition(t *testing.T) {

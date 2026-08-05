@@ -18,6 +18,7 @@ package state
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -52,44 +53,65 @@ func (st *blueFieldSoftwareErrorState) Handle(ctx context.Context, _ client.Clie
 		return nil
 	}
 
-	// Recover from transient failures instead of staying permanently in Error. This lets
-	// BlueFieldSoftware heal after transient storage or network issues, such as /bfb
-	// being wiped by a control-plane node OS revert. Only attempt this when cleanup of
-	// in-flight artifacts succeeded, so a retry starts from a clean slate.
-	if cleanupErr == nil && st.shouldRetry() {
-		st.bfs.Status.Phase = provisioningv1.BlueFieldSoftwareDownloading
-		conditions.AddFalse(st.bfs, provisioningv1.BlueFieldSoftwareCondDownloaded,
-			conditions.ReasonPending, "Retrying download after transient error")
-		conditions.AddFalse(st.bfs, provisioningv1.BlueFieldSoftwareCondError,
-			conditions.ReasonPending, "Retry initiated")
-		return nil
+	switch st.classifyError() {
+	case retryNow:
+		if cleanupErr == nil {
+			st.bfs.Status.Phase = provisioningv1.BlueFieldSoftwareDownloading
+			conditions.AddFalse(st.bfs, provisioningv1.BlueFieldSoftwareCondDownloaded,
+				conditions.ReasonPending, "Retrying download after transient error")
+			conditions.AddFalse(st.bfs, provisioningv1.BlueFieldSoftwareCondError,
+				conditions.ReasonPending, "Retry initiated")
+			return nil
+		}
+	case terminal:
+		// In the terminal state a re-download cannot be forced without deleting the
+		// object, so nothing will reuse the downloaded components. Reclaim storage by
+		// removing all of them.
+		cleanupErr = errors.Join(cleanupErr, cleanupCompletedComponentFiles(st.bfs))
+	case retryLater:
 	}
 
 	conditions.AddTrue(st.bfs, provisioningv1.BlueFieldSoftwareCondError)
 	if cleanupErr != nil {
-		return fmt.Errorf("cleanup in-flight component artifacts: %w", cleanupErr)
+		return fmt.Errorf("cleanup component artifacts on error: %w", cleanupErr)
 	}
 	return nil
 }
 
-// shouldRetry determines whether the download should be retried based on:
-//   - the failure must be recoverable (ReasonError, not the terminal ReasonFailure),
-//   - enough time has passed since the last error (RetryInterval),
-//   - we are still within the retry window (RetryWindow from the first error).
-//
-// Terminal failures (ReasonFailure) require user intervention and are never retried.
-func (st *blueFieldSoftwareErrorState) shouldRetry() bool {
+// errorOutcome classifies an Error-phase BlueFieldSoftware into mutually exclusive,
+// exhaustive outcomes so the retry and terminal-cleanup decisions come from one place.
+type errorOutcome int
+
+const (
+	// retryLater: recoverable error, but the retry interval has not elapsed yet. Not
+	// retried this reconcile and not terminal - preserve completed downloads and requeue.
+	retryLater errorOutcome = iota
+	// retryNow: recoverable error, past RetryInterval and still within RetryWindow.
+	retryNow
+	// terminal: never retried - a hard failure (ReasonFailure) or a recoverable error
+	// whose RetryWindow has fully elapsed.
+	terminal
+)
+
+// classifyError decides how the current Error should be handled, based on:
+//   - the failure kind: recoverable (ReasonError) vs terminal (ReasonFailure),
+//   - time since the error: RetryInterval (earliest retry) and RetryWindow (giving up).
+func (st *blueFieldSoftwareErrorState) classifyError() errorOutcome {
 	downloadCond := conditions.Get(st.bfs, provisioningv1.BlueFieldSoftwareCondDownloaded)
 	if downloadCond == nil {
-		return false
+		return retryLater
 	}
-
-	// Only retry recoverable errors (ReasonError) - transient network/storage issues.
-	// Terminal failures (ReasonFailure) are left untouched for user intervention.
-	if downloadCond.Reason != string(conditions.ReasonError) {
-		return false
+	// Terminal failures require user intervention and are never retried.
+	if downloadCond.Reason == string(conditions.ReasonFailure) {
+		return terminal
 	}
-
 	timeSinceError := time.Since(downloadCond.LastTransitionTime.Time)
-	return timeSinceError >= RetryInterval && timeSinceError < RetryWindow
+	switch {
+	case timeSinceError >= RetryWindow:
+		return terminal
+	case timeSinceError >= RetryInterval:
+		return retryNow
+	default:
+		return retryLater
+	}
 }
