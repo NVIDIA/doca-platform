@@ -1,11 +1,17 @@
 ARG builder_image
 ARG base_image
 ARG rdma_cni_version=network-operator-v26.1.1
+ARG cni_plugins_version=v1.9.1
+# Checksum of the linux-arm64 release tarball. The image is built for linux/arm64 only
+# (see docker-build-cni-installer in the Makefile), so a single checksum is enough. Adding a
+# second architecture requires an arch-indexed checksum here and in the cniplugins stage.
+ARG cni_plugins_sha256_arm64=56171987d3947707c3563db2f4001bccaf50fd63468611b9f3cbecb1375ee7ec
 
 # 1) dependency stage to create a dependency layer with go vendor folder and other dependencies
 FROM --platform=${BUILDPLATFORM} ${builder_image} AS dependency
 WORKDIR /workspace
 ARG rdma_cni_version
+ARG cni_plugins_version
 
 # Copy source files needed for proper vendoring
 COPY go.mod go.sum ./
@@ -24,6 +30,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # Copy the go source code so it can be distributed in the final image.
 RUN mkdir -p src/dpf && \
     wget https://github.com/Mellanox/rdma-cni/archive/refs/tags/${rdma_cni_version}.tar.gz -O src/rdma-cni-${rdma_cni_version}.tar.gz && \
+    wget https://github.com/containernetworking/plugins/archive/refs/tags/${cni_plugins_version}.tar.gz -O src/cni-plugins-${cni_plugins_version}.tar.gz && \
     find . -name '*.go' -not -path "./hack/*" -not -path "./.gocache/*" \
     -exec cp --parents \{\}  src/dpf/ \; && \
     tar -czf source-code.tar.gz src
@@ -50,10 +57,30 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=bind,source=hack/tools/tools.mk,target=hack/tools/tools.mk \
     GOFLAGS="-mod=vendor" make binary-cni-installer binary-sfc-cni
 
-# 3) Declare images to copy binaries from. The reason we declare them here is so that we can parameterise the version.
+# 3) Download stage fetches the standard CNI plugins from the upstream containernetworking/plugins
+# release. It runs on the build platform (no emulation) and picks the binaries for the target
+# architecture. The BFB used to provide these via the kubernetes-cni package, which is dated and
+# absent on non-Ubuntu distros, so DPF ships them itself.
+FROM --platform=${BUILDPLATFORM} ${builder_image} AS cniplugins
+ARG TARGETARCH
+ARG cni_plugins_version
+ARG cni_plugins_sha256_arm64
+# Plugins extracted from the upstream release. Adding one here is enough to ship it, the installer
+# copies everything staged at /opt/cnis.
+ARG cni_plugins="host-device loopback dhcp static vrf"
+
+WORKDIR /cni-plugins
+RUN [ "${TARGETARCH}" = "arm64" ] || { echo "only arm64 is supported, got ${TARGETARCH}"; exit 1; } && \
+    tarball="cni-plugins-linux-${TARGETARCH}-${cni_plugins_version}.tgz" && \
+    wget -q "https://github.com/containernetworking/plugins/releases/download/${cni_plugins_version}/${tarball}" -O "${tarball}" && \
+    echo "${cni_plugins_sha256_arm64}  ${tarball}" | sha256sum -c - && \
+    tar -xzf "${tarball}" $(printf './%s ' ${cni_plugins}) && \
+    rm -f "${tarball}"
+
+# 4) Declare images to copy binaries from. The reason we declare them here is so that we can parameterise the version.
 FROM --platform=${TARGETPLATFORM} nvcr.io/nvidia/mellanox/rdma-cni:${rdma_cni_version} AS rdmacni
 
-# 4) Final stage copies artefacts from the builder and dependency stages.
+# 5) Final stage copies artefacts from the builder and dependency stages.
 FROM ${base_image}
 ARG TARGETARCH
 
@@ -69,8 +96,10 @@ COPY --chown=${uid} --from=dependency /workspace/source-code.tar.gz source-code.
 # Add the CNI Installer binary
 COPY --chown=${uid} --from=builder /workspace/bin/cni-installer .
 
-# Stage each CNI binary at /opt/cnis/<name>, the installer copies them
-# to /opt/cni/bin/ at runtime when the corresponding CNI is enabled.
+# Stage each CNI binary at /opt/cnis/<name>. The installer copies everything it finds there to
+# /opt/cni/bin/ at runtime.
 COPY --chown=${uid} --from=rdmacni /usr/bin/rdma /opt/cnis/rdma
 # Keep name ovs to match NAD type dispatch.
 COPY --chown=${uid} --from=builder /workspace/bin/ovs /opt/cnis/ovs
+# The standard containernetworking CNIs, which the BFB used to provide via the kubernetes-cni package.
+COPY --chown=${uid} --from=cniplugins /cni-plugins/ /opt/cnis/

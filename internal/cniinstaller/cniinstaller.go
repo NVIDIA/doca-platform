@@ -18,69 +18,51 @@ package cniinstaller
 
 import (
 	"crypto/sha256"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 
-	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/klog/v2"
 )
 
 const (
 	// sourceCNIBinDir represents the path where the CNIInstaller expects the CNIs to exist. This path is used as a source
-	// for copying the manifests to the destinationCNIBinDir.
+	// for copying the manifests to the destinationCNIBinDir. It holds both the DPF owned CNIs and the
+	// standard containernetworking CNIs, which the BFB used to provide via the kubernetes-cni package.
 	sourceCNIBinDir = "/opt/cnis"
-	// destinationCNIBinDir represents the path where the CNIInstaller copies the enabled CNIs.
+	// destinationCNIBinDir represents the path where the CNIInstaller copies the CNIs.
 	destinationCNIBinDir = "/opt/cni/bin"
 )
+
+// cnis are the CNIs the image stages at sourceCNIBinDir. All of them are always installed. Keep in
+// sync with Dockerfile.cni-installer, a CNI listed here but missing from the image fails the
+// installer at startup.
+var cnis = []string{
+	// DPF owned CNIs.
+	"rdma",
+	// NADs use type "ovs", so the executable must keep that name.
+	"ovs",
+	// Standard containernetworking CNIs, which the BFB used to provide via the kubernetes-cni package.
+	"host-device",
+	"loopback",
+	"dhcp",
+	"static",
+	"vrf",
+}
 
 type CNIInstaller struct {
 	// FileSystemRoot controls the file system root. It's used for enabling easier testing of the package. Defaults to
 	// empty.
 	FileSystemRoot string
-
-	// cnis controls which CNIs should be installed
-	cnis cnis
-}
-
-// cnis controls which CNIs should be installed
-type cnis struct {
-	// RDMA enables installation of RDMA CNI
-	RDMA bool
-	// DPFSFCCNI enables installation of the SFC CNI
-	DPFSFCCNI bool
-}
-
-// GetRDMABinaryName returns the binary name of the RDMA CNI
-func (c *cnis) GetRDMABinaryName() string {
-	return "rdma"
-}
-
-// GetSFCCNIBinaryName returns the binary name of the SFC CNI
-func (c *cnis) GetSFCCNIBinaryName() string {
-	// NADs use type "ovs", so the executable must keep that name.
-	return "ovs"
 }
 
 // New creates a CNIInstaller that can copy CNIs to the host
 func New() *CNIInstaller {
 	return &CNIInstaller{
 		FileSystemRoot: "",
-		cnis: cnis{
-			RDMA:      true,
-			DPFSFCCNI: true,
-		},
 	}
-}
-
-// DisableRDMA disables the installation of the RDMA CNI
-func (c *CNIInstaller) DisableRDMA() {
-	c.cnis.RDMA = false
-}
-
-// DisableSFC disables the installation of the SFC CNI
-func (c *CNIInstaller) DisableSFC() {
-	c.cnis.DPFSFCCNI = false
 }
 
 // Install copies the CNIs to the host
@@ -90,7 +72,7 @@ func (c *CNIInstaller) Install() error {
 		return fmt.Errorf("failed to validate destination directory: %w", err)
 	}
 
-	// Validate that all the enabled CNIs are present
+	// Validate that all the CNIs are present
 	if err := c.validateCNIsPresence(); err != nil {
 		return fmt.Errorf("failed to validate CNI presence: %w", err)
 	}
@@ -112,33 +94,22 @@ func (c *CNIInstaller) validateDestinationDirectory() error {
 	return nil
 }
 
-// validateCNIsPresence validates that all the enabled CNIs are present in the path the installer expects them to be
+// validateCNIsPresence validates that all the CNIs are present in the path the installer expects them to be
 func (c *CNIInstaller) validateCNIsPresence() error {
-	if c.cnis.RDMA {
-		rdmaCNIPath := filepath.Join(c.FileSystemRoot, sourceCNIBinDir, c.cnis.GetRDMABinaryName())
-		if _, err := os.Stat(rdmaCNIPath); err != nil {
-			return fmt.Errorf("failed to stat %s: %w", rdmaCNIPath, err)
-		}
-	}
-	if c.cnis.DPFSFCCNI {
-		dpfSFCCNIPath := filepath.Join(c.FileSystemRoot, sourceCNIBinDir, c.cnis.GetSFCCNIBinaryName())
-		if _, err := os.Stat(dpfSFCCNIPath); err != nil {
-			return fmt.Errorf("failed to stat %s: %w", dpfSFCCNIPath, err)
+	for _, cni := range cnis {
+		cniPath := filepath.Join(c.FileSystemRoot, sourceCNIBinDir, cni)
+		if _, err := os.Stat(cniPath); err != nil {
+			return fmt.Errorf("failed to stat %s: %w", cniPath, err)
 		}
 	}
 	return nil
 }
 
-// copyCNIs copies the enabled CNIs to the path the host cni bin dir is mounted
+// copyCNIs copies the CNIs to the path the host cni bin dir is mounted
 func (c *CNIInstaller) copyCNIs() error {
-	if c.cnis.RDMA {
-		if err := c.copyCNIBinary(c.cnis.GetRDMABinaryName()); err != nil {
-			return fmt.Errorf("failed to copy RDMA CNI: %w", err)
-		}
-	}
-	if c.cnis.DPFSFCCNI {
-		if err := c.copyCNIBinary(c.cnis.GetSFCCNIBinaryName()); err != nil {
-			return fmt.Errorf("failed to copy DPF SFC CNI: %w", err)
+	for _, cni := range cnis {
+		if err := c.copyCNIBinary(cni); err != nil {
+			return fmt.Errorf("failed to copy %s CNI: %w", cni, err)
 		}
 	}
 
@@ -154,6 +125,11 @@ func (c *CNIInstaller) copyCNIBinary(binaryName string) error {
 	// Check if destination file already exists and has same checksum
 	if filesHaveSameChecksum(sourcePath, destPath) {
 		klog.Warningf("skipping copy of CNI %s because it already exists with the same checksum", binaryName)
+		// The content matches but the mode might not, e.g. when the file was put there by
+		// something other than this installer, so still enforce the executable bit.
+		if err := os.Chmod(destPath, 0755); err != nil {
+			return fmt.Errorf("failed to set permissions on existing file %s: %w", destPath, err)
+		}
 		return nil
 	}
 
@@ -168,8 +144,10 @@ func (c *CNIInstaller) copyCNIBinary(binaryName string) error {
 		return fmt.Errorf("failed to create temporary file: %w", err)
 	}
 	defer func() {
-		if errz := os.Remove(cniTmpFile.Name()); errz != nil {
-			err = kerrors.NewAggregate([]error{err, fmt.Errorf("failed to remove temporary file %s: %w", cniTmpFile.Name(), errz)})
+		// A successful copy renames the temporary file away, so only a leftover from a failed
+		// copy needs removing. The copy result is what matters, a failed cleanup is only logged.
+		if errz := os.Remove(cniTmpFile.Name()); errz != nil && !errors.Is(errz, fs.ErrNotExist) {
+			klog.Errorf("failed to remove temporary file %s: %v", cniTmpFile.Name(), errz)
 		}
 	}()
 
