@@ -16,6 +16,8 @@ spec:
       labels:
         {{- include "node-problem-detector.labels" . | nindent 8 }}
       annotations:
+        # Restart pods on config changes
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
         {{- include "node-problem-detector.annotations" . | nindent 8 }}
     spec:
       automountServiceAccountToken: false
