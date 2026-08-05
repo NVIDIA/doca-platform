@@ -123,8 +123,12 @@ func (r *DPFOperatorConfigReconciler) reconcileCATrustBundle(ctx context.Context
 		return nil
 	}
 
+	expectedBundleHash, err := computeBundleHash(merged)
+	if err != nil {
+		return fmt.Errorf("failed to compute CA trust bundle hash: %w", err)
+	}
 	if existing.Data[operatorv1.CATrustBundleKey] == string(merged) &&
-		existing.Data[operatorv1.CATrustBundleHashKey] != "" {
+		existing.Data[operatorv1.CATrustBundleHashKey] == expectedBundleHash {
 		return nil
 	}
 
