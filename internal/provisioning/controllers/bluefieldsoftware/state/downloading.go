@@ -440,6 +440,55 @@ func cleanupInFlightComponentArtifacts(bfs *provisioningv1.BlueFieldSoftware) er
 	return errors.Join(cleanupPartialComponentFiles(bfs), cleanupExtractedComponentDirs(bfs))
 }
 
+// statusPathForComponent returns the recorded downloaded-file path for componentType
+// from status.DownloadedComponents ("" when nothing was recorded yet).
+func statusPathForComponent(bfs *provisioningv1.BlueFieldSoftware, componentType butil.ComponentType) string {
+	switch componentType {
+	case butil.ComponentTypeFwBundle:
+		return bfs.Status.DownloadedComponents.PldmFwBundle
+	case butil.ComponentTypePlatformFwBundle:
+		return bfs.Status.DownloadedComponents.PlatformPldmFwBundle
+	case butil.ComponentTypeOSISO:
+		return bfs.Status.DownloadedComponents.OsIso
+	case butil.ComponentTypeNicFw:
+		return bfs.Status.DownloadedComponents.NicFw
+	}
+	return ""
+}
+
+// completedComponentFilePath returns the absolute path of a fully-downloaded component
+// file for URL-based specs, or "" when there is no local file (opaque/non-URL spec). It
+// prefers the path recorded in status and falls back to the deterministic destination.
+func completedComponentFilePath(bfs *provisioningv1.BlueFieldSoftware, componentType butil.ComponentType) string {
+	specURL := butil.SpecURLForComponent(bfs, componentType)
+	if specURL == "" || !isURL(specURL) {
+		return ""
+	}
+	if p := statusPathForComponent(bfs, componentType); p != "" {
+		return p
+	}
+	fileName := butil.ComponentDownloadFilename(bfs, componentType, specURL)
+	return componentDestinationPath(componentType, fileName)
+}
+
+// cleanupCompletedComponentFiles removes completed (fully downloaded) component files for
+// every download component. Unlike cleanupPartialComponentFiles it also removes the final
+// destPath, so it must only run when no retry will reuse the files and no concurrent
+// download can race the removal (terminal Error or deletion). See issue 5104307.
+func cleanupCompletedComponentFiles(bfs *provisioningv1.BlueFieldSoftware) error {
+	var errs []error
+	for _, componentType := range componentTypesWithDownloads() {
+		filePath := completedComponentFilePath(bfs, componentType)
+		if filePath == "" {
+			continue
+		}
+		if err := cutil.RemoveFileEx(filePath); err != nil {
+			errs = append(errs, fmt.Errorf("remove completed component file %q: %w", filePath, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
 func downloadComponent(ctx context.Context, task butil.ComponentDownloadTask) {
 	downloader := future.New(func() (any, error) {
 		return executeComponentDownload(ctx, task)

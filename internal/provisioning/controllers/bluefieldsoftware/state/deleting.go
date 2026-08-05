@@ -38,34 +38,6 @@ type blueFieldSoftwareDeletingState struct {
 	recorder record.EventRecorder
 }
 
-func (st *blueFieldSoftwareDeletingState) statusPathForComponent(componentType butil.ComponentType) string {
-	switch componentType {
-	case butil.ComponentTypeFwBundle:
-		return st.bfs.Status.DownloadedComponents.PldmFwBundle
-	case butil.ComponentTypePlatformFwBundle:
-		return st.bfs.Status.DownloadedComponents.PlatformPldmFwBundle
-	case butil.ComponentTypeOSISO:
-		return st.bfs.Status.DownloadedComponents.OsIso
-	case butil.ComponentTypeNicFw:
-		return st.bfs.Status.DownloadedComponents.NicFw
-	}
-	return ""
-}
-
-// componentFilePathToRemove returns the absolute path of a downloaded file to
-// delete for URL-based specs. Opaque (non-URL) spec values have no local file.
-func (st *blueFieldSoftwareDeletingState) componentFilePathToRemove(componentType butil.ComponentType) string {
-	specURL := butil.SpecURLForComponent(st.bfs, componentType)
-	if specURL == "" || !isURL(specURL) {
-		return ""
-	}
-	if p := st.statusPathForComponent(componentType); p != "" {
-		return p
-	}
-	fileName := butil.ComponentDownloadFilename(st.bfs, componentType, specURL)
-	return componentDestinationPath(componentType, fileName)
-}
-
 func (st *blueFieldSoftwareDeletingState) Handle(ctx context.Context, c client.Client) error {
 	// Check if any DPU is using this BlueFieldSoftware
 	dpuList := &provisioningv1.DPUList{}
@@ -100,7 +72,7 @@ func (st *blueFieldSoftwareDeletingState) Handle(ctx context.Context, c client.C
 
 	var errors []error
 	for _, componentType := range componentsToDelete {
-		filePath := st.componentFilePathToRemove(componentType)
+		filePath := completedComponentFilePath(st.bfs, componentType)
 		if filePath == "" {
 			continue
 		}
