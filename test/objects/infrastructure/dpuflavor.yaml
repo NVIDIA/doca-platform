@@ -33,7 +33,8 @@ spec:
       permissions: "0755"
       raw: |
         #!/bin/bash
-        echo "node-labeling-test-ok"
+        echo "node-labeling-test=ok"
+        echo "node-labeling-test-second=ok2"
     # Cloud runners mix BFB 3.2 and 3.4 runs. BFB 3.2 uses the legacy
     # reboot flow, which always runs mlxconfig reset and can leave FW reporting
     # that PCI rescan is required. Legacy flow ignores this FW flag, so it does
