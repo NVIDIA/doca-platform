@@ -46,6 +46,7 @@ import (
 	httputils "github.com/nvidia/doca-platform/internal/provisioning/utils/http"
 	provisioningwebhooks "github.com/nvidia/doca-platform/internal/provisioning/webhooks"
 	"github.com/nvidia/doca-platform/pkg/health"
+	spirev1alpha1 "github.com/nvidia/doca-platform/third_party/forked/github.com/spiffe/spire-controller-manager/api/v1alpha1"
 
 	maintenancev1alpha1 "github.com/Mellanox/maintenance-operator/api/v1alpha1"
 	"github.com/spf13/pflag"
@@ -98,6 +99,9 @@ func init() {
 	utilruntime.Must(operatorv1.AddToScheme(scheme))
 
 	utilruntime.Must(maintenancev1alpha1.AddToScheme(scheme))
+	// ClusterStaticEntry is an optional upstream CRD; registering the type is harmless on
+	// clusters that do not install it, and the watch itself is gated on CRD presence.
+	utilruntime.Must(spirev1alpha1.AddToScheme(scheme))
 
 	// +kubebuilder:scaffold:scheme
 }

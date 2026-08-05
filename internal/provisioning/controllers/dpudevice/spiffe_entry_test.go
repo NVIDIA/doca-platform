@@ -23,6 +23,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/events"
 	"github.com/nvidia/doca-platform/pkg/conditions"
+	spirev1alpha1 "github.com/nvidia/doca-platform/third_party/forked/github.com/spiffe/spire-controller-manager/api/v1alpha1"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -30,7 +31,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -54,6 +54,7 @@ func spiffeScheme() *runtime.Scheme {
 	scheme := runtime.NewScheme()
 	Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
 	Expect(operatorv1.AddToScheme(scheme)).To(Succeed())
+	Expect(spirev1alpha1.AddToScheme(scheme)).To(Succeed())
 	return scheme
 }
 
@@ -90,8 +91,8 @@ func dpuBoundTo(mode *provisioningv1.IdentityMode) *provisioningv1.DPU {
 	}
 }
 
-func getCSE(ctx context.Context, c client.Client) (*unstructured.Unstructured, error) {
-	cse := newClusterStaticEntry()
+func getCSE(ctx context.Context, c client.Client) (*spirev1alpha1.ClusterStaticEntry, error) {
+	cse := &spirev1alpha1.ClusterStaticEntry{}
 	err := c.Get(ctx, types.NamespacedName{Name: testCSEName}, cse)
 	return cse, err
 }
@@ -193,9 +194,7 @@ var _ = Describe("SPIFFE ClusterStaticEntry reconcile", func() {
 
 		cse, err := getCSE(ctx, reconciler.Client)
 		Expect(err).NotTo(HaveOccurred())
-		spiffeID, _, _ := unstructured.NestedString(cse.Object, "spec", "spiffeID")
-		parentID, _, _ := unstructured.NestedString(cse.Object, "spec", "parentID")
-		className, _, _ := unstructured.NestedString(cse.Object, "spec", "className")
+		spiffeID, parentID, className := cse.Spec.SPIFFEID, cse.Spec.ParentID, cse.Spec.ClassName
 		Expect(spiffeID).To(Equal("spiffe://cs.internal/dpu/mt2440600yyw/process/dpu-agent"))
 		Expect(parentID).To(Equal("spiffe://cs.internal/spire/agent/dpu_hw/mt2440600yyw"))
 		Expect(className).To(Equal(testClassName))
@@ -234,14 +233,14 @@ var _ = Describe("SPIFFE ClusterStaticEntry reconcile", func() {
 		// External actor mutates the spec.
 		cse, err := getCSE(ctx, reconciler.Client)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(unstructured.SetNestedField(cse.Object, "spiffe://evil/x", "spec", "spiffeID")).To(Succeed())
+		cse.Spec.SPIFFEID = "spiffe://evil/x"
 		Expect(reconciler.Client.Update(ctx, cse)).To(Succeed())
 
 		Expect(reconciler.reconcileSPIFFEEntry(ctx, dpuDevice, cfg)).To(Succeed())
 
 		cse, err = getCSE(ctx, reconciler.Client)
 		Expect(err).NotTo(HaveOccurred())
-		spiffeID, _, _ := unstructured.NestedString(cse.Object, "spec", "spiffeID")
+		spiffeID := cse.Spec.SPIFFEID
 		Expect(spiffeID).To(Equal("spiffe://cs.internal/dpu/mt2440600yyw/process/dpu-agent"))
 		Expect(recorder.Events).To(Receive(ContainSubstring("Drift")))
 	})
@@ -257,7 +256,7 @@ var _ = Describe("SPIFFE ClusterStaticEntry reconcile", func() {
 
 		cse, err := getCSE(ctx, reconciler.Client)
 		Expect(err).NotTo(HaveOccurred())
-		spiffeID, _, _ := unstructured.NestedString(cse.Object, "spec", "spiffeID")
+		spiffeID := cse.Spec.SPIFFEID
 		Expect(spiffeID).To(Equal("spiffe://updated.internal/dpu/mt2440600yyw/process/dpu-agent"))
 	})
 
@@ -270,7 +269,9 @@ var _ = Describe("SPIFFE ClusterStaticEntry reconcile", func() {
 			WithObjects(spiffeConfig(true), dpuBoundTo(ptr.To(provisioningv1.IdentityModeSpiffe))).
 			WithInterceptorFuncs(interceptor.Funcs{
 				Create: func(_ context.Context, _ client.WithWatch, obj client.Object, _ ...client.CreateOption) error {
-					if obj.GetObjectKind().GroupVersionKind() == clusterStaticEntryGVK {
+					// Match on the Go type: a typed object does not carry a populated TypeMeta,
+					// so its GroupVersionKind is empty here.
+					if _, ok := obj.(*spirev1alpha1.ClusterStaticEntry); ok {
 						return apierrors.NewForbidden(schema.GroupResource{Group: clusterStaticEntryGVK.Group, Resource: "clusterstaticentries"}, obj.GetName(), nil)
 					}
 					return nil
@@ -292,11 +293,13 @@ var _ = Describe("mirrorSpiffeEntryStatus", func() {
 
 	BeforeEach(func() { dpuDevice = spiffeDPUDevice() })
 
-	cseWithStatus := func(fields map[string]bool) *unstructured.Unstructured {
-		cse := newClusterStaticEntry()
+	cseWithStatus := func(fields map[string]bool) *spirev1alpha1.ClusterStaticEntry {
+		cse := &spirev1alpha1.ClusterStaticEntry{}
 		cse.SetName(testCSEName)
-		for k, v := range fields {
-			Expect(unstructured.SetNestedField(cse.Object, v, "status", k)).To(Succeed())
+		cse.Status = spirev1alpha1.ClusterStaticEntryStatus{
+			Set:      fields["set"],
+			Rendered: fields["rendered"],
+			Masked:   fields["masked"],
 		}
 		return cse
 	}
@@ -358,7 +361,7 @@ var _ = Describe("SPIFFE ClusterStaticEntry deletion", func() {
 	}
 
 	It("deletes the CR and reports done in a single pass when it has no finalizer", func() {
-		cse := newClusterStaticEntry()
+		cse := &spirev1alpha1.ClusterStaticEntry{}
 		cse.SetName(testCSEName)
 		fakeClient := fake.NewClientBuilder().WithScheme(spiffeScheme()).WithObjects(cse).Build()
 		r := &DPUDeviceReconciler{Client: fakeClient, Recorder: record.NewFakeRecorder(10)}
@@ -375,7 +378,7 @@ var _ = Describe("SPIFFE ClusterStaticEntry deletion", func() {
 	})
 
 	It("reports not-done while the CR lingers behind an external finalizer", func() {
-		cse := newClusterStaticEntry()
+		cse := &spirev1alpha1.ClusterStaticEntry{}
 		cse.SetName(testCSEName)
 		cse.SetFinalizers([]string{"example.com/keep"})
 		fakeClient := fake.NewClientBuilder().WithScheme(spiffeScheme()).WithObjects(cse).Build()
@@ -424,7 +427,7 @@ var _ = Describe("SPIFFE ClusterStaticEntry deletion", func() {
 	})
 
 	It("reports done when the ClusterStaticEntry CRD is uninstalled during delete", func() {
-		cse := newClusterStaticEntry()
+		cse := &spirev1alpha1.ClusterStaticEntry{}
 		cse.SetName(testCSEName)
 		fakeClient := fake.NewClientBuilder().WithScheme(spiffeScheme()).WithObjects(cse).
 			WithInterceptorFuncs(interceptor.Funcs{
@@ -440,7 +443,7 @@ var _ = Describe("SPIFFE ClusterStaticEntry deletion", func() {
 	})
 
 	It("reports done when the ClusterStaticEntry CRD is uninstalled while confirming deletion", func() {
-		cse := newClusterStaticEntry()
+		cse := &spirev1alpha1.ClusterStaticEntry{}
 		cse.SetName(testCSEName)
 		firstGetDone := false
 		confirmationGetReached := false
@@ -466,7 +469,7 @@ var _ = Describe("SPIFFE ClusterStaticEntry deletion", func() {
 
 var _ = Describe("mapClusterStaticEntryToDPUDevice", func() {
 	It("maps via the stamped labels", func() {
-		cse := newClusterStaticEntry()
+		cse := &spirev1alpha1.ClusterStaticEntry{}
 		cse.SetName(testCSEName)
 		cse.SetLabels(map[string]string{LabelDPUDeviceName: "dev-1", LabelDPUDeviceNamespace: "default"})
 
@@ -477,7 +480,7 @@ var _ = Describe("mapClusterStaticEntryToDPUDevice", func() {
 	})
 
 	It("returns nothing when labels are absent", func() {
-		cse := newClusterStaticEntry()
+		cse := &spirev1alpha1.ClusterStaticEntry{}
 		cse.SetName(testCSEName)
 		Expect(mapClusterStaticEntryToDPUDevice(context.Background(), cse)).To(BeEmpty())
 	})

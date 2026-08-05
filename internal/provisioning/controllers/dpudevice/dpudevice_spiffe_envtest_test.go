@@ -26,13 +26,14 @@ import (
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/spire"
+	"github.com/nvidia/doca-platform/pkg/conditions"
+	spirev1alpha1 "github.com/nvidia/doca-platform/third_party/forked/github.com/spiffe/spire-controller-manager/api/v1alpha1"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/utils/ptr"
@@ -78,8 +79,7 @@ var _ = Describe("DPUDevice SPIFFE reconcile (envtest)", Ordered, func() {
 		Expect(corev1.AddToScheme(scheme)).To(Succeed())
 		Expect(operatorv1.AddToScheme(scheme)).To(Succeed())
 		Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
-		scheme.AddKnownTypeWithName(clusterStaticEntryGVK, &unstructured.Unstructured{})
-		scheme.AddKnownTypeWithName(clusterStaticEntryGVK.GroupVersion().WithKind("ClusterStaticEntryList"), &unstructured.UnstructuredList{})
+		Expect(spirev1alpha1.AddToScheme(scheme)).To(Succeed())
 		k8sClient, err = client.New(restCfg, client.Options{Scheme: scheme})
 		Expect(err).NotTo(HaveOccurred())
 
@@ -186,28 +186,35 @@ var _ = Describe("DPUDevice SPIFFE reconcile (envtest)", Ordered, func() {
 
 		cseName, err := spire.DPUAgentClusterStaticEntryName(serial)
 		Expect(err).NotTo(HaveOccurred())
-		cse := newClusterStaticEntry()
+		cse := &spirev1alpha1.ClusterStaticEntry{}
 		Eventually(func(g Gomega) {
 			g.Expect(k8sClient.Get(envCtx, client.ObjectKey{Name: cseName}, cse)).To(Succeed())
-			className, found, err := unstructured.NestedString(cse.Object, "spec", "className")
-			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(found).To(BeTrue())
-			g.Expect(className).To(Equal("spire-mgmt-spire"))
+			g.Expect(cse.Spec.ClassName).To(Equal("spire-mgmt-spire"))
 		}).WithTimeout(spiffeEnvtestEventuallyTimeout).WithPolling(spiffeEnvtestEventuallyInterval).Should(Succeed())
 
-		Expect(unstructured.SetNestedField(cse.Object, true, "status", "rendered")).To(Succeed())
-		Expect(unstructured.SetNestedField(cse.Object, false, "status", "set")).To(Succeed())
+		cse.Status.Rendered = true
+		cse.Status.Set = false
 		Expect(k8sClient.Status().Update(envCtx, cse)).To(Succeed())
-		statusCSE := newClusterStaticEntry()
+		statusCSE := &spirev1alpha1.ClusterStaticEntry{}
 		Expect(k8sClient.Get(envCtx, client.ObjectKey{Name: cseName}, statusCSE)).To(Succeed())
-		rendered, found, err := unstructured.NestedBool(statusCSE.Object, "status", "rendered")
-		Expect(err).NotTo(HaveOccurred())
-		Expect(found).To(BeTrue())
-		Expect(rendered).To(BeTrue())
+		Expect(statusCSE.Status.Rendered).To(BeTrue())
+
+		// Once spire-controller-manager renders the entry, the DPUDevice must report the
+		// identity as ready. This asserts the status actually round-trips into the condition:
+		// controllerutil.CreateOrPatch does not always leave the status on the object it
+		// returns, so reading it back off that object can silently pin the condition to
+		// Pending forever.
+		Eventually(func(g Gomega) {
+			gotDevice := &provisioningv1.DPUDevice{}
+			g.Expect(k8sClient.Get(envCtx, client.ObjectKeyFromObject(device), gotDevice)).To(Succeed())
+			cond := conditions.Get(gotDevice, provisioningv1.ConditionSPIFFEEntryReady)
+			g.Expect(cond).NotTo(BeNil())
+			g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+		}).WithTimeout(spiffeEnvtestEventuallyTimeout).WithPolling(spiffeEnvtestEventuallyInterval).Should(Succeed())
 
 		Expect(k8sClient.Delete(envCtx, device)).To(Succeed())
 		Eventually(func() bool {
-			return apierrors.IsNotFound(k8sClient.Get(envCtx, client.ObjectKey{Name: cseName}, newClusterStaticEntry()))
+			return apierrors.IsNotFound(k8sClient.Get(envCtx, client.ObjectKey{Name: cseName}, &spirev1alpha1.ClusterStaticEntry{}))
 		}).WithTimeout(spiffeEnvtestEventuallyTimeout).WithPolling(spiffeEnvtestEventuallyInterval).Should(BeTrue())
 	})
 })
