@@ -52,7 +52,7 @@ config:
       limit_mib: 1024
       spike_limit_mib: 256
 
-    k8sattributes:
+    k8s_attributes:
       auth_type: "serviceAccount"
       passthrough: false
       extract:
@@ -113,12 +113,12 @@ config:
     pipelines:
       logs:
         receivers: [otlp, filelog]
-        processors: [memory_limiter, k8sattributes, transform/kamaji, resource, batch]
+        processors: [memory_limiter, k8s_attributes, transform/kamaji, resource, batch]
         exporters: [otlphttp/loki, debug]
 
       metrics:
         receivers: [otlp]
-        processors: [memory_limiter, k8sattributes, resource, batch]
+        processors: [memory_limiter, k8s_attributes, resource, batch]
         exporters: [prometheusremotewrite, debug]
 
 # Resources for the collector deployment

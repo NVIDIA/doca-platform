@@ -20,21 +20,21 @@ must be installed manually** before installing the DPF chart itself.
 The following table lists all required, conditional, and optional Helm chart dependencies with their specific versions
 and purposes:
 
-| Helm Chart                | Version | Description                                                                                    | Required | Post/Pre-installation |
-|---------------------------|---------|------------------------------------------------------------------------------------------------|----------|-----------------------|
-| [cert-manager]            | v1.19.3 | Certificate management for Kubernetes, provides automatic TLS certificate issuance and renewal | Yes      | Pre-installation      |
-| [argo-cd]                 | 9.4.1   | GitOps continuous delivery tool for Kubernetes, necessary for DPUService integration           | Yes      | Pre-installation      |
-| [node-feature-discovery]  | 0.18.3  | Discovers and advertises hardware features and capabilities of DPUs in the cluster             | Yes      | Pre-installation      |
-| [maintenance-operator]    | 0.3.0   | Manages node maintenance operations and ensures graceful handling of node updates              | Yes      | Pre-installation      |
+| Helm Chart                | Version | Description                                                                                    | Required    | Post/Pre-installation |
+|---------------------------|---------|------------------------------------------------------------------------------------------------|-------------|-----------------------|
+| [cert-manager]            | v1.21.1 | Certificate management for Kubernetes, provides automatic TLS certificate issuance and renewal | Yes         | Pre-installation      |
+| [argo-cd]                 | 10.2.2  | GitOps continuous delivery tool for Kubernetes, necessary for DPUService integration           | Yes         | Pre-installation      |
+| [node-feature-discovery]  | 0.19.0  | Discovers and advertises hardware features and capabilities of DPUs in the cluster             | Yes         | Pre-installation      |
+| [maintenance-operator]    | 0.3.0   | Manages node maintenance operations and ensures graceful handling of node updates              | Yes         | Pre-installation      |
 | [kamaji]                  | 1.4.0   | Kubernetes cluster management platform for creating and managing the DPU Kubernetes clusters   | Conditional | Pre-installation      |
-| [local-path-provisioner]  | 0.0.34  | Provides the `local-path` storage class used by the default Kamaji etcd configuration          | Conditional | Pre-installation      |
-| [openbao]                 | 0.28.4  | Secrets management service that can be used as a backend for secret storage workflows          | No       | Pre-installation      |
-| [external-secrets]        | 2.7.0   | Synchronizes secrets from external secret stores into Kubernetes Secrets                       | No       | Pre-installation      |
-| [kata-containers]         | 3.32.0  | Secure container runtime using lightweight VMs for workload isolation on host nodes            | Conditional | Pre-installation      |
-| [kube-state-metrics]      | 5.25.1  | Exposes DPF Operator related objects as metrics                                                | No       | Post-installation     |
-| [kube-prometheus-stack]   | 80.4.1  | Complete monitoring stack with Prometheus and Grafana for collecting and visualizing metrics   | No       | Post-installation     |
-| [loki]                    | 6.53.0  | Kubernetes log aggregation and storage, integrates with Grafana                                | No       | Post-installation     |
-| [opentelemetry-collector] | 0.146.0 | Collects and exports metrics, logs, and traces to observability backends                       | No       | Post-installation     |
+| [local-path-provisioner]  | 0.0.36  | Provides the `local-path` storage class used by the default Kamaji etcd configuration          | Conditional | Pre-installation      |
+| [openbao]                 | 0.28.6  | Secrets management service that can be used as a backend for secret storage workflows          | No          | Pre-installation      |
+| [external-secrets]        | 2.8.0   | Synchronizes secrets from external secret stores into Kubernetes Secrets                       | No          | Pre-installation      |
+| [kata-containers]         | 4.0.0   | Secure container runtime using lightweight VMs for workload isolation on host nodes            | Conditional | Pre-installation      |
+| [kube-state-metrics]      | 8.1.3   | Exposes DPF Operator related objects as metrics                                                | No          | Post-installation     |
+| [kube-prometheus-stack]   | 88.1.3  | Complete monitoring stack with Prometheus and Grafana for collecting and visualizing metrics   | No          | Post-installation     |
+| [loki]                    | 18.7.1  | Kubernetes log aggregation and storage, integrates with Grafana                                | No          | Post-installation     |
+| [opentelemetry-collector] | 0.166.0 | Collects and exports metrics, logs, and traces to observability backends                       | No          | Post-installation     |
 
 `Conditional` means the component is required for the default installation described in the user guides, but can be
 replaced in custom deployments.
@@ -58,7 +58,7 @@ See [Running Kube-State-Metrics in a separate namespace](#running-kube-state-met
 [kata-containers]: https://github.com/kata-containers/kata-containers
 [kube-state-metrics]: https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-state-metrics
 [kube-prometheus-stack]: https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack
-[loki]: https://github.com/grafana/loki/
+[loki]: https://github.com/grafana-community/helm-charts/tree/main/charts/loki
 [opentelemetry-collector]: https://github.com/open-telemetry/opentelemetry-collector-contrib/
 [helmfile]: https://helmfile.readthedocs.io/
 [DPF repository]: https://github.com/nvidia/doca-platform/
@@ -365,6 +365,8 @@ notifications:
 global:
   podLabels:
     ovn.dpu.nvidia.com/skip-injection: ""
+  networkPolicy:
+    create: false
   affinity:
     nodeAffinity:
       # -- Default node affinity rules. Either: `none`, `soft` or `hard`
@@ -717,7 +719,7 @@ alertmanager:
 crds:
   enabled: true
   upgradeJob:
-    enabled: false
+    enabled: true
     # If enabled, schedule CRD upgrade job on control-plane nodes
     affinity:
       nodeAffinity:
@@ -1195,11 +1197,6 @@ monitoring:
     labels:
       release: kube-prometheus-stack
 
-  selfMonitoring:
-    enabled: false
-    grafanaAgent:
-      installOperator: false
-
 # Test configuration
 test:
   enabled: false
@@ -1270,7 +1267,7 @@ config:
       limit_mib: 1024
       spike_limit_mib: 256
 
-    k8sattributes:
+    k8s_attributes:
       auth_type: "serviceAccount"
       passthrough: false
       extract:
@@ -1331,12 +1328,12 @@ config:
     pipelines:
       logs:
         receivers: [otlp, filelog]
-        processors: [memory_limiter, k8sattributes, transform/kamaji, resource, batch]
+        processors: [memory_limiter, k8s_attributes, transform/kamaji, resource, batch]
         exporters: [otlphttp/loki, debug]
 
       metrics:
         receivers: [otlp]
-        processors: [memory_limiter, k8sattributes, resource, batch]
+        processors: [memory_limiter, k8s_attributes, resource, batch]
         exporters: [prometheusremotewrite, debug]
 
 # Resources for the collector deployment
