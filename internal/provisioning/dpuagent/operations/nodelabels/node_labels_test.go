@@ -89,10 +89,10 @@ var _ = Describe("ReportNodeLabels", func() {
 		Expect(updatedNode.Labels).To(BeEmpty())
 	})
 
-	It("runs executable regular files and trims stdout", func() {
-		writeScript(tempDir, "pf0.ip", "printf '192.0.2.10\\n'", 0755)
-		writeScript(tempDir, "interface_eth0", "printf 'eth0'", 0755)
-		writeScript(tempDir, "ignored", "printf 'ignored'", 0644)
+	It("runs executable regular files and applies the labels they emit", func() {
+		writeScript(tempDir, "network", "printf 'pf0.ip=192.0.2.10\\n'", 0755)
+		writeScript(tempDir, "interface", "printf 'interface_eth0=eth0'", 0755)
+		writeScript(tempDir, "ignored", "printf 'ignored=ignored'", 0644)
 		Expect(os.Mkdir(filepath.Join(tempDir, "ignored-dir"), 0755)).To(Succeed())
 
 		nodeClient := fakeNodeClient(nodeWithLabels(map[string]string{"static": "keep"}))
@@ -109,24 +109,124 @@ var _ = Describe("ReportNodeLabels", func() {
 		Expect(updatedNode.Labels).To(HaveKeyWithValue("static", "keep"))
 		Expect(updatedNode.Labels).NotTo(HaveKey("interface_eth0"))
 		Expect(updatedNode.Labels).NotTo(HaveKey("pf0.ip"))
+		Expect(updatedNode.Labels).NotTo(HaveKey("scripts.dpu.nvidia.com/ignored"))
 		Expect(updatedNode.Labels).To(HaveKeyWithValue("scripts.dpu.nvidia.com/interface_eth0", "eth0"))
 		Expect(updatedNode.Labels).To(HaveKeyWithValue("scripts.dpu.nvidia.com/pf0.ip", "192.0.2.10"))
 	})
 
-	It("fails when an executable filename is not a valid Kubernetes label key", func() {
-		writeScript(tempDir, "bad name", "printf value", 0755)
+	It("applies multiple labels emitted by a single script and ignores blank lines", func() {
+		writeScript(tempDir, "network-info", "printf 'pf0.ip=192.0.2.10\\n\\n  \\nlink.speed=200G\\n'", 0755)
+
+		nodeClient := fakeNodeClient(nodeWithLabels(nil))
+		operation := &ReportNodeLabels{
+			scriptsDir:        tempDir,
+			newNodeClientFunc: fakeNodeClientFactory(nodeClient),
+		}
+		optCtx := &operations.Context{}
+		optCtx.Options.DPUName = testDPUNodeName
+
+		Expect(operation.Execute(ctx, optCtx)).To(Succeed())
+		updatedNode := &corev1.Node{}
+		Expect(nodeClient.Get(ctx, client.ObjectKey{Name: testDPUNodeName}, updatedNode)).To(Succeed())
+		Expect(updatedNode.Labels).To(Equal(map[string]string{
+			"scripts.dpu.nvidia.com/pf0.ip":     "192.0.2.10",
+			"scripts.dpu.nvidia.com/link.speed": "200G",
+		}))
+	})
+
+	It("does not use the file name as a label key and accepts arbitrary file names", func() {
+		writeScript(tempDir, "10-net info.sh", "printf 'pf0.ip=192.0.2.10\\n'", 0755)
 
 		operation := &ReportNodeLabels{
 			scriptsDir: tempDir,
 		}
-		err := operation.Execute(ctx, &operations.Context{})
+
+		labels, err := operation.collectLabels(ctx, &operations.Context{})
+
+		Expect(err).NotTo(HaveOccurred())
+		Expect(labels).To(Equal(map[string]string{
+			"scripts.dpu.nvidia.com/pf0.ip": "192.0.2.10",
+		}))
+	})
+
+	It("reports no labels for a script without output", func() {
+		writeScript(tempDir, "silent", "printf ''", 0755)
+
+		operation := &ReportNodeLabels{
+			scriptsDir: tempDir,
+		}
+
+		labels, err := operation.collectLabels(ctx, &operations.Context{})
+
+		Expect(err).NotTo(HaveOccurred())
+		Expect(labels).To(BeEmpty())
+	})
+
+	It("lets the last script win for a label key emitted more than once", func() {
+		writeScript(tempDir, "a-first", "printf 'pf0.ip=192.0.2.10\\n'", 0755)
+		writeScript(tempDir, "b-second", "printf 'pf0.ip=192.0.2.20\\n'", 0755)
+
+		operation := &ReportNodeLabels{
+			scriptsDir: tempDir,
+		}
+
+		labels, err := operation.collectLabels(ctx, &operations.Context{})
+
+		Expect(err).NotTo(HaveOccurred())
+		Expect(labels).To(Equal(map[string]string{
+			"scripts.dpu.nvidia.com/pf0.ip": "192.0.2.20",
+		}))
+	})
+
+	It("lets the last line win for a label key emitted more than once by the same script", func() {
+		writeScript(tempDir, "network", "printf 'pf0.ip=192.0.2.10\\npf0.ip=192.0.2.20\\n'", 0755)
+
+		operation := &ReportNodeLabels{
+			scriptsDir: tempDir,
+		}
+
+		labels, err := operation.collectLabels(ctx, &operations.Context{})
+
+		Expect(err).NotTo(HaveOccurred())
+		Expect(labels).To(Equal(map[string]string{
+			"scripts.dpu.nvidia.com/pf0.ip": "192.0.2.20",
+		}))
+	})
+
+	It("fails when a script emits a line without a key/value separator", func() {
+		writeScript(tempDir, "network", "printf 'no-separator\\npf0.ip=192.0.2.10\\n'", 0755)
+
+		operation := &ReportNodeLabels{
+			scriptsDir: tempDir,
+		}
+
+		labels, err := operation.collectLabels(ctx, &operations.Context{})
+
+		// Valid lines of the same script are still applied.
+		Expect(labels).To(Equal(map[string]string{
+			"scripts.dpu.nvidia.com/pf0.ip": "192.0.2.10",
+		}))
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("invalid output from node label script \"network\""))
+		Expect(err.Error()).To(ContainSubstring("line 1: expected <label-key-suffix>=<label-value>, got \"no-separator\""))
+	})
+
+	It("fails when a script emits an invalid Kubernetes label key", func() {
+		writeScript(tempDir, "network", "printf 'bad key=value'", 0755)
+
+		operation := &ReportNodeLabels{
+			scriptsDir: tempDir,
+		}
+		optCtx := &operations.Context{}
+		optCtx.Options.DPUName = testDPUNodeName
+		err := operation.Execute(ctx, optCtx)
 
 		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring("invalid node label script name"))
+		Expect(err.Error()).To(ContainSubstring("invalid node label key"))
 	})
 
 	It("fails when a script emits an invalid Kubernetes label value", func() {
-		writeScript(tempDir, "valid-key", "printf 'bad value'", 0755)
+		writeScript(tempDir, "network", "printf 'valid-key=bad value'", 0755)
 
 		operation := &ReportNodeLabels{
 			scriptsDir: tempDir,
@@ -140,7 +240,7 @@ var _ = Describe("ReportNodeLabels", func() {
 	})
 
 	It("fails when a script exits non-zero", func() {
-		writeScript(tempDir, "valid-key", "echo stderr-message >&2\nexit 2", 0755)
+		writeScript(tempDir, "network", "echo stderr-message >&2\nexit 2", 0755)
 
 		operation := &ReportNodeLabels{
 			scriptsDir: tempDir,
@@ -155,9 +255,9 @@ var _ = Describe("ReportNodeLabels", func() {
 	})
 
 	It("collects valid labels while aggregating script errors", func() {
-		writeScript(tempDir, "bad-value", "printf 'bad value'", 0755)
+		writeScript(tempDir, "bad-value", "printf 'bad-value-key=bad value'", 0755)
 		writeScript(tempDir, "failing-script", "echo stderr-message >&2\nexit 2", 0755)
-		writeScript(tempDir, "valid-key", "printf 'valid-value'", 0755)
+		writeScript(tempDir, "valid-key", "printf 'valid-key=valid-value'", 0755)
 
 		operation := &ReportNodeLabels{
 			scriptsDir: tempDir,
@@ -169,13 +269,15 @@ var _ = Describe("ReportNodeLabels", func() {
 			"scripts.dpu.nvidia.com/valid-key": "valid-value",
 		}))
 		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring("invalid node label value from script \"bad-value\""))
-		Expect(err.Error()).To(ContainSubstring("failed to run node label script \"failing-script\""))
+		Expect(err.Error()).To(ContainSubstring("invalid output from node label script \"bad-value\""))
+		Expect(err.Error()).To(ContainSubstring("invalid node label value \"bad value\""))
+		Expect(err.Error()).To(ContainSubstring("failed to run node label script"))
+		Expect(err.Error()).To(ContainSubstring("failing-script"))
 		Expect(err.Error()).To(ContainSubstring("stderr-message"))
 	})
 
 	It("fails when a script times out", func() {
-		writeScript(tempDir, "valid-key", "sleep 1", 0755)
+		writeScript(tempDir, "network", "sleep 1", 0755)
 
 		operation := &ReportNodeLabels{
 			scriptsDir:    tempDir,
@@ -190,7 +292,7 @@ var _ = Describe("ReportNodeLabels", func() {
 	})
 
 	It("overwrites existing script labels with current script output", func() {
-		writeScript(tempDir, "pf0.ip", "printf '192.0.2.10'", 0755)
+		writeScript(tempDir, "network", "printf 'pf0.ip=192.0.2.10'", 0755)
 		nodeClient := fakeNodeClient(nodeWithLabels(map[string]string{"scripts.dpu.nvidia.com/pf0.ip": "old"}))
 		operation := &ReportNodeLabels{
 			scriptsDir:        tempDir,
@@ -207,7 +309,7 @@ var _ = Describe("ReportNodeLabels", func() {
 	})
 
 	It("removes stale script labels while keeping current script labels", func() {
-		writeScript(tempDir, "pf0.ip", "printf '192.0.2.10'", 0755)
+		writeScript(tempDir, "network", "printf 'pf0.ip=192.0.2.10'", 0755)
 		nodeClient := fakeNodeClient(nodeWithLabels(map[string]string{
 			"scripts.dpu.nvidia.com/old":    "value",
 			"scripts.dpu.nvidia.com/pf0.ip": "old",
@@ -228,7 +330,7 @@ var _ = Describe("ReportNodeLabels", func() {
 	})
 
 	It("creates a node client for each Execute", func() {
-		writeScript(tempDir, "pf0.ip", "printf '192.0.2.10'", 0755)
+		writeScript(tempDir, "network", "printf 'pf0.ip=192.0.2.10'", 0755)
 		created := 0
 		operation := &ReportNodeLabels{
 			scriptsDir: tempDir,

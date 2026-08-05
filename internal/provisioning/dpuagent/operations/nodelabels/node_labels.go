@@ -19,6 +19,7 @@ package nodelabels
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -29,11 +30,11 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/validate/content"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/apimachinery/pkg/util/validation"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
@@ -116,25 +117,57 @@ func (r *ReportNodeLabels) collectLabels(ctx context.Context, optCtx *operations
 		}
 		scripts = append(scripts, entry.Name())
 	}
+	// Run scripts in sorted file name order so that the winner of a label key emitted by
+	// more than one script is deterministic.
 	sort.Strings(scripts)
 
 	labels := make(map[string]string, len(scripts))
 	var errs []error
 	for _, script := range scripts {
-		key := nodeLabelPrefix + script
-
-		if validationErrs := validation.IsQualifiedName(key); len(validationErrs) > 0 {
-			errs = append(errs, fmt.Errorf("invalid node label script name %q: %s", script, strings.Join(validationErrs, "; ")))
-			continue
-		}
-
-		value, err := r.runScript(ctx, filepath.Join(scriptsDir, script))
+		stdout, err := r.runScript(ctx, filepath.Join(scriptsDir, script))
 		if err != nil {
-			errs = append(errs, fmt.Errorf("failed to run node label script %q: %w", script, err))
+			errs = append(errs, err)
 			continue
 		}
-		if validationErrs := validation.IsValidLabelValue(value); len(validationErrs) > 0 {
-			errs = append(errs, fmt.Errorf("invalid node label value from script %q: %s", script, strings.Join(validationErrs, "; ")))
+
+		scriptLabels, err := parseLabels(stdout)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("invalid output from node label script %q: %w", script, err))
+		}
+		// Labels emitted by later scripts win over labels emitted by earlier scripts.
+		maps.Copy(labels, scriptLabels)
+	}
+
+	return labels, kerrors.NewAggregate(errs)
+}
+
+// parseLabels parses the stdout of a node label script. Every non-empty line must be
+// <label-key-suffix>=<label-value>, where the suffix is namespaced under nodeLabelPrefix.
+// Lines that fail to parse or validate are reported as errors, the remaining lines are
+// still returned. Later lines win over earlier lines emitting the same label key.
+func parseLabels(stdout string) (map[string]string, error) {
+	labels := map[string]string{}
+	var errs []error
+	for i, line := range strings.Split(stdout, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		suffix, value, found := strings.Cut(line, "=")
+		if !found {
+			errs = append(errs, fmt.Errorf("line %d: expected <label-key-suffix>=<label-value>, got %q", i+1, line))
+			continue
+		}
+		key := nodeLabelPrefix + strings.TrimSpace(suffix)
+		value = strings.TrimSpace(value)
+
+		if validationErrs := content.IsLabelKey(key); len(validationErrs) > 0 {
+			errs = append(errs, fmt.Errorf("line %d: invalid node label key %q: %s", i+1, key, strings.Join(validationErrs, "; ")))
+			continue
+		}
+		if validationErrs := content.IsLabelValue(value); len(validationErrs) > 0 {
+			errs = append(errs, fmt.Errorf("line %d: invalid node label value %q: %s", i+1, value, strings.Join(validationErrs, "; ")))
 			continue
 		}
 		labels[key] = value
@@ -170,9 +203,7 @@ func (r *ReportNodeLabels) applyLabels(ctx context.Context, nodeClient crclient.
 		delete(node.Labels, key)
 	}
 
-	for key, value := range labels {
-		node.Labels[key] = value
-	}
+	maps.Copy(node.Labels, labels)
 
 	if err := nodeClient.Patch(ctx, node, crclient.MergeFrom(patchBase)); err != nil {
 		return fmt.Errorf("failed to patch DPU cluster Node %s labels: %w", nodeName, err)

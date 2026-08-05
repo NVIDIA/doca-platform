@@ -46,11 +46,14 @@ import (
 // RM: 4869399
 const skipDPUClusterDeletionInProvisioningTest = true
 
-const (
-	dpuFlavorNodeLabelScriptPath = "/var/lib/dpf/dpuagent/node-label-scripts/node-labeling-test.sh"
-	dpuFlavorNodeLabelKey        = "scripts.dpu.nvidia.com/node-labeling-test.sh"
-	dpuFlavorNodeLabelValue      = "node-labeling-test-ok"
-)
+const dpuFlavorNodeLabelScriptPath = "/var/lib/dpf/dpuagent/node-label-scripts/node-labeling-test.sh"
+
+// dpuFlavorNodeLabels are the labels emitted by the node label script at dpuFlavorNodeLabelScriptPath.
+// The script emits more than one label to cover reporting multiple labels from a single script.
+var dpuFlavorNodeLabels = map[string]string{
+	"scripts.dpu.nvidia.com/node-labeling-test":        "ok",
+	"scripts.dpu.nvidia.com/node-labeling-test-second": "ok2",
+}
 
 // ProvisioningExpected holds all expected counts for provisioning tests
 type ProvisioningExpected struct {
@@ -726,8 +729,10 @@ func ValidateDPUFlavorNodeLabelScripts(ctx context.Context, input *systemTestInp
 			"DPU cluster should have one tenant Node per provisioned DPU")
 
 		for _, node := range nodes.Items {
-			g.Expect(node.Labels).To(HaveKeyWithValue(dpuFlavorNodeLabelKey, dpuFlavorNodeLabelValue),
-				"tenant Node %s should have the label produced by %s with value %q", node.Name, dpuFlavorNodeLabelScriptPath, dpuFlavorNodeLabelValue)
+			for key, value := range dpuFlavorNodeLabels {
+				g.Expect(node.Labels).To(HaveKeyWithValue(key, value),
+					"tenant Node %s should have the label %s=%s produced by %s", node.Name, key, value, dpuFlavorNodeLabelScriptPath)
+			}
 		}
 	}).WithTimeout(time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 }

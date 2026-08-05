@@ -39,7 +39,7 @@ spec:
           permissions: "0755"
           raw: |
             #!/bin/bash
-            echo "{{ .labelSuffix }}"
+            echo "node-labeling-flavortemplate={{ .labelSuffix }}"
       packages:
         - name: tree
           version:
