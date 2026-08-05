@@ -15,26 +15,26 @@ title: "Platform Support"
 
 DPF uses the following components:
 
-| Component                   | Origin          | Repository                                                         | Image Name                                    | Tag     | Notes    |
-|-----------------------------|-----------------|--------------------------------------------------------------------|-----------------------------------------------|---------|----------|
-| ArgoCD                      | Community (OSS) | quay.io/argoproj                                                   | argocd                                        | v3.3.0  |          |
-| Cert Manager Controller     | Community (OSS) | quay.io/jetstack                                                   | cert-manager-controller                       | v1.19.3 |          |
-| Flannel                     | Community (OSS) | docker.io/flannel                                                  | flannel                                       | v0.26.5 |          |
-| Multus                      | Community (OSS) | ghcr.io/k8snetworkplumbingwg                                       | multus-cni                                    | v3.9.3  |          |
-| NVIDIA K8s IPAM             | Community (OSS) | ghcr.io/mellanox                                                   | nvidia-k8s-ipam                               | v0.3.5  |          |
-| NVIDIA Maintenance Operator | Community (OSS) | ghcr.io/mellanox                                                   | maintenance-operator                          | v0.3.0  |          |
-| NVIDIA Network Operator     | Community (OSS) | nvcr.io/nvidia/cloud-native                                        | network-operator                              | v26.1.0 |          |
-| Node Feature Discovery      | Community (OSS) | registry.k8s.io/nfd                                                | node-feature-discovery                        | v0.18.3 |          |
-| SR-IOV Device Plugin        | Community (OSS) | ghcr.io/k8snetworkplumbingwg                                       | sriov-network-device-plugin                   | v3.11.0 |          |
-| Etcd Defrag                 | Community (OSS) | ghcr.io/ahrtr                                                      | etcd-defrag                                   | v0.22.0 | Optional |
-| Kamaji                      | Community (OSS) | ghcr.io/nvidia                                                     | kamaji                                        | v1.36.0-26.6.4 | Conditional |
-| Local Path Provisioner      | Community (OSS) | docker.io/rancher                                                  | local-path-provisioner                        | v0.0.34 | Conditional |
-| OpenBao                     | Community (OSS) | quay.io/openbao                                                    | openbao                                       | v2.5.5  | Optional |
-| External Secrets            | Community (OSS) | ghcr.io/external-secrets                                           | external-secrets                              | v2.7.0  | Optional |
-| Kube State Metrics          | Community (OSS) | registry.k8s.io/kube-state-metrics                                 | kube-state-metrics                            | v2.18.0 | Optional |
-| Node Problem Detector       | Community (OSS) | registry.k8s.io/node-problem-detector                              | node-problem-detector                         | v1.35.1 | Optional |
-| Prometheus                  | Community (OSS) | quay.io/prometheus                                                 | prometheus                                    | v2.54.1 | Optional |
-| Grafana                     | Community (OSS) | docker.io/grafana                                                  | grafana                                       | 11.1.0  | Optional |
+| Component                   | Origin          | Repository                            | Image Name                  | Tag                | Notes       |
+|-----------------------------|-----------------|---------------------------------------|-----------------------------|--------------------|-------------|
+| ArgoCD                      | Community (OSS) | quay.io/argoproj                      | argocd                      | v3.4.6             |             |
+| Cert Manager Controller     | Community (OSS) | quay.io/jetstack                      | cert-manager-controller     | v1.21.1            |             |
+| Flannel                     | Community (OSS) | docker.io/flannel                     | flannel                     | v0.27.2            |             |
+| Multus                      | Community (OSS) | ghcr.io/k8snetworkplumbingwg          | multus-cni                  | v3.9.3             |             |
+| NVIDIA K8s IPAM             | Community (OSS) | ghcr.io/mellanox                      | nvidia-k8s-ipam             | v0.4.0             |             |
+| NVIDIA Maintenance Operator | Community (OSS) | ghcr.io/mellanox                      | maintenance-operator        | v0.3.0             |             |
+| NVIDIA Network Operator     | Community (OSS) | nvcr.io/nvidia/cloud-native           | network-operator            | v26.1.0            |             |
+| Node Feature Discovery      | Community (OSS) | registry.k8s.io/nfd                   | node-feature-discovery      | v0.19.0            |             |
+| SR-IOV Device Plugin        | Community (OSS) | ghcr.io/k8snetworkplumbingwg          | sriov-network-device-plugin | v3.11.0            |             |
+| Kamaji                      | Community (OSS) | ghcr.io/nvidia                        | kamaji                      | v1.36.0-26.6.4     | Conditional |
+| Local Path Provisioner      | Community (OSS) | docker.io/rancher                     | local-path-provisioner      | v0.0.36            | Conditional |
+| Etcd Defrag                 | Community (OSS) | ghcr.io/ahrtr                         | etcd-defrag                 | v0.22.0            | Optional    |
+| External Secrets            | Community (OSS) | ghcr.io/external-secrets              | external-secrets            | v2.8.0             | Optional    |
+| Grafana                     | Community (OSS) | docker.io/grafana                     | grafana                     | 13.1.1             | Optional    |
+| Kube State Metrics          | Community (OSS) | registry.k8s.io/kube-state-metrics    | kube-state-metrics          | v2.19.1            | Optional    |
+| Node Problem Detector       | Community (OSS) | registry.k8s.io/node-problem-detector | node-problem-detector       | v1.35.1            | Optional    |
+| OpenBao                     | Community (OSS) | quay.io/openbao                       | openbao                     | v2.6.1             | Optional    |
+| Prometheus                  | Community (OSS) | quay.io/prometheus                    | prometheus                  | v3.13.2-distroless | Optional    |
 
 `Conditional` means the component is required for the default installation described in the user guides, but can be
 replaced in custom deployments.

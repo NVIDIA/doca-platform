@@ -19,7 +19,7 @@ repositories:
   - name: jetstack
     url: https://charts.jetstack.io
   - name: local-storage
-    url: git+https://github.com/rancher/local-path-provisioner@deploy/chart?ref=v0.0.34
+    url: git+https://github.com/rancher/local-path-provisioner@deploy/chart?ref=v0.0.36
   - name: openbao
     url: https://openbao.github.io/openbao-helm
   - name: external-secrets
@@ -35,7 +35,7 @@ releases:
     namespace: cert-manager
     createNamespace: true
     chart: jetstack/cert-manager
-    version: v1.19.3
+    version: v1.21.1
     labels:
       app: cert-manager
     values:
@@ -54,7 +54,7 @@ releases:
     namespace: openbao
     createNamespace: true
     chart: openbao/openbao
-    version: 0.28.4
+    version: 0.28.6
     condition: openbao.enabled
     # OpenBao is not ready until initialized. Disable Helm's built-in wait so
     # the postsync initialization hook can run, then wait for true readiness.
@@ -87,7 +87,7 @@ releases:
     namespace: external-secrets
     createNamespace: true
     chart: external-secrets/external-secrets
-    version: 2.7.0
+    version: 2.8.0
     condition: external-secrets.enabled
     labels:
       app: external-secrets
@@ -135,7 +135,7 @@ releases:
     namespace: dpf-operator-system
     createNamespace: true
     chart: argoproj/argo-cd
-    version: 9.4.1
+    version: 10.2.2
     timeout: 600
     labels:
       app: argo-cd
@@ -172,7 +172,7 @@ releases:
     namespace: dpf-operator-system
     createNamespace: true
     chart: node-feature-discovery/node-feature-discovery
-    version: 0.18.3
+    version: 0.19.0
     labels:
       app: node-feature-discovery
     values:
@@ -180,7 +180,7 @@ releases:
     hooks:
       - events: [ "preapply" ]
         command: "./hooks/apply-crds.sh"
-        args: ["node-feature-discovery/node-feature-discovery", "0.18.3"]
+        args: ["node-feature-discovery/node-feature-discovery", "0.19.0"]
         showlogs: true
 
   - name: local-path-provisioner
@@ -199,7 +199,7 @@ releases:
     namespace: kata-containers
     createNamespace: true
     chart: oci://ghcr.io/kata-containers/kata-deploy-charts/kata-deploy
-    version: 3.32.0
+    version: 4.0.0
     condition: kata.enabled
     labels:
       app: kata-containers

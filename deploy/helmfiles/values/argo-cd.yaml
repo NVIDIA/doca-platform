@@ -8,6 +8,8 @@ notifications:
 global:
   podLabels:
     ovn.dpu.nvidia.com/skip-injection: ""
+  networkPolicy:
+    create: false
   affinity:
     nodeAffinity:
       # -- Default node affinity rules. Either: `none`, `soft` or `hard`

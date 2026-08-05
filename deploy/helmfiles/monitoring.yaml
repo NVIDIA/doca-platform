@@ -3,8 +3,8 @@ repositories:
     url: https://prometheus-community.github.io/helm-charts
   - name: open-telemetry
     url: https://open-telemetry.github.io/opentelemetry-helm-charts
-  - name: grafana
-    url: https://grafana.github.io/helm-charts
+  - name: grafana-community
+    url: https://grafana-community.github.io/helm-charts
 
 helmDefaults:
   skipDeps: false
@@ -16,7 +16,7 @@ releases:
     namespace: dpf-operator-system
     createNamespace: true
     chart: prometheus-community/kube-prometheus-stack
-    version: 80.4.1
+    version: 88.1.3
     labels:
       app: kube-prometheus-stack
       type: monitoring
@@ -41,7 +41,7 @@ releases:
     namespace: dpf-operator-system
     createNamespace: true
     chart: prometheus-community/kube-state-metrics
-    version: 5.25.1
+    version: 8.1.3
     labels:
       app: kube-state-metrics
       type: monitoring
@@ -53,8 +53,8 @@ releases:
   - name: loki
     namespace: dpf-operator-system
     createNamespace: true
-    chart: grafana/loki
-    version: 6.53.0
+    chart: grafana-community/loki
+    version: 18.7.1
     labels:
       app: loki
       type: logging
@@ -67,7 +67,7 @@ releases:
     namespace: dpf-operator-system
     createNamespace: true
     chart: open-telemetry/opentelemetry-collector
-    version: 0.146.0
+    version: 0.166.0
     labels:
       app: opentelemetry-collector
       type: logging

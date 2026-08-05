@@ -34,7 +34,7 @@ alertmanager:
 crds:
   enabled: true
   upgradeJob:
-    enabled: false
+    enabled: true
     # If enabled, schedule CRD upgrade job on control-plane nodes
     affinity:
       nodeAffinity:

@@ -117,11 +117,6 @@ monitoring:
     labels:
       release: kube-prometheus-stack
 
-  selfMonitoring:
-    enabled: false
-    grafanaAgent:
-      installOperator: false
-
 # Test configuration
 test:
   enabled: false
