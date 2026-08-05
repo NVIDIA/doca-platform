@@ -54,4 +54,54 @@ function sync_clastix_kamaji() {
 	popd
 }
 
+# Sync spire-controller-manager
+#
+# Only the ClusterStaticEntry types are forked; see the fork README for why the module cannot
+# be imported. Everything else is dropped, so deepcopy is regenerated rather than copied.
+function sync_spiffe_spire_controller_manager() {
+	pushd third_party/forked/github.com/spiffe/spire-controller-manager/
+
+	upstream_dir="${PWD}/tmp-upstream"
+	trap 'rm -rf "${upstream_dir}"' EXIT
+
+	TARGET_COMMIT="9f60f11470be5b0ca095bfaaa90b95ad7acd4aa0" # this is tag v0.7.0
+
+	# cleanup old files
+	rm -rf api "${upstream_dir}"
+
+	# clone upstream repository
+	git clone https://github.com/spiffe/spire-controller-manager.git "${upstream_dir}"
+	pushd "${upstream_dir}"
+	git checkout "${TARGET_COMMIT}"
+	popd
+
+	# copy over required files
+	mkdir -p api/v1alpha1
+	cp "${upstream_dir}/api/v1alpha1/clusterstaticentry_types.go" api/v1alpha1/
+	cp "${upstream_dir}/api/v1alpha1/groupversion_info.go" api/v1alpha1/
+
+	# CRD is used by envtest to validate the entries DPF writes
+	cp "${upstream_dir}/config/crd/bases/spire.spiffe.io_clusterstaticentries.yaml" ../../../../../test/objects/crd/spire/clusterstaticentries.yaml
+
+	# cleanup cloned repository
+	rm -rf "${upstream_dir}"
+
+	# only ClusterStaticEntry is forked, so drop the other kinds from the scheme
+	sed -i \
+		-e '/&ClusterFederatedTrustDomain{},/d' \
+		-e '/&ClusterFederatedTrustDomainList{},/d' \
+		-e '/&ClusterSPIFFEID{},/d' \
+		-e '/&ClusterSPIFFEIDList{},/d' \
+		-e '/&ControllerManagerConfig{},/d' \
+		api/v1alpha1/groupversion_info.go
+
+	popd
+
+	# keep the upstream copyright header: derived from upstream types, not DPF code
+	hack/tools/bin/controller-gen \
+		object:headerFile="third_party/forked/github.com/spiffe/spire-controller-manager/boilerplate.go.txt" \
+		paths="./third_party/forked/github.com/spiffe/spire-controller-manager/api/..."
+}
+
 sync_clastix_kamaji
+sync_spiffe_spire_controller_manager
