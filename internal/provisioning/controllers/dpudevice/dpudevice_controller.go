@@ -997,9 +997,12 @@ func (r *DPUDeviceReconciler) setUpMTLS(ctx context.Context, dpudevice *provisio
 
 // installBootstrapCA reconciles the BMC truststore to hold the desired DPF CA bundle over the
 // basic-auth channel used during mTLS bootstrap and recovery. It diffs installed vs desired certs by
-// SHA-256 fingerprint, installs any desired CA that is missing, and deletes truststore certs that are
-// no longer desired. This avoids the old InstallCert→ReplaceCACert(.../Certificates/1) sequence,
-// which fails with HTTP 500 when the desired CA is already present or lives at a different index.
+// SHA-256 fingerprint, deletes truststore certs that are no longer desired, and then installs any
+// desired CA that is missing. This avoids the old InstallCert→ReplaceCACert(.../Certificates/1)
+// sequence, which fails with HTTP 500 when the desired CA is already present or lives at a different
+// index. Stale certs are removed before new ones are installed because the BMC truststore accepts at
+// most 10 certificates; deleting first frees slots so the desired CA install cannot be rejected when
+// the truststore is already full.
 func (r *DPUDeviceReconciler) installBootstrapCA(ctx context.Context, basicAuthClient *rfclient.Client, caBundlePEM string) error {
 	log := log.FromContext(ctx)
 
@@ -1022,20 +1025,9 @@ func (r *DPUDeviceReconciler) installBootstrapCA(ctx context.Context, basicAuthC
 		installedByFingerprint[cert.Fingerprint] = cert
 	}
 
-	for fingerprint, cert := range desiredByFingerprint {
-		if _, found := installedByFingerprint[fingerprint]; found {
-			continue
-		}
-		resp, _, err := basicAuthClient.InstallCert(cert.pem)
-		if err != nil {
-			return fmt.Errorf("failed to install CA cert %s in BMC truststore: %w", fingerprint, err)
-		}
-		if resp.StatusCode() != http.StatusOK {
-			return fmt.Errorf("failed to install CA cert %s in BMC truststore, unexpected response status: %s", fingerprint, resp.Status())
-		}
-		log.Info("Installed DPF CA certificate in BMC truststore", "fingerprint", fingerprint)
-	}
-
+	// Delete stale certs first: the BMC truststore accepts at most 10 certificates, so freeing
+	// slots before installing the desired CA prevents the install from being rejected when the
+	// truststore is already at capacity.
 	for fingerprint, cert := range installedByFingerprint {
 		if _, keep := desiredByFingerprint[fingerprint]; keep {
 			continue
@@ -1051,6 +1043,20 @@ func (r *DPUDeviceReconciler) installBootstrapCA(ctx context.Context, basicAuthC
 			return fmt.Errorf("failed to delete stale CA cert %s (%s) from BMC truststore, unexpected response status: %s", fingerprint, cert.URI, resp.Status())
 		}
 		log.Info("Removed stale CA certificate from BMC truststore", "fingerprint", fingerprint, "uri", cert.URI)
+	}
+
+	for fingerprint, cert := range desiredByFingerprint {
+		if _, found := installedByFingerprint[fingerprint]; found {
+			continue
+		}
+		resp, _, err := basicAuthClient.InstallCert(cert.pem)
+		if err != nil {
+			return fmt.Errorf("failed to install CA cert %s in BMC truststore: %w", fingerprint, err)
+		}
+		if resp.StatusCode() != http.StatusOK {
+			return fmt.Errorf("failed to install CA cert %s in BMC truststore, unexpected response status: %s", fingerprint, resp.Status())
+		}
+		log.Info("Installed DPF CA certificate in BMC truststore", "fingerprint", fingerprint)
 	}
 
 	return nil
