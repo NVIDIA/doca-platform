@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"time"
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -27,33 +28,28 @@ import (
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/spire"
 	"github.com/nvidia/doca-platform/pkg/conditions"
+	spirev1alpha1 "github.com/nvidia/doca-platform/third_party/forked/github.com/spiffe/spire-controller-manager/api/v1alpha1"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-// ClusterStaticEntry is an upstream spire-controller-manager CRD; DPF only creates and
-// deletes per-DPU instances, so it is handled as an unstructured object rather than
-// vendoring the upstream Go types.
-var clusterStaticEntryGVK = schema.GroupVersionKind{
-	Group:   "spire.spiffe.io",
-	Version: "v1alpha1",
-	Kind:    "ClusterStaticEntry",
-}
+// clusterStaticEntryGVK is used for the CRD-presence check in SetupWithManager, which must
+// not assume the optional upstream CRD is installed.
+var clusterStaticEntryGVK = spirev1alpha1.SchemeGroupVersion.WithKind("ClusterStaticEntry")
 
 const (
 	// Phase A ClusterStaticEntry.spec defaults. selectors is intentionally a
 	// coarse uid:0 starter; it is hardened post-bake with unix:path + unix:sha256 selectors.
 	spiffeEntrySelectorUID0 = "unix:uid:0"
-	spiffeEntryX509SVIDTTL  = "1h"
-	spiffeEntryJWTSVIDTTL   = "120s"
+	spiffeEntryX509SVIDTTL  = time.Hour
+	spiffeEntryJWTSVIDTTL   = 120 * time.Second
 	spiffeEntryHint         = "dpu-agent"
 
 	// Labels stamped on each ClusterStaticEntry so a CR watch event can be mapped back to its
@@ -61,12 +57,6 @@ const (
 	LabelDPUDeviceName      = cutil.DPUDeviceNameLabel
 	LabelDPUDeviceNamespace = cutil.DPUProvisioningPrefix + "dpudevice-namespace"
 )
-
-func newClusterStaticEntry() *unstructured.Unstructured {
-	cse := &unstructured.Unstructured{}
-	cse.SetGroupVersionKind(clusterStaticEntryGVK)
-	return cse
-}
 
 // emitEvent records a Kubernetes Event when a Recorder is wired.
 func (r *DPUDeviceReconciler) emitEvent(dpuDevice *provisioningv1.DPUDevice, eventType, reason, message string) {
@@ -123,8 +113,7 @@ func (r *DPUDeviceReconciler) reconcileSPIFFEEntry(ctx context.Context, dpuDevic
 		return nil
 	}
 
-	cse := newClusterStaticEntry()
-	cse.SetName(name)
+	cse := &spirev1alpha1.ClusterStaticEntry{ObjectMeta: metav1.ObjectMeta{Name: name}}
 	op, err := controllerutil.CreateOrPatch(ctx, r.Client, cse, func() error {
 		// Merge our two mapping labels rather than replacing the whole label set, so any
 		// labels added out-of-band (e.g. by spire-controller-manager) are preserved.
@@ -135,7 +124,8 @@ func (r *DPUDeviceReconciler) reconcileSPIFFEEntry(ctx context.Context, dpuDevic
 		labels[LabelDPUDeviceName] = dpuDevice.Name
 		labels[LabelDPUDeviceNamespace] = dpuDevice.Namespace
 		cse.SetLabels(labels)
-		return setSpiffeEntrySpec(cse, spiffeID, parentID, className)
+		setSpiffeEntrySpec(cse, spiffeID, parentID, className)
+		return nil
 	})
 	if err != nil {
 		// Transient (CRD missing, RBAC denial, API error): surface and requeue (CRSyncFailed).
@@ -182,7 +172,7 @@ func (r *DPUDeviceReconciler) deleteSPIFFEEntry(ctx context.Context, dpuDevice *
 		return apierrors.IsNotFound(err) || meta.IsNoMatchError(err)
 	}
 
-	cse := newClusterStaticEntry()
+	cse := &spirev1alpha1.ClusterStaticEntry{}
 	if err := r.Get(ctx, types.NamespacedName{Name: name}, cse); err != nil {
 		if entryGone(err) {
 			return true, nil
@@ -268,50 +258,29 @@ func buildSpiffeEntryIdentifiers(trustDomain, serial string) (name, spiffeID, pa
 	return name, spiffeID, parentID, nil
 }
 
-func setSpiffeEntrySpec(cse *unstructured.Unstructured, spiffeID, parentID, className string) error {
-	if err := unstructured.SetNestedField(cse.Object, className, "spec", "className"); err != nil {
-		return err
-	}
-	if err := unstructured.SetNestedField(cse.Object, spiffeID, "spec", "spiffeID"); err != nil {
-		return err
-	}
-	if err := unstructured.SetNestedField(cse.Object, parentID, "spec", "parentID"); err != nil {
-		return err
-	}
-	if err := unstructured.SetNestedStringSlice(cse.Object, []string{spiffeEntrySelectorUID0}, "spec", "selectors"); err != nil {
-		return err
-	}
-	if err := unstructured.SetNestedField(cse.Object, spiffeEntryX509SVIDTTL, "spec", "x509SVIDTTL"); err != nil {
-		return err
-	}
-	if err := unstructured.SetNestedField(cse.Object, spiffeEntryJWTSVIDTTL, "spec", "jwtSVIDTTL"); err != nil {
-		return err
-	}
-	return unstructured.SetNestedField(cse.Object, spiffeEntryHint, "spec", "hint")
+func setSpiffeEntrySpec(cse *spirev1alpha1.ClusterStaticEntry, spiffeID, parentID, className string) {
+	cse.Spec.ClassName = className
+	cse.Spec.SPIFFEID = spiffeID
+	cse.Spec.ParentID = parentID
+	cse.Spec.Selectors = []string{spiffeEntrySelectorUID0}
+	cse.Spec.X509SVIDTTL = metav1.Duration{Duration: spiffeEntryX509SVIDTTL}
+	cse.Spec.JWTSVIDTTL = metav1.Duration{Duration: spiffeEntryJWTSVIDTTL}
+	cse.Spec.Hint = spiffeEntryHint
 }
 
 // mirrorSpiffeEntryStatus maps the upstream ClusterStaticEntry status triple into the DPUDevice
 // SPIFFEEntryReady condition. It returns whether the entry is masked so the caller can
 // emit an operator-actionable Event.
-func (r *DPUDeviceReconciler) mirrorSpiffeEntryStatus(dpuDevice *provisioningv1.DPUDevice, cse *unstructured.Unstructured) (masked bool) {
-	set, _, setErr := unstructured.NestedBool(cse.Object, "status", "set")
-	rendered, renderedFound, renderedErr := unstructured.NestedBool(cse.Object, "status", "rendered")
-	masked, _, maskedErr := unstructured.NestedBool(cse.Object, "status", "masked")
-	if setErr != nil || renderedErr != nil || maskedErr != nil {
-		conditions.AddFalse(dpuDevice, provisioningv1.ConditionSPIFFEEntryReady,
-			conditions.ReasonError, conditions.ConditionMessage("ClusterStaticEntry status has invalid field types"))
-		return false
-	}
-
+func (r *DPUDeviceReconciler) mirrorSpiffeEntryStatus(dpuDevice *provisioningv1.DPUDevice, cse *spirev1alpha1.ClusterStaticEntry) (masked bool) {
 	switch {
-	case masked:
+	case cse.Status.Masked:
 		conditions.AddFalse(dpuDevice, provisioningv1.ConditionSPIFFEEntryReady,
 			conditions.ReasonError, conditions.ConditionMessage("ClusterStaticEntry is masked by another entry"))
 		return true
-	case renderedFound && rendered:
+	case cse.Status.Rendered:
 		// A rendered entry is ready even when the controller-manager does not set status.set.
 		conditions.AddTrue(dpuDevice, provisioningv1.ConditionSPIFFEEntryReady)
-	case set && !rendered:
+	case cse.Status.Set && !cse.Status.Rendered:
 		conditions.AddFalse(dpuDevice, provisioningv1.ConditionSPIFFEEntryReady,
 			conditions.ReasonPending, conditions.ConditionMessage("ClusterStaticEntry set; rendering pending"))
 	default:

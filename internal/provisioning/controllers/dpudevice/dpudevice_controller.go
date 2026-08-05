@@ -37,6 +37,7 @@ import (
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/utils"
 	"github.com/nvidia/doca-platform/pkg/conditions"
+	spirev1alpha1 "github.com/nvidia/doca-platform/third_party/forked/github.com/spiffe/spire-controller-manager/api/v1alpha1"
 
 	"github.com/fluxcd/pkg/runtime/patch"
 	"github.com/mcuadros/go-version"
@@ -1854,11 +1855,9 @@ func (r *DPUDeviceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	// restart (the operator installs the CRD before SPIFFE is enabled).
 	switch _, err := mgr.GetRESTMapper().RESTMapping(clusterStaticEntryGVK.GroupKind(), clusterStaticEntryGVK.Version); {
 	case err == nil:
-		clusterStaticEntry := &unstructured.Unstructured{}
-		clusterStaticEntry.SetGroupVersionKind(clusterStaticEntryGVK)
 		// Upstream spire-controller-manager owns ClusterStaticEntry status; watch it to re-mirror
 		// into the SPIFFEEntryReady condition. Mapped back to the DPUDevice via stamped labels.
-		builder = builder.Watches(clusterStaticEntry, handler.EnqueueRequestsFromMapFunc(mapClusterStaticEntryToDPUDevice))
+		builder = builder.Watches(&spirev1alpha1.ClusterStaticEntry{}, handler.EnqueueRequestsFromMapFunc(mapClusterStaticEntryToDPUDevice))
 	case meta.IsNoMatchError(err):
 		// The CRD is genuinely absent (non-SPIFFE cluster): skip the watch. A cluster that
 		// installs the CRD later picks it up on the next controller restart.
