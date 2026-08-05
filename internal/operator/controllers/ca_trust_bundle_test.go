@@ -348,6 +348,40 @@ func TestReconcileCATrustBundle(t *testing.T) {
 		g.Expect(cm.Data[operatorv1.CATrustBundleHashKey]).NotTo(BeEmpty())
 	})
 
+	t.Run("recomputes a stale non-empty bundle-hash after pruning", func(t *testing.T) {
+		g := NewWithT(t)
+		ns := "ca-bundle-recompute-stale-hash"
+		createNamespace(g, ns)
+		oldCert := testCertPEM("ca-old")
+		newCert := testCertPEM("ca-new")
+		g.Expect(testClient.Create(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: ProvisioningCASecretName},
+			Data:       map[string][]byte{corev1.TLSCertKey: newCert},
+		})).To(Succeed())
+
+		staleHash, err := computeBundleHash(append(append([]byte{}, oldCert...), newCert...))
+		g.Expect(err).NotTo(HaveOccurred())
+		expectedHash, err := computeBundleHash(newCert)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(staleHash).NotTo(Equal(expectedHash))
+
+		g.Expect(testClient.Create(ctx, &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: operatorv1.DefaultCATrustBundleConfigMapName},
+			Data: map[string]string{
+				operatorv1.CATrustBundleKey:     string(newCert),
+				operatorv1.CATrustBundleHashKey: staleHash,
+			},
+		})).To(Succeed())
+
+		r := newReconciler()
+		g.Expect(r.reconcileCATrustBundle(ctx, newConfig(ns))).To(Succeed())
+
+		cm := &corev1.ConfigMap{}
+		g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: operatorv1.DefaultCATrustBundleConfigMapName}, cm)).To(Succeed())
+		g.Expect(cm.Data[operatorv1.CATrustBundleKey]).To(Equal(string(newCert)))
+		g.Expect(cm.Data[operatorv1.CATrustBundleHashKey]).To(Equal(expectedHash))
+	})
+
 	t.Run("deleteCATrustBundle deletes the bundle ConfigMap", func(t *testing.T) {
 		g := NewWithT(t)
 		ns := "ca-bundle-delete"
