@@ -74,6 +74,7 @@ type ProvisionDPUClustersInput struct {
 	bfbImageURL                 string
 	bfsOsIsoURL                 string
 	bfsPldmFwBundleURL          string
+	bfsNicFwURL                 string
 	restConfig                  *rest.Config
 	NodeRebootConfigMap         string
 	DPUNodeBMCs                 map[string]string
@@ -146,25 +147,27 @@ type systemTestInput struct {
 	additionalDPUServiceTemplate      *dpuservicev1.DPUServiceTemplate
 
 	// Provisioning objects and environment settings.
-	bfb                         *provisioningv1.BFB
-	blueFieldSoftware           *provisioningv1.BlueFieldSoftware
-	dpuClusterPrerequisites     []client.Object
-	dpuDiscovery                *provisioningv1.DPUDiscovery
-	dpuFlavor                   *provisioningv1.DPUFlavor
-	dpuFlavorTemplate           *provisioningv1.DPUFlavorTemplate
-	nodeRebootConfigMap         string
-	nodeRebootConfigMapPath     string
-	numberOfDPUNodes            int
-	numberOfDPUsPerNode         int
-	pvc                         *corev1.PersistentVolumeClaim
-	selectDPUDevicesDynamically bool
-	useExternalNodeReboot       bool
+	bfb                                 *provisioningv1.BFB
+	blueFieldSoftware                   *provisioningv1.BlueFieldSoftware
+	dpuClusterPrerequisites             []client.Object
+	dpuDiscovery                        *provisioningv1.DPUDiscovery
+	dpuFlavor                           *provisioningv1.DPUFlavor
+	dpuFlavorTemplate                   *provisioningv1.DPUFlavorTemplate
+	nodeRebootConfigMap                 string
+	nodeRebootConfigMapPath             string
+	numberOfDPUNodes                    int
+	numberOfDPUsPerNode                 int
+	numberOfCXsToConfigureViaBF4PerNode int
+	pvc                                 *corev1.PersistentVolumeClaim
+	selectDPUDevicesDynamically         bool
+	useExternalNodeReboot               bool
 
 	// Runtime state assembled by SetInput and the suite, not read from the
 	// config file.
 	bfbImageURL        string
 	bfsOsIsoURL        string
 	bfsPldmFwBundleURL string
+	bfsNicFwURL        string
 	cleanupFlags       *cleanup.CleanupFlags
 	client             client.Client
 	config             *operatorv1.DPFOperatorConfig
@@ -351,6 +354,7 @@ func (t *systemTestInput) applyConfig(conf config) {
 
 	t.numberOfDPUNodes = conf.NumberOfDPUNodes
 	t.numberOfDPUsPerNode = conf.NumberOfDPUsPerNode
+	t.numberOfCXsToConfigureViaBF4PerNode = conf.NumberOfCXsToConfigureViaBF4PerNode
 	t.nodeRebootConfigMap = conf.NodeRebootConfigMap
 	t.nodeRebootConfigMapPath = conf.NodeRebootConfigMapPath
 	t.selectDPUDevicesDynamically = conf.SelectDPUDevicesDynamically
@@ -756,6 +760,10 @@ func ProvisionBlueFieldSoftware(ctx context.Context, input ProvisionDPUClustersI
 	if input.bfsPldmFwBundleURL != "" {
 		By(fmt.Sprintf("Override BlueFieldSoftware PLDM FW bundle URL with env variable BFS_PLDM_FW_BUNDLE_URL=%s", input.bfsPldmFwBundleURL))
 		input.blueFieldSoftware.Spec.PldmFwBundle = &input.bfsPldmFwBundleURL
+	}
+	if input.bfsNicFwURL != "" {
+		By(fmt.Sprintf("Override BlueFieldSoftware NIC FW URL with env variable BFS_NIC_FW_URL=%s", input.bfsNicFwURL))
+		input.blueFieldSoftware.Spec.NicFw = &input.bfsNicFwURL
 	}
 	By("Create the BlueFieldSoftware")
 	Eventually(func(g Gomega) {
@@ -1491,6 +1499,36 @@ func PatchDPUNodesForScriptReboot(ctx context.Context, c client.Client,
 			dpuNode.Name, configMapName, bmcIP))
 		Expect(c.Patch(ctx, dpuNode, patch)).To(Succeed())
 	}
+}
+
+// PatchDPUDevicesWithNicDeviceCount patches the DPUDevices with the expected E/W NIC device count.
+func PatchDPUDevicesWithNicDeviceCount(ctx context.Context, c client.Client, expectedDPUDevices int, expectedNicDeviceCount int) {
+	if expectedDPUDevices == 0 {
+		By("Skipping patching DPUDevices with NIC device count as expectedDPUDevices is 0 (no DPU Devices to configure)")
+		return
+	}
+
+	if expectedNicDeviceCount == 0 {
+		By("Skipping patching DPUDevices with NIC device count as expectedNicDeviceCount is 0 (no E/W NICs to configure)")
+		return
+	}
+
+	By(fmt.Sprintf("Waiting for %d DPUDevices to exist before patching with NIC device count %d", expectedDPUDevices, expectedNicDeviceCount))
+	var observedDPUDevices []provisioningv1.DPUDevice
+	Eventually(func(g Gomega) {
+		devices := &provisioningv1.DPUDeviceList{}
+		g.Expect(c.List(ctx, devices, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(devices.Items).To(HaveLen(expectedDPUDevices))
+		observedDPUDevices = devices.Items
+	}).WithTimeout(10 * time.Minute).WithPolling(time.Second).Should(Succeed())
+
+	By(fmt.Sprintf("Patching %d DPUDevices with NIC device count %d", len(observedDPUDevices), expectedNicDeviceCount))
+	for _, dpuDevice := range observedDPUDevices {
+		patch := client.MergeFrom(dpuDevice.DeepCopy())
+		dpuDevice.Spec.NICDeviceCount = &expectedNicDeviceCount
+		Expect(c.Patch(ctx, &dpuDevice, patch)).To(Succeed())
+	}
+	By(fmt.Sprintf("Patched %d DPUDevices with NIC device count %d successfully", len(observedDPUDevices), expectedNicDeviceCount))
 }
 
 type collectResourcesInput struct {

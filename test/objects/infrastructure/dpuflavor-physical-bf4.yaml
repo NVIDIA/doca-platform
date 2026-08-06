@@ -14,10 +14,19 @@ spec:
       - iommu.passthrough=1
       - cgroup_no_v1=net_prio,net_cls
       - hugepagesz=2048kB
-      - hugepages=250
+      - hugepages=500
   nvconfig:
     - device: "*"
       parameters:
+        # DPU mode configuration
+        - INTERNAL_CPU_MODEL=1
+        - INTERNAL_CPU_OFFLOAD_ENGINE=0
+        # Eswitch configuration
+        - LAG_RESOURCE_ALLOCATION=1
+        # Port configuration
+        - LINK_TYPE_P1=ETH
+        - LINK_TYPE_P2=ETH
+        # SR-IOV and SF configuration
         - PF_BAR2_ENABLE=0
         - PER_PF_NUM_SF=1
         - PF_TOTAL_SF=20
@@ -25,61 +34,126 @@ spec:
         - NUM_PF_MSIX_VALID=0
         - PF_NUM_PF_MSIX_VALID=1
         - PF_NUM_PF_MSIX=228
-        - INTERNAL_CPU_MODEL=1
-        - INTERNAL_CPU_OFFLOAD_ENGINE=0
         - SRIOV_EN=1
         - NUM_OF_VFS=46
-        - LAG_RESOURCE_ALLOCATION=1
-        - LINK_TYPE_P1=ETH
-        - LINK_TYPE_P2=ETH
   ovs:
     rawConfigScript: |
+      #!/bin/bash
+
+      # Export common functions
       _ovs-vsctl() {
         ovs-vsctl --timeout 15 "$@"
       }
+      export -f _ovs-vsctl
 
-      # Remove default OVS configuration on the DPU and ensure no leftovers on the OVS kernel side
-      for i in $(seq 1 99); do
-        ovs-vsctl --if-exists del-br "ovsbr${i}"
-      done
-
-      ovs-appctl --timeout 15 dpctl/del-dp system@ovs-system || true
-
-      _ovs-vsctl set Open_vSwitch . other_config:doca-init=true
-      _ovs-vsctl set Open_vSwitch . other_config:dpdk-max-memzones=50000
-      _ovs-vsctl set Open_vSwitch . other_config:hw-offload=true
-      _ovs-vsctl set Open_vSwitch . other_config:pmd-quiet-idle=true
-      _ovs-vsctl set Open_vSwitch . other_config:max-idle=20000
-      _ovs-vsctl set Open_vSwitch . other_config:max-revalidator=5000
-      _ovs-vsctl set Open_vSwitch . other_config:doca-congestion-threshold=60
-      _ovs-vsctl set Open_vSwitch . other_config:flow-limit=500000
-      _ovs-vsctl set Open_vSwitch . other_config:hw-offload-ct-unidir-udp-enabled=true
-      _ovs-vsctl remove Open_vSwitch . other_config default-datapath-type || true
-
-      if systemctl list-unit-files openvswitch-switch.service &>/dev/null; then
-        systemctl restart openvswitch-switch
-      elif systemctl list-unit-files openvswitch.service &>/dev/null; then
-        systemctl restart openvswitch
-      fi
-      _ovs-vsctl --may-exist add-br br-sfc
-      _ovs-vsctl set bridge br-sfc datapath_type=netdev
-      _ovs-vsctl set bridge br-sfc fail_mode=secure
-      _ovs-vsctl --may-exist add-port br-sfc p0
-      _ovs-vsctl set Interface p0 type=dpdk
-      _ovs-vsctl set Interface p0 mtu_request=9216
-      _ovs-vsctl set Port p0 external_ids:dpf-type=physical
-
+      # Configure OVS
+      /etc/mellanox/dpf-setup-ovs.sh
   bfcfgParameters:
     - UPDATE_ATF_UEFI=yes
     - UPDATE_DPU_OS=yes
     - WITH_NIC_FW_UPDATE=yes
-
+  ewNicConfigurations:
+    - numVfs: 1
+      linkType: Ethernet
+      spectrumXOptimized:
+        enabled: true
+        version: for-test-runtime-only
+        overlay: none
+        multiplaneMode: hwplb
+        numberOfPlanes: 2
+      rawNvConfig:
+        # SR-IOV and SF configuration
+        - name: PF_BAR2_ENABLE
+          value: "0"
+        - name: PER_PF_NUM_SF
+          value: "1"
+        - name: PF_TOTAL_SF
+          value: "20"
+        - name: PF_SF_BAR_SIZE
+          value: "14"
+        - name: NUM_PF_MSIX_VALID
+          value: "0"
+        - name: PF_NUM_PF_MSIX_VALID
+          value: "1"
+        - name: PF_NUM_PF_MSIX
+          value: "228"
+        - name: SRIOV_EN
+          value: "1"
+        - name: NUM_OF_VFS
+          value: "1"
+        - name: VF_LOG_BAR_SIZE
+          value: "5"
+        # Hardware parsing and eswitch configuration
+        - name: FLEX_PARSER_PROFILE_ENABLE
+          value: "10"
+        - name: LAG_RESOURCE_ALLOCATION
+          value: "1"
+        # Port configuration: breakout, HW plane configuration and link related
+        - name: NUM_OF_PF
+          value: "2"
+        - name: MODULE_SPLIT_M0[0]
+          value: "1"
+        - name: MODULE_SPLIT_M0[1]
+          value: "1"
+        - name: MODULE_SPLIT_M0[2]
+          value: "1"
+        - name: MODULE_SPLIT_M0[3]
+          value: "1"
+        - name: MODULE_SPLIT_M0[4]
+          value: "1"
+        - name: MODULE_SPLIT_M0[5]
+          value: "1"
+        - name: MODULE_SPLIT_M0[6]
+          value: "1"
+        - name: MODULE_SPLIT_M0[7]
+          value: "1"
+        - name: MODULE_SPLIT_M0[8]
+          value: "FF"
+        - name: MODULE_SPLIT_M0[9]
+          value: "FF"
+        - name: MODULE_SPLIT_M0[10]
+          value: "FF"
+        - name: MODULE_SPLIT_M0[11]
+          value: "FF"
+        - name: MODULE_SPLIT_M0[12]
+          value: "FF"
+        - name: MODULE_SPLIT_M0[13]
+          value: "FF"
+        - name: MODULE_SPLIT_M0[14]
+          value: "FF"
+        - name: MODULE_SPLIT_M0[15]
+          value: "FF"
+        - name: HIDE_PORT2_PF
+          value: "1"
+        - name: NUM_OF_PLANES_P1
+          value: "2"
+        - name: LOAD_BALANCE_MODE_P1
+          value: "2"
+        - name: LINK_TYPE_P1
+          value: "ETH"
+        - name: KEEP_ETH_LINK_UP_P1
+          value: "0"
+        # RoCE configuration
+        - name: TX_SCHEDULER_LOCALITY_MODE
+          value: "2"
+        - name: ROCE_ADAPTIVE_ROUTING_EN
+          value: "1"
+        - name: USER_PROGRAMMABLE_CC
+          value: "1"
+        - name: ROCE_CC_STEERING_EXT
+          value: "2"
+        - name: ROCE_RTT_RESP_DSCP_P1
+          value: "48"
+        - name: ROCE_RTT_RESP_DSCP_MODE_P1
+          value: "1"
+        # miscellaneous configuration
+        - name: RDE_DISABLE
+          value: "1"
   # Create the SNAP DMA SF from the DPU Agent on BlueField-4 socket-direct
   # (sfNum defaults to 8000 when unset).
   scalableFunctions:
     dma:
       enabled: true
-
   configFiles:
     - path: /etc/mellanox/mlnx-bf.conf
       operation: override
@@ -102,3 +176,109 @@ spec:
       operation: override
       permissions: "0644"
       raw: ""
+    - path: /etc/mellanox/dpf-setup-ovs.sh
+      operation: override
+      permissions: "0755"
+      raw: |
+        #!/bin/bash
+
+        # Remove default OVS configuration on the DPU and ensure no leftovers on the OVS kernel side
+        for i in $(seq 0 99); do
+          ovs-vsctl --if-exists del-br "ovsbr${i}"
+        done
+        ovs-appctl --timeout 15 dpctl/del-dp system@ovs-system || true
+
+        _ovs-vsctl set Open_vSwitch . other_config:doca-init=true
+        _ovs-vsctl set Open_vSwitch . other_config:dpdk-max-memzones=50000
+        _ovs-vsctl set Open_vSwitch . other_config:hw-offload=true
+        _ovs-vsctl set Open_vSwitch . other_config:pmd-quiet-idle=true
+        _ovs-vsctl set Open_vSwitch . other_config:max-idle=20000
+        _ovs-vsctl set Open_vSwitch . other_config:max-revalidator=5000
+        _ovs-vsctl set Open_vSwitch . other_config:doca-congestion-threshold=60
+        _ovs-vsctl set Open_vSwitch . other_config:flow-limit=500000
+        _ovs-vsctl set Open_vSwitch . other_config:hw-offload-ct-unidir-udp-enabled=true
+
+        _ovs-vsctl remove Open_vSwitch . other_config default-datapath-type || true
+        if systemctl list-unit-files openvswitch-switch.service &>/dev/null; then
+          systemctl restart openvswitch-switch
+        elif systemctl list-unit-files openvswitch.service &>/dev/null; then
+          systemctl restart openvswitch
+        fi
+
+        # Create br-sfc
+        _ovs-vsctl --may-exist add-br br-sfc
+        _ovs-vsctl set bridge br-sfc datapath_type=netdev
+        _ovs-vsctl set bridge br-sfc fail_mode=secure
+
+        # Pre plug p0 and p1 to br-sfc
+        dpu_uplinks=(p0 p1)
+        for uplink in "${dpu_uplinks[@]}"; do
+          _ovs-vsctl --may-exist add-port br-sfc "$uplink"
+          _ovs-vsctl set Interface "$uplink" type=dpdk
+          _ovs-vsctl set Interface "$uplink" mtu_request=9216
+          _ovs-vsctl set Port "$uplink" external_ids:dpf-type=physical
+        done
+
+    # Very basic spcX config for testing 
+    - path: /bindata/spectrum-x/for-test-runtime-only.yaml
+      operation: override
+      permissions: "0644"
+      raw: |
+        # Copyright 2025 NVIDIA CORPORATION & AFFILIATES
+        #
+        # Licensed under the Apache License, Version 2.0 (the "License");
+        # you may not use this file except in compliance with the License.
+        # You may obtain a copy of the License at
+        #
+        #     http://www.apache.org/licenses/LICENSE-2.0
+        #
+        # Unless required by applicable law or agreed to in writing, software
+        # distributed under the License is distributed on an "AS IS" BASIS,
+        # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+        # See the License for the specific language governing permissions and
+        # limitations under the License.
+        #
+        # SPDX-License-Identifier: Apache-2.0
+        #
+        # This embedded Spectrum-X profile is a stripped subset of the production runtime profile for testing purposes.
+        docaCCVersion: 3.4.0
+        useSoftwareCCAlgorithm: true
+        runtimeConfig:
+          roce:
+            - name: Trust
+              value: dscp
+              dmsPath: /interfaces/interface/nvidia/qos/config/trust-mode
+              valueType: string
+              alternativeValue: QOS_TRUST_MODE_DSCP
+            - name: PFC
+              value: "00010000"
+              dmsPath: /interfaces/interface/nvidia/qos/config/pfc
+              valueType: string
+          adaptiveRouting:
+            - name: Enable CC per plane
+              value: "0x00000001"
+              multiplane: hwplb
+              mlxreg:
+                register: ROCE_ACCL
+                field: cc_per_plane_en
+                setFields:
+                  - name: cc_per_plane_en
+                    value: "0x1"
+                  - name: cc_per_plane_en_field_select
+                    value: "0x1"
+          congestionControl:
+            - name: Congestion Control
+              value: true
+              dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/config/enabled
+              valueType: bool
+          interPacketGap:
+            pureL3:
+              - name: Inter Packet Gap for no overlay
+                value: 25
+                dmsPath: /interfaces/interface/ethernet/nvidia/config/inter-packet-gap
+                valueType: int
+            l3EVPN:
+              - name: Inter Packet Gap for L3 EVPN overlay
+                value: 33
+                dmsPath: /interfaces/interface/ethernet/nvidia/config/inter-packet-gap
+                valueType: int

@@ -65,6 +65,7 @@ func SetInput() {
 		bfbImageURL:        bfbImageURL,
 		bfsOsIsoURL:        bfsOsIsoURL,
 		bfsPldmFwBundleURL: bfsPldmFwBundleURL,
+		bfsNicFwURL:        bfsNicFwURL,
 	}
 	input.applyConfig(*conf)
 }
@@ -298,6 +299,8 @@ func SystemSetupBeforeSuite(skipSystemComponentValidation bool) {
 		ApplyNodeRebootConfigMap(ctx, input.client, input.nodeRebootConfigMapPath)
 		PatchDPUNodesForScriptReboot(ctx, input.client, input.numberOfDPUNodes,
 			input.nodeRebootConfigMap, input.dpuNodeBMCs)
+		// For E/W NIC provisioning, we need to patch the DPUDevices with the expected NIC device count
+		PatchDPUDevicesWithNicDeviceCount(ctx, input.client, input.totalDPUs(), input.numberOfCXsToConfigureViaBF4PerNode)
 	}
 
 	if isGinkgoLabelApplied(Domain.Performance) {
@@ -773,6 +776,7 @@ func getProvisionDPUClustersInput() ProvisionDPUClustersInput {
 		bfbImageURL:                 input.bfbImageURL,
 		bfsOsIsoURL:                 input.bfsOsIsoURL,
 		bfsPldmFwBundleURL:          input.bfsPldmFwBundleURL,
+		bfsNicFwURL:                 input.bfsNicFwURL,
 		restConfig:                  restConfig,
 		NodeRebootConfigMap:         input.nodeRebootConfigMap,
 		DPUNodeBMCs:                 input.dpuNodeBMCs,
