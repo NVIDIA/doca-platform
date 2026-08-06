@@ -29,12 +29,12 @@ const (
 	defaultEntryRetryInterval    = 2 * time.Second
 	defaultPort                  = 443
 	defaultUser                  = "admin"
-	dumpPath                     = "/redfish/v1/Managers/BlueField_BMC_0/LogServices/Dump"
+	dumpPath                     = "/redfish/v1/Systems/BlueField_0/LogServices/Dump"
 	dumpClearPath                = dumpPath + "/Actions/LogService.ClearLog"
 	dumpCollectDiagnosticPath    = dumpPath + "/Actions/LogService.CollectDiagnosticData"
 	dumpEntriesPath              = dumpPath + "/Entries"
 	urlScheme                    = "https://"
 	sharedPasswordSecretName     = "bmc-shared-password"
 	passwordSecretDataKey        = "password"
-	collectDiagnosticRequestBody = `{"DiagnosticDataType":"Manager"}`
+	collectDiagnosticRequestBody = `{"DiagnosticDataType":"OEM","OEMDiagnosticDataType":"DiagnosticType=CPUDiagnosticsData"}`
 )
