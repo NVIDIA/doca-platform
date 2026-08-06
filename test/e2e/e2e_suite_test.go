@@ -108,6 +108,10 @@ func getEnvVariables() {
 	if url, found := os.LookupEnv("BFS_PLDM_FW_BUNDLE_URL"); found {
 		bfsPldmFwBundleURL = url
 	}
+	if url, found := os.LookupEnv("BFS_NIC_FW_URL"); found {
+		bfsNicFwURL = url
+	}
+
 	if url, found := os.LookupEnv("HBN_IMAGE_URL"); found {
 		var err error
 		hbnImageURL, err = utils.ResolveHBNImageURL(url)
