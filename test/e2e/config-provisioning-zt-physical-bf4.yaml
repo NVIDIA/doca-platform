@@ -23,5 +23,6 @@ dpuServiceHBN: "../objects/application/dpuservicehbn.yaml"
 dhcpDaemonSet: "../objects/application/vpc/dhcp.yaml"
 numberOfDPUNodes: 2
 numberOfDPUsPerNode: 1
+numberOfCXsToConfigureViaBF4PerNode: 2
 nodeRebootConfigMap: dpunode-reboot-redfish
 nodeRebootConfigMapPath: "../objects/infrastructure/dpunode-reboot-redfish.yaml"

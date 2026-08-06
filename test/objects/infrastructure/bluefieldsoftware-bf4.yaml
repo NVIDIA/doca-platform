@@ -6,3 +6,4 @@ metadata:
 spec:
   osIso: REPLACE_ME
   pldmFwBundle: REPLACE_ME
+  nicFw: REPLACE_ME

@@ -103,18 +103,19 @@ type config struct {
 	// Provisioning objects and environment settings (loaded by applyConfig
 	// when set; which configs set them depends on the environment, not the
 	// selected suite).
-	BFBPath                           *string  `json:"bfb,omitempty"`
-	BlueFieldSoftwarePath             *string  `json:"blueFieldSoftware,omitempty"`
-	DPUClusterPrerequisiteObjectPaths []string `json:"dpuClusterPrerequisiteObjectPath"`
-	DPUDiscoveryPath                  *string  `json:"dpuDiscovery,omitempty"`
-	DPUFlavorPath                     *string  `json:"dpuFlavor,omitempty"`               // flavor name is propagated into dpuSet and dpuDeployment
-	NodeRebootConfigMap               string   `json:"nodeRebootConfigMap,omitempty"`     // required for ZeroTrust (validateFlags)
-	NodeRebootConfigMapPath           string   `json:"nodeRebootConfigMapPath,omitempty"` // required for ZeroTrust (validateFlags)
-	NumberOfDPUNodes                  int      `json:"numberOfDPUNodes"`
-	NumberOfDPUsPerNode               int      `json:"numberOfDPUsPerNode,omitempty"`
-	ProvisioningControllerPVCPath     *string  `json:"provisioningControllerPVC,omitempty"`
-	SelectDPUDevicesDynamically       bool     `json:"selectDPUDevicesDynamically,omitempty"`
-	UseExternalNodeReboot             bool     `json:"useExternalNodeReboot,omitempty"`
+	BFBPath                             *string  `json:"bfb,omitempty"`
+	BlueFieldSoftwarePath               *string  `json:"blueFieldSoftware,omitempty"`
+	DPUClusterPrerequisiteObjectPaths   []string `json:"dpuClusterPrerequisiteObjectPath"`
+	DPUDiscoveryPath                    *string  `json:"dpuDiscovery,omitempty"`
+	DPUFlavorPath                       *string  `json:"dpuFlavor,omitempty"`               // flavor name is propagated into dpuSet and dpuDeployment
+	NodeRebootConfigMap                 string   `json:"nodeRebootConfigMap,omitempty"`     // required for ZeroTrust (validateFlags)
+	NodeRebootConfigMapPath             string   `json:"nodeRebootConfigMapPath,omitempty"` // required for ZeroTrust (validateFlags)
+	NumberOfDPUNodes                    int      `json:"numberOfDPUNodes"`
+	NumberOfDPUsPerNode                 int      `json:"numberOfDPUsPerNode,omitempty"`
+	NumberOfCXsToConfigureViaBF4PerNode int      `json:"numberOfCXsToConfigureViaBF4PerNode,omitempty"`
+	ProvisioningControllerPVCPath       *string  `json:"provisioningControllerPVC,omitempty"`
+	SelectDPUDevicesDynamically         bool     `json:"selectDPUDevicesDynamically,omitempty"`
+	UseExternalNodeReboot               bool     `json:"useExternalNodeReboot,omitempty"`
 }
 
 func readConfig(path string) (*config, error) {
