@@ -254,6 +254,18 @@ var _ = Describe("DPUNodeMaintenance", func() {
 				g.Expect(fetchedNode.Labels["test-label"]).To(Equal("test-value"))
 			}, 10*time.Second).Should(Succeed())
 
+			By("simulating DPUNode label mirror from host Node")
+			Eventually(func(g Gomega) {
+				fetchedDPUNode := &provisioningv1.DPUNode{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testDPUNode), fetchedDPUNode)).To(Succeed())
+				orig := fetchedDPUNode.DeepCopy()
+				if fetchedDPUNode.Labels == nil {
+					fetchedDPUNode.Labels = map[string]string{}
+				}
+				fetchedDPUNode.Labels["test-label"] = "test-value"
+				g.Expect(k8sClient.Patch(ctx, fetchedDPUNode, client.MergeFrom(orig))).To(Succeed())
+			}, 10*time.Second).Should(Succeed())
+
 			// NOTE: DPUNodeMaintenance Deletion Pattern
 			// The DPUNodeMaintenance controller requires the Spec.Requestor field to be empty
 			// before it will process deletion and remove the finalizer. This is by design:
@@ -275,6 +287,14 @@ var _ = Describe("DPUNodeMaintenance", func() {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: nodeName}, fetchedNode)).To(Succeed())
 				_, hasLabel := fetchedNode.Labels["test-label"]
 				g.Expect(hasLabel).To(BeFalse(), "Label should be removed from node")
+			}, 10*time.Second).Should(Succeed())
+
+			By("verifying label is removed from DPUNode")
+			Eventually(func(g Gomega) {
+				fetchedDPUNode := &provisioningv1.DPUNode{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testDPUNode), fetchedDPUNode)).To(Succeed())
+				_, hasLabel := fetchedDPUNode.Labels["test-label"]
+				g.Expect(hasLabel).To(BeFalse(), "Label should be removed from DPUNode")
 			}, 10*time.Second).Should(Succeed())
 
 			By("verifying dpunodemaintenance is deleted")
