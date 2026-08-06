@@ -162,6 +162,9 @@ var (
 	// bfsPldmFwBundleURL can be used to override the default BlueFieldSoftware PLDM FW bundle URL used in the tests.
 	// Required for BF4.
 	bfsPldmFwBundleURL = ""
+	// bfsNicFwURL can be used to override the default BlueFieldSoftware NIC FW URL used in the tests.
+	// Required for BF4 that manage E/W NICs(Astra).
+	bfsNicFwURL = ""
 	// hbnImageURL can be used to override the default HBN image URL used in the tests.
 	hbnImageURL = ""
 	// netutilsImage is the image name of the netutils image produced by the release associated with the e2e tests. This

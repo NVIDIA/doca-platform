@@ -18,5 +18,6 @@ spec:
       blueFieldSoftware:
         name: "bf4"
       secureBoot: true
+      astraEnabled: true
       nodeEffect:
         hold: true
