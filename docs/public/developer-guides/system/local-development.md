@@ -9,7 +9,7 @@ This guide helps the developer in setting and running a local env that can be us
 ## Prerequisites
 1. [GO](https://go.dev/doc/install) >= 1.25
 2. [Docker Engine](https://docs.docker.com/engine/install/)
-3. [kubectl](https://www.liberiangeek.net/2024/04/install-kubectl-on-ubuntu-24-04/)
+3. [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/#install-using-native-package-management)
 
 ## Dev Flow
 
