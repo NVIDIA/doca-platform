@@ -279,7 +279,9 @@ spec:
 | 5 | 5 | 1  | 5  | up to 5 DPUs provisioning in parallel | up to 1 node under node effect |
 | 5 | 5 | 10 | 2  | up to 5 DPUs provisioning in parallel | up to 2 node under node effect |
 
-* `spec.provisioningController.bfCFGTemplateConfigMap`: Name of ConfigMap containing bf-cfg template for DPU configuration.
+* `spec.provisioningController.bfCFGTemplateConfigMap`: Name of ConfigMap containing a bf.cfg template for DPU configuration. **Deprecated** and will be removed in a future release; use `enableDynamicBFCFGTemplates` instead. Mutually exclusive with `enableDynamicBFCFGTemplates`.
+
+* `spec.provisioningController.enableDynamicBFCFGTemplates`: Enables runtime discovery of bf.cfg templates via ConfigMaps. When enabled, the provisioning controller discovers ConfigMaps by matching labels for BFB name/namespace and DPUCluster name/namespace. Mutually exclusive with `bfCFGTemplateConfigMap`.
 
 * `spec.provisioningController.customCASecretName`: Name of Secret containing custom CA certificates for secure communication.
 
@@ -304,8 +306,8 @@ spec:
     * `installViaGNOI`: Install via gNOI protocol (deprecated; use `installViaHostAgent` instead)
     * `installViaRedfish`: Install via Redfish API with additional options:
         * `bfbRegistry.disable`: Disable the BFB registry
-        * `bfbRegistry.port`: Port for BFB registry (deprecated)
-        * `bfbRegistryAddress`: Address of BFB registry (deprecated)
+        * `bfbRegistry.port`: Port for BFB registry (deprecated; use `spec.provisioningController.registry` instead)
+        * `bfbRegistryAddress`: Address of BFB registry (deprecated; use `spec.provisioningController.registry` instead)
         * `skipDPUNodeDiscovery`: Skip automatic DPU node discovery (default: `true`)
 
 ```yaml
@@ -346,8 +348,12 @@ spec:
     # DPU OpenVSwitch paths
     dpuOpenvSwitchBinPath: "/usr/bin"
     dpuOpenvSwitchRunPath: "/var/run/openvswitch"
-    dpuOpenvSwitchSystemSharedPath: "/usr/share/openvswitch"
-    dpuOpenvSwitchSystemSharedLib64Path: "/usr/lib64"
+    dpuOpenvSwitchSystemSharedPath: "/lib"
+    dpuOpenvSwitchSystemSharedLib64Path: "/lib64"
+
+    # Optional additional DPU library paths mounted into the SFC Controller
+    dpuLinkerCachePath: "/etc/ld.so.cache"
+    dpuOptLibraryPath: "/usr/opt"
     
     # Flannel-specific overrides
     flannelSkipCNIConfigInstallation: false
@@ -358,11 +364,13 @@ spec:
 * `paused`: When set to true, pauses reconciliation of the DPFOperatorConfig resource.
 * `kubernetesAPIServerVIP`: The Kubernetes API server virtual IP address. **Required in Zero Trust mode** (when `installViaRedfish` is used).
 * `kubernetesAPIServerPort`: The Kubernetes API server port (default: 6443). **Required in Zero Trust mode** (when `installViaRedfish` is used).
-* `dpuCNIPath`: Path to CNI configuration directory on DPU nodes.
-* `dpuCNIBinPath`: Path to CNI binaries on DPU nodes.
-* `dpuOpenvSwitchBinPath`: Path to OpenvSwitch binaries on DPU nodes.
-* `dpuOpenvSwitchRunPath`: Path to OpenvSwitch runtime directory on DPU nodes.
-* `dpuOpenvSwitchSystemSharedPath`: Path to OpenvSwitch shared directory on DPU nodes.
-* `dpuOpenvSwitchSystemSharedLib64Path`: Path to OpenvSwitch 64-bit libraries on DPU nodes.
-* `flannelSkipCNIConfigInstallation`: Skip automatic CNI configuration installation for Flannel.
+* `dpuCNIPath`: Path at which the CNI config files are installed on the DPU (default: `/etc/cni/net.d`). This does not change where kubelet reads the CNI config from.
+* `dpuCNIBinPath`: Path at which the CNI binaries are installed on the DPU (default: `/opt/cni/bin`). This does not change where kubelet loads the CNI from.
+* `dpuOpenvSwitchBinPath`: Path to the OpenvSwitch bin directory on DPU nodes (default: `/usr/bin/`).
+* `dpuOpenvSwitchRunPath`: Path to the OpenvSwitch run directory on DPU nodes (default: `/var/run/openvswitch`).
+* `dpuOpenvSwitchSystemSharedPath`: Path to the system shared library directory used by OVS components on the DPU (default: `/lib`).
+* `dpuOpenvSwitchSystemSharedLib64Path`: Path to the system `lib64` directory used by OVS components on the DPU. If unset, no `lib64` volume mount is configured in the SFC Controller component.
+* `dpuLinkerCachePath`: Path on the DPU to a prebuilt dynamic-linker cache file. When set, the file is mounted read-only into the SFC Controller container so host OVS binaries resolve shared libraries using the DPU's linker configuration. If unset, no linker cache mount is added.
+* `dpuOptLibraryPath`: Path on the DPU to an additional library directory (for example `/usr/opt` on an RHCOS BFB). When set, the directory is mounted read-only into the SFC Controller container. If unset, no additional library directory is mounted.
+* `flannelSkipCNIConfigInstallation`: Whether Flannel skips installing its own CNI configuration (default: `true`). Set to `false` to have Flannel install a CNI configuration.
 * `argoCDNamespace`: Namespace where Argo CD is installed. Defaults to the namespace of the `DPFOperatorConfig`. AppProjects and cluster secrets required by DPF are created in this namespace.
