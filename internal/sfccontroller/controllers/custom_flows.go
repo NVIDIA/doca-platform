@@ -78,7 +78,7 @@ func (r *ServiceChainReconciler) addCustomFlowsForFireflySwitch(ctx context.Cont
 				continue
 			}
 			serviceOfPort = ofPort
-			log.Info("[customflows] Using service port", "servicePort", serviceOfPort)
+			log.V(1).Info("[customflows] Using service port", "servicePort", serviceOfPort)
 		case dpuservicev1.InterfaceTypePhysical:
 			uplinkOfPorts = append(uplinkOfPorts, ofPort)
 		}
@@ -95,7 +95,7 @@ func (r *ServiceChainReconciler) addCustomFlowsForFireflySwitch(ctx context.Cont
 	} else if len(uplinkOfPorts) > 1 {
 		errs = append(errs, fmt.Errorf("[customflows] firefly chain found more than one physical interface"))
 	} else {
-		log.Info("[customflows] Found uplink port", "uplinkPort", uplinkOfPorts[0])
+		log.V(1).Info("[customflows] Found uplink port", "uplinkPort", uplinkOfPorts[0])
 		if err := r.ensurePTPMulticastFlows(ctx, sc.Namespace+"/"+sc.Name, serviceOfPort, uplinkOfPorts[0]); err != nil {
 			errs = append(errs, err)
 		}
@@ -172,7 +172,7 @@ func (r *ServiceChainReconciler) ensurePTPMulticastFlows(ctx context.Context, na
 	flow := fmt.Sprintf("cookie=%d, table=0, priority=%d, in_port=%s, dl_dst=%s, actions=output=%s",
 		hash(namespacedName), PriorityCustomFlows, uplinkPort, NonForwardablePTPMulticastMac, servicePort)
 
-	log.Info(fmt.Sprintf("[customflows] Flow lines generated for RX: %s", flow))
+	log.V(1).Info(fmt.Sprintf("[customflows] Flow lines generated for RX: %s", flow))
 
 	err := r.OPFlow.AddFlows(ctx, flow, r.BridgeName)
 	if err != nil {
@@ -181,7 +181,7 @@ func (r *ServiceChainReconciler) ensurePTPMulticastFlows(ctx context.Context, na
 	// Add explicit output rule for PTP multicast MAC address, for TX
 	flow = fmt.Sprintf("cookie=%d, table=0, priority=%d, in_port=%s, dl_dst=%s, actions=output=%s",
 		hash(namespacedName), PriorityCustomFlows, servicePort, NonForwardablePTPMulticastMac, uplinkPort)
-	log.Info(fmt.Sprintf("[customflows] Flow lines generated for TX: %s", flow))
+	log.V(1).Info(fmt.Sprintf("[customflows] Flow lines generated for TX: %s", flow))
 	return r.OPFlow.AddFlows(ctx, flow, r.BridgeName)
 }
 

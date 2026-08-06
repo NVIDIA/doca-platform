@@ -248,6 +248,94 @@ var _ = Describe("service chain controller custom flows", func() {
 		Expect(scr.EnsureCustomFlowsForChain(ctx, sc, nsi)).To(Succeed())
 	})
 
+	It("skips custom flows for a switch with a non-Firefly service and uplinks", func() {
+		serviceLabels := map[string]string{"service": "non-firefly"}
+		p0Labels := map[string]string{"interface": "p0"}
+		p1Labels := map[string]string{"interface": "p1"}
+		serviceEntry := dpuservicev1.InterfaceEntry{
+			Name:          "default_non-firefly-service",
+			Labels:        serviceLabels,
+			InterfaceType: dpuservicev1.InterfaceTypeService,
+			Service:       &dpuservicev1.ServiceDef{ServiceID: "non-firefly-service-id"},
+		}
+		p0Entry := dpuservicev1.InterfaceEntry{
+			Name:          "default_p0",
+			Labels:        p0Labels,
+			InterfaceType: dpuservicev1.InterfaceTypePhysical,
+			Physical:      &dpuservicev1.Physical{InterfaceName: "p0"},
+		}
+		p1Entry := dpuservicev1.InterfaceEntry{
+			Name:          "default_p1",
+			Labels:        p1Labels,
+			InterfaceType: dpuservicev1.InterfaceTypePhysical,
+			Physical:      &dpuservicev1.Physical{InterfaceName: "p1"},
+		}
+		nsi := &dpuservicev1.NodeServiceInterfaces{
+			Spec: dpuservicev1.NodeServiceInterfacesSpec{
+				Node:       testNodeName,
+				Type:       dpuservicev1.NSITypeSFC,
+				Interfaces: []dpuservicev1.InterfaceEntry{serviceEntry, p0Entry, p1Entry},
+			},
+			Status: dpuservicev1.NodeServiceInterfacesStatus{
+				InterfaceStatuses: []dpuservicev1.InterfaceEntryStatus{
+					{Name: serviceEntry.Name, Conditions: []metav1.Condition{{Type: string(conditions.TypeReady), Status: metav1.ConditionTrue}}},
+					{Name: p0Entry.Name, Conditions: []metav1.Condition{{Type: string(conditions.TypeReady), Status: metav1.ConditionTrue}}},
+					{Name: p1Entry.Name, Conditions: []metav1.Condition{{Type: string(conditions.TypeReady), Status: metav1.ConditionTrue}}},
+				},
+			},
+		}
+
+		registerPhysicalPort := func(entryName string, ofPort int) {
+			ovsMock.EXPECT().WhereAll(conditionMatcher{entryName}, gomock.Any()).DoAndReturn(
+				func(model interface{}, conds ...interface{}) ovsclient.ConditionalAPI {
+					mockConditional := ovsutils.NewMockConditionalAPI(mockCtrl)
+					mockConditional.EXPECT().List(gomock.Any(), gomock.Any()).DoAndReturn(
+						func(ctx context.Context, result interface{}) error {
+							*(result.(*[]ovsmodel.Interface)) = []ovsmodel.Interface{{Name: entryName, Ofport: &ofPort}}
+							return nil
+						},
+					)
+					return mockConditional
+				},
+			)
+			ovsMock.EXPECT().IsIfaceInBr(gomock.Any(), SFCBridge, entryName).Return(true, nil)
+		}
+		registerPhysicalPort(p0Entry.Name, 1)
+		registerPhysicalPort(p1Entry.Name, 2)
+
+		nonFireflyPod := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "non-firefly-pod",
+				Namespace: "default",
+				Labels: map[string]string{
+					dpuservicev1.DPFServiceIDLabelKey: serviceEntry.Service.ServiceID,
+				},
+			},
+			Spec: corev1.PodSpec{NodeName: testNodeName},
+		}
+		fakeClient := fake.NewClientBuilder().
+			WithScheme(scheme.Scheme).
+			WithIndex(&corev1.Pod{}, podNodeNameKey, func(o client.Object) []string {
+				return []string{o.(*corev1.Pod).Spec.NodeName}
+			}).
+			WithObjects(nonFireflyPod).
+			Build()
+		sc := &dpuservicev1.ServiceChain{
+			ObjectMeta: metav1.ObjectMeta{Name: "non-firefly-chain", Namespace: "default"},
+			Spec: dpuservicev1.ServiceChainSpec{
+				Node: &testNodeName,
+				Switches: []dpuservicev1.Switch{{Ports: []dpuservicev1.Port{
+					{ServiceInterface: dpuservicev1.ServiceIfc{MatchLabels: serviceLabels}},
+					{ServiceInterface: dpuservicev1.ServiceIfc{MatchLabels: p0Labels}},
+					{ServiceInterface: dpuservicev1.ServiceIfc{MatchLabels: p1Labels}},
+				}}},
+			},
+		}
+		scr := &ServiceChainReconciler{Client: fakeClient, NodeName: testNodeName, OVS: ovsMock, OPFlow: opFlow}
+
+		Expect(scr.EnsureCustomFlowsForChain(ctx, sc, nsi)).To(Succeed())
+	})
+
 	It("propagates failures while looking up the service pod", func() {
 		expected := fmt.Errorf("list pods")
 		fakeClient := fake.NewClientBuilder().
