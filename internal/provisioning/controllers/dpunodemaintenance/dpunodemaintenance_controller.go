@@ -633,7 +633,7 @@ func handleNodeEffectRemoval(ctx context.Context, k8sClient client.Client, dpuno
 	case provisioningv1.NodeEffectTaint:
 		return removeNodeEffectTaint(ctx, k8sClient, node, nodeEffect)
 	case provisioningv1.NodeEffectCustomLabel:
-		return removeNodeEffectCustomLabel(ctx, k8sClient, node, nodeEffect)
+		return removeNodeEffectCustomLabel(ctx, k8sClient, node, dpuNode, nodeEffect)
 	case provisioningv1.NodeEffectCustomAction:
 		jobName, err := cutil.GenerateDPUNodeMaintenanceObjectName(dpunodemaintenance.Spec.DPUNodeName, *nodeEffect)
 		if err != nil {
@@ -694,7 +694,7 @@ func removeNodeEffectDrain(ctx context.Context, k8sClient client.Client, nodeNam
 }
 
 // TODO: Handling situations where multiple DPUNodeMaintenance CRs have overlapping labels
-func removeNodeEffectCustomLabel(ctx context.Context, k8sClient client.Client, node *corev1.Node, nodeEffect *provisioningv1.NodeEffect) error {
+func removeNodeEffectCustomLabel(ctx context.Context, k8sClient client.Client, node *corev1.Node, dpuNode *provisioningv1.DPUNode, nodeEffect *provisioningv1.NodeEffect) error {
 	originalNode := node.DeepCopy()
 	for k := range nodeEffect.CustomLabel {
 		delete(node.Labels, k)
@@ -703,6 +703,37 @@ func removeNodeEffectCustomLabel(ctx context.Context, k8sClient client.Client, n
 	patch := client.StrategicMergeFrom(originalNode)
 	if err := k8sClient.Patch(ctx, node, patch); err != nil {
 		return fmt.Errorf("failed to patch node %s ,err: %v", node.Name, err)
+	}
+
+	// DPUNode mirrors Node labels via additive-only CopyLabelsOrAnnotations, so
+	// keys removed from the Node stay on the DPUNode. Explicitly clear the same
+	// customLabel keys from the DPUNode here.
+	latestDPUNode := &provisioningv1.DPUNode{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(dpuNode), latestDPUNode); err != nil {
+		// Node labels are already cleaned up; if the DPUNode is gone its labels
+		// are gone too, so treat NotFound as success.
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to get DPUNode %s/%s before removing custom labels: %w", dpuNode.Namespace, dpuNode.Name, err)
+	}
+	if latestDPUNode.Labels != nil {
+		originalDPUNode := latestDPUNode.DeepCopy()
+		changed := false
+		for k := range nodeEffect.CustomLabel {
+			if _, ok := latestDPUNode.Labels[k]; ok {
+				delete(latestDPUNode.Labels, k)
+				changed = true
+			}
+		}
+		if changed {
+			if err := k8sClient.Patch(ctx, latestDPUNode, client.MergeFrom(originalDPUNode)); err != nil {
+				if apierrors.IsNotFound(err) {
+					return nil
+				}
+				return fmt.Errorf("failed to patch DPUNode %s/%s after removing custom labels: %w", latestDPUNode.Namespace, latestDPUNode.Name, err)
+			}
+		}
 	}
 
 	return nil
