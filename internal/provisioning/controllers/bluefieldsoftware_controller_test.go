@@ -37,6 +37,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 var _ = Describe("BlueFieldSoftware", func() {
@@ -637,7 +638,7 @@ var _ = Describe("BlueFieldSoftware", func() {
 	Context("BlueFieldSoftware deletion scenarios", func() {
 		ctx := context.Background()
 
-		It("BlueFieldSoftware: should block deletion when DPUs are using it", func() {
+		It("BlueFieldSoftware: should block deletion while a DPUSet protection finalizer remains", func() {
 			By("creating the BlueFieldSoftware")
 			obj := createObj("bfs-blocked-deletion")
 			obj.Spec.PldmFwBundle = ptr.To(bfbServerURL + BFB512KBPath)
@@ -658,29 +659,14 @@ var _ = Describe("BlueFieldSoftware", func() {
 				g.Expect(objFetched.Status.Phase).To(Equal(provisioningv1.BlueFieldSoftwareReady))
 			}).WithTimeout(30 * time.Second).Should(Succeed())
 
-			By("creating a DPU that uses this BlueFieldSoftware")
-			dpu := &provisioningv1.DPU{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-dpu-using-bfs",
-					Namespace: testNS.Name,
-				},
-				Spec: provisioningv1.DPUSpec{
-					BlueFieldSoftware: ptr.To(obj.Name),
-					DPUNodeName:       "test-node",
-					DPUDeviceName:     "test-device",
-					DPUFlavor:         "test-flavor",
-					SerialNumber:      "MT25066004C12345",
-					NodeEffect:        provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
-				},
-			}
-			Expect(k8sClient.Create(ctx, dpu)).To(Succeed())
-			DeferCleanup(func() {
-				// Ignore not found errors since the test deletes the DPU explicitly
-				err := k8sClient.Delete(ctx, dpu)
-				if err != nil && !apierrors.IsNotFound(err) {
-					Expect(err).NotTo(HaveOccurred())
+			By("simulating a DPUSet protection finalizer")
+			dpuSetFinalizer := provisioningv1.BlueFieldSoftwareFinalizerForDPUSet("test-dpuset")
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
+				if controllerutil.AddFinalizer(objFetched, dpuSetFinalizer) {
+					g.Expect(k8sClient.Update(ctx, objFetched)).To(Succeed())
 				}
-			})
+			}).WithTimeout(10 * time.Second).Should(Succeed())
 
 			By("attempting to delete the BlueFieldSoftware")
 			Expect(k8sClient.Delete(ctx, obj)).To(Succeed())
@@ -699,7 +685,7 @@ var _ = Describe("BlueFieldSoftware", func() {
 				g.Expect(deletedCond).NotTo(BeNil())
 				g.Expect(deletedCond.Status).To(Equal(metav1.ConditionFalse))
 				g.Expect(deletedCond.Reason).To(Equal(string(conditions.ReasonPending)))
-				g.Expect(deletedCond.Message).To(ContainSubstring("still being used by DPUs"))
+				g.Expect(deletedCond.Message).To(ContainSubstring("still protected by DPUSet finalizer"))
 			}).WithTimeout(10 * time.Second).Should(Succeed())
 
 			By("verifying BlueFieldSoftware still exists after timeout")
@@ -709,14 +695,15 @@ var _ = Describe("BlueFieldSoftware", func() {
 				g.Expect(objFetched.Status.Phase).To(Equal(provisioningv1.BlueFieldSoftwareDeleting))
 			}).WithTimeout(5 * time.Second).Should(Succeed())
 
-			By("deleting the DPU")
-			Expect(k8sClient.Delete(ctx, dpu)).To(Succeed())
-			Eventually(func() bool {
-				err := k8sClient.Get(ctx, types.NamespacedName{Name: dpu.Name, Namespace: dpu.Namespace}, dpu)
-				return apierrors.IsNotFound(err)
-			}).WithTimeout(10 * time.Second).Should(BeTrue())
+			By("releasing the DPUSet protection finalizer")
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
+				if controllerutil.RemoveFinalizer(objFetched, dpuSetFinalizer) {
+					g.Expect(k8sClient.Update(ctx, objFetched)).To(Succeed())
+				}
+			}).WithTimeout(10 * time.Second).Should(Succeed())
 
-			By("verifying BlueFieldSoftware is eventually deleted after DPU is removed")
+			By("verifying BlueFieldSoftware is eventually deleted after the DPUSet finalizer is removed")
 			Eventually(func() bool {
 				err := k8sClient.Get(ctx, getObjKey(obj), objFetched)
 				return apierrors.IsNotFound(err)

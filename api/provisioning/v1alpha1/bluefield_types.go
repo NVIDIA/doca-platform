@@ -38,6 +38,13 @@ type BlueFieldSoftwarePhase string
 
 // These are the valid statuses of BlueFieldSoftware.
 const (
+	// BlueFieldSoftwareFinalizerPrefix is the prefix for per-DPUSet protection finalizers
+	// placed on a BlueFieldSoftware while that DPUSet references it.
+	// Full format: provisioning.dpu.nvidia.com/bfs-dpuset-<dpuSetName>
+	BlueFieldSoftwareFinalizerPrefix = DPUProvisioningPrefix + "bfs-dpuset-"
+
+	// BlueFieldSoftwareFinalizer is retained for compatibility with older objects that still
+	// carry the shared protection finalizer.
 	BlueFieldSoftwareFinalizer = "provisioning.dpu.nvidia.com/bluefieldsoftware-protection"
 
 	// BlueFieldSoftware CR is created
@@ -201,6 +208,12 @@ func (b *BlueFieldSoftware) GetConditions() []metav1.Condition {
 // SetConditions sets the conditions of the BlueFieldSoftware
 func (b *BlueFieldSoftware) SetConditions(conditions []metav1.Condition) {
 	b.Status.Conditions = conditions
+}
+
+// BlueFieldSoftwareFinalizerForDPUSet returns the protection finalizer a DPUSet
+// places on a BlueFieldSoftware it references.
+func BlueFieldSoftwareFinalizerForDPUSet(dpuSetName string) string {
+	return BlueFieldSoftwareFinalizerPrefix + dpuSetName
 }
 
 func init() {

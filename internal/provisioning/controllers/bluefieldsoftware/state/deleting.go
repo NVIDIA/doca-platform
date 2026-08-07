@@ -19,6 +19,7 @@ package state
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	butil "github.com/nvidia/doca-platform/internal/provisioning/controllers/bluefieldsoftware/util"
@@ -28,7 +29,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
@@ -39,27 +39,16 @@ type blueFieldSoftwareDeletingState struct {
 }
 
 func (st *blueFieldSoftwareDeletingState) Handle(ctx context.Context, c client.Client) error {
-	// Check if any DPU is using this BlueFieldSoftware
-	dpuList := &provisioningv1.DPUList{}
-	if err := c.List(ctx, dpuList); err != nil {
-		return fmt.Errorf("failed to list DPUs: %w", err)
-	}
-
-	var usingDPUs []string
-	for _, dpu := range dpuList.Items {
-		if ptr.Deref(dpu.Spec.BlueFieldSoftware, "") == st.bfs.Name {
-			usingDPUs = append(usingDPUs, fmt.Sprintf("%s/%s", dpu.Namespace, dpu.Name))
+	// Wait for per-DPUSet protection finalizers to be released before cleaning up files.
+	for _, f := range st.bfs.Finalizers {
+		if strings.HasPrefix(f, provisioningv1.BlueFieldSoftwareFinalizerPrefix) {
+			errMsg := fmt.Sprintf("Cannot delete BlueFieldSoftware %s/%s: still protected by DPUSet finalizer %s",
+				st.bfs.Namespace, st.bfs.Name, f)
+			st.recorder.Eventf(st.bfs, corev1.EventTypeWarning, events.EventFailedDownloadBFBReason, errMsg)
+			conditions.AddFalse(st.bfs, provisioningv1.BlueFieldSoftwareCondDeleted,
+				conditions.ReasonPending, conditions.ConditionMessage(errMsg))
+			return fmt.Errorf("%s", errMsg)
 		}
-	}
-
-	if len(usingDPUs) > 0 {
-		errMsg := fmt.Sprintf("Cannot delete BlueFieldSoftware %s/%s: still being used by DPUs: %v",
-			st.bfs.Namespace, st.bfs.Name, usingDPUs)
-		st.recorder.Eventf(st.bfs, corev1.EventTypeWarning, events.EventFailedDownloadBFBReason, errMsg)
-		conditions.AddFalse(st.bfs, provisioningv1.BlueFieldSoftwareCondDeleted,
-			conditions.ReasonPending, conditions.ConditionMessage(errMsg))
-		return fmt.Errorf("cannot delete BlueFieldSoftware %s/%s: still being used by DPUs: %v",
-			st.bfs.Namespace, st.bfs.Name, usingDPUs)
 	}
 
 	// Delete all downloaded component files
@@ -102,11 +91,8 @@ func (st *blueFieldSoftwareDeletingState) Handle(ctx context.Context, c client.C
 		// Continue with deletion even if cleanup fails
 	}
 
-	// Remove finalizer
+	// Remove cleanup finalizer - patcher will handle the update
 	controllerutil.RemoveFinalizer(st.bfs, provisioningv1.BlueFieldSoftwareFinalizer)
-	if err := c.Update(ctx, st.bfs); err != nil {
-		return fmt.Errorf("failed to remove finalizer: %w", err)
-	}
 
 	conditions.AddTrue(st.bfs, provisioningv1.BlueFieldSoftwareCondDeleted)
 	msg := fmt.Sprintf("BlueFieldSoftware: (%s/%s) deleted successfully", st.bfs.Namespace, st.bfs.Name)
