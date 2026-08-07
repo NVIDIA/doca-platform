@@ -199,7 +199,7 @@ releases:
     namespace: kata-containers
     createNamespace: true
     chart: oci://ghcr.io/kata-containers/kata-deploy-charts/kata-deploy
-    version: 4.0.0
+    version: 3.32.0
     condition: kata.enabled
     labels:
       app: kata-containers

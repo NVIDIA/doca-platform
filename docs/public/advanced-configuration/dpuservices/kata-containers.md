@@ -72,7 +72,7 @@ spec:
     kata:
       disable: false
       daemon:
-        image: my-registry.example.com/kata-deploy:3.30.0
+        image: my-registry.example.com/kata-deploy:3.32.0
 ```
 
 # Running workloads with Kata isolation

@@ -12,7 +12,7 @@ Kata Containers deployment for DPU nodes
 | containerd.configFileName | string | `"config-mlnx.toml"` |  |
 | defaultShim | string | `"qemu"` |  |
 | image.repository | string | `"quay.io/kata-containers/kata-deploy"` |  |
-| image.tag | string | `"3.30.0@sha256:b31cf13addbaf49af9e211bf6ab38335299015a754e2bc0341aa4ba47d8cb395"` |  |
+| image.tag | string | `"3.32.0@sha256:47c4cf29c9e8cf9bb7debab58761b672e1d4c93ee5e92db7b442ee00e7d561cc"` |  |
 | imagePullSecrets | list | `[]` |  |
 | nodeSelector | object | `{}` |  |
 | serviceAccount.annotations | object | `{}` |  |
