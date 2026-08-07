@@ -293,9 +293,9 @@ spec:
     Value must be in units accepted by Go time.ParseDuration https://golang.org/pkg/time/#ParseDuration.
 
 * `spec.provisioningController.registry`: Configuration for the container registry used during provisioning.
-    * `address`: Registry address (deprecated)
-    * `port`: Registry port (deprecated)
-    * `loadBalancerAddress`: Load balancer address for registry
+    * `address`: Registry address. **Deprecated** and will be removed in a future release; use `loadBalancerAddress` instead.
+    * `port`: Registry port. **Deprecated** and will be removed in a future release; use `loadBalancerAddress` instead.
+    * `loadBalancerAddress`: Load balancer address for the BFB Registry that the host agent/Redfish use to fetch the BFB and generated bf.cfg. This is the current, non-deprecated way to configure registry access. To use it, deploy your own load balancer controller pointed at the `bfb-registry` NodePort service. The value must start with `http://`.
 
 * `spec.provisioningController.nodeEffectRemovalTimeout`: Maximum time allowed for the Node Effect Removal phase. If the `DPUNodeMaintenance` CR still has requestors after this timeout, the DPU transitions to Error state, which is terminal and requires reprovisioning (deleting and recreating the DPU). The default is `0s`, which disables the timeout entirely (no time limit is enforced). To enable, set to a non-zero duration (e.g. `30m`). Value must be in units accepted by Go `time.ParseDuration` (e.g. `30m`, `1h`, `45m30s`).
 
@@ -306,8 +306,8 @@ spec:
     * `installViaGNOI`: Install via gNOI protocol (deprecated; use `installViaHostAgent` instead)
     * `installViaRedfish`: Install via Redfish API with additional options:
         * `bfbRegistry.disable`: Disable the BFB registry
-        * `bfbRegistry.port`: Port for BFB registry (deprecated; use `spec.provisioningController.registry` instead)
-        * `bfbRegistryAddress`: Address of BFB registry (deprecated; use `spec.provisioningController.registry` instead)
+        * `bfbRegistry.port`: Port for BFB registry (deprecated; use `spec.provisioningController.registry.loadBalancerAddress` instead)
+        * `bfbRegistryAddress`: Address of BFB registry (deprecated; use `spec.provisioningController.registry.loadBalancerAddress` instead)
         * `skipDPUNodeDiscovery`: Skip automatic DPU node discovery (default: `true`)
 
 ```yaml
@@ -364,8 +364,8 @@ spec:
 * `paused`: When set to true, pauses reconciliation of the DPFOperatorConfig resource.
 * `kubernetesAPIServerVIP`: The Kubernetes API server virtual IP address. **Required in Zero Trust mode** (when `installViaRedfish` is used).
 * `kubernetesAPIServerPort`: The Kubernetes API server port (default: 6443). **Required in Zero Trust mode** (when `installViaRedfish` is used).
-* `dpuCNIPath`: Path at which the CNI config files are installed on the DPU (default: `/etc/cni/net.d`). This does not change where kubelet reads the CNI config from.
-* `dpuCNIBinPath`: Path at which the CNI binaries are installed on the DPU (default: `/opt/cni/bin`). This does not change where kubelet loads the CNI from.
+* `dpuCNIPath`: Path at which the CNI config files are installed on the DPU (default: `/etc/cni/net.d`). This only controls where DPF writes the CNI config; it does not reconfigure kubelet, which continues to read the CNI config from its own configured directory. Only override this if kubelet on the DPU is already configured to read from the same non-default path, otherwise kubelet will not find the CNI config.
+* `dpuCNIBinPath`: Path at which the CNI binaries are installed on the DPU (default: `/opt/cni/bin`). This only controls where DPF installs the CNI binaries; it does not reconfigure kubelet, which continues to load CNI binaries from its own configured directory. Only override this if kubelet on the DPU is already configured to load binaries from the same non-default path.
 * `dpuOpenvSwitchBinPath`: Path to the OpenvSwitch bin directory on DPU nodes (default: `/usr/bin/`).
 * `dpuOpenvSwitchRunPath`: Path to the OpenvSwitch run directory on DPU nodes (default: `/var/run/openvswitch`).
 * `dpuOpenvSwitchSystemSharedPath`: Path to the system shared library directory used by OVS components on the DPU (default: `/lib`).
