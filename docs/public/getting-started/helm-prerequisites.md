@@ -30,7 +30,7 @@ and purposes:
 | [local-path-provisioner]  | 0.0.36  | Provides the `local-path` storage class used by the default Kamaji etcd configuration          | Conditional | Pre-installation      |
 | [openbao]                 | 0.28.6  | Secrets management service that can be used as a backend for secret storage workflows          | No          | Pre-installation      |
 | [external-secrets]        | 2.8.0   | Synchronizes secrets from external secret stores into Kubernetes Secrets                       | No          | Pre-installation      |
-| [kata-containers]         | 4.0.0   | Secure container runtime using lightweight VMs for workload isolation on host nodes            | Conditional | Pre-installation      |
+| [kata-containers]         | 3.32.0  | Secure container runtime using lightweight VMs for workload isolation on host nodes            | Conditional | Pre-installation      |
 | [kube-state-metrics]      | 8.1.3   | Exposes DPF Operator related objects as metrics                                                | No          | Post-installation     |
 | [kube-prometheus-stack]   | 88.1.3  | Complete monitoring stack with Prometheus and Grafana for collecting and visualizing metrics   | No          | Post-installation     |
 | [loki]                    | 18.7.1  | Kubernetes log aggregation and storage, integrates with Grafana                                | No          | Post-installation     |

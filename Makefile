@@ -133,7 +133,7 @@ export NODE_SRIOV_DEVICE_PLUGIN_TAG=network-operator-v26.1.0
 
 # Kata Containers kata-deploy image, deployed as a dpu-networking subchart
 export KATA_DEPLOY_IMAGE=quay.io/kata-containers/kata-deploy
-export KATA_DEPLOY_TAG=3.30.0@sha256:b31cf13addbaf49af9e211bf6ab38335299015a754e2bc0341aa4ba47d8cb395
+export KATA_DEPLOY_TAG=3.32.0@sha256:47c4cf29c9e8cf9bb7debab58761b672e1d4c93ee5e92db7b442ee00e7d561cc
 
 # VPC dependencies to be able to build/push images and charts
 VPC_REF=5b8b24a1c328e3e5f55376f51abff4dc2f9303a0
