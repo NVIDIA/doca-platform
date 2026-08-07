@@ -32,6 +32,8 @@ import (
 	"github.com/nvidia/doca-platform/internal/operator/inventory"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
+	sfcsetcontroller "github.com/nvidia/doca-platform/internal/servicechainset/controllers"
+	"github.com/nvidia/doca-platform/internal/utils"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 	"github.com/nvidia/doca-platform/test/utils/netshoot"
 
@@ -931,20 +933,21 @@ func ValidateDPFOperatorConfigCleanupPrerequisites(ctx context.Context, input *s
 	Expect(input.client.Create(ctx, dpuServiceInterface)).To(Succeed())
 
 	if input.hasDpuNodes() {
-		By(fmt.Sprintf("Verify ServiceInterface is created in %d nodes", input.totalDPUs()))
+		By(fmt.Sprintf("Verify a NodeServiceInterfaces entry is created on %d nodes", input.totalDPUs()))
 		Eventually(func(g Gomega) {
-			// Expect ServiceInterface for standalone DPUServiceInterface to be created.
-			// ServiceInterface objects are created per K8s node in the DPU cluster, and each DPU device
-			// becomes a separate K8s node, so the count equals totalDPUs() (nodes * DPUs per node).
-			standaloneServiceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
-			g.Expect(dpuClusterClient[0].List(ctx, standaloneServiceInterfaceList, client.InNamespace(dpuServiceInterfaceNamespace))).To(Succeed())
-			g.Expect(standaloneServiceInterfaceList.Items).To(HaveLen(input.totalDPUs()))
+			// One NodeServiceInterfaces object per DPU cluster node, and every DPU device is its own node.
+			nsiList := &dpuservicev1.NodeServiceInterfacesList{}
+			g.Expect(dpuClusterClient[0].List(ctx, nsiList, client.InNamespace(utils.NSIObjectsNamespace))).To(Succeed())
 
-			// Expect ServiceInterface for DPUDeployment owned DPUServiceInterface to exist
+			// The standalone DPUServiceInterface is only identifiable by its set's namespace label.
+			standalone := countNodesWithNSIEntry(nsiList, map[string]string{
+				sfcsetcontroller.ServiceInterfaceSetNamespaceLabel: dpuServiceInterfaceNamespace,
+			})
+			g.Expect(standalone).To(Equal(input.totalDPUs()))
+
+			// DPUDeployment-owned NSI entries carry the DPUServiceInterface template labels.
 			for _, serviceInterfaceLabels := range dpuDeploymentOwnedServiceInterfaceLabels {
-				dpudeploymentOwnedServiceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
-				g.Expect(dpuClusterClient[0].List(ctx, dpudeploymentOwnedServiceInterfaceList, client.MatchingLabels(serviceInterfaceLabels))).To(Succeed())
-				g.Expect(dpudeploymentOwnedServiceInterfaceList.Items).To(HaveLen(input.totalDPUs()))
+				g.Expect(countNodesWithNSIEntry(nsiList, serviceInterfaceLabels)).To(Equal(input.totalDPUs()))
 			}
 		}).WithTimeout(2 * time.Minute).Should(Succeed())
 	}

@@ -29,30 +29,19 @@ func SDNBeforeSuite() {
 
 // waitForSDNProvisioning waits for DPU provisioning and DPFOperatorConfig readiness for specs labeled Domain.RequiresNodes.
 func waitForSDNProvisioning() {
-	waitForDPUProvisioning(true)
-}
-
-// waitForSDNProvisioningNSIPath skips the DPFOperatorConfig readiness check, since EnableNSIPathForSFC keeps it paused.
-func waitForSDNProvisioningNSIPath() {
-	waitForDPUProvisioning(false)
-}
-
-func waitForDPUProvisioning(checkOperatorConfigReady bool) {
 	for _, label := range CurrentSpecReport().Labels() {
 		if label == Domain.RequiresNodes {
 			By("Waiting for provisioning")
 			VerifyDPUClusterWithNodes(ctx, getProvisionDPUClustersInput())
 			By("Waiting for DPU cluster pods to be ready")
 			VerifyClusterPods(ctx, dpuClusterClient[0], systemPodsToVerify)
-			if checkOperatorConfigReady {
-				By("Waiting for DPFOperatorConfig to be ready")
-				VerifyDPFOperatorConfigReady(ctx, input.client, 20*time.Minute)
-			}
+			By("Waiting for DPFOperatorConfig to be ready")
+			VerifyDPFOperatorConfigReady(ctx, input.client, 20*time.Minute)
 		}
 	}
 }
 
-//nolint:dupl
+// NSIPathForSFC defaults to true, so every SFC scenario below exercises the NSI path.
 var _ = Describe("DPF System tests - SDN", SpecPriority(SDNTestPriority), Labels{Domain.DPFSystem, Domain.SDN}, Ordered, func() {
 
 	BeforeEach(waitForSDNProvisioning)
@@ -84,36 +73,3 @@ var _ = Describe("DPF System tests - SDN", SpecPriority(SDNTestPriority), Labels
 		})
 	})
 })
-
-// Reruns the SFC scenarios with NSIPathForSFC enabled; a top-level Describe since Ginkgo only allows Serial on the outermost Ordered container.
-var _ = Describe("DPF System tests - SDN (NSI path)", SpecPriority(SDNTestPriority),
-	Labels{Domain.DPFSystem, Domain.SDN, Domain.RequiresNodes, Domain.L2Connectivity, Domain.NSIPathForSFC}, Serial, Ordered, func() {
-
-		BeforeEach(waitForSDNProvisioningNSIPath)
-
-		var revert func()
-
-		BeforeAll(func() {
-			revert = EnableNSIPathForSFC(ctx, input.client)
-		})
-
-		AfterAll(func() {
-			revert()
-		})
-
-		It("create plain DPU chain and verify performance", func() {
-			VerifyPlainServiceFunctionChain(ctx, input)
-		})
-		It("create HBN only DPU chain and verify performance", func() {
-			VerifyHBNOnlyServiceFunctionChain(ctx, input)
-		})
-		It("create HBN only DPU chain and verify performance after killing HBN", Labels{Domain.L2Connectivity}, func() {
-			VerifyHBNOnlyBadFlowRecovery(ctx, input)
-		})
-		It("create simple chain and validate serviceMTU changes", func() {
-			VerifyServiceMTUOnDPUPods(ctx, input)
-		})
-		It("create Pods running in the DPUCluster via DPUService and verify RDMA traffic between them", func() {
-			VerifyDPUPodToPodRDMATraffic(ctx, input)
-		})
-	})

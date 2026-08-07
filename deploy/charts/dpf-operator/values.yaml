@@ -18,10 +18,14 @@ controllerManager:
   pullPolicy: IfNotPresent
   # -- replicas is the number of controller Pods to run.
   replicas: 1
-  # featureGates is a map of feature names to boolean values forwarded
-  # to the dpf-operator and dependant controller deployments.
-  # Supported features:
-  #   NSIPathForSFC (default: false, alpha)
+  # featureGates is a map of feature names to boolean values set on the dpf-operator.
+  # Settable here:
+  #   ConfigPortsOverHighSpeed (default: false, alpha)
+  #     When enabled, the dpuservice controller configures configPorts over high-speed network.
+  #     Applicable only when OVN-Kubernetes is used.
+  # Not settable here, the DPU-side controllers read these from their own binaries, so entries in
+  # this map are accepted but have no effect:
+  #   NSIPathForSFC (default: true, beta)
   #     When enabled, SFC ServiceInterfaceSets (those without a virtualNetwork)
   #     use the NodeServiceInterfaces reconciliation path instead of creating
   #     individual ServiceInterface objects per node.
@@ -29,12 +33,9 @@ controllerManager:
   #     When enabled, VPC ServiceInterfaceSets (those with a virtualNetwork set)
   #     use the NodeServiceInterfaces reconciliation path instead of creating
   #     individual ServiceInterface objects per node.
-  #   ConfigPortsOverHighSpeed (default: false, alpha)
-  #     When enabled, the dpuservice controller configures configPorts over high-speed network.
-  #     Applicable only when OVN-Kubernetes is used.
-  #   Example:
-  #     featureGates:
-  #       ConfigPortsOverHighSpeed: true
+  # Example:
+  #   featureGates:
+  #     ConfigPortsOverHighSpeed: true
   # -- featureGates configures the feature gates for the dpf-operator.
   featureGates: {}
   # Set kubernetes resource requests and limits for the controller.

@@ -36,9 +36,11 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/client-go/kubernetes/scheme"
+	featuregatetesting "k8s.io/component-base/featuregate/testing"
 	kexecTesting "k8s.io/utils/exec/testing"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -1002,6 +1004,9 @@ var _ = Describe("service chain controller", func() {
 	)
 
 	BeforeEach(func() {
+		// These specs resolve ports from legacy ServiceInterface objects.
+		featuregatetesting.SetFeatureGateDuringTest(GinkgoT(), features.MutableGates, features.NSIPathForSFC, false)
+
 		testCtx, testCancelFunc = context.WithCancel(ctx)
 		wg = sync.WaitGroup{}
 		mockCtrl = gomock.NewController(GinkgoT())
@@ -1233,6 +1238,23 @@ var _ = Describe("service chain controller", func() {
 	})
 })
 
+// onlyNotFound reports whether err is nil or only "not found" errors, unwrapping Reconcile's aggregate.
+func onlyNotFound(err error) bool {
+	if err == nil {
+		return true
+	}
+	var agg kerrors.Aggregate
+	if errors.As(err, &agg) {
+		for _, e := range agg.Errors() {
+			if !onlyNotFound(e) {
+				return false
+			}
+		}
+		return true
+	}
+	return apierrors.IsNotFound(err)
+}
+
 var _ = Describe("service chain controller flow application", func() {
 	var (
 		mockCtrl       *gomock.Controller
@@ -1250,6 +1272,9 @@ var _ = Describe("service chain controller flow application", func() {
 	)
 
 	BeforeEach(func() {
+		// These specs resolve ports from legacy ServiceInterface objects.
+		featuregatetesting.SetFeatureGateDuringTest(GinkgoT(), features.MutableGates, features.NSIPathForSFC, false)
+
 		mockCtrl = gomock.NewController(GinkgoT())
 		ofb = NewMockBridge(mockCtrl)
 		ovsMock = ovsutils.NewMockAPI(mockCtrl)
@@ -1378,23 +1403,6 @@ var _ = Describe("service chain controller flow application", func() {
 		}
 	})
 
-	// onlyNotFound reports whether err is nil or only "not found" errors, unwrapping Reconcile's aggregate.
-	var onlyNotFound func(err error) bool
-	onlyNotFound = func(err error) bool {
-		if err == nil {
-			return true
-		}
-		if agg, ok := err.(kerrors.Aggregate); ok {
-			for _, e := range agg.Errors() {
-				if !onlyNotFound(e) {
-					return false
-				}
-			}
-			return true
-		}
-		return apierrors.IsNotFound(err)
-	}
-
 	It("deletes flows when the ServiceChain is deleted", func() {
 		_, err := scr.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
 		Expect(err).ToNot(HaveOccurred())
@@ -1462,6 +1470,292 @@ var _ = Describe("service chain controller flow application", func() {
 	})
 })
 
+// nsiFieldSelectorClient applies NodeServiceInterfaces field selectors client-side, since the API server envtest runs cannot select on CRD fields.
+type nsiFieldSelectorClient struct {
+	client.Client
+}
+
+func (c nsiFieldSelectorClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	nsiList, ok := list.(*dpuservicev1.NodeServiceInterfacesList)
+	if !ok {
+		return c.Client.List(ctx, list, opts...)
+	}
+
+	listOpts := &client.ListOptions{}
+	listOpts.ApplyOptions(opts)
+	selector := listOpts.FieldSelector
+	listOpts.FieldSelector = nil
+	if err := c.Client.List(ctx, nsiList, listOpts); err != nil {
+		return err
+	}
+	if selector == nil {
+		return nil
+	}
+
+	matching := nsiList.Items[:0]
+	for _, item := range nsiList.Items {
+		if selector.Matches(fields.Set{
+			utils.NSINodeFieldKey: utils.NSINodeIndexFunc(&item)[0],
+			utils.NSITypeFieldKey: utils.NSITypeIndexFunc(&item)[0],
+		}) {
+			matching = append(matching, item)
+		}
+	}
+	nsiList.Items = matching
+	return nil
+}
+
+// NSI-path counterpart of "service chain controller flow application", with ports resolved from this node's NSI shard.
+var _ = Describe("service chain controller flow application on the NSI path", func() {
+	var (
+		mockCtrl       *gomock.Controller
+		cleanupObjects []client.Object
+		scr            *ServiceChainReconciler
+		ofb            *MockBridge
+		ovsMock        *ovsutils.MockAPI
+		scMock         *MockServiceChainAPI
+		ctx            = context.Background()
+		testNS         *corev1.Namespace
+		node           *corev1.Node
+		testNode       = "test-node-flow-apply-nsi"
+		nn             types.NamespacedName
+		entryName      string
+	)
+
+	const (
+		nsiIfaceName   = "test-iface-nsi"
+		nsiIfaceOfport = 7
+	)
+	entryLabels := map[string]string{"svc.dpu.nvidia.com/interface": "p0vf1"}
+
+	BeforeEach(func() {
+		featuregatetesting.SetFeatureGateDuringTest(GinkgoT(), features.MutableGates, features.NSIPathForSFC, true)
+
+		cleanupObjects = nil
+		mockCtrl = gomock.NewController(GinkgoT())
+		ofb = NewMockBridge(mockCtrl)
+		ovsMock = ovsutils.NewMockAPI(mockCtrl)
+		scMock = NewMockServiceChainAPI(mockCtrl)
+
+		scr = &ServiceChainReconciler{
+			Client:     nsiFieldSelectorClient{testClient},
+			NodeName:   testNode,
+			BridgeName: BridgeSFC,
+			OFBridge:   ofb,
+			OVS:        ovsMock,
+			SC:         scMock,
+		}
+
+		By("creating namespace")
+		testNS = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "test-ns-flow-apply-nsi-"}}
+		Expect(testClient.Create(ctx, testNS)).Should(Succeed())
+
+		By("creating node")
+		node = getTestNode(testNode)
+		Expect(testClient.Create(ctx, node)).To(Succeed())
+		cleanupObjects = append(cleanupObjects, node)
+
+		By("creating this node's SFC NodeServiceInterfaces shard with one ready VF entry")
+		entryName = testNS.Name + "_flow-apply-entry"
+		nsi := &dpuservicev1.NodeServiceInterfaces{
+			ObjectMeta: metav1.ObjectMeta{GenerateName: "test-nsi-flow-apply-", Namespace: utils.NSIObjectsNamespace},
+			Spec: dpuservicev1.NodeServiceInterfacesSpec{
+				Node: testNode,
+				Type: dpuservicev1.NSITypeSFC,
+				Interfaces: []dpuservicev1.InterfaceEntry{{
+					Name:          entryName,
+					Labels:        entryLabels,
+					InterfaceType: dpuservicev1.InterfaceTypeVF,
+					VF:            &dpuservicev1.VF{PFID: 0, VFID: 1},
+				}},
+			},
+		}
+		Expect(testClient.Create(ctx, nsi)).To(Succeed())
+		cleanupObjects = append(cleanupObjects, nsi)
+
+		nsi.Status.InterfaceStatuses = []dpuservicev1.InterfaceEntryStatus{{
+			Name: entryName,
+			Conditions: []metav1.Condition{
+				{
+					Type:               string(conditions.TypeReady),
+					Status:             metav1.ConditionTrue,
+					Reason:             "Success",
+					Message:            "",
+					LastTransitionTime: metav1.Now(),
+					ObservedGeneration: nsi.Generation,
+				},
+			},
+		}}
+		Expect(testClient.Status().Update(ctx, nsi)).To(Succeed())
+
+		nn = types.NamespacedName{
+			Namespace: testNS.Name,
+			Name:      "test-service-chain-nsi",
+		}
+
+		By("creating service chain")
+		sc := &dpuservicev1.ServiceChain{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      nn.Name,
+				Namespace: nn.Namespace,
+			},
+			Spec: dpuservicev1.ServiceChainSpec{
+				Node: &testNode,
+				Switches: []dpuservicev1.Switch{
+					{
+						Ports: []dpuservicev1.Port{
+							{
+								ServiceInterface: dpuservicev1.ServiceIfc{
+									MatchLabels: entryLabels,
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		Expect(testClient.Create(ctx, sc)).To(Succeed())
+		cleanupObjects = append(cleanupObjects, sc)
+	})
+
+	AfterEach(func() {
+		// Strip the finalizer directly: these tests call Reconcile without a manager, so reconcileDelete never runs.
+		sc := &dpuservicev1.ServiceChain{}
+		if testClient.Get(ctx, nn, sc) == nil {
+			sc.Finalizers = nil
+			Expect(testClient.Update(ctx, sc)).To(Succeed())
+		}
+
+		Expect(testutils.CleanupAndWait(ctx, testClient, cleanupObjects...)).To(Succeed())
+		Expect(testClient.Delete(ctx, testNS)).To(Succeed())
+		mockCtrl.Finish()
+	})
+
+	// OVS keys the NSI entry by entry name, not by a namespace/name ServiceInterface reference.
+	expectPortLookupWithOfport := func(ifaceName string, ofport int) {
+		iface := ovsmodel.Interface{
+			Name:        ifaceName,
+			Ofport:      &ofport,
+			ExternalIDs: map[string]string{ovsutils.DPFIDKey: entryName},
+		}
+		ovsMock.EXPECT().WhereAll(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(model interface{}, conds ...interface{}) ovsclient.ConditionalAPI {
+				mockConditional := ovsutils.NewMockConditionalAPI(mockCtrl)
+				mockConditional.EXPECT().List(gomock.Any(), gomock.Any()).DoAndReturn(
+					func(ctx context.Context, result interface{}) error {
+						*(result.(*[]ovsmodel.Interface)) = []ovsmodel.Interface{iface}
+						return nil
+					},
+				)
+				return mockConditional
+			},
+		)
+		ovsMock.EXPECT().IsIfaceInBr(gomock.Any(), SFCBridge, ifaceName).Return(true, nil)
+	}
+
+	expectPortLookup := func() {
+		expectPortLookupWithOfport(nsiIfaceName, nsiIfaceOfport)
+	}
+
+	expectApply := func(ofports ...string) {
+		scMock.EXPECT().GenerateAndApplyOpenFlows(gomock.Any(), [][]string{ofports}, hash(nn.String())).Return(nil).Times(1)
+	}
+
+	It("applies NSI-resolved flows on every reconcile, even across repeated reconciles with nothing changed", func() {
+		// 1st reconcile: only adds the finalizer, ports aren't resolved yet.
+		_, err := scr.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+		Expect(err).ToNot(HaveOccurred())
+
+		for range 3 {
+			expectPortLookup()
+			expectApply(fmt.Sprint(nsiIfaceOfport))
+			_, err = scr.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+			Expect(err).ToNot(HaveOccurred())
+		}
+	})
+
+	It("re-applies flows with the new ofport when the NSI entry rebinds in OVS", func() {
+		_, err := scr.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+		Expect(err).ToNot(HaveOccurred())
+
+		expectPortLookup()
+		expectApply(fmt.Sprint(nsiIfaceOfport))
+		_, err = scr.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+		Expect(err).ToNot(HaveOccurred())
+
+		// The entry is unchanged, so only the next reconcile's re-resolve picks the new binding up.
+		By("rebinding the entry to a different OVS interface")
+		expectPortLookupWithOfport("test-iface-nsi-rebound", 21)
+		expectApply("21")
+		_, err = scr.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+		Expect(err).ToNot(HaveOccurred())
+	})
+
+	It("reports an error and applies no port when the entry's NSI shard is gone", func() {
+		_, err := scr.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+		Expect(err).ToNot(HaveOccurred())
+
+		By("deleting this node's NSI shard")
+		nsiList := &dpuservicev1.NodeServiceInterfacesList{}
+		Expect(testClient.List(ctx, nsiList, client.InNamespace(utils.NSIObjectsNamespace))).To(Succeed())
+		for i := range nsiList.Items {
+			if nsiList.Items[i].Spec.Node == testNode {
+				Expect(testClient.Delete(ctx, &nsiList.Items[i])).To(Succeed())
+			}
+		}
+
+		// Flows still apply, so the chain converges to no ports instead of keeping stale ones.
+		scMock.EXPECT().GenerateAndApplyOpenFlows(gomock.Any(), [][]string{{}}, hash(nn.String())).Return(nil).Times(1)
+		_, err = scr.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+		Expect(err).To(MatchError(ContainSubstring("no serviceInterface")))
+	})
+
+	It("deletes flows when the ServiceChain is deleted", func() {
+		_, err := scr.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+		Expect(err).ToNot(HaveOccurred())
+
+		expectPortLookup()
+		expectApply(fmt.Sprint(nsiIfaceOfport))
+		_, err = scr.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+		Expect(err).ToNot(HaveOccurred())
+
+		By("deleting the ServiceChain")
+		existing := &dpuservicev1.ServiceChain{}
+		Expect(testClient.Get(ctx, nn, existing)).To(Succeed())
+		Expect(testClient.Delete(ctx, existing)).To(Succeed())
+
+		// Removing the finalizer here can race the reconciler's own status patch into a tolerated NotFound.
+		ofb.EXPECT().DeleteFlowsByCookie(hash(nn.String()), gomock.Any()).Return(nil).Times(1)
+		_, err = scr.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+		Expect(onlyNotFound(err)).To(BeTrue(), "unexpected error: %v", err)
+
+		Expect(apierrors.IsNotFound(testClient.Get(ctx, nn, &dpuservicev1.ServiceChain{}))).To(BeTrue())
+	})
+
+	It("re-applies flows when the spec generation changes even if the resolved ports end up identical", func() {
+		_, err := scr.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+		Expect(err).ToNot(HaveOccurred())
+
+		expectPortLookup()
+		expectApply(fmt.Sprint(nsiIfaceOfport))
+		_, err = scr.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+		Expect(err).ToNot(HaveOccurred())
+
+		By("bumping the ServiceChain's generation without changing the resolved ports")
+		existing := &dpuservicev1.ServiceChain{}
+		Expect(testClient.Get(ctx, nn, existing)).To(Succeed())
+		existing.Spec.Switches[0].ServiceMTU = ptr.To(9000)
+		Expect(testClient.Update(ctx, existing)).To(Succeed())
+
+		// On generation change, flows are force-deleted then unconditionally re-applied once ports resolve.
+		ofb.EXPECT().DeleteFlowsByCookie(hash(nn.String()), gomock.Any()).Return(nil).Times(1)
+		expectPortLookup()
+		expectApply(fmt.Sprint(nsiIfaceOfport))
+		_, err = scr.Reconcile(ctx, ctrl.Request{NamespacedName: nn})
+		Expect(err).ToNot(HaveOccurred())
+	})
+})
+
 var _ = Describe("ServiceChainReconciler TriggerResync", func() {
 	var (
 		fakeClient client.Client
@@ -1483,6 +1777,8 @@ var _ = Describe("ServiceChainReconciler TriggerResync", func() {
 				return []string{*sc.Spec.Node}
 			}).
 			WithIndex(&dpuservicev1.ServiceInterface{}, utils.ServiceInterfaceNodeFieldKey, utils.ServiceInterfaceNodeIndexFunc).
+			WithIndex(&dpuservicev1.NodeServiceInterfaces{}, utils.NSINodeFieldKey, utils.NSINodeIndexFunc).
+			WithIndex(&dpuservicev1.NodeServiceInterfaces{}, utils.NSITypeFieldKey, utils.NSITypeIndexFunc).
 			Build()
 		scr = &ServiceChainReconciler{
 			Client:   fakeClient,
@@ -1571,37 +1867,10 @@ var _ = Describe("ServiceChainReconciler TriggerResync", func() {
 	})
 
 	It("maps a service Pod to chains via NSI entries when the NSI path is enabled", func() {
-		Expect(features.MutableGates.Set(fmt.Sprintf("%s=true", features.NSIPathForSFC))).To(Succeed())
-		DeferCleanup(func() {
-			Expect(features.MutableGates.Set(fmt.Sprintf("%s=false", features.NSIPathForSFC))).To(Succeed())
-		})
+		featuregatetesting.SetFeatureGateDuringTest(GinkgoT(), features.MutableGates, features.NSIPathForSFC, true)
 
 		serviceID := "test-service"
-		nsiClient := fake.NewClientBuilder().
-			WithScheme(scheme.Scheme).
-			WithIndex(&dpuservicev1.ServiceChain{}, serviceChainNodeNameKey, func(o client.Object) []string {
-				sc := o.(*dpuservicev1.ServiceChain)
-				if sc.Spec.Node == nil {
-					return nil
-				}
-				return []string{*sc.Spec.Node}
-			}).
-			WithIndex(&dpuservicev1.NodeServiceInterfaces{}, utils.NSINodeFieldKey, utils.NSINodeIndexFunc).
-			WithIndex(&dpuservicev1.NodeServiceInterfaces{}, utils.NSITypeFieldKey, utils.NSITypeIndexFunc).
-			WithIndex(&dpuservicev1.ServiceInterface{}, utils.ServiceInterfaceNodeFieldKey, utils.ServiceInterfaceNodeIndexFunc).
-			Build()
-		nsiScr := &ServiceChainReconciler{Client: nsiClient, NodeName: testNode}
-
-		mine := &dpuservicev1.ServiceChain{
-			ObjectMeta: metav1.ObjectMeta{Name: "chain-nsi", Namespace: testNS},
-			Spec: dpuservicev1.ServiceChainSpec{
-				Node: &testNode,
-				Switches: []dpuservicev1.Switch{{Ports: []dpuservicev1.Port{{
-					ServiceInterface: dpuservicev1.ServiceIfc{MatchLabels: map[string]string{"k": "v"}},
-				}}}},
-			},
-		}
-		Expect(nsiClient.Create(ctx, mine)).To(Succeed())
+		mine := newChain("chain-nsi", testNode)
 
 		// No legacy ServiceInterface exists for this service; only an NSI entry backs it.
 		nsi := &dpuservicev1.NodeServiceInterfaces{
@@ -1617,13 +1886,13 @@ var _ = Describe("ServiceChainReconciler TriggerResync", func() {
 				}},
 			},
 		}
-		Expect(nsiClient.Create(ctx, nsi)).To(Succeed())
+		Expect(fakeClient.Create(ctx, nsi)).To(Succeed())
 
 		pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
 			Namespace: testNS,
 			Labels:    map[string]string{dpuservicev1.DPFServiceIDLabelKey: serviceID},
 		}}
-		reqs := nsiScr.serviceChainsForPod(ctx, pod)
+		reqs := scr.serviceChainsForPod(ctx, pod)
 		Expect(reqs).To(ConsistOf(reconcile.Request{NamespacedName: client.ObjectKeyFromObject(mine)}))
 	})
 
