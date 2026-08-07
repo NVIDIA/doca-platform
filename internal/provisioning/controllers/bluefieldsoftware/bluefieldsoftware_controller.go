@@ -76,7 +76,8 @@ func (r *BlueFieldSoftwareReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		}
 	}()
 
-	// Add finalizer if not set and BlueFieldSoftware is not currently deleting.
+	// Add cleanup finalizer if not set and BlueFieldSoftware is not currently deleting.
+	// Per-DPUSet protection finalizers (bfs-dpuset-*) are owned by the DPUSet controller.
 	if !controllerutil.ContainsFinalizer(bfs, provisioningv1.BlueFieldSoftwareFinalizer) && bfs.DeletionTimestamp.IsZero() {
 		controllerutil.AddFinalizer(bfs, provisioningv1.BlueFieldSoftwareFinalizer)
 		return ctrl.Result{}, nil
