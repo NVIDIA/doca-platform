@@ -61,7 +61,7 @@ func init() {
 // To add a new feature, define a key for it above and add it here.
 var defaultDPFFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	// Every feature should be registered here:
-	NSIPathForSFC:            {Default: false, PreRelease: featuregate.Alpha},
+	NSIPathForSFC:            {Default: true, PreRelease: featuregate.Beta},
 	NSIPathForVPC:            {Default: false, PreRelease: featuregate.Alpha},
 	ConfigPortsOverHighSpeed: {Default: false, PreRelease: featuregate.Alpha},
 }
