@@ -309,6 +309,194 @@ func TestHandle_ExtractSuccess(t *testing.T) {
 	assert.Equal(t, metav1.ConditionTrue, cond.Status)
 }
 
+// newLeftoverExtractBFS builds a BlueFieldSoftware whose extract output directory
+// already exists on disk, holding a read-only file like a real unpacked image.
+func newLeftoverExtractBFS(t *testing.T, nameSuffix string) (*provisioningv1.BlueFieldSoftware, string) {
+	t.Helper()
+	bfs := &provisioningv1.BlueFieldSoftware{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns-" + nameSuffix,
+			Name:      "bfs-" + nameSuffix,
+		},
+		Status: provisioningv1.BlueFieldSoftwareStatus{
+			Phase: provisioningv1.BlueFieldSoftwareExtracting,
+			DownloadedComponents: provisioningv1.DownloadedComponents{
+				PldmFwBundle: "https://example.com/fw-base.fwpkg",
+			},
+		},
+	}
+	outDir := extractOutputDirForBFS(bfs, butil.ComponentTypeFwBundle)
+	require.NoError(t, os.MkdirAll(outDir, 0o755))
+	leftover := filepath.Join(outDir, "BMC_BF4-BMC_BF4-26.01-1_image.bin")
+	require.NoError(t, os.WriteFile(leftover, []byte("leftover"), 0o444))
+	return bfs, leftover
+}
+
+func TestHandle_ReExtractsWhenVersionsMissing(t *testing.T) {
+	defer withTestBFBBaseDir(t)()
+
+	callCount := 0
+	socketPath, shutdown := startUnixHTTPServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		callCount++
+		_ = json.NewEncoder(w).Encode(unpackResponse{
+			Success: true,
+			Stdout: `{
+				"FirmwareDeviceRecords": [
+					{
+						"Components": [
+							{
+								"ComponentVersionString": "BF4-26.01-4",
+								"FWImage": "/tmp/BMC_BF4-BMC_BF4-26.01-4_image.bin"
+							}
+						]
+					}
+				]
+			}`,
+		})
+	})
+	defer shutdown()
+
+	setEnvForUnpackServer(t, socketPath)
+
+	bfs, leftover := newLeftoverExtractBFS(t, fmt.Sprintf("reextract-%d", time.Now().UnixNano()))
+
+	st := &blueFieldSoftwareExtractingState{
+		bfs:      bfs,
+		recorder: record.NewFakeRecorder(5),
+	}
+	require.NoError(t, st.Handle(context.Background(), nil))
+
+	assert.Equal(t, 1, callCount, "unpack must run again when status carries no versions")
+	require.NotNil(t, bfs.Status.Versions, "Ready must not be reached without versions")
+	assert.Equal(t, "BF4-26.01-4", bfs.Status.Versions.BMCVersion)
+	assert.Equal(t, provisioningv1.BlueFieldSoftwareReady, bfs.Status.Phase)
+
+	_, err := os.Stat(leftover)
+	assert.True(t, os.IsNotExist(err), "stale output must be cleared before re-unpacking")
+}
+
+func TestHandle_SkipsExtractWhenVersionsRecorded(t *testing.T) {
+	defer withTestBFBBaseDir(t)()
+
+	callCount := 0
+	socketPath, shutdown := startUnixHTTPServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		callCount++
+		_ = json.NewEncoder(w).Encode(unpackResponse{Success: true})
+	})
+	defer shutdown()
+
+	setEnvForUnpackServer(t, socketPath)
+
+	bfs, leftover := newLeftoverExtractBFS(t, fmt.Sprintf("skip-%d", time.Now().UnixNano()))
+	bfs.Status.Versions = &provisioningv1.BluefieldSoftwareVersions{BMCVersion: "BF4-26.01-1"}
+
+	st := &blueFieldSoftwareExtractingState{
+		bfs:      bfs,
+		recorder: record.NewFakeRecorder(5),
+	}
+	require.NoError(t, st.Handle(context.Background(), nil))
+
+	assert.Equal(t, 0, callCount, "unpack must be skipped when output and versions are both present")
+	assert.Equal(t, "BF4-26.01-1", bfs.Status.Versions.BMCVersion)
+	assert.Equal(t, provisioningv1.BlueFieldSoftwareReady, bfs.Status.Phase)
+
+	_, err := os.Stat(leftover)
+	assert.NoError(t, err, "existing output must be left alone on the skip path")
+}
+
+func TestStatusHasVersionsForComponent(t *testing.T) {
+	t.Parallel()
+
+	assert.False(t, statusHasVersionsForComponent(nil, butil.ComponentTypeFwBundle))
+
+	bfs := &provisioningv1.BlueFieldSoftware{}
+	assert.False(t, statusHasVersionsForComponent(bfs, butil.ComponentTypeFwBundle))
+
+	bfs.Status.Versions = &provisioningv1.BluefieldSoftwareVersions{}
+	assert.False(t, statusHasVersionsForComponent(bfs, butil.ComponentTypeFwBundle))
+
+	// The platform bundle only ever populates EWNicFwVersion, so it must not be
+	// read as evidence that the base bundle was extracted.
+	bfs.Status.Versions.EWNicFwVersion = "82.48.0906"
+	assert.True(t, statusHasVersionsForComponent(bfs, butil.ComponentTypePlatformFwBundle))
+	assert.False(t, statusHasVersionsForComponent(bfs, butil.ComponentTypeFwBundle))
+
+	bfs.Status.Versions.SBIOSVersion = "1.2.3"
+	assert.True(t, statusHasVersionsForComponent(bfs, butil.ComponentTypeFwBundle))
+
+	assert.False(t, statusHasVersionsForComponent(bfs, butil.ComponentTypeOSISO))
+}
+
+// TestStatusHasVersionsForComponent_CoversExtractableTypes fails if a component type
+// is added to extractableComponentTypes without a case in
+// statusHasVersionsForComponent, which would make its bundle unpack again on every
+// entry to the Extracting state.
+func TestStatusHasVersionsForComponent_CoversExtractableTypes(t *testing.T) {
+	t.Parallel()
+
+	bfs := &provisioningv1.BlueFieldSoftware{
+		Status: provisioningv1.BlueFieldSoftwareStatus{
+			Versions: &provisioningv1.BluefieldSoftwareVersions{
+				FwBundleVersion: "set",
+				OSISOVersion:    "set",
+				EWNicFwVersion:  "set",
+				BMCVersion:      "set",
+				BMCErotVersion:  "set",
+				SBIOSVersion:    "set",
+				BFNicFwVersion:  "set",
+			},
+		},
+	}
+
+	require.NotEmpty(t, extractableComponentTypes)
+	for _, componentType := range extractableComponentTypes {
+		assert.True(t, statusHasVersionsForComponent(bfs, componentType),
+			"component type %q has no case in statusHasVersionsForComponent", componentType)
+	}
+}
+
+// TestHandle_UnmatchedComponentNamesStillReachReady pins that a bundle whose image
+// names match none of the known patterns settles in Ready rather than re-unpacking:
+// state is dispatched on Status.Phase, so leaving Extracting is what bounds the work.
+func TestHandle_UnmatchedComponentNamesStillReachReady(t *testing.T) {
+	defer withTestBFBBaseDir(t)()
+
+	callCount := 0
+	socketPath, shutdown := startUnixHTTPServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		callCount++
+		_ = json.NewEncoder(w).Encode(unpackResponse{
+			Success: true,
+			Stdout: `{
+				"FirmwareDeviceRecords": [
+					{
+						"Components": [
+							{
+								"ComponentVersionString": "1.2.3",
+								"FWImage": "/tmp/UNKNOWN_COMPONENT_image.bin"
+							}
+						]
+					}
+				]
+			}`,
+		})
+	})
+	defer shutdown()
+
+	setEnvForUnpackServer(t, socketPath)
+
+	bfs, _ := newLeftoverExtractBFS(t, fmt.Sprintf("unmatched-%d", time.Now().UnixNano()))
+
+	st := &blueFieldSoftwareExtractingState{
+		bfs:      bfs,
+		recorder: record.NewFakeRecorder(5),
+	}
+	require.NoError(t, st.Handle(context.Background(), nil))
+
+	assert.Equal(t, 1, callCount)
+	assert.Equal(t, provisioningv1.BlueFieldSoftwareReady, bfs.Status.Phase)
+	assert.Empty(t, bfs.Status.Versions.BMCVersion)
+}
+
 func TestHandle_ExtractFailure(t *testing.T) {
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 	socketPath, shutdown := startUnixHTTPServer(t, func(w http.ResponseWriter, _ *http.Request) {

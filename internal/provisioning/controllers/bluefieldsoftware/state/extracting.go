@@ -98,29 +98,8 @@ func (st *blueFieldSoftwareExtractingState) Handle(ctx context.Context, _ client
 	}
 
 	for _, target := range targets {
-		outDir := st.extractOutputDir(target.componentType)
-		// Idempotent reconcile: skip unpack if output already exists (e.g. prior run
-		// extracted successfully but status did not patch to Ready yet).
-		alreadyExtracted, err := isExtractOutputPresent(outDir)
-		if err != nil {
-			msg := fmt.Sprintf("Check extract output directory for %s (%s/%s): %v",
-				target.componentType, st.bfs.Namespace, st.bfs.Name, err)
-			st.recorder.Eventf(st.bfs, corev1.EventTypeWarning, events.EventFailedExtractBFBReason, msg)
-			st.bfs.Status.Phase = provisioningv1.BlueFieldSoftwareError
-			conditions.AddFalse(st.bfs, provisioningv1.BlueFieldSoftwareCondReady, conditions.ReasonFailure, conditions.ConditionMessage(msg))
+		if err := st.unpackTargetIfNeeded(ctx, target); err != nil {
 			return err
-		}
-		if !alreadyExtracted {
-			components, err := callPldmUnpackService(ctx, target.packagePath, outDir)
-			if err != nil {
-				msg := fmt.Sprintf("Extract PLDM firmware bundle for %s (%s/%s) failed: %v",
-					target.componentType, st.bfs.Namespace, st.bfs.Name, err)
-				st.recorder.Eventf(st.bfs, corev1.EventTypeWarning, events.EventFailedExtractBFBReason, msg)
-				st.bfs.Status.Phase = provisioningv1.BlueFieldSoftwareError
-				conditions.AddFalse(st.bfs, provisioningv1.BlueFieldSoftwareCondReady, conditions.ReasonFailure, conditions.ConditionMessage(msg))
-				return err
-			}
-			applyUnpackedComponentsToDownloaded(st.bfs, target.componentType, components)
 		}
 	}
 
@@ -131,17 +110,64 @@ func (st *blueFieldSoftwareExtractingState) Handle(ctx context.Context, _ client
 	return nil
 }
 
+// unpackTargetIfNeeded unpacks target unless its output directory and the status
+// versions derived from that output are both already present.
+func (st *blueFieldSoftwareExtractingState) unpackTargetIfNeeded(ctx context.Context, target extractTarget) error {
+	outDir := st.extractOutputDir(target.componentType)
+	alreadyExtracted, err := isExtractOutputPresent(outDir)
+	if err != nil {
+		return st.failExtract(err, "Check extract output directory for %s (%s/%s): %v",
+			target.componentType, st.bfs.Namespace, st.bfs.Name, err)
+	}
+
+	if alreadyExtracted && statusHasVersionsForComponent(st.bfs, target.componentType) {
+		return nil
+	}
+
+	// A leftover output directory does not mean status kept the versions.
+	// Clear it before re-unpacking: unpacked images are written read-only.
+	if alreadyExtracted {
+		if err := cutil.RemoveAllEx(outDir); err != nil {
+			return st.failExtract(err, "Clear stale extract output directory for %s (%s/%s) failed: %v",
+				target.componentType, st.bfs.Namespace, st.bfs.Name, err)
+		}
+	}
+
+	components, err := callPldmUnpackService(ctx, target.packagePath, outDir)
+	if err != nil {
+		return st.failExtract(err, "Extract PLDM firmware bundle for %s (%s/%s) failed: %v",
+			target.componentType, st.bfs.Namespace, st.bfs.Name, err)
+	}
+	applyUnpackedComponentsToDownloaded(st.bfs, target.componentType, components)
+	return nil
+}
+
+// failExtract moves the object to Error with the formatted message and returns err
+// unchanged so callers can propagate it.
+func (st *blueFieldSoftwareExtractingState) failExtract(err error, format string, args ...any) error {
+	msg := fmt.Sprintf(format, args...)
+	st.recorder.Eventf(st.bfs, corev1.EventTypeWarning, events.EventFailedExtractBFBReason, msg)
+	st.bfs.Status.Phase = provisioningv1.BlueFieldSoftwareError
+	conditions.AddFalse(st.bfs, provisioningv1.BlueFieldSoftwareCondReady,
+		conditions.ReasonFailure, conditions.ConditionMessage(msg))
+	return err
+}
+
 type extractTarget struct {
 	componentType butil.ComponentType
 	packagePath   string
 }
 
+// extractableComponentTypes are the component types unpacked by this state. Every
+// entry must have a case in statusHasVersionsForComponent.
+var extractableComponentTypes = []butil.ComponentType{
+	butil.ComponentTypeFwBundle,
+	butil.ComponentTypePlatformFwBundle,
+}
+
 func (st *blueFieldSoftwareExtractingState) resolveExtractTargets() []extractTarget {
 	var targets []extractTarget
-	for _, componentType := range []butil.ComponentType{
-		butil.ComponentTypeFwBundle,
-		butil.ComponentTypePlatformFwBundle,
-	} {
+	for _, componentType := range extractableComponentTypes {
 		if packagePath := st.resolvePackagePath(componentType); packagePath != "" {
 			targets = append(targets, extractTarget{
 				componentType: componentType,
@@ -309,6 +335,36 @@ func extractUnpackedComponents(stdout string) ([]unpackedComponent, error) {
 		}
 	}
 	return components, nil
+}
+
+// statusHasVersionsForComponent reports whether status already carries version data
+// derived from componentType's bundle, and is the signal used to decide that its
+// output does not need unpacking again.
+//
+// The fields listed per component type below must be exactly those that
+// applyUnpackedComponentsToDownloaded can write for that component type - the two
+// functions are coupled and have to be updated together. If they drift, or a
+// component type reaches here without a case, the bundle is treated as never
+// extracted and is unpacked again each time the object enters this state.
+// TestStatusHasVersionsForComponent_CoversExtractableTypes guards the missing-case
+// half of that invariant.
+//
+// One populated field is enough: a bundle need not ship every component, and
+// requiring all of them would re-unpack bundles that are perfectly fine.
+func statusHasVersionsForComponent(bfs *provisioningv1.BlueFieldSoftware, componentType butil.ComponentType) bool {
+	if bfs == nil || bfs.Status.Versions == nil {
+		return false
+	}
+	versions := bfs.Status.Versions
+	switch componentType {
+	case butil.ComponentTypeFwBundle:
+		return versions.BMCVersion != "" || versions.BMCErotVersion != "" ||
+			versions.SBIOSVersion != "" || versions.BFNicFwVersion != ""
+	case butil.ComponentTypePlatformFwBundle:
+		return versions.EWNicFwVersion != ""
+	default:
+		return false
+	}
 }
 
 func applyUnpackedComponentsToDownloaded(
