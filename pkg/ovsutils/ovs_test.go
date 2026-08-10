@@ -1395,20 +1395,27 @@ var _ = Describe("OVSUtils", func() {
 
 			Context("atomic field writes", func() {
 				var (
-					createdIface *ovsmodel.Interface
-					createdPort  *ovsmodel.Port
-					transactOps  []ovsdb.Operation
+					createdIface   *ovsmodel.Interface
+					createdPort    *ovsmodel.Port
+					bridgeMutation model.Mutation
+					transactOps    []ovsdb.Operation
 				)
 
 				BeforeEach(func() {
 					createdIface = nil
 					createdPort = nil
+					bridgeMutation = model.Mutation{}
 					transactOps = nil
 
 					// Port does not exist
 					mockOVSClient.EXPECT().
 						Get(gomock.Any(), gomock.Any()).
-						Return(ovsclient.ErrNotFound)
+						DoAndReturn(func(_ context.Context, m interface{}) error {
+							port := m.(*ovsmodel.Port)
+							Expect(port.Name).NotTo(BeEmpty())
+							Expect(port.UUID).To(BeEmpty(), "the existence check must use the port name, not a generated UUID")
+							return ovsclient.ErrNotFound
+						})
 					// Bridge exists
 					mockOVSClient.EXPECT().
 						Get(gomock.Any(), gomock.Any()).
@@ -1438,7 +1445,11 @@ var _ = Describe("OVSUtils", func() {
 						Return(mockConditionalAPI)
 					mockConditionalAPI.EXPECT().
 						Mutate(gomock.Any(), gomock.Any()).
-						Return([]ovsdb.Operation{{Op: "mutate", Table: "Bridge"}}, nil)
+						DoAndReturn(func(_ interface{}, mutations ...model.Mutation) ([]ovsdb.Operation, error) {
+							Expect(mutations).To(HaveLen(1))
+							bridgeMutation = mutations[0]
+							return []ovsdb.Operation{{Op: "mutate", Table: "Bridge"}}, nil
+						})
 					mockOVSClient.EXPECT().
 						Transact(gomock.Any(), gomock.Any()).
 						DoAndReturn(func(ctx context.Context, ops ...ovsdb.Operation) ([]ovsdb.OperationResult, error) {
@@ -1447,6 +1458,33 @@ var _ = Describe("OVSUtils", func() {
 							return results, nil
 						})
 				})
+
+				DescribeTable("uses real UUIDs for transaction references while preserving the port name",
+					func(portName string) {
+						Expect(client.AddPort(ctx, PortConfig{
+							BridgeName:    "br-test",
+							Name:          portName,
+							InterfaceType: "patch",
+						})).To(Succeed())
+
+						Expect(createdPort.Name).To(Equal(portName))
+						Expect(createdIface.Name).To(Equal(portName))
+						Expect(ovsdb.IsValidUUID(createdPort.UUID)).To(BeTrue())
+						Expect(ovsdb.IsValidUUID(createdIface.UUID)).To(BeTrue())
+						Expect(createdPort.UUID).NotTo(Equal(createdIface.UUID))
+						Expect(createdPort.Interfaces).To(Equal([]string{createdIface.UUID}))
+						Expect(bridgeMutation.Mutator).To(Equal(ovsdb.MutateOperationInsert))
+						Expect(bridgeMutation.Value).To(Equal([]string{createdPort.UUID}))
+					},
+					Entry("peer patch name from bug 5088619", "p_br-xplane-r1-to-br-sfc"),
+					Entry("SFC-side generated name from bug 5088619", "p_brsfc_to_p_br-xplane-r1-to-br-sfc"),
+					Entry("name containing only RFC-safe named UUID characters", "port_with_underscores"),
+					Entry("hyphenated collision candidate", "port-a"),
+					Entry("underscored collision candidate", "port_a"),
+					Entry("name beginning with a digit", "1port"),
+					Entry("UUID-looking port name", "550e8400-e29b-41d4-a716-446655440000"),
+					Entry("name containing other named-UUID-invalid punctuation", "port.name:1"),
+				)
 
 				It("writes InterfaceExternalIDs and PortExternalIDs in the same transaction as Create", func() {
 					Expect(client.AddPort(ctx, PortConfig{
