@@ -1,0 +1,6 @@
+apiVersion: v2
+name: dpu-monitoring
+description: RBAC allowing Prometheus to scrape the DPU cluster control plane metrics endpoints
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

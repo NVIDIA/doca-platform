@@ -1,0 +1,14 @@
+# deployDPUManifests controls whether the manifests deployed to the DPU cluster are rendered.
+# The DPF Operator sets this on the DPUService which deploys this chart to the DPU clusters.
+deployDPUManifests: false
+
+rbac:
+  # serviceAccountName is the ServiceAccount granted read access to the control plane metrics
+  # endpoints of the DPU cluster this chart is deployed into. It is created there by the
+  # DPUServiceCredentialRequest the DPF Operator generates for that cluster, and the token
+  # minted for it is used by the Prometheus running in the management cluster.
+  #
+  # The ServiceAccount is created inside each DPU cluster, so it carries the same name in all
+  # of them and can be hardcoded here rather than passed in by the operator. It must match
+  # operatorv1.DPUMonitoringName, which TestDPUMonitoringChartServiceAccountName verifies.
+  serviceAccountName: dpu-monitoring
