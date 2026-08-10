@@ -176,7 +176,7 @@ func Generate(root string, dumps []string, outputPath string) error {
 	}
 	idx.Logs = logs
 
-	ciLogs, err := buildCILogs(root)
+	ciLogs, err := DiscoverCILogs(root)
 	if err != nil {
 		return err
 	}
@@ -255,12 +255,80 @@ func buildDumpEntry(dumpDir, root string) (*DumpEntry, error) {
 	return entry, nil
 }
 
-// buildLogs collects container logs from <root>/logs, if that directory exists.
-// The expected layout is logs/<cluster>/<namespace>/<pod>/<container>.log (as
-// produced by hack/scripts/log-collector.sh). A missing logs/ directory is not
-// an error. Paths are recorded relative to root so the page can fetch them.
+// DiscoverLogDirs walks root and returns every directory named "logs" found
+// underneath it, sorted. Multi-phase jobs run each phase with its own
+// ARTIFACTS_DIR (e.g. artifacts/before, artifacts/after), so a single artifact
+// root can hold several log trees rather than just <root>/logs. Nested logs/
+// directories are not descended into, and resource dump sections are skipped.
+func DiscoverLogDirs(root string) ([]string, error) {
+	if _, err := os.Stat(root); err != nil {
+		return nil, err
+	}
+
+	var dirs []string
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			// Skip unreadable entries but keep walking their siblings.
+			if d != nil && d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !d.IsDir() {
+			return nil
+		}
+		switch d.Name() {
+		case "logs":
+			dirs = append(dirs, path)
+			return filepath.SkipDir
+		case "Resources", "Events":
+			return filepath.SkipDir
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	sort.Strings(dirs)
+	return dirs, nil
+}
+
+// buildLogs collects container logs from every logs/ directory under root. The
+// expected layout is logs/<cluster>/<namespace>/<pod>/<container>.log (as
+// produced by hack/scripts/log-collector.sh). Clusters from a logs/ directory
+// below root are named "<phase>/<cluster>" (e.g. "before/host-cluster") so
+// phases stay distinguishable. Having no logs/ directory is not an error. Paths
+// are recorded relative to root so the page can fetch them.
 func buildLogs(root string) ([]*LogCluster, error) {
-	logsDir := filepath.Join(root, "logs")
+	logDirs, err := DiscoverLogDirs(root)
+	if err != nil {
+		return nil, err
+	}
+
+	var clusters []*LogCluster
+	for _, logsDir := range logDirs {
+		phase, err := filepath.Rel(root, filepath.Dir(logsDir))
+		if err != nil {
+			return nil, err
+		}
+		if phase == "." {
+			phase = ""
+		}
+		phaseClusters, err := buildLogClusters(logsDir, root, filepath.ToSlash(phase))
+		if err != nil {
+			return nil, err
+		}
+		clusters = append(clusters, phaseClusters...)
+	}
+	return clusters, nil
+}
+
+// buildLogClusters indexes the container logs of a single logs/ directory.
+// phase is the directory holding logsDir relative to root, empty for
+// <root>/logs; it prefixes the cluster names so several phases can be shown
+// side by side.
+func buildLogClusters(logsDir, root, phase string) ([]*LogCluster, error) {
 	clusterEntries, err := os.ReadDir(logsDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -323,15 +391,27 @@ func buildLogs(root string) ([]*LogCluster, error) {
 			}
 			return files[i].Container < files[j].Container
 		})
-		clusters = append(clusters, &LogCluster{Name: clusterName, Files: files})
+		displayName := clusterName
+		if phase != "" {
+			displayName = phase + "/" + clusterName
+		}
+		clusters = append(clusters, &LogCluster{Name: displayName, Files: files})
 	}
 
-	// Sort with the host cluster first, then the rest alphabetically.
+	// Sort with the host cluster first, then the rest alphabetically. All
+	// clusters here share the same phase prefix, so the bare cluster name (the
+	// last path element of the display name) decides the order.
+	bare := func(name string) string {
+		if _, after, ok := strings.Cut(name, phase+"/"); phase != "" && ok {
+			return after
+		}
+		return name
+	}
 	sort.Slice(clusters, func(i, j int) bool {
-		if clusters[i].Name == "host-cluster" {
+		if bare(clusters[i].Name) == "host-cluster" {
 			return true
 		}
-		if clusters[j].Name == "host-cluster" {
+		if bare(clusters[j].Name) == "host-cluster" {
 			return false
 		}
 		return clusters[i].Name < clusters[j].Name
@@ -339,20 +419,39 @@ func buildLogs(root string) ([]*LogCluster, error) {
 	return clusters, nil
 }
 
-// buildCILogs lists the *.log files directly under root (CI job step logs). It
-// does not recurse; nested logs live under logs/ and the dump directories.
-func buildCILogs(root string) ([]*CILog, error) {
-	entries, err := os.ReadDir(root)
+// DiscoverCILogs lists the *.log files under root that are not container logs
+// (CI job step logs). Container logs live under logs/ directories and are
+// indexed by buildLogs instead, so those trees are skipped. Everything else is
+// walked because multi-phase jobs write their step logs into per-phase
+// subdirectories. Names are the paths relative to root.
+func DiscoverCILogs(root string) ([]*CILog, error) {
+	var logs []*CILog
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			if d != nil && d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.IsDir() {
+			if d.Name() == "logs" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(d.Name(), ".log") {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		name := filepath.ToSlash(rel)
+		logs = append(logs, &CILog{Path: name, Name: name})
+		return nil
+	})
 	if err != nil {
 		return nil, err
-	}
-
-	var logs []*CILog
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".log") {
-			continue
-		}
-		logs = append(logs, &CILog{Path: e.Name(), Name: e.Name()})
 	}
 
 	sort.Slice(logs, func(i, j int) bool {
