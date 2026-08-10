@@ -30,7 +30,7 @@ spec:
       raw: ""
     - operation: override
       path: /var/lib/dpf/dpuagent/node-label-scripts/node-labeling-test.sh
-      permissions: "0755"
+      permissions: "0700"
       raw: |
         #!/bin/bash
         echo "node-labeling-test=ok"

@@ -178,7 +178,7 @@ spec:
       raw: ""
     - path: /etc/mellanox/dpf-setup-ovs.sh
       operation: override
-      permissions: "0755"
+      permissions: "0700"
       raw: |
         #!/bin/bash
 
