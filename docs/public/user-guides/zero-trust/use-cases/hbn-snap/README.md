@@ -1079,7 +1079,7 @@ spec:
             enabled: true
             image:
               repository: $SNAP_NGC_IMAGE_URL
-              tag: 1.7.0-doca3.4.0
+              tag: 1.8.0-doca3.5.0
             snapRpcInitConf: |
               nvme_subsystem_create --nqn nqn.2022-10.io.nvda.nvme:0
   interfaces:
@@ -2327,7 +2327,7 @@ spec:
               XLIO_ENABLED: "0"
             image:
               repository: $SNAP_NGC_IMAGE_URL
-              tag: 1.7.0-doca3.4.0
+              tag: 1.8.0-doca3.5.0
   interfaces:
   - name: app_sf
     network: mybrsfc-storage
