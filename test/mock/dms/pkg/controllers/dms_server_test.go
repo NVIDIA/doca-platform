@@ -321,7 +321,7 @@ func newCert(key *rsa.PrivateKey) (*x509.Certificate, error) {
 // The implementation is purely a stub as this command it outputs is never run.
 type mockKubeadmJoinCommandGenerator struct{}
 
-func (m *mockKubeadmJoinCommandGenerator) GenerateJoinCommand(context.Context, *provisioningv1.DPUCluster) (string, error) {
+func (m *mockKubeadmJoinCommandGenerator) GenerateJoinCommand(context.Context, *provisioningv1.DPUCluster, *provisioningv1.DPU) (string, error) {
 	return "soup", nil
 }
 

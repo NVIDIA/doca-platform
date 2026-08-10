@@ -30,6 +30,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -93,6 +94,32 @@ func ClusterConfig(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.
 	if err = cutil.UpdateLabelsAndAnnotationsToNode(ctx, newClient, node, dpu.Spec.Cluster.NodeLabels, ann); err != nil {
 		err = fmt.Errorf("failed to update node labels and annotations: %w", err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondDPUClusterReady.String(), err, "AddLabelsOrAnnotationsToObjectError", err.Error()))
+		return *state, err
+	}
+
+	// Revoke the short-lived kubeadm bootstrap token once the node has joined.
+	if err := dutil.DeleteNodeJoinBootstrapTokens(ctx, newClient, dpu.Name, dpu.Namespace); err != nil {
+		err = fmt.Errorf("failed to delete node-join bootstrap tokens: %w", err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondDPUClusterReady.String(), err, "DeleteNodeJoinBootstrapTokensError", err.Error()))
+		return *state, err
+	}
+
+	// Remove the join command secret so the token is no longer retrievable from the management cluster.
+	kubeadmJoinSecret := &corev1.Secret{}
+	kubeadmJoinSecret.Name = cutil.KubeadmJoinSecretName(dpu.Name)
+	kubeadmJoinSecret.Namespace = dpu.Namespace
+	if err := ctrlCtx.Client.Delete(ctx, kubeadmJoinSecret); client.IgnoreNotFound(err) != nil {
+		err = fmt.Errorf("failed to delete kubeadm join secret: %w", err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondDPUClusterReady.String(), err, "DeleteKubeadmJoinSecretError", err.Error()))
+		return *state, err
+	}
+
+	// Agent has already exchanged the bootstrap token for a client certificate by
+	// this point (needed to read the join secret). Revoke the management-cluster
+	// token so it cannot be reused after the DPU is in the cluster.
+	if err := cutil.DeleteDPUAgentBootstrapTokens(ctx, ctrlCtx.Client, dpu.Name, dpu.Namespace); err != nil {
+		err = fmt.Errorf("failed to delete DPU agent bootstrap tokens: %w", err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondDPUClusterReady.String(), err, "DeleteDPUAgentBootstrapTokensError", err.Error()))
 		return *state, err
 	}
 

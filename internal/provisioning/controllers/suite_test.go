@@ -405,7 +405,7 @@ func pldmUnpackServer() func() {
 
 type mockNodeJoinCommandGenerator struct{}
 
-func (m *mockNodeJoinCommandGenerator) GenerateJoinCommand(ctx context.Context, dc *provisioningv1.DPUCluster) (string, error) {
+func (m *mockNodeJoinCommandGenerator) GenerateJoinCommand(ctx context.Context, dc *provisioningv1.DPUCluster, dpu *provisioningv1.DPU) (string, error) {
 	return "soup", nil
 }
 
