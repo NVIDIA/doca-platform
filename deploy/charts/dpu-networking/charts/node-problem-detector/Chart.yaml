@@ -3,4 +3,4 @@ name: node-problem-detector
 description: Node-problem-detector for DPU nodes
 type: application
 version: 0.1.0
-appVersion: "0.1.0"
+appVersion: "v1.36.0"
