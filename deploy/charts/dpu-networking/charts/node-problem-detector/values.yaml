@@ -4,8 +4,7 @@ serviceDaemonSet:
 image:
   repository: registry.k8s.io/node-problem-detector/node-problem-detector
   pullPolicy: IfNotPresent
-  # Current tag is v1.35.1
-  tag: v1.35.1@sha256:c380751accc5e15973f7bf98a3725c3c30826b36ae407903c34297be47b73bc6
+  tag: v1.36.0@sha256:b4db5a168c5f6192c3fb3d650920d192d83776598fcdfcc092d16ca8dc9213ff
 
 imagePullSecrets: []
 

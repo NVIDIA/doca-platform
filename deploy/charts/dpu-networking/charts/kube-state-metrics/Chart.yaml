@@ -3,4 +3,4 @@ name: kube-state-metrics
 description: Kube-state-metrics for DPU custom resources
 type: application
 version: 0.1.0
-appVersion: "0.1.0"
+appVersion: "v2.19.1"
