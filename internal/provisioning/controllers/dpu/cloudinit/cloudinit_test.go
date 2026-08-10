@@ -231,7 +231,7 @@ network:
 		}
 
 		ovsFile := getWriteFile(parsed, "/opt/dpf/ovs.sh")
-		Expect(ovsFile.Permissions).To(Equal("0755"))
+		Expect(ovsFile.Permissions).To(Equal("0700"))
 		expectedOvs := skipFirstEmptyLine(`
 #! /bin/bash
 set -e
@@ -271,7 +271,7 @@ ovs-vsctl add-br br-test
 		Expect(aptSource.Content).To(Equal("deb [trusted=yes] http://bfb-registry:8080/deb ./\n"))
 
 		installFile := getWriteFile(parsed, "/opt/dpf/install-dpu-agent.sh")
-		Expect(installFile.Permissions).To(Equal("0755"))
+		Expect(installFile.Permissions).To(Equal("0700"))
 
 		Expect(parsed.PreserveHostname).NotTo(BeNil())
 		Expect(*parsed.PreserveHostname).To(BeFalse())

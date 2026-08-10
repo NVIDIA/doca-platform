@@ -258,7 +258,7 @@ write_files:
 
 {{- if .OVSRawScript}}
   - path: /opt/dpf/ovs.sh
-    permissions: '0755'
+    permissions: '0700'
     content: |
       #! /bin/bash
       set -e
@@ -300,7 +300,7 @@ write_files:
       deb [trusted=yes] {{.DPUAgentRepoURL}} ./
 
   - path: /opt/dpf/install-dpu-agent.sh
-    permissions: '0755'
+    permissions: '0700'
     content: |
       #!/bin/bash
       set -euo pipefail
@@ -464,7 +464,7 @@ network:
 				Expect(configFile.Content).To(Equal("key=value\n"))
 
 				ovsFile := getWriteFile(parsed, "/opt/dpf/ovs.sh")
-				Expect(ovsFile.Permissions).To(Equal("0755"))
+				Expect(ovsFile.Permissions).To(Equal("0700"))
 				expectedOvs := skipFirstEmptyLine(`
 #! /bin/bash
 set -e
@@ -502,7 +502,7 @@ ovs-vsctl add-br br-test
 				Expect(aptSource.Content).To(Equal("deb [trusted=yes] http://bfb-registry:8080/deb ./\n"))
 
 				installFile := getWriteFile(parsed, "/opt/dpf/install-dpu-agent.sh")
-				Expect(installFile.Permissions).To(Equal("0755"))
+				Expect(installFile.Permissions).To(Equal("0700"))
 
 				Expect(parsed.RunCmd).To(Equal([][]string{
 					{"/opt/dpf/install-dpu-agent.sh"},
