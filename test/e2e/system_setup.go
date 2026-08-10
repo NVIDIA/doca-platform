@@ -523,8 +523,13 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 			itemNames = append(itemNames, item.Name)
 		}
 
-		// Validate the expected number of DPUServices.
-		g.Expect(dpuServices.Items).To(HaveLen(11), "Expected 11 DPUServices, got %d: [%s]", len(dpuServices.Items), strings.Join(itemNames, ", "))
+		// Validate the expected number of DPUServices. The last released GA predates the
+		// dpu-monitoring DPUService, so it deploys one fewer.
+		expectedDPUServiceCount := 12
+		if isCurrentVersionLastReleasedGA {
+			expectedDPUServiceCount = 11
+		}
+		g.Expect(dpuServices.Items).To(HaveLen(expectedDPUServiceCount), "Expected %d DPUServices, got %d: [%s]", expectedDPUServiceCount, len(dpuServices.Items), strings.Join(itemNames, ", "))
 
 		found := map[string]bool{}
 		for i := range dpuServices.Items {
@@ -536,6 +541,7 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 		// Else: initial phase of the upgrade test (deployed from the last GA release).
 		if !isCurrentVersionLastReleasedGA {
 			g.Expect(found).To(HaveKey(operatorv1.KataContainersName.String()))
+			g.Expect(found).To(HaveKey(operatorv1.DPUMonitoringName.String()))
 		}
 
 		// Expect each of the following to have been created by the operator.

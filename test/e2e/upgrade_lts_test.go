@@ -36,8 +36,8 @@ import (
 // nvidia-k8s-ipam and servicechainset-controller services, no
 // kube-state-metrics on the DPU cluster, no per-cluster controller split.
 // Only the BFB LTS Phase 1 install runs against this shape; once the operator
-// is upgraded to v26.4 the controller reshapes DPUServices to the current
-// layout (see expectedDPUServicesCurrent in upgrade_test.go) without needing
+// is upgraded to v26.4 the controller reshapes DPUServices to the v26.04
+// layout (see expectedDPUServicesV2604 in upgrade_test.go) without needing
 // a DPU reprovision.
 func expectedDPUServicesV2510(_ *systemTestInput) []string {
 	return []string{
@@ -98,7 +98,7 @@ var _ = Describe("DPF Upgrade LTS", func() {
 		preRolloutArtifactsKey:     "v26.4-pre-rollout",
 		preRolloutPrevArtifactsKey: "v25.10",
 
-		expectedDPUServices: expectedDPUServicesCurrent,
+		expectedDPUServices: expectedDPUServicesV2604,
 	})
 
 	validationPhase("current", validationPhaseInput{
