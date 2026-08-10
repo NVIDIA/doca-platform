@@ -53,6 +53,7 @@ func newDefaultVariables(defaults *release.Defaults) Variables {
 			operatorv1.KamajiClusterManagerName:   false,
 			operatorv1.CNIInstallerName:           false,
 			operatorv1.KubeStateMetricsName:       false,
+			operatorv1.DPUMonitoringName:          false,
 			operatorv1.NodeProblemDetectorName:    false,
 			operatorv1.OpenTelemetryCollectorName: true, // Disabled by default, requires endpoint configuration
 
@@ -86,6 +87,7 @@ func newDefaultVariables(defaults *release.Defaults) Variables {
 			operatorv1.ServiceSetControllerName:   defaults.DPUNetworkingHelmChart,
 			operatorv1.CNIInstallerName:           defaults.DPUNetworkingHelmChart,
 			operatorv1.KubeStateMetricsName:       defaults.DPUNetworkingHelmChart,
+			operatorv1.DPUMonitoringName:          defaults.DPUNetworkingHelmChart,
 			operatorv1.NodeProblemDetectorName:    defaults.DPUNetworkingHelmChart,
 			operatorv1.OpenTelemetryCollectorName: defaults.DPUNetworkingHelmChart,
 		},
@@ -386,12 +388,16 @@ func setMonitoringConfigs(variables Variables, config *operatorv1.DPFOperatorCon
 		variables.DisableSystemComponents[operatorv1.NodeProblemDetectorName] = true
 		variables.DisableSystemComponents[operatorv1.KubeStateMetricsName] = true
 		variables.DisableSystemComponents[operatorv1.OpenTelemetryCollectorName] = true
+		variables.DisableSystemComponents[operatorv1.DPUMonitoringName] = true
 		return variables
 	}
 
 	// Enable monitoring components by default when monitoring is enabled
 	variables.DisableSystemComponents[operatorv1.NodeProblemDetectorName] = false
 	variables.DisableSystemComponents[operatorv1.KubeStateMetricsName] = false
+	// The DPU cluster control plane metrics credentials follow the ServiceMonitors
+	// created by the cluster manager, which are also gated on MonitoringEnabled.
+	variables.DisableSystemComponents[operatorv1.DPUMonitoringName] = false
 	// OpenTelemetry Collector remains disabled by default (requires endpoint configuration)
 
 	// No component-specific configuration provided, use defaults

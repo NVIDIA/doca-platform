@@ -369,7 +369,7 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 
 	Context("Observability", Labels{Domain.Observability, Domain.ZeroTrust}, func() {
 		Context("Monitoring", func() {
-			Context("KSM Metrics Collection", Labels{Domain.ZeroTrust}, func() {
+			Context("Metrics Collection", Labels{Domain.ZeroTrust}, func() {
 				It("validate host cluster kube-state-metrics is accessible", func() {
 					VerifyHostKSMMetricsCollection(ctx)
 				})
@@ -378,6 +378,9 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 					VerifyClusterPods(ctx, input.client, []string{"in-cluster-kube-state-metrics"})
 					By("Validating DPU cluster kube-state-metrics accessibility")
 					VerifyDPUKSMMetricsCollection(ctx, input)
+				})
+				It("validate all Prometheus scrape targets are healthy", func() {
+					ValidatePrometheusTargetsHealthy(ctx, input)
 				})
 			})
 

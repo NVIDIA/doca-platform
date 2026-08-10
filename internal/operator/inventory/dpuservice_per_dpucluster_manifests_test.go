@@ -86,7 +86,7 @@ spec:
 				g.Expect(defaults.Parse()).To(Succeed())
 				vars := newDefaultVariables(defaults)
 				vars.Namespace = "test-namespace"
-				vars.HelmCharts[operatorv1.ServiceSetControllerName] = "oci://example.com/dpu-networking:v0.1.0"
+				vars.HelmCharts[operatorv1.ServiceSetControllerName] = testDPUNetworkingHelmChart
 				vars.Images[operatorv1.ServiceSetControllerName.WithContainer(operatorv1.ControllerManagerContainer)] = "example.com/dpf-system:v0.1.0"
 				vars.DPUClusters = []*dpucluster.Config{} // No DPU clusters
 				return vars
@@ -182,7 +182,7 @@ spec:
 				g.Expect(defaults.Parse()).To(Succeed())
 				vars := newDefaultVariables(defaults)
 				vars.Namespace = "test-namespace"
-				vars.HelmCharts[operatorv1.ServiceSetControllerName] = "oci://example.com/dpu-networking:v0.1.0"
+				vars.HelmCharts[operatorv1.ServiceSetControllerName] = testDPUNetworkingHelmChart
 				vars.Images[operatorv1.ServiceSetControllerName.WithContainer(operatorv1.ControllerManagerContainer)] = "example.com/dpf-system:v0.1.0"
 				vars.DPUClusters = []*dpucluster.Config{
 					{
@@ -441,7 +441,7 @@ spec:
 				g.Expect(defaults.Parse()).To(Succeed())
 				vars := newDefaultVariables(defaults)
 				vars.Namespace = "test-namespace"
-				vars.HelmCharts[operatorv1.ServiceSetControllerName] = "oci://example.com/dpu-networking:v0.1.0"
+				vars.HelmCharts[operatorv1.ServiceSetControllerName] = testDPUNetworkingHelmChart
 				vars.Images[operatorv1.ServiceSetControllerName.WithContainer(operatorv1.ControllerManagerContainer)] = "example.com/dpf-system:v0.1.0"
 				vars.DPUClusters = []*dpucluster.Config{
 					{
@@ -1119,7 +1119,7 @@ spec:
 				g.Expect(defaults.Parse()).To(Succeed())
 				vars := newDefaultVariables(defaults)
 				vars.Namespace = "test-namespace"
-				vars.HelmCharts[operatorv1.ServiceSetControllerName] = "oci://example.com/dpu-networking:v0.1.0"
+				vars.HelmCharts[operatorv1.ServiceSetControllerName] = testDPUNetworkingHelmChart
 				vars.Images[operatorv1.ServiceSetControllerName.WithContainer(operatorv1.ControllerManagerContainer)] = "example.com/dpf-system:v0.1.0"
 				vars.DisableSystemComponents[operatorv1.ServiceSetControllerName] = true
 				return vars

@@ -41,6 +41,10 @@ dependencies:
     version: "0.1.0"
     repository: file://charts/kube-state-metrics
     condition: kube-state-metrics.enabled
+  - name: dpu-monitoring
+    version: "0.1.0"
+    repository: file://charts/dpu-monitoring
+    condition: dpu-monitoring.enabled
   - name: node-problem-detector
     version: "0.1.0"
     repository: file://charts/node-problem-detector

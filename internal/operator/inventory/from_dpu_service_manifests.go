@@ -58,6 +58,7 @@ var dpuNetworkingSubCharts = map[operatorv1.ComponentName]bool{
 	operatorv1.SFCControllerName:          true,
 	operatorv1.CNIInstallerName:           true,
 	operatorv1.KubeStateMetricsName:       true,
+	operatorv1.DPUMonitoringName:          true,
 	operatorv1.NodeProblemDetectorName:    true,
 	operatorv1.OpenTelemetryCollectorName: true,
 }

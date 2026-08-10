@@ -21,6 +21,7 @@ import (
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/operator/inventory"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -386,14 +387,20 @@ var _ = Describe("Kamaji Handler - Helper Functions", func() {
 			Expect(found).To(BeTrue())
 			Expect(endpoints).To(HaveLen(3))
 
+			// The Secret is created in the DPUCluster namespace by the
+			// DPUServiceCredentialRequest the DPF Operator generates for this cluster.
+			expectedSecretName := inventory.DPUMonitoringSecretName("test-cluster", "test-ns")
+
 			expectedEndpoints := []struct {
-				name             string
-				port             string
-				relabelingsCount int
+				name                   string
+				port                   string
+				job                    string
+				relabelingsCount       int
+				metricRelabelingsCount int
 			}{
-				{"kube-apiserver", "kube-apiserver-metrics", 2},
-				{"kube-controller-manager", "kube-controller-manager-metrics", 2},
-				{"kube-scheduler", "kube-scheduler-metrics", 2},
+				{"kube-apiserver", "kube-apiserver-metrics", "apiserver", 2, 3},
+				{"kube-controller-manager", "kube-controller-manager-metrics", "kube-controller-manager", 2, 2},
+				{"kube-scheduler", "kube-scheduler-metrics", "kube-scheduler", 2, 2},
 			}
 
 			for i, expected := range expectedEndpoints {
@@ -402,6 +409,7 @@ var _ = Describe("Kamaji Handler - Helper Functions", func() {
 				Expect(ok).To(BeTrue())
 				Expect(endpoint["port"]).To(Equal(expected.port))
 				Expect(endpoint["scheme"]).To(Equal("https"))
+				Expect(endpoint["path"]).To(Equal("/metrics"))
 				Expect(endpoint["interval"]).To(Equal("15s"))
 				Expect(endpoint["scrapeTimeout"]).To(Equal("10s"))
 
@@ -410,10 +418,52 @@ var _ = Describe("Kamaji Handler - Helper Functions", func() {
 				Expect(found).To(BeTrue())
 				Expect(tlsConfig["insecureSkipVerify"]).To(BeTrue())
 
+				By("Verifying " + expected.name + " authenticates with the credential request token")
+				Expect(tlsConfig).ToNot(HaveKey("cert"))
+				Expect(tlsConfig).ToNot(HaveKey("keySecret"))
+
+				authorization, found, err := unstructured.NestedMap(endpoint, "authorization")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(found).To(BeTrue())
+				Expect(authorization["type"]).To(Equal("Bearer"))
+
+				credentials, found, err := unstructured.NestedStringMap(authorization, "credentials")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(found).To(BeTrue())
+				Expect(credentials["name"]).To(Equal(expectedSecretName))
+				Expect(credentials["key"]).To(Equal("TOKEN_FILE"))
+
 				relabelings, found, err := unstructured.NestedSlice(endpoint, "relabelings")
 				Expect(err).NotTo(HaveOccurred())
 				Expect(found).To(BeTrue())
 				Expect(relabelings).To(HaveLen(expected.relabelingsCount))
+
+				By("Verifying the cluster and job labels for " + expected.name)
+				clusterRelabeling, ok := relabelings[0].(map[string]any)
+				Expect(ok).To(BeTrue())
+				Expect(clusterRelabeling["targetLabel"]).To(Equal("cluster"))
+				Expect(clusterRelabeling["replacement"]).To(Equal("test-cluster"))
+
+				jobRelabeling, ok := relabelings[1].(map[string]any)
+				Expect(ok).To(BeTrue())
+				Expect(jobRelabeling["targetLabel"]).To(Equal("job"))
+				Expect(jobRelabeling["replacement"]).To(Equal(expected.job))
+
+				metricRelabelings, found, err := unstructured.NestedSlice(endpoint, "metricRelabelings")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(found).To(BeTrue())
+				Expect(metricRelabelings).To(HaveLen(expected.metricRelabelingsCount))
+
+				keep, ok := metricRelabelings[0].(map[string]any)
+				Expect(ok).To(BeTrue())
+				Expect(keep["action"]).To(Equal("keep"))
+				Expect(keep["sourceLabels"]).To(Equal([]any{"__name__"}))
+
+				By("Verifying the last metric relabeling prefixes metrics with dpf_")
+				rename, ok := metricRelabelings[len(metricRelabelings)-1].(map[string]any)
+				Expect(ok).To(BeTrue())
+				Expect(rename["targetLabel"]).To(Equal("__name__"))
+				Expect(rename["replacement"]).To(Equal("dpf_${1}"))
 			}
 		})
 	})

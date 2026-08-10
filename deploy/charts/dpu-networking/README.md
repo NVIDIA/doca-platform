@@ -9,6 +9,7 @@ A Helm chart for Kubernetes
 | Repository | Name | Version |
 |------------|------|---------|
 | file://charts/cni-installer | cni-installer | 0.1.0 |
+| file://charts/dpu-monitoring | dpu-monitoring | 0.1.0 |
 | file://charts/kube-state-metrics | kube-state-metrics | 0.1.0 |
 | file://charts/multus | multus | 0.1.0 |
 | file://charts/node-problem-detector | node-problem-detector | 0.1.0 |
@@ -25,6 +26,7 @@ A Helm chart for Kubernetes
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | cni-installer.enabled | bool | `false` |  |
+| dpu-monitoring.enabled | bool | `false` |  |
 | flannel.enabled | bool | `false` |  |
 | flannel.flannel.image.tag | string | `"v0.27.2@sha256:782c111d55e850e8038cdaf35454987e6c170ae9b54d5b12895b02d45c908caf"` |  |
 | flannel.flannel.image_cni.tag | string | `"v1.7.1-flannel1@sha256:cb3176a2c9eae5fa0acd7f45397e706eacb4577dac33cad89f93b775ff5611df"` |  |

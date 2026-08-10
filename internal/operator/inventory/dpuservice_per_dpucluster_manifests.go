@@ -91,42 +91,56 @@ func (p *dpuServicePerDPUClusterObjects) Parse() (err error) {
 		return fmt.Errorf("dpuServicePerDPUClusterObjects.data can not be empty")
 	}
 
-	objs, err := operatorutils.BytesToUnstructured(p.data)
+	p.templateDPUService.dpuService, p.dpuServiceCredentialsRequest, err = parseDPUServiceAndCredentialRequest(p.data, p.componentName)
 	if err != nil {
-		return fmt.Errorf("error while converting %s manifests to objects: %w", p.componentName.String(), err)
-	} else if len(objs) == 0 {
-		return fmt.Errorf("no objects found in %s manifests", p.componentName.String())
+		return err
 	}
 
+	return nil
+}
+
+// parseDPUServiceAndCredentialRequest converts the embedded manifests of a component into the
+// template DPUService and the template DPUServiceCredentialRequest it instantiates per DPUCluster.
+// The manifests must contain exactly one of each. Namespaces and CustomResourceDefinitions are
+// skipped, as the operator should not deploy those resources.
+func parseDPUServiceAndCredentialRequest(data []byte, componentName operatorv1.ComponentName) (*unstructured.Unstructured, *unstructured.Unstructured, error) {
+	objs, err := operatorutils.BytesToUnstructured(data)
+	if err != nil {
+		return nil, nil, fmt.Errorf("error while converting %s manifests to objects: %w", componentName.String(), err)
+	} else if len(objs) == 0 {
+		return nil, nil, fmt.Errorf("no objects found in %s manifests", componentName.String())
+	}
+
+	var dpuService, credentialRequest *unstructured.Unstructured
 	for _, obj := range objs {
 		switch obj.GetKind() {
 		// Exclude Namespace and CustomResourceDefinition as the operator should not deploy these resources.
 		case string(NamespaceKind), string(CustomResourceDefinitionKind):
 			continue
 		case dpuservicev1.DPUServiceKind:
-			if p.templateDPUService.dpuService != nil {
-				return fmt.Errorf("manifests should contain exactly one DPUService, found more than 1")
+			if dpuService != nil {
+				return nil, nil, fmt.Errorf("manifests should contain exactly one DPUService, found more than 1")
 			}
-			p.templateDPUService.dpuService = obj
+			dpuService = obj
 		case dpuservicev1.DPUServiceCredentialRequestKind:
-			if p.dpuServiceCredentialsRequest != nil {
-				return fmt.Errorf("manifests should contain exactly one DPUServiceCredentialsRequest, found more than 1")
+			if credentialRequest != nil {
+				return nil, nil, fmt.Errorf("manifests should contain exactly one DPUServiceCredentialsRequest, found more than 1")
 			}
-			p.dpuServiceCredentialsRequest = obj
+			credentialRequest = obj
 		default:
-			return fmt.Errorf("unexpected type of object detected %v", obj.GetKind())
+			return nil, nil, fmt.Errorf("unexpected type of object detected %v", obj.GetKind())
 		}
 	}
 
-	if p.templateDPUService.dpuService == nil {
-		return fmt.Errorf("manifests must contain a DPUService")
+	if dpuService == nil {
+		return nil, nil, fmt.Errorf("manifests must contain a DPUService")
 	}
 
-	if p.dpuServiceCredentialsRequest == nil {
-		return fmt.Errorf("manifests must contain a DPUServiceCredentialsRequest")
+	if credentialRequest == nil {
+		return nil, nil, fmt.Errorf("manifests must contain a DPUServiceCredentialsRequest")
 	}
 
-	return nil
+	return dpuService, credentialRequest, nil
 }
 
 // GenerateManifests applies edits and returns objects
@@ -168,8 +182,18 @@ func (p *dpuServicePerDPUClusterObjects) GenerateManifests(_ context.Context, va
 
 		objs = append(objs, dpuServicePerClusterCopy)
 
-		// Create a DPUServiceCredentialRequest per cluster
-		clusterCredReqCopy, err := p.generatePerClusterDPUServiceCredentialRequest(vars.Namespace, labelsToAddCopy, hashedClusterNameNamespace, cluster.Cluster.Name, cluster.Cluster.Namespace, secretName, serviceAccountName)
+		// Create a DPUServiceCredentialRequest per cluster. Both the ServiceAccount and the
+		// Secret it produces live in the DPF operator namespace, as the consumer of the
+		// credentials is the per-cluster DPUService generated above.
+		clusterCredReqCopy, err := generateCredentialRequestForCluster(p.dpuServiceCredentialsRequest, credentialRequestTarget{
+			namespace:                  vars.Namespace,
+			hashedClusterNameNamespace: hashedClusterNameNamespace,
+			clusterName:                cluster.Cluster.Name,
+			clusterNamespace:           cluster.Cluster.Namespace,
+			serviceAccountName:         serviceAccountName,
+			secretName:                 secretName,
+			secretNamespace:            vars.Namespace,
+		}, labelsToAddCopy)
 		if err != nil {
 			return nil, err
 		}
@@ -262,22 +286,43 @@ func (p *dpuServicePerDPUClusterObjects) generatePerClusterDPUService(vars Varia
 	return dpuServicePerClusterCopy, nil
 }
 
-// generatePerClusterDPUServiceCredentialRequest generates a per-cluster DPUServiceCredentialRequest with appropriate edits applied
-func (p *dpuServicePerDPUClusterObjects) generatePerClusterDPUServiceCredentialRequest(namespace string, labelsToAdd map[string]string, hashedClusterNameNamespace string, clusterName string, clusterNamespace string, secretName string, serviceAccountName string) (*unstructured.Unstructured, error) {
+// credentialRequestTarget describes what a generated DPUServiceCredentialRequest points at.
+type credentialRequestTarget struct {
+	// namespace is the namespace the DPUServiceCredentialRequest itself is created in, which is
+	// the DPF operator namespace.
+	namespace string
+	// hashedClusterNameNamespace is appended to the name of the template object to keep the
+	// generated name unique per DPUCluster.
+	hashedClusterNameNamespace string
+	// clusterName and clusterNamespace identify the DPUCluster the ServiceAccount is created in.
+	clusterName      string
+	clusterNamespace string
+	// serviceAccountName is the name of the ServiceAccount created in that DPUCluster. It is
+	// created in namespace, the same namespace the request lives in.
+	serviceAccountName string
+	// secretName and secretNamespace identify the Secret the token is written to. That Secret is
+	// always created in the management cluster, but not necessarily in namespace.
+	secretName      string
+	secretNamespace string
+}
+
+// generateCredentialRequestForCluster copies the template DPUServiceCredentialRequest and points it
+// at a single DPUCluster.
+func generateCredentialRequestForCluster(template *unstructured.Unstructured, target credentialRequestTarget, labelsToAdd map[string]string) (*unstructured.Unstructured, error) {
 	// Create DPUServiceCredentialsRequest copy
-	clusterCredReqCopy := p.dpuServiceCredentialsRequest.DeepCopy()
+	clusterCredReqCopy := template.DeepCopy()
 	originalCredReqName := clusterCredReqCopy.GetName()
-	clusterCredReqCopy.SetName(fmt.Sprintf("%s-%s", originalCredReqName, hashedClusterNameNamespace))
+	clusterCredReqCopy.SetName(fmt.Sprintf("%s-%s", originalCredReqName, target.hashedClusterNameNamespace))
 
 	// Apply edits to DPUServiceCredentialsRequest
 	if err := NewEdits().
-		AddForAll(NamespaceEdit(namespace)).
+		AddForAll(NamespaceEdit(target.namespace)).
 		AddForAll(LabelsEdit(labelsToAdd)).
-		AddForAll(dpuServiceCredentialsRequestSetServiceAccountEdit(serviceAccountName, namespace)).
-		AddForAll(dpuServiceCredentialsRequestSetTargetClusterEdit(clusterName, clusterNamespace)).
-		AddForAll(dpuServiceCredentialsRequestSetSecretEdit(secretName, namespace)).
+		AddForAll(dpuServiceCredentialsRequestSetServiceAccountEdit(target.serviceAccountName, target.namespace)).
+		AddForAll(dpuServiceCredentialsRequestSetTargetClusterEdit(target.clusterName, target.clusterNamespace)).
+		AddForAll(dpuServiceCredentialsRequestSetSecretEdit(target.secretName, target.secretNamespace)).
 		Apply([]*unstructured.Unstructured{clusterCredReqCopy}); err != nil {
-		return nil, fmt.Errorf("failed to apply edits for cluster %s DPUServiceCredentialsRequest: %w", clusterName, err)
+		return nil, fmt.Errorf("failed to apply edits for cluster %s DPUServiceCredentialsRequest: %w", target.clusterName, err)
 	}
 
 	return clusterCredReqCopy, nil
@@ -374,17 +419,18 @@ func (p *dpuServicePerDPUClusterObjects) areDPUServicesReady(ctx context.Context
 	return errs
 }
 
-// areDPUServiceCredentialRequestsReady checks whether the DPUServiceCredentialRequests for the DPUService are ready.
+// areDPUServiceCredentialRequestsReady checks whether the DPUServiceCredentialRequests belonging to
+// the given component are ready.
 // Based on the versionValidation input passed, this function also checks if the DPUServiceCredentialRequests are matching the DPF version.
 // It also verifies that the expected count of DPUServiceCredentialRequests (N per-cluster) matches the actual count.
-func (p *dpuServicePerDPUClusterObjects) areDPUServiceCredentialRequestsReady(ctx context.Context, c client.Client, namespace string, expectedClusterCount int, versionValidation bool) []error {
+func areDPUServiceCredentialRequestsReady(ctx context.Context, c client.Client, componentName operatorv1.ComponentName, namespace string, expectedClusterCount int, versionValidation bool) []error {
 	var errs []error
 
 	// List all DPUServiceCredentialRequests with our component label
 	dpuServiceCredentialRequestList := &dpuservicev1.DPUServiceCredentialRequestList{}
 	if err := c.List(ctx, dpuServiceCredentialRequestList,
 		client.InNamespace(namespace),
-		client.MatchingLabels{operatorv1.DPFComponentLabelKey: p.Name().String()}); err != nil {
+		client.MatchingLabels{operatorv1.DPFComponentLabelKey: componentName.String()}); err != nil {
 		errs = append(errs, fmt.Errorf("failed to list DPUServiceCredentialRequests: %w", err))
 		return errs
 	}
@@ -405,7 +451,7 @@ func (p *dpuServicePerDPUClusterObjects) areDPUServiceCredentialRequestsReady(ct
 		}
 
 		if !conditions.IsTrue(&credReq, conditions.TypeReady) {
-			errs = append(errs, fmt.Errorf("%s related DPUServiceCredentialRequest %s/%s is not ready", p.componentName.String(), namespace, credReq.GetName()))
+			errs = append(errs, fmt.Errorf("%s related DPUServiceCredentialRequest %s/%s is not ready", componentName.String(), namespace, credReq.GetName()))
 		}
 	}
 
@@ -442,7 +488,7 @@ func (p *dpuServicePerDPUClusterObjects) IsReadyForUpgrade(ctx context.Context, 
 		return p.templateDPUService.isReady(ctx, c, config.GetNamespace(), false)
 	} else {
 		errs = append(errs, p.areDPUServicesReady(ctx, c, config.GetNamespace(), dpuClusterCount, false)...)
-		errs = append(errs, p.areDPUServiceCredentialRequestsReady(ctx, c, config.GetNamespace(), dpuClusterCount, false)...)
+		errs = append(errs, areDPUServiceCredentialRequestsReady(ctx, c, p.Name(), config.GetNamespace(), dpuClusterCount, false)...)
 	}
 
 	return kerrors.NewAggregate(errs)
@@ -461,7 +507,7 @@ func (p *dpuServicePerDPUClusterObjects) IsReady(ctx context.Context, c client.C
 	dpuClusterCount := len(dpuClusterList.Items)
 
 	errs = append(errs, p.areDPUServicesReady(ctx, c, namespace, dpuClusterCount, true)...)
-	errs = append(errs, p.areDPUServiceCredentialRequestsReady(ctx, c, namespace, dpuClusterCount, true)...)
+	errs = append(errs, areDPUServiceCredentialRequestsReady(ctx, c, p.Name(), namespace, dpuClusterCount, true)...)
 
 	return kerrors.NewAggregate(errs)
 }

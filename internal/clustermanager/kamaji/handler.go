@@ -603,9 +603,105 @@ func getMetricsService(dc *provisioningv1.DPUCluster, nodePort int32) *corev1.Se
 	return svc
 }
 
+// processMetricsRegex matches the process metrics kept for every DPU cluster
+// control plane component.
+const processMetricsRegex = "process_cpu_seconds_total|process_resident_memory_bytes|process_start_time_seconds"
+
+// keepMetricsRelabeling returns a metric relabeling that keeps only the metrics
+// matching the given regex. The allowlists passed to it mirror the ones applied
+// to the management cluster control plane in
+// deploy/helmfiles/values/kube-prometheus-stack.yaml; keep the two in sync.
+func keepMetricsRelabeling(regex string) map[string]interface{} {
+	return map[string]interface{}{
+		"action": "keep",
+		"regex":  regex,
+		"sourceLabels": []interface{}{
+			"__name__",
+		},
+	}
+}
+
+// renameToDPFPrefixRelabeling returns a metric relabeling that renames all
+// metrics by prepending "dpf_", so that DPU cluster control-plane metrics are
+// clearly namespaced as DPF metrics in the management cluster's Prometheus.
+func renameToDPFPrefixRelabeling() map[string]interface{} {
+	return map[string]interface{}{
+		"action": "replace",
+		"regex":  "(.+)",
+		"sourceLabels": []interface{}{
+			"__name__",
+		},
+		"targetLabel": "__name__",
+		"replacement": "dpf_${1}",
+	}
+}
+
+// metricsTokenSecretKey is the key holding the ServiceAccount token in the tokenFile Secret
+// created by the DPUServiceCredentialRequest.
+const metricsTokenSecretKey = "TOKEN_FILE"
+
+// metricsEndpoint returns a ServiceMonitor endpoint scraping a single DPU cluster control plane
+// component.
+//
+// Authentication uses the token of a ServiceAccount in the DPU cluster, minted by the
+// DPUServiceCredentialRequest that the DPF Operator generates for this cluster. The RBAC
+// allowing that ServiceAccount to read the metrics endpoints is deployed to the DPU cluster by
+// the dpu-monitoring DPUService.
+//
+// extraMetricRelabelings are applied after the keep rule and before the dpf_ rename.
+func metricsEndpoint(clusterName, secretName, port, job, keepRegex string, extraMetricRelabelings ...map[string]interface{}) map[string]interface{} {
+	metricRelabelings := make([]interface{}, 0, len(extraMetricRelabelings)+2)
+	// Keep only the metrics consumed by the DPF dashboards and alert/recording rules for the
+	// DPU cluster control plane.
+	metricRelabelings = append(metricRelabelings, keepMetricsRelabeling(keepRegex))
+	for _, relabeling := range extraMetricRelabelings {
+		metricRelabelings = append(metricRelabelings, relabeling)
+	}
+	// Prefix all metrics with dpf_ so DPU cluster control-plane metrics are namespaced in the
+	// management cluster's Prometheus.
+	metricRelabelings = append(metricRelabelings, renameToDPFPrefixRelabeling())
+
+	return map[string]interface{}{
+		"port":          port,
+		"scheme":        "https",
+		"path":          "/metrics",
+		"interval":      "15s",
+		"scrapeTimeout": "10s",
+		// The kube-apiserver serving certificate is signed by the DPU cluster CA, but
+		// kube-controller-manager and kube-scheduler serve self-signed certificates, so the
+		// serving certificate is not verified for any of the components.
+		"tlsConfig": map[string]interface{}{
+			"insecureSkipVerify": true,
+		},
+		"authorization": map[string]interface{}{
+			"type": "Bearer",
+			"credentials": map[string]interface{}{
+				"name": secretName,
+				"key":  metricsTokenSecretKey,
+			},
+		},
+		"metricRelabelings": metricRelabelings,
+		"relabelings": []interface{}{
+			map[string]interface{}{
+				"action":      "replace",
+				"targetLabel": "cluster",
+				"replacement": clusterName,
+			},
+			map[string]interface{}{
+				"action":      "replace",
+				"targetLabel": "job",
+				"replacement": job,
+			},
+		},
+	}
+}
+
 func getServiceMonitorResource(dc *provisioningv1.DPUCluster, gvk schema.GroupVersionKind) *unstructured.Unstructured {
 	clusterName := dc.GetName()
-	secretName := clusterName + "-api-server-kubelet-client-certificate"
+	// The Secret holding the token is created in the DPUCluster namespace by the
+	// DPUServiceCredentialRequest generated for this cluster, because Prometheus resolves the
+	// credentials of a ServiceMonitor in the namespace of that ServiceMonitor.
+	secretName := inventory.DPUMonitoringSecretName(clusterName, dc.GetNamespace())
 
 	sm := &unstructured.Unstructured{}
 	sm.SetName(clusterName)
@@ -623,112 +719,23 @@ func getServiceMonitorResource(dc *provisioningv1.DPUCluster, gvk schema.GroupVe
 			},
 		},
 		"endpoints": []interface{}{
-			map[string]interface{}{
-				"port":          "kube-apiserver-metrics",
-				"scheme":        "https",
-				"path":          "/metrics",
-				"interval":      "15s",
-				"scrapeTimeout": "10s",
-				"tlsConfig": map[string]interface{}{
-					"insecureSkipVerify": true,
-					"cert": map[string]interface{}{
-						"secret": map[string]interface{}{
-							"name": secretName,
-							"key":  "apiserver-kubelet-client.crt",
-						},
-					},
-					"keySecret": map[string]interface{}{
-						"name": secretName,
-						"key":  "apiserver-kubelet-client.key",
+			metricsEndpoint(clusterName, secretName, "kube-apiserver-metrics", "apiserver",
+				"apiserver_request_total|apiserver_request_duration_seconds_(bucket|sum|count)|apiserver_current_inflight_requests|apiserver_longrunning_requests|apiserver_storage_size_bytes|apiserver_storage_objects|etcd_requests_total|etcd_request_errors_total|etcd_request_duration_seconds_(bucket|sum|count)|"+processMetricsRegex,
+				// Drop the same histogram buckets the kube-prometheus-stack chart drops by
+				// default, restricted to the histogram families the keep rule lets through.
+				map[string]interface{}{
+					"action": "drop",
+					"regex":  `(etcd_request|apiserver_request)_duration_seconds_bucket;(0\.15|0\.2|0\.3|0\.35|0\.4|0\.45|0\.6|0\.7|0\.8|0\.9|1\.25|1\.5|1\.75|2|3|3\.5|4|4\.5|6|7|8|9|15|25|30|50)(\.0)?`,
+					"sourceLabels": []interface{}{
+						"__name__",
+						"le",
 					},
 				},
-				"metricRelabelings": []interface{}{
-					map[string]interface{}{
-						"action": "drop",
-						"regex":  "apiserver_request_duration_seconds_bucket;(0.15|0.2|0.3|0.35|0.4|0.45|0.6|0.7|0.8|0.9|1.25|1.5|1.75|2|3|3.5|4|4.5|6|7|8|9|15|25|40|50)",
-						"sourceLabels": []interface{}{
-							"__name__",
-							"le",
-						},
-					},
-				},
-				"relabelings": []interface{}{
-					map[string]interface{}{
-						"action":      "replace",
-						"targetLabel": "cluster",
-						"replacement": clusterName,
-					},
-					map[string]interface{}{
-						"action":      "replace",
-						"targetLabel": "job",
-						"replacement": "apiserver",
-					},
-				},
-			},
-			map[string]interface{}{
-				"port":          "kube-controller-manager-metrics",
-				"scheme":        "https",
-				"path":          "/metrics",
-				"interval":      "15s",
-				"scrapeTimeout": "10s",
-				"tlsConfig": map[string]interface{}{
-					"insecureSkipVerify": true,
-					"cert": map[string]interface{}{
-						"secret": map[string]interface{}{
-							"name": secretName,
-							"key":  "apiserver-kubelet-client.crt",
-						},
-					},
-					"keySecret": map[string]interface{}{
-						"name": secretName,
-						"key":  "apiserver-kubelet-client.key",
-					},
-				},
-				"relabelings": []interface{}{
-					map[string]interface{}{
-						"action":      "replace",
-						"targetLabel": "cluster",
-						"replacement": clusterName,
-					},
-					map[string]interface{}{
-						"action":      "replace",
-						"targetLabel": "job",
-						"replacement": "kube-controller-manager",
-					},
-				},
-			},
-			map[string]interface{}{
-				"port":          "kube-scheduler-metrics",
-				"scheme":        "https",
-				"path":          "/metrics",
-				"interval":      "15s",
-				"scrapeTimeout": "10s",
-				"tlsConfig": map[string]interface{}{
-					"insecureSkipVerify": true,
-					"cert": map[string]interface{}{
-						"secret": map[string]interface{}{
-							"name": secretName,
-							"key":  "apiserver-kubelet-client.crt",
-						},
-					},
-					"keySecret": map[string]interface{}{
-						"name": secretName,
-						"key":  "apiserver-kubelet-client.key",
-					},
-				},
-				"relabelings": []interface{}{
-					map[string]interface{}{
-						"action":      "replace",
-						"targetLabel": "cluster",
-						"replacement": clusterName,
-					},
-					map[string]interface{}{
-						"action":      "replace",
-						"targetLabel": "job",
-						"replacement": "kube-scheduler",
-					},
-				},
-			},
+			),
+			metricsEndpoint(clusterName, secretName, "kube-controller-manager-metrics", "kube-controller-manager",
+				"workqueue_(depth|adds_total|retries_total|queue_duration_seconds_(bucket|sum|count)|work_duration_seconds_(bucket|sum|count))|rest_client_requests_total|leader_election_master_status|"+processMetricsRegex),
+			metricsEndpoint(clusterName, secretName, "kube-scheduler-metrics", "kube-scheduler",
+				"scheduler_pending_pods|scheduler_schedule_attempts_total|scheduler_scheduling_attempt_duration_seconds_(bucket|sum|count)|"+processMetricsRegex),
 		},
 	}
 
