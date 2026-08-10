@@ -23,6 +23,9 @@ dependencies:
 - name: kube-state-metrics
   repository: file://charts/kube-state-metrics
   version: 0.1.0
+- name: dpu-monitoring
+  repository: file://charts/dpu-monitoring
+  version: 0.1.0
 - name: node-problem-detector
   repository: file://charts/node-problem-detector
   version: 0.1.0
@@ -32,5 +35,5 @@ dependencies:
 - name: kata-containers
   repository: file://charts/kata-containers
   version: 0.1.0
-digest: sha256:a259c11383ca858f07fc72f426594f0a0744a8fa7a0ecf43f04011600b2a8afa
-generated: "2026-06-10T09:44:53.488052+03:00"
+digest: sha256:25b9ab65249a6dc0ceee8554a274582a4de3e444a6fb88aae68be62a0d2b2bd5
+generated: "2026-07-31T07:48:46.972461+02:00"

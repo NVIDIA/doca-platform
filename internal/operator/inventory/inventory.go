@@ -96,6 +96,7 @@ type SystemComponents struct {
 	CNIInstaller                    Component
 	NodeSRIOVDevicePluginController Component
 	KubeStateMetrics                Component
+	DPUMonitoring                   Component
 	NodeProblemDetector             Component
 	OpenTelemetryCollector          Component
 	KataContainers                  Component
@@ -149,6 +150,9 @@ var (
 	//go:embed manifests/kube-state-metrics.yaml
 	kubeStateMetricsData []byte
 
+	//go:embed manifests/dpu-monitoring.yaml
+	dpuMonitoringData []byte
+
 	//go:embed manifests/node-problem-detector.yaml
 	nodeProblemDetectorData []byte
 
@@ -201,6 +205,7 @@ func New() *SystemComponents {
 		NodeSRIOVDevicePluginController: newNodeSRIOVDevicePluginControllerObjects(
 			nodeSRIOVDevicePluginControllerData),
 		KubeStateMetrics: newKubeStateMetricsObjects(kubeStateMetricsData),
+		DPUMonitoring:    newDPUMonitoringObjects(dpuMonitoringData),
 		NodeProblemDetector: &fromDPUService{
 			name: operatorv1.NodeProblemDetectorName,
 			data: nodeProblemDetectorData,
@@ -230,6 +235,7 @@ func (s *SystemComponents) SystemDPUServices() []Component {
 		s.SfcController,
 		s.CNIInstaller,
 		s.KubeStateMetrics,
+		s.DPUMonitoring,
 		s.NodeProblemDetector,
 		s.OpenTelemetryCollector,
 		s.KataContainers,
@@ -254,6 +260,7 @@ func (s *SystemComponents) AllComponents() []Component {
 		s.CNIInstaller,
 		s.NodeSRIOVDevicePluginController,
 		s.KubeStateMetrics,
+		s.DPUMonitoring,
 		s.NodeProblemDetector,
 		s.OpenTelemetryCollector,
 		s.KataContainers,

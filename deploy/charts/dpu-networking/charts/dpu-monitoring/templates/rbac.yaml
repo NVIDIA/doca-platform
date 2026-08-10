@@ -1,0 +1,27 @@
+{{- if and .Values.deployDPUManifests .Values.rbac.serviceAccountName }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "dpu-monitoring.fullname" . }}
+  labels:
+    {{- include "dpu-monitoring.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  {{- /*
+  system:monitoring is a default ClusterRole bootstrapped and auto-reconciled by the
+  kube-apiserver. It grants get on the /metrics nonResourceURL, which is what the
+  kube-apiserver, kube-controller-manager and kube-scheduler endpoints require: the
+  kube-apiserver authorizes its own endpoint, and the other two delegate authorization back
+  to it via --authorization-kubeconfig.
+  */}}
+  name: system:monitoring
+subjects:
+  {{- /*
+  The DPF Operator creates this ServiceAccount via the DPUServiceCredentialRequest it generates
+  for this DPU cluster, in the same namespace the DPUService deploying this chart targets.
+  */}}
+  - kind: ServiceAccount
+    name: {{ .Values.rbac.serviceAccountName }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
