@@ -289,12 +289,13 @@ func ofportWaitOp(ofportRequest int) ovsdb.Operation {
 // it exists on a different one. Optional PortConfig fields are written in the
 // same transaction.
 func (c *Client) AddPort(ctx context.Context, portConfig PortConfig) error {
-	port := &ovsmodel.Port{
+	// Keep the portLookup UUID-free so libovsdb resolves an existing port by
+	// name only. Port insertion will use generated real UUIDs instead.
+	portLookup := &ovsmodel.Port{
 		Name: portConfig.Name,
-		UUID: portConfig.Name,
 	}
 
-	err := c.Get(ctx, port)
+	err := c.Get(ctx, portLookup)
 	if err != nil && !errors.Is(err, ovsclient.ErrNotFound) {
 		return err
 	}
@@ -321,12 +322,24 @@ func (c *Client) AddPort(ctx context.Context, portConfig PortConfig) error {
 		return fmt.Errorf("failed to get bridge %s: %v", portConfig.BridgeName, err)
 	}
 
+	// Use real UUIDs instead of reusing names for UUIDs. Those names may contain characters (like hyphen).
+	// That may result in invalid RFC 7047 named UUIDs, which OVS rejects.
+	// `Error occurred: port p_br-xplane-r1-to-br-sfc creation failed: 1 ovsdb operations failed`
+	// Keep the user-visible names unchanged and use instead (generated) real UUIDs
+	// only to link the rows created in this transaction. This follows the same pattern as AddBridge.
+	portUUID := uuid.New().String()
+	interfaceUUID := uuid.New().String()
+
+	port := &ovsmodel.Port{
+		Name: portConfig.Name,
+		UUID: portUUID,
+	}
+
 	// maxMtuSize is the maximum MTU size that a DOCA enabled interface can take
 	maxMtuSize := 9216
-	ifaceUUI := "iface" + portConfig.Name
 	iface := &ovsmodel.Interface{
 		Name:          portConfig.Name,
-		UUID:          ifaceUUI,
+		UUID:          interfaceUUID,
 		Type:          portConfig.InterfaceType,
 		MTURequest:    &maxMtuSize,
 		Options:       portConfig.InterfaceOptions,
@@ -349,7 +362,7 @@ func (c *Client) AddPort(ctx context.Context, portConfig PortConfig) error {
 	}
 	operations = append(operations, ifaceOps...)
 
-	port.Interfaces = []string{ifaceUUI}
+	port.Interfaces = []string{interfaceUUID}
 	port.ExternalIDs = portConfig.PortExternalIDs
 	port.VLANMode = portConfig.VLANMode
 	port.Tag = portConfig.Tag
@@ -367,7 +380,7 @@ func (c *Client) AddPort(ctx context.Context, portConfig PortConfig) error {
 		model.Mutation{
 			Field:   &bridge.Ports,
 			Mutator: ovsdb.MutateOperationInsert,
-			Value:   []string{port.Name},
+			Value:   []string{portUUID},
 		},
 	)
 	if err != nil {
