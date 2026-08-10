@@ -43,7 +43,7 @@ type mockJoinCommandGenerator struct {
 	errorMsg    string
 }
 
-func (m *mockJoinCommandGenerator) GenerateJoinCommand(ctx context.Context, dc *provisioningv1.DPUCluster) (string, error) {
+func (m *mockJoinCommandGenerator) GenerateJoinCommand(ctx context.Context, dc *provisioningv1.DPUCluster, dpu *provisioningv1.DPU) (string, error) {
 	if m.returnError {
 		return "", fmt.Errorf("%s", m.errorMsg)
 	}

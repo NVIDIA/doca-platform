@@ -25,16 +25,18 @@ import (
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // NodeJoinCommandGenerator is an interface for generating join commands for DPU cluster nodes.
 type NodeJoinCommandGenerator interface {
-	GenerateJoinCommand(ctx context.Context, dc *provisioningv1.DPUCluster) (string, error)
+	GenerateJoinCommand(ctx context.Context, dc *provisioningv1.DPUCluster, dpu *provisioningv1.DPU) (string, error)
 }
 
 // KubeadmBootstrapTokenGenerator is a NodeJoinCommandGenerator that generates join commands following the kubeadm bootstrap token authentication method.
@@ -47,7 +49,9 @@ type KubeadmBootstrapTokenGenerator struct {
 }
 
 // GenerateJoinCommand generates a join command for a DPU cluster node.
-func (s *KubeadmBootstrapTokenGenerator) GenerateJoinCommand(ctx context.Context, dc *provisioningv1.DPUCluster) (string, error) {
+// The bootstrap token Secret created in the DPU cluster is labeled with the DPU
+// identity so it can be revoked after the node has joined.
+func (s *KubeadmBootstrapTokenGenerator) GenerateJoinCommand(ctx context.Context, dc *provisioningv1.DPUCluster, dpu *provisioningv1.DPU) (string, error) {
 	// Generate a random 6 character string for the token ID.
 	tokenID := make([]byte, 3)
 	if _, err := rand.Read(tokenID); err != nil {
@@ -67,6 +71,10 @@ func (s *KubeadmBootstrapTokenGenerator) GenerateJoinCommand(ctx context.Context
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("bootstrap-token-%s", id),
 			Namespace: "kube-system",
+			Labels: map[string]string{
+				cutil.LabelDPUName:      dpu.Name,
+				cutil.LabelDPUNamespace: dpu.Namespace,
+			},
 		},
 		Type: corev1.SecretTypeBootstrapToken,
 		StringData: map[string]string{
@@ -116,4 +124,34 @@ func (s *KubeadmBootstrapTokenGenerator) GenerateJoinCommand(ctx context.Context
 	}
 
 	return joinCommand, nil
+}
+
+// DeleteNodeJoinBootstrapTokens deletes all node-join bootstrap token secrets in
+// the DPU cluster kube-system that belong to the specified DPU (identified by labels).
+// Only secrets of type SecretTypeBootstrapToken are deleted.
+// dpuClusterClient must be a client for the DPU cluster, not the management cluster.
+func DeleteNodeJoinBootstrapTokens(ctx context.Context, dpuClusterClient client.Client, dpuName, dpuNamespace string) error {
+	selector := labels.SelectorFromSet(labels.Set{
+		cutil.LabelDPUName:      dpuName,
+		cutil.LabelDPUNamespace: dpuNamespace,
+	})
+
+	secretList := &corev1.SecretList{}
+	if err := dpuClusterClient.List(ctx, secretList,
+		client.InNamespace("kube-system"),
+		client.MatchingLabelsSelector{Selector: selector},
+	); err != nil {
+		return fmt.Errorf("listing node-join bootstrap tokens for DPU %s/%s: %w", dpuNamespace, dpuName, err)
+	}
+
+	for i := range secretList.Items {
+		s := &secretList.Items[i]
+		if s.Type != corev1.SecretTypeBootstrapToken {
+			continue
+		}
+		if err := dpuClusterClient.Delete(ctx, s); client.IgnoreNotFound(err) != nil {
+			return fmt.Errorf("deleting node-join bootstrap token %s: %w", s.Name, err)
+		}
+	}
+	return nil
 }

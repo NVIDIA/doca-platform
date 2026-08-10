@@ -23,6 +23,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	"github.com/nvidia/doca-platform/pkg/dpucluster"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -143,6 +144,12 @@ func Deleting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Contr
 		return *state, err
 	}
 
+	if err := deleteNodeJoinBootstrapTokens(ctx, ctrlCtx.Client, dpu); err != nil {
+		err = fmt.Errorf("failed to delete node-join bootstrap tokens: %w", err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondDeleting.String(), err, "DeleteNodeJoinBootstrapTokensError", err.Error()))
+		return *state, err
+	}
+
 	if err := deleteNode(ctx, ctrlCtx.Client, dpu); err != nil {
 		err = fmt.Errorf("failed to delete node: %w", err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondDeleting.String(), err, "DeleteNodeError", err.Error()))
@@ -209,6 +216,32 @@ func releaseGeneratedFlavorFinalizer(ctx context.Context, ctrlCtx *dutil.Control
 	base := flavor.DeepCopy()
 	controllerutil.RemoveFinalizer(flavor, cutil.GeneratedDPUFlavorFinalizer)
 	return ctrlCtx.Client.Patch(ctx, flavor, crclient.MergeFromWithOptions(base, crclient.MergeFromWithOptimisticLock{}))
+}
+
+func deleteNodeJoinBootstrapTokens(ctx context.Context, client crclient.Client, dpu *provisioningv1.DPU) error {
+	logger := log.FromContext(ctx)
+	if dpu.Spec.Cluster.Name == "" {
+		logger.Info("DPU not assigned, skip deleting node-join bootstrap tokens")
+		return nil
+	}
+
+	nn := types.NamespacedName{
+		Namespace: dpu.Spec.Cluster.Namespace,
+		Name:      dpu.Spec.Cluster.Name,
+	}
+	dc := &provisioningv1.DPUCluster{}
+	if err := client.Get(ctx, nn, dc); err != nil {
+		if apierrors.IsNotFound(err) {
+			logger.Info("DPUCluster has been deleted, skip deleting node-join bootstrap tokens")
+			return nil
+		}
+		return err
+	}
+	dpuClusterClient, err := dpucluster.NewConfig(client, dc).Client(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to create client for DPU cluster: %w", err)
+	}
+	return dutil.DeleteNodeJoinBootstrapTokens(ctx, dpuClusterClient, dpu.Name, dpu.Namespace)
 }
 
 func deleteNode(ctx context.Context, client crclient.Client, dpu *provisioningv1.DPU) error {
