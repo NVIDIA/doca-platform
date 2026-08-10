@@ -59,7 +59,7 @@ write_files:
 
 {{- if .OVSRawScript}}
   - path: /opt/dpf/ovs.sh
-    permissions: '0755'
+    permissions: '0700'
     content: |
       #! /bin/bash
       set -e
@@ -177,7 +177,7 @@ write_files:
       deb [trusted=yes] {{.DPUAgentRepoURL}} ./
 
   - path: /opt/dpf/install-dpu-agent.sh
-    permissions: '0755'
+    permissions: '0700'
     content: |
       #!/bin/bash
       set -euo pipefail

@@ -362,7 +362,7 @@ spec:
   configFiles:
     - operation: override
       path: /var/lib/dpf/dpuagent/node-label-scripts/network-info
-      permissions: "0755"
+      permissions: "0700"
       raw: |
         #!/bin/bash
         echo "test-label=some-data"

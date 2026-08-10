@@ -141,7 +141,7 @@ spec:
       configFiles:
         - operation: override
           path: /var/lib/dpf/dpuagent/node-label-scripts/rack.sh
-          permissions: "0755"
+          permissions: "0700"
           raw: |
             #!/bin/bash
             echo "rack={{ .rack }}"
