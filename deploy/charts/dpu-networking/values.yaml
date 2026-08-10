@@ -23,6 +23,8 @@ cni-installer:
     enabled: false
 kube-state-metrics:
     enabled: false
+dpu-monitoring:
+    enabled: false
 node-problem-detector:
     enabled: false
 opentelemetry-collector:

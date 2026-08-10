@@ -43,6 +43,7 @@ var (
 	NodeSRIOVDevicePluginControllerName ComponentName = "nodesriovdeviceplugin-controller"
 	KubeStateMetricsName                ComponentName = "kube-state-metrics"
 	KubeStateMetricsRBACName            ComponentName = "kube-state-metrics-rbac"
+	DPUMonitoringName                   ComponentName = "dpu-monitoring"
 	NodeProblemDetectorName             ComponentName = "node-problem-detector"
 	OpenTelemetryCollectorName          ComponentName = "opentelemetry-collector"
 	PLDMUnpackContainerName             ComponentName = "pldmunpack"

@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"k8s.io/client-go/rest"
 )
@@ -44,6 +45,14 @@ type Client struct {
 type Sample struct {
 	Metric map[string]string
 	Value  float64
+}
+
+func (s *Sample) String() string {
+	labels := make([]string, 0, len(s.Metric))
+	for k, v := range s.Metric {
+		labels = append(labels, fmt.Sprintf("%s=%q, ", k, v))
+	}
+	return fmt.Sprintf("{%s} %f", strings.Join(labels, ", "), s.Value)
 }
 
 // queryResponse is the envelope returned by /api/v1/query for a vector result.
