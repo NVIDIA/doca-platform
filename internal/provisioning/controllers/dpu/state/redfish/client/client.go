@@ -848,6 +848,29 @@ func (c *Client) EnableBMCRShim() (*resty.Response, *ExtendedInfo, error) {
 	})
 }
 
+type BMCRShimOem struct {
+	BmcRShim struct {
+		BmcRShimEnabled *bool `json:"BmcRShimEnabled"`
+	} `json:"BmcRShim"`
+}
+
+// GetBMCRShimEnabled GETs Managers/Bluefield_BMC/Oem/Nvidia and returns BmcRShimEnabled.
+func (c *Client) GetBMCRShimEnabled() (bool, *resty.Response, error) {
+	resp, oem, err := do[BMCRShimOem](func() (*resty.Response, error) {
+		return c.Client.R().Get(APIEnableBMCRshim)
+	})
+	if err != nil {
+		return false, resp, err
+	}
+	if resp.StatusCode() != http.StatusOK {
+		return false, resp, fmt.Errorf("unexpected status code %d", resp.StatusCode())
+	}
+	if oem.BmcRShim.BmcRShimEnabled == nil {
+		return false, resp, fmt.Errorf("BmcRShim.BmcRShimEnabled missing from Redfish response")
+	}
+	return *oem.BmcRShim.BmcRShimEnabled, resp, nil
+}
+
 // ChassisAssetTagUnavailable is the BMC sentinel when chassis AssetTag (PSID) is not set.
 const ChassisAssetTagUnavailable = "N/A"
 
