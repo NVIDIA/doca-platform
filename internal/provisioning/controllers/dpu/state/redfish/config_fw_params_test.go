@@ -20,6 +20,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	redfishmock "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/mock"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
+	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -31,61 +32,40 @@ import (
 )
 
 var _ = Describe("ConfigFWParameters", func() {
-	var (
+	const (
 		defaultDPUName       = "dpu-config-fw-test"
 		defaultDPUDeviceName = "dpu-device-config-fw-test"
 	)
 
-	createBF4MockRedfishServer := func() *redfishmock.RedfishMockServer {
-		server := redfishmock.NewRedfishMockServer("BF-26.04", "password")
-		server.SetDpuVersion(redfishmock.BF4)
+	createMockRedfishServer := func(version redfishmock.DpuVersion) *redfishmock.RedfishMockServer {
+		bmcVersion := "BF-24.10-17"
+		if version == redfishmock.BF4 {
+			bmcVersion = "BF-26.04"
+		}
+		server := redfishmock.NewRedfishMockServer(bmcVersion, "password")
+		server.SetDpuVersion(version)
 		server.Start()
 		return server
 	}
 
-	createBMCAndMTLSSecretsForBF4 := func(mockServer *redfishmock.RedfishMockServer) {
-		By("create BMC credentials secret")
-		bmcSecret := &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "bmc-shared-password",
-				Namespace: testNS.Name,
-			},
-			Data: map[string][]byte{
-				"password": []byte("password"),
-			},
-		}
-		Expect(k8sClient.Create(ctx, bmcSecret)).To(Succeed())
+	createBMCAndMTLSSecrets := func(mockServer *redfishmock.RedfishMockServer, clientSecretName string) {
+		Expect(k8sClient.Create(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "bmc-shared-password", Namespace: testNS.Name},
+			Data:       map[string][]byte{"password": []byte("password")},
+		})).To(Succeed())
 
-		By("create CA and client certificate secrets for mTLS")
-		// The verified mTLS client validates the server cert, so the CA secret must trust the
-		// cert the mock server actually serves (its httptest leaf, which carries the 127.0.0.1 SAN).
 		_, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(mockServer.GetIPAddress())
-
-		caSecret := &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "dpf-provisioning-ca-secret",
-				Namespace: testNS.Name,
-			},
-			Data: map[string][]byte{
-				"tls.crt": mockServer.GetServerCertPEM(),
-			},
-		}
-		Expect(k8sClient.Create(ctx, caSecret)).To(Succeed())
-
-		clientSecret := &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "dpf-provisioning-redfish-client-secret-bf4",
-				Namespace: testNS.Name,
-			},
-			Data: map[string][]byte{
-				"tls.crt": clientCrt,
-				"tls.key": clientKey,
-			},
-		}
-		Expect(k8sClient.Create(ctx, clientSecret)).To(Succeed())
+		Expect(k8sClient.Create(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "dpf-provisioning-ca-secret", Namespace: testNS.Name},
+			Data:       map[string][]byte{"tls.crt": mockServer.GetServerCertPEM()},
+		})).To(Succeed())
+		Expect(k8sClient.Create(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: clientSecretName, Namespace: testNS.Name},
+			Data:       map[string][]byte{"tls.crt": clientCrt, "tls.key": clientKey},
+		})).To(Succeed())
 	}
 
-	prepareBF4DPUDevice := func(mockServer *redfishmock.RedfishMockServer) *provisioningv1.DPUDevice {
+	prepareDPUDevice := func(mockServer *redfishmock.RedfishMockServer, dpuType provisioningv1.DPUType) *provisioningv1.DPUDevice {
 		dpuDevice := dpuDeviceObj(defaultDPUDeviceName)
 		dpuDevice.Spec.BMCIP = ptr.To(mockServer.GetIPAddress())
 		dpuDevice.Spec.BMCPort = ptr.To(uint32(mockServer.GetPort()))
@@ -94,19 +74,29 @@ var _ = Describe("ConfigFWParameters", func() {
 		patch := client.MergeFrom(dpuDevice.DeepCopy())
 		dpuDevice.Status.BMCIP = dpuDevice.Spec.BMCIP
 		dpuDevice.Status.BMCPort = dpuDevice.Spec.BMCPort
-		dpuDevice.Status.DPUType = provisioningv1.DPUTypeBlueField4
-		dpuDevice.Status.Conditions = []metav1.Condition{
-			{
-				Type:               string(provisioningv1.ConditionDpuDeviceReady),
-				Status:             metav1.ConditionTrue,
-				Reason:             "Ready",
-				Message:            "DPUDevice is ready",
-				LastTransitionTime: metav1.Now(),
-				ObservedGeneration: dpuDevice.Generation,
-			},
-		}
+		dpuDevice.Status.DPUType = dpuType
+		dpuDevice.Status.Conditions = []metav1.Condition{{
+			Type:               string(provisioningv1.ConditionDpuDeviceReady),
+			Status:             metav1.ConditionTrue,
+			Reason:             "Ready",
+			Message:            "DPUDevice is ready",
+			LastTransitionTime: metav1.Now(),
+			ObservedGeneration: dpuDevice.Generation,
+		}}
 		Expect(k8sClient.Status().Patch(ctx, dpuDevice, patch)).To(Succeed())
 		return dpuDevice
+	}
+
+	prepareBF3Fixture := func() (*redfishmock.RedfishMockServer, *provisioningv1.DPU) {
+		mockServer := createMockRedfishServer(redfishmock.BF3)
+		createBMCAndMTLSSecrets(mockServer, "dpf-provisioning-redfish-client-secret")
+		dpuDevice := prepareDPUDevice(mockServer, provisioningv1.DPUTypeBlueField3)
+		createObject(dpuFlavorObj("dpu-flavor"))
+		dpu := dpuObj(defaultDPUName)
+		dpu.Spec.DPUDeviceName = dpuDevice.Name
+		dpu.Status.Phase = provisioningv1.DPUConfigFWParameters
+		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField3
+		return mockServer, dpu
 	}
 
 	It("should transition to DPUDeleting when DPU is being deleted", func() {
@@ -122,21 +112,17 @@ var _ = Describe("ConfigFWParameters", func() {
 	})
 
 	It("should set host privilege to restricted for BF4 and advance to Firmware Update", func() {
-		mockServer := createBF4MockRedfishServer()
+		mockServer := createMockRedfishServer(redfishmock.BF4)
 		defer mockServer.Stop()
-
-		createBMCAndMTLSSecretsForBF4(mockServer)
-
-		dpuDevice := prepareBF4DPUDevice(mockServer)
+		createBMCAndMTLSSecrets(mockServer, "dpf-provisioning-redfish-client-secret-bf4")
+		dpuDevice := prepareDPUDevice(mockServer, provisioningv1.DPUTypeBlueField4)
 
 		dpu := dpuObj(defaultDPUName)
 		dpu.Spec.DPUDeviceName = dpuDevice.Name
 		dpu.Status.Phase = provisioningv1.DPUConfigFWParameters
 		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
 
-		status, err := ConfigFWParameters(ctx, dpu,
-			&dutil.ControllerContext{Client: k8sClient},
-		)
+		status, err := ConfigFWParameters(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(status.Phase).To(Equal(provisioningv1.DPUUpdateFirmware))
 		Expect(status.Conditions).To(ContainElement(
@@ -146,22 +132,18 @@ var _ = Describe("ConfigFWParameters", func() {
 	})
 
 	It("should fail when BF4 host privilege endpoint returns error", func() {
-		mockServer := createBF4MockRedfishServer()
+		mockServer := createMockRedfishServer(redfishmock.BF4)
 		defer mockServer.Stop()
 		mockServer.SetHostPrivilegeError(true)
-
-		createBMCAndMTLSSecretsForBF4(mockServer)
-
-		dpuDevice := prepareBF4DPUDevice(mockServer)
+		createBMCAndMTLSSecrets(mockServer, "dpf-provisioning-redfish-client-secret-bf4")
+		dpuDevice := prepareDPUDevice(mockServer, provisioningv1.DPUTypeBlueField4)
 
 		dpu := dpuObj(defaultDPUName)
 		dpu.Spec.DPUDeviceName = dpuDevice.Name
 		dpu.Status.Phase = provisioningv1.DPUConfigFWParameters
 		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
 
-		status, err := ConfigFWParameters(ctx, dpu,
-			&dutil.ControllerContext{Client: k8sClient},
-		)
+		status, err := ConfigFWParameters(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
 		Expect(err).To(HaveOccurred())
 		Expect(status.Phase).NotTo(Equal(provisioningv1.DPUPrepareBFB))
 		Expect(status.Conditions).To(ContainElement(
@@ -170,5 +152,66 @@ var _ = Describe("ConfigFWParameters", func() {
 				HaveField("Reason", "FailedToSetHostPrivilege"),
 			),
 		))
+	})
+
+	Context("BmcRShim poll (BF3)", func() {
+		It("stays in ConfigFW with WaitingForBMCRShim when enable PATCH succeeds but flag is still false", func() {
+			mockServer, dpu := prepareBF3Fixture()
+			defer mockServer.Stop()
+
+			status, err := ConfigFWParameters(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUConfigFWParameters))
+			_, cond := cutil.GetDPUCondition(&status, provisioningv1.DPUCondFWConfigured.String())
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+			Expect(cond.Reason).To(Equal(waitingForBMCRShimReason))
+		})
+
+		It("advances to PrepareBFB on a later reconcile once BmcRShimEnabled is true", func() {
+			mockServer, dpu := prepareBF3Fixture()
+			defer mockServer.Stop()
+
+			status, err := ConfigFWParameters(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUConfigFWParameters))
+
+			mockServer.SetBMCRShimEnabled(true)
+			dpu.Status = status
+			status, err = ConfigFWParameters(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUPrepareBFB))
+			_, cond := cutil.GetDPUCondition(&status, provisioningv1.DPUCondFWConfigured.String())
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+		})
+
+		It("advances in the same reconcile when BmcRShimEnabled is already true", func() {
+			mockServer, dpu := prepareBF3Fixture()
+			defer mockServer.Stop()
+			mockServer.SetBMCRShimEnabled(true)
+
+			status, err := ConfigFWParameters(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUPrepareBFB))
+		})
+
+		It("returns FailedToGetBMCRShim when GET Oem/Nvidia fails while waiting", func() {
+			mockServer, dpu := prepareBF3Fixture()
+			defer mockServer.Stop()
+
+			status, err := ConfigFWParameters(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUConfigFWParameters))
+
+			mockServer.SetBMCRShimGetError(true)
+			dpu.Status = status
+			status, err = ConfigFWParameters(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+			Expect(err).To(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUConfigFWParameters))
+			_, cond := cutil.GetDPUCondition(&status, provisioningv1.DPUCondFWConfigured.String())
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Reason).To(Equal("FailedToGetBMCRShim"))
+		})
 	})
 })

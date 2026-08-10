@@ -82,6 +82,8 @@ type RedfishMockServer struct {
 	bootSourceOverrideEnabled       string                   // BootSourceOverrideEnabled returned by GET Settings
 	virtualMediaInserted            map[string]bool          // Inserted state per VirtualMedia ID (IMAGE, CONFIG)
 	time                            string                   // BMC time
+	bmcRShimEnabled                 bool                     // BmcRShimEnabled reported by GET Oem/Nvidia
+	bmcRShimGetError                bool                     // Simulate GET Oem/Nvidia error for testing
 }
 
 type DpuVersion int
@@ -164,6 +166,7 @@ func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 		mux.HandleFunc("/redfish/v1/Systems/"+systemID+"/Bios/Settings", mock.handleSetBiosSettings)
 		mux.HandleFunc("/redfish/v1/Systems/"+systemID+"/Oem/Nvidia/Actions/Mode.Set", mock.handleSetMode)
 		mux.HandleFunc("/redfish/v1/Systems/"+systemID+"/Oem/Nvidia", mock.handleGetProductDescription)
+		mux.HandleFunc("/redfish/v1/Systems/"+systemID+"/Oem/Nvidia/Actions/HostRshim.Set", mock.handleHostRshimSet)
 		mux.HandleFunc("/redfish/v1/Systems/"+systemID+"/SecureBoot", mock.handleSecureBoot)
 		mux.HandleFunc("/redfish/v1/Systems/"+systemID+"/Actions/ComputerSystem.Reset", mock.handleResetSystem)
 		mux.HandleFunc("/redfish/v1/Systems/"+systemID+"/LogServices/SEL/Entries", mock.handleGetSELEntries)
@@ -172,6 +175,9 @@ func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 
 	// Host Privilege Config
 	mux.HandleFunc("/"+client.APIHostPrivilegeConfigSettings, mock.handleHostPrivilegeConfigSettings)
+
+	// BMC RShim Oem (BF3 Zero Trust enable / status poll)
+	mux.HandleFunc("/"+client.APIEnableBMCRshim, mock.handleBMCRShimOem)
 
 	// BlueField 4 OS install (virtual media, boot settings, chassis reset)
 	mux.HandleFunc("/redfish/v1/Managers/Bluefield_BMC/VirtualMedia/", mock.handleVirtualMedia)
@@ -1060,6 +1066,69 @@ func (r *RedfishMockServer) SetHostPrivilegeError(simulateError bool) {
 // GetHostPrivilegeMode returns the current host privilege mode
 func (r *RedfishMockServer) GetHostPrivilegeMode() string {
 	return r.hostPrivilegeMode
+}
+
+// SetBMCRShimEnabled sets the BmcRShimEnabled flag reported by GET Oem/Nvidia.
+// PATCH enable does not flip this flag so tests can simulate async lag.
+func (r *RedfishMockServer) SetBMCRShimEnabled(enabled bool) {
+	r.bmcRShimEnabled = enabled
+}
+
+// SetBMCRShimGetError enables or disables GET Oem/Nvidia error simulation for testing.
+func (r *RedfishMockServer) SetBMCRShimGetError(simulateError bool) {
+	r.bmcRShimGetError = simulateError
+}
+
+// handleHostRshimSet handles POST HostRshim.Set (DisableHostRshim).
+func (r *RedfishMockServer) handleHostRshimSet(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	writeJSONResponse(w, map[string]interface{}{
+		"@Message.ExtendedInfo": []map[string]interface{}{
+			{
+				"@odata.type":     "#Message.v1_1_1.Message",
+				"Message":         "The request completed successfully.",
+				"MessageId":       "Base.1.18.1.Success",
+				"MessageSeverity": "OK",
+				"Resolution":      "None.",
+			},
+		},
+	})
+}
+
+// handleBMCRShimOem handles GET/PATCH Managers/Bluefield_BMC/Oem/Nvidia for BmcRShim.
+// PATCH returns success without flipping BmcRShimEnabled; tests call SetBMCRShimEnabled.
+func (r *RedfishMockServer) handleBMCRShimOem(w http.ResponseWriter, req *http.Request) {
+	switch req.Method {
+	case http.MethodGet:
+		if r.bmcRShimGetError {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "BMC RShim Oem endpoint unavailable"})
+			return
+		}
+		writeJSONResponse(w, map[string]interface{}{
+			"BmcRShim": map[string]interface{}{
+				"BmcRShimEnabled": r.bmcRShimEnabled,
+			},
+		})
+	case http.MethodPatch:
+		writeJSONResponse(w, map[string]interface{}{
+			"@Message.ExtendedInfo": []map[string]interface{}{
+				{
+					"@odata.type":     "#Message.v1_1_1.Message",
+					"Message":         "The request completed successfully.",
+					"MessageId":       "Base.1.18.1.Success",
+					"MessageSeverity": "OK",
+					"Resolution":      "None.",
+				},
+			},
+		})
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
 }
 
 // handleHostPrivilegeConfigSettings handles PATCH requests to the HostPrivilegeConfig/Settings endpoint
