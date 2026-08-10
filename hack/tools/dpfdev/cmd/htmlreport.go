@@ -56,15 +56,19 @@ given directory, with the dump directories beneath it:
 			return err
 		}
 
-		hasLogs := false
-		if fi, err := os.Stat(filepath.Join(root, "logs")); err == nil && fi.IsDir() {
-			hasLogs = true
+		// Container logs live in logs/ directories, one per test phase; any other
+		// *.log file is surfaced as a "CI Logs" entry. Both count as content
+		// worth generating a report for.
+		logDirs, err := htmlreport.DiscoverLogDirs(root)
+		if err != nil {
+			return err
 		}
-		// Top-level *.log files are surfaced as the "CI Logs" section, so they
-		// also count as content worth generating a report for.
-		ciLogs, _ := filepath.Glob(filepath.Join(root, "*.log"))
+		ciLogs, err := htmlreport.DiscoverCILogs(root)
+		if err != nil {
+			return err
+		}
 
-		if len(dumps) == 0 && !hasLogs && len(ciLogs) == 0 {
+		if len(dumps) == 0 && len(logDirs) == 0 && len(ciLogs) == 0 {
 			fmt.Fprintf(os.Stderr, "no resource dumps or logs found under %s\n", root)
 			return nil
 		}
@@ -78,8 +82,8 @@ given directory, with the dump directories beneath it:
 		for _, dump := range dumps {
 			fmt.Fprintf(os.Stderr, "  - %s\n", dump)
 		}
-		if hasLogs {
-			fmt.Fprintf(os.Stderr, "  - logs/\n")
+		for _, logDir := range logDirs {
+			fmt.Fprintf(os.Stderr, "  - %s\n", logDir)
 		}
 		if len(ciLogs) > 0 {
 			fmt.Fprintf(os.Stderr, "  - %d CI log(s)\n", len(ciLogs))

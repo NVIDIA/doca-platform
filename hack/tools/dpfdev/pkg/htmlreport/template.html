@@ -995,13 +995,18 @@ function buildCILogsList(cilogs, q) {
 }
 
 function buildLogCluster(cluster, q, filtering) {
-  const files = cluster.f.filter(f => matchLog(f, q));
+  // A cluster name carries the phase it was collected in (e.g. "before/
+  // host-cluster"), so a query matching it keeps all of that cluster's files.
+  const clusterMatch = q && cluster.name.toLowerCase().includes(q);
+  const files = clusterMatch ? cluster.f : cluster.f.filter(f => matchLog(f, q));
   if (files.length === 0) return null;
 
   const key = logClusterKey(cluster.name);
-  // Expanded by default so the first level under Cluster Logs (namespaces) is
-  // visible without a click; the deeper levels stay collapsed.
-  const collapsed = filtering ? false : (entryCollapsed.has(key) ? entryCollapsed.get(key) : false);
+  // Default, as for resource dumps: a lone cluster is expanded so its namespaces
+  // are visible without a click; with several (a multi-phase job collects one
+  // logs/ tree per phase) they start collapsed. Deeper levels stay collapsed.
+  if (!entryCollapsed.has(key)) entryCollapsed.set(key, INDEX.logs.length > 1);
+  const collapsed = filtering ? false : entryCollapsed.get(key);
 
   const clDiv = document.createElement('div');
   clDiv.className = 'cluster-block log-cluster-block';

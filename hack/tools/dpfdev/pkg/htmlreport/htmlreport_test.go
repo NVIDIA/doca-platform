@@ -229,26 +229,55 @@ func TestBuildLogs_None(t *testing.T) {
 	}
 }
 
-func TestBuildCILogs(t *testing.T) {
+func TestDiscoverCILogs(t *testing.T) {
 	root := t.TempDir()
 	mkfile(t, filepath.Join(root, "ci-b.log"), "b\n")
 	mkfile(t, filepath.Join(root, "ci-a.log"), "a\n")
 	mkfile(t, filepath.Join(root, "resolved-bfb-url.txt"), "x\n") // non-.log ignored
-	// Nested .log files belong to logs/ or dumps, not CI logs.
+	// Step logs of a single upgrade phase live in a subdirectory.
+	mkfile(t, filepath.Join(root, "before", "ci-c.log"), "c\n")
+	// Container logs belong to the Cluster Logs section, not CI Logs.
 	mkfile(t, filepath.Join(root, "logs", "host-cluster", "ns", "pod", "c.log"), "x\n")
+	mkfile(t, filepath.Join(root, "before", "logs", "host-cluster", "ns", "pod", "c.log"), "x\n")
 
-	logs, err := buildCILogs(root)
+	logs, err := DiscoverCILogs(root)
 	if err != nil {
-		t.Fatalf("buildCILogs: %v", err)
+		t.Fatalf("DiscoverCILogs: %v", err)
 	}
-	if len(logs) != 2 {
-		t.Fatalf("ci logs = %d, want 2 (only top-level .log)", len(logs))
+	if len(logs) != 3 {
+		t.Fatalf("ci logs = %d, want 3 (container logs excluded)", len(logs))
 	}
-	// Sorted by name.
-	if logs[0].Name != "ci-a.log" || logs[1].Name != "ci-b.log" {
-		t.Errorf("order = [%q %q], want [ci-a.log ci-b.log]", logs[0].Name, logs[1].Name)
+	// Sorted by path relative to root.
+	if logs[0].Name != "before/ci-c.log" || logs[1].Name != "ci-a.log" || logs[2].Name != "ci-b.log" {
+		t.Errorf("order = [%q %q %q], want [before/ci-c.log ci-a.log ci-b.log]", logs[0].Name, logs[1].Name, logs[2].Name)
 	}
-	if logs[0].Path != "ci-a.log" {
-		t.Errorf("path = %q, want ci-a.log", logs[0].Path)
+	if logs[0].Path != "before/ci-c.log" {
+		t.Errorf("path = %q, want before/ci-c.log", logs[0].Path)
+	}
+}
+
+func TestBuildLogs_MultiplePhases(t *testing.T) {
+	root := t.TempDir()
+	// An upgrade job runs each phase with its own ARTIFACTS_DIR, so the log
+	// collector writes one logs/ tree per phase.
+	mkfile(t, filepath.Join(root, "before", "logs", "host-cluster", "kube-system", "coredns-abc", "coredns.log"), "x\n")
+	mkfile(t, filepath.Join(root, "before", "logs", "dpu-cluster-1", "default", "app-xyz", "main.log"), "x\n")
+	mkfile(t, filepath.Join(root, "after", "logs", "host-cluster", "kube-system", "coredns-abc", "coredns.log"), "x\n")
+
+	clusters, err := buildLogs(root)
+	if err != nil {
+		t.Fatalf("buildLogs: %v", err)
+	}
+	var got []string
+	for _, c := range clusters {
+		got = append(got, c.Name)
+	}
+	// Phases sort by directory, host-cluster first within each phase.
+	want := []string{"after/host-cluster", "before/host-cluster", "before/dpu-cluster-1"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("clusters = %v, want %v", got, want)
+	}
+	if p := clusters[0].Files[0].Path; p != "after/logs/host-cluster/kube-system/coredns-abc/coredns.log" {
+		t.Errorf("path = %q, want after/logs/host-cluster/kube-system/coredns-abc/coredns.log", p)
 	}
 }
