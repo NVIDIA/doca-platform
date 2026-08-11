@@ -63,7 +63,7 @@ spec:
       values:
         config:
           isLocalPath: false
-        containerImage: nvcr.io/nvidia/doca/doca_argus:1.4.0-doca3.4.0
+        containerImage: nvcr.io/nvidia/doca/doca_argus:1.5.0-doca3.5.0
 ```
 
 </details>
@@ -83,7 +83,7 @@ spec:
     source:
       chart: doca-argus
       repoURL: https://helm.ngc.nvidia.com/nvidia/doca
-      version: 1.4.0
+      version: 1.5.0
 ```
 </details>
 
