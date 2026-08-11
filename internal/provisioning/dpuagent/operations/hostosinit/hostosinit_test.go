@@ -97,6 +97,26 @@ var _ = Describe("ReleaseHostOSInit", func() {
 		Expect(optCtx.Status.HostOSInit.Skipped).NotTo(BeNil())
 	})
 
+	// The nvconfig guard rejects DELAY_HOST_OS_INIT outside zero-trust, but it must never reach
+	// this operation: releasing is the only way to lift a hold that is already programmed. Sets
+	// ZeroTrustMode locally because newOptCtx defaults it to true, so this is the one case that
+	// goes red if the guard is ever moved into resolve() or EnsureResolved.
+	It("releases the hold even when the agent is not in zero-trust mode", func() {
+		runBash := func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+			if strings.Contains(cmd, "mlxreg") && strings.Contains(cmd, "--get") {
+				var stdout bytes.Buffer
+				stdout.WriteString(sampleMlxregGetReleased)
+				return stdout, bytes.Buffer{}, nil
+			}
+			return bytes.Buffer{}, bytes.Buffer{}, fmt.Errorf("unexpected: %s", cmd)
+		}
+		optCtx := newOptCtx(releaseRequiredFlavor())
+		optCtx.Options.ZeroTrustMode = false
+		op := &ReleaseHostOSInit{runBash: runBash}
+		Expect(op.Execute(context.Background(), optCtx)).To(Succeed())
+		Expect(optCtx.Status.HostOSInit.Succeeded).NotTo(BeNil())
+	})
+
 	It("returns nil with succeeded when hold register already cleared", func() {
 		runBash := func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 			if strings.Contains(cmd, "mlxreg") && strings.Contains(cmd, "--get") {
