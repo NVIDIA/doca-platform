@@ -157,7 +157,7 @@ func getEnvVariables() {
 	// loading in one place.
 	bmcUsername = os.Getenv("E2E_ZT_BMC_USERNAME")
 	bmcPassword = os.Getenv("E2E_ZT_BMC_PASSWORD")
-	bmcInventoryPath = os.Getenv("E2E_ZT_BMC_INVENTORY_PATH")
+	ciSetupInfoPath = os.Getenv("E2E_CI_SETUP_INFO_PATH")
 
 	if name, found := os.LookupEnv("DPU_CLUSTER_NAME"); found {
 		dpuClusterName = name
@@ -566,8 +566,8 @@ func validateFlags() {
 	if bmcPassword == "" {
 		panic("ZeroTrust requires E2E_ZT_BMC_PASSWORD env var (BMC password used by the in-cluster reboot script)")
 	}
-	if bmcInventoryPath == "" {
-		panic("ZeroTrust requires E2E_ZT_BMC_INVENTORY_PATH env var (path to the lab DPU-serial -> BMC IP inventory YAML)")
+	if ciSetupInfoPath == "" {
+		panic("ZeroTrust requires E2E_CI_SETUP_INFO_PATH env var (path to the lab DPU-serial -> CI setup-info YAML with required host-bmc-ip and optional dpu-device-values)")
 	}
 
 	if isGinkgoLabelApplied(Domain.ExternalTest) {

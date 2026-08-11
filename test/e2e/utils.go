@@ -173,8 +173,8 @@ var (
 	bmcUsername = ""
 	// bmcPassword is the BMC password used by the in-cluster reboot script Job (ZeroTrust only).
 	bmcPassword = ""
-	// bmcInventoryPath is the filesystem path to the lab DPU-serial -> BMC IP inventory YAML (ZeroTrust only).
-	bmcInventoryPath = ""
+	// ciSetupInfoPath is the filesystem path to the lab DPU-serial -> CI setup-info YAML.
+	ciSetupInfoPath = ""
 	// ngcAPIKey can be used to create a secret to be able to pull images from NGC, this secret can be used by DPUservices and should not be used for core components.
 	ngcAPIKey = ""
 	// dpuClusterName optionally overrides the DPUCluster name (e.g. when created externally with a non-default name).
