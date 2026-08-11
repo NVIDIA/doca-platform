@@ -140,11 +140,4 @@ var _ = Describe("EnsureResolved", func() {
 		_, err := EnsureResolved(optCtx)
 		Expect(err).To(MatchError(ContainSubstring("no physical ports discovered")))
 	})
-
-	It("recognizes DELAY_HOST_OS_INIT user-mode values", func() {
-		Expect(isDelayHostOSInitUserMode("0x3")).To(BeTrue())
-		Expect(isDelayHostOSInitUserMode("3")).To(BeTrue())
-		Expect(isDelayHostOSInitUserMode("ENABLE_USER")).To(BeTrue())
-		Expect(isDelayHostOSInitUserMode("0x1")).To(BeFalse())
-	})
 })

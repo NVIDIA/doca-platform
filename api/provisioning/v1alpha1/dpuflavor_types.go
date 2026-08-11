@@ -109,7 +109,7 @@ type DPUFlavorSpec struct {
 
 	// hostOSInit configures when the DPU agent releases host OS init after DELAY_HOST_OS_INIT=0x3
 	// (ENABLE_USER) is set in nvconfig. Omitted releaseAfter defaults to dpuServiceCriticalPodsReady
-	// at agent runtime.
+	// at agent runtime. Has no effect unless nvconfig requests that hold.
 	// +optional
 	HostOSInit *HostOSInit `json:"hostOSInit,omitempty"`
 }
@@ -226,6 +226,8 @@ type NVConfig struct {
 	// +optional
 	Device *string `json:"device,omitempty"`
 	// Parameters are the parameters to be set for the device.
+	// DELAY_HOST_OS_INIT=ENABLE_USER (0x3) holds the host at UEFI and is rejected by the DPU agent
+	// outside zero-trust, where the agent needs the host to reach the kube-apiserver.
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=32
 	// +kubebuilder:validation:items:Pattern=`^[^=\s]+=[^\s]*$`

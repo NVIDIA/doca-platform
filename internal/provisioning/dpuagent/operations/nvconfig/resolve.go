@@ -23,10 +23,9 @@ import (
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
+	nvconfigutil "github.com/nvidia/doca-platform/internal/provisioning/utils/nvconfig"
 	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
 )
-
-const delayHostOSInitParam = "DELAY_HOST_OS_INIT"
 
 // EnsureResolved returns the cached ResolvedNVConfig, or resolves once from flavor + NSPorts.
 // Errors are not cached so agent retries re-attempt discovery/mapping.
@@ -72,7 +71,7 @@ func portsToPCINetdev(ports []pciutil.NICPort) map[string]string {
 func selectHostOSInitPCIs(nvconfigs []provisioningv1.NVConfig, ports []pciutil.NICPort) ([]string, bool, error) {
 	pcis := map[string]struct{}{}
 	for _, nc := range nvconfigs {
-		if !paramsHaveUserModeDelay(nc.Parameters) {
+		if !nvconfigutil.ParamsRequestHostOSInitHold(nc.Parameters) {
 			continue
 		}
 		device := normalizeNVDevice(nc.Device)
@@ -100,29 +99,6 @@ func selectHostOSInitPCIs(nvconfigs []provisioningv1.NVConfig, ports []pciutil.N
 	}
 	sort.Strings(result)
 	return result, true, nil
-}
-
-func paramsHaveUserModeDelay(params []string) bool {
-	for _, param := range params {
-		name, value, ok := strings.Cut(param, "=")
-		if !ok {
-			continue
-		}
-		if strings.EqualFold(strings.TrimSpace(name), delayHostOSInitParam) && isDelayHostOSInitUserMode(value) {
-			return true
-		}
-	}
-	return false
-}
-
-// isDelayHostOSInitUserMode matches flavor-shaped DELAY_HOST_OS_INIT values only.
-func isDelayHostOSInitUserMode(rhs string) bool {
-	switch strings.ToUpper(strings.TrimSpace(rhs)) {
-	case "3", "0X3", "ENABLE_USER":
-		return true
-	default:
-		return false
-	}
 }
 
 func normalizeNVDevice(device *string) string {
