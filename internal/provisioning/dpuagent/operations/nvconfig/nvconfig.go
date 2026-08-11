@@ -27,6 +27,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
+	nvconfigutil "github.com/nvidia/doca-platform/internal/provisioning/utils/nvconfig"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -98,6 +99,12 @@ func (n *ConfigureNVConfig) Execute(execCtx context.Context, optCtx *operations.
 	resolved, err := EnsureResolved(optCtx)
 	if err != nil {
 		return fmt.Errorf("get devices from devlink: %w", err)
+	}
+	// Outside zero-trust the agent reaches the kube-apiserver through the host agent, which cannot
+	// run while the host is held, so the hold could never be released. Guarded here rather than in
+	// resolve so ReleaseHostOSInit can still clear a hold that is already programmed.
+	if resolved.HostOSInitRequired && !optCtx.Options.ZeroTrustMode {
+		return fmt.Errorf("%s requires zero-trust mode", nvconfigutil.DelayHostOSInitParam)
 	}
 	pciToParams := resolved.PCIToParams
 	if len(pciToParams) == 0 {

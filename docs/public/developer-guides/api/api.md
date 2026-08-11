@@ -2608,7 +2608,7 @@ _Appears in:_
 | `hostNetworkInterfaceConfigs` _[NetworkInterfaceConfig](#networkinterfaceconfig) array_ | HostNetworkInterfaceConfigs contains the configuration for the host-side network interfaces. |  | Optional: \{\} <br /> |
 | `ewNicConfigurations` _[NicConfiguration](#nicconfiguration) array_ | EWNicConfigurations lists per-NIC configuration for the E/W NICs.<br />Only the first entry is applied in this release; additional entries are ignored until a future<br />release adds multi-NIC support. The field is modeled as a list now so the API shape does not<br />need to change when multiple entries are supported. |  | MaxItems: 16 <br />Optional: \{\} <br /> |
 | `scalableFunctions` _[ScalableFunctions](#scalablefunctions)_ | ScalableFunctions configures Scalable Functions (SFs) created on the DPU. |  | Optional: \{\} <br /> |
-| `hostOSInit` _[HostOSInit](#hostosinit)_ | hostOSInit configures when the DPU agent releases host OS init after DELAY_HOST_OS_INIT=0x3<br />(ENABLE_USER) is set in nvconfig. Omitted releaseAfter defaults to dpuServiceCriticalPodsReady<br />at agent runtime. |  | Optional: \{\} <br /> |
+| `hostOSInit` _[HostOSInit](#hostosinit)_ | hostOSInit configures when the DPU agent releases host OS init after DELAY_HOST_OS_INIT=0x3<br />(ENABLE_USER) is set in nvconfig. Omitted releaseAfter defaults to dpuServiceCriticalPodsReady<br />at agent runtime. Has no effect unless nvconfig requests that hold. |  | Optional: \{\} <br /> |
 
 
 #### DPUFlavorTemplate
@@ -3464,7 +3464,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `device` _string_ | Device is the device to which the configuration applies. If not specified, the configuration applies to all.<br />Supported values: "*" (wildcard for all devices), "p0"/"P0" (port 0), "p1"/"P1" (port 1). Case-insensitive. |  | Enum: [* p0 p1 P0 P1] <br />Optional: \{\} <br /> |
-| `parameters` _string array_ | Parameters are the parameters to be set for the device. |  | MaxItems: 32 <br />MinItems: 1 <br />items:MaxLength: 200 <br />items:Pattern: `^[^=\s]+=[^\s]*$` <br />Optional: \{\} <br /> |
+| `parameters` _string array_ | Parameters are the parameters to be set for the device.<br />DELAY_HOST_OS_INIT=ENABLE_USER (0x3) holds the host at UEFI and is rejected by the DPU agent<br />outside zero-trust, where the agent needs the host to reach the kube-apiserver. |  | MaxItems: 32 <br />MinItems: 1 <br />items:MaxLength: 200 <br />items:Pattern: `^[^=\s]+=[^\s]*$` <br />Optional: \{\} <br /> |
 
 
 #### NetworkInterfaceConfig

@@ -24,6 +24,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	nvconfigutil "github.com/nvidia/doca-platform/internal/provisioning/utils/nvconfig"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -110,6 +111,15 @@ func Pending(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Contro
 		return *state, err
 	}
 	cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondDPUFlavorExists, "", ""))
+
+	if nvconfigutil.FlavorRequestsHostOSInitHold(dpuFlavor.Spec.NVConfig) && !ctrlCtx.Options.ZeroTrustProvisioningFlow() {
+		err := fmt.Errorf("%s requires zero-trust mode: either deploy in zero-trust mode, or point the DPUSet at a "+
+			"DPUFlavor without this parameter",
+			nvconfigutil.DelayHostOSInitParam)
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondPending.String(), err, "DPUFlavorRequiresZeroTrustMode", err.Error()))
+		state.Phase = provisioningv1.DPUError
+		return *state, nil
+	}
 
 	// Check if we can proceed with provisioning
 	if err := ctrlCtx.DPUInProvisioningMap.CanProceed(dutil.DPUID(dpu.UID)); err != nil {
