@@ -75,17 +75,10 @@ The Zero Trust e2e suite uses a single reboot driver, set by the
   reach `Succeeded` and the controller's normal flow drives the DPU
   back to `DPUReady`.
 
-The reboot driver depends on the **DPUNode → host BMC IP map**.
-DPUNode names in ZT are derived from the DPU serial (e.g.
-`dpu-node-mt2337xz04vd`), so there is no in-cluster way to know which
-physical host backs each DPU. The path to the inventory YAML (DPU
-serial → host BMC IP, all keys lower-case to match how the host-agent
-normalises serials when it creates the DPUNode) is provided by the
-`$E2E_ZT_BMC_INVENTORY_PATH` env var and loaded at runtime by
-`GetDPUNodeToBMCIPs` in `system_setup.go`. CI sets the env var on the ZT
-job in `.gitlab/ci/e2e-jobs.yml`; local developers export it
-themselves. When DPUs are swapped in/out of the lab,
-edit the YAML file at the path the env var points to.
+The reboot driver depends on a **DPUNode → host BMC IP map** from lab
+setup-info (`$E2E_CI_SETUP_INFO_PATH`). E2E loads that file during
+system setup, CI sets the env var on ZT jobs, and local developers
+export it themselves. Update the YAML when lab DPUs change.
 
 One reboot pod-template fixture ships in
 `test/objects/infrastructure/`:

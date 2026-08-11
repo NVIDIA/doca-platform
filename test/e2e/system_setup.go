@@ -1371,22 +1371,64 @@ func getDPUClusterClients(ctx context.Context, input ProvisionDPUClustersInput) 
 
 const bmcIPLabelKey = "host-bmc-ip"
 
-// GetDPUNodeToBMCIPs ensures the expected DPUNodes exist and maps each DPUNode name to its host BMC IP based on a static inventory file.
-// In Zero-Trust mode, this mapping validates each DPUNode against the inventory, failing clearly if not found.
-// bmcInventoryPath is sourced from $E2E_ZT_BMC_INVENTORY_PATH by getEnvVariables() and required-ness is enforced by validateFlags() for ZT runs.
-func GetDPUNodeToBMCIPs(ctx context.Context, c client.Client,
-	expectedDPUNodes int) map[string]string {
+// PatchDPUDevicesForZeroTrust waits for expectedDPUs DPUDevices, then optionally
+// patches NICDeviceCount and per-serial Spec.Values from setupInfo.
+func PatchDPUDevicesForZeroTrust(ctx context.Context, c client.Client, expectedDPUs int,
+	expectedNicDeviceCount int, setupInfo *ciSetupInfo) {
+	if expectedDPUs == 0 {
+		By("Skipping DPUDevice ZeroTrust patches: expectedDPUs is 0")
+		return
+	}
 
-	raw, err := os.ReadFile(bmcInventoryPath)
-	Expect(err).NotTo(HaveOccurred(),
-		"reading BMC inventory at %s (set $E2E_ZT_BMC_INVENTORY_PATH to a valid path)",
-		bmcInventoryPath)
-	inventory := map[string]string{}
-	Expect(yaml.Unmarshal(raw, &inventory)).To(Succeed(),
-		"parsing %s", bmcInventoryPath)
+	By(fmt.Sprintf("Waiting for %d DPUDevices before ZeroTrust patches (nicDeviceCount=%d)",
+		expectedDPUs, expectedNicDeviceCount))
+	var observed []provisioningv1.DPUDevice
+	Eventually(func(g Gomega) {
+		devices := &provisioningv1.DPUDeviceList{}
+		g.Expect(c.List(ctx, devices, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(devices.Items).To(HaveLen(expectedDPUs))
+		observed = devices.Items
+	}).WithTimeout(10 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
 
+	if expectedNicDeviceCount == 0 {
+		By("Skipping NIC device count patch: expectedNicDeviceCount is 0 (no E/W NICs to configure)")
+	}
+
+	nicPatched, valuesPatched := 0, 0
+	for i := range observed {
+		deviceValues := setupInfo.GetDPUDeviceValuesForDPUDevice(&observed[i])
+
+		current := &provisioningv1.DPUDevice{}
+		Expect(c.Get(ctx, client.ObjectKeyFromObject(&observed[i]), current)).To(Succeed())
+		patch := client.MergeFrom(current.DeepCopy())
+
+		if expectedNicDeviceCount > 0 {
+			current.Spec.NICDeviceCount = &expectedNicDeviceCount
+			nicPatched++
+		}
+
+		// dpu-device-values are only needed by suites that render a DPUFlavorTemplate.
+		if len(deviceValues) > 0 {
+			raw, err := json.Marshal(deviceValues)
+			Expect(err).NotTo(HaveOccurred(),
+				"marshaling dpu-device-values for DPUDevice %s", observed[i].Name)
+			current.Spec.Values = &machineryruntime.RawExtension{Raw: raw}
+			valuesPatched++
+		}
+
+		Expect(c.Patch(ctx, current, patch)).To(Succeed())
+	}
+	By(fmt.Sprintf("Patched NICDeviceCount on %d and setup-info values on %d of %d DPUDevices",
+		nicPatched, valuesPatched, len(observed)))
+}
+
+// GetDPUNodeToBMCIPs ensures the expected DPUNodes exist and maps each DPUNode name to its host BMC IP
+// from the pre-loaded setupInfo map. In Zero-Trust mode, this validates each DPUNode against the
+// setup info, failing clearly if not found.
+func GetDPUNodeToBMCIPs(ctx context.Context, c client.Client, expectedDPUNodes int,
+	setupInfo *ciSetupInfo) map[string]string {
 	By(fmt.Sprintf("Resolving DPUNode -> host BMC IP for %d DPUNodes via %s",
-		expectedDPUNodes, bmcInventoryPath))
+		expectedDPUNodes, setupInfo.path))
 	var observed []provisioningv1.DPUNode
 	Eventually(func(g Gomega) {
 		nodes := &provisioningv1.DPUNodeList{}
@@ -1396,13 +1438,8 @@ func GetDPUNodeToBMCIPs(ctx context.Context, c client.Client,
 	}).WithTimeout(10 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 
 	out := make(map[string]string, len(observed))
-	for i := range observed {
-		serial := strings.TrimPrefix(strings.ToLower(observed[i].Name), "dpu-node-")
-		bmcIP, ok := inventory[serial]
-		Expect(ok).To(BeTrue(),
-			"DPUNode %q has no entry in %s; add the DPU serial there",
-			observed[i].Name, bmcInventoryPath)
-		out[observed[i].Name] = bmcIP
+	for _, node := range observed {
+		out[node.Name] = setupInfo.GetHostBMCIPForDPUNode(ctx, c, &node)
 	}
 	return out
 }
@@ -1505,36 +1542,6 @@ func PatchDPUNodesForScriptReboot(ctx context.Context, c client.Client,
 			dpuNode.Name, configMapName, bmcIP))
 		Expect(c.Patch(ctx, dpuNode, patch)).To(Succeed())
 	}
-}
-
-// PatchDPUDevicesWithNicDeviceCount patches the DPUDevices with the expected E/W NIC device count.
-func PatchDPUDevicesWithNicDeviceCount(ctx context.Context, c client.Client, expectedDPUDevices int, expectedNicDeviceCount int) {
-	if expectedDPUDevices == 0 {
-		By("Skipping patching DPUDevices with NIC device count as expectedDPUDevices is 0 (no DPU Devices to configure)")
-		return
-	}
-
-	if expectedNicDeviceCount == 0 {
-		By("Skipping patching DPUDevices with NIC device count as expectedNicDeviceCount is 0 (no E/W NICs to configure)")
-		return
-	}
-
-	By(fmt.Sprintf("Waiting for %d DPUDevices to exist before patching with NIC device count %d", expectedDPUDevices, expectedNicDeviceCount))
-	var observedDPUDevices []provisioningv1.DPUDevice
-	Eventually(func(g Gomega) {
-		devices := &provisioningv1.DPUDeviceList{}
-		g.Expect(c.List(ctx, devices, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
-		g.Expect(devices.Items).To(HaveLen(expectedDPUDevices))
-		observedDPUDevices = devices.Items
-	}).WithTimeout(10 * time.Minute).WithPolling(time.Second).Should(Succeed())
-
-	By(fmt.Sprintf("Patching %d DPUDevices with NIC device count %d", len(observedDPUDevices), expectedNicDeviceCount))
-	for _, dpuDevice := range observedDPUDevices {
-		patch := client.MergeFrom(dpuDevice.DeepCopy())
-		dpuDevice.Spec.NICDeviceCount = &expectedNicDeviceCount
-		Expect(c.Patch(ctx, &dpuDevice, patch)).To(Succeed())
-	}
-	By(fmt.Sprintf("Patched %d DPUDevices with NIC device count %d successfully", len(observedDPUDevices), expectedNicDeviceCount))
 }
 
 type collectResourcesInput struct {

@@ -289,18 +289,22 @@ func SystemSetupBeforeSuite(skipSystemComponentValidation bool) {
 	})
 
 	if isGinkgoLabelApplied(Domain.ZeroTrust) {
-		// In ZeroTrust mode, build a DPUNode-to-host BMC IP map from the lab inventory file
-		// for the script-based reboot path (nodeRebootMethod.script).
+		// In ZeroTrust mode, load the lab setup-info once and reuse it for the
+		// script-based reboot path (nodeRebootMethod.script) and optional
+		// DPUDevice.spec.values patching.
+		setupInfo := loadCISetupInfo(ciSetupInfoPath)
 		input.dpuNodeBMCs = GetDPUNodeToBMCIPs(
-			ctx, input.client, input.numberOfDPUNodes)
+			ctx, input.client, input.numberOfDPUNodes, setupInfo)
 
 		// Ensure ConfigMap and DPUNode BMC IP labels are set ahead of any DPU reaching the reboot state,
 		// so the controller can drive in-cluster Redfish reboots through the named ConfigMap.
 		ApplyNodeRebootConfigMap(ctx, input.client, input.nodeRebootConfigMapPath)
 		PatchDPUNodesForScriptReboot(ctx, input.client, input.numberOfDPUNodes,
 			input.nodeRebootConfigMap, input.dpuNodeBMCs)
-		// For E/W NIC provisioning, we need to patch the DPUDevices with the expected NIC device count
-		PatchDPUDevicesWithNicDeviceCount(ctx, input.client, input.totalDPUs(), input.numberOfCXsToConfigureViaBF4PerNode)
+		// For E/W NIC provisioning, we need to patch the DPUDevices with the expected NIC device count,
+		// and optional per-serial Spec.Values from setup-info.
+		PatchDPUDevicesForZeroTrust(ctx, input.client, input.totalDPUs(),
+			input.numberOfCXsToConfigureViaBF4PerNode, setupInfo)
 	}
 
 	if isGinkgoLabelApplied(Domain.Performance) {

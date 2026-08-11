@@ -72,7 +72,7 @@ at most one:
   Redfish/BMC) and patches each DPUNode to
   `spec.nodeRebootMethod.script.name=<configmap>`. The DPUNode controller
   spawns the Job per reboot. Requires the `E2E_ZT_BMC_USERNAME`,
-  `E2E_ZT_BMC_PASSWORD`, and `E2E_ZT_BMC_INVENTORY_PATH` env vars.
+  `E2E_ZT_BMC_PASSWORD`, and `E2E_CI_SETUP_INFO_PATH` env vars.
 
 Configs reference YAML manifests in `test/objects/`
 
