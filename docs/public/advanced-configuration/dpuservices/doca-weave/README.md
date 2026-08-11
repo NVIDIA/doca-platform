@@ -2,9 +2,6 @@
 title: "DOCA Weave service"
 ---
 
-> [!NOTE]
-> The DOCA Weave service is a technology preview and is not recommended for production use.
-
 [[_TOC_]]
 
 ## Overview
@@ -18,7 +15,7 @@ Weave also supplies overlay DHCP on the per-NIC DHCP bridges, rounding out tenan
 A straightforward overlay-to-underlay address mapping avoids a dedicated routing layer on the overlay - underlay routing (including features such as route summarization) carries scalability to very large node counts.
 Each BlueField 4 hosts a gRPC control plane above flow programming (NetworkIsolation in this release), keeping forwarding on hardware for near line-rate encapsulation with minimal added latency.
 
-This document describes how the Weave service behaves on the DPU - components, `vpcctl`, virtual networks, and worked examples.
+This document describes how the Weave service behaves on the DPU - components, [vpcctl CLI tool](./vpcctl.md), virtual networks, and worked examples.
 
 ### Key Features
 
@@ -55,7 +52,7 @@ It is composed of three parts:
 
 * `weave-flow-controller`: exposes the NetworkIsolation gRPC API on a local Unix socket, reconciles OVS after events such as a restart, and programs tenant/VXLAN bridges and flows.
 * `weave-dhcp-agent`: provides overlay DHCP on the per-NIC DHCP bridges.
-* `vpcctl`: CLI for the NetworkIsolation API, mainly for evaluation, development, and testing ([usage and examples](#vpcctl)).
+* `vpcctl`: CLI for the NetworkIsolation API, mainly for evaluation, development, and testing ([usage and examples](./vpcctl.md)).
 
 ```mermaid
 ---
@@ -258,81 +255,6 @@ Example object shape when `PHASE_READY` (`status.hostIpv4` is illustrative, phas
   }
 }
 ```
-
-## vpcctl
-
-`vpcctl` is a CLI for the NetworkIsolation gRPC API exposed by `weave-flow-controller`. Integrations should call that API with a gRPC client directly, the DOCA Weave image also ships `vpcctl` so you can interact with the flow controller co-located on the same DPU.
-
-Run `/vpcctl` on each DPU via `kubectl exec` into the `weave-flow-controller` pod on that node. Virtual network state is per DPU. Subcommands that return objects (`create-vnet`, `get-vnet`, `list-vnet`, `create-attachment`, `get-attachment`, `list-attachment`) print JSON to stdout.
-
-Default gRPC socket: `/var/run/dpf/weave/grpc/flow-controller.sock`. Run `/vpcctl --help`. If you change the socket, set `GRPC_SOCKET_PATH` on `weave-flow-controller` and `VPCCTL_SOCKET_PATH` on `vpcctl` to the same path.
-
-Subcommands: `create-vnet`, `get-vnet`, `list-vnet`, `delete-vnet`, `create-attachment`, `get-attachment`, `list-attachment`, `delete-attachment`.
-
-### Create a VirtualNetwork
-
-| Flag | Description |
-|------|-------------|
-| `--id` | Virtual network ID (optional on create, server assigns if omitted) |
-| `--subnet-v4` | Subnet CIDR |
-| `--vni` | VNI |
-
-```shell
-/vpcctl create-vnet --id <id> --subnet-v4 <subnet_ipv4> --vni <vni>
-```
-
-Example: `/vpcctl create-vnet --id vnet1 --subnet-v4 10.0.0.0/12 --vni 100`. Confirm `status.state.phase` is `PHASE_READY` before use (see [Status](#status)).
-
-### Create a VirtualNetworkAttachment
-
-| Flag | Description |
-|------|-------------|
-| `--id` | Attachment ID (optional on create, server may assign) |
-| `--vnet-id` | Target virtual network `id` |
-| `--nic-id` | NIC identifier this virtual network is bound to, MAC address of one of the NIC's host-facing PFs |
-| `--type` | `pf` only |
-| `--pf` | MAC of the specific host PF to attach (`attachmentPf.pfId`) |
-| `--rep` | Representor netdev of the host attachment. When set, `--nic-id`, and `--pf` are derived from the matching devlink port and must not be provided |
-
-```shell
-# with nic-id and pf
-/vpcctl create-attachment --id <id> --vnet-id <vnet_id> --type pf --nic-id <nic_mac> --pf <pf>
-# with rep
-/vpcctl create-attachment --id <id> --vnet-id <vnet_id> --type pf --rep <rep>
-```
-
-Examples:
-```shell
-# with nic-id and pf
-/vpcctl create-attachment --id attach1 --vnet-id vnet1 --type pf --nic-id 94:6d:ae:4f:41:50 --pf 94:6d:ae:4f:41:50
-# with rep
-/vpcctl create-attachment --id attach1 --vnet-id vnet1 --type pf --rep A1c1pf0
-```
-
-Refer to [VirtualNetworkAttachment](#virtualnetworkattachment) for response fields.
-
-### Get, list, and delete
-
-* `get-vnet` - `--id` (virtual network ID), prints one `VirtualNetwork`.
-* `get-attachment` - `--id` (attachment ID), prints one `VirtualNetworkAttachment`.
-* `list-vnet` / `list-attachment` - Optional filters (`--vni`, `--vnet-id`, `--nic-id`) per `vpcctl --help`.
-* `delete-vnet` / `delete-attachment` - `--id` of the object to remove.
-
-```shell
-/vpcctl get-vnet --id <vnet-id>
-/vpcctl get-attachment --id <id>
-/vpcctl list-vnet
-/vpcctl list-attachment
-/vpcctl delete-attachment --id <id>
-/vpcctl delete-vnet --id <id>
-```
-
-### Removing VirtualNetwork objects
-
-`VirtualNetwork` and `VirtualNetworkAttachment` objects live on each DPU. To drop overlay state only, run the following in the `weave-flow-controller` pod on every DPU where those objects exist (attachments first):
-
-1. `/vpcctl delete-attachment --id <id>`
-2. `/vpcctl delete-vnet --id <id>`
 
 ## Example: one shared VirtualNetwork, one attachment per host PF
 
@@ -780,10 +702,8 @@ On each worker pod, `list-attachment` and `list-vnet` should no longer list thes
 
 ## Limitations
 
-Technology preview (not for production).
-
 * Address family - Only IPv4 is supported for overlay and underlay traffic in this release.
-* Attachments - Only `attachment_type` `pf` is supported for `VirtualNetworkAttachment`, `vf` is not supported.
+* Attachments - Only `attachment_type` `pf` and `ovs` are supported for `VirtualNetworkAttachment`.
 * Same-node PFs - Overlay connectivity between two PF attachments on the same node is not yet supported, even when they share the same `VirtualNetwork` and VNI.
 * VNI - Bits 20-23 of the 24-bit VNI are reserved (see [VirtualNetwork](#virtualnetwork)).
 * Identifiers - `nicId` / `--nic-id` and `attachmentPf.pfId` / `--pf` support MAC addresses only.
