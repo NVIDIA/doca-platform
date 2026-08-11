@@ -170,14 +170,14 @@ func testCertificatePEM(t *testing.T) string {
 
 func pemFingerprint(t *testing.T, certPEM string) string {
 	t.Helper()
+	g := NewWithT(t)
+
 	block, _ := pem.Decode([]byte(certPEM))
-	if block == nil {
-		t.Fatalf("failed decoding pem")
-	}
+	g.Expect(block).NotTo(BeNil(), "failed decoding pem")
+
 	cert, err := x509.ParseCertificate(block.Bytes)
-	if err != nil {
-		t.Fatalf("failed parsing cert: %v", err)
-	}
+	g.Expect(err).NotTo(HaveOccurred(), "failed parsing cert")
+
 	sum := sha256.Sum256(cert.Raw)
 	return fmt.Sprintf("%x", sum)
 }
