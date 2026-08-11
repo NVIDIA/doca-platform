@@ -30,6 +30,8 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/selection"
@@ -153,6 +155,18 @@ func collectArtifacts(filePath string) {
 	serviceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
 	Expect(dpuClusterClient[0].List(ctx, serviceInterfaceList)).To(Succeed())
 	allArtifacts = append(allArtifacts, extractArtifacts(ToClientObjectSlice(serviceInterfaceList.Items))...)
+
+	By("Capturing NodeServiceInterfaces artifacts from DPU cluster")
+	// The v25.10 and v26.4 upgrade hops predate this CRD.
+	nodeServiceInterfaceList := &dpuservicev1.NodeServiceInterfacesList{}
+	switch err := dpuClusterClient[0].List(ctx, nodeServiceInterfaceList); {
+	case err == nil:
+		allArtifacts = append(allArtifacts, extractArtifacts(ToClientObjectSlice(nodeServiceInterfaceList.Items))...)
+	case meta.IsNoMatchError(err) || apierrors.IsNotFound(err):
+		By("Skipping NodeServiceInterfaces: kind not served by this release")
+	default:
+		Expect(err).ToNot(HaveOccurred())
+	}
 
 	By("Capturing Pod artifacts from DPU cluster with service label but not system component label")
 	podList := &corev1.PodList{}

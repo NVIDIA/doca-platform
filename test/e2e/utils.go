@@ -39,6 +39,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -108,7 +109,6 @@ type TestDomain struct {
 	Observability           string // Observability test suite
 	ImagePullSecretsSync    string // ImagePullSecrets sync/cleanup validation (opt out in CI via !ImagePullSecretsSync)
 	Performance             string // Performance test suite - applies MTU 9000 and extended DMS timeout
-	NSIPathForSFC           string // Tests that rerun SFC scenarios with the NSIPathForSFC feature gate enabled
 }
 
 // Domain is the global instance of test label domains
@@ -137,7 +137,6 @@ var Domain = TestDomain{
 	Observability:           "Observability",
 	ImagePullSecretsSync:    "ImagePullSecretsSync",
 	Performance:             "Performance",
-	NSIPathForSFC:           "NSIPathForSFC",
 }
 
 var (
@@ -486,4 +485,23 @@ func GetServiceIDForDPUDeploymentService(ctx context.Context, c client.Client, d
 		serviceID = dpuServiceList.Items[0].Status.ServiceID
 	}).WithTimeout(30 * time.Second).Should(Succeed())
 	return serviceID
+}
+
+// countNodesWithNSIEntry counts NodeServiceInterfaces objects with at least one entry matching want.
+func countNodesWithNSIEntry(list *dpuservicev1.NodeServiceInterfacesList, want map[string]string) int {
+	selector := labels.SelectorFromSet(want)
+	count := 0
+	for i := range list.Items {
+		// VPC shards can carry the same labels.
+		if list.Items[i].Spec.Type != dpuservicev1.NSITypeSFC {
+			continue
+		}
+		for _, entry := range list.Items[i].Spec.Interfaces {
+			if selector.Matches(labels.Set(entry.Labels)) {
+				count++
+				break
+			}
+		}
+	}
+	return count
 }

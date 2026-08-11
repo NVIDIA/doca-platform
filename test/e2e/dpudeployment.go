@@ -583,11 +583,12 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 		DPUNodeBMCs:         input.dpuNodeBMCs,
 	})
 
-	By(fmt.Sprintf("Verify ServiceInterface is created in %d nodes", input.totalDPUs()))
+	By(fmt.Sprintf("Verify a NodeServiceInterfaces entry is created on %d nodes", input.totalDPUs()))
 	Eventually(func(g Gomega) {
-		serviceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
-		g.Expect(dpuClusterClient[0].List(ctx, serviceInterfaceList, client.MatchingLabels(serviceInterfaceLabels))).To(Succeed())
-		g.Expect(serviceInterfaceList.Items).To(HaveLen(input.totalDPUs()))
+		// One NodeServiceInterfaces object per DPU cluster node, and every DPU device is its own node.
+		nsiList := &dpuservicev1.NodeServiceInterfacesList{}
+		g.Expect(dpuClusterClient[0].List(ctx, nsiList, client.InNamespace(utils.NSIObjectsNamespace))).To(Succeed())
+		g.Expect(countNodesWithNSIEntry(nsiList, serviceInterfaceLabels)).To(Equal(input.totalDPUs()))
 	}).WithTimeout(15 * time.Minute).WithPolling(120 * time.Second).Should(Succeed())
 
 	By("Verify service pods have the service reference label")
