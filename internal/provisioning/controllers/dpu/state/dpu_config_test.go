@@ -41,17 +41,30 @@ var _ = Describe("Phase DPUConfig", func() {
 	}
 
 	Context("waiting for agent", func() {
-		It("should wait when AgentStatus is nil", func() {
+		It("should wait with WaitingForDPUAgent when AgentStatus is nil", func() {
 			dpu := dpuObj(defaultDPUName)
 			dpu.Status.Phase = provisioningv1.DPUConfig
 
 			status, err := state.DPUConfig(ctx, dpu, &dutil.ControllerContext{})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(status.Phase).To(Equal(provisioningv1.DPUConfig))
-			expectDPUConfigCondition(status, metav1.ConditionFalse, "WaitingForRebootMethod", "waiting for DPU agent to report reboot method")
+			expectDPUConfigCondition(status, metav1.ConditionFalse, "WaitingForDPUAgent", "waiting for DPU agent contact")
 		})
 
-		It("should wait when RebootMethod is nil", func() {
+		It("should wait with WaitingForDPUAgent when LastStartupTime is nil", func() {
+			dpu := dpuObj(defaultDPUName)
+			dpu.Status.Phase = provisioningv1.DPUConfig
+			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
+				RebootMethod: ptr.To(provisioningv1.RebootMethodUnknown),
+			}
+
+			status, err := state.DPUConfig(ctx, dpu, &dutil.ControllerContext{})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUConfig))
+			expectDPUConfigCondition(status, metav1.ConditionFalse, "WaitingForDPUAgent", "waiting for DPU agent contact")
+		})
+
+		It("should wait with WaitingForRebootMethod when RebootMethod is nil", func() {
 			dpu := dpuObj(defaultDPUName)
 			dpu.Status.Phase = provisioningv1.DPUConfig
 			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
