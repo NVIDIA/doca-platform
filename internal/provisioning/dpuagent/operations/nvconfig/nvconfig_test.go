@@ -220,6 +220,106 @@ var _ = Describe("NVConfig Operation", func() {
 			Expect(operationCtx.GetResolvedNVConfig()).To(BeNil())
 		})
 
+		It("fails before mlxconfig when DELAY_HOST_OS_INIT is requested outside zero-trust", func() {
+			ranBash := false
+			operation := ConfigureNVConfig{
+				runBash: func(string) (bytes.Buffer, bytes.Buffer, error) {
+					ranBash = true
+					return bytes.Buffer{}, bytes.Buffer{}, nil
+				},
+			}
+			operationCtx := &operations.Context{
+				DiscoverPorts: discoverPortsForTest(),
+				Options:       opts.Options{ZeroTrustMode: false},
+				DPUFlavor: provisioningv1.DPUFlavor{
+					Spec: provisioningv1.DPUFlavorSpec{
+						NVConfig: []provisioningv1.NVConfig{
+							{Device: ptr.To("p0"), Parameters: []string{"DELAY_HOST_OS_INIT=0x3"}},
+						},
+					},
+				},
+				LatestDPU: &provisioningv1.DPU{Status: provisioningv1.DPUStatus{AgentStatus: &provisioningv1.AgentStatus{Conditions: []metav1.Condition{}}}},
+			}
+			err := operation.Execute(ctx, operationCtx)
+			Expect(err).To(MatchError(ContainSubstring("DELAY_HOST_OS_INIT requires zero-trust mode")))
+			Expect(ranBash).To(BeFalse())
+		})
+
+		It("fails before mlxconfig for a non-canonical DELAY_HOST_OS_INIT spelling outside zero-trust", func() {
+			ranBash := false
+			operation := ConfigureNVConfig{
+				runBash: func(string) (bytes.Buffer, bytes.Buffer, error) {
+					ranBash = true
+					return bytes.Buffer{}, bytes.Buffer{}, nil
+				},
+			}
+			operationCtx := &operations.Context{
+				DiscoverPorts: discoverPortsForTest(),
+				Options:       opts.Options{ZeroTrustMode: false},
+				DPUFlavor: provisioningv1.DPUFlavor{
+					Spec: provisioningv1.DPUFlavorSpec{
+						NVConfig: []provisioningv1.NVConfig{
+							{Device: ptr.To("p0"), Parameters: []string{"DELAY_HOST_OS_INIT=0x03"}},
+						},
+					},
+				},
+				LatestDPU: &provisioningv1.DPU{Status: provisioningv1.DPUStatus{AgentStatus: &provisioningv1.AgentStatus{Conditions: []metav1.Condition{}}}},
+			}
+			err := operation.Execute(ctx, operationCtx)
+			Expect(err).To(MatchError(ContainSubstring("requires zero-trust")))
+			Expect(ranBash).To(BeFalse())
+		})
+
+		It("applies DELAY_HOST_OS_INIT in zero-trust mode", func() {
+			var recorded []string
+			operation := ConfigureNVConfig{
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					recorded = append(recorded, cmd)
+					return bytes.Buffer{}, bytes.Buffer{}, nil
+				},
+			}
+			operationCtx := &operations.Context{
+				DiscoverPorts:         discoverPortsForTest(),
+				RebootMethodDiscovery: false,
+				Options:               opts.Options{ZeroTrustMode: true},
+				DPUFlavor: provisioningv1.DPUFlavor{
+					Spec: provisioningv1.DPUFlavorSpec{
+						NVConfig: []provisioningv1.NVConfig{
+							{Device: ptr.To("p0"), Parameters: []string{"DELAY_HOST_OS_INIT=0x3"}},
+						},
+					},
+				},
+				LatestDPU: &provisioningv1.DPU{Status: provisioningv1.DPUStatus{AgentStatus: &provisioningv1.AgentStatus{Conditions: []metav1.Condition{}}}},
+			}
+			Expect(operation.Execute(ctx, operationCtx)).To(Succeed())
+			Expect(recorded).To(ContainElement(fmt.Sprintf("mlxconfig -d %s -y set DELAY_HOST_OS_INIT=0x3", testPci0)))
+		})
+
+		It("applies a flavor that does not request the hold even outside zero-trust", func() {
+			var recorded []string
+			operation := ConfigureNVConfig{
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					recorded = append(recorded, cmd)
+					return bytes.Buffer{}, bytes.Buffer{}, nil
+				},
+			}
+			operationCtx := &operations.Context{
+				DiscoverPorts:         discoverPortsForTest(),
+				RebootMethodDiscovery: false,
+				Options:               opts.Options{ZeroTrustMode: false},
+				DPUFlavor: provisioningv1.DPUFlavor{
+					Spec: provisioningv1.DPUFlavorSpec{
+						NVConfig: []provisioningv1.NVConfig{
+							{Device: ptr.To("p0"), Parameters: []string{"PARAM1=VALUE1"}},
+						},
+					},
+				},
+				LatestDPU: &provisioningv1.DPU{Status: provisioningv1.DPUStatus{AgentStatus: &provisioningv1.AgentStatus{Conditions: []metav1.Condition{}}}},
+			}
+			Expect(operation.Execute(ctx, operationCtx)).To(Succeed())
+			Expect(recorded).To(ContainElement(fmt.Sprintf("mlxconfig -d %s -y set PARAM1=VALUE1", testPci0)))
+		})
+
 		It("should skip if NVConfig is already configured", func() {
 			dpuFlavor := provisioningv1.DPUFlavor{
 				Spec: provisioningv1.DPUFlavorSpec{

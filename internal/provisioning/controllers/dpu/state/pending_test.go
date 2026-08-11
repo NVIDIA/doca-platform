@@ -17,6 +17,7 @@ limitations under the License.
 package state_test
 
 import (
+	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
@@ -32,6 +33,7 @@ var _ = Describe("DPU: pending", func() {
 	var (
 		defaultDPUName               = "dpu-pending-test"
 		defaultBFBName               = "bfb-pending-test"
+		defaultBFBFileName           = "bfb-file.bfb"
 		defaultDPUFlavorName         = "dpu-flavor-pending-test"
 		defaultBlueFieldSoftwareName = "bluefield-software-pending-test"
 	)
@@ -42,7 +44,7 @@ var _ = Describe("DPU: pending", func() {
 			createObject(bfb)
 			patch := client.MergeFrom(bfb.DeepCopy())
 			bfb.Status.Phase = provisioningv1.BFBReady
-			bfb.Status.FileName = "bfb-file.bfb"
+			bfb.Status.FileName = defaultBFBFileName
 			Expect(k8sClient.Status().Patch(ctx, bfb, patch)).To(Succeed())
 
 			dpuFlavor := dpuFlavorObj(defaultDPUFlavorName)
@@ -78,7 +80,7 @@ var _ = Describe("DPU: pending", func() {
 						HaveField("Reason", provisioningv1.DPUCondDPUFlavorExists.String()),
 					),
 				))
-				Expect(status.BFBFile).To(Equal("/bfb/bfb-file.bfb"))
+				Expect(status.BFBFile).To(Equal("/bfb/" + defaultBFBFileName))
 				Expect(dpuMap.CanProceed(dutil.DPUID("test-dpu"))).To(HaveOccurred())
 			})
 		})
@@ -175,7 +177,7 @@ var _ = Describe("DPU: pending", func() {
 		createObject(bfb)
 		patch := client.MergeFrom(bfb.DeepCopy())
 		bfb.Status.Phase = provisioningv1.BFBReady
-		bfb.Status.FileName = "bfb-file.bfb"
+		bfb.Status.FileName = defaultBFBFileName
 		Expect(k8sClient.Status().Patch(ctx, bfb, patch)).To(Succeed())
 
 		dpu := dpuObj(defaultDPUName)
@@ -265,5 +267,99 @@ var _ = Describe("DPU: pending", func() {
 				),
 			))
 		})
+	})
+
+	Context("DELAY_HOST_OS_INIT deployment mode", func() {
+		// readyBFBDPU returns a DPU in Pending referencing a ready BFB and the given flavor, so
+		// Pending reaches the DELAY_HOST_OS_INIT check.
+		readyBFBDPU := func(bfbName string, flavor *provisioningv1.DPUFlavor) *provisioningv1.DPU {
+			bfb := bfbObj(bfbName)
+			createObject(bfb)
+			patch := client.MergeFrom(bfb.DeepCopy())
+			bfb.Status.Phase = provisioningv1.BFBReady
+			bfb.Status.FileName = defaultBFBFileName
+			Expect(k8sClient.Status().Patch(ctx, bfb, patch)).To(Succeed())
+
+			createObject(flavor)
+
+			dpu := dpuObj(defaultDPUName)
+			dpu.Spec.BFB = ptr.To(bfb.Name)
+			dpu.Spec.DPUFlavor = flavor.Name
+			dpu.Status.Phase = provisioningv1.DPUPending
+			return dpu
+		}
+
+		flavorWithHold := func(name string) *provisioningv1.DPUFlavor {
+			flavor := dpuFlavorObj(name)
+			flavor.Spec.NVConfig = []provisioningv1.NVConfig{
+				{Device: ptr.To("p0"), Parameters: []string{"DELAY_HOST_OS_INIT=0x3"}},
+			}
+			return flavor
+		}
+
+		// flavorWithoutHold carries both ways a flavor can mention the feature without asking for
+		// the hold: a non-user-mode DELAY_HOST_OS_INIT value, and a release gate, which is
+		// documented as inert unless nvconfig requests the hold.
+		flavorWithoutHold := func(name string) *provisioningv1.DPUFlavor {
+			flavor := dpuFlavorObj(name)
+			flavor.Spec.NVConfig = []provisioningv1.NVConfig{
+				{Device: ptr.To("p0"), Parameters: []string{"DELAY_HOST_OS_INIT=0x0"}},
+			}
+			flavor.Spec.HostOSInit = &provisioningv1.HostOSInit{
+				ReleaseAfter: &provisioningv1.HostOSInitReleaseAfter{
+					OperationalReady: &provisioningv1.HostOSInitGate{},
+				},
+			}
+			return flavor
+		}
+
+		runPending := func(dpu *provisioningv1.DPU, deploymentMode string, installInterface provisioningv1.DPUInstallInterfaceType,
+			dpuMap *dutil.DPUInProvisioningMap) (provisioningv1.DPUStatus, error) {
+			return state.Pending(ctx, dpu,
+				&dutil.ControllerContext{
+					Client: k8sClient,
+					Options: dutil.DPUOptions{
+						DeploymentMode:      deploymentMode,
+						DPUInstallInterface: string(installInterface),
+					},
+					DPUInProvisioningMap: dpuMap,
+				},
+			)
+		}
+
+		It("should fail to Error before provisioning when the flavor holds the host outside zero-trust", func() {
+			dpu := readyBFBDPU("bfb-hold-host-trusted", flavorWithHold("dpu-flavor-hold-host-trusted"))
+			dpuMap := dutil.NewDPUInProvisioningMap(1)
+
+			status, err := runPending(dpu, string(operatorv1.DeploymentModeHostTrusted), provisioningv1.InstallViaHostAgent, dpuMap)
+			// Terminal, so no error either: Error phase keeps it off the retry path.
+			Expect(err).To(Succeed())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUError))
+			Expect(status.Conditions).Should(ContainElements(
+				And(
+					HaveField("Type", provisioningv1.DPUCondPending.String()),
+					HaveField("Status", metav1.ConditionFalse),
+					HaveField("Reason", "DPUFlavorRequiresZeroTrustMode"),
+					HaveField("Message", ContainSubstring("DELAY_HOST_OS_INIT requires zero-trust mode")),
+				),
+			))
+			// The rejection must land before the provisioning slot is claimed, otherwise a DPU that
+			// can never proceed would occupy capacity for the whole fleet.
+			Expect(dpuMap.CanProceed(dutil.DPUID("other-dpu"))).To(Succeed())
+		})
+
+		DescribeTable("should proceed when the hold is permitted or absent",
+			func(name string, newFlavor func(string) *provisioningv1.DPUFlavor, deploymentMode string, installInterface provisioningv1.DPUInstallInterfaceType) {
+				dpu := readyBFBDPU("bfb-"+name, newFlavor("dpu-flavor-"+name))
+
+				status, err := runPending(dpu, deploymentMode, installInterface, dutil.NewDPUInProvisioningMap(1))
+				Expect(err).To(Succeed())
+				Expect(status.Phase).To(Equal(provisioningv1.DPUNodeEffect))
+			},
+			Entry("hold requested in zero-trust", "hold-zero-trust", flavorWithHold,
+				string(operatorv1.DeploymentModeZeroTrust), provisioningv1.InstallViaRedFish),
+			Entry("no hold requested outside zero-trust", "no-hold-host-trusted", flavorWithoutHold,
+				string(operatorv1.DeploymentModeHostTrusted), provisioningv1.InstallViaHostAgent),
+		)
 	})
 })
