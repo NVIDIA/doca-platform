@@ -23,6 +23,7 @@ import (
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -62,6 +63,7 @@ func (r *HostAgentServerReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		if dpu.Status.AgentStatus == nil {
 			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{}
 		}
+		dpu.Status.AgentStatus.LastStartupTime = ptr.To(metav1.Now())
 		dpu.Status.AgentStatus.RebootMethod = ptr.To(provisioningv1.RebootMethodSystemLevelReset)
 		if err := r.Client.Status().Update(ctx, dpu); err != nil {
 			return ctrl.Result{}, err
