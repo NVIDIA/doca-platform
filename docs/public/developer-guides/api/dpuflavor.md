@@ -380,6 +380,6 @@ This example produces the Node labels `scripts.dpu.nvidia.com/test-label=some-da
 2. **Immutability**: Plan your configuration carefully as DPUFlavor specs cannot be modified after creation
 3. **Testing**: Test DPUFlavor configurations in development environments before production deployment
 4. **Documentation**: Document custom configurations and their purposes for team understanding
-5. **IB Mode Conversion**: For DPUs initially in InfiniBand (IB) mode, always include `LINK_TYPE_P1=2` in nvconfig parameters to convert to Ethernet mode. For dual port DPUs, also add `LINK_TYPE_P2=2`
+5. **IB Mode Conversion**: For DPUs initially in InfiniBand (IB) mode, always include `LINK_TYPE_P1=ETH` in nvconfig parameters to convert to Ethernet mode. For dual port DPUs, also add `LINK_TYPE_P2=ETH`
 6. **NVConfig**: Use wildcard (`device: '*'`) for uniform configuration across all devices. Use device-specific entries only when per-device configuration is required
 7. **DPU Credentials**: Set `ubuntu_PASSWORD` in `bfcfgParameters` to a strong hashed password. If omitted, the DPU is provisioned with default `ubuntu:ubuntu` credentials.

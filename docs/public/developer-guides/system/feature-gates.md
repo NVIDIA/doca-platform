@@ -45,6 +45,24 @@ Pass `--feature-gates=MyNewFeature=true` to the operator or controller
 binary. Both binaries register the same gate names, so the same flag value
 works for both without translation.
 
+For a Helm-installed operator, set gates through the `dpf-operator` chart
+value `controllerManager.featureGates` (a map of gate name to boolean)
+rather than editing the flag directly. The chart renders the map into the
+operator's `--feature-gates` flag:
+
+```yaml
+controllerManager:
+  featureGates:
+    ConfigPortsOverHighSpeed: true
+```
+
+The operator propagates only the gates it shares with the dpuservice
+controller (currently `ConfigPortsOverHighSpeed`) down to that deployment.
+Gates that are read solely by DPU-side binaries (for example `NSIPathForSFC`
+and `NSIPathForVPC`) are accepted in this map but have no effect there; see
+the inline notes in `deploy/charts/dpf-operator/values.yaml` for the current
+per-gate scope.
+
 Attempting to disable a GA gate at runtime is a startup error — that is
 intentional; GA gates should be removed from the codebase, not toggled off.
 
