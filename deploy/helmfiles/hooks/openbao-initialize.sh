@@ -44,7 +44,7 @@ bao_exec() {
 }
 
 bao_status() {
-	bao_exec bao status -format=json 2> /dev/null || true
+	bao_exec bao status -format=json 2>&1 || true
 }
 
 wait_openbao_listening() {
@@ -146,9 +146,21 @@ configure_kubernetes_auth() {
 }
 
 initialize_if_needed() {
-	local status_json initialized init_json
-	status_json="$(bao_status)"
-	initialized="$(json_bool_field "${status_json}" initialized)"
+	local i status_output initialized init_json
+	i=1
+	initialized=""
+	while [[ "${i}" -le "${WAIT_ATTEMPTS}" ]]; do
+		status_output="$(bao_status)"
+		initialized="$(json_bool_field "${status_output}" initialized)"
+		if [[ "${initialized}" == "true" || "${initialized}" == "false" ]]; then
+			break
+		fi
+
+		echo "Waiting for OpenBao initialization status... (${i}/${WAIT_ATTEMPTS})"
+		i=$((i + 1))
+		sleep "${WAIT_INTERVAL}"
+	done
+
 	case "${initialized}" in
 	true)
 		echo "OpenBao is already initialized; skipping initialization."
@@ -161,6 +173,7 @@ initialize_if_needed() {
 		;;
 	*)
 		echo "ERROR: unable to determine OpenBao initialization status; initialized=${initialized:-unknown}" >&2
+		echo "Last OpenBao status output: ${status_output:-<empty>}" >&2
 		exit 1
 		;;
 	esac
