@@ -22,19 +22,39 @@ const (
 	// DefaultNamespace is the default namespace for DPUDevices and BMC credential Secrets.
 	DefaultNamespace = "dpf-operator-system"
 
-	defaultRequestTimeout        = 30 * time.Second
-	defaultTaskTimeout           = 30 * time.Minute
-	defaultTaskPollInterval      = 5 * time.Second
-	defaultEntryRetryCount       = 15
-	defaultEntryRetryInterval    = 2 * time.Second
-	defaultPort                  = 443
-	defaultUser                  = "admin"
-	dumpPath                     = "/redfish/v1/Systems/BlueField_0/LogServices/Dump"
-	dumpClearPath                = dumpPath + "/Actions/LogService.ClearLog"
-	dumpCollectDiagnosticPath    = dumpPath + "/Actions/LogService.CollectDiagnosticData"
-	dumpEntriesPath              = dumpPath + "/Entries"
-	urlScheme                    = "https://"
-	sharedPasswordSecretName     = "bmc-shared-password"
-	passwordSecretDataKey        = "password"
-	collectDiagnosticRequestBody = `{"DiagnosticDataType":"OEM","OEMDiagnosticDataType":"DiagnosticType=CPUDiagnosticsData"}`
+	defaultRequestTimeout     = 30 * time.Second
+	defaultTaskTimeout        = 30 * time.Minute
+	defaultTaskPollInterval   = 5 * time.Second
+	defaultEntryRetryCount    = 15
+	defaultEntryRetryInterval = 2 * time.Second
+	defaultPort               = 443
+	urlScheme                 = "https://"
+	sharedPasswordSecretName  = "bmc-shared-password"
+	passwordSecretDataKey     = "password"
+
+	rootServicePath           = "/redfish/v1"
+	dumpLogServicePath        = "/LogServices/Dump"
+	collectDiagnosticDataPath = "/Actions/LogService.CollectDiagnosticData"
+	clearLogPath              = "/Actions/LogService.ClearLog"
+
+	// cpuDiagnosticsType is the only OEM dump collected. BF4 offers it; BF3 offers
+	// unrelated root-of-trust types instead, so its System dump is skipped rather
+	// than being sent a type nobody asked for.
+	cpuDiagnosticsType = "DiagnosticType=CPUDiagnosticsData"
+
+	// CollectDiagnosticData bodies. Both are fixed, and the tests assert the exact
+	// bytes posted to each dump service.
+	managerDumpRequestBody = `{"DiagnosticDataType":"Manager"}`
+	systemDumpRequestBody  = `{"DiagnosticDataType":"OEM","OEMDiagnosticDataType":"` + cpuDiagnosticsType + `"}`
+
+	// dumpArchiveName assumes zstd, which is what both dump types compress to on
+	// current BF3 and BF4 firmware.
+	dumpArchiveName = "log_dump.tar.zst"
+
+	managerUnitName = "manager"
+	systemUnitName  = "system"
+
+	// maxDumpUnits bounds the per-target context: a BMC yields at most a Manager
+	// and a System dump, each running as its own sequential Redfish task.
+	maxDumpUnits = 2
 )
