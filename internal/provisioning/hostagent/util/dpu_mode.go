@@ -17,6 +17,7 @@ limitations under the License.
 package util
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"regexp"
@@ -26,35 +27,48 @@ import (
 )
 
 func GetDPUMode(ctx context.Context, pciAddress string) (provisioningv1.DpuModeType, error) {
-	cmd := fmt.Sprintf("/opt/mellanox/doca/services/dms/dmsc --insecure --address 127.0.0.1:9339 --target %s get --path /nvidia/mode/config/mode", pciAddress)
-	if stdout, stderr, err := RunBash(cmd); err != nil {
-		return "", fmt.Errorf("failed to run cmd: %s, err: %w, stdout: %s, stderr: %s", cmd, err, stdout.String(), stderr.String())
-	} else {
-		// dmsc outputs the mode in a pretty weird format:
-		//[
-		//	{
-		//	  "source": "127.0.0.1:9339",
-		//	  "timestamp": 1761796906478936518,
-		//	  "time": "2025-10-30T04:01:46.478936518Z",
-		//	  "target": "c9:00.0",
-		//	  "updates": [
-		//		{
-		//		  "Path": "nvidia/mode/config/mode",
-		//		  "values": {
-		//			"nvidia/mode/config/mode": "DPU"
-		//		  }
-		//		}
-		//	  ]
-		//	}
-		//]
+	return getDPUMode(pciAddress, RunBash)
+}
 
-		pattern := `"nvidia/mode/config/mode"\s*:\s*"([^"]+)"`
-		re := regexp.MustCompile(pattern)
-		matches := re.FindStringSubmatch(stdout.String())
-		if len(matches) > 1 {
-			return provisioningv1.DpuModeType(strings.ToLower(matches[1])), nil
-		}
+func getDPUMode(pciAddress string, runBash func(string) (bytes.Buffer, bytes.Buffer, error)) (provisioningv1.DpuModeType, error) {
+	cmd := fmt.Sprintf("/opt/mellanox/doca/services/dms/dmsc --insecure --address 127.0.0.1:9339 --target %s get --path /nvidia/mode/state/mode", pciAddress)
+	stdout, stderr, err := runBash(cmd)
+	if err != nil {
+		return "", fmt.Errorf("failed to run cmd: %s, err: %w, stdout: %s, stderr: %s", cmd, err, stdout.String(), stderr.String())
+	}
+
+	// dmsc outputs the mode in a pretty weird format:
+	//[
+	//	{
+	//	  "source": "127.0.0.1:9339",
+	//	  "timestamp": 1761796906478936518,
+	//	  "time": "2025-10-30T04:01:46.478936518Z",
+	//	  "target": "c9:00.0",
+	//	  "updates": [
+	//		{
+	//		  "Path": "nvidia/mode/state/mode",
+	//		  "values": {
+	//			"nvidia/mode/state/mode": "DPU"
+	//		  }
+	//		}
+	//	  ]
+	//	}
+	//]
+
+	pattern := `"nvidia/mode/state/mode"\s*:\s*"([^"]+)"`
+	re := regexp.MustCompile(pattern)
+	matches := re.FindStringSubmatch(stdout.String())
+	if len(matches) <= 1 {
 		return "", fmt.Errorf("failed to parse DPU mode from: %s", stdout.String())
+	}
+
+	switch strings.ToLower(matches[1]) {
+	case string(provisioningv1.DpuMode):
+		return provisioningv1.DpuMode, nil
+	case string(provisioningv1.NicMode):
+		return provisioningv1.NicMode, nil
+	default:
+		return "", fmt.Errorf("unsupported DPU mode %q", matches[1])
 	}
 }
 
