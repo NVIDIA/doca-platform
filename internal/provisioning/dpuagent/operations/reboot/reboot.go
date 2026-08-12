@@ -545,7 +545,7 @@ func (h *HandleReboot) getRebootMethodDeviceQuery(optCtx *operations.Context) (*
 		cmd := fmt.Sprintf("mlxfwreset -d %s status --json", device)
 		stdout, stderr, err := h.runBash(cmd)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w (stderr: %s)", cmd, err, stderr.String())
+			return nil, fmt.Errorf("%s: %w (stdout: %s, stderr: %s)", cmd, err, stdout.String(), stderr.String())
 		}
 		raw := strings.TrimSpace(stdout.String())
 		if raw == "" {

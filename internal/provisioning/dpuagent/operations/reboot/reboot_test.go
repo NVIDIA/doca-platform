@@ -1336,6 +1336,27 @@ var _ = Describe("Reboot", func() {
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("parse JSON:"))
 		})
+
+		It("getRebootMethod surfaces mlxfwreset stdout when the command fails", func() {
+			const mftDiagnostic = "-E- No reset level is supported."
+			optCtx := &operations.Context{
+				RebootMethodDiscovery: true,
+				CurrentBootID:         "boot-id",
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
+					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPCIAddress0}}, nil
+				},
+			}
+			h := &HandleReboot{
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					var stdout bytes.Buffer
+					_, _ = stdout.WriteString(mftDiagnostic)
+					return stdout, bytes.Buffer{}, fmt.Errorf("exit status 1")
+				},
+			}
+			_, err := h.getRebootMethod(optCtx)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring(mftDiagnostic))
+		})
 	})
 
 	Describe("device-query reboot method helpers", func() {
