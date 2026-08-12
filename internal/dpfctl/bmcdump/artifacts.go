@@ -18,6 +18,7 @@ package bmcdump
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -72,6 +73,27 @@ func writeMetadata(target logTarget, targetDir string, namespace string) error {
 	)
 	if err := os.WriteFile(filepath.Join(targetDir, "metadata.txt"), []byte(metadata), 0600); err != nil {
 		return fmt.Errorf("writing bmc target metadata for %s: %w", target.IP, err)
+	}
+	return nil
+}
+
+// appendMetadata records what the collector discovered and decided. It shares
+// metadata.txt rather than adding an artifact because the notes describe the
+// same target the file already identifies.
+func appendMetadata(targetDir string, notes []string) (err error) {
+	if len(notes) == 0 {
+		return nil
+	}
+	file, err := os.OpenFile(filepath.Join(targetDir, "metadata.txt"), os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
+	if err != nil {
+		return fmt.Errorf("appending bmc target metadata in %s: %w", targetDir, err)
+	}
+	defer func() {
+		err = errors.Join(err, file.Close())
+	}()
+
+	if _, err := fmt.Fprintf(file, "\n%s\n", strings.Join(notes, "\n")); err != nil {
+		return fmt.Errorf("appending bmc target metadata in %s: %w", targetDir, err)
 	}
 	return nil
 }

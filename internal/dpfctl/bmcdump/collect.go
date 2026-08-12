@@ -37,7 +37,8 @@ type CollectOptions struct {
 	OutputDir string
 	// Devices limits collection to the named DPUDevices. Empty means all DPUDevices with BMC IPs.
 	Devices []string
-	// Username is the Redfish user for the BlueField BMC.
+	// Username overrides the Redfish user for the BlueField BMC. Empty means the
+	// user is derived from the BMC generation reported by the root service.
 	Username string
 	// RequestTimeout is the per-request Redfish timeout.
 	RequestTimeout time.Duration
@@ -107,9 +108,6 @@ func (o CollectOptions) withDefaults() CollectOptions {
 	}
 	if o.OutputDir == "" {
 		o.OutputDir = fmt.Sprintf("bmcdump-%s", time.Now().Format("20060102-150405"))
-	}
-	if o.Username == "" {
-		o.Username = defaultUser
 	}
 	if o.RequestTimeout == 0 {
 		o.RequestTimeout = defaultRequestTimeout
