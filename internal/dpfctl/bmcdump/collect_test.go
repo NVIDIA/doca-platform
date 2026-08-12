@@ -113,9 +113,7 @@ func TestLatestDumpEntryID(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			g := NewWithT(t)
 
-			got := latestDumpEntryID(tt.entries)
-
-			g.Expect(got).To(Equal(tt.want))
+			g.Expect(latestDumpEntryID(tt.entries)).To(Equal(tt.want))
 		})
 	}
 }
@@ -280,9 +278,14 @@ func TestGetLogTargetsKeepsResolvedExplicitDevicesWhenOneIsMissing(t *testing.T)
 func TestWaitForDumpEntryRetriesUntilEntryIsVisible(t *testing.T) {
 	g := NewWithT(t)
 
+	unit := dumpUnit{
+		name:        managerUnitName,
+		servicePath: "/redfish/v1/Managers/Bluefield_BMC" + dumpLogServicePath,
+	}
+
 	var requests int32
 	transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		if req.URL.Path != dumpEntriesPath {
+		if req.URL.Path != unit.entriesPath() {
 			return httpResponse(req, http.StatusNotFound, ""), nil
 		}
 		if atomic.AddInt32(&requests, 1) == 1 {
@@ -301,7 +304,7 @@ func TestWaitForDumpEntryRetriesUntilEntryIsVisible(t *testing.T) {
 		entryRetryWait: time.Nanosecond,
 	}
 
-	entryID, err := c.waitForDumpEntry()
+	entryID, err := c.waitForDumpEntry(unit, targetDir)
 
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(entryID).To(Equal("entry-1"))

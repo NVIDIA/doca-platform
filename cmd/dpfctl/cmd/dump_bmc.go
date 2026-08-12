@@ -47,8 +47,13 @@ var dumpBMCCmd = &cobra.Command{
 	Long: `Create and download BlueField BMC diagnostic dumps for DPUDevices.
 
 The command discovers DPUDevices in the host cluster, reads each device's
-BMC endpoint and credential Secret, triggers a Redfish diagnostic dump task,
-waits for it to complete, and downloads the dump into local artifacts.
+BMC endpoint and credential Secret, then collects the Manager diagnostic dump
+and, on BlueField-4, the System CPU diagnostics dump. Each dump runs as a
+Redfish task and is downloaded into its own directory under local artifacts.
+
+The BMC generation is detected at runtime, and the Redfish user and resource
+paths follow from it, so the same invocation works on BlueField-3 and
+BlueField-4.
 
 By default, this command preserves existing BMC dump entries. Use
 --clear-existing to delete existing entries before creating a fresh dump.
@@ -82,7 +87,7 @@ func addDumpBMCFlags(cmd *cobra.Command) {
 	f := cmd.Flags()
 	f.StringVar(&dumpBMCOpts.namespace, "namespace", bmcdump.DefaultNamespace, "Namespace containing DPUDevices and BMC credential Secrets")
 	must(cmd.RegisterFlagCompletionFunc("namespace", completeNamespaces))
-	f.StringVar(&dumpBMCOpts.username, "username", "admin", "BlueField BMC Redfish username")
+	f.StringVar(&dumpBMCOpts.username, "username", "", "BlueField BMC Redfish username (default: auto-detected, root on BF3 and admin on BF4)")
 	f.DurationVar(&dumpBMCOpts.timeout, "timeout", 30*time.Minute, "Timeout for each BMC diagnostic dump task")
 	must(cmd.RegisterFlagCompletionFunc("timeout", cobra.FixedCompletions([]string{"5m", "15m", "30m", "1h"}, cobra.ShellCompDirectiveNoFileComp)))
 	f.DurationVar(&dumpBMCOpts.requestTimeout, "request-timeout", 30*time.Second, "Timeout for each Redfish HTTP request")

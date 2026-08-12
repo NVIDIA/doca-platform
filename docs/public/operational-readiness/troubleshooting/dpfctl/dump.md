@@ -29,9 +29,23 @@ For each BMC target resolved from the selected `DPUDevice` objects, the command:
 1. Reads the BMC endpoint from `status.bmcIp` / `status.bmcPort`, falling back to `spec.bmcIp` / `spec.bmcPort`.
 2. Resolves the BMC password from the `status.bmcCredentialSecretName` or `spec.bmcCredentialSecretName` Secret.
 3. Falls back to the shared `bmc-shared-password` Secret when no per-device Secret is configured.
-4. Creates a Redfish manager diagnostic dump task.
-5. Waits for the task to complete.
-6. Downloads the dump archive and supporting Redfish JSON artifacts.
+4. Reads the unauthenticated Redfish root service to determine the BlueField generation.
+5. Selects the Redfish username and the `Dump` log service paths that the generation uses.
+6. Creates a Redfish diagnostic dump task per dump service and waits for each to complete.
+7. Takes the newest entry in each dump service and downloads its archive along with the supporting Redfish JSON
+   artifacts.
+
+The generation is detected at runtime, so the same invocation works against BlueField-3 and BlueField-4. The username
+and the Redfish resource paths are then taken from a per-generation table in the source, because the two generations
+name their resources differently: BlueField-3 authenticates as `root` under `Managers/Bluefield_BMC`, BlueField-4 as
+`admin` under `Managers/BlueField_BMC_0`.
+
+The Manager dump is collected on every BMC. The System dump is collected only on BlueField-4, which is the generation
+that exposes `DiagnosticType=CPUDiagnosticsData`; on BlueField-3 it is skipped and the reason is recorded in
+`metadata.txt`.
+
+If a future BMC renames a Redfish resource, the collection fails with the expected path in the error message and in
+`metadata.txt`, and the per-generation table needs a new entry.
 
 ## Quick Start
 
@@ -77,7 +91,8 @@ namespace. Use `--namespace` if your environment stores them elsewhere:
 dpfctl dump bmc --namespace dpf-operator-system --output-dir /tmp/bmc-dumps
 ```
 
-The Redfish username defaults to `admin`. Use `--username` if the BMC uses a different user:
+The Redfish username is detected from the BMC generation: `root` on BlueField-3 and `admin` on BlueField-4. Use
+`--username` only when the BMC uses a different user:
 
 ```shell
 dpfctl dump bmc --username admin --output-dir /tmp/bmc-dumps
@@ -93,26 +108,46 @@ not the default `443`, and the credential Secret name.
 
 Example output layout:
 
+Each collected dump gets its own directory: `manager` for the Manager dump and `system` for the System dump.
+
 ```text
 /tmp/bmc-dumps/
 └── 10.0.110.122-bmc-shared-password/
     ├── metadata.txt
-    ├── create-dump-task.json
-    ├── task-final.json
-    ├── dump-entries.json
-    └── log_dump.tar.xz
+    ├── manager/
+    │   ├── create-dump-task.json
+    │   ├── task-final.json
+    │   ├── dump-entries.json
+    │   └── log_dump.tar.zst
+    └── system/
+        ├── create-dump-task.json
+        ├── task-final.json
+        ├── dump-entries.json
+        └── log_dump.tar.zst
 ```
+
+The `system` directory is absent on BlueField-3, which has no CPU diagnostics dump. A directory is created only once
+a dump writes into it, so a unit that fails before producing anything leaves nothing behind; the reason is recorded in
+`metadata.txt`.
+
+Both dumps are zstd-compressed tarballs:
+
+```shell
+tar --use-compress-program=unzstd -xf manager/log_dump.tar.zst
+```
+
+If extraction fails, run `file` on the archive to see what it actually is;
+the contents are still intact, only the name is wrong.
 
 The files contain:
 
-| File                    | Description                                                    |
-|-------------------------|----------------------------------------------------------------|
-| `metadata.txt`          | BMC endpoint, related `DPUDevice` names, and credential Secret |
-| `create-dump-task.json` | Redfish response from dump task creation                       |
-| `task-final.json`       | Final Redfish task status                                      |
-| `dump-entries.json`     | Redfish dump entry list used to find the downloaded archive    |
-| `log_dump.tar.xz`       | Downloaded BMC diagnostic dump archive                         |
-| `collection-error.txt`  | Error details, created when discovery or collection fails      |
+| File                    | Description                                                                            |
+|-------------------------|----------------------------------------------------------------------------------------|
+| `metadata.txt`          | BMC endpoint, related `DPUDevice` names, credential Secret, and what the collector discovered, chose and skipped |
+| `create-dump-task.json` | Redfish response from dump task creation                                               |
+| `task-final.json`       | Final Redfish task status                                                              |
+| `dump-entries.json`     | Redfish dump entry list used to find the downloaded archive                            |
+| `log_dump.tar.zst`      | Downloaded dump archive (zstd)                                                         |
 
 ## Running from the Operator Pod
 
@@ -140,7 +175,7 @@ kubectl -n dpf-operator-system cp \
 |------------------------------|-----------------------|-----------------------------------------------------------------------|
 | `--namespace`                | `dpf-operator-system` | Namespace containing `DPUDevice` objects and BMC credential Secrets   |
 | `--devices`                  |                       | Comma-separated `DPUDevice` names; defaults to all discovered devices |
-| `--username`                 | `admin`               | BlueField BMC Redfish username                                        |
+| `--username`                 | auto-detected         | BlueField BMC Redfish username; defaults to `root` on BF3 and `admin` on BF4 |
 | `--timeout`                  | `30m`                 | Timeout for each BMC diagnostic dump task                             |
 | `--request-timeout`          | `30s`                 | Timeout for each Redfish HTTP request                                 |
 | `--output-dir`               | `bmcdump-<timestamp>` | Local directory for downloaded dumps                                  |
