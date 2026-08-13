@@ -19,6 +19,7 @@ package pci
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/nvidia/doca-platform/test/utils/fakefs"
 
@@ -28,6 +29,23 @@ import (
 	kexec "k8s.io/utils/exec"
 	kexecTesting "k8s.io/utils/exec/testing"
 )
+
+const vpdReadOnlyResourceTag byte = 0x90
+
+// createVPDData builds a read-only PCI VPD large resource from field ID/value pairs.
+// The resource starts with the tag and a two-byte little-endian payload length.
+// Each payload field contains a two-byte ID, a one-byte value length, and the
+// value bytes; for example, "VU", "vuid" is encoded as 'V', 'U', 0x04, "vuid".
+func createVPDData(fields ...string) []byte {
+	resourceData := []byte{}
+	for i := 0; i < len(fields); i += 2 {
+		resourceData = append(resourceData, fields[i]...)
+		resourceData = append(resourceData, byte(len(fields[i+1])))
+		resourceData = append(resourceData, fields[i+1]...)
+	}
+	vpdData := []byte{vpdReadOnlyResourceTag, byte(len(resourceData)), byte(len(resourceData) >> 8)}
+	return append(vpdData, resourceData...)
+}
 
 var _ = Describe("Pci Utils package test", func() {
 	Describe("helpers", func() {
@@ -261,6 +279,105 @@ var _ = Describe("Pci Utils package test", func() {
 				fakefs.GinkgoConfigureFakeFS(&fsRoot, fakefs.Config{})
 				_, err := pciUtils.GetPFs("15b3", []string{"6001"})
 				Expect(err).To(MatchError(ContainSubstring("failed to read devices from sysfs")))
+			})
+		})
+		Context("ResolvePCIAddressByVUID", func() {
+			var fakeFS *fakefs.FakeFs
+
+			BeforeEach(func() {
+				// Model identical PF/VF BDFs in domains 0001 and 0002. The PF in domain 0001
+				// carries the requested VUID, while domain 0002 carries a different VUID. The
+				// unrelated domain 0000 device verifies that candidates are filtered by BDF.
+				fakeFS = fakefs.GinkgoConfigureFakeFS(&fsRoot, fakefs.Config{
+					Dirs: []fakefs.DirEntry{
+						{Path: "/sys/bus/pci/devices"},
+						{Path: "/sys/devices/pci0000:b0/0000:b0:04.0/0000:b2:00.0"},
+						{Path: "/sys/devices/pci0001:b0/0001:b0:04.0/0001:b1:00.2"},
+						{Path: "/sys/devices/pci0001:b0/0001:b0:04.0/0001:b1:0c.1"},
+						{Path: "/sys/devices/pci0002:b0/0002:b0:04.0/0002:b1:00.2"},
+						{Path: "/sys/devices/pci0002:b0/0002:b0:04.0/0002:b1:0c.1"},
+					},
+					Files: []fakefs.FileEntry{
+						{
+							Path: "/sys/devices/pci0000:b0/0000:b0:04.0/0000:b2:00.0/vpd",
+							Data: createVPDData("VU", "test-function-vuid"),
+						},
+						{
+							Path: "/sys/devices/pci0001:b0/0001:b0:04.0/0001:b1:00.2/vpd",
+							Data: append(
+								createVPDData("PN", "test-part", "VU", "test-function-vuid"),
+								vpdReadOnlyResourceTag, 0xff, 0xff, // Declares an absent 65535-byte payload.
+							),
+						},
+						{
+							Path: "/sys/devices/pci0002:b0/0002:b0:04.0/0002:b1:00.2/vpd",
+							Data: createVPDData("VU", "other-function-vuid"),
+						},
+					},
+					Symlinks: []fakefs.SymlinkEntry{
+						{OldPath: "../../../devices/pci0000:b0/0000:b0:04.0/0000:b2:00.0", NewPath: "/sys/bus/pci/devices/0000:b2:00.0"},
+						{OldPath: "../../../devices/pci0001:b0/0001:b0:04.0/0001:b1:00.2", NewPath: "/sys/bus/pci/devices/0001:b1:00.2"},
+						{OldPath: "../../../devices/pci0001:b0/0001:b0:04.0/0001:b1:0c.1", NewPath: "/sys/bus/pci/devices/0001:b1:0c.1"},
+						{OldPath: "../0001:b1:00.2", NewPath: "/sys/devices/pci0001:b0/0001:b0:04.0/0001:b1:0c.1/physfn"},
+						{OldPath: "../../../devices/pci0002:b0/0002:b0:04.0/0002:b1:00.2", NewPath: "/sys/bus/pci/devices/0002:b1:00.2"},
+						{OldPath: "../../../devices/pci0002:b0/0002:b0:04.0/0002:b1:0c.1", NewPath: "/sys/bus/pci/devices/0002:b1:0c.1"},
+						{OldPath: "../0002:b1:00.2", NewPath: "/sys/devices/pci0002:b0/0002:b0:04.0/0002:b1:0c.1/physfn"},
+					},
+				})
+			})
+
+			It("uses fields parsed before malformed trailing data", func() {
+				address, err := pciUtils.ResolvePCIAddressByVUID("b1:00.2", "test-function-vuid")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(address).To(Equal("0001:b1:00.2"))
+			})
+
+			It("applies the parent PF domain to a VF address", func() {
+				address, err := pciUtils.ResolvePCIAddressByVUID("b1:0c.1", "test-function-vuid")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(address).To(Equal("0001:b1:0c.1"))
+			})
+
+			It("returns an error when the function VUID is not found", func() {
+				_, err := pciUtils.ResolvePCIAddressByVUID("b1:00.2", "unknown-function-vuid")
+				Expect(err).To(MatchError(ContainSubstring("device not found")))
+			})
+
+			It("does not use VPD from devices with a different BDF", func() {
+				_, err := pciUtils.ResolvePCIAddressByVUID("b1:0d.0", "test-function-vuid")
+				Expect(err).To(MatchError(ContainSubstring("device not found")))
+			})
+
+			It("returns an error when the VUID matches multiple domains", func() {
+				vpdFile := fakeFS.GetRealPath(
+					"/sys/devices/pci0002:b0/0002:b0:04.0/0002:b1:00.2/vpd",
+				)
+				Expect(os.WriteFile(vpdFile, createVPDData("VU", "test-function-vuid"), 0644)).To(Succeed())
+
+				_, err := pciUtils.ResolvePCIAddressByVUID("b1:00.2", "test-function-vuid")
+				Expect(err).To(MatchError(ContainSubstring("multiple PCI domains found")))
+			})
+
+			It("returns non-not-found VPD read errors", func() {
+				vpdFile := fakeFS.GetRealPath(
+					"/sys/devices/pci0001:b0/0001:b0:04.0/0001:b1:00.2/vpd",
+				)
+				Expect(os.Remove(vpdFile)).To(Succeed())
+				Expect(os.Mkdir(vpdFile, 0755)).To(Succeed())
+
+				_, err := pciUtils.ResolvePCIAddressByVUID("b1:00.2", "test-function-vuid")
+				Expect(err).To(MatchError(ContainSubstring("failed to read VPD for PCI device 0001:b1:00.2")))
+			})
+
+			It("ignores the provided PCI domain", func() {
+				address, err := pciUtils.ResolvePCIAddressByVUID("0002:b1:0c.1", "test-function-vuid")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(address).To(Equal("0001:b1:0c.1"))
+			})
+
+			It("returns an invalid address error", func() {
+				_, err := pciUtils.ResolvePCIAddressByVUID("invalid-address", "test-function-vuid")
+				Expect(err).To(MatchError(ContainSubstring("invalid PCI address format")))
 			})
 		})
 		Context("DisableSriovVfsDriverAutoprobe", func() {

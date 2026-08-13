@@ -160,6 +160,21 @@ func (mr *MockUtilsMockRecorder) LoadDriver(pciAddress, driver any) *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LoadDriver", reflect.TypeOf((*MockUtils)(nil).LoadDriver), pciAddress, driver)
 }
 
+// ResolvePCIAddressByVUID mocks base method.
+func (m *MockUtils) ResolvePCIAddressByVUID(pciAddress, funcVUID string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ResolvePCIAddressByVUID", pciAddress, funcVUID)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ResolvePCIAddressByVUID indicates an expected call of ResolvePCIAddressByVUID.
+func (mr *MockUtilsMockRecorder) ResolvePCIAddressByVUID(pciAddress, funcVUID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResolvePCIAddressByVUID", reflect.TypeOf((*MockUtils)(nil).ResolvePCIAddressByVUID), pciAddress, funcVUID)
+}
+
 // SetSriovNumVfs mocks base method.
 func (m *MockUtils) SetSriovNumVfs(pciAddress string, count int) error {
 	m.ctrl.T.Helper()

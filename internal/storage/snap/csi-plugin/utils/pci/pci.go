@@ -29,12 +29,15 @@ import (
 	"strings"
 
 	"github.com/nvidia/doca-platform/internal/storage/snap/csi-plugin/utils/common"
+	"github.com/nvidia/doca-platform/internal/storage/snap/csi-plugin/utils/vpd"
 
 	"k8s.io/klog/v2"
 	kexec "k8s.io/utils/exec"
 )
 
 const (
+	// defaultPCIDomain is used when a PCI address does not include a domain
+	defaultPCIDomain = "0000"
 	// path of the modalis file, used to retrieve info about vendor and deviceID
 	modaliasPath = "modalias"
 	// this path is used to check that device is VF
@@ -53,6 +56,10 @@ const (
 	sriovTotalVfsPath = "sriov_totalvfs"
 	// file path used to disable driver autoprobe for VFs
 	sriovDriversAutoprobePath = "sriov_drivers_autoprobe"
+	// path of the VPD file, used to retrieve the function VUID
+	vpdPath = "vpd"
+	// VPD field containing the function VUID
+	vuidVPDField = "VU"
 )
 
 // regexp to validate PCI address, expected form is 0000:3b:00.5
@@ -80,17 +87,22 @@ func New(exec kexec.Interface) Utils {
 // add domain if the address doesn't include it
 // address should be in [DOMAIN]BUS:DEVICE.FUNCTION format (0000:3b:00.2)
 func ParsePCIAddress(address string) (string, error) {
+	domain, busDeviceFunction, err := parsePCIAddress(address)
+	if err != nil {
+		return "", err
+	}
+	if domain == "" {
+		domain = defaultPCIDomain
+	}
+	return domain + ":" + busDeviceFunction, nil
+}
+
+func parsePCIAddress(address string) (string, string, error) {
 	match := pciAddressRegexp.FindStringSubmatch(address)
 	if len(match) == 0 {
-		return "", fmt.Errorf("invalid PCI address format, expected format is BUS:DEVICE.FUNCTION or DOMAIN:BUS:DEVICE.FUNCTION ")
+		return "", "", fmt.Errorf("invalid PCI address format, expected format is BUS:DEVICE.FUNCTION or DOMAIN:BUS:DEVICE.FUNCTION ")
 	}
-	switch match[1] {
-	case ":":
-		return "0000" + address, nil
-	case "":
-		return "0000:" + address, nil
-	}
-	return address, nil
+	return match[2], fmt.Sprintf("%s:%s.%s", match[3], match[4], match[5]), nil
 }
 
 // DeviceInfo holds information about PCI device
@@ -112,6 +124,8 @@ type Utils interface {
 	UnloadDriver(pciAddress string) error
 	// GetPFs return PCI physical functions filtered by vendor and device IDs
 	GetPFs(vendor string, deviceIDs []string) ([]DeviceInfo, error)
+	// ResolvePCIAddressByVUID resolves the PCI domain by the parent PF VUID
+	ResolvePCIAddressByVUID(pciAddress, funcVUID string) (string, error)
 	// IsSRIOVEnabled returns true if SR-IOV is enabled for the PF
 	IsSRIOVEnabled(pciAddress string) (bool, error)
 	// GetSRIOVNumVFs returns current number of SRIOV VFs for PF
@@ -216,6 +230,92 @@ func (u *pciUtils) GetPFs(vendor string, deviceIDs []string) ([]DeviceInfo, erro
 		}
 	}
 	return pfs, nil
+}
+
+// ResolvePCIAddressByVUID resolves the PCI address domain by locating the parent
+// PF VUID in sysfs. Any domain in pciAddress is ignored. For VFs, pciAddress
+// supplies the VF bus, device, and function.
+func (u *pciUtils) ResolvePCIAddressByVUID(pciAddress, funcVUID string) (string, error) {
+	if funcVUID == "" {
+		return "", fmt.Errorf("function VUID is empty")
+	}
+
+	_, busDeviceFunction, err := parsePCIAddress(pciAddress)
+	if err != nil {
+		return "", err
+	}
+
+	domain, err := u.getPCIDomainByVUID(busDeviceFunction, funcVUID)
+	if err != nil {
+		return "", err
+	}
+
+	return domain + ":" + busDeviceFunction, nil
+}
+
+// getPCIDomainByVUID finds the PCI domain for busDeviceFunction by matching
+// funcVUID against the VU field in sysfs VPD. Candidates are first narrowed
+// to devices under /sys/bus/pci/devices whose bus:device.function equals
+// busDeviceFunction, so VPD is read only for that small set rather than every
+// PCI device. For each candidate it reads VPD from the device itself for PFs
+// and from physfn/vpd for VFs, and returns the domain when exactly one
+// candidate matches. Missing VPD is skipped; other VPD read errors and
+// ambiguous or empty matches fail.
+func (u *pciUtils) getPCIDomainByVUID(busDeviceFunction, funcVUID string) (string, error) {
+	devFolders, err := os.ReadDir(sysFSDevPath())
+	if err != nil {
+		return "", fmt.Errorf("failed to read devices from sysfs: %w", err)
+	}
+	matchingDomains := []string{}
+	for _, devFolder := range devFolders {
+		domain, candidateBusDeviceFunction, err := parsePCIAddress(devFolder.Name())
+		if err != nil {
+			klog.V(2).InfoS("Failed to parse PCI address from sysfs", "device", devFolder.Name(), "error", err)
+			continue
+		}
+		if candidateBusDeviceFunction != busDeviceFunction {
+			continue
+		}
+		if domain == "" {
+			return "", fmt.Errorf("PCI address %s has no domain", devFolder.Name())
+		}
+
+		isVF, err := u.isVF(devFolder.Name())
+		if err != nil {
+			return "", fmt.Errorf("failed to check PCI device %s: %w", devFolder.Name(), err)
+		}
+		vpdFile := sysFSDevPath(devFolder.Name(), vpdPath)
+		if isVF {
+			vpdFile = sysFSDevPath(devFolder.Name(), vfCheckPath, vpdPath)
+		}
+
+		vpdData, err := os.ReadFile(vpdFile)
+		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return "", fmt.Errorf("failed to read VPD for PCI device %s: %w", devFolder.Name(), err)
+			}
+			continue
+		}
+		parsedVPD, err := vpd.Parse(vpdData)
+		if err != nil {
+			klog.V(2).InfoS("Failed to parse PCI VPD", "device", devFolder.Name(), "error", err)
+		}
+		// Parse returns fields decoded before malformed data, so the VUID may
+		// still be available when an error is returned.
+		vuid, found := parsedVPD.Lookup(vuidVPDField)
+		if !found || vuid != funcVUID {
+			continue
+		}
+		matchingDomains = append(matchingDomains, domain)
+	}
+	if len(matchingDomains) == 1 {
+		return matchingDomains[0], nil
+	}
+	if len(matchingDomains) > 1 {
+		return "", fmt.Errorf("multiple PCI domains found for PCI function %s with VUID %s: %s",
+			busDeviceFunction, funcVUID, strings.Join(matchingDomains, ", "))
+	}
+	return "", fmt.Errorf("%w: PCI function %s with VUID %s", ErrNotFound, busDeviceFunction, funcVUID)
 }
 
 // DisableSriovVfsDriverAutoprobe disable driver autoprobes for the VFs on the PF
