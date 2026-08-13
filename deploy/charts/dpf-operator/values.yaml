@@ -23,16 +23,6 @@ controllerManager:
   #   ConfigPortsOverHighSpeed (default: false, alpha)
   #     When enabled, the dpuservice controller configures configPorts over high-speed network.
   #     Applicable only when OVN-Kubernetes is used.
-  # Not settable here, the DPU-side controllers read these from their own binaries, so entries in
-  # this map are accepted but have no effect:
-  #   NSIPathForSFC (default: true, beta)
-  #     When enabled, SFC ServiceInterfaceSets (those without a virtualNetwork)
-  #     use the NodeServiceInterfaces reconciliation path instead of creating
-  #     individual ServiceInterface objects per node.
-  #   NSIPathForVPC (default: false, alpha)
-  #     When enabled, VPC ServiceInterfaceSets (those with a virtualNetwork set)
-  #     use the NodeServiceInterfaces reconciliation path instead of creating
-  #     individual ServiceInterface objects per node.
   # Example:
   #   featureGates:
   #     ConfigPortsOverHighSpeed: true

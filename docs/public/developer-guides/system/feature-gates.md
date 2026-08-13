@@ -56,12 +56,10 @@ controllerManager:
     ConfigPortsOverHighSpeed: true
 ```
 
-The operator propagates only the gates it shares with the dpuservice
-controller (currently `ConfigPortsOverHighSpeed`) down to that deployment.
-Gates that are read solely by DPU-side binaries (for example `NSIPathForSFC`
-and `NSIPathForVPC`) are accepted in this map but have no effect there; see
-the inline notes in `deploy/charts/dpf-operator/values.yaml` for the current
-per-gate scope.
+Only gates that the operator propagates to the dpuservice controller are
+meaningful in this map (currently `ConfigPortsOverHighSpeed`). Gates read
+solely by DPU-side binaries are configured on those binaries directly, not
+through the `dpf-operator` chart.
 
 Attempting to disable a GA gate at runtime is a startup error — that is
 intentional; GA gates should be removed from the codebase, not toggled off.
