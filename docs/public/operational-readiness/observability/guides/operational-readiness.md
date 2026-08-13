@@ -43,6 +43,10 @@ worker1-mt2413xz0b67   True    True          Ready   73d
 | `DPUServiceInterfacesReady`      | Service interfaces are configured                        |
 | `DPUServiceChainsReady`          | Service chains are configured                            |
 
+`OperationalReady` and `DPUServiceCriticalPodsReady` can also be used as provisioning gates: a DPUFlavor may hold the
+host at the start of its OS initialization until one of them is `True`. See
+[Host OS Init Release](../../../advanced-configuration/host-os-init-release.md).
+
 ## Viewing Operational Conditions
 
 The `OPERATIONAL` column only reports the aggregate `OperationalReady` condition. To see which individual check failed, read the full `status.operationalConditions` field:
