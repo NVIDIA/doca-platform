@@ -19,6 +19,7 @@ package dpumode
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
@@ -80,6 +81,7 @@ func (d *EnsureMode) Execute(execCtx context.Context, optCtx *operations.Context
 	return nil
 }
 
+// Host privilege is per-ASIC; apply mlxprivhost on PF0 (.0) only.
 func (d *EnsureMode) targetPCIDevices(optCtx *operations.Context) ([]string, error) {
 	ports, err := optCtx.NSPorts()
 	if err != nil {
@@ -87,7 +89,7 @@ func (d *EnsureMode) targetPCIDevices(optCtx *operations.Context) ([]string, err
 	}
 	var devices []string
 	for _, p := range ports {
-		if p.PCIAddress != "" {
+		if p.PCIAddress != "" && strings.HasSuffix(p.PCIAddress, ".0") {
 			devices = append(devices, p.PCIAddress)
 		}
 	}

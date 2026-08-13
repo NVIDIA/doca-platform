@@ -19,8 +19,6 @@ package dpumode
 import (
 	"bytes"
 	"context"
-	"fmt"
-	"regexp"
 	"strings"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -44,14 +42,11 @@ var _ = Describe("Ensure Mode", func() {
 			Expect(operation.ShouldSkip(&operations.Context{Options: opts.Options{SkipDPUMode: true}})).To(BeTrue())
 		})
 
-		It("should set BF3 DPU mode to zero-trust", func() {
-			reg := "mlxprivhost -d (0000:03:00.0|0000:03:00.1) r --disable_rshim --disable_tracer --disable_counter_rd --disable_port_owner"
-			expectedCmd := regexp.MustCompile(reg)
-			By(fmt.Sprintf("regex: %s", reg))
+		It("should set BF3 DPU mode to zero-trust once per ASIC on PF0", func() {
+			var commands []string
 			operation := &EnsureMode{
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
-					By(fmt.Sprintf("checking that the command is correct: %s", cmd))
-					Expect(expectedCmd.MatchString(cmd)).To(BeTrue())
+					commands = append(commands, cmd)
 					return bytes.Buffer{}, bytes.Buffer{}, nil
 				},
 			}
@@ -70,15 +65,16 @@ var _ = Describe("Ensure Mode", func() {
 				},
 			})
 			Expect(err).NotTo(HaveOccurred())
+			Expect(commands).To(Equal([]string{
+				"mlxprivhost -d 0000:03:00.0 r --disable_rshim --disable_tracer --disable_counter_rd --disable_port_owner",
+			}))
 		})
-		It("should set BF3 DPU mode to DPU", func() {
-			reg := "mlxprivhost -d (0000:03:00.0|0000:03:00.1) p"
-			expectedCmd := regexp.MustCompile(reg)
-			By(fmt.Sprintf("regex: %s", reg))
+
+		It("should set BF3 DPU mode to DPU once per ASIC on PF0", func() {
+			var commands []string
 			operation := &EnsureMode{
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
-					By(fmt.Sprintf("checking that the command is correct: %s", cmd))
-					Expect(expectedCmd.MatchString(cmd)).To(BeTrue())
+					commands = append(commands, cmd)
 					return bytes.Buffer{}, bytes.Buffer{}, nil
 				},
 			}
@@ -97,7 +93,42 @@ var _ = Describe("Ensure Mode", func() {
 				},
 			})
 			Expect(err).NotTo(HaveOccurred())
+			Expect(commands).To(Equal([]string{
+				"mlxprivhost -d 0000:03:00.0 p",
+			}))
 		})
+
+		It("should apply mlxprivhost once per ASIC when multiple devices are present", func() {
+			var commands []string
+			operation := &EnsureMode{
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					commands = append(commands, cmd)
+					return bytes.Buffer{}, bytes.Buffer{}, nil
+				},
+			}
+			err := operation.Execute(context.Background(), &operations.Context{
+				LatestDPU: &provisioningv1.DPU{
+					Status: provisioningv1.DPUStatus{
+						DPUType:        provisioningv1.DPUTypeBlueField3,
+						DeploymentMode: provisioningv1.DeploymentModeZeroTrust,
+					},
+				},
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
+					return []pciutil.NICPort{
+						{PCIAddress: "0000:03:00.1"},
+						{PCIAddress: "0000:03:00.0"},
+						{PCIAddress: "0002:01:00.1"},
+						{PCIAddress: "0002:01:00.0"},
+					}, nil
+				},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(commands).To(Equal([]string{
+				"mlxprivhost -d 0000:03:00.0 r --disable_rshim --disable_tracer --disable_counter_rd --disable_port_owner",
+				"mlxprivhost -d 0002:01:00.0 r --disable_rshim --disable_tracer --disable_counter_rd --disable_port_owner",
+			}))
+		})
+
 		It("should skip mlxprivhost for BF4", func() {
 			operation := &EnsureMode{
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
