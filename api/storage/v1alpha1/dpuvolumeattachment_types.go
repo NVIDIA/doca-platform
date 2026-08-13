@@ -168,6 +168,9 @@ type AttachmentStatusDPU struct {
 	// PCI device address in the following format: (bus:device.function)
 	// +optional
 	PCIAddress *string `json:"pciAddress,omitempty"`
+	// The VUID of the emulated function. For a VF, this is the parent PF VUID.
+	// +optional
+	FuncVUID *string `json:"funcVUID,omitempty"`
 	// The name of the device that was created by the storage vendor plugin
 	// +optional
 	DeviceName *string `json:"deviceName,omitempty"`

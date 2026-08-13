@@ -147,6 +147,9 @@ func (h *controller) ControllerPublishVolume(
 		common.PublishCtxNvVolumeAttachmentName: apiVolAttach.GetName(),
 		common.PublishCtxDevicePciAddress:       *apiVolAttach.Status.DPU.PCIAddress,
 	}
+	if apiVolAttach.Status.DPU.FuncVUID != nil && *apiVolAttach.Status.DPU.FuncVUID != "" {
+		publishCtx[common.PublishCtxFuncVUID] = *apiVolAttach.Status.DPU.FuncVUID
+	}
 	switch h.commonConfig.EmulationMode {
 	case config.EmulationModeNVMe:
 		publishCtx[common.PublishCtxNvmeNsID] = strconv.FormatInt(*apiVolAttach.Status.DPU.NVMEAttrs.NamespaceID, 10)

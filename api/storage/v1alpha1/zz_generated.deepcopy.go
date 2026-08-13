@@ -34,6 +34,11 @@ func (in *AttachmentStatusDPU) DeepCopyInto(out *AttachmentStatusDPU) {
 		*out = new(string)
 		**out = **in
 	}
+	if in.FuncVUID != nil {
+		in, out := &in.FuncVUID, &out.FuncVUID
+		*out = new(string)
+		**out = **in
+	}
 	if in.DeviceName != nil {
 		in, out := &in.DeviceName, &out.DeviceName
 		*out = new(string)

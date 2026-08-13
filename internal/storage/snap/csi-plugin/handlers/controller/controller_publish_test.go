@@ -126,6 +126,16 @@ var _ = Describe("ControllerPublish", func() {
 					Expect(resp).NotTo(BeNil())
 					Eventually(stop).WithTimeout(time.Second * 15).Should(BeClosed())
 				})
+				It("includes function VUID when available", func() {
+					volAttachWithVUID := volAttach.DeepCopy()
+					volAttachWithVUID.Status.DPU.FuncVUID = ptr.To("test-function-vuid")
+					clients.Client = getClusterClient(vol, volAttachWithVUID)
+
+					resp, err := controllerHandler.ControllerPublishVolume(ctx, req)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(resp).NotTo(BeNil())
+					Expect(resp.PublishContext).To(HaveKeyWithValue(common.PublishCtxFuncVUID, "test-function-vuid"))
+				})
 				It("volume not found", func() {
 					resp, err := controllerHandler.ControllerPublishVolume(ctx, req)
 					common.CheckGRPCErr(err, codes.NotFound, "volume not found")

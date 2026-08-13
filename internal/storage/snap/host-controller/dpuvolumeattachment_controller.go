@@ -245,6 +245,9 @@ func (r *DPUVolumeAttachmentReconciler) updateDPUVolumeAttachmentStatusFromDPUAt
 			if dpuAttacherResult.Data.PCIAddress != "" {
 				dpuStatus.PCIAddress = ptr.To(dpuAttacherResult.Data.PCIAddress)
 			}
+			if dpuAttacherResult.Data.FuncVUID != "" {
+				dpuStatus.FuncVUID = ptr.To(dpuAttacherResult.Data.FuncVUID)
+			}
 			if dpuAttacherResult.Data.DeviceName != "" {
 				dpuStatus.DeviceName = ptr.To(dpuAttacherResult.Data.DeviceName)
 			}

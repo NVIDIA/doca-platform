@@ -189,9 +189,25 @@ var _ = Describe("DPUVolumeAttachment Controller", Ordered, func() {
 				g.Expect(*dpuVolumeAttachment.Status.DPUAttached).To(BeTrue())
 				g.Expect(dpuVolumeAttachment.Status.DPU.PCIAddress).NotTo(BeNil())
 				g.Expect(*dpuVolumeAttachment.Status.DPU.PCIAddress).To(Equal("0000:03:00.0"))
+				g.Expect(dpuVolumeAttachment.Status.DPU.FuncVUID).To(BeNil())
 				g.Expect(dpuVolumeAttachment.Status.DPU.DeviceName).NotTo(BeNil())
 				g.Expect(*dpuVolumeAttachment.Status.DPU.DeviceName).To(Equal("/dev/nvme0n1"))
 				g.Expect(dpuVolumeAttachment.Status.AttachmentMetadata).To(Equal(map[string]string{"test-meta": "value"}))
+			}, timeout, interval).Should(Succeed())
+
+			By("Backfill function VUID on the existing VolumeAttachment")
+			Eventually(func(g Gomega) {
+				g.Expect(testClientDPU.Get(ctx, volumeAttachmentKey, volumeAttachment)).NotTo(HaveOccurred())
+				volumeAttachment.Status.DPU.FuncVUID = "test-function-vuid"
+				g.Expect(testClientDPU.Status().Update(ctx, volumeAttachment)).NotTo(HaveOccurred())
+			}, timeout, interval).Should(Succeed())
+
+			By("Verify the function VUID is propagated to the ready DPUVolumeAttachment")
+			Eventually(func(g Gomega) {
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuVolumeAttachment), dpuVolumeAttachment)).NotTo(HaveOccurred())
+				g.Expect(conditions.IsTrue(dpuVolumeAttachment, conditions.TypeReady)).To(BeTrue())
+				g.Expect(dpuVolumeAttachment.Status.DPU.FuncVUID).NotTo(BeNil())
+				g.Expect(*dpuVolumeAttachment.Status.DPU.FuncVUID).To(Equal("test-function-vuid"))
 			}, timeout, interval).Should(Succeed())
 		})
 
