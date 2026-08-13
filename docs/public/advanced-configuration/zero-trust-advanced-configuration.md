@@ -232,3 +232,12 @@ the DPU join cluster's secret expires and the DPU CR remains pending in the `DPU
 If you use **script-based** host reboot (`nodeRebootMethod.script` on the DPUNode) instead of external power cycle, see
 [DPUNode: Script reboot job failures and recovery](../developer-guides/api/dpunode.md#script-reboot-job-failures-and-recovery)
 for how Jobs, DPU phase `DPURebooting`, and recovery interact.
+
+# Host OS Init Release
+
+Because DPF does not manage the host in Zero Trust, the host may finish booting before the DPU is ready to serve its
+traffic. DPF can close that gap by having the DPU firmware hold the host at the start of its OS initialization and
+release it only once a chosen DPU readiness gate is met.
+
+This is configured through a DPUFlavor and requires a host power cycle to take effect. See
+[Host OS Init Release](host-os-init-release.md).
