@@ -40,6 +40,7 @@ const (
 	testDPUNodeName   = "test-dpu-node"
 	testDPUVolumeName = "test-dpu-volume"
 	testPCIAddress    = "0000:00:01.0"
+	testFuncVUID      = "test-function-vuid"
 	testDeviceName    = "test-device"
 	testNVMeNsID      = int64(1)
 	testNVMeUUID      = "test-uuid"
@@ -151,6 +152,7 @@ func createFullyAttachedVolumeAttachment(name, namespace string, dpuVolumeAttach
 		DPU: storagev1.VolumeAttachmentStatusDPU{
 			Attached:         true,
 			PCIDeviceAddress: testPCIAddress,
+			FuncVUID:         testFuncVUID,
 			DeviceName:       testDeviceName,
 			BdevAttrs: storagev1.BdevAttrs{
 				NVMeNsID: testNVMeNsID,
@@ -344,6 +346,7 @@ var _ = Describe("DPUAttacher", func() {
 					Expect(result.Ready).To(BeTrue())
 					Expect(result.Data).NotTo(BeNil())
 					Expect(result.Data.PCIAddress).To(Equal(testPCIAddress))
+					Expect(result.Data.FuncVUID).To(Equal(testFuncVUID))
 					Expect(result.Data.DeviceName).To(Equal(testDeviceName))
 					Expect(result.Data.NVMEAttrs).NotTo(BeNil())
 					Expect(*result.Data.NVMEAttrs.NamespaceID).To(Equal(testNVMeNsID))
@@ -363,6 +366,7 @@ var _ = Describe("DPUAttacher", func() {
 					Expect(result.Ready).To(BeTrue())
 					Expect(result.Data).NotTo(BeNil())
 					Expect(result.Data.PCIAddress).To(Equal(testPCIAddress))
+					Expect(result.Data.FuncVUID).To(BeEmpty())
 					Expect(result.Data.DeviceName).To(BeEmpty())
 					Expect(result.Data.NVMEAttrs).To(BeNil())
 					Expect(result.Data.VirtioFSAttrs).To(BeNil())

@@ -36,6 +36,11 @@ import (
 	kmount "k8s.io/mount-utils"
 )
 
+const (
+	invalidPCIAddress = "invalid-address"
+	testFunctionVUID  = "test-function-vuid"
+)
+
 var _ = Describe("NodeStageVolume", func() {
 	var (
 		ctrl        *gomock.Controller
@@ -115,10 +120,27 @@ var _ = Describe("NodeStageVolume", func() {
 			})
 
 			It("should return error if PublishContext.pciDeviceAddress is invalid", func() {
-				req.PublishContext[common.PublishCtxDevicePciAddress] = "invalid-address"
+				req.PublishContext[common.PublishCtxDevicePciAddress] = invalidPCIAddress
 				resp, err := nodeHandler.NodeStageVolume(ctx, req)
 				Expect(resp).To(BeNil())
 				common.CheckGRPCErr(err, codes.InvalidArgument, "PublishContext.pciDeviceAddress contains invalid PCI address")
+			})
+
+			It("should return error if PublishContext.pciDeviceAddress is invalid when function VUID is set", func() {
+				req.PublishContext[common.PublishCtxDevicePciAddress] = invalidPCIAddress
+				req.PublishContext[common.PublishCtxFuncVUID] = testFunctionVUID
+				resp, err := nodeHandler.NodeStageVolume(ctx, req)
+				Expect(resp).To(BeNil())
+				common.CheckGRPCErr(err, codes.InvalidArgument, "PublishContext.pciDeviceAddress contains invalid PCI address")
+			})
+
+			It("should return error if PCI address resolution by function VUID fails", func() {
+				req.PublishContext[common.PublishCtxFuncVUID] = testFunctionVUID
+				pciUtils.EXPECT().ResolvePCIAddressByVUID("0000:00:1f.2", testFunctionVUID).Return("", errTest)
+
+				resp, err := nodeHandler.NodeStageVolume(ctx, req)
+				Expect(resp).To(BeNil())
+				common.CheckGRPCErr(err, codes.Internal, "failed to resolve PCI address by function VUID")
 			})
 
 			It("should return error if PublishContext.nvmeNsID is not set", func() {
@@ -145,6 +167,18 @@ var _ = Describe("NodeStageVolume", func() {
 				mountUtils.EXPECT().EnsureFileExist("/staging/path/volume-id", os.FileMode(0644)).Return(nil)
 				mountUtils.EXPECT().CheckMountExists("/dev/nvme0n1", "/staging/path/volume-id").Return(false, kmount.MountInfo{}, nil)
 				mountUtils.EXPECT().Mount("/dev/nvme0n1", "/staging/path/volume-id", "", []string{"bind"}).Return(nil)
+
+				resp, err := nodeHandler.NodeStageVolume(ctx, req)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(resp).ToNot(BeNil())
+			})
+			It("should use the PCI domain resolved by function VUID", func() {
+				req.PublishContext[common.PublishCtxDevicePciAddress] = "00:1f.2"
+				req.PublishContext[common.PublishCtxFuncVUID] = testFunctionVUID
+				pciUtils.EXPECT().ResolvePCIAddressByVUID("0000:00:1f.2", testFunctionVUID).Return("0001:00:1f.2", nil)
+				nvmeUtils.EXPECT().GetBlockDeviceNameForNS("0001:00:1f.2", int32(1)).Return("nvme0n1", nil)
+				mountUtils.EXPECT().EnsureFileExist("/staging/path/volume-id", os.FileMode(0644)).Return(nil)
+				mountUtils.EXPECT().CheckMountExists("/dev/nvme0n1", "/staging/path/volume-id").Return(true, kmount.MountInfo{}, nil)
 
 				resp, err := nodeHandler.NodeStageVolume(ctx, req)
 				Expect(err).NotTo(HaveOccurred())
@@ -297,7 +331,7 @@ var _ = Describe("NodeStageVolume", func() {
 			})
 
 			It("should return error if PublishContext.pciDeviceAddress is invalid", func() {
-				req.PublishContext[common.PublishCtxDevicePciAddress] = "invalid-address"
+				req.PublishContext[common.PublishCtxDevicePciAddress] = invalidPCIAddress
 				resp, err := nodeHandler.NodeStageVolume(ctx, req)
 				Expect(resp).To(BeNil())
 				common.CheckGRPCErr(err, codes.InvalidArgument, "PublishContext.pciDeviceAddress contains invalid PCI address")
@@ -314,6 +348,17 @@ var _ = Describe("NodeStageVolume", func() {
 		Context("Stage", func() {
 			It("should stage the volume successfully", func() {
 				pciUtils.EXPECT().LoadDriver("0000:00:1f.2", "virtio-pci").Return(nil)
+
+				resp, err := nodeHandler.NodeStageVolume(ctx, req)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(resp).ToNot(BeNil())
+			})
+
+			It("should use the PCI domain resolved by function VUID", func() {
+				req.PublishContext[common.PublishCtxDevicePciAddress] = "00:1f.2"
+				req.PublishContext[common.PublishCtxFuncVUID] = testFunctionVUID
+				pciUtils.EXPECT().ResolvePCIAddressByVUID("0000:00:1f.2", testFunctionVUID).Return("0001:00:1f.2", nil)
+				pciUtils.EXPECT().LoadDriver("0001:00:1f.2", "virtio-pci").Return(nil)
 
 				resp, err := nodeHandler.NodeStageVolume(ctx, req)
 				Expect(err).NotTo(HaveOccurred())

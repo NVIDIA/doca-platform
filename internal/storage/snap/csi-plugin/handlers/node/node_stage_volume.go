@@ -49,10 +49,22 @@ func (h *node) NodeStageVolume(
 		return nil, common.FieldIsRequiredError("PublishContext.pciDeviceAddress")
 	}
 
-	pciAddress, err := pci.ParsePCIAddress(req.PublishContext[common.PublishCtxDevicePciAddress])
+	rawPCIAddress := req.PublishContext[common.PublishCtxDevicePciAddress]
+	funcVUID := req.PublishContext[common.PublishCtxFuncVUID]
+	pciAddress, err := pci.ParsePCIAddress(rawPCIAddress)
 	if err != nil {
-		reqLog.Info("wrong PCI address format", "value", req.PublishContext[common.PublishCtxDevicePciAddress])
+		reqLog.Info("wrong PCI address format", "value", rawPCIAddress)
 		return nil, status.Error(codes.InvalidArgument, "PublishContext.pciDeviceAddress contains invalid PCI address")
+	}
+	if funcVUID != "" {
+		pciAddress, err = h.pci.ResolvePCIAddressByVUID(pciAddress, funcVUID)
+		if err != nil {
+			reqLog.Error(err, "failed to resolve PCI address by function VUID", "funcVUID", funcVUID)
+			return nil, status.Error(codes.Internal, "failed to resolve PCI address by function VUID")
+		}
+	} else {
+		reqLog.Info("function VUID is not available, assuming PCI domain 0000",
+			"volumeID", req.VolumeId, "pciAddress", pciAddress)
 	}
 
 	switch h.commonConfig.EmulationMode {

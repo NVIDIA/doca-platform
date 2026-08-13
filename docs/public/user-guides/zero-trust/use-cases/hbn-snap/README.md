@@ -1507,21 +1507,49 @@ A number of [environment variables](#0-required-variables) must be set before ru
 
 First we check DPUVolumes that were exposed through the static storage PFs.
 
-On the host that is used to run this guide, get the PCI address of the DPUVolumeAttachment:
+On the host that is used to run this guide, get the function VUID of the DPUVolumeAttachment:
 
 ```shell
 kubectl wait --for=condition=Ready dpuvolumeattachments/test-volume-attachment-static-pf-${DPU1_SERIAL} -n dpf-operator-system
 kubectl wait --for=condition=Ready dpuvolumeattachments/test-volume-attachment-static-pf-${DPU2_SERIAL} -n dpf-operator-system
-pci_address_1=$(printf "0000:%s" "$(kubectl get -n dpf-operator-system dpuvolumeattachments.storage.dpu.nvidia.com test-volume-attachment-static-pf-${DPU1_SERIAL} -o jsonpath='{.status.dpu.pciAddress}')")
-pci_address_2=$(printf "0000:%s" "$(kubectl get -n dpf-operator-system dpuvolumeattachments.storage.dpu.nvidia.com test-volume-attachment-static-pf-${DPU2_SERIAL} -o jsonpath='{.status.dpu.pciAddress}')")
-echo "Worker $DPU1_SERIAL NMMe PCI address: $pci_address_1"
-echo "Worker $DPU2_SERIAL NMMe PCI address: $pci_address_2"
+func_vuid_1=$(kubectl get -n dpf-operator-system dpuvolumeattachments.storage.dpu.nvidia.com test-volume-attachment-static-pf-${DPU1_SERIAL} -o jsonpath='{.status.dpu.funcVUID}')
+func_vuid_2=$(kubectl get -n dpf-operator-system dpuvolumeattachments.storage.dpu.nvidia.com test-volume-attachment-static-pf-${DPU2_SERIAL} -o jsonpath='{.status.dpu.funcVUID}')
+echo "Worker $DPU1_SERIAL NVMe function VUID: $func_vuid_1"
+echo "Worker $DPU2_SERIAL NVMe function VUID: $func_vuid_2"
 ```
 
-Connect to the worker nodes with DPUs and set pci address variable to point to the PCI address retrieved in the previous step.
+Connect to each worker node with a DPU and set the function VUID variable to the value retrieved for that worker.
 
 ```shell
-pci_address=<set to the PCI address that you retrieved in the previous step>
+func_vuid=<set to the function VUID that you retrieved in the previous step>
+```
+
+Discover the function's PCI address from its VPD data in sysfs:
+
+```shell
+if [ -z "$func_vuid" ]; then
+  echo "The function VUID is empty. Stop and verify the DPUVolumeAttachment status." >&2
+  exit 1
+fi
+
+pci_address=""
+match_count=0
+for pci_device in /sys/bus/pci/devices/*; do
+  if [ -e "$pci_device/physfn" ] || [ ! -r "$pci_device/vpd" ]; then
+    continue
+  fi
+  if grep -F -q -e "$func_vuid" "$pci_device/vpd"; then
+    pci_address="${pci_device##*/}"
+    match_count=$((match_count + 1))
+  fi
+done
+
+if [ "$match_count" -ne 1 ]; then
+  echo "Expected exactly one PCI device for function VUID $func_vuid, found $match_count." >&2
+  exit 1
+fi
+
+echo "NVMe PCI address: $pci_address"
 ```
 
 Check the current driver for the device
@@ -1637,15 +1665,15 @@ spec:
 </details>
 
 
-On the host that is used to run this guide, get the PCI address of the DPUVolumeAttachment:
+On the host that is used to run this guide, get the function VUID of the DPUVolumeAttachment:
 
 ```shell
 kubectl wait --for=condition=Ready dpuvolumeattachments/test-volume-attachment-hotplug-pf-${DPU1_SERIAL} -n dpf-operator-system
 kubectl wait --for=condition=Ready dpuvolumeattachments/test-volume-attachment-hotplug-pf-${DPU2_SERIAL} -n dpf-operator-system
-pci_address_1=$(printf "0000:%s" "$(kubectl get -n dpf-operator-system dpuvolumeattachments.storage.dpu.nvidia.com test-volume-attachment-hotplug-pf-${DPU1_SERIAL} -o jsonpath='{.status.dpu.pciAddress}')")
-pci_address_2=$(printf "0000:%s" "$(kubectl get -n dpf-operator-system dpuvolumeattachments.storage.dpu.nvidia.com test-volume-attachment-hotplug-pf-${DPU2_SERIAL} -o jsonpath='{.status.dpu.pciAddress}')")
-echo "Worker $DPU1_SERIAL NMMe PCI address: $pci_address_1"
-echo "Worker $DPU2_SERIAL NMMe PCI address: $pci_address_2"
+func_vuid_1=$(kubectl get -n dpf-operator-system dpuvolumeattachments.storage.dpu.nvidia.com test-volume-attachment-hotplug-pf-${DPU1_SERIAL} -o jsonpath='{.status.dpu.funcVUID}')
+func_vuid_2=$(kubectl get -n dpf-operator-system dpuvolumeattachments.storage.dpu.nvidia.com test-volume-attachment-hotplug-pf-${DPU2_SERIAL} -o jsonpath='{.status.dpu.funcVUID}')
+echo "Worker $DPU1_SERIAL NVMe function VUID: $func_vuid_1"
+echo "Worker $DPU2_SERIAL NVMe function VUID: $func_vuid_2"
 ```
 
 After volumes are successfully attached repeat the steps from the [Test Block Storage with Static PFs](#test-block-storage-with-static-pfs) section.

@@ -78,6 +78,8 @@ type DPUAttachResult struct {
 type DPUAttachData struct {
 	// PCIAddress is the PCI address of the DPU
 	PCIAddress string
+	// FuncVUID is the VUID of the emulated function
+	FuncVUID string
 	// DeviceName is the name of the device that was created by the storage vendor plugin
 	DeviceName string
 	// NVMEAttrs is the NVME attributes of the DPU
@@ -211,6 +213,9 @@ func (a *dpuAttacher) getDPUAttachData(volumeAttachment *storagev1.VolumeAttachm
 	data := DPUAttachData{}
 	if volumeAttachment.Status.DPU.PCIDeviceAddress != "" {
 		data.PCIAddress = volumeAttachment.Status.DPU.PCIDeviceAddress
+	}
+	if volumeAttachment.Status.DPU.FuncVUID != "" {
+		data.FuncVUID = volumeAttachment.Status.DPU.FuncVUID
 	}
 	if volumeAttachment.Status.DPU.DeviceName != "" {
 		data.DeviceName = volumeAttachment.Status.DPU.DeviceName
