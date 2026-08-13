@@ -3967,6 +3967,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `pciAddress` _string_ | PCI device address in the following format: (bus:device.function) |  | Optional: \{\} <br /> |
+| `funcVUID` _string_ | The VUID of the emulated function. For a VF, this is the parent PF VUID. |  | Optional: \{\} <br /> |
 | `deviceName` _string_ | The name of the device that was created by the storage vendor plugin |  | Optional: \{\} <br /> |
 | `nvmeAttrs` _[NVMEAttrs](#nvmeattrs)_ | The attributes of the emulated NVME function |  | Optional: \{\} <br /> |
 | `virtioFSAttrs` _[VirtioFSAttrs](#virtiofsattrs)_ | The attributes of the emulated VirtioFS function |  | Optional: \{\} <br /> |
