@@ -39,6 +39,47 @@ ARTIFACTS_DIR=${ARTIFACTS_DIR:-"artifacts"}
 LOGS_DIR="${ARTIFACTS_DIR%/}/logs"
 HOST_LOGS_DIR="${LOGS_DIR}/host-cluster"
 
+# Stop orphaned stern processes left behind by earlier runs that were killed
+# before cleanup() could run. Stern instances of a running log collection are
+# always a direct child of their log-collector.sh, so only the ones that have
+# been reparented to init are killed. Runs of concurrent jobs on the same
+# machine are never affected.
+reap_orphaned_stern() {
+	local pid ppid cmd orphans=""
+
+	while read -r pid ppid cmd; do
+		# Stern of a running log collection is a direct child of its
+		# log-collector.sh, only reparented ones are leftovers.
+		if [[ "$ppid" != "1" ]]; then
+			continue
+		fi
+
+		# Ignore all commands except for stern.
+		if [[ "$cmd" != *stern* ]]; then
+			continue
+		fi
+
+		# Ignore all commands except for the two stern invocations started by this script.
+		if [[ "$cmd" != *"--selector app=log-collector"* ]] \
+			&& [[ "$cmd" != *"--exclude-pod log-collector"* ]]; then
+			continue
+		fi
+
+		# Add the orphaned stern process to the list of orphans to be killed.
+		orphans+=" $pid"
+	done < <(ps -eo pid=,ppid=,args=)
+
+	if [[ -n "$orphans" ]]; then
+		echo "Killing orphaned stern processes:$orphans"
+		# SIGKILL: orphans that ended up stopped (state T) would ignore SIGTERM.
+		# Orphans of other users cannot be killed, ignore the failure.
+		kill -9 $orphans 2> /dev/null || true
+	fi
+}
+
+# Reap orphaned stern processes left behind by earlier runs that should not be running anymore.
+reap_orphaned_stern
+
 # Clean the logs directory before starting
 rm -rf "$LOGS_DIR"
 
