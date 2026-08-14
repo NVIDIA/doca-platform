@@ -706,12 +706,13 @@ commit-check: conform ## Run conform to validate commit message
 ##@ lint and verify
 GOLANGCI_LINT_GOGC ?= "100"
 .PHONY: lint
-lint: golangci-lint ## Run golangci-lint linter & yamllint
-	GOOS=linux GOTOOLCHAIN=$(GOTOOLCHAIN) GOGC=$(GOLANGCI_LINT_GOGC) $(GOLANGCI_LINT) run --timeout 5m
+lint: golangci-lint kube-api-linter ## Run golangci-lint and kube-api-linter
+	GOOS=linux GOTOOLCHAIN=$(GOTOOLCHAIN) GOGC=$(GOLANGCI_LINT_GOGC) $(GOLANGCI_LINT) run --timeout 5m $(GOLANGCI_LINT_EXTRA_ARGS)
+	GOOS=linux GOTOOLCHAIN=$(GOTOOLCHAIN) GOGC=$(GOLANGCI_LINT_GOGC) $(KUBE_API_LINTER) run --config $(PROJECT_DIR)/.golangci-kal.yml --timeout 5m $(GOLANGCI_LINT_EXTRA_ARGS)
 
 .PHONY: lint-fix
-lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
-	GOOS=linux GOTOOLCHAIN=$(GOTOOLCHAIN) $(GOLANGCI_LINT) run --fix
+lint-fix: ## Run golangci-lint and kube-api-linter and perform fixes
+	GOLANGCI_LINT_EXTRA_ARGS=--fix $(MAKE) lint
 
 VERIFY_TARGETS ?= generate copyright md-links shfmt crdify manifests-all
 

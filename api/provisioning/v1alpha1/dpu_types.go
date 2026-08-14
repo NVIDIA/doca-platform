@@ -207,7 +207,6 @@ const (
 // This type is intentionally duplicated from operator/v1alpha1.DeploymentMode: the provisioning API
 // must not import the operator API group. Keep values and semantics aligned with
 // DPFOperatorConfig.spec.deploymentMode.
-// +kubebuilder:validation:Enum=zero-trust;host-trusted
 type DeploymentMode string
 
 const (

@@ -1,0 +1,129 @@
+# Configuration for kube-api-linter (KAL), run via `make lint`.
+# It lints the CRD API types under api/<group>/<version> against Kubernetes API
+# conventions. It is intentionally separate from .golangci.yml: KAL ships as a
+# custom golangci-lint module, so it needs its own binary (see the
+# kube-api-linter target in hack/tools/tools.mk) and its own scope.
+version: "2"
+run:
+  allow-parallel-runners: true
+linters:
+  default: none
+  enable:
+    - kubeapilinter
+  settings:
+    custom:
+      kubeapilinter:
+        type: module
+        description: Kube API Linter lints Kube like APIs based on API conventions and best practices.
+        settings:
+          linters:
+            # Counts below are current violations when each linter runs in isolation
+            # against api/<group>/v1alpha1 (measured 2026-08-12). "auto-fixable" means
+            # `make lint-api-fix` drives the count to zero on its own; the resulting
+            # API changes still need `make generate` and human review.
+            enable:
+              - "nofloats" # Ensure floats are not used.
+              - "nonullable" # Ensure that types and fields do not have the nullable marker.
+              - "statussubresource" # All root objects that have a `status` field should have a status subresource.
+              - "conflictingmarkers" # Lints conflicting markers as configured below.
+              - "duplicatemarkers" # Ensure there are no exact duplicate markers for types and fields.
+
+              # --- Fully auto-fixable: `make lint-fix` resolves every violation. ---
+              # - "noreferences" # Discourages `Ref`/`Reference` naming. (1, all auto-fixable)
+              # - "notimestamp" # Prevents usage of 'Timestamp' fields. (2, all auto-fixable)
+              # - "statusoptional" # Ensure all first children within status should be optional. (52, all auto-fixable)
+              # - "nonpointerstructs" # Non-pointer struct fields must be marked optional/required. (87, all auto-fixable)
+              # - "requiredfields" # Required fields should not be pointers, and should not have `omitempty`. (120, all auto-fixable)
+              # - "optionalfields" # Ensure that all fields marked as optional adhere to being pointers and
+              #                    # having the `omitempty` value in their `json` tag where appropriate. (148, all auto-fixable)
+
+              # --- Partially auto-fixable: a manual remainder is left behind. ---
+              # - "defaults" # Default markers must use the preferred form. (12, 8 left after --fix)
+              # - "conditions" # Ensure conditions have the correct json tags and markers. (32, 13 left after --fix)
+              # - "commentstart" # Ensure comments start with the serialized version of the field name. (948, 318 left after --fix)
+              # - "optionalorrequired" # Every field should be marked as `+optional` or `+required`. (266, 262 left after --fix)
+
+              # --- Manual only: no auto-fix, and most imply API/schema changes. ---
+              # - "jsontags" # Ensure every field has a json tag. (3)
+              # - "nomaps" # Ensure maps are not used. (3)
+              # - "uniquemarkers" # Ensure that types and fields do not contain more than a single definition of a marker that should only be present once. (4)
+              # - "defaultorrequired" # A field with a default value cannot be required. (6)
+              # - "nophase" # Phase fields are discouraged by the Kube API conventions, use conditions instead. (7)
+              # - "arrayofstruct" # Arrays of structs need identifying markers. (10)
+              # - "nodurations" # Prevents usage of `Duration` types. (10)
+              # - "integers" # Ensure only int32 and int64 are used for integers. (29)
+              # - "nobools" # Bools do not evolve over time, should use enums instead. (51)
+              # - "ssatags" # Ensure array fields have the appropriate listType markers. (71)
+              # - "maxlength" # Ensure all strings and arrays have maximum lengths/maximum items. (311)
+
+              # --- Require mandatory settings before they can be enabled at all. ---
+              # - "forbiddenmarkers" # Needs lintersConfig.forbiddenmarkers.markers.
+              # - "dependenttags"
+              # - "namingconventions"
+              # - "preferredmarkers"
+              # - "minlength"
+
+            # Linters below this line are disabled, pending conversation on how and when to enable them.
+            disable:
+            - "*" # We will manually enable new linters after understanding the impact. Disable all by default.
+          lintersConfig:
+            defaults:
+              preferredDefaultMarker: kubebuilder:default # The preferred default marker to use. Defaults to `default`.
+            conflictingmarkers:
+              conflicts:
+              - name: "default_vs_required"
+                sets:
+                  - ["default", "kubebuilder:default"]
+                  - ["required", "kubebuilder:validation:Required", "k8s:required"]
+                description: "A field with a default value cannot be required"
+            optionalfields:
+              pointers:
+                preference: WhenRequired # Always | WhenRequired # Whether to always require pointers, or only when required. Defaults to `Always`.
+                policy: SuggestFix # SuggestFix | Warn # The policy for pointers in optional fields. Defaults to `SuggestFix`.
+              omitempty:
+                policy: SuggestFix # SuggestFix | Warn | Ignore # The policy for omitempty in optional fields. Defaults to `SuggestFix`.
+
+  exclusions:
+    generated: strict
+    paths:
+      - zz_generated.*\.go$
+      - .*_test\.go$
+      # api/grpc holds generated protobuf types, not CRDs.
+      - ^api/grpc/
+    rules:
+      # KAL should only run on our own CRD API packages. Note that paths are matched
+      # relative to the directory holding this config file (repo root), which is what
+      # makes the ^ anchor work.
+      - path-except: ^api/
+        linters:
+          - kubeapilinter
+
+      ## conflictingmarkers/default_vs_required excludes for pre-existing fields.
+      # Removing either the default or the required marker on these is a breaking
+      # change to a released v1alpha1 API, so they are grandfathered in. New fields
+      # must not combine kubebuilder:default with required.
+
+      # Status phase fields: defaulted to the initial phase, but always serialized.
+      # BFBStatus.Phase, BlueFieldSoftwareStatus.Phase, DPUStatus.Phase.
+      - path: api/provisioning/v1alpha1/(bfb|bluefield|dpu)_types.go
+        text: "conflictingmarkers: field .*Status.Phase has conflicting markers"
+        linters:
+          - kubeapilinter
+
+      # Spec fields with a defaulted struct/enum value that is nonetheless always set.
+      - path: api/dpuservice/v1alpha1/dpudeployment_types.go
+        text: "conflictingmarkers: field ServiceChains.UpgradePolicy has conflicting markers"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuservice_types.go
+        text: "conflictingmarkers: field ConfigPorts.ServiceType has conflicting markers"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuserviceconfiguration_types.go
+        text: "conflictingmarkers: field DPUServiceConfigurationSpec.UpgradePolicy has conflicting markers"
+        linters:
+          - kubeapilinter
+
+issues:
+  max-same-issues: 0
+  max-issues-per-linter: 0
