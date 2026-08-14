@@ -1,0 +1,69 @@
+# E2E config for the SNAP tests (VirtioFS on hot-plugged PFs, Host Trusted).
+# Provisions DPUs with the SNAP DPUFlavor (PCI-switch + VirtioFS emulation, extra hugepages).
+#
+# The SNAP application layer lives under the snap*ObjectPaths / snap*Path keys below and is deployed by
+# the SNAP test's BeforeAll.
+# Run with a label filter that excludes the other domains so their BeforeSuite hooks don't also deploy
+# their layers, e.g. `DPFSystem && SNAP && !SDN && !DPFVPCOVN && !Weave`.
+bfb: "../objects/infrastructure/bfb.yaml"
+dpuClusters:
+  - "../objects/infrastructure/dpucluster-kamaji.yaml"
+# unused for SNAP (DPUDeployment-driven); kept because applyConfig requires the field.
+dpuSet: "../objects/infrastructure/dpuset.yaml"
+dpuFlavor: "../objects/storage/dpuflavor-snap.yaml"
+dpuDeployment: "../objects/storage/dpudeployment.yaml"
+# Host-cluster storage objects — applied by the SNAP suite BeforeAll, grouped by the runtime patching
+# each group needs (see deploySNAPStorageStack).
+# Applied verbatim — no placeholders.
+snapHostVerbatimPaths:
+  - "../objects/storage/p1-dpuserviceinterface.yaml"
+  - "../objects/storage/pf1hpf-dpuserviceinterface.yaml"
+  - "../objects/storage/mybrsfc-storage-dpuservicenad.yaml"
+  - "../objects/storage/storage-pool-dpuserviceipam.yaml"
+# Storage control plane — applied verbatim, but cleaned with the workload.
+snapStorageControlPlanePaths:
+  - "../objects/storage/nfs-csi-dpustoragevendor.yaml"
+  - "../objects/storage/policy-fs-dpustoragepolicy.yaml"
+# DPUServiceTemplates — chart source patched.
+snapHostTemplatePaths:
+  - "../objects/storage/doca-snap-dpuservicetemplate.yaml"
+  - "../objects/storage/fs-storage-dpu-plugin-dpuservicetemplate.yaml"
+  - "../objects/storage/snap-node-driver-dpuservicetemplate.yaml"
+  - "../objects/storage/snap-csi-plugin-dpuservicetemplate.yaml"
+# DPUService — chart source + image-pull secret patched.
+snapHostServicePaths:
+  - "../objects/storage/snap-host-controller-dpuservice.yaml"
+# DPUServiceConfigurations — image + pull-secret patched.
+snapHostConfigPaths:
+  - "../objects/storage/doca-snap-dpuserviceconfiguration.yaml"
+  - "../objects/storage/fs-storage-dpu-plugin-dpuserviceconfiguration.yaml"
+  - "../objects/storage/snap-node-driver-dpuserviceconfiguration.yaml"
+  - "../objects/storage/snap-csi-plugin-dpuserviceconfiguration.yaml"
+# csi-hostpath backend — applied to the DPU (tenant) cluster by the SNAP suite BeforeAll.
+snapDPUClusterObjectPaths:
+  - "../objects/storage/csi-hostpath-driver.yaml"
+  - "../objects/storage/csi-hostpath-storageclass.yaml"
+  - "../objects/storage/csi-hostpath-provisioner-rbac.yaml"
+  - "../objects/storage/csi-hostpath-attacher-rbac.yaml"
+  - "../objects/storage/csi-hostpath-plugin.yaml"
+# Workload — applied by the "VirtioFS volume" test Context (host cluster).
+snapStorageClassPath: "../objects/storage/storageclass.yaml"
+snapWorkloadPath: "../objects/storage/sts-fs.yaml"
+# --- generic placeholders: required by applyConfig, unused by the SNAP suite ---
+# applyConfig (test/e2e/system_setup.go) reads these unconditionally; the SNAP suite deploys its own
+# app layer in BeforeAll instead.
+# FIXME: make these optional in applyConfig so this config can drop them.
+dpuServiceInterface: "../objects/application/dpuserviceinterface_service_type.yaml"
+dpuService: "../objects/application/dpuservice.yaml"
+dpuServiceTemplate: "../objects/application/dpuservicetemplate.yaml"
+dpuServiceConfiguration: "../objects/application/dpuserviceconfiguration.yaml"
+dpuServiceChain: "../objects/application/dpuservicechain.yaml"
+dpuServiceCredentialRequest: "../objects/application/dpuservicecredentialrequest.yaml"
+ipPoolDPUServiceIPAM: "../objects/application/dpuserviceipam_subnet.yaml"
+cidrPoolDPUServiceIPAM: "../objects/application/dpuserviceipam_cidr.yaml"
+# --- end placeholders ---
+numberOfDPUNodes: 1
+numberOfDPUsPerNode: 1
+# Host Trusted on bare metal: the DPF host-agent reboots the host in-band for the nvconfig change,
+# so no external reboot script is needed (external reboot is the ZeroTrust path).
+useExternalNodeReboot: false

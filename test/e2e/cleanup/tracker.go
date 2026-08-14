@@ -465,6 +465,14 @@ func (t *Tracker) shouldSkip(hook ginkgoHookID, spec *ginkgoTypes.SpecReport, sh
 		if spec != nil && spec.Failed() {
 			t.anyTestFailed = true
 		}
+		// Named scopes are cleaned from an AfterAll, which gets no spec, and which Ginkgo runs before the
+		// ReportAfterEach that hands the failed spec to the check above. On the first failing spec the flag
+		// is therefore still false here, and the scope would be cleaned away despite the run having failed.
+		// CurrentSpecReport() called from that AfterAll returns the spec that just failed, already in the
+		// failed state, so it sees the failure the tracker has not been told about yet.
+		if spec == nil && ginkgo.CurrentSpecReport().Failed() {
+			t.anyTestFailed = true
+		}
 		if t.anyTestFailed {
 			return true
 		}

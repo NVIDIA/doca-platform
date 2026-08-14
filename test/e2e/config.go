@@ -116,6 +116,20 @@ type config struct {
 	ProvisioningControllerPVCPath       *string  `json:"provisioningControllerPVC,omitempty"`
 	SelectDPUDevicesDynamically         bool     `json:"selectDPUDevicesDynamically,omitempty"`
 	UseExternalNodeReboot               bool     `json:"useExternalNodeReboot,omitempty"`
+	// SNAP host-cluster objects, grouped by the patching each needs (see deploySNAPStorageStack)
+	SNAPHostTemplatePaths []string `json:"snapHostTemplatePaths,omitempty"`
+	SNAPHostServicePaths  []string `json:"snapHostServicePaths,omitempty"`
+	SNAPHostConfigPaths   []string `json:"snapHostConfigPaths,omitempty"`
+	SNAPHostVerbatimPaths []string `json:"snapHostVerbatimPaths,omitempty"`
+	// Storage control plane (DPUStorageVendor, DPUStoragePolicy): applied verbatim,
+	// but cleaned with the workload instead of the DPUDeployment, so a run that keeps
+	// the deployment still exercises them (see the snap cleanup scopes).
+	SNAPStorageControlPlanePaths []string `json:"snapStorageControlPlanePaths,omitempty"`
+	// csi-hostpath backend for the DPU (tenant) cluster.
+	SNAPDPUClusterObjectPaths []string `json:"snapDPUClusterObjectPaths,omitempty"`
+	// SNAP workload (StorageClass + StatefulSet), applied by the workload test Context.
+	SNAPStorageClassPath string `json:"snapStorageClassPath,omitempty"`
+	SNAPWorkloadPath     string `json:"snapWorkloadPath,omitempty"`
 }
 
 func readConfig(path string) (*config, error) {

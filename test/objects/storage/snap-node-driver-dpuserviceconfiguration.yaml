@@ -1,0 +1,19 @@
+---
+# Source: dpuservices/storage/examples/scenarios/trusted-k8s-cluster/virtiofs-hotplug-pf/snap-node-driver-dpuserviceconfiguration.yaml
+# Modifications:
+#   * dropped the image override — uses the chart default.
+#   * dropped imagePullSecrets — added at runtime by the SNAP suite.
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: snap-node-driver
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: snap-node-driver
+  serviceConfiguration:
+    helmChart:
+      values:
+        dpu:
+          deployCrds: true
+          snapNodeDriver:
+            enabled: true

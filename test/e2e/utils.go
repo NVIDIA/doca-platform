@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"maps"
 	"net"
+	"slices"
 	"strings"
 	"time"
 
@@ -28,6 +29,7 @@ import (
 	noderesourcesv1 "github.com/nvidia/doca-platform/api/noderesources/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	storagev1 "github.com/nvidia/doca-platform/api/storage/v1alpha1"
 	vpcv1 "github.com/nvidia/doca-platform/api/vpc/v1alpha1"
 	"github.com/nvidia/doca-platform/test/e2e/cleanup"
 	"github.com/nvidia/doca-platform/test/utils/netshoot"
@@ -38,6 +40,7 @@ import (
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	storagek8sv1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
@@ -175,6 +178,14 @@ var (
 	bmcPassword = ""
 	// ciSetupInfoPath is the filesystem path to the lab DPU-serial -> CI setup-info YAML.
 	ciSetupInfoPath = ""
+	// fakeFSStorageVendorImage is the full image reference (registry and name, without the tag) of the fake
+	// (NFS-free) fs-storage vendor DPU plugin produced by the test-helper-images release target; used only
+	// by the SNAP suite.
+	fakeFSStorageVendorImage = ""
+	// storageSystemImage is the full image reference (registry and name, without the tag) of the DPF
+	// storage-system image. The SNAP suite runs its nvidia-external-attacher binary next to the
+	// csi-hostpath backend in the DPU cluster.
+	storageSystemImage = ""
 	// ngcAPIKey can be used to create a secret to be able to pull images from NGC, this secret can be used by DPUservices and should not be used for core components.
 	ngcAPIKey = ""
 	// dpuClusterName optionally overrides the DPUCluster name (e.g. when created externally with a non-default name).
@@ -194,6 +205,12 @@ var (
 	// This cleanup is typically handled by cleanupObjs, but if an e2e test fails, the standard cleanup may not be executed.
 	// Note: order matters as some object deletion depends on controllers that may be deployed via dpuservices/dpudeployments
 	resourcesToDelete = []client.ObjectList{
+		&appsv1.StatefulSetList{},
+		&storagev1.DPUVolumeAttachmentList{},
+		&storagev1.DPUVolumeList{},
+		&storagev1.DPUStoragePolicyList{},
+		&storagev1.DPUStorageVendorList{},
+		&storagek8sv1.StorageClassList{},
 		&dpuservicev1.DPUDeploymentList{},
 		&dpuservicev1.DPUServiceCredentialRequestList{},
 		&dpuservicev1.DPUServiceList{},
@@ -327,12 +344,19 @@ func CopySecretToNamespace(ctx context.Context, c client.Client, secretName stri
 	}).WithTimeout(30 * time.Second).Should(Succeed())
 }
 
-// getTwoWorkerNodeNames returns the names of two worker nodes using the client provided as input.
-func getTwoWorkerNodeNames(ctx context.Context, c client.Client) (string, string) {
+// listWorkerNodes returns the cluster's worker nodes sorted lexicographically by node name.
+func listWorkerNodes(ctx context.Context, c client.Client) []corev1.Node {
 	nodes := &corev1.NodeList{}
 	Expect(c.List(ctx, nodes, client.MatchingLabels(map[string]string{"node-role.kubernetes.io/worker": ""}))).To(Succeed())
-	Expect(len(nodes.Items)).To(BeNumerically(">=", 2), "Not enough worker nodes in the cluster")
-	return nodes.Items[0].Name, nodes.Items[1].Name // FIXME: Refactor to return two nodes in order instead of names
+	slices.SortFunc(nodes.Items, func(a, b corev1.Node) int { return strings.Compare(a.Name, b.Name) })
+	return nodes.Items
+}
+
+// getTwoWorkerNodeNames returns the names of two worker nodes using the client provided as input.
+func getTwoWorkerNodeNames(ctx context.Context, c client.Client) (string, string) {
+	nodes := listWorkerNodes(ctx, c)
+	Expect(len(nodes)).To(BeNumerically(">=", 2), "Not enough worker nodes in the cluster")
+	return nodes[0].Name, nodes[1].Name // FIXME: Refactor to return two nodes in order instead of names
 }
 
 // getClusterControlPlaneIP returns the internal IP of the control plane node in the cluster

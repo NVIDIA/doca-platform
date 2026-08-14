@@ -31,6 +31,7 @@ import (
 	noderesourcesv1 "github.com/nvidia/doca-platform/api/noderesources/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	storagev1 "github.com/nvidia/doca-platform/api/storage/v1alpha1"
 	vpcv1 "github.com/nvidia/doca-platform/api/vpc/v1alpha1"
 	"github.com/nvidia/doca-platform/test/e2e/cleanup"
 	"github.com/nvidia/doca-platform/test/utils"
@@ -151,6 +152,13 @@ func getEnvVariables() {
 	} else {
 		panic("NETUTILS_IMAGE env variable must be set")
 	}
+	// FAKE_FS_STORAGE_IMAGE and STORAGE_SYSTEM_IMAGE used by SNAP tests.
+	if img, found := os.LookupEnv("FAKE_FS_STORAGE_IMAGE"); found {
+		fakeFSStorageVendorImage = img
+	}
+	if img, found := os.LookupEnv("STORAGE_SYSTEM_IMAGE"); found {
+		storageSystemImage = img
+	}
 
 	// ZeroTrust-only env vars; required-ness enforced in validateFlags() once
 	// the ginkgo label filter is known. Reading them here keeps all env-var
@@ -246,6 +254,7 @@ func TestE2E(t *testing.T) {
 	Expect(operatorv1.AddToScheme(scheme.Scheme)).To(Succeed())
 	Expect(argov1.AddToScheme(scheme.Scheme)).To(Succeed())
 	Expect(provisioningv1.AddToScheme(scheme.Scheme)).To(Succeed())
+	Expect(storagev1.AddToScheme(scheme.Scheme)).To(Succeed())
 	Expect(nvipamv1.AddToScheme(scheme.Scheme)).To(Succeed())
 	Expect(kamajiv1.AddToScheme(scheme.Scheme)).To(Succeed())
 	Expect(vpcv1.AddToScheme(scheme.Scheme)).To(Succeed())
@@ -367,7 +376,12 @@ var _ = BeforeSuite(func() {
 		provInput := getProvisionDPUClustersInput()
 		ProvisionDPUClusters(ctx, provInput)
 		ProvisionBFBOrBlueFieldSoftwareAndDPUFlavor(ctx, provInput)
-		ProvisionDPUSet(ctx, provInput)
+
+		// SNAP provisions through its DPUDeployment (applied in the SNAP suite's BeforeAll), which manages
+		// its own DPUSet; skip the generic ProvisionDPUSet here so two DPUSets don't target the same DPUs.
+		if !isGinkgoLabelApplied(Domain.SNAP) {
+			ProvisionDPUSet(ctx, provInput)
+		}
 	}
 
 	// Apply the ProvisioningBeforeSuite setup if directly specified Provisioning label
@@ -382,10 +396,6 @@ var _ = BeforeSuite(func() {
 	// Apply the SDNBeforeSuite setup if not directly specified !SDN
 	if !strings.Contains(GinkgoLabelFilter(), "!"+Domain.SDN) {
 		SDNBeforeSuite()
-	}
-	// Apply the SNAPBeforeSuite setup if not directly specified !SNAP
-	if !strings.Contains(GinkgoLabelFilter(), "!"+Domain.SNAP) {
-		SNAPBeforeSuite()
 	}
 
 	// Apply the VPCOVNBeforeSuite BeforeSuite setup

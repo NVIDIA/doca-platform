@@ -1,0 +1,13 @@
+---
+# Source: dpuservices/storage/examples/scenarios/trusted-k8s-cluster/virtiofs-hotplug-pf/nfs-csi-dpustoragevendor.yaml
+# Modifications:
+#   * changed storageClassName to 'local-path' — the csi-hostpath backend StorageClass (see
+#     csi-hostpath-storageclass.yaml), not NFS. Object name kept as upstream (nfs-csi; the policy references it).
+apiVersion: storage.dpu.nvidia.com/v1alpha1
+kind: DPUStorageVendor
+metadata:
+  name: nfs-csi
+  namespace: dpf-operator-system
+spec:
+  storageClassName: local-path
+  pluginName: nvidia-fs

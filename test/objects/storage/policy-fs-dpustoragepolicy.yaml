@@ -1,0 +1,13 @@
+---
+# Source: dpuservices/storage/examples/scenarios/trusted-k8s-cluster/virtiofs-hotplug-pf/policy-fs-dpustoragepolicy.yaml
+# Modifications: none
+apiVersion: storage.dpu.nvidia.com/v1alpha1
+kind: DPUStoragePolicy
+metadata:
+  name: policy-fs
+  namespace: dpf-operator-system
+spec:
+  dpuStorageVendors:
+    - nfs-csi
+  selectionAlgorithm: "NumberVolumes"
+  parameters: {}

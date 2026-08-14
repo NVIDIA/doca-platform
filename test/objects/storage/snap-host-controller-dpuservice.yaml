@@ -1,0 +1,37 @@
+---
+# Source: docs/do_not_publish/storage/manifests/snap-host-controller/DPUService.yaml
+# Modifications:
+#   * deployed as a standalone deployInCluster DPUService instead of the scenario's separate helm release
+#     — the CR-only e2e flow cannot run helm (CR form taken from the Source above).
+#   * changed helmChart.source repoURL/version to empty placeholders — patched at runtime by the SNAP suite.
+#   * dropped the image override — uses the chart default.
+#   * dropped imagePullSecrets — added at runtime by the SNAP suite.
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUService
+metadata:
+  name: snap-host-controller
+  namespace: dpf-operator-system
+spec:
+  serviceID: snap-host-controller
+  deployInCluster: true
+  helmChart:
+    source:
+      repoURL: ""
+      version: ""
+      chart: dpf-storage
+    values:
+      host:
+        snapHostController:
+          enabled: true
+          config:
+            targetNamespace: dpf-operator-system
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: "node-role.kubernetes.io/master"
+                        operator: Exists
+                  - matchExpressions:
+                      - key: "node-role.kubernetes.io/control-plane"
+                        operator: Exists

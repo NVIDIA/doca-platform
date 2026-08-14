@@ -1,0 +1,116 @@
+# Source: dpuservices/storage/examples/scenarios/trusted-k8s-cluster/virtiofs-hotplug-pf/dpf-provisioning-storage-dpuflavor.yaml
+# Modifications:
+#   * changed NUM_OF_VFS 46 -> 16 — must be <= this card's sriov_totalvfs (upstream's 46 fails on a
+#     16-VF BF3; see inline note).
+#   * changed hugepages 2298 -> 5120 — SNAP needs more than upstream's default.
+#   * added fixrttc to the DPU kernel parameters.
+#   * changed the OVS unit probe from `systemctl list-unit-files` to `systemctl cat` — the former
+#     succeeds on an empty match, so it never told a missing unit from a present one.
+# Note: vs the sibling test/objects/infrastructure/dpuflavor-physical.yaml this adds the SNAP firmware —
+#   hugepages 250->5120, PCI_SWITCH_EMULATION_ENABLE + NUM_PORT=32, VIRTIO_FS_EMULATION_ENABLE + NUM_PF=0,
+#   PF_TOTAL_SF 16->20, RDMA_SET_NETNS_EXCLUSIVE=no; OVS keeps br-sfc + p0 but drops br-hbn and p1.
+apiVersion: provisioning.dpu.nvidia.com/v1alpha1
+kind: DPUFlavor
+metadata:
+  name: snap-flavor
+  namespace: dpf-operator-system
+spec:
+  bfcfgParameters:
+    - UPDATE_ATF_UEFI=yes
+    - UPDATE_DPU_OS=yes
+    - WITH_NIC_FW_UPDATE=yes
+  configFiles:
+    - operation: override
+      path: /etc/mellanox/mlnx-bf.conf
+      permissions: "0644"
+      raw: |
+        ALLOW_SHARED_RQ="no"
+        IPSEC_FULL_OFFLOAD="no"
+        ENABLE_ESWITCH_MULTIPORT="yes"
+        RDMA_SET_NETNS_EXCLUSIVE="no"
+    - operation: override
+      path: /etc/mellanox/mlnx-ovs.conf
+      permissions: "0644"
+      raw: |
+        CREATE_OVS_BRIDGES="no"
+        OVS_DOCA="yes"
+    - operation: override
+      path: /etc/mellanox/mlnx-sf.conf
+      permissions: "0644"
+      raw: ""
+  grub:
+    kernelParameters:
+      - console=hvc0
+      - console=ttyAMA0
+      - earlycon=pl011,0x13010000
+      - fixrttc
+      - net.ifnames=0
+      - biosdevname=0
+      - iommu.passthrough=1
+      - cgroup_no_v1=net_prio,net_cls
+      - hugepagesz=2048kB
+      - hugepages=5120
+  nvconfig:
+    - device: "*"
+      parameters:
+        - PF_BAR2_ENABLE=0
+        - PER_PF_NUM_SF=1
+        - PF_TOTAL_SF=20
+        - PF_SF_BAR_SIZE=10
+        - NUM_PF_MSIX_VALID=0
+        - PF_NUM_PF_MSIX_VALID=1
+        - PF_NUM_PF_MSIX=228
+        - INTERNAL_CPU_MODEL=1
+        - INTERNAL_CPU_OFFLOAD_ENGINE=0
+        - SRIOV_EN=1
+        # Must be <= the card's sriov_totalvfs (upstream's 46 fails on a 16-VF BF3 with
+        # FailedToCreateP0VF). Sizes only the DPF host-network VF pool; VirtioFS storage rides
+        # hot-plugged PFs, not VFs. Adjust per card if its cap differs.
+        - NUM_OF_VFS=16
+        - LAG_RESOURCE_ALLOCATION=1
+        # VirtioFS hot-plug requires PCI switch emulation.
+        - PCI_SWITCH_EMULATION_ENABLE=1
+        # NUM_PORT is 1 + the number of hot-pluggable functions, and the host must find resource windows
+        # for each. Two boot parameters make 32 of them affordable:
+        #   * pci=realloc lets the kernel redo the assignment its firmware made
+        #   * pci=hpiosize=0 drops the 4K I/O window reserved per hot-plug port; 31 of those outgrow an
+        #     x86 host's 64K of I/O space, and a modern virtio-fs PF has no I/O BAR to use one
+        # Without them the ports get no windows and the hot-plugged PF arrives with no BARs to bind.
+        - PCI_SWITCH_EMULATION_NUM_PORT=32
+        - VIRTIO_FS_EMULATION_ENABLE=1
+        # 0 = no *static* VirtioFS PFs; volumes ride PFs hot-plugged at attach. Static PFs are
+        # sliced at boot and block the host ~5-20 min during PCI enumeration; hot-plug
+        # defers that to attach time so the host boots clean.
+        - VIRTIO_FS_EMULATION_NUM_PF=0
+        - LINK_TYPE_P1=ETH
+        - LINK_TYPE_P2=ETH
+  ovs:
+    rawConfigScript: |
+      _ovs-vsctl() {
+        ovs-vsctl --timeout 15 "$@"
+      }
+
+      # Remove default OVS configuration on the DPU and ensure no leftovers on the OVS kernel side
+      _ovs-vsctl --if-exists del-br ovsbr1
+      _ovs-vsctl --if-exists del-br ovsbr2
+      ovs-appctl --timeout 15 dpctl/del-dp system@ovs-system || true
+
+      _ovs-vsctl set Open_vSwitch . other_config:doca-init=true
+      _ovs-vsctl set Open_vSwitch . other_config:dpdk-max-memzones=50000
+      _ovs-vsctl set Open_vSwitch . other_config:hw-offload=true
+      _ovs-vsctl set Open_vSwitch . other_config:pmd-quiet-idle=true
+      _ovs-vsctl set Open_vSwitch . other_config:max-idle=20000
+      _ovs-vsctl set Open_vSwitch . other_config:max-revalidator=5000
+      _ovs-vsctl remove Open_vSwitch . other_config default-datapath-type || true
+
+      if systemctl cat openvswitch-switch.service &>/dev/null; then
+        systemctl restart openvswitch-switch
+      elif systemctl cat openvswitch.service &>/dev/null; then
+        systemctl restart openvswitch
+      fi
+      _ovs-vsctl --may-exist add-br br-sfc
+      _ovs-vsctl set bridge br-sfc datapath_type=netdev
+      _ovs-vsctl set bridge br-sfc fail_mode=secure
+      _ovs-vsctl --may-exist add-port br-sfc p0
+      _ovs-vsctl set Interface p0 type=dpdk
+      _ovs-vsctl set Port p0 external_ids:dpf-type=physical

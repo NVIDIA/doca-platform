@@ -1,0 +1,25 @@
+---
+# Source: dpuservices/storage/examples/scenarios/trusted-k8s-cluster/virtiofs-hotplug-pf/p1-dpuserviceinterface.yaml
+# Modifications: none
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceInterface
+metadata:
+  name: p1
+  namespace: dpf-operator-system
+spec:
+  template:
+    spec:
+      nodeSelector:
+        matchExpressions:
+          - key: kubernetes.io/os
+            operator: In
+            values:
+              - "linux"
+      template:
+        metadata:
+          labels:
+            uplink: "p1"
+        spec:
+          interfaceType: physical
+          physical:
+            interfaceName: p1

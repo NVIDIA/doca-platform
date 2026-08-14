@@ -1,0 +1,12 @@
+---
+# Source: dpuservices/storage/examples/scenarios/trusted-k8s-cluster/virtiofs-hotplug-pf/workload/storageclass.yaml
+# Modifications: none
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: snap-virtiofs-hotplug-pf
+provisioner: csi.snap.nvidia.com
+parameters:
+  policy: "policy-fs"
+  functionType: "pf"
+  hotplugFunction: "true"

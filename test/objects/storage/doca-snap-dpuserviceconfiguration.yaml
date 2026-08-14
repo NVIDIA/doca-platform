@@ -1,0 +1,23 @@
+---
+# Source: dpuservices/storage/examples/scenarios/trusted-k8s-cluster/virtiofs-hotplug-pf/doca-snap-dpuserviceconfiguration.yaml
+# Modifications:
+#   * dropped the image override — uses the chart default.
+#   * dropped imagePullSecrets — added at runtime by the SNAP suite (NGC secret for the DOCA image).
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: doca-snap
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: doca-snap
+  serviceConfiguration:
+    helmChart:
+      values:
+        dpu:
+          docaSnap:
+            enabled: true
+            env:
+              XLIO_ENABLED: "0"
+  interfaces:
+    - name: app_sf
+      network: mybrsfc-storage
