@@ -222,7 +222,7 @@ func printJobsTable(jobs []gitlab.Job) {
 			duration = d.String()
 		}
 
-		createdAt := job.CreatedAt.Format("2006-01-02 15:04")
+		createdAt := job.CreatedAt.UTC().Format("2006-01-02 15:04 MST")
 
 		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			job.ID,
