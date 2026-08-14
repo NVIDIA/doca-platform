@@ -49,6 +49,7 @@ var (
 	PLDMUnpackContainerName             ComponentName = "pldmunpack"
 	KataContainersName                  ComponentName = "kata-containers"
 	VaultKMSName                        ComponentName = "vault-kms"
+	SpireAgentRBACName                  ComponentName = "spire-agent-rbac"
 )
 
 type ComponentName string

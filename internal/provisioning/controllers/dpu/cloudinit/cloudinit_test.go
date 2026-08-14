@@ -489,9 +489,34 @@ users:
 		Expect(kubeconfigFile.Permissions).To(Equal("0600"))
 
 		agentCfg := getWriteFile(parsed, constants.SPIREAgentConfigPath)
+		// Every reader of the SPIRE agent configuration runs as root, so it stays
+		// unreadable to anything else on the DPU.
+		Expect(agentCfg.Permissions).To(Equal("0600"))
 		Expect(agentCfg.Content).To(ContainSubstring(constants.SPIREPluginPath))
 		Expect(agentCfg.Content).To(ContainSubstring(`trust_bundle_path = "` + constants.SPIRETrustBundlePEMPath + `"`))
 		Expect(agentCfg.Content).To(ContainSubstring(`trust_bundle_format = "pem"`))
+		Expect(agentCfg.Content).To(ContainSubstring(`trust_bundle_path = "` + constants.SPIRETrustBundlePEMPath + `"`))
+		Expect(agentCfg.Content).To(ContainSubstring(`trust_bundle_format = "pem"`))
+		Expect(agentCfg.Content).To(ContainSubstring("# spire-k8s-workload-attestor"))
+		Expect(agentCfg.Content).NotTo(ContainSubstring(`WorkloadAttestor "k8s"`))
+
+		attestorCfg := getWriteFile(parsed, "/etc/spire/agent/k8s-workload-attestor.conf")
+		Expect(attestorCfg.Permissions).To(Equal("0600"))
+		Expect(attestorCfg.Content).To(ContainSubstring(`WorkloadAttestor "k8s"`))
+		Expect(attestorCfg.Content).To(ContainSubstring(`certificate_path = "/var/lib/kubelet/pki/kubelet-client-current.pem"`))
+		Expect(attestorCfg.Content).To(ContainSubstring(`node_name_env = "MY_NODE_NAME"`))
+
+		agentDropIn := getWriteFile(parsed, "/etc/systemd/system/spire-agent.service.d/k8s-workload-attestor.conf")
+		Expect(agentDropIn.Content).To(ContainSubstring("Environment=MY_NODE_NAME=%H"))
+
+		// The DPU agent splices the attestor in from a loop once kubelet has produced
+		// usable certificates, so cloud-init writes the configuration it merges but no
+		// units and no bootstrap script.
+		for _, f := range parsed.WriteFiles {
+			Expect(f.Path).NotTo(Equal("/etc/systemd/system/spire-k8s-workload-attestor.service"))
+			Expect(f.Path).NotTo(Equal("/etc/systemd/system/spire-k8s-workload-attestor.path"))
+			Expect(f.Path).NotTo(Equal("/opt/dpf/enable-spire-k8s-workload-attestor.sh"))
+		}
 
 		helperCfg := getWriteFile(parsed, constants.SpiffeHelperConfigPath)
 		Expect(helperCfg.Content).To(ContainSubstring(constants.SPIREAgentSocketPath))

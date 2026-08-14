@@ -31,6 +31,11 @@ const (
 	// It may appear on agentStatus.conditions (DPU Config phase) or agentStatus.preInstall.conditions
 	// (best-effort Config FW Parameters phase during reprovision).
 	DPUAgentConditionNVConfigApplied = "NVConfigApplied"
+
+	// DPUAgentConditionSPIREWorkloadAttestorEnabled is reported on SPIFFE DPUs once the
+	// SPIRE Kubernetes workload attestor is configured, which is what lets the SPIRE
+	// agent issue SVIDs to pods.
+	DPUAgentConditionSPIREWorkloadAttestorEnabled = "SPIREWorkloadAttestorEnabled"
 )
 
 // DPUGroupVersionKind is the GroupVersionKind of the DPU object
