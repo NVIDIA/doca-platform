@@ -188,6 +188,11 @@ These flags apply only to the subcommands that create or download reports
 | `--nfs-no-subdir` | `false`                           | `start`, `collect`     | Write directly to `--nfs-path` without creating a subdirectory       |
 | `--nfs-uid`       | `0`                               | `start`, `collect`     | UID for NFS directory creation (use non-zero when NFS has root_squash) |
 | `--timeout`       | `30m`                             | `start`, `collect`     | Job active deadline timeout                                          |
+| `--requests.memory` | `256Mi`                         | `start`, `collect`     | Memory request for the sosreport container (Kubernetes quantity, e.g. `256Mi`, `1Gi`) |
+| `--requests.cpu`  | `100m`                            | `start`, `collect`     | CPU request for the sosreport container (Kubernetes quantity, e.g. `100m`, `1`) |
+| `--limits.memory` | `1Gi`                             | `start`, `collect`     | Memory limit for the sosreport container (Kubernetes quantity, e.g. `256Mi`, `1Gi`) |
+| `--limits.cpu`    |                                   | `start`, `collect`     | Optional CPU limit (empty by default; CPU limits cause throttling and are usually counterproductive) |
 | `--archive`       | `false`                           | `start`, `collect`, `download` | Create a `.tar.gz` archive of all reports                    |
 | `--archive-only`  | `false`                           | `start`, `collect`, `download` | Remove individual report files after archiving (implies `--archive`) |
 | `--output-dir`    | `sosreport-<timestamp>`           | `collect`, `download`  | Local directory for downloaded reports                              |
+| `--cleanup`       | `true` (`collect`) / `false` (`download`) | `collect`, `download` | Clean up resources (Jobs, pods, secrets) after download. On `download`, omit the flag to be prompted |
