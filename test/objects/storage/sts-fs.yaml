@@ -1,0 +1,55 @@
+---
+# Source: dpuservices/storage/examples/scenarios/trusted-k8s-cluster/virtiofs-hotplug-pf/workload/sts-fs.yaml
+# Modifications:
+#   * changed the image to a multi-arch one (agnhost) — upstream uses nginx-slim, but the pod must run
+#     on x64 or arm64 hosts.
+#   * added a command that writes+reads /mnt/vol1 in a loop — a fast e2e signal (upstream just serves nginx).
+#   * added nodeSelector feature.node.kubernetes.io/dpu-enabled — lands the pod on a DPU host. Every worker
+#     with DPU hardware carries that label, so the suite additionally pins kubernetes.io/hostname to the
+#     host whose DPU it provisioned.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: storage-test-pod-virtiofs-hotplug-pf
+spec:
+  serviceName: "storage-test-pod-virtiofs-hotplug-pf"
+  podManagementPolicy: "Parallel"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: storage-test-pod-virtiofs-hotplug-pf
+  template:
+    metadata:
+      labels:
+        app: storage-test-pod-virtiofs-hotplug-pf
+    spec:
+      nodeSelector:
+        feature.node.kubernetes.io/dpu-enabled: "true"
+      containers:
+        - name: test
+          # Multi-arch image required: the pod may run on x64 or arm64 hosts (e.g. Grace).
+          image: registry.k8s.io/e2e-test-images/agnhost:2.47
+          # Write a timestamp to /mnt/vol1 every 1s and read it back to logs (fast e2e feedback).
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              while true; do
+                echo "$(date)" > /mnt/vol1/heartbeat
+                echo "/mnt/vol1 write+read OK: $(cat /mnt/vol1/heartbeat)"
+                sleep 1
+              done
+          volumeMounts:
+            - mountPath: /mnt/vol1
+              name: vol1
+  volumeClaimTemplates:
+    - metadata:
+        name: vol1
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+        storageClassName: snap-virtiofs-hotplug-pf
+        volumeMode: Filesystem

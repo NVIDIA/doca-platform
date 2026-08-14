@@ -1,0 +1,38 @@
+---
+# Applied to the DPU (tenant) cluster by the SNAP suite, not the host.
+# Source: kubernetes-csi/external-attacher deploy/kubernetes/rbac.yaml
+#   https://github.com/kubernetes-csi/external-attacher (Apache-2.0, Copyright The Kubernetes Authors)
+# Modifications:
+#   * volumeattachments (storage.k8s.io) -> svvolumeattachments (storage.dpu.nvidia.com): the DPF fork
+#     serves SVVolumeAttachments.
+#   * dropped the csinodes rule — the fork takes the node ID straight from spec.nodeName, because DPU
+#     clusters have no CSINode for the DPU.
+#   * dropped the ServiceAccount, the leases Role and its RoleBinding — the sidecar runs in the
+#     csi-hostpathplugin pod under csi-hostpathplugin-sa, with leader election off (single replica).
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: external-attacher-runner
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["get", "list", "watch", "patch"]
+  - apiGroups: ["storage.dpu.nvidia.com"]
+    resources: ["svvolumeattachments"]
+    verbs: ["get", "list", "watch", "patch"]
+  - apiGroups: ["storage.dpu.nvidia.com"]
+    resources: ["svvolumeattachments/status"]
+    verbs: ["patch"]
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: csi-hostpathplugin-attacher-role
+subjects:
+  - kind: ServiceAccount
+    name: csi-hostpathplugin-sa
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: external-attacher-runner
+  apiGroup: rbac.authorization.k8s.io

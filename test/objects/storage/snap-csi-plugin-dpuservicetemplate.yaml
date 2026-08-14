@@ -1,0 +1,16 @@
+---
+# Source: dpuservices/storage/examples/scenarios/trusted-k8s-cluster/virtiofs-hotplug-pf/snap-csi-plugin-dpuservicetemplate.yaml
+# Modifications:
+#   * changed helmChart.source repoURL/version to empty placeholders — patched at runtime by the SNAP suite.
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceTemplate
+metadata:
+  name: snap-csi-plugin
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: snap-csi-plugin
+  helmChart:
+    source:
+      repoURL: ""
+      version: ""
+      chart: dpf-storage

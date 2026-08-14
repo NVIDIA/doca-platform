@@ -1,0 +1,64 @@
+---
+# Source: dpuservices/storage/examples/scenarios/trusted-k8s-cluster/virtiofs-hotplug-pf/dpudeployment.yaml
+# Modifications:
+#   * dropped the nfs-csi-controller-dpu service — the csi-hostpath backend is applied to the DPU
+#     cluster instead (see csi-hostpath-*.yaml).
+#   * changed flavor to snap-flavor — may be overridden at runtime by applyConfig.
+#   * changed the dpuSets selector field to dpuNodeSelector — upstream uses the deprecated nodeSelector
+#     (removed with v26.7.0); the value (feature.node.kubernetes.io/dpu-enabled) is unchanged.
+#   * the DPUSet dpuDeviceSelector is patched in at runtime to pin the DPUSet to the single DPUDevice the
+#     test labels, since which DPU to use is only known from the cluster.
+#     Without the pin, on a multi-DPU host the DPUSet targets every DPU and the coordinated in-band host
+#     reboot deadlocks waiting for the extra DPU to reach the Rebooting phase.
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUDeployment
+metadata:
+  name: storage
+  namespace: dpf-operator-system # overwritten at runtime by applyConfig
+spec:
+  dpus:
+    bfb: bf-bundle
+    flavor: snap-flavor
+    dpuSetStrategy:
+      type: RollingUpdate
+    nodeEffect:
+      drain: true
+    dpuSets:
+      - nameSuffix: "dpuset1"
+        dpuNodeSelector:
+          matchLabels:
+            feature.node.kubernetes.io/dpu-enabled: "true"
+  services:
+    snap-csi-plugin:
+      serviceTemplate: snap-csi-plugin
+      serviceConfiguration: snap-csi-plugin
+    snap-node-driver:
+      serviceTemplate: snap-node-driver
+      serviceConfiguration: snap-node-driver
+    doca-snap:
+      serviceTemplate: doca-snap
+      serviceConfiguration: doca-snap
+    fs-storage-dpu-plugin:
+      serviceTemplate: fs-storage-dpu-plugin
+      serviceConfiguration: fs-storage-dpu-plugin
+  serviceChains:
+    switches:
+      - ports:
+          - serviceInterface:
+              matchLabels:
+                uplink: p1
+          - serviceInterface:
+              matchLabels:
+                uplink: pf1hpf
+          - service:
+              name: doca-snap
+              interface: app_sf
+              ipam:
+                matchLabels:
+                  svc.dpu.nvidia.com/pool: storage-pool
+          - service:
+              name: fs-storage-dpu-plugin
+              interface: app_sf
+              ipam:
+                matchLabels:
+                  svc.dpu.nvidia.com/pool: storage-pool

@@ -18,11 +18,14 @@ limitations under the License.
 package e2e
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"net/http"
 	"os"
@@ -518,19 +521,9 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 		dpuServices := &dpuservicev1.DPUServiceList{}
 		g.Expect(testClient.List(ctx, dpuServices)).To(Succeed())
 
-		itemNames := []string{}
-		for _, item := range dpuServices.Items {
-			itemNames = append(itemNames, item.Name)
-		}
-
-		// Validate the expected number of DPUServices. The last released GA predates the
-		// dpu-monitoring DPUService, so it deploys one fewer.
-		expectedDPUServiceCount := 12
-		if isCurrentVersionLastReleasedGA {
-			expectedDPUServiceCount = 11
-		}
-		g.Expect(dpuServices.Items).To(HaveLen(expectedDPUServiceCount), "Expected %d DPUServices, got %d: [%s]", expectedDPUServiceCount, len(dpuServices.Items), strings.Join(itemNames, ", "))
-
+		// Only the presence of the operator's own DPUServices is asserted. Their total number is
+		// not an invariant: some are created per DPUCluster, so the count grows once a DPUCluster
+		// exists, and every DPUDeployment adds DPUServices of its own.
 		found := map[string]bool{}
 		for i := range dpuServices.Items {
 			found[dpuServices.Items[i].Name] = true
@@ -1062,6 +1055,8 @@ func waitForScriptRebootCompletion(ctx context.Context, c client.Client, expecte
 	}).WithTimeout(30 * time.Minute).WithPolling(15 * time.Second).Should(Succeed())
 }
 
+// VerifyClusterPods waits until, for each name substring in podSubstrToVerify, at least one pod in the
+// cluster whose name contains that substring exists and its containers are ready.
 func VerifyClusterPods(ctx context.Context, client client.Client, podSubstrToVerify []string) {
 	tracker := NewByTracker()
 	Eventually(func(g Gomega) {
@@ -1541,6 +1536,126 @@ func PatchDPUNodesForScriptReboot(ctx context.Context, c client.Client,
 		By(fmt.Sprintf("Patching DPUNode %s -> script reboot via ConfigMap %s (BMC %s)",
 			dpuNode.Name, configMapName, bmcIP))
 		Expect(c.Patch(ctx, dpuNode, patch)).To(Succeed())
+	}
+}
+
+// objectsFromManifest reads a (potentially multi-document) YAML manifest into unstructured objects (e.g.
+// the csi-hostpath RBAC/plugin bundles). Cleanup labels are not set.
+func objectsFromManifest(path string) []*unstructured.Unstructured {
+	data, err := os.ReadFile(path)
+	Expect(err).ToNot(HaveOccurred(), "reading %s", path)
+
+	// Decode each '---'-separated document in turn until EOF, skipping empty ones.
+	// manifestDecoderBufferBytes is the decoder read-buffer size in bytes (common k8s default).
+	const decoderBufferBytes = 4096
+	decoder := yaml.NewYAMLOrJSONDecoder(bytes.NewReader(data), decoderBufferBytes)
+	var objs []*unstructured.Unstructured
+	for {
+		obj := &unstructured.Unstructured{}
+		err := decoder.Decode(obj)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		Expect(err).ToNot(HaveOccurred(), "decoding %s", path)
+		if len(obj.Object) == 0 {
+			continue // empty document, e.g. a trailing '---'
+		}
+		objs = append(objs, obj)
+	}
+	return objs
+}
+
+// manifestObjectMutator mutates an object decoded from a manifest before it is created — e.g. stamping
+// cleanup labels (withCleanupLabels), rewriting chart/image placeholders, or overriding the namespace.
+type manifestObjectMutator func(*unstructured.Unstructured)
+
+// withCleanupLabels returns a mutator that stamps the given cleanup-scope labels onto an object,
+// keeping the labels its manifest already declares.
+func withCleanupLabels(labels map[string]string) manifestObjectMutator {
+	return func(obj *unstructured.Unstructured) {
+		obj.SetLabels(cleanup.MergeMaps(obj.GetLabels(), labels))
+	}
+}
+
+// withNamespace returns a mutator that sets the object's namespace (no-op semantics for cluster-scoped
+// kinds are the caller's responsibility — only apply it to namespaced objects).
+func withNamespace(namespace string) manifestObjectMutator {
+	return func(obj *unstructured.Unstructured) { obj.SetNamespace(namespace) }
+}
+
+// withPodNodeSelector returns a mutator that merges entries into a workload's pod nodeSelector, keeping the
+// ones its manifest already declares. Only apply it to kinds with a pod template under spec.template.
+func withPodNodeSelector(nodeSelector map[string]string) manifestObjectMutator {
+	return func(obj *unstructured.Unstructured) {
+		declared, _, err := unstructured.NestedStringMap(obj.Object, "spec", "template", "spec", "nodeSelector")
+		Expect(err).ToNot(HaveOccurred())
+		Expect(unstructured.SetNestedStringMap(obj.Object, cleanup.MergeMaps(declared, nodeSelector),
+			"spec", "template", "spec", "nodeSelector")).To(Succeed())
+	}
+}
+
+// withContainerImage returns a mutator that sets the image of the named container in a workload's pod
+// template.
+//
+// Objects without a pod template are skipped: a manifest bundle mixes workloads with RBAC, CSIDriver and
+// the like, and those have no image to set. A workload that does have a pod template but no container of
+// that name is a failure instead, because the image would silently keep the manifest's placeholder value
+// and the run would only break later, on an ImagePullBackOff.
+func withContainerImage(containerName, image string) manifestObjectMutator {
+	return func(obj *unstructured.Unstructured) {
+		containers, found, err := unstructured.NestedSlice(obj.Object, "spec", "template", "spec", "containers")
+		Expect(err).ToNot(HaveOccurred())
+		if !found {
+			return
+		}
+		patched := false
+		for _, entry := range containers {
+			container, ok := entry.(map[string]interface{})
+			if !ok || container["name"] != containerName {
+				continue
+			}
+			container["image"] = image
+			patched = true
+		}
+		Expect(patched).To(BeTrue(), "%s %s has no container %s", obj.GetKind(), obj.GetName(), containerName)
+		Expect(unstructured.SetNestedSlice(obj.Object, containers, "spec", "template", "spec", "containers")).To(Succeed())
+	}
+}
+
+// withDPUSetPinnedToDPU returns a mutator that narrows a DPUDeployment's single dpuSet to the DPUDevice
+// matching pinLabels, as returned by pinDPUDeviceOnNode, so provisioning creates one DPU instead of every
+// DPU the dpuSet would otherwise match. Requires the DPUDeployment to declare exactly one dpuSet.
+func withDPUSetPinnedToDPU(pinLabels map[string]string) manifestObjectMutator {
+	return func(obj *unstructured.Unstructured) {
+		// Validate the input and the DPUSet shape before mutating.
+		Expect(pinLabels).ToNot(BeEmpty(), "the labels selecting the pinned DPUDevice must be set")
+		dpuSets, _, err := unstructured.NestedSlice(obj.Object, "spec", "dpus", "dpuSets")
+		Expect(err).ToNot(HaveOccurred())
+		Expect(dpuSets).To(HaveLen(1), "DPUDeployment %s must have exactly one dpuSet", obj.GetName())
+		dpuSet, ok := dpuSets[0].(map[string]interface{})
+		Expect(ok).To(BeTrue(), "dpuSet in DPUDeployment %s is not a map", obj.GetName())
+
+		// Set the device selector on the dpuSet via label selectors, then write the slice back.
+		matchLabels := make(map[string]interface{}, len(pinLabels))
+		for key, value := range pinLabels {
+			matchLabels[key] = value
+		}
+		dpuSet["dpuDeviceSelector"] = map[string]interface{}{"matchLabels": matchLabels}
+		Expect(unstructured.SetNestedSlice(obj.Object, dpuSets, "spec", "dpus", "dpuSets")).To(Succeed())
+	}
+}
+
+// applyObjectsFromManifests loads every object from each manifest path, runs the mutators on it in
+// order, and creates it on cl (ignoring already-exists errors). Pass no mutators to apply verbatim.
+func applyObjectsFromManifests(ctx context.Context, cl client.Client, paths []string, mutators ...manifestObjectMutator) {
+	for _, path := range paths {
+		for _, obj := range objectsFromManifest(path) {
+			for _, mutate := range mutators {
+				mutate(obj)
+			}
+			Expect(client.IgnoreAlreadyExists(cl.Create(ctx, obj))).To(Succeed(),
+				"creating %s %s/%s", obj.GetKind(), obj.GetNamespace(), obj.GetName())
+		}
 	}
 }
 

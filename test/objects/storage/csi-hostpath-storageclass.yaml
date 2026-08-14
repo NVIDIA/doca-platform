@@ -1,0 +1,14 @@
+---
+# Applied to the DPU (tenant) cluster by the SNAP suite, not the host.
+# Source: authored for this suite — StorageClass for the kubernetes-csi hostpath.csi.k8s.io provisioner.
+# Modifications: n/a (authored)
+# Notes: named 'local-path' so the DPUStorageVendor (storageClassName: local-path) resolves unchanged;
+#   volumeBindingMode Immediate because the fake plugin never mounts this PVC (local dirs), so there is
+#   no consumer to trigger WaitForFirstConsumer.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: local-path
+provisioner: hostpath.csi.k8s.io
+reclaimPolicy: Delete
+volumeBindingMode: Immediate

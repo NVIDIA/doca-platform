@@ -1,0 +1,28 @@
+---
+# Source: dpuservices/storage/examples/scenarios/trusted-k8s-cluster/virtiofs-hotplug-pf/doca-snap-dpuservicetemplate.yaml
+# Modifications:
+#   * changed helmChart.source repoURL/version to empty placeholders — patched at runtime by the SNAP suite.
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceTemplate
+metadata:
+  name: doca-snap
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: doca-snap
+  helmChart:
+    source:
+      repoURL: ""
+      version: ""
+      chart: dpf-storage
+    values:
+      serviceDaemonSet:
+        resources:
+          memory: "2Gi"
+          hugepages-2Mi: "4Gi"
+          cpu: "8"
+          nvidia.com/bf_sf: 1
+  resourceRequirements:
+    memory: "2Gi"
+    hugepages-2Mi: "4Gi"
+    cpu: "8"
+    nvidia.com/bf_sf: 1

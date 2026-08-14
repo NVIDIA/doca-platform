@@ -1,0 +1,26 @@
+---
+# Source: dpuservices/storage/examples/scenarios/trusted-k8s-cluster/virtiofs-hotplug-pf/fs-storage-dpu-plugin-dpuserviceconfiguration.yaml
+# Modifications:
+#   * changed the image to a placeholder for the fake (NFS-free) vendor plugin build, not the standard
+#     storage-host image — the e2e suite has no NFS backend, so the real plugin would try to mount NFS
+#     and fail. Patched at runtime by the SNAP suite to the built fake-plugin image.
+#   * dropped imagePullSecrets — added at runtime by the SNAP suite.
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: fs-storage-dpu-plugin
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: fs-storage-dpu-plugin
+  serviceConfiguration:
+    helmChart:
+      values:
+        dpu:
+          fsStorageVendorDpuPlugin:
+            enabled: true
+            image:
+              repository: example.com/storage-host
+              tag: v1.0.0
+  interfaces:
+    - name: app_sf
+      network: mybrsfc-storage

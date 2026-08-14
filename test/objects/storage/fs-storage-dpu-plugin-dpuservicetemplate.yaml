@@ -1,0 +1,22 @@
+---
+# Source: dpuservices/storage/examples/scenarios/trusted-k8s-cluster/virtiofs-hotplug-pf/fs-storage-dpu-plugin-dpuservicetemplate.yaml
+# Modifications:
+#   * changed helmChart.source repoURL/version to empty placeholders — patched at runtime by the SNAP suite.
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceTemplate
+metadata:
+  name: fs-storage-dpu-plugin
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: fs-storage-dpu-plugin
+  helmChart:
+    source:
+      repoURL: ""
+      version: ""
+      chart: dpf-storage
+    values:
+      serviceDaemonSet:
+        resources:
+          nvidia.com/bf_sf: 1
+  resourceRequirements:
+    nvidia.com/bf_sf: 1

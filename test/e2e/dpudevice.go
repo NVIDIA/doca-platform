@@ -35,6 +35,22 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	// pinnedDPUDeviceLabel marks the one DPUDevice a DPUSet is pinned to. setPinnedDPUDeviceLabel is its
+	// only writer, called by pinDPUDeviceOnNode to set it and by clearPinnedDPUDeviceLabel to remove it
+	// again. A DPUSet selects the device through the labels pinDPUDeviceOnNode returns.
+	//
+	// The pin needs a label of our own because the PCI address is not a stable key: a DPUFlavor that
+	// enables PCI-switch emulation renumbers the bus, DPF relabels the DPUDevice with the new address, and
+	// a DPUSet selecting on the old one stops matching and deletes the DPU it is provisioning.
+	pinnedDPUDeviceLabel      = "e2e.dpu.nvidia.com/pinned-dpudevice"
+	pinnedDPUDeviceLabelValue = "true"
+)
+
+// waitForDPUDevicesWithPCIAddress returns the DPUDevices on nodeName, once the node's whole inventory is
+// discovered and every one of them reports a PCI address. Waiting for the full inventory is what makes
+// picking among them deterministic: a caller choosing the lowest address would otherwise choose whichever
+// device happened to be labeled first.
 func waitForDPUDevicesWithPCIAddress(
 	ctx context.Context,
 	c client.Client,
@@ -73,6 +89,9 @@ func waitForDPUDevicesWithPCIAddress(
 	return discovered
 }
 
+// selectDPUDeviceWithPCIAddress returns the DPUDevice with the lowest PCI address, ignoring devices that
+// report none and erroring if that leaves nothing. Addresses are hexadecimal, so they compare
+// case-insensitively; equal addresses are broken by name to keep the choice stable across runs.
 func selectDPUDeviceWithPCIAddress(dpuDevices []provisioningv1.DPUDevice) (provisioningv1.DPUDevice, error) {
 	candidates := make([]provisioningv1.DPUDevice, 0, len(dpuDevices))
 	for _, dpuDevice := range dpuDevices {
@@ -255,4 +274,52 @@ func discoverSharedDPUDevicePCIAddress(
 	By(fmt.Sprintf("Selecting DPUDevice PCI address %s shared by DPU nodes %s",
 		pciAddress, strings.Join(dpuNodeNames, ", ")))
 	return pciAddress
+}
+
+// pinDPUDeviceOnNode pins the DPUDevice on nodeName that has the lowest PCI address, and returns the labels
+// a DPUSet's dpuDeviceSelector needs to select it.
+func pinDPUDeviceOnNode(
+	ctx context.Context,
+	c client.Client,
+	namespace string,
+	nodeName string,
+) map[string]string {
+	dpuDevices := waitForDPUDevicesWithPCIAddress(ctx, c, namespace, nodeName)
+	pinned, err := selectDPUDeviceWithPCIAddress(dpuDevices)
+	Expect(err).NotTo(HaveOccurred())
+	By(fmt.Sprintf("Pinning DPUDevice %s at PCI address %s on DPU node %s",
+		pinned.Name, pinned.Labels[util.DPUDevicePCIAddressLabel], nodeName))
+	setPinnedDPUDeviceLabel(ctx, c, namespace, pinned.Name)
+
+	return map[string]string{
+		pinnedDPUDeviceLabel:            pinnedDPUDeviceLabelValue,
+		provisioningv1.DPUNodeNameLabel: nodeName,
+	}
+}
+
+// clearPinnedDPUDeviceLabel removes the label from every DPUDevice, so that none is pinned.
+func clearPinnedDPUDeviceLabel(ctx context.Context, c client.Client, namespace string) {
+	By("Clearing the pinned DPUDevice label")
+	setPinnedDPUDeviceLabel(ctx, c, namespace, "")
+}
+
+// setPinnedDPUDeviceLabel labels the DPUDevice named pinnedName and removes the label from every other
+// DPUDevice, so that exactly one carries it; an empty pinnedName removes it everywhere. Clearing the others
+// matters because a pin a previous run left behind would select a second device.
+func setPinnedDPUDeviceLabel(ctx context.Context, c client.Client, namespace string, pinnedName string) {
+	dpuDevices := &provisioningv1.DPUDeviceList{}
+	Expect(c.List(ctx, dpuDevices, client.InNamespace(namespace))).To(Succeed())
+	for i := range dpuDevices.Items {
+		dpuDevice := &dpuDevices.Items[i]
+		patch := client.MergeFrom(dpuDevice.DeepCopy())
+		if dpuDevice.Name == pinnedName {
+			if dpuDevice.Labels == nil {
+				dpuDevice.Labels = map[string]string{}
+			}
+			dpuDevice.Labels[pinnedDPUDeviceLabel] = pinnedDPUDeviceLabelValue
+		} else {
+			delete(dpuDevice.Labels, pinnedDPUDeviceLabel)
+		}
+		Expect(c.Patch(ctx, dpuDevice, patch)).To(Succeed())
+	}
 }

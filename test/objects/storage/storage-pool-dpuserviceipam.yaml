@@ -1,0 +1,16 @@
+---
+# Source: dpuservices/storage/examples/scenarios/trusted-k8s-cluster/virtiofs-hotplug-pf/storage-pool-dpuserviceipam.yaml
+# Modifications: none
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceIPAM
+metadata:
+  name: storage-pool
+  namespace: dpf-operator-system
+spec:
+  metadata:
+    labels:
+      svc.dpu.nvidia.com/pool: storage-pool
+  ipv4Subnet:
+    subnet: "10.44.44.0/24"
+    gateway: "10.44.44.1"
+    perNodeIPCount: 20
