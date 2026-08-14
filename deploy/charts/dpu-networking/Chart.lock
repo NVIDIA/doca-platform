@@ -35,5 +35,8 @@ dependencies:
 - name: kata-containers
   repository: file://charts/kata-containers
   version: 0.1.0
-digest: sha256:25b9ab65249a6dc0ceee8554a274582a4de3e444a6fb88aae68be62a0d2b2bd5
-generated: "2026-07-31T07:48:46.972461+02:00"
+- name: spire-agent-rbac
+  repository: file://charts/spire-agent-rbac
+  version: 0.1.0
+digest: sha256:14c15f204e728feed71181d43526a9a31b120d67bde743acd0e026f564a3e819
+generated: "2026-08-13T11:56:40.690453+02:00"

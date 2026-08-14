@@ -117,7 +117,7 @@ write_files:
 {{indent 6 .SPIRETrustBundle}}
 
   - path: /etc/spire/agent/agent.conf
-    permissions: '0644'
+    permissions: '0600'
     content: |
       agent {
         data_dir = "/var/lib/spire/agent"
@@ -141,7 +141,31 @@ write_files:
         WorkloadAttestor "unix" {
           plugin_data {}
         }
+        # spire-k8s-workload-attestor
       }
+
+  - path: /etc/spire/agent/k8s-workload-attestor.conf
+    permissions: '0600'
+    content: |
+      WorkloadAttestor "k8s" {
+        plugin_data {
+          # SPIRE uses kubelet.crt when kubelet server-certificate rotation is not configured.
+          # https://github.com/spiffe/helm-charts/blob/spire-0.27.1/charts/spire/charts/spire-agent/templates/daemonset.yaml
+          kubelet_ca_path = "/var/lib/kubelet/pki/kubelet.crt"
+          # kubeadm writes the kubelet client certificate and key to the same PEM file.
+          # https://kubernetes.io/docs/reference/access-authn-authz/kubelet-tls-bootstrapping/
+          certificate_path = "/var/lib/kubelet/pki/kubelet-client-current.pem"
+          private_key_path = "/var/lib/kubelet/pki/kubelet-client-current.pem"
+          node_name_env = "MY_NODE_NAME"
+        }
+      }
+
+  - path: /etc/systemd/system/spire-agent.service.d/k8s-workload-attestor.conf
+    permissions: '0644'
+    content: |
+      [Service]
+      # SPIRE validates the kubelet certificate against this hostname.
+      Environment=MY_NODE_NAME=%H
 
   - path: /etc/spiffe-helper/helper.conf
     permissions: '0644'

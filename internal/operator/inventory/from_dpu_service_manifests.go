@@ -61,6 +61,7 @@ var dpuNetworkingSubCharts = map[operatorv1.ComponentName]bool{
 	operatorv1.NodeProblemDetectorName:    true,
 	operatorv1.OpenTelemetryCollectorName: true,
 	operatorv1.KataContainersName:         true,
+	operatorv1.SpireAgentRBACName:         true,
 }
 
 func (f *fromDPUService) Name() operatorv1.ComponentName {
