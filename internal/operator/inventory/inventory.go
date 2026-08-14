@@ -101,6 +101,7 @@ type SystemComponents struct {
 	OpenTelemetryCollector          Component
 	KataContainers                  Component
 	VaultKMS                        Component
+	SpireAgentRBAC                  Component
 }
 
 // Embed manifests for Kubernetes objects created by the controller.
@@ -164,6 +165,9 @@ var (
 
 	//go:embed manifests/vault-kms.yaml
 	vaultKMSData []byte
+
+	//go:embed manifests/spire-agent-rbac.yaml
+	spireAgentRBACData []byte
 )
 
 // New returns a new SystemComponents inventory with data preloaded but parsing not completed.
@@ -221,6 +225,10 @@ func New() *SystemComponents {
 		VaultKMS: &vaultKMSObjects{
 			data: vaultKMSData,
 		},
+		SpireAgentRBAC: &fromDPUService{
+			name: operatorv1.SpireAgentRBACName,
+			data: spireAgentRBACData,
+		},
 	}
 }
 
@@ -239,6 +247,7 @@ func (s *SystemComponents) SystemDPUServices() []Component {
 		s.NodeProblemDetector,
 		s.OpenTelemetryCollector,
 		s.KataContainers,
+		s.SpireAgentRBAC,
 	}
 }
 
@@ -265,6 +274,7 @@ func (s *SystemComponents) AllComponents() []Component {
 		s.OpenTelemetryCollector,
 		s.KataContainers,
 		s.VaultKMS,
+		s.SpireAgentRBAC,
 	}
 }
 

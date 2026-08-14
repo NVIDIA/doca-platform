@@ -1,0 +1,6 @@
+apiVersion: v2
+name: spire-agent-rbac
+description: DPU cluster RBAC for the SPIRE agent Kubernetes workload attestor
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

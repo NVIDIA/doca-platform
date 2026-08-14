@@ -20,6 +20,7 @@ import (
 	"time"
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/release"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 
@@ -64,6 +65,10 @@ func newDefaultVariables(defaults *release.Defaults) Variables {
 			operatorv1.KataContainersName: true,
 			// VaultKMS is disabled by default (opt-in).
 			operatorv1.VaultKMSName: true,
+			// SpireAgentRBAC is disabled unless the DPFOperatorConfig opts into SPIFFE.
+			// setAdditionalConfigs is the only thing that flips it, there is no component
+			// config for it, so it cannot be toggled independently of the SPIFFE gate.
+			operatorv1.SpireAgentRBACName: true,
 		},
 		Images: map[string]string{
 			// Images built as part of the DPF Operator release.
@@ -94,6 +99,7 @@ func newDefaultVariables(defaults *release.Defaults) Variables {
 			operatorv1.NodeProblemDetectorName:    defaults.DPUNetworkingHelmChart,
 			operatorv1.OpenTelemetryCollectorName: defaults.DPUNetworkingHelmChart,
 			operatorv1.KataContainersName:         defaults.DPUNetworkingHelmChart,
+			operatorv1.SpireAgentRBACName:         defaults.DPUNetworkingHelmChart,
 		},
 		SFCController: SFCControllerVariables{
 			SecureFlowDeletionTimeout: 0 * time.Second,
@@ -384,6 +390,11 @@ func setAdditionalConfigs(variables Variables, config *operatorv1.DPFOperatorCon
 	if config.Spec.DPUServiceController != nil && config.Spec.DPUServiceController.DisableDPUReadyTaints != nil {
 		variables.DisableDPUReadyTaints = *config.Spec.DPUServiceController.DisableDPUReadyTaints
 	}
+
+	// The SPIRE agent's Kubernetes workload attestor needs nodes/pods in the DPU cluster.
+	// Enablement follows the SPIFFE gate rather than a component config, so that opting
+	// into SPIFFE cannot leave workload attestation broken by a missing grant.
+	variables.DisableSystemComponents[operatorv1.SpireAgentRBACName] = !util.SpiffeEnabled(config)
 
 	// Extract replicas for every controller that exposes a Replicas field in the CRD.
 	// This is the single propagation point from DPFOperatorConfig.Spec.<Component>.Replicas

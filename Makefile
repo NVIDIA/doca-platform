@@ -779,7 +779,7 @@ verify-manifest-operator: helm-package-operator helm $(ARTIFACTS_RENDERED_MANIFE
 	  MANIFEST_NAME="dpf-operator" \
 	  hack/scripts/validate-manifest-checkov.sh
 
-VERIFY_DPU_NETWORKING_MANIFESTS ?= flannel multus sriov-device-plugin nvidia-k8s-ipam servicechainset-controller sfc-controller cni-installer node-problem-detector kube-state-metrics dpu-monitoring opentelemetry-collector kata-containers
+VERIFY_DPU_NETWORKING_MANIFESTS ?= flannel multus sriov-device-plugin nvidia-k8s-ipam servicechainset-controller sfc-controller cni-installer node-problem-detector kube-state-metrics dpu-monitoring opentelemetry-collector kata-containers spire-agent-rbac
 
 verify-manifests-dpu-networking-all: $(addprefix verify-manifest-dpu-networking-,$(VERIFY_DPU_NETWORKING_MANIFESTS)) ## Run manifest verification for manifests embedded into dpf-operator
 
@@ -904,6 +904,15 @@ verify-manifest-dpu-networking-kata-containers: helm-package-dpu-networking helm
 	> $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-kata-containers-$(TAG).yaml
 	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-kata-containers-$(TAG).yaml" \
 	  MANIFEST_NAME="dpu-networking-kata-containers" \
+	  hack/scripts/validate-manifest-checkov.sh
+
+.PHONY: verify-manifest-dpu-networking-spire-agent-rbac
+verify-manifest-dpu-networking-spire-agent-rbac: helm-package-dpu-networking helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the dpu-networking spire-agent-rbac subchart
+	$Q $(HELM) template $(CHARTSDIR)/$(DPU_NETWORKING_HELM_CHART_NAME)-$(DPU_NETWORKING_HELM_CHART_VER).tgz \
+	  --set spire-agent-rbac.enabled=true \
+	> $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-spire-agent-rbac-$(TAG).yaml
+	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-spire-agent-rbac-$(TAG).yaml" \
+	  MANIFEST_NAME="dpu-networking-spire-agent-rbac" \
 	  hack/scripts/validate-manifest-checkov.sh
 
 .PHONY: verify-manifest-vpc-ovn-host

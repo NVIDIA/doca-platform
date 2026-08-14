@@ -1,0 +1,32 @@
+{{/*
+The SPIRE agent runs on the DPU host OS rather than as a pod, so it has no
+ServiceAccount. Its Kubernetes workload attestor asks the apiserver which pods
+are running on the node it is attesting, which is the nodes/pods subresource.
+The agent presents the kubelet client certificate, so the grant is made to the
+system:nodes group and every DPU node gets it without per-node bookkeeping.
+*/}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Values.name }}
+  labels:
+    {{- include "spire-agent-rbac.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["nodes/pods"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Values.name }}
+  labels:
+    {{- include "spire-agent-rbac.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Values.name }}
+subjects:
+  - kind: Group
+    apiGroup: rbac.authorization.k8s.io
+    name: {{ .Values.subjectGroup }}

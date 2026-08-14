@@ -18,6 +18,7 @@ A Helm chart for Kubernetes
 | file://charts/opentelemetry-collector | opentelemetry-collector | 0.1.0 |
 | file://charts/servicechainset-controller | servicechainset-controller | 0.1.0 |
 | file://charts/sfc-controller | sfc-controller | 0.1.0 |
+| file://charts/spire-agent-rbac | spire-agent-rbac | 0.1.0 |
 | file://charts/sriov-device-plugin | sriov-device-plugin | 0.1.0 |
 | https://flannel-io.github.io/flannel | flannel | v0.27.2 |
 
@@ -39,5 +40,6 @@ A Helm chart for Kubernetes
 | opentelemetry-collector.enabled | bool | `false` |  |
 | servicechainset-controller.enabled | bool | `false` |  |
 | sfc-controller.enabled | bool | `false` |  |
+| spire-agent-rbac.enabled | bool | `false` |  |
 | sriov-device-plugin.enabled | bool | `false` |  |
 
