@@ -73,6 +73,9 @@ KUSTOMIZE_VERSION ?= v5.5.0
 CONTROLLER_TOOLS_VERSION ?= v0.19.0
 ENVTEST_VERSION ?= v0.0.0-20250604165838-d6126d850224
 GOLANGCI_LINT_VERSION ?= v2.7.2
+# kube-api-linter has no tagged releases; pick a pseudo-version from
+# https://pkg.go.dev/sigs.k8s.io/kube-api-linter?tab=versions
+KUBE_API_LINTER_VERSION ?= v0.0.0-20260716143926-092fe0c72997
 MOCKGEN_VERSION ?= v0.6.0
 GOTESTSUM_VERSION ?= v1.12.3
 ENVSUBST_VERSION ?= v1.4.2
@@ -104,6 +107,7 @@ KUSTOMIZE ?= $(TOOLSDIR_GO)/kustomize-$(KUSTOMIZE_VERSION)
 CONTROLLER_GEN ?= $(TOOLSDIR_GO)/controller-gen-$(CONTROLLER_TOOLS_VERSION)
 ENVTEST ?= $(TOOLSDIR_GO)/setup-envtest-$(ENVTEST_VERSION)
 GOLANGCI_LINT ?= $(TOOLSDIR_GO)/golangci-lint-$(GOLANGCI_LINT_VERSION)
+KUBE_API_LINTER ?= $(TOOLSDIR_GO)/golangci-lint-kube-api-linter-$(KUBE_API_LINTER_VERSION)
 MOCKGEN ?= $(TOOLSDIR_GO)/mockgen-$(MOCKGEN_VERSION)
 GOTESTSUM ?= $(TOOLSDIR_GO)/gotestsum-$(GOTESTSUM_VERSION)
 ENVSUBST ?= $(TOOLSDIR_GO)/envsubst-$(ENVSUBST_VERSION)
@@ -248,6 +252,12 @@ golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
 	@$(MAKE) tools-path-go TOOL=golangci-lint VERSION=$(GOLANGCI_LINT_VERSION)
 $(GOLANGCI_LINT): | $(TOOLSDIR_GO)
 	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/v2/cmd/golangci-lint,${GOLANGCI_LINT_VERSION})
+
+.PHONY: kube-api-linter
+kube-api-linter: $(KUBE_API_LINTER) ## Download kube-api-linter locally if necessary.
+	@$(MAKE) tools-path-go TOOL=golangci-lint-kube-api-linter VERSION=$(KUBE_API_LINTER_VERSION)
+$(KUBE_API_LINTER): | $(TOOLSDIR_GO)
+	$(call go-install-tool,$(KUBE_API_LINTER),sigs.k8s.io/kube-api-linter/cmd/golangci-lint-kube-api-linter,${KUBE_API_LINTER_VERSION})
 
 .PHONY: mockgen
 mockgen: $(MOCKGEN) ## Download mockgen locally if necessary.

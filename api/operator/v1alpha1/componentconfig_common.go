@@ -211,7 +211,6 @@ type HelmComponentConfigurable interface {
 
 // HelmChart is a reference to a helm chart.
 // +kubebuilder:validation:Pattern=`^(oci://|https://).+$`
-// +optional
 type HelmChart *string
 
 type HelmComponentConfig struct {
