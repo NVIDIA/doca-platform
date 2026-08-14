@@ -1,0 +1,9 @@
+# -- name is the name given to both the ClusterRole and the ClusterRoleBinding.
+# It is fixed rather than derived from the release name because both objects are
+# cluster scoped and are referenced by name when debugging workload attestation.
+name: dpf-spire-kubelet-pods
+
+# -- subjectGroup is the group the ClusterRole is bound to. The SPIRE agent runs on
+# the DPU host OS and authenticates to the DPU cluster with the kubelet client
+# certificate, so it reaches the apiserver as a member of system:nodes.
+subjectGroup: system:nodes

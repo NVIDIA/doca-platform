@@ -53,6 +53,10 @@ dependencies:
     version: "0.1.0"
     repository: file://charts/kata-containers
     condition: kata-containers.enabled
+  - name: spire-agent-rbac
+    version: "0.1.0"
+    repository: file://charts/spire-agent-rbac
+    condition: spire-agent-rbac.enabled
 annotations:
   dpfVersion: ""
   created: ""

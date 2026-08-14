@@ -1,0 +1,16 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUService
+metadata:
+  name: spire-agent-rbac
+  namespace: dpf-operator-system
+spec:
+  security:
+    # The chart contains only a ClusterRole and a ClusterRoleBinding, it runs no
+    # workload, so the DPUCluster admission policy must reject any privileged pod
+    # claiming to belong to it.
+    privileged: false
+  helmChart:
+    source:
+      repoURL: oci://example.com
+      chart: dpu-networking
+      version: v0.1.0

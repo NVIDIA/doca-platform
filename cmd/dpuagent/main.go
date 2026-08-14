@@ -172,6 +172,7 @@ func main() {
 	agent.StartCACertUpdateLoop(execCtx)
 	agent.StartNICRuntimeConfigLoop(execCtx)
 	agent.StartDPUReconcileLoop(execCtx)
+	agent.StartSPIREAttestorLoop(execCtx)
 	<-execCtx.Done()
 	if err := agent.Shutdown(); err != nil {
 		klog.ErrorS(err, "failed to stop local DMS server during DPU agent shutdown")
