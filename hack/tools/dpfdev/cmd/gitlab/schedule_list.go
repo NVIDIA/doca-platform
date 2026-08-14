@@ -100,7 +100,7 @@ func printSchedules(out io.Writer, schedules []gitlab.PipelineSchedule) {
 
 		nextRun := "-"
 		if schedule.Active && !schedule.NextRunAt.IsZero() {
-			nextRun = schedule.NextRunAt.Format("2006-01-02 15:04 MST")
+			nextRun = schedule.NextRunAt.UTC().Format("2006-01-02 15:04 MST")
 		}
 
 		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%s\n",

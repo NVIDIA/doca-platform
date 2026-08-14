@@ -160,7 +160,7 @@ func (c *Client) hasOlderJobs(w io.Writer, jobs []Job, start time.Time) bool {
 
 	if len(jobs) > 0 {
 		lastJob := jobs[len(jobs)-1]
-		_, _ = fmt.Fprintf(w, "Processing jobs with start time %s\n", lastJob.CreatedAt.Format("2006-01-02 15:04:05"))
+		_, _ = fmt.Fprintf(w, "Processing jobs with start time %s\n", lastJob.CreatedAt.UTC().Format("2006-01-02 15:04:05 MST"))
 	}
 
 	return false
