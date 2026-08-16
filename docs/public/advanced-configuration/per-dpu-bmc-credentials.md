@@ -82,6 +82,14 @@ spec:
 When this field is set, DPF uses the password from the referenced secret for all BMC authentication operations on that
 DPU. If the field is not set, DPF falls back to the shared `bmc-shared-password` secret.
 
+> [!IMPORTANT]
+> A per-device credential secret must be referenced by only one DPUDevice. Sharing the same
+> `bmcCredentialSecretName` across devices is not allowed. If a second DPUDevice references a secret that is already
+> in use, DPF sets `BMCCredentialsReady=False` with reason `SharedCredentialSecretNotAllowed` on that device and
+> does not use the credential. A device that already adopted the secret in status keeps working. The blocked device
+> is requeued periodically and recovers once the conflicting reference is removed. The shared `bmc-shared-password`
+> secret is the only credential that may be used by multiple devices.
+
 > [!NOTE]
 > When `bmcCredentialSecretName` is set but the secret is missing or invalid, DPF reports an error rather than falling
 > back to the shared password.
@@ -120,13 +128,14 @@ To return to shared mode, delete the DPUDevice and recreate it without `bmcCrede
 
 The DPUDevice reports credential status through the `BMCCredentialsReady` condition:
 
-| Condition                   | Reason                      | Meaning                                                              |
-|-----------------------------|-----------------------------|--------------------------------------------------------------------- |
-| `BMCCredentialsReady=True`  | `CredentialsValid`          | Credential secret is valid and authentication succeeded              |
-| `BMCCredentialsReady=False` | `CredentialsSecretNotFound` | The referenced secret does not exist                                 |
-| `BMCCredentialsReady=False` | `CredentialsSecretInvalid`  | The secret exists but is malformed (missing or empty `password` key) |
-| `BMCCredentialsReady=False` | `BMCAuthenticationFailed`   | The password was rejected by the BMC                                 |
-| `BMCCredentialsReady=False` | `ModeSwitchNotAllowed`      | Attempted to switch from per-device to shared mode                   |
+| Condition                   | Reason                              | Meaning                                                              |
+|-----------------------------|-------------------------------------|--------------------------------------------------------------------- |
+| `BMCCredentialsReady=True`  | `Success`                           | Credential secret is valid and authentication succeeded              |
+| `BMCCredentialsReady=False` | `CredentialsSecretNotFound`         | The referenced secret does not exist                                 |
+| `BMCCredentialsReady=False` | `CredentialsSecretInvalid`          | The secret exists but is malformed (missing or empty `password` key) |
+| `BMCCredentialsReady=False` | `BMCAuthenticationFailed`           | The password was rejected by the BMC                                 |
+| `BMCCredentialsReady=False` | `ModeSwitchNotAllowed`              | Attempted to switch from per-device to shared mode                   |
+| `BMCCredentialsReady=False` | `SharedCredentialSecretNotAllowed`  | Device references a per-device secret already used by another DPUDevice |
 
 Check the `BMCCredentialsReady` condition on the DPUDevice status to diagnose issues.
 
@@ -140,6 +149,9 @@ accidental deletion while a DPUDevice depends on them. The finalizer is automati
 
 # Limitations
 
+* Each per-device credential secret (`spec.bmcCredentialSecretName`) can be used by only one DPUDevice. A device
+  that shares a secret already adopted by another device is rejected with `SharedCredentialSecretNotAllowed`; the
+  established owner keeps working. Only `bmc-shared-password` may be shared.
 * The shared `bmc-shared-password` secret cannot currently be globally disabled. It remains the credential used by
   `DPUDiscovery` and the fallback for any DPUDevice without `spec.bmcCredentialSecretName`. Per-device credentials
   are an override applied per DPUDevice, not a cluster-wide replacement of the shared password.

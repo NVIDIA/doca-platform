@@ -268,6 +268,10 @@ func (r *DPUDeviceReconciler) reconcile(ctx context.Context, dpuDevice *provisio
 		return ctrl.Result{}, nil
 	}
 
+	if result, stop, err := r.checkBMCCredentialSecretUniqueness(ctx, dpuDevice); stop || err != nil {
+		return result, err
+	}
+
 	condition := conditions.Get(dpuDevice, provisioningv1.ConditionDpuDeviceInitialized)
 	if condition == nil || condition.Status == metav1.ConditionFalse {
 		if err := r.initializeDPUDevice(ctx, dpuDevice); err != nil {
@@ -1575,6 +1579,70 @@ func (r *DPUDeviceReconciler) isModeSwitchAllowed(dpuDevice *provisioningv1.DPUD
 		*dpuDevice.Spec.BMCCredentialSecretName != rfclient.BMCPasswordSecret
 }
 
+// checkBMCCredentialSecretUniqueness rejects sharing a per-device BMC credential secret across
+// DPUDevices. Only devices that have not yet adopted the secret in status are blocked, so a
+// misconfigured peer does not take down an established device. The blocked device is requeued
+// so it recovers after the conflicting reference is removed.
+//
+// When stop is true the caller should return result and err without further reconciliation.
+func (r *DPUDeviceReconciler) checkBMCCredentialSecretUniqueness(ctx context.Context, dpuDevice *provisioningv1.DPUDevice) (ctrl.Result, bool, error) {
+	conflictingDevice, err := r.findOtherDeviceUsingBMCCredentialSecret(ctx, dpuDevice)
+	if err != nil {
+		return ctrl.Result{}, true, err
+	}
+	if conflictingDevice == nil || hasAdoptedBMCCredentialSecret(dpuDevice) {
+		return ctrl.Result{}, false, nil
+	}
+
+	secretName := *dpuDevice.Spec.BMCCredentialSecretName
+	msg := fmt.Sprintf("BMC credential secret %q is already in use by DPUDevice %s/%s. Per-device credentials must not be shared.",
+		secretName, conflictingDevice.Namespace, conflictingDevice.Name)
+	conditions.AddFalse(dpuDevice, provisioningv1.ConditionBMCCredentialsReady,
+		conditions.ConditionReason(provisioningv1.ReasonSharedCredentialSecretNotAllowed),
+		conditions.ConditionMessage(msg))
+	return ctrl.Result{RequeueAfter: 30 * time.Second}, true, nil
+}
+
+// findOtherDeviceUsingBMCCredentialSecret returns another DPUDevice in the same namespace that
+// already references the same per-device BMC credential secret. The shared bmc-shared-password
+// secret is intentionally allowed across devices.
+func (r *DPUDeviceReconciler) findOtherDeviceUsingBMCCredentialSecret(ctx context.Context, dpuDevice *provisioningv1.DPUDevice) (*provisioningv1.DPUDevice, error) {
+	if dpuDevice.Spec.BMCCredentialSecretName == nil {
+		return nil, nil
+	}
+	secretName := *dpuDevice.Spec.BMCCredentialSecretName
+	if secretName == "" || secretName == rfclient.BMCPasswordSecret {
+		return nil, nil
+	}
+
+	dpuDeviceList := &provisioningv1.DPUDeviceList{}
+	if err := r.Client.List(ctx, dpuDeviceList, client.InNamespace(dpuDevice.Namespace)); err != nil {
+		return nil, fmt.Errorf("failed to list DPUDevices in namespace %q: %w", dpuDevice.Namespace, err)
+	}
+
+	for i := range dpuDeviceList.Items {
+		candidate := &dpuDeviceList.Items[i]
+		if candidate.Name == dpuDevice.Name || !candidate.DeletionTimestamp.IsZero() {
+			continue
+		}
+		if candidate.Spec.BMCCredentialSecretName != nil && *candidate.Spec.BMCCredentialSecretName == secretName {
+			return candidate, nil
+		}
+	}
+	return nil, nil
+}
+
+// hasAdoptedBMCCredentialSecret reports whether the device has already adopted its current
+// per-device BMC credential secret in status.
+func hasAdoptedBMCCredentialSecret(dpuDevice *provisioningv1.DPUDevice) bool {
+	if dpuDevice.Spec.BMCCredentialSecretName == nil || dpuDevice.Status.BMCCredentialSecretName == nil {
+		return false
+	}
+	return *dpuDevice.Spec.BMCCredentialSecretName == *dpuDevice.Status.BMCCredentialSecretName &&
+		*dpuDevice.Spec.BMCCredentialSecretName != "" &&
+		*dpuDevice.Spec.BMCCredentialSecretName != rfclient.BMCPasswordSecret
+}
+
 // resolveAndAuthenticateBMC handles credential resolution, rotation, and BMC authentication.
 // When alreadyInitialized is true the device's password has already been set, so first-use
 // only verifies the credential instead of attempting to change the default BMC password.
@@ -1723,8 +1791,16 @@ func (r *DPUDeviceReconciler) removeCredentialFinalizer(ctx context.Context, nam
 func (r *DPUDeviceReconciler) moveCredentialFinalizer(ctx context.Context, dpuDevice *provisioningv1.DPUDevice, oldSecretName, newSecretName string) error {
 	// Skip finalizer operations for the shared secret
 	if oldSecretName != rfclient.BMCPasswordSecret {
-		if err := r.removeCredentialFinalizer(ctx, dpuDevice.Namespace, oldSecretName); err != nil {
-			return fmt.Errorf("failed to remove finalizer from old secret %q: %w", oldSecretName, err)
+		// Keep the finalizer if another device still references the old secret (for example a
+		// legacy share that predates the uniqueness check).
+		inUse, err := r.isCredentialSecretInUseByOtherDevice(ctx, dpuDevice, oldSecretName)
+		if err != nil {
+			return err
+		}
+		if !inUse {
+			if err := r.removeCredentialFinalizer(ctx, dpuDevice.Namespace, oldSecretName); err != nil {
+				return fmt.Errorf("failed to remove finalizer from old secret %q: %w", oldSecretName, err)
+			}
 		}
 	}
 	if newSecretName != rfclient.BMCPasswordSecret {
@@ -1749,7 +1825,40 @@ func (r *DPUDeviceReconciler) cleanupCredentialFinalizer(ctx context.Context, dp
 		return nil
 	}
 
+	// Keep the finalizer while another device still references the secret so it is not left
+	// unprotected if sharing was introduced before the uniqueness check ran.
+	inUse, err := r.isCredentialSecretInUseByOtherDevice(ctx, dpuDevice, secretName)
+	if err != nil {
+		return err
+	}
+	if inUse {
+		return nil
+	}
+
 	return r.removeCredentialFinalizer(ctx, dpuDevice.Namespace, secretName)
+}
+
+// isCredentialSecretInUseByOtherDevice reports whether a DPUDevice other than the one being deleted
+// still references the given credential secret.
+func (r *DPUDeviceReconciler) isCredentialSecretInUseByOtherDevice(ctx context.Context, dpuDevice *provisioningv1.DPUDevice, secretName string) (bool, error) {
+	dpuDeviceList := &provisioningv1.DPUDeviceList{}
+	if err := r.Client.List(ctx, dpuDeviceList, client.InNamespace(dpuDevice.Namespace)); err != nil {
+		return false, fmt.Errorf("failed to list DPUDevices in namespace %q: %w", dpuDevice.Namespace, err)
+	}
+
+	for _, other := range dpuDeviceList.Items {
+		if other.Name == dpuDevice.Name || !other.DeletionTimestamp.IsZero() {
+			continue
+		}
+		if other.Spec.BMCCredentialSecretName != nil && *other.Spec.BMCCredentialSecretName == secretName {
+			return true, nil
+		}
+		if other.Status.BMCCredentialSecretName != nil && *other.Status.BMCCredentialSecretName == secretName {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
