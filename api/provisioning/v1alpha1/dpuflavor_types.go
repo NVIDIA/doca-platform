@@ -235,6 +235,14 @@ type NVConfig struct {
 	// +listType=atomic
 	// +optional
 	Parameters []string `json:"parameters,omitempty"`
+	// force applies the parameters with `mlxconfig --force` and skips the `mlxconfig q` filter,
+	// so parameters firmware does not yet expose are applied now instead of deferred to a later
+	// reboot. Required when a parameter is gated behind another parameter in the same batch.
+	// Requires DOCA 3.5.0 or later; on an older DOCA version the operation fails.
+	// `--force` skips validation for the whole batch, so an invalid value is applied silently.
+	// Ignored under `spec.hostNetworkInterfaceConfigs[].nvconfig`.
+	// +optional
+	Force *bool `json:"force,omitempty"`
 }
 
 type DPUFlavorOVS struct {
