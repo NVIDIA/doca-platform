@@ -134,10 +134,19 @@ type DeferredNVConfigParam struct {
 	Params string
 }
 
+// NVConfigParams is the resolved apply plan for one PCI function. Params and Force are kept
+// together so the flag cannot drift away from the parameters it applies to.
+type NVConfigParams struct {
+	// Params is the space-joined NVConfig parameters (empty = reset-only).
+	Params string
+	// Force applies the batch with --force and skips the mlxconfig q deferral filter.
+	Force bool
+}
+
 // ResolvedNVConfig is the once-resolved view of DPUFlavor.spec.nvconfig against discovered N/S ports.
 type ResolvedNVConfig struct {
-	// PCIToParams maps PCI address to space-joined NVConfig parameters (empty = reset-only).
-	PCIToParams map[string]string
+	// PCIToParams maps PCI address to its resolved apply plan.
+	PCIToParams map[string]NVConfigParams
 	// HostOSInitPCIs are the sorted PCI devices used for mlxreg host OS init release.
 	HostOSInitPCIs []string
 	// HostOSInitRequired is true when flavor nvconfig requests DELAY_HOST_OS_INIT user-mode (0x3).
