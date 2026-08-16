@@ -106,8 +106,6 @@ const (
 	ReasonCATrustBundleSynced = "CATrustBundleSynced"
 	// ReasonCATrustBundleSyncing indicates CA trust bundle sync is in progress.
 	ReasonCATrustBundleSyncing = "CATrustBundleSyncing"
-	// ReasonCredentialsValid indicates the credential secret is valid and authentication succeeded.
-	ReasonCredentialsValid = "CredentialsValid"
 	// ReasonCredentialsSecretNotFound indicates the referenced secret does not exist.
 	ReasonCredentialsSecretNotFound = "CredentialsSecretNotFound"
 	// ReasonCredentialsSecretInvalid indicates the secret exists but is malformed.
@@ -116,6 +114,9 @@ const (
 	ReasonBMCAuthenticationFailed = "BMCAuthenticationFailed"
 	// ReasonModeSwitchNotAllowed indicates an attempt to switch from per-device to shared mode.
 	ReasonModeSwitchNotAllowed = "ModeSwitchNotAllowed"
+	// ReasonSharedCredentialSecretNotAllowed indicates a per-device BMC credential secret is
+	// already referenced by another DPUDevice and must not be shared.
+	ReasonSharedCredentialSecretNotAllowed = "SharedCredentialSecretNotAllowed"
 	// ReasonCATrustBundleSyncFailed indicates CA trust bundle sync to BMC failed.
 	ReasonCATrustBundleSyncFailed = "CATrustBundleSyncFailed"
 	// ReasonCATrustBundleUnavailable indicates desired CA trust bundle is unavailable or invalid.
