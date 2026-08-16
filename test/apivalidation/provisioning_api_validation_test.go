@@ -348,6 +348,59 @@ var _ = Describe("Provisioning API Validation", func() {
 					}
 					Expect(testClient.Create(ctx, obj)).To(Succeed())
 				})
+
+				It("should accept force on a wildcard entry", func() {
+					obj := getMinimalDPUFlavor(testNs.Name)
+					obj.Spec.NVConfig = []provisioningv1.NVConfig{
+						{Parameters: []string{"ADVANCED_PCI_SETTINGS=1", "MAX_ACC_OUT_READ=44"}, Force: ptr.To(true)},
+					}
+					Expect(testClient.Create(ctx, obj)).To(Succeed())
+
+					created := &provisioningv1.DPUFlavor{}
+					Expect(testClient.Get(ctx, client.ObjectKeyFromObject(obj), created)).To(Succeed())
+					Expect(created.Spec.NVConfig[0].Force).To(HaveValue(BeTrue()))
+				})
+
+				It("should accept force per port and keep the ports independent", func() {
+					obj := getMinimalDPUFlavor(testNs.Name)
+					obj.Spec.NVConfig = []provisioningv1.NVConfig{
+						{Device: ptr.To("p0"), Parameters: []string{"ADVANCED_PCI_SETTINGS=1"}, Force: ptr.To(true)},
+						{Device: ptr.To("p1"), Parameters: []string{"LINK_TYPE_P1=ETH"}},
+					}
+					Expect(testClient.Create(ctx, obj)).To(Succeed())
+
+					created := &provisioningv1.DPUFlavor{}
+					Expect(testClient.Get(ctx, client.ObjectKeyFromObject(obj), created)).To(Succeed())
+					Expect(created.Spec.NVConfig[0].Force).To(HaveValue(BeTrue()))
+					// Unset must stay unset rather than being defaulted to false by the API server.
+					Expect(created.Spec.NVConfig[1].Force).To(BeNil())
+				})
+
+				It("should leave force unset when omitted", func() {
+					obj := getMinimalDPUFlavor(testNs.Name)
+					obj.Spec.NVConfig = []provisioningv1.NVConfig{
+						{Parameters: []string{"SRIOV_EN=1"}},
+					}
+					Expect(testClient.Create(ctx, obj)).To(Succeed())
+
+					created := &provisioningv1.DPUFlavor{}
+					Expect(testClient.Get(ctx, client.ObjectKeyFromObject(obj), created)).To(Succeed())
+					Expect(created.Spec.NVConfig[0].Force).To(BeNil())
+				})
+
+				It("should accept force under hostNetworkInterfaceConfigs even though it is inert there", func() {
+					// NVConfig is shared with NetworkInterfaceConfig, so the schema carries force in
+					// both places. Nothing reads it under hostNetworkInterfaceConfigs; this pins the
+					// schema behavior so a future guard is a deliberate change, not a surprise.
+					obj := getMinimalDPUFlavor(testNs.Name)
+					obj.Spec.HostNetworkInterfaceConfigs = []provisioningv1.NetworkInterfaceConfig{
+						{
+							PortNumber: 0,
+							NVConfig:   &provisioningv1.NVConfig{Parameters: []string{"SRIOV_EN=1"}, Force: ptr.To(true)},
+						},
+					}
+					Expect(testClient.Create(ctx, obj)).To(Succeed())
+				})
 			})
 
 			// ❌ Invalid Configurations
@@ -374,6 +427,25 @@ var _ = Describe("Provisioning API Validation", func() {
 						{Device: ptr.To("p2"), Parameters: []string{"KEY=VAL"}},
 					}),
 				)
+
+				It("should reject adding force to an existing flavor", func() {
+					// DPUFlavorSpec is immutable, so force cannot be switched on in place: enabling
+					// it on an existing deployment means creating a new flavor and repointing the
+					// DPUSet at it.
+					obj := getMinimalDPUFlavor(testNs.Name)
+					obj.Name = "cel-force-immutable"
+					obj.Spec.NVConfig = []provisioningv1.NVConfig{
+						{Parameters: []string{"ADVANCED_PCI_SETTINGS=1"}},
+					}
+					Expect(testClient.Create(ctx, obj)).To(Succeed())
+
+					created := &provisioningv1.DPUFlavor{}
+					Expect(testClient.Get(ctx, client.ObjectKeyFromObject(obj), created)).To(Succeed())
+					created.Spec.NVConfig[0].Force = ptr.To(true)
+					err := testClient.Update(ctx, created)
+					Expect(err).To(HaveOccurred())
+					Expect(err.Error()).To(ContainSubstring("immutable"))
+				})
 
 				It("should reject wildcard mixed with specific devices", func() {
 					obj := getMinimalDPUFlavor(testNs.Name)
