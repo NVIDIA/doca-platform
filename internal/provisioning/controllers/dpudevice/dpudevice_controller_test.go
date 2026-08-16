@@ -1444,6 +1444,94 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
 		})
 
+		It("should set BMCCredentialsReady=False when per-device secret is already used by another device", func() {
+			ctx = context.Background()
+			scheme := buildScheme()
+
+			var err error
+			mockServer, err = mock.CreateMockRedfishServer("BF-24.10", testPassword)
+			Expect(err).NotTo(HaveOccurred())
+
+			bmcIP := mockServer.GetIPAddress()
+			bmcPort := uint32(mockServer.GetPort())
+
+			dpuDevice = newInitializedDPUDevice(bmcIP, bmcPort)
+			dpuDevice.Spec.BMCCredentialSecretName = ptr.To(perDeviceSecretV1)
+
+			otherDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "other-dpudevice",
+					Namespace: testNamespace,
+				},
+				Spec: provisioningv1.DPUDeviceSpec{
+					BMCCredentialSecretName: ptr.To(perDeviceSecretV1),
+				},
+			}
+
+			k8sClient = fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(dpuDevice, otherDevice, newDPFOperatorConfig(), newDPUNode()).
+				WithStatusSubresource(dpuDevice).
+				Build()
+
+			reconciler = &DPUDeviceReconciler{Client: k8sClient}
+
+			result, err := reconciler.reconcile(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(30 * time.Second))
+
+			cond := findCondition(dpuDevice, string(provisioningv1.ConditionBMCCredentialsReady))
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+			Expect(cond.Reason).To(Equal(provisioningv1.ReasonSharedCredentialSecretNotAllowed))
+			Expect(cond.Message).To(ContainSubstring(perDeviceSecretV1))
+			Expect(cond.Message).To(ContainSubstring("other-dpudevice"))
+			Expect(cond.Message).To(ContainSubstring("must not be shared"))
+			Expect(dpuDevice.Status.BMCCredentialSecretName).To(BeNil())
+		})
+
+		It("should keep BMCCredentialsReady for an established owner when a peer shares the secret", func() {
+			ctx = context.Background()
+			scheme := buildScheme()
+
+			var err error
+			mockServer, err = mock.CreateMockRedfishServer("BF-24.10", testPassword)
+			Expect(err).NotTo(HaveOccurred())
+
+			bmcIP := mockServer.GetIPAddress()
+			bmcPort := uint32(mockServer.GetPort())
+
+			dpuDevice = newInitializedDPUDevice(bmcIP, bmcPort)
+			dpuDevice.Spec.BMCCredentialSecretName = ptr.To(perDeviceSecretV1)
+			dpuDevice.Status.BMCCredentialSecretName = ptr.To(perDeviceSecretV1)
+
+			otherDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "other-dpudevice",
+					Namespace: testNamespace,
+				},
+				Spec: provisioningv1.DPUDeviceSpec{
+					BMCCredentialSecretName: ptr.To(perDeviceSecretV1),
+				},
+			}
+
+			k8sClient = fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(dpuDevice, otherDevice, newDPFOperatorConfig(), newDPUNode()).
+				WithStatusSubresource(dpuDevice).
+				Build()
+
+			reconciler = &DPUDeviceReconciler{Client: k8sClient}
+
+			_, err = reconciler.reconcile(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+
+			cond := findCondition(dpuDevice, string(provisioningv1.ConditionBMCCredentialsReady))
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(*dpuDevice.Status.BMCCredentialSecretName).To(Equal(perDeviceSecretV1))
+		})
+
 		It("should adopt per-device credential when status is nil - first adoption", func() {
 			ctx = context.Background()
 			scheme := buildScheme()
@@ -1768,6 +1856,99 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 		})
 	})
 
+	Context("findOtherDeviceUsingBMCCredentialSecret", func() {
+		const (
+			perDeviceSecretV1 = "my-dpu-bmc-v1"
+			perDeviceSecretV2 = "my-dpu-bmc-v2"
+			sharedSecretName  = "bmc-shared-password"
+		)
+
+		var (
+			reconciler *DPUDeviceReconciler
+			ctx        context.Context
+			fakeClient client.Client
+		)
+
+		BeforeEach(func() {
+			ctx = context.Background()
+			scheme := runtime.NewScheme()
+			_ = provisioningv1.AddToScheme(scheme)
+
+			fakeClient = fake.NewClientBuilder().WithScheme(scheme).Build()
+			reconciler = &DPUDeviceReconciler{Client: fakeClient}
+		})
+
+		It("should return nil when no credential secret is set", func() {
+			dpuDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{Name: "device-a", Namespace: testNamespace},
+			}
+			other, err := reconciler.findOtherDeviceUsingBMCCredentialSecret(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(other).To(BeNil())
+		})
+
+		It("should return nil when using the shared bmc-shared-password secret", func() {
+			dpuDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{Name: "device-a", Namespace: testNamespace},
+				Spec: provisioningv1.DPUDeviceSpec{
+					BMCCredentialSecretName: ptr.To(sharedSecretName),
+				},
+			}
+			otherDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{Name: "device-b", Namespace: testNamespace},
+				Spec: provisioningv1.DPUDeviceSpec{
+					BMCCredentialSecretName: ptr.To(sharedSecretName),
+				},
+			}
+			Expect(fakeClient.Create(ctx, otherDevice)).To(Succeed())
+
+			other, err := reconciler.findOtherDeviceUsingBMCCredentialSecret(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(other).To(BeNil())
+		})
+
+		It("should return the other device when the per-device secret is already referenced", func() {
+			dpuDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{Name: "device-a", Namespace: testNamespace},
+				Spec: provisioningv1.DPUDeviceSpec{
+					BMCCredentialSecretName: ptr.To(perDeviceSecretV1),
+				},
+			}
+			otherDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{Name: "device-b", Namespace: testNamespace},
+				Spec: provisioningv1.DPUDeviceSpec{
+					BMCCredentialSecretName: ptr.To(perDeviceSecretV1),
+				},
+			}
+			Expect(fakeClient.Create(ctx, otherDevice)).To(Succeed())
+
+			other, err := reconciler.findOtherDeviceUsingBMCCredentialSecret(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(other).NotTo(BeNil())
+			Expect(other.Name).To(Equal("device-b"))
+		})
+
+		It("should return nil when devices use different per-device secrets", func() {
+			dpuDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{Name: "device-a", Namespace: testNamespace},
+				Spec: provisioningv1.DPUDeviceSpec{
+					BMCCredentialSecretName: ptr.To(perDeviceSecretV1),
+				},
+			}
+			otherDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{Name: "device-b", Namespace: testNamespace},
+				Spec: provisioningv1.DPUDeviceSpec{
+					BMCCredentialSecretName: ptr.To(perDeviceSecretV2),
+				},
+			}
+			Expect(fakeClient.Create(ctx, otherDevice)).To(Succeed())
+
+			other, err := reconciler.findOtherDeviceUsingBMCCredentialSecret(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(other).To(BeNil())
+		})
+	})
+
 	Context("credential finalizer management", func() {
 		const (
 			perDeviceSecretV1 = "my-dpu-bmc-v1"
@@ -1902,7 +2083,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			Expect(fakeClient.Create(ctx, newSecret)).To(Succeed())
 
 			dpuDevice := &provisioningv1.DPUDevice{
-				ObjectMeta: metav1.ObjectMeta{Namespace: testNamespace},
+				ObjectMeta: metav1.ObjectMeta{Name: "rotating-device", Namespace: testNamespace},
 			}
 
 			err := reconciler.moveCredentialFinalizer(ctx, dpuDevice, perDeviceSecretV1, perDeviceSecretV2)
@@ -1911,6 +2092,47 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			updatedOld := &corev1.Secret{}
 			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: perDeviceSecretV1, Namespace: testNamespace}, updatedOld)).To(Succeed())
 			Expect(updatedOld.Finalizers).NotTo(ContainElement(provisioningv1.BMCCredentialFinalizer))
+
+			updatedNew := &corev1.Secret{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: perDeviceSecretV2, Namespace: testNamespace}, updatedNew)).To(Succeed())
+			Expect(updatedNew.Finalizers).To(ContainElement(provisioningv1.BMCCredentialFinalizer))
+		})
+
+		It("should keep old secret finalizer during rotation when another device still references it", func() {
+			oldSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       perDeviceSecretV1,
+					Namespace:  testNamespace,
+					Finalizers: []string{provisioningv1.BMCCredentialFinalizer},
+				},
+				Data: map[string][]byte{"password": []byte("old-pass")},
+			}
+			newSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      perDeviceSecretV2,
+					Namespace: testNamespace,
+				},
+				Data: map[string][]byte{"password": []byte("new-pass")},
+			}
+			Expect(fakeClient.Create(ctx, oldSecret)).To(Succeed())
+			Expect(fakeClient.Create(ctx, newSecret)).To(Succeed())
+
+			rotating := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{Name: "rotating-device", Namespace: testNamespace},
+			}
+			peer := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{Name: "peer-device", Namespace: testNamespace},
+				Spec: provisioningv1.DPUDeviceSpec{
+					BMCCredentialSecretName: ptr.To(perDeviceSecretV1),
+				},
+			}
+			Expect(fakeClient.Create(ctx, peer)).To(Succeed())
+
+			Expect(reconciler.moveCredentialFinalizer(ctx, rotating, perDeviceSecretV1, perDeviceSecretV2)).To(Succeed())
+
+			updatedOld := &corev1.Secret{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: perDeviceSecretV1, Namespace: testNamespace}, updatedOld)).To(Succeed())
+			Expect(updatedOld.Finalizers).To(ContainElement(provisioningv1.BMCCredentialFinalizer))
 
 			updatedNew := &corev1.Secret{}
 			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: perDeviceSecretV2, Namespace: testNamespace}, updatedNew)).To(Succeed())
@@ -1959,6 +2181,79 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 
 			err := reconciler.cleanupCredentialFinalizer(ctx, dpuDevice)
 			Expect(err).NotTo(HaveOccurred())
+
+			updated := &corev1.Secret{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: perDeviceSecretV1, Namespace: testNamespace}, updated)).To(Succeed())
+			Expect(updated.Finalizers).NotTo(ContainElement(provisioningv1.BMCCredentialFinalizer))
+		})
+
+		It("should keep the finalizer when another DPUDevice still references the secret", func() {
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       perDeviceSecretV1,
+					Namespace:  testNamespace,
+					Finalizers: []string{provisioningv1.BMCCredentialFinalizer},
+				},
+				Data: map[string][]byte{"password": []byte("pass")},
+			}
+			Expect(fakeClient.Create(ctx, secret)).To(Succeed())
+
+			deviceA := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{Name: "device-a", Namespace: testNamespace},
+				Spec: provisioningv1.DPUDeviceSpec{
+					BMCCredentialSecretName: ptr.To(perDeviceSecretV1),
+				},
+				Status: provisioningv1.DPUDeviceStatus{
+					BMCCredentialSecretName: ptr.To(perDeviceSecretV1),
+				},
+			}
+			deviceB := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{Name: "device-b", Namespace: testNamespace},
+				Spec: provisioningv1.DPUDeviceSpec{
+					BMCCredentialSecretName: ptr.To(perDeviceSecretV1),
+				},
+			}
+			Expect(fakeClient.Create(ctx, deviceA)).To(Succeed())
+			Expect(fakeClient.Create(ctx, deviceB)).To(Succeed())
+
+			Expect(reconciler.cleanupCredentialFinalizer(ctx, deviceA)).To(Succeed())
+
+			updated := &corev1.Secret{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: perDeviceSecretV1, Namespace: testNamespace}, updated)).To(Succeed())
+			Expect(updated.Finalizers).To(ContainElement(provisioningv1.BMCCredentialFinalizer),
+				"finalizer must remain while device-b still references the secret")
+		})
+
+		It("should remove the finalizer once the last referencing DPUDevice is deleted", func() {
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       perDeviceSecretV1,
+					Namespace:  testNamespace,
+					Finalizers: []string{provisioningv1.BMCCredentialFinalizer},
+				},
+				Data: map[string][]byte{"password": []byte("pass")},
+			}
+			Expect(fakeClient.Create(ctx, secret)).To(Succeed())
+
+			deviceA := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{Name: "device-a", Namespace: testNamespace},
+				Spec: provisioningv1.DPUDeviceSpec{
+					BMCCredentialSecretName: ptr.To(perDeviceSecretV1),
+				},
+				Status: provisioningv1.DPUDeviceStatus{
+					BMCCredentialSecretName: ptr.To(perDeviceSecretV1),
+				},
+			}
+			otherDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{Name: "device-b", Namespace: testNamespace},
+				Spec: provisioningv1.DPUDeviceSpec{
+					BMCCredentialSecretName: ptr.To(perDeviceSecretV2),
+				},
+			}
+			Expect(fakeClient.Create(ctx, deviceA)).To(Succeed())
+			Expect(fakeClient.Create(ctx, otherDevice)).To(Succeed())
+
+			Expect(reconciler.cleanupCredentialFinalizer(ctx, deviceA)).To(Succeed())
 
 			updated := &corev1.Secret{}
 			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: perDeviceSecretV1, Namespace: testNamespace}, updated)).To(Succeed())
