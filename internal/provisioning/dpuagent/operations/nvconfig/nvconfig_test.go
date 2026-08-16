@@ -35,6 +35,9 @@ import (
 const (
 	testPci0 = "0000:03:00.0"
 	testPci1 = "0000:03:00.1"
+	// testGatedParams pairs a parameter with one that firmware hides from mlxconfig q until
+	// the first is already set, which is what makes it deferrable without force.
+	testGatedParams = "ADVANCED_PCI_SETTINGS=1 MAX_ACC_OUT_READ=44"
 )
 
 // discoverPortsForTest returns a DiscoverPorts function that yields the two
@@ -65,15 +68,16 @@ func queryOutputForParams(params string, hidden ...string) string {
 	return strings.Join(lines, "\n") + "\n"
 }
 
+// runBashWithQuery returns a fake shell that records every command and answers `mlxconfig q` with
+// queryOut.
 func runBashWithQuery(recorded *[]string, queryOut string) func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 	return func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 		*recorded = append(*recorded, cmd)
+		var stdout bytes.Buffer
 		if strings.Contains(cmd, " q") {
-			var stdout bytes.Buffer
 			stdout.WriteString(queryOut)
-			return stdout, bytes.Buffer{}, nil
 		}
-		return bytes.Buffer{}, bytes.Buffer{}, nil
+		return stdout, bytes.Buffer{}, nil
 	}
 }
 
@@ -618,7 +622,7 @@ var _ = Describe("NVConfig Operation", func() {
 
 		It("should defer params not exposed in mlxconfig q until after reboot", func() {
 			pci0, pci1 := testPci0, testPci1
-			params := "ADVANCED_PCI_SETTINGS=1 MAX_ACC_OUT_READ=44"
+			params := testGatedParams
 			queryOut := queryOutputForParams(params, "MAX_ACC_OUT_READ")
 			var recorded []string
 			operation := ConfigureNVConfig{
@@ -645,9 +649,214 @@ var _ = Describe("NVConfig Operation", func() {
 			))
 		})
 
+		It("should skip the mlxconfig q filter and apply the full list when force is set", func() {
+			pci0, pci1 := testPci0, testPci1
+			params := testGatedParams
+			// Same firmware view as the deferral case above: MAX_ACC_OUT_READ is hidden.
+			// Force must apply it anyway rather than deferring it to a later reboot.
+			queryOut := queryOutputForParams(params, "MAX_ACC_OUT_READ")
+			var recorded []string
+			operation := ConfigureNVConfig{
+				runBash: runBashWithQuery(&recorded, queryOut),
+			}
+			operationCtx := &operations.Context{
+				DiscoverPorts:         discoverPortsForTest(),
+				RebootMethodDiscovery: true,
+				DPUFlavor: provisioningv1.DPUFlavor{
+					Spec: provisioningv1.DPUFlavorSpec{
+						NVConfig: []provisioningv1.NVConfig{
+							{Device: ptr.To("*"), Parameters: strings.Split(params, " "), Force: ptr.To(true)},
+						},
+					},
+				},
+				LatestDPU: &provisioningv1.DPU{Status: provisioningv1.DPUStatus{AgentStatus: &provisioningv1.AgentStatus{Conditions: []metav1.Condition{}}}},
+			}
+			Expect(operation.Execute(ctx, operationCtx)).To(Succeed())
+			Expect(recorded).To(ConsistOf(
+				fmt.Sprintf("mlxconfig -d %s -y --with_default --force set %s", pci0, params),
+				fmt.Sprintf("mlxconfig -d %s -y --with_default --force set %s", pci1, params),
+			))
+			// No query at all: the filter is bypassed, not merely satisfied.
+			for _, cmd := range recorded {
+				Expect(cmd).NotTo(HaveSuffix(" q"))
+			}
+			// A non-empty deferred list is what fails provisioning in reboot.HandleReboot.
+			Expect(operationCtx.DeferredNVConfigParams).To(BeEmpty())
+			Expect(operationCtx.CondMessage).To(BeEmpty())
+		})
+
+		It("should normalize parameter names on the forced path", func() {
+			pci0 := testPci0
+			var recorded []string
+			operation := ConfigureNVConfig{
+				runBash: runBashWithQuery(&recorded, ""),
+			}
+			operationCtx := &operations.Context{
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
+					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPci0}}, nil
+				},
+				RebootMethodDiscovery: true,
+				DPUFlavor: provisioningv1.DPUFlavor{
+					Spec: provisioningv1.DPUFlavorSpec{
+						NVConfig: []provisioningv1.NVConfig{
+							// The CRD pattern permits lowercase names, so the forced path must
+							// uppercase them exactly like the filtered path does.
+							{Device: ptr.To("p0"), Parameters: []string{"advanced_pci_settings=1"}, Force: ptr.To(true)},
+						},
+					},
+				},
+				LatestDPU: &provisioningv1.DPU{Status: provisioningv1.DPUStatus{AgentStatus: &provisioningv1.AgentStatus{Conditions: []metav1.Condition{}}}},
+			}
+			Expect(operation.Execute(ctx, operationCtx)).To(Succeed())
+			Expect(recorded).To(ConsistOf(
+				fmt.Sprintf("mlxconfig -d %s -y --with_default --force set ADVANCED_PCI_SETTINGS=1", pci0),
+			))
+		})
+
+		It("should pass --force on the legacy path after reset", func() {
+			pci0, pci1 := testPci0, testPci1
+			var recorded []string
+			operation := ConfigureNVConfig{
+				runBash: runBashWithQuery(&recorded, ""),
+			}
+			operationCtx := &operations.Context{
+				DiscoverPorts:         discoverPortsForTest(),
+				RebootMethodDiscovery: false,
+				DPUFlavor: provisioningv1.DPUFlavor{
+					Spec: provisioningv1.DPUFlavorSpec{
+						NVConfig: []provisioningv1.NVConfig{
+							{Device: ptr.To("p0"), Parameters: []string{"PARAM5=VALUE5"}, Force: ptr.To(true)},
+							{Device: ptr.To("p1"), Parameters: []string{"PARAM7=VALUE7"}},
+						},
+					},
+				},
+				LatestDPU: &provisioningv1.DPU{Status: provisioningv1.DPUStatus{AgentStatus: &provisioningv1.AgentStatus{Conditions: []metav1.Condition{}}}},
+			}
+			Expect(operation.Execute(ctx, operationCtx)).To(Succeed())
+			// Reset still runs first, and force applies only to the port that asked for it.
+			Expect(recorded).To(Equal([]string{
+				fmt.Sprintf("mlxconfig -d %s -y reset", pci0),
+				fmt.Sprintf("mlxconfig -d %s -y reset", pci1),
+				fmt.Sprintf("mlxconfig -d %s -y --force set PARAM5=VALUE5", pci0),
+				fmt.Sprintf("mlxconfig -d %s -y set PARAM7=VALUE7", pci1),
+			}))
+		})
+
+		It("still rejects DELAY_HOST_OS_INIT outside zero-trust when force is set", func() {
+			ranBash := false
+			operation := ConfigureNVConfig{
+				runBash: func(string) (bytes.Buffer, bytes.Buffer, error) {
+					ranBash = true
+					return bytes.Buffer{}, bytes.Buffer{}, nil
+				},
+			}
+			operationCtx := &operations.Context{
+				DiscoverPorts:         discoverPortsForTest(),
+				RebootMethodDiscovery: true,
+				Options:               opts.Options{ZeroTrustMode: false},
+				DPUFlavor: provisioningv1.DPUFlavor{
+					Spec: provisioningv1.DPUFlavorSpec{
+						NVConfig: []provisioningv1.NVConfig{
+							{Device: ptr.To("p0"), Parameters: []string{"DELAY_HOST_OS_INIT=0x3"}, Force: ptr.To(true)},
+						},
+					},
+				},
+				LatestDPU: &provisioningv1.DPU{Status: provisioningv1.DPUStatus{AgentStatus: &provisioningv1.AgentStatus{Conditions: []metav1.Condition{}}}},
+			}
+			// force must not become a way around the zero-trust guard.
+			Expect(operation.Execute(ctx, operationCtx)).To(MatchError(ContainSubstring("requires zero-trust mode")))
+			Expect(ranBash).To(BeFalse())
+		})
+
+		It("programs the host OS init hold on this pass when force is set in zero-trust", func() {
+			var recorded []string
+			operation := ConfigureNVConfig{
+				// Empty query output: unforced this parameter would be deferred, not applied.
+				runBash: runBashWithQuery(&recorded, ""),
+			}
+			operationCtx := &operations.Context{
+				DiscoverPorts:         discoverPortsForTest(),
+				RebootMethodDiscovery: true,
+				Options:               opts.Options{ZeroTrustMode: true},
+				DPUFlavor: provisioningv1.DPUFlavor{
+					Spec: provisioningv1.DPUFlavorSpec{
+						NVConfig: []provisioningv1.NVConfig{
+							{Device: ptr.To("*"), Parameters: []string{"DELAY_HOST_OS_INIT=0x3"}, Force: ptr.To(true)},
+						},
+					},
+				},
+				LatestDPU: &provisioningv1.DPU{Status: provisioningv1.DPUStatus{AgentStatus: &provisioningv1.AgentStatus{Conditions: []metav1.Condition{}}}},
+			}
+			Expect(operation.Execute(ctx, operationCtx)).To(Succeed())
+			Expect(recorded).To(ContainElement(
+				fmt.Sprintf("mlxconfig -d %s -y --with_default --force set DELAY_HOST_OS_INIT=0x3", testPci0),
+			))
+			Expect(operationCtx.DeferredNVConfigParams).To(BeEmpty())
+		})
+
+		It("propagates a failing forced mlxconfig set", func() {
+			operation := ConfigureNVConfig{
+				runBash: func(string) (bytes.Buffer, bytes.Buffer, error) {
+					var stderr bytes.Buffer
+					stderr.WriteString("-E- Failed to set configuration")
+					return bytes.Buffer{}, stderr, fmt.Errorf("exit status 1")
+				},
+			}
+			operationCtx := &operations.Context{
+				DiscoverPorts:         discoverPortsForTest(),
+				RebootMethodDiscovery: true,
+				DPUFlavor: provisioningv1.DPUFlavor{
+					Spec: provisioningv1.DPUFlavorSpec{
+						NVConfig: []provisioningv1.NVConfig{
+							{Device: ptr.To("*"), Parameters: []string{"ADVANCED_PCI_SETTINGS=1"}, Force: ptr.To(true)},
+						},
+					},
+				},
+				LatestDPU: &provisioningv1.DPU{Status: provisioningv1.DPUStatus{AgentStatus: &provisioningv1.AgentStatus{Conditions: []metav1.Condition{}}}},
+			}
+			err := operation.Execute(ctx, operationCtx)
+			Expect(err).To(HaveOccurred())
+			// The failing command and stderr must survive into the error for agent logs.
+			Expect(err.Error()).To(ContainSubstring("--with_default --force set"))
+			Expect(err.Error()).To(ContainSubstring("Failed to set configuration"))
+		})
+
+		// mlxconfig only skips firmware validation for --force from MFT 4.37.0 (DOCA 3.5.0). Below
+		// that the flag is accepted but ineffective, so a gated parameter is rejected and
+		// mlxconfig's own error is what the operator sees, as documented on DPUFlavor.
+		It("surfaces the firmware rejection when force cannot take effect", func() {
+			operation := ConfigureNVConfig{
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					if !strings.Contains(cmd, " set ") {
+						return bytes.Buffer{}, bytes.Buffer{}, nil
+					}
+					var stderr bytes.Buffer
+					stderr.WriteString("-E- The Device doesn't support MAX_ACC_OUT_READ parameter")
+					return bytes.Buffer{}, stderr, fmt.Errorf("exit status 1")
+				},
+			}
+			operationCtx := &operations.Context{
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
+					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPci0}}, nil
+				},
+				RebootMethodDiscovery: false,
+				DPUFlavor: provisioningv1.DPUFlavor{
+					Spec: provisioningv1.DPUFlavorSpec{
+						NVConfig: []provisioningv1.NVConfig{
+							{Device: ptr.To("*"), Parameters: strings.Split(testGatedParams, " "), Force: ptr.To(true)},
+						},
+					},
+				},
+				LatestDPU: &provisioningv1.DPU{Status: provisioningv1.DPUStatus{AgentStatus: &provisioningv1.AgentStatus{Conditions: []metav1.Condition{}}}},
+			}
+			err := operation.Execute(ctx, operationCtx)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("doesn't support MAX_ACC_OUT_READ"))
+		})
+
 		It("should apply full list when all params are exposed in mlxconfig q", func() {
 			pci0 := testPci0
-			params := "ADVANCED_PCI_SETTINGS=1 MAX_ACC_OUT_READ=44"
+			params := testGatedParams
 			var recorded []string
 			operation := ConfigureNVConfig{
 				runBash: runBashWithQuery(&recorded, queryOutputForParams(params)),

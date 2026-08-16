@@ -95,7 +95,7 @@ A one-of selector: exactly one field must be set, and each is an empty object th
 |-------|------|--------------|
 | `device` | *string | Target device: `"*"` (all devices), `"p0"`/`"P0"` (port 0), or `"p1"`/`"P1"` (port 1). Case-insensitive. |
 | `parameters` | []string | Firmware parameters in `KEY=VALUE` format. 1-32 params, max 200 chars each. |
-| `hostPowerCycleRequired` | *bool | Whether host power cycle is needed after applying config(Deprecated) |
+| `force` | *bool | Apply the parameters with `mlxconfig --force` and skip the `mlxconfig q` deferral filter. Defaults to `false`. |
 
 **Validation Constraints:**
 - Maximum of 3 nvconfig entries per DPUFlavor (one per device: `*`, `p0`/`P0`, `p1`/`P1`)
@@ -136,6 +136,44 @@ nvconfig:
     parameters:
       - LINK_TYPE_P1=IB
 ```
+
+#### Forcing parameters that firmware hides
+
+Firmware hides some parameters from `mlxconfig q` until an enabling parameter is already active.
+`FORCE_ETH_PCI_SUBCLASS`, for example, is invisible while `ADVANCED_PCI_SETTINGS` is off. A flavor
+that sets both must set `force: true`:
+
+```yaml
+nvconfig:
+  - device: '*'
+    force: true
+    parameters:
+      - ADVANCED_PCI_SETTINGS=1
+      - FORCE_ETH_PCI_SUBCLASS=1
+```
+
+Without `force`, such a flavor never converges: every pass resets the enabling parameter to its
+default before validating the batch, so the hidden parameter is rejected every time. The failing run
+commits that reset before it errors, leaving `Next Boot` at factory defaults and discarding the
+flavor's other parameters too. With `force`, a single power cycle activates the whole batch.
+
+To find out whether a parameter is hidden, ask `mlxconfig` rather than guessing. `mlxconfig
+show_confs` states the dependency explicitly, for example `Configuration is available only when
+NV_PCI_CONF.ADVANCED_PCI_SETTINGS is TRUE`. Which parameters are gated, and by which enabling
+parameter, varies with firmware version and board.
+
+Two costs to weigh before setting it:
+
+- `force` requires DOCA 3.5.0 or later. An older DOCA version accepts the flag but still rejects the
+  hidden parameter, so the operation fails with an error such as `-E- The Device doesn't support
+  MAX_ACC_OUT_READ parameter`. That message names the parameter rather than the cause, so check the
+  DOCA version on the DPU when you see it on a flavor that sets `force`.
+- `force` skips validation for the entire batch, not just the hidden parameter, so an invalid value
+  is applied silently instead of being rejected. This is why it is opt-in per flavor.
+
+`force` is honored only under `spec.nvconfig`. The field also appears under
+`spec.hostNetworkInterfaceConfigs[].nvconfig` because both share a type, but nothing reads it
+there.
 
 ### DPUFlavorOVS
 

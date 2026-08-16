@@ -49,7 +49,7 @@ var _ = Describe("EnsureResolved", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(first.HostOSInitRequired).To(BeTrue())
 		Expect(first.HostOSInitPCIs).To(Equal([]string{testPci0}))
-		Expect(first.PCIToParams[testPci0]).To(ContainSubstring("DELAY_HOST_OS_INIT=0x3"))
+		Expect(first.PCIToParams[testPci0].Params).To(ContainSubstring("DELAY_HOST_OS_INIT=0x3"))
 
 		second, err := EnsureResolved(optCtx)
 		Expect(err).NotTo(HaveOccurred())
@@ -126,6 +126,60 @@ var _ = Describe("EnsureResolved", func() {
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("no PCI device found"))
 		Expect(optCtx.GetResolvedNVConfig()).To(BeNil())
+	})
+
+	It("propagates force from the matching entry to every resolved target", func() {
+		optCtx := &operations.Context{
+			DPUFlavor: provisioningv1.DPUFlavor{
+				Spec: provisioningv1.DPUFlavorSpec{
+					NVConfig: []provisioningv1.NVConfig{
+						{Device: ptr.To("p0"), Parameters: []string{"ADVANCED_PCI_SETTINGS=1"}, Force: ptr.To(true)},
+						{Device: ptr.To("p1"), Parameters: []string{"SRIOV_EN=1"}},
+					},
+				},
+			},
+			DiscoverPorts: discoverPortsForTest(),
+		}
+		resolved, err := EnsureResolved(optCtx)
+		Expect(err).NotTo(HaveOccurred())
+		// Force must follow the entry that matched, not leak across ports.
+		Expect(resolved.PCIToParams[testPci0].Force).To(BeTrue())
+		Expect(resolved.PCIToParams[testPci0].Params).To(Equal("ADVANCED_PCI_SETTINGS=1"))
+		Expect(resolved.PCIToParams[testPci1].Force).To(BeFalse())
+		Expect(resolved.PCIToParams[testPci1].Params).To(Equal("SRIOV_EN=1"))
+	})
+
+	It("propagates force from a wildcard entry to every discovered port", func() {
+		optCtx := &operations.Context{
+			DPUFlavor: provisioningv1.DPUFlavor{
+				Spec: provisioningv1.DPUFlavorSpec{
+					NVConfig: []provisioningv1.NVConfig{
+						{Parameters: []string{"ADVANCED_PCI_SETTINGS=1", "MAX_ACC_OUT_READ=44"}, Force: ptr.To(true)},
+					},
+				},
+			},
+			DiscoverPorts: discoverPortsForTest(),
+		}
+		resolved, err := EnsureResolved(optCtx)
+		Expect(err).NotTo(HaveOccurred())
+		for _, pci := range []string{testPci0, testPci1} {
+			Expect(resolved.PCIToParams[pci].Force).To(BeTrue(), "pci %s", pci)
+			Expect(resolved.PCIToParams[pci].Params).To(Equal(testGatedParams))
+		}
+	})
+
+	It("defaults force to false when the flavor omits it", func() {
+		optCtx := &operations.Context{
+			DPUFlavor: provisioningv1.DPUFlavor{
+				Spec: provisioningv1.DPUFlavorSpec{
+					NVConfig: []provisioningv1.NVConfig{{Parameters: []string{"SRIOV_EN=1"}}},
+				},
+			},
+			DiscoverPorts: discoverPortsForTest(),
+		}
+		resolved, err := EnsureResolved(optCtx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resolved.PCIToParams[testPci0].Force).To(BeFalse())
 	})
 
 	It("errors when wildcard matches no discovered ports", func() {

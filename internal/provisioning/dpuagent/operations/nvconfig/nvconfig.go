@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 )
 
 const CondNVConfigApplied = "NVConfigApplied"
@@ -43,6 +44,12 @@ type nvParam struct {
 
 type ConfigureNVConfig struct {
 	runBash func(cmd string) (bytes.Buffer, bytes.Buffer, error)
+}
+
+// pciParams is one PCI function paired with its resolved apply plan.
+type pciParams struct {
+	pci string
+	operations.NVConfigParams
 }
 
 func (n *ConfigureNVConfig) Name() string {
@@ -114,7 +121,6 @@ func (n *ConfigureNVConfig) Execute(execCtx context.Context, optCtx *operations.
 
 	// 3. Build a deterministic PCI order and group reset-only devices first.
 	// In legacy flow, we reset all devices first, then apply set per device.
-	type pciParams struct{ pci, params string }
 	ordered := make([]pciParams, 0, len(pciToParams))
 	pciKeys := make([]string, 0, len(pciToParams))
 	for pci := range pciToParams {
@@ -122,15 +128,13 @@ func (n *ConfigureNVConfig) Execute(execCtx context.Context, optCtx *operations.
 	}
 	sort.Strings(pciKeys)
 	for _, pci := range pciKeys {
-		params := pciToParams[pci]
-		if params == "" {
-			ordered = append(ordered, pciParams{pci: pci, params: params})
+		if pciToParams[pci].Params == "" {
+			ordered = append(ordered, pciParams{pci: pci, NVConfigParams: pciToParams[pci]})
 		}
 	}
 	for _, pci := range pciKeys {
-		params := pciToParams[pci]
-		if params != "" {
-			ordered = append(ordered, pciParams{pci: pci, params: params})
+		if pciToParams[pci].Params != "" {
+			ordered = append(ordered, pciParams{pci: pci, NVConfigParams: pciToParams[pci]})
 		}
 	}
 
@@ -139,33 +143,60 @@ func (n *ConfigureNVConfig) Execute(execCtx context.Context, optCtx *operations.
 	// false (legacy): reset all target PCI devices, then set the full flavor list per PCI.
 	// true (device-query): --with_default set only; filterParamsForSet queries mlxconfig before each set.
 	if !optCtx.RebootMethodDiscovery {
-		// Reset all target PCI devices first, then set per PCI.
-		for _, pair := range ordered {
-			pci := pair.pci
-			if err := n.runMlxconfig(pci, "reset", ""); err != nil {
-				return err
-			}
-		}
-		for _, pair := range ordered {
-			pci, params := pair.pci, pair.params
-			if params != "" {
-				klog.Infof("Setting NVConfig params on device %s: %s", pci, params)
-				if err := n.runMlxconfig(pci, "set", params); err != nil {
-					return err
-				}
-			}
-		}
-		return nil
+		return n.applyLegacy(ordered)
 	}
+	if err := n.applyDeviceQuery(optCtx, ordered); err != nil {
+		return err
+	}
+	klog.Infof("NVConfig done: dpu=%s/%s condMessage=%q", optCtx.LatestDPU.Namespace, optCtx.LatestDPU.Name, optCtx.CondMessage)
+	return nil
+}
+
+// applyLegacy resets every target PCI device, then sets the full flavor list per device.
+// It never queries the device, so there is no deferred list to build.
+func (n *ConfigureNVConfig) applyLegacy(ordered []pciParams) error {
+	for _, pair := range ordered {
+		if err := n.runMlxconfig(pair.pci, "reset", ""); err != nil {
+			return err
+		}
+	}
+	for _, pair := range ordered {
+		pci, params := pair.pci, pair.Params
+		if params == "" {
+			continue
+		}
+		klog.Infof("Setting NVConfig params on device %s: %s", pci, params)
+		if err := n.runMlxconfig(pci, setOp(false, pair.Force), params); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// applyDeviceQuery sets each device with --with_default, consulting mlxconfig q first so that
+// parameters firmware does not expose yet are deferred rather than rejected.
+func (n *ConfigureNVConfig) applyDeviceQuery(optCtx *operations.Context, ordered []pciParams) error {
 	optCtx.DeferredNVConfigParams = nil
 	for _, pair := range ordered {
-		pci, params := pair.pci, pair.params
+		pci, params := pair.pci, pair.Params
 		klog.Infof("Passed NVConfig params on device %s: %s", pci, params)
 		if params == "" {
 			// Avoid mlxconfig reset (which always forces a device reset). Use --with_default set
 			// with a parameter that equals its default (e.g. BOOT_DBG_LOG=0), so the config is
 			// unchanged but no reset is triggered when current configuration equal to default.
-			if err := n.runMlxconfig(pci, "--with_default set", "BOOT_DBG_LOG=0"); err != nil {
+			if err := n.runMlxconfig(pci, setOp(true, false), "BOOT_DBG_LOG=0"); err != nil {
+				return err
+			}
+			continue
+		}
+		if pair.Force {
+			// Forced batches skip the mlxconfig q filter entirely, so nothing is deferred and
+			// filterParamsForSet's plan log never runs. Log the batch here instead, otherwise a
+			// forced apply leaves no record of what was sent.
+			forced := joinParamEntries(parseParamEntries(params))
+			klog.Infof("NVConfig forced plan for device %s: requested=%s (mlxconfig q filter skipped)", pci, forced)
+			klog.Infof("Setting NVConfig params on device %s: %s", pci, forced)
+			if err := n.runMlxconfig(pci, setOp(true, true), forced); err != nil {
 				return err
 			}
 			continue
@@ -176,16 +207,15 @@ func (n *ConfigureNVConfig) Execute(execCtx context.Context, optCtx *operations.
 		}
 		klog.Infof("Setting NVConfig params on device %s: %s", pci, resolved)
 		if resolved == "" {
-			if err := n.runMlxconfig(pci, "--with_default set", "BOOT_DBG_LOG=0"); err != nil {
+			if err := n.runMlxconfig(pci, setOp(true, false), "BOOT_DBG_LOG=0"); err != nil {
 				return err
 			}
 			continue
 		}
-		if err := n.runMlxconfig(pci, "--with_default set", resolved); err != nil {
+		if err := n.runMlxconfig(pci, setOp(true, false), resolved); err != nil {
 			return err
 		}
 	}
-	klog.Infof("NVConfig done: dpu=%s/%s condMessage=%q", optCtx.LatestDPU.Namespace, optCtx.LatestDPU.Name, optCtx.CondMessage)
 	return nil
 }
 
@@ -199,10 +229,10 @@ func (n *ConfigureNVConfig) Execute(execCtx context.Context, optCtx *operations.
 // 1. Wildcard and per-device cannot be mixed.
 // 2. Device values are unique and case-insensitive (e.g. p0, P0, p1).
 // See DPUFlavor CRD validation for more details.
-func pciToNVConfig(nvconfigs []provisioningv1.NVConfig, pciToNetdev map[string]string) map[string]string {
-	out := make(map[string]string, len(pciToNetdev))
+func pciToNVConfig(nvconfigs []provisioningv1.NVConfig, pciToNetdev map[string]string) map[string]operations.NVConfigParams {
+	out := make(map[string]operations.NVConfigParams, len(pciToNetdev))
 	for pci, netdev := range pciToNetdev {
-		params := ""
+		resolved := operations.NVConfigParams{}
 		for _, nc := range nvconfigs {
 			device := "*"
 			if nc.Device != nil {
@@ -210,14 +240,14 @@ func pciToNVConfig(nvconfigs []provisioningv1.NVConfig, pciToNetdev map[string]s
 			}
 			joined := strings.Join(nc.Parameters, " ")
 			if strings.EqualFold(device, netdev) {
-				params = joined
+				resolved = operations.NVConfigParams{Params: joined, Force: ptr.Deref(nc.Force, false)}
 				break
 			}
 			if device == "*" {
-				params = joined
+				resolved = operations.NVConfigParams{Params: joined, Force: ptr.Deref(nc.Force, false)}
 			}
 		}
-		out[pci] = params
+		out[pci] = resolved
 	}
 	return out
 }
@@ -228,6 +258,29 @@ func (n *ConfigureNVConfig) pciToNetdevMap(optCtx *operations.Context) (map[stri
 		return nil, err
 	}
 	return portsToPCINetdev(ports), nil
+}
+
+// appendCondMessage adds msg to the operation condition message, which dpuagent truncates and
+// writes to the operation condition on success.
+func appendCondMessage(optCtx *operations.Context, msg string) {
+	if optCtx.CondMessage != "" {
+		optCtx.CondMessage += " "
+	}
+	optCtx.CondMessage += msg
+}
+
+// setOp builds the mlxconfig set operation, ordering flags as
+// `mlxconfig -d <dev> -y [--with_default] [--force] set ...` to match the NIC configuration
+// operator's invocation for the equivalent east/west path.
+func setOp(withDefault, force bool) string {
+	op := ""
+	if withDefault {
+		op = "--with_default "
+	}
+	if force {
+		op += "--force "
+	}
+	return op + "set"
 }
 
 // runMlxconfig runs an mlxconfig command via bash and returns a wrapped error on failure.
@@ -280,10 +333,7 @@ func (n *ConfigureNVConfig) filterParamsForSet(optCtx *operations.Context, dev, 
 			deferredParams,
 		)
 		klog.Info(msg)
-		if optCtx.CondMessage != "" {
-			optCtx.CondMessage += " "
-		}
-		optCtx.CondMessage += msg
+		appendCondMessage(optCtx, msg)
 	}
 	return joinParamEntries(toSet), nil
 }
