@@ -171,6 +171,8 @@ const (
 	MaxNameLength = validation.DNS1123SubdomainMaxLength // 253
 	// HostPowerCycleRequireKey is the key for the host power cycle required annotation.
 	HostPowerCycleRequireKey = DPUProvisioningPrefix + "host-power-cycle-required"
+	// DPUForceFwUpdateAnnotation whether to force firmware update (including downgrade).
+	DPUForceFwUpdateAnnotation = DPUProvisioningPrefix + "force-fw-update"
 
 	// AgentCondRebootMethodDiscovery is set True when the device-query reboot path is active.
 	// Reason is the resolved RebootMethodType (e.g. SystemLevelReset, NoAction); Message holds mlxfwreset JSON when reset is needed.
