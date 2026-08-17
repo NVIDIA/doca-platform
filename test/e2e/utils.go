@@ -32,6 +32,7 @@ import (
 	storagev1 "github.com/nvidia/doca-platform/api/storage/v1alpha1"
 	vpcv1 "github.com/nvidia/doca-platform/api/vpc/v1alpha1"
 	"github.com/nvidia/doca-platform/test/e2e/cleanup"
+	"github.com/nvidia/doca-platform/test/utils/dpuservice"
 	"github.com/nvidia/doca-platform/test/utils/netshoot"
 	kamajiv1 "github.com/nvidia/doca-platform/third_party/forked/github.com/clastix/kamaji/api/v1alpha1"
 
@@ -528,4 +529,24 @@ func countNodesWithNSIEntry(list *dpuservicev1.NodeServiceInterfacesList, want m
 		}
 	}
 	return count
+}
+
+// uplinkInterfaceConfigs returns the physical DPUServiceInterface configs for the named uplinks. They
+// are labeled "uplink: <name>" so a DPUServiceChain port or a DPUDeployment switch can select them, and
+// carry the noop-physical-removal annotation so deleting the interface leaves the uplink in place.
+//
+// The object name matches the uplink. Override Name afterwards for a spec that needs a distinct one.
+func uplinkInterfaceConfigs(namespace string, uplinks ...string) []dpuservice.TestDPUServiceInterfaceConfig {
+	configs := make([]dpuservice.TestDPUServiceInterfaceConfig, 0, len(uplinks))
+	for _, uplink := range uplinks {
+		configs = append(configs, dpuservice.TestDPUServiceInterfaceConfig{
+			Name:          uplink,
+			Namespace:     namespace,
+			Type:          "physical",
+			InterfaceName: uplink,
+			Labels:        map[string]string{"uplink": uplink},
+			Annotations:   map[string]string{"svc.dpu.nvidia.com/noop-physical-removal": ""},
+		})
+	}
+	return configs
 }
