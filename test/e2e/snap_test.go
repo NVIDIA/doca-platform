@@ -105,9 +105,6 @@ var _ = Describe("DPF System tests - SNAP", Labels{Domain.DPFSystem, Domain.SNAP
 			snaputils.VerifyDPUVolumeAttachmentReady(ctx, input.client, dpfOperatorSystemNamespace)
 		})
 		It("should run the workload pod and mount the VirtioFS volume", func() {
-			// The pod cannot reach Running until the host can bind the hot-plugged PF, so this runs
-			// before the pod-Running wait (it waits internally for the attachment to be published).
-			prepareHotPluggedPFOnHost(ctx, input)
 			snaputils.WaitForWorkloadPodRunning(ctx, input.client, snapWorkloadNamespace, snapWorkloadPodName)
 			snaputils.VerifyVirtioFSMount(hostClusterRESTClient, input.restConfig, snapWorkloadNamespace, snapWorkloadPodName, snapVolumeMountPath)
 		})

@@ -19,17 +19,13 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/nvidia/doca-platform/test/e2e/cleanup"
-	"github.com/nvidia/doca-platform/test/utils/netshoot"
-	snaputils "github.com/nvidia/doca-platform/test/utils/snap"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	storagek8sv1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -54,7 +50,6 @@ const (
 
 	// Time budgets.
 	snapProvisioningTimeout = 20 * time.Minute
-	pciScanPodReadyTimeout  = 2 * time.Minute
 )
 
 // Cleanup scopes, both registered in the suite's BeforeAll. They are split along what a run can reuse:
@@ -197,121 +192,4 @@ func appendServiceConfigurationImagePullSecret(obj *unstructured.Unstructured, s
 	}
 	pullSecrets = append(pullSecrets, map[string]interface{}{"name": secretName})
 	Expect(unstructured.SetNestedSlice(obj.Object, pullSecrets, path...)).To(Succeed())
-}
-
-// prepareHotPluggedPFOnHost makes the PF address on the snap-csi VolumeAttachment match how the
-// workload node enumerated that PF: NodeStageVolume looks the device up under that address in the node's
-// /sys and binds it to virtio-pci, so an address the node does not have fails the mount.
-//
-// FIXME(redmine #5129598): snap-csi caches nv-pciDeviceAddress with PCI domain 0000, but on a
-// multi-domain host the PF lives in another domain (e.g. 0004), so NodeStage cannot find it and the
-// mount never appears. Workaround: run a short-lived pod on the attachment's node, wait there for a
-// virtio-fs PF (failing the test when none shows up), and patch that PF's real address into the
-// VolumeAttachment status when the two differ by PCI domain alone. No-op on single-domain hosts.
-// Remove once the SNAP bug is fixed.
-func prepareHotPluggedPFOnHost(ctx context.Context, input *systemTestInput) {
-	const (
-		snapCSIDriverName       = "csi.snap.nvidia.com"
-		snapPCIDeviceAddressKey = "nv-pciDeviceAddress"
-		// virtio-fs PF PCI IDs (vendor 0x1af4 = Virtio, device 0x105a = virtio-fs).
-		virtioFSVendorID = "0x1af4"
-		virtioFSDeviceID = "0x105a"
-	)
-
-	// The snap-csi VolumeAttachment carries both the cached PF address and its target node.
-	By(fmt.Sprintf("Waiting for the snap-csi VolumeAttachment to report %s", snapPCIDeviceAddressKey))
-	va := &storagek8sv1.VolumeAttachment{}
-	var reported, nodeName string
-	Eventually(func(g Gomega) {
-		attachments := &storagek8sv1.VolumeAttachmentList{}
-		g.Expect(input.client.List(ctx, attachments)).To(Succeed())
-		reported = ""
-		for i := range attachments.Items {
-			a := &attachments.Items[i]
-			if a.Spec.Attacher != snapCSIDriverName {
-				continue
-			}
-			if addr := a.Status.AttachmentMetadata[snapPCIDeviceAddressKey]; addr != "" {
-				va = a.DeepCopy()
-				reported = addr
-				nodeName = a.Spec.NodeName
-				break
-			}
-		}
-		g.Expect(reported).ToNot(BeEmpty(), "no snap-csi VolumeAttachment reports %s yet", snapPCIDeviceAddressKey)
-	}).WithTimeout(snaputils.VolumeReadyTimeout).WithPolling(snaputils.PollInterval).Should(Succeed())
-	By(fmt.Sprintf("VolumeAttachment %s reports %s=%s on node %s", va.Name, snapPCIDeviceAddressKey, reported, nodeName))
-
-	// Read the workload node's /sys via a short-lived pod. dpf-operator-system permits hostPath volumes.
-	pciScanPod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			GenerateName: "snap-pci-scan-",
-			Namespace:    dpfOperatorSystemNamespace,
-			Labels:       snapWorkloadScope.CleanupLabels,
-		},
-		Spec: corev1.PodSpec{
-			NodeName:         nodeName,
-			RestartPolicy:    corev1.RestartPolicyNever,
-			ImagePullSecrets: []corev1.LocalObjectReference{{Name: dpfPullSecretName}},
-			Containers: []corev1.Container{{
-				Name:         "pci-scan",
-				Image:        fmt.Sprintf("%s/busybox:latest", dockerIORegistry),
-				Command:      []string{"sleep", "infinity"},
-				VolumeMounts: []corev1.VolumeMount{{Name: "sys", MountPath: "/sys", ReadOnly: true}},
-			}},
-			Volumes: []corev1.Volume{{
-				Name:         "sys",
-				VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/sys"}},
-			}},
-		},
-	}
-	By(fmt.Sprintf("Creating PCI scanner pod on node %s", nodeName))
-	Expect(input.client.Create(ctx, pciScanPod)).To(Succeed())
-	// Delete as soon as the scan is done instead of leaving the pod up for the rest of the suite.
-	// Safety net: if the delete fails, the snap-workload cleanup scope still removes it by label.
-	defer func() {
-		if err := input.client.Delete(ctx, pciScanPod); err != nil {
-			By(fmt.Sprintf("Best-effort delete of PCI scanner pod %s/%s failed: %v", pciScanPod.Namespace, pciScanPod.Name, err))
-		}
-	}()
-
-	Eventually(func(g Gomega) {
-		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(pciScanPod), pciScanPod)).To(Succeed())
-		g.Expect(netshoot.IsPodRunningAndReady(pciScanPod)).To(BeTrue(), "PCI scanner pod %s is not ready", pciScanPod.Name)
-	}).WithTimeout(pciScanPodReadyTimeout).WithPolling(snaputils.PollInterval).Should(Succeed())
-
-	// List the node's virtio-fs PFs, one PCI address per line, e.g. "0004:04:00.0". The guards skip with
-	// `|| continue` instead of chaining with `&&`, because the loop exits with the status of its last
-	// iteration: a host whose last PCI device is not a virtio-fs PF would end on a failed test and the
-	// script would report failure despite having listed the PFs.
-	listPFsScript := fmt.Sprintf(`for d in /sys/bus/pci/devices/*; do [ "$(cat $d/vendor 2>/dev/null)" = "%s" ] || continue; [ "$(cat $d/device 2>/dev/null)" = "%s" ] || continue; basename "$d"; done`, virtioFSVendorID, virtioFSDeviceID)
-
-	// Poll until a PF shows up: one the host is still enumerating looks like one that never arrives.
-	var pfs string
-	Eventually(func(g Gomega) {
-		out, err := netshoot.ExecInPodOnce(hostClusterRESTClient, input.restConfig, pciScanPod.Namespace, pciScanPod.Name, []string{"sh", "-c", listPFsScript})
-		g.Expect(err).ToNot(HaveOccurred(), "listing virtio-fs PFs on node %s failed: %s", nodeName, out)
-		pfs = strings.TrimSpace(out)
-		g.Expect(pfs).ToNot(BeEmpty(),
-			"node %s exposes no virtio-fs PF (vendor %s device %s), so NodeStageVolume has nothing to bind at %s",
-			nodeName, virtioFSVendorID, virtioFSDeviceID, reported)
-	}).WithTimeout(snaputils.MountTimeout).WithPolling(snaputils.PollInterval).Should(Succeed())
-	By(fmt.Sprintf("Found virtio-fs PFs on node %s:\n%s", nodeName, pfs))
-
-	// Patch when the node exposes the PF at reported's bus:device.function but a different domain. An
-	// exact match (single-domain host) or no match at all is left untouched — nothing to fix.
-	busDeviceFunction := reported[strings.IndexByte(reported, ':')+1:]
-	for _, line := range strings.Split(pfs, "\n") {
-		realAddr := strings.TrimSpace(line)
-		if realAddr == reported || !strings.HasSuffix(realAddr, busDeviceFunction) {
-			continue
-		}
-		By(fmt.Sprintf("PCI domain workaround: patching VolumeAttachment %s %s %s -> %s", va.Name, snapPCIDeviceAddressKey, reported, realAddr))
-		patched := va.DeepCopy()
-		patched.Status.AttachmentMetadata[snapPCIDeviceAddressKey] = realAddr
-		Expect(input.client.Status().Patch(ctx, patched, client.MergeFrom(va))).To(Succeed())
-		return
-	}
-	By(fmt.Sprintf("PCI domain workaround: leaving %s=%s untouched, no virtio-fs PF on node %s differs from it by domain alone",
-		snapPCIDeviceAddressKey, reported, nodeName))
 }
