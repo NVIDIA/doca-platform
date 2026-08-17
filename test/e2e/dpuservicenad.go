@@ -38,13 +38,27 @@ import (
 )
 
 func ValidateDPUServiceNADConsumedByPod(ctx context.Context, input *systemTestInput) {
+	validateDPUServiceNADConsumedByPod(ctx, input, "dpuservicenadconsumedbypodns", "")
+}
+
+// ValidateDPUServiceNADFromOtherNamespaceConsumedByPod publishes the DPUServiceNAD in one namespace and
+// consumes it from another, which ServiceDef.Network supports through its "namespace/name" form. It
+// covers the resource injection in particular: fetchResourceNameFromNAD resolves the DPUServiceNAD in
+// the namespace the reference names, and skips silently when it cannot, so an unresolved reference
+// leaves the DPUService reporting Success and fails the Pod later with "deviceID is not set".
+func ValidateDPUServiceNADFromOtherNamespaceConsumedByPod(ctx context.Context, input *systemTestInput) {
+	validateDPUServiceNADConsumedByPod(ctx, input, "dpuservicenadcrossnsns", "dpuservicenadpublisherns")
+}
+
+// validateDPUServiceNADConsumedByPod deploys a DPUService consuming a DPUServiceNAD through a
+// DPUServiceInterface. An empty nadNamespace keeps the DPUServiceNAD in namespace with everything else.
+func validateDPUServiceNADConsumedByPod(ctx context.Context, input *systemTestInput, namespace, nadNamespace string) {
 	if !input.hasDpuNodes() {
 		Skip("Skip test as there are not multiple nodes")
 	}
 
 	const (
 		serviceName                      = "dummydpuservice"
-		namespace                        = "dpuservicenadconsumedbypodns"
 		dpuServiceInterfaceCustomNADName = "dpu-service-interface-with-custom-nad"
 		dpuServiceNADName                = "mynad"
 		serviceChainName                 = "my-service-chain"
@@ -60,15 +74,24 @@ func ValidateDPUServiceNADConsumedByPod(ctx context.Context, input *systemTestIn
 	By("Create test namespace: " + namespace)
 	createTestNamespace(ctx, input.client, namespace)
 
+	if nadNamespace == "" {
+		nadNamespace = namespace
+	} else {
+		// A second namespace, holding nothing but the DPUServiceNAD the DPUServiceInterface in
+		// namespace refers to as "nadNamespace/name".
+		By("Create the namespace publishing the DPUServiceNAD: " + nadNamespace)
+		createTestNamespace(ctx, input.client, nadNamespace)
+	}
+
 	By("Copy image pull secret to namespace " + namespace)
 	CopySecretToNamespace(ctx, input.client, dpfPullSecretName, dpfOperatorSystemNamespace, namespace, CleanupScope.It)
 
-	By("Create DPUServiceNAD")
-	dpuServiceNAD := constructDPUServiceNAD(dpuServiceNADName, namespace, mtu)
+	By("Create DPUServiceNAD in " + nadNamespace)
+	dpuServiceNAD := constructDPUServiceNAD(dpuServiceNADName, nadNamespace, mtu)
 	Expect(input.client.Create(ctx, dpuServiceNAD)).To(Succeed())
 
 	By("Create DPUServiceInterface")
-	dpuServiceInterface := constructDPUServiceInterface(dpuServiceInterfaceCustomNADName, namespace, serviceName, dpuServiceNADName, serviceInterfaceLabels)
+	dpuServiceInterface := constructDPUServiceInterface(dpuServiceInterfaceCustomNADName, namespace, serviceName, nadNamespace, dpuServiceNADName, serviceInterfaceLabels)
 	Expect(input.client.Create(ctx, dpuServiceInterface)).To(Succeed())
 
 	// FIXME: There is a bug that incorrectly requires a DPUServiceChain to exist before a DPUService can be deployed successfully; remove the DPUServiceChain part if this is fixed
@@ -134,7 +157,10 @@ func constructDPUServiceNAD(name, namespace string, mtu int) *dpuservicev1.DPUSe
 	return dpuServiceNAD
 }
 
-func constructDPUServiceInterface(name, namespace, serviceName string, network string, serviceInterfaceLabels map[string]string) *dpuservicev1.DPUServiceInterface {
+// constructDPUServiceInterface builds a service DPUServiceInterface referring to the NAD as
+// "nadNamespace/network". nadNamespace is usually the interface's own namespace, but ServiceDef.Network
+// accepts any namespace, which is what lets several DPUServices share one published DPUServiceNAD.
+func constructDPUServiceInterface(name, namespace, serviceName, nadNamespace, network string, serviceInterfaceLabels map[string]string) *dpuservicev1.DPUServiceInterface {
 	dpuServiceInterface := &dpuservicev1.DPUServiceInterface{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -146,7 +172,7 @@ func constructDPUServiceInterface(name, namespace, serviceName string, network s
 	dpuServiceInterface.Spec.Template.Spec.Template.Spec.InterfaceType = dpuservicev1.InterfaceTypeService
 	dpuServiceInterface.Spec.Template.Spec.Template.Spec.Service = &dpuservicev1.ServiceDef{
 		ServiceID:     serviceName,
-		Network:       namespace + "/" + network,
+		Network:       nadNamespace + "/" + network,
 		InterfaceName: serviceName,
 	}
 
@@ -238,19 +264,10 @@ func VerifyDPUPodToPodRDMATraffic(ctx context.Context, input *systemTestInput) {
 }
 
 func setupDPUPodToPodRDMATrafficTest(ctx context.Context, input *systemTestInput) {
-	interfaceConfigs := []dpuservice.TestDPUServiceInterfaceConfig{
-		{
-			Name:          "p0-rdma",
-			Namespace:     input.namespace,
-			Type:          "physical",
-			InterfaceName: "p0",
-			Labels: map[string]string{
-				"uplink": "p0",
-			},
-			Annotations: map[string]string{
-				"svc.dpu.nvidia.com/noop-physical-removal": "",
-			},
-		},
+	uplinks := uplinkInterfaceConfigs(input.namespace, "p0")
+	// A distinct object name, so it does not collide with the p0 interface other specs create.
+	uplinks[0].Name = "p0-rdma"
+	interfaceConfigs := append(uplinks, []dpuservice.TestDPUServiceInterfaceConfig{
 		{
 			Name:          "app-sf-rdma",
 			Namespace:     input.namespace,
@@ -262,7 +279,7 @@ func setupDPUPodToPodRDMATrafficTest(ctx context.Context, input *systemTestInput
 				"svc.dpu.nvidia.com/interface": "app-sf-rdma",
 			},
 		},
-	}
+	}...)
 	poolLabels := map[string]string{"svc.dpu.nvidia.com/pool": "dummydpuservice-rdma"}
 
 	By("Create and wait for DPU service interfaces")

@@ -26,6 +26,7 @@ import (
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	. "github.com/onsi/gomega"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -39,6 +40,15 @@ type TestIPAMConfig struct {
 	PrefixSize   int32
 	DPU1Subnet   string
 	DPU2Subnet   string
+	// Routes are static routes added through the gateway of the node subnet, for destinations a Pod
+	// is not on-link with.
+	Routes []string
+	// Labels are set on the pool the DPUServiceIPAM creates, so that a DPUServiceChain port can
+	// select it through the matchLabels of its IPAM.
+	Labels map[string]string
+	// CleanupLabels are the labels the cleanup tracker selects the object by. Empty means the It scope,
+	// set it to a named scope for objects that have to outlive the spec creating them.
+	CleanupLabels map[string]string
 }
 
 // TestDPUServiceInterfaceConfig holds service interface configuration
@@ -56,6 +66,11 @@ type TestDPUServiceInterfaceConfig struct {
 	Network        string
 	VirtualNetwork *string
 	PeerBridge     string
+	// NodeSelector restricts the DPUServiceInterface to the DPU cluster nodes it matches.
+	NodeSelector *metav1.LabelSelector
+	// CleanupLabels are the labels the cleanup tracker selects the object by. Empty means the It scope,
+	// set it to a named scope for objects that have to outlive the spec creating them.
+	CleanupLabels map[string]string
 }
 
 // WaitForDPUServices waits until all expected DPUService objects exist and report Ready.
@@ -303,6 +318,9 @@ func WaitForDPUServiceInterfacesReady(ctx context.Context, testClient client.Cli
 
 func SetDPUServiceHBNIPAM(DPUServiceIPAM *dpuservicev1.DPUServiceIPAM, cfg TestIPAMConfig, dpu1Name, dpu2Name string) {
 	DPUServiceIPAM.Spec = dpuservicev1.DPUServiceIPAMSpec{
+		ObjectMeta: dpuservicev1.ObjectMeta{
+			Labels: cfg.Labels,
+		},
 		IPV4Network: &dpuservicev1.IPV4Network{
 			Network:    cfg.Network,
 			PrefixSize: cfg.PrefixSize,
@@ -310,6 +328,10 @@ func SetDPUServiceHBNIPAM(DPUServiceIPAM *dpuservicev1.DPUServiceIPAM, cfg TestI
 	}
 	if cfg.GatewayIndex != 0 {
 		DPUServiceIPAM.Spec.IPV4Network.GatewayIndex = &cfg.GatewayIndex
+	}
+	for _, route := range cfg.Routes {
+		DPUServiceIPAM.Spec.IPV4Network.Routes = append(DPUServiceIPAM.Spec.IPV4Network.Routes,
+			dpuservicev1.Route{Dst: route})
 	}
 	allocations := make(map[string]string)
 	if cfg.DPU1Subnet != "" {

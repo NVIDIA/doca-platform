@@ -333,19 +333,7 @@ func getHBNOnlyTestPodConfigs(ctx context.Context, input *systemTestInput, names
 
 // setupPlainChainTest creates a test environment for a plain service function chain
 func setupPlainChainTest(ctx context.Context, input *systemTestInput, vfIndex int) {
-	interfaceConfigs := []dpuservice.TestDPUServiceInterfaceConfig{
-		{
-			Name:          "p0",
-			Type:          "physical",
-			Namespace:     input.namespace,
-			InterfaceName: "p0",
-			Labels: map[string]string{
-				"uplink": "p0",
-			},
-			Annotations: map[string]string{
-				"svc.dpu.nvidia.com/noop-physical-removal": "",
-			},
-		},
+	interfaceConfigs := append(uplinkInterfaceConfigs(input.namespace, "p0"), []dpuservice.TestDPUServiceInterfaceConfig{
 		{
 			Name:          fmt.Sprintf("pf0vf%d", vfIndex),
 			Type:          "vf",
@@ -357,7 +345,7 @@ func setupPlainChainTest(ctx context.Context, input *systemTestInput, vfIndex in
 				"vf": fmt.Sprintf("pf0vf%d", vfIndex),
 			},
 		},
-	}
+	}...)
 
 	By("Wait for prerequisite services")
 	dpuservice.WaitForDPUServices(ctx, input.client, input.namespace, []string{"sfc-controller"})
@@ -377,31 +365,7 @@ func setupPlainChainTest(ctx context.Context, input *systemTestInput, vfIndex in
 func setupHBNOnlyTest(ctx context.Context, input *systemTestInput, vfIndex int) {
 	hbnServiceID := "doca-hbn"
 	hbnNetwork := "mybrhbn"
-	interfaceConfigs := []dpuservice.TestDPUServiceInterfaceConfig{
-		{
-			Name:          "p0",
-			Namespace:     input.namespace,
-			Type:          "physical",
-			InterfaceName: "p0",
-			Labels: map[string]string{
-				"uplink": "p0",
-			},
-			Annotations: map[string]string{
-				"svc.dpu.nvidia.com/noop-physical-removal": "",
-			},
-		},
-		{
-			Name:          "p1",
-			Namespace:     input.namespace,
-			Type:          "physical",
-			InterfaceName: "p1",
-			Labels: map[string]string{
-				"uplink": "p1",
-			},
-			Annotations: map[string]string{
-				"svc.dpu.nvidia.com/noop-physical-removal": "",
-			},
-		},
+	interfaceConfigs := append(uplinkInterfaceConfigs(input.namespace, "p0", "p1"), []dpuservice.TestDPUServiceInterfaceConfig{
 		{
 			Name:          fmt.Sprintf("pf0vf%d-rep", vfIndex),
 			Namespace:     input.namespace,
@@ -472,7 +436,7 @@ func setupHBNOnlyTest(ctx context.Context, input *systemTestInput, vfIndex int) 
 				"svc.dpu.nvidia.com/interface":    "p1_sf",
 			},
 		},
-	}
+	}...)
 
 	ipamConfigs := []dpuservice.TestIPAMConfig{
 		{
@@ -591,8 +555,17 @@ func createDPUServiceInterface(ctx context.Context, interfaceConfig dpuservice.T
 		dpuservice.SetDPUServiceInterfaceVF(dpuServiceInterface, interfaceConfig)
 	case "sf":
 		dpuservice.SetDPUServiceInterfaceSF(dpuServiceInterface, interfaceConfig)
+	case "patch":
+		dpuservice.SetDPUServiceInterfacePatch(dpuServiceInterface, interfaceConfig)
 	default:
 		Expect(fmt.Errorf("invalid interface type: %s", interfaceConfig.Type)).To(Succeed())
+	}
+	if interfaceConfig.NodeSelector != nil {
+		dpuServiceInterface.Spec.Template.Spec.NodeSelector = interfaceConfig.NodeSelector
+	}
+	// Last, the patch setter above replaces the object labels GenerateDPUObj defaults to.
+	if interfaceConfig.CleanupLabels != nil {
+		dpuServiceInterface.SetLabels(interfaceConfig.CleanupLabels)
 	}
 	Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, dpuServiceInterface))).To(Succeed())
 }
@@ -615,6 +588,9 @@ func createHBNIPAMs(ctx context.Context, client client.Client, namespace string,
 	dpuNode1, dpuNode2 := getDPUNodesInOrder(ctx, client, dpuClusterClient[0])
 	for _, config := range IPAMConfigs {
 		DPUServiceIPAM := utils.GenerateDPUObj(config.Name, namespace, dpuServiceIPAMTemplate.DeepCopy())
+		if config.CleanupLabels != nil {
+			DPUServiceIPAM.SetLabels(config.CleanupLabels)
+		}
 		dpuservice.SetDPUServiceHBNIPAM(DPUServiceIPAM, config, dpuNode1.Name, dpuNode2.Name)
 		Expect(client.Create(ctx, DPUServiceIPAM)).To(Succeed())
 	}
