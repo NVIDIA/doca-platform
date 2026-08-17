@@ -553,6 +553,13 @@ type AgentStatus struct {
 	// +optional
 	TrustBundleLastUpdateTime *metav1.Time `json:"trustBundleLastUpdateTime,omitempty"`
 
+	// Clock is the DPU clock compared against the host clock, recorded while the DPU agent was
+	// acquiring its identity. A DPU whose clock is skewed cannot verify the API server certificate,
+	// so it never obtains the identity it would need to report this itself. Set by the host agent,
+	// in trusted-host mode only.
+	// +optional
+	Clock *ClockStatus `json:"clock,omitempty"`
+
 	// Conditions contains the conditions reported from inside the DPU
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
@@ -566,6 +573,16 @@ type AgentStatus struct {
 	// Unset while the agent is polling or has not reached ReleaseHostOSInit.
 	// +optional
 	HostOSInit *HostOSInitStatus `json:"hostOSInit,omitempty"`
+}
+
+// ClockStatus holds two readings of the same instant, taken on the DPU and on the host.
+type ClockStatus struct {
+	// dpuTime is the DPU clock as reported by the DPU agent.
+	DPUTime metav1.Time `json:"dpuTime"`
+
+	// hostTime is the host clock when that report arrived. The host is the trusted side of the
+	// comparison, so a difference is attributed to the DPU.
+	HostTime metav1.Time `json:"hostTime"`
 }
 
 // HostOSInitStatus is the agent-reported terminal status for host OS init release.
