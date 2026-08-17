@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -109,7 +110,11 @@ func FirmwareUpdate(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil
 		}
 		switch err := checkFirmwareVersions(client, blueFieldSoftware); {
 		case errors.Is(err, errVersionMismatch):
-			return updatePldmFwBundle(ctx, dpu, ctrlCtx, blueFieldSoftware.Status.DownloadedComponents.PldmFwBundle, forceUpdate)
+			// Forcing only after a mismatch is established lets an ERoT-rejected downgrade
+			// proceed without re-flashing and power cycling when the versions already match.
+			force := forceFwUpdateRequested(dpu)
+			logger.Info("firmware version mismatch with PLDM bundle - updating firmware", "reason", err.Error(), "force", force)
+			return updatePldmFwBundle(ctx, dpu, ctrlCtx, blueFieldSoftware.Status.DownloadedComponents.PldmFwBundle, force)
 		case err != nil:
 			// Read/verification/I/O error: propagate instead of blindly updating firmware.
 			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), err, "FirmwareVersionCheckFailed", err.Error()))
@@ -136,6 +141,17 @@ func FirmwareUpdate(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil
 // Read/verification/I/O errors are returned unwrapped so callers can distinguish
 // "needs update" from "could not determine".
 var errVersionMismatch = errors.New("firmware version mismatch")
+
+// forceFwUpdateRequested reports whether the DPU is annotated to force the firmware update.
+// Forcing bypasses the ERoT comparison stamp check, which otherwise aborts the update task
+// when the bundle carries an older stamp than the installed firmware.
+func forceFwUpdateRequested(dpu *provisioningv1.DPU) bool {
+	force, err := strconv.ParseBool(dpu.Annotations[cutil.DPUForceFwUpdateAnnotation])
+	if err != nil {
+		return false
+	}
+	return force
+}
 
 func checkFirmwareVersions(client *rc.Client, blueFieldSoftware *provisioningv1.BlueFieldSoftware) error {
 	if blueFieldSoftware.Status.Versions == nil {
