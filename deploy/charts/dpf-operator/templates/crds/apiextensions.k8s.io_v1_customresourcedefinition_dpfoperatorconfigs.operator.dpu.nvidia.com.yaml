@@ -278,9 +278,16 @@ spec:
                     type: boolean
                   disableDPUReadyTaints:
                     description: |-
-                      DisableDPUReadyTaints disables the DPU ready taints feature in the DPU Service Controller.
-                      This feature adds taints to the worker nodes when the DPU is not ready.
-                      This is useful when the DPU is used for networking and the node should not be scheduled until the DPU is ready.
+                      DisableDPUReadyTaints is a full taint kill-switch for the DPUReady controller.
+                      When set to true, no taint managed by this controller (NoSchedule for critical
+                      DPUServices, or NoExecute for HostNetworkReady) is added, removed, or otherwise
+                      touched on host worker nodes.
+                    type: boolean
+                  disableHostNetworkReadyNoExecuteTaints:
+                    description: |-
+                      DisableHostNetworkReadyNoExecuteTaints disables NoExecute taints on host worker nodes
+                      based on HostNetworkReady. When unset or true, the feature is disabled (safe default).
+                      Set to false to enable NoExecute tainting when HostNetworkReady != True.
                     type: boolean
                   image:
                     description: |-

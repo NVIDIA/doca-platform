@@ -31,15 +31,16 @@ import (
 
 func newDefaultVariables(defaults *release.Defaults) Variables {
 	return Variables{
-		DPUClusters:                      []*dpucluster.Config{},
-		DPUCNIBinPath:                    "/opt/cni/bin",
-		DPUCNIConfPath:                   "/etc/cni/net.d/",
-		DPUOpenvSwitchRunPath:            "/var/run/openvswitch/",
-		DPUOpenvSwitchBinPath:            "/usr/bin/",
-		DPUOpenvSwitchSharedLibPath:      "/lib",
-		DPUOpenvSwitchSharedLib64Path:    nil, // Default to nil - only mount when explicitly configured
-		FlannelSkipCNIConfigInstallation: true,
-		FlannelPodCIDR:                   "10.244.0.0/14",
+		DPUClusters:                            []*dpucluster.Config{},
+		DPUCNIBinPath:                          "/opt/cni/bin",
+		DPUCNIConfPath:                         "/etc/cni/net.d/",
+		DPUOpenvSwitchRunPath:                  "/var/run/openvswitch/",
+		DPUOpenvSwitchBinPath:                  "/usr/bin/",
+		DPUOpenvSwitchSharedLibPath:            "/lib",
+		DPUOpenvSwitchSharedLib64Path:          nil, // Default to nil - only mount when explicitly configured
+		FlannelSkipCNIConfigInstallation:       true,
+		FlannelPodCIDR:                         "10.244.0.0/14",
+		DisableHostNetworkReadyNoExecuteTaints: true, // opt-in: disabled until explicitly set to false
 		DisableSystemComponents: map[operatorv1.ComponentName]bool{
 			operatorv1.ProvisioningControllerName: false,
 			operatorv1.DPUServiceControllerName:   false,
@@ -122,35 +123,36 @@ func newDefaultVariables(defaults *release.Defaults) Variables {
 
 // Variables contains information required to generate manifests from the inventory.
 type Variables struct {
-	Namespace                        string
-	DPUCNIBinPath                    string
-	DPUCNIConfPath                   string
-	DPUOpenvSwitchRunPath            string
-	DPUOpenvSwitchBinPath            string
-	DPUOpenvSwitchSharedLibPath      string
-	DPUOpenvSwitchSharedLib64Path    *string
-	DPULinkerCachePath               *string
-	DPUOptLibraryPath                *string
-	FlannelSkipCNIConfigInstallation bool
-	DisableDPUReadyTaints            bool
-	FlannelPodCIDR                   string
-	DPUClusters                      []*dpucluster.Config
-	DPFProvisioningController        DPFProvisioningVariables
-	SFCController                    SFCControllerVariables
-	NodeSRIOVDevicePluginController  NodeSRIOVDevicePluginControllerVariables
-	OpenTelemetryCollector           OpenTelemetryCollectorVariables
-	Networking                       Networking
-	KataContainers                   KataContainersVariables
-	DisableSystemComponents          map[operatorv1.ComponentName]bool
-	ImagePullSecrets                 []string
-	Images                           map[string]string
-	HelmCharts                       map[operatorv1.ComponentName]string
-	KubernetesAPIServerVIP           *string
-	KubernetesAPIServerPort          *int
-	Resources                        map[string]corev1.ResourceRequirements
-	Replicas                         map[operatorv1.ComponentName]*int32
-	ArgoCDNamespace                  string
-	VaultKMS                         *operatorv1.VaultKMSConfiguration
+	Namespace                              string
+	DPUCNIBinPath                          string
+	DPUCNIConfPath                         string
+	DPUOpenvSwitchRunPath                  string
+	DPUOpenvSwitchBinPath                  string
+	DPUOpenvSwitchSharedLibPath            string
+	DPUOpenvSwitchSharedLib64Path          *string
+	DPULinkerCachePath                     *string
+	DPUOptLibraryPath                      *string
+	FlannelSkipCNIConfigInstallation       bool
+	DisableDPUReadyTaints                  bool
+	DisableHostNetworkReadyNoExecuteTaints bool
+	FlannelPodCIDR                         string
+	DPUClusters                            []*dpucluster.Config
+	DPFProvisioningController              DPFProvisioningVariables
+	SFCController                          SFCControllerVariables
+	NodeSRIOVDevicePluginController        NodeSRIOVDevicePluginControllerVariables
+	OpenTelemetryCollector                 OpenTelemetryCollectorVariables
+	Networking                             Networking
+	KataContainers                         KataContainersVariables
+	DisableSystemComponents                map[operatorv1.ComponentName]bool
+	ImagePullSecrets                       []string
+	Images                                 map[string]string
+	HelmCharts                             map[operatorv1.ComponentName]string
+	KubernetesAPIServerVIP                 *string
+	KubernetesAPIServerPort                *int
+	Resources                              map[string]corev1.ResourceRequirements
+	Replicas                               map[operatorv1.ComponentName]*int32
+	ArgoCDNamespace                        string
+	VaultKMS                               *operatorv1.VaultKMSConfiguration
 }
 
 type DPFProvisioningVariables struct {
@@ -387,8 +389,16 @@ func setAdditionalConfigs(variables Variables, config *operatorv1.DPFOperatorCon
 		}
 	}
 
-	if config.Spec.DPUServiceController != nil && config.Spec.DPUServiceController.DisableDPUReadyTaints != nil {
-		variables.DisableDPUReadyTaints = *config.Spec.DPUServiceController.DisableDPUReadyTaints
+	if dsc := config.Spec.DPUServiceController; dsc != nil {
+		if dsc.DisableDPUReadyTaints != nil {
+			variables.DisableDPUReadyTaints = *dsc.DisableDPUReadyTaints
+		}
+		if dsc.DisableHostNetworkReadyNoExecuteTaints != nil {
+			variables.DisableHostNetworkReadyNoExecuteTaints = *dsc.DisableHostNetworkReadyNoExecuteTaints
+		}
+		if dsc.Replicas != nil {
+			variables.Replicas[operatorv1.DPUServiceControllerName] = dsc.Replicas
+		}
 	}
 
 	// The SPIRE agent's Kubernetes workload attestor needs nodes/pods in the DPU cluster.
@@ -404,9 +414,6 @@ func setAdditionalConfigs(variables Variables, config *operatorv1.DPFOperatorCon
 	}
 	if config.Spec.NodeSRIOVDevicePluginController != nil && config.Spec.NodeSRIOVDevicePluginController.Replicas != nil {
 		variables.Replicas[operatorv1.NodeSRIOVDevicePluginControllerName] = config.Spec.NodeSRIOVDevicePluginController.Replicas
-	}
-	if config.Spec.DPUServiceController != nil && config.Spec.DPUServiceController.Replicas != nil {
-		variables.Replicas[operatorv1.DPUServiceControllerName] = config.Spec.DPUServiceController.Replicas
 	}
 	if config.Spec.StaticClusterManager != nil && config.Spec.StaticClusterManager.Replicas != nil {
 		variables.Replicas[operatorv1.StaticClusterManagerName] = config.Spec.StaticClusterManager.Replicas

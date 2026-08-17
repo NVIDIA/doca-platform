@@ -106,14 +106,17 @@ func TestDPUServiceControllerManifestSetFlag(t *testing.T) {
 		g.Expect(deployment).NotTo(BeNil())
 		g.Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(1))
 		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--disable-dpu-ready-taints=false"))
+		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--disable-host-network-ready-noexecute-taints=true"))
 
-		// Disable DPUReady taints and check the flag is set in the deployment.
+		// Toggle DPUReady taint settings and check the flags are set in the deployment.
 		vars.DisableDPUReadyTaints = true
+		vars.DisableHostNetworkReadyNoExecuteTaints = false
 		generatedObjs, err = dpuserviceCtrl.GenerateManifests(context.Background(), vars)
 		g.Expect(err).NotTo(HaveOccurred())
 
 		deployment = getDeploymentFromGeneratedObjs(g, generatedObjs)
 		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--disable-dpu-ready-taints=true"))
+		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--disable-host-network-ready-noexecute-taints=false"))
 	})
 
 	t.Run("test propagating feature gates to DPUService controller - disabled gate", func(t *testing.T) {
