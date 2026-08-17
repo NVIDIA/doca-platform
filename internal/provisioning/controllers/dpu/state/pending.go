@@ -33,7 +33,6 @@ import (
 )
 
 func Pending(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
-	logger := log.FromContext(ctx)
 	state := dpu.Status.DeepCopy()
 
 	// Check deletion condition
@@ -53,46 +52,11 @@ func Pending(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Contro
 	}
 
 	if dpu.Status.DPUType == provisioningv1.DPUTypeBlueField4 {
-
-		blueFieldSoftware := &provisioningv1.BlueFieldSoftware{}
-		if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: ptr.Deref(dpu.Spec.BlueFieldSoftware, "")}, blueFieldSoftware); err != nil {
-			if apierrors.IsNotFound(err) {
-				cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBlueFieldSoftwareReady.String(), err, "BlueFieldSoftwareNotFound", err.Error()))
-				return *state, err
-			}
-			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBlueFieldSoftwareReady.String(), err, "GetBlueFieldSoftwareError", err.Error()))
+		if err := ensureBlueFieldSoftwareReady(ctx, dpu, ctrlCtx, state); err != nil {
 			return *state, err
 		}
-
-		if blueFieldSoftware.Status.Phase != provisioningv1.BlueFieldSoftwareReady {
-			err := fmt.Errorf("BlueFieldSoftware is not ready")
-			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBlueFieldSoftwareReady.String(), err, "BlueFieldSoftwareIsNotReady", err.Error()))
-			return *state, err
-		}
-
-		logger.Info("BlueFieldSoftware is ready")
-		cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondBlueFieldSoftwareReady, "", ""))
-	} else {
-		// Check for the presence of the specified BFB
-		bfb := &provisioningv1.BFB{}
-		if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: ptr.Deref(dpu.Spec.BFB, "")}, bfb); err != nil {
-			if apierrors.IsNotFound(err) {
-				cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBReady.String(), err, "BFBNotFound", err.Error()))
-				return *state, err
-			}
-			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBReady.String(), err, "GetBFBError", err.Error()))
-			return *state, err
-		}
-
-		// Check BFB is ready
-		if bfb.Status.Phase != provisioningv1.BFBReady {
-			err := fmt.Errorf("BFB is not ready")
-			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBReady.String(), err, "BFBIsNotReady", err.Error()))
-			return *state, err
-		}
-		logger.Info("BFB is ready")
-		state.BFBFile = cutil.GenerateBFBFilePath(bfb.Status.FileName)
-		cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondBFBReady, "", ""))
+	} else if done, err := ensureBFBReady(ctx, dpu, ctrlCtx, state); done || err != nil {
+		return *state, err
 	}
 
 	// Check for the presence of the specified DPUFlavor
@@ -137,4 +101,98 @@ func Pending(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Contro
 
 	state.Phase = provisioningv1.DPUNodeEffect
 	return *state, nil
+}
+
+// ensureBlueFieldSoftwareReady verifies BlueFieldSoftware exists and is Ready for BF4 DPUs.
+func ensureBlueFieldSoftwareReady(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext, state *provisioningv1.DPUStatus) error {
+	blueFieldSoftware := &provisioningv1.BlueFieldSoftware{}
+	if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: ptr.Deref(dpu.Spec.BlueFieldSoftware, "")}, blueFieldSoftware); err != nil {
+		if apierrors.IsNotFound(err) {
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBlueFieldSoftwareReady.String(), err, "BlueFieldSoftwareNotFound", err.Error()))
+			return err
+		}
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBlueFieldSoftwareReady.String(), err, "GetBlueFieldSoftwareError", err.Error()))
+		return err
+	}
+
+	if blueFieldSoftware.Status.Phase != provisioningv1.BlueFieldSoftwareReady {
+		err := fmt.Errorf("BlueFieldSoftware is not ready")
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBlueFieldSoftwareReady.String(), err, "BlueFieldSoftwareIsNotReady", err.Error()))
+		return err
+	}
+
+	log.FromContext(ctx).Info("BlueFieldSoftware is ready")
+	cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondBlueFieldSoftwareReady, "", ""))
+	return nil
+}
+
+// ensureBFBReady verifies the BFB exists, is Ready, and is compatible with the card.
+// done is true when Pending should return the updated state immediately without retry
+// (currently the incompatible-card Error path).
+func ensureBFBReady(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext, state *provisioningv1.DPUStatus) (bool, error) {
+	bfb := &provisioningv1.BFB{}
+	if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: ptr.Deref(dpu.Spec.BFB, "")}, bfb); err != nil {
+		if apierrors.IsNotFound(err) {
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBReady.String(), err, "BFBNotFound", err.Error()))
+			return false, err
+		}
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBReady.String(), err, "GetBFBError", err.Error()))
+		return false, err
+	}
+
+	if bfb.Status.Phase != provisioningv1.BFBReady {
+		err := fmt.Errorf("BFB is not ready")
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBReady.String(), err, "BFBIsNotReady", err.Error()))
+		return false, err
+	}
+	if err := incompatibleBFBCardType(ctx, dpu, ctrlCtx, bfb); err != nil {
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBReady.String(), err, "BFBIncompatibleWithCard", err.Error()))
+		state.Phase = provisioningv1.DPUError
+		return true, nil
+	}
+
+	log.FromContext(ctx).Info("BFB is ready")
+	state.BFBFile = cutil.GenerateBFBFilePath(bfb.Status.FileName)
+	cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondBFBReady, "", ""))
+	return false, nil
+}
+
+// incompatibleBFBCardType returns an error if the BFB is signed for a different card
+// type than the DPU's card. Without this check the mismatch only surfaces as an
+// installation timeout, long after the BFB has been pushed to the DPU.
+//
+// Both sides have to be classifiable to report a mismatch. An unrecognized OPN or BFB
+// release name is treated as compatible, so a naming scheme we do not know about
+// never blocks provisioning. The comparison is directional; see below.
+func incompatibleBFBCardType(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext, bfb *provisioningv1.BFB) error {
+	// The file name has to come from the download URL. Status.FileName defaults to the
+	// BFB object name, which carries no signing suffix and would read as unsigned.
+	bfbCardType := dutil.CardTypeFromBFBFileName(dutil.BFBFileNameFromURL(bfb.Spec.URL))
+	if bfbCardType == dutil.CardTypeUnknown || dpu.Spec.DPUDeviceName == "" {
+		return nil
+	}
+
+	dpuDevice := &provisioningv1.DPUDevice{}
+	if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.DPUDeviceName}, dpuDevice); err != nil {
+		logger := log.FromContext(ctx)
+		if apierrors.IsNotFound(err) {
+			logger.Info("Skipping BFB card type check, DPUDevice is not discovered yet")
+		} else {
+			// Not fatal, but the check is silently bypassed, so make it visible.
+			logger.Error(err, "Skipping BFB card type check, failed to get DPUDevice")
+		}
+		return nil
+	}
+
+	// Compatibility is directional, not equality: a QP card has no key fused and
+	// nothing verifying the image, so any BFB boots on it. Only PK and DK cards
+	// enforce a signing key and therefore require a matching BFB.
+	opn := ptr.Deref(dpuDevice.Status.OPN, "")
+	cardType := dutil.CardTypeFromOPN(opn)
+	if cardType == dutil.CardTypeUnknown || cardType == dutil.CardTypeQP || cardType == bfbCardType {
+		return nil
+	}
+
+	return fmt.Errorf("BFB %s is signed for %s cards, but DPUDevice %s with OPN %s is a %s card",
+		bfb.Name, bfbCardType, dpuDevice.Name, opn, cardType)
 }
