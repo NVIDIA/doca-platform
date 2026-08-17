@@ -45,6 +45,13 @@ func TypedResourceIsChanged[T client.Object]() predicate.TypedFuncs[T] {
 // This is useful for filtering out status updates that don't affect the Ready state.
 // The object must implement conditions.GetSet interface.
 func ReadyConditionChanged() predicate.Funcs {
+	return ConditionChanged(conditions.TypeReady)
+}
+
+// ConditionChanged returns a predicate that triggers only when the status of the given
+// condition type changes. This is useful for filtering out status updates that don't
+// affect the condition being watched. The object must implement conditions.GetSet interface.
+func ConditionChanged(conditionType conditions.ConditionType) predicate.Funcs {
 	return predicate.Funcs{
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			// Trigger when an object is marked for deletion (DeletionTimestamp set).
@@ -61,9 +68,9 @@ func ReadyConditionChanged() predicate.Funcs {
 				return false
 			}
 
-			oldReady := meta.IsStatusConditionTrue(oldObj.GetConditions(), string(conditions.TypeReady))
-			newReady := meta.IsStatusConditionTrue(newObj.GetConditions(), string(conditions.TypeReady))
-			return oldReady != newReady
+			oldStatus := meta.IsStatusConditionTrue(oldObj.GetConditions(), string(conditionType))
+			newStatus := meta.IsStatusConditionTrue(newObj.GetConditions(), string(conditionType))
+			return oldStatus != newStatus
 		},
 		CreateFunc:  func(event.CreateEvent) bool { return true }, // Trigger on creation to get the status already
 		DeleteFunc:  func(event.DeleteEvent) bool { return true }, // Trigger on deletion as it will affect readiness

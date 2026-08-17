@@ -239,7 +239,10 @@ func (d *dpuServiceControllerObjects) setDPUReadyController(deploy *appsv1.Deplo
 	if c == nil {
 		return fmt.Errorf("container %q not found in DPUService Controller deployment", managerContainerName)
 	}
-	return setFlags(c, fmt.Sprintf("--disable-dpu-ready-taints=%t", vars.DisableDPUReadyTaints))
+	return setFlags(c,
+		fmt.Sprintf("--disable-dpu-ready-taints=%t", vars.DisableDPUReadyTaints),
+		fmt.Sprintf("--disable-host-network-ready-noexecute-taints=%t", vars.DisableHostNetworkReadyNoExecuteTaints),
+	)
 }
 
 // setFeatureGates propagates the operator binary's feature-gate to the dpuservice controller deployment so a

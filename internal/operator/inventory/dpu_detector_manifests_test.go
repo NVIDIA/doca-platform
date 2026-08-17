@@ -180,6 +180,11 @@ func TestDPUDetectorObjects_GenerateManifests(t *testing.T) {
 				Operator: corev1.TolerationOpExists,
 				Effect:   corev1.TaintEffectNoSchedule,
 			},
+			{
+				Key:      "dpu.nvidia.com/dpu-ready",
+				Operator: corev1.TolerationOpExists,
+				Effect:   corev1.TaintEffectNoExecute,
+			},
 		},
 		))
 	})
