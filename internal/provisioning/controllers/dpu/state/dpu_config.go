@@ -39,8 +39,15 @@ func DPUConfig(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Cont
 
 	if dpu.Status.AgentStatus == nil || dpu.Status.AgentStatus.LastStartupTime == nil {
 		logger.Info("Waiting for DPU agent contact")
+		// A skewed DPU clock stalls the agent here, before it can obtain an identity, so name that
+		// as the reason rather than leaving the wait unexplained.
+		reason, waitErr := "WaitingForDPUAgent", fmt.Errorf("waiting for DPU agent contact")
+		if skew := cutil.DPUClockSkewMessage(dpu.Status.AgentStatus); skew != "" {
+			reason = cutil.ReasonDPUClockUnsynchronized
+			waitErr = fmt.Errorf("waiting for DPU agent contact: %s", skew)
+		}
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondDPUConfig.String(),
-			fmt.Errorf("waiting for DPU agent contact"), "WaitingForDPUAgent", ""))
+			waitErr, reason, ""))
 		return *state, nil
 	}
 	if dpu.Status.AgentStatus.RebootMethod == nil || *dpu.Status.AgentStatus.RebootMethod == provisioningv1.RebootMethodUnknown {

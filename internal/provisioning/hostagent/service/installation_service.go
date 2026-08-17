@@ -28,6 +28,7 @@ import (
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/hostagent/service/types"
 
 	restful "github.com/emicklei/go-restful/v3"
@@ -122,6 +123,11 @@ func NewInstallationService(client client.Client, nm NetworkConfigurator, rh Reb
 			Param(ws.QueryParameter("name", "the name of the object").Required(true)).
 			Produces(restful.MIME_JSON).
 			To(s.GetObject))
+	ws.Route(
+		ws.POST("/report-clock").
+			Consumes(restful.MIME_JSON).
+			Produces(restful.MIME_JSON).
+			To(s.ReportClock))
 	ws.Route(
 		ws.POST("/configure-host-vfs").
 			Consumes(restful.MIME_JSON).
@@ -583,6 +589,52 @@ func (s *InstallationService) UpdateStatus(req *restful.Request, resp *restful.R
 	}
 	for _, condition := range request.AgentStatus.Conditions {
 		meta.SetStatusCondition(&dpu.Status.AgentStatus.Conditions, condition)
+	}
+
+	if err := s.Status().Patch(req.Request.Context(), dpu, patch); err != nil {
+		klog.Errorf("failed to patch DPU %s: %v", request.DPUName, err)
+		_ = resp.WriteError(http.StatusInternalServerError, err)
+		return
+	}
+	resp.WriteHeader(http.StatusOK)
+}
+
+// ReportClock records the DPU clock next to the host clock on the DPU object. This is the one status
+// a DPU cannot report itself: a skewed clock fails API server certificate verification, so the agent
+// never obtains the identity it would need to write it. The host has both a trusted clock and the
+// credentials, so it records on the agent's behalf, and the DPU controller explains the resulting
+// stall to whoever is watching the DPU.
+func (s *InstallationService) ReportClock(req *restful.Request, resp *restful.Response) {
+	var request types.ReportClockRequest
+	if err := req.ReadEntity(&request); err != nil {
+		klog.Errorf("failed to read report clock request: %v", err)
+		_ = resp.WriteError(http.StatusBadRequest, err)
+		return
+	}
+
+	dpu := &provisioningv1.DPU{}
+	if err := s.Get(req.Request.Context(), client.ObjectKey{Namespace: request.DPUNamespace, Name: request.DPUName}, dpu); err != nil {
+		klog.Errorf("failed to get DPU %s: %v", request.DPUName, err)
+		_ = resp.WriteError(http.StatusNotFound, err)
+		return
+	}
+	if string(dpu.UID) != request.DPUUID {
+		klog.Warningf("Rejecting clock report for DPU %s/%s: request UID %q does not match current DPU UID %q",
+			request.DPUNamespace, request.DPUName, request.DPUUID, dpu.UID)
+		_ = resp.WriteError(http.StatusConflict, fmt.Errorf("stale DPU object: expected UID %q but got %q", request.DPUUID, dpu.UID))
+		return
+	}
+
+	patch := client.MergeFrom(dpu.DeepCopy())
+	if dpu.Status.AgentStatus == nil {
+		dpu.Status.AgentStatus = &provisioningv1.AgentStatus{}
+	}
+	dpu.Status.AgentStatus.Clock = &provisioningv1.ClockStatus{
+		DPUTime:  request.DPUTime,
+		HostTime: metav1.Now(),
+	}
+	if message := cutil.DPUClockSkewMessage(dpu.Status.AgentStatus); message != "" {
+		klog.Errorf("DPU %s/%s: %s", request.DPUNamespace, request.DPUName, message)
 	}
 
 	if err := s.Status().Patch(req.Request.Context(), dpu, patch); err != nil {

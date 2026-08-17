@@ -19,6 +19,7 @@ package util
 import (
 	"context"
 	"testing"
+	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/bfbregistry"
@@ -842,5 +843,41 @@ var _ = Describe("GetBFBRegistryAddressWithPort", func() {
 		c := fake.NewClientBuilder().WithScheme(scheme.Scheme).Build()
 		_, err := GetBFBRegistryAddressWithPort(context.Background(), c, ns, "bfb-registry")
 		Expect(err).To(HaveOccurred())
+	})
+})
+
+var _ = Describe("DPUClockSkewMessage", func() {
+	hostTime := time.Date(2026, 8, 17, 10, 24, 37, 0, time.UTC)
+
+	var message = func(dpuTime time.Time) string {
+		return DPUClockSkewMessage(&provisioningv1.AgentStatus{Clock: &provisioningv1.ClockStatus{
+			DPUTime:  metav1.NewTime(dpuTime),
+			HostTime: metav1.NewTime(hostTime),
+		}})
+	}
+
+	It("says nothing when the DPU is within tolerance", func() {
+		Expect(message(hostTime.Add(30 * time.Second))).To(BeEmpty())
+	})
+
+	It("treats a skew exactly at the threshold as synchronized", func() {
+		Expect(message(hostTime.Add(-MaxDPUClockSkew))).To(BeEmpty())
+	})
+
+	It("says nothing when no clock was reported", func() {
+		Expect(DPUClockSkewMessage(nil)).To(BeEmpty())
+		Expect(DPUClockSkewMessage(&provisioningv1.AgentStatus{})).To(BeEmpty())
+	})
+
+	It("reports the delta and both clocks when the DPU is behind", func() {
+		msg := message(hostTime.Add(-(3*time.Hour + 56*time.Minute + 28*time.Second)))
+
+		Expect(msg).To(ContainSubstring("3h56m28s behind"))
+		Expect(msg).To(ContainSubstring("DPU 2026-08-17T06:28:09Z"))
+		Expect(msg).To(ContainSubstring("host 2026-08-17T10:24:37Z"))
+	})
+
+	It("reports the direction when the DPU is ahead", func() {
+		Expect(message(hostTime.Add(2 * time.Hour))).To(ContainSubstring("2h0m0s ahead of"))
 	})
 })

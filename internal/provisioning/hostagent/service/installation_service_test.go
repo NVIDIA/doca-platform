@@ -26,6 +26,7 @@ import (
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/hostagent/service/types"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -350,6 +351,122 @@ var _ = Describe("InstallationService", func() {
 			resp, err := http.Post(fmt.Sprintf("http://%s/update-status", address), "application/json", bytes.NewBuffer(req))
 			Expect(err).To(Succeed())
 			Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
+		})
+	})
+
+	Context("report clock", func() {
+		var postClock = func(request types.ReportClockRequest) int {
+			req, err := json.Marshal(request)
+			Expect(err).To(Succeed())
+			resp, err := http.Post(fmt.Sprintf("http://%s/report-clock", address), "application/json", bytes.NewBuffer(req))
+			Expect(err).To(Succeed())
+			Expect(resp.Body.Close()).To(Succeed())
+			return resp.StatusCode
+		}
+
+		var clockStatus = func(dpu *provisioningv1.DPU) *provisioningv1.ClockStatus {
+			updatedDPU := &provisioningv1.DPU{}
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: dpu.Namespace, Name: dpu.Name}, updatedDPU)).To(Succeed())
+			Expect(updatedDPU.Status.AgentStatus).NotTo(BeNil())
+			return updatedDPU.Status.AgentStatus.Clock
+		}
+
+		It("should record both clocks, taking the host reading itself", func() {
+			dpu := createDPU("test-dpu", testNS.Name)
+			dpuTime := metav1.NewTime(time.Now().Add(10 * time.Second))
+
+			status := postClock(types.ReportClockRequest{
+				DPUName:      dpu.Name,
+				DPUNamespace: dpu.Namespace,
+				DPUUID:       string(dpu.UID),
+				DPUTime:      dpuTime,
+			})
+			Expect(status).To(Equal(http.StatusOK))
+
+			clock := clockStatus(dpu)
+			Expect(clock).NotTo(BeNil())
+			Expect(clock.DPUTime.Time).To(BeTemporally("~", dpuTime.Time, time.Second))
+			By("the DPU never sends the host reading, so the host has to supply it")
+			Expect(clock.HostTime.IsZero()).To(BeFalse())
+			Expect(cutil.DPUClockSkewMessage(&provisioningv1.AgentStatus{Clock: clock})).To(BeEmpty())
+		})
+
+		It("should record a skewed DPU clock so the skew can be reported", func() {
+			dpu := createDPU("test-dpu", testNS.Name)
+
+			status := postClock(types.ReportClockRequest{
+				DPUName:      dpu.Name,
+				DPUNamespace: dpu.Namespace,
+				DPUUID:       string(dpu.UID),
+				DPUTime:      metav1.NewTime(time.Now().Add(-4 * time.Hour)),
+			})
+			Expect(status).To(Equal(http.StatusOK))
+
+			clock := clockStatus(dpu)
+			Expect(clock).NotTo(BeNil())
+			Expect(clock.HostTime.Sub(clock.DPUTime.Time)).To(BeNumerically("~", 4*time.Hour, time.Minute))
+			Expect(cutil.DPUClockSkewMessage(&provisioningv1.AgentStatus{Clock: clock})).
+				To(ContainSubstring("behind the host clock"))
+		})
+
+		It("should leave no conditions behind", func() {
+			dpu := createDPU("test-dpu", testNS.Name)
+
+			status := postClock(types.ReportClockRequest{
+				DPUName:      dpu.Name,
+				DPUNamespace: dpu.Namespace,
+				DPUUID:       string(dpu.UID),
+				DPUTime:      metav1.NewTime(time.Now().Add(-4 * time.Hour)),
+			})
+			Expect(status).To(Equal(http.StatusOK))
+
+			By("the clock reading is agent status, not a condition the DPU itself reported")
+			updatedDPU := &provisioningv1.DPU{}
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: dpu.Namespace, Name: dpu.Name}, updatedDPU)).To(Succeed())
+			Expect(updatedDPU.Status.AgentStatus.Conditions).To(BeEmpty())
+		})
+
+		It("should not report the DPU agent as started", func() {
+			dpu := createDPU("test-dpu", testNS.Name)
+
+			status := postClock(types.ReportClockRequest{
+				DPUName:      dpu.Name,
+				DPUNamespace: dpu.Namespace,
+				DPUUID:       string(dpu.UID),
+				DPUTime:      metav1.NewTime(time.Now()),
+			})
+			Expect(status).To(Equal(http.StatusOK))
+
+			By("phases gate on LastStartupTime, which only the agent's own client may set")
+			updatedDPU := &provisioningv1.DPU{}
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: dpu.Namespace, Name: dpu.Name}, updatedDPU)).To(Succeed())
+			Expect(updatedDPU.Status.AgentStatus.LastStartupTime).To(BeNil())
+		})
+
+		It("should reject a clock report with mismatched DPU UID", func() {
+			dpu := createDPU("test-dpu", testNS.Name)
+
+			status := postClock(types.ReportClockRequest{
+				DPUName:      dpu.Name,
+				DPUNamespace: dpu.Namespace,
+				DPUUID:       "stale-uid-from-old-agent",
+				DPUTime:      metav1.NewTime(time.Now()),
+			})
+			Expect(status).To(Equal(http.StatusConflict))
+
+			updatedDPU := &provisioningv1.DPU{}
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: dpu.Namespace, Name: dpu.Name}, updatedDPU)).To(Succeed())
+			Expect(updatedDPU.Status.AgentStatus).To(BeNil())
+		})
+
+		It("should fail if DPU not found", func() {
+			status := postClock(types.ReportClockRequest{
+				DPUName:      "test-dpu-not-found",
+				DPUNamespace: testNS.Name,
+				DPUUID:       "some-uid",
+				DPUTime:      metav1.NewTime(time.Now()),
+			})
+			Expect(status).To(Equal(http.StatusNotFound))
 		})
 	})
 
