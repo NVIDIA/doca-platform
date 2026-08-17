@@ -203,12 +203,20 @@ the [API Reference](./api.md#operatordpunvidiacomv1alpha1).
 
 #### DPU Service Controller Configuration options
 
-* `spec.dpuServiceController.disableDPUReadyTaints`: When set to true, disables the automatic tainting of DPU nodes when they're not ready.
+* `spec.dpuServiceController.disableDPUReadyTaints`: When set to true, acts as a full taint kill-switch for the DPUReady controller. No taint managed by this controller (`NoSchedule` for critical DPUServices, or `NoExecute` for HostNetworkReady) is added, removed, or otherwise touched on host worker nodes. See [Disabling All DPUReady Taints](./dpuservice.md#disabling-all-dpuready-taints) for details.
 
 ```yaml
 spec:
   dpuServiceController:
     disableDPUReadyTaints: true
+```
+
+* `spec.dpuServiceController.disableHostNetworkReadyNoExecuteTaints`: When set to false, enables adding a `NoExecute` taint to a host worker node when its Ready-phase DPU reports `HostNetworkReady` is not `True`, evicting workloads that depend on host VFs. Has no effect when `disableDPUReadyTaints` is `true`. See [Host Network Readiness NoExecute Taints](./dpuservice.md#host-network-readiness-noexecute-taints) for details.
+
+```yaml
+spec:
+  dpuServiceController:
+    disableHostNetworkReadyNoExecuteTaints: false
 ```
 
 #### Flannel Configuration Options

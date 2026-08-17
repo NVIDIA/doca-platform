@@ -387,6 +387,135 @@ I0619 09:46:01.170252 dpuready_controller.go:216] Removing taint from node Node=
 ### Final Notes
 This feature is essential for ensuring host-side stability when critical DPU infrastructure is missing or unhealthy. Proper labeling and understanding of the DPU-host relationship are required for effective use of this functionality.
 
+To disable this `NoSchedule` taint together with the HostNetworkReady `NoExecute` taint in one step, see [Disabling All DPUReady Taints](#disabling-all-dpuready-taints).
+
+## Host Network Readiness NoExecute Taints
+
+### Overview
+
+When a provisioned DPU reboots or loses host networking (for example, when host VFs
+disappear), workloads that depend on DPU networking should not continue running on the
+host worker node. DPF can enforce this by applying a `NoExecute` taint to the host node
+when a DPU in Phase `Ready` reports `HostNetworkReady != True`.
+
+This feature is **disabled by default (`true` or unset)**. It is controlled independently from the
+[NoSchedule taint for critical DPUServices](#configuring-critical-dpuservice-for-dpu-readiness)
+described above.
+
+### How to Enable
+
+Enable the feature by setting `disableHostNetworkReadyNoExecuteTaints` to `false` in
+`DPFOperatorConfig`:
+
+```yaml
+apiVersion: operator.dpu.nvidia.com/v1alpha1
+kind: DPFOperatorConfig
+metadata:
+  name: dpfoperatorconfig
+  namespace: dpf-operator-system
+spec:
+  dpuServiceController:
+    disableHostNetworkReadyNoExecuteTaints: false
+```
+
+After the operator reconciles the configuration, the DPUService controller applies or
+removes the taint based on each DPU's `HostNetworkReady` condition.
+
+### Taint Behavior
+
+When a DPU in Phase `Ready` has `HostNetworkReady != True`, the corresponding host
+worker node is tainted:
+
+```yaml
+spec:
+  taints:
+  - effect: NoExecute
+    key: dpu.nvidia.com/dpu-ready
+```
+
+When `HostNetworkReady` becomes `True` again, the `NoExecute` taint is removed. Unlike
+the critical DPUService `NoSchedule` taint, this behavior is driven by the DPU
+`HostNetworkReady` condition rather than critical DPUService pod readiness.
+
+### Tolerations for Host Workloads
+
+The `NoExecute` effect evicts existing pods that do not tolerate the taint. Workloads
+that must remain on the host during a DPU network outage — for example, `hostNetwork`
+DaemonSets, must include the following toleration:
+
+```yaml
+tolerations:
+- key: dpu.nvidia.com/dpu-ready
+  operator: Exists
+  effect: NoExecute
+```
+
+Workloads that consume VFs or rely on DPU networking should **not** tolerate this
+taint. They are evicted when host networking is unavailable and can be rescheduled
+after the DPU network recovers.
+
+DPF system host components (for example, the DPU detector) include this toleration by
+default. Customer-managed `hostNetwork` DaemonSets must add the toleration themselves.
+
+### Relationship to Critical DPUService NoSchedule Taint
+
+Both features use the same taint key (`dpu.nvidia.com/dpu-ready`) but apply different
+effects and are controlled independently:
+
+| Feature | Taint effect | Trigger | Enablement |
+|---------|--------------|---------|------------|
+| Critical DPUService readiness | `NoSchedule` | Critical DPUService pod not running on the DPU | Label DPUService with `svc.dpu.nvidia.com/critical` |
+| Host network readiness | `NoExecute` | DPU in Phase `Ready` with `HostNetworkReady != True` | Set `disableHostNetworkReadyNoExecuteTaints: false` in `DPFOperatorConfig` |
+
+Because the taint key is shared, a host node can carry both effects at the same time.
+Each effect is added and removed independently based on its own trigger.
+
+Setting `disableDPUReadyTaints: true` disables both features. See
+[Disabling All DPUReady Taints](#disabling-all-dpuready-taints).
+
+### Troubleshooting
+
+The `NoExecute` taint is reconciled per `DPUNode`. If a `DPUNode` is deleted while its
+corresponding host `Node` remains in the cluster (for example, during out-of-band node
+removal or certain maintenance flows), the DPUReady controller no longer has a `DPUNode`
+to reconcile against and the `dpu.nvidia.com/dpu-ready` `NoExecute` taint can be left on
+the host node even after the DPU is gone. In this situation, workloads without the
+toleration remain evicted from the node until the taint is removed.
+
+If you observe a host node stuck with the `dpu.nvidia.com/dpu-ready` `NoExecute` taint
+after its `DPUNode` was deleted, remove the taint manually:
+
+```bash
+$ kubectl taint node <host-node-name> dpu.nvidia.com/dpu-ready:NoExecute-
+```
+
+Re-provisioning the DPU (which recreates the `DPUNode`) also resolves this, since the
+controller resumes reconciling the taint once the `DPUNode` exists again.
+
+## Disabling All DPUReady Taints
+
+`DPFOperatorConfig.spec.dpuServiceController.disableDPUReadyTaints` is a full taint
+kill-switch for the DPUReady controller. When set to `true`, no taint managed by this
+controller is added, removed, or otherwise touched on host worker nodes:
+
+* the critical DPUService `NoSchedule` taint (`dpu.nvidia.com/dpu-ready`)
+* the HostNetworkReady `NoExecute` taint (`dpu.nvidia.com/dpu-ready`)
+
+Existing taints with this key are left as-is; the controller does not clean them up
+while the kill-switch is enabled. Setting `disableHostNetworkReadyNoExecuteTaints` has
+no effect while `disableDPUReadyTaints` is `true`.
+
+```yaml
+apiVersion: operator.dpu.nvidia.com/v1alpha1
+kind: DPFOperatorConfig
+metadata:
+  name: dpfoperatorconfig
+  namespace: dpf-operator-system
+spec:
+  dpuServiceController:
+    disableDPUReadyTaints: true
+```
+
 ## Dividing the cluster into several zones (DEPRECATED - Use DPUDeployment instead)
 
 For a better control of maintenance and down-time, the cluster can be logically divided into several "zones".

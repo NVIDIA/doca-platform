@@ -82,6 +82,7 @@ func main() {
 	var insecureMetrics bool
 	var enableHTTP2 bool
 	var disableDPUReadyTaints bool
+	var disableHostNetworkReadyNoExecuteTaints bool
 	var syncPeriod time.Duration
 	var concurrency int
 
@@ -97,6 +98,8 @@ func main() {
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers.")
 	fs.BoolVar(&disableDPUReadyTaints, "disable-dpu-ready-taints", false,
 		"If set, the DPUReady controller will not add/remove taints when DPUs are not ready. Other controller functionality remains enabled.")
+	fs.BoolVar(&disableHostNetworkReadyNoExecuteTaints, "disable-host-network-ready-noexecute-taints", true,
+		"If set (the default), the DPUReady controller does not manage NoExecute taints based on HostNetworkReady. Set to false to enable.")
 	fs.DurationVar(&syncPeriod, "sync-period", 10*time.Minute,
 		"The minimum interval at which watched resources are reconciled.")
 	fs.IntVar(&concurrency, "concurrency", 1,
@@ -208,10 +211,14 @@ func main() {
 	if disableDPUReadyTaints {
 		setupLog.Info("DPUReady taint management is disabled")
 	}
+	if disableHostNetworkReadyNoExecuteTaints {
+		setupLog.Info("HostNetworkReady NoExecute taint management is disabled")
+	}
 	dpuReadyReconciler := &dpuservicecontroller.DPUReadyReconciler{
-		Client:                mgr.GetClient(),
-		Scheme:                mgr.GetScheme(),
-		DisableDPUReadyTaints: disableDPUReadyTaints,
+		Client:                                 mgr.GetClient(),
+		Scheme:                                 mgr.GetScheme(),
+		DisableDPUReadyTaints:                  disableDPUReadyTaints,
+		DisableHostNetworkReadyNoExecuteTaints: disableHostNetworkReadyNoExecuteTaints,
 	}
 	if err = dpuReadyReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DPUReady")

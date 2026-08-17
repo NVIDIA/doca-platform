@@ -32,10 +32,12 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -3257,5 +3259,233 @@ var _ = Describe("serviceChainEventHandler", func() {
 				return queue.Len()
 			}, 1*time.Second).Should(Equal(0))
 		})
+	})
+})
+
+// newHostNetworkReadyTestDPU creates a DPU in the given phase, optionally with a HostNetworkReady
+// condition set to the given status. If hasHostNetworkReadyCondition is false, the condition is
+// omitted entirely to exercise the "missing condition" case.
+func newHostNetworkReadyTestDPU(name string, phase provisioningv1.DPUPhase, hasHostNetworkReadyCondition bool, hostNetworkReadyStatus metav1.ConditionStatus) provisioningv1.DPU {
+	dpu := provisioningv1.DPU{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Status: provisioningv1.DPUStatus{
+			Phase: phase,
+		},
+	}
+	if hasHostNetworkReadyCondition {
+		dpu.Status.Conditions = []metav1.Condition{
+			{
+				Type:   string(provisioningv1.DPUCondHostNetworkReady),
+				Status: hostNetworkReadyStatus,
+			},
+		}
+	}
+	return dpu
+}
+
+var _ = Describe("HostNetworkReady NoExecute Taint Management", func() {
+	var (
+		hostNetworkReadyTestNode *corev1.Node
+		fakeClient               client.Client
+	)
+
+	BeforeEach(func() {
+		hostNetworkReadyTestNode = &corev1.Node{
+			ObjectMeta: metav1.ObjectMeta{Name: "hostnetworkready-test-node"},
+		}
+		fakeClient = fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(hostNetworkReadyTestNode).Build()
+	})
+
+	getUpdatedNodeTaints := func() []corev1.Taint {
+		updatedNode := &corev1.Node{}
+		Expect(fakeClient.Get(ctx, client.ObjectKeyFromObject(hostNetworkReadyTestNode), updatedNode)).To(Succeed())
+		return updatedNode.Spec.Taints
+	}
+
+	It("should never add a NoExecute taint when the feature is disabled, even if Phase is Ready and HostNetworkReady is False", func() {
+		reconciler := &DPUReadyReconciler{Client: fakeClient, DisableHostNetworkReadyNoExecuteTaints: true}
+		scope := &reconcileScope{
+			node: hostNetworkReadyTestNode,
+			dpuList: []provisioningv1.DPU{
+				newHostNetworkReadyTestDPU("dpu-1", provisioningv1.DPUReady, true, metav1.ConditionFalse),
+			},
+		}
+
+		Expect(reconciler.reconcileHostNetworkReadyNoExecuteTaints(ctx, scope)).To(Succeed())
+
+		Expect(getUpdatedNodeTaints()).NotTo(ContainElement(corev1.Taint{
+			Key:    taintKey,
+			Effect: corev1.TaintEffectNoExecute,
+		}))
+	})
+
+	It("should add a NoExecute taint when the feature is enabled, Phase is Ready and HostNetworkReady is False", func() {
+		reconciler := &DPUReadyReconciler{Client: fakeClient, DisableHostNetworkReadyNoExecuteTaints: false}
+		scope := &reconcileScope{
+			node: hostNetworkReadyTestNode,
+			dpuList: []provisioningv1.DPU{
+				newHostNetworkReadyTestDPU("dpu-1", provisioningv1.DPUReady, true, metav1.ConditionFalse),
+			},
+		}
+
+		Expect(reconciler.reconcileHostNetworkReadyNoExecuteTaints(ctx, scope)).To(Succeed())
+
+		Expect(getUpdatedNodeTaints()).To(ContainElement(corev1.Taint{
+			Key:    taintKey,
+			Effect: corev1.TaintEffectNoExecute,
+		}))
+	})
+
+	It("should remove the NoExecute taint when HostNetworkReady becomes True, without touching an independently-managed NoSchedule taint", func() {
+		hostNetworkReadyTestNode.Spec.Taints = []corev1.Taint{
+			{Key: taintKey, Effect: corev1.TaintEffectNoExecute},
+			{Key: taintKey, Effect: corev1.TaintEffectNoSchedule},
+		}
+		fakeClient = fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(hostNetworkReadyTestNode).Build()
+
+		reconciler := &DPUReadyReconciler{Client: fakeClient, DisableHostNetworkReadyNoExecuteTaints: false}
+		scope := &reconcileScope{
+			node: hostNetworkReadyTestNode,
+			dpuList: []provisioningv1.DPU{
+				newHostNetworkReadyTestDPU("dpu-1", provisioningv1.DPUReady, true, metav1.ConditionTrue),
+			},
+		}
+
+		Expect(reconciler.reconcileHostNetworkReadyNoExecuteTaints(ctx, scope)).To(Succeed())
+
+		taints := getUpdatedNodeTaints()
+		Expect(taints).NotTo(ContainElement(corev1.Taint{
+			Key:    taintKey,
+			Effect: corev1.TaintEffectNoExecute,
+		}))
+		Expect(taints).To(ContainElement(corev1.Taint{
+			Key:    taintKey,
+			Effect: corev1.TaintEffectNoSchedule,
+		}))
+	})
+
+	It("should not add a NoExecute taint when no DPU has reached Phase Ready yet", func() {
+		reconciler := &DPUReadyReconciler{Client: fakeClient, DisableHostNetworkReadyNoExecuteTaints: false}
+		scope := &reconcileScope{
+			node: hostNetworkReadyTestNode,
+			dpuList: []provisioningv1.DPU{
+				newHostNetworkReadyTestDPU("dpu-1", provisioningv1.DPUClusterConfig, true, metav1.ConditionFalse),
+			},
+		}
+
+		Expect(reconciler.reconcileHostNetworkReadyNoExecuteTaints(ctx, scope)).To(Succeed())
+
+		Expect(getUpdatedNodeTaints()).NotTo(ContainElement(corev1.Taint{
+			Key:    taintKey,
+			Effect: corev1.TaintEffectNoExecute,
+		}))
+	})
+
+	It("should remove an existing NoExecute taint when the feature is toggled off", func() {
+		hostNetworkReadyTestNode.Spec.Taints = []corev1.Taint{
+			{Key: taintKey, Effect: corev1.TaintEffectNoExecute},
+		}
+		fakeClient = fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(hostNetworkReadyTestNode).Build()
+
+		reconciler := &DPUReadyReconciler{Client: fakeClient, DisableHostNetworkReadyNoExecuteTaints: true}
+		scope := &reconcileScope{
+			node: hostNetworkReadyTestNode,
+			dpuList: []provisioningv1.DPU{
+				newHostNetworkReadyTestDPU("dpu-1", provisioningv1.DPUReady, true, metav1.ConditionFalse),
+			},
+		}
+
+		Expect(reconciler.reconcileHostNetworkReadyNoExecuteTaints(ctx, scope)).To(Succeed())
+
+		Expect(getUpdatedNodeTaints()).NotTo(ContainElement(corev1.Taint{
+			Key:    taintKey,
+			Effect: corev1.TaintEffectNoExecute,
+		}))
+	})
+
+	It("should treat a missing HostNetworkReady condition as not ready", func() {
+		reconciler := &DPUReadyReconciler{Client: fakeClient, DisableHostNetworkReadyNoExecuteTaints: false}
+		scope := &reconcileScope{
+			node: hostNetworkReadyTestNode,
+			dpuList: []provisioningv1.DPU{
+				newHostNetworkReadyTestDPU("dpu-1", provisioningv1.DPUReady, false, ""),
+			},
+		}
+
+		Expect(reconciler.reconcileHostNetworkReadyNoExecuteTaints(ctx, scope)).To(Succeed())
+
+		Expect(getUpdatedNodeTaints()).To(ContainElement(corev1.Taint{
+			Key:    taintKey,
+			Effect: corev1.TaintEffectNoExecute,
+		}))
+	})
+
+	It("should skip host taint reconciliation in zero-trust mode (no corev1.Node)", func() {
+		reconciler := &DPUReadyReconciler{Client: fakeClient, DisableHostNetworkReadyNoExecuteTaints: false}
+		scope := &reconcileScope{
+			node: nil,
+			dpuList: []provisioningv1.DPU{
+				newHostNetworkReadyTestDPU("dpu-1", provisioningv1.DPUReady, true, metav1.ConditionFalse),
+			},
+		}
+
+		Expect(reconciler.reconcileHostNetworkReadyNoExecuteTaints(ctx, scope)).To(Succeed())
+	})
+
+	It("should add a NoExecute taint when one of several DPUs is Ready with HostNetworkReady False, even if another is Ready and True", func() {
+		reconciler := &DPUReadyReconciler{Client: fakeClient, DisableHostNetworkReadyNoExecuteTaints: false}
+		scope := &reconcileScope{
+			node: hostNetworkReadyTestNode,
+			dpuList: []provisioningv1.DPU{
+				newHostNetworkReadyTestDPU("dpu-1", provisioningv1.DPUReady, true, metav1.ConditionTrue),
+				newHostNetworkReadyTestDPU("dpu-2", provisioningv1.DPUReady, true, metav1.ConditionFalse),
+			},
+		}
+
+		Expect(reconciler.reconcileHostNetworkReadyNoExecuteTaints(ctx, scope)).To(Succeed())
+
+		Expect(getUpdatedNodeTaints()).To(ContainElement(corev1.Taint{
+			Key:    taintKey,
+			Effect: corev1.TaintEffectNoExecute,
+		}))
+	})
+
+	It("should not touch an existing NoExecute taint when DisableDPUReadyTaints is set, even if the feature is disabled", func() {
+		hostNetworkReadyTestNode.Spec.Taints = []corev1.Taint{
+			{Key: taintKey, Effect: corev1.TaintEffectNoExecute},
+		}
+		fakeClient = fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(hostNetworkReadyTestNode).Build()
+
+		reconciler := &DPUReadyReconciler{Client: fakeClient, DisableDPUReadyTaints: true, DisableHostNetworkReadyNoExecuteTaints: true}
+		scope := &reconcileScope{
+			node: hostNetworkReadyTestNode,
+			dpuList: []provisioningv1.DPU{
+				newHostNetworkReadyTestDPU("dpu-1", provisioningv1.DPUReady, true, metav1.ConditionTrue),
+			},
+		}
+
+		Expect(reconciler.reconcileHostNetworkReadyNoExecuteTaints(ctx, scope)).To(Succeed())
+
+		Expect(getUpdatedNodeTaints()).To(ContainElement(corev1.Taint{
+			Key:    taintKey,
+			Effect: corev1.TaintEffectNoExecute,
+		}))
+	})
+
+	It("should not add a NoExecute taint when DisableDPUReadyTaints is set, even if the feature is enabled and HostNetworkReady is False", func() {
+		reconciler := &DPUReadyReconciler{Client: fakeClient, DisableDPUReadyTaints: true, DisableHostNetworkReadyNoExecuteTaints: false}
+		scope := &reconcileScope{
+			node: hostNetworkReadyTestNode,
+			dpuList: []provisioningv1.DPU{
+				newHostNetworkReadyTestDPU("dpu-1", provisioningv1.DPUReady, true, metav1.ConditionFalse),
+			},
+		}
+
+		Expect(reconciler.reconcileHostNetworkReadyNoExecuteTaints(ctx, scope)).To(Succeed())
+
+		Expect(getUpdatedNodeTaints()).NotTo(ContainElement(corev1.Taint{
+			Key:    taintKey,
+			Effect: corev1.TaintEffectNoExecute,
+		}))
 	})
 })
