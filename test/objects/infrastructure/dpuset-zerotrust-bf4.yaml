@@ -12,6 +12,11 @@ spec:
       maxUnavailable: 10%
     type: RollingUpdate
   dpuTemplate:
+    annotations:
+      # The pinned PLDM bundle can be older than the firmware already flashed on the shared
+      # BF4 boards. Forcing on a version mismatch lets the ERoT accept that downgrade instead
+      # of aborting the update task and failing the DPU.
+      provisioning.dpu.nvidia.com/force-fw-update: "true"
     spec:
       # Will be overridden if DPUFlavor is provided in the e2e config.
       dpuFlavor: dpf-provisioning-hbn-ovn
