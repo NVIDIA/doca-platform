@@ -351,6 +351,60 @@ var _ = Describe("FirmwareUpdate", func() {
 				HaveField("Reason", "Submitting"),
 			),
 		))
+		Expect(mockServer.GetLastForceUpdate()).To(BeFalse())
+	})
+
+	It("should force the PLDM firmware update when the DPU is annotated and versions mismatch", func() {
+		mockServer := createBF4MockRedfishServer()
+		defer mockServer.Stop()
+		mockServer.SetFirmwareVersions("old-bmc", "old-erot", "old-sbios", "old-nic")
+
+		createBMCAndMTLSSecretsForBF4(mockServer)
+		prepareBF4DPUDevice(mockServer)
+
+		pldmPath := createTempPldmFwBundle()
+		defer func() { _ = os.Remove(pldmPath) }()
+		createBlueFieldSoftware(pldmPath, true)
+
+		dpu := dpuObj(defaultDPUName)
+		dpu.Annotations = map[string]string{cutil.DPUForceFwUpdateAnnotation: "true"}
+		dpu.Spec.DPUDeviceName = defaultDPUDeviceName
+		dpu.Spec.BlueFieldSoftware = ptr.To(defaultBlueFieldSWName)
+		dpu.Status.Phase = provisioningv1.DPUUpdateFirmware
+		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
+
+		status, err := FirmwareUpdate(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(status.RedfishTaskID).NotTo(BeNil())
+		Expect(mockServer.GetLastForceUpdate()).To(BeTrue())
+	})
+
+	It("should not submit a PLDM firmware update when the DPU is annotated but versions match", func() {
+		mockServer := createBF4MockRedfishServer()
+		defer mockServer.Stop()
+
+		createBMCAndMTLSSecretsForBF4(mockServer)
+		prepareBF4DPUDevice(mockServer)
+
+		pldmPath := createTempPldmFwBundle()
+		defer func() { _ = os.Remove(pldmPath) }()
+		createBlueFieldSoftware(pldmPath, true)
+
+		dpu := dpuObj(defaultDPUName)
+		dpu.Annotations = map[string]string{cutil.DPUForceFwUpdateAnnotation: "true"}
+		dpu.Spec.DPUDeviceName = defaultDPUDeviceName
+		dpu.Spec.BlueFieldSoftware = ptr.To(defaultBlueFieldSWName)
+		dpu.Status.Phase = provisioningv1.DPUUpdateFirmware
+		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
+
+		status, err := FirmwareUpdate(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(status.Phase).To(Equal(provisioningv1.DPUPrepareBFB))
+		Expect(status.RedfishTaskID).To(BeNil())
+		Expect(mockServer.GetLastForceUpdate()).To(BeFalse())
+		Expect(status.Conditions).NotTo(ContainElement(
+			HaveField("Type", provisioningv1.DPUCondFwBundleSubmitted.String()),
+		))
 	})
 
 	It("should complete PLDM firmware update after task completion and activation", func() {

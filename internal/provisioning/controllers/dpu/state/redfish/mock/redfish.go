@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
 
@@ -81,6 +82,7 @@ type RedfishMockServer struct {
 	virtualMediaInserted            map[string]bool          // Inserted state per VirtualMedia ID (IMAGE, CONFIG)
 	bmcRShimEnabled                 bool                     // BmcRShimEnabled reported by GET Oem/Nvidia
 	bmcRShimGetError                bool                     // Simulate GET Oem/Nvidia error for testing
+	lastForceUpdate                 atomic.Bool              // ForceUpdate requested by the most recent PLDM multipart update, read from the test goroutine
 }
 
 type DpuVersion int
@@ -548,6 +550,8 @@ func (r *RedfishMockServer) handleUpdateBluefieldFirmwareMultipart(w http.Respon
 		return
 	}
 
+	r.lastForceUpdate.Store(forceUpdateFromRequest(req))
+
 	taskInfo := map[string]interface{}{
 		"@odata.context": "/redfish/v1/$metadata#Task.Task",
 		"@odata.id":      "/redfish/v1/TaskService/Tasks/0",
@@ -558,6 +562,36 @@ func (r *RedfishMockServer) handleUpdateBluefieldFirmwareMultipart(w http.Respon
 
 	w.WriteHeader(http.StatusAccepted)
 	writeJSONResponse(w, taskInfo)
+}
+
+// forceUpdateFromRequest reads the ForceUpdate flag out of the multipart UpdateParameters
+// field so tests can assert what the controller asked the BMC to do.
+func forceUpdateFromRequest(req *http.Request) bool {
+	reader, err := req.MultipartReader()
+	if err != nil {
+		return false
+	}
+	for {
+		part, err := reader.NextPart()
+		if err != nil {
+			return false
+		}
+		if part.FormName() != "UpdateParameters" {
+			continue
+		}
+		var params struct {
+			ForceUpdate bool `json:"ForceUpdate"`
+		}
+		if err := json.NewDecoder(part).Decode(&params); err != nil {
+			return false
+		}
+		return params.ForceUpdate
+	}
+}
+
+// GetLastForceUpdate reports whether the most recent PLDM multipart update requested ForceUpdate.
+func (r *RedfishMockServer) GetLastForceUpdate() bool {
+	return r.lastForceUpdate.Load()
 }
 
 // handleActivatePendingBundle handles pending bundle activation requests.
