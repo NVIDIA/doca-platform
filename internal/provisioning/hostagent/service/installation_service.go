@@ -37,7 +37,9 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	metav1validation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -135,6 +137,11 @@ func NewInstallationService(client client.Client, nm NetworkConfigurator, rh Reb
 			Consumes(restful.MIME_JSON).
 			Produces(restful.MIME_JSON).
 			To(s.RebindHostDriver))
+	ws.Route(
+		ws.POST("/set-error").
+			Consumes(restful.MIME_JSON).
+			Produces(restful.MIME_JSON).
+			To(s.SetError))
 	ws.Route(ws.GET("/healthz").To(s.HealthCheck))
 	// Package repositories: serve .deb and .rpm packages for DPU provisioning.
 	ws.Route(ws.GET("/deb/{subpath:*}").To(serveRepoFile(debRepoDir)))
@@ -341,6 +348,30 @@ func (s *InstallationService) HealthCheck(req *restful.Request, resp *restful.Re
 	resp.WriteHeader(http.StatusOK)
 }
 
+// fetchDPUForRequest loads the DPU and rejects requests carrying a stale UID.
+// It writes the appropriate error response and returns nil when the request must not proceed.
+func (s *InstallationService) fetchDPUForRequest(req *restful.Request, resp *restful.Response, namespace, name, uid, action string) *provisioningv1.DPU {
+	dpu := &provisioningv1.DPU{}
+	if err := s.Get(req.Request.Context(), client.ObjectKey{Namespace: namespace, Name: name}, dpu); err != nil {
+		klog.Errorf("failed to get DPU %s/%s: %v", namespace, name, err)
+		status := http.StatusInternalServerError
+		if apierrors.IsNotFound(err) {
+			status = http.StatusNotFound
+		}
+		_ = resp.WriteError(status, err)
+		return nil
+	}
+
+	if string(dpu.UID) != uid {
+		klog.Warningf("Rejecting %s request for DPU %s/%s: request UID %q does not match current DPU UID %q",
+			action, namespace, name, uid, dpu.UID)
+		_ = resp.WriteError(http.StatusConflict, fmt.Errorf("stale DPU object: expected UID %q but got %q", uid, dpu.UID))
+		return nil
+	}
+
+	return dpu
+}
+
 func (s *InstallationService) ConfigureHostVFs(req *restful.Request, resp *restful.Response) {
 	var request types.ConfigureHostVFsRequest
 	if err := req.ReadEntity(&request); err != nil {
@@ -393,21 +424,8 @@ func (s *InstallationService) RebindHostDriver(req *restful.Request, resp *restf
 	}
 
 	ctx := req.Request.Context()
-	dpu := &provisioningv1.DPU{}
-	if err := s.Get(ctx, client.ObjectKey{Namespace: request.DPUNamespace, Name: request.DPUName}, dpu); err != nil {
-		klog.Errorf("failed to get DPU %s/%s: %v", request.DPUNamespace, request.DPUName, err)
-		if apierrors.IsNotFound(err) {
-			_ = resp.WriteError(http.StatusNotFound, err)
-		} else {
-			_ = resp.WriteError(http.StatusInternalServerError, err)
-		}
-		return
-	}
-
-	if string(dpu.UID) != request.DPUUID {
-		klog.Warningf("Rejecting rebind host driver request for DPU %s/%s: request UID %q does not match current DPU UID %q",
-			request.DPUNamespace, request.DPUName, request.DPUUID, dpu.UID)
-		_ = resp.WriteError(http.StatusConflict, fmt.Errorf("stale DPU object: expected UID %q but got %q", request.DPUUID, dpu.UID))
+	dpu := s.fetchDPUForRequest(req, resp, request.DPUNamespace, request.DPUName, request.DPUUID, "rebind host driver")
+	if dpu == nil {
 		return
 	}
 
@@ -444,21 +462,8 @@ func (s *InstallationService) TriggerReboot(req *restful.Request, resp *restful.
 
 	ctx := req.Request.Context()
 
-	dpu := &provisioningv1.DPU{}
-	if err := s.Get(ctx, client.ObjectKey{Namespace: request.DPUNamespace, Name: request.DPUName}, dpu); err != nil {
-		klog.Errorf("failed to get DPU %s/%s: %v", request.DPUNamespace, request.DPUName, err)
-		if apierrors.IsNotFound(err) {
-			_ = resp.WriteError(http.StatusNotFound, err)
-		} else {
-			_ = resp.WriteError(http.StatusInternalServerError, err)
-		}
-		return
-	}
-
-	if string(dpu.UID) != request.DPUUID {
-		klog.Warningf("Rejecting trigger reboot request for DPU %s/%s: request UID %q does not match current DPU UID %q",
-			request.DPUNamespace, request.DPUName, request.DPUUID, dpu.UID)
-		_ = resp.WriteError(http.StatusConflict, fmt.Errorf("stale DPU object: expected UID %q but got %q", request.DPUUID, dpu.UID))
+	dpu := s.fetchDPUForRequest(req, resp, request.DPUNamespace, request.DPUName, request.DPUUID, "trigger reboot")
+	if dpu == nil {
 		return
 	}
 
@@ -496,6 +501,48 @@ func (s *InstallationService) TriggerReboot(req *restful.Request, resp *restful.
 	resp.WriteHeader(http.StatusOK)
 }
 
+func (s *InstallationService) SetError(req *restful.Request, resp *restful.Response) {
+	var request types.SetErrorRequest
+	if err := req.ReadEntity(&request); err != nil {
+		klog.Errorf("failed to read set error request: %v", err)
+		_ = resp.WriteError(http.StatusBadRequest, err)
+		return
+	}
+	klog.Infof("Received set error request for DPU %s/%s: reason=%s, message=%s",
+		request.DPUNamespace, request.DPUName, request.Reason, request.Message)
+
+	errCond := metav1.Condition{
+		Type:               string(provisioningv1.DPUCondError),
+		Status:             metav1.ConditionTrue,
+		Reason:             request.Reason,
+		Message:            request.Message,
+		LastTransitionTime: metav1.Now(),
+	}
+	if errs := metav1validation.ValidateCondition(errCond, field.NewPath("condition")); len(errs) > 0 {
+		klog.Errorf("rejecting set error request for DPU %s/%s: %v", request.DPUNamespace, request.DPUName, errs.ToAggregate())
+		_ = resp.WriteError(http.StatusBadRequest, errs.ToAggregate())
+		return
+	}
+
+	dpu := s.fetchDPUForRequest(req, resp, request.DPUNamespace, request.DPUName, request.DPUUID, "set error")
+	if dpu == nil {
+		return
+	}
+
+	// Only the condition is reported here. The DPU controller owns the phase transitions and moves
+	// the DPU to the Error phase once it observes this condition.
+	patch := client.MergeFrom(dpu.DeepCopy())
+	meta.SetStatusCondition(&dpu.Status.Conditions, errCond)
+
+	if err := s.Status().Patch(req.Request.Context(), dpu, patch); err != nil {
+		klog.Errorf("failed to patch DPU %s/%s error status: %v", request.DPUNamespace, request.DPUName, err)
+		_ = resp.WriteError(http.StatusInternalServerError, err)
+		return
+	}
+	klog.Infof("Successfully set error on DPU %s/%s", request.DPUNamespace, request.DPUName)
+	resp.WriteHeader(http.StatusOK)
+}
+
 func (s *InstallationService) UpdateStatus(req *restful.Request, resp *restful.Response) {
 	var request types.UpdateStatusRequest
 	if err := req.ReadEntity(&request); err != nil {
@@ -505,17 +552,8 @@ func (s *InstallationService) UpdateStatus(req *restful.Request, resp *restful.R
 	}
 	klog.Infof("Received update status request: %#v", request)
 
-	dpu := &provisioningv1.DPU{}
-	if err := s.Get(req.Request.Context(), client.ObjectKey{Namespace: request.DPUNamespace, Name: request.DPUName}, dpu); err != nil {
-		klog.Errorf("failed to get DPU %s: %v", request.DPUName, err)
-		_ = resp.WriteError(http.StatusNotFound, err)
-		return
-	}
-
-	if string(dpu.UID) != request.DPUUID {
-		klog.Warningf("Rejecting agent status update for DPU %s/%s: request UID %q does not match current DPU UID %q",
-			request.DPUNamespace, request.DPUName, request.DPUUID, dpu.UID)
-		_ = resp.WriteError(http.StatusConflict, fmt.Errorf("stale DPU object: expected UID %q but got %q", request.DPUUID, dpu.UID))
+	dpu := s.fetchDPUForRequest(req, resp, request.DPUNamespace, request.DPUName, request.DPUUID, "agent status update")
+	if dpu == nil {
 		return
 	}
 
