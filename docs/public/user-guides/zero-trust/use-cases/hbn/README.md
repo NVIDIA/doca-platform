@@ -372,6 +372,20 @@ spec:
     path: /etc/mellanox/mlnx-sf.conf
     permissions: "0644"
     raw: ""
+  - operation: override
+    path: /etc/apparmor.d/local/usr.sbin.rsyslogd
+    permissions: "0644"
+    raw: |
+      signal (receive) peer=runc,
+      capability chown,
+      /usr/{bin,sbin}/* ixr,
+      /etc/logrotate.d/* r,
+      /var/lib/logrotate/{,**} rwk,
+  - operation: override
+    path: /etc/apparmor.d/local/usr.bin.tcpdump
+    permissions: "0644"
+    raw: |
+      signal (receive) peer=runc,
   grub:
     kernelParameters:
     - console=hvc0
@@ -1071,6 +1085,20 @@ spec:
     path: /etc/mellanox/mlnx-sf.conf
     permissions: "0644"
     raw: ""
+  - operation: override
+    path: /etc/apparmor.d/local/usr.sbin.rsyslogd
+    permissions: "0644"
+    raw: |
+      signal (receive) peer=runc,
+      capability chown,
+      /usr/{bin,sbin}/* ixr,
+      /etc/logrotate.d/* r,
+      /var/lib/logrotate/{,**} rwk,
+  - operation: override
+    path: /etc/apparmor.d/local/usr.bin.tcpdump
+    permissions: "0644"
+    raw: |
+      signal (receive) peer=runc,
   grub:
     kernelParameters:
     - console=hvc0

@@ -120,3 +120,17 @@ spec:
     operation: override
     raw: ""
     permissions: "0644"
+  - path: /etc/apparmor.d/local/usr.sbin.rsyslogd
+    operation: override
+    permissions: "0644"
+    raw: |
+      signal (receive) peer=runc,
+      capability chown,
+      /usr/{bin,sbin}/* ixr,
+      /etc/logrotate.d/* r,
+      /var/lib/logrotate/{,**} rwk,
+  - path: /etc/apparmor.d/local/usr.bin.tcpdump
+    operation: override
+    permissions: "0644"
+    raw: |
+      signal (receive) peer=runc,
