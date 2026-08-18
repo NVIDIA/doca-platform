@@ -325,8 +325,10 @@ type PCISelector struct {
 // ServiceInterfaceStatus defines the observed state of ServiceInterface
 type ServiceInterfaceStatus struct {
 	// Conditions reflect the status of the object
+	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 	// ObservedGeneration records the Generation observed on the object the last time it was patched.
+	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 

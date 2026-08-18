@@ -133,16 +133,18 @@ type BFBVersions struct {
 type BFBStatus struct {
 	// Filename is the name of the file where the BFB can be accessed on its volume.
 	// This is the same as `.spec.Filename` if set.
+	// +optional
 	FileName string `json:"fileName,omitempty"`
 	// The current state of BFB.
 	// +kubebuilder:default=Initializing
-	// +required
+	// +optional
 	Phase BFBPhase `json:"phase"`
 	// BFB versions - BSP, DOCA, UEFI and ATF
 	// Holds detailed version information for each component within the BFB
 	// +optional
 	Versions BFBVersions `json:"versions,omitempty"`
 	// ObservedGeneration records the Generation observed on the object the last time it was patched.
+	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 	// Conditions represent the latest available observations of BFB state
 	// +optional

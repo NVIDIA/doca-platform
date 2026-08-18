@@ -101,8 +101,10 @@ type ServiceInterfaceSetSpecTemplate struct {
 // DPUServiceInterfaceStatus defines the observed state of DPUServiceInterface
 type DPUServiceInterfaceStatus struct {
 	// Conditions defines current service state.
+	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 	// ObservedGeneration records the Generation observed on the object the last time it was patched.
+	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 

@@ -95,10 +95,13 @@ type DPUStorageVendorSpec struct {
 // DPUStorageVendorStatus defines the observed state of DPUStorageVendor
 type DPUStorageVendorStatus struct {
 	// DPUClusters is the list of clusters on which the DPUStorageVendor is deployed.
+	// +optional
 	DPUClusters []ObjectReference `json:"dpuClusters,omitempty"`
 	// Conditions defines current service state.
+	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 	// ObservedGeneration records the Generation observed on the object the last time it was patched.
+	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 

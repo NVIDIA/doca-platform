@@ -122,7 +122,7 @@ type BlueFieldSpec struct {
 type BlueFieldSoftwareStatus struct {
 	// The current state of BlueFieldSoftware.
 	// +kubebuilder:default=Initializing
-	// +required
+	// +optional
 	Phase BlueFieldSoftwarePhase `json:"phase"`
 	// Versions tracks the versions of the components
 	// +optional
@@ -131,6 +131,7 @@ type BlueFieldSoftwareStatus struct {
 	// +optional
 	DownloadedComponents DownloadedComponents `json:"downloadedComponents,omitempty"`
 	// ObservedGeneration records the Generation observed on the object the last time it was patched.
+	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 	// Conditions represent the latest available observations of BlueFieldSoftware state
 	// +optional

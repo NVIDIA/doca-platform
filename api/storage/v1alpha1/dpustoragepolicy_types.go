@@ -110,8 +110,10 @@ type DPUStoragePolicySpec struct {
 // DPUStoragePolicyStatus defines the observed state of DPUStoragePolicy
 type DPUStoragePolicyStatus struct {
 	// Current service state conditions
+	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 	// ObservedGeneration records the Generation observed on the object the last time it was patched.
+	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 

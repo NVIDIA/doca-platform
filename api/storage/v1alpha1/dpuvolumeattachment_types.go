@@ -130,6 +130,7 @@ type FunctionTypeConfig struct {
 // DPUVolumeAttachmentStatus defines the observed state of DPUVolumeAttachment
 type DPUVolumeAttachmentStatus struct {
 	// Indicates the volume is successfully attached to by the Vendor CSI driver
+	// +optional
 	ControllerAttached *bool `json:"controllerAttached,omitempty"`
 	// Indicates the volume is successfully attached to the node by DPU
 	// +optional
@@ -147,6 +148,7 @@ type DPUVolumeAttachmentStatus struct {
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 	// ObservedGeneration records the Generation observed on the object the last time it was patched.
+	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 

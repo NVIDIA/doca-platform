@@ -169,8 +169,10 @@ type DPUClusterAllocation struct {
 // DPUServiceIPAMStatus defines the observed state of DPUServiceIPAM
 type DPUServiceIPAMStatus struct {
 	// Conditions reflect the status of the object
+	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 	// ObservedGeneration records the Generation observed on the object the last time it was patched.
+	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
 	// DPUClusterAllocations contains the IPV4Network/IPV4Subnet allocations per DPUCluster as calculated by the controller.

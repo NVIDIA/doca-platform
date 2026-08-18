@@ -143,8 +143,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions exposes the current state of the NodeSRIOVDevicePluginConfig. |  |  |
-| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions exposes the current state of the NodeSRIOVDevicePluginConfig. |  | Optional: \{\} <br /> |
+| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  | Optional: \{\} <br /> |
 
 
 #### VFRange
@@ -378,9 +378,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions exposes the current state of the OperatorConfig. |  |  |
-| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
-| `version` _string_ | Version is the version of the DPF Operator that is currently deployed. |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions exposes the current state of the OperatorConfig. |  | Optional: \{\} <br /> |
+| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  | Optional: \{\} <br /> |
+| `version` _string_ | Version is the version of the DPF Operator that is currently deployed. |  | Optional: \{\} <br /> |
 
 
 #### DPUDetectorConfiguration
@@ -1804,10 +1804,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `fileName` _string_ | Filename is the name of the file where the BFB can be accessed on its volume.<br />This is the same as `.spec.Filename` if set. |  |  |
-| `phase` _[BFBPhase](#bfbphase)_ | The current state of BFB. | Initializing | Enum: [Initializing Downloading Ready Deleting Error] <br />Required: \{\} <br /> |
+| `fileName` _string_ | Filename is the name of the file where the BFB can be accessed on its volume.<br />This is the same as `.spec.Filename` if set. |  | Optional: \{\} <br /> |
+| `phase` _[BFBPhase](#bfbphase)_ | The current state of BFB. | Initializing | Enum: [Initializing Downloading Ready Deleting Error] <br />Optional: \{\} <br /> |
 | `versions` _[BFBVersions](#bfbversions)_ | BFB versions - BSP, DOCA, UEFI and ATF<br />Holds detailed version information for each component within the BFB |  | Optional: \{\} <br /> |
-| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
+| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  | Optional: \{\} <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions represent the latest available observations of BFB state |  | Optional: \{\} <br /> |
 
 
@@ -1922,10 +1922,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `phase` _[BlueFieldSoftwarePhase](#bluefieldsoftwarephase)_ | The current state of BlueFieldSoftware. | Initializing | Enum: [Initializing Downloading Extracting Ready Deleting Error] <br />Required: \{\} <br /> |
+| `phase` _[BlueFieldSoftwarePhase](#bluefieldsoftwarephase)_ | The current state of BlueFieldSoftware. | Initializing | Enum: [Initializing Downloading Extracting Ready Deleting Error] <br />Optional: \{\} <br /> |
 | `versions` _[BluefieldSoftwareVersions](#bluefieldsoftwareversions)_ | Versions tracks the versions of the components |  | Optional: \{\} <br /> |
 | `downloadedComponents` _[DownloadedComponents](#downloadedcomponents)_ | DownloadedComponents tracks which components have been successfully downloaded |  | Optional: \{\} <br /> |
-| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
+| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  | Optional: \{\} <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions represent the latest available observations of BlueFieldSoftware state |  | Optional: \{\} <br /> |
 
 
@@ -2282,7 +2282,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `phase` _[ClusterPhase](#clusterphase)_ |  | Pending | Enum: [Pending Creating Ready NotReady Failed] <br /> |
+| `phase` _[ClusterPhase](#clusterphase)_ |  | Pending | Enum: [Pending Creating Ready NotReady Failed] <br />Optional: \{\} <br /> |
 | `version` _string_ | Version is the K8s control-plane version of the cluster |  | Optional: \{\} <br /> |
 | `nodesCount` _integer_ | NodesCount is the number of DPUs assigned to the cluster |  | Minimum: 0 <br />Optional: \{\} <br /> |
 | `etcdEncryptionAtRest` _[DPUClusterEtcdEncryptionAtRestStatus](#dpuclusteretcdencryptionatreststatus)_ | EtcdEncryptionAtRest exposes the observed encryption-at-rest state for the cluster. |  | Optional: \{\} <br /> |
@@ -2474,8 +2474,8 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `observedGeneration` _integer_ | ObservedGeneration is the generation of the spec that was last applied by a successful scan.<br />When spec (e.g. IP range) changes, reconciliation runs a scan immediately instead of waiting for the next interval. |  | Optional: \{\} <br /> |
-| `lastScanTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | LastScanTime is the timestamp of the last successful scan |  |  |
-| `foundDPUs` _integer_ | FoundDPUs is the list of discovered DPU BMC IPs |  |  |
+| `lastScanTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | LastScanTime is the timestamp of the last successful scan |  | Optional: \{\} <br /> |
+| `foundDPUs` _integer_ | FoundDPUs is the list of discovered DPU BMC IPs |  | Optional: \{\} <br /> |
 
 
 #### DPUFLavorSysctl
@@ -2993,8 +2993,8 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `dpuStatistics` _object (keys:[DPUPhase](#dpuphase), values:integer)_ | DPUStatistics is a map of DPUPhase to the number of DPUs in that phase. |  | Optional: \{\} <br /> |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
-| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  | Optional: \{\} <br /> |
+| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  | Optional: \{\} <br /> |
 
 
 #### DPUSetStrategy
@@ -3055,7 +3055,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `phase` _[DPUPhase](#dpuphase)_ | The current state of DPU. | Initializing | Enum: [Initializing Node Effect Pending Update Firmware Config FW Parameters Prepare BFB OS Installing DPU Config DPU Cluster Config Host Network Configuration Host OS Init Release Ready Error Deleting Rebooting Perform ARM Force Restart Initialize Interface Node Effect Removal Checking Host Reboot Required] <br />Required: \{\} <br /> |
+| `phase` _[DPUPhase](#dpuphase)_ | The current state of DPU. | Initializing | Enum: [Initializing Node Effect Pending Update Firmware Config FW Parameters Prepare BFB OS Installing DPU Config DPU Cluster Config Host Network Configuration Host OS Init Release Ready Error Deleting Rebooting Perform ARM Force Restart Initialize Interface Node Effect Removal Checking Host Reboot Required] <br />Optional: \{\} <br /> |
 | `previousPhase` _[DPUPhase](#dpuphase)_ | PreviousPhase is the last non-empty Phase before the current Phase, set by the controller<br />when Phase transitions. It may be unset during early initialization (empty Phase) or until<br />the first transition from a non-empty Phase. Internal controller tracking only. |  | Enum: [Initializing Node Effect Pending Update Firmware Config FW Parameters Prepare BFB OS Installing DPU Config DPU Cluster Config Host Network Configuration Host OS Init Release Ready Error Deleting Rebooting Perform ARM Force Restart Initialize Interface Node Effect Removal Checking Host Reboot Required] <br />Optional: \{\} <br /> |
 | `outdated` _[DPUOutdated](#dpuoutdated)_ | Outdated, when present, indicates the DPU has drifted from its owning<br />DPUSet's DPUTemplate and needs to be reprovisioned. Set by the DPUSet<br />controller; absent when the DPU matches the template. |  | Optional: \{\} <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions represents the provisioning lifecycle conditions. |  | Optional: \{\} <br /> |
@@ -3070,7 +3070,7 @@ _Appears in:_
 | `addresses` _[NodeAddress](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#nodeaddress-v1-core) array_ | The DPU node's IP addresses |  | Optional: \{\} <br /> |
 | `dpuInstallInterface` _string_ | the name of the interface which will be used to install the bfb image,<br />and communicate with DPU, can be one of hostAgent,redfish |  | Enum: [gNOI hostAgent redfish] <br />Optional: \{\} <br /> |
 | `postProvisioningNodeEffect` _boolean_ | Indicates that node effect was triggered by post-provisioning label changes |  | Optional: \{\} <br /> |
-| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
+| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  | Optional: \{\} <br /> |
 | `dpuType` _[DPUType](#dputype)_ | The type of the DPU | Unknown | Enum: [Unknown BlueField2 BlueField3 BlueField4] <br />Optional: \{\} <br /> |
 | `agentLastStartupTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | AgentLastStartupTime is the time when the DPU agent was last started. This is copied from agentStatus.lastStartupTime. |  | Optional: \{\} <br /> |
 | `agentStatus` _[AgentStatus](#agentstatus)_ | AgentStatus contains the information reported from inside the DPU |  | Optional: \{\} <br /> |
@@ -4094,8 +4094,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Current service state conditions |  |  |
-| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Current service state conditions |  | Optional: \{\} <br /> |
+| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  | Optional: \{\} <br /> |
 
 
 #### DPUStorageVendor
@@ -4166,9 +4166,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `dpuClusters` _[ObjectReference](#objectreference) array_ | DPUClusters is the list of clusters on which the DPUStorageVendor is deployed. |  |  |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions defines current service state. |  |  |
-| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
+| `dpuClusters` _[ObjectReference](#objectreference) array_ | DPUClusters is the list of clusters on which the DPUStorageVendor is deployed. |  | Optional: \{\} <br /> |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions defines current service state. |  | Optional: \{\} <br /> |
+| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  | Optional: \{\} <br /> |
 
 
 #### DPUVolume
@@ -4261,13 +4261,13 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `controllerAttached` _boolean_ | Indicates the volume is successfully attached to by the Vendor CSI driver |  |  |
+| `controllerAttached` _boolean_ | Indicates the volume is successfully attached to by the Vendor CSI driver |  | Optional: \{\} <br /> |
 | `dpuAttached` _boolean_ | Indicates the volume is successfully attached to the node by DPU |  | Optional: \{\} <br /> |
 | `attachmentMetadata` _object (keys:string, values:string)_ | AttachmentMetadata contains the metadata of the volume attachment returned by the Vendor CSI driver |  | Optional: \{\} <br /> |
 | `dpu` _[AttachmentStatusDPU](#attachmentstatusdpu)_ | Details about the DPU attachment |  | Optional: \{\} <br /> |
 | `message` _string_ | The last error encountered during the attach operation, if any |  | Optional: \{\} <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions defines current service state. |  | Optional: \{\} <br /> |
-| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
+| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  | Optional: \{\} <br /> |
 
 
 #### DPUVolumeList
@@ -4363,8 +4363,8 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `phase` _[DPUVolumePhase](#dpuvolumephase)_ | Phase of the volume |  | Enum: [Pending Bound] <br />Optional: \{\} <br /> |
 | `state` _[DPUVolumeState](#dpuvolumestate)_ | State of the volume. This field is managed by the controller. User usually do not need to set fields from this struct. |  | Optional: \{\} <br /> |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions defines current service state. |  |  |
-| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions defines current service state. |  | Optional: \{\} <br /> |
+| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  | Optional: \{\} <br /> |
 
 
 #### FSdevAttrs
@@ -4643,9 +4643,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `storageAttached` _boolean_ | Indicates the volume is successfully attached to the target storage system |  |  |
-| `message` _string_ | The last error encountered during the attach operation, if any |  |  |
-| `dpu` _[VolumeAttachmentStatusDPU](#volumeattachmentstatusdpu)_ | Details about the DPU attachment |  |  |
+| `storageAttached` _boolean_ | Indicates the volume is successfully attached to the target storage system |  | Optional: \{\} <br /> |
+| `message` _string_ | The last error encountered during the attach operation, if any |  | Optional: \{\} <br /> |
+| `dpu` _[VolumeAttachmentStatusDPU](#volumeattachmentstatusdpu)_ | Details about the DPU attachment |  | Optional: \{\} <br /> |
 
 
 #### VolumeAttachmentStatusDPU
@@ -5086,8 +5086,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
-| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  | Optional: \{\} <br /> |
+| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  | Optional: \{\} <br /> |
 
 
 #### DPUDeploymentSwitch
@@ -5196,8 +5196,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
-| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  | Optional: \{\} <br /> |
+| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  | Optional: \{\} <br /> |
 
 
 #### DPUServiceConfiguration
@@ -5366,12 +5366,12 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions defines current service state. |  | Optional: \{\} <br /> |
-| `serviceAccount` _string_ | ServiceAccount is the namespaced name of the ServiceAccount resource created by<br />the controller for the DPUServiceCredentialRequest. |  |  |
+| `serviceAccount` _string_ | ServiceAccount is the namespaced name of the ServiceAccount resource created by<br />the controller for the DPUServiceCredentialRequest. |  | Optional: \{\} <br /> |
 | `targetCluster` _string_ | TargetCluster is the cluster where the service account was created.<br />It has to be persisted in the status to be able to delete the service account<br />when the DPUServiceCredentialRequest is updated. |  | Optional: \{\} <br /> |
 | `targetClusterUID` _string_ | TargetClusterUID is the UID of the DPUCluster the credentials were last issued against.<br />Used to detect cluster recreation with the same name and force credential refresh. |  | Optional: \{\} <br /> |
 | `expirationTimestamp` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | ExpirationTimestamp is the time when the token will expire. |  | Optional: \{\} <br /> |
 | `issuedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | IssuedAt is the time when the token was issued. |  | Optional: \{\} <br /> |
-| `secret` _string_ | Sercet is the namespaced name of the Secret resource created by the controller for<br />the DPUServiceCredentialRequest. |  |  |
+| `secret` _string_ | Sercet is the namespaced name of the Secret resource created by the controller for<br />the DPUServiceCredentialRequest. |  | Optional: \{\} <br /> |
 
 
 #### DPUServiceIPAM
@@ -5446,8 +5446,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
-| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  | Optional: \{\} <br /> |
+| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  | Optional: \{\} <br /> |
 | `dpuClusterAllocations` _[DPUClusterAllocation](#dpuclusterallocation) array_ | DPUClusterAllocations contains the IPV4Network/IPV4Subnet allocations per DPUCluster as calculated by the controller. |  | Optional: \{\} <br /> |
 
 
@@ -5520,8 +5520,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions defines current service state. |  |  |
-| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions defines current service state. |  | Optional: \{\} <br /> |
+| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  | Optional: \{\} <br /> |
 
 
 #### DPUServiceList
@@ -5614,7 +5614,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  | Optional: \{\} <br /> |
 
 
 
@@ -6345,10 +6345,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
-| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
-| `numberApplied` _integer_ | The number of nodes where the service chain is applied and is supposed to be applied. |  |  |
-| `numberReady` _integer_ | The number of nodes where the service chain is applied and ready. |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  | Optional: \{\} <br /> |
+| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  | Optional: \{\} <br /> |
+| `numberApplied` _integer_ | The number of nodes where the service chain is applied and is supposed to be applied. |  | Optional: \{\} <br /> |
+| `numberReady` _integer_ | The number of nodes where the service chain is applied and ready. |  | Optional: \{\} <br /> |
 
 
 #### ServiceChainSpec
@@ -6400,8 +6400,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
-| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  | Optional: \{\} <br /> |
+| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  | Optional: \{\} <br /> |
 
 
 #### ServiceChains
@@ -6638,10 +6638,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
-| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
-| `numberApplied` _integer_ | The number of nodes where the service chain is applied and is supposed to be applied. |  |  |
-| `numberReady` _integer_ | The number of nodes where the service chain is applied and ready. |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  | Optional: \{\} <br /> |
+| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  | Optional: \{\} <br /> |
+| `numberApplied` _integer_ | The number of nodes where the service chain is applied and is supposed to be applied. |  | Optional: \{\} <br /> |
+| `numberReady` _integer_ | The number of nodes where the service chain is applied and ready. |  | Optional: \{\} <br /> |
 
 
 #### ServiceInterfaceSpec
@@ -6700,8 +6700,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  |  |
-| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  | Optional: \{\} <br /> |
+| `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  | Optional: \{\} <br /> |
 
 
 #### ServiceInterfaceTemplate

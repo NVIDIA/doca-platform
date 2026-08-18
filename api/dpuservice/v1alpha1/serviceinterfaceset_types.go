@@ -91,15 +91,19 @@ type ServiceInterfaceSpecTemplate struct {
 // ServiceInterfaceSetStatus defines the observed state of ServiceInterfaceSet
 type ServiceInterfaceSetStatus struct {
 	// Conditions reflect the status of the object
+	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
 	// ObservedGeneration records the Generation observed on the object the last time it was patched.
+	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
 	// The number of nodes where the service chain is applied and is supposed to be applied.
+	// +optional
 	NumberApplied int32 `json:"numberApplied,omitempty"`
 
 	// The number of nodes where the service chain is applied and ready.
+	// +optional
 	NumberReady int32 `json:"numberReady,omitempty"`
 }
 

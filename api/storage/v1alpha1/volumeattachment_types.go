@@ -98,10 +98,13 @@ type VolumeAttachmentSpec struct {
 // VolumeAttachmentStatus defines the observed state of VolumeAttachment
 type VolumeAttachmentStatus struct {
 	// Indicates the volume is successfully attached to the target storage system
+	// +optional
 	StorageAttached bool `json:"storageAttached,omitempty"`
 	// The last error encountered during the attach operation, if any
+	// +optional
 	Message string `json:"message,omitempty"`
 	// Details about the DPU attachment
+	// +optional
 	DPU VolumeAttachmentStatusDPU `json:"dpu,omitempty"`
 }
 
