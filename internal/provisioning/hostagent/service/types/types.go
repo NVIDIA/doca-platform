@@ -50,3 +50,11 @@ type RebindHostDriverRequest struct {
 	DPUNamespace string `json:"dpuNamespace"`
 	DPUUID       string `json:"dpuUID"`
 }
+
+type SetErrorRequest struct {
+	DPUName      string `json:"dpuName"`
+	DPUNamespace string `json:"dpuNamespace"`
+	DPUUID       string `json:"dpuUID"`
+	Reason       string `json:"reason"`
+	Message      string `json:"message"`
+}

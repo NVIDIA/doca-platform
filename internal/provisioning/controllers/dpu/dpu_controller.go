@@ -39,6 +39,7 @@ import (
 	"github.com/fluxcd/pkg/runtime/patch"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/client-go/util/retry"
@@ -215,6 +216,11 @@ func (r *DPUReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl
 	if err != nil {
 		logger.Error(err, "State handle error")
 	}
+
+	// The DPU agent reports unrecoverable failures through the Error condition. Acting on it here
+	// keeps phase transitions owned by this controller, independent of the phase the DPU is in.
+	setErrorPhaseFromCondition(dpu, &nextState)
+
 	if UpdateDPUStatus(dpu, nextState) {
 		logger.Info("DPU phase changed", "from", dpu.Status.PreviousPhase, "to", dpu.Status.Phase)
 	}
@@ -226,6 +232,20 @@ func (r *DPUReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl
 
 	// If we have an error we have to requeue the DPU and let controller-runtime handle the error.
 	return ctrl.Result{}, err
+}
+
+// setErrorPhaseFromCondition moves the DPU to the Error phase while the Error condition is True.
+// The DPU agent reports unrecoverable failures by setting that condition, and never writes the
+// phase itself, so this is where such a report is turned into a phase transition.
+// A deleting DPU is left alone: the condition is never cleared, so forcing the Error phase here
+// would take the DPU out of the Deleting phase and stall its deletion.
+func setErrorPhaseFromCondition(dpu *provisioningv1.DPU, state *provisioningv1.DPUStatus) {
+	if !dpu.DeletionTimestamp.IsZero() {
+		return
+	}
+	if _, condition := cutil.GetDPUCondition(state, provisioningv1.DPUCondError.String()); condition != nil && condition.Status == metav1.ConditionTrue {
+		state.Phase = provisioningv1.DPUError
+	}
 }
 
 // UpdateDPUStatus updates only dpu.Status when next differs from the current status (DeepEqual).
