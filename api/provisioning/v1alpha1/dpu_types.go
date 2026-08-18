@@ -347,7 +347,7 @@ type DPUOutdated struct {
 type DPUStatus struct {
 	// The current state of DPU.
 	// +kubebuilder:default=Initializing
-	// +required
+	// +optional
 	Phase DPUPhase `json:"phase"`
 
 	// PreviousPhase is the last non-empty Phase before the current Phase, set by the controller
@@ -418,6 +418,7 @@ type DPUStatus struct {
 	PostProvisioningNodeEffect *bool `json:"postProvisioningNodeEffect,omitempty"`
 
 	// ObservedGeneration records the Generation observed on the object the last time it was patched.
+	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
 	// The type of the DPU

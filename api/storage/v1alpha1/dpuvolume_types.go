@@ -162,8 +162,10 @@ type DPUVolumeStatus struct {
 	// +optional
 	State *DPUVolumeState `json:"state,omitempty"`
 	// Conditions defines current service state.
+	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 	// ObservedGeneration records the Generation observed on the object the last time it was patched.
+	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 

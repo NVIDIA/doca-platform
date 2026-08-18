@@ -27,11 +27,11 @@ linters:
               - "statussubresource" # All root objects that have a `status` field should have a status subresource.
               - "conflictingmarkers" # Lints conflicting markers as configured below.
               - "duplicatemarkers" # Ensure there are no exact duplicate markers for types and fields.
+              - "statusoptional" # Ensure all first children within status should be optional.
 
               # --- Fully auto-fixable: `make lint-fix` resolves every violation. ---
               # - "noreferences" # Discourages `Ref`/`Reference` naming. (1, all auto-fixable)
               # - "notimestamp" # Prevents usage of 'Timestamp' fields. (2, all auto-fixable)
-              # - "statusoptional" # Ensure all first children within status should be optional. (52, all auto-fixable)
               # - "nonpointerstructs" # Non-pointer struct fields must be marked optional/required. (87, all auto-fixable)
               # - "requiredfields" # Required fields should not be pointers, and should not have `omitempty`. (120, all auto-fixable)
               # - "optionalfields" # Ensure that all fields marked as optional adhere to being pointers and

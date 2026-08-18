@@ -137,6 +137,7 @@ type DPUServiceNADSpec struct {
 // DPUServiceNADStatus defines the observed state of DPUServiceNAD.
 type DPUServiceNADStatus struct {
 	// Conditions reflect the status of the object
+	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 

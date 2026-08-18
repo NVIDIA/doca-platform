@@ -63,8 +63,10 @@ type DPUDiscoveryStatus struct {
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 	// LastScanTime is the timestamp of the last successful scan
+	// +optional
 	LastScanTime *metav1.Time `json:"lastScanTime,omitempty"`
 	// FoundDPUs is the list of discovered DPU BMC IPs
+	// +optional
 	FoundDPUs int `json:"foundDPUs,omitempty"`
 }
 

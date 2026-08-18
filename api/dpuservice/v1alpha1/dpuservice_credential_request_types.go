@@ -149,6 +149,7 @@ type DPUServiceCredentialRequestStatus struct {
 
 	// ServiceAccount is the namespaced name of the ServiceAccount resource created by
 	// the controller for the DPUServiceCredentialRequest.
+	// +optional
 	ServiceAccount *string `json:"serviceAccount,omitempty"`
 
 	// TargetCluster is the cluster where the service account was created.
@@ -172,6 +173,7 @@ type DPUServiceCredentialRequestStatus struct {
 
 	// Sercet is the namespaced name of the Secret resource created by the controller for
 	// the DPUServiceCredentialRequest.
+	// +optional
 	Secret *string `json:"secret,omitempty"`
 }
 

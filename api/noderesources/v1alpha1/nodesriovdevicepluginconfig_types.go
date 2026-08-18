@@ -109,9 +109,11 @@ type VFRange struct {
 // NodeSRIOVDevicePluginConfigStatus defines the observed state of NodeSRIOVDevicePluginConfig
 type NodeSRIOVDevicePluginConfigStatus struct {
 	// Conditions exposes the current state of the NodeSRIOVDevicePluginConfig.
+	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
 	// ObservedGeneration records the Generation observed on the object the last time it was patched.
+	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 

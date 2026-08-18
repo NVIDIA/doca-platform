@@ -116,8 +116,10 @@ func (c *ServiceChain) SetConditions(conditions []metav1.Condition) {
 // ServiceChainStatus defines the observed state of ServiceChain
 type ServiceChainStatus struct {
 	// Conditions reflect the status of the object
+	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 	// ObservedGeneration records the Generation observed on the object the last time it was patched.
+	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 

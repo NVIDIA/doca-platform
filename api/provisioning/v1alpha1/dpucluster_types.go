@@ -112,6 +112,7 @@ type DPUClusterSpec struct {
 type DPUClusterStatus struct {
 	// +kubebuilder:validation:Enum=Pending;Creating;Ready;NotReady;Failed
 	// +kubebuilder:default="Pending"
+	// +optional
 	Phase ClusterPhase `json:"phase"`
 
 	// Version is the K8s control-plane version of the cluster

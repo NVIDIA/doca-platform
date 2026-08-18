@@ -264,8 +264,6 @@ spec:
               version:
                 description: Version is the K8s control-plane version of the cluster
                 type: string
-            required:
-            - phase
             type: object
         required:
         - spec

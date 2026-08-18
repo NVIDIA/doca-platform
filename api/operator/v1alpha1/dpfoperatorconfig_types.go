@@ -372,12 +372,15 @@ func (s *SecurityConfiguration) PrivilegedPodEnforcementEnabled() bool {
 // DPFOperatorConfigStatus defines the observed state of DPFOperatorConfig
 type DPFOperatorConfigStatus struct {
 	// Conditions exposes the current state of the OperatorConfig.
+	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
 	// ObservedGeneration records the Generation observed on the object the last time it was patched.
+	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
 	// Version is the version of the DPF Operator that is currently deployed.
+	// +optional
 	Version *string `json:"version,omitempty"`
 }
 

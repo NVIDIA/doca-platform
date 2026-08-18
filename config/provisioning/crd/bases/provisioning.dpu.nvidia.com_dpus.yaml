@@ -935,8 +935,6 @@ spec:
                       enabled on the DPU.
                     type: boolean
                 type: object
-            required:
-            - phase
             type: object
             x-kubernetes-validations:
             - message: 'identityMode is stamp-once: can only transition from unset
