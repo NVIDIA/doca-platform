@@ -448,14 +448,83 @@ func (r *DPFOperatorConfigReconciler) reconcileImagePullSecrets(ctx context.Cont
 func (r *DPFOperatorConfigReconciler) reconcileSystemComponents(ctx context.Context, config *operatorv1.DPFOperatorConfig, dpuClusters []*dpucluster.Config) error {
 	var errs []error
 	vars := inventory.VariablesFromDPFOperatorConfig(r.Defaults, config, dpuClusters)
+	caErr := r.resolveOpenTelemetryCollectorCACerts(ctx, config, &vars)
+	if caErr != nil {
+		errs = append(errs, caErr)
+	}
 	// Create objects for system components.
 	for _, component := range r.Inventory.AllComponents() {
+		// Skip the opentelemetry-collector when its CA secret cannot be resolved: patching it
+		// without the CA would change the deployed TLS configuration, and disabling it would
+		// prune the deployed objects. Leave the current state untouched and surface the error.
+		if caErr != nil && component.Name() == operatorv1.OpenTelemetryCollectorName {
+			continue
+		}
 		if err := r.generateAndPatchObjects(ctx, component, vars); err != nil {
 			errs = append(errs, err)
 		}
 	}
 
 	return kerrors.NewAggregate(errs)
+}
+
+// resolveOpenTelemetryCollectorCACerts reads the CA certificate Secrets referenced by
+// spec.monitoring.openTelemetryCollector.logging.caSecretRef and
+// spec.monitoring.openTelemetryCollector.metrics.caSecretRef and injects their PEM content into the
+// inventory variables so it can be passed to the DPU cluster opentelemetry-collector as a Helm
+// value. The Secret content only travels as a Helm value because the collector runs in the DPU
+// cluster, where a Secret referenced by name in the host cluster would not resolve. That copy is
+// also why the referenced Secret may live in any host cluster namespace: it is read once here and
+// carries no runtime dependency on its source namespace.
+func (r *DPFOperatorConfigReconciler) resolveOpenTelemetryCollectorCACerts(ctx context.Context, config *operatorv1.DPFOperatorConfig, vars *inventory.Variables) error {
+	if config.Spec.Monitoring == nil || config.Spec.Monitoring.OpenTelemetryCollector == nil {
+		return nil
+	}
+	otelConfig := config.Spec.Monitoring.OpenTelemetryCollector
+	if otelConfig.Disabled() {
+		return nil
+	}
+
+	if otelConfig.Logging != nil && otelConfig.Logging.CASecretRef != nil {
+		caCert, err := r.resolveOpenTelemetryCollectorCACert(ctx, config.Namespace, "logging", otelConfig.Logging.CASecretRef)
+		if err != nil {
+			return err
+		}
+		vars.OpenTelemetryCollector.Logging.CACert = caCert
+	}
+
+	if otelConfig.Metrics != nil && otelConfig.Metrics.CASecretRef != nil {
+		caCert, err := r.resolveOpenTelemetryCollectorCACert(ctx, config.Namespace, "metrics", otelConfig.Metrics.CASecretRef)
+		if err != nil {
+			return err
+		}
+		vars.OpenTelemetryCollector.Metrics.CACert = caCert
+	}
+
+	return nil
+}
+
+// resolveOpenTelemetryCollectorCACert returns the PEM-encoded CA certificate bundle held by the
+// referenced Secret. defaultNamespace is used when the reference does not specify a namespace and
+// signal names the exporter the reference belongs to, for error reporting.
+func (r *DPFOperatorConfigReconciler) resolveOpenTelemetryCollectorCACert(ctx context.Context, defaultNamespace string, signal string, secretRef *operatorv1.OpenTelemetryCollectorCASecretReference) (string, error) {
+	secretNamespace := defaultNamespace
+	if secretRef.Namespace != nil {
+		secretNamespace = *secretRef.Namespace
+	}
+	caKey := operatorv1.OpenTelemetryCollectorCASecretKey
+	if secretRef.Key != nil {
+		caKey = *secretRef.Key
+	}
+	caSecret := &corev1.Secret{}
+	if err := r.Client.Get(ctx, client.ObjectKey{Namespace: secretNamespace, Name: secretRef.Name}, caSecret); err != nil {
+		return "", fmt.Errorf("failed to get openTelemetryCollector %s CA secret %s/%s: %w", signal, secretNamespace, secretRef.Name, err)
+	}
+	caCert := caSecret.Data[caKey]
+	if len(caCert) == 0 {
+		return "", fmt.Errorf("openTelemetryCollector %s CA secret %s/%s does not contain key %q", signal, secretNamespace, secretRef.Name, caKey)
+	}
+	return string(caCert), nil
 }
 
 func (r *DPFOperatorConfigReconciler) updateSystemComponentStatus(ctx context.Context, config *operatorv1.DPFOperatorConfig, dpuClusters []*dpucluster.Config) {

@@ -1119,20 +1119,100 @@ type OpenTelemetryCollectorConfiguration struct {
 	Metrics *OpenTelemetryCollectorMetricsConfiguration `json:"metrics,omitempty"`
 }
 
+// OpenTelemetryCollectorCASecretKey is the default Secret data key that holds the PEM-encoded CA
+// certificate bundle referenced by a CASecretRef when the reference does not specify a key.
+const OpenTelemetryCollectorCASecretKey = "ca.crt"
+
+// OpenTelemetryCollectorCASecretReference references a Secret that contains the PEM-encoded CA
+// certificate bundle used to verify the endpoint's TLS certificate.
+type OpenTelemetryCollectorCASecretReference struct {
+	// Name is the name of the Secret holding the CA certificate bundle.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +required
+	Name string `json:"name,omitempty"`
+
+	// Namespace is the namespace of the Secret holding the CA certificate bundle.
+	// If unset, the DPFOperatorConfig namespace is used.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	// +optional
+	Namespace *string `json:"namespace,omitempty"`
+
+	// Key is the Secret data key that holds the PEM-encoded CA certificate bundle.
+	// If unset, "ca.crt" is used, matching the key that cert-manager writes.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +optional
+	Key *string `json:"key,omitempty"`
+}
+
+// OpenTelemetryCollectorTransport is the OTLP transport used to export data to the endpoint.
+type OpenTelemetryCollectorTransport string
+
+const (
+	// OpenTelemetryCollectorTransportHTTP exports data via OTLP/HTTP.
+	OpenTelemetryCollectorTransportHTTP OpenTelemetryCollectorTransport = "http"
+	// OpenTelemetryCollectorTransportGRPC exports data via OTLP/gRPC.
+	OpenTelemetryCollectorTransportGRPC OpenTelemetryCollectorTransport = "grpc"
+)
+
+// OpenTelemetryCollectorLoggingConfiguration configures where and how the DPU cluster
+// opentelemetry-collector exports its data.
+// +kubebuilder:validation:XValidation:rule="!has(self.caSecretRef) || !self.endpoint.startsWith('http://')",message="caSecretRef cannot be used with a plaintext http:// endpoint"
 type OpenTelemetryCollectorLoggingConfiguration struct {
 	// Endpoint is the OTLP endpoint where the DPU cluster opentelemetry-collector sends data to.
 	// This could be the management cluster's opentelemetry-collector endpoint.
 	// If not specified, nothing will be forwarded from DPU clusters.
+	// For the http transport the endpoint must include the scheme, e.g. "https://host:4318".
+	// For the grpc transport the endpoint is "host:4317", optionally prefixed with a
+	// scheme ("https://host:4317") to enforce TLS.
 	// +required
 	Endpoint string `json:"endpoint,omitempty"`
+
+	// Transport is the OTLP transport used to export data to the endpoint.
+	// +kubebuilder:validation:Enum=http;grpc
+	// +optional
+	Transport *OpenTelemetryCollectorTransport `json:"transport,omitempty"`
+
+	// CASecretRef references a Secret that contains the PEM-encoded CA certificate bundle
+	// (under the "ca.crt" key) used to verify the endpoint's TLS certificate. Set it when the
+	// endpoint serves a certificate issued by a private CA. The Secret may live in any namespace,
+	// for example alongside the endpoint's cert-manager Certificate; if its namespace is empty,
+	// the DPFOperatorConfig namespace is used.
+	// If not specified, TLS endpoints are verified against the system CA pool.
+	// Changes to the Secret content are applied on the next reconciliation of the DPFOperatorConfig.
+	// +optional
+	CASecretRef *OpenTelemetryCollectorCASecretReference `json:"caSecretRef,omitempty"`
 }
 
+// OpenTelemetryCollectorMetricsConfiguration configures where and how the DPU cluster
+// opentelemetry-collector exports its metrics.
+// +kubebuilder:validation:XValidation:rule="!has(self.caSecretRef) || !self.endpoint.startsWith('http://')",message="caSecretRef cannot be used with a plaintext http:// endpoint"
 type OpenTelemetryCollectorMetricsConfiguration struct {
 	// Endpoint is the OTLP endpoint where the DPU cluster opentelemetry-collector sends metrics to.
 	// This could be the management cluster's opentelemetry-collector endpoint.
 	// If not specified, metrics will not be forwarded from DPU clusters.
+	// For the http transport the endpoint must include the scheme, e.g. "https://host:4318".
+	// For the grpc transport the endpoint is "host:4317", optionally prefixed with a
+	// scheme ("https://host:4317") to enforce TLS.
 	// +required
 	Endpoint string `json:"endpoint,omitempty"`
+
+	// Transport is the OTLP transport used to export data to the endpoint.
+	// +kubebuilder:validation:Enum=http;grpc
+	// +optional
+	Transport *OpenTelemetryCollectorTransport `json:"transport,omitempty"`
+
+	// CASecretRef references a Secret that contains the PEM-encoded CA certificate bundle
+	// (under the "ca.crt" key) used to verify the endpoint's TLS certificate. Set it when the
+	// endpoint serves a certificate issued by a private CA. The Secret may live in any namespace,
+	// for example alongside the endpoint's cert-manager Certificate; if its namespace is empty,
+	// the DPFOperatorConfig namespace is used.
+	// If not specified, TLS endpoints are verified against the system CA pool.
+	// Changes to the Secret content are applied on the next reconciliation of the DPFOperatorConfig.
+	// +optional
+	CASecretRef *OpenTelemetryCollectorCASecretReference `json:"caSecretRef,omitempty"`
 }
 
 func (c *OpenTelemetryCollectorConfiguration) Name() string {

@@ -1001,6 +1001,26 @@ _Appears in:_
 | `cni` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | CNI contains the configuration for the OVS CNI component.<br />It contains the image for the controller and its resource requirements. |  | Optional: \{\} <br /> |
 
 
+#### OpenTelemetryCollectorCASecretReference
+
+
+
+OpenTelemetryCollectorCASecretReference references a Secret that contains the PEM-encoded CA
+certificate bundle used to verify the endpoint's TLS certificate.
+
+
+
+_Appears in:_
+- [OpenTelemetryCollectorLoggingConfiguration](#opentelemetrycollectorloggingconfiguration)
+- [OpenTelemetryCollectorMetricsConfiguration](#opentelemetrycollectormetricsconfiguration)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `name` _string_ | Name is the name of the Secret holding the CA certificate bundle. |  | MaxLength: 253 <br />MinLength: 1 <br />Required: \{\} <br /> |
+| `namespace` _string_ | Namespace is the namespace of the Secret holding the CA certificate bundle.<br />If unset, the DPFOperatorConfig namespace is used. |  | MaxLength: 63 <br />MinLength: 1 <br />Optional: \{\} <br /> |
+| `key` _string_ | Key is the Secret data key that holds the PEM-encoded CA certificate bundle.<br />If unset, "ca.crt" is used, matching the key that cert-manager writes. |  | MaxLength: 253 <br />MinLength: 1 <br />Optional: \{\} <br /> |
+
+
 #### OpenTelemetryCollectorConfiguration
 
 
@@ -1025,7 +1045,8 @@ _Appears in:_
 
 
 
-
+OpenTelemetryCollectorLoggingConfiguration configures where and how the DPU cluster
+opentelemetry-collector exports its data.
 
 
 
@@ -1034,14 +1055,17 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `endpoint` _string_ | Endpoint is the OTLP endpoint where the DPU cluster opentelemetry-collector sends data to.<br />This could be the management cluster's opentelemetry-collector endpoint.<br />If not specified, nothing will be forwarded from DPU clusters. |  | Required: \{\} <br /> |
+| `endpoint` _string_ | Endpoint is the OTLP endpoint where the DPU cluster opentelemetry-collector sends data to.<br />This could be the management cluster's opentelemetry-collector endpoint.<br />If not specified, nothing will be forwarded from DPU clusters.<br />For the http transport the endpoint must include the scheme, e.g. "https://host:4318".<br />For the grpc transport the endpoint is "host:4317", optionally prefixed with a<br />scheme ("https://host:4317") to enforce TLS. |  | Required: \{\} <br /> |
+| `transport` _[OpenTelemetryCollectorTransport](#opentelemetrycollectortransport)_ | Transport is the OTLP transport used to export data to the endpoint. |  | Enum: [http grpc] <br />Optional: \{\} <br /> |
+| `caSecretRef` _[OpenTelemetryCollectorCASecretReference](#opentelemetrycollectorcasecretreference)_ | CASecretRef references a Secret that contains the PEM-encoded CA certificate bundle<br />(under the "ca.crt" key) used to verify the endpoint's TLS certificate. Set it when the<br />endpoint serves a certificate issued by a private CA. The Secret may live in any namespace,<br />for example alongside the endpoint's cert-manager Certificate; if its namespace is empty,<br />the DPFOperatorConfig namespace is used.<br />If not specified, TLS endpoints are verified against the system CA pool.<br />Changes to the Secret content are applied on the next reconciliation of the DPFOperatorConfig. |  | Optional: \{\} <br /> |
 
 
 #### OpenTelemetryCollectorMetricsConfiguration
 
 
 
-
+OpenTelemetryCollectorMetricsConfiguration configures where and how the DPU cluster
+opentelemetry-collector exports its metrics.
 
 
 
@@ -1050,7 +1074,27 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `endpoint` _string_ | Endpoint is the OTLP endpoint where the DPU cluster opentelemetry-collector sends metrics to.<br />This could be the management cluster's opentelemetry-collector endpoint.<br />If not specified, metrics will not be forwarded from DPU clusters. |  | Required: \{\} <br /> |
+| `endpoint` _string_ | Endpoint is the OTLP endpoint where the DPU cluster opentelemetry-collector sends metrics to.<br />This could be the management cluster's opentelemetry-collector endpoint.<br />If not specified, metrics will not be forwarded from DPU clusters.<br />For the http transport the endpoint must include the scheme, e.g. "https://host:4318".<br />For the grpc transport the endpoint is "host:4317", optionally prefixed with a<br />scheme ("https://host:4317") to enforce TLS. |  | Required: \{\} <br /> |
+| `transport` _[OpenTelemetryCollectorTransport](#opentelemetrycollectortransport)_ | Transport is the OTLP transport used to export data to the endpoint. |  | Enum: [http grpc] <br />Optional: \{\} <br /> |
+| `caSecretRef` _[OpenTelemetryCollectorCASecretReference](#opentelemetrycollectorcasecretreference)_ | CASecretRef references a Secret that contains the PEM-encoded CA certificate bundle<br />(under the "ca.crt" key) used to verify the endpoint's TLS certificate. Set it when the<br />endpoint serves a certificate issued by a private CA. The Secret may live in any namespace,<br />for example alongside the endpoint's cert-manager Certificate; if its namespace is empty,<br />the DPFOperatorConfig namespace is used.<br />If not specified, TLS endpoints are verified against the system CA pool.<br />Changes to the Secret content are applied on the next reconciliation of the DPFOperatorConfig. |  | Optional: \{\} <br /> |
+
+
+#### OpenTelemetryCollectorTransport
+
+_Underlying type:_ _string_
+
+OpenTelemetryCollectorTransport is the OTLP transport used to export data to the endpoint.
+
+
+
+_Appears in:_
+- [OpenTelemetryCollectorLoggingConfiguration](#opentelemetrycollectorloggingconfiguration)
+- [OpenTelemetryCollectorMetricsConfiguration](#opentelemetrycollectormetricsconfiguration)
+
+| Field | Description |
+| --- | --- |
+| `http` | OpenTelemetryCollectorTransportHTTP exports data via OTLP/HTTP.<br /> |
+| `grpc` | OpenTelemetryCollectorTransportGRPC exports data via OTLP/gRPC.<br /> |
 
 
 #### Overrides

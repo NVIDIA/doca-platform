@@ -17,13 +17,27 @@ resources:
     memory: 256Mi
 
 logging:
-  # -- endpoint where the DPU cluster collector sends logs to the management cluster.
-  # This MUST be set via DPFOperatorConfig.spec.monitoring.openTelemetryCollector.logging.endpoint.
+  # -- endpoint where the DPU cluster collector sends logs/metrics to the management cluster.
+  # This MUST be set via DPFOperatorConfig.spec.monitoring.openTelemetryCollector.endpoint.
   # Example: "http://10.0.110.1:30050" (management cluster node IP with NodePort).
   endpoint: ""
+  # -- OTLP transport used to export to the endpoint: "http" (OTLP/HTTP) or "grpc" (OTLP/gRPC).
+  # Set via DPFOperatorConfig.spec.monitoring.openTelemetryCollector.logging.transport.
+  transport: "http"
+  # -- PEM-encoded CA certificate bundle used to verify the endpoint's TLS certificate.
+  # Set via DPFOperatorConfig.spec.monitoring.openTelemetryCollector.logging.caSecretRef.
+  # If empty, TLS endpoints are verified against the system CA pool.
+  caCert: ""
 
 metrics:
   # -- endpoint where the DPU cluster collector sends metrics to the management cluster.
   # This MUST be set via DPFOperatorConfig.spec.monitoring.openTelemetryCollector.metrics.endpoint.
   # Example: "http://10.0.110.1:30050" (management cluster node IP with NodePort).
   endpoint: ""
+  # -- OTLP transport used to export to the endpoint: "http" (OTLP/HTTP) or "grpc" (OTLP/gRPC).
+  # Set via DPFOperatorConfig.spec.monitoring.openTelemetryCollector.metrics.transport.
+  transport: "http"
+  # -- PEM-encoded CA certificate bundle used to verify the endpoint's TLS certificate.
+  # Set via DPFOperatorConfig.spec.monitoring.openTelemetryCollector.metrics.caSecretRef.
+  # If empty, TLS endpoints are verified against the system CA pool.
+  caCert: ""

@@ -84,21 +84,20 @@ func dpfOperatorConfigFromFile(path string) *operatorv1.DPFOperatorConfig {
 	Expect(dpfOperatorConfig.GetNamespace()).To(Equal(dpfOperatorSystemNamespace),
 		"DPFOperatorConfig manifest %s must use the namespace %q", path, dpfOperatorSystemNamespace)
 
-	// The OpenTelemetry collector logging endpoint embeds the control plane IP,
-	// a runtime value a static manifest cannot carry. Without an endpoint the
-	// operator does not deploy the opentelemetry-collector DPUService, so inject
-	// it whenever the manifest enables monitoring without configuring the
+	// The OpenTelemetry collector endpoint embeds a runtime address a static manifest cannot
+	// carry. Without an endpoint the operator does not deploy the opentelemetry-collector
+	// DPUService, so inject it whenever the manifest enables monitoring without configuring the
 	// collector, mirroring the generated config.
 	if dpfOperatorConfig.Spec.Monitoring != nil && dpfOperatorConfig.MonitoringEnabled() &&
 		dpfOperatorConfig.Spec.Monitoring.OpenTelemetryCollector == nil {
-		By("Get control plane IP")
-		controlPlaneIP := getClusterControlPlaneIP(ctx, testClient)
+		By("Get the OpenTelemetry export address")
+		exportAddress := otelExportAddress(ctx, testClient, conf.DPUClusterPaths)
 		dpfOperatorConfig.Spec.Monitoring.OpenTelemetryCollector = &operatorv1.OpenTelemetryCollectorConfiguration{
 			Logging: &operatorv1.OpenTelemetryCollectorLoggingConfiguration{
-				Endpoint: fmt.Sprintf("%s%s:%d", otelEndpointSchema, controlPlaneIP, otelNodePort),
+				Endpoint: fmt.Sprintf("%s%s:%d", otelEndpointSchema, exportAddress, otelNodePort),
 			},
 			Metrics: &operatorv1.OpenTelemetryCollectorMetricsConfiguration{
-				Endpoint: fmt.Sprintf("%s%s:%d", otelEndpointSchema, controlPlaneIP, otelNodePort),
+				Endpoint: fmt.Sprintf("%s%s:%d", otelEndpointSchema, exportAddress, otelNodePort),
 			},
 		}
 	}
@@ -140,15 +139,8 @@ func generateDPFOperatorConfig() *operatorv1.DPFOperatorConfig {
 				EtcdEncryptionAtRest: etcdEncryptionAtRestConfigurationFromFile(conf.KamajiEtcdEncryptionAtRestPath),
 			},
 			Monitoring: &operatorv1.MonitoringConfiguration{
-				Disable: ptr.To(false),
-				OpenTelemetryCollector: &operatorv1.OpenTelemetryCollectorConfiguration{
-					Logging: &operatorv1.OpenTelemetryCollectorLoggingConfiguration{
-						Endpoint: fmt.Sprintf("%s%s:%d", otelEndpointSchema, controlPlaneIP, otelNodePort),
-					},
-					Metrics: &operatorv1.OpenTelemetryCollectorMetricsConfiguration{
-						Endpoint: fmt.Sprintf("%s%s:%d", otelEndpointSchema, controlPlaneIP, otelNodePort),
-					},
-				},
+				Disable:                ptr.To(false),
+				OpenTelemetryCollector: openTelemetryCollectorConfiguration(ctx, testClient, conf.DPUClusterPaths),
 			},
 			NodeSRIOVDevicePluginController: &operatorv1.NodeSRIOVDevicePluginControllerConfiguration{
 				BaseComponentConfig: operatorv1.BaseComponentConfig{
