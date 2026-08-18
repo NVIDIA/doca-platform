@@ -233,6 +233,10 @@ func (r *DPUReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl
 	// when a later successful render clears the annotation.
 	setDPUFlavorRenderedCondition(dpu, &nextState)
 
+	// The DPU agent reports unrecoverable failures through the Error condition. Acting on it here
+	// keeps phase transitions owned by this controller, independent of the phase the DPU is in.
+	setErrorPhaseFromCondition(dpu, &nextState)
+
 	deploymentMode := provisioningv1.DeploymentMode(r.ctrlCtx.Options.DeploymentMode)
 	dpfOperatorConfig, cfgErr := dpfutils.GetDPFOperatorConfig(ctx, r.ctrlCtx.Client)
 	if cfgErr != nil {
@@ -272,6 +276,20 @@ func setDPUFlavorRenderedCondition(dpu *provisioningv1.DPU, state *provisioningv
 		return
 	}
 	cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondDPUFlavorRendered, "", ""))
+}
+
+// setErrorPhaseFromCondition moves the DPU to the Error phase while the Error condition is True.
+// The DPU agent reports unrecoverable failures by setting that condition, and never writes the
+// phase itself, so this is where such a report is turned into a phase transition.
+// A deleting DPU is left alone: the condition is never cleared, so forcing the Error phase here
+// would take the DPU out of the Deleting phase and stall its deletion.
+func setErrorPhaseFromCondition(dpu *provisioningv1.DPU, state *provisioningv1.DPUStatus) {
+	if !dpu.DeletionTimestamp.IsZero() {
+		return
+	}
+	if _, condition := cutil.GetDPUCondition(state, provisioningv1.DPUCondError.String()); condition != nil && condition.Status == metav1.ConditionTrue {
+		state.Phase = provisioningv1.DPUError
+	}
 }
 
 // UpdateDPUStatus updates only dpu.Status when next differs from the current status (DeepEqual).

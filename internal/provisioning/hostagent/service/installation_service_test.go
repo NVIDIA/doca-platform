@@ -31,6 +31,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -770,6 +771,105 @@ var _ = Describe("InstallationService", func() {
 				Expect(err).To(Succeed())
 				Expect(resp.StatusCode).To(Equal(http.StatusConflict))
 			})
+		})
+	})
+
+	Context("set error", func() {
+		It("should add the DPUCondError condition without changing the phase", func() {
+			dpu := createDPU("test-dpu", testNS.Name)
+
+			request := types.SetErrorRequest{
+				DPUName:      dpu.Name,
+				DPUNamespace: dpu.Namespace,
+				DPUUID:       string(dpu.UID),
+				Reason:       "FatalFailure",
+				Message:      "something went wrong on the DPU",
+			}
+			req, err := json.Marshal(request)
+			Expect(err).To(Succeed())
+
+			resp, err := http.Post(fmt.Sprintf("http://%s/set-error", address), "application/json", bytes.NewBuffer(req))
+			Expect(err).To(Succeed())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			updatedDPU := &provisioningv1.DPU{}
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: dpu.Namespace, Name: dpu.Name}, updatedDPU)).To(Succeed())
+
+			By("phase should be left to the DPU controller")
+			Expect(updatedDPU.Status.Phase).To(Equal(dpu.Status.Phase))
+
+			By("DPUCondError condition should be set")
+			errorCond := meta.FindStatusCondition(updatedDPU.Status.Conditions, string(provisioningv1.DPUCondError))
+			Expect(errorCond).NotTo(BeNil())
+			Expect(errorCond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(errorCond.Reason).To(Equal("FatalFailure"))
+			Expect(errorCond.Message).To(Equal("something went wrong on the DPU"))
+		})
+
+		It("should reject set error with mismatched DPU UID", func() {
+			dpu := createDPU("test-dpu", testNS.Name)
+
+			request := types.SetErrorRequest{
+				DPUName:      dpu.Name,
+				DPUNamespace: dpu.Namespace,
+				DPUUID:       "stale-uid-from-old-agent",
+				Reason:       "FatalFailure",
+				Message:      "something went wrong on the DPU",
+			}
+			req, err := json.Marshal(request)
+			Expect(err).To(Succeed())
+
+			resp, err := http.Post(fmt.Sprintf("http://%s/set-error", address), "application/json", bytes.NewBuffer(req))
+			Expect(err).To(Succeed())
+			Expect(resp.StatusCode).To(Equal(http.StatusConflict))
+
+			updatedDPU := &provisioningv1.DPU{}
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: dpu.Namespace, Name: dpu.Name}, updatedDPU)).To(Succeed())
+			Expect(meta.FindStatusCondition(updatedDPU.Status.Conditions, string(provisioningv1.DPUCondError))).To(BeNil())
+		})
+
+		It("should return 404 when DPU is not found", func() {
+			request := types.SetErrorRequest{
+				DPUName:      "non-existent-dpu",
+				DPUNamespace: testNS.Name,
+				DPUUID:       "some-uid",
+				Reason:       "FatalFailure",
+				Message:      "something went wrong on the DPU",
+			}
+			req, err := json.Marshal(request)
+			Expect(err).To(Succeed())
+
+			resp, err := http.Post(fmt.Sprintf("http://%s/set-error", address), "application/json", bytes.NewBuffer(req))
+			Expect(err).To(Succeed())
+			Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
+		})
+
+		It("should return 400 when request body is malformed", func() {
+			resp, err := http.Post(fmt.Sprintf("http://%s/set-error", address), "application/json", bytes.NewBufferString("not-json"))
+			Expect(err).To(Succeed())
+			Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+		})
+
+		It("should return 400 when reason is not a valid condition reason", func() {
+			dpu := createDPU("test-dpu", testNS.Name)
+
+			request := types.SetErrorRequest{
+				DPUName:      dpu.Name,
+				DPUNamespace: dpu.Namespace,
+				DPUUID:       string(dpu.UID),
+				Reason:       "",
+				Message:      "something went wrong on the DPU",
+			}
+			req, err := json.Marshal(request)
+			Expect(err).To(Succeed())
+
+			resp, err := http.Post(fmt.Sprintf("http://%s/set-error", address), "application/json", bytes.NewBuffer(req))
+			Expect(err).To(Succeed())
+			Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+
+			updatedDPU := &provisioningv1.DPU{}
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: dpu.Namespace, Name: dpu.Name}, updatedDPU)).To(Succeed())
+			Expect(meta.FindStatusCondition(updatedDPU.Status.Conditions, string(provisioningv1.DPUCondError))).To(BeNil())
 		})
 	})
 
