@@ -31,8 +31,8 @@ var componentIntroducedVersions = map[operatorv1.ComponentName]string{
 	operatorv1.KubeStateMetricsName:       "v26.4.0",
 	operatorv1.NodeProblemDetectorName:    "v26.4.0",
 	operatorv1.OpenTelemetryCollectorName: "v26.4.0",
-	operatorv1.VaultKMSName:               "v26.10.0",
-	operatorv1.DPUMonitoringName:          "v26.10.0",
+	operatorv1.VaultKMSName:               "v26.8.0",
+	operatorv1.DPUMonitoringName:          "v26.8.0",
 }
 
 // ShouldSkipUpgradeCheck determines if a component's upgrade readiness check should be skipped
