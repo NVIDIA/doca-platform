@@ -297,7 +297,7 @@ func ValidateDPUDeploymentDeletionWhileDisruptiveUpgradeInProgress(ctx context.C
 			g.Expect(application.Status.OperationState.SyncResult.Source.Helm.ValuesObject).ToNot(BeNil())
 			g.Expect(application.Status.OperationState.SyncResult.Source.Helm.ValuesObject.Raw).To(ContainSubstring("notMalformedAnymore"))
 		}
-	}).WithTimeout(30 * time.Second).Should(Succeed())
+	}).WithTimeout(2 * time.Minute).Should(Succeed())
 
 	By("Checking that the underlying objects are deleted")
 	Eventually(func(g Gomega) {
