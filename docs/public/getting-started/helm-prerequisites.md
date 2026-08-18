@@ -47,6 +47,8 @@ See [Running Argo CD in a separate namespace](#running-argo-cd-in-a-separate-nam
 
 See [Running Kube-State-Metrics in a separate namespace](#running-kube-state-metrics-in-a-separate-namespace) for the configuration required when KSM runs outside `dpf-operator-system`.
 
+See [Running Kamaji in a separate namespace](#running-kamaji-in-a-separate-namespace) for the configuration required when Kamaji runs outside `dpf-operator-system`.
+
 [cert-manager]: https://cert-manager.io/docs/installation/helm
 [argo-cd]: https://argo-cd.readthedocs.io/en/stable/getting_started/
 [node-feature-discovery]: https://github.com/kubernetes-sigs/node-feature-discovery/tree/master/deployment/helm/node-feature-discovery
@@ -80,6 +82,34 @@ when KSM runs in `dpf-operator-system`. If you deploy KSM in a different namespa
 ConfigMap lands next to the KSM Pod. See
 [Exposing DPF Custom Resource Metrics](../operational-readiness/observability/deployment/user-managed-components.md#exposing-dpf-custom-resource-metrics)
 for more details.
+
+## Running Kamaji in a separate namespace
+
+DPF supports running Kamaji and its etcd datastore in a namespace other than `dpf-operator-system`. The Kamaji
+controller itself needs no DPF configuration, as long as it watches all namespaces (the chart default):
+
+- The `TenantControlPlane` for a DPU cluster is created in the namespace of the `DPUCluster` object, not in the
+  namespace where Kamaji is installed.
+- The `DataStore` referenced by DPF is cluster scoped, so the `default` datastore created by the `kamaji-etcd`
+  chart resolves regardless of the namespace it was installed in.
+
+What does need configuration is the etcd defragmentation CronJob shipped by the DPF operator chart. It connects to
+the `kamaji-etcd` StatefulSet by its in-cluster DNS name and mounts the etcd client certificates, which only exist
+in the namespace where `kamaji-etcd` is installed. If it is deployed in `dpf-operator-system` while `kamaji-etcd`
+lives elsewhere, its Pods cannot mount those Secrets and no defragmentation happens.
+
+Set `kamajiEtcdDefrag.namespaceOverride` in the DPF operator Helm values to the namespace where `kamaji-etcd` is
+installed:
+
+```yaml
+kamajiEtcdDefrag:
+  # The namespace where kamaji-etcd is installed.
+  namespaceOverride: kamaji-system
+```
+
+If the `kamaji-etcd` release name, replica count, or client port differ from the defaults, set
+`kamajiEtcdDefrag.releaseName`, `kamajiEtcdDefrag.replicas`, and `kamajiEtcdDefrag.clientPort` to match, as they are
+used to build the etcd endpoint list and the certificate Secret names.
 
 ## Installation Options
 

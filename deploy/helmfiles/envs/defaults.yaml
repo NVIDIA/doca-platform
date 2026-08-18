@@ -3,6 +3,21 @@
 #
 # To enable a subset of features, pass a values file that overrides the relevant keys, e.g.:
 #   helmfile --state-values-file envs/all.yaml sync        # all.yaml: all features enabled
+
+# Namespaces for the releases that DPF supports running outside dpf-operator-system.
+#
+# Overriding a namespace here is not sufficient on its own, each of these also requires
+# matching DPF operator configuration. See the "Running <component> in a separate namespace"
+# sections in docs/public/getting-started/helm-prerequisites.md.
+namespaces:
+  # argoCD additionally requires spec.overrides.argoCDNamespace in the DPFOperatorConfig.
+  argoCD: dpf-operator-system
+  # kamaji additionally requires kamajiEtcdDefrag.namespaceOverride in the DPF operator Helm values.
+  kamaji: dpf-operator-system
+  # kubeStateMetrics additionally requires kubeStateMetricsCRDMetrics.namespaceOverride in the
+  # DPF operator Helm values.
+  kubeStateMetrics: dpf-operator-system
+
 kata:
   enabled: false
 

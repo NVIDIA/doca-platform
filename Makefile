@@ -601,7 +601,10 @@ NFD_WAIT ?= true
 # Enable dependencies required by the default test-e2e label filter so the tests
 # can be deployed and run directly through the documented Makefile workflow.
 # HELMFILE_STATE_VALUES_SET remains a full override for other test configurations.
-TEST_DEPLOY_OPERATOR_HELMFILE_STATE_VALUES_SET = $(if $(HELMFILE_STATE_VALUES_SET),$(HELMFILE_STATE_VALUES_SET),openbao.enabled=true,external-secrets.enabled=true)
+# The argo-cd and kamaji namespaces come from a state value instead of the release definition,
+# so the sed below cannot move them. They are appended after any override to keep all
+# prerequisites in TEST_DEPLOY_PREREQS_NAMESPACE.
+TEST_DEPLOY_OPERATOR_HELMFILE_STATE_VALUES_SET = $(if $(HELMFILE_STATE_VALUES_SET),$(HELMFILE_STATE_VALUES_SET),openbao.enabled=true,external-secrets.enabled=true),namespaces.argoCD=$(TEST_DEPLOY_PREREQS_NAMESPACE),namespaces.kamaji=$(TEST_DEPLOY_PREREQS_NAMESPACE)
 .PHONY: test-deploy-operator-helm
 test-deploy-operator-helm: helm helm-package-operator ## Deploy the DPF Operator using helm
 	# Deploy the DPF Operator prerequisites.
@@ -620,6 +623,7 @@ endif
 		--set controllerManager.image.repository=$(DPF_SYSTEM_IMAGE)\
 		--set controllerManager.image.tag=$(TAG) \
 		--set imagePullSecrets[0].name=dpf-pull-secret \
+		--set kamajiEtcdDefrag.namespaceOverride=$(TEST_DEPLOY_PREREQS_NAMESPACE) \
 		dpf-operator $(OPERATOR_HELM_CHART)
 
 	# Deploy monitoring tools.

@@ -97,7 +97,7 @@ releases:
       - cert-manager/cert-manager
 
   - name: kamaji
-    namespace: dpf-operator-system
+    namespace: "{{ .Values.namespaces.kamaji }}"
     createNamespace: true
     chart: oci://ghcr.io/nvidia/charts/kamaji
     version: 1.4.0
@@ -132,7 +132,7 @@ releases:
         showlogs: true
 
   - name: argo-cd
-    namespace: dpf-operator-system
+    namespace: "{{ .Values.namespaces.argoCD }}"
     createNamespace: true
     chart: argoproj/argo-cd
     version: 10.2.2
@@ -144,12 +144,14 @@ releases:
     hooks:
       - events: [ "postsync" ]
         command: "kubectl"
-        args: ["rollout", "status", "-n", "dpf-operator-system", "--timeout=300s", "deployment", "-l", "app.kubernetes.io/name=argocd-server"]
+        args: ["rollout", "status", "-n", "{{ .Values.namespaces.argoCD }}", "--timeout=300s", "deployment", "-l", "app.kubernetes.io/name=argocd-server"]
         showlogs: true
       - events: [ "postsync" ]
         command: "kubectl"
-        args: ["rollout", "status", "-n", "dpf-operator-system", "--timeout=300s", "statefulset", "-l", "app.kubernetes.io/name=argocd-application-controller"]
+        args: ["rollout", "status", "-n", "{{ .Values.namespaces.argoCD }}", "--timeout=300s", "statefulset", "-l", "app.kubernetes.io/name=argocd-application-controller"]
         showlogs: true
+      # The Applications below stay in dpf-operator-system even when Argo CD itself runs
+      # elsewhere, because the DPF Operator creates them in its own namespace.
       # Ensure a sync is done of all applications. This is e.g. required when upgrading ArgoCD from v2 to v3 which includes changing the tracking strategy (if not configured otherwise).
       # Without a sync, ArgoCD may not delete resources because of the missing tracking information.
       # TODO: delete after v26.4.0 is released
