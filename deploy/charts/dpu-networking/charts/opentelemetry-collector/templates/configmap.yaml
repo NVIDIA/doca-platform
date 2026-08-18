@@ -1,3 +1,12 @@
+{{- /* The exporter type encodes the OTLP transport: "otlp" is OTLP/gRPC, "otlphttp" is OTLP/HTTP. */}}
+{{- $logExporter := "otlphttp/log" }}
+{{- if eq .Values.logging.transport "grpc" }}
+{{- $logExporter = "otlp/log" }}
+{{- end }}
+{{- $metricsExporter := "otlphttp/metrics" }}
+{{- if eq .Values.metrics.transport "grpc" }}
+{{- $metricsExporter = "otlp/metrics" }}
+{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -98,10 +107,15 @@ data:
       # whole configuration when an otlphttp exporter has an empty endpoint, so rendering one
       # unconditionally would crash loop the collector for anyone who configures only one signal.
 {{- if .Values.logging.endpoint }}
-      otlphttp/log:
+      {{ $logExporter }}:
         endpoint: {{ .Values.logging.endpoint | quote }}
+        {{- if .Values.logging.caCert }}
+        tls:
+          ca_pem: {{ .Values.logging.caCert | quote }}
+        {{- else if hasPrefix "http://" .Values.logging.endpoint }}
         tls:
           insecure: true
+        {{- end }}
         retry_on_failure:
           enabled: true
           initial_interval: 5s
@@ -110,10 +124,15 @@ data:
 {{- end }}
 {{- if .Values.metrics.endpoint }}
 
-      otlphttp/metrics:
+      {{ $metricsExporter }}:
         endpoint: {{ .Values.metrics.endpoint | quote }}
+        {{- if .Values.metrics.caCert }}
+        tls:
+          ca_pem: {{ .Values.metrics.caCert | quote }}
+        {{- else if hasPrefix "http://" .Values.metrics.endpoint }}
         tls:
           insecure: true
+        {{- end }}
         retry_on_failure:
           enabled: true
           initial_interval: 5s
@@ -133,22 +152,22 @@ data:
         logs/pods:
           receivers: [filelog/pods]
           processors: [memory_limiter, k8sattributes, resource, batch]
-          exporters: [otlphttp/log, debug]
+          exporters: [{{ $logExporter }}, debug]
 
         logs/doca:
           receivers: [filelog/doca]
           processors: [memory_limiter, resource, batch]
-          exporters: [otlphttp/log, debug]
+          exporters: [{{ $logExporter }}, debug]
 
         logs/otlp:
           receivers: [otlp]
           processors: [memory_limiter, k8sattributes, resource, batch]
-          exporters: [otlphttp/log, debug]
+          exporters: [{{ $logExporter }}, debug]
 {{- end }}
 {{- if .Values.metrics.endpoint }}
 
         metrics:
           receivers: [kubeletstats, otlp]
           processors: [memory_limiter, k8sattributes, resource, batch]
-          exporters: [otlphttp/metrics, debug]
+          exporters: [{{ $metricsExporter }}, debug]
 {{- end }}

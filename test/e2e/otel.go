@@ -22,13 +22,17 @@ import (
 	"strings"
 	"time"
 
+	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
+	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/test/utils/loki"
 	"github.com/nvidia/doca-platform/test/utils/prometheus"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -36,10 +40,90 @@ import (
 const (
 	otelNodePort       = 30050
 	otelEndpointSchema = "http://"
+	// otelTLSNodePort is the NodePort of the management collector's TLS OTLP/HTTP receiver.
+	otelTLSNodePort       = 30051
+	otelTLSEndpointSchema = "https://"
+	// otelTLSGRPCNodePort is the NodePort of the management collector's TLS OTLP/gRPC receiver.
+	otelTLSGRPCNodePort = 30052
+	// otelServingCertSecretName is the cert-manager managed Secret holding the management
+	// collector's serving certificate, created by deploy/helmfiles/hooks/apply-otel-certificates.sh.
+	// Its "ca.crt" is the CA the DPU cluster collectors verify the endpoint against, referenced
+	// directly by the caSecretRef of DPFOperatorConfig
+	// spec.monitoring.openTelemetryCollector.logging and .metrics.
+	otelServingCertSecretName = "otel-gateway-server-tls"
 )
+
+// otelExportAddress returns the address DPU cluster collectors export to: a DPUCluster keepalived
+// VIP when one exists, otherwise the control plane node IP. The endpoint is a single field shared by
+// every DPU cluster and every VIP fronts the same management cluster nodes, so any of them works.
+// Read from the manifests because the DPFOperatorConfig is built before the DPUClusters exist, and
+// must match the DPUCLUSTER_VIP added to the collector certificate's IP SANs.
+func otelExportAddress(ctx context.Context, c client.Client, dpuClusterPaths []string) string {
+	for _, dpuClusterPath := range dpuClusterPaths {
+		dpuCluster := objectFromFile[provisioningv1.DPUCluster](dpuClusterPath)
+		endpoint := dpuCluster.Spec.ClusterEndpoint
+		if endpoint != nil && endpoint.Keepalived != nil && endpoint.Keepalived.VIP != "" {
+			return endpoint.Keepalived.VIP
+		}
+	}
+	return getClusterControlPlaneIP(ctx, c)
+}
+
+// openTelemetryCollectorConfiguration returns the collector configuration for the generated
+// DPFOperatorConfig. When the monitoring stack created the management collector's serving
+// certificate, DPU clusters export via the TLS endpoints and verify them against the CA in the
+// cert-manager-managed serving certificate Secret, referenced directly by caSecretRef. Logs go
+// over OTLP/HTTP and metrics over OTLP/gRPC, so both transports and both caSecretRef paths are
+// covered end to end against a real cert-manager Secret. Suites deployed without the monitoring
+// stack fall back to the plaintext endpoint.
+func openTelemetryCollectorConfiguration(ctx context.Context, c client.Client, dpuClusterPaths []string) *operatorv1.OpenTelemetryCollectorConfiguration {
+	exportAddress := otelExportAddress(ctx, c, dpuClusterPaths)
+
+	servingCert := &corev1.Secret{}
+	err := c.Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: otelServingCertSecretName}, servingCert)
+	if apierrors.IsNotFound(err) || (err == nil && len(servingCert.Data[operatorv1.OpenTelemetryCollectorCASecretKey]) == 0) {
+		return &operatorv1.OpenTelemetryCollectorConfiguration{
+			Logging: &operatorv1.OpenTelemetryCollectorLoggingConfiguration{
+				Endpoint: fmt.Sprintf("%s%s:%d", otelEndpointSchema, exportAddress, otelNodePort),
+			},
+			Metrics: &operatorv1.OpenTelemetryCollectorMetricsConfiguration{
+				Endpoint: fmt.Sprintf("%s%s:%d", otelEndpointSchema, exportAddress, otelNodePort),
+			},
+		}
+	}
+	Expect(err).NotTo(HaveOccurred())
+
+	// The serving certificate covers the node InternalIPs and the keepalived VIP as IP SANs.
+	// The CA is read straight from the cert-manager-managed serving certificate Secret
+	// (namespace and key default to the DPFOperatorConfig namespace and "ca.crt").
+	return &operatorv1.OpenTelemetryCollectorConfiguration{
+		Logging: &operatorv1.OpenTelemetryCollectorLoggingConfiguration{
+			Endpoint:    fmt.Sprintf("%s%s:%d", otelTLSEndpointSchema, exportAddress, otelTLSNodePort),
+			CASecretRef: &operatorv1.OpenTelemetryCollectorCASecretReference{Name: otelServingCertSecretName},
+		},
+		Metrics: &operatorv1.OpenTelemetryCollectorMetricsConfiguration{
+			Endpoint:    fmt.Sprintf("%s%s:%d", otelTLSEndpointSchema, exportAddress, otelTLSGRPCNodePort),
+			Transport:   ptr.To(operatorv1.OpenTelemetryCollectorTransportGRPC),
+			CASecretRef: &operatorv1.OpenTelemetryCollectorCASecretReference{Name: otelServingCertSecretName},
+		},
+	}
+}
 
 // ValidateDPUClusterOpenTelemetryConfiguration verifies DPU cluster collector configuration
 func ValidateDPUClusterOpenTelemetryConfiguration(ctx context.Context, input *systemTestInput) {
+	logging := input.config.Spec.Monitoring.OpenTelemetryCollector.Logging
+	metrics := input.config.Spec.Monitoring.OpenTelemetryCollector.Metrics
+
+	// The exporter type encodes the OTLP transport: "otlp" is OTLP/gRPC, "otlphttp" is OTLP/HTTP.
+	expectedExporter := "otlphttp/log:"
+	if logging.Transport != nil && *logging.Transport == operatorv1.OpenTelemetryCollectorTransportGRPC {
+		expectedExporter = "otlp/log:"
+	}
+	expectedMetricsExporter := "otlphttp/metrics:"
+	if metrics.Transport != nil && *metrics.Transport == operatorv1.OpenTelemetryCollectorTransportGRPC {
+		expectedMetricsExporter = "otlp/metrics:"
+	}
+
 	for i, dpuClient := range dpuClusterClient {
 		clusterName := input.dpuClusters[i].Name
 		By(fmt.Sprintf("Checking OpenTelemetry Collector ConfigMap in DPU cluster %s", clusterName))
@@ -55,10 +139,17 @@ func ValidateDPUClusterOpenTelemetryConfiguration(ctx context.Context, input *sy
 			// Verify ConfigMap contains OTLP exporter configuration
 			c, exists := cm.Data["otel-collector-config.yaml"]
 			g.Expect(exists).To(BeTrue(), "otel-collector-config.yaml not found in ConfigMap")
-			g.Expect(c).To(ContainSubstring(fmt.Sprintf(":%d", otelNodePort)),
-				fmt.Sprintf("ConfigMap should contain management endpoint with NodePort %d", otelNodePort))
-			g.Expect(c).To(ContainSubstring("otlphttp/log:"),
-				"ConfigMap should contain OTLP HTTP exporter for logging")
+			g.Expect(c).To(ContainSubstring(logging.Endpoint),
+				fmt.Sprintf("ConfigMap should contain the management endpoint %s", logging.Endpoint))
+			g.Expect(c).To(ContainSubstring(expectedExporter),
+				"ConfigMap should contain the OTLP exporter for logging")
+			if logging.CASecretRef != nil && metrics.CASecretRef != nil {
+				// The CA travels as an inline PEM. Verification must not be disabled.
+				g.Expect(c).To(ContainSubstring("ca_pem:"),
+					"ConfigMap should contain the CA certificate for TLS verification")
+				g.Expect(c).NotTo(ContainSubstring("insecure: true"),
+					"ConfigMap should not disable TLS for the exporters")
+			}
 			// Verify DOCA log receiver configuration
 			g.Expect(c).To(ContainSubstring("filelog/doca"),
 				"ConfigMap should contain filelog/doca receiver")
@@ -69,8 +160,10 @@ func ValidateDPUClusterOpenTelemetryConfiguration(ctx context.Context, input *sy
 			// Verify metrics receiver and exporter configuration
 			g.Expect(c).To(ContainSubstring("kubeletstats:"),
 				"ConfigMap should contain kubeletstats receiver")
-			g.Expect(c).To(ContainSubstring("otlphttp/metrics:"),
-				"ConfigMap should contain OTLP HTTP exporter for metrics")
+			g.Expect(c).To(ContainSubstring(metrics.Endpoint),
+				fmt.Sprintf("ConfigMap should contain the management metrics endpoint %s", metrics.Endpoint))
+			g.Expect(c).To(ContainSubstring(expectedMetricsExporter),
+				"ConfigMap should contain the OTLP exporter for metrics")
 		}).WithTimeout(10 * time.Second).WithPolling(time.Second).Should(Succeed())
 	}
 }

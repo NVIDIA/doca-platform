@@ -12,8 +12,12 @@ OpenTelemetry Collector for DPU nodes
 | image.repository | string | `"otel/opentelemetry-collector-contrib"` |  |
 | image.tag | string | `"0.157.0@sha256:f2f01157055a9b2aab9df7118e1f1c9abf345e99b23bc7a2bc791db374a7d0f6"` |  |
 | imagePullSecrets | list | `[]` |  |
-| logging.endpoint | string | `""` | endpoint where the DPU cluster collector sends logs to the management cluster. This MUST be set via DPFOperatorConfig.spec.monitoring.openTelemetryCollector.logging.endpoint. Example: "http://10.0.110.1:30050" (management cluster node IP with NodePort). |
+| logging.caCert | string | `""` | PEM-encoded CA certificate bundle used to verify the endpoint's TLS certificate. Set via DPFOperatorConfig.spec.monitoring.openTelemetryCollector.logging.caSecretRef. If empty, TLS endpoints are verified against the system CA pool. |
+| logging.endpoint | string | `""` | endpoint where the DPU cluster collector sends logs/metrics to the management cluster. This MUST be set via DPFOperatorConfig.spec.monitoring.openTelemetryCollector.endpoint. Example: "http://10.0.110.1:30050" (management cluster node IP with NodePort). |
+| logging.transport | string | `"http"` | OTLP transport used to export to the endpoint: "http" (OTLP/HTTP) or "grpc" (OTLP/gRPC). Set via DPFOperatorConfig.spec.monitoring.openTelemetryCollector.logging.transport. |
+| metrics.caCert | string | `""` | PEM-encoded CA certificate bundle used to verify the endpoint's TLS certificate. Set via DPFOperatorConfig.spec.monitoring.openTelemetryCollector.metrics.caSecretRef. If empty, TLS endpoints are verified against the system CA pool. |
 | metrics.endpoint | string | `""` | endpoint where the DPU cluster collector sends metrics to the management cluster. This MUST be set via DPFOperatorConfig.spec.monitoring.openTelemetryCollector.metrics.endpoint. Example: "http://10.0.110.1:30050" (management cluster node IP with NodePort). |
+| metrics.transport | string | `"http"` | OTLP transport used to export to the endpoint: "http" (OTLP/HTTP) or "grpc" (OTLP/gRPC). Set via DPFOperatorConfig.spec.monitoring.openTelemetryCollector.metrics.transport. |
 | resources.limits.cpu | string | `"200m"` |  |
 | resources.limits.memory | string | `"512Mi"` |  |
 | resources.requests.cpu | string | `"100m"` |  |

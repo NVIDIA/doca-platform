@@ -738,7 +738,7 @@ verify-md-links: $(LYCHEE) ## Check links in markdown docs are working
 		echo "Ignoring verify-md-links since IGNORE_VERIFY_MD_LINKS is set to true"; \
 		exit 0; \
 	fi; \
-	$(LYCHEE) --accept 200,429 . *.md --exclude-path third_party --exclude-path ./deploy --exclude-path docs/do_not_publish # Exclude the external `third_party` docs and the generated `charts` docs.
+	$(LYCHEE) --accept 200,429 --exclude '^https?://host(:|/|$$)' . *.md --exclude-path third_party --exclude-path ./deploy --exclude-path docs/do_not_publish # Exclude the external `third_party` docs, the generated `charts` docs and `host` placeholder URLs from the API docs.
 
 export CRDIFY_BASE_REF ?= $(LATEST_STABLE_TAG)
 export CRDIFY_COMPARE_REF ?= HEAD

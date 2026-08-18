@@ -135,6 +135,39 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 	cniInstallerWithCNIBinDirValuesData, err := json.Marshal(cniInstallerWithCNIBinDirValues)
 	g.Expect(err).NotTo(HaveOccurred())
 
+	otelCACert := "-----BEGIN CERTIFICATE-----\nZmFrZQ==\n-----END CERTIFICATE-----\n"
+	otelVariables := newDefaultVariables(defaults)
+	otelVariables.DisableSystemComponents[operatorv1.OpenTelemetryCollectorName] = false
+	otelMetricsCACert := "-----BEGIN CERTIFICATE-----\nbWV0cmljcw==\n-----END CERTIFICATE-----\n"
+	otelVariables.OpenTelemetryCollector = OpenTelemetryCollectorVariables{
+		Logging: OpenTelemetryCollectorGenericVariables{
+			Endpoint:  "https://otel.example.com:4317",
+			Transport: "grpc",
+			CACert:    otelCACert,
+		},
+		Metrics: OpenTelemetryCollectorGenericVariables{
+			Endpoint:  "https://otel.example.com:4318",
+			Transport: "http",
+			CACert:    otelMetricsCACert,
+		},
+	}
+	valuesWithOtelVariables := initialValuesObject.DeepCopy()
+	valuesWithOtelVariables.Object[operatorv1.OpenTelemetryCollectorName.String()] = map[string]interface{}{
+		"enabled": true,
+		"logging": map[string]interface{}{
+			"endpoint":  "https://otel.example.com:4317",
+			"transport": "grpc",
+			"caCert":    otelCACert,
+		},
+		"metrics": map[string]interface{}{
+			"endpoint":  "https://otel.example.com:4318",
+			"transport": "http",
+			"caCert":    otelMetricsCACert,
+		},
+	}
+	valuesDataWithOtelVariables, err := json.Marshal(valuesWithOtelVariables)
+	g.Expect(err).NotTo(HaveOccurred())
+
 	tests := []struct {
 		name    string
 		in      *dpuservicev1.DPUService
@@ -412,6 +445,52 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 						},
 						Values: &runtime.RawExtension{
 							Raw: cniInstallerWithCNIBinDirValuesData,
+						},
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "opentelemetry-collector sets logging and metrics endpoint, transport and CA certificate",
+			in: &dpuservicev1.DPUService{
+				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
+				ObjectMeta: metav1.ObjectMeta{
+					Name: operatorv1.OpenTelemetryCollectorName.String(),
+				},
+				Spec: dpuservicev1.DPUServiceSpec{
+					HelmChart: dpuservicev1.HelmChart{
+						Values: &runtime.RawExtension{
+							Raw: initialValuesData,
+						},
+					},
+				},
+			},
+			vars: otelVariables,
+			want: &dpuservicev1.DPUService{
+				TypeMeta: metav1.TypeMeta{Kind: "DPUService"},
+				ObjectMeta: metav1.ObjectMeta{
+					Name: operatorv1.OpenTelemetryCollectorName.String(),
+					Labels: map[string]string{
+						operatorv1.DPFComponentLabelKey: operatorv1.OpenTelemetryCollectorName.String(),
+						release.DPFVersionLabelKey:      release.DPFVersion(),
+					},
+				},
+				Spec: dpuservicev1.DPUServiceSpec{
+					ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
+						Labels: map[string]string{
+							operatorv1.DPFComponentLabelKey: operatorv1.OpenTelemetryCollectorName.String(),
+						},
+					},
+					HelmChart: dpuservicev1.HelmChart{
+						Source: dpuservicev1.ApplicationSource{
+							RepoURL: "oci://example.com",
+							Path:    "",
+							Version: "v0.1.0",
+							Chart:   "dpu-networking",
+						},
+						Values: &runtime.RawExtension{
+							Raw: valuesDataWithOtelVariables,
 						},
 					},
 				},

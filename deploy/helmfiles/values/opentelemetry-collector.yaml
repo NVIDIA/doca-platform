@@ -42,6 +42,22 @@ config:
         http:
           endpoint: 0.0.0.0:4318
 
+    # TLS OTLP receiver for DPU clusters that verify this collector's serving
+    # certificate (DPFOperatorConfig spec.monitoring.openTelemetryCollector.logging.caSecretRef).
+    # The certificate is created by hooks/apply-otel-certificates.sh.
+    otlp/tls:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4319
+          tls:
+            cert_file: /etc/otel/certs/tls.crt
+            key_file: /etc/otel/certs/tls.key
+        http:
+          endpoint: 0.0.0.0:4320
+          tls:
+            cert_file: /etc/otel/certs/tls.crt
+            key_file: /etc/otel/certs/tls.key
+
   processors:
     batch:
       timeout: 10s
@@ -112,12 +128,12 @@ config:
   service:
     pipelines:
       logs:
-        receivers: [otlp, filelog]
+        receivers: [otlp, otlp/tls, filelog]
         processors: [memory_limiter, k8s_attributes, transform/kamaji, resource, batch]
         exporters: [otlphttp/loki, debug]
 
       metrics:
-        receivers: [otlp]
+        receivers: [otlp, otlp/tls]
         processors: [memory_limiter, k8s_attributes, resource, batch]
         exporters: [prometheusremotewrite, debug]
 
@@ -153,11 +169,36 @@ ports:
     # See https://github.com/kubernetes/enhancements/tree/master/keps/sig-network/3668-reserved-service-nodeport-range
     nodePort: 30050
     protocol: TCP
+  otlp-tls:
+    enabled: true
+    containerPort: 4319
+    servicePort: 4319
+    # Fixed NodePort for the TLS OTLP/gRPC receiver.
+    nodePort: 30052
+    protocol: TCP
+  otlp-https:
+    enabled: true
+    containerPort: 4320
+    servicePort: 4320
+    # Fixed NodePort for the TLS OTLP/HTTP receiver.
+    nodePort: 30051
+    protocol: TCP
   metrics:
     enabled: true
     containerPort: 8888
     servicePort: 8888
     protocol: TCP
+
+# Serving certificate for the TLS OTLP receivers, created by
+# hooks/apply-otel-certificates.sh.
+extraVolumes:
+  - name: otel-gateway-server-tls
+    secret:
+      secretName: otel-gateway-server-tls
+extraVolumeMounts:
+  - name: otel-gateway-server-tls
+    mountPath: /etc/otel/certs
+    readOnly: true
 
 # ServiceAccount configuration
 serviceAccount:

@@ -303,14 +303,30 @@ func nvipamEdits(vars Variables) ([]StructuredEdit, error) {
 func openTelemetryCollectorEdits(vars Variables) ([]StructuredEdit, error) {
 	edits := []StructuredEdit{}
 
-	if vars.OpenTelemetryCollector.LoggingEndpoint != "" {
-		edits = append(edits, dpuServiceAddValueEdit(vars.OpenTelemetryCollector.LoggingEndpoint,
+	if vars.OpenTelemetryCollector.Logging.Endpoint != "" {
+		edits = append(edits, dpuServiceAddValueEdit(vars.OpenTelemetryCollector.Logging.Endpoint,
 			operatorv1.OpenTelemetryCollectorName.String(), "logging", "endpoint"))
+		if vars.OpenTelemetryCollector.Logging.Transport != "" {
+			edits = append(edits, dpuServiceAddValueEdit(vars.OpenTelemetryCollector.Logging.Transport,
+				operatorv1.OpenTelemetryCollectorName.String(), "logging", "transport"))
+		}
+		if vars.OpenTelemetryCollector.Logging.CACert != "" {
+			edits = append(edits, dpuServiceAddValueEdit(vars.OpenTelemetryCollector.Logging.CACert,
+				operatorv1.OpenTelemetryCollectorName.String(), "logging", "caCert"))
+		}
 	}
 
-	if vars.OpenTelemetryCollector.MetricsEndpoint != "" {
-		edits = append(edits, dpuServiceAddValueEdit(vars.OpenTelemetryCollector.MetricsEndpoint,
+	if vars.OpenTelemetryCollector.Metrics.Endpoint != "" {
+		edits = append(edits, dpuServiceAddValueEdit(vars.OpenTelemetryCollector.Metrics.Endpoint,
 			operatorv1.OpenTelemetryCollectorName.String(), "metrics", "endpoint"))
+		if vars.OpenTelemetryCollector.Metrics.Transport != "" {
+			edits = append(edits, dpuServiceAddValueEdit(vars.OpenTelemetryCollector.Metrics.Transport,
+				operatorv1.OpenTelemetryCollectorName.String(), "metrics", "transport"))
+		}
+		if vars.OpenTelemetryCollector.Metrics.CACert != "" {
+			edits = append(edits, dpuServiceAddValueEdit(vars.OpenTelemetryCollector.Metrics.CACert,
+				operatorv1.OpenTelemetryCollectorName.String(), "metrics", "caCert"))
+		}
 	}
 
 	return edits, nil

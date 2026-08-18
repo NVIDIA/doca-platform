@@ -80,3 +80,11 @@ releases:
     needs:
       - dpf-operator-system/kube-prometheus-stack
       - dpf-operator-system/loki
+    hooks:
+      # The collector's TLS OTLP receivers serve the certificate created here.
+      # It cannot be an extraObjects entry in the chart values because the node
+      # InternalIPs used as IP SANs are only known at deploy time.
+      - events: [ "preapply", "presync" ]
+        command: "/bin/bash"
+        args: ["./hooks/apply-otel-certificates.sh", "dpf-operator-system"]
+        showlogs: true

@@ -1906,3 +1906,230 @@ func TestResolveDPUKubeletVersion(t *testing.T) {
 		g.Expect(got).To(BeEmpty())
 	})
 }
+
+func TestResolveOpenTelemetryCollectorCACerts(t *testing.T) {
+	newReconciler := func() *DPFOperatorConfigReconciler {
+		return &DPFOperatorConfigReconciler{
+			Client:   testClient,
+			Scheme:   scheme.Scheme,
+			Settings: &DPFOperatorConfigReconcilerSettings{},
+		}
+	}
+
+	newConfig := func(ns string, logging *operatorv1.OpenTelemetryCollectorLoggingConfiguration) *operatorv1.DPFOperatorConfig {
+		return &operatorv1.DPFOperatorConfig{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "dpfoperatorconfig",
+				Namespace: ns,
+			},
+			Spec: operatorv1.DPFOperatorConfigSpec{
+				Monitoring: &operatorv1.MonitoringConfiguration{
+					OpenTelemetryCollector: &operatorv1.OpenTelemetryCollectorConfiguration{
+						Logging: logging,
+					},
+				},
+			},
+		}
+	}
+
+	caCertPEM := "-----BEGIN CERTIFICATE-----\nZmFrZQ==\n-----END CERTIFICATE-----\n"
+
+	t.Run("no-op when no CA secret is referenced", func(t *testing.T) {
+		g := NewWithT(t)
+		r := newReconciler()
+		vars := inventory.Variables{}
+
+		config := newConfig("otel-ca-noop", &operatorv1.OpenTelemetryCollectorLoggingConfiguration{
+			Endpoint: "http://10.0.0.1:30318",
+		})
+		g.Expect(r.resolveOpenTelemetryCollectorCACerts(ctx, config, &vars)).To(Succeed())
+		g.Expect(vars.OpenTelemetryCollector.Logging.CACert).To(BeEmpty())
+
+		config.Spec.Monitoring = nil
+		g.Expect(r.resolveOpenTelemetryCollectorCACerts(ctx, config, &vars)).To(Succeed())
+		g.Expect(vars.OpenTelemetryCollector.Logging.CACert).To(BeEmpty())
+	})
+
+	t.Run("errors when the referenced CA secret is missing", func(t *testing.T) {
+		g := NewWithT(t)
+		ns := "otel-ca-missing-secret"
+		g.Expect(testClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}})).To(Succeed())
+		r := newReconciler()
+		vars := inventory.Variables{}
+
+		config := newConfig(ns, &operatorv1.OpenTelemetryCollectorLoggingConfiguration{
+			Endpoint:    "https://otel.example.com:4318",
+			CASecretRef: &operatorv1.OpenTelemetryCollectorCASecretReference{Name: "otel-ca"},
+		})
+		err := r.resolveOpenTelemetryCollectorCACerts(ctx, config, &vars)
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+	})
+
+	t.Run("errors when the referenced CA secret has no ca.crt key", func(t *testing.T) {
+		g := NewWithT(t)
+		ns := "otel-ca-missing-key"
+		g.Expect(testClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}})).To(Succeed())
+		g.Expect(testClient.Create(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "otel-ca"},
+			Data:       map[string][]byte{"tls.crt": []byte(caCertPEM)},
+		})).To(Succeed())
+		r := newReconciler()
+		vars := inventory.Variables{}
+
+		config := newConfig(ns, &operatorv1.OpenTelemetryCollectorLoggingConfiguration{
+			Endpoint:    "https://otel.example.com:4318",
+			CASecretRef: &operatorv1.OpenTelemetryCollectorCASecretReference{Name: "otel-ca"},
+		})
+		err := r.resolveOpenTelemetryCollectorCACerts(ctx, config, &vars)
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(err.Error()).To(ContainSubstring(operatorv1.OpenTelemetryCollectorCASecretKey))
+	})
+
+	t.Run("injects the CA certificate from the referenced secret", func(t *testing.T) {
+		g := NewWithT(t)
+		ns := "otel-ca-ok"
+		g.Expect(testClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}})).To(Succeed())
+		g.Expect(testClient.Create(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "otel-ca"},
+			Data:       map[string][]byte{operatorv1.OpenTelemetryCollectorCASecretKey: []byte(caCertPEM)},
+		})).To(Succeed())
+		r := newReconciler()
+		vars := inventory.Variables{}
+
+		config := newConfig(ns, &operatorv1.OpenTelemetryCollectorLoggingConfiguration{
+			Endpoint:    "https://otel.example.com:4318",
+			CASecretRef: &operatorv1.OpenTelemetryCollectorCASecretReference{Name: "otel-ca"},
+		})
+		g.Expect(r.resolveOpenTelemetryCollectorCACerts(ctx, config, &vars)).To(Succeed())
+		g.Expect(vars.OpenTelemetryCollector.Logging.CACert).To(Equal(caCertPEM))
+	})
+
+	t.Run("injects the CA certificate from a secret in another namespace", func(t *testing.T) {
+		g := NewWithT(t)
+		configNS := "otel-ca-xns-config"
+		secretNS := "otel-ca-xns-secret"
+		for _, name := range []string{configNS, secretNS} {
+			g.Expect(testClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name}})).To(Succeed())
+		}
+		g.Expect(testClient.Create(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Namespace: secretNS, Name: "otel-ca"},
+			Data:       map[string][]byte{operatorv1.OpenTelemetryCollectorCASecretKey: []byte(caCertPEM)},
+		})).To(Succeed())
+		r := newReconciler()
+		vars := inventory.Variables{}
+
+		config := newConfig(configNS, &operatorv1.OpenTelemetryCollectorLoggingConfiguration{
+			Endpoint:    "https://otel.example.com:4318",
+			CASecretRef: &operatorv1.OpenTelemetryCollectorCASecretReference{Name: "otel-ca", Namespace: ptr.To(secretNS)},
+		})
+		g.Expect(r.resolveOpenTelemetryCollectorCACerts(ctx, config, &vars)).To(Succeed())
+		g.Expect(vars.OpenTelemetryCollector.Logging.CACert).To(Equal(caCertPEM))
+	})
+
+	t.Run("injects the CA certificate from a custom secret key", func(t *testing.T) {
+		g := NewWithT(t)
+		ns := "otel-ca-custom-key"
+		g.Expect(testClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}})).To(Succeed())
+		g.Expect(testClient.Create(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "otel-ca"},
+			Data:       map[string][]byte{"tls.crt": []byte(caCertPEM)},
+		})).To(Succeed())
+		r := newReconciler()
+		vars := inventory.Variables{}
+
+		config := newConfig(ns, &operatorv1.OpenTelemetryCollectorLoggingConfiguration{
+			Endpoint:    "https://otel.example.com:4318",
+			CASecretRef: &operatorv1.OpenTelemetryCollectorCASecretReference{Name: "otel-ca", Key: ptr.To("tls.crt")},
+		})
+		g.Expect(r.resolveOpenTelemetryCollectorCACerts(ctx, config, &vars)).To(Succeed())
+		g.Expect(vars.OpenTelemetryCollector.Logging.CACert).To(Equal(caCertPEM))
+	})
+
+	t.Run("injects the CA certificate referenced by the metrics configuration", func(t *testing.T) {
+		g := NewWithT(t)
+		ns := "otel-ca-metrics"
+		g.Expect(testClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}})).To(Succeed())
+		g.Expect(testClient.Create(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "otel-metrics-ca"},
+			Data:       map[string][]byte{operatorv1.OpenTelemetryCollectorCASecretKey: []byte(caCertPEM)},
+		})).To(Succeed())
+		r := newReconciler()
+		vars := inventory.Variables{}
+
+		config := newConfig(ns, nil)
+		config.Spec.Monitoring.OpenTelemetryCollector.Metrics = &operatorv1.OpenTelemetryCollectorMetricsConfiguration{
+			Endpoint:    "https://otel.example.com:4318",
+			CASecretRef: &operatorv1.OpenTelemetryCollectorCASecretReference{Name: "otel-metrics-ca"},
+		}
+		g.Expect(r.resolveOpenTelemetryCollectorCACerts(ctx, config, &vars)).To(Succeed())
+		g.Expect(vars.OpenTelemetryCollector.Metrics.CACert).To(Equal(caCertPEM))
+		g.Expect(vars.OpenTelemetryCollector.Logging.CACert).To(BeEmpty())
+	})
+
+	t.Run("injects the CA certificates of both the logging and the metrics configuration", func(t *testing.T) {
+		g := NewWithT(t)
+		ns := "otel-ca-both"
+		metricsCACertPEM := "-----BEGIN CERTIFICATE-----\nbWV0cmljcw==\n-----END CERTIFICATE-----\n"
+		g.Expect(testClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}})).To(Succeed())
+		g.Expect(testClient.Create(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "otel-logging-ca"},
+			Data:       map[string][]byte{operatorv1.OpenTelemetryCollectorCASecretKey: []byte(caCertPEM)},
+		})).To(Succeed())
+		g.Expect(testClient.Create(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "otel-metrics-ca"},
+			Data:       map[string][]byte{operatorv1.OpenTelemetryCollectorCASecretKey: []byte(metricsCACertPEM)},
+		})).To(Succeed())
+		r := newReconciler()
+		vars := inventory.Variables{}
+
+		config := newConfig(ns, &operatorv1.OpenTelemetryCollectorLoggingConfiguration{
+			Endpoint:    "https://otel.example.com:4318",
+			CASecretRef: &operatorv1.OpenTelemetryCollectorCASecretReference{Name: "otel-logging-ca"},
+		})
+		config.Spec.Monitoring.OpenTelemetryCollector.Metrics = &operatorv1.OpenTelemetryCollectorMetricsConfiguration{
+			Endpoint:    "https://otel.example.com:4318",
+			CASecretRef: &operatorv1.OpenTelemetryCollectorCASecretReference{Name: "otel-metrics-ca"},
+		}
+		g.Expect(r.resolveOpenTelemetryCollectorCACerts(ctx, config, &vars)).To(Succeed())
+		g.Expect(vars.OpenTelemetryCollector.Logging.CACert).To(Equal(caCertPEM))
+		g.Expect(vars.OpenTelemetryCollector.Metrics.CACert).To(Equal(metricsCACertPEM))
+	})
+
+	t.Run("errors when the metrics CA secret is missing", func(t *testing.T) {
+		g := NewWithT(t)
+		ns := "otel-ca-metrics-missing"
+		g.Expect(testClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}})).To(Succeed())
+		r := newReconciler()
+		vars := inventory.Variables{}
+
+		config := newConfig(ns, nil)
+		config.Spec.Monitoring.OpenTelemetryCollector.Metrics = &operatorv1.OpenTelemetryCollectorMetricsConfiguration{
+			Endpoint:    "https://otel.example.com:4318",
+			CASecretRef: &operatorv1.OpenTelemetryCollectorCASecretReference{Name: "otel-metrics-ca"},
+		}
+		err := r.resolveOpenTelemetryCollectorCACerts(ctx, config, &vars)
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		g.Expect(err.Error()).To(ContainSubstring("metrics"))
+	})
+
+	t.Run("skips resolution when the component is disabled", func(t *testing.T) {
+		g := NewWithT(t)
+		r := newReconciler()
+		vars := inventory.Variables{}
+
+		config := newConfig("otel-ca-disabled", &operatorv1.OpenTelemetryCollectorLoggingConfiguration{
+			Endpoint:    "https://otel.example.com:4318",
+			CASecretRef: &operatorv1.OpenTelemetryCollectorCASecretReference{Name: "does-not-exist"},
+		})
+		config.Spec.Monitoring.OpenTelemetryCollector.Metrics = &operatorv1.OpenTelemetryCollectorMetricsConfiguration{
+			Endpoint:    "https://otel.example.com:4318",
+			CASecretRef: &operatorv1.OpenTelemetryCollectorCASecretReference{Name: "does-not-exist"},
+		}
+		config.Spec.Monitoring.OpenTelemetryCollector.Disable = ptr.To(true)
+		g.Expect(r.resolveOpenTelemetryCollectorCACerts(ctx, config, &vars)).To(Succeed())
+		g.Expect(vars.OpenTelemetryCollector.Logging.CACert).To(BeEmpty())
+		g.Expect(vars.OpenTelemetryCollector.Metrics.CACert).To(BeEmpty())
+	})
+}

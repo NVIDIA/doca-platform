@@ -155,9 +155,25 @@ spec:
       disable: false
       logging:
         endpoint: "http://<host-node-ip>:30050"
+        # OTLP transport used to export to the endpoint: "http" (default) or "grpc".
+        # transport: grpc
+        # Reference to a Secret holding the PEM-encoded CA bundle (key "ca.crt")
+        # used to verify the endpoint's TLS certificate. The Secret may live in any
+        # namespace; namespace defaults to the DPFOperatorConfig namespace.
+        # Required only for certificates issued by a private CA.
+        # caSecretRef:
+        #   name: otel-ca
+      # The metrics configuration takes the same endpoint, transport and
+      # caSecretRef fields, configured independently of logging.
+      # metrics:
+      #   endpoint: "http://<host-node-ip>:30050"
 ```
 
 Each component supports `disable` and `daemon` (image, resources) overrides. To disable all monitoring at once, set `spec.monitoring.disable: true`.
+
+For TLS endpoints (`https://`), the certificate is verified against the system CA pool by default. To use a private CA, create a Secret with the CA bundle under the `ca.crt` key and reference it via `caSecretRef`. The Secret may live in any namespace, for example alongside the endpoint's cert-manager `Certificate`; the reference's namespace defaults to `dpf-operator-system`. Certificate verification is never skipped. `transport` and `caSecretRef` are set per signal, so `logging` and `metrics` can target different endpoints.
+
+A single node IP as the endpoint is a single point of failure. For production, use a highly available address that fronts the Host Cluster nodes (a failover VIP, a `LoadBalancer` Service address, or a DNS name resolving to one of those). See the [High Availability](../../operational-readiness/observability/deployment/operator-managed-components.md#high-availability) section for details.
 
 For detailed configuration options and architecture, see [DPF-Operator-Managed Components](../../operational-readiness/observability/deployment/operator-managed-components.md).
 
