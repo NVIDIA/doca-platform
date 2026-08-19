@@ -69,6 +69,101 @@ var _ = Describe("SFConfig", func() {
 			Expect(operation.ShouldSkip(&operations.Context{Options: opts.Options{SkipSFConfig: true}})).To(BeTrue())
 		})
 
+		It("should run hostless workarounds before creating SFs", func() {
+			dpuFlavor := provisioningv1.DPUFlavor{
+				Spec: provisioningv1.DPUFlavorSpec{
+					NVConfig: []provisioningv1.NVConfig{{Parameters: []string{"PF_TOTAL_SF=1"}}},
+				},
+			}
+			mlnxsfOutput := `{
+    "pci/0000:03:00.0/229376": {
+        "device": "0000:03:00.0",
+        "sfnum": 0,
+        "aux_dev": "mlx5_core.sf.2",
+        "sf_netdev": "enp3s0f0s0"
+    }
+}`
+			Expect(os.MkdirAll(filepath.Dir(filepath.Join(tempDir, "sys/class/net/enp3s0f0s0/address")), 0755)).To(Succeed())
+			Expect(os.WriteFile(filepath.Join(tempDir, "sys/class/net/enp3s0f0s0/address"), []byte("02:36:17:17:a9:b0"), 0444)).To(Succeed())
+			Expect(os.MkdirAll(filepath.Dir(filepath.Join(tempDir, "sys/bus/auxiliary/devices/mlx5_core.sf.2/driver/unbind")), 0777)).To(Succeed())
+			Expect(os.WriteFile(filepath.Join(tempDir, "sys/bus/auxiliary/devices/mlx5_core.sf.2/driver/unbind"), []byte(""), 0200)).To(Succeed())
+			Expect(os.MkdirAll(filepath.Dir(filepath.Join(tempDir, "sys/bus/auxiliary/drivers/mlx5_core.sf/bind")), 0777)).To(Succeed())
+
+			cmds := []string{}
+			operation := &CreateSF{
+				rootFS: tempDir,
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					cmds = append(cmds, cmd)
+					var stdout bytes.Buffer
+					if cmd == mlnxSFShowCmd {
+						stdout.WriteString(mlnxsfOutput)
+					}
+					return stdout, bytes.Buffer{}, nil
+				},
+			}
+			err := operation.Execute(ctx, &operations.Context{
+				DPUFlavor:     dpuFlavor,
+				DiscoverPorts: discoverTestPorts,
+				LatestDPU: &provisioningv1.DPU{
+					Status: provisioningv1.DPUStatus{Hostless: true},
+				},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cmds[:5]).To(Equal([]string{
+				"doca-hugepages config --app cmx_target --size 2048 --num 4096",
+				"doca-hugepages reload",
+				"devlink dev eswitch set pci/0000:03:00.0 mode switchdev",
+				"devlink dev eswitch set pci/0000:03:00.1 mode switchdev",
+				"/sbin/mlnx-sf --action create --device 0000:03:00.0 --sfnum 0",
+			}))
+		})
+
+		It("should not run hostless workarounds when not hostless", func() {
+			dpuFlavor := provisioningv1.DPUFlavor{
+				Spec: provisioningv1.DPUFlavorSpec{
+					NVConfig: []provisioningv1.NVConfig{{Parameters: []string{"PF_TOTAL_SF=1"}}},
+				},
+			}
+			mlnxsfOutput := `{
+    "pci/0000:03:00.0/229376": {
+        "device": "0000:03:00.0",
+        "sfnum": 0,
+        "aux_dev": "mlx5_core.sf.2",
+        "sf_netdev": "enp3s0f0s0"
+    }
+}`
+			Expect(os.MkdirAll(filepath.Dir(filepath.Join(tempDir, "sys/class/net/enp3s0f0s0/address")), 0755)).To(Succeed())
+			Expect(os.WriteFile(filepath.Join(tempDir, "sys/class/net/enp3s0f0s0/address"), []byte("02:36:17:17:a9:b0"), 0444)).To(Succeed())
+			Expect(os.MkdirAll(filepath.Dir(filepath.Join(tempDir, "sys/bus/auxiliary/devices/mlx5_core.sf.2/driver/unbind")), 0777)).To(Succeed())
+			Expect(os.WriteFile(filepath.Join(tempDir, "sys/bus/auxiliary/devices/mlx5_core.sf.2/driver/unbind"), []byte(""), 0200)).To(Succeed())
+			Expect(os.MkdirAll(filepath.Dir(filepath.Join(tempDir, "sys/bus/auxiliary/drivers/mlx5_core.sf/bind")), 0777)).To(Succeed())
+
+			cmds := []string{}
+			operation := &CreateSF{
+				rootFS: tempDir,
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					cmds = append(cmds, cmd)
+					var stdout bytes.Buffer
+					if cmd == mlnxSFShowCmd {
+						stdout.WriteString(mlnxsfOutput)
+					}
+					return stdout, bytes.Buffer{}, nil
+				},
+			}
+			err := operation.Execute(ctx, &operations.Context{
+				DPUFlavor:     dpuFlavor,
+				DiscoverPorts: discoverTestPorts,
+				LatestDPU: &provisioningv1.DPU{
+					Status: provisioningv1.DPUStatus{Hostless: false},
+				},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			for _, cmd := range cmds {
+				Expect(cmd).NotTo(ContainSubstring("devlink dev eswitch set"))
+				Expect(cmd).NotTo(ContainSubstring("doca-hugepages"))
+			}
+		})
+
 		It("should set SF", func() {
 			By("mock the DPUFlavor")
 			dpuFlavor := provisioningv1.DPUFlavor{

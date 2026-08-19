@@ -3926,20 +3926,19 @@ spec:
 				Expect(agg.PerDPU).To(Equal("dpu-a=Unknown,dpu-b=Unknown"))
 			})
 
-			It("orders HostlessDPUReboot and DPUWarmReboot by the reboot priority table", func() {
+			It("orders SystemReboot, FirmwareReset and DPUWarmReboot by the reboot priority table", func() {
 				// Regression for the priority renumbering:
-				// PowerCycle > SystemLevelReset > SystemReboot > HostlessDPUReboot > FirmwareReset > DPUWarmReboot > NoAction > Unknown.
-				// Pin both adjacent boundaries with the smallest possible
-				// fixtures: HostlessDPUReboot must beat FirmwareReset,
-				// DPUWarmReboot must beat NoAction, and FirmwareReset must
-				// beat DPUWarmReboot. Tied priorities tie-break by ascending
-				// DPU name.
-				hostlessVsFirmware := aggregateDPURebootMethods([]*provisioningv1.DPU{
+				// PowerCycle > SystemLevelReset > SystemReboot > FirmwareReset > DPUWarmReboot > NoAction > Unknown.
+				// Pin adjacent boundaries with the smallest possible fixtures:
+				// SystemReboot must beat FirmwareReset, FirmwareReset must beat
+				// DPUWarmReboot, and DPUWarmReboot must beat NoAction. Tied
+				// priorities tie-break by ascending DPU name.
+				systemRebootVsFirmware := aggregateDPURebootMethods([]*provisioningv1.DPU{
 					rawDPU("dpu-a", rebootMethodPtr(provisioningv1.RebootMethodFirmwareReset)),
-					rawDPU("dpu-b", rebootMethodPtr(provisioningv1.RebootMethodHostlessDPUReboot)),
+					rawDPU("dpu-b", rebootMethodPtr(provisioningv1.RebootMethodSystemReboot)),
 				})
-				Expect(hostlessVsFirmware.Method).To(Equal(provisioningv1.RebootMethodHostlessDPUReboot))
-				Expect(hostlessVsFirmware.Winner).To(Equal("dpu-b"))
+				Expect(systemRebootVsFirmware.Method).To(Equal(provisioningv1.RebootMethodSystemReboot))
+				Expect(systemRebootVsFirmware.Winner).To(Equal("dpu-b"))
 
 				warmVsNoAction := aggregateDPURebootMethods([]*provisioningv1.DPU{
 					rawDPU("dpu-a", rebootMethodPtr(provisioningv1.RebootMethodNoAction)),

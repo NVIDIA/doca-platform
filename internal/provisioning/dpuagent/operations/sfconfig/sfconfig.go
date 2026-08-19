@@ -135,9 +135,62 @@ func (s *CreateSF) Execute(execCtx context.Context, optCtx *operations.Context) 
 		klog.Infof("DMA SF (sfnum %d) target ECPF: %s", s.dmaSFNum, s.dmaSFTargetDevice)
 	}
 
+	if err := s.runHostlessWorkarounds(optCtx); err != nil {
+		return err
+	}
+
 	for _, device := range devices {
 		if err := s.configureSFsOnDevice(device, pfTotalSF, trustedSF); err != nil {
 			return fmt.Errorf("failed to configure SFs on device %s: %w", device, err)
+		}
+	}
+	return nil
+}
+
+// runHostlessWorkarounds applies hostless-only prep before SF creation.
+func (s *CreateSF) runHostlessWorkarounds(optCtx *operations.Context) error {
+	if optCtx.LatestDPU == nil || !optCtx.LatestDPU.Status.Hostless {
+		return nil
+	}
+	s.ensureHostlessHugepages()
+	return s.ensureHostlessEswitchSwitchdev(optCtx)
+}
+
+// ensureHostlessHugepages configures cmx_target hugepages for hostless DPUs.
+// Failures are logged only: doca-hugepages is not yet reliably available on
+// all hostless images, and must not block SF creation.
+func (s *CreateSF) ensureHostlessHugepages() {
+	for _, cmd := range []string{
+		"doca-hugepages config --app cmx_target --size 2048 --num 4096",
+		"doca-hugepages reload",
+	} {
+		klog.Infof("hostless workaround: %s", cmd)
+		stdout, stderr, err := s.runBash(cmd)
+		if err != nil {
+			klog.Errorf("hugepages: %s: %v (stdout=%s stderr=%s)",
+				cmd, err, stdout.String(), stderr.String())
+		}
+	}
+}
+
+// ensureHostlessEswitchSwitchdev is a workaround for hostless DPUs where the
+// eSwitch can remain in legacy mode after boot. SF creation requires switchdev;
+// set it on every N/S ECPF before creating SFs.
+func (s *CreateSF) ensureHostlessEswitchSwitchdev(optCtx *operations.Context) error {
+	ports, err := optCtx.NSPorts()
+	if err != nil {
+		return fmt.Errorf("eswitch switchdev: get N/S ports: %w", err)
+	}
+	for _, p := range ports {
+		if p.PCIAddress == "" {
+			continue
+		}
+		cmd := fmt.Sprintf("devlink dev eswitch set pci/%s mode switchdev", p.PCIAddress)
+		klog.Infof("setting eSwitch to switchdev: %s", cmd)
+		stdout, stderr, err := s.runBash(cmd)
+		if err != nil {
+			return fmt.Errorf("eswitch switchdev : %s: %w (stdout=%s stderr=%s)",
+				cmd, err, stdout.String(), stderr.String())
 		}
 	}
 	return nil

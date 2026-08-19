@@ -551,7 +551,6 @@ spec:
                     - SystemLevelReset
                     - FirmwareReset
                     - DPUWarmReboot
-                    - HostlessDPUReboot
                     type: string
                   rebootSequenceCount:
                     description: |-
@@ -905,7 +904,6 @@ spec:
                     - SystemLevelReset
                     - FirmwareReset
                     - DPUWarmReboot
-                    - HostlessDPUReboot
                     type: string
                   phase:
                     description: Phase is the current host reboot progress.
