@@ -1262,18 +1262,21 @@ var _ = Describe("DPUService Controller", func() {
 		})
 
 		It("should fail to reconcile config ports in zero-trust deployment mode", func() {
-			By("modifying the DPFOperatorConfig deployment mode to zero-trust")
-			originalOperatorConfig := testConfig.DeepCopy()
-			testConfig.Spec.DeploymentMode = operatorv1.DeploymentModeZeroTrust
-			testConfig.Spec.ProvisioningController.InstallInterface = &operatorv1.ProvisioningInstallInterface{
+			// spec.deploymentMode is immutable, so the posture can only be changed by replacing the
+			// object rather than patching the live one.
+			By("recreating the DPFOperatorConfig in zero-trust deployment mode")
+			Expect(testutils.CleanupAndWait(ctx, testClient, testConfig)).To(Succeed())
+			zeroTrustConfig := getMinimalDPFOperatorConfig()
+			zeroTrustConfig.Spec.DeploymentMode = operatorv1.DeploymentModeZeroTrust
+			zeroTrustConfig.Spec.ProvisioningController.InstallInterface = &operatorv1.ProvisioningInstallInterface{
 				InstallViaRedfish: &operatorv1.InstallViaRedfish{},
 			}
-			Expect(testClient.Patch(ctx, testConfig, client.MergeFrom(originalOperatorConfig))).To(Succeed())
+			Expect(testClient.Create(ctx, zeroTrustConfig)).To(Succeed())
+			testConfig = zeroTrustConfig
 			DeferCleanup(func() {
-				restoreBase := testConfig.DeepCopy()
-				testConfig.Spec.DeploymentMode = originalOperatorConfig.Spec.DeploymentMode
-				testConfig.Spec.ProvisioningController = originalOperatorConfig.Spec.ProvisioningController
-				Expect(testClient.Patch(ctx, testConfig, client.MergeFrom(restoreBase))).To(Succeed())
+				Expect(testutils.CleanupAndWait(ctx, testClient, zeroTrustConfig)).To(Succeed())
+				testConfig = getMinimalDPFOperatorConfig()
+				Expect(testClient.Create(ctx, testConfig)).To(Succeed())
 			})
 
 			clusters := []provisioningv1.DPUCluster{
