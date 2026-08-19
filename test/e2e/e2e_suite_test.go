@@ -322,8 +322,21 @@ func skipProvisioning() bool {
 	hasNotProvisioningLabel := strings.Contains(labelFilter, "!"+Domain.Provisioning)
 	isScaleSelected := Label(Domain.Scale).MatchesLabelFilter(labelFilter)
 	isExternalSelected := Label(Domain.ExternalTest).MatchesLabelFilter(labelFilter)
+	isWeavePhysicalSelected := isGinkgoLabelApplied(Domain.WeavePhysical)
 
-	return (!hasDpfSystemLabel || hasNotDpfSystemLabel || hasNotProvisioningLabel) && !isScaleSelected && !isExternalSelected
+	return (!hasDpfSystemLabel || hasNotDpfSystemLabel || hasNotProvisioningLabel) &&
+		!isScaleSelected && !isExternalSelected && !isWeavePhysicalSelected
+}
+
+// requiresConfigDPUSet reports whether the e2e config must set dpuSet.
+func requiresConfigDPUSet() bool {
+	return !isGinkgoLabelApplied(Domain.SNAP) && !isGinkgoLabelApplied(Domain.WeavePhysical)
+}
+
+// requiresSharedDPUServiceObjects reports whether the e2e config must set the
+// shared DPUService, IPAM, and credential objects used by DPFSystem-style suites.
+func requiresSharedDPUServiceObjects() bool {
+	return !isGinkgoLabelApplied(Domain.WeavePhysical)
 }
 
 var _ = BeforeSuite(func() {
@@ -376,10 +389,7 @@ var _ = BeforeSuite(func() {
 		provInput := getProvisionDPUClustersInput()
 		ProvisionDPUClusters(ctx, provInput)
 		ProvisionBFBOrBlueFieldSoftwareAndDPUFlavor(ctx, provInput)
-
-		// SNAP provisions through its DPUDeployment (applied in the SNAP suite's BeforeAll), which manages
-		// its own DPUSet; skip the generic ProvisionDPUSet here so two DPUSets don't target the same DPUs.
-		if !isGinkgoLabelApplied(Domain.SNAP) {
+		if provInput.dpuSet != nil {
 			ProvisionDPUSet(ctx, provInput)
 		}
 	}
@@ -407,7 +417,10 @@ var _ = BeforeSuite(func() {
 	if !strings.Contains(GinkgoLabelFilter(), "!"+Domain.Weave) {
 		WeaveBeforeSuite(*conf)
 	}
-
+	// Apply the WeavePhysical BeforeSuite setup
+	if isGinkgoLabelApplied(Domain.WeavePhysical) {
+		WeavePhysicalBeforeSuite(*conf)
+	}
 	// For Performance + OVNKHBN (physical HBN-OVN performance) scenario, deploy the full
 	// HBN-OVN application layer: physical DPUServiceInterfaces (p0, p1, ovn), IPAM pools,
 	// HBN DPUServiceTemplate, DPUServiceConfiguration, and ovn-hbn DPUDeployment.
@@ -535,17 +548,23 @@ func validateRequiredConfigFields() {
 		{"dpuDeployment", conf.DPUDeploymentPath != ""},
 		{"dpuServiceTemplate", conf.DPUServiceTemplatePath != ""},
 		{"dpuServiceConfiguration", conf.DPUServiceConfiguration != ""},
-		{"ipPoolDPUServiceIPAM", conf.IPPoolDPUServiceIPAMPath != ""},
 	}
-	if !isUpgradePhase() {
+	if requiresSharedDPUServiceObjects() {
 		required = append(required,
-			requiredField{"dpuSet", conf.DPUSetPath != nil},
+			requiredField{"ipPoolDPUServiceIPAM", conf.IPPoolDPUServiceIPAMPath != ""},
+		)
+	}
+	if !isUpgradePhase() && requiresSharedDPUServiceObjects() {
+		required = append(required,
 			requiredField{"dpuService", conf.DPUServicePath != nil},
 			requiredField{"dpuServiceInterface", conf.DPUServiceInterfacePath != nil},
 			requiredField{"dpuServiceChain", conf.DPUServiceChainPath != nil},
 			requiredField{"dpuServiceCredentialRequest", conf.DPUServiceCredentialRequestPath != nil},
 			requiredField{"cidrPoolDPUServiceIPAM", conf.CIDRPoolDPUServiceIPAMPath != nil},
 		)
+	}
+	if !isUpgradePhase() && requiresConfigDPUSet() {
+		required = append(required, requiredField{"dpuSet", conf.DPUSetPath != nil})
 	}
 
 	missing := []string{}

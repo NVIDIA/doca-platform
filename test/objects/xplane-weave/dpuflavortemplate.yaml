@@ -1,0 +1,540 @@
+# BF4 physical WeavePhysical e2e SPCX DPUFlavorTemplate.
+apiVersion: provisioning.dpu.nvidia.com/v1alpha1
+kind: DPUFlavorTemplate
+metadata:
+  name: physical-flavor-bf4-xplane-weave
+  namespace: dpf-operator-system
+spec:
+  template: |
+    spec:
+      grub:
+        kernelParameters:
+          - console=hvc0
+          - console=ttyAMA0
+          - net.ifnames=0
+          - biosdevname=0
+          - iommu.passthrough=1
+          - cgroup_no_v1=net_prio,net_cls
+          - hugepagesz=2048kB
+          - hugepages=500
+
+      nvconfig:
+        - device: "*"
+          parameters:
+            # DPU mode configuration
+            - INTERNAL_CPU_MODEL=1
+            - INTERNAL_CPU_OFFLOAD_ENGINE=0
+            # Eswitch configuration
+            - LAG_RESOURCE_ALLOCATION=1
+            # Port configuration
+            - LINK_TYPE_P1=ETH
+            - LINK_TYPE_P2=ETH
+            # SR-IOV and SF configuration
+            - PF_BAR2_ENABLE=0
+            - PER_PF_NUM_SF=1
+            - PF_TOTAL_SF=20
+            - PF_SF_BAR_SIZE=14
+            - NUM_PF_MSIX_VALID=0
+            - PF_NUM_PF_MSIX_VALID=1
+            - PF_NUM_PF_MSIX=228
+            - SRIOV_EN=1
+            - NUM_OF_VFS=46
+
+      ovs:
+        rawConfigScript: |
+          #!/bin/bash
+
+          # Export common functions
+          _ovs-vsctl() {
+            ovs-vsctl --timeout 15 "$@"
+          }
+          export -f _ovs-vsctl
+
+          # 1. Configure OVS
+          /etc/mellanox/dpf-setup-ovs.sh
+
+          # 2. Configure E/W underlay
+          /etc/mellanox/dpf-setup-ew-underlay.sh
+
+      bfcfgParameters:
+        - UPDATE_ATF_UEFI=yes
+        - UPDATE_DPU_OS=yes
+        - WITH_NIC_FW_UPDATE=yes
+
+      # ewNicConfigurations will change depending on the platform configuration
+      ewNicConfigurations:
+        - numVfs: 1
+          linkType: Ethernet
+          spectrumXOptimized:
+            enabled: true
+            version: RA2.2-runtime-only
+            overlay: none
+            multiplaneMode: hwplb
+            numberOfPlanes: 2
+          rawNvConfig:
+            # SR-IOV and SF configuration
+            - name: PF_BAR2_ENABLE
+              value: "0"
+            - name: PER_PF_NUM_SF
+              value: "1"
+            - name: PF_TOTAL_SF
+              value: "20"
+            - name: PF_SF_BAR_SIZE
+              value: "14"
+            - name: NUM_PF_MSIX_VALID
+              value: "0"
+            - name: PF_NUM_PF_MSIX_VALID
+              value: "1"
+            - name: PF_NUM_PF_MSIX
+              value: "228"
+            - name: SRIOV_EN
+              value: "1"
+            - name: NUM_OF_VFS
+              value: "1"
+            - name: VF_LOG_BAR_SIZE
+              value: "5"
+            # Hardware parsing and eswitch configuration
+            - name: FLEX_PARSER_PROFILE_ENABLE
+              value: "10"
+            - name: LAG_RESOURCE_ALLOCATION
+              value: "1"
+            # Port configuration: breakout, HW plane configuration and link related
+            - name: NUM_OF_PF
+              value: "2"
+            - name: MODULE_SPLIT_M0[0]
+              value: "1"
+            - name: MODULE_SPLIT_M0[1]
+              value: "1"
+            - name: MODULE_SPLIT_M0[2]
+              value: "1"
+            - name: MODULE_SPLIT_M0[3]
+              value: "1"
+            - name: MODULE_SPLIT_M0[4]
+              value: "1"
+            - name: MODULE_SPLIT_M0[5]
+              value: "1"
+            - name: MODULE_SPLIT_M0[6]
+              value: "1"
+            - name: MODULE_SPLIT_M0[7]
+              value: "1"
+            - name: MODULE_SPLIT_M0[8]
+              value: "FF"
+            - name: MODULE_SPLIT_M0[9]
+              value: "FF"
+            - name: MODULE_SPLIT_M0[10]
+              value: "FF"
+            - name: MODULE_SPLIT_M0[11]
+              value: "FF"
+            - name: MODULE_SPLIT_M0[12]
+              value: "FF"
+            - name: MODULE_SPLIT_M0[13]
+              value: "FF"
+            - name: MODULE_SPLIT_M0[14]
+              value: "FF"
+            - name: MODULE_SPLIT_M0[15]
+              value: "FF"
+            - name: HIDE_PORT2_PF
+              value: "1"
+            - name: NUM_OF_PLANES_P1
+              value: "2"
+            - name: LOAD_BALANCE_MODE_P1
+              value: "2"
+            - name: LINK_TYPE_P1
+              value: "ETH"
+            - name: KEEP_ETH_LINK_UP_P1
+              value: "0"
+            # RoCE configuration
+            - name: TX_SCHEDULER_LOCALITY_MODE
+              value: "2"
+            - name: ROCE_ADAPTIVE_ROUTING_EN
+              value: "1"
+            - name: USER_PROGRAMMABLE_CC
+              value: "1"
+            - name: ROCE_CC_STEERING_EXT
+              value: "2"
+            - name: ROCE_RTT_RESP_DSCP_P1
+              value: "48"
+            - name: ROCE_RTT_RESP_DSCP_MODE_P1
+              value: "1"
+            # miscellaneous configuration
+            - name: RDE_DISABLE
+              value: "1"
+      configFiles:
+        - path: /etc/mellanox/dpf-setup-ovs.sh
+          operation: override
+          permissions: "0700"
+          raw: |
+            #!/bin/bash
+
+            # Remove default OVS configuration on the DPU and ensure no leftovers on the OVS kernel side
+            for i in $(seq 0 99); do
+              ovs-vsctl --if-exists del-br "ovsbr${i}"
+            done
+            ovs-appctl --timeout 15 dpctl/del-dp system@ovs-system || true
+
+            _ovs-vsctl set Open_vSwitch . other_config:doca-init=true
+            _ovs-vsctl set Open_vSwitch . other_config:dpdk-max-memzones=50000
+            _ovs-vsctl set Open_vSwitch . other_config:hw-offload=true
+            _ovs-vsctl set Open_vSwitch . other_config:pmd-quiet-idle=true
+            _ovs-vsctl set Open_vSwitch . other_config:max-idle=20000
+            _ovs-vsctl set Open_vSwitch . other_config:max-revalidator=5000
+            _ovs-vsctl set Open_vSwitch . other_config:doca-congestion-threshold=60
+            _ovs-vsctl set Open_vSwitch . other_config:flow-limit=500000
+            _ovs-vsctl set Open_vSwitch . other_config:hw-offload-ct-unidir-udp-enabled=true
+
+            # ovs metrics for xplane and weave
+            _ovs-vsctl set Open_vSwitch . \
+              other_config:flow-metric-labels="to_plane,from_plane,device_name,group,plane" \
+              other_config:doca-telemetry-interval="1000" \
+              other_config:doca-telemetry-ipc="true" \
+              other_config:doca-telemetry-source-id="xplane"
+
+            _ovs-vsctl remove Open_vSwitch . other_config default-datapath-type || true
+            if systemctl list-unit-files openvswitch-switch.service &>/dev/null; then
+              systemctl restart openvswitch-switch
+            elif systemctl list-unit-files openvswitch.service &>/dev/null; then
+              systemctl restart openvswitch
+            fi
+
+            # Create br-sfc
+            _ovs-vsctl --may-exist add-br br-sfc
+            _ovs-vsctl set bridge br-sfc datapath_type=netdev
+            _ovs-vsctl set bridge br-sfc fail_mode=secure
+
+            # Pre plug p0 and p1 to br-sfc
+            dpu_uplinks=(p0 p1)
+            for uplink in "${dpu_uplinks[@]}"; do
+              _ovs-vsctl --may-exist add-port br-sfc "$uplink"
+              _ovs-vsctl set Interface "$uplink" type=dpdk
+              _ovs-vsctl set Interface "$uplink" mtu_request=9216
+              _ovs-vsctl set Port "$uplink" external_ids:dpf-type=physical
+            done
+
+        - path: /etc/mellanox/dpf-setup-ew-underlay.sh
+          operation: override
+          permissions: "0700"
+          raw: |
+            #!/bin/bash
+            # Add rail bridges
+            rail_bridges=(brcx-r0swp0 brcx-r0swp1)
+            for bridge in "${rail_bridges[@]}"; do
+              _ovs-vsctl --may-exist add-br "$bridge"
+              _ovs-vsctl set bridge "$bridge" datapath_type=netdev
+              _ovs-vsctl set bridge "$bridge" fail_mode=standalone
+              _ovs-vsctl set Interface "$bridge" mtu_request=9216
+            done
+
+            # Add xplane bridge
+            _ovs-vsctl --may-exist add-br br-xplane
+            _ovs-vsctl set bridge br-xplane datapath_type=netdev
+            _ovs-vsctl set bridge br-xplane fail_mode=secure
+
+            # Map <rail_id>_<sw_plane_id>_<hw_plane_id> -> E/W NIC netdev (hardcoded for e2e)
+            declare -A rail_plane_netdev=(
+              [0_0_0]="A1p0"
+              [0_0_1]="A1p1"
+              [0_1_0]="A11p0"
+              [0_1_1]="A11p1"
+            )
+
+            # one rail, two SW planes and two HW planes
+            rail_ids=(0)
+            sw_planes=(0 1)
+            hw_planes=(0 1)
+
+            # Construct xplane uplink ports for each rail and plane
+            for rail_id in "${rail_ids[@]}"; do
+              for sw_plane_id in "${sw_planes[@]}"; do
+                for hw_plane_id in "${hw_planes[@]}"; do
+                  netdev="${rail_plane_netdev[${rail_id}_${sw_plane_id}_${hw_plane_id}]}"
+                  _ovs-vsctl --may-exist add-port br-xplane "$netdev"
+                  _ovs-vsctl set Interface "$netdev" type=dpdk
+                  _ovs-vsctl set Interface "$netdev" mtu_request=9216
+                  _ovs-vsctl set Interface "$netdev" external_ids:xplane=true
+                  _ovs-vsctl set Interface "$netdev" external_ids:xplane-group-id=rail${rail_id}swp${sw_plane_id}
+                  _ovs-vsctl set Interface "$netdev" external_ids:xplane-uplink=true
+                  _ovs-vsctl set Interface "$netdev" external_ids:xplane-plane-id=${hw_plane_id}
+                done
+              done
+            done
+
+            netplan apply
+
+        - path: /etc/netplan/99-rails.yaml
+          operation: override
+          permissions: "0644"
+          raw: |
+            # IPs are generated via values set in the DPUDevice CR
+            network:
+              version: 2
+              ethernets:
+                brcx-r0swp0:
+                  addresses:
+                    - {{ .rail0_swp0_ip }}
+                  routes:
+                    - to: {{ .rail_network_swp0 }}
+                      via: {{ .rail0_swp0_gw }}
+
+                brcx-r0swp1:
+                  addresses:
+                    - {{ .rail0_swp1_ip }}
+                  routes:
+                    - to: {{ .rail_network_swp1 }}
+                      via: {{ .rail0_swp1_gw }}
+
+        - path: /etc/mellanox/mlnx-bf.conf
+          operation: override
+          permissions: "0644"
+          raw: |
+            ALLOW_SHARED_RQ="no"
+            IPSEC_FULL_OFFLOAD="no"
+            ENABLE_ESWITCH_MULTIPORT="yes"
+            # dpu-agent controls sf creation; enable via .spec.scalableFunctions.dma.enable instead
+            SNAP_DMA_SF=no
+
+        - path: /etc/mellanox/mlnx-ovs.conf
+          operation: override
+          permissions: "0644"
+          raw: |
+            CREATE_OVS_BRIDGES="no"
+            OVS_DOCA="yes"
+
+        - path: /etc/mellanox/mlnx-sf.conf
+          operation: override
+          permissions: "0644"
+          raw: ""
+
+        - path: /bindata/spectrum-x/RA2.2-runtime-only.yaml
+          operation: override
+          permissions: "0644"
+          raw: |
+            # Copyright 2025 NVIDIA CORPORATION & AFFILIATES
+            #
+            # Licensed under the Apache License, Version 2.0 (the "License");
+            # you may not use this file except in compliance with the License.
+            # You may obtain a copy of the License at
+            #
+            #     http://www.apache.org/licenses/LICENSE-2.0
+            #
+            # Unless required by applicable law or agreed to in writing, software
+            # distributed under the License is distributed on an "AS IS" BASIS,
+            # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+            # See the License for the specific language governing permissions and
+            # limitations under the License.
+            #
+            # SPDX-License-Identifier: Apache-2.0
+            docaCCVersion: 3.4.0
+            useSoftwareCCAlgorithm: true
+            runtimeConfig:
+              roce:
+                - name: Trust
+                  value: dscp
+                  dmsPath: /interfaces/interface/nvidia/qos/config/trust-mode
+                  valueType: string
+                  alternativeValue: QOS_TRUST_MODE_DSCP
+                - name: PFC
+                  value: "00010000"
+                  dmsPath: /interfaces/interface/nvidia/qos/config/pfc
+                  valueType: string
+              adaptiveRouting:
+                - name: Enable CC per plane
+                  value: "0x00000001"
+                  multiplane: hwplb
+                  mlxreg:
+                    register: ROCE_ACCL
+                    field: cc_per_plane_en
+                    setFields:
+                      - name: cc_per_plane_en
+                        value: "0x1"
+                      - name: cc_per_plane_en_field_select
+                        value: "0x1"
+                - name: Adaptive Retransmission
+                  value: true
+                  dmsPath: /interfaces/interface/nvidia/roce/config/adaptive-retransmission
+                  valueType: bool
+                - name: Tx Window
+                  value: true
+                  dmsPath: /interfaces/interface/nvidia/roce/config/tx-window
+                  valueType: bool
+                - name: Slow Restart
+                  value: false
+                  dmsPath: /interfaces/interface/nvidia/roce/config/slow-restart
+                  valueType: bool
+                - name: Slow Restart Idle
+                  value: false
+                  dmsPath: /interfaces/interface/nvidia/roce/config/slow-restart-idle
+                  valueType: bool
+                - name: CC Probe MP mode
+                  value: "0x00000001"
+                  multiplane: hwplb
+                  mlxreg:
+                    register: ROCE_ACCL
+                    field: cc_probe_mp_mode
+                    setFields:
+                      - name: cc_probe_mp_mode
+                        value: "0x1"
+                      - name: cc_probe_mp_mode_field_select
+                        value: "0x1"
+                - name: Adaptive Routing Force
+                  value: true
+                  dmsPath: /interfaces/interface/nvidia/roce/config/adaptive-routing-force
+                  valueType: bool
+              congestionControl:
+                - name: Congestion Control on RP points
+                  value: true
+                  dmsPath: /interfaces/interface/nvidia/cc/config/priority/rp_enabled
+                  valueType: bool
+                  alternativeValue: "1"
+                  hwplbFirstPortOnly: true
+                - name: Congestion Control on NP points
+                  value: true
+                  dmsPath: /interfaces/interface/nvidia/cc/config/priority/np_enabled
+                  valueType: bool
+                  alternativeValue: "1"
+                  hwplbFirstPortOnly: true
+                - name: Congestion Control
+                  value: true
+                  dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/config/enabled
+                  valueType: bool
+                - name: Congestion Control with Counters
+                  value: true
+                  dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/config/counter_enable
+                  valueType: bool
+                - name: DCQCN
+                  value: false
+                  dmsPath: /interfaces/interface/nvidia/cc/slot[id=15]/config/enabled
+                  valueType: bool
+                - name: Bandwidth
+                  value: 400
+                  dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=0]/config/value
+                  valueType: int
+                  deviceId: "1023"
+                  breakout: 2
+                - name: Bandwidth
+                  value: 200
+                  dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=0]/config/value
+                  valueType: int
+                  deviceId: "1023"
+                  breakout: 4
+                - name: Bandwidth
+                  value: 400
+                  dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=0]/config/value
+                  valueType: int
+                  deviceId: "1025"
+                  breakout: 2
+                - name: Bandwidth
+                  value: 200
+                  dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=0]/config/value
+                  valueType: int
+                  deviceId: "1025"
+                  breakout: 4
+                - name: Bandwidth
+                  value: 200
+                  dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=0]/config/value
+                  valueType: int
+                  deviceId: "a2dc"
+                  breakout: 2
+                - name: Bandwidth
+                  value: 100
+                  dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=0]/config/value
+                  valueType: int
+                  deviceId: "a2dc"
+                  breakout: 4
+                - name: Responsiveness Alpha Factor
+                  value: 6553
+                  dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=1]/config/value
+                  valueType: int
+                - name: Maximum Decrease Factor
+                  value: 63570
+                  dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=2]/config/value
+                  valueType: int
+                - name: Maximum Increase Factor
+                  value: 69468
+                  dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=3]/config/value
+                  valueType: int
+                - name: Additive Increase Step Size
+                  value: 96
+                  dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=4]/config/value
+                  valueType: int
+                - name: High Additive Increase Step Size
+                  value: 1700
+                  dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=5]/config/value
+                  valueType: int
+                - name: High Additive Increase Interval Period
+                  value: 200000
+                  dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=6]/config/value
+                  valueType: int
+                - name: ZTR_CC_CONGESTION_DELAY_THRESHOLD
+                  value: 13000
+                  dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=7]/config/value
+                  valueType: int
+                - name: Maximum Queuing Delay
+                  value: 250000
+                  dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=8]/config/value
+                  valueType: int
+                - name: Rate on First Congestion
+                  value: 524288
+                  dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=9]/config/value
+                  valueType: int
+                - name: Delay Only
+                  value: 0
+                  dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=10]/config/value
+                  valueType: int
+                - name: CNP Validity
+                  value: 1
+                  dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=11]/config/value
+                  valueType: int
+                - name: Transmit Rate Decrement Step
+                  value: 1
+                  dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=12]/config/value
+                  valueType: int
+                - name: Fixed Transmission Rate
+                  value: 0
+                  dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=13]/config/value
+                  valueType: int
+                - name: Fast Scheduling Factor
+                  value: 2097152
+                  dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=14]/config/value
+                  valueType: int
+                - name: Topology Awareness
+                  value: 1
+                  dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=15]/config/value
+                  valueType: int
+                - name: Advanced Features
+                  value: 1
+                  dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=16]/config/value
+                  valueType: int
+                - name: Troubleshooting Capabilities
+                  value: 0
+                  dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=17]/config/value
+                  valueType: int
+                - name: CC_FIXED_CWND
+                  value: 0
+                  dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=18]/config/value
+                  valueType: int
+                - name: Enable CC Plane Failure Detection
+                  value: 1
+                  dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=22]/config/value
+                  valueType: int
+                  multiplane: hwplb
+                - name: CC Plane Failure Threshold
+                  value: 3
+                  dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=23]/config/value
+                  valueType: int
+                  multiplane: hwplb
+                - name: CC Plane Recovery Threshold
+                  value: 1
+                  dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=24]/config/value
+                  valueType: int
+                  multiplane: hwplb
+              interPacketGap:
+                pureL3:
+                  - name: Inter Packet Gap for no overlay
+                    value: 25
+                    dmsPath: /interfaces/interface/ethernet/nvidia/config/inter-packet-gap
+                    valueType: int
+                l3EVPN:
+                  - name: Inter Packet Gap for L3 EVPN overlay
+                    value: 33
+                    dmsPath: /interfaces/interface/ethernet/nvidia/config/inter-packet-gap
+                    valueType: int

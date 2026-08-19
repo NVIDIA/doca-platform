@@ -108,6 +108,7 @@ type TestDomain struct {
 	OVNKHBN                 string // Tests that need OVNK as primary CNI with HBN deployed alongside
 	DPFVPCOVN               string // VPC OVN test suite
 	Weave                   string // Weave test suite
+	WeavePhysical           string // Physical BF4 Weave test suite (ZT)
 	MultiDPUCluster         string // Multi DPUCluster setup tests
 	ZeroTrust               string // Zero Trust mode in DPFOperatorConfig on the BeforeSuite stage
 	Observability           string // Observability test suite
@@ -136,6 +137,7 @@ var Domain = TestDomain{
 	OVNKHBN:                 "OVNKHBN",
 	DPFVPCOVN:               "DPFVPCOVN",
 	Weave:                   "Weave",
+	WeavePhysical:           "WeavePhysical",
 	MultiDPUCluster:         "MultiDPUCluster",
 	ZeroTrust:               "ZeroTrust",
 	Observability:           "Observability",
@@ -213,6 +215,8 @@ var (
 		&storagev1.DPUStorageVendorList{},
 		&storagek8sv1.StorageClassList{},
 		&dpuservicev1.DPUDeploymentList{},
+		&provisioningv1.DPUFlavorList{},
+		&provisioningv1.DPUFlavorTemplateList{},
 		&dpuservicev1.DPUServiceCredentialRequestList{},
 		&dpuservicev1.DPUServiceList{},
 		&dpuservicev1.DPUServiceConfigurationList{},
@@ -221,6 +225,7 @@ var (
 		&provisioningv1.DPUSetList{},
 		&provisioningv1.DPUList{},
 		&provisioningv1.BFBList{},
+		&provisioningv1.BlueFieldSoftwareList{},
 		&provisioningv1.DPUClusterList{},
 		&dpuservicev1.DPUServiceIPAMList{},
 		&dpuservicev1.DPUServiceChainList{},
