@@ -54,6 +54,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -508,52 +509,56 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 	}
 
 	By("Ensure the system DPUServices are created")
-	var isCurrentVersionLastReleasedGA bool
 	Eventually(func(g Gomega) {
 		// TODO: Remove as soon as we have version aware upgrade logic for the pre-upgrade validation
-		var err error
-		isCurrentVersionLastReleasedGA, err = isPreUpgradeFromLastReleasedGA(ctx, testClient, client.ObjectKeyFromObject(input.operatorConfig))
+		isCurrentVersionLastReleasedGA, err := isPreUpgradeFromLastReleasedGA(ctx, testClient, client.ObjectKeyFromObject(input.operatorConfig))
 		g.Expect(err).NotTo(HaveOccurred())
 
+		// Each DPUService the operator creates is labeled with the component it came from, the ones
+		// a DPUDeployment creates are not. Their number is no invariant: kube-state-metrics,
+		// nvidia-k8s-ipam and servicechainset-controller each add one DPUService per DPUCluster,
+		// named with a digest of the cluster, next to a cluster-independent one for CRDs, RBAC or a
+		// node agent. All of them carry their component's label, so the set of components is the
+		// invariant this asserts.
 		dpuServices := &dpuservicev1.DPUServiceList{}
-		g.Expect(testClient.List(ctx, dpuServices)).To(Succeed())
+		g.Expect(testClient.List(ctx, dpuServices, client.HasLabels{operatorv1.DPFComponentLabelKey})).To(Succeed())
 
-		itemNames := []string{}
-		for _, item := range dpuServices.Items {
-			itemNames = append(itemNames, item.Name)
-		}
-
-		// Validate the expected number of DPUServices. The last released GA predates the
-		// dpu-monitoring DPUService, so it deploys one fewer.
-		expectedDPUServiceCount := 12
-		if isCurrentVersionLastReleasedGA {
-			expectedDPUServiceCount = 11
-		}
-		g.Expect(dpuServices.Items).To(HaveLen(expectedDPUServiceCount), "Expected %d DPUServices, got %d: [%s]", expectedDPUServiceCount, len(dpuServices.Items), strings.Join(itemNames, ", "))
-
-		found := map[string]bool{}
+		components := sets.New[string]()
 		for i := range dpuServices.Items {
-			found[dpuServices.Items[i].Name] = true
+			components.Insert(dpuServices.Items[i].Labels[operatorv1.DPFComponentLabelKey])
 		}
 
-		// Validate the expected DPUServices by installation phase.
-		// If: standard e2e run, or post-upgrade phase of the upgrade test (current branch state).
-		// Else: initial phase of the upgrade test (deployed from the last GA release).
-		if !isCurrentVersionLastReleasedGA {
-			g.Expect(found).To(HaveKey(operatorv1.KataContainersName.String()))
-			g.Expect(found).To(HaveKey(operatorv1.DPUMonitoringName.String()))
+		// The components the last released GA ships as well. spire-agent-rbac is in neither list: it
+		// follows the SPIFFE gate and no e2e DPFOperatorConfig configures SPIFFE. Add it for a lane
+		// that does.
+		expectedComponentsLastReleasedGA := []string{
+			operatorv1.CNIInstallerName.String(),
+			operatorv1.FlannelName.String(),
+			operatorv1.KubeStateMetricsName.String(),
+			operatorv1.MultusName.String(),
+			operatorv1.NodeProblemDetectorName.String(),
+			operatorv1.NVIPAMControllerName.String(),
+			operatorv1.ServiceSetControllerName.String(),
+			operatorv1.SFCControllerName.String(),
+			operatorv1.SRIOVDevicePluginName.String(),
 		}
 
-		// Expect each of the following to have been created by the operator.
-		g.Expect(found).To(HaveKey(operatorv1.ServiceChainSetCRDsName.String()))
-		g.Expect(found).To(HaveKey(operatorv1.NVIPAMNodeName.String()))
-		g.Expect(found).To(HaveKey(operatorv1.KubeStateMetricsRBACName.String()))
-		g.Expect(found).To(HaveKey(operatorv1.NodeProblemDetectorName.String()))
-		g.Expect(found).To(HaveKey(operatorv1.MultusName.String()))
-		g.Expect(found).To(HaveKey(operatorv1.SRIOVDevicePluginName.String()))
-		g.Expect(found).To(HaveKey(operatorv1.FlannelName.String()))
-		g.Expect(found).To(HaveKey(operatorv1.SFCControllerName.String()))
-		g.Expect(found).To(HaveKey(operatorv1.CNIInstallerName.String()))
+		// What the current branch adds on top of that release.
+		expectedComponents := append(slices.Clone(expectedComponentsLastReleasedGA),
+			operatorv1.DPUMonitoringName.String(),
+			operatorv1.KataContainersName.String(),
+			operatorv1.OpenTelemetryCollectorName.String(),
+		)
+
+		// The initial phase of the upgrade test runs the last released GA, which ships the component
+		// set of its own release, so require only the long-standing ones there. Every other run is
+		// the current branch and has to match it exactly, so that a system component added or
+		// dropped without updating this list surfaces here.
+		if isCurrentVersionLastReleasedGA {
+			g.Expect(components.UnsortedList()).To(ContainElements(expectedComponentsLastReleasedGA))
+		} else {
+			g.Expect(components.UnsortedList()).To(ConsistOf(expectedComponents))
+		}
 	}).WithTimeout(60 * time.Second).Should(Succeed())
 
 	By("Ensure the DPFOperatorConfig is ready")
