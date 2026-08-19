@@ -265,15 +265,16 @@ func (p *schedulePuller) applyGroup(group *scheduleGroup, specs []scheduleSpec) 
 // values and types are refreshed; existing variables keep their position and
 // variables GitLab added are appended in GitLab's order. active is always
 // written explicitly and the default env_var variable type is omitted, matching
-// the conventions the group files already use.
+// the conventions the group files already use. cron_timezone is never written:
+// the files run on scheduleTimezone throughout, and sync puts a schedule that
+// drifted onto another one back.
 func specFromLive(old *scheduleSpec, s gitlab.PipelineSchedule) scheduleSpec {
 	active := s.Active
 	spec := scheduleSpec{
-		Description:  s.Description,
-		Ref:          s.Ref,
-		Cron:         s.Cron,
-		CronTimezone: s.CronTimezone,
-		Active:       &active,
+		Description: s.Description,
+		Ref:         s.Ref,
+		Cron:        s.Cron,
+		Active:      &active,
 	}
 
 	liveByKey := make(map[string]gitlab.PipelineScheduleVariable, len(s.Variables))
@@ -320,8 +321,8 @@ func diffSpec(old, new *scheduleSpec) []string {
 	if old.Cron != new.Cron {
 		changes = append(changes, fmt.Sprintf("    ~ cron: %q -> %q", old.Cron, new.Cron))
 	}
-	if old.CronTimezone != new.CronTimezone {
-		changes = append(changes, fmt.Sprintf("    ~ cron_timezone: %q -> %q", old.CronTimezone, new.CronTimezone))
+	if old.cronTimezone() != new.cronTimezone() {
+		changes = append(changes, fmt.Sprintf("    ~ cron_timezone: %q -> %q", old.cronTimezone(), new.cronTimezone()))
 	}
 	if old.active() != new.active() {
 		changes = append(changes, fmt.Sprintf("    ~ active: %t -> %t", old.active(), new.active()))
