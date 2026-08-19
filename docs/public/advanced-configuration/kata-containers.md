@@ -2,7 +2,7 @@
 title: "Isolated workload with Kata Containers"
 ---
 
-[TOC]
+[[_TOC_]]
 
 This guide describes the prerequisites and configuration options for running isolated workloads with Kata Containers on host worker nodes.
 
