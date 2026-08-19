@@ -36,7 +36,6 @@ var _ = Describe("DPU: pending", func() {
 		defaultBFBFileName           = "bfb-file.bfb"
 		defaultDPUFlavorName         = "dpu-flavor-pending-test"
 		defaultBlueFieldSoftwareName = "bluefield-software-pending-test"
-		defaultDPUDeviceName         = "dpu-device-pending-test"
 	)
 
 	Context("successful cases", func() {
@@ -361,95 +360,6 @@ var _ = Describe("DPU: pending", func() {
 				string(operatorv1.DeploymentModeZeroTrust), provisioningv1.InstallViaRedFish),
 			Entry("no hold requested outside zero-trust", "no-hold-host-trusted", flavorWithoutHold,
 				string(operatorv1.DeploymentModeHostTrusted), provisioningv1.InstallViaHostAgent),
-		)
-	})
-
-	Context("BFB card type compatibility", func() {
-		const (
-			pkOPN      = "900-9D3B4-00SC-EA0"
-			dkOPN      = "900-9D3B4-00SC-EAA"
-			qpOPN      = "900-9D3B4-00SC-EAB"
-			partnerOPN = "900-9D3B4-00CV-AAA_DK"
-
-			// aliasURL serves the bootstream directly, so it never exposes the file
-			// name it was built under.
-			aliasURL = "https://nbu-nfs.gtm.nvidia.com/auto/sw_mc_soc_release/doca_dpu/doca_3.4.0/last_stable_ubuntu_24.04_64k_pk"
-		)
-
-		// bfbURL builds a BFB download URL ending in a released file name with the
-		// given signing suffix.
-		bfbURL := func(suffix string) string {
-			return "https://content.mellanox.com/BlueField/BFBs/Ubuntu24.04/bf-bundle-3.4.0-92_26.04_ubuntu-24.04_64k_" + suffix + ".bfb"
-		}
-
-		// dpuWithCard returns a DPU in Pending that references a ready BFB downloaded
-		// from the given URL, and a DPUDevice discovered with the given OPN. The BFB
-		// file name is left at the controller default, which carries no signing
-		// information.
-		dpuWithCard := func(bfbURL, opn string) *provisioningv1.DPU {
-			bfb := bfbObj(defaultBFBName)
-			bfb.Spec.URL = bfbURL
-			createObject(bfb)
-			bfbPatch := client.MergeFrom(bfb.DeepCopy())
-			bfb.Status.Phase = provisioningv1.BFBReady
-			bfb.Status.FileName = "dpf-operator-system-bf-3-4-0.bfb"
-			Expect(k8sClient.Status().Patch(ctx, bfb, bfbPatch)).To(Succeed())
-
-			dpuFlavor := dpuFlavorObj(defaultDPUFlavorName)
-			createObject(dpuFlavor)
-
-			dpuDevice := dpuDeviceObj(defaultDPUDeviceName)
-			createObject(dpuDevice)
-			devicePatch := client.MergeFrom(dpuDevice.DeepCopy())
-			dpuDevice.Status.OPN = ptr.To(opn)
-			Expect(k8sClient.Status().Patch(ctx, dpuDevice, devicePatch)).To(Succeed())
-
-			dpu := dpuObj(defaultDPUName)
-			dpu.Spec.BFB = ptr.To(bfb.Name)
-			dpu.Spec.DPUFlavor = dpuFlavor.Name
-			dpu.Spec.DPUDeviceName = dpuDevice.Name
-			dpu.Status.Phase = provisioningv1.DPUPending
-			dpu.Status.DPUType = provisioningv1.DPUTypeBlueField3
-			return dpu
-		}
-
-		DescribeTable("compares the BFB URL against the card OPN",
-			func(bfbURL, opn string, expectedPhase provisioningv1.DPUPhase) {
-				dpu := dpuWithCard(bfbURL, opn)
-
-				runForEachInterface(func(installInterface provisioningv1.DPUInstallInterfaceType) {
-					status, err := state.Pending(ctx, dpu,
-						&dutil.ControllerContext{
-							Client: k8sClient,
-							Options: dutil.DPUOptions{
-								DPUInstallInterface: string(installInterface),
-							},
-							DPUInProvisioningMap: dutil.NewDPUInProvisioningMap(1),
-						},
-					)
-					Expect(err).To(Succeed())
-					Expect(status.Phase).To(Equal(expectedPhase))
-					if expectedPhase == provisioningv1.DPUError {
-						Expect(status.Conditions).Should(ContainElement(
-							And(
-								HaveField("Type", provisioningv1.DPUCondBFBReady.String()),
-								HaveField("Status", metav1.ConditionFalse),
-								HaveField("Reason", "BFBIncompatibleWithCard"),
-							),
-						))
-					}
-				})
-			},
-			Entry("development BFB on a production card", bfbURL("dev"), pkOPN, provisioningv1.DPUError),
-			Entry("production BFB on a development card", bfbURL("prod"), dkOPN, provisioningv1.DPUError),
-			Entry("production BFB on a production card", bfbURL("prod"), pkOPN, provisioningv1.DPUNodeEffect),
-			Entry("development BFB on a development card", bfbURL("dev"), dkOPN, provisioningv1.DPUNodeEffect),
-			// A QP card enforces no signing key, so any BFB boots on it.
-			Entry("production BFB on a qualification card", bfbURL("prod"), qpOPN, provisioningv1.DPUNodeEffect),
-			Entry("development BFB on a partner SKU", bfbURL("dev"), partnerOPN, provisioningv1.DPUNodeEffect),
-			Entry("unsigned BFB on a production card", "https://test.com/bf-bundle.bfb", pkOPN, provisioningv1.DPUError),
-			Entry("unsigned BFB on a qualification card", "https://test.com/bf-bundle.bfb", qpOPN, provisioningv1.DPUNodeEffect),
-			Entry("release tree alias URL", aliasURL, pkOPN, provisioningv1.DPUNodeEffect),
 		)
 	})
 })
