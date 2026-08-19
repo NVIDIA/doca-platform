@@ -347,6 +347,7 @@ func (r *RootServiceInfo) IsBF4() bool {
 }
 
 type SystemInfo struct {
+	AssetTag     *string      `json:"AssetTag,omitempty"`
 	BootProgress BootProgress `json:"BootProgress,omitempty"`
 	// PowerState is the Redfish ComputerSystem power state. On BF4 a DPU Arm
 	// that has completed a graceful shutdown reports "Paused" ("Off" is another
@@ -886,15 +887,7 @@ type ChassisInfo struct {
 var blueFieldRegex = regexp.MustCompile(`bluefield[- ]?(\d+)`)
 
 func (c *Client) GetPSID() (string, error) {
-	_, chassisInfo, err := c.GetChassis()
-	if err != nil {
-		return "", err
-	}
-	if c.IsBF4 && chassisInfo.AssetTag != ChassisAssetTagUnavailable {
-		return chassisInfo.AssetTag, nil
-	} else if c.IsBF4 {
-		return "", fmt.Errorf("AssetTag is not available")
-	} else {
+	if !c.IsBF4 {
 		resp, versionInfo, err := c.CheckDpuBoardFW()
 		if err != nil || resp.StatusCode() != http.StatusOK {
 			errMsg := "failed to check DPU board firmware"
@@ -907,6 +900,25 @@ func (c *Client) GetPSID() (string, error) {
 		}
 		return versionInfo.Version, nil
 	}
+
+	_, systemInfo, err := c.GetSystem()
+	if err != nil {
+		return "", err
+	}
+
+	if systemInfo.AssetTag != nil {
+		return *systemInfo.AssetTag, nil
+	}
+
+	// TODO: Remove this once initial FW would start from 0.8
+	_, chassisInfo, err := c.GetChassis()
+	if err != nil {
+		return "", err
+	}
+	if chassisInfo.AssetTag != ChassisAssetTagUnavailable {
+		return chassisInfo.AssetTag, nil
+	}
+	return "", fmt.Errorf("AssetTag is not available")
 }
 
 func (c *ChassisInfo) GetBlueFieldVersion() provisioningv1.DPUType {
