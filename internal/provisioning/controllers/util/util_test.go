@@ -47,12 +47,11 @@ var _ = Describe("Util", func() {
 		Entry("PowerCycle", provisioningv1.RebootMethodPowerCycle, 0),
 		Entry("SystemLevelReset", provisioningv1.RebootMethodSystemLevelReset, 1),
 		Entry("SystemReboot", provisioningv1.RebootMethodSystemReboot, 2),
-		Entry("HostlessDPUReboot", provisioningv1.RebootMethodHostlessDPUReboot, 3),
-		Entry("FirmwareReset", provisioningv1.RebootMethodFirmwareReset, 4),
-		Entry("DPUWarmReboot", provisioningv1.RebootMethodDPUWarmReboot, 5),
-		Entry("NoAction", provisioningv1.RebootMethodNoAction, 6),
-		Entry("Unknown", provisioningv1.RebootMethodUnknown, 7),
-		Entry("unrecognized type", provisioningv1.RebootMethodType("NotARebootMethod"), 7),
+		Entry("FirmwareReset", provisioningv1.RebootMethodFirmwareReset, 3),
+		Entry("DPUWarmReboot", provisioningv1.RebootMethodDPUWarmReboot, 4),
+		Entry("NoAction", provisioningv1.RebootMethodNoAction, 5),
+		Entry("Unknown", provisioningv1.RebootMethodUnknown, 6),
+		Entry("unrecognized type", provisioningv1.RebootMethodType("NotARebootMethod"), 6),
 	)
 
 	Context("GetDPUCondition", func() {

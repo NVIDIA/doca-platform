@@ -64,6 +64,14 @@ const (
 	// powerCycleCommandRequiredText is the canonical mlxfwreset `command_required` text pattern that
 	// maps to RebootMethodPowerCycle when present in the field (trim + case-insensitive substring match).
 	powerCycleCommandRequiredText = "power cycle"
+
+	// WORKAROUND(mlxfwreset-no-reset-level): hostless-only. mlxfwreset may fail with this text when
+	// no firmware reset level is available (CMX). On hostless DPUs, discovery maps that to
+	// PowerCycle; after maxRebootSequenceCount failed PowerCycles from this same cause, Execute
+	// downgrades to NoAction so the agent is not stuck. Non-hostless DPUs still surface the
+	// mlxfwreset error. Search "WORKAROUND(mlxfwreset-no-reset-level)" to find all related code
+	// for removal once MFT reports a proper reset/reboot method instead of this error.
+	noResetLevelSupportedText = "No reset level is supported"
 )
 
 // powerCyclePendingNvconfigNames lists pending NVCONFIG parameter names that require
@@ -93,6 +101,10 @@ type HandleReboot struct {
 	// perDeviceFirmwareResetCmds is the ordered mlxfwreset command line per PCI device from discovery
 	// when the final reboot method is FirmwareReset. Cleared when consumed by execFirmwareReset.
 	perDeviceFirmwareResetCmds []firmwareResetPerDevice
+	// WORKAROUND(mlxfwreset-no-reset-level): set when this run's PowerCycle came from
+	// noResetLevelSupportedText (not from command_required / pending NVConfig PowerCycle paths).
+	// Distinguishes that cause so only this PowerCycle may be downgraded to NoAction at the limit.
+	noResetLevelPowerCycle bool
 }
 
 func (h *HandleReboot) Name() string {
@@ -119,17 +131,24 @@ func (h *HandleReboot) Execute(execCtx context.Context, optCtx *operations.Conte
 		return nil
 	}
 
-	if isHostlessDPU(optCtx) {
-		optCtx.Status.RebootMethod = ptr.To(provisioningv1.RebootMethodHostlessDPUReboot)
-		return nil
-	}
-
 	m, err := h.getRebootMethod(optCtx)
 	if err != nil {
 		return err
 	}
 	if m == nil {
 		return fmt.Errorf("reboot method is nil")
+	}
+	// WORKAROUND(mlxfwreset-no-reset-level): hostless-only. PowerCycle from "No reset level is
+	// supported" that keeps failing through maxRebootSequenceCount cannot make progress;
+	// downgrade to NoAction so provisioning continues. Other PowerCycle causes still hit the
+	// hard limit error.
+	if shouldDowngradeNoResetLevelPowerCycleToNoAction(optCtx, m, h) {
+		klog.Warningf("(mlxfwreset-no-reset-level): rebootSequenceCount limit reached after repeated PowerCycle due to %q; continuing with NoAction",
+			noResetLevelSupportedText)
+		msg := fmt.Sprintf("(mlxfwreset-no-reset-level): rebootSequenceCount limit exceeded after PowerCycle from %q; continuing with NoAction",
+			noResetLevelSupportedText)
+		setRebootMethodDiscoveryCondition(optCtx, provisioningv1.RebootMethodNoAction, msg)
+		m = ptr.To(provisioningv1.RebootMethodNoAction)
 	}
 	if err := checkRebootSequenceCount(optCtx, m); err != nil {
 		return err
@@ -150,9 +169,6 @@ func (h *HandleReboot) Execute(execCtx context.Context, optCtx *operations.Conte
 		return h.execFirmwareReset(execCtx, optCtx)
 	case provisioningv1.RebootMethodDPUWarmReboot:
 		return h.execWarmReboot(execCtx, optCtx)
-	case provisioningv1.RebootMethodHostlessDPUReboot:
-		optCtx.Status.RebootMethod = ptr.To(provisioningv1.RebootMethodHostlessDPUReboot)
-		return nil
 	case provisioningv1.RebootMethodNoAction:
 		if err := deferredNVConfigWithoutRebootError(optCtx); err != nil {
 			return err
@@ -196,10 +212,6 @@ func (h *HandleReboot) execSystemLevelReset(execCtx context.Context, optCtx *ope
 		return fmt.Errorf("failed to shut down host: %w, stderr: %s", err, stderr.String())
 	}
 	return h.blockUntilReset()
-}
-
-func isHostlessDPU(optCtx *operations.Context) bool {
-	return optCtx != nil && optCtx.LatestDPU != nil && optCtx.LatestDPU.Status.Hostless
 }
 
 // getDevices returns PCI addresses for physical NIC ports matching scope:
@@ -525,6 +537,7 @@ func (h *HandleReboot) getRebootMethodDeviceQuery(optCtx *operations.Context) (*
 	setRebootMethodDiscoveryCondition(optCtx, provisioningv1.RebootMethodNoAction, "")
 	h.perDeviceFirmwareResetCmds = nil
 	h.allowFirmwareReset = agentAnnotationAllowsFirmwareResetReboot(optCtx)
+	h.noResetLevelPowerCycle = false // WORKAROUND(mlxfwreset-no-reset-level): clear per discovery run
 	defer func() { h.allowFirmwareReset = false }()
 
 	scope := pciutil.PortScopeNS
@@ -545,7 +558,25 @@ func (h *HandleReboot) getRebootMethodDeviceQuery(optCtx *operations.Context) (*
 		cmd := fmt.Sprintf("mlxfwreset -d %s status --json", device)
 		stdout, stderr, err := h.runBash(cmd)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w (stderr: %s)", cmd, err, stderr.String())
+			outText := strings.TrimSpace(stdout.String() + "\n" + stderr.String())
+			if outText == "" {
+				outText = err.Error()
+			}
+			// WORKAROUND(mlxfwreset-no-reset-level): hostless-only. Map this mlxfwreset failure to
+			// PowerCycle and mark noResetLevelPowerCycle so Execute can later downgrade to
+			// NoAction at the limit. Do not query further devices — PowerCycle already wins over
+			// every other method. Non-hostless keeps the error path below.
+			if optCtx.LatestDPU != nil && optCtx.LatestDPU.Status.Hostless &&
+				strings.Contains(outText, noResetLevelSupportedText) {
+				klog.Infof("WORKAROUND(mlxfwreset-no-reset-level): hostless PCI device %s: mlxfwreset reported no supported reset level; returning PowerCycle. err=%v output=%s",
+					device, err, outText)
+				rawParts = append(rawParts, outText)
+				setRebootMethodDiscoveryCondition(optCtx, provisioningv1.RebootMethodPowerCycle, strings.Join(rawParts, "\n---\n"))
+				h.perDeviceFirmwareResetCmds = nil
+				h.noResetLevelPowerCycle = true
+				return ptr.To(provisioningv1.RebootMethodPowerCycle), nil
+			}
+			return nil, fmt.Errorf("%s: %w (stdout: %s, stderr: %s)", cmd, err, stdout.String(), stderr.String())
 		}
 		raw := strings.TrimSpace(stdout.String())
 		if raw == "" {
@@ -618,6 +649,23 @@ func checkRebootSequenceCount(optCtx *operations.Context, method *provisioningv1
 	}
 	optCtx.Status.RebootSequenceCount = ptr.To(prev + 1)
 	return nil
+}
+
+// shouldDowngradeNoResetLevelPowerCycleToNoAction is WORKAROUND(mlxfwreset-no-reset-level):
+// hostless-only (h.noResetLevelPowerCycle is set only for hostless discovery). Only PowerCycle
+// caused by noResetLevelSupportedText may become NoAction once RebootSequenceCount has already
+// hit the limit. PowerCycle from other mlxfwreset signals still refuses further reboot via
+// checkRebootSequenceCount.
+func shouldDowngradeNoResetLevelPowerCycleToNoAction(optCtx *operations.Context, method *provisioningv1.RebootMethodType, h *HandleReboot) bool {
+	if h == nil || !h.noResetLevelPowerCycle || method == nil || *method != provisioningv1.RebootMethodPowerCycle {
+		return false
+	}
+	var prev int32
+	if optCtx != nil && optCtx.LatestDPU != nil && optCtx.LatestDPU.Status.AgentStatus != nil &&
+		optCtx.LatestDPU.Status.AgentStatus.RebootSequenceCount != nil {
+		prev = *optCtx.LatestDPU.Status.AgentStatus.RebootSequenceCount
+	}
+	return prev >= maxRebootSequenceCount
 }
 
 // setRebootMethodDiscoveryCondition sets or updates the device-query discovery condition.

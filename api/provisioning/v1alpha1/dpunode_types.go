@@ -215,7 +215,7 @@ type DPUNodeStatus struct {
 	// RebootMethod is the host-level reboot method recommended by child DPUs in
 	// DPURebooting phase, aggregated by priority (most disruptive wins, ties broken
 	// by ascending DPU name):
-	// PowerCycle > SystemLevelReset > SystemReboot > HostlessDPUReboot > FirmwareReset > DPUWarmReboot > NoAction > Unknown.
+	// PowerCycle > SystemLevelReset > SystemReboot > FirmwareReset > DPUWarmReboot > NoAction > Unknown.
 	//
 	// Stamped once at least one DPU reports a method, preserved across the
 	// rebooting -> idle transition, and cleared with DPUNodeRebootInProgress

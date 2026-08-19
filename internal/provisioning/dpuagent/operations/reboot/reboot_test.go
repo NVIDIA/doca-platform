@@ -148,6 +148,110 @@ var _ = Describe("Reboot", func() {
 				Expect(err.Error()).To(ContainSubstring("rebootSequenceCount limit exceeded"))
 			})
 
+			// WORKAROUND(mlxfwreset-no-reset-level): hostless-only. PowerCycle from that mlxfwreset
+			// error may become NoAction at the reboot sequence limit; other PowerCycle causes must not.
+			It("downgrades PowerCycle from no-reset-level to NoAction when rebootSequenceCount limit is reached", func() {
+				device := testPCIAddress0
+				dpu := &provisioningv1.DPU{
+					Status: provisioningv1.DPUStatus{
+						Hostless: true,
+						AgentStatus: &provisioningv1.AgentStatus{
+							RebootSequenceCount: ptr.To(int32(5)),
+						},
+					},
+				}
+				optCtx := &operations.Context{
+					LatestDPU:             dpu,
+					RebootMethodDiscovery: true,
+					CurrentBootID:         "boot-id",
+					DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
+						return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
+					},
+				}
+				reboot := &HandleReboot{
+					skipBlock: true,
+					runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+						var stderr bytes.Buffer
+						_, _ = stderr.WriteString("-E- No reset level is supported.")
+						return bytes.Buffer{}, stderr, fmt.Errorf("exit status 1")
+					},
+				}
+				Expect(reboot.Execute(context.Background(), optCtx)).To(Succeed())
+				Expect(optCtx.Status.RebootMethod).NotTo(BeNil())
+				Expect(*optCtx.Status.RebootMethod).To(Equal(provisioningv1.RebootMethodNoAction))
+				Expect(optCtx.Status.RebootSequenceCount).NotTo(BeNil())
+				Expect(*optCtx.Status.RebootSequenceCount).To(Equal(int32(0)))
+				cond := meta.FindStatusCondition(optCtx.Status.Conditions, cutil.AgentCondRebootMethodDiscovery)
+				Expect(cond).NotTo(BeNil())
+				Expect(cond.Reason).To(Equal(string(provisioningv1.RebootMethodNoAction)))
+				Expect(cond.Message).To(ContainSubstring(noResetLevelSupportedText))
+			})
+
+			It("still returns PowerCycle for no-reset-level before the rebootSequenceCount limit", func() {
+				device := testPCIAddress0
+				dpu := &provisioningv1.DPU{
+					Status: provisioningv1.DPUStatus{
+						Hostless: true,
+						AgentStatus: &provisioningv1.AgentStatus{
+							RebootSequenceCount: ptr.To(int32(2)),
+						},
+					},
+				}
+				optCtx := &operations.Context{
+					LatestDPU:             dpu,
+					RebootMethodDiscovery: true,
+					CurrentBootID:         "boot-id",
+					DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
+						return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
+					},
+					UpdateStatusUntilSuccess: func(context.Context) error { return nil },
+				}
+				reboot := &HandleReboot{
+					skipBlock: true,
+					runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+						var stderr bytes.Buffer
+						_, _ = stderr.WriteString("-E- No reset level is supported.")
+						return bytes.Buffer{}, stderr, fmt.Errorf("exit status 1")
+					},
+				}
+				Expect(reboot.Execute(context.Background(), optCtx)).To(Succeed())
+				Expect(optCtx.Status.RebootMethod).NotTo(BeNil())
+				Expect(*optCtx.Status.RebootMethod).To(Equal(provisioningv1.RebootMethodPowerCycle))
+				Expect(optCtx.Status.RebootSequenceCount).NotTo(BeNil())
+				Expect(*optCtx.Status.RebootSequenceCount).To(Equal(int32(3)))
+			})
+
+			It("returns error for no-reset-level on non-hostless DPUs when rebootSequenceCount limit is reached", func() {
+				device := testPCIAddress0
+				dpu := &provisioningv1.DPU{
+					Status: provisioningv1.DPUStatus{
+						Hostless: false,
+						AgentStatus: &provisioningv1.AgentStatus{
+							RebootSequenceCount: ptr.To(int32(5)),
+						},
+					},
+				}
+				optCtx := &operations.Context{
+					LatestDPU:             dpu,
+					RebootMethodDiscovery: true,
+					CurrentBootID:         "boot-id",
+					DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
+						return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
+					},
+				}
+				reboot := &HandleReboot{
+					skipBlock: true,
+					runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+						var stderr bytes.Buffer
+						_, _ = stderr.WriteString("-E- No reset level is supported.")
+						return bytes.Buffer{}, stderr, fmt.Errorf("exit status 1")
+					},
+				}
+				err := reboot.Execute(context.Background(), optCtx)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring(noResetLevelSupportedText))
+			})
+
 			It("surfaces NVConfigApplied=False when the reboot limit is reached with deferred NVConfig params", func() {
 				dpu := &provisioningv1.DPU{
 					Status: provisioningv1.DPUStatus{
@@ -271,32 +375,109 @@ var _ = Describe("Reboot", func() {
 
 		})
 
-		It("should only report HostlessDPUReboot for hostless DPU", func() {
-			statusPushed := false
-			runBashCalled := false
+		It("getRebootMethod returns PowerCycle immediately when mlxfwreset reports no reset level on hostless", func() {
+			device := testPCIAddress0
 			optCtx := &operations.Context{
 				LatestDPU: &provisioningv1.DPU{
-					Status: provisioningv1.DPUStatus{
-						Hostless: true,
-					},
+					Status: provisioningv1.DPUStatus{Hostless: true},
 				},
-				RebootMethodDiscovery:    false,
-				CurrentBootID:            "boot-id",
-				UpdateStatusUntilSuccess: func(context.Context) error { statusPushed = true; return nil },
+				RebootMethodDiscovery: true,
+				CurrentBootID:         "boot-id",
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
+					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
+				},
 			}
 			h := &HandleReboot{
-				skipBlock: true,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
-					runBashCalled = true
-					return bytes.Buffer{}, bytes.Buffer{}, nil
+					var stderr bytes.Buffer
+					_, _ = stderr.WriteString("-E- No reset level is supported.")
+					return bytes.Buffer{}, stderr, fmt.Errorf("exit status 1")
 				},
 			}
+			m, err := h.getRebootMethod(optCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(*m).To(Equal(provisioningv1.RebootMethodPowerCycle))
+			cond := meta.FindStatusCondition(optCtx.Status.Conditions, cutil.AgentCondRebootMethodDiscovery)
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Reason).To(Equal(string(provisioningv1.RebootMethodPowerCycle)))
+			Expect(cond.Message).To(ContainSubstring(noResetLevelSupportedText))
+		})
 
-			Expect(h.Execute(context.Background(), optCtx)).To(Succeed())
-			Expect(statusPushed).To(BeFalse())
-			Expect(runBashCalled).To(BeFalse())
-			Expect(optCtx.Status.RebootMethod).NotTo(BeNil())
-			Expect(*optCtx.Status.RebootMethod).To(Equal(provisioningv1.RebootMethodHostlessDPUReboot))
+		It("getRebootMethod returns error when mlxfwreset reports no reset level on non-hostless", func() {
+			device := testPCIAddress0
+			optCtx := &operations.Context{
+				LatestDPU: &provisioningv1.DPU{
+					Status: provisioningv1.DPUStatus{Hostless: false},
+				},
+				RebootMethodDiscovery: true,
+				CurrentBootID:         "boot-id",
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
+					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
+				},
+			}
+			h := &HandleReboot{
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					var stderr bytes.Buffer
+					_, _ = stderr.WriteString("-E- No reset level is supported.")
+					return bytes.Buffer{}, stderr, fmt.Errorf("exit status 1")
+				},
+			}
+			m, err := h.getRebootMethod(optCtx)
+			Expect(err).To(HaveOccurred())
+			Expect(m).To(BeNil())
+			Expect(err.Error()).To(ContainSubstring(noResetLevelSupportedText))
+		})
+
+		It("getRebootMethod does not query further PCI devices after no-reset-level PowerCycle", func() {
+			queried := []string{}
+			optCtx := &operations.Context{
+				LatestDPU: &provisioningv1.DPU{
+					Status: provisioningv1.DPUStatus{Hostless: true},
+				},
+				RebootMethodDiscovery: true,
+				CurrentBootID:         "boot-id",
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
+					return []pciutil.NICPort{
+						{Netdev: "p0", PCIAddress: testPCIAddress0},
+						{Netdev: "p1", PCIAddress: testPCIAddress1},
+					}, nil
+				},
+			}
+			h := &HandleReboot{
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					queried = append(queried, cmd)
+					var stderr bytes.Buffer
+					_, _ = stderr.WriteString("-E- No reset level is supported.")
+					return bytes.Buffer{}, stderr, fmt.Errorf("exit status 1")
+				},
+			}
+			m, err := h.getRebootMethod(optCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(*m).To(Equal(provisioningv1.RebootMethodPowerCycle))
+			Expect(queried).To(Equal([]string{fmt.Sprintf("mlxfwreset -d %s status --json", testPCIAddress0)}))
+		})
+
+		It("getRebootMethod fails on other mlxfwreset status errors", func() {
+			device := testPCIAddress0
+			optCtx := &operations.Context{
+				RebootMethodDiscovery: true,
+				CurrentBootID:         "boot-id",
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
+					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
+				},
+			}
+			h := &HandleReboot{
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					var stderr bytes.Buffer
+					_, _ = stderr.WriteString("-E- Device not found")
+					return bytes.Buffer{}, stderr, fmt.Errorf("exit status 1")
+				},
+			}
+			m, err := h.getRebootMethod(optCtx)
+			Expect(err).To(HaveOccurred())
+			Expect(m).To(BeNil())
+			Expect(err.Error()).To(ContainSubstring(fmt.Sprintf("mlxfwreset -d %s status --json", device)))
+			Expect(err.Error()).To(ContainSubstring("Device not found"))
 		})
 
 		Context("getRebootMethod", func() {
@@ -1335,6 +1516,29 @@ var _ = Describe("Reboot", func() {
 			_, err := h.getRebootMethod(optCtx)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("parse JSON:"))
+		})
+
+		It("getRebootMethod surfaces mlxfwreset stdout when the command fails", func() {
+			// Use a diagnostic that is not the hostless-only noResetLevelSupportedText workaround.
+			const mftDiagnostic = "-E- Failed to open device"
+			optCtx := &operations.Context{
+				RebootMethodDiscovery: true,
+				CurrentBootID:         "boot-id",
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
+					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPCIAddress0}}, nil
+				},
+			}
+			h := &HandleReboot{
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					var stdout bytes.Buffer
+					_, _ = stdout.WriteString(mftDiagnostic)
+					return stdout, bytes.Buffer{}, fmt.Errorf("exit status 1")
+				},
+			}
+			_, err := h.getRebootMethod(optCtx)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring(mftDiagnostic))
+			Expect(err.Error()).To(ContainSubstring("stdout:"))
 		})
 	})
 

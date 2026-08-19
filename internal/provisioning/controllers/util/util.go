@@ -195,7 +195,7 @@ const (
 
 // GetRebootMethodPriority returns the host-reboot priority of m, where
 // lower numbers are more disruptive. Chain: PowerCycle > SystemLevelReset >
-// SystemReboot > HostlessDPUReboot > FirmwareReset > DPUWarmReboot > NoAction > Unknown.
+// SystemReboot > FirmwareReset > DPUWarmReboot > NoAction > Unknown.
 // Unknown / unrecognized never beats a known method.
 func GetRebootMethodPriority(m provisioningv1.RebootMethodType) int {
 	switch m {
@@ -205,16 +205,14 @@ func GetRebootMethodPriority(m provisioningv1.RebootMethodType) int {
 		return 1
 	case provisioningv1.RebootMethodSystemReboot:
 		return 2
-	case provisioningv1.RebootMethodHostlessDPUReboot:
-		return 3
 	case provisioningv1.RebootMethodFirmwareReset:
-		return 4
+		return 3
 	case provisioningv1.RebootMethodDPUWarmReboot:
-		return 5
+		return 4
 	case provisioningv1.RebootMethodNoAction:
-		return 6
+		return 5
 	default:
-		return 7
+		return 6
 	}
 }
 
