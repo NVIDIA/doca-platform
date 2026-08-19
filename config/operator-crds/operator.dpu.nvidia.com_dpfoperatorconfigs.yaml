@@ -2549,6 +2549,13 @@ spec:
               rule: '!has(self.deploymentMode) || self.deploymentMode != ''zero-trust''
                 || !has(self.networking) || !has(self.networking.controlPlaneMTU)
                 || self.networking.controlPlaneMTU <= 1500'
+            - message: 'deploymentMode is immutable after creation: it cannot be changed
+                once set, because already provisioned DPUs keep the trust boundary
+                they were provisioned under. Switch the cluster to another deploymentMode
+                by deleting and recreating DPFOperatorConfig (DR escape hatch); existing
+                DPUs require re-provisioning.'
+              rule: '!has(oldSelf.deploymentMode) || (has(self.deploymentMode) &&
+                self.deploymentMode == oldSelf.deploymentMode)'
             - message: spiffe configuration requires deploymentMode=zero-trust
               rule: '!has(self.security) || !has(self.security.spiffe) || self.deploymentMode
                 == ''zero-trust'''
