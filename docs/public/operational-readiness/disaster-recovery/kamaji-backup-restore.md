@@ -2,7 +2,7 @@
 title: "Kamaji etcd Backup and Restore"
 ---
 
-[TOC]
+[[_TOC_]]
 
 ## Overview
 
