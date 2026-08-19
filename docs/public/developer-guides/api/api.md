@@ -2945,7 +2945,7 @@ _Appears in:_
 | `dpuInstallInterface` _string_ | The name of the interface which will be used to install the bfb image, can be one of hostAgent,redfish |  | Enum: [gNOI hostAgent redfish] <br />Optional: \{\} <br /> |
 | `kubeNodeRef` _string_ | The name of the Kubernetes Node object that this DPUNode represents.<br />This field is optional and only relevant if the x86 host is part of the DPF Kubernetes cluster. |  | Optional: \{\} <br /> |
 | `rebootInProgress` _boolean_ | RebootInProgress indicates if the node is in the process of rebooting. |  | Optional: \{\} <br /> |
-| `rebootMethod` _[RebootMethodType](#rebootmethodtype)_ | RebootMethod is the host-level reboot method recommended by child DPUs in<br />DPURebooting phase, aggregated by priority (most disruptive wins, ties broken<br />by ascending DPU name):<br />PowerCycle > SystemLevelReset > SystemReboot > FirmwareReset > DPUWarmReboot > NoAction > Unknown.<br />Stamped once at least one DPU reports a method, preserved across the<br />rebooting -> idle transition, and cleared with DPUNodeRebootInProgress<br />when the DPUNode loses all its DPUs. |  | Enum: [Unknown NoAction PowerCycle SystemReboot SystemLevelReset FirmwareReset DPUWarmReboot] <br />Optional: \{\} <br /> |
+| `rebootMethod` _[RebootMethodType](#rebootmethodtype)_ | RebootMethod is the host operation required by the child DPUs in<br />DPURebooting phase: PowerCycle or SystemLevelReset. |  | Enum: [Unknown NoAction PowerCycle SystemReboot SystemLevelReset FirmwareReset DPUWarmReboot] <br />Optional: \{\} <br /> |
 
 
 

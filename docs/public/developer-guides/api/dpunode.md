@@ -71,19 +71,22 @@ The `status` section contains the observed state of the DPU node:
 
 ### Aggregated reboot method
 
-`status.rebootMethod` is the priority winner across child DPUs in `DPURebooting`
-(`PowerCycle` > `SystemLevelReset` > `SystemReboot` > `FirmwareReset` > `DPUWarmReboot` > `NoAction` > `Unknown`).
-It is set once at least one DPU reports, preserved across the rebooting -> idle transition,
-and cleared with `DPUNodeRebootInProgress` when the DPUNode loses all its DPUs.
-On multi-DPU hosts the value may flicker as peers enter and leave `DPURebooting`;
-reboot atomicity is enforced by the per-path action layer (External/Script via `HandleRebootSync`,
-HostAgent via `reboot/sync.go`), not by this field.
+`status.rebootMethod` tells the cluster admin -- or the automation acting on
+their behalf -- which host operation DPF needs before the DPUs can finish
+provisioning. The operations DPF may ask for are:
 
-This field reflects the **data-plane recommendation**. The
-`provisioning.dpu.nvidia.com/host-power-cycle-required` annotation escalates
-the executed reboot at the host agent layer only and is intentionally not
-propagated here, so a value like `SystemReboot` while the host actually
-power-cycles is by design, not a stale-status bug.
+| `status.rebootMethod` | Required operation |
+|-----------------------|--------------------|
+| `PowerCycle` | Bring the **host OS, the DPU BMC and the DPU OS** down, wait until they are all down, then bring them back up. |
+| `SystemLevelReset` | Bring the **host OS** down, wait, then bring it back up. |
+
+Performing a `PowerCycle` when `SystemLevelReset` was requested is safe, only
+more disruptive. The opposite is not.
+Any other value that may appear in this field should be mapped into the `SystemLevelReset` operation.
+
+On a multi-DPU host the field carries the most disruptive operation requested by
+any child DPU in `DPURebooting`, so `PowerCycle` wins. The value is kept after
+the reboot completes and is cleared only once the DPUNode has no DPUs left.
 
 ## Conditions
 
@@ -167,23 +170,19 @@ If the Job still fails after those retries, see [Script reboot job failures and 
 Starting with DPF v26.4, the controller also propagates the aggregated reboot
 intent reported by the DPU agent(s) into every container and init container of
 the script pod, and stamps it as pod-template annotations. Custom reboot scripts
-can use this signal to choose the right host action (for example: cold power
-cycle vs warm reboot) without having to read the DPU API directly.
+can use this signal to choose the right host action without having to read the DPU API directly.
 
 | Surface | Name | Meaning |
 |---------|------|---------|
 | Env var | `DPUNODE_NAME` | Name of the `DPUNode` the Job is reconciling. |
-| Env var | `DPUNODE_REBOOT_METHOD` | Aggregated reboot method for this DPUNode in the current reconcile (priority: `PowerCycle` > `SystemLevelReset` > `SystemReboot` > `FirmwareReset` > `DPUWarmReboot` > `NoAction`). Mirrored on the DPUNode itself as `status.rebootMethod`. See the paragraph below the table for `Unknown` handling. |
+| Env var | `DPUNODE_REBOOT_METHOD` | Host operation required for this DPUNode in the current reconcile, with the meaning described in [Aggregated reboot method](#aggregated-reboot-method). Mirrored on the DPUNode itself as `status.rebootMethod`. Treat any value other than `PowerCycle` as `SystemLevelReset`. |
 | Env var | `DPUNODE_REBOOT_METHODS_PER_DPU` | Comma-separated `<dpu-name>=<method>` mapping for every DPU in phase `Rebooting`, **sorted by DPU name** for stability. DPUs that have not reported a method appear as `<dpu-name>=Unknown` (this mapping is informational and is *not* defaulted, so scripts can still tell which DPUs have not reported). Empty when no DPU is in `Rebooting` phase yet. |
 | Annotation | `provisioning.dpu.nvidia.com/reboot-method-aggregated` | Same value as `DPUNODE_REBOOT_METHOD`. Surfaced inside the pod through the existing `dpf-pod-info` downward-API mount at `/etc/dpf-pod-info/annotations`. |
 | Annotation | `provisioning.dpu.nvidia.com/reboot-methods-per-dpu` | Same value as `DPUNODE_REBOOT_METHODS_PER_DPU`. The DPUNode controller is the source of truth and overwrites any user-provided value for these two keys in the pod template. |
 
-The aggregate is guaranteed to be one of the seven non-`Unknown`
-`RebootMethodType` values. `SystemLevelReset` is the default when the agent
-has not reported yet -- it is the safe middle ground that triggers a
-host-impacting reboot without escalating to a hard `PowerCycle`. Per-DPU
-entries can still appear as `Unknown` and should be treated as "agent has
-not reported for this DPU yet".
+`DPUNODE_REBOOT_METHOD` is never empty and never `Unknown`. When no DPU has
+reported yet, it is set to `SystemLevelReset` -- the safe middle ground that
+brings the host OS down without escalating to a full `PowerCycle`.
 
 `DPUNODE_REBOOT_METHOD` and `DPUNODE_REBOOT_METHODS_PER_DPU` reflect the
 **data-plane recommendation** from the DPU agent. The
@@ -212,21 +211,16 @@ data:
           echo "Performing custom reboot procedure for DPUNode $DPUNODE_NAME..."
           echo "Aggregated reboot method: $DPUNODE_REBOOT_METHOD"
           echo "Per-DPU methods: $DPUNODE_REBOOT_METHODS_PER_DPU"
-          # DPUNODE_REBOOT_METHOD is guaranteed by the controller to be one of
-          # the seven non-Unknown RebootMethodType values; SystemLevelReset is
-          # the default when no DPU has reported yet.
           case "$DPUNODE_REBOOT_METHOD" in
             PowerCycle)
-              # Hard power cycle via BMC / IPMI
+              # Bring the host OS, DPU BMC and DPU OS down, wait, then power
+              # the server back up (for example via the host BMC).
               ;;
-            SystemLevelReset|SystemReboot|FirmwareReset|DPUWarmReboot)
-              # Warm reboot of the host OS is sufficient
-              ;;
-            NoAction)
-              # Nothing to do; let the script exit 0
+            SystemLevelReset)
+              # Bring the host OS down, wait, then bring it back up.
               ;;
             *)
-              # Defensive fallback for unknown future RebootMethodType values.
+              # Safe fallback for any other value: handle it as SystemLevelReset.
               ;;
           esac
           sleep 10
@@ -249,6 +243,7 @@ Uses the on-host DPF agent to reboot the host. This is the default and recommend
 
 ### External
 Reboots the host via external means not controlled by the DPU controller. This method requires manual intervention or external automation.
+Read `status.rebootMethod` to learn which host operation is expected -- see [Aggregated reboot method](#aggregated-reboot-method).
 
 **Use Cases:**
 * Custom power management systems
@@ -298,6 +293,10 @@ metadata:
   annotations:
     provisioning.dpu.nvidia.com/dpunode-external-reboot-required: "true"
 ```
+
+Perform the operation reported in `status.rebootMethod` (see
+[Aggregated reboot method](#aggregated-reboot-method)) and remove the annotation
+only after the host is back up.
 
 ## Lifecycle Management
 
