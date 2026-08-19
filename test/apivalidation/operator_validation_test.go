@@ -258,6 +258,59 @@ var _ = Describe("Operator API Validation", func() {
 					InstallViaRedfish: &operatorv1.InstallViaRedfish{},
 				}, false, ""),
 			)
+
+			// A posture flip also has to satisfy the mode x install interface rules above, otherwise it
+			// is rejected by those and never reaches the immutability rule. Each rejecting entry here
+			// therefore moves the install interface along with the mode, so immutability is the only
+			// constraint left that can reject the update.
+			DescribeTable("DPFOperatorConfig deploymentMode immutable transition",
+				func(create func(string) *operatorv1.DPFOperatorConfig, update func(*operatorv1.DPFOperatorConfig), expectError bool, errorMessage string) {
+					config := create(testNs.Name)
+					Expect(testClient.Create(ctx, config)).To(Succeed())
+					cleanupObjs = append(cleanupObjs, config)
+
+					update(config)
+					err := testClient.Update(ctx, config)
+					if expectError {
+						Expect(err).To(HaveOccurred())
+						Expect(err.Error()).To(ContainSubstring(errorMessage))
+					} else {
+						Expect(err).ToNot(HaveOccurred())
+					}
+				},
+				Entry("valid - host-trusted rewritten with the same value", getMinimalDPFOperatorConfig, func(c *operatorv1.DPFOperatorConfig) {
+					c.Spec.DeploymentMode = operatorv1.DeploymentModeHostTrusted
+				}, false, ""),
+				Entry("valid - unrelated field edited while the mode is untouched", getZeroTrustDPFOperatorConfig, func(c *operatorv1.DPFOperatorConfig) {
+					c.Spec.ImagePullSecrets = []string{"dpf-pull-secret"}
+				}, false, ""),
+				Entry("invalid - zero-trust to host-trusted with a compatible install interface", getZeroTrustDPFOperatorConfig, func(c *operatorv1.DPFOperatorConfig) {
+					c.Spec.DeploymentMode = operatorv1.DeploymentModeHostTrusted
+					c.Spec.ProvisioningController.InstallInterface = &operatorv1.ProvisioningInstallInterface{
+						InstallViaHostAgent: &operatorv1.InstallViaHostAgent{},
+					}
+				}, true, "deploymentMode is immutable after creation"),
+				Entry("invalid - host-trusted to zero-trust with a compatible install interface", getMinimalDPFOperatorConfig, func(c *operatorv1.DPFOperatorConfig) {
+					c.Spec.DeploymentMode = operatorv1.DeploymentModeZeroTrust
+					c.Spec.ProvisioningController.InstallInterface = &operatorv1.ProvisioningInstallInterface{
+						InstallViaRedfish: &operatorv1.InstallViaRedfish{},
+					}
+				}, true, "deploymentMode is immutable after creation"),
+			)
+
+			// The rule tolerates a stored object that has no deploymentMode so that a cluster upgraded
+			// from a build predating the field can acquire one. That arm cannot be built through the
+			// API here because the field is required, so it is covered by the upgrade e2e
+			// (patchDPFOperatorConfigForSpecDeploymentMode). What is assertable is that clearing the
+			// field on a live object stays rejected.
+			It("rejects clearing deploymentMode on a live config", func() {
+				config := getMinimalDPFOperatorConfig(testNs.Name)
+				Expect(testClient.Create(ctx, config)).To(Succeed())
+				cleanupObjs = append(cleanupObjs, config)
+
+				config.Spec.DeploymentMode = ""
+				Expect(testClient.Update(ctx, config)).ToNot(Succeed())
+			})
 		})
 
 		Context("Validate OOB bridge name", func() {
