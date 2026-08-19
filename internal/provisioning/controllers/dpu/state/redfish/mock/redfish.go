@@ -55,6 +55,7 @@ type RedfishMockServer struct {
 	secureBootPatchError            bool                     // Simulate Secure Boot PATCH-only error for testing
 	systemError                     bool                     // Simulate GetSystem endpoint error for testing
 	resetSystemError                bool                     // Simulate ResetSystem endpoint error for testing
+	lastResetType                   string                   // Last ComputerSystem.Reset ResetType received
 	productDescriptionError         bool                     // Simulate GetProductDescription endpoint error for testing
 	taskProgressError               bool                     // Simulate CheckTaskProgress endpoint error for testing
 	chassisError                    bool                     // Simulate GetChassis endpoint error for testing
@@ -958,6 +959,11 @@ func (r *RedfishMockServer) SetResetSystemError(simulateError bool) {
 	r.resetSystemError = simulateError
 }
 
+// GetLastResetType returns the last ComputerSystem.Reset ResetType received, or empty if none.
+func (r *RedfishMockServer) GetLastResetType() string {
+	return r.lastResetType
+}
+
 // SetReplaceCertError enables or disables CertificateService.ReplaceCertificate error simulation,
 // emulating a BMC that rejects the issued server certificate (e.g. key mismatch after a reboot).
 func (r *RedfishMockServer) SetReplaceCertError(simulateError bool) {
@@ -1451,6 +1457,7 @@ func (r *RedfishMockServer) handleResetSystem(w http.ResponseWriter, req *http.R
 		http.Error(w, "Invalid reset type", http.StatusBadRequest)
 		return
 	}
+	r.lastResetType = resetType
 
 	// Note: Secure Boot requires TWO reboots to take effect
 	// - First reboot: Apply BIOS configuration

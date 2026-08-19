@@ -192,14 +192,14 @@ var _ = Describe("Phase DPUConfig", func() {
 			expectDPUConfigCondition(status, metav1.ConditionTrue, string(provisioningv1.RebootMethodSystemLevelReset), "RebootMethod is SystemLevelReset; transitioning to Rebooting phase")
 		})
 
-		It("should transition to DPURebooting for HostlessDPUReboot", func() {
+		It("should transition to DPURebooting for PowerCycle", func() {
 			oldTime := metav1.NewTime(metav1.Now().Add(-time.Hour))
 			dpu := dpuObj(defaultDPUName)
 			dpu.Status.Phase = provisioningv1.DPUConfig
 			dpu.Status.AgentLastStartupTime = &oldTime
 			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
 				LastStartupTime: ptr.To(metav1.Now()),
-				RebootMethod:    ptr.To(provisioningv1.RebootMethodHostlessDPUReboot),
+				RebootMethod:    ptr.To(provisioningv1.RebootMethodPowerCycle),
 			}
 
 			status, err := state.DPUConfig(ctx, dpu, &dutil.ControllerContext{})
@@ -207,8 +207,8 @@ var _ = Describe("Phase DPUConfig", func() {
 			Expect(status.Phase).To(Equal(provisioningv1.DPURebooting))
 			Expect(status.RebootStatus).NotTo(BeNil())
 			Expect(status.RebootStatus.Method).NotTo(BeNil())
-			Expect(*status.RebootStatus.Method).To(Equal(provisioningv1.RebootMethodHostlessDPUReboot))
-			expectDPUConfigCondition(status, metav1.ConditionTrue, string(provisioningv1.RebootMethodHostlessDPUReboot), "RebootMethod is HostlessDPUReboot; transitioning to Rebooting phase")
+			Expect(*status.RebootStatus.Method).To(Equal(provisioningv1.RebootMethodPowerCycle))
+			expectDPUConfigCondition(status, metav1.ConditionTrue, string(provisioningv1.RebootMethodPowerCycle), "RebootMethod is PowerCycle; transitioning to Rebooting phase")
 		})
 	})
 
