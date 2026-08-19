@@ -94,11 +94,6 @@ type BlueFieldSpec struct {
 	// +kubebuilder:validation:MinLength=1
 	PldmFwBundle *string `json:"pldmFwBundle,omitempty"`
 
-	// ForceFwUpdate points to the force firmware update flag.
-	// +optional
-	// +kubebuilder:default=false
-	ForceFwUpdate *bool `json:"forceFwUpdate,omitempty"`
-
 	// OS ISO points to the OS ISO used by DPU OS installation flow.
 	// +required
 	// +kubebuilder:validation:MinLength=1
