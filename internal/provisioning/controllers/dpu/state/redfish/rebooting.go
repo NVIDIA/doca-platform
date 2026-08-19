@@ -34,9 +34,12 @@ import (
 
 const (
 	dpuOSRunningState             string = "OsIsRunning"
-	hostlessRebootTriggered       string = "RedfishGracefulRestartTriggered"
+	hostlessForceRestartTriggered string = "RedfishForceRestartTriggered"
 	hostlessRebootWaiting         string = "WaitingForDPUOSRunning"
 	hostlessRebootWaitingForAgent string = "WaitingForDPUAgentRestarted"
+	// hostlessRebootTriggeredLegacy is kept so in-flight hostless reboots that
+	// already stamped the old GracefulRestart reason continue to wait for OS/agent.
+	hostlessRebootTriggeredLegacy string = "RedfishGracefulRestartTriggered"
 
 	// armShutdownWaitTimeout bounds how long we wait for the DPU Arm to report a
 	// powered-off state after a System Level Reset shutdown. The DPU agent's graceful
@@ -124,7 +127,7 @@ func reconcileHostlessReboot(ctx context.Context, dpu *provisioningv1.DPU, state
 
 	if state.RebootStatus == nil {
 		now := metav1.Now()
-		method := provisioningv1.RebootMethodHostlessDPUReboot
+		method := provisioningv1.RebootMethodPowerCycle
 		state.RebootStatus = &provisioningv1.RebootStatus{
 			Phase:              provisioningv1.RebootStatusPending,
 			Method:             &method,
@@ -139,12 +142,13 @@ func reconcileHostlessReboot(ctx context.Context, dpu *provisioningv1.DPU, state
 	}
 
 	if !hostlessRebootStarted(state.RebootStatus.Reason) {
-		if _, err := client.GracefulRestartDPUArm(); err != nil {
-			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondRebooted.String(), err, "FailedToTriggerRedfishGracefulRestart", err.Error()))
+		if _, err := client.ForceRestartDPUArm(); err != nil {
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondRebooted.String(), err, "FailedToTriggerRedfishForceRestart", err.Error()))
 			return *state, err
 		}
-		dutil.UpdateRebootStatus(state, provisioningv1.RebootStatusPending, hostlessRebootTriggered, "Redfish GracefulRestart triggered for hostless DPU")
-		setHostlessRebootPendingCondition(state, hostlessRebootTriggered, state.RebootStatus.Message)
+		dutil.UpdateRebootStatus(state, provisioningv1.RebootStatusPending, hostlessForceRestartTriggered,
+			"Redfish ForceRestart triggered for hostless DPU")
+		setHostlessRebootPendingCondition(state, state.RebootStatus.Reason, state.RebootStatus.Message)
 		return *state, nil
 	}
 
@@ -240,7 +244,8 @@ func reconcileWaitForArmShutdown(ctx context.Context, dpu *provisioningv1.DPU, s
 }
 
 func hostlessRebootStarted(reason string) bool {
-	return reason == hostlessRebootTriggered ||
+	return reason == hostlessForceRestartTriggered ||
+		reason == hostlessRebootTriggeredLegacy ||
 		reason == hostlessRebootWaiting ||
 		reason == hostlessRebootWaitingForAgent
 }
