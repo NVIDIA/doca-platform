@@ -254,7 +254,7 @@ func (s *scheduleSyncer) create(spec *scheduleSpec) error {
 		return nil
 	}
 
-	schedule, err := s.client.CreatePipelineSchedule(spec.Description, spec.Ref, spec.Cron, spec.CronTimezone, spec.active())
+	schedule, err := s.client.CreatePipelineSchedule(spec.Description, spec.Ref, spec.Cron, spec.cronTimezone(), spec.active())
 	if err != nil {
 		return fmt.Errorf("failed to create schedule %q: %v", spec.Description, err)
 	}
@@ -328,8 +328,8 @@ func (s *scheduleSyncer) update(schedule *gitlab.PipelineSchedule, spec *schedul
 	if spec.Cron != schedule.Cron {
 		changes = append(changes, fmt.Sprintf("  ~ cron: %q -> %q", schedule.Cron, spec.Cron))
 	}
-	if spec.CronTimezone != "" && spec.CronTimezone != schedule.CronTimezone {
-		changes = append(changes, fmt.Sprintf("  ~ cron_timezone: %q -> %q", schedule.CronTimezone, spec.CronTimezone))
+	if spec.cronTimezone() != schedule.CronTimezone {
+		changes = append(changes, fmt.Sprintf("  ~ cron_timezone: %q -> %q", schedule.CronTimezone, spec.cronTimezone()))
 	}
 	if spec.active() != schedule.Active {
 		changes = append(changes, fmt.Sprintf("  ~ active: %t -> %t", schedule.Active, spec.active()))
@@ -374,14 +374,10 @@ func (s *scheduleSyncer) update(schedule *gitlab.PipelineSchedule, spec *schedul
 	}
 
 	if spec.Description != schedule.Description || shortRef(spec.Ref) != shortRef(schedule.Ref) || spec.Cron != schedule.Cron ||
-		(spec.CronTimezone != "" && spec.CronTimezone != schedule.CronTimezone) || spec.active() != schedule.Active {
-		timezone := spec.CronTimezone
-		if timezone == "" {
-			timezone = schedule.CronTimezone
-		}
+		spec.cronTimezone() != schedule.CronTimezone || spec.active() != schedule.Active {
 		slog.Debug("updating schedule fields", "id", scheduleID)
 		if err := s.withOwnership(scheduleID, func() error {
-			return s.client.UpdatePipelineSchedule(scheduleID, spec.Description, spec.Ref, spec.Cron, timezone, spec.active())
+			return s.client.UpdatePipelineSchedule(scheduleID, spec.Description, spec.Ref, spec.Cron, spec.cronTimezone(), spec.active())
 		}); err != nil {
 			return fmt.Errorf("failed to update schedule %q: %v", spec.Description, err)
 		}

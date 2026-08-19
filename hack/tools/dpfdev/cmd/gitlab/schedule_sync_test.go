@@ -78,13 +78,13 @@ func TestScheduleSyncDryRunIsReadOnly(t *testing.T) {
 			// List: one schedule present in the file (with drift) and one
 			// orphan that only exists in GitLab.
 			_, _ = w.Write([]byte(`[
-				{"id":10,"description":"keep","ref":"refs/heads/main","cron":"0 1 * * *","active":true,"owner":{"username":"alice"}},
-				{"id":20,"description":"orphan","ref":"refs/heads/main","cron":"0 2 * * *","active":true,"owner":{"username":"bob"}}
+				{"id":10,"description":"keep","ref":"refs/heads/main","cron":"0 1 * * *","cron_timezone":"Asia/Jerusalem","active":true,"owner":{"username":"alice"}},
+				{"id":20,"description":"orphan","ref":"refs/heads/main","cron":"0 2 * * *","cron_timezone":"Asia/Jerusalem","active":true,"owner":{"username":"bob"}}
 			]`))
 		case r.URL.Path == "/projects/1/pipeline_schedules/10":
 			// Detail with variables that differ from the file: KEEP_VAR
 			// changes value, DROP_VAR is removed, ADD_VAR is added by the file.
-			_, _ = w.Write([]byte(`{"id":10,"description":"keep","ref":"refs/heads/main","cron":"0 1 * * *","active":true,"owner":{"username":"alice"},
+			_, _ = w.Write([]byte(`{"id":10,"description":"keep","ref":"refs/heads/main","cron":"0 1 * * *","cron_timezone":"Asia/Jerusalem","active":true,"owner":{"username":"alice"},
 				"variables":[
 					{"key":"KEEP_VAR","variable_type":"env_var","value":"old"},
 					{"key":"DROP_VAR","variable_type":"env_var","value":"x"}
@@ -149,12 +149,12 @@ func TestScheduleSyncApplyIssuesWrites(t *testing.T) {
 		}
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/projects/1/pipeline_schedules":
-			_, _ = w.Write([]byte(`[{"id":10,"description":"keep","ref":"refs/heads/main","cron":"0 1 * * *","active":true,"owner":{"username":"alice"}}]`))
+			_, _ = w.Write([]byte(`[{"id":10,"description":"keep","ref":"refs/heads/main","cron":"0 1 * * *","cron_timezone":"Asia/Jerusalem","active":true,"owner":{"username":"alice"}}]`))
 		case r.Method == http.MethodGet && r.URL.Path == "/projects/1/pipeline_schedules/10":
-			_, _ = w.Write([]byte(`{"id":10,"description":"keep","ref":"refs/heads/main","cron":"0 1 * * *","active":true,"owner":{"username":"alice"},"variables":[]}`))
+			_, _ = w.Write([]byte(`{"id":10,"description":"keep","ref":"refs/heads/main","cron":"0 1 * * *","cron_timezone":"Asia/Jerusalem","active":true,"owner":{"username":"alice"},"variables":[]}`))
 		default:
 			// Answer create/update/take_ownership calls with a schedule body.
-			_, _ = w.Write([]byte(`{"id":10,"description":"keep","ref":"refs/heads/main","cron":"0 5 * * *","active":true,"owner":{"username":"alice"}}`))
+			_, _ = w.Write([]byte(`{"id":10,"description":"keep","ref":"refs/heads/main","cron":"0 5 * * *","cron_timezone":"Asia/Jerusalem","active":true,"owner":{"username":"alice"}}`))
 		}
 	}))
 	defer server.Close()
@@ -191,14 +191,14 @@ func TestScheduleSyncTakesOwnershipOnForbidden(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/projects/1/pipeline_schedules":
-			_, _ = w.Write([]byte(`[{"id":10,"description":"keep","ref":"refs/heads/main","cron":"0 1 * * *","active":true,"owner":{"username":"bob"}}]`))
+			_, _ = w.Write([]byte(`[{"id":10,"description":"keep","ref":"refs/heads/main","cron":"0 1 * * *","cron_timezone":"Asia/Jerusalem","active":true,"owner":{"username":"bob"}}]`))
 		case r.Method == http.MethodGet && r.URL.Path == "/projects/1/pipeline_schedules/10":
-			_, _ = w.Write([]byte(`{"id":10,"description":"keep","ref":"refs/heads/main","cron":"0 1 * * *","active":true,"owner":{"username":"bob"},"variables":[]}`))
+			_, _ = w.Write([]byte(`{"id":10,"description":"keep","ref":"refs/heads/main","cron":"0 1 * * *","cron_timezone":"Asia/Jerusalem","active":true,"owner":{"username":"bob"},"variables":[]}`))
 		case r.Method == http.MethodPost && r.URL.Path == "/projects/1/pipeline_schedules/10/take_ownership":
 			mu.Lock()
 			tookOwnership = true
 			mu.Unlock()
-			_, _ = w.Write([]byte(`{"id":10,"description":"keep","ref":"refs/heads/main","cron":"0 1 * * *","active":true,"owner":{"username":"ci-bot"}}`))
+			_, _ = w.Write([]byte(`{"id":10,"description":"keep","ref":"refs/heads/main","cron":"0 1 * * *","cron_timezone":"Asia/Jerusalem","active":true,"owner":{"username":"ci-bot"}}`))
 		case r.Method == http.MethodPut && r.URL.Path == "/projects/1/pipeline_schedules/10":
 			mu.Lock()
 			putAttempts++
@@ -213,7 +213,7 @@ func TestScheduleSyncTakesOwnershipOnForbidden(t *testing.T) {
 				_, _ = w.Write([]byte(`{"message":"403 Forbidden"}`))
 				return
 			}
-			_, _ = w.Write([]byte(`{"id":10,"description":"keep","ref":"refs/heads/main","cron":"0 5 * * *","active":true,"owner":{"username":"ci-bot"}}`))
+			_, _ = w.Write([]byte(`{"id":10,"description":"keep","ref":"refs/heads/main","cron":"0 5 * * *","cron_timezone":"Asia/Jerusalem","active":true,"owner":{"username":"ci-bot"}}`))
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -269,17 +269,17 @@ func TestScheduleSyncOwnershipTakenOncePerSchedule(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/projects/1/pipeline_schedules":
-			_, _ = w.Write([]byte(`[{"id":10,"description":"keep","ref":"refs/heads/main","cron":"0 1 * * *","active":true,"owner":{"username":"bob"}}]`))
+			_, _ = w.Write([]byte(`[{"id":10,"description":"keep","ref":"refs/heads/main","cron":"0 1 * * *","cron_timezone":"Asia/Jerusalem","active":true,"owner":{"username":"bob"}}]`))
 		case r.Method == http.MethodGet && r.URL.Path == "/projects/1/pipeline_schedules/10":
 			// Two variables drift so update() makes two modifications in order.
-			_, _ = w.Write([]byte(`{"id":10,"description":"keep","ref":"refs/heads/main","cron":"0 1 * * *","active":true,"owner":{"username":"bob"},"variables":[
+			_, _ = w.Write([]byte(`{"id":10,"description":"keep","ref":"refs/heads/main","cron":"0 1 * * *","cron_timezone":"Asia/Jerusalem","active":true,"owner":{"username":"bob"},"variables":[
 				{"key":"A","variable_type":"env_var","value":"old"},
 				{"key":"B","variable_type":"env_var","value":"old"}]}`))
 		case r.Method == http.MethodPost && r.URL.Path == "/projects/1/pipeline_schedules/10/take_ownership":
 			mu.Lock()
 			takeovers++
 			mu.Unlock()
-			_, _ = w.Write([]byte(`{"id":10,"description":"keep","ref":"refs/heads/main","cron":"0 1 * * *","active":true,"owner":{"username":"ci-bot"}}`))
+			_, _ = w.Write([]byte(`{"id":10,"description":"keep","ref":"refs/heads/main","cron":"0 1 * * *","cron_timezone":"Asia/Jerusalem","active":true,"owner":{"username":"ci-bot"}}`))
 		case r.Method == http.MethodPut && r.URL.Path == "/projects/1/pipeline_schedules/10/variables/A":
 			mu.Lock()
 			owned := takeovers > 0
@@ -383,4 +383,3 @@ func TestPlanExitCode(t *testing.T) {
 		})
 	}
 }
-

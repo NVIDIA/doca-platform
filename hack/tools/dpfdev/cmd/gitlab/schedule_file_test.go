@@ -136,6 +136,34 @@ func TestLoadScheduleFileRejectsUnknownField(t *testing.T) {
 	}
 }
 
+// TestLoadScheduleFileTimezone covers the single-timezone rule: an omitted
+// cron_timezone means scheduleTimezone, spelling it out is allowed, and any
+// other timezone is refused so no schedule can run on one of its own.
+func TestLoadScheduleFileTimezone(t *testing.T) {
+	dir := t.TempDir()
+	base := "schedules:\n  - description: s\n    ref: main\n    cron: '0 1 * * *'\n"
+
+	omitted := writeFile(t, dir, "omitted.yaml", base)
+	file, err := loadScheduleFile(omitted)
+	if err != nil {
+		t.Fatalf("omitted cron_timezone should load: %v", err)
+	}
+	if got := file.Schedules[0].cronTimezone(); got != scheduleTimezone {
+		t.Fatalf("cronTimezone() = %q, want %q", got, scheduleTimezone)
+	}
+
+	explicit := writeFile(t, dir, "explicit.yaml", base+"    cron_timezone: "+scheduleTimezone+"\n")
+	if _, err := loadScheduleFile(explicit); err != nil {
+		t.Fatalf("explicit %s should load: %v", scheduleTimezone, err)
+	}
+
+	other := writeFile(t, dir, "other.yaml", base+"    cron_timezone: Etc/UTC\n")
+	_, err = loadScheduleFile(other)
+	if err == nil || !strings.Contains(err.Error(), "cron_timezone") {
+		t.Fatalf("expected a cron_timezone error, got %v", err)
+	}
+}
+
 func TestRedactValue(t *testing.T) {
 	tests := []struct {
 		name  string

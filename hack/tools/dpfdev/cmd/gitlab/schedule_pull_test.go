@@ -37,7 +37,6 @@ schedules:
     - description: 'main: e2e tests'
       ref: refs/heads/main
       cron: 0 */4 * * *
-      cron_timezone: Africa/Casablanca
       active: true
       variables:
         - key: CI_PIPELINE_NAME
@@ -47,7 +46,6 @@ schedules:
     - description: 'main: unit tests'
       ref: refs/heads/main
       cron: 05 * * * *
-      cron_timezone: Africa/Casablanca
       active: false
       variables:
         - key: UNIT_TEST
@@ -80,8 +78,9 @@ func TestPullRendersExistingFormat(t *testing.T) {
 }
 
 // TestSpecFromLiveNew checks the conversion conventions for a schedule new to
-// the files: active is explicit, env_var is omitted, non-default type kept, and
-// variables keep GitLab's order (no re-sorting).
+// the files: active is explicit, the timezone is left out however GitLab has it,
+// env_var is omitted, non-default type kept, and variables keep GitLab's order
+// (no re-sorting).
 func TestSpecFromLiveNew(t *testing.T) {
 	spec := specFromLive(nil, gitlab.PipelineSchedule{
 		Description:  "s",
@@ -96,6 +95,12 @@ func TestSpecFromLiveNew(t *testing.T) {
 	})
 	if spec.Active == nil || *spec.Active != false {
 		t.Fatalf("active should be explicit false, got %v", spec.Active)
+	}
+	if spec.CronTimezone != "" {
+		t.Fatalf("cron_timezone should be omitted, got %q", spec.CronTimezone)
+	}
+	if spec.cronTimezone() != scheduleTimezone {
+		t.Fatalf("cron_timezone should default to %s, got %q", scheduleTimezone, spec.cronTimezone())
 	}
 	if spec.Variables[0].Key != "ZED" || spec.Variables[1].Key != "ABLE" {
 		t.Fatalf("variables should keep GitLab order, got %v", spec.Variables)
@@ -176,11 +181,11 @@ func TestPullUpdatesInPlace(t *testing.T) {
 		  {"id":20,"description":"main: unit tests","ref":"refs/heads/main","cron":"05 * * * *","active":false,"owner":{"username":"a"}}]`,
 		map[string]string{
 			// e2e tests: cron changed 0 */4 -> 0 1, and a new variable added.
-			"/projects/1/pipeline_schedules/10": `{"id":10,"description":"main: e2e tests","ref":"refs/heads/main","cron":"0 1 * * *","cron_timezone":"Africa/Casablanca","active":true,"variables":[
+			"/projects/1/pipeline_schedules/10": `{"id":10,"description":"main: e2e tests","ref":"refs/heads/main","cron":"0 1 * * *","cron_timezone":"Asia/Jerusalem","active":true,"variables":[
 				{"key":"CI_PIPELINE_NAME","variable_type":"env_var","value":"main: e2e tests"},
 				{"key":"E2E_TEST","variable_type":"env_var","value":"true"},
 				{"key":"NEW_VAR","variable_type":"env_var","value":"x"}]}`,
-			"/projects/1/pipeline_schedules/20": `{"id":20,"description":"main: unit tests","ref":"refs/heads/main","cron":"05 * * * *","cron_timezone":"Africa/Casablanca","active":false,"variables":[
+			"/projects/1/pipeline_schedules/20": `{"id":20,"description":"main: unit tests","ref":"refs/heads/main","cron":"05 * * * *","cron_timezone":"Asia/Jerusalem","active":false,"variables":[
 				{"key":"UNIT_TEST","variable_type":"env_var","value":"true"}]}`,
 		})
 	defer server.Close()
@@ -245,7 +250,7 @@ func TestPullRemovedAndOrphan(t *testing.T) {
 		`[{"id":20,"description":"main: unit tests","ref":"refs/heads/main","cron":"05 * * * *","active":false,"owner":{"username":"a"}},
 		  {"id":30,"description":"main: extra","ref":"refs/heads/main","cron":"0 2 * * *","active":true,"owner":{"username":"a"}}]`,
 		map[string]string{
-			"/projects/1/pipeline_schedules/20": `{"id":20,"description":"main: unit tests","ref":"refs/heads/main","cron":"05 * * * *","cron_timezone":"Africa/Casablanca","active":false,"variables":[{"key":"UNIT_TEST","variable_type":"env_var","value":"true"}]}`,
+			"/projects/1/pipeline_schedules/20": `{"id":20,"description":"main: unit tests","ref":"refs/heads/main","cron":"05 * * * *","cron_timezone":"Asia/Jerusalem","active":false,"variables":[{"key":"UNIT_TEST","variable_type":"env_var","value":"true"}]}`,
 			"/projects/1/pipeline_schedules/30": `{"id":30,"description":"main: extra","ref":"refs/heads/main","cron":"0 2 * * *","cron_timezone":"Etc/UTC","active":true,"variables":[{"key":"EXTRA","variable_type":"env_var","value":"y"}]}`,
 		})
 	defer server.Close()
@@ -287,5 +292,13 @@ func TestPullRemovedAndOrphan(t *testing.T) {
 	final, _ := os.ReadFile(groupPath)
 	if !strings.Contains(string(final), "main: extra") {
 		t.Fatalf("orphan not captured into target file:\n%s", final)
+	}
+	// GitLab holds that one on another timezone. The file must not gain a cron_timezone line for
+	// it, or it would no longer load.
+	if strings.Contains(string(final), "cron_timezone") {
+		t.Fatalf("pull wrote a cron_timezone line:\n%s", final)
+	}
+	if _, err := loadScheduleGroups(root); err != nil {
+		t.Fatalf("pulled file no longer loads: %v", err)
 	}
 }

@@ -61,6 +61,13 @@ func redactValue(key, value string) string {
 // single entry point for "dpfdev gitlab schedule sync".
 const defaultScheduleFile = ".gitlab/scheduled-pipelines.yaml"
 
+// scheduleTimezone is the timezone every schedule runs in. The files leave
+// cron_timezone out and this is sent in its place, so that two crons in
+// different files can be compared without converting either, and a schedule
+// cannot end up on a timezone of its own. GitLab would default an omitted
+// timezone to UTC, so it is always sent explicitly.
+const scheduleTimezone = "Asia/Jerusalem"
+
 // scheduleFile is the on-disk format of a scheduled pipelines file. A file
 // may declare schedules, include other files, or both. Include paths are
 // resolved relative to the file that declares them.
@@ -72,9 +79,11 @@ type scheduleFile struct {
 // scheduleSpec describes one scheduled pipeline. Schedules are matched to
 // GitLab by description, so descriptions must be unique across all files.
 type scheduleSpec struct {
-	Description  string `yaml:"description"`
-	Ref          string `yaml:"ref"`
-	Cron         string `yaml:"cron"`
+	Description string `yaml:"description"`
+	Ref         string `yaml:"ref"`
+	Cron        string `yaml:"cron"`
+	// CronTimezone defaults to scheduleTimezone when omitted, and that is the only
+	// value it may hold, so the files leave it out.
 	CronTimezone string `yaml:"cron_timezone,omitempty"`
 	// Active defaults to true when omitted.
 	Active    *bool          `yaml:"active,omitempty"`
@@ -91,6 +100,13 @@ type variableSpec struct {
 
 func (s *scheduleSpec) active() bool {
 	return s.Active == nil || *s.Active
+}
+
+func (s *scheduleSpec) cronTimezone() string {
+	if s.CronTimezone == "" {
+		return scheduleTimezone
+	}
+	return s.CronTimezone
 }
 
 func (v *variableSpec) variableType() string {
@@ -192,6 +208,10 @@ func validateSchedules(path string, schedules []scheduleSpec) error {
 		schedule := &schedules[i]
 		if schedule.Description == "" || schedule.Ref == "" || schedule.Cron == "" {
 			return fmt.Errorf("%s: schedule %d: description, ref and cron are required", path, i)
+		}
+		if schedule.CronTimezone != "" && schedule.CronTimezone != scheduleTimezone {
+			return fmt.Errorf("%s: schedule %q: cron_timezone is %q; every schedule runs in %s, so omit the field",
+				path, schedule.Description, schedule.CronTimezone, scheduleTimezone)
 		}
 
 		keys := map[string]bool{}
