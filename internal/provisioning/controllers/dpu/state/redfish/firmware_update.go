@@ -103,18 +103,15 @@ func FirmwareUpdate(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil
 
 	cond := cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), nil, "Updating", "Updating PLDM Firmware")
 	_, existingCond := cutil.GetDPUCondition(&dpu.Status, cond.Type)
-	forceUpdate := ptr.Deref(blueFieldSoftware.Spec.ForceFwUpdate, false)
+	forceUpdate := forceFwUpdateRequested(dpu)
 	if existingCond == nil || existingCond.Status != metav1.ConditionTrue {
 		if forceUpdate {
 			return updatePldmFwBundle(ctx, dpu, ctrlCtx, blueFieldSoftware.Status.DownloadedComponents.PldmFwBundle, forceUpdate)
 		}
 		switch err := checkFirmwareVersions(client, blueFieldSoftware); {
 		case errors.Is(err, errVersionMismatch):
-			// Forcing only after a mismatch is established lets an ERoT-rejected downgrade
-			// proceed without re-flashing and power cycling when the versions already match.
-			force := forceFwUpdateRequested(dpu)
-			logger.Info("firmware version mismatch with PLDM bundle - updating firmware", "reason", err.Error(), "force", force)
-			return updatePldmFwBundle(ctx, dpu, ctrlCtx, blueFieldSoftware.Status.DownloadedComponents.PldmFwBundle, force)
+			logger.Info("firmware version mismatch with PLDM bundle - updating firmware", "reason", err.Error())
+			return updatePldmFwBundle(ctx, dpu, ctrlCtx, blueFieldSoftware.Status.DownloadedComponents.PldmFwBundle, false)
 		case err != nil:
 			// Read/verification/I/O error: propagate instead of blindly updating firmware.
 			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), err, "FirmwareVersionCheckFailed", err.Error()))
