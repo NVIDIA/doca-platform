@@ -8,8 +8,6 @@
 bfb: "../objects/infrastructure/bfb.yaml"
 dpuClusters:
   - "../objects/infrastructure/dpucluster-kamaji.yaml"
-# unused for SNAP (DPUDeployment-driven); kept because applyConfig requires the field.
-dpuSet: "../objects/infrastructure/dpuset.yaml"
 dpuFlavor: "../objects/storage/dpuflavor-snap.yaml"
 dpuDeployment: "../objects/storage/dpudeployment.yaml"
 # Host-cluster storage objects — applied by the SNAP suite BeforeAll, grouped by the runtime patching

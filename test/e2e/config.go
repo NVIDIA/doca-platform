@@ -47,15 +47,15 @@ type config struct {
 	KamajiEtcdEncryptionAtRestPath *string `json:"kamajiEtcdEncryptionAtRest,omitempty"`
 
 	// Required by every suite (enforced by validateRequiredConfigFields).
-	DPUClusterPaths          []string `json:"dpuClusters"`
-	DPUDeploymentPath        string   `json:"dpuDeployment"`
-	DPUServiceConfiguration  string   `json:"dpuServiceConfiguration"`
-	DPUServiceTemplatePath   string   `json:"dpuServiceTemplate"`
-	IPPoolDPUServiceIPAMPath string   `json:"ipPoolDPUServiceIPAM"`
+	DPUClusterPaths         []string `json:"dpuClusters"`
+	DPUDeploymentPath       string   `json:"dpuDeployment"`
+	DPUServiceConfiguration string   `json:"dpuServiceConfiguration"`
+	DPUServiceTemplatePath  string   `json:"dpuServiceTemplate"`
+	// Required when requiresSharedDPUServiceObjects (not WeavePhysical).
+	IPPoolDPUServiceIPAMPath string `json:"ipPoolDPUServiceIPAM,omitempty"`
 
-	// Required by every suite except upgrade phases, which create only the
-	// objects their phase steps declare (enforced by
-	// validateRequiredConfigFields, loaded by applyConfig when set).
+	// Required by every suite except upgrade phases and WeavePhysical
+	// (enforced by validateRequiredConfigFields, loaded by applyConfig when set).
 	CIDRPoolDPUServiceIPAMPath      *string `json:"cidrPoolDPUServiceIPAM,omitempty"`
 	DPUServiceChainPath             *string `json:"dpuServiceChain,omitempty"`
 	DPUServiceCredentialRequestPath *string `json:"dpuServiceCredentialRequest,omitempty"`
@@ -67,9 +67,9 @@ type config struct {
 	DPUServiceHBNPath *string `json:"dpuServiceHBN,omitempty"`
 	DPUServiceNADPath *string `json:"dpuServiceNAD,omitempty"`
 
-	// Shared by the SDN and VPC OVN suites (loaded and validated by both
-	// applySDNConfig and applyVPCOVNConfig).
-	DPUServiceChainTemplatePath     *string `json:"dpuServiceChainTemplate,omitempty"`
+	// Shared by SDN and VPC OVN.
+	DPUServiceChainTemplatePath *string `json:"dpuServiceChainTemplate,omitempty"`
+	// Also service interface template used by WeavePhysical.
 	DPUServiceInterfaceTemplatePath *string `json:"dpuServiceInterfaceTemplate,omitempty"`
 	DPUServiceIPAMTemplatePath      *string `json:"dpuServiceIPAMTemplate,omitempty"`
 
@@ -107,7 +107,8 @@ type config struct {
 	BlueFieldSoftwarePath               *string  `json:"blueFieldSoftware,omitempty"`
 	DPUClusterPrerequisiteObjectPaths   []string `json:"dpuClusterPrerequisiteObjectPath"`
 	DPUDiscoveryPath                    *string  `json:"dpuDiscovery,omitempty"`
-	DPUFlavorPath                       *string  `json:"dpuFlavor,omitempty"`               // flavor name is propagated into dpuSet and dpuDeployment
+	DPUFlavorPath                       *string  `json:"dpuFlavor,omitempty"`               // flavor name is propagated into dpuSet and dpuDeployment, mutually exclusive with dpuFlavorTemplate
+	DPUFlavorTemplatePath               *string  `json:"dpuFlavorTemplate,omitempty"`       // mutually exclusive with dpuFlavor
 	NodeRebootConfigMap                 string   `json:"nodeRebootConfigMap,omitempty"`     // required for ZeroTrust (validateFlags)
 	NodeRebootConfigMapPath             string   `json:"nodeRebootConfigMapPath,omitempty"` // required for ZeroTrust (validateFlags)
 	NumberOfDPUNodes                    int      `json:"numberOfDPUNodes"`

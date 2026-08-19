@@ -214,6 +214,11 @@ func requiredObjectFromFile[T any](suite, fieldName string, path *string) *T {
 	return objectFromFile[T](requireConfigField(suite, fieldName, path))
 }
 
+// requiredObjectFromFilePath is like requiredObjectFromFile for non-pointer config paths.
+func requiredObjectFromFilePath[T any](suite, fieldName, path string) *T {
+	return objectFromFile[T](requireConfigFieldPath(suite, fieldName, path))
+}
+
 // requireConfigField fails when the given e2e config field is unset and
 // returns the configured path otherwise. Suite-specific loaders use it so a
 // config missing a field the selected suite needs fails fast with the field
@@ -223,6 +228,13 @@ func requireConfigField(suite, fieldName string, path *string) string {
 	Expect(path).ToNot(BeNil(),
 		"e2e config file must set `%s` to run %s tests (set it or exclude the tests with the label filter !%s)", fieldName, suite, suite)
 	return *path
+}
+
+// requireConfigFieldPath is like requireConfigField for non-pointer config paths.
+func requireConfigFieldPath(suite, fieldName, path string) string {
+	Expect(path).ToNot(BeEmpty(),
+		"e2e config file must set `%s` to run %s tests (set it or exclude the tests with the label filter !%s)", fieldName, suite, suite)
+	return path
 }
 
 func (t *systemTestInput) applySDNConfig(conf config) {
@@ -341,15 +353,30 @@ func (t *systemTestInput) applyConfig(conf config) {
 
 	t.dpuDeployment = objectFromFile[dpuservicev1.DPUDeployment](conf.DPUDeploymentPath)
 
+	Expect(conf.DPUFlavorPath == nil || conf.DPUFlavorTemplatePath == nil).To(BeTrue(),
+		"e2e config must set at most one of `dpuFlavor` and `dpuFlavorTemplate`")
 	if conf.DPUFlavorPath != nil {
 		t.dpuFlavor = objectFromFile[provisioningv1.DPUFlavor](*conf.DPUFlavorPath)
 		t.dpuDeployment.Spec.DPUs.Flavor = &t.dpuFlavor.Name
+		t.dpuDeployment.Spec.DPUs.FlavorTemplate = nil
 		if t.dpuSet != nil {
 			t.dpuSet.Spec.DPUTemplate.Spec.DPUFlavor = &t.dpuFlavor.Name
+			t.dpuSet.Spec.DPUTemplate.Spec.DPUFlavorTemplate = nil
+		}
+	}
+	if conf.DPUFlavorTemplatePath != nil {
+		t.dpuFlavorTemplate = objectFromFile[provisioningv1.DPUFlavorTemplate](*conf.DPUFlavorTemplatePath)
+		t.dpuDeployment.Spec.DPUs.Flavor = nil
+		t.dpuDeployment.Spec.DPUs.FlavorTemplate = &t.dpuFlavorTemplate.Name
+		if t.dpuSet != nil {
+			t.dpuSet.Spec.DPUTemplate.Spec.DPUFlavor = nil
+			t.dpuSet.Spec.DPUTemplate.Spec.DPUFlavorTemplate = &t.dpuFlavorTemplate.Name
 		}
 	}
 
-	t.ipPoolDPUServiceIPAM = objectFromFile[dpuservicev1.DPUServiceIPAM](conf.IPPoolDPUServiceIPAMPath)
+	if conf.IPPoolDPUServiceIPAMPath != "" {
+		t.ipPoolDPUServiceIPAM = objectFromFile[dpuservicev1.DPUServiceIPAM](conf.IPPoolDPUServiceIPAMPath)
+	}
 	t.cidrDPUServiceIPAM = optionalObjectFromFile[dpuservicev1.DPUServiceIPAM](conf.CIDRPoolDPUServiceIPAMPath)
 	t.dpuServiceChain = optionalObjectFromFile[dpuservicev1.DPUServiceChain](conf.DPUServiceChainPath)
 	t.dpuServiceCredentialRequest = optionalObjectFromFile[dpuservicev1.DPUServiceCredentialRequest](conf.DPUServiceCredentialRequestPath)

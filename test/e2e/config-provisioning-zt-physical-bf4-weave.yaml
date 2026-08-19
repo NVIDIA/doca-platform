@@ -1,0 +1,14 @@
+blueFieldSoftware: "../objects/infrastructure/bluefieldsoftware-bf4.yaml"
+dpuClusters:
+  - "../objects/infrastructure/dpucluster-kamaji-bf4.yaml"
+dpuFlavorTemplate: "../objects/xplane-weave/dpuflavortemplate.yaml"
+dpuDiscovery: "../objects/infrastructure/dpudicovery.yaml"
+dpuServiceInterfaceTemplate: "../objects/application/dpuserviceinterfacetemplate.yaml"
+dpuDeployment: "../objects/application/dpudeployment-zerotrust-bf4.yaml"
+dpuServiceConfiguration: "../objects/application/dpuserviceconfiguration.yaml"
+dpuServiceTemplate: "../objects/application/dpuservicetemplate.yaml"
+numberOfCXsToConfigureViaBF4PerNode: 2
+numberOfDPUNodes: 2
+numberOfDPUsPerNode: 1
+nodeRebootConfigMap: dpunode-reboot-redfish
+nodeRebootConfigMapPath: "../objects/infrastructure/dpunode-reboot-redfish.yaml"

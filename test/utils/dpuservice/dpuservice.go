@@ -53,19 +53,20 @@ type TestIPAMConfig struct {
 
 // TestDPUServiceInterfaceConfig holds service interface configuration
 type TestDPUServiceInterfaceConfig struct {
-	Name           string
-	Namespace      string
-	Labels         map[string]string
-	Annotations    map[string]string
-	NodeName       *string
-	Type           string
-	InterfaceName  string
-	PFIndex        int
-	VFIndex        int
-	ServiceID      string
-	Network        string
-	VirtualNetwork *string
-	PeerBridge     string
+	Name            string
+	Namespace       string
+	Labels          map[string]string
+	Annotations     map[string]string
+	NodeName        *string
+	Type            string
+	InterfaceName   string
+	PFIndex         int
+	VFIndex         int
+	ServiceID       string
+	Network         string
+	VirtualNetwork  *string
+	PeerBridge      string
+	PeerExternalIDs map[string]string
 	// NodeSelector restricts the DPUServiceInterface to the DPU cluster nodes it matches.
 	NodeSelector *metav1.LabelSelector
 	// CleanupLabels are the labels the cleanup tracker selects the object by. Empty means the It scope,
@@ -301,7 +302,8 @@ func SetDPUServiceInterfacePatch(dpuServiceInterface *dpuservicev1.DPUServiceInt
 	dpuServiceInterface.Spec.Template.Spec.Template.Spec = dpuservicev1.ServiceInterfaceSpec{
 		InterfaceType: dpuservicev1.InterfaceTypePatch,
 		Patch: &dpuservicev1.PatchDef{
-			PeerBridge: config.PeerBridge,
+			PeerBridge:      config.PeerBridge,
+			PeerExternalIDs: config.PeerExternalIDs,
 		},
 	}
 }
