@@ -38,7 +38,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 
 		Context("IPPool", func() {
 			type testCaseIPPool struct {
-				spec                     *dpuservicev1.IPV4Subnet
+				spec                     *dpuservicev1.Subnet
 				numOfBlocksPerDPUCluster int32
 				perClusterSettings       []perClusterSetting
 			}
@@ -88,7 +88,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// Cluster 0 gets blocks 0,1,2 → 10.0.0.1–10.0.0.30; cluster 1 gets blocks 3,4,5 →
 						// 10.0.0.31–10.0.0.60. The upper IPs remain as buffer.
 						testCaseIPPool{
-							spec:                     &dpuservicev1.IPV4Subnet{Subnet: "10.0.0.0/24", PerNodeIPCount: 10},
+							spec:                     &dpuservicev1.Subnet{Subnet: "10.0.0.0/24", PerNodeIPCount: 10},
 							numOfBlocksPerDPUCluster: 3,
 
 							perClusterSettings: []perClusterSetting{
@@ -114,7 +114,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// block is still allocatable. Cluster 0 gets blocks 0,1,2 → 10.0.0.1–10.0.0.30; cluster 1
 						// gets blocks 3,4,5 → 10.0.0.31–10.0.0.60. The partial exclusion is propagated.
 						testCaseIPPool{
-							spec: &dpuservicev1.IPV4Subnet{
+							spec: &dpuservicev1.Subnet{
 								Subnet:         "10.0.0.0/24",
 								PerNodeIPCount: 10,
 								ExcludeRanges:  []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.0.4"}},
@@ -144,7 +144,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// block is skipped. Cluster 0 gets blocks 1,2,3 → 10.0.0.11–10.0.0.40; cluster 1
 						// gets blocks 4,5,6 → 10.0.0.41–10.0.0.70. Buffer space keeps both well within the /24.
 						testCaseIPPool{
-							spec: &dpuservicev1.IPV4Subnet{
+							spec: &dpuservicev1.Subnet{
 								Subnet:         "10.0.0.0/24",
 								PerNodeIPCount: 10,
 								ExcludeRanges:  []dpuservicev1.IPRange{{StartIP: "10.0.0.1", EndIP: "10.0.0.10"}},
@@ -174,7 +174,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// Cluster 0 starts at block 3 → 10.0.0.31–10.0.0.60;
 						// cluster 1 gets blocks 6,7,8 → 10.0.0.61–10.0.0.90. Ample buffer remains in the /24.
 						testCaseIPPool{
-							spec: &dpuservicev1.IPV4Subnet{
+							spec: &dpuservicev1.Subnet{
 								Subnet:         "10.0.0.0/24",
 								PerNodeIPCount: 10,
 								ExcludeRanges:  []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.0.30"}},
@@ -204,7 +204,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// Cluster 0 gets blocks 0,1,2 → 10.0.0.1–10.0.0.30; cluster 1 gets blocks 3,4,5 →
 						// 10.0.0.31–10.0.0.60. No buffer remains after both allocations.
 						testCaseIPPool{
-							spec:                     &dpuservicev1.IPV4Subnet{Subnet: "10.0.0.0/26", PerNodeIPCount: 10},
+							spec:                     &dpuservicev1.Subnet{Subnet: "10.0.0.0/26", PerNodeIPCount: 10},
 							numOfBlocksPerDPUCluster: 3,
 
 							perClusterSettings: []perClusterSetting{
@@ -229,7 +229,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// ExcludeRange {10.0.0.0, 10.0.0.4} partially covers block 0 (10.0.0.1–10.0.0.10);
 						// block remains allocatable. Both clusters fit within the /26 with no buffer left over.
 						testCaseIPPool{
-							spec: &dpuservicev1.IPV4Subnet{
+							spec: &dpuservicev1.Subnet{
 								Subnet:         "10.0.0.0/26",
 								PerNodeIPCount: 10,
 								ExcludeRanges:  []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.0.4"}},
@@ -259,7 +259,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// block 0 is skipped. Cluster 0 gets blocks 1,2,3 → 10.0.0.11–10.0.0.40.
 						// Only blocks 4,5 remain for cluster 1 → partial allocation 10.0.0.41–10.0.0.60.
 						testCaseIPPool{
-							spec: &dpuservicev1.IPV4Subnet{
+							spec: &dpuservicev1.Subnet{
 								Subnet:         "10.0.0.0/26",
 								PerNodeIPCount: 10,
 								ExcludeRanges:  []dpuservicev1.IPRange{{StartIP: "10.0.0.1", EndIP: "10.0.0.10"}},
@@ -289,7 +289,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// Cluster 0 gets blocks 3,4,5 → 10.0.0.31–10.0.0.60.
 						// No blocks remain for cluster 1 → error.
 						testCaseIPPool{
-							spec: &dpuservicev1.IPV4Subnet{
+							spec: &dpuservicev1.Subnet{
 								Subnet:         "10.0.0.0/26",
 								PerNodeIPCount: 10,
 								ExcludeRanges:  []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.0.30"}},
@@ -312,7 +312,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// /30 (4 IPs): network .0 and broadcast .3 are reserved, leaving 2 usable IPs (.1–.2).
 						// Each DPUCluster receives one single-IP block.
 						testCaseIPPool{
-							spec:                     &dpuservicev1.IPV4Subnet{Subnet: "10.0.0.0/30", PerNodeIPCount: 1},
+							spec:                     &dpuservicev1.Subnet{Subnet: "10.0.0.0/30", PerNodeIPCount: 1},
 							numOfBlocksPerDPUCluster: 1,
 
 							perClusterSettings: []perClusterSetting{
@@ -337,7 +337,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// /29 (8 IPs): network .0 and broadcast .7 reserved, leaving 6 usable IPs (.1-.5)
 						// Each DPUCluster receives one two-IP block.
 						testCaseIPPool{
-							spec:                     &dpuservicev1.IPV4Subnet{Subnet: "10.0.0.0/29", PerNodeIPCount: 2},
+							spec:                     &dpuservicev1.Subnet{Subnet: "10.0.0.0/29", PerNodeIPCount: 2},
 							numOfBlocksPerDPUCluster: 1,
 
 							perClusterSettings: []perClusterSetting{
@@ -363,7 +363,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// Cluster 0 claims all 3 blocks → 10.0.0.1–10.0.0.30; cluster 1 finds the pool
 						// empty and errors.
 						testCaseIPPool{
-							spec:                     &dpuservicev1.IPV4Subnet{Subnet: "10.0.0.0/27", PerNodeIPCount: 10},
+							spec:                     &dpuservicev1.Subnet{Subnet: "10.0.0.0/27", PerNodeIPCount: 10},
 							numOfBlocksPerDPUCluster: 3,
 
 							perClusterSettings: []perClusterSetting{
@@ -405,7 +405,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// /24 gives 25 full 10-IP blocks (250 IPs, starting at .1); the 4-IP tail
 						// (.251–.255) is excluded because it does not fill a complete block.
 						testCaseIPPool{
-							spec: &dpuservicev1.IPV4Subnet{Subnet: "10.0.0.0/24", PerNodeIPCount: 10},
+							spec: &dpuservicev1.Subnet{Subnet: "10.0.0.0/24", PerNodeIPCount: 10},
 							perClusterSettings: []perClusterSetting{
 								{
 									expectedAllocations: []dpuservicev1.IPRange{{StartIP: "10.0.0.1", EndIP: "10.0.0.250"}},
@@ -421,7 +421,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// /30 has 2 usable IPs (.1–.2). Single cluster gets both; only
 						// network (.0) and broadcast (.3) are excluded.
 						testCaseIPPool{
-							spec: &dpuservicev1.IPV4Subnet{Subnet: "10.0.0.0/30", PerNodeIPCount: 1},
+							spec: &dpuservicev1.Subnet{Subnet: "10.0.0.0/30", PerNodeIPCount: 1},
 							perClusterSettings: []perClusterSetting{
 								{
 									expectedAllocations: []dpuservicev1.IPRange{{StartIP: "10.0.0.1", EndIP: "10.0.0.2"}},
@@ -437,7 +437,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// /29 has 6 usable IPs (.1–.6). 3 blocks of 2; only network (.0)
 						// and broadcast (.7) are excluded.
 						testCaseIPPool{
-							spec: &dpuservicev1.IPV4Subnet{Subnet: "10.0.0.0/29", PerNodeIPCount: 2},
+							spec: &dpuservicev1.Subnet{Subnet: "10.0.0.0/29", PerNodeIPCount: 2},
 							perClusterSettings: []perClusterSetting{
 								{
 									expectedAllocations: []dpuservicev1.IPRange{{StartIP: "10.0.0.1", EndIP: "10.0.0.6"}},
@@ -454,7 +454,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// so the block remains allocatable. The exclusion is merged with the
 						// network-address exclusion in the output.
 						testCaseIPPool{
-							spec: &dpuservicev1.IPV4Subnet{
+							spec: &dpuservicev1.Subnet{
 								Subnet:         "10.0.0.0/24",
 								PerNodeIPCount: 10,
 								ExcludeRanges:  []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.0.4"}},
@@ -474,7 +474,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// Cluster already owns the full allocation. The calculator returns the
 						// same cluster-block without consuming new pool space.
 						testCaseIPPool{
-							spec: &dpuservicev1.IPV4Subnet{Subnet: "10.0.0.0/24", PerNodeIPCount: 10},
+							spec: &dpuservicev1.Subnet{Subnet: "10.0.0.0/24", PerNodeIPCount: 10},
 							perClusterSettings: []perClusterSetting{
 								{
 									existingAllocations: []dpuservicev1.IPRange{{StartIP: "10.0.0.1", EndIP: "10.0.0.250"}},
@@ -497,7 +497,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// /24, cluster 0 already owns blocks 0,1,2 → 10.0.0.1–10.0.0.30. No deficit.
 						// New cluster 1 gets the next 3 blocks → 10.0.0.31–10.0.0.60.
 						testCaseIPPool{
-							spec:                     &dpuservicev1.IPV4Subnet{Subnet: "10.0.0.0/24", PerNodeIPCount: 10},
+							spec:                     &dpuservicev1.Subnet{Subnet: "10.0.0.0/24", PerNodeIPCount: 10},
 							numOfBlocksPerDPUCluster: 3,
 
 							perClusterSettings: []perClusterSetting{
@@ -523,7 +523,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// Partial exclusion {0.0,0.4}. Cluster 0 existing; block 0 not fully covered →
 						// no deficit. New cluster 1 gets blocks 3,4,5 from buffer.
 						testCaseIPPool{
-							spec: &dpuservicev1.IPV4Subnet{
+							spec: &dpuservicev1.Subnet{
 								Subnet:         "10.0.0.0/24",
 								PerNodeIPCount: 10,
 								ExcludeRanges:  []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.0.4"}},
@@ -554,7 +554,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// is skipped. Cluster 0 existing [{0.1,0.30}] has 2 allocatable blocks →
 						// deficit=1; topped up with block 3 → [{0.1,0.40}]. New cluster 1 gets blocks 4,5,6 → 10.0.0.41–10.0.0.70.
 						testCaseIPPool{
-							spec: &dpuservicev1.IPV4Subnet{
+							spec: &dpuservicev1.Subnet{
 								Subnet:         "10.0.0.0/24",
 								PerNodeIPCount: 10,
 								ExcludeRanges:  []dpuservicev1.IPRange{{StartIP: "10.0.0.1", EndIP: "10.0.0.10"}},
@@ -585,7 +585,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// Cluster 0 existing [{0.1,0.30}] has 0 allocatable blocks → fresh alloc → blocks 3,4,5
 						// = [{0.31,0.60}]. New cluster 1 gets blocks 6,7,8 → 10.0.0.61–10.0.0.90.
 						testCaseIPPool{
-							spec: &dpuservicev1.IPV4Subnet{
+							spec: &dpuservicev1.Subnet{
 								Subnet:         "10.0.0.0/24",
 								PerNodeIPCount: 10,
 								ExcludeRanges:  []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.0.30"}},
@@ -615,7 +615,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// /26, cluster 0 existing with blocks 0,1,2 → 10.0.0.1–10.0.0.30. New cluster 1
 						// gets blocks 3,4,5 → 10.0.0.31–10.0.0.60. No buffer remains after both allocations.
 						testCaseIPPool{
-							spec:                     &dpuservicev1.IPV4Subnet{Subnet: "10.0.0.0/26", PerNodeIPCount: 10},
+							spec:                     &dpuservicev1.Subnet{Subnet: "10.0.0.0/26", PerNodeIPCount: 10},
 							numOfBlocksPerDPUCluster: 3,
 
 							perClusterSettings: []perClusterSetting{
@@ -641,7 +641,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// /26, partial exclusion {0.0,0.4}. Cluster 0 existing [{0.1,0.30}]; block 0
 						// partially covered → no deficit. New cluster 1 gets blocks 3,4,5. No buffer.
 						testCaseIPPool{
-							spec: &dpuservicev1.IPV4Subnet{
+							spec: &dpuservicev1.Subnet{
 								Subnet:         "10.0.0.0/26",
 								PerNodeIPCount: 10,
 								ExcludeRanges:  []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.0.4"}},
@@ -673,7 +673,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// deficit=1; topped up with block 3 → [{0.1,0.40}]. Only blocks 4,5 remain for
 						// cluster 1 → partial allocation 10.0.0.41–10.0.0.60.
 						testCaseIPPool{
-							spec: &dpuservicev1.IPV4Subnet{
+							spec: &dpuservicev1.Subnet{
 								Subnet:         "10.0.0.0/26",
 								PerNodeIPCount: 10,
 								ExcludeRanges:  []dpuservicev1.IPRange{{StartIP: "10.0.0.1", EndIP: "10.0.0.10"}},
@@ -704,7 +704,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// Cluster 0 existing [{0.1,0.30}] has 0 allocatable blocks → fresh alloc → blocks 3,4,5
 						// = [{0.31,0.60}]. No blocks remain for new cluster 1 → error.
 						testCaseIPPool{
-							spec: &dpuservicev1.IPV4Subnet{
+							spec: &dpuservicev1.Subnet{
 								Subnet:         "10.0.0.0/26",
 								PerNodeIPCount: 10,
 								ExcludeRanges:  []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.0.30"}},
@@ -727,7 +727,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 					Entry("small network that don't fit the given DPUClusters, no exclusions",
 						// /27, cluster 0 already owns all 3 blocks → preserved. New cluster 1 errors.
 						testCaseIPPool{
-							spec:                     &dpuservicev1.IPV4Subnet{Subnet: "10.0.0.0/27", PerNodeIPCount: 10},
+							spec:                     &dpuservicev1.Subnet{Subnet: "10.0.0.0/27", PerNodeIPCount: 10},
 							numOfBlocksPerDPUCluster: 3,
 
 							perClusterSettings: []perClusterSetting{
@@ -747,7 +747,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// /30 (4 IPs): network .0 and broadcast .3 reserved, leaving exactly 2 usable IPs.
 						// Both clusters have existing allocations that exhaust the pool; adding a 3rd errors.
 						testCaseIPPool{
-							spec:                     &dpuservicev1.IPV4Subnet{Subnet: "10.0.0.0/30", PerNodeIPCount: 1},
+							spec:                     &dpuservicev1.Subnet{Subnet: "10.0.0.0/30", PerNodeIPCount: 1},
 							numOfBlocksPerDPUCluster: 1,
 
 							perClusterSettings: []perClusterSetting{
@@ -778,7 +778,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// /24, clusters 0 and 2 retain their allocations after cluster 1 is deleted.
 						// Freed blocks 3,4,5 return to the pool (unused here).
 						testCaseIPPool{
-							spec:                     &dpuservicev1.IPV4Subnet{Subnet: "10.0.0.0/24", PerNodeIPCount: 10},
+							spec:                     &dpuservicev1.Subnet{Subnet: "10.0.0.0/24", PerNodeIPCount: 10},
 							numOfBlocksPerDPUCluster: 3,
 
 							perClusterSettings: []perClusterSetting{
@@ -805,7 +805,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// /24, partial exclusion {0.0,0.4}. Both surviving clusters preserved; the
 						// partial exclusion is propagated into cluster 0's IPPool.
 						testCaseIPPool{
-							spec: &dpuservicev1.IPV4Subnet{
+							spec: &dpuservicev1.Subnet{
 								Subnet:         "10.0.0.0/24",
 								PerNodeIPCount: 10,
 								ExcludeRanges:  []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.0.4"}},
@@ -837,7 +837,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// Cluster 0 existing [{0.1,0.30}] has 2 allocatable blocks → deficit=1; topped up
 						// with block 3 → [{0.1,0.40}]. Cluster 2 existing [{0.61,0.90}] preserved.
 						testCaseIPPool{
-							spec: &dpuservicev1.IPV4Subnet{
+							spec: &dpuservicev1.Subnet{
 								Subnet:         "10.0.0.0/24",
 								PerNodeIPCount: 10,
 								ExcludeRanges:  []dpuservicev1.IPRange{{StartIP: "10.0.0.1", EndIP: "10.0.0.10"}},
@@ -869,7 +869,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// Cluster 0 existing [{0.1,0.30}] has 0 allocatable blocks → fresh alloc → blocks 3,4,5
 						// = [{0.31,0.60}]. Cluster 2 existing [{0.61,0.90}] preserved.
 						testCaseIPPool{
-							spec: &dpuservicev1.IPV4Subnet{
+							spec: &dpuservicev1.Subnet{
 								Subnet:         "10.0.0.0/24",
 								PerNodeIPCount: 10,
 								ExcludeRanges:  []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.0.30"}},
@@ -900,7 +900,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// /25 (128 IPs, 12 blocks, tail 10.0.0.120–10.0.0.127). Clusters 0 and 2 preserved.
 						// Freed blocks 3,4,5 return to pool (unused).
 						testCaseIPPool{
-							spec:                     &dpuservicev1.IPV4Subnet{Subnet: "10.0.0.0/25", PerNodeIPCount: 10},
+							spec:                     &dpuservicev1.Subnet{Subnet: "10.0.0.0/25", PerNodeIPCount: 10},
 							numOfBlocksPerDPUCluster: 3,
 
 							perClusterSettings: []perClusterSetting{
@@ -927,7 +927,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// /25, partial exclusion {0.0,0.4}. Both surviving clusters preserved; exclusion
 						// propagated to cluster 0's IPPool.
 						testCaseIPPool{
-							spec: &dpuservicev1.IPV4Subnet{
+							spec: &dpuservicev1.Subnet{
 								Subnet:         "10.0.0.0/25",
 								PerNodeIPCount: 10,
 								ExcludeRanges:  []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.0.4"}},
@@ -959,7 +959,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// Cluster 0 existing [{0.1,0.30}] has 2 allocatable blocks → deficit=1; topped up
 						// with block 3 → [{0.1,0.40}]. Cluster 2 existing [{0.61,0.90}] preserved.
 						testCaseIPPool{
-							spec: &dpuservicev1.IPV4Subnet{
+							spec: &dpuservicev1.Subnet{
 								Subnet:         "10.0.0.0/25",
 								PerNodeIPCount: 10,
 								ExcludeRanges:  []dpuservicev1.IPRange{{StartIP: "10.0.0.1", EndIP: "10.0.0.10"}},
@@ -991,7 +991,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// Cluster 0 existing [{0.1,0.30}] has 0 allocatable blocks → fresh alloc → blocks 3,4,5
 						// = [{0.31,0.60}]. Cluster 2 existing [{0.61,0.90}] preserved.
 						testCaseIPPool{
-							spec: &dpuservicev1.IPV4Subnet{
+							spec: &dpuservicev1.Subnet{
 								Subnet:         "10.0.0.0/25",
 								PerNodeIPCount: 10,
 								ExcludeRanges:  []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.0.30"}},
@@ -1029,7 +1029,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// in 10.0.0.0/24 are outside the new 192.168.0.0/24 parent → both clusters
 						// fall through to fresh allocations in the new subnet.
 						testCaseIPPool{
-							spec:                     &dpuservicev1.IPV4Subnet{Subnet: "192.168.0.0/24", PerNodeIPCount: 10},
+							spec:                     &dpuservicev1.Subnet{Subnet: "192.168.0.0/24", PerNodeIPCount: 10},
 							numOfBlocksPerDPUCluster: 3,
 
 							perClusterSettings: []perClusterSetting{
@@ -1057,7 +1057,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// allocations in 10.0.0.0/24 are within the new parent and block-aligned →
 						// preserved unchanged. The upper /23 half becomes spare buffer.
 						testCaseIPPool{
-							spec:                     &dpuservicev1.IPV4Subnet{Subnet: "10.0.0.0/23", PerNodeIPCount: 10},
+							spec:                     &dpuservicev1.Subnet{Subnet: "10.0.0.0/23", PerNodeIPCount: 10},
 							numOfBlocksPerDPUCluster: 3,
 
 							perClusterSettings: []perClusterSetting{
@@ -1086,7 +1086,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// existing allocation covers exactly 1 block → deficit=2 each; topped up from pool.
 						// Resulting allocations are non-contiguous.
 						testCaseIPPool{
-							spec:                     &dpuservicev1.IPV4Subnet{Subnet: "10.0.0.0/24", PerNodeIPCount: 30},
+							spec:                     &dpuservicev1.Subnet{Subnet: "10.0.0.0/24", PerNodeIPCount: 30},
 							numOfBlocksPerDPUCluster: 3,
 
 							perClusterSettings: []perClusterSetting{
@@ -1122,7 +1122,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// targetBlocksPerCluster grows from 3 to 6. Each cluster has 3 existing blocks →
 						// deficit=3 each; topped up from pool. Resulting allocations are non-contiguous.
 						testCaseIPPool{
-							spec:                     &dpuservicev1.IPV4Subnet{Subnet: "10.0.0.0/24", PerNodeIPCount: 10},
+							spec:                     &dpuservicev1.Subnet{Subnet: "10.0.0.0/24", PerNodeIPCount: 10},
 							numOfBlocksPerDPUCluster: 6,
 
 							perClusterSettings: []perClusterSetting{
@@ -1158,7 +1158,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// cluster's existing range remain allocatable → no deficit; both preserved.
 						// Exclusion propagated to IPPools.
 						testCaseIPPool{
-							spec: &dpuservicev1.IPV4Subnet{
+							spec: &dpuservicev1.Subnet{
 								Subnet:         "10.0.0.0/24",
 								PerNodeIPCount: 10,
 								ExcludeRanges:  []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.0.4"}},
@@ -1191,7 +1191,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// with block 6 → [{0.1,0.30},{0.61,0.70}]. Cluster 1 existing [{0.31,0.60}]
 						// has 3 allocatable blocks → no deficit.
 						testCaseIPPool{
-							spec: &dpuservicev1.IPV4Subnet{
+							spec: &dpuservicev1.Subnet{
 								Subnet:         "10.0.0.0/24",
 								PerNodeIPCount: 10,
 								ExcludeRanges:  []dpuservicev1.IPRange{{StartIP: "10.0.0.1", EndIP: "10.0.0.10"}},
@@ -1228,7 +1228,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// = [{0.31,0.60}]. But cluster 1 existing [{0.31,0.60}] takes those; cluster 0 gets
 						// blocks 6,7,8 → [{0.61,0.90}]. Cluster 1 existing [{0.31,0.60}] preserved.
 						testCaseIPPool{
-							spec: &dpuservicev1.IPV4Subnet{
+							spec: &dpuservicev1.Subnet{
 								Subnet:         "10.0.0.0/24",
 								PerNodeIPCount: 10,
 								ExcludeRanges:  []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.0.30"}},
@@ -1258,7 +1258,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 					Entry("exact network size to accommodate DPUClusters, exclusions matching subset of block per node",
 						// Partial exclusion added to /26. No full blocks excluded → no deficit; preserved.
 						testCaseIPPool{
-							spec: &dpuservicev1.IPV4Subnet{
+							spec: &dpuservicev1.Subnet{
 								Subnet:         "10.0.0.0/26",
 								PerNodeIPCount: 10,
 								ExcludeRanges:  []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.0.4"}},
@@ -1290,7 +1290,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// [{0.1,0.30}] has 2 allocatable blocks → deficit=1; pool is empty (all 6 blocks
 						// pre-taken) → no top-up; cluster 0 keeps its existing allocation. Cluster 1 preserved.
 						testCaseIPPool{
-							spec: &dpuservicev1.IPV4Subnet{
+							spec: &dpuservicev1.Subnet{
 								Subnet:         "10.0.0.0/26",
 								PerNodeIPCount: 10,
 								ExcludeRanges:  []dpuservicev1.IPRange{{StartIP: "10.0.0.1", EndIP: "10.0.0.10"}},
@@ -1322,7 +1322,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// Cluster 0 existing [{0.1,0.30}] → fresh; pool empty → error.
 						// Cluster 1 existing [{0.31,0.60}] has 3 allocatable blocks → no deficit.
 						testCaseIPPool{
-							spec: &dpuservicev1.IPV4Subnet{
+							spec: &dpuservicev1.Subnet{
 								Subnet:         "10.0.0.0/26",
 								PerNodeIPCount: 10,
 								ExcludeRanges:  []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.0.30"}},
@@ -1350,7 +1350,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 		})
 		Context("CIDRPool", func() {
 			type testCaseCIDRPool struct {
-				spec                      *dpuservicev1.IPV4Network
+				spec                      *dpuservicev1.Network
 				numOfSubnetsPerDPUCluster int32
 				perClusterSettings        []perClusterSetting
 			}
@@ -1416,7 +1416,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// /21 holds 4 /23 sub-networks; only 2 DPUClusters are created so the upper
 						// half ({10.0.4.0, 10.0.7.255}) remains unused as buffer.
 						testCaseCIDRPool{
-							spec:                      &dpuservicev1.IPV4Network{Network: "10.0.0.0/21", PrefixSize: 27},
+							spec:                      &dpuservicev1.Network{Network: "10.0.0.0/21", PrefixSize: 27},
 							numOfSubnetsPerDPUCluster: 16,
 
 							perClusterSettings: []perClusterSetting{
@@ -1439,7 +1439,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// /23; the user range is absorbed into the leading exclusion of the second
 						// DPUCluster, and the /21 upper half ({10.0.4.0, 10.0.7.255}) remains unused.
 						testCaseCIDRPool{
-							spec: &dpuservicev1.IPV4Network{
+							spec: &dpuservicev1.Network{
 								Network:       "10.0.0.0/21",
 								PrefixSize:    27,
 								ExcludeRanges: []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.0.15"}},
@@ -1469,7 +1469,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// borrows block 16 from the second /23; the second DPUCluster takes the next 16
 						// contiguous blocks. The /21 buffer means no cluster runs out.
 						testCaseCIDRPool{
-							spec: &dpuservicev1.IPV4Network{
+							spec: &dpuservicev1.Network{
 								Network:       "10.0.0.0/21",
 								PrefixSize:    27,
 								ExcludeRanges: []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.0.31"}},
@@ -1499,7 +1499,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// Both DPUClusters still fit using the remaining /23 slots; the upper /21 half
 						// ({10.0.4.0, 10.0.7.255}) serves as buffer.
 						testCaseCIDRPool{
-							spec: &dpuservicev1.IPV4Network{
+							spec: &dpuservicev1.Network{
 								Network:       "10.0.0.0/21",
 								PrefixSize:    27,
 								ExcludeRanges: []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.1.255"}},
@@ -1528,7 +1528,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// /22 holds exactly 2 /23 sub-networks — no buffer remains after allocating
 						// both DPUClusters.
 						testCaseCIDRPool{
-							spec:                      &dpuservicev1.IPV4Network{Network: "10.0.0.0/22", PrefixSize: 27},
+							spec:                      &dpuservicev1.Network{Network: "10.0.0.0/22", PrefixSize: 27},
 							numOfSubnetsPerDPUCluster: 16,
 
 							perClusterSettings: []perClusterSetting{
@@ -1548,7 +1548,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// the block remains allocatable. Both DPUClusters get a clean /23 split;
 						// the partial exclusion is propagated into each CIDRPool's exclusions.
 						testCaseCIDRPool{
-							spec: &dpuservicev1.IPV4Network{
+							spec: &dpuservicev1.Network{
 								Network:       "10.0.0.0/22",
 								PrefixSize:    27,
 								ExcludeRanges: []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.0.15"}},
@@ -1575,7 +1575,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// DPUCluster borrows block 16 (10.0.2.0/27) from the second /23. The last
 						// DPUCluster receives 15 blocks.
 						testCaseCIDRPool{
-							spec: &dpuservicev1.IPV4Network{
+							spec: &dpuservicev1.Network{
 								Network:       "10.0.0.0/22",
 								PrefixSize:    27,
 								ExcludeRanges: []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.0.31"}},
@@ -1602,7 +1602,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// Only the second /23 remains allocatable: the first DPUCluster gets it and
 						// the second errors because no blocks remain.
 						testCaseCIDRPool{
-							spec: &dpuservicev1.IPV4Network{
+							spec: &dpuservicev1.Network{
 								Network:       "10.0.0.0/22",
 								PrefixSize:    27,
 								ExcludeRanges: []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.1.255"}},
@@ -1622,7 +1622,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// /30 parent (4 IPs) with PrefixSize /31 (2 IPs per node) and numOfSubnetsPerDPUCluster=1
 						// (1 block per DPUCluster). 2 blocks fit; each DPUCluster receives one /31 block.
 						testCaseCIDRPool{
-							spec:                      &dpuservicev1.IPV4Network{Network: "10.0.0.0/30", PrefixSize: 31},
+							spec:                      &dpuservicev1.Network{Network: "10.0.0.0/30", PrefixSize: 31},
 							numOfSubnetsPerDPUCluster: 1,
 
 							perClusterSettings: []perClusterSetting{
@@ -1641,7 +1641,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// /31 parent (2 IPs) with PrefixSize /32 (1 IP per node) and numOfSubnetsPerDPUCluster=1
 						// (1 block per DPUCluster). 2 single-IP blocks fit; each DPUCluster receives one IP.
 						testCaseCIDRPool{
-							spec:                      &dpuservicev1.IPV4Network{Network: "10.0.0.0/31", PrefixSize: 32},
+							spec:                      &dpuservicev1.Network{Network: "10.0.0.0/31", PrefixSize: 32},
 							numOfSubnetsPerDPUCluster: 1,
 
 							perClusterSettings: []perClusterSetting{
@@ -1660,7 +1660,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// /24 = exactly 1 /24 per-cluster sub-network. The first DPUCluster claims
 						// all 8 /27 blocks; the second Allocate call finds nothing left and errors.
 						testCaseCIDRPool{
-							spec:                      &dpuservicev1.IPV4Network{Network: "10.0.0.0/24", PrefixSize: 27},
+							spec:                      &dpuservicev1.Network{Network: "10.0.0.0/24", PrefixSize: 27},
 							numOfSubnetsPerDPUCluster: 8,
 
 							perClusterSettings: []perClusterSetting{
@@ -1684,7 +1684,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// Cluster 1 exclusions: [{.0,.7}] — partition {.0,.3} and user {.4,.7} are
 						// adjacent and merge; {.8,.11} is carved by node-b's static allocation.
 						testCaseCIDRPool{
-							spec: &dpuservicev1.IPV4Network{
+							spec: &dpuservicev1.Network{
 								Network:       "10.0.0.0/28",
 								PrefixSize:    30,
 								ExcludeRanges: []dpuservicev1.IPRange{{StartIP: "10.0.0.4", EndIP: "10.0.0.7"}},
@@ -1717,7 +1717,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// /22 splits cleanly into 4 /24 subnets. Single cluster gets all 4;
 						// first and last blocks coincide with the parent boundary so no exclusions are produced.
 						testCaseCIDRPool{
-							spec: &dpuservicev1.IPV4Network{Network: "10.0.0.0/22", PrefixSize: 24},
+							spec: &dpuservicev1.Network{Network: "10.0.0.0/22", PrefixSize: 24},
 							perClusterSettings: []perClusterSetting{
 								{
 									expectedAllocations: []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.3.255"}},
@@ -1730,7 +1730,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// /21 splits cleanly into 64 /27 blocks. Single cluster gets all;
 						// no exclusions produced.
 						testCaseCIDRPool{
-							spec: &dpuservicev1.IPV4Network{Network: "10.0.0.0/21", PrefixSize: 27},
+							spec: &dpuservicev1.Network{Network: "10.0.0.0/21", PrefixSize: 27},
 							perClusterSettings: []perClusterSetting{
 								{
 									expectedAllocations: []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.7.255"}},
@@ -1744,7 +1744,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// so the block remains allocatable. The user exclusion appears in the output;
 						// no before/after exclusions since the cluster fills the full parent.
 						testCaseCIDRPool{
-							spec: &dpuservicev1.IPV4Network{
+							spec: &dpuservicev1.Network{
 								Network:       "10.0.0.0/21",
 								PrefixSize:    27,
 								ExcludeRanges: []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.0.15"}},
@@ -1761,7 +1761,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// Cluster already owns the full /22. The calculator returns the same
 						// cluster-block without consuming new pool space.
 						testCaseCIDRPool{
-							spec: &dpuservicev1.IPV4Network{Network: "10.0.0.0/22", PrefixSize: 24},
+							spec: &dpuservicev1.Network{Network: "10.0.0.0/22", PrefixSize: 24},
 							perClusterSettings: []perClusterSetting{
 								{
 									existingAllocations: []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.3.255"}},
@@ -1780,7 +1780,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// to per-cluster gap exclusions, not to user exclusions. The .4-.7 range
 						// therefore remains excluded in the output.
 						testCaseCIDRPool{
-							spec: &dpuservicev1.IPV4Network{
+							spec: &dpuservicev1.Network{
 								Network:       "10.0.0.0/28",
 								PrefixSize:    30,
 								ExcludeRanges: []dpuservicev1.IPRange{{StartIP: "10.0.0.4", EndIP: "10.0.0.7"}},
@@ -1807,7 +1807,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// /21 holds 4 /23 slots; cluster 0 already owns the first one.
 						// New cluster gets the second; the upper half remains unused as buffer.
 						testCaseCIDRPool{
-							spec:                      &dpuservicev1.IPV4Network{Network: "10.0.0.0/21", PrefixSize: 27},
+							spec:                      &dpuservicev1.Network{Network: "10.0.0.0/21", PrefixSize: 27},
 							numOfSubnetsPerDPUCluster: 16,
 
 							perClusterSettings: []perClusterSetting{
@@ -1831,7 +1831,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// Block 0 partially excluded → all 16 blocks still allocatable → no deficit.
 						// New cluster gets next /23 from buffer space.
 						testCaseCIDRPool{
-							spec: &dpuservicev1.IPV4Network{
+							spec: &dpuservicev1.Network{
 								Network: "10.0.0.0/21", PrefixSize: 27,
 								ExcludeRanges: []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.0.15"}},
 							},
@@ -1861,7 +1861,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// it received {10.0.0.32, 10.0.2.31}. No deficit on reconcile. New cluster
 						// gets the next 16 blocks from buffer space.
 						testCaseCIDRPool{
-							spec: &dpuservicev1.IPV4Network{
+							spec: &dpuservicev1.Network{
 								Network: "10.0.0.0/21", PrefixSize: 27,
 								ExcludeRanges: []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.0.31"}},
 							},
@@ -1890,7 +1890,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// /21, /23, /27. Cluster 0 was originally allocated with the first /23 excluded;
 						// it received {10.0.2.0, 10.0.3.255}. Exclusion still present → preserved.
 						testCaseCIDRPool{
-							spec: &dpuservicev1.IPV4Network{
+							spec: &dpuservicev1.Network{
 								Network: "10.0.0.0/21", PrefixSize: 27,
 								ExcludeRanges: []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.1.255"}},
 							},
@@ -1918,7 +1918,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 					Entry("exact network size to accommodate DPUClusters, no exclusions",
 						// /22, /23, /27. Cluster 0 existing, no exclusions. New cluster gets the second /23.
 						testCaseCIDRPool{
-							spec:                      &dpuservicev1.IPV4Network{Network: "10.0.0.0/22", PrefixSize: 27},
+							spec:                      &dpuservicev1.Network{Network: "10.0.0.0/22", PrefixSize: 27},
 							numOfSubnetsPerDPUCluster: 16,
 
 							perClusterSettings: []perClusterSetting{
@@ -1937,7 +1937,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 					Entry("exact network size to accommodate DPUClusters, exclusions matching subset of block per node",
 						// /22, /23, /27. Cluster 0 existing; partial exclusion in its range.
 						testCaseCIDRPool{
-							spec: &dpuservicev1.IPV4Network{
+							spec: &dpuservicev1.Network{
 								Network: "10.0.0.0/22", PrefixSize: 27,
 								ExcludeRanges: []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.0.15"}},
 							},
@@ -1963,7 +1963,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// /22, /23, /27. Cluster 0 was originally allocated with block 0 excluded;
 						// it received {10.0.0.32, 10.0.2.31}. No deficit. New cluster gets remaining 15 blocks.
 						testCaseCIDRPool{
-							spec: &dpuservicev1.IPV4Network{
+							spec: &dpuservicev1.Network{
 								Network: "10.0.0.0/22", PrefixSize: 27,
 								ExcludeRanges: []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.0.31"}},
 							},
@@ -1989,7 +1989,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// /22, /23, /27. Cluster 0 was originally allocated with the first /23 excluded;
 						// it received {10.0.2.0, 10.0.3.255}. Preserved. New cluster errors (pool empty).
 						testCaseCIDRPool{
-							spec: &dpuservicev1.IPV4Network{
+							spec: &dpuservicev1.Network{
 								Network: "10.0.0.0/22", PrefixSize: 27,
 								ExcludeRanges: []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.1.255"}},
 							},
@@ -2008,7 +2008,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 					Entry("small network that don't fit the given DPUClusters, no exclusions",
 						// Cluster 0 already owns the entire /24 (all 8 blocks). New cluster errors.
 						testCaseCIDRPool{
-							spec:                      &dpuservicev1.IPV4Network{Network: "10.0.0.0/24", PrefixSize: 27},
+							spec:                      &dpuservicev1.Network{Network: "10.0.0.0/24", PrefixSize: 27},
 							numOfSubnetsPerDPUCluster: 8,
 
 							perClusterSettings: []perClusterSetting{
@@ -2026,7 +2026,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// Both clusters have existing allocations that exhaust the 2 available blocks;
 						// adding a 3rd errors.
 						testCaseCIDRPool{
-							spec:                      &dpuservicev1.IPV4Network{Network: "10.0.0.0/31", PrefixSize: 32},
+							spec:                      &dpuservicev1.Network{Network: "10.0.0.0/31", PrefixSize: 32},
 							numOfSubnetsPerDPUCluster: 1,
 
 							perClusterSettings: []perClusterSetting{
@@ -2049,7 +2049,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// Both clusters have existing allocations that exhaust the 2 available blocks;
 						// adding a 3rd errors.
 						testCaseCIDRPool{
-							spec:                      &dpuservicev1.IPV4Network{Network: "10.0.0.0/30", PrefixSize: 31},
+							spec:                      &dpuservicev1.Network{Network: "10.0.0.0/30", PrefixSize: 31},
 							numOfSubnetsPerDPUCluster: 1,
 
 							perClusterSettings: []perClusterSetting{
@@ -2074,7 +2074,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// Cluster 0's exclusion [{.8,.15}] is unaffected — .4/30 is not in it.
 						// Cluster 1's exclusion [{.0,.7}] is split: .4-.7 is carved out, leaving [{.0,.3}].
 						testCaseCIDRPool{
-							spec: &dpuservicev1.IPV4Network{
+							spec: &dpuservicev1.Network{
 								Network:     "10.0.0.0/28",
 								PrefixSize:  30,
 								Allocations: map[string]string{"node-a": "10.0.0.4/30"},
@@ -2101,7 +2101,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// Cluster 0's exclusion [{.8,.15}] is split: .8-.11 is carved out, leaving [{.12,.15}].
 						// Cluster 1's exclusion [{.0,.7}] is unaffected — .8/30 is not in it.
 						testCaseCIDRPool{
-							spec: &dpuservicev1.IPV4Network{
+							spec: &dpuservicev1.Network{
 								Network:     "10.0.0.0/28",
 								PrefixSize:  30,
 								Allocations: map[string]string{"node-a": "10.0.0.8/30"},
@@ -2128,7 +2128,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// /21, /24, /27. Clusters 0 and 2 retain their /24 allocations after the
 						// middle cluster (slot 1) is deleted. Freed slot 1 goes to pool (unused here).
 						testCaseCIDRPool{
-							spec:                      &dpuservicev1.IPV4Network{Network: "10.0.0.0/21", PrefixSize: 27},
+							spec:                      &dpuservicev1.Network{Network: "10.0.0.0/21", PrefixSize: 27},
 							numOfSubnetsPerDPUCluster: 8,
 
 							perClusterSettings: []perClusterSetting{
@@ -2152,7 +2152,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// Partial exclusion in slot 0 range; initial alloc unchanged. Both surviving
 						// clusters preserved; partial exclusion propagated to CIDRPool.
 						testCaseCIDRPool{
-							spec: &dpuservicev1.IPV4Network{
+							spec: &dpuservicev1.Network{
 								Network: "10.0.0.0/21", PrefixSize: 27,
 								ExcludeRanges: []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.0.15"}},
 							},
@@ -2182,7 +2182,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// Block 0 excluded during initial alloc; all 3 clusters shifted by 1 block.
 						// Surviving clusters 0 and 2 retain their shifted allocations.
 						testCaseCIDRPool{
-							spec: &dpuservicev1.IPV4Network{
+							spec: &dpuservicev1.Network{
 								Network: "10.0.0.0/21", PrefixSize: 27,
 								ExcludeRanges: []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.0.31"}},
 							},
@@ -2212,7 +2212,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// First /24 excluded; all 3 clusters skipped slot 0 initially. Surviving
 						// clusters 0 and 2 retain their allocations in slots 1 and 3.
 						testCaseCIDRPool{
-							spec: &dpuservicev1.IPV4Network{
+							spec: &dpuservicev1.Network{
 								Network: "10.0.0.0/21", PrefixSize: 27,
 								ExcludeRanges: []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.0.255"}},
 							},
@@ -2242,7 +2242,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// /22, /24, /27. Slots 0,1,2 used (slot 3 spare). After middle deleted: clusters
 						// 0 and 2 preserved; freed slot 1 and spare slot 3 go to pool (unused here).
 						testCaseCIDRPool{
-							spec:                      &dpuservicev1.IPV4Network{Network: "10.0.0.0/22", PrefixSize: 27},
+							spec:                      &dpuservicev1.Network{Network: "10.0.0.0/22", PrefixSize: 27},
 							numOfSubnetsPerDPUCluster: 8,
 
 							perClusterSettings: []perClusterSetting{
@@ -2266,7 +2266,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// Partial exclusion in slot 0 range; initial alloc unchanged. Both surviving
 						// clusters preserved; partial exclusion propagated to each CIDRPool.
 						testCaseCIDRPool{
-							spec: &dpuservicev1.IPV4Network{
+							spec: &dpuservicev1.Network{
 								Network: "10.0.0.0/22", PrefixSize: 27,
 								ExcludeRanges: []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.0.15"}},
 							},
@@ -2296,7 +2296,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// Block 0 excluded during initial alloc; all 3 clusters shifted by 1 block.
 						// Surviving clusters 0 and 2 retain their shifted allocations.
 						testCaseCIDRPool{
-							spec: &dpuservicev1.IPV4Network{
+							spec: &dpuservicev1.Network{
 								Network: "10.0.0.0/22", PrefixSize: 27,
 								ExcludeRanges: []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.0.31"}},
 							},
@@ -2330,7 +2330,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// Cluster 2's exclusion [{.0,.15},{.24,.31}] is split: .4-.7 is carved from
 						// the tail of {.0,.15}, leaving {.0,.3} + {.8,.15}.
 						testCaseCIDRPool{
-							spec: &dpuservicev1.IPV4Network{
+							spec: &dpuservicev1.Network{
 								Network:     "10.0.0.0/27",
 								PrefixSize:  30,
 								Allocations: map[string]string{"node-a": "10.0.0.4/30"},
@@ -2363,7 +2363,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// Cluster 2's exclusion [{.0,.15},{.24,.31}] has .8-.11 carved from the middle
 						// of {.0,.15} → {.0,.7} + {.12,.15}.
 						testCaseCIDRPool{
-							spec: &dpuservicev1.IPV4Network{
+							spec: &dpuservicev1.Network{
 								Network:     "10.0.0.0/27",
 								PrefixSize:  30,
 								Allocations: map[string]string{"node-b": "10.0.0.8/30"},
@@ -2392,7 +2392,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// First /24 excluded; all 3 clusters skipped slot 0 initially. Surviving
 						// clusters 0 and 2 retain their allocations in slots 1 and 3.
 						testCaseCIDRPool{
-							spec: &dpuservicev1.IPV4Network{
+							spec: &dpuservicev1.Network{
 								Network: "10.0.0.0/22", PrefixSize: 27,
 								ExcludeRanges: []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.0.255"}},
 							},
@@ -2426,7 +2426,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// clusterBlocksCompatible returns false → both clusters fall through to fresh
 						// allocations in the new network.
 						testCaseCIDRPool{
-							spec:                      &dpuservicev1.IPV4Network{Network: "192.168.0.0/22", PrefixSize: 27},
+							spec:                      &dpuservicev1.Network{Network: "192.168.0.0/22", PrefixSize: 27},
 							numOfSubnetsPerDPUCluster: 16,
 
 							perClusterSettings: []perClusterSetting{
@@ -2447,7 +2447,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// /22 grows to /21; existing /22 allocations are within the new parent and
 						// grid-aligned → preserved unchanged. The upper /21 half becomes spare buffer.
 						testCaseCIDRPool{
-							spec:                      &dpuservicev1.IPV4Network{Network: "10.0.0.0/21", PrefixSize: 27},
+							spec:                      &dpuservicev1.Network{Network: "10.0.0.0/21", PrefixSize: 27},
 							numOfSubnetsPerDPUCluster: 16,
 
 							perClusterSettings: []perClusterSetting{
@@ -2471,7 +2471,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// Per-node network size grows: prefix length /27 → /26 (64 IPs per node instead of 32).
 						// Both /23 cluster-blocks span exactly 8 new /26 blocks (512/64=8=target) → no deficit, preserved.
 						testCaseCIDRPool{
-							spec:                      &dpuservicev1.IPV4Network{Network: "10.0.0.0/22", PrefixSize: 26},
+							spec:                      &dpuservicev1.Network{Network: "10.0.0.0/22", PrefixSize: 26},
 							numOfSubnetsPerDPUCluster: 8,
 
 							perClusterSettings: []perClusterSetting{
@@ -2493,7 +2493,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// Each cluster now needs 32 /27 blocks; deficit=16 → topped up from upper /21 half.
 						// Resulting allocations are non-contiguous (original /23 + top-up /23).
 						testCaseCIDRPool{
-							spec:                      &dpuservicev1.IPV4Network{Network: "10.0.0.0/21", PrefixSize: 27},
+							spec:                      &dpuservicev1.Network{Network: "10.0.0.0/21", PrefixSize: 27},
 							numOfSubnetsPerDPUCluster: 32,
 
 							perClusterSettings: []perClusterSetting{
@@ -2526,7 +2526,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// Partial exclusion added to /21. All 16 blocks in each cluster's range remain
 						// allocatable → no deficit; both preserved. Exclusion propagated to CIDRPools.
 						testCaseCIDRPool{
-							spec: &dpuservicev1.IPV4Network{
+							spec: &dpuservicev1.Network{
 								Network: "10.0.0.0/21", PrefixSize: 27,
 								ExcludeRanges: []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.0.15"}},
 							},
@@ -2556,7 +2556,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// Block 0 excluded in /21 after initial alloc. Deficit=1 for cluster 0; topped up
 						// with block 32 from spare /21 upper half. Non-contiguous allocation results.
 						testCaseCIDRPool{
-							spec: &dpuservicev1.IPV4Network{
+							spec: &dpuservicev1.Network{
 								Network: "10.0.0.0/21", PrefixSize: 27,
 								ExcludeRanges: []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.0.31"}},
 							},
@@ -2590,7 +2590,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// Full /23 excluded in /21 after initial alloc. Cluster 0's entire range is now
 						// fully excluded → falls through to spare blocks in the upper /21 half.
 						testCaseCIDRPool{
-							spec: &dpuservicev1.IPV4Network{
+							spec: &dpuservicev1.Network{
 								Network: "10.0.0.0/21", PrefixSize: 27,
 								ExcludeRanges: []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.1.255"}},
 							},
@@ -2619,7 +2619,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 					Entry("exact network size to accommodate DPUClusters, exclusions matching subset of block per node",
 						// Partial exclusion added to /22. No full blocks excluded → no deficit; preserved.
 						testCaseCIDRPool{
-							spec: &dpuservicev1.IPV4Network{
+							spec: &dpuservicev1.Network{
 								Network: "10.0.0.0/22", PrefixSize: 27,
 								ExcludeRanges: []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.0.15"}},
 							},
@@ -2646,7 +2646,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// Block 0 excluded in exact /22. Deficit=1 for cluster 0; pool empty
 						// (both clusters pre-take all blocks) → no top-up; 15 usable blocks remain.
 						testCaseCIDRPool{
-							spec: &dpuservicev1.IPV4Network{
+							spec: &dpuservicev1.Network{
 								Network: "10.0.0.0/22", PrefixSize: 27,
 								ExcludeRanges: []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.0.31"}},
 							},
@@ -2677,7 +2677,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// unaffected; cluster 1's exclusion [{.0,.7}] is split at the static block:
 						// .4-.7 is carved from the tail, leaving [{.0,.3}].
 						testCaseCIDRPool{
-							spec: &dpuservicev1.IPV4Network{
+							spec: &dpuservicev1.Network{
 								Network:     "10.0.0.0/28",
 								PrefixSize:  30,
 								Allocations: map[string]string{"node-a": "10.0.0.4/30"},
@@ -2706,7 +2706,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// carved from the head, leaving [{.12,.15}]. Cluster 1's exclusion [{.0,.7}]
 						// is unaffected — .8/30 is not in it.
 						testCaseCIDRPool{
-							spec: &dpuservicev1.IPV4Network{
+							spec: &dpuservicev1.Network{
 								Network:     "10.0.0.0/28",
 								PrefixSize:  30,
 								Allocations: map[string]string{"node-a": "10.0.0.8/30"},
@@ -2731,7 +2731,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 						// Full /23 excluded in exact /22 after initial alloc. Cluster 0's entire range is
 						// fully excluded → falls through; pool is empty (cluster 1 pre-takes remaining blocks) → error.
 						testCaseCIDRPool{
-							spec: &dpuservicev1.IPV4Network{
+							spec: &dpuservicev1.Network{
 								Network: "10.0.0.0/22", PrefixSize: 27,
 								ExcludeRanges: []dpuservicev1.IPRange{{StartIP: "10.0.0.0", EndIP: "10.0.1.255"}},
 							},

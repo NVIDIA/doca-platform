@@ -1027,6 +1027,13 @@ func defaultDPUServiceInterface() *dpuservicev1.DPUServiceInterface {
 func defaultDPUServiceIPAM() *dpuservicev1.DPUServiceIPAM {
 	return &dpuservicev1.DPUServiceIPAM{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+		Spec: dpuservicev1.DPUServiceIPAMSpec{
+			IPV4Subnet: &dpuservicev1.Subnet{
+				Subnet:         "10.0.0.0/24",
+				Gateway:        "10.0.0.1",
+				PerNodeIPCount: 10,
+			},
+		},
 	}
 }
 

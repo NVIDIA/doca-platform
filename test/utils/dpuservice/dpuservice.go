@@ -323,7 +323,7 @@ func SetDPUServiceHBNIPAM(DPUServiceIPAM *dpuservicev1.DPUServiceIPAM, cfg TestI
 		ObjectMeta: dpuservicev1.ObjectMeta{
 			Labels: cfg.Labels,
 		},
-		IPV4Network: &dpuservicev1.IPV4Network{
+		IPV4Network: &dpuservicev1.Network{
 			Network:    cfg.Network,
 			PrefixSize: cfg.PrefixSize,
 		},

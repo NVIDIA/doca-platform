@@ -18,9 +18,15 @@ spec:
     - expression: "!has(object.spec.clusterSelector)"
       message: >-
         spec.clusterSelector is deprecated. This field is deprecated and will be removed with v26.7.0. Use DPUClusterSelector instead.
-    - expression: "!has(object.spec.ipv4Network) || !has(object.spec.ipv4Network.exclusions)"
+    - expression: "!has(object.spec.ipv4Network)"
       message: >-
-        spec.ipv4Network.exclusions is deprecated. This field is deprecated and will be removed with v26.10.0. Use ExcludeRanges instead.
+        spec.ipv4Network is deprecated. Use Network instead.
+    - expression: "!has(object.spec.ipv4Subnet)"
+      message: >-
+        spec.ipv4Subnet is deprecated. Use Subnet instead.
+    - expression: "!has(object.spec.network) || !has(object.spec.network.exclusions)"
+      message: >-
+        spec.network.exclusions is deprecated. This field is deprecated and will be removed with v26.10.0. Use ExcludeRanges instead.
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding

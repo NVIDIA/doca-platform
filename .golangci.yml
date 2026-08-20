@@ -104,6 +104,12 @@ linters:
           - staticcheck
         # ProvisioningInstallInterface.installViaGNOI is deprecated; validation still accepts it until configs migrate to installViaHostAgent.
         text: "SA1019.*InstallViaGNOI.*deprecated"
+      - linters:
+          - staticcheck
+        # Legacy DPUServiceIPAM IPv4 fields remain supported by the existing controller, webhook, and tests until
+        # users migrate to network/subnet.
+        text: "SA1019: .*Spec.IPV4(Network|Subnet) is deprecated"
+        path: "(^internal/dpuservicechain/controllers/dpuserviceipam_controller\\.go$|^internal/dpuservicechain/webhooks/dpuserviceipam_webhook\\.go$|_test\\.go$|^test/)"
     paths:
       - third_party
       - third_party$
