@@ -249,7 +249,8 @@ var _ = Describe("Reboot", func() {
 				}
 				err := reboot.Execute(context.Background(), optCtx)
 				Expect(err).To(HaveOccurred())
-				Expect(err.Error()).To(ContainSubstring(noResetLevelSupportedText))
+				// PowerCycle from the non-hostless fallback is not downgraded to NoAction.
+				Expect(err.Error()).To(ContainSubstring("rebootSequenceCount limit exceeded"))
 			})
 
 			It("surfaces NVConfigApplied=False when the reboot limit is reached with deferred NVConfig params", func() {
@@ -403,7 +404,7 @@ var _ = Describe("Reboot", func() {
 			Expect(cond.Message).To(ContainSubstring(noResetLevelSupportedText))
 		})
 
-		It("getRebootMethod returns error when mlxfwreset reports no reset level on non-hostless", func() {
+		It("getRebootMethod returns PowerCycle and reports the failure when mlxfwreset reports no reset level on non-hostless", func() {
 			device := testPCIAddress0
 			optCtx := &operations.Context{
 				LatestDPU: &provisioningv1.DPU{
@@ -423,9 +424,14 @@ var _ = Describe("Reboot", func() {
 				},
 			}
 			m, err := h.getRebootMethod(optCtx)
-			Expect(err).To(HaveOccurred())
-			Expect(m).To(BeNil())
-			Expect(err.Error()).To(ContainSubstring(noResetLevelSupportedText))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(*m).To(Equal(provisioningv1.RebootMethodPowerCycle))
+			cond := meta.FindStatusCondition(optCtx.Status.Conditions, cutil.AgentCondRebootMethodDiscovery)
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Reason).To(Equal(string(provisioningv1.RebootMethodPowerCycle)))
+			// The reboot method alone does not explain the power cycle.
+			Expect(cond.Message).To(ContainSubstring("exit status 1"))
+			Expect(cond.Message).To(ContainSubstring(noResetLevelSupportedText))
 		})
 
 		It("getRebootMethod does not query further PCI devices after no-reset-level PowerCycle", func() {
@@ -532,10 +538,10 @@ var _ = Describe("Reboot", func() {
 					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
 				},
 			}
-			var ran string
+			ran := []string{}
 			h := &HandleReboot{
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
-					ran = cmd
+					ran = append(ran, cmd)
 					var b bytes.Buffer
 					_, _ = b.WriteString(`{"reset_needed":true}`)
 					return b, bytes.Buffer{}, nil
@@ -543,7 +549,10 @@ var _ = Describe("Reboot", func() {
 			}
 			m, err := h.getRebootMethod(optCtx)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(ran).To(Equal(fmt.Sprintf("mlxfwreset -d %s status --json", device)))
+			Expect(ran).To(Equal([]string{
+				fmt.Sprintf("mlxfwreset -d %s status --json", device),
+				fmt.Sprintf("mlxfwreset -d %s query", device),
+			}))
 			Expect(m).NotTo(BeNil())
 			Expect(*m).To(Equal(provisioningv1.RebootMethodSystemLevelReset))
 		})
@@ -1104,6 +1113,9 @@ var _ = Describe("Reboot", func() {
 						_, _ = b.WriteString(mlxfwresetJSON)
 						return b, bytes.Buffer{}, nil
 					}
+					if strings.HasSuffix(cmd, " query") {
+						return bytes.Buffer{}, bytes.Buffer{}, nil
+					}
 					Expect(cmd).To(Equal(fmt.Sprintf("sleep %d && shutdown -h now", shutdownDelayInSeconds)))
 					return bytes.Buffer{}, bytes.Buffer{}, nil
 				},
@@ -1193,6 +1205,9 @@ var _ = Describe("Reboot", func() {
 			}
 			h := &HandleReboot{
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					if strings.HasSuffix(cmd, " query") {
+						return bytes.Buffer{}, bytes.Buffer{}, nil
+					}
 					Expect(cmd).To(Equal(fmt.Sprintf("mlxfwreset -d %s status --json", device)))
 					var b bytes.Buffer
 					_, _ = b.WriteString(mlxfwresetFullJSON)
@@ -1346,6 +1361,43 @@ var _ = Describe("Reboot", func() {
 			h := &HandleReboot{
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 					var b bytes.Buffer
+					_, _ = b.WriteString(mlxfwresetJSON)
+					return b, bytes.Buffer{}, nil
+				},
+			}
+			m, err := h.getRebootMethod(optCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(*m).To(Equal(provisioningv1.RebootMethodPowerCycle))
+			cond := meta.FindStatusCondition(optCtx.Status.Conditions, cutil.AgentCondRebootMethodDiscovery)
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Reason).To(Equal(string(provisioningv1.RebootMethodPowerCycle)))
+		})
+
+		It("getRebootMethod returns PowerCycle when mlxfwreset query reports no supported reset level", func() {
+			// MFT 4.36/4.37 shape: the required power cycle is dropped and command_required
+			// carries the external host reboot message instead.
+			mlxfwresetJSON := strings.TrimSpace(`
+{
+  "reset_needed": true,
+  "pending_nvconfig_parameters": "N/A (No pending NVCONFIG parameters)",
+  "command_required": "Reboot external host is required",
+  "reasons": ["PCI rescan is required"]
+}
+`)
+			optCtx := &operations.Context{
+				RebootMethodDiscovery: true,
+				CurrentBootID:         "boot-id",
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
+					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPCIAddress0}}, nil
+				},
+			}
+			h := &HandleReboot{
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					var b bytes.Buffer
+					if strings.HasSuffix(cmd, " query") {
+						_, _ = b.WriteString("-E- " + noResetLevelSupportedText1 + ".")
+						return bytes.Buffer{}, b, fmt.Errorf("exit status 1")
+					}
 					_, _ = b.WriteString(mlxfwresetJSON)
 					return b, bytes.Buffer{}, nil
 				},

@@ -71,7 +71,8 @@ const (
 	// downgrades to NoAction so the agent is not stuck. Non-hostless DPUs still surface the
 	// mlxfwreset error. Search "WORKAROUND(mlxfwreset-no-reset-level)" to find all related code
 	// for removal once MFT reports a proper reset/reboot method instead of this error.
-	noResetLevelSupportedText = "No reset level is supported"
+	noResetLevelSupportedText  = "No reset level is supported"
+	noResetLevelSupportedText1 = "There is no supported reset-level"
 )
 
 // powerCyclePendingNvconfigNames lists pending NVCONFIG parameter names that require
@@ -375,6 +376,26 @@ func checkRebootMethodPowerCycle(_ *HandleReboot, out *mlxfwresetStatusJSON) boo
 	return false
 }
 
+// WORKAROUND(mlxfwreset-no-reset-level): should be removed once [1] is fixed.
+// [1] Issue #5226391
+func (h *HandleReboot) queryReportsNoResetLevelSupported(device string) bool {
+	if h == nil || h.runBash == nil {
+		return false
+	}
+	cmd := fmt.Sprintf("mlxfwreset -d %s query", device)
+	stdout, stderr, err := h.runBash(cmd)
+	outText := strings.TrimSpace(stdout.String() + "\n" + stderr.String())
+	// Matching is case-insensitive because the wording is not stable across MFT versions.
+	lowered := strings.ToLower(outText)
+	if strings.Contains(lowered, strings.ToLower(noResetLevelSupportedText)) ||
+		strings.Contains(lowered, strings.ToLower(noResetLevelSupportedText1)) {
+		klog.Infof("PCI device %s: %s reported no supported reset level; using PowerCycle. err=%v output=%s",
+			device, cmd, err, outText)
+		return true
+	}
+	return false
+}
+
 // checkRebootMethodSystemLevelReset reports whether command_required has
 // predefined text for SystemLevelReset.
 func checkRebootMethodSystemLevelReset(_ *HandleReboot, out *mlxfwresetStatusJSON) bool {
@@ -405,7 +426,7 @@ func rebootMethodTakesPrecedenceOver(a, b provisioningv1.RebootMethodType) bool 
 // rebootMethodFromMlxfwresetStatus maps one device's JSON to a reboot method.
 // Use checking reboot method according to the priority in rebootMethodMergePriority.
 func rebootMethodFromMlxfwresetStatus(h *HandleReboot, device string, out *mlxfwresetStatusJSON) provisioningv1.RebootMethodType {
-	if checkRebootMethodPowerCycle(nil, out) {
+	if checkRebootMethodPowerCycle(nil, out) || h.queryReportsNoResetLevelSupported(device) {
 		return provisioningv1.RebootMethodPowerCycle
 	}
 	if checkRebootMethodSystemLevelReset(nil, out) {
@@ -575,10 +596,20 @@ func (h *HandleReboot) getRebootMethodDeviceQuery(optCtx *operations.Context) (*
 				klog.Infof("WORKAROUND(mlxfwreset-no-reset-level): hostless PCI device %s: mlxfwreset reported no supported reset level; returning PowerCycle. err=%v output=%s",
 					device, err, outText)
 				rawParts = append(rawParts, outText)
-				setRebootMethodDiscoveryCondition(optCtx, provisioningv1.RebootMethodPowerCycle, strings.Join(rawParts, "\n---\n"))
-				h.perDeviceFirmwareResetCmds = nil
 				h.noResetLevelPowerCycle = true
-				return ptr.To(provisioningv1.RebootMethodPowerCycle), nil
+				finalRebootMethod = provisioningv1.RebootMethodPowerCycle
+				break
+			}
+			// fall back to PowerCycle on this mlxfwreset
+			// issue, keeping the failure in the condition message because the reboot method alone
+			// does not explain the power cycle.
+			if strings.Contains(outText, noResetLevelSupportedText) ||
+				strings.Contains(outText, noResetLevelSupportedText1) {
+				msg := fmt.Sprintf("%s: %v (stdout: %s, stderr: %s)", cmd, err, stdout.String(), stderr.String())
+				klog.Warningf("WORKAROUND: PCI device %s: %s", device, msg)
+				rawParts = append(rawParts, msg)
+				finalRebootMethod = provisioningv1.RebootMethodPowerCycle
+				break
 			}
 			return nil, fmt.Errorf("%s: %w (stdout: %s, stderr: %s)", cmd, err, stdout.String(), stderr.String())
 		}
