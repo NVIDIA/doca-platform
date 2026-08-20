@@ -136,7 +136,7 @@ export KATA_DEPLOY_IMAGE=quay.io/kata-containers/kata-deploy
 export KATA_DEPLOY_TAG=3.30.0@sha256:b31cf13addbaf49af9e211bf6ab38335299015a754e2bc0341aa4ba47d8cb395
 
 # VPC dependencies to be able to build/push images and charts
-VPC_REF=b03232c9568d099dd564d7a6e88ea4cd49afc432
+VPC_REF=5049626300102ba74f44313cb69faaae68da1801
 VPC_DIR=$(REPOSDIR)/ovn-vpc/ovn-vpc-$(VPC_REF)
 # Token used for gitlab reporistory access, usually needed for CI/CD pipelines.
 # dev envs usually have those set in git credentials.
