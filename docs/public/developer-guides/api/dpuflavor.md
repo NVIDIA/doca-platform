@@ -31,7 +31,7 @@ DPUFlavor is a Kubernetes Custom Resource Definition (CRD) that defines configur
 | `grub` | [DPUFlavorGrub](#dpuflavorgrub) | All the parameters will be set in `GRUB_CMDLINE_LINUX` grub configuration |
 | `sysctl` | [DPUFlavorSysctl](#dpuflavorsysctl) | Kernel sysctl parameters which will be stored in `/etc/sysctl.d/99-dpf.conf` |
 | `nvconfig` | [][NVConfig](#nvconfig) | The device configuration which will be applied by `mlxconfig` |
-| `ovs` | [DPUFlavorOVS](#dpuflavorovs) | Open vSwitch configuration which will be executed via systemd service |
+| `ovs` | [DPUFlavorOVS](#dpuflavorovs) | Open vSwitch configuration applied by the DPU agent once per boot |
 | `bfcfgParameters` | []string | Parameters for the bf.cfg file. See [BFCfg Parameters](#bfcfg-parameters) for important parameters |
 | `configFiles` | [][ConfigFile](#configfile) | Custom configuration files. Users can use this configuration to overwrite files in the DPU file system or add content to existing files |
 | `containerdConfig` | [ContainerdConfig](#containerdconfig) | ContainerdConfig contains the configuration for containerd |
@@ -118,7 +118,7 @@ nvconfig:
 
 | Field | Type | Description |
 |-------|------|--------------|
-| `rawConfigScript` | string | Raw OVS configuration script |
+| `rawConfigScript` | string | Raw OVS configuration script. The DPU agent runs it once per boot; an agent restart in the same boot does not re-run it, a reboot or power cycle does |
 
 ### ConfigFile
 
