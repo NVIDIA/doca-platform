@@ -114,6 +114,86 @@ var _ = Describe("DPU: Ready", func() {
 		return nodeInDPUCluster
 	}
 
+	Context("E/W NIC runtime configuration", func() {
+		It("DPU: Ready: should stay in Ready phase with Ready=False when EWNICConfigured fails", func() {
+			dpu := createBasicDPU(
+				map[string]string{"existing": "label"},
+				provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
+			)
+			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
+				Conditions: []metav1.Condition{{
+					Type:    cutil.AgentCondEWNICConfigured,
+					Status:  metav1.ConditionFalse,
+					Reason:  "RuntimeConfigApplyFailed",
+					Message: "NIC runtime config apply failed: dmspe missing libmstflint_sdk.so",
+				}},
+			}
+
+			By("creating a Node in the DPUCluster")
+			createNodeInDPUCluster(dpu,
+				map[string]string{cutil.LastAppliedLabelsOnDPUKey: `{"existing":"label"}`},
+				nil,
+			)
+
+			status, err := state.Ready(ctx, dpu,
+				&dutil.ControllerContext{
+					Client: k8sClient,
+					Options: dutil.DPUOptions{
+						DPUInstallInterface: string(provisioningv1.InstallViaGNOI),
+					},
+				},
+			)
+			Expect(err).To(Succeed())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUReady))
+			Expect(status.Conditions).Should(ContainElement(
+				And(
+					HaveField("Type", provisioningv1.DPUCondReady.String()),
+					HaveField("Status", metav1.ConditionFalse),
+					HaveField("Reason", "RuntimeConfigApplyFailed"),
+					HaveField("Message", "NIC runtime config apply failed: dmspe missing libmstflint_sdk.so"),
+				),
+			))
+		})
+
+		It("DPU: Ready: should keep Ready=True when EWNICConfigured is True", func() {
+			dpu := createBasicDPU(
+				map[string]string{"existing": "label"},
+				provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
+			)
+			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
+				Conditions: []metav1.Condition{{
+					Type:   cutil.AgentCondEWNICConfigured,
+					Status: metav1.ConditionTrue,
+					Reason: "RuntimeConfigApplied",
+				}},
+			}
+
+			By("creating a Node in the DPUCluster")
+			createNodeInDPUCluster(dpu,
+				map[string]string{cutil.LastAppliedLabelsOnDPUKey: `{"existing":"label"}`},
+				nil,
+			)
+
+			status, err := state.Ready(ctx, dpu,
+				&dutil.ControllerContext{
+					Client: k8sClient,
+					Options: dutil.DPUOptions{
+						DPUInstallInterface: string(provisioningv1.InstallViaGNOI),
+					},
+				},
+			)
+			Expect(err).To(Succeed())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUReady))
+			Expect(status.Conditions).Should(ContainElement(
+				And(
+					HaveField("Type", provisioningv1.DPUCondReady.String()),
+					HaveField("Status", metav1.ConditionTrue),
+					HaveField("Reason", "DPUReady"),
+				),
+			))
+		})
+	})
+
 	Context("Basic Functionality", func() {
 		It("DPU: Ready: should stay in Ready state when no label changes", func() {
 			dpu := createBasicDPU(

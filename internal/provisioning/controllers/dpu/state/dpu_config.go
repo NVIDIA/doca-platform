@@ -25,6 +25,7 @@ import (
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 
 	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -67,9 +68,22 @@ func DPUConfig(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Cont
 		return *state, nil
 	}
 
-	state.AgentLastStartupTime = dpu.Status.AgentStatus.LastStartupTime
 	rm := *dpu.Status.AgentStatus.RebootMethod
 	logger.Info("DPUConfig: agent reboot method", "dpu", dpu.Name, "namespace", dpu.Namespace, "rebootMethod", rm)
+
+	// Astra E/W NIC runtime config runs after the rest of the agent pipeline. Do not
+	// leave DPU Config on NoAction until the agent reports EWNICConfigured=True.
+	// Host-reboot methods must not wait: runtime config has not started yet.
+	if rm == provisioningv1.RebootMethodNoAction {
+		if ready, reason, message := ewnicRuntimeConfigReady(dpu); !ready {
+			logger.Info("Waiting for E/W NIC runtime configuration", "dpu", dpu.Name, "namespace", dpu.Namespace, "reason", reason)
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondDPUConfig.String(),
+				fmt.Errorf("%s", message), reason, ""))
+			return *state, nil
+		}
+	}
+
+	state.AgentLastStartupTime = dpu.Status.AgentStatus.LastStartupTime
 	switch rm {
 	case provisioningv1.RebootMethodNoAction:
 		if ctrlCtx.Options.ZeroTrustProvisioningFlow() {
@@ -99,4 +113,44 @@ func DPUConfig(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Cont
 	}
 
 	return *state, nil
+}
+
+// ewnicRuntimeConfigReady reports whether E/W NIC runtime configuration is healthy
+// enough for DPU Config (NoAction) to advance, and for Ready to keep DPUCondReady True.
+//
+// Runtime config is required once the agent has started NIC provisioning
+// (EWNICNVConfigApplied=True) or has already reported EWNICConfigured. Until
+// EWNICConfigured is True, DPU Config stays put, and Ready keeps the phase but
+// clears DPUCondReady (e.g. periodic RuntimeConfigApplyFailed after Ready).
+func ewnicRuntimeConfigReady(dpu *provisioningv1.DPU) (ready bool, reason, message string) {
+	if !requiresEWNICRuntimeConfig(dpu) {
+		return true, "", ""
+	}
+	cond := meta.FindStatusCondition(dpu.Status.AgentStatus.Conditions, cutil.AgentCondEWNICConfigured)
+	if cond == nil {
+		return false, "WaitingForEWNICConfigured", "waiting for DPU agent to apply E/W NIC runtime configuration"
+	}
+	if cond.Status == metav1.ConditionTrue {
+		return true, "", ""
+	}
+	reason = cond.Reason
+	if reason == "" {
+		reason = "WaitingForEWNICConfigured"
+	}
+	message = cond.Message
+	if message == "" {
+		message = "waiting for DPU agent to apply E/W NIC runtime configuration"
+	}
+	return false, reason, message
+}
+
+func requiresEWNICRuntimeConfig(dpu *provisioningv1.DPU) bool {
+	if dpu.Status.AgentStatus == nil {
+		return false
+	}
+	if cond := meta.FindStatusCondition(dpu.Status.AgentStatus.Conditions, cutil.AgentCondEWNICConfigured); cond != nil {
+		return true
+	}
+	cond := meta.FindStatusCondition(dpu.Status.AgentStatus.Conditions, cutil.AgentCondEWNICNVConfigApplied)
+	return cond != nil && cond.Status == metav1.ConditionTrue
 }

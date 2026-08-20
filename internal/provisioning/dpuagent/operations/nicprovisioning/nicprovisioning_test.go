@@ -37,6 +37,7 @@ import (
 	nicdms "github.com/Mellanox/nic-configuration-operator/pkg/dms"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -183,6 +184,10 @@ func TestNICProvisioning_Execute(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "already here", string(content))
 		assert.Equal(t, []string{"flint -i '" + existingFile + "' q"}, runner.commands)
+		pending := meta.FindStatusCondition(ctx.Status.Conditions, cutil.AgentCondEWNICConfigured)
+		require.NotNil(t, pending)
+		assert.Equal(t, metav1.ConditionFalse, pending.Status)
+		assert.Equal(t, "RuntimeConfigPending", pending.Reason)
 	})
 
 	t.Run("download firmware to local nic-firmware directory", func(t *testing.T) {
@@ -325,6 +330,43 @@ func TestNICProvisioning_StartRuntimeConfigLoop(t *testing.T) {
 		op.StartRuntimeConfigLoop(context.Background(), &operations.Context{})
 		// Shutdown must not block when the loop was never started.
 		require.NoError(t, op.Shutdown())
+	})
+
+	t.Run("retries first apply until success", func(t *testing.T) {
+		originalInterval := RuntimeConfigInterval
+		originalRetry := RuntimeConfigRetryInterval
+		RuntimeConfigInterval = time.Hour
+		RuntimeConfigRetryInterval = 10 * time.Millisecond
+		t.Cleanup(func() {
+			RuntimeConfigInterval = originalInterval
+			RuntimeConfigRetryInterval = originalRetry
+		})
+
+		var calls atomic.Int32
+		op := &NICProvisioning{
+			dmsServer: &fakeDMSServer{running: true},
+			applyRuntimeConfigFn: func(_ context.Context, _ *operations.Context) error {
+				if calls.Add(1) < 3 {
+					return errors.New("runtime apply failed")
+				}
+				return nil
+			},
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		optCtx := &operations.Context{
+			Status: provisioningv1.AgentStatus{Conditions: []metav1.Condition{}},
+		}
+
+		op.StartRuntimeConfigLoop(ctx, optCtx)
+		// Wait on the call counter only — reading Status.Conditions while the
+		// loop goroutine writes them races under -race.
+		require.Eventually(t, func() bool { return calls.Load() >= 3 }, time.Second, 10*time.Millisecond)
+		cancel()
+		require.NoError(t, op.Shutdown())
+		cond := meta.FindStatusCondition(optCtx.Status.Conditions, cutil.AgentCondEWNICConfigured)
+		require.NotNil(t, cond)
+		assert.Equal(t, metav1.ConditionTrue, cond.Status)
+		assert.Equal(t, "RuntimeConfigApplied", cond.Reason)
 	})
 
 	t.Run("applies runtime config then stops on context cancel", func(t *testing.T) {
