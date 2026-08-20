@@ -432,7 +432,13 @@ var _ = Describe("FirmwareUpdate", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(status.RedfishTaskID).NotTo(BeNil())
 
-		By("monitoring task and activating pending bundle")
+		By("monitoring task, activating pending bundle and shutting down the DPU Arm")
+		dpu.Status = status
+		status, err = FirmwareUpdate(ctx, dpu, ctrlCtx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(status.Phase).To(Equal(provisioningv1.DPUUpdateFirmware))
+
+		By("moving to Rebooting once the DPU Arm is powered off")
 		dpu.Status = status
 		status, err = FirmwareUpdate(ctx, dpu, ctrlCtx)
 		Expect(err).NotTo(HaveOccurred())
@@ -515,7 +521,7 @@ var _ = Describe("FirmwareUpdate", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(status.Phase).To(Equal(provisioningv1.DPURebooting))
 		Expect(status.RebootStatus).NotTo(BeNil())
-		Expect(*status.RebootStatus.Method).To(Equal(provisioningv1.RebootMethodPowerCycle))
+		Expect(*status.RebootStatus.Method).To(Equal(provisioningv1.RebootMethodSystemLevelReset))
 	})
 
 	It("should transition to DPUError when task monitoring fails", func() {
