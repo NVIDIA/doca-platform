@@ -23,6 +23,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/operator/inventory"
 	testutils "github.com/nvidia/doca-platform/test/utils"
+	kamajiv1 "github.com/nvidia/doca-platform/third_party/forked/github.com/clastix/kamaji/api/v1alpha1"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -930,7 +931,7 @@ var _ = Describe("Kamaji Handler - TenantControlPlane Creation", func() {
 			}
 			nodePort := int32(30443)
 
-			tcp, err := expectedTenantControlPlane(dpuCluster, scheme.Scheme, nodePort)
+			tcp, err := expectedTenantControlPlane(dpuCluster, scheme.Scheme, nodePort, inventory.DefaultFlannelPodCIDR)
 
 			By("Verifying TenantControlPlane was created without error")
 			Expect(err).NotTo(HaveOccurred())
@@ -989,7 +990,7 @@ var _ = Describe("Kamaji Handler - TenantControlPlane Creation", func() {
 			}
 			nodePort := int32(30443)
 
-			tcp, err := expectedTenantControlPlane(dpuCluster, scheme.Scheme, nodePort)
+			tcp, err := expectedTenantControlPlane(dpuCluster, scheme.Scheme, nodePort, inventory.DefaultFlannelPodCIDR)
 
 			By("Verifying TenantControlPlane was created without error")
 			Expect(err).NotTo(HaveOccurred())
@@ -1017,7 +1018,7 @@ var _ = Describe("Kamaji Handler - TenantControlPlane Creation", func() {
 			}
 			nodePort := int32(30443)
 
-			tcp, err := expectedTenantControlPlane(dpuCluster, scheme.Scheme, nodePort)
+			tcp, err := expectedTenantControlPlane(dpuCluster, scheme.Scheme, nodePort, inventory.DefaultFlannelPodCIDR)
 
 			By("Verifying TenantControlPlane was created without error")
 			Expect(err).NotTo(HaveOccurred())
@@ -1045,7 +1046,7 @@ var _ = Describe("Kamaji Handler - TenantControlPlane Creation", func() {
 			}
 			nodePort := int32(30443)
 
-			tcp, err := expectedTenantControlPlane(dpuCluster, scheme.Scheme, nodePort)
+			tcp, err := expectedTenantControlPlane(dpuCluster, scheme.Scheme, nodePort, inventory.DefaultFlannelPodCIDR)
 
 			By("Verifying TenantControlPlane was created without error")
 			Expect(err).NotTo(HaveOccurred())
@@ -1062,5 +1063,189 @@ var _ = Describe("Kamaji Handler - TenantControlPlane Creation", func() {
 			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs.ControllerManager).To(ContainElement("--profiling=false"))
 			Expect(tcp.Spec.ControlPlane.Deployment.ExtraArgs.Scheduler).To(ContainElement("--profiling=false"))
 		})
+
+		It("should not enable the CoreDNS addon when the host cluster serves DNS", func() {
+			dpuCluster := &provisioningv1.DPUCluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-cluster-addons",
+					Namespace: "test-ns",
+				},
+				Spec: provisioningv1.DPUClusterSpec{
+					Type:     string(provisioningv1.KamajiCluster),
+					MaxNodes: 100,
+					ClusterEndpoint: &provisioningv1.ClusterEndpointSpec{
+						Keepalived: &provisioningv1.KeepalivedSpec{VIP: "10.0.110.200"},
+					},
+				},
+			}
+
+			tcp, err := expectedTenantControlPlane(dpuCluster, scheme.Scheme, int32(30443), inventory.DefaultFlannelPodCIDR)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying CoreDNS is not deployed into the DPU cluster, it runs on the host cluster")
+			Expect(tcp.Spec.Addons.CoreDNS).To(BeNil())
+
+			By("Verifying kube-proxy is still enabled")
+			Expect(tcp.Spec.Addons.KubeProxy).NotTo(BeNil())
+		})
+
+		It("should enable the CoreDNS addon without a keepalived VIP", func() {
+			// No host cluster CoreDNS is created for such a DPUCluster, so leaving the addon off
+			// would bring the cluster up with no DNS at all.
+			dpuCluster := &provisioningv1.DPUCluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-cluster-addons-no-vip",
+					Namespace: "test-ns",
+				},
+				Spec: provisioningv1.DPUClusterSpec{
+					Type:     string(provisioningv1.KamajiCluster),
+					MaxNodes: 100,
+				},
+			}
+
+			tcp, err := expectedTenantControlPlane(dpuCluster, scheme.Scheme, int32(30443), inventory.DefaultFlannelPodCIDR)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(tcp.Spec.Addons.CoreDNS).NotTo(BeNil())
+		})
+	})
+})
+
+var _ = Describe("Kamaji Handler - CoreDNS addon", func() {
+	var (
+		testNS  *corev1.Namespace
+		handler *clusterHandler
+	)
+
+	BeforeEach(func() {
+		testNS = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "testns-"}}
+		Expect(k8sClient.Create(ctx, testNS)).To(Succeed())
+		DeferCleanup(k8sClient.Delete, ctx, testNS)
+
+		handler = &clusterHandler{
+			Client: k8sClient,
+			Scheme: scheme.Scheme,
+		}
+	})
+
+	// createTCP creates a TenantControlPlane, optionally with the CoreDNS addon enabled, which is
+	// how clusters created before DNS moved to the host cluster look.
+	createTCP := func(name string, withCoreDNS bool, vip string) (*provisioningv1.DPUCluster, *kamajiv1.TenantControlPlane) {
+		dpuCluster := &provisioningv1.DPUCluster{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testNS.Name},
+			Spec: provisioningv1.DPUClusterSpec{
+				Type:     string(provisioningv1.KamajiCluster),
+				MaxNodes: 100,
+			},
+		}
+		if vip != "" {
+			// Interface and VirtualRouterID are required by the CRD.
+			dpuCluster.Spec.ClusterEndpoint = &provisioningv1.ClusterEndpointSpec{
+				Keepalived: &provisioningv1.KeepalivedSpec{
+					VIP:             vip,
+					Interface:       "br-dpu",
+					VirtualRouterID: 126,
+				},
+			}
+		}
+		Expect(k8sClient.Create(ctx, dpuCluster)).To(Succeed())
+		DeferCleanup(testutils.CleanupAndWait, ctx, k8sClient, dpuCluster)
+
+		tcp, err := expectedTenantControlPlane(dpuCluster, scheme.Scheme, int32(30443), inventory.DefaultFlannelPodCIDR)
+		Expect(err).NotTo(HaveOccurred())
+		if withCoreDNS {
+			tcp.Spec.Addons.CoreDNS = &kamajiv1.AddonSpec{}
+		}
+		Expect(k8sClient.Create(ctx, tcp)).To(Succeed())
+		DeferCleanup(k8sClient.Delete, ctx, tcp)
+		return dpuCluster, tcp
+	}
+
+	It("should clear the CoreDNS addon on an existing TenantControlPlane", func() {
+		dpuCluster, tcp := createTCP("legacy-cluster", true, "10.0.110.200")
+
+		Expect(handler.disableCoreDNSAddon(ctx, dpuCluster, tcp)).To(Succeed())
+
+		got := &kamajiv1.TenantControlPlane{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: tcp.Name, Namespace: tcp.Namespace}, got)).To(Succeed())
+		Expect(got.Spec.Addons.CoreDNS).To(BeNil())
+
+		By("Verifying kube-proxy was left alone")
+		Expect(got.Spec.Addons.KubeProxy).NotTo(BeNil())
+	})
+
+	It("should keep the CoreDNS addon for a DPUCluster the host cluster cannot serve", func() {
+		// Without a keepalived VIP no host cluster CoreDNS replaces it, so taking the addon away
+		// would leave the DPU cluster with no DNS at all.
+		dpuCluster, tcp := createTCP("no-vip-cluster", true, "")
+		resourceVersionBefore := tcp.ResourceVersion
+
+		Expect(handler.disableCoreDNSAddon(ctx, dpuCluster, tcp)).To(Succeed())
+
+		got := &kamajiv1.TenantControlPlane{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: tcp.Name, Namespace: tcp.Namespace}, got)).To(Succeed())
+		Expect(got.Spec.Addons.CoreDNS).NotTo(BeNil())
+		Expect(got.ResourceVersion).To(Equal(resourceVersionBefore))
+	})
+
+	It("should be a no-op when the CoreDNS addon is already disabled", func() {
+		dpuCluster, tcp := createTCP("current-cluster", false, "10.0.110.200")
+		resourceVersionBefore := tcp.ResourceVersion
+
+		Expect(handler.disableCoreDNSAddon(ctx, dpuCluster, tcp)).To(Succeed())
+
+		got := &kamajiv1.TenantControlPlane{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: tcp.Name, Namespace: tcp.Namespace}, got)).To(Succeed())
+		Expect(got.Spec.Addons.CoreDNS).To(BeNil())
+
+		By("Verifying no write was issued")
+		Expect(got.ResourceVersion).To(Equal(resourceVersionBefore))
+	})
+})
+
+var _ = Describe("Kamaji Handler - pod CIDR", func() {
+	var (
+		testNS  *corev1.Namespace
+		handler *clusterHandler
+	)
+
+	// createDPFOperatorConfig creates the singleton config, optionally with a flannel pod CIDR.
+	createDPFOperatorConfig := func(flannelPodCIDR *string) {
+		config := &operatorv1.DPFOperatorConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "config", Namespace: testNS.Name},
+			Spec: operatorv1.DPFOperatorConfigSpec{
+				DeploymentMode: operatorv1.DeploymentModeHostTrusted,
+				ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
+					BFBPersistentVolumeClaimName: ptr.To("pvc"),
+				},
+			},
+		}
+		if flannelPodCIDR != nil {
+			config.Spec.Flannel = &operatorv1.FlannelConfiguration{PodCIDR: flannelPodCIDR}
+		}
+		Expect(k8sClient.Create(ctx, config)).To(Succeed())
+		DeferCleanup(testutils.CleanupAndWait, ctx, k8sClient, config)
+	}
+
+	BeforeEach(func() {
+		testNS = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "testns-"}}
+		Expect(k8sClient.Create(ctx, testNS)).To(Succeed())
+		DeferCleanup(k8sClient.Delete, ctx, testNS)
+
+		handler = &clusterHandler{Client: k8sClient, Scheme: scheme.Scheme}
+	})
+
+	It("should create DPU clusters with the configured flannel pod CIDR", func() {
+		// The DPU cluster control plane hands out node podCIDRs from this range, so it has to be
+		// the range flannel routes.
+		createDPFOperatorConfig(ptr.To("192.168.0.0/16"))
+
+		Expect(handler.getFlannelPodCIDR(ctx)).To(Equal("192.168.0.0/16"))
+	})
+
+	It("should fall back to the flannel default pod CIDR", func() {
+		createDPFOperatorConfig(nil)
+
+		Expect(handler.getFlannelPodCIDR(ctx)).To(Equal(inventory.DefaultFlannelPodCIDR))
 	})
 })

@@ -31,5 +31,7 @@ opentelemetry-collector:
     enabled: false
 kata-containers:
     enabled: false
+coredns:
+    enabled: false
 spire-agent-rbac:
     enabled: false

@@ -1,0 +1,36 @@
+{{ if .Values.deployHostManifests }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "coredns.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "coredns.labels" . | nindent 4 }}
+  annotations:
+    {{- include "coredns.annotations" . | nindent 4 }}
+data:
+  # This CoreDNS runs on the host cluster but answers for the DPU cluster. The kubernetes plugin
+  # reads the DPU cluster API address and credentials from the injected env vars and the projected
+  # token, so it watches DPU cluster Services and EndpointSlices rather than host cluster ones.
+  Corefile: |
+    .:{{ .Values.port }} {
+        errors
+        health {
+            lameduck 5s
+        }
+        ready
+        # cluster.local is the kubeadm default, which is what Kamaji creates DPU clusters with.
+        kubernetes cluster.local in-addr.arpa ip6.arpa {
+            pods insecure
+            fallthrough in-addr.arpa ip6.arpa
+            ttl 30
+        }
+        prometheus :9153
+        forward . {{ .Values.upstreamNameservers }}
+        cache 30
+        loop
+        reload
+        loadbalance
+    }
+{{- end }}

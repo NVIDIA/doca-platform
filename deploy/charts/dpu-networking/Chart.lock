@@ -35,8 +35,11 @@ dependencies:
 - name: kata-containers
   repository: file://charts/kata-containers
   version: 0.1.0
+- name: coredns
+  repository: file://charts/coredns
+  version: 0.1.0
 - name: spire-agent-rbac
   repository: file://charts/spire-agent-rbac
   version: 0.1.0
-digest: sha256:14c15f204e728feed71181d43526a9a31b120d67bde743acd0e026f564a3e819
-generated: "2026-08-13T11:56:40.690453+02:00"
+digest: sha256:7dfdc617de64f387d586ef304e0dd6fbb9ec2aa5559a198a681be8cfb4193c44
+generated: "2026-08-14T13:09:18.767343+02:00"

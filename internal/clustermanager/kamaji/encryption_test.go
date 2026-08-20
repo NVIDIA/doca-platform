@@ -247,6 +247,8 @@ var _ = Describe("etcd encryption at rest", func() {
 		})
 
 		It("restores activeKeyRef from an existing staticKey Secret when creating the TenantControlPlane", func() {
+			// Creating the TenantControlPlane also reads the pod CIDR from the config.
+			createOperatorConfig(nil)
 			sourceSecret := createStaticKeySecret()
 			store := encryptionconfig.NewStore(k8sClient, scheme.Scheme)
 			keyBytes := sourceSecret.Data["key"]

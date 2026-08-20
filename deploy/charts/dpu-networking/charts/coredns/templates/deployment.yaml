@@ -1,0 +1,140 @@
+{{ if .Values.deployHostManifests }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "coredns.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/component: dns
+    app.kubernetes.io/created-by: dpf-operator
+    app.kubernetes.io/part-of: dpf-operator
+  {{- include "coredns.labels" . | nindent 4 }}
+  annotations:
+    {{- include "coredns.annotations" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      {{- include "coredns.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "coredns.labels" . | nindent 8 }}
+      annotations:
+        # Restart pods on Corefile changes.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- include "coredns.annotations" . | nindent 8 }}
+    spec:
+      # Default rather than ClusterFirst, so that forwarding names outside the DPU cluster domain
+      # uses the node resolver instead of resolving through the host cluster's own CoreDNS.
+      dnsPolicy: Default
+      # The DPU cluster credentials are projected in through .Values.volumes, so the host cluster
+      # service account token must not be mounted over them.
+      automountServiceAccountToken: false
+      # The same user the container runs as, so a container added to this Pod cannot run as root.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      imagePullSecrets: {{ .Values.imagePullSecrets | default list | toJson }}
+      priorityClassName: system-cluster-critical
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      tolerations:
+      - operator: Exists
+        effect: NoSchedule
+        key: node-role.kubernetes.io/control-plane
+      - operator: Exists
+        effect: NoSchedule
+        key: node-role.kubernetes.io/master
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  {{- include "coredns.selectorLabels" . | nindent 18 }}
+      volumes:
+      {{- with .Values.volumes }}
+        {{- toYaml . | nindent 6 }}
+      {{- end }}
+      - name: config
+        configMap:
+          name: {{ include "coredns.fullname" . }}
+          items:
+          - key: Corefile
+            path: Corefile
+      containers:
+      - name: coredns
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        args:
+        - -conf
+        - /etc/coredns/Corefile
+        env:
+        {{- with .Values.env }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 65532
+          privileged: false
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+            # The CoreDNS binary ships with cap_net_bind_service as a file capability. execve fails
+            # with EPERM when a file capability is not in the process bounding set, which dropping
+            # ALL empties, so the capability has to be added back even though CoreDNS listens on an
+            # unprivileged port here.
+            add:
+            - NET_BIND_SERVICE
+        ports:
+        - name: dns
+          containerPort: {{ .Values.port }}
+          protocol: UDP
+        - name: dns-tcp
+          containerPort: {{ .Values.port }}
+          protocol: TCP
+        - name: metrics
+          containerPort: 9153
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+            scheme: HTTP
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 5
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8181
+            scheme: HTTP
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+        {{- with .Values.resources }}
+        resources:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        volumeMounts:
+        {{- with .Values.volumeMounts }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+        - name: config
+          mountPath: /etc/coredns
+          readOnly: true
+{{- end }}

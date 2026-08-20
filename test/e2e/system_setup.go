@@ -548,6 +548,7 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 			operatorv1.DPUMonitoringName.String(),
 			operatorv1.KataContainersName.String(),
 			operatorv1.OpenTelemetryCollectorName.String(),
+			operatorv1.CoreDNSName.String(),
 		)
 
 		// The initial phase of the upgrade test runs the last released GA, which ships the component
