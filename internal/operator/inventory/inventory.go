@@ -102,6 +102,7 @@ type SystemComponents struct {
 	KataContainers                  Component
 	VaultKMS                        Component
 	SpireAgentRBAC                  Component
+	CoreDNS                         Component
 }
 
 // Embed manifests for Kubernetes objects created by the controller.
@@ -168,6 +169,9 @@ var (
 
 	//go:embed manifests/spire-agent-rbac.yaml
 	spireAgentRBACData []byte
+
+	//go:embed manifests/coredns.yaml
+	coreDNSData []byte
 )
 
 // New returns a new SystemComponents inventory with data preloaded but parsing not completed.
@@ -229,6 +233,7 @@ func New() *SystemComponents {
 			name: operatorv1.SpireAgentRBACName,
 			data: spireAgentRBACData,
 		},
+		CoreDNS: newCoreDNSObjects(coreDNSData),
 	}
 }
 
@@ -248,6 +253,7 @@ func (s *SystemComponents) SystemDPUServices() []Component {
 		s.OpenTelemetryCollector,
 		s.KataContainers,
 		s.SpireAgentRBAC,
+		s.CoreDNS,
 	}
 }
 
@@ -275,6 +281,7 @@ func (s *SystemComponents) AllComponents() []Component {
 		s.KataContainers,
 		s.VaultKMS,
 		s.SpireAgentRBAC,
+		s.CoreDNS,
 	}
 }
 

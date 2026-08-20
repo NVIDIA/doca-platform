@@ -62,6 +62,7 @@ var dpuNetworkingSubCharts = map[operatorv1.ComponentName]bool{
 	operatorv1.OpenTelemetryCollectorName: true,
 	operatorv1.KataContainersName:         true,
 	operatorv1.SpireAgentRBACName:         true,
+	operatorv1.CoreDNSName:                true,
 }
 
 func (f *fromDPUService) Name() operatorv1.ComponentName {

@@ -74,12 +74,14 @@ import (
 const (
 	kubernetesNodeRoleMaster       = "node-role.kubernetes.io/master"
 	kubernetesNodeRoleControlPlane = "node-role.kubernetes.io/control-plane"
+	kamajiFieldOwner               = "kamaji-cluster-manager"
 
-	// Kube-apiserver security configuration (exported for tests)
+	// serviceCIDR is the Service range every DPU cluster is created with. The DNS Service the DPU
+	// cluster resolves against derives its ClusterIP from it.
+	serviceCIDR = "10.96.0.0/16"
+
 	// TLSCipherSuites defines the allowed TLS cipher suites for kube-apiserver
 	TLSCipherSuites = "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305"
-	// AdmissionPlugins defines the enabled admission plugins for kube-apiserver
-	AdmissionPlugins = "NamespaceLifecycle,LimitRanger,ServiceAccount,AlwaysPullImages,MutatingAdmissionWebhook,ValidatingAdmissionWebhook,ResourceQuota,PodSecurity,PodNodeSelector,NodeRestriction,EventRateLimit"
 )
 
 var (
@@ -229,11 +231,13 @@ func (p *dpuClusterTenantClientProvider) Client(ctx context.Context, dc *provisi
 func (cm *clusterHandler) ReconcileCluster(ctx context.Context, dc *provisioningv1.DPUCluster) (string, []metav1.Condition, error) {
 	var conds []metav1.Condition
 	kubeconfig, nodePort, cond, err := cm.reconcileKamaji(ctx, dc)
-	if err != nil {
-		return "", nil, err
-	}
+	// The condition is kept even on error, so a failure that has one to report says what went
+	// wrong on the DPUCluster rather than only in the log.
 	if cond != nil {
 		conds = append(conds, *cond)
+	}
+	if err != nil {
+		return "", conds, err
 	}
 
 	rotationResult, err := cm.reconcileStaticKeyRotation(ctx, dc)
@@ -384,7 +388,7 @@ func (cm *clusterHandler) reconcileKeepalived(ctx context.Context, dc *provision
 		err = func() error {
 			tc, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
-			if err = cm.Client.Patch(tc, obj, client.Apply, client.FieldOwner("kamaji-cluster-manager")); err != nil {
+			if err = cm.Client.Patch(tc, obj, client.Apply, client.FieldOwner(kamajiFieldOwner)); err != nil {
 				return fmt.Errorf("error patching %v %v: %w", obj.GetObjectKind().GroupVersionKind().Kind, klog.KObj(obj), err)
 			}
 			return nil
@@ -452,7 +456,11 @@ func (cm *clusterHandler) reconcileKamaji(ctx context.Context, dc *provisioningv
 		if err != nil {
 			return "", 0, nil, fmt.Errorf("failed to reconcile etcd encryption config, err: %v", err)
 		}
-		tcp, err = expectedTenantControlPlane(dc, cm.Scheme, nodePort)
+		podCIDR, err := cm.getFlannelPodCIDR(ctx)
+		if err != nil {
+			return "", 0, nil, err
+		}
+		tcp, err = expectedTenantControlPlane(dc, cm.Scheme, nodePort, podCIDR)
 		if err != nil {
 			return "", 0, nil, fmt.Errorf("failed to generate expected TCP, err: %v", err)
 		}
@@ -465,45 +473,102 @@ func (cm *clusterHandler) reconcileKamaji(ctx context.Context, dc *provisioningv
 		nodePort = tcp.Spec.NetworkProfile.Port
 		if tcp.Spec.Kubernetes.Version != cutil.KubernetesVersion {
 			logger.V(1).Info("need to upgrade TCP", "tcp", tcp.Name)
-			// Use retry logic to handle conflicts when the object has been modified
-			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-				// Get the latest version to avoid conflicts
-				latest := &kamajiv1.TenantControlPlane{}
-				if err := cm.Client.Get(ctx, nn, latest); err != nil {
-					return err
-				}
-
-				// Update the version
-				latest.Spec.Kubernetes.Version = cutil.KubernetesVersion
-
-				for _, newPatch := range kamaji134CompatibilityPatches {
-					found := false
-					for _, gotPatch := range latest.Spec.Kubernetes.Kubelet.ConfigurationJSONPatches {
-						if gotPatch.Op == newPatch.Op && gotPatch.Path == newPatch.Path && reflect.DeepEqual(gotPatch.Value, newPatch.Value) {
-							found = true
-							break
-						}
-					}
-					if !found {
-						latest.Spec.Kubernetes.Kubelet.ConfigurationJSONPatches = append(latest.Spec.Kubernetes.Kubelet.ConfigurationJSONPatches, newPatch)
-					}
-				}
-
-				// Clear managedFields to avoid conflicts with server-side apply
-				latest.SetManagedFields(nil)
-				latest.SetGroupVersionKind(kamajiv1.GroupVersion.WithKind("TenantControlPlane"))
-
-				// Apply the update
-				return cm.Client.Patch(ctx, latest, client.Apply, client.FieldOwner("kamaji-cluster-manager"), client.ForceOwnership)
-			})
-			if err != nil {
+			if err := cm.upgradeTenantControlPlane(ctx, nn); err != nil {
 				return "", 0, nil, fmt.Errorf("failed to upgrade TCP, err: %v", err)
 			}
 		}
 	}
 
 	condition := cm.getClusterCondition(tcp, dc)
+
+	// Reconciled last, so everything above has been done by the time a failure here ends the
+	// reconcile. It is skipped for a TenantControlPlane that has only just been created, because
+	// the tenant client cannot connect until the control plane is up.
+	if tcpCreated {
+		if err := cm.reconcileDNSService(ctx, dc, tcp); err != nil {
+			return adminKubeconfigName(dc), nodePort, condition, fmt.Errorf("failed to reconcile DPU cluster DNS Service, err: %v", err)
+		}
+	}
+
 	return adminKubeconfigName(dc), nodePort, condition, nil
+}
+
+// upgradeTenantControlPlane brings an existing TenantControlPlane up to the Kubernetes version this
+// release ships, along with the kubelet configuration patches that version needs.
+func (cm *clusterHandler) upgradeTenantControlPlane(ctx context.Context, nn types.NamespacedName) error {
+	// Use retry logic to handle conflicts when the object has been modified
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		// Get the latest version to avoid conflicts
+		latest := &kamajiv1.TenantControlPlane{}
+		if err := cm.Client.Get(ctx, nn, latest); err != nil {
+			return err
+		}
+
+		// Update the version
+		latest.Spec.Kubernetes.Version = cutil.KubernetesVersion
+
+		for _, newPatch := range kamaji134CompatibilityPatches {
+			found := false
+			for _, gotPatch := range latest.Spec.Kubernetes.Kubelet.ConfigurationJSONPatches {
+				if gotPatch.Op == newPatch.Op && gotPatch.Path == newPatch.Path && reflect.DeepEqual(gotPatch.Value, newPatch.Value) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				latest.Spec.Kubernetes.Kubelet.ConfigurationJSONPatches = append(latest.Spec.Kubernetes.Kubelet.ConfigurationJSONPatches, newPatch)
+			}
+		}
+
+		// Clear managedFields to avoid conflicts with server-side apply
+		latest.SetManagedFields(nil)
+		latest.SetGroupVersionKind(kamajiv1.GroupVersion.WithKind("TenantControlPlane"))
+
+		// Apply the update
+		return cm.Client.Patch(ctx, latest, client.Apply, client.FieldOwner(kamajiFieldOwner), client.ForceOwnership)
+	})
+}
+
+// getFlannelPodCIDR returns the Pod range DPU clusters are created with. It has to be the range
+// flannel is configured with, otherwise the control plane hands out node podCIDRs that flannel
+// does not route.
+func (cm *clusterHandler) getFlannelPodCIDR(ctx context.Context) (string, error) {
+	dpfOperatorConfig, err := utils.GetDPFOperatorConfig(ctx, cm.Client)
+	if err != nil {
+		return "", fmt.Errorf("failed to get DPFOperatorConfig for the pod CIDR, err: %v", err)
+	}
+	if dpfOperatorConfig.Spec.Flannel != nil && ptr.Deref(dpfOperatorConfig.Spec.Flannel.PodCIDR, "") != "" {
+		return *dpfOperatorConfig.Spec.Flannel.PodCIDR, nil
+	}
+	return inventory.DefaultFlannelPodCIDR, nil
+}
+
+// disableCoreDNSAddon clears the CoreDNS addon on an already existing TenantControlPlane.
+// New clusters never enable it, but clusters created before DNS moved to the host cluster still
+// carry it, and leaving it on would run a second CoreDNS on the DPUs answering for the same zone.
+//
+// The addon is only taken away from DPUClusters that get a host cluster CoreDNS in its place. A
+// DPUCluster the host cannot serve keeps Kamaji's CoreDNS, so it is never left without DNS. The
+// same predicate decides whether the CoreDNS component is generated at all, so the two cannot
+// disagree.
+//
+// It is only called once the DNS Service points at the host cluster CoreDNS, so the addon survives
+// until something else answers, and its DNS Service is read before Kamaji can drop it.
+func (cm *clusterHandler) disableCoreDNSAddon(ctx context.Context, dc *provisioningv1.DPUCluster, tcp *kamajiv1.TenantControlPlane) error {
+	logger := log.FromContext(ctx)
+
+	if !inventory.IsDPUClusterServedByHostDNS(dc) || tcp.Spec.Addons.CoreDNS == nil {
+		return nil
+	}
+
+	logger.V(1).Info("disabling Kamaji CoreDNS addon, DNS is served from the host cluster", "tcp", tcp.Name)
+	// A merge patch carries no resourceVersion, so it cannot conflict with the status writes Kamaji
+	// makes against the same object. A null value removes the field.
+	patch := []byte(`{"spec":{"addons":{"coreDNS":null}}}`)
+	if err := cm.Client.Patch(ctx, tcp, client.RawPatch(types.MergePatchType, patch)); err != nil {
+		return fmt.Errorf("failed to disable CoreDNS addon, err: %v", err)
+	}
+	return nil
 }
 
 func (cm *clusterHandler) reconcileMonitoring(ctx context.Context, dc *provisioningv1.DPUCluster, nodePort int32) error {
@@ -546,7 +611,7 @@ func (cm *clusterHandler) reconcileMonitoringService(ctx context.Context, dc *pr
 	logger.V(1).Info("reconciling metrics Service", "service", klog.KObj(svc))
 	owner := metav1.NewControllerRef(dc, provisioningv1.DPUClusterGroupVersionKind)
 	svc.SetOwnerReferences([]metav1.OwnerReference{*owner})
-	err := cm.Client.Patch(ctx, svc, client.Apply, client.FieldOwner("kamaji-cluster-manager"), client.ForceOwnership)
+	err := cm.Client.Patch(ctx, svc, client.Apply, client.FieldOwner(kamajiFieldOwner), client.ForceOwnership)
 	if err != nil {
 		return fmt.Errorf("failed to update metrics Service, err: %v", err)
 	}
@@ -588,7 +653,7 @@ func (cm *clusterHandler) reconcileServiceMonitor(ctx context.Context, dc *provi
 	logger.V(1).Info("reconciling ServiceMonitor", "servicemonitor", klog.KObj(sm))
 	owner := metav1.NewControllerRef(dc, provisioningv1.DPUClusterGroupVersionKind)
 	sm.SetOwnerReferences([]metav1.OwnerReference{*owner})
-	err := cm.Client.Patch(ctx, sm, client.Apply, client.FieldOwner("kamaji-cluster-manager"), client.ForceOwnership)
+	err := cm.Client.Patch(ctx, sm, client.Apply, client.FieldOwner(kamajiFieldOwner), client.ForceOwnership)
 	if err != nil {
 		return fmt.Errorf("failed to update ServiceMonitor, err: %v", err)
 	}
@@ -916,7 +981,7 @@ plugins:
 	return cm, nil
 }
 
-func expectedTenantControlPlane(dc *provisioningv1.DPUCluster, scheme *runtime.Scheme, nodePort int32) (*kamajiv1.TenantControlPlane, error) {
+func expectedTenantControlPlane(dc *provisioningv1.DPUCluster, scheme *runtime.Scheme, nodePort int32, podCIDR string) (*kamajiv1.TenantControlPlane, error) {
 	nn := kamajiTCPName(dc)
 	tcp := &kamajiv1.TenantControlPlane{
 		ObjectMeta: metav1.ObjectMeta{
@@ -1074,17 +1139,22 @@ func expectedTenantControlPlane(dc *provisioningv1.DPUCluster, scheme *runtime.S
 				},
 			},
 			Addons: kamajiv1.AddonsSpec{
-				CoreDNS:   &kamajiv1.AddonSpec{},
 				KubeProxy: &kamajiv1.AddonSpec{},
 			},
 		},
 	}
+	// Without a keepalived VIP no host cluster CoreDNS serves this DPUCluster, so it keeps Kamaji's
+	// own rather than coming up with no DNS at all.
+	if !inventory.IsDPUClusterServedByHostDNS(dc) {
+		tcp.Spec.Addons.CoreDNS = &kamajiv1.AddonSpec{}
+	}
+	// ServiceCIDR is set explicitly rather than left to the Kamaji default, because the DNS Service
+	// created in the DPU cluster derives its kube-dns ClusterIP from it.
+	tcp.Spec.NetworkProfile.ServiceCIDRs = []string{serviceCIDR}
 	if dc.Spec.ClusterEndpoint != nil && dc.Spec.ClusterEndpoint.Keepalived != nil {
-		tcp.Spec.NetworkProfile = kamajiv1.NetworkProfileSpec{
-			Address: dc.Spec.ClusterEndpoint.Keepalived.VIP,
-			Port:    nodePort,
-			PodCIDR: "10.244.0.0/14",
-		}
+		tcp.Spec.NetworkProfile.Address = dc.Spec.ClusterEndpoint.Keepalived.VIP
+		tcp.Spec.NetworkProfile.Port = nodePort
+		tcp.Spec.NetworkProfile.PodCIDRs = []string{podCIDR}
 	}
 	if err := controllerutil.SetOwnerReference(dc, tcp, scheme); err != nil {
 		return nil, fmt.Errorf("failed to set owner reference, err: %v", err)
@@ -1168,7 +1238,7 @@ func (cm *clusterHandler) copyImagePullSecrets(ctx context.Context, targetNamesp
 
 		// Patch will create if not exists, or update if exists
 		if err := cm.Client.Patch(ctx, dstSecret, client.Apply,
-			client.FieldOwner("kamaji-cluster-manager"), client.ForceOwnership); err != nil {
+			client.FieldOwner(kamajiFieldOwner), client.ForceOwnership); err != nil {
 			return nil, fmt.Errorf("failed to apply imagePullSecret %s in namespace %s: %w",
 				secretName, targetNamespace, err)
 		}

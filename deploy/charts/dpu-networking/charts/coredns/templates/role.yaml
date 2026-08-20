@@ -1,0 +1,29 @@
+{{ if .Values.deployDPUManifests }}
+---
+# Deployed into the DPU cluster. It grants the host side CoreDNS the reads its kubernetes plugin
+# needs to answer for DPU cluster Services and Pods.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "coredns.fullname" . }}
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - endpoints
+  - services
+  - pods
+  - namespaces
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - discovery.k8s.io
+  resources:
+  - endpointslices
+  verbs:
+  - get
+  - list
+  - watch
+{{ end }}
