@@ -50,6 +50,8 @@ var (
 	KataContainersName                  ComponentName = "kata-containers"
 	VaultKMSName                        ComponentName = "vault-kms"
 	SpireAgentRBACName                  ComponentName = "spire-agent-rbac"
+	CoreDNSName                         ComponentName = "coredns"
+	CoreDNSRBACName                     ComponentName = "coredns-rbac"
 )
 
 type ComponentName string
@@ -94,6 +96,8 @@ var (
 	KataDeployContainer ContainerName = "kata-deploy"
 	// VaultKMSContainer is the default name of the Vault KMS plugin container.
 	VaultKMSContainer ContainerName = "vault-kms"
+	// CoreDNSContainer is the default name of the host cluster CoreDNS container.
+	CoreDNSContainer ContainerName = "coredns"
 )
 
 type ContainerName string

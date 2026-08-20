@@ -79,6 +79,10 @@ type installPhaseInput struct {
 	expectedKubernetesVersion string
 	// artifactsKey, if set, captures a snapshot to upgrade-artifacts-<key>.json.
 	artifactsKey string
+	// dpuClusterRunsCoreDNS marks releases that still run CoreDNS inside the DPU cluster via the
+	// Kamaji addon. From the release that serves DPU cluster DNS from the host cluster on, there is
+	// no CoreDNS Pod there to wait for.
+	dpuClusterRunsCoreDNS bool
 	// expectedDPUServices returns the DPUService names verifySystemReady expects
 	// on the DPU cluster at this phase's DPF release.
 	expectedDPUServices func(input *systemTestInput) []string
@@ -144,6 +148,10 @@ type validationPhaseInput struct {
 	// hops that introduce no such change. Applied to every snapshot comparison
 	// this phase runs.
 	expectedChanges []upgradeExpectedChange
+	// dpuClusterRunsCoreDNS marks releases that still run CoreDNS inside the DPU cluster via the
+	// Kamaji addon. From the release that serves DPU cluster DNS from the host cluster on, there is
+	// no CoreDNS Pod there to wait for.
+	dpuClusterRunsCoreDNS bool
 	// expectedDPUServices returns the DPUService names verifySystemReady expects
 	// on the DPU cluster at this phase's DPF release. Required; the shape might
 	// differ between releases.
@@ -249,7 +257,7 @@ func installPhase(description string, in installPhaseInput) {
 			By("Waiting for provisioning")
 			VerifyDPUClusterWithNodes(ctx, getProvisionDPUClustersInput())
 			By("Waiting for system components to be ready")
-			verifySystemReady(in.expectedDPUServices(input))
+			verifySystemReady(in.expectedDPUServices(input), in.dpuClusterRunsCoreDNS)
 		})
 
 		if in.artifactsKey != "" {
@@ -349,7 +357,7 @@ func validationPhase(description string, in validationPhaseInput) {
 		It("validate DPUCluster is healthy", func() {
 			VerifyDPUClusterWithNodes(ctx, getProvisionDPUClustersInput())
 			By("Waiting for system components to be ready")
-			verifySystemReady(in.expectedDPUServices(input))
+			verifySystemReady(in.expectedDPUServices(input), in.dpuClusterRunsCoreDNS)
 		})
 		It("validate that DMS Pods are upgraded", func() {
 			VerifyHostAgentPodsImageTag(ctx, input)
@@ -388,7 +396,7 @@ func validationPhase(description string, in validationPhaseInput) {
 		It("wait for DPUs to be ready and system healthy after rollout", func() {
 			VerifyDPUClusterWithNodes(ctx, getProvisionDPUClustersInput())
 			By("Waiting for system components to be ready after rollout")
-			verifySystemReady(in.expectedDPUServices(input))
+			verifySystemReady(in.expectedDPUServices(input), in.dpuClusterRunsCoreDNS)
 		})
 
 		if in.verifyKubeletVersion {
@@ -555,15 +563,19 @@ func VerifyHostAgentPodsImageTag(ctx context.Context, input *systemTestInput) {
 // the important ones. The expected DPUService names are supplied by the caller
 // (phase.expectedDPUServices) so each upgrade phase asserts the DPUService
 // shape that matches its DPF release.
-func verifySystemReady(dpuServiceNames []string) {
-	VerifyClusterPods(ctx, dpuClusterClient[0], []string{
+func verifySystemReady(dpuServiceNames []string, dpuClusterRunsCoreDNS bool) {
+	pods := []string{
 		// Kubernetes system pods
-		"kube-flannel-ds", "coredns", "kube-proxy",
+		"kube-flannel-ds", "kube-proxy",
 		// DPF system components
 		"nvidia-k8s-ipam", "sfc-controller",
 		// DPUDeployment pods
 		"example",
-	})
+	}
+	if dpuClusterRunsCoreDNS {
+		pods = append(pods, "coredns")
+	}
+	VerifyClusterPods(ctx, dpuClusterClient[0], pods)
 
 	dpuservice.WaitForDPUServices(ctx, input.client, dpfOperatorSystemNamespace, dpuServiceNames)
 }

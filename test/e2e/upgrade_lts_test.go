@@ -72,6 +72,7 @@ var _ = Describe("DPF Upgrade LTS", func() {
 		expectedKubernetesVersion: "v1.34.0",
 		artifactsKey:              "v25.10",
 		expectedDPUServices:       expectedDPUServicesV2510,
+		dpuClusterRunsCoreDNS:     true,
 	})
 
 	validationPhase("v26.4", validationPhaseInput{
@@ -98,7 +99,8 @@ var _ = Describe("DPF Upgrade LTS", func() {
 		preRolloutArtifactsKey:     "v26.4-pre-rollout",
 		preRolloutPrevArtifactsKey: "v25.10",
 
-		expectedDPUServices: expectedDPUServicesV2604,
+		expectedDPUServices:   expectedDPUServicesV2604,
+		dpuClusterRunsCoreDNS: true,
 	})
 
 	validationPhase("current", validationPhaseInput{

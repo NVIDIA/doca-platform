@@ -9,6 +9,7 @@ A Helm chart for Kubernetes
 | Repository | Name | Version |
 |------------|------|---------|
 | file://charts/cni-installer | cni-installer | 0.1.0 |
+| file://charts/coredns | coredns | 0.1.0 |
 | file://charts/dpu-monitoring | dpu-monitoring | 0.1.0 |
 | file://charts/kata-containers | kata-containers | 0.1.0 |
 | file://charts/kube-state-metrics | kube-state-metrics | 0.1.0 |
@@ -27,6 +28,7 @@ A Helm chart for Kubernetes
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | cni-installer.enabled | bool | `false` |  |
+| coredns.enabled | bool | `false` |  |
 | dpu-monitoring.enabled | bool | `false` |  |
 | flannel.enabled | bool | `false` |  |
 | flannel.flannel.image.tag | string | `"v0.27.2@sha256:782c111d55e850e8038cdaf35454987e6c170ae9b54d5b12895b02d45c908caf"` |  |
