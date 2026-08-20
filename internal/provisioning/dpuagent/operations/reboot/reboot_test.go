@@ -1296,6 +1296,68 @@ var _ = Describe("Reboot", func() {
 			Expect(cond.Reason).To(Equal(string(provisioningv1.RebootMethodPowerCycle)))
 		})
 
+		It("getRebootMethod returns PowerCycle when description_action reports power cycle and command_required is absent", func() {
+			mlxfwresetJSON := strings.TrimSpace(`
+{
+  "reset_needed": true,
+  "pending_nvconfig_parameters": "N/A (No pending NVCONFIG parameters)",
+  "description_action": "Full power cycle is required",
+  "reasons": ["Pending FW update"]
+}
+`)
+			optCtx := &operations.Context{
+				RebootMethodDiscovery: true,
+				CurrentBootID:         "boot-id",
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
+					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPCIAddress0}}, nil
+				},
+			}
+			h := &HandleReboot{
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					var b bytes.Buffer
+					_, _ = b.WriteString(mlxfwresetJSON)
+					return b, bytes.Buffer{}, nil
+				},
+			}
+			m, err := h.getRebootMethod(optCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(*m).To(Equal(provisioningv1.RebootMethodPowerCycle))
+			cond := meta.FindStatusCondition(optCtx.Status.Conditions, cutil.AgentCondRebootMethodDiscovery)
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Reason).To(Equal(string(provisioningv1.RebootMethodPowerCycle)))
+		})
+
+		It("getRebootMethod prefers PowerCycle from description_action over SystemLevelReset from command_required", func() {
+			mlxfwresetJSON := strings.TrimSpace(`
+{
+  "reset_needed": true,
+  "pending_nvconfig_parameters": "N/A (No pending NVCONFIG parameters)",
+  "description_action": "Full power cycle is required",
+  "command_required": "Reboot external host is required"
+}
+`)
+			optCtx := &operations.Context{
+				RebootMethodDiscovery: true,
+				CurrentBootID:         "boot-id",
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
+					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPCIAddress0}}, nil
+				},
+			}
+			h := &HandleReboot{
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					var b bytes.Buffer
+					_, _ = b.WriteString(mlxfwresetJSON)
+					return b, bytes.Buffer{}, nil
+				},
+			}
+			m, err := h.getRebootMethod(optCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(*m).To(Equal(provisioningv1.RebootMethodPowerCycle))
+			cond := meta.FindStatusCondition(optCtx.Status.Conditions, cutil.AgentCondRebootMethodDiscovery)
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Reason).To(Equal(string(provisioningv1.RebootMethodPowerCycle)))
+		})
+
 		It("getRebootMethod returns SystemLevelReset when command_required is external host reboot message", func() {
 			mlxfwresetJSON := strings.TrimSpace(`
 {
