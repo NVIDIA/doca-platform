@@ -39,9 +39,9 @@ type Options struct {
 	OutputPath string
 	// DefaultResourcePrefix is the default resource prefix for resources that don't specify one.
 	DefaultResourcePrefix string
-	// DevicesReadinessTimeout is the timeout for discovering DPUs and waiting for VFs to be ready.
+	// DevicesReadinessTimeout is the timeout for discovering DPUs and waiting for functions to be ready.
 	DevicesReadinessTimeout time.Duration
-	// DevicesReadinessPollInterval is the interval for polling for DPUs and VFs to be ready.
+	// DevicesReadinessPollInterval is the interval for polling for DPUs and functions to be ready.
 	DevicesReadinessPollInterval time.Duration
 
 	// SysFSRoot is the path to the sysfs root directory (default: /sys).
@@ -51,9 +51,9 @@ type Options struct {
 }
 
 // Run executes the init container logic. It reads the input config, discovers
-// DPUs on the node, and waits for required PFs to have at least one VF created
-// (virtfn0 exists). Once ready, it generates the upstream device plugin config
-// using rootDevices with range syntax and writes it to disk.
+// DPUs on the node, and waits for required PFs to have the requested functions
+// ready (VFs and/or SFs). Once ready, it generates the upstream device plugin
+// config using rootDevices with range syntax and writes it to disk.
 func Run(ctx context.Context, opts Options) error {
 	if opts.SysFSRoot == "" {
 		opts.SysFSRoot = "/sys"
@@ -75,7 +75,7 @@ func Run(ctx context.Context, opts Options) error {
 
 	klog.InfoS("Read input config", "dpuCount", len(inputConfig))
 
-	// Discover DPUs and wait for required PFs to have VFs ready.
+	// Discover DPUs and wait for required PFs to have requested functions ready.
 	// Only PFs mentioned in the config are waited for.
 	dpuInfoList, err := discoverDPUsAndWaitForReadiness(ctx,
 		opts.Clock,
@@ -84,7 +84,7 @@ func Run(ctx context.Context, opts Options) error {
 		opts.DevicesReadinessTimeout,
 		opts.DevicesReadinessPollInterval)
 	if err != nil {
-		return fmt.Errorf("failed to discover DPUs and wait for VFs to be ready: %w", err)
+		return fmt.Errorf("failed to discover DPUs and wait for functions to be ready: %w", err)
 	}
 
 	config, err := buildDevicePluginConfig(opts.DefaultResourcePrefix, dpuInfoList)
@@ -123,6 +123,9 @@ func readInputConfig(defaultResourcePrefix string, inputPath string) (common.Nod
 		if errList := common.ValidateDevicePluginResources(field.NewPath(serialNumber), defaultResourcePrefix, resources); len(errList) > 0 {
 			return nil, fmt.Errorf("validation of input config for DPU %s failed: %w", serialNumber, errList.ToAggregate())
 		}
+	}
+	if errList := common.ValidateCrossDPUResourceTypes(defaultResourcePrefix, inputConfig); len(errList) > 0 {
+		return nil, fmt.Errorf("validation of input config failed: %w", errList.ToAggregate())
 	}
 	return inputConfig, nil
 }

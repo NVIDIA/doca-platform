@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"time"
@@ -112,6 +113,22 @@ func (m *mockSysfs) addVF(pfAddr string, vfIndex int, vfAddr string) {
 	Expect(err).NotTo(HaveOccurred())
 }
 
+// addSF adds a mock Scalable Function under the PF (mlx5_core.sf.<auxIndex>/sfnum).
+func (m *mockSysfs) addSF(pfAddr string, auxIndex, sfnum int) {
+	sfPath := filepath.Join(m.root, "bus/pci/devices", pfAddr, fmt.Sprintf("mlx5_core.sf.%d", auxIndex))
+	err := os.MkdirAll(sfPath, 0755)
+	Expect(err).NotTo(HaveOccurred())
+	err = os.WriteFile(filepath.Join(sfPath, "sfnum"), []byte(fmt.Sprintf("%d\n", sfnum)), 0644)
+	Expect(err).NotTo(HaveOccurred())
+}
+
+// addContiguousSFs adds mock SFs with sfnum start..end inclusive.
+func (m *mockSysfs) addContiguousSFs(pfAddr string, start, end int) {
+	for sfnum := start; sfnum <= end; sfnum++ {
+		m.addSF(pfAddr, sfnum, sfnum)
+	}
+}
+
 // createVPDWithSerial creates VPD data containing a serial number.
 func createVPDWithSerial(serialNumber string) []byte {
 	snBytes := []byte(serialNumber)
@@ -140,7 +157,7 @@ var _ = Describe("Init Container", func() {
 					{
 						Name: "pods_vf",
 						Type: noderesourcesv1.DevicePluginResourceTypeVF,
-						Ranges: []noderesourcesv1.VFRange{
+						Ranges: []noderesourcesv1.FunctionRange{
 							{PFIndex: 0, Start: ptr.To(int32(2)), End: ptr.To(int32(10))},
 						},
 					},
@@ -232,12 +249,12 @@ var _ = Describe("Init Container", func() {
 				"SN1234": {{
 					Name:   "res1",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 0}, {PFIndex: 1}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0}, {PFIndex: 1}},
 				}},
 				"SN5678": {{
 					Name:   "res2",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 0}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0}},
 				}},
 			}
 
@@ -261,12 +278,12 @@ var _ = Describe("Init Container", func() {
 					{
 						Name:   "res1",
 						Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-						Ranges: []noderesourcesv1.VFRange{{PFIndex: 0}},
+						Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0}},
 					},
 					{
 						Name:   "res2",
 						Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-						Ranges: []noderesourcesv1.VFRange{{PFIndex: 0}},
+						Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0}},
 					},
 				},
 			}
@@ -301,49 +318,71 @@ var _ = Describe("Init Container", func() {
 			Expect(pfHasVFs(mock.root, "0000:b1:00.0")).To(BeFalse())
 		})
 	})
-	Context("resolveVFRange", func() {
-		DescribeTable("should resolve VF ranges",
-			func(in noderesourcesv1.VFRange, want vfRangeInfo) {
-				pf := &PFInfo{Address: "0000:b1:00.0", TotalVFs: 64}
-				Expect(resolveVFRange(pf, in)).To(Equal(want))
+	Context("sfRangeFullyPresent", func() {
+		DescribeTable("should require every index in a contiguous SF range",
+			func(start, end int32, present []int32, want bool) {
+				got := make(map[int32]struct{}, len(present))
+				for _, n := range present {
+					got[n] = struct{}{}
+				}
+				Expect(sfRangeFullyPresent(start, end, got)).To(Equal(want))
+			},
+			Entry("all indexes present", int32(50), int32(52), []int32{50, 51, 52}, true),
+			Entry("single index present", int32(0), int32(0), []int32{0}, true),
+			Entry("present sfnum outside the range", int32(50), int32(60), []int32{0}, false),
+			Entry("hole in the middle", int32(50), int32(52), []int32{50, 52}, false),
+			Entry("missing start", int32(50), int32(52), []int32{51, 52}, false),
+			Entry("missing end", int32(50), int32(52), []int32{50, 51}, false),
+			Entry("empty discovery", int32(0), int32(3), nil, false),
+			Entry("end at MaxInt32 does not overflow", int32(math.MaxInt32), int32(math.MaxInt32), []int32{math.MaxInt32}, true),
+		)
+	})
+	Context("resolveFunctionRange", func() {
+		DescribeTable("should resolve function ranges",
+			func(in noderesourcesv1.FunctionRange, total int32, want functionRangeInfo) {
+				Expect(resolveFunctionRange(total, in)).To(Equal(want))
 			},
 			Entry("explicit start and end",
-				noderesourcesv1.VFRange{PFIndex: 0, Start: ptr.To(int32(2)), End: ptr.To(int32(10))},
-				vfRangeInfo{start: 2, end: 10},
+				noderesourcesv1.FunctionRange{PFIndex: 0, Start: ptr.To(int32(2)), End: ptr.To(int32(10))},
+				int32(64),
+				functionRangeInfo{start: 2, end: 10},
 			),
 			Entry("start defaults to 0",
-				noderesourcesv1.VFRange{PFIndex: 0, End: ptr.To(int32(10))},
-				vfRangeInfo{start: 0, end: 10},
+				noderesourcesv1.FunctionRange{PFIndex: 0, End: ptr.To(int32(10))},
+				int32(64),
+				functionRangeInfo{start: 0, end: 10},
 			),
-			Entry("end defaults to totalVFs-1",
-				noderesourcesv1.VFRange{PFIndex: 0, Start: ptr.To(int32(2))},
-				vfRangeInfo{start: 2, end: 63},
+			Entry("end defaults to total-1",
+				noderesourcesv1.FunctionRange{PFIndex: 0, Start: ptr.To(int32(2))},
+				int32(64),
+				functionRangeInfo{start: 2, end: 63},
 			),
 			Entry("start/end defaults when missing",
-				noderesourcesv1.VFRange{PFIndex: 0},
-				vfRangeInfo{start: 0, end: 63},
+				noderesourcesv1.FunctionRange{PFIndex: 0},
+				int32(64),
+				functionRangeInfo{start: 0, end: 63},
 			),
 		)
 	})
 	Context("formatRootDevice", func() {
-		DescribeTable("should format root device with VF range syntax",
-			func(in []vfRangeInfo, want string) {
+		DescribeTable("should format root device with function range syntax",
+			func(in []functionRangeInfo, want string) {
 				Expect(formatRootDevice("0000:b1:00.0", in)).To(Equal(want))
 			},
 			Entry("single range",
-				[]vfRangeInfo{{start: 2, end: 10}},
+				[]functionRangeInfo{{start: 2, end: 10}},
 				"0000:b1:00.0#2-10",
 			),
 			Entry("multiple ranges combined",
-				[]vfRangeInfo{{start: 2, end: 10}, {start: 15, end: 20}},
+				[]functionRangeInfo{{start: 2, end: 10}, {start: 15, end: 20}},
 				"0000:b1:00.0#2-10,15-20",
 			),
 			Entry("ranges sorted by start index",
-				[]vfRangeInfo{{start: 15, end: 20}, {start: 2, end: 10}},
+				[]functionRangeInfo{{start: 15, end: 20}, {start: 2, end: 10}},
 				"0000:b1:00.0#2-10,15-20",
 			),
 			Entry("three or more ranges",
-				[]vfRangeInfo{{start: 30, end: 35}, {start: 2, end: 10}, {start: 15, end: 20}},
+				[]functionRangeInfo{{start: 30, end: 35}, {start: 2, end: 10}, {start: 15, end: 20}},
 				"0000:b1:00.0#2-10,15-20,30-35",
 			),
 		)
@@ -358,7 +397,7 @@ var _ = Describe("Init Container", func() {
 						Options: &noderesourcesv1.DevicePluginResourceOptions{
 							IsRdma: ptr.To(true),
 						},
-						Ranges: []noderesourcesv1.VFRange{
+						Ranges: []noderesourcesv1.FunctionRange{
 							{PFIndex: 0, Start: ptr.To(int32(2)), End: ptr.To(int32(10))},
 						},
 					},
@@ -390,7 +429,7 @@ var _ = Describe("Init Container", func() {
 				"SN1234": {{
 					Name:   "pods_vf",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(2))}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(2))}},
 				}},
 			}
 
@@ -415,12 +454,12 @@ var _ = Describe("Init Container", func() {
 				"SN1234": {{
 					Name:   "pods_vf",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(2)), End: ptr.To(int32(5))}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(2)), End: ptr.To(int32(5))}},
 				}},
 				"SN5678": {{
 					Name:   "pods_vf",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(2)), End: ptr.To(int32(5))}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(2)), End: ptr.To(int32(5))}},
 				}},
 			}
 
@@ -458,7 +497,7 @@ var _ = Describe("Init Container", func() {
 					Name:           "pods_vf",
 					Type:           noderesourcesv1.DevicePluginResourceTypeVF,
 					ResourcePrefix: ptr.To("custom.io"),
-					Ranges:         []noderesourcesv1.VFRange{{PFIndex: 0}},
+					Ranges:         []noderesourcesv1.FunctionRange{{PFIndex: 0}},
 				}},
 			}
 
@@ -485,12 +524,12 @@ var _ = Describe("Init Container", func() {
 					Name:    "mgmt_vf",
 					Type:    noderesourcesv1.DevicePluginResourceTypeVF,
 					Options: &noderesourcesv1.DevicePluginResourceOptions{IsRdma: ptr.To(true)},
-					Ranges:  []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(1)), End: ptr.To(int32(1))}},
+					Ranges:  []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(1)), End: ptr.To(int32(1))}},
 				}},
 				"SN5678": {{
 					Name:   "mgmt_vf",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(1)), End: ptr.To(int32(1))}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(1)), End: ptr.To(int32(1))}},
 				}},
 			}
 
@@ -527,7 +566,7 @@ var _ = Describe("Init Container", func() {
 				"SN1234": {{
 					Name: "pods_vf",
 					Type: noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{
+					Ranges: []noderesourcesv1.FunctionRange{
 						{PFIndex: 0, Start: ptr.To(int32(11)), End: ptr.To(int32(20))},
 						{PFIndex: 0, Start: ptr.To(int32(2)), End: ptr.To(int32(10))},
 					},
@@ -557,7 +596,7 @@ var _ = Describe("Init Container", func() {
 				"SN1234": {{
 					Name: "pods_vf",
 					Type: noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{
+					Ranges: []noderesourcesv1.FunctionRange{
 						{PFIndex: 0, Start: ptr.To(int32(2)), End: ptr.To(int32(10))},
 						{PFIndex: 1, Start: ptr.To(int32(5)), End: ptr.To(int32(15))},
 						{PFIndex: 0, Start: ptr.To(int32(15)), End: ptr.To(int32(20))},
@@ -596,12 +635,12 @@ var _ = Describe("Init Container", func() {
 					{
 						Name:   "pods_vf",
 						Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-						Ranges: []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(2)), End: ptr.To(int32(10))}},
+						Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(2)), End: ptr.To(int32(10))}},
 					},
 					{
 						Name:   "mgmt_vf",
 						Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-						Ranges: []noderesourcesv1.VFRange{{PFIndex: 1, Start: ptr.To(int32(0)), End: ptr.To(int32(1))}},
+						Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 1, Start: ptr.To(int32(0)), End: ptr.To(int32(1))}},
 					},
 				},
 			}
@@ -640,24 +679,24 @@ var _ = Describe("Init Container", func() {
 					{
 						Name:   "pods_vf",
 						Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-						Ranges: []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(2)), End: ptr.To(int32(10))}},
+						Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(2)), End: ptr.To(int32(10))}},
 					},
 					{
 						Name:   "mgmt_vf",
 						Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-						Ranges: []noderesourcesv1.VFRange{{PFIndex: 1, Start: ptr.To(int32(0)), End: ptr.To(int32(1))}},
+						Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 1, Start: ptr.To(int32(0)), End: ptr.To(int32(1))}},
 					},
 				},
 				"SN5678": {
 					{
 						Name:   "pods_vf",
 						Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-						Ranges: []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(2)), End: ptr.To(int32(10))}},
+						Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(2)), End: ptr.To(int32(10))}},
 					},
 					{
 						Name:   "storage_vf",
 						Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-						Ranges: []noderesourcesv1.VFRange{{PFIndex: 1, Start: ptr.To(int32(5)), End: ptr.To(int32(15))}},
+						Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 1, Start: ptr.To(int32(5)), End: ptr.To(int32(15))}},
 					},
 				},
 			}
@@ -717,13 +756,13 @@ var _ = Describe("Init Container", func() {
 						Name:           "pods_vf",
 						Type:           noderesourcesv1.DevicePluginResourceTypeVF,
 						ResourcePrefix: ptr.To("nvidia.com"),
-						Ranges:         []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(2)), End: ptr.To(int32(10))}},
+						Ranges:         []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(2)), End: ptr.To(int32(10))}},
 					},
 					{
 						Name:           "pods_vf",
 						Type:           noderesourcesv1.DevicePluginResourceTypeVF,
 						ResourcePrefix: ptr.To("custom.io"),
-						Ranges:         []noderesourcesv1.VFRange{{PFIndex: 1, Start: ptr.To(int32(0)), End: ptr.To(int32(5))}},
+						Ranges:         []noderesourcesv1.FunctionRange{{PFIndex: 1, Start: ptr.To(int32(0)), End: ptr.To(int32(5))}},
 					},
 				},
 			}
@@ -757,6 +796,286 @@ var _ = Describe("Init Container", func() {
 				},
 			}))
 		})
+		It("should build auxNetDevice config for SF resources", func() {
+			inputConfig := common.NodeInputConfig{
+				"SN1234": {{
+					Name:    "pods_sf",
+					Type:    noderesourcesv1.DevicePluginResourceTypeSF,
+					Options: &noderesourcesv1.DevicePluginResourceOptions{IsRdma: ptr.To(true)},
+					Ranges:  []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(7))}},
+				}},
+			}
+
+			dpuInfoList := []DPUInfo{{
+				SerialNumber:                "SN1234",
+				BaseAddress:                 "0000:b1:00",
+				PFs:                         map[int32]*PFInfo{0: {Address: "0000:b1:00.0"}},
+				DevicePluginResourcesConfig: inputConfig["SN1234"],
+			}}
+
+			config, err := buildDevicePluginConfig("nvidia.com", dpuInfoList)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(config).To(BeComparableTo(&DevicePluginConfig{
+				ResourceList: []ResourceConfig{{
+					ResourceName:   "pods_sf",
+					ResourcePrefix: "nvidia.com",
+					DeviceType:     deviceTypeAuxNetDevice,
+					Selectors: []Selector{{
+						RootDevices: []string{"0000:b1:00.0#0-7"},
+						AuxTypes:    []string{auxTypeSF},
+						IsRdma:      true,
+					}},
+				}},
+			}))
+		})
+		It("should set needVhostNet when requested", func() {
+			inputConfig := common.NodeInputConfig{
+				"SN1234": {{
+					Name:    "pods_sf",
+					Type:    noderesourcesv1.DevicePluginResourceTypeSF,
+					Options: &noderesourcesv1.DevicePluginResourceOptions{NeedVhostNet: ptr.To(true)},
+					Ranges:  []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(7))}},
+				}},
+			}
+
+			dpuInfoList := []DPUInfo{{
+				SerialNumber:                "SN1234",
+				BaseAddress:                 "0000:b1:00",
+				PFs:                         map[int32]*PFInfo{0: {Address: "0000:b1:00.0"}},
+				DevicePluginResourcesConfig: inputConfig["SN1234"],
+			}}
+
+			config, err := buildDevicePluginConfig("nvidia.com", dpuInfoList)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(config).To(BeComparableTo(&DevicePluginConfig{
+				ResourceList: []ResourceConfig{{
+					ResourceName:   "pods_sf",
+					ResourcePrefix: "nvidia.com",
+					DeviceType:     deviceTypeAuxNetDevice,
+					Selectors: []Selector{{
+						RootDevices:  []string{"0000:b1:00.0#0-7"},
+						AuxTypes:     []string{auxTypeSF},
+						NeedVhostNet: true,
+					}},
+				}},
+			}))
+		})
+		It("should use explicit SF start and end without inferring from discovered SFs", func() {
+			inputConfig := common.NodeInputConfig{
+				"SN1234": {{
+					Name:   "pods_sf",
+					Type:   noderesourcesv1.DevicePluginResourceTypeSF,
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(1)), End: ptr.To(int32(3))}},
+				}},
+			}
+
+			dpuInfoList := []DPUInfo{{
+				SerialNumber:                "SN1234",
+				BaseAddress:                 "0000:b1:00",
+				PFs:                         map[int32]*PFInfo{0: {Address: "0000:b1:00.0"}},
+				DevicePluginResourcesConfig: inputConfig["SN1234"],
+			}}
+
+			config, err := buildDevicePluginConfig("nvidia.com", dpuInfoList)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(config).To(BeComparableTo(&DevicePluginConfig{
+				ResourceList: []ResourceConfig{{
+					ResourceName:   "pods_sf",
+					ResourcePrefix: "nvidia.com",
+					DeviceType:     deviceTypeAuxNetDevice,
+					Selectors: []Selector{{
+						RootDevices: []string{"0000:b1:00.0#1-3"},
+						AuxTypes:    []string{auxTypeSF},
+					}},
+				}},
+			}))
+		})
+		It("should build mixed VF and SF resources without sharing selectors", func() {
+			inputConfig := common.NodeInputConfig{
+				"SN1234": {
+					{
+						Name:   "pods_vf",
+						Type:   noderesourcesv1.DevicePluginResourceTypeVF,
+						Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(2)), End: ptr.To(int32(10))}},
+					},
+					{
+						Name:   "pods_sf",
+						Type:   noderesourcesv1.DevicePluginResourceTypeSF,
+						Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(3))}},
+					},
+				},
+			}
+
+			dpuInfoList := []DPUInfo{{
+				SerialNumber: "SN1234",
+				BaseAddress:  "0000:b1:00",
+				PFs: map[int32]*PFInfo{
+					0: {Address: "0000:b1:00.0", TotalVFs: 64},
+				},
+				DevicePluginResourcesConfig: inputConfig["SN1234"],
+			}}
+
+			config, err := buildDevicePluginConfig("nvidia.com", dpuInfoList)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(config).To(BeComparableTo(&DevicePluginConfig{
+				ResourceList: []ResourceConfig{
+					{
+						ResourceName:   "pods_sf",
+						ResourcePrefix: "nvidia.com",
+						DeviceType:     deviceTypeAuxNetDevice,
+						Selectors: []Selector{{
+							RootDevices: []string{"0000:b1:00.0#0-3"},
+							AuxTypes:    []string{auxTypeSF},
+						}},
+					},
+					{
+						ResourceName:   "pods_vf",
+						ResourcePrefix: "nvidia.com",
+						Selectors:      []Selector{{RootDevices: []string{"0000:b1:00.0#2-10"}}},
+					},
+				},
+			}))
+		})
+		It("should reject VF then SF with the same prefix/name across DPUs", func() {
+			dpuInfoList := []DPUInfo{
+				{
+					SerialNumber: "SN1234",
+					BaseAddress:  "0000:b1:00",
+					PFs:          map[int32]*PFInfo{0: {Address: "0000:b1:00.0", TotalVFs: 64}},
+					DevicePluginResourcesConfig: []noderesourcesv1.DevicePluginResource{{
+						Name:   "pods",
+						Type:   noderesourcesv1.DevicePluginResourceTypeVF,
+						Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(7))}},
+					}},
+				},
+				{
+					SerialNumber: "SN5678",
+					BaseAddress:  "0000:b2:00",
+					PFs:          map[int32]*PFInfo{0: {Address: "0000:b2:00.0"}},
+					DevicePluginResourcesConfig: []noderesourcesv1.DevicePluginResource{{
+						Name:   "pods",
+						Type:   noderesourcesv1.DevicePluginResourceTypeSF,
+						Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(3))}},
+					}},
+				},
+			}
+
+			_, err := buildDevicePluginConfig("nvidia.com", dpuInfoList)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("nvidia.com/pods"))
+			Expect(err.Error()).To(ContainSubstring("already registered as"))
+			Expect(err.Error()).To(ContainSubstring("vf"))
+			Expect(err.Error()).To(ContainSubstring("sf"))
+		})
+		It("should reject SF then VF with the same prefix/name across DPUs", func() {
+			dpuInfoList := []DPUInfo{
+				{
+					SerialNumber: "SN5678",
+					BaseAddress:  "0000:b2:00",
+					PFs:          map[int32]*PFInfo{0: {Address: "0000:b2:00.0"}},
+					DevicePluginResourcesConfig: []noderesourcesv1.DevicePluginResource{{
+						Name:   "pods",
+						Type:   noderesourcesv1.DevicePluginResourceTypeSF,
+						Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(3))}},
+					}},
+				},
+				{
+					SerialNumber: "SN1234",
+					BaseAddress:  "0000:b1:00",
+					PFs:          map[int32]*PFInfo{0: {Address: "0000:b1:00.0", TotalVFs: 64}},
+					DevicePluginResourcesConfig: []noderesourcesv1.DevicePluginResource{{
+						Name:   "pods",
+						Type:   noderesourcesv1.DevicePluginResourceTypeVF,
+						Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(7))}},
+					}},
+				},
+			}
+
+			_, err := buildDevicePluginConfig("nvidia.com", dpuInfoList)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("nvidia.com/pods"))
+			Expect(err.Error()).To(ContainSubstring("already registered as"))
+			Expect(err.Error()).To(ContainSubstring("vf"))
+			Expect(err.Error()).To(ContainSubstring("sf"))
+		})
+		It("should treat same name with different prefixes as separate resources across DPUs", func() {
+			dpuInfoList := []DPUInfo{
+				{
+					SerialNumber: "SN1234",
+					BaseAddress:  "0000:b1:00",
+					PFs:          map[int32]*PFInfo{0: {Address: "0000:b1:00.0", TotalVFs: 64}},
+					DevicePluginResourcesConfig: []noderesourcesv1.DevicePluginResource{{
+						Name:           "pods",
+						Type:           noderesourcesv1.DevicePluginResourceTypeVF,
+						ResourcePrefix: ptr.To("nvidia.com"),
+						Ranges:         []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(7))}},
+					}},
+				},
+				{
+					SerialNumber: "SN5678",
+					BaseAddress:  "0000:b2:00",
+					PFs:          map[int32]*PFInfo{0: {Address: "0000:b2:00.0"}},
+					DevicePluginResourcesConfig: []noderesourcesv1.DevicePluginResource{{
+						Name:           "pods",
+						Type:           noderesourcesv1.DevicePluginResourceTypeSF,
+						ResourcePrefix: ptr.To("custom.io"),
+						Ranges:         []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(3))}},
+					}},
+				},
+			}
+
+			config, err := buildDevicePluginConfig("nvidia.com", dpuInfoList)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(config).To(BeComparableTo(&DevicePluginConfig{
+				ResourceList: []ResourceConfig{
+					{
+						ResourceName:   "pods",
+						ResourcePrefix: "custom.io",
+						DeviceType:     deviceTypeAuxNetDevice,
+						Selectors: []Selector{{
+							RootDevices: []string{"0000:b2:00.0#0-3"},
+							AuxTypes:    []string{auxTypeSF},
+						}},
+					},
+					{
+						ResourceName:   "pods",
+						ResourcePrefix: "nvidia.com",
+						Selectors:      []Selector{{RootDevices: []string{"0000:b1:00.0#0-7"}}},
+					},
+				},
+			}))
+		})
+		It("should reject the same custom prefix and name with different types across DPUs", func() {
+			dpuInfoList := []DPUInfo{
+				{
+					SerialNumber: "SN1234",
+					BaseAddress:  "0000:b1:00",
+					PFs:          map[int32]*PFInfo{0: {Address: "0000:b1:00.0", TotalVFs: 64}},
+					DevicePluginResourcesConfig: []noderesourcesv1.DevicePluginResource{{
+						Name:           "pods",
+						Type:           noderesourcesv1.DevicePluginResourceTypeVF,
+						ResourcePrefix: ptr.To("custom.io"),
+						Ranges:         []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(7))}},
+					}},
+				},
+				{
+					SerialNumber: "SN5678",
+					BaseAddress:  "0000:b2:00",
+					PFs:          map[int32]*PFInfo{0: {Address: "0000:b2:00.0"}},
+					DevicePluginResourcesConfig: []noderesourcesv1.DevicePluginResource{{
+						Name:           "pods",
+						Type:           noderesourcesv1.DevicePluginResourceTypeSF,
+						ResourcePrefix: ptr.To("custom.io"),
+						Ranges:         []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(3))}},
+					}},
+				},
+			}
+
+			_, err := buildDevicePluginConfig("nvidia.com", dpuInfoList)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("custom.io/pods"))
+			Expect(err.Error()).To(ContainSubstring("already registered as"))
+		})
 	})
 	Context("Run (integration)", func() {
 		var mock *mockSysfs
@@ -779,7 +1098,7 @@ var _ = Describe("Init Container", func() {
 				"SN1234": {{
 					Name:   "pods_vf",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(2)), End: ptr.To(int32(10))}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(2)), End: ptr.To(int32(10))}},
 				}},
 			}
 			inputPath := writeInputConfigFile(tempDir, "input.json", inputConfig)
@@ -812,6 +1131,51 @@ var _ = Describe("Init Container", func() {
 				}},
 			}))
 		})
+		It("should generate auxNetDevice config for SF input", func() {
+			mock.addPF("0000:b1:00.0", "SN1234", 0)
+			mock.addContiguousSFs("0000:b1:00.0", 0, 7)
+
+			inputConfig := common.NodeInputConfig{
+				"SN1234": {{
+					Name:   "pods_sf",
+					Type:   noderesourcesv1.DevicePluginResourceTypeSF,
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(7))}},
+				}},
+			}
+			inputPath := writeInputConfigFile(tempDir, "input.json", inputConfig)
+
+			outputDir := filepath.Join(tempDir, "output")
+
+			opts := Options{
+				InputPath:                    inputPath,
+				OutputPath:                   outputDir,
+				SysFSRoot:                    mock.root,
+				DefaultResourcePrefix:        "nvidia.com",
+				DevicesReadinessTimeout:      testReadinessTimeout,
+				DevicesReadinessPollInterval: testReadinessInterval,
+			}
+
+			err := Run(context.Background(), opts)
+			Expect(err).NotTo(HaveOccurred())
+
+			data, err := os.ReadFile(filepath.Join(outputDir, "config.json"))
+			Expect(err).NotTo(HaveOccurred())
+
+			var config DevicePluginConfig
+			err = json.Unmarshal(data, &config)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(config).To(BeComparableTo(DevicePluginConfig{
+				ResourceList: []ResourceConfig{{
+					ResourceName:   "pods_sf",
+					ResourcePrefix: "nvidia.com",
+					DeviceType:     deviceTypeAuxNetDevice,
+					Selectors: []Selector{{
+						RootDevices: []string{"0000:b1:00.0#0-7"},
+						AuxTypes:    []string{auxTypeSF},
+					}},
+				}},
+			}))
+		})
 		It("should return error for empty input config", func() {
 			inputConfig := common.NodeInputConfig{}
 			inputPath := writeInputConfigFile(tempDir, "input.json", inputConfig)
@@ -829,6 +1193,34 @@ var _ = Describe("Init Container", func() {
 			err := Run(context.Background(), opts)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("empty"))
+		})
+		It("should reject VF and SF with the same prefix/name across DPUs", func() {
+			inputConfig := common.NodeInputConfig{
+				"SN1234": {{
+					Name:   "pods",
+					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(7))}},
+				}},
+				"SN5678": {{
+					Name:   "pods",
+					Type:   noderesourcesv1.DevicePluginResourceTypeSF,
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(3))}},
+				}},
+			}
+			inputPath := writeInputConfigFile(tempDir, "input.json", inputConfig)
+
+			opts := Options{
+				InputPath:                    inputPath,
+				OutputPath:                   filepath.Join(tempDir, "output"),
+				DefaultResourcePrefix:        "nvidia.com",
+				DevicesReadinessTimeout:      testReadinessTimeout,
+				DevicesReadinessPollInterval: testReadinessInterval,
+			}
+
+			err := Run(context.Background(), opts)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("nvidia.com/pods"))
+			Expect(err.Error()).To(ContainSubstring("already defined it as"))
 		})
 	})
 	Context("discoverDPUsAndWaitForReadiness (retry polling)", func() {
@@ -853,7 +1245,7 @@ var _ = Describe("Init Container", func() {
 				"SN1234": {{
 					Name:   "pods_vf",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 0}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0}},
 				}},
 			}
 
@@ -875,7 +1267,7 @@ var _ = Describe("Init Container", func() {
 				"SN1234": {{
 					Name:   "pods_vf",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 0}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0}},
 				}},
 			}
 
@@ -909,7 +1301,7 @@ var _ = Describe("Init Container", func() {
 				"SN1234": {{
 					Name:   "pods_vf",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 0}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0}},
 				}},
 			}
 
@@ -939,7 +1331,7 @@ var _ = Describe("Init Container", func() {
 				"SN1234": {{
 					Name:   "pods_vf",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 0}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0}},
 				}},
 			}
 
@@ -967,12 +1359,12 @@ var _ = Describe("Init Container", func() {
 				"SN1234": {{
 					Name:   "pods_vf",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 0}, {PFIndex: 1}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0}, {PFIndex: 1}},
 				}},
 				"SN5678": {{
 					Name:   "pods_vf",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 0}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0}},
 				}},
 			}
 
@@ -988,6 +1380,118 @@ var _ = Describe("Init Container", func() {
 			Expect(dpuInfoList).To(BeNil())
 			Expect(err.Error()).To(ContainSubstring("SN5678"))
 			Expect(err.Error()).To(ContainSubstring("not found on node"))
+		})
+		It("should succeed for SF-only config without VFs", func() {
+			mock.addPF("0000:b1:00.0", "SN1234", 0)
+			mock.addContiguousSFs("0000:b1:00.0", 0, 3)
+
+			inputConfig := common.NodeInputConfig{
+				"SN1234": {{
+					Name:   "pods_sf",
+					Type:   noderesourcesv1.DevicePluginResourceTypeSF,
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(3))}},
+				}},
+			}
+
+			dpuInfoList, err := discoverDPUsAndWaitForReadiness(context.Background(), fakeClock, mock.root,
+				inputConfig, testReadinessTimeout, testReadinessInterval)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(dpuInfoList).To(BeComparableTo([]DPUInfo{{
+				SerialNumber:                "SN1234",
+				BaseAddress:                 "0000:b1:00",
+				PFs:                         map[int32]*PFInfo{0: {Address: "0000:b1:00.0"}},
+				DevicePluginResourcesConfig: inputConfig["SN1234"],
+			}}))
+		})
+		It("should timeout when SFs never become ready", func() {
+			mock.addPF("0000:b1:00.0", "SN1234", 0)
+
+			inputConfig := common.NodeInputConfig{
+				"SN1234": {{
+					Name:   "pods_sf",
+					Type:   noderesourcesv1.DevicePluginResourceTypeSF,
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(3))}},
+				}},
+			}
+
+			resCh := make(chan discoverResult, 1)
+			go func() {
+				dpuInfoList, err := discoverDPUsAndWaitForReadiness(context.Background(), fakeClock, mock.root,
+					inputConfig, testReadinessTimeout, testReadinessInterval)
+				resCh <- discoverResult{dpuInfoList: dpuInfoList, err: err}
+			}()
+
+			Eventually(fakeClock.HasWaiters).WithTimeout(testTimeout).Should(BeTrue())
+			fakeClock.Step(testReadinessTimeout)
+
+			var res discoverResult
+			Eventually(resCh).WithTimeout(testTimeout).Should(Receive(&res))
+			Expect(res.err).To(HaveOccurred())
+			Expect(res.dpuInfoList).To(BeNil())
+			Expect(res.err.Error()).To(ContainSubstring("timeout"))
+			Expect(res.err.Error()).To(ContainSubstring("SF range 0-3 is not fully present"))
+		})
+		It("should timeout when a present SF is outside the requested range", func() {
+			mock.addPF("0000:b1:00.0", "SN1234", 0)
+			mock.addSF("0000:b1:00.0", 2, 0)
+
+			inputConfig := common.NodeInputConfig{
+				"SN1234": {{
+					Name:   "pods_sf",
+					Type:   noderesourcesv1.DevicePluginResourceTypeSF,
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(50)), End: ptr.To(int32(60))}},
+				}},
+			}
+
+			resCh := make(chan discoverResult, 1)
+			go func() {
+				dpuInfoList, err := discoverDPUsAndWaitForReadiness(context.Background(), fakeClock, mock.root,
+					inputConfig, testReadinessTimeout, testReadinessInterval)
+				resCh <- discoverResult{dpuInfoList: dpuInfoList, err: err}
+			}()
+
+			Eventually(fakeClock.HasWaiters).WithTimeout(testTimeout).Should(BeTrue())
+			fakeClock.Step(testReadinessTimeout)
+
+			var res discoverResult
+			Eventually(resCh).WithTimeout(testTimeout).Should(Receive(&res))
+			Expect(res.err).To(HaveOccurred())
+			Expect(res.dpuInfoList).To(BeNil())
+			Expect(res.err.Error()).To(ContainSubstring("timeout"))
+			Expect(res.err.Error()).To(ContainSubstring("SF range 50-60 is not fully present"))
+		})
+		It("should require both VFs and SFs when both types are requested on the same PF", func() {
+			mock.addPF("0000:b1:00.0", "SN1234", 64)
+			mock.addVF("0000:b1:00.0", 0, "0000:b1:02.0")
+			mock.addSF("0000:b1:00.0", 2, 0)
+
+			inputConfig := common.NodeInputConfig{
+				"SN1234": {
+					{
+						Name:   "pods_vf",
+						Type:   noderesourcesv1.DevicePluginResourceTypeVF,
+						Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0}},
+					},
+					{
+						Name:   "pods_sf",
+						Type:   noderesourcesv1.DevicePluginResourceTypeSF,
+						Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(0))}},
+					},
+				},
+			}
+
+			dpuInfoList, err := discoverDPUsAndWaitForReadiness(context.Background(), fakeClock, mock.root,
+				inputConfig, testReadinessTimeout, testReadinessInterval)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(dpuInfoList).To(BeComparableTo([]DPUInfo{{
+				SerialNumber: "SN1234",
+				BaseAddress:  "0000:b1:00",
+				PFs: map[int32]*PFInfo{0: {
+					Address:  "0000:b1:00.0",
+					TotalVFs: 64,
+				}},
+				DevicePluginResourcesConfig: inputConfig["SN1234"],
+			}}))
 		})
 	})
 })

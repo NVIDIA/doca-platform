@@ -50,7 +50,23 @@ var _ = Describe("NodeSRIOVDevicePluginConfigValidator", func() {
 					DevicePluginResources: []noderesourcesv1.DevicePluginResource{{
 						Name:   "pods_vf",
 						Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-						Ranges: []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(1))}},
+						Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(1))}},
+					}},
+				},
+			}
+			warnings, err := v.ValidateCreate(context.Background(), cfg)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(warnings).To(BeNil())
+		})
+		It("should accept a valid SF configuration", func() {
+			v := &NodeSRIOVDevicePluginConfigValidator{DefaultResourcePrefix: testDefaultResourcePrefix}
+			cfg := &noderesourcesv1.NodeSRIOVDevicePluginConfig{
+				ObjectMeta: metav1.ObjectMeta{Name: "cfg"},
+				Spec: noderesourcesv1.NodeSRIOVDevicePluginConfigSpec{
+					DevicePluginResources: []noderesourcesv1.DevicePluginResource{{
+						Name:   "pods_sf",
+						Type:   noderesourcesv1.DevicePluginResourceTypeSF,
+						Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(7))}},
 					}},
 				},
 			}

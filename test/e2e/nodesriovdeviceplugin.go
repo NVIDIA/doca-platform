@@ -57,14 +57,14 @@ func ValidateNodeSRIOVDevicePluginWebhookRejectsInvalid(ctx context.Context, inp
 					{
 						Name: "res_a",
 						Type: noderesourcesv1.DevicePluginResourceTypeVF,
-						Ranges: []noderesourcesv1.VFRange{
+						Ranges: []noderesourcesv1.FunctionRange{
 							{PFIndex: 0, Start: ptr.To[int32](0), End: ptr.To[int32](7)},
 						},
 					},
 					{
 						Name: "res_b",
 						Type: noderesourcesv1.DevicePluginResourceTypeVF,
-						Ranges: []noderesourcesv1.VFRange{
+						Ranges: []noderesourcesv1.FunctionRange{
 							{PFIndex: 0, Start: ptr.To[int32](4), End: ptr.To[int32](10)},
 						},
 					},
@@ -91,14 +91,14 @@ func ValidateNodeSRIOVDevicePluginWebhookRejectsInvalid(ctx context.Context, inp
 					{
 						Name: "dup_res",
 						Type: noderesourcesv1.DevicePluginResourceTypeVF,
-						Ranges: []noderesourcesv1.VFRange{
+						Ranges: []noderesourcesv1.FunctionRange{
 							{PFIndex: 0, Start: ptr.To[int32](0), End: ptr.To[int32](3)},
 						},
 					},
 					{
 						Name: "dup_res",
 						Type: noderesourcesv1.DevicePluginResourceTypeVF,
-						Ranges: []noderesourcesv1.VFRange{
+						Ranges: []noderesourcesv1.FunctionRange{
 							{PFIndex: 1, Start: ptr.To[int32](0), End: ptr.To[int32](3)},
 						},
 					},
@@ -129,7 +129,7 @@ func ValidateNodeSRIOVDevicePluginConfigValidCreate(ctx context.Context, input *
 					{
 						Name: "e2e_vf_res",
 						Type: noderesourcesv1.DevicePluginResourceTypeVF,
-						Ranges: []noderesourcesv1.VFRange{
+						Ranges: []noderesourcesv1.FunctionRange{
 							{PFIndex: 0, Start: ptr.To[int32](0), End: ptr.To[int32](3)},
 						},
 					},
@@ -187,7 +187,7 @@ func ValidateNodeSRIOVDevicePluginManagement(ctx context.Context, input *systemT
 		{
 			Name: config1NoPrefixResource,
 			Type: noderesourcesv1.DevicePluginResourceTypeVF,
-			Ranges: []noderesourcesv1.VFRange{
+			Ranges: []noderesourcesv1.FunctionRange{
 				{PFIndex: 0, Start: ptr.To[int32](0), End: ptr.To[int32](3)}, // 4 VFs
 			},
 		},
@@ -195,7 +195,7 @@ func ValidateNodeSRIOVDevicePluginManagement(ctx context.Context, input *systemT
 			Name:           config1ExplicitResource,
 			ResourcePrefix: ptr.To(explicitPrefix),
 			Type:           noderesourcesv1.DevicePluginResourceTypeVF,
-			Ranges: []noderesourcesv1.VFRange{
+			Ranges: []noderesourcesv1.FunctionRange{
 				{PFIndex: 0, Start: ptr.To[int32](4), End: ptr.To[int32](7)}, // 4 VFs
 			},
 		},
@@ -206,7 +206,7 @@ func ValidateNodeSRIOVDevicePluginManagement(ctx context.Context, input *systemT
 		{
 			Name: config2NoPrefixResource,
 			Type: noderesourcesv1.DevicePluginResourceTypeVF,
-			Ranges: []noderesourcesv1.VFRange{
+			Ranges: []noderesourcesv1.FunctionRange{
 				{PFIndex: 0, Start: ptr.To[int32](0), End: ptr.To[int32](1)}, // 2 VFs
 			},
 		},
@@ -214,7 +214,7 @@ func ValidateNodeSRIOVDevicePluginManagement(ctx context.Context, input *systemT
 			Name:           config2ExplicitResource,
 			ResourcePrefix: ptr.To(explicitPrefix),
 			Type:           noderesourcesv1.DevicePluginResourceTypeVF,
-			Ranges: []noderesourcesv1.VFRange{
+			Ranges: []noderesourcesv1.FunctionRange{
 				{PFIndex: 0, Start: ptr.To[int32](2), End: ptr.To[int32](4)}, // 3 VFs
 			},
 		},

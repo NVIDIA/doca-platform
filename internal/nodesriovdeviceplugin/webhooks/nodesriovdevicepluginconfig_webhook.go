@@ -82,12 +82,12 @@ func (v *NodeSRIOVDevicePluginConfigValidator) validate(obj runtime.Object, oper
 	return nil, nil
 }
 
-// ValidateCreate validates resource name/prefix uniqueness and VF ranges.
+// ValidateCreate validates resource name/prefix uniqueness and function ranges.
 func (v *NodeSRIOVDevicePluginConfigValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	return v.validate(obj, "create")
 }
 
-// ValidateUpdate validates resource name/prefix uniqueness and VF ranges.
+// ValidateUpdate validates resource name/prefix uniqueness and function ranges.
 func (v *NodeSRIOVDevicePluginConfigValidator) ValidateUpdate(ctx context.Context, _, newObj runtime.Object) (admission.Warnings, error) {
 	return v.validate(newObj, "update")
 }

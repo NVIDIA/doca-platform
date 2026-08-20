@@ -40,7 +40,7 @@ var _ = Describe("ValidateDevicePluginResources", func() {
 			resources := []noderesourcesv1.DevicePluginResource{{
 				Name: "pods_vf",
 				Type: noderesourcesv1.DevicePluginResourceTypeVF,
-				Ranges: []noderesourcesv1.VFRange{
+				Ranges: []noderesourcesv1.FunctionRange{
 					{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(10))},
 				},
 			}}
@@ -52,12 +52,12 @@ var _ = Describe("ValidateDevicePluginResources", func() {
 				{
 					Name:   "pods_vf",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(5))}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(5))}},
 				},
 				{
 					Name:   "mgmt_vf",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(6)), End: ptr.To(int32(10))}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(6)), End: ptr.To(int32(10))}},
 				},
 			}
 			err := ValidateDevicePluginResources(testDevicePluginResourcesPath, testDefaultResourcePrefix, resources).ToAggregate()
@@ -69,13 +69,13 @@ var _ = Describe("ValidateDevicePluginResources", func() {
 					Name:           "pods_vf",
 					ResourcePrefix: ptr.To("nvidia.com"),
 					Type:           noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges:         []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(5))}},
+					Ranges:         []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(5))}},
 				},
 				{
 					Name:           "pods_vf",
 					ResourcePrefix: ptr.To("custom.io"),
 					Type:           noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges:         []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(6)), End: ptr.To(int32(10))}},
+					Ranges:         []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(6)), End: ptr.To(int32(10))}},
 				},
 			}
 			err := ValidateDevicePluginResources(testDevicePluginResourcesPath, testDefaultResourcePrefix, resources).ToAggregate()
@@ -86,12 +86,12 @@ var _ = Describe("ValidateDevicePluginResources", func() {
 				{
 					Name:   "res1",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(5))}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(5))}},
 				},
 				{
 					Name:   "res2",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(6)), End: ptr.To(int32(10))}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(6)), End: ptr.To(int32(10))}},
 				},
 			}
 			err := ValidateDevicePluginResources(testDevicePluginResourcesPath, testDefaultResourcePrefix, resources).ToAggregate()
@@ -102,12 +102,12 @@ var _ = Describe("ValidateDevicePluginResources", func() {
 				{
 					Name:   "res1",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(10))}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(10))}},
 				},
 				{
 					Name:   "res2",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 1, Start: ptr.To(int32(0)), End: ptr.To(int32(10))}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 1, Start: ptr.To(int32(0)), End: ptr.To(int32(10))}},
 				},
 			}
 			err := ValidateDevicePluginResources(testDevicePluginResourcesPath, testDefaultResourcePrefix, resources).ToAggregate()
@@ -117,7 +117,7 @@ var _ = Describe("ValidateDevicePluginResources", func() {
 			resources := []noderesourcesv1.DevicePluginResource{{
 				Name:   "my-resource_name",
 				Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-				Ranges: []noderesourcesv1.VFRange{{PFIndex: 0}},
+				Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0}},
 			}}
 			err := ValidateDevicePluginResources(testDevicePluginResourcesPath, testDefaultResourcePrefix, resources).ToAggregate()
 			Expect(err).NotTo(HaveOccurred())
@@ -126,7 +126,7 @@ var _ = Describe("ValidateDevicePluginResources", func() {
 			resources := []noderesourcesv1.DevicePluginResource{{
 				Name:   "res1",
 				Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-				Ranges: []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(5))}},
+				Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(5))}},
 			}}
 			err := ValidateDevicePluginResources(testDevicePluginResourcesPath, testDefaultResourcePrefix, resources).ToAggregate()
 			Expect(err).NotTo(HaveOccurred())
@@ -135,7 +135,7 @@ var _ = Describe("ValidateDevicePluginResources", func() {
 			resources := []noderesourcesv1.DevicePluginResource{{
 				Name:   "res1",
 				Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-				Ranges: []noderesourcesv1.VFRange{{PFIndex: 0, End: ptr.To(int32(10))}},
+				Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, End: ptr.To(int32(10))}},
 			}}
 			err := ValidateDevicePluginResources(testDevicePluginResourcesPath, testDefaultResourcePrefix, resources).ToAggregate()
 			Expect(err).NotTo(HaveOccurred())
@@ -144,7 +144,7 @@ var _ = Describe("ValidateDevicePluginResources", func() {
 			resources := []noderesourcesv1.DevicePluginResource{{
 				Name:   "res1",
 				Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-				Ranges: []noderesourcesv1.VFRange{{PFIndex: 0}},
+				Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0}},
 			}}
 			err := ValidateDevicePluginResources(testDevicePluginResourcesPath, testDefaultResourcePrefix, resources).ToAggregate()
 			Expect(err).NotTo(HaveOccurred())
@@ -153,7 +153,7 @@ var _ = Describe("ValidateDevicePluginResources", func() {
 			resources := []noderesourcesv1.DevicePluginResource{{
 				Name:   "res1",
 				Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-				Ranges: []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(5)), End: ptr.To(int32(5))}},
+				Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(5)), End: ptr.To(int32(5))}},
 			}}
 			err := ValidateDevicePluginResources(testDevicePluginResourcesPath, testDefaultResourcePrefix, resources).ToAggregate()
 			Expect(err).NotTo(HaveOccurred())
@@ -163,12 +163,12 @@ var _ = Describe("ValidateDevicePluginResources", func() {
 				{
 					Name:   "res1",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(4))}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(4))}},
 				},
 				{
 					Name:   "res2",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(5)), End: ptr.To(int32(10))}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(5)), End: ptr.To(int32(10))}},
 				},
 			}
 			err := ValidateDevicePluginResources(testDevicePluginResourcesPath, testDefaultResourcePrefix, resources).ToAggregate()
@@ -180,7 +180,7 @@ var _ = Describe("ValidateDevicePluginResources", func() {
 			resources := []noderesourcesv1.DevicePluginResource{{
 				Name:   "",
 				Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-				Ranges: []noderesourcesv1.VFRange{{PFIndex: 0}},
+				Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0}},
 			}}
 			err := ValidateDevicePluginResources(testDevicePluginResourcesPath, testDefaultResourcePrefix, resources).ToAggregate()
 			Expect(err).To(HaveOccurred())
@@ -190,7 +190,7 @@ var _ = Describe("ValidateDevicePluginResources", func() {
 			resources := []noderesourcesv1.DevicePluginResource{{
 				Name:   "my resource",
 				Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-				Ranges: []noderesourcesv1.VFRange{{PFIndex: 0}},
+				Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0}},
 			}}
 			err := ValidateDevicePluginResources(testDevicePluginResourcesPath, testDefaultResourcePrefix, resources).ToAggregate()
 			Expect(err).To(HaveOccurred())
@@ -200,7 +200,7 @@ var _ = Describe("ValidateDevicePluginResources", func() {
 			resources := []noderesourcesv1.DevicePluginResource{{
 				Name:   "my@resource",
 				Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-				Ranges: []noderesourcesv1.VFRange{{PFIndex: 0}},
+				Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0}},
 			}}
 			err := ValidateDevicePluginResources(testDevicePluginResourcesPath, testDefaultResourcePrefix, resources).ToAggregate()
 			Expect(err).To(HaveOccurred())
@@ -210,7 +210,7 @@ var _ = Describe("ValidateDevicePluginResources", func() {
 			resources := []noderesourcesv1.DevicePluginResource{{
 				Name:   "my.resource",
 				Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-				Ranges: []noderesourcesv1.VFRange{{PFIndex: 0}},
+				Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0}},
 			}}
 			err := ValidateDevicePluginResources(testDevicePluginResourcesPath, testDefaultResourcePrefix, resources).ToAggregate()
 			Expect(err).To(HaveOccurred())
@@ -220,7 +220,7 @@ var _ = Describe("ValidateDevicePluginResources", func() {
 			resources := []noderesourcesv1.DevicePluginResource{{
 				Name:   "my/resource",
 				Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-				Ranges: []noderesourcesv1.VFRange{{PFIndex: 0}},
+				Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0}},
 			}}
 			err := ValidateDevicePluginResources(testDevicePluginResourcesPath, testDefaultResourcePrefix, resources).ToAggregate()
 			Expect(err).To(HaveOccurred())
@@ -233,7 +233,7 @@ var _ = Describe("ValidateDevicePluginResources", func() {
 				Name:           "pods_vf",
 				ResourcePrefix: ptr.To("Invalid.Prefix"),
 				Type:           noderesourcesv1.DevicePluginResourceTypeVF,
-				Ranges:         []noderesourcesv1.VFRange{{PFIndex: 0}},
+				Ranges:         []noderesourcesv1.FunctionRange{{PFIndex: 0}},
 			}}
 			err := ValidateDevicePluginResources(testDevicePluginResourcesPath, testDefaultResourcePrefix, resources).ToAggregate()
 			Expect(err).To(HaveOccurred())
@@ -243,7 +243,7 @@ var _ = Describe("ValidateDevicePluginResources", func() {
 			resources := []noderesourcesv1.DevicePluginResource{{
 				Name:   "pods_vf",
 				Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-				Ranges: []noderesourcesv1.VFRange{{PFIndex: 0}},
+				Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0}},
 			}}
 			err := ValidateDevicePluginResources(testDevicePluginResourcesPath, "Invalid.Default", resources).ToAggregate()
 			Expect(err).To(HaveOccurred())
@@ -255,16 +255,45 @@ var _ = Describe("ValidateDevicePluginResources", func() {
 			resources := []noderesourcesv1.DevicePluginResource{{
 				Name:   "pods_vf",
 				Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-				Ranges: []noderesourcesv1.VFRange{{PFIndex: 0}},
+				Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0}},
 			}}
 			err := ValidateDevicePluginResources(testDevicePluginResourcesPath, testDefaultResourcePrefix, resources).ToAggregate()
 			Expect(err).NotTo(HaveOccurred())
 		})
-		It("should reject unsupported resource type", func() {
+		It("should accept valid SF resource type", func() {
 			resources := []noderesourcesv1.DevicePluginResource{{
 				Name:   "pods_sf",
-				Type:   "sf",
-				Ranges: []noderesourcesv1.VFRange{{PFIndex: 0}},
+				Type:   noderesourcesv1.DevicePluginResourceTypeSF,
+				Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(7))}},
+			}}
+			err := ValidateDevicePluginResources(testDevicePluginResourcesPath, testDefaultResourcePrefix, resources).ToAggregate()
+			Expect(err).NotTo(HaveOccurred())
+		})
+		It("should reject SF resource with omitted start", func() {
+			resources := []noderesourcesv1.DevicePluginResource{{
+				Name:   "pods_sf",
+				Type:   noderesourcesv1.DevicePluginResourceTypeSF,
+				Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, End: ptr.To(int32(7))}},
+			}}
+			err := ValidateDevicePluginResources(testDevicePluginResourcesPath, testDefaultResourcePrefix, resources).ToAggregate()
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("start must be set"))
+		})
+		It("should reject SF resource with omitted end", func() {
+			resources := []noderesourcesv1.DevicePluginResource{{
+				Name:   "pods_sf",
+				Type:   noderesourcesv1.DevicePluginResourceTypeSF,
+				Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0))}},
+			}}
+			err := ValidateDevicePluginResources(testDevicePluginResourcesPath, testDefaultResourcePrefix, resources).ToAggregate()
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("end must be set"))
+		})
+		It("should reject unsupported resource type", func() {
+			resources := []noderesourcesv1.DevicePluginResource{{
+				Name:   "pods_pf",
+				Type:   "pf",
+				Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0}},
 			}}
 			err := ValidateDevicePluginResources(testDevicePluginResourcesPath, testDefaultResourcePrefix, resources).ToAggregate()
 			Expect(err).To(HaveOccurred())
@@ -274,7 +303,7 @@ var _ = Describe("ValidateDevicePluginResources", func() {
 			resources := []noderesourcesv1.DevicePluginResource{{
 				Name:   "pods_vf",
 				Type:   "",
-				Ranges: []noderesourcesv1.VFRange{{PFIndex: 0}},
+				Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0}},
 			}}
 			err := ValidateDevicePluginResources(testDevicePluginResourcesPath, testDefaultResourcePrefix, resources).ToAggregate()
 			Expect(err).To(HaveOccurred())
@@ -284,7 +313,7 @@ var _ = Describe("ValidateDevicePluginResources", func() {
 			resources := []noderesourcesv1.DevicePluginResource{{
 				Name:   "my_custom_resource",
 				Type:   "invalid_type",
-				Ranges: []noderesourcesv1.VFRange{{PFIndex: 0}},
+				Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0}},
 			}}
 			err := ValidateDevicePluginResources(testDevicePluginResourcesPath, testDefaultResourcePrefix, resources).ToAggregate()
 			Expect(err).To(HaveOccurred())
@@ -298,13 +327,13 @@ var _ = Describe("ValidateDevicePluginResources", func() {
 					Name:           "pods_vf",
 					ResourcePrefix: ptr.To("nvidia.com"),
 					Type:           noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges:         []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(5))}},
+					Ranges:         []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(5))}},
 				},
 				{
 					Name:           "pods_vf",
 					ResourcePrefix: ptr.To("nvidia.com"),
 					Type:           noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges:         []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(6)), End: ptr.To(int32(10))}},
+					Ranges:         []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(6)), End: ptr.To(int32(10))}},
 				},
 			}
 			err := ValidateDevicePluginResources(testDevicePluginResourcesPath, testDefaultResourcePrefix, resources).ToAggregate()
@@ -316,12 +345,12 @@ var _ = Describe("ValidateDevicePluginResources", func() {
 				{
 					Name:   "pods_vf",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(5))}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(5))}},
 				},
 				{
 					Name:   "pods_vf",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(6)), End: ptr.To(int32(10))}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(6)), End: ptr.To(int32(10))}},
 				},
 			}
 			err := ValidateDevicePluginResources(testDevicePluginResourcesPath, testDefaultResourcePrefix, resources).ToAggregate()
@@ -333,13 +362,13 @@ var _ = Describe("ValidateDevicePluginResources", func() {
 				{
 					Name:   "pods_vf",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(5))}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(5))}},
 				},
 				{
 					Name:           "pods_vf",
 					ResourcePrefix: ptr.To(testDefaultResourcePrefix),
 					Type:           noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges:         []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(6)), End: ptr.To(int32(10))}},
+					Ranges:         []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(6)), End: ptr.To(int32(10))}},
 				},
 			}
 			err := ValidateDevicePluginResources(testDevicePluginResourcesPath, testDefaultResourcePrefix, resources).ToAggregate()
@@ -352,17 +381,17 @@ var _ = Describe("ValidateDevicePluginResources", func() {
 			resources := []noderesourcesv1.DevicePluginResource{{
 				Name:   "res1",
 				Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-				Ranges: []noderesourcesv1.VFRange{},
+				Ranges: []noderesourcesv1.FunctionRange{},
 			}}
 			err := ValidateDevicePluginResources(testDevicePluginResourcesPath, testDefaultResourcePrefix, resources).ToAggregate()
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("no VF ranges specified"))
+			Expect(err.Error()).To(ContainSubstring("no ranges specified"))
 		})
 		It("should reject range where start is greater than end", func() {
 			resources := []noderesourcesv1.DevicePluginResource{{
 				Name:   "res1",
 				Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-				Ranges: []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(10)), End: ptr.To(int32(5))}},
+				Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(10)), End: ptr.To(int32(5))}},
 			}}
 			err := ValidateDevicePluginResources(testDevicePluginResourcesPath, testDefaultResourcePrefix, resources).ToAggregate()
 			Expect(err).To(HaveOccurred())
@@ -375,7 +404,7 @@ var _ = Describe("ValidateDevicePluginResources", func() {
 			resources := []noderesourcesv1.DevicePluginResource{{
 				Name: "res1",
 				Type: noderesourcesv1.DevicePluginResourceTypeVF,
-				Ranges: []noderesourcesv1.VFRange{
+				Ranges: []noderesourcesv1.FunctionRange{
 					{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(10))},
 					{PFIndex: 0, Start: ptr.To(int32(5)), End: ptr.To(int32(15))},
 				},
@@ -389,12 +418,12 @@ var _ = Describe("ValidateDevicePluginResources", func() {
 				{
 					Name:   "res1",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(10))}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(10))}},
 				},
 				{
 					Name:   "res2",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(5)), End: ptr.To(int32(15))}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(5)), End: ptr.To(int32(15))}},
 				},
 			}
 			err := ValidateDevicePluginResources(testDevicePluginResourcesPath, testDefaultResourcePrefix, resources).ToAggregate()
@@ -406,12 +435,12 @@ var _ = Describe("ValidateDevicePluginResources", func() {
 				{
 					Name:   "res1",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(20))}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(20))}},
 				},
 				{
 					Name:   "res2",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(5)), End: ptr.To(int32(10))}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(5)), End: ptr.To(int32(10))}},
 				},
 			}
 			err := ValidateDevicePluginResources(testDevicePluginResourcesPath, testDefaultResourcePrefix, resources).ToAggregate()
@@ -423,12 +452,12 @@ var _ = Describe("ValidateDevicePluginResources", func() {
 				{
 					Name:   "res1",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(10))}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(10))}},
 				},
 				{
 					Name:   "res2",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(10))}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(10))}},
 				},
 			}
 			err := ValidateDevicePluginResources(testDevicePluginResourcesPath, testDefaultResourcePrefix, resources).ToAggregate()
@@ -440,12 +469,12 @@ var _ = Describe("ValidateDevicePluginResources", func() {
 				{
 					Name:   "res1",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(5)), End: ptr.To(int32(5))}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(5)), End: ptr.To(int32(5))}},
 				},
 				{
 					Name:   "res2",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(5)), End: ptr.To(int32(5))}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(5)), End: ptr.To(int32(5))}},
 				},
 			}
 			err := ValidateDevicePluginResources(testDevicePluginResourcesPath, testDefaultResourcePrefix, resources).ToAggregate()
@@ -457,12 +486,12 @@ var _ = Describe("ValidateDevicePluginResources", func() {
 				{
 					Name:   "res1",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 0, End: ptr.To(int32(10))}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, End: ptr.To(int32(10))}},
 				},
 				{
 					Name:   "res2",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(5)), End: ptr.To(int32(15))}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(5)), End: ptr.To(int32(15))}},
 				},
 			}
 			err := ValidateDevicePluginResources(testDevicePluginResourcesPath, testDefaultResourcePrefix, resources).ToAggregate()
@@ -474,12 +503,12 @@ var _ = Describe("ValidateDevicePluginResources", func() {
 				{
 					Name:   "res1",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(10))}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(10))}},
 				},
 				{
 					Name:   "res2",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(5))}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(5))}},
 				},
 			}
 			err := ValidateDevicePluginResources(testDevicePluginResourcesPath, testDefaultResourcePrefix, resources).ToAggregate()
@@ -491,12 +520,12 @@ var _ = Describe("ValidateDevicePluginResources", func() {
 				{
 					Name:   "res1",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 0}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0}},
 				},
 				{
 					Name:   "res2",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(5)), End: ptr.To(int32(10))}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(5)), End: ptr.To(int32(10))}},
 				},
 			}
 			err := ValidateDevicePluginResources(testDevicePluginResourcesPath, testDefaultResourcePrefix, resources).ToAggregate()
@@ -508,12 +537,12 @@ var _ = Describe("ValidateDevicePluginResources", func() {
 				{
 					Name:   "res1",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 2, Start: ptr.To(int32(0)), End: ptr.To(int32(10))}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 2, Start: ptr.To(int32(0)), End: ptr.To(int32(10))}},
 				},
 				{
 					Name:   "res2",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 2, Start: ptr.To(int32(5)), End: ptr.To(int32(15))}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 2, Start: ptr.To(int32(5)), End: ptr.To(int32(15))}},
 				},
 			}
 			err := ValidateDevicePluginResources(testDevicePluginResourcesPath, testDefaultResourcePrefix, resources).ToAggregate()
@@ -525,18 +554,51 @@ var _ = Describe("ValidateDevicePluginResources", func() {
 				{
 					Name:   "first_resource",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(10))}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(10))}},
 				},
 				{
 					Name:   "second_resource",
 					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{{PFIndex: 0, Start: ptr.To(int32(5)), End: ptr.To(int32(15))}},
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(5)), End: ptr.To(int32(15))}},
 				},
 			}
 			err := ValidateDevicePluginResources(testDevicePluginResourcesPath, testDefaultResourcePrefix, resources).ToAggregate()
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("first_resource"))
 			Expect(err.Error()).To(ContainSubstring("second_resource"))
+		})
+		It("should accept overlapping VF and SF ranges on the same PF", func() {
+			resources := []noderesourcesv1.DevicePluginResource{
+				{
+					Name:   "pods_vf",
+					Type:   noderesourcesv1.DevicePluginResourceTypeVF,
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(10))}},
+				},
+				{
+					Name:   "pods_sf",
+					Type:   noderesourcesv1.DevicePluginResourceTypeSF,
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(10))}},
+				},
+			}
+			err := ValidateDevicePluginResources(testDevicePluginResourcesPath, testDefaultResourcePrefix, resources).ToAggregate()
+			Expect(err).NotTo(HaveOccurred())
+		})
+		It("should reject overlapping SF ranges on same PF", func() {
+			resources := []noderesourcesv1.DevicePluginResource{
+				{
+					Name:   "res1",
+					Type:   noderesourcesv1.DevicePluginResourceTypeSF,
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(10))}},
+				},
+				{
+					Name:   "res2",
+					Type:   noderesourcesv1.DevicePluginResourceTypeSF,
+					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(5)), End: ptr.To(int32(15))}},
+				},
+			}
+			err := ValidateDevicePluginResources(testDevicePluginResourcesPath, testDefaultResourcePrefix, resources).ToAggregate()
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("overlapping sf ranges"))
 		})
 	})
 	Context("complex scenarios", func() {
@@ -545,7 +607,7 @@ var _ = Describe("ValidateDevicePluginResources", func() {
 				{
 					Name: "res1",
 					Type: noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{
+					Ranges: []noderesourcesv1.FunctionRange{
 						{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(5))},
 						{PFIndex: 1, Start: ptr.To(int32(0)), End: ptr.To(int32(5))},
 					},
@@ -553,7 +615,7 @@ var _ = Describe("ValidateDevicePluginResources", func() {
 				{
 					Name: "res2",
 					Type: noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{
+					Ranges: []noderesourcesv1.FunctionRange{
 						{PFIndex: 0, Start: ptr.To(int32(6)), End: ptr.To(int32(10))},
 						{PFIndex: 1, Start: ptr.To(int32(6)), End: ptr.To(int32(10))},
 					},
@@ -567,7 +629,7 @@ var _ = Describe("ValidateDevicePluginResources", func() {
 				{
 					Name: "res1",
 					Type: noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{
+					Ranges: []noderesourcesv1.FunctionRange{
 						{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(10))},
 						{PFIndex: 1, Start: ptr.To(int32(0)), End: ptr.To(int32(5))},
 					},
@@ -575,7 +637,7 @@ var _ = Describe("ValidateDevicePluginResources", func() {
 				{
 					Name: "res2",
 					Type: noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{
+					Ranges: []noderesourcesv1.FunctionRange{
 						{PFIndex: 0, Start: ptr.To(int32(5)), End: ptr.To(int32(15))},
 						{PFIndex: 1, Start: ptr.To(int32(6)), End: ptr.To(int32(10))},
 					},
@@ -593,5 +655,113 @@ var _ = Describe("ValidateDevicePluginResources", func() {
 			Expect(errs).NotTo(BeEmpty())
 			Expect(errs[0].Field).To(Equal("spec.devicePluginResources"))
 		})
+	})
+})
+
+var _ = Describe("ValidateCrossDPUResourceTypes", func() {
+	It("should accept the same resource type across DPUs", func() {
+		input := NodeInputConfig{
+			"SN1234": {{
+				Name:   "pods",
+				Type:   noderesourcesv1.DevicePluginResourceTypeVF,
+				Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0}},
+			}},
+			"SN5678": {{
+				Name:   "pods",
+				Type:   noderesourcesv1.DevicePluginResourceTypeVF,
+				Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0}},
+			}},
+		}
+		Expect(ValidateCrossDPUResourceTypes(testDefaultResourcePrefix, input)).To(BeEmpty())
+	})
+	It("should accept VF and SF with different names", func() {
+		input := NodeInputConfig{
+			"SN1234": {{
+				Name:   "pods_vf",
+				Type:   noderesourcesv1.DevicePluginResourceTypeVF,
+				Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0}},
+			}},
+			"SN5678": {{
+				Name:   "pods_sf",
+				Type:   noderesourcesv1.DevicePluginResourceTypeSF,
+				Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(3))}},
+			}},
+		}
+		Expect(ValidateCrossDPUResourceTypes(testDefaultResourcePrefix, input)).To(BeEmpty())
+	})
+	It("should reject VF then SF with the same prefix/name", func() {
+		input := NodeInputConfig{
+			"SN1234": {{
+				Name:   "pods",
+				Type:   noderesourcesv1.DevicePluginResourceTypeVF,
+				Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0}},
+			}},
+			"SN5678": {{
+				Name:   "pods",
+				Type:   noderesourcesv1.DevicePluginResourceTypeSF,
+				Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(3))}},
+			}},
+		}
+		err := ValidateCrossDPUResourceTypes(testDefaultResourcePrefix, input).ToAggregate()
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("test.com/pods"))
+		Expect(err.Error()).To(ContainSubstring("already defined it as"))
+		Expect(err.Error()).To(ContainSubstring("vf"))
+		Expect(err.Error()).To(ContainSubstring("sf"))
+	})
+	It("should reject SF then VF with the same prefix/name", func() {
+		input := NodeInputConfig{
+			"AAA": {{
+				Name:   "pods",
+				Type:   noderesourcesv1.DevicePluginResourceTypeSF,
+				Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(3))}},
+			}},
+			"BBB": {{
+				Name:   "pods",
+				Type:   noderesourcesv1.DevicePluginResourceTypeVF,
+				Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0}},
+			}},
+		}
+		err := ValidateCrossDPUResourceTypes(testDefaultResourcePrefix, input).ToAggregate()
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("test.com/pods"))
+		Expect(err.Error()).To(ContainSubstring("already defined it as \"sf\""))
+	})
+	It("should accept the same name with different resource prefixes", func() {
+		input := NodeInputConfig{
+			"SN1234": {{
+				Name:           "pods",
+				Type:           noderesourcesv1.DevicePluginResourceTypeVF,
+				ResourcePrefix: ptr.To("nvidia.com"),
+				Ranges:         []noderesourcesv1.FunctionRange{{PFIndex: 0}},
+			}},
+			"SN5678": {{
+				Name:           "pods",
+				Type:           noderesourcesv1.DevicePluginResourceTypeSF,
+				ResourcePrefix: ptr.To("custom.io"),
+				Ranges:         []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(3))}},
+			}},
+		}
+		Expect(ValidateCrossDPUResourceTypes(testDefaultResourcePrefix, input)).To(BeEmpty())
+	})
+	It("should reject the same custom prefix and name with different types", func() {
+		input := NodeInputConfig{
+			"SN1234": {{
+				Name:           "pods",
+				Type:           noderesourcesv1.DevicePluginResourceTypeVF,
+				ResourcePrefix: ptr.To("custom.io"),
+				Ranges:         []noderesourcesv1.FunctionRange{{PFIndex: 0}},
+			}},
+			"SN5678": {{
+				Name:           "pods",
+				Type:           noderesourcesv1.DevicePluginResourceTypeSF,
+				ResourcePrefix: ptr.To("custom.io"),
+				Ranges:         []noderesourcesv1.FunctionRange{{PFIndex: 0, Start: ptr.To(int32(0)), End: ptr.To(int32(3))}},
+			}},
+		}
+		err := ValidateCrossDPUResourceTypes(testDefaultResourcePrefix, input).ToAggregate()
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("custom.io/pods"))
+		Expect(err.Error()).To(ContainSubstring("already defined it as"))
 	})
 })

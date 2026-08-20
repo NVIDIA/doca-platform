@@ -351,6 +351,10 @@ func (r *NodeReconciler) buildInputConfig(ctx context.Context, targetDPUs []*pro
 		inputConfig[dpu.Spec.SerialNumber] = config.Spec.DevicePluginResources
 	}
 
+	if errList := common.ValidateCrossDPUResourceTypes(r.DevicePluginConfig.DefaultResourcePrefix, inputConfig); len(errList) != 0 {
+		return nil, fmt.Errorf("conflicting resource types across DPUs: %w", errList.ToAggregate())
+	}
+
 	return &buildInputConfigResult{
 		inputConfig: inputConfig,
 	}, nil

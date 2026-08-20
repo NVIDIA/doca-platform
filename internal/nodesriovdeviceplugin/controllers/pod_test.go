@@ -103,7 +103,7 @@ var _ = Describe("Pod", func() {
 					{
 						Name: "pods_vf",
 						Type: noderesourcesv1.DevicePluginResourceTypeVF,
-						Ranges: []noderesourcesv1.VFRange{
+						Ranges: []noderesourcesv1.FunctionRange{
 							{PFIndex: 0, Start: ptr.To(int32(2)), End: ptr.To(int32(10))},
 						},
 					},
