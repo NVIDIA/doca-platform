@@ -332,17 +332,40 @@ func updatePldmFwBundle(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToUpdatePldmFwBundle", err.Error()))
 		return *state, fmt.Errorf("failed to update PLDM firmware: %w", err)
 	} else if completed {
-		resp, err := client.ActivatePendingBundle()
+		continueCondition := cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), nil, "Activated", "Activated Pending Bundle")
+		_, existingCond := cutil.GetDPUCondition(&dpu.Status, continueCondition.Type)
+		if existingCond == nil || existingCond.Status != metav1.ConditionTrue {
+			resp, err := client.ActivatePendingBundle()
+			if err != nil {
+				cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToActivatePendingBundle", err.Error()))
+				return *state, err
+			}
+			if resp.StatusCode() != http.StatusOK {
+				activateErr := fmt.Errorf("unexpected status code from ActivatePendingBundle: %s", resp.Status())
+				cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), activateErr, "FailedToActivatePendingBundle", resp.Status()))
+				return *state, activateErr
+			}
+
+			logger.Info("successfully activated pending bundle. Moving to Rebooting phase")
+			cutil.SetDPUCondition(state, continueCondition)
+		} else {
+			logger.Info("Pending bundle already activated")
+		}
+
+		_, system, err := client.GetSystem()
 		if err != nil {
-			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToActivatePendingBundle", err.Error()))
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToGetSystem", err.Error()))
 			return *state, err
 		}
-		if resp.StatusCode() != http.StatusOK {
-			activateErr := fmt.Errorf("unexpected status code from ActivatePendingBundle: %s", resp.Status())
-			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), activateErr, "FailedToActivatePendingBundle", resp.Status()))
-			return *state, activateErr
+		if !isDPUArmPoweredOff(system) {
+			_, err := client.ArmShutdown()
+			if err != nil {
+				cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToArmShutdown", err.Error()))
+				return *state, err
+			}
+			logger.Info("Waiting for DPU Arm to shutdown")
+			return *state, nil
 		}
-		logger.Info("successfully activated pending bundle. Moving to Rebooting phase")
 		return transitionToFirmwareUpdateReboot(ctx, dpu, state, ctrlCtx)
 	} else {
 		return *state, nil
