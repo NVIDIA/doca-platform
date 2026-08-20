@@ -44,6 +44,7 @@ import (
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/test/e2e/cleanup"
 	"github.com/nvidia/doca-platform/test/utils/collector"
+	dpuflavorutils "github.com/nvidia/doca-platform/test/utils/dpuflavor"
 	"github.com/nvidia/doca-platform/test/utils/refreshableclient"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -163,6 +164,7 @@ type systemTestInput struct {
 	numberOfDPUsPerNode                 int
 	numberOfCXsToConfigureViaBF4PerNode int
 	pvc                                 *corev1.PersistentVolumeClaim
+	rshimConsoleCollector               *appsv1.DaemonSet
 	selectDPUDevicesDynamically         bool
 	useExternalNodeReboot               bool
 
@@ -294,6 +296,7 @@ func (t *systemTestInput) applyConfig(conf config) {
 	t.blueFieldSoftware = optionalObjectFromFile[provisioningv1.BlueFieldSoftware](conf.BlueFieldSoftwarePath)
 	t.dpuSet = optionalObjectFromFile[provisioningv1.DPUSet](conf.DPUSetPath)
 	t.pvc = optionalObjectFromFile[corev1.PersistentVolumeClaim](conf.ProvisioningControllerPVCPath)
+	t.rshimConsoleCollector = optionalObjectFromFile[appsv1.DaemonSet](conf.RshimConsoleCollectorPath)
 
 	// Load all DPU clusters
 	t.dpuClusters = make([]*provisioningv1.DPUCluster, 0, len(conf.DPUClusterPaths))
@@ -358,6 +361,7 @@ func (t *systemTestInput) applyConfig(conf config) {
 		"e2e config must set at most one of `dpuFlavor` and `dpuFlavorTemplate`")
 	if conf.DPUFlavorPath != nil {
 		t.dpuFlavor = objectFromFile[provisioningv1.DPUFlavor](*conf.DPUFlavorPath)
+		overrideDPUFlavorConsole(t.dpuFlavor)
 		t.dpuDeployment.Spec.DPUs.Flavor = &t.dpuFlavor.Name
 		t.dpuDeployment.Spec.DPUs.FlavorTemplate = nil
 		if t.dpuSet != nil {
@@ -390,6 +394,24 @@ func (t *systemTestInput) applyConfig(conf config) {
 	t.nodeRebootConfigMapPath = conf.NodeRebootConfigMapPath
 	t.selectDPUDevicesDynamically = conf.SelectDPUDevicesDynamically
 	t.useExternalNodeReboot = conf.UseExternalNodeReboot
+}
+
+// overrideDPUFlavorConsole replaces all console= entries loaded from the
+// DPUFlavor file with exactly one console: ttyAMA0 for Zero Trust tests or
+// hvc0 for Host Trusted tests. All non-console kernel parameters are preserved.
+func overrideDPUFlavorConsole(flavor *provisioningv1.DPUFlavor) {
+	console := "hvc0"
+	trustMode := "Host Trust"
+	if isGinkgoLabelApplied(Domain.ZeroTrust) {
+		console = "ttyAMA0"
+		trustMode = "Zero Trust"
+	}
+
+	flavor.Spec.Grub.KernelParameters = dpuflavorutils.WithConsoleKernelParameter(
+		flavor.Spec.Grub.KernelParameters,
+		console,
+	)
+	By(fmt.Sprintf("Configured DPUFlavor %s with console=%s for %s", flavor.Name, console, trustMode))
 }
 
 func (t *systemTestInput) hasDpuNodes() bool {

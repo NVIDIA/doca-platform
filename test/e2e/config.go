@@ -115,6 +115,7 @@ type config struct {
 	NumberOfDPUsPerNode                 int      `json:"numberOfDPUsPerNode,omitempty"`
 	NumberOfCXsToConfigureViaBF4PerNode int      `json:"numberOfCXsToConfigureViaBF4PerNode,omitempty"`
 	ProvisioningControllerPVCPath       *string  `json:"provisioningControllerPVC,omitempty"`
+	RshimConsoleCollectorPath           *string  `json:"rshimConsoleCollector,omitempty"`
 	SelectDPUDevicesDynamically         bool     `json:"selectDPUDevicesDynamically,omitempty"`
 	UseExternalNodeReboot               bool     `json:"useExternalNodeReboot,omitempty"`
 	// SNAP host-cluster objects, grouped by the patching each needs (see deploySNAPStorageStack)

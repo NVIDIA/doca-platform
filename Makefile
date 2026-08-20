@@ -563,10 +563,11 @@ test-release-e2e-quick: # Build images required for the quick DPF e2e test.
 	$(MAKE) helm-package-dummydpuservice helm-push-dummydpuservice
 
 .PHONY: test-helper-images
-test-helper-images: # Build and push the e2e test-helper images and charts (dummydpuservice, netutils).
+test-helper-images: # Build and push the e2e test-helper images and charts.
 	$(MAKE) docker-build-and-push-dummydpuservice \
 		docker-build-and-push-netutils \
 		docker-build-and-push-fake-fs-storage \
+		docker-build-and-push-rshim-console-collector \
 		helm-package-dummydpuservice
 	# The chart push has to wait for the packaging above to complete.
 	$(MAKE) helm-push-dummydpuservice
@@ -1337,6 +1338,10 @@ binary-ipallocator: ## Build the IP allocator binary.
 binary-dpudetector: ## Build the DPU detector binary.
 	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/dpu-detector github.com/nvidia/doca-platform/cmd/dpudetector
 
+.PHONY: binary-rshim-console-collector
+binary-rshim-console-collector: ## Build the rshim console collector binary.
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/rshim-console-collector github.com/nvidia/doca-platform/test/rshim-console-collector
+
 .PHONY: binary-dpuagent
 binary-dpuagent: ## Build the DPU agent binary.
 	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(DPU_ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(DPUAGENT_BINARY) github.com/nvidia/doca-platform/cmd/dpuagent
@@ -1622,6 +1627,9 @@ export DUMMYDPUSERVICE_IMAGE ?= $(REGISTRY)/$(DUMMYDPUSERVICE_IMAGE_NAME)
 NETUTILS_IMAGE_NAME ?= netutils
 export NETUTILS_IMAGE ?= $(REGISTRY)/$(NETUTILS_IMAGE_NAME)
 
+RSHIM_CONSOLE_COLLECTOR_IMAGE_NAME ?= rshim-console-collector
+export RSHIM_CONSOLE_COLLECTOR_IMAGE ?= $(REGISTRY)/$(RSHIM_CONSOLE_COLLECTOR_IMAGE_NAME)
+
 CNIINSTALLER_IMAGE_NAME ?= dpf-cni-installer
 export CNIINSTALLER_IMAGE ?= $(REGISTRY)/$(CNIINSTALLER_IMAGE_NAME)
 export CNIINSTALLER_UPSTREAM_IMAGE ?= $(UPSTREAM_REGISTRY)/$(CNIINSTALLER_IMAGE_NAME)
@@ -1767,6 +1775,28 @@ docker-build-netutils: docker-buildx-setup $(ARTIFACTS_DIR)
 		. \
 		-t $(NETUTILS_IMAGE):$(TAG)
 	$(if $(filter true,$(PUSH)),@$(call record_release_artifact,image,$(NETUTILS_IMAGE_NAME),$(NETUTILS_IMAGE):$(TAG),test_helper))
+
+.PHONY: docker-build-rshim-console-collector
+docker-build-rshim-console-collector: docker-buildx-setup $(ARTIFACTS_DIR) ## Build the rshim console collector image.
+	$(CURDIR)/hack/scripts/docker-build.sh \
+		$(DOCKER_OUTPUT) \
+		--label=org.opencontainers.image.created=$(DATE) \
+		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
+		--label=org.opencontainers.image.revision=$(FULL_COMMIT) \
+		--label=org.opencontainers.image.version=$(TAG) \
+		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
+		--provenance=false \
+		--platform=$(call build_platforms,$(DPF_SYSTEM_ARCH)) \
+		--progress=plain \
+		--build-arg builder_image=$(BUILD_IMAGE) \
+		--build-arg base_image=$(BASE_IMAGE) \
+		--build-arg ldflags="$(GO_LDFLAGS)" \
+		--build-arg gcflags="$(GO_GCFLAGS)" \
+		--build-arg package=./test/rshim-console-collector \
+		-f Dockerfile \
+		. \
+		-t $(RSHIM_CONSOLE_COLLECTOR_IMAGE):$(TAG)
+	$(if $(filter true,$(PUSH)),@$(call record_release_artifact,image,$(RSHIM_CONSOLE_COLLECTOR_IMAGE_NAME),$(RSHIM_CONSOLE_COLLECTOR_IMAGE):$(TAG),test_helper))
 
 .PHONY: docker-build-mock-dms
 docker-build-mock-dms: docker-buildx-setup $(ARTIFACTS_DIR) ## Build docker images for the mock-dms

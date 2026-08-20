@@ -139,6 +139,7 @@ var _ = Describe("DefaultDPUArtifactGenerator", func() {
 		artifact, err := generator.GenerateBF4(ctx, req)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(artifact.UserData).NotTo(BeEmpty())
+		Expect(string(artifact.UserData)).To(ContainSubstring(`all: "| tee -a /var/log/cloud-init-output.log /dev/console"`))
 		Expect(artifact.NetworkConfig).To(Equal([]byte(cloudinit.GenerateNetworkCfg().Content)))
 	})
 

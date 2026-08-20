@@ -4,6 +4,7 @@ dpuClusters:
 # Physical setup: 2 DPUs per node (no dpuSelector; uses all DPUs on selected nodes).
 dpuSet: "../objects/infrastructure/dpuset-multidpu-physical.yaml"
 dpuFlavor: "../objects/infrastructure/dpuflavor-physical.yaml"
+rshimConsoleCollector: "../objects/infrastructure/rshim-console-collector.yaml"
 dpuServiceInterface: "../objects/application/dpuserviceinterface_service_type.yaml"
 dpuServiceInterfaceTemplate: "../objects/application/dpuserviceinterfacetemplate.yaml"
 dpuServiceChain: "../objects/application/dpuservicechain.yaml"

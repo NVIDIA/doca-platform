@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: rshim-console-collector
+  namespace: dpf-operator-system
+  labels:
+    app.kubernetes.io/name: rshim-console-collector
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rshim-console-collector
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rshim-console-collector
+    spec:
+      automountServiceAccountToken: false
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
+                  - key: node-role.kubernetes.io/master
+                    operator: DoesNotExist
+      tolerations:
+        - operator: Exists
+      securityContext:
+        runAsUser: 0
+      containers:
+        - name: rshim-console-collector
+          image: rshim-console-collector:latest
+          args:
+            - --dev-root=/host-dev
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          securityContext:
+            privileged: true
+            readOnlyRootFilesystem: true
+          resources:
+            requests:
+              cpu: 20m
+              memory: 20Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          volumeMounts:
+            - name: host-dev
+              mountPath: /host-dev
+              readOnly: true
+      terminationGracePeriodSeconds: 10
+      volumes:
+        - name: host-dev
+          hostPath:
+            path: /dev
+            type: Directory
