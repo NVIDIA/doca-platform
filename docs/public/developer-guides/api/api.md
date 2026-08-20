@@ -2577,7 +2577,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `rawConfigScript` _string_ | RawConfigScript is the raw configuration script for OVS. |  | Optional: \{\} <br /> |
+| `rawConfigScript` _string_ | RawConfigScript is the raw configuration script for OVS.<br />The DPU agent runs this script once per boot. A restart of the agent in the<br />same boot does not re-run it; a reboot or power cycle does. |  | Optional: \{\} <br /> |
 
 
 #### DPUFlavorSpec
