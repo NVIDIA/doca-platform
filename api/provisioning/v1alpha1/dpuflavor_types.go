@@ -247,6 +247,8 @@ type NVConfig struct {
 
 type DPUFlavorOVS struct {
 	// RawConfigScript is the raw configuration script for OVS.
+	// The DPU agent runs this script once per boot. A restart of the agent in the
+	// same boot does not re-run it; a reboot or power cycle does.
 	// +optional
 	RawConfigScript string `json:"rawConfigScript,omitempty"`
 }

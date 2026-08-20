@@ -462,8 +462,10 @@ spec:
                 description: OVS contains the OVS configuration for the DPUFlavor.
                 properties:
                   rawConfigScript:
-                    description: RawConfigScript is the raw configuration script for
-                      OVS.
+                    description: |-
+                      RawConfigScript is the raw configuration script for OVS.
+                      The DPU agent runs this script once per boot. A restart of the agent in the
+                      same boot does not re-run it; a reboot or power cycle does.
                     type: string
                 type: object
               packages:
