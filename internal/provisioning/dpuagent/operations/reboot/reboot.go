@@ -347,15 +347,19 @@ type mlxfwresetStatusJSON struct {
 	// or a string (e.g. "N/A"); non-array value is parsed as an empty list.
 	PendingNvconfigParameters pendingParamList `json:"pending_nvconfig_parameters"`
 	CommandRequired           string           `json:"command_required"`
+	DescriptionAction         string           `json:"description_action"`
 	Reasons                   []string         `json:"reasons"`
 }
 
 // checkRebootMethodPowerCycle reports whether a power-cycle reboot is indicated by command_required
-// or, as a fallback, by pending_nvconfig_parameters listing any name in powerCyclePendingNvconfigNames.
+// or description_action, or, as a fallback, by pending_nvconfig_parameters listing any name in
+// powerCyclePendingNvconfigNames.
 func checkRebootMethodPowerCycle(_ *HandleReboot, out *mlxfwresetStatusJSON) bool {
-	cmd := strings.TrimSpace(out.CommandRequired)
-	if cmd != "" && strings.Contains(strings.ToLower(cmd), powerCycleCommandRequiredText) {
-		return true
+	for _, field := range []string{out.CommandRequired, out.DescriptionAction} {
+		field = strings.TrimSpace(field)
+		if field != "" && strings.Contains(strings.ToLower(field), powerCycleCommandRequiredText) {
+			return true
+		}
 	}
 	// Workaround should be removed once [1] is fixed.
 	// [1] Feature Request #4846233: [DPF][BF4] Server Reboot Reduction - Mark specific TLVs for blocking FW reset
