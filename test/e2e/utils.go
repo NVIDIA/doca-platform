@@ -175,6 +175,9 @@ var (
 	// netutilsImage is the image name of the netutils image produced by the release associated with the e2e tests. This
 	// image is used for testing traffic. The value does not contain the tag.
 	netutilsImage = ""
+	// rshimConsoleCollectorImage is the image name of the rshim console collector
+	// produced by the release associated with the e2e tests. The value does not contain the tag.
+	rshimConsoleCollectorImage = ""
 	// bmcUsername is the BMC username used by the in-cluster reboot script Job (ZeroTrust only).
 	bmcUsername = ""
 	// bmcPassword is the BMC password used by the in-cluster reboot script Job (ZeroTrust only).

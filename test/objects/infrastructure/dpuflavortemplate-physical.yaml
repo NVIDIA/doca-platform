@@ -48,7 +48,6 @@ spec:
       grub:
         kernelParameters:
           - console=hvc0
-          - console=ttyAMA0
           - earlycon=pl011,0x13010000
           - net.ifnames=0
           - biosdevname=0

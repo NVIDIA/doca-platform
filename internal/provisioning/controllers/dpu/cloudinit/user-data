@@ -6,6 +6,8 @@ hostname: {{.DPUHostName}}
 manage_etc_hosts: localhost
 debug:
   verbose: true
+output:
+  all: "| tee -a /var/log/cloud-init-output.log /dev/console"
 users:
   - name: ubuntu
     lock_passwd: False

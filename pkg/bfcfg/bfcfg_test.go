@@ -205,6 +205,8 @@ hostname: {{.DPUHostName}}
 manage_etc_hosts: localhost
 debug:
   verbose: true
+output:
+  all: "| tee -a /var/log/cloud-init-output.log /dev/console"
 users:
   - name: ubuntu
     lock_passwd: False
@@ -332,6 +334,15 @@ write_files:
 runcmd:
   - [ /opt/dpf/install-dpu-agent.sh ]
 EOF
+{{if not .RedfishInterface}}
+# Best-effort E2E console routing: this intentionally does nothing if the BFB
+# default console parameters change because it is only used for test log collection.
+grub_file=/mnt/etc/default/grub
+sed -i \
+    's/console=hvc0 console=ttyAMA0/console=ttyAMA0 console=hvc0/g' \
+    "$grub_file"
+chroot /mnt env PATH="$CHROOT_PATH" /usr/sbin/update-grub
+{{end -}}
 }
 `
 
@@ -525,6 +536,7 @@ ovs-vsctl add-br br-test
 
 				Expect(string(raw)).To(ContainSubstring("pre_bmc_components_update"))
 				Expect(string(raw)).To(ContainSubstring("post_bmc_components_update"))
+				Expect(string(raw)).NotTo(ContainSubstring("console=ttyAMA0 console=hvc0"))
 
 				netplanFile := getWriteFile(parsed, "/etc/netplan/50-dpf-bootstrap.yaml")
 				expectedNetplan := skipFirstEmptyLine(`
@@ -653,6 +665,7 @@ EOF
 				})
 
 				Expect(string(raw)).To(ContainSubstring("pre_bmc_components_update"))
+				Expect(string(raw)).To(ContainSubstring("console=ttyAMA0 console=hvc0"))
 
 				netplanFile := getWriteFile(parsed, "/etc/netplan/50-dpf-bootstrap.yaml")
 				expectedNetplan := skipFirstEmptyLine(`

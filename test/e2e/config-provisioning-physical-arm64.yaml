@@ -4,6 +4,7 @@ dpuClusters:
 # ARM64 physical: 2 nodes, 1 dynamically selected common PCI address per node.
 dpuSet: "../objects/infrastructure/dpuset-physical-arm64.yaml"
 dpuFlavor: "../objects/infrastructure/dpuflavor-physical.yaml"
+rshimConsoleCollector: "../objects/infrastructure/rshim-console-collector.yaml"
 dpuServiceInterface: "../objects/application/dpuserviceinterface_service_type.yaml"
 dpuServiceInterfaceTemplate: "../objects/application/dpuserviceinterfacetemplate.yaml"
 dpuServiceChain: "../objects/application/dpuservicechain.yaml"

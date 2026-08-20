@@ -28,6 +28,7 @@ import (
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	rshimconsoleutils "github.com/nvidia/doca-platform/test/utils/rshimconsole"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -279,6 +280,23 @@ func SystemSetupBeforeSuite(skipSystemComponentValidation bool) {
 		numberOfDPUNodes:              input.numberOfDPUNodes,
 		skipSystemComponentValidation: skipSystemComponentValidation,
 	})
+
+	if input.rshimConsoleCollector != nil {
+		if isGinkgoLabelApplied(Domain.ZeroTrust) {
+			GinkgoWriter.Printf("Skipping rshim console collector in Zero Trust mode\n")
+		} else {
+			By("Deploy rshim console collector")
+			err := rshimconsoleutils.Deploy(
+				ctx,
+				input.client,
+				input.rshimConsoleCollector,
+				fmt.Sprintf("%s:%s", rshimConsoleCollectorImage, tag),
+				input.pullSecretNames,
+				CleanupScope.Suite,
+			)
+			Expect(err).NotTo(HaveOccurred())
+		}
+	}
 
 	if isGinkgoLabelApplied(Domain.ZeroTrust) {
 		// In ZeroTrust mode, load the lab setup-info once and reuse it for the

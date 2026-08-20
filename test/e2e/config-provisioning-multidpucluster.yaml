@@ -5,6 +5,7 @@ dpuClusters:
   - "../objects/infrastructure/dpucluster-extra.yaml"
 dpuSet: "../objects/infrastructure/dpuset.yaml"
 dpuFlavor: "../objects/infrastructure/dpuflavor.yaml"
+rshimConsoleCollector: "../objects/infrastructure/rshim-console-collector.yaml"
 dpuClusterPrerequisiteObjectPath:
   - "../objects/infrastructure/kamaji-audit-policy.yaml"
   - "../objects/infrastructure/kamaji-provisioning.yaml"

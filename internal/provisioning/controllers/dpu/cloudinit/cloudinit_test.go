@@ -46,6 +46,7 @@ type cloudConfig struct {
 	Hostname         string       `json:"hostname"`
 	ManageEtcHosts   string       `json:"manage_etc_hosts"`
 	Debug            debugConfig  `json:"debug"`
+	Output           outputConfig `json:"output"`
 	Users            []userConfig `json:"users"`
 	ChPasswd         chPasswd     `json:"chpasswd"`
 	WriteFiles       []writeEntry `json:"write_files"`
@@ -54,6 +55,10 @@ type cloudConfig struct {
 
 type debugConfig struct {
 	Verbose bool `json:"verbose"`
+}
+
+type outputConfig struct {
+	All string `json:"all"`
 }
 
 type userConfig struct {
@@ -188,6 +193,7 @@ network:
 
 		Expect(userData.Path).To(Equal(UserDataPath))
 		Expect(userData.Permissions).To(Equal(UserDataPerms))
+		Expect(parsed.Output.All).To(Equal("| tee -a /var/log/cloud-init-output.log /dev/console"))
 		agentConf := getWriteFile(parsed, "/opt/dpf/dpuagent.conf")
 		Expect(agentConf.Content).NotTo(ContainSubstring("--dpu-type="))
 	})

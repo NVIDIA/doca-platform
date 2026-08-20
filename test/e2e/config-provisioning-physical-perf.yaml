@@ -5,6 +5,7 @@ dpuClusterPrerequisiteObjectPath:
   - "../objects/performance/nodesriovdevicepluginconfig.yaml"
 dpuSet: "../objects/infrastructure/dpuset.yaml"
 dpuFlavor: "../objects/performance/dpuflavor-hbn-ovn-perf.yaml"
+rshimConsoleCollector: "../objects/infrastructure/rshim-console-collector.yaml"
 dpuServiceInterface: "../objects/application/dpuserviceinterface_service_type.yaml"
 dpuServiceInterfaceTemplate: "../objects/application/dpuserviceinterfacetemplate.yaml"
 dpuServiceChain: "../objects/application/dpuservicechain.yaml"

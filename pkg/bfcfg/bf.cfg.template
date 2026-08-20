@@ -26,4 +26,13 @@ cat << \EOF > {{.Path}}
 {{.Content | trimSuffix "\n"}}
 EOF
 {{end -}}
+{{if not .RedfishInterface}}
+# Best-effort E2E console routing: this intentionally does nothing if the BFB
+# default console parameters change because it is only used for test log collection.
+grub_file=/mnt/etc/default/grub
+sed -i \
+    's/console=hvc0 console=ttyAMA0/console=ttyAMA0 console=hvc0/g' \
+    "$grub_file"
+chroot /mnt env PATH="$CHROOT_PATH" /usr/sbin/update-grub
+{{end -}}
 }

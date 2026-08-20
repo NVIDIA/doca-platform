@@ -159,6 +159,7 @@ func getEnvVariables() {
 	if img, found := os.LookupEnv("STORAGE_SYSTEM_IMAGE"); found {
 		storageSystemImage = img
 	}
+	rshimConsoleCollectorImage = os.Getenv("RSHIM_CONSOLE_COLLECTOR_IMAGE")
 
 	// ZeroTrust-only env vars; required-ness enforced in validateFlags() once
 	// the ginkgo label filter is known. Reading them here keeps all env-var
@@ -579,6 +580,10 @@ func validateRequiredConfigFields() {
 }
 
 func validateFlags() {
+	if conf.RshimConsoleCollectorPath != nil && rshimConsoleCollectorImage == "" {
+		panic("e2e config with `rshimConsoleCollector` requires RSHIM_CONSOLE_COLLECTOR_IMAGE env var")
+	}
+
 	if !isGinkgoLabelApplied(Domain.ZeroTrust) {
 		return
 	}
