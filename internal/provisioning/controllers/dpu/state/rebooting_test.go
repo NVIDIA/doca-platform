@@ -1060,7 +1060,7 @@ var _ = Describe("InitializeDPURebootStatus", func() {
 		Expect(st.RebootStatus.Phase).To(Equal(provisioningv1.RebootStatusPending))
 	})
 
-	It("sets PowerCycle method for DPUUpdateFirmware", func() {
+	It("sets SystemLevelReset method for DPUUpdateFirmware", func() {
 		scheme := runtime.NewScheme()
 		Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
 		cl := fake.NewClientBuilder().WithScheme(scheme).Build()
@@ -1076,9 +1076,9 @@ var _ = Describe("InitializeDPURebootStatus", func() {
 
 		Expect(st.RebootStatus).NotTo(BeNil())
 		Expect(st.RebootStatus.Method).NotTo(BeNil())
-		Expect(*st.RebootStatus.Method).To(Equal(provisioningv1.RebootMethodPowerCycle))
-		Expect(st.RebootStatus.Reason).To(Equal("FirmwareUpdateRequiresPowerCycle"))
-		Expect(st.RebootStatus.Message).To(Equal("firmware update requires power cycle to activate"))
+		Expect(*st.RebootStatus.Method).To(Equal(provisioningv1.RebootMethodSystemLevelReset))
+		Expect(st.RebootStatus.Reason).To(Equal("FirmwareUpdateRequiresSystemLevelReset"))
+		Expect(st.RebootStatus.Message).To(Equal("firmware update requires system level reset to activate"))
 		Expect(st.RebootStatus.Phase).To(Equal(provisioningv1.RebootStatusPending))
 	})
 
