@@ -24,9 +24,11 @@ import (
 	"strings"
 	"time"
 
+	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/test/e2e/cleanup"
 	"github.com/nvidia/doca-platform/test/utils/netshoot"
+	"github.com/nvidia/doca-platform/test/utils/vpc"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -35,6 +37,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -63,14 +66,11 @@ const (
 	weaveDHCPNADP0 = "weave-dhcp-p0"
 	weaveDHCPNADP1 = "weave-dhcp-p1"
 
-	// DPU-side PCI addresses for the two NIC ports. The underscored form is used in OVS bridge names,
-	// while the canonical form is expected in the pci_address metric label.
+	// DPU-side PCI address for p0, in the underscored form used in OVS isolation-bridge names.
 	// Pinned by the dpf-bootstrap deployment, see DPUService-weave-flow-controller.yml.
-	// If the underlay config in the DPUService changes, these need to follow.
-	weaveDPUPortP0PCIAddress     = "0000:03:00.0"
-	weaveDPUPortP1PCIAddress     = "0000:03:00.1"
+	// If the underlay config in the DPUService changes, this needs to follow.
 	weaveDPUPortP0PCIUnderscored = "0000_03_00_0"
-	weaveDPUPortP1PCIUnderscored = "0000_03_00_1"
+	weaveDropBridgeP0            = "br-drop-n0"
 
 	// Host-side RDMA device name (ibv) for the p0 PF netdev. Pinned by hardware/driver enumeration
 	// on the worker.
@@ -120,10 +120,6 @@ const (
 	// means TX traffic is leaking through the DHCP port instead of being encapsulated or dropped.
 	weaveDHCPTxSlack = 5
 
-	// weaveCrossNodePacketDriftTolerance is the maximum allowed drift, in packets, between matching sender/receiver
-	// this is just a small margin for a rare in-flight/lost packet across the tunnel.
-	weaveCrossNodePacketDriftTolerance = 2
-
 	// Names of the OVS flow metrics we use in the tests.
 	weaveMetricHostTx        = "weave_host_tx"
 	weaveMetricHostRx        = "weave_host_rx"
@@ -132,6 +128,9 @@ const (
 	weaveMetricRxDecap       = "weave_rx_decap"
 	weaveMetricRxDropped     = "weave_rx_dropped"
 	weaveMetricRxVNIMismatch = "weave_rx_vni_mismatch"
+
+	// weaveEnableOVSMetricsEnv enables labeled OVS flow-metric registration in weave-flow-controller.
+	weaveEnableOVSMetricsEnv = "ENABLE_OVS_METRICS"
 )
 
 // weavePodsToVerify is used by Weave tests to wait for Weave workloads on the DPU cluster (pod names contain these substrings).
@@ -383,50 +382,13 @@ func createPFAttachmentAndWaitForHostIP(pod *corev1.Pod, vnetID, pfMAC string) (
 	return attID, hostIP
 }
 
-var dpuPortToPCIUnderscored = map[string]string{
-	weaveDPUPortP0: weaveDPUPortP0PCIUnderscored,
-	weaveDPUPortP1: weaveDPUPortP1PCIUnderscored,
-}
-
-var dpuPortToPCIAddress = map[string]string{
-	weaveDPUPortP0: weaveDPUPortP0PCIAddress,
-	weaveDPUPortP1: weaveDPUPortP1PCIAddress,
-}
-
-// isolationBridgeName returns the OVS isolation bridge name for a VNI on a DPU port.
-func isolationBridgeName(vni uint32, dpuPort string) string {
-	pci, ok := dpuPortToPCIUnderscored[dpuPort]
-	Expect(ok).To(BeTrue(), "unknown DPU port %q", dpuPort)
-	return fmt.Sprintf("br-isol-%d-%s", vni, pci)
-}
-
-// dropBridgeName returns the OVS drop bridge name for a DPU port (br-drop-n0 / br-drop-n1).
-func dropBridgeName(dpuPort string) string {
-	switch dpuPort {
-	case weaveDPUPortP0:
-		return "br-drop-n0"
-	case weaveDPUPortP1:
-		return "br-drop-n1"
-	default:
-		Fail(fmt.Sprintf("unknown DPU port %q", dpuPort))
-		return ""
-	}
-}
-
-// verifyIsolationBridgeExists asserts that the OVS isolation bridge for the given VNI
-// on the given DPU port (br-isol-<vni>-<pci_underscored>) is present on the flow-controller pod.
-func verifyIsolationBridgeExists(pod *corev1.Pod, vni uint32, dpuPort string) {
-	bridge := isolationBridgeName(vni, dpuPort)
-	By(fmt.Sprintf("Verifying bridge %s exists on pod %s", bridge, pod.Name))
-	Eventually(func(g Gomega) {
-		out, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name,
-			[]string{"ovs-vsctl", "list", "bridge", bridge})
-		g.Expect(err).ToNot(HaveOccurred(), "bridge %s not found on pod %s: %s", bridge, pod.Name, out)
-	}).WithTimeout(weaveOperationTimeout).WithPolling(weaveEventuallyPollInterval).Should(Succeed())
+// isolationBridgeName returns the OVS isolation bridge name for a VNI on p0.
+func isolationBridgeName(vni uint32) string {
+	return fmt.Sprintf("br-isol-%d-%s", vni, weaveDPUPortP0PCIUnderscored)
 }
 
 // weaveMetricFamily is the Prometheus metric family emitted by `ovs-appctl metrics/show` carrying per-flow packet
-// counters. Each sample is labeled with the bridge, weave_* counter name, and additional labels such as pci_address.
+// counters. Each sample is labeled with the bridge, weave_* counter name, and additional labels such as device_name.
 const weaveMetricFamily = "ovs_vswitchd_flow_packets_total"
 
 // weaveMetric is one counter sample from a weave metrics scrape, including its full label set.
@@ -497,19 +459,163 @@ func metricDelta(g Gomega, before, after weaveMetrics, bridge, name string) uint
 	return a.packetCount - b.packetCount
 }
 
-// assertMetricLabel verifies that metrics registered on a bridge carry the expected label value.
-// expectedLabelName is parameterized for future metric labels beyond pci_address.
-//
-//nolint:unparam
-func assertMetricLabel(g Gomega, metrics weaveMetrics, expectedBridge string, counterNames []string, expectedLabelName, expectedLabelValue string) {
+// assertMetricDeviceNameLabel verifies that metrics registered on a bridge carry the device_name
+// label of the DPU uplink (p0/p1) the bridge is attached to.
+func assertMetricDeviceNameLabel(g Gomega, metrics weaveMetrics, expectedBridge string, counterNames []string, expectedDeviceName string) {
 	for _, name := range counterNames {
 		metric, ok := metrics[expectedBridge][name]
 		g.Expect(ok).To(BeTrue(), "weave metric %s missing on bridge %s", name, expectedBridge)
-		actualLabelValue, ok := metric.labels[expectedLabelName]
-		g.Expect(ok).To(BeTrue(), "weave metric %s on bridge %s: label %q missing", name, expectedBridge, expectedLabelName)
-		g.Expect(actualLabelValue).To(Equal(expectedLabelValue),
-			"weave metric %s on bridge %s: label %q mismatch", name, expectedBridge, expectedLabelName)
+		deviceName, ok := metric.labels["device_name"]
+		g.Expect(ok).To(BeTrue(), "weave metric %s on bridge %s: label device_name missing, got %v",
+			name, expectedBridge, metric.labels)
+		g.Expect(deviceName).To(Equal(expectedDeviceName),
+			"weave metric %s on bridge %s: label device_name mismatch", name, expectedBridge)
 	}
+}
+
+// patchFlowControllerForMetrics patches the weave-flow-controller DPUService to a single underlay
+// interface and sets ENABLE_OVS_METRICS=true. The device_name label is the uplink of PCI function 0, so dual-port
+// underlays on the same NIC collide on the same label. Metrics e2e must run with one underlay.
+func patchFlowControllerForMetrics() {
+	By("Patching weave-flow-controller DPUService: single underlay + ENABLE_OVS_METRICS=true")
+	svc := &dpuservicev1.DPUService{}
+	Expect(input.client.Get(ctx, client.ObjectKey{
+		Namespace: dpfOperatorSystemNamespace,
+		Name:      weaveFlowControllerName,
+	}, svc)).To(Succeed())
+	original := svc.DeepCopy()
+
+	Expect(svc.Spec.HelmChart.Values).ToNot(BeNil(), "weave-flow-controller DPUService has no helm values")
+	values := map[string]any{}
+	Expect(json.Unmarshal(svc.Spec.HelmChart.Values.Raw, &values)).To(Succeed())
+
+	wfc, ok := values["weaveFlowController"].(map[string]any)
+	Expect(ok).To(BeTrue(), "missing weaveFlowController in helm values")
+
+	underlay, ok := wfc["underlayConfigMapData"].(map[string]any)
+	Expect(ok).To(BeTrue(), "missing underlayConfigMapData in helm values")
+	ifaces, ok := underlay["interfaces"].([]any)
+	Expect(ok).To(BeTrue(), "missing underlayConfigMapData.interfaces in helm values")
+	Expect(ifaces).ToNot(BeEmpty(), "underlayConfigMapData.interfaces is empty")
+	underlay["interfaces"] = ifaces[:1]
+
+	containers, _ := wfc["containers"].(map[string]any)
+	if containers == nil {
+		containers = map[string]any{}
+		wfc["containers"] = containers
+	}
+	container, _ := containers["weaveFlowController"].(map[string]any)
+	if container == nil {
+		container = map[string]any{}
+		containers["weaveFlowController"] = container
+	}
+	upsertHelmEnv(container, weaveEnableOVSMetricsEnv, "true")
+
+	raw, err := json.Marshal(values)
+	Expect(err).NotTo(HaveOccurred())
+	svc.Spec.HelmChart.Values.Raw = raw
+	Expect(input.client.Patch(ctx, svc, client.MergeFrom(original))).To(Succeed())
+}
+
+// upsertHelmEnv sets name=value on a helm container values map, preserving any other env entries.
+func upsertHelmEnv(container map[string]any, name, value string) {
+	envEntry := map[string]any{"name": name, "value": value}
+	rawEnv, _ := container["env"].([]any)
+	for i, entry := range rawEnv {
+		m, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		if n, _ := m["name"].(string); n == name {
+			rawEnv[i] = envEntry
+			container["env"] = rawEnv
+			return
+		}
+	}
+	container["env"] = append(rawEnv, envEntry)
+}
+
+// waitForFlowControllerPodsRolled waits until both flow-controller pods have new UIDs (DaemonSet
+// roll after the metrics patch) and are Ready, then returns them ordered by DPU node.
+func waitForFlowControllerPodsRolled(dpuNode1, dpuNode2 string, previousUIDs map[string]types.UID) (pod1, pod2 *corev1.Pod) {
+	By("Waiting for weave-flow-controller pods to roll after metrics patch")
+	Eventually(func(g Gomega) {
+		pods := netshoot.GetReadyPodsMatchingLabels(ctx, dpuClusterClient[0], dpfOperatorSystemNamespace,
+			map[string]string{weaveDPUServiceLabelKey: weaveFlowControllerName})
+		g.Expect(pods).To(HaveLen(2), "expected 2 ready %s pods after metrics patch", weaveFlowControllerName)
+
+		p1 := netshoot.GetPodOnNode(pods, dpuNode1)
+		p2 := netshoot.GetPodOnNode(pods, dpuNode2)
+		g.Expect(p1).ToNot(BeNil(), "no flow-controller pod on DPU node %s after metrics patch", dpuNode1)
+		g.Expect(p2).ToNot(BeNil(), "no flow-controller pod on DPU node %s after metrics patch", dpuNode2)
+		g.Expect(p1.UID).NotTo(Equal(previousUIDs[dpuNode1]),
+			"flow-controller pod on %s did not roll (UID still %s)", dpuNode1, p1.UID)
+		g.Expect(p2.UID).NotTo(Equal(previousUIDs[dpuNode2]),
+			"flow-controller pod on %s did not roll (UID still %s)", dpuNode2, p2.UID)
+
+		for _, pod := range []*corev1.Pod{p1, p2} {
+			hasMetricsEnv := false
+			for _, c := range pod.Spec.Containers {
+				for _, e := range c.Env {
+					if e.Name == weaveEnableOVSMetricsEnv && e.Value == "true" {
+						hasMetricsEnv = true
+						break
+					}
+				}
+			}
+			g.Expect(hasMetricsEnv).To(BeTrue(), "pod %s missing %s=true", pod.Name, weaveEnableOVSMetricsEnv)
+		}
+
+		pod1, pod2 = p1, p2
+	}).WithTimeout(10 * time.Minute).WithPolling(weaveEventuallyPollInterval).Should(Succeed())
+
+	verifyOVSResponsive(pod1)
+	verifyOVSResponsive(pod2)
+	return pod1, pod2
+}
+
+// createWeaveVNetWithCleanup creates a VirtualNetwork on pod and appends its deletion to cleanup.
+func createWeaveVNetWithCleanup(cleanup *[]func(), pod *corev1.Pod, vnetID string, vni uint32, subnet string) {
+	createVNetOnPod(pod, vnetID, vni, subnet)
+	*cleanup = append(*cleanup, func() { deleteVNetOnPod(pod, vnetID) })
+}
+
+// createWeaveAttachmentWithCleanup creates a PF attachment on pod, appends its deletion to cleanup, and
+// returns the assigned overlay host IP.
+func createWeaveAttachmentWithCleanup(cleanup *[]func(), pod *corev1.Pod, vnetID, pfMAC string) string {
+	attID, overlayIP := createPFAttachmentAndWaitForHostIP(pod, vnetID, pfMAC)
+	*cleanup = append(*cleanup, func() { deleteAttachmentOnPod(pod, attID) })
+	return overlayIP
+}
+
+// weaveNetshootEndpoint describes one netshoot pod and which DHCP NAD/host PF it attaches to.
+type weaveNetshootEndpoint struct {
+	name     string
+	nodeName string
+	nadName  string
+	hostPF   string
+}
+
+// createWeaveNetshootPods creates the DHCP NADs needed by endpoints, creates the pods, and waits until Ready.
+func createWeaveNetshootPods(namespace string, endpoints []weaveNetshootEndpoint) {
+	By("Creating DHCP NADs and netshoot pods")
+	createdNADs := map[string]bool{}
+	configs := make([]*netshoot.TestPodConfig, 0, len(endpoints))
+	for _, ep := range endpoints {
+		if !createdNADs[ep.nadName] {
+			vpc.CreateDHCPNetworkAttachmentDefinition(ctx, input.client, namespace, ep.nadName, ep.hostPF, weavePFMTU, weaveContextScope.CleanupLabels)
+			createdNADs[ep.nadName] = true
+		}
+		configs = append(configs, &netshoot.TestPodConfig{
+			Namespace: namespace,
+			Name:      ep.name,
+			NodeName:  ep.nodeName,
+			NADName:   ep.nadName,
+			Labels:    weaveContextScope.CleanupLabels,
+		})
+	}
+	netshoot.CreatePods(ctx, input.client, configs)
+	netshoot.WaitForPodsReady(ctx, input.client, configs, vpc.LongTimeout)
 }
 
 // metricDeltaExpect describes how a set of weave counters should move between two scrapes.
@@ -554,17 +660,150 @@ type metricRef struct {
 	bridge, name  string
 }
 
-// assertMetricDeltasMatch asserts the sender and receiver counters advanced by the same amount
-// within tolerance — e.g. tx_sent on the sender DPU vs rx_decap on the receiver DPU track the same overlay
-// packets.
+// assertMetricDeltasMatch asserts sender and receiver counters advanced by about the same amount
+// (e.g. tx_sent on one DPU vs rx_decap on the other). Drift of 1 packet per million is allowed,
+// rounded up.
 func assertMetricDeltasMatch(g Gomega, sender, receiver metricRef) {
 	src := metricDelta(g, sender.before, sender.after, sender.bridge, sender.name)
 	dst := metricDelta(g, receiver.before, receiver.after, receiver.bridge, receiver.name)
-	// Absolute difference between the two counters.
-	diff := max(src, dst) - min(src, dst)
-	g.Expect(diff).To(BeNumerically("<=", weaveCrossNodePacketDriftTolerance),
-		"%s on %s delta %d vs %s on %s delta %d differ by %d packets (> tolerance %d)",
-		sender.name, sender.bridge, src, receiver.name, receiver.bridge, dst, diff, weaveCrossNodePacketDriftTolerance)
+	larger := max(src, dst)
+	drift := larger - min(src, dst)
+	const million = 1_000_000
+	allowed := (larger + million - 1) / million
+	g.Expect(drift).To(BeNumerically("<=", allowed),
+		"%s on %s delta %d vs %s on %s delta %d differ by %d packets (> allowed %d)",
+		sender.name, sender.bridge, src, receiver.name, receiver.bridge, dst, drift, allowed)
+}
+
+// eventuallyAssertWeaveMetrics scrapes weave metrics from pods until assert succeeds.
+func eventuallyAssertWeaveMetrics(pods []*corev1.Pod, assert func(g Gomega, current []weaveMetrics)) {
+	Eventually(func(g Gomega) {
+		current := make([]weaveMetrics, len(pods))
+		for i, pod := range pods {
+			current[i] = scrapeWeaveMetrics(g, pod)
+		}
+		assert(g, current)
+	}).WithTimeout(weaveOperationTimeout).WithPolling(weaveEventuallyPollInterval).Should(Succeed())
+}
+
+// verifyMetricsAfterPingBurst takes a baseline scrape, sends a ping burst, then waits until assert
+// holds against the post-burst scrapes.
+func verifyMetricsAfterPingBurst(byTraffic, byVerify string, pods []*corev1.Pod, namespace, srcPod, destIP string,
+	assert func(g Gomega, before, after []weaveMetrics)) {
+	By("Reading baseline weave metrics")
+	before := make([]weaveMetrics, len(pods))
+	for i, pod := range pods {
+		before[i] = readWeaveMetrics(pod)
+	}
+
+	By(byTraffic)
+	_, _ = netshoot.PingBurst(hostClusterRESTClient, input.restConfig, namespace, srcPod, destIP, weaveMetricBurstCount)
+
+	By(byVerify)
+	eventuallyAssertWeaveMetrics(pods, func(g Gomega, after []weaveMetrics) {
+		assert(g, before, after)
+	})
+}
+
+// verifyMetricDeviceNameLabels asserts isolation and drop-bridge series on both flow-controller
+// pods carry device_name=p0.
+func verifyMetricDeviceNameLabels(fcPod1, fcPod2 *corev1.Pod, vni uint32) {
+	p0Bridge := isolationBridgeName(vni)
+	isolationMetricNames := []string{
+		weaveMetricHostTx,
+		weaveMetricHostRx,
+		weaveMetricTxSent,
+		weaveMetricTxDropped,
+		weaveMetricRxDecap,
+		weaveMetricRxDropped,
+	}
+
+	By("Verifying flow metrics expose expected device_name labels")
+	eventuallyAssertWeaveMetrics([]*corev1.Pod{fcPod1, fcPod2}, func(g Gomega, current []weaveMetrics) {
+		for _, metrics := range current {
+			assertMetricDeviceNameLabel(g, metrics, p0Bridge, isolationMetricNames, weaveDPUPortP0)
+			assertMetricDeviceNameLabel(g, metrics, weaveDropBridgeP0,
+				[]string{weaveMetricRxVNIMismatch}, weaveDPUPortP0)
+		}
+	})
+}
+
+// verifyCrossNodeIperfMetric runs bidirectional iperf between srcPod and dstPod, then checks that
+// weave counters on fcPod1/fcPod2 rose with the traffic, did not drop, and match across the tunnel
+// within 1 packet per million.
+func verifyCrossNodeIperfMetric(fcPod1, fcPod2 *corev1.Pod, vni uint32, namespace, srcPod, dstPod, dstOverlayIP string) {
+	bridge := isolationBridgeName(vni)
+
+	By("Reading baseline weave metrics")
+	baseline1 := readWeaveMetrics(fcPod1)
+	baseline2 := readWeaveMetrics(fcPod2)
+
+	By("Running iperf cross-node")
+	iperfResult := netshoot.RunTrafficTestWithResult(&hostClusterRESTClient, &input.restConfig, namespace, srcPod, dstPod, dstOverlayIP)
+	forwardBytes := iperfResult.Forward.End.SumSent.Bytes
+	Expect(forwardBytes).To(BeNumerically(">", 0), "iperf reported zero forward bytes")
+	mss := iperfResult.Forward.Start.TCPMSSDefault
+	Expect(mss).To(BeNumerically(">", 0), "iperf did not report a TCP MSS")
+	minIperfPackets := uint64(forwardBytes) / uint64(mss)
+
+	By("Verifying weave metrics across nodes")
+	eventuallyAssertWeaveMetrics([]*corev1.Pod{fcPod1, fcPod2}, func(g Gomega, current []weaveMetrics) {
+		after1, after2 := current[0], current[1]
+
+		assertMetricDeltas(g, baseline1, after1, bridge, metricDeltaExpect{
+			mustRiseBy:   map[string]uint64{weaveMetricHostTx: minIperfPackets, weaveMetricTxSent: minIperfPackets},
+			mustStayFlat: []string{weaveMetricTxDropped},
+		})
+		assertMetricDeltas(g, baseline2, after2, bridge, metricDeltaExpect{
+			mustRiseBy:   map[string]uint64{weaveMetricHostRx: minIperfPackets, weaveMetricRxDecap: minIperfPackets},
+			mustStayFlat: []string{weaveMetricRxDropped},
+		})
+
+		assertMetricDeltasMatch(g,
+			metricRef{before: baseline1, after: after1, bridge: bridge, name: weaveMetricTxSent},
+			metricRef{before: baseline2, after: after2, bridge: bridge, name: weaveMetricRxDecap})
+		assertMetricDeltasMatch(g,
+			metricRef{before: baseline2, after: after2, bridge: bridge, name: weaveMetricTxSent},
+			metricRef{before: baseline1, after: after1, bridge: bridge, name: weaveMetricRxDecap})
+	})
+}
+
+// verifyVNIMismatchMetric sends a ping burst across mismatched VNets and checks the source isolation
+// bridge encapsulates at least one packet while the destination drop bridge counts a VNI mismatch.
+func verifyVNIMismatchMetric(fcPod1, fcPod2 *corev1.Pod, srcVNI uint32, namespace, srcPod, dstOverlayIP string) {
+	srcBridge := isolationBridgeName(srcVNI)
+	dstBridge := weaveDropBridgeP0
+
+	verifyMetricsAfterPingBurst(
+		"Sending a ping burst across mismatched VNets",
+		"Verifying weave metrics across mismatching VNets",
+		[]*corev1.Pod{fcPod1, fcPod2}, namespace, srcPod, dstOverlayIP,
+		func(g Gomega, before, after []weaveMetrics) {
+			assertMetricDeltas(g, before[0], after[0], srcBridge, metricDeltaExpect{
+				mustRiseBy: map[string]uint64{weaveMetricHostTx: 1, weaveMetricTxSent: 1},
+			})
+			assertMetricDeltas(g, before[1], after[1], dstBridge, metricDeltaExpect{
+				mustRiseBy: map[string]uint64{weaveMetricRxVNIMismatch: 1},
+			})
+		})
+}
+
+// verifyOutOfSubnetMetric sends a ping burst to destIP and checks the isolation bridge drops those
+// packets instead of encapsulating them, with host_tx accounted for as sent or dropped.
+func verifyOutOfSubnetMetric(fcPod *corev1.Pod, vni uint32, namespace, podName, destIP string) {
+	bridge := isolationBridgeName(vni)
+
+	verifyMetricsAfterPingBurst(
+		"Sending a ping burst to an out-of-subnet destination",
+		"Verifying weave metrics across out-of-subnet destination",
+		[]*corev1.Pod{fcPod}, namespace, podName, destIP,
+		func(g Gomega, before, after []weaveMetrics) {
+			assertMetricDeltas(g, before[0], after[0], bridge, metricDeltaExpect{
+				mustRiseBy:   map[string]uint64{weaveMetricHostTx: 1, weaveMetricTxDropped: 1},
+				mustStayFlat: []string{weaveMetricTxSent},
+			})
+			assertTxPacketsAccountedFor(g, before[0], after[0], bridge)
+		})
 }
 
 // ensureOverlayRoute ensures the route for subnet on a netshoot pod uses the DHCP

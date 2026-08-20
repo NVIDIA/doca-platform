@@ -27,11 +27,13 @@ import (
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 	var (
 		workerNode1, workerNode2                               string
+		dpuNode1Name, dpuNode2Name                             string
 		fcPod1, fcPod2                                         *corev1.Pod
 		pfMACP0Node1, pfMACP0Node2, pfMACP1Node1, pfMACP1Node2 string
 		beforeAllSucceeded                                     bool
@@ -84,6 +86,7 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 			workerNode1, workerNode2 = getTwoWorkerNodeNames(ctx, input.client)
 			By("Getting DPU cluster nodes in order")
 			dpuNode1, dpuNode2 := getDPUNodesInOrder(ctx, input.client, dpuClusterClient[0])
+			dpuNode1Name, dpuNode2Name = dpuNode1.Name, dpuNode2.Name
 			fcPod1 = netshoot.GetPodOnNode(flowControllerPods, dpuNode1.Name)
 			fcPod2 = netshoot.GetPodOnNode(flowControllerPods, dpuNode2.Name)
 			Expect(fcPod1).ToNot(BeNil(), "no flow-controller pod found on DPU node %s", dpuNode1.Name)
@@ -127,8 +130,6 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 		var (
 			overlayIPP0Node1, overlayIPP0Node2 string
 			overlayIPP1Node1, overlayIPP1Node2 string
-			testPodConfigs                     []*netshoot.TestPodConfig
-			contextHasFailed                   bool
 			grpcCleanup                        []func()
 		)
 
@@ -142,17 +143,7 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 			podP1Node2    = "weave-p1-pod-2"
 		)
 
-		AfterEach(func() {
-			if CurrentSpecReport().Failed() {
-				contextHasFailed = true
-			}
-		})
-
 		AfterAll(func() {
-			if contextHasFailed {
-				By("Weave: Report failure for this spec")
-				reportAfterEach(CurrentSpecReport())
-			}
 			for i := len(grpcCleanup) - 1; i >= 0; i-- {
 				grpcCleanup[i]()
 			}
@@ -164,76 +155,27 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 		})
 
 		It("should create virtual network on both flow-controller pods", func() {
-			createVNetOnPod(fcPod1, trafficVNetID, trafficVNI, weaveVNetSubnet)
-			grpcCleanup = append(grpcCleanup, func() { deleteVNetOnPod(fcPod1, trafficVNetID) })
-			createVNetOnPod(fcPod2, trafficVNetID, trafficVNI, weaveVNetSubnet)
-			grpcCleanup = append(grpcCleanup, func() { deleteVNetOnPod(fcPod2, trafficVNetID) })
+			createWeaveVNetWithCleanup(&grpcCleanup, fcPod1, trafficVNetID, trafficVNI, weaveVNetSubnet)
+			createWeaveVNetWithCleanup(&grpcCleanup, fcPod2, trafficVNetID, trafficVNI, weaveVNetSubnet)
 		})
 
 		It("should create PF attachments for p0 on both nodes", func() {
-			var attIDP0Fc1, attIDP0Fc2 string
-			attIDP0Fc1, overlayIPP0Node1 = createPFAttachmentAndWaitForHostIP(fcPod1, trafficVNetID, pfMACP0Node1)
-			grpcCleanup = append(grpcCleanup, func() { deleteAttachmentOnPod(fcPod1, attIDP0Fc1) })
-			attIDP0Fc2, overlayIPP0Node2 = createPFAttachmentAndWaitForHostIP(fcPod2, trafficVNetID, pfMACP0Node2)
-			grpcCleanup = append(grpcCleanup, func() { deleteAttachmentOnPod(fcPod2, attIDP0Fc2) })
+			overlayIPP0Node1 = createWeaveAttachmentWithCleanup(&grpcCleanup, fcPod1, trafficVNetID, pfMACP0Node1)
+			overlayIPP0Node2 = createWeaveAttachmentWithCleanup(&grpcCleanup, fcPod2, trafficVNetID, pfMACP0Node2)
 		})
 
 		It("should create PF attachments for p1 on both nodes", func() {
-			var attIDP1Fc1, attIDP1Fc2 string
-			attIDP1Fc1, overlayIPP1Node1 = createPFAttachmentAndWaitForHostIP(fcPod1, trafficVNetID, pfMACP1Node1)
-			grpcCleanup = append(grpcCleanup, func() { deleteAttachmentOnPod(fcPod1, attIDP1Fc1) })
-			attIDP1Fc2, overlayIPP1Node2 = createPFAttachmentAndWaitForHostIP(fcPod2, trafficVNetID, pfMACP1Node2)
-			grpcCleanup = append(grpcCleanup, func() { deleteAttachmentOnPod(fcPod2, attIDP1Fc2) })
-		})
-
-		It("should verify OVS isolation bridges exist on both DPU nodes", func() {
-			verifyIsolationBridgeExists(fcPod1, trafficVNI, weaveDPUPortP0)
-			verifyIsolationBridgeExists(fcPod1, trafficVNI, weaveDPUPortP1)
-			verifyIsolationBridgeExists(fcPod2, trafficVNI, weaveDPUPortP0)
-			verifyIsolationBridgeExists(fcPod2, trafficVNI, weaveDPUPortP1)
-		})
-
-		It("should expose flow metrics with the expected NIC PCI address labels", func() {
-			p0Bridge := isolationBridgeName(trafficVNI, weaveDPUPortP0)
-			p1Bridge := isolationBridgeName(trafficVNI, weaveDPUPortP1)
-			isolationMetricNames := []string{
-				weaveMetricHostTx,
-				weaveMetricHostRx,
-				weaveMetricTxSent,
-				weaveMetricTxDropped,
-				weaveMetricRxDecap,
-				weaveMetricRxDropped,
-			}
-
-			Eventually(func(g Gomega) {
-				for _, pod := range []*corev1.Pod{fcPod1, fcPod2} {
-					metrics := scrapeWeaveMetrics(g, pod)
-					assertMetricLabel(g, metrics, p0Bridge, isolationMetricNames, "pci_address", dpuPortToPCIAddress[weaveDPUPortP0])
-					assertMetricLabel(g, metrics, p1Bridge, isolationMetricNames, "pci_address", dpuPortToPCIAddress[weaveDPUPortP1])
-					assertMetricLabel(g, metrics, dropBridgeName(weaveDPUPortP0),
-						[]string{weaveMetricRxVNIMismatch}, "pci_address", dpuPortToPCIAddress[weaveDPUPortP0])
-					assertMetricLabel(g, metrics, dropBridgeName(weaveDPUPortP1),
-						[]string{weaveMetricRxVNIMismatch}, "pci_address", dpuPortToPCIAddress[weaveDPUPortP1])
-				}
-			}).WithTimeout(weaveOperationTimeout).WithPolling(weaveEventuallyPollInterval).Should(Succeed())
+			overlayIPP1Node1 = createWeaveAttachmentWithCleanup(&grpcCleanup, fcPod1, trafficVNetID, pfMACP1Node1)
+			overlayIPP1Node2 = createWeaveAttachmentWithCleanup(&grpcCleanup, fcPod2, trafficVNetID, pfMACP1Node2)
 		})
 
 		It("should create DHCP NADs and netshoot pods on worker nodes", func() {
-			nadP0 := weaveDHCPNADP0
-			nadP1 := weaveDHCPNADP1
-			vpc.CreateDHCPNetworkAttachmentDefinition(ctx, input.client, trafficTestNS, nadP0, weaveHostPFInterfaceP0, weavePFMTU, weaveContextScope.CleanupLabels)
-			vpc.CreateDHCPNetworkAttachmentDefinition(ctx, input.client, trafficTestNS, nadP1, weaveHostPFInterfaceP1, weavePFMTU, weaveContextScope.CleanupLabels)
-			testPodConfigs = []*netshoot.TestPodConfig{
-				{Namespace: trafficTestNS, Name: podP0Node1, NodeName: workerNode1, NADName: nadP0, Labels: weaveContextScope.CleanupLabels},
-				{Namespace: trafficTestNS, Name: podP0Node2, NodeName: workerNode2, NADName: nadP0, Labels: weaveContextScope.CleanupLabels},
-				{Namespace: trafficTestNS, Name: podP1Node1, NodeName: workerNode1, NADName: nadP1, Labels: weaveContextScope.CleanupLabels},
-				{Namespace: trafficTestNS, Name: podP1Node2, NodeName: workerNode2, NADName: nadP1, Labels: weaveContextScope.CleanupLabels},
-			}
-			netshoot.CreatePods(ctx, input.client, testPodConfigs)
-		})
-
-		It("should verify netshoot pods are running", func() {
-			netshoot.WaitForPodsReady(ctx, input.client, testPodConfigs, vpc.LongTimeout)
+			createWeaveNetshootPods(trafficTestNS, []weaveNetshootEndpoint{
+				{name: podP0Node1, nodeName: workerNode1, nadName: weaveDHCPNADP0, hostPF: weaveHostPFInterfaceP0},
+				{name: podP0Node2, nodeName: workerNode2, nadName: weaveDHCPNADP0, hostPF: weaveHostPFInterfaceP0},
+				{name: podP1Node1, nodeName: workerNode1, nadName: weaveDHCPNADP1, hostPF: weaveHostPFInterfaceP1},
+				{name: podP1Node2, nodeName: workerNode2, nadName: weaveDHCPNADP1, hostPF: weaveHostPFInterfaceP1},
+			})
 		})
 
 		It("should verify overlay routes on netshoot pods", func() {
@@ -260,55 +202,11 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 		It("should verify performance with iperf cross-node traffic on p1", func() {
 			netshoot.RunTrafficTest(&hostClusterRESTClient, &input.restConfig, trafficTestNS, podP1Node1, podP1Node2, overlayIPP1Node2)
 		})
-
-		It("should verify metrics across nodes under iperf load on p0", func() {
-			bridge := isolationBridgeName(trafficVNI, weaveDPUPortP0)
-
-			baselineMetricsPod1 := readWeaveMetrics(fcPod1)
-			baselineMetricsPod2 := readWeaveMetrics(fcPod2)
-
-			By("Running iperf cross-node on p0")
-			iperfResult := netshoot.RunTrafficTestWithResult(&hostClusterRESTClient, &input.restConfig, trafficTestNS, podP0Node1, podP0Node2, overlayIPP0Node2)
-			forwardBytes := iperfResult.Forward.End.SumSent.Bytes
-			Expect(forwardBytes).To(BeNumerically(">", 0), "iperf reported zero forward bytes")
-			// iperf3 exposes no packet counter, so derive it from bytes/MSS (segment payload).
-			mss := iperfResult.Forward.Start.TCPMSSDefault
-			Expect(mss).To(BeNumerically(">", 0), "iperf did not report a TCP MSS")
-			minIperfPackets := uint64(forwardBytes) / uint64(mss)
-
-			By("Verifying weave metrics across nodes")
-			// Poll until the OVS scrape reflects the burst.
-			var currentMetricsPod1, currentMetricsPod2 weaveMetrics
-			Eventually(func(g Gomega) {
-				currentMetricsPod1 = scrapeWeaveMetrics(g, fcPod1)
-				currentMetricsPod2 = scrapeWeaveMetrics(g, fcPod2)
-
-				// Sender encaps (host_tx/tx_sent), receiver decaps (host_rx/rx_decap), neither drop.
-				assertMetricDeltas(g, baselineMetricsPod1, currentMetricsPod1, bridge, metricDeltaExpect{
-					mustRiseBy:   map[string]uint64{weaveMetricHostTx: minIperfPackets, weaveMetricTxSent: minIperfPackets},
-					mustStayFlat: []string{weaveMetricTxDropped},
-				})
-				assertMetricDeltas(g, baselineMetricsPod2, currentMetricsPod2, bridge, metricDeltaExpect{
-					mustRiseBy:   map[string]uint64{weaveMetricHostRx: minIperfPackets, weaveMetricRxDecap: minIperfPackets},
-					mustStayFlat: []string{weaveMetricRxDropped},
-				})
-
-				// Cross-DPU: packets encapped out of one DPU equal those decapped at the other, both directions.
-				assertMetricDeltasMatch(g,
-					metricRef{before: baselineMetricsPod1, after: currentMetricsPod1, bridge: bridge, name: weaveMetricTxSent},
-					metricRef{before: baselineMetricsPod2, after: currentMetricsPod2, bridge: bridge, name: weaveMetricRxDecap})
-				assertMetricDeltasMatch(g,
-					metricRef{before: baselineMetricsPod2, after: currentMetricsPod2, bridge: bridge, name: weaveMetricTxSent},
-					metricRef{before: baselineMetricsPod1, after: currentMetricsPod1, bridge: bridge, name: weaveMetricRxDecap})
-			}).WithTimeout(weaveOperationTimeout).WithPolling(weaveEventuallyPollInterval).Should(Succeed())
-		})
 	})
 
 	Context("traffic isolation between different VNets", Labels{Domain.RequiresNodes}, Ordered, func() {
 		var (
 			overlayIP1, overlayIP2 string
-			testPodConfigs         []*netshoot.TestPodConfig
-			contextHasFailed       bool
 			grpcCleanup            []func()
 		)
 
@@ -322,17 +220,7 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 			isolPod2    = "weave-isol-pod-2"
 		)
 
-		AfterEach(func() {
-			if CurrentSpecReport().Failed() {
-				contextHasFailed = true
-			}
-		})
-
 		AfterAll(func() {
-			if contextHasFailed {
-				By("Weave: Report failure for this spec")
-				reportAfterEach(CurrentSpecReport())
-			}
 			for i := len(grpcCleanup) - 1; i >= 0; i-- {
 				grpcCleanup[i]()
 			}
@@ -343,79 +231,34 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 			vpc.CreateTestNamespace(ctx, input.client, isolTestNS, weaveContextScope.CleanupLabels)
 		})
 
-		It("should create both isolation virtual networks on both flow-controller pods", func() {
-			createVNetOnPod(fcPod1, isolVNet1ID, isolVNI1, weaveVNetSubnet)
-			grpcCleanup = append(grpcCleanup, func() { deleteVNetOnPod(fcPod1, isolVNet1ID) })
-			createVNetOnPod(fcPod2, isolVNet1ID, isolVNI1, weaveVNetSubnet)
-			grpcCleanup = append(grpcCleanup, func() { deleteVNetOnPod(fcPod2, isolVNet1ID) })
-			createVNetOnPod(fcPod1, isolVNet2ID, isolVNI2, weaveVNetSubnet)
-			grpcCleanup = append(grpcCleanup, func() { deleteVNetOnPod(fcPod1, isolVNet2ID) })
-			createVNetOnPod(fcPod2, isolVNet2ID, isolVNI2, weaveVNetSubnet)
-			grpcCleanup = append(grpcCleanup, func() { deleteVNetOnPod(fcPod2, isolVNet2ID) })
+		It("should create isol-vnet-1 on both flow-controller pods", func() {
+			createWeaveVNetWithCleanup(&grpcCleanup, fcPod1, isolVNet1ID, isolVNI1, weaveVNetSubnet)
+			createWeaveVNetWithCleanup(&grpcCleanup, fcPod2, isolVNet1ID, isolVNI1, weaveVNetSubnet)
 		})
 
-		It("should attach worker node 1 to vnet-1 and worker node 2 to vnet-2", func() {
-			var attIDIsolFc1, attIDIsolFc2 string
-			attIDIsolFc1, overlayIP1 = createPFAttachmentAndWaitForHostIP(fcPod1, isolVNet1ID, pfMACP0Node1)
-			grpcCleanup = append(grpcCleanup, func() { deleteAttachmentOnPod(fcPod1, attIDIsolFc1) })
-			attIDIsolFc2, overlayIP2 = createPFAttachmentAndWaitForHostIP(fcPod2, isolVNet2ID, pfMACP0Node2)
-			grpcCleanup = append(grpcCleanup, func() { deleteAttachmentOnPod(fcPod2, attIDIsolFc2) })
+		It("should create isol-vnet-2 on both flow-controller pods", func() {
+			createWeaveVNetWithCleanup(&grpcCleanup, fcPod1, isolVNet2ID, isolVNI2, weaveVNetSubnet)
+			createWeaveVNetWithCleanup(&grpcCleanup, fcPod2, isolVNet2ID, isolVNI2, weaveVNetSubnet)
 		})
 
-		It("should verify OVS isolation bridges exist on each DPU for its PF-attached VNet", func() {
-			// br-isol-<vni>-<pci> is created when that flow-controller has a PF attachment for the VNI
-			// (bridgemanager), not only when CreateVirtualNetwork succeeded on that pod.
-			verifyIsolationBridgeExists(fcPod1, isolVNI1, weaveDPUPortP0)
-			verifyIsolationBridgeExists(fcPod2, isolVNI2, weaveDPUPortP0)
+		It("should attach worker node 1 to vnet-1", func() {
+			overlayIP1 = createWeaveAttachmentWithCleanup(&grpcCleanup, fcPod1, isolVNet1ID, pfMACP0Node1)
+		})
+
+		It("should attach worker node 2 to vnet-2", func() {
+			overlayIP2 = createWeaveAttachmentWithCleanup(&grpcCleanup, fcPod2, isolVNet2ID, pfMACP0Node2)
 		})
 
 		It("should create DHCP NAD and netshoot pods on worker nodes", func() {
-			nadName := weaveDHCPNADP0
-			vpc.CreateDHCPNetworkAttachmentDefinition(ctx, input.client, isolTestNS, nadName, weaveHostPFInterfaceP0, weavePFMTU, weaveContextScope.CleanupLabels)
-			testPodConfigs = []*netshoot.TestPodConfig{
-				{Namespace: isolTestNS, Name: isolPod1, NodeName: workerNode1, NADName: nadName, Labels: weaveContextScope.CleanupLabels},
-				{Namespace: isolTestNS, Name: isolPod2, NodeName: workerNode2, NADName: nadName, Labels: weaveContextScope.CleanupLabels},
-			}
-			netshoot.CreatePods(ctx, input.client, testPodConfigs)
-		})
-
-		It("should verify netshoot pods are running", func() {
-			netshoot.WaitForPodsReady(ctx, input.client, testPodConfigs, vpc.LongTimeout)
+			createWeaveNetshootPods(isolTestNS, []weaveNetshootEndpoint{
+				{name: isolPod1, nodeName: workerNode1, nadName: weaveDHCPNADP0, hostPF: weaveHostPFInterfaceP0},
+				{name: isolPod2, nodeName: workerNode2, nadName: weaveDHCPNADP0, hostPF: weaveHostPFInterfaceP0},
+			})
 		})
 
 		It("should verify overlay routes on netshoot pods", func() {
 			ensureOverlayRoute(hostClusterRESTClient, input.restConfig, isolTestNS, isolPod1, overlayIP1, weaveVNetSubnet)
 			ensureOverlayRoute(hostClusterRESTClient, input.restConfig, isolTestNS, isolPod2, overlayIP2, weaveVNetSubnet)
-		})
-
-		// Should run before the deny-ping below so the source ACL starts unlearned.
-		It("should verify metrics for VNI-mismatch detection", func() {
-			srcBridge := isolationBridgeName(isolVNI1, weaveDPUPortP0)
-			dstBridge := dropBridgeName(weaveDPUPortP0)
-
-			baselineMetricsPod1 := readWeaveMetrics(fcPod1)
-			baselineMetricsPod2 := readWeaveMetrics(fcPod2)
-
-			By("Sending a ping burst across mismatched VNets")
-			_, _ = netshoot.PingBurst(hostClusterRESTClient, input.restConfig, isolTestNS, isolPod1, overlayIP2, weaveMetricBurstCount)
-
-			By("Verifying weave metrics across mismatching VNets")
-			var currentMetricsPod1, currentMetricsPod2 weaveMetrics
-			Eventually(func(g Gomega) {
-				currentMetricsPod1 = scrapeWeaveMetrics(g, fcPod1)
-				currentMetricsPod2 = scrapeWeaveMetrics(g, fcPod2)
-
-				// Source: packets enter (host_tx); some leak before the ACL lands (tx_sent), the rest drop after (tx_dropped).
-				// tx_dropped omitted because it rides the learned ACL flow and resets to 0 when that flow times out (~30s).
-				assertMetricDeltas(g, baselineMetricsPod1, currentMetricsPod1, srcBridge, metricDeltaExpect{
-					mustRiseBy: map[string]uint64{weaveMetricHostTx: 1, weaveMetricTxSent: 1},
-				})
-
-				// Destination: the leaked packets are counted as VNI mismatches on the p0 drop bridge.
-				assertMetricDeltas(g, baselineMetricsPod2, currentMetricsPod2, dstBridge, metricDeltaExpect{
-					mustRiseBy: map[string]uint64{weaveMetricRxVNIMismatch: 1},
-				})
-			}).WithTimeout(weaveOperationTimeout).WithPolling(weaveEventuallyPollInterval).Should(Succeed())
 		})
 
 		It("should deny ping between worker nodes on different virtual networks", func() {
@@ -437,7 +280,6 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 			netutilsPod1, netutilsPod2         *corev1.Pod
 			overlayIPP0Node1, overlayIPP0Node2 string
 			grpcCleanup                        []func()
-			contextHasFailed                   bool
 		)
 
 		BeforeAll(func() {
@@ -447,17 +289,7 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 			netutilsPod2 = createNetutilsHostPodOnNode(ctx, input.client, rdmaTestNS, rdmaPod2, workerNode2)
 		})
 
-		AfterEach(func() {
-			if CurrentSpecReport().Failed() {
-				contextHasFailed = true
-			}
-		})
-
 		AfterAll(func() {
-			if contextHasFailed {
-				By("Weave RDMA: Report failure for this spec")
-				reportAfterEach(CurrentSpecReport())
-			}
 			// Pod preStop hook flushes dhcpcd state when CleanupAfter deletes the netutils pods.
 			for i := len(grpcCleanup) - 1; i >= 0; i-- {
 				grpcCleanup[i]()
@@ -466,23 +298,13 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 		})
 
 		It("should create vnet on both flow-controller pods", func() {
-			createVNetOnPod(fcPod1, rdmaVNetID, rdmaVNI, weaveVNetSubnet)
-			grpcCleanup = append(grpcCleanup, func() { deleteVNetOnPod(fcPod1, rdmaVNetID) })
-			createVNetOnPod(fcPod2, rdmaVNetID, rdmaVNI, weaveVNetSubnet)
-			grpcCleanup = append(grpcCleanup, func() { deleteVNetOnPod(fcPod2, rdmaVNetID) })
+			createWeaveVNetWithCleanup(&grpcCleanup, fcPod1, rdmaVNetID, rdmaVNI, weaveVNetSubnet)
+			createWeaveVNetWithCleanup(&grpcCleanup, fcPod2, rdmaVNetID, rdmaVNI, weaveVNetSubnet)
 		})
 
 		It("should create PF attachments for vnet on p0 of both nodes", func() {
-			var attP0Fc1, attP0Fc2 string
-			attP0Fc1, overlayIPP0Node1 = createPFAttachmentAndWaitForHostIP(fcPod1, rdmaVNetID, pfMACP0Node1)
-			grpcCleanup = append(grpcCleanup, func() { deleteAttachmentOnPod(fcPod1, attP0Fc1) })
-			attP0Fc2, overlayIPP0Node2 = createPFAttachmentAndWaitForHostIP(fcPod2, rdmaVNetID, pfMACP0Node2)
-			grpcCleanup = append(grpcCleanup, func() { deleteAttachmentOnPod(fcPod2, attP0Fc2) })
-		})
-
-		It("should verify OVS isolation bridges for vnet on p0 of both DPUs", func() {
-			verifyIsolationBridgeExists(fcPod1, rdmaVNI, weaveDPUPortP0)
-			verifyIsolationBridgeExists(fcPod2, rdmaVNI, weaveDPUPortP0)
+			overlayIPP0Node1 = createWeaveAttachmentWithCleanup(&grpcCleanup, fcPod1, rdmaVNetID, pfMACP0Node1)
+			overlayIPP0Node2 = createWeaveAttachmentWithCleanup(&grpcCleanup, fcPod2, rdmaVNetID, pfMACP0Node2)
 		})
 
 		It("should plumb overlay IPs onto worker p0 PFs via dhcpcd", func() {
@@ -503,8 +325,6 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 	Context("traffic isolation between VNets on same node", Labels{Domain.RequiresNodes}, Ordered, func() {
 		var (
 			overlayIP1, overlayIP2 string
-			testPodConfigs         []*netshoot.TestPodConfig
-			contextHasFailed       bool
 			grpcCleanup            []func()
 		)
 
@@ -519,17 +339,7 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 			secondSubnet = "20.0.0.0/8"
 		)
 
-		AfterEach(func() {
-			if CurrentSpecReport().Failed() {
-				contextHasFailed = true
-			}
-		})
-
 		AfterAll(func() {
-			if contextHasFailed {
-				By("Weave: Report failure for this spec")
-				reportAfterEach(CurrentSpecReport())
-			}
 			for i := len(grpcCleanup) - 1; i >= 0; i-- {
 				grpcCleanup[i]()
 			}
@@ -541,41 +351,20 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 		})
 
 		It("should create both isolation virtual networks on flow-controller pod 1", func() {
-			createVNetOnPod(fcPod1, isolVNet1ID, isolVNI1, weaveVNetSubnet)
-			grpcCleanup = append(grpcCleanup, func() { deleteVNetOnPod(fcPod1, isolVNet1ID) })
-			createVNetOnPod(fcPod1, isolVNet2ID, isolVNI2, secondSubnet)
-			grpcCleanup = append(grpcCleanup, func() { deleteVNetOnPod(fcPod1, isolVNet2ID) })
+			createWeaveVNetWithCleanup(&grpcCleanup, fcPod1, isolVNet1ID, isolVNI1, weaveVNetSubnet)
+			createWeaveVNetWithCleanup(&grpcCleanup, fcPod1, isolVNet2ID, isolVNI2, secondSubnet)
 		})
 
 		It("should create two attachments on worker node 1", func() {
-			var attIDIsolFc1, attIDIsolFc2 string
-			attIDIsolFc1, overlayIP1 = createPFAttachmentAndWaitForHostIP(fcPod1, isolVNet1ID, pfMACP0Node1)
-			grpcCleanup = append(grpcCleanup, func() { deleteAttachmentOnPod(fcPod1, attIDIsolFc1) })
-			attIDIsolFc2, overlayIP2 = createPFAttachmentAndWaitForHostIP(fcPod1, isolVNet2ID, pfMACP1Node1)
-			grpcCleanup = append(grpcCleanup, func() { deleteAttachmentOnPod(fcPod1, attIDIsolFc2) })
-		})
-
-		It("should verify OVS isolation bridges for both VNets on DPU node 1", func() {
-			// br-isol-<vni>-<pci> is created when that flow-controller has a PF attachment for the VNI
-			// (bridgemanager), not only when CreateVirtualNetwork succeeded on that pod.
-			verifyIsolationBridgeExists(fcPod1, isolVNI1, weaveDPUPortP0)
-			verifyIsolationBridgeExists(fcPod1, isolVNI2, weaveDPUPortP1)
+			overlayIP1 = createWeaveAttachmentWithCleanup(&grpcCleanup, fcPod1, isolVNet1ID, pfMACP0Node1)
+			overlayIP2 = createWeaveAttachmentWithCleanup(&grpcCleanup, fcPod1, isolVNet2ID, pfMACP1Node1)
 		})
 
 		It("should create DHCP NADs and netshoot pods on worker node 1", func() {
-			nadP0 := weaveDHCPNADP0
-			nadP1 := weaveDHCPNADP1
-			vpc.CreateDHCPNetworkAttachmentDefinition(ctx, input.client, isolTestNS, nadP0, weaveHostPFInterfaceP0, weavePFMTU, weaveContextScope.CleanupLabels)
-			vpc.CreateDHCPNetworkAttachmentDefinition(ctx, input.client, isolTestNS, nadP1, weaveHostPFInterfaceP1, weavePFMTU, weaveContextScope.CleanupLabels)
-			testPodConfigs = []*netshoot.TestPodConfig{
-				{Namespace: isolTestNS, Name: isolPod1, NodeName: workerNode1, NADName: nadP0, Labels: weaveContextScope.CleanupLabels},
-				{Namespace: isolTestNS, Name: isolPod2, NodeName: workerNode1, NADName: nadP1, Labels: weaveContextScope.CleanupLabels},
-			}
-			netshoot.CreatePods(ctx, input.client, testPodConfigs)
-		})
-
-		It("should verify netshoot pods are running", func() {
-			netshoot.WaitForPodsReady(ctx, input.client, testPodConfigs, vpc.LongTimeout)
+			createWeaveNetshootPods(isolTestNS, []weaveNetshootEndpoint{
+				{name: isolPod1, nodeName: workerNode1, nadName: weaveDHCPNADP0, hostPF: weaveHostPFInterfaceP0},
+				{name: isolPod2, nodeName: workerNode1, nadName: weaveDHCPNADP1, hostPF: weaveHostPFInterfaceP1},
+			})
 		})
 
 		It("should verify overlay routes on netshoot pods", func() {
@@ -595,26 +384,196 @@ var _ = Describe("Weave testcases", Labels{Domain.Weave}, Ordered, func() {
 			netshoot.AssertPingFailure(&hostClusterRESTClient, &input.restConfig, isolTestNS, isolPod1, overlayIP2)
 			netshoot.AssertPingFailure(&hostClusterRESTClient, &input.restConfig, isolTestNS, isolPod2, overlayIP1)
 		})
+	})
+
+	// MUST BE LAST among Weave Contexts.
+	// device_name is the uplink of PCI function 0, so dual underlays on the same NIC collide on one
+	// label. Metrics tests therefore patch weave-flow-controller down to a single underlay and set
+	// ENABLE_OVS_METRICS=true before asserting labels and counter deltas. Do not add Contexts after
+	// these that still need both underlays.
+	Context("flow metrics: labels and cross-node traffic", Labels{Domain.RequiresNodes}, Ordered, func() {
+		var (
+			overlayIPP0Node1, overlayIPP0Node2 string
+			grpcCleanup                        []func()
+		)
+
+		const (
+			metricsTrafficVNetID = "metrics-vnet"
+			metricsTrafficVNI    = uint32(4001)
+			metricsTestNS        = "weave-metrics-traffic"
+			metricsPod1          = "weave-metrics-pod-1"
+			metricsPod2          = "weave-metrics-pod-2"
+		)
+
+		BeforeAll(func() {
+			previousUIDs := map[string]types.UID{
+				dpuNode1Name: fcPod1.UID,
+				dpuNode2Name: fcPod2.UID,
+			}
+			patchFlowControllerForMetrics()
+			fcPod1, fcPod2 = waitForFlowControllerPodsRolled(dpuNode1Name, dpuNode2Name, previousUIDs)
+		})
+
+		AfterAll(func() {
+			for i := len(grpcCleanup) - 1; i >= 0; i-- {
+				grpcCleanup[i]()
+			}
+			weaveContextScope.CleanupAfter()
+		})
+
+		It("should create test namespace", func() {
+			vpc.CreateTestNamespace(ctx, input.client, metricsTestNS, weaveContextScope.CleanupLabels)
+		})
+
+		It("should create virtual network on both flow-controller pods", func() {
+			createWeaveVNetWithCleanup(&grpcCleanup, fcPod1, metricsTrafficVNetID, metricsTrafficVNI, weaveVNetSubnet)
+			createWeaveVNetWithCleanup(&grpcCleanup, fcPod2, metricsTrafficVNetID, metricsTrafficVNI, weaveVNetSubnet)
+		})
+
+		It("should create PF attachments for p0 on both nodes", func() {
+			overlayIPP0Node1 = createWeaveAttachmentWithCleanup(&grpcCleanup, fcPod1, metricsTrafficVNetID, pfMACP0Node1)
+			overlayIPP0Node2 = createWeaveAttachmentWithCleanup(&grpcCleanup, fcPod2, metricsTrafficVNetID, pfMACP0Node2)
+		})
+
+		It("should expose flow metrics with the expected device_name labels", func() {
+			verifyMetricDeviceNameLabels(fcPod1, fcPod2, metricsTrafficVNI)
+		})
+
+		It("should create netshoot pods on both nodes", func() {
+			createWeaveNetshootPods(metricsTestNS, []weaveNetshootEndpoint{
+				{name: metricsPod1, nodeName: workerNode1, nadName: weaveDHCPNADP0, hostPF: weaveHostPFInterfaceP0},
+				{name: metricsPod2, nodeName: workerNode2, nadName: weaveDHCPNADP0, hostPF: weaveHostPFInterfaceP0},
+			})
+		})
+
+		It("should verify overlay routes on netshoot pods", func() {
+			ensureOverlayRoute(hostClusterRESTClient, input.restConfig, metricsTestNS, metricsPod1, overlayIPP0Node1, weaveVNetSubnet)
+			ensureOverlayRoute(hostClusterRESTClient, input.restConfig, metricsTestNS, metricsPod2, overlayIPP0Node2, weaveVNetSubnet)
+		})
+
+		It("should verify metrics across nodes under iperf load on p0", func() {
+			verifyCrossNodeIperfMetric(fcPod1, fcPod2, metricsTrafficVNI,
+				metricsTestNS, metricsPod1, metricsPod2, overlayIPP0Node2)
+		})
+	})
+
+	Context("flow metrics: VNI-mismatch detection", Labels{Domain.RequiresNodes}, Ordered, func() {
+		var (
+			overlayIP1, overlayIP2 string
+			grpcCleanup            []func()
+		)
+
+		const (
+			metricsIsolVNet1ID = "metrics-isol-vnet-1"
+			metricsIsolVNet2ID = "metrics-isol-vnet-2"
+			metricsIsolVNI1    = uint32(4002)
+			metricsIsolVNI2    = uint32(4003)
+			metricsTestNS      = "weave-metrics-isol"
+			metricsPod1        = "weave-metrics-isol-pod-1"
+			metricsPod2        = "weave-metrics-isol-pod-2"
+		)
+
+		AfterAll(func() {
+			for i := len(grpcCleanup) - 1; i >= 0; i-- {
+				grpcCleanup[i]()
+			}
+			weaveContextScope.CleanupAfter()
+		})
+
+		It("should create test namespace", func() {
+			vpc.CreateTestNamespace(ctx, input.client, metricsTestNS, weaveContextScope.CleanupLabels)
+		})
+
+		It("should create isol-vnet-1 on both flow-controller pods", func() {
+			createWeaveVNetWithCleanup(&grpcCleanup, fcPod1, metricsIsolVNet1ID, metricsIsolVNI1, weaveVNetSubnet)
+			createWeaveVNetWithCleanup(&grpcCleanup, fcPod2, metricsIsolVNet1ID, metricsIsolVNI1, weaveVNetSubnet)
+		})
+
+		It("should create isol-vnet-2 on both flow-controller pods", func() {
+			createWeaveVNetWithCleanup(&grpcCleanup, fcPod1, metricsIsolVNet2ID, metricsIsolVNI2, weaveVNetSubnet)
+			createWeaveVNetWithCleanup(&grpcCleanup, fcPod2, metricsIsolVNet2ID, metricsIsolVNI2, weaveVNetSubnet)
+		})
+
+		It("should attach worker node 1 to isol-vnet-1", func() {
+			overlayIP1 = createWeaveAttachmentWithCleanup(&grpcCleanup, fcPod1, metricsIsolVNet1ID, pfMACP0Node1)
+		})
+
+		It("should attach worker node 2 to isol-vnet-2", func() {
+			overlayIP2 = createWeaveAttachmentWithCleanup(&grpcCleanup, fcPod2, metricsIsolVNet2ID, pfMACP0Node2)
+		})
+
+		It("should create DHCP NAD and netshoot pods on worker nodes", func() {
+			createWeaveNetshootPods(metricsTestNS, []weaveNetshootEndpoint{
+				{name: metricsPod1, nodeName: workerNode1, nadName: weaveDHCPNADP0, hostPF: weaveHostPFInterfaceP0},
+				{name: metricsPod2, nodeName: workerNode2, nadName: weaveDHCPNADP0, hostPF: weaveHostPFInterfaceP0},
+			})
+		})
+
+		It("should verify overlay routes on netshoot pods", func() {
+			ensureOverlayRoute(hostClusterRESTClient, input.restConfig, metricsTestNS, metricsPod1, overlayIP1, weaveVNetSubnet)
+			ensureOverlayRoute(hostClusterRESTClient, input.restConfig, metricsTestNS, metricsPod2, overlayIP2, weaveVNetSubnet)
+		})
+
+		// Source ACL must start unlearned; keep this before any deny-ping style traffic.
+		It("should verify metrics for VNI-mismatch detection", func() {
+			verifyVNIMismatchMetric(fcPod1, fcPod2, metricsIsolVNI1, metricsTestNS, metricsPod1, overlayIP2)
+		})
+	})
+
+	Context("flow metrics: out-of-subnet drop", Labels{Domain.RequiresNodes}, Ordered, func() {
+		var (
+			overlayIP   string
+			grpcCleanup []func()
+		)
+
+		const (
+			metricsVNetID        = "metrics-oos-vnet"
+			metricsVNI           = uint32(4004)
+			metricsTestNS        = "weave-metrics-oos"
+			metricsPod1          = "weave-metrics-oos-pod-1"
+			metricsOutOfSubnet   = "20.0.0.0/8"
+			metricsOutOfSubnetIP = "20.0.0.1"
+		)
+
+		AfterAll(func() {
+			for i := len(grpcCleanup) - 1; i >= 0; i-- {
+				grpcCleanup[i]()
+			}
+			weaveContextScope.CleanupAfter()
+		})
+
+		It("should create test namespace", func() {
+			vpc.CreateTestNamespace(ctx, input.client, metricsTestNS, weaveContextScope.CleanupLabels)
+		})
+
+		It("should create virtual network on flow-controller pod 1", func() {
+			createWeaveVNetWithCleanup(&grpcCleanup, fcPod1, metricsVNetID, metricsVNI, weaveVNetSubnet)
+		})
+
+		It("should create a PF attachment for p0 on node 1", func() {
+			overlayIP = createWeaveAttachmentWithCleanup(&grpcCleanup, fcPod1, metricsVNetID, pfMACP0Node1)
+		})
+
+		It("should create a netshoot pod", func() {
+			createWeaveNetshootPods(metricsTestNS, []weaveNetshootEndpoint{
+				{name: metricsPod1, nodeName: workerNode1, nadName: weaveDHCPNADP0, hostPF: weaveHostPFInterfaceP0},
+			})
+		})
+
+		It("should verify overlay routes on netshoot pods", func() {
+			ensureOverlayRoute(hostClusterRESTClient, input.restConfig, metricsTestNS, metricsPod1, overlayIP, weaveVNetSubnet)
+		})
+
+		It("should add a foreign-subnet route", func() {
+			addRouteOnPodBetweenOverlayAndSubnet(hostClusterRESTClient, input.restConfig, metricsTestNS, metricsPod1, overlayIP, metricsOutOfSubnet)
+		})
+
+		It("should deny ping to an out-of-subnet destination", func() {
+			netshoot.AssertPingFailure(&hostClusterRESTClient, &input.restConfig, metricsTestNS, metricsPod1, metricsOutOfSubnetIP)
+		})
 
 		It("should verify metrics for an out-of-subnet destination", func() {
-			bridge := isolationBridgeName(isolVNI1, weaveDPUPortP0)
-			baselineMetrics := readWeaveMetrics(fcPod1)
-
-			By("Sending a ping burst to an out-of-subnet destination")
-			_, _ = netshoot.PingBurst(hostClusterRESTClient, input.restConfig, isolTestNS, isolPod1, overlayIP2, weaveMetricBurstCount)
-
-			By("Verifying weave metrics across out-of-subnet destination")
-			// Poll until the OVS scrape reflects the burst.
-			var currentMetrics weaveMetrics
-			Eventually(func(g Gomega) {
-				currentMetrics = scrapeWeaveMetrics(g, fcPod1)
-				// tx_sent stays flat because an out-of-subnet destination is dropped before it is reached.
-				assertMetricDeltas(g, baselineMetrics, currentMetrics, bridge, metricDeltaExpect{
-					mustRiseBy:   map[string]uint64{weaveMetricHostTx: 1, weaveMetricTxDropped: 1},
-					mustStayFlat: []string{weaveMetricTxSent},
-				})
-				assertTxPacketsAccountedFor(g, baselineMetrics, currentMetrics, bridge)
-			}).WithTimeout(weaveOperationTimeout).WithPolling(weaveEventuallyPollInterval).Should(Succeed())
+			verifyOutOfSubnetMetric(fcPod1, metricsVNI, metricsTestNS, metricsPod1, metricsOutOfSubnetIP)
 		})
 	})
 })
