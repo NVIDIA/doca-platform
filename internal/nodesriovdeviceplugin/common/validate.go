@@ -18,9 +18,10 @@ package common
 
 import (
 	"fmt"
+	"maps"
 	"math"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 
 	noderesourcesv1 "github.com/nvidia/doca-platform/api/noderesources/v1alpha1"
@@ -41,8 +42,8 @@ func ValidateNodeSRIOVDevicePluginConfig(defaultResourcePrefix string, cfg *node
 
 // ValidateDevicePluginResources validates a list of DevicePluginResource.
 // It checks that resource Name + Prefix combinations are unique, resource names match
-// the required pattern, VF range start is less than or equal to end, and there are no
-// overlapping VF indexes for the same PF across all resources.
+// the required pattern, range start is less than or equal to end, and there are no
+// overlapping function indexes for the same type and PF across all resources.
 //
 // Validation does not stop at the first error: all detected issues are returned
 // as a field.ErrorList suitable for webhook validation responses.
@@ -56,7 +57,7 @@ func ValidateDevicePluginResources(basePath *field.Path, defaultResourcePrefix s
 		return errs
 	}
 	errs = append(errs, validateResource(basePath, defaultResourcePrefix, resources)...)
-	errs = append(errs, validateVFRanges(basePath, resources)...)
+	errs = append(errs, validateFunctionRanges(basePath, resources)...)
 	return errs
 }
 
@@ -74,7 +75,7 @@ func validateResource(basePath *field.Path, defaultResourcePrefix string, resour
 	seen := make(map[string]int)
 	for i, res := range resources {
 		resPath := basePath.Index(i)
-		if res.Type != noderesourcesv1.DevicePluginResourceTypeVF {
+		if !res.Type.IsSupported() {
 			errs = append(errs, field.Invalid(
 				resPath.Child("type"),
 				res.Type,
@@ -115,9 +116,46 @@ func validateResource(basePath *field.Path, defaultResourcePrefix string, resour
 	return errs
 }
 
-// validateVFRanges checks that for each VFRange start is less than or equal to end, and
-// that there are no overlapping VF indexes for the same PF across all resources.
-func validateVFRanges(basePath *field.Path, resources []noderesourcesv1.DevicePluginResource) field.ErrorList {
+// ValidateCrossDPUResourceTypes checks that the same prefix/name is not used as
+// both vf and sf across DPUs. The device plugin has one deviceType per extended
+// resource, so a type conflict cannot be represented in the generated config.
+func ValidateCrossDPUResourceTypes(defaultResourcePrefix string, input NodeInputConfig) field.ErrorList {
+	type seenInfo struct {
+		typ    noderesourcesv1.DevicePluginResourceType
+		serial string
+	}
+	seen := make(map[string]seenInfo)
+	errs := field.ErrorList{}
+	for _, serial := range slices.Sorted(maps.Keys(input)) {
+		for i, res := range input[serial] {
+			prefix := defaultResourcePrefix
+			if res.ResourcePrefix != nil && *res.ResourcePrefix != "" {
+				prefix = *res.ResourcePrefix
+			}
+			key := prefix + "/" + res.Name
+			prev, exists := seen[key]
+			if !exists {
+				seen[key] = seenInfo{typ: res.Type, serial: serial}
+				continue
+			}
+			if prev.typ == res.Type {
+				continue
+			}
+			errs = append(errs, field.Invalid(
+				field.NewPath(serial).Index(i).Child("type"),
+				res.Type,
+				fmt.Sprintf("resource %q has type %q on DPU %s, but DPU %s already defined it as %q",
+					key, res.Type, serial, prev.serial, prev.typ),
+			))
+		}
+	}
+	return errs
+}
+
+// validateFunctionRanges checks that for each range start is less than or equal to end,
+// and that there are no overlapping indexes for the same resource type and PF.
+// VF and SF ranges on the same PF are independent and do not overlap with each other.
+func validateFunctionRanges(basePath *field.Path, resources []noderesourcesv1.DevicePluginResource) field.ErrorList {
 	errs := field.ErrorList{}
 	type rangeInfo struct {
 		resourceName string
@@ -125,22 +163,39 @@ func validateVFRanges(basePath *field.Path, resources []noderesourcesv1.DevicePl
 		end          int32
 		path         *field.Path
 	}
-	pfRanges := make(map[int32][]rangeInfo)
+	type rangeKey struct {
+		typ     noderesourcesv1.DevicePluginResourceType
+		pfIndex int32
+	}
+	grouped := make(map[rangeKey][]rangeInfo)
 
 	for i, res := range resources {
 		resPath := basePath.Index(i)
 		if len(res.Ranges) == 0 {
 			errs = append(errs, field.Required(resPath.Child("ranges"),
-				fmt.Sprintf("no VF ranges specified for resource %q", res.Name)))
+				fmt.Sprintf("no ranges specified for resource %q", res.Name)))
 			continue
 		}
 		for j, r := range res.Ranges {
 			rangePath := resPath.Child("ranges").Index(j)
+			if res.Type == noderesourcesv1.DevicePluginResourceTypeSF {
+				if r.Start == nil {
+					errs = append(errs, field.Required(rangePath.Child("start"),
+						fmt.Sprintf("start must be set for sf resource %q", res.Name)))
+				}
+				if r.End == nil {
+					errs = append(errs, field.Required(rangePath.Child("end"),
+						fmt.Sprintf("end must be set for sf resource %q", res.Name)))
+				}
+				if r.Start == nil || r.End == nil {
+					continue
+				}
+			}
 			if r.Start != nil && r.End != nil && *r.Start > *r.End {
 				errs = append(errs, field.Invalid(
 					rangePath,
 					fmt.Sprintf("%d-%d", *r.Start, *r.End),
-					fmt.Sprintf("invalid VF range in resource %q: start (%d) is greater than end (%d)",
+					fmt.Sprintf("invalid range in resource %q: start (%d) is greater than end (%d)",
 						res.Name, *r.Start, *r.End),
 				))
 				continue
@@ -148,6 +203,7 @@ func validateVFRanges(basePath *field.Path, resources []noderesourcesv1.DevicePl
 
 			// Use effective start and end values.
 			// If start is nil, treat as 0; if end is nil, treat as MaxInt for comparison purposes.
+			// SF ranges always have both bounds after the checks above.
 			start := int32(0)
 			if r.Start != nil {
 				start = *r.Start
@@ -156,7 +212,8 @@ func validateVFRanges(basePath *field.Path, resources []noderesourcesv1.DevicePl
 			if r.End != nil {
 				end = *r.End
 			}
-			pfRanges[r.PFIndex] = append(pfRanges[r.PFIndex], rangeInfo{
+			key := rangeKey{typ: res.Type, pfIndex: r.PFIndex}
+			grouped[key] = append(grouped[key], rangeInfo{
 				resourceName: res.Name,
 				start:        start,
 				end:          end,
@@ -165,30 +222,28 @@ func validateVFRanges(basePath *field.Path, resources []noderesourcesv1.DevicePl
 		}
 	}
 
-	// Check for overlaps within each PF.
-	for pfIndex, ranges := range pfRanges {
+	// Check for overlaps within each type+PF combination.
+	for key, ranges := range grouped {
 		if len(ranges) < 2 {
 			continue
 		}
 
-		// Sort ranges by start index.
-		sort.Slice(ranges, func(i, j int) bool {
-			if ranges[i].start == ranges[j].start {
-				return ranges[i].end < ranges[j].end
+		slices.SortFunc(ranges, func(a, b rangeInfo) int {
+			if a.start != b.start {
+				return int(a.start - b.start)
 			}
-			return ranges[i].start < ranges[j].start
+			return int(a.end - b.end)
 		})
 
-		// Check for overlaps between consecutive ranges.
-		for i := 0; i < len(ranges)-1; i++ {
+		for i := range len(ranges) - 1 {
 			current := ranges[i]
 			next := ranges[i+1]
 			// Ranges overlap if current.end >= next.start.
 			if current.end >= next.start {
 				msg := fmt.Sprintf(
-					"overlapping VF ranges for PF %d: resource %q (range %d-%d) overlaps with "+
+					"overlapping %s ranges for PF %d: resource %q (range %d-%d) overlaps with "+
 						"resource %q (range %d-%d)",
-					pfIndex, current.resourceName, current.start, current.end,
+					key.typ, key.pfIndex, current.resourceName, current.start, current.end,
 					next.resourceName, next.start, next.end)
 				errs = append(errs, field.Invalid(current.path, fmt.Sprintf("%d-%d", current.start, current.end), msg))
 				errs = append(errs, field.Invalid(next.path, fmt.Sprintf("%d-%d", next.start, next.end), msg))

@@ -36,11 +36,11 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `name` _string_ | Name is the endpoint resource name for the device plugin.<br />Should contain only alphanumeric characters, underscores and hyphens.<br />The full extended resource name will be constructed as resource-prefix/name.<br />Example: pods_vf, ovnk_mgmt_vf |  | MinLength: 1 <br />Pattern: `^[a-zA-Z0-9_-]+$` <br />Required: \{\} <br /> |
+| `name` _string_ | Name is the endpoint resource name for the device plugin.<br />Should contain only alphanumeric characters, underscores and hyphens.<br />The full extended resource name will be constructed as resource-prefix/name.<br />Example: pods_vf, ovnk_mgmt_vf, pods_sf |  | MinLength: 1 <br />Pattern: `^[a-zA-Z0-9_-]+$` <br />Required: \{\} <br /> |
 | `resourcePrefix` _string_ | ResourcePrefix is the resource prefix used by the device plugin to prefix the resource name.<br />If not set, the default resource prefix will be used. |  | Pattern: `^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$` <br />Optional: \{\} <br /> |
-| `type` _[DevicePluginResourceType](#devicepluginresourcetype)_ | Type specifies the type of the device plugin resource. |  | Enum: [vf] <br />Required: \{\} <br /> |
+| `type` _[DevicePluginResourceType](#devicepluginresourcetype)_ | Type specifies the type of the device plugin resource. |  | Enum: [vf sf] <br />Required: \{\} <br /> |
 | `options` _[DevicePluginResourceOptions](#devicepluginresourceoptions)_ | Options contains additional options for the device plugin resource. |  | Optional: \{\} <br /> |
-| `ranges` _[VFRange](#vfrange) array_ | Ranges specifies the VF ranges on PFs to be included in this resource. |  | MinItems: 1 <br />Required: \{\} <br /> |
+| `ranges` _[FunctionRange](#functionrange) array_ | Ranges specifies the function ranges on PFs to be included in this resource.<br />For type sf, each range must set both start and end. |  | MaxItems: 1024 <br />MinItems: 1 <br />Required: \{\} <br /> |
 
 
 #### DevicePluginResourceOptions
@@ -57,6 +57,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `isRdma` _boolean_ | IsRdma indicates whether RDMA is enabled for this resource. |  | Optional: \{\} <br /> |
+| `needVhostNet` _boolean_ | NeedVhostNet mounts /dev/vhost-net and /dev/net/tun with the allocated devices.<br />Defaults to false. |  | Optional: \{\} <br /> |
 
 
 #### DevicePluginResourceType
@@ -66,7 +67,7 @@ _Underlying type:_ _string_
 DevicePluginResourceType specifies the type of the device plugin resource.
 
 _Validation:_
-- Enum: [vf]
+- Enum: [vf sf]
 
 _Appears in:_
 - [DevicePluginResource](#devicepluginresource)
@@ -74,6 +75,26 @@ _Appears in:_
 | Field | Description |
 | --- | --- |
 | `vf` | DevicePluginResourceTypeVF represents a Virtual Function resource.<br /> |
+| `sf` | DevicePluginResourceTypeSF represents a Scalable Function resource.<br /> |
+
+
+#### FunctionRange
+
+
+
+FunctionRange defines a range of functions (Virtual Functions or Scalable Functions)
+on a Physical Function.
+
+
+
+_Appears in:_
+- [DevicePluginResource](#devicepluginresource)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `pfIndex` _integer_ | PFIndex is the index of the Physical Function. |  | Minimum: 0 <br />Required: \{\} <br /> |
+| `start` _integer_ | Start is the starting function index (inclusive).<br />If not set, the range starts from index 0.<br />Required when type is sf. SF ranges are contiguous: every index from<br />start to end (inclusive) must exist on the PF. |  | Minimum: 0 <br />Optional: \{\} <br /> |
+| `end` _integer_ | End is the ending function index (inclusive).<br />If not set, the range extends to the last function of this type on the PF.<br />Required when type is sf. SF ranges are contiguous: every index from<br />start to end (inclusive) must exist on the PF. |  | Minimum: 0 <br />Optional: \{\} <br /> |
 
 
 #### NodeSRIOVDevicePluginConfig
@@ -127,7 +148,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `devicePluginResources` _[DevicePluginResource](#devicepluginresource) array_ | DevicePluginResources is the list of device plugin resource configurations. |  | MinItems: 1 <br />Required: \{\} <br /> |
+| `devicePluginResources` _[DevicePluginResource](#devicepluginresource) array_ | DevicePluginResources is the list of device plugin resource configurations. |  | MaxItems: 64 <br />MinItems: 1 <br />Required: \{\} <br /> |
 
 
 #### NodeSRIOVDevicePluginConfigStatus
@@ -145,24 +166,6 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions exposes the current state of the NodeSRIOVDevicePluginConfig. |  | Optional: \{\} <br /> |
 | `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  | Optional: \{\} <br /> |
-
-
-#### VFRange
-
-
-
-VFRange defines a range of Virtual Functions on a Physical Function.
-
-
-
-_Appears in:_
-- [DevicePluginResource](#devicepluginresource)
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `pfIndex` _integer_ | PFIndex is the index of the Physical Function. |  | Minimum: 0 <br />Required: \{\} <br /> |
-| `start` _integer_ | Start is the starting VF index (inclusive).<br />If not set, the range starts from VF 0. |  | Minimum: 0 <br />Optional: \{\} <br /> |
-| `end` _integer_ | End is the ending VF index (inclusive).<br />If not set, the range extends to the last VF on the PF. |  | Minimum: 0 <br />Optional: \{\} <br /> |
 
 
 

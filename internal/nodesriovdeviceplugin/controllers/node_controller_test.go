@@ -174,7 +174,7 @@ var _ = Describe("NodeReconciler", Ordered, func() {
 							Name:           "test-vf-second",
 							ResourcePrefix: ptr.To("nvidia.com"),
 							Type:           noderesourcesv1.DevicePluginResourceTypeVF,
-							Ranges: []noderesourcesv1.VFRange{
+							Ranges: []noderesourcesv1.FunctionRange{
 								{PFIndex: 0, Start: ptr.To(int32(6)), End: ptr.To(int32(10))},
 							},
 						},
@@ -282,7 +282,7 @@ var _ = Describe("NodeReconciler", Ordered, func() {
 			// Update config to be invalid (overlap ranges).
 			Eventually(func(g Gomega) {
 				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(config), config)).To(Succeed())
-				config.Spec.DevicePluginResources[0].Ranges = []noderesourcesv1.VFRange{{PFIndex: 0}, {PFIndex: 0}}
+				config.Spec.DevicePluginResources[0].Ranges = []noderesourcesv1.FunctionRange{{PFIndex: 0}, {PFIndex: 0}}
 				g.Expect(testClient.Update(ctx, config)).To(Succeed())
 			}, testTimeout, testInterval).Should(Succeed())
 
@@ -426,7 +426,7 @@ func createNodeWithDPU(ctx context.Context, nodeName, dpuNodeName, dpuName, conf
 					Name:           "test-vf",
 					ResourcePrefix: ptr.To("nvidia.com"),
 					Type:           noderesourcesv1.DevicePluginResourceTypeVF,
-					Ranges: []noderesourcesv1.VFRange{
+					Ranges: []noderesourcesv1.FunctionRange{
 						{PFIndex: 0, Start: ptr.To(int32(1)), End: ptr.To(int32(5))},
 					},
 				},

@@ -33,28 +33,43 @@ type DevicePluginConfig struct {
 	ResourceList []ResourceConfig `json:"resourceList"`
 }
 
+const (
+	// deviceTypeAuxNetDevice is the sriov-network-device-plugin type for
+	// auxiliary net devices such as Scalable Functions.
+	deviceTypeAuxNetDevice = "auxNetDevice"
+	// auxTypeSF is the auxiliary device type selector for Scalable Functions.
+	auxTypeSF = "sf"
+)
+
 // ResourceConfig defines a single resource in the device plugin configuration.
 type ResourceConfig struct {
 	// ResourceName is the name of the resource (without prefix).
 	ResourceName string `json:"resourceName"`
 	// ResourcePrefix is the prefix for the resource name (e.g., "nvidia.com").
 	ResourcePrefix string `json:"resourcePrefix,omitempty"`
+	// DeviceType is the sriov-network-device-plugin device type.
+	// Empty for VFs (netDevice default). "auxNetDevice" for SFs.
+	DeviceType string `json:"deviceType,omitempty"`
 	// Selectors is a list of device selectors. Each selector typically represents
 	// devices from a single DPU.
 	Selectors []Selector `json:"selectors,omitempty"`
 }
 
-// Selector defines device selectors for a group of VFs (typically from one DPU).
+// Selector defines device selectors for a group of functions (typically from one DPU).
 type Selector struct {
-	// RootDevices is a list of PF PCI addresses with VF range syntax.
+	// RootDevices is a list of PF PCI addresses with function range syntax.
 	// Format: "<PF_PCI_ADDRESS>#<start>-<end>" (e.g., "0000:b1:00.0#2-10").
 	RootDevices []string `json:"rootDevices,omitempty"`
+	// AuxTypes filters auxiliary devices. Set to ["sf"] for Scalable Functions.
+	AuxTypes []string `json:"auxTypes,omitempty"`
 	// IsRdma indicates whether RDMA is enabled.
 	IsRdma bool `json:"isRdma,omitempty"`
+	// NeedVhostNet mounts /dev/vhost-net and /dev/net/tun with the device.
+	NeedVhostNet bool `json:"needVhostNet,omitempty"`
 }
 
 // configBuilder builds DevicePluginConfig from input config and discovered DPU info.
-// It groups VF ranges by resource key (prefix/name), then by DPU serial, ensuring
+// It groups function ranges by resource key (prefix/name), then by DPU serial, ensuring
 // each DPU's contribution becomes a separate selector entry.
 type configBuilder struct {
 	defaultPrefix    string
@@ -65,11 +80,13 @@ type configBuilder struct {
 type resourceBuilder struct {
 	name             string
 	prefix           string
+	resourceType     noderesourcesv1.DevicePluginResourceType
+	deviceType       string
 	selectorBuilders map[string]*selectorBuilder // keyed by DPU serial
 }
 
-// vfRangeInfo stores start and end indices for a VF range.
-type vfRangeInfo struct {
+// functionRangeInfo stores start and end indices for a VF or SF range.
+type functionRangeInfo struct {
 	start int32
 	end   int32
 }
@@ -77,10 +94,14 @@ type vfRangeInfo struct {
 // selectorBuilder accumulates root devices for a single DPU within a resource.
 // Ranges are grouped by PF address to support multi-range syntax.
 type selectorBuilder struct {
-	// pfRanges maps PF address to list of VF ranges for that PF
-	pfRanges map[string][]vfRangeInfo
+	// pfRanges maps PF address to list of function ranges for that PF
+	pfRanges map[string][]functionRangeInfo
+	// auxTypes is set for auxiliary device resources (SFs).
+	auxTypes []string
 	// isRdma is a per-selector option
 	isRdma bool
+	// needVhostNet is a per-selector option
+	needVhostNet bool
 }
 
 // newConfigBuilder creates a new config builder.
@@ -94,20 +115,30 @@ func newConfigBuilder(defaultPrefix string) *configBuilder {
 // addResources adds device plugin resources from a specific DPU to the builder.
 func (b *configBuilder) addResources(dpuInfo DPUInfo) error {
 	for _, res := range dpuInfo.DevicePluginResourcesConfig {
-		rb := b.getOrCreateResourceBuilder(res)
+		rb, err := b.getOrCreateResourceBuilder(res)
+		if err != nil {
+			return fmt.Errorf("DPU %s: %w", dpuInfo.SerialNumber, err)
+		}
 		sb := rb.getOrCreateSelectorBuilder(dpuInfo.SerialNumber)
 
 		if res.Options != nil && res.Options.IsRdma != nil && *res.Options.IsRdma {
 			sb.isRdma = true
 		}
+		if res.Options != nil && res.Options.NeedVhostNet != nil && *res.Options.NeedVhostNet {
+			sb.needVhostNet = true
+		}
 
-		for _, vfRange := range res.Ranges {
-			pf, err := dpuInfo.GetPF(vfRange.PFIndex)
+		if res.Type == noderesourcesv1.DevicePluginResourceTypeSF {
+			sb.auxTypes = []string{auxTypeSF}
+		}
+
+		for _, fnRange := range res.Ranges {
+			pf, err := dpuInfo.GetPF(fnRange.PFIndex)
 			if err != nil {
 				return fmt.Errorf("failed to get PF for DPU %s, pfIndex %d: %w",
-					dpuInfo.SerialNumber, vfRange.PFIndex, err)
+					dpuInfo.SerialNumber, fnRange.PFIndex, err)
 			}
-			sb.addVFRange(pf.Address, resolveVFRange(pf, vfRange))
+			sb.addFunctionRange(pf.Address, resolveFunctionRange(pf.TotalVFs, fnRange))
 		}
 	}
 	return nil
@@ -135,9 +166,11 @@ func (b *configBuilder) build() *DevicePluginConfig {
 
 // getOrCreateResourceBuilder returns existing or creates new resource builder.
 // Resources are keyed by "prefix/name" since the combination uniquely identifies a resource.
+// A later DPU that reuses the same key with a different type is rejected: the
+// device plugin has one deviceType per extended resource.
 func (b *configBuilder) getOrCreateResourceBuilder(
 	res noderesourcesv1.DevicePluginResource,
-) *resourceBuilder {
+) (*resourceBuilder, error) {
 	prefix := b.defaultPrefix
 	if res.ResourcePrefix != nil && *res.ResourcePrefix != "" {
 		prefix = *res.ResourcePrefix
@@ -149,11 +182,28 @@ func (b *configBuilder) getOrCreateResourceBuilder(
 		rb = &resourceBuilder{
 			name:             res.Name,
 			prefix:           prefix,
+			resourceType:     res.Type,
+			deviceType:       deviceTypeForResource(res.Type),
 			selectorBuilders: make(map[string]*selectorBuilder),
 		}
 		b.resourceBuilders[key] = rb
+		return rb, nil
 	}
-	return rb
+	if rb.resourceType != res.Type {
+		return nil, fmt.Errorf("resource %q has type %q, but it was already registered as %q",
+			key, res.Type, rb.resourceType)
+	}
+	return rb, nil
+}
+
+// deviceTypeForResource returns the sriov-network-device-plugin deviceType for
+// the given resource type. VF uses the default (netDevice) and is left empty
+// so existing VF configs stay unchanged.
+func deviceTypeForResource(t noderesourcesv1.DevicePluginResourceType) string {
+	if t == noderesourcesv1.DevicePluginResourceTypeSF {
+		return deviceTypeAuxNetDevice
+	}
+	return ""
 }
 
 // resourceKey creates a unique key for a resource from its prefix and name.
@@ -166,7 +216,7 @@ func (rb *resourceBuilder) getOrCreateSelectorBuilder(serial string) *selectorBu
 	sb, exists := rb.selectorBuilders[serial]
 	if !exists {
 		sb = &selectorBuilder{
-			pfRanges: make(map[string][]vfRangeInfo),
+			pfRanges: make(map[string][]functionRangeInfo),
 		}
 		rb.selectorBuilders[serial] = sb
 	}
@@ -178,6 +228,7 @@ func (rb *resourceBuilder) build() ResourceConfig {
 	rc := ResourceConfig{
 		ResourceName:   rb.name,
 		ResourcePrefix: rb.prefix,
+		DeviceType:     rb.deviceType,
 		Selectors:      make([]Selector, 0, len(rb.selectorBuilders)),
 	}
 
@@ -190,9 +241,9 @@ func (rb *resourceBuilder) build() ResourceConfig {
 	return rc
 }
 
-// addVFRange adds a VF range for a specific PF address.
-func (sb *selectorBuilder) addVFRange(pfAddr string, vfRange vfRangeInfo) {
-	sb.pfRanges[pfAddr] = append(sb.pfRanges[pfAddr], vfRange)
+// addFunctionRange adds a function range for a specific PF address.
+func (sb *selectorBuilder) addFunctionRange(pfAddr string, fnRange functionRangeInfo) {
+	sb.pfRanges[pfAddr] = append(sb.pfRanges[pfAddr], fnRange)
 }
 
 // build constructs the Selector from accumulated root devices.
@@ -203,8 +254,10 @@ func (sb *selectorBuilder) build() Selector {
 		rootDevices = append(rootDevices, formatRootDevice(pfAddr, sb.pfRanges[pfAddr]))
 	}
 	return Selector{
-		RootDevices: rootDevices,
-		IsRdma:      sb.isRdma,
+		RootDevices:  rootDevices,
+		AuxTypes:     sb.auxTypes,
+		IsRdma:       sb.isRdma,
+		NeedVhostNet: sb.needVhostNet,
 	}
 }
 
@@ -215,8 +268,9 @@ func (sb *selectorBuilder) build() Selector {
 // Rules:
 //   - Ranges from different DPUs go to separate selectors
 //   - Ranges from the same DPU within the same resource are merged into one selector
-//   - If start is not set, 0 is used
-//   - If end is not set, totalVFs-1 is used
+//   - If start is not set (VF only), 0 is used
+//   - If end is not set (VF only), the last VF on the PF is used
+//   - SF ranges always include explicit start and end
 func buildDevicePluginConfig(defaultResourcePrefix string, dpuInfoList []DPUInfo) (*DevicePluginConfig, error) {
 	builder := newConfigBuilder(defaultResourcePrefix)
 	for _, dpuInfo := range dpuInfoList {
@@ -227,27 +281,28 @@ func buildDevicePluginConfig(defaultResourcePrefix string, dpuInfoList []DPUInfo
 	return builder.build(), nil
 }
 
-// resolveVFRange resolves optional start/end values in a VFRange to concrete values.
-// If start is nil, 0 is used. If end is nil, totalVFs-1 is used.
-func resolveVFRange(pf *PFInfo, vfRange noderesourcesv1.VFRange) vfRangeInfo {
+// resolveFunctionRange resolves optional start/end values to concrete values.
+// If start is nil, 0 is used. If end is nil, total-1 is used (VF open-ended
+// ranges). SF ranges are required to set both bounds before this is called.
+func resolveFunctionRange(total int32, fnRange noderesourcesv1.FunctionRange) functionRangeInfo {
 	start := int32(0)
-	if vfRange.Start != nil {
-		start = *vfRange.Start
+	if fnRange.Start != nil {
+		start = *fnRange.Start
 	}
-	// at this point it is guaranteed that pf.TotalVFs > 0
-	end := pf.TotalVFs - 1
-	if vfRange.End != nil {
-		end = *vfRange.End
+	// For VF Ranges, at this point it is guaranteed that total > 0, SF Ranges always have end defined
+	end := total - 1
+	if fnRange.End != nil {
+		end = *fnRange.End
 	}
-	return vfRangeInfo{start: start, end: end}
+	return functionRangeInfo{start: start, end: end}
 }
 
-// formatRootDevice formats a root device selector string with VF range syntax.
+// formatRootDevice formats a root device selector string with function range syntax.
 // Multiple ranges are combined using comma-separated syntax.
 // Format: "<PF_PCI_ADDRESS>#<range1>,<range2>,..." (e.g., "0000:b1:00.0#2-10,15-20").
-func formatRootDevice(pfAddr string, ranges []vfRangeInfo) string {
+func formatRootDevice(pfAddr string, ranges []functionRangeInfo) string {
 	// Sort ranges by start index for deterministic output
-	slices.SortFunc(ranges, func(a, b vfRangeInfo) int {
+	slices.SortFunc(ranges, func(a, b functionRangeInfo) int {
 		return int(a.start - b.start)
 	})
 

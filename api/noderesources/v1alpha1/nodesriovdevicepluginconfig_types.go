@@ -31,28 +31,42 @@ var (
 )
 
 // DevicePluginResourceType specifies the type of the device plugin resource.
-// +kubebuilder:validation:Enum=vf
+// +kubebuilder:validation:Enum=vf;sf
 type DevicePluginResourceType string
 
 const (
 	// DevicePluginResourceTypeVF represents a Virtual Function resource.
 	DevicePluginResourceTypeVF DevicePluginResourceType = "vf"
+	// DevicePluginResourceTypeSF represents a Scalable Function resource.
+	DevicePluginResourceTypeSF DevicePluginResourceType = "sf"
 )
+
+// IsSupported reports whether t is a recognized device plugin resource type.
+func (t DevicePluginResourceType) IsSupported() bool {
+	switch t {
+	case DevicePluginResourceTypeVF, DevicePluginResourceTypeSF:
+		return true
+	default:
+		return false
+	}
+}
 
 // NodeSRIOVDevicePluginConfigSpec defines the desired state of NodeSRIOVDevicePluginConfig
 type NodeSRIOVDevicePluginConfigSpec struct {
 	// DevicePluginResources is the list of device plugin resource configurations.
 	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=64
 	// +required
 	DevicePluginResources []DevicePluginResource `json:"devicePluginResources"`
 }
 
 // DevicePluginResource defines a single device plugin resource configuration.
+// +kubebuilder:validation:XValidation:rule="self.type != 'sf' || self.ranges.all(r, has(r.start) && has(r.end))",message="start and end must be set when type is sf"
 type DevicePluginResource struct {
 	// Name is the endpoint resource name for the device plugin.
 	// Should contain only alphanumeric characters, underscores and hyphens.
 	// The full extended resource name will be constructed as resource-prefix/name.
-	// Example: pods_vf, ovnk_mgmt_vf
+	// Example: pods_vf, ovnk_mgmt_vf, pods_sf
 	// +kubebuilder:validation:Pattern=`^[a-zA-Z0-9_-]+$`
 	// +kubebuilder:validation:MinLength=1
 	// +required
@@ -72,10 +86,12 @@ type DevicePluginResource struct {
 	// +optional
 	Options *DevicePluginResourceOptions `json:"options,omitempty"`
 
-	// Ranges specifies the VF ranges on PFs to be included in this resource.
+	// Ranges specifies the function ranges on PFs to be included in this resource.
+	// For type sf, each range must set both start and end.
 	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=1024
 	// +required
-	Ranges []VFRange `json:"ranges"`
+	Ranges []FunctionRange `json:"ranges"`
 }
 
 // DevicePluginResourceOptions contains additional options for a device plugin resource.
@@ -83,24 +99,34 @@ type DevicePluginResourceOptions struct {
 	// IsRdma indicates whether RDMA is enabled for this resource.
 	// +optional
 	IsRdma *bool `json:"isRdma,omitempty"`
+
+	// NeedVhostNet mounts /dev/vhost-net and /dev/net/tun with the allocated devices.
+	// Defaults to false.
+	// +optional
+	NeedVhostNet *bool `json:"needVhostNet,omitempty"`
 }
 
-// VFRange defines a range of Virtual Functions on a Physical Function.
+// FunctionRange defines a range of functions (Virtual Functions or Scalable Functions)
+// on a Physical Function.
 // +kubebuilder:validation:XValidation:rule="!has(self.start) || !has(self.end) || self.start <= self.end",message="start must be less than or equal to end"
-type VFRange struct {
+type FunctionRange struct {
 	// PFIndex is the index of the Physical Function.
 	// +kubebuilder:validation:Minimum=0
 	// +required
 	PFIndex int32 `json:"pfIndex"`
 
-	// Start is the starting VF index (inclusive).
-	// If not set, the range starts from VF 0.
+	// Start is the starting function index (inclusive).
+	// If not set, the range starts from index 0.
+	// Required when type is sf. SF ranges are contiguous: every index from
+	// start to end (inclusive) must exist on the PF.
 	// +kubebuilder:validation:Minimum=0
 	// +optional
 	Start *int32 `json:"start,omitempty"`
 
-	// End is the ending VF index (inclusive).
-	// If not set, the range extends to the last VF on the PF.
+	// End is the ending function index (inclusive).
+	// If not set, the range extends to the last function of this type on the PF.
+	// Required when type is sf. SF ranges are contiguous: every index from
+	// start to end (inclusive) must exist on the PF.
 	// +kubebuilder:validation:Minimum=0
 	// +optional
 	End *int32 `json:"end,omitempty"`

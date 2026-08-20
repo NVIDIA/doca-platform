@@ -75,7 +75,8 @@ type expectedDPU struct {
 }
 
 // discoverDPUsAndWaitForReadiness discovers DPUs and waits for required PFs to
-// have at least one VF created (virtfn0 exists).
+// have the requested functions ready (virtfn0 for VFs; every sfnum in each
+// configured contiguous SF range).
 // Only PFs explicitly mentioned in the input config are discovered and waited for.
 func discoverDPUsAndWaitForReadiness(ctx context.Context,
 	clk clock.WithTicker,
@@ -120,11 +121,11 @@ func getExpectedDPUsFromInputConfig(inputConfig common.NodeInputConfig) []expect
 	dpuPFs := make(map[string]map[int32]struct{})
 	for serial, resources := range inputConfig {
 		for _, res := range resources {
-			for _, vfRange := range res.Ranges {
+			for _, fnRange := range res.Ranges {
 				if dpuPFs[serial] == nil {
 					dpuPFs[serial] = make(map[int32]struct{})
 				}
-				dpuPFs[serial][vfRange.PFIndex] = struct{}{}
+				dpuPFs[serial][fnRange.PFIndex] = struct{}{}
 			}
 		}
 	}
@@ -143,9 +144,10 @@ func getExpectedDPUsFromInputConfig(inputConfig common.NodeInputConfig) []expect
 // the readiness of the required PFs.
 //
 // Terminal errors: DPU missing from node, PF discovery
-// failure, or SR-IOV not enabled (sriov_totalvfs == 0).
+// failure, or SR-IOV not enabled (sriov_totalvfs == 0) when VFs are requested.
 //
-// Retryable conditions (returned as not-ready reasons): PF has no VFs created yet.
+// Retryable conditions (returned as not-ready reasons): requested VFs or SFs
+// have not been created yet.
 func tryDiscoverDPUsAndCheckReadiness(sysFSRoot string, expectedDPUs []expectedDPU) ([]DPUInfo, []string, error) {
 	devices, err := util.DiscoverDPUs(sysFSRoot)
 	if err != nil {
@@ -180,17 +182,33 @@ func tryDiscoverDPUsAndCheckReadiness(sysFSRoot string, expectedDPUs []expectedD
 					dpu.serial, pfIndex, err))
 				continue
 			}
-			if pfInfo.TotalVFs == 0 {
+			needVF, needSF := functionNeedsForPF(dpu.devicePluginResourcesConfig, pfIndex)
+			if needVF && pfInfo.TotalVFs == 0 {
 				errs = append(errs, fmt.Errorf("DPU %s: PF%d (%s): has SR-IOV disabled",
 					dpu.serial, pfIndex, pfInfo.Address))
 				continue
 			}
+			if needSF {
+				pfPath := util.NewPCIHelper(pfInfo.Address).SetSysFS(sysFSRoot).Path()
+				present, err := listDiscoveredSFNums(pfPath)
+				if err != nil {
+					errs = append(errs, fmt.Errorf("DPU %s: PF%d (%s): failed to discover SFs: %w",
+						dpu.serial, pfIndex, pfInfo.Address, err))
+					continue
+				}
+				for _, r := range configuredSFRangesForPF(dpu.devicePluginResourcesConfig, pfIndex) {
+					if !sfRangeFullyPresent(*r.Start, *r.End, present) {
+						notReadyReasons = append(notReadyReasons,
+							fmt.Sprintf("DPU %s PF%d (%s): SF range %d-%d is not fully present",
+								dpu.serial, pfIndex, pfInfo.Address, *r.Start, *r.End))
+					}
+				}
+			}
 			dpuInfo.PFs[pfIndex] = pfInfo
 
-			if !pfHasVFs(sysFSRoot, pfInfo.Address) {
+			if needVF && !pfHasVFs(sysFSRoot, pfInfo.Address) {
 				notReadyReasons = append(notReadyReasons,
 					fmt.Sprintf("DPU %s PF%d (%s): no VFs created yet", dpu.serial, pfIndex, pfInfo.Address))
-				continue
 			}
 		}
 		dpuInfoList = append(dpuInfoList, *dpuInfo)
@@ -227,6 +245,79 @@ func pfHasVFs(sysFSRoot, pfAddr string) bool {
 	virtfn0Path := util.NewPCIHelper(pfAddr).SetSysFS(sysFSRoot).VF(0).Path()
 	_, err := os.Lstat(virtfn0Path)
 	return err == nil
+}
+
+// functionNeedsForPF reports whether the input config requests VFs and/or SFs
+// on the given PF.
+func functionNeedsForPF(resources []noderesourcesv1.DevicePluginResource, pfIndex int32) (needVF, needSF bool) {
+	for _, res := range resources {
+		for _, r := range res.Ranges {
+			if r.PFIndex != pfIndex {
+				continue
+			}
+			switch res.Type {
+			case noderesourcesv1.DevicePluginResourceTypeVF:
+				needVF = true
+			case noderesourcesv1.DevicePluginResourceTypeSF:
+				needSF = true
+			}
+		}
+	}
+	return needVF, needSF
+}
+
+// configuredSFRangesForPF returns SF ranges that apply to the given PF.
+// The input config is expected to already require start and end for type sf.
+func configuredSFRangesForPF(resources []noderesourcesv1.DevicePluginResource, pfIndex int32) []noderesourcesv1.FunctionRange {
+	var ranges []noderesourcesv1.FunctionRange
+	for _, res := range resources {
+		if res.Type != noderesourcesv1.DevicePluginResourceTypeSF {
+			continue
+		}
+		for _, r := range res.Ranges {
+			if r.PFIndex == pfIndex {
+				ranges = append(ranges, r)
+			}
+		}
+	}
+	return ranges
+}
+
+// listDiscoveredSFNums returns the set of sfnum values found under the PF
+// (mlx5_core.sf.*/sfnum). Entries with unreadable sfnum files are skipped.
+func listDiscoveredSFNums(pfPath string) (map[int32]struct{}, error) {
+	matches, err := filepath.Glob(filepath.Join(pfPath, "mlx5_core.sf.*"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to list SFs: %w", err)
+	}
+	present := make(map[int32]struct{}, len(matches))
+	for _, match := range matches {
+		data, err := os.ReadFile(filepath.Join(match, "sfnum"))
+		if err != nil {
+			continue
+		}
+		sfnum, err := strconv.Atoi(strings.TrimSpace(string(data)))
+		if err != nil {
+			continue
+		}
+		present[int32(sfnum)] = struct{}{}
+	}
+	return present, nil
+}
+
+// sfRangeFullyPresent reports whether every integer index in [start, end] is
+// present. SF ranges are contiguous; holes are treated as not ready.
+// start must be <= end. The loop exits on i == end to avoid int32 overflow.
+func sfRangeFullyPresent(start, end int32, present map[int32]struct{}) bool {
+	for i := start; ; {
+		if _, ok := present[i]; !ok {
+			return false
+		}
+		if i == end {
+			return true
+		}
+		i++
+	}
 }
 
 // readTotalVFs reads sriov_totalvfs for a PF given its sysfs path.
