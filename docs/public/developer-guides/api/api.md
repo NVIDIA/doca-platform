@@ -5487,8 +5487,10 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `metadata` _[ObjectMeta](#objectmeta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
-| `ipv4Network` _[IPV4Network](#ipv4network)_ | IPV4Network is the configuration related to splitting a network into subnets per node, each with their own gateway. |  |  |
-| `ipv4Subnet` _[IPV4Subnet](#ipv4subnet)_ | IPV4Subnet is the configuration related to splitting a subnet into blocks per node. In this setup, there is a<br />single gateway. |  |  |
+| `ipv4Network` _[Network](#network)_ | IPV4Network is the configuration related to splitting a network into subnets per node, each with their own gateway.<br />Deprecated: Use Network instead. |  |  |
+| `ipv4Subnet` _[Subnet](#subnet)_ | IPV4Subnet is the configuration related to splitting a subnet into blocks per node. In this setup, there is a<br />single gateway.<br />Deprecated: Use Subnet instead. |  |  |
+| `network` _[Network](#network)_ | Network is the configuration for splitting an IPv4 or IPv6 network into subnets per node, each with their own<br />gateway. |  | Optional: \{\} <br /> |
+| `subnet` _[Subnet](#subnet)_ | Subnet is the configuration for splitting an IPv4 or IPv6 subnet into blocks per node. In this setup, there is a<br />single gateway. |  | Optional: \{\} <br /> |
 | `clusterSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | ClusterSelector determines in which clusters the DPUServiceIPAM controller should apply the configuration.<br />Deprecated: This field is deprecated and will be removed with v26.7.0. Use DPUClusterSelector instead. |  | Optional: \{\} <br /> |
 | `dpuClusterSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#labelselector-v1-meta)_ | DPUClusterSelector determines in which clusters the DPUServiceIPAM controller should apply the configuration. |  | Optional: \{\} <br /> |
 | `nodeSelector` _[NodeSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#nodeselector-v1-core)_ | NodeSelector determines in which DPU nodes the DPUServiceIPAM controller should apply the configuration. |  |  |
@@ -5509,7 +5511,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  | Optional: \{\} <br /> |
 | `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  | Optional: \{\} <br /> |
-| `dpuClusterAllocations` _[DPUClusterAllocation](#dpuclusterallocation) array_ | DPUClusterAllocations contains the IPV4Network/IPV4Subnet allocations per DPUCluster as calculated by the controller. |  | Optional: \{\} <br /> |
+| `dpuClusterAllocations` _[DPUClusterAllocation](#dpuclusterallocation) array_ | DPUClusterAllocations contains the configured network or subnet allocations per DPUCluster as calculated by the<br />controller. A DPUServiceIPAM contains exactly one address-family configuration, so every entry has that family. |  | Optional: \{\} <br /> |
 
 
 #### DPUServiceInterface
@@ -5895,61 +5897,13 @@ _Appears in:_
 
 _Appears in:_
 - [DPUClusterAllocation](#dpuclusterallocation)
-- [IPV4Network](#ipv4network)
-- [IPV4Subnet](#ipv4subnet)
+- [Network](#network)
+- [Subnet](#subnet)
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `startIP` _string_ | StartIP is the start of the range. |  | Required: \{\} <br /> |
 | `endIP` _string_ | EndIP is the end of the range. |  | Required: \{\} <br /> |
-
-
-#### IPV4Network
-
-
-
-IPV4Network describes the configuration relevant to splitting a network into subnet per node (i.e. different gateway and
-broadcast IP per node).
-
-
-
-_Appears in:_
-- [DPUServiceIPAMSpec](#dpuserviceipamspec)
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `network` _string_ | Network is the CIDR from which subnets should be allocated per node. |  |  |
-| `gatewayIndex` _integer_ | GatewayIndex determines which IP in the subnet extracted from the CIDR should be the gateway IP. For point to<br />point networks (/31), one needs to leave this empty to make use of both the IPs. |  |  |
-| `prefixSize` _integer_ | PrefixSize is the size of the subnet that should be allocated per node. |  |  |
-| `exclusions` _string array_ | Exclusions is a list of IPs that should be excluded when splitting the CIDR into subnets per node.<br />Deprecated: This field is deprecated and will be removed with v26.10.0. Use ExcludeRanges instead. |  |  |
-| `excludeRanges` _[IPRange](#iprange) array_ | ExcludeRanges is a list of IP ranges that should be excluded from the allocation.<br />startIP and endIP are part of the Excluded range. |  |  |
-| `allocations` _object (keys:string, values:string)_ | Allocations describes the subnets that should be assigned in each DPU node. |  |  |
-| `defaultGateway` _boolean_ | DefaultGateway adds gateway as default gateway in the routes list if true. |  |  |
-| `routes` _[Route](#route) array_ | Routes is the static routes list using the gateway specified in the spec. |  |  |
-| `subnetsPerDPUCluster` _integer_ | SubnetsPerDPUCluster is the number of PrefixSize-sized subnets each DPUCluster should receive.<br />When specified, the controller will take care of assigning non-overlapping subnets part of the Network in each<br />DPUCluster that the DPUServiceIPAM is targeting. Leave empty in case you want the whole Network to be consumed<br />by a single DPUCluster. |  | Optional: \{\} <br /> |
-
-
-#### IPV4Subnet
-
-
-
-IPV4Subnet describes the configuration relevant to splitting a subnet to a subnet block per node (i.e. same gateway
-and broadcast IP across all nodes).
-
-
-
-_Appears in:_
-- [DPUServiceIPAMSpec](#dpuserviceipamspec)
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `subnet` _string_ | Subnet is the CIDR from which blocks should be allocated per node |  |  |
-| `gateway` _string_ | Gateway is the IP in the subnet that should be the gateway of the subnet. |  |  |
-| `perNodeIPCount` _integer_ | PerNodeIPCount is the number of IPs that should be allocated per node. |  |  |
-| `excludeRanges` _[IPRange](#iprange) array_ | ExcludeRanges is a list of IP ranges that should be excluded from the allocation.<br />startIP and endIP are part of the Excluded range. |  |  |
-| `defaultGateway` _boolean_ | if true, add gateway as default gateway in the routes list<br />DefaultGateway adds gateway as default gateway in the routes list if true. |  |  |
-| `routes` _[Route](#route) array_ | Routes is the static routes list using the gateway specified in the spec. |  |  |
-| `blocksPerDPUCluster` _integer_ | BlocksPerDPUCluster is the number of PerNodeIPCount-sized blocks each DPUCluster should receive.<br />When specified, the controller will take care of assigning non-overlapping IP blocks part of the Subnet in each<br />DPUCluster that the DPUServiceIPAM is targeting. Leave empty in case you want the whole Subnet to be consumed by<br />a single DPUCluster. |  | Optional: \{\} <br /> |
 
 
 #### InterfaceEntry
@@ -6066,6 +6020,30 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `name` _string_ | Name of the object. |  | Required: \{\} <br /> |
 | `namespace` _string_ | Namespace of the object, if not provided the object will be looked up in<br />the same namespace as the referring object |  | Optional: \{\} <br /> |
+
+
+#### Network
+
+
+
+Network describes the configuration for splitting a network into a subnet per node with a different gateway per node.
+
+
+
+_Appears in:_
+- [DPUServiceIPAMSpec](#dpuserviceipamspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `network` _string_ | Network is the CIDR from which subnets should be allocated per node. |  |  |
+| `gatewayIndex` _integer_ | GatewayIndex determines which IP in the subnet extracted from the CIDR should be the gateway IP. For point to<br />point networks (/31 or /127), one needs to leave this empty to make use of both IPs. |  |  |
+| `prefixSize` _integer_ | PrefixSize is the size of the subnet that should be allocated per node. |  |  |
+| `exclusions` _string array_ | Exclusions is a list of IPs that should be excluded when splitting the CIDR into subnets per node.<br />Deprecated: This field is deprecated and will be removed with v26.10.0. Use ExcludeRanges instead. |  |  |
+| `excludeRanges` _[IPRange](#iprange) array_ | ExcludeRanges is a list of IP ranges that should be excluded from the allocation.<br />startIP and endIP are part of the Excluded range. |  |  |
+| `allocations` _object (keys:string, values:string)_ | Allocations describes the subnets that should be assigned in each DPU node. |  |  |
+| `defaultGateway` _boolean_ | DefaultGateway adds gateway as default gateway in the routes list if true. |  |  |
+| `routes` _[Route](#route) array_ | Routes is the static routes list using the gateway specified in the spec. |  |  |
+| `subnetsPerDPUCluster` _integer_ | SubnetsPerDPUCluster is the number of PrefixSize-sized subnets each DPUCluster should receive.<br />When specified, the controller will take care of assigning non-overlapping subnets part of the Network in each<br />DPUCluster that the DPUServiceIPAM is targeting. Leave empty in case you want the whole Network to be consumed<br />by a single DPUCluster. |  | Optional: \{\} <br /> |
 
 
 #### NodeServiceInterfaces
@@ -6274,8 +6252,8 @@ Route contains static route parameters
 
 
 _Appears in:_
-- [IPV4Network](#ipv4network)
-- [IPV4Subnet](#ipv4subnet)
+- [Network](#network)
+- [Subnet](#subnet)
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
@@ -6781,6 +6759,28 @@ _Appears in:_
 | `name` _string_ | Name is the name of the interface |  | MaxLength: 15 <br />MinLength: 1 <br />Required: \{\} <br /> |
 | `network` _string_ | Network is the Network Attachment Definition in the form of "namespace/name"<br />or just "name" if the namespace is the same as the namespace the pod is running. |  | Required: \{\} <br /> |
 | `virtualNetwork` _string_ | VirtualNetwork is the VirtualNetwork name in the same namespace |  | Optional: \{\} <br /> |
+
+
+#### Subnet
+
+
+
+Subnet describes the configuration for splitting a subnet into blocks per node with the same gateway across all nodes.
+
+
+
+_Appears in:_
+- [DPUServiceIPAMSpec](#dpuserviceipamspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `subnet` _string_ | Subnet is the CIDR from which blocks should be allocated per node |  |  |
+| `gateway` _string_ | Gateway is the IP in the subnet that should be the gateway of the subnet. |  |  |
+| `perNodeIPCount` _integer_ | PerNodeIPCount is the number of IPs that should be allocated per node. |  |  |
+| `excludeRanges` _[IPRange](#iprange) array_ | ExcludeRanges is a list of IP ranges that should be excluded from the allocation.<br />startIP and endIP are part of the Excluded range. |  |  |
+| `defaultGateway` _boolean_ | if true, add gateway as default gateway in the routes list<br />DefaultGateway adds gateway as default gateway in the routes list if true. |  |  |
+| `routes` _[Route](#route) array_ | Routes is the static routes list using the gateway specified in the spec. |  |  |
+| `blocksPerDPUCluster` _integer_ | BlocksPerDPUCluster is the number of PerNodeIPCount-sized blocks each DPUCluster should receive.<br />When specified, the controller will take care of assigning non-overlapping IP blocks part of the Subnet in each<br />DPUCluster that the DPUServiceIPAM is targeting. Leave empty in case you want the whole Subnet to be consumed by<br />a single DPUCluster. |  | Optional: \{\} <br /> |
 
 
 #### Switch

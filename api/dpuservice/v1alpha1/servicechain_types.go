@@ -19,6 +19,7 @@ package v1alpha1
 import (
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -82,6 +83,15 @@ type IPAM struct {
 	// +kubebuilder:validation:MaxProperties=50
 	// +required
 	MatchLabels map[string]string `json:"matchLabels"`
+	// RequiredIPFamilies declares the address families that pools selected by MatchLabels must provide. When set,
+	// MatchLabels must select exactly one pool for each requested family and no additional pools. For dual-stack
+	// selection, both pools must use the same DPUServiceIPAM allocation mode: network or subnet. Order is not significant.
+	// When omitted, backward-compatible pool selection is used.
+	// +optional
+	// +listType=set
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:items:Enum=IPv4;IPv6
+	RequiredIPFamilies []corev1.IPFamily `json:"requiredIPFamilies,omitempty"`
 	// DefaultGateway adds gateway as default gateway in the routes list if true.
 	// +optional
 	DefaultGateway *bool `json:"defaultGateway,omitempty"`

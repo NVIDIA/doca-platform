@@ -66,13 +66,26 @@ func (c *DPUServiceIPAM) GetDPUClusterSelector() *metav1.LabelSelector {
 }
 
 // DPUServiceIPAMSpec defines the desired state of DPUServiceIPAM
+// +kubebuilder:validation:XValidation:rule="(has(self.ipv4Network) ? 1 : 0) + (has(self.ipv4Subnet) ? 1 : 0) + (has(self.network) ? 1 : 0) + (has(self.subnet) ? 1 : 0) == 1",message="exactly one of ipv4Network, ipv4Subnet, network, or subnet must be specified"
 type DPUServiceIPAMSpec struct {
 	ObjectMeta `json:"metadata,omitempty"`
 	// IPV4Network is the configuration related to splitting a network into subnets per node, each with their own gateway.
-	IPV4Network *IPV4Network `json:"ipv4Network,omitempty"`
+	//
+	// Deprecated: Use Network instead.
+	IPV4Network *Network `json:"ipv4Network,omitempty"`
 	// IPV4Subnet is the configuration related to splitting a subnet into blocks per node. In this setup, there is a
 	// single gateway.
-	IPV4Subnet *IPV4Subnet `json:"ipv4Subnet,omitempty"`
+	//
+	// Deprecated: Use Subnet instead.
+	IPV4Subnet *Subnet `json:"ipv4Subnet,omitempty"`
+	// Network is the configuration for splitting an IPv4 or IPv6 network into subnets per node, each with their own
+	// gateway.
+	// +optional
+	Network *Network `json:"network,omitempty"`
+	// Subnet is the configuration for splitting an IPv4 or IPv6 subnet into blocks per node. In this setup, there is a
+	// single gateway.
+	// +optional
+	Subnet *Subnet `json:"subnet,omitempty"`
 
 	// ClusterSelector determines in which clusters the DPUServiceIPAM controller should apply the configuration.
 	//
@@ -86,13 +99,12 @@ type DPUServiceIPAMSpec struct {
 	NodeSelector *corev1.NodeSelector `json:"nodeSelector,omitempty"`
 }
 
-// IPV4Network describes the configuration relevant to splitting a network into subnet per node (i.e. different gateway and
-// broadcast IP per node).
-type IPV4Network struct {
+// Network describes the configuration for splitting a network into a subnet per node with a different gateway per node.
+type Network struct {
 	// Network is the CIDR from which subnets should be allocated per node.
 	Network string `json:"network"`
 	// GatewayIndex determines which IP in the subnet extracted from the CIDR should be the gateway IP. For point to
-	// point networks (/31), one needs to leave this empty to make use of both the IPs.
+	// point networks (/31 or /127), one needs to leave this empty to make use of both IPs.
 	GatewayIndex *int32 `json:"gatewayIndex,omitempty"`
 	// PrefixSize is the size of the subnet that should be allocated per node.
 	PrefixSize int32 `json:"prefixSize"`
@@ -117,9 +129,8 @@ type IPV4Network struct {
 	SubnetsPerDPUCluster *int32 `json:"subnetsPerDPUCluster,omitempty"`
 }
 
-// IPV4Subnet describes the configuration relevant to splitting a subnet to a subnet block per node (i.e. same gateway
-// and broadcast IP across all nodes).
-type IPV4Subnet struct {
+// Subnet describes the configuration for splitting a subnet into blocks per node with the same gateway across all nodes.
+type Subnet struct {
 	// Subnet is the CIDR from which blocks should be allocated per node
 	Subnet string `json:"subnet"`
 	// Gateway is the IP in the subnet that should be the gateway of the subnet.
@@ -175,7 +186,8 @@ type DPUServiceIPAMStatus struct {
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
-	// DPUClusterAllocations contains the IPV4Network/IPV4Subnet allocations per DPUCluster as calculated by the controller.
+	// DPUClusterAllocations contains the configured network or subnet allocations per DPUCluster as calculated by the
+	// controller. A DPUServiceIPAM contains exactly one address-family configuration, so every entry has that family.
 	// +optional
 	// +listType=map
 	// +listMapKey=dpuCluster

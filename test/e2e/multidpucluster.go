@@ -158,7 +158,7 @@ func ValidateDPUServiceIPAMInL2ModePerDPUCluster(ctx context.Context, input *sys
 	By("Creating DPUServiceIPAM for the first cluster")
 	dpuServiceIPAM1 := dpuServiceIPAMTemplate.DeepCopy()
 	dpuServiceIPAM1.SetName("l2-ipam-cluster-1")
-	dpuServiceIPAM1.Spec.IPV4Subnet = &dpuservicev1.IPV4Subnet{
+	dpuServiceIPAM1.Spec.IPV4Subnet = &dpuservicev1.Subnet{
 		Subnet:         "192.168.10.1/28",
 		Gateway:        "192.168.10.1",
 		PerNodeIPCount: 6,
@@ -182,7 +182,7 @@ func ValidateDPUServiceIPAMInL2ModePerDPUCluster(ctx context.Context, input *sys
 	By("Creating DPUServiceIPAM for second cluster")
 	dpuServiceIPAM2 := dpuServiceIPAMTemplate.DeepCopy()
 	dpuServiceIPAM2.SetName("l2-ipam-cluster-2")
-	dpuServiceIPAM2.Spec.IPV4Subnet = &dpuservicev1.IPV4Subnet{
+	dpuServiceIPAM2.Spec.IPV4Subnet = &dpuservicev1.Subnet{
 		Subnet:         "192.168.10.1/28",
 		Gateway:        "192.168.10.1",
 		PerNodeIPCount: 6,
@@ -247,7 +247,7 @@ func ValidateDPUServiceIPAMInL3ModePerDPUCluster(ctx context.Context, input *sys
 	By("Creating DPUServiceIPAM for the first cluster")
 	dpuServiceIPAM1 := dpuServiceIPAMTemplate.DeepCopy()
 	dpuServiceIPAM1.SetName("l3-ipam-cluster-1")
-	dpuServiceIPAM1.Spec.IPV4Network = &dpuservicev1.IPV4Network{
+	dpuServiceIPAM1.Spec.IPV4Network = &dpuservicev1.Network{
 		Network:      "192.168.20.0/28",
 		GatewayIndex: ptr.To[int32](1),
 		PrefixSize:   30,
@@ -271,7 +271,7 @@ func ValidateDPUServiceIPAMInL3ModePerDPUCluster(ctx context.Context, input *sys
 	By("Creating DPUServiceIPAM for second cluster")
 	dpuServiceIPAM2 := dpuServiceIPAMTemplate.DeepCopy()
 	dpuServiceIPAM2.SetName("l3-ipam-cluster-2")
-	dpuServiceIPAM2.Spec.IPV4Network = &dpuservicev1.IPV4Network{
+	dpuServiceIPAM2.Spec.IPV4Network = &dpuservicev1.Network{
 		Network:      "192.168.20.0/28",
 		GatewayIndex: ptr.To[int32](1),
 		PrefixSize:   30,
@@ -336,7 +336,7 @@ func ValidateDPUServiceIPAMInL2ModeSharedAcrossDPUClusters(ctx context.Context, 
 	dpuServiceIPAM.Spec.ObjectMeta.Labels = poolLabel
 	dpuServiceIPAM.Spec.NodeSelector = nil
 	dpuServiceIPAM.Spec.DPUClusterSelector = nil
-	dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.IPV4Subnet{
+	dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.Subnet{
 		Subnet:              "192.168.50.1/27",
 		Gateway:             "192.168.50.1",
 		PerNodeIPCount:      6,
@@ -391,7 +391,7 @@ func ValidateDPUServiceIPAMInL3ModeSharedAcrossDPUClusters(ctx context.Context, 
 	dpuServiceIPAM.Spec.ObjectMeta.Labels = poolLabel
 	dpuServiceIPAM.Spec.NodeSelector = nil
 	dpuServiceIPAM.Spec.DPUClusterSelector = nil
-	dpuServiceIPAM.Spec.IPV4Network = &dpuservicev1.IPV4Network{
+	dpuServiceIPAM.Spec.IPV4Network = &dpuservicev1.Network{
 		Network:              "192.168.60.0/27",
 		GatewayIndex:         ptr.To[int32](1),
 		PrefixSize:           30,
@@ -454,7 +454,7 @@ func ValidateDPUServiceIPAMInL3ModeSharedAcrossDPUClustersWithStaticAllocations(
 	dpuServiceIPAM.Spec.ObjectMeta.Labels = poolLabel
 	dpuServiceIPAM.Spec.NodeSelector = nil
 	dpuServiceIPAM.Spec.DPUClusterSelector = nil
-	dpuServiceIPAM.Spec.IPV4Network = &dpuservicev1.IPV4Network{
+	dpuServiceIPAM.Spec.IPV4Network = &dpuservicev1.Network{
 		Network:              "192.168.70.0/28",
 		GatewayIndex:         ptr.To[int32](1),
 		PrefixSize:           30,
@@ -515,7 +515,7 @@ func ValidateDPUServiceIPAMInL2ModeSharedAcrossDPUClustersWithSingleIPPerNode(ct
 	dpuServiceIPAM.Spec.ObjectMeta.Labels = poolLabel
 	dpuServiceIPAM.Spec.NodeSelector = nil
 	dpuServiceIPAM.Spec.DPUClusterSelector = nil
-	dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.IPV4Subnet{
+	dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.Subnet{
 		Subnet:              "192.168.100.1/29",
 		Gateway:             "192.168.100.1",
 		PerNodeIPCount:      1,
@@ -569,7 +569,7 @@ func ValidateDPUServiceIPAMInL3ModeSharedAcrossDPUClustersWithSingleIPPerNode(ct
 	dpuServiceIPAM.Spec.ObjectMeta.Labels = poolLabel
 	dpuServiceIPAM.Spec.NodeSelector = nil
 	dpuServiceIPAM.Spec.DPUClusterSelector = nil
-	dpuServiceIPAM.Spec.IPV4Network = &dpuservicev1.IPV4Network{
+	dpuServiceIPAM.Spec.IPV4Network = &dpuservicev1.Network{
 		Network:              "192.168.110.0/27",
 		PrefixSize:           32,
 		SubnetsPerDPUCluster: ptr.To[int32](2),

@@ -164,7 +164,7 @@ func validateDPUServiceIPAM(newIpamObj, oldIpamObj *dpuservicev1.DPUServiceIPAM)
 }
 
 // validateDPUServiceIPAMIPV4Network validates the .spec.IPV4Network of a DPUServiceIPAM object
-func validateDPUServiceIPAMIPV4Network(ipv4Network *dpuservicev1.IPV4Network) error {
+func validateDPUServiceIPAMIPV4Network(ipv4Network *dpuservicev1.Network) error {
 	_, network, err := net.ParseCIDR(ipv4Network.Network)
 	if err != nil {
 		return fmt.Errorf("network %s is not a valid network", ipv4Network.Network)
@@ -266,7 +266,7 @@ func validateIP(ip string, network *net.IPNet) (net.IP, error) {
 }
 
 // validateDPUServiceIPAMIPV4Subnet validates the .spec.IPV4Subnet of a DPUServiceIPAM object
-func validateDPUServiceIPAMIPV4Subnet(ipv4Subnet *dpuservicev1.IPV4Subnet) error {
+func validateDPUServiceIPAMIPV4Subnet(ipv4Subnet *dpuservicev1.Subnet) error {
 	_, network, err := net.ParseCIDR(ipv4Subnet.Subnet)
 	if err != nil {
 		return fmt.Errorf("subnet %s is not a valid network", ipv4Subnet.Subnet)

@@ -49,8 +49,8 @@ func ValidateDPUServiceIPAMCreationInvalid(ctx context.Context, input *systemTes
 	err := input.client.Create(ctx, dpuServiceIPAM)
 	Expect(err).To(HaveOccurred())
 	fmt.Printf("Error creating the DPUServiceIPAM CR: %v\n", err)
-	Expect(apierrors.IsBadRequest(err)).To(BeTrue())
-	Expect(err.Error()).To(ContainSubstring("either ipv4Subnet or ipv4Network must be specified"))
+	Expect(apierrors.IsInvalid(err)).To(BeTrue())
+	Expect(err.Error()).To(ContainSubstring("exactly one of ipv4Network, ipv4Subnet, network, or subnet must be specified"))
 }
 
 func ValidateDPUServiceIPAMCreationSubnetSplit(ctx context.Context, input *systemTestInput) {

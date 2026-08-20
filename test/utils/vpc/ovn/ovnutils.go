@@ -162,7 +162,7 @@ func GetDPUClusterServiceInterfaces(ctx context.Context, dpuClusterClient client
 
 func SetVPCDPUServiceIPAM(dpuServiceIPAM *dpuservicev1.DPUServiceIPAM, subnet string, gateway string, perNodeIPCount int) {
 	dpuServiceIPAM.Spec = dpuservicev1.DPUServiceIPAMSpec{
-		IPV4Subnet: &dpuservicev1.IPV4Subnet{
+		IPV4Subnet: &dpuservicev1.Subnet{
 			Subnet:         subnet,
 			Gateway:        gateway,
 			PerNodeIPCount: perNodeIPCount,

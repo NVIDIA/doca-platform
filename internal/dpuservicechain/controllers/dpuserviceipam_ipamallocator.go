@@ -54,7 +54,7 @@ type MultiDPUClusterExclusionCalculator struct {
 
 // NewMultiDPUClusterExclusionCalculatorForIPPool creates a calculator from an IPV4Subnet spec.
 func NewMultiDPUClusterExclusionCalculatorForIPPool(
-	spec *dpuservicev1.IPV4Subnet,
+	spec *dpuservicev1.Subnet,
 	currentDPUClusterAllocations [][]dpuservicev1.IPRange,
 ) (*MultiDPUClusterExclusionCalculator, error) {
 	return newMultiDPUClusterExclusionCalculator(
@@ -75,7 +75,7 @@ func NewMultiDPUClusterExclusionCalculatorForIPPool(
 //
 //nolint:staticcheck // SA1019: Exclusions is deprecated but still supported
 func NewMultiDPUClusterExclusionCalculatorForCIDRPool(
-	spec *dpuservicev1.IPV4Network,
+	spec *dpuservicev1.Network,
 	currentDPUClusterAllocations [][]dpuservicev1.IPRange,
 ) (*MultiDPUClusterExclusionCalculator, error) {
 	// blockSizePerNode: number of IPs in one /perNodePrefixSize block, e.g. /27 → 32.

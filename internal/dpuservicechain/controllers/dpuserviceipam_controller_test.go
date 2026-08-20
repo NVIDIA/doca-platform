@@ -52,6 +52,11 @@ var _ = Describe("DPUServiceIPAM Controller", func() {
 		It("should successfully reconcile the DPUServiceIPAM", func() {
 			By("Reconciling the created resource")
 			dpuServiceIPAM := getMinimalDPUServiceIPAM(testNS.Name)
+			dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.Subnet{
+				Subnet:         "10.0.0.0/24",
+				Gateway:        "10.0.0.1",
+				PerNodeIPCount: 10,
+			}
 			Expect(testClient.Create(ctx, dpuServiceIPAM)).To(Succeed())
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceIPAM)
 
@@ -144,7 +149,7 @@ var _ = Describe("DPUServiceIPAM Controller", func() {
 			By("Creating the DPUServiceIPAM resource")
 			dpuServiceIPAM := getMinimalDPUServiceIPAM(testNS.Name)
 			dpuServiceIPAM.Name = name
-			dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.IPV4Subnet{
+			dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.Subnet{
 				Subnet:         "10.0.0.0/24",
 				Gateway:        "10.0.0.1",
 				PerNodeIPCount: 1,
@@ -227,7 +232,7 @@ var _ = Describe("DPUServiceIPAM Controller", func() {
 			By("Creating 2 DPUServiceIPAM resources")
 			dpuServiceIPAMOne := getMinimalDPUServiceIPAM(testNS.Name)
 			dpuServiceIPAMOne.Name = "resource-1"
-			dpuServiceIPAMOne.Spec.IPV4Subnet = &dpuservicev1.IPV4Subnet{
+			dpuServiceIPAMOne.Spec.IPV4Subnet = &dpuservicev1.Subnet{
 				Subnet:         "192.168.0.0/20",
 				Gateway:        "192.168.0.1",
 				PerNodeIPCount: 256,
@@ -237,7 +242,7 @@ var _ = Describe("DPUServiceIPAM Controller", func() {
 
 			dpuServiceIPAMTwo := getMinimalDPUServiceIPAM(testNS.Name)
 			dpuServiceIPAMTwo.Name = "resource-2"
-			dpuServiceIPAMTwo.Spec.IPV4Subnet = &dpuservicev1.IPV4Subnet{
+			dpuServiceIPAMTwo.Spec.IPV4Subnet = &dpuservicev1.Subnet{
 				Subnet:         "192.168.32.0/20",
 				Gateway:        "192.168.32.1",
 				PerNodeIPCount: 256,
@@ -275,7 +280,7 @@ var _ = Describe("DPUServiceIPAM Controller", func() {
 			dpuServiceIPAM.Spec.Annotations = map[string]string{
 				"some-annot": "someValue",
 			}
-			dpuServiceIPAM.Spec.IPV4Network = &dpuservicev1.IPV4Network{
+			dpuServiceIPAM.Spec.IPV4Network = &dpuservicev1.Network{
 				Network:      "192.168.0.0/20",
 				GatewayIndex: ptr.To[int32](1),
 				PrefixSize:   24,
@@ -345,7 +350,7 @@ var _ = Describe("DPUServiceIPAM Controller", func() {
 			By("Creating the DPUServiceIPAM resource")
 			dpuServiceIPAM := getMinimalDPUServiceIPAM(testNS.Name)
 			dpuServiceIPAM.Name = name
-			dpuServiceIPAM.Spec.IPV4Network = &dpuservicev1.IPV4Network{
+			dpuServiceIPAM.Spec.IPV4Network = &dpuservicev1.Network{
 				Network:    "10.0.0.0/24",
 				PrefixSize: 30,
 			}
@@ -422,7 +427,7 @@ var _ = Describe("DPUServiceIPAM Controller", func() {
 			By("Creating the DPUServiceIPAM resource")
 			dpuServiceIPAM := getMinimalDPUServiceIPAM(testNS.Name)
 			dpuServiceIPAM.Name = "pool-1"
-			dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.IPV4Subnet{
+			dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.Subnet{
 				Subnet:         "192.168.0.0/20",
 				Gateway:        "192.168.0.1",
 				PerNodeIPCount: 256,
@@ -444,7 +449,7 @@ var _ = Describe("DPUServiceIPAM Controller", func() {
 			Eventually(func(g Gomega) {
 				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuServiceIPAM), dpuServiceIPAM)).To(Succeed())
 				dpuServiceIPAM.Spec.IPV4Subnet = nil
-				dpuServiceIPAM.Spec.IPV4Network = &dpuservicev1.IPV4Network{
+				dpuServiceIPAM.Spec.IPV4Network = &dpuservicev1.Network{
 					Network:      "192.168.0.0/20",
 					GatewayIndex: ptr.To[int32](1),
 					PrefixSize:   24,
@@ -467,7 +472,7 @@ var _ = Describe("DPUServiceIPAM Controller", func() {
 			By("Creating the DPUServiceIPAM resource")
 			dpuServiceIPAM := getMinimalDPUServiceIPAM(testNS.Name)
 			dpuServiceIPAM.Name = "pool-1"
-			dpuServiceIPAM.Spec.IPV4Network = &dpuservicev1.IPV4Network{
+			dpuServiceIPAM.Spec.IPV4Network = &dpuservicev1.Network{
 				Network:      "192.168.0.0/20",
 				GatewayIndex: ptr.To[int32](1),
 				PrefixSize:   24,
@@ -490,7 +495,7 @@ var _ = Describe("DPUServiceIPAM Controller", func() {
 			Eventually(func(g Gomega) {
 				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuServiceIPAM), dpuServiceIPAM)).To(Succeed())
 				dpuServiceIPAM.Spec.IPV4Network = nil
-				dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.IPV4Subnet{
+				dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.Subnet{
 					Subnet:         "192.168.0.0/20",
 					Gateway:        "192.168.0.1",
 					PerNodeIPCount: 256,
@@ -517,7 +522,7 @@ var _ = Describe("DPUServiceIPAM Controller", func() {
 			dpuServiceIPAM.Annotations = map[string]string{
 				dpuservicev1.DPUServiceIPAMChildObjectNameOverrideAnnotationKey: "custom-pool-name",
 			}
-			dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.IPV4Subnet{
+			dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.Subnet{
 				Subnet:         "192.168.0.0/20",
 				Gateway:        "192.168.0.1",
 				PerNodeIPCount: 256,
@@ -543,7 +548,7 @@ var _ = Describe("DPUServiceIPAM Controller", func() {
 			By("Creating DPUServiceIPAM with ipv4Subnet without name override annotation")
 			dpuServiceIPAM := getMinimalDPUServiceIPAM(testNS.Name)
 			dpuServiceIPAM.Name = "pool-1"
-			dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.IPV4Subnet{
+			dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.Subnet{
 				Subnet:         "192.168.0.0/20",
 				Gateway:        "192.168.0.1",
 				PerNodeIPCount: 256,
@@ -590,7 +595,7 @@ var _ = Describe("DPUServiceIPAM Controller", func() {
 			dpuServiceIPAM.Annotations = map[string]string{
 				dpuservicev1.DPUServiceIPAMChildObjectNameOverrideAnnotationKey: "custom-cidrpool-name",
 			}
-			dpuServiceIPAM.Spec.IPV4Network = &dpuservicev1.IPV4Network{
+			dpuServiceIPAM.Spec.IPV4Network = &dpuservicev1.Network{
 				Network:      "192.168.0.0/20",
 				GatewayIndex: ptr.To[int32](1),
 				PrefixSize:   24,
@@ -616,7 +621,7 @@ var _ = Describe("DPUServiceIPAM Controller", func() {
 			By("Creating DPUServiceIPAM with ipv4Network without name override annotation")
 			dpuServiceIPAM := getMinimalDPUServiceIPAM(testNS.Name)
 			dpuServiceIPAM.Name = "pool-1"
-			dpuServiceIPAM.Spec.IPV4Network = &dpuservicev1.IPV4Network{
+			dpuServiceIPAM.Spec.IPV4Network = &dpuservicev1.Network{
 				Network:      "192.168.0.0/20",
 				GatewayIndex: ptr.To[int32](1),
 				PrefixSize:   24,
@@ -713,7 +718,7 @@ var _ = Describe("DPUServiceIPAM Controller", func() {
 			By("Creating DPUServiceIPAM without DPUClusterSelector and without BlocksPerDPUCluster")
 			dpuServiceIPAM := getMinimalDPUServiceIPAM(testNS.Name)
 			dpuServiceIPAM.Name = "no-selector-pool"
-			dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.IPV4Subnet{
+			dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.Subnet{
 				Subnet:         "10.0.0.0/20",
 				Gateway:        "10.0.0.1",
 				PerNodeIPCount: 256,
@@ -739,7 +744,7 @@ var _ = Describe("DPUServiceIPAM Controller", func() {
 			By("Creating DPUServiceIPAM without DPUClusterSelector and with BlocksPerDPUCluster set")
 			dpuServiceIPAM := getMinimalDPUServiceIPAM(testNS.Name)
 			dpuServiceIPAM.Name = "no-selector-pool"
-			dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.IPV4Subnet{
+			dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.Subnet{
 				Subnet:              "10.0.0.0/20",
 				Gateway:             "10.0.0.1",
 				PerNodeIPCount:      256,
@@ -794,7 +799,7 @@ var _ = Describe("DPUServiceIPAM Controller", func() {
 			By("Creating DPUServiceIPAM without DPUClusterSelector and with SubnetsPerDPUCluster set")
 			dpuServiceIPAM := getMinimalDPUServiceIPAM(testNS.Name)
 			dpuServiceIPAM.Name = "no-selector-cidrpool"
-			dpuServiceIPAM.Spec.IPV4Network = &dpuservicev1.IPV4Network{
+			dpuServiceIPAM.Spec.IPV4Network = &dpuservicev1.Network{
 				Network:              "10.1.0.0/20",
 				PrefixSize:           24,
 				SubnetsPerDPUCluster: ptr.To[int32](1),
@@ -850,7 +855,7 @@ var _ = Describe("DPUServiceIPAM Controller", func() {
 			dpuServiceIPAM.Spec.DPUClusterSelector = &metav1.LabelSelector{
 				MatchLabels: map[string]string{"dpucluster": "cluster1"},
 			}
-			dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.IPV4Subnet{
+			dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.Subnet{
 				Subnet:              "192.168.0.0/20",
 				Gateway:             "192.168.0.1",
 				PerNodeIPCount:      256,
@@ -896,7 +901,7 @@ var _ = Describe("DPUServiceIPAM Controller", func() {
 			By("Creating DPUServiceIPAM without DPUClusterSelector (matches all clusters)")
 			dpuServiceIPAM := getMinimalDPUServiceIPAM(testNS.Name)
 			dpuServiceIPAM.Name = "all-clusters-pool"
-			dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.IPV4Subnet{
+			dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.Subnet{
 				Subnet:              "192.168.0.0/20",
 				Gateway:             "192.168.0.1",
 				PerNodeIPCount:      256,
@@ -992,7 +997,7 @@ var _ = Describe("DPUServiceIPAM Controller", func() {
 		Context("calculateDPUServiceObjectStateBasedOnStatus", func() {
 			It("returns false and does not update status when allocations are unchanged", func() {
 				ipam := &dpuservicev1.DPUServiceIPAM{
-					Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Subnet: &dpuservicev1.IPV4Subnet{
+					Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Subnet: &dpuservicev1.Subnet{
 						Subnet:              "10.0.0.0/24",
 						PerNodeIPCount:      10,
 						Gateway:             "10.0.0.1",
@@ -1014,7 +1019,7 @@ var _ = Describe("DPUServiceIPAM Controller", func() {
 			})
 			It("returns true and updates status for a new single-cluster IPPool allocation", func() {
 				ipam := &dpuservicev1.DPUServiceIPAM{
-					Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Subnet: &dpuservicev1.IPV4Subnet{
+					Spec: dpuservicev1.DPUServiceIPAMSpec{IPV4Subnet: &dpuservicev1.Subnet{
 						Subnet:              "10.0.0.0/24",
 						PerNodeIPCount:      10,
 						Gateway:             "10.0.0.1",
@@ -1075,7 +1080,7 @@ var _ = Describe("DPUServiceIPAM Controller", func() {
 			By("Creating a DPUServiceIPAM")
 			dpuServiceIPAM = getMinimalDPUServiceIPAM(testNS.Name)
 			dpuServiceIPAM.Name = "pool-1"
-			dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.IPV4Subnet{
+			dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.Subnet{
 				Subnet:         "192.168.0.0/20",
 				Gateway:        "192.168.0.1",
 				PerNodeIPCount: 256,
@@ -1372,7 +1377,7 @@ func getIPV4SubnetDPUServiceIPAM(namespace string) *dpuservicev1.DPUServiceIPAM 
 	dpuServiceIPAM.Spec.Annotations = map[string]string{
 		"some-annot": "someValue",
 	}
-	dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.IPV4Subnet{
+	dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.Subnet{
 		Subnet:  "192.168.0.0/20",
 		Gateway: "192.168.0.1",
 		ExcludeRanges: []dpuservicev1.IPRange{
@@ -1433,7 +1438,7 @@ func getIPV4NetworkDPUServiceIPAM(namespace string) *dpuservicev1.DPUServiceIPAM
 	dpuServiceIPAM.Spec.Annotations = map[string]string{
 		"some-annot": "someValue",
 	}
-	dpuServiceIPAM.Spec.IPV4Network = &dpuservicev1.IPV4Network{
+	dpuServiceIPAM.Spec.IPV4Network = &dpuservicev1.Network{
 		Network:      "192.168.0.0/20",
 		GatewayIndex: ptr.To[int32](1),
 		PrefixSize:   24,

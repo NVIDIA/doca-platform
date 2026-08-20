@@ -314,7 +314,7 @@ func setupDPUPodToPodRDMATrafficTest(ctx context.Context, input *systemTestInput
 			ObjectMeta: dpuservicev1.ObjectMeta{
 				Labels: poolLabels,
 			},
-			IPV4Subnet: &dpuservicev1.IPV4Subnet{
+			IPV4Subnet: &dpuservicev1.Subnet{
 				Subnet:         "192.168.0.0/24",
 				Gateway:        "192.168.0.1",
 				PerNodeIPCount: 8,

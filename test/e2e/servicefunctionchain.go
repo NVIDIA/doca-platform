@@ -633,7 +633,7 @@ func setupMTUServiceFunctionChain(ctx context.Context, input *systemTestInput, m
 
 	By("Create IPAM for service function")
 	dpuServiceIPAM := utils.GenerateDPUObj(cfg.subnetPoolName, input.namespace, input.dpuServiceIPAMTemplate.DeepCopy())
-	dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.IPV4Subnet{
+	dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.Subnet{
 		Subnet:         "10.44.44.0/24",
 		Gateway:        "10.44.44.1",
 		PerNodeIPCount: 50,
