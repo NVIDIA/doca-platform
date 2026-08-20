@@ -29,6 +29,11 @@ import (
 	"k8s.io/utils/ptr"
 )
 
+// DefaultFlannelPodCIDR is the range DPU cluster Pods get their addresses from. Flannel allocates
+// out of it and the DPU cluster control plane hands node podCIDRs out of it, so the two have to
+// agree, which is why the cluster manager builds TenantControlPlanes with this same range.
+const DefaultFlannelPodCIDR = "10.244.0.0/14"
+
 func newDefaultVariables(defaults *release.Defaults) Variables {
 	return Variables{
 		DPUClusters:                            []*dpucluster.Config{},
@@ -39,7 +44,7 @@ func newDefaultVariables(defaults *release.Defaults) Variables {
 		DPUOpenvSwitchSharedLibPath:            "/lib",
 		DPUOpenvSwitchSharedLib64Path:          nil, // Default to nil - only mount when explicitly configured
 		FlannelSkipCNIConfigInstallation:       true,
-		FlannelPodCIDR:                         "10.244.0.0/14",
+		FlannelPodCIDR:                         DefaultFlannelPodCIDR,
 		DisableHostNetworkReadyNoExecuteTaints: true, // opt-in: disabled until explicitly set to false
 		DisableSystemComponents: map[operatorv1.ComponentName]bool{
 			operatorv1.ProvisioningControllerName: false,
@@ -70,6 +75,9 @@ func newDefaultVariables(defaults *release.Defaults) Variables {
 			// setAdditionalConfigs is the only thing that flips it, there is no component
 			// config for it, so it cannot be toggled independently of the SPIFFE gate.
 			operatorv1.SpireAgentRBACName: true,
+			// CoreDNS replaces the Kamaji CoreDNS addon, so it is enabled by default. It is only
+			// generated for DPUClusters that can reach it, see IsDPUClusterServedByHostDNS.
+			operatorv1.CoreDNSName: false,
 		},
 		Images: map[string]string{
 			// Images built as part of the DPF Operator release.
@@ -101,6 +109,7 @@ func newDefaultVariables(defaults *release.Defaults) Variables {
 			operatorv1.OpenTelemetryCollectorName: defaults.DPUNetworkingHelmChart,
 			operatorv1.KataContainersName:         defaults.DPUNetworkingHelmChart,
 			operatorv1.SpireAgentRBACName:         defaults.DPUNetworkingHelmChart,
+			operatorv1.CoreDNSName:                defaults.DPUNetworkingHelmChart,
 		},
 		SFCController: SFCControllerVariables{
 			SecureFlowDeletionTimeout: 0 * time.Second,

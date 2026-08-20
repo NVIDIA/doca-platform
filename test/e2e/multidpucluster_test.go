@@ -76,6 +76,22 @@ var _ = Describe("DPF System tests - Multi DPUCluster", Labels{Domain.MultiDPUCl
 		})
 	})
 
+	Context("Cluster DNS", Ordered, func() {
+		It("should verify each DPUCluster the host cluster does not serve keeps its own DNS", func() {
+			if hasHostClusterDNS(input) {
+				Skip("Skip test as every DPUCluster is served by the host cluster")
+			}
+			VerifyDPUClusterServesOwnDNS(ctx, input)
+		})
+
+		It("should resolve a Service name from a Pod in each DPU cluster", Labels{Domain.RequiresNodes}, func() {
+			if !input.hasDpuNodes() {
+				Skip("Skip test as there are no DPU nodes")
+			}
+			ValidateDPUClusterDNSResolution(ctx, input)
+		})
+	})
+
 	Context("Validate DPUCluster operations", Ordered, func() {
 		BeforeAll(func() {
 			By("Waiting for DPU cluster 0 pods to be ready")

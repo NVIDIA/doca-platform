@@ -53,6 +53,10 @@ dependencies:
     version: "0.1.0"
     repository: file://charts/kata-containers
     condition: kata-containers.enabled
+  - name: coredns
+    version: "0.1.0"
+    repository: file://charts/coredns
+    condition: coredns.enabled
   - name: spire-agent-rbac
     version: "0.1.0"
     repository: file://charts/spire-agent-rbac

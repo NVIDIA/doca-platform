@@ -539,6 +539,44 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 		})
 	})
 
+	Context("Cluster DNS", Labels{Domain.ZeroTrust}, func() {
+		// Host cluster DNS is only wired up for DPUClusters with a keepalived VIP. Static
+		// DPUClusters, which is what the cloud jobs provision, keep DNS inside the DPU cluster.
+		Context("served by the host cluster", func() {
+			BeforeEach(func() {
+				if !hasHostClusterDNS(input) {
+					Skip("Skip test as no DPUCluster exposes a keepalived VIP")
+				}
+			})
+
+			It("should verify the Kamaji CoreDNS addon is disabled", func() {
+				VerifyKamajiCoreDNSAddonDisabled(ctx, input)
+			})
+
+			It("should verify CoreDNS is running on the host cluster", func() {
+				VerifyHostClusterCoreDNS(ctx, input)
+			})
+
+			It("should verify the DPU cluster DNS Service points at the host cluster CoreDNS", func() {
+				VerifyDPUClusterDNSEndpoint(ctx, input)
+			})
+		})
+
+		It("should verify each DPUCluster the host cluster does not serve keeps its own DNS", func() {
+			if hasHostClusterDNS(input) {
+				Skip("Skip test as every DPUCluster is served by the host cluster")
+			}
+			VerifyDPUClusterServesOwnDNS(ctx, input)
+		})
+
+		It("should resolve a Service name from a DPU cluster Pod", Labels{Domain.RequiresNodes}, func() {
+			if !input.hasDpuNodes() {
+				Skip("Skip test as there are no DPU nodes")
+			}
+			ValidateDPUClusterDNSResolution(ctx, input)
+		})
+	})
+
 	Context("Observability", Labels{Domain.Observability, Domain.ZeroTrust}, func() {
 		Context("Monitoring", func() {
 			Context("Metrics Collection", Labels{Domain.ZeroTrust}, func() {

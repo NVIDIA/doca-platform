@@ -1,0 +1,32 @@
+{{ if .Values.deployHostManifests }}
+---
+# NodePort so DPU nodes can reach this CoreDNS through the DPU cluster keepalived VIP, which floats
+# across host cluster nodes. The DPU cluster kube-dns Service is backed by an EndpointSlice naming
+# <VIP>:<nodePort>, so kube-proxy on each DPU node translates its ClusterIP to here.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "coredns.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "coredns.labels" . | nindent 4 }}
+  annotations:
+    {{- include "coredns.annotations" . | nindent 4 }}
+spec:
+  type: NodePort
+  ports:
+  - name: dns
+    port: 53
+    targetPort: dns
+    protocol: UDP
+  - name: dns-tcp
+    port: 53
+    targetPort: dns-tcp
+    protocol: TCP
+  - name: metrics
+    port: 9153
+    targetPort: metrics
+    protocol: TCP
+  selector:
+    {{- include "coredns.selectorLabels" . | nindent 4 }}
+{{- end }}

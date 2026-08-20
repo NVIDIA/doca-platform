@@ -126,7 +126,9 @@ type IBWriteBWResult struct {
 
 const (
 	networkAnnotationKey = "k8s.v1.cni.cncf.io/networks"
-	netshootImage        = "mirror.gcr.io/nicolaka/netshoot:v0.13"
+	// Image is the netshoot image used by the test pods in this package. It is exported so tests
+	// that build their own Pod spec, rather than going through TestPodConfig, use the same image.
+	Image = "mirror.gcr.io/nicolaka/netshoot:v0.13"
 	// Defines the timeout for the EXEC command to complete
 	DefaultExecTimeout = 2 * time.Minute
 
@@ -296,7 +298,7 @@ func createNetshootPod(ctx context.Context, testClient client.Client, config Tes
 			Containers: []corev1.Container{
 				{
 					Name:    "netshoot",
-					Image:   netshootImage,
+					Image:   Image,
 					Command: []string{"/bin/sh", "-c"},
 					Args:    []string{script},
 					SecurityContext: &corev1.SecurityContext{

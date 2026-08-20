@@ -1,0 +1,42 @@
+# -- deployDPUManifests controls whether the manifests that are required in the DPUCluster should be deployed.
+deployDPUManifests: false
+# -- deployHostManifests controls whether the manifests that are required in the host cluster should be deployed.
+deployHostManifests: false
+
+image:
+  repository: registry.k8s.io/coredns/coredns
+  pullPolicy: IfNotPresent
+  tag: "v1.12.1"
+
+replicas: 2
+
+# -- nodeSelector narrows the control plane nodes CoreDNS runs on. The operator sets it to the
+# keepalived node selector of the DPUCluster, so CoreDNS follows the VIP it is reached through.
+nodeSelector: {}
+
+# -- port CoreDNS listens on. It is deliberately above 1024 so the container can run unprivileged.
+# The Service maps 53 onto it.
+port: 5353
+
+# -- upstream nameservers used for names outside clusterDomain. Defaults to the host cluster
+# resolver configuration of the node CoreDNS runs on.
+upstreamNameservers: /etc/resolv.conf
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+serviceAccount:
+  annotations: {}
+  labels: {}
+  name: null
+imagePullSecrets: []
+volumes: []
+env: []
+volumeMounts: []
+rbac:
+  serviceAccounts: []

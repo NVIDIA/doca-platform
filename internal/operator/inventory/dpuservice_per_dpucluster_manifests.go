@@ -52,6 +52,13 @@ type dpuServicePerDPUClusterObjects struct {
 	componentName operatorv1.ComponentName
 	// rbacAndCRDsName is the name for the RBAC/CRDs DPUService
 	rbacAndCRDsName operatorv1.ComponentName
+	// dpuClusterFilterFunc, when set, selects the DPUClusters this component is generated for.
+	// Clusters that do not match get no DPUService and no credentials, and are left out of the
+	// readiness counts.
+	dpuClusterFilterFunc func(*provisioningv1.DPUCluster) bool
+	// extraPerDPUClusterEdits, when set, returns additional edits applied to the per-cluster
+	// DPUService.
+	extraPerDPUClusterEdits func(cluster *provisioningv1.DPUCluster) []StructuredEdit
 }
 
 func newServiceChainSetControllerObjects(data []byte) *dpuServicePerDPUClusterObjects {
@@ -72,6 +79,59 @@ func newKubeStateMetricsObjects(data []byte) *dpuServicePerDPUClusterObjects {
 	}
 }
 
+func newCoreDNSObjects(data []byte) *dpuServicePerDPUClusterObjects {
+	return &dpuServicePerDPUClusterObjects{
+		data:                 data,
+		templateDPUService:   fromDPUService{name: operatorv1.CoreDNSName},
+		componentName:        operatorv1.CoreDNSName,
+		rbacAndCRDsName:      operatorv1.CoreDNSRBACName,
+		dpuClusterFilterFunc: IsDPUClusterServedByHostDNS,
+		extraPerDPUClusterEdits: func(cluster *provisioningv1.DPUCluster) []StructuredEdit {
+			edits := []StructuredEdit{}
+			// DPU nodes reach this CoreDNS through the keepalived VIP, so it follows keepalived onto
+			// the nodes the DPUCluster picked for it rather than any control plane node. One edit
+			// per key, because the values are held as unstructured content.
+			for key, value := range getCoreDNSNodeSelector(cluster) {
+				edits = append(edits, dpuServiceAddValueEdit(value, operatorv1.CoreDNSName.String(), "nodeSelector", key))
+			}
+			return edits
+		},
+	}
+}
+
+// IsDPUClusterServedByHostDNS reports whether a DPUCluster has its DNS served from the host
+// cluster. That takes a Kamaji cluster, because the kamaji cluster manager is what points the DPU
+// cluster DNS Service at the host, and a keepalived VIP, because that is the address DPU nodes
+// reach the CoreDNS NodePort on. Any other DPUCluster keeps serving DNS itself.
+func IsDPUClusterServedByHostDNS(cluster *provisioningv1.DPUCluster) bool {
+	if cluster.Spec.Type != string(provisioningv1.KamajiCluster) {
+		return false
+	}
+	endpoint := cluster.Spec.ClusterEndpoint
+	return endpoint != nil && endpoint.Keepalived != nil && endpoint.Keepalived.VIP != ""
+}
+
+// getCoreDNSNodeSelector returns the nodes the CoreDNS serving a DPUCluster runs on. It is the node
+// selector keepalived is deployed with, which is empty unless the DPUCluster narrows the control
+// plane nodes its VIP may live on.
+func getCoreDNSNodeSelector(cluster *provisioningv1.DPUCluster) map[string]string {
+	if !IsDPUClusterServedByHostDNS(cluster) {
+		return nil
+	}
+	return cluster.Spec.ClusterEndpoint.Keepalived.NodeSelector
+}
+
+// GetCoreDNSWorkloadLabels returns the labels identifying the host cluster CoreDNS objects serving a
+// DPUCluster. The rendered objects carry a hashed name, so they are found by label instead.
+func GetCoreDNSWorkloadLabels(clusterName, clusterNamespace string) map[string]string {
+	return map[string]string{
+		// Set by the chart from the chart name, which matches the component name.
+		"app.kubernetes.io/name":                   operatorv1.CoreDNSName.String(),
+		provisioningv1.DPUClusterNameLabelKey:      clusterName,
+		provisioningv1.DPUClusterNamespaceLabelKey: clusterNamespace,
+	}
+}
+
 func newNVIPAMObjects(data []byte) *dpuServicePerDPUClusterObjects {
 	return &dpuServicePerDPUClusterObjects{
 		data:               data,
@@ -79,6 +139,23 @@ func newNVIPAMObjects(data []byte) *dpuServicePerDPUClusterObjects {
 		componentName:      operatorv1.NVIPAMControllerName,
 		rbacAndCRDsName:    operatorv1.NVIPAMNodeName,
 	}
+}
+
+// matchesCluster reports whether this component is generated for the given DPUCluster. Components
+// without a filter are generated for all of them.
+func (p *dpuServicePerDPUClusterObjects) matchesCluster(cluster *provisioningv1.DPUCluster) bool {
+	return p.dpuClusterFilterFunc == nil || p.dpuClusterFilterFunc(cluster)
+}
+
+// matchingClusterCount returns how many of the given DPUClusters this component is generated for.
+func (p *dpuServicePerDPUClusterObjects) matchingClusterCount(dpuClusters []provisioningv1.DPUCluster) int {
+	count := 0
+	for i := range dpuClusters {
+		if p.matchesCluster(&dpuClusters[i]) {
+			count++
+		}
+	}
+	return count
 }
 
 func (p *dpuServicePerDPUClusterObjects) Name() operatorv1.ComponentName {
@@ -164,6 +241,9 @@ func (p *dpuServicePerDPUClusterObjects) GenerateManifests(_ context.Context, va
 
 	// Generate an in-cluster DPUService and DPUServiceCredentialsRequest for each DPUCluster
 	for _, cluster := range vars.DPUClusters {
+		if !p.matchesCluster(cluster.Cluster) {
+			continue
+		}
 		// Create copy the labels
 		labelsToAddCopy := make(map[string]string)
 		maps.Copy(labelsToAddCopy, labelsToAdd)
@@ -175,7 +255,7 @@ func (p *dpuServicePerDPUClusterObjects) GenerateManifests(_ context.Context, va
 		serviceAccountName := fmt.Sprintf("%s-%s", p.componentName.String(), hashedClusterNameNamespace)
 
 		// Create a DPUService per cluster
-		dpuServicePerClusterCopy, err := p.generatePerClusterDPUService(vars, labelsToAddCopy, hashedClusterNameNamespace, secretName, serviceAccountName)
+		dpuServicePerClusterCopy, err := p.generatePerClusterDPUService(vars, cluster.Cluster, labelsToAddCopy, hashedClusterNameNamespace, secretName, serviceAccountName)
 		if err != nil {
 			return nil, err
 		}
@@ -252,7 +332,7 @@ func (p *dpuServicePerDPUClusterObjects) generateRBACAndCRDsDPUService(vars Vari
 }
 
 // generatePerClusterDPUService generates a per-cluster DPUService with appropriate edits applied
-func (p *dpuServicePerDPUClusterObjects) generatePerClusterDPUService(vars Variables, labelsToAdd map[string]string, hashedClusterNameNamespace string, secretName string, serviceAccountName string) (*unstructured.Unstructured, error) {
+func (p *dpuServicePerDPUClusterObjects) generatePerClusterDPUService(vars Variables, cluster *provisioningv1.DPUCluster, labelsToAdd map[string]string, hashedClusterNameNamespace string, secretName string, serviceAccountName string) (*unstructured.Unstructured, error) {
 	// Create a DPUService per cluster and apply the standard edits
 	dpuServicePerClusterCopy, err := p.templateDPUService.applyDPUServiceEdits(vars, labelsToAdd)
 	if err != nil {
@@ -273,9 +353,19 @@ func (p *dpuServicePerDPUClusterObjects) generatePerClusterDPUService(vars Varia
 
 	dpuServiceEdits := NewEdits()
 	edits := perClusterEdits(p.componentName.String(), secretName, serviceAccountName, saLabels)
+	if p.extraPerDPUClusterEdits != nil {
+		edits = append(edits, p.extraPerDPUClusterEdits(cluster)...)
+	}
 
 	for _, edit := range edits {
 		dpuServiceEdits.AddForKindS(DPUServiceKind, edit)
+	}
+
+	// Add DPUCluster name and namespace labels to the per-dpucluster DPUServices.
+	for _, key := range []string{provisioningv1.DPUClusterNameLabelKey, provisioningv1.DPUClusterNamespaceLabelKey} {
+		if value, ok := labelsToAdd[key]; ok {
+			dpuServiceEdits.AddForKindS(DPUServiceKind, dpuServiceSetServiceDaemonSetLabelEdit(key, value))
+		}
 	}
 
 	// Apply the edits.
@@ -476,7 +566,7 @@ func (p *dpuServicePerDPUClusterObjects) IsReadyForUpgrade(ctx context.Context, 
 	if err := c.List(ctx, dpuClusterList); err != nil {
 		return fmt.Errorf("failed to list DPUClusters: %w", err)
 	}
-	dpuClusterCount := len(dpuClusterList.Items)
+	dpuClusterCount := p.matchingClusterCount(dpuClusterList.Items)
 
 	errs = append(errs, p.areDPUServicesReady(ctx, c, config.GetNamespace(), dpuClusterCount, false)...)
 	errs = append(errs, areDPUServiceCredentialRequestsReady(ctx, c, p.Name(), config.GetNamespace(), dpuClusterCount, false)...)
@@ -494,7 +584,7 @@ func (p *dpuServicePerDPUClusterObjects) IsReady(ctx context.Context, c client.C
 	if err := c.List(ctx, dpuClusterList); err != nil {
 		return fmt.Errorf("failed to list DPUClusters: %w", err)
 	}
-	dpuClusterCount := len(dpuClusterList.Items)
+	dpuClusterCount := p.matchingClusterCount(dpuClusterList.Items)
 
 	errs = append(errs, p.areDPUServicesReady(ctx, c, namespace, dpuClusterCount, true)...)
 	errs = append(errs, areDPUServiceCredentialRequestsReady(ctx, c, p.Name(), namespace, dpuClusterCount, true)...)

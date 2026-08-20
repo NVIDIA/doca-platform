@@ -785,7 +785,7 @@ verify-manifest-operator: helm-package-operator helm $(ARTIFACTS_RENDERED_MANIFE
 	  MANIFEST_NAME="dpf-operator" \
 	  hack/scripts/validate-manifest-checkov.sh
 
-VERIFY_DPU_NETWORKING_MANIFESTS ?= flannel multus sriov-device-plugin nvidia-k8s-ipam servicechainset-controller sfc-controller cni-installer node-problem-detector kube-state-metrics dpu-monitoring opentelemetry-collector kata-containers spire-agent-rbac
+VERIFY_DPU_NETWORKING_MANIFESTS ?= flannel multus sriov-device-plugin nvidia-k8s-ipam servicechainset-controller sfc-controller cni-installer node-problem-detector kube-state-metrics dpu-monitoring opentelemetry-collector kata-containers coredns spire-agent-rbac
 
 verify-manifests-dpu-networking-all: $(addprefix verify-manifest-dpu-networking-,$(VERIFY_DPU_NETWORKING_MANIFESTS)) ## Run manifest verification for manifests embedded into dpf-operator
 
@@ -919,6 +919,24 @@ verify-manifest-dpu-networking-spire-agent-rbac: helm-package-dpu-networking hel
 	> $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-spire-agent-rbac-$(TAG).yaml
 	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-spire-agent-rbac-$(TAG).yaml" \
 	  MANIFEST_NAME="dpu-networking-spire-agent-rbac" \
+	  hack/scripts/validate-manifest-checkov.sh
+
+# Note: The host and DPU manifests are rendered together, the DPU side is the RBAC the host side
+# CoreDNS uses to read the DPU cluster. The service account name and the image digest are set here
+# because the operator sets them when it renders the chart.
+.PHONY: verify-manifest-dpu-networking-coredns
+verify-manifest-dpu-networking-coredns: helm-package-dpu-networking helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the dpu-networking coredns subchart
+	$Q $(HELM) template $(CHARTSDIR)/$(DPU_NETWORKING_HELM_CHART_NAME)-$(DPU_NETWORKING_HELM_CHART_VER).tgz \
+	  --set coredns.enabled=true \
+	  --set coredns.deployDPUManifests=true \
+	  --set coredns.deployHostManifests=true \
+	  --set coredns.serviceAccount.name=coredns \
+	  --set coredns.rbac.serviceAccounts[0].name=coredns \
+	  --set coredns.rbac.serviceAccounts[0].namespace=dpf-operator-system \
+	  --set coredns.image.tag=v1.12.1@sha256:A \
+	> $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-coredns-$(TAG).yaml
+	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-coredns-$(TAG).yaml" \
+	  MANIFEST_NAME="dpu-networking-coredns" \
 	  hack/scripts/validate-manifest-checkov.sh
 
 .PHONY: verify-manifest-vpc-ovn-host

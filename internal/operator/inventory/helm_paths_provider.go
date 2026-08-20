@@ -147,6 +147,13 @@ func helmPaths() helmPathsProvider {
 					Tag:        []string{"image", "tag"},
 				},
 			},
+			operatorv1.CoreDNSName: {
+				operatorv1.CoreDNSContainer: {
+					Repository: []string{"image", "repository"},
+					Tag:        []string{"image", "tag"},
+					Resources:  []string{"resources"},
+				},
+			},
 		},
 	}
 }

@@ -89,6 +89,7 @@ var _ = Describe("DPF Upgrade", func() {
 		expectedKubernetesVersion: "v1.34.0",
 		artifactsKey:              "before",
 		expectedDPUServices:       expectedDPUServicesV2604,
+		dpuClusterRunsCoreDNS:     true,
 	})
 
 	validationPhase("GA-to-current", validationPhaseInput{

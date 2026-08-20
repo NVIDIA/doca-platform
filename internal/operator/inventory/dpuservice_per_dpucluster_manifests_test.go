@@ -215,7 +215,9 @@ spec:
 					Spec: dpuservicev1.DPUServiceSpec{
 						ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 							Labels: map[string]string{
-								operatorv1.DPFComponentLabelKey: operatorv1.ServiceSetControllerName.String(),
+								operatorv1.DPFComponentLabelKey:            operatorv1.ServiceSetControllerName.String(),
+								provisioningv1.DPUClusterNameLabelKey:      "cluster-1",
+								provisioningv1.DPUClusterNamespaceLabelKey: "dpf-provisioning-system",
 							},
 						},
 						DeployInCluster: ptr.To(true),
@@ -482,7 +484,9 @@ spec:
 					Spec: dpuservicev1.DPUServiceSpec{
 						ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 							Labels: map[string]string{
-								operatorv1.DPFComponentLabelKey: operatorv1.ServiceSetControllerName.String(),
+								operatorv1.DPFComponentLabelKey:            operatorv1.ServiceSetControllerName.String(),
+								provisioningv1.DPUClusterNameLabelKey:      "cluster-1",
+								provisioningv1.DPUClusterNamespaceLabelKey: "dpf-provisioning-system",
 							},
 						},
 						DeployInCluster: ptr.To(true),
@@ -598,7 +602,9 @@ spec:
 					Spec: dpuservicev1.DPUServiceSpec{
 						ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 							Labels: map[string]string{
-								operatorv1.DPFComponentLabelKey: operatorv1.ServiceSetControllerName.String(),
+								operatorv1.DPFComponentLabelKey:            operatorv1.ServiceSetControllerName.String(),
+								provisioningv1.DPUClusterNameLabelKey:      "cluster-2",
+								provisioningv1.DPUClusterNamespaceLabelKey: "dpf-provisioning-system",
 							},
 						},
 						DeployInCluster: ptr.To(true),
@@ -893,7 +899,9 @@ spec:
 					Spec: dpuservicev1.DPUServiceSpec{
 						ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
 							Labels: map[string]string{
-								operatorv1.DPFComponentLabelKey: operatorv1.ServiceSetControllerName.String(),
+								operatorv1.DPFComponentLabelKey:            operatorv1.ServiceSetControllerName.String(),
+								provisioningv1.DPUClusterNameLabelKey:      "cluster-1",
+								provisioningv1.DPUClusterNamespaceLabelKey: "dpf-provisioning-system",
 							},
 						},
 						DeployInCluster: ptr.To(true),
