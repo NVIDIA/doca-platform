@@ -87,6 +87,7 @@ type RedfishMockServer struct {
 	bmcRShimEnabled                 bool                     // BmcRShimEnabled reported by GET Oem/Nvidia
 	bmcRShimGetError                bool                     // Simulate GET Oem/Nvidia error for testing
 	lastForceUpdate                 atomic.Bool              // ForceUpdate requested by the most recent PLDM multipart update, read from the test goroutine
+	armPoweredOff                   atomic.Bool              // DPU Arm reported as shut down by GET System, toggled by NvidiaChassis.Reset from another goroutine
 }
 
 type DpuVersion int
@@ -1300,12 +1301,29 @@ func (r *RedfishMockServer) handleBluefieldSystemSettings(w http.ResponseWriter,
 	}
 }
 
-// handleChassisReset handles BF4 chassis ARM reset during OS install.
+// handleChassisReset handles BF4 chassis ARM reset during OS install and the
+// ArmShutdown used before a System Level Reset.
 func (r *RedfishMockServer) handleChassisReset(w http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+
+	var body map[string]interface{}
+	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	switch resetType, _ := body["ResetType"].(string); resetType {
+	case "ArmShutdown":
+		r.armPoweredOff.Store(true)
+	case "ArmReset":
+		r.armPoweredOff.Store(false)
+	default:
+		http.Error(w, "Invalid reset type", http.StatusBadRequest)
+		return
+	}
+
 	w.WriteHeader(http.StatusOK)
 	writeJSONResponse(w, map[string]interface{}{
 		"@odata.id": req.URL.Path,
@@ -1327,6 +1345,12 @@ func (r *RedfishMockServer) handleGetSystem(w http.ResponseWriter, req *http.Req
 		return
 	}
 
+	// A shut down Arm reports PowerState "Paused" and Status.State "StandbyOffline".
+	powerState, statusState := "On", "Enabled"
+	if r.armPoweredOff.Load() {
+		powerState, statusState = "Paused", "StandbyOffline"
+	}
+
 	response := map[string]interface{}{
 		"@odata.id":    "/redfish/v1/Systems/Bluefield",
 		"@odata.type":  "#ComputerSystem.v1_22_0.ComputerSystem",
@@ -1337,9 +1361,9 @@ func (r *RedfishMockServer) handleGetSystem(w http.ResponseWriter, req *http.Req
 		"Manufacturer": "Nvidia",
 		"Model":        "Bluefield 3 SmartNIC Main Card",
 		"SerialNumber": DpuSerialNumber,
-		"PowerState":   "On",
+		"PowerState":   powerState,
 		"Status": map[string]interface{}{
-			"State":      "Enabled",
+			"State":      statusState,
 			"Health":     "OK",
 			"Conditions": []interface{}{},
 		},

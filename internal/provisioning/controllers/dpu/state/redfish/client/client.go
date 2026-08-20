@@ -1654,21 +1654,31 @@ func (c *Client) InsertVirtualMediaImage() (*resty.Response, error) {
 	return insertVirtualMedia(c, reqBody, "IMAGE")
 }
 
-func (c *Client) ChassisReset() (*resty.Response, error) {
-	data := map[string]interface{}{
-		"ResetType": "ArmReset",
-	}
+func (c *Client) chassisReset(data map[string]interface{}) (*resty.Response, error) {
 	resp, err := c.Client.R().
 		SetBody(data).
 		Post(strings.Replace(APIChassisReset, "{CHASSIS_ID}", "BlueField_0", 1))
 	if err != nil {
 		return resp, fmt.Errorf("failed to reset chassis: %w", err)
 	}
-
 	if resp.StatusCode() != http.StatusOK {
 		return resp, fmt.Errorf("failed to reset chassis: unexpected status code %d", resp.StatusCode())
 	}
 	return resp, nil
+}
+
+func (c *Client) ChassisReset() (*resty.Response, error) {
+	data := map[string]interface{}{
+		"ResetType": "ArmReset",
+	}
+	return c.chassisReset(data)
+}
+
+func (c *Client) ArmShutdown() (*resty.Response, error) {
+	data := map[string]interface{}{
+		"ResetType": "ArmShutdown",
+	}
+	return c.chassisReset(data)
 }
 
 func (c *Client) UpdateBluefieldFirmwareMultipart(fwFile *os.File, force bool) (*resty.Response, *TaskInfo, error) {
