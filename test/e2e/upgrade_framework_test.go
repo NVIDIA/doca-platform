@@ -657,7 +657,7 @@ func rolloutDependencies(ctx context.Context, input *systemTestInput, skipDPUFla
 			g.Expect(conditions.IsTrue(selectedDPUDeployment, condType)).To(BeTrue(),
 				"%s should be True for %s", condType, selectedDPUDeployment.Name)
 		}
-	}).WithTimeout(20 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+	}).WithTimeout(20 * time.Minute).WithPolling(time.Second).Should(Succeed())
 
 	verifyDPUDeploymentDependencyTracking(ctx, input, skipDPUFlavorTemplateValidation)
 }
@@ -749,7 +749,7 @@ func verifyDPUDeploymentDependencyTracking(ctx context.Context, input *systemTes
 		templates := &dpuservicev1.DPUServiceTemplateList{}
 		g.Expect(input.client.List(ctx, templates, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
 		assertDependencyLabels(g, "DPUServiceTemplate", activeServiceTemplates, ToClientObjectSlice(templates.Items))
-	}).WithTimeout(5 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+	}).WithTimeout(5 * time.Minute).WithPolling(time.Second).Should(Succeed())
 }
 
 func assertDependencyLabels(g Gomega, kind string, activeNames map[string]bool, objects []client.Object) {

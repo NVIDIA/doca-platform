@@ -959,7 +959,7 @@ func DeleteDPFOperatorConfig(ctx context.Context, testClient client.Client) {
 		key := client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: configName}
 		g.Expect(client.IgnoreNotFound(testClient.DeleteAllOf(ctx, &operatorv1.DPFOperatorConfig{}, client.InNamespace(dpfOperatorSystemNamespace)))).To(Succeed())
 		g.Expect(apierrors.IsNotFound(testClient.Get(ctx, key, &operatorv1.DPFOperatorConfig{}))).To(BeTrue())
-	}).WithTimeout(time.Hour).WithPolling(30 * time.Second).Should(Succeed())
+	}).WithTimeout(time.Hour).WithPolling(time.Second).Should(Succeed())
 	// TODO: Remove once DPUSets implement foreground deletion
 	By("Ensure no leftover resources")
 	// Check that all the DPUs are removed. This test in particular is needed because the DPUSet controller does not implement

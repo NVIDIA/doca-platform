@@ -622,7 +622,7 @@ func ValidateDPUClusterDeletion(ctx context.Context, input *systemTestInput) {
 	Eventually(func(g Gomega) {
 		err := input.client.Get(ctx, client.ObjectKeyFromObject(firstDPUCluster), &provisioningv1.DPUCluster{})
 		g.Expect(apierrors.IsNotFound(err)).To(BeTrue(), "DPUCluster %s should be completely deleted", client.ObjectKeyFromObject(firstDPUCluster))
-	}).WithTimeout(15 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+	}).WithTimeout(15 * time.Minute).WithPolling(time.Second).Should(Succeed())
 
 	By("Verifying DPFOperatorConfig is ready")
 	VerifyDPFOperatorConfigReady(ctx, input.client, 10*time.Minute)
@@ -635,7 +635,7 @@ func ValidateDPUClusterDeletion(ctx context.Context, input *systemTestInput) {
 			g.Expect(conditions.IsTrue(&dpuService, conditions.TypeReady)).To(BeTrue(),
 				fmt.Sprintf("DPUService %s should be ready", dpuService.Name))
 		}
-	}).WithTimeout(10 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+	}).WithTimeout(10 * time.Minute).WithPolling(time.Second).Should(Succeed())
 
 	By("Verifying all DPUServiceChains are ready")
 	Eventually(func(g Gomega) {

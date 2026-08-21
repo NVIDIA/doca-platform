@@ -46,8 +46,6 @@ const (
 
 	// openBaoOperationTimeout bounds retries of OpenBao operations.
 	openBaoOperationTimeout = time.Minute
-	// openBaoOperationPollingInterval controls OpenBao retry frequency.
-	openBaoOperationPollingInterval = 2 * time.Second
 )
 
 // openBaoClient runs authenticated bao commands through Kubernetes pod exec.
@@ -259,6 +257,6 @@ func expectOpenBaoOperation(operation func() error) {
 	Eventually(func(g Gomega) {
 		g.Expect(operation()).To(Succeed())
 	}).WithTimeout(openBaoOperationTimeout).
-		WithPolling(openBaoOperationPollingInterval).
+		WithPolling(time.Second).
 		Should(Succeed())
 }

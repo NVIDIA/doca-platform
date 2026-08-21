@@ -208,7 +208,7 @@ func ValidateManagementClusterLogFlow(ctx context.Context, input *systemTestInpu
 			break
 		}
 		g.Expect(found).To(BeTrue(), "Expected log message not found in Loki")
-	}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+	}).WithTimeout(2 * time.Minute).WithPolling(time.Second).Should(Succeed())
 }
 
 // ValidateDPUClusterLogFlow verifies logs flow from DPU cluster to Loki
@@ -298,7 +298,7 @@ func ValidateKamajiAuditLogFlow(ctx context.Context, input *systemTestInput) {
 			}
 		}
 		g.Expect(found).To(BeTrue(), "Expected audit log entry not found in Loki")
-	}).WithTimeout(3 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+	}).WithTimeout(3 * time.Minute).WithPolling(time.Second).Should(Succeed())
 }
 
 // ValidateDPUClusterMetricsFlow verifies that container, pod, and node metrics
@@ -323,7 +323,7 @@ func ValidateDPUClusterMetricsFlow(ctx context.Context, input *systemTestInput) 
 			fmt.Sprintf("No kubelet metrics found in host Prometheus for DPU cluster %s", clusterName))
 		g.Expect(samples[0].Value).To(BeNumerically(">", 0),
 			fmt.Sprintf("Expected streamed kubelet metrics for DPU cluster %s, found none", clusterName))
-	}).WithTimeout(5 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+	}).WithTimeout(5 * time.Minute).WithPolling(time.Second).Should(Succeed())
 }
 
 // createLogGeneratorPod creates a busybox pod that continuously echoes a unique log message

@@ -201,7 +201,7 @@ func createVaultKMSOpenBaoPrerequisites(
 		openBao, err = newOpenBaoClient(ctx, c, restClient, restConfig)
 		g.Expect(err).NotTo(HaveOccurred())
 	}).WithTimeout(openBaoOperationTimeout).
-		WithPolling(openBaoOperationPollingInterval).
+		WithPolling(time.Second).
 		Should(Succeed())
 
 	expectOpenBaoOperation(func() error {

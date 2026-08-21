@@ -159,7 +159,7 @@ func ValidateNodeSRIOVDevicePluginManagement(ctx context.Context, input *systemT
 		g.Expect(dpuName).NotTo(BeEmpty(), "expected a DPU with HostNetworkReady=True")
 		g.Expect(kubeNodeName).NotTo(BeEmpty())
 		g.Expect(serialNumber).NotTo(BeEmpty())
-	}).WithTimeout(240 * time.Second).WithPolling(5 * time.Second).Should(Succeed())
+	}).WithTimeout(240 * time.Second).WithPolling(time.Second).Should(Succeed())
 	By(fmt.Sprintf("Using DPU %s on node %s", dpuName, kubeNodeName))
 
 	config1Name := "e2e-nodesriov-config1"

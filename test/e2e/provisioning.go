@@ -158,7 +158,7 @@ func VerifyDPUServicesDeployed(ctx context.Context, clusterClient client.Client,
 		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.NVIPAMControllerName.String())), "NVIPAM should be deployed")
 		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.CNIInstallerName.String())), "CNI installer should be deployed")
 		g.Expect(found).To(HaveKey(ContainSubstring(operatorv1.SFCControllerName.String())), "SFC-Controller should be deployed")
-	}).WithTimeout(10 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+	}).WithTimeout(10 * time.Minute).WithPolling(time.Second).Should(Succeed())
 }
 
 func BeforeProvisioning(ctx context.Context, input *systemTestInput) {
@@ -260,7 +260,7 @@ func CreateProvisioningDPUCluster(ctx context.Context, input *systemTestInput) {
 			"DPUCluster %s Phase: %s", cluster.Name, cluster.Status.Phase)
 		g.Expect(cluster.Status.Phase).To(Equal(provisioningv1.PhaseReady),
 			"DPU cluster should reach Ready phase")
-	}).WithTimeout(5 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+	}).WithTimeout(5 * time.Minute).WithPolling(time.Second).Should(Succeed())
 
 	By("Creating DPU cluster client connection")
 	// getDPUClusterClients requires ProvisionDPUClustersInput (defined in system_setup.go)
@@ -304,7 +304,7 @@ func CreateProvisioningDPUCluster(ctx context.Context, input *systemTestInput) {
 			"BFB %s Phase: %s", bfb.Name, bfb.Status.Phase)
 		g.Expect(bfb.Status.Phase).To(Equal(provisioningv1.BFBReady),
 			"BFB should reach Ready phase")
-	}).WithTimeout(10 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+	}).WithTimeout(10 * time.Minute).WithPolling(time.Second).Should(Succeed())
 }
 
 func CreateProvisioningDPUSet(ctx context.Context, input *systemTestInput) {
@@ -366,7 +366,7 @@ func CreateProvisioningDPUSet(ctx context.Context, input *systemTestInput) {
 
 			g.Expect(dpu.Spec.Cluster.Name).NotTo(BeEmpty(), "DPU should reference DPUCluster")
 		}
-	}).WithTimeout(5 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+	}).WithTimeout(5 * time.Minute).WithPolling(time.Second).Should(Succeed())
 
 	By("Waiting for DPU nodes to join the DPU cluster as K8s Nodes")
 	nodesTracker := NewByTracker()
@@ -386,7 +386,7 @@ func CreateProvisioningDPUSet(ctx context.Context, input *systemTestInput) {
 		nodesTracker.By(nodeKey, "K8s nodes in DPU cluster [%d/%d]", len(nodes.Items), provisioningExpected.TotalDPUs)
 		g.Expect(nodes.Items).To(HaveLen(provisioningExpected.TotalDPUs),
 			fmt.Sprintf("DPU cluster should have %d K8s nodes, found %d", provisioningExpected.TotalDPUs, len(nodes.Items)))
-	}).WithTimeout(provisioningTimeout).WithPolling(10 * time.Second).Should(Succeed())
+	}).WithTimeout(provisioningTimeout).WithPolling(time.Second).Should(Succeed())
 
 	By("Waiting for all DPU objects to reach Ready phase")
 	dpuTracker := NewByTracker()
@@ -410,7 +410,7 @@ func CreateProvisioningDPUSet(ctx context.Context, input *systemTestInput) {
 
 		g.Expect(readyCount).To(Equal(provisioningExpected.TotalDPUs),
 			fmt.Sprintf("All %d DPUs should reach Ready phase, only %d ready", provisioningExpected.TotalDPUs, readyCount))
-	}).WithTimeout(30 * time.Minute).WithPolling(30 * time.Second).Should(Succeed())
+	}).WithTimeout(30 * time.Minute).WithPolling(time.Second).Should(Succeed())
 }
 
 func VerifyProvisioning(ctx context.Context, input *systemTestInput) {
@@ -430,7 +430,7 @@ func VerifyProvisioning(ctx context.Context, input *systemTestInput) {
 			*serviceSetDeployment.Spec.Replicas)
 		g.Expect(serviceSetDeployment.Status.ReadyReplicas).To(Equal(*serviceSetDeployment.Spec.Replicas),
 			fmt.Sprintf("%s should be ready", deploymentName))
-	}).WithTimeout(10 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+	}).WithTimeout(10 * time.Minute).WithPolling(time.Second).Should(Succeed())
 
 	// Use shared function to verify DPUServices are deployed
 	VerifyDPUServicesDeployed(ctx, dpuClusterClient[0], input.dpuClusters[0].GetNamespace())
@@ -497,7 +497,7 @@ func DeleteProvisioning(ctx context.Context, input *systemTestInput) {
 		dpuSetDeleteTracker.By(fmt.Sprintf("%d", len(dpusets.Items)),
 			"DPUSets remaining [%d]", len(dpusets.Items))
 		g.Expect(dpusets.Items).To(BeEmpty(), "DPUSet should be deleted")
-	}).WithTimeout(5 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+	}).WithTimeout(5 * time.Minute).WithPolling(time.Second).Should(Succeed())
 
 	By("Waiting for DPU objects to be deleted")
 	dpuDeleteTracker := NewByTracker()
@@ -508,7 +508,7 @@ func DeleteProvisioning(ctx context.Context, input *systemTestInput) {
 			"DPUs remaining [%d]", len(dpus.Items))
 		g.Expect(dpus.Items).To(BeEmpty(),
 			"All DPU objects should be cleaned up after DPUSet deletion")
-	}).WithTimeout(10 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+	}).WithTimeout(10 * time.Minute).WithPolling(time.Second).Should(Succeed())
 
 	By("Waiting for K8s nodes to be removed from DPU cluster")
 	nodesDeleteTracker := NewByTracker()
@@ -519,7 +519,7 @@ func DeleteProvisioning(ctx context.Context, input *systemTestInput) {
 			"K8s nodes remaining [%d]", len(nodes.Items))
 		g.Expect(nodes.Items).To(BeEmpty(),
 			"DPU cluster should have no nodes after deprovisioning")
-	}).WithTimeout(10 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+	}).WithTimeout(10 * time.Minute).WithPolling(time.Second).Should(Succeed())
 
 	By(fmt.Sprintf("Deleting DPUFlavor %s/%s", input.dpuFlavor.Namespace, input.dpuFlavor.Name))
 	Eventually(func(g Gomega) {
@@ -544,7 +544,7 @@ func DeleteProvisioning(ctx context.Context, input *systemTestInput) {
 			Namespace: input.dpuFlavor.Namespace,
 		}, dpuFlavor)
 		g.Expect(apierrors.IsNotFound(err)).To(BeTrue(), "DPUFlavor should be deleted")
-	}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+	}).WithTimeout(2 * time.Minute).WithPolling(time.Second).Should(Succeed())
 
 	By(fmt.Sprintf("Deleting BFB %s/%s", input.bfb.Namespace, input.bfb.Name))
 	Eventually(func(g Gomega) {
@@ -569,7 +569,7 @@ func DeleteProvisioning(ctx context.Context, input *systemTestInput) {
 			Namespace: input.bfb.Namespace,
 		}, bfb)
 		g.Expect(apierrors.IsNotFound(err)).To(BeTrue(), "BFB should be deleted")
-	}).WithTimeout(5 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+	}).WithTimeout(5 * time.Minute).WithPolling(time.Second).Should(Succeed())
 
 	if !skipDPUClusterDeletionInProvisioningTest {
 		By(fmt.Sprintf("Deleting DPUCluster %s/%s", input.dpuClusters[0].Namespace, input.dpuClusters[0].Name))
@@ -595,7 +595,7 @@ func DeleteProvisioning(ctx context.Context, input *systemTestInput) {
 			clusterDeleteTracker.By(fmt.Sprintf("%d", len(clusters.Items)),
 				"DPUClusters remaining [%d]", len(clusters.Items))
 			g.Expect(clusters.Items).To(BeEmpty(), "DPUCluster should be deleted")
-		}).WithTimeout(15 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+		}).WithTimeout(15 * time.Minute).WithPolling(time.Second).Should(Succeed())
 
 		// Delete prerequisite objects (TenantControlPlane, nodeport Service) only when deleting DPUCluster.
 		// When DPUCluster deletion is skipped (RM 4869399), leaving these in place keeps the kubeconfig secret
@@ -634,7 +634,7 @@ func DeleteProvisioning(ctx context.Context, input *systemTestInput) {
 			g.Expect(flavor.Name).NotTo(Equal(input.dpuFlavor.Name),
 				"DPUFlavor should be deleted")
 		}
-	}).WithTimeout(2 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+	}).WithTimeout(2 * time.Minute).WithPolling(time.Second).Should(Succeed())
 
 	By("Deprovisioning completed successfully")
 }
@@ -734,7 +734,7 @@ func ValidateDPUFlavorNodeLabelScripts(ctx context.Context, input *systemTestInp
 					"tenant Node %s should have the label %s=%s produced by %s", node.Name, key, value, dpuFlavorNodeLabelScriptPath)
 			}
 		}
-	}).WithTimeout(time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+	}).WithTimeout(time.Minute).WithPolling(time.Second).Should(Succeed())
 }
 
 // ValidateDPUSetClusterNodeLabelsPropagation validates that changing DPUSet.spec.dpuTemplate.spec.cluster.nodeLabels/nodeAnnotations
@@ -783,7 +783,7 @@ func ValidateDPUSetClusterNodeLabelsPropagation(ctx context.Context, input *syst
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(node.Labels).To(HaveKeyWithValue(dpusetLabelKey, "tv1"))
 		g.Expect(node.Annotations).To(HaveKeyWithValue(dpusetAnnKey, "tav1"))
-	}).WithTimeout(timeout).WithPolling(pollingInterval).Should(Succeed())
+	}).WithTimeout(timeout).WithPolling(time.Second).Should(Succeed())
 }
 
 // ValidateDPUSetNotReadyOnClusterMetadataConflict patches DPUSet template and a referenced DPUDevice to create a
@@ -849,7 +849,7 @@ func ValidateDPUSetNotReadyOnClusterMetadataConflict(ctx context.Context, input 
 		g.Expect(cond).NotTo(BeNil(), "DPUSet should have Ready condition")
 		g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
 		g.Expect(cond.Reason).To(Equal("ClusterMetadataConflict"))
-	}).WithTimeout(timeout).WithPolling(pollingInterval).Should(Succeed())
+	}).WithTimeout(timeout).WithPolling(time.Second).Should(Succeed())
 }
 
 // ValidateDPUDeviceClusterNodeLabelsPropagation validates that changing DPUDevice.spec.cluster.nodeLabels/nodeAnnotations
@@ -900,7 +900,7 @@ func ValidateDPUDeviceClusterNodeLabelsPropagation(ctx context.Context, input *s
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(node.Labels).To(HaveKeyWithValue(labelKey, "v1"))
 		g.Expect(node.Annotations).To(HaveKeyWithValue(annKey, "av1"))
-	}).WithTimeout(timeout).WithPolling(pollingInterval).Should(Succeed())
+	}).WithTimeout(timeout).WithPolling(time.Second).Should(Succeed())
 
 	By("Updating the cluster node label and annotation values via DPUDevice")
 	Expect(input.client.Get(ctx, client.ObjectKeyFromObject(ddCur), ddCur)).To(Succeed())
@@ -915,7 +915,7 @@ func ValidateDPUDeviceClusterNodeLabelsPropagation(ctx context.Context, input *s
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(node.Labels).To(HaveKeyWithValue(labelKey, "v2"))
 		g.Expect(node.Annotations).To(HaveKeyWithValue(annKey, "av2"))
-	}).WithTimeout(timeout).WithPolling(pollingInterval).Should(Succeed())
+	}).WithTimeout(timeout).WithPolling(time.Second).Should(Succeed())
 
 	By("Removing the cluster node label and annotation keys via DPUDevice")
 	Expect(input.client.Get(ctx, client.ObjectKeyFromObject(ddCur), ddCur)).To(Succeed())
@@ -932,7 +932,7 @@ func ValidateDPUDeviceClusterNodeLabelsPropagation(ctx context.Context, input *s
 		g.Expect(ok).To(BeFalse(), "label should be removed from tenant Node")
 		_, ok = node.Annotations[annKey]
 		g.Expect(ok).To(BeFalse(), "annotation should be removed from tenant Node")
-	}).WithTimeout(timeout).WithPolling(pollingInterval).Should(Succeed())
+	}).WithTimeout(timeout).WithPolling(time.Second).Should(Succeed())
 
 	By("Validating DPUSet becomes NotReady on DPUSet/DPUDevice cluster metadata conflict")
 	ValidateDPUSetNotReadyOnClusterMetadataConflict(ctx, input)

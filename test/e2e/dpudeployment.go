@@ -589,7 +589,7 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 		nsiList := &dpuservicev1.NodeServiceInterfacesList{}
 		g.Expect(dpuClusterClient[0].List(ctx, nsiList, client.InNamespace(utils.NSIObjectsNamespace))).To(Succeed())
 		g.Expect(countNodesWithNSIEntry(nsiList, serviceInterfaceLabels)).To(Equal(input.totalDPUs()))
-	}).WithTimeout(15 * time.Minute).WithPolling(120 * time.Second).Should(Succeed())
+	}).WithTimeout(15 * time.Minute).WithPolling(time.Second).Should(Succeed())
 
 	By("Verify service pods have the service reference label")
 	Eventually(func(g Gomega) {
@@ -608,7 +608,7 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 				client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
 			g.Expect(podList.Items).To(HaveLen(input.totalDPUs()), "expected %d pods for service %s", input.totalDPUs(), serviceName)
 		}
-	}).WithTimeout(15 * time.Minute).WithPolling(120 * time.Second).Should(Succeed())
+	}).WithTimeout(15 * time.Minute).WithPolling(time.Second).Should(Succeed())
 }
 
 func VerifyDPUDeploymentIsReady(ctx context.Context, input *systemTestInput) {
@@ -967,7 +967,7 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgradeHold(ctx context.Context, i
 			_, hasNewLabel := pod.Labels["test-disruptive-upgrade-zt"]
 			g.Expect(hasNewLabel).To(BeFalse(), "Pods should not be updated while hold annotation is true")
 		}
-	}).WithTimeout(30 * time.Second).WithPolling(5 * time.Second).Should(Succeed())
+	}).WithTimeout(30 * time.Second).WithPolling(time.Second).Should(Succeed())
 
 	By("Simulating user action: setting hold annotation to false to allow update")
 	Eventually(releaseDPUNodeMaintenanceHold).WithArguments(ctx, input.client, inProgressDPUNodeMaintenance).WithTimeout(30 * time.Second).Should(Succeed())
@@ -1760,7 +1760,7 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeHold(ctx context.Conte
 				g.Expect(*serviceChain.Spec.Switches[0].ServiceMTU).ToNot(Equal(testMTUValue), "ServiceChains should not be updated while hold annotation is true")
 			}
 		}
-	}).WithTimeout(30 * time.Second).WithPolling(5 * time.Second).Should(Succeed())
+	}).WithTimeout(30 * time.Second).WithPolling(time.Second).Should(Succeed())
 
 	By("Simulating user action: setting hold annotation to false to allow update")
 	Eventually(releaseDPUNodeMaintenanceHold).WithArguments(ctx, input.client, inProgressDPUNodeMaintenance).WithTimeout(30 * time.Second).Should(Succeed())
@@ -2559,7 +2559,7 @@ func PatchDPUDeviceValuesForFlavorTemplate(ctx context.Context, input *systemTes
 		g.Expect(input.client.List(ctx, dpuDeviceList)).To(Succeed())
 		g.Expect(len(dpuDeviceList.Items)).To(BeNumerically(">=", input.totalDPUs()),
 			"expected at least %d DPUDevice objects, got %d", input.totalDPUs(), len(dpuDeviceList.Items))
-	}).WithTimeout(5 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+	}).WithTimeout(5 * time.Minute).WithPolling(time.Second).Should(Succeed())
 
 	dpuDeviceList := &provisioningv1.DPUDeviceList{}
 	Expect(input.client.List(ctx, dpuDeviceList)).To(Succeed())
@@ -2616,5 +2616,5 @@ func ValidateDPUFlavorTemplatePerDeviceNodeLabels(ctx context.Context, input *sy
 				"tenant Node %s should carry label %s=%s produced by templated node-labeling-flavortemplate.sh on DPUDevice %s",
 				node.Name, dpuFlavorTemplateNodeLabelKey, expected, dpuDevice.Name)
 		}
-	}).WithTimeout(15 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+	}).WithTimeout(15 * time.Minute).WithPolling(time.Second).Should(Succeed())
 }

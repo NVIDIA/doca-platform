@@ -166,7 +166,7 @@ func rolloutAllDPUs(ctx context.Context, input *systemTestInput, expectedDPFVers
 			g.Expect(*dpu.Status.DPFVersion).To(ContainSubstring(expectedDPFVersionMajorMinor),
 				"DPU for device %s should have DPFVersion containing %s", before.deviceLabel, expectedDPFVersionMajorMinor)
 		}
-	}).WithTimeout(20 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+	}).WithTimeout(20 * time.Minute).WithPolling(time.Second).Should(Succeed())
 }
 
 // verifyDPUsHaveKubeletVersion asserts that every DPU in the system namespace
@@ -183,7 +183,7 @@ func verifyDPUsHaveKubeletVersion(ctx context.Context, input *systemTestInput) {
 			g.Expect(dpu.Status.AgentStatus.KubeletVersion).NotTo(BeNil(), "DPU %s should have KubeletVersion", dpu.Name)
 			g.Expect(*dpu.Status.AgentStatus.KubeletVersion).NotTo(BeEmpty(), "DPU %s KubeletVersion should not be empty", dpu.Name)
 		}
-	}).WithTimeout(5 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+	}).WithTimeout(5 * time.Minute).WithPolling(time.Second).Should(Succeed())
 }
 
 // removeStaleDPUDeviceProtectionFinalizers clears provisioning.dpu.nvidia.com/dpudevice-protection
