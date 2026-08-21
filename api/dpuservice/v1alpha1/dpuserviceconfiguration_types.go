@@ -73,7 +73,7 @@ type DPUServiceConfigurationSpec struct {
 	// UpgradePolicy contains the configuration for the upgrade process
 	// +kubebuilder:default={}
 	// +required
-	UpgradePolicy UpgradePolicy `json:"upgradePolicy"`
+	UpgradePolicy UpgradePolicy `json:"upgradePolicy,omitzero"`
 }
 
 // ServiceInterfaceTemplate contains the information related to an interface of the DPUService

@@ -29,34 +29,31 @@ linters:
               - "duplicatemarkers" # Ensure there are no exact duplicate markers for types and fields.
               - "statusoptional" # Ensure all first children within status should be optional.
 
-              # --- Fully auto-fixable: `make lint-fix` resolves every violation. ---
-              # - "noreferences" # Discourages `Ref`/`Reference` naming. (1, all auto-fixable)
-              # - "notimestamp" # Prevents usage of 'Timestamp' fields. (2, all auto-fixable)
-              # - "nonpointerstructs" # Non-pointer struct fields must be marked optional/required. (87, all auto-fixable)
-              # - "requiredfields" # Required fields should not be pointers, and should not have `omitempty`. (120, all auto-fixable)
-              # - "optionalfields" # Ensure that all fields marked as optional adhere to being pointers and
-              #                    # having the `omitempty` value in their `json` tag where appropriate. (148, all auto-fixable)
+              - "noreferences" # Discourages `Ref`/`Reference` naming.
+              - "notimestamp" # Prevents usage of 'Timestamp' fields.
+              - "nonpointerstructs" # Non-pointer struct fields must be marked optional/required.
+              - "requiredfields" # Required fields should not be pointers, and should not have `omitempty`.
+              - "optionalfields" # Ensure that all fields marked as optional adhere to being pointers and
+                                  # having the `omitempty` value in their `json` tag where appropriate.
+              - "defaults" # Default markers must use the preferred form.
+              - "optionalorrequired" # Every field should be marked as `+optional` or `+required`.
+              - "conditions" # Ensure conditions have the correct json tags and markers.
+              - "jsontags" # Ensure every field has a json tag.
+              - "nomaps" # Ensure maps are not used.
+              - "uniquemarkers" # Ensure that types and fields do not contain more than a single definition of a marker that should only be present once.
+              - "defaultorrequired" # A field with a default value cannot be required.
+              - "arrayofstruct" # Arrays of structs need identifying markers.
+              - "integers" # Ensure only int32 and int64 are used for integers.
 
-              # --- Partially auto-fixable: a manual remainder is left behind. ---
-              # - "defaults" # Default markers must use the preferred form. (12, 8 left after --fix)
-              # - "conditions" # Ensure conditions have the correct json tags and markers. (32, 13 left after --fix)
-              # - "commentstart" # Ensure comments start with the serialized version of the field name. (948, 318 left after --fix)
-              # - "optionalorrequired" # Every field should be marked as `+optional` or `+required`. (266, 262 left after --fix)
+              # Not enabled linters to be considered for future use. Existing findings might requre breaking API changes or exclusions.
+              # - "commentstart" # Ensure comments start with the serialized version of the field name.
+              # - "nophase" # Phase fields are discouraged by the Kube API conventions, use conditions instead.
+              # - "nodurations" # Prevents usage of `Duration` types.
+              # - "nobools" # Bools do not evolve over time, should use enums instead.
+              # - "ssatags" # Ensure array fields have the appropriate listType markers.
+              # - "maxlength" # Ensure all strings and arrays have maximum lengths/maximum items.
 
-              # --- Manual only: no auto-fix, and most imply API/schema changes. ---
-              # - "jsontags" # Ensure every field has a json tag. (3)
-              # - "nomaps" # Ensure maps are not used. (3)
-              # - "uniquemarkers" # Ensure that types and fields do not contain more than a single definition of a marker that should only be present once. (4)
-              # - "defaultorrequired" # A field with a default value cannot be required. (6)
-              # - "nophase" # Phase fields are discouraged by the Kube API conventions, use conditions instead. (7)
-              # - "arrayofstruct" # Arrays of structs need identifying markers. (10)
-              # - "nodurations" # Prevents usage of `Duration` types. (10)
-              # - "integers" # Ensure only int32 and int64 are used for integers. (29)
-              # - "nobools" # Bools do not evolve over time, should use enums instead. (51)
-              # - "ssatags" # Ensure array fields have the appropriate listType markers. (71)
-              # - "maxlength" # Ensure all strings and arrays have maximum lengths/maximum items. (311)
-
-              # --- Require mandatory settings before they can be enabled at all. ---
+              # Not enabled linters, that require custom configuration.
               # - "forbiddenmarkers" # Needs lintersConfig.forbiddenmarkers.markers.
               # - "dependenttags"
               # - "namingconventions"
@@ -121,6 +118,898 @@ linters:
           - kubeapilinter
       - path: api/dpuservice/v1alpha1/dpuserviceconfiguration_types.go
         text: "conflictingmarkers: field DPUServiceConfigurationSpec.UpgradePolicy has conflicting markers"
+        linters:
+          - kubeapilinter
+
+      ## noreferences excludes for pre-existing fields.
+      # Renaming these is an API-breaking change to a released v1alpha1 field;
+      # grandfathered in until it can be done as part of a breaking API bump.
+      - path: api/storage/v1alpha1/volume_types.go
+        text: "noreferences: naming convention \"reference-to-ref\": field VolumeSpecDPU.CSIReference"
+        linters:
+          - kubeapilinter
+
+      ## notimestamp excludes for pre-existing fields.
+      # Renaming these is an API-breaking change to a released v1alpha1 field;
+      # grandfathered in until it can be done as part of a breaking API bump.
+      - path: api/dpuservice/v1alpha1/dpuservice_credential_request_types.go
+        text: "notimestamp: naming convention \"notimestamp\": field DPUServiceCredentialRequestStatus.ExpirationTimestamp"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpu_types.go
+        text: "notimestamp: naming convention \"notimestamp\": field DPUOutdated.TimeStamp"
+        linters:
+          - kubeapilinter
+
+      ## nonpointerstructs excludes for pre-existing struct fields.
+      # Making these optional/required changes the generated CRD schema for a
+      # released v1alpha1 API; grandfathered in until a breaking API bump.
+      - path: api/dpuservice/v1alpha1/dpudeployment_types.go
+        text: "nonpointerstructs: field (DPUDeployment.Spec|DPUDeployment.Status|ServiceChains.UpgradePolicy)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuservice_credential_request_types.go
+        text: "nonpointerstructs: field (DPUServiceCredentialRequest.Spec|DPUServiceCredentialRequest.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuservice_types.go
+        text: "nonpointerstructs: field (DPUService.Spec|DPUService.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuservicechain_types.go
+        text: "nonpointerstructs: field (DPUServiceChain.Spec|DPUServiceChain.Status|DPUServiceChainSpec.Template|ServiceChainSetSpecTemplate.ObjectMeta|ServiceChainSetSpecTemplate.Spec)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuserviceconfiguration_types.go
+        text: "nonpointerstructs: field (DPUServiceConfiguration.Spec|DPUServiceConfiguration.Status|DPUServiceConfigurationSpec.UpgradePolicy)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuserviceinterface_types.go
+        text: "nonpointerstructs: field (DPUServiceInterface.Spec|DPUServiceInterface.Status|DPUServiceInterfaceSpec.Template|ServiceInterfaceSetSpecTemplate.ObjectMeta|ServiceInterfaceSetSpecTemplate.Spec)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuserviceipam_types.go
+        text: "nonpointerstructs: field (DPUServiceIPAM.Spec|DPUServiceIPAM.Status|DPUServiceIPAMSpec.ObjectMeta)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuservicenad_types.go
+        text: "nonpointerstructs: field (DPUServiceNAD.Spec|DPUServiceNAD.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuservicetemplate_types.go
+        text: "nonpointerstructs: field (DPUServiceTemplate.Spec|DPUServiceTemplate.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/nodeserviceinterfaces_types.go
+        text: "nonpointerstructs: field (NodeServiceInterfaces.Spec|NodeServiceInterfaces.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/servicechain_types.go
+        text: "nonpointerstructs: field (ServiceChain.Spec|ServiceChain.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/servicechainset_types.go
+        text: "nonpointerstructs: field (ServiceChainSet.Spec|ServiceChainSet.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/serviceinterface_types.go
+        text: "nonpointerstructs: field (ServiceInterface.Spec|ServiceInterface.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/serviceinterfaceset_types.go
+        text: "nonpointerstructs: field (ServiceInterfaceSet.Spec|ServiceInterfaceSet.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/noderesources/v1alpha1/nodesriovdevicepluginconfig_types.go
+        text: "nonpointerstructs: field (NodeSRIOVDevicePluginConfig.Spec|NodeSRIOVDevicePluginConfig.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/operator/v1alpha1/dpfoperatorconfig_types.go
+        text: "nonpointerstructs: field (DPFOperatorConfig.Spec|DPFOperatorConfig.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/bfb_types.go
+        text: "nonpointerstructs: field BFB.Spec"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/bluefield_types.go
+        text: "nonpointerstructs: field BlueFieldSoftware.Spec"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpu_types.go
+        text: "nonpointerstructs: field (DPU.Spec|DPUSpec.NodeEffect)"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpudevice_types.go
+        text: "nonpointerstructs: field (DPUDevice.Spec|DPUDevice.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpudiscovery_types.go
+        text: "nonpointerstructs: field (DPUDiscovery.Spec|DPUDiscovery.Status|DPUDiscoverySpec.IPRangeSpec|IPRangeValidationSpec.IPRange)"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpuflavor_types.go
+        text: "nonpointerstructs: field DPUFlavor.Spec"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpuflavortemplate_types.go
+        text: "nonpointerstructs: field DPUFlavorTemplate.Spec"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpunode_types.go
+        text: "nonpointerstructs: field (DPUNode.Spec|DPUNode.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpunodemaintenance_types.go
+        text: "nonpointerstructs: field (DPUNodeMaintenance.Spec|DPUNodeMaintenance.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpuset_types.go
+        text: "nonpointerstructs: field (DPUSet.Spec|DPUSet.Status|DPUSetSpec.DPUTemplate|DPUTemplate.Spec|DPUTemplateSpec.NodeEffect)"
+        linters:
+          - kubeapilinter
+      - path: api/storage/v1alpha1/dpustoragepolicy_types.go
+        text: "nonpointerstructs: field (DPUStoragePolicy.Spec|DPUStoragePolicy.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/storage/v1alpha1/dpustoragevendor_types.go
+        text: "nonpointerstructs: field (DPUStorageVendor.Spec|DPUStorageVendor.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/storage/v1alpha1/dpuvolume_types.go
+        text: "nonpointerstructs: field (DPUVolume.Spec|DPUVolume.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/storage/v1alpha1/dpuvolumeattachment_types.go
+        text: "nonpointerstructs: field (DPUVolumeAttachment.Spec|DPUVolumeAttachment.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/storage/v1alpha1/volume_types.go
+        text: "nonpointerstructs: field (Volume.Spec|Volume.Status|VolumeSpec.Request|VolumeSpecDPU.CSIReference)"
+        linters:
+          - kubeapilinter
+      - path: api/storage/v1alpha1/volumeattachment_types.go
+        text: "nonpointerstructs: field (VolumeAttachment.Spec|VolumeAttachment.Status|VolumeAttachmentSpec.Source)"
+        linters:
+          - kubeapilinter
+      - path: api/vpc/v1alpha1/dpuvirtualnetwork_types.go
+        text: "nonpointerstructs: field (DPUVirtualNetwork.Spec|DPUVirtualNetwork.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/vpc/v1alpha1/dpuvpc_types.go
+        text: "nonpointerstructs: field (DPUVPC.Spec|DPUVPC.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/vpc/v1alpha1/isolationclass_types.go
+        text: "nonpointerstructs: field (IsolationClass.Spec|IsolationClass.Status)"
+        linters:
+          - kubeapilinter
+
+      ## requiredfields excludes for pre-existing fields.
+      # Changing these to non-pointer/non-omitempty (or vice versa per the message)
+      # changes the generated CRD schema for a released v1alpha1 API; grandfathered
+      # in until a breaking API bump.
+      - path: api/dpuservice/v1alpha1/dpudeployment_types.go
+        text: "requiredfields: field (DPUDeploymentSpec.DPUs|DPUDeploymentSpec.Services|ServiceChains.UpgradePolicy|ServiceChains.Switches|DPUs.NodeEffect|DPUs.DPUSetStrategy|LocalObjectDependency.Name|DPUDeploymentSwitch.Ports|DPUDeploymentService.Name|DPUDeploymentService.InterfaceName)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuservice_credential_request_types.go
+        text: "requiredfields: field (DPUServiceCredentialRequestSpec.ServiceAccount|DPUServiceCredentialRequestSpec.Type|DPUServiceCredentialRequestSpec.Secret|NamespacedName.Name)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuservice_types.go
+        text: "requiredfields: field (DPUServiceSpec.HelmChart|ConfigPorts.ServiceType|ConfigPorts.Ports|ConfigPort.Name|ConfigPort.Port|ConfigPort.Protocol|HelmChart.Source|ApplicationSource.RepoURL|ApplicationSource.Version)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuserviceconfiguration_types.go
+        text: "requiredfields: field (DPUServiceConfigurationSpec.DeploymentServiceName|DPUServiceConfigurationSpec.UpgradePolicy|ServiceInterfaceTemplate.Name|ServiceInterfaceTemplate.Network)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuserviceipam_types.go
+        text: "requiredfields: field (IPRange.StartIP|IPRange.EndIP)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuservicenad_types.go
+        text: "requiredfields: field (CNIPlugin.Type|DPUServiceNADSpec.ResourceType)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuservicetemplate_types.go
+        text: "requiredfields: field (DPUServiceTemplateSpec.DeploymentServiceName|DPUServiceTemplateSpec.HelmChart)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/nodeserviceinterfaces_types.go
+        text: "requiredfields: field (NodeServiceInterfacesSpec.Node|NodeServiceInterfacesSpec.Type|InterfaceEntry.Name|InterfaceEntry.InterfaceType|InterfaceEntryStatus.Name)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/servicechain_types.go
+        text: "requiredfields: field (ServiceChainSpec.Switches|Switch.Ports|Port.ServiceInterface|ServiceIfc.MatchLabels|IPAM.MatchLabels)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/servicechainset_types.go
+        text: "requiredfields: field (ServiceChainSetSpec.Template|ServiceChainSpecTemplate.Spec)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/serviceinterface_types.go
+        text: "requiredfields: field (ServiceInterfaceSpec.InterfaceType|Physical.InterfaceName|ServiceDef.ServiceID|ServiceDef.Network|ServiceDef.InterfaceName|VLAN.VlanID|VLAN.ParentInterfaceRef|VF.VFID|VF.PFID|PF.ID|PatchDef.PeerBridge|NICSelectorSpec.Type|PCISelector.Address)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/serviceinterfaceset_types.go
+        text: "requiredfields: field (ServiceInterfaceSetSpec.Template|ServiceInterfaceSpecTemplate.Spec)"
+        linters:
+          - kubeapilinter
+      - path: api/noderesources/v1alpha1/nodesriovdevicepluginconfig_types.go
+        text: "requiredfields: field (NodeSRIOVDevicePluginConfigSpec.DevicePluginResources|DevicePluginResource.Name|DevicePluginResource.Type|DevicePluginResource.Ranges|FunctionRange.PFIndex)"
+        linters:
+          - kubeapilinter
+      - path: api/operator/v1alpha1/componentconfig_types.go
+        text: "requiredfields: field (OpenTelemetryCollectorLoggingConfiguration.Endpoint|OpenTelemetryCollectorMetricsConfiguration.Endpoint)"
+        linters:
+          - kubeapilinter
+      - path: api/operator/v1alpha1/dpfoperatorconfig_types.go
+        text: "requiredfields: field DPFOperatorConfigSpec.DeploymentMode"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/bfb_types.go
+        text: "requiredfields: field BFBSpec.URL"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/bluefield_types.go
+        text: "requiredfields: field BlueFieldSpec.OsIso"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpu_types.go
+        text: "requiredfields: field (DPUSpec.DPUNodeName|DPUSpec.DPUDeviceName|DPUSpec.SerialNumber|DPUSpec.NodeEffect|DPUSpec.DPUFlavor|DPUOutdated.TimeStamp|DPUOutdated.Reason|DPUOutdated.Message)"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpucluster_types.go
+        text: "requiredfields: field (DPUClusterSpec.Type|DPUCluster.Spec)"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpuflavor_types.go
+        text: "requiredfields: field (DMAScalableFunction.Enabled|NicConfiguration.NumVfs|ConfigFile.Path|NetworkInterfaceConfig.PortNumber)"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpuflavortemplate_types.go
+        text: "requiredfields: field DPUFlavorTemplateSpec.Template"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpunode_types.go
+        text: "requiredfields: field (Script.Name|DPURef.Name)"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpunodemaintenance_types.go
+        text: "requiredfields: field DPUNodeMaintenanceSpec.DPUNodeName"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpuset_types.go
+        text: "requiredfields: field (DPUSetStrategy.Type|DPUTemplateSpec.NodeEffect|DPUSetSpec.Strategy|DPUSetSpec.DPUTemplate)"
+        linters:
+          - kubeapilinter
+      - path: api/storage/v1alpha1/dpustoragepolicy_types.go
+        text: "requiredfields: field DPUStoragePolicySpec.DPUStorageVendors"
+        linters:
+          - kubeapilinter
+      - path: api/storage/v1alpha1/dpustoragevendor_types.go
+        text: "requiredfields: field (DPUStorageVendorSpec.StorageClassName|DPUStorageVendorSpec.PluginName)"
+        linters:
+          - kubeapilinter
+      - path: api/storage/v1alpha1/dpuvolume_types.go
+        text: "requiredfields: field (ObjectReference.Name|ObjectReference.Namespace|DPUVolumeSpec.DPUStoragePolicyName|DPUVolumeSpec.AccessModes|DPUVolumeSpec.Resources)"
+        linters:
+          - kubeapilinter
+      - path: api/storage/v1alpha1/dpuvolumeattachment_types.go
+        text: "requiredfields: field (DPUVolumeAttachmentSpec.DPUNodeName|DPUVolumeAttachmentSpec.DPUVolumeName|FunctionTypeConfig.FunctionType|FunctionTypeConfig.HotplugFunction)"
+        linters:
+          - kubeapilinter
+      - path: api/storage/v1alpha1/volume_types.go
+        text: "requiredfields: field VolumeSpec.Request"
+        linters:
+          - kubeapilinter
+      - path: api/vpc/v1alpha1/dpuvirtualnetwork_types.go
+        text: "requiredfields: field (DPUVirtualNetworkSpec.VPCName|DPUVirtualNetworkSpec.Type|DPUVirtualNetworkSpec.ExternallyRouted|BridgedNetworkIPAMIPv4Spec.DHCP|BridgedNetworkIPAMIPv4Spec.Subnet|RangeEntry.Start|RangeEntry.End)"
+        linters:
+          - kubeapilinter
+      - path: api/vpc/v1alpha1/dpuvpc_types.go
+        text: "requiredfields: field (DPUVPCSpec.Tenant|DPUVPCSpec.IsolationClassName|DPUVPCSpec.InterNetworkAccess|VirtualNetworkStatus.Name)"
+        linters:
+          - kubeapilinter
+      - path: api/vpc/v1alpha1/isolationclass_types.go
+        text: "requiredfields: field IsolationClassSpec.Provisioner"
+        linters:
+          - kubeapilinter
+
+      ## optionalfields excludes for pre-existing fields.
+      # Changing these to pointer/omitempty (or vice versa per the message) changes
+      # the generated CRD schema for a released v1alpha1 API; grandfathered in until
+      # a breaking API bump.
+      - path: api/dpuservice/v1alpha1/dpudeployment_types.go
+        text: "optionalfields: field (DPUDeploymentSpec.ServiceChains|DPUDeploymentSpec.RevisionHistoryLimit|DPUs.BFB|DPUs.BlueFieldSoftware|DPUs.Flavor|DPUs.FlavorTemplate|DPUDeploymentSwitch.ServiceMTU|DPUDeploymentPort.Service|DPUDeploymentPort.ServiceInterface|DPUDeploymentService.IPAM|DPUDeploymentStatus.ObservedGeneration)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuservice_types.go
+        text: "optionalfields: field (DPUServiceSpec.ConfigPorts|ApplicationSource.Path|ApplicationSource.Chart|ApplicationSource.ReleaseName|DPUServiceStatus.ObservedGeneration|DPUServiceStatus.ServiceID)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuservicechain_types.go
+        text: "optionalfields: field DPUServiceChainStatus.ObservedGeneration"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuserviceconfiguration_types.go
+        text: "optionalfields: field (DPUServiceConfigurationSpec.ServiceConfiguration|ServiceConfiguration.HelmChart|ServiceConfiguration.ConfigPorts)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuserviceinterface_types.go
+        text: "optionalfields: field DPUServiceInterfaceStatus.ObservedGeneration"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuserviceipam_types.go
+        text: "optionalfields: field DPUServiceIPAMStatus.ObservedGeneration"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuservicenad_types.go
+        text: "optionalfields: field (DPUServiceNADSpec.Bridge|DPUServiceNADSpec.IPAM)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuservicetemplate_types.go
+        text: "optionalfields: field DPUServiceTemplateStatus.ObservedGeneration"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/nodeserviceinterfaces_types.go
+        text: "optionalfields: field (InterfaceEntry.Service|NodeServiceInterfacesStatus.ObservedGeneration)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/servicechain_types.go
+        text: "optionalfields: field (Switch.ServiceMTU|ServiceIfc.IPAM|ServiceChainStatus.ObservedGeneration)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/servicechainset_types.go
+        text: "optionalfields: field (ServiceChainSetStatus.ObservedGeneration|ServiceChainSetStatus.NumberApplied|ServiceChainSetStatus.NumberReady)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/serviceinterface_types.go
+        text: "optionalfields: field (ServiceInterfaceSpec.Service|VF.NICSelector|PF.NICSelector|ServiceInterfaceStatus.ObservedGeneration)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/serviceinterfaceset_types.go
+        text: "optionalfields: field (ServiceInterfaceSetStatus.ObservedGeneration|ServiceInterfaceSetStatus.NumberApplied|ServiceInterfaceSetStatus.NumberReady)"
+        linters:
+          - kubeapilinter
+      - path: api/noderesources/v1alpha1/nodesriovdevicepluginconfig_types.go
+        text: "optionalfields: field NodeSRIOVDevicePluginConfigStatus.ObservedGeneration"
+        linters:
+          - kubeapilinter
+      - path: api/operator/v1alpha1/componentconfig_common.go
+        text: "optionalfields: field BaseControllerConfig.Replicas"
+        linters:
+          - kubeapilinter
+      - path: api/operator/v1alpha1/componentconfig_types.go
+        text: "optionalfields: field (ProvisioningControllerConfiguration.EnableDynamicBFCFGTemplates|ProvisioningControllerConfiguration.DMSTimeout|ProvisioningControllerConfiguration.MaxDPUParallelInstallations|ProvisioningControllerConfiguration.MaxUnavailableDPUNodes|ProvisioningControllerConfiguration.HostAgentDNSPolicy|RegistryConfiguration.Port|KamajiClusterManagerConfiguration.EtcdEncryptionAtRest|FlannelConfiguration.Images|OpenTelemetryCollectorConfiguration.Logging|OpenTelemetryCollectorConfiguration.Metrics|OpenTelemetryCollectorCASecretReference.Namespace|OpenTelemetryCollectorCASecretReference.Key|OpenTelemetryCollectorLoggingConfiguration.Transport|OpenTelemetryCollectorLoggingConfiguration.CASecretRef|OpenTelemetryCollectorMetricsConfiguration.Transport|OpenTelemetryCollectorMetricsConfiguration.CASecretRef|KataContainersConfiguration.ContainerdConfigFileName|EtcdEncryptionAtRestConfiguration.StaticKey|VaultKMSConfiguration.TokenCheckIntervalSeconds|VaultKMSConfiguration.LoginTimeoutSeconds|VaultKMSConfiguration.Namespace|VaultKMSTLS.CACertConfigMapRef|VaultKMSTransit.Mount|VaultKMSAuth.Token|VaultKMSAuth.AppRole|VaultKMSAuth.Userpass|VaultKMSAuth.Kubernetes|VaultKMSAuth.JWT|VaultKMSAppRoleAuth.AuthEngineMountPath|VaultKMSUserpassAuth.AuthEngineMountPath|VaultKMSKubernetesAuth.Audience|VaultKMSKubernetesAuth.AuthEngineMountPath|VaultKMSJWTAuth.AuthEngineMountPath)"
+        linters:
+          - kubeapilinter
+      - path: api/operator/v1alpha1/dpfoperatorconfig_types.go
+        text: "optionalfields: field (Overrides.DPUOpenvSwitchSystemSharedLib64Path|Overrides.DPULinkerCachePath|Overrides.DPUOptLibraryPath|Overrides.ArgoCDNamespace|Overrides.ProvisioningIssuerCASecretName|Networking.ControlPlaneMTU|Networking.HighSpeedMTU|Networking.DPUNodeOOBBridgeName|SecurityConfiguration.SPIFFE|SecurityConfiguration.VaultKMS|DPFOperatorConfigStatus.ObservedGeneration)"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/bfb_types.go
+        text: "optionalfields: field (BFBVersions.BSP|BFBVersions.DOCA|BFBVersions.UEFI|BFBVersions.ATF|BFBStatus.FileName|BFBStatus.Phase|BFBStatus.Versions|BFBStatus.ObservedGeneration|BFB.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/bluefield_types.go
+        text: "optionalfields: field (BlueFieldSpec.PldmFwBundle|BlueFieldSpec.PlatformPldmFwBundle|BlueFieldSpec.NicFw|BlueFieldSoftwareStatus.Phase|BlueFieldSoftwareStatus.DownloadedComponents|BlueFieldSoftwareStatus.ObservedGeneration|BluefieldSoftwareVersions.DOCA|BluefieldSoftwareVersions.OSISOVersion|BlueFieldSoftware.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpu_types.go
+        text: "optionalfields: field (K8sCluster.Name|K8sCluster.Namespace|DPUSpec.BFB|DPUSpec.BlueFieldSoftware|DPUSpec.Cluster|DPUSpec.BMCIP|DPUStatus.Phase|DPUStatus.Conditions|DPUStatus.BFBFile|DPUStatus.BFCFGFile|DPUStatus.BFBVersion|DPUStatus.PCIDevice|DPUStatus.Firmware|DPUStatus.DPUInstallInterface|DPUStatus.ObservedGeneration|DPUStatus.Hostless|DPUStatus.IdentityMode|AgentStatus.RebootMethod|RebootStatus.Method|RebootStatus.Reason|RebootStatus.Message|DPU.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpucluster_types.go
+        text: "optionalfields: field (DPUClusterSpec.Kubeconfig|DPUClusterStatus.Phase|DPUClusterStatus.Version|DPUClusterStatus.NodesCount|DPUClusterStatus.EtcdEncryptionAtRest|DPUClusterStatus.Conditions|DPUClusterStaticKeyEncryptionStatus.ActiveKeyRef|ClusterEndpointSpec.Keepalived|DPUCluster.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpudevice_types.go
+        text: "optionalfields: field (DPUDeviceSpec.BMCPort|DPUDeviceSpec.NumberOfPFs|DPUDeviceSpec.NICDeviceCount|DPUDeviceStatus.BMCPort|DPUDeviceStatus.Conditions)"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpudiscovery_types.go
+        text: "optionalfields: field (DPUDiscoveryStatus.ObservedGeneration|DPUDiscoveryStatus.FoundDPUs|IPRange.Port)"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpuflavor_types.go
+        text: "optionalfields: field (DPUFlavorSpec.Grub|DPUFlavorSpec.Sysctl|DPUFlavorSpec.OVS|DPUFlavorSpec.ContainerdConfig|ScalableFunctions.DMA|DMAScalableFunction.SFNum|NicConfiguration.Force|NVConfig.Device|DPUFlavorOVS.RawConfigScript|ConfigFile.Type|ConfigFile.Permissions|PackageSpec.Version|PackageSpec.RepoFileRef|ContainerdConfig.RegistryEndpoint|NetworkInterfaceConfig.MTU)"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpunode_types.go
+        text: "optionalfields: field (NodeRebootMethod.Script|DPUNodeSpec.NodeDMSAddress|DPUNodeStatus.DPUInstallInterface|DPUNodeStatus.RebootMethod)"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpunodemaintenance_types.go
+        text: "optionalfields: field DPUNodeMaintenanceStatus.MaxUnavailableDPUNodes"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpuset_types.go
+        text: "optionalfields: field (DPUTemplateSpec.DPUFlavor|DPUTemplateSpec.DPUFlavorTemplate|DPUSetStatus.ObservedGeneration)"
+        linters:
+          - kubeapilinter
+      - path: api/storage/v1alpha1/dpustoragepolicy_types.go
+        text: "optionalfields: field (DPUStoragePolicySpec.SelectionAlgorithm|DPUStoragePolicyStatus.ObservedGeneration)"
+        linters:
+          - kubeapilinter
+      - path: api/storage/v1alpha1/dpustoragevendor_types.go
+        text: "optionalfields: field DPUStorageVendorStatus.ObservedGeneration"
+        linters:
+          - kubeapilinter
+      - path: api/storage/v1alpha1/dpuvolume_types.go
+        text: "optionalfields: field (DPUVolumeSpec.VolumeMode|DPUVolumeStatus.Phase|DPUVolumeStatus.ObservedGeneration|DPUVolumeState.DPUCluster|DPUVolumeState.PersistentVolumeClaimRef)"
+        linters:
+          - kubeapilinter
+      - path: api/storage/v1alpha1/dpuvolumeattachment_types.go
+        text: "optionalfields: field DPUVolumeAttachmentStatus.ObservedGeneration"
+        linters:
+          - kubeapilinter
+      - path: api/storage/v1alpha1/volume_types.go
+        text: "optionalfields: field (VolumeRequest.CapacityRange|VolumeSpec.VolumeSpecDPU)"
+        linters:
+          - kubeapilinter
+      - path: api/storage/v1alpha1/volumeattachment_types.go
+        text: "optionalfields: field (VolumeAttachmentStatusDPU.BdevAttrs|VolumeAttachmentStatusDPU.FSdevAttrs|VolumeAttachmentStatus.StorageAttached|VolumeAttachmentStatus.Message|VolumeAttachmentStatus.DPU)"
+        linters:
+          - kubeapilinter
+      - path: api/vpc/v1alpha1/dpuvirtualnetwork_types.go
+        text: "optionalfields: field DPUVirtualNetworkStatus.ObservedGeneration"
+        linters:
+          - kubeapilinter
+      - path: api/vpc/v1alpha1/dpuvpc_types.go
+        text: "optionalfields: field DPUVPCStatus.ObservedGeneration"
+        linters:
+          - kubeapilinter
+
+      ## defaults excludes for pre-existing fields.
+      # Changing these to optional, or removing the default, changes the generated
+      # CRD schema/API contract for a released v1alpha1 API; grandfathered in until
+      # a breaking API bump.
+      - path: api/dpuservice/v1alpha1/dpudeployment_types.go
+        text: "defaults: field ServiceChains.UpgradePolicy has a default value but is marked as required"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuservice_types.go
+        text: "defaults: field ConfigPorts.ServiceType has a default value but is marked as required"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuserviceconfiguration_types.go
+        text: "defaults: field DPUServiceConfigurationSpec.UpgradePolicy has a default value but is marked as required"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpudiscovery_types.go
+        text: "defaults: field DPUDiscoverySpec.ScanInterval has a default value but is not marked as optional"
+        linters:
+          - kubeapilinter
+
+      ## optionalorrequired excludes for pre-existing fields.
+      # Adding the missing +optional/+required marker (or switching to the
+      # preferred marker form) changes the generated CRD schema for a released
+      # v1alpha1 API; grandfathered in until a breaking API bump.
+      - path: api/dpuservice/v1alpha1/dpudeployment_types.go
+        text: "optionalorrequired: (embedded field DPUDeployment.metav1.ObjectMeta|field DPUDeployment.Spec|field DPUDeployment.Status|field DPUDeploymentServiceConfiguration.ServiceTemplate|field DPUDeploymentServiceConfiguration.ServiceConfiguration)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuservice_credential_request_types.go
+        text: "optionalorrequired: (embedded field DPUServiceCredentialRequest.metav1.ObjectMeta|field DPUServiceCredentialRequest.Spec|field DPUServiceCredentialRequest.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuservice_types.go
+        text: "optionalorrequired: (embedded field DPUService.metav1.ObjectMeta|field DPUService.Spec|field DPUService.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuservicechain_types.go
+        text: "optionalorrequired: (field DPUServiceChainSpec.Template|field ServiceChainSetSpecTemplate.Spec|embedded field ServiceChainSetSpecTemplate.ObjectMeta|embedded field DPUServiceChain.metav1.ObjectMeta|field DPUServiceChain.Spec|field DPUServiceChain.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuserviceconfiguration_types.go
+        text: "optionalorrequired: (embedded field DPUServiceConfiguration.metav1.ObjectMeta|field DPUServiceConfiguration.Spec|field DPUServiceConfiguration.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuserviceinterface_types.go
+        text: "optionalorrequired: (field DPUServiceInterfaceSpec.Template|field ServiceInterfaceSetSpecTemplate.Spec|embedded field ServiceInterfaceSetSpecTemplate.ObjectMeta|embedded field DPUServiceInterface.metav1.ObjectMeta|field DPUServiceInterface.Spec|field DPUServiceInterface.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuserviceipam_types.go
+        text: "optionalorrequired: (embedded field DPUServiceIPAMSpec.ObjectMeta|field DPUServiceIPAMSpec.IPV4Network|field DPUServiceIPAMSpec.IPV4Subnet|field DPUServiceIPAMSpec.NodeSelector|field Network.Network|field Network.GatewayIndex|field Network.PrefixSize|field Network.Exclusions|field Network.ExcludeRanges|field Network.Allocations|field Network.DefaultGateway|field Network.Routes|field Subnet.Subnet|field Subnet.Gateway|field Subnet.PerNodeIPCount|field Subnet.ExcludeRanges|field Subnet.DefaultGateway|field Subnet.Routes|field IPRange.StartIP|field IPRange.EndIP|field Route.Dst|field DPUClusterAllocation.DPUCluster|embedded field DPUServiceIPAM.metav1.ObjectMeta|field DPUServiceIPAM.Spec|field DPUServiceIPAM.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuservicenad_types.go
+        text: "optionalorrequired: (embedded field DPUServiceNAD.metav1.ObjectMeta|field DPUServiceNAD.Spec|field DPUServiceNAD.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuservicetemplate_types.go
+        text: "optionalorrequired: (embedded field DPUServiceTemplate.metav1.ObjectMeta|field DPUServiceTemplate.Spec|field DPUServiceTemplate.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/nodeserviceinterfaces_types.go
+        text: "optionalorrequired: (field interfaceEntryStatusGetSet.status|field interfaceEntryStatusGetSet.generation|field InterfaceEntry.Terminating|embedded field NodeServiceInterfaces.metav1.ObjectMeta|field NodeServiceInterfaces.Spec|field NodeServiceInterfaces.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/servicechain_types.go
+        text: "optionalorrequired: (embedded field ServiceChain.metav1.ObjectMeta|field ServiceChain.Spec|field ServiceChain.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/servicechainset_types.go
+        text: "optionalorrequired: (embedded field ServiceChainSet.metav1.ObjectMeta|field ServiceChainSet.Spec|field ServiceChainSet.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/serviceinterface_types.go
+        text: "optionalorrequired: (embedded field ServiceInterface.metav1.ObjectMeta|field ServiceInterface.Spec|field ServiceInterface.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/serviceinterfaceset_types.go
+        text: "optionalorrequired: (embedded field ServiceInterfaceSet.metav1.ObjectMeta|field ServiceInterfaceSet.Spec|field ServiceInterfaceSet.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/noderesources/v1alpha1/nodesriovdevicepluginconfig_types.go
+        text: "optionalorrequired: (embedded field NodeSRIOVDevicePluginConfig.metav1.ObjectMeta|field NodeSRIOVDevicePluginConfig.Spec|field NodeSRIOVDevicePluginConfig.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/operator/v1alpha1/componentconfig_common.go
+        text: "optionalorrequired: (field ResourceRequirements.Requests|field ResourceRequirements.Limits)"
+        linters:
+          - kubeapilinter
+      - path: api/operator/v1alpha1/componentconfig_types.go
+        text: "optionalorrequired: (field InstallViaRedfish.BFBRegistryAddress|field NVIPAMConfiguration.Node)"
+        linters:
+          - kubeapilinter
+      - path: api/operator/v1alpha1/dpfoperatorconfig_types.go
+        text: "optionalorrequired: (field DPFOperatorConfigSpec.ProvisioningController|embedded field DPFOperatorConfig.metav1.ObjectMeta|field DPFOperatorConfig.Spec|field DPFOperatorConfig.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/bfb_types.go
+        text: "optionalorrequired: (embedded field BFB.metav1.ObjectMeta|field BFB.Spec)"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/bluefield_types.go
+        text: "optionalorrequired: (field BluefieldSoftwareVersions.FwBundleVersion|field BluefieldSoftwareVersions.EWNicFwVersion|field BluefieldSoftwareVersions.BMCVersion|field BluefieldSoftwareVersions.BMCErotVersion|field BluefieldSoftwareVersions.SBIOSVersion|field BluefieldSoftwareVersions.BFNicFwVersion|field DownloadedComponents.PldmFwBundle|field DownloadedComponents.PlatformPldmFwBundle|field DownloadedComponents.OsIso|field DownloadedComponents.NicFw|embedded field BlueFieldSoftware.metav1.ObjectMeta|field BlueFieldSoftware.Spec)"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpu_types.go
+        text: "optionalorrequired: (field Firmware.BMC|field Firmware.NIC|field Firmware.UEFI|field AgentStatus.InitialBootID|field AgentStatus.KubeletVersion|field PendingNVConfigState.BootID|field PendingNVConfigState.Devices|field PendingNVConfigDevice.Device|field PendingNVConfigDevice.Entries|field PendingNVConfigEntry.Name|field PendingNVConfigEntry.Default|field PendingNVConfigEntry.Current|field PendingNVConfigEntry.NextBoot|field RebootStatus.Phase|field ClockStatus.DPUTime|field ClockStatus.HostTime|embedded field DPU.metav1.ObjectMeta|field DPU.Spec)"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpucluster_types.go
+        text: "optionalorrequired: (field KeepalivedSpec.VIP|field KeepalivedSpec.VirtualRouterID|field KeepalivedSpec.Interface|embedded field DPUCluster.metav1.ObjectMeta)"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpudevice_types.go
+        text: "optionalorrequired: (embedded field DPUDevice.metav1.ObjectMeta|field DPUDevice.Spec|field DPUDevice.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpudiscovery_types.go
+        text: "optionalorrequired: (embedded field DPUDiscovery.metav1.ObjectMeta|field DPUDiscovery.Spec|field DPUDiscovery.Status|field DPUDiscoverySpec.IPRangeSpec|field DPUDiscoverySpec.ScanInterval|field IPRange.StartIP|field IPRange.EndIP|type IPRangeValidationSpec|field IPRangeValidationSpec.IPRange)"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpuflavor_types.go
+        text: "optionalorrequired: (field NicConfiguration.SpectrumXOptimized|field NicConfiguration.RawNvConfig|field PackageSpec.Name|field PackageVersionSpec.Value|field SystemdServiceSpec.Name|field SystemdServiceSpec.Operation|embedded field DPUFlavor.metav1.ObjectMeta|field DPUFlavor.Spec)"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpuflavortemplate_types.go
+        text: "optionalorrequired: (embedded field DPUFlavorTemplate.metav1.ObjectMeta|field DPUFlavorTemplate.Spec)"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpunode_types.go
+        text: "optionalorrequired: (embedded field DPUNode.metav1.ObjectMeta|field DPUNode.Spec|field DPUNode.Status|field DMSAddress.IP|field DMSAddress.Port)"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpunodemaintenance_types.go
+        text: "optionalorrequired: (embedded field DPUNodeMaintenance.metav1.ObjectMeta|field DPUNodeMaintenance.Spec|field DPUNodeMaintenance.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpuset_types.go
+        text: "optionalorrequired: (field BlueFieldSoftwareReference.Name|field BFBReference.Name|field DPUTemplate.Annotations|field DPUTemplate.Spec|embedded field DPUSet.metav1.ObjectMeta|field DPUSet.Spec|field DPUSet.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/storage/v1alpha1/dpustoragepolicy_types.go
+        text: "optionalorrequired: (embedded field DPUStoragePolicy.metav1.ObjectMeta|field DPUStoragePolicy.Spec|field DPUStoragePolicy.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/storage/v1alpha1/dpustoragevendor_types.go
+        text: "optionalorrequired: (embedded field DPUStorageVendor.metav1.ObjectMeta|field DPUStorageVendor.Spec|field DPUStorageVendor.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/storage/v1alpha1/dpuvolume_types.go
+        text: "optionalorrequired: (embedded field DPUVolume.metav1.ObjectMeta|field DPUVolume.Spec|field DPUVolume.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/storage/v1alpha1/dpuvolumeattachment_types.go
+        text: "optionalorrequired: (embedded field DPUVolumeAttachment.metav1.ObjectMeta|field DPUVolumeAttachment.Spec|field DPUVolumeAttachment.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/storage/v1alpha1/svvolumeattachment_types.go
+        text: "optionalorrequired: (embedded field SVVolumeAttachment.metav1.ObjectMeta|field SVVolumeAttachment.Spec|field SVVolumeAttachment.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/storage/v1alpha1/volume_types.go
+        text: "optionalorrequired: (field CapacityRange.Request|field CapacityRange.Limit|field ObjectRef.Kind|field ObjectRef.APIVersion|field ObjectRef.Name|field ObjectRef.Namespace|field CSIReference.CSIDriverName|field CSIReference.StorageClassName|field CSIReference.PVCRef|field VolumeSpecDPU.ID|field VolumeSpecDPU.Capacity|field VolumeSpecDPU.AccessModes|field VolumeSpecDPU.ReclaimPolicy|field VolumeSpecDPU.StorageVendorName|field VolumeSpecDPU.StorageVendorPluginName|field VolumeSpecDPU.VolumeAttributes|field VolumeSpecDPU.CSIReference|embedded field Volume.metav1.ObjectMeta|field Volume.Spec|field Volume.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/storage/v1alpha1/volumeattachment_types.go
+        text: "optionalorrequired: (field VolumeSource.VolumeRef|field VolumeAttachmentStatusDPU.Attached|field VolumeAttachmentStatusDPU.PCIDeviceAddress|field VolumeAttachmentStatusDPU.DeviceName|field VolumeAttachmentStatusDPU.FuncVUID|field FSdevAttrs.FilesystemTag|field BdevAttrs.NVMeNsID|field BdevAttrs.NVMeUUID|embedded field VolumeAttachment.metav1.ObjectMeta|field VolumeAttachment.Spec|field VolumeAttachment.Status|field VolumeAttachmentSpec.NodeName|field VolumeAttachmentSpec.Source|field VolumeAttachmentSpec.VolumeAttachmentRef|field VolumeAttachmentSpec.Parameters)"
+        linters:
+          - kubeapilinter
+      - path: api/vpc/v1alpha1/dpuvirtualnetwork_types.go
+        text: "optionalorrequired: (embedded field DPUVirtualNetwork.metav1.ObjectMeta|field DPUVirtualNetwork.Spec|field DPUVirtualNetwork.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/vpc/v1alpha1/dpuvpc_types.go
+        text: "optionalorrequired: (embedded field DPUVPC.metav1.ObjectMeta|field DPUVPC.Spec|field DPUVPC.Status)"
+        linters:
+          - kubeapilinter
+      - path: api/vpc/v1alpha1/isolationclass_types.go
+        text: "optionalorrequired: (embedded field IsolationClass.metav1.ObjectMeta|field IsolationClass.Spec|field IsolationClass.Status)"
+        linters:
+          - kubeapilinter
+
+      ## conditions excludes for pre-existing fields.
+      # Adding the listType/patchStrategy markers or fixing json tags changes
+      # the generated CRD schema for a released v1alpha1 API; grandfathered in
+      # until a breaking API bump.
+      - path: api/dpuservice/v1alpha1/dpudeployment_types.go
+        text: "conditions: Conditions field in DPUDeploymentStatus"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuservice_credential_request_types.go
+        text: "conditions: Conditions field in DPUServiceCredentialRequestStatus"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuservice_types.go
+        text: "conditions: Conditions field in DPUServiceStatus"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuservicechain_types.go
+        text: "conditions: Conditions field in DPUServiceChainStatus"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuserviceinterface_types.go
+        text: "conditions: Conditions field in DPUServiceInterfaceStatus"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuserviceipam_types.go
+        text: "conditions: Conditions field in DPUServiceIPAMStatus"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuservicenad_types.go
+        text: "conditions: Conditions field in DPUServiceNADStatus"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuservicetemplate_types.go
+        text: "conditions: Conditions field in DPUServiceTemplateStatus"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/nodeserviceinterfaces_types.go
+        text: "conditions: (Conditions field in NodeServiceInterfacesStatus|Conditions field in InterfaceEntryStatus)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/servicechain_types.go
+        text: "conditions: Conditions field in ServiceChainStatus"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/servicechainset_types.go
+        text: "conditions: Conditions field in ServiceChainSetStatus"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/serviceinterface_types.go
+        text: "conditions: Conditions field in ServiceInterfaceStatus"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/serviceinterfaceset_types.go
+        text: "conditions: Conditions field in ServiceInterfaceSetStatus"
+        linters:
+          - kubeapilinter
+      - path: api/noderesources/v1alpha1/nodesriovdevicepluginconfig_types.go
+        text: "conditions: Conditions field in NodeSRIOVDevicePluginConfigStatus"
+        linters:
+          - kubeapilinter
+      - path: api/operator/v1alpha1/dpfoperatorconfig_types.go
+        text: "conditions: Conditions field in DPFOperatorConfigStatus"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/bfb_types.go
+        text: "conditions: Conditions field in BFBStatus"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/bluefield_types.go
+        text: "conditions: Conditions field in BlueFieldSoftwareStatus"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpu_types.go
+        text: "conditions: (Conditions field in DPUStatus|Conditions field in AgentStatus|Conditions field in AgentPreInstallStatus)"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpucluster_types.go
+        text: "conditions: Conditions field in DPUClusterStatus"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpudevice_types.go
+        text: "conditions: Conditions field in DPUDeviceStatus"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpunode_types.go
+        text: "conditions: Conditions field in DPUNodeStatus"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpunodemaintenance_types.go
+        text: "conditions: Conditions field in DPUNodeMaintenanceStatus"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpuset_types.go
+        text: "conditions: Conditions field in DPUSetStatus"
+        linters:
+          - kubeapilinter
+      - path: api/storage/v1alpha1/dpustoragepolicy_types.go
+        text: "conditions: Conditions field in DPUStoragePolicyStatus"
+        linters:
+          - kubeapilinter
+      - path: api/storage/v1alpha1/dpustoragevendor_types.go
+        text: "conditions: Conditions field in DPUStorageVendorStatus"
+        linters:
+          - kubeapilinter
+      - path: api/storage/v1alpha1/dpuvolume_types.go
+        text: "conditions: Conditions field in DPUVolumeStatus"
+        linters:
+          - kubeapilinter
+      - path: api/storage/v1alpha1/dpuvolumeattachment_types.go
+        text: "conditions: Conditions field in DPUVolumeAttachmentStatus"
+        linters:
+          - kubeapilinter
+      - path: api/vpc/v1alpha1/dpuvirtualnetwork_types.go
+        text: "conditions: Conditions field in DPUVirtualNetworkStatus"
+        linters:
+          - kubeapilinter
+      - path: api/vpc/v1alpha1/dpuvpc_types.go
+        text: "conditions: Conditions field in DPUVPCStatus"
+        linters:
+          - kubeapilinter
+
+      ## jsontags excludes for pre-existing fields.
+      # Adding/renaming a json tag changes the generated CRD schema (or the wire
+      # format) for a released v1alpha1 API; grandfathered in until a breaking API
+      # bump.
+      - path: api/dpuservice/v1alpha1/nodeserviceinterfaces_types.go
+        text: "jsontags: field interfaceEntryStatusGetSet.(status|generation)"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpu_types.go
+        text: "jsontags: field PendingNVConfigEntry.NextBoot"
+        linters:
+          - kubeapilinter
+
+      ## nomaps excludes for pre-existing fields.
+      # Converting these to a list type changes the generated CRD schema for a
+      # released v1alpha1 API; grandfathered in until a breaking API bump.
+      - path: api/dpuservice/v1alpha1/dpudeployment_types.go
+        text: "nomaps: field DPUDeploymentSpec.Services"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuservice_types.go
+        text: "nomaps: field DPUServiceStatus.ConfigPorts"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpuset_types.go
+        text: "nomaps: field DPUSetStatus.DPUStatistics"
+        linters:
+          - kubeapilinter
+
+      ## uniquemarkers excludes for pre-existing fields.
+      # Removing the duplicate kubebuilder:validation:Enum marker changes the
+      # generated CRD schema for a released v1alpha1 API; grandfathered in until
+      # a breaking API bump.
+      - path: api/provisioning/v1alpha1/dpu_types.go
+        text: "uniquemarkers: field DPUStatus.DPUMode"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpucluster_types.go
+        text: "uniquemarkers: field DPUClusterStatus.Phase"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpudevice_types.go
+        text: "uniquemarkers: field DPUDeviceStatus.DPUMode"
+        linters:
+          - kubeapilinter
+
+      ## defaultorrequired excludes for pre-existing fields.
+      # Same default_or_required fields already grandfathered above for
+      # conflictingmarkers/defaults; removing either marker is a breaking change
+      # to a released v1alpha1 API, so they are grandfathered in here too.
+      - path: api/dpuservice/v1alpha1/dpudeployment_types.go
+        text: "defaultorrequired: field ServiceChains.UpgradePolicy"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuservice_types.go
+        text: "defaultorrequired: field ConfigPorts.ServiceType"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuserviceconfiguration_types.go
+        text: "defaultorrequired: field DPUServiceConfigurationSpec.UpgradePolicy"
+        linters:
+          - kubeapilinter
+
+      ## arrayofstruct excludes for pre-existing fields.
+      # Adding a required identifying field changes the generated CRD schema for
+      # a released v1alpha1 API; grandfathered in until a breaking API bump.
+      - path: api/dpuservice/v1alpha1/dpudeployment_types.go
+        text: "arrayofstruct: DPUDeploymentSwitch.Ports"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuserviceipam_types.go
+        text: "arrayofstruct: (Network.Routes|Subnet.Routes|DPUServiceIPAMStatus.DPUClusterAllocations)"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpu_types.go
+        text: "arrayofstruct: (PendingNVConfigState.Devices|PendingNVConfigDevice.Entries)"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpuflavor_types.go
+        text: "arrayofstruct: DPUFlavorSpec.(NVConfig|Packages|SystemdServices)"
+        linters:
+          - kubeapilinter
+      - path: api/vpc/v1alpha1/dpuvirtualnetwork_types.go
+        text: "arrayofstruct: BridgedNetworkIPAMIPv4Spec.ExcludeIPs"
+        linters:
+          - kubeapilinter
+
+      ## integers excludes for pre-existing fields.
+      # Changing the integer width/signedness changes the generated CRD schema
+      # for a released v1alpha1 API; grandfathered in until a breaking API bump.
+      - path: api/dpuservice/v1alpha1/dpudeployment_types.go
+        text: "integers: field DPUDeploymentSwitch.ServiceMTU"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuservice_types.go
+        text: "integers: field ConfigPort.(Port|NodePort)"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuserviceipam_types.go
+        text: "integers: field Subnet.PerNodeIPCount"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/dpuservicenad_types.go
+        text: "integers: field DPUServiceNADSpec.ServiceMTU"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/servicechain_types.go
+        text: "integers: field Switch.ServiceMTU"
+        linters:
+          - kubeapilinter
+      - path: api/dpuservice/v1alpha1/serviceinterface_types.go
+        text: "integers: field (VLAN.VlanID|VF.VFID|VF.PFID|PF.ID)"
+        linters:
+          - kubeapilinter
+      - path: api/operator/v1alpha1/componentconfig_types.go
+        text: "integers: field (ProvisioningControllerConfiguration.DMSTimeout|BFBRegistryConfiguration.Port|RegistryConfiguration.Port)"
+        linters:
+          - kubeapilinter
+      - path: api/operator/v1alpha1/dpfoperatorconfig_types.go
+        text: "integers: field (Overrides.KubernetesAPIServerPort|Networking.ControlPlaneMTU|Networking.HighSpeedMTU)"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpucluster_types.go
+        text: "integers: field (DPUClusterSpec.MaxNodes|DPUClusterStatus.NodesCount|KeepalivedSpec.VirtualRouterID)"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpudevice_types.go
+        text: "integers: field (DPUDeviceSpec.BMCPort|DPUDeviceSpec.NumberOfPFs|DPUDeviceSpec.NICDeviceCount|DPUDeviceStatus.BMCPort)"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpudiscovery_types.go
+        text: "integers: field (DPUDiscoverySpec.Workers|DPUDiscoveryStatus.FoundDPUs|IPRange.Port)"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpuflavor_types.go
+        text: "integers: field NicConfiguration.NumVfs"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpunode_types.go
+        text: "integers: field DMSAddress.Port"
+        linters:
+          - kubeapilinter
+      - path: api/provisioning/v1alpha1/dpuset_types.go
+        text: "integers: field DPUSetStatus.DPUStatistics"
         linters:
           - kubeapilinter
 

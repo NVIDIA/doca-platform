@@ -118,7 +118,7 @@ type BlueFieldSoftwareStatus struct {
 	// The current state of BlueFieldSoftware.
 	// +kubebuilder:default=Initializing
 	// +optional
-	Phase BlueFieldSoftwarePhase `json:"phase"`
+	Phase BlueFieldSoftwarePhase `json:"phase,omitempty"`
 	// Versions tracks the versions of the components
 	// +optional
 	Versions *BluefieldSoftwareVersions `json:"versions,omitempty"`
@@ -181,7 +181,7 @@ type BlueFieldSoftware struct {
 
 	// +kubebuilder:default={phase: Initializing}
 	// +optional
-	Status BlueFieldSoftwareStatus `json:"status,omitempty"`
+	Status BlueFieldSoftwareStatus `json:"status,omitzero"`
 }
 
 // +kubebuilder:object:root=true

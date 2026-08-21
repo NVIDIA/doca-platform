@@ -348,7 +348,7 @@ type DPUStatus struct {
 	// The current state of DPU.
 	// +kubebuilder:default=Initializing
 	// +optional
-	Phase DPUPhase `json:"phase"`
+	Phase DPUPhase `json:"phase,omitempty"`
 
 	// PreviousPhase is the last non-empty Phase before the current Phase, set by the controller
 	// when Phase transitions. It may be unset during early initialization (empty Phase) or until
@@ -731,7 +731,7 @@ type DPU struct {
 
 	// +kubebuilder:default={phase: Initializing}
 	// +optional
-	Status DPUStatus `json:"status,omitempty"`
+	Status DPUStatus `json:"status,omitzero"`
 }
 
 // +kubebuilder:object:root=true
