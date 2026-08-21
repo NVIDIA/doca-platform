@@ -552,7 +552,10 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 			})
 		})
 
-		It("should verify each DPUCluster the host cluster does not serve keeps its own DNS", func() {
+		It("should verify each DPUCluster the host cluster does not serve keeps its own DNS", Labels{Domain.RequiresNodes}, func() {
+			if !input.hasDpuNodes() {
+				Skip("Skip test as there are no DPU nodes")
+			}
 			if hasHostClusterDNS(input) {
 				Skip("Skip test as every DPUCluster is served by the host cluster")
 			}
