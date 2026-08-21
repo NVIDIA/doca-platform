@@ -217,7 +217,7 @@ type ConfigPorts struct {
 	// +kubebuilder:validation:Enum=NodePort;ClusterIP;None
 	// +kubebuilder:default:=NodePort
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf", message="Value is immutable"
-	ServiceType corev1.ServiceType `json:"serviceType"`
+	ServiceType corev1.ServiceType `json:"serviceType,omitempty"`
 
 	// Ports defines the list of port configurations that will be exposed by the DPUService.
 	// Each port must specify a name, port number, and protocol.

@@ -138,7 +138,7 @@ type ServiceChains struct {
 	// UpgradePolicy contains the configuration for the upgrade process
 	// +kubebuilder:default={}
 	// +required
-	UpgradePolicy UpgradePolicy `json:"upgradePolicy"`
+	UpgradePolicy UpgradePolicy `json:"upgradePolicy,omitzero"`
 
 	// Switches is the list of switches that form the service chain
 	// +required

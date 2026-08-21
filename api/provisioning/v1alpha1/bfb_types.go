@@ -138,7 +138,7 @@ type BFBStatus struct {
 	// The current state of BFB.
 	// +kubebuilder:default=Initializing
 	// +optional
-	Phase BFBPhase `json:"phase"`
+	Phase BFBPhase `json:"phase,omitempty"`
 	// BFB versions - BSP, DOCA, UEFI and ATF
 	// Holds detailed version information for each component within the BFB
 	// +optional
@@ -168,7 +168,7 @@ type BFB struct {
 
 	// +kubebuilder:default={phase: Initializing}
 	// +optional
-	Status BFBStatus `json:"status,omitempty"`
+	Status BFBStatus `json:"status,omitzero"`
 }
 
 // +kubebuilder:object:root=true
