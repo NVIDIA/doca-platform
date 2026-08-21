@@ -552,7 +552,7 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 				}
 			}
 			g.Expect(hasReadyPod).To(BeTrue(), "At least one bfb-registry pod should be running and ready")
-		}).WithTimeout(5 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+		}).WithTimeout(5 * time.Minute).WithPolling(time.Second).Should(Succeed())
 	}
 
 	if input.skipSystemComponentValidation {
@@ -720,7 +720,7 @@ func ProvisionBFB(ctx context.Context, input ProvisionDPUClustersInput) {
 			Namespace: input.bfb.Namespace,
 		}, bfb)).To(Succeed())
 		g.Expect(bfb.Status.Phase).To(Equal(provisioningv1.BFBReady))
-	}).WithTimeout(10 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+	}).WithTimeout(10 * time.Minute).WithPolling(time.Second).Should(Succeed())
 
 	if isGinkgoLabelApplied(Domain.ZeroTrust) {
 		By("Verifying BFB file is reachable")
@@ -763,7 +763,7 @@ func ProvisionBFB(ctx context.Context, input ProvisionDPUClustersInput) {
 			defer resp.Body.Close() //nolint:errcheck
 			g.Expect(resp.StatusCode).To(Equal(http.StatusOK),
 				fmt.Sprintf("BFB file should be reachable at %s, got status %d", bfbURL, resp.StatusCode))
-		}).WithTimeout(10 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+		}).WithTimeout(10 * time.Minute).WithPolling(time.Second).Should(Succeed())
 	}
 }
 
@@ -847,7 +847,7 @@ func ProvisionBlueFieldSoftware(ctx context.Context, input ProvisionDPUClustersI
 		g.Expect(bfs.Status.Versions).NotTo(BeNil(), "BlueFieldSoftware versions should be set when Ready")
 		g.Expect(bfs.Status.Versions.DOCA).NotTo(BeEmpty(), "BlueFieldSoftware should have status.versions.doca when Ready")
 		g.Expect(bfs.Status.Versions.OSISOVersion).NotTo(BeEmpty(), "BlueFieldSoftware should have status.versions.osISOVersion when Ready")
-	}).WithTimeout(10 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+	}).WithTimeout(10 * time.Minute).WithPolling(time.Second).Should(Succeed())
 }
 
 // ProvisionDPUFlavor creates the DPUFlavor resource.
@@ -1032,7 +1032,7 @@ func ProcessDPUNodeMaintenanceHold(ctx context.Context, input ProvisionDPUCluste
 		holdKey := fmt.Sprintf("%d/%d", holdCount, expectedDPUs)
 		tracker.By(holdKey, "Found %d/%d DPUNodeMaintenance CRs with hold annotation set to true", holdCount, expectedDPUs)
 		g.Expect(holdCount).To(Equal(expectedDPUs), "All DPUs should have DPUNodeMaintenance with hold annotation set to true")
-	}).WithTimeout(5 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+	}).WithTimeout(5 * time.Minute).WithPolling(time.Second).Should(Succeed())
 
 	// Patch all DPUNodeMaintenance CRs to set hold annotation to "false"
 	By("Setting hold annotation to false on all DPUNodeMaintenance CRs to allow provisioning to continue")
@@ -1117,7 +1117,7 @@ func waitForScriptRebootCompletion(ctx context.Context, c client.Client, expecte
 				fmt.Sprintf("DPU %s RebootStatus.Phase=%q (waiting for Succeeded)",
 					dpu.Name, phase))
 		}
-	}).WithTimeout(30 * time.Minute).WithPolling(15 * time.Second).Should(Succeed())
+	}).WithTimeout(30 * time.Minute).WithPolling(time.Second).Should(Succeed())
 }
 
 // VerifyClusterPods waits until, for each name substring in podSubstrToVerify, at least one pod in the
@@ -1260,7 +1260,7 @@ func ValidateDPUAgentStatus(ctx context.Context, input *systemTestInput, expecte
 		for i := range dpus.Items {
 			validateSingleDPUAgentStatus(g, &dpus.Items[i], expected)
 		}
-	}).WithTimeout(5 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+	}).WithTimeout(5 * time.Minute).WithPolling(time.Second).Should(Succeed())
 }
 
 // validateSingleDPUAgentStatus checks one DPU's agent-reported status against the expected AgentStatus.
@@ -1375,7 +1375,7 @@ func getDPUClusterClient(ctx context.Context, input ProvisionDPUClustersInput, c
 		dpuClusterRestConfig[clusterIndex] = restCfg
 		dpuClusterRestClient[clusterIndex], err = rest.RESTClientFor(restCfg)
 		g.Expect(err).ToNot(HaveOccurred())
-	}).WithTimeout(3 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+	}).WithTimeout(3 * time.Minute).WithPolling(time.Second).Should(Succeed())
 
 	// Start a go routine that monitors the health of the tunnel and recreates the client and rest config
 	// if the health check fails.
@@ -1495,7 +1495,7 @@ func GetDPUNodeToBMCIPs(ctx context.Context, c client.Client, expectedDPUNodes i
 		g.Expect(c.List(ctx, nodes, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
 		g.Expect(nodes.Items).To(HaveLen(expectedDPUNodes))
 		observed = nodes.Items
-	}).WithTimeout(10 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+	}).WithTimeout(10 * time.Minute).WithPolling(time.Second).Should(Succeed())
 
 	out := make(map[string]string, len(observed))
 	for _, node := range observed {
@@ -1578,7 +1578,7 @@ func PatchDPUNodesForScriptReboot(ctx context.Context, c client.Client,
 		g.Expect(c.List(ctx, nodes, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
 		g.Expect(nodes.Items).To(HaveLen(expectedDPUNodes))
 		observed = nodes.Items
-	}).WithTimeout(10 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+	}).WithTimeout(10 * time.Minute).WithPolling(time.Second).Should(Succeed())
 
 	for i := range observed {
 		dpuNode := &provisioningv1.DPUNode{}

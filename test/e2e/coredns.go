@@ -94,7 +94,7 @@ func VerifyKamajiCoreDNSAddonDisabled(ctx context.Context, input *systemTestInpu
 			_, found, err = unstructured.NestedMap(tcp.Object, "spec", "addons", "kubeProxy")
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(found).To(BeTrue(), "the Kamaji kube-proxy addon should stay enabled")
-		}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+		}).WithTimeout(2 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
 	}
 }
 
@@ -115,7 +115,7 @@ func VerifyHostClusterCoreDNS(ctx context.Context, input *systemTestInput) {
 			services := &corev1.ServiceList{}
 			g.Expect(input.client.List(ctx, services, listOptions...)).To(Succeed())
 			g.Expect(services.Items).To(HaveLen(1), "exactly one CoreDNS Service should serve a DPUCluster")
-		}).WithTimeout(10 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+		}).WithTimeout(10 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
 	}
 }
 
@@ -161,7 +161,7 @@ func VerifyDPUClusterDNSEndpoint(ctx context.Context, input *systemTestInput) {
 			// serving any other, so this is what proves the clusters are not crossed.
 			g.Expect(addresses).To(ConsistOf(wantAddress),
 				"DNS should resolve against the CoreDNS serving this DPUCluster")
-		}).WithTimeout(10 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+		}).WithTimeout(10 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
 	}
 }
 
@@ -226,7 +226,7 @@ func VerifyDPUClusterServesOwnDNS(ctx context.Context, input *systemTestInput) {
 				}
 			}
 			g.Expect(ready).To(BeNumerically(">", 0), "the DNS Service should have a ready endpoint")
-		}).WithTimeout(10 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+		}).WithTimeout(10 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
 	}
 }
 

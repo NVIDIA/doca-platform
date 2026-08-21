@@ -44,7 +44,7 @@ func ValidateBMCServerCertificateRotation(ctx context.Context, input *systemTest
 	Eventually(func(g Gomega) {
 		g.Expect(input.client.List(ctx, dpuDevices)).To(Succeed())
 		g.Expect(dpuDevices.Items).NotTo(BeEmpty(), "expected at least one DPUDevice for BMC server certificate rotation")
-	}).WithTimeout(3 * time.Minute).WithPolling(15 * time.Second).Should(Succeed())
+	}).WithTimeout(3 * time.Minute).WithPolling(time.Second).Should(Succeed())
 
 	for i := range dpuDevices.Items {
 		key := client.ObjectKeyFromObject(&dpuDevices.Items[i])
@@ -60,7 +60,7 @@ func ValidateBMCServerCertificateRotation(ctx context.Context, input *systemTest
 			g.Expect(device.Status.BMCServerCertificate).NotTo(BeNil())
 			g.Expect(device.Status.BMCServerCertificate.NotAfter).NotTo(BeNil())
 			baselineRotation = device.Status.BMCServerCertificate.LastRotationTime
-		}).WithTimeout(10 * time.Minute).WithPolling(15 * time.Second).Should(Succeed())
+		}).WithTimeout(10 * time.Minute).WithPolling(time.Second).Should(Succeed())
 
 		triggerValue := fmt.Sprintf("e2e-%d", time.Now().UnixNano())
 		By(fmt.Sprintf("Requesting manual rotation of DPUDevice %s via %s=%s",
@@ -93,6 +93,6 @@ func ValidateBMCServerCertificateRotation(ctx context.Context, input *systemTest
 				g.Expect(newRotation.After(baselineRotation.Time)).To(BeTrue(),
 					"expected LastRotationTime to advance after manual rotation")
 			}
-		}).WithTimeout(10 * time.Minute).WithPolling(15 * time.Second).Should(Succeed())
+		}).WithTimeout(10 * time.Minute).WithPolling(time.Second).Should(Succeed())
 	}
 }

@@ -84,7 +84,7 @@ func ValidateExternalSecretsOpenBaoIntegration(ctx context.Context, input *syste
 		openBao, err = newOpenBaoClient(ctx, input.client, hostClusterRESTClient, input.restConfig)
 		g.Expect(err).NotTo(HaveOccurred())
 	}).WithTimeout(openBaoOperationTimeout).
-		WithPolling(openBaoOperationPollingInterval).
+		WithPolling(time.Second).
 		Should(Succeed())
 
 	DeferCleanup(func() {
@@ -149,7 +149,7 @@ func expectExternalSecretsOpenBaoStateReset(openBao *openBaoClient) {
 	Eventually(func(g Gomega) {
 		g.Expect(resetExternalSecretsOpenBaoTestState(openBao)).To(Succeed())
 	}).WithTimeout(openBaoOperationTimeout).
-		WithPolling(openBaoOperationPollingInterval).
+		WithPolling(time.Second).
 		Should(Succeed())
 }
 

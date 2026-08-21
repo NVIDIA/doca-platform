@@ -1,0 +1,12 @@
+# Manifest for `golangci-lint custom` (https://golangci-lint.run/plugins/module-plugins/),
+# used to build a golangci-lint binary that embeds the local `withpolling`
+# plugin (hack/tools/lint/withpolling). Run via the withpolling-lint target
+# in hack/tools/tools.mk.
+#
+# `version` must track GOLANGCI_LINT_VERSION in hack/tools/tools.mk.
+version: v2.7.2
+name: golangci-lint-custom
+destination: ./hack/tools/bin/go1.25
+plugins:
+  - module: github.com/nvidia/doca-platform/hack/tools/lint/withpolling
+    path: ./hack/tools/lint/withpolling

@@ -107,7 +107,7 @@ func ValidateDPFMetricsScrapedByPrometheus(ctx context.Context) {
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(samples).NotTo(BeEmpty(),
 			"No dpf_dpfoperatorconfig_info series in Prometheus; the kube-state-metrics scrape may be misconfigured")
-	}).WithTimeout(2 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+	}).WithTimeout(2 * time.Minute).WithPolling(time.Second).Should(Succeed())
 }
 
 // ValidatePrometheusTargetsHealthy asserts that every scrape target known to

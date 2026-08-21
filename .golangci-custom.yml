@@ -1,0 +1,32 @@
+# Configuration for the withpolling plugin (hack/tools/lint/withpolling), run
+# via `make lint`. It ensures Gomega's WithPolling(...) is never set above
+# time.Second, per the convention documented in test/e2e/doc/README.md.
+#
+# It is intentionally separate from .golangci.yml: like kube-api-linter
+# (.golangci-kal.yml), it ships as a custom golangci-lint module, so it needs
+# its own binary (see the golangci-lint-custom target in hack/tools/tools.mk)
+# and its own scope.
+version: "2"
+run:
+  allow-parallel-runners: true
+linters:
+  default: none
+  enable:
+    - withpolling
+  settings:
+    custom:
+      withpolling:
+        type: module
+        description: Ensures Gomega WithPolling(...) is never set above time.Second.
+        settings:
+          maxPolling: 1s
+  exclusions:
+    generated: lax
+    rules:
+      # withpolling only makes sense against the e2e/integration test suites.
+      - path-except: ^test/
+        linters:
+          - withpolling
+    paths:
+      - third_party
+      - third_party$

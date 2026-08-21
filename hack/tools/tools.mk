@@ -108,6 +108,7 @@ CONTROLLER_GEN ?= $(TOOLSDIR_GO)/controller-gen-$(CONTROLLER_TOOLS_VERSION)
 ENVTEST ?= $(TOOLSDIR_GO)/setup-envtest-$(ENVTEST_VERSION)
 GOLANGCI_LINT ?= $(TOOLSDIR_GO)/golangci-lint-$(GOLANGCI_LINT_VERSION)
 KUBE_API_LINTER ?= $(TOOLSDIR_GO)/golangci-lint-kube-api-linter-$(KUBE_API_LINTER_VERSION)
+GOLANGCI_LINT_CUSTOM ?= $(TOOLSDIR_GO)/golangci-lint-custom-$(GOLANGCI_LINT_VERSION)
 MOCKGEN ?= $(TOOLSDIR_GO)/mockgen-$(MOCKGEN_VERSION)
 GOTESTSUM ?= $(TOOLSDIR_GO)/gotestsum-$(GOTESTSUM_VERSION)
 ENVSUBST ?= $(TOOLSDIR_GO)/envsubst-$(ENVSUBST_VERSION)
@@ -258,6 +259,16 @@ kube-api-linter: $(KUBE_API_LINTER) ## Download kube-api-linter locally if neces
 	@$(MAKE) tools-path-go TOOL=golangci-lint-kube-api-linter VERSION=$(KUBE_API_LINTER_VERSION)
 $(KUBE_API_LINTER): | $(TOOLSDIR_GO)
 	$(call go-install-tool,$(KUBE_API_LINTER),sigs.k8s.io/kube-api-linter/cmd/golangci-lint-kube-api-linter,${KUBE_API_LINTER_VERSION})
+
+# withpolling is a local golangci-lint module plugin (hack/tools/lint/withpolling),
+# built into its own golangci-lint binary via `golangci-lint custom` and the
+# .custom-gcl.yml manifest at the repo root. Its version tracks GOLANGCI_LINT_VERSION.
+.PHONY: golangci-lint-custom
+golangci-lint-custom: $(GOLANGCI_LINT_CUSTOM) ## Build the golangci-lint-custom binary with the withpolling plugin locally if necessary.
+	@$(MAKE) tools-path-go TOOL=golangci-lint-custom VERSION=$(GOLANGCI_LINT_VERSION)
+$(GOLANGCI_LINT_CUSTOM): golangci-lint $(PROJECT_DIR)/.custom-gcl.yml $(wildcard $(PROJECT_DIR)/hack/tools/lint/withpolling/*.go) | $(TOOLSDIR_GO)
+	$Q cd $(PROJECT_DIR) && $(GOLANGCI_LINT) custom
+	$Q mv $(TOOLSDIR_GO)/golangci-lint-custom $(GOLANGCI_LINT_CUSTOM)
 
 .PHONY: mockgen
 mockgen: $(MOCKGEN) ## Download mockgen locally if necessary.
