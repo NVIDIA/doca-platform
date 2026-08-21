@@ -343,7 +343,7 @@ type DPUOutdated struct {
 }
 
 // DPUStatus defines the observed state of DPU
-// +kubebuilder:validation:XValidation:rule="!has(oldSelf.identityMode) || (has(self.identityMode) && self.identityMode == oldSelf.identityMode)",message="identityMode is stamp-once: can only transition from unset to a value"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.identityMode) || (has(self.identityMode) && self.identityMode == oldSelf.identityMode)",message="identityMode is immutable once set: can only transition from unset to a value"
 type DPUStatus struct {
 	// The current state of DPU.
 	// +kubebuilder:default=Initializing
@@ -614,7 +614,7 @@ type HostOSInitSucceeded struct {
 }
 
 // IdentityMode records which authentication mechanism the DPU Agent uses to reach the
-// management-cluster kube-apiserver. It is stamp-once (see DPUStatus.IdentityMode).
+// management-cluster kube-apiserver. It is immutable once set (see DPUStatus.IdentityMode).
 type IdentityMode string
 
 const (

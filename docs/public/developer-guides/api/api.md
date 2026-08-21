@@ -3461,7 +3461,7 @@ _Appears in:_
 _Underlying type:_ _string_
 
 IdentityMode records which authentication mechanism the DPU Agent uses to reach the
-management-cluster kube-apiserver. It is stamp-once (see DPUStatus.IdentityMode).
+management-cluster kube-apiserver. It is immutable once set (see DPUStatus.IdentityMode).
 
 
 

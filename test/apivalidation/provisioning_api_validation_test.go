@@ -719,7 +719,7 @@ var _ = Describe("Provisioning API Validation", func() {
 		})
 	})
 
-	// Status.IdentityMode is stamp-once and enum-validated: an immutable record of which
+	// Status.IdentityMode is immutable once set and enum-validated: an immutable record of which
 	// authentication mechanism the DPU Agent uses, set exactly once from the empty value.
 	Context("When checking the DPU Status.IdentityMode field", func() {
 		It("does not require IdentityMode on Create (omitempty)", func() {
@@ -741,7 +741,7 @@ var _ = Describe("Provisioning API Validation", func() {
 			Expect(*refetched.Status.IdentityMode).To(Equal(provisioningv1.IdentityModeSpiffe))
 		})
 
-		It("rejects re-stamping a different value (stamp-once)", func() {
+		It("rejects re-stamping a different value (immutable once set)", func() {
 			dpu := getMinimalDPU(testNs.Name)
 			Expect(testClient.Create(ctx, dpu)).To(Succeed())
 
@@ -753,10 +753,10 @@ var _ = Describe("Provisioning API Validation", func() {
 			refetched.Status.IdentityMode = ptr.To(provisioningv1.IdentityModeBootstrapToken)
 			err := testClient.Status().Update(ctx, refetched)
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("identityMode is stamp-once"))
+			Expect(err.Error()).To(ContainSubstring("identityMode is immutable once set"))
 		})
 
-		It("rejects clearing identityMode after stamp (stamp-once)", func() {
+		It("rejects clearing identityMode after stamp (immutable once set)", func() {
 			dpu := getMinimalDPU(testNs.Name)
 			Expect(testClient.Create(ctx, dpu)).To(Succeed())
 
@@ -768,7 +768,7 @@ var _ = Describe("Provisioning API Validation", func() {
 			refetched.Status.IdentityMode = nil
 			err := testClient.Status().Update(ctx, refetched)
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("identityMode is stamp-once"))
+			Expect(err.Error()).To(ContainSubstring("identityMode is immutable once set"))
 		})
 
 		It("rejects values outside the IdentityMode enum", func() {
