@@ -378,7 +378,7 @@ var _ = Describe("Phase Initializing", func() {
 
 		It("does not restamp a DPU that already has an identity mode", func() {
 			// Config says SPIFFE, but the DPU is already stamped bootstrap-token; the stamp is
-			// immutable, so the existing mode must be preserved (stamp-once).
+			// immutable once set, so the existing mode must be preserved.
 			ensureSingleDPFOperatorConfig(true)
 			dpu, ctrlCtx := newReadyDPU()
 			dpu.Status.IdentityMode = ptr.To(provisioningv1.IdentityModeBootstrapToken)
