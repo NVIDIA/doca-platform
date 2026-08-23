@@ -21,6 +21,23 @@ DPF resolves the BMC password independently for each DPUDevice:
 The two modes coexist within a namespace: some DPUs can use per-device credentials while others use the shared
 password.
 
+## Accounts the password is applied to
+
+The resolved password is written to every BMC account DPF manages, so that none of them is left on the BMC factory
+default:
+
+* The Redfish user, `root` on BlueField-3 and `admin` on BlueField-4.
+* On BlueField-4, the ssh-only `service` account. BMC firmware that does not expose this account is tolerated: DPF
+  logs the failure and continues.
+
+Since the same password is applied to both accounts on BlueField-4, it must satisfy the account policy of both — in
+particular the BMC's minimum password length of 13 characters. A rejected password fails with an error naming the
+account and quoting the BMC's own reason, and is reported as `BMCCredentialsReady=False` with reason
+`BMCAuthenticationFailed`.
+
+This hardening runs right after the [BMC factory reset](bmc-factory-reset.md) performed while the DPUDevice is
+initialized, which returns every account to the factory default password.
+
 ## Onboarding modes and the shared password
 
 How a DPU first obtains its credential depends on how its DPUDevice is created.

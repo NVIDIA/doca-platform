@@ -165,9 +165,13 @@ func generateDPFOperatorConfig() *operatorv1.DPFOperatorConfig {
 		dpfOperatorConfig.Spec.StaticClusterManager.BaseComponentConfig.Disable = ptr.To(true)
 		dpfOperatorConfig.Spec.KamajiClusterManager.BaseComponentConfig.Disable = ptr.To(false)
 		dpfOperatorConfig.Spec.NodeSRIOVDevicePluginController.BaseComponentConfig.Disable = ptr.To(true)
+		// Explicitly set Never so ZT e2e bootstrap does not factory-reset every BMC. The
+		// OperatorConfig field has no CRD default; unset would be stamped OnInitialization by
+		// the discovery controller.
 		dpfOperatorConfig.Spec.ProvisioningController.InstallInterface = &operatorv1.ProvisioningInstallInterface{
 			InstallViaRedfish: &operatorv1.InstallViaRedfish{
-				SkipDPUNodeDiscovery: ptr.To(false),
+				SkipDPUNodeDiscovery:                     ptr.To(false),
+				DiscoveredDPUDeviceBMCFactoryResetPolicy: provisioningv1.BMCFactoryResetPolicyNever,
 			},
 		}
 		dpfOperatorConfig.Spec.DPUDetector = &operatorv1.DPUDetectorConfiguration{
@@ -692,6 +696,18 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 					{Type: "KubeletStarted", Status: metav1.ConditionTrue},
 				},
 			})
+		})
+	})
+
+	Context("BMC Factory Reset", Labels{Domain.ZeroTrust, Domain.RequiresNodes}, func() {
+		It("skips reset on bootstrap and hardens BMC passwords", func() {
+			if !isGinkgoLabelApplied(Domain.ZeroTrust) {
+				Skip("Skip BMC factory reset test: only applies to the Zero-Trust / Redfish install path")
+			}
+			if !input.hasDpuNodes() {
+				Skip("Skip BMC factory reset test as there are no DPU nodes")
+			}
+			ValidateBMCFactoryResetSkippedOnBootstrap(ctx, input)
 		})
 	})
 

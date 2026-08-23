@@ -333,6 +333,7 @@ spec:
         * `bfbRegistry.port`: Port for BFB registry (deprecated; use `spec.provisioningController.registry.loadBalancerAddress` instead)
         * `bfbRegistryAddress`: Address of BFB registry (deprecated; use `spec.provisioningController.registry.loadBalancerAddress` instead)
         * `skipDPUNodeDiscovery`: Skip automatic DPU node discovery (default: `true`)
+        * `discoveredDPUDeviceBMCFactoryResetPolicy`: The BMC factory reset policy stamped into the DPUDevices that discovery creates, `OnInitialization` or `Never`. When omitted, the discovery controller uses `OnInitialization`. A factory reset erases the BMC network configuration, so set this to `Never` when the discovered BMCs have static IP addresses. See [BMC Factory Reset](../../advanced-configuration/bmc-factory-reset.md).
 
 ```yaml
 spec:
@@ -348,6 +349,7 @@ spec:
     installInterface:
       installViaRedfish:
         skipDPUNodeDiscovery: false
+        discoveredDPUDeviceBMCFactoryResetPolicy: OnInitialization  # Set to Never for BMCs with a static IP address
 ```
 
 ### Advanced Overrides

@@ -22,7 +22,9 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"path"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -88,6 +90,25 @@ type RedfishMockServer struct {
 	bmcRShimGetError                bool                     // Simulate GET Oem/Nvidia error for testing
 	lastForceUpdate                 atomic.Bool              // ForceUpdate requested by the most recent PLDM multipart update, read from the test goroutine
 	armPoweredOff                   atomic.Bool              // DPU Arm reported as shut down by GET System, toggled by NvidiaChassis.Reset from another goroutine
+
+	// mu guards the account and factory-reset state below, which tests mutate while requests are
+	// in flight and which the crawler exercises from several goroutines at once.
+	mu sync.RWMutex
+	// enforceBasicAuth makes every endpoint answer 401 unless the request carries the Redfish
+	// user's current credentials. It is off by default so tests written against the permissive
+	// mock keep passing; tests that exercise authentication failures turn it on.
+	enforceBasicAuth       bool
+	serviceAccountPassword string        // Password of the BF4 ssh-only service account
+	factoryResetRequests   int           // Number of ResetToDefaults requests the mock accepted
+	factoryResetStatus     int           // Override the status returned by ResetToDefaults; 0 means 200
+	factoryResetBody       string        // Override the body when factoryResetStatus is set
+	factoryResetOffline    time.Duration // How long the BMC is unreachable after accepting a reset
+	offlineUntil           time.Time     // Deadline of the current simulated reboot
+	accountPatches         []string      // Accounts whose password was PATCHed, in order
+	// passwordChangeRequired mirrors a post-ResetToDefaults BlueField BMC: the factory default
+	// password authenticates, but every Redfish resource except the root and account PATCH
+	// returns 403 PasswordChangeRequired until the password is changed.
+	passwordChangeRequired bool
 }
 
 type DpuVersion int
@@ -117,6 +138,7 @@ func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 		bootSourceOverrideTarget:        "None",                     // Default boot target
 		bootSourceOverrideEnabled:       "Disabled",                 // Default boot override state
 		virtualMediaInserted:            map[string]bool{},          // Default: nothing inserted
+		serviceAccountPassword:          defaultBMCPassword,         // Out of the box, like a real BMC
 	}
 
 	mux := http.NewServeMux()
@@ -153,6 +175,10 @@ func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 	// ResetBMC
 	mux.HandleFunc("/redfish/v1/Managers/{manager_id}/Actions/Manager.Reset", mock.handleResetBMC)
 
+	// Factory reset and account management
+	mux.HandleFunc("/redfish/v1/Managers/{manager_id}/Actions/Manager.ResetToDefaults", mock.handleFactoryReset)
+	mux.HandleFunc("/redfish/v1/AccountService/Accounts/", mock.handleAccount)
+
 	// Server certificate management (mTLS server cert rotation)
 	mux.HandleFunc("/redfish/v1/Managers/Bluefield_BMC/NetworkProtocol/HTTPS/Certificates/1", mock.handleGetServerCert)
 	mux.HandleFunc("/redfish/v1/Managers/Bluefield_BMC/Truststore/Certificates", mock.handleInstallTruststoreCert)
@@ -187,8 +213,91 @@ func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 	mux.HandleFunc("/redfish/v1/Managers/Bluefield_BMC/VirtualMedia/", mock.handleVirtualMedia)
 	mux.HandleFunc("/redfish/v1/Chassis/BlueField_0/Actions/Oem/NvidiaChassis.Reset", mock.handleChassisReset)
 
-	mock.server = httptest.NewUnstartedServer(mux)
+	mock.server = httptest.NewUnstartedServer(mock.withBMCState(mux))
 	return mock
+}
+
+// withBMCState wraps the route table with the behaviors a real BMC applies to every request:
+// it is unreachable while rebooting after a factory reset, it rejects unauthenticated requests,
+// and after a factory reset it answers PasswordChangeRequired until the account password is changed.
+func (r *RedfishMockServer) withBMCState(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if r.isOffline() {
+			// A rebooting BMC does not answer at all. 503 with a Redfish error body is close
+			// enough for the client, which treats any non-200 as "not reachable".
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"error": map[string]interface{}{
+					"code":    "Base.1.18.1.ServiceUnavailable",
+					"message": "The BMC is rebooting after a factory reset.",
+				},
+			})
+			return
+		}
+		if !r.requestAuthorized(req) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"error": map[string]interface{}{
+					"code":    "Base.1.18.1.InsufficientPrivilege",
+					"message": "The credentials provided are invalid.",
+				},
+			})
+			return
+		}
+		if r.isPasswordChangeRequired() && !passwordChangeAllowed(req) {
+			writePasswordChangeRequired(w)
+			return
+		}
+		next.ServeHTTP(w, req)
+	})
+}
+
+func (r *RedfishMockServer) isOffline() bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return !r.offlineUntil.IsZero() && time.Now().Before(r.offlineUntil)
+}
+
+func (r *RedfishMockServer) isPasswordChangeRequired() bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.passwordChangeRequired
+}
+
+// passwordChangeAllowed is the narrow set of Redfish requests a BlueField BMC still honors while
+// PasswordChangeRequired is set: the unauthenticated-looking root (needed to detect BF3 vs BF4)
+// and the account PATCH that clears the requirement.
+func passwordChangeAllowed(req *http.Request) bool {
+	path := req.URL.Path
+	if req.Method == http.MethodGet && (path == "/redfish/v1" || path == "/redfish/v1/") {
+		return true
+	}
+	return req.Method == http.MethodPatch && strings.Contains(path, "/AccountService/Accounts/")
+}
+
+// requestAuthorized reports whether the request may proceed. Only the Redfish user (root on BF3,
+// admin on BF4) can authenticate: the service account is ssh-only and has no Redfish session.
+func (r *RedfishMockServer) requestAuthorized(req *http.Request) bool {
+	r.mu.RLock()
+	enforce, expected := r.enforceBasicAuth, r.password
+	r.mu.RUnlock()
+	if !enforce {
+		return true
+	}
+	user, password, ok := req.BasicAuth()
+	if !ok {
+		return false
+	}
+	return user == r.redfishUser() && password == expected
+}
+
+func (r *RedfishMockServer) redfishUser() string {
+	if r.dpuVersion == BF4 {
+		return client.BF4BMCUser
+	}
+	return client.BF3BMCUser
 }
 
 // Start starts the mock server
@@ -771,6 +880,185 @@ func (r *RedfishMockServer) handleReplaceCert(w http.ResponseWriter, req *http.R
 		return
 	}
 	writeJSONResponse(w, map[string]interface{}{})
+}
+
+// handleFactoryReset implements Manager.ResetToDefaults. It returns every managed account to the
+// factory default password and takes the BMC offline for the configured reboot window, which is how
+// DPF detects that the reset landed.
+func (r *RedfishMockServer) handleFactoryReset(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	r.mu.Lock()
+	if r.factoryResetStatus != 0 {
+		status, body := r.factoryResetStatus, r.factoryResetBody
+		r.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		if body == "" {
+			body = "{}"
+		}
+		_, _ = w.Write([]byte(body))
+		return
+	}
+	r.factoryResetRequests++
+	r.password = defaultBMCPassword
+	r.serviceAccountPassword = defaultBMCPassword
+	r.passwordChangeRequired = true
+	if r.factoryResetOffline > 0 {
+		r.offlineUntil = time.Now().Add(r.factoryResetOffline)
+	}
+	r.mu.Unlock()
+
+	writeJSONResponse(w, map[string]interface{}{})
+}
+
+// handleAccount serves the Redfish account resources DPF writes passwords to. Only PATCH is
+// implemented, which is all the client uses.
+func (r *RedfishMockServer) handleAccount(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPatch {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	account := path.Base(req.URL.Path)
+	var body struct {
+		Password string `json:"Password"`
+	}
+	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.accountPatches = append(r.accountPatches, account)
+
+	switch account {
+	case client.BF4ServiceUser:
+		if r.dpuVersion != BF4 {
+			writeRedfishError(w, http.StatusNotFound,
+				"Base.1.18.1.ResourceMissingAtURI", "The resource at the URI /redfish/v1/AccountService/Accounts/service was not found.")
+			return
+		}
+		r.serviceAccountPassword = body.Password
+	case r.redfishUser():
+		r.password = body.Password
+		// Changing the Redfish user password is what clears PasswordChangeRequired on a real BMC.
+		r.passwordChangeRequired = false
+	default:
+		writeRedfishError(w, http.StatusNotFound,
+			"Base.1.18.1.ResourceMissingAtURI", "The resource at the URI "+req.URL.Path+" was not found.")
+		return
+	}
+
+	writeJSONResponse(w, map[string]interface{}{})
+}
+
+// writePasswordChangeRequired writes the top-level @Message.ExtendedInfo body BlueField BMCs
+// return on Managers / UpdateService / FirmwareInventory after a factory reset.
+func writePasswordChangeRequired(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusForbidden)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"@Message.ExtendedInfo": []map[string]interface{}{
+			{
+				"@odata.type":     "#Message.v1_1_1.Message",
+				"Message":         "The password provided for this account must be changed before access is granted.  PATCH the Password property for this account located at the target URI '/redfish/v1/AccountService/Accounts/root' to complete this process.",
+				"MessageArgs":     []string{"/redfish/v1/AccountService/Accounts/root"},
+				"MessageId":       "Base.1.18.1.PasswordChangeRequired",
+				"MessageSeverity": "Critical",
+				"Resolution":      "Change the password for this account using a PATCH to the Password property at the URI provided.",
+			},
+		},
+	})
+}
+
+// writeRedfishError writes a DMTF-shaped Redfish error body, so error-message extraction in the
+// client is exercised the same way a real BMC would exercise it.
+func writeRedfishError(w http.ResponseWriter, status int, code, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"error": map[string]interface{}{
+			"code":    code,
+			"message": message,
+			"@Message.ExtendedInfo": []map[string]interface{}{
+				{"Message": message, "MessageId": code},
+			},
+		},
+	})
+}
+
+// SetPasswordChangeRequired forces the PasswordChangeRequired gate on or off. Factory reset turns
+// it on automatically; tests that start the BMC already on the factory default use this to skip
+// the reset.
+func (r *RedfishMockServer) SetPasswordChangeRequired(required bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.passwordChangeRequired = required
+}
+
+// SetEnforceBasicAuth makes the mock reject requests that do not carry the Redfish user's current
+// credentials, so 401 paths are actually exercised.
+func (r *RedfishMockServer) SetEnforceBasicAuth(enforce bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.enforceBasicAuth = enforce
+}
+
+// SetFactoryResetOfflineDuration sets how long the mock BMC is unreachable after it accepts a
+// factory reset, emulating the reboot.
+func (r *RedfishMockServer) SetFactoryResetOfflineDuration(d time.Duration) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.factoryResetOffline = d
+}
+
+// SetFactoryResetResponse overrides the response to ResetToDefaults. A status of 0 restores the
+// default behavior of accepting the reset.
+func (r *RedfishMockServer) SetFactoryResetResponse(status int, body string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.factoryResetStatus = status
+	r.factoryResetBody = body
+}
+
+// GetFactoryResetRequests returns how many ResetToDefaults requests the mock has accepted.
+func (r *RedfishMockServer) GetFactoryResetRequests() int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.factoryResetRequests
+}
+
+// GetAccountPatches returns the accounts whose password was PATCHed, in the order the mock saw them.
+func (r *RedfishMockServer) GetAccountPatches() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return append([]string(nil), r.accountPatches...)
+}
+
+// GetServiceAccountPassword returns the password currently set on the ssh-only service account.
+func (r *RedfishMockServer) GetServiceAccountPassword() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.serviceAccountPassword
+}
+
+// GetPassword returns the password currently set on the Redfish user.
+func (r *RedfishMockServer) GetPassword() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.password
+}
+
+// SetPassword sets the password the mock expects for the Redfish user.
+func (r *RedfishMockServer) SetPassword(password string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.password = password
 }
 
 func (r *RedfishMockServer) handleResetBMC(w http.ResponseWriter, req *http.Request) {
