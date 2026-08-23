@@ -25,6 +25,7 @@ The `spec` section defines the desired configuration for the DPU device:
 | `opn` | string | No | Ordering Part Number (deprecated, use status.opn) |
 | `bmcIp` | string | No | IP address of the BMC for remote management |
 | `bmcPort` | uint32 | No | Port number for BMC communication (default: 443) |
+| `bmcFactoryResetPolicy` | string | No | Whether to reset the BMC to factory defaults while initializing the device: `OnInitialization` (default) or `Never`. See [BMC Factory Reset](../../advanced-configuration/bmc-factory-reset.md) |
 | `numberOfPFs` | int | No | Number of Physical Functions on the device (default: 1) |
 | `pf0Name` | string | No | Name of the first Physical Function |
 
@@ -41,6 +42,7 @@ The `status` section contains the observed state of the DPU device:
 | `bmcPort` | uint32 | BMC port discovered from the device |
 | `pciAddress` | string | PCI address of the device in the host system |
 | `pf0Mac` | string | MAC address of the first Physical Function |
+| `bmcFactoryResetRequestTime` | time | When DPF submitted the BMC factory reset. Never cleared once set |
 | `conditions` | array | Array of condition objects describing device state |
 
 ## Conditions
@@ -48,6 +50,7 @@ The `status` section contains the observed state of the DPU device:
 The DPUDevice resource uses several condition types to track its state:
 
 - **DpuDeviceDiscovered**: Indicates that the DPU has been discovered
+- **BMCFactoryResetReady**: Indicates that the [BMC factory reset](../../advanced-configuration/bmc-factory-reset.md) step of initialization has finished, either because the BMC was reset or because the policy said not to reset it
 - **DpuDeviceNodeAttached**: Indicates that the DPU is attached to a node
 - **DpuDeviceInitialized**: Indicates that the DPU interface has been initialized
 - **DpuDeviceError**: Indicates that the DPUDevice has an error
@@ -161,5 +164,6 @@ kubectl get dpudevice MT25066004C7 -n dpf-operator-system -o jsonpath='{.status.
 
 * [DPUNode](dpunode.md) - Node-level DPU management
 * [DPUDiscovery](dpudiscovery.md) - Automatic DPU discovery
+* [BMC Factory Reset](../../advanced-configuration/bmc-factory-reset.md) - The one-time BMC factory reset performed during initialization
 * [DPU](dpudeployment.md) - DPU provisioning and deployment
 * [DPUSet](dpuset.md) - Bulk DPU management

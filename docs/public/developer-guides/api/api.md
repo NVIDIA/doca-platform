@@ -735,6 +735,7 @@ _Appears in:_
 | `bfbRegistryAddress` _string_ | BFBRegistryAddress is the address of the BFB Registry<br />Deprecated: Use RegistryConfiguration instead. |  | MinLength: 1 <br /> |
 | `bfbRegistry` _[BFBRegistryConfiguration](#bfbregistryconfiguration)_ | BFBRegistry is the configuration for the BFB Registry<br />Deprecated: Use RegistryConfiguration instead. |  | Optional: \{\} <br /> |
 | `skipDPUNodeDiscovery` _boolean_ | SkipDPUNodeDiscovery is a flag to skip the DPU node discovery. | true | Optional: \{\} <br /> |
+| `discoveredDPUDeviceBMCFactoryResetPolicy` _[BMCFactoryResetPolicy](#bmcfactoryresetpolicy)_ | DiscoveredDPUDeviceBMCFactoryResetPolicy is the BMC factory reset policy DPUDiscovery<br />sets on the DPUDevices it creates. It is applied at creation time only: changing it<br />does not affect DPUDevices that already exist, and it is not consulted when a<br />DPUDevice is reconciled. When unset, the discovery controller uses OnInitialization. |  | Enum: [OnInitialization Never] <br />Optional: \{\} <br /> |
 
 
 #### KamajiClusterManagerConfiguration
@@ -1879,6 +1880,26 @@ _Appears in:_
 | `atf` _string_ | ATF (Arm Trusted Firmware) version.<br />Contains the version of ATF, which provides a secure runtime environment |  | Optional: \{\} <br /> |
 
 
+#### BMCFactoryResetPolicy
+
+_Underlying type:_ _string_
+
+BMCFactoryResetPolicy controls whether DPF resets a DPU BMC to factory defaults while
+initializing the DPUDevice. The enum and default are declared on each field that uses it, so
+they show up in the CRD schema at that field.
+
+
+
+_Appears in:_
+- [DPUDeviceSpec](#dpudevicespec)
+- [InstallViaRedfish](#installviaredfish)
+
+| Field | Description |
+| --- | --- |
+| `OnInitialization` | BMCFactoryResetPolicyOnInitialization resets the BMC to factory defaults once, while the<br />DPUDevice is being initialized.<br /> |
+| `Never` | BMCFactoryResetPolicyNever never resets the BMC.<br /> |
+
+
 #### BlueFieldSoftware
 
 
@@ -2434,6 +2455,7 @@ _Appears in:_
 | `nicDeviceCount` _integer_ | NICDeviceCount is the expected number of NIC devices used by dpu-agent provisioning.<br />Valid range is 1 to 8. When unspecified, it defaults to 8. |  | Maximum: 8 <br />Minimum: 1 <br />Optional: \{\} <br /> |
 | `pf0Name` _string_ | PF0Name is the name of the PF0 on the device.<br />This value is immutable and should not be changed once set.<br />Example: "eth0"<br />Deprecated: This field is deprecated and will be removed in a future version. Use status.pf0Name instead. |  | Optional: \{\} <br /> |
 | `bmcCredentialSecretName` _string_ | BMCCredentialSecretName is the name of a Secret in the same namespace containing<br />per-device BMC credentials. The secret must contain a "password" key with the BMC credential value.<br />If specified, this password takes precedence over the shared bmc-shared-password secret. |  | Optional: \{\} <br /> |
+| `bmcFactoryResetPolicy` _[BMCFactoryResetPolicy](#bmcfactoryresetpolicy)_ | BMCFactoryResetPolicy controls whether DPF resets this DPU BMC to factory defaults<br />while initializing the DPUDevice. The reset clears all BMC configuration, including<br />network settings, so the BMC must obtain its address via DHCP.<br />- OnInitialization (default): reset the BMC once, while the DPUDevice is initialized.<br />- Never: never reset.<br />The value is honored only until the factory reset step finishes; changing it<br />after BMCFactoryResetReady is True has no effect. | OnInitialization | Enum: [OnInitialization Never] <br />Optional: \{\} <br /> |
 | `cluster` _[DPUDeviceClusterSpec](#dpudeviceclusterspec)_ | Specifies details on the K8S cluster to join |  | Optional: \{\} <br /> |
 | `values` _[RawExtension](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#rawextension-runtime-pkg)_ | Values contains free-form per-device values used to render a DPUFlavorTemplate<br />into a concrete generated DPUFlavor for this device. |  | Optional: \{\} <br /> |
 
@@ -2463,6 +2485,7 @@ _Appears in:_
 | `dpuMode` _[DpuModeType](#dpumodetype)_ | DPUMode is the mode of the DPU. | dpu | Enum: [dpu nic] <br />Optional: \{\} <br /> |
 | `secureBoot` _[SecureBootStatus](#securebootstatus)_ | SecureBoot indicates the current UEFI Secure Boot state. |  | Optional: \{\} <br /> |
 | `bmcCredentialSecretName` _string_ | BMCCredentialSecretName is the name of the Secret last used successfully for BMC authentication. |  | Optional: \{\} <br /> |
+| `bmcFactoryResetRequestTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | BMCFactoryResetRequestTime is when DPF submitted ResetToDefaults to the BMC.<br />It is nil until the request has been accepted, and once set it is never cleared:<br />it is what keeps the BMC from being reset again for this DPUDevice. |  | Optional: \{\} <br /> |
 | `bmcServerCertificate` _[CertificateStatus](#certificatestatus)_ | BMCServerCertificate reports the BMC mTLS server certificate rotation state. |  | Optional: \{\} <br /> |
 | `caTrustBundle` _[TrustBundleStatus](#trustbundlestatus)_ | CATrustBundle stores trust bundle reconciliation progress for the DPUDevice. |  | Optional: \{\} <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ |  |  | Optional: \{\} <br /> |
