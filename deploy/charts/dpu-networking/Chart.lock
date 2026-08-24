@@ -41,5 +41,8 @@ dependencies:
 - name: spire-agent-rbac
   repository: file://charts/spire-agent-rbac
   version: 0.1.0
-digest: sha256:7dfdc617de64f387d586ef304e0dd6fbb9ec2aa5559a198a681be8cfb4193c44
-generated: "2026-08-14T13:09:18.767343+02:00"
+- name: spiffe-csi-driver
+  repository: file://charts/spiffe-csi-driver
+  version: 0.1.0
+digest: sha256:d29b29b149d64ef3975c59382319becd6c0457f7c50f7f4d6ab9d15159c8e7bf
+generated: "2026-08-24T19:50:09.740472+02:00"

@@ -1,0 +1,13 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUService
+metadata:
+  name: spiffe-csi-driver
+  namespace: dpf-operator-system
+spec:
+  security:
+    privileged: true
+  helmChart:
+    source:
+      repoURL: oci://example.com
+      chart: dpu-networking
+      version: v0.1.0
