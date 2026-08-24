@@ -251,6 +251,21 @@ func (mr *MockNetworkHelperMockRecorder) GetLinkIPAddresses(link, family any) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLinkIPAddresses", reflect.TypeOf((*MockNetworkHelper)(nil).GetLinkIPAddresses), link, family)
 }
 
+// GetLinkIndex mocks base method.
+func (m *MockNetworkHelper) GetLinkIndex(link string) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetLinkIndex", link)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetLinkIndex indicates an expected call of GetLinkIndex.
+func (mr *MockNetworkHelperMockRecorder) GetLinkIndex(link any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLinkIndex", reflect.TypeOf((*MockNetworkHelper)(nil).GetLinkIndex), link)
+}
+
 // GetNS mocks base method.
 func (m *MockNetworkHelper) GetNS(nspath string) (ns.NetNS, error) {
 	m.ctrl.T.Helper()
@@ -443,6 +458,21 @@ func (m *MockNetworkHelper) RouteList(device string, family networkhelper.IPFami
 func (mr *MockNetworkHelperMockRecorder) RouteList(device, family, table any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RouteList", reflect.TypeOf((*MockNetworkHelper)(nil).RouteList), device, family, table)
+}
+
+// RouteListAll mocks base method.
+func (m *MockNetworkHelper) RouteListAll(family networkhelper.IPFamily, table *int) ([]netlink.Route, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RouteListAll", family, table)
+	ret0, _ := ret[0].([]netlink.Route)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RouteListAll indicates an expected call of RouteListAll.
+func (mr *MockNetworkHelperMockRecorder) RouteListAll(family, table any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RouteListAll", reflect.TypeOf((*MockNetworkHelper)(nil).RouteListAll), family, table)
 }
 
 // RuleExists mocks base method.

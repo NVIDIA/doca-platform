@@ -46,6 +46,8 @@ type NetworkHelper interface {
 	SetLinkUp(link string) error
 	// GetLinkHardwareAddr returns the MAC address of a link.
 	GetLinkHardwareAddr(link string) (net.HardwareAddr, error)
+	// GetLinkIndex returns the kernel ifindex for a netdev name.
+	GetLinkIndex(link string) (int, error)
 	// IsLinkVeth checks if a link is a veth device.
 	IsLinkVeth(link string) (bool, error)
 	// SetLinkHardwareAddr sets the MAC address of a link.
@@ -70,9 +72,12 @@ type NetworkHelper interface {
 	DeleteRoute(network *net.IPNet, gateway net.IP, device string) error
 	// RouteExists checks whether a route exists
 	RouteExists(network *net.IPNet, gateway net.IP, device string, table *int) (bool, error)
-	// RouteList returns routes for device and the given IP family.
-	// When table is non-nil, only routes in that routing table are returned.
+	// RouteList returns routes for the device and IP family.
+	// A nil table selects main, 0 selects all, otherwise it selects that routing table.
 	RouteList(device string, family IPFamily, table *int) ([]netlink.Route, error)
+	// RouteListAll returns routes for the IP family across all devices, including multipath routes.
+	// A nil table selects main, 0 selects all, otherwise it selects that routing table.
+	RouteListAll(family IPFamily, table *int) ([]netlink.Route, error)
 	// AddDummyLink adds a dummy link
 	AddDummyLink(link string) error
 	// DummyLinkExists checks if a dummy link exists

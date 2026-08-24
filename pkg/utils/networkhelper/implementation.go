@@ -62,6 +62,15 @@ func (n *networkHelper) GetLinkHardwareAddr(link string) (net.HardwareAddr, erro
 	return l.Attrs().HardwareAddr, nil
 }
 
+// GetLinkIndex returns the kernel ifindex for a netdev name.
+func (n *networkHelper) GetLinkIndex(link string) (int, error) {
+	l, err := netlink.LinkByName(link)
+	if err != nil {
+		return 0, fmt.Errorf("netlink.LinkByName() failed: %w", err)
+	}
+	return l.Attrs().Index, nil
+}
+
 // IsLinkVeth checks if a link is a veth device.
 func (n *networkHelper) IsLinkVeth(link string) (bool, error) {
 	l, err := netlink.LinkByName(link)
@@ -259,8 +268,8 @@ func (n *networkHelper) RouteExists(network *net.IPNet, gateway net.IP, device s
 	return false, nil
 }
 
-// RouteList returns routes for device and the given IP family.
-// When table is non-nil, only routes in that routing table are returned.
+// RouteList returns routes for the device and IP family.
+// A nil table selects main, 0 selects all, otherwise it selects that routing table.
 func (n *networkHelper) RouteList(device string, family IPFamily, table *int) ([]netlink.Route, error) {
 	l, err := netlink.LinkByName(device)
 	if err != nil {
@@ -272,8 +281,26 @@ func (n *networkHelper) RouteList(device string, family IPFamily, table *int) ([
 	filterMask := netlink.RT_FILTER_OIF
 	if table != nil {
 		routeFilter.Table = *table
-		filterMask += netlink.RT_FILTER_TABLE
+		filterMask |= netlink.RT_FILTER_TABLE
 	}
+	return routeListFiltered(family, routeFilter, filterMask)
+}
+
+// RouteListAll returns routes for the IP family across all devices, including multipath routes.
+// A nil table selects main, 0 selects all, otherwise it selects that routing table.
+func (n *networkHelper) RouteListAll(family IPFamily, table *int) ([]netlink.Route, error) {
+	// Always pass a non-nil filter: RouteListFiltered dereferences it even when
+	// filterMask is 0.
+	routeFilter := &netlink.Route{}
+	var filterMask uint64
+	if table != nil {
+		routeFilter.Table = *table
+		filterMask = netlink.RT_FILTER_TABLE
+	}
+	return routeListFiltered(family, routeFilter, filterMask)
+}
+
+func routeListFiltered(family IPFamily, routeFilter *netlink.Route, filterMask uint64) ([]netlink.Route, error) {
 	routes, err := netlink.RouteListFiltered(int(family), routeFilter, filterMask)
 	if err != nil {
 		return nil, fmt.Errorf("netlink.RouteListFiltered() failed: %w", err)
