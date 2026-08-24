@@ -104,6 +104,9 @@ type Params struct {
 	BFBRegistryURL       string
 	AstraEnabled         bool
 	NICDeviceCount       int
+
+	// SpiffeTokenExchangeEndpoint enables optional exchange before writing the token.
+	SpiffeTokenExchangeEndpoint string
 	// CATrustBundle holds one or more concatenated PEM certificates for the DPF CA. When set, it is
 	// written to the DPU OS trust store via cloud-init and installed with update-ca-certificates so
 	// the DPU OS (apt over HTTPS, etc.) validates the bfb-registry server certificate.

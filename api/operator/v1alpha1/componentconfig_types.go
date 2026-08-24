@@ -341,6 +341,15 @@ type SPIFFEConfiguration struct {
 	// +required
 	KubeAPIAudience string `json:"kubeAPIAudience,omitempty"`
 
+	// tokenExchangeEndpoint exchanges the SPIRE JWT-SVID before the DSX SPIFFE Helper writes it.
+	// When omitted, the DSX SPIFFE Helper writes the SPIRE JWT-SVID directly.
+	// The returned token's audience must match kubeAPIAudience, or the kube-apiserver rejects the
+	// DPU Agent. Only https: the JWT-SVID is sent here as a bearer credential.
+	// +kubebuilder:validation:Pattern=`^https://[^[:space:]"\\]+$`
+	// +kubebuilder:validation:MaxLength=2048
+	// +optional
+	TokenExchangeEndpoint *string `json:"tokenExchangeEndpoint,omitempty"`
+
 	// SPIREOIDCURL is the OIDC discovery (issuer) URL of the pre-installed SPIRE Server.
 	// The matching kube-apiserver AuthenticationConfiguration.jwt[].issuer value is applied out-of-band.
 	// +kubebuilder:validation:MinLength=1

@@ -1892,6 +1892,15 @@ spec:
                         minLength: 1
                         pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                         type: string
+                      tokenExchangeEndpoint:
+                        description: |-
+                          tokenExchangeEndpoint exchanges the SPIRE JWT-SVID before the DSX SPIFFE Helper writes it.
+                          When omitted, the DSX SPIFFE Helper writes the SPIRE JWT-SVID directly.
+                          The returned token's audience must match kubeAPIAudience, or the kube-apiserver rejects the
+                          DPU Agent. Only https: the JWT-SVID is sent here as a bearer credential.
+                        maxLength: 2048
+                        pattern: ^https://[^[:space:]"\\]+$
+                        type: string
                       trustBundle:
                         description: trustBundle references a ConfigMap holding the
                           initial SPIRE trust bundle.
