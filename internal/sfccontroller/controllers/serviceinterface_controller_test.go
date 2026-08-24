@@ -23,6 +23,7 @@ import (
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	ecpfMock "github.com/nvidia/doca-platform/pkg/ecpf/mock"
+	"github.com/nvidia/doca-platform/pkg/ovsmodel"
 	"github.com/nvidia/doca-platform/pkg/ovsutils"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 
@@ -522,8 +523,11 @@ var _ = Describe("service interface controller", func() {
 			Expect(result.RequeueAfter).NotTo(BeZero())
 		})
 
-		It("should requeue if failed to get port name", func() {
+		It("should requeue if OVS lookup fails after port name resolution fails", func() {
 			ecpfManagerMock.EXPECT().GetRepresentorForPFServiceInterface(gomock.Any()).Return("", fmt.Errorf("failed to get port name"))
+			ovsMock.EXPECT().GetIfaceWithExternalIDs(gomock.Any(), gomock.Eq(map[string]string{
+				ovsutils.DPFIDKey: client.ObjectKeyFromObject(deletedServiceInterface).String(),
+			})).Return(nil, errors.New("failed to query OVS"))
 
 			result, err := sir.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{
 				Namespace: deletedServiceInterface.Namespace,
@@ -573,8 +577,40 @@ var _ = Describe("service interface controller", func() {
 			Expect(result.RequeueAfter).To(BeZero())
 		})
 
-		It("should requeue if failed to get port name", func() {
+		It("should remove the finalizer when the representor and owned OVS interface are absent", func() {
 			ecpfManagerMock.EXPECT().GetRepresentorForVFServiceInterface(gomock.Any()).Return("", fmt.Errorf("failed to get port name"))
+			ovsMock.EXPECT().GetIfaceWithExternalIDs(gomock.Any(), gomock.Eq(map[string]string{
+				ovsutils.DPFIDKey: client.ObjectKeyFromObject(deletedServiceInterface).String(),
+			})).Return(nil, ovsutils.ErrIfaceNotFound)
+
+			result, err := sir.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{
+				Namespace: deletedServiceInterface.Namespace,
+				Name:      deletedServiceInterface.Name,
+			}})
+			Expect(err).To(Succeed())
+			Expect(result.RequeueAfter).To(BeZero())
+		})
+
+		It("should delete the owned OVS interface when the representor is absent", func() {
+			ecpfManagerMock.EXPECT().GetRepresentorForVFServiceInterface(gomock.Any()).Return("", fmt.Errorf("failed to get port name"))
+			ovsMock.EXPECT().GetIfaceWithExternalIDs(gomock.Any(), gomock.Eq(map[string]string{
+				ovsutils.DPFIDKey: client.ObjectKeyFromObject(deletedServiceInterface).String(),
+			})).Return(&ovsmodel.Interface{Name: "stale-vf-representor"}, nil)
+			ovsMock.EXPECT().DelPort(gomock.Any(), SFCBridge, "stale-vf-representor", nil).Return(nil)
+
+			result, err := sir.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{
+				Namespace: deletedServiceInterface.Namespace,
+				Name:      deletedServiceInterface.Name,
+			}})
+			Expect(err).To(Succeed())
+			Expect(result.RequeueAfter).To(BeZero())
+		})
+
+		It("should requeue if OVS lookup fails after representor resolution fails", func() {
+			ecpfManagerMock.EXPECT().GetRepresentorForVFServiceInterface(gomock.Any()).Return("", fmt.Errorf("failed to get port name"))
+			ovsMock.EXPECT().GetIfaceWithExternalIDs(gomock.Any(), gomock.Eq(map[string]string{
+				ovsutils.DPFIDKey: client.ObjectKeyFromObject(deletedServiceInterface).String(),
+			})).Return(nil, errors.New("failed to query OVS"))
 
 			result, err := sir.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{
 				Namespace: deletedServiceInterface.Namespace,
