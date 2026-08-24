@@ -56,7 +56,7 @@ type RedfishMockServer struct {
 	secureBootPatchError            bool                     // Simulate Secure Boot PATCH-only error for testing
 	systemError                     bool                     // Simulate GetSystem endpoint error for testing
 	resetSystemError                bool                     // Simulate ResetSystem endpoint error for testing
-	lastResetType                   string                   // Last ComputerSystem.Reset ResetType received
+	lastResetType                   string                   // Last ComputerSystem.Reset ResetType or SOC.ForceReset
 	productDescriptionError         bool                     // Simulate GetProductDescription endpoint error for testing
 	taskProgressError               bool                     // Simulate CheckTaskProgress endpoint error for testing
 	chassisError                    bool                     // Simulate GetChassis endpoint error for testing
@@ -198,6 +198,7 @@ func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 		mux.HandleFunc("/redfish/v1/Systems/"+systemID+"/Oem/Nvidia/Actions/HostRshim.Set", mock.handleHostRshimSet)
 		mux.HandleFunc("/redfish/v1/Systems/"+systemID+"/SecureBoot", mock.handleSecureBoot)
 		mux.HandleFunc("/redfish/v1/Systems/"+systemID+"/Actions/ComputerSystem.Reset", mock.handleResetSystem)
+		mux.HandleFunc("/redfish/v1/Systems/"+systemID+"/Oem/Nvidia/SOC.ForceReset", mock.handleSOCForceReset)
 		mux.HandleFunc("/redfish/v1/Systems/"+systemID+"/LogServices/SEL/Entries", mock.handleGetSELEntries)
 		mux.HandleFunc("/redfish/v1/Systems/"+systemID+"/Settings", mock.handleBluefieldSystemSettings)
 	}
@@ -1244,7 +1245,7 @@ func (r *RedfishMockServer) SetResetSystemError(simulateError bool) {
 	r.resetSystemError = simulateError
 }
 
-// GetLastResetType returns the last ComputerSystem.Reset ResetType received, or empty if none.
+// GetLastResetType returns the last ComputerSystem.Reset ResetType or SOC.ForceReset action received, or empty if none.
 func (r *RedfishMockServer) GetLastResetType() string {
 	return r.lastResetType
 }
@@ -1773,6 +1774,35 @@ func (r *RedfishMockServer) handleResetSystem(w http.ResponseWriter, req *http.R
 	// Test code must explicitly call ApplySecureBootAfterReboot() at the right time
 
 	// Return success message like real API
+	w.WriteHeader(http.StatusOK)
+	response := map[string]interface{}{
+		"@Message.ExtendedInfo": []map[string]interface{}{
+			{
+				"@odata.type":     "#Message.v1_1_1.Message",
+				"Message":         "The request completed successfully.",
+				"MessageId":       "Base.1.18.1.Success",
+				"MessageSeverity": "OK",
+				"Resolution":      "None.",
+			},
+		},
+	}
+	writeJSONResponse(w, response)
+}
+
+// handleSOCForceReset handles POST /redfish/v1/Systems/{id}/Oem/Nvidia/SOC.ForceReset
+func (r *RedfishMockServer) handleSOCForceReset(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if r.resetSystemError {
+		http.Error(w, "SOC.ForceReset endpoint unavailable", http.StatusInternalServerError)
+		return
+	}
+
+	r.lastResetType = "SOC.ForceReset"
+
 	w.WriteHeader(http.StatusOK)
 	response := map[string]interface{}{
 		"@Message.ExtendedInfo": []map[string]interface{}{
