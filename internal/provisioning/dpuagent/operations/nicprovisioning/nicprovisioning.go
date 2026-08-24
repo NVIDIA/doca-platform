@@ -122,6 +122,10 @@ func (n *NICProvisioning) Execute(execCtx context.Context, optCtx *operations.Co
 	}
 	klog.InfoS("NIC provisioning", "dpu", optCtx.Options.DPUName, "namespace", optCtx.Options.DPUNamespace,
 		"bfbRegistryURL", optCtx.Options.BFBRegistryURL)
+	// Clear a leftover EWNICConfigured=True from a previous boot so DPU Config
+	// cannot leave the phase before this run's runtime config apply succeeds.
+	setAgentCondition(optCtx, cutil.AgentCondEWNICConfigured, metav1.ConditionFalse, "RuntimeConfigPending",
+		"E/W NIC runtime configuration has not been applied yet")
 
 	blueFieldSoftware, err := getReferencedBlueFieldSoftware(execCtx, optCtx)
 	if err != nil {
