@@ -100,6 +100,7 @@ type SystemComponents struct {
 	NodeProblemDetector             Component
 	OpenTelemetryCollector          Component
 	KataContainers                  Component
+	SPIFFECSIDriver                 Component
 	VaultKMS                        Component
 	SpireAgentRBAC                  Component
 	CoreDNS                         Component
@@ -164,6 +165,9 @@ var (
 	//go:embed manifests/kata-containers.yaml
 	kataContainersData []byte
 
+	//go:embed manifests/spiffe-csi-driver.yaml
+	spiffeCSIDriverData []byte
+
 	//go:embed manifests/vault-kms.yaml
 	vaultKMSData []byte
 
@@ -226,6 +230,10 @@ func New() *SystemComponents {
 			name: operatorv1.KataContainersName,
 			data: kataContainersData,
 		},
+		SPIFFECSIDriver: &fromDPUService{
+			name: operatorv1.SPIFFECSIDriverName,
+			data: spiffeCSIDriverData,
+		},
 		VaultKMS: &vaultKMSObjects{
 			data: vaultKMSData,
 		},
@@ -254,6 +262,7 @@ func (s *SystemComponents) SystemDPUServices() []Component {
 		s.KataContainers,
 		s.SpireAgentRBAC,
 		s.CoreDNS,
+		s.SPIFFECSIDriver,
 	}
 }
 
@@ -279,6 +288,7 @@ func (s *SystemComponents) AllComponents() []Component {
 		s.NodeProblemDetector,
 		s.OpenTelemetryCollector,
 		s.KataContainers,
+		s.SPIFFECSIDriver,
 		s.VaultKMS,
 		s.SpireAgentRBAC,
 		s.CoreDNS,

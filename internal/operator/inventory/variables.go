@@ -62,6 +62,7 @@ func newDefaultVariables(defaults *release.Defaults) Variables {
 			operatorv1.DPUMonitoringName:          false,
 			operatorv1.NodeProblemDetectorName:    false,
 			operatorv1.OpenTelemetryCollectorName: true, // Disabled by default, requires endpoint configuration
+			operatorv1.SPIFFECSIDriverName:        true, // Disabled by default (opt-in).
 
 			// Static cluster manager is disabled by default.
 			operatorv1.StaticClusterManagerName: true,
@@ -110,6 +111,7 @@ func newDefaultVariables(defaults *release.Defaults) Variables {
 			operatorv1.KataContainersName:         defaults.DPUNetworkingHelmChart,
 			operatorv1.SpireAgentRBACName:         defaults.DPUNetworkingHelmChart,
 			operatorv1.CoreDNSName:                defaults.DPUNetworkingHelmChart,
+			operatorv1.SPIFFECSIDriverName:        defaults.DPUNetworkingHelmChart,
 		},
 		SFCController: SFCControllerVariables{
 			SecureFlowDeletionTimeout: 0 * time.Second,
@@ -419,7 +421,9 @@ func setAdditionalConfigs(variables Variables, config *operatorv1.DPFOperatorCon
 	// The SPIRE agent's Kubernetes workload attestor needs nodes/pods in the DPU cluster.
 	// Enablement follows the SPIFFE gate rather than a component config, so that opting
 	// into SPIFFE cannot leave workload attestation broken by a missing grant.
-	variables.DisableSystemComponents[operatorv1.SpireAgentRBACName] = !util.SpiffeEnabled(config)
+	spiffeEnabled := util.SpiffeEnabled(config)
+	variables.DisableSystemComponents[operatorv1.SpireAgentRBACName] = !spiffeEnabled
+	variables.DisableSystemComponents[operatorv1.SPIFFECSIDriverName] = !spiffeEnabled
 
 	// Extract replicas for every controller that exposes a Replicas field in the CRD.
 	// This is the single propagation point from DPFOperatorConfig.Spec.<Component>.Replicas

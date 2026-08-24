@@ -61,6 +61,10 @@ dependencies:
     version: "0.1.0"
     repository: file://charts/spire-agent-rbac
     condition: spire-agent-rbac.enabled
+  - name: spiffe-csi-driver
+    version: "0.1.0"
+    repository: file://charts/spiffe-csi-driver
+    condition: spiffe-csi-driver.enabled
 annotations:
   dpfVersion: ""
   created: ""

@@ -1,0 +1,18 @@
+# Adapted from https://github.com/spiffe/helm-charts-hardened/blob/aabc73b1e51976d6115fa1291b71889010ee64f9/charts/spire/charts/spiffe-csi-driver/templates/spiffe-csi-driver.yaml
+apiVersion: storage.k8s.io/v1
+kind: CSIDriver
+metadata:
+  # Workload volume specs refer to this stable CSI driver name.
+  name: csi.spiffe.io
+spec:
+  # The driver supports ephemeral inline volumes and needs no controller.
+  attachRequired: false
+
+  # Pod information lets the driver verify the ephemeral mount request.
+  podInfoOnMount: true
+
+  # The Workload API socket permissions do not need fsGroup ownership changes.
+  fsGroupPolicy: None
+
+  volumeLifecycleModes:
+  - Ephemeral

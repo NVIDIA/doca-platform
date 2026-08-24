@@ -48,6 +48,7 @@ var (
 	OpenTelemetryCollectorName          ComponentName = "opentelemetry-collector"
 	PLDMUnpackContainerName             ComponentName = "pldmunpack"
 	KataContainersName                  ComponentName = "kata-containers"
+	SPIFFECSIDriverName                 ComponentName = "spiffe-csi-driver"
 	VaultKMSName                        ComponentName = "vault-kms"
 	SpireAgentRBACName                  ComponentName = "spire-agent-rbac"
 	CoreDNSName                         ComponentName = "coredns"
