@@ -1,8 +1,7 @@
-# E2E config for running the DPFSystem tests non-destructively against an
-# already-provisioned OpenShift (OCP) cluster. Selected by the `OCP` ginkgo
-# label (see the e2e-ocp-bf3 CI job), which puts the suite in OCP reuse mode:
-# BeforeSuite reuses the existing DPFOperatorConfig and DPUCluster instead of
-# creating them and never (re)provisions DPUs.
+# E2E config for running DPFSystem tests against an already-provisioned
+# OpenShift (OCP) cluster. Selected by the `OCP` ginkgo label (see the
+# e2e-ocp-bf3 CI job), which reuses the existing DPFOperatorConfig and
+# DPUCluster. Provisioning specs may replace DPU or DPUDeployment resources.
 #
 # Based on config-provisioning-physical.yaml. The differences are:
 #   * dpfOperatorConfig points at a static manifest matching the live OCP
@@ -11,8 +10,9 @@
 #   * dpuClusters points at the existing static `doca` DPUCluster; the suite
 #     only reads it (name/namespace must match the live object) and never
 #     creates it.
-# The bfb / dpuSet / dpuFlavor entries are loaded to satisfy the shared config
-# validation but are never applied in OCP reuse mode (no provisioning happens).
+# The bfb / dpuSet / dpuFlavor entries satisfy shared config validation.
+# OCP full DPUDeployment creation reuses the BFB/BlueFieldSoftware and flavor
+# references from the existing DPUDeployment instead of applying these objects.
 dpfOperatorConfig: "../objects/infrastructure/operatorconfig-ocp.yaml"
 bfb: "../objects/infrastructure/bfb.yaml"
 dpuClusters:

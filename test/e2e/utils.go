@@ -120,7 +120,7 @@ type TestDomain struct {
 	Observability           string // Observability test suite
 	ImagePullSecretsSync    string // ImagePullSecrets sync/cleanup validation (opt out in CI via !ImagePullSecretsSync)
 	Performance             string // Performance test suite - applies MTU 9000 and extended DMS timeout
-	OCP                     string // OpenShift reuse tests: run non-destructively against an already-provisioned cluster (no DPU (re)provisioning)
+	OCP                     string // OpenShift tests: reuse the provisioned control plane; selected specs may reprovision DPUs
 }
 
 // Domain is the global instance of test label domains
