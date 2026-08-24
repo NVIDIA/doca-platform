@@ -1,0 +1,19 @@
+# Images from https://github.com/spiffe/helm-charts-hardened/blob/aabc73b1e51976d6115fa1291b71889010ee64f9/charts/spire/charts/spiffe-csi-driver/values.yaml
+image:
+  repository: ghcr.io/spiffe/spiffe-csi-driver
+  pullPolicy: IfNotPresent
+  tag: 0.2.7@sha256:9dfe4f0caff096164fd921aa7f15319804df2fc0325f1d90bc793ef3256ab1cd
+
+nodeDriverRegistrar:
+  image:
+    repository: registry.k8s.io/sig-storage/csi-node-driver-registrar
+    pullPolicy: IfNotPresent
+    tag: v2.9.4@sha256:ab6c4603d8da43d9f33361a5716552080e3f72badfad099d76fcf4b59e547d80
+
+resources:
+  driver:
+    requests: {cpu: 20m, memory: 32Mi}
+    limits: {cpu: 100m, memory: 64Mi}
+  registrar:
+    requests: {cpu: 10m, memory: 16Mi}
+    limits: {cpu: 50m, memory: 32Mi}

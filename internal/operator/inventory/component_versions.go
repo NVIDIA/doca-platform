@@ -35,6 +35,7 @@ var componentIntroducedVersions = map[operatorv1.ComponentName]string{
 	operatorv1.VaultKMSName:               "v26.8.0",
 	operatorv1.DPUMonitoringName:          "v26.8.0",
 	operatorv1.CoreDNSName:                "v26.8.0",
+	operatorv1.SPIFFECSIDriverName:        "v26.8.0",
 }
 
 // ShouldSkipUpgradeCheck determines if a component's upgrade readiness check should be skipped
