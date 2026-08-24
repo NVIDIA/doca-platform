@@ -1,0 +1,125 @@
+# Adapted from https://github.com/spiffe/helm-charts-hardened/blob/aabc73b1e51976d6115fa1291b71889010ee64f9/charts/spire/charts/spiffe-csi-driver/templates/daemonset.yaml
+{{- $serviceDaemonSet := dig "serviceDaemonSet" (dict) (.Values.global | default dict) }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "spiffe-csi-driver.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "spiffe-csi-driver.labels" . | nindent 4 }}
+  annotations:
+    {{- include "spiffe-csi-driver.annotations" . | nindent 4 }}
+spec:
+  {{- with $serviceDaemonSet.updateStrategy }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "spiffe-csi-driver.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "spiffe-csi-driver.labels" . | nindent 8 }}
+      annotations:
+        {{- include "spiffe-csi-driver.annotations" . | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      serviceAccountName: {{ include "spiffe-csi-driver.fullname" . }}
+      imagePullSecrets: {{ .Values.imagePullSecrets | default list | toJson }}
+      {{- with $serviceDaemonSet.nodeSelector }}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            {{- toYaml . | nindent 12 }}
+      {{- end }}
+      containers:
+      # Mounts the host SPIRE agent socket into workload Pods.
+      - name: spiffe-csi-driver
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        args:
+        - -workload-api-socket-dir
+        - /spire-agent-socket
+        - -plugin-name
+        - csi.spiffe.io
+        - -csi-socket-path
+        - /spiffe-csi/csi.sock
+        env:
+        # The CSI driver uses the node name as its unique node ID.
+        - name: MY_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        securityContext:
+          capabilities:
+            drop:
+            - ALL
+          privileged: true
+          readOnlyRootFilesystem: true
+        resources:
+          {{- include "spiffe-csi-driver.resources" (dict
+                "serviceDaemonSet" $serviceDaemonSet.resources
+                "defaults" .Values.resources.driver) | nindent 10 }}
+        volumeMounts:
+        # The host SPIRE agent socket directory.
+        - name: spire-agent-socket-dir
+          mountPath: /spire-agent-socket
+          readOnly: true
+        # The socket shared with kubelet and the registrar.
+        - name: spiffe-csi-socket-dir
+          mountPath: /spiffe-csi
+        # Kubelet mount points for workload Pods.
+        - name: mountpoint-dir
+          mountPath: /var/lib/kubelet/pods
+          mountPropagation: Bidirectional
+      # Registers the CSI driver with kubelet.
+      - name: node-driver-registrar
+        image: "{{ .Values.nodeDriverRegistrar.image.repository }}:{{ .Values.nodeDriverRegistrar.image.tag }}"
+        imagePullPolicy: {{ .Values.nodeDriverRegistrar.image.pullPolicy }}
+        args:
+        - -csi-address
+        - /spiffe-csi/csi.sock
+        - -kubelet-registration-path
+        - /var/lib/kubelet/plugins/csi.spiffe.io/csi.sock
+        - -health-port
+        - "9809"
+        ports:
+        - name: healthz
+          containerPort: 9809
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: healthz
+          initialDelaySeconds: 5
+          timeoutSeconds: 5
+        resources:
+          {{- toYaml .Values.resources.registrar | nindent 10 }}
+        securityContext:
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - name: spiffe-csi-socket-dir
+          mountPath: /spiffe-csi
+        - name: kubelet-plugin-registration-dir
+          mountPath: /registration
+      volumes:
+      - name: spire-agent-socket-dir
+        hostPath:
+          # The DPU SPIRE agent exposes its Workload API socket here.
+          path: /run/spire
+          type: DirectoryOrCreate
+      - name: spiffe-csi-socket-dir
+        hostPath:
+          path: /var/lib/kubelet/plugins/csi.spiffe.io
+          type: DirectoryOrCreate
+      - name: mountpoint-dir
+        hostPath:
+          path: /var/lib/kubelet/pods
+          type: Directory
+      - name: kubelet-plugin-registration-dir
+        hostPath:
+          path: /var/lib/kubelet/plugins_registry
+          type: Directory
