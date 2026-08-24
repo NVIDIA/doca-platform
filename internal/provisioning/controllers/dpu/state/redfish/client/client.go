@@ -63,6 +63,7 @@ const (
 	APICheckProgress                = "redfish/v1/TaskService/Tasks"
 	APIGetManagers                  = "redfish/v1/Managers"
 	APIGetSystems                   = "redfish/v1/Systems"
+	APIGetBMCManager                = "redfish/v1/Managers/{MANAGER_ID}"
 	APIFactoryResetBMC              = "redfish/v1/Managers/{MANAGER_ID}/Actions/Manager.ResetToDefaults"
 	APIResetBMC                     = "redfish/v1/Managers/{MANAGER_ID}/Actions/Manager.Reset"
 	APIEnableBMCRshim               = "redfish/v1/Managers/Bluefield_BMC/Oem/Nvidia"
@@ -369,6 +370,22 @@ type BootProgress struct {
 type Client struct {
 	*resty.Client
 	IsBF4 bool
+}
+
+type BmcManager struct {
+	DateTime        string `json:"DateTime,omitempty"`
+	FirmwareVersion string `json:"FirmwareVersion,omitempty"`
+	LastResetTime   string `json:"LastResetTime,omitempty"`
+}
+
+func (c *Client) GetBmcManager() (*resty.Response, *BmcManager, error) {
+	managerID, err := getBMCManagerID(c)
+	if err != nil {
+		return nil, nil, err
+	}
+	return do[BmcManager](func() (*resty.Response, error) {
+		return c.Client.R().Get(strings.Replace(APIGetBMCManager, "{MANAGER_ID}", *managerID, 1))
+	})
 }
 
 // ChangeBMCPassword changes BMC password. For more information, refer to

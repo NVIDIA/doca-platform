@@ -24,6 +24,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
 
@@ -85,6 +86,7 @@ type RedfishMockServer struct {
 	bmcRShimGetError                bool                     // Simulate GET Oem/Nvidia error for testing
 	lastForceUpdate                 atomic.Bool              // ForceUpdate requested by the most recent PLDM multipart update, read from the test goroutine
 	armPoweredOff                   atomic.Bool              // DPU Arm reported as shut down by GET System, toggled by NvidiaChassis.Reset from another goroutine
+	time                            string                   // BMC time
 }
 
 type DpuVersion int
@@ -143,6 +145,9 @@ func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 
 	// Managers
 	mux.HandleFunc("/redfish/v1/Managers", mock.handleGetManagers)
+
+	// BMC Manager
+	mux.HandleFunc("/redfish/v1/Managers/{manager_id}", mock.handleGetBmcManager)
 
 	// ResetBMC
 	mux.HandleFunc("/redfish/v1/Managers/{manager_id}/Actions/Manager.Reset", mock.handleResetBMC)
@@ -1492,6 +1497,32 @@ func (r *RedfishMockServer) handleResetSystem(w http.ResponseWriter, req *http.R
 			},
 		},
 	}
+	writeJSONResponse(w, response)
+}
+
+// SetTime overrides the BMC clock reported by GET Managers/<id>. An empty string restores
+// the default of a clock synchronized with the host.
+func (r *RedfishMockServer) SetTime(timeStr string) {
+	r.time = timeStr
+}
+
+func (r *RedfishMockServer) handleGetBmcManager(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	dateTime := r.time
+	if dateTime == "" {
+		dateTime = time.Now().Format(time.RFC3339)
+	}
+
+	response := map[string]interface{}{
+		"@odata.id":       "/redfish/v1/Managers/Bluefield_BMC",
+		"DateTime":        dateTime,
+		"FirmwareVersion": r.bmcVersion,
+	}
+
 	writeJSONResponse(w, response)
 }
 

@@ -88,9 +88,10 @@ const (
 	// serverCertRotationBackoff is used when the mTLS client cannot be opened for rotation.
 	serverCertRotationBackoff = 5 * time.Minute
 
-	CATrustBundleConfigMap = "dpf-ca-trust-bundle"
-	CATrustBundleDataKey   = "ca.crt"
-	BundleHashDataKey      = "bundle-hash"
+	CATrustBundleConfigMap          = "dpf-ca-trust-bundle"
+	CATrustBundleDataKey            = "ca.crt"
+	BundleHashDataKey               = "bundle-hash"
+	bmcManagerDateTimeSyncThreshold = 1 * time.Minute
 )
 
 // errCertRequestPending indicates the server-cert CertificateRequest is not yet issued and the
@@ -525,6 +526,11 @@ func (r *DPUDeviceReconciler) initializeDPUDevice(ctx context.Context, dpuDevice
 		}
 	}
 
+	if err := checkBMCManagerDateTimeSync(ctx, basicAuthClient); err != nil {
+		cutil.SetDPUDeviceCondition(dpuDevice, cutil.NewCondition(string(provisioningv1.ConditionDpuDeviceInitialized), err, "BMCManagerDateTimeUnsynchronized", err.Error()))
+		return err
+	}
+
 	_, err = rfclient.NewTLSClient(ctx, bmcAddress, dpuDevice.Namespace, r.Client)
 	if err != nil {
 		// Stale controller client leaf (CA re-issued without client renewal) cannot be healed by
@@ -879,6 +885,26 @@ func (r *DPUDeviceReconciler) refreshDPUMode(ctx context.Context, dpuDevice *pro
 	return nil
 }
 
+func checkBMCManagerDateTimeSync(ctx context.Context, client *rfclient.Client) error {
+	log := log.FromContext(ctx)
+	_, bmcManager, err := client.GetBmcManager()
+	if err != nil {
+		log.Error(err, "Failed to get BMC manager")
+		return err
+	}
+	bmcManagerDateTime, err := time.Parse(time.RFC3339, bmcManager.DateTime)
+	if err != nil {
+		log.Error(err, "Failed to parse BMC manager date time")
+		return err
+	}
+	if time.Since(bmcManagerDateTime).Abs() > bmcManagerDateTimeSyncThreshold {
+		err = fmt.Errorf("BMC manager date time is unsynchronized with system time")
+		log.Error(err, "BMC manager date time is unsynchronized with system time", "bmcManagerDateTime", bmcManagerDateTime, "time", time.Now())
+		return err
+	}
+	return nil
+}
+
 // reconcileDynamicFields refreshes the status fields that can change on the device after discovery,
 // so that the DPUDevice keeps reflecting the current state of the hardware.
 func (r *DPUDeviceReconciler) reconcileDynamicFields(ctx context.Context, dpuDevice *provisioningv1.DPUDevice) error {
@@ -906,6 +932,10 @@ func (r *DPUDeviceReconciler) reconcileDynamicFields(ctx context.Context, dpuDev
 			Enabled: ptr.To(enabled),
 		}
 		log.Info("Detected Secure Boot state", "address", bmcAddress, "enabled", enabled)
+	}
+
+	if err := checkBMCManagerDateTimeSync(ctx, client); err != nil {
+		return err
 	}
 
 	return nil
