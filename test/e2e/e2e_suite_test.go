@@ -381,16 +381,12 @@ var _ = BeforeSuite(func() {
 	By("Performing before suite cleanup")
 	cleanupTracker.HandleScopeLifecycle(nil, cleanup.GinkgoHook.BeforeSuite)
 
-	// OpenShift reuse mode runs against an already-provisioned cluster. Skip the
-	// provisioning block and the domain-specific hooks entirely; instead reuse
-	// the existing DPFOperatorConfig and DPUCluster without (re)provisioning any
-	// DPUs. The BeforeSuite cleanup above is label-scoped, so it never touches
-	// the pre-existing, unlabeled operator config / DPUCluster.
-	//
-	// OCP reuse mode: the active label filter selects the OCP label, so the
-	// suite runs non-destructively against an already-provisioned cluster.
+	// OpenShift reuse mode skips the suite-level provisioning block and
+	// domain-specific hooks. The BeforeSuite cleanup above is label-scoped, so
+	// it never touches the pre-existing, unlabeled operator config / DPUCluster.
+	// Individual OCP specs may still exercise DPU provisioning.
 	if isGinkgoLabelApplied(Domain.OCP) {
-		By("Running OCP reuse-mode BeforeSuite (no provisioning; reusing existing cluster)")
+		By("Running OCP reuse-mode BeforeSuite (reusing existing control-plane resources)")
 		OCPReuseBeforeSuite()
 		return
 	}

@@ -404,10 +404,36 @@ func VerifyDeploymentUnderlyingObjectsCreated(ctx context.Context, g Gomega, tes
 }
 
 func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInput) {
-	// TODO: Delete DPUSet not owned by DPUDeployment
+	ocp := isGinkgoLabelApplied(Domain.OCP)
+	var existingOCPDPUs *dpuservicev1.DPUs
+	if ocp {
+		By("Recording and deleting the existing OCP DPUDeployment")
+		dpuDeploymentList := &dpuservicev1.DPUDeploymentList{}
+		Expect(input.client.List(ctx, dpuDeploymentList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		Expect(dpuDeploymentList.Items).NotTo(BeEmpty(),
+			"OCP full creation expects an existing DPUDeployment whose provisioning configuration can be reused")
+
+		src := dpuDeploymentList.Items[0]
+		for i := range dpuDeploymentList.Items {
+			if dpuDeploymentList.Items[i].Name == "dpudeployment" {
+				src = dpuDeploymentList.Items[i]
+				break
+			}
+		}
+		existingOCPDPUs = src.Spec.DPUs.DeepCopy()
+		Expect(client.IgnoreNotFound(input.client.DeleteAllOf(ctx, &dpuservicev1.DPUDeployment{},
+			client.InNamespace(dpfOperatorSystemNamespace)))).To(Succeed())
+	}
+
 	By("Delete DPUs and DPUSets and ensure they are deleted for a clean test condition")
 
 	Eventually(func(g Gomega) {
+		if ocp {
+			dpuDeploymentList := &dpuservicev1.DPUDeploymentList{}
+			g.Expect(input.client.List(ctx, dpuDeploymentList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+			g.Expect(dpuDeploymentList.Items).To(BeEmpty())
+		}
+
 		dpuSetList := &provisioningv1.DPUSetList{}
 
 		g.Expect(client.IgnoreNotFound(input.client.DeleteAllOf(ctx, &provisioningv1.DPUSet{}, client.InNamespace(dpfOperatorSystemNamespace)))).To(Succeed())
@@ -426,6 +452,58 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 		// The timeout is so long here because for Zero Trust provisioning takes longer
 	}).WithTimeout(45 * time.Minute).Should(Succeed())
 
+	if existingOCPDPUs != nil {
+		// DPFHCPProvisioner.spec.dpuDeploymentRef is immutable and points at
+		// dpf-operator-system/dpudeployment. Without that object, ignition and
+		// the dynamic bf.cfg ConfigMap disappear and dummy DPUs stick at Prepare BFB.
+		By("Restoring a non-selecting DPUDeployment so HCP can regenerate bf.cfg")
+		dpus := *existingOCPDPUs
+		dpus.DPUSets = []dpuservicev1.DPUSet{{
+			NameSuffix: "stub",
+			DPUNodeSelector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"dpf.nvidia.com/hcp-provisioner-stub": "never-match"},
+			},
+		}}
+		// No cleanup label: DPFHCPProvisioner.dpuDeploymentRef is immutable and
+		// must keep pointing at this name after the suite. That object is created
+		// by the upstream dpf-on-ocp deploy-setup-22 job; this spec depends on
+		// that initial state. A BeforeSuite leftover cleanup would also have to
+		// re-apply the DPUSet this test deletes at the start, so we leave the
+		// stub in place instead. One service is required by the DPUDeployment
+		// spec; HCP regenerates bf.cfg from the object's existence, not from
+		// that service becoming Ready.
+		stub := &dpuservicev1.DPUDeployment{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "dpudeployment",
+				Namespace: dpfOperatorSystemNamespace,
+			},
+			Spec: dpuservicev1.DPUDeploymentSpec{
+				DPUs: dpus,
+				Services: map[string]dpuservicev1.DPUDeploymentServiceConfiguration{
+					"doca-telemetry-service": {
+						ServiceTemplate:      "doca-telemetry-service",
+						ServiceConfiguration: "doca-telemetry-service",
+					},
+				},
+			},
+		}
+		Expect(input.client.Create(ctx, stub)).To(Succeed())
+		Eventually(func(g Gomega) {
+			cms := &corev1.ConfigMapList{}
+			g.Expect(input.client.List(ctx, cms, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+			matched := false
+			for i := range cms.Items {
+				if strings.Contains(strings.ToLower(cms.Items[i].Name), "bfcfg") {
+					matched = true
+					break
+				}
+			}
+			g.Expect(matched).To(BeTrue(), "expected a bf.cfg template ConfigMap after restoring dpudeployment")
+			// The HCP provisioner reconciles ignition and bf.cfg on a slow resync,
+			// so regeneration is observed a few minutes after the restore.
+		}).WithTimeout(10 * time.Minute).WithPolling(time.Second).Should(Succeed())
+	}
+
 	By("Create DPUServiceIPAM to be used by dpuDeployment")
 	dpuServiceIPAM := input.ipPoolDPUServiceIPAM.DeepCopy()
 	dpuServiceIPAM.SetLabels(CleanupScope.Suite)
@@ -441,15 +519,41 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 	Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuServiceTemplate))).To(Succeed())
 
 	dpuServiceConfiguration := generateServiceConfiguration(input, "")
+	if ocp {
+		// mybrsfc chains the rdma CNI, which reaches the DPU nodes only through
+		// the DPF CNI installer. OpenShift keeps that installer disabled because
+		// it does not support the RHCOS BFB, so dummy services use ConfigPorts.
+		dpuServiceConfiguration.Spec.Interfaces = nil
+		dpuServiceConfiguration.Spec.ServiceConfiguration.ConfigPorts = &dpuservicev1.ConfigPorts{
+			ServiceType: corev1.ServiceTypeNodePort,
+			Ports: []dpuservicev1.ConfigPort{{
+				Name:     "exampletcp",
+				Port:     8080,
+				Protocol: corev1.ProtocolTCP,
+			}},
+		}
+	}
 	Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuServiceConfiguration))).To(Succeed())
 
 	dpuServiceTemplate2 := generateDPUServiceTemplate(input, "2")
 	useDummyDPUServiceChart(dpuServiceTemplate2)
-	Expect(input.client.Create(ctx, dpuServiceTemplate2)).To(Succeed())
+	Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuServiceTemplate2))).To(Succeed())
 
 	dpuServiceConfiguration2 := generateServiceConfiguration(input, "2")
-	dpuServiceConfiguration2.Spec.Interfaces = []dpuservicev1.ServiceInterfaceTemplate{{Name: "net2", Network: "mybrsfc"}}
-	Expect(input.client.Create(ctx, dpuServiceConfiguration2)).To(Succeed())
+	if ocp {
+		dpuServiceConfiguration2.Spec.Interfaces = nil
+		dpuServiceConfiguration2.Spec.ServiceConfiguration.ConfigPorts = &dpuservicev1.ConfigPorts{
+			ServiceType: corev1.ServiceTypeNodePort,
+			Ports: []dpuservicev1.ConfigPort{{
+				Name:     "exampletcp",
+				Port:     8080,
+				Protocol: corev1.ProtocolTCP,
+			}},
+		}
+	} else {
+		dpuServiceConfiguration2.Spec.Interfaces = []dpuservicev1.ServiceInterfaceTemplate{{Name: "net2", Network: "mybrsfc"}}
+	}
+	Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, dpuServiceConfiguration2))).To(Succeed())
 
 	inClusterDPUServiceTemplate := input.dpuServiceTemplate.DeepCopy()
 	inClusterDPUServiceTemplate.SetLabels(CleanupScope.Suite)
@@ -462,12 +566,30 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 	inClusterDPUServiceConfiguration.Spec.Interfaces = nil
 	inClusterDPUServiceConfiguration.Spec.DeploymentServiceName = "example-in-cluster"
 	inClusterDPUServiceConfiguration.Spec.ServiceConfiguration.DeployInCluster = ptr.To(true)
-
 	dpuDeployment := testutils.GenerateDPUObj("dpf-dpudeployment", input.dpuDeployment.DeepCopy().Namespace, input.dpuDeployment.DeepCopy(), CleanupScope.Suite)
+	if existingOCPDPUs != nil {
+		// The OCP reuse suite does not create the BFB/BlueFieldSoftware or DPUFlavor.
+		// Reuse the provisioning inputs from the deployment which successfully
+		// provisioned this cluster instead of relying on the generic physical config.
+		dpuDeployment.Spec.DPUs.BFB = existingOCPDPUs.BFB
+		dpuDeployment.Spec.DPUs.BlueFieldSoftware = existingOCPDPUs.BlueFieldSoftware
+		dpuDeployment.Spec.DPUs.Flavor = existingOCPDPUs.Flavor
+		dpuDeployment.Spec.DPUs.FlavorTemplate = existingOCPDPUs.FlavorTemplate
+	}
 	// Intentionally using deprecated field, e2e tests will be updated once we have removed the deprecated field. Unit
 	// tests cover the new field, e2e tests cover the old field since there is no more unit test coverage for the deprecated field.
 	dpuNodeSelector := &metav1.LabelSelector{
 		MatchLabels: map[string]string{"feature.node.kubernetes.io/dpu-enabled": "true"},
+	}
+	if ocp {
+		// OpenShift NFD stamps feature.node.kubernetes.io/dpu-enabled with an empty
+		// value, so MatchLabels "true" selects no nodes. Exists matches both.
+		dpuNodeSelector = &metav1.LabelSelector{
+			MatchExpressions: []metav1.LabelSelectorRequirement{{
+				Key:      "feature.node.kubernetes.io/dpu-enabled",
+				Operator: metav1.LabelSelectorOpExists,
+			}},
+		}
 	}
 	//nolint:staticcheck
 	dpuDeployment.Spec.DPUs.DPUSets[0].NodeSelector = dpuNodeSelector
@@ -487,7 +609,9 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 		ServiceConfiguration: "dpudeployment-example-serviceconfiguration-2",
 	}
 
-	if !isGinkgoLabelApplied(Domain.ZeroTrust) {
+	// OCP jobs filter on OCP, not ZeroTrust, so the ZeroTrust skip above does not
+	// fire. hello-world nginx also cannot run on the host cluster under restricted-v2.
+	if !isGinkgoLabelApplied(Domain.ZeroTrust) && !ocp {
 		Expect(input.client.Create(ctx, inClusterDPUServiceTemplate)).To(Succeed())
 		Expect(input.client.Create(ctx, inClusterDPUServiceConfiguration)).To(Succeed())
 		dpuDeployment.Spec.Services["example-in-cluster"] = dpuservicev1.DPUDeploymentServiceConfiguration{
@@ -496,32 +620,46 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 		}
 	}
 
-	// Update the switch to map net1 to net2
-	dpuDeployment.Spec.ServiceChains.Switches[0] = dpuservicev1.DPUDeploymentSwitch{
-		Ports: []dpuservicev1.DPUDeploymentPort{
-			{
-				Service: &dpuservicev1.DPUDeploymentService{
-					InterfaceName: "net1",
-					Name:          "example",
-					IPAM: &dpuservicev1.IPAM{
-						MatchLabels: map[string]string{
-							"svc.dpu.nvidia.com/pool": "pool1",
+	if ocp {
+		// The dummy services expose ConfigPorts instead of mybrsfc interfaces
+		// there, so the chain is left with the uplink port alone.
+		dpuDeployment.Spec.ServiceChains.Switches[0] = dpuservicev1.DPUDeploymentSwitch{
+			Ports: []dpuservicev1.DPUDeploymentPort{
+				{
+					ServiceInterface: &dpuservicev1.ServiceIfc{
+						MatchLabels: map[string]string{"uplink": "p0"},
+					},
+				},
+			},
+		}
+	} else {
+		// Update the switch to map net1 to net2
+		dpuDeployment.Spec.ServiceChains.Switches[0] = dpuservicev1.DPUDeploymentSwitch{
+			Ports: []dpuservicev1.DPUDeploymentPort{
+				{
+					Service: &dpuservicev1.DPUDeploymentService{
+						InterfaceName: "net1",
+						Name:          "example",
+						IPAM: &dpuservicev1.IPAM{
+							MatchLabels: map[string]string{
+								"svc.dpu.nvidia.com/pool": "pool1",
+							},
+						},
+					},
+				},
+				{
+					Service: &dpuservicev1.DPUDeploymentService{
+						InterfaceName: "net2",
+						Name:          "example-2",
+						IPAM: &dpuservicev1.IPAM{
+							MatchLabels: map[string]string{
+								"svc.dpu.nvidia.com/pool": "pool1",
+							},
 						},
 					},
 				},
 			},
-			{
-				Service: &dpuservicev1.DPUDeploymentService{
-					InterfaceName: "net2",
-					Name:          "example-2",
-					IPAM: &dpuservicev1.IPAM{
-						MatchLabels: map[string]string{
-							"svc.dpu.nvidia.com/pool": "pool1",
-						},
-					},
-				},
-			},
-		},
+		}
 	}
 
 	// The DPUDeployment renders a per-DPU DPUFlavor from a template (against each DPUDevice.spec.values) instead of
@@ -551,18 +689,20 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 	}).WithTimeout(180 * time.Second).Should(Succeed())
 
 	serviceInterfaceLabels := map[string]string{}
-	By("Verify ServiceInterfaceSet is created in DPF clusters")
-	Eventually(func(g Gomega) {
-		// Get the DPUServiceInterface owned by DPUDeployment
-		dpuServiceInterfaceList := &dpuservicev1.DPUServiceInterfaceList{}
-		g.Expect(input.client.List(ctx, dpuServiceInterfaceList,
-			client.MatchingLabels{
-				"svc.dpu.nvidia.com/owned-by-dpudeployment": fmt.Sprintf("%s_%s", dpuDeployment.GetNamespace(), dpuDeployment.GetName())})).
-			To(Succeed())
-		g.Expect(dpuServiceInterfaceList.Items).To(HaveLen(2))
-		// getting labels for ServiceInterface check
-		serviceInterfaceLabels = dpuServiceInterfaceList.Items[0].Spec.Template.Spec.Template.Labels
-	}, time.Second*300, time.Millisecond*250).Should(Succeed())
+	if !ocp {
+		By("Verify ServiceInterfaceSet is created in DPF clusters")
+		Eventually(func(g Gomega) {
+			// Get the DPUServiceInterface owned by DPUDeployment
+			dpuServiceInterfaceList := &dpuservicev1.DPUServiceInterfaceList{}
+			g.Expect(input.client.List(ctx, dpuServiceInterfaceList,
+				client.MatchingLabels{
+					"svc.dpu.nvidia.com/owned-by-dpudeployment": fmt.Sprintf("%s_%s", dpuDeployment.GetNamespace(), dpuDeployment.GetName())})).
+				To(Succeed())
+			g.Expect(dpuServiceInterfaceList.Items).To(HaveLen(2))
+			// getting labels for ServiceInterface check
+			serviceInterfaceLabels = dpuServiceInterfaceList.Items[0].Spec.Template.Spec.Template.Labels
+		}, time.Second*300, time.Millisecond*250).Should(Succeed())
+	}
 
 	if Label(Domain.Scale).MatchesLabelFilter(GinkgoLabelFilter()) {
 		// mock-DMS / scale scenario: serviceChains and ServiceInterfaces cannot
@@ -583,13 +723,15 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 		DPUNodeBMCs:         input.dpuNodeBMCs,
 	})
 
-	By(fmt.Sprintf("Verify a NodeServiceInterfaces entry is created on %d nodes", input.totalDPUs()))
-	Eventually(func(g Gomega) {
-		// One NodeServiceInterfaces object per DPU cluster node, and every DPU device is its own node.
-		nsiList := &dpuservicev1.NodeServiceInterfacesList{}
-		g.Expect(dpuClusterClient[0].List(ctx, nsiList, client.InNamespace(utils.NSIObjectsNamespace))).To(Succeed())
-		g.Expect(countNodesWithNSIEntry(nsiList, serviceInterfaceLabels)).To(Equal(input.totalDPUs()))
-	}).WithTimeout(15 * time.Minute).WithPolling(time.Second).Should(Succeed())
+	if !ocp {
+		By(fmt.Sprintf("Verify a NodeServiceInterfaces entry is created on %d nodes", input.totalDPUs()))
+		Eventually(func(g Gomega) {
+			// One NodeServiceInterfaces object per DPU cluster node, and every DPU device is its own node.
+			nsiList := &dpuservicev1.NodeServiceInterfacesList{}
+			g.Expect(dpuClusterClient[0].List(ctx, nsiList, client.InNamespace(utils.NSIObjectsNamespace))).To(Succeed())
+			g.Expect(countNodesWithNSIEntry(nsiList, serviceInterfaceLabels)).To(Equal(input.totalDPUs()))
+		}).WithTimeout(15 * time.Minute).WithPolling(time.Second).Should(Succeed())
+	}
 
 	By("Verify service pods have the service reference label")
 	Eventually(func(g Gomega) {
@@ -1401,6 +1543,7 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgradeBadConfigurationAndBack(ctx
 // ValidateDPUDeploymentInClusterDPUServiceDisruptiveUpgrade validates that DPUDeployment disruptive upgrade flow for
 // in-cluster DPUServices works as expected
 func ValidateDPUDeploymentInClusterDPUServiceDisruptiveUpgrade(ctx context.Context, input *systemTestInput) {
+	skipInOCPReuse("example-in-cluster is not created; hello-world nginx cannot run under restricted-v2")
 	if input.numberOfDPUNodes != 2 {
 		// Test assumes that there are exactly 2 host nodes to match the DPU cluster
 		Skip("Skip test as there are not exactly 2 nodes")

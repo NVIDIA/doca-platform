@@ -256,13 +256,12 @@ func generateDPFOperatorConfig() *operatorv1.DPFOperatorConfig {
 
 // SystemSetupBeforeSuite sets up the system components for the e2e tests.
 // If skipSystemComponentValidation is true, it skips the validation of system components after deployment.
-// OCPReuseBeforeSuite prepares the suite to run non-destructively against an
-// already-provisioned cluster (e.g. OpenShift). Unlike the standard
-// provisioning BeforeSuite it does not create or delete the DPFOperatorConfig,
-// BFB, DPUFlavor, DPUSet or DPUCluster and never (re)provisions DPUs. It only
-// verifies the existing DPF operator + DPFOperatorConfig are ready and binds
-// the DPUCluster client(s) to the already-provisioned cluster(s) so read-only
-// and additive tests can run against them.
+// OCPReuseBeforeSuite prepares the suite to run against an already-provisioned
+// cluster (e.g. OpenShift). Unlike the standard provisioning BeforeSuite it
+// does not create or delete the DPFOperatorConfig, BFB, DPUFlavor, DPUSet or
+// DPUCluster. It verifies the existing DPF operator + DPFOperatorConfig are
+// ready and binds the DPUCluster client(s) to the existing cluster. Individual
+// OCP specs may subsequently replace DPU or DPUDeployment resources.
 func OCPReuseBeforeSuite() {
 	By("OCP: ensuring the DPF operator deployment is ready")
 	Eventually(func(g Gomega) {
@@ -858,9 +857,21 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 		})
 	})
 
+	// Host-trusted only (no ZeroTrust label): delete DPU CRs, keep DPUSet, wait
+	// until the controller recreates them Ready. Must run before DPUDeployment
+	// full creation, which deletes the suite DPUSet. This ordering is only
+	// guaranteed while the suite does not run with --randomize-all.
+	Context("DPU reprovisioning", Serial, Labels{Domain.RequiresNodes, Domain.OCP}, func() {
+		It("delete DPU CRs and wait for the DPUSet to reprovision them", func() {
+			ValidateHostTrustedDPUReprovision(ctx, input)
+		})
+	})
+
 	// These tests delete the existing DPUSet created in the beginning of the testing suite, and create a DPUDeployment
 	// instead. The DPUDeployment should not be removed until all the tests in the e2e suite are run as the DPUs will be
 	// deleted.
+	// OCP selects only the Ready spec (and therefore this container's BeforeAll).
+	// Unlabeled disruptive-upgrade Its stay out of the OCP filter.
 	Context("Validate DPUDeployment full creation", Serial, Ordered, func() {
 		BeforeAll(func() {
 			By("Should validate DPUDeployment and underlying objects creation")
@@ -869,7 +880,7 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 		It("should validate per-DPU DPUFlavorTemplate node labels on tenant Nodes", func() {
 			ValidateDPUFlavorTemplatePerDeviceNodeLabels(ctx, input)
 		})
-		It("should validate DPUDeployment becomes ready", Labels{Domain.ZeroTrust}, func() {
+		It("should validate DPUDeployment becomes ready", Labels{Domain.ZeroTrust, Domain.RequiresNodes, Domain.OCP}, func() {
 			VerifyDPUDeploymentIsReady(ctx, input)
 		})
 		It("should validate DPUDeployment disruptive upgrade of standard DPUServices", Labels{Domain.ZeroTrust}, func() {

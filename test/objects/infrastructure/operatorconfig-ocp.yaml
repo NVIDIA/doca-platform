@@ -15,7 +15,8 @@ metadata:
 spec:
   # Required by DPFOperatorConfig CRD; OCP host-trusted setups use hostAgent.
   deploymentMode: host-trusted
-  # OpenShift provides multus/CNI itself, so the DPF-managed variants are off.
+  # OpenShift provides multus/CNI itself, and the openshift-dpf install keeps the
+  # DPF CNI installer off because it does not support the RHCOS BFB.
   cniInstaller:
     disable: true
   multus:
