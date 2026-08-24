@@ -1,5 +1,5 @@
 [Unit]
-Description=SPIFFE Helper
+Description=DSX SPIFFE Helper
 After=spire-agent.service
 Requires=spire-agent.service
 

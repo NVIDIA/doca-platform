@@ -3,9 +3,9 @@ arch: arm64
 version: "${VERSION}"
 maintainer: NVIDIA DPF Team <dpf@nvidia.com>
 description: |
-  SPIFFE Helper for DPF DPU SPIFFE identity.
-  Fetches JWT-SVIDs from SPIRE Agent for kube-apiserver authentication.
-vendor: SPIFFE
+  DSX SPIFFE Helper for DPU Agent authentication.
+  Writes SPIRE JWT-SVIDs directly or after RFC 8693 token exchange.
+vendor: NVIDIA
 license: Apache-2.0
 section: admin
 priority: optional

@@ -290,6 +290,20 @@ var _ = Describe("DefaultDPUArtifactGenerator", func() {
 			Expect(kubeconfig.AuthInfos["default"].TokenFile).To(Equal(constants.SpiffeTokenPath))
 		})
 
+		It("configures token exchange", func() {
+			config := defaultDPFConfig()
+			config.Spec.Security.SPIFFE.KubeAPIAudience = "az51-dev2-dh2"
+			config.Spec.Security.SPIFFE.TokenExchangeEndpoint = ptr.To("https://identity-keys.example/v1/exchange")
+			buildReqWith(config, trustBundleCM())
+
+			artifact, err := generator.GenerateBF4(ctx, req)
+			Expect(err).NotTo(HaveOccurred())
+
+			helperConfig, found := extractWriteFile(artifact.UserData, constants.SpiffeHelperConfigPath)
+			Expect(found).To(BeTrue())
+			Expect(helperConfig).To(ContainSubstring(`token_exchange_endpoint = "https://identity-keys.example/v1/exchange"`))
+		})
+
 		It("embeds SPIFFE cloud-init in BF3 output", func() {
 			buildReq(trustBundleCM())
 

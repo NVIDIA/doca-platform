@@ -138,7 +138,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=bind,source=Makefile,target=Makefile \
     --mount=type=bind,source=hack/tools/tools.mk,target=hack/tools/tools.mk \
-    GOFLAGS="-mod=vendor" make binary-dpuagent binary-pldmunpackserver binary-dpu-hw-agent binary-certreloader
+    GOFLAGS="-mod=vendor" make binary-dpuagent binary-pldmunpackserver binary-dpu-hw-agent binary-spiffe-helper binary-certreloader
 
 # Copy the go source code so it can be distributed in the final image.
 RUN mkdir src && \
@@ -168,7 +168,7 @@ RUN mkdir -p /dpu-hw-deb \
     && cp /workspace/bin/dpu-hw-agent_*_arm64.deb /dpu-hw-deb/ \
     && cp /workspace/bin/dpu-hw-agent_*_arm64.deb.sha256 /dpu-hw-deb/
 
-# SPIRE Agent and spiffe-helper packager stage - upstream arm64 binaries as .debs for DPU SPIFFE identity.
+# SPIRE Agent and DSX SPIFFE Helper packager stage.
 FROM --platform=${BUILDPLATFORM} ${builder_image} AS spire-packager
 WORKDIR /workspace
 
@@ -178,6 +178,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 
 COPY internal/spire/spire_agent/packaging/ internal/spire/spire_agent/packaging/
 COPY internal/spire/spiffe_helper/packaging/ internal/spire/spiffe_helper/packaging/
+COPY --from=dpuagent-builder /workspace/bin/spiffe-helper /workspace/bin/spiffe-helper
 
 ARG TAG
 RUN --mount=type=cache,target=/workspace/hack/tools/bin,sharing=locked \
