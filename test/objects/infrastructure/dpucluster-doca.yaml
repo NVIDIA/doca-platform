@@ -1,0 +1,13 @@
+# Static DPUCluster used by the OCP reuse e2e config (config-ocp-physical.yaml).
+# The name and namespace MUST match the DPUCluster already provisioned on the
+# OpenShift setup (created out of band by the openshift-dpf install). In OCP
+# reuse mode the suite only reads this object to obtain its kubeconfig and to
+# build a tunneled client - it never creates or mutates it.
+apiVersion: provisioning.dpu.nvidia.com/v1alpha1
+kind: DPUCluster
+metadata:
+  name: doca
+  namespace: dpf-operator-system
+spec:
+  type: static
+  maxNodes: 10

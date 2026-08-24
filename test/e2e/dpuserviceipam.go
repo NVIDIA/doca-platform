@@ -49,14 +49,21 @@ func ValidateDPUServiceIPAMCreationInvalid(ctx context.Context, input *systemTes
 	err := input.client.Create(ctx, dpuServiceIPAM)
 	Expect(err).To(HaveOccurred())
 	fmt.Printf("Error creating the DPUServiceIPAM CR: %v\n", err)
-	Expect(apierrors.IsInvalid(err)).To(BeTrue())
-	Expect(err.Error()).To(ContainSubstring("exactly one of ipv4Network, ipv4Subnet, network, or subnet must be specified"))
+	// Two admission paths reject this object, and the OCP reuse suite runs against a
+	// pinned 26.4 release while this suite comes from main. The CRD's CEL rule rejects
+	// with Invalid, the 26.4 webhook with BadRequest.
+	Expect(apierrors.IsInvalid(err) || apierrors.IsBadRequest(err)).To(BeTrue(),
+		"expected an admission rejection, got: %v", err)
+	Expect(err.Error()).To(Or(
+		ContainSubstring("exactly one of ipv4Network, ipv4Subnet, network, or subnet must be specified"),
+		ContainSubstring("either ipv4Subnet or ipv4Network must be specified"),
+	))
 }
 
 func ValidateDPUServiceIPAMCreationSubnetSplit(ctx context.Context, input *systemTestInput) {
 	dpuServiceIPAMWithIPPoolName := "switched-application"
 	By("Creating the DPUServiceIPAM CR")
-	dpuServiceIPAM := testutils.GenerateDPUObj(dpuServiceIPAMWithIPPoolName, dpuServiceIPAMNamespace, input.ipPoolDPUServiceIPAM.DeepCopy())
+	dpuServiceIPAM := buildTestDPUServiceIPAM(dpuServiceIPAMWithIPPoolName, input.ipPoolDPUServiceIPAM)
 	Expect(input.client.Create(ctx, dpuServiceIPAM)).To(Succeed())
 
 	By("Checking that NVIPAM IPPool CR is created in the DPU clusters")
@@ -73,8 +80,10 @@ func ValidateDPUServiceIPAMCreationSubnetSplit(ctx context.Context, input *syste
 }
 
 func ValidateDPUServiceIPAMMetrics(ctx context.Context, input *systemTestInput) {
+	skipMetricNamesInOCPReuse()
+
 	By("Creating the DPUServiceIPAM CR")
-	dpuServiceIPAM := testutils.GenerateDPUObj("switched-application-metrics", dpuServiceIPAMNamespace, input.ipPoolDPUServiceIPAM.DeepCopy())
+	dpuServiceIPAM := buildTestDPUServiceIPAM("switched-application-metrics", input.ipPoolDPUServiceIPAM)
 	Expect(input.client.Create(ctx, dpuServiceIPAM)).To(Succeed())
 
 	By("Verify DPUServiceIPAM metrics in host cluster KSM")
@@ -124,7 +133,7 @@ func ValidateDPUServiceIPAMMetricsDeletion(ctx context.Context, input *systemTes
 	}
 
 	By("Creating the DPUServiceIPAM CR")
-	dpuServiceIPAM := testutils.GenerateDPUObj(dpuServiceIPAMWithIPPoolName, dpuServiceIPAMNamespace, input.ipPoolDPUServiceIPAM.DeepCopy())
+	dpuServiceIPAM := buildTestDPUServiceIPAM(dpuServiceIPAMWithIPPoolName, input.ipPoolDPUServiceIPAM)
 	Expect(input.client.Create(ctx, dpuServiceIPAM)).To(Succeed())
 
 	// Wait for the controller to set its finalizer before deleting, otherwise a
@@ -152,7 +161,7 @@ func ValidateDPUServiceIPAMMetricsDeletion(ctx context.Context, input *systemTes
 func ValidateDPUServiceIPAMCreationCidrSplit(ctx context.Context, input *systemTestInput) {
 	dpuServiceIPAMWithCIDRPoolName := "routed-application"
 	By("Creating the DPUServiceIPAM CR")
-	dpuServiceIPAM := testutils.GenerateDPUObj(dpuServiceIPAMWithCIDRPoolName, dpuServiceIPAMNamespace, input.cidrDPUServiceIPAM.DeepCopy())
+	dpuServiceIPAM := buildTestDPUServiceIPAM(dpuServiceIPAMWithCIDRPoolName, input.cidrDPUServiceIPAM)
 	Expect(input.client.Create(ctx, dpuServiceIPAM)).To(Succeed())
 
 	By("Checking that NVIPAM CIDRPool CR is created in the DPU clusters")
@@ -166,6 +175,12 @@ func ValidateDPUServiceIPAMCreationCidrSplit(ctx context.Context, input *systemT
 
 		// TODO: Check that NVIPAM has reconciled the resources and status reflects that.
 	}).WithTimeout(180 * time.Second).Should(Succeed())
+
+	// The pinned release operator used in OCP reuse mode emits the metric names
+	// without the dpf_ prefix, so only the CIDRPool checks above apply there.
+	if isGinkgoLabelApplied(Domain.OCP) {
+		return
+	}
 
 	By("Verify CIDRPool metrics in DPU cluster KSM")
 	expectedCIDRPoolMetricsNames := map[string][]string{
@@ -191,7 +206,7 @@ func ValidateDPUServiceIPAMDeletionCidrSplit(ctx context.Context, input *systemT
 	dpuServiceIPAMWithCIDRPoolName := "routed-application-delete"
 
 	By("Creating the DPUServiceIPAM CR")
-	dpuServiceIPAM := testutils.GenerateDPUObj(dpuServiceIPAMWithCIDRPoolName, dpuServiceIPAMNamespace, input.ipPoolDPUServiceIPAM.DeepCopy())
+	dpuServiceIPAM := buildTestDPUServiceIPAM(dpuServiceIPAMWithCIDRPoolName, input.cidrDPUServiceIPAM)
 	Expect(input.client.Create(ctx, dpuServiceIPAM)).To(Succeed())
 
 	// Wait for the controller to set its finalizer before deleting, otherwise a
@@ -214,4 +229,18 @@ func ValidateDPUServiceIPAMDeletionCidrSplit(ctx context.Context, input *systemT
 		})).To(Succeed())
 		g.Expect(cidrPools.Items).To(BeEmpty())
 	}).WithTimeout(180 * time.Second).Should(Succeed())
+}
+
+// buildTestDPUServiceIPAM returns a DPUServiceIPAM for the test. On OCP it
+// drops physical-suite-only node selectors and static allocations.
+func buildTestDPUServiceIPAM(name string, template *dpuservicev1.DPUServiceIPAM) *dpuservicev1.DPUServiceIPAM {
+	dpuServiceIPAM := testutils.GenerateDPUObj(name, dpuServiceIPAMNamespace, template.DeepCopy())
+	if !isGinkgoLabelApplied(Domain.OCP) {
+		return dpuServiceIPAM
+	}
+	dpuServiceIPAM.Spec.NodeSelector = nil
+	if dpuServiceIPAM.Spec.IPV4Network != nil {
+		dpuServiceIPAM.Spec.IPV4Network.Allocations = nil
+	}
+	return dpuServiceIPAM
 }

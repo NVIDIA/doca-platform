@@ -1,0 +1,50 @@
+# DPFOperatorConfig mirroring the live configuration on the OpenShift setup.
+# Used by config-ocp-physical.yaml so the e2e suite's `input.config` reflects the
+# already-deployed operator config. In OCP reuse mode this manifest is loaded
+# for reference only - it is NOT applied/created (the operator config is
+# provisioned out of band by the openshift-dpf install).
+#
+# The name MUST be the singleton "dpfoperatorconfig" in namespace
+# dpf-operator-system (enforced by the suite). Keep this in sync with the live
+# object (kubectl get dpfoperatorconfig dpfoperatorconfig -n dpf-operator-system -o yaml).
+apiVersion: operator.dpu.nvidia.com/v1alpha1
+kind: DPFOperatorConfig
+metadata:
+  name: dpfoperatorconfig
+  namespace: dpf-operator-system
+spec:
+  # Required by DPFOperatorConfig CRD; OCP host-trusted setups use hostAgent.
+  deploymentMode: host-trusted
+  # OpenShift provides multus/CNI itself, so the DPF-managed variants are off.
+  cniInstaller:
+    disable: true
+  multus:
+    disable: true
+  flannel:
+    podCIDR: 10.132.0.0/14
+  imagePullSecrets:
+    - dpf-pull-secret
+  # Only the static cluster manager runs on this setup (Hypershift-backed).
+  kamajiClusterManager:
+    disable: true
+  staticClusterManager:
+    disable: false
+  networking:
+    controlPlaneMTU: 1500
+    highSpeedMTU: 1500
+  nodeSRIOVDevicePluginController:
+    disable: false
+    replicas: 1
+    devicePlugin:
+      defaultResourcePrefix: openshift.io
+  overrides:
+    dpuCNIBinPath: /var/lib/cni/bin/
+    dpuCNIPath: /run/multus/cni/net.d/
+    dpuOpenvSwitchSystemSharedLib64Path: /lib64
+    flannelSkipCNIConfigInstallation: false
+    kubernetesAPIServerPort: 6443
+    kubernetesAPIServerVIP: api.ocp-dpf-setup22.rdg.local.domain
+  provisioningController:
+    dmsTimeout: 900
+    enableDynamicBFCFGTemplates: true
+    hostAgentDNSPolicy: Default

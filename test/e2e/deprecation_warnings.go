@@ -53,6 +53,8 @@ func (w *warningCollector) get() []string {
 // spec.bmcIP on a DPU as one arbitrary example of a deprecated field to
 // trigger and assert on the warning.
 func ValidateVAPDeprecationWarnings(ctx context.Context, input *systemTestInput) {
+	skipInOCPReuse("the pinned release operator ships no deprecation ValidatingAdmissionPolicies")
+
 	collector := &warningCollector{}
 	cfg := rest.CopyConfig(input.restConfig)
 	cfg.WarningHandler = collector

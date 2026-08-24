@@ -67,6 +67,8 @@ func ValidateDPUServiceChainCreation(ctx context.Context, input *systemTestInput
 }
 
 func ValidateDPUServiceChainMetrics(ctx context.Context, input *systemTestInput) {
+	skipMetricNamesInOCPReuse()
+
 	dpuServiceInterfaceName := "pf0-vf2-metrics"
 	dpuServiceInterfaceNamespace := "test-metrics"
 	dpuServiceChainName := "svc-chain-test-metrics"

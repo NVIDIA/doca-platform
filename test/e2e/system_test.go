@@ -32,6 +32,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	machineryruntime "k8s.io/apimachinery/pkg/runtime"
@@ -255,6 +256,33 @@ func generateDPFOperatorConfig() *operatorv1.DPFOperatorConfig {
 
 // SystemSetupBeforeSuite sets up the system components for the e2e tests.
 // If skipSystemComponentValidation is true, it skips the validation of system components after deployment.
+// OCPReuseBeforeSuite prepares the suite to run non-destructively against an
+// already-provisioned cluster (e.g. OpenShift). Unlike the standard
+// provisioning BeforeSuite it does not create or delete the DPFOperatorConfig,
+// BFB, DPUFlavor, DPUSet or DPUCluster and never (re)provisions DPUs. It only
+// verifies the existing DPF operator + DPFOperatorConfig are ready and binds
+// the DPUCluster client(s) to the already-provisioned cluster(s) so read-only
+// and additive tests can run against them.
+func OCPReuseBeforeSuite() {
+	By("OCP: ensuring the DPF operator deployment is ready")
+	Eventually(func(g Gomega) {
+		deployment := &appsv1.Deployment{}
+		g.Expect(testClient.Get(ctx, client.ObjectKey{
+			Namespace: dpfOperatorSystemNamespace,
+			Name:      "dpf-operator-controller-manager"},
+			deployment)).To(Succeed())
+		g.Expect(deployment.Status.ReadyReplicas).To(Equal(*deployment.Spec.Replicas))
+	}).WithTimeout(120 * time.Second).Should(Succeed())
+
+	By("OCP: ensuring the existing DPFOperatorConfig is ready")
+	VerifyDPFOperatorConfigReady(ctx, testClient, 15*time.Minute)
+
+	By("OCP: connecting to the already-provisioned DPUCluster(s)")
+	provInput := getProvisionDPUClustersInput()
+	WaitForExistingDPUClustersReady(ctx, provInput)
+	getDPUClusterClients(ctx, provInput)
+}
+
 func SystemSetupBeforeSuite(skipSystemComponentValidation bool) {
 	if Label(Domain.Scale).MatchesLabelFilter(GinkgoLabelFilter()) {
 		CreateDPUWorkerNodes(ctx, input.numberOfDPUNodes)
@@ -434,7 +462,7 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 			VerifyDPUClusterWithNodes(ctx, getProvisionDPUClustersInput())
 
 			By("Waiting for DPU cluster pods to be ready")
-			VerifyClusterPods(ctx, dpuClusterClient[0], systemPodsToVerify)
+			VerifyClusterPods(ctx, dpuClusterClient[0], dpuClusterPodsToVerify())
 
 			By("Waiting for DPFOperatorConfig to be ready")
 			VerifyDPFOperatorConfigReady(ctx, input.client, 20*time.Minute)
@@ -459,7 +487,7 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 		})
 	})
 
-	Context("DPU Service IPAM", Labels{Domain.ZeroTrust}, func() {
+	Context("DPU Service IPAM", Labels{Domain.ZeroTrust, Domain.OCP}, func() {
 		It("create an invalid DPUServiceIPAM and ensure that the webhook rejects the request", func() {
 			ValidateDPUServiceIPAMCreationInvalid(ctx, input)
 		})
@@ -480,7 +508,7 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 		})
 	})
 
-	Context("DPU Service Chain", Labels{Domain.ZeroTrust}, func() {
+	Context("DPU Service Chain", Labels{Domain.ZeroTrust, Domain.OCP}, func() {
 		It("create DPUServiceInterface and check that it is mirrored to each cluster", func() {
 			ValidateDPUServiceInterfaceCreation(ctx, input)
 		})
@@ -495,7 +523,7 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 		})
 	})
 
-	Context("DPU Service Credential Request", Labels{Domain.ZeroTrust}, func() {
+	Context("DPU Service Credential Request", Labels{Domain.ZeroTrust, Domain.OCP}, func() {
 		It("create a DPUServiceCredentialRequest and check that the credentials are created", func() {
 			ValidateDPUServiceCredentialRequestCreation(ctx, input)
 		})
@@ -519,7 +547,7 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 		})
 	})
 
-	Context("DPU Service Template", Labels{Domain.ZeroTrust}, func() {
+	Context("DPU Service Template", Labels{Domain.ZeroTrust, Domain.OCP}, func() {
 		It("create a DPUServiceTemplate with a chart that doesn't include annotations and expect no versions in status", func() {
 			ValidateDPUServiceTemplateCreationNoAnnotations(ctx, input)
 		})
@@ -531,13 +559,13 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 		})
 	})
 
-	Context("Validate General DPF Metrics", Labels{Domain.ZeroTrust}, func() {
+	Context("Validate General DPF Metrics", Labels{Domain.ZeroTrust, Domain.OCP}, func() {
 		It("should validate general DPF Metrics ", func() {
 			ValidateGeneralDPFMetrics(ctx, input)
 		})
 	})
 
-	Context("VAP Deprecation Warnings", Labels{Domain.ZeroTrust}, func() {
+	Context("VAP Deprecation Warnings", Labels{Domain.ZeroTrust, Domain.OCP}, func() {
 		It("verify VAP emits a warning when a deprecated field is set", func() {
 			ValidateVAPDeprecationWarnings(ctx, input)
 		})
@@ -586,7 +614,7 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 
 	Context("Observability", Labels{Domain.Observability, Domain.ZeroTrust}, func() {
 		Context("Monitoring", func() {
-			Context("Metrics Collection", Labels{Domain.ZeroTrust}, func() {
+			Context("Metrics Collection", Labels{Domain.ZeroTrust, Domain.OCP}, func() {
 				It("validate host cluster kube-state-metrics is accessible", func() {
 					VerifyHostKSMMetricsCollection(ctx)
 				})
@@ -604,7 +632,7 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 				})
 			})
 
-			Context("Node Problem Detector", Labels{Domain.ZeroTrust, Domain.RequiresNodes}, func() {
+			Context("Node Problem Detector", Labels{Domain.ZeroTrust, Domain.RequiresNodes, Domain.OCP}, func() {
 				It("validate node-problem-detector is reporting DPU-specific node conditions", func() {
 					if !input.hasDpuNodes() {
 						Skip("Skip Node Problem Detector test as there are no DPU nodes")
@@ -667,34 +695,59 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 			})
 		})
 	})
-	Context("DPU Agent", Labels{Domain.ZeroTrust, Domain.RequiresNodes}, func() {
+	Context("DPU Agent", Labels{Domain.ZeroTrust, Domain.RequiresNodes, Domain.OCP}, func() {
 		It("validate DPU agent has reported status on all provisioned DPUs", func() {
-			ValidateDPUAgentStatus(ctx, input, provisioningv1.AgentStatus{
-				RebootMethod:        ptr.To(provisioningv1.RebootMethodNoAction),
-				RebootSequenceCount: ptr.To(int32(0)),
-				Conditions: []metav1.Condition{
+			// ZeroTrust / dpuagent path reports the full condition set. OCP uses
+			// the hostAgent install path, which reports a smaller subset.
+			expectedConditions := []metav1.Condition{
+				{Type: "KernelModuleLoaded", Status: metav1.ConditionTrue},
+				{Type: "NetworkConfigured", Status: metav1.ConditionTrue},
+				{Type: "NetworkChecked", Status: metav1.ConditionTrue},
+				{Type: "LastStartupTimeReported", Status: metav1.ConditionTrue},
+				{Type: "DPURetrieved", Status: metav1.ConditionTrue},
+				{Type: "DNSConfigured", Status: metav1.ConditionTrue},
+				{Type: "StaticFilesVerified", Status: metav1.ConditionTrue},
+				{Type: "BuiltinKubeletRemoved", Status: metav1.ConditionTrue},
+				{Type: "SysctlParametersSet", Status: metav1.ConditionTrue},
+				{Type: "SysctlParametersChecked", Status: metav1.ConditionTrue},
+				{Type: "KernelCmdLineConfigured", Status: metav1.ConditionTrue},
+				{Type: "ContainerdConfigured", Status: metav1.ConditionTrue},
+				{Type: "DpuModeEnsured", Status: metav1.ConditionTrue},
+				{Type: "NVConfigApplied", Status: metav1.ConditionTrue},
+				{Type: "RebootHandled", Status: metav1.ConditionTrue},
+				{Type: "KernelCmdLineChecked", Status: metav1.ConditionTrue},
+				{Type: "SFCreated", Status: metav1.ConditionTrue},
+				{Type: "VFMacSet", Status: metav1.ConditionTrue},
+				{Type: "OVSScriptRun", Status: metav1.ConditionTrue},
+				{Type: "KubeletConfigured", Status: metav1.ConditionTrue},
+				{Type: "KubeletStarted", Status: metav1.ConditionTrue},
+			}
+			if isGinkgoLabelApplied(Domain.OCP) {
+				expectedConditions = []metav1.Condition{
+					{Type: "NVConfigApplied", Status: metav1.ConditionTrue},
 					{Type: "KernelModuleLoaded", Status: metav1.ConditionTrue},
-					{Type: "NetworkConfigured", Status: metav1.ConditionTrue},
 					{Type: "NetworkChecked", Status: metav1.ConditionTrue},
 					{Type: "LastStartupTimeReported", Status: metav1.ConditionTrue},
 					{Type: "DPURetrieved", Status: metav1.ConditionTrue},
-					{Type: "DNSConfigured", Status: metav1.ConditionTrue},
 					{Type: "StaticFilesVerified", Status: metav1.ConditionTrue},
-					{Type: "BuiltinKubeletRemoved", Status: metav1.ConditionTrue},
 					{Type: "SysctlParametersSet", Status: metav1.ConditionTrue},
 					{Type: "SysctlParametersChecked", Status: metav1.ConditionTrue},
-					{Type: "KernelCmdLineConfigured", Status: metav1.ConditionTrue},
-					{Type: "ContainerdConfigured", Status: metav1.ConditionTrue},
 					{Type: "DpuModeEnsured", Status: metav1.ConditionTrue},
-					{Type: "NVConfigApplied", Status: metav1.ConditionTrue},
 					{Type: "RebootHandled", Status: metav1.ConditionTrue},
 					{Type: "KernelCmdLineChecked", Status: metav1.ConditionTrue},
 					{Type: "SFCreated", Status: metav1.ConditionTrue},
 					{Type: "VFMacSet", Status: metav1.ConditionTrue},
-					{Type: "OVSScriptRun", Status: metav1.ConditionTrue},
-					{Type: "KubeletConfigured", Status: metav1.ConditionTrue},
-					{Type: "KubeletStarted", Status: metav1.ConditionTrue},
-				},
+					{Type: "BridgeChecked", Status: metav1.ConditionTrue},
+					// The link conditions carry the opposite polarity: False means the
+					// port is up, which is what a healthy lab setup reports.
+					{Type: "PF0LinkDown", Status: metav1.ConditionFalse},
+					{Type: "PF1LinkDown", Status: metav1.ConditionFalse},
+				}
+			}
+			ValidateDPUAgentStatus(ctx, input, provisioningv1.AgentStatus{
+				RebootMethod:        ptr.To(provisioningv1.RebootMethodNoAction),
+				RebootSequenceCount: ptr.To(int32(0)),
+				Conditions:          expectedConditions,
 			})
 		})
 	})
@@ -723,29 +776,29 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 		})
 	})
 
-	Context("DPU Service Kata Containers", Labels{Domain.RequiresNodes}, func() {
+	Context("DPU Service Kata Containers", Labels{Domain.RequiresNodes, Domain.OCP}, func() {
 		It("deploy a DPUService pod with kata-qemu RuntimeClass and an SF", func() {
 			ValidateDPUServiceKataRuntimeClass(ctx, input)
 		})
 	})
 
 	// Config Ports check is not valid for ZeroTrust
-	Context("DPU Service Config Ports", Labels{Domain.RequiresNodes}, Serial, func() {
+	Context("DPU Service Config Ports", Labels{Domain.RequiresNodes, Domain.OCP}, Serial, func() {
 		It("expose ConfigPorts via DPUService and test reachability", func() {
 			ValidateDPUServiceConfigPorts(ctx, input)
 		})
 	})
 
 	Context("NodeSRIOVDevicePluginController", func() {
-		It("verify the webhook rejects invalid NodeSRIOVDevicePluginConfig", func() {
+		It("verify the webhook rejects invalid NodeSRIOVDevicePluginConfig", Labels{Domain.OCP}, func() {
 			ValidateNodeSRIOVDevicePluginWebhookRejectsInvalid(ctx, input)
 		})
-		It("verify a valid NodeSRIOVDevicePluginConfig is accepted and can be deleted", func() {
+		It("verify a valid NodeSRIOVDevicePluginConfig is accepted and can be deleted", Labels{Domain.OCP}, func() {
 			ValidateNodeSRIOVDevicePluginConfigValidCreate(ctx, input)
 		})
 	})
 
-	Context("NodeSRIOVDevicePluginController Managed Pods", Labels{Domain.RequiresNodes}, Serial, Ordered, func() {
+	Context("NodeSRIOVDevicePluginController Managed Pods", Labels{Domain.RequiresNodes, Domain.OCP}, Serial, Ordered, func() {
 		It("verify node SRIOV device plugin management", func() {
 			ValidateNodeSRIOVDevicePluginManagement(ctx, input)
 		})
@@ -755,7 +808,7 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 		It("verify system component overrides", Labels{Domain.ZeroTrust}, func() {
 			ValidateDPFOperatorBaseConfiguration(ctx, input)
 		})
-		It("verify that the current MTU in the DPU clusters flannel configmap is 1500", Labels{Domain.ZeroTrust}, func() {
+		It("verify that the current MTU in the DPU clusters flannel configmap is 1500", Labels{Domain.ZeroTrust, Domain.OCP}, func() {
 			ValidateDPFOperatorMTUCurrentConfiguration(ctx, input)
 		})
 		It("change the MTUs in the operatorConfig and verify that DPU Clusters are updated", Labels{Domain.ZeroTrust}, func() {

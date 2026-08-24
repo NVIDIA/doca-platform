@@ -47,6 +47,7 @@ func ValidateDPUServiceNADConsumedByPod(ctx context.Context, input *systemTestIn
 // the namespace the reference names, and skips silently when it cannot, so an unresolved reference
 // leaves the DPUService reporting Success and fails the Pod later with "deviceID is not set".
 func ValidateDPUServiceNADFromOtherNamespaceConsumedByPod(ctx context.Context, input *systemTestInput) {
+	skipInOCPReuse("OpenShift Multus namespaceIsolation rejects a pod attaching a NAD from another namespace")
 	validateDPUServiceNADConsumedByPod(ctx, input, "dpuservicenadcrossnsns", "dpuservicenadpublisherns")
 }
 
@@ -128,6 +129,8 @@ func validateDPUServiceNADConsumedByPod(ctx context.Context, input *systemTestIn
 }
 
 func ValidateDPUServiceNADMetrics(ctx context.Context) {
+	skipMetricNamesInOCPReuse()
+
 	By("Verify DPUServiceNAD metrics in KSM")
 	expectedMetricsNames := map[string][]string{
 		"dpf_dpuservicenad": {"created", "info", "status_conditions", "status_condition_last_transition_time"},

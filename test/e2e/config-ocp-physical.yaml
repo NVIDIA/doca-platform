@@ -1,0 +1,38 @@
+# E2E config for running the DPFSystem tests non-destructively against an
+# already-provisioned OpenShift (OCP) cluster. Selected by the `OCP` ginkgo
+# label (see the e2e-ocp-bf3 CI job), which puts the suite in OCP reuse mode:
+# BeforeSuite reuses the existing DPFOperatorConfig and DPUCluster instead of
+# creating them and never (re)provisions DPUs.
+#
+# Based on config-provisioning-physical.yaml. The differences are:
+#   * dpfOperatorConfig points at a static manifest matching the live OCP
+#     DPFOperatorConfig (so `input.config` mirrors reality); it is NOT applied
+#     in OCP reuse mode.
+#   * dpuClusters points at the existing static `doca` DPUCluster; the suite
+#     only reads it (name/namespace must match the live object) and never
+#     creates it.
+# The bfb / dpuSet / dpuFlavor entries are loaded to satisfy the shared config
+# validation but are never applied in OCP reuse mode (no provisioning happens).
+dpfOperatorConfig: "../objects/infrastructure/operatorconfig-ocp.yaml"
+bfb: "../objects/infrastructure/bfb.yaml"
+dpuClusters:
+  - "../objects/infrastructure/dpucluster-doca.yaml"
+dpuSet: "../objects/infrastructure/dpuset-physical.yaml"
+dpuFlavor: "../objects/infrastructure/dpuflavor-physical.yaml"
+dpuServiceInterface: "../objects/application/dpuserviceinterface_service_type.yaml"
+dpuServiceInterfaceTemplate: "../objects/application/dpuserviceinterfacetemplate.yaml"
+dpuServiceChain: "../objects/application/dpuservicechain.yaml"
+dpuServiceChainTemplate: "../objects/application/dpuservicechaintemplate.yaml"
+dpuDeployment: "../objects/application/dpudeployment-physical.yaml"
+dpuServiceCredentialRequest: "../objects/application/dpuservicecredentialrequest.yaml"
+dpuServiceConfiguration: "../objects/application/dpuserviceconfiguration.yaml"
+ipPoolDPUServiceIPAM: "../objects/application/dpuserviceipam_subnet.yaml"
+cidrPoolDPUServiceIPAM: "../objects/application/dpuserviceipam_cidr.yaml"
+dpuServiceIPAMTemplate: "../objects/application/dpuserviceipamtemplate.yaml"
+dpuServiceNAD: "../objects/application/dpuservicenad.yaml"
+dpuService: "../objects/application/dpuservice.yaml"
+dpuServiceTemplate: "../objects/application/dpuservicetemplate.yaml"
+dpuServiceHBN: "../objects/application/dpuservicehbn.yaml"
+dhcpDaemonSet: "../objects/application/vpc/dhcp.yaml"
+numberOfDPUNodes: 2
+numberOfDPUsPerNode: 1
