@@ -22,6 +22,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
+	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -109,6 +110,79 @@ var _ = Describe("Phase DPUConfig", func() {
 			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
 				LastStartupTime: ptr.To(metav1.Now()),
 				RebootMethod:    ptr.To(provisioningv1.RebootMethodNoAction),
+			}
+
+			status, err := state.DPUConfig(ctx, dpu, &dutil.ControllerContext{})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUHostNetworkConfiguration))
+			expectDPUConfigCondition(status, metav1.ConditionTrue, string(provisioningv1.RebootMethodNoAction), "RebootMethod is NoAction; transitioning to Host Network Configuration phase")
+		})
+
+		It("should stay in DPUConfig when EWNICNVConfigApplied is true but EWNICConfigured is missing", func() {
+			oldTime := metav1.NewTime(metav1.Now().Add(-time.Hour))
+			dpu := dpuObj(defaultDPUName)
+			dpu.Status.Phase = provisioningv1.DPUConfig
+			dpu.Status.AgentLastStartupTime = &oldTime
+			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
+				LastStartupTime: ptr.To(metav1.Now()),
+				RebootMethod:    ptr.To(provisioningv1.RebootMethodNoAction),
+				Conditions: []metav1.Condition{{
+					Type:   cutil.AgentCondEWNICNVConfigApplied,
+					Status: metav1.ConditionTrue,
+					Reason: "NICNVConfigApplied",
+				}},
+			}
+
+			status, err := state.DPUConfig(ctx, dpu, &dutil.ControllerContext{})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUConfig))
+			Expect(status.AgentLastStartupTime).To(Equal(&oldTime), "should not consume AgentLastStartupTime while waiting for runtime config")
+			expectDPUConfigCondition(status, metav1.ConditionFalse, "WaitingForEWNICConfigured", "waiting for DPU agent to apply E/W NIC runtime configuration")
+		})
+
+		It("should stay in DPUConfig when EWNICConfigured is RuntimeConfigApplyFailed", func() {
+			oldTime := metav1.NewTime(metav1.Now().Add(-time.Hour))
+			dpu := dpuObj(defaultDPUName)
+			dpu.Status.Phase = provisioningv1.DPUConfig
+			dpu.Status.AgentLastStartupTime = &oldTime
+			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
+				LastStartupTime: ptr.To(metav1.Now()),
+				RebootMethod:    ptr.To(provisioningv1.RebootMethodNoAction),
+				Conditions: []metav1.Condition{{
+					Type:    cutil.AgentCondEWNICConfigured,
+					Status:  metav1.ConditionFalse,
+					Reason:  "RuntimeConfigApplyFailed",
+					Message: "NIC runtime config apply failed: dmspe missing libmstflint_sdk.so",
+				}},
+			}
+
+			status, err := state.DPUConfig(ctx, dpu, &dutil.ControllerContext{})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUConfig))
+			Expect(status.AgentLastStartupTime).To(Equal(&oldTime), "should not consume AgentLastStartupTime while runtime config is failing")
+			expectDPUConfigCondition(status, metav1.ConditionFalse, "RuntimeConfigApplyFailed", "NIC runtime config apply failed: dmspe missing libmstflint_sdk.so")
+		})
+
+		It("should move to host network configuration when EWNICConfigured is true", func() {
+			oldTime := metav1.NewTime(metav1.Now().Add(-time.Hour))
+			dpu := dpuObj(defaultDPUName)
+			dpu.Status.Phase = provisioningv1.DPUConfig
+			dpu.Status.AgentLastStartupTime = &oldTime
+			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
+				LastStartupTime: ptr.To(metav1.Now()),
+				RebootMethod:    ptr.To(provisioningv1.RebootMethodNoAction),
+				Conditions: []metav1.Condition{
+					{
+						Type:   cutil.AgentCondEWNICNVConfigApplied,
+						Status: metav1.ConditionTrue,
+						Reason: "NICNVConfigApplied",
+					},
+					{
+						Type:   cutil.AgentCondEWNICConfigured,
+						Status: metav1.ConditionTrue,
+						Reason: "RuntimeConfigApplied",
+					},
+				},
 			}
 
 			status, err := state.DPUConfig(ctx, dpu, &dutil.ControllerContext{})
