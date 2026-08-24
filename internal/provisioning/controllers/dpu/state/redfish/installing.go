@@ -167,9 +167,8 @@ func installOsBf4(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 		bfbRegistryAddr = strings.TrimPrefix(bfbRegistryAddr, prefix)
 	}
 
-	resp, _, err := client.CheckOSImage()
-	if err != nil || resp.StatusCode() != http.StatusOK {
-		err = fmt.Errorf("failed to check OS image: %w, response: %s", err, rc.RespBody(resp))
+	if _, err := client.CheckOSImage(); err != nil {
+		err = fmt.Errorf("failed to check OS image: %w", err)
 		logger.Error(err, "Failed to check OS image")
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "FailToCheckOSImage", err.Error()))
 		return *state, err
@@ -184,17 +183,17 @@ func installOsBf4(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 		return *state, nil
 	}
 
-	_, osImage, err := client.CheckOSImage()
+	osImage, err := client.CheckOSImage()
 	if err != nil {
-		err = fmt.Errorf("failed to check OS image: %w, response: %s", err, rc.RespBody(resp))
+		err = fmt.Errorf("failed to check OS image: %w", err)
+		logger.Error(err, "Failed to check OS image")
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "FailToCheckOSImage", err.Error()))
 		return *state, err
 	}
 	logger.Info("ISO transferred, starting to install config", "osImage", osImage.Version)
 
-	resp, _, err = client.CheckConfigImage()
-	if err != nil || resp.StatusCode() != http.StatusOK {
-		err = fmt.Errorf("failed to check config image: %w, response: %s", err, rc.RespBody(resp))
+	if _, err := client.CheckConfigImage(); err != nil {
+		err = fmt.Errorf("failed to check config image: %w", err)
 		logger.Error(err, "Failed to check config image")
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "FailToCheckConfigImage", err.Error()))
 		return *state, err
@@ -209,9 +208,10 @@ func installOsBf4(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 		return *state, nil
 	}
 
-	_, configImage, err := client.CheckConfigImage()
+	configImage, err := client.CheckConfigImage()
 	if err != nil {
 		err = fmt.Errorf("failed to check config image: %w", err)
+		logger.Error(err, "Failed to check config image")
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "FailToCheckConfigImage", err.Error()))
 		return *state, err
 	}

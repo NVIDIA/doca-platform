@@ -1891,14 +1891,28 @@ func (c *Client) ActivatePendingBundle() (*resty.Response, error) {
 		Post(APIActivatePendingBundle)
 }
 
-func (c *Client) CheckOSImage() (*resty.Response, *VersionInfo, error) {
-	return do[VersionInfo](func() (*resty.Response, error) {
-		return c.Client.R().Get(APICheckOSImage)
-	})
+// CheckOSImage returns the BlueField Arm OS image member of the BMC firmware inventory.
+func (c *Client) CheckOSImage() (*VersionInfo, error) {
+	return c.getFirmwareInventory(APICheckOSImage)
 }
 
-func (c *Client) CheckConfigImage() (*resty.Response, *VersionInfo, error) {
-	return do[VersionInfo](func() (*resty.Response, error) {
-		return c.Client.R().Get(APICheckConfigImage)
+// CheckConfigImage returns the BlueField Arm OS config member of the BMC firmware inventory.
+func (c *Client) CheckConfigImage() (*VersionInfo, error) {
+	return c.getFirmwareInventory(APICheckConfigImage)
+}
+
+// getFirmwareInventory reads a single firmware inventory member. A member the BMC has not published
+// is reported as an error: Redfish answers with a decodable error body, so do() returns no error of
+// its own and only the status code tells a missing member from a present one.
+func (c *Client) getFirmwareInventory(uri string) (*VersionInfo, error) {
+	resp, info, err := do[VersionInfo](func() (*resty.Response, error) {
+		return c.Client.R().Get(uri)
 	})
+	if err != nil {
+		return nil, fmt.Errorf("get %q: %w", uri, err)
+	}
+	if resp.StatusCode() != http.StatusOK {
+		return nil, fmt.Errorf("get %q: unexpected response: %s", uri, responseDebugSummary(resp))
+	}
+	return info, nil
 }
