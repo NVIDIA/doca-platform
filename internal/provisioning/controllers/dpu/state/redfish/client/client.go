@@ -91,6 +91,9 @@ const (
 	APISystemRoot                   = APIRootService + "/Systems/{SYSTEM_ID}"
 	APISecureBoot                   = APISystemRoot + "/SecureBoot"
 	APIResetSystem                  = APISystemRoot + "/Actions/ComputerSystem.Reset"
+	// APISOCForceReset resets the SoC/NIC without waiting for host PERST.
+	// Used for hostless (CMX) reboot so NVConfig takes effect.
+	APISOCForceReset = APISystemRoot + "/Oem/Nvidia/SOC.ForceReset"
 	// APIGetSELEntries is the Redfish System Event Log entries collection. The BMC
 	// records sensor-threshold events (e.g., 12V_ATX low) here, which we surface
 	// as best-effort hints when an install task fails.
@@ -1631,6 +1634,25 @@ func (c *Client) DisableSecureBoot() (*resty.Response, error) {
 // ForceRestartDPUArm performs ForceRestart on DPU ARM (not host power cycle).
 func (c *Client) ForceRestartDPUArm() (*resty.Response, error) {
 	return c.resetDPUArm("ForceRestart")
+}
+
+// ForceResetSOC posts Oem Nvidia SOC.ForceReset. Unlike ComputerSystem.Reset
+// ForceRestart, this does not wait for host PERST, which is required for NIC
+// firmware parameters to apply on hostless CMX.
+func (c *Client) ForceResetSOC() (*resty.Response, error) {
+	systemID, err := getSystemID(c)
+	if err != nil {
+		return nil, err
+	}
+	url := strings.Replace(APISOCForceReset, "{SYSTEM_ID}", systemID, 1)
+	resp, err := c.Client.R().Post(url)
+	if err != nil {
+		return resp, fmt.Errorf("failed to SOC.ForceReset DPU: %w", err)
+	}
+	if resp.StatusCode() != http.StatusOK && resp.StatusCode() != http.StatusNoContent && resp.StatusCode() != http.StatusAccepted {
+		return resp, fmt.Errorf("failed to SOC.ForceReset DPU: unexpected status code %d", resp.StatusCode())
+	}
+	return resp, nil
 }
 
 // GracefulRestartDPUArm performs GracefulRestart on the DPU ARM system.

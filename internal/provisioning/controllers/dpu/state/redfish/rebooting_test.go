@@ -175,23 +175,23 @@ var _ = Describe("Hostless Rebooting via Redfish", func() {
 		}
 	})
 
-	It("should ForceRestart for hostless PowerCycle", func() {
+	It("should SOC.ForceReset for hostless PowerCycle", func() {
 		setupObjects(provisioningv1.RebootMethodPowerCycle)
 		status, err := Rebooting(ctx, dpu, ctrlCtx)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(mockServer.GetLastResetType()).To(Equal("ForceRestart"))
+		Expect(mockServer.GetLastResetType()).To(Equal("SOC.ForceReset"))
 		Expect(status.RebootStatus).NotTo(BeNil())
-		Expect(status.RebootStatus.Reason).To(Equal(hostlessForceRestartTriggered))
-		Expect(status.RebootStatus.Message).To(ContainSubstring("ForceRestart"))
+		Expect(status.RebootStatus.Reason).To(Equal(hostlessSOCForceResetTriggered))
+		Expect(status.RebootStatus.Message).To(ContainSubstring("SOC.ForceReset"))
 	})
 
-	It("should ForceRestart for hostless SystemLevelReset", func() {
+	It("should SOC.ForceReset for hostless SystemLevelReset", func() {
 		setupObjects(provisioningv1.RebootMethodSystemLevelReset)
 		status, err := Rebooting(ctx, dpu, ctrlCtx)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(mockServer.GetLastResetType()).To(Equal("ForceRestart"))
+		Expect(mockServer.GetLastResetType()).To(Equal("SOC.ForceReset"))
 		Expect(status.RebootStatus).NotTo(BeNil())
-		Expect(status.RebootStatus.Reason).To(Equal(hostlessForceRestartTriggered))
+		Expect(status.RebootStatus.Reason).To(Equal(hostlessSOCForceResetTriggered))
 	})
 })
 
