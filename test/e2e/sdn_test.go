@@ -36,7 +36,7 @@ func waitForSDNProvisioning() {
 			By("Waiting for provisioning")
 			VerifyDPUClusterWithNodes(ctx, getProvisionDPUClustersInput())
 			By("Waiting for DPU cluster pods to be ready")
-			VerifyClusterPods(ctx, dpuClusterClient[0], systemPodsToVerify)
+			VerifyClusterPods(ctx, dpuClusterClient[0], dpuClusterPodsToVerify())
 			By("Waiting for DPFOperatorConfig to be ready")
 			VerifyDPFOperatorConfigReady(ctx, input.client, 20*time.Minute)
 		}
@@ -86,7 +86,7 @@ var _ = Describe("DPF System tests - SDN", SpecPriority(SDNTestPriority), Labels
 		})
 	})
 
-	Context("Validate DPU Service NAD", Labels{Domain.DPFSystem, Domain.RequiresNodes}, func() {
+	Context("Validate DPU Service NAD", Labels{Domain.DPFSystem, Domain.RequiresNodes, Domain.OCP}, func() {
 		It("create a pod consuming a DPUServiceNAD with all dependencies and check that it is created successfully", func() {
 			ValidateDPUServiceNADConsumedByPod(ctx, input)
 		})

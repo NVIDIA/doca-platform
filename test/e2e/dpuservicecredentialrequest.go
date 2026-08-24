@@ -64,6 +64,8 @@ func ValidateDPUServiceCredentialRequestCreation(ctx context.Context, input *sys
 }
 
 func ValidateDPUServiceCredentialRequestMetrics(ctx context.Context, input *systemTestInput) {
+	skipMetricNamesInOCPReuse()
+
 	dpuServiceCredentialRequestName := "dpu-01-credential-request-metrics"
 	dpuServiceCredentialRequestNamespace := "dpucr-test-ns-metrics"
 	By("Create namespace for DPUServiceCredentialRequest")

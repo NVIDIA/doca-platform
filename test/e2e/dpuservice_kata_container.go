@@ -31,14 +31,16 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	machineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
 	kataRuntimeClassName       = "kata-qemu"
-	kataDPUServiceName         = "dummydpuservice-kata"
+	kataDPUServiceName         = "e2e-kata"
 	kataDPUServiceSFResource   = "nvidia.com/bf_sf"
 	kataDPUServiceSFResourceID = corev1.ResourceName(kataDPUServiceSFResource)
 )
@@ -46,6 +48,24 @@ const (
 func ValidateDPUServiceKataRuntimeClass(ctx context.Context, input *systemTestInput) {
 	if !input.hasDpuNodes() {
 		Skip("Skip DPUService Kata RuntimeClass test as there are no DPU nodes")
+	}
+
+	if isGinkgoLabelApplied(Domain.OCP) {
+		kataService := &dpuservicev1.DPUService{ObjectMeta: metav1.ObjectMeta{
+			Name:      operatorv1.KataContainersName.String(),
+			Namespace: dpfOperatorSystemNamespace,
+		}}
+		err := input.client.Get(ctx, client.ObjectKeyFromObject(kataService), kataService)
+		if apierrors.IsNotFound(err) {
+			Skip("Skip DPUService Kata RuntimeClass test: kata-containers is not enabled on this OCP cluster")
+		}
+		Expect(err).NotTo(HaveOccurred())
+
+		err = dpuClusterClient[0].Get(ctx, client.ObjectKey{Name: kataRuntimeClassName}, &nodev1.RuntimeClass{})
+		if apierrors.IsNotFound(err) {
+			Skip("Skip DPUService Kata RuntimeClass test: kata-qemu RuntimeClass is not installed on this OCP cluster")
+		}
+		Expect(err).NotTo(HaveOccurred())
 	}
 
 	By("Waiting for kata-containers DPUService to be ready")

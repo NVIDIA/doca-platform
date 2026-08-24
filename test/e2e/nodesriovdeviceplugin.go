@@ -149,6 +149,10 @@ func ValidateNodeSRIOVDevicePluginManagement(ctx context.Context, input *systemT
 	if !input.hasDpuNodes() {
 		Skip("No DPUs in test config, skipping managed pod test")
 	}
+	if isGinkgoLabelApplied(Domain.OCP) {
+		validateOCPNodeSRIOVDevicePluginManagement(ctx, input)
+		return
+	}
 
 	const invalidDevicePluginImage = "invalid.repo/sriov-device-plugin:not-found"
 	const invalidInitImage = "invalid.repo/nodesriov-init:not-found"
@@ -310,6 +314,43 @@ func ValidateNodeSRIOVDevicePluginManagement(ctx context.Context, input *systemT
 		fmt.Sprintf("%s/%s", nodesriovctrl.DefaultResourcePrefix, config2NoPrefixResource), 2)
 	waitForNodeResource(ctx, input.client, kubeNodeName,
 		fmt.Sprintf("%s/%s", explicitPrefix, config2ExplicitResource), 3)
+}
+
+// validateOCPNodeSRIOVDevicePluginManagement validates the existing managed
+// pods without changing the shared cluster's DPFOperatorConfig, DPU
+// annotations, device-plugin images, or advertised resource prefixes.
+func validateOCPNodeSRIOVDevicePluginManagement(ctx context.Context, input *systemTestInput) {
+	By("Validating the existing NodeSRIOV device-plugin managed pods")
+	Eventually(func(g Gomega) {
+		dpuList := &provisioningv1.DPUList{}
+		g.Expect(input.client.List(ctx, dpuList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(dpuList.Items).To(HaveLen(input.totalDPUs()))
+
+		for i := range dpuList.Items {
+			dpu := &dpuList.Items[i]
+			g.Expect(dpu.Spec.SerialNumber).NotTo(BeEmpty())
+			g.Expect(isDPUHostNetworkReady(dpu)).To(BeTrue())
+
+			dpuNode := &provisioningv1.DPUNode{}
+			g.Expect(input.client.Get(ctx, types.NamespacedName{
+				Namespace: dpfOperatorSystemNamespace,
+				Name:      dpu.Spec.DPUNodeName,
+			}, dpuNode)).To(Succeed())
+			g.Expect(dpuNode.Status.KubeNodeRef).NotTo(BeNil())
+			if dpuNode.Status.KubeNodeRef == nil {
+				return
+			}
+			g.Expect(*dpuNode.Status.KubeNodeRef).NotTo(BeEmpty())
+
+			pod := getManagedPodForNode(ctx, g, input.client, *dpuNode.Status.KubeNodeRef)
+			g.Expect(pod).NotTo(BeNil(), "expected a managed SR-IOV device-plugin pod for DPU %s", dpu.Name)
+			if pod == nil {
+				return
+			}
+			expectPodRunning(g, pod)
+			g.Expect(pod.Annotations[nodesriovctrl.PodInputAnnotationKey]).To(ContainSubstring(dpu.Spec.SerialNumber))
+		}
+	}).WithTimeout(240 * time.Second).WithPolling(1 * time.Second).Should(Succeed())
 }
 
 func findTargetDPUAndNode(g Gomega, ctx context.Context, c client.Client) (dpuName, kubeNodeName, serialNumber string) {

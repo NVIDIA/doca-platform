@@ -303,7 +303,11 @@ func TestE2E(t *testing.T) {
 	restConfig.NegotiatedSerializer = serializer.WithoutConversionCodecFactory{CodecFactory: scheme.Codecs}
 	hostClusterRESTClient, err = rest.RESTClientFor(restConfig)
 	g.Expect(err).NotTo(HaveOccurred())
-	metricsURI = metrics.GetMetricsURI("kube-state-metrics", dpfOperatorSystemNamespace, kubeStateMetricsPort, "/metrics")
+	hostKSMServiceName := hostKubeStateMetricsService
+	if isGinkgoLabelApplied(Domain.OCP) {
+		hostKSMServiceName = ocpHostKubeStateMetricsService
+	}
+	metricsURI = metrics.GetMetricsURI(hostKSMServiceName, dpfOperatorSystemNamespace, kubeStateMetricsPort, "/metrics")
 	g.Expect(metricsURI).NotTo(BeEmpty())
 
 	// Auto-enable fail-fast when skip-cleanup-on-failure flag is set
@@ -362,6 +366,20 @@ var _ = BeforeSuite(func() {
 
 	By("Performing before suite cleanup")
 	cleanupTracker.HandleScopeLifecycle(nil, cleanup.GinkgoHook.BeforeSuite)
+
+	// OpenShift reuse mode runs against an already-provisioned cluster. Skip the
+	// provisioning block and the domain-specific hooks entirely; instead reuse
+	// the existing DPFOperatorConfig and DPUCluster without (re)provisioning any
+	// DPUs. The BeforeSuite cleanup above is label-scoped, so it never touches
+	// the pre-existing, unlabeled operator config / DPUCluster.
+	//
+	// OCP reuse mode: the active label filter selects the OCP label, so the
+	// suite runs non-destructively against an already-provisioned cluster.
+	if isGinkgoLabelApplied(Domain.OCP) {
+		By("Running OCP reuse-mode BeforeSuite (no provisioning; reusing existing cluster)")
+		OCPReuseBeforeSuite()
+		return
+	}
 
 	// Upgrade install phases (validation phases returned above) provision and
 	// create everything from their own phase steps; none of the domain-specific
@@ -506,7 +524,11 @@ var _ = AfterSuite(func() {
 		GinkgoLogr.Error(err, "failed to collect resources for the clusters (pre-DPF operator config cleanup)")
 	}
 
-	if !cleanupFlags.SkipSuiteCleanupAfter {
+	if isGinkgoLabelApplied(Domain.OCP) {
+		// OCP reuse mode never created the DPFOperatorConfig; deleting it would
+		// tear down the shared, already-provisioned cluster. Leave it in place.
+		By("OCP reuse mode: leaving the existing DPFOperatorConfig in place")
+	} else if !cleanupFlags.SkipSuiteCleanupAfter {
 		deletionCompleted := false
 		defer func() {
 			if !deletionCompleted {

@@ -618,6 +618,20 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 	VerifyDPFOperatorConfigReady(ctx, testClient, 15*time.Minute)
 }
 
+// WaitForExistingDPUClustersReady waits for each DPUCluster referenced by the
+// e2e config to already exist and report Ready, without creating or mutating
+// them. Used by OCP reuse mode where the DPUClusters are provisioned out of
+// band and must not be recreated.
+func WaitForExistingDPUClustersReady(ctx context.Context, input ProvisionDPUClustersInput) {
+	By(fmt.Sprintf("Waiting for %d existing DPUCluster(s) to be ready", len(input.dpuClusters)))
+	Eventually(func(g Gomega) {
+		for _, dpuCluster := range input.dpuClusters {
+			g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpuCluster), dpuCluster)).To(Succeed())
+			g.Expect(dpuCluster.Status.Phase).Should(Equal(provisioningv1.PhaseReady))
+		}
+	}).WithTimeout(300 * time.Second).WithPolling(1 * time.Second).Should(Succeed())
+}
+
 // ProvisionDPUClusters provisions DPUClusters.
 func ProvisionDPUClusters(ctx context.Context, input ProvisionDPUClustersInput) {
 	By("Create prerequisites objects for DPUClusters")
@@ -1266,6 +1280,8 @@ func ValidateDPUAgentStatus(ctx context.Context, input *systemTestInput, expecte
 // validateSingleDPUAgentStatus checks one DPU's agent-reported status against the expected AgentStatus.
 // Pointer fields that are nil in expected are skipped (not validated).
 // Non-nil pointer fields are validated for equality with the actual value.
+// Every expected condition must be reported with the expected status, and every
+// other reported condition must be True.
 func validateSingleDPUAgentStatus(g Gomega, dpu *provisioningv1.DPU, expectedAgentStatus provisioningv1.AgentStatus) {
 	g.Expect(dpu.Status.Phase).To(Equal(provisioningv1.DPUReady),
 		"DPU %s should be Ready, got %v", dpu.Name, dpu.Status.Phase)
@@ -1290,10 +1306,21 @@ func validateSingleDPUAgentStatus(g Gomega, dpu *provisioningv1.DPU, expectedAge
 		"DPU %s AgentLastStartupTime (%v) should not be after AgentStatus.LastStartupTime (%v)",
 		dpu.Name, dpu.Status.AgentLastStartupTime, actualAgentStatus.LastStartupTime)
 
-	g.Expect(actualAgentStatus.KubeletVersion).NotTo(BeNil(),
-		"DPU %s AgentStatus.KubeletVersion should be reported", dpu.Name)
-	g.Expect(*actualAgentStatus.KubeletVersion).NotTo(BeEmpty(),
-		"DPU %s AgentStatus.KubeletVersion should not be empty", dpu.Name)
+	expectedConditions := make(map[string]metav1.Condition, len(expectedAgentStatus.Conditions))
+	for _, cond := range expectedAgentStatus.Conditions {
+		expectedConditions[cond.Type] = cond
+	}
+
+	// The agent reports the kubelet version from the operation that configures the
+	// kubelet. On OpenShift the platform owns the kubelet, so the agent skips that
+	// operation and reports no version. Require one only where the caller expects
+	// the condition of that operation.
+	if _, ok := expectedConditions["KubeletConfigured"]; ok {
+		g.Expect(actualAgentStatus.KubeletVersion).NotTo(BeNil(),
+			"DPU %s AgentStatus.KubeletVersion should be reported", dpu.Name)
+		g.Expect(*actualAgentStatus.KubeletVersion).NotTo(BeEmpty(),
+			"DPU %s AgentStatus.KubeletVersion should not be empty", dpu.Name)
+	}
 
 	if expectedAgentStatus.RebootMethod != nil {
 		g.Expect(actualAgentStatus.RebootMethod).NotTo(BeNil(),
@@ -1337,9 +1364,16 @@ func validateSingleDPUAgentStatus(g Gomega, dpu *provisioningv1.DPU, expectedAge
 	}
 
 	for _, cond := range actualAgentStatus.Conditions {
-		g.Expect(cond.Status).To(Equal(metav1.ConditionTrue),
-			"DPU %s agent condition %q should be True, got %v (reason: %s, message: %s)",
-			dpu.Name, cond.Type, cond.Status, cond.Reason, cond.Message)
+		// True is healthy for every condition the agent reports on its own work. A
+		// condition the caller expects to be False is healthy in that state instead,
+		// such as a link-down condition on a link that is up.
+		wantStatus := metav1.ConditionTrue
+		if expCond, ok := expectedConditions[cond.Type]; ok {
+			wantStatus = expCond.Status
+		}
+		g.Expect(cond.Status).To(Equal(wantStatus),
+			"DPU %s agent condition %q should be %v, got %v (reason: %s, message: %s)",
+			dpu.Name, cond.Type, wantStatus, cond.Status, cond.Reason, cond.Message)
 		g.Expect(cond.Reason).NotTo(BeEmpty(),
 			"DPU %s agent condition %q should have a non-empty Reason", dpu.Name, cond.Type)
 		g.Expect(cond.LastTransitionTime).NotTo(BeZero(),
@@ -1378,7 +1412,11 @@ func getDPUClusterClient(ctx context.Context, input ProvisionDPUClustersInput, c
 	}).WithTimeout(3 * time.Minute).WithPolling(time.Second).Should(Succeed())
 
 	// Start a go routine that monitors the health of the tunnel and recreates the client and rest config
-	// if the health check fails.
+	// if the health check fails. When no port-forward tunnel is used (e.g. direct kubeconfig on OCP),
+	// tun is nil and there is nothing to monitor.
+	if tun == nil {
+		return
+	}
 	go func() {
 		defer GinkgoRecover()
 		// By making this tick faster, we risk opening more ports until we have a functional port that can forward our

@@ -60,6 +60,8 @@ func VerifyDPUKSMMetricsCollection(ctx context.Context, input *systemTestInput) 
 }
 
 func ValidateGeneralDPFMetrics(ctx context.Context, input *systemTestInput) {
+	skipMetricNamesInOCPReuse()
+
 	By("Verify metrics are being collected")
 	expectedMetricsNames := map[string][]string{
 		"dpf_dpfoperatorconfig": {"created", "info", "status_conditions", "status_condition_last_transition_time", "version"}, // "paused" missed
@@ -100,6 +102,10 @@ func ValidateGeneralDPFMetrics(ctx context.Context, input *systemTestInput) {
 // config; this closes that gap. dpfoperatorconfig is a singleton, so
 // dpf_dpfoperatorconfig_info is always present once the scrape has run.
 func ValidateDPFMetricsScrapedByPrometheus(ctx context.Context) {
+	// The pinned release operator also names this metric without the dpf_ prefix,
+	// but the unreachable endpoint fails the query first.
+	skipPrometheusInOCPReuse()
+
 	By("Verify DPF metrics are scraped into Prometheus")
 	promClient := prometheus.NewClient(hostClusterRESTClient, dpfOperatorSystemNamespace)
 	Eventually(func(g Gomega) {
@@ -121,6 +127,8 @@ func ValidateDPFMetricsScrapedByPrometheus(ctx context.Context) {
 // job/instance pairs so that failures are immediately actionable without manual
 // Prometheus inspection.
 func ValidatePrometheusTargetsHealthy(ctx context.Context, input *systemTestInput) {
+	skipPrometheusInOCPReuse()
+
 	By("Verify all Prometheus scrape targets are healthy")
 	promClient := prometheus.NewClient(hostClusterRESTClient, dpfOperatorSystemNamespace)
 	Eventually(func(g Gomega) {
@@ -151,6 +159,10 @@ func ValidatePrometheusTargetsHealthy(ctx context.Context, input *systemTestInpu
 }
 
 func VerifyNodeProblemDetectorConditions(ctx context.Context, input *systemTestInput) {
+	// The condition set is asserted exactly. The pinned release operator used in OCP
+	// reuse mode reports DPUModeCorrect and SRIOVHealthy and omits PFRepresentorsHealthy.
+	skipInOCPReuse("the pinned release operator reports a different node condition set")
+
 	t := NewByTracker()
 	Eventually(func(g Gomega) {
 		for i, dpuCluster := range input.dpuClusters {

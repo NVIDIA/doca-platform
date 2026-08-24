@@ -50,7 +50,7 @@ func ValidateDPUServiceConfigPorts(ctx context.Context, input *systemTestInput) 
 
 	By("Creating a DPUService with ConfigPorts")
 	dpuService := input.dpuService.DeepCopy()
-	dpuService.Name = "dummydpuservice"
+	dpuService.Name = "e2e-configports"
 	dpuService.Namespace = dpfOperatorSystemNamespace
 	dpuService.SetLabels(CleanupScope.It)
 	dpuService.Spec.HelmChart.Source = dpuservicev1.ApplicationSource{
@@ -74,8 +74,8 @@ func ValidateDPUServiceConfigPorts(ctx context.Context, input *systemTestInput) 
 	}
 	Expect(input.client.Create(ctx, dpuService)).To(Succeed())
 
-	By("Waiting for dummydpuservice Pods to be ready")
-	VerifyClusterPods(ctx, dpuClusterClient[0], []string{"dummydpuservice"})
+	By("Waiting for ConfigPorts test Pods to be ready")
+	VerifyClusterPods(ctx, dpuClusterClient[0], []string{"e2e-configports"})
 
 	By("Verifying the ConfigPorts are exposed via the DPUService")
 	Eventually(func(g Gomega) {
@@ -87,10 +87,11 @@ func ValidateDPUServiceConfigPorts(ctx context.Context, input *systemTestInput) 
 	// First get the nodePort of the ConfigPort exposed on the host cluster.
 	var nodePort *uint16
 	for _, port := range dpuService.Status.ConfigPorts {
-		if port[0].Name == "exampletcp" {
+		if len(port) > 0 && port[0].Name == "exampletcp" {
 			nodePort = port[0].NodePort
 		}
 	}
+	Expect(nodePort).NotTo(BeNil(), "expected ConfigPort exampletcp to have a NodePort")
 	// Then get the name and IPs of the host nodes and check reachability.
 	nodeIPs := make(map[string]string)
 	nodeList := &corev1.NodeList{}

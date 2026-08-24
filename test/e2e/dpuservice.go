@@ -231,6 +231,9 @@ func VerifyDPUServiceTemplateCreationWithAnnotations(ctx context.Context, input 
 
 	By("Creating the DPUServiceTemplate")
 	dpuServiceTemplate := generateDPUServiceTemplate(input, "with-annotations")
+	if isGinkgoLabelApplied(Domain.OCP) {
+		dpuServiceTemplate.SetLabels(CleanupScope.It)
+	}
 	useDummyDPUServiceChart(dpuServiceTemplate)
 	Expect(input.client.Create(ctx, dpuServiceTemplate)).To(Succeed())
 
@@ -247,6 +250,8 @@ func VerifyDPUServiceTemplateCreationWithAnnotations(ctx context.Context, input 
 }
 
 func VerifyDPUServiceTemplateMetrics(ctx context.Context, input *systemTestInput) {
+	skipMetricNamesInOCPReuse()
+
 	By("Create namespace and DPUServiceTemplate")
 	dpuServiceTemplate := generateDPUServiceTemplate(input, "-metrics")
 	Expect(input.client.Create(ctx, dpuServiceTemplate)).To(Succeed())

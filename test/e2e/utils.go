@@ -62,6 +62,11 @@ const (
 
 	// kubeStateMetricsPort is the port used by kube-state-metrics across host and DPU clusters.
 	kubeStateMetricsPort = 8080
+	// hostKubeStateMetricsService is the host-cluster kube-state-metrics service name in the default deployment.
+	hostKubeStateMetricsService = "kube-state-metrics"
+	// ocpHostKubeStateMetricsService is the host-cluster kube-state-metrics service name on OCP,
+	// where host KSM is user-managed and deployed under a different name.
+	ocpHostKubeStateMetricsService = "dpf-host-kube-state-metrics"
 	// testMTUValue is the MTU value used across e2e tests to trigger configuration changes.
 	testMTUValue = 1300
 	// defaultAPIServerPort is the default Kubernetes API server port used in performance tests.
@@ -114,6 +119,7 @@ type TestDomain struct {
 	Observability           string // Observability test suite
 	ImagePullSecretsSync    string // ImagePullSecrets sync/cleanup validation (opt out in CI via !ImagePullSecretsSync)
 	Performance             string // Performance test suite - applies MTU 9000 and extended DMS timeout
+	OCP                     string // OpenShift reuse tests: run non-destructively against an already-provisioned cluster (no DPU (re)provisioning)
 }
 
 // Domain is the global instance of test label domains
@@ -143,6 +149,7 @@ var Domain = TestDomain{
 	Observability:           "Observability",
 	ImagePullSecretsSync:    "ImagePullSecretsSync",
 	Performance:             "Performance",
+	OCP:                     "OCP",
 }
 
 var (
@@ -262,6 +269,16 @@ var (
 		"sfc-controller",
 		"sriov-device-plugin",
 		"kube-multus",
+	}
+	// ocpSystemPodsToVerify is the DPU-cluster pod checklist for OCP reuse runs.
+	// OpenShift provides multus/CNI itself (see operatorconfig-ocp.yaml), so the
+	// DPF-managed cni-installer and kube-multus pods are not deployed there.
+	ocpSystemPodsToVerify = []string{
+		"kube-proxy",
+		"kube-flannel",
+		"nvidia-k8s-ipam",
+		"sfc-controller",
+		"sriov-device-plugin",
 	}
 )
 
@@ -424,6 +441,41 @@ func getDPUNodesInOrder(ctx context.Context, hostClient, dpuClusterClient client
 // isGinkgoLabel returns if a label is passed while running ginkgo and is not excluded
 func isGinkgoLabelApplied(ginkgoLabel string) bool {
 	return strings.Contains(GinkgoLabelFilter(), ginkgoLabel) && !strings.Contains(GinkgoLabelFilter(), "!"+ginkgoLabel)
+}
+
+// skipInOCPReuse skips the running spec when the OCP reuse suite is selected. Use
+// it for assertions that suite cannot satisfy; reason states what stands in the way.
+func skipInOCPReuse(reason string) {
+	if isGinkgoLabelApplied(Domain.OCP) {
+		Skip("Skip in OCP reuse mode: " + reason)
+	}
+}
+
+// skipMetricNamesInOCPReuse skips kube-state-metrics name assertions in OCP reuse
+// mode. That suite runs against a pinned release operator, which emits the metric
+// names without the dpf_ prefix the expectations use.
+func skipMetricNamesInOCPReuse() {
+	skipInOCPReuse("the pinned release operator emits kube-state-metrics names without the dpf_ prefix")
+}
+
+// skipPrometheusInOCPReuse skips PromQL assertions in OCP reuse mode. The test
+// client proxies to the kube-prometheus-stack service, which OpenShift does not
+// deploy: its own monitoring stack answers through thanos-querier, so every query
+// returns 404. Querying Thanos instead needs more than a new address, because its
+// authenticated port expects a bearer token while this suite authenticates with a
+// client certificate, and its unauthenticated port listens on localhost only.
+func skipPrometheusInOCPReuse() {
+	skipInOCPReuse("OpenShift serves metrics through thanos-querier, which the Prometheus test client cannot reach")
+}
+
+// dpuClusterPodsToVerify returns the DPU-cluster system pod patterns to wait for.
+// OCP reuse mode runs against clusters where OpenShift provides multus/CNI, so
+// DPF-managed cni-installer and kube-multus pods are not expected.
+func dpuClusterPodsToVerify() []string {
+	if isGinkgoLabelApplied(Domain.OCP) {
+		return ocpSystemPodsToVerify
+	}
+	return systemPodsToVerify
 }
 
 // VerifyPerformancePodToPodSameNode verifies performance between pods on the same node
