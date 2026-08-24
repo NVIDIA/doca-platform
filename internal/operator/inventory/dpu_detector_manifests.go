@@ -106,7 +106,7 @@ func (p *dpuDetectorObjects) GenerateManifests(_ context.Context, vars Variables
 		AddForAll(NamespaceEdit(vars.Namespace)).
 		AddForKindS(DaemonsetKind, ImagePullSecretsEditForDaemonSetEdit(vars.ImagePullSecrets...)).
 		AddForKindS(DaemonsetKind, ImageForDaemonSetContainerEdit("dpu-detector", containerImage)).
-		AddForKindS(DaemonSetKind, TolerationsEdit(nodeNotReadyTolerations)).
+		AddForKindS(DaemonSetKind, TolerationsEdit(append(nodeNotReadyTolerations, dpuReadyNoExecuteToleration))).
 		AddForAll(LabelsEdit(labelsToAdd))
 
 	// Add component-specific labels, annotations, and resources

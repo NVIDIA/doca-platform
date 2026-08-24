@@ -66,8 +66,11 @@ type DPUReadyReconciler struct {
 	controller  controller.Controller
 	RemoteCache *dpucluster.RemoteCache
 
-	// DisableDPUReadyTaints, if set to true, will disable the addition of DPU-ready taints to nodes.
+	// DisableDPUReadyTaints is a full taint kill-switch: when set, no taint managed by this
+	// controller (NoSchedule or NoExecute) is added, removed, or otherwise touched.
 	DisableDPUReadyTaints bool
+	// DisableHostNetworkReadyNoExecuteTaints, if set to true (the default), disables HostNetworkReady NoExecute taint management.
+	DisableHostNetworkReadyNoExecuteTaints bool
 }
 
 const (
@@ -75,6 +78,9 @@ const (
 	taintKey = "dpu.nvidia.com/dpu-ready"
 	// taintEffect is the effect for the DPU-ready taint, preventing scheduling on non-ready host worker nodes.
 	taintEffect = corev1.TaintEffectNoSchedule
+	// hostNetworkReadyTaintEffect is the effect for the taint applied to host worker nodes when a
+	// Ready-phase DPU reports HostNetworkReady != True, evicting workloads that depend on host VFs.
+	hostNetworkReadyTaintEffect = corev1.TaintEffectNoExecute
 	// dpuEnabledLabelKey is the label key indicating that a node has DPU enabled.
 	dpuEnabledLabelKey = "feature.node.kubernetes.io/dpu-enabled"
 	// dpuEnabledLabelValue is the label value indicating that a node has DPU enabled.
@@ -112,7 +118,10 @@ func (r *DPUReadyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	c, err := ctrl.NewControllerManagedBy(mgr).
 		For(&provisioningv1.DPUNode{}).
 		Watches(&corev1.Node{}, handler.EnqueueRequestsFromMapFunc(r.nodeToDPUNodeReq), builder.WithPredicates(nodePredicate)).
-		Watches(&provisioningv1.DPU{}, handler.EnqueueRequestsFromMapFunc(r.dpuToDPUNodeReq), builder.WithPredicates(predicateutils.ReadyConditionChanged())).
+		Watches(&provisioningv1.DPU{}, handler.EnqueueRequestsFromMapFunc(r.dpuToDPUNodeReq), builder.WithPredicates(predicate.Or(
+			predicateutils.ReadyConditionChanged(),
+			predicateutils.ConditionChanged(conditions.ConditionType(provisioningv1.DPUCondHostNetworkReady)),
+		))).
 		Watches(&dpuservicev1.DPUServiceChain{}, handler.EnqueueRequestsFromMapFunc(r.sfcObjToDPUNodeReq), builder.WithPredicates(predicateutils.ReadyConditionChanged())).
 		Watches(&dpuservicev1.DPUServiceInterface{}, handler.EnqueueRequestsFromMapFunc(r.sfcObjToDPUNodeReq), builder.WithPredicates(predicateutils.ReadyConditionChanged())).
 		Build(r)
@@ -354,6 +363,10 @@ func (r *DPUReadyReconciler) reconcile(ctx context.Context, scope *reconcileScop
 		return fmt.Errorf("failed to reconcile DPUServices: %w", err)
 	}
 
+	if err := r.reconcileHostNetworkReadyNoExecuteTaints(ctx, scope); err != nil {
+		return fmt.Errorf("failed to reconcile HostNetworkReady taints: %w", err)
+	}
+
 	if err := r.reconcileDPUNodeMaintenance(ctx, scope); err != nil {
 		return fmt.Errorf("failed to reconcile DPUNodeMaintenance: %w", err)
 	}
@@ -382,16 +395,61 @@ func (r *DPUReadyReconciler) reconcileDPUReadyTaints(ctx context.Context, scope 
 
 	criticalServicesReady := isCriticalServiceReady(dpuServicesReadyStatus, r.getCriticalDPUServiceList(scope.dpuServiceList).Items)
 	if criticalServicesReady {
-		if err = r.removeTaintIfExists(ctx, scope.node); err != nil {
+		if err = r.removeTaintEffectIfExists(ctx, scope.node, taintEffect); err != nil {
 			return fmt.Errorf("error removing taint from node %s: %w", scope.node.Name, err)
 		}
 	} else {
-		if err = r.addTaintIfDoesNotExist(ctx, scope.node); err != nil {
+		if err = r.addTaintEffectIfDoesNotExist(ctx, scope.node, taintEffect); err != nil {
 			return fmt.Errorf("error adding taint to node %s: %w", scope.node.Name, err)
 		}
 	}
 
 	return nil
+}
+
+// reconcileHostNetworkReadyNoExecuteTaints reconciles the NoExecute taint applied to a host worker
+// node when a Ready-phase DPU reports HostNetworkReady != True. This is independent from the
+// critical-service NoSchedule taint managed by reconcileDPUReadyTaints; both share taintKey but use
+// different effects.
+func (r *DPUReadyReconciler) reconcileHostNetworkReadyNoExecuteTaints(ctx context.Context, scope *reconcileScope) error {
+	// DisableDPUReadyTaints is a full taint kill-switch: when set, no taint managed by this
+	// controller (NoSchedule or NoExecute) is added, removed, or otherwise touched.
+	if r.DisableDPUReadyTaints {
+		return nil
+	}
+
+	// Skip taint operations in zero-trust mode (when there's no corev1.Node)
+	if scope.node == nil {
+		return nil
+	}
+
+	if r.DisableHostNetworkReadyNoExecuteTaints {
+		// The NoExecute feature itself is off: clean up any previously-applied NoExecute taint.
+		return r.removeTaintEffectIfExists(ctx, scope.node, hostNetworkReadyTaintEffect)
+	}
+
+	if shouldNoExecuteForHostNetwork(scope.dpuList) {
+		return r.addTaintEffectIfDoesNotExist(ctx, scope.node, hostNetworkReadyTaintEffect)
+	}
+
+	return r.removeTaintEffectIfExists(ctx, scope.node, hostNetworkReadyTaintEffect)
+}
+
+// shouldNoExecuteForHostNetwork returns true if any Ready-phase DPU reports HostNetworkReady != True
+// (including a missing condition). It returns false if no DPU has reached Phase Ready yet, or if
+// every Ready-phase DPU reports HostNetworkReady == True.
+func shouldNoExecuteForHostNetwork(dpus []provisioningv1.DPU) bool {
+	for i := range dpus {
+		dpu := &dpus[i]
+		if dpu.Status.Phase != provisioningv1.DPUReady {
+			continue
+		}
+		cond := conditions.Get(dpu, conditions.ConditionType(provisioningv1.DPUCondHostNetworkReady))
+		if cond == nil || cond.Status != metav1.ConditionTrue {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *DPUReadyReconciler) reconcileDPUNodeMaintenance(ctx context.Context, scope *reconcileScope) error {
@@ -771,41 +829,43 @@ func (r *DPUReadyReconciler) patchNode(ctx context.Context, taints []corev1.Tain
 	return nil
 }
 
-// addTaintIfDoesNotExist adds the DPU-ready taint to a node if it doesn't already exist
-func (r *DPUReadyReconciler) addTaintIfDoesNotExist(ctx context.Context, node *corev1.Node) error {
+// addTaintEffectIfDoesNotExist adds a taintKey taint with the given effect to a node if a taint
+// with that exact key/effect pair doesn't already exist. Taints with taintKey but a different
+// effect are left untouched, so multiple effects can coexist under the same key.
+func (r *DPUReadyReconciler) addTaintEffectIfDoesNotExist(ctx context.Context, node *corev1.Node, effect corev1.TaintEffect) error {
 	log := ctrllog.FromContext(ctx)
-	taint := corev1.Taint{
-		Key:    taintKey,
-		Effect: taintEffect,
-	}
-
 	for _, taint := range node.Spec.Taints {
-		if taint.Key == taintKey {
+		if taint.Key == taintKey && taint.Effect == effect {
 			return nil
 		}
 	}
 
-	taints := append(node.Spec.Taints, taint)
-	log.Info("Adding taint to node", "nodeName", node.Name)
+	taints := append(node.Spec.Taints, corev1.Taint{
+		Key:    taintKey,
+		Effect: effect,
+	})
+	log.Info("Adding taint to node", "nodeName", node.Name, "effect", effect)
 	return r.patchNode(ctx, taints, node)
 }
 
-// removeTaintIfExists removes the DPU-ready taint from a node if it exists
-func (r *DPUReadyReconciler) removeTaintIfExists(ctx context.Context, node *corev1.Node) error {
+// removeTaintEffectIfExists removes the taintKey taint with the given effect from a node if it
+// exists. Taints with taintKey but a different effect are left untouched, so multiple effects can
+// coexist under the same key.
+func (r *DPUReadyReconciler) removeTaintEffectIfExists(ctx context.Context, node *corev1.Node, effect corev1.TaintEffect) error {
 	log := ctrllog.FromContext(ctx)
 	newTaints := []corev1.Taint{}
 	taintExists := false
 	for _, taint := range node.Spec.Taints {
-		if taint.Key != taintKey {
-			newTaints = append(newTaints, taint)
-		} else {
+		if taint.Key == taintKey && taint.Effect == effect {
 			taintExists = true
+			continue
 		}
+		newTaints = append(newTaints, taint)
 	}
 	if !taintExists {
 		return nil
 	}
-	log.Info("Removing taint from node", "nodeName", node.Name)
+	log.Info("Removing taint from node", "nodeName", node.Name, "effect", effect)
 	return r.patchNode(ctx, newTaints, node)
 }
 

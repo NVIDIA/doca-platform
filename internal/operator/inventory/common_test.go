@@ -22,11 +22,67 @@ import (
 
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
+
+func Test_setFlags(t *testing.T) {
+	t.Run("appends missing flags in newFlags order", func(t *testing.T) {
+		g := NewWithT(t)
+		c := &corev1.Container{Args: []string{"--existing=true"}}
+
+		g.Expect(setFlags(c,
+			"--disable-dpu-ready-taints=false",
+			"--disable-host-network-ready-noexecute-taints=true",
+		)).To(Succeed())
+
+		g.Expect(c.Args).To(Equal([]string{
+			"--existing=true",
+			"--disable-dpu-ready-taints=false",
+			"--disable-host-network-ready-noexecute-taints=true",
+		}))
+	})
+
+	t.Run("updates existing flags in place without reordering", func(t *testing.T) {
+		g := NewWithT(t)
+		c := &corev1.Container{Args: []string{
+			"--disable-host-network-ready-noexecute-taints=false",
+			"--other=1",
+			"--disable-dpu-ready-taints=false",
+		}}
+
+		g.Expect(setFlags(c,
+			"--disable-dpu-ready-taints=true",
+			"--disable-host-network-ready-noexecute-taints=true",
+		)).To(Succeed())
+
+		g.Expect(c.Args).To(Equal([]string{
+			"--disable-host-network-ready-noexecute-taints=true",
+			"--other=1",
+			"--disable-dpu-ready-taints=true",
+		}))
+	})
+
+	t.Run("is deterministic across repeated calls", func(t *testing.T) {
+		g := NewWithT(t)
+		var first []string
+		for i := 0; i < 20; i++ {
+			c := &corev1.Container{Args: []string{"--existing=true"}}
+			g.Expect(setFlags(c,
+				"--disable-dpu-ready-taints=false",
+				"--disable-host-network-ready-noexecute-taints=true",
+			)).To(Succeed())
+			if i == 0 {
+				first = append([]string(nil), c.Args...)
+				continue
+			}
+			g.Expect(c.Args).To(Equal(first))
+		}
+	})
+}
 
 func Test_deploymentReadyCheck(t *testing.T) {
 	g := NewWithT(t)
