@@ -107,6 +107,11 @@ var (
 			Effect:   corev1.TaintEffectNoSchedule,
 		},
 	}
+	dpuReadyNoExecuteToleration = corev1.Toleration{
+		Key:      "dpu.nvidia.com/dpu-ready",
+		Operator: corev1.TolerationOpExists,
+		Effect:   corev1.TaintEffectNoExecute,
+	}
 )
 
 func localObjRefsFromStrings(names ...string) []corev1.LocalObjectReference {
@@ -317,11 +322,15 @@ func getContainerByName(deploy *appsv1.Deployment, name string) *corev1.Containe
 
 // setFlags sets or updates command line flags in a container's Args slice.
 func setFlags(c *corev1.Container, newFlags ...string) error {
-	pending := make(map[string]string)
+	pending := make(map[string]string, len(newFlags))
+	order := make([]string, 0, len(newFlags))
 	for _, f := range newFlags {
 		name := parseFlagName(f)
 		if name == "" {
 			return fmt.Errorf("invalid flag %s", f)
+		}
+		if _, exists := pending[name]; !exists {
+			order = append(order, name)
 		}
 		pending[name] = f
 	}
@@ -337,7 +346,14 @@ func setFlags(c *corev1.Container, newFlags ...string) error {
 		delete(pending, name)
 		c.Args[i] = newFlag
 	}
-	for _, flag := range pending {
+	// Append still-pending flags in newFlags order so repeated reconciles produce
+	// identical Args (map iteration order would otherwise churn the pod template).
+	for _, name := range order {
+		flag, ok := pending[name]
+		if !ok {
+			continue
+		}
+		delete(pending, name)
 		c.Args = append(c.Args, flag)
 	}
 	return nil

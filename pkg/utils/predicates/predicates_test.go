@@ -251,3 +251,138 @@ var _ = Describe("ReadyConditionChanged", func() {
 		})
 	})
 })
+
+var _ = Describe("ConditionChanged", func() {
+	const testConditionType conditions.ConditionType = "HostNetworkReady"
+	var predicateFuncs predicate.Funcs
+
+	BeforeEach(func() {
+		predicateFuncs = ConditionChanged(testConditionType)
+	})
+
+	Context("When handling Create events", func() {
+		It("should trigger on create", func() {
+			obj := &mockConditionsObject{ObjectMeta: metav1.ObjectMeta{Name: "test"}}
+
+			e := event.CreateEvent{Object: obj}
+			Expect(predicateFuncs.Create(e)).To(BeTrue())
+		})
+	})
+
+	Context("When handling Update events", func() {
+		DescribeTable("should handle target condition status changes",
+			func(oldTrue, newTrue, shouldTrigger bool) {
+				oldStatus := metav1.ConditionFalse
+				if oldTrue {
+					oldStatus = metav1.ConditionTrue
+				}
+				oldObj := &mockConditionsObject{
+					ObjectMeta: metav1.ObjectMeta{Name: "test"},
+					conditions: []metav1.Condition{
+						{Type: string(testConditionType), Status: oldStatus},
+					},
+				}
+
+				newStatus := metav1.ConditionFalse
+				if newTrue {
+					newStatus = metav1.ConditionTrue
+				}
+				newObj := &mockConditionsObject{
+					ObjectMeta: metav1.ObjectMeta{Name: "test"},
+					conditions: []metav1.Condition{
+						{Type: string(testConditionType), Status: newStatus},
+					},
+				}
+
+				e := event.UpdateEvent{
+					ObjectOld: oldObj,
+					ObjectNew: newObj,
+				}
+				Expect(predicateFuncs.Update(e)).To(Equal(shouldTrigger))
+			},
+			Entry("condition false to true", false, true, true),
+			Entry("condition true to false", true, false, true),
+			Entry("condition true to true", true, true, false),
+			Entry("condition false to false", false, false, false),
+		)
+
+		It("should ignore changes to unrelated condition types", func() {
+			oldObj := &mockConditionsObject{
+				ObjectMeta: metav1.ObjectMeta{Name: "test"},
+				conditions: []metav1.Condition{
+					{Type: string(conditions.TypeReady), Status: metav1.ConditionFalse},
+				},
+			}
+			newObj := &mockConditionsObject{
+				ObjectMeta: metav1.ObjectMeta{Name: "test"},
+				conditions: []metav1.Condition{
+					{Type: string(conditions.TypeReady), Status: metav1.ConditionTrue},
+				},
+			}
+
+			e := event.UpdateEvent{
+				ObjectOld: oldObj,
+				ObjectNew: newObj,
+			}
+			Expect(predicateFuncs.Update(e)).To(BeFalse())
+		})
+
+		It("should not trigger for objects that don't implement GetSet", func() {
+			oldObj := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "test"}}
+			newObj := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "test"}}
+
+			e := event.UpdateEvent{
+				ObjectOld: oldObj,
+				ObjectNew: newObj,
+			}
+			Expect(predicateFuncs.Update(e)).To(BeFalse())
+		})
+
+		It("should trigger when object with finalizer is deleted (DeletionTimestamp set)", func() {
+			now := metav1.Now()
+			oldObj := &mockConditionsObject{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "test",
+					Finalizers: []string{"test/finalizer"},
+				},
+				conditions: []metav1.Condition{
+					{Type: string(testConditionType), Status: metav1.ConditionTrue},
+				},
+			}
+			newObj := &mockConditionsObject{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "test",
+					Finalizers:        []string{"test/finalizer"},
+					DeletionTimestamp: &now,
+				},
+				conditions: []metav1.Condition{
+					{Type: string(testConditionType), Status: metav1.ConditionTrue},
+				},
+			}
+
+			e := event.UpdateEvent{
+				ObjectOld: oldObj,
+				ObjectNew: newObj,
+			}
+			Expect(predicateFuncs.Update(e)).To(BeTrue())
+		})
+	})
+
+	Context("When handling Delete events", func() {
+		It("should trigger on delete", func() {
+			obj := &mockConditionsObject{ObjectMeta: metav1.ObjectMeta{Name: "test"}}
+
+			e := event.DeleteEvent{Object: obj}
+			Expect(predicateFuncs.Delete(e)).To(BeTrue())
+		})
+	})
+
+	Context("When handling Generic events", func() {
+		It("should not trigger on generic events", func() {
+			obj := &mockConditionsObject{ObjectMeta: metav1.ObjectMeta{Name: "test"}}
+
+			e := event.GenericEvent{Object: obj}
+			Expect(predicateFuncs.Generic(e)).To(BeFalse())
+		})
+	})
+})
