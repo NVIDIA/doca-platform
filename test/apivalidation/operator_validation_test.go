@@ -442,6 +442,26 @@ var _ = Describe("Operator API Validation", func() {
 					validateConfigCreation(config, expectError, errorMessage, &cleanupObjs)
 				},
 				Entry("valid - full configuration", func(s *operatorv1.SPIFFEConfiguration) {}, false, ""),
+				Entry("valid - token exchange", func(s *operatorv1.SPIFFEConfiguration) {
+					s.TokenExchangeEndpoint = ptr.To("https://identity-keys.example/v1/exchange")
+				}, false, ""),
+				Entry("invalid - token exchange endpoint", func(s *operatorv1.SPIFFEConfiguration) {
+					s.TokenExchangeEndpoint = ptr.To("identity-keys.example/v1/exchange")
+				}, true, "tokenExchangeEndpoint"),
+				Entry("invalid - plaintext token exchange endpoint", func(s *operatorv1.SPIFFEConfiguration) {
+					s.TokenExchangeEndpoint = ptr.To("http://identity-keys.example/v1/exchange")
+				}, true, "tokenExchangeEndpoint"),
+				Entry("invalid - empty token exchange endpoint", func(s *operatorv1.SPIFFEConfiguration) {
+					s.TokenExchangeEndpoint = ptr.To("")
+				}, true, "tokenExchangeEndpoint"),
+				// Cloud-init renders this into an HCL string literal, so a quote or backslash would
+				// produce a config the helper cannot parse and it would crash-loop on the DPU.
+				Entry("invalid - quote in token exchange endpoint", func(s *operatorv1.SPIFFEConfiguration) {
+					s.TokenExchangeEndpoint = ptr.To(`https://identity-keys.example/"`)
+				}, true, "tokenExchangeEndpoint"),
+				Entry("invalid - backslash in token exchange endpoint", func(s *operatorv1.SPIFFEConfiguration) {
+					s.TokenExchangeEndpoint = ptr.To(`https://identity-keys.example/\`)
+				}, true, "tokenExchangeEndpoint"),
 				Entry("invalid - empty class name", func(s *operatorv1.SPIFFEConfiguration) {
 					s.SPIREControllerManagerClassName = ""
 				}, true, "spireControllerManagerClassName"),

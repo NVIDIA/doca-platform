@@ -33,6 +33,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 )
 
 type DefaultDPUArtifactGenerator struct {
@@ -147,6 +148,7 @@ func (g *DefaultDPUArtifactGenerator) applySpiffeParams(ctx context.Context, req
 	params.SpiffeAgentSocketPath = constants.SPIREAgentSocketPath
 	params.SpiffeAgentSocketDir = path.Dir(constants.SPIREAgentSocketPath)
 	params.SpiffePluginPath = constants.SPIREPluginPath
+	params.SpiffeTokenExchangeEndpoint = ptr.Deref(spiffeCfg.TokenExchangeEndpoint, "")
 	return nil
 }
 

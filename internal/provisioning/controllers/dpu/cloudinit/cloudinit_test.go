@@ -524,6 +524,7 @@ users:
 		Expect(helperCfg.Content).To(ContainSubstring(`jwt_audience="dpf"`))
 		Expect(helperCfg.Content).To(ContainSubstring(`jwt_svid_file_name="` + path.Base(constants.SpiffeTokenPath) + `"`))
 		Expect(helperCfg.Content).To(ContainSubstring("jwt_svid_file_mode = 0600"))
+		Expect(helperCfg.Content).NotTo(ContainSubstring("token_exchange_endpoint"))
 		Expect(helperCfg.Content).NotTo(ContainSubstring("spiffe_id ="))
 
 		dropIn := getWriteFile(parsed, "/etc/systemd/system/dpu-agent.service.d/spiffe.conf")
