@@ -76,8 +76,15 @@ DPFOperatorConfig/dpfoperatorconfig                   dpf-operator-system  Ready
 
 Storage resources are not included in the output of `dpfctl describe all` command by default. To display storage resources, use the `--show-storage` flag.
 
-The `dpfctl describe storage` command can be used to display only storage resources. It acts as a shortcut for
-`dpfctl describe all --show-storage --show-resources dpuvolumes,dpuvolumeattachments,dpustoragevendors,dpustoragepolicies`.
+The `dpfctl describe storage` command can be used to display only storage resources (DPUVolumes,
+DPUVolumeAttachments, DPUStoragePolicies, and DPUStorageVendors), without the rest of the DPF resource tree:
+
+```bash
+dpfctl describe storage
+```
+
+It is equivalent to scoping `dpfctl describe all` to the storage resources with `--show-storage` and
+`--show-resources dpuvolumes,dpuvolumeattachments,dpustoragevendors,dpustoragepolicies`.
 
 ## Visualizing the Output
 
