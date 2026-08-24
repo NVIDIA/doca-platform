@@ -190,10 +190,12 @@ func Initializing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 		return *state, nil
 	}
 
-	// Pending branches on DPU type (BlueFieldSoftware vs BFB). Do not leave Initializing until
-	// the device has reported a concrete type — BMC factory reset delays that stamp, and copying
-	// Unknown here would send BF4 DPUs down the empty-BFB path.
-	if !isKnownDPUType(state.DPUType) {
+	// Pending branches on DPU type (BlueFieldSoftware vs BFB). On the Redfish path, BMC
+	// factory reset delays that stamp; leaving Initializing with Unknown would send BF4
+	// DPUs down the empty-BFB path. Host-trusted never stamps dpuType (no BMC discover),
+	// so Unknown is expected there and still selects BFB.
+	if *dpu.Status.DPUInstallInterface == string(provisioningv1.InstallViaRedFish) &&
+		!isKnownDPUType(state.DPUType) {
 		err := fmt.Errorf("waiting for DPUDevice %s to report DPU type", dpu.Spec.DPUDeviceName)
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondInitialized.String(), err, "DPUTypeUnknown", err.Error()))
 		return *state, nil

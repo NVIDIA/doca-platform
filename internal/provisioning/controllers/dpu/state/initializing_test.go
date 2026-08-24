@@ -294,10 +294,64 @@ var _ = Describe("Phase Initializing", func() {
 			Expect(status.Phase).To(Equal(provisioningv1.DPUPending))
 		})
 
-		It("should stay in Initializing until DPUDevice reports a known DPU type", func() {
+		It("should stay in Initializing until a Redfish DPUDevice reports a known DPU type", func() {
 			dpuDevice := dpuDeviceObj(defaultDPUDeviceName)
+			dpuDevice.Spec.BMCIP = ptr.To("192.0.2.10")
 			createObject(dpuDevice)
 			// Intentionally leave status.dpuType unset (Unknown after copy).
+
+			dpuNode := dpuNodeObj(defaultDPUNodeName)
+			dpuNode.Spec.DPUs = []provisioningv1.DPURef{{Name: dpuDevice.Name}}
+			createObject(dpuNode)
+			patchNode := client.MergeFrom(dpuNode.DeepCopy())
+			dpuNode.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaRedFish))
+			Expect(k8sClient.Status().Patch(ctx, dpuNode, patchNode)).To(Succeed())
+
+			dpuCluster := dpuClusterObj(defaultDPUClusterName, "static")
+			createObject(dpuCluster)
+
+			dpu := dpuObj(defaultDPUName)
+			dpu.Spec.DPUNodeName = dpuNode.Name
+			dpu.Spec.DPUDeviceName = dpuDevice.Name
+			dpu.Spec.Cluster.Namespace = dpuCluster.Namespace
+			dpu.Spec.Cluster.Name = dpuCluster.Name
+			dpu.Status.Phase = provisioningv1.DPUInitializing
+			dpu.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaRedFish))
+			reportedAt := metav1.Now()
+			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
+				PreInstall: &provisioningv1.AgentPreInstallStatus{
+					AgentReported: &reportedAt,
+				},
+			}
+			ctrlCtx := &dutil.ControllerContext{
+				Client: k8sClient,
+				Options: dutil.DPUOptions{
+					DPUInstallInterface: string(provisioningv1.InstallViaRedFish),
+				},
+			}
+
+			status, err := state.Initializing(ctx, dpu, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUInitializing))
+			Expect(status.Conditions).Should(ContainElements(
+				And(
+					HaveField("Type", provisioningv1.DPUCondInitialized.String()),
+					HaveField("Status", metav1.ConditionFalse),
+					HaveField("Reason", "DPUTypeUnknown"),
+				),
+			))
+
+			setDPUDeviceType(dpuDevice, provisioningv1.DPUTypeBlueField4)
+			status, err = state.Initializing(ctx, dpu, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUPending))
+			Expect(status.DPUType).To(Equal(provisioningv1.DPUTypeBlueField4))
+		})
+
+		It("should leave Initializing on HostAgent when DPUDevice dpuType is still Unknown", func() {
+			dpuDevice := dpuDeviceObj(defaultDPUDeviceName)
+			createObject(dpuDevice)
+			// Host-trusted never stamps dpuType; CRD default remains Unknown.
 
 			dpuNode := dpuNodeObj(defaultDPUNodeName)
 			dpuNode.Finalizers = []string{provisioningv1.DPUNodeFinalizer}
@@ -343,20 +397,7 @@ var _ = Describe("Phase Initializing", func() {
 
 			status, err := state.Initializing(ctx, dpu, ctrlCtx)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(status.Phase).To(Equal(provisioningv1.DPUInitializing))
-			Expect(status.Conditions).Should(ContainElements(
-				And(
-					HaveField("Type", provisioningv1.DPUCondInitialized.String()),
-					HaveField("Status", metav1.ConditionFalse),
-					HaveField("Reason", "DPUTypeUnknown"),
-				),
-			))
-
-			setDPUDeviceType(dpuDevice, provisioningv1.DPUTypeBlueField4)
-			status, err = state.Initializing(ctx, dpu, ctrlCtx)
-			Expect(err).NotTo(HaveOccurred())
 			Expect(status.Phase).To(Equal(provisioningv1.DPUPending))
-			Expect(status.DPUType).To(Equal(provisioningv1.DPUTypeBlueField4))
 		})
 
 	})
