@@ -895,23 +895,6 @@ linters:
         linters:
           - kubeapilinter
 
-      ## uniquemarkers excludes for pre-existing fields.
-      # Removing the duplicate kubebuilder:validation:Enum marker changes the
-      # generated CRD schema for a released v1alpha1 API; grandfathered in until
-      # a breaking API bump.
-      - path: api/provisioning/v1alpha1/dpu_types.go
-        text: "uniquemarkers: field DPUStatus.DPUMode"
-        linters:
-          - kubeapilinter
-      - path: api/provisioning/v1alpha1/dpucluster_types.go
-        text: "uniquemarkers: field DPUClusterStatus.Phase"
-        linters:
-          - kubeapilinter
-      - path: api/provisioning/v1alpha1/dpudevice_types.go
-        text: "uniquemarkers: field DPUDeviceStatus.DPUMode"
-        linters:
-          - kubeapilinter
-
       ## defaultorrequired excludes for pre-existing fields.
       # Same default_or_required fields already grandfathered above for
       # conflictingmarkers/defaults; removing either marker is a breaking change

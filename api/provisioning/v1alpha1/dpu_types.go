@@ -441,7 +441,6 @@ type DPUStatus struct {
 	RebootStatus *RebootStatus `json:"rebootStatus,omitempty"`
 
 	// The mode of the DPU
-	// +kubebuilder:validation:Enum=dpu;nic
 	// +kubebuilder:default=dpu
 	// +optional
 	DPUMode DpuModeType `json:"dpuMode,omitempty"`
