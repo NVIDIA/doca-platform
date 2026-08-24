@@ -605,6 +605,19 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			Expect(reconciler.reconcileDynamicFields(ctx, dpuDevice)).NotTo(Succeed())
 		})
 
+		It("should fail when the BMC clock is out of sync", func() {
+			ctx := context.Background()
+			mockServer, reconciler := setupDiscoveryTest()
+			defer mockServer.Stop()
+
+			mockServer.SetTime(time.Now().Add(-time.Hour).Format(time.RFC3339))
+
+			dpuDevice := createTestDPUDevice(mockServer, "test-dpudevice-clock-skew")
+
+			Expect(reconciler.discoverDPUDevice(ctx, dpuDevice)).To(Succeed())
+			Expect(reconciler.reconcileDynamicFields(ctx, dpuDevice)).NotTo(Succeed())
+		})
+
 		It("should fail when DPU type is unknown in DPU mode", func() {
 			ctx := context.Background()
 			scheme := runtime.NewScheme()
