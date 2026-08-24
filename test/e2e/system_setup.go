@@ -472,10 +472,10 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 			g.Expect(found).To(HaveKey(operatorv1.NVIPAMNodeName.String()))
 			g.Expect(found).To(HaveKey(operatorv1.KubeStateMetricsRBACName.String()))
 			g.Expect(found).To(HaveKey(operatorv1.NodeProblemDetectorName.String()))
+			g.Expect(found).To(HaveKey(operatorv1.DPUMonitoringName.String()))
 		} else {
 			g.Expect(found).To(HaveKey(operatorv1.ServiceSetControllerName.String()))
 			g.Expect(found).To(HaveKey(operatorv1.NVIPAMControllerName.String()))
-			g.Expect(found).To(HaveKey(operatorv1.DPUMonitoringName.String()))
 		}
 
 		// Expect each of the following to have been created by the operator.
