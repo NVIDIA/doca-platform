@@ -110,7 +110,6 @@ type DPUClusterSpec struct {
 
 // DPUClusterStatus defines the observed state of DPUCluster
 type DPUClusterStatus struct {
-	// +kubebuilder:validation:Enum=Pending;Creating;Ready;NotReady;Failed
 	// +kubebuilder:default="Pending"
 	// +optional
 	Phase ClusterPhase `json:"phase,omitempty"`

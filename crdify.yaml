@@ -10,6 +10,27 @@ validations:
     enforcement: Error
     configuration:
       additionPolicy: Allow
+  - name: type
+    enforcement: Error
+    configuration:
+      # Allow list for false-positive "type changed" errors caused by crdify
+      # not resolving the effective type through a duplicated allOf/enum
+      # schema. Fixing the duplicate kubebuilder:validation:Enum marker that
+      # produced the allOf collapses it back to a plain "type: string", which
+      # crdify's type comparator misreads as a change from "" to "string".
+      allowList:
+        - apiVersion: "provisioning.dpu.nvidia.com/v1alpha1"
+          kind: "DPUCluster"
+          field: ".status.phase"
+          error: 'type changed : "" -> "string"'
+        - apiVersion: "provisioning.dpu.nvidia.com/v1alpha1"
+          kind: "DPU"
+          field: ".status.dpuMode"
+          error: 'type changed : "" -> "string"'
+        - apiVersion: "provisioning.dpu.nvidia.com/v1alpha1"
+          kind: "DPUDevice"
+          field: ".status.dpuMode"
+          error: 'type changed : "" -> "string"'
   - name: required
     enforcement: Error
     configuration:

@@ -2482,7 +2482,7 @@ _Appears in:_
 | `pf0Name` _string_ | PF0Name is the name of the PF0 on the device.<br />Example: "eth0" |  | Optional: \{\} <br /> |
 | `pf0Mac` _string_ | PF0MAC is the MAC address of the PF0 on the device.<br />Example: "00:00:00:00:00:00" |  | Pattern: `^([0-9A-Fa-f]\{2\}[:-])\{5\}([0-9A-Fa-f]\{2\})$` <br />Optional: \{\} <br /> |
 | `dpuType` _[DPUType](#dputype)_ | DPUType is the type of the DPU. | Unknown | Enum: [Unknown BlueField2 BlueField3 BlueField4] <br />Optional: \{\} <br /> |
-| `dpuMode` _[DpuModeType](#dpumodetype)_ | DPUMode is the mode of the DPU. | dpu | Enum: [dpu nic] <br />Optional: \{\} <br /> |
+| `dpuMode` _[DpuModeType](#dpumodetype)_ | DPUMode is the mode of the DPU. | dpu | Enum: [dpu zero-trust nic] <br />Optional: \{\} <br /> |
 | `secureBoot` _[SecureBootStatus](#securebootstatus)_ | SecureBoot indicates the current UEFI Secure Boot state. |  | Optional: \{\} <br /> |
 | `bmcCredentialSecretName` _string_ | BMCCredentialSecretName is the name of the Secret last used successfully for BMC authentication. |  | Optional: \{\} <br /> |
 | `bmcFactoryResetRequestTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | BMCFactoryResetRequestTime is when DPF submitted ResetToDefaults to the BMC.<br />It is nil until the request has been accepted, and once set it is never cleared:<br />it is what keeps the BMC from being reset again for this DPUDevice. |  | Optional: \{\} <br /> |
@@ -3162,7 +3162,7 @@ _Appears in:_
 | `agentLastStartupTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | AgentLastStartupTime is the time when the DPU agent was last started. This is copied from agentStatus.lastStartupTime. |  | Optional: \{\} <br /> |
 | `agentStatus` _[AgentStatus](#agentstatus)_ | AgentStatus contains the information reported from inside the DPU |  | Optional: \{\} <br /> |
 | `rebootStatus` _[RebootStatus](#rebootstatus)_ | RebootStatus contains host reboot progress.<br />DPU controller derives user-facing DPUCondRebooted from this status. |  | Optional: \{\} <br /> |
-| `dpuMode` _[DpuModeType](#dpumodetype)_ | The mode of the DPU | dpu | Enum: [dpu nic] <br />Optional: \{\} <br /> |
+| `dpuMode` _[DpuModeType](#dpumodetype)_ | The mode of the DPU | dpu | Enum: [dpu zero-trust nic] <br />Optional: \{\} <br /> |
 | `deploymentMode` _[DeploymentMode](#deploymentmode)_ | DeploymentMode is copied from DPFOperatorConfig.spec.deploymentMode by the controller.<br />This field is read-only for users. |  | Enum: [zero-trust host-trusted] <br />Optional: \{\} <br /> |
 | `hostless` _boolean_ | Hostless indicates that the DPU is attached to a system-managed synthetic<br />DPUNode rather than a physical host. |  | Optional: \{\} <br /> |
 | `secureBoot` _[SecureBootStatus](#securebootstatus)_ | SecureBoot indicates the current UEFI Secure Boot state. |  | Optional: \{\} <br /> |

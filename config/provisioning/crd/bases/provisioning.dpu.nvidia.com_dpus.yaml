@@ -701,16 +701,12 @@ spec:
                 - redfish
                 type: string
               dpuMode:
-                allOf:
-                - enum:
-                  - dpu
-                  - zero-trust
-                  - nic
-                - enum:
-                  - dpu
-                  - nic
                 default: dpu
                 description: The mode of the DPU
+                enum:
+                - dpu
+                - zero-trust
+                - nic
                 type: string
               dpuType:
                 default: Unknown
