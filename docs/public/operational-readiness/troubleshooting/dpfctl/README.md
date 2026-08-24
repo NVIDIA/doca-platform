@@ -37,10 +37,10 @@ There are 3 different versions available for different architectures:
 * `dpfctl-linux-arm64`
 * `dpfctl-darwin-arm64`
 
-You can also download it directly from the command line (in this example we are using `dpfctl-linux-amd64` with version `v26.4.0`):
+You can also download it directly from the command line (in this example we are using `dpfctl-linux-amd64` with version `v26.4.1`):
 
 ```shell
-curl -L -o /usr/local/bin/dpfctl https://api.ngc.nvidia.com/v2/resources/nvidia/doca/dpfctl/versions/v26.4.0/files/dpfctl-linux-amd64
+curl -L -o /usr/local/bin/dpfctl https://api.ngc.nvidia.com/v2/resources/nvidia/doca/dpfctl/versions/v26.4.1/files/dpfctl-linux-amd64
 chmod +x /usr/local/bin/dpfctl
 ```
 

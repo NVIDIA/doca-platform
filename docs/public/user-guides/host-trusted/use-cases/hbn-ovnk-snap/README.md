@@ -130,7 +130,7 @@ export SNAP_NGC_IMAGE_URL=nvcr.io/nvidia/doca/doca_vfs
 export OVN_KUBERNETES_REPO_URL=oci://ghcr.io/mellanox/charts
 
 # OVN-Kubernetes chart tag
-export OVN_KUBERNETES_CHART_TAG=v26.4.0
+export OVN_KUBERNETES_CHART_TAG=v26.4.1
 
 ## POD_CIDR is the CIDR used for pods in the target Kubernetes cluster.
 export POD_CIDR=10.233.64.0/18
@@ -144,7 +144,7 @@ export SERVICE_CIDR=10.233.0.0/18
 export REGISTRY=https://helm.ngc.nvidia.com/nvidia/doca
 
 ## The DPF TAG is the version of the DPF components which will be deployed in this guide.
-export TAG=v26.4.0
+export TAG=v26.4.1
 
 ## URL to the BFB used in the `bfb.yaml` and linked by the DPUSet.
 export BFB_URL="https://content.mellanox.com/BlueField/BFBs/Ubuntu24.04/bf-bundle-3.4.0-92_26.04_ubuntu-24.04_64k_prod.bfb"

@@ -13,7 +13,7 @@ Use $TAG as your desired version.
 
 ```sh
 ## The TAG is the desired version of the DPF VPC OVN components which will be upgraded.
-export TAG=v26.4.0
+export TAG=v26.4.1
 ```
 
 ### 1. Upgrade vpc-ovn-node service
