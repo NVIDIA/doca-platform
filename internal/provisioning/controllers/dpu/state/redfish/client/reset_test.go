@@ -56,4 +56,27 @@ var _ = Describe("DPU ARM reset", func() {
 
 		Expect(resetTypes).To(Equal([]string{"ForceRestart", "GracefulRestart"}))
 	})
+
+	It("posts Oem Nvidia SOC.ForceReset using the discovered system ID", func() {
+		posted := false
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			switch req.URL.Path {
+			case "/redfish/v1/Systems":
+				Expect(req.Method).To(Equal(http.MethodGet))
+				_, _ = w.Write([]byte(`{"Members":[{"@odata.id":"/redfish/v1/Systems/Bluefield"}]}`))
+			case "/redfish/v1/Systems/Bluefield/Oem/Nvidia/SOC.ForceReset":
+				Expect(req.Method).To(Equal(http.MethodPost))
+				posted = true
+				w.WriteHeader(http.StatusAccepted)
+			default:
+				http.NotFound(w, req)
+			}
+		}))
+		defer server.Close()
+
+		client := &Client{Client: resty.New().SetBaseURL(server.URL)}
+		_, err := client.ForceResetSOC()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(posted).To(BeTrue())
+	})
 })
