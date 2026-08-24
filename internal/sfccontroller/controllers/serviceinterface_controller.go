@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"maps"
@@ -444,8 +445,15 @@ func DeleteInterfacesFromOvs(
 
 	portName, err := FigureOutName(ctx, ecpfManager, spec)
 	if err != nil {
-		log.Error(err, "failed to get port name")
-		return err
+		// The device representor may have disappeared or may never have been added
+		// (for example, when creation referenced a missing device representor).
+		// Fall back to the stable dpf-id stored in OVS so an unresolved representor
+		// does not block finalizer removal.
+		portName, err = recoverPortNameForDeletion(ctx, ovs, metadata, err)
+		if err != nil {
+			log.Error(err, "failed to recover port name for deletion")
+			return err
+		}
 	}
 	if portName == "" {
 		return nil
@@ -455,6 +463,38 @@ func DeleteInterfacesFromOvs(
 		return err
 	}
 	return nil
+}
+
+// recoverPortNameForDeletion attempts to identify an OVS interface by its ownership metadata after
+// live representor resolution has failed. An empty name with no error means no owned OVS interface
+// exists and cleanup is already complete.
+func recoverPortNameForDeletion(ctx context.Context, ovs ovsutils.API, metadata string, resolveErr error) (string, error) {
+	iface, lookupErr := ovs.GetIfaceWithExternalIDs(ctx, map[string]string{
+		ovsutils.DPFIDKey: metadata,
+	})
+
+	switch {
+	case lookupErr == nil:
+		ctrllog.FromContext(ctx).Info(
+			"using owned OVS interface after port name resolution failed",
+			"portName", iface.Name,
+			"dpfID", metadata,
+			"resolveError", resolveErr,
+		)
+		return iface.Name, nil
+	case errors.Is(lookupErr, ovsutils.ErrIfaceNotFound):
+		ctrllog.FromContext(ctx).Info(
+			"owned OVS interface is already absent",
+			"dpfID", metadata,
+			"resolveError", resolveErr,
+		)
+		return "", nil
+	default:
+		return "", errors.Join(
+			fmt.Errorf("resolve interface name: %w", resolveErr),
+			fmt.Errorf("find interface by dpf-id: %w", lookupErr),
+		)
+	}
 }
 
 // deleteOVNPatchPort removes the SFC<->OVN bridge patch port pair for an OVN interface entry.
