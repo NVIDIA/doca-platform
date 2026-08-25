@@ -44,6 +44,15 @@ type ReportClockRequest struct {
 	DPUTime      metav1.Time `json:"dpuTime"`
 }
 
+// ReportClockResponse hands the host clock back to the DPU agent. The DPU has no maintained time
+// source of its own: its RTC only advances while the card is powered, nothing resynchronizes it,
+// and at report time the DPU has neither a route nor a resolver to reach NTP. The host is already
+// the authority that judges the skew and writes it to the DPU object, so returning the reading it
+// just took adds no trust the agent does not already place in the host.
+type ReportClockResponse struct {
+	HostTime metav1.Time `json:"hostTime"`
+}
+
 type ConfigureHostVFsRequest struct {
 	DPUName      string `json:"dpuName"`
 	DPUNamespace string `json:"dpuNamespace"`

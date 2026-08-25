@@ -390,6 +390,28 @@ var _ = Describe("InstallationService", func() {
 			Expect(cutil.DPUClockSkewMessage(&provisioningv1.AgentStatus{Clock: clock})).To(BeEmpty())
 		})
 
+		It("should return the host reading so the DPU can adopt it", func() {
+			dpu := createDPU("test-dpu", testNS.Name)
+
+			req, err := json.Marshal(types.ReportClockRequest{
+				DPUName:      dpu.Name,
+				DPUNamespace: dpu.Namespace,
+				DPUUID:       string(dpu.UID),
+				DPUTime:      metav1.NewTime(time.Now().Add(-4 * time.Hour)),
+			})
+			Expect(err).To(Succeed())
+			resp, err := http.Post(fmt.Sprintf("http://%s/report-clock", address), "application/json", bytes.NewBuffer(req))
+			Expect(err).To(Succeed())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			var reply types.ReportClockResponse
+			Expect(json.NewDecoder(resp.Body).Decode(&reply)).To(Succeed())
+			Expect(resp.Body.Close()).To(Succeed())
+
+			Expect(reply.HostTime.Time).To(BeTemporally("~", time.Now(), time.Minute))
+			By("the DPU must be told the same reading the skew was judged against")
+			Expect(reply.HostTime.Time).To(BeTemporally("~", clockStatus(dpu).HostTime.Time, time.Second))
+		})
+
 		It("should record a skewed DPU clock so the skew can be reported", func() {
 			dpu := createDPU("test-dpu", testNS.Name)
 
