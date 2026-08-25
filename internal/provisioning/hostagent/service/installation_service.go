@@ -591,9 +591,10 @@ func (s *InstallationService) ReportClock(req *restful.Request, resp *restful.Re
 	if dpu.Status.AgentStatus == nil {
 		dpu.Status.AgentStatus = &provisioningv1.AgentStatus{}
 	}
+	hostTime := metav1.Now()
 	dpu.Status.AgentStatus.Clock = &provisioningv1.ClockStatus{
 		DPUTime:  request.DPUTime,
-		HostTime: metav1.Now(),
+		HostTime: hostTime,
 	}
 	if message := cutil.DPUClockSkewMessage(dpu.Status.AgentStatus); message != "" {
 		klog.Errorf("DPU %s/%s: %s", request.DPUNamespace, request.DPUName, message)
@@ -604,7 +605,7 @@ func (s *InstallationService) ReportClock(req *restful.Request, resp *restful.Re
 		_ = resp.WriteError(http.StatusInternalServerError, err)
 		return
 	}
-	resp.WriteHeader(http.StatusOK)
+	_ = resp.WriteEntity(types.ReportClockResponse{HostTime: hostTime})
 }
 
 type GetObjectResponse struct {
