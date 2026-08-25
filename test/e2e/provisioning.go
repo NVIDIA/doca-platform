@@ -25,6 +25,7 @@ import (
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	testutils "github.com/nvidia/doca-platform/test/utils"
+	"github.com/nvidia/doca-platform/test/utils/dpuagent"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -742,6 +743,32 @@ func ValidateDPUFlavorNodeLabelScripts(ctx context.Context, input *systemTestInp
 			}
 		}
 	}).WithTimeout(time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+}
+
+// ValidateDMAScalableFunction validates the SNAP DMA SF created by the dpu-agent's
+// sfconfig operation when the DPUFlavor sets scalableFunctions.dma.enabled=true.
+// It only wires the suite state into the validation, which lives next to the
+// operation it covers in test/utils/dpuagent.
+func ValidateDMAScalableFunction(ctx context.Context, input *systemTestInput) {
+	if !input.hasDpuNodes() {
+		Skip("Skip test as DPU nodes are required")
+	}
+	if len(dpuClusterClient) == 0 || dpuClusterClient[0] == nil {
+		Fail("DPUCluster client is not initialized; expected CreateProvisioningDPUCluster to run first")
+	}
+
+	dpuagent.ValidateDMAScalableFunction(ctx, dpuagent.DMAScalableFunctionInput{
+		DPUFlavor:       input.dpuFlavor,
+		ClusterClient:   dpuClusterClient[0],
+		RESTClient:      &dpuClusterRestClient[0],
+		RESTConfig:      &dpuClusterRestConfig[0],
+		Namespace:       dpfOperatorSystemNamespace,
+		NetutilsImage:   netutilsImage,
+		Tag:             tag,
+		ImagePullSecret: dpfPullSecretName,
+		PodLabels:       CleanupScope.It,
+		SkipCleanup:     input.cleanupFlags != nil && input.cleanupFlags.SkipCleanup,
+	})
 }
 
 // ValidateDPUSetClusterNodeLabelsPropagation validates that changing DPUSet.spec.dpuTemplate.spec.cluster.nodeLabels/nodeAnnotations
