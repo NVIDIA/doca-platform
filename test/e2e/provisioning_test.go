@@ -25,7 +25,18 @@ func ProvisioningBeforeSuite() {
 	// No additional config needed - input.applyConfig(*conf) already called in SetInput()
 }
 
+// This Describe runs the DMA SF check in DPFSystem+ZeroTrust jobs (e.g. e2e-zt-physical-bf4)
+// where provisioning is handled entirely by BeforeSuite rather than the Provisioning ordered
+// suite. It intentionally has no BeforeAll so it does not conflict with BeforeSuite-created
+// resources that would cause BeforeProvisioning to fail.
+//
 //nolint:dupl
+var _ = Describe("DPF System tests - Provisioning", Labels{Domain.DPFSystem, Domain.ZeroTrust}, func() {
+	It("verify the DMA SF created by the dpu-agent is consumable", Labels{Domain.RequiresNodes}, func() {
+		ValidateDMAScalableFunction(ctx, input)
+	})
+})
+
 var _ = Describe("DPF System tests - Provisioning", Labels{Domain.Provisioning}, Ordered, func() {
 	BeforeAll(func() {
 		BeforeProvisioning(ctx, input)
@@ -66,6 +77,10 @@ var _ = Describe("DPF System tests - Provisioning", Labels{Domain.Provisioning},
 
 	It("verify node labels are added via dpu-agent on tenant Nodes", Labels{Domain.RequiresNodes}, func() {
 		ValidateDPUFlavorNodeLabelScripts(ctx, input)
+	})
+
+	It("verify the DMA SF created by the dpu-agent is consumable", Labels{Domain.RequiresNodes}, func() {
+		ValidateDMAScalableFunction(ctx, input)
 	})
 
 	It("delete all provisioning resources", func() {
