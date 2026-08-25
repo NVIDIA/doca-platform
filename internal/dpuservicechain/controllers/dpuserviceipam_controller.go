@@ -231,16 +231,12 @@ func (rc *dpuServiceIPAMReconcilerWithPerReconcileState) calculateDPUServiceObje
 	}
 
 	var err error
-	if dpuServiceIPAM.Spec.IPV4Subnet != nil {
-		rc.calculator, err = NewMultiDPUClusterExclusionCalculatorForIPPool(
-			dpuServiceIPAM.Spec.IPV4Subnet,
-			existingAllocations,
-		)
+	if spec := subnetSpec(dpuServiceIPAM); spec != nil {
+		rc.calculator, err = NewMultiDPUClusterExclusionCalculatorForSubnet(spec, existingAllocations)
+	} else if spec := networkSpec(dpuServiceIPAM); spec != nil {
+		rc.calculator, err = NewMultiDPUClusterExclusionCalculatorForNetwork(spec, existingAllocations)
 	} else {
-		rc.calculator, err = NewMultiDPUClusterExclusionCalculatorForCIDRPool(
-			dpuServiceIPAM.Spec.IPV4Network,
-			existingAllocations,
-		)
+		return false, errors.New("exactly one IPAM configuration must be specified")
 	}
 	if err != nil {
 		return false, fmt.Errorf("failed to create multi DPUCluster exclusion calculator: %w", err)
@@ -295,9 +291,12 @@ func (rc *dpuServiceIPAMReconcilerWithPerReconcileState) createOrUpdateObjectsIn
 		return errors.New("error converting input object to DPUServiceIPAM")
 	}
 
-	exclusions := rc.calculator.ComputeExclusions(getAllocationsForDPUCluster(dpuServiceIPAM.Status.DPUClusterAllocations, dpuClusterKey))
+	exclusions, err := rc.calculator.ComputeExclusions(getAllocationsForDPUCluster(dpuServiceIPAM.Status.DPUClusterAllocations, dpuClusterKey))
+	if err != nil {
+		return fmt.Errorf("failed to compute exclusions for DPUCluster %s: %w", dpuClusterKey, err)
+	}
 
-	if dpuServiceIPAM.Spec.IPV4Subnet != nil {
+	if isIPPoolMode(dpuServiceIPAM) {
 		return reconcileIPPoolMode(ctx, c, dpuServiceIPAM, exclusions)
 	}
 	return reconcileCIDRPoolMode(ctx, c, dpuServiceIPAM, exclusions)
@@ -443,8 +442,10 @@ func reconcilePoolMode(ctx context.Context, c client.Client, dpuServiceIPAM *dpu
 
 // generateIPPool generates an IPPool object for the given dpuServiceIPAM
 func generateIPPool(dpuServiceIPAM *dpuservicev1.DPUServiceIPAM) *nvipamv1.IPPool {
-	routes := make([]nvipamv1.Route, 0, len(dpuServiceIPAM.Spec.IPV4Subnet.Routes))
-	for _, route := range dpuServiceIPAM.Spec.IPV4Subnet.Routes {
+	spec := subnetSpec(dpuServiceIPAM)
+	configuredRoutes := spec.Routes
+	routes := make([]nvipamv1.Route, 0, len(configuredRoutes))
+	for _, route := range configuredRoutes {
 		routes = append(routes, nvipamv1.Route{Dst: route.Dst})
 	}
 
@@ -456,11 +457,11 @@ func generateIPPool(dpuServiceIPAM *dpuservicev1.DPUServiceIPAM) *nvipamv1.IPPoo
 			Annotations: dpuServiceIPAM.Spec.Annotations,
 		},
 		Spec: nvipamv1.IPPoolSpec{
-			Subnet:           dpuServiceIPAM.Spec.IPV4Subnet.Subnet,
-			PerNodeBlockSize: dpuServiceIPAM.Spec.IPV4Subnet.PerNodeIPCount,
-			Gateway:          dpuServiceIPAM.Spec.IPV4Subnet.Gateway,
+			Subnet:           spec.Subnet,
+			PerNodeBlockSize: spec.PerNodeIPCount,
+			Gateway:          spec.Gateway,
 			NodeSelector:     dpuServiceIPAM.Spec.NodeSelector,
-			DefaultGateway:   dpuServiceIPAM.Spec.IPV4Subnet.DefaultGateway,
+			DefaultGateway:   spec.DefaultGateway,
 			Routes:           routes,
 		},
 	}
@@ -471,13 +472,14 @@ func generateIPPool(dpuServiceIPAM *dpuservicev1.DPUServiceIPAM) *nvipamv1.IPPoo
 
 // generateCIDRPool generates a CIDRPool object for the given dpuServiceIPAM
 func generateCIDRPool(dpuServiceIPAM *dpuservicev1.DPUServiceIPAM) *nvipamv1.CIDRPool {
-	allocations := make([]nvipamv1.CIDRPoolStaticAllocation, 0, len(dpuServiceIPAM.Spec.IPV4Network.Allocations))
-	for node, prefix := range dpuServiceIPAM.Spec.IPV4Network.Allocations {
+	spec := networkSpec(dpuServiceIPAM)
+	allocations := make([]nvipamv1.CIDRPoolStaticAllocation, 0, len(spec.Allocations))
+	for node, prefix := range spec.Allocations {
 		allocations = append(allocations, nvipamv1.CIDRPoolStaticAllocation{NodeName: node, Prefix: prefix})
 	}
 
-	routes := make([]nvipamv1.Route, 0, len(dpuServiceIPAM.Spec.IPV4Network.Routes))
-	for _, route := range dpuServiceIPAM.Spec.IPV4Network.Routes {
+	routes := make([]nvipamv1.Route, 0, len(spec.Routes))
+	for _, route := range spec.Routes {
 		routes = append(routes, nvipamv1.Route{Dst: route.Dst})
 	}
 
@@ -489,12 +491,12 @@ func generateCIDRPool(dpuServiceIPAM *dpuservicev1.DPUServiceIPAM) *nvipamv1.CID
 			Annotations: dpuServiceIPAM.Spec.Annotations,
 		},
 		Spec: nvipamv1.CIDRPoolSpec{
-			CIDR:                 dpuServiceIPAM.Spec.IPV4Network.Network,
-			GatewayIndex:         dpuServiceIPAM.Spec.IPV4Network.GatewayIndex,
-			PerNodeNetworkPrefix: dpuServiceIPAM.Spec.IPV4Network.PrefixSize,
+			CIDR:                 spec.Network,
+			GatewayIndex:         spec.GatewayIndex,
+			PerNodeNetworkPrefix: spec.PrefixSize,
 			NodeSelector:         dpuServiceIPAM.Spec.NodeSelector,
 			StaticAllocations:    allocations,
-			DefaultGateway:       dpuServiceIPAM.Spec.IPV4Network.DefaultGateway,
+			DefaultGateway:       spec.DefaultGateway,
 			Routes:               routes,
 		},
 	}
@@ -543,13 +545,33 @@ func getAllocationsForDPUCluster(allocations []dpuservicev1.DPUClusterAllocation
 // isPerClusterAllocationEnabled reports whether the DPUServiceIPAM is configured to partition IP allocations
 // per DPU cluster. This can apply to any number of clusters, including a single one.
 func isPerClusterAllocationEnabled(dpuServiceIPAM *dpuservicev1.DPUServiceIPAM) bool {
-	if dpuServiceIPAM.Spec.IPV4Subnet != nil {
-		return dpuServiceIPAM.Spec.IPV4Subnet.BlocksPerDPUCluster != nil
+	if spec := subnetSpec(dpuServiceIPAM); spec != nil {
+		return spec.BlocksPerDPUCluster != nil
 	}
-	if dpuServiceIPAM.Spec.IPV4Network != nil {
-		return dpuServiceIPAM.Spec.IPV4Network.SubnetsPerDPUCluster != nil
+	if spec := networkSpec(dpuServiceIPAM); spec != nil {
+		return spec.SubnetsPerDPUCluster != nil
 	}
 	return false
+}
+
+func isIPPoolMode(dpuServiceIPAM *dpuservicev1.DPUServiceIPAM) bool {
+	return subnetSpec(dpuServiceIPAM) != nil
+}
+
+//nolint:staticcheck // SA1019: Deprecated fields remain supported for backward-compatible reconciliation.
+func subnetSpec(dpuServiceIPAM *dpuservicev1.DPUServiceIPAM) *dpuservicev1.Subnet {
+	if dpuServiceIPAM.Spec.Subnet != nil {
+		return dpuServiceIPAM.Spec.Subnet
+	}
+	return dpuServiceIPAM.Spec.IPV4Subnet
+}
+
+//nolint:staticcheck // SA1019: Deprecated fields remain supported for backward-compatible reconciliation.
+func networkSpec(dpuServiceIPAM *dpuservicev1.DPUServiceIPAM) *dpuservicev1.Network {
+	if dpuServiceIPAM.Spec.Network != nil {
+		return dpuServiceIPAM.Spec.Network
+	}
+	return dpuServiceIPAM.Spec.IPV4Network
 }
 
 // dpuClusterToDPUServiceIPAM ensures all DPUServiceIPAMs are updated each time there is an update to a DPUCluster.

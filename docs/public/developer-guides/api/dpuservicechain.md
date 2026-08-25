@@ -213,6 +213,42 @@ will go to eth2 iface(eth1->eth2 is handled by the service itself and not by the
 on the host.
 
 # Constraints
+
+## IPAM Pool Selection
+
+The `ipam.requiredIPFamilies` field makes the address families selected by `ipam.matchLabels` explicit. The following
+example requests both IPv4 and IPv6 addresses for a service interface:
+
+```yaml
+serviceInterface:
+  matchLabels:
+    svc.dpu.nvidia.com/interface: app-iface
+    svc.dpu.nvidia.com/service: example-service
+  ipam:
+    matchLabels:
+      svc.dpu.nvidia.com/pool: example-dual-stack-pool
+    requiredIPFamilies:
+    - IPv4
+    - IPv6
+```
+
+When `requiredIPFamilies` is set, pool selection follows these rules:
+
+* `matchLabels` must select exactly one address pool for each requested family and no additional pools.
+* A dual-stack selection must use the same `DPUServiceIPAM` mode for both families: configure both objects in `subnet`
+  mode or both objects in `network` mode.
+* The order of `requiredIPFamilies` is not significant. Selected address pools are used in IPv4-then-IPv6 order.
+
+If `requiredIPFamilies` is omitted, backward-compatible selection uses one matching `IPPool` created from a
+`DPUServiceIPAM` in `subnet` mode. If no `IPPool` matches, it uses one matching `CIDRPool` created from `network` mode.
+When multiple pools of the selected kind match, selection is unspecified. Use `requiredIPFamilies` for new
+configurations to avoid ambiguous pool selection. When `requiredIPFamilies` is set, invalid or ambiguous selections are
+detected during reconciliation rather than admission and remain errors until the labels or pool configuration are
+corrected.
+
+See [DPUServiceIPAM](dpuserviceipam.md) for pool creation examples and the requirement to create one
+`DPUServiceIPAM` object per address family.
+
 ## DPUServiceInterface and ServiceInterface Uniqueness
 Each physical uplink port (e.g., `p0`) must be owned by exactly one
 `DPUServiceInterface`, and each `matchLabels` selector used in a

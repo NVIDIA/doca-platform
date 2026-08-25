@@ -17,7 +17,8 @@ limitations under the License.
 package controllers
 
 import (
-	"net"
+	"math/big"
+	"net/netip"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/dpuservicechain/utils/iputils"
@@ -63,7 +64,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 					allocs, callErr := calc.AllocateClusterBlocks(s.existingAllocations)
 					var excl []nvipamv1.ExcludeRange
 					if callErr == nil {
-						excl = calc.ComputeExclusions(allocs)
+						excl, callErr = calc.ComputeExclusions(allocs)
 					}
 					results[i] = result{allocs, excl, callErr}
 				}
@@ -392,8 +393,9 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 					Expect(err).NotTo(HaveOccurred())
 					for i, s := range tc.perClusterSettings {
 						allocs, callErr := calc.AllocateClusterBlocks(s.existingAllocations)
-						excl := calc.ComputeExclusions(allocs)
 						Expect(callErr).NotTo(HaveOccurred(), "cluster %d", i)
+						excl, exclusionErr := calc.ComputeExclusions(allocs)
+						Expect(exclusionErr).NotTo(HaveOccurred(), "cluster %d", i)
 						Expect(allocs).To(BeComparableTo(s.expectedAllocations), "cluster %d allocations", i)
 						Expect(excl).To(BeComparableTo(s.expectedExclusions), "cluster %d exclusions", i)
 					}
@@ -1080,6 +1082,30 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 							},
 						},
 					),
+					Entry("subnet grows and shifts the block grid",
+						// The existing 10-address allocation was one block in 10.0.1.0/24. After expansion, it overlaps
+						// two blocks in the new grid, but still provides capacity for only one block. Increasing the
+						// target to two therefore allocates one additional block.
+						testCaseIPPool{
+							spec:                     &dpuservicev1.Subnet{Subnet: "10.0.0.0/23", PerNodeIPCount: 10},
+							numOfBlocksPerDPUCluster: 2,
+
+							perClusterSettings: []perClusterSetting{
+								{
+									existingAllocations: []dpuservicev1.IPRange{{StartIP: "10.0.1.1", EndIP: "10.0.1.10"}},
+									expectedAllocations: []dpuservicev1.IPRange{
+										{StartIP: "10.0.0.1", EndIP: "10.0.0.10"},
+										{StartIP: "10.0.1.1", EndIP: "10.0.1.10"},
+									},
+									expectedExclusions: []nvipamv1.ExcludeRange{
+										{StartIP: "10.0.0.0", EndIP: "10.0.0.0"},
+										{StartIP: "10.0.0.11", EndIP: "10.0.1.0"},
+										{StartIP: "10.0.1.11", EndIP: "10.0.1.255"},
+									},
+								},
+							},
+						},
+					),
 					Entry("PerNodeIPCount grows, existing allocations align to new block grid",
 						// PerNodeIPCount grows from 10 to 30; numOfBlocksPerDPUCluster stays 3. New blocks
 						// start at .1 with size 30: block 0 = .1-.30, block 1 = .31-.60. Each cluster's
@@ -1375,7 +1401,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 					allocs, callErr := calc.AllocateClusterBlocks(s.existingAllocations)
 					var excl []nvipamv1.ExcludeRange
 					if callErr == nil {
-						excl = calc.ComputeExclusions(allocs)
+						excl, callErr = calc.ComputeExclusions(allocs)
 					}
 					results[i] = result{allocs, excl, callErr}
 				}
@@ -1402,8 +1428,9 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 				Expect(err).NotTo(HaveOccurred())
 				for i, s := range tc.perClusterSettings {
 					allocs, callErr := calc.AllocateClusterBlocks(s.existingAllocations)
-					excl := calc.ComputeExclusions(allocs)
 					Expect(callErr).NotTo(HaveOccurred(), "cluster %d", i)
+					excl, exclusionErr := calc.ComputeExclusions(allocs)
+					Expect(exclusionErr).NotTo(HaveOccurred(), "cluster %d", i)
 					Expect(allocs).To(BeComparableTo(s.expectedAllocations), "cluster %d allocations", i)
 					Expect(excl).To(BeComparableTo(s.expectedExclusions), "cluster %d exclusions", i)
 				}
@@ -2755,9 +2782,216 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 		})
 	})
 
+	Context("IPv4 and IPv6 allocation", func() {
+		DescribeTable("uses address-family and NV-IPAM-compatible pool boundaries",
+			func(prefix string, isCIDRPool bool, expectedStart, expectedEnd int64) {
+				start, end := poolBoundaryOffsets(netip.MustParsePrefix(prefix), isCIDRPool)
+				Expect(start).To(Equal(big.NewInt(expectedStart)))
+				Expect(end).To(Equal(big.NewInt(expectedEnd)))
+			},
+			Entry("ordinary IPv4 shared subnet reserves network and broadcast", "192.0.2.0/24", false, int64(1), int64(1)),
+			Entry("ordinary IPv6 shared subnet reserves only the subnet address", "2001:db8::/64", false, int64(1), int64(0)),
+			Entry("IPv6 /127 shared subnet reserves neither address", "2001:db8::/127", false, int64(0), int64(0)),
+			Entry("CIDRPool partitions preserve complete prefixes", "2001:db8::/64", true, int64(0), int64(0)),
+		)
+		It("rejects IPv4-mapped IPv6 networks before allocation", func() {
+			blocks := int32(1)
+			_, err := NewMultiDPUClusterExclusionCalculatorForNetwork(&dpuservicev1.Network{
+				Network: "::ffff:192.0.2.0/120", PrefixSize: 124, SubnetsPerDPUCluster: &blocks,
+			}, nil)
+			Expect(err).To(MatchError(ContainSubstring("IPv4-mapped IPv6")))
+		})
+
+		It("allocates an IPv4 shared subnet through the generic type", func() {
+			calculator, err := NewMultiDPUClusterExclusionCalculatorForSubnet(&dpuservicev1.Subnet{
+				Subnet: "192.0.2.0/29", PerNodeIPCount: 6,
+			}, nil)
+			Expect(err).NotTo(HaveOccurred())
+			allocation, err := calculator.AllocateClusterBlocks(nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(allocation).To(Equal([]dpuservicev1.IPRange{{StartIP: "192.0.2.1", EndIP: "192.0.2.6"}}))
+		})
+
+		It("allocates an IPv4 network through the generic type", func() {
+			blocks := int32(1)
+			calculator, err := NewMultiDPUClusterExclusionCalculatorForNetwork(&dpuservicev1.Network{
+				Network: "192.0.2.0/24", PrefixSize: 28, SubnetsPerDPUCluster: &blocks,
+			}, nil)
+			Expect(err).NotTo(HaveOccurred())
+			allocation, err := calculator.AllocateClusterBlocks(nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(allocation).To(Equal([]dpuservicev1.IPRange{{StartIP: "192.0.2.0", EndIP: "192.0.2.15"}}))
+		})
+
+		It("uses IPv6 semantics through the deprecated type aliases", func() {
+			blocks := int32(1)
+			networkCalculator, err := NewMultiDPUClusterExclusionCalculatorForCIDRPool(&dpuservicev1.Network{
+				Network: "2001:db8::/120", PrefixSize: 124, SubnetsPerDPUCluster: &blocks,
+			}, nil)
+			Expect(err).NotTo(HaveOccurred())
+			networkAllocation, err := networkCalculator.AllocateClusterBlocks(nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(networkAllocation).To(Equal([]dpuservicev1.IPRange{{StartIP: "2001:db8::", EndIP: "2001:db8::f"}}))
+
+			subnetCalculator, err := NewMultiDPUClusterExclusionCalculatorForIPPool(&dpuservicev1.Subnet{
+				Subnet: "2001:db8::/120", PerNodeIPCount: 16, BlocksPerDPUCluster: &blocks,
+			}, nil)
+			Expect(err).NotTo(HaveOccurred())
+			subnetAllocation, err := subnetCalculator.AllocateClusterBlocks(nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(subnetAllocation).To(Equal([]dpuservicev1.IPRange{{StartIP: "2001:db8::1", EndIP: "2001:db8::10"}}))
+		})
+
+		It("partitions a shared IPv6 subnet without reserving a broadcast address", func() {
+			blocks := int32(2)
+			calculator, err := NewMultiDPUClusterExclusionCalculatorForSubnet(&dpuservicev1.Subnet{
+				Subnet: "2001:db8::/120", PerNodeIPCount: 16, BlocksPerDPUCluster: &blocks,
+			}, nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			first, err := calculator.AllocateClusterBlocks(nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(first).To(Equal([]dpuservicev1.IPRange{{StartIP: "2001:db8::1", EndIP: "2001:db8::20"}}))
+			second, err := calculator.AllocateClusterBlocks(nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(second).To(Equal([]dpuservicev1.IPRange{{StartIP: "2001:db8::21", EndIP: "2001:db8::40"}}))
+		})
+
+		It("uses the IPv6 all-ones address in subnet mode", func() {
+			calculator, err := NewMultiDPUClusterExclusionCalculatorForSubnet(&dpuservicev1.Subnet{
+				Subnet: "2001:db8::/124", PerNodeIPCount: 15,
+			}, nil)
+			Expect(err).NotTo(HaveOccurred())
+			allocation, err := calculator.AllocateClusterBlocks(nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(allocation).To(Equal([]dpuservicev1.IPRange{{StartIP: "2001:db8::1", EndIP: "2001:db8::f"}}))
+		})
+
+		// The webhook rejects these prefixes in shared-subnet mode. The allocator still mirrors the NV-IPAM boundary
+		// rules for them so that the two stay consistent if validation ever changes.
+		It("keeps the NV-IPAM boundaries for /127 and /128 shared subnets", func() {
+			blocks := int32(2)
+			calculator127, err := NewMultiDPUClusterExclusionCalculatorForSubnet(&dpuservicev1.Subnet{
+				Subnet: "2001:db8::/127", PerNodeIPCount: 1, BlocksPerDPUCluster: &blocks,
+			}, nil)
+			Expect(err).NotTo(HaveOccurred())
+			allocation127, err := calculator127.AllocateClusterBlocks(nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(allocation127).To(Equal([]dpuservicev1.IPRange{{StartIP: "2001:db8::", EndIP: "2001:db8::1"}}))
+
+			calculator128, err := NewMultiDPUClusterExclusionCalculatorForSubnet(&dpuservicev1.Subnet{
+				Subnet: "2001:db8::1/128", PerNodeIPCount: 1,
+			}, nil)
+			Expect(err).NotTo(HaveOccurred())
+			allocation128, err := calculator128.AllocateClusterBlocks(nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(allocation128).To(Equal([]dpuservicev1.IPRange{{StartIP: "2001:db8::1", EndIP: "2001:db8::1"}}))
+		})
+
+		It("partitions an IPv6 CIDRPool lazily", func() {
+			blocks := int32(1)
+			calculator, err := NewMultiDPUClusterExclusionCalculatorForNetwork(&dpuservicev1.Network{
+				Network: "2001:db8::/64", PrefixSize: 80, SubnetsPerDPUCluster: &blocks,
+			}, nil)
+			Expect(err).NotTo(HaveOccurred())
+			allocation, err := calculator.AllocateClusterBlocks(nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(allocation).To(Equal([]dpuservicev1.IPRange{{StartIP: "2001:db8::", EndIP: "2001:db8::ffff:ffff:ffff"}}))
+		})
+
+		It("partitions an IPv6 CIDRPool across clusters", func() {
+			blocks := int32(4)
+			calculator, err := NewMultiDPUClusterExclusionCalculatorForNetwork(&dpuservicev1.Network{
+				Network: "2001:db8::/120", PrefixSize: 124, SubnetsPerDPUCluster: &blocks,
+			}, nil)
+			Expect(err).NotTo(HaveOccurred())
+			first, err := calculator.AllocateClusterBlocks(nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(first).To(Equal([]dpuservicev1.IPRange{{StartIP: "2001:db8::", EndIP: "2001:db8::3f"}}))
+			second, err := calculator.AllocateClusterBlocks(nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(second).To(Equal([]dpuservicev1.IPRange{{StartIP: "2001:db8::40", EndIP: "2001:db8::7f"}}))
+		})
+
+		It("skips IPv6 blocks fully covered by exclusions", func() {
+			blocks := int32(2)
+			calculator, err := NewMultiDPUClusterExclusionCalculatorForSubnet(&dpuservicev1.Subnet{
+				Subnet: "2001:db8::/120", PerNodeIPCount: 16, BlocksPerDPUCluster: &blocks,
+				ExcludeRanges: []dpuservicev1.IPRange{{StartIP: "2001:db8::1", EndIP: "2001:db8::10"}},
+			}, nil)
+			Expect(err).NotTo(HaveOccurred())
+			allocation, err := calculator.AllocateClusterBlocks(nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(allocation).To(Equal([]dpuservicev1.IPRange{{StartIP: "2001:db8::11", EndIP: "2001:db8::30"}}))
+			exclusions, err := calculator.ComputeExclusions(allocation)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(exclusions).To(Equal([]nvipamv1.ExcludeRange{
+				{StartIP: "2001:db8::", EndIP: "2001:db8::10"},
+				{StartIP: "2001:db8::31", EndIP: "2001:db8::ff"},
+			}))
+		})
+
+		It("preserves absolute IPv6 exclusions beyond the NV-IPAM int32 exclusion-index limit", func() {
+			blocks := int32(1)
+			calculator, err := NewMultiDPUClusterExclusionCalculatorForNetwork(&dpuservicev1.Network{
+				Network: "2001:db8::/64", PrefixSize: 80, SubnetsPerDPUCluster: &blocks,
+				// ::8000:0 is offset 2^31 from the start of the parent prefix, one past math.MaxInt32.
+				ExcludeRanges: []dpuservicev1.IPRange{{StartIP: "2001:db8::8000:0", EndIP: "2001:db8::8000:ff"}},
+			}, nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			allocation, err := calculator.AllocateClusterBlocks(nil)
+			Expect(err).NotTo(HaveOccurred())
+			exclusions, err := calculator.ComputeExclusions(allocation)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(exclusions).To(ContainElement(nvipamv1.ExcludeRange{
+				StartIP: "2001:db8::8000:0", EndIP: "2001:db8::8000:ff",
+			}))
+		})
+
+		It("fails closed when a DPUCluster allocation cannot be parsed", func() {
+			calculator, err := NewMultiDPUClusterExclusionCalculatorForSubnet(&dpuservicev1.Subnet{
+				Subnet: "2001:db8::/120", PerNodeIPCount: 16,
+			}, nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			exclusions, err := calculator.ComputeExclusions([]dpuservicev1.IPRange{{
+				StartIP: "not-an-address", EndIP: "2001:db8::10",
+			}})
+			Expect(err).To(MatchError(ContainSubstring("failed to parse DPUCluster allocation")))
+			Expect(exclusions).To(BeNil())
+		})
+
+		It("ignores a static allocation that cannot be parsed", func() {
+			calculator, err := NewMultiDPUClusterExclusionCalculatorForNetwork(&dpuservicev1.Network{
+				Network: "2001:db8::/120", PrefixSize: 124,
+				Allocations: map[string]string{"node-a": "not-a-prefix"},
+			}, nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			exclusions, err := calculator.ComputeExclusions([]dpuservicev1.IPRange{{
+				StartIP: "2001:db8::", EndIP: "2001:db8::f",
+			}})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(exclusions).To(Equal([]nvipamv1.ExcludeRange{{
+				StartIP: "2001:db8::10", EndIP: "2001:db8::ff",
+			}}))
+		})
+
+		It("returns an error when converting a block index would overflow the address family", func() {
+			calculator := &MultiDPUClusterExclusionCalculator{
+				effectiveStart:   netip.MustParseAddr("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"),
+				blockSizePerNode: big.NewInt(1),
+			}
+			ranges, err := calculator.blockIndicesToIPRanges([]blockIndexRange{newBlockIndexRange(big.NewInt(1), big.NewInt(1))})
+			Expect(err).To(MatchError(ContainSubstring("overflows the allocatable address range")))
+			Expect(ranges).To(BeNil())
+		})
+	})
+
 	Context("helpers", func() {
 		r := func(s, e string) iputils.IPRange {
-			return iputils.IPRange{Start: iputils.IPv4ToUint32(net.ParseIP(s)), End: iputils.IPv4ToUint32(net.ParseIP(e))}
+			return iputils.IPRange{Start: netip.MustParseAddr(s), End: netip.MustParseAddr(e)}
 		}
 
 		Context("mergeRanges", func() {
@@ -2863,9 +3097,9 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 		})
 
 		Context("isIPv4RangeFullyCovered", func() {
-			ip := func(s string) uint32 { return iputils.IPv4ToUint32(net.ParseIP(s)) }
+			ip := netip.MustParseAddr
 			DescribeTable("reports whether [start, end] is fully covered by one of the merged ranges",
-				func(start, end uint32, merged []iputils.IPRange, want bool) {
+				func(start, end netip.Addr, merged []iputils.IPRange, want bool) {
 					Expect((iputils.IPRange{Start: start, End: end}).InAny(merged)).To(Equal(want))
 				},
 				Entry("empty merged returns false",

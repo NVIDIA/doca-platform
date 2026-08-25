@@ -21,11 +21,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"net"
+	"net/netip"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/dpuservicechain/utils/iputils"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -39,6 +42,33 @@ import (
 // DPUServiceIPAMValidator validates DPUServiceIPAM objects
 type DPUServiceIPAMValidator struct {
 	Client client.Reader
+}
+
+type configurationField uint8
+
+const (
+	configurationFieldUnknown configurationField = iota
+	configurationFieldIPv4Network
+	configurationFieldIPv4Subnet
+	configurationFieldNetwork
+	configurationFieldSubnet
+)
+
+type allocationMode uint8
+
+const (
+	allocationModeUnknown allocationMode = iota
+	allocationModeNetwork
+	allocationModeSubnet
+)
+
+// updateValidationInput contains the immutable fields shared by both API representations of an allocation mode.
+type updateValidationInput struct {
+	cidr                string
+	allocationSize      int64
+	allocationField     string
+	perCluster          *int32
+	perClusterFieldName string
 }
 
 const (
@@ -102,117 +132,267 @@ func (v *DPUServiceIPAMValidator) ValidateDelete(ctx context.Context, obj runtim
 	return nil, nil
 }
 
-// validateDPUServiceIPAM validates if a DPUServiceIPAM object is valid
-func validateDPUServiceIPAM(newIpamObj, oldIpamObj *dpuservicev1.DPUServiceIPAM) error {
+// validateDPUServiceIPAM validates the selected allocation mode and the fields that are immutable on update.
+//
+//nolint:staticcheck // SA1019: Deprecated IPv4 fields remain supported for backward compatibility.
+func validateDPUServiceIPAM(newIPAM, oldIPAM *dpuservicev1.DPUServiceIPAM) error {
 	var errs []error
 
 	// TODO: Drop this once multi namespace NVIPAM is supported
-	if newIpamObj.Namespace != "dpf-operator-system" {
+	if newIPAM.Namespace != "dpf-operator-system" {
 		errs = append(errs, errors.New("currently only 'dpf-operator-system' namespace is supported"))
 	}
 
-	// TODO: Drop once we fully support transition from IPV4Network to IPV4Subnet and vice versa
-	if oldIpamObj != nil && newIpamObj != nil {
-		if (oldIpamObj.Spec.IPV4Subnet != nil && newIpamObj.Spec.IPV4Network != nil) || (oldIpamObj.Spec.IPV4Network != nil && newIpamObj.Spec.IPV4Subnet != nil) {
-			errs = append(errs, errors.New("transitioning from ipv4subnet to ipv4network and vice versa is currently not supported"))
+	// Preserve the validation errors returned for deprecated-only objects. The CRD CEL rule validates combinations
+	// involving the replacement fields before the webhook runs.
+	if newIPAM.Spec.Network == nil && newIPAM.Spec.Subnet == nil {
+		if newIPAM.Spec.IPV4Network == nil && newIPAM.Spec.IPV4Subnet == nil {
+			errs = append(errs, errors.New("either ipv4Subnet or ipv4Network must be specified"))
+		}
+		if newIPAM.Spec.IPV4Network != nil && newIPAM.Spec.IPV4Subnet != nil {
+			errs = append(errs, errors.New("either ipv4Subnet or ipv4Network must be specified but not both"))
 		}
 	}
 
-	if newIpamObj.Spec.IPV4Network == nil && newIpamObj.Spec.IPV4Subnet == nil {
-		errs = append(errs, errors.New("either ipv4Subnet or ipv4Network must be specified"))
-	}
+	newField := selectConfiguration(&newIPAM.Spec)
 
-	if newIpamObj.Spec.IPV4Network != nil && newIpamObj.Spec.IPV4Subnet != nil {
-		errs = append(errs, errors.New("either ipv4Subnet or ipv4Network must be specified but not both"))
-	}
-
-	if newIpamObj.Spec.IPV4Network != nil { //nolint:dupl
-		errs = append(errs, validateDPUServiceIPAMIPV4Network(newIpamObj.Spec.IPV4Network))
-		if oldIpamObj != nil && oldIpamObj.Spec.IPV4Network != nil {
-			errs = append(errs, validateIPRangeNotShrinking(newIpamObj.Spec.IPV4Network.Network, oldIpamObj.Spec.IPV4Network.Network))
-			if newIpamObj.Spec.IPV4Network.PrefixSize != oldIpamObj.Spec.IPV4Network.PrefixSize {
-				errs = append(errs, errors.New("prefixSize is immutable"))
-			}
-			if (oldIpamObj.Spec.IPV4Network.SubnetsPerDPUCluster == nil) != (newIpamObj.Spec.IPV4Network.SubnetsPerDPUCluster == nil) {
-				errs = append(errs, errors.New("subnetsPerDPUCluster cannot be toggled between set and unset"))
-			}
-			if oldIpamObj.Spec.IPV4Network.SubnetsPerDPUCluster != nil && newIpamObj.Spec.IPV4Network.SubnetsPerDPUCluster != nil &&
-				*newIpamObj.Spec.IPV4Network.SubnetsPerDPUCluster < *oldIpamObj.Spec.IPV4Network.SubnetsPerDPUCluster {
-				errs = append(errs, errors.New("subnetsPerDPUCluster cannot be decreased"))
+	oldField := configurationFieldUnknown
+	if oldIPAM != nil {
+		if selected := selectConfiguration(&oldIPAM.Spec); selected != configurationFieldUnknown {
+			oldField = selected
+			oldMode, newMode := configurationMode(oldField), configurationMode(newField)
+			oldFamily, newFamily := configurationFamily(oldField, &oldIPAM.Spec), configurationFamily(newField, &newIPAM.Spec)
+			if oldMode != newMode {
+				errs = append(errs, errors.New("transitioning from ipv4subnet to ipv4network and vice versa is currently not supported"))
+			} else if oldFamily != "" && newFamily != "" && oldFamily != newFamily {
+				errs = append(errs, errors.New("transitioning between address families is not supported; create a new DPUServiceIPAM instead"))
 			}
 		}
 	}
 
-	if newIpamObj.Spec.IPV4Subnet != nil { //nolint:dupl
-		errs = append(errs, validateDPUServiceIPAMIPV4Subnet(newIpamObj.Spec.IPV4Subnet))
-		if oldIpamObj != nil && oldIpamObj.Spec.IPV4Subnet != nil {
-			errs = append(errs, validateIPRangeNotShrinking(newIpamObj.Spec.IPV4Subnet.Subnet, oldIpamObj.Spec.IPV4Subnet.Subnet))
-			if newIpamObj.Spec.IPV4Subnet.PerNodeIPCount != oldIpamObj.Spec.IPV4Subnet.PerNodeIPCount {
-				errs = append(errs, errors.New("perNodeIPCount is immutable"))
-			}
-			if (oldIpamObj.Spec.IPV4Subnet.BlocksPerDPUCluster == nil) != (newIpamObj.Spec.IPV4Subnet.BlocksPerDPUCluster == nil) {
-				errs = append(errs, errors.New("blocksPerDPUCluster cannot be toggled between set and unset"))
-			}
-			if oldIpamObj.Spec.IPV4Subnet.BlocksPerDPUCluster != nil && newIpamObj.Spec.IPV4Subnet.BlocksPerDPUCluster != nil &&
-				*newIpamObj.Spec.IPV4Subnet.BlocksPerDPUCluster < *oldIpamObj.Spec.IPV4Subnet.BlocksPerDPUCluster {
-				errs = append(errs, errors.New("blocksPerDPUCluster cannot be decreased"))
-			}
+	switch newField {
+	case configurationFieldIPv4Network:
+		errs = append(errs, validateNetwork(newIPAM.Spec.IPV4Network))
+	case configurationFieldNetwork:
+		errs = append(errs, validateNetwork(newIPAM.Spec.Network))
+	case configurationFieldIPv4Subnet:
+		errs = append(errs, validateSubnet(newIPAM.Spec.IPV4Subnet))
+	case configurationFieldSubnet:
+		errs = append(errs, validateSubnet(newIPAM.Spec.Subnet))
+	}
+
+	if oldIPAM != nil && oldField != configurationFieldUnknown && configurationMode(oldField) == configurationMode(newField) {
+		oldFamily := configurationFamily(oldField, &oldIPAM.Spec)
+		newFamily := configurationFamily(newField, &newIPAM.Spec)
+		// An invalid CIDR has no family. Run the update checks in that case so the existing CIDR error is preserved.
+		if oldFamily == "" || newFamily == "" || oldFamily == newFamily {
+			errs = append(errs, validateConfigurationUpdate(oldField, &oldIPAM.Spec, newField, &newIPAM.Spec))
 		}
 	}
 
 	return kerrors.NewAggregate(errs)
 }
 
-// validateDPUServiceIPAMIPV4Network validates the .spec.IPV4Network of a DPUServiceIPAM object
-func validateDPUServiceIPAMIPV4Network(ipv4Network *dpuservicev1.Network) error {
-	_, network, err := net.ParseCIDR(ipv4Network.Network)
-	if err != nil {
-		return fmt.Errorf("network %s is not a valid network", ipv4Network.Network)
+// selectConfiguration returns the configured allocation field. The CRD CEL rule ensures exactly one field is set.
+//
+//nolint:staticcheck // SA1019: Deprecated IPv4 fields remain supported for backward compatibility.
+func selectConfiguration(spec *dpuservicev1.DPUServiceIPAMSpec) configurationField {
+	if spec.IPV4Network != nil {
+		return configurationFieldIPv4Network
+	}
+	if spec.IPV4Subnet != nil {
+		return configurationFieldIPv4Subnet
+	}
+	if spec.Network != nil {
+		return configurationFieldNetwork
+	}
+	if spec.Subnet != nil {
+		return configurationFieldSubnet
+	}
+	return configurationFieldUnknown
+}
+
+func configurationMode(field configurationField) allocationMode {
+	switch field {
+	case configurationFieldIPv4Network, configurationFieldNetwork:
+		return allocationModeNetwork
+	case configurationFieldIPv4Subnet, configurationFieldSubnet:
+		return allocationModeSubnet
+	default:
+		return allocationModeUnknown
+	}
+}
+
+// configurationFamily derives the address family from the selected field's CIDR. Deprecated and replacement fields
+// have identical address-family behavior.
+//
+//nolint:staticcheck // SA1019: Deprecated fields remain supported for update compatibility.
+func configurationFamily(field configurationField, spec *dpuservicev1.DPUServiceIPAMSpec) corev1.IPFamily {
+	switch field {
+	case configurationFieldIPv4Network:
+		return familyFromCIDR(spec.IPV4Network.Network)
+	case configurationFieldIPv4Subnet:
+		return familyFromCIDR(spec.IPV4Subnet.Subnet)
+	case configurationFieldNetwork:
+		return familyFromCIDR(spec.Network.Network)
+	case configurationFieldSubnet:
+		return familyFromCIDR(spec.Subnet.Subnet)
+	default:
+		return ""
+	}
+}
+
+// familyFromCIDR returns the address family of a valid, non-mapped CIDR.
+func familyFromCIDR(cidr string) corev1.IPFamily {
+	prefix, err := netip.ParsePrefix(cidr)
+	if err != nil || prefix.Addr().Is4In6() {
+		return ""
+	}
+	if prefix.Addr().Is4() {
+		return corev1.IPv4Protocol
+	}
+	return corev1.IPv6Protocol
+}
+
+// updateValidationInputFor maps fields that have the same update rules in the deprecated and new APIs.
+//
+//nolint:staticcheck // SA1019: Deprecated IPv4 fields remain supported for update validation.
+func updateValidationInputFor(field configurationField, spec *dpuservicev1.DPUServiceIPAMSpec) (updateValidationInput, bool) {
+	switch field {
+	case configurationFieldIPv4Network:
+		return updateValidationInput{
+			cidr:                spec.IPV4Network.Network,
+			allocationSize:      int64(spec.IPV4Network.PrefixSize),
+			allocationField:     "prefixSize",
+			perCluster:          spec.IPV4Network.SubnetsPerDPUCluster,
+			perClusterFieldName: "subnetsPerDPUCluster",
+		}, true
+	case configurationFieldNetwork:
+		return updateValidationInput{
+			cidr:                spec.Network.Network,
+			allocationSize:      int64(spec.Network.PrefixSize),
+			allocationField:     "prefixSize",
+			perCluster:          spec.Network.SubnetsPerDPUCluster,
+			perClusterFieldName: "subnetsPerDPUCluster",
+		}, true
+	case configurationFieldIPv4Subnet:
+		return updateValidationInput{
+			cidr:                spec.IPV4Subnet.Subnet,
+			allocationSize:      int64(spec.IPV4Subnet.PerNodeIPCount),
+			allocationField:     "perNodeIPCount",
+			perCluster:          spec.IPV4Subnet.BlocksPerDPUCluster,
+			perClusterFieldName: "blocksPerDPUCluster",
+		}, true
+	case configurationFieldSubnet:
+		return updateValidationInput{
+			cidr:                spec.Subnet.Subnet,
+			allocationSize:      int64(spec.Subnet.PerNodeIPCount),
+			allocationField:     "perNodeIPCount",
+			perCluster:          spec.Subnet.BlocksPerDPUCluster,
+			perClusterFieldName: "blocksPerDPUCluster",
+		}, true
+	default:
+		return updateValidationInput{}, false
+	}
+}
+
+// validateConfigurationUpdate applies the existing update rules across both API representations.
+func validateConfigurationUpdate(oldField configurationField, oldSpec *dpuservicev1.DPUServiceIPAMSpec, newField configurationField, newSpec *dpuservicev1.DPUServiceIPAMSpec) error {
+	oldInput, oldOK := updateValidationInputFor(oldField, oldSpec)
+	newInput, newOK := updateValidationInputFor(newField, newSpec)
+	if !oldOK || !newOK {
+		return nil
 	}
 
-	networkPrefix, _ := network.Mask.Size()
-	if int(ipv4Network.PrefixSize) < 1 || int(ipv4Network.PrefixSize) > 32 {
-		return fmt.Errorf("prefixSize %d is invalid, must be between 1 and 32", ipv4Network.PrefixSize)
+	var errs []error
+	errs = append(errs, validateIPRangeNotShrinking(newInput.cidr, oldInput.cidr))
+	if newInput.allocationSize != oldInput.allocationSize {
+		errs = append(errs, fmt.Errorf("%s is immutable", newInput.allocationField))
 	}
-	if networkPrefix > int(ipv4Network.PrefixSize) {
-		return fmt.Errorf("prefixSize %d doesn't fit in network prefix %d", ipv4Network.PrefixSize, networkPrefix)
+	if (oldInput.perCluster == nil) != (newInput.perCluster == nil) {
+		errs = append(errs, fmt.Errorf("%s cannot be toggled between set and unset", newInput.perClusterFieldName))
+	} else if oldInput.perCluster != nil && *newInput.perCluster < *oldInput.perCluster {
+		errs = append(errs, fmt.Errorf("%s cannot be decreased", newInput.perClusterFieldName))
+	}
+	return kerrors.NewAggregate(errs)
+}
+
+// parseCIDR keeps the existing CIDR parsing behavior while rejecting IPv4-mapped IPv6 prefixes, whose address family
+// is ambiguous to the family-aware validation and allocation code.
+func parseCIDR(value, field string) (*net.IPNet, error) {
+	prefix, err := netip.ParsePrefix(value)
+	if err != nil {
+		return nil, fmt.Errorf("%s %s is not a valid network", field, value)
+	}
+	if prefix.Addr().Is4In6() {
+		return nil, fmt.Errorf("%s %s uses an IPv4-mapped IPv6 address, which is not supported", field, value)
+	}
+	_, network, err := net.ParseCIDR(value)
+	if err != nil {
+		return nil, fmt.Errorf("%s %s is not a valid network", field, value)
+	}
+	return network, nil
+}
+
+// validateNetwork applies the existing network-mode validation to either API representation.
+func validateNetwork(configuration *dpuservicev1.Network) error {
+	network, err := parseCIDR(configuration.Network, "network")
+	if err != nil {
+		return err
+	}
+
+	networkPrefix, addressBits := network.Mask.Size()
+	if int(configuration.PrefixSize) < 1 || int(configuration.PrefixSize) > addressBits {
+		return fmt.Errorf("prefixSize %d is invalid, must be between 1 and %d", configuration.PrefixSize, addressBits)
+	}
+	if networkPrefix > int(configuration.PrefixSize) {
+		return fmt.Errorf("prefixSize %d doesn't fit in network prefix %d", configuration.PrefixSize, networkPrefix)
 	}
 
 	var errs []error
 
-	//nolint:staticcheck // SA1019: Exclusions is deprecated but still supported
-	errs = append(errs, validateExclusions(ipv4Network.Exclusions, network)...)
-	errs = append(errs, validateExcludeRanges(ipv4Network.ExcludeRanges, network)...)
+	//nolint:staticcheck // SA1019: Exclusions remains supported for backward compatibility.
+	errs = append(errs, validateExclusions(configuration.Exclusions, network)...)
+	errs = append(errs, validateExcludeRanges(configuration.ExcludeRanges, network)...)
 
-	for _, allocation := range ipv4Network.Allocations {
+	for _, allocation := range configuration.Allocations {
 		_, allocationNetwork, err := net.ParseCIDR(allocation)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("allocation %s is not a valid subnet", allocation))
 			continue
 		}
+		if allocationPrefix, err := netip.ParsePrefix(allocation); err == nil && allocationPrefix.Addr().Is4In6() {
+			errs = append(errs, fmt.Errorf("allocation %s uses an IPv4-mapped IPv6 address, which is not supported", allocation))
+			continue
+		}
 
-		allocationNetworkPrefix, _ := allocationNetwork.Mask.Size()
-		if !network.Contains(allocationNetwork.IP) || allocationNetworkPrefix != int(ipv4Network.PrefixSize) {
-			errs = append(errs, fmt.Errorf("allocation %s is not part of the network %s", allocation, ipv4Network.Network))
+		allocationNetworkPrefix, allocationAddressBits := allocationNetwork.Mask.Size()
+		if allocationAddressBits != addressBits || !network.Contains(allocationNetwork.IP) || allocationNetworkPrefix != int(configuration.PrefixSize) {
+			errs = append(errs, fmt.Errorf("allocation %s is not part of the network %s", allocation, configuration.Network))
 		}
 	}
-	if ipv4Network.GatewayIndex != nil {
-		blockSize := int(iputils.PrefixSize(int(ipv4Network.PrefixSize)))
-		if int(*ipv4Network.GatewayIndex) >= blockSize {
-			errs = append(errs, fmt.Errorf("gatewayIndex %d is out of range for /%d prefix (valid range: 0–%d)", *ipv4Network.GatewayIndex, ipv4Network.PrefixSize, blockSize-1))
-		}
-	}
-	if ipv4Network.SubnetsPerDPUCluster != nil {
-		if *ipv4Network.SubnetsPerDPUCluster < 1 {
-			errs = append(errs, errors.New("subnetsPerDPUCluster must be at least 1 when set"))
+	if configuration.GatewayIndex != nil {
+		if *configuration.GatewayIndex < 0 {
+			errs = append(errs, errors.New("gatewayIndex must be at least 0"))
 		} else {
-			totalSubnets := 1 << uint(int(ipv4Network.PrefixSize)-networkPrefix)
-			if int(*ipv4Network.SubnetsPerDPUCluster) > totalSubnets {
-				errs = append(errs, fmt.Errorf("subnetsPerDPUCluster %d exceeds the %d available subnets in network %s", *ipv4Network.SubnetsPerDPUCluster, totalSubnets, ipv4Network.Network))
+			blockSize := iputils.PrefixAddressCount(addressBits, int(configuration.PrefixSize))
+			if big.NewInt(int64(*configuration.GatewayIndex)).Cmp(blockSize) >= 0 {
+				lastIndex := new(big.Int).Sub(blockSize, big.NewInt(1))
+				errs = append(errs, fmt.Errorf("gatewayIndex %d is out of range for /%d prefix (valid range: 0–%s)", *configuration.GatewayIndex, configuration.PrefixSize, lastIndex))
 			}
 		}
 	}
-	errs = append(errs, validateRoutes(ipv4Network.Routes, network, ipv4Network.DefaultGateway))
+	if configuration.SubnetsPerDPUCluster != nil {
+		if *configuration.SubnetsPerDPUCluster < 1 {
+			errs = append(errs, errors.New("subnetsPerDPUCluster must be at least 1 when set"))
+		} else {
+			totalSubnets := iputils.PrefixAddressCount(int(configuration.PrefixSize), networkPrefix)
+			if big.NewInt(int64(*configuration.SubnetsPerDPUCluster)).Cmp(totalSubnets) > 0 {
+				errs = append(errs, fmt.Errorf("subnetsPerDPUCluster %d exceeds the %s available subnets in network %s", *configuration.SubnetsPerDPUCluster, totalSubnets, configuration.Network))
+			}
+		}
+	}
+	errs = append(errs, validateRoutes(configuration.Routes, network, configuration.DefaultGateway))
 	return kerrors.NewAggregate(errs)
 }
 
@@ -254,10 +434,15 @@ func validateExcludeRanges(excludeRanges []dpuservicev1.IPRange, network *net.IP
 }
 
 // validateIP validates if an IP is valid and part of network. returns the ip or error if occurred.
+// IPv4-mapped IPv6 addresses are rejected for the same reason as in parseCIDR. net.ParseIP would normalize them,
+// but the allocator rejects them, so accepting one here would admit an object that can never be reconciled.
 func validateIP(ip string, network *net.IPNet) (net.IP, error) {
 	pip := net.ParseIP(ip)
 	if pip == nil {
 		return nil, fmt.Errorf("ip %s is not a valid IP", ip)
+	}
+	if addr, err := netip.ParseAddr(ip); err == nil && addr.Is4In6() {
+		return nil, fmt.Errorf("ip %s uses an IPv4-mapped IPv6 address, which is not supported", ip)
 	}
 	if !network.Contains(pip) {
 		return nil, fmt.Errorf("ip %s is not part of network %s", ip, network.String())
@@ -265,57 +450,77 @@ func validateIP(ip string, network *net.IPNet) (net.IP, error) {
 	return pip, nil
 }
 
-// validateDPUServiceIPAMIPV4Subnet validates the .spec.IPV4Subnet of a DPUServiceIPAM object
-func validateDPUServiceIPAMIPV4Subnet(ipv4Subnet *dpuservicev1.Subnet) error {
-	_, network, err := net.ParseCIDR(ipv4Subnet.Subnet)
+// validateSubnet applies the existing subnet-mode validation to either API representation.
+func validateSubnet(configuration *dpuservicev1.Subnet) error {
+	network, err := parseCIDR(configuration.Subnet, "subnet")
 	if err != nil {
-		return fmt.Errorf("subnet %s is not a valid network", ipv4Subnet.Subnet)
+		return err
 	}
 
-	prefixLen, _ := network.Mask.Size()
-	if prefixLen >= 31 {
-		return fmt.Errorf("subnet %s must be larger than /30 — /31 and /32 are not supported", ipv4Subnet.Subnet)
+	prefixLen, addressBits := network.Mask.Size()
+	// Block IPv4 /31 and /32 and IPv6 /127 and /128. NV-IPAM reserves no addresses in these prefixes, while every
+	// wider prefix reserves the subnet address and so starts its per-node blocks one address later. An update may
+	// grow the subnet, and growing out of one of these prefixes would shift every block already assigned to a node.
+	if prefixLen >= addressBits-1 {
+		return fmt.Errorf("subnet %s must be larger than /%d — /%d and /%d are not supported",
+			configuration.Subnet, addressBits-2, addressBits-1, addressBits)
 	}
 
-	if excludeRangesErrs := validateExcludeRanges(ipv4Subnet.ExcludeRanges, network); len(excludeRangesErrs) > 0 {
+	if excludeRangesErrs := validateExcludeRanges(configuration.ExcludeRanges, network); len(excludeRangesErrs) > 0 {
 		return kerrors.NewAggregate(excludeRangesErrs)
 	}
 
-	ip := net.ParseIP(ipv4Subnet.Gateway)
-	if ip == nil {
-		return fmt.Errorf("gateway %s is not a valid IP", ipv4Subnet.Gateway)
+	gateway := net.ParseIP(configuration.Gateway)
+	if gateway == nil {
+		return fmt.Errorf("gateway %s is not a valid IP", configuration.Gateway)
+	}
+	if addr, err := netip.ParseAddr(configuration.Gateway); err == nil && addr.Is4In6() {
+		return fmt.Errorf("gateway %s uses an IPv4-mapped IPv6 address, which is not supported", configuration.Gateway)
+	}
+	if !network.Contains(gateway) {
+		return fmt.Errorf("gateway %s is not part of subnet %s", configuration.Gateway, configuration.Subnet)
 	}
 
-	if !network.Contains(ip) {
-		return fmt.Errorf("gateway %s is not part of subnet %s", ipv4Subnet.Gateway, ipv4Subnet.Subnet)
-	}
-
-	if ipv4Subnet.PerNodeIPCount < 1 {
+	if configuration.PerNodeIPCount < 1 {
 		return errors.New("perNodeIPCount must be at least 1")
 	}
 
-	// -2 because network and broadcast addresses are not allocatable (see /31 and /32 rejection above)
-	effectiveSize := int(iputils.PrefixSize(prefixLen)) - 2
-	if ipv4Subnet.PerNodeIPCount > effectiveSize {
-		return fmt.Errorf("perNodeIPCount %d exceeds the %d allocatable IPs in subnet %s", ipv4Subnet.PerNodeIPCount, effectiveSize, ipv4Subnet.Subnet)
+	effectiveSize := allocatableAddressCount(network)
+	if big.NewInt(int64(configuration.PerNodeIPCount)).Cmp(effectiveSize) > 0 {
+		return fmt.Errorf("perNodeIPCount %d exceeds the %s allocatable IPs in subnet %s", configuration.PerNodeIPCount, effectiveSize, configuration.Subnet)
 	}
 
-	if ipv4Subnet.BlocksPerDPUCluster != nil {
-		if *ipv4Subnet.BlocksPerDPUCluster < 1 {
+	if configuration.BlocksPerDPUCluster != nil {
+		if *configuration.BlocksPerDPUCluster < 1 {
 			return errors.New("blocksPerDPUCluster must be at least 1 when set")
 		}
-		totalBlocks := effectiveSize / ipv4Subnet.PerNodeIPCount
-		if int(*ipv4Subnet.BlocksPerDPUCluster) > totalBlocks {
-			return fmt.Errorf("blocksPerDPUCluster %d exceeds the %d available blocks in subnet %s", *ipv4Subnet.BlocksPerDPUCluster, totalBlocks, ipv4Subnet.Subnet)
+		totalBlocks := new(big.Int).Quo(effectiveSize, big.NewInt(int64(configuration.PerNodeIPCount)))
+		if big.NewInt(int64(*configuration.BlocksPerDPUCluster)).Cmp(totalBlocks) > 0 {
+			return fmt.Errorf("blocksPerDPUCluster %d exceeds the %s available blocks in subnet %s", *configuration.BlocksPerDPUCluster, totalBlocks, configuration.Subnet)
 		}
 	}
 
-	err = validateRoutes(ipv4Subnet.Routes, network, ipv4Subnet.DefaultGateway)
+	err = validateRoutes(configuration.Routes, network, configuration.DefaultGateway)
 	if err != nil {
 		return err
 	}
 
 	return nil
+}
+
+// allocatableAddressCount preserves the existing IPv4 calculation and adds the equivalent IPv6 rules. Ordinary IPv6
+// prefixes reserve the subnet address but do not have a broadcast address. Point-to-point and single-address prefixes
+// keep their full size, which validateSubnet rejects before calling this function.
+func allocatableAddressCount(network *net.IPNet) *big.Int {
+	prefixLen, addressBits := network.Mask.Size()
+	count := iputils.PrefixAddressCount(addressBits, prefixLen)
+	if prefixLen < addressBits-1 {
+		count.Sub(count, big.NewInt(1))
+		if network.IP.To4() != nil {
+			count.Sub(count, big.NewInt(1))
+		}
+	}
+	return count
 }
 
 // validateRoutes validate routes:
@@ -326,6 +531,11 @@ func validateRoutes(routes []dpuservicev1.Route, network *net.IPNet, defaultGate
 		_, routeNet, err := net.ParseCIDR(r.Dst)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("route %s is not a valid subnet", r.Dst))
+			continue
+		}
+		if routePrefix, err := netip.ParsePrefix(r.Dst); err == nil && routePrefix.Addr().Is4In6() {
+			errs = append(errs, fmt.Errorf("route %s uses an IPv4-mapped IPv6 address, which is not supported", r.Dst))
+			continue
 		}
 		if routeNet != nil && network != nil {
 			if (routeNet.IP.To4() != nil) != (network.IP.To4() != nil) {

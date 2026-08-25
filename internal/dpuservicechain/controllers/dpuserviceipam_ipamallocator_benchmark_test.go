@@ -22,6 +22,9 @@ limitations under the License.
 package controllers
 
 import (
+	"math/big"
+	"slices"
+
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -39,7 +42,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 			experiment.SampleDuration("Construct without exclusions", func(_ int) {
 				_, err := newMultiDPUClusterExclusionCalculator(
 					"10.0.0.0/8",
-					1,                 // blockSizePerNode: 1 IP — 16M blocks in a /8
+					big.NewInt(1),     // blockSizePerNode: 1 IP — 16M blocks in a /8
 					&blocksPerCluster, // targetBlocksPerDPUCluster: 1k
 					true,
 					nil,
@@ -60,7 +63,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 			experiment.SampleDuration("Construct with 5 non-consecutive /24 exclusions", func(_ int) {
 				_, err := newMultiDPUClusterExclusionCalculator(
 					"10.0.0.0/8",
-					1,
+					big.NewInt(1),
 					&blocksPerCluster,
 					true,
 					mixedExclusions,
@@ -79,7 +82,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 			experiment.SampleDuration("Construct with 3 existing cluster allocations", func(_ int) {
 				_, err := newMultiDPUClusterExclusionCalculator(
 					"10.0.0.0/8",
-					1,
+					big.NewInt(1),
 					&blocksPerCluster,
 					true,
 					nil,
@@ -92,7 +95,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 			experiment.SampleDuration("Construct with 5 non-consecutive /24 exclusions and 3 existing cluster allocations", func(_ int) {
 				_, err := newMultiDPUClusterExclusionCalculator(
 					"10.0.0.0/8",
-					1,
+					big.NewInt(1),
 					&blocksPerCluster,
 					true,
 					mixedExclusions,
@@ -108,7 +111,7 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 			// Allocate() for a cluster whose full allocation is already stored — top-up path with
 			// zero deficit; the pool cursor does not advance so the calculator can be reused.
 			calcExisting, err := newMultiDPUClusterExclusionCalculator(
-				"10.0.0.0/8", 1, &blocksPerCluster, true, nil,
+				"10.0.0.0/8", big.NewInt(1), &blocksPerCluster, true, nil,
 				[][]dpuservicev1.IPRange{existingAlloc}, nil,
 			)
 			Expect(err).NotTo(HaveOccurred())
@@ -120,11 +123,12 @@ var _ = Describe("MultiDPUClusterExclusionCalculator", func() {
 			// AllocateClusterBlocks for a brand-new cluster — fresh path consuming 1k blocks from the pool.
 			// The cursor is reset between samples to isolate just the AllocateClusterBlocks cost.
 			calcFresh, err := newMultiDPUClusterExclusionCalculator(
-				"10.0.0.0/8", 1, &blocksPerCluster, true, nil, nil, nil,
+				"10.0.0.0/8", big.NewInt(1), &blocksPerCluster, true, nil, nil, nil,
 			)
 			Expect(err).NotTo(HaveOccurred())
+			initialAvailableBlockRanges := slices.Clone(calcFresh.availableBlockRanges)
 			experiment.SampleDuration("AllocateClusterBlocks new cluster", func(_ int) {
-				calcFresh.allocatableBlocksPosition = 0
+				calcFresh.availableBlockRanges = slices.Clone(initialAvailableBlockRanges)
 				_, err := calcFresh.AllocateClusterBlocks(nil)
 				Expect(err).NotTo(HaveOccurred())
 			}, gmeasure.SamplingConfig{N: 100})

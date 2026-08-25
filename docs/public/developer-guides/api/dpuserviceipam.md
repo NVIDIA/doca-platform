@@ -10,11 +10,18 @@ responsible for doing the IP Address Management in the DPU cluster, IPs which th
 
 ## Modes
 
-The `DPUServiceIPAM` can operate in 2 distinct modes:
+The `DPUServiceIPAM` can operate in 2 distinct modes. Exactly one mode must be configured on each object:
 
-* `.spec.ipv4Subnet`: Share a subnet across all the nodes by splitting the subnet in smaller unique chunks per node. In
-  this mode, there is a single gateway for the whole subnet the `DPUServiceIPAM` is managing.
-* `.spec.ipv4Network`: Split a CIDR into a unique subnet per node. In this mode, each node has its own gateway.
+* `.spec.subnet`: Share an IPv4 or IPv6 subnet across all the nodes by splitting it into smaller unique chunks per node.
+  In this mode, there is a single gateway for the whole subnet the `DPUServiceIPAM` is managing.
+* `.spec.network`: Split an IPv4 or IPv6 CIDR into a unique subnet per node. In this mode, each node has its own gateway.
+
+The deprecated `.spec.ipv4Subnet` and `.spec.ipv4Network` field names remain available for backward compatibility.
+Despite their names, they accept both IPv4 and IPv6 and behave identically to `.spec.subnet` and `.spec.network`. Use
+the non-prefixed fields for new objects.
+
+A `DPUServiceIPAM` object manages one address family. Create one IPv4 object and one IPv6 object when a workload needs
+dual-stack addressing.
 
 ## Created Child Custom Resources
 
@@ -23,7 +30,8 @@ project. The controller creates either a [CIDRPool](https://github.com/Mellanox/
 or a [IPPool](https://github.com/Mellanox/nvidia-k8s-ipam#ippool-cr) Custom Resource in the underlying DPU cluster
 depending on the mode the `DPUServiceIPAM` is configured.
 
-Switching from one mode to another leads to the previous Custom Resource being deleted and the new one to be created.
+Changing the mode of an existing `DPUServiceIPAM` is not supported. Create a new `DPUServiceIPAM` to use a different
+mode.
 
 Removing the pool does not affect running Pods. Readding the same pool, assuming that there was no node addition/deletion
 in the DPU cluster, is a safe operation and will not lead to duplicate IP consumption by Pods.
@@ -47,7 +55,7 @@ spec:
     labels:
       # Specifying a label here enables us to make use of this object in DPUServiceChain.
       svc.dpu.nvidia.com/pool: example-pool1
-  ipv4Subnet:
+  subnet:
     subnet: "192.168.0.0/20"
     gateway: "192.168.0.1"
     perNodeIPCount: 256
@@ -70,7 +78,7 @@ spec:
     labels:
       # Specifying a label here enables us to make use of this object in DPUServiceChain.
       svc.dpu.nvidia.com/pool: example-pool1
-  ipv4Network:
+  network:
     network: "192.168.0.0/20"
     # Optional field that usually makes sense to set, unless we use a point to point network (/31) and we want to use
     # both IPs.
@@ -80,13 +88,39 @@ spec:
 
 This configuration creates subnets of size `/24` for each node with gateway the first IP in that subnet.
 
+### Configure an IPv6 subnet
+
+The same fields support IPv6. For example, the following object creates blocks of `256` IPv6 addresses per node:
+
+```yaml
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceIPAM
+metadata:
+  name: example-ipv6-pool
+spec:
+  metadata:
+    labels:
+      svc.dpu.nvidia.com/pool: example-dual-stack-pool
+  subnet:
+    subnet: "2001:db8:100::/64"
+    gateway: "2001:db8:100::1"
+    perNodeIPCount: 256
+```
+
+### Migrate from the deprecated IPv4 fields
+
+For an existing object, replace `.spec.ipv4Subnet` with `.spec.subnet`, or replace `.spec.ipv4Network` with
+`.spec.network`. The corresponding old and new fields cannot be set at the same time. Keep the address family, mode,
+and configuration unchanged during the update so that the controller can preserve the existing child pool and
+allocation status.
+
 ## Multi-DPUCluster Support
 
 When a `DPUServiceIPAM` targets multiple DPU clusters, each cluster must receive a non-overlapping slice of the address
 space. This is controlled by a single field added to each mode:
 
-* `.spec.ipv4Subnet.blocksPerDPUCluster`: number of `perNodeIPCount`-sized blocks each DPUCluster receives.
-* `.spec.ipv4Network.subnetsPerDPUCluster`: number of `prefixSize`-sized subnets each DPUCluster receives.
+* `.spec.subnet.blocksPerDPUCluster`: number of `perNodeIPCount`-sized blocks each DPUCluster receives.
+* `.spec.network.subnetsPerDPUCluster`: number of `prefixSize`-sized subnets each DPUCluster receives.
 
 If either field is omitted and the `DPUServiceIPAM` matches more than one DPU cluster, the controller reports an error
 in the status and does not reconcile until the field is populated.
@@ -99,7 +133,7 @@ kind: DPUServiceIPAM
 metadata:
   name: example-pool1
 spec:
-  ipv4Subnet:
+  subnet:
     subnet: "192.168.0.0/25"
     gateway: "192.168.0.1"
     perNodeIPCount: 6
@@ -116,7 +150,7 @@ kind: DPUServiceIPAM
 metadata:
   name: example-pool1
 spec:
-  ipv4Network:
+  network:
     network: "192.168.0.0/20"
     gatewayIndex: 1
     prefixSize: 24
@@ -158,7 +192,7 @@ spec:
   dpuClusterSelector:
     matchLabels:
       kubernetes.io/cluster: cluster-a
-  ipv4Subnet:
+  subnet:
     subnet: "10.0.0.0/22"
     gateway: "10.0.0.1"
     perNodeIPCount: 256
@@ -175,7 +209,7 @@ spec:
   dpuClusterSelector:
     matchLabels:
       kubernetes.io/cluster: cluster-b
-  ipv4Subnet:
+  subnet:
     subnet: "10.0.0.0/22"
     gateway: "10.0.0.1"
     perNodeIPCount: 256
@@ -323,7 +357,9 @@ spec:
                   ipam:
                     # Reference to the label we have specified in the DPUServiceIPAM
                     matchLabels:
-                      svc.dpu.nvidia.com/pool: pool1
+                      svc.dpu.nvidia.com/pool: example-pool1
+                    requiredIPFamilies:
+                    - IPv4
               - serviceInterface:
                   matchLabels:
                     svc.dpu.nvidia.com/interface: app-iface
@@ -331,7 +367,9 @@ spec:
                   ipam:
                     # Reference to the label we have specified in the DPUServiceIPAM
                     matchLabels:
-                      svc.dpu.nvidia.com/pool: pool1
+                      svc.dpu.nvidia.com/pool: example-pool1
+                    requiredIPFamilies:
+                    - IPv4
 ```
 
 Assuming that the Helm Charts above are valid and the respect the DPF Contract, the outcome of the above resources will
@@ -339,9 +377,15 @@ be that each node on the DPU cluster will have 2 Pods, one consumer and one prod
 each, one primary and a secondary using a Scalable Function (SF). The SFs will have an IP configured on them from the
 pool defined above, from the chunk that is allocated on the node.
 
+Setting `requiredIPFamilies` makes pool selection explicit. For dual stack, create one IPv4 and one IPv6
+`DPUServiceIPAM` with the same pool label, then request both `IPv4` and `IPv6`. Both objects must use the same
+`DPUServiceIPAM` mode. See [DPUServiceChain IPAM pool selection](dpuservicechain.md#ipam-pool-selection) for the
+complete selection rules.
+
 ## Limitations
 
 * `DPUServiceIPAM` CRs must be created in `dpf-operator-system` namespace to take effect.
+* Each `DPUServiceIPAM` object manages one address family. Dual-stack workloads require separate IPv4 and IPv6 objects.
 * Adding static allocations in a `DPUServiceIPAM` - that targets multiple DPU clusters - for only a subset of the DPUs
   that are supposed to join these DPU clusters and utilise this `DPUServiceIPAM`, can lead to DPU clusters with fewer
   allocatable IPs. Applying static allocations to all DPUs or to none avoids this issue.

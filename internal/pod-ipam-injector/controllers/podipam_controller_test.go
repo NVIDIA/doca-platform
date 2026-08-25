@@ -1631,7 +1631,7 @@ var _ = Describe("PodIpam Controller", func() {
 		})
 	})
 
-	Context("getNVIPAMPoolByMatchLabels", func() {
+	Context("getNVIPAMPoolsByMatchLabels", func() {
 		var cleanupObjects []client.Object
 
 		BeforeEach(func() {
@@ -1643,7 +1643,7 @@ var _ = Describe("PodIpam Controller", func() {
 			Expect(testutils.CleanupAndWait(ctx, testClient, cleanupObjects...)).To(Succeed())
 		})
 
-		It("should return first IPPool when multiple IPPools match labels", func() {
+		It("selects the first IPPool when requiredIPFamilies is omitted", func() {
 			testLabels := map[string]string{
 				"test-label": "multiple-ippools",
 			}
@@ -1680,19 +1680,25 @@ var _ = Describe("PodIpam Controller", func() {
 			Expect(testClient.Create(ctx, pool2)).To(Succeed())
 			cleanupObjects = append(cleanupObjects, pool2)
 
-			By("Call getNVIPAMPoolByMatchLabels")
+			By("Call getNVIPAMPoolsByMatchLabels")
 			ipam := &dpuservicev1.IPAM{
 				MatchLabels: testLabels,
 			}
 			Eventually(func(g Gomega) {
-				poolName, poolType, err := getNVIPAMPoolByMatchLabels(ctx, testClient, ipam)
+				poolNames, poolType, err := getNVIPAMPoolsByMatchLabels(ctx, testClient, ipam)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(poolName).To(Or(Equal("ippool-1"), Equal("ippool-2")))
+				g.Expect(poolNames).To(Or(Equal([]string{"ippool-1"}), Equal([]string{"ippool-2"})))
 				g.Expect(poolType).To(Equal("ippool"))
+			}).WithTimeout(2 * time.Second).Should(Succeed())
+
+			ipam.RequiredIPFamilies = []corev1.IPFamily{corev1.IPv4Protocol}
+			Eventually(func(g Gomega) {
+				_, _, err := getNVIPAMPoolsByMatchLabels(ctx, testClient, ipam)
+				g.Expect(err).To(MatchError(ContainSubstring("requires exactly 1")))
 			}).WithTimeout(2 * time.Second).Should(Succeed())
 		})
 
-		It("should return first CIDRPool when multiple CIDRPools match labels and no IPPools exist", func() {
+		It("selects the first CIDRPool when requiredIPFamilies is omitted and no IPPool matches", func() {
 			testLabels := map[string]string{
 				"test-label": "multiple-cidrpools",
 			}
@@ -1727,14 +1733,14 @@ var _ = Describe("PodIpam Controller", func() {
 			Expect(testClient.Create(ctx, pool2)).To(Succeed())
 			cleanupObjects = append(cleanupObjects, pool2)
 
-			By("Call getNVIPAMPoolByMatchLabels")
+			By("Call getNVIPAMPoolsByMatchLabels")
 			ipam := &dpuservicev1.IPAM{
 				MatchLabels: testLabels,
 			}
 			Eventually(func(g Gomega) {
-				poolName, poolType, err := getNVIPAMPoolByMatchLabels(ctx, testClient, ipam)
+				poolNames, poolType, err := getNVIPAMPoolsByMatchLabels(ctx, testClient, ipam)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(poolName).To(Or(Equal("cidrpool-1"), Equal("cidrpool-2")))
+				g.Expect(poolNames).To(Or(Equal([]string{"cidrpool-1"}), Equal([]string{"cidrpool-2"})))
 				g.Expect(poolType).To(Equal("cidrpool"))
 			}).WithTimeout(2 * time.Second).Should(Succeed())
 		})
@@ -1744,16 +1750,45 @@ var _ = Describe("PodIpam Controller", func() {
 				"test-label": "no-match",
 			}
 
-			By("Call getNVIPAMPoolByMatchLabels with non-existent labels")
+			By("Call getNVIPAMPoolsByMatchLabels with non-existent labels")
 			ipam := &dpuservicev1.IPAM{
 				MatchLabels: testLabels,
 			}
-			_, _, err := getNVIPAMPoolByMatchLabels(ctx, testClient, ipam)
+			_, _, err := getNVIPAMPoolsByMatchLabels(ctx, testClient, ipam)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("no IPPool or CIDRPool found for labels"))
 		})
 
-		It("should prefer IPPool over CIDRPool when both match", func() {
+		It("prefers IPPool and does not validate unselected CIDRPools when requiredIPFamilies is omitted", func() {
+			testLabels := map[string]string{"test-label": "legacy-kind-preference"}
+			ipPool := &nvipamv1.IPPool{
+				ObjectMeta: metav1.ObjectMeta{Name: "selected-ippool", Namespace: defaultNS, Labels: testLabels},
+				Spec:       nvipamv1.IPPoolSpec{Subnet: "192.0.2.0/24", Gateway: "192.0.2.1", PerNodeBlockSize: 10},
+			}
+			invalidCIDRPool := &nvipamv1.CIDRPool{
+				ObjectMeta: metav1.ObjectMeta{Name: "unselected-invalid-cidrpool", Namespace: defaultNS, Labels: testLabels},
+				Spec:       nvipamv1.CIDRPoolSpec{CIDR: "not-a-cidr", PerNodeNetworkPrefix: 28},
+			}
+			Expect(testClient.Create(ctx, ipPool)).To(Succeed())
+			Expect(testClient.Create(ctx, invalidCIDRPool)).To(Succeed())
+			cleanupObjects = append(cleanupObjects, ipPool, invalidCIDRPool)
+
+			Eventually(func(g Gomega) {
+				ipPools := &nvipamv1.IPPoolList{}
+				g.Expect(testClient.List(ctx, ipPools, client.MatchingLabels(testLabels))).To(Succeed())
+				g.Expect(ipPools.Items).To(HaveLen(1))
+				cidrPools := &nvipamv1.CIDRPoolList{}
+				g.Expect(testClient.List(ctx, cidrPools, client.MatchingLabels(testLabels))).To(Succeed())
+				g.Expect(cidrPools.Items).To(HaveLen(1))
+
+				poolNames, poolType, err := getNVIPAMPoolsByMatchLabels(ctx, testClient, &dpuservicev1.IPAM{MatchLabels: testLabels})
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(poolNames).To(Equal([]string{"selected-ippool"}))
+				g.Expect(poolType).To(Equal("ippool"))
+			}).WithTimeout(2 * time.Second).Should(Succeed())
+		})
+
+		It("should reject ambiguous mixed pool kinds", func() {
 			testLabels := map[string]string{
 				"test-label": "both-types",
 			}
@@ -1782,24 +1817,87 @@ var _ = Describe("PodIpam Controller", func() {
 					Labels:    testLabels,
 				},
 				Spec: nvipamv1.CIDRPoolSpec{
-					CIDR:                 "192.168.40.0/24",
-					PerNodeNetworkPrefix: 31,
+					CIDR:                 "2001:db8:40::/64",
+					PerNodeNetworkPrefix: 80,
 				},
 			}
 			Expect(testClient.Create(ctx, cidrPool)).To(Succeed())
 			cleanupObjects = append(cleanupObjects, cidrPool)
 
-			By("Call getNVIPAMPoolByMatchLabels - should return IPPool")
+			By("Call getNVIPAMPoolsByMatchLabels")
 			ipam := &dpuservicev1.IPAM{
-				MatchLabels: testLabels,
+				MatchLabels:        testLabels,
+				RequiredIPFamilies: []corev1.IPFamily{corev1.IPv4Protocol, corev1.IPv6Protocol},
 			}
 			Eventually(func(g Gomega) {
-				poolName, poolType, err := getNVIPAMPoolByMatchLabels(ctx, testClient, ipam)
+				_, _, err := getNVIPAMPoolsByMatchLabels(ctx, testClient, ipam)
+				g.Expect(err).To(MatchError(ContainSubstring("must have the same poolType")))
+			}).WithTimeout(2 * time.Second).Should(Succeed())
+		})
+
+		It("returns an IPv4 and IPv6 IPPool pair in canonical order", func() {
+			testLabels := map[string]string{"test-label": "dual-stack-ippools"}
+			ipv6Pool := &nvipamv1.IPPool{
+				ObjectMeta: metav1.ObjectMeta{Name: "pool-v6", Namespace: defaultNS, Labels: testLabels},
+				Spec:       nvipamv1.IPPoolSpec{Subnet: "2001:db8::/64", Gateway: "2001:db8::1", PerNodeBlockSize: 10},
+			}
+			ipv4Pool := &nvipamv1.IPPool{
+				ObjectMeta: metav1.ObjectMeta{Name: "pool-v4", Namespace: defaultNS, Labels: testLabels},
+				Spec:       nvipamv1.IPPoolSpec{Subnet: "192.0.2.0/24", Gateway: "192.0.2.1", PerNodeBlockSize: 10},
+			}
+			Expect(testClient.Create(ctx, ipv6Pool)).To(Succeed())
+			Expect(testClient.Create(ctx, ipv4Pool)).To(Succeed())
+			cleanupObjects = append(cleanupObjects, ipv6Pool, ipv4Pool)
+
+			ipam := &dpuservicev1.IPAM{
+				MatchLabels:        testLabels,
+				RequiredIPFamilies: []corev1.IPFamily{corev1.IPv6Protocol, corev1.IPv4Protocol},
+			}
+			Eventually(func(g Gomega) {
+				poolNames, poolType, err := getNVIPAMPoolsByMatchLabels(ctx, testClient, ipam)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(poolName).To(Equal("ippool-preferred"))
+				g.Expect(poolNames).To(Equal([]string{"pool-v4", "pool-v6"}))
 				g.Expect(poolType).To(Equal("ippool"))
 			}).WithTimeout(2 * time.Second).Should(Succeed())
 		})
+
+		It("returns an IPv4 and IPv6 CIDRPool pair in canonical order", func() {
+			testLabels := map[string]string{"test-label": "dual-stack-cidrpools"}
+			ipv6Pool := &nvipamv1.CIDRPool{
+				ObjectMeta: metav1.ObjectMeta{Name: "cidrpool-v6", Namespace: defaultNS, Labels: testLabels},
+				Spec:       nvipamv1.CIDRPoolSpec{CIDR: "2001:db8::/64", PerNodeNetworkPrefix: 80},
+			}
+			ipv4Pool := &nvipamv1.CIDRPool{
+				ObjectMeta: metav1.ObjectMeta{Name: "cidrpool-v4", Namespace: defaultNS, Labels: testLabels},
+				Spec:       nvipamv1.CIDRPoolSpec{CIDR: "192.0.2.0/24", PerNodeNetworkPrefix: 28},
+			}
+			Expect(testClient.Create(ctx, ipv6Pool)).To(Succeed())
+			Expect(testClient.Create(ctx, ipv4Pool)).To(Succeed())
+			cleanupObjects = append(cleanupObjects, ipv6Pool, ipv4Pool)
+
+			ipam := &dpuservicev1.IPAM{
+				MatchLabels:        testLabels,
+				RequiredIPFamilies: []corev1.IPFamily{corev1.IPv6Protocol, corev1.IPv4Protocol},
+			}
+			Eventually(func(g Gomega) {
+				poolNames, poolType, err := getNVIPAMPoolsByMatchLabels(ctx, testClient, ipam)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(poolNames).To(Equal([]string{"cidrpool-v4", "cidrpool-v6"}))
+				g.Expect(poolType).To(Equal("cidrpool"))
+			}).WithTimeout(2 * time.Second).Should(Succeed())
+		})
+	})
+
+	It("injects both dual-stack pool names into the CNI arguments", func() {
+		networks := []*multustypes.NetworkSelectionElement{{Name: "service-network", InterfaceRequest: "sf0"}}
+		poolType := "ippool"
+		settings := map[string]*networkSettings{
+			"sf0": {IPAMPoolNames: []string{"pool-v4", "pool-v6"}, IPAMPoolType: &poolType},
+		}
+		mutated, changed := mutateNetworksWithSettings(networks, settings)
+		Expect(changed).To(BeTrue())
+		Expect(*mutated[0].CNIArgs).To(HaveKeyWithValue("poolNames", []string{"pool-v4", "pool-v6"}))
+		Expect(*mutated[0].CNIArgs).To(HaveKeyWithValue("poolType", "ippool"))
 	})
 })
 
