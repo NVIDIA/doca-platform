@@ -136,7 +136,7 @@ export KATA_DEPLOY_IMAGE=quay.io/kata-containers/kata-deploy
 export KATA_DEPLOY_TAG=3.32.0@sha256:47c4cf29c9e8cf9bb7debab58761b672e1d4c93ee5e92db7b442ee00e7d561cc
 
 # VPC dependencies to be able to build/push images and charts
-VPC_REF=a0e07b598e2cb97740e09181d86edae36d581d00
+VPC_REF=640274cd6ef3bc02c632201ccd0b5ef13cde3025
 VPC_DIR=$(REPOSDIR)/ovn-vpc/ovn-vpc-$(VPC_REF)
 # Token used for gitlab reporistory access, usually needed for CI/CD pipelines.
 # dev envs usually have those set in git credentials.
@@ -1510,7 +1510,10 @@ binary-storage-snap-csi-plugin: ## Build the snap-csi-plugin binary.
 binary-storage-nvidia-external-attacher: generate-client-for-storage-nvidia-external-attacher ## Build the nvidia external attacher binary.
 	./$(NVIDIA_EXTERNAL_ATTACHER_DIR)/hack/client.sh $(PROJECT_DIR) $(EXTERNAL_ATTACHER_BRANCH)
 	# Build nvidia-external-attacher binary
+	# The attacher resolves its own module graph, so the root go.mod pins do not reach it.
+	# Bump the CVE-relevant modules explicitly before tidy, which never downgrades them.
 	cd $(NVIDIA_EXTERNAL_ATTACHER_DIR)/external-attacher && \
+	go get google.golang.org/grpc@v1.82.1 golang.org/x/net@v0.58.0 golang.org/x/text@v0.41.0 && \
 	go mod tidy && go mod vendor && \
 	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/nvidia-external-attacher github.com/kubernetes-csi/external-attacher/v4/cmd/csi-attacher
 
