@@ -133,7 +133,7 @@ func (n *NICProvisioning) Execute(execCtx context.Context, optCtx *operations.Co
 	}
 	skipNICFirmware := !isNICFirmwareSourceConfigured(blueFieldSoftware)
 	if skipNICFirmware {
-		klog.InfoS("NIC provisioning: PlatformPldmFwBundle not configured, skipping NIC firmware download and installation",
+		klog.InfoS("NIC provisioning: no NIC firmware source configured (platformPldmFwBundle or nicFw), skipping download and installation",
 			"dpu", optCtx.Options.DPUName, "namespace", optCtx.Options.DPUNamespace,
 			"blueFieldSoftware", blueFieldSoftware.Name)
 	}
@@ -154,7 +154,7 @@ func (n *NICProvisioning) Execute(execCtx context.Context, optCtx *operations.Co
 	if err := prepareDMSServer(optCtx); err != nil {
 		return err
 	}
-	// 3. Install NIC firmware (skipped when BlueFieldSoftware has no PlatformPldmFwBundle)
+	// 3. Install NIC firmware (skipped when BlueFieldSoftware has no NIC firmware source)
 	if !skipNICFirmware {
 		if err := n.installNICFirmwareAndUpdateStatus(execCtx, optCtx, localNICFWPath); err != nil {
 			return err
@@ -270,11 +270,10 @@ func isNICFirmwareSourceConfigured(bfs *provisioningv1.BlueFieldSoftware) bool {
 	if bfs == nil {
 		return false
 	}
-	if strings.TrimSpace(ptr.Deref(bfs.Spec.PlatformPldmFwBundle, "")) != "" ||
-		strings.TrimSpace(ptr.Deref(bfs.Spec.NicFw, "")) != "" {
+	if strings.TrimSpace(ptr.Deref(bfs.Spec.PlatformPldmFwBundle, "")) != "" {
 		return true
 	}
-	return false
+	return strings.TrimSpace(ptr.Deref(bfs.Spec.NicFw, "")) != ""
 }
 
 // downloadNICFirmware resolves and downloads Astra NIC firmware from bfb-registry

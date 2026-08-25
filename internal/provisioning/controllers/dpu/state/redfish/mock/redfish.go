@@ -37,8 +37,8 @@ import (
 const (
 	defaultBMCPassword = "0penBmc"
 	DpuSerialNumber    = "MT25066004C7"
-	DpuPSIDBF4         = "MT_0000001774"
-	DpuPSIDBF3         = "MT_0000000884"
+	DpuPSID74          = "MT_0000001774"
+	DpuPSID75          = "MT_0000001875"
 	DpuOPN             = "900-9D3B4-00SV-EA0"
 )
 
@@ -69,7 +69,6 @@ type RedfishMockServer struct {
 	bootLastState                   string                   // BootProgress.LastState for GET System (e.g. OSRunning on BF4)
 	dpuVersion                      DpuVersion               // Current DPU version
 	model                           string                   // DPU model string (optional override)
-	assetTag                        string                   // Chassis AssetTag (PSID) returned by GetChassis
 	taskState                       string                   // Current task state: "Completed", "Exception", etc.
 	taskMessages                    []map[string]interface{} // Task messages for Exception state
 	concurrentUpdateBusyRemaining   int                      // Number of InstallBFB calls that return HTTP 400 "Another update is in progress"
@@ -123,13 +122,12 @@ func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 	mock := &RedfishMockServer{
 		bmcVersion:                      bmcVersion,
 		password:                        password,
-		dpuMode:                         "DpuMode",                         // Default to DpuMode
-		dpuVersion:                      BF3,                               // Default to BF3
-		hostPrivilegeMode:               "Privileged",                      // Default to Privileged
-		secureBootEnable:                true,                              // Default configured state: enabled
-		secureBootCurrentBoot:           true,                              // Default current boot state: enabled
-		oemLastState:                    "OsIsRunning",                     // Default to OS running
-		assetTag:                        client.ChassisAssetTagUnavailable, // Default AssetTag when unset on BMC
+		dpuMode:                         "DpuMode",     // Default to DpuMode
+		dpuVersion:                      BF3,           // Default to BF3
+		hostPrivilegeMode:               "Privileged",  // Default to Privileged
+		secureBootEnable:                true,          // Default configured state: enabled
+		secureBootCurrentBoot:           true,          // Default current boot state: enabled
+		oemLastState:                    "OsIsRunning", // Default to OS running
 		erotChassisOemPresent:           true,
 		erotBackgroundCopyStatus:        "Completed",
 		erotBackgroundCopyStatusPresent: true,
@@ -500,7 +498,6 @@ func (r *RedfishMockServer) handleGetChassis(w http.ResponseWriter, req *http.Re
 		"Model":          model,
 		"PartNumber":     DpuOPN,
 		"SerialNumber":   DpuSerialNumber,
-		"AssetTag":       r.chassisAssetTag(),
 		"Status": map[string]interface{}{
 			"State":  "Enabled",
 			"Health": "OK",
@@ -637,7 +634,7 @@ func (r *RedfishMockServer) firmwareVersionForPath(path string) string {
 		return r.bmcVersion
 	case strings.HasSuffix(path, "DPU_BOARD"):
 		// On BF3 the DPU_BOARD inventory reports the board PSID, not a firmware version.
-		return DpuPSIDBF3
+		return DpuPSID75
 	default:
 		return r.bmcVersion
 	}
@@ -1317,13 +1314,6 @@ func (r *RedfishMockServer) SetDpuVersion(version DpuVersion) {
 	r.dpuVersion = version
 }
 
-func (r *RedfishMockServer) chassisAssetTag() string {
-	if r.dpuVersion == BF4 {
-		return DpuPSIDBF4
-	}
-	return r.assetTag
-}
-
 // SetModel sets the DPU model string
 func (r *RedfishMockServer) SetModel(model string) {
 	r.model = model
@@ -1640,6 +1630,12 @@ func (r *RedfishMockServer) handleGetSystem(w http.ResponseWriter, req *http.Req
 		powerState, statusState = "Paused", "StandbyOffline"
 	}
 
+	// On BF4 the System AssetTag carries the board PSID; BF3 BMCs leave it unset.
+	assetTag := "N/A"
+	if r.dpuVersion == BF4 {
+		assetTag = DpuPSID74
+	}
+
 	response := map[string]interface{}{
 		"@odata.id":    "/redfish/v1/Systems/Bluefield",
 		"@odata.type":  "#ComputerSystem.v1_22_0.ComputerSystem",
@@ -1650,6 +1646,7 @@ func (r *RedfishMockServer) handleGetSystem(w http.ResponseWriter, req *http.Req
 		"Manufacturer": "Nvidia",
 		"Model":        "Bluefield 3 SmartNIC Main Card",
 		"SerialNumber": DpuSerialNumber,
+		"AssetTag":     assetTag,
 		"PowerState":   powerState,
 		"Status": map[string]interface{}{
 			"State":      statusState,

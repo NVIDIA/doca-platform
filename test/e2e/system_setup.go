@@ -78,7 +78,7 @@ type ProvisionDPUClustersInput struct {
 	client                      client.Client
 	bfbImageURL                 string
 	bfsOsIsoURL                 string
-	bfsPldmFwBundleURL          string
+	bfsPldmFwBundles            map[string]string
 	bfsNicFwURL                 string
 	restConfig                  *rest.Config
 	NodeRebootConfigMap         string
@@ -170,17 +170,17 @@ type systemTestInput struct {
 
 	// Runtime state assembled by SetInput and the suite, not read from the
 	// config file.
-	bfbImageURL        string
-	bfsOsIsoURL        string
-	bfsPldmFwBundleURL string
-	bfsNicFwURL        string
-	cleanupFlags       *cleanup.CleanupFlags
-	client             client.Client
-	config             *operatorv1.DPFOperatorConfig
-	dpuNodeBMCs        map[string]string
-	namespace          string
-	pullSecretNames    []string
-	restConfig         *rest.Config
+	bfbImageURL      string
+	bfsOsIsoURL      string
+	bfsPldmFwBundles map[string]string
+	bfsNicFwURL      string
+	cleanupFlags     *cleanup.CleanupFlags
+	client           client.Client
+	config           *operatorv1.DPFOperatorConfig
+	dpuNodeBMCs      map[string]string
+	namespace        string
+	pullSecretNames  []string
+	restConfig       *rest.Config
 }
 
 // unstructuredFromFile loads the manifest at path as an unstructured object
@@ -835,9 +835,9 @@ func ProvisionBlueFieldSoftware(ctx context.Context, input ProvisionDPUClustersI
 		By(fmt.Sprintf("Override BlueFieldSoftware OS ISO URL with env variable BFS_OS_ISO_URL=%s", input.bfsOsIsoURL))
 		input.blueFieldSoftware.Spec.OsIso = input.bfsOsIsoURL
 	}
-	if input.bfsPldmFwBundleURL != "" {
-		By(fmt.Sprintf("Override BlueFieldSoftware PLDM FW bundle URL with env variable BFS_PLDM_FW_BUNDLE_URL=%s", input.bfsPldmFwBundleURL))
-		input.blueFieldSoftware.Spec.PldmFwBundle = &input.bfsPldmFwBundleURL
+	if len(input.bfsPldmFwBundles) > 0 {
+		By(fmt.Sprintf("Override BlueFieldSoftware PLDM FW bundles from BFS_PLDM_FW_BUNDLE_URL_<PSID>=%v", input.bfsPldmFwBundles))
+		input.blueFieldSoftware.Spec.PldmFwBundle = maps.Clone(input.bfsPldmFwBundles)
 	}
 	if input.bfsNicFwURL != "" {
 		By(fmt.Sprintf("Override BlueFieldSoftware NIC FW URL with env variable BFS_NIC_FW_URL=%s", input.bfsNicFwURL))

@@ -28,6 +28,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"testing"
 	"time"
@@ -372,11 +373,15 @@ func pldmUnpackServer() func() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/unpack", func(w http.ResponseWriter, r *http.Request) {
 		Expect(r.Method).To(Equal(http.MethodPost))
+		var req struct {
+			PackagePath string `json:"packagePath"`
+		}
+		Expect(json.NewDecoder(r.Body).Decode(&req)).To(Succeed())
 		w.Header().Set("Content-Type", "application/json")
 		Expect(json.NewEncoder(w).Encode(map[string]any{
 			"success":  true,
 			"exitCode": 0,
-			"stdout":   "",
+			"stdout":   pldmUnpackStdout(req.PackagePath),
 			"stderr":   "",
 			"error":    "",
 		})).To(Succeed())
@@ -401,6 +406,45 @@ func pldmUnpackServer() func() {
 		_ = listener.Close()
 		_ = os.RemoveAll(socketDir)
 	}
+}
+
+// psidInFilename matches the PSID that per-PSID DPU PLDM bundle filenames carry, e.g.
+// "bfs-controller-test123-bfs-1-MT_0000001665-bf-bundle-dummy-512KB.bfb".
+var psidInFilename = regexp.MustCompile(`MT_\d+`)
+
+// pldmUnpackStdout fakes the pldm unpack output for the bundle at packagePath: all four
+// device firmware versions the extracting state requires, with the CX9 image named after
+// the PSID of the bundle being unpacked (each PSID has its own bundle file).
+func pldmUnpackStdout(packagePath string) string {
+	psid := psidInFilename.FindString(filepath.Base(packagePath))
+	if psid == "" {
+		// Platform bundles are not per-PSID; the PSID in the image name is not checked.
+		psid = "MT_0000000000"
+	}
+	return fmt.Sprintf(`{
+		"FirmwareDeviceRecords": [
+			{
+				"Components": [
+					{
+						"ComponentVersionString": "BF4-26.01-4",
+						"FWImage": "/tmp/BMC_BF4-BMC_BF4-26.01-4_image.bin"
+					},
+					{
+						"ComponentVersionString": "02.00.0016.0000_n05",
+						"FWImage": "/tmp/ERoT_02.00.0016.0000_n05_image.bin"
+					},
+					{
+						"ComponentVersionString": "1.2.3",
+						"FWImage": "/tmp/SBIOS_1.2.3_image.bin"
+					},
+					{
+						"ComponentVersionString": "82.48.0906",
+						"FWImage": "/tmp/CX9_%s_82.48.0906_image.bin"
+					}
+				]
+			}
+		]
+	}`, psid)
 }
 
 type mockNodeJoinCommandGenerator struct{}

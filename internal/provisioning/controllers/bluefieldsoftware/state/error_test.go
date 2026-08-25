@@ -30,21 +30,27 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 )
 
-const testPldmFwBundleURL = "https://example.com/fw.fwpkg"
+const (
+	testPldmFwBundleURL  = "https://example.com/fw.fwpkg"
+	testPldmFwBundlePSID = "MT_0000000001"
+)
 
-// writeCompletedFwBundle creates a fully-downloaded PldmFwBundle file on disk and records
-// its path in status, mirroring a component that finished before a sibling download failed.
+// writeCompletedFwBundle creates a fully-downloaded DPU PLDM bundle file on disk and
+// records its path in status, mirroring a component that finished before a sibling download failed.
 // It returns the on-disk path.
 func writeCompletedFwBundle(t *testing.T, bfs *provisioningv1.BlueFieldSoftware) string {
 	t.Helper()
-	fileName := butil.ComponentDownloadFilename(bfs, butil.ComponentTypeFwBundle, testPldmFwBundleURL)
-	destPath := componentDestinationPath(butil.ComponentTypeFwBundle, fileName)
+	unit := componentInfo{
+		URL:           testPldmFwBundleURL,
+		ComponentType: butil.ComponentTypeFwBundle,
+		Key:           testPldmFwBundlePSID,
+	}
+	destPath := componentDestinationPath(unit.ComponentType, componentFileName(bfs, unit))
 	require.NoError(t, os.MkdirAll(filepath.Dir(destPath), 0755))
 	require.NoError(t, os.WriteFile(destPath, []byte("completed fw bundle"), 0644))
-	bfs.Status.DownloadedComponents.PldmFwBundle = destPath
+	setDownloadedComponentPath(bfs, unit.ComponentType, unit.Key, destPath)
 	return destPath
 }
 
@@ -135,9 +141,9 @@ func TestBlueFieldSoftwareErrorState_NoRetryAfterWindow(t *testing.T) {
 func TestBlueFieldSoftwareErrorState_TerminalFailureRemovesCompletedSibling(t *testing.T) {
 	defer withTestBFBBaseDir(t)()
 
-	// osIso download failed terminally, but the sibling PldmFwBundle finished before it.
+	// osIso download failed terminally, but the sibling DPU PLDM bundle finished before it.
 	bfs := bfsInErrorWithDownloadedCondition(conditions.ReasonFailure, time.Now())
-	bfs.Spec.PldmFwBundle = ptr.To(testPldmFwBundleURL)
+	bfs.Spec.PldmFwBundle = map[string]string{testPldmFwBundlePSID: testPldmFwBundleURL}
 	completedPath := writeCompletedFwBundle(t, bfs)
 
 	st := &blueFieldSoftwareErrorState{bfs: bfs}
@@ -153,7 +159,7 @@ func TestBlueFieldSoftwareErrorState_TerminalAfterWindowRemovesCompletedSibling(
 
 	// Recoverable error whose retry window has elapsed is terminal: clean up siblings.
 	bfs := bfsInErrorWithDownloadedCondition(conditions.ReasonError, time.Now().Add(-(RetryWindow + time.Hour)))
-	bfs.Spec.PldmFwBundle = ptr.To(testPldmFwBundleURL)
+	bfs.Spec.PldmFwBundle = map[string]string{testPldmFwBundlePSID: testPldmFwBundleURL}
 	completedPath := writeCompletedFwBundle(t, bfs)
 
 	st := &blueFieldSoftwareErrorState{bfs: bfs}
@@ -169,7 +175,7 @@ func TestBlueFieldSoftwareErrorState_TransientErrorPreservesCompletedSibling(t *
 	// Recoverable error, still too soon to retry (within RetryInterval): not terminal, so a
 	// completed sibling must be preserved for the imminent retry to reuse.
 	bfs := bfsInErrorWithDownloadedCondition(conditions.ReasonError, time.Now().Add(-(RetryInterval / 2)))
-	bfs.Spec.PldmFwBundle = ptr.To(testPldmFwBundleURL)
+	bfs.Spec.PldmFwBundle = map[string]string{testPldmFwBundlePSID: testPldmFwBundleURL}
 	completedPath := writeCompletedFwBundle(t, bfs)
 
 	st := &blueFieldSoftwareErrorState{bfs: bfs}

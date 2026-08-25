@@ -22,7 +22,6 @@ import (
 	"strings"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
-	butil "github.com/nvidia/doca-platform/internal/provisioning/controllers/bluefieldsoftware/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/events"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/pkg/conditions"
@@ -51,37 +50,27 @@ func (st *blueFieldSoftwareDeletingState) Handle(ctx context.Context, c client.C
 		}
 	}
 
-	// Delete all downloaded component files
-	componentsToDelete := []butil.ComponentType{
-		butil.ComponentTypeFwBundle,
-		butil.ComponentTypePlatformFwBundle,
-		butil.ComponentTypeOSISO,
-		butil.ComponentTypeNicFw,
-	}
-
+	// Delete all downloaded component files (one per PSID for platform bundles).
 	var errors []error
-	for _, componentType := range componentsToDelete {
-		filePath := completedComponentFilePath(st.bfs, componentType)
+	for _, unit := range specComponentUnits(st.bfs) {
+		filePath := completedComponentFilePath(st.bfs, unit)
 		if filePath == "" {
 			continue
 		}
 
 		if err := cutil.RemoveFileEx(filePath); err != nil {
-			errors = append(errors, fmt.Errorf("failed to delete %s: %w", componentType, err))
+			errors = append(errors, fmt.Errorf("failed to delete %s (key %q): %w", unit.ComponentType, unit.Key, err))
 		}
 	}
 
-	for _, componentType := range []butil.ComponentType{
-		butil.ComponentTypeFwBundle,
-		butil.ComponentTypePlatformFwBundle,
-	} {
-		extractDir := extractOutputDirForBFS(st.bfs, componentType)
+	for _, unit := range extractionUnits(st.bfs) {
+		extractDir := extractOutputDirForBFS(st.bfs, unit.ComponentType, unit.Key)
 		if extractDir == "" {
 			continue
 		}
 		// RemoveAll returns nil when the path does not exist; ignore ignorable NFS errors.
 		if err := cutil.RemoveAllEx(extractDir); err != nil {
-			errors = append(errors, fmt.Errorf("failed to delete extract output directory %q: %w", extractDir, err))
+			errors = append(errors, fmt.Errorf("failed to delete extract output directory %q (component %s key %q): %w", extractDir, unit.ComponentType, unit.Key, err))
 		}
 	}
 

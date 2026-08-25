@@ -110,27 +110,25 @@ func (st *blueFieldSoftwareExtractingState) Handle(ctx context.Context, _ client
 	return nil
 }
 
-// unpackTargetIfNeeded unpacks target unless its output directory and the status
-// versions derived from that output are both already present.
+// unpackTargetIfNeeded unpacks target unless status already carries the versions
+// derived from that unpack.
+//
+// Completion is tracked in status rather than by the presence of the output
+// directory. That directory lives on a /bfb hostPath that outlives the object
+// (and a DPF reinstall), so a leftover from an earlier BlueFieldSoftware with the
+// same name would otherwise skip the unpack and leave this object Ready with no
+// versions.
 func (st *blueFieldSoftwareExtractingState) unpackTargetIfNeeded(ctx context.Context, target extractTarget) error {
-	outDir := st.extractOutputDir(target.componentType)
-	alreadyExtracted, err := isExtractOutputPresent(outDir)
-	if err != nil {
-		return st.failExtract(err, "Check extract output directory for %s (%s/%s): %v",
-			target.componentType, st.bfs.Namespace, st.bfs.Name, err)
-	}
-
-	if alreadyExtracted && statusHasVersionsForComponent(st.bfs, target.componentType) {
+	if extractedVersionsRecorded(st.bfs, target.componentType, target.key) {
 		return nil
 	}
 
-	// A leftover output directory does not mean status kept the versions.
-	// Clear it before re-unpacking: unpacked images are written read-only.
-	if alreadyExtracted {
-		if err := cutil.RemoveAllEx(outDir); err != nil {
-			return st.failExtract(err, "Clear stale extract output directory for %s (%s/%s) failed: %v",
-				target.componentType, st.bfs.Namespace, st.bfs.Name, err)
-		}
+	outDir := st.extractOutputDir(target.componentType, target.key)
+	// Drop any leftover output so this bundle is not unpacked alongside files
+	// from a different bundle previously extracted to the same path.
+	if err := cutil.RemoveAllEx(outDir); err != nil {
+		return st.failExtract(err, "Clear extract output directory for %s (%s/%s): %v",
+			target.componentType, st.bfs.Namespace, st.bfs.Name, err)
 	}
 
 	components, err := callPldmUnpackService(ctx, target.packagePath, outDir)
@@ -138,7 +136,10 @@ func (st *blueFieldSoftwareExtractingState) unpackTargetIfNeeded(ctx context.Con
 		return st.failExtract(err, "Extract PLDM firmware bundle for %s (%s/%s) failed: %v",
 			target.componentType, st.bfs.Namespace, st.bfs.Name, err)
 	}
-	applyUnpackedComponentsToDownloaded(st.bfs, target.componentType, components)
+	if err := applyUnpackedComponentsToDownloaded(st.bfs, target.componentType, target.key, components); err != nil {
+		return st.failExtract(err, "Apply unpacked components for %s (%s/%s) failed: %v",
+			target.componentType, st.bfs.Namespace, st.bfs.Name, err)
+	}
 	return nil
 }
 
@@ -155,22 +156,18 @@ func (st *blueFieldSoftwareExtractingState) failExtract(err error, format string
 
 type extractTarget struct {
 	componentType butil.ComponentType
-	packagePath   string
-}
-
-// extractableComponentTypes are the component types unpacked by this state. Every
-// entry must have a case in statusHasVersionsForComponent.
-var extractableComponentTypes = []butil.ComponentType{
-	butil.ComponentTypeFwBundle,
-	butil.ComponentTypePlatformFwBundle,
+	// key is the PSID for the DPU PLDM bundle; "" for single-valued bundles.
+	key         string
+	packagePath string
 }
 
 func (st *blueFieldSoftwareExtractingState) resolveExtractTargets() []extractTarget {
 	var targets []extractTarget
-	for _, componentType := range extractableComponentTypes {
-		if packagePath := st.resolvePackagePath(componentType); packagePath != "" {
+	for _, unit := range extractionUnits(st.bfs) {
+		if packagePath := st.resolvePackagePath(unit); packagePath != "" {
 			targets = append(targets, extractTarget{
-				componentType: componentType,
+				componentType: unit.ComponentType,
+				key:           unit.Key,
 				packagePath:   packagePath,
 			})
 		}
@@ -178,65 +175,58 @@ func (st *blueFieldSoftwareExtractingState) resolveExtractTargets() []extractTar
 	return targets
 }
 
-func (st *blueFieldSoftwareExtractingState) resolvePackagePath(componentType butil.ComponentType) string {
-	packageRef := st.statusPathForComponent(componentType)
+func (st *blueFieldSoftwareExtractingState) resolvePackagePath(unit componentInfo) string {
+	packageRef := downloadedComponentPath(st.bfs, unit.ComponentType, unit.Key)
 	if packageRef == "" {
-		packageRef = butil.SpecURLForComponent(st.bfs, componentType)
+		packageRef = unit.URL
 	}
 	if packageRef == "" {
 		return ""
 	}
 	if isURL(packageRef) {
-		fileName := butil.ComponentDownloadFilename(st.bfs, componentType, packageRef)
-		return componentDestinationPath(componentType, fileName)
+		return componentDestinationPath(unit.ComponentType, componentFileName(st.bfs, unit))
 	}
 	return packageRef
 }
 
-func (st *blueFieldSoftwareExtractingState) statusPathForComponent(componentType butil.ComponentType) string {
-	switch componentType {
-	case butil.ComponentTypeFwBundle:
-		return st.bfs.Status.DownloadedComponents.PldmFwBundle
-	case butil.ComponentTypePlatformFwBundle:
-		return st.bfs.Status.DownloadedComponents.PlatformPldmFwBundle
-	default:
-		return ""
-	}
-}
-
-func (st *blueFieldSoftwareExtractingState) extractOutputDir(componentType butil.ComponentType) string {
-	return extractOutputDirForBFS(st.bfs, componentType)
+func (st *blueFieldSoftwareExtractingState) extractOutputDir(componentType butil.ComponentType, key string) string {
+	return extractOutputDirForBFS(st.bfs, componentType, key)
 }
 
 // extractOutputDirForBFS returns the on-disk directory where PLDM unpack output
-// is written for this BlueFieldSoftware and source bundle.
-func extractOutputDirForBFS(bfs *provisioningv1.BlueFieldSoftware, componentType butil.ComponentType) string {
+// is written for this BlueFieldSoftware and source bundle (per PSID for DPU bundles).
+func extractOutputDirForBFS(bfs *provisioningv1.BlueFieldSoftware, componentType butil.ComponentType, key string) string {
 	if bfs == nil {
 		return ""
 	}
-	return filepath.Join(string(os.PathSeparator), cutil.BFBBaseDir, "components",
-		fmt.Sprintf("%s-%s-%s-extracted", bfs.Namespace, bfs.Name, componentType))
+	name := fmt.Sprintf("%s-%s-%s", bfs.Namespace, bfs.Name, componentType)
+	if key != "" {
+		name += "-" + key
+	}
+	return filepath.Join(string(os.PathSeparator), cutil.BFBBaseDir, "components", name+"-extracted")
 }
 
-// isExtractOutputPresent reports whether outDir exists as a directory and already
-// contains at least one entry (so re-reconcile can skip redundant unpack work).
-// An empty directory is treated as incomplete extraction.
-func isExtractOutputPresent(outDir string) (bool, error) {
-	st, err := os.Stat(outDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return false, nil
-		}
-		return false, err
+// extractedVersionsRecorded reports whether this object's status already carries the
+// firmware versions produced by unpacking a bundle, so a re-reconcile can skip
+// redundant unpack work. The fields checked per component type must be exactly those
+// applyUnpackedComponentsToDownloaded requires for it: a partial record must not count
+// as done, or checkFirmwareVersions fails forever with no path back into Extracting.
+func extractedVersionsRecorded(bfs *provisioningv1.BlueFieldSoftware, componentType butil.ComponentType, key string) bool {
+	if bfs.Status.Versions == nil {
+		return false
 	}
-	if !st.IsDir() {
-		return false, fmt.Errorf("extract output path %q exists but is not a directory", outDir)
+	switch componentType {
+	case butil.ComponentTypeFwBundle:
+		return deviceVersionsComplete(bfs.Status.Versions.BluefieldSoftwareVersions[key])
+	case butil.ComponentTypePlatformFwBundle:
+		return bfs.Status.Versions.EWNicFwVersion != ""
 	}
-	entries, err := os.ReadDir(outDir)
-	if err != nil {
-		return false, err
-	}
-	return len(entries) > 0, nil
+	return false
+}
+
+// deviceVersionsComplete is true when every field checkFirmwareVersions requires is set.
+func deviceVersionsComplete(v provisioningv1.BluefieldDeviceVersions) bool {
+	return v.BMCVersion != "" && v.BMCErotVersion != "" && v.SBIOSVersion != "" && v.BFNicFwVersion != ""
 }
 
 func callPldmUnpackService(ctx context.Context, packagePath, outDir string) ([]unpackedComponent, error) {
@@ -337,70 +327,97 @@ func extractUnpackedComponents(stdout string) ([]unpackedComponent, error) {
 	return components, nil
 }
 
-// statusHasVersionsForComponent reports whether status already carries version data
-// derived from componentType's bundle, and is the signal used to decide that its
-// output does not need unpacking again.
-//
-// The fields listed per component type below must be exactly those that
-// applyUnpackedComponentsToDownloaded can write for that component type - the two
-// functions are coupled and have to be updated together. If they drift, or a
-// component type reaches here without a case, the bundle is treated as never
-// extracted and is unpacked again each time the object enters this state.
-// TestStatusHasVersionsForComponent_CoversExtractableTypes guards the missing-case
-// half of that invariant.
-//
-// One populated field is enough: a bundle need not ship every component, and
-// requiring all of them would re-unpack bundles that are perfectly fine.
-func statusHasVersionsForComponent(bfs *provisioningv1.BlueFieldSoftware, componentType butil.ComponentType) bool {
-	if bfs == nil || bfs.Status.Versions == nil {
-		return false
-	}
-	versions := bfs.Status.Versions
-	switch componentType {
-	case butil.ComponentTypeFwBundle:
-		return versions.BMCVersion != "" || versions.BMCErotVersion != "" ||
-			versions.SBIOSVersion != "" || versions.BFNicFwVersion != ""
-	case butil.ComponentTypePlatformFwBundle:
-		return versions.EWNicFwVersion != ""
-	default:
-		return false
-	}
-}
-
 func applyUnpackedComponentsToDownloaded(
 	bfs *provisioningv1.BlueFieldSoftware,
 	sourceComponentType butil.ComponentType,
+	key string,
 	components []unpackedComponent,
-) {
+) error {
 	if bfs == nil {
-		return
+		return nil
 	}
+	if bfs.Status.Versions == nil {
+		bfs.Status.Versions = &provisioningv1.BluefieldSoftwareVersions{}
+	}
+	switch sourceComponentType {
+	case butil.ComponentTypeFwBundle:
+		return applyDeviceVersions(bfs, key, components)
+	case butil.ComponentTypePlatformFwBundle:
+		applyPlatformNicFw(bfs, components)
+	}
+	return nil
+}
+
+// applyDeviceVersions records the firmware versions shipped in one PSID's DPU PLDM
+// bundle, which the firmware update flow compares against the device before updating.
+// All four component types are required; writing a partial record would make
+// extractedVersionsRecorded skip re-unpack while checkFirmwareVersions still fails.
+func applyDeviceVersions(bfs *provisioningv1.BlueFieldSoftware, psid string, components []unpackedComponent) error {
+	versions := bfs.Status.Versions.BluefieldSoftwareVersions[psid]
 	for _, component := range components {
 		imageName := strings.ToUpper(filepath.Base(component.FWImage))
-		switch sourceComponentType {
-		case butil.ComponentTypePlatformFwBundle:
-			if !strings.Contains(imageName, "CX9") {
-				continue
+		switch {
+		case strings.Contains(imageName, "CX9"):
+			if err := ensureCX9ImagePSID(imageName, psid); err != nil {
+				return err
 			}
-			bfs.Status.DownloadedComponents.NicFw = component.FWImage
-			if bfs.Status.Versions == nil {
-				bfs.Status.Versions = &provisioningv1.BluefieldSoftwareVersions{}
-			}
-			bfs.Status.Versions.EWNicFwVersion = component.ComponentVersionString
-		case butil.ComponentTypeFwBundle:
-			if bfs.Status.Versions == nil {
-				bfs.Status.Versions = &provisioningv1.BluefieldSoftwareVersions{}
-			}
-			switch {
-			case strings.Contains(imageName, "CX9"):
-				bfs.Status.Versions.BFNicFwVersion = component.ComponentVersionString
-			case strings.Contains(imageName, "BMC_BF4"):
-				bfs.Status.Versions.BMCVersion = component.ComponentVersionString
-			case strings.Contains(imageName, "EROT"):
-				bfs.Status.Versions.BMCErotVersion = component.ComponentVersionString
-			case strings.Contains(imageName, "SBIOS"):
-				bfs.Status.Versions.SBIOSVersion = component.ComponentVersionString
-			}
+			versions.BFNicFwVersion = component.ComponentVersionString
+		case strings.Contains(imageName, "BMC_BF4"):
+			versions.BMCVersion = component.ComponentVersionString
+		case strings.Contains(imageName, "EROT"):
+			versions.BMCErotVersion = component.ComponentVersionString
+		case strings.Contains(imageName, "SBIOS"):
+			versions.SBIOSVersion = component.ComponentVersionString
 		}
 	}
+	if !deviceVersionsComplete(versions) {
+		return fmt.Errorf("DPU PLDM bundle for PSID %s missing required component versions (need BMC, BMC ERoT, SBIOS, and BF NIC)", psid)
+	}
+	if bfs.Status.Versions.BluefieldSoftwareVersions == nil {
+		bfs.Status.Versions.BluefieldSoftwareVersions = make(map[string]provisioningv1.BluefieldDeviceVersions)
+	}
+	bfs.Status.Versions.BluefieldSoftwareVersions[psid] = versions
+	return nil
+}
+
+// applyPlatformNicFw records the E/W NIC firmware image unpacked from the platform
+// bundle. That image is what the DPU agent flashes, so its path is kept in status
+// next to the version.
+func applyPlatformNicFw(bfs *provisioningv1.BlueFieldSoftware, components []unpackedComponent) {
+	for _, component := range components {
+		if !strings.Contains(strings.ToUpper(filepath.Base(component.FWImage)), "CX9") {
+			continue
+		}
+		bfs.Status.DownloadedComponents.NicFw = component.FWImage
+		bfs.Status.Versions.EWNicFwVersion = component.ComponentVersionString
+	}
+}
+
+// psidFromCX9ImageName extracts the PSID from a CX9 firmware image basename such as
+// "CX9_MT_0000001774_82.48.1680_4fdd89de_image.bin" -> "MT_0000001774".
+// imageName should already be uppercased.
+func psidFromCX9ImageName(imageName string) (string, error) {
+	const marker = "CX9_"
+	idx := strings.Index(imageName, marker)
+	if idx < 0 {
+		return "", fmt.Errorf("CX9 image name %q does not contain %q prefix", imageName, marker)
+	}
+	rest := imageName[idx+len(marker):]
+	parts := strings.Split(rest, "_")
+	// Expected: MT, <digits>, <version...>, ...
+	if len(parts) < 2 || parts[0] != "MT" || parts[1] == "" {
+		return "", fmt.Errorf("CX9 image name %q does not contain a PSID after %q", imageName, marker)
+	}
+	return parts[0] + "_" + parts[1], nil
+}
+
+func ensureCX9ImagePSID(imageName, key string) error {
+	psid, err := psidFromCX9ImageName(imageName)
+	if err != nil {
+		return err
+	}
+	if !strings.EqualFold(psid, key) {
+		return fmt.Errorf("CX9 image PSID %q does not match expected PSID %q", psid, key)
+	}
+	return nil
 }

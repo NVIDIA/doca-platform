@@ -49,7 +49,9 @@ func TestFilenameFromHTTPURL(t *testing.T) {
 func TestSpecURLForComponent(t *testing.T) {
 	bfs := &provisioningv1.BlueFieldSoftware{
 		Spec: provisioningv1.BlueFieldSpec{
-			PldmFwBundle:         ptr.To("https://x/pldm"),
+			PldmFwBundle: map[string]string{
+				"MT_0000001665": "https://x/dpu-pldm",
+			},
 			PlatformPldmFwBundle: ptr.To("https://x/platform-pldm"),
 			OsIso:                "https://x/iso",
 			NicFw:                ptr.To("https://x/nic.bin"),
@@ -59,7 +61,8 @@ func TestSpecURLForComponent(t *testing.T) {
 		ct   ComponentType
 		want string
 	}{
-		{ComponentTypeFwBundle, "https://x/pldm"},
+		// The DPU PLDM bundle is per-PSID, not single-valued, so SpecURLForComponent returns "".
+		{ComponentTypeFwBundle, ""},
 		{ComponentTypePlatformFwBundle, "https://x/platform-pldm"},
 		{ComponentTypeOSISO, "https://x/iso"},
 		{ComponentTypeNicFw, "https://x/nic.bin"},
@@ -68,6 +71,25 @@ func TestSpecURLForComponent(t *testing.T) {
 		if got := SpecURLForComponent(bfs, tt.ct); got != tt.want {
 			t.Fatalf("%s: got %q, want %q", tt.ct, got, tt.want)
 		}
+	}
+}
+
+func TestPldmFwBundles(t *testing.T) {
+	if got := PldmFwBundles(&provisioningv1.BlueFieldSoftware{}); got != nil {
+		t.Fatalf("nil spec should yield nil, got %v", got)
+	}
+	bfs := &provisioningv1.BlueFieldSoftware{
+		Spec: provisioningv1.BlueFieldSpec{
+			PldmFwBundle: map[string]string{
+				"MT_0000001665": "https://x/a.fwpkg",
+				"MT_0000001775": "https://x/b.fwpkg",
+				"MT_empty":      "",
+			},
+		},
+	}
+	got := PldmFwBundles(bfs)
+	if len(got) != 2 || got["MT_0000001665"] != "https://x/a.fwpkg" || got["MT_0000001775"] != "https://x/b.fwpkg" {
+		t.Fatalf("unexpected bundles (empty URLs should be dropped): %v", got)
 	}
 }
 
@@ -80,13 +102,26 @@ func TestComponentDownloadFilename(t *testing.T) {
 	if got := ComponentDownloadFilename(bfs, ComponentTypeOSISO, url); got != wantISO {
 		t.Fatalf("got %q", got)
 	}
-	if got := ComponentDownloadFilename(bfs, ComponentTypeFwBundle, "https://x/fw/pldm.tar"); got != "dpf-operator-system-bf4-pldm.tar" {
-		t.Fatalf("got %q", got)
-	}
-	if got := ComponentDownloadFilename(bfs, ComponentTypePlatformFwBundle, "https://x/fw/platform-pldm.fwpkg"); got != "dpf-operator-system-bf4-platform-pldm.fwpkg" {
+	if got := ComponentDownloadFilename(bfs, ComponentTypeNicFw, "https://x/fw/nic.bin"); got != "dpf-operator-system-bf4-nic.bin" {
 		t.Fatalf("got %q", got)
 	}
 	if got := ComponentDownloadFilename(bfs, ComponentTypeOSISO, "ref-only"); got != GenerateComponentTaskName(*bfs, ComponentTypeOSISO) {
 		t.Fatalf("non-URL should fall back to default, got %q", got)
+	}
+}
+
+func TestPldmComponentFilename(t *testing.T) {
+	bfs := &provisioningv1.BlueFieldSoftware{
+		ObjectMeta: metav1.ObjectMeta{Name: "bf4", Namespace: "dpf-operator-system"},
+	}
+	// PSID is always in the name so different PSIDs sharing a URL basename never collide.
+	if got := PldmComponentFilename(bfs, "MT_0000001665", "https://x/fw/dpu-pldm.fwpkg"); got != "dpf-operator-system-bf4-MT_0000001665-dpu-pldm.fwpkg" {
+		t.Fatalf("got %q", got)
+	}
+	if got := PldmComponentFilename(bfs, "MT_0000001775", "https://x/fw/dpu-pldm.fwpkg"); got != "dpf-operator-system-bf4-MT_0000001775-dpu-pldm.fwpkg" {
+		t.Fatalf("got %q", got)
+	}
+	if got := PldmComponentFilename(bfs, "MT_0000001665", "ref-only"); got != PldmTaskName(bfs, "MT_0000001665") {
+		t.Fatalf("non-URL should fall back to task name, got %q", got)
 	}
 }

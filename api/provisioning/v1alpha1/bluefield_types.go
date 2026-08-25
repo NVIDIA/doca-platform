@@ -89,23 +89,28 @@ var (
 // +kubebuilder:validation:XValidation:rule="self == oldSelf",message="BlueFieldSpec is immutable"
 // +kubebuilder:validation:XValidation:rule="!(has(self.nicFw) && has(self.platformPldmFwBundle))",message="nicFw and platformPldmFwBundle are mutually exclusive; set only one"
 type BlueFieldSpec struct {
-	// PldmFwBundle points to the BluefieldPLDM firmware bundle for baseline firmware updates.
-	// +optional
-	// +kubebuilder:validation:MinLength=1
-	PldmFwBundle *string `json:"pldmFwBundle,omitempty"`
-
 	// OS ISO points to the OS ISO used by DPU OS installation flow.
 	// +required
 	// +kubebuilder:validation:MinLength=1
 	OsIso string `json:"osIso"`
 
-	// PlatformPldmFwBundle points to the Vera Rubin PLDM firmware bundle used for NIC firmware updates.
+	// PldmFwBundle maps each PSID to the PLDM firmware bundle URL used for that DPU model's
+	// baseline firmware updates. Each PSID's bundle is a complete PLDM package for that device.
+	// Keys are matched case-insensitively against the BMC-reported DPUDevice status PSID.
+	// +optional
+	// +kubebuilder:validation:MinProperties=1
+	// +kubebuilder:validation:XValidation:rule="self.all(k, size(k) > 0 && size(self[k]) > 0)",message="pldmFwBundle entries must have non-empty PSID keys and non-empty bundle URLs"
+	PldmFwBundle map[string]string `json:"pldmFwBundle,omitempty"`
+
+	// PlatformPldmFwBundle points to the platform PLDM firmware bundle used for E/W NIC
+	// firmware updates.
 	// +optional
 	// +kubebuilder:validation:MinLength=1
 	PlatformPldmFwBundle *string `json:"platformPldmFwBundle,omitempty"`
 
 	// NicFw points to the NIC firmware binary used for E/W NIC firmware updates.
-	// Use this when a specific NIC firmware binary is required and is not included in the platform PLDM firmware bundle.
+	// Use this when a specific NIC firmware binary is required and is not included in the
+	// platform PLDM firmware bundle.
 	// In production, prefer using PlatformPldmFwBundle.
 	// +optional
 	// +kubebuilder:validation:MinLength=1
@@ -139,29 +144,58 @@ type BluefieldSoftwareVersions struct {
 	// +optional
 	DOCA string `json:"doca,omitempty"`
 
-	FwBundleVersion string `json:"fwBundleVersion,omitempty"`
-
 	// OSISOVersion is the raw DOCA version for the OS ISO, taken from the ISO filename
 	// +optional
 	OSISOVersion string `json:"osISOVersion,omitempty"`
 
+	// EWNicFwVersion is the E/W NIC firmware version taken from the platform PLDM bundle.
+	// It is not keyed by PSID because a BlueFieldSoftware carries a single platform bundle.
 	EWNicFwVersion string `json:"ewNicFwVersion,omitempty"`
 
+	// BluefieldSoftwareVersions maps each PSID to the firmware versions from that device's
+	// PLDM bundle. Keys are matched case-insensitively against the BMC-reported DPUDevice PSID.
+	// +optional
+	BluefieldSoftwareVersions map[string]BluefieldDeviceVersions `json:"bluefieldSoftwareVersions,omitempty"`
+}
+
+// BluefieldDeviceVersions holds firmware versions extracted from a single PSID's PLDM bundle.
+type BluefieldDeviceVersions struct {
+	// BMCVersion is the DPU BMC firmware version shipped in the bundle.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
 	BMCVersion string `json:"bmcVersion,omitempty"`
 
+	// BMCErotVersion is the BMC ERoT (External Root of Trust) firmware version shipped in the bundle.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
 	BMCErotVersion string `json:"bmcErotVersion,omitempty"`
 
+	// SBIOSVersion is the DPU SBIOS firmware version shipped in the bundle.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
 	SBIOSVersion string `json:"sbiosVersion,omitempty"`
 
+	// BFNicFwVersion is the BlueField NIC firmware version shipped in the bundle.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
 	BFNicFwVersion string `json:"bfNicFwVersion,omitempty"`
 }
 
 // DownloadedComponents tracks which components have been downloaded
 type DownloadedComponents struct {
-	PldmFwBundle         string `json:"pldmFwBundle,omitempty"`
+	// PldmFwBundle maps each PSID to the local path of its downloaded PLDM firmware bundle.
+	// Keys are matched case-insensitively against the BMC-reported DPUDevice PSID.
+	PldmFwBundle map[string]string `json:"pldmFwBundle,omitempty"`
+
+	// PlatformPldmFwBundle is the local path of the downloaded platform PLDM firmware bundle.
 	PlatformPldmFwBundle string `json:"platformPldmFwBundle,omitempty"`
-	OsIso                string `json:"osIso,omitempty"`
-	NicFw                string `json:"nicFw,omitempty"`
+
+	// OsIso is the local path of the downloaded OS ISO.
+	OsIso string `json:"osIso,omitempty"`
+
+	// NicFw is the local path of the E/W NIC firmware binary, either downloaded from
+	// spec.nicFw or unpacked from the platform PLDM firmware bundle.
+	NicFw string `json:"nicFw,omitempty"`
 }
 
 // +kubebuilder:object:root=true
