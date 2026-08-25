@@ -58,7 +58,7 @@ type dpuServicePerDPUClusterObjects struct {
 	dpuClusterFilterFunc func(*provisioningv1.DPUCluster) bool
 	// extraPerDPUClusterEdits, when set, returns additional edits applied to the per-cluster
 	// DPUService.
-	extraPerDPUClusterEdits func(cluster *provisioningv1.DPUCluster) []StructuredEdit
+	extraPerDPUClusterEdits func(vars Variables, cluster *provisioningv1.DPUCluster) []StructuredEdit
 }
 
 func newServiceChainSetControllerObjects(data []byte) *dpuServicePerDPUClusterObjects {
@@ -86,13 +86,16 @@ func newCoreDNSObjects(data []byte) *dpuServicePerDPUClusterObjects {
 		componentName:        operatorv1.CoreDNSName,
 		rbacAndCRDsName:      operatorv1.CoreDNSRBACName,
 		dpuClusterFilterFunc: IsDPUClusterServedByHostDNS,
-		extraPerDPUClusterEdits: func(cluster *provisioningv1.DPUCluster) []StructuredEdit {
+		extraPerDPUClusterEdits: func(vars Variables, cluster *provisioningv1.DPUCluster) []StructuredEdit {
 			edits := []StructuredEdit{}
 			// DPU nodes reach this CoreDNS through the keepalived VIP, so it follows keepalived onto
 			// the nodes the DPUCluster picked for it rather than any control plane node. One edit
 			// per key, because the values are held as unstructured content.
 			for key, value := range getCoreDNSNodeSelector(cluster) {
 				edits = append(edits, dpuServiceAddValueEdit(value, operatorv1.CoreDNSName.String(), "nodeSelector", key))
+			}
+			if vars.CoreDNS.UpstreamNameservers != "" {
+				edits = append(edits, dpuServiceAddValueEdit(vars.CoreDNS.UpstreamNameservers, operatorv1.CoreDNSName.String(), "upstreamNameservers"))
 			}
 			return edits
 		},
@@ -354,7 +357,7 @@ func (p *dpuServicePerDPUClusterObjects) generatePerClusterDPUService(vars Varia
 	dpuServiceEdits := NewEdits()
 	edits := perClusterEdits(p.componentName.String(), secretName, serviceAccountName, saLabels)
 	if p.extraPerDPUClusterEdits != nil {
-		edits = append(edits, p.extraPerDPUClusterEdits(cluster)...)
+		edits = append(edits, p.extraPerDPUClusterEdits(vars, cluster)...)
 	}
 
 	for _, edit := range edits {

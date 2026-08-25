@@ -150,6 +150,7 @@ type Variables struct {
 	SFCController                          SFCControllerVariables
 	NodeSRIOVDevicePluginController        NodeSRIOVDevicePluginControllerVariables
 	OpenTelemetryCollector                 OpenTelemetryCollectorVariables
+	CoreDNS                                CoreDNSVariables
 	Networking                             Networking
 	KataContainers                         KataContainersVariables
 	DisableSystemComponents                map[operatorv1.ComponentName]bool
@@ -193,6 +194,11 @@ type Networking struct {
 	HighSpeedMTU    int
 }
 
+// CoreDNSVariables contains values passed to the CoreDNS chart.
+type CoreDNSVariables struct {
+	UpstreamNameservers string
+}
+
 // NodeSRIOVDevicePluginControllerVariables holds variables for the NodeSRIOVDevicePlugin controller.
 type NodeSRIOVDevicePluginControllerVariables struct {
 	// DevicePluginImage is the container image for the SRIOV device plugin.
@@ -220,6 +226,7 @@ func VariablesFromDPFOperatorConfig(defaults *release.Defaults, config *operator
 	variables = extractComponentConfigs(variables, config)
 	variables = setBasicConfig(variables, config)
 	variables = setNetworkingConfig(variables, config)
+	variables = setCoreDNSConfig(variables, config)
 	variables = setOverrideConfigs(variables, config)
 	variables = setAdditionalConfigs(variables, config)
 	variables = setMonitoringConfigs(variables, config)
@@ -342,6 +349,13 @@ func setNetworkingConfig(variables Variables, config *operatorv1.DPFOperatorConf
 	return variables
 }
 
+func setCoreDNSConfig(variables Variables, config *operatorv1.DPFOperatorConfig) Variables {
+	if config.Spec.CoreDNS != nil {
+		variables.CoreDNS.UpstreamNameservers = config.Spec.CoreDNS.UpstreamNameservers
+	}
+	return variables
+}
+
 // setOverrideConfigs sets the override configuration values
 func setOverrideConfigs(variables Variables, config *operatorv1.DPFOperatorConfig) Variables {
 	if config.Spec.Overrides == nil {
@@ -391,7 +405,6 @@ func setAdditionalConfigs(variables Variables, config *operatorv1.DPFOperatorCon
 	if config.Spec.Flannel != nil && config.Spec.Flannel.PodCIDR != nil {
 		variables.FlannelPodCIDR = *config.Spec.Flannel.PodCIDR
 	}
-
 	if config.Spec.SFCController != nil {
 		if config.Spec.SFCController.SecureFlowDeletionTimeout != nil {
 			variables.SFCController.SecureFlowDeletionTimeout = config.Spec.SFCController.SecureFlowDeletionTimeout.Duration
