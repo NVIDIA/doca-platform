@@ -665,7 +665,7 @@ linters:
         linters:
           - kubeapilinter
       - path: api/provisioning/v1alpha1/bluefield_types.go
-        text: "optionalorrequired: (field BluefieldSoftwareVersions.FwBundleVersion|field BluefieldSoftwareVersions.EWNicFwVersion|field BluefieldSoftwareVersions.BMCVersion|field BluefieldSoftwareVersions.BMCErotVersion|field BluefieldSoftwareVersions.SBIOSVersion|field BluefieldSoftwareVersions.BFNicFwVersion|field DownloadedComponents.PldmFwBundle|field DownloadedComponents.PlatformPldmFwBundle|field DownloadedComponents.OsIso|field DownloadedComponents.NicFw|embedded field BlueFieldSoftware.metav1.ObjectMeta|field BlueFieldSoftware.Spec)"
+        text: "optionalorrequired: (field BluefieldSoftwareVersions.FwBundleVersion|field BluefieldSoftwareVersions.EWNicFwVersion|field DownloadedComponents.PldmFwBundle|field DownloadedComponents.PlatformPldmFwBundle|field DownloadedComponents.OsIso|field DownloadedComponents.NicFw|embedded field BlueFieldSoftware.metav1.ObjectMeta|field BlueFieldSoftware.Spec)"
         linters:
           - kubeapilinter
       - path: api/provisioning/v1alpha1/dpu_types.go
@@ -892,6 +892,13 @@ linters:
           - kubeapilinter
       - path: api/provisioning/v1alpha1/dpuset_types.go
         text: "nomaps: field DPUSetStatus.DPUStatistics"
+        linters:
+          - kubeapilinter
+      # Mirrors BlueFieldSpec.PldmFwBundle, a PSID-keyed map that nomaps permits
+      # because it is string-to-string. Keeping the status keyed the same way lets
+      # both be looked up by the BMC-reported PSID without a parallel list schema.
+      - path: api/provisioning/v1alpha1/bluefield_types.go
+        text: "nomaps: field BluefieldSoftwareVersions.BluefieldSoftwareVersions"
         linters:
           - kubeapilinter
 
