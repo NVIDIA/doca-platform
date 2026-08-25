@@ -994,6 +994,53 @@ func (c *CNIInstallerConfiguration) GetResources() map[ContainerName]*corev1.Res
 	}
 }
 
+// CoreDNSConfiguration is the configuration for CoreDNS serving DPU clusters.
+type CoreDNSConfiguration struct {
+	BaseComponentConfig `json:",inline"`
+	HelmComponentConfig `json:",inline"`
+
+	// Deployment contains the configuration for the CoreDNS deployment.
+	// It contains the image for the CoreDNS container and its resource requirements.
+	// +optional
+	Deployment *CoreDNSDeployment `json:"deployment,omitempty"`
+
+	// UpstreamNameservers is passed to the CoreDNS forward plugin for names outside the cluster domain.
+	// It accepts the same space-separated nameserver or resolv.conf path syntax as the CoreDNS chart.
+	// +kubebuilder:validation:MinLength=1
+	// +optional
+	UpstreamNameservers string `json:"upstreamNameservers,omitempty"`
+}
+
+// CoreDNSDeployment contains the configuration for the CoreDNS deployment container.
+type CoreDNSDeployment struct {
+	ImageComponentConfig    `json:",inline"`
+	ResourceComponentConfig `json:",inline"`
+}
+
+func (c *CoreDNSConfiguration) Name() string {
+	return CoreDNSName.String()
+}
+
+// GetImages returns a map of container names to their images.
+func (c *CoreDNSConfiguration) GetImages() map[ContainerName]*string {
+	if c.Deployment == nil {
+		return nil
+	}
+	return map[ContainerName]*string{
+		CoreDNSContainer: c.Deployment.GetImage(),
+	}
+}
+
+// GetResources returns a map of container names to their resource requirements.
+func (c *CoreDNSConfiguration) GetResources() map[ContainerName]*corev1.ResourceRequirements {
+	if c.Deployment == nil {
+		return nil
+	}
+	return map[ContainerName]*corev1.ResourceRequirements{
+		CoreDNSContainer: c.Deployment.GetResource(),
+	}
+}
+
 // NodeSRIOVDevicePluginSettings contains configuration for the SRIOV device plugin pods
 // managed by the NodeSRIOVDevicePlugin controller.
 type NodeSRIOVDevicePluginSettings struct {

@@ -149,6 +149,9 @@ func (c *DPFOperatorConfig) ComponentConfigs() []ComponentConfigurable {
 	if c.Spec.CNIInstaller != nil {
 		out = append(out, c.Spec.CNIInstaller)
 	}
+	if c.Spec.CoreDNS != nil {
+		out = append(out, c.Spec.CoreDNS)
+	}
 	if c.Spec.NodeSRIOVDevicePluginController != nil {
 		out = append(out, c.Spec.NodeSRIOVDevicePluginController)
 	}
