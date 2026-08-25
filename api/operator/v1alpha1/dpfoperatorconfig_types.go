@@ -284,6 +284,9 @@ type DPFOperatorConfigSpec struct {
 	// CNIInstaller is the configuration for the cni-installer
 	// +optional
 	CNIInstaller *CNIInstallerConfiguration `json:"cniInstaller,omitempty"`
+	// CoreDNS is the configuration for CoreDNS serving Kamaji DPU clusters with a Keepalived endpoint.
+	// +optional
+	CoreDNS *CoreDNSConfiguration `json:"coreDNS,omitempty"`
 	// SFCController is the configuration for the SFCController
 	// +optional
 	SFCController *SFCControllerConfiguration `json:"sfcController,omitempty"`

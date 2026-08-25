@@ -204,6 +204,7 @@ by all component configurations to reduce code duplication.
 
 _Appears in:_
 - [CNIInstallerConfiguration](#cniinstallerconfiguration)
+- [CoreDNSConfiguration](#corednsconfiguration)
 - [DPUDetectorConfiguration](#dpudetectorconfiguration)
 - [DPUServiceControllerConfiguration](#dpuservicecontrollerconfiguration)
 - [FlannelConfiguration](#flannelconfiguration)
@@ -292,6 +293,42 @@ _Appears in:_
 
 
 
+#### CoreDNSConfiguration
+
+
+
+CoreDNSConfiguration is the configuration for CoreDNS serving DPU clusters.
+
+
+
+_Appears in:_
+- [DPFOperatorConfigSpec](#dpfoperatorconfigspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  | Optional: \{\} <br /> |
+| `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br />Optional: \{\} <br /> |
+| `deployment` _[CoreDNSDeployment](#corednsdeployment)_ | Deployment contains the configuration for the CoreDNS deployment.<br />It contains the image for the CoreDNS container and its resource requirements. |  | Optional: \{\} <br /> |
+| `upstreamNameservers` _string_ | UpstreamNameservers is passed to the CoreDNS forward plugin for names outside the cluster domain.<br />It accepts the same space-separated nameserver or resolv.conf path syntax as the CoreDNS chart. |  | MinLength: 1 <br />Optional: \{\} <br /> |
+
+
+#### CoreDNSDeployment
+
+
+
+CoreDNSDeployment contains the configuration for the CoreDNS deployment container.
+
+
+
+_Appears in:_
+- [CoreDNSConfiguration](#corednsconfiguration)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `image` _[Image](#image)_ |  |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br />Optional: \{\} <br /> |
+| `resources` _[ResourceRequirements](#resourcerequirements)_ | Resources defines the memory and CPU resource requests and limits for the component.<br />This field is optional, and if not set, the component will use the default resource. |  | Optional: \{\} <br /> |
+
+
 #### DPFOperatorConfig
 
 
@@ -359,6 +396,7 @@ _Appears in:_
 | `ovsCNI` _[OVSCNIConfiguration](#ovscniconfiguration)_ | OVSCNI is the configuration for OVSCNI<br />Deprecated: OVS CNI is installed by CNIInstaller. Remove after 26.7 is released. |  | Optional: \{\} <br /> |
 | `nvipam` _[NVIPAMConfiguration](#nvipamconfiguration)_ | NVIPAM is the configuration for NVIPAM |  | Optional: \{\} <br /> |
 | `cniInstaller` _[CNIInstallerConfiguration](#cniinstallerconfiguration)_ | CNIInstaller is the configuration for the cni-installer |  | Optional: \{\} <br /> |
+| `coreDNS` _[CoreDNSConfiguration](#corednsconfiguration)_ | CoreDNS is the configuration for CoreDNS serving Kamaji DPU clusters with a Keepalived endpoint. |  | Optional: \{\} <br /> |
 | `sfcController` _[SFCControllerConfiguration](#sfccontrollerconfiguration)_ | SFCController is the configuration for the SFCController |  | Optional: \{\} <br /> |
 | `kamajiClusterManager` _[KamajiClusterManagerConfiguration](#kamajiclustermanagerconfiguration)_ | KamajiClusterManager is the configuration for the kamaji-cluster-manager |  | Optional: \{\} <br /> |
 | `staticClusterManager` _[StaticClusterManagerConfiguration](#staticclustermanagerconfiguration)_ | StaticClusterManager is the configuration for the static-cluster-manager |  | Optional: \{\} <br /> |
@@ -591,6 +629,7 @@ _Validation:_
 
 _Appears in:_
 - [CNIInstallerConfiguration](#cniinstallerconfiguration)
+- [CoreDNSConfiguration](#corednsconfiguration)
 - [FlannelConfiguration](#flannelconfiguration)
 - [HelmComponentConfig](#helmcomponentconfig)
 - [KataContainersConfiguration](#katacontainersconfiguration)
@@ -616,6 +655,7 @@ _Appears in:_
 
 _Appears in:_
 - [CNIInstallerConfiguration](#cniinstallerconfiguration)
+- [CoreDNSConfiguration](#corednsconfiguration)
 - [FlannelConfiguration](#flannelconfiguration)
 - [KataContainersConfiguration](#katacontainersconfiguration)
 - [KubeStateMetricsConfiguration](#kubestatemetricsconfiguration)
@@ -645,6 +685,7 @@ _Validation:_
 - Pattern: `^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$`
 
 _Appears in:_
+- [CoreDNSDeployment](#corednsdeployment)
 - [DPUDetectorConfiguration](#dpudetectorconfiguration)
 - [DPUServiceControllerConfiguration](#dpuservicecontrollerconfiguration)
 - [DefaultOverridesConfiguration](#defaultoverridesconfiguration)
@@ -676,6 +717,7 @@ by all component configurations to reduce code duplication.
 
 
 _Appears in:_
+- [CoreDNSDeployment](#corednsdeployment)
 - [DefaultOverridesConfiguration](#defaultoverridesconfiguration)
 - [FlannelCNI](#flannelcni)
 - [FlannelDaemon](#flanneldaemon)
@@ -1164,6 +1206,7 @@ ResourceComponentConfig defines the resource requirements for a container.
 
 
 _Appears in:_
+- [CoreDNSDeployment](#corednsdeployment)
 - [DefaultOverridesConfiguration](#defaultoverridesconfiguration)
 - [FlannelDaemon](#flanneldaemon)
 - [NVIPAMController](#nvipamcontroller)
@@ -1183,6 +1226,7 @@ _Appears in:_
 
 
 _Appears in:_
+- [CoreDNSDeployment](#corednsdeployment)
 - [DefaultOverridesConfiguration](#defaultoverridesconfiguration)
 - [FlannelDaemon](#flanneldaemon)
 - [NVIPAMController](#nvipamcontroller)

@@ -110,15 +110,18 @@ func TestCoreDNSObjectsSkipClustersWithoutVIP(t *testing.T) {
 	g.Expect(component.matchingClusterCount([]provisioningv1.DPUCluster{*withVIP, *static})).To(Equal(1))
 }
 
-func TestCoreDNSFollowsTheKeepalivedNodeSelector(t *testing.T) {
-	coreDNSValues := func(cluster *provisioningv1.DPUCluster) map[string]interface{} {
+func TestCoreDNSValues(t *testing.T) {
+	coreDNSValues := func(cluster *provisioningv1.DPUCluster, coreDNSConfig *operatorv1.CoreDNSConfiguration) map[string]interface{} {
 		g := NewWithT(t)
 
 		component := newCoreDNSObjects([]byte(coreDNSInputYAML))
 		g.Expect(component.Parse()).To(Succeed())
 
 		dpuService := &dpuservicev1.DPUService{}
-		for _, edit := range component.extraPerDPUClusterEdits(cluster) {
+		variables := setCoreDNSConfig(Variables{}, &operatorv1.DPFOperatorConfig{
+			Spec: operatorv1.DPFOperatorConfigSpec{CoreDNS: coreDNSConfig},
+		})
+		for _, edit := range component.extraPerDPUClusterEdits(variables, cluster) {
 			g.Expect(edit(dpuService)).To(Succeed())
 		}
 		if dpuService.Spec.HelmChart.Values == nil {
@@ -147,7 +150,7 @@ func TestCoreDNSFollowsTheKeepalivedNodeSelector(t *testing.T) {
 		// live on.
 		nodeSelector := map[string]string{"kubernetes.io/os": "linux", "dpf/dpu-facing": "true"}
 
-		values := coreDNSValues(dpuCluster(nodeSelector))
+		values := coreDNSValues(dpuCluster(nodeSelector), nil)
 
 		got, found, err := unstructured.NestedStringMap(values, operatorv1.CoreDNSName.String(), "nodeSelector")
 		g.Expect(err).NotTo(HaveOccurred())
@@ -158,11 +161,24 @@ func TestCoreDNSFollowsTheKeepalivedNodeSelector(t *testing.T) {
 	t.Run("runs on any control plane node when keepalived does", func(t *testing.T) {
 		g := NewWithT(t)
 
-		values := coreDNSValues(dpuCluster(nil))
+		values := coreDNSValues(dpuCluster(nil), nil)
 
 		_, found, err := unstructured.NestedStringMap(values, operatorv1.CoreDNSName.String(), "nodeSelector")
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(found).To(BeFalse())
+	})
+
+	t.Run("passes the configured upstream nameservers to the chart", func(t *testing.T) {
+		g := NewWithT(t)
+
+		values := coreDNSValues(dpuCluster(nil), &operatorv1.CoreDNSConfiguration{
+			UpstreamNameservers: "192.0.2.53",
+		})
+
+		got, found, err := unstructured.NestedString(values, operatorv1.CoreDNSName.String(), "upstreamNameservers")
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(found).To(BeTrue())
+		g.Expect(got).To(Equal("192.0.2.53"))
 	})
 }
 
