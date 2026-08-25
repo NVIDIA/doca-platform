@@ -34,6 +34,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -67,9 +68,21 @@ var _ = Describe("DPUServiceIPAM Controller", func() {
 				return got.Finalizers
 			}).WithTimeout(10 * time.Second).Should(ConsistOf([]string{dpuservicev1.DPUServiceIPAMFinalizer}))
 		})
+		It("should reject legacy and generic IPAM fields in the same object", func() {
+			dpuServiceIPAM := getMinimalDPUServiceIPAM(testNS.Name)
+			dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.Subnet{
+				Subnet: "192.0.2.0/24", Gateway: "192.0.2.1", PerNodeIPCount: 1,
+			}
+			dpuServiceIPAM.Spec.Subnet = &dpuservicev1.Subnet{
+				Subnet: "192.0.2.0/24", Gateway: "192.0.2.1", PerNodeIPCount: 1,
+			}
+			Expect(testClient.Create(ctx, dpuServiceIPAM)).To(MatchError(ContainSubstring(
+				"exactly one of ipv4Network, ipv4Subnet, network, or subnet must be specified",
+			)))
+		})
 		It("should fail to create a resource with name exceeding the maximum length", func() {
 			By("Creating the resource")
-			dpuServiceIPAM := getMinimalDPUServiceIPAM(testNS.Name)
+			dpuServiceIPAM := getIPV4NetworkDPUServiceIPAM(testNS.Name)
 			dpuServiceIPAM.Name = utilrand.String(64)
 			Expect(testClient.Create(ctx, dpuServiceIPAM)).To(HaveOccurred())
 		})
@@ -142,6 +155,93 @@ var _ = Describe("DPUServiceIPAM Controller", func() {
 				got := &nvipamv1.IPPoolList{}
 				g.Expect(dpuClusterClient.List(ctx, got)).To(Succeed())
 				g.Expect(got.Items).To(BeEmpty())
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+		})
+		It("should reconcile an IPv6 IPPool in the DPU cluster", func() {
+			dpuServiceIPAM := getMinimalDPUServiceIPAM(testNS.Name)
+			dpuServiceIPAM.Name = "pool-v6-subnet"
+			dpuServiceIPAM.Spec.Labels = map[string]string{"stack": "dual"}
+			dpuServiceIPAM.Spec.Subnet = &dpuservicev1.Subnet{
+				Subnet: "2001:db8::/120", Gateway: "2001:db8::1", PerNodeIPCount: 1,
+				DefaultGateway: true, Routes: []dpuservicev1.Route{{Dst: "2001:db8:1::/64"}},
+			}
+			Expect(testClient.Create(ctx, dpuServiceIPAM)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceIPAM)
+
+			Eventually(func(g Gomega) {
+				got := &nvipamv1.IPPool{}
+				g.Expect(dpuClusterClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: dpuServiceIPAM.Name}, got)).To(Succeed())
+				g.Expect(got.Spec.Subnet).To(Equal("2001:db8::/120"))
+				g.Expect(got.Spec.Gateway).To(Equal("2001:db8::1"))
+				g.Expect(got.Spec.PerNodeBlockSize).To(Equal(1))
+				g.Expect(got.Spec.DefaultGateway).To(BeTrue())
+				g.Expect(got.Spec.Routes).To(Equal([]nvipamv1.Route{{Dst: "2001:db8:1::/64"}}))
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+		})
+		It("should reconcile an IPv6 CIDRPool in the DPU cluster", func() {
+			dpuServiceIPAM := getMinimalDPUServiceIPAM(testNS.Name)
+			dpuServiceIPAM.Name = "pool-v6-network"
+			dpuServiceIPAM.Spec.Labels = map[string]string{"stack": "dual"}
+			dpuServiceIPAM.Spec.Network = &dpuservicev1.Network{
+				Network: "2001:db8::/120", PrefixSize: 124, GatewayIndex: ptr.To[int32](1),
+				Allocations: map[string]string{"node-b": "2001:db8::20/124", "node-a": "2001:db8::10/124"},
+			}
+			Expect(testClient.Create(ctx, dpuServiceIPAM)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceIPAM)
+
+			Eventually(func(g Gomega) {
+				got := &nvipamv1.CIDRPool{}
+				g.Expect(dpuClusterClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: dpuServiceIPAM.Name}, got)).To(Succeed())
+				g.Expect(got.Spec.CIDR).To(Equal("2001:db8::/120"))
+				g.Expect(got.Spec.PerNodeNetworkPrefix).To(Equal(int32(124)))
+				g.Expect(got.Spec.StaticAllocations).To(ConsistOf([]nvipamv1.CIDRPoolStaticAllocation{
+					{NodeName: "node-a", Prefix: "2001:db8::10/124"},
+					{NodeName: "node-b", Prefix: "2001:db8::20/124"},
+				}))
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+		})
+		It("should preserve the child and status when migrating a legacy IPv4 subnet to the generic field", func() {
+			dpuServiceIPAM := getMinimalDPUServiceIPAM(testNS.Name)
+			dpuServiceIPAM.Name = "legacy-to-generic-subnet"
+			dpuServiceIPAM.Spec.IPV4Subnet = &dpuservicev1.Subnet{
+				Subnet: "192.0.2.0/24", Gateway: "192.0.2.1", PerNodeIPCount: 4,
+			}
+			Expect(testClient.Create(ctx, dpuServiceIPAM)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceIPAM)
+
+			var originalUID types.UID
+			Eventually(func(g Gomega) {
+				got := &nvipamv1.IPPool{}
+				g.Expect(dpuClusterClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: dpuServiceIPAM.Name}, got)).To(Succeed())
+				originalUID = got.UID
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			var originalAllocations []dpuservicev1.DPUClusterAllocation
+			Eventually(func(g Gomega) {
+				current := &dpuservicev1.DPUServiceIPAM{}
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuServiceIPAM), current)).To(Succeed())
+				g.Expect(current.Status.DPUClusterAllocations).NotTo(BeEmpty())
+				originalAllocations = current.DeepCopy().Status.DPUClusterAllocations
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			Eventually(func(g Gomega) {
+				current := &dpuservicev1.DPUServiceIPAM{}
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuServiceIPAM), current)).To(Succeed())
+				current.Spec.IPV4Subnet = nil
+				current.Spec.Subnet = &dpuservicev1.Subnet{
+					Subnet: "192.0.2.0/24", Gateway: "192.0.2.1", PerNodeIPCount: 4,
+				}
+				g.Expect(testClient.Update(ctx, current)).To(Succeed())
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			Eventually(func(g Gomega) {
+				current := &dpuservicev1.DPUServiceIPAM{}
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuServiceIPAM), current)).To(Succeed())
+				g.Expect(current.Status.ObservedGeneration).To(Equal(current.Generation))
+				g.Expect(current.Status.DPUClusterAllocations).To(Equal(originalAllocations))
+				got := &nvipamv1.IPPool{}
+				g.Expect(dpuClusterClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: dpuServiceIPAM.Name}, got)).To(Succeed())
+				g.Expect(got.UID).To(Equal(originalUID))
 			}).WithTimeout(10 * time.Second).Should(Succeed())
 		})
 		It("should reconcile NVIPAM IPPool in DPU cluster with maximum name length", func() {

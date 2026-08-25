@@ -17,7 +17,7 @@ limitations under the License.
 // This file replicates podipam_controller_test.go with NodeServiceInterfaces (NSI)
 // objects as the backing for service interface lookup instead of standalone
 // ServiceInterface objects. Tests that exercise functions which do not go through
-// the shared resolver (isPodUsingOnlyVirtualNetworks, getNVIPAMPoolByMatchLabels)
+// the shared resolver (isPodUsingOnlyVirtualNetworks, getNVIPAMPoolsByMatchLabels)
 // are kept identical to the legacy versions.
 
 package controller //nolint:dupl

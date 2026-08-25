@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"net/netip"
 	"slices"
 	"strings"
 	"time"
@@ -156,8 +157,8 @@ func getPopulatedNetworks(ctx context.Context,
 
 // networkSettings contains the settings needed to be added in the network annotation after discovering them
 type networkSettings struct {
-	// IPAMPoolName is the NVIPAM Pool name associated with this network
-	IPAMPoolName *string
+	// IPAMPoolNames are the ordered NV-IPAM pool names associated with this network.
+	IPAMPoolNames []string
 	// IPAMPoolType is the NVIPAM Pool type associated with this network
 	IPAMPoolType *string
 	// IPAMAssignDefaultGateway controls whether the allocateDefaultGateway should be set on the network
@@ -204,7 +205,7 @@ func getSettingsForNetworkInterface(ctx context.Context, c client.Client, pod *c
 			if s == nil {
 				s = &networkSettings{}
 			}
-			s.IPAMPoolName = &v.PoolName
+			s.IPAMPoolNames = slices.Clone(v.PoolNames)
 			s.IPAMPoolType = &v.PoolType
 		}
 		networkSettingsForInterface[interfaceName] = s
@@ -356,8 +357,8 @@ func getServiceChainSettingsForInterface(ctx context.Context, c client.Client, p
 // poolSettings contains information gathered from a NVIPAM Pool object and is needed to process the network
 // annotation for an interface
 type poolSettings struct {
-	// PoolName is the name of the NVIPAM object
-	PoolName string
+	// PoolNames contains one single-stack pool or an IPv4/IPv6 pair in that order.
+	PoolNames []string
 	// PoolType is the type of the NVIPAM object
 	PoolType string
 }
@@ -372,14 +373,14 @@ func getPoolSettingsForInterface(ctx context.Context, c client.Client, serviceCh
 			continue
 		}
 
-		poolName, poolType, err := getNVIPAMPoolByMatchLabels(ctx, c, serviceChainSettings.IPAM)
+		poolNames, poolType, err := getNVIPAMPoolsByMatchLabels(ctx, c, serviceChainSettings.IPAM)
 		if err != nil {
 			return nil, err
 		}
 
 		poolSettingsForInterface[interfaceName] = poolSettings{
-			PoolName: poolName,
-			PoolType: poolType,
+			PoolNames: poolNames,
+			PoolType:  poolType,
 		}
 
 	}
@@ -425,8 +426,8 @@ func mutateNetworksWithSettings(networks []*multustypes.NetworkSelectionElement,
 			if s.IPAMAssignDefaultGateway != nil {
 				cniArgs["allocateDefaultGateway"] = *s.IPAMAssignDefaultGateway
 			}
-			if s.IPAMPoolName != nil {
-				cniArgs["poolNames"] = []string{*s.IPAMPoolName}
+			if len(s.IPAMPoolNames) > 0 {
+				cniArgs["poolNames"] = slices.Clone(s.IPAMPoolNames)
 			}
 			if s.IPAMPoolType != nil {
 				cniArgs["poolType"] = *s.IPAMPoolType
@@ -511,31 +512,149 @@ func GetPodNetworks(pod *corev1.Pod) ([]*multustypes.NetworkSelectionElement, er
 	return networks, nil
 }
 
-func getNVIPAMPoolByMatchLabels(ctx context.Context, c client.Client, ipam *dpuservicev1.IPAM) (string, string, error) {
-	log := log.FromContext(ctx)
-	listOptions := client.MatchingLabels(ipam.MatchLabels)
+type matchedPool struct {
+	name     string
+	poolType string
+	ipFamily corev1.IPFamily
+}
+
+func getNVIPAMPoolsByMatchLabels(ctx context.Context, c client.Client, ipam *dpuservicev1.IPAM) ([]string, string, error) {
+	requiredFamilies, err := normalizedRequiredFamilies(ipam.RequiredIPFamilies)
+	if err != nil {
+		return nil, "", err
+	}
+
 	ipPoolList := &nvipamv1.IPPoolList{}
-	if err := c.List(ctx, ipPoolList, &listOptions); err != nil {
-		return "", "", err
+	if err := c.List(ctx, ipPoolList, client.MatchingLabels(ipam.MatchLabels)); err != nil {
+		return nil, "", err
 	}
-	if len(ipPoolList.Items) > 0 {
-		if len(ipPoolList.Items) > 1 {
-			log.Info("Service IPAM MatchLabels matched more than one IPPool", "labels", ipam.MatchLabels)
-		}
-		return ipPoolList.Items[0].Name, strings.ToLower(nvipamv1.IPPoolKind), nil
+	if len(requiredFamilies) == 0 && len(ipPoolList.Items) > 0 {
+		poolNames, poolType := selectLegacyPool(ctx, ipam.MatchLabels, ipPoolNames(ipPoolList.Items), strings.ToLower(nvipamv1.IPPoolKind))
+		return poolNames, poolType, nil
 	}
+
 	cidrPoolList := &nvipamv1.CIDRPoolList{}
-	if err := c.List(ctx, cidrPoolList, &listOptions); err != nil {
-		return "", "", err
+	if err := c.List(ctx, cidrPoolList, client.MatchingLabels(ipam.MatchLabels)); err != nil {
+		return nil, "", err
 	}
-	if len(cidrPoolList.Items) > 0 {
-		if len(cidrPoolList.Items) > 1 {
-			log.Info("Service IPAM MatchLabels matched more than one CIDRPool", "labels", ipam.MatchLabels)
+	if len(requiredFamilies) == 0 {
+		if len(cidrPoolList.Items) == 0 {
+			return nil, "", fmt.Errorf("no IPPool or CIDRPool found for labels %v", ipam.MatchLabels)
 		}
-		return cidrPoolList.Items[0].Name, strings.ToLower(nvipamv1.CIDRPoolKind), nil
+		poolNames, poolType := selectLegacyPool(ctx, ipam.MatchLabels, cidrPoolNames(cidrPoolList.Items), strings.ToLower(nvipamv1.CIDRPoolKind))
+		return poolNames, poolType, nil
 	}
-	// No IpPool/CidrPool found requeuing
-	return "", "", fmt.Errorf("no IPPool or CIDRPool found for labels %v", ipam.MatchLabels)
+
+	matches := make([]matchedPool, 0, len(ipPoolList.Items)+len(cidrPoolList.Items))
+	for _, pool := range ipPoolList.Items {
+		family, err := cidrFamily(pool.Spec.Subnet)
+		if err != nil {
+			return nil, "", fmt.Errorf("matching IPPool %s/%s has invalid subnet %q: %w", pool.Namespace, pool.Name, pool.Spec.Subnet, err)
+		}
+		matches = append(matches, matchedPool{name: pool.Name, poolType: strings.ToLower(nvipamv1.IPPoolKind), ipFamily: family})
+	}
+	for _, pool := range cidrPoolList.Items {
+		family, err := cidrFamily(pool.Spec.CIDR)
+		if err != nil {
+			return nil, "", fmt.Errorf("matching CIDRPool %s/%s has invalid CIDR %q: %w", pool.Namespace, pool.Name, pool.Spec.CIDR, err)
+		}
+		matches = append(matches, matchedPool{name: pool.Name, poolType: strings.ToLower(nvipamv1.CIDRPoolKind), ipFamily: family})
+	}
+
+	if len(matches) == 0 {
+		return nil, "", fmt.Errorf("no IPPool or CIDRPool found for labels %v", ipam.MatchLabels)
+	}
+	if len(matches) != len(requiredFamilies) {
+		return nil, "", fmt.Errorf("labels %v matched %d NV-IPAM pools, but requiredIPFamilies requires exactly %d", ipam.MatchLabels, len(matches), len(requiredFamilies))
+	}
+
+	byFamily := make(map[corev1.IPFamily]matchedPool, len(matches))
+	for _, match := range matches {
+		if _, exists := byFamily[match.ipFamily]; exists {
+			return nil, "", fmt.Errorf("labels %v matched more than one %s NV-IPAM pool", ipam.MatchLabels, match.ipFamily)
+		}
+		byFamily[match.ipFamily] = match
+	}
+	poolNames := make([]string, 0, len(requiredFamilies))
+	poolType := ""
+	for _, family := range requiredFamilies {
+		match, exists := byFamily[family]
+		if !exists {
+			return nil, "", fmt.Errorf("labels %v did not match the required %s NV-IPAM pool", ipam.MatchLabels, family)
+		}
+		if poolType != "" && match.poolType != poolType {
+			return nil, "", fmt.Errorf("dual-stack NV-IPAM pools must have the same poolType; matched %s and %s", poolType, match.poolType)
+		}
+		poolType = match.poolType
+		poolNames = append(poolNames, match.name)
+	}
+	return poolNames, poolType, nil
+}
+
+func selectLegacyPool(ctx context.Context, labels map[string]string, names []string, poolType string) ([]string, string) {
+	if len(names) > 1 {
+		log.FromContext(ctx).Info(
+			"Service IPAM MatchLabels matched more than one NV-IPAM pool; selecting the first result",
+			"labels", labels,
+			"poolType", poolType,
+			"selectedPool", names[0],
+			"matchingPools", names,
+		)
+	}
+	return []string{names[0]}, poolType
+}
+
+func ipPoolNames(pools []nvipamv1.IPPool) []string {
+	names := make([]string, 0, len(pools))
+	for _, pool := range pools {
+		names = append(names, pool.Name)
+	}
+	return names
+}
+
+func cidrPoolNames(pools []nvipamv1.CIDRPool) []string {
+	names := make([]string, 0, len(pools))
+	for _, pool := range pools {
+		names = append(names, pool.Name)
+	}
+	return names
+}
+
+func cidrFamily(cidr string) (corev1.IPFamily, error) {
+	prefix, err := netip.ParsePrefix(cidr)
+	if err != nil {
+		return "", err
+	}
+	if prefix.Addr().Is4In6() {
+		return "", fmt.Errorf("IPv4-mapped IPv6 CIDR %q is not supported", cidr)
+	}
+	if prefix.Addr().Is4() {
+		return corev1.IPv4Protocol, nil
+	}
+	return corev1.IPv6Protocol, nil
+}
+
+func normalizedRequiredFamilies(families []corev1.IPFamily) ([]corev1.IPFamily, error) {
+	if len(families) == 0 {
+		return nil, nil
+	}
+	seen := map[corev1.IPFamily]bool{}
+	for _, family := range families {
+		if family != corev1.IPv4Protocol && family != corev1.IPv6Protocol {
+			return nil, fmt.Errorf("unsupported required IP family %q", family)
+		}
+		if seen[family] {
+			return nil, fmt.Errorf("required IP family %q is duplicated", family)
+		}
+		seen[family] = true
+	}
+	result := make([]corev1.IPFamily, 0, len(families))
+	for _, family := range []corev1.IPFamily{corev1.IPv4Protocol, corev1.IPv6Protocol} {
+		if seen[family] {
+			result = append(result, family)
+		}
+	}
+	return result, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

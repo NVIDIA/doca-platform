@@ -29,6 +29,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
+const ipv6NetworkCIDR = "2001:db8::/64"
+
 var _ = Describe("DPUServiceIPAM Validating Webhook", func() {
 	var webhook *DPUServiceIPAMValidator
 
@@ -100,6 +102,21 @@ var _ = Describe("DPUServiceIPAM Validating Webhook", func() {
 			ipam.Spec.IPV4Network.Exclusions[0] = "10.0.0.0"
 			return ipam
 		}(), true),
+		Entry("bad exclusion - IPv4-mapped IPv6 IP", func() *dpuservicev1.DPUServiceIPAM {
+			ipam := getFullyPopulatedDPUServiceIPAM()
+			ipam.Spec.IPV4Subnet = nil
+			//nolint:staticcheck // SA1019: Exclusions is deprecated but still supported
+			ipam.Spec.IPV4Network.Exclusions[0] = "::ffff:192.168.0.10"
+			return ipam
+		}(), true),
+		Entry("bad exclude range - IPv4-mapped IPv6 startIP", func() *dpuservicev1.DPUServiceIPAM {
+			ipam := getFullyPopulatedDPUServiceIPAM()
+			ipam.Spec.IPV4Subnet = nil
+			ipam.Spec.IPV4Network.ExcludeRanges = []dpuservicev1.IPRange{
+				{StartIP: "::ffff:192.168.0.40", EndIP: "192.168.0.50"},
+			}
+			return ipam
+		}(), true),
 		Entry("bad allocation - invalid subnet", func() *dpuservicev1.DPUServiceIPAM {
 			ipam := getFullyPopulatedDPUServiceIPAM()
 			ipam.Spec.IPV4Subnet = nil
@@ -123,10 +140,39 @@ var _ = Describe("DPUServiceIPAM Validating Webhook", func() {
 			ipam.Spec.IPV4Subnet = nil
 			return ipam
 		}(), false),
+		Entry("gatewayIndex is optional without dependent settings", func() *dpuservicev1.DPUServiceIPAM {
+			ipam := getFullyPopulatedDPUServiceIPAM()
+			ipam.Spec.IPV4Subnet = nil
+			ipam.Spec.IPV4Network.GatewayIndex = nil
+			ipam.Spec.IPV4Network.DefaultGateway = false
+			ipam.Spec.IPV4Network.Routes = nil
+			return ipam
+		}(), false),
+		Entry("default gateway without a gatewayIndex", func() *dpuservicev1.DPUServiceIPAM {
+			ipam := getFullyPopulatedDPUServiceIPAM()
+			ipam.Spec.IPV4Subnet = nil
+			ipam.Spec.IPV4Network.GatewayIndex = nil
+			ipam.Spec.IPV4Network.DefaultGateway = true
+			ipam.Spec.IPV4Network.Routes = nil
+			return ipam
+		}(), false),
+		Entry("routes without a gatewayIndex", func() *dpuservicev1.DPUServiceIPAM {
+			ipam := getFullyPopulatedDPUServiceIPAM()
+			ipam.Spec.IPV4Subnet = nil
+			ipam.Spec.IPV4Network.GatewayIndex = nil
+			ipam.Spec.IPV4Network.DefaultGateway = false
+			return ipam
+		}(), false),
 		Entry("bad route - dest not a valid cidr", func() *dpuservicev1.DPUServiceIPAM {
 			ipam := getFullyPopulatedDPUServiceIPAM()
 			ipam.Spec.IPV4Subnet = nil
 			ipam.Spec.IPV4Network.Routes[0].Dst = "not-a-cidr"
+			return ipam
+		}(), true),
+		Entry("bad route - IPv4-mapped IPv6 CIDR", func() *dpuservicev1.DPUServiceIPAM {
+			ipam := getFullyPopulatedDPUServiceIPAM()
+			ipam.Spec.IPV4Subnet = nil
+			ipam.Spec.IPV4Network.Routes[0].Dst = "::ffff:192.0.2.0/120"
 			return ipam
 		}(), true),
 		Entry("invalid route - default gateway true", func() *dpuservicev1.DPUServiceIPAM {
@@ -208,6 +254,8 @@ var _ = Describe("DPUServiceIPAM Validating Webhook", func() {
 			ipam.Spec.IPV4Network.PrefixSize = 32
 			ipam.Spec.IPV4Network.GatewayIndex = nil
 			ipam.Spec.IPV4Network.Allocations = nil
+			ipam.Spec.IPV4Network.DefaultGateway = false
+			ipam.Spec.IPV4Network.Routes = nil
 			return ipam
 		}(), false),
 		Entry("gatewayIndex out of range for prefix", func() *dpuservicev1.DPUServiceIPAM {
@@ -286,6 +334,12 @@ var _ = Describe("DPUServiceIPAM Validating Webhook", func() {
 			ipam.Spec.IPV4Subnet.Gateway = "bad-gateway"
 			return ipam
 		}(), true),
+		Entry("bad gateway - IPv4-mapped IPv6 IP", func() *dpuservicev1.DPUServiceIPAM {
+			ipam := getFullyPopulatedDPUServiceIPAM()
+			ipam.Spec.IPV4Network = nil
+			ipam.Spec.IPV4Subnet.Gateway = "::ffff:192.168.0.1"
+			return ipam
+		}(), true),
 		Entry("bad gateway - IP not part of subnet", func() *dpuservicev1.DPUServiceIPAM {
 			ipam := getFullyPopulatedDPUServiceIPAM()
 			ipam.Spec.IPV4Network = nil
@@ -297,6 +351,14 @@ var _ = Describe("DPUServiceIPAM Validating Webhook", func() {
 			ipam.Spec.IPV4Network = nil
 			return ipam
 		}(), false),
+		Entry("gateway is required", func() *dpuservicev1.DPUServiceIPAM {
+			ipam := getFullyPopulatedDPUServiceIPAM()
+			ipam.Spec.IPV4Network = nil
+			ipam.Spec.IPV4Subnet.Gateway = ""
+			ipam.Spec.IPV4Subnet.DefaultGateway = false
+			ipam.Spec.IPV4Subnet.Routes = nil
+			return ipam
+		}(), true),
 		Entry("bad route - dest not a valid cidr", func() *dpuservicev1.DPUServiceIPAM {
 			ipam := getFullyPopulatedDPUServiceIPAM()
 			ipam.Spec.IPV4Network = nil
@@ -428,6 +490,190 @@ var _ = Describe("DPUServiceIPAM Validating Webhook", func() {
 		Entry("switch from subnet to network", *ipamWithIPV4Subnet, *ipamWithIPV4Network, true, "transitioning from ipv4subnet to ipv4network and vice versa is currently not supported"),
 		Entry("switch from network to subnet", *ipamWithIPV4Network, *ipamWithIPV4Subnet, true, "transitioning from ipv4subnet to ipv4network and vice versa is currently not supported"),
 	)
+
+	Describe("new allocation fields", func() {
+		It("preserves the existing IPv4 network validation behavior", func() {
+			legacy := ipamWithIPV4Network.DeepCopy()
+			legacy.Spec.IPV4Network.Network = "192.0.2.0/24"
+			legacy.Spec.IPV4Network.PrefixSize = 24
+			legacy.Spec.IPV4Network.GatewayIndex = ptr.To[int32](255)
+			legacy.Spec.IPV4Network.Routes = []dpuservicev1.Route{{Dst: "198.51.100.0/24"}}
+
+			current := ipamWithNetwork.DeepCopy()
+			current.Spec.Network.Network = legacy.Spec.IPV4Network.Network
+			current.Spec.Network.PrefixSize = legacy.Spec.IPV4Network.PrefixSize
+			current.Spec.Network.GatewayIndex = legacy.Spec.IPV4Network.GatewayIndex
+			current.Spec.Network.Routes = legacy.Spec.IPV4Network.Routes
+
+			_, legacyErr := webhook.ValidateCreate(context.Background(), legacy)
+			_, currentErr := webhook.ValidateCreate(context.Background(), current)
+			Expect(legacyErr).NotTo(HaveOccurred())
+			Expect(currentErr).NotTo(HaveOccurred())
+		})
+
+		It("preserves the existing IPv4 subnet validation behavior", func() {
+			legacy := ipamWithIPV4Subnet.DeepCopy()
+			legacy.Spec.IPV4Subnet.Subnet = "192.0.2.0/24"
+			legacy.Spec.IPV4Subnet.Gateway = "192.0.2.0"
+			legacy.Spec.IPV4Subnet.PerNodeIPCount = 254
+
+			current := ipamWithSubnet.DeepCopy()
+			current.Spec.Subnet.Subnet = legacy.Spec.IPV4Subnet.Subnet
+			current.Spec.Subnet.Gateway = legacy.Spec.IPV4Subnet.Gateway
+			current.Spec.Subnet.PerNodeIPCount = legacy.Spec.IPV4Subnet.PerNodeIPCount
+
+			_, legacyErr := webhook.ValidateCreate(context.Background(), legacy)
+			_, currentErr := webhook.ValidateCreate(context.Background(), current)
+			Expect(legacyErr).NotTo(HaveOccurred())
+			Expect(currentErr).NotTo(HaveOccurred())
+		})
+
+		DescribeTable("validates IPv6 network configuration",
+			func(network *dpuservicev1.Network, expectError bool) {
+				ipam := ipamWithNetwork.DeepCopy()
+				ipam.Spec.Network = network
+				_, err := webhook.ValidateCreate(context.Background(), ipam)
+				if expectError {
+					Expect(err).To(HaveOccurred())
+				} else {
+					Expect(err).NotTo(HaveOccurred())
+				}
+			},
+			Entry("valid configuration", &dpuservicev1.Network{
+				Network:      ipv6NetworkCIDR,
+				PrefixSize:   80,
+				GatewayIndex: ptr.To[int32](1),
+				ExcludeRanges: []dpuservicev1.IPRange{
+					{StartIP: "2001:db8::10", EndIP: "2001:db8::20"},
+				},
+				Allocations: map[string]string{"dpu-node-1": "2001:db8:0:0:1::/80"},
+				Routes:      []dpuservicev1.Route{{Dst: "2001:db8:ffff::/64"}},
+			}, false),
+			Entry("prefix larger than IPv6 address size", &dpuservicev1.Network{
+				Network: ipv6NetworkCIDR, PrefixSize: 129,
+			}, true),
+			Entry("negative gateway index", &dpuservicev1.Network{
+				Network: ipv6NetworkCIDR, PrefixSize: 80, GatewayIndex: ptr.To[int32](-1),
+			}, true),
+			Entry("allocation from another address family", &dpuservicev1.Network{
+				Network: ipv6NetworkCIDR, PrefixSize: 80,
+				Allocations: map[string]string{"dpu-node-1": "192.0.2.0/24"},
+			}, true),
+			Entry("IPv4-mapped IPv6 allocation", &dpuservicev1.Network{
+				Network: "::/0", PrefixSize: 120,
+				Allocations: map[string]string{"dpu-node-1": "::ffff:192.0.2.0/120"},
+			}, true),
+			Entry("IPv4-mapped IPv6 network", &dpuservicev1.Network{
+				Network: "::ffff:192.0.2.0/120", PrefixSize: 124,
+			}, true),
+		)
+
+		DescribeTable("validates IPv6 subnet configuration",
+			func(subnet *dpuservicev1.Subnet, expectError bool) {
+				ipam := ipamWithSubnet.DeepCopy()
+				ipam.Spec.Subnet = subnet
+				_, err := webhook.ValidateCreate(context.Background(), ipam)
+				if expectError {
+					Expect(err).To(HaveOccurred())
+				} else {
+					Expect(err).NotTo(HaveOccurred())
+				}
+			},
+			Entry("ordinary subnet", &dpuservicev1.Subnet{
+				Subnet: "2001:db8::/120", Gateway: "2001:db8::1", PerNodeIPCount: 8,
+				ExcludeRanges: []dpuservicev1.IPRange{
+					{StartIP: "2001:db8::10", EndIP: "2001:db8::20"},
+				},
+				Routes: []dpuservicev1.Route{{Dst: "2001:db8:ffff::/64"}},
+			}, false),
+			Entry("/127 subnet is rejected", &dpuservicev1.Subnet{
+				Subnet: "2001:db8::/127", Gateway: "2001:db8::1", PerNodeIPCount: 2,
+			}, true),
+			Entry("/128 subnet is rejected", &dpuservicev1.Subnet{
+				Subnet: "2001:db8::1/128", Gateway: "2001:db8::1", PerNodeIPCount: 1,
+			}, true),
+			Entry("per-node count exceeds the allocatable IPs", &dpuservicev1.Subnet{
+				Subnet: "2001:db8::/126", Gateway: "2001:db8::1", PerNodeIPCount: 4,
+			}, true),
+			Entry("route from another address family", &dpuservicev1.Subnet{
+				Subnet: "2001:db8::/120", Gateway: "2001:db8::1", PerNodeIPCount: 8,
+				Routes: []dpuservicev1.Route{{Dst: "192.0.2.0/24"}},
+			}, true),
+			Entry("IPv4 subnet with IPv4-mapped IPv6 gateway", &dpuservicev1.Subnet{
+				Subnet: "192.0.2.0/24", Gateway: "::ffff:192.0.2.1", PerNodeIPCount: 8,
+			}, true),
+		)
+
+		DescribeTable("allows migration from a deprecated field to its replacement",
+			func(oldIPAM, newIPAM *dpuservicev1.DPUServiceIPAM) {
+				_, err := webhook.ValidateUpdate(context.Background(), oldIPAM, newIPAM)
+				Expect(err).NotTo(HaveOccurred())
+			},
+			Entry("network", ipamWithIPV4Network.DeepCopy(), ipamWithNetwork.DeepCopy()),
+			Entry("subnet", ipamWithIPV4Subnet.DeepCopy(), ipamWithSubnet.DeepCopy()),
+		)
+
+		DescribeTable("allows IPv6 migration from a deprecated field to its replacement",
+			func(oldIPAM, newIPAM *dpuservicev1.DPUServiceIPAM) {
+				_, err := webhook.ValidateUpdate(context.Background(), oldIPAM, newIPAM)
+				Expect(err).NotTo(HaveOccurred())
+			},
+			Entry("network", func() *dpuservicev1.DPUServiceIPAM {
+				ipam := ipamWithIPV4Network.DeepCopy()
+				ipam.Spec.IPV4Network.Network = ipv6NetworkCIDR
+				ipam.Spec.IPV4Network.PrefixSize = 80
+				return ipam
+			}(), func() *dpuservicev1.DPUServiceIPAM {
+				ipam := ipamWithNetwork.DeepCopy()
+				ipam.Spec.Network.Network = ipv6NetworkCIDR
+				ipam.Spec.Network.PrefixSize = 80
+				return ipam
+			}()),
+			Entry("subnet", func() *dpuservicev1.DPUServiceIPAM {
+				ipam := ipamWithIPV4Subnet.DeepCopy()
+				ipam.Spec.IPV4Subnet.Subnet = "2001:db8::/120"
+				ipam.Spec.IPV4Subnet.Gateway = "2001:db8::1"
+				ipam.Spec.IPV4Subnet.PerNodeIPCount = 8
+				return ipam
+			}(), func() *dpuservicev1.DPUServiceIPAM {
+				ipam := ipamWithSubnet.DeepCopy()
+				ipam.Spec.Subnet.Subnet = "2001:db8::/120"
+				ipam.Spec.Subnet.Gateway = "2001:db8::1"
+				ipam.Spec.Subnet.PerNodeIPCount = 8
+				return ipam
+			}()),
+		)
+
+		It("rejects changing the address family", func() {
+			oldIPAM := ipamWithNetwork.DeepCopy()
+			newIPAM := ipamWithNetwork.DeepCopy()
+			newIPAM.Spec.Network.Network = ipv6NetworkCIDR
+			newIPAM.Spec.Network.PrefixSize = 80
+
+			_, err := webhook.ValidateUpdate(context.Background(), oldIPAM, newIPAM)
+			Expect(err).To(MatchError(ContainSubstring("transitioning between address families is not supported")))
+		})
+
+		DescribeTable("reports the narrowest supported subnet per address family",
+			func(subnet, gateway, expectedMessage string) {
+				ipam := ipamWithSubnet.DeepCopy()
+				ipam.Spec.Subnet.Subnet = subnet
+				ipam.Spec.Subnet.Gateway = gateway
+				ipam.Spec.Subnet.PerNodeIPCount = 1
+
+				_, err := webhook.ValidateCreate(context.Background(), ipam)
+				Expect(err).To(MatchError(ContainSubstring(expectedMessage)))
+			},
+			Entry("IPv4 /31", "192.0.2.0/31", "192.0.2.1",
+				"subnet 192.0.2.0/31 must be larger than /30 — /31 and /32 are not supported"),
+			Entry("IPv4 /32", "192.0.2.1/32", "192.0.2.1",
+				"subnet 192.0.2.1/32 must be larger than /30 — /31 and /32 are not supported"),
+			Entry("IPv6 /127", "2001:db8::/127", "2001:db8::1",
+				"subnet 2001:db8::/127 must be larger than /126 — /127 and /128 are not supported"),
+			Entry("IPv6 /128", "2001:db8::1/128", "2001:db8::1",
+				"subnet 2001:db8::1/128 must be larger than /126 — /127 and /128 are not supported"),
+		)
+	})
 
 	DescribeTable("validateIpRangeNotShrinking",
 		func(oldSubnet, newSubnet string, isIPAMWithSubnet bool, expectedError bool, expectedErrorMessage string) {
@@ -622,6 +868,33 @@ var ipamWithIPV4Network = &dpuservicev1.DPUServiceIPAM{
 		IPV4Network: &dpuservicev1.Network{
 			Network:    "10.0.0.0/24",
 			PrefixSize: 30,
+		},
+	},
+}
+
+var ipamWithNetwork = &dpuservicev1.DPUServiceIPAM{
+	ObjectMeta: metav1.ObjectMeta{
+		Name:      "some-object",
+		Namespace: "dpf-operator-system",
+	},
+	Spec: dpuservicev1.DPUServiceIPAMSpec{
+		Network: &dpuservicev1.Network{
+			Network:    "10.0.0.0/24",
+			PrefixSize: 30,
+		},
+	},
+}
+
+var ipamWithSubnet = &dpuservicev1.DPUServiceIPAM{
+	ObjectMeta: metav1.ObjectMeta{
+		Name:      "some-object",
+		Namespace: "dpf-operator-system",
+	},
+	Spec: dpuservicev1.DPUServiceIPAMSpec{
+		Subnet: &dpuservicev1.Subnet{
+			Subnet:         "10.0.0.0/24",
+			Gateway:        "10.0.0.1",
+			PerNodeIPCount: 10,
 		},
 	},
 }
