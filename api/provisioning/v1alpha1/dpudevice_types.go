@@ -64,8 +64,10 @@ const (
 	ConditionDpuDeviceDiscovered conditions.ConditionType = "Discovered"
 	// ConditionDpuDeviceNodeAttached indicates that the DPU is attached to a node
 	ConditionDpuDeviceNodeAttached conditions.ConditionType = "NodeAttached"
-	// ConditionDpuDeviceResettingBMC indicates that the BMC is being reset to factory defaults
-	ConditionDpuDeviceResettingBMC conditions.ConditionType = "ResettingBMC"
+	// ConditionDpuDeviceBMCFactoryResetReady indicates that the BMC factory reset step of
+	// initialization has finished, either because the BMC was reset and came back or because
+	// the policy said not to reset it. The reason distinguishes the two.
+	ConditionDpuDeviceBMCFactoryResetReady conditions.ConditionType = "BMCFactoryResetReady"
 	// ConditionDpuDeviceInitialized indicates that the DPU interface has been initialized
 	ConditionDpuDeviceInitialized conditions.ConditionType = "Initialized"
 	// ConditionDpuDeviceError indicates that the DPUDevice has an error
@@ -93,7 +95,7 @@ const (
 	ReasonBMCServerCertificateRotationFailed = "BMCServerCertificateRotationFailed"
 	// ReasonBMCServerCertificateUntrusted indicates the BMC presents a server certificate that
 	// does not chain to the current DPF CA (or fails identity pinning). The controller re-runs
-	// setUpMTLS over basic auth without clearing Initialized / factory-resetting the BMC.
+	// setUpMTLS over basic auth without clearing Initialized.
 	ReasonBMCServerCertificateUntrusted = "BMCServerCertificateUntrusted"
 	// ReasonRedfishClientCertStale indicates the controller's Redfish client certificate does not
 	// chain to the current DPF CA. The controller forces cert-manager to reissue it.
@@ -123,11 +125,53 @@ const (
 	ReasonCATrustBundleUnavailable = "CATrustBundleUnavailable"
 )
 
+// BMCFactoryResetReady condition reasons
+const (
+	// ReasonFactoryResetInProgress indicates ResetToDefaults was accepted by the BMC and DPF is
+	// waiting for the BMC to come back.
+	ReasonFactoryResetInProgress = "FactoryResetInProgress"
+	// ReasonFactoryResetFailed indicates DPF could not submit ResetToDefaults. It is not terminal:
+	// the submission is retried with backoff.
+	ReasonFactoryResetFailed = "FactoryResetFailed"
+	// ReasonFactoryResetCompleted indicates the BMC came back from the factory reset and
+	// initialization may continue.
+	ReasonFactoryResetCompleted = "FactoryResetCompleted"
+	// ReasonFactoryResetSkipped indicates no reset was performed, either because the policy is
+	// Never or because the device was already managed by DPF before this feature existed.
+	ReasonFactoryResetSkipped = "FactoryResetSkipped"
+)
+
+// BMCFactoryResetPolicy controls whether DPF resets a DPU BMC to factory defaults while
+// initializing the DPUDevice. The enum and default are declared on each field that uses it, so
+// they show up in the CRD schema at that field.
+type BMCFactoryResetPolicy string
+
+const (
+	// BMCFactoryResetPolicyOnInitialization resets the BMC to factory defaults once, while the
+	// DPUDevice is being initialized.
+	BMCFactoryResetPolicyOnInitialization BMCFactoryResetPolicy = "OnInitialization"
+	// BMCFactoryResetPolicyNever never resets the BMC.
+	BMCFactoryResetPolicyNever BMCFactoryResetPolicy = "Never"
+	// BMCFactoryResetPolicyDefault is the policy that applies when the field is left unset. It
+	// must stay in step with fields of this type that use API server defaulting.
+	BMCFactoryResetPolicyDefault = BMCFactoryResetPolicyOnInitialization
+)
+
+// GetBMCFactoryResetPolicy resolves an optional policy field. An object that bypassed API
+// server defaulting — a unit test fixture, anything built in memory — carries no value, and reads
+// here as whatever the CRD default would have written.
+func GetBMCFactoryResetPolicy(policy BMCFactoryResetPolicy) BMCFactoryResetPolicy {
+	if policy == "" {
+		return BMCFactoryResetPolicyDefault
+	}
+	return policy
+}
+
 var (
 	// DPUDeviceConditions are conditions that can be set on a DPUDevice object.
 	DPUDeviceConditions = []conditions.ConditionType{
 		ConditionDpuDeviceDiscovered,
-		ConditionDpuDeviceResettingBMC,
+		ConditionDpuDeviceBMCFactoryResetReady,
 		ConditionDpuDeviceNodeAttached,
 		ConditionDpuDeviceInitialized,
 		ConditionDpuDeviceError,
@@ -218,6 +262,18 @@ type DPUDeviceSpec struct {
 	// If specified, this password takes precedence over the shared bmc-shared-password secret.
 	// +optional
 	BMCCredentialSecretName *string `json:"bmcCredentialSecretName,omitempty"`
+
+	// BMCFactoryResetPolicy controls whether DPF resets this DPU BMC to factory defaults
+	// while initializing the DPUDevice. The reset clears all BMC configuration, including
+	// network settings, so the BMC must obtain its address via DHCP.
+	// - OnInitialization (default): reset the BMC once, while the DPUDevice is initialized.
+	// - Never: never reset.
+	// The value is honored only until the factory reset step finishes; changing it
+	// after BMCFactoryResetReady is True has no effect.
+	// +kubebuilder:validation:Enum=OnInitialization;Never
+	// +kubebuilder:default=OnInitialization
+	// +optional
+	BMCFactoryResetPolicy BMCFactoryResetPolicy `json:"bmcFactoryResetPolicy,omitempty"`
 
 	// Specifies details on the K8S cluster to join
 	// +optional
@@ -313,6 +369,12 @@ type DPUDeviceStatus struct {
 	// BMCCredentialSecretName is the name of the Secret last used successfully for BMC authentication.
 	// +optional
 	BMCCredentialSecretName *string `json:"bmcCredentialSecretName,omitempty"`
+
+	// BMCFactoryResetRequestTime is when DPF submitted ResetToDefaults to the BMC.
+	// It is nil until the request has been accepted, and once set it is never cleared:
+	// it is what keeps the BMC from being reset again for this DPUDevice.
+	// +optional
+	BMCFactoryResetRequestTime *metav1.Time `json:"bmcFactoryResetRequestTime,omitempty"`
 
 	// BMCServerCertificate reports the BMC mTLS server certificate rotation state.
 	// +optional

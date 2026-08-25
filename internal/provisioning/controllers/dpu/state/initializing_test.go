@@ -59,6 +59,13 @@ var _ = Describe("Phase Initializing", func() {
 		}
 	}
 
+	// setDPUDeviceType stamps status.dpuType so Initializing can advance to Pending.
+	setDPUDeviceType := func(dpuDevice *provisioningv1.DPUDevice, dpuType provisioningv1.DPUType) {
+		patch := client.MergeFrom(dpuDevice.DeepCopy())
+		dpuDevice.Status.DPUType = dpuType
+		Expect(k8sClient.Status().Patch(ctx, dpuDevice, patch)).To(Succeed())
+	}
+
 	// ensureSingleDPFOperatorConfig deletes any existing configs and creates exactly one in
 	// the singleton namespace, optionally enabling SPIFFE. The DPU identity-mode stamp reads
 	// this config to decide between bootstrap-token and spiffe.
@@ -119,6 +126,7 @@ var _ = Describe("Phase Initializing", func() {
 			By("prepare DPUDevice CR")
 			dpuDevice := dpuDeviceObj(defaultDPUDeviceName)
 			createObject(dpuDevice)
+			setDPUDeviceType(dpuDevice, provisioningv1.DPUTypeBlueField3)
 
 			By("prepare DPUNode CR")
 			dpuNode := dpuNodeObj(defaultDPUNodeName)
@@ -196,6 +204,7 @@ var _ = Describe("Phase Initializing", func() {
 			createObject(dpuDevice)
 
 			patchDevice := client.MergeFrom(dpuDevice.DeepCopy())
+			dpuDevice.Status.DPUType = provisioningv1.DPUTypeBlueField3
 			dpuDevice.Status.SecureBoot = &provisioningv1.SecureBootStatus{Enabled: ptr.To(true)}
 			Expect(k8sClient.Status().Patch(ctx, dpuDevice, patchDevice)).To(Succeed())
 
@@ -248,6 +257,7 @@ var _ = Describe("Phase Initializing", func() {
 			dpuDevice.Labels[cutil.DPUDeviceHostlessLabel] = strTrue
 			dpuDevice.Spec.BMCIP = ptr.To("192.0.2.10")
 			createObject(dpuDevice)
+			setDPUDeviceType(dpuDevice, provisioningv1.DPUTypeBlueField3)
 
 			dpuNode := dpuNodeObj(defaultDPUNodeName)
 			dpuNode.Spec.DPUs = []provisioningv1.DPURef{{Name: dpuDevice.Name}}
@@ -284,6 +294,71 @@ var _ = Describe("Phase Initializing", func() {
 			Expect(status.Phase).To(Equal(provisioningv1.DPUPending))
 		})
 
+		It("should stay in Initializing until DPUDevice reports a known DPU type", func() {
+			dpuDevice := dpuDeviceObj(defaultDPUDeviceName)
+			createObject(dpuDevice)
+			// Intentionally leave status.dpuType unset (Unknown after copy).
+
+			dpuNode := dpuNodeObj(defaultDPUNodeName)
+			dpuNode.Finalizers = []string{provisioningv1.DPUNodeFinalizer}
+			dpuNode.Labels[cutil.NodeFeatureDiscoveryLabelPrefix+cutil.DPUOOBBridgeConfiguredLabel] = strTrue
+			dpuNode.Spec.DPUs = []provisioningv1.DPURef{{Name: dpuDevice.Name}}
+			createObject(dpuNode)
+			patchNode := client.MergeFrom(dpuNode.DeepCopy())
+			dpuNode.Status = provisioningv1.DPUNodeStatus{
+				DPUInstallInterface: ptr.To(string(provisioningv1.InstallViaHostAgent)),
+				Conditions: []metav1.Condition{{
+					Type:               string(provisioningv1.DPUNodeConditionBridgeConfigured),
+					Status:             metav1.ConditionTrue,
+					Reason:             "BridgeConfigured",
+					Message:            "Bridge configured",
+					LastTransitionTime: metav1.Now(),
+				}},
+			}
+			Expect(k8sClient.Status().Patch(ctx, dpuNode, patchNode)).To(Succeed())
+
+			dpuCluster := dpuClusterObj(defaultDPUClusterName, "static")
+			createObject(dpuCluster)
+
+			dpu := dpuObj(defaultDPUName)
+			dpu.Spec.PCIAddress = ptr.To("0000-00-00")
+			dpu.Spec.DPUNodeName = dpuNode.Name
+			dpu.Spec.DPUDeviceName = dpuDevice.Name
+			dpu.Spec.Cluster.Namespace = dpuCluster.Namespace
+			dpu.Spec.Cluster.Name = dpuCluster.Name
+			dpu.Status.Phase = provisioningv1.DPUInitializing
+			dpu.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaHostAgent))
+			reportedAt := metav1.Now()
+			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
+				PreInstall: &provisioningv1.AgentPreInstallStatus{
+					AgentReported: &reportedAt,
+				},
+			}
+			ctrlCtx := &dutil.ControllerContext{
+				Client: k8sClient,
+				Options: dutil.DPUOptions{
+					DPUInstallInterface: string(provisioningv1.InstallViaHostAgent),
+				},
+			}
+
+			status, err := state.Initializing(ctx, dpu, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUInitializing))
+			Expect(status.Conditions).Should(ContainElements(
+				And(
+					HaveField("Type", provisioningv1.DPUCondInitialized.String()),
+					HaveField("Status", metav1.ConditionFalse),
+					HaveField("Reason", "DPUTypeUnknown"),
+				),
+			))
+
+			setDPUDeviceType(dpuDevice, provisioningv1.DPUTypeBlueField4)
+			status, err = state.Initializing(ctx, dpu, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUPending))
+			Expect(status.DPUType).To(Equal(provisioningv1.DPUTypeBlueField4))
+		})
+
 	})
 
 	Context("identity mode stamp", func() {
@@ -293,6 +368,7 @@ var _ = Describe("Phase Initializing", func() {
 		newReadyDPU := func() (*provisioningv1.DPU, *dutil.ControllerContext) {
 			dpuDevice := dpuDeviceObj(defaultDPUDeviceName)
 			createObject(dpuDevice)
+			setDPUDeviceType(dpuDevice, provisioningv1.DPUTypeBlueField3)
 
 			dpuNode := dpuNodeObj(defaultDPUNodeName)
 			dpuNode.Finalizers = []string{provisioningv1.DPUNodeFinalizer}
@@ -400,6 +476,7 @@ var _ = Describe("Phase Initializing", func() {
 			ensureSingleDPFOperatorConfig(true)
 			secondDevice := dpuDeviceObj("second-device")
 			createObject(secondDevice)
+			setDPUDeviceType(secondDevice, provisioningv1.DPUTypeBlueField3)
 
 			node := &provisioningv1.DPUNode{}
 			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: defaultDPUNodeName, Namespace: testNS.Name}, node)).To(Succeed())

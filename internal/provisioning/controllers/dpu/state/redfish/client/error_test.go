@@ -17,6 +17,10 @@ limitations under the License.
 package client
 
 import (
+	"net/http"
+	"net/http/httptest"
+
+	"github.com/go-resty/resty/v2"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -86,5 +90,43 @@ var _ = Describe("ErrorMessages", func() {
 var _ = Describe("RespBody", func() {
 	It("returns an empty string for a nil response without panicking", func() {
 		Expect(RespBody(nil)).To(Equal(""))
+	})
+})
+
+var _ = Describe("PasswordChangeRequired", func() {
+	It("detects the top-level BlueField PasswordChangeRequired body", func() {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{
+  "@Message.ExtendedInfo": [
+    {
+      "Message": "The password provided for this account must be changed before access is granted.",
+      "MessageId": "Base.1.18.1.PasswordChangeRequired"
+    }
+  ]
+}`))
+		}))
+		defer ts.Close()
+
+		resp, err := resty.New().R().Get(ts.URL)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(PasswordChangeRequired(resp)).To(BeTrue())
+	})
+
+	It("is false for a plain 403", func() {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"error":{"message":"forbidden"}}`))
+		}))
+		defer ts.Close()
+
+		resp, err := resty.New().R().Get(ts.URL)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(PasswordChangeRequired(resp)).To(BeFalse())
+	})
+
+	It("is false for a nil response", func() {
+		Expect(PasswordChangeRequired(nil)).To(BeFalse())
 	})
 })

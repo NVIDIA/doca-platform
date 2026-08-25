@@ -19,6 +19,8 @@ package v1alpha1
 import (
 	"strings"
 
+	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
@@ -228,6 +230,13 @@ type InstallViaRedfish struct {
 	// +optional
 	// +kubebuilder:default=true
 	SkipDPUNodeDiscovery *bool `json:"skipDPUNodeDiscovery,omitempty"`
+	// DiscoveredDPUDeviceBMCFactoryResetPolicy is the BMC factory reset policy DPUDiscovery
+	// sets on the DPUDevices it creates. It is applied at creation time only: changing it
+	// does not affect DPUDevices that already exist, and it is not consulted when a
+	// DPUDevice is reconciled. When unset, the discovery controller uses OnInitialization.
+	// +kubebuilder:validation:Enum=OnInitialization;Never
+	// +optional
+	DiscoveredDPUDeviceBMCFactoryResetPolicy provisioningv1.BMCFactoryResetPolicy `json:"discoveredDPUDeviceBMCFactoryResetPolicy,omitempty"`
 }
 
 type BFBRegistryConfiguration struct {
