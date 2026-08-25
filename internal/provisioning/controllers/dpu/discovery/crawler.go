@@ -43,6 +43,10 @@ type CrawlerService struct {
 	namespace            string
 	workers              int
 	skipDpuNodeDiscovery bool
+	// bmcFactoryResetPolicy is written into spec.bmcFactoryResetPolicy of every DPUDevice created
+	// here. It is a creation-time default: the DPUDevice controller reads only the device's own
+	// spec, so changing it later leaves existing devices alone.
+	bmcFactoryResetPolicy provisioningv1.BMCFactoryResetPolicy
 }
 
 type CrawlResult struct {
@@ -55,13 +59,14 @@ type CrawlResult struct {
 }
 
 // NewCrawlerService creates a new instance of CrawlerService
-func NewCrawlerService(client client.Client, namespace string, workers int, skipDpuNodeDiscovery bool) *CrawlerService {
+func NewCrawlerService(client client.Client, namespace string, workers int, skipDpuNodeDiscovery bool, bmcFactoryResetPolicy provisioningv1.BMCFactoryResetPolicy) *CrawlerService {
 	return &CrawlerService{
-		client:               client,
-		scheme:               scheme.Scheme,
-		namespace:            namespace,
-		workers:              workers,
-		skipDpuNodeDiscovery: skipDpuNodeDiscovery,
+		client:                client,
+		scheme:                scheme.Scheme,
+		namespace:             namespace,
+		workers:               workers,
+		skipDpuNodeDiscovery:  skipDpuNodeDiscovery,
+		bmcFactoryResetPolicy: bmcFactoryResetPolicy,
 	}
 }
 
@@ -248,16 +253,21 @@ func (c *CrawlerService) worker(ctx context.Context, wg *sync.WaitGroup, jobs <-
 func (c *CrawlerService) createDPUDeviceAndNode(ctx context.Context, result CrawlResult) error {
 	logger := log.FromContext(ctx)
 
+	// Always write an explicit policy, so a discovered device states in its own spec what it will
+	// do, rather than relying on a CRD default the reader has to know about.
+	resetPolicy := provisioningv1.GetBMCFactoryResetPolicy(c.bmcFactoryResetPolicy)
+
 	dpu := &provisioningv1.DPUDevice{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      strings.ToLower(result.SerialNumber),
 			Namespace: c.namespace,
 		},
 		Spec: provisioningv1.DPUDeviceSpec{
-			BMCIP:        &result.IPAddress,
-			BMCPort:      &result.Port,
-			SerialNumber: result.SerialNumber,
-			OPN:          &result.OPN,
+			BMCIP:                 &result.IPAddress,
+			BMCPort:               &result.Port,
+			SerialNumber:          result.SerialNumber,
+			OPN:                   &result.OPN,
+			BMCFactoryResetPolicy: resetPolicy,
 		},
 	}
 

@@ -138,6 +138,8 @@ func (r *DMSServerReconciler) createDPUDeviceForDPUNode(ctx context.Context, dpu
 	patcher := patch.NewSerialPatcher(dpuDevice, r.Client)
 	dpuDevice.Status.PCIAddress = ptr.To("0000-00-00")
 	dpuDevice.Status.PF0Name = ptr.To("pf1")
+	// Initializing waits for a known DPU type before Pending (BFB vs BlueFieldSoftware).
+	dpuDevice.Status.DPUType = provisioningv1.DPUTypeBlueField3
 	return patcher.Patch(ctx, dpuDevice)
 }
 

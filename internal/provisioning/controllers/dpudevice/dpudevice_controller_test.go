@@ -383,6 +383,9 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 					Name:      "test-dpudevice",
 					Namespace: testNamespace,
 				},
+				Spec: provisioningv1.DPUDeviceSpec{
+					BMCFactoryResetPolicy: provisioningv1.BMCFactoryResetPolicyNever,
+				},
 				Status: provisioningv1.DPUDeviceStatus{
 					BMCIP: &bmcIP,
 				},
@@ -815,6 +818,11 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 					Namespace: testNamespace,
 					UID:       types.UID(testUID),
 				},
+				Spec: provisioningv1.DPUDeviceSpec{
+					// These tests exercise the firmware update step, which runs after the factory
+					// reset step; opt out of the reset so it does not pause initialization first.
+					BMCFactoryResetPolicy: provisioningv1.BMCFactoryResetPolicyNever,
+				},
 				Status: provisioningv1.DPUDeviceStatus{
 					BMCIP:   &bmcIP,
 					BMCPort: &bmcPort,
@@ -1185,6 +1193,36 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			Expect(condition.Status).To(Equal(metav1.ConditionFalse))
 			Expect(condition.Reason).To(Equal(provisioningv1.ReasonBMCAuthenticationFailed))
 			Expect(condition.Message).To(ContainSubstring("password is wrong"))
+		})
+
+		It("should report a BMC that rejects the password as BMCAuthenticationFailed", func() {
+			dpuDevice = &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-dpudevice-rejected", Namespace: testNamespace},
+			}
+
+			reconciler = &DPUDeviceReconciler{}
+			reconciler.setBMCCredentialsConditionFromError(dpuDevice,
+				fmt.Errorf(`BMC rejected the password for account "root": the password is shorter than the minimum length`))
+
+			condition := findCondition(dpuDevice, string(provisioningv1.ConditionBMCCredentialsReady))
+			Expect(condition.Reason).To(Equal(provisioningv1.ReasonBMCAuthenticationFailed))
+		})
+
+		It("should not report an unavailable BMC as BMCAuthenticationFailed", func() {
+			// The Redfish client reports every status that is neither success nor 401 this way, so
+			// a BMC that is still rebooting must not send the operator hunting for a bad password.
+			dpuDevice = &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-dpudevice-unavailable", Namespace: testNamespace},
+			}
+
+			reconciler = &DPUDeviceReconciler{}
+			reconciler.setBMCCredentialsConditionFromError(dpuDevice, fmt.Errorf("unexpected BMC status: 503 Service Unavailable"))
+
+			condition := findCondition(dpuDevice, string(provisioningv1.ConditionBMCCredentialsReady))
+			Expect(condition).NotTo(BeNil())
+			Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+			Expect(condition.Reason).NotTo(Equal(provisioningv1.ReasonBMCAuthenticationFailed))
+			Expect(condition.Message).To(ContainSubstring("503"))
 		})
 	})
 
@@ -2776,7 +2814,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			basicAuthClient, err := rfclient.NewBasicAuthClient(dpuDevice.BMCAddress(), "root", "testpassword")
 			Expect(err).NotTo(HaveOccurred())
 
-			_, err = reconciler.setUpMTLS(ctx, dpuDevice, basicAuthClient)
+			err = reconciler.setUpMTLS(ctx, dpuDevice, basicAuthClient)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("replace server cert"))
 
@@ -2795,9 +2833,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			basicAuthClient, err := rfclient.NewBasicAuthClient(dpuDevice.BMCAddress(), "root", "testpassword")
 			Expect(err).NotTo(HaveOccurred())
 
-			needReset, err := reconciler.setUpMTLS(ctx, dpuDevice, basicAuthClient)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(needReset).To(BeFalse())
+			Expect(reconciler.setUpMTLS(ctx, dpuDevice, basicAuthClient)).To(Succeed())
 
 			// A successful install must NOT delete the CertificateRequest.
 			Expect(serverCertCRExists(reconciler, dpuDevice)).To(BeTrue())
@@ -2815,7 +2851,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			basicAuthClient, err := rfclient.NewBasicAuthClient(dpuDevice.BMCAddress(), "root", "testpassword")
 			Expect(err).NotTo(HaveOccurred())
 
-			_, err = reconciler.setUpMTLS(ctx, dpuDevice, basicAuthClient)
+			err = reconciler.setUpMTLS(ctx, dpuDevice, basicAuthClient)
 			Expect(err).To(HaveOccurred())
 
 			// Stale issued CR must be deleted so the next reconcile creates a fresh CSR/CR against
@@ -2842,7 +2878,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			basicAuthClient, err := rfclient.NewBasicAuthClient(dpuDevice.BMCAddress(), "root", "testpassword")
 			Expect(err).NotTo(HaveOccurred())
 
-			_, err = reconciler.setUpMTLS(ctx, dpuDevice, basicAuthClient)
+			err = reconciler.setUpMTLS(ctx, dpuDevice, basicAuthClient)
 			Expect(err).To(HaveOccurred())
 			Expect(serverCertCRExists(reconciler, dpuDevice)).To(BeFalse())
 		})

@@ -199,7 +199,15 @@ spec:
       installViaRedfish:
         enabled: true
         skipDPUNodeDiscovery: true  # Set to false to create DPUNode by DPUDiscovery process
+        discoveredDPUDeviceBMCFactoryResetPolicy: OnInitialization  # Set to Never for BMCs with a static IP address
 ```
+
+> [!WARNING]
+> DPUDevices created by discovery are initialized with a one-time BMC factory reset, which erases
+> all BMC configuration including its network settings. This is safe only for BMCs that get their
+> address over DHCP. Set `discoveredDPUDeviceBMCFactoryResetPolicy: Never` before deploying a
+> `DPUDiscovery` that will reach statically addressed BMCs. See
+> [BMC Factory Reset](../../advanced-configuration/bmc-factory-reset.md).
 
 ### Redfish Configuration
 

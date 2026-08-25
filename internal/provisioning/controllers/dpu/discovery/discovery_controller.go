@@ -57,29 +57,9 @@ func (r *DPUDiscoveryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// Get workers from spec or use default
-	var workers int
-	if dpuDiscovery.Spec.Workers != nil {
-		workers = *dpuDiscovery.Spec.Workers
-	} else {
-		startIP := net.ParseIP(dpuDiscovery.Spec.IPRangeSpec.IPRange.StartIP)
-		endIP := net.ParseIP(dpuDiscovery.Spec.IPRangeSpec.IPRange.EndIP)
-		if startIP == nil || endIP == nil || startIP.To4() == nil || endIP.To4() == nil {
-			return ctrl.Result{}, fmt.Errorf("only IPv4 addresses are supported")
-		}
-
-		start := binary.BigEndian.Uint32(startIP.To4())
-		end := binary.BigEndian.Uint32(endIP.To4())
-
-		if start > end {
-			return ctrl.Result{}, fmt.Errorf("startIP must not be greater than endIP")
-		}
-
-		const ipPerWorker = 255
-		workers = int((end-start)/uint32(ipPerWorker)) + 1
-		if workers < 1 {
-			workers = 1
-		}
+	workers, err := scanWorkers(dpuDiscovery.Spec)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
 
 	dpfOperatorConfig, err := utils.GetDPFOperatorConfig(ctx, r.Client)
@@ -92,11 +72,13 @@ func (r *DPUDiscoveryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, fmt.Errorf("InstallViaRedfish not configured in DPFOperatorConfig")
 	}
 
+	installViaRedfish := dpfOperatorConfig.Spec.ProvisioningController.InstallInterface.InstallViaRedfish
 	skipDpuNodeDiscovery := true
-	if dpfOperatorConfig.Spec.ProvisioningController.InstallInterface.InstallViaRedfish.SkipDPUNodeDiscovery != nil {
-		skipDpuNodeDiscovery = *dpfOperatorConfig.Spec.ProvisioningController.InstallInterface.InstallViaRedfish.SkipDPUNodeDiscovery
+	if installViaRedfish.SkipDPUNodeDiscovery != nil {
+		skipDpuNodeDiscovery = *installViaRedfish.SkipDPUNodeDiscovery
 	}
-	crawler := NewCrawlerService(r.Client, dpuDiscovery.Namespace, workers, skipDpuNodeDiscovery)
+	bmcFactoryResetPolicy := provisioningv1.GetBMCFactoryResetPolicy(installViaRedfish.DiscoveredDPUDeviceBMCFactoryResetPolicy)
+	crawler := NewCrawlerService(r.Client, dpuDiscovery.Namespace, workers, skipDpuNodeDiscovery, bmcFactoryResetPolicy)
 
 	// Run scan immediately when spec changed (e.g. IP range), otherwise respect scan interval
 	specChanged := dpuDiscovery.Generation != dpuDiscovery.Status.ObservedGeneration
@@ -130,6 +112,29 @@ func (r *DPUDiscoveryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	return ctrl.Result{
 		RequeueAfter: dpuDiscovery.Spec.ScanInterval.Duration,
 	}, nil
+}
+
+// scanWorkers resolves how many workers a scan runs with: the value from the spec when set, and
+// otherwise one worker per 255 addresses of the range.
+func scanWorkers(spec provisioningv1.DPUDiscoverySpec) (int, error) {
+	if spec.Workers != nil {
+		return *spec.Workers, nil
+	}
+
+	startIP := net.ParseIP(spec.IPRangeSpec.IPRange.StartIP)
+	endIP := net.ParseIP(spec.IPRangeSpec.IPRange.EndIP)
+	if startIP == nil || endIP == nil || startIP.To4() == nil || endIP.To4() == nil {
+		return 0, fmt.Errorf("only IPv4 addresses are supported")
+	}
+
+	start := binary.BigEndian.Uint32(startIP.To4())
+	end := binary.BigEndian.Uint32(endIP.To4())
+	if start > end {
+		return 0, fmt.Errorf("startIP must not be greater than endIP")
+	}
+
+	const ipPerWorker = 255
+	return int((end-start)/uint32(ipPerWorker)) + 1, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

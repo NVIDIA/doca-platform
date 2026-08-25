@@ -151,6 +151,12 @@ var _ = Describe("Redfish Mock Server Tests", func() {
 			dpfOperatorConfig.Spec.ProvisioningController.InstallInterface.InstallViaRedfish.SkipDPUNodeDiscovery = ptr.To(false)
 			Expect(k8sClient.Update(ctx, dpfOperatorConfig)).To(Succeed())
 
+			By("verifying the unset factory reset policy remains unset in the DPFOperatorConfig")
+			storedConfig := &operatorv1.DPFOperatorConfig{}
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dpfOperatorConfig), storedConfig)).To(Succeed())
+			Expect(storedConfig.Spec.ProvisioningController.InstallInterface.InstallViaRedfish.
+				DiscoveredDPUDeviceBMCFactoryResetPolicy).To(BeEmpty())
+
 			By("Getting mock server address information")
 			Expect(bmcIP).NotTo(BeEmpty())
 			Expect(bmcPort).To(BeNumerically(">", 0))
@@ -200,6 +206,7 @@ var _ = Describe("Redfish Mock Server Tests", func() {
 			dpuDevice := dpuDeviceList.Items[0]
 			Expect(dpuDevice.Spec.BMCIP).NotTo(BeNil())
 			Expect(*dpuDevice.Spec.BMCIP).To(Equal(bmcIP))
+			Expect(dpuDevice.Spec.BMCFactoryResetPolicy).To(Equal(provisioningv1.BMCFactoryResetPolicyOnInitialization))
 
 			By("waiting for DPU node to be created")
 			Eventually(func() int {
@@ -294,6 +301,51 @@ var _ = Describe("Redfish Mock Server Tests", func() {
 			dpuDevice = dpuDeviceList.Items[0]
 			Expect(k8sClient.Delete(ctx, &dpuDevice)).To(Succeed())
 
+		})
+
+		It("DPU discovery should stamp the operator config's BMC factory reset policy on the devices it creates", func() {
+			bmcIP := mockServer.GetIPAddress()
+			bmcPort := uint32(mockServer.GetPort())
+
+			By("opting discovered devices out of the BMC factory reset")
+			installViaRedfish := dpfOperatorConfig.Spec.ProvisioningController.InstallInterface.InstallViaRedfish
+			installViaRedfish.SkipDPUNodeDiscovery = ptr.To(true)
+			installViaRedfish.DiscoveredDPUDeviceBMCFactoryResetPolicy = provisioningv1.BMCFactoryResetPolicyNever
+			Expect(k8sClient.Update(ctx, dpfOperatorConfig)).To(Succeed())
+
+			By("creating DpuDiscovery")
+			discovery := &provisioningv1.DPUDiscovery{
+				ObjectMeta: metav1.ObjectMeta{
+					GenerateName: "dpu-discovery-",
+					Namespace:    testNS.Name,
+				},
+				Spec: provisioningv1.DPUDiscoverySpec{
+					IPRangeSpec: provisioningv1.IPRangeValidationSpec{
+						IPRange: provisioningv1.IPRange{
+							StartIP: bmcIP,
+							EndIP:   bmcIP,
+							Port:    &bmcPort,
+						},
+					},
+					ScanInterval: metav1.Duration{Duration: time.Hour * 1},
+				},
+			}
+			Expect(k8sClient.Create(ctx, discovery)).To(Succeed())
+			DeferCleanup(func() {
+				Expect(k8sClient.Delete(ctx, discovery)).To(Or(Succeed(), MatchError(ContainSubstring("not found"))))
+			})
+
+			By("waiting for DPU discovery to create the DPU device")
+			dpuDeviceList := &provisioningv1.DPUDeviceList{}
+			Eventually(func() int {
+				Expect(k8sClient.List(ctx, dpuDeviceList, client.InNamespace(testNS.Name))).To(Succeed())
+				return len(dpuDeviceList.Items)
+			}, timeout, interval).Should(Equal(1))
+
+			dpuDevice := dpuDeviceList.Items[0]
+			Expect(dpuDevice.Spec.BMCFactoryResetPolicy).To(Equal(provisioningv1.BMCFactoryResetPolicyNever))
+
+			Expect(k8sClient.Delete(ctx, &dpuDevice)).To(Succeed())
 		})
 	})
 })

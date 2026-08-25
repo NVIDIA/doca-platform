@@ -23,6 +23,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -113,8 +114,11 @@ const (
 )
 
 const (
-	BF3BMCUser           = "root"
-	BF4BMCUser           = "admin"
+	BF3BMCUser = "root"
+	BF4BMCUser = "admin"
+	// BF4ServiceUser is the BF4 ssh-only account. It has no Redfish session of its own, but its
+	// password is settable at the Redfish account path on firmware that exposes it.
+	BF4ServiceUser       = "service"
 	BMCPasswordSecret    = "bmc-shared-password"
 	BMCSharedPasswordKey = "password"
 	BMCDefaultPassword   = "0penBmc"
@@ -388,17 +392,104 @@ func (c *Client) GetBmcManager() (*resty.Response, *BmcManager, error) {
 	})
 }
 
-// ChangeBMCPassword changes BMC password. For more information, refer to
+// ChangeBMCPassword sets newPassword on every BMC account DPF manages, so that no managed account
+// keeps the factory default password. On BF3 that is the Redfish user (root); on BF4 it is the
+// Redfish user (admin) and the ssh-only service account.
+//
+// The order is load-bearing in both directions. A BMC still holding the factory default password
+// grants a session that may only change its own account's password, which rules out reaching the
+// service account first. And once the Redfish user's password has changed, this client's
+// credentials are stale, so the service account is patched over a freshly authenticated client.
+//
+// The Redfish user's response is returned so callers keep their existing status handling.
+// For more information, refer to
 // https://docs.nvidia.com/networking/display/bluefieldbmcv2410/connecting+to+bmc+interfaces#src-704886267_ConnectingtoBMCInterfaces-ChangingDefaultPassword
-func (c *Client) ChangeBMCPassword(newPassword string, user string) (*resty.Response, *ExtendedInfo, error) {
-	return do[ExtendedInfo](func() (*resty.Response, error) {
-		return c.Client.R().
-			SetHeader("Content-Type", "application/json").
-			SetBody(map[string]string{
-				"Password": newPassword,
-			}).
-			Patch(strings.Replace(APIChangePasswd, "{USER}", user, 1))
-	})
+func (c *Client) ChangeBMCPassword(ctx context.Context, newPassword string, user string) (*resty.Response, *ExtendedInfo, error) {
+	resp, info, err := c.SetRedfishUserPassword(user, newPassword)
+	if err != nil || !PasswordChangeAccepted(resp) || !c.IsBF4 {
+		return resp, info, err
+	}
+
+	// BF4 handling - re-authenticate as the Redfish user after changing its password, and set the
+	// service account password over the freshly authenticated client.
+	reAuthenticated, err := NewBasicAuthClient(c.BaseURL, user, newPassword)
+	if err != nil {
+		return resp, info, fmt.Errorf("failed to re-authenticate as %q after changing its password: %w", user, err)
+	}
+	if err := reAuthenticated.SetServiceAccountPassword(ctx, newPassword); err != nil {
+		return resp, info, err
+	}
+	return resp, info, nil
+}
+
+// SetRedfishUserPassword changes the password of the Redfish user only (root on BF3, admin on BF4),
+// leaving other managed accounts alone. Callers that want every managed account hardened should use
+// ChangeBMCPassword instead.
+func (c *Client) SetRedfishUserPassword(user, newPassword string) (*resty.Response, *ExtendedInfo, error) {
+	return c.patchAccountPassword(user, newPassword)
+}
+
+// SetServiceAccountPassword sets the password of the BF4 ssh-only service account. It is a no-op on
+// BF3, which has no such account, and tolerates a 404 on BF4 so DPF keeps working against BMC
+// firmware that predates Redfish support for that account.
+func (c *Client) SetServiceAccountPassword(ctx context.Context, newPassword string) error {
+	if !c.IsBF4 {
+		return nil
+	}
+
+	resp, _, err := c.patchAccountPassword(BF4ServiceUser, newPassword)
+	if err != nil {
+		return fmt.Errorf("failed to set the password of BMC account %q: %w", BF4ServiceUser, err)
+	}
+	if PasswordChangeAccepted(resp) {
+		log.FromContext(ctx).Info("SetServiceAccountPassword: success", "account", BF4ServiceUser)
+		return nil
+	}
+	switch resp.StatusCode() {
+	case http.StatusNotFound:
+		log.FromContext(ctx).Info("BMC does not expose the ssh-only service account over Redfish; leaving it untouched",
+			"account", BF4ServiceUser)
+		return nil
+	default:
+		return AccountPasswordError(BF4ServiceUser, resp)
+	}
+}
+
+// PasswordChangeAccepted reports whether the BMC applied an account PATCH. BMCs answer 200 with a
+// body in practice, but a PATCH that returns nothing is just as validly a 204, and every password
+// path treats the two the same.
+func PasswordChangeAccepted(resp *resty.Response) bool {
+	return resp.StatusCode() == http.StatusOK || resp.StatusCode() == http.StatusNoContent
+}
+
+// patchAccountPassword PATCHes a single Redfish account with a new password. A rejection can carry
+// a body that is not a Redfish payload, so a decode failure yields a nil ExtendedInfo instead of an
+// error: the caller decides on the status code.
+func (c *Client) patchAccountPassword(user, newPassword string) (*resty.Response, *ExtendedInfo, error) {
+	resp, err := c.Client.R().
+		SetHeader("Content-Type", "application/json").
+		SetBody(map[string]string{
+			"Password": newPassword,
+		}).
+		Patch(strings.Replace(APIChangePasswd, "{USER}", user, 1))
+	if err != nil {
+		return nil, nil, err
+	}
+	var info ExtendedInfo
+	if json.Unmarshal(resp.Body(), &info) != nil {
+		return resp, nil, nil
+	}
+	return resp, &info, nil
+}
+
+// AccountPasswordError renders a BMC rejection of a password change as an actionable error naming
+// the account and quoting the BMC's own reason (typically an account policy violation), instead of
+// a bare status code.
+func AccountPasswordError(user string, resp *resty.Response) error {
+	if msgs := ErrorMessages(string(resp.Body())); len(msgs) > 0 {
+		return fmt.Errorf("BMC rejected the password for account %q: %s", user, strings.Join(msgs, "; "))
+	}
+	return fmt.Errorf("BMC rejected the password for account %q: unexpected BMC status: %s", user, resp.Status())
 }
 
 // InstallCert installs the given certificate, making the certificate trusted by BMC
@@ -1108,9 +1199,40 @@ func readPasswordFromSecret(ctx context.Context, namespace, secretName string, k
 	return &BMCCredentialResult{Password: passwd, SecretName: secretName}, nil
 }
 
+// ErrBMCPasswordRejected is returned when the BMC answered an authentication attempt and turned it
+// down. It is what separates a wrong password from a BMC that never answered at all, so that a
+// caller does not report an unreachable BMC as a credential problem.
+var ErrBMCPasswordRejected = errors.New("the default BMC password has been changed and the given password is wrong")
+
+const unexpectedBMCStatusFmt = "unexpected BMC status: %s"
+
+func unexpectedBMCStatus(resp *resty.Response) error {
+	return fmt.Errorf(unexpectedBMCStatusFmt, resp.Status())
+}
+
+// PasswordChangeRequired reports whether the BMC accepted the credentials but is refusing further
+// access until the account password is changed. BlueField BMCs enter this state after a factory
+// reset while still holding the factory default password: /redfish/v1 answers, but Managers,
+// UpdateService, and FirmwareInventory return 403 with MessageId PasswordChangeRequired.
+func PasswordChangeRequired(resp *resty.Response) bool {
+	if resp == nil || resp.StatusCode() != http.StatusForbidden {
+		return false
+	}
+	return strings.Contains(string(resp.Body()), "PasswordChangeRequired")
+}
+
 // VerifyBMCCredential tries to authenticate to the BMC with the given password,
 // attempting BF3 (root) first, then falling back to BF4 (admin).
 // It returns the authenticated client and the BMC username that succeeded.
+//
+// The probe is GET /redfish/v1/Managers: that is what InitPassword uses, and unlike
+// FirmwareInventory it is the right signal after a factory reset. A 200 means the password is
+// fully usable. A 403 PasswordChangeRequired also means the password is correct — the BMC is
+// holding the factory default and demanding a change before any other Redfish access — so the
+// credential check succeeds and the caller (password hardening) clears the requirement.
+//
+// A password the BMC rejects yields ErrBMCPasswordRejected; every other failure means the BMC gave
+// no usable answer.
 func VerifyBMCCredential(bmcAddress, password string) (*Client, string, error) {
 	if !strings.HasPrefix(bmcAddress, httpsPrefix) {
 		bmcAddress = httpsPrefix + bmcAddress
@@ -1121,20 +1243,25 @@ func VerifyBMCCredential(bmcAddress, password string) (*Client, string, error) {
 		if err != nil {
 			return nil, "", err
 		}
-		resp, _, err := c.CheckBMCFirmware()
+		resp, _, err := c.GetManagers()
 		if err != nil {
 			return nil, "", err
 		}
 		switch resp.StatusCode() {
 		case http.StatusOK:
 			return c, user, nil
+		case http.StatusForbidden:
+			if PasswordChangeRequired(resp) {
+				return c, user, nil
+			}
+			return nil, "", unexpectedBMCStatus(resp)
 		case http.StatusUnauthorized:
 			continue
 		default:
-			return nil, "", fmt.Errorf("unexpected BMC status: %s", resp.Status())
+			return nil, "", unexpectedBMCStatus(resp)
 		}
 	}
-	return nil, "", fmt.Errorf("the default BMC password has been changed and the given password is wrong")
+	return nil, "", ErrBMCPasswordRejected
 }
 
 // InitPassword resolves the BMC password and authenticates to the BMC.
@@ -1149,52 +1276,101 @@ func InitPassword(ctx context.Context, bmcAddress string, namespace string, bmcC
 		bmcAddress = httpsPrefix + bmcAddress
 	}
 
-	rootClient, err := NewRawClient(bmcAddress)
+	user, err := bmcUserForAddress(ctx, bmcAddress)
 	if err != nil {
 		return nil, err
-	}
-	_, rootServiceInfo, err := rootClient.GetRootService()
-	if err != nil {
-		return nil, err
-	}
-	var user = BF3BMCUser
-	if rootServiceInfo.IsBF4() {
-		user = BF4BMCUser
-		log.FromContext(ctx).Info("Assuming BF4 model, BMC user changed to admin")
 	}
 
-	// check if the default password has been changed as requested by the DOCA BMC manual
 	client, err := NewBasicAuthClient(bmcAddress, user, passwd)
 	if err != nil {
 		return nil, err
 	}
-
 	resp, _, err := client.GetManagers()
 	if err != nil {
 		return nil, err
 	}
+	return completeInitPassword(ctx, client, resp, bmcAddress, user, passwd)
+}
+
+func bmcUserForAddress(ctx context.Context, bmcAddress string) (string, error) {
+	rootClient, err := NewRawClient(bmcAddress)
+	if err != nil {
+		return "", err
+	}
+	_, rootServiceInfo, err := rootClient.GetRootService()
+	if err != nil {
+		return "", err
+	}
+	if rootServiceInfo.IsBF4() {
+		log.FromContext(ctx).Info("Assuming BF4 model, BMC user changed to admin")
+		return BF4BMCUser, nil
+	}
+	return BF3BMCUser, nil
+}
+
+// completeInitPassword finishes InitPassword based on the Managers probe response: harden when the
+// BMC still holds the factory default (401 or 403 PasswordChangeRequired), ensure the service
+// account matches when the target password already works, or fail on unexpected status.
+func completeInitPassword(ctx context.Context, client *Client, resp *resty.Response, bmcAddress, user, passwd string) (*Client, error) {
 	switch resp.StatusCode() {
 	case http.StatusUnauthorized:
-		log.FromContext(ctx).Info("try to change password")
-		defaultClient, err := NewBasicAuthClient(bmcAddress, user, BMCDefaultPassword)
-		if err != nil {
+		if err := changeDefaultPassword(ctx, bmcAddress, user, passwd); err != nil {
 			return nil, err
 		}
-		resp, _, err = defaultClient.ChangeBMCPassword(passwd, user)
-		if err != nil {
-			return nil, err
-		} else if resp.StatusCode() == http.StatusUnauthorized {
-			return nil, fmt.Errorf("the default BMC password has been changed and the given password is wrong")
-		} else if resp.StatusCode() != http.StatusOK {
-			return nil, fmt.Errorf("unexpected BMC status: %s", resp.Status())
-		}
-		log.FromContext(ctx).Info("successfully changed password")
 		return client, nil
+	case http.StatusForbidden:
+		return completeInitPasswordForbidden(ctx, resp, bmcAddress, user, passwd)
 	case http.StatusOK:
+		// The target password already authenticates, so the Redfish user needs no write. The
+		// service account still might: this is the retry path for a partial change where the
+		// Redfish PATCH landed and the service PATCH did not, and returning early here would
+		// leave the ssh-only account on the factory default forever.
+		if err := client.SetServiceAccountPassword(ctx, passwd); err != nil {
+			return nil, err
+		}
 		return client, nil
 	default:
-		return nil, fmt.Errorf("unexpected BMC status: %s", resp.Status())
+		return nil, unexpectedBMCStatus(resp)
 	}
+}
+
+func completeInitPasswordForbidden(ctx context.Context, resp *resty.Response, bmcAddress, user, passwd string) (*Client, error) {
+	// Post-reset BMCs accept the factory default but refuse Managers until the password is
+	// changed. That surfaces here when the credential Secret still holds 0penBmc, or when
+	// changeDefaultPassword has not run yet and passwd happens to be the current default.
+	if !PasswordChangeRequired(resp) {
+		return nil, unexpectedBMCStatus(resp)
+	}
+	if passwd == BMCDefaultPassword {
+		return nil, fmt.Errorf("BMC requires changing the factory default password before access is granted; set a non-default password in the credential Secret")
+	}
+	if err := changeDefaultPassword(ctx, bmcAddress, user, passwd); err != nil {
+		return nil, err
+	}
+	return NewBasicAuthClient(bmcAddress, user, passwd)
+}
+
+// changeDefaultPassword moves a BMC that still holds the factory default password onto passwd,
+// hardening every account DPF manages. A BMC that rejects the default password too is reported as
+// holding an unknown password rather than as a connectivity problem.
+func changeDefaultPassword(ctx context.Context, bmcAddress, user, passwd string) error {
+	log.FromContext(ctx).Info("try to change password")
+	defaultClient, err := NewBasicAuthClient(bmcAddress, user, BMCDefaultPassword)
+	if err != nil {
+		return err
+	}
+	resp, _, err := defaultClient.ChangeBMCPassword(ctx, passwd, user)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode() == http.StatusUnauthorized {
+		return ErrBMCPasswordRejected
+	}
+	if !PasswordChangeAccepted(resp) {
+		return AccountPasswordError(user, resp)
+	}
+	log.FromContext(ctx).Info("successfully changed password")
+	return nil
 }
 
 // RotatePassword performs BMC password rotation from oldPassword to newPassword.
@@ -1209,6 +1385,11 @@ func RotatePassword(ctx context.Context, bmcAddress string, newPassword, oldPass
 	newClient, _, err := VerifyBMCCredential(bmcAddress, newPassword)
 	if err == nil {
 		log.FromContext(ctx).Info("new password already active on BMC")
+		// Re-apply to the service account: a previous pass may have changed the Redfish user and
+		// then failed before the service account, and this branch is what that retry lands on.
+		if err := newClient.SetServiceAccountPassword(ctx, newPassword); err != nil {
+			return nil, err
+		}
 		return newClient, nil
 	}
 	if !strings.Contains(err.Error(), "password is wrong") && !strings.Contains(err.Error(), "unexpected BMC status") {
@@ -1222,12 +1403,12 @@ func RotatePassword(ctx context.Context, bmcAddress string, newPassword, oldPass
 	}
 
 	log.FromContext(ctx).Info("rotating BMC password", "user", bmcUser)
-	resp, _, err := oldClient.ChangeBMCPassword(newPassword, bmcUser)
+	resp, _, err := oldClient.ChangeBMCPassword(ctx, newPassword, bmcUser)
 	if err != nil {
 		return nil, fmt.Errorf("failed to change BMC password: %w", err)
 	}
-	if resp.StatusCode() != http.StatusOK {
-		return nil, fmt.Errorf("failed to change BMC password: status %s", resp.Status())
+	if !PasswordChangeAccepted(resp) {
+		return nil, fmt.Errorf("failed to change BMC password: %w", AccountPasswordError(bmcUser, resp))
 	}
 
 	rotatedClient, err := NewBasicAuthClient(bmcAddress, bmcUser, newPassword)

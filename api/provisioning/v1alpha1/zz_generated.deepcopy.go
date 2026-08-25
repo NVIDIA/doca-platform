@@ -1041,6 +1041,10 @@ func (in *DPUDeviceStatus) DeepCopyInto(out *DPUDeviceStatus) {
 		*out = new(string)
 		**out = **in
 	}
+	if in.BMCFactoryResetRequestTime != nil {
+		in, out := &in.BMCFactoryResetRequestTime, &out.BMCFactoryResetRequestTime
+		*out = (*in).DeepCopy()
+	}
 	if in.BMCServerCertificate != nil {
 		in, out := &in.BMCServerCertificate, &out.BMCServerCertificate
 		*out = new(CertificateStatus)

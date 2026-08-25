@@ -190,8 +190,28 @@ func Initializing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 		return *state, nil
 	}
 
+	// Pending branches on DPU type (BlueFieldSoftware vs BFB). Do not leave Initializing until
+	// the device has reported a concrete type — BMC factory reset delays that stamp, and copying
+	// Unknown here would send BF4 DPUs down the empty-BFB path.
+	if !isKnownDPUType(state.DPUType) {
+		err := fmt.Errorf("waiting for DPUDevice %s to report DPU type", dpu.Spec.DPUDeviceName)
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondInitialized.String(), err, "DPUTypeUnknown", err.Error()))
+		return *state, nil
+	}
+
 	state.Phase = provisioningv1.DPUPending
 	cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondInitialized, "", ""))
 
 	return *state, nil
+}
+
+// isKnownDPUType reports whether t is a concrete BlueField generation. Empty and Unknown mean the
+// DPUDevice has not finished identifying the hardware yet.
+func isKnownDPUType(t provisioningv1.DPUType) bool {
+	switch t {
+	case provisioningv1.DPUTypeBlueField2, provisioningv1.DPUTypeBlueField3, provisioningv1.DPUTypeBlueField4:
+		return true
+	default:
+		return false
+	}
 }
