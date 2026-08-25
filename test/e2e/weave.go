@@ -130,7 +130,8 @@ const (
 	weaveMetricRxVNIMismatch = "weave_rx_vni_mismatch"
 
 	// weaveEnableOVSMetricsEnv enables labeled OVS flow-metric registration in weave-flow-controller.
-	weaveEnableOVSMetricsEnv = "ENABLE_OVS_METRICS"
+	weaveEnableOVSMetricsEnv      = "ENABLE_OVS_METRICS"
+	weaveEnableOVSMetricsEnvValue = "true"
 )
 
 // weavePodsToVerify is used by Weave tests to wait for Weave workloads on the DPU cluster (pod names contain these substrings).
@@ -509,7 +510,7 @@ func patchFlowControllerForMetrics() {
 		container = map[string]any{}
 		containers["weaveFlowController"] = container
 	}
-	upsertHelmEnv(container, weaveEnableOVSMetricsEnv, "true")
+	upsertHelmEnv(container, weaveEnableOVSMetricsEnv, weaveEnableOVSMetricsEnvValue)
 
 	raw, err := json.Marshal(values)
 	Expect(err).NotTo(HaveOccurred())
@@ -557,7 +558,7 @@ func waitForFlowControllerPodsRolled(dpuNode1, dpuNode2 string, previousUIDs map
 			hasMetricsEnv := false
 			for _, c := range pod.Spec.Containers {
 				for _, e := range c.Env {
-					if e.Name == weaveEnableOVSMetricsEnv && e.Value == "true" {
+					if e.Name == weaveEnableOVSMetricsEnv && e.Value == weaveEnableOVSMetricsEnvValue {
 						hasMetricsEnv = true
 						break
 					}
@@ -885,57 +886,23 @@ func deleteVNetOnPod(pod *corev1.Pod, vnetID string) {
 // createNetutilsHostPodOnNode creates a privileged hostNetwork netutils pod on nodeName and waits for Ready state.
 func createNetutilsHostPodOnNode(ctx context.Context, c client.Client, namespace, podName, nodeName string) *corev1.Pod {
 	By(fmt.Sprintf("Creating netutils host pod %s/%s on node %s", namespace, podName, nodeName))
-	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      podName,
-			Namespace: namespace,
-			Labels:    weaveContextScope.CleanupLabels,
-		},
-		Spec: corev1.PodSpec{
-			NodeName:         nodeName,
-			HostNetwork:      true,
-			DNSPolicy:        corev1.DNSClusterFirstWithHostNet,
-			RestartPolicy:    corev1.RestartPolicyNever,
-			ImagePullSecrets: []corev1.LocalObjectReference{{Name: dpfPullSecretName}},
-			Containers: []corev1.Container{{
-				Name:    "netutils",
-				Image:   fmt.Sprintf("%s:%s", netutilsImage, tag),
-				Command: []string{"/bin/sh", "-c", "sleep infinity"},
-				SecurityContext: &corev1.SecurityContext{
-					Privileged: ptr.To(true),
-				},
-				VolumeMounts: []corev1.VolumeMount{
-					{Name: "dev-infiniband", MountPath: "/dev/infiniband"},
-					{Name: "sys", MountPath: "/sys", ReadOnly: true},
-				},
-				// Backstop flush: kubelet runs preStop on pod delete.
-				Lifecycle: &corev1.Lifecycle{
-					PreStop: &corev1.LifecycleHandler{
-						Exec: &corev1.ExecAction{
-							Command: []string{"/bin/sh", "-c",
-								fmt.Sprintf(weaveRDMAFlushCmdFmt, weaveHostPFInterfaceP0),
-							},
-						},
+	pod := netshoot.NewNetutilsHostPod(podName, namespace, nodeName, fmt.Sprintf("%s:%s", netutilsImage, tag)).
+		WithLabels(weaveContextScope.CleanupLabels).
+		WithImagePullSecret(dpfPullSecretName).
+		WithHostPathMount("dev-infiniband", "/dev/infiniband", "/dev/infiniband", false, ptr.To(corev1.HostPathDirectory)).
+		WithSysMount().
+		// Backstop flush: kubelet runs preStop on pod delete.
+		WithLifecycle(&corev1.Lifecycle{
+			PreStop: &corev1.LifecycleHandler{
+				Exec: &corev1.ExecAction{
+					Command: []string{"/bin/sh", "-c",
+						fmt.Sprintf(weaveRDMAFlushCmdFmt, weaveHostPFInterfaceP0),
 					},
 				},
-			}},
-			Volumes: []corev1.Volume{
-				{Name: "dev-infiniband", VolumeSource: corev1.VolumeSource{
-					HostPath: &corev1.HostPathVolumeSource{Path: "/dev/infiniband", Type: ptr.To(corev1.HostPathDirectory)},
-				}},
-				{Name: "sys", VolumeSource: corev1.VolumeSource{
-					HostPath: &corev1.HostPathVolumeSource{Path: "/sys"},
-				}},
 			},
-		},
-	}
-	Expect(client.IgnoreAlreadyExists(c.Create(ctx, pod))).To(Succeed(), "creating pod %s/%s", namespace, podName)
-
-	Eventually(func(g Gomega) {
-		g.Expect(c.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(Succeed())
-		g.Expect(netshoot.IsPodRunningAndReady(pod)).To(BeTrue(), "pod %s/%s not ready", namespace, podName)
-	}).WithTimeout(2 * time.Minute).WithPolling(weaveEventuallyPollInterval).Should(Succeed())
-	return pod
+		}).
+		Build()
+	return netshoot.CreateAndWaitForNetutilsHostPod(ctx, c, pod, 2*time.Minute)
 }
 
 // releaseDHCPLeaseInPod runs weaveRDMAFlushCmdFmt inside the pod. Best-effort; preStop is the backstop.
