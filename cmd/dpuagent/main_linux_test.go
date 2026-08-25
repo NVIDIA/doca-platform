@@ -142,7 +142,8 @@ var _ = Describe("postClockReport", func() {
 		DPUTime:      metav1.NewTime(time.Date(2026, 8, 17, 6, 28, 9, 0, time.UTC)),
 	}
 
-	It("posts the DPU clock and identity to the hostagent", func() {
+	It("posts the DPU clock and identity to the hostagent and returns the host clock", func() {
+		hostTime := metav1.NewTime(time.Date(2026, 8, 24, 19, 38, 29, 0, time.UTC))
 		received := make(chan hostagenttypes.ReportClockRequest, 1)
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			body, err := io.ReadAll(r.Body)
@@ -152,17 +153,30 @@ var _ = Describe("postClockReport", func() {
 			Expect(r.URL.Path).To(Equal("/report-clock"))
 			Expect(r.Header.Get("Content-Type")).To(Equal("application/json"))
 			received <- got
+			Expect(json.NewEncoder(w).Encode(hostagenttypes.ReportClockResponse{HostTime: hostTime})).To(Succeed())
+		}))
+		defer server.Close()
+
+		got, err := postClockReport(context.Background(), server.URL, request)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(got.UTC()).To(Equal(hostTime.UTC()))
+
+		sent := <-received
+		Expect(sent.DPUName).To(Equal(request.DPUName))
+		Expect(sent.DPUNamespace).To(Equal(request.DPUNamespace))
+		Expect(sent.DPUUID).To(Equal(request.DPUUID))
+		Expect(sent.DPUTime.UTC()).To(Equal(request.DPUTime.UTC()))
+	})
+
+	It("succeeds with no host clock when the hostagent predates the response", func() {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		}))
 		defer server.Close()
 
-		Expect(postClockReport(context.Background(), server.URL, request)).To(Succeed())
-
-		got := <-received
-		Expect(got.DPUName).To(Equal(request.DPUName))
-		Expect(got.DPUNamespace).To(Equal(request.DPUNamespace))
-		Expect(got.DPUUID).To(Equal(request.DPUUID))
-		Expect(got.DPUTime.UTC()).To(Equal(request.DPUTime.UTC()))
+		got, err := postClockReport(context.Background(), server.URL, request)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(got.IsZero()).To(BeTrue())
 	})
 
 	It("fails when the hostagent rejects the report", func() {
@@ -171,7 +185,7 @@ var _ = Describe("postClockReport", func() {
 		}))
 		defer server.Close()
 
-		err := postClockReport(context.Background(), server.URL, request)
+		_, err := postClockReport(context.Background(), server.URL, request)
 		Expect(err).To(MatchError(ContainSubstring("hostagent rejected the clock report")))
 	})
 
@@ -180,6 +194,7 @@ var _ = Describe("postClockReport", func() {
 		address := server.URL
 		server.Close()
 
-		Expect(postClockReport(context.Background(), address, request)).NotTo(Succeed())
+		_, err := postClockReport(context.Background(), address, request)
+		Expect(err).To(HaveOccurred())
 	})
 })

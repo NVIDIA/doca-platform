@@ -23,16 +23,20 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/cmd/dpuagent/opts"
 	"github.com/nvidia/doca-platform/internal/provisioning/constants"
+	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
 	spiffeheartbeat "github.com/nvidia/doca-platform/internal/provisioning/dpuagent/spiffe"
@@ -42,6 +46,7 @@ import (
 	providentity "github.com/nvidia/doca-platform/internal/provisioning/utils/certificate/identity"
 
 	"github.com/spf13/pflag"
+	"golang.org/x/sys/unix"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -64,8 +69,9 @@ const (
 	// plain HTTP, so it keeps answering while the DPU clock is wrong enough to break TLS, which is
 	// the only situation the clock check exists for.
 	hostMgmtURL = "http://[fe80::1%25tmfifo_net0]:11029"
-	// hostMgmtTimeout bounds the hostagent call so a wedged tmfifo link cannot delay bootstrap.
-	hostMgmtTimeout = 5 * time.Second
+	// clockSyncTimeout bounds each step of the clock exchange, the hostagent call and the RTC
+	// write, so neither a wedged tmfifo link nor unresponsive firmware can delay bootstrap.
+	clockSyncTimeout = 5 * time.Second
 )
 
 func main() {
@@ -193,9 +199,9 @@ func main() {
 }
 
 func buildClientConfig(ctx context.Context, options *opts.Options) (*restclient.Config, error) {
-	// Report on entry, so skew is recorded on the DPU object while it is blocking identity, and
-	// again on return, so a clock corrected in between clears that report. Zero-trust DPUs are
-	// skipped.
+	// Report on entry, so the clock is usable before certificate bootstrap and any skew left is
+	// recorded on the DPU object while it is blocking identity, and again on return, so a clock
+	// corrected in between clears that report. Zero-trust DPUs are skipped.
 	if !options.ZeroTrustMode {
 		reportClock(ctx, options)
 		defer reportClock(ctx, options)
@@ -273,14 +279,20 @@ func buildClientConfig(ctx context.Context, options *opts.Options) (*restclient.
 }
 
 // reportClock hands the DPU clock to the hostagent, which compares it against its own clock and
-// records the result on the DPU object. The agent does neither itself: it has no trusted time
-// reference, and no cluster credentials to write with, since obtaining them is exactly what a skewed
-// clock prevents.
+// records the result on the DPU object, and adopts the host clock in return when the two disagree.
+// The agent does neither itself: it has no trusted time reference, and no cluster credentials to
+// write with, since obtaining them is exactly what a skewed clock prevents.
+//
+// Adopting the host clock is what keeps a DPU out of the deadlock the report alone only explains.
+// The DPU RTC advances only while the card is powered and nothing ever resynchronizes it, so a DPU
+// can boot arbitrarily far from real time; at this point in provisioning it has no route and no
+// resolver either, so NTP cannot help. Certificate bootstrap is the first thing that needs a
+// plausible clock, and it runs immediately after this call.
 //
 // This is trusted-host only. Zero-trust DPUs treat the host as untrusted, so neither its clock nor
 // its writes to the DPU object are acceptable there; that mode needs its own time reference.
 func reportClock(ctx context.Context, options *opts.Options) {
-	err := postClockReport(ctx, hostMgmtURL, hostagenttypes.ReportClockRequest{
+	hostTime, err := postClockReport(ctx, hostMgmtURL, hostagenttypes.ReportClockRequest{
 		DPUName:      options.DPUName,
 		DPUNamespace: options.DPUNamespace,
 		DPUUID:       options.DPUUID,
@@ -290,36 +302,71 @@ func reportClock(ctx context.Context, options *opts.Options) {
 		// A DPU that cannot reach the hostagent at all has a louder problem than clock skew, and
 		// this check must not become a second way for bootstrap to fail.
 		klog.V(1).InfoS("Skipping DPU clock check", "err", err)
+		return
 	}
+	// A hostagent that predates the response field leaves the clock alone rather than stepping it
+	// to the zero time.
+	if hostTime.IsZero() {
+		return
+	}
+	skew := time.Since(hostTime.Time)
+	if skew.Abs() <= cutil.MaxDPUClockSkew {
+		return
+	}
+	if err := stepAndPersistClock(ctx, hostTime.Time); err != nil {
+		klog.ErrorS(err, "Failed to adopt the host clock", "hostTime", hostTime.UTC(), "skew", skew.Round(time.Second))
+		return
+	}
+	klog.InfoS("Adopted the host clock", "hostTime", hostTime.UTC(), "previousSkew", skew.Round(time.Second))
 }
 
-// postClockReport sends the DPU clock to the hostagent, which judges it and records the result.
-func postClockReport(ctx context.Context, baseURL string, request hostagenttypes.ReportClockRequest) error {
+func stepAndPersistClock(ctx context.Context, t time.Time) error {
+	if err := unix.ClockSettime(unix.CLOCK_REALTIME, &unix.Timespec{Sec: t.Unix(), Nsec: int64(t.Nanosecond())}); err != nil {
+		return fmt.Errorf("setting the system clock: %w", err)
+	}
+	// Persist to the RTC so the reboots that provisioning performs start from the corrected time
+	// rather than the stale value the card booted with. A card that cannot write its RTC still has
+	// a usable clock now, which is what bootstrap needs, so this failure only gets logged.
+	cmdCtx, cancel := context.WithTimeout(ctx, clockSyncTimeout)
+	defer cancel()
+	if out, err := exec.CommandContext(cmdCtx, "hwclock", "--systohc", "--utc").CombinedOutput(); err != nil {
+		klog.ErrorS(err, "Failed to persist the corrected clock to the RTC", "output", strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// postClockReport sends the DPU clock to the hostagent, which judges it and records the result, and
+// returns the host clock reading taken at the same moment.
+func postClockReport(ctx context.Context, baseURL string, request hostagenttypes.ReportClockRequest) (metav1.Time, error) {
 	body, err := json.Marshal(request)
 	if err != nil {
-		return err
+		return metav1.Time{}, err
 	}
 
-	reqCtx, cancel := context.WithTimeout(ctx, hostMgmtTimeout)
+	reqCtx, cancel := context.WithTimeout(ctx, clockSyncTimeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, baseURL+"/report-clock", bytes.NewReader(body))
 	if err != nil {
-		return err
+		return metav1.Time{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return err
+		return metav1.Time{}, err
 	}
 	defer func() {
 		_ = resp.Body.Close()
 	}()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("hostagent rejected the clock report: %s", resp.Status)
+		return metav1.Time{}, fmt.Errorf("hostagent rejected the clock report: %s", resp.Status)
 	}
-	return nil
+	var reply hostagenttypes.ReportClockResponse
+	if err := json.NewDecoder(resp.Body).Decode(&reply); err != nil && !errors.Is(err, io.EOF) {
+		return metav1.Time{}, fmt.Errorf("decoding the hostagent clock response: %w", err)
+	}
+	return reply.HostTime, nil
 }
 
 func waitForNonEmptyTokenFile(ctx context.Context, path string, timeout time.Duration) error {
