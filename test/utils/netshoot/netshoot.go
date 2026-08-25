@@ -35,6 +35,7 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/remotecommand"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -351,6 +352,120 @@ func createNetworkAttachmentDefinition(ctx context.Context, testClient client.Cl
 
 	Expect(testClient.Create(ctx, nad)).To(Succeed())
 	return nadName
+}
+
+// NetutilsPodBuilder builds a privileged hostNetwork pod running the
+// netutils image (sleep infinity), used to inspect host/DPU-side network and
+// device state from inside a cluster. Construct with NewNetutilsHostPod,
+// chain With* calls, then Build.
+type NetutilsPodBuilder struct {
+	pod *corev1.Pod
+}
+
+// NewNetutilsHostPod starts a builder for a netutils pod named name in
+// namespace, scheduled on nodeName, running image (full "repository:tag" ref).
+func NewNetutilsHostPod(name, namespace, nodeName, image string) *NetutilsPodBuilder {
+	return &NetutilsPodBuilder{
+		pod: &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: namespace,
+			},
+			Spec: corev1.PodSpec{
+				NodeName:      nodeName,
+				HostNetwork:   true,
+				DNSPolicy:     corev1.DNSClusterFirstWithHostNet,
+				RestartPolicy: corev1.RestartPolicyNever,
+				Containers: []corev1.Container{{
+					Name:    "netutils",
+					Image:   image,
+					Command: []string{"/bin/sh", "-c", "sleep infinity"},
+					SecurityContext: &corev1.SecurityContext{
+						Privileged: ptr.To(true),
+					},
+				}},
+			},
+		},
+	}
+}
+
+// WithLabels sets the pod's labels.
+func (b *NetutilsPodBuilder) WithLabels(labels map[string]string) *NetutilsPodBuilder {
+	b.pod.Labels = labels
+	return b
+}
+
+// WithImagePullSecret sets the pull secret used to fetch the netutils image.
+func (b *NetutilsPodBuilder) WithImagePullSecret(secret string) *NetutilsPodBuilder {
+	b.pod.Spec.ImagePullSecrets = []corev1.LocalObjectReference{{Name: secret}}
+	return b
+}
+
+// WithHostPathMount adds a HostPath volume named name (path hostPath on the
+// host) and mounts it at mountPath in the netutils container. hostPathType
+// may be nil to leave the HostPath type unset.
+func (b *NetutilsPodBuilder) WithHostPathMount(name, hostPath, mountPath string, readOnly bool, hostPathType *corev1.HostPathType) *NetutilsPodBuilder {
+	b.pod.Spec.Volumes = append(b.pod.Spec.Volumes, corev1.Volume{
+		Name: name,
+		VolumeSource: corev1.VolumeSource{
+			HostPath: &corev1.HostPathVolumeSource{Path: hostPath, Type: hostPathType},
+		},
+	})
+	b.pod.Spec.Containers[0].VolumeMounts = append(b.pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+		Name: name, MountPath: mountPath, ReadOnly: readOnly,
+	})
+	return b
+}
+
+// WithSysMount is a convenience for the common read-only "/sys" mount.
+func (b *NetutilsPodBuilder) WithSysMount() *NetutilsPodBuilder {
+	return b.WithHostPathMount("sys", "/sys", "/sys", true, nil)
+}
+
+// WithLifecycle sets the netutils container's lifecycle hooks (e.g. PreStop).
+func (b *NetutilsPodBuilder) WithLifecycle(lifecycle *corev1.Lifecycle) *NetutilsPodBuilder {
+	b.pod.Spec.Containers[0].Lifecycle = lifecycle
+	return b
+}
+
+// WithTerminationGracePeriod sets the pod's termination grace period.
+func (b *NetutilsPodBuilder) WithTerminationGracePeriod(seconds int64) *NetutilsPodBuilder {
+	b.pod.Spec.TerminationGracePeriodSeconds = ptr.To(seconds)
+	return b
+}
+
+// Build returns the constructed pod.
+func (b *NetutilsPodBuilder) Build() *corev1.Pod {
+	return b.pod
+}
+
+// CreateNetutilsHostPod creates pod and returns it without waiting for readiness.
+func CreateNetutilsHostPod(ctx context.Context, testClient client.Client, pod *corev1.Pod) *corev1.Pod {
+	Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, pod))).To(Succeed(), "creating pod %s/%s", pod.Namespace, pod.Name)
+	return pod
+}
+
+// WaitForNetutilsPodReady waits for pod to become Running and Ready, failing
+// fast if it goes Failed. Failure messages include pod.Spec.NodeName, if set,
+// so per-node loops (e.g. one pod per DPU cluster node) point at the right node.
+func WaitForNetutilsPodReady(ctx context.Context, testClient client.Client, pod *corev1.Pod, timeout time.Duration) {
+	podDesc := fmt.Sprintf("pod %s/%s", pod.Namespace, pod.Name)
+	if pod.Spec.NodeName != "" {
+		podDesc += fmt.Sprintf(" on node %s", pod.Spec.NodeName)
+	}
+
+	Eventually(func(g Gomega) {
+		g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(Succeed())
+		g.Expect(pod.Status.Phase).NotTo(Equal(corev1.PodFailed), "%s is in Failed phase", podDesc)
+		g.Expect(IsPodRunningAndReady(pod)).To(BeTrue(), "%s not ready", podDesc)
+	}).WithTimeout(timeout).WithPolling(1 * time.Second).Should(Succeed())
+}
+
+// CreateAndWaitForNetutilsHostPod creates pod and waits for it to be ready.
+func CreateAndWaitForNetutilsHostPod(ctx context.Context, testClient client.Client, pod *corev1.Pod, timeout time.Duration) *corev1.Pod {
+	pod = CreateNetutilsHostPod(ctx, testClient, pod)
+	WaitForNetutilsPodReady(ctx, testClient, pod, timeout)
+	return pod
 }
 
 // IsPodRunningAndReady returns true if the pod is Running and has PodReady condition true.
