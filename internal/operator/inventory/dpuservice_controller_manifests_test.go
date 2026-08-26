@@ -64,14 +64,17 @@ func TestDPUServiceControllerManifestsParse(t *testing.T) {
 	g.Expect(foundByKind).To(HaveKey(ValidatingWebhookConfigurationKind))
 	g.Expect(foundByKind).To(HaveKey(ServiceKind))
 	g.Expect(foundByKind).To(HaveKey(CertificateKind))
-	g.Expect(foundByKind).To(HaveKey(IssuerKind))
 
 	// make sure no namespace and crd obj
 	g.Expect(foundByKind).ToNot(HaveKey(CustomResourceDefinitionKind))
 	g.Expect(foundByKind).ToNot(HaveKey(NamespaceKind))
 
+	// The webhook certificate is signed by the shared DPF webhook issuer, which the dpf-operator helm
+	// chart creates, so the component brings no Issuer of its own.
+	g.Expect(foundByKind).ToNot(HaveKey(IssuerKind))
+
 	// ensure no additional object kinds
-	g.Expect(foundByKind).To(HaveLen(10))
+	g.Expect(foundByKind).To(HaveLen(9))
 
 	// ensure objects parse to concrete type
 	g.Expect(runtime.DefaultUnstructuredConverter.FromUnstructured(foundByKind[DeploymentKind].UnstructuredContent(), &appsv1.Deployment{})).ToNot(HaveOccurred())

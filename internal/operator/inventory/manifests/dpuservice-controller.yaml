@@ -483,20 +483,8 @@ spec:
   - dpuservice-webhook-service.dpuservice-controller-system.svc.cluster.local
   issuerRef:
     kind: Issuer
-    name: dpuservice-selfsigned-issuer
+    name: dpf-webhook-issuer
   secretName: dpuservice-webhook-server-cert
----
-apiVersion: cert-manager.io/v1
-kind: Issuer
-metadata:
-  labels:
-    app.kubernetes.io/component: manager
-    app.kubernetes.io/part-of: dpuservice-controller-manager
-    dpu.nvidia.com/component: dpuservice-controller-manager
-  name: dpuservice-selfsigned-issuer
-  namespace: dpuservice-controller-system
-spec:
-  selfSigned: {}
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration

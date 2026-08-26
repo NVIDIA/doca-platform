@@ -61,6 +61,21 @@ tolerations:
   - key: node-role.kubernetes.io/control-plane
     operator: Exists
     effect: NoSchedule
+# certificateAuthority configures the PKI that the certificates of DPF chain up to. By default the
+# chart creates a self-signed root (dpf-global-bootstrapper -> dpf-global-root-ca ->
+# dpf-global-root-issuer) and derives one intermediate CA per purpose from it.
+certificateAuthority:
+  # -- issuerRef points at an existing cert-manager issuer that signs the intermediate CAs of DPF.
+  # Set it to chain DPF to a certificate authority you own, for example one backed by OpenBao,
+  # instead of the self-signed root. The chart then does not create a root of its own. The PKI
+  # backend behind the issuer must allow signing CA certificates, because the intermediates of DPF
+  # are requested through it. `kind` defaults to Issuer and `group` to cert-manager.io. An Issuer
+  # must exist in the namespace of this release, a ClusterIssuer is cluster scoped.
+  # Example:
+  #   issuerRef:
+  #     name: openbao-issuer
+  #     kind: ClusterIssuer
+  issuerRef: {}
 # -- deprecationWarnings enables ValidatingAdmissionPolicies that warn users
 # when they set deprecated fields on DPF custom resources.
 # Warnings are non-blocking and appear in kubectl output.

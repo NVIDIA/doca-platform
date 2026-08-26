@@ -861,7 +861,7 @@ spec:
   duration: 8760h
   issuerRef:
     kind: Issuer
-    name: dpf-provisioning-selfsigned-issuer
+    name: dpf-webhook-issuer
   renewBefore: 4360h
   secretName: webhook-server-cert
 ---

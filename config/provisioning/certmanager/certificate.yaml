@@ -1,4 +1,8 @@
 # The following manifests contain a self-signed issuer CR and a certificate CR.
+# The webhook serving certificate is signed by dpf-webhook-issuer, the shared DPF intermediate CA
+# for webhook serving certificates, which the dpf-operator helm chart creates in the DPF namespace.
+# The provisioning CA below is still self-signed: it signs the certificates that DPU BMCs and DPU
+# operating systems are provisioned to trust, so re-rooting it is a CA rotation.
 # More document can be found at https://docs.cert-manager.io
 # WARNING: Targets CertManager v1.0. Check https://cert-manager.io/docs/installation/upgrading/ for breaking changes.
 apiVersion: cert-manager.io/v1
@@ -28,7 +32,7 @@ spec:
   renewBefore: 4360h
   issuerRef:
     kind: Issuer
-    name: selfsigned-issuer
+    name: dpf-webhook-issuer # this name will not be prefixed, since it's not managed by kustomize
   secretName: webhook-server-cert # this secret will not be prefixed, since it's not managed by kustomize
 ---
 apiVersion: cert-manager.io/v1
