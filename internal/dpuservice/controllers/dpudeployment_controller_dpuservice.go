@@ -449,10 +449,20 @@ func matchDPUServiceName(name, dpuServiceName string) bool {
 
 // CalculateDPUServiceVersionDigest calculates the digest of the DPUService.
 func calculateDPUServiceVersionDigest(configuration *dpuservicev1.DPUServiceConfiguration, template *dpuservicev1.DPUServiceTemplate) string {
-	config := configuration.DeepCopy()
-	// The upgrade change should not affect the digest, always set it to the default value
-	config.Spec.UpgradePolicy = dpuservicev1.UpgradePolicy{}
-	return digest.Short(digest.FromObjects(config.Spec, template.Spec), 10)
+	// Embed the full spec but shadow UpgradePolicy with an empty struct tagged json:"upgradePolicy".
+	// This achieves two things:
+	//  1. UpgradePolicy is excluded from the digest (changing it must not trigger a new revision).
+	//  2. The shadow field always serializes as `"upgradePolicy":{}` — byte-for-byte identical to the
+	//     output of the previous implementation that zeroed the field before marshaling. This keeps
+	//     the digest stable across upgrades even though the real UpgradePolicy field now carries
+	//     omitzero (which would omit a zero struct and silently change the hash).
+	// New fields added to DPUServiceConfigurationSpec are captured automatically via embedding.
+	type specForDigest struct {
+		dpuservicev1.DPUServiceConfigurationSpec
+		UpgradePolicy struct{} `json:"upgradePolicy"`
+	}
+	s := specForDigest{DPUServiceConfigurationSpec: configuration.Spec}
+	return digest.Short(digest.FromObjects(s, template.Spec), 10)
 }
 
 // getDPUServiceVersionLabelKey returns the label key for a standard DPUService version
