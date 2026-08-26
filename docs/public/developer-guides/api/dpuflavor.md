@@ -39,29 +39,23 @@ DPUFlavor is a Kubernetes Custom Resource Definition (CRD) that defines configur
 | `systemReservedResources` | ResourceList | Resources reserved for system use |
 | `hostNetworkInterfaceConfigs` | [][NetworkInterfaceConfig](#networkinterfaceconfig) | Host-side network interface configuration |
 | `scalableFunctions` | [ScalableFunctions](#scalablefunctions) | Configures Scalable Functions (SFs) created on the DPU |
-| `hostOSInit` | [HostOSInit](#hostosinit) | Selects the readiness gate that releases the host from the firmware host-OS-init hold |
+| `serviceReadiness` | [ServiceReadiness](#servicereadiness) | Configures the `Service Readiness` provisioning phase |
 
-### HostOSInit
+### ServiceReadiness
 
-Configures when the DPU agent releases the host from the `DELAY_HOST_OS_INIT` firmware hold.
-
-| Field | Type | Description |
-|-------|------|--------------|
-| `releaseAfter` | [HostOSInitReleaseAfter](#hostosinitreleaseafter) | Selects the release gate. Defaults to `dpuServiceCriticalPodsReady` when unset |
-
-The hold itself is enabled by setting `DELAY_HOST_OS_INIT=0x3` in [NVConfig](#nvconfig), not by this field, and is only
-supported in Zero Trust. For the generated field reference see [API Reference](api.md), and for configuration guidance,
-gate selection, and troubleshooting see
-[Host OS Init Release](../../advanced-configuration/host-os-init-release.md).
-
-### HostOSInitReleaseAfter
-
-A one-of selector: exactly one field must be set, and each is an empty object that only marks the choice.
+Configures the `Service Readiness` provisioning phase.
 
 | Field | Type | Description |
 |-------|------|--------------|
-| `dpuServiceCriticalPodsReady` | HostOSInitGate | Releases the host once `DPU.status.operationalConditions[DPUServiceCriticalPodsReady]` is `True`. Applied by default when `releaseAfter` is unset |
-| `operationalReady` | HostOSInitGate | Releases the host once `DPU.status.operationalConditions[OperationalReady]` is `True`, which also requires node problems, service interfaces, service chains and non-critical pods to be healthy |
+| `gate` | string | The `DPU.status.operationalConditions` entry that must be `True` before the DPU leaves the `Service Readiness` phase. One of `DPUServiceCriticalPodsReady` or `OperationalReady`. Optional, with no default |
+
+Unset is not the same as choosing a gate: the phase does not block, but a host hold requested through
+`DELAY_HOST_OS_INIT` is still released on `DPUServiceCriticalPodsReady`. Setting `gate` makes the phase block on that
+condition and points the host release at it too.
+
+The hold itself is enabled by `DELAY_HOST_OS_INIT=0x3` in [NVConfig](#nvconfig), not by this field, and requires Zero
+Trust; the phase gate works in either deployment mode. See
+[Service Readiness](../../advanced-configuration/service-readiness.md).
 
 ### ScalableFunctions
 
