@@ -28,6 +28,7 @@ import (
 	"github.com/nvidia/doca-platform/test/utils/metrics"
 	"github.com/nvidia/doca-platform/test/utils/netshoot"
 
+	nadutils "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/utils"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -372,28 +373,25 @@ func createDummyDPUServiceForRDMA(ctx context.Context, testClient client.Client,
 	Expect(testClient.Create(ctx, dummyDPUService)).To(Succeed())
 }
 
-// getPodIPForInterface extracts IP from the k8s.v1.cni.cncf.io/networks-status annotation for the given Pod for the
-// given interfaceName. It expects that only one IP is assigned to this interface and fails the test if not found.
+// getPodIPForInterface returns the only IP assigned to the given Pod interface.
 func getPodIPForInterface(g Gomega, pod corev1.Pod, interfaceName string) string {
-	networksStatusAnnotation, exists := pod.Annotations["k8s.v1.cni.cncf.io/networks-status"]
-	g.Expect(exists).To(BeTrue(), "network status annotation doesn't exist")
+	podIPs := getPodIPsForInterface(g, pod, interfaceName)
+	g.Expect(podIPs).To(HaveLen(1))
+	return podIPs[0]
+}
 
-	var networksStatus []map[string]any
-	g.Expect(json.Unmarshal([]byte(networksStatusAnnotation), &networksStatus)).To(Succeed(), "error while unmarshaling network status annotation")
+// getPodIPsForInterface returns all IPs assigned to the given Pod interface.
+func getPodIPsForInterface(g Gomega, pod corev1.Pod, interfaceName string) []string {
+	networkStatuses, err := nadutils.GetNetworkStatus(&pod)
+	g.Expect(err).NotTo(HaveOccurred())
 
-	var podIPs []string
-	for _, network := range networksStatus {
-		if iface, ok := network["interface"].(string); ok && iface == interfaceName {
-			if ips, ok := network["ips"].([]any); ok {
-				g.Expect(ips).To(HaveLen(1))
-				podIPs = append(podIPs, ips[0].(string))
-			}
+	podIPs := []string{}
+	for _, networkStatus := range networkStatuses {
+		if networkStatus.Interface == interfaceName {
+			podIPs = append(podIPs, networkStatus.IPs...)
 		}
 	}
-
-	g.Expect(podIPs).To(HaveLen(1))
-
-	return podIPs[0]
+	return podIPs
 }
 
 // get2DPUServicePods returns the 2 DPUService Pods associated with a service

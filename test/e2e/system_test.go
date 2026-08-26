@@ -487,23 +487,46 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 		})
 	})
 
+	// OCP reuse runs a pinned release that does not support the generic IPAM fields.
+	Context("DPU Service generic IPAM fields", Labels{Domain.ZeroTrust}, func() {
+		It("render IPv4 and IPv6 IPPools from subnet configurations", func() {
+			ValidateDPUServiceIPAMCreationSubnetForIPv4AndIPv6(ctx, input)
+		})
+		It("render IPv4 and IPv6 CIDRPools from network configurations", func() {
+			ValidateDPUServiceIPAMCreationNetworkForIPv4AndIPv6(ctx, input)
+		})
+		Context("DPUService workload address allocation", Labels{Domain.RequiresNodes}, func() {
+			It("assigns an IPv6 address", func() {
+				ValidateDPUServiceIPAMWorkload(ctx, input, "ipv6", "ipam_v6_if", []dpuServiceIPAMWorkloadPool{
+					{family: corev1.IPv6Protocol, subnet: "2001:db8:1::/120", gateway: "2001:db8:1::1"},
+				})
+			})
+			It("assigns IPv4 and IPv6 addresses", func() {
+				ValidateDPUServiceIPAMWorkload(ctx, input, "dual-stack", "ipam_dual_if", []dpuServiceIPAMWorkloadPool{
+					{family: corev1.IPv6Protocol, subnet: "2001:db8:2::/120", gateway: "2001:db8:2::1"},
+					{family: corev1.IPv4Protocol, subnet: "198.51.100.0/24", gateway: "198.51.100.1"},
+				})
+			})
+		})
+	})
+
 	Context("DPU Service IPAM", Labels{Domain.ZeroTrust, Domain.OCP}, func() {
 		It("create an invalid DPUServiceIPAM and ensure that the webhook rejects the request", func() {
 			ValidateDPUServiceIPAMCreationInvalid(ctx, input)
 		})
-		It("create a DPUServiceIPAM with subnet split per node configuration and check NVIPAM IPPool is created to each cluster", func() {
-			ValidateDPUServiceIPAMCreationSubnetSplit(ctx, input)
+		It("reconcile the legacy ipv4Subnet field as an NVIPAM IPPool", func() {
+			ValidateLegacyDPUServiceIPAMCreationSubnetSplit(ctx, input)
 		})
 		It("verify DPUServiceIPAM metrics", func() {
 			ValidateDPUServiceIPAMMetrics(ctx, input)
 		})
-		It("delete the DPUServiceIPAM with subnet split per node configuration and check NVIPAM IPPool is deleted in each cluster", func() {
+		It("delete a DPUServiceIPAM using the legacy ipv4Subnet field and check its NVIPAM IPPool is deleted", func() {
 			ValidateDPUServiceIPAMMetricsDeletion(ctx, input)
 		})
-		It("create a DPUServiceIPAM with cidr split in subnet per node configuration and check NVIPAM CIDRPool is created to each cluster", func() {
-			ValidateDPUServiceIPAMCreationCidrSplit(ctx, input)
+		It("reconcile the legacy ipv4Network field as an NVIPAM CIDRPool", func() {
+			ValidateLegacyDPUServiceIPAMCreationCidrSplit(ctx, input)
 		})
-		It("delete the DPUServiceIPAM with cidr split in subnet per node configuration and check NVIPAM CIDRPool is deleted in each cluster", func() {
+		It("delete a DPUServiceIPAM using the legacy ipv4Network field and check its NVIPAM CIDRPool is deleted", func() {
 			ValidateDPUServiceIPAMDeletionCidrSplit(ctx, input)
 		})
 	})
