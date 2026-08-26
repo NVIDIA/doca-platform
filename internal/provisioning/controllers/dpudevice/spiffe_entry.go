@@ -88,19 +88,38 @@ func (r *DPUDeviceReconciler) reconcileSPIFFEEntry(ctx context.Context, dpuDevic
 	}
 
 	serial := dpuDevice.Spec.SerialNumber
-	trustDomain := cfg.Spec.Security.SPIFFE.SPIRETrustDomain
-	className := cfg.Spec.Security.SPIFFE.SPIREControllerManagerClassName
+	spiffeConfig := cfg.Spec.Security.SPIFFE
+	className := spiffeConfig.SPIREControllerManagerClassName
 
-	name, spiffeID, parentID, buildErr := buildSpiffeEntryIdentifiers(trustDomain, serial)
-	if buildErr != nil {
+	name, serialErr := dpuAgentClusterStaticEntryName(serial)
+	if serialErr != nil {
 		// Terminal: an unrepresentable serial cannot yield a valid identity. Surface it and do
 		// not requeue (SerialNumberInvalid) -- it requires DPU delete-recreate.
 		conditions.AddFalse(dpuDevice, provisioningv1.ConditionSPIFFEEntryReady,
-			conditions.ReasonError, conditions.ConditionMessage(buildErr.Error()))
-		r.emitEvent(dpuDevice, corev1.EventTypeWarning, events.EventSPIFFEEntryRegistrationFailedReason, buildErr.Error())
-		log.Error(buildErr, "DPUDevice serial cannot form a valid SPIFFE identity; manual intervention required: recreate the DPUDevice with a serial within the supported charset and length", "serial", serial)
+			conditions.ReasonError, conditions.ConditionMessage(serialErr.Error()))
+		r.emitEvent(dpuDevice, corev1.EventTypeWarning, events.EventSPIFFEEntryRegistrationFailedReason, serialErr.Error())
+		log.Error(serialErr, "DPUDevice serial cannot form a valid SPIFFE identity; manual intervention required: recreate the DPUDevice with a serial within the supported charset and length", "serial", serial)
 		return nil
 	}
+
+	renderer, err := spire.NewDPUAgentIdentityRenderer(spiffeConfig)
+	if err != nil {
+		wrapped := fmt.Errorf("invalid DPU Agent identity template configuration: %w", err)
+		conditions.AddFalse(dpuDevice, provisioningv1.ConditionSPIFFEEntryReady,
+			conditions.ReasonError, conditions.ConditionMessage(wrapped.Error()))
+		r.emitEvent(dpuDevice, corev1.EventTypeWarning, events.EventSPIFFEEntryRegistrationFailedReason, wrapped.Error())
+		return wrapped
+	}
+	identities, err := renderer.Render(dpu, dpuDevice)
+	if err != nil {
+		wrapped := fmt.Errorf("rendering DPU Agent identity from configured templates: %w", err)
+		conditions.AddFalse(dpuDevice, provisioningv1.ConditionSPIFFEEntryReady,
+			conditions.ReasonError, conditions.ConditionMessage(wrapped.Error()))
+		r.emitEvent(dpuDevice, corev1.EventTypeWarning, events.EventSPIFFEEntryRegistrationFailedReason, wrapped.Error())
+		return wrapped
+	}
+	spiffeID := identities.SPIFFEID
+	parentID := identities.ParentID
 
 	// Persist the deletion-ordering finalizer BEFORE creating the external ClusterStaticEntry. If the
 	// CSE were created first and the controller crashed (or the deferred patch failed) before the
@@ -160,7 +179,7 @@ func (r *DPUDeviceReconciler) reconcileSPIFFEEntry(ctx context.Context, dpuDevic
 // finalizer) it returns done=false so the caller requeues. done=true means the
 // SPIFFEDeregistrationFinalizer may be removed.
 func (r *DPUDeviceReconciler) deleteSPIFFEEntry(ctx context.Context, dpuDevice *provisioningv1.DPUDevice) (done bool, err error) {
-	name, nameErr := spire.DPUAgentClusterStaticEntryName(dpuDevice.Spec.SerialNumber)
+	name, nameErr := dpuAgentClusterStaticEntryName(dpuDevice.Spec.SerialNumber)
 	if nameErr != nil {
 		// The serial never yielded a valid CR name, so no CR was ever created. Nothing to wait for.
 		return true, nil
@@ -241,21 +260,6 @@ func (r *DPUDeviceReconciler) findOwningSpiffeDPU(ctx context.Context, dpuDevice
 			fmt.Sprintf("multiple SPIFFE-mode DPUs %v are bound to DPUDevice %s; selecting %s", names, dpuDevice.Name, matches[0].Name))
 	}
 	return matches[0], nil
-}
-
-// buildSpiffeEntryIdentifiers derives the ClusterStaticEntry name and the spiffeID/parentID for a
-// given trust domain and serial. All three share the single serial/trust-domain policy in the
-// spire/identity packages, so any one failing is a terminal validation error for this DPU.
-func buildSpiffeEntryIdentifiers(trustDomain, serial string) (name, spiffeID, parentID string, err error) {
-	name, err = spire.DPUAgentClusterStaticEntryName(serial)
-	if err != nil {
-		return "", "", "", err
-	}
-	spiffeID, parentID, err = spire.SpireDPUAgentIDs(trustDomain, serial)
-	if err != nil {
-		return "", "", "", err
-	}
-	return name, spiffeID, parentID, nil
 }
 
 func setSpiffeEntrySpec(cse *spirev1alpha1.ClusterStaticEntry, spiffeID, parentID, className string) {

@@ -1056,11 +1056,13 @@ func setVaultKMSConfig(config *operatorv1.DPFOperatorConfig, vaultKMS *operatorv
 
 func getValidSPIFFEConfiguration() *operatorv1.SPIFFEConfiguration {
 	return &operatorv1.SPIFFEConfiguration{
-		SPIREServerAddress:              "spire-server.spire-system.svc:8081",
-		SPIRETrustDomain:                "cs.internal",
-		KubeAPIAudience:                 "https://kubernetes.default.svc",
-		SPIREOIDCURL:                    "https://spire-oidc.spire-system.svc",
-		SPIREControllerManagerClassName: "spire-mgmt-spire",
+		SPIREServerAddress:                "spire-server.spire-system.svc:8081",
+		SPIRETrustDomain:                  "cs.internal",
+		DPUAgentSPIFFEIDTemplate:          "spiffe://{{ .TrustDomain }}/tenant/dummy-operator/service/dsx/dpu/{{ .SerialNumber }}/process/dpu-agent",
+		DPUAgentExchangedSPIFFEIDTemplate: "spiffe://dummy-operator.example.test/dpu/{{ .SerialNumber }}/process/dpu-agent",
+		KubeAPIAudience:                   "https://kubernetes.default.svc",
+		SPIREOIDCURL:                      "https://spire-oidc.spire-system.svc",
+		SPIREControllerManagerClassName:   "spire-mgmt-spire",
 		TrustBundle: operatorv1.SPIFFETrustBundleConfigMapReference{
 			Name:      "spire-bundle",
 			Namespace: "spire-system",

@@ -172,11 +172,13 @@ var _ = Describe("DefaultDPUArtifactGenerator", func() {
 					},
 					Security: &operatorv1.SecurityConfiguration{
 						SPIFFE: &operatorv1.SPIFFEConfiguration{
-							SPIREServerAddress:              "spire-server.spire.svc:8081",
-							SPIRETrustDomain:                "cs.internal",
-							KubeAPIAudience:                 "dpf",
-							SPIREOIDCURL:                    "https://spire-oidc.example.com",
-							SPIREControllerManagerClassName: "spire-mgmt-spire",
+							SPIREServerAddress:                "spire-server.spire.svc:8081",
+							SPIRETrustDomain:                  "cs.internal",
+							DPUAgentSPIFFEIDTemplate:          "spiffe://{{ .TrustDomain }}/tenant/operator/service/dsx/dpu/{{ .SerialNumber }}/process/dpu-agent",
+							DPUAgentExchangedSPIFFEIDTemplate: "spiffe://operator.example.test/dpu/{{ .SerialNumber }}/process/dpu-agent",
+							KubeAPIAudience:                   "dpf",
+							SPIREOIDCURL:                      "https://spire-oidc.example.com",
+							SPIREControllerManagerClassName:   "spire-mgmt-spire",
 							TrustBundle: operatorv1.SPIFFETrustBundleConfigMapReference{
 								Name:      "spire-bundle",
 								Namespace: "spire",

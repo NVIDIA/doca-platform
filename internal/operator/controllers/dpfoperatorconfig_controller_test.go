@@ -153,12 +153,13 @@ func TestDPFOperatorConfigReconciler_Conditions(t *testing.T) {
 		g.Eventually(func(g Gomega) {
 			g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(config), config)).To(Succeed())
 			assertConditions(g, config, map[string]string{
-				"Ready":                      "Pending",
-				"SystemComponentsReady":      "Error",
-				"SystemComponentsReconciled": "Pending",
-				"ImagePullSecretsReconciled": "Error",
-				"PreUpgradeValidationReady":  "Success",
-				"CATrustBundleReady":         "Pending",
+				"Ready":                          "Pending",
+				"DPUAgentIdentityTemplatesValid": "Success",
+				"SystemComponentsReady":          "Error",
+				"SystemComponentsReconciled":     "Pending",
+				"ImagePullSecretsReconciled":     "Error",
+				"PreUpgradeValidationReady":      "Success",
+				"CATrustBundleReady":             "Pending",
 			})
 		}).WithTimeout(10 * time.Second).Should(Succeed())
 	})
@@ -174,12 +175,13 @@ func TestDPFOperatorConfigReconciler_Conditions(t *testing.T) {
 			g.Expect(testutils.ForceObjectReconcileWithAnnotation(ctx, testClient, config)).To(Succeed())
 			g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(config), conf)).To(Succeed())
 			assertConditions(g, conf, map[string]string{
-				"Ready":                      "Pending",
-				"SystemComponentsReady":      "Error",
-				"SystemComponentsReconciled": "Success",
-				"ImagePullSecretsReconciled": "Success",
-				"PreUpgradeValidationReady":  "Success",
-				"CATrustBundleReady":         "Pending",
+				"Ready":                          "Pending",
+				"DPUAgentIdentityTemplatesValid": "Success",
+				"SystemComponentsReady":          "Error",
+				"SystemComponentsReconciled":     "Success",
+				"ImagePullSecretsReconciled":     "Success",
+				"PreUpgradeValidationReady":      "Success",
+				"CATrustBundleReady":             "Pending",
 			})
 		}).WithTimeout(5*time.Second).Should(Succeed(), fmt.Sprintf("test failed with %v", config))
 	})
@@ -201,12 +203,13 @@ func TestDPFOperatorConfigReconciler_Conditions(t *testing.T) {
 			conf := &operatorv1.DPFOperatorConfig{}
 			g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(config), conf)).To(Succeed())
 			assertConditions(g, conf, map[string]string{
-				"Ready":                      "AwaitingDeletion",
-				"SystemComponentsReady":      "Error",
-				"SystemComponentsReconciled": "AwaitingDeletion",
-				"ImagePullSecretsReconciled": "Success",
-				"PreUpgradeValidationReady":  "Success",
-				"CATrustBundleReady":         "Pending",
+				"Ready":                          "AwaitingDeletion",
+				"DPUAgentIdentityTemplatesValid": "Success",
+				"SystemComponentsReady":          "Error",
+				"SystemComponentsReconciled":     "AwaitingDeletion",
+				"ImagePullSecretsReconciled":     "Success",
+				"PreUpgradeValidationReady":      "Success",
+				"CATrustBundleReady":             "Pending",
 			})
 		}).WithTimeout(10 * time.Second).Should(Succeed())
 
