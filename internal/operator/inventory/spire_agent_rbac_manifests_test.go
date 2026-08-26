@@ -31,10 +31,12 @@ import (
 func spiffeConfig() *operatorv1.SecurityConfiguration {
 	return &operatorv1.SecurityConfiguration{
 		SPIFFE: &operatorv1.SPIFFEConfiguration{
-			SPIREServerAddress: "spire-server.spire-system.svc:8081",
-			SPIRETrustDomain:   "cs.internal",
-			KubeAPIAudience:    "dpf",
-			SPIREOIDCURL:       "https://spire.example.com",
+			SPIREServerAddress:                "spire-server.spire-system.svc:8081",
+			SPIRETrustDomain:                  "cs.internal",
+			DPUAgentSPIFFEIDTemplate:          "spiffe://{{ .TrustDomain }}/tenant/operator/service/dsx/dpu/{{ .SerialNumber }}/process/dpu-agent",
+			DPUAgentExchangedSPIFFEIDTemplate: "spiffe://operator.example.test/dpu/{{ .SerialNumber }}/process/dpu-agent",
+			KubeAPIAudience:                   "dpf",
+			SPIREOIDCURL:                      "https://spire.example.com",
 		},
 	}
 }

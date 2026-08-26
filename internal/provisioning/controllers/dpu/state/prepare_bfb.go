@@ -153,8 +153,8 @@ func ensureRBAC(ctx context.Context, ctrlCtx *dutil.ControllerContext, dpu *prov
 	return token, nil
 }
 
-// dpuAgentRoleBindingSubject returns the RBAC subject username for the per-DPU
-// RoleBinding: the literal SPIFFE-ID URI (SpireWorkloadID) for SPIFFE-mode DPUs, or the
+// dpuAgentRoleBindingSubject returns the RBAC subject name for the per-DPU
+// RoleBinding: the post-exchange SPIFFE ID for SPIFFE-mode DPUs, or the
 // certificate username (da-<dpu>) for bootstrap-token DPUs.
 func dpuAgentRoleBindingSubject(ctx context.Context, ctrlCtx *dutil.ControllerContext, dpu *provisioningv1.DPU, dpuDevice *provisioningv1.DPUDevice) (string, error) {
 	if !cutil.IsSpiffeDPU(dpu) {
@@ -167,11 +167,15 @@ func dpuAgentRoleBindingSubject(ctx context.Context, ctrlCtx *dutil.ControllerCo
 	if !cutil.SpiffeEnabled(cfg) {
 		return "", fmt.Errorf("DPU %s is SPIFFE-mode but cluster spec.security.spiffe is unset", dpu.Name)
 	}
-	subject, err := spire.SpireWorkloadID(cfg.Spec.Security.SPIFFE.SPIRETrustDomain, dpuDevice.Spec.SerialNumber)
+	renderer, err := spire.NewDPUAgentIdentityRenderer(cfg.Spec.Security.SPIFFE)
+	if err != nil {
+		return "", fmt.Errorf("validating SPIFFE identity templates for DPU %s: %w", dpu.Name, err)
+	}
+	identities, err := renderer.Render(dpu, dpuDevice)
 	if err != nil {
 		return "", fmt.Errorf("building SPIFFE RBAC subject for DPU %s: %w", dpu.Name, err)
 	}
-	return subject, nil
+	return identities.ExchangedSPIFFEID, nil
 }
 
 func PrepareBFB(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {

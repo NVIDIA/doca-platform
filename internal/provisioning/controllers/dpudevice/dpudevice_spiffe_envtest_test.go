@@ -25,7 +25,6 @@ import (
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
-	"github.com/nvidia/doca-platform/internal/spire"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	spirev1alpha1 "github.com/nvidia/doca-platform/third_party/forked/github.com/spiffe/spire-controller-manager/api/v1alpha1"
 
@@ -136,11 +135,13 @@ var _ = Describe("DPUDevice SPIFFE reconcile (envtest)", Ordered, func() {
 				},
 				Security: &operatorv1.SecurityConfiguration{
 					SPIFFE: &operatorv1.SPIFFEConfiguration{
-						SPIREServerAddress:              "spire.example.test:30481",
-						SPIRETrustDomain:                "example.test",
-						KubeAPIAudience:                 "dpf-dpu-agent",
-						SPIREOIDCURL:                    "https://oidc.example.test:30443",
-						SPIREControllerManagerClassName: "spire-mgmt-spire",
+						SPIREServerAddress:                "spire.example.test:30481",
+						SPIRETrustDomain:                  "example.test",
+						DPUAgentSPIFFEIDTemplate:          "spiffe://{{ .TrustDomain }}/tenant/dummy-operator/service/dsx/dpu/{{ .SerialNumber }}/process/dpu-agent",
+						DPUAgentExchangedSPIFFEIDTemplate: "spiffe://dummy-operator.example.test/dpu/{{ .SerialNumber }}/process/dpu-agent",
+						KubeAPIAudience:                   "dpf-dpu-agent",
+						SPIREOIDCURL:                      "https://oidc.example.test:30443",
+						SPIREControllerManagerClassName:   "spire-mgmt-spire",
 						TrustBundle: operatorv1.SPIFFETrustBundleConfigMapReference{
 							Name:      "spire-bundle",
 							Namespace: namespace,
@@ -184,7 +185,7 @@ var _ = Describe("DPUDevice SPIFFE reconcile (envtest)", Ordered, func() {
 		dpu.Status.IdentityMode = ptr.To(provisioningv1.IdentityModeSpiffe)
 		Expect(k8sClient.Status().Update(envCtx, dpu)).To(Succeed())
 
-		cseName, err := spire.DPUAgentClusterStaticEntryName(serial)
+		cseName, err := dpuAgentClusterStaticEntryName(serial)
 		Expect(err).NotTo(HaveOccurred())
 		cse := &spirev1alpha1.ClusterStaticEntry{}
 		Eventually(func(g Gomega) {

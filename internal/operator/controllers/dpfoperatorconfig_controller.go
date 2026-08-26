@@ -31,6 +31,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/operator/utils"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/release"
+	"github.com/nvidia/doca-platform/internal/spire"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 
@@ -244,8 +245,29 @@ func isPaused(config *operatorv1.DPFOperatorConfig) bool {
 	return *config.Spec.Overrides.Paused
 }
 
+func validateSPIFFEIdentityTemplates(config *operatorv1.DPFOperatorConfig) error {
+	if config.Spec.Security == nil || config.Spec.Security.SPIFFE == nil {
+		return nil
+	}
+	if _, err := spire.NewDPUAgentIdentityRenderer(config.Spec.Security.SPIFFE); err != nil {
+		return fmt.Errorf("invalid spec.security.spiffe DPU Agent identity templates: %w", err)
+	}
+	return nil
+}
+
 //nolint:unparam
 func (r *DPFOperatorConfigReconciler) reconcile(ctx context.Context, dpfOperatorConfig *operatorv1.DPFOperatorConfig, dpuClusters []*dpucluster.Config) (ctrl.Result, error) {
+	if err := validateSPIFFEIdentityTemplates(dpfOperatorConfig); err != nil {
+		message := fmt.Sprintf("SPIFFE identity templates must be valid for DPF Operator to continue:\n%v", err)
+		conditions.AddFalse(
+			dpfOperatorConfig,
+			operatorv1.DPUAgentIdentityTemplatesValidCondition,
+			conditions.ReasonError,
+			conditions.ConditionMessage(message))
+		return ctrl.Result{}, err
+	}
+	conditions.AddTrue(dpfOperatorConfig, operatorv1.DPUAgentIdentityTemplatesValidCondition)
+
 	if err := r.reconcilePreUpgradeValidations(ctx, dpfOperatorConfig, dpuClusters); err != nil {
 		// We don't have to join the errors here as we are already formatting the error message.
 		message := fmt.Sprintf("Validation must pass for DPF upgrade to continue:\n%v",

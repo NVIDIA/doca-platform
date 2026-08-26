@@ -1944,6 +1944,24 @@ spec:
                       spiffe configures the SPIFFE-based DPU Agent identity flow. Edits are accepted post-bootstrap
                       but do NOT retro-apply to already-provisioned DPUs.
                     properties:
+                      dpuAgentExchangedSPIFFEIDTemplate:
+                        description: |-
+                          DPUAgentExchangedSPIFFEIDTemplate renders the post-exchange SPIFFE ID subject. It receives
+                          the same Go template data as DPUAgentSPIFFEIDTemplate.
+                          The rendered identity may use a different trust domain and must depend on the DPU serial.
+                        maxLength: 2048
+                        minLength: 1
+                        type: string
+                      dpuAgentSPIFFEIDTemplate:
+                        description: |-
+                          DPUAgentSPIFFEIDTemplate renders the local SPIFFE workload identity registered with SPIRE.
+                          It uses Go text/template syntax and receives TrustDomain, normalized SerialNumber, DPUMeta,
+                          DPUSpec, DPUDeviceMeta, and DPUDeviceSpec. Metadata labels and annotations can be accessed
+                          with the built-in index function.
+                          The rendered identity must use SPIRETrustDomain and depend on the DPU serial.
+                        maxLength: 2048
+                        minLength: 1
+                        type: string
                       kubeAPIAudience:
                         description: |-
                           KubeAPIAudience is the audience claim the DPU Agent's JWT-SVID must carry; it must match an
