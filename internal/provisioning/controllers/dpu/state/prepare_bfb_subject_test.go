@@ -48,7 +48,11 @@ func TestDPUAgentRoleBindingSubject(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "cfg", Namespace: "dpf-operator-system"},
 		Spec: operatorv1.DPFOperatorConfigSpec{
 			Security: &operatorv1.SecurityConfiguration{
-				SPIFFE: &operatorv1.SPIFFEConfiguration{SPIRETrustDomain: "cs.internal"},
+				SPIFFE: &operatorv1.SPIFFEConfiguration{
+					SPIRETrustDomain:                  "cs.internal",
+					DPUAgentSPIFFEIDTemplate:          "spiffe://{{ .TrustDomain }}/tenant/dummy-operator/service/dsx/dpu/{{ .SerialNumber }}/process/dpu-agent",
+					DPUAgentExchangedSPIFFEIDTemplate: "spiffe://dummy-operator.az51-dev2.dsx.nvid.id/dpu/{{ .SerialNumber }}/process/dpu-agent",
+				},
 			},
 		},
 	}
@@ -81,7 +85,7 @@ func TestDPUAgentRoleBindingSubject(t *testing.T) {
 			dpu:         spiffeDPU,
 			device:      device("SN123"),
 			objs:        []client.Object{spiffeConfig},
-			wantSubject: "spiffe://cs.internal/dpu/sn123/process/dpu-agent",
+			wantSubject: "spiffe://dummy-operator.az51-dev2.dsx.nvid.id/dpu/sn123/process/dpu-agent",
 		},
 		{
 			name:    "SPIFFE DPU with unrepresentable serial fails closed",
@@ -138,7 +142,11 @@ func TestEnsureRBACSkipsBootstrapTokenForSPIFFEDPU(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "cfg", Namespace: dpu.Namespace},
 		Spec: operatorv1.DPFOperatorConfigSpec{
 			Security: &operatorv1.SecurityConfiguration{
-				SPIFFE: &operatorv1.SPIFFEConfiguration{SPIRETrustDomain: "cs.internal"},
+				SPIFFE: &operatorv1.SPIFFEConfiguration{
+					SPIRETrustDomain:                  "cs.internal",
+					DPUAgentSPIFFEIDTemplate:          "spiffe://{{ .TrustDomain }}/tenant/dummy-operator/service/dsx/dpu/{{ .SerialNumber }}/process/dpu-agent",
+					DPUAgentExchangedSPIFFEIDTemplate: "spiffe://dummy-operator.az51-dev2.dsx.nvid.id/dpu/{{ .SerialNumber }}/process/dpu-agent",
+				},
 			},
 		},
 	}
@@ -157,7 +165,7 @@ func TestEnsureRBACSkipsBootstrapTokenForSPIFFEDPU(t *testing.T) {
 	if err := fakeClient.Get(context.Background(), client.ObjectKey{Name: "da-dpu-01", Namespace: dpu.Namespace}, roleBinding); err != nil {
 		t.Fatalf("get RoleBinding: %v", err)
 	}
-	if len(roleBinding.Subjects) != 1 || roleBinding.Subjects[0].Name != "spiffe://cs.internal/dpu/sn123/process/dpu-agent" {
+	if len(roleBinding.Subjects) != 1 || roleBinding.Subjects[0].Name != "spiffe://dummy-operator.az51-dev2.dsx.nvid.id/dpu/sn123/process/dpu-agent" {
 		t.Fatalf("RoleBinding subjects = %#v", roleBinding.Subjects)
 	}
 

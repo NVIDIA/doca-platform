@@ -101,11 +101,13 @@ var _ = Describe("Phase Initializing", func() {
 				}
 				cfg.Spec.Security = &operatorv1.SecurityConfiguration{
 					SPIFFE: &operatorv1.SPIFFEConfiguration{
-						SPIREServerAddress:              "spire-server.spire-system.svc:8081",
-						SPIRETrustDomain:                "cs.internal",
-						KubeAPIAudience:                 "spire-dpu",
-						SPIREOIDCURL:                    "https://spire-oidc.spire-system.svc",
-						SPIREControllerManagerClassName: "spire-mgmt-spire",
+						SPIREServerAddress:                "spire-server.spire-system.svc:8081",
+						SPIRETrustDomain:                  "cs.internal",
+						DPUAgentSPIFFEIDTemplate:          "spiffe://{{ .TrustDomain }}/tenant/operator/service/dsx/dpu/{{ .SerialNumber }}/process/dpu-agent",
+						DPUAgentExchangedSPIFFEIDTemplate: "spiffe://operator.example.test/dpu/{{ .SerialNumber }}/process/dpu-agent",
+						KubeAPIAudience:                   "spire-dpu",
+						SPIREOIDCURL:                      "https://spire-oidc.spire-system.svc",
+						SPIREControllerManagerClassName:   "spire-mgmt-spire",
 						TrustBundle: operatorv1.SPIFFETrustBundleConfigMapReference{
 							Name:      "spire-bundle",
 							Namespace: "spire-system",

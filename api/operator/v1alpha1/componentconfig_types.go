@@ -321,6 +321,11 @@ type SPIFFETrustBundleConfigMapReference struct {
 	Format SPIFFETrustBundleFormat `json:"format,omitempty"`
 }
 
+// DefaultDPUAgentSPIFFEIDTemplate is the default for both DPU Agent identity templates.
+// This default is applied during reconciliation because the generated CRD is shipped as a Helm
+// template, which would evaluate a kubebuilder default containing Go template delimiters.
+const DefaultDPUAgentSPIFFEIDTemplate = "spiffe://{{ .TrustDomain }}/dpu/{{ .SerialNumber }}/process/dpu-agent"
+
 // SPIFFEConfiguration is the per-cluster SPIFFE bootstrap parameter set
 //
 // +kubebuilder:validation:XValidation:rule="self.spireServerAddress.matches('^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?([.][A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*:[1-9][0-9]{0,4}$')",message="spireServerAddress must be host:port with a valid DNS-1123 host (e.g. spire-server.spire-system.svc:8081)"
@@ -340,6 +345,24 @@ type SPIFFEConfiguration struct {
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
 	// +required
 	SPIRETrustDomain string `json:"spireTrustDomain,omitempty"`
+
+	// DPUAgentSPIFFEIDTemplate renders the local SPIFFE workload identity registered with SPIRE.
+	// It uses Go text/template syntax and receives TrustDomain, normalized SerialNumber, DPUMeta,
+	// DPUSpec, DPUDeviceMeta, and DPUDeviceSpec. Metadata labels and annotations can be accessed
+	// with the built-in index function.
+	// The rendered identity must use SPIRETrustDomain and depend on the DPU serial.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=2048
+	// +optional
+	DPUAgentSPIFFEIDTemplate string `json:"dpuAgentSPIFFEIDTemplate,omitempty"`
+
+	// DPUAgentExchangedSPIFFEIDTemplate renders the post-exchange SPIFFE ID subject. It receives
+	// the same Go template data as DPUAgentSPIFFEIDTemplate.
+	// The rendered identity may use a different trust domain and must depend on the DPU serial.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=2048
+	// +optional
+	DPUAgentExchangedSPIFFEIDTemplate string `json:"dpuAgentExchangedSPIFFEIDTemplate,omitempty"`
 
 	// KubeAPIAudience is the audience claim the DPU Agent's JWT-SVID must carry; it must match an
 	// entry in the kube-apiserver AuthenticationConfiguration.audiences[] (owned out-of-band).

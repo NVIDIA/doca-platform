@@ -25,16 +25,21 @@ import (
 )
 
 const (
-	PreUpgradeValidationReadyCondition  conditions.ConditionType = "PreUpgradeValidationReady"
-	ImagePullSecretsReconciledCondition conditions.ConditionType = "ImagePullSecretsReconciled"
-	SystemComponentsReconciledCondition conditions.ConditionType = "SystemComponentsReconciled"
-	SystemComponentsReadyCondition      conditions.ConditionType = "SystemComponentsReady"
-	CATrustBundleReadyCondition         conditions.ConditionType = "CATrustBundleReady"
+	// DPUAgentIdentityTemplatesValidCondition reports that the templates parse and produce
+	// serial-dependent probe values. SPIFFE ID format and trust-domain semantics are validated
+	// later when the templates are rendered with real DPU and DPUDevice data.
+	DPUAgentIdentityTemplatesValidCondition conditions.ConditionType = "DPUAgentIdentityTemplatesValid"
+	PreUpgradeValidationReadyCondition      conditions.ConditionType = "PreUpgradeValidationReady"
+	ImagePullSecretsReconciledCondition     conditions.ConditionType = "ImagePullSecretsReconciled"
+	SystemComponentsReconciledCondition     conditions.ConditionType = "SystemComponentsReconciled"
+	SystemComponentsReadyCondition          conditions.ConditionType = "SystemComponentsReady"
+	CATrustBundleReadyCondition             conditions.ConditionType = "CATrustBundleReady"
 )
 
 var (
 	Conditions = []conditions.ConditionType{
 		conditions.TypeReady,
+		DPUAgentIdentityTemplatesValidCondition,
 		PreUpgradeValidationReadyCondition,
 		ImagePullSecretsReconciledCondition,
 		SystemComponentsReconciledCondition,
