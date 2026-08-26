@@ -294,6 +294,8 @@ spec:
 
 * `spec.provisioningController.maxUnavailableDPUNodes`: Maximum number of DPU nodes that can be unavailable during updates. The provisioning controller interacts with the maintenance-operator to implement the drain node effect. The number of nodes that can be applied node effect simultaneously is determined by MaxUnavailableDPUNodes in dpfoperatorconfig and MaxParallelOperations in the NodeMaintenance-operator configuration. NodeMainteanceOperator has higher priority than what is defined in the DPFOperatorConfig. The default value of DPFOperatorConfig.MaxUnavailableDPUNodes is 50. For the default MaintenanceOperatorConfig values see instructions in [helm prerequisites](https://gitlab-master.nvidia.com/doca-platform-foundation/doca-platform-foundation/-/blob/main/docs/public/getting-started/helm-prerequisites.md?ref_type=heads).
 
+* `spec.provisioningController.osInstallRetries`: Maximum number of retryable OS installation attempts in zero-trust mode before the DPU transitions to Error. When unset, the provisioning controller defaults to 2.
+
   The maxDPUParallelInstallations and maxUnavailableDPUNodes options can be configured together and can be combined with maxParallelOperations and maxUnavailable in Nvidia NodeMaintenance-operator configuration. Below are some examples to show the expected behaviour.
 
 | maxDPUParallelInstallations in DPFOperatorconfig | maxUnavailableDPUNodes in DPFOperatorconfig | maxParallelOperations in Nvidia NodeMaintenanceConfig | maxUnavailable in Nvidia NodeMaintenanceConfig | max number of DPUs in provisioning | max number of Nodes under node effect in NodeMaintenanceOperator|

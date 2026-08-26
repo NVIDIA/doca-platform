@@ -234,6 +234,7 @@ func (p *provisioningControllerObjects) dpfProvisioningDeploymentEdit(vars Varia
 			p.setMultiDPUOperationsSyncWaitTime,
 			p.setMaxUnavailableDPUNodes,
 			p.setOSInstallTimeout,
+			p.setOSInstallRetries,
 			p.setFirmwareUpdateTimeout,
 			p.setPreInstallAgentRegistrationTimeout,
 			p.setNodeEffectRemovalTimeout,
@@ -520,6 +521,17 @@ func (p *provisioningControllerObjects) setMaxDPUParallelInstallations(deploy *a
 		return nil
 	}
 	return setFlags(c, fmt.Sprintf("--max-dpu-parallel-installations=%d", *vars.DPFProvisioningController.MaxDPUParallelInstallations))
+}
+
+func (p *provisioningControllerObjects) setOSInstallRetries(deploy *appsv1.Deployment, vars Variables) error {
+	if vars.DPFProvisioningController.OSInstallRetries == 0 {
+		return nil
+	}
+	c := getManagerContainer(deploy)
+	if c == nil {
+		return fmt.Errorf(errManagerContainerNotFoundFmt, managerContainerName)
+	}
+	return setFlags(c, fmt.Sprintf("--os-install-retries=%d", vars.DPFProvisioningController.OSInstallRetries))
 }
 
 func (p *provisioningControllerObjects) setImagePullSecrets(deploy *appsv1.Deployment, vars Variables) error {
