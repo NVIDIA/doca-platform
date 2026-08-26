@@ -135,6 +135,10 @@ below.
 The following section provides the specific Helm chart values that must be configured before installing each dependency.
 These configurations ensure proper integration with the DPF Operator and optimal performance in your environment.
 
+The dependencies that use cert-manager sign their certificates with a self-signed issuer of their own.
+To chain them to a certificate authority you own instead, see
+[External Certificate Authority](../advanced-configuration/external-certificate-authority.md).
+
 **Helm Chart Values**
 
 <details markdown="1"><summary><b>cert-manager</b></summary>

@@ -303,20 +303,8 @@ spec:
   - dpf-nodesriovdeviceplugin-webhook-service.dpf-nodesriovdeviceplugin-system.svc.cluster.local
   issuerRef:
     kind: Issuer
-    name: dpf-nodesriovdeviceplugin-selfsigned-issuer
+    name: dpf-webhook-issuer
   secretName: nodesriovdeviceplugin-webhook-server-cert
----
-apiVersion: cert-manager.io/v1
-kind: Issuer
-metadata:
-  labels:
-    app.kubernetes.io/component: manager
-    app.kubernetes.io/part-of: nodesriovdeviceplugin-controller
-    dpu.nvidia.com/component: nodesriovdeviceplugin-controller
-  name: dpf-nodesriovdeviceplugin-selfsigned-issuer
-  namespace: dpf-nodesriovdeviceplugin-system
-spec:
-  selfSigned: {}
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration

@@ -1,0 +1,105 @@
+{{/*
+The PKI that DPF certificates chain up to.
+
+By default the chart creates a self-signed root and one intermediate CA per purpose:
+
+  dpf-global-bootstrapper (selfSigned)
+    └── dpf-global-root-ca (isCA)
+          └── dpf-global-root-issuer
+                └── dpf-webhook-intermediate-ca (isCA)
+                      └── dpf-webhook-issuer  signs the webhook serving certificates
+
+Setting certificateAuthority.issuerRef replaces the first three objects with an issuer you own, so
+DPF chains to your CA instead. Everything from the intermediates down stays the same, which is why
+the certificates that DPF components create never reference the root directly.
+*/}}
+{{- $issuerRef := .Values.certificateAuthority.issuerRef | default dict }}
+{{- if and (empty $issuerRef.name) (or (not (empty $issuerRef.kind)) (not (empty $issuerRef.group))) }}
+{{- fail "certificateAuthority.issuerRef.name is required when certificateAuthority.issuerRef is set, otherwise the certificates of DPF are signed by a self-signed root instead of your issuer" }}
+{{- end }}
+{{- $bringYourOwn := not (empty $issuerRef.name) }}
+{{- $rootIssuerName := "dpf-global-root-issuer" }}
+{{- $rootIssuerKind := "Issuer" }}
+{{- $rootIssuerGroup := "cert-manager.io" }}
+{{- if $bringYourOwn }}
+{{- $rootIssuerName = $issuerRef.name }}
+{{- $rootIssuerKind = $issuerRef.kind | default $rootIssuerKind }}
+{{- $rootIssuerGroup = $issuerRef.group | default $rootIssuerGroup }}
+{{- end }}
+{{- if not $bringYourOwn }}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: dpf-global-bootstrapper
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "dpf-operator.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: dpf-global-root-ca
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "dpf-operator.labels" . | nindent 4 }}
+spec:
+  isCA: true
+  commonName: dpf-global-root-ca
+  secretName: dpf-global-root-ca
+  # 10 years, renewed a year before it expires.
+  duration: 87600h
+  renewBefore: 8760h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    kind: Issuer
+    name: dpf-global-bootstrapper
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: dpf-global-root-issuer
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "dpf-operator.labels" . | nindent 4 }}
+spec:
+  ca:
+    secretName: dpf-global-root-ca
+---
+{{- end }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: dpf-webhook-intermediate-ca
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "dpf-operator.labels" . | nindent 4 }}
+spec:
+  isCA: true
+  commonName: dpf-webhook-intermediate-ca
+  secretName: dpf-webhook-intermediate-ca
+  # 3 years, renewed halfway through its lifetime.
+  duration: 26280h
+  renewBefore: 13140h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    kind: {{ $rootIssuerKind }}
+    name: {{ $rootIssuerName }}
+    group: {{ $rootIssuerGroup }}
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: dpf-webhook-issuer
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "dpf-operator.labels" . | nindent 4 }}
+spec:
+  ca:
+    secretName: dpf-webhook-intermediate-ca
