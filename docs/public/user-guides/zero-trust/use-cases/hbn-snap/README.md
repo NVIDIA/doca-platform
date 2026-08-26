@@ -419,7 +419,7 @@ Install the SPDK CSI Controller that runs on the host cluster for this scenario:
 
 ```shell
 helm upgrade --install -n dpf-operator-system spdk-csi-controller \
-  oci://ghcr.io/mellanox/dpf-storage-vendors-charts/spdk-csi-controller --version=v0.3.0 \
+  oci://ghcr.io/mellanox/dpf-storage-vendors-charts/spdk-csi-controller --version=v0.4.0 \
   --wait \
   -f manifests/03.1-dpudeployment-installation-nvme/helm-values/spdk-csi-controller.yml
 ```
@@ -1242,7 +1242,7 @@ spec:
   helmChart:
     source:
       repoURL: oci://ghcr.io/mellanox/dpf-storage-vendors-charts
-      version: v0.3.0
+      version: v0.4.0
       chart: spdk-csi-controller
 ```
 </details>

@@ -162,7 +162,7 @@ Install the SPDK CSI Controller that runs on the host cluster for this scenario:
 [embedmd]:# (non-trusted-host/nvme-hotplug-pf/helm/spdk-csi-controller/install.txt sh)
 ```sh
 helm upgrade --install -n dpf-operator-system spdk-csi-controller \
-  oci://ghcr.io/mellanox/dpf-storage-vendors-charts/spdk-csi-controller --version=v0.3.0 \
+  oci://ghcr.io/mellanox/dpf-storage-vendors-charts/spdk-csi-controller --version=v0.4.0 \
   --wait \
   -f non-trusted-host/nvme-hotplug-pf/helm/spdk-csi-controller/values.yaml
 ```
@@ -649,7 +649,7 @@ spec:
   helmChart:
     source:
       repoURL: oci://ghcr.io/mellanox/dpf-storage-vendors-charts
-      version: v0.3.0
+      version: v0.4.0
       chart: spdk-csi-controller
 ```
 </details>
@@ -886,7 +886,7 @@ Install the SPDK CSI Controller that runs on the host cluster for this scenario:
 [embedmd]:# (non-trusted-host/nvme-static-pf/helm/spdk-csi-controller/install.txt sh)
 ```sh
 helm upgrade --install -n dpf-operator-system spdk-csi-controller \
-  oci://ghcr.io/mellanox/dpf-storage-vendors-charts/spdk-csi-controller --version=v0.3.0 \
+  oci://ghcr.io/mellanox/dpf-storage-vendors-charts/spdk-csi-controller --version=v0.4.0 \
   --wait \
   -f non-trusted-host/nvme-static-pf/helm/spdk-csi-controller/values.yaml
 ```
@@ -1371,7 +1371,7 @@ spec:
   helmChart:
     source:
       repoURL: oci://ghcr.io/mellanox/dpf-storage-vendors-charts
-      version: v0.3.0
+      version: v0.4.0
       chart: spdk-csi-controller
 ```
 </details>
@@ -1608,7 +1608,7 @@ Install the SPDK CSI Controller that runs on the host cluster for this scenario:
 [embedmd]:# (non-trusted-host/nvme-vf-on-static-pf/helm/spdk-csi-controller/install.txt sh)
 ```sh
 helm upgrade --install -n dpf-operator-system spdk-csi-controller \
-  oci://ghcr.io/mellanox/dpf-storage-vendors-charts/spdk-csi-controller --version=v0.3.0 \
+  oci://ghcr.io/mellanox/dpf-storage-vendors-charts/spdk-csi-controller --version=v0.4.0 \
   --wait \
   -f non-trusted-host/nvme-vf-on-static-pf/helm/spdk-csi-controller/values.yaml
 ```
@@ -2096,7 +2096,7 @@ spec:
   helmChart:
     source:
       repoURL: oci://ghcr.io/mellanox/dpf-storage-vendors-charts
-      version: v0.3.0
+      version: v0.4.0
       chart: spdk-csi-controller
 ```
 </details>
@@ -3092,7 +3092,7 @@ Install the SPDK CSI Controller that runs on the host cluster for this scenario:
 [embedmd]:# (trusted-k8s-cluster/nvme-hotplug-pf/helm/spdk-csi-controller/install.txt sh)
 ```sh
 helm upgrade --install -n dpf-operator-system spdk-csi-controller \
-  oci://ghcr.io/mellanox/dpf-storage-vendors-charts/spdk-csi-controller --version=v0.3.0 \
+  oci://ghcr.io/mellanox/dpf-storage-vendors-charts/spdk-csi-controller --version=v0.4.0 \
   --wait \
   -f trusted-k8s-cluster/nvme-hotplug-pf/helm/spdk-csi-controller/values.yaml
 ```
@@ -3633,7 +3633,7 @@ spec:
   helmChart:
     source:
       repoURL: oci://ghcr.io/mellanox/dpf-storage-vendors-charts
-      version: v0.3.0
+      version: v0.4.0
       chart: spdk-csi-controller
 ```
 </details>
@@ -3947,7 +3947,7 @@ Install the SPDK CSI Controller that runs on the host cluster for this scenario:
 [embedmd]:# (trusted-k8s-cluster/nvme-vf-on-static-pf/helm/spdk-csi-controller/install.txt sh)
 ```sh
 helm upgrade --install -n dpf-operator-system spdk-csi-controller \
-  oci://ghcr.io/mellanox/dpf-storage-vendors-charts/spdk-csi-controller --version=v0.3.0 \
+  oci://ghcr.io/mellanox/dpf-storage-vendors-charts/spdk-csi-controller --version=v0.4.0 \
   --wait \
   -f trusted-k8s-cluster/nvme-vf-on-static-pf/helm/spdk-csi-controller/values.yaml
 ```
@@ -4489,7 +4489,7 @@ spec:
   helmChart:
     source:
       repoURL: oci://ghcr.io/mellanox/dpf-storage-vendors-charts
-      version: v0.3.0
+      version: v0.4.0
       chart: spdk-csi-controller
 ```
 </details>
