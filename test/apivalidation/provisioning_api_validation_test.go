@@ -524,27 +524,35 @@ var _ = Describe("Provisioning API Validation", func() {
 			})
 		})
 
-		DescribeTable("Validates exactly one HostOSInit releaseAfter gate",
-			func(releaseAfter *provisioningv1.HostOSInitReleaseAfter, expectError bool) {
+		DescribeTable("Validates the ServiceReadiness gate enum",
+			func(serviceReadiness *provisioningv1.ServiceReadiness, expectError bool) {
 				obj := getMinimalDPUFlavor(testNs.Name)
-				obj.Spec.HostOSInit = &provisioningv1.HostOSInit{ReleaseAfter: releaseAfter}
+				obj.Spec.ServiceReadiness = serviceReadiness
 				err := testClient.Create(ctx, obj)
 				if expectError {
 					Expect(err).To(HaveOccurred())
-					Expect(err.Error()).To(ContainSubstring("exactly one of operationalReady or dpuServiceCriticalPodsReady must be set"))
+					Expect(err.Error()).To(Or(
+						ContainSubstring("Unsupported value"),
+						ContainSubstring("supported values"),
+					))
 				} else {
 					Expect(err).ToNot(HaveOccurred())
 				}
 			},
-			Entry("only operationalReady is specified",
-				&provisioningv1.HostOSInitReleaseAfter{OperationalReady: &provisioningv1.HostOSInitGate{}}, false),
-			Entry("neither gate is specified",
-				&provisioningv1.HostOSInitReleaseAfter{}, true),
-			Entry("both gates are specified",
-				&provisioningv1.HostOSInitReleaseAfter{
-					OperationalReady:            &provisioningv1.HostOSInitGate{},
-					DPUServiceCriticalPodsReady: &provisioningv1.HostOSInitGate{},
-				}, true),
+			Entry("DPUServiceCriticalPodsReady is accepted", &provisioningv1.ServiceReadiness{
+				Gate: provisioningv1.GateDPUServiceCriticalPodsReady,
+			}, false),
+			Entry("OperationalReady is accepted", &provisioningv1.ServiceReadiness{
+				Gate: provisioningv1.GateOperationalReady,
+			}, false),
+			// Both the block and the gate inside it are optional, so these mean "do not wait"
+			// rather than being invalid. Gate is a non-pointer string with omitempty, so an empty
+			// gate is serialized away and is indistinguishable from an absent one.
+			Entry("an empty serviceReadiness block is accepted", &provisioningv1.ServiceReadiness{}, false),
+			Entry("an absent serviceReadiness block is accepted", nil, false),
+			Entry("a gate outside the enum is rejected", &provisioningv1.ServiceReadiness{
+				Gate: provisioningv1.ServiceReadinessGate("NodeProblemsReady"),
+			}, true),
 		)
 	})
 

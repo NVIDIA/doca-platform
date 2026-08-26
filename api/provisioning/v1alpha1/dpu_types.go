@@ -44,7 +44,7 @@ var DPUGroupVersionKind = GroupVersion.WithKind(DPUKind)
 // DPUPhase describes current state of DPU.
 // Only one of the following state may be specified.
 // Default is Initializing.
-// +kubebuilder:validation:Enum="Initializing";"Node Effect";"Pending";"Update Firmware";"Config FW Parameters";"Prepare BFB";"OS Installing";"DPU Config";"DPU Cluster Config";"Host Network Configuration";"Host OS Init Release";"Ready";"Error";"Deleting";"Rebooting";"Perform ARM Force Restart";"Initialize Interface";"Node Effect Removal";"Checking Host Reboot Required"
+// +kubebuilder:validation:Enum="Initializing";"Node Effect";"Pending";"Update Firmware";"Config FW Parameters";"Prepare BFB";"OS Installing";"DPU Config";"DPU Cluster Config";"Host Network Configuration";"Service Readiness";"Ready";"Error";"Deleting";"Rebooting";"Perform ARM Force Restart";"Initialize Interface";"Node Effect Removal";"Checking Host Reboot Required"
 type DPUPhase string
 
 // These are the valid statuses of DPU.
@@ -76,8 +76,10 @@ const (
 	DPUClusterConfig DPUPhase = "DPU Cluster Config"
 	// DPUHostNetworkConfiguration means the host network configuration is running.
 	DPUHostNetworkConfiguration DPUPhase = "Host Network Configuration"
-	// DPUHostOSInitRelease waits for the DPU agent to release host OS init when configured.
-	DPUHostOSInitRelease DPUPhase = "Host OS Init Release"
+	// DPUServiceReadiness waits for DPU services to become ready before the DPU is put into service.
+	// When the flavor configures a gate the phase blocks on it; it also waits for the DPU agent to
+	// release a host OS init hold when one was requested.
+	DPUServiceReadiness DPUPhase = "Service Readiness"
 	// DPUNodeEffectRemoval means the controller will remove the node effect from the DPU.
 	DPUNodeEffectRemoval DPUPhase = "Node Effect Removal"
 	// DPUReady means the DPU is ready to use.
@@ -118,7 +120,7 @@ const (
 	DPUCondHostNetworkReady       DPUConditionType = "HostNetworkReady"
 	DPUCondDPUClusterReady        DPUConditionType = "DPUClusterReady"
 	DPUCondDPUConfig              DPUConditionType = "DPUConfig"
-	DPUCondHostOSInitRelease      DPUConditionType = "HostOSInitRelease"
+	DPUCondServiceReadiness       DPUConditionType = "ServiceReadiness"
 	DPUCondNodeEffectRemoved      DPUConditionType = "NodeEffectRemoved"
 	DPUCondDeleting               DPUConditionType = "Deleting"
 	DPUCondReady                  DPUConditionType = "Ready"
@@ -607,9 +609,9 @@ type HostOSInitSkipped struct {
 
 // HostOSInitSucceeded reports successful host OS init release.
 type HostOSInitSucceeded struct {
-	// releaseAfter echoes the effective gate used for release.
+	// gate echoes the effective gate used for release.
 	// +optional
-	ReleaseAfter *HostOSInitReleaseAfter `json:"releaseAfter,omitempty"`
+	Gate ServiceReadinessGate `json:"gate,omitempty"`
 }
 
 // IdentityMode records which authentication mechanism the DPU Agent uses to reach the

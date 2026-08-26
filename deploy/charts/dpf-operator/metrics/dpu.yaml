@@ -91,6 +91,7 @@
             - DPU Cluster Config
             - Host Network Configuration
             - Checking Host Reboot Required
+            - Service Readiness
             - Node Effect Removal
             - Ready
             - Error

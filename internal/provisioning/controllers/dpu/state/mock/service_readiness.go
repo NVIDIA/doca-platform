@@ -24,13 +24,13 @@ import (
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 )
 
-func HostOSInitRelease(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
+func ServiceReadiness(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
 	state := dpu.Status.DeepCopy()
 	if !dpu.DeletionTimestamp.IsZero() {
 		state.Phase = provisioningv1.DPUDeleting
 		return *state, nil
 	}
 	state.Phase = provisioningv1.DPUNodeEffectRemoval
-	cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondHostOSInitRelease, "", "mock host OS init release complete"))
+	cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondServiceReadiness, "", "mock service readiness complete"))
 	return *state, nil
 }
