@@ -44,8 +44,8 @@ worker1-mt2413xz0b67   True    True          Ready   73d
 | `DPUServiceChainsReady`          | Service chains are configured                            |
 
 `OperationalReady` and `DPUServiceCriticalPodsReady` can also be used as provisioning gates: a DPUFlavor may hold the
-host at the start of its OS initialization until one of them is `True`. See
-[Host OS Init Release](../../../advanced-configuration/host-os-init-release.md).
+DPU in the `Service Readiness` phase, and optionally hold the host at the start of its OS initialization, until one of
+them is `True`. See [Service Readiness](../../../advanced-configuration/service-readiness.md).
 
 ## Viewing Operational Conditions
 
