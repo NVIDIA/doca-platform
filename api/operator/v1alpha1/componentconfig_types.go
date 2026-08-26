@@ -111,6 +111,13 @@ type ProvisioningControllerConfiguration struct {
 	// +optional
 	MaxUnavailableDPUNodes *int32 `json:"maxUnavailableDPUNodes,omitempty"`
 
+	// OSInstallRetries is the maximum number of retryable OS installation attempts in zero-trust mode
+	// before the DPU transitions to Error. Attempts are counted in-process and reset on controller restart.
+	// When unset, the provisioning controller defaults to 2.
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	OSInstallRetries int32 `json:"osInstallRetries,omitempty"`
+
 	// OSInstallTimeout is the maximum time allowed for OS installation in zero-trust mode.
 	// If the installation exceeds this timeout, the DPU will transition to an error state.
 	// When unset, the provisioning controller defaults to 60m.

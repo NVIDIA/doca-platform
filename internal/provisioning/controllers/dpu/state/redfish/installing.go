@@ -18,11 +18,13 @@ package redfish
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -63,6 +65,7 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 			err = fmt.Errorf("%s. %s", err.Error(), hint)
 		}
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "InstallationTimeout", err.Error()))
+		clearInstallRetryCounter(dpu.UID)
 		state.Phase = provisioningv1.DPUError
 		return *state, nil
 	}
@@ -91,14 +94,12 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 	if dpu.Status.DPUType == provisioningv1.DPUTypeBlueField4 {
 		_, cond := cutil.GetDPUCondition(state, string(provisioningv1.DPUCondChangeBootTarget))
 		if cond == nil || cond.Status != metav1.ConditionTrue {
-			return installOsBf4(ctx, dpu, ctrlCtx, client)
+			return installWithRetry(ctx, dpu, ctrlCtx, client, logger, installOsBf4)
 		}
-
 	} else {
 		_, cond := cutil.GetDPUCondition(state, string(provisioningv1.DPUCondBFBTransferred))
 		if cond == nil || cond.Status != metav1.ConditionTrue {
-
-			return submitAndMonitorBfbInstallTask(ctx, dpu, ctrlCtx, client)
+			return installWithRetry(ctx, dpu, ctrlCtx, client, logger, submitAndMonitorBfbInstallTask)
 		}
 	}
 
@@ -130,10 +131,59 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 
 	cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), nil, "OsInstalled", "OS installed, waiting for the DPU agent to start"))
 
+	clearInstallRetryCounter(dpu.UID)
 	ctrlCtx.DPUInProvisioningMap.Remove(dutil.DPUID(dpu.UID))
 	state.Phase = provisioningv1.DPUConfig
 	logger.Info("installation finished")
 	return *state, nil
+}
+
+type installBFOSFn func(context.Context, *provisioningv1.DPU, *dutil.ControllerContext, *rc.Client) (provisioningv1.DPUStatus, error)
+
+// installWithRetry runs one OS install attempt per reconcile. Failures wrapped
+// as restartOSInstallError stay in OS Installing (controller RequeueAfter
+// retries later) until Options.OSInstallRetries is exhausted, then transition
+// to Error. Other errors are returned as-is. The retry counter is not cleared
+// on nil: install helpers also return nil while in progress (task polls,
+// waiting on another update). It is cleared when OSInstallRetries is exhausted,
+// or when installation finishes successfully.
+func installWithRetry(
+	ctx context.Context,
+	dpu *provisioningv1.DPU,
+	ctrlCtx *dutil.ControllerContext,
+	client *rc.Client,
+	logger logr.Logger,
+	fn installBFOSFn,
+) (provisioningv1.DPUStatus, error) {
+	state, err := fn(ctx, dpu, ctrlCtx, client)
+	if err == nil {
+		return state, nil
+	}
+	if !isRestartOSInstallError(err) {
+		return state, err
+	}
+
+	maxRuns := osInstallRetries(ctrlCtx.Options)
+	// Start a new OS install run up to maxRuns times.
+	count := incrementInstallRetryCounter(dpu.UID)
+	if count >= maxRuns {
+		logger.Info("max number of OS installation runs reached", "maxRuns", maxRuns, "lastError", err)
+		clearInstallRetryCounter(dpu.UID)
+		state.Phase = provisioningv1.DPUError
+		return state, nil
+	}
+
+	logger.Info("installation failed, will retry", "attempt", count, "maxRuns", maxRuns, "error", err)
+	state.Phase = provisioningv1.DPUOSInstalling
+	state.RedfishTaskID = nil
+	return state, err
+}
+
+func osInstallRetries(opts dutil.DPUOptions) int {
+	if opts.OSInstallRetries > 0 {
+		return int(opts.OSInstallRetries)
+	}
+	return int(dutil.DefaultOSInstallRetries)
 }
 
 func installOsBf4(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext, client *rc.Client) (provisioningv1.DPUStatus, error) {
@@ -222,70 +272,61 @@ func installOsBf4(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 	if err != nil {
 		err = fmt.Errorf("failed to insert virtual media image: %w", err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondVirtualMediaInserted), err, "FailToInsertVirtualMediaImage", "Failed to insert virtual media image"))
-		state.Phase = provisioningv1.DPUError
-		return *state, nil
+		return *state, newRestartOSInstallError(err)
 	}
 
 	_, err = client.InsertVirtualMediaConfig()
 	if err != nil {
 		err = fmt.Errorf("failed to insert virtual media config: %w", err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondVirtualMediaInserted), err, "FailToInsertVirtualMediaConfig", "Failed to insert virtual media config"))
-		state.Phase = provisioningv1.DPUError
-		return *state, nil
+		return *state, newRestartOSInstallError(err)
 	}
 
 	_, err = client.SetBootTarget("None", false)
 	if err != nil {
 		err = fmt.Errorf("failed to set boot target: %w", err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondChangeBootTarget), err, "FailToSetBootTarget", "Failed to set boot target to None"))
-		state.Phase = provisioningv1.DPUError
-		return *state, nil
+		return *state, newRestartOSInstallError(err)
 	}
 
 	_, settings, err := client.GetSettings()
 	if err != nil {
 		err = fmt.Errorf("failed to get settings: %w", err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondChangeBootTarget), err, "FailToGetSettings", "Failed to get settings"))
-		state.Phase = provisioningv1.DPUError
-		return *state, nil
+		return *state, newRestartOSInstallError(err)
 	}
 
 	if settings.Boot.BootSourceOverrideTarget != "None" {
 		err = fmt.Errorf("boot source override target is not None")
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondChangeBootTarget), err, "BootTargetNotApplied", fmt.Sprintf("Boot source override target is not None: %s", settings.Boot.BootSourceOverrideTarget)))
-		state.Phase = provisioningv1.DPUError
-		return *state, nil
+		return *state, newRestartOSInstallError(err)
 	}
 
 	_, err = client.SetBootTarget("Usb", true)
 	if err != nil {
 		err = fmt.Errorf("failed to set boot target: %w", err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondChangeBootTarget), err, "FailToSetBootTarget", "Failed to set boot target to USB"))
-		state.Phase = provisioningv1.DPUError
-		return *state, nil
+		return *state, newRestartOSInstallError(err)
 	}
 
 	_, settings, err = client.GetSettings()
 	if err != nil {
 		err = fmt.Errorf("failed to get settings: %w", err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondChangeBootTarget), err, "FailToGetSettings", "Failed to get settings"))
-		state.Phase = provisioningv1.DPUError
-		return *state, nil
+		return *state, newRestartOSInstallError(err)
 	}
 
 	if settings.Boot.BootSourceOverrideTarget != "Usb" {
 		err = fmt.Errorf("boot source override target is not Usb")
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondChangeBootTarget), err, "BootTargetNotApplied", fmt.Sprintf("Boot source override target is not Usb: %s", settings.Boot.BootSourceOverrideTarget)))
-		state.Phase = provisioningv1.DPUError
-		return *state, nil
+		return *state, newRestartOSInstallError(err)
 	}
 
 	_, err = client.ChassisReset()
 	if err != nil {
 		err = fmt.Errorf("failed to reset chassis: %w", err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondChassisReset), err, "FailToResetChassis", "Failed to reset chassis"))
-		state.Phase = provisioningv1.DPUError
-		return *state, nil
+		return *state, newRestartOSInstallError(err)
 	}
 
 	logger.Info("Chassis reset, waiting for the DPU agent to start")
@@ -328,10 +369,7 @@ func reconcileBf4ArmTransfer(
 		if err != nil {
 			err = fmt.Errorf("failed to install %s: %w", installDesc, err)
 			cutil.SetDPUCondition(state, cutil.NewCondition(condKey, err, "FailToInstall", err.Error()))
-			state.Phase = provisioningv1.DPUError
-			// When we transition to ERROR phase, return nil so the next Reconcile is triggered by the UPDATE event.
-			// If an error is returned, the next Reconcile may be triggered as a retry, leading to installing again.
-			return nil
+			return newRestartOSInstallError(err)
 		}
 		if resp.StatusCode() == http.StatusBadRequest && strings.Contains(resp.String(), "Another update is in progress") {
 			logger.Info("another update is in progress, waiting for it to finish", "dpuName", dpu.Name)
@@ -341,8 +379,7 @@ func reconcileBf4ArmTransfer(
 			err = fmt.Errorf("get status: %s", resp.Status())
 			logger.Error(err, "Failed to install component", "component", installDesc, "status", resp.Status(), "body", resp.String())
 			cutil.SetDPUCondition(state, cutil.NewCondition(condKey, err, "FailToInstall", resp.String()))
-			state.Phase = provisioningv1.DPUError
-			return nil
+			return newRestartOSInstallError(fmt.Errorf("%w: %s", err, resp.String()))
 		}
 		state.RedfishTaskID = &taskInfo.ID
 		logger.Info(fmt.Sprintf("new install task: %+v", *taskInfo))
@@ -359,14 +396,12 @@ func reconcileBf4ArmTransfer(
 		err = fmt.Errorf("get status: %s", resp.Status())
 		logger.Error(err, "Failed to check task progress", "status", resp.Status(), "body", resp.String())
 		cutil.SetDPUCondition(state, cutil.NewCondition(condKey, err, "FailToCheckProgress", resp.String()))
-		state.Phase = provisioningv1.DPUError
-		return nil
+		return fmt.Errorf("%w: %s", err, resp.String())
 	}
 	if prog.TaskState == exceptionTaskState {
 		taskErr := fmt.Errorf("task %s is in Exception state: %v", *state.RedfishTaskID, prog.Messages)
 		cutil.SetDPUCondition(state, cutil.NewCondition(condKey, taskErr, "FailToInstall", fmt.Sprintf("Task %s is in Exception state: %v", *state.RedfishTaskID, prog.Messages)))
-		state.Phase = provisioningv1.DPUError
-		return nil
+		return newRestartOSInstallError(taskErr)
 	}
 	logger.Info(fmt.Sprintf("taskProgress: %+v", prog), "component", installDesc)
 	if prog.PercentComplete < 100 {
@@ -400,19 +435,14 @@ func submitAndMonitorBfbInstallTask(ctx context.Context, dpu *provisioningv1.DPU
 		if err != nil {
 			err = fmt.Errorf("failed to install BFB: %w", err)
 			cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondBFBTransferred), err, "FailToInstall", err.Error()))
-			state.Phase = provisioningv1.DPUError
-			// when we transition to ERROR phase, we should return nil to make sure the next Reconcile is trigger by the UPDATE event.
-			// If an error is returned, the next Reconcile may be triggered as a retry, leading to installing BFB again.
-			// todo: other phases trasitioning to ERROR phase should also follow this pattern
-			return *state, nil
+			return *state, newRestartOSInstallError(err)
 		} else if resp.StatusCode() == http.StatusBadRequest && strings.Contains(resp.String(), "Another update is in progress") {
 			logger.Info("another update is in progress, waiting for it to finish", "dpuName", dpu.Name)
 			return *state, nil
 		} else if resp.StatusCode() != http.StatusAccepted {
 			err = buildInstallBFBError(logger, resp.Status(), resp.String())
 			cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondBFBTransferred), err, "FailToInstall", err.Error()))
-			state.Phase = provisioningv1.DPUError
-			return *state, nil
+			return *state, newRestartOSInstallError(err)
 		}
 		// Update the state with the task ID so it's reflected in the returned status
 		state.RedfishTaskID = &taskInfo.ID
@@ -435,8 +465,7 @@ func submitAndMonitorBfbInstallTask(ctx context.Context, dpu *provisioningv1.DPU
 	if prog.TaskState == exceptionTaskState {
 		taskErr := buildExceptionTaskError(ctx, dpu, ctrlCtx, logger, client, resp, prog)
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondBFBTransferred), taskErr, "FailToInstall", taskErr.Error()))
-		state.Phase = provisioningv1.DPUError
-		return *state, nil
+		return *state, newRestartOSInstallError(taskErr)
 	}
 
 	logger.Info(fmt.Sprintf("taskProgress: %+v", prog))
@@ -678,4 +707,64 @@ func checkInstallationTimeout(state *provisioningv1.DPUStatus, timeout time.Dura
 
 	logger.Info("OS installation timeout exceeded", "elapsed", elapsed, "timeout", timeout)
 	return fmt.Errorf("OS installation timeout exceeded: %v > %v", elapsed, timeout)
+}
+
+// installRetryCounter tracks failed retryable OS install attempts per DPU UID across reconciles
+var installRetryCounter sync.Map
+
+func incrementInstallRetryCounter(dpuUID types.UID) int {
+	for {
+		v, loaded := installRetryCounter.Load(dpuUID)
+		if !loaded {
+			if _, existed := installRetryCounter.LoadOrStore(dpuUID, 1); !existed {
+				return 1
+			}
+			continue
+		}
+		count := v.(int) + 1
+		if installRetryCounter.CompareAndSwap(dpuUID, v, count) {
+			return count
+		}
+	}
+}
+
+func clearInstallRetryCounter(dpuUID types.UID) {
+	installRetryCounter.Delete(dpuUID)
+}
+
+// restartOSInstallError marks a failed OS install run that should count toward
+// OSInstallRetries and start a new install (clear RedfishTaskID) on the next
+// reconcile. Other errors still requeue while the phase is OS Installing; they
+// just do not start a new run.
+type restartOSInstallError struct {
+	err error
+}
+
+func (e *restartOSInstallError) Error() string {
+	if e == nil || e.err == nil {
+		return ""
+	}
+	return e.err.Error()
+}
+
+func (e *restartOSInstallError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.err
+}
+
+// newRestartOSInstallError wraps err as a failed OS install run.
+func newRestartOSInstallError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &restartOSInstallError{err: err}
+}
+
+// isRestartOSInstallError reports whether err is a failed OS install run that
+// Installing should count toward OSInstallRetries.
+func isRestartOSInstallError(err error) bool {
+	var ie *restartOSInstallError
+	return errors.As(err, &ie)
 }

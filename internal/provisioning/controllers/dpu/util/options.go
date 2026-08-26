@@ -34,6 +34,10 @@ import (
 
 const (
 	MaxRetryCount = 10
+	// DefaultOSInstallRetries is the default maximum number of retryable OS
+	// installation attempts in zero-trust mode before transitioning to Error.
+	// Used when DPFOperatorConfig.spec.provisioningController.osInstallRetries is unset.
+	DefaultOSInstallRetries int32 = 2
 )
 
 var BmcFwUpdateTaskMap sync.Map
@@ -63,6 +67,9 @@ type DPUOptions struct {
 	KubernetesAPIServerVIP string
 	// OSInstallTimeout is the maximum time allowed for OS installation in zero-trust mode.
 	OSInstallTimeout time.Duration
+	// OSInstallRetries is the maximum number of retryable OS installation attempts in
+	// zero-trust mode before transitioning to Error. Defaults to DefaultOSInstallRetries.
+	OSInstallRetries int32
 	// FirmwareUpdateTimeout is the maximum time allowed for firmware update in zero-trust mode.
 	FirmwareUpdateTimeout time.Duration
 	// PreInstallAgentRegistrationTimeout is how long Initializing waits for preInstall.agentReported.

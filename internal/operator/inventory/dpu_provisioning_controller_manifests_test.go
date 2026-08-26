@@ -1006,6 +1006,63 @@ func TestDPFProvisioningControllerObjects_setOSInstallTimeout(t *testing.T) {
 	})
 }
 
+func TestDPFProvisioningControllerObjects_setOSInstallRetries(t *testing.T) {
+	g := NewGomegaWithT(t)
+
+	defaults := release.NewDefaults()
+	g.Expect(defaults.Parse()).To(Succeed())
+
+	provCtrl := &provisioningControllerObjects{
+		data:            provisioningControllerData,
+		bfbRegistryData: bfbRegistryData,
+	}
+	g.Expect(provCtrl.Parse()).To(Succeed())
+
+	findDeployment := func(t *testing.T, vars Variables) *appsv1.Deployment {
+		t.Helper()
+		g := NewGomegaWithT(t)
+		generatedObjs, err := provCtrl.GenerateManifests(context.Background(), vars)
+		g.Expect(err).NotTo(HaveOccurred())
+
+		for _, obj := range generatedObjs {
+			if obj.GetObjectKind().GroupVersionKind().Kind == string(DeploymentKind) {
+				deploy := &appsv1.Deployment{}
+				unstructuredObj, ok := obj.(*unstructured.Unstructured)
+				g.Expect(ok).To(BeTrue())
+				g.Expect(runtime.DefaultUnstructuredConverter.FromUnstructured(unstructuredObj.UnstructuredContent(), deploy)).To(Succeed())
+				return deploy
+			}
+		}
+		t.Fatal("deployment not found in generated manifests")
+		return nil
+	}
+
+	baseVars := func() Variables {
+		vars := newDefaultVariables(defaults)
+		vars.DPFProvisioningController = DPFProvisioningVariables{
+			BFBPersistentVolumeClaimName: ptr.To(TestPVC),
+			DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
+		}
+		return vars
+	}
+
+	t.Run("does not set flag when OSInstallRetries is unset", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		deployment := findDeployment(t, baseVars())
+		for _, arg := range deployment.Spec.Template.Spec.Containers[0].Args {
+			g.Expect(arg).NotTo(HavePrefix("--os-install-retries="))
+		}
+	})
+
+	t.Run("uses configured OSInstallRetries when set", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		vars := baseVars()
+		vars.DPFProvisioningController.OSInstallRetries = 3
+		deployment := findDeployment(t, vars)
+		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--os-install-retries=3"))
+	})
+}
+
 func TestDPFProvisioningControllerObjects_setFirmwareUpdateTimeout(t *testing.T) {
 	g := NewGomegaWithT(t)
 

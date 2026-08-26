@@ -17,6 +17,8 @@ limitations under the License.
 package redfish
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"time"
@@ -33,6 +35,7 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -128,10 +131,19 @@ func setupInstallingEnv(dpuName string) *installingTestEnv {
 }
 
 func (e *installingTestEnv) teardown() {
+	if e.dpu != nil {
+		clearInstallRetryCounter(e.dpu.UID)
+	}
 	if e.mockServer != nil {
 		e.mockServer.Stop()
 	}
 	_ = os.Setenv("POD_NAMESPACE", e.prevPodNS)
+}
+
+// seedInstallRetriesNearExhaustion leaves one attempt so the next failed
+// OS install run transitions to DPUError.
+func seedInstallRetriesNearExhaustion(dpuUID types.UID) {
+	installRetryCounter.Store(dpuUID, int(dutil.DefaultOSInstallRetries)-1)
 }
 
 // atxLowSELEntry returns a synthetic SEL entry mimicking the documented BMC
@@ -160,6 +172,21 @@ func pcieLowSELEntry() rc.SELEntry {
 }
 
 var _ = Describe("Installing", func() {
+	Context("restartOSInstallError", func() {
+		It("marks wrapped errors as a failed OS install run and leaves plain errors alone", func() {
+			base := errors.New("boom")
+
+			restartErr := newRestartOSInstallError(base)
+			Expect(isRestartOSInstallError(restartErr)).To(BeTrue())
+			Expect(restartErr.Error()).To(Equal("boom"))
+			Expect(errors.Is(restartErr, base)).To(BeTrue())
+
+			plain := fmt.Errorf("plain: %w", base)
+			Expect(isRestartOSInstallError(plain)).To(BeFalse())
+			Expect(newRestartOSInstallError(nil)).To(Succeed())
+		})
+	})
+
 	Context("concatBFBAndBFCFGPath", func() {
 		It("should return the correct path", func() {
 			registry := testBFBRegistry
@@ -433,7 +460,7 @@ var _ = Describe("Installing", func() {
 		dpu.Status.RedfishTaskID = &taskID
 		Expect(k8sClient.Status().Patch(ctx, dpu, patch)).To(Succeed())
 
-		By("Configure mock server to return Exception task state")
+		By("Configure mock server to return Exception task state and fail resubmit")
 		mockServer.SetTaskState("Exception")
 		mockServer.SetTaskMessages([]map[string]interface{}{
 			{
@@ -442,28 +469,40 @@ var _ = Describe("Installing", func() {
 				"Severity":  "Critical",
 			},
 		})
+		mockServer.SetInstallBFBResponse(http.StatusInternalServerError, `{"error":"resubmit failed"}`)
 
 		By("Call Installing to check progress and handle Exception")
 		ctrlCtx := &dutil.ControllerContext{
 			Client: k8sClient,
 			Options: dutil.DPUOptions{
-				BFBRegistry: testBFBRegistry,
+				BFBRegistry:             testBFBRegistry,
+				BFBRegistryLoadBalancer: testBFBRegistry,
+				OSInstallRetries:        2,
 			},
 			DPUInProvisioningMap: dutil.NewDPUInProvisioningMap(10),
 		}
+		defer clearInstallRetryCounter(dpu.UID)
 
 		status, err := Installing(ctx, dpu, ctrlCtx)
-		Expect(err).NotTo(HaveOccurred())
+		Expect(isRestartOSInstallError(err)).To(BeTrue())
 
-		By("Verify DPU phase transitions to Error")
-		Expect(status.Phase).To(Equal(provisioningv1.DPUError))
-
-		By("Verify BFBTransferred condition is set with error details")
+		By("Verify first failed install run stays in OS Installing for RequeueAfter")
+		Expect(status.Phase).To(Equal(provisioningv1.DPUOSInstalling))
+		Expect(status.RedfishTaskID).To(BeNil())
 		_, cond := cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondBFBTransferred))
 		Expect(cond).NotTo(BeNil())
 		Expect(cond.Reason).To(Equal("FailToInstall"))
 		Expect(cond.Message).To(ContainSubstring("Exception state"))
 		Expect(cond.Message).To(ContainSubstring("Installation failed due to network error"))
+
+		By("Simulate controller requeue — second failed install run exhausts OSInstallRetries")
+		dpu.Status = status
+		status, err = Installing(ctx, dpu, ctrlCtx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(status.Phase).To(Equal(provisioningv1.DPUError))
+		_, cond = cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondBFBTransferred))
+		Expect(cond).NotTo(BeNil())
+		Expect(cond.Reason).To(Equal("FailToInstall"))
 	})
 
 	Context("BFB installation via Redfish transient failures", func() {
@@ -694,6 +733,7 @@ var _ = Describe("Installing", func() {
 			// Use the load-balancer override so getBFBRegistryAddress returns
 			// directly, keeping this test focused on the submit failure path.
 			env.ctrlCtx.Options.BFBRegistryLoadBalancer = testBFBRegistry
+			seedInstallRetriesNearExhaustion(env.dpu.UID)
 
 			// Real BMC error envelope seen when rshim is not owned by the BMC.
 			body := `{
@@ -741,6 +781,7 @@ var _ = Describe("Installing", func() {
 
 			env.dpu.Status.RedfishTaskID = nil
 			env.ctrlCtx.Options.BFBRegistryLoadBalancer = testBFBRegistry
+			seedInstallRetriesNearExhaustion(env.dpu.UID)
 
 			// Valid JSON, but not a Redfish error envelope. It decodes cleanly in
 			// do[TaskInfo] (so we reach buildInstallBFBError), yet rc.ErrorMessages
@@ -789,9 +830,13 @@ var _ = Describe("Installing", func() {
 				},
 			})
 
-			status, err := Installing(ctx, env.dpu, env.ctrlCtx)
+			// Inspect the restart-OS-install Exception path directly so enrichment
+			// is not overwritten by a subsequent OSInstallRetries resubmit failure.
+			client, err := rc.NewTLSClient(ctx, env.dpuDevice.BMCAddress(), env.dpu.Namespace, env.ctrlCtx.Client)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(status.Phase).To(Equal(provisioningv1.DPUError))
+			status, err := submitAndMonitorBfbInstallTask(ctx, env.dpu, env.ctrlCtx, client)
+			Expect(isRestartOSInstallError(err)).To(BeTrue())
+			Expect(status.Phase).NotTo(Equal(provisioningv1.DPUError))
 
 			_, cond := cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondBFBTransferred))
 			Expect(cond).NotTo(BeNil())
@@ -815,9 +860,11 @@ var _ = Describe("Installing", func() {
 			})
 			env.mockServer.SetSELEntries([]rc.SELEntry{pcieLowSELEntry()})
 
-			status, err := Installing(ctx, env.dpu, env.ctrlCtx)
+			client, err := rc.NewTLSClient(ctx, env.dpuDevice.BMCAddress(), env.dpu.Namespace, env.ctrlCtx.Client)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(status.Phase).To(Equal(provisioningv1.DPUError))
+			status, err := submitAndMonitorBfbInstallTask(ctx, env.dpu, env.ctrlCtx, client)
+			Expect(isRestartOSInstallError(err)).To(BeTrue())
+			Expect(status.Phase).NotTo(Equal(provisioningv1.DPUError))
 
 			_, cond := cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondBFBTransferred))
 			Expect(cond).NotTo(BeNil())
