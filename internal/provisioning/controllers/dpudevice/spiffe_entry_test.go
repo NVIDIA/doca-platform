@@ -18,6 +18,7 @@ package dpudevice
 
 import (
 	"context"
+	"strings"
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -65,11 +66,13 @@ func spiffeConfig(enabled bool) *operatorv1.DPFOperatorConfig {
 	if enabled {
 		cfg.Spec.Security = &operatorv1.SecurityConfiguration{
 			SPIFFE: &operatorv1.SPIFFEConfiguration{
-				SPIREServerAddress:              "spire-server.spire-system.svc:8081",
-				SPIRETrustDomain:                testTrustDomain,
-				KubeAPIAudience:                 "dpf",
-				SPIREOIDCURL:                    "https://spire.example.com",
-				SPIREControllerManagerClassName: testClassName,
+				SPIREServerAddress:                "spire-server.spire-system.svc:8081",
+				SPIRETrustDomain:                  testTrustDomain,
+				DPUAgentSPIFFEIDTemplate:          "spiffe://{{ .TrustDomain }}/tenant/dummy-operator/service/dsx/dpu/{{ .SerialNumber }}/process/dpu-agent",
+				DPUAgentExchangedSPIFFEIDTemplate: "spiffe://dummy-operator.example.test/dpu/{{ .SerialNumber }}/process/dpu-agent",
+				KubeAPIAudience:                   "dpf",
+				SPIREOIDCURL:                      "https://spire.example.com",
+				SPIREControllerManagerClassName:   testClassName,
 			},
 		}
 	}
@@ -195,7 +198,7 @@ var _ = Describe("SPIFFE ClusterStaticEntry reconcile", func() {
 		cse, err := getCSE(ctx, reconciler.Client)
 		Expect(err).NotTo(HaveOccurred())
 		spiffeID, parentID, className := cse.Spec.SPIFFEID, cse.Spec.ParentID, cse.Spec.ClassName
-		Expect(spiffeID).To(Equal("spiffe://cs.internal/dpu/mt2440600yyw/process/dpu-agent"))
+		Expect(spiffeID).To(Equal("spiffe://cs.internal/tenant/dummy-operator/service/dsx/dpu/mt2440600yyw/process/dpu-agent"))
 		Expect(parentID).To(Equal("spiffe://cs.internal/spire/agent/dpu_hw/mt2440600yyw"))
 		Expect(className).To(Equal(testClassName))
 		Expect(cse.GetLabels()).To(HaveKeyWithValue(LabelDPUDeviceName, "dev-1"))
@@ -221,6 +224,36 @@ var _ = Describe("SPIFFE ClusterStaticEntry reconcile", func() {
 		Expect(err).To(HaveOccurred())
 	})
 
+	It("reports Error (no requeue) for a serial over the identity length limit", func() {
+		dpuDevice.Spec.SerialNumber = strings.Repeat("a", maxClusterStaticEntrySerialLen+1)
+		cfg := spiffeConfig(true)
+		build(cfg, dpuBoundTo(ptr.To(provisioningv1.IdentityModeSpiffe)))
+
+		Expect(reconciler.reconcileSPIFFEEntry(ctx, dpuDevice, cfg)).To(Succeed())
+
+		cond := conditions.Get(dpuDevice, provisioningv1.ConditionSPIFFEEntryReady)
+		Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+		Expect(cond.Reason).To(Equal(string(conditions.ReasonError)))
+		Expect(cond.Message).To(ContainSubstring("too long for DPU Agent identity"))
+	})
+
+	It("returns an actionable error for invalid identity template configuration", func() {
+		cfg := spiffeConfig(true)
+		cfg.Spec.Security.SPIFFE.DPUAgentSPIFFEIDTemplate = "spiffe://{{ .TrustDomain }}/dpu/static"
+		build(cfg, dpuBoundTo(ptr.To(provisioningv1.IdentityModeSpiffe)))
+
+		Expect(reconciler.reconcileSPIFFEEntry(ctx, dpuDevice, cfg)).To(
+			MatchError(ContainSubstring("invalid DPU Agent identity template configuration")))
+
+		cond := conditions.Get(dpuDevice, provisioningv1.ConditionSPIFFEEntryReady)
+		Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+		Expect(cond.Reason).To(Equal(string(conditions.ReasonError)))
+		Expect(cond.Message).To(ContainSubstring("identity template configuration"))
+		Expect(recorder.Events).To(Receive(ContainSubstring(events.EventSPIFFEEntryRegistrationFailedReason)))
+		_, err := getCSE(ctx, reconciler.Client)
+		Expect(err).To(HaveOccurred())
+	})
+
 	It("reclaims out-of-band spec edits and emits a drift event", func() {
 		cfg := spiffeConfig(true)
 		build(cfg, dpuBoundTo(ptr.To(provisioningv1.IdentityModeSpiffe)))
@@ -241,7 +274,7 @@ var _ = Describe("SPIFFE ClusterStaticEntry reconcile", func() {
 		cse, err = getCSE(ctx, reconciler.Client)
 		Expect(err).NotTo(HaveOccurred())
 		spiffeID := cse.Spec.SPIFFEID
-		Expect(spiffeID).To(Equal("spiffe://cs.internal/dpu/mt2440600yyw/process/dpu-agent"))
+		Expect(spiffeID).To(Equal("spiffe://cs.internal/tenant/dummy-operator/service/dsx/dpu/mt2440600yyw/process/dpu-agent"))
 		Expect(recorder.Events).To(Receive(ContainSubstring("Drift")))
 	})
 
@@ -257,7 +290,7 @@ var _ = Describe("SPIFFE ClusterStaticEntry reconcile", func() {
 		cse, err := getCSE(ctx, reconciler.Client)
 		Expect(err).NotTo(HaveOccurred())
 		spiffeID := cse.Spec.SPIFFEID
-		Expect(spiffeID).To(Equal("spiffe://updated.internal/dpu/mt2440600yyw/process/dpu-agent"))
+		Expect(spiffeID).To(Equal("spiffe://updated.internal/tenant/dummy-operator/service/dsx/dpu/mt2440600yyw/process/dpu-agent"))
 	})
 
 	It("reports an actionable error when entry creation is forbidden", func() {

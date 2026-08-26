@@ -43,7 +43,7 @@ require (
 	github.com/ovn-org/libovsdb v0.7.0
 	github.com/spf13/cobra v1.10.0
 	github.com/spf13/pflag v1.0.9
-	github.com/spiffe/go-spiffe/v2 v2.6.0
+	github.com/spiffe/go-spiffe/v2 v2.8.1
 	github.com/spiffe/spire-plugin-sdk v1.15.1
 	github.com/stretchr/testify v1.11.1
 	github.com/vishvananda/netlink v1.3.2-0.20251101063711-6e61cd407d1d
