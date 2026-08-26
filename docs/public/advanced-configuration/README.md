@@ -23,4 +23,4 @@ This page contains advanced configuration documentation for the DOCA Platform Fr
 * [Encrypted Secrets](encrypted-secrets.md) - Configuration for storing secret data in an external secret store and replicating it to the management cluster with External Secrets Operator
 * [Kamaji Encryption at Rest](kamaji-encryption-at-rest.md) - Configuration for encrypting Secrets and ConfigMaps in Kamaji-managed DPU cluster etcd datastores
 * [Telemetry Level Labels](telemetry-level-labels.md) - Per-DPU generation of the DOCA telemetry `level_labels.ini` from DPUDevice values with a DPUFlavorTemplate
-* [Host OS Init Release](host-os-init-release.md) - Holding the host at the start of its OS initialization until the DPU reaches a chosen readiness gate, in Zero Trust deployments
+* [Service Readiness](service-readiness.md) - Holding a DPU out of service, and optionally holding the host at the start of its OS initialization, until the DPU reaches a chosen readiness gate
