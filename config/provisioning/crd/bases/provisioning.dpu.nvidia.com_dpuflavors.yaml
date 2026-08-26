@@ -372,32 +372,6 @@ spec:
                   - portNumber
                   type: object
                 type: array
-              hostOSInit:
-                description: |-
-                  hostOSInit configures when the DPU agent releases host OS init after DELAY_HOST_OS_INIT=0x3
-                  (ENABLE_USER) is set in nvconfig. Omitted releaseAfter defaults to dpuServiceCriticalPodsReady
-                  at agent runtime. Has no effect unless nvconfig requests that hold.
-                properties:
-                  releaseAfter:
-                    description: |-
-                      releaseAfter selects which operational readiness gate must be True before the agent
-                      calls mlxreg to release the host. When omitted, dpuServiceCriticalPodsReady is used.
-                    properties:
-                      dpuServiceCriticalPodsReady:
-                        description: dpuServiceCriticalPodsReady waits for DPU.status.operationalConditions[DPUServiceCriticalPodsReady]
-                          == True.
-                        type: object
-                      operationalReady:
-                        description: operationalReady waits for DPU.status.operationalConditions[OperationalReady]
-                          == True.
-                        type: object
-                    type: object
-                    x-kubernetes-validations:
-                    - message: exactly one of operationalReady or dpuServiceCriticalPodsReady
-                        must be set
-                      rule: '(has(self.operationalReady) ? 1 : 0) + (has(self.dpuServiceCriticalPodsReady)
-                        ? 1 : 0) == 1'
-                type: object
               nvconfig:
                 description: |-
                   NVConfig contains the device-specific configuration (firmware settings, device parameters).
@@ -545,6 +519,19 @@ spec:
                     required:
                     - enabled
                     type: object
+                type: object
+              serviceReadiness:
+                description: serviceReadiness configures the Service Readiness phase.
+                properties:
+                  gate:
+                    description: |-
+                      gate is the DPU.status.operationalConditions entry that must be True before the DPU leaves
+                      the Service Readiness phase. When unset the phase does not wait, and a host hold requested
+                      via DELAY_HOST_OS_INIT is released on DPUServiceCriticalPodsReady.
+                    enum:
+                    - DPUServiceCriticalPodsReady
+                    - OperationalReady
+                    type: string
                 type: object
               sysctl:
                 description: Sysctl contains the sysctl configuration for the DPUFlavor.

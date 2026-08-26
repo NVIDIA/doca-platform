@@ -98,10 +98,10 @@ func (r *ReleaseHostOSInit) Execute(execCtx context.Context, optCtx *operations.
 		allReleased = allReleased && state == hostOSInitReleased
 	}
 	if allReleased {
-		return r.patchSucceeded(execCtx, optCtx, effectiveReleaseAfter(optCtx))
+		return r.patchSucceeded(execCtx, optCtx, optCtx.DPUFlavor.ReleaseGate())
 	}
 
-	gate := effectiveReleaseAfter(optCtx)
+	gate := optCtx.DPUFlavor.ReleaseGate()
 	if err := r.ensureGateReady(execCtx, optCtx, gate); err != nil {
 		return err
 	}
@@ -121,15 +121,6 @@ func (r *ReleaseHostOSInit) Execute(execCtx context.Context, optCtx *operations.
 		}
 	}
 	return r.patchSucceeded(execCtx, optCtx, gate)
-}
-
-func effectiveReleaseAfter(optCtx *operations.Context) *provisioningv1.HostOSInitReleaseAfter {
-	if optCtx.DPUFlavor.Spec.HostOSInit != nil && optCtx.DPUFlavor.Spec.HostOSInit.ReleaseAfter != nil {
-		return optCtx.DPUFlavor.Spec.HostOSInit.ReleaseAfter.DeepCopy()
-	}
-	return &provisioningv1.HostOSInitReleaseAfter{
-		DPUServiceCriticalPodsReady: &provisioningv1.HostOSInitGate{},
-	}
 }
 
 type hostOSInitRegisterState uint8
@@ -252,7 +243,7 @@ func parseMlxregUint(value string) (uint64, error) {
 	return strconv.ParseUint(v, base, 64)
 }
 
-func (r *ReleaseHostOSInit) ensureGateReady(ctx context.Context, optCtx *operations.Context, gate *provisioningv1.HostOSInitReleaseAfter) error {
+func (r *ReleaseHostOSInit) ensureGateReady(ctx context.Context, optCtx *operations.Context, gate provisioningv1.ServiceReadinessGate) error {
 	// Do not use cached LatestDPU: it is filled once early in bootstrap and is stale for
 	// operationalConditions. Use a local Get so we do not mutate shared optCtx.LatestDPU.
 	dpu := optCtx.LatestDPU
@@ -264,18 +255,12 @@ func (r *ReleaseHostOSInit) ensureGateReady(ctx context.Context, optCtx *operati
 		}
 		dpu = fresh
 	}
-	gateType := gateConditionType(gate)
+	// ServiceReadinessGate values are the DPUOperationalConditionType strings, so no mapping is needed.
+	gateType := provisioningv1.DPUOperationalConditionType(gate)
 	if dpu == nil || !gateConditionTrue(dpu, gateType) {
 		return fmt.Errorf("waiting for %s", gateType)
 	}
 	return nil
-}
-
-func gateConditionType(gate *provisioningv1.HostOSInitReleaseAfter) provisioningv1.DPUOperationalConditionType {
-	if gate != nil && gate.OperationalReady != nil {
-		return provisioningv1.DPUOperationalCondReady
-	}
-	return provisioningv1.DPUOperationalCondDPUServiceCriticalPodsReady
 }
 
 func gateConditionTrue(dpu *provisioningv1.DPU, gateType provisioningv1.DPUOperationalConditionType) bool {
@@ -307,9 +292,9 @@ func (r *ReleaseHostOSInit) patchSkipped(ctx context.Context, optCtx *operations
 	return r.persistStatus(ctx, optCtx)
 }
 
-func (r *ReleaseHostOSInit) patchSucceeded(ctx context.Context, optCtx *operations.Context, gate *provisioningv1.HostOSInitReleaseAfter) error {
+func (r *ReleaseHostOSInit) patchSucceeded(ctx context.Context, optCtx *operations.Context, gate provisioningv1.ServiceReadinessGate) error {
 	optCtx.Status.HostOSInit = &provisioningv1.HostOSInitStatus{
-		Succeeded: &provisioningv1.HostOSInitSucceeded{ReleaseAfter: gate.DeepCopy()},
+		Succeeded: &provisioningv1.HostOSInitSucceeded{Gate: gate},
 	}
 	hostutil.NewCondition(condReleaseHostOSInit).Success("").Set(&optCtx.Status.Conditions)
 	return r.persistStatus(ctx, optCtx)

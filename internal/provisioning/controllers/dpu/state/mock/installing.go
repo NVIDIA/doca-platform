@@ -145,8 +145,8 @@ func ClusterConfig(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.
 		return *state, nil
 	}
 
-	state.Phase = provisioningv1.DPUHostOSInitRelease
-	cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondHostOSInitRelease, "", ""))
+	state.Phase = provisioningv1.DPUServiceReadiness
+	cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondServiceReadiness, "", ""))
 
 	return *state, nil
 }
