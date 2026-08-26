@@ -639,20 +639,27 @@ func DeleteProvisioning(ctx context.Context, input *systemTestInput) {
 	By("Deprovisioning completed successfully")
 }
 
-func getAnyReadyDPU(ctx context.Context, cl client.Client) (*provisioningv1.DPU, error) {
-	list := &provisioningv1.DPUList{}
-	if err := cl.List(ctx, list); err != nil {
-		return nil, err
-	}
-	for i := range list.Items {
-		if list.Items[i].Status.Phase == provisioningv1.DPUReady {
-			return &list.Items[i], nil
+// getAnyReadyDPU waits until at least one DPU is in Ready phase.
+// Cluster node label/annotation updates take DPUs through DPUClusterConfig
+// (RerunClusterConfig) before they return to Ready, so a one-shot list can
+// miss them even after the tenant Node already has the new metadata.
+func getAnyReadyDPU(ctx context.Context, cl client.Client) *provisioningv1.DPU {
+	var dpu *provisioningv1.DPU
+	Eventually(func(g Gomega) {
+		list := &provisioningv1.DPUList{}
+		g.Expect(cl.List(ctx, list)).To(Succeed())
+		g.Expect(list.Items).NotTo(BeEmpty(), "no DPUs found")
+		var found *provisioningv1.DPU
+		for i := range list.Items {
+			if list.Items[i].Status.Phase == provisioningv1.DPUReady {
+				found = &list.Items[i]
+				break
+			}
 		}
-	}
-	if len(list.Items) == 0 {
-		return nil, fmt.Errorf("no DPUs found")
-	}
-	return nil, fmt.Errorf("no DPU in Ready phase (found %d)", len(list.Items))
+		g.Expect(found).NotTo(BeNil(), "no DPU in Ready phase (found %d)", len(list.Items))
+		dpu = found
+	}).WithTimeout(10 * time.Minute).WithPolling(time.Second).Should(Succeed())
+	return dpu
 }
 
 func getDPUDeviceByName(ctx context.Context, cl client.Client, name string) (*provisioningv1.DPUDevice, error) {
@@ -753,8 +760,7 @@ func ValidateDPUSetClusterNodeLabelsPropagation(ctx context.Context, input *syst
 	)
 
 	By("Selecting a Ready DPU")
-	dpu, err := getAnyReadyDPU(ctx, input.client)
-	Expect(err).NotTo(HaveOccurred())
+	dpu := getAnyReadyDPU(ctx, input.client)
 
 	By("Adding a new cluster node label and annotation via DPUSet template")
 	dpuset, err := getProvisioningDPUSet(ctx, input.client, input.dpuSet)
@@ -800,8 +806,7 @@ func ValidateDPUSetNotReadyOnClusterMetadataConflict(ctx context.Context, input 
 	)
 
 	By("Selecting a Ready DPU to locate a representative DPUDevice")
-	dpu, err := getAnyReadyDPU(ctx, input.client)
-	Expect(err).NotTo(HaveOccurred())
+	dpu := getAnyReadyDPU(ctx, input.client)
 	dd, err := getDPUDeviceByName(ctx, input.client, dpu.Spec.DPUDeviceName)
 	Expect(err).NotTo(HaveOccurred())
 
@@ -870,8 +875,7 @@ func ValidateDPUDeviceClusterNodeLabelsPropagation(ctx context.Context, input *s
 	)
 
 	By("Selecting a Ready DPU")
-	dpu, err := getAnyReadyDPU(ctx, input.client)
-	Expect(err).NotTo(HaveOccurred())
+	dpu := getAnyReadyDPU(ctx, input.client)
 
 	By(fmt.Sprintf("Fetching DPUDevice %q referenced by DPU %q", dpu.Spec.DPUDeviceName, dpu.Name))
 	dd, err := getDPUDeviceByName(ctx, input.client, dpu.Spec.DPUDeviceName)
