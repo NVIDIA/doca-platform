@@ -1513,7 +1513,7 @@ binary-storage-nvidia-external-attacher: generate-client-for-storage-nvidia-exte
 	# The attacher resolves its own module graph, so the root go.mod pins do not reach it.
 	# Bump the CVE-relevant modules explicitly before tidy, which never downgrades them.
 	cd $(NVIDIA_EXTERNAL_ATTACHER_DIR)/external-attacher && \
-	go get google.golang.org/grpc@v1.82.1 golang.org/x/net@v0.58.0 golang.org/x/text@v0.41.0 && \
+	go get google.golang.org/grpc@v1.82.1 golang.org/x/net@v0.58.0 golang.org/x/text@v0.41.0 go.etcd.io/etcd/client/pkg/v3@v3.6.14 && \
 	go mod tidy && go mod vendor && \
 	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/nvidia-external-attacher github.com/kubernetes-csi/external-attacher/v4/cmd/csi-attacher
 
