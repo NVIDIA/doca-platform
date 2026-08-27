@@ -66,6 +66,27 @@ var dpuNetworkingSubCharts = map[operatorv1.ComponentName]bool{
 	operatorv1.SPIFFECSIDriverName:        true,
 }
 
+// spiffeEligibleComponents are the system DPUServices that request SPIFFE workload
+// identity when the cluster opts into SPIFFE.
+//
+// Only DPU-side services that run pods belong here. In-cluster services run on the host
+// and have no per-DPU SPIRE agent to parent an entry to, and RBAC-only DPUServices have
+// no pods to attest. Each entry here costs one SPIRE ClusterStaticEntry per DPU.
+//
+// A component also needs a chart that renders global.serviceDaemonSet.labels onto its pod
+// template, since the entry selects on the svc.dpu.nvidia.com/service pod label. Flannel is
+// excluded for that reason: its chart hardcodes the pod labels, so an entry for it would
+// render but never match a workload.
+var spiffeEligibleComponents = map[operatorv1.ComponentName]bool{
+	operatorv1.MultusName:                 true,
+	operatorv1.SRIOVDevicePluginName:      true,
+	operatorv1.SFCControllerName:          true,
+	operatorv1.CNIInstallerName:           true,
+	operatorv1.NodeProblemDetectorName:    true,
+	operatorv1.OpenTelemetryCollectorName: true,
+	operatorv1.KataContainersName:         true,
+}
+
 func (f *fromDPUService) Name() operatorv1.ComponentName {
 	return f.name
 }
@@ -148,6 +169,12 @@ func (f *fromDPUService) applyDPUServiceEdits(vars Variables, labelsToAdd map[st
 		for _, edit := range resourceEdits {
 			edits.AddForKindS(DPUServiceKind, edit)
 		}
+	}
+
+	// Request workload identity only when the cluster opted into SPIFFE: the field is
+	// invalid otherwise, and the entries it drives have nothing to parent to.
+	if vars.SpiffeEnabled && spiffeEligibleComponents[f.Name()] {
+		edits.AddForKindS(DPUServiceKind, dpuServiceSetSpiffeEdit())
 	}
 
 	// The DPUNetworking helm chart has all components disabled by default. Enable this DPUService in the helm chart values.
@@ -524,6 +551,28 @@ func dpuServiceAddValueEdit(value interface{}, key ...string) StructuredEdit {
 		dpuService.Spec.HelmChart.Values.Object = &unstructured.Unstructured{Object: mergedValues}
 		dpuService.Spec.HelmChart.Values.Raw = nil
 
+		return nil
+	}
+}
+
+// dpuServiceSetSpiffeEdit opts a system DPUService into SPIFFE workload identity.
+//
+// It is a no-op for an in-cluster DPUService: those run on the host with no per-DPU SPIRE
+// agent to parent to, and the API rejects the combination. dpuServiceInClusterEdit clears
+// Security for that case too, so the two are safe in either order.
+func dpuServiceSetSpiffeEdit() StructuredEdit {
+	return func(obj client.Object) error {
+		dpuService, ok := obj.(*dpuservicev1.DPUService)
+		if !ok {
+			return fmt.Errorf("unexpected object kind %s. expected DPUService", obj.GetObjectKind().GroupVersionKind())
+		}
+		if ptr.Deref(dpuService.Spec.DeployInCluster, false) {
+			return nil
+		}
+		if dpuService.Spec.Security == nil {
+			dpuService.Spec.Security = &dpuservicev1.DPUServiceSecurity{}
+		}
+		dpuService.Spec.Security.SPIFFE = &dpuservicev1.DPUServiceSPIFFE{}
 		return nil
 	}
 }

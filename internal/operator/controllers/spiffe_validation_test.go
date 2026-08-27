@@ -43,3 +43,40 @@ func TestValidateSPIFFEIdentityTemplates(t *testing.T) {
 		t.Fatal("configuration missing SerialNumber unexpectedly passed")
 	}
 }
+
+// TestValidateSPIFFEIdentityTemplatesDPUService covers the DPUService templates, which are
+// validated by the same call: a template rejected here never reaches a DPUService reconcile.
+func TestValidateSPIFFEIdentityTemplatesDPUService(t *testing.T) {
+	config := &operatorv1.DPFOperatorConfig{
+		Spec: operatorv1.DPFOperatorConfigSpec{
+			Security: &operatorv1.SecurityConfiguration{
+				SPIFFE: &operatorv1.SPIFFEConfiguration{
+					SPIRETrustDomain:                    "cs.internal",
+					DPUServiceSPIFFEIDTemplate:          `spiffe://{{ .TrustDomain }}/tenant/{{ .Namespace }}/service/{{ .ServiceID }}/dpu/{{ .SerialNumber }}`,
+					DPUServiceExchangedSPIFFEIDTemplate: `spiffe://operator.example.test/tenant/{{ .Namespace }}/service/{{ .ServiceID }}/dpu/{{ .SerialNumber }}`,
+				},
+			},
+		},
+	}
+	if err := validateSPIFFEIdentityTemplates(config); err != nil {
+		t.Fatalf("valid configuration failed: %v", err)
+	}
+
+	config.Spec.Security.SPIFFE.DPUServiceSPIFFEIDTemplate = "spiffe://{{ .TrustDomain }}/dpu/{{ .SerialNumber }}"
+	if err := validateSPIFFEIdentityTemplates(config); err == nil {
+		t.Fatal("configuration missing ServiceID unexpectedly passed")
+	}
+
+	config.Spec.Security.SPIFFE.DPUServiceSPIFFEIDTemplate = "spiffe://{{ .TrustDomain }}/dpu/{{ .SerialNumber }}/service/{{ .ServiceID }}"
+	if err := validateSPIFFEIdentityTemplates(config); err == nil {
+		t.Fatal("configuration missing Namespace unexpectedly passed")
+	}
+}
+
+// TestValidateSPIFFEIdentityTemplatesUnset asserts an unset SPIFFE section is not an error, so
+// the check never blocks a cluster not using SPIFFE.
+func TestValidateSPIFFEIdentityTemplatesUnset(t *testing.T) {
+	if err := validateSPIFFEIdentityTemplates(&operatorv1.DPFOperatorConfig{}); err != nil {
+		t.Fatalf("unset SPIFFE configuration failed: %v", err)
+	}
+}
