@@ -261,11 +261,11 @@ func (c *BFBRegistryConfiguration) Disabled() bool {
 }
 
 type RegistryConfiguration struct {
-	// Address is the address used to access the BFB Registry. The address must start with "http://".
+	// Address is the address used to access the BFB Registry. The address must start with "http://" or "https://".
 	// By default, the BFB Registry can be accessed via its Service.
 	// For non-kubernetes environments, this must be set due to the lack of kubelet on worker nodes.
 	// For zero-trust environments, this must be set so that the BFB Registry can be accessed from DPU BMC.
-	// +kubebuilder:validation:Pattern="^http://"
+	// +kubebuilder:validation:Pattern="^https?://"
 	// +optional
 	// Deprecated: Address is deprecated and will be removed in a future release.
 	Address *string `json:"address,omitempty"`
@@ -280,7 +280,7 @@ type RegistryConfiguration struct {
 	// LoadBalancerAddress is the address of the load balancer for the BFB Registry which the hostagent/redfish use to fetch the BFB and generated bf.cfg.
 	// To enable the load balancer, you need to deploy your own load balancer controller and configure the LoadBalancerAddress field.
 	// Then check the bfb-registry nodeport service and make your load balancer controller to distribute the requests to the bfb-registry nodeport.
-	// +kubebuilder:validation:Pattern="^http://"
+	// +kubebuilder:validation:Pattern="^https?://"
 	// +optional
 	LoadBalancerAddress *string `json:"loadBalancerAddress,omitempty"`
 }
