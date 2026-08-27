@@ -504,24 +504,34 @@ var _ = Describe("Provisioning API Validation", func() {
 				// Note: MaxItems=3 constraint matches the maximum possible unique enum values
 				// (*, p0, p1). With uniqueness validation, this is the theoretical maximum.
 
-				It("should reject too many parameters (MaxItems=32)", func() {
+			})
+
+			DescribeTable("validates the maximum number of parameters",
+				func(name string, parameterCount int, expectError bool) {
 					obj := getMinimalDPUFlavor(testNs.Name)
-					obj.Name = "cel-maxitems-params"
-					params := make([]string, 33)
-					for i := 0; i < 33; i++ {
+					obj.Name = name
+					params := make([]string, parameterCount)
+					for i := range params {
 						params[i] = fmt.Sprintf("PARAM%d=value", i)
 					}
 					obj.Spec.NVConfig = []provisioningv1.NVConfig{
 						{Device: ptr.To("p0"), Parameters: params},
 					}
+
 					err := testClient.Create(ctx, obj)
-					Expect(err).To(HaveOccurred())
-					Expect(err.Error()).To(Or(
-						ContainSubstring("maxItems"),
-						ContainSubstring("Too many"), // Capital T!
-					))
-				})
-			})
+					if expectError {
+						Expect(err).To(HaveOccurred())
+						Expect(err.Error()).To(Or(
+							ContainSubstring("maxItems"),
+							ContainSubstring("Too many"), // Capital T!
+						))
+						return
+					}
+					Expect(err).ToNot(HaveOccurred())
+				},
+				Entry("accepts exactly 64 parameters", "cel-maxitems-params-64", 64, false),
+				Entry("rejects exactly 65 parameters", "cel-maxitems-params-65", 65, true),
+			)
 		})
 
 		DescribeTable("Validates exactly one HostOSInit releaseAfter gate",

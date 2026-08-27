@@ -358,7 +358,7 @@ spec:
                             maxLength: 200
                             pattern: ^[^=\s]+=[^\s]*$
                             type: string
-                          maxItems: 32
+                          maxItems: 64
                           minItems: 1
                           type: array
                           x-kubernetes-list-type: atomic
@@ -438,7 +438,7 @@ spec:
                         maxLength: 200
                         pattern: ^[^=\s]+=[^\s]*$
                         type: string
-                      maxItems: 32
+                      maxItems: 64
                       minItems: 1
                       type: array
                       x-kubernetes-list-type: atomic

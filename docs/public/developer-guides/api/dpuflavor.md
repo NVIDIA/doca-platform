@@ -94,14 +94,14 @@ A one-of selector: exactly one field must be set, and each is an empty object th
 | Field | Type | Description |
 |-------|------|--------------|
 | `device` | *string | Target device: `"*"` (all devices), `"p0"`/`"P0"` (port 0), or `"p1"`/`"P1"` (port 1). Case-insensitive. |
-| `parameters` | []string | Firmware parameters in `KEY=VALUE` format. 1-32 params, max 200 chars each. |
+| `parameters` | []string | Optional firmware parameters in `KEY=VALUE` format. When present, 1-64 entries, max 200 characters each; empty values such as `FLAG=` are allowed. |
 | `force` | *bool | Apply the parameters with `mlxconfig --force` and skip the `mlxconfig q` deferral filter. Defaults to `false`. |
 
 **Validation Constraints:**
 - Maximum of 3 nvconfig entries per DPUFlavor (one per device: `*`, `p0`/`P0`, `p1`/`P1`)
 - Wildcard device (`"*"`) must be the sole entry when specified (no mixing with port-specific entries)
 - Device identifiers must be unique with case-insensitive matching (e.g., `p0` and `P0` are duplicates)
-- Parameters: 1-32 entries per device, each formatted as `KEY=VALUE` with no spaces allowed
+- Parameters are optional. When present, provide 1-64 `KEY=VALUE` entries with no whitespace; values may be empty
 
 #### IB Mode to Ethernet Mode Configuration
 
