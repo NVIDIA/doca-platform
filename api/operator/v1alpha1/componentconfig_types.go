@@ -326,6 +326,10 @@ type SPIFFETrustBundleConfigMapReference struct {
 // template, which would evaluate a kubebuilder default containing Go template delimiters.
 const DefaultDPUAgentSPIFFEIDTemplate = "spiffe://{{ .TrustDomain }}/dpu/{{ .SerialNumber }}/process/dpu-agent"
 
+// DefaultDPUServiceSPIFFEIDTemplate is the default for both DPUService identity templates.
+// Applied during reconciliation for the same reason as DefaultDPUAgentSPIFFEIDTemplate.
+const DefaultDPUServiceSPIFFEIDTemplate = "spiffe://{{ .TrustDomain }}/dpu/{{ .SerialNumber }}/service/{{ .Namespace }}/{{ .ServiceID }}"
+
 // SPIFFEConfiguration is the per-cluster SPIFFE bootstrap parameter set
 //
 // +kubebuilder:validation:XValidation:rule="self.spireServerAddress.matches('^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?([.][A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*:[1-9][0-9]{0,4}$')",message="spireServerAddress must be host:port with a valid DNS-1123 host (e.g. spire-server.spire-system.svc:8081)"
@@ -363,6 +367,31 @@ type SPIFFEConfiguration struct {
 	// +kubebuilder:validation:MaxLength=2048
 	// +optional
 	DPUAgentExchangedSPIFFEIDTemplate string `json:"dpuAgentExchangedSPIFFEIDTemplate,omitempty"`
+
+	// DPUServiceSPIFFEIDTemplate renders the identity registered with SPIRE for a DPUService that
+	// opts in through its own spec.security.spiffe. It receives TrustDomain, normalized
+	// SerialNumber, Namespace and ServiceID, plus DPUMeta, DPUSpec, DPUServiceMeta and
+	// DPUServiceSpec.
+	// The rendered identity must use SPIRETrustDomain and depend on the namespace, the service ID
+	// and the DPU serial, which together identify one DPUService workload. Dropping any of them
+	// hands a single SVID to distinct workloads, and nothing detects that later: SPIRE keys
+	// entries on the identity, the parent and the selectors, so two DPUServices differing only in
+	// namespace produce two entries carrying the same identity. A label cannot stand in for the
+	// namespace, since nothing ties one to the other.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=2048
+	// +optional
+	DPUServiceSPIFFEIDTemplate string `json:"dpuServiceSPIFFEIDTemplate,omitempty"`
+
+	// DPUServiceExchangedSPIFFEIDTemplate renders the post-exchange DPUService subject. It
+	// receives the same template data as DPUServiceSPIFFEIDTemplate and may use a different trust
+	// domain.
+	// DPF renders and validates it so the identity layout is declared in one place, but does not
+	// consume it: unlike the DPU Agent, a DPUService identity is never presented back to DPF.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=2048
+	// +optional
+	DPUServiceExchangedSPIFFEIDTemplate string `json:"dpuServiceExchangedSPIFFEIDTemplate,omitempty"`
 
 	// KubeAPIAudience is the audience claim the DPU Agent's JWT-SVID must carry; it must match an
 	// entry in the kube-apiserver AuthenticationConfiguration.audiences[] (owned out-of-band).

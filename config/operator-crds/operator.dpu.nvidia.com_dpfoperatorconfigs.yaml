@@ -1866,6 +1866,31 @@ spec:
                         maxLength: 2048
                         minLength: 1
                         type: string
+                      dpuServiceExchangedSPIFFEIDTemplate:
+                        description: |-
+                          DPUServiceExchangedSPIFFEIDTemplate renders the post-exchange DPUService subject. It
+                          receives the same template data as DPUServiceSPIFFEIDTemplate and may use a different trust
+                          domain.
+                          DPF renders and validates it so the identity layout is declared in one place, but does not
+                          consume it: unlike the DPU Agent, a DPUService identity is never presented back to DPF.
+                        maxLength: 2048
+                        minLength: 1
+                        type: string
+                      dpuServiceSPIFFEIDTemplate:
+                        description: |-
+                          DPUServiceSPIFFEIDTemplate renders the identity registered with SPIRE for a DPUService that
+                          opts in through its own spec.security.spiffe. It receives TrustDomain, normalized
+                          SerialNumber, Namespace and ServiceID, plus DPUMeta, DPUSpec, DPUServiceMeta and
+                          DPUServiceSpec.
+                          The rendered identity must use SPIRETrustDomain and depend on the namespace, the service ID
+                          and the DPU serial, which together identify one DPUService workload. Dropping any of them
+                          hands a single SVID to distinct workloads, and nothing detects that later: SPIRE keys
+                          entries on the identity, the parent and the selectors, so two DPUServices differing only in
+                          namespace produce two entries carrying the same identity. A label cannot stand in for the
+                          namespace, since nothing ties one to the other.
+                        maxLength: 2048
+                        minLength: 1
+                        type: string
                       kubeAPIAudience:
                         description: |-
                           KubeAPIAudience is the audience claim the DPU Agent's JWT-SVID must carry; it must match an

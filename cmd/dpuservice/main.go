@@ -34,6 +34,7 @@ import (
 	"github.com/nvidia/doca-platform/pkg/health"
 	nvipamv1 "github.com/nvidia/doca-platform/third_party/api/nvipam/api/v1alpha1"
 	argov1 "github.com/nvidia/doca-platform/third_party/forked/argoproj/argo-cd/pkg/apis/application/v1alpha1"
+	spirev1alpha1 "github.com/nvidia/doca-platform/third_party/forked/github.com/spiffe/spire-controller-manager/api/v1alpha1"
 
 	"github.com/spf13/pflag"
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
@@ -68,6 +69,8 @@ func init() {
 	utilruntime.Must(operatorv1.AddToScheme(clientgoscheme.Scheme))
 	utilruntime.Must(provisioningv1.AddToScheme(clientgoscheme.Scheme))
 	utilruntime.Must(vpcv1.AddToScheme(clientgoscheme.Scheme))
+	// ClusterStaticEntry is an optional upstream CRD, present only on SPIFFE-enabled clusters.
+	utilruntime.Must(spirev1alpha1.AddToScheme(clientgoscheme.Scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -231,8 +234,9 @@ func main() {
 	}
 
 	dpuServiceReconciler := &dpuservicecontroller.DPUServiceReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:         mgr.GetClient(),
+		UncachedClient: mgr.GetAPIReader(),
+		Scheme:         mgr.GetScheme(),
 	}
 	if err = dpuServiceReconciler.SetupWithManager(ctx, mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DPUService")

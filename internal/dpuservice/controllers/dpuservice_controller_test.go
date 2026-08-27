@@ -1874,6 +1874,13 @@ func assertDPUServiceCondition(g Gomega, testClient client.Client, dpuServices [
 				HaveField("Status", metav1.ConditionTrue),
 				HaveField("Reason", string(conditions.ReasonSuccess)),
 			),
+			// These DPUServices do not opt into SPIFFE workload identity, so they own no
+			// ClusterStaticEntries and the condition is trivially ready.
+			And(
+				HaveField("Type", string(dpuservicev1.ConditionSPIFFEEntriesReady)),
+				HaveField("Status", metav1.ConditionTrue),
+				HaveField("Reason", string(conditions.ReasonSuccess)),
+			),
 		))
 	}
 }
