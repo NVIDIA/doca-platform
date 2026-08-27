@@ -130,6 +130,7 @@ type cliFlags struct {
 	multiDPUOperationsSyncWaitTime     time.Duration
 	maxUnavailableDPUNodes             int32
 	osInstallTimeout                   time.Duration
+	osInstallRetries                   int32
 	firmwareUpdateTimeout              time.Duration
 	preInstallAgentRegistrationTimeout time.Duration
 	nodeEffectRemovalTimeout           time.Duration
@@ -171,6 +172,7 @@ func parseFlags() *cliFlags {
 	fs.DurationVar(&flags.multiDPUOperationsSyncWaitTime, "multi-dpu-operations-sync-wait-time", 30*time.Second, "The wait time between DPUs sync operations on the same node")
 	fs.Int32Var(&flags.maxUnavailableDPUNodes, "max-unavailable-dpu-nodes", 50, "The maximum number of DPUNodes that are unavailable during the node effect period")
 	fs.DurationVar(&flags.osInstallTimeout, "os-install-timeout", DefaultOSInstallTimeout, "Maximum time allowed for OS installation in zero-trust mode")
+	fs.Int32Var(&flags.osInstallRetries, "os-install-retries", dutil.DefaultOSInstallRetries, "Maximum number of retryable OS installation attempts in zero-trust mode before transitioning to Error. Defaults to 2 when unset")
 	fs.DurationVar(&flags.firmwareUpdateTimeout, "firmware-update-timeout", DefaultFirmwareUpdateTimeout, "Maximum time allowed for BF4 firmware update in zero-trust mode")
 	fs.DurationVar(&flags.preInstallAgentRegistrationTimeout, "pre-install-agent-registration-timeout", 30*time.Second, "How long Initializing waits for preInstall.agentReported during reprovisioning")
 	fs.DurationVar(&flags.nodeEffectRemovalTimeout, "node-effect-removal-timeout", DefaultNodeEffectRemovalTimeout, "Maximum time allowed for the Node Effect Removal phase before transitioning to error. 0 means no timeout.")
@@ -285,6 +287,7 @@ func setupControllers(mgr ctrl.Manager, flags *cliFlags, bfbRegistry string, ima
 		CustomCASecretName:                 flags.customCASecretName,
 		MaxDPUParallelInstallations:        flags.maxDPUParallelInstallations,
 		OSInstallTimeout:                   flags.osInstallTimeout,
+		OSInstallRetries:                   flags.osInstallRetries,
 		FirmwareUpdateTimeout:              flags.firmwareUpdateTimeout,
 		PreInstallAgentRegistrationTimeout: flags.preInstallAgentRegistrationTimeout,
 		NodeEffectRemovalTimeout:           flags.nodeEffectRemovalTimeout,
