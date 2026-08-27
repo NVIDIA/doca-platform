@@ -38,14 +38,16 @@ func NormalizeSerial(raw string) (string, error) {
 		return "", fmt.Errorf("serial length %d exceeds maximum %d", len(s), MaxSerialLen)
 	}
 	for _, r := range s {
-		if !isUnreservedSerialRune(r) {
+		if !IsUnreservedRune(r) {
 			return "", fmt.Errorf("serial contains invalid character %q (allowed: RFC 3986 unreserved)", r)
 		}
 	}
 	return s, nil
 }
 
-func isUnreservedSerialRune(r rune) bool {
+// IsUnreservedRune reports whether r is lowercase RFC 3986 unreserved, the charset every
+// SPIFFE path segment DPF builds is restricted to.
+func IsUnreservedRune(r rune) bool {
 	return (r >= 'a' && r <= 'z') ||
 		(r >= '0' && r <= '9') ||
 		r == '-' || r == '.' || r == '_' || r == '~'

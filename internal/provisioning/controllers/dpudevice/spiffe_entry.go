@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"time"
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -48,8 +47,6 @@ const (
 	// Phase A ClusterStaticEntry.spec defaults. selectors is intentionally a
 	// coarse uid:0 starter; it is hardened post-bake with unix:path + unix:sha256 selectors.
 	spiffeEntrySelectorUID0 = "unix:uid:0"
-	spiffeEntryX509SVIDTTL  = time.Hour
-	spiffeEntryJWTSVIDTTL   = 120 * time.Second
 	spiffeEntryHint         = "dpu-agent"
 
 	// Labels stamped on each ClusterStaticEntry so a CR watch event can be mapped back to its
@@ -267,8 +264,8 @@ func setSpiffeEntrySpec(cse *spirev1alpha1.ClusterStaticEntry, spiffeID, parentI
 	cse.Spec.SPIFFEID = spiffeID
 	cse.Spec.ParentID = parentID
 	cse.Spec.Selectors = []string{spiffeEntrySelectorUID0}
-	cse.Spec.X509SVIDTTL = metav1.Duration{Duration: spiffeEntryX509SVIDTTL}
-	cse.Spec.JWTSVIDTTL = metav1.Duration{Duration: spiffeEntryJWTSVIDTTL}
+	cse.Spec.X509SVIDTTL = metav1.Duration{Duration: spire.EntryX509SVIDTTL}
+	cse.Spec.JWTSVIDTTL = metav1.Duration{Duration: spire.EntryJWTSVIDTTL}
 	cse.Spec.Hint = spiffeEntryHint
 }
 

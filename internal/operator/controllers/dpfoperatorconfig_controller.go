@@ -272,6 +272,9 @@ func validateSPIFFEIdentityTemplates(config *operatorv1.DPFOperatorConfig) error
 	if _, err := spire.NewDPUAgentIdentityRenderer(config.Spec.Security.SPIFFE); err != nil {
 		return fmt.Errorf("invalid spec.security.spiffe DPU Agent identity templates: %w", err)
 	}
+	if _, err := spire.NewDPUServiceIdentityRenderer(config.Spec.Security.SPIFFE); err != nil {
+		return fmt.Errorf("invalid spec.security.spiffe DPUService identity templates: %w", err)
+	}
 	return nil
 }
 

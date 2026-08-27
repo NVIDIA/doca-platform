@@ -30,6 +30,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/dpuservice/utils"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 	argov1 "github.com/nvidia/doca-platform/third_party/forked/argoproj/argo-cd/pkg/apis/application/v1alpha1"
+	spirev1alpha1 "github.com/nvidia/doca-platform/third_party/forked/github.com/spiffe/spire-controller-manager/api/v1alpha1"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -101,6 +102,9 @@ var _ = BeforeSuite(func() {
 	err = operatorv1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
+	err = spirev1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
 	s := scheme.Scheme
 	// +kubebuilder:scaffold:scheme
 
@@ -159,9 +163,10 @@ var _ = BeforeSuite(func() {
 	Expect(err).ToNot(HaveOccurred())
 
 	dpuServiceReconciler := &DPUServiceReconciler{
-		Client:      testManager.GetClient(),
-		Scheme:      testManager.GetScheme(),
-		RemoteCache: remoteCache,
+		Client:         testManager.GetClient(),
+		UncachedClient: testManager.GetAPIReader(),
+		Scheme:         testManager.GetScheme(),
+		RemoteCache:    remoteCache,
 	}
 	Expect(dpuServiceReconciler.SetupWithManager(ctx, testManager)).ToNot(HaveOccurred())
 

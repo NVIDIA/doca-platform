@@ -538,10 +538,13 @@ func generateDPUService(dpuDeploymentNamespacedName types.NamespacedName,
 		// the template's explicit value if present; otherwise apply the shared
 		// iteration fallback.
 		privileged := privilegedDefaultForUnsetSecurity
+		// spiffe is opt-in, so an unset template leaves it nil.
+		var spiffe *dpuservicev1.DPUServiceSPIFFE
 		if serviceTemplate.Spec.Security != nil {
 			privileged = ptr.Deref(serviceTemplate.Spec.Security.Privileged, privilegedDefaultForUnsetSecurity)
+			spiffe = serviceTemplate.Spec.Security.SPIFFE.DeepCopy()
 		}
-		dpuService.Spec.Security = &dpuservicev1.DPUServiceSecurity{Privileged: ptr.To(privileged)}
+		dpuService.Spec.Security = &dpuservicev1.DPUServiceSecurity{Privileged: ptr.To(privileged), SPIFFE: spiffe}
 	}
 
 	dpuService.SetOwnerReferences([]metav1.OwnerReference{*owner})

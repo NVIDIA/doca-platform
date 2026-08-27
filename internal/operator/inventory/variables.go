@@ -165,6 +165,7 @@ type Variables struct {
 	Replicas                               map[operatorv1.ComponentName]*int32
 	ArgoCDNamespace                        string
 	VaultKMS                               *operatorv1.VaultKMSConfiguration
+	SpiffeEnabled                          bool
 }
 
 type DPFProvisioningVariables struct {
@@ -433,6 +434,7 @@ func setAdditionalConfigs(variables Variables, config *operatorv1.DPFOperatorCon
 	spiffeEnabled := util.SpiffeEnabled(config)
 	variables.DisableSystemComponents[operatorv1.SpireAgentRBACName] = !spiffeEnabled
 	variables.DisableSystemComponents[operatorv1.SPIFFECSIDriverName] = !spiffeEnabled
+	variables.SpiffeEnabled = spiffeEnabled
 
 	// Extract replicas for every controller that exposes a Replicas field in the CRD.
 	// This is the single propagation point from DPFOperatorConfig.Spec.<Component>.Replicas

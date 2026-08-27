@@ -73,9 +73,12 @@ import (
 // DPUServiceReconciler reconciles a DPUService object
 type DPUServiceReconciler struct {
 	client.Client
-	Scheme      *runtime.Scheme
-	RemoteCache dpucluster.ClusterClientProvider
-	controller  controller.Controller
+	// UncachedClient reads straight from the API server. Used to confirm ClusterStaticEntry
+	// deletion, which the cache cannot answer: it still serves the object the delete removed.
+	UncachedClient client.Reader
+	Scheme         *runtime.Scheme
+	RemoteCache    dpucluster.ClusterClientProvider
+	controller     controller.Controller
 	// privilegedPodEnforcementValidator overrides the post-apply VAP probe and is
 	// set only in tests to mock validatePrivilegedPodEnforcement. It is nil in
 	// production, where the real probe runs.
@@ -101,6 +104,7 @@ var pauseDPUServiceReconciler atomic.Bool
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpuclusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpunodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpus,verbs=get;list;watch
+// +kubebuilder:rbac:groups=spire.spiffe.io,resources=clusterstaticentries,verbs=get;list;watch;create;update;patch;delete
 
 const (
 	dpuServiceControllerName = "dpuservice-manager"
@@ -121,6 +125,11 @@ var applyPatchOptions = []client.PatchOption{
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *DPUServiceReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
+	// Confirming a ClusterStaticEntry is gone needs a read the cache cannot serve, so require it
+	// here rather than let the controller fall back to the cached client at runtime.
+	if r.UncachedClient == nil {
+		return fmt.Errorf("UncachedClient must be set on the DPUService reconciler")
+	}
 
 	bldr := ctrl.NewControllerManagedBy(mgr).
 		For(&dpuservicev1.DPUService{}).
@@ -141,6 +150,9 @@ func (r *DPUServiceReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Ma
 			builder.WithPredicates(dpuservicepredicates.DPUServiceInterfaceChangePredicate{}),
 		).
 		Watches(&provisioningv1.DPUCluster{}, handler.EnqueueRequestsFromMapFunc(r.DPUClusterToDPUService)).
+		// Watch DPUs so entries follow SPIFFE provisioning and decommission promptly
+		// instead of waiting for the next resync.
+		Watches(&provisioningv1.DPU{}, handler.EnqueueRequestsFromMapFunc(r.dpuToSpiffeDPUServices)).
 		// Watch the DPFOperatorConfig so toggling the privileged-pod enforcement
 		// breakglass field (spec.security.privilegedPodEnforcement) promptly
 		// re-reconciles all DPUServices instead of waiting for the next resync.
@@ -237,6 +249,11 @@ func (r *DPUServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	if err := r.reconcile(ctx, dpuService); err != nil {
 		return ctrl.Result{}, err
 	}
+	// spire-controller-manager renders entries asynchronously. Its CRD is optional, so this
+	// polls rather than watching a type that may not exist on the cluster.
+	if spiffeEntriesProgressing(dpuService) {
+		return ctrl.Result{RequeueAfter: spiffeEntryProgressInterval}, nil
+	}
 	return ctrl.Result{}, nil
 }
 
@@ -278,6 +295,15 @@ func (r *DPUServiceReconciler) reconcileDelete(ctx context.Context, dpuService *
 	}
 	if err := r.cleanupAllConfigPorts(ctx, dpuService); err != nil {
 		return ctrl.Result{}, err
+	}
+
+	// After the Applications are gone, so identities outlive the workloads using them.
+	spiffeDone, err := r.reconcileDeleteSPIFFEEntries(ctx, dpuService)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if !spiffeDone {
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 
 	// Add AwaitingDeletion condition to true. Probably this will never going to apply on the DPUService as it will be
@@ -584,6 +610,19 @@ func (r *DPUServiceReconciler) reconcile(ctx context.Context, dpuService *dpuser
 		return err
 	}
 	conditions.AddTrue(dpuService, dpuservicev1.ConditionConfigPortsReconciled)
+
+	// Last: identity registration is additive, so a SPIRE outage must not block the
+	// Applications. The helper sets the condition for all non-error outcomes.
+	if err = r.reconcileSPIFFEEntries(ctx, dpuService, dpuClusterConfigs, dpfOperatorConfig); err != nil {
+		message := fmt.Sprintf("Unable to reconcile SPIFFE entries: %v", err)
+		conditions.AddFalse(
+			dpuService,
+			dpuservicev1.ConditionSPIFFEEntriesReady,
+			conditions.ReasonError,
+			conditions.ConditionMessage(message),
+		)
+		return err
+	}
 
 	return nil
 }
