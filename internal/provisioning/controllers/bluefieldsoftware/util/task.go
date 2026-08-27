@@ -49,12 +49,11 @@ const (
 	ComponentTypeNicFw            ComponentType = "nicfw"
 )
 
-// SpecURLForComponent returns the spec value (typically a URL) for componentType.
-// Fields that live under TmpFwComponents return "" when TmpFwComponents is nil.
+// SpecURLForComponent returns the spec value (typically a URL) for single-valued
+// componentTypes. The DPU PLDM bundle is keyed per-PSID (see PldmFwBundles), so it is
+// not single-valued and always returns "" here.
 func SpecURLForComponent(bfs *provisioningv1.BlueFieldSoftware, componentType ComponentType) string {
 	switch componentType {
-	case ComponentTypeFwBundle:
-		return ptr.Deref(bfs.Spec.PldmFwBundle, "")
 	case ComponentTypePlatformFwBundle:
 		return ptr.Deref(bfs.Spec.PlatformPldmFwBundle, "")
 	case ComponentTypeOSISO:
@@ -63,6 +62,21 @@ func SpecURLForComponent(bfs *provisioningv1.BlueFieldSoftware, componentType Co
 		return ptr.Deref(bfs.Spec.NicFw, "")
 	}
 	return ""
+}
+
+// PldmFwBundles returns the spec DPU PLDM firmware bundles keyed by PSID (nil-safe).
+// Empty URLs are dropped so callers never attempt an empty download.
+func PldmFwBundles(bfs *provisioningv1.BlueFieldSoftware) map[string]string {
+	if bfs == nil || len(bfs.Spec.PldmFwBundle) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(bfs.Spec.PldmFwBundle))
+	for psid, url := range bfs.Spec.PldmFwBundle {
+		if url != "" {
+			out[psid] = url
+		}
+	}
+	return out
 }
 
 // FilenameFromHTTPURL returns the last path segment of rawURL when it is a valid
@@ -101,4 +115,28 @@ func ComponentDownloadFilename(bfs *provisioningv1.BlueFieldSoftware, componentT
 
 func GenerateComponentTaskName(bfs provisioningv1.BlueFieldSoftware, componentType ComponentType) string {
 	return fmt.Sprintf("%s-%s-%s", bfs.Namespace, bfs.Name, componentType)
+}
+
+// PldmTaskName returns the download task name for the DPU PLDM bundle of a specific
+// PSID, keeping per-PSID downloads of the same BlueFieldSoftware distinct. An empty
+// PSID collapses to the plain bundle name (no trailing separator).
+func PldmTaskName(bfs *provisioningv1.BlueFieldSoftware, psid string) string {
+	name := GenerateComponentTaskName(*bfs, ComponentTypeFwBundle)
+	if psid == "" {
+		return name
+	}
+	return fmt.Sprintf("%s-%s", name, psid)
+}
+
+// PldmComponentFilename returns the on-disk filename for a per-PSID DPU PLDM bundle. The
+// PSID is part of the name so bundles for different PSIDs (which may share a URL basename)
+// never collide on shared bfb storage; an empty PSID collapses to {namespace}-{name}-{base}.
+func PldmComponentFilename(bfs *provisioningv1.BlueFieldSoftware, psid, url string) string {
+	if name := FilenameFromHTTPURL(url); name != "" {
+		if psid == "" {
+			return fmt.Sprintf("%s-%s-%s", bfs.Namespace, bfs.Name, name)
+		}
+		return fmt.Sprintf("%s-%s-%s-%s", bfs.Namespace, bfs.Name, psid, name)
+	}
+	return PldmTaskName(bfs, psid)
 }

@@ -110,6 +110,7 @@ var _ = Describe("FirmwareUpdate", func() {
 		dpuDevice.Status.BMCIP = dpuDevice.Spec.BMCIP
 		dpuDevice.Status.BMCPort = dpuDevice.Spec.BMCPort
 		dpuDevice.Status.DPUType = provisioningv1.DPUTypeBlueField4
+		dpuDevice.Status.PSID = ptr.To(redfishmock.DpuPSID74)
 		dpuDevice.Status.Conditions = []metav1.Condition{
 			{
 				Type:               string(provisioningv1.ConditionDpuDeviceReady),
@@ -123,29 +124,49 @@ var _ = Describe("FirmwareUpdate", func() {
 		Expect(k8sClient.Status().Patch(ctx, dpuDevice, patch)).To(Succeed())
 	}
 
+	prepareDPUDevicePSID := func() {
+		dpuDevice := dpuDeviceObj(defaultDPUDeviceName)
+		createObject(dpuDevice)
+
+		patch := client.MergeFrom(dpuDevice.DeepCopy())
+		dpuDevice.Status.PSID = ptr.To(redfishmock.DpuPSID74)
+		Expect(k8sClient.Status().Patch(ctx, dpuDevice, patch)).To(Succeed())
+	}
+
 	createBlueFieldSoftware := func(pldmFwBundlePath string, withVersions bool) {
+		spec := provisioningv1.BlueFieldSpec{
+			OsIso: "https://test.com/os.iso",
+		}
+		if pldmFwBundlePath != "" {
+			spec.PldmFwBundle = map[string]string{
+				redfishmock.DpuPSID74: "https://test.com/fw.fwpkg",
+			}
+		}
+
 		bfs := &provisioningv1.BlueFieldSoftware{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      defaultBlueFieldSWName,
 				Namespace: testNS.Name,
 			},
-			Spec: provisioningv1.BlueFieldSpec{
-				OsIso: "https://test.com/os.iso",
-			},
+			Spec: spec,
 		}
 		createObject(bfs)
 
 		patch := client.MergeFrom(bfs.DeepCopy())
 		bfs.Status.Phase = provisioningv1.BlueFieldSoftwareReady
 		if pldmFwBundlePath != "" {
-			bfs.Status.DownloadedComponents.PldmFwBundle = pldmFwBundlePath
+			bfs.Status.DownloadedComponents.PldmFwBundle = map[string]string{redfishmock.DpuPSID74: pldmFwBundlePath}
 		}
 		if withVersions {
 			bfs.Status.Versions = &provisioningv1.BluefieldSoftwareVersions{
-				BMCVersion:     targetBMCVersion,
-				BMCErotVersion: targetBMCErotVersion,
-				SBIOSVersion:   targetSBIOSVersion,
-				BFNicFwVersion: targetBFNicFwVersion,
+				BluefieldSoftwareVersions: map[string]provisioningv1.BluefieldDeviceVersions{
+					redfishmock.DpuPSID74: {
+						BMCVersion:     targetBMCVersion,
+						BMCErotVersion: targetBMCErotVersion,
+						SBIOSVersion:   targetSBIOSVersion,
+						BFNicFwVersion: targetBFNicFwVersion,
+					},
+				},
 			}
 		}
 		Expect(k8sClient.Status().Patch(ctx, bfs, patch)).To(Succeed())
@@ -180,6 +201,122 @@ var _ = Describe("FirmwareUpdate", func() {
 		))
 	})
 
+	It("should skip firmware update when no PLDM bundle is configured for the DPUDevice PSID", func() {
+		bfs := &provisioningv1.BlueFieldSoftware{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      defaultBlueFieldSWName,
+				Namespace: testNS.Name,
+			},
+			Spec: provisioningv1.BlueFieldSpec{
+				OsIso: "https://test.com/os.iso",
+				PldmFwBundle: map[string]string{
+					redfishmock.DpuPSID75: "https://test.com/fw.fwpkg",
+				},
+			},
+		}
+		createObject(bfs)
+		prepareDPUDevicePSID()
+
+		dpu := dpuObj(defaultDPUName)
+		dpu.Spec.DPUDeviceName = defaultDPUDeviceName
+		dpu.Spec.BlueFieldSoftware = ptr.To(defaultBlueFieldSWName)
+		dpu.Status.Phase = provisioningv1.DPUUpdateFirmware
+		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
+
+		status, err := FirmwareUpdate(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(status.Phase).To(Equal(provisioningv1.DPUPrepareBFB))
+		Expect(status.Conditions).To(ContainElement(
+			And(
+				HaveField("Type", provisioningv1.DPUCondFwBundleUpdated.String()),
+				HaveField("Reason", "NoPldmFwBundleForPSID"),
+				HaveField("Status", metav1.ConditionTrue),
+			),
+		))
+	})
+
+	It("should match PLDM bundle keys case-insensitively against the DPUDevice PSID", func() {
+		mockServer := createBF4MockRedfishServer()
+		defer mockServer.Stop()
+
+		createBMCAndMTLSSecretsForBF4(mockServer)
+		prepareBF4DPUDevice(mockServer)
+
+		pldmPath := createTempPldmFwBundle()
+		defer func() { _ = os.Remove(pldmPath) }()
+
+		specPSID := "mt_0000001774"
+		bfs := &provisioningv1.BlueFieldSoftware{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      defaultBlueFieldSWName,
+				Namespace: testNS.Name,
+			},
+			Spec: provisioningv1.BlueFieldSpec{
+				OsIso: "https://test.com/os.iso",
+				PldmFwBundle: map[string]string{
+					specPSID: "https://test.com/fw.fwpkg",
+				},
+			},
+		}
+		createObject(bfs)
+
+		patch := client.MergeFrom(bfs.DeepCopy())
+		bfs.Status.Phase = provisioningv1.BlueFieldSoftwareReady
+		bfs.Status.DownloadedComponents.PldmFwBundle = map[string]string{specPSID: pldmPath}
+		bfs.Status.Versions = &provisioningv1.BluefieldSoftwareVersions{
+			BluefieldSoftwareVersions: map[string]provisioningv1.BluefieldDeviceVersions{
+				specPSID: {
+					BMCVersion:     targetBMCVersion,
+					BMCErotVersion: targetBMCErotVersion,
+					SBIOSVersion:   targetSBIOSVersion,
+					BFNicFwVersion: targetBFNicFwVersion,
+				},
+			},
+		}
+		Expect(k8sClient.Status().Patch(ctx, bfs, patch)).To(Succeed())
+
+		dpu := dpuObj(defaultDPUName)
+		dpu.Spec.DPUDeviceName = defaultDPUDeviceName
+		dpu.Spec.BlueFieldSoftware = ptr.To(defaultBlueFieldSWName)
+		dpu.Status.Phase = provisioningv1.DPUUpdateFirmware
+		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
+
+		status, err := FirmwareUpdate(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(status.Phase).To(Equal(provisioningv1.DPUPrepareBFB))
+		Expect(status.Conditions).To(ContainElement(
+			And(
+				HaveField("Type", provisioningv1.DPUCondFwBundleUpdated.String()),
+				HaveField("Reason", "FirmwareVersionsMatch"),
+				HaveField("Status", metav1.ConditionTrue),
+			),
+		))
+	})
+
+	It("should wait when DPUDevice PSID is unset", func() {
+		createBlueFieldSoftware(createTempPldmFwBundle(), true)
+
+		dpuDevice := dpuDeviceObj(defaultDPUDeviceName)
+		createObject(dpuDevice)
+
+		dpu := dpuObj(defaultDPUName)
+		dpu.Spec.DPUDeviceName = defaultDPUDeviceName
+		dpu.Spec.BlueFieldSoftware = ptr.To(defaultBlueFieldSWName)
+		dpu.Status.Phase = provisioningv1.DPUUpdateFirmware
+		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
+
+		status, err := FirmwareUpdate(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+		Expect(err).To(HaveOccurred())
+		Expect(status.Phase).To(Equal(provisioningv1.DPUUpdateFirmware))
+		Expect(status.Conditions).To(ContainElement(
+			And(
+				HaveField("Type", provisioningv1.DPUCondFwBundleUpdated.String()),
+				HaveField("Reason", "WaitingForPSID"),
+				HaveField("Status", metav1.ConditionFalse),
+			),
+		))
+	})
+
 	It("should wait when PLDM is configured but BlueFieldSoftware is re-downloading", func() {
 		bfs := &provisioningv1.BlueFieldSoftware{
 			ObjectMeta: metav1.ObjectMeta{
@@ -187,8 +324,10 @@ var _ = Describe("FirmwareUpdate", func() {
 				Namespace: testNS.Name,
 			},
 			Spec: provisioningv1.BlueFieldSpec{
-				OsIso:        "https://test.com/os.iso",
-				PldmFwBundle: ptr.To("https://test.com/fw.fwpkg"),
+				OsIso: "https://test.com/os.iso",
+				PldmFwBundle: map[string]string{
+					redfishmock.DpuPSID74: "https://test.com/fw.fwpkg",
+				},
 			},
 		}
 		createObject(bfs)
@@ -196,8 +335,10 @@ var _ = Describe("FirmwareUpdate", func() {
 		patch := client.MergeFrom(bfs.DeepCopy())
 		bfs.Status.Phase = provisioningv1.BlueFieldSoftwareDownloading
 		Expect(k8sClient.Status().Patch(ctx, bfs, patch)).To(Succeed())
+		prepareDPUDevicePSID()
 
 		dpu := dpuObj(defaultDPUName)
+		dpu.Spec.DPUDeviceName = defaultDPUDeviceName
 		dpu.Spec.BlueFieldSoftware = ptr.To(defaultBlueFieldSWName)
 		dpu.Status.Phase = provisioningv1.DPUUpdateFirmware
 		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
@@ -221,8 +362,10 @@ var _ = Describe("FirmwareUpdate", func() {
 				Namespace: testNS.Name,
 			},
 			Spec: provisioningv1.BlueFieldSpec{
-				OsIso:        "https://test.com/os.iso",
-				PldmFwBundle: ptr.To("https://test.com/fw.fwpkg"),
+				OsIso: "https://test.com/os.iso",
+				PldmFwBundle: map[string]string{
+					redfishmock.DpuPSID74: "https://test.com/fw.fwpkg",
+				},
 			},
 		}
 		createObject(bfs)
@@ -230,8 +373,10 @@ var _ = Describe("FirmwareUpdate", func() {
 		patch := client.MergeFrom(bfs.DeepCopy())
 		bfs.Status.Phase = provisioningv1.BlueFieldSoftwareReady
 		Expect(k8sClient.Status().Patch(ctx, bfs, patch)).To(Succeed())
+		prepareDPUDevicePSID()
 
 		dpu := dpuObj(defaultDPUName)
+		dpu.Spec.DPUDeviceName = defaultDPUDeviceName
 		dpu.Spec.BlueFieldSoftware = ptr.To(defaultBlueFieldSWName)
 		dpu.Status.Phase = provisioningv1.DPUUpdateFirmware
 		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
@@ -352,6 +497,80 @@ var _ = Describe("FirmwareUpdate", func() {
 			),
 		))
 		Expect(mockServer.GetLastForceUpdate()).To(BeFalse())
+	})
+
+	It("should update using the PLDM bundle matching the DPUDevice PSID when multiple are configured", func() {
+		mockServer := createBF4MockRedfishServer()
+		defer mockServer.Stop()
+		mockServer.SetFirmwareVersions("old-bmc", "old-erot", "old-sbios", "old-nic")
+
+		createBMCAndMTLSSecretsForBF4(mockServer)
+		prepareBF4DPUDevice(mockServer)
+
+		matchingPath := createTempPldmFwBundle()
+		otherPath := createTempPldmFwBundle()
+		defer func() {
+			_ = os.Remove(matchingPath)
+			_ = os.Remove(otherPath)
+		}()
+
+		bfs := &provisioningv1.BlueFieldSoftware{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      defaultBlueFieldSWName,
+				Namespace: testNS.Name,
+			},
+			Spec: provisioningv1.BlueFieldSpec{
+				OsIso: "https://test.com/os.iso",
+				PldmFwBundle: map[string]string{
+					redfishmock.DpuPSID74: "https://test.com/fw-bf4.fwpkg",
+					redfishmock.DpuPSID75: "https://test.com/fw-other.fwpkg",
+				},
+			},
+		}
+		createObject(bfs)
+
+		patch := client.MergeFrom(bfs.DeepCopy())
+		bfs.Status.Phase = provisioningv1.BlueFieldSoftwareReady
+		bfs.Status.DownloadedComponents.PldmFwBundle = map[string]string{
+			redfishmock.DpuPSID74: matchingPath,
+			redfishmock.DpuPSID75: otherPath,
+		}
+		bfs.Status.Versions = &provisioningv1.BluefieldSoftwareVersions{
+			BluefieldSoftwareVersions: map[string]provisioningv1.BluefieldDeviceVersions{
+				redfishmock.DpuPSID74: {
+					BMCVersion:     targetBMCVersion,
+					BMCErotVersion: targetBMCErotVersion,
+					SBIOSVersion:   targetSBIOSVersion,
+					BFNicFwVersion: targetBFNicFwVersion,
+				},
+				// Other PSID versions match the installed firmware. Using this
+				// entry by mistake would skip the update instead of submitting it.
+				redfishmock.DpuPSID75: {
+					BMCVersion:     "old-bmc",
+					BMCErotVersion: "old-erot",
+					SBIOSVersion:   "old-sbios",
+					BFNicFwVersion: "old-nic",
+				},
+			},
+		}
+		Expect(k8sClient.Status().Patch(ctx, bfs, patch)).To(Succeed())
+
+		dpu := dpuObj(defaultDPUName)
+		dpu.Spec.DPUDeviceName = defaultDPUDeviceName
+		dpu.Spec.BlueFieldSoftware = ptr.To(defaultBlueFieldSWName)
+		dpu.Status.Phase = provisioningv1.DPUUpdateFirmware
+		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
+
+		status, err := FirmwareUpdate(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(status.RedfishTaskID).NotTo(BeNil())
+		Expect(*status.RedfishTaskID).To(Equal("0"))
+		Expect(status.Conditions).To(ContainElement(
+			And(
+				HaveField("Type", provisioningv1.DPUCondFwBundleSubmitted.String()),
+				HaveField("Reason", "Submitting"),
+			),
+		))
 	})
 
 	It("should force the PLDM firmware update when the DPU is annotated and versions mismatch", func() {
@@ -673,6 +892,54 @@ var _ = Describe("FirmwareUpdate", func() {
 			err := checkFirmwareUpdateTimeout(state, time.Hour)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("firmware update timeout exceeded"))
+		})
+	})
+
+	Context("lookupByPSID", func() {
+		const (
+			upperPSID = "MT_0000001774"
+			lowerPSID = "mt_0000001774"
+		)
+
+		It("should prefer an exact match over a key differing only in case", func() {
+			bundles := map[string]string{upperPSID: "upper", lowerPSID: "lower"}
+
+			value, ok := lookupByPSID(bundles, lowerPSID)
+			Expect(ok).To(BeTrue())
+			Expect(value).To(Equal("lower"))
+
+			value, ok = lookupByPSID(bundles, upperPSID)
+			Expect(ok).To(BeTrue())
+			Expect(value).To(Equal("upper"))
+		})
+
+		It("should resolve a key differing from the reported PSID only in case", func() {
+			value, ok := lookupByPSID(map[string]string{lowerPSID: "bundle"}, upperPSID)
+			Expect(ok).To(BeTrue())
+			Expect(value).To(Equal("bundle"))
+		})
+
+		It("should resolve to the same key on every call when no key matches exactly", func() {
+			// Neither key matches "Mt_0000001774" exactly and both match it case-insensitively,
+			// so the fallback picks one. Repeated because ranging the map directly would return
+			// either key at random, which would flash a different bundle across reconciles.
+			bundles := map[string]string{upperPSID: "upper", lowerPSID: "lower"}
+			for range 50 {
+				value, ok := lookupByPSID(bundles, "Mt_0000001774")
+				Expect(ok).To(BeTrue())
+				Expect(value).To(Equal("upper"))
+			}
+		})
+
+		It("should report a PSID that is absent", func() {
+			_, ok := lookupByPSID(map[string]string{upperPSID: "upper"}, "MT_9999999999")
+			Expect(ok).To(BeFalse())
+		})
+
+		It("should report a PSID against a nil map", func() {
+			var bundles map[string]string
+			_, ok := lookupByPSID(bundles, upperPSID)
+			Expect(ok).To(BeFalse())
 		})
 	})
 })

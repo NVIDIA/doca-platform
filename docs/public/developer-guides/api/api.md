@@ -2007,10 +2007,29 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `pldmFwBundle` _string_ | PldmFwBundle points to the BluefieldPLDM firmware bundle for baseline firmware updates. |  | MinLength: 1 <br />Optional: \{\} <br /> |
 | `osIso` _string_ | OS ISO points to the OS ISO used by DPU OS installation flow. |  | MinLength: 1 <br />Required: \{\} <br /> |
-| `platformPldmFwBundle` _string_ | PlatformPldmFwBundle points to the Vera Rubin PLDM firmware bundle used for NIC firmware updates. |  | MinLength: 1 <br />Optional: \{\} <br /> |
-| `nicFw` _string_ | NicFw points to the NIC firmware binary used for E/W NIC firmware updates.<br />Use this when a specific NIC firmware binary is required and is not included in the platform PLDM firmware bundle.<br />In production, prefer using PlatformPldmFwBundle. |  | MinLength: 1 <br />Optional: \{\} <br /> |
+| `pldmFwBundle` _object (keys:string, values:string)_ | PldmFwBundle maps each PSID to the PLDM firmware bundle URL used for that DPU model's<br />baseline firmware updates. Each PSID's bundle is a complete PLDM package for that device.<br />Keys are matched case-insensitively against the BMC-reported DPUDevice status PSID. |  | MinProperties: 1 <br />Optional: \{\} <br /> |
+| `platformPldmFwBundle` _string_ | PlatformPldmFwBundle points to the platform PLDM firmware bundle used for E/W NIC<br />firmware updates. |  | MinLength: 1 <br />Optional: \{\} <br /> |
+| `nicFw` _string_ | NicFw points to the NIC firmware binary used for E/W NIC firmware updates.<br />Use this when a specific NIC firmware binary is required and is not included in the<br />platform PLDM firmware bundle.<br />In production, prefer using PlatformPldmFwBundle. |  | MinLength: 1 <br />Optional: \{\} <br /> |
+
+
+#### BluefieldDeviceVersions
+
+
+
+BluefieldDeviceVersions holds firmware versions extracted from a single PSID's PLDM bundle.
+
+
+
+_Appears in:_
+- [BluefieldSoftwareVersions](#bluefieldsoftwareversions)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `bmcVersion` _string_ | BMCVersion is the DPU BMC firmware version shipped in the bundle. |  | MinLength: 1 <br />Optional: \{\} <br /> |
+| `bmcErotVersion` _string_ | BMCErotVersion is the BMC ERoT (External Root of Trust) firmware version shipped in the bundle. |  | MinLength: 1 <br />Optional: \{\} <br /> |
+| `sbiosVersion` _string_ | SBIOSVersion is the DPU SBIOS firmware version shipped in the bundle. |  | MinLength: 1 <br />Optional: \{\} <br /> |
+| `bfNicFwVersion` _string_ | BFNicFwVersion is the BlueField NIC firmware version shipped in the bundle. |  | MinLength: 1 <br />Optional: \{\} <br /> |
 
 
 #### BluefieldSoftwareVersions
@@ -2027,13 +2046,9 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `doca` _string_ | DOCA is the formatted, user-facing DOCA version derived from the OS ISO. |  | Optional: \{\} <br /> |
-| `fwBundleVersion` _string_ |  |  |  |
 | `osISOVersion` _string_ | OSISOVersion is the raw DOCA version for the OS ISO, taken from the ISO filename |  | Optional: \{\} <br /> |
-| `ewNicFwVersion` _string_ |  |  |  |
-| `bmcVersion` _string_ |  |  |  |
-| `bmcErotVersion` _string_ |  |  |  |
-| `sbiosVersion` _string_ |  |  |  |
-| `bfNicFwVersion` _string_ |  |  |  |
+| `ewNicFwVersion` _string_ | EWNicFwVersion is the E/W NIC firmware version taken from the platform PLDM bundle.<br />It is not keyed by PSID because a BlueFieldSoftware carries a single platform bundle. |  |  |
+| `bluefieldSoftwareVersions` _object (keys:string, values:[BluefieldDeviceVersions](#bluefielddeviceversions))_ | BluefieldSoftwareVersions maps each PSID to the firmware versions from that device's<br />PLDM bundle. Keys are matched case-insensitively against the BMC-reported DPUDevice PSID. |  | Optional: \{\} <br /> |
 
 
 #### CertificateStatus
@@ -3243,10 +3258,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `pldmFwBundle` _string_ |  |  |  |
-| `platformPldmFwBundle` _string_ |  |  |  |
-| `osIso` _string_ |  |  |  |
-| `nicFw` _string_ |  |  |  |
+| `pldmFwBundle` _object (keys:string, values:string)_ | PldmFwBundle maps each PSID to the local path of its downloaded PLDM firmware bundle.<br />Keys are matched case-insensitively against the BMC-reported DPUDevice PSID. |  |  |
+| `platformPldmFwBundle` _string_ | PlatformPldmFwBundle is the local path of the downloaded platform PLDM firmware bundle. |  |  |
+| `osIso` _string_ | OsIso is the local path of the downloaded OS ISO. |  |  |
+| `nicFw` _string_ | NicFw is the local path of the E/W NIC firmware binary, either downloaded from<br />spec.nicFw or unpacked from the platform PLDM firmware bundle. |  |  |
 
 
 #### DpuModeType

@@ -971,7 +971,7 @@ const ChassisAssetTagUnavailable = "N/A"
 
 // ChassisInfo contains the part number information responded by RedFish API
 type ChassisInfo struct {
-	AssetTag     string                 `json:"AssetTag"`
+	AssetTag     string                 `json:"AssetTag,omitempty"`
 	Model        string                 `json:"Model"`
 	PartNumber   string                 `json:"PartNumber"`
 	SerialNumber string                 `json:"SerialNumber"`

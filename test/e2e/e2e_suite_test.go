@@ -105,13 +105,20 @@ func getEnvVariables() {
 	if url, found := os.LookupEnv("BFS_OS_ISO_URL"); found {
 		bfsOsIsoURL = url
 	}
-	if url, found := os.LookupEnv("BFS_PLDM_FW_BUNDLE_URL"); found {
-		bfsPldmFwBundleURL = url
+	const bfsPldmFwBundleURLPrefix = "BFS_PLDM_FW_BUNDLE_URL_"
+	for _, e := range os.Environ() {
+		key, value, ok := strings.Cut(e, "=")
+		if !ok || value == "" || !strings.HasPrefix(key, bfsPldmFwBundleURLPrefix) {
+			continue
+		}
+		psid := strings.TrimPrefix(key, bfsPldmFwBundleURLPrefix)
+		if psid != "" {
+			bfsPldmFwBundles[psid] = value
+		}
 	}
 	if url, found := os.LookupEnv("BFS_NIC_FW_URL"); found {
 		bfsNicFwURL = url
 	}
-
 	if url, found := os.LookupEnv("HBN_IMAGE_URL"); found {
 		var err error
 		hbnImageURL, err = utils.ResolveHBNImageURL(url)
