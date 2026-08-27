@@ -333,6 +333,33 @@ var _ = Describe("API Validations for DPUService", func() {
 			Entry("invalid config - deployInCluster=true and security true", ptr.To(true), ptr.To(true), true),
 		)
 
+		DescribeTable("Validates security.spiffe and deployInCluster", func(deployInCluster *bool, spiffe bool, expectError bool) {
+			dpuService := getMinimalDPUService(testNS.Name)
+			dpuService.Spec.DeployInCluster = deployInCluster
+			security := &dpuservicev1.DPUServiceSecurity{}
+			// privileged must be set unless the DPUService runs in the host cluster.
+			if !ptr.Deref(deployInCluster, false) {
+				security.Privileged = ptr.To(false)
+			}
+			if spiffe {
+				security.SPIFFE = &dpuservicev1.DPUServiceSPIFFE{}
+			}
+			dpuService.Spec.Security = security
+
+			err := testClient.Create(ctx, dpuService)
+			if expectError {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
+			}
+		},
+			Entry("valid config - DPU cluster by default and spiffe set", nil, true, false),
+			Entry("valid config - deployInCluster=false and spiffe set", ptr.To(false), true, false),
+			Entry("valid config - deployInCluster=true and spiffe unset", ptr.To(true), false, false),
+			// In-cluster DPUServices run on the host, so there is no DPU SPIRE agent to parent to.
+			Entry("invalid config - deployInCluster=true and spiffe set", ptr.To(true), true, true),
+		)
+
 		It("should reject updates that unset an explicit security.privileged value", func() {
 			dpuService := getMinimalDPUService(testNS.Name)
 			dpuService.Spec.Security = &dpuservicev1.DPUServiceSecurity{Privileged: ptr.To(true)}

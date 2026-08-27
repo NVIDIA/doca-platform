@@ -70,6 +70,10 @@ const (
 	// ConditionApplicationsReady is the condition type that indicates that the
 	// applications are ready.
 	ConditionApplicationsReady conditions.ConditionType = "ApplicationsReady"
+	// ConditionSPIFFEEntriesReady reports whether this DPUService's per-DPU SPIRE
+	// ClusterStaticEntries have been rendered. True with no entries when SPIFFE is not
+	// used, so it does not hold back the Ready summary of existing DPUServices.
+	ConditionSPIFFEEntriesReady conditions.ConditionType = "SPIFFEEntriesReady"
 )
 
 var (
@@ -81,6 +85,7 @@ var (
 		ConditionApplicationsReady,
 		ConditionDPUServiceInterfaceReconciled,
 		ConditionConfigPortsReconciled,
+		ConditionSPIFFEEntriesReady,
 	}
 )
 ```

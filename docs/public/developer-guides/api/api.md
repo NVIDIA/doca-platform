@@ -1346,6 +1346,8 @@ _Appears in:_
 | `spireTrustDomain` _string_ | SPIRETrustDomain is the SPIRE-internal trust domain (e.g. "cs.internal") embedded in the<br />DPU Agent SVID URI. |  | MaxLength: 253 <br />MinLength: 1 <br />Pattern: `^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$` <br />Required: \{\} <br /> |
 | `dpuAgentSPIFFEIDTemplate` _string_ | DPUAgentSPIFFEIDTemplate renders the local SPIFFE workload identity registered with SPIRE.<br />It uses Go text/template syntax and receives TrustDomain, normalized SerialNumber, DPUMeta,<br />DPUSpec, DPUDeviceMeta, and DPUDeviceSpec. Metadata labels and annotations can be accessed<br />with the built-in index function.<br />The rendered identity must use SPIRETrustDomain and depend on the DPU serial. |  | MaxLength: 2048 <br />MinLength: 1 <br />Optional: \{\} <br /> |
 | `dpuAgentExchangedSPIFFEIDTemplate` _string_ | DPUAgentExchangedSPIFFEIDTemplate renders the post-exchange SPIFFE ID subject. It receives<br />the same Go template data as DPUAgentSPIFFEIDTemplate.<br />The rendered identity may use a different trust domain and must depend on the DPU serial. |  | MaxLength: 2048 <br />MinLength: 1 <br />Optional: \{\} <br /> |
+| `dpuServiceSPIFFEIDTemplate` _string_ | DPUServiceSPIFFEIDTemplate renders the identity registered with SPIRE for a DPUService that<br />opts in through its own spec.security.spiffe. It receives TrustDomain, normalized<br />SerialNumber, Namespace and ServiceID, plus DPUMeta, DPUSpec, DPUServiceMeta and<br />DPUServiceSpec.<br />The rendered identity must use SPIRETrustDomain and depend on the namespace, the service ID<br />and the DPU serial, which together identify one DPUService workload. Dropping any of them<br />hands a single SVID to distinct workloads, and nothing detects that later: SPIRE keys<br />entries on the identity, the parent and the selectors, so two DPUServices differing only in<br />namespace produce two entries carrying the same identity. A label cannot stand in for the<br />namespace, since nothing ties one to the other. |  | MaxLength: 2048 <br />MinLength: 1 <br />Optional: \{\} <br /> |
+| `dpuServiceExchangedSPIFFEIDTemplate` _string_ | DPUServiceExchangedSPIFFEIDTemplate renders the post-exchange DPUService subject. It<br />receives the same template data as DPUServiceSPIFFEIDTemplate and may use a different trust<br />domain.<br />DPF renders and validates it so the identity layout is declared in one place, but does not<br />consume it: unlike the DPU Agent, a DPUService identity is never presented back to DPF. |  | MaxLength: 2048 <br />MinLength: 1 <br />Optional: \{\} <br /> |
 | `kubeAPIAudience` _string_ | KubeAPIAudience is the audience claim the DPU Agent's JWT-SVID must carry; it must match an<br />entry in the kube-apiserver AuthenticationConfiguration.audiences[] (owned out-of-band). |  | MaxLength: 512 <br />MinLength: 1 <br />Required: \{\} <br /> |
 | `tokenExchangeEndpoint` _string_ | tokenExchangeEndpoint exchanges the SPIRE JWT-SVID before the DSX SPIFFE Helper writes it.<br />When omitted, the DSX SPIFFE Helper writes the SPIRE JWT-SVID directly.<br />The returned token's audience must match kubeAPIAudience, or the kube-apiserver rejects the<br />DPU Agent. Only https: the JWT-SVID is sent here as a bearer credential. |  | MaxLength: 2048 <br />Pattern: `^https://[^[:space:]"\\]+$` <br />Optional: \{\} <br /> |
 | `spireOIDCURL` _string_ | SPIREOIDCURL is the OIDC discovery (issuer) URL of the pre-installed SPIRE Server.<br />The matching kube-apiserver AuthenticationConfiguration.jwt[].issuer value is applied out-of-band. |  | MaxLength: 2048 <br />MinLength: 1 <br />Required: \{\} <br /> |
@@ -5759,6 +5761,21 @@ _Appears in:_
 
 
 
+#### DPUServiceSPIFFE
+
+
+
+DPUServiceSPIFFE opts a DPUService into SPIFFE workload identity. Intentionally empty:
+the opt-in is the field's presence, and per-service knobs are deferred until the NKE PoC
+settles on-DPU workload attestation.
+
+
+
+_Appears in:_
+- [DPUServiceSecurity](#dpuservicesecurity)
+
+
+
 #### DPUServiceSecurity
 
 
@@ -5775,6 +5792,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `privileged` _boolean_ | Privileged, when set to true, allows workloads governed by this security<br />setting to run containers with `securityContext.privileged: true` in the<br />DPUCluster. When set to false, a ValidatingAdmissionPolicy in the<br />DPUCluster rejects such workloads. On DPUService objects, this field must<br />be unset when deployInCluster is true. For DPUServices that target a<br />DPUCluster, Privileged must be set explicitly. When set on a<br />DPUServiceTemplate, the DPUDeployment controller propagates the value to<br />generated DPUServices that target DPUClusters.<br />Scope of the policy enforcement:<br />  - Only `securityContext.privileged: true` is gated. Other<br />    privilege-escalation vectors (hostPID, hostIPC, hostNetwork,<br />    allowPrivilegeEscalation, capabilities, hostPath volumes) are NOT<br />    gated by this field.<br />  - Enforcement matches workloads via the<br />    `svc.dpu.nvidia.com/service` label. The controller adds this<br />    label to the resources it manages, and to pod templates of<br />    workload-controller resources (Deployment, DaemonSet, etc.). If a<br />    Helm chart strips that label from the pod template, the parent<br />    resource will be admitted but the child Pods will be denied at<br />    Pod admission time. |  | Optional: \{\} <br /> |
+| `spiffe` _[DPUServiceSPIFFE](#dpuservicespiffe)_ | SPIFFE opts this DPUService into SPIFFE workload identity. When set, one SPIRE<br />ClusterStaticEntry is registered per targeted DPU, parented to that DPU's SPIRE<br />agent, so the service's pods can obtain an SVID. The identity defaults to<br />`spiffe://<trustDomain>/dpu/<serial>/service/<namespace>/<serviceID>` and is<br />configurable through `DPFOperatorConfig.spec.security.spiffe`.<br />The namespace qualifies the service ID, which is only unique within one.<br />Presence-gated: `spiffe: \{\}` enables it. It has no sub-fields yet.<br />Requires `DPFOperatorConfig.spec.security.spiffe`, and only covers DPUs in SPIFFE<br />identity mode (`DPU.status.identityMode: Spiffe`); bootstrap-token DPUs are skipped.<br />Both are reported on the SPIFFEEntriesReady condition rather than rejected at<br />admission. Must not be set when deployInCluster is true, since in-cluster<br />DPUServices run on the host and have no per-DPU SPIRE agent to parent to.<br />When set on a DPUServiceTemplate, the DPUDeployment controller propagates it to<br />generated DPUServices that target DPUClusters. |  | Optional: \{\} <br /> |
 
 
 #### DPUServiceSpec
