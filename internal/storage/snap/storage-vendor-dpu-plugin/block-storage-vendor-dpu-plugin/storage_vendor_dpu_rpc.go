@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -312,6 +313,17 @@ type BdevNvmeAttachControllerResponse struct {
 	BdevName string `json:"bdev_name"`
 }
 
+// equalTransportAddress normalizes IP addresses because equivalent IPv6 addresses
+// can have different string representations. Non-IP addresses use the existing comparison.
+func equalTransportAddress(first, second string) bool {
+	firstAddr, firstErr := netip.ParseAddr(first)
+	secondAddr, secondErr := netip.ParseAddr(second)
+	if firstErr == nil && secondErr == nil {
+		return firstAddr == secondAddr
+	}
+	return strings.EqualFold(first, second)
+}
+
 // CheckBdevExistsByTrid checks if an NVMe controller with the given parameters already exists.
 func CheckBdevExistsByTrid(req BdevNvmeAttachControllerRequest, bdevResponse BdevGetBdevsResponse) (string, error) {
 	klog.Infof("Checking if NVMe controller exists: %+v", req)
@@ -340,7 +352,7 @@ func CheckBdevExistsByTrid(req BdevNvmeAttachControllerRequest, bdevResponse Bde
 
 			if strings.EqualFold(fmt.Sprint(trid["trtype"]), req.Trtype) &&
 				strings.EqualFold(fmt.Sprint(trid["adrfam"]), req.Adrfam) &&
-				strings.EqualFold(fmt.Sprint(trid["traddr"]), req.Traddr) &&
+				equalTransportAddress(fmt.Sprint(trid["traddr"]), req.Traddr) &&
 				strings.EqualFold(fmt.Sprint(trid["trsvcid"]), req.Trsvcid) &&
 				strings.EqualFold(fmt.Sprint(trid["subnqn"]), req.Subnqn) {
 				klog.Infof("Found existing NVMe controller: %s", bdev.Name)

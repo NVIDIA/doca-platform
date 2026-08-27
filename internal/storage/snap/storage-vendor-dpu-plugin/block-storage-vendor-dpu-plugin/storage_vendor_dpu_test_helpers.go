@@ -65,12 +65,13 @@ var (
 
 // Mock RPCClient for testing
 type mockRPCClient struct {
-	bdevs       BdevGetBdevsResponse
-	controllers BdevNvmeGetControllersResponse
-	bdevsErr    error
-	ctrlErr     error
-	attachErr   error
-	detachErr   error
+	bdevs         BdevGetBdevsResponse
+	controllers   BdevNvmeGetControllersResponse
+	attachRequest *BdevNvmeAttachControllerRequest
+	bdevsErr      error
+	ctrlErr       error
+	attachErr     error
+	detachErr     error
 }
 
 func (m *mockRPCClient) BdevGetBdevs() (BdevGetBdevsResponse, error) {
@@ -82,6 +83,7 @@ func (m *mockRPCClient) BdevNvmeGetControllers() (BdevNvmeGetControllersResponse
 }
 
 func (m *mockRPCClient) BdevNvmeAttachController(req BdevNvmeAttachControllerRequest) (BdevNvmeAttachControllerResponse, error) {
+	m.attachRequest = &req
 	if m.attachErr != nil {
 		return BdevNvmeAttachControllerResponse{}, m.attachErr
 	}
