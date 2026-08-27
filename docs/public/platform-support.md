@@ -23,7 +23,7 @@ DPF uses the following components:
 | Flannel CNI Plugin          | Community (OSS) | ghcr.io/flannel-io                    | flannel-cni-plugin              | v1.7.1-flannel1    |             |
 | Multus                      | Community (OSS) | ghcr.io/k8snetworkplumbingwg          | multus-cni                      | v3.9.3             |             |
 | NVIDIA K8s IPAM             | Community (OSS) | ghcr.io/mellanox                      | nvidia-k8s-ipam                 | v0.4.0             |             |
-| NVIDIA Maintenance Operator | Community (OSS) | ghcr.io/mellanox                      | maintenance-operator            | v0.3.0             |             |
+| NVIDIA Maintenance Operator | Community (OSS) | ghcr.io/mellanox                      | maintenance-operator            | v0.4.0             |             |
 | NVIDIA Network Operator     | Community (OSS) | nvcr.io/nvidia/cloud-native           | network-operator                | v26.1.0            |             |
 | Node Feature Discovery      | Community (OSS) | registry.k8s.io/nfd                   | node-feature-discovery          | v0.19.0            |             |
 | SR-IOV Device Plugin        | Community (OSS) | ghcr.io/k8snetworkplumbingwg          | sriov-network-device-plugin     | v3.11.0            |             |

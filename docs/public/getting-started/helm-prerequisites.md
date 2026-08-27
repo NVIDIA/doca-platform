@@ -25,7 +25,7 @@ and purposes:
 | [cert-manager]            | v1.21.1 | Certificate management for Kubernetes, provides automatic TLS certificate issuance and renewal | Yes         | Pre-installation      |
 | [argo-cd]                 | 10.2.2  | GitOps continuous delivery tool for Kubernetes, necessary for DPUService integration           | Yes         | Pre-installation      |
 | [node-feature-discovery]  | 0.19.0  | Discovers and advertises hardware features and capabilities of DPUs in the cluster             | Yes         | Pre-installation      |
-| [maintenance-operator]    | 0.3.0   | Manages node maintenance operations and ensures graceful handling of node updates              | Yes         | Pre-installation      |
+| [maintenance-operator]    | 0.4.0   | Manages node maintenance operations and ensures graceful handling of node updates              | Yes         | Pre-installation      |
 | [kamaji]                  | 1.4.0   | Kubernetes cluster management platform for creating and managing the DPU Kubernetes clusters   | Conditional | Pre-installation      |
 | [local-path-provisioner]  | 0.0.36  | Provides the `local-path` storage class used by the default Kamaji etcd configuration          | Conditional | Pre-installation      |
 | [openbao]                 | 0.28.6  | Secrets management service that can be used as a backend for secret storage workflows          | No          | Pre-installation      |

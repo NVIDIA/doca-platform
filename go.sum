@@ -20,8 +20,8 @@ github.com/Masterminds/semver/v3 v3.4.0 h1:Zog+i5UMtVoCU8oKka5P7i9q9HgrJeGzI9SA1
 github.com/Masterminds/semver/v3 v3.4.0/go.mod h1:4V+yj/TJE1HU9XfppCwVMZq3I84lprf4nC11bSS5beM=
 github.com/Masterminds/sprig/v3 v3.3.0 h1:mQh0Yrg1XPo6vjYXgtf5OtijNAKJRNcTdOOGZe3tPhs=
 github.com/Masterminds/sprig/v3 v3.3.0/go.mod h1:Zy1iXRYNqNLUolqCpL4uhk6SHUMAOSCzdgBfDb35Lz0=
-github.com/Mellanox/maintenance-operator/api v0.3.0 h1:TX+QflSZSOzinodbFdDK+2avEE5OAreajLbB33hubjg=
-github.com/Mellanox/maintenance-operator/api v0.3.0/go.mod h1:hJ+3RfMK82wT9BstT81bWA+6ZUy/zG6UzO5VzmkQfXg=
+github.com/Mellanox/maintenance-operator/api v0.4.0 h1:6amxdFiUlwudPf/089cP2GfAvPf8wSlvcJr/ob+o/Ig=
+github.com/Mellanox/maintenance-operator/api v0.4.0/go.mod h1:7U6WtZgQtSQwXO1hK7Ct0LUeMTWBbjXY9bRMs590iiQ=
 github.com/Mellanox/nic-configuration-operator v1.3.2-0.20260713095731-77a61397f2bb h1:hS8aJ4ES7Gb2Bc2tvlnDpHCmY0T9mjxvxfNpBkS0gwg=
 github.com/Mellanox/nic-configuration-operator v1.3.2-0.20260713095731-77a61397f2bb/go.mod h1:01Y3PHbSk8CS+jnnWFaXLYHHzDRZr3LdHOopjtjBOgg=
 github.com/Mellanox/rdmamap v1.2.0 h1:RMqfZIwIWI/gCjFSDi2zZTlZZ3n0LFNwp2DIBAyT2Xw=

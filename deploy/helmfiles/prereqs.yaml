@@ -118,7 +118,7 @@ releases:
     namespace: dpf-operator-system
     createNamespace: true
     chart: oci://ghcr.io/mellanox/maintenance-operator-chart
-    version: 0.3.0
+    version: 0.4.0
     labels:
       app: maintenance-operator
     values:
@@ -128,7 +128,7 @@ releases:
     hooks:
       - events: [ "preapply" ]
         command: "./hooks/apply-crds.sh"
-        args: ["oci://ghcr.io/mellanox/maintenance-operator-chart", "0.3.0"]
+        args: ["oci://ghcr.io/mellanox/maintenance-operator-chart", "0.4.0"]
         showlogs: true
 
   - name: argo-cd
