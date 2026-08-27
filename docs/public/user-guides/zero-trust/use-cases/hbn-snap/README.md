@@ -1473,17 +1473,24 @@ OS installation, etc.).
 
 ##### Making the DPUs Ready
 
-In order to make the DPUs ready, we will need to manually power cycle the hosts. This operation should be done in the
-most graceful manner by gracefully shutting down the Host and DPU, powering off the server and then powering it on to
-avoid corruption. This should happen when the object gives us the signal. The described flow can be automated by the
-admin depending on the infrastructure. The following verification command may need to be run multiple times to ensure the condition is met.
+In order to make the DPUs ready, the host operation that DPF requests in `DPUNode.status.rebootMethod` must be
+performed -- see
+[DPUNode: Aggregated reboot method](../../../../developer-guides/api/dpunode.md#aggregated-reboot-method)
+for what each value requires. With
+[`nodeRebootMethod: external`](../../../../developer-guides/api/dpunode.md#reboot-methods) we perform it manually when
+the object gives us the signal; the described flow can be automated by the admin depending on the infrastructure.
+
+The following verification command may need to be run multiple times to ensure the condition is met.
 
 ```shell
 ## Ensure the DPUs are in the Rebooting phase with rebootStatus.reason=WaitingForManualPowerCycleOrReboot
-kubectl wait --for=jsonpath='{.status.rebootStatus.reason}'=WaitingForManualPowerCycleOrReboot --namespace dpf-operator-system dpu --all 
+kubectl wait --for=jsonpath='{.status.rebootStatus.reason}'=WaitingForManualPowerCycleOrReboot --namespace dpf-operator-system dpu --all
+
+## Check which operation each host needs (see DPUNode: Aggregated reboot method)
+kubectl get dpunode --namespace dpf-operator-system -o custom-columns='NAME:.metadata.name,REBOOT_METHOD:.status.rebootMethod'
 ```
 
-At this point, we have to power cycle the hosts.
+At this point, we have to perform that operation on the hosts.
 
 >[!NOTE]
 > For the SNAP Block (NVMe) scenario, you do not need to wait for the host to fully boot after a power cycle before removing the annotation below.
@@ -2597,17 +2604,24 @@ OS installation, etc.).
 
 ##### Making the DPUs Ready
 
-In order to make the DPUs ready, we will need to manually power cycle the hosts. This operation should be done in the
-most graceful manner by gracefully shutting down the Host and DPU, powering off the server and then powering it on to
-avoid corruption. This should happen when the object gives us the signal. The described flow can be automated by the
-admin depending on the infrastructure. The following verification command may need to be run multiple times to ensure the condition is met.
+In order to make the DPUs ready, the host operation that DPF requests in `DPUNode.status.rebootMethod` must be
+performed -- see
+[DPUNode: Aggregated reboot method](../../../../developer-guides/api/dpunode.md#aggregated-reboot-method)
+for what each value requires. With
+[`nodeRebootMethod: external`](../../../../developer-guides/api/dpunode.md#reboot-methods) we perform it manually when
+the object gives us the signal; the described flow can be automated by the admin depending on the infrastructure.
+
+The following verification command may need to be run multiple times to ensure the condition is met.
 
 ```shell
 ## Ensure the DPUs are in the Rebooting phase with rebootStatus.reason=WaitingForManualPowerCycleOrReboot
 kubectl wait --for=jsonpath='{.status.rebootStatus.reason}'=WaitingForManualPowerCycleOrReboot --namespace dpf-operator-system dpu --all
+
+## Check which operation each host needs (see DPUNode: Aggregated reboot method)
+kubectl get dpunode --namespace dpf-operator-system -o custom-columns='NAME:.metadata.name,REBOOT_METHOD:.status.rebootMethod'
 ```
 
-At this point, we have to power cycle the hosts.
+At this point, we have to perform that operation on the hosts.
 
 ```shell
 kubectl annotate dpunodes -n dpf-operator-system --all provisioning.dpu.nvidia.com/dpunode-external-reboot-required-

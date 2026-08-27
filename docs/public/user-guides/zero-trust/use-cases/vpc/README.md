@@ -761,10 +761,13 @@ OS installation, etc.).
 
 #### Make DPUs Ready
 
-In order to make the DPUs ready, we will need to manually power cycle the host. This operation should be done in the
-most graceful manner by gracefully shutting down the Host and DPU, powering off the server and then powering it on to
-avoid corruption. This should happen when the DPU object gives us the signal. The described flow can be automated by the
-administrator depending on the infrastructure.
+In order to make the DPUs ready, the host operation that DPF requests in `DPUNode.status.rebootMethod` must be
+performed -- see
+[DPUNode: Aggregated reboot method](../../../../developer-guides/api/dpunode.md#aggregated-reboot-method)
+for what each value requires. With
+[`nodeRebootMethod: external`](../../../../developer-guides/api/dpunode.md#reboot-methods) we perform it manually when
+the DPU object gives us the signal; the described flow can be automated by the administrator depending on the
+infrastructure.
 
 The following verification commands may need to be run multiple times to ensure the condition is met.
 
@@ -780,15 +783,22 @@ kubectl wait --for=condition=OSInstalled --namespace dpf-operator-system dpu --a
 kubectl wait --namespace dpf-operator-system dpu --all --for=jsonpath='{.status.rebootStatus.reason}'=WaitingForManualPowerCycleOrReboot
 ```
 
-**3.** Power cycle DPU worker hosts - manual operation by the user
+**3.** Check which operation each host needs - see
+[DPUNode: Aggregated reboot method](../../../../developer-guides/api/dpunode.md#aggregated-reboot-method)
 
-**4.** Once all nodes have rebooted, remove `provisioning.dpu.nvidia.com/dpunode-external-reboot-required` annotation from `DPUNodes`
+```shell
+kubectl -n dpf-operator-system get dpunode -o custom-columns='NAME:.metadata.name,REBOOT_METHOD:.status.rebootMethod'
+```
+
+**4.** Perform that operation on the DPU worker hosts - manual operation by the user
+
+**5.** Once all nodes have rebooted, remove `provisioning.dpu.nvidia.com/dpunode-external-reboot-required` annotation from `DPUNodes`
 
 ```shell
 kubectl -n dpf-operator-system annotate dpunode --all provisioning.dpu.nvidia.com/dpunode-external-reboot-required-
 ```
 
-**5.** Ensure `DPUs` are ready
+**6.** Ensure `DPUs` are ready
 
 ```shell
 kubectl wait --for=condition=ready --namespace dpf-operator-system dpus --all
