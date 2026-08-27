@@ -384,6 +384,35 @@ var _ = Describe("Operator API Validation", func() {
 			})
 		})
 
+		Context("Validate BFB registry URL scheme", func() {
+			DescribeTable("DPFOperatorConfig registry address validation",
+				func(registry *operatorv1.RegistryConfiguration, expectError bool, errorMessage string) {
+					config := getMinimalDPFOperatorConfig(testNs.Name)
+					config.Spec.ProvisioningController.Registry = registry
+					validateConfigCreation(config, expectError, errorMessage, &cleanupObjs)
+				},
+				Entry("valid - registry unset", nil, false, ""),
+				Entry("valid - address https", &operatorv1.RegistryConfiguration{
+					Address: ptr.To("https://10.0.110.2:31272"),
+				}, false, ""),
+				Entry("valid - address http", &operatorv1.RegistryConfiguration{
+					Address: ptr.To("http://10.0.110.2:31272"),
+				}, false, ""),
+				Entry("valid - loadBalancerAddress https", &operatorv1.RegistryConfiguration{
+					LoadBalancerAddress: ptr.To("https://10.0.110.2:31272"),
+				}, false, ""),
+				Entry("valid - loadBalancerAddress http", &operatorv1.RegistryConfiguration{
+					LoadBalancerAddress: ptr.To("http://10.0.110.2:31272"),
+				}, false, ""),
+				Entry("invalid - address missing scheme", &operatorv1.RegistryConfiguration{
+					Address: ptr.To("10.0.110.2:31272"),
+				}, true, "should match '^https?://'"),
+				Entry("invalid - loadBalancerAddress missing scheme", &operatorv1.RegistryConfiguration{
+					LoadBalancerAddress: ptr.To("10.0.110.2:31272"),
+				}, true, "should match '^https?://'"),
+			)
+		})
+
 		Context("Validate SPIFFE configuration", func() {
 			DescribeTable("SPIFFE deploymentMode gate (creation)",
 				func(zeroTrust bool, withSPIFFE bool, expectError bool, errorMessage string) {

@@ -299,9 +299,9 @@ spec:
     Value must be in units accepted by Go time.ParseDuration https://golang.org/pkg/time/#ParseDuration.
 
 * `spec.provisioningController.registry`: Configuration for the container registry used during provisioning.
-    * `address`: Registry address (deprecated)
-    * `port`: Registry port (deprecated)
-    * `loadBalancerAddress`: Load balancer address for registry
+    * `address`: Registry address. **Deprecated** and will be removed in a future release; use `loadBalancerAddress` instead.
+    * `port`: Registry port. **Deprecated** and will be removed in a future release; use `loadBalancerAddress` instead.
+    * `loadBalancerAddress`: Load balancer address for the BFB Registry that the host agent/Redfish use to fetch the BFB and generated bf.cfg. This is the current, non-deprecated way to configure registry access. To use it, deploy your own load balancer controller pointed at the `bfb-registry` NodePort service. The value must start with `http://` or `https://`.
 
 * `spec.provisioningController.nodeEffectRemovalTimeout`: Maximum time allowed for the Node Effect Removal phase. If the `DPUNodeMaintenance` CR still has requestors after this timeout, the DPU transitions to Error state, which is terminal and requires reprovisioning (deleting and recreating the DPU). The default is `0s`, which disables the timeout entirely (no time limit is enforced). To enable, set to a non-zero duration (e.g. `30m`). Value must be in units accepted by Go `time.ParseDuration` (e.g. `30m`, `1h`, `45m30s`).
 
