@@ -67,6 +67,11 @@ var _ = Describe("Kamaji Handler - DPU cluster DNS Service", func() {
 
 	// createHostCoreDNS creates the host cluster CoreDNS the operator renders for a DPUCluster: the
 	// Deployment answering queries and the Service exposing it on a NodePort.
+	//
+	// Callers pass fixed NodePorts in 30000-30019, the static band (30000-30085 for the default
+	// 30000-32767 range). Auto-assignment draws from the dynamic band above it first, so a
+	// hard-coded port here never collides with one the API server picks for production Services
+	// (e.g. expectedService in handler.go). Do not move these back into the 32xxx range.
 	createHostCoreDNS := func(dc *provisioningv1.DPUCluster, namespace string, udpPort, tcpPort, availableReplicas int32) *corev1.Service {
 		// The name is arbitrary, the cluster manager finds these by label.
 		name := fmt.Sprintf("coredns-%s", dc.Name)
@@ -174,7 +179,7 @@ var _ = Describe("Kamaji Handler - DPU cluster DNS Service", func() {
 
 	It("should point the DNS Service at the host cluster CoreDNS", func() {
 		dpfOperatorConfig := createDPFOperatorConfig(testNS.Name)
-		createHostCoreDNS(dpuCluster, dpfOperatorConfig.Namespace, 32166, 32167, 1)
+		createHostCoreDNS(dpuCluster, dpfOperatorConfig.Namespace, 30000, 30001, 1)
 
 		reconcileDNS()
 
@@ -194,15 +199,15 @@ var _ = Describe("Kamaji Handler - DPU cluster DNS Service", func() {
 		for _, port := range endpointSlice.Ports {
 			ports[*port.Name] = *port.Port
 		}
-		Expect(ports).To(HaveKeyWithValue(dnsUDPPortName, int32(32166)))
-		Expect(ports).To(HaveKeyWithValue(dnsTCPPortName, int32(32167)))
+		Expect(ports).To(HaveKeyWithValue(dnsUDPPortName, int32(30000)))
+		Expect(ports).To(HaveKeyWithValue(dnsTCPPortName, int32(30001)))
 	})
 
 	It("should not write again once the DNS Service and EndpointSlice are correct", func() {
 		// The DPU cluster API server is reconciled against every minute, so an unchanged DNS Service
 		// must not cost a write.
 		dpfOperatorConfig := createDPFOperatorConfig(testNS.Name)
-		createHostCoreDNS(dpuCluster, dpfOperatorConfig.Namespace, 32178, 32179, 1)
+		createHostCoreDNS(dpuCluster, dpfOperatorConfig.Namespace, 30002, 30003, 1)
 
 		reconcileDNS()
 		svc, endpointSlice := dnsObjects()
@@ -216,12 +221,12 @@ var _ = Describe("Kamaji Handler - DPU cluster DNS Service", func() {
 
 	It("should update the endpoints when the CoreDNS NodePorts change", func() {
 		dpfOperatorConfig := createDPFOperatorConfig(testNS.Name)
-		coreDNS := createHostCoreDNS(dpuCluster, dpfOperatorConfig.Namespace, 32180, 32181, 1)
+		coreDNS := createHostCoreDNS(dpuCluster, dpfOperatorConfig.Namespace, 30004, 30005, 1)
 
 		reconcileDNS()
 
-		coreDNS.Spec.Ports[0].NodePort = 32182
-		coreDNS.Spec.Ports[1].NodePort = 32183
+		coreDNS.Spec.Ports[0].NodePort = 30006
+		coreDNS.Spec.Ports[1].NodePort = 30007
 		Expect(k8sClient.Update(ctx, coreDNS)).To(Succeed())
 
 		reconcileDNS()
@@ -231,13 +236,13 @@ var _ = Describe("Kamaji Handler - DPU cluster DNS Service", func() {
 		for _, port := range endpointSlice.Ports {
 			ports[*port.Name] = *port.Port
 		}
-		Expect(ports).To(HaveKeyWithValue(dnsUDPPortName, int32(32182)))
-		Expect(ports).To(HaveKeyWithValue(dnsTCPPortName, int32(32183)))
+		Expect(ports).To(HaveKeyWithValue(dnsUDPPortName, int32(30006)))
+		Expect(ports).To(HaveKeyWithValue(dnsTCPPortName, int32(30007)))
 	})
 
 	It("should keep the ClusterIP of an already existing DNS Service", func() {
 		dpfOperatorConfig := createDPFOperatorConfig(testNS.Name)
-		createHostCoreDNS(dpuCluster, dpfOperatorConfig.Namespace, 32168, 32169, 1)
+		createHostCoreDNS(dpuCluster, dpfOperatorConfig.Namespace, 30008, 30009, 1)
 
 		// A cluster whose service CIDR is not the default still has kubelet pointed at its own DNS
 		// Service IP, so an existing ClusterIP must never be replaced.
@@ -254,7 +259,7 @@ var _ = Describe("Kamaji Handler - DPU cluster DNS Service", func() {
 
 	It("should derive the DNS Service IP from the service CIDR", func() {
 		dpfOperatorConfig := createDPFOperatorConfig(testNS.Name)
-		createHostCoreDNS(dpuCluster, dpfOperatorConfig.Namespace, 32172, 32173, 1)
+		createHostCoreDNS(dpuCluster, dpfOperatorConfig.Namespace, 30010, 30011, 1)
 		tcp.Spec.NetworkProfile.ServiceCIDRs = []string{"172.16.0.0/16"}
 
 		reconcileDNS()
@@ -267,7 +272,7 @@ var _ = Describe("Kamaji Handler - DPU cluster DNS Service", func() {
 		// Kamaji defaults the deprecated field whether or not it is used, so a cluster created
 		// before DPF set the plural one still has to resolve against its own range.
 		dpfOperatorConfig := createDPFOperatorConfig(testNS.Name)
-		createHostCoreDNS(dpuCluster, dpfOperatorConfig.Namespace, 32190, 32191, 1)
+		createHostCoreDNS(dpuCluster, dpfOperatorConfig.Namespace, 30012, 30013, 1)
 		tcp.Spec.NetworkProfile.ServiceCIDRs = nil
 		tcp.Spec.NetworkProfile.ServiceCIDR = "172.16.0.0/16"
 
@@ -313,7 +318,7 @@ var _ = Describe("Kamaji Handler - DPU cluster DNS Service", func() {
 		// Pointing the DNS Service at a CoreDNS that cannot answer yet would black hole DNS for
 		// the DPU cluster, which still serves it itself at this point.
 		dpfOperatorConfig := createDPFOperatorConfig(testNS.Name)
-		createHostCoreDNS(dpuCluster, dpfOperatorConfig.Namespace, 32184, 32185, 0)
+		createHostCoreDNS(dpuCluster, dpfOperatorConfig.Namespace, 30014, 30015, 0)
 
 		reconcileDNS()
 
@@ -325,7 +330,7 @@ var _ = Describe("Kamaji Handler - DPU cluster DNS Service", func() {
 	It("should stop Kamaji serving DNS once the DNS Service points at the host cluster", func() {
 		tcp := createLegacyTCP()
 		dpfOperatorConfig := createDPFOperatorConfig(testNS.Name)
-		createHostCoreDNS(dpuCluster, dpfOperatorConfig.Namespace, 32186, 32187, 1)
+		createHostCoreDNS(dpuCluster, dpfOperatorConfig.Namespace, 30016, 30017, 1)
 
 		reconcileDNS()
 
@@ -337,7 +342,7 @@ var _ = Describe("Kamaji Handler - DPU cluster DNS Service", func() {
 	It("should keep Kamaji serving DNS while the host cluster CoreDNS cannot answer", func() {
 		tcp := createLegacyTCP()
 		dpfOperatorConfig := createDPFOperatorConfig(testNS.Name)
-		createHostCoreDNS(dpuCluster, dpfOperatorConfig.Namespace, 32188, 32189, 0)
+		createHostCoreDNS(dpuCluster, dpfOperatorConfig.Namespace, 30018, 30019, 0)
 
 		reconcileDNS()
 
