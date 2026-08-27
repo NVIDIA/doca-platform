@@ -133,6 +133,27 @@ func CreateDPUAgentRole(ctx context.Context, client crclient.Client, scheme *run
 	return nil
 }
 
+// EnsureDPUAgentRoleForCurrentFlavor creates or updates the per-DPU Role so it
+// grants get on dpu.Spec.DPUFlavor. Call this before Config FW Parameters when a
+// leftover in-band agent is live: leftover Roles still pin resourceNames to the
+// previous flavor, and pre-install NVConfig reads the current flavor in that phase.
+func EnsureDPUAgentRoleForCurrentFlavor(ctx context.Context, client crclient.Client, scheme *runtime.Scheme, dpu *provisioningv1.DPU) error {
+	if dpu == nil || dpu.Spec.DPUFlavor == "" {
+		return nil
+	}
+	if scheme == nil {
+		scheme = client.Scheme()
+	}
+	flavor := &provisioningv1.DPUFlavor{}
+	if err := client.Get(ctx, crclient.ObjectKey{Namespace: dpu.Namespace, Name: dpu.Spec.DPUFlavor}, flavor); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return fmt.Errorf("get DPUFlavor %s/%s for agent Role: %w", dpu.Namespace, dpu.Spec.DPUFlavor, err)
+		}
+		flavor = nil
+	}
+	return CreateDPUAgentRole(ctx, client, scheme, dpu, flavor)
+}
+
 func referencedConfigMapNames(flavor *provisioningv1.DPUFlavor) []string {
 	seen := map[string]struct{}{}
 	// dpu-agent CA trust bundle watcher always reads this ConfigMap.

@@ -220,6 +220,35 @@ var _ = Describe("ZT Bootstrap", func() {
 		})
 	})
 
+	Describe("EnsureDPUAgentRoleForCurrentFlavor", func() {
+		It("rewrites leftover Role resourceNames to the current spec.dpuFlavor", func() {
+			dpu.Spec.DPUFlavor = "new-flavor"
+			existing := &rbacv1.Role{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "da-dpu-01",
+					Namespace: "dpf-operator-system",
+				},
+				Rules: []rbacv1.PolicyRule{{
+					APIGroups:     []string{ProvisioningGroupName},
+					Resources:     []string{"dpuflavors"},
+					ResourceNames: []string{"old-flavor"},
+					Verbs:         []string{"get"},
+				}},
+			}
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
+
+			Expect(EnsureDPUAgentRoleForCurrentFlavor(ctx, fakeClient, scheme, dpu)).To(Succeed())
+
+			role := &rbacv1.Role{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{
+				Name:      "da-dpu-01",
+				Namespace: "dpf-operator-system",
+			}, role)).To(Succeed())
+			Expect(role.Rules[4].Resources).To(Equal([]string{"dpuflavors"}))
+			Expect(role.Rules[4].ResourceNames).To(Equal([]string{"new-flavor"}))
+		})
+	})
+
 	Describe("CreateDPUAgentRoleBinding", func() {
 		It("should create a role binding with correct subject", func() {
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
