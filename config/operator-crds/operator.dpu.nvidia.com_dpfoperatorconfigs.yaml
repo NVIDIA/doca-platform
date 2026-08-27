@@ -1693,6 +1693,14 @@ spec:
                     format: duration
                     pattern: ^([0-9]+(h|m|s|ms|us|µs|ns))+$
                     type: string
+                  osInstallRetries:
+                    description: |-
+                      OSInstallRetries is the maximum number of retryable OS installation attempts in zero-trust mode
+                      before the DPU transitions to Error. Attempts are counted in-process and reset on controller restart.
+                      When unset, the provisioning controller defaults to 2.
+                    format: int32
+                    minimum: 1
+                    type: integer
                   osInstallTimeout:
                     description: |-
                       OSInstallTimeout is the maximum time allowed for OS installation in zero-trust mode.

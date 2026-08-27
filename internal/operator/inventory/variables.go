@@ -177,6 +177,7 @@ type DPFProvisioningVariables struct {
 	MaxUnavailableDPUNodes             *int32
 	Registry                           *operatorv1.RegistryConfiguration
 	Replicas                           *int32
+	OSInstallRetries                   int32
 	OSInstallTimeout                   *metav1.Duration
 	FirmwareUpdateTimeout              *metav1.Duration
 	PreInstallAgentRegistrationTimeout *metav1.Duration
@@ -317,6 +318,7 @@ func setBasicConfig(variables Variables, config *operatorv1.DPFOperatorConfig) V
 		Registry:                           config.Spec.ProvisioningController.Registry,
 		Replicas:                           config.Spec.ProvisioningController.Replicas,
 		OSInstallTimeout:                   config.Spec.ProvisioningController.OSInstallTimeout,
+		OSInstallRetries:                   config.Spec.ProvisioningController.OSInstallRetries,
 		FirmwareUpdateTimeout:              config.Spec.ProvisioningController.FirmwareUpdateTimeout,
 		PreInstallAgentRegistrationTimeout: config.Spec.ProvisioningController.PreInstallAgentRegistrationTimeout,
 		NodeEffectRemovalTimeout:           config.Spec.ProvisioningController.NodeEffectRemovalTimeout,
