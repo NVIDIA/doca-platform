@@ -31,6 +31,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -196,6 +197,135 @@ var _ = Describe("Phase Initializing", func() {
 				Expect(status.SecureBoot).To(BeNil())
 			}
 			runForEachInterface(run)
+		})
+
+		It("should refresh leftover DPUFlavor resourceNames when the pre-install agent has reported", func() {
+			dpuDevice := dpuDeviceObj(defaultDPUDeviceName)
+			createObject(dpuDevice)
+
+			dpuNode := dpuNodeObj(defaultDPUNodeName)
+			dpuNode.Finalizers = []string{provisioningv1.DPUNodeFinalizer}
+			dpuNode.Labels[cutil.NodeFeatureDiscoveryLabelPrefix+cutil.DPUOOBBridgeConfiguredLabel] = strTrue
+			dpuNode.Spec.DPUs = []provisioningv1.DPURef{{Name: dpuDevice.Name}}
+			createObject(dpuNode)
+			patch := client.MergeFrom(dpuNode.DeepCopy())
+			dpuNode.Status = provisioningv1.DPUNodeStatus{
+				DPUInstallInterface: ptr.To(string(provisioningv1.InstallViaHostAgent)),
+				Conditions: []metav1.Condition{{
+					Type:               string(provisioningv1.DPUNodeConditionBridgeConfigured),
+					Status:             metav1.ConditionTrue,
+					Reason:             "BridgeConfigured",
+					Message:            "Bridge configured",
+					LastTransitionTime: metav1.Now(),
+				}},
+			}
+			Expect(k8sClient.Status().Patch(ctx, dpuNode, patch)).To(Succeed())
+
+			dpuCluster := dpuClusterObj(defaultDPUClusterName, "static")
+			createObject(dpuCluster)
+
+			dpu := dpuObj(defaultDPUName)
+			dpu.Spec.PCIAddress = ptr.To("0000-00-00")
+			dpu.Spec.DPUNodeName = dpuNode.Name
+			dpu.Spec.DPUDeviceName = dpuDevice.Name
+			dpu.Spec.Cluster.Namespace = dpuCluster.Namespace
+			dpu.Spec.Cluster.Name = dpuCluster.Name
+			dpu.Spec.DPUFlavor = "dpu-flavor"
+			dpu.Status.Phase = provisioningv1.DPUInitializing
+			dpu.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaHostAgent))
+			reportedAt := metav1.Now()
+			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
+				PreInstall: &provisioningv1.AgentPreInstallStatus{AgentReported: &reportedAt},
+			}
+
+			leftover := &rbacv1.Role{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "da-" + dpu.Name,
+					Namespace: dpu.Namespace,
+				},
+				Rules: []rbacv1.PolicyRule{{
+					APIGroups:     []string{cutil.ProvisioningGroupName},
+					Resources:     []string{"dpuflavors"},
+					ResourceNames: []string{"old-flavor"},
+					Verbs:         []string{"get"},
+				}},
+			}
+			createObject(leftover)
+
+			status, err := state.Initializing(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+			Expect(err).To(Succeed())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUPending))
+
+			role := &rbacv1.Role{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: leftover.Name, Namespace: leftover.Namespace}, role)).To(Succeed())
+			var flavorNames []string
+			for _, rule := range role.Rules {
+				for _, res := range rule.Resources {
+					if res == "dpuflavors" {
+						flavorNames = rule.ResourceNames
+					}
+				}
+			}
+			Expect(flavorNames).To(Equal([]string{"dpu-flavor"}))
+		})
+
+		It("should not refresh leftover DPU agent Role when the pre-install agent has not reported", func() {
+			dpuDevice := dpuDeviceObj(defaultDPUDeviceName)
+			createObject(dpuDevice)
+
+			dpuNode := dpuNodeObj(defaultDPUNodeName)
+			dpuNode.Finalizers = []string{provisioningv1.DPUNodeFinalizer}
+			dpuNode.Labels[cutil.NodeFeatureDiscoveryLabelPrefix+cutil.DPUOOBBridgeConfiguredLabel] = strTrue
+			dpuNode.Spec.DPUs = []provisioningv1.DPURef{{Name: dpuDevice.Name}}
+			createObject(dpuNode)
+			patch := client.MergeFrom(dpuNode.DeepCopy())
+			dpuNode.Status = provisioningv1.DPUNodeStatus{
+				DPUInstallInterface: ptr.To(string(provisioningv1.InstallViaHostAgent)),
+				Conditions: []metav1.Condition{{
+					Type:               string(provisioningv1.DPUNodeConditionBridgeConfigured),
+					Status:             metav1.ConditionTrue,
+					Reason:             "BridgeConfigured",
+					Message:            "Bridge configured",
+					LastTransitionTime: metav1.Now(),
+				}},
+			}
+			Expect(k8sClient.Status().Patch(ctx, dpuNode, patch)).To(Succeed())
+
+			dpuCluster := dpuClusterObj(defaultDPUClusterName, "static")
+			createObject(dpuCluster)
+
+			dpu := dpuObj(defaultDPUName)
+			dpu.Spec.PCIAddress = ptr.To("0000-00-00")
+			dpu.Spec.DPUNodeName = dpuNode.Name
+			dpu.Spec.DPUDeviceName = dpuDevice.Name
+			dpu.Spec.Cluster.Namespace = dpuCluster.Namespace
+			dpu.Spec.Cluster.Name = dpuCluster.Name
+			dpu.Spec.DPUFlavor = "dpu-flavor"
+			dpu.Status.Phase = provisioningv1.DPUInitializing
+			dpu.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaHostAgent))
+
+			leftover := &rbacv1.Role{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "da-" + dpu.Name,
+					Namespace: dpu.Namespace,
+				},
+				Rules: []rbacv1.PolicyRule{{
+					APIGroups:     []string{cutil.ProvisioningGroupName},
+					Resources:     []string{"dpuflavors"},
+					ResourceNames: []string{"old-flavor"},
+					Verbs:         []string{"get"},
+				}},
+			}
+			createObject(leftover)
+
+			status, err := state.Initializing(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+			Expect(err).To(Succeed())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUInitializing))
+
+			role := &rbacv1.Role{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: leftover.Name, Namespace: leftover.Namespace}, role)).To(Succeed())
+			Expect(role.Rules).To(HaveLen(1))
+			Expect(role.Rules[0].ResourceNames).To(Equal([]string{"old-flavor"}))
 		})
 
 		It("should sync SecureBoot status from DPUDevice to DPU", func() {
