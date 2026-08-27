@@ -24,6 +24,40 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestEqualTransportAddress(t *testing.T) {
+	tests := []struct {
+		name     string
+		first    string
+		second   string
+		expected bool
+	}{
+		{
+			name:     "equivalent IPv6 addresses",
+			first:    "2001:0db8:0000:0000:0000:0000:0000:0001",
+			second:   "2001:db8::1",
+			expected: true,
+		},
+		{
+			name:     "case-insensitive non-IP addresses",
+			first:    "STORAGE.EXAMPLE.COM",
+			second:   "storage.example.com",
+			expected: true,
+		},
+		{
+			name:     "different IPv6 addresses",
+			first:    "2001:db8::1",
+			second:   "2001:db8::2",
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.expected, equalTransportAddress(tt.first, tt.second))
+		})
+	}
+}
+
 func TestCheckBdevExistsByTrid(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -69,6 +103,41 @@ func TestCheckBdevExistsByTrid(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCheckBdevExistsByTridNormalizesIPv6Address(t *testing.T) {
+	bdevResponse := BdevGetBdevsResponse{
+		Bdevs: []Bdev{
+			{
+				Name: "nvme_ipv6n1",
+				DriverSpecific: map[string]interface{}{
+					"nvme": []interface{}{
+						map[string]interface{}{
+							"trid": map[string]interface{}{
+								"trtype":  "RDMA",
+								"adrfam":  "IPv6",
+								"traddr":  "2001:0db8:0000:0000:0000:0000:0000:0001",
+								"trsvcid": "4420",
+								"subnqn":  "nqn.2016-06.io.nvmet:ipv6",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	req := BdevNvmeAttachControllerRequest{
+		Trtype:  "RDMA",
+		Adrfam:  "ipv6",
+		Traddr:  "2001:db8::1",
+		Trsvcid: "4420",
+		Subnqn:  "nqn.2016-06.io.nvmet:ipv6",
+	}
+
+	bdevName, err := CheckBdevExistsByTrid(req, bdevResponse)
+
+	require.NoError(t, err)
+	require.Equal(t, "nvme_ipv6n1", bdevName)
 }
 
 func TestCheckBdevExistsByBdev(t *testing.T) {

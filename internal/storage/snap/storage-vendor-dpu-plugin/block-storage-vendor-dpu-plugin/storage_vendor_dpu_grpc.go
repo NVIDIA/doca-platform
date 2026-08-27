@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -217,6 +218,14 @@ func (s *StoragePluginServer) GetSNAPProvider(ctx context.Context, req *pb.GetSN
 	return resp, nil
 }
 
+func getAddressFamily(address string) string {
+	ip, err := netip.ParseAddr(address)
+	if err == nil && ip.Is6() {
+		return "ipv6"
+	}
+	return "ipv4"
+}
+
 // CreateDevice RPC
 func (s *StoragePluginServer) CreateDevice(ctx context.Context, req *pb.CreateDeviceRequest) (*pb.CreateDeviceResponse, error) {
 	klog.Infof("Received CreateDevice request: %+v", req)
@@ -246,7 +255,7 @@ func (s *StoragePluginServer) CreateDevice(ctx context.Context, req *pb.CreateDe
 	attachRequest := BdevNvmeAttachControllerRequest{
 		Trtype:  trtype,
 		Traddr:  req.VolumeContext["targetAddr"],
-		Adrfam:  "ipv4",
+		Adrfam:  getAddressFamily(req.VolumeContext["targetAddr"]),
 		Trsvcid: req.VolumeContext["targetPort"],
 		Subnqn:  req.VolumeContext["nqn"],
 	}

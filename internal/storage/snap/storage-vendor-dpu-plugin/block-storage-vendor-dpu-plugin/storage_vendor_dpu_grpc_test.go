@@ -109,14 +109,15 @@ func TestGetSNAPProvider(t *testing.T) {
 
 func TestCreateDevice(t *testing.T) {
 	tests := []struct {
-		name        string
-		req         *pb.CreateDeviceRequest
-		mockClient  *mockRPCClient
-		expectError bool
-		errorCode   codes.Code
+		name                  string
+		req                   *pb.CreateDeviceRequest
+		mockClient            *mockRPCClient
+		expectedAttachRequest *BdevNvmeAttachControllerRequest
+		expectError           bool
+		errorCode             codes.Code
 	}{
 		{
-			name: "Successful device creation",
+			name: "Successful IPv4 device creation",
 			req: &pb.CreateDeviceRequest{
 				VolumeId: "test-volume",
 				VolumeContext: map[string]string{
@@ -128,6 +129,38 @@ func TestCreateDevice(t *testing.T) {
 			},
 			mockClient: &mockRPCClient{
 				bdevs: BdevGetBdevsResponse{},
+			},
+			expectedAttachRequest: &BdevNvmeAttachControllerRequest{
+				Name:    "nvme_test-volume",
+				Trtype:  "RDMA",
+				Traddr:  "192.168.1.1",
+				Adrfam:  "ipv4",
+				Trsvcid: "4420",
+				Subnqn:  "nqn.2016-06.io.nvmet:swx-mtvr-stor02",
+			},
+			expectError: false,
+		},
+		{
+			name: "Successful IPv6 TCP device creation",
+			req: &pb.CreateDeviceRequest{
+				VolumeId: "test-volume",
+				VolumeContext: map[string]string{
+					"targetType": "TCP",
+					"targetAddr": "2001:db8::1",
+					"targetPort": "4420",
+					"nqn":        "nqn.2016-06.io.nvmet:swx-mtvr-stor02",
+				},
+			},
+			mockClient: &mockRPCClient{
+				bdevs: BdevGetBdevsResponse{},
+			},
+			expectedAttachRequest: &BdevNvmeAttachControllerRequest{
+				Name:    "nvme_test-volume",
+				Trtype:  "NVDA_TCP",
+				Traddr:  "2001:db8::1",
+				Adrfam:  "ipv6",
+				Trsvcid: "4420",
+				Subnqn:  "nqn.2016-06.io.nvmet:swx-mtvr-stor02",
 			},
 			expectError: false,
 		},
@@ -182,6 +215,9 @@ func TestCreateDevice(t *testing.T) {
 				require.NoError(t, err)
 				require.NotNil(t, resp)
 				require.NotEmpty(t, resp.DeviceName)
+				if tt.expectedAttachRequest != nil {
+					require.Equal(t, tt.expectedAttachRequest, tt.mockClient.attachRequest)
+				}
 			}
 		})
 	}
