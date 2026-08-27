@@ -3551,7 +3551,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `device` _string_ | Device is the device to which the configuration applies. If not specified, the configuration applies to all.<br />Supported values: "*" (wildcard for all devices), "p0"/"P0" (port 0), "p1"/"P1" (port 1). Case-insensitive. |  | Enum: [* p0 p1 P0 P1] <br />Optional: \{\} <br /> |
-| `parameters` _string array_ | Parameters are the parameters to be set for the device.<br />DELAY_HOST_OS_INIT=ENABLE_USER (0x3) holds the host at UEFI and is rejected by the DPU agent<br />outside zero-trust, where the agent needs the host to reach the kube-apiserver. |  | MaxItems: 32 <br />MinItems: 1 <br />items:MaxLength: 200 <br />items:Pattern: `^[^=\s]+=[^\s]*$` <br />Optional: \{\} <br /> |
+| `parameters` _string array_ | Parameters are the parameters to be set for the device.<br />DELAY_HOST_OS_INIT=ENABLE_USER (0x3) holds the host at UEFI and is rejected by the DPU agent<br />outside zero-trust, where the agent needs the host to reach the kube-apiserver. |  | MaxItems: 64 <br />MinItems: 1 <br />items:MaxLength: 200 <br />items:Pattern: `^[^=\s]+=[^\s]*$` <br />Optional: \{\} <br /> |
 | `force` _boolean_ | force applies the parameters with `mlxconfig --force` and skips the `mlxconfig q` filter,<br />so parameters firmware does not yet expose are applied now instead of deferred to a later<br />reboot. Required when a parameter is gated behind another parameter in the same batch.<br />Requires DOCA 3.5.0 or later; on an older DOCA version the operation fails.<br />`--force` skips validation for the whole batch, so an invalid value is applied silently.<br />Ignored under `spec.hostNetworkInterfaceConfigs[].nvconfig`. |  | Optional: \{\} <br /> |
 
 
