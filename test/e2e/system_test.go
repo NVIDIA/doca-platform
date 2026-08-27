@@ -56,16 +56,16 @@ func SetInput() {
 	}
 
 	input = &systemTestInput{
-		namespace:          dpfOperatorSystemNamespace,
-		config:             dpfOperatorConfig,
-		pullSecretNames:    dpfOperatorConfig.Spec.ImagePullSecrets,
-		client:             testClient,
-		restConfig:         restConfig,
-		cleanupFlags:       cleanupFlags,
-		bfbImageURL:        bfbImageURL,
-		bfsOsIsoURL:        bfsOsIsoURL,
-		bfsPldmFwBundleURL: bfsPldmFwBundleURL,
-		bfsNicFwURL:        bfsNicFwURL,
+		namespace:        dpfOperatorSystemNamespace,
+		config:           dpfOperatorConfig,
+		pullSecretNames:  dpfOperatorConfig.Spec.ImagePullSecrets,
+		client:           testClient,
+		restConfig:       restConfig,
+		cleanupFlags:     cleanupFlags,
+		bfbImageURL:      bfbImageURL,
+		bfsOsIsoURL:      bfsOsIsoURL,
+		bfsPldmFwBundles: bfsPldmFwBundles,
+		bfsNicFwURL:      bfsNicFwURL,
 	}
 	input.applyConfig(*conf)
 }
@@ -835,7 +835,7 @@ func getProvisionDPUClustersInput() ProvisionDPUClustersInput {
 		client:                      input.client,
 		bfbImageURL:                 input.bfbImageURL,
 		bfsOsIsoURL:                 input.bfsOsIsoURL,
-		bfsPldmFwBundleURL:          input.bfsPldmFwBundleURL,
+		bfsPldmFwBundles:            input.bfsPldmFwBundles,
 		bfsNicFwURL:                 input.bfsNicFwURL,
 		restConfig:                  restConfig,
 		NodeRebootConfigMap:         input.nodeRebootConfigMap,

@@ -107,24 +107,22 @@ func (st *blueFieldSoftwareDownloadingState) processComponents(ctx context.Conte
 }
 
 func (st *blueFieldSoftwareDownloadingState) processComponent(ctx context.Context, component componentInfo) (bool, error) {
-	componentURL := component.URL
-	componentType := component.ComponentType
-
-	if !isURL(componentURL) {
-		// Non-URL values are opaque identifiers stored as-is in status (no download).
-		st.updateComponentStatus(componentType, componentURL)
+	if !isURL(component.URL) {
+		// Non-URL values are opaque refs: no download, but status records the synthetic
+		// destination path so componentDownloadSatisfied can match on later reconciles.
+		st.updateComponentStatus(component, componentDestinationPath(component.ComponentType, st.fileName(component)))
 		return true, nil
 	}
 
-	taskName := butil.GenerateComponentTaskName(*st.bfs, componentType)
+	taskName := st.taskName(component)
 	if taskFuture, ok := butil.DownloadingTaskMap.Load(taskName); ok {
-		return st.handleExistingTask(taskFuture, taskName, componentType, componentURL)
+		return st.handleExistingTask(taskFuture, taskName, component)
 	}
 
-	return st.handleNewDownload(ctx, componentType, componentURL, taskName)
+	return st.handleNewDownload(ctx, component, taskName)
 }
 
-func (st *blueFieldSoftwareDownloadingState) handleExistingTask(taskFuture interface{}, taskName string, componentType butil.ComponentType, componentURL string) (bool, error) {
+func (st *blueFieldSoftwareDownloadingState) handleExistingTask(taskFuture interface{}, taskName string, component componentInfo) (bool, error) {
 	result := taskFuture.(*future.Future)
 	if result.GetState() != future.Ready {
 		return false, nil
@@ -134,24 +132,24 @@ func (st *blueFieldSoftwareDownloadingState) handleExistingTask(taskFuture inter
 	butil.DownloadingTaskMap.Delete(taskName)
 
 	if _, err := result.GetResult(); err != nil {
-		return false, st.handleDownloadError(err, componentType)
+		return false, st.handleDownloadError(err, component)
 	}
 
-	fileName := butil.ComponentDownloadFilename(st.bfs, componentType, componentURL)
-	st.updateComponentStatus(componentType, componentDestinationPath(componentType, fileName))
+	st.updateComponentStatus(component, componentDestinationPath(component.ComponentType, st.fileName(component)))
 	return true, nil
 }
 
-func (st *blueFieldSoftwareDownloadingState) handleDownloadError(err error, componentType butil.ComponentType) error {
+func (st *blueFieldSoftwareDownloadingState) handleDownloadError(err error, component componentInfo) error {
+	componentType := component.ComponentType
 	if errors.Is(err, context.Canceled) {
 		st.bfs.Status.Phase = provisioningv1.BlueFieldSoftwareDeleting
 		conditions.AddFalse(st.bfs, provisioningv1.BlueFieldSoftwareCondDownloaded,
 			conditions.ReasonAwaitingDeletion, conditions.ConditionMessage(fmt.Sprintf("BlueFieldSoftware %s download canceled, deletion in progress", componentType)))
-		st.clearRetryCounter(componentType)
+		st.clearRetryCounter(component)
 		return nil
 	}
 
-	retryKey := st.getRetryKey(componentType)
+	retryKey := st.getRetryKey(component)
 	currentRetries := st.getRetryCount(retryKey)
 
 	if currentRetries < maxDownloadRetries {
@@ -163,7 +161,7 @@ func (st *blueFieldSoftwareDownloadingState) handleDownloadError(err error, comp
 		conditions.AddFalse(st.bfs, provisioningv1.BlueFieldSoftwareCondDownloaded,
 			conditions.ReasonRetrying, conditions.ConditionMessage(msg))
 		// Clear the failed task so it can be retried
-		taskName := butil.GenerateComponentTaskName(*st.bfs, componentType)
+		taskName := st.taskName(component)
 		butil.DownloadingTaskMap.Delete(taskName)
 		butil.DownloadingTaskMap.Delete(taskName + "cancel")
 		return nil
@@ -171,10 +169,8 @@ func (st *blueFieldSoftwareDownloadingState) handleDownloadError(err error, comp
 
 	// Max immediate retries reached. Classify the failure so the Error state knows whether
 	// to keep retrying: recoverable (ReasonError) for transient storage/network conditions
-	// such as the /bfb volume being temporarily unavailable after a control-plane node OS
-	// revert, and terminal (ReasonFailure) for issues that need user intervention such as
-	// a bad URL (HTTP 4xx/5xx).
-	st.clearRetryCounter(componentType)
+	// and terminal (ReasonFailure) for issues that need user intervention.
+	st.clearRetryCounter(component)
 	reason := conditions.ReasonFailure
 	if cutil.IsRecoverableDownloadError(err) {
 		reason = conditions.ReasonError
@@ -188,23 +184,23 @@ func (st *blueFieldSoftwareDownloadingState) handleDownloadError(err error, comp
 	return err
 }
 
-func (st *blueFieldSoftwareDownloadingState) handleNewDownload(ctx context.Context, componentType butil.ComponentType, componentURL, taskName string) (bool, error) {
-	fileName := butil.ComponentDownloadFilename(st.bfs, componentType, componentURL)
-	filePath := componentDestinationPath(componentType, fileName)
+func (st *blueFieldSoftwareDownloadingState) handleNewDownload(ctx context.Context, component componentInfo, taskName string) (bool, error) {
+	fileName := st.fileName(component)
+	filePath := componentDestinationPath(component.ComponentType, fileName)
 
 	exist, err := isFileExist(filePath)
 	if err != nil {
-		return false, st.handleFileCheckError(err, componentType)
+		return false, st.handleFileCheckError(err, component.ComponentType)
 	}
 
 	if exist {
-		st.updateComponentStatus(componentType, filePath)
+		st.updateComponentStatus(component, filePath)
 		return true, nil
 	}
 
-	st.recorder.Eventf(st.bfs, corev1.EventTypeNormal, events.EventSuccessfulDownloadBFBReason, fmt.Sprintf("Starting download component %s: (%s/%s)", componentType, st.bfs.Namespace, st.bfs.Name))
+	st.recorder.Eventf(st.bfs, corev1.EventTypeNormal, events.EventSuccessfulDownloadBFBReason, fmt.Sprintf("Starting download component %s: (%s/%s)", component.ComponentType, st.bfs.Namespace, st.bfs.Name))
 
-	st.startDownload(ctx, componentType, componentURL, fileName, taskName)
+	st.startDownload(ctx, component.ComponentType, component.URL, fileName, taskName)
 	return false, nil
 }
 
@@ -235,83 +231,125 @@ func (st *blueFieldSoftwareDownloadingState) startDownload(ctx context.Context, 
 type componentInfo struct {
 	URL           string
 	ComponentType butil.ComponentType
+	// Key is the PSID for per-PSID components (platform PLDM bundle) and "" for single-valued components.
+	Key string
+}
+
+func (st *blueFieldSoftwareDownloadingState) taskName(c componentInfo) string {
+	return componentTaskName(st.bfs, c)
+}
+
+func (st *blueFieldSoftwareDownloadingState) fileName(c componentInfo) string {
+	return componentFileName(st.bfs, c)
+}
+
+// componentTaskName returns the download task name for a component, keeping per-PSID
+// DPU bundle downloads distinct.
+func componentTaskName(bfs *provisioningv1.BlueFieldSoftware, c componentInfo) string {
+	if c.ComponentType == butil.ComponentTypeFwBundle {
+		return butil.PldmTaskName(bfs, c.Key)
+	}
+	return butil.GenerateComponentTaskName(*bfs, c.ComponentType)
+}
+
+// componentFileName returns the on-disk filename for a component's download.
+func componentFileName(bfs *provisioningv1.BlueFieldSoftware, c componentInfo) string {
+	if c.ComponentType == butil.ComponentTypeFwBundle {
+		return butil.PldmComponentFilename(bfs, c.Key, c.URL)
+	}
+	return butil.ComponentDownloadFilename(bfs, c.ComponentType, c.URL)
+}
+
+// specComponentUnits expands the spec into individual (componentType, key, url) units,
+// with one unit per PSID for the DPU PLDM bundle.
+func specComponentUnits(bfs *provisioningv1.BlueFieldSoftware) []componentInfo {
+	pldmBundles := butil.PldmFwBundles(bfs)
+	platformBundle := ptr.Deref(bfs.Spec.PlatformPldmFwBundle, "")
+	nicFw := ptr.Deref(bfs.Spec.NicFw, "")
+	capacity := len(pldmBundles)
+	for _, url := range []string{bfs.Spec.OsIso, platformBundle, nicFw} {
+		if url != "" {
+			capacity++
+		}
+	}
+	units := make([]componentInfo, 0, capacity)
+	if bfs.Spec.OsIso != "" {
+		units = append(units, componentInfo{URL: bfs.Spec.OsIso, ComponentType: butil.ComponentTypeOSISO})
+	}
+	for psid, url := range pldmBundles {
+		units = append(units, componentInfo{URL: url, ComponentType: butil.ComponentTypeFwBundle, Key: psid})
+	}
+	if platformBundle != "" {
+		units = append(units, componentInfo{URL: platformBundle, ComponentType: butil.ComponentTypePlatformFwBundle})
+	}
+	if nicFw != "" {
+		units = append(units, componentInfo{URL: nicFw, ComponentType: butil.ComponentTypeNicFw})
+	}
+	return units
 }
 
 // componentDownloadSatisfied returns true when status reflects a completed download.
-// For downloadable (URL) components the recorded file must also still exist on disk;
-// this guards against stale status after the backing storage changed underneath the
-// controller, so a retry re-downloads the missing file instead of advancing to
-// Extracting with a non-existent artifact.
-func (st *blueFieldSoftwareDownloadingState) componentDownloadSatisfied(componentType butil.ComponentType, specValue, downloaded string) bool {
-	expected := componentDestinationPath(componentType, butil.ComponentDownloadFilename(st.bfs, componentType, specValue))
-	if downloaded != expected {
+// URL-based components must also still exist on disk.
+func (st *blueFieldSoftwareDownloadingState) componentDownloadSatisfied(component componentInfo) bool {
+	expected := componentDestinationPath(component.ComponentType, st.fileName(component))
+	if downloadedComponentPath(st.bfs, component.ComponentType, component.Key) != expected {
 		return false
 	}
-	if isURL(specValue) {
-		if exist, err := isFileExist(expected); err != nil || !exist {
-			return false
-		}
+	if isURL(component.URL) {
+		exists, err := isFileExist(expected)
+		return err == nil && exists
 	}
 	return true
 }
 
 func (st *blueFieldSoftwareDownloadingState) getComponentsToDownload() []componentInfo {
 	var components []componentInfo
-
-	// Check FwBundleURL
-	if st.bfs.Spec.PldmFwBundle != nil && !st.componentDownloadSatisfied(butil.ComponentTypeFwBundle, *st.bfs.Spec.PldmFwBundle, st.bfs.Status.DownloadedComponents.PldmFwBundle) {
-		components = append(components, componentInfo{
-			URL:           *st.bfs.Spec.PldmFwBundle,
-			ComponentType: butil.ComponentTypeFwBundle,
-		})
+	for _, c := range specComponentUnits(st.bfs) {
+		if !st.componentDownloadSatisfied(c) {
+			components = append(components, c)
+		}
 	}
-
-	// Check OSISO
-	if st.bfs.Spec.OsIso != "" && !st.componentDownloadSatisfied(butil.ComponentTypeOSISO, st.bfs.Spec.OsIso, st.bfs.Status.DownloadedComponents.OsIso) {
-		components = append(components, componentInfo{
-			URL:           st.bfs.Spec.OsIso,
-			ComponentType: butil.ComponentTypeOSISO,
-		})
-	}
-
-	// Check PlatformPldmFwBundle
-	platformPldmFwBundle := ptr.Deref(st.bfs.Spec.PlatformPldmFwBundle, "")
-	if platformPldmFwBundle != "" &&
-		!st.componentDownloadSatisfied(butil.ComponentTypePlatformFwBundle, platformPldmFwBundle, st.bfs.Status.DownloadedComponents.PlatformPldmFwBundle) {
-		components = append(components, componentInfo{
-			URL:           platformPldmFwBundle,
-			ComponentType: butil.ComponentTypePlatformFwBundle,
-		})
-	}
-
-	// Check NicFw
-	nicFw := ptr.Deref(st.bfs.Spec.NicFw, "")
-	if nicFw != "" &&
-		!st.componentDownloadSatisfied(butil.ComponentTypeNicFw, nicFw, st.bfs.Status.DownloadedComponents.NicFw) {
-		components = append(components, componentInfo{
-			URL:           nicFw,
-			ComponentType: butil.ComponentTypeNicFw,
-		})
-	}
-
 	return components
 }
 
-func (st *blueFieldSoftwareDownloadingState) updateComponentStatus(componentType butil.ComponentType, destinationPath string) {
+func (st *blueFieldSoftwareDownloadingState) updateComponentStatus(component componentInfo, destinationPath string) {
+	setDownloadedComponentPath(st.bfs, component.ComponentType, component.Key, destinationPath)
+	st.recorder.Eventf(st.bfs, corev1.EventTypeNormal, events.EventSuccessfulDownloadBFBReason, fmt.Sprintf("Component %s downloaded successfully", component.ComponentType))
+	// Clear retry counter on successful download
+	st.clearRetryCounter(component)
+}
+
+// downloadedComponentPath returns the recorded local path for a component/key from status.
+func downloadedComponentPath(bfs *provisioningv1.BlueFieldSoftware, componentType butil.ComponentType, key string) string {
 	switch componentType {
 	case butil.ComponentTypeFwBundle:
-		st.bfs.Status.DownloadedComponents.PldmFwBundle = destinationPath
+		return bfs.Status.DownloadedComponents.PldmFwBundle[key]
 	case butil.ComponentTypePlatformFwBundle:
-		st.bfs.Status.DownloadedComponents.PlatformPldmFwBundle = destinationPath
+		return bfs.Status.DownloadedComponents.PlatformPldmFwBundle
 	case butil.ComponentTypeOSISO:
-		st.bfs.Status.DownloadedComponents.OsIso = destinationPath
-		st.ensureOSISODOCAVersion()
+		return bfs.Status.DownloadedComponents.OsIso
 	case butil.ComponentTypeNicFw:
-		st.bfs.Status.DownloadedComponents.NicFw = destinationPath
+		return bfs.Status.DownloadedComponents.NicFw
 	}
-	st.recorder.Eventf(st.bfs, corev1.EventTypeNormal, events.EventSuccessfulDownloadBFBReason, fmt.Sprintf("Component %s downloaded successfully", componentType))
-	// Clear retry counter on successful download
-	st.clearRetryCounter(componentType)
+	return ""
+}
+
+// setDownloadedComponentPath records the local path for a component/key in status,
+// lazily allocating the per-PSID maps.
+func setDownloadedComponentPath(bfs *provisioningv1.BlueFieldSoftware, componentType butil.ComponentType, key, path string) {
+	switch componentType {
+	case butil.ComponentTypeFwBundle:
+		if bfs.Status.DownloadedComponents.PldmFwBundle == nil {
+			bfs.Status.DownloadedComponents.PldmFwBundle = map[string]string{}
+		}
+		bfs.Status.DownloadedComponents.PldmFwBundle[key] = path
+	case butil.ComponentTypePlatformFwBundle:
+		bfs.Status.DownloadedComponents.PlatformPldmFwBundle = path
+	case butil.ComponentTypeOSISO:
+		bfs.Status.DownloadedComponents.OsIso = path
+	case butil.ComponentTypeNicFw:
+		bfs.Status.DownloadedComponents.NicFw = path
+	}
 }
 
 // ensureOSISODOCAVersion derives the DOCA version from the downloaded OS ISO filename and records
@@ -344,19 +382,9 @@ func (st *blueFieldSoftwareDownloadingState) cancelAllDownloads() {
 	cancelDownloadsForBFS(st.bfs)
 }
 
-// componentTypesWithDownloads returns the components fetched during the Downloading phase.
-func componentTypesWithDownloads() []butil.ComponentType {
-	return []butil.ComponentType{
-		butil.ComponentTypeFwBundle,
-		butil.ComponentTypePlatformFwBundle,
-		butil.ComponentTypeOSISO,
-		butil.ComponentTypeNicFw,
-	}
-}
-
 func cancelDownloadsForBFS(bfs *provisioningv1.BlueFieldSoftware) {
-	for _, componentType := range componentTypesWithDownloads() {
-		taskName := butil.GenerateComponentTaskName(*bfs, componentType)
+	for _, unit := range specComponentUnits(bfs) {
+		taskName := componentTaskName(bfs, unit)
 		if cancelFunc, ok := butil.DownloadingTaskMap.Load(taskName + "cancel"); ok {
 			cancelFunc.(context.CancelFunc)()
 			butil.DownloadingTaskMap.Delete(taskName)
@@ -367,26 +395,13 @@ func cancelDownloadsForBFS(bfs *provisioningv1.BlueFieldSoftware) {
 
 func cleanupPartialComponentFiles(bfs *provisioningv1.BlueFieldSoftware) error {
 	var errs []error
-	for _, componentType := range componentTypesWithDownloads() {
-		specURL := butil.SpecURLForComponent(bfs, componentType)
-		if specURL == "" || !isURL(specURL) {
+	for _, unit := range specComponentUnits(bfs) {
+		if unit.URL == "" || !isURL(unit.URL) {
 			continue
 		}
 
-		fileName := butil.ComponentDownloadFilename(bfs, componentType, specURL)
-		destPath := componentDestinationPath(componentType, fileName)
-		var downloaded string
-		switch componentType {
-		case butil.ComponentTypeFwBundle:
-			downloaded = bfs.Status.DownloadedComponents.PldmFwBundle
-		case butil.ComponentTypePlatformFwBundle:
-			downloaded = bfs.Status.DownloadedComponents.PlatformPldmFwBundle
-		case butil.ComponentTypeOSISO:
-			downloaded = bfs.Status.DownloadedComponents.OsIso
-		case butil.ComponentTypeNicFw:
-			downloaded = bfs.Status.DownloadedComponents.NicFw
-		}
-		if downloaded == destPath {
+		destPath := componentDestinationPath(unit.ComponentType, componentFileName(bfs, unit))
+		if downloadedComponentPath(bfs, unit.ComponentType, unit.Key) == destPath {
 			continue
 		}
 
@@ -408,13 +423,17 @@ func cleanupPartialComponentFiles(bfs *provisioningv1.BlueFieldSoftware) error {
 	return errors.Join(errs...)
 }
 
-// componentTypesWithExtraction returns the bundle components unpacked into *-extracted
-// directories during the Extracting phase.
-func componentTypesWithExtraction() []butil.ComponentType {
-	return []butil.ComponentType{
-		butil.ComponentTypeFwBundle,
-		butil.ComponentTypePlatformFwBundle,
+// extractionUnits returns the bundle components (with per-PSID keys) unpacked into
+// *-extracted directories during the Extracting phase.
+func extractionUnits(bfs *provisioningv1.BlueFieldSoftware) []componentInfo {
+	var units []componentInfo
+	for _, u := range specComponentUnits(bfs) {
+		switch u.ComponentType {
+		case butil.ComponentTypeFwBundle, butil.ComponentTypePlatformFwBundle:
+			units = append(units, u)
+		}
 	}
+	return units
 }
 
 // cleanupExtractedComponentDirs removes the *-extracted output directories produced
@@ -423,8 +442,8 @@ func componentTypesWithExtraction() []butil.ComponentType {
 // partial firmware files on shared bfb storage.
 func cleanupExtractedComponentDirs(bfs *provisioningv1.BlueFieldSoftware) error {
 	var errs []error
-	for _, componentType := range componentTypesWithExtraction() {
-		extractDir := extractOutputDirForBFS(bfs, componentType)
+	for _, unit := range extractionUnits(bfs) {
+		extractDir := extractOutputDirForBFS(bfs, unit.ComponentType, unit.Key)
 		if extractDir == "" {
 			continue
 		}
@@ -440,35 +459,17 @@ func cleanupInFlightComponentArtifacts(bfs *provisioningv1.BlueFieldSoftware) er
 	return errors.Join(cleanupPartialComponentFiles(bfs), cleanupExtractedComponentDirs(bfs))
 }
 
-// statusPathForComponent returns the recorded downloaded-file path for componentType
-// from status.DownloadedComponents ("" when nothing was recorded yet).
-func statusPathForComponent(bfs *provisioningv1.BlueFieldSoftware, componentType butil.ComponentType) string {
-	switch componentType {
-	case butil.ComponentTypeFwBundle:
-		return bfs.Status.DownloadedComponents.PldmFwBundle
-	case butil.ComponentTypePlatformFwBundle:
-		return bfs.Status.DownloadedComponents.PlatformPldmFwBundle
-	case butil.ComponentTypeOSISO:
-		return bfs.Status.DownloadedComponents.OsIso
-	case butil.ComponentTypeNicFw:
-		return bfs.Status.DownloadedComponents.NicFw
-	}
-	return ""
-}
-
 // completedComponentFilePath returns the absolute path of a fully-downloaded component
 // file for URL-based specs, or "" when there is no local file (opaque/non-URL spec). It
 // prefers the path recorded in status and falls back to the deterministic destination.
-func completedComponentFilePath(bfs *provisioningv1.BlueFieldSoftware, componentType butil.ComponentType) string {
-	specURL := butil.SpecURLForComponent(bfs, componentType)
-	if specURL == "" || !isURL(specURL) {
+func completedComponentFilePath(bfs *provisioningv1.BlueFieldSoftware, unit componentInfo) string {
+	if unit.URL == "" || !isURL(unit.URL) {
 		return ""
 	}
-	if p := statusPathForComponent(bfs, componentType); p != "" {
+	if p := downloadedComponentPath(bfs, unit.ComponentType, unit.Key); p != "" {
 		return p
 	}
-	fileName := butil.ComponentDownloadFilename(bfs, componentType, specURL)
-	return componentDestinationPath(componentType, fileName)
+	return componentDestinationPath(unit.ComponentType, componentFileName(bfs, unit))
 }
 
 // cleanupCompletedComponentFiles removes completed (fully downloaded) component files for
@@ -477,8 +478,8 @@ func completedComponentFilePath(bfs *provisioningv1.BlueFieldSoftware, component
 // download can race the removal (terminal Error or deletion). See issue 5104307.
 func cleanupCompletedComponentFiles(bfs *provisioningv1.BlueFieldSoftware) error {
 	var errs []error
-	for _, componentType := range componentTypesWithDownloads() {
-		filePath := completedComponentFilePath(bfs, componentType)
+	for _, unit := range specComponentUnits(bfs) {
+		filePath := completedComponentFilePath(bfs, unit)
 		if filePath == "" {
 			continue
 		}
@@ -539,9 +540,9 @@ func componentDestinationPath(componentType butil.ComponentType, fileName string
 	return generateComponentFilePath(fileName)
 }
 
-// getRetryKey generates a unique key for tracking retry attempts
-func (st *blueFieldSoftwareDownloadingState) getRetryKey(componentType butil.ComponentType) string {
-	return fmt.Sprintf("%s/%s/%s", st.bfs.Namespace, st.bfs.Name, componentType)
+// getRetryKey generates a unique key for tracking retry attempts (per PSID for platform bundles)
+func (st *blueFieldSoftwareDownloadingState) getRetryKey(component componentInfo) string {
+	return fmt.Sprintf("%s/%s/%s", st.bfs.Namespace, st.bfs.Name, componentTaskName(st.bfs, component))
 }
 
 // getRetryCount retrieves the current retry count for a component
@@ -561,7 +562,6 @@ func (st *blueFieldSoftwareDownloadingState) incrementRetryCounter(retryKey stri
 }
 
 // clearRetryCounter clears the retry counter for a component
-func (st *blueFieldSoftwareDownloadingState) clearRetryCounter(componentType butil.ComponentType) {
-	retryKey := st.getRetryKey(componentType)
-	downloadRetryCounter.Delete(retryKey)
+func (st *blueFieldSoftwareDownloadingState) clearRetryCounter(component componentInfo) {
+	downloadRetryCounter.Delete(st.getRetryKey(component))
 }

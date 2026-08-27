@@ -479,7 +479,10 @@ func TestIsNICFirmwareSourceConfigured(t *testing.T) {
 	assert.False(t, isNICFirmwareSourceConfigured(nil))
 	assert.False(t, isNICFirmwareSourceConfigured(&provisioningv1.BlueFieldSoftware{}))
 	assert.False(t, isNICFirmwareSourceConfigured(&provisioningv1.BlueFieldSoftware{
-		Spec: provisioningv1.BlueFieldSpec{PlatformPldmFwBundle: ptr.To("   ")},
+		Spec: provisioningv1.BlueFieldSpec{PlatformPldmFwBundle: ptr.To("  ")},
+	}))
+	assert.False(t, isNICFirmwareSourceConfigured(&provisioningv1.BlueFieldSoftware{
+		Spec: provisioningv1.BlueFieldSpec{PldmFwBundle: map[string]string{"MT_0000001665": "https://example.com/fw.fwpkg"}},
 	}))
 	assert.True(t, isNICFirmwareSourceConfigured(&provisioningv1.BlueFieldSoftware{
 		Spec: provisioningv1.BlueFieldSpec{PlatformPldmFwBundle: ptr.To("https://example.com/fw.fwpkg")},

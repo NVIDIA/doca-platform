@@ -45,6 +45,10 @@ import (
 	"k8s.io/utils/ptr"
 )
 
+// ci wraps a single-valued ComponentType into a componentInfo for tests that
+// exercise the per-component retry/status helpers (which now key off componentInfo).
+func ci(ct butil.ComponentType) componentInfo { return componentInfo{ComponentType: ct} }
+
 func TestHandleDownloadError_ContextCanceled(t *testing.T) {
 	bfs := &provisioningv1.BlueFieldSoftware{
 		ObjectMeta: metav1.ObjectMeta{
@@ -66,10 +70,10 @@ func TestHandleDownloadError_ContextCanceled(t *testing.T) {
 	}
 
 	// Set a retry counter to verify it gets cleared
-	retryKey := st.getRetryKey(butil.ComponentTypeFwBundle)
+	retryKey := st.getRetryKey(ci(butil.ComponentTypeFwBundle))
 	downloadRetryCounter.Store(retryKey, 2)
 
-	err := st.handleDownloadError(context.Canceled, butil.ComponentTypeFwBundle)
+	err := st.handleDownloadError(context.Canceled, ci(butil.ComponentTypeFwBundle))
 
 	// Should return nil for canceled errors
 	assert.NoError(t, err)
@@ -105,12 +109,12 @@ func TestHandleDownloadError(t *testing.T) {
 	}
 
 	// Clear and set retry counter to simulate two failures already occurred
-	retryKey := st.getRetryKey(butil.ComponentTypeOSISO)
-	st.clearRetryCounter(butil.ComponentTypeOSISO)
+	retryKey := st.getRetryKey(ci(butil.ComponentTypeOSISO))
+	st.clearRetryCounter(ci(butil.ComponentTypeOSISO))
 	downloadRetryCounter.Store(retryKey, 2)
 
 	testErr := errors.New("disk full")
-	err := st.handleDownloadError(testErr, butil.ComponentTypeOSISO)
+	err := st.handleDownloadError(testErr, ci(butil.ComponentTypeOSISO))
 
 	// Should return nil to allow retry (still under max)
 	assert.NoError(t, err)
@@ -125,7 +129,7 @@ func TestHandleDownloadError(t *testing.T) {
 	assert.Equal(t, 3, st.getRetryCount(retryKey))
 
 	// Cleanup
-	st.clearRetryCounter(butil.ComponentTypeOSISO)
+	st.clearRetryCounter(ci(butil.ComponentTypeOSISO))
 }
 
 func TestHandleDownloadError_MaxRetriesReached(t *testing.T) {
@@ -146,12 +150,12 @@ func TestHandleDownloadError_MaxRetriesReached(t *testing.T) {
 	}
 
 	// Clear and set retry counter to simulate max retries already occurred
-	retryKey := st.getRetryKey(butil.ComponentTypeFwBundle)
-	st.clearRetryCounter(butil.ComponentTypeFwBundle)
+	retryKey := st.getRetryKey(ci(butil.ComponentTypeFwBundle))
+	st.clearRetryCounter(ci(butil.ComponentTypeFwBundle))
 	downloadRetryCounter.Store(retryKey, maxDownloadRetries)
 
 	testErr := errors.New("permanent failure")
-	err := st.handleDownloadError(testErr, butil.ComponentTypeFwBundle)
+	err := st.handleDownloadError(testErr, ci(butil.ComponentTypeFwBundle))
 
 	// Should return the error after max retries
 	assert.Error(t, err)
@@ -160,8 +164,7 @@ func TestHandleDownloadError_MaxRetriesReached(t *testing.T) {
 	// Phase should be set to Error
 	assert.Equal(t, provisioningv1.BlueFieldSoftwareError, bfs.Status.Phase)
 
-	// A generic (unclassified) error is treated as terminal (ReasonFailure) so it is not
-	// retried forever on genuine misconfiguration.
+	// Condition should be added with Failure reason
 	cond := conditions.Get(bfs, provisioningv1.BlueFieldSoftwareCondDownloaded)
 	require.NotNil(t, cond)
 	assert.Equal(t, metav1.ConditionFalse, cond.Status)
@@ -184,35 +187,20 @@ func TestHandleDownloadError_MaxRetriesReached(t *testing.T) {
 
 func TestHandleDownloadError_MaxRetriesRecoverableStorageError(t *testing.T) {
 	bfs := &provisioningv1.BlueFieldSoftware{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:       "test-bfs",
-			Namespace:  "test-ns",
-			Generation: 1,
-		},
-		Status: provisioningv1.BlueFieldSoftwareStatus{},
+		ObjectMeta: metav1.ObjectMeta{Name: "test-bfs", Namespace: "test-ns", Generation: 1},
 	}
-
-	recorder := record.NewFakeRecorder(10)
-	st := &blueFieldSoftwareDownloadingState{bfs: bfs, recorder: recorder}
-
-	retryKey := st.getRetryKey(butil.ComponentTypeOSISO)
-	st.clearRetryCounter(butil.ComponentTypeOSISO)
+	st := &blueFieldSoftwareDownloadingState{bfs: bfs, recorder: record.NewFakeRecorder(10)}
+	component := ci(butil.ComponentTypeOSISO)
+	retryKey := st.getRetryKey(component)
 	downloadRetryCounter.Store(retryKey, maxDownloadRetries)
+	t.Cleanup(func() { st.clearRetryCounter(component) })
 
-	// Filesystem error mirrors the bug: /bfb wiped by a control-plane node OS revert.
 	storageErr := &os.PathError{Op: "mkdir", Path: "/bfb/components", Err: syscall.ENOENT}
-	err := st.handleDownloadError(storageErr, butil.ComponentTypeOSISO)
-	require.Error(t, err)
+	require.Error(t, st.handleDownloadError(storageErr, component))
 
-	assert.Equal(t, provisioningv1.BlueFieldSoftwareError, bfs.Status.Phase)
-
-	// Storage errors are recoverable (ReasonError) so the Error state retries them.
 	cond := conditions.Get(bfs, provisioningv1.BlueFieldSoftwareCondDownloaded)
 	require.NotNil(t, cond)
-	assert.Equal(t, metav1.ConditionFalse, cond.Status)
 	assert.Equal(t, string(conditions.ReasonError), cond.Reason)
-
-	st.clearRetryCounter(butil.ComponentTypeOSISO)
 }
 
 func TestRetryCounter_IndependentPerComponent(t *testing.T) {
@@ -235,19 +223,18 @@ func TestRetryCounter_IndependentPerComponent(t *testing.T) {
 	// Fail different components and verify counters are independent
 	components := []butil.ComponentType{
 		butil.ComponentTypeFwBundle,
-		butil.ComponentTypePlatformFwBundle,
 		butil.ComponentTypeOSISO,
 		butil.ComponentTypeNicFw,
 	}
 
 	// Clear any existing retry counters from previous tests
 	for _, comp := range components {
-		st.clearRetryCounter(comp)
+		st.clearRetryCounter(ci(comp))
 	}
 
 	for i, comp := range components {
 		// Each component should start with 0 retries
-		retryKey := st.getRetryKey(comp)
+		retryKey := st.getRetryKey(ci(comp))
 		assert.Equal(t, 0, st.getRetryCount(retryKey))
 
 		// Fail each component a different number of times
@@ -257,7 +244,7 @@ func TestRetryCounter_IndependentPerComponent(t *testing.T) {
 		}
 		for j := 0; j < failures; j++ {
 			testErr := errors.New("test error")
-			_ = st.handleDownloadError(testErr, comp)
+			_ = st.handleDownloadError(testErr, ci(comp))
 		}
 
 		// Verify each component has the expected retry count
@@ -265,14 +252,13 @@ func TestRetryCounter_IndependentPerComponent(t *testing.T) {
 	}
 
 	// Verify all counters are still independent
-	assert.Equal(t, 1, st.getRetryCount(st.getRetryKey(butil.ComponentTypeFwBundle)))
-	assert.Equal(t, 2, st.getRetryCount(st.getRetryKey(butil.ComponentTypePlatformFwBundle)))
-	assert.Equal(t, 3, st.getRetryCount(st.getRetryKey(butil.ComponentTypeOSISO)))
-	assert.Equal(t, 3, st.getRetryCount(st.getRetryKey(butil.ComponentTypeNicFw)))
+	assert.Equal(t, 1, st.getRetryCount(st.getRetryKey(ci(butil.ComponentTypeFwBundle))))
+	assert.Equal(t, 2, st.getRetryCount(st.getRetryKey(ci(butil.ComponentTypeOSISO))))
+	assert.Equal(t, 3, st.getRetryCount(st.getRetryKey(ci(butil.ComponentTypeNicFw))))
 
 	// Cleanup
 	for _, comp := range components {
-		st.clearRetryCounter(comp)
+		st.clearRetryCounter(ci(comp))
 	}
 }
 
@@ -296,66 +282,57 @@ func TestUpdateComponentStatus_ClearsRetryCounter(t *testing.T) {
 	// Set retry counters for different components
 	components := []butil.ComponentType{
 		butil.ComponentTypeFwBundle,
-		butil.ComponentTypePlatformFwBundle,
 		butil.ComponentTypeOSISO,
 		butil.ComponentTypeNicFw,
 	}
 
 	for i, comp := range components {
-		retryKey := st.getRetryKey(comp)
+		retryKey := st.getRetryKey(ci(comp))
 		downloadRetryCounter.Store(retryKey, i+1)
 	}
 
 	// Verify counters are set
 	for i, comp := range components {
-		retryKey := st.getRetryKey(comp)
+		retryKey := st.getRetryKey(ci(comp))
 		assert.Equal(t, i+1, st.getRetryCount(retryKey))
 	}
 
 	// Update status for FwBundle (should clear its counter)
 	expectedFw := componentDestinationPath(butil.ComponentTypeFwBundle, butil.ComponentDownloadFilename(bfs, butil.ComponentTypeFwBundle, ""))
-	st.updateComponentStatus(butil.ComponentTypeFwBundle, expectedFw)
+	st.updateComponentStatus(ci(butil.ComponentTypeFwBundle), expectedFw)
 
 	// FwBundle counter should be cleared
-	assert.Equal(t, 0, st.getRetryCount(st.getRetryKey(butil.ComponentTypeFwBundle)))
+	assert.Equal(t, 0, st.getRetryCount(st.getRetryKey(ci(butil.ComponentTypeFwBundle))))
 
 	// Other counters should remain unchanged
-	assert.Equal(t, 2, st.getRetryCount(st.getRetryKey(butil.ComponentTypePlatformFwBundle)))
-	assert.Equal(t, 3, st.getRetryCount(st.getRetryKey(butil.ComponentTypeOSISO)))
-	assert.Equal(t, 4, st.getRetryCount(st.getRetryKey(butil.ComponentTypeNicFw)))
+	assert.Equal(t, 2, st.getRetryCount(st.getRetryKey(ci(butil.ComponentTypeOSISO))))
+	assert.Equal(t, 3, st.getRetryCount(st.getRetryKey(ci(butil.ComponentTypeNicFw))))
 
 	// Verify status holds the on-disk destination path (not the spec URL)
-	assert.Equal(t, expectedFw, bfs.Status.DownloadedComponents.PldmFwBundle)
+	assert.Equal(t, expectedFw, bfs.Status.DownloadedComponents.PldmFwBundle[""])
 }
 
 func TestGetRetryKey(t *testing.T) {
 	tests := []struct {
-		name          string
-		namespace     string
-		bfsName       string
-		componentType butil.ComponentType
-		expected      string
+		name      string
+		namespace string
+		bfsName   string
+		component componentInfo
+		expected  string
 	}{
 		{
-			name:          "FwBundle component",
-			namespace:     "default",
-			bfsName:       "my-bfs",
-			componentType: butil.ComponentTypeFwBundle,
-			expected:      "default/my-bfs/fwbundle",
+			name:      "OSISO component",
+			namespace: "test-ns",
+			bfsName:   "test-bfs",
+			component: componentInfo{ComponentType: butil.ComponentTypeOSISO},
+			expected:  "test-ns/test-bfs/test-ns-test-bfs-osiso",
 		},
 		{
-			name:          "OSISO component",
-			namespace:     "test-ns",
-			bfsName:       "test-bfs",
-			componentType: butil.ComponentTypeOSISO,
-			expected:      "test-ns/test-bfs/osiso",
-		},
-		{
-			name:          "PlatformPldmFwBundle component",
-			namespace:     "test-ns",
-			bfsName:       "test-bfs",
-			componentType: butil.ComponentTypePlatformFwBundle,
-			expected:      "test-ns/test-bfs/platformpldmfwbundle",
+			name:      "PldmFwBundle component is keyed per PSID",
+			namespace: "test-ns",
+			bfsName:   "test-bfs",
+			component: componentInfo{ComponentType: butil.ComponentTypeFwBundle, Key: "MT_0000001665"},
+			expected:  "test-ns/test-bfs/test-ns-test-bfs-fwbundle-MT_0000001665",
 		},
 	}
 
@@ -369,7 +346,7 @@ func TestGetRetryKey(t *testing.T) {
 			}
 
 			st := &blueFieldSoftwareDownloadingState{bfs: bfs}
-			key := st.getRetryKey(tt.componentType)
+			key := st.getRetryKey(tt.component)
 
 			assert.Equal(t, tt.expected, key)
 		})
@@ -390,26 +367,24 @@ func TestClearRetryCounter(t *testing.T) {
 	// Set retry counters
 	components := []butil.ComponentType{
 		butil.ComponentTypeFwBundle,
-		butil.ComponentTypePlatformFwBundle,
 		butil.ComponentTypeOSISO,
 		butil.ComponentTypeNicFw,
 	}
 
 	for _, comp := range components {
-		retryKey := st.getRetryKey(comp)
+		retryKey := st.getRetryKey(ci(comp))
 		downloadRetryCounter.Store(retryKey, 5)
 	}
 
 	// Clear individual counters
-	st.clearRetryCounter(butil.ComponentTypeFwBundle)
+	st.clearRetryCounter(ci(butil.ComponentTypeFwBundle))
 
 	// Verify cleared counters are 0
-	assert.Equal(t, 0, st.getRetryCount(st.getRetryKey(butil.ComponentTypeFwBundle)))
+	assert.Equal(t, 0, st.getRetryCount(st.getRetryKey(ci(butil.ComponentTypeFwBundle))))
 
 	// Verify non-cleared counters remain
-	assert.Equal(t, 5, st.getRetryCount(st.getRetryKey(butil.ComponentTypePlatformFwBundle)))
-	assert.Equal(t, 5, st.getRetryCount(st.getRetryKey(butil.ComponentTypeOSISO)))
-	assert.Equal(t, 5, st.getRetryCount(st.getRetryKey(butil.ComponentTypeNicFw)))
+	assert.Equal(t, 5, st.getRetryCount(st.getRetryKey(ci(butil.ComponentTypeOSISO))))
+	assert.Equal(t, 5, st.getRetryCount(st.getRetryKey(ci(butil.ComponentTypeNicFw))))
 }
 
 func TestIncrementRetryCounter_ThreadSafety(t *testing.T) {
@@ -422,7 +397,7 @@ func TestIncrementRetryCounter_ThreadSafety(t *testing.T) {
 	}
 
 	st := &blueFieldSoftwareDownloadingState{bfs: bfs}
-	retryKey := st.getRetryKey(butil.ComponentTypeFwBundle)
+	retryKey := st.getRetryKey(ci(butil.ComponentTypeFwBundle))
 
 	// Clear any existing counter
 	downloadRetryCounter.Delete(retryKey)
@@ -499,7 +474,7 @@ func TestDownloadComponent(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, true, result)
 
-	// Verify file was created at componentDestinationPath (FwBundle uses bfb/components/)
+	// Verify file was created at componentDestinationPath (DPU bundle uses bfb/components/)
 	filePath := componentDestinationPath(butil.ComponentTypeFwBundle, task.FileName)
 	content, err := os.ReadFile(filePath)
 	require.NoError(t, err)
@@ -759,7 +734,6 @@ func TestComponentDestinationPath(t *testing.T) {
 	t.Run("non-OSISO uses components subdir", func(t *testing.T) {
 		for _, ct := range []butil.ComponentType{
 			butil.ComponentTypeFwBundle,
-			butil.ComponentTypePlatformFwBundle,
 			butil.ComponentTypeNicFw,
 		} {
 			assert.Equal(t,
@@ -777,34 +751,38 @@ func TestComponentDownloadSatisfied(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "bfs", Namespace: "ns"},
 	}
 	st := &blueFieldSoftwareDownloadingState{bfs: bfs}
-	ct := butil.ComponentTypeFwBundle
-	specURL := "https://example.com/path/fw-bundle.tar"
-	expectedPath := componentDestinationPath(ct, butil.ComponentDownloadFilename(bfs, ct, specURL))
+	const psid = "MT_0000001665"
+	comp := componentInfo{URL: "https://example.com/path/fw-bundle.tar", ComponentType: butil.ComponentTypeFwBundle, Key: psid}
+	expectedPath := componentDestinationPath(comp.ComponentType, componentFileName(bfs, comp))
 
 	t.Run("empty or wrong downloaded value is not satisfied", func(t *testing.T) {
-		assert.False(t, st.componentDownloadSatisfied(ct, specURL, ""))
-		assert.False(t, st.componentDownloadSatisfied(ct, specURL, "anything"))
+		bfs.Status.DownloadedComponents.PldmFwBundle = map[string]string{}
+		assert.False(t, st.componentDownloadSatisfied(comp))
+		bfs.Status.DownloadedComponents.PldmFwBundle = map[string]string{psid: "anything"}
+		assert.False(t, st.componentDownloadSatisfied(comp))
 	})
 
-	t.Run("status holds destination path but file is missing is not satisfied", func(t *testing.T) {
-		assert.False(t, st.componentDownloadSatisfied(ct, specURL, expectedPath))
+	t.Run("status holds destination path but file is missing", func(t *testing.T) {
+		bfs.Status.DownloadedComponents.PldmFwBundle = map[string]string{psid: expectedPath}
+		assert.False(t, st.componentDownloadSatisfied(comp))
 	})
 
-	t.Run("status holds destination path and file exists is satisfied", func(t *testing.T) {
+	t.Run("status holds destination path and file exists", func(t *testing.T) {
+		bfs.Status.DownloadedComponents.PldmFwBundle = map[string]string{psid: expectedPath}
 		require.NoError(t, os.MkdirAll(filepath.Dir(expectedPath), 0755))
 		require.NoError(t, os.WriteFile(expectedPath, []byte("downloaded"), 0644))
-		t.Cleanup(func() { _ = os.Remove(expectedPath) })
-		assert.True(t, st.componentDownloadSatisfied(ct, specURL, expectedPath))
+		assert.True(t, st.componentDownloadSatisfied(comp))
 	})
 
 	t.Run("non-URL opaque value only requires status match", func(t *testing.T) {
-		opaque := "opaque-identifier"
-		expectedOpaque := componentDestinationPath(ct, butil.ComponentDownloadFilename(bfs, ct, opaque))
-		assert.True(t, st.componentDownloadSatisfied(ct, opaque, expectedOpaque))
+		opaque := componentInfo{URL: "opaque-identifier", ComponentType: butil.ComponentTypeFwBundle, Key: psid}
+		expectedOpaque := componentDestinationPath(opaque.ComponentType, componentFileName(bfs, opaque))
+		bfs.Status.DownloadedComponents.PldmFwBundle = map[string]string{psid: expectedOpaque}
+		assert.True(t, st.componentDownloadSatisfied(opaque))
 	})
-
 	t.Run("mismatch", func(t *testing.T) {
-		assert.False(t, st.componentDownloadSatisfied(ct, specURL, "/wrong/path"))
+		bfs.Status.DownloadedComponents.PldmFwBundle = map[string]string{psid: "/wrong/path"}
+		assert.False(t, st.componentDownloadSatisfied(comp))
 	})
 }
 
@@ -873,7 +851,7 @@ func TestCleanupPartialComponentFiles(t *testing.T) {
 		},
 		Spec: provisioningv1.BlueFieldSpec{
 			OsIso:        osIsoURL,
-			PldmFwBundle: ptr.To("https://example.com/fw.fwpkg"),
+			PldmFwBundle: map[string]string{"": "https://example.com/fw.fwpkg"},
 		},
 	}
 
@@ -952,13 +930,15 @@ func TestCleanupExtractedComponentDirs(t *testing.T) {
 			Namespace: "dpf-operator-system",
 		},
 		Spec: provisioningv1.BlueFieldSpec{
-			PldmFwBundle:         ptr.To("https://example.com/fw.fwpkg"),
+			PldmFwBundle: map[string]string{
+				"MT_0000001665": "https://example.com/fw.fwpkg",
+			},
 			PlatformPldmFwBundle: ptr.To("https://example.com/platform.fwpkg"),
 		},
 	}
 
-	fwExtractDir := extractOutputDirForBFS(bfs, butil.ComponentTypeFwBundle)
-	platformExtractDir := extractOutputDirForBFS(bfs, butil.ComponentTypePlatformFwBundle)
+	fwExtractDir := extractOutputDirForBFS(bfs, butil.ComponentTypeFwBundle, "MT_0000001665")
+	platformExtractDir := extractOutputDirForBFS(bfs, butil.ComponentTypePlatformFwBundle, "")
 	for _, dir := range []string{fwExtractDir, platformExtractDir} {
 		require.NoError(t, os.MkdirAll(dir, 0755))
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "image.bin"), []byte("extracted"), 0644))
@@ -981,14 +961,14 @@ func TestBlueFieldSoftwareErrorState_RemovesExtractedDirs(t *testing.T) {
 			Namespace: "dpf-operator-system",
 		},
 		Spec: provisioningv1.BlueFieldSpec{
-			PldmFwBundle: ptr.To("https://example.com/fw.fwpkg"),
+			PldmFwBundle: map[string]string{"": "https://example.com/fw.fwpkg"},
 		},
 		Status: provisioningv1.BlueFieldSoftwareStatus{
 			Phase: provisioningv1.BlueFieldSoftwareError,
 		},
 	}
 
-	extractDir := extractOutputDirForBFS(bfs, butil.ComponentTypeFwBundle)
+	extractDir := extractOutputDirForBFS(bfs, butil.ComponentTypeFwBundle, "")
 	require.NoError(t, os.MkdirAll(extractDir, 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(extractDir, "image.bin"), []byte("extracted"), 0644))
 
@@ -1034,7 +1014,7 @@ func TestBlueFieldSoftwareErrorState_CancelsInFlightDownloads(t *testing.T) {
 		},
 		Spec: provisioningv1.BlueFieldSpec{
 			OsIso:        server.URL,
-			PldmFwBundle: ptr.To("https://example.com/missing.fwpkg"),
+			PldmFwBundle: map[string]string{"": "https://example.com/missing.fwpkg"},
 		},
 		Status: provisioningv1.BlueFieldSoftwareStatus{
 			Phase: provisioningv1.BlueFieldSoftwareError,

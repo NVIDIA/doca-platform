@@ -5,5 +5,7 @@ metadata:
   namespace: dpf-operator-system
 spec:
   osIso: REPLACE_ME
-  pldmFwBundle: REPLACE_ME
+  pldmFwBundle:
+    MT_0000001774: REPLACE_ME
+    MT_0000001775: REPLACE_ME
   nicFw: REPLACE_ME

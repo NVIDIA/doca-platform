@@ -158,9 +158,9 @@ var (
 	// bfsOsIsoURL can be used to override the default BlueFieldSoftware OS ISO URL used in the tests.
 	// Required for BF4.
 	bfsOsIsoURL = ""
-	// bfsPldmFwBundleURL can be used to override the default BlueFieldSoftware PLDM FW bundle URL used in the tests.
+	// bfsPldmFwBundles maps PSID -> PLDM FW bundle URL from BFS_PLDM_FW_BUNDLE_URL_<PSID>.
 	// Required for BF4.
-	bfsPldmFwBundleURL = ""
+	bfsPldmFwBundles = map[string]string{}
 	// bfsNicFwURL can be used to override the default BlueFieldSoftware NIC FW URL used in the tests.
 	// Required for BF4 that manage E/W NICs(Astra).
 	bfsNicFwURL = ""

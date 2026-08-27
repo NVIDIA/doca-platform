@@ -27,7 +27,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -55,8 +54,8 @@ func (st *blueFieldSoftwareReadyState) Handle(context.Context, client.Client) er
 			conditions.ConditionMessage(msg))
 
 		// Clear the missing components from status to trigger re-download
-		for _, componentType := range missingComponents {
-			st.clearComponentStatus(componentType)
+		for _, unit := range missingComponents {
+			st.clearComponentStatus(unit)
 		}
 		return nil
 	}
@@ -65,47 +64,72 @@ func (st *blueFieldSoftwareReadyState) Handle(context.Context, client.Client) er
 	return nil
 }
 
-func (st *blueFieldSoftwareReadyState) checkMissingComponents() []butil.ComponentType {
-	var missing []butil.ComponentType
+// checkMissingComponents returns the download units (per PSID for DPU PLDM bundles) whose
+// on-disk file, unpacked output or recorded status no longer reflects the spec, so they can
+// be re-downloaded and re-unpacked.
+func (st *blueFieldSoftwareReadyState) checkMissingComponents() []componentInfo {
+	var missing []componentInfo
 
-	type row struct {
-		specURL string
-		stored  string
-		ct      butil.ComponentType
-	}
-	var rows []row
-	rows = append(rows,
-		row{ptr.Deref(st.bfs.Spec.PldmFwBundle, ""), st.bfs.Status.DownloadedComponents.PldmFwBundle, butil.ComponentTypeFwBundle},
-		row{ptr.Deref(st.bfs.Spec.PlatformPldmFwBundle, ""), st.bfs.Status.DownloadedComponents.PlatformPldmFwBundle, butil.ComponentTypePlatformFwBundle},
-		row{st.bfs.Spec.OsIso, st.bfs.Status.DownloadedComponents.OsIso, butil.ComponentTypeOSISO},
-	)
-
-	for _, r := range rows {
-		if r.specURL == "" {
+	for _, unit := range specComponentUnits(st.bfs) {
+		if unit.URL == "" {
 			continue
 		}
-		if isURL(r.specURL) {
-			path := componentDestinationPath(r.ct, butil.ComponentDownloadFilename(st.bfs, r.ct, r.specURL))
+		if isURL(unit.URL) {
+			path := componentDestinationPath(unit.ComponentType, componentFileName(st.bfs, unit))
 			ok, err := isFileExist(path)
 			if err != nil || !ok {
-				missing = append(missing, r.ct)
+				missing = append(missing, unit)
+				continue
 			}
+		} else if downloadedComponentPath(st.bfs, unit.ComponentType, unit.Key) != unit.URL {
+			missing = append(missing, unit)
 			continue
 		}
-		if r.stored != r.specURL {
-			missing = append(missing, r.ct)
+		if st.extractedNicFwMissing(unit) {
+			missing = append(missing, unit)
 		}
 	}
 
 	return missing
 }
 
-func (st *blueFieldSoftwareReadyState) clearComponentStatus(componentType butil.ComponentType) {
-	switch componentType {
+// extractedNicFwMissing reports whether the NIC firmware image unpacked from the platform
+// bundle is gone from disk while status still records its path. That image lives in the
+// bundle's *-extracted directory, which is removed independently of the bundle file itself
+// (Error-phase cleanup, host storage reclamation), and the checks above only see the bundle.
+// Left unreported, status keeps a path the DPU agent can never fetch from bfb-registry and
+// the version gate in extractedVersionsRecorded suppresses re-extraction for good.
+func (st *blueFieldSoftwareReadyState) extractedNicFwMissing(unit componentInfo) bool {
+	if unit.ComponentType != butil.ComponentTypePlatformFwBundle {
+		return false
+	}
+	nicFw := st.bfs.Status.DownloadedComponents.NicFw
+	if nicFw == "" {
+		return false
+	}
+	ok, err := isFileExist(nicFw)
+	return err != nil || !ok
+}
+
+// clearComponentStatus drops download paths and the version fields that
+// extractedVersionsRecorded uses as its completion gate, so a re-download is
+// followed by a fresh unpack instead of being permanently skipped.
+func (st *blueFieldSoftwareReadyState) clearComponentStatus(unit componentInfo) {
+	switch unit.ComponentType {
 	case butil.ComponentTypeFwBundle:
-		st.bfs.Status.DownloadedComponents.PldmFwBundle = ""
+		delete(st.bfs.Status.DownloadedComponents.PldmFwBundle, unit.Key)
+		if st.bfs.Status.Versions != nil {
+			delete(st.bfs.Status.Versions.BluefieldSoftwareVersions, unit.Key)
+		}
 	case butil.ComponentTypePlatformFwBundle:
 		st.bfs.Status.DownloadedComponents.PlatformPldmFwBundle = ""
+		// NicFw path/version come from unpacking the platform bundle.
+		st.bfs.Status.DownloadedComponents.NicFw = ""
+		if st.bfs.Status.Versions != nil {
+			st.bfs.Status.Versions.EWNicFwVersion = ""
+		}
+	case butil.ComponentTypeNicFw:
+		st.bfs.Status.DownloadedComponents.NicFw = ""
 	case butil.ComponentTypeOSISO:
 		st.bfs.Status.DownloadedComponents.OsIso = ""
 	}
