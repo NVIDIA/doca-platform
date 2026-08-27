@@ -917,19 +917,24 @@ OS installation, etc.).
 
 ###### Making the DPUs Ready
 
-In order to make the DPUs ready, we will need to manually power cycle the host. This operation should be done in the
-most graceful manner by gracefully shutting down the Host and DPU, powering off the server and then powering it on to
-avoid corruption. This should happen when the object gives us the signal. The described flow can be automated by the
-admin depending on the infrastructure.
+In order to make the DPUs ready, the host operation that DPF requests in `DPUNode.status.rebootMethod` must be
+performed -- see
+[DPUNode: Aggregated reboot method](../../../../developer-guides/api/dpunode.md#aggregated-reboot-method)
+for what each value requires. With
+[`nodeRebootMethod: external`](../../../../developer-guides/api/dpunode.md#reboot-methods) we perform it manually when
+the object gives us the signal; the described flow can be automated by the admin depending on the infrastructure.
 
 The following verification command may need to be run multiple times to ensure the expected reboot status is set.
 
 ```shell
 ## Ensure the DPUs report rebootStatus.reason=WaitingForManualPowerCycleOrReboot (this may take time)
 kubectl wait --for=jsonpath='{.status.rebootStatus.reason}'=WaitingForManualPowerCycleOrReboot --namespace dpf-operator-system dpu --all
+
+## Check which operation each host needs (see DPUNode: Aggregated reboot method)
+kubectl get dpunode --namespace dpf-operator-system -o custom-columns='NAME:.metadata.name,REBOOT_METHOD:.status.rebootMethod'
 ```
 
-At this point, we have to power cycle the hosts. Once **all the hosts are back online**, we have to remove an annotation
+At this point, we have to perform that operation on the hosts. Once **all the hosts are back online**, we have to remove an annotation
 from the DPUNodes. The user can choose to remove this annotation node by node but to make it simpler in this guide, we do
 that all at once.
 
@@ -1766,19 +1771,24 @@ OS installation, etc.).
 
 ###### Making the DPUs Ready
 
-In order to make the DPUs ready, we will need to manually power cycle the host. This operation should be done in the
-most graceful manner by gracefully shutting down the Host and DPU, powering off the server and then powering it on to
-avoid corruption. This should happen when the object gives us the signal. The described flow can be automated by the
-admin depending on the infrastructure.
+In order to make the DPUs ready, the host operation that DPF requests in `DPUNode.status.rebootMethod` must be
+performed -- see
+[DPUNode: Aggregated reboot method](../../../../developer-guides/api/dpunode.md#aggregated-reboot-method)
+for what each value requires. With
+[`nodeRebootMethod: external`](../../../../developer-guides/api/dpunode.md#reboot-methods) we perform it manually when
+the object gives us the signal; the described flow can be automated by the admin depending on the infrastructure.
 
 The following verification command may need to be run multiple times to ensure the expected reboot status is set.
 
 ```shell
 ## Ensure the DPUs report rebootStatus.reason=WaitingForManualPowerCycleOrReboot (this may take time)
 kubectl wait --for=jsonpath='{.status.rebootStatus.reason}'=WaitingForManualPowerCycleOrReboot --namespace dpf-operator-system dpu --all
+
+## Check which operation each host needs (see DPUNode: Aggregated reboot method)
+kubectl get dpunode --namespace dpf-operator-system -o custom-columns='NAME:.metadata.name,REBOOT_METHOD:.status.rebootMethod'
 ```
 
-At this point, we have to power cycle the hosts. Once **all the hosts are back online**, we have to remove an annotation
+At this point, we have to perform that operation on the hosts. Once **all the hosts are back online**, we have to remove an annotation
 from the DPUNodes. The user can choose to remove this annotation node by node but to make it simpler in this guide, we do
 that all at once.
 

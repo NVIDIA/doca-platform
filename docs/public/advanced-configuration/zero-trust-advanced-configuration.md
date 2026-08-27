@@ -220,16 +220,28 @@ kubectl -n dpf-operator-system delete dpudevice $DPUDEVICE_NAME
 
 # External Host Reboot
 
-In the Zero Trust scenario, DPF cannot manage the DPU's host machine, so the host power cycle must be performed manually
+In the Zero Trust scenario, DPF cannot manage the DPU's host machine, so the host reboot must be performed manually
 by the user (or by external automation) during the DPU provisioning process.
 
-DPF signals that a manual power cycle is required by setting the
+DPF signals that a manual reboot is required by setting the
 `provisioning.dpu.nvidia.com/dpunode-external-reboot-required: "true"` annotation on the DPUNode (equivalently, the DPU
 reports `status.rebootStatus.reason: WaitingForManualPowerCycleOrReboot`). Only once this annotation is present,
-power-cycle the host promptly, and after the node boots up remove the annotation. If the power cycle is delayed too long,
-the DPU join cluster's secret expires and the DPU CR remains pending in the `DPU Cluster Config` phase.
+perform the requested operation promptly, and after the node boots up remove the annotation. If the reboot is delayed
+too long, the DPU join cluster's secret expires and the DPU CR remains pending in the `DPU Cluster Config` phase.
 
-If you use **script-based** host reboot (`nodeRebootMethod.script` on the DPUNode) instead of external power cycle, see
+The host operation to perform is the one DPF requests in `DPUNode.status.rebootMethod` -- see
+[DPUNode: Aggregated reboot method](../developer-guides/api/dpunode.md#aggregated-reboot-method)
+for what each value requires. The field is empty until at least one of the node's DPUs reaches the `Rebooting` phase,
+so read it only after the annotation above appears.
+
+```bash
+kubectl -n dpf-operator-system get dpunode -o custom-columns='NAME:.metadata.name,REBOOT_METHOD:.status.rebootMethod'
+```
+
+Manual action is only needed for
+[`nodeRebootMethod: external`](../developer-guides/api/dpunode.md#reboot-methods). On the `script` path the DPU reports
+`RebootScriptWaiting` instead of `WaitingForManualPowerCycleOrReboot`, and DPF runs the Job built from the script you
+supply -- see
 [DPUNode: Script reboot job failures and recovery](../developer-guides/api/dpunode.md#script-reboot-job-failures-and-recovery)
 for how Jobs, DPU phase `DPURebooting`, and recovery interact.
 
