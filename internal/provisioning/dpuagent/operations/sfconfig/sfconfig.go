@@ -59,12 +59,13 @@ type CreateSF struct {
 	auxDiscoveryInterval time.Duration
 	// dmaSFNum is the sfnum of the SNAP DMA SF, resolved once in Execute.
 	dmaSFNum int
-	// dmaSFMACOverride is the flavor's scalableFunctions.dma.macAddress, resolved
-	// once in Execute. Empty means "derive a deterministic MAC".
+	// dmaSFMACOverride is the flavor's scalableFunctions dma entry's
+	// options.macAddress, resolved once in Execute. Empty means "derive a
+	// deterministic MAC".
 	dmaSFMACOverride string
 	// dmaSFTargetDevice is the single ECPF chosen to host the DMA SF
 	// (selectDMASFTarget), resolved once in Execute. Empty means "no DMA SF to
-	// handle" — either the feature is off (not BF4 / dma.sfNum unset) or no ECPF
+	// handle" — either the feature is off (no dma entry / not BF4) or no ECPF
 	// qualifies; a real device BDF is never empty, so per-device checks
 	// key off device == dmaSFTargetDevice.
 	dmaSFTargetDevice string
@@ -104,18 +105,19 @@ func (s *CreateSF) Execute(execCtx context.Context, optCtx *operations.Context) 
 	pfTotalSF := getPFTotalSFFromFlavor(&optCtx.DPUFlavor)
 	trustedSF := getTrustedSFFromFlavor(&optCtx.DPUFlavor)
 
-	// Resolve the DMA SF parameters from the flavor's scalableFunctions.dma
-	// field (the dpu-agent reads no DMA SF config from mlnx-bf.conf). dma.enabled
-	// opts into creation; dma.sfNum defaults to the SNAP discovery ABI sfnum.
+	// Resolve the DMA SF parameters from the flavor's scalableFunctions list
+	// (the dpu-agent reads no DMA SF config from mlnx-bf.conf). The presence of
+	// a type=dma entry opts into creation; its sfNumStart defaults to the SNAP
+	// discovery ABI sfnum.
 	s.dmaSFNum = snapDMASFNum
-	dma := ptr.Deref(optCtx.DPUFlavor.Spec.ScalableFunctions, provisioningv1.ScalableFunctions{}).DMA
 	// The SNAP DMA SF is a BlueField-4 socket-direct feature; gate agent-owned
-	// creation on BF4 so a stray scalableFunctions.dma.enabled in a shared flavor
+	// creation on BF4 so a stray scalableFunctions dma entry in a shared flavor
 	// never triggers it on another generation.
-	dmaSFEnabled := dpuagentutil.IsBlueField4(optCtx.LatestDPU) && dma != nil && ptr.Deref(dma.Enabled, false)
-	if dmaSFEnabled {
-		s.dmaSFNum = int(ptr.Deref(dma.SFNum, snapDMASFNum))
-		s.dmaSFMACOverride = ptr.Deref(dma.MACAddress, "")
+	if dmaEntry := findDMAScalableFunction(optCtx.DPUFlavor.Spec.ScalableFunctions); dmaEntry != nil && dpuagentutil.IsBlueField4(optCtx.LatestDPU) && ptr.Deref(dmaEntry.Count, 0) == 1 {
+		s.dmaSFNum = int(ptr.Deref(dmaEntry.SFNumStart, snapDMASFNum))
+		if dmaEntry.Options != nil {
+			s.dmaSFMACOverride = dmaEntry.Options.MACAddress
+		}
 
 		// Pick the single ECPF that hosts the DMA SF up front (Redmine #5040591
 		// a–f), so per-device handling is a simple target check rather than an
@@ -125,12 +127,13 @@ func (s *CreateSF) Execute(execCtx context.Context, optCtx *operations.Context) 
 			return err
 		}
 		if s.dmaSFTargetDevice == "" {
-			// scalableFunctions.dma.enabled is an explicit opt-in, so a missing
-			// target is a real misconfiguration (the secondary socket-direct ECPF
-			// is not silenced, or this is not a socket-direct BF4) — not something
-			// to skip silently, which would leave the DPU Ready with NVMesh at half
-			// bandwidth. Fail with a visible condition instead.
-			return fmt.Errorf("DPUFlavor.spec.scalableFunctions.dma.enabled is set but no eligible ibdev-less 2nd-link ECPF found: the secondary socket-direct ECPF must be silenced (vendor ENABLE_SD_MERGED_ESWITCH) on a socket-direct BlueField-4")
+			// A type=dma entry in scalableFunctions is an explicit opt-in, so a
+			// missing target is a real misconfiguration (the secondary
+			// socket-direct ECPF is not silenced, or this is not a socket-direct
+			// BF4) — not something to skip silently, which would leave the DPU
+			// Ready with NVMesh at half bandwidth. Fail with a visible condition
+			// instead.
+			return fmt.Errorf("DPUFlavor.spec.scalableFunctions has a dma entry but no eligible ibdev-less 2nd-link ECPF found: the secondary socket-direct ECPF must be silenced (vendor ENABLE_SD_MERGED_ESWITCH) on a socket-direct BlueField-4")
 		}
 		klog.Infof("DMA SF (sfnum %d) target ECPF: %s", s.dmaSFNum, s.dmaSFTargetDevice)
 	}
