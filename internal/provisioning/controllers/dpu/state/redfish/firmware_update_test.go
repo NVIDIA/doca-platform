@@ -715,13 +715,30 @@ var _ = Describe("FirmwareUpdate", func() {
 		Expect(*status.RebootStatus.Method).To(Equal(provisioningv1.RebootMethodSystemLevelReset))
 	})
 
-	It("should transition to DPUError when task monitoring fails", func() {
+	It("should resubmit PLDM firmware update when the task is in Exception", func() {
 		mockServer := createBF4MockRedfishServer()
 		defer mockServer.Stop()
 		mockServer.SetFirmwareVersions("old-bmc", "old-erot", "old-sbios", "old-nic")
 		mockServer.SetTaskState("Exception")
 		mockServer.SetTaskMessages([]map[string]interface{}{
-			{"Message": "PLDM update failed"},
+			{
+				"Message":         "The task with Id '0' has completed with errors.",
+				"MessageId":       "TaskEvent.1.0.3.TaskAborted",
+				"MessageSeverity": "Critical",
+				"Resolution":      "None.",
+			},
+			{
+				"Message":    "Transfer of image '26.08-0005' to 'BlueField_FW_CPU_0' failed.",
+				"MessageId":  "Update.1.0.TransferFailed",
+				"Resolution": "None.",
+				"Severity":   "Critical",
+			},
+			{
+				"Message":    "The resource property 'BlueField_FW_CPU_0' has detected errors of type 'Cannot execute command because device performing other critical tasks'.",
+				"MessageId":  "ResourceEvent.1.0.ResourceErrorsDetected",
+				"Resolution": "Retry firmware update operation",
+				"Severity":   "Critical",
+			},
 		})
 
 		createBMCAndMTLSSecretsForBF4(mockServer)
@@ -745,16 +762,36 @@ var _ = Describe("FirmwareUpdate", func() {
 		taskID := "0"
 		dpu.Status.RedfishTaskID = &taskID
 
-		status, err := FirmwareUpdate(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+		ctrlCtx := &dutil.ControllerContext{Client: k8sClient}
+
+		By("Exception drops the finished BMC task so firmware update can be POSTed again")
+		status, err := FirmwareUpdate(ctx, dpu, ctrlCtx)
 		Expect(err).To(HaveOccurred())
-		Expect(status.Phase).To(Equal(provisioningv1.DPUError))
+		Expect(status.Phase).To(Equal(provisioningv1.DPUUpdateFirmware))
 		Expect(status.RedfishTaskID).To(BeNil())
+		Expect(status.Conditions).To(ContainElement(
+			And(
+				HaveField("Type", provisioningv1.DPUCondFwBundleSubmitted.String()),
+				HaveField("Status", metav1.ConditionFalse),
+			),
+		))
+		exceptionMsg := "task 0 is in Exception state: The task with Id '0' has completed with errors.; Transfer of image '26.08-0005' to 'BlueField_FW_CPU_0' failed.; The resource property 'BlueField_FW_CPU_0' has detected errors of type 'Cannot execute command because device performing other critical tasks'."
+		Expect(err).To(MatchError(ContainSubstring(exceptionMsg)))
 		Expect(status.Conditions).To(ContainElement(
 			And(
 				HaveField("Type", provisioningv1.DPUCondFWConfigured.String()),
 				HaveField("Reason", "FailedToUpdatePldmFwBundle"),
+				HaveField("Message", ContainSubstring(exceptionMsg)),
 			),
 		))
+
+		By("next reconcile submits a new PLDM update")
+		mockServer.SetTaskState("Completed")
+		dpu.Status = status
+		status, err = FirmwareUpdate(ctx, dpu, ctrlCtx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(status.Phase).To(Equal(provisioningv1.DPUUpdateFirmware))
+		Expect(status.RedfishTaskID).NotTo(BeNil())
 	})
 
 	Context("ERoT background copy status", func() {
