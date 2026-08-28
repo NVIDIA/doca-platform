@@ -42,17 +42,65 @@ var _ = Describe("Phase DPUConfig", func() {
 	}
 
 	Context("waiting for agent", func() {
-		It("should wait when AgentStatus is nil", func() {
+		It("should wait with WaitingForDPUAgent when AgentStatus is nil", func() {
 			dpu := dpuObj(defaultDPUName)
 			dpu.Status.Phase = provisioningv1.DPUConfig
 
 			status, err := state.DPUConfig(ctx, dpu, &dutil.ControllerContext{})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(status.Phase).To(Equal(provisioningv1.DPUConfig))
-			expectDPUConfigCondition(status, metav1.ConditionFalse, "WaitingForRebootMethod", "waiting for DPU agent to report reboot method")
+			expectDPUConfigCondition(status, metav1.ConditionFalse, "WaitingForDPUAgent", "waiting for DPU agent contact")
 		})
 
-		It("should wait when RebootMethod is nil", func() {
+		It("should wait with WaitingForDPUAgent when LastStartupTime is nil", func() {
+			dpu := dpuObj(defaultDPUName)
+			dpu.Status.Phase = provisioningv1.DPUConfig
+			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
+				RebootMethod: ptr.To(provisioningv1.RebootMethodUnknown),
+			}
+
+			status, err := state.DPUConfig(ctx, dpu, &dutil.ControllerContext{})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUConfig))
+			expectDPUConfigCondition(status, metav1.ConditionFalse, "WaitingForDPUAgent", "waiting for DPU agent contact")
+		})
+
+		It("should name a skewed DPU clock as the reason for the wait", func() {
+			dpu := dpuObj(defaultDPUName)
+			dpu.Status.Phase = provisioningv1.DPUConfig
+			hostTime := metav1.Now()
+			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
+				Clock: &provisioningv1.ClockStatus{
+					DPUTime:  metav1.NewTime(hostTime.Add(-4 * time.Hour)),
+					HostTime: hostTime,
+				},
+			}
+
+			status, err := state.DPUConfig(ctx, dpu, &dutil.ControllerContext{})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUConfig))
+			cond := meta.FindStatusCondition(status.Conditions, provisioningv1.DPUCondDPUConfig.String())
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+			Expect(cond.Reason).To(Equal(cutil.ReasonDPUClockUnsynchronized))
+			Expect(cond.Message).To(ContainSubstring("waiting for DPU agent contact"))
+			Expect(cond.Message).To(ContainSubstring("4h0m0s behind the host clock"))
+		})
+
+		It("should keep the plain wait when the reported clocks agree", func() {
+			dpu := dpuObj(defaultDPUName)
+			dpu.Status.Phase = provisioningv1.DPUConfig
+			hostTime := metav1.Now()
+			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
+				Clock: &provisioningv1.ClockStatus{DPUTime: hostTime, HostTime: hostTime},
+			}
+
+			status, err := state.DPUConfig(ctx, dpu, &dutil.ControllerContext{})
+			Expect(err).NotTo(HaveOccurred())
+			expectDPUConfigCondition(status, metav1.ConditionFalse, "WaitingForDPUAgent", "waiting for DPU agent contact")
+		})
+
+		It("should wait with WaitingForRebootMethod when RebootMethod is nil", func() {
 			dpu := dpuObj(defaultDPUName)
 			dpu.Status.Phase = provisioningv1.DPUConfig
 			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{

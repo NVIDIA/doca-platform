@@ -20,16 +20,22 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/nvidia/doca-platform/cmd/dpuagent/opts"
+	hostagenttypes "github.com/nvidia/doca-platform/internal/provisioning/hostagent/service/types"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func TestMainPackage(t *testing.T) {
@@ -125,5 +131,55 @@ users:
 		err := waitForNonEmptyTokenFile(cctx, tokenPath, time.Minute)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("context canceled"))
+	})
+})
+
+var _ = Describe("postClockReport", func() {
+	request := hostagenttypes.ReportClockRequest{
+		DPUName:      "worker2-mt2516604wwn",
+		DPUNamespace: "dpf-operator-system",
+		DPUUID:       "dpu-uid",
+		DPUTime:      metav1.NewTime(time.Date(2026, 8, 17, 6, 28, 9, 0, time.UTC)),
+	}
+
+	It("posts the DPU clock and identity to the hostagent", func() {
+		received := make(chan hostagenttypes.ReportClockRequest, 1)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			body, err := io.ReadAll(r.Body)
+			Expect(err).NotTo(HaveOccurred())
+			var got hostagenttypes.ReportClockRequest
+			Expect(json.Unmarshal(body, &got)).To(Succeed())
+			Expect(r.URL.Path).To(Equal("/report-clock"))
+			Expect(r.Header.Get("Content-Type")).To(Equal("application/json"))
+			received <- got
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		Expect(postClockReport(context.Background(), server.URL, request)).To(Succeed())
+
+		got := <-received
+		Expect(got.DPUName).To(Equal(request.DPUName))
+		Expect(got.DPUNamespace).To(Equal(request.DPUNamespace))
+		Expect(got.DPUUID).To(Equal(request.DPUUID))
+		Expect(got.DPUTime.UTC()).To(Equal(request.DPUTime.UTC()))
+	})
+
+	It("fails when the hostagent rejects the report", func() {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusConflict)
+		}))
+		defer server.Close()
+
+		err := postClockReport(context.Background(), server.URL, request)
+		Expect(err).To(MatchError(ContainSubstring("hostagent rejected the clock report")))
+	})
+
+	It("fails when the hostagent is unreachable", func() {
+		server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+		address := server.URL
+		server.Close()
+
+		Expect(postClockReport(context.Background(), address, request)).NotTo(Succeed())
 	})
 })
