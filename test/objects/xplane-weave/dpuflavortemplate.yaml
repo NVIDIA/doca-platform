@@ -289,7 +289,7 @@ spec:
             ALLOW_SHARED_RQ="no"
             IPSEC_FULL_OFFLOAD="no"
             ENABLE_ESWITCH_MULTIPORT="yes"
-            # dpu-agent controls sf creation; enable via .spec.scalableFunctions.dma.enable instead
+            # dpu-agent controls sf creation; enable via a spec.scalableFunctions dma entry instead
             SNAP_DMA_SF=no
 
         - path: /etc/mellanox/mlnx-ovs.conf

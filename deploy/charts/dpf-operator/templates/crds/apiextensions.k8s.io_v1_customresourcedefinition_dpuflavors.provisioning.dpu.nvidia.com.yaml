@@ -489,39 +489,60 @@ spec:
                 - message: package names must be unique
                   rule: self.all(x, self.exists_one(y, x.name == y.name))
               scalableFunctions:
-                description: ScalableFunctions configures Scalable Functions (SFs)
-                  created on the DPU.
-                properties:
-                  dma:
-                    description: |-
-                      DMA configures the DMA SF that e.g. SNAP DOCA service uses to DMA host
-                      memory over the second Grace PCI link on BlueField-4 socket-direct
-                      systems.
-                    properties:
-                      enabled:
-                        description: |-
-                          Enabled controls whether the dpu-agent creates the DMA SF. The presence of
-                          the dma struct alone does not enable creation; enabled must be set
-                          explicitly. Only takes effect on BlueField-4 socket-direct systems.
-                        type: boolean
-                      macAddress:
-                        description: |-
-                          MACAddress pins the DMA SF's MAC address (canonical colon-separated
-                          48-bit form, e.g. "02:40:51:7c:e3:0f"). Defaults to a deterministic,
-                          vendor-compatible derivation when unset.
-                        pattern: ^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$
-                        type: string
-                      sfNum:
-                        description: |-
-                          SFNum is the number of the DMA Scalable Function. Defaults to 8000 when
-                          unset. Only takes effect on BlueField-4 socket-direct systems.
-                        format: int32
-                        minimum: 1
-                        type: integer
-                    required:
-                    - enabled
-                    type: object
-                type: object
+                description: |-
+                  ScalableFunctions configures the Scalable Functions (SFs) created on the DPU.
+                  For now, only entries with type dma are allowed, and at most one such entry.
+                items:
+                  description: ScalableFunction configures a set of Scalable Functions
+                    (SFs) created on the DPU.
+                  properties:
+                    count:
+                      description: Count is the number of Scalable Functions to create
+                        per target device.
+                      format: int32
+                      minimum: 0
+                      type: integer
+                    options:
+                      description: Options carries type-specific Scalable Function
+                        configuration.
+                      properties:
+                        macAddress:
+                          description: |-
+                            MACAddress pins the Scalable Function's MAC address (canonical colon-separated
+                            48-bit form, e.g. "02:40:51:7c:e3:0f"). Defaults to a deterministic,
+                            vendor-compatible derivation when unset.
+                          minLength: 17
+                          pattern: ^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$
+                          type: string
+                      type: object
+                    sfNumStart:
+                      description: |-
+                        SFNumStart is the Scalable Function number this entry starts allocating from.
+                        Defaults per Type when Type is set; required when Type is unset.
+                      format: int32
+                      minimum: 0
+                      type: integer
+                    type:
+                      description: Type selects the kind of Scalable Function to create.
+                        Only dma is supported for now.
+                      enum:
+                      - dma
+                      type: string
+                  required:
+                  - count
+                  type: object
+                  x-kubernetes-validations:
+                  - message: a dma entry must have count == 1
+                    rule: '!has(self.type) || self.type != ''dma'' || self.count >=
+                      1'
+                maxItems: 1
+                type: array
+                x-kubernetes-list-type: atomic
+                x-kubernetes-validations:
+                - message: at most one entry with type dma is supported for now
+                  rule: self.filter(x, has(x.type) && x.type == 'dma').size() <= 1
+                - message: only entries with type dma are supported for now
+                  rule: self.all(x, has(x.type) && x.type == 'dma')
               serviceReadiness:
                 description: serviceReadiness configures the Service Readiness phase.
                 properties:

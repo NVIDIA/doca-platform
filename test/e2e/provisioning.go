@@ -746,7 +746,7 @@ func ValidateDPUFlavorNodeLabelScripts(ctx context.Context, input *systemTestInp
 }
 
 // ValidateDMAScalableFunction validates the SNAP DMA SF created by the dpu-agent's
-// sfconfig operation when the DPUFlavor sets scalableFunctions.dma.enabled=true.
+// sfconfig operation when the DPUFlavor has a scalableFunctions dma entry.
 // It only wires the suite state into the validation, which lives next to the
 // operation it covers in test/utils/dpuagent.
 func ValidateDMAScalableFunction(ctx context.Context, input *systemTestInput) {

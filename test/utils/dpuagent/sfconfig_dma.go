@@ -39,7 +39,7 @@ import (
 
 const (
 	// DefaultDMASFNum is the sfnum the DPU Agent uses for the SNAP DMA SF when
-	// the DPUFlavor leaves scalableFunctions.dma.sfNum unset. It mirrors
+	// the DPUFlavor leaves scalableFunctions has no dma entry with sfNumStart set. It mirrors
 	// snapDMASFNum in internal/provisioning/dpuagent/operations/sfconfig.
 	DefaultDMASFNum = 8000
 
@@ -57,7 +57,7 @@ const (
 // provisioned DPUs joined.
 type DMAScalableFunctionInput struct {
 	// DPUFlavor is the flavor the DPUs were provisioned with; its
-	// spec.scalableFunctions.dma decides whether the validation applies at all.
+	// spec.scalableFunctions' dma entry decides whether the validation applies at all.
 	DPUFlavor *provisioningv1.DPUFlavor
 
 	// ClusterClient targets the DPU cluster via a refreshable wrapper, so it
@@ -121,7 +121,7 @@ type dmaSFObservation struct {
 }
 
 // ValidateDMAScalableFunction verifies the SNAP DMA SF that the DPU Agent creates
-// when the DPUFlavor sets scalableFunctions.dma.enabled=true (BlueField-4
+// when the DPUFlavor sets a dma entry (BlueField-4
 // socket-direct). It spins up a privileged hostNetwork netutils pod on every DPU
 // cluster node, execs into it and asserts, from the DPU's own sysfs, that the SF
 // with the expected sfnum exists, exposes an RDMA device and has no netdev of its
@@ -138,7 +138,7 @@ func ValidateDMAScalableFunction(ctx context.Context, input DMAScalableFunctionI
 
 	sfNum, enabled := dmaSFNumFromFlavor(input.DPUFlavor)
 	if !enabled {
-		Skip("Skip DMA SF test as the DPUFlavor does not set scalableFunctions.dma.enabled=true")
+		Skip("Skip DMA SF test as the DPUFlavor does not have a scalableFunctions dma entry")
 	}
 
 	dpuNodes := &corev1.NodeList{}
@@ -168,7 +168,7 @@ func ValidateDMAScalableFunction(ctx context.Context, input DMAScalableFunctionI
 			observations := parseDMASFObservations(out)
 			g.Expect(observations).To(HaveLen(1),
 				"expected exactly one SF with sfnum %d on DPU node %s (the DMA SF is created on a single ECPF; "+
-					"none means the flavor's scalableFunctions.dma did not take effect or the DPU is not socket-direct), got: %s",
+					"none means the flavor's scalableFunctions dma entry did not take effect or the DPU is not socket-direct), got: %s",
 				sfNum, nodeName, out)
 
 			sf := observations[0]
@@ -189,13 +189,15 @@ func ValidateDMAScalableFunction(ctx context.Context, input DMAScalableFunctionI
 // dmaSFNumFromFlavor returns the DMA sfnum the DPU Agent is expected to use for
 // flavor, and whether the flavor enables the DMA SF at all.
 func dmaSFNumFromFlavor(flavor *provisioningv1.DPUFlavor) (int, bool) {
-	if flavor == nil ||
-		flavor.Spec.ScalableFunctions == nil ||
-		flavor.Spec.ScalableFunctions.DMA == nil ||
-		!ptr.Deref(flavor.Spec.ScalableFunctions.DMA.Enabled, false) {
+	if flavor == nil {
 		return 0, false
 	}
-	return int(ptr.Deref(flavor.Spec.ScalableFunctions.DMA.SFNum, int32(DefaultDMASFNum))), true
+	for _, sf := range flavor.Spec.ScalableFunctions {
+		if sf.Type == provisioningv1.ScalableFunctionTypeDMA {
+			return int(ptr.Deref(sf.SFNumStart, int32(DefaultDMASFNum))), true
+		}
+	}
+	return 0, false
 }
 
 // verifyDMASFRepresentorUp checks the DMA SF's representor netdev, which lives in
