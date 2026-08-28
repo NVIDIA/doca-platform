@@ -1737,6 +1737,7 @@ _Appears in:_
 | `preInstall` _[AgentPreInstallStatus](#agentpreinstallstatus)_ | PreInstall holds agent-reported status for work done before OS install in the reprovisioning process. |  | Optional: \{\} <br /> |
 | `trustBundleHash` _string_ | TrustBundleHash is the bundle-hash value last applied by the DPU agent. |  | Optional: \{\} <br /> |
 | `trustBundleLastUpdateTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | TrustBundleLastUpdateTime is when the trust bundle was last updated by the DPU agent. |  | Optional: \{\} <br /> |
+| `clock` _[ClockStatus](#clockstatus)_ | Clock is the DPU clock compared against the host clock, recorded while the DPU agent was<br />acquiring its identity. A DPU whose clock is skewed cannot verify the API server certificate,<br />so it never obtains the identity it would need to report this itself. Set by the host agent,<br />in trusted-host mode only. |  | Optional: \{\} <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions contains the conditions reported from inside the DPU |  | Optional: \{\} <br /> |
 | `spiffe` _[SpiffeStatus](#spiffestatus)_ | Spiffe contains the SPIFFE heartbeat status reported by the DPU Agent when running in<br />SPIFFE identity mode. |  | Optional: \{\} <br /> |
 | `hostOSInit` _[HostOSInitStatus](#hostosinitstatus)_ | hostOSInit reports terminal host OS init release status from the DPU agent.<br />Unset while the agent is polling or has not reached ReleaseHostOSInit. |  | Optional: \{\} <br /> |
@@ -2068,6 +2069,23 @@ _Appears in:_
 | `notAfter` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | NotAfter is the expiry time of the certificate currently installed. It is taken<br />from the issued certificate at rotation time. |  | Optional: \{\} <br /> |
 | `lastRotationTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | LastRotationTime is the time DPF last successfully rotated the certificate. |  | Optional: \{\} <br /> |
 | `observedManualTrigger` _string_ | ObservedManualTrigger records the value of the manual rotation annotation that<br />was last honored, so the same trigger is not processed twice. |  | Optional: \{\} <br /> |
+
+
+#### ClockStatus
+
+
+
+ClockStatus holds two readings of the same instant, taken on the DPU and on the host.
+
+
+
+_Appears in:_
+- [AgentStatus](#agentstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `dpuTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | dpuTime is the DPU clock as reported by the DPU agent. |  |  |
+| `hostTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | hostTime is the host clock when that report arrived. The host is the trusted side of the<br />comparison, so a difference is attributed to the DPU. |  |  |
 
 
 #### ClusterEndpointSpec

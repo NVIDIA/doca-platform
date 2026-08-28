@@ -20,6 +20,8 @@ import (
 	"errors"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // ErrRebindInProgress is returned when a host driver rebind is already running for the DPU UID.
@@ -30,6 +32,16 @@ type UpdateStatusRequest struct {
 	DPUNamespace string                     `json:"dpuNamespace"`
 	DPUUID       string                     `json:"dpuUID,omitempty"`
 	AgentStatus  provisioningv1.AgentStatus `json:"agentStatus"`
+}
+
+// ReportClockRequest carries the DPU clock reading to the host. The DPU agent cannot judge its own
+// clock or write to the API server before its client certificate is issued, which is exactly what a
+// skewed clock prevents, so the host compares and records the result on its behalf.
+type ReportClockRequest struct {
+	DPUName      string      `json:"dpuName"`
+	DPUNamespace string      `json:"dpuNamespace"`
+	DPUUID       string      `json:"dpuUID,omitempty"`
+	DPUTime      metav1.Time `json:"dpuTime"`
 }
 
 type ConfigureHostVFsRequest struct {

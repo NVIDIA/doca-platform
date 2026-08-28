@@ -19,10 +19,13 @@ limitations under the License.
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -33,11 +36,13 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
 	spiffeheartbeat "github.com/nvidia/doca-platform/internal/provisioning/dpuagent/spiffe"
+	hostagenttypes "github.com/nvidia/doca-platform/internal/provisioning/hostagent/service/types"
 	provcertificate "github.com/nvidia/doca-platform/internal/provisioning/utils/certificate"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/certificate/bootstrap"
 	providentity "github.com/nvidia/doca-platform/internal/provisioning/utils/certificate/identity"
 
 	"github.com/spf13/pflag"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -54,6 +59,13 @@ import (
 const (
 	dpuAgentPairName       = "dpu-agent-client"
 	spiffeTokenWaitTimeout = 90 * time.Second
+
+	// hostMgmtURL is the hostagent installation service on the DPU side of tmfifo. It speaks
+	// plain HTTP, so it keeps answering while the DPU clock is wrong enough to break TLS, which is
+	// the only situation the clock check exists for.
+	hostMgmtURL = "http://[fe80::1%25tmfifo_net0]:11029"
+	// hostMgmtTimeout bounds the hostagent call so a wedged tmfifo link cannot delay bootstrap.
+	hostMgmtTimeout = 5 * time.Second
 )
 
 func main() {
@@ -181,6 +193,14 @@ func main() {
 }
 
 func buildClientConfig(ctx context.Context, options *opts.Options) (*restclient.Config, error) {
+	// Report on entry, so skew is recorded on the DPU object while it is blocking identity, and
+	// again on return, so a clock corrected in between clears that report. Zero-trust DPUs are
+	// skipped.
+	if !options.ZeroTrustMode {
+		reportClock(ctx, options)
+		defer reportClock(ctx, options)
+	}
+
 	if options.SpiffeMode {
 		if options.TokenFilePath == "" {
 			return nil, fmt.Errorf("token-file-path is required in SPIFFE mode")
@@ -250,6 +270,56 @@ func buildClientConfig(ctx context.Context, options *opts.Options) (*restclient.
 	klog.InfoS("TLS bootstrapping completed", "cn", commonName)
 
 	return transportConfig, nil
+}
+
+// reportClock hands the DPU clock to the hostagent, which compares it against its own clock and
+// records the result on the DPU object. The agent does neither itself: it has no trusted time
+// reference, and no cluster credentials to write with, since obtaining them is exactly what a skewed
+// clock prevents.
+//
+// This is trusted-host only. Zero-trust DPUs treat the host as untrusted, so neither its clock nor
+// its writes to the DPU object are acceptable there; that mode needs its own time reference.
+func reportClock(ctx context.Context, options *opts.Options) {
+	err := postClockReport(ctx, hostMgmtURL, hostagenttypes.ReportClockRequest{
+		DPUName:      options.DPUName,
+		DPUNamespace: options.DPUNamespace,
+		DPUUID:       options.DPUUID,
+		DPUTime:      metav1.Now(),
+	})
+	if err != nil {
+		// A DPU that cannot reach the hostagent at all has a louder problem than clock skew, and
+		// this check must not become a second way for bootstrap to fail.
+		klog.V(1).InfoS("Skipping DPU clock check", "err", err)
+	}
+}
+
+// postClockReport sends the DPU clock to the hostagent, which judges it and records the result.
+func postClockReport(ctx context.Context, baseURL string, request hostagenttypes.ReportClockRequest) error {
+	body, err := json.Marshal(request)
+	if err != nil {
+		return err
+	}
+
+	reqCtx, cancel := context.WithTimeout(ctx, hostMgmtTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, baseURL+"/report-clock", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("hostagent rejected the clock report: %s", resp.Status)
+	}
+	return nil
 }
 
 func waitForNonEmptyTokenFile(ctx context.Context, path string, timeout time.Duration) error {

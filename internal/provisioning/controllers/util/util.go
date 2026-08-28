@@ -191,7 +191,36 @@ const (
 	ReasonRebootScriptWaiting          = "RebootScriptWaiting"
 	ReasonRebootScriptFailedToFetchJob = "RebootScriptFailedToFetchJob"
 	ReasonRebootScriptFailed           = "RebootScriptFailed"
+
+	// ReasonDPUClockUnsynchronized is set while a DPU is waiting for agent contact that a skewed DPU
+	// clock is preventing.
+	ReasonDPUClockUnsynchronized = "DPUClockUnsynchronized"
+
+	// MaxDPUClockSkew is how far the DPU clock may sit from the host clock before it is treated as
+	// unsynchronized. It matches the BMC threshold applied to DPUDevices. DPU time is reported with
+	// one-second resolution, so a tighter tolerance would report normal jitter as skew.
+	MaxDPUClockSkew = time.Minute
 )
+
+// DPUClockSkewMessage explains a DPU clock that sits further than MaxDPUClockSkew from the host
+// clock. It returns an empty string when no comparison was recorded or the two clocks agree.
+func DPUClockSkewMessage(agentStatus *provisioningv1.AgentStatus) string {
+	if agentStatus == nil || agentStatus.Clock == nil {
+		return ""
+	}
+	dpuTime, hostTime := agentStatus.Clock.DPUTime, agentStatus.Clock.HostTime
+	skew := dpuTime.Sub(hostTime.Time)
+	if skew.Abs() <= MaxDPUClockSkew {
+		return ""
+	}
+	direction := "ahead of"
+	if skew < 0 {
+		direction = "behind"
+	}
+	return fmt.Sprintf("DPU clock is %s %s the host clock (DPU %s, host %s), which breaks client certificate bootstrap",
+		skew.Abs().Round(time.Second), direction,
+		dpuTime.UTC().Format(time.RFC3339), hostTime.UTC().Format(time.RFC3339))
+}
 
 // GetRebootMethodPriority returns the host-reboot priority of m, where
 // lower numbers are more disruptive. Chain: PowerCycle > SystemLevelReset >
