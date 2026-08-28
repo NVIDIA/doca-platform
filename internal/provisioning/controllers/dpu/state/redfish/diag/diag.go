@@ -110,6 +110,28 @@ func TranslateTaskMessages(messages []map[string]interface{}) (TranslatedTaskMes
 	return TranslatedTaskMessage{}, false
 }
 
+// JoinCriticalMessages joins BMC Message text from Critical task entries. The
+// BMC uses Severity on MessageRegistry items and MessageSeverity on TaskEvent
+// items. Returns "" when no Critical Message is present.
+func JoinCriticalMessages(messages []map[string]interface{}) string {
+	parts := make([]string, 0, len(messages))
+	for _, m := range messages {
+		sev, _ := m["Severity"].(string)
+		if sev == "" {
+			sev, _ = m["MessageSeverity"].(string)
+		}
+		if !strings.EqualFold(sev, "Critical") {
+			continue
+		}
+		msg, _ := m["Message"].(string)
+		if msg == "" {
+			continue
+		}
+		parts = append(parts, msg)
+	}
+	return strings.Join(parts, "; ")
+}
+
 // ClassifyHTTPStatus returns a hint for non-200 responses to CheckTaskProgress
 // that we can attribute to a specific BMC behavior. Returns "" for statuses
 // where we have no useful interpretation (caller still appends the raw body).

@@ -30,6 +30,7 @@ import (
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	rc "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
+	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/diag"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 
@@ -252,6 +253,19 @@ func checkFirmwareVersions(client *rc.Client, blueFieldSoftware *provisioningv1.
 	return nil
 }
 
+// pldmTaskExceptionError is a Redfish firmware-update task that finished in Exception.
+type pldmTaskExceptionError struct {
+	taskID   string
+	messages []map[string]interface{}
+}
+
+func (e pldmTaskExceptionError) Error() string {
+	if cause := diag.JoinCriticalMessages(e.messages); cause != "" {
+		return fmt.Sprintf("task %s is in Exception state: %s", e.taskID, cause)
+	}
+	return fmt.Sprintf("task %s is in Exception state", e.taskID)
+}
+
 func monitorTask(ctx context.Context, client *rc.Client, taskID string) (bool, error) {
 	logger := log.FromContext(ctx)
 
@@ -264,7 +278,7 @@ func monitorTask(ctx context.Context, client *rc.Client, taskID string) (bool, e
 
 	// nolint:goconst
 	if prog.TaskState == "Exception" {
-		return false, fmt.Errorf("task %s is in Exception state: %v", taskID, prog.Messages)
+		return false, pldmTaskExceptionError{taskID: taskID, messages: prog.Messages}
 	}
 
 	if prog.PercentComplete < 100 {
@@ -369,8 +383,13 @@ func updatePldmFwBundle(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 	}
 
 	if completed, err := monitorTask(ctx, client, *state.RedfishTaskID); err != nil {
-		state.RedfishTaskID = nil
-		state.Phase = provisioningv1.DPUError
+		var taskException pldmTaskExceptionError
+		if errors.As(err, &taskException) {
+			// BMC task got exception. Mark submit incomplete so the next reconcile
+			// POSTs update-multipart again.
+			state.RedfishTaskID = nil
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleSubmitted.String(), err, "FailedToUpdatePldmFwBundle", err.Error()))
+		}
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToUpdatePldmFwBundle", err.Error()))
 		return *state, fmt.Errorf("failed to update PLDM firmware: %w", err)
 	} else if completed {

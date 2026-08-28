@@ -146,6 +146,47 @@ func TestTranslateTaskMessages(t *testing.T) {
 	}
 }
 
+func TestJoinCriticalMessages(t *testing.T) {
+	messages := []map[string]interface{}{
+		{
+			"Message":         "The task with Id '0' has started.",
+			"MessageId":       "TaskEvent.1.0.3.TaskStarted",
+			"MessageSeverity": "OK",
+		},
+		{
+			"Message":    "The update operation for the component 'BlueField_FW_NIC_0' is skipped because 'Component image is identical'.",
+			"MessageId":  "NvidiaUpdate.1.0.ComponentUpdateSkipped",
+			"Resolution": "Retry firmware update operation with the force flag",
+			"Severity":   "OK",
+		},
+		{
+			"Message":         "The task with Id '0' has completed with errors.",
+			"MessageId":       "TaskEvent.1.0.3.TaskAborted",
+			"MessageSeverity": "Critical",
+			"Resolution":      "None.",
+		},
+		{
+			"Message":    "Transfer of image '26.08-0005' to 'BlueField_FW_CPU_0' failed.",
+			"MessageId":  "Update.1.0.TransferFailed",
+			"Resolution": "None.",
+			"Severity":   "Critical",
+		},
+		{
+			"Message":    "The resource property 'BlueField_FW_CPU_0' has detected errors of type 'Cannot execute command because device performing other critical tasks'.",
+			"MessageId":  "ResourceEvent.1.0.ResourceErrorsDetected",
+			"Resolution": "Retry firmware update operation",
+			"Severity":   "Critical",
+		},
+	}
+	want := "The task with Id '0' has completed with errors.; Transfer of image '26.08-0005' to 'BlueField_FW_CPU_0' failed.; The resource property 'BlueField_FW_CPU_0' has detected errors of type 'Cannot execute command because device performing other critical tasks'."
+	if got := JoinCriticalMessages(messages); got != want {
+		t.Errorf("JoinCriticalMessages() = %q, want %q", got, want)
+	}
+	if got := JoinCriticalMessages(nil); got != "" {
+		t.Errorf("JoinCriticalMessages(nil) = %q, want empty", got)
+	}
+}
+
 func TestClassifyHTTPStatus(t *testing.T) {
 	cases := []struct {
 		name   string
