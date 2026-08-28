@@ -215,17 +215,17 @@ func (h *HandleReboot) execSystemLevelReset(execCtx context.Context, optCtx *ope
 	return h.blockUntilReset()
 }
 
-// getDevices returns PCI addresses for physical NIC ports matching scope:
+// getNICPorts returns physical NIC ports matching scope:
 // PortScopeNS → N/S only, PortScopeEW → E/W only, PortScopeAll → both.
-func (h *HandleReboot) getDevices(optCtx *operations.Context, scope pciutil.PortScope) ([]string, error) {
+func (h *HandleReboot) getNICPorts(optCtx *operations.Context, scope pciutil.PortScope) ([]pciutil.NICPort, error) {
 	ports, err := optCtx.Ports(scope)
 	if err != nil {
 		return nil, err
 	}
-	devices := make([]string, 0, len(ports))
+	devices := make([]pciutil.NICPort, 0, len(ports))
 	for _, p := range ports {
 		if p.PCIAddress != "" {
-			devices = append(devices, p.PCIAddress)
+			devices = append(devices, p)
 		}
 	}
 	return devices, nil
@@ -459,6 +459,69 @@ func recordPending(optCtx *operations.Context, device string, entries pendingPar
 	})
 }
 
+type desiredNVConfigParameters map[string][]string
+
+func (p desiredNVConfigParameters) contains(device, parameterName string) bool {
+	parameterName = strings.TrimSpace(parameterName)
+	for _, name := range p[device] {
+		if strings.EqualFold(strings.TrimSpace(name), parameterName) {
+			return true
+		}
+	}
+	return false
+}
+
+func getDesiredNVConfigParameters(
+	optCtx *operations.Context,
+	devices []pciutil.NICPort,
+) (desiredNVConfigParameters, error) {
+	// Step 1: Get desired N/S NVConfig parameters.
+	desiredNSParameters, err := nvconfig.EnsureResolved(optCtx)
+	if err != nil {
+		return nil, fmt.Errorf("resolve NVConfig for pending parameter filtering: %w", err)
+	}
+	desired := make(desiredNVConfigParameters, len(desiredNSParameters.PCIToParams))
+	for device, params := range desiredNSParameters.PCIToParams {
+		for _, param := range strings.Fields(params.Params) {
+			name, _, ok := strings.Cut(param, "=")
+			if !ok {
+				continue
+			}
+			name = strings.TrimSpace(name)
+			if name != "" {
+				desired[device] = append(desired[device], name)
+			}
+		}
+	}
+
+	// Step 2: Get desired E/W NVConfig parameters.
+	if !optCtx.Options.AstraEnabled || !dpuutil.IsBlueField4(optCtx.LatestDPU) {
+		return desired, nil
+	}
+	ewConfig := optCtx.DPUFlavor.Spec.FirstEWNicConfiguration()
+	if ewConfig == nil || len(ewConfig.RawNvConfig) == 0 {
+		return desired, nil
+	}
+
+	desiredEWParameterNames := make([]string, 0, len(ewConfig.RawNvConfig))
+	for _, param := range ewConfig.RawNvConfig {
+		name := strings.TrimSpace(param.Name)
+		if name != "" {
+			desiredEWParameterNames = append(desiredEWParameterNames, name)
+		}
+	}
+	if len(desiredEWParameterNames) == 0 {
+		return desired, nil
+	}
+
+	for _, device := range devices {
+		if pciutil.EWPortFilter(&device) {
+			desired[device.PCIAddress] = append([]string(nil), desiredEWParameterNames...)
+		}
+	}
+	return desired, nil
+}
+
 // removeForeverPending filters parameters that mlxfwreset keeps reporting as
 // pending across boots and ignores the reset when every pending entry is stuck.
 // mlxfwreset reasons[] is not used for reboot method selection (command_required
@@ -468,6 +531,7 @@ func recordPending(optCtx *operations.Context, device string, entries pendingPar
 // TODO: Remove this workaround once the MFT tool is fixed.
 func removeForeverPending(
 	optCtx *operations.Context,
+	desired desiredNVConfigParameters,
 	device string,
 	mlxfwresetOutput mlxfwresetStatusJSON,
 ) (mlxfwresetStatusJSON, bool) {
@@ -503,6 +567,13 @@ func removeForeverPending(
 	effectivePending := []provisioningv1.PendingNVConfigEntry{}
 	removed := []string{}
 	for _, cur := range curPending {
+		if desired.contains(device, cur.Name) {
+			// Skip forever-pending filtering for parameters requested by DPUFlavor.
+			// Keep them pending so the desired NVConfig continues to drive reboot discovery.
+			effectivePending = append(effectivePending, cur)
+			continue
+		}
+
 		found := false
 		for _, lastP := range lastPending {
 			if lastP.Name == cur.Name && lastP.Current == cur.Current {
@@ -569,17 +640,22 @@ func (h *HandleReboot) getRebootMethodDeviceQuery(optCtx *operations.Context) (*
 	if dpuutil.IsBlueField4(optCtx.LatestDPU) && optCtx.Options.AstraEnabled {
 		scope = pciutil.PortScopeAll
 	}
-	devices, err := h.getDevices(optCtx, scope)
+	nicPorts, err := h.getNICPorts(optCtx, scope)
 	if err != nil {
 		return nil, err
 	}
 	if h.runBash == nil {
 		h.runBash = bash.Run
 	}
+	desired, err := getDesiredNVConfigParameters(optCtx, nicPorts)
+	if err != nil {
+		return nil, err
+	}
 
 	finalRebootMethod := provisioningv1.RebootMethodNoAction
-	rawParts := make([]string, 0, len(devices))
-	for _, device := range devices {
+	rawParts := make([]string, 0, len(nicPorts))
+	for _, port := range nicPorts {
+		device := port.PCIAddress
 		cmd := fmt.Sprintf("mlxfwreset -d %s status --json", device)
 		stdout, stderr, err := h.runBash(cmd)
 		if err != nil {
@@ -631,7 +707,7 @@ func (h *HandleReboot) getRebootMethodDeviceQuery(optCtx *operations.Context) (*
 		// workaround, removeForeverPending filters parameters that remained
 		// unchanged across boots. Provisioning continues when every pending entry
 		// is filtered; mlxfwreset reasons[] is not consulted (see removeForeverPending).
-		effective, shouldIgnore := removeForeverPending(optCtx, device, out)
+		effective, shouldIgnore := removeForeverPending(optCtx, desired, device, out)
 		if shouldIgnore {
 			klog.Infof("PCI device %s: ignoring repeated pending NVCONFIG parameters after boot change", device)
 			continue

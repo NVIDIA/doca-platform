@@ -32,6 +32,7 @@ import (
 	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
 
 	"github.com/Masterminds/semver/v3"
+	nicconfigurationv1alpha1 "github.com/Mellanox/nic-configuration-operator/api/v1alpha1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -901,6 +902,121 @@ var _ = Describe("Reboot", func() {
 						},
 					},
 				}))
+			})
+
+			It("identifies desired N/S NVConfig parameters", func() {
+				resolved := operations.ResolvedNVConfig{
+					PCIToParams: map[string]operations.NVConfigParams{
+						testPCIAddress0: {Params: "INVALID param_a=v1 PARAM_B=v2"},
+					},
+				}
+				optCtx := &operations.Context{}
+				optCtx.SetResolvedNVConfig(&resolved)
+
+				desired, err := getDesiredNVConfigParameters(optCtx, nil)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(desired.contains(testPCIAddress0, "PARAM_A")).To(BeTrue())
+				Expect(desired.contains(testPCIAddress0, "PARAM_B")).To(BeTrue())
+				Expect(desired.contains(testPCIAddress0, "INVALID")).To(BeFalse())
+				Expect(desired.contains(testPCIAddress1, "PARAM_A")).To(BeFalse())
+			})
+
+			It("identifies desired E/W NVConfig parameters", func() {
+				optCtx := &operations.Context{
+					Options: opts.Options{AstraEnabled: true},
+					LatestDPU: &provisioningv1.DPU{
+						Status: provisioningv1.DPUStatus{DPUType: provisioningv1.DPUTypeBlueField4},
+					},
+					DPUFlavor: provisioningv1.DPUFlavor{
+						Spec: provisioningv1.DPUFlavorSpec{
+							EWNicConfigurations: []provisioningv1.NicConfiguration{
+								{
+									RawNvConfig: []nicconfigurationv1alpha1.NvConfigParam{
+										{Name: "param_a"},
+										{Name: "PARAM_B"},
+									},
+								},
+							},
+						},
+					},
+				}
+				optCtx.SetResolvedNVConfig(&operations.ResolvedNVConfig{})
+				devices := []pciutil.NICPort{
+					{PCIAddress: testPCIAddress1, DeviceID: "0x1025"},
+				}
+
+				desired, err := getDesiredNVConfigParameters(optCtx, devices)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(desired.contains(testPCIAddress1, "PARAM_A")).To(BeTrue())
+				Expect(desired.contains(testPCIAddress1, "PARAM_B")).To(BeTrue())
+				Expect(desired.contains(testPCIAddress0, "PARAM_A")).To(BeFalse())
+			})
+
+			verifyDesiredFiltering := func(isEW bool) {
+				device := testPCIAddress0
+				mlxfwresetOutput := pendingParamList{
+					{Name: "PARAM_A", Current: "a", NextBoot: "next-a"},
+					{Name: "PARAM_B", Current: "b", NextBoot: "next-b"},
+				}
+				optCtx := &operations.Context{
+					CurrentBootID: "current-boot",
+					LatestDPU: &provisioningv1.DPU{
+						Status: provisioningv1.DPUStatus{
+							DPUType: provisioningv1.DPUTypeBlueField4,
+							AgentStatus: &provisioningv1.AgentStatus{
+								LastObservedPendingNVConfig: &provisioningv1.PendingNVConfigState{
+									BootID: "previous-boot",
+									Devices: []provisioningv1.PendingNVConfigDevice{
+										{
+											Device: device,
+											Entries: []provisioningv1.PendingNVConfigEntry{
+												{Name: "PARAM_A", Current: "a", NextBoot: "next-a"},
+												{Name: "PARAM_B", Current: "b", NextBoot: "next-b"},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				}
+				resolved := operations.ResolvedNVConfig{
+					PCIToParams: map[string]operations.NVConfigParams{
+						device: {Params: "PARAM_A=desired"},
+					},
+				}
+				devices := []pciutil.NICPort{
+					{PCIAddress: device, DeviceID: pciutil.BlueField4DeviceID},
+				}
+				if isEW {
+					optCtx.Options.AstraEnabled = true
+					optCtx.DPUFlavor.Spec.EWNicConfigurations = []provisioningv1.NicConfiguration{
+						{
+							RawNvConfig: []nicconfigurationv1alpha1.NvConfigParam{
+								{Name: "PARAM_A", Value: "desired"},
+							},
+						},
+					}
+					resolved = operations.ResolvedNVConfig{}
+					devices[0].DeviceID = "0x1025"
+				}
+				optCtx.SetResolvedNVConfig(&resolved)
+				desiredParameters, err := getDesiredNVConfigParameters(optCtx, devices)
+				Expect(err).NotTo(HaveOccurred())
+
+				effective, shouldIgnore := removeForeverPending(optCtx, desiredParameters, device, mlxfwresetStatusJSON{
+					PendingNvconfigParameters: mlxfwresetOutput,
+				})
+				Expect(shouldIgnore).To(BeFalse())
+				Expect(effective.PendingNvconfigParameters).To(Equal(pendingParamList{mlxfwresetOutput[0]}))
+			}
+
+			It("keeps desired N/S entries and filters only undesired stuck entries", func() {
+				verifyDesiredFiltering(false)
+			})
+
+			It("keeps desired E/W entries and filters only undesired stuck entries", func() {
+				verifyDesiredFiltering(true)
 			})
 
 			It("filters stuck pending NVConfig entries per entry before selecting reboot method", func() {
