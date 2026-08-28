@@ -613,7 +613,7 @@ var _ = Describe("SFConfig", func() {
 						},
 					},
 					// Enable agent DMA SF handling so the pre-existing DMA SF is reserved.
-					ScalableFunctions: &provisioningv1.ScalableFunctions{DMA: &provisioningv1.DMAScalableFunction{Enabled: ptr.To(true)}},
+					ScalableFunctions: []provisioningv1.ScalableFunction{{Count: ptr.To(int32(1)), Type: provisioningv1.ScalableFunctionTypeDMA}},
 				},
 			}
 
@@ -720,7 +720,7 @@ var _ = Describe("SFConfig", func() {
 			}
 		})
 
-		It("should fail visibly when scalableFunctions.dma.enabled is set but no eligible target ECPF exists", func() {
+		It("should fail visibly when scalableFunctions has a dma entry but no eligible target ECPF exists", func() {
 			By("mock the DPUFlavor with PF_TOTAL_SF=2 and the DMA SF enabled")
 			dpuFlavor := provisioningv1.DPUFlavor{
 				Spec: provisioningv1.DPUFlavorSpec{
@@ -729,7 +729,7 @@ var _ = Describe("SFConfig", func() {
 							Parameters: []string{"PF_TOTAL_SF=2"},
 						},
 					},
-					ScalableFunctions: &provisioningv1.ScalableFunctions{DMA: &provisioningv1.DMAScalableFunction{Enabled: ptr.To(true)}},
+					ScalableFunctions: []provisioningv1.ScalableFunction{{Count: ptr.To(int32(1)), Type: provisioningv1.ScalableFunctionTypeDMA}},
 				},
 			}
 
@@ -761,8 +761,8 @@ var _ = Describe("SFConfig", func() {
 			Expect(commands).To(BeEmpty())
 		})
 
-		It("should recognize the SNAP DMA SF by the scalableFunctions.dma.sfNum value", func() {
-			By("enable the DMA SF and set scalableFunctions.dma.sfNum to 9000 in the flavor")
+		It("should recognize the SNAP DMA SF by the scalableFunctions dma entry's sfNumStart value", func() {
+			By("enable the DMA SF and set scalableFunctions dma entry's sfNumStart to 9000 in the flavor")
 			dpuFlavor := provisioningv1.DPUFlavor{
 				Spec: provisioningv1.DPUFlavorSpec{
 					NVConfig: []provisioningv1.NVConfig{
@@ -770,7 +770,7 @@ var _ = Describe("SFConfig", func() {
 							Parameters: []string{"PF_TOTAL_SF=2"},
 						},
 					},
-					ScalableFunctions: &provisioningv1.ScalableFunctions{DMA: &provisioningv1.DMAScalableFunction{Enabled: ptr.To(true), SFNum: ptr.To(int32(9000))}},
+					ScalableFunctions: []provisioningv1.ScalableFunction{{Count: ptr.To(int32(1)), Type: provisioningv1.ScalableFunctionTypeDMA, SFNumStart: ptr.To(int32(9000))}},
 				},
 			}
 
@@ -856,7 +856,7 @@ var _ = Describe("SFConfig", func() {
 						{Parameters: []string{"PF_TOTAL_SF=3"}},
 					},
 					// Configure the agent to create the DMA SF.
-					ScalableFunctions: &provisioningv1.ScalableFunctions{DMA: &provisioningv1.DMAScalableFunction{Enabled: ptr.To(true)}},
+					ScalableFunctions: []provisioningv1.ScalableFunction{{Count: ptr.To(int32(1)), Type: provisioningv1.ScalableFunctionTypeDMA}},
 				},
 			}
 
@@ -958,7 +958,7 @@ var _ = Describe("SFConfig", func() {
 						{Parameters: []string{"PF_TOTAL_SF=3"}},
 					},
 					// Configure the agent to create the DMA SF.
-					ScalableFunctions: &provisioningv1.ScalableFunctions{DMA: &provisioningv1.DMAScalableFunction{Enabled: ptr.To(true)}},
+					ScalableFunctions: []provisioningv1.ScalableFunction{{Count: ptr.To(int32(1)), Type: provisioningv1.ScalableFunctionTypeDMA}},
 				},
 			}
 
@@ -1010,7 +1010,7 @@ var _ = Describe("SFConfig", func() {
 			Expect(devlinkAndIP).To(Equal([]string{"ip link set en3f1pf0sf8000 up"}))
 		})
 
-		It("should NOT reserve a slot on an ibdev-less ECPF when scalableFunctions.dma.enabled is false", func() {
+		It("should NOT reserve a slot on an ibdev-less ECPF when scalableFunctions has no dma entry", func() {
 			By("mock a sysfs where 0001:03:00.0 is ibdev-less but the agent DMA SF is not enabled")
 			for bdf, rdmaDev := range map[string]string{
 				"0000:03:00.0": "mlx5_0",
@@ -1023,14 +1023,14 @@ var _ = Describe("SFConfig", func() {
 					Expect(os.MkdirAll(filepath.Join(devDir, "infiniband", rdmaDev), 0755)).To(Succeed())
 				}
 			}
-			By("the flavor sets scalableFunctions.dma.enabled=false, so the agent does not create the DMA SF")
+			By("the flavor has no scalableFunctions dma entry, so the agent does not create the DMA SF")
 
 			dpuFlavor := provisioningv1.DPUFlavor{
 				Spec: provisioningv1.DPUFlavorSpec{
 					NVConfig: []provisioningv1.NVConfig{
 						{Parameters: []string{"PF_TOTAL_SF=1"}},
 					},
-					ScalableFunctions: &provisioningv1.ScalableFunctions{DMA: &provisioningv1.DMAScalableFunction{Enabled: ptr.To(false)}},
+					ScalableFunctions: nil,
 				},
 			}
 
@@ -1085,8 +1085,8 @@ var _ = Describe("SFConfig", func() {
 			))
 		})
 
-		It("should NOT create the DMA SF on a non-BlueField-4 DPU even when scalableFunctions.dma.enabled is set", func() {
-			By("scalableFunctions.dma.enabled is set in the flavor; only the BF4 gate should stop creation")
+		It("should NOT create the DMA SF on a non-BlueField-4 DPU even when scalableFunctions has a dma entry", func() {
+			By("scalableFunctions has a dma entry in the flavor; only the BF4 gate should stop creation")
 			// The target device p0 has no infiniband dir, so it is ibdev-less and
 			// would qualify to host the DMA SF on BF4 — only the non-BF4 gate
 			// prevents it here, making this a regression guard for that gate.
@@ -1095,7 +1095,7 @@ var _ = Describe("SFConfig", func() {
 					NVConfig: []provisioningv1.NVConfig{
 						{Parameters: []string{"PF_TOTAL_SF=2"}},
 					},
-					ScalableFunctions: &provisioningv1.ScalableFunctions{DMA: &provisioningv1.DMAScalableFunction{Enabled: ptr.To(true)}},
+					ScalableFunctions: []provisioningv1.ScalableFunction{{Count: ptr.To(int32(1)), Type: provisioningv1.ScalableFunctionTypeDMA}},
 				},
 			}
 
