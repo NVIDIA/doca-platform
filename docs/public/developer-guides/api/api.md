@@ -2709,7 +2709,7 @@ _Appears in:_
 | `hostNetworkInterfaceConfigs` _[NetworkInterfaceConfig](#networkinterfaceconfig) array_ | HostNetworkInterfaceConfigs contains the configuration for the host-side network interfaces. |  | Optional: \{\} <br /> |
 | `ewNicConfigurations` _[NicConfiguration](#nicconfiguration) array_ | EWNicConfigurations lists per-NIC configuration for the E/W NICs.<br />Only the first entry is applied in this release; additional entries are ignored until a future<br />release adds multi-NIC support. The field is modeled as a list now so the API shape does not<br />need to change when multiple entries are supported. |  | MaxItems: 16 <br />Optional: \{\} <br /> |
 | `scalableFunctions` _[ScalableFunctions](#scalablefunctions)_ | ScalableFunctions configures Scalable Functions (SFs) created on the DPU. |  | Optional: \{\} <br /> |
-| `hostOSInit` _[HostOSInit](#hostosinit)_ | hostOSInit configures when the DPU agent releases host OS init after DELAY_HOST_OS_INIT=0x3<br />(ENABLE_USER) is set in nvconfig. Omitted releaseAfter defaults to dpuServiceCriticalPodsReady<br />at agent runtime. Has no effect unless nvconfig requests that hold. |  | Optional: \{\} <br /> |
+| `serviceReadiness` _[ServiceReadiness](#servicereadiness)_ | serviceReadiness configures the Service Readiness phase. |  | Optional: \{\} <br /> |
 
 
 #### DPUFlavorTemplate
@@ -2977,7 +2977,7 @@ Only one of the following state may be specified.
 Default is Initializing.
 
 _Validation:_
-- Enum: [Initializing Node Effect Pending Update Firmware Config FW Parameters Prepare BFB OS Installing DPU Config DPU Cluster Config Host Network Configuration Host OS Init Release Ready Error Deleting Rebooting Perform ARM Force Restart Initialize Interface Node Effect Removal Checking Host Reboot Required]
+- Enum: [Initializing Node Effect Pending Update Firmware Config FW Parameters Prepare BFB OS Installing DPU Config DPU Cluster Config Host Network Configuration Service Readiness Ready Error Deleting Rebooting Perform ARM Force Restart Initialize Interface Node Effect Removal Checking Host Reboot Required]
 
 _Appears in:_
 - [DPUSetStatus](#dpusetstatus)
@@ -2996,7 +2996,7 @@ _Appears in:_
 | `OS Installing` | DPUOSInstalling means the controller will provision the DPU through the DMS gNOI interface.<br /> |
 | `DPU Cluster Config` | DPUClusterConfig  means the node configuration and Kubernetes Node join procedure are in progress .<br /> |
 | `Host Network Configuration` | DPUHostNetworkConfiguration means the host network configuration is running.<br /> |
-| `Host OS Init Release` | DPUHostOSInitRelease waits for the DPU agent to release host OS init when configured.<br /> |
+| `Service Readiness` | DPUServiceReadiness waits for DPU services to become ready before the DPU is put into service.<br />When the flavor configures a gate the phase blocks on it; it also waits for the DPU agent to<br />release a host OS init hold when one was requested.<br /> |
 | `Node Effect Removal` | DPUNodeEffectRemoval means the controller will remove the node effect from the DPU.<br /> |
 | `Ready` | DPUReady means the DPU is ready to use.<br /> |
 | `Error` | DPUError means error occurred.<br /> |
@@ -3155,8 +3155,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `phase` _[DPUPhase](#dpuphase)_ | The current state of DPU. | Initializing | Enum: [Initializing Node Effect Pending Update Firmware Config FW Parameters Prepare BFB OS Installing DPU Config DPU Cluster Config Host Network Configuration Host OS Init Release Ready Error Deleting Rebooting Perform ARM Force Restart Initialize Interface Node Effect Removal Checking Host Reboot Required] <br />Required: \{\} <br /> |
-| `previousPhase` _[DPUPhase](#dpuphase)_ | PreviousPhase is the last non-empty Phase before the current Phase, set by the controller<br />when Phase transitions. It may be unset during early initialization (empty Phase) or until<br />the first transition from a non-empty Phase. Internal controller tracking only. |  | Enum: [Initializing Node Effect Pending Update Firmware Config FW Parameters Prepare BFB OS Installing DPU Config DPU Cluster Config Host Network Configuration Host OS Init Release Ready Error Deleting Rebooting Perform ARM Force Restart Initialize Interface Node Effect Removal Checking Host Reboot Required] <br />Optional: \{\} <br /> |
+| `phase` _[DPUPhase](#dpuphase)_ | The current state of DPU. | Initializing | Enum: [Initializing Node Effect Pending Update Firmware Config FW Parameters Prepare BFB OS Installing DPU Config DPU Cluster Config Host Network Configuration Service Readiness Ready Error Deleting Rebooting Perform ARM Force Restart Initialize Interface Node Effect Removal Checking Host Reboot Required] <br />Required: \{\} <br /> |
+| `previousPhase` _[DPUPhase](#dpuphase)_ | PreviousPhase is the last non-empty Phase before the current Phase, set by the controller<br />when Phase transitions. It may be unset during early initialization (empty Phase) or until<br />the first transition from a non-empty Phase. Internal controller tracking only. |  | Enum: [Initializing Node Effect Pending Update Firmware Config FW Parameters Prepare BFB OS Installing DPU Config DPU Cluster Config Host Network Configuration Service Readiness Ready Error Deleting Rebooting Perform ARM Force Restart Initialize Interface Node Effect Removal Checking Host Reboot Required] <br />Optional: \{\} <br /> |
 | `outdated` _[DPUOutdated](#dpuoutdated)_ | Outdated, when present, indicates the DPU has drifted from its owning<br />DPUSet's DPUTemplate and needs to be reprovisioned. Set by the DPUSet<br />controller; absent when the DPU matches the template. |  | Optional: \{\} <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions represents the provisioning lifecycle conditions. |  | Optional: \{\} <br /> |
 | `operationalConditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | OperationalConditions represents aggregated operational readiness conditions.<br />These conditions reflect the runtime health and readiness of DPU services and node health,<br />separate from the provisioning lifecycle represented by Conditions. |  | Optional: \{\} <br /> |
@@ -3361,53 +3361,6 @@ _Appears in:_
 
 
 
-#### HostOSInit
-
-
-
-HostOSInit configures the readiness gate for host OS init release.
-
-
-
-_Appears in:_
-- [DPUFlavorSpec](#dpuflavorspec)
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `releaseAfter` _[HostOSInitReleaseAfter](#hostosinitreleaseafter)_ | releaseAfter selects which operational readiness gate must be True before the agent<br />calls mlxreg to release the host. When omitted, dpuServiceCriticalPodsReady is used. |  | Optional: \{\} <br /> |
-
-
-#### HostOSInitGate
-
-_Underlying type:_ _[struct{}](#struct{})_
-
-HostOSInitGate marks a release gate branch in a one-of union.
-
-
-
-_Appears in:_
-- [HostOSInitReleaseAfter](#hostosinitreleaseafter)
-
-
-
-#### HostOSInitReleaseAfter
-
-
-
-HostOSInitReleaseAfter is a one-of selector for the host OS init release gate.
-
-
-
-_Appears in:_
-- [HostOSInit](#hostosinit)
-- [HostOSInitSucceeded](#hostosinitsucceeded)
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `operationalReady` _[HostOSInitGate](#hostosinitgate)_ | operationalReady waits for DPU.status.operationalConditions[OperationalReady] == True. |  | Optional: \{\} <br /> |
-| `dpuServiceCriticalPodsReady` _[HostOSInitGate](#hostosinitgate)_ | dpuServiceCriticalPodsReady waits for DPU.status.operationalConditions[DPUServiceCriticalPodsReady] == True. |  | Optional: \{\} <br /> |
-
-
 #### HostOSInitSkipped
 
 
@@ -3455,7 +3408,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `releaseAfter` _[HostOSInitReleaseAfter](#hostosinitreleaseafter)_ | releaseAfter echoes the effective gate used for release. |  | Optional: \{\} <br /> |
+| `gate` _[ServiceReadinessGate](#servicereadinessgate)_ | gate echoes the effective gate used for release. |  | Enum: [DPUServiceCriticalPodsReady OperationalReady] <br />Optional: \{\} <br /> |
 
 
 #### IPRange
@@ -3924,6 +3877,41 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `enabled` _boolean_ | Enabled indicates whether UEFI Secure Boot is currently enabled on the DPU. |  | Optional: \{\} <br /> |
+
+
+#### ServiceReadiness
+
+
+
+ServiceReadiness configures the Service Readiness provisioning phase.
+
+
+
+_Appears in:_
+- [DPUFlavorSpec](#dpuflavorspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `gate` _[ServiceReadinessGate](#servicereadinessgate)_ | gate is the DPU.status.operationalConditions entry that must be True before the DPU leaves<br />the Service Readiness phase. When unset the phase does not wait, and a host hold requested<br />via DELAY_HOST_OS_INIT is released on DPUServiceCriticalPodsReady. |  | Enum: [DPUServiceCriticalPodsReady OperationalReady] <br />Optional: \{\} <br /> |
+
+
+#### ServiceReadinessGate
+
+_Underlying type:_ _string_
+
+ServiceReadinessGate names a DPU operational condition. Values match DPUOperationalConditionType.
+
+_Validation:_
+- Enum: [DPUServiceCriticalPodsReady OperationalReady]
+
+_Appears in:_
+- [HostOSInitSucceeded](#hostosinitsucceeded)
+- [ServiceReadiness](#servicereadiness)
+
+| Field | Description |
+| --- | --- |
+| `DPUServiceCriticalPodsReady` | GateDPUServiceCriticalPodsReady waits for<br />DPU.status.operationalConditions[DPUServiceCriticalPodsReady] == True.<br /> |
+| `OperationalReady` | GateOperationalReady waits for DPU.status.operationalConditions[OperationalReady] == True.<br /> |
 
 
 #### SpiffeStatus

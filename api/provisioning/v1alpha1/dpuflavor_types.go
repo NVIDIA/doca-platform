@@ -107,11 +107,9 @@ type DPUFlavorSpec struct {
 	// +optional
 	ScalableFunctions *ScalableFunctions `json:"scalableFunctions,omitempty"`
 
-	// hostOSInit configures when the DPU agent releases host OS init after DELAY_HOST_OS_INIT=0x3
-	// (ENABLE_USER) is set in nvconfig. Omitted releaseAfter defaults to dpuServiceCriticalPodsReady
-	// at agent runtime. Has no effect unless nvconfig requests that hold.
+	// serviceReadiness configures the Service Readiness phase.
 	// +optional
-	HostOSInit *HostOSInit `json:"hostOSInit,omitempty"`
+	ServiceReadiness *ServiceReadiness `json:"serviceReadiness,omitempty"`
 }
 
 // ScalableFunctions groups the agent-managed Scalable Function configuration.
@@ -146,27 +144,47 @@ type DMAScalableFunction struct {
 	MACAddress *string `json:"macAddress,omitempty"`
 }
 
-// HostOSInit configures the readiness gate for host OS init release.
-type HostOSInit struct {
-	// releaseAfter selects which operational readiness gate must be True before the agent
-	// calls mlxreg to release the host. When omitted, dpuServiceCriticalPodsReady is used.
+// ServiceReadiness configures the Service Readiness provisioning phase.
+type ServiceReadiness struct {
+	// gate is the DPU.status.operationalConditions entry that must be True before the DPU leaves
+	// the Service Readiness phase. When unset the phase does not wait, and a host hold requested
+	// via DELAY_HOST_OS_INIT is released on DPUServiceCriticalPodsReady.
 	// +optional
-	ReleaseAfter *HostOSInitReleaseAfter `json:"releaseAfter,omitempty"`
+	Gate ServiceReadinessGate `json:"gate,omitempty"`
 }
 
-// HostOSInitReleaseAfter is a one-of selector for the host OS init release gate.
-// +kubebuilder:validation:XValidation:rule="(has(self.operationalReady) ? 1 : 0) + (has(self.dpuServiceCriticalPodsReady) ? 1 : 0) == 1",message="exactly one of operationalReady or dpuServiceCriticalPodsReady must be set"
-type HostOSInitReleaseAfter struct {
-	// operationalReady waits for DPU.status.operationalConditions[OperationalReady] == True.
-	// +optional
-	OperationalReady *HostOSInitGate `json:"operationalReady,omitempty"`
-	// dpuServiceCriticalPodsReady waits for DPU.status.operationalConditions[DPUServiceCriticalPodsReady] == True.
-	// +optional
-	DPUServiceCriticalPodsReady *HostOSInitGate `json:"dpuServiceCriticalPodsReady,omitempty"`
+// ServiceReadinessGate names a DPU operational condition. Values match DPUOperationalConditionType.
+// +kubebuilder:validation:Enum=DPUServiceCriticalPodsReady;OperationalReady
+type ServiceReadinessGate string
+
+const (
+	// GateDPUServiceCriticalPodsReady waits for
+	// DPU.status.operationalConditions[DPUServiceCriticalPodsReady] == True.
+	GateDPUServiceCriticalPodsReady ServiceReadinessGate = "DPUServiceCriticalPodsReady"
+	// GateOperationalReady waits for DPU.status.operationalConditions[OperationalReady] == True.
+	GateOperationalReady ServiceReadinessGate = "OperationalReady"
+)
+
+// ConfiguredGate returns the gate set on the flavor, or "" when it does not set one. The empty
+// string is outside the enum, so it is unambiguously "unset". Callers decide what unset means for
+// them: the Service Readiness phase does not wait, while ReleaseGate substitutes a default.
+func (f *DPUFlavor) ConfiguredGate() ServiceReadinessGate {
+	if f == nil || f.Spec.ServiceReadiness == nil {
+		return ""
+	}
+	return f.Spec.ServiceReadiness.Gate
 }
 
-// HostOSInitGate marks a release gate branch in a one-of union.
-type HostOSInitGate struct{}
+// ReleaseGate is the condition the DPU agent waits for before releasing a host OS init hold.
+// It falls back to DPUServiceCriticalPodsReady when gate is unset, because a hold with no gate
+// would release immediately and defeat the purpose of holding the host at all. This fallback is
+// specific to releasing a hold; do not reuse it to decide whether a phase should block.
+func (f *DPUFlavor) ReleaseGate() ServiceReadinessGate {
+	if gate := f.ConfiguredGate(); gate != "" {
+		return gate
+	}
+	return GateDPUServiceCriticalPodsReady
+}
 
 // FirstEWNicConfiguration returns the E/W NIC configuration used by provisioning in this release.
 // Only index 0 of Spec.EWNicConfigurations is honored; further entries are reserved for future multi-NIC support.

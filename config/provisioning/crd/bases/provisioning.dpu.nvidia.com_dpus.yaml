@@ -414,25 +414,12 @@ spec:
                         description: succeeded indicates host OS init was released
                           or was already cleared.
                         properties:
-                          releaseAfter:
-                            description: releaseAfter echoes the effective gate used
-                              for release.
-                            properties:
-                              dpuServiceCriticalPodsReady:
-                                description: dpuServiceCriticalPodsReady waits for
-                                  DPU.status.operationalConditions[DPUServiceCriticalPodsReady]
-                                  == True.
-                                type: object
-                              operationalReady:
-                                description: operationalReady waits for DPU.status.operationalConditions[OperationalReady]
-                                  == True.
-                                type: object
-                            type: object
-                            x-kubernetes-validations:
-                            - message: exactly one of operationalReady or dpuServiceCriticalPodsReady
-                                must be set
-                              rule: '(has(self.operationalReady) ? 1 : 0) + (has(self.dpuServiceCriticalPodsReady)
-                                ? 1 : 0) == 1'
+                          gate:
+                            description: gate echoes the effective gate used for release.
+                            enum:
+                            - DPUServiceCriticalPodsReady
+                            - OperationalReady
+                            type: string
                         type: object
                     type: object
                     x-kubernetes-validations:
@@ -866,7 +853,7 @@ spec:
                 - DPU Config
                 - DPU Cluster Config
                 - Host Network Configuration
-                - Host OS Init Release
+                - Service Readiness
                 - Ready
                 - Error
                 - Deleting
@@ -896,7 +883,7 @@ spec:
                 - DPU Config
                 - DPU Cluster Config
                 - Host Network Configuration
-                - Host OS Init Release
+                - Service Readiness
                 - Ready
                 - Error
                 - Deleting

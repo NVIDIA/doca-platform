@@ -47,6 +47,9 @@ Node Effect                                                  │
     │                                   ▼            ▼
     │                             DPU Cluster Config
     │                                        │
+    │                                        ▼
+    │                              Service Readiness
+    │                                        │
     ├── (post-provision node effect) ────────┤
     │                                        │
     │                                        ▼
