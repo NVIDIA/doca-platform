@@ -298,17 +298,15 @@ var _ = Describe("DPU: pending", func() {
 		}
 
 		// flavorWithoutHold carries both ways a flavor can mention the feature without asking for
-		// the hold: a non-user-mode DELAY_HOST_OS_INIT value, and a release gate, which is
-		// documented as inert unless nvconfig requests the hold.
+		// the hold: a non-user-mode DELAY_HOST_OS_INIT value, and a service readiness gate, which
+		// does not by itself request a host hold.
 		flavorWithoutHold := func(name string) *provisioningv1.DPUFlavor {
 			flavor := dpuFlavorObj(name)
 			flavor.Spec.NVConfig = []provisioningv1.NVConfig{
 				{Device: ptr.To("p0"), Parameters: []string{"DELAY_HOST_OS_INIT=0x0"}},
 			}
-			flavor.Spec.HostOSInit = &provisioningv1.HostOSInit{
-				ReleaseAfter: &provisioningv1.HostOSInitReleaseAfter{
-					OperationalReady: &provisioningv1.HostOSInitGate{},
-				},
+			flavor.Spec.ServiceReadiness = &provisioningv1.ServiceReadiness{
+				Gate: provisioningv1.GateOperationalReady,
 			}
 			return flavor
 		}

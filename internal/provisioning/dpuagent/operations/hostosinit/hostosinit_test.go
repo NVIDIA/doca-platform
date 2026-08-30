@@ -166,8 +166,7 @@ var _ = Describe("ReleaseHostOSInit", func() {
 		op := &ReleaseHostOSInit{runBash: runBash}
 		Expect(op.Execute(context.Background(), optCtx)).To(Succeed())
 		Expect(optCtx.Status.HostOSInit.Succeeded).NotTo(BeNil())
-		Expect(optCtx.Status.HostOSInit.Succeeded.ReleaseAfter).NotTo(BeNil())
-		Expect(optCtx.Status.HostOSInit.Succeeded.ReleaseAfter.DPUServiceCriticalPodsReady).NotTo(BeNil())
+		Expect(optCtx.Status.HostOSInit.Succeeded.Gate).To(Equal(provisioningv1.GateDPUServiceCriticalPodsReady))
 	})
 
 	It("preflights and releases every wildcard target", func() {
