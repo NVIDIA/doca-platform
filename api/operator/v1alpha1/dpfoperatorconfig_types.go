@@ -17,7 +17,6 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"github.com/nvidia/doca-platform/internal/release"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -391,6 +390,11 @@ type DPFOperatorConfigStatus struct {
 	// Version is the version of the DPF Operator that is currently deployed.
 	// +optional
 	Version *string `json:"version,omitempty"`
+
+	// TargetVersion is the version of the DPF Operator that is being deployed. It differs from
+	// Version while an upgrade is in progress.
+	// +optional
+	TargetVersion *string `json:"targetVersion,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -430,8 +434,14 @@ func (c *DPFOperatorConfig) GetConditions() []metav1.Condition {
 	return c.Status.Conditions
 }
 
+// UpgradeInProgress reports whether the deployed version differs from the version being deployed.
+// It compares the versions in the status and not the version of the binary reading the config:
+// components deployed by the DPF Operator still run the previous release during an upgrade.
 func (c *DPFOperatorConfig) UpgradeInProgress() bool {
-	return c.Status.Version != nil && *c.Status.Version != release.DPFVersion()
+	if c.Status.Version == nil || c.Status.TargetVersion == nil {
+		return false
+	}
+	return *c.Status.TargetVersion != *c.Status.Version
 }
 
 func (c *DPFOperatorConfig) IsNewConfig() bool {

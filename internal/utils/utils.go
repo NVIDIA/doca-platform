@@ -98,6 +98,10 @@ func LabelSelectorAsSelector(labelSelector *metav1.LabelSelector) (labels.Select
 	return metav1.LabelSelectorAsSelector(labelSelector)
 }
 
+// ErrDPFOperatorConfigNotFound is returned by GetDPFOperatorConfig when no DPFOperatorConfig
+// exists. Callers can tell it apart from a failed read, which must not be treated as absence.
+var ErrDPFOperatorConfigNotFound = errors.New("no DPFOperatorConfig exists")
+
 // GetDPFOperatorConfig returns the DPFOperatorConfig object. It returns an error if there is more
 // than one DPFOperatorConfig object or if there is no DPFOperatorConfig object.
 func GetDPFOperatorConfig(ctx context.Context, c client.Client) (*operatorv1.DPFOperatorConfig, error) {
@@ -105,7 +109,10 @@ func GetDPFOperatorConfig(ctx context.Context, c client.Client) (*operatorv1.DPF
 	if err := c.List(ctx, &dpfOperatorConfigList); err != nil {
 		return nil, fmt.Errorf("listing DPFOperatorConfigs: %w", err)
 	}
-	if len(dpfOperatorConfigList.Items) == 0 || len(dpfOperatorConfigList.Items) > 1 {
+	if len(dpfOperatorConfigList.Items) == 0 {
+		return nil, ErrDPFOperatorConfigNotFound
+	}
+	if len(dpfOperatorConfigList.Items) > 1 {
 		return nil, fmt.Errorf("exactly one DPFOperatorConfig must exist")
 	}
 	return &dpfOperatorConfigList.Items[0], nil

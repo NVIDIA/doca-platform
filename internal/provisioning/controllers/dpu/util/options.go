@@ -89,6 +89,7 @@ type ControllerContext struct {
 	DPUArtifactGenerator DPUArtifactGenerator
 	HostUptimeChecker    reboot.HostUptimeChecker
 	DPUInProvisioningMap *DPUInProvisioningMap
+	DPFOperatorConfig    *operatorv1.DPFOperatorConfig
 }
 
 // ZeroTrustProvisioningFlow reports whether the cluster policy is zero-trust for provisioning

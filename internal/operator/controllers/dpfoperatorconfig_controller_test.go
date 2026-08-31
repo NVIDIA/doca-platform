@@ -1198,8 +1198,9 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 				},
 			},
 			Status: operatorv1.DPFOperatorConfigStatus{
-				Version:            &currentVersion, // Same version as current
-				ObservedGeneration: 1,               // Not a new config
+				Version:            &currentVersion, // Same version as the target version
+				TargetVersion:      &currentVersion,
+				ObservedGeneration: 1, // Not a new config
 			},
 		}
 
@@ -1223,6 +1224,7 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 			},
 			Status: operatorv1.DPFOperatorConfigStatus{
 				Version:            &invalidVersion, // Invalid version to trigger upgrade validation
+				TargetVersion:      ptr.To(release.DPFVersion()),
 				ObservedGeneration: 1,
 			},
 		}
@@ -1247,7 +1249,8 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 				},
 			},
 			Status: operatorv1.DPFOperatorConfigStatus{
-				Version:            ptr.To("v25.7.10"), // Same as current, so no upgrade validation
+				Version:            ptr.To("v25.7.10"),
+				TargetVersion:      ptr.To(release.DPFVersion()),
 				ObservedGeneration: 2,
 			},
 		}
@@ -1273,11 +1276,12 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 			},
 			Status: operatorv1.DPFOperatorConfigStatus{
 				Version:            ptr.To(release.LastReleasedDPFGAVersion),
+				TargetVersion:      ptr.To(release.DPFVersion()),
 				ObservedGeneration: 1,
 			},
 		}
 
-		// Create multiple DPUs that are not in a terminal state so DPU state validation reports both.
+		// Create multiple DPUs that already started provisioning so DPU state validation reports both.
 		dpu1 := &provisioningv1.DPU{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "dpu-error-1",
@@ -1317,7 +1321,7 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 
 		// Update the status separately using the status subresource
 		dpu1.Status = provisioningv1.DPUStatus{
-			Phase:      provisioningv1.DPUInitializing,
+			Phase:      provisioningv1.DPUNodeEffect,
 			DPFVersion: ptr.To("invalid-version-1"),
 			Conditions: []metav1.Condition{
 				{
@@ -1332,7 +1336,7 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 		g.Expect(testClient.Status().Update(ctx, dpu1)).To(Succeed())
 
 		dpu2.Status = provisioningv1.DPUStatus{
-			Phase:      provisioningv1.DPUInitializing,
+			Phase:      provisioningv1.DPUOSInstalling,
 			DPFVersion: ptr.To("invalid-version-2"),
 			Conditions: []metav1.Condition{
 				{
@@ -1362,6 +1366,82 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 		// Clean up the DPUs
 		g.Expect(testClient.Delete(ctx, dpu1)).To(Succeed())
 		g.Expect(testClient.Delete(ctx, dpu2)).To(Succeed())
+	})
+
+	t.Run("only DPUs reported as held in Pending do not hold the upgrade", func(t *testing.T) {
+		config := &operatorv1.DPFOperatorConfig{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "config-dpus-before-provisioning",
+				Namespace: testNS.Name,
+			},
+			Status: operatorv1.DPFOperatorConfigStatus{
+				Version:            ptr.To(release.LastReleasedDPFGAVersion),
+				TargetVersion:      ptr.To(release.DPFVersion()),
+				ObservedGeneration: 1,
+			},
+		}
+
+		newDPU := func(name string, status provisioningv1.DPUStatus) *provisioningv1.DPU {
+			dpu := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      name,
+					Namespace: testNS.Name,
+				},
+				Spec: provisioningv1.DPUSpec{
+					SerialNumber:  "MT25066004C7",
+					DPUNodeName:   fmt.Sprintf("test-node-%s", name),
+					DPUDeviceName: fmt.Sprintf("test-device-%s", name),
+					BFB:           ptr.To("test-bfb"),
+					DPUFlavor:     "test-flavor",
+					NodeEffect: provisioningv1.NodeEffect{
+						Action: provisioningv1.Action{NoEffect: ptr.To(true)},
+					},
+				},
+			}
+			g.Expect(testClient.Create(ctx, dpu)).To(Succeed())
+			dpu.Status = status
+			g.Expect(testClient.Status().Update(ctx, dpu)).To(Succeed())
+			return dpu
+		}
+
+		// Held by the DPU controller, so it can not start provisioning during the upgrade.
+		held := newDPU("dpu-held-in-pending", provisioningv1.DPUStatus{
+			Phase: provisioningv1.DPUPending,
+			Conditions: []metav1.Condition{
+				{
+					Type:               provisioningv1.DPUCondPending.String(),
+					Status:             metav1.ConditionFalse,
+					Reason:             util.ReasonDPFOperatorUpgradeInProgress,
+					Message:            "DPF Operator upgrade is in progress",
+					LastTransitionTime: metav1.NewTime(time.Now()),
+				},
+			},
+		})
+		// Pending for another reason and Initializing: both can start provisioning at any time.
+		pending := newDPU("dpu-pending-not-held", provisioningv1.DPUStatus{
+			Phase: provisioningv1.DPUPending,
+			Conditions: []metav1.Condition{
+				{
+					Type:               provisioningv1.DPUCondPending.String(),
+					Status:             metav1.ConditionFalse,
+					Reason:             "BFBIsNotReady",
+					Message:            "BFB is not ready",
+					LastTransitionTime: metav1.NewTime(time.Now()),
+				},
+			},
+		})
+		initializing := newDPU("dpu-initializing", provisioningv1.DPUStatus{Phase: provisioningv1.DPUInitializing})
+
+		r := newReconciler()
+		err := r.validateDPUState(ctx, config, []*dpucluster.Config{})
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(err.Error()).NotTo(ContainSubstring(held.Name))
+		g.Expect(err.Error()).To(ContainSubstring(pending.Name))
+		g.Expect(err.Error()).To(ContainSubstring(initializing.Name))
+
+		for _, dpu := range []*provisioningv1.DPU{held, pending, initializing} {
+			g.Expect(testClient.Delete(ctx, dpu)).To(Succeed())
+		}
 	})
 
 	t.Run("simulate simple update and verify it passes", func(t *testing.T) {
@@ -1431,32 +1511,21 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 			g.Expect(upgradeCondition.Status).To(Equal(metav1.ConditionTrue))
 		}).WithTimeout(10 * time.Second).WithPolling(time.Second).Should(Succeed())
 
+		// Start an upgrade while the DPUService of a system component is not ready. Readiness of the
+		// system components does not block the upgrade, so the validations keep passing.
 		patcher = patch.NewSerialPatcher(config, testClient)
 		config.Status.Version = ptr.To(release.LastReleasedDPFGAVersion)
 		g.Expect(patcher.Patch(ctx, config, patch.WithFieldOwner("test"))).To(Succeed())
 
-		g.Eventually(func(g Gomega) {
-			g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(config), config)).To(Succeed())
-			upgradeCondition := conditions.Get(config, operatorv1.PreUpgradeValidationReadyCondition)
-			g.Expect(upgradeCondition).ToNot(BeNil())
-			g.Expect(upgradeCondition.Status).To(Equal(metav1.ConditionFalse))
-			g.Expect(upgradeCondition.Reason).To(Equal(string(conditions.ReasonError)))
-			g.Expect(upgradeCondition.Message).To(ContainSubstring("Validation must pass for DPF upgrade to continue"))
-			g.Expect(upgradeCondition.Message).To(ContainSubstring(fmt.Sprintf("DPUService %s/%s is not ready", dpuService.GetNamespace(), dpuService.GetName())))
-		}).WithTimeout(5 * time.Second).WithPolling(time.Second).Should(Succeed())
-
-		// Update the DPU service to ready status
-		g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuService), dpuService)).To(Succeed())
-		patcher = patch.NewSerialPatcher(dpuService, testClient)
-		conditions.AddTrue(dpuService, conditions.TypeReady)
-		g.Expect(patcher.Patch(ctx, dpuService, patch.WithFieldOwner("test"), patch.WithStatusObservedGeneration{})).To(Succeed())
-
-		g.Eventually(func(g Gomega) {
+		g.Consistently(func(g Gomega) {
+			g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuService), dpuService)).To(Succeed())
+			g.Expect(conditions.Get(dpuService, conditions.TypeReady)).To(Or(BeNil(),
+				HaveField("Status", metav1.ConditionFalse)))
 			g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(config), config)).To(Succeed())
 			upgradeCondition := conditions.Get(config, operatorv1.PreUpgradeValidationReadyCondition)
 			g.Expect(upgradeCondition).ToNot(BeNil())
 			g.Expect(upgradeCondition.Status).To(Equal(metav1.ConditionTrue))
-		}).WithTimeout(10 * time.Second).WithPolling(time.Second).Should(Succeed())
+		}).WithTimeout(5 * time.Second).WithPolling(time.Second).Should(Succeed())
 
 		g.Expect(testutils.CleanupAndWait(ctx, testClient, config)).To(Succeed())
 	})
