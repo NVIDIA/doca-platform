@@ -179,6 +179,8 @@ var (
 	bfsNicFwURL = ""
 	// hbnImageURL can be used to override the default HBN image URL used in the tests.
 	hbnImageURL = ""
+	// snapImageURL overrides the main DOCA SNAP image used by the SNAP suite.
+	snapImageURL = ""
 	// netutilsImage is the image name of the netutils image produced by the release associated with the e2e tests. This
 	// image is used for testing traffic. The value does not contain the tag.
 	netutilsImage = ""

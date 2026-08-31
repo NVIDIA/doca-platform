@@ -95,6 +95,7 @@ func init() {
 	getEnvVariables()
 }
 
+//nolint:gocyclo
 func getEnvVariables() {
 	if url, found := os.LookupEnv("BFB_IMAGE_URL"); found {
 		var err error
@@ -126,6 +127,9 @@ func getEnvVariables() {
 		if err != nil {
 			panic(err)
 		}
+	}
+	if url, found := os.LookupEnv("SNAP_IMAGE_URL"); found {
+		snapImageURL = url
 	}
 	if key, found := os.LookupEnv("NGC_API_KEY"); found {
 		ngcAPIKey = key

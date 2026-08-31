@@ -19,6 +19,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/nvidia/doca-platform/test/e2e/cleanup"
@@ -159,13 +160,20 @@ func patchChartSource(obj *unstructured.Unstructured) {
 	setNestedField(obj, tag, "spec", "helmChart", "source", "version")
 }
 
-// patchSNAPServiceConfiguration patches a DPUServiceConfiguration: the fake vendor-plugin image (only on
-// fs-storage-dpu-plugin) and the DPU-side image-pull secrets (NGC in addition for the DOCA SNAP image).
+// patchSNAPServiceConfiguration patches a DPUServiceConfiguration: the main DOCA SNAP image, the fake
+// vendor-plugin image (only on fs-storage-dpu-plugin), and the DPU-side image-pull secrets.
 func patchSNAPServiceConfiguration(obj *unstructured.Unstructured) {
 	const (
 		docaSnapServiceName           = "doca-snap"
 		fsStorageDPUPluginServiceName = "fs-storage-dpu-plugin"
 	)
+	if obj.GetName() == docaSnapServiceName && snapImageURL != "" {
+		tagSeparator := strings.LastIndex(snapImageURL, ":")
+		lastPathSeparator := strings.LastIndex(snapImageURL, "/")
+		Expect(tagSeparator > lastPathSeparator+1 && tagSeparator < len(snapImageURL)-1).To(BeTrue(), "SNAP_IMAGE_URL must use repository:tag format")
+		setNestedField(obj, snapImageURL[:tagSeparator], "spec", "serviceConfiguration", "helmChart", "values", "dpu", "docaSnap", "image", "repository")
+		setNestedField(obj, snapImageURL[tagSeparator+1:], "spec", "serviceConfiguration", "helmChart", "values", "dpu", "docaSnap", "image", "tag")
+	}
 	if obj.GetName() == fsStorageDPUPluginServiceName {
 		Expect(fakeFSStorageVendorImage).ToNot(BeEmpty(), "FAKE_FS_STORAGE_IMAGE must be set for SNAP runs")
 		// Fake (NFS-free) vendor plugin image built by the test-helper-images release target
