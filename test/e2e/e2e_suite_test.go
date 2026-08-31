@@ -172,12 +172,12 @@ func getEnvVariables() {
 	}
 	rshimConsoleCollectorImage = os.Getenv("RSHIM_CONSOLE_COLLECTOR_IMAGE")
 
-	// ZeroTrust-only env vars; required-ness enforced in validateFlags() once
-	// the ginkgo label filter is known. Reading them here keeps all env-var
-	// loading in one place.
+	// Required-ness enforced in validateFlags(). Reading them here keeps all env-var loading in one place.
 	bmcUsername = os.Getenv("E2E_ZT_BMC_USERNAME")
 	bmcPassword = os.Getenv("E2E_ZT_BMC_PASSWORD")
 	ciSetupInfoPath = os.Getenv("E2E_CI_SETUP_INFO_PATH")
+	dpfV264Version = os.Getenv("DPF_V264_VERSION")
+	dpfV268Version = os.Getenv("DPF_V268_VERSION")
 
 	if name, found := os.LookupEnv("DPU_CLUSTER_NAME"); found {
 		dpuClusterName = name
@@ -617,6 +617,8 @@ func validateFlags() {
 		panic("e2e config with `rshimConsoleCollector` requires RSHIM_CONSOLE_COLLECTOR_IMAGE env var")
 	}
 
+	validateLTSUpgradePipelineInputs()
+
 	if !isGinkgoLabelApplied(Domain.ZeroTrust) {
 		return
 	}
@@ -640,6 +642,19 @@ func validateFlags() {
 	if isGinkgoLabelApplied(Domain.ExternalTest) {
 		if len(externalTest) == 0 {
 			panic("This script must be provided when External label is present")
+		}
+	}
+}
+
+func validateLTSUpgradePipelineInputs() {
+	if isGinkgoLabelApplied(Domain.DPFBFBLTSUpgradeV264) {
+		if dpfV264Version == "" {
+			panic("DPFBFBLTSUpgradeV264 requires DPF_V264_VERSION env var")
+		}
+	}
+	if isGinkgoLabelApplied(Domain.DPFBFBLTSUpgradeV268) {
+		if dpfV268Version == "" {
+			panic("DPFBFBLTSUpgradeV268 requires DPF_V268_VERSION env var")
 		}
 	}
 }

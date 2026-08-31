@@ -17,64 +17,8 @@ limitations under the License.
 package e2e
 
 import (
-	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
-	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
-
 	. "github.com/onsi/ginkgo/v2"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
-
-// expectedDPUServicesV2604 returns the v26.04 DPUService shape: nvidia-k8s-ipam,
-// servicechainset-controller and kube-state-metrics are each split into a per-cluster
-// controller service plus a node/RBAC companion service.
-//
-// Phases installing or validating a released version up to v26.4 run against this shape.
-// Phases running at HEAD use expectedDPUServicesCurrent, which builds on it.
-func expectedDPUServicesV2604(input *systemTestInput) []string {
-	c := input.dpuClusters[0]
-	return []string{
-		operatorv1.FlannelName.String(),
-		operatorv1.MultusName.String(),
-		operatorv1.SRIOVDevicePluginName.String(),
-		operatorv1.SFCControllerName.String(),
-		operatorv1.ServiceChainSetCRDsName.String(),
-		operatorv1.CNIInstallerName.String(),
-		getPerClusterDPUServiceName(operatorv1.NVIPAMControllerName, c.Name, c.Namespace),
-		operatorv1.NVIPAMNodeName.String(),
-		getPerClusterDPUServiceName(operatorv1.ServiceSetControllerName, c.Name, c.Namespace),
-		getPerClusterDPUServiceName(operatorv1.KubeStateMetricsName, c.Name, c.Namespace),
-		operatorv1.KubeStateMetricsRBACName.String(),
-	}
-}
-
-// expectedDPUServicesCurrent returns the DPUService shape at HEAD: the v26.04 shape plus the
-// dpu-monitoring DPUService, which deploys into every DPU cluster the RBAC letting Prometheus
-// scrape their control planes. It deploys no workload, so it adds a single DPUService rather
-// than a per-cluster one.
-//
-// Only phases running at HEAD may use this. Phases running a released version must use the
-// shape function for that version, because dpu-monitoring does not exist there and
-// WaitForDPUServices would block on a DPUService that is never created.
-//
-// When the next release changes the shape, rename this to the version it describes and add a
-// new expectedDPUServicesCurrent on top of it, so that "Current" always tracks HEAD.
-func expectedDPUServicesCurrent(input *systemTestInput) []string {
-	return append(expectedDPUServicesV2604(input), operatorv1.DPUMonitoringName.String())
-}
-
-// expectedChangesCurrent lists the spec changes an upgrade to the current HEAD
-// release intentionally introduces. Shared by every hop that lands on HEAD: the
-// regular previous-GA → HEAD upgrade and the BFB LTS v26.4 → v26.7 hop.
-var expectedChangesCurrent = []upgradeExpectedChange{
-	// DPUService .spec.security is newly defaulted at HEAD: "before" lacks it while
-	// "after" has it, so strip it from "after" (before's generation is bumped by one).
-	{
-		gvk: dpuservicev1.GroupVersion.WithKind("DPUService"),
-		transform: func(artifact map[string]interface{}) {
-			unstructured.RemoveNestedField(artifact, "spec", "security")
-		},
-	},
-}
 
 // The regular previous-GA → main/release-branch upgrade: an install phase that
 // provisions against the previous GA release, then a validation phase after the
@@ -84,22 +28,22 @@ var _ = Describe("DPF Upgrade", func() {
 	installPhase("previous GA", installPhaseInput{
 		label:           Domain.DPFUpgrade,
 		skipBFBImageURL: true,
-		// The previous GA (LAST_STABLE_DPF_VERSION, default v26.4.0) pins its own
+		// The previous GA (LAST_STABLE_DPF_VERSION, default v26.8.0-alpha.3) pins its own
 		// Kubernetes version, which differs from HEAD's util.KubernetesVersion.
-		expectedKubernetesVersion: "v1.34.0",
-		artifactsKey:              "before",
-		expectedDPUServices:       expectedDPUServicesV2604,
-		dpuClusterRunsCoreDNS:     true,
+		expectedKubernetesVersion: "v1.35.6",
+		// TODO: Remove once we move to first beta release of 26.8
+		dpuClusterRunsCoreDNS: true,
+		artifactsKey:          "before",
+		expectedDPUServices:   expectedDPUServicesCurrent,
 	})
 
 	validationPhase("GA-to-current", validationPhaseInput{
 		label:                Domain.DPFUpgradeValidation,
-		patchDeploymentMode:  true,
 		captureBeforeRollout: true,
 		artifactsKey:         "after",
 		prevArtifactsKey:     "before",
 		rolloutDependencies:  true,
-		expectedChanges:      expectedChangesCurrent,
 		expectedDPUServices:  expectedDPUServicesCurrent,
+		expectedDPFVersion:   func() string { return tag },
 	})
 })

@@ -1,0 +1,32 @@
+apiVersion: operator.dpu.nvidia.com/v1alpha1
+kind: DPFOperatorConfig
+metadata:
+  # The name and namespace are fixed: the operator only reconciles the
+  # singleton dpfoperatorconfig in dpf-operator-system.
+  name: dpfoperatorconfig
+  namespace: dpf-operator-system
+spec:
+  deploymentMode: host-trusted
+  provisioningController:
+    bfbPVCName: bfb-pvc
+    # CI runs the host control-plane controllers at a single replica to save
+    # resources on control-plane nodes and keep logs easy to read.
+    replicas: 1
+  dpuServiceController:
+    replicas: 1
+  kamajiClusterManager:
+    disable: false
+    replicas: 1
+  staticClusterManager:
+    disable: false
+    replicas: 1
+  nodeSRIOVDevicePluginController:
+    disable: false
+    replicas: 1
+  monitoring:
+    # The openTelemetryCollector logging endpoint is injected at runtime by the
+    # e2e suite because it embeds the control plane IP.
+    disable: false
+  imagePullSecrets:
+    - dpf-pull-secret
+    - pull-secret-extra

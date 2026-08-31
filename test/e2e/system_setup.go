@@ -580,27 +580,27 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 			components.Insert(dpuServices.Items[i].Labels[operatorv1.DPFComponentLabelKey])
 		}
 
-		// The components the last released GA ships as well. spire-agent-rbac is in neither list: it
-		// follows the SPIFFE gate and no e2e DPFOperatorConfig configures SPIFFE. Add it for a lane
-		// that does.
 		expectedComponentsLastReleasedGA := []string{
 			operatorv1.CNIInstallerName.String(),
+			operatorv1.DPUMonitoringName.String(),
 			operatorv1.FlannelName.String(),
 			operatorv1.KubeStateMetricsName.String(),
 			operatorv1.MultusName.String(),
 			operatorv1.NodeProblemDetectorName.String(),
 			operatorv1.NVIPAMControllerName.String(),
+			operatorv1.OpenTelemetryCollectorName.String(),
 			operatorv1.ServiceSetControllerName.String(),
 			operatorv1.SFCControllerName.String(),
 			operatorv1.SRIOVDevicePluginName.String(),
 		}
 
-		// What the current branch adds on top of that release.
+		// CoreDNS and KataContainers are enabled at HEAD but absent from alpha.3
+		// (the last released GA): CoreDNS was not yet a host DPUService, and
+		// KataContainers is opt-in (requires security.kata in DPFOperatorConfig).
+		// TODO: Move both into expectedComponentsLastReleasedGA once v26.8 beta ships.
 		expectedComponents := append(slices.Clone(expectedComponentsLastReleasedGA),
-			operatorv1.DPUMonitoringName.String(),
-			operatorv1.KataContainersName.String(),
-			operatorv1.OpenTelemetryCollectorName.String(),
 			operatorv1.CoreDNSName.String(),
+			operatorv1.KataContainersName.String(),
 		)
 
 		// The initial phase of the upgrade test runs the last released GA, which ships the component

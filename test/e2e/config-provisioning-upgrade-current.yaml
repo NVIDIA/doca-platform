@@ -1,4 +1,5 @@
 provisioningControllerPVC: "../objects/infrastructure/pvc-provisioning.yaml"
+dpfOperatorConfig: "../objects/upgrade/current/dpfoperatorconfig.yaml"
 bfb: "../objects/upgrade/current/bfb.yaml"
 dpuClusters:
   - "../objects/upgrade/current/dpucluster.yaml"
