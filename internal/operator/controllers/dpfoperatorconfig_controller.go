@@ -221,6 +221,13 @@ func (r *DPFOperatorConfigReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		dpfOperatorConfig.Status.Version = ptr.To(release.DPFVersion())
 	}
 
+	// The operator is the first component running the new version, so it records the version it is
+	// deploying. Status.Version follows only on a successful deployment, so the two differ for the
+	// duration of the upgrade.
+	targetVersion := ptr.To(release.DPFVersion())
+	targetVersionChanged := !ptr.Equal(dpfOperatorConfig.Status.TargetVersion, targetVersion)
+	dpfOperatorConfig.Status.TargetVersion = targetVersion
+
 	conditions.EnsureConditions(dpfOperatorConfig, operatorv1.Conditions)
 
 	// Handle deletion reconciliation loop.
@@ -234,6 +241,15 @@ func (r *DPFOperatorConfigReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		controllerutil.AddFinalizer(dpfOperatorConfig, operatorv1.DPFOperatorConfigFinalizer)
 		return ctrl.Result{}, nil
 	}
+
+	// Persist the target version before reconciling any system component, so that everything reading
+	// the config observes the upgrade before the new manifests are applied. A new config is exempt:
+	// it records both versions in the same patch and has no upgrade to hold.
+	if targetVersionChanged && !dpfOperatorConfig.IsNewConfig() {
+		log.Info("Recording target version", "targetVersion", *targetVersion)
+		return ctrl.Result{}, nil
+	}
+
 	return r.reconcile(ctx, dpfOperatorConfig, dpuClusters)
 }
 
@@ -338,7 +354,6 @@ type validator struct {
 func (r *DPFOperatorConfigReconciler) validators() []validator {
 	return []validator{
 		{name: "Kubernetes Version Skew", fn: r.validateKubernetesVersionSkew},
-		{name: "System Components", fn: r.validateSystemComponentsReadiness},
 		{name: "DPU State", fn: r.validateDPUState},
 		{name: "Object Schema Validation", fn: r.validateObjectSchemas},
 	}
@@ -368,6 +383,13 @@ func (r *DPFOperatorConfigReconciler) validateDPUState(ctx context.Context, conf
 	for _, dpu := range dpuList.Items {
 		// Skip if the DPU has reached a terminal state (Ready or Error).
 		if dpu.Status.Phase == provisioningv1.DPUError || dpu.Status.Phase == provisioningv1.DPUReady {
+			continue
+		}
+		// A DPU the DPU controller reports as held in Pending does not hold the upgrade, it can not
+		// start provisioning before the upgrade completed. Every other DPU which did not reach a
+		// terminal phase still has to be waited for, it may be provisioning by the time the
+		// components are rolled out.
+		if util.IsDPUHeldForUpgrade(&dpu.Status) {
 			continue
 		}
 		dpus = append(dpus, dpu.Name)
@@ -487,21 +509,6 @@ func (r *DPFOperatorConfigReconciler) updateSystemComponentStatus(ctx context.Co
 	}
 
 	conditions.AddTrue(config, operatorv1.SystemComponentsReadyCondition)
-}
-
-func (r *DPFOperatorConfigReconciler) validateSystemComponentsReadiness(ctx context.Context, config *operatorv1.DPFOperatorConfig, dpuClusters []*dpucluster.Config) error {
-	var errs []error
-	log := ctrllog.FromContext(ctx)
-	log.Info("Checking ready state of system components")
-	for _, component := range r.Inventory.EnabledComponents(inventory.VariablesFromDPFOperatorConfig(r.Defaults, config, dpuClusters)) {
-		err := component.IsReadyForUpgrade(ctx, r.Client, config)
-		if err != nil {
-			log.Error(err, "Component not ready", "component", component)
-			errs = append(errs, fmt.Errorf("%s: %v", component.Name(), err))
-		}
-	}
-
-	return kerrors.NewAggregate(errs)
 }
 
 // validateKubernetesVersionSkew enforces the Kubernetes version skew policy

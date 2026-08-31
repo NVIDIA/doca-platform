@@ -221,7 +221,24 @@ func (r *DPUReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl
 	if dpu.Spec.PCIAddress != nil {
 		ctx = cutil.BuildContextWithTargetPCIAddress(ctx, *dpu.Spec.PCIAddress)
 	}
-	nextState, err := h(ctx, dpu, r.ctrlCtx)
+
+	// Read the DPFOperatorConfig once per reconcile and hand it to the phase handler through a copy
+	// of the controller context.
+	// A failed read must not be mistaken for an absent config: the phase handlers gate provisioning
+	// on it, so a nil config would silently skip the upgrade hold. Only an actually absent config
+	// falls back to the controller options, so DPUs can still be reconciled while the
+	// DPFOperatorConfig is gone.
+	dpfOperatorConfig, cfgErr := dpfutils.GetDPFOperatorConfig(ctx, r.ctrlCtx.Client)
+	if cfgErr != nil {
+		if !errors.Is(cfgErr, dpfutils.ErrDPFOperatorConfigNotFound) {
+			return ctrl.Result{}, fmt.Errorf("failed to read DPFOperatorConfig: %w", cfgErr)
+		}
+		logger.Info("No DPFOperatorConfig exists, falling back to the controller options")
+	}
+	ctrlCtx := *r.ctrlCtx
+	ctrlCtx.DPFOperatorConfig = dpfOperatorConfig
+
+	nextState, err := h(ctx, dpu, &ctrlCtx)
 	if err != nil {
 		logger.Error(err, "State handle error")
 	}
@@ -234,10 +251,7 @@ func (r *DPUReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl
 	setDPUFlavorRenderedCondition(dpu, &nextState)
 
 	deploymentMode := provisioningv1.DeploymentMode(r.ctrlCtx.Options.DeploymentMode)
-	dpfOperatorConfig, cfgErr := dpfutils.GetDPFOperatorConfig(ctx, r.ctrlCtx.Client)
-	if cfgErr != nil {
-		logger.Error(cfgErr, "failed to read DPFOperatorConfig, falling back to controller option deployment mode")
-	} else {
+	if dpfOperatorConfig != nil {
 		deploymentMode = provisioningv1.DeploymentMode(dpfOperatorConfig.Spec.DeploymentMode)
 	}
 	nextState.DeploymentMode = deploymentMode
