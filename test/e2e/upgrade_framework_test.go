@@ -94,14 +94,10 @@ type installPhaseInput struct {
 type validationPhaseInput struct {
 	// label is the Ginkgo label used to filter this phase in CI.
 	label string
-	// expectedDPFVersion, if set, overrides TAG for this validation phase.
-	// This is needed for intermediate released hops in multi-step upgrade paths.
-	expectedDPFVersion string
-	// patchDeploymentMode, if true, sets DPFOperatorConfig.spec.deploymentMode
-	// when the deployed config leaves it empty. Only set it on hops that upgrade
-	// a config predating the field (the patch is a no-op when the field is already
-	// set).
-	patchDeploymentMode bool
+	// expectedDPFVersion returns the DPF version expected at this phase.
+	// Must not return "". Use a closure so package-level vars (set by init)
+	// are read at test execution time, not Ginkgo tree-construction time.
+	expectedDPFVersion func() string
 	// captureBeforeRollout makes capture+compare happen BEFORE rollout steps.
 	// Set true for the regular upgrade, where artifact validation precedes the
 	// post-upgrade rollout exercise.
@@ -331,16 +327,17 @@ func validationPhase(description string, in validationPhaseInput) {
 			})
 		}
 
-		if in.patchDeploymentMode {
-			It("patch DPFOperatorConfig schema bridge fields", func() {
-				patchDPFOperatorConfigForSpecDeploymentMode(ctx, input)
-			})
-		}
+		It("apply DPFOperatorConfig from phase manifest", func() {
+			applyDPFOperatorConfigFromPhaseConfig(ctx, input)
+		})
 		It("validate pre-upgrade conditions pass", func() {
 			validatePreUpgradeConditions(ctx, input)
 		})
 		It("validate the DPF version", func() {
-			validateDPFVersionUpgrade(in.expectedDPFVersion)
+			validateDPFVersionUpgrade(in.expectedDPFVersion())
+		})
+		It("validate DPFOperatorConfig ready", func() {
+			VerifyDPFOperatorConfigReady(ctx, input.client, 15*time.Minute)
 		})
 		It("validate DPUCluster ready", func() {
 			validateDPUClusterUpgrade(ctx, getProvisionDPUClustersInput(), in.expectedKubernetesVersion)
@@ -389,7 +386,7 @@ func validationPhase(description string, in validationPhaseInput) {
 
 		if in.rolloutDependencies {
 			It("perform DPU and DPUService rollout test", func() {
-				rolloutDependencies(ctx, input, in.skipDPUFlavorTemplateValidation)
+				rolloutDependencies(ctx, input, in.skipDPUFlavorTemplateValidation, description)
 			})
 		}
 
@@ -397,6 +394,9 @@ func validationPhase(description string, in validationPhaseInput) {
 			VerifyDPUClusterWithNodes(ctx, getProvisionDPUClustersInput())
 			By("Waiting for system components to be ready after rollout")
 			verifySystemReady(in.expectedDPUServices(input), in.dpuClusterRunsCoreDNS)
+		})
+		It("validate DPFOperatorConfig ready after rollout", func() {
+			VerifyDPFOperatorConfigReady(ctx, input.client, 15*time.Minute)
 		})
 
 		if in.verifyKubeletVersion {
@@ -461,11 +461,9 @@ func validatePreUpgradeConditions(ctx context.Context, input *systemTestInput) {
 }
 
 // validateDPFVersionUpgrade asserts the operator has reached the expected
-// version. Empty expectedVersion falls back to TAG, the version under test.
+// version. expectedVersion must not be empty.
 func validateDPFVersionUpgrade(expectedVersion string) {
-	if expectedVersion == "" {
-		expectedVersion = tag
-	}
+	Expect(expectedVersion).NotTo(BeEmpty(), "expectedDPFVersion must be set")
 	Eventually(func(g Gomega) {
 		dpfOperatorConfig := &operatorv1.DPFOperatorConfig{}
 		g.Expect(input.client.Get(ctx, client.ObjectKey{
@@ -590,21 +588,29 @@ func verifySystemReady(dpuServiceNames []string, dpuClusterRunsCoreDNS bool) {
 // the current BFB, DPUFlavor, "-rollout"-suffixed DPUServiceTemplate, and
 // DPUServiceConfiguration objects from the current manifests and updating one
 // DPUDeployment to reference them.
-func rolloutDependencies(ctx context.Context, input *systemTestInput, skipDPUFlavorTemplateValidation bool) {
+func rolloutDependencies(ctx context.Context, input *systemTestInput, skipDPUFlavorTemplateValidation bool, hopSuffix string) {
+	// Sanitize the hop description into a valid k8s name suffix.
+	sanitized := strings.NewReplacer(" ", "-", ".", "-").Replace(strings.ToLower(hopSuffix))
+	nameSuffix := "-rollout-" + sanitized
+
 	By("Creating current BFB and DPUFlavor")
 	ProvisionBFBOrBlueFieldSoftwareAndDPUFlavor(ctx, getProvisionDPUClustersInput())
 
 	By("Creating current DPUServiceTemplate")
 	currentTemplate := input.dpuServiceTemplate.DeepCopy()
 	currentTemplate.SetLabels(CleanupScope.Suite)
-	currentTemplate.SetName(input.dpuServiceTemplate.Name + "-rollout")
+	currentTemplate.SetName(input.dpuServiceTemplate.Name + nameSuffix)
 	useDummyDPUServiceChart(currentTemplate)
 	Expect(input.client.Create(ctx, currentTemplate)).To(Succeed())
 
 	By("Creating current DPUServiceConfiguration")
 	currentConfig := input.dpuServiceConfiguration.DeepCopy()
 	currentConfig.SetLabels(CleanupScope.Suite)
-	currentConfig.SetName(input.dpuServiceConfiguration.Name + "-rollout")
+	currentConfig.SetName(input.dpuServiceConfiguration.Name + nameSuffix)
+	if currentConfig.Spec.ServiceConfiguration.ServiceDaemonSet.Labels == nil {
+		currentConfig.Spec.ServiceConfiguration.ServiceDaemonSet.Labels = map[string]string{}
+	}
+	currentConfig.Spec.ServiceConfiguration.ServiceDaemonSet.Labels["rollout"] = hopSuffix
 	Expect(input.client.Create(ctx, currentConfig)).To(Succeed())
 
 	By("Selecting one DPUDeployment to update")

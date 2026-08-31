@@ -76,21 +76,37 @@ func createDPUServiceIPAMPool1(ctx context.Context, input *systemTestInput) {
 	Expect(input.client.Create(ctx, dpuServiceIPAM)).To(Succeed())
 }
 
-// patchDPFOperatorConfigForSpecDeploymentMode supports the breaking change that
-// introduced DPFOperatorConfig.spec.deploymentMode as a required field. Upgrade
-// validation runs preserve resources from the previous phase, so a cluster
-// upgraded from an older build can still have no deploymentMode.
-func patchDPFOperatorConfigForSpecDeploymentMode(ctx context.Context, input *systemTestInput) {
+// applyDPFOperatorConfigFromPhaseConfig applies the DPFOperatorConfig for the
+// current phase from input.config (the phase's YAML manifest) plus any runtime
+// values that cannot be hardcoded in the YAML (e.g. the OTel endpoint).
+func applyDPFOperatorConfigFromPhaseConfig(ctx context.Context, input *systemTestInput) {
 	cfg := &operatorv1.DPFOperatorConfig{}
 	Expect(input.client.Get(ctx, client.ObjectKey{
 		Name:      configName,
 		Namespace: dpfOperatorSystemNamespace,
 	}, cfg)).To(Succeed())
-	if cfg.Spec.DeploymentMode != "" {
-		return
-	}
+
 	original := cfg.DeepCopy()
-	cfg.Spec.DeploymentMode = input.config.Spec.DeploymentMode
-	By("Patching DPFOperatorConfig for required spec.deploymentMode")
+
+	cfg.Spec = input.config.Spec
+
+	// Inject runtime values not representable in the YAML (e.g. OTel endpoint).
+	if cfg.MonitoringEnabled() &&
+		(cfg.Spec.Monitoring == nil || cfg.Spec.Monitoring.OpenTelemetryCollector == nil) {
+		if cfg.Spec.Monitoring == nil {
+			cfg.Spec.Monitoring = &operatorv1.MonitoringConfiguration{}
+		}
+		controlPlaneIP := getClusterControlPlaneIP(ctx, input.client)
+		cfg.Spec.Monitoring.OpenTelemetryCollector = &operatorv1.OpenTelemetryCollectorConfiguration{
+			Logging: &operatorv1.OpenTelemetryCollectorLoggingConfiguration{
+				Endpoint: fmt.Sprintf("%s%s:%d", otelEndpointSchema, controlPlaneIP, otelNodePort),
+			},
+			Metrics: &operatorv1.OpenTelemetryCollectorMetricsConfiguration{
+				Endpoint: fmt.Sprintf("%s%s:%d", otelEndpointSchema, controlPlaneIP, otelNodePort),
+			},
+		}
+	}
+
+	By("Applying DPFOperatorConfig from phase manifest")
 	Expect(input.client.Patch(ctx, cfg, client.MergeFrom(original))).To(Succeed())
 }

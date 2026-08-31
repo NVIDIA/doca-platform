@@ -31,10 +31,12 @@ var componentIntroducedVersions = map[operatorv1.ComponentName]string{
 	operatorv1.KubeStateMetricsName:       "v26.4.0",
 	operatorv1.NodeProblemDetectorName:    "v26.4.0",
 	operatorv1.OpenTelemetryCollectorName: "v26.4.0",
+	operatorv1.KataContainersName:         "v26.8.0",
 	operatorv1.VaultKMSName:               "v26.8.0",
 	operatorv1.DPUMonitoringName:          "v26.8.0",
-	operatorv1.CoreDNSName:                "v26.8.0",
 	operatorv1.SPIFFECSIDriverName:        "v26.8.0",
+	// TODO: Update to v26.8.0 once the first v26.8 beta ships with CoreDNS as a DPUService.
+	operatorv1.CoreDNSName: "v26.10.0",
 }
 
 // ShouldSkipUpgradeCheck determines if a component's upgrade readiness check should be skipped
