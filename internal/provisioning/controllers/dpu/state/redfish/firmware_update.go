@@ -455,20 +455,23 @@ func transitionToFirmwareUpdateReboot(ctx context.Context, dpu *provisioningv1.D
 }
 
 // checkFirmwareUpdateTimeout checks if the BF4 firmware update has exceeded the configured timeout.
-// The timer starts when DPUCondFWConfigured becomes true (entry into the Update Firmware phase).
+//
+// The timer is anchored on InterfaceInitialized, the newest condition that no handler of this
+// phase writes. It must not be anchored on a condition this phase writes: updatePldmFwBundle
+// reuses FWConfigured to report in-phase PLDM failures, and SetDPUCondition rewrites
+// LastTransitionTime whenever Status changes, so a BMC task Exception flips FWConfigured
+// true -> false and restarts the timer on every BMC retry.
 func checkFirmwareUpdateTimeout(state *provisioningv1.DPUStatus, timeout time.Duration) error {
 	if timeout <= 0 {
 		return nil
 	}
 
-	// Anchor on FWConfigured (set when Config FW Parameters completes), not
-	// FwBundleUpdated (phase success). Same pattern as OS install timeout vs BFBPrepared.
-	_, fwConfiguredCond := cutil.GetDPUCondition(state, string(provisioningv1.DPUCondFWConfigured))
-	if fwConfiguredCond == nil {
+	_, startCond := cutil.GetDPUCondition(state, string(provisioningv1.DPUCondInterfaceInitialized))
+	if startCond == nil {
 		return nil
 	}
 
-	elapsed := time.Since(fwConfiguredCond.LastTransitionTime.Time)
+	elapsed := time.Since(startCond.LastTransitionTime.Time)
 	if elapsed <= timeout {
 		return nil
 	}
