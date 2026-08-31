@@ -444,11 +444,18 @@ var _ = Describe("FirmwareUpdate", func() {
 		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
 		dpu.Status.Conditions = []metav1.Condition{
 			{
-				Type:               provisioningv1.DPUCondFWConfigured.String(),
+				Type:               provisioningv1.DPUCondInterfaceInitialized.String(),
 				Status:             metav1.ConditionTrue,
-				Reason:             "Configured",
-				Message:            "FW configured",
+				Reason:             provisioningv1.DPUCondInterfaceInitialized.String(),
 				LastTransitionTime: metav1.NewTime(time.Now().Add(-2 * time.Hour)),
+			},
+			// A BMC task Exception refreshed FWConfigured moments ago; the deadline still applies.
+			{
+				Type:               provisioningv1.DPUCondFWConfigured.String(),
+				Status:             metav1.ConditionFalse,
+				Reason:             "FailedToUpdatePldmFwBundle",
+				Message:            "task 410 is in Exception state",
+				LastTransitionTime: metav1.NewTime(time.Now()),
 			},
 		}
 
@@ -904,14 +911,15 @@ var _ = Describe("FirmwareUpdate", func() {
 			Expect(checkFirmwareUpdateTimeout(state, 0)).NotTo(HaveOccurred())
 		})
 
-		It("should return nil when FWConfigured condition is missing", func() {
+		It("should return nil when InterfaceInitialized condition is missing", func() {
 			state := &provisioningv1.DPUStatus{}
+			cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondFWConfigured), nil, "Configured", ""))
 			Expect(checkFirmwareUpdateTimeout(state, time.Hour)).NotTo(HaveOccurred())
 		})
 
 		It("should return nil when timeout has not been exceeded", func() {
 			state := &provisioningv1.DPUStatus{}
-			cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondFWConfigured), nil, "Configured", ""))
+			cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondInterfaceInitialized, "", ""))
 			Expect(checkFirmwareUpdateTimeout(state, time.Hour)).NotTo(HaveOccurred())
 		})
 
@@ -919,13 +927,50 @@ var _ = Describe("FirmwareUpdate", func() {
 			state := &provisioningv1.DPUStatus{
 				Conditions: []metav1.Condition{
 					{
-						Type:               string(provisioningv1.DPUCondFWConfigured),
+						Type:               string(provisioningv1.DPUCondInterfaceInitialized),
 						Status:             metav1.ConditionTrue,
 						LastTransitionTime: metav1.Time{Time: time.Now().Add(-2 * time.Hour)},
-						Reason:             "Configured",
+						Reason:             string(provisioningv1.DPUCondInterfaceInitialized),
 					},
 				},
 			}
+			err := checkFirmwareUpdateTimeout(state, time.Hour)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("firmware update timeout exceeded"))
+		})
+
+		It("should return error when an in-phase PLDM failure keeps refreshing FWConfigured", func() {
+			state := &provisioningv1.DPUStatus{
+				Conditions: []metav1.Condition{
+					{
+						Type:               string(provisioningv1.DPUCondInterfaceInitialized),
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.Time{Time: time.Now().Add(-2 * time.Hour)},
+						Reason:             string(provisioningv1.DPUCondInterfaceInitialized),
+					},
+					{
+						Type:               string(provisioningv1.DPUCondFWConfigured),
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.Time{Time: time.Now().Add(-2 * time.Hour)},
+						Reason:             string(provisioningv1.DPUCondFWConfigured),
+					},
+				},
+			}
+
+			// Each BMC task Exception flips FWConfigured to false, which rewrites its
+			// LastTransitionTime. The deadline must survive an unbounded retry loop.
+			for range 3 {
+				cutil.SetDPUCondition(state, cutil.NewCondition(
+					string(provisioningv1.DPUCondFWConfigured),
+					pldmTaskExceptionError{taskID: "410"},
+					"FailedToUpdatePldmFwBundle", ""))
+				cutil.SetDPUCondition(state, cutil.NewCondition(
+					string(provisioningv1.DPUCondFWConfigured), nil, "Activated", "Activated Pending Bundle"))
+			}
+
+			_, refreshed := cutil.GetDPUCondition(state, string(provisioningv1.DPUCondFWConfigured))
+			Expect(refreshed.LastTransitionTime.Time).To(BeTemporally("~", time.Now(), time.Minute))
+
 			err := checkFirmwareUpdateTimeout(state, time.Hour)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("firmware update timeout exceeded"))
