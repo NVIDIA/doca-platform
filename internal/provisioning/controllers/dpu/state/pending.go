@@ -52,6 +52,15 @@ func Pending(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Contro
 		return *state, nil
 	}
 
+	// Hold the DPU in Pending while a DPF upgrade is in progress, so it does not start provisioning
+	// against a half upgraded deployment. DPUs which already started hold the upgrade instead.
+	if ctrlCtx.DPFOperatorConfig != nil && ctrlCtx.DPFOperatorConfig.UpgradeInProgress() {
+		err := fmt.Errorf("DPF Operator upgrade from version %s is in progress", ptr.Deref(ctrlCtx.DPFOperatorConfig.Status.Version, ""))
+		logger.Info("Waiting for the DPF Operator upgrade to complete before provisioning the DPU")
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondPending.String(), err, cutil.ReasonDPFOperatorUpgradeInProgress, err.Error()))
+		return *state, nil
+	}
+
 	if dpu.Status.DPUType == provisioningv1.DPUTypeBlueField4 {
 
 		blueFieldSoftware := &provisioningv1.BlueFieldSoftware{}

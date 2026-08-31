@@ -113,7 +113,9 @@ aggregated under the same `Validation must pass for DPF upgrade to continue:` me
 
 #### DPU State Validation
 
-* **DPU Readiness**: All DPUs must have reached a terminal state. Any DPU still progressing toward readiness blocks the upgrade.
+* **DPU Readiness**: All DPUs must have reached a terminal state (`Ready` or `Error`). Any DPU still progressing toward
+  readiness blocks the upgrade until it settles. See
+  [DPUs and the Upgrade](#dpus-and-the-upgrade) for the DPUs that are exempt.
 
 <details markdown="1"><summary>Example failure condition</summary>
 
@@ -247,6 +249,25 @@ available, the currently deployed values can be retrieved from the release:
 ```bash
 helm get values dpf-operator -n dpf-operator-system > values.yaml
 ```
+
+### DPUs and the Upgrade
+
+Provisioning and the component rollout never overlap, in either direction:
+
+* A DPU that already started provisioning holds the upgrade, through the
+  [DPU State Validation](#dpu-state-validation) prevalidation, until it reaches `Ready` or `Error`.
+* A DPU that has not started provisioning is held instead: while `status.targetVersion` differs from `status.version`
+  on the `DPFOperatorConfig`, it stays in `Pending` with the `DPFOperatorUpgradeInProgress` reason and continues
+  automatically once the upgrade completes. Such a DPU is exempt from the prevalidation above, it cannot make progress
+  until the upgrade completes and would otherwise deadlock it.
+
+DPUs that are already provisioned are not affected. Without this, a DPU provisioned while the rollout is in flight
+would be handled by a mix of old and new controllers, agents, and DMS, and an interrupted BFB flash can leave the
+BlueField in a state that requires manual recovery.
+
+> [!NOTE]
+> This hold is enforced by the provisioning controller of the version you upgrade **from**. It was introduced in
+> v26.8.0, so it applies to every upgrade from v26.8.0 on. Upgrading to v26.8.0 does not hold provisioning yet.
 
 ## Validate the Upgrade
 
