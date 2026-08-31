@@ -186,6 +186,10 @@ const (
 	// AgentAnnotationAllowFirmwareResetReboot is the DPU annotation key used to allow RebootMethodFirmwareReset from mlxfwreset.
 	AgentAnnotationAllowFirmwareResetReboot = DPUProvisioningPrefix + "allow-firmware-reset-reboot"
 
+	// ReasonDPFOperatorUpgradeInProgress is set on DPUCondPending while the DPU controller holds the
+	// DPU in the Pending phase for the duration of a DPF upgrade.
+	ReasonDPFOperatorUpgradeInProgress = "DPFOperatorUpgradeInProgress"
+
 	// Script-reboot condition reasons set by the DPUNode controller on DPUCondRebooted.
 	// These are used by the DPUNode controller to detect an existing script-reboot lifecycle.
 	ReasonRebootScriptWaiting          = "RebootScriptWaiting"
@@ -791,6 +795,19 @@ func IsDPUBeforeProvisioningPhase(phase provisioningv1.DPUPhase) bool {
 	default:
 		return false
 	}
+}
+
+// IsDPUHeldForUpgrade reports whether the DPU controller confirmed it is holding the DPU in the
+// Pending phase because a DPF upgrade is in progress. Only such a DPU is known to not start
+// provisioning while the upgrade is running.
+func IsDPUHeldForUpgrade(status *provisioningv1.DPUStatus) bool {
+	if status == nil || status.Phase != provisioningv1.DPUPending {
+		return false
+	}
+	_, condition := GetDPUCondition(status, provisioningv1.DPUCondPending.String())
+	return condition != nil &&
+		condition.Status == metav1.ConditionFalse &&
+		condition.Reason == ReasonDPFOperatorUpgradeInProgress
 }
 
 func IsDPUAfterProvisioningPhase(phase provisioningv1.DPUPhase) bool {

@@ -21,6 +21,8 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
+	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	"github.com/nvidia/doca-platform/internal/release"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -359,5 +361,70 @@ var _ = Describe("DPU: pending", func() {
 			Entry("no hold requested outside zero-trust", "no-hold-host-trusted", flavorWithoutHold,
 				string(operatorv1.DeploymentModeHostTrusted), provisioningv1.InstallViaHostAgent),
 		)
+	})
+
+	Context("DPF Operator upgrade", func() {
+		configWithVersions := func(deployedVersion, targetVersion string) *operatorv1.DPFOperatorConfig {
+			return &operatorv1.DPFOperatorConfig{
+				Status: operatorv1.DPFOperatorConfigStatus{
+					Version:       ptr.To(deployedVersion),
+					TargetVersion: ptr.To(targetVersion),
+				},
+			}
+		}
+
+		runPending := func(dpu *provisioningv1.DPU, config *operatorv1.DPFOperatorConfig,
+			dpuMap *dutil.DPUInProvisioningMap) (provisioningv1.DPUStatus, error) {
+			return state.Pending(ctx, dpu,
+				&dutil.ControllerContext{
+					Client:               k8sClient,
+					Options:              dutil.DPUOptions{DPUInstallInterface: string(provisioningv1.InstallViaHostAgent)},
+					DPUInProvisioningMap: dpuMap,
+					DPFOperatorConfig:    config,
+				},
+			)
+		}
+
+		It("should hold the DPU in Pending while the upgrade is in progress", func() {
+			dpu := dpuObj("dpu-pending-upgrade-in-progress")
+			dpu.Status.Phase = provisioningv1.DPUPending
+			dpuMap := dutil.NewDPUInProvisioningMap(1)
+
+			status, err := runPending(dpu, configWithVersions("v25.10.0", release.DPFVersion()), dpuMap)
+			Expect(err).To(Succeed())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUPending))
+			Expect(status.Conditions).Should(ContainElements(
+				And(
+					HaveField("Type", provisioningv1.DPUCondPending.String()),
+					HaveField("Status", metav1.ConditionFalse),
+					HaveField("Reason", cutil.ReasonDPFOperatorUpgradeInProgress),
+				),
+			))
+			// The hold must land before the provisioning slot is claimed, otherwise held DPUs would
+			// occupy capacity for the whole fleet while the upgrade is running.
+			Expect(dpuMap.CanProceed(dutil.DPUID("other-dpu"))).To(Succeed())
+		})
+
+		It("should proceed when no upgrade is in progress", func() {
+			bfb := bfbObj("bfb-pending-no-upgrade")
+			createObject(bfb)
+			patch := client.MergeFrom(bfb.DeepCopy())
+			bfb.Status.Phase = provisioningv1.BFBReady
+			bfb.Status.FileName = defaultBFBFileName
+			Expect(k8sClient.Status().Patch(ctx, bfb, patch)).To(Succeed())
+
+			dpuFlavor := dpuFlavorObj("dpu-flavor-pending-no-upgrade")
+			createObject(dpuFlavor)
+
+			dpu := dpuObj("dpu-pending-no-upgrade")
+			dpu.Spec.BFB = ptr.To(bfb.Name)
+			dpu.Spec.DPUFlavor = dpuFlavor.Name
+			dpu.Status.Phase = provisioningv1.DPUPending
+
+			status, err := runPending(dpu, configWithVersions(release.DPFVersion(), release.DPFVersion()),
+				dutil.NewDPUInProvisioningMap(1))
+			Expect(err).To(Succeed())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUNodeEffect))
+		})
 	})
 })

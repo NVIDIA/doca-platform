@@ -2882,6 +2882,11 @@ spec:
                   the object the last time it was patched.
                 format: int64
                 type: integer
+              targetVersion:
+                description: |-
+                  TargetVersion is the version of the DPF Operator that is being deployed. It differs from
+                  Version while an upgrade is in progress.
+                type: string
               version:
                 description: Version is the version of the DPF Operator that is currently
                   deployed.

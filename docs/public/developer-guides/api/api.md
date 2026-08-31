@@ -422,6 +422,7 @@ _Appears in:_
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions exposes the current state of the OperatorConfig. |  | Optional: \{\} <br /> |
 | `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  | Optional: \{\} <br /> |
 | `version` _string_ | Version is the version of the DPF Operator that is currently deployed. |  | Optional: \{\} <br /> |
+| `targetVersion` _string_ | TargetVersion is the version of the DPF Operator that is being deployed. It differs from<br />Version while an upgrade is in progress. |  | Optional: \{\} <br /> |
 
 
 #### DPUDetectorConfiguration
