@@ -6,6 +6,9 @@ title: "DPF Operator Upgrade Guide"
 
 This document describes the process of upgrading between different versions of the DPF Operator.
 
+For the high-level policy on which combinations are supported, how far you can upgrade at once, and
+when breaking changes are allowed, see the [DPF Compatibility Policy](compatibility-policy.md).
+
 [[_TOC_]]
 
 ## Prerequisites
