@@ -626,7 +626,7 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 			VerifyDPUClusterServesOwnDNS(ctx, input)
 		})
 
-		It("should resolve a Service name from a DPU cluster Pod", Labels{Domain.RequiresNodes}, func() {
+		It("should resolve a Service name from a DPU cluster Pod", Labels{Domain.RequiresNodes, Domain.OCP}, func() {
 			if !input.hasDpuNodes() {
 				Skip("Skip test as there are no DPU nodes")
 			}
@@ -721,6 +721,9 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 		It("validate DPU agent has reported status on all provisioned DPUs", func() {
 			// ZeroTrust / dpuagent path reports the full condition set. OCP uses
 			// the hostAgent install path, which reports a smaller subset.
+			// The pinned 26.4 agent on OpenShift still publishes SFCreated and has
+			// no VF reconcile operation; HEAD renamed those to SFReconciled /
+			// VFReconciled.
 			expectedConditions := []metav1.Condition{
 				{Type: "KernelModuleLoaded", Status: metav1.ConditionTrue},
 				{Type: "NetworkConfigured", Status: metav1.ConditionTrue},
@@ -758,8 +761,7 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 					{Type: "DpuModeEnsured", Status: metav1.ConditionTrue},
 					{Type: "RebootHandled", Status: metav1.ConditionTrue},
 					{Type: "KernelCmdLineChecked", Status: metav1.ConditionTrue},
-					{Type: "SFReconciled", Status: metav1.ConditionTrue},
-					{Type: "VFReconciled", Status: metav1.ConditionTrue},
+					{Type: "SFCreated", Status: metav1.ConditionTrue},
 					{Type: "VFMacSet", Status: metav1.ConditionTrue},
 					{Type: "BridgeChecked", Status: metav1.ConditionTrue},
 					// The link conditions carry the opposite polarity: False means the
@@ -800,14 +802,14 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 		})
 	})
 
-	Context("DPU Service Kata Containers", Labels{Domain.RequiresNodes, Domain.OCP}, func() {
+	Context("DPU Service Kata Containers", Labels{Domain.RequiresNodes}, func() {
 		It("deploy a DPUService pod with kata-qemu RuntimeClass and an SF", func() {
 			ValidateDPUServiceKataRuntimeClass(ctx, input)
 		})
 	})
 
 	// Config Ports check is not valid for ZeroTrust
-	Context("DPU Service Config Ports", Labels{Domain.RequiresNodes, Domain.OCP}, Serial, func() {
+	Context("DPU Service Config Ports", Labels{Domain.RequiresNodes}, Serial, func() {
 		It("expose ConfigPorts via DPUService and test reachability", func() {
 			ValidateDPUServiceConfigPorts(ctx, input)
 		})
@@ -841,7 +843,7 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 		It("verify overrides path setting for system DPUServices", Labels{Domain.ZeroTrust}, func() {
 			ValidateDPFOperatorPathConfiguration(ctx, input)
 		})
-		It("change the MaxDPUParallelInstallations in the operatorConfig and verify that the provisioning controller is restarted", Labels{Domain.ZeroTrust}, func() {
+		It("change the MaxDPUParallelInstallations in the operatorConfig and verify that the provisioning controller is restarted", Labels{Domain.ZeroTrust, Domain.OCP}, func() {
 			ValidateDPFOperatorMaxDPUParallelInstallations(ctx, input)
 		})
 		It("change the flannel podCIDR in the operatorConfig and check that it is set", Labels{Domain.ZeroTrust}, func() {
@@ -872,8 +874,9 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 	// These tests delete the existing DPUSet created in the beginning of the testing suite, and create a DPUDeployment
 	// instead. The DPUDeployment should not be removed until all the tests in the e2e suite are run as the DPUs will be
 	// deleted.
-	// OCP selects only the Ready spec (and therefore this container's BeforeAll).
-	// Unlabeled disruptive-upgrade Its stay out of the OCP filter.
+	// OCP selects Ready plus host-trusted drain disruptive-upgrade Its (and
+	// therefore this container's BeforeAll). Hold and in-cluster upgrades stay
+	// out of the OCP filter.
 	Context("Validate DPUDeployment full creation", Serial, Ordered, func() {
 		BeforeAll(func() {
 			By("Should validate DPUDeployment and underlying objects creation")
@@ -885,27 +888,29 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 		It("should validate DPUDeployment becomes ready", Labels{Domain.ZeroTrust, Domain.RequiresNodes, Domain.OCP}, func() {
 			VerifyDPUDeploymentIsReady(ctx, input)
 		})
-		It("should validate DPUDeployment disruptive upgrade of standard DPUServices", Labels{Domain.ZeroTrust}, func() {
+		It("should validate DPUDeployment disruptive upgrade of standard DPUServices", Labels{Domain.ZeroTrust, Domain.RequiresNodes, Domain.OCP}, func() {
 			if isGinkgoLabelApplied(Domain.ZeroTrust) {
 				ValidateDPUDeploymentDPUServiceDisruptiveUpgradeHold(ctx, input)
 			} else {
 				ValidateDPUDeploymentDPUServiceDisruptiveUpgradeDrain(ctx, input)
 			}
 		})
-		It("should validate DPUDeployment disruptive upgrade of standard DPUServices with bad configuration", func() {
+		It("should validate DPUDeployment disruptive upgrade of standard DPUServices with bad configuration", Labels{Domain.RequiresNodes, Domain.OCP}, func() {
 			ValidateDPUDeploymentDPUServiceDisruptiveUpgradeBadConfigurationAndBack(ctx, input)
 		})
 		It("should validate DPUDeployment disruptive upgrade of in-cluster DPUServices", func() {
 			ValidateDPUDeploymentInClusterDPUServiceDisruptiveUpgrade(ctx, input)
 		})
-		It("should validate DPUDeployment disruptive upgrade of DPUServiceChain", Labels{Domain.ZeroTrust}, func() {
+		It("should validate DPUDeployment disruptive upgrade of DPUServiceChain", Labels{Domain.ZeroTrust, Domain.RequiresNodes, Domain.OCP}, func() {
 			if isGinkgoLabelApplied(Domain.ZeroTrust) {
 				ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeHold(ctx, input)
 			} else {
 				ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeDrain(ctx, input)
 			}
 		})
-		It("should validate DPUDeployment disruptive upgrade of DPUServiceChain with bad configuration", func() {
+		// OCP rewrites the DPUDeployment chain to a single serviceInterface
+		// uplink port; this spec panics writing Ports[0].Service.InterfaceName.
+		It("should validate DPUDeployment disruptive upgrade of DPUServiceChain with bad configuration", Labels{Domain.RequiresNodes}, func() {
 			ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeBadConfigurationAndBack(ctx, input)
 		})
 	})

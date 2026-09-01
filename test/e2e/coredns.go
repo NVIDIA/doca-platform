@@ -43,6 +43,12 @@ import (
 // name the resolver of the host cluster nodes can answer.
 const externalDNSName = "google.com"
 
+// OpenShift DNS operator Service that kubelet uses as cluster DNS on an OCP DPU cluster.
+const (
+	ocpDNSServiceName      = "dns-default"
+	ocpDNSServiceNamespace = "openshift-dns"
+)
+
 var tenantControlPlaneGVK = schema.GroupVersionKind{
 	Group:   "kamaji.clastix.io",
 	Version: "v1alpha1",
@@ -230,6 +236,16 @@ func VerifyDPUClusterServesOwnDNS(ctx context.Context, input *systemTestInput) {
 	}
 }
 
+// dpuClusterDNSServiceKey is the DNS Service kubelet hands Pods in this DPU cluster.
+// Kamaji clusters keep the kubeadm kube-dns ClusterIP; OpenShift uses the DNS operator
+// Service instead.
+func dpuClusterDNSServiceKey() client.ObjectKey {
+	if isGinkgoLabelApplied(Domain.OCP) {
+		return client.ObjectKey{Name: ocpDNSServiceName, Namespace: ocpDNSServiceNamespace}
+	}
+	return client.ObjectKey{Name: kamaji.KubeDNSServiceName, Namespace: metav1.NamespaceSystem}
+}
+
 // ValidateDPUClusterDNSResolution resolves a Service name from inside a DPU cluster Pod. This is the
 // end to end check, and it applies whichever CoreDNS answers: it only passes if kubelet hands Pods
 // the DNS Service ClusterIP and something is actually serving that address.
@@ -238,13 +254,8 @@ func ValidateDPUClusterDNSResolution(ctx context.Context, input *systemTestInput
 		dpuCluster := input.dpuClusters[i]
 		By(fmt.Sprintf("Resolving a Service name from a Pod in DPU cluster %s", dpuCluster.Name))
 
-		// Moving DNS to the host cluster deliberately keeps the ClusterIP kubeadm configured
-		// kubelet with, so nothing on an already provisioned DPU has to be reconfigured.
 		dnsService := &corev1.Service{}
-		Expect(dpuClient.Get(ctx, client.ObjectKey{
-			Name:      kamaji.KubeDNSServiceName,
-			Namespace: metav1.NamespaceSystem,
-		}, dnsService)).To(Succeed())
+		Expect(dpuClient.Get(ctx, dpuClusterDNSServiceKey(), dnsService)).To(Succeed())
 
 		podName := "coredns-resolution-check"
 		pod := generateDNSTestPod(podName)
