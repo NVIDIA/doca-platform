@@ -31,7 +31,7 @@ var componentIntroducedVersions = map[operatorv1.ComponentName]string{
 	operatorv1.KubeStateMetricsName:       "v26.4.0",
 	operatorv1.NodeProblemDetectorName:    "v26.4.0",
 	operatorv1.OpenTelemetryCollectorName: "v26.4.0",
-	operatorv1.KataContainersName:         "v26.8.0",
+	operatorv1.KataContainersName:         "v26.4.1",
 	operatorv1.VaultKMSName:               "v26.8.0",
 	operatorv1.DPUMonitoringName:          "v26.8.0",
 	operatorv1.SPIFFECSIDriverName:        "v26.8.0",

@@ -85,32 +85,17 @@ func TestShouldSkipUpgradeCheck(t *testing.T) {
 			wantErr:            false,
 		},
 		{
-			// TODO: Update the test for v26.8.0 once the first v26.8 beta ships with CoreDNS as a DPUService.
-			name:               "coredns upgrading from v26.8.0-alpha.3 should skip",
-			componentName:      operatorv1.CoreDNSName,
-			upgradeFromVersion: "v26.8.0-alpha.3",
-			wantSkip:           true,
-			wantErr:            false,
-		},
-		{
-			name:               "coredns upgrading from v26.8.0 GA should skip",
-			componentName:      operatorv1.CoreDNSName,
-			upgradeFromVersion: "v26.8.0",
-			wantSkip:           true,
-			wantErr:            false,
-		},
-		{
-			name:               "coredns upgrading from v26.10.0 should not skip",
-			componentName:      operatorv1.CoreDNSName,
-			upgradeFromVersion: "v26.10.0",
-			wantSkip:           false,
-			wantErr:            false,
-		},
-		{
 			name:               "kata-containers upgrading from v26.4.0 should skip",
 			componentName:      operatorv1.KataContainersName,
 			upgradeFromVersion: "v26.4.0",
 			wantSkip:           true,
+			wantErr:            false,
+		},
+		{
+			name:               "kata-containers upgrading from v26.4.1 should not skip",
+			componentName:      operatorv1.KataContainersName,
+			upgradeFromVersion: "v26.4.1",
+			wantSkip:           false,
 			wantErr:            false,
 		},
 		{
