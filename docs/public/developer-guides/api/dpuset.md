@@ -266,6 +266,33 @@ spec:
           effect: NoSchedule
 ```
 
+## Force Firmware Update
+
+During BF4 provisioning in Zero Trust mode, DPF normally compares the installed
+firmware versions with the PLDM bundle configured by the `BlueFieldSoftware` and
+skips the update when they match. To submit the bundle without that comparison
+and set the Redfish `ForceUpdate` option, add the
+`provisioning.dpu.nvidia.com/force-fw-update` annotation to the DPU template:
+
+```yaml
+spec:
+  dpuTemplate:
+    annotations:
+      provisioning.dpu.nvidia.com/force-fw-update: "true"
+```
+
+This option allows intentional firmware downgrades that would otherwise be
+rejected by the ERoT comparison-stamp check. Because it bypasses the version
+comparison, it can also reflash matching firmware and add an update and reboot
+to provisioning.
+
+The annotation is copied to a DPU when that DPU is created. Adding it to a
+`DPUSet` after DPUs already exist does not update those DPU objects or trigger
+reprovisioning. When using a `DPUDeployment`, set the same key under
+`spec.dpus.dpuSets[].dpuAnnotations`; the DPUDeployment controller propagates it
+to the generated DPUSet. The annotation is consumed only by the BF4 Redfish
+firmware update path.
+
 ## Secure Boot
 
 The DPUSet template supports an optional `secureBoot` field that controls whether UEFI Secure Boot should be enabled
