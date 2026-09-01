@@ -22,8 +22,8 @@ github.com/Masterminds/sprig/v3 v3.3.0 h1:mQh0Yrg1XPo6vjYXgtf5OtijNAKJRNcTdOOGZe
 github.com/Masterminds/sprig/v3 v3.3.0/go.mod h1:Zy1iXRYNqNLUolqCpL4uhk6SHUMAOSCzdgBfDb35Lz0=
 github.com/Mellanox/maintenance-operator/api v0.4.0 h1:6amxdFiUlwudPf/089cP2GfAvPf8wSlvcJr/ob+o/Ig=
 github.com/Mellanox/maintenance-operator/api v0.4.0/go.mod h1:7U6WtZgQtSQwXO1hK7Ct0LUeMTWBbjXY9bRMs590iiQ=
-github.com/Mellanox/nic-configuration-operator v1.3.2-0.20260713095731-77a61397f2bb h1:hS8aJ4ES7Gb2Bc2tvlnDpHCmY0T9mjxvxfNpBkS0gwg=
-github.com/Mellanox/nic-configuration-operator v1.3.2-0.20260713095731-77a61397f2bb/go.mod h1:01Y3PHbSk8CS+jnnWFaXLYHHzDRZr3LdHOopjtjBOgg=
+github.com/Mellanox/nic-configuration-operator v1.3.2-0.20260901135851-f766389b2359 h1:rlEuHWdecDZBxvdygYhzMpuE7kV7/tcDQYRZ6S7x1UQ=
+github.com/Mellanox/nic-configuration-operator v1.3.2-0.20260901135851-f766389b2359/go.mod h1:1jn6R3nvpukAsYSgqqwn7kUcTGWU3VKOtI0PIgARkJQ=
 github.com/Mellanox/rdmamap v1.2.0 h1:RMqfZIwIWI/gCjFSDi2zZTlZZ3n0LFNwp2DIBAyT2Xw=
 github.com/Mellanox/rdmamap v1.2.0/go.mod h1:j3WvTNr3OHINDyUtJtAFhqB0ZTG3n9ZN0dVgKcxBUlM=
 github.com/Microsoft/go-winio v0.6.2 h1:F2VQgta7ecxGYO8k3ZZz3RS8fVIXVxONVUPlNERoyfY=
@@ -210,8 +210,8 @@ github.com/inconshreveable/mousetrap v1.1.0 h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2
 github.com/inconshreveable/mousetrap v1.1.0/go.mod h1:vpF70FUmC8bwa3OWnCshd2FqLfsEA9PFc4w1p2J65bw=
 github.com/j-keck/arping v1.0.3 h1:aeVk5WnsK6xPaRsFt5wV6W2x5l/n5XBNp0MMr/FEv2k=
 github.com/j-keck/arping v1.0.3/go.mod h1:aJbELhR92bSk7tp79AWM/ftfc90EfEi2bQJrbBFOsPw=
-github.com/jaypipes/ghw v0.24.0 h1:6RBrJzvHvZ0t+hSvqPmOd5b21C4fMsyiyFzWljEj8Wg=
-github.com/jaypipes/ghw v0.24.0/go.mod h1:Qk3UjdH8Xu/OiVyb/eDJqnDsUc+awHU75y23ErZU33s=
+github.com/jaypipes/ghw v0.25.0 h1:+7HlAHtQSrCOafYC6oRjqxuCzDZXBr2dFgVlYRRafrs=
+github.com/jaypipes/ghw v0.25.0/go.mod h1:Qk3UjdH8Xu/OiVyb/eDJqnDsUc+awHU75y23ErZU33s=
 github.com/jaypipes/pcidb v1.1.1 h1:QmPhpsbmmnCwZmHeYAATxEaoRuiMAJusKYkUncMC0ro=
 github.com/jaypipes/pcidb v1.1.1/go.mod h1:x27LT2krrUgjf875KxQXKB0Ha/YXLdZRVmw6hH0G7g8=
 github.com/jessevdk/go-flags v1.4.0/go.mod h1:4FA24M0QyGHXBuZZK/XkWh8h0e1EYbRYJSGM75WSRxI=
