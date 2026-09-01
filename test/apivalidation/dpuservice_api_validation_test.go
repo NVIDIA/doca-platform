@@ -504,31 +504,33 @@ var _ = Describe("API Validations for DPUDeployment related objects", func() {
 			Entry("multiple actions", provisioningv1.Action{NoEffect: ptr.To(true), Hold: ptr.To(true)}, true),
 		)
 
-		It("should not create the DPUDeployment if system annotations are present", func() {
+		DescribeTable("validates DPU annotations", func(annotationKey string, expectSuccess bool) {
 			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
 			dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
 			dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{
 				{
 					NameSuffix: "dpuset1",
 					DPUAnnotations: map[string]string{
-						"dpu.nvidia.com": "not allowed",
+						annotationKey: "annotationValue",
 					},
 				},
 			}
-			Expect(testClient.Create(ctx, dpuDeployment)).ToNot(Succeed())
-			dpuDeployment.Spec.DPUs.DPUSets[0].DPUAnnotations = map[string]string{
-				"annKey": "annVal",
+
+			err := testClient.Create(ctx, dpuDeployment)
+			if expectSuccess {
+				Expect(err).NotTo(HaveOccurred())
+				return
 			}
-			Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
-			dpuDeployment.Spec.DPUs.DPUSets[0].DPUAnnotations = map[string]string{
-				"anything.dpu.nvidia.com": "not allowed",
-			}
-			Expect(testClient.Create(ctx, dpuDeployment)).ToNot(Succeed())
-			dpuDeployment.Spec.DPUs.DPUSets[0].DPUAnnotations = map[string]string{
-				"anything.dpu.nvidia.com/anything": "not allowed",
-			}
-			Expect(testClient.Create(ctx, dpuDeployment)).ToNot(Succeed())
-		})
+			Expect(err).To(MatchError(ContainSubstring("should not contain dpu.nvidia.com/ and should not end with dpu.nvidia.com")))
+		},
+			Entry("allows an ordinary annotation", "annKey", true),
+			Entry("allows a node resources annotation", "noderesources.dpu.nvidia.com/nodesriovdevicepluginconfig", true),
+			Entry("allows the force firmware update annotation", "provisioning.dpu.nvidia.com/force-fw-update", true),
+			Entry("rejects the bare reserved domain", "dpu.nvidia.com", false),
+			Entry("rejects a reserved subdomain", "anything.dpu.nvidia.com", false),
+			Entry("rejects an annotation in a reserved subdomain", "anything.dpu.nvidia.com/anything", false),
+			Entry("rejects other provisioning annotations", "provisioning.dpu.nvidia.com/anything", false),
+		)
 		It("should not create the DPUDeployment if name exceeds the maximum length", func() {
 			dpuDeployment := getMinimalDPUDeployment(testNS.Name)
 			dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")

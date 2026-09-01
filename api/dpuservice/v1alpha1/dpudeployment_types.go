@@ -219,7 +219,7 @@ type DPUs struct {
 }
 
 // DPUSet contains configuration for the DPUSet to be created by the DPUDeployment
-// +kubebuilder:validation:XValidation:rule="!(has(self.dpuAnnotations) && (self.dpuAnnotations.exists(key, (key.contains('dpu.nvidia.com/') || key.endsWith('dpu.nvidia.com')) && !key.startsWith('noderesources.dpu.nvidia.com'))))", message="should not contain dpu.nvidia.com/ and should not end with dpu.nvidia.com"
+// +kubebuilder:validation:XValidation:rule="!(has(self.dpuAnnotations) && (self.dpuAnnotations.exists(key, (key.contains('dpu.nvidia.com/') || key.endsWith('dpu.nvidia.com')) && !key.startsWith('noderesources.dpu.nvidia.com') && key != 'provisioning.dpu.nvidia.com/force-fw-update')))", message="should not contain dpu.nvidia.com/ and should not end with dpu.nvidia.com"
 // +kubebuilder:validation:XValidation:rule="!(has(self.nodeSelector) && has(self.dpuNodeSelector))", message="only one of nodeSelector or dpuNodeSelector can be specified"
 // +kubebuilder:validation:XValidation:rule="!(has(self.dpuSelector) && has(self.dpuDeviceSelector))", message="only one of dpuSelector or dpuDeviceSelector can be specified"
 type DPUSet struct {
