@@ -332,9 +332,14 @@ var _ = Describe("DPUAgent", func() {
 			Expect(names).To(ContainElement("Handle Reboot"))
 			Expect(names).To(ContainElement("Start Kubelet"))
 			Expect(names).To(ContainElement("Report Node Labels"))
+			Expect(names).To(ContainElement("Configure Network"))
+			Expect(names).To(ContainElement("Run OVS Script"))
+			Expect(names).To(ContainElement("Set Netplan Underlay MTU"))
 			Expect(indexOf(names, "Verify Static Files")).To(BeNumerically("<", indexOf(names, "Install Packages")))
 			Expect(indexOf(names, "Install Packages")).To(BeNumerically("<", indexOf(names, "Handle Reboot")))
 			Expect(indexOf(names, "Start Kubelet")).To(BeNumerically("<", indexOf(names, "Report Node Labels")))
+			Expect(indexOf(names, "Configure Network")).To(BeNumerically("<", indexOf(names, "Run OVS Script")))
+			Expect(indexOf(names, "Run OVS Script")).To(BeNumerically("<", indexOf(names, "Set Netplan Underlay MTU")))
 		})
 
 		It("should execute operations in order", func() {
