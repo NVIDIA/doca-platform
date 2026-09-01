@@ -23,7 +23,6 @@ import (
 
 	"github.com/nvidia/doca-platform/cmd/dpuagent/opts"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
-	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -35,22 +34,11 @@ import (
 
 var _ = Describe("Netplan", func() {
 	var tempDir string
-	discoverOnePort := func(_ pciutil.PortScope) ([]pciutil.NICPort, error) { //nolint:unparam
-		return []pciutil.NICPort{
-			{Netdev: "p0", PCIAddress: "0000:00:00.0"},
-		}, nil
-	}
 
 	BeforeEach(func() {
 		var err error
 		tempDir, err = os.MkdirTemp("", "netplan-test-*")
 		Expect(err).NotTo(HaveOccurred())
-		Expect(os.MkdirAll(filepath.Join(tempDir, "bus/pci/devices/0000:00:00.0"), 0755)).To(Succeed())
-		Expect(os.WriteFile(filepath.Join(tempDir, "bus/pci/devices/0000:00:00.0/device"), []byte("0xa2dc\n"), 0644)).To(Succeed())
-		Expect(os.MkdirAll(filepath.Join(tempDir, "bus/pci/devices/0000:00:00.0/net"), 0755)).To(Succeed())
-		Expect(os.WriteFile(filepath.Join(tempDir, "bus/pci/devices/0000:00:00.0/net/eth0"), []byte(""), 0644)).To(Succeed())
-		Expect(os.WriteFile(filepath.Join(tempDir, "bus/pci/devices/0000:00:00.0/vpd"), []byte(""), 0644)).To(Succeed())
-		Expect(os.WriteFile(filepath.Join(tempDir, "bus/pci/devices/0000:00:00.0/mtu"), []byte("9000"), 0644)).To(Succeed())
 	})
 
 	AfterEach(func() {
@@ -81,15 +69,11 @@ var _ = Describe("Netplan", func() {
 					applied = true
 					return nil
 				},
-				listPFRepsFunc: func() ([]string, error) {
-					return nil, nil
-				},
 			}
 			Expect(operation.Execute(ctx, &operations.Context{
 				Options: opts.Options{
 					ZeroTrustMode: true,
 				},
-				DiscoverPorts: discoverOnePort,
 			})).To(Succeed())
 
 			_, err = os.Stat(mockFile)
@@ -112,9 +96,6 @@ var _ = Describe("Netplan", func() {
 			_, err = os.Stat(filepath.Join(tempDir, "99-dpf-comm-ch.yaml"))
 			Expect(os.IsNotExist(err)).To(BeTrue())
 
-			_, err = os.Stat(filepath.Join(tempDir, "97-pf-mtu.yaml"))
-			Expect(err).NotTo(HaveOccurred())
-
 			Expect(applied).To(BeTrue())
 
 		})
@@ -133,15 +114,11 @@ var _ = Describe("Netplan", func() {
 					applied = true
 					return nil
 				},
-				listPFRepsFunc: func() ([]string, error) {
-					return nil, nil
-				},
 			}
 			Expect(operation.Execute(ctx, &operations.Context{
 				Options: opts.Options{
 					ZeroTrustMode: false,
 				},
-				DiscoverPorts: discoverOnePort,
 			})).To(Succeed())
 
 			_, err = os.Stat(mockFile)
@@ -163,45 +140,6 @@ var _ = Describe("Netplan", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(string(content)).To(ContainSubstring("pf0vf0"))
 
-			_, err = os.Stat(filepath.Join(tempDir, "97-pf-mtu.yaml"))
-			Expect(err).NotTo(HaveOccurred())
-
-			Expect(applied).To(BeTrue())
-		})
-
-		It("[BF4] should create PF MTU config for N/S uplinks and PF representors", func() {
-			applied := false
-			operation := &ConfigureNetwork{
-				netplanRoot: tempDir,
-				applyNetplanFunc: func() error {
-					applied = true
-					return nil
-				},
-				listPFRepsFunc: func() ([]string, error) {
-					return []string{"B21c1pf0", "B61c1pf1", "B21c2pf0", "B61c2pf1"}, nil
-				},
-			}
-			Expect(operation.Execute(ctx, &operations.Context{
-				Options: opts.Options{ZeroTrustMode: true},
-				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
-					return []pciutil.NICPort{
-						{Netdev: "p0", PCIAddress: "0000:00:00.0"},
-						{Netdev: "p1", PCIAddress: "0000:00:00.1"},
-					}, nil
-				},
-			})).To(Succeed())
-
-			content, err := os.ReadFile(filepath.Join(tempDir, "97-pf-mtu.yaml"))
-			Expect(err).NotTo(HaveOccurred())
-			Expect(string(content)).To(ContainSubstring("p0:"))
-			Expect(string(content)).To(ContainSubstring("p1:"))
-			Expect(string(content)).To(ContainSubstring("B21c1pf0:"))
-			Expect(string(content)).To(ContainSubstring("B61c1pf1:"))
-			Expect(string(content)).To(ContainSubstring("B21c2pf0:"))
-			Expect(string(content)).To(ContainSubstring("B61c2pf1:"))
-			Expect(string(content)).NotTo(ContainSubstring("pf0hpf:"))
-			Expect(string(content)).NotTo(ContainSubstring("pf1hpf:"))
-			Expect(string(content)).NotTo(ContainSubstring("p2:"))
 			Expect(applied).To(BeTrue())
 		})
 

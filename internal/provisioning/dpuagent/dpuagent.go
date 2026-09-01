@@ -49,6 +49,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/staticfiles"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/sysctl"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/systemd"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/underlaymtu"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/vfmac"
 	dpuutil "github.com/nvidia/doca-platform/internal/provisioning/dpuagent/util"
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
@@ -111,6 +112,7 @@ func NewDPUAgent(optCtx *operations.Context) *DPUAgent {
 		&sfconfig.CreateSF{},
 		&vfmac.SetVFMac{},
 		&ovsscript.RunOVSScript{},
+		&underlaymtu.SetNetplanUnderlayMTU{},
 		&checkbridge.CheckBridge{},
 		&kubelet.ConfigureKubelet{},
 		&kubelet.StartKubelet{},

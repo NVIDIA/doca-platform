@@ -26,14 +26,12 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/filesystem"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/netplan"
-	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
 
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 )
 
 const (
-	PFMTU              = 9216
 	defaultNetplanRoot = "/etc/netplan"
 
 	// tmfifoIPv6 is the fixed IPv6 link-local address for the tmfifo_net0 interface on the DPU.
@@ -69,7 +67,6 @@ func (c *CheckNetwork) Execute(execCtx context.Context, optCtx *operations.Conte
 type ConfigureNetwork struct {
 	netplanRoot      string
 	applyNetplanFunc func() error
-	listPFRepsFunc   func() ([]string, error)
 }
 
 func (n *ConfigureNetwork) Name() string {
@@ -106,9 +103,6 @@ func (n *ConfigureNetwork) configNetplan(ctx *operations.Context) error {
 		if err := n.setBridgeCommCh(ctx.Options.ControlPlaneMTU); err != nil {
 			return fmt.Errorf("failed to create 99-dpf-comm-ch.yaml: %w", err)
 		}
-	}
-	if err := n.setPFMTU(ctx); err != nil {
-		return fmt.Errorf("failed to create 97-pf-mtu.yaml: %w", err)
 	}
 	klog.Infof("Successfully created all netplan files")
 	if n.applyNetplanFunc == nil {
@@ -193,45 +187,6 @@ func (n *ConfigureNetwork) setBridgeCommCh(cpMTU int32) error {
 				},
 			},
 		},
-	}
-	return config.WriteToFile(name)
-}
-
-func (n *ConfigureNetwork) setPFMTU(ctx *operations.Context) error {
-	ports, err := ctx.NSPorts()
-	if err != nil {
-		return err
-	}
-	listPFReps := pciutil.DefaultPortDiscoverer.DiscoverNSPFRepresentors
-	if n.listPFRepsFunc != nil {
-		listPFReps = n.listPFRepsFunc
-	}
-	pfReps, err := listPFReps()
-	if err != nil {
-		return err
-	}
-
-	name := filepath.Join(n.netplanRoot, "97-pf-mtu.yaml")
-	config := &netplan.Config{
-		Network: netplan.Network{
-			Version:  2,
-			Renderer: "networkd",
-		},
-	}
-
-	pfs := make([]string, 0, len(ports)+len(pfReps))
-	for _, port := range ports {
-		pfs = append(pfs, port.Netdev)
-	}
-	pfs = append(pfs, pfReps...)
-
-	for _, pf := range pfs {
-		if config.Network.Ethernets == nil {
-			config.Network.Ethernets = make(map[string]netplan.Ethernet)
-		}
-		config.Network.Ethernets[pf] = netplan.Ethernet{
-			MTU: ptr.To(int32(PFMTU)),
-		}
 	}
 	return config.WriteToFile(name)
 }
