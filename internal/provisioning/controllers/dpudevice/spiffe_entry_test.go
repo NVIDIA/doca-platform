@@ -201,12 +201,27 @@ var _ = Describe("SPIFFE ClusterStaticEntry reconcile", func() {
 		Expect(spiffeID).To(Equal("spiffe://cs.internal/tenant/dummy-operator/service/dsx/dpu/mt2440600yyw/process/dpu-agent"))
 		Expect(parentID).To(Equal("spiffe://cs.internal/spire/agent/dpu_hw/mt2440600yyw"))
 		Expect(className).To(Equal(testClassName))
+		Expect(cse.Spec.Selectors).To(Equal([]string{"unix:uid:0", "systemd:id:spiffe-helper.service"}))
 		Expect(cse.GetLabels()).To(HaveKeyWithValue(LabelDPUDeviceName, "dev-1"))
 
 		cond := conditions.Get(dpuDevice, provisioningv1.ConditionSPIFFEEntryReady)
 		Expect(cond).NotTo(BeNil())
 		Expect(cond.Status).To(Equal(metav1.ConditionFalse))
 		Expect(cond.Reason).To(Equal(string(conditions.ReasonPending)))
+	})
+
+	It("preserves selectors on an existing ClusterStaticEntry", func() {
+		cfg := spiffeConfig(true)
+		dpuDevice.Finalizers = []string{provisioningv1.SPIFFEDeregistrationFinalizer}
+		cse := &spirev1alpha1.ClusterStaticEntry{ObjectMeta: metav1.ObjectMeta{Name: testCSEName}}
+		cse.Spec.Selectors = []string{"unix:uid:0"}
+		build(cfg, dpuBoundTo(ptr.To(provisioningv1.IdentityModeSpiffe)), cse)
+
+		Expect(reconciler.reconcileSPIFFEEntry(ctx, dpuDevice, cfg)).To(Succeed())
+
+		cse, err := getCSE(ctx, reconciler.Client)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(cse.Spec.Selectors).To(Equal([]string{"unix:uid:0"}))
 	})
 
 	It("reports Error (no requeue) for an unrepresentable serial", func() {
