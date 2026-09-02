@@ -89,8 +89,6 @@ spec:
         - name: LAG_RESOURCE_ALLOCATION
           value: "1"
         # Port configuration: breakout, HW plane configuration and link related
-        - name: NUM_OF_PF
-          value: "2"
         - name: MODULE_SPLIT_M0[0]
           value: "1"
         - name: MODULE_SPLIT_M0[1]
