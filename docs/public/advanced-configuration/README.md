@@ -14,7 +14,7 @@ This page contains advanced configuration documentation for the DOCA Platform Fr
 * [Zero Trust Advanced Configuration](zero-trust-advanced-configuration.md) - Advanced configuration for the DPF Zero Trust
 * [Provisioning CA Certificate Rotation](ca-certificate-rotation.md) - Runbook for rotating the provisioning CA with dual-trust convergence checks on BMC and DPU sides
 * [External Certificate Authority](external-certificate-authority.md) - Chaining the certificates of DPF to a cert-manager issuer you own instead of the self-signed DPF root
-* [SPIFFE DPU Agent Identity](spiffe-dpu-agent-identity.md) - Configuration for authenticating the DPU Agent to the management cluster with a SPIRE-issued JWT-SVID instead of a bootstrap token
+* [SPIFFE Workload Identity](spiffe-identity.md) - Configuration for authenticating the DPU Agent to the management cluster with a SPIRE-issued JWT-SVID, and for giving DPUServices their own SPIRE identities, instead of bootstrap tokens
 * [Hostless DPU Provisioning](hostless-dpu-provisioning.md) - Configuration for provisioning DPUs without host-side discovery or host-side reboot handling
 * [Secondary Network support for HBN-OVNK use case](secondary-networks/README.md) - Documentation for enabling secondary network support for Host Based Networking and OVN Kubernetes
 * [Host Trusted Multi-DPU support OVN-Kubernetes and HBN Services](multi-dpu-ovnk-hbn.md) - Guide that describes how to target particular DPUs for provisioning and service orchestration of OVN-Kubernetes and HBN Services.
