@@ -109,6 +109,8 @@ const (
 	DPUCondFWConfigured           DPUConditionType = "FWConfigured"
 	DPUCondFwBundleSubmitted      DPUConditionType = "FwBundleSubmitted"
 	DPUCondFwBundleUpdated        DPUConditionType = "FwBundleUpdated"
+	DPUCondFwBundleActivated      DPUConditionType = "FwBundleActivated"
+	DPUCondFwBundleArmShutdown    DPUConditionType = "FwBundleArmShutdown"
 	DPUCondBFBTransferred         DPUConditionType = "BFBTransferred"
 	DPUCondIsoTransferred         DPUConditionType = "IsoTransferred"
 	DPUCondConfigTransferred      DPUConditionType = "ConfigTransferred"
