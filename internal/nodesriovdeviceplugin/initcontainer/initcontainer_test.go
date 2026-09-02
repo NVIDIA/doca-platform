@@ -90,12 +90,23 @@ func (m *mockSysfs) addPF(pciAddr, serialNumber string, totalVFs int) {
 	err = os.WriteFile(filepath.Join(pfPath, "vpd"), vpdData, 0644)
 	Expect(err).NotTo(HaveOccurred())
 
-	// Write sriov_totalvfs
+	// Write SR-IOV VF counts.
 	if totalVFs > 0 {
 		err = os.WriteFile(filepath.Join(pfPath, "sriov_totalvfs"),
 			[]byte(fmt.Sprintf("%d", totalVFs)), 0644)
 		Expect(err).NotTo(HaveOccurred())
+		err = os.WriteFile(filepath.Join(pfPath, "sriov_numvfs"), []byte("0"), 0644)
+		Expect(err).NotTo(HaveOccurred())
 	}
+}
+
+// setNumVFs sets the number of enabled VFs for a mock PF.
+//
+//nolint:unparam
+func (m *mockSysfs) setNumVFs(pfAddr string, numVFs int) {
+	err := os.WriteFile(filepath.Join(m.root, "bus/pci/devices", pfAddr, "sriov_numvfs"),
+		[]byte(fmt.Sprintf("%d", numVFs)), 0644)
+	Expect(err).NotTo(HaveOccurred())
 }
 
 // addVF adds a mock VF by creating virtfn symlink from PF.
@@ -306,13 +317,13 @@ var _ = Describe("Init Container", func() {
 		AfterEach(func() {
 			mock.cleanup()
 		})
-		It("should return true when PF has VF", func() {
+		It("should return true when sriov_numvfs is non-zero", func() {
 			mock.addPF("0000:b1:00.0", "SN1234", 64)
-			mock.addVF("0000:b1:00.0", 0, "0000:b1:02.0")
+			mock.setNumVFs("0000:b1:00.0", 1)
 
 			Expect(pfHasVFs(mock.root, "0000:b1:00.0")).To(BeTrue())
 		})
-		It("should return false when PF has no VFs", func() {
+		It("should return false when sriov_numvfs is zero", func() {
 			mock.addPF("0000:b1:00.0", "SN1234", 64)
 
 			Expect(pfHasVFs(mock.root, "0000:b1:00.0")).To(BeFalse())
@@ -1092,7 +1103,7 @@ var _ = Describe("Init Container", func() {
 		})
 		It("should generate config for valid input", func() {
 			mock.addPF("0000:b1:00.0", "SN1234", 64)
-			mock.addVF("0000:b1:00.0", 0, "0000:b1:02.0")
+			mock.setNumVFs("0000:b1:00.0", 5)
 
 			inputConfig := common.NodeInputConfig{
 				"SN1234": {{
@@ -1237,9 +1248,9 @@ var _ = Describe("Init Container", func() {
 		AfterEach(func() {
 			mock.cleanup()
 		})
-		It("should succeed on first attempt when VFs are already ready", func() {
+		It("should succeed on first attempt when sriov_numvfs is non-zero", func() {
 			mock.addPF("0000:b1:00.0", "SN1234", 64)
-			mock.addVF("0000:b1:00.0", 0, "0000:b1:02.0")
+			mock.setNumVFs("0000:b1:00.0", 16)
 
 			inputConfig := common.NodeInputConfig{
 				"SN1234": {{
@@ -1259,9 +1270,9 @@ var _ = Describe("Init Container", func() {
 				DevicePluginResourcesConfig: inputConfig["SN1234"],
 			}}))
 		})
-		It("should retry and succeed when VFs appear after polling", func() {
-			// Initially add PF without VFs
+		It("should wait for sriov_numvfs to become non-zero", func() {
 			mock.addPF("0000:b1:00.0", "SN1234", 64)
+			mock.addVF("0000:b1:00.0", 0, "0000:b2:00.0")
 
 			inputConfig := common.NodeInputConfig{
 				"SN1234": {{
@@ -1270,6 +1281,11 @@ var _ = Describe("Init Container", func() {
 					Ranges: []noderesourcesv1.FunctionRange{{PFIndex: 0}},
 				}},
 			}
+			_, notReadyReasons, err := tryDiscoverDPUsAndCheckReadiness(mock.root,
+				getExpectedDPUsFromInputConfig(inputConfig))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(notReadyReasons).To(ConsistOf(
+				"DPU SN1234 PF0 (0000:b1:00.0): no VFs created yet"))
 
 			resCh := make(chan discoverResult, 1)
 			go func() {
@@ -1278,9 +1294,11 @@ var _ = Describe("Init Container", func() {
 				resCh <- discoverResult{dpuInfoList: dpuInfoList, err: err}
 			}()
 
-			// Wait for the ticker to be registered, then add VFs and advance time
+			// A VF link alone must not unblock discovery while sriov_numvfs is zero.
 			Eventually(fakeClock.HasWaiters).WithTimeout(testTimeout).Should(BeTrue())
-			mock.addVF("0000:b1:00.0", 0, "0000:b1:02.0")
+			Consistently(resCh).WithTimeout(testReadinessInterval).ShouldNot(Receive())
+
+			mock.setNumVFs("0000:b1:00.0", 1)
 			fakeClock.Step(testReadinessInterval)
 
 			var res discoverResult
@@ -1462,6 +1480,7 @@ var _ = Describe("Init Container", func() {
 		})
 		It("should require both VFs and SFs when both types are requested on the same PF", func() {
 			mock.addPF("0000:b1:00.0", "SN1234", 64)
+			mock.setNumVFs("0000:b1:00.0", 1)
 			mock.addVF("0000:b1:00.0", 0, "0000:b1:02.0")
 			mock.addSF("0000:b1:00.0", 2, 0)
 
