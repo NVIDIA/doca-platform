@@ -141,6 +141,7 @@ write_files:
         WorkloadAttestor "unix" {
           plugin_data {}
         }
+        WorkloadAttestor "systemd" {}
         # spire-k8s-workload-attestor
       }
 
