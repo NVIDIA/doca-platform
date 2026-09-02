@@ -218,6 +218,15 @@ mTLS bootstrap flow again and installs a fresh BMC server certificate.
 kubectl -n dpf-operator-system delete dpudevice $DPUDEVICE_NAME
 ```
 
+# DPU Agent SPIFFE Identity
+
+In Zero Trust mode the DPU Agent can authenticate to the management-cluster Kubernetes API server
+with a SPIRE-issued JWT-SVID instead of a kubeadm bootstrap token. This is opt-in through
+`DPFOperatorConfig.spec.security.spiffe` and requires a pre-installed SPIRE deployment.
+
+For the prerequisite contract, configuration, verification and troubleshooting, see
+[SPIFFE DPU Agent Identity](spiffe-dpu-agent-identity.md).
+
 # External Host Reboot
 
 In the Zero Trust scenario, DPF cannot manage the DPU's host machine, so the host reboot must be performed manually
