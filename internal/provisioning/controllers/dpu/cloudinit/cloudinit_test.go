@@ -503,6 +503,7 @@ users:
 		Expect(agentCfg.Content).To(ContainSubstring(`trust_bundle_format = "pem"`))
 		Expect(agentCfg.Content).To(ContainSubstring(`trust_bundle_path = "` + constants.SPIRETrustBundlePEMPath + `"`))
 		Expect(agentCfg.Content).To(ContainSubstring(`trust_bundle_format = "pem"`))
+		Expect(agentCfg.Content).To(ContainSubstring(`WorkloadAttestor "systemd"`))
 		Expect(agentCfg.Content).To(ContainSubstring("# spire-k8s-workload-attestor"))
 		Expect(agentCfg.Content).NotTo(ContainSubstring(`WorkloadAttestor "k8s"`))
 

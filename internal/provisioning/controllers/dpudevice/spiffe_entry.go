@@ -44,10 +44,10 @@ import (
 var clusterStaticEntryGVK = spirev1alpha1.SchemeGroupVersion.WithKind("ClusterStaticEntry")
 
 const (
-	// Phase A ClusterStaticEntry.spec defaults. selectors is intentionally a
-	// coarse uid:0 starter; it is hardened post-bake with unix:path + unix:sha256 selectors.
-	spiffeEntrySelectorUID0 = "unix:uid:0"
-	spiffeEntryHint         = "dpu-agent"
+	// spiffe-helper obtains the token consumed by dpu-agent, so bind the identity to its user and unit.
+	spiffeEntrySelectorUID     = "unix:uid:0"
+	spiffeEntrySelectorSystemd = "systemd:id:spiffe-helper.service"
+	spiffeEntryHint            = "dpu-agent"
 
 	// Labels stamped on each ClusterStaticEntry so a CR watch event can be mapped back to its
 	// owning DPUDevice (the CR is cluster-scoped and cannot carry a namespaced ownerReference).
@@ -140,6 +140,11 @@ func (r *DPUDeviceReconciler) reconcileSPIFFEEntry(ctx context.Context, dpuDevic
 		labels[LabelDPUDeviceName] = dpuDevice.Name
 		labels[LabelDPUDeviceNamespace] = dpuDevice.Namespace
 		cse.SetLabels(labels)
+		// Existing DPUs may not have the systemd workload attestor configured. Preserve their
+		// selectors; only entries created after the attestor rollout get the hardened pair.
+		if cse.GetResourceVersion() == "" {
+			cse.Spec.Selectors = []string{spiffeEntrySelectorUID, spiffeEntrySelectorSystemd}
+		}
 		setSpiffeEntrySpec(cse, spiffeID, parentID, className)
 		return nil
 	})
@@ -263,7 +268,6 @@ func setSpiffeEntrySpec(cse *spirev1alpha1.ClusterStaticEntry, spiffeID, parentI
 	cse.Spec.ClassName = className
 	cse.Spec.SPIFFEID = spiffeID
 	cse.Spec.ParentID = parentID
-	cse.Spec.Selectors = []string{spiffeEntrySelectorUID0}
 	cse.Spec.X509SVIDTTL = metav1.Duration{Duration: spire.EntryX509SVIDTTL}
 	cse.Spec.JWTSVIDTTL = metav1.Duration{Duration: spire.EntryJWTSVIDTTL}
 	cse.Spec.Hint = spiffeEntryHint
