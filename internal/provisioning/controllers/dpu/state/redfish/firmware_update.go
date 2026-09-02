@@ -288,6 +288,71 @@ func monitorTask(ctx context.Context, client *rc.Client, taskID string) (bool, e
 	return true, nil
 }
 
+func submitPldmFirmwareUpdate(ctx context.Context, state *provisioningv1.DPUStatus, client *rc.Client, pldmFwBundle string, force bool, cond *metav1.Condition) (provisioningv1.DPUStatus, error) {
+	logger := log.FromContext(ctx)
+
+	_, erotChassis, err := client.GetErotChassis()
+	if err != nil {
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToGetErotChassis", err.Error()))
+		return *state, err
+	}
+
+	nvidiaRaw, ok := erotChassis.Oem["Nvidia"]
+	if !ok || nvidiaRaw == nil {
+		err := errors.New("ERoT chassis is not found")
+		logger.Error(err, "ERoT chassis is not found")
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "ERoTChassisNotFound", err.Error()))
+		return *state, err
+	}
+	nvidiaOem, ok := nvidiaRaw.(map[string]interface{})
+	if !ok {
+		err := errors.New("ERoT chassis Nvidia OEM format is invalid")
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "ERoTChassisInvalidFormat", err.Error()))
+		return *state, err
+	}
+	statusRaw, ok := nvidiaOem["BackgroundCopyStatus"]
+	if !ok || statusRaw == nil {
+		err := errors.New("ERoT background copy status is not found")
+		logger.Error(err, "ERoT background copy status is not found")
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "ERoTBackgroundCopyStatusNotFound", err.Error()))
+		return *state, err
+	}
+	backgroundCopyStatus, ok := statusRaw.(string)
+	if !ok || backgroundCopyStatus == "" {
+		err := errors.New("ERoT background copy status format is invalid")
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "ERoTBackgroundCopyStatusInvalidFormat", err.Error()))
+		return *state, err
+	}
+	if backgroundCopyStatus != "Completed" {
+		logger.Info("ERoT background copy is not completed, waiting for it to complete")
+		return *state, nil
+	}
+
+	fwFile, err := os.Open(pldmFwBundle)
+	if err != nil {
+		err = fmt.Errorf("failed to open %s: %w", pldmFwBundle, err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToOpenComponent", err.Error()))
+		return *state, err
+	}
+	defer func() { _ = fwFile.Close() }()
+	resp, taskInfo, err := client.UpdateBluefieldFirmwareMultipart(fwFile, force)
+	if err != nil {
+		err = fmt.Errorf("failed to update PLDM firmware: %w", err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToUpdatePldmFwBundle", err.Error()))
+		return *state, err
+	}
+
+	if resp.StatusCode() != http.StatusAccepted {
+		err = fmt.Errorf("status code: %d is not Accepted", resp.StatusCode())
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToUpdateBMCFirmware", err.Error()))
+		return *state, err
+	}
+	state.RedfishTaskID = &taskInfo.ID
+	logger.Info(fmt.Sprintf("new pldm firmware update task: %+v", *taskInfo))
+	cutil.SetDPUCondition(state, cond)
+	return *state, nil
+}
+
 func updatePldmFwBundle(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext, pldmFwBundle string, force bool) (provisioningv1.DPUStatus, error) {
 	logger := log.FromContext(ctx)
 	state := dpu.Status.DeepCopy()
@@ -312,66 +377,7 @@ func updatePldmFwBundle(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 	cond := cutil.NewCondition(provisioningv1.DPUCondFwBundleSubmitted.String(), nil, "Submitting", "Submitting PLDM Firmware")
 	_, existingCond := cutil.GetDPUCondition(&dpu.Status, cond.Type)
 	if existingCond == nil || existingCond.Status != metav1.ConditionTrue {
-		_, erotChassis, err := client.GetErotChassis()
-		if err != nil {
-			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToGetErotChassis", err.Error()))
-			return *state, err
-		}
-
-		nvidiaRaw, ok := erotChassis.Oem["Nvidia"]
-		if !ok || nvidiaRaw == nil {
-			err := errors.New("ERoT chassis is not found")
-			logger.Error(err, "ERoT chassis is not found")
-			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "ERoTChassisNotFound", err.Error()))
-			return *state, err
-		}
-		nvidiaOem, ok := nvidiaRaw.(map[string]interface{})
-		if !ok {
-			err := errors.New("ERoT chassis Nvidia OEM format is invalid")
-			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "ERoTChassisInvalidFormat", err.Error()))
-			return *state, err
-		}
-		statusRaw, ok := nvidiaOem["BackgroundCopyStatus"]
-		if !ok || statusRaw == nil {
-			err := errors.New("ERoT background copy status is not found")
-			logger.Error(err, "ERoT background copy status is not found")
-			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "ERoTBackgroundCopyStatusNotFound", err.Error()))
-			return *state, err
-		}
-		backgroundCopyStatus, ok := statusRaw.(string)
-		if !ok || backgroundCopyStatus == "" {
-			err := errors.New("ERoT background copy status format is invalid")
-			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "ERoTBackgroundCopyStatusInvalidFormat", err.Error()))
-			return *state, err
-		}
-		if backgroundCopyStatus != "Completed" {
-			logger.Info("ERoT background copy is not completed, waiting for it to complete")
-			return *state, nil
-		}
-
-		fwFile, err := os.Open(pldmFwBundle)
-		if err != nil {
-			err = fmt.Errorf("failed to open %s: %w", pldmFwBundle, err)
-			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToOpenComponent", err.Error()))
-			return *state, err
-		}
-		defer func() { _ = fwFile.Close() }()
-		resp, taskInfo, err := client.UpdateBluefieldFirmwareMultipart(fwFile, force)
-		if err != nil {
-			err = fmt.Errorf("failed to update PLDM firmware: %w", err)
-			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToUpdatePldmFwBundle", err.Error()))
-			return *state, err
-		}
-
-		if resp.StatusCode() != http.StatusAccepted {
-			err = fmt.Errorf("status code: %d is not Accepted", resp.StatusCode())
-			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToUpdateBMCFirmware", err.Error()))
-			return *state, err
-		}
-		state.RedfishTaskID = &taskInfo.ID
-		logger.Info(fmt.Sprintf("new pldm firmware update task: %+v", *taskInfo))
-		cutil.SetDPUCondition(state, cond)
-		return *state, nil
+		return submitPldmFirmwareUpdate(ctx, state, client, pldmFwBundle, force, cond)
 	}
 
 	if state.RedfishTaskID == nil {
@@ -393,17 +399,38 @@ func updatePldmFwBundle(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToUpdatePldmFwBundle", err.Error()))
 		return *state, fmt.Errorf("failed to update PLDM firmware: %w", err)
 	} else if completed {
-		continueCondition := cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), nil, "Activated", "Activated Pending Bundle")
+		_, system, err := client.GetSystem()
+		if err != nil {
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToGetSystem", err.Error()))
+			return *state, err
+		}
+		if !isDPUArmPoweredOff(system) {
+			armShutdownCondition := cutil.NewCondition(provisioningv1.DPUCondFwBundleArmShutdown.String(), nil, "ArmShutdown", "Arming DPU for shutdown")
+			_, existingCond := cutil.GetDPUCondition(&dpu.Status, armShutdownCondition.Type)
+			if existingCond == nil || existingCond.Status != metav1.ConditionTrue {
+				_, err := client.ArmShutdown()
+				if err != nil {
+					cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToArmShutdown", err.Error()))
+					return *state, err
+				}
+				cutil.SetDPUCondition(state, armShutdownCondition)
+			}
+
+			logger.Info("Waiting for DPU Arm to shutdown")
+			return *state, nil
+		}
+
+		continueCondition := cutil.NewCondition(provisioningv1.DPUCondFwBundleActivated.String(), nil, "Activated", "Activated Pending Bundle")
 		_, existingCond := cutil.GetDPUCondition(&dpu.Status, continueCondition.Type)
 		if existingCond == nil || existingCond.Status != metav1.ConditionTrue {
 			resp, err := client.ActivatePendingBundle()
 			if err != nil {
-				cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToActivatePendingBundle", err.Error()))
+				cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleActivated.String(), err, "FailedToActivatePendingBundle", err.Error()))
 				return *state, err
 			}
 			if resp.StatusCode() != http.StatusOK {
 				activateErr := fmt.Errorf("unexpected status code from ActivatePendingBundle: %s", resp.Status())
-				cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), activateErr, "FailedToActivatePendingBundle", resp.Status()))
+				cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleActivated.String(), activateErr, "FailedToActivatePendingBundle", resp.Status()))
 				return *state, activateErr
 			}
 
@@ -413,20 +440,6 @@ func updatePldmFwBundle(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 			logger.Info("Pending bundle already activated")
 		}
 
-		_, system, err := client.GetSystem()
-		if err != nil {
-			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToGetSystem", err.Error()))
-			return *state, err
-		}
-		if !isDPUArmPoweredOff(system) {
-			_, err := client.ArmShutdown()
-			if err != nil {
-				cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToArmShutdown", err.Error()))
-				return *state, err
-			}
-			logger.Info("Waiting for DPU Arm to shutdown")
-			return *state, nil
-		}
 		return transitionToFirmwareUpdateReboot(ctx, dpu, state, ctrlCtx)
 	} else {
 		return *state, nil
