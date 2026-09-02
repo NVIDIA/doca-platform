@@ -22,6 +22,7 @@ import (
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/operator/inventory"
 	"github.com/nvidia/doca-platform/test/utils/metrics"
 	"github.com/nvidia/doca-platform/test/utils/prometheus"
 
@@ -117,31 +118,46 @@ func ValidateDPFMetricsScrapedByPrometheus(ctx context.Context) {
 }
 
 // ValidatePrometheusTargetsHealthy asserts that every scrape target known to
-// Prometheus is currently up. It first checks that each DPU cluster has exactly
-// the expected three control-plane scrape targets (apiserver, kube-controller-manager,
-// kube-scheduler) and that each is up. This positive existence check catches the case
-// where a missing credential Secret causes prometheus-operator to silently drop the
-// entire ServiceMonitor — in that scenario no up{cluster=<name>} series exists at all,
-// so the subsequent up==0 check would pass vacuously. It then queries `up == 0`
-// (targets whose last scrape failed) and fails with a table of the offending
-// job/instance pairs so that failures are immediately actionable without manual
-// Prometheus inspection.
+// Prometheus is currently up. It first checks that each DPU cluster has all the
+// expected control-plane jobs (apiserver, kube-controller-manager, kube-scheduler,
+// plus coredns for clusters served by the host cluster) represented among its
+// up{cluster=<name>} series. It checks distinct job names rather than a sample
+// count, because Kamaji runs multiple replicas of each control-plane component,
+// so the number of samples per job varies with the replica count. This positive
+// existence check catches the case where a missing credential Secret causes
+// prometheus-operator to silently drop the entire ServiceMonitor — in that
+// scenario no up{cluster=<name>} series exists at all, so the subsequent up==0
+// check would pass vacuously. It then queries `up == 0` (targets whose last
+// scrape failed) and fails with a table of the offending job/instance pairs so
+// that failures are immediately actionable without manual Prometheus inspection.
 func ValidatePrometheusTargetsHealthy(ctx context.Context, input *systemTestInput) {
 	skipPrometheusInOCPReuse()
 
 	By("Verify all Prometheus scrape targets are healthy")
 	promClient := prometheus.NewClient(hostClusterRESTClient, dpfOperatorSystemNamespace)
 	Eventually(func(g Gomega) {
-		// Per DPU cluster: assert all three control-plane endpoints are present and up.
+		// Per DPU cluster: assert all control-plane jobs are present and up.
 		for _, dpuCluster := range input.dpuClusters {
 			if dpuCluster.Spec.Type != string(provisioningv1.KamajiCluster) {
 				continue
 			}
 
+			expectedJobs := []string{"apiserver", "kube-controller-manager", "kube-scheduler"}
+			if inventory.IsDPUClusterServedByHostDNS(dpuCluster) {
+				expectedJobs = append(expectedJobs, "coredns")
+			}
+
 			clusterSamples, err := promClient.QueryInstant(ctx, fmt.Sprintf(`up{cluster=%q}`, dpuCluster.Name))
 			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(clusterSamples).ToNot(HaveLen(3),
-				fmt.Sprintf("DPU cluster %q: expected 3 control-plane targets (apiserver, kube-controller-manager, kube-scheduler), got %d; the ServiceMonitor or its credential Secret may be absent", dpuCluster.Name, len(clusterSamples)))
+
+			seenJobs := map[string]bool{}
+			for _, s := range clusterSamples {
+				seenJobs[s.Metric["job"]] = true
+			}
+			for _, job := range expectedJobs {
+				g.Expect(seenJobs).To(HaveKey(job),
+					fmt.Sprintf("DPU cluster %q: missing target for job %q; the ServiceMonitor or its credential Secret may be absent", dpuCluster.Name, job))
+			}
 		}
 
 		// We ignore the management cluster as it depends on how it was set up.
