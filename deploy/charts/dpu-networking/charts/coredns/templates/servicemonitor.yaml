@@ -1,0 +1,24 @@
+{{- if and .Values.deployHostManifests (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1/ServiceMonitor") }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "coredns.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "coredns.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "coredns.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_service_label_dpu_nvidia_com_cluster]
+          targetLabel: cluster
+        # The Service name carries a per-DPUCluster hash, so pin job to a stable value instead of
+        # the default (the Service name), matching the DPU cluster control plane ServiceMonitors.
+        - targetLabel: job
+          replacement: coredns
+{{- end }}
