@@ -75,8 +75,8 @@ type expectedDPU struct {
 }
 
 // discoverDPUsAndWaitForReadiness discovers DPUs and waits for required PFs to
-// have the requested functions ready (virtfn0 for VFs; every sfnum in each
-// configured contiguous SF range).
+// have VF creation completed for requested VF resources and every SF in each
+// configured SF range ready.
 // Only PFs explicitly mentioned in the input config are discovered and waited for.
 func discoverDPUsAndWaitForReadiness(ctx context.Context,
 	clk clock.WithTicker,
@@ -240,11 +240,17 @@ func discoverPF(sysFSRoot, baseAddress string, pfIndex int32) (*PFInfo, error) {
 	}, nil
 }
 
-// pfHasVFs checks if a PF has at least one VF (virtfn0 exists).
+// pfHasVFs reports whether VF creation has completed for a PF. A nonzero
+// sriov_numvfs value indicates that the kernel has added the complete VF batch.
+// Read failures leave the PF not ready and are retried by the polling loop.
 func pfHasVFs(sysFSRoot, pfAddr string) bool {
-	virtfn0Path := util.NewPCIHelper(pfAddr).SetSysFS(sysFSRoot).VF(0).Path()
-	_, err := os.Lstat(virtfn0Path)
-	return err == nil
+	pfPath := util.NewPCIHelper(pfAddr).SetSysFS(sysFSRoot).Path()
+	data, err := os.ReadFile(filepath.Join(pfPath, "sriov_numvfs"))
+	if err != nil {
+		return false
+	}
+	numVFs, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	return err == nil && numVFs > 0
 }
 
 // functionNeedsForPF reports whether the input config requests VFs and/or SFs
