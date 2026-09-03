@@ -808,13 +808,6 @@ func (r *DPUDeviceReconciler) discoverDPUDevice(ctx context.Context, dpuDevice *
 		return err
 	}
 
-	dpuDevice.Status.DPUType = chassisInfo.GetBlueFieldVersion()
-	if dpuDevice.Status.DPUMode == provisioningv1.DpuMode && dpuDevice.Status.DPUType == provisioningv1.DPUTypeUnknown {
-		err = fmt.Errorf("unknown DPU type")
-		log.Error(err, "Failed to get DPU type", "address", bmcAddress, "response", rfclient.RespBody(resp))
-		return err
-	}
-
 	if chassisInfo.SerialNumber == "" {
 		err = fmt.Errorf("serial number is empty")
 		log.Error(err, "Failed to get chassis info", "address", bmcAddress, "response", rfclient.RespBody(resp))
@@ -827,6 +820,21 @@ func (r *DPUDeviceReconciler) discoverDPUDevice(ctx context.Context, dpuDevice *
 		return err
 	} else {
 		dpuDevice.Status.SerialNumber = ptr.To(chassisInfo.SerialNumber)
+	}
+
+	dpuType := chassisInfo.GetBlueFieldVersion()
+	switch {
+	case dpuType != provisioningv1.DPUTypeUnknown:
+		dpuDevice.Status.DPUType = dpuType
+	case dpuDevice.Status.DPUType == "":
+		dpuDevice.Status.DPUType = provisioningv1.DPUTypeUnknown
+	case dpuDevice.Status.DPUType != provisioningv1.DPUTypeUnknown:
+		log.V(1).Info("DPU Chassis.Model unavailable, preserving existing DPU type", "dpuType", dpuDevice.Status.DPUType, "chassisModel", chassisInfo.Model)
+	}
+	if dpuDevice.Status.DPUMode == provisioningv1.DpuMode && dpuDevice.Status.DPUType == provisioningv1.DPUTypeUnknown {
+		err = fmt.Errorf("unknown DPU type")
+		log.Error(err, "Failed to get DPU type", "address", bmcAddress, "response", rfclient.RespBody(resp))
+		return err
 	}
 
 	psid, err := client.GetPSID()
