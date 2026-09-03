@@ -123,8 +123,6 @@ spec:
           value: "FF"
         - name: MODULE_SPLIT_M0[15]
           value: "FF"
-        - name: HIDE_PORT2_PF
-          value: "1"
         - name: NUM_OF_PLANES_P1
           value: "2"
         - name: LOAD_BALANCE_MODE_P1
