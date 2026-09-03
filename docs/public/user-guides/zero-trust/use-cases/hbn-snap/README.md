@@ -1587,10 +1587,33 @@ echo nvme > /sys/bus/pci/devices/$pci_address/driver_override
 echo $pci_address > /sys/bus/pci/drivers/nvme/bind
 ```
 
-Find the block device name
+Find the block device name from its sysfs namespace entry. When native NVMe multipath is enabled,
+translate the hidden per-controller path name to its usable namespace head name.
 
 ```shell
-block_dev_name=$(basename /sys/bus/pci/drivers/nvme/"$pci_address"/nvme/*/nvme*)
+block_dev_name=""
+match_count=0
+for namespace_path in /sys/bus/pci/drivers/nvme/"$pci_address"/nvme/*/nvme*n*; do
+  if [ ! -r "$namespace_path/nsid" ]; then
+    continue
+  fi
+
+  candidate="${namespace_path##*/}"
+  if [[ "$candidate" =~ ^(nvme[0-9]+)c[0-9]+n([0-9]+)$ ]]; then
+    candidate="${BASH_REMATCH[1]}n${BASH_REMATCH[2]}"
+  fi
+
+  if [ -b "/dev/$candidate" ]; then
+    block_dev_name="$candidate"
+    match_count=$((match_count + 1))
+  fi
+done
+
+if [ "$match_count" -ne 1 ]; then
+  echo "Expected exactly one block device for PCI device $pci_address, found $match_count." >&2
+  exit 1
+fi
+
 echo "Block device name: $block_dev_name"
 ```
 
