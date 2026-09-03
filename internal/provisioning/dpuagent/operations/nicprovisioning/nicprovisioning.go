@@ -554,10 +554,9 @@ func (n *NICProvisioning) applyNVConfig(execCtx context.Context, optCtx *operati
 		forceNVApply = ewNICCfg.Force
 	}
 	applyOptions := &nictypes.ConfigurationOptions{
-		SkipReset: true,
-		// Temporarily disable WithDefault due to a NIC FW issue where NIC can disappear after host reboot.
-		// WithDefault: true,
-		Force: forceNVApply,
+		SkipReset:   true,
+		WithDefault: true,
+		Force:       forceNVApply,
 	}
 	applyCtx, cancel := context.WithTimeout(execCtx, nicNVConfigApplyTimeout)
 	defer cancel()
