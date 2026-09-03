@@ -199,6 +199,9 @@ var (
 	// (NFS-free) fs-storage vendor DPU plugin produced by the test-helper-images release target; used only
 	// by the SNAP suite.
 	fakeFSStorageVendorImage = ""
+	// fakeBlockStorageVendorImage is the full image reference (registry and name, without the tag) of the
+	// local AIO-backed block-storage vendor DPU plugin produced by the test-helper-images release target.
+	fakeBlockStorageVendorImage = ""
 	// storageSystemImage is the full image reference (registry and name, without the tag) of the DPF
 	// storage-system image. The SNAP suite runs its nvidia-external-attacher binary next to the
 	// csi-hostpath backend in the DPU cluster.

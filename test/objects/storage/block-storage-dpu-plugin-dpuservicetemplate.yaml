@@ -1,0 +1,16 @@
+---
+# Source: dpuservices/storage/examples/scenarios/trusted-k8s-cluster/nvme-hotplug-pf/block-storage-dpu-plugin-dpuservicetemplate.yaml
+# Modifications:
+#   * changed helmChart.source repoURL/version to empty placeholders — patched at runtime by the suite.
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceTemplate
+metadata:
+  name: block-storage-dpu-plugin
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: block-storage-dpu-plugin
+  helmChart:
+    source:
+      repoURL: ""
+      version: ""
+      chart: dpf-storage

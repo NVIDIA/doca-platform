@@ -1,11 +1,11 @@
 ---
 # Source: dpuservices/storage/examples/scenarios/trusted-k8s-cluster/virtiofs-hotplug-pf/workload/storageclass.yaml
-# Modifications: none
+# Modifications: uses the mode-specific CSI driver name from the mixed SNAP example.
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
   name: snap-virtiofs-hotplug-pf
-provisioner: csi.snap.nvidia.com
+provisioner: csi-virtiofs.snap.nvidia.com
 parameters:
   policy: "policy-fs"
   functionType: "pf"

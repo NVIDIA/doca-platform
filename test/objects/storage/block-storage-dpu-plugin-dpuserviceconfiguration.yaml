@@ -1,0 +1,25 @@
+---
+# Source: dpuservices/storage/examples/scenarios/trusted-k8s-cluster/nvme-hotplug-pf/block-storage-dpu-plugin-dpuserviceconfiguration.yaml
+# Modifications:
+#   * changed the image to a placeholder for the local AIO-backed test plugin, patched at runtime.
+#   * configured the fixed backing-file size used by the 1 GiB NVMe consumer.
+#   * dropped imagePullSecrets — added at runtime by the SNAP suite.
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: block-storage-dpu-plugin
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: block-storage-dpu-plugin
+  serviceConfiguration:
+    helmChart:
+      values:
+        dpu:
+          blockStorageVendorDpuPlugin:
+            enabled: true
+            image:
+              repository: example.com/storage-system
+              tag: v1.0.0
+            env:
+              - name: FAKE_BLOCK_VOLUME_SIZE_BYTES
+                value: "1073741824"

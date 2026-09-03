@@ -33,17 +33,24 @@ import (
 )
 
 const (
-	// Workload identifiers. StatefulSet pods are named <sts>-<ordinal>; replicas=1 -> -0.
-	snapWorkloadStatefulSetName = "storage-test-pod-virtiofs-hotplug-pf"
-	snapWorkloadPodName         = snapWorkloadStatefulSetName + "-0"
-	snapWorkloadNamespace       = "snap-storage-test"
-	snapVolumeMountPath         = "/mnt/vol1"
-	// snapHeartbeatFile is the file the workload container keeps writing to on the mount.
-	snapHeartbeatFile = snapVolumeMountPath + "/heartbeat"
+	// Each StatefulSet replica gets its own PVC and exercises an independent volume attachment.
+	snapWorkloadReplicas = 4
+
+	// Consumer identifiers. StatefulSet pods are named <sts>-<ordinal>.
+	snapVirtioFSStatefulSetName = "storage-test-pod-virtiofs-hotplug-pf"
+	snapVirtioFSNamespace       = "snap-virtiofs-test"
+	snapVirtioFSMountPath       = "/mnt/vol1"
+	snapVirtioFSHeartbeatFile   = snapVirtioFSMountPath + "/heartbeat"
+
+	snapNVMeStatefulSetName = "storage-test-pod-nvme-hotplug-pf"
+	snapNVMeNamespace       = "snap-nvme-test"
+	snapNVMeDevicePath      = "/dev/xvda"
 
 	// Storage control plane objects, as named in the manifests the suite deploys.
-	snapStorageVendorName = "nfs-csi"
-	snapStoragePolicyName = "policy-fs"
+	snapVirtioFSStorageVendorName = "nfs-csi"
+	snapVirtioFSStoragePolicyName = "policy-fs"
+	snapNVMeStorageVendorName     = "local-block"
+	snapNVMeStoragePolicyName     = "policy-block"
 
 	// csi-hostpath backend identifiers, as declared in the manifests it is deployed from.
 	csiHostpathNamespace      = "default"
@@ -53,15 +60,17 @@ const (
 	snapProvisioningTimeout = 20 * time.Minute
 )
 
-// Cleanup scopes, both registered in the suite's BeforeAll. They are split along what a run can reuse:
+// Cleanup scopes are split along what a run can reuse:
 //
 //   - snapDeploymentScope holds the DPUDeployment and the objects it references. Keeping it
 //     (-e2e.skip-cleanup.named-scopes=snap-deployment) keeps the DPU provisioned across runs.
-//   - snapWorkloadScope holds the volume consumer, so a run with the deployment kept still attaches a
-//     fresh volume.
+//   - snapControlPlaneScope holds the vendors and policies shared by both consumer tests.
+//   - each consumer scope owns one namespace, StorageClass, and StatefulSet.
 var (
-	snapDeploymentScope *cleanup.Scope
-	snapWorkloadScope   *cleanup.Scope
+	snapDeploymentScope       *cleanup.Scope
+	snapControlPlaneScope     *cleanup.Scope
+	snapVirtioFSWorkloadScope *cleanup.Scope
+	snapNVMeWorkloadScope     *cleanup.Scope
 )
 
 // deploySNAPStorageStack applies the SNAP storage stack: the host-cluster objects and the DPUDeployment
@@ -76,9 +85,8 @@ func deploySNAPStorageStack(ctx context.Context, input *systemTestInput, conf co
 		updateImagePullSecret(obj, dpfPullSecretName)
 	})
 	applyObjectsFromManifests(ctx, input.client, conf.SNAPHostConfigPaths, withCleanupLabels(snapDeploymentScope.CleanupLabels), patchSNAPServiceConfiguration)
-	// The storage control plane is no DPUDeployment dependency, so it is cleaned with the workload: a run
-	// that keeps the deployment re-creates these and re-verifies that they reach Ready.
-	applyObjectsFromManifests(ctx, input.client, conf.SNAPStorageControlPlanePaths, withCleanupLabels(snapWorkloadScope.CleanupLabels))
+	// The control plane is re-created for each suite run even when the provisioned deployment is kept.
+	applyObjectsFromManifests(ctx, input.client, conf.SNAPStorageControlPlanePaths, withCleanupLabels(snapControlPlaneScope.CleanupLabels))
 
 	// Applied after the templates/configurations it references. Its DPUSet targets only the DPU pinned
 	// below, so the SNAP flavor's firmware settings reach that DPU alone.
@@ -136,21 +144,27 @@ func pinSNAPDPUDevice(ctx context.Context, input *systemTestInput) map[string]st
 	return pinDPUDeviceOnNode(ctx, input.client, dpfOperatorSystemNamespace, snapDPUHostNode(ctx, input))
 }
 
-// applySNAPWorkload creates the workload namespace, then applies the workload StorageClass (cluster-scoped)
-// and StatefulSet (namespaced) on the host cluster.
-func applySNAPWorkload(ctx context.Context, input *systemTestInput, conf config) {
-	By(fmt.Sprintf("Creating the SNAP workload namespace %s", snapWorkloadNamespace))
+// applySNAPWorkload creates one consumer namespace, StorageClass, and StatefulSet on the host cluster.
+func applySNAPWorkload(ctx context.Context, input *systemTestInput, scope *cleanup.Scope, namespace, storageClassPath, workloadPath string) {
+	By(fmt.Sprintf("Creating the SNAP workload namespace %s", namespace))
 	// Not createTestNamespace: that tags with the It/Suite scope, whose per-It cleanup would delete the
-	// namespace between workload Its; the snap-workload scope is cleaned only in the suite AfterAll.
-	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: snapWorkloadNamespace, Labels: snapWorkloadScope.CleanupLabels}}
+	// namespace between the ordered checks for this consumer.
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace, Labels: scope.CleanupLabels}}
 	Expect(client.IgnoreAlreadyExists(input.client.Create(ctx, ns))).To(Succeed())
 
 	By("Applying the SNAP workload StorageClass and StatefulSet")
-	// StorageClass is cluster-scoped; the StatefulSet (and its PVC template) goes in the workload namespace.
-	applyObjectsFromManifests(ctx, input.client, []string{conf.SNAPStorageClassPath}, withCleanupLabels(snapWorkloadScope.CleanupLabels))
-	// The workload must land on the host whose DPU was provisioned: snap-csi-plugin registers csi.snap.nvidia.com only there.
-	applyObjectsFromManifests(ctx, input.client, []string{conf.SNAPWorkloadPath}, withCleanupLabels(snapWorkloadScope.CleanupLabels), withNamespace(snapWorkloadNamespace),
+	applyObjectsFromManifests(ctx, input.client, []string{storageClassPath}, withCleanupLabels(scope.CleanupLabels))
+	// The workload must land on the host whose DPU was provisioned because the CSI node services run there.
+	applyObjectsFromManifests(ctx, input.client, []string{workloadPath}, withCleanupLabels(scope.CleanupLabels), withNamespace(namespace),
 		withPodNodeSelector(map[string]string{corev1.LabelHostname: snapDPUHostNode(ctx, input)}))
+}
+
+func snapWorkloadPodNames(statefulSetName string) []string {
+	podNames := make([]string, snapWorkloadReplicas)
+	for ordinal := range snapWorkloadReplicas {
+		podNames[ordinal] = fmt.Sprintf("%s-%d", statefulSetName, ordinal)
+	}
+	return podNames
 }
 
 // patchChartSource patches a DPUServiceTemplate or DPUService: the empty Helm chart source coordinates
@@ -161,11 +175,12 @@ func patchChartSource(obj *unstructured.Unstructured) {
 }
 
 // patchSNAPServiceConfiguration patches a DPUServiceConfiguration: the main DOCA SNAP image, the fake
-// vendor-plugin image (only on fs-storage-dpu-plugin), and the DPU-side image-pull secrets.
+// vendor-plugin images, and the DPU-side image-pull secrets.
 func patchSNAPServiceConfiguration(obj *unstructured.Unstructured) {
 	const (
-		docaSnapServiceName           = "doca-snap"
-		fsStorageDPUPluginServiceName = "fs-storage-dpu-plugin"
+		docaSnapServiceName              = "doca-snap"
+		fsStorageDPUPluginServiceName    = "fs-storage-dpu-plugin"
+		blockStorageDPUPluginServiceName = "block-storage-dpu-plugin"
 	)
 	if obj.GetName() == docaSnapServiceName && snapImageURL != "" {
 		tagSeparator := strings.LastIndex(snapImageURL, ":")
@@ -174,12 +189,15 @@ func patchSNAPServiceConfiguration(obj *unstructured.Unstructured) {
 		setNestedField(obj, snapImageURL[:tagSeparator], "spec", "serviceConfiguration", "helmChart", "values", "dpu", "docaSnap", "image", "repository")
 		setNestedField(obj, snapImageURL[tagSeparator+1:], "spec", "serviceConfiguration", "helmChart", "values", "dpu", "docaSnap", "image", "tag")
 	}
-	if obj.GetName() == fsStorageDPUPluginServiceName {
+	switch obj.GetName() {
+	case fsStorageDPUPluginServiceName:
 		Expect(fakeFSStorageVendorImage).ToNot(BeEmpty(), "FAKE_FS_STORAGE_IMAGE must be set for SNAP runs")
-		// Fake (NFS-free) vendor plugin image built by the test-helper-images release target
-		// (FAKE_FS_STORAGE_IMAGE); see fs-storage-dpu-plugin-dpuserviceconfiguration.yaml.
 		setNestedField(obj, fakeFSStorageVendorImage, "spec", "serviceConfiguration", "helmChart", "values", "dpu", "fsStorageVendorDpuPlugin", "image", "repository")
 		setNestedField(obj, tag, "spec", "serviceConfiguration", "helmChart", "values", "dpu", "fsStorageVendorDpuPlugin", "image", "tag")
+	case blockStorageDPUPluginServiceName:
+		Expect(fakeBlockStorageVendorImage).ToNot(BeEmpty(), "FAKE_BLOCK_STORAGE_IMAGE must be set for SNAP runs")
+		setNestedField(obj, fakeBlockStorageVendorImage, "spec", "serviceConfiguration", "helmChart", "values", "dpu", "blockStorageVendorDpuPlugin", "image", "repository")
+		setNestedField(obj, tag, "spec", "serviceConfiguration", "helmChart", "values", "dpu", "blockStorageVendorDpuPlugin", "image", "tag")
 	}
 
 	appendServiceConfigurationImagePullSecret(obj, dpfPullSecretName)

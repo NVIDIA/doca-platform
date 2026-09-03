@@ -163,9 +163,12 @@ func getEnvVariables() {
 	} else {
 		panic("NETUTILS_IMAGE env variable must be set")
 	}
-	// FAKE_FS_STORAGE_IMAGE and STORAGE_SYSTEM_IMAGE used by SNAP tests.
+	// Storage helper images used by SNAP tests.
 	if img, found := os.LookupEnv("FAKE_FS_STORAGE_IMAGE"); found {
 		fakeFSStorageVendorImage = img
+	}
+	if img, found := os.LookupEnv("FAKE_BLOCK_STORAGE_IMAGE"); found {
+		fakeBlockStorageVendorImage = img
 	}
 	if img, found := os.LookupEnv("STORAGE_SYSTEM_IMAGE"); found {
 		storageSystemImage = img

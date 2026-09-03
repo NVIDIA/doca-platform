@@ -1,0 +1,11 @@
+---
+# Test-local block backend. The DPU-cluster csi-hostpath driver supplies lifecycle objects while the
+# fake block vendor plugin creates the AIO bdev that DOCA SNAP exposes to the host.
+apiVersion: storage.dpu.nvidia.com/v1alpha1
+kind: DPUStorageVendor
+metadata:
+  name: local-block
+  namespace: dpf-operator-system
+spec:
+  storageClassName: local-path
+  pluginName: nvidia-block

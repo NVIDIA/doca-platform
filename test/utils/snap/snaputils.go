@@ -14,12 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package snap holds the assertions the SNAP storage tests make: on the DPF storage objects the stack
-// produces (DPUStorageVendor through DPUVolumeAttachment) and on the VirtioFS mount the workload ends up
-// with. They take a client and plain names, so any suite can call them.
+// Package snap holds assertions for SNAP storage objects and consumer I/O.
 //
-// Deploying the stack stays with the suite (test/e2e/snap.go): that part is tied to the e2e config, its
-// manifest handling and the DPU pinning.
+// Deploying the stack stays with the e2e suite because it is tied to its config, manifest handling, and
+// DPU pinning.
 package snap
 
 import (
@@ -72,56 +70,79 @@ func VerifyDPUStoragePolicyReady(ctx context.Context, c client.Client, namespace
 	}).WithTimeout(ServiceReadyTimeout).WithPolling(PollInterval).Should(Succeed())
 }
 
-// VerifyDPUVolumeBound waits for the single workload DPUVolume in namespace to reach the Bound phase.
-func VerifyDPUVolumeBound(ctx context.Context, c client.Client, namespace string) {
-	By("Verifying the workload DPUVolume is Bound")
+// VerifyDPUVolumesBound waits for all workload DPUVolumes in namespace to reach the Bound phase.
+func VerifyDPUVolumesBound(ctx context.Context, c client.Client, namespace string, expectedCount int) {
+	By("Verifying all workload DPUVolumes are Bound")
 	Eventually(func(g Gomega) {
 		volumes := &storagev1.DPUVolumeList{}
 		g.Expect(c.List(ctx, volumes, client.InNamespace(namespace))).To(Succeed())
-		// Single-replica workload -> exactly one DPUVolume.
-		g.Expect(volumes.Items).To(HaveLen(1), "expected exactly one DPUVolume for the workload")
-		v := &volumes.Items[0]
-		g.Expect(v.Status.Phase).ToNot(BeNil(), "DPUVolume %s has no phase yet", v.Name)
-		g.Expect(*v.Status.Phase).To(Equal(storagev1.DPUVolumePhaseBound), "DPUVolume %s is not Bound", v.Name)
+		g.Expect(volumes.Items).To(HaveLen(expectedCount), "expected exactly %d DPUVolumes for the workloads", expectedCount)
+		for i := range volumes.Items {
+			volume := &volumes.Items[i]
+			g.Expect(volume.Status.Phase).ToNot(BeNil(), "DPUVolume %s has no phase yet", volume.Name)
+			g.Expect(*volume.Status.Phase).To(Equal(storagev1.DPUVolumePhaseBound), "DPUVolume %s is not Bound", volume.Name)
+		}
 	}).WithTimeout(VolumeReadyTimeout).WithPolling(PollInterval).Should(Succeed())
 }
 
-// VerifySVVolumeAttachmentAttached waits, in the DPU cluster, for the backend volume to be attached to the
-// DPU. The host controller creates the SVVolumeAttachment because the backend CSIDriver sets
-// attachRequired, and the nvidia-external-attacher next to that driver marks it attached once
-// ControllerPublishVolume succeeds.
-func VerifySVVolumeAttachmentAttached(ctx context.Context, dpuClusterClient client.Client, namespace string) {
-	By("Verifying the backend SVVolumeAttachment is attached in the DPU cluster")
+// VerifySVVolumeAttachmentsAttached waits for all backend attachments to become attached.
+func VerifySVVolumeAttachmentsAttached(ctx context.Context, dpuClusterClient client.Client, namespace string, expectedCount int) {
+	By("Verifying all backend SVVolumeAttachments are attached in the DPU cluster")
 	Eventually(func(g Gomega) {
 		attachments := &storagev1.SVVolumeAttachmentList{}
 		g.Expect(dpuClusterClient.List(ctx, attachments, client.InNamespace(namespace))).To(Succeed())
-		// Single-replica workload -> exactly one SVVolumeAttachment.
-		g.Expect(attachments.Items).To(HaveLen(1), "expected exactly one SVVolumeAttachment for the workload")
-		a := &attachments.Items[0]
-		if a.Status.AttachError != nil {
-			// Surfaces the CSI error instead of a bare timeout: it is the reason the attach never lands.
-			g.Expect(a.Status.AttachError.Message).To(BeEmpty(), "SVVolumeAttachment %s failed to attach", a.Name)
+		g.Expect(attachments.Items).To(HaveLen(expectedCount), "expected exactly %d SVVolumeAttachments for the workloads", expectedCount)
+		for i := range attachments.Items {
+			attachment := &attachments.Items[i]
+			if attachment.Status.AttachError != nil {
+				g.Expect(attachment.Status.AttachError.Message).To(BeEmpty(), "SVVolumeAttachment %s failed to attach", attachment.Name)
+			}
+			g.Expect(attachment.Status.Attached).To(BeTrue(), "SVVolumeAttachment %s is not attached", attachment.Name)
 		}
-		g.Expect(a.Status.Attached).To(BeTrue(), "SVVolumeAttachment %s is not attached", a.Name)
 	}).WithTimeout(VolumeReadyTimeout).WithPolling(PollInterval).Should(Succeed())
 }
 
-// VerifyDPUVolumeAttachmentReady waits for a Ready DPUVolumeAttachment and sanity-checks that SNAP
-// reported a VirtioFS filesystem tag (used by the host to mount the volume).
-func VerifyDPUVolumeAttachmentReady(ctx context.Context, c client.Client, namespace string) {
-	By("Verifying a DPUVolumeAttachment is Ready with a VirtioFS filesystem tag")
+// VerifyVirtioFSAttachmentsReady waits for all attachments and checks their VirtioFS tags.
+func VerifyVirtioFSAttachmentsReady(ctx context.Context, c client.Client, namespace string, expectedCount int) {
+	By("Verifying all DPUVolumeAttachments are Ready with VirtioFS filesystem tags")
 	Eventually(func(g Gomega) {
 		attachments := &storagev1.DPUVolumeAttachmentList{}
 		g.Expect(c.List(ctx, attachments, client.InNamespace(namespace))).To(Succeed())
-		// Single-replica workload -> exactly one DPUVolumeAttachment. Waiting for a Ready one among
-		// several would accept a leftover from an earlier run and hide that this one never became Ready.
-		g.Expect(attachments.Items).To(HaveLen(1), "expected exactly one DPUVolumeAttachment for the workload")
-		a := &attachments.Items[0]
-		g.Expect(meta.IsStatusConditionTrue(a.Status.Conditions, string(conditions.TypeReady))).To(BeTrue(), "DPUVolumeAttachment %s is not Ready", a.Name)
-		g.Expect(a.Status.DPU).ToNot(BeNil(), "DPUVolumeAttachment %s has no DPU status", a.Name)
-		g.Expect(a.Status.DPU.VirtioFSAttrs).ToNot(BeNil(), "DPUVolumeAttachment %s has no VirtioFSAttrs", a.Name)
-		g.Expect(a.Status.DPU.VirtioFSAttrs.FilesystemTag).ToNot(BeNil(), "DPUVolumeAttachment %s has no VirtioFS filesystem tag", a.Name)
-		g.Expect(*a.Status.DPU.VirtioFSAttrs.FilesystemTag).ToNot(BeEmpty(), "DPUVolumeAttachment %s has an empty VirtioFS filesystem tag", a.Name)
+		g.Expect(attachments.Items).To(HaveLen(expectedCount), "expected exactly %d DPUVolumeAttachments for the workloads", expectedCount)
+		for i := range attachments.Items {
+			attachment := &attachments.Items[i]
+			g.Expect(meta.IsStatusConditionTrue(attachment.Status.Conditions, string(conditions.TypeReady))).To(BeTrue(),
+				"DPUVolumeAttachment %s is not Ready", attachment.Name)
+			g.Expect(attachment.Status.DPU).ToNot(BeNil(), "DPUVolumeAttachment %s has no DPU status", attachment.Name)
+			g.Expect(attachment.Status.DPU.VirtioFSAttrs).ToNot(BeNil(),
+				"DPUVolumeAttachment %s has no VirtioFS attributes", attachment.Name)
+			g.Expect(attachment.Status.DPU.VirtioFSAttrs.FilesystemTag).ToNot(BeNil(),
+				"DPUVolumeAttachment %s has no VirtioFS filesystem tag", attachment.Name)
+			g.Expect(*attachment.Status.DPU.VirtioFSAttrs.FilesystemTag).ToNot(BeEmpty(),
+				"DPUVolumeAttachment %s has an empty VirtioFS filesystem tag", attachment.Name)
+		}
+	}).WithTimeout(VolumeReadyTimeout).WithPolling(PollInterval).Should(Succeed())
+}
+
+// VerifyNVMeAttachmentsReady waits for all attachments and checks their NVMe namespace IDs.
+func VerifyNVMeAttachmentsReady(ctx context.Context, c client.Client, namespace string, expectedCount int) {
+	By("Verifying all DPUVolumeAttachments are Ready with NVMe namespace IDs")
+	Eventually(func(g Gomega) {
+		attachments := &storagev1.DPUVolumeAttachmentList{}
+		g.Expect(c.List(ctx, attachments, client.InNamespace(namespace))).To(Succeed())
+		g.Expect(attachments.Items).To(HaveLen(expectedCount), "expected exactly %d DPUVolumeAttachments for the workloads", expectedCount)
+		for i := range attachments.Items {
+			attachment := &attachments.Items[i]
+			g.Expect(meta.IsStatusConditionTrue(attachment.Status.Conditions, string(conditions.TypeReady))).To(BeTrue(),
+				"DPUVolumeAttachment %s is not Ready", attachment.Name)
+			g.Expect(attachment.Status.DPU).ToNot(BeNil(), "DPUVolumeAttachment %s has no DPU status", attachment.Name)
+			g.Expect(attachment.Status.DPU.NVMEAttrs).ToNot(BeNil(),
+				"DPUVolumeAttachment %s has no NVMe attributes", attachment.Name)
+			g.Expect(attachment.Status.DPU.NVMEAttrs.NamespaceID).ToNot(BeNil(),
+				"DPUVolumeAttachment %s has no NVMe namespace ID", attachment.Name)
+			g.Expect(*attachment.Status.DPU.NVMEAttrs.NamespaceID).To(BeNumerically(">", 0),
+				"DPUVolumeAttachment %s has an invalid NVMe namespace ID", attachment.Name)
+		}
 	}).WithTimeout(VolumeReadyTimeout).WithPolling(PollInterval).Should(Succeed())
 }
 
@@ -161,5 +182,25 @@ func VerifyWorkloadHeartbeat(restClient *rest.RESTClient, restConfig *rest.Confi
 		out, err := netshoot.ExecInPodOnce(restClient, restConfig, namespace, podName, []string{"sh", "-c", "cat " + heartbeatFile})
 		g.Expect(err).ToNot(HaveOccurred(), "reading %s failed in pod %s: %s", heartbeatFile, podName, out)
 		g.Expect(strings.TrimSpace(out)).ToNot(BeEmpty(), "workload heartbeat file %s is empty in pod %s", heartbeatFile, podName)
+	}).WithTimeout(MountTimeout).WithPolling(PollInterval).Should(Succeed())
+}
+
+// VerifyNVMeRawBlockIO writes a unique marker to a raw block device and reads it back.
+func VerifyNVMeRawBlockIO(restClient *rest.RESTClient, restConfig *rest.Config, namespace, podName, devicePath string) {
+	By(fmt.Sprintf("Verifying raw block I/O on %s in pod %s/%s", devicePath, namespace, podName))
+	marker := fmt.Sprintf("snap-nvme-e2e-%d", time.Now().UnixNano())
+	command := fmt.Sprintf(
+		"set -e; err_file=$(mktemp); read_file=$(mktemp); "+
+			"trap 'rm -f \"$err_file\" \"$read_file\"' EXIT; test -b %[1]s; "+
+			"if ! printf '%[2]s' | dd of=%[1]s bs=1 seek=4096 conv=notrunc 2>\"$err_file\"; then "+
+			"cat \"$err_file\" >&2; exit 1; fi; sync; "+
+			"if ! dd if=%[1]s of=\"$read_file\" bs=1 skip=4096 count=%[3]d 2>\"$err_file\"; then "+
+			"cat \"$err_file\" >&2; exit 1; fi; actual=\"$(cat \"$read_file\")\"; "+
+			"test \"$actual\" = '%[2]s'; printf '%%s' \"$actual\"",
+		devicePath, marker, len(marker))
+	Eventually(func(g Gomega) {
+		out, err := netshoot.ExecInPodOnce(restClient, restConfig, namespace, podName, []string{"sh", "-c", command})
+		g.Expect(err).ToNot(HaveOccurred(), "raw block I/O failed in pod %s: %s", podName, out)
+		g.Expect(strings.TrimSpace(out)).To(Equal(marker))
 	}).WithTimeout(MountTimeout).WithPolling(PollInterval).Should(Succeed())
 }

@@ -24,9 +24,9 @@ COPY go.sum go.sum
 RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
 
-COPY ../api/ api/
-COPY ../internal/ internal/
-COPY ../test/ test/
+COPY api/ api/
+COPY internal/ internal/
+COPY test/ test/
 
 ARG gcflags
 ARG ldflags

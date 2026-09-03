@@ -568,6 +568,7 @@ test-helper-images: # Build and push the e2e test-helper images and charts.
 		docker-build-and-push-netutils \
 		docker-build-and-push-fake-fs-storage \
 		docker-build-and-push-rshim-console-collector \
+		docker-build-and-push-fake-block-storage \
 		helm-package-dummydpuservice
 	# The chart push has to wait for the packaging above to complete.
 	$(MAKE) helm-push-dummydpuservice
@@ -1658,6 +1659,9 @@ MOCK_DMS_IMAGE ?= $(REGISTRY)/$(MOCK_DMS_IMAGE_NAME)
 FAKE_FS_STORAGE_IMAGE_NAME ?= fake-fs-storage-vendor-dpu-plugin
 export FAKE_FS_STORAGE_IMAGE ?= $(REGISTRY)/$(FAKE_FS_STORAGE_IMAGE_NAME)
 
+FAKE_BLOCK_STORAGE_IMAGE_NAME ?= fake-block-storage-vendor-dpu-plugin
+export FAKE_BLOCK_STORAGE_IMAGE ?= $(REGISTRY)/$(FAKE_BLOCK_STORAGE_IMAGE_NAME)
+
 STORAGE_SYSTEM_IMAGE_NAME = storage-system
 export STORAGE_SYSTEM_IMAGE ?= $(REGISTRY)/$(STORAGE_SYSTEM_IMAGE_NAME)
 export STORAGE_SYSTEM_UPSTREAM_IMAGE ?= $(UPSTREAM_REGISTRY)/$(STORAGE_SYSTEM_IMAGE_NAME)
@@ -1858,6 +1862,31 @@ docker-build-fake-fs-storage: docker-buildx-setup $(ARTIFACTS_DIR) ## Build dock
 		-f test/mock/fake-fs-storage-vendor-dpu-plugin/Dockerfile \
 		. \
 		-t $(FAKE_FS_STORAGE_IMAGE):$(TAG)
+	$(if $(filter true,$(PUSH)),@$(call record_release_artifact,image,$(FAKE_FS_STORAGE_IMAGE_NAME),$(FAKE_FS_STORAGE_IMAGE):$(TAG),test_helper))
+
+# Fake block-storage vendor DPU plugin for SNAP e2e tests
+# Binary is named /block-storage-vendor-dpu-plugin (matching the Helm chart command)
+# DPU_ARCH, not ARCH: the plugin only ever runs on the DPU.
+.PHONY: docker-build-fake-block-storage
+docker-build-fake-block-storage: docker-buildx-setup $(ARTIFACTS_DIR) ## Build docker image for the fake block-storage vendor DPU plugin (test only)
+	$(CURDIR)/hack/scripts/docker-build.sh \
+		$(DOCKER_OUTPUT) \
+		--label=org.opencontainers.image.created=$(DATE) \
+		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
+		--label=org.opencontainers.image.revision=$(FULL_COMMIT) \
+		--label=org.opencontainers.image.version=$(TAG) \
+		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
+		--provenance=false \
+		--platform=linux/$(DPU_ARCH) \
+		--progress=plain \
+		--build-arg builder_image=$(BUILD_IMAGE) \
+		--build-arg base_image=$(BASE_IMAGE) \
+		--build-arg ldflags="$(GO_LDFLAGS)" \
+		--build-arg gcflags="$(GO_GCFLAGS)" \
+		-f test/mock/fake-block-storage-vendor-dpu-plugin/Dockerfile \
+		. \
+		-t $(FAKE_BLOCK_STORAGE_IMAGE):$(TAG)
+	$(if $(filter true,$(PUSH)),@$(call record_release_artifact,image,$(FAKE_BLOCK_STORAGE_IMAGE_NAME),$(FAKE_BLOCK_STORAGE_IMAGE):$(TAG),test_helper))
 
 .PHONY: docker-build-storage-system # Build the DPF storage system image. Release (PUSH=true) builds all $(DPF_SYSTEM_ARCH) and pushes the manifest in one step; otherwise loads linux/$(ARCH) locally.
 docker-build-storage-system: docker-buildx-setup $(ARTIFACTS_DIR)
