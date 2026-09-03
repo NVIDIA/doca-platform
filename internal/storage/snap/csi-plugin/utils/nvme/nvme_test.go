@@ -37,16 +37,87 @@ var _ = Describe("Nvme utils tests", func() {
 					{Path: "/sys/bus/pci/drivers/nvme/0000:b1:0c.0/nvme/nvme1/nvme0n1"},
 					{Path: "/sys/bus/pci/drivers/nvme/0000:b1:0c.1/nvme"},
 					{Path: "/sys/bus/pci/drivers/nvme/0000:b1:0c.2/nvme/nvme3/nvme0n3"},
+					{Path: "/sys/class/block/nvme0n3"},
 				},
 				Files: []fakefs.FileEntry{
 					{Path: "/sys/bus/pci/drivers/nvme/0000:b1:0c.0/nvme/nvme1/nvme0n1/nsid", Data: []byte("1\n")},
 					{Path: "/sys/bus/pci/drivers/nvme/0000:b1:0c.2/nvme/nvme3/nvme0n3/nsid", Data: []byte("3\n")},
-					{Path: "/sys/bus/pci/drivers/nvme/0000:b1:0c.2/nvme/nvme3/nvme0n3/size", Data: []byte("4194304\n")},
+					{Path: "/sys/class/block/nvme0n3/size", Data: []byte("4194304\n")},
 				},
 			})
 			dev, err := nvmeUtils.GetBlockDeviceNameForNS("0000:b1:0c.2", int32(3))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(dev).To(Equal("nvme0n3"))
+		})
+		It("finds the namespace head for a native multipath device", func() {
+			fakefs.GinkgoConfigureFakeFS(&fsRoot, fakefs.Config{
+				Dirs: []fakefs.DirEntry{
+					{Path: "/sys/bus/pci/drivers/nvme/0000:b1:0c.2/nvme/nvme3/nvme0c3n1"},
+					{Path: "/sys/class/block/nvme0n1"},
+				},
+				Files: []fakefs.FileEntry{
+					{Path: "/sys/bus/pci/drivers/nvme/0000:b1:0c.2/nvme/nvme3/nvme0c3n1/nsid", Data: []byte("3\n")},
+					{Path: "/sys/class/block/nvme0n1/size", Data: []byte("4194304\n")},
+				},
+			})
+			dev, err := nvmeUtils.GetBlockDeviceNameForNS("0000:b1:0c.2", int32(3))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(dev).To(Equal("nvme0n1"))
+		})
+		It("uses the namespace head instance from a native multipath device name", func() {
+			fakefs.GinkgoConfigureFakeFS(&fsRoot, fakefs.Config{
+				Dirs: []fakefs.DirEntry{
+					{Path: "/sys/bus/pci/drivers/nvme/0000:b1:0c.2/nvme/nvme34/nvme12c34n56"},
+					{Path: "/sys/class/block/nvme12n56"},
+				},
+				Files: []fakefs.FileEntry{
+					{Path: "/sys/bus/pci/drivers/nvme/0000:b1:0c.2/nvme/nvme34/nvme12c34n56/nsid", Data: []byte("3\n")},
+					{Path: "/sys/class/block/nvme12n56/size", Data: []byte("4194304\n")},
+				},
+			})
+			dev, err := nvmeUtils.GetBlockDeviceNameForNS("0000:b1:0c.2", int32(3))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(dev).To(Equal("nvme12n56"))
+		})
+		It("returns not found while the native multipath namespace head is missing", func() {
+			fakefs.GinkgoConfigureFakeFS(&fsRoot, fakefs.Config{
+				Dirs: []fakefs.DirEntry{
+					{Path: "/sys/bus/pci/drivers/nvme/0000:b1:0c.2/nvme/nvme3/nvme0c3n1"},
+				},
+				Files: []fakefs.FileEntry{
+					{Path: "/sys/bus/pci/drivers/nvme/0000:b1:0c.2/nvme/nvme3/nvme0c3n1/nsid", Data: []byte("3\n")},
+				},
+			})
+			_, err := nvmeUtils.GetBlockDeviceNameForNS("0000:b1:0c.2", int32(3))
+			Expect(err).To(MatchError(ErrBlockDeviceNotFound))
+		})
+		It("returns invalid for a zero-size native multipath namespace head", func() {
+			fakefs.GinkgoConfigureFakeFS(&fsRoot, fakefs.Config{
+				Dirs: []fakefs.DirEntry{
+					{Path: "/sys/bus/pci/drivers/nvme/0000:b1:0c.2/nvme/nvme3/nvme0c3n1"},
+					{Path: "/sys/class/block/nvme0n1"},
+				},
+				Files: []fakefs.FileEntry{
+					{Path: "/sys/bus/pci/drivers/nvme/0000:b1:0c.2/nvme/nvme3/nvme0c3n1/nsid", Data: []byte("3\n")},
+					{Path: "/sys/class/block/nvme0n1/size", Data: []byte("0\n")},
+				},
+			})
+			_, err := nvmeUtils.GetBlockDeviceNameForNS("0000:b1:0c.2", int32(3))
+			Expect(err).To(MatchError(ErrBlockDeviceIsInvalid))
+		})
+		It("returns invalid for a native multipath namespace head with an unexpected size", func() {
+			fakefs.GinkgoConfigureFakeFS(&fsRoot, fakefs.Config{
+				Dirs: []fakefs.DirEntry{
+					{Path: "/sys/bus/pci/drivers/nvme/0000:b1:0c.2/nvme/nvme3/nvme0c3n1"},
+					{Path: "/sys/class/block/nvme0n1"},
+				},
+				Files: []fakefs.FileEntry{
+					{Path: "/sys/bus/pci/drivers/nvme/0000:b1:0c.2/nvme/nvme3/nvme0c3n1/nsid", Data: []byte("3\n")},
+					{Path: "/sys/class/block/nvme0n1/size", Data: []byte("wrong\n")},
+				},
+			})
+			_, err := nvmeUtils.GetBlockDeviceNameForNS("0000:b1:0c.2", int32(3))
+			Expect(err).To(MatchError(ErrBlockDeviceIsInvalid))
 		})
 		It("pci device not found", func() {
 			fakefs.GinkgoConfigureFakeFS(&fsRoot, fakefs.Config{
@@ -73,16 +144,17 @@ var _ = Describe("Nvme utils tests", func() {
 			fakefs.GinkgoConfigureFakeFS(&fsRoot, fakefs.Config{
 				Dirs: []fakefs.DirEntry{
 					{Path: "/sys/bus/pci/drivers/nvme/0000:b1:0c.2/nvme/nvme3/nvme0n3"},
+					{Path: "/sys/class/block/nvme0n3"},
 				},
 				Files: []fakefs.FileEntry{
 					{Path: "/sys/bus/pci/drivers/nvme/0000:b1:0c.2/nvme/nvme3/nvme0n3/nsid", Data: []byte("3\n")},
-					{Path: "/sys/bus/pci/drivers/nvme/0000:b1:0c.2/nvme/nvme3/nvme0n3/size", Data: []byte("0\n")},
+					{Path: "/sys/class/block/nvme0n3/size", Data: []byte("0\n")},
 				},
 			})
 			_, err := nvmeUtils.GetBlockDeviceNameForNS("0000:b1:0c.2", int32(3))
 			Expect(err).To(MatchError(ErrBlockDeviceIsInvalid))
 		})
-		It("zero size - no size attribute", func() {
+		It("block device not found - no size attribute", func() {
 			fakefs.GinkgoConfigureFakeFS(&fsRoot, fakefs.Config{
 				Dirs: []fakefs.DirEntry{
 					{Path: "/sys/bus/pci/drivers/nvme/0000:b1:0c.2/nvme/nvme3/nvme0n3"},
@@ -92,16 +164,17 @@ var _ = Describe("Nvme utils tests", func() {
 				},
 			})
 			_, err := nvmeUtils.GetBlockDeviceNameForNS("0000:b1:0c.2", int32(3))
-			Expect(err).To(MatchError(ErrBlockDeviceIsInvalid))
+			Expect(err).To(MatchError(ErrBlockDeviceNotFound))
 		})
 		It("zero size - unexpected data", func() {
 			fakefs.GinkgoConfigureFakeFS(&fsRoot, fakefs.Config{
 				Dirs: []fakefs.DirEntry{
 					{Path: "/sys/bus/pci/drivers/nvme/0000:b1:0c.2/nvme/nvme3/nvme0n3"},
+					{Path: "/sys/class/block/nvme0n3"},
 				},
 				Files: []fakefs.FileEntry{
 					{Path: "/sys/bus/pci/drivers/nvme/0000:b1:0c.2/nvme/nvme3/nvme0n3/nsid", Data: []byte("3\n")},
-					{Path: "/sys/bus/pci/drivers/nvme/0000:b1:0c.2/nvme/nvme3/nvme0n3/size", Data: []byte("wrong\n")},
+					{Path: "/sys/class/block/nvme0n3/size", Data: []byte("wrong\n")},
 				},
 			})
 			_, err := nvmeUtils.GetBlockDeviceNameForNS("0000:b1:0c.2", int32(3))
