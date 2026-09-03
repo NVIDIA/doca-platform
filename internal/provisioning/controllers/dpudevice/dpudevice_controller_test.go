@@ -564,6 +564,34 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			Expect(dpuDevice.Labels).To(HaveKeyWithValue("provisioning.dpu.nvidia.com/dpudevice-psid", mock.DpuPSID75))
 		})
 
+		It("should keep initialized BF3 type when chassis Model is N/A", func() {
+			ctx := context.Background()
+			mockServer, reconciler := setupDiscoveryTest()
+			defer mockServer.Stop()
+
+			mockServer.SetModel("N/A")
+			dpuDevice := createTestDPUDevice(mockServer, "test-dpudevice-bf3-na-model")
+			dpuDevice.Status.DPUType = provisioningv1.DPUTypeBlueField3
+
+			Expect(reconciler.discoverDPUDevice(ctx, dpuDevice)).To(Succeed())
+			Expect(dpuDevice.Status.DPUType).To(Equal(provisioningv1.DPUTypeBlueField3))
+		})
+
+		It("should fail on serial mismatch before keeping initialized type when chassis Model is N/A", func() {
+			ctx := context.Background()
+			mockServer, reconciler := setupDiscoveryTest()
+			defer mockServer.Stop()
+
+			mockServer.SetModel("N/A")
+			dpuDevice := createTestDPUDevice(mockServer, "test-dpudevice-bf3-na-model-mismatch")
+			dpuDevice.Spec.SerialNumber = "different-serial"
+			dpuDevice.Status.DPUType = provisioningv1.DPUTypeBlueField3
+
+			err := reconciler.discoverDPUDevice(ctx, dpuDevice)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("serial number mismatch"))
+		})
+
 		It("should set PSID from System AssetTag when it is not N/A", func() {
 			ctx := context.Background()
 			mockServer, reconciler := setupDiscoveryTest()
