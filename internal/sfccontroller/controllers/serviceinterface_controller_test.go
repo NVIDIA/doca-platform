@@ -22,6 +22,7 @@ import (
 	"fmt"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/utils"
 	ecpfMock "github.com/nvidia/doca-platform/pkg/ecpf/mock"
 	"github.com/nvidia/doca-platform/pkg/ovsmodel"
 	"github.com/nvidia/doca-platform/pkg/ovsutils"
@@ -32,6 +33,7 @@ import (
 	. "github.com/onsi/gomega"
 	"go.uber.org/mock/gomock"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -511,6 +513,155 @@ var _ = Describe("service interface controller", func() {
 			Expect(result.RequeueAfter).To(BeZero())
 		})
 
+		It("should skip OVS delete when a matching non-terminating NSI entry exists", func() {
+			setNameLabel := dpuservicev1.SvcDpuGroupName + "/serviceinterfaceset-name"
+			setNSLabel := dpuservicev1.SvcDpuGroupName + "/serviceinterfaceset-namespace"
+
+			si := &dpuservicev1.ServiceInterface{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "handoff-si",
+					Namespace: ns.Name,
+					Labels: map[string]string{
+						setNameLabel: "my-set",
+						setNSLabel:   ns.Name,
+					},
+				},
+				Spec: dpuservicev1.ServiceInterfaceSpec{
+					Node:          &testNodeName,
+					InterfaceType: dpuservicev1.InterfaceTypePF,
+					PF:            &dpuservicev1.PF{ID: 1},
+				},
+			}
+			controllerutil.AddFinalizer(si, ServiceInterfaceFinalizer)
+			Expect(testClient.Create(ctx, si)).To(Succeed())
+			cleanupObjects = append(cleanupObjects, si)
+			Expect(testClient.Delete(ctx, si)).To(Succeed())
+
+			nsi := &dpuservicev1.NodeServiceInterfaces{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "handoff-nsi",
+					Namespace: utils.NSIObjectsNamespace,
+				},
+				Spec: dpuservicev1.NodeServiceInterfacesSpec{
+					Node: testNodeName,
+					Type: dpuservicev1.NSITypeSFC,
+					Interfaces: []dpuservicev1.InterfaceEntry{{
+						Name: ns.Name + "_my-set",
+						Labels: map[string]string{
+							setNameLabel: "my-set",
+							setNSLabel:   ns.Name,
+						},
+						InterfaceType: dpuservicev1.InterfaceTypePF,
+						PF:            &dpuservicev1.PF{ID: 1},
+					}},
+				},
+			}
+			controllerutil.AddFinalizer(nsi, dpuservicev1.NodeServiceInterfacesFinalizer)
+			Expect(testClient.Create(ctx, nsi)).To(Succeed())
+			cleanupObjects = append(cleanupObjects, nsi)
+
+			sir.Client = mgrClient
+			Eventually(func() error {
+				return mgrClient.Get(ctx, client.ObjectKeyFromObject(si), &dpuservicev1.ServiceInterface{})
+			}).Should(Succeed())
+			Eventually(func(g Gomega) {
+				nsiList := &dpuservicev1.NodeServiceInterfacesList{}
+				g.Expect(mgrClient.List(ctx, nsiList,
+					client.InNamespace(utils.NSIObjectsNamespace),
+					client.MatchingFields{utils.NSINodeFieldKey: testNodeName},
+				)).To(Succeed())
+				g.Expect(nsiList.Items).To(ContainElement(HaveField("Name", nsi.Name)))
+			}).Should(Succeed())
+
+			result, err := sir.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{
+				Namespace: si.Namespace,
+				Name:      si.Name,
+			}})
+			Expect(err).To(Succeed())
+			Expect(result.RequeueAfter).To(BeZero())
+
+			Eventually(func(g Gomega) {
+				err := testClient.Get(ctx, client.ObjectKeyFromObject(si), &dpuservicev1.ServiceInterface{})
+				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+			}).Should(Succeed())
+		})
+
+		It("should delete OVS port when the NSI entry belongs to a different set", func() {
+			setNameLabel := dpuservicev1.SvcDpuGroupName + "/serviceinterfaceset-name"
+			setNSLabel := dpuservicev1.SvcDpuGroupName + "/serviceinterfaceset-namespace"
+
+			si := &dpuservicev1.ServiceInterface{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "non-matching-handoff-si",
+					Namespace: ns.Name,
+					Labels: map[string]string{
+						setNameLabel: "my-set",
+						setNSLabel:   ns.Name,
+					},
+				},
+				Spec: dpuservicev1.ServiceInterfaceSpec{
+					Node:          &testNodeName,
+					InterfaceType: dpuservicev1.InterfaceTypePF,
+					PF:            &dpuservicev1.PF{ID: 1},
+				},
+			}
+			controllerutil.AddFinalizer(si, ServiceInterfaceFinalizer)
+			Expect(testClient.Create(ctx, si)).To(Succeed())
+			cleanupObjects = append(cleanupObjects, si)
+			Expect(testClient.Delete(ctx, si)).To(Succeed())
+
+			nsi := &dpuservicev1.NodeServiceInterfaces{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "non-matching-handoff-nsi",
+					Namespace: utils.NSIObjectsNamespace,
+				},
+				Spec: dpuservicev1.NodeServiceInterfacesSpec{
+					Node: testNodeName,
+					Type: dpuservicev1.NSITypeSFC,
+					Interfaces: []dpuservicev1.InterfaceEntry{{
+						Name: ns.Name + "_other-set",
+						Labels: map[string]string{
+							setNameLabel: "other-set",
+							setNSLabel:   ns.Name,
+						},
+						InterfaceType: dpuservicev1.InterfaceTypePF,
+						PF:            &dpuservicev1.PF{ID: 1},
+					}},
+				},
+			}
+			controllerutil.AddFinalizer(nsi, dpuservicev1.NodeServiceInterfacesFinalizer)
+			Expect(testClient.Create(ctx, nsi)).To(Succeed())
+			cleanupObjects = append(cleanupObjects, nsi)
+
+			sir.Client = mgrClient
+			Eventually(func() error {
+				return mgrClient.Get(ctx, client.ObjectKeyFromObject(si), &dpuservicev1.ServiceInterface{})
+			}).Should(Succeed())
+			Eventually(func(g Gomega) {
+				nsiList := &dpuservicev1.NodeServiceInterfacesList{}
+				g.Expect(mgrClient.List(ctx, nsiList,
+					client.InNamespace(utils.NSIObjectsNamespace),
+					client.MatchingFields{utils.NSINodeFieldKey: testNodeName},
+				)).To(Succeed())
+				g.Expect(nsiList.Items).To(ContainElement(HaveField("Name", nsi.Name)))
+			}).Should(Succeed())
+
+			ecpfManagerMock.EXPECT().GetRepresentorForPFServiceInterface(gomock.Any()).Return("pf0hpf", nil)
+			ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), "pf0hpf", nil).Return(nil)
+
+			result, err := sir.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{
+				Namespace: si.Namespace,
+				Name:      si.Name,
+			}})
+			Expect(err).To(Succeed())
+			Expect(result.RequeueAfter).To(BeZero())
+
+			Eventually(func(g Gomega) {
+				err := testClient.Get(ctx, client.ObjectKeyFromObject(si), &dpuservicev1.ServiceInterface{})
+				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+			}).Should(Succeed())
+		})
+
 		It("should requeue if failed to delete port", func() {
 			ecpfManagerMock.EXPECT().GetRepresentorForPFServiceInterface(gomock.Any()).Return("pf0hpf", nil)
 			ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), gomock.Any(), nil).Return(errors.New("failed to delete port"))
@@ -683,6 +834,86 @@ var _ = Describe("service interface controller", func() {
 			}})
 			Expect(err).To(Succeed())
 			Expect(result.RequeueAfter).NotTo(BeZero())
+		})
+
+		It("should delete SI patch ports when a matching NSI entry exists", func() {
+			setNameLabel := dpuservicev1.SvcDpuGroupName + "/serviceinterfaceset-name"
+			setNSLabel := dpuservicev1.SvcDpuGroupName + "/serviceinterfaceset-namespace"
+			peerBridge := "br-peer"
+
+			si := &dpuservicev1.ServiceInterface{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "handoff-hashed-patch-si",
+					Namespace: ns.Name,
+					Labels: map[string]string{
+						setNameLabel: "my-set",
+						setNSLabel:   ns.Name,
+					},
+				},
+				Spec: dpuservicev1.ServiceInterfaceSpec{
+					Node:          &testNodeName,
+					InterfaceType: dpuservicev1.InterfaceTypePatch,
+					Patch: &dpuservicev1.PatchDef{
+						PeerBridge: peerBridge,
+					},
+				},
+			}
+			controllerutil.AddFinalizer(si, ServiceInterfaceFinalizer)
+			Expect(testClient.Create(ctx, si)).To(Succeed())
+			cleanupObjects = append(cleanupObjects, si)
+			Expect(testClient.Delete(ctx, si)).To(Succeed())
+
+			nsi := &dpuservicev1.NodeServiceInterfaces{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "handoff-hashed-patch-nsi",
+					Namespace: utils.NSIObjectsNamespace,
+				},
+				Spec: dpuservicev1.NodeServiceInterfacesSpec{
+					Node: testNodeName,
+					Type: dpuservicev1.NSITypeSFC,
+					Interfaces: []dpuservicev1.InterfaceEntry{{
+						Name: ns.Name + "_my-set",
+						Labels: map[string]string{
+							setNameLabel: "my-set",
+							setNSLabel:   ns.Name,
+						},
+						InterfaceType: dpuservicev1.InterfaceTypePatch,
+						Patch: &dpuservicev1.PatchDef{
+							PeerBridge: peerBridge,
+						},
+					}},
+				},
+			}
+			controllerutil.AddFinalizer(nsi, dpuservicev1.NodeServiceInterfacesFinalizer)
+			Expect(testClient.Create(ctx, nsi)).To(Succeed())
+			cleanupObjects = append(cleanupObjects, nsi)
+
+			sir.Client = mgrClient
+			Eventually(func() error {
+				return mgrClient.Get(ctx, client.ObjectKeyFromObject(si), &dpuservicev1.ServiceInterface{})
+			}).Should(Succeed())
+			Eventually(func(g Gomega) {
+				nsiList := &dpuservicev1.NodeServiceInterfacesList{}
+				g.Expect(mgrClient.List(ctx, nsiList,
+					client.InNamespace(utils.NSIObjectsNamespace),
+					client.MatchingFields{utils.NSINodeFieldKey: testNodeName},
+				)).To(Succeed())
+				g.Expect(nsiList.Items).To(ContainElement(HaveField("Name", nsi.Name)))
+			}).Should(Succeed())
+
+			siKey := types.NamespacedName{Namespace: si.Namespace, Name: si.Name}
+			patchPort, peerPatchPort := getPatchPortNames(si, siKey.String(), peerBridge)
+			ovsMock.EXPECT().DelPort(gomock.Any(), SFCBridge, patchPort, nil).Return(nil)
+			ovsMock.EXPECT().DelPort(gomock.Any(), peerBridge, peerPatchPort, nil).Return(nil)
+
+			result, err := sir.Reconcile(ctx, ctrl.Request{NamespacedName: siKey})
+			Expect(err).To(Succeed())
+			Expect(result.RequeueAfter).To(BeZero())
+
+			Eventually(func(g Gomega) {
+				err := testClient.Get(ctx, client.ObjectKeyFromObject(si), &dpuservicev1.ServiceInterface{})
+				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+			}).Should(Succeed())
 		})
 	})
 
