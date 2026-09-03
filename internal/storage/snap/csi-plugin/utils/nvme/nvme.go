@@ -24,6 +24,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -32,11 +33,16 @@ import (
 	"k8s.io/klog/v2"
 )
 
+const sysfsBlockPath = "/sys/class/block"
+
 var (
 	// ErrBlockDeviceNotFound is returned when block device is not found
 	ErrBlockDeviceNotFound = fmt.Errorf("block device not found")
 	// ErrBlockDeviceIsInvalid is returned when block device is invalid, for example, if it has zero size
 	ErrBlockDeviceIsInvalid = fmt.Errorf("block device is invalid")
+	// Native NVMe multipath names a hidden path nvme<subsystem-instance>c<controller-instance>n<head-instance>
+	// and its usable namespace head nvme<subsystem-instance>n<head-instance>.
+	nativeMultipathPathRegexp = regexp.MustCompile(`^nvme([0-9]+)c[0-9]+n([0-9]+)$`)
 )
 
 // used in tests to change fs root
@@ -112,11 +118,13 @@ func (n *nvmeUtils) getBlockDeviceInfo(deviceID string, namespace int32) (string
 			continue
 		}
 		deviceName = d.Name()
+		if matches := nativeMultipathPathRegexp.FindStringSubmatch(deviceName); matches != nil {
+			deviceName = fmt.Sprintf("nvme%sn%s", matches[1], matches[2])
+		}
+		devicePath = filepath.Join(fsRoot, sysfsBlockPath, deviceName)
 		deviceSizeData, err := os.ReadFile(filepath.Join(devicePath, "size"))
 		if err != nil {
-			klog.V(3).InfoS("can't read size for block device, return zero size", "block_device", deviceName)
-			deviceSize = 0
-			break
+			return "", 0, fmt.Errorf("failed to read block device %s size: %w", deviceName, err)
 		}
 		deviceSize, err = strconv.ParseUint(strings.TrimSuffix(string(deviceSizeData), "\n"), 10, 64)
 		if err != nil {
