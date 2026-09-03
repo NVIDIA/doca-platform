@@ -299,3 +299,89 @@ func TestListInterfacesForNodeDeduplicates(t *testing.T) {
 	g.Expect(interfaces[0].Name).To(Equal("shared"))
 	g.Expect(interfaces[0].Labels).To(HaveKeyWithValue("source", "nsi"))
 }
+
+func TestHasMatchingNonTerminatingNSIEntry(t *testing.T) {
+	ctx := context.Background()
+
+	setNameLabel := dpuservicev1.SvcDpuGroupName + "/serviceinterfaceset-name"
+	setNSLabel := dpuservicev1.SvcDpuGroupName + "/serviceinterfaceset-namespace"
+
+	si := &dpuservicev1.ServiceInterface{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "legacy-si",
+			Namespace: testNS,
+			Labels: map[string]string{
+				setNameLabel: "my-set",
+				setNSLabel:   testNS,
+				"role":       "uplink",
+			},
+		},
+		Spec: dpuservicev1.ServiceInterfaceSpec{
+			Node:          ptr.To(testNode),
+			InterfaceType: dpuservicev1.InterfaceTypePF,
+		},
+	}
+
+	t.Run("match non-terminating sfc entry", func(t *testing.T) {
+		g := NewWithT(t)
+		nsi := nsiObject("nsi-sfc", dpuservicev1.NSITypeSFC, siEntry(testNS, "my-set", map[string]string{
+			setNameLabel: "my-set",
+			setNSLabel:   testNS,
+			"role":       "uplink",
+		}, dpuservicev1.InterfaceTypePF))
+		c := fakeClient(t, nsi)
+		ok, err := HasMatchingNonTerminatingNSIEntry(ctx, c, si)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(ok).To(BeTrue())
+	})
+
+	t.Run("ignore terminating entry", func(t *testing.T) {
+		g := NewWithT(t)
+		entry := siEntry(testNS, "my-set", map[string]string{
+			setNameLabel: "my-set",
+			setNSLabel:   testNS,
+		}, dpuservicev1.InterfaceTypePF)
+		entry.Terminating = true
+		nsi := nsiObject("nsi-sfc", dpuservicev1.NSITypeSFC, entry)
+		c := fakeClient(t, nsi)
+		ok, err := HasMatchingNonTerminatingNSIEntry(ctx, c, si)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(ok).To(BeFalse())
+	})
+
+	t.Run("ignore non-sfc type", func(t *testing.T) {
+		g := NewWithT(t)
+		nsi := nsiObject("nsi-vpc", dpuservicev1.NSITypeVPC, siEntry(testNS, "my-set", map[string]string{
+			setNameLabel: "my-set",
+			setNSLabel:   testNS,
+		}, dpuservicev1.InterfaceTypePF))
+		c := fakeClient(t, nsi)
+		ok, err := HasMatchingNonTerminatingNSIEntry(ctx, c, si)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(ok).To(BeFalse())
+	})
+
+	t.Run("no match when set ownership labels missing on SI", func(t *testing.T) {
+		g := NewWithT(t)
+		orphan := si.DeepCopy()
+		orphan.Labels = map[string]string{"role": "uplink"}
+		nsi := nsiObject("nsi-sfc", dpuservicev1.NSITypeSFC, siEntry(testNS, "my-set", map[string]string{
+			setNameLabel: "my-set",
+			setNSLabel:   testNS,
+		}, dpuservicev1.InterfaceTypePF))
+		c := fakeClient(t, nsi)
+		ok, err := HasMatchingNonTerminatingNSIEntry(ctx, c, orphan)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(ok).To(BeFalse())
+	})
+
+	t.Run("nil node returns false", func(t *testing.T) {
+		g := NewWithT(t)
+		noNode := si.DeepCopy()
+		noNode.Spec.Node = nil
+		c := fakeClient(t)
+		ok, err := HasMatchingNonTerminatingNSIEntry(ctx, c, noNode)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(ok).To(BeFalse())
+	})
+}
