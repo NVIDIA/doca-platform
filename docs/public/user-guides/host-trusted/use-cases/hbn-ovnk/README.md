@@ -1007,7 +1007,7 @@ spec:
   helmChart:
     source:
       repoURL: $HELM_REGISTRY_REPO_URL
-      version: 1.25.5
+      version: 1.26.5
       chart: doca-telemetry
 ```
 </details>
