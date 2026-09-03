@@ -3,6 +3,7 @@
 # Modifications:
 #   * dropped the image override — uses the chart default.
 #   * dropped imagePullSecrets — added at runtime by the SNAP suite (NGC secret for the DOCA image).
+#   * added the NVMe subsystem used by the NVMe hot-plug consumer.
 apiVersion: svc.dpu.nvidia.com/v1alpha1
 kind: DPUServiceConfiguration
 metadata:
@@ -18,6 +19,8 @@ spec:
             enabled: true
             env:
               XLIO_ENABLED: "0"
+            snapRpcInitConf: |
+              nvme_subsystem_create --nqn nqn.2022-10.io.nvda.nvme:0
   interfaces:
     - name: app_sf
       network: mybrsfc-storage

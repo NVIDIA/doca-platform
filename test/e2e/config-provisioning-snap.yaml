@@ -1,5 +1,5 @@
-# E2E config for the SNAP tests (VirtioFS on hot-plugged PFs, Host Trusted).
-# Provisions DPUs with the SNAP DPUFlavor (PCI-switch + VirtioFS emulation, extra hugepages).
+# E2E config for SNAP VirtioFS and NVMe tests on hot-plugged PFs (Host Trusted).
+# Provisions DPUs once with both emulation modes enabled.
 #
 # The SNAP application layer lives under the snap*ObjectPaths / snap*Path keys below and is deployed by
 # the SNAP test's BeforeAll.
@@ -18,16 +18,20 @@ snapHostVerbatimPaths:
   - "../objects/storage/pf1hpf-dpuserviceinterface.yaml"
   - "../objects/storage/mybrsfc-storage-dpuservicenad.yaml"
   - "../objects/storage/storage-pool-dpuserviceipam.yaml"
-# Storage control plane — applied verbatim, but cleaned with the workload.
+# Storage control plane — applied verbatim in its own cleanup scope.
 snapStorageControlPlanePaths:
   - "../objects/storage/nfs-csi-dpustoragevendor.yaml"
   - "../objects/storage/policy-fs-dpustoragepolicy.yaml"
+  - "../objects/storage/local-block-dpustoragevendor.yaml"
+  - "../objects/storage/policy-block-dpustoragepolicy.yaml"
 # DPUServiceTemplates — chart source patched.
 snapHostTemplatePaths:
   - "../objects/storage/doca-snap-dpuservicetemplate.yaml"
   - "../objects/storage/fs-storage-dpu-plugin-dpuservicetemplate.yaml"
   - "../objects/storage/snap-node-driver-dpuservicetemplate.yaml"
-  - "../objects/storage/snap-csi-plugin-dpuservicetemplate.yaml"
+  - "../objects/storage/snap-csi-plugin-virtiofs-dpuservicetemplate.yaml"
+  - "../objects/storage/snap-csi-plugin-nvme-dpuservicetemplate.yaml"
+  - "../objects/storage/block-storage-dpu-plugin-dpuservicetemplate.yaml"
 # DPUService — chart source + image-pull secret patched.
 snapHostServicePaths:
   - "../objects/storage/snap-host-controller-dpuservice.yaml"
@@ -36,7 +40,9 @@ snapHostConfigPaths:
   - "../objects/storage/doca-snap-dpuserviceconfiguration.yaml"
   - "../objects/storage/fs-storage-dpu-plugin-dpuserviceconfiguration.yaml"
   - "../objects/storage/snap-node-driver-dpuserviceconfiguration.yaml"
-  - "../objects/storage/snap-csi-plugin-dpuserviceconfiguration.yaml"
+  - "../objects/storage/snap-csi-plugin-virtiofs-dpuserviceconfiguration.yaml"
+  - "../objects/storage/snap-csi-plugin-nvme-dpuserviceconfiguration.yaml"
+  - "../objects/storage/block-storage-dpu-plugin-dpuserviceconfiguration.yaml"
 # csi-hostpath backend — applied to the DPU (tenant) cluster by the SNAP suite BeforeAll.
 snapDPUClusterObjectPaths:
   - "../objects/storage/csi-hostpath-driver.yaml"
@@ -44,9 +50,11 @@ snapDPUClusterObjectPaths:
   - "../objects/storage/csi-hostpath-provisioner-rbac.yaml"
   - "../objects/storage/csi-hostpath-attacher-rbac.yaml"
   - "../objects/storage/csi-hostpath-plugin.yaml"
-# Workload — applied by the "VirtioFS volume" test Context (host cluster).
-snapStorageClassPath: "../objects/storage/storageclass.yaml"
-snapWorkloadPath: "../objects/storage/sts-fs.yaml"
+# Consumers — each pair is applied and removed by its mode-specific test Context.
+snapVirtioFSStorageClassPath: "../objects/storage/storageclass.yaml"
+snapVirtioFSWorkloadPath: "../objects/storage/sts-fs.yaml"
+snapNVMeStorageClassPath: "../objects/storage/storageclass-nvme.yaml"
+snapNVMeWorkloadPath: "../objects/storage/sts-nvme.yaml"
 # --- generic placeholders: required by applyConfig, unused by the SNAP suite ---
 # applyConfig (test/e2e/system_setup.go) reads these unconditionally; the SNAP suite deploys its own
 # app layer in BeforeAll instead.

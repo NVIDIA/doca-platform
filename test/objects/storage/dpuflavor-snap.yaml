@@ -7,8 +7,9 @@
 #   * changed the OVS unit probe from `systemctl list-unit-files` to `systemctl cat` — the former
 #     succeeds on an empty match, so it never told a missing unit from a present one.
 # Note: vs the sibling test/objects/infrastructure/dpuflavor-physical.yaml this adds the SNAP firmware —
-#   hugepages 250->5120, PCI_SWITCH_EMULATION_ENABLE + NUM_PORT=32, VIRTIO_FS_EMULATION_ENABLE + NUM_PF=0,
-#   PF_TOTAL_SF 16->20, RDMA_SET_NETNS_EXCLUSIVE=no; OVS keeps br-sfc + p0 but drops br-hbn and p1.
+#   hugepages 250->5120, PCI_SWITCH_EMULATION_ENABLE + NUM_PORT=32, VirtioFS and NVMe emulation with
+#   no static PFs, PF_TOTAL_SF 16->20, RDMA_SET_NETNS_EXCLUSIVE=no; OVS keeps br-sfc + p0 but drops
+#   br-hbn and p1.
 apiVersion: provisioning.dpu.nvidia.com/v1alpha1
 kind: DPUFlavor
 metadata:
@@ -64,17 +65,17 @@ spec:
         - INTERNAL_CPU_OFFLOAD_ENGINE=0
         - SRIOV_EN=1
         # Must be <= the card's sriov_totalvfs (upstream's 46 fails on a 16-VF BF3 with
-        # FailedToCreateP0VF). Sizes only the DPF host-network VF pool; VirtioFS storage rides
+        # FailedToCreateP0VF). Sizes only the DPF host-network VF pool; SNAP storage rides
         # hot-plugged PFs, not VFs. Adjust per card if its cap differs.
         - NUM_OF_VFS=16
         - LAG_RESOURCE_ALLOCATION=1
-        # VirtioFS hot-plug requires PCI switch emulation.
+        # Storage hot-plug requires PCI switch emulation.
         - PCI_SWITCH_EMULATION_ENABLE=1
         # NUM_PORT is 1 + the number of hot-pluggable functions, and the host must find resource windows
         # for each. Two boot parameters make 32 of them affordable:
         #   * pci=realloc lets the kernel redo the assignment its firmware made
         #   * pci=hpiosize=0 drops the 4K I/O window reserved per hot-plug port; 31 of those outgrow an
-        #     x86 host's 64K of I/O space, and a modern virtio-fs PF has no I/O BAR to use one
+        #     x86 host's 64K of I/O space, and these emulated storage PFs have no I/O BAR to use one
         # Without them the ports get no windows and the hot-plugged PF arrives with no BARs to bind.
         - PCI_SWITCH_EMULATION_NUM_PORT=32
         - VIRTIO_FS_EMULATION_ENABLE=1
@@ -82,6 +83,9 @@ spec:
         # sliced at boot and block the host ~5-20 min during PCI enumeration; hot-plug
         # defers that to attach time so the host boots clean.
         - VIRTIO_FS_EMULATION_NUM_PF=0
+        - NVME_EMULATION_ENABLE=1
+        # NVMe volumes also use PFs created only when a consumer attaches.
+        - NVME_EMULATION_NUM_PF=0
         - LINK_TYPE_P1=ETH
         - LINK_TYPE_P2=ETH
   ovs:

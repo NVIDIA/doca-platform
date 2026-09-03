@@ -153,7 +153,7 @@ func cleanupAndWait(ctx context.Context, c client.Client, removeFinalizers bool,
 			wait.Backoff{
 				Duration: 100 * time.Millisecond,
 				Factor:   1.5,
-				Steps:    15,
+				Steps:    17,
 				Jitter:   0.4,
 			},
 			func() (done bool, err error) {

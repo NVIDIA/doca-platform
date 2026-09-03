@@ -123,15 +123,16 @@ type config struct {
 	SNAPHostServicePaths  []string `json:"snapHostServicePaths,omitempty"`
 	SNAPHostConfigPaths   []string `json:"snapHostConfigPaths,omitempty"`
 	SNAPHostVerbatimPaths []string `json:"snapHostVerbatimPaths,omitempty"`
-	// Storage control plane (DPUStorageVendor, DPUStoragePolicy): applied verbatim,
-	// but cleaned with the workload instead of the DPUDeployment, so a run that keeps
-	// the deployment still exercises them (see the snap cleanup scopes).
+	// Storage control plane (DPUStorageVendor, DPUStoragePolicy): applied verbatim in its own cleanup
+	// scope, so a run that keeps the deployment still re-creates and verifies these objects.
 	SNAPStorageControlPlanePaths []string `json:"snapStorageControlPlanePaths,omitempty"`
 	// csi-hostpath backend for the DPU (tenant) cluster.
 	SNAPDPUClusterObjectPaths []string `json:"snapDPUClusterObjectPaths,omitempty"`
-	// SNAP workload (StorageClass + StatefulSet), applied by the workload test Context.
-	SNAPStorageClassPath string `json:"snapStorageClassPath,omitempty"`
-	SNAPWorkloadPath     string `json:"snapWorkloadPath,omitempty"`
+	// SNAP consumer workloads, applied by their mode-specific test contexts.
+	SNAPVirtioFSStorageClassPath string `json:"snapVirtioFSStorageClassPath,omitempty"`
+	SNAPVirtioFSWorkloadPath     string `json:"snapVirtioFSWorkloadPath,omitempty"`
+	SNAPNVMeStorageClassPath     string `json:"snapNVMeStorageClassPath,omitempty"`
+	SNAPNVMeWorkloadPath         string `json:"snapNVMeWorkloadPath,omitempty"`
 }
 
 func readConfig(path string) (*config, error) {

@@ -1,0 +1,40 @@
+---
+# Sources:
+#   * dpuservices/storage/examples/scenarios/trusted-k8s-cluster/virtiofs-hotplug-pf/snap-csi-plugin-dpuserviceconfiguration.yaml
+#   * dpuservices/storage/examples/scenarios/trusted-k8s-cluster/virtiofs-hotplug-pf/helm/snap-csi-plugin-controller/values.yaml
+# Modifications:
+#   * converted the standalone service values to a DPUServiceConfiguration referenced by the SNAP
+#     DPUDeployment.
+#   * dropped image overrides and pull secrets — the chart defaults and runtime patching provide them.
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: snap-csi-plugin-virtiofs
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: snap-csi-plugin-virtiofs
+  upgradePolicy:
+    applyNodeEffect: false
+  serviceConfiguration:
+    deployInCluster: true
+    helmChart:
+      values:
+        host:
+          snapCsiPlugin:
+            enabled: true
+            name: "csi-virtiofs.snap.nvidia.com"
+            emulationMode: "virtiofs"
+            controller:
+              enabled: true
+              affinity:
+                nodeAffinity:
+                  requiredDuringSchedulingIgnoredDuringExecution:
+                    nodeSelectorTerms:
+                      - matchExpressions:
+                          - key: "node-role.kubernetes.io/master"
+                            operator: Exists
+                      - matchExpressions:
+                          - key: "node-role.kubernetes.io/control-plane"
+                            operator: Exists
+            node:
+              enabled: true

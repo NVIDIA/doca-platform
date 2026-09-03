@@ -1,0 +1,54 @@
+---
+# Source: dpuservices/storage/examples/scenarios/trusted-k8s-cluster/nvme-hotplug-pf/workload/sts-block.yaml
+# Modifications:
+#   * uses the multi-arch agnhost image used by the VirtioFS workload.
+#   * continuously writes and reads a marker through the raw block device.
+#   * adds the DPU-enabled selector; the suite also pins the exact worker at runtime.
+#   * scales to four replicas so the suite exercises multiple independent volumes concurrently.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: storage-test-pod-nvme-hotplug-pf
+spec:
+  serviceName: "storage-test-pod-nvme-hotplug-pf"
+  podManagementPolicy: "Parallel"
+  replicas: 4
+  selector:
+    matchLabels:
+      app: storage-test-pod-nvme-hotplug-pf
+  template:
+    metadata:
+      labels:
+        app: storage-test-pod-nvme-hotplug-pf
+    spec:
+      nodeSelector:
+        feature.node.kubernetes.io/dpu-enabled: "true"
+      containers:
+        - name: test
+          image: registry.k8s.io/e2e-test-images/agnhost:2.47
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              while true; do
+                printf "snap-nvme-heartbeat\n" | dd of=/dev/xvda bs=512 count=1 conv=sync 2>/dev/null
+                sync
+                actual="$(dd if=/dev/xvda bs=512 count=1 2>/dev/null | tr -d '\000\n')"
+                test "${actual}" = "snap-nvme-heartbeat"
+                echo "/dev/xvda write+read OK"
+                sleep 1
+              done
+          volumeDevices:
+            - name: vol1
+              devicePath: /dev/xvda
+  volumeClaimTemplates:
+    - metadata:
+        name: vol1
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+        storageClassName: snap-nvme-hotplug-pf
+        volumeMode: Block

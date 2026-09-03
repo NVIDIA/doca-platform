@@ -7,6 +7,7 @@
 #   * added nodeSelector feature.node.kubernetes.io/dpu-enabled — lands the pod on a DPU host. Every worker
 #     with DPU hardware carries that label, so the suite additionally pins kubernetes.io/hostname to the
 #     host whose DPU it provisioned.
+#   * scaled to four replicas so the suite exercises multiple independent volumes concurrently.
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -14,7 +15,7 @@ metadata:
 spec:
   serviceName: "storage-test-pod-virtiofs-hotplug-pf"
   podManagementPolicy: "Parallel"
-  replicas: 1
+  replicas: 4
   selector:
     matchLabels:
       app: storage-test-pod-virtiofs-hotplug-pf

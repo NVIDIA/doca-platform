@@ -1,0 +1,13 @@
+---
+# Source: dpuservices/storage/examples/scenarios/trusted-k8s-cluster/nvme-hotplug-pf/policy-block-dpustoragepolicy.yaml
+# Modifications: changed the vendor from the external SPDK backend to the test-local block backend.
+apiVersion: storage.dpu.nvidia.com/v1alpha1
+kind: DPUStoragePolicy
+metadata:
+  name: policy-block
+  namespace: dpf-operator-system
+spec:
+  dpuStorageVendors:
+    - local-block
+  selectionAlgorithm: "NumberVolumes"
+  parameters: {}

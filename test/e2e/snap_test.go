@@ -25,18 +25,19 @@ import (
 )
 
 var _ = Describe("DPF System tests - SNAP", Labels{Domain.DPFSystem, Domain.SNAP}, Ordered, func() {
-
 	BeforeAll(func() {
 		snapDeploymentScope = cleanupTracker.RegisterScope(cleanup.NamedScopeManual("snap-deployment"))
-		snapWorkloadScope = cleanupTracker.RegisterScope(cleanup.NamedScopeManual("snap-workload"))
+		snapControlPlaneScope = cleanupTracker.RegisterScope(cleanup.NamedScopeManual("snap-control-plane"))
+		snapVirtioFSWorkloadScope = cleanupTracker.RegisterScope(cleanup.NamedScopeManual("snap-virtiofs-workload"))
+		snapNVMeWorkloadScope = cleanupTracker.RegisterScope(cleanup.NamedScopeManual("snap-nvme-workload"))
 
 		if !input.hasDpuNodes() {
 			Skip("Skip test as there are no DPU nodes")
 		}
 
-		// Workload first, as in the AfterAll: its namespace only finishes terminating once the CSI node
-		// plugin, which the deployment scope owns, has unmounted the volume from the workload pod.
-		snapWorkloadScope.CleanupBefore()
+		snapNVMeWorkloadScope.CleanupBefore()
+		snapVirtioFSWorkloadScope.CleanupBefore()
+		snapControlPlaneScope.CleanupBefore()
 		snapDeploymentScope.CleanupBefore()
 
 		provInput := getProvisionDPUClustersInput()
@@ -57,25 +58,23 @@ var _ = Describe("DPF System tests - SNAP", Labels{Domain.DPFSystem, Domain.SNAP
 
 		By("Waiting for DPFOperatorConfig to be ready")
 		VerifyDPFOperatorConfigReady(ctx, input.client, snapProvisioningTimeout)
+
 	})
 
 	AfterAll(func() {
-		// Cleanup workload first: detaching its volume needs the SNAP services the deployment scope owns.
-		snapWorkloadScope.CleanupAfter()
+		snapControlPlaneScope.CleanupAfter()
 		snapDeploymentScope.CleanupAfter()
-		// The DPUSet selects its DPU by this label, so the label can only go once the DPUSet has. A kept
-		// deployment scope leaves the DPUSet standing, and a DPUSet that selects nothing loses its DPU.
 		if !snapDeploymentScope.ResourcesExist() {
 			clearPinnedDPUDeviceLabel(ctx, input.client, dpfOperatorSystemNamespace)
 		}
 	})
 
 	Context("SNAP services", Labels{Domain.RequiresNodes}, Ordered, func() {
-		It("should run the DPU-side SNAP services (doca-snap, fs-storage-dpu-plugin, snap-node-driver)", func() {
-			VerifyClusterPods(ctx, dpuClusterClient[0], []string{"doca-snap", "fs-storage-dpu-plugin", "snap-node-driver"})
+		It("should run the shared DPU-side SNAP services", func() {
+			VerifyClusterPods(ctx, dpuClusterClient[0], []string{"doca-snap", "fs-storage-dpu-plugin", "block-storage-dpu-plugin", "snap-node-driver"})
 		})
-		It("should run the host-side SNAP services (snap-csi-plugin, snap-host-controller)", func() {
-			VerifyClusterPods(ctx, testClient, []string{"snap-csi-plugin", "snap-host-controller"})
+		It("should run both host-side CSI services and the host controller", func() {
+			VerifyClusterPods(ctx, testClient, []string{"snap-csi-plugin-virtiofs", "snap-csi-plugin-nvme", "snap-host-controller"})
 		})
 		It("should run the csi-hostpath backend on the DPU cluster", func() {
 			VerifyClusterPods(ctx, dpuClusterClient[0], []string{"csi-hostpathplugin"})
@@ -83,33 +82,78 @@ var _ = Describe("DPF System tests - SNAP", Labels{Domain.DPFSystem, Domain.SNAP
 	})
 
 	Context("Storage control plane", Labels{Domain.RequiresNodes}, Ordered, func() {
-		It("should have a Ready DPUStorageVendor", func() {
-			snaputils.VerifyDPUStorageVendorReady(ctx, input.client, dpfOperatorSystemNamespace, snapStorageVendorName)
+		It("should have Ready filesystem and block DPUStorageVendors", func() {
+			snaputils.VerifyDPUStorageVendorReady(ctx, input.client, dpfOperatorSystemNamespace, snapVirtioFSStorageVendorName)
+			snaputils.VerifyDPUStorageVendorReady(ctx, input.client, dpfOperatorSystemNamespace, snapNVMeStorageVendorName)
 		})
-		It("should have a Ready DPUStoragePolicy", func() {
-			snaputils.VerifyDPUStoragePolicyReady(ctx, input.client, dpfOperatorSystemNamespace, snapStoragePolicyName)
+		It("should have Ready filesystem and block DPUStoragePolicies", func() {
+			snaputils.VerifyDPUStoragePolicyReady(ctx, input.client, dpfOperatorSystemNamespace, snapVirtioFSStoragePolicyName)
+			snaputils.VerifyDPUStoragePolicyReady(ctx, input.client, dpfOperatorSystemNamespace, snapNVMeStoragePolicyName)
 		})
 	})
 
 	Context("VirtioFS volume on a hot-plugged PF (trusted)", Labels{Domain.RequiresNodes}, Ordered, func() {
-		It("should create the workload StorageClass and StatefulSet", func() {
-			applySNAPWorkload(ctx, input, *conf)
+		BeforeAll(func() {
+			snapVirtioFSWorkloadScope.CleanupBefore()
 		})
-		It("should bind a DPUVolume", func() {
-			snaputils.VerifyDPUVolumeBound(ctx, input.client, dpfOperatorSystemNamespace)
+
+		AfterAll(func() {
+			snapVirtioFSWorkloadScope.CleanupAfter()
 		})
-		It("should attach the backend volume to the DPU", func() {
-			snaputils.VerifySVVolumeAttachmentAttached(ctx, dpuClusterClient[0], dpfOperatorSystemNamespace)
+
+		It("should create the workload StorageClass and four-replica StatefulSet", func() {
+			applySNAPWorkload(ctx, input, snapVirtioFSWorkloadScope, snapVirtioFSNamespace,
+				conf.SNAPVirtioFSStorageClassPath, conf.SNAPVirtioFSWorkloadPath)
 		})
-		It("should have a Ready DPUVolumeAttachment with a VirtioFS filesystem tag", func() {
-			snaputils.VerifyDPUVolumeAttachmentReady(ctx, input.client, dpfOperatorSystemNamespace)
+		It("should bind a DPUVolume for each workload pod", func() {
+			snaputils.VerifyDPUVolumesBound(ctx, input.client, dpfOperatorSystemNamespace, snapWorkloadReplicas)
 		})
-		It("should run the workload pod and mount the VirtioFS volume", func() {
-			snaputils.WaitForWorkloadPodRunning(ctx, input.client, snapWorkloadNamespace, snapWorkloadPodName)
-			snaputils.VerifyVirtioFSMount(hostClusterRESTClient, input.restConfig, snapWorkloadNamespace, snapWorkloadPodName, snapVolumeMountPath)
+		It("should attach every backend volume to the DPU", func() {
+			snaputils.VerifySVVolumeAttachmentsAttached(ctx, dpuClusterClient[0], dpfOperatorSystemNamespace, snapWorkloadReplicas)
 		})
-		It("should keep the workload writing and reading its own file on the mount", func() {
-			snaputils.VerifyWorkloadHeartbeat(hostClusterRESTClient, input.restConfig, snapWorkloadNamespace, snapWorkloadPodName, snapHeartbeatFile)
+		It("should have Ready DPUVolumeAttachments with VirtioFS filesystem tags", func() {
+			snaputils.VerifyVirtioFSAttachmentsReady(ctx, input.client, dpfOperatorSystemNamespace, snapWorkloadReplicas)
+		})
+		It("should run every workload pod and mount its VirtioFS volume", func() {
+			for _, podName := range snapWorkloadPodNames(snapVirtioFSStatefulSetName) {
+				snaputils.WaitForWorkloadPodRunning(ctx, input.client, snapVirtioFSNamespace, podName)
+				snaputils.VerifyVirtioFSMount(hostClusterRESTClient, input.restConfig, snapVirtioFSNamespace, podName, snapVirtioFSMountPath)
+			}
+		})
+		It("should keep every workload writing and reading its own file on the mount", func() {
+			for _, podName := range snapWorkloadPodNames(snapVirtioFSStatefulSetName) {
+				snaputils.VerifyWorkloadHeartbeat(hostClusterRESTClient, input.restConfig, snapVirtioFSNamespace, podName, snapVirtioFSHeartbeatFile)
+			}
+		})
+	})
+
+	Context("NVMe volume on a hot-plugged PF (trusted)", Labels{Domain.RequiresNodes}, Ordered, func() {
+		BeforeAll(func() {
+			snapNVMeWorkloadScope.CleanupBefore()
+		})
+
+		AfterAll(func() {
+			snapNVMeWorkloadScope.CleanupAfter()
+		})
+
+		It("should create the workload StorageClass and four-replica StatefulSet", func() {
+			applySNAPWorkload(ctx, input, snapNVMeWorkloadScope, snapNVMeNamespace,
+				conf.SNAPNVMeStorageClassPath, conf.SNAPNVMeWorkloadPath)
+		})
+		It("should bind a block DPUVolume for each workload pod", func() {
+			snaputils.VerifyDPUVolumesBound(ctx, input.client, dpfOperatorSystemNamespace, snapWorkloadReplicas)
+		})
+		It("should attach every backend volume to the DPU", func() {
+			snaputils.VerifySVVolumeAttachmentsAttached(ctx, dpuClusterClient[0], dpfOperatorSystemNamespace, snapWorkloadReplicas)
+		})
+		It("should have Ready NVMe hot-plugged PF attachments", func() {
+			snaputils.VerifyNVMeAttachmentsReady(ctx, input.client, dpfOperatorSystemNamespace, snapWorkloadReplicas)
+		})
+		It("should run every workload pod and perform raw block I/O", func() {
+			for _, podName := range snapWorkloadPodNames(snapNVMeStatefulSetName) {
+				snaputils.WaitForWorkloadPodRunning(ctx, input.client, snapNVMeNamespace, podName)
+				snaputils.VerifyNVMeRawBlockIO(hostClusterRESTClient, input.restConfig, snapNVMeNamespace, podName, snapNVMeDevicePath)
+			}
 		})
 	})
 })

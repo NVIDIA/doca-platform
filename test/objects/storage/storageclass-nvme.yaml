@@ -1,0 +1,12 @@
+---
+# Source: dpuservices/storage/examples/scenarios/trusted-k8s-cluster/nvme-hotplug-pf/workload/storageclass.yaml
+# Modifications: uses the mode-specific CSI driver name from the mixed SNAP example.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: snap-nvme-hotplug-pf
+provisioner: csi-nvme.snap.nvidia.com
+parameters:
+  policy: "policy-block"
+  functionType: "pf"
+  hotplugFunction: "true"
