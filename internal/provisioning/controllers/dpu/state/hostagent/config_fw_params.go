@@ -40,6 +40,13 @@ func ConfigFWParameters(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 		return *state, err
 	}
 	if cutil.PreInstallAgentReported(dpu) && !cutil.PreInstallNVConfigReported(dpu) {
+		// This phase waits on the agent with no timeout, so its RBAC has to be re-ensured on
+		// every reconcile: a Role/RoleBinding garbage-collected with the previous DPUSet
+		// generation would otherwise leave the agent 403-denied and the DPU stuck here forever.
+		if err := cutil.EnsureDPUAgentRole(ctx, ctrlCtx.Client, dpu, device); err != nil {
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToEnsureAgentRBAC", err.Error()))
+			return *state, err
+		}
 		logger.V(2).Info("reprovision: waiting for dpu-agent applying NVConfig.")
 		return *state, nil
 	}

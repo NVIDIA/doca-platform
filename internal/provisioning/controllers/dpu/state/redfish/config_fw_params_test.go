@@ -26,6 +26,8 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -152,6 +154,32 @@ var _ = Describe("ConfigFWParameters", func() {
 				HaveField("Reason", "FailedToSetHostPrivilege"),
 			),
 		))
+	})
+
+	It("re-creates the per-DPU agent RBAC while waiting for the agent to apply NVConfig", func() {
+		createObject(dpuFlavorObj("dpu-flavor"))
+		dpuDevice := dpuDeviceObj(defaultDPUDeviceName)
+		createObject(dpuDevice)
+
+		dpu := dpuObj(defaultDPUName)
+		dpu.Spec.DPUDeviceName = dpuDevice.Name
+		createObject(dpu)
+		dpu.Status.Phase = provisioningv1.DPUConfigFWParameters
+		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
+		dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
+			PreInstall: &provisioningv1.AgentPreInstallStatus{AgentReported: ptr.To(metav1.Now())},
+		}
+
+		// The DPUSet generation that owned the previous RBAC was deleted, so garbage
+		// collection took the Role and RoleBinding with it.
+		rbacKey := client.ObjectKey{Name: "da-" + dpu.Name, Namespace: testNS.Name}
+		Expect(apierrors.IsNotFound(k8sClient.Get(ctx, rbacKey, &rbacv1.Role{}))).To(BeTrue())
+
+		status, err := ConfigFWParameters(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(status.Phase).To(Equal(provisioningv1.DPUConfigFWParameters))
+		Expect(k8sClient.Get(ctx, rbacKey, &rbacv1.Role{})).To(Succeed())
+		Expect(k8sClient.Get(ctx, rbacKey, &rbacv1.RoleBinding{})).To(Succeed())
 	})
 
 	Context("BmcRShim poll (BF3)", func() {

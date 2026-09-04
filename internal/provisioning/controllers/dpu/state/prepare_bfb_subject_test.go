@@ -23,6 +23,7 @@ import (
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
+	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -107,7 +108,7 @@ func TestDPUAgentRoleBindingSubject(t *testing.T) {
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(tt.objs...).Build()
 			ctrlCtx := &dutil.ControllerContext{Client: fakeClient}
 
-			subject, err := dpuAgentRoleBindingSubject(context.Background(), ctrlCtx, tt.dpu, tt.device)
+			subject, err := cutil.DPUAgentRoleBindingSubject(context.Background(), ctrlCtx.Client, tt.dpu, tt.device)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatalf("expected error, got subject %q", subject)
@@ -153,7 +154,7 @@ func TestEnsureRBACSkipsBootstrapTokenForSPIFFEDPU(t *testing.T) {
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(config).Build()
 	ctrlCtx := &dutil.ControllerContext{Client: fakeClient, Scheme: scheme}
 
-	token, err := ensureRBAC(context.Background(), ctrlCtx, dpu, nil, device)
+	token, err := ensureRBAC(context.Background(), ctrlCtx, dpu, device)
 	if err != nil {
 		t.Fatalf("ensureRBAC() error = %v", err)
 	}

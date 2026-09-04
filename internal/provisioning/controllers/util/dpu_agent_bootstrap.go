@@ -28,6 +28,8 @@ import (
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	providentity "github.com/nvidia/doca-platform/internal/provisioning/utils/certificate/identity"
+	"github.com/nvidia/doca-platform/internal/spire"
+	dpfutils "github.com/nvidia/doca-platform/internal/utils"
 
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -131,6 +133,48 @@ func CreateDPUAgentRole(ctx context.Context, client crclient.Client, scheme *run
 		return fmt.Errorf("creating or updating role %s: %w", roleName, err)
 	}
 	return nil
+}
+
+// EnsureDPUAgentRole creates or updates both the per-DPU Role (pinned to the
+// current dpu.Spec.DPUFlavor) and the per-DPU RoleBinding. It is idempotent, so
+// callers in phases that block on the in-band agent must call it on every
+// reconcile: on reprovision the previous generation's Role and RoleBinding are
+// garbage-collected with the DPUSet that owned them, and without a repeated
+// ensure the agent is left 403-denied on its own DPU CR with nothing to recover it.
+func EnsureDPUAgentRole(ctx context.Context, client crclient.Client, dpu *provisioningv1.DPU, dpuDevice *provisioningv1.DPUDevice) error {
+	if err := EnsureDPUAgentRoleForCurrentFlavor(ctx, client, client.Scheme(), dpu); err != nil {
+		return err
+	}
+	subject, err := DPUAgentRoleBindingSubject(ctx, client, dpu, dpuDevice)
+	if err != nil {
+		return err
+	}
+	return CreateDPUAgentRoleBinding(ctx, client, client.Scheme(), dpu, subject)
+}
+
+// DPUAgentRoleBindingSubject returns the RBAC subject name for the per-DPU
+// RoleBinding: the post-exchange SPIFFE ID for SPIFFE-mode DPUs, or the
+// certificate username (da-<dpu>) for bootstrap-token DPUs.
+func DPUAgentRoleBindingSubject(ctx context.Context, client crclient.Client, dpu *provisioningv1.DPU, dpuDevice *provisioningv1.DPUDevice) (string, error) {
+	if !IsSpiffeDPU(dpu) {
+		return providentity.DPUAgentUsername(dpu.Name), nil
+	}
+	cfg, err := dpfutils.GetDPFOperatorConfig(ctx, client)
+	if err != nil {
+		return "", fmt.Errorf("getting DPFOperatorConfig for SPIFFE RBAC subject: %w", err)
+	}
+	if !SpiffeEnabled(cfg) {
+		return "", fmt.Errorf("DPU %s is SPIFFE-mode but cluster spec.security.spiffe is unset", dpu.Name)
+	}
+	renderer, err := spire.NewDPUAgentIdentityRenderer(cfg.Spec.Security.SPIFFE)
+	if err != nil {
+		return "", fmt.Errorf("validating SPIFFE identity templates for DPU %s: %w", dpu.Name, err)
+	}
+	identities, err := renderer.Render(dpu, dpuDevice)
+	if err != nil {
+		return "", fmt.Errorf("building SPIFFE RBAC subject for DPU %s: %w", dpu.Name, err)
+	}
+	return identities.ExchangedSPIFFEID, nil
 }
 
 // EnsureDPUAgentRoleForCurrentFlavor creates or updates the per-DPU Role so it
