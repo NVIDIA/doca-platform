@@ -201,10 +201,10 @@ func Initializing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 		return *state, nil
 	}
 	// Leftover in-band agent (reprovision) reads spec.dpuFlavor in Config FW Parameters.
-	// Refresh the per-DPU Role only when that agent has reported; first provision has no
-	// live agent here and still creates the Role in Prepare BFB.
+	// Refresh the per-DPU RBAC only when that agent has reported; first provision has no
+	// live agent here and still creates the RBAC in Prepare BFB.
 	if cutil.PreInstallAgentReported(dpu) {
-		if err := cutil.EnsureDPUAgentRoleForCurrentFlavor(ctx, ctrlCtx.Client, ctrlCtx.Client.Scheme(), dpu); err != nil {
+		if err := cutil.EnsureDPUAgentRole(ctx, ctrlCtx.Client, dpu, dpuDevice); err != nil {
 			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondInitialized.String(), err, "FailedToEnsureAgentRole", err.Error()))
 			return *state, err
 		}
