@@ -70,17 +70,28 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 		return submitAndMonitorBfbInstallTask(ctx, dpu, ctrlCtx, client)
 	}
 
-	resp, system, err := client.GetSystem()
-	if err != nil || resp.StatusCode() != http.StatusOK {
-		err = fmt.Errorf("failed to get system: %w", err)
-		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "FailToGetSystem", err.Error()))
-		return *state, err
-	}
+	if dpu.Status.AgentStatus == nil || dpu.Status.AgentStatus.LastStartupTime == nil {
+		resp, system, err := client.GetSystem()
+		if err != nil || resp.StatusCode() != http.StatusOK {
+			if err == nil {
+				err = fmt.Errorf("failed to get system: unexpected status code %d", resp.StatusCode())
+			} else {
+				err = fmt.Errorf("failed to get system: %w", err)
+			}
+			logger.Error(err, "Failed to get system")
+			cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "FailToGetSystem", err.Error()))
+			return *state, err
+		}
 
-	if system.BootProgress.OemLastState != "OsIsRunning" {
-		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), nil, "OemLastState", system.BootProgress.OemLastState))
+		msg := fmt.Sprintf("Waiting for DPU OS to finish booting and start dpu-agent; current boot state=%q", system.BootProgress.OemLastState)
+		logger.Info(msg)
+		cond := cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), nil, "OSNotRunning", msg)
+		cond.Status = metav1.ConditionFalse
+		cutil.SetDPUCondition(state, cond)
 		return *state, nil
 	}
+
+	cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), nil, "OsInstalled", "OS installed, waiting for the DPU agent to start"))
 
 	ctrlCtx.DPUInProvisioningMap.Remove(dutil.DPUID(dpu.UID))
 	state.Phase = provisioningv1.DPUConfig
