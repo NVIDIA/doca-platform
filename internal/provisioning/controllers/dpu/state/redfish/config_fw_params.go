@@ -31,6 +31,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
+const waitingForBMCRShimReason = "WaitingForBMCRShim"
+
 func ConfigFWParameters(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
 	logger := log.FromContext(ctx)
 	state := dpu.Status.DeepCopy()
@@ -70,32 +72,52 @@ func ConfigFWParameters(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 		return *state, err
 	}
 
-	// Note: this does NOT terminate running rshim on host
-	resp, _, err := client.DisableHostRshim()
-	if err != nil {
-		err = fmt.Errorf("failed to disable host Rshim: %w", err)
-		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToDisableHostRshim", err.Error()))
-		return *state, err
-	} else if resp.StatusCode() != http.StatusOK {
-		err = fmt.Errorf("status code: %d is not OK", resp.StatusCode())
-		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToDisableHostRshim", err.Error()))
-		return *state, err
-	}
-	logger.Info("successfully disabled host RShim")
+	if !isWaitingForBMCRShim(state) {
+		// Note: this does NOT terminate running rshim on host
+		resp, _, err := client.DisableHostRshim()
+		if err != nil {
+			err = fmt.Errorf("failed to disable host Rshim: %w", err)
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToDisableHostRshim", err.Error()))
+			return *state, err
+		} else if resp.StatusCode() != http.StatusOK {
+			err = fmt.Errorf("status code: %d is not OK", resp.StatusCode())
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToDisableHostRshim", err.Error()))
+			return *state, err
+		}
+		logger.Info("successfully disabled host RShim")
 
-	resp, _, err = client.EnableBMCRShim()
+		resp, _, err = client.EnableBMCRShim()
+		if err != nil {
+			err = fmt.Errorf("failed to enable BMC Rshim: %w", err)
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToEnableBMCRshim", err.Error()))
+			return *state, err
+		} else if resp.StatusCode() != http.StatusOK {
+			err = fmt.Errorf("status code: %d is not OK", resp.StatusCode())
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToEnableBMCRshim", err.Error()))
+			return *state, err
+		}
+	}
+
+	enabled, _, err := client.GetBMCRShimEnabled()
 	if err != nil {
-		err = fmt.Errorf("failed to enable BMC Rshim: %w", err)
-		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToEnableBMCRshim", err.Error()))
-		return *state, err
-	} else if resp.StatusCode() != http.StatusOK {
-		err = fmt.Errorf("status code: %d is not OK", resp.StatusCode())
-		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToEnableBMCRshim", err.Error()))
+		err = fmt.Errorf("failed to get BMC RShim status: %w", err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToGetBMCRShim", err.Error()))
 		return *state, err
 	}
-	logger.Info("successfully enabled BMC RShim")
+	if !enabled {
+		// BMC enable is asynchronous: PATCH success does not mean BmcRShimEnabled is true yet.
+		waitErr := fmt.Errorf("waiting for BMC RShim to become enabled")
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), waitErr, waitingForBMCRShimReason, ""))
+		return *state, nil
+	}
+	logger.Info("BMC RShim is enabled")
 
 	state.Phase = provisioningv1.DPUPrepareBFB
 	cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondFWConfigured, "", ""))
 	return *state, nil
+}
+
+func isWaitingForBMCRShim(state *provisioningv1.DPUStatus) bool {
+	_, cond := cutil.GetDPUCondition(state, provisioningv1.DPUCondFWConfigured.String())
+	return cond != nil && cond.Reason == waitingForBMCRShimReason
 }
