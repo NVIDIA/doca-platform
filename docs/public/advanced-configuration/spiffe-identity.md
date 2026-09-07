@@ -59,11 +59,13 @@ sequenceDiagram
 SPIRE attests twice. Node attestation proves the DPU itself to the SPIRE Server, using the hardware
 serial through the `dpu_hw` NodeAttestor. Workload attestation then proves the calling process, each
 time something on that DPU asks the Workload API for an SVID, by matching it against the selectors on
-a registration entry. The DPU Agent's entry uses `unix:uid:0`; a DPUService's entry uses narrower
+a registration entry. The DPU Agent's entry is bound to both `unix:uid:0` and the dedicated
+`systemd:id:spiffe-helper.service` unit; a DPUService's entry uses narrower
 Kubernetes-workload selectors (see [What gets an identity](#what-gets-an-identity) below), because
 both share the same parent SPIRE agent and a coarse selector would let any root process on the DPU
-claim either identity. The Kubernetes workload attestor is enabled separately, once the DPU has
-completed TLS bootstrap.
+claim either identity. DPUs provisioned before the systemd workload attestor rollout keep their
+existing `unix:uid:0`-only selector so they continue refreshing their identity. The Kubernetes
+workload attestor is enabled separately, once the DPU has completed TLS bootstrap.
 
 ## What gets an identity
 
@@ -74,7 +76,7 @@ reported on separately:
 |------------------|-------------------------------------------------|------------------------------------------------------------------------------|
 | Opt-in           | `DPU.status.identityMode: spiffe`               | `DPUService.spec.security.spiffe`                                            |
 | Default ID       | `spiffe://<td>/dpu/<serial>/process/dpu-agent`  | `spiffe://<td>/dpu/<serial>/service/<namespace>/<serviceID>`                 |
-| Selectors        | `unix:uid:0`                                    | `k8s:ns:<namespace>`, `k8s:pod-label:svc.dpu.nvidia.com/service:<serviceID>` |
+| Selectors        | `unix:uid:0`, `systemd:id:spiffe-helper.service`| `k8s:ns:<namespace>`, `k8s:pod-label:svc.dpu.nvidia.com/service:<serviceID>` |
 | Status condition | `SPIFFEEntryReady` on `DPUDevice`               | `SPIFFEEntriesReady` on `DPUService`                                         |
 
 One `ClusterStaticEntry` is created per *(DPUService, DPU)* pair, because an entry carries a single
@@ -507,8 +509,11 @@ kubectl get clusterstaticentry dpu-agent-$SERIAL -o jsonpath='{.metadata.finaliz
 
 # Limitations
 
-* The DPU Agent's workload selector is a coarse `unix:uid:0`. Any root process on the DPU can obtain
-  the DPU Agent SVID, though `spec.parentID` confines that to the one DPU the entry was created for.
+* The DPU Agent's workload selectors are `unix:uid:0` and `systemd:id:spiffe-helper.service`, which
+  restrict the DPU Agent SVID to the root-owned `spiffe-helper` unit. `spec.parentID` further
+  confines it to the one DPU the entry was created for. DPUs provisioned before the systemd
+  workload attestor rollout retain a coarser `unix:uid:0`-only selector, so any root process on
+  those DPUs can still obtain the SVID.
 * Node attestation evidence is currently transmitted in plaintext; the serial is not
   cryptographically bound to the hardware.
 * Trust domain federation is not supported. DPF never sets `federatesWith` on the entries it creates.
