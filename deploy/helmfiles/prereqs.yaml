@@ -202,6 +202,7 @@ releases:
     createNamespace: true
     chart: oci://ghcr.io/kata-containers/kata-deploy-charts/kata-deploy
     version: 3.32.0
+    timeout: 600
     condition: kata.enabled
     labels:
       app: kata-containers
