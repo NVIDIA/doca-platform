@@ -16,10 +16,10 @@ A Helm chart for Kubernetes
 | controllerManager.manager.containerSecurityContext.runAsUser | int | `65532` |  |
 | controllerManager.manager.image.repository | string | `"example.com/dpf-system"` |  |
 | controllerManager.manager.image.tag | string | `"v0.1.0"` |  |
-| controllerManager.manager.resources.limits.cpu | string | `"500m"` |  |
-| controllerManager.manager.resources.limits.memory | string | `"128Mi"` |  |
-| controllerManager.manager.resources.requests.cpu | string | `"10m"` |  |
-| controllerManager.manager.resources.requests.memory | string | `"64Mi"` |  |
+| controllerManager.manager.resources.limits.cpu | string | `"1500m"` |  |
+| controllerManager.manager.resources.limits.memory | string | `"2560Mi"` |  |
+| controllerManager.manager.resources.requests.cpu | string | `"250m"` |  |
+| controllerManager.manager.resources.requests.memory | string | `"512Mi"` |  |
 | controllerManager.replicas | int | `2` |  |
 | deployDPUManifests | bool | `false` | deployDPUManifests controls whether the manifests that are required in the DPUCluster should be deployed. |
 | deployHostManifests | bool | `false` | deployHostManifests controls whether the manifests that are required in the host cluster should be deployed. |
