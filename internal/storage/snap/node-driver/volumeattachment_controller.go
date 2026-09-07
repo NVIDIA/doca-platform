@@ -808,7 +808,8 @@ func (r *VolumeAttachmentReconciler) detachFromSNAP(snapProvider string, volumeA
 
 	switch *volumeMode {
 	case corev1.PersistentVolumeBlock:
-		return client.DestroyBlockDevice(int(volumeAttachment.Status.DPU.BdevAttrs.NVMeNsID), volumeAttachment.Status.DPU.PCIDeviceAddress,
+		return client.DestroyBlockDevice(volumeAttachment.Status.DPU.DeviceName,
+			int(volumeAttachment.Status.DPU.BdevAttrs.NVMeNsID), volumeAttachment.Status.DPU.PCIDeviceAddress,
 			volumeAttachment.Spec.FunctionTypeConfig.HotplugFunction)
 	case corev1.PersistentVolumeFilesystem:
 		return client.DestroyFSDevice(volumeAttachment.Status.DPU.DeviceName, volumeAttachment.Status.DPU.PCIDeviceAddress)

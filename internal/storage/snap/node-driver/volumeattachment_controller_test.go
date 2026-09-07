@@ -293,7 +293,7 @@ var _ = Describe("VolumeAttachment Controller", func() {
 			AnyTimes()
 
 		mockSNAPClient.EXPECT().
-			DestroyBlockDevice(gomock.Any(), gomock.Any(), gomock.Any()).
+			DestroyBlockDevice(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(nil).
 			AnyTimes()
 
