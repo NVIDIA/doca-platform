@@ -32,8 +32,8 @@ type Client interface {
 	// ExposeFSDevice exposes a filesystem device on the SNAP controller
 	ExposeFSDevice(deviceName string, dpuStatus snapstoragev1.VolumeAttachmentStatusDPU,
 		parameters map[string]string) (string, string, string, error)
-	// DestroyBlockDevice destroys a block device on the SNAP controller
-	DestroyBlockDevice(nsid int, pciAddr string, hotplug bool) error
+	// DestroyBlockDevice destroys a block device on the SNAP controller.
+	DestroyBlockDevice(deviceName string, nsid int, pciAddr string, hotplug bool) error
 	// DestroyFSDevice destroys a filesystem device on the SNAP controller
 	DestroyFSDevice(deviceName string, pciAddr string) error
 	// GetBlockFuncVUID returns the emulated NVMe function VUID exposed at pciAddr
@@ -74,16 +74,28 @@ func (c *client) ExposeBlockDevice(dpuStatus snapstoragev1.VolumeAttachmentStatu
 		return 0, "", "", funcVUID, fmt.Errorf("failed to retrieve NVMe subsystems: %v", err)
 	}
 
-	nsid, currUUID := getNamespaceByDeviceName(deviceName, subsystems)
+	// An existing namespace keeps whichever subsystem it is already in, which is
+	// what makes a volume attached before this driver moved to a subsystem per
+	// volume keep working: its namespace is still in the shared init subsystem.
+	nqn, nsid, currUUID := getNamespaceByDeviceName(deviceName, subsystems)
 
+	// namespaceCreated records that the subsystem listing above predates this
+	// namespace, so the namespace must not be looked up in it further down.
+	namespaceCreated := false
 	if nsid == -1 {
-		nsid, currUUID, err = NvmeNamespaceCreate(c.rpcClient, deviceName, subsystems, dpuStatus)
+		nqn = SubsystemNQNForDevice(deviceName)
+		if err := NvmeSubsystemCreate(c.rpcClient, nqn, subsystems); err != nil {
+			return 0, "", "", funcVUID, fmt.Errorf("failed to create subsystem: %v", err)
+		}
+
+		nsid, currUUID, err = NvmeNamespaceCreate(c.rpcClient, deviceName, nqn, dpuStatus)
 		if err != nil {
 			return 0, "", "", funcVUID, fmt.Errorf("failed to create namespace: %v", err)
 		}
-		klog.Infof("Created new namespace: NSID=%d, UUID=%s", nsid, currUUID)
+		namespaceCreated = true
+		klog.Infof("Created new namespace: NQN=%s, NSID=%d, UUID=%s", nqn, nsid, currUUID)
 	} else {
-		klog.Infof("Namespace already exists: NSID=%d, UUID=%s", nsid, currUUID)
+		klog.Infof("Namespace already exists: NQN=%s, NSID=%d, UUID=%s", nqn, nsid, currUUID)
 	}
 
 	ctrlID := getCtrlByDeviceName(deviceName, subsystems)
@@ -122,12 +134,12 @@ func (c *client) ExposeBlockDevice(dpuStatus snapstoragev1.VolumeAttachmentStatu
 			return nsid, "", currUUID, funcVUID, fmt.Errorf("failed to get PCI BDF for controller: %v", err)
 		}
 	} else {
-		ctrlID, pciBDF, err = NvmeControllerCreate(c.rpcClient, subsystems, emulationFunctions, dpuStatus, parameters, functionType)
+		ctrlID, pciBDF, err = NvmeControllerCreate(c.rpcClient, nqn, emulationFunctions, dpuStatus, parameters, functionType)
 		if err != nil {
 			return nsid, "", currUUID, funcVUID, fmt.Errorf("failed to create controller: %v", err)
 		}
 
-		isAttached := isControllerAttachedToNamespace(ctrlID, nsid, subsystems)
+		isAttached := !namespaceCreated && isControllerAttachedToNamespace(ctrlID, nqn, nsid, subsystems)
 		if isAttached {
 			klog.Infof("Controller %s is already attached to namespace %d, skipping attachment", ctrlID, nsid)
 		} else {
@@ -400,7 +412,7 @@ func (c *client) GetFSFuncVUID(pciAddr string) (string, error) {
 }
 
 // DestroyBlockDevice destroys a block device on the SNAP controller
-func (c *client) DestroyBlockDevice(nsid int, pciAddr string, hotplug bool) error {
+func (c *client) DestroyBlockDevice(deviceName string, nsid int, pciAddr string, hotplug bool) error {
 	emulationFunctions, err := EmulationFunctionList(c.rpcClient)
 	if err != nil {
 		klog.Errorf("Failed to get emulation functions list: %v", err)
@@ -412,9 +424,22 @@ func (c *client) DestroyBlockDevice(nsid int, pciAddr string, hotplug bool) erro
 		return fmt.Errorf("failed to retrieve NVMe subsystems: %v", err)
 	}
 
-	ctrlID := getNvmeControllerByPciAddr(pciAddr, emulationFunctions)
+	// Live state decides which subsystem the namespace is in, so a volume
+	// attached under the previous shared-subsystem model is torn down from the
+	// subsystem it actually lives in rather than a derived one. The derived NQN
+	// is only a fallback for cleaning up a subsystem left behind by a teardown
+	// that failed after the namespace was already gone.
+	nqn, liveNSID, _ := getNamespaceByDeviceName(deviceName, subsystems)
+	if liveNSID != -1 {
+		nsid = liveNSID
+	}
+	if nqn == "" {
+		nqn = SubsystemNQNForDevice(deviceName)
+	}
+
+	ctrlID, ctrlPCIAddr := resolveOwnedController(deviceName, nqn, pciAddr, subsystems, emulationFunctions)
 	if ctrlID == "" {
-		klog.Errorf("No controller found for PCI address: %s", pciAddr)
+		klog.Errorf("No controller of device %s found at PCI address: %s", deviceName, pciAddr)
 	} else if hotplug {
 		err = NvmeControllerHotunplug(c.rpcClient, ctrlID)
 		if err != nil {
@@ -423,7 +448,7 @@ func (c *client) DestroyBlockDevice(nsid int, pciAddr string, hotplug bool) erro
 		klog.Infof("Successfully hotunplugged controller ID %s", ctrlID)
 	}
 
-	namespaceExists, attachedToCtrl := checkNamespaceAttached(nsid, ctrlID, subsystems)
+	namespaceExists, attachedToCtrl := checkNamespaceAttached(nqn, nsid, ctrlID, subsystems)
 
 	// Detach the namespace only if it exists and is attached to this controller
 	if attachedToCtrl {
@@ -445,7 +470,7 @@ func (c *client) DestroyBlockDevice(nsid int, pciAddr string, hotplug bool) erro
 	}
 
 	if namespaceExists {
-		err = NvmeNamespaceDestroy(c.rpcClient, nsid, subsystems)
+		err = NvmeNamespaceDestroy(c.rpcClient, nqn, nsid)
 		if err != nil {
 			klog.Errorf("Failed to destroy namespace ID %d: %v", nsid, err)
 			return fmt.Errorf("failed to destroy namespace: %v", err)
@@ -453,14 +478,27 @@ func (c *client) DestroyBlockDevice(nsid int, pciAddr string, hotplug bool) erro
 		klog.Infof("Successfully destroyed namespace ID %d", nsid)
 	}
 
-	if hotplug {
-		vuid := getHotplugVUIDByPCIAddress(pciAddr, emulationFunctions)
+	// The function is addressed through the controller that was proven to be this
+	// volume's, so a stale pciAddr can no longer reach another volume's function.
+	if hotplug && ctrlPCIAddr != "" {
+		vuid := getHotplugVUIDByPCIAddress(ctrlPCIAddr, emulationFunctions)
 		if vuid != "" {
 			err = NvmeFunctionDestroy(c.rpcClient, vuid)
 			if err != nil {
 				return fmt.Errorf("failed to destroy NVMe function: %v", err)
 			}
 			klog.Infof("Successfully destroyed NVMe function ID %s", vuid)
+		}
+	}
+
+	// The prefix check keeps the subsystem declared in snapRpcInitConf in place:
+	// it still hosts the admin-only PF controller in the nvme-vf-on-static-pf
+	// scenario, and legacy namespaces until they are reattached.
+	if isDriverOwnedSubsystem(nqn) && subsystemExists(subsystems, nqn) {
+		if err := NvmeSubsystemDestroy(c.rpcClient, nqn); err != nil {
+			klog.Errorf("Failed to destroy subsystem %s, leaving it behind: %v", nqn, err)
+		} else {
+			klog.Infof("Successfully destroyed subsystem %s", nqn)
 		}
 	}
 
