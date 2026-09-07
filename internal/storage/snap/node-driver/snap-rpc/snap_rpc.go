@@ -18,11 +18,14 @@ package rpcclient
 
 import (
 	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"strconv"
+	"strings"
 	"time"
 
 	snapstoragev1 "github.com/nvidia/doca-platform/api/storage/v1alpha1"
@@ -36,6 +39,75 @@ import (
  */
 
 const NVMeProtocol = "NVME"
+
+// subsystemNQNPrefix marks the subsystems this driver creates and owns. Teardown
+// only destroys subsystems carrying it, so the subsystem declared in
+// snapRpcInitConf is never removed even though volumes no longer live in it.
+const subsystemNQNPrefix = "nqn.2022-10.io.nvda.nvme:dpf-"
+
+// volumeNSID is the namespace ID given to every volume. Each volume owns a
+// subsystem of its own, so namespace IDs no longer have to be unique across
+// volumes and there is nothing to allocate.
+const volumeNSID = 1
+
+// maxNQNLength is the NVMe limit on the length of a qualified name.
+const maxNQNLength = 223
+
+// errSubsystemNQNRequired is returned by the subsystem-scoped RPCs when they are
+// reached without an NQN. Every one of them addresses a single volume's
+// subsystem, so there is nothing sensible to fall back to.
+var errSubsystemNQNRequired = errors.New("subsystem NQN is required")
+
+// SubsystemNQNForDevice returns the NQN of the subsystem that holds deviceName's
+// namespace.
+//
+// It is a pure function of the device name so that a replay after a SNAP restart
+// addresses the same subsystem without the NQN having to be persisted, and so
+// that a subsystem orphaned by a failed teardown can still be found.
+func SubsystemNQNForDevice(deviceName string) string {
+	// The digest keeps the NQN unique even when sanitizing or truncating the
+	// label below maps two different device names onto the same text.
+	digest := sha256.Sum256([]byte(deviceName))
+	suffix := hex.EncodeToString(digest[:4])
+
+	label := sanitizeNQNLabel(deviceName)
+	if limit := maxNQNLength - len(subsystemNQNPrefix) - len(suffix) - 1; len(label) > limit {
+		label = label[:limit]
+	}
+
+	return subsystemNQNPrefix + label + "-" + suffix
+}
+
+// sanitizeNQNLabel keeps the device name readable inside the NQN while replacing
+// characters that are not safe to embed in a qualified name.
+func sanitizeNQNLabel(deviceName string) string {
+	var label strings.Builder
+	for _, r := range deviceName {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '-':
+			label.WriteRune(r)
+		default:
+			label.WriteRune('-')
+		}
+	}
+	return label.String()
+}
+
+// isDriverOwnedSubsystem reports whether the driver created this subsystem and is
+// therefore allowed to destroy it.
+func isDriverOwnedSubsystem(nqn string) bool {
+	return strings.HasPrefix(nqn, subsystemNQNPrefix)
+}
+
+// subsystemExists reports whether nqn is present in a subsystem listing.
+func subsystemExists(subsystems NvmeSubsystemListResponse, nqn string) bool {
+	for _, subsystem := range subsystems {
+		if subsystem.NQN == nqn {
+			return true
+		}
+	}
+	return false
+}
 
 // JSONRPCClient defines the interface for JSON-RPC client operations
 type JSONRPCClient interface {
@@ -243,6 +315,75 @@ func NvmeSubsystemList(client JSONRPCClient) (NvmeSubsystemListResponse, error) 
 	return subsystems, nil
 }
 
+// NvmeSubsystemCreate creates the subsystem that will hold a single volume's
+// namespace.
+//
+// A subsystem that is already there is not an error: expose is replayed on every
+// reconcile and after a SNAP restart, and has to converge on whatever state it
+// finds.
+func NvmeSubsystemCreate(client JSONRPCClient, nqn string, subsystems NvmeSubsystemListResponse) error {
+	if nqn == "" {
+		return errSubsystemNQNRequired
+	}
+
+	if subsystemExists(subsystems, nqn) {
+		klog.Infof("NVMe subsystem %s already exists, continuing...", nqn)
+		return nil
+	}
+
+	// Only nqn is passed, leaving the rest at SNAP's defaults. In particular the
+	// maximal namespace ID, nn, defaults to 0xFFFFFFFE, which is what lets a
+	// namespace recorded under the previous shared-subsystem model be recreated
+	// here at its original NSID rather than being forced down to 1.
+	params := map[string]interface{}{
+		"nqn": nqn,
+	}
+
+	result, err := client.Call("nvme_subsystem_create", params)
+	if err != nil {
+		// The listing can already be stale by the time the create runs, for
+		// instance for a subsystem carried over by a SNAP live update. Asking
+		// SNAP again decides whether that happened, which keeps the outcome
+		// independent of how SNAP words an already-exists error.
+		live, listErr := NvmeSubsystemList(client)
+		if listErr == nil && subsystemExists(live, nqn) {
+			klog.Infof("NVMe subsystem %s exists despite %v, continuing...", nqn, err)
+			return nil
+		}
+		return fmt.Errorf("failed to create subsystem %s: %v", nqn, err)
+	}
+
+	resultBytes, _ := json.MarshalIndent(result, "", "  ")
+	klog.Infof("Subsystem %s created successfully: %s", nqn, string(resultBytes))
+
+	return nil
+}
+
+// NvmeSubsystemDestroy removes a volume's subsystem.
+//
+// force is deliberately not set. A subsystem that still holds a controller or a
+// namespace means teardown ran out of order, and cascading the delete would hide
+// that instead of surfacing it.
+func NvmeSubsystemDestroy(client JSONRPCClient, nqn string) error {
+	if nqn == "" {
+		return errSubsystemNQNRequired
+	}
+
+	params := map[string]interface{}{
+		"nqn": nqn,
+	}
+
+	result, err := client.Call("nvme_subsystem_destroy", params)
+	if err != nil {
+		return fmt.Errorf("failed to destroy subsystem %s: %v", nqn, err)
+	}
+
+	resultBytes, _ := json.MarshalIndent(result, "", "  ")
+	klog.Infof("Subsystem %s destroyed successfully: %s", nqn, string(resultBytes))
+
+	return nil
+}
+
 // EmulationFunctionList retrieves and prints the list of emulation functions
 func EmulationFunctionList(client JSONRPCClient) (EmulationFunctionListResponse, error) {
 	params := map[string]interface{}{
@@ -265,32 +406,31 @@ func EmulationFunctionList(client JSONRPCClient) (EmulationFunctionListResponse,
 	return emulationFunctions, nil
 }
 
-// NvmeNamespaceCreate creates a new NVMe namespace for a given device name
-func NvmeNamespaceCreate(client JSONRPCClient, crdDeviceName string, subsystems NvmeSubsystemListResponse,
+// NvmeNamespaceCreate creates a new NVMe namespace for a given device name inside
+// the subsystem identified by nqn.
+//
+// The namespace ID is a constant: the subsystem holds this volume alone, so there
+// is no shared ID space to pick a free slot out of. A namespace recorded by an
+// earlier attach keeps its ID and UUID so the host sees the same namespace across
+// a re-attach, including one recorded under the previous shared-subsystem model.
+func NvmeNamespaceCreate(client JSONRPCClient, crdDeviceName string, nqn string,
 	dpuStatus snapstoragev1.VolumeAttachmentStatusDPU) (int, string, error) {
-	if len(subsystems) == 0 {
-		klog.Error("No subsystems found")
-		return 0, "", fmt.Errorf("no subsystems found")
+	if nqn == "" {
+		return 0, "", errSubsystemNQNRequired
 	}
 
-	targetSubsystem := &subsystems[0]
-	var nsid int
+	nsid := volumeNSID
 	var uuidStr string
 	if dpuStatus.BdevAttrs.NVMeNsID > 0 && dpuStatus.BdevAttrs.NVMeUUID != "" {
 		nsid = int(dpuStatus.BdevAttrs.NVMeNsID)
 		uuidStr = dpuStatus.BdevAttrs.NVMeUUID
 	} else {
-		if len(targetSubsystem.Namespaces) == 0 {
-			nsid = 1
-		} else {
-			nsid = targetSubsystem.Namespaces[0].NSID + 1
-		}
 		uuidStr = uuid.Must(uuid.NewRandom()).String()
 	}
 
 	params := map[string]interface{}{
 		"bdev_type": "spdk",
-		"nqn":       targetSubsystem.NQN,
+		"nqn":       nqn,
 		"nsid":      nsid,
 		"uuid":      uuidStr,
 		"bdev_name": crdDeviceName,
@@ -308,21 +448,20 @@ func NvmeNamespaceCreate(client JSONRPCClient, crdDeviceName string, subsystems 
 	return nsid, uuidStr, nil
 }
 
-// NvmeControllerCreate creates a new NVMe controller with only nqn, pf_id, and vf_id
-func NvmeControllerCreate(client JSONRPCClient, subsystems NvmeSubsystemListResponse, emulationFunctions EmulationFunctionListResponse,
+// NvmeControllerCreate creates a new NVMe controller in the subsystem identified
+// by nqn, on the PCIe function selected from pf_id and vf_id.
+func NvmeControllerCreate(client JSONRPCClient, nqn string, emulationFunctions EmulationFunctionListResponse,
 	dpuStatus snapstoragev1.VolumeAttachmentStatusDPU, parameters map[string]string, functionType string) (string, string, error) {
-	if len(subsystems) == 0 {
-		klog.Error("No subsystems found")
-		return "", "", fmt.Errorf("no subsystems found")
+	if nqn == "" {
+		return "", "", errSubsystemNQNRequired
 	}
-	targetSubsystem := &subsystems[0]
 
 	pciBDF, err := getPCI(emulationFunctions, dpuStatus, parameters, functionType)
 	if err != nil {
 		return "", "", err
 	}
 
-	params := getControllerParams(targetSubsystem.NQN, pciBDF, parameters)
+	params := getControllerParams(nqn, pciBDF, parameters)
 	klog.Infof("Creating controller with params: %v", params)
 
 	result, err := client.Call("nvme_controller_create", params)
@@ -472,16 +611,15 @@ func NvmeControllerDestroy(client JSONRPCClient, ctrlID string) error {
 	return nil
 }
 
-// NvmeNamespaceDestroy destroys an NVMe namespace
-func NvmeNamespaceDestroy(client JSONRPCClient, nsid int, subsystems NvmeSubsystemListResponse) error {
-	if len(subsystems) == 0 {
-		klog.Error("No subsystems found")
-		return fmt.Errorf("no subsystems found")
+// NvmeNamespaceDestroy destroys an NVMe namespace in the subsystem identified by
+// nqn.
+func NvmeNamespaceDestroy(client JSONRPCClient, nqn string, nsid int) error {
+	if nqn == "" {
+		return errSubsystemNQNRequired
 	}
-	targetSubsystem := &subsystems[0]
 
 	params := map[string]interface{}{
-		"nqn":  targetSubsystem.NQN,
+		"nqn":  nqn,
 		"nsid": nsid,
 	}
 
@@ -566,27 +704,38 @@ func getPciAddrByCtrlID(ctrlID string, emulationFunctions EmulationFunctionListR
 
 // getNamespaceByDeviceName retrieves the namespace ID (NSID) and UUID associated with a given block device name.
 // Returns an NSID of -1 when no namespace matches the device.
-func getNamespaceByDeviceName(deviceName string, subsystems NvmeSubsystemListResponse) (int, string) {
+// The owning NQN is returned alongside the namespace so callers can address it
+// without assuming which subsystem it lives in. A volume attached before the
+// driver moved to a subsystem per volume is still found in the shared subsystem.
+func getNamespaceByDeviceName(deviceName string, subsystems NvmeSubsystemListResponse) (string, int, string) {
 	for _, subsystem := range subsystems {
 		for _, ns := range subsystem.Namespaces {
 			if ns.Bdev == deviceName {
-				klog.Infof("Namespace found for device %s: NSID=%d, UUID=%s", deviceName, ns.NSID, ns.UUID)
-				return ns.NSID, ns.UUID
+				klog.Infof("Namespace found for device %s: NQN=%s, NSID=%d, UUID=%s",
+					deviceName, subsystem.NQN, ns.NSID, ns.UUID)
+				return subsystem.NQN, ns.NSID, ns.UUID
 			}
 		}
 	}
 
 	klog.Infof("No namespace found for device %s", deviceName)
-	return -1, ""
+	return "", -1, ""
 }
 
 // checkNamespaceAttached checks if the namespace exists and if it is attached to the specified controller.
-// Returns: namespaceExists (true if nsid is found in subsystems), attachedToCtrl (true if that namespace is attached to ctrlID).
-func checkNamespaceAttached(nsid int, ctrlID string, subsystems NvmeSubsystemListResponse) (namespaceExists bool, attachedToCtrl bool) {
+// Returns: namespaceExists (true if nsid is found in the nqn subsystem), attachedToCtrl (true if that namespace is attached to ctrlID).
+//
+// The search is scoped to a single subsystem: every volume now owns a subsystem
+// and its namespace sits at the same ID, so an NSID on its own no longer
+// identifies a namespace.
+func checkNamespaceAttached(nqn string, nsid int, ctrlID string, subsystems NvmeSubsystemListResponse) (namespaceExists bool, attachedToCtrl bool) {
 	namespaceExists = false
 	attachedToCtrl = false
 
 	for _, subsystem := range subsystems {
+		if subsystem.NQN != nqn {
+			continue
+		}
 		for _, ns := range subsystem.Namespaces {
 			if ns.NSID != nsid {
 				continue
@@ -600,7 +749,10 @@ func checkNamespaceAttached(nsid int, ctrlID string, subsystems NvmeSubsystemLis
 					continue
 				}
 
-				attachedCtrlID := ctrlMap["ctrl_id"].(string)
+				attachedCtrlID, exists := ctrlMap["ctrl_id"].(string)
+				if !exists {
+					continue
+				}
 				if attachedCtrlID == ctrlID {
 					attachedToCtrl = true
 					return namespaceExists, attachedToCtrl
@@ -639,9 +791,15 @@ func getCtrlByDeviceName(deviceName string, subsystems NvmeSubsystemListResponse
 	return ""
 }
 
-// isControllerAttachedToNamespace checks if a controller is already attached to a namespace
-func isControllerAttachedToNamespace(ctrlID string, nsid int, subsystems NvmeSubsystemListResponse) bool {
+// isControllerAttachedToNamespace checks if a controller is already attached to a namespace.
+//
+// Like checkNamespaceAttached, the namespace is identified by subsystem and NSID
+// together, because the same NSID now appears in every volume's subsystem.
+func isControllerAttachedToNamespace(ctrlID string, nqn string, nsid int, subsystems NvmeSubsystemListResponse) bool {
 	for _, subsystem := range subsystems {
+		if subsystem.NQN != nqn {
+			continue
+		}
 		for _, ns := range subsystem.Namespaces {
 			if ns.NSID != nsid {
 				continue
@@ -667,6 +825,61 @@ func isControllerAttachedToNamespace(ctrlID string, nsid int, subsystems NvmeSub
 		}
 	}
 	return false
+}
+
+// controllerSubsystemNQN returns the NQN of the subsystem holding ctrlID, or an
+// empty string when no subsystem in the listing claims it.
+func controllerSubsystemNQN(ctrlID string, subsystems NvmeSubsystemListResponse) string {
+	for _, subsystem := range subsystems {
+		for _, ctrl := range subsystem.Controllers {
+			ctrlMap, ok := ctrl.(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			subsystemCtrlID, exists := ctrlMap["ctrl_id"].(string)
+			if !exists {
+				continue
+			}
+
+			if subsystemCtrlID == ctrlID {
+				return subsystem.NQN
+			}
+		}
+	}
+	return ""
+}
+
+// resolveOwnedController returns the controller to tear down for deviceName,
+// along with the PCI address it actually sits on.
+func resolveOwnedController(deviceName string, nqn string, pciAddr string, subsystems NvmeSubsystemListResponse,
+	emulationFunctions EmulationFunctionListResponse) (ctrlID string, ctrlPCIAddr string) {
+	ctrlID = getNvmeControllerByPciAddr(pciAddr, emulationFunctions)
+
+	// Only proven foreign ownership makes the recorded controller untouchable. An
+	// empty ctrlID means the function carries no controller and so belongs to
+	// nobody, and an owner the listing does not report leaves the address as
+	// trustworthy as it was before.
+	owner := controllerSubsystemNQN(ctrlID, subsystems)
+	if ctrlID == "" || owner == "" || owner == nqn {
+		return ctrlID, pciAddr
+	}
+
+	klog.Infof("Controller %s at recorded PCI address %s belongs to subsystem %s, not %s, leaving it to its owner",
+		ctrlID, pciAddr, owner, nqn)
+
+	ctrlID = getCtrlByDeviceName(deviceName, subsystems)
+	if ctrlID == "" {
+		return "", ""
+	}
+
+	ownedPCIAddr, err := getPciAddrByCtrlID(ctrlID, emulationFunctions, false)
+	if err != nil {
+		klog.Errorf("No PCI address for controller %s of device %s: %v", ctrlID, deviceName, err)
+		return ctrlID, ""
+	}
+
+	return ctrlID, ownedPCIAddr
 }
 
 // getVUIDByCtrlID retrieves the emulated function VUID for a controller ID.

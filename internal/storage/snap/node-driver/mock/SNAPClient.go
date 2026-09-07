@@ -72,17 +72,17 @@ func (mr *MockClientMockRecorder) Close() *gomock.Call {
 }
 
 // DestroyBlockDevice mocks base method.
-func (m *MockClient) DestroyBlockDevice(nsid int, pciAddr string, hotplug bool) error {
+func (m *MockClient) DestroyBlockDevice(deviceName string, nsid int, pciAddr string, hotplug bool) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DestroyBlockDevice", nsid, pciAddr, hotplug)
+	ret := m.ctrl.Call(m, "DestroyBlockDevice", deviceName, nsid, pciAddr, hotplug)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // DestroyBlockDevice indicates an expected call of DestroyBlockDevice.
-func (mr *MockClientMockRecorder) DestroyBlockDevice(nsid, pciAddr, hotplug any) *gomock.Call {
+func (mr *MockClientMockRecorder) DestroyBlockDevice(deviceName, nsid, pciAddr, hotplug any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroyBlockDevice", reflect.TypeOf((*MockClient)(nil).DestroyBlockDevice), nsid, pciAddr, hotplug)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroyBlockDevice", reflect.TypeOf((*MockClient)(nil).DestroyBlockDevice), deviceName, nsid, pciAddr, hotplug)
 }
 
 // DestroyFSDevice mocks base method.

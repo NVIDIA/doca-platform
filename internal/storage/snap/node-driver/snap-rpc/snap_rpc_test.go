@@ -18,6 +18,7 @@ package rpcclient
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -145,6 +146,23 @@ var mockNvmeSubsystemList = NvmeSubsystemListResponse{
 					},
 				},
 			},
+			map[string]interface{}{
+				"ctrl_id":    "NVMeCtrl_26:00.3",
+				"mdts":       7,
+				"vhca_id":    3,
+				"nqn":        "nqn.2022-10.io.nvda.nvme:0",
+				"plugged":    true,
+				"state":      "STARTED",
+				"num_queues": 16,
+				"max_queues": 32,
+				"namespaces": []interface{}{
+					map[string]interface{}{
+						"nsid": 3,
+						"bdev": "hotplug-device",
+						"uuid": "263826ad-19a3-4feb-bc25-4bc81ee7750e",
+					},
+				},
+			},
 		},
 		Namespaces: []Namespace{
 			{
@@ -176,6 +194,22 @@ var mockNvmeSubsystemList = NvmeSubsystemListResponse{
 		},
 	},
 }
+
+// mockInitNQN is the subsystem declared in snapRpcInitConf. Attachments made
+// before the driver moved to a subsystem per volume still live in it, and it is
+// never destroyed on detach.
+const mockInitNQN = "nqn.2022-10.io.nvda.nvme:0"
+
+// mockSecondaryNQN is a second pre-existing subsystem. Together with mockInitNQN
+// it gives mockNvmeSubsystemList two namespaces at NSID 1, which is what the
+// NQN-scoped lookups have to tell apart.
+const mockSecondaryNQN = "nqn.2022-10.io.nvda.nvme:01"
+
+// testVolumeNQN is the subsystem a volume named "test-device" would own.
+var testVolumeNQN = SubsystemNQNForDevice("test-device")
+
+// methodSubsystemCreate is the RPC TestNvmeSubsystemCreate asserts on repeatedly.
+const methodSubsystemCreate = "nvme_subsystem_create"
 
 // MockJSONRPCSnapClient is a mock implementation for testing
 type MockJSONRPCSnapClient struct {
@@ -237,6 +271,15 @@ func (m *MockJSONRPCSnapClient) Call(method string, params map[string]interface{
 		return map[string]interface{}{
 			"status": "success",
 		}, nil
+	case "nvme_subsystem_create":
+		return map[string]interface{}{
+			"status": "success",
+			"nqn":    params["nqn"],
+		}, nil
+	case "nvme_subsystem_destroy":
+		return map[string]interface{}{
+			"status": "success",
+		}, nil
 	default:
 		return nil, fmt.Errorf("unexpected method: %s", method)
 	}
@@ -247,11 +290,70 @@ func (m *MockJSONRPCSnapClient) Close() error {
 	return nil
 }
 
+// recordingRPCClient captures the parameters every RPC was called with so tests
+// can assert on what was sent, not only on what came back.
+type recordingRPCClient struct {
+	JSONRPCClient
+	calls []recordedCall
+	// failMethod, when set, makes that one method fail with failErr.
+	failMethod string
+	failErr    error
+	// listResponse is what nvme_subsystem_list returns, so a test can decide
+	// what SNAP reports after a call has failed. listErr, when set, fails the
+	// listing instead, which failMethod cannot express alongside another
+	// failing method.
+	listResponse NvmeSubsystemListResponse
+	listErr      error
+}
+
+type recordedCall struct {
+	method string
+	params map[string]interface{}
+}
+
+func newRecordingClient() *recordingRPCClient {
+	return &recordingRPCClient{JSONRPCClient: NewMockClient()}
+}
+
+func (r *recordingRPCClient) Call(method string, params map[string]interface{}) (interface{}, error) {
+	r.calls = append(r.calls, recordedCall{method: method, params: params})
+	if method == r.failMethod {
+		return nil, r.failErr
+	}
+	if method == "nvme_subsystem_list" {
+		if r.listErr != nil {
+			return nil, r.listErr
+		}
+		return r.listResponse, nil
+	}
+	return r.JSONRPCClient.Call(method, params)
+}
+
+// paramsFor returns the parameters of the first call to method.
+func (r *recordingRPCClient) paramsFor(method string) (map[string]interface{}, bool) {
+	for _, call := range r.calls {
+		if call.method == method {
+			return call.params, true
+		}
+	}
+	return nil, false
+}
+
+func (r *recordingRPCClient) callCount(method string) int {
+	count := 0
+	for _, call := range r.calls {
+		if call.method == method {
+			count++
+		}
+	}
+	return count
+}
+
 func TestNvmeNamespaceCreate(t *testing.T) {
 	tests := []struct {
 		name        string
 		deviceName  string
-		subsystems  NvmeSubsystemListResponse
+		nqn         string
 		dpuStatus   snapstoragev1.VolumeAttachmentStatusDPU
 		expectError bool
 		expectNSID  int
@@ -260,16 +362,16 @@ func TestNvmeNamespaceCreate(t *testing.T) {
 		{
 			name:        "Create new namespace with generated UUID",
 			deviceName:  "test-device",
-			subsystems:  mockNvmeSubsystemList,
+			nqn:         SubsystemNQNForDevice("test-device"),
 			dpuStatus:   snapstoragev1.VolumeAttachmentStatusDPU{},
 			expectError: false,
-			expectNSID:  2,    // Based on mock data where first namespace has NSID 1
-			expectUUID:  true, // expect a valid UUID
+			expectNSID:  volumeNSID, // the volume owns the subsystem, so the ID is fixed
+			expectUUID:  true,       // expect a valid UUID
 		},
 		{
 			name:       "Create namespace with existing DPU status",
 			deviceName: "test-device",
-			subsystems: mockNvmeSubsystemList,
+			nqn:        SubsystemNQNForDevice("test-device"),
 			dpuStatus: snapstoragev1.VolumeAttachmentStatusDPU{
 				DeviceName: "existing-device",
 				BdevAttrs: snapstoragev1.BdevAttrs{
@@ -282,27 +384,13 @@ func TestNvmeNamespaceCreate(t *testing.T) {
 			expectUUID:  "550e8400-e29b-41d4-a716-446655440000",
 		},
 		{
-			name:        "Empty subsystems list",
+			name:        "Missing subsystem NQN",
 			deviceName:  "test-device",
-			subsystems:  NvmeSubsystemListResponse{},
+			nqn:         "",
 			dpuStatus:   snapstoragev1.VolumeAttachmentStatusDPU{},
 			expectError: true,
 			expectNSID:  0,
 			expectUUID:  false,
-		},
-		{
-			name:       "Empty namespaces list",
-			deviceName: "test-device",
-			subsystems: NvmeSubsystemListResponse{
-				{
-					NQN:        "nqn.2022-10.io.nvda.nvme:test",
-					Namespaces: []Namespace{},
-				},
-			},
-			dpuStatus:   snapstoragev1.VolumeAttachmentStatusDPU{},
-			expectError: false,
-			expectNSID:  1, // Should start with NSID 1 for empty namespace list
-			expectUUID:  true,
 		},
 	}
 
@@ -310,7 +398,7 @@ func TestNvmeNamespaceCreate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			client := NewMockClient()
 
-			nsid, uuidStr, err := NvmeNamespaceCreate(client, tt.deviceName, tt.subsystems, tt.dpuStatus)
+			nsid, uuidStr, err := NvmeNamespaceCreate(client, tt.deviceName, tt.nqn, tt.dpuStatus)
 
 			if tt.expectError {
 				if err == nil {
@@ -355,10 +443,246 @@ func TestNvmeNamespaceCreate(t *testing.T) {
 	}
 }
 
+// TestNvmeNamespaceCreateTargetsItsOwnSubsystem is the regression test for
+// https://redmine.mellanox.com/issues/5227493: a new namespace no longer derives
+// its ID from whatever else SNAP happens to be hosting, so an unordered
+// nvme_namespace_list after a UM restart cannot produce a colliding NSID.
+func TestNvmeNamespaceCreateTargetsItsOwnSubsystem(t *testing.T) {
+	for _, deviceName := range []string{"volume-a", "volume-b", "volume-c"} {
+		client := newRecordingClient()
+		nqn := SubsystemNQNForDevice(deviceName)
+
+		nsid, _, err := NvmeNamespaceCreate(client, deviceName, nqn, snapstoragev1.VolumeAttachmentStatusDPU{})
+		if err != nil {
+			t.Fatalf("unexpected error for %s: %v", deviceName, err)
+		}
+		if nsid != volumeNSID {
+			t.Errorf("expected NSID %d for %s, got %d", volumeNSID, deviceName, nsid)
+		}
+
+		params, ok := client.paramsFor("nvme_namespace_create")
+		if !ok {
+			t.Fatalf("nvme_namespace_create was not called for %s", deviceName)
+		}
+		if params["nqn"] != nqn {
+			t.Errorf("expected namespace created in %s, got %v", nqn, params["nqn"])
+		}
+		if params["bdev_name"] != deviceName {
+			t.Errorf("expected bdev_name %s, got %v", deviceName, params["bdev_name"])
+		}
+	}
+}
+
+func TestSubsystemNQNForDevice(t *testing.T) {
+	t.Run("is stable for the same device", func(t *testing.T) {
+		if first, second := SubsystemNQNForDevice("dev-1"), SubsystemNQNForDevice("dev-1"); first != second {
+			t.Errorf("expected a stable NQN, got %q then %q", first, second)
+		}
+	})
+
+	t.Run("differs between devices", func(t *testing.T) {
+		if SubsystemNQNForDevice("dev-1") == SubsystemNQNForDevice("dev-2") {
+			t.Error("expected different devices to get different NQNs")
+		}
+	})
+
+	t.Run("carries the owned prefix", func(t *testing.T) {
+		nqn := SubsystemNQNForDevice("dev-1")
+		if !isDriverOwnedSubsystem(nqn) {
+			t.Errorf("expected %q to be recognized as driver-owned", nqn)
+		}
+	})
+
+	t.Run("sanitizes unsafe characters", func(t *testing.T) {
+		nqn := SubsystemNQNForDevice("vol/with spaces:and#junk")
+		for _, unsafe := range []string{"/", " ", "#"} {
+			if strings.Contains(strings.TrimPrefix(nqn, subsystemNQNPrefix), unsafe) {
+				t.Errorf("expected %q to be stripped from %q", unsafe, nqn)
+			}
+		}
+	})
+
+	t.Run("stays within the NQN limit and remains unique when truncated", func(t *testing.T) {
+		long := strings.Repeat("a", 512)
+		first := SubsystemNQNForDevice(long + "-one")
+		second := SubsystemNQNForDevice(long + "-two")
+
+		for _, nqn := range []string{first, second} {
+			if len(nqn) > maxNQNLength {
+				t.Errorf("expected NQN within %d bytes, got %d", maxNQNLength, len(nqn))
+			}
+		}
+		if first == second {
+			t.Error("expected truncated NQNs to stay unique via the digest suffix")
+		}
+	})
+}
+
+func TestIsDriverOwnedSubsystem(t *testing.T) {
+	if isDriverOwnedSubsystem("nqn.2022-10.io.nvda.nvme:0") {
+		t.Error("the subsystem from snapRpcInitConf must not be treated as driver-owned")
+	}
+	if !isDriverOwnedSubsystem(SubsystemNQNForDevice("dev-1")) {
+		t.Error("expected a derived NQN to be treated as driver-owned")
+	}
+}
+
+func TestSubsystemExists(t *testing.T) {
+	if !subsystemExists(mockNvmeSubsystemList, "nqn.2022-10.io.nvda.nvme:0") {
+		t.Error("expected the init subsystem to be found")
+	}
+	if subsystemExists(mockNvmeSubsystemList, "nqn.2022-10.io.nvda.nvme:missing") {
+		t.Error("expected an unknown NQN not to be found")
+	}
+}
+
+func TestNvmeSubsystemCreate(t *testing.T) {
+	t.Run("creates a subsystem from the NQN alone", func(t *testing.T) {
+		client := newRecordingClient()
+		nqn := SubsystemNQNForDevice("dev-1")
+
+		if err := NvmeSubsystemCreate(client, nqn, mockNvmeSubsystemList); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		params, ok := client.paramsFor(methodSubsystemCreate)
+		if !ok {
+			t.Fatal("nvme_subsystem_create was not called")
+		}
+		if params["nqn"] != nqn {
+			t.Errorf("expected nqn %s, got %v", nqn, params["nqn"])
+		}
+		// nn in particular must stay at SNAP's default, so a legacy namespace can
+		// be recreated at an NSID above 1.
+		if len(params) != 1 {
+			t.Errorf("expected only nqn to be sent, got %v", params)
+		}
+	})
+
+	t.Run("is a no-op when the subsystem is already listed", func(t *testing.T) {
+		client := newRecordingClient()
+
+		if err := NvmeSubsystemCreate(client, "nqn.2022-10.io.nvda.nvme:0", mockNvmeSubsystemList); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if count := client.callCount(methodSubsystemCreate); count != 0 {
+			t.Errorf("expected no RPC for an existing subsystem, got %d", count)
+		}
+	})
+
+	// A create that fails is tolerated on the strength of what SNAP reports
+	// afterwards, never on how it worded the failure. These four cases pin both
+	// halves of that: the wording varies and the outcome follows the listing.
+	failureTests := []struct {
+		name         string
+		failErr      error
+		listResponse NvmeSubsystemListResponse
+		expectError  bool
+	}{
+		{
+			name:    "tolerates an already-exists error from a stale listing",
+			failErr: fmt.Errorf("RPC error: subsystem already exists"),
+			listResponse: NvmeSubsystemListResponse{
+				{NQN: SubsystemNQNForDevice("dev-1")},
+			},
+			expectError: false,
+		},
+		{
+			// SNAP wording the collision differently must not turn a subsystem
+			// that is really there into a failed attach.
+			name:    "tolerates a collision reported without the word exists",
+			failErr: fmt.Errorf("RPC error: duplicate NQN"),
+			listResponse: NvmeSubsystemListResponse{
+				{NQN: SubsystemNQNForDevice("dev-1")},
+			},
+			expectError: false,
+		},
+		{
+			// The mirror image: an error that merely mentions existence must not
+			// be mistaken for the subsystem being there.
+			name:         "surfaces a does-not-exist error",
+			failErr:      fmt.Errorf("RPC error: bdev does not exist"),
+			listResponse: mockNvmeSubsystemList,
+			expectError:  true,
+		},
+		{
+			name:         "surfaces other errors",
+			failErr:      fmt.Errorf("RPC error: out of resources"),
+			listResponse: mockNvmeSubsystemList,
+			expectError:  true,
+		},
+	}
+
+	for _, tt := range failureTests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := newRecordingClient()
+			client.failMethod = methodSubsystemCreate
+			client.failErr = tt.failErr
+			client.listResponse = tt.listResponse
+
+			err := NvmeSubsystemCreate(client, SubsystemNQNForDevice("dev-1"), nil)
+
+			if tt.expectError && err == nil {
+				t.Fatal("expected an error, got nil")
+			}
+			if !tt.expectError && err != nil {
+				t.Fatalf("expected the failure to be tolerated, got %v", err)
+			}
+		})
+	}
+
+	t.Run("surfaces the create error when the listing cannot be refetched", func(t *testing.T) {
+		client := newRecordingClient()
+		client.failMethod = methodSubsystemCreate
+		client.failErr = fmt.Errorf("RPC error: subsystem already exists")
+		client.listErr = fmt.Errorf("RPC error: connection reset")
+
+		// Without a listing to confirm it, even an already-exists wording has to
+		// fail and let the next reconcile decide.
+		if err := NvmeSubsystemCreate(client, SubsystemNQNForDevice("dev-1"), nil); err == nil {
+			t.Fatal("expected an error, got nil")
+		}
+	})
+
+	t.Run("requires an NQN", func(t *testing.T) {
+		if err := NvmeSubsystemCreate(newRecordingClient(), "", nil); err == nil {
+			t.Fatal("expected an error for an empty NQN, got nil")
+		}
+	})
+}
+
+func TestNvmeSubsystemDestroy(t *testing.T) {
+	t.Run("destroys without forcing", func(t *testing.T) {
+		client := newRecordingClient()
+		nqn := SubsystemNQNForDevice("dev-1")
+
+		if err := NvmeSubsystemDestroy(client, nqn); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		params, ok := client.paramsFor("nvme_subsystem_destroy")
+		if !ok {
+			t.Fatal("nvme_subsystem_destroy was not called")
+		}
+		if params["nqn"] != nqn {
+			t.Errorf("expected nqn %s, got %v", nqn, params["nqn"])
+		}
+		if _, forced := params["force"]; forced {
+			t.Error("expected force not to be set, so a non-empty subsystem surfaces as an error")
+		}
+	})
+
+	t.Run("requires an NQN", func(t *testing.T) {
+		if err := NvmeSubsystemDestroy(newRecordingClient(), ""); err == nil {
+			t.Fatal("expected an error for an empty NQN, got nil")
+		}
+	})
+}
+
 func TestNvmeControllerCreate(t *testing.T) {
 	tests := []struct {
 		name           string
-		subsystems     NvmeSubsystemListResponse
+		nqn            string
 		emulationFuncs EmulationFunctionListResponse
 		dpuStatus      snapstoragev1.VolumeAttachmentStatusDPU
 		parameters     map[string]string
@@ -369,7 +693,7 @@ func TestNvmeControllerCreate(t *testing.T) {
 	}{
 		{
 			name:           "Create controller with available VF",
-			subsystems:     mockNvmeSubsystemList,
+			nqn:            testVolumeNQN,
 			emulationFuncs: mockEmulationFunctionList,
 			dpuStatus:      snapstoragev1.VolumeAttachmentStatusDPU{},
 			parameters:     map[string]string{},
@@ -380,7 +704,7 @@ func TestNvmeControllerCreate(t *testing.T) {
 		},
 		{
 			name:           "Create controller with PF",
-			subsystems:     mockNvmeSubsystemList,
+			nqn:            testVolumeNQN,
 			emulationFuncs: mockEmulationFunctionList,
 			dpuStatus:      snapstoragev1.VolumeAttachmentStatusDPU{},
 			parameters:     map[string]string{},
@@ -391,7 +715,7 @@ func TestNvmeControllerCreate(t *testing.T) {
 		},
 		{
 			name:           "Create controller with existing DPU status",
-			subsystems:     mockNvmeSubsystemList,
+			nqn:            testVolumeNQN,
 			emulationFuncs: mockEmulationFunctionList,
 			dpuStatus:      snapstoragev1.VolumeAttachmentStatusDPU{PCIDeviceAddress: "26:0c.3"},
 			functionType:   "vf",
@@ -401,7 +725,7 @@ func TestNvmeControllerCreate(t *testing.T) {
 		},
 		{
 			name:           "Create controller with VUID",
-			subsystems:     mockNvmeSubsystemList,
+			nqn:            testVolumeNQN,
 			emulationFuncs: mockEmulationFunctionList,
 			dpuStatus:      snapstoragev1.VolumeAttachmentStatusDPU{},
 			parameters:     map[string]string{"vuid": "MT2323XZ09G2NVMES1D0F0"},
@@ -411,8 +735,8 @@ func TestNvmeControllerCreate(t *testing.T) {
 			expectPciBDF:   "26:00.3",
 		},
 		{
-			name:           "Empty subsystems list",
-			subsystems:     NvmeSubsystemListResponse{},
+			name:           "Missing subsystem NQN",
+			nqn:            "",
 			emulationFuncs: mockEmulationFunctionList,
 			dpuStatus:      snapstoragev1.VolumeAttachmentStatusDPU{},
 			functionType:   "vf",
@@ -421,8 +745,8 @@ func TestNvmeControllerCreate(t *testing.T) {
 			expectPciBDF:   "",
 		},
 		{
-			name:       "No available VFs",
-			subsystems: mockNvmeSubsystemList,
+			name: "No available VFs",
+			nqn:  testVolumeNQN,
 			emulationFuncs: EmulationFunctionListResponse{
 				{
 					Hotplugged:    false,
@@ -453,7 +777,7 @@ func TestNvmeControllerCreate(t *testing.T) {
 		},
 		{
 			name:           "No available PF",
-			subsystems:     mockNvmeSubsystemList,
+			nqn:            testVolumeNQN,
 			emulationFuncs: EmulationFunctionListResponse{},
 			dpuStatus:      snapstoragev1.VolumeAttachmentStatusDPU{},
 			functionType:   "pf",
@@ -467,7 +791,7 @@ func TestNvmeControllerCreate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			client := NewMockClient()
 
-			ctrlID, pciBDF, err := NvmeControllerCreate(client, tt.subsystems, tt.emulationFuncs, tt.dpuStatus, tt.parameters, tt.functionType)
+			ctrlID, pciBDF, err := NvmeControllerCreate(client, tt.nqn, tt.emulationFuncs, tt.dpuStatus, tt.parameters, tt.functionType)
 
 			if tt.expectError {
 				if err == nil {
@@ -581,18 +905,30 @@ func TestGetNamespaceByDeviceName(t *testing.T) {
 	tests := []struct {
 		name         string
 		deviceName   string
+		expectedNQN  string
 		expectedNSID int
 		expectedUUID string
 	}{
 		{
 			name:         "Valid Device Name - Should return NSID 1",
 			deviceName:   "null1",
+			expectedNQN:  mockSecondaryNQN,
 			expectedNSID: 1,
 			expectedUUID: "263826ad-19a3-4feb-bc25-4bc81ee7748e",
 		},
 		{
+			// Two namespaces share NSID 1 across subsystems, so the owning NQN is
+			// the only thing that tells them apart.
+			name:         "Device in another subsystem at the same NSID",
+			deviceName:   "null0",
+			expectedNQN:  mockInitNQN,
+			expectedNSID: 1,
+			expectedUUID: "263826ad-19a3-4feb-bc25-4bc81ee7749e",
+		},
+		{
 			name:         "Invalid Device Name - Should return -1",
 			deviceName:   "non-existent-device",
+			expectedNQN:  "",
 			expectedNSID: -1,
 			expectedUUID: "",
 		},
@@ -600,7 +936,11 @@ func TestGetNamespaceByDeviceName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			nsid, nsUUID := getNamespaceByDeviceName(tt.deviceName, mockNvmeSubsystemList)
+			nqn, nsid, nsUUID := getNamespaceByDeviceName(tt.deviceName, mockNvmeSubsystemList)
+
+			if nqn != tt.expectedNQN {
+				t.Errorf("Test failed: Expected NQN %q, but got %q", tt.expectedNQN, nqn)
+			}
 
 			if nsid != tt.expectedNSID {
 				t.Errorf("Test failed: Expected NSID %d, but got %d", tt.expectedNSID, nsid)
@@ -616,6 +956,7 @@ func TestGetNamespaceByDeviceName(t *testing.T) {
 func TestCheckNamespaceAttached(t *testing.T) {
 	tests := []struct {
 		name                    string
+		nqn                     string
 		nsid                    int
 		ctrlID                  string
 		expectedNamespaceExists bool
@@ -623,6 +964,7 @@ func TestCheckNamespaceAttached(t *testing.T) {
 	}{
 		{
 			name:                    "Valid NSID and attached controller",
+			nqn:                     mockSecondaryNQN,
 			nsid:                    1,
 			ctrlID:                  "NVMeCtrl2",
 			expectedNamespaceExists: true,
@@ -630,13 +972,41 @@ func TestCheckNamespaceAttached(t *testing.T) {
 		},
 		{
 			name:                    "Valid NSID but unattached controller",
+			nqn:                     mockSecondaryNQN,
 			nsid:                    1,
 			ctrlID:                  "NVMeCtrl_26:00.3",
 			expectedNamespaceExists: true,
 			expectedAttachedToCtrl:  false,
 		},
 		{
+			// NSID 1 exists in both subsystems attached to different controllers.
+			// Scoping by NQN is what stops a detach from tearing down the wrong one.
+			name:                    "Same NSID in another subsystem resolves to that subsystem's controller",
+			nqn:                     mockInitNQN,
+			nsid:                    1,
+			ctrlID:                  "NVMeCtrl1",
+			expectedNamespaceExists: true,
+			expectedAttachedToCtrl:  true,
+		},
+		{
+			name:                    "Controller from the other subsystem is not matched",
+			nqn:                     mockInitNQN,
+			nsid:                    1,
+			ctrlID:                  "NVMeCtrl2",
+			expectedNamespaceExists: true,
+			expectedAttachedToCtrl:  false,
+		},
+		{
+			name:                    "Unknown NQN with a live NSID",
+			nqn:                     testVolumeNQN,
+			nsid:                    1,
+			ctrlID:                  "NVMeCtrl2",
+			expectedNamespaceExists: false,
+			expectedAttachedToCtrl:  false,
+		},
+		{
 			name:                    "Invalid NSID with valid controller",
+			nqn:                     mockSecondaryNQN,
 			nsid:                    999,
 			ctrlID:                  "NVMeCtrl2",
 			expectedNamespaceExists: false,
@@ -644,6 +1014,7 @@ func TestCheckNamespaceAttached(t *testing.T) {
 		},
 		{
 			name:                    "Invalid NSID with invalid controller",
+			nqn:                     mockSecondaryNQN,
 			nsid:                    999,
 			ctrlID:                  "NVMeCtrl_26:00.3",
 			expectedNamespaceExists: false,
@@ -653,15 +1024,15 @@ func TestCheckNamespaceAttached(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			namespaceExists, attachedToCtrl := checkNamespaceAttached(tt.nsid, tt.ctrlID, mockNvmeSubsystemList)
+			namespaceExists, attachedToCtrl := checkNamespaceAttached(tt.nqn, tt.nsid, tt.ctrlID, mockNvmeSubsystemList)
 
 			if namespaceExists != tt.expectedNamespaceExists {
-				t.Errorf("Test failed: Expected namespaceExists %v, got %v for NSID %d and Controller %s",
-					tt.expectedNamespaceExists, namespaceExists, tt.nsid, tt.ctrlID)
+				t.Errorf("Test failed: Expected namespaceExists %v, got %v for NQN %s, NSID %d and Controller %s",
+					tt.expectedNamespaceExists, namespaceExists, tt.nqn, tt.nsid, tt.ctrlID)
 			}
 			if attachedToCtrl != tt.expectedAttachedToCtrl {
-				t.Errorf("Test failed: Expected attachedToCtrl %v, got %v for NSID %d and Controller %s",
-					tt.expectedAttachedToCtrl, attachedToCtrl, tt.nsid, tt.ctrlID)
+				t.Errorf("Test failed: Expected attachedToCtrl %v, got %v for NQN %s, NSID %d and Controller %s",
+					tt.expectedAttachedToCtrl, attachedToCtrl, tt.nqn, tt.nsid, tt.ctrlID)
 			}
 		})
 	}
@@ -700,6 +1071,7 @@ func TestIsControllerAttachedToNamespace(t *testing.T) {
 	tests := []struct {
 		name           string
 		ctrlID         string
+		nqn            string
 		nsid           int
 		subsystems     NvmeSubsystemListResponse
 		expectedResult bool
@@ -707,6 +1079,7 @@ func TestIsControllerAttachedToNamespace(t *testing.T) {
 		{
 			name:           "Controller is attached to namespace",
 			ctrlID:         "NVMeCtrl2",
+			nqn:            mockSecondaryNQN,
 			nsid:           1,
 			subsystems:     mockNvmeSubsystemList,
 			expectedResult: true,
@@ -714,6 +1087,17 @@ func TestIsControllerAttachedToNamespace(t *testing.T) {
 		{
 			name:           "Controller is not attached to namespace",
 			ctrlID:         "NVMeCtrl_26:00.3",
+			nqn:            mockSecondaryNQN,
+			nsid:           1,
+			subsystems:     mockNvmeSubsystemList,
+			expectedResult: false,
+		},
+		{
+			// Without the NQN scope this would match NSID 1 in the other
+			// subsystem and wrongly report the controller as already attached.
+			name:           "Controller attached to the same NSID in another subsystem",
+			ctrlID:         "NVMeCtrl1",
+			nqn:            mockSecondaryNQN,
 			nsid:           1,
 			subsystems:     mockNvmeSubsystemList,
 			expectedResult: false,
@@ -721,17 +1105,27 @@ func TestIsControllerAttachedToNamespace(t *testing.T) {
 		{
 			name:           "Namespace does not exist",
 			ctrlID:         "NVMeCtrl2",
+			nqn:            mockSecondaryNQN,
 			nsid:           999,
+			subsystems:     mockNvmeSubsystemList,
+			expectedResult: false,
+		},
+		{
+			name:           "Subsystem does not exist",
+			ctrlID:         "NVMeCtrl2",
+			nqn:            testVolumeNQN,
+			nsid:           1,
 			subsystems:     mockNvmeSubsystemList,
 			expectedResult: false,
 		},
 		{
 			name:   "Empty controllers list",
 			ctrlID: "NVMeCtrl2",
+			nqn:    mockSecondaryNQN,
 			nsid:   1,
 			subsystems: NvmeSubsystemListResponse{
 				{
-					NQN: "nqn.2022-10.io.nvda.nvme:01",
+					NQN: mockSecondaryNQN,
 					Namespaces: []Namespace{
 						{
 							NSID:        1,
@@ -746,10 +1140,11 @@ func TestIsControllerAttachedToNamespace(t *testing.T) {
 		{
 			name:   "Multiple controllers, target controller is attached",
 			ctrlID: "NVMeCtrl2",
+			nqn:    mockSecondaryNQN,
 			nsid:   1,
 			subsystems: NvmeSubsystemListResponse{
 				{
-					NQN: "nqn.2022-10.io.nvda.nvme:01",
+					NQN: mockSecondaryNQN,
 					Namespaces: []Namespace{
 						{
 							NSID: 1,
@@ -771,10 +1166,11 @@ func TestIsControllerAttachedToNamespace(t *testing.T) {
 		{
 			name:   "Controller with invalid type",
 			ctrlID: "NVMeCtrl2",
+			nqn:    mockSecondaryNQN,
 			nsid:   1,
 			subsystems: NvmeSubsystemListResponse{
 				{
-					NQN: "nqn.2022-10.io.nvda.nvme:01",
+					NQN: mockSecondaryNQN,
 					Namespaces: []Namespace{
 						{
 							NSID: 1,
@@ -792,10 +1188,176 @@ func TestIsControllerAttachedToNamespace(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := isControllerAttachedToNamespace(tt.ctrlID, tt.nsid, tt.subsystems)
+			result := isControllerAttachedToNamespace(tt.ctrlID, tt.nqn, tt.nsid, tt.subsystems)
 
 			if result != tt.expectedResult {
 				t.Errorf("Test failed: Expected %v, but got %v", tt.expectedResult, result)
+			}
+		})
+	}
+}
+
+func TestControllerSubsystemNQN(t *testing.T) {
+	tests := []struct {
+		name        string
+		ctrlID      string
+		subsystems  NvmeSubsystemListResponse
+		expectedNQN string
+	}{
+		{
+			name:        "Controller found in its subsystem",
+			ctrlID:      "NVMeCtrl2",
+			subsystems:  mockNvmeSubsystemList,
+			expectedNQN: mockSecondaryNQN,
+		},
+		{
+			name:        "Second controller of the same subsystem",
+			ctrlID:      "NVMeCtrl_26:00.3",
+			subsystems:  mockNvmeSubsystemList,
+			expectedNQN: mockInitNQN,
+		},
+		{
+			// The state an attach that failed before nvme_controller_attach_ns
+			// leaves behind: the controller is listed on the subsystem with no
+			// namespace attached to it.
+			name:   "Controller listed with no namespace attached",
+			ctrlID: "NVMeCtrl2",
+			subsystems: NvmeSubsystemListResponse{
+				{
+					NQN: testVolumeNQN,
+					Controllers: []interface{}{
+						map[string]interface{}{"ctrl_id": "NVMeCtrl2"},
+					},
+				},
+			},
+			expectedNQN: testVolumeNQN,
+		},
+		{
+			name:        "Controller not listed anywhere",
+			ctrlID:      "NVMeCtrl99",
+			subsystems:  mockNvmeSubsystemList,
+			expectedNQN: "",
+		},
+		{
+			// A listing that reports no subsystem-level controllers has to read
+			// as unknown, so teardown keeps trusting the recorded address.
+			name:   "Subsystem reports no controllers",
+			ctrlID: "NVMeCtrl2",
+			subsystems: NvmeSubsystemListResponse{
+				{NQN: testVolumeNQN},
+			},
+			expectedNQN: "",
+		},
+		{
+			name:   "Controller with invalid type",
+			ctrlID: "NVMeCtrl2",
+			subsystems: NvmeSubsystemListResponse{
+				{
+					NQN:         testVolumeNQN,
+					Controllers: []interface{}{"invalid-controller"},
+				},
+			},
+			expectedNQN: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := controllerSubsystemNQN(tt.ctrlID, tt.subsystems)
+
+			if result != tt.expectedNQN {
+				t.Errorf("Test failed: Expected %q, but got %q", tt.expectedNQN, result)
+			}
+		})
+	}
+}
+
+func TestResolveOwnedController(t *testing.T) {
+	tests := []struct {
+		name       string
+		deviceName string
+		nqn        string
+		pciAddr    string
+		// subsystems defaults to mockNvmeSubsystemList when nil.
+		subsystems          NvmeSubsystemListResponse
+		expectedCtrlID      string
+		expectedCtrlPCIAddr string
+	}{
+		{
+			name:                "Recorded address holds this volume's controller",
+			deviceName:          "null1",
+			nqn:                 mockSecondaryNQN,
+			pciAddr:             "26:0c.0",
+			expectedCtrlID:      "NVMeCtrl2",
+			expectedCtrlPCIAddr: "26:0c.0",
+		},
+		{
+			// SNAP handed 26:00.3 to hotplug-device after the address was
+			// recorded for null1, so the controller there must not come back as
+			// null1's and the namespace's own controller is used instead.
+			name:                "Recorded address was reused by another volume",
+			deviceName:          "null1",
+			nqn:                 mockSecondaryNQN,
+			pciAddr:             "26:00.3",
+			expectedCtrlID:      "NVMeCtrl2",
+			expectedCtrlPCIAddr: "26:0c.0",
+		},
+		{
+			// Nothing is left to identify the volume by, so teardown has no
+			// controller to work with and must not fall back to the address.
+			name:                "Recorded address was reused and the namespace is gone",
+			deviceName:          "missing-device",
+			nqn:                 testVolumeNQN,
+			pciAddr:             "26:00.3",
+			expectedCtrlID:      "",
+			expectedCtrlPCIAddr: "",
+		},
+		{
+			// A function with no controller cannot be another volume's, so it
+			// stays addressable for hotplug function cleanup.
+			name:                "Recorded address holds no controller",
+			deviceName:          "missing-device",
+			nqn:                 testVolumeNQN,
+			pciAddr:             "26:0c.1",
+			expectedCtrlID:      "",
+			expectedCtrlPCIAddr: "26:0c.1",
+		},
+		{
+			// Without subsystem-level controllers the owner cannot be
+			// established, so teardown has to behave as it did before rather
+			// than treat the controller as foreign and leak it.
+			name:       "Unreported owner leaves the recorded address in use",
+			deviceName: "null1",
+			nqn:        testVolumeNQN,
+			pciAddr:    "26:0c.0",
+			subsystems: NvmeSubsystemListResponse{
+				{
+					NQN: mockSecondaryNQN,
+					Namespaces: []Namespace{
+						{NSID: 1, Bdev: "null1", NQN: mockSecondaryNQN},
+					},
+				},
+			},
+			expectedCtrlID:      "NVMeCtrl2",
+			expectedCtrlPCIAddr: "26:0c.0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			subsystems := tt.subsystems
+			if subsystems == nil {
+				subsystems = mockNvmeSubsystemList
+			}
+
+			ctrlID, ctrlPCIAddr := resolveOwnedController(tt.deviceName, tt.nqn, tt.pciAddr,
+				subsystems, mockEmulationFunctionList)
+
+			if ctrlID != tt.expectedCtrlID {
+				t.Errorf("Expected controller ID %q, got %q", tt.expectedCtrlID, ctrlID)
+			}
+			if ctrlPCIAddr != tt.expectedCtrlPCIAddr {
+				t.Errorf("Expected controller PCI address %q, got %q", tt.expectedCtrlPCIAddr, ctrlPCIAddr)
 			}
 		})
 	}

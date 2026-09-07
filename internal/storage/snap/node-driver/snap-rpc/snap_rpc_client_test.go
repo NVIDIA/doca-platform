@@ -18,6 +18,7 @@ package rpcclient
 
 import (
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -34,6 +35,8 @@ type MockClientForClientFunctions struct {
 	shouldFailEmulationList       bool
 	shouldFailSubsystemList       bool
 	shouldFailNamespaceCreate     bool
+	shouldFailSubsystemCreate     bool
+	shouldFailSubsystemDestroy    bool
 	shouldFailControllerCreate    bool
 	shouldFailControllerAttach    bool
 	shouldFailControllerResume    bool
@@ -71,6 +74,19 @@ type MockClientForClientFunctions struct {
 	// Devices created through virtio_fs_device_create, reported by
 	// virtio_fs_get_devices so create/start flows behave like SNAP.
 	createdDevices []FSDevice
+
+	// extraSubsystems are appended to the nvme_subsystem_list response, so a test
+	// can start from a volume that already owns its own subsystem.
+	extraSubsystems NvmeSubsystemListResponse
+	// createdSubsystems and destroyedSubsystems record the NQNs the driver asked
+	// SNAP to create and destroy, including attempts that failed.
+	createdSubsystems   []string
+	destroyedSubsystems []string
+	// destroyedControllers and destroyedFunctions record what teardown reached,
+	// so a test can assert that another volume's controller or hotplug function
+	// was left alone.
+	destroyedControllers []string
+	destroyedFunctions   []string
 }
 
 func NewMockClientForClientFunctions() *MockClientForClientFunctions {
@@ -113,6 +129,8 @@ func (m *MockClientForClientFunctions) Call(method string, params map[string]int
 		return map[string]interface{}{"vuid": "MT2323XZ09G2NVMES1D0F0", "status": "success"}, nil
 
 	case "nvme_function_destroy":
+		vuid, _ := params["vuid"].(string)
+		m.destroyedFunctions = append(m.destroyedFunctions, vuid)
 		if m.shouldFailNvmeFunctionDestroy {
 			return nil, fmt.Errorf("failed to destroy NVMe function")
 		}
@@ -134,7 +152,23 @@ func (m *MockClientForClientFunctions) Call(method string, params map[string]int
 		if m.shouldFailSubsystemList {
 			return nil, fmt.Errorf("failed to get subsystems")
 		}
-		return mockNvmeSubsystemList, nil
+		return append(append(NvmeSubsystemListResponse{}, mockNvmeSubsystemList...), m.extraSubsystems...), nil
+
+	case "nvme_subsystem_create":
+		nqn, _ := params["nqn"].(string)
+		m.createdSubsystems = append(m.createdSubsystems, nqn)
+		if m.shouldFailSubsystemCreate {
+			return nil, fmt.Errorf("failed to create subsystem")
+		}
+		return map[string]interface{}{"status": "success"}, nil
+
+	case "nvme_subsystem_destroy":
+		nqn, _ := params["nqn"].(string)
+		m.destroyedSubsystems = append(m.destroyedSubsystems, nqn)
+		if m.shouldFailSubsystemDestroy {
+			return nil, fmt.Errorf("failed to destroy subsystem")
+		}
+		return map[string]interface{}{"status": "success"}, nil
 
 	case "nvme_namespace_create":
 		if m.shouldFailNamespaceCreate {
@@ -173,6 +207,8 @@ func (m *MockClientForClientFunctions) Call(method string, params map[string]int
 		return map[string]interface{}{"status": "success"}, nil
 
 	case "nvme_controller_destroy":
+		ctrlID, _ := params["ctrl_id"].(string)
+		m.destroyedControllers = append(m.destroyedControllers, ctrlID)
 		if m.shouldFailControllerDestroy {
 			return nil, fmt.Errorf("failed to destroy controller")
 		}
@@ -431,6 +467,7 @@ func TestExposeBlockDevice(t *testing.T) {
 		shouldFailEmulationList      bool
 		shouldFailSubsystemList      bool
 		shouldFailNamespaceCreate    bool
+		shouldFailSubsystemCreate    bool
 		shouldFailControllerCreate   bool
 		shouldFailControllerAttach   bool
 		shouldFailControllerResume   bool
@@ -440,6 +477,9 @@ func TestExposeBlockDevice(t *testing.T) {
 		expectedPCIBDF               string
 		expectedUUID                 string
 		expectedFuncVUID             string
+		// expectCreatedSubsystem is the NQN the driver should have created, or
+		// empty when it should have reused a subsystem already present.
+		expectCreatedSubsystem string
 	}{
 		{
 			name:         "Create new namespace and controller successfully",
@@ -451,12 +491,15 @@ func TestExposeBlockDevice(t *testing.T) {
 					FunctionType: "vf",
 				},
 			},
-			expectError:      false,
-			expectedNSID:     2,
-			expectedPCIBDF:   "26:0c.1",
-			expectedFuncVUID: "MT2328XZ17DFNVMES0D0F2",
+			expectError:            false,
+			expectedNSID:           volumeNSID,
+			expectedPCIBDF:         "26:0c.1",
+			expectedFuncVUID:       "MT2328XZ17DFNVMES0D0F2",
+			expectCreatedSubsystem: SubsystemNQNForDevice("new-device"),
 		},
 		{
+			// A namespace already in the shared subsystem, which is what an
+			// attachment made before this change looks like, is reused where it is.
 			name:         "Use existing namespace",
 			snapProvider: "test-provider",
 			dpuStatus:    snapstoragev1.VolumeAttachmentStatusDPU{DeviceName: "null1"},
@@ -488,11 +531,14 @@ func TestExposeBlockDevice(t *testing.T) {
 					FunctionType: "vf",
 				},
 			},
-			expectError:      false,
-			expectedNSID:     5,
-			expectedPCIBDF:   "26:0c.2",
-			expectedUUID:     "550e8400-e29b-41d4-a716-446655440000",
-			expectedFuncVUID: "MT2328XZ17DFNVMES0D0F2",
+			// A namespace recorded under the old shared-subsystem model keeps its
+			// NSID and UUID even though it is recreated in its own subsystem.
+			expectError:            false,
+			expectedNSID:           5,
+			expectedPCIBDF:         "26:0c.2",
+			expectedUUID:           "550e8400-e29b-41d4-a716-446655440000",
+			expectedFuncVUID:       "MT2328XZ17DFNVMES0D0F2",
+			expectCreatedSubsystem: SubsystemNQNForDevice("test-device"),
 		},
 		{
 			name:                    "Emulation function list failure",
@@ -516,6 +562,13 @@ func TestExposeBlockDevice(t *testing.T) {
 			expectError:               true,
 		},
 		{
+			name:                      "Subsystem create failure",
+			dpuStatus:                 snapstoragev1.VolumeAttachmentStatusDPU{DeviceName: "new-device"},
+			spec:                      snapstoragev1.VolumeAttachmentSpec{},
+			shouldFailSubsystemCreate: true,
+			expectError:               true,
+		},
+		{
 			name:                       "Controller create failure",
 			dpuStatus:                  snapstoragev1.VolumeAttachmentStatusDPU{DeviceName: "new-device"},
 			spec:                       snapstoragev1.VolumeAttachmentSpec{},
@@ -534,10 +587,11 @@ func TestExposeBlockDevice(t *testing.T) {
 					HotplugFunction: true,
 				},
 			},
-			expectError:      false,
-			expectedNSID:     2,
-			expectedPCIBDF:   "26:00.3",
-			expectedFuncVUID: "MT2323XZ09G2NVMES1D0F0",
+			expectError:            false,
+			expectedNSID:           volumeNSID,
+			expectedPCIBDF:         "26:00.3",
+			expectedFuncVUID:       "MT2323XZ09G2NVMES1D0F0",
+			expectCreatedSubsystem: SubsystemNQNForDevice("test-device"),
 		},
 		{
 			name: "Hotplug reuses persisted FuncVUID without creating function",
@@ -554,9 +608,10 @@ func TestExposeBlockDevice(t *testing.T) {
 			},
 			shouldFailNvmeFunctionCreate: true, // proves create is not called
 			expectError:                  false,
-			expectedNSID:                 2,
+			expectedNSID:                 volumeNSID,
 			expectedPCIBDF:               "26:00.3",
 			expectedFuncVUID:             "MT2323XZ09G2NVMES1D0F0",
+			expectCreatedSubsystem:       SubsystemNQNForDevice("test-device"),
 		},
 		{
 			name: "Hotplug discovers existing controller VUID without creating function",
@@ -611,6 +666,7 @@ func TestExposeBlockDevice(t *testing.T) {
 			rpcClient.shouldFailEmulationList = tt.shouldFailEmulationList
 			rpcClient.shouldFailSubsystemList = tt.shouldFailSubsystemList
 			rpcClient.shouldFailNamespaceCreate = tt.shouldFailNamespaceCreate
+			rpcClient.shouldFailSubsystemCreate = tt.shouldFailSubsystemCreate
 			rpcClient.shouldFailControllerCreate = tt.shouldFailControllerCreate
 			rpcClient.shouldFailControllerAttach = tt.shouldFailControllerAttach
 			rpcClient.shouldFailControllerResume = tt.shouldFailControllerResume
@@ -644,6 +700,14 @@ func TestExposeBlockDevice(t *testing.T) {
 			}
 			if funcVUID != tt.expectedFuncVUID {
 				t.Errorf("Expected function UUID %s, got %s", tt.expectedFuncVUID, funcVUID)
+			}
+
+			var expectedSubsystems []string
+			if tt.expectCreatedSubsystem != "" {
+				expectedSubsystems = []string{tt.expectCreatedSubsystem}
+			}
+			if !slices.Equal(rpcClient.createdSubsystems, expectedSubsystems) {
+				t.Errorf("Expected created subsystems %v, got %v", expectedSubsystems, rpcClient.createdSubsystems)
 			}
 		})
 	}
@@ -829,31 +893,149 @@ func TestExposeFSDevice(t *testing.T) {
 }
 
 func TestDestroyBlockDevice(t *testing.T) {
+	// ownedDeviceName is a volume attached after the move to a subsystem per
+	// volume, so its namespace sits at NSID 1 in a subsystem the driver owns.
+	const ownedDeviceName = "owned-device"
+	ownedNQN := SubsystemNQNForDevice(ownedDeviceName)
+	ownedSubsystem := NvmeSubsystemListResponse{
+		{
+			NQN:  ownedNQN,
+			MNAN: 1,
+			Controllers: []interface{}{
+				map[string]interface{}{"ctrl_id": "NVMeCtrl2"},
+			},
+			Namespaces: []Namespace{
+				{
+					NSID: volumeNSID,
+					Bdev: ownedDeviceName,
+					NQN:  ownedNQN,
+					Controllers: []interface{}{
+						map[string]interface{}{"ctrl_id": "NVMeCtrl2"},
+					},
+				},
+			},
+		},
+	}
+
+	// strandedDeviceName owns a subsystem whose namespace is still attached to
+	// the controller at 26:0c.0, but its recorded PCI address points at the
+	// hotplugged function 26:00.3, which SNAP has since given to another volume.
+	const strandedDeviceName = "stranded-device"
+	strandedNQN := SubsystemNQNForDevice(strandedDeviceName)
+	strandedSubsystem := NvmeSubsystemListResponse{
+		{
+			NQN:  strandedNQN,
+			MNAN: 1,
+			Controllers: []interface{}{
+				map[string]interface{}{"ctrl_id": "NVMeCtrl2"},
+			},
+			Namespaces: []Namespace{
+				{
+					NSID: volumeNSID,
+					Bdev: strandedDeviceName,
+					NQN:  strandedNQN,
+					Controllers: []interface{}{
+						map[string]interface{}{"ctrl_id": "NVMeCtrl2"},
+					},
+				},
+			},
+		},
+	}
+
 	tests := []struct {
 		name                          string
 		snapProvider                  string
+		deviceName                    string
 		nsid                          int
 		pciAddr                       string
+		extraSubsystems               NvmeSubsystemListResponse
 		shouldFailEmulationList       bool
 		shouldFailSubsystemList       bool
 		shouldFailControllerDetach    bool
 		shouldFailControllerDestroy   bool
 		shouldFailNamespaceDestroy    bool
+		shouldFailSubsystemDestroy    bool
 		shouldFailNvmeFunctionDestroy bool
 		expectError                   bool
 		hotplug                       bool
+		// expectDestroyedSubsystem is the NQN teardown should have removed, or
+		// empty when no subsystem should be touched.
+		expectDestroyedSubsystem string
+		// expectDestroyedControllers and expectDestroyedFunctions are asserted
+		// only when set, so the cases that predate stale-address handling stay
+		// as they were.
+		expectDestroyedControllers []string
+		expectDestroyedFunctions   []string
 	}{
 		{
-			name:         "Destroy block device successfully",
+			// A legacy attachment lives in the shared subsystem, which hosts other
+			// volumes and the admin-only PF controller, so it must survive detach.
+			name:         "Destroy legacy device without destroying the shared subsystem",
 			snapProvider: "test-provider",
+			deviceName:   "null1",
 			nsid:         1,
 			pciAddr:      "26:0c.0",
 			expectError:  false,
 			hotplug:      false,
 		},
 		{
+			name:                     "Destroy device and its own subsystem",
+			snapProvider:             "test-provider",
+			deviceName:               ownedDeviceName,
+			nsid:                     volumeNSID,
+			pciAddr:                  "26:0c.0",
+			extraSubsystems:          ownedSubsystem,
+			expectError:              false,
+			hotplug:                  false,
+			expectDestroyedSubsystem: ownedNQN,
+		},
+		{
+			// A leaked subsystem is recoverable, an undeletable volume is not.
+			name:                       "Subsystem destroy failure does not fail the detach",
+			snapProvider:               "test-provider",
+			deviceName:                 ownedDeviceName,
+			nsid:                       volumeNSID,
+			pciAddr:                    "26:0c.0",
+			extraSubsystems:            ownedSubsystem,
+			shouldFailSubsystemDestroy: true,
+			expectError:                false,
+			hotplug:                    false,
+			expectDestroyedSubsystem:   ownedNQN,
+		},
+		{
+			// The recorded address now hosts NVMeCtrl_26:00.3, which belongs to
+			// hotplug-device. Tearing it down would detach that volume, so the
+			// controller the namespace itself reports has to be used instead.
+			name:                       "Stale PCI address leaves the other volume's controller alone",
+			snapProvider:               "test-provider",
+			deviceName:                 strandedDeviceName,
+			nsid:                       volumeNSID,
+			pciAddr:                    "26:00.3",
+			extraSubsystems:            strandedSubsystem,
+			expectError:                false,
+			hotplug:                    false,
+			expectDestroyedSubsystem:   strandedNQN,
+			expectDestroyedControllers: []string{"NVMeCtrl2"},
+		},
+		{
+			// Same stale address, but hotplug teardown would also have destroyed
+			// the function under the other volume's controller.
+			name:                       "Stale PCI address leaves the other volume's hotplug function alone",
+			snapProvider:               "test-provider",
+			deviceName:                 strandedDeviceName,
+			nsid:                       volumeNSID,
+			pciAddr:                    "26:00.3",
+			extraSubsystems:            strandedSubsystem,
+			expectError:                false,
+			hotplug:                    true,
+			expectDestroyedSubsystem:   strandedNQN,
+			expectDestroyedControllers: []string{"NVMeCtrl2"},
+			expectDestroyedFunctions:   []string{},
+		},
+		{
 			name:         "Destroy non-existent device",
 			snapProvider: "test-provider",
+			deviceName:   "missing-device",
 			nsid:         999,
 			pciAddr:      "26:0c.9",
 			expectError:  false,
@@ -862,6 +1044,7 @@ func TestDestroyBlockDevice(t *testing.T) {
 		{
 			name:                    "Emulation list failure",
 			snapProvider:            "test-provider",
+			deviceName:              "null1",
 			nsid:                    1,
 			pciAddr:                 "26:0c.0",
 			shouldFailEmulationList: true,
@@ -871,6 +1054,7 @@ func TestDestroyBlockDevice(t *testing.T) {
 		{
 			name:                    "Subsystem list failure",
 			snapProvider:            "test-provider",
+			deviceName:              "null1",
 			nsid:                    1,
 			pciAddr:                 "26:0c.0",
 			shouldFailSubsystemList: true,
@@ -880,6 +1064,7 @@ func TestDestroyBlockDevice(t *testing.T) {
 		{
 			name:                       "Controller detach failure",
 			snapProvider:               "test-provider",
+			deviceName:                 "null1",
 			nsid:                       1,
 			pciAddr:                    "26:0c.0",
 			shouldFailControllerDetach: true,
@@ -889,6 +1074,7 @@ func TestDestroyBlockDevice(t *testing.T) {
 		{
 			name:                        "Controller destroy failure",
 			snapProvider:                "test-provider",
+			deviceName:                  "null1",
 			nsid:                        1,
 			pciAddr:                     "26:0c.0",
 			shouldFailControllerDestroy: true,
@@ -898,6 +1084,7 @@ func TestDestroyBlockDevice(t *testing.T) {
 		{
 			name:                       "Namespace destroy failure",
 			snapProvider:               "test-provider",
+			deviceName:                 "null1",
 			nsid:                       1,
 			pciAddr:                    "26:0c.0",
 			shouldFailNamespaceDestroy: true,
@@ -907,7 +1094,8 @@ func TestDestroyBlockDevice(t *testing.T) {
 		{
 			name:                          "NVMe function destroy failure with hotplug",
 			snapProvider:                  "test-provider",
-			nsid:                          1,
+			deviceName:                    "hotplug-device",
+			nsid:                          3,
 			pciAddr:                       "26:00.3",
 			shouldFailNvmeFunctionDestroy: true,
 			expectError:                   true,
@@ -916,7 +1104,8 @@ func TestDestroyBlockDevice(t *testing.T) {
 		{
 			name:                    "Emulation list failure with hotplug",
 			snapProvider:            "test-provider",
-			nsid:                    1,
+			deviceName:              "hotplug-device",
+			nsid:                    3,
 			pciAddr:                 "26:00.3",
 			shouldFailEmulationList: true,
 			expectError:             true,
@@ -925,7 +1114,8 @@ func TestDestroyBlockDevice(t *testing.T) {
 		{
 			name:                    "Subsystem list failure with hotplug",
 			snapProvider:            "test-provider",
-			nsid:                    1,
+			deviceName:              "hotplug-device",
+			nsid:                    3,
 			pciAddr:                 "26:00.3",
 			shouldFailSubsystemList: true,
 			expectError:             true,
@@ -934,7 +1124,8 @@ func TestDestroyBlockDevice(t *testing.T) {
 		{
 			name:                        "Controller destroy failure with hotplug",
 			snapProvider:                "test-provider",
-			nsid:                        1,
+			deviceName:                  "hotplug-device",
+			nsid:                        3,
 			pciAddr:                     "26:00.3",
 			shouldFailControllerDestroy: true,
 			expectError:                 true,
@@ -945,16 +1136,18 @@ func TestDestroyBlockDevice(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			rpcClient := NewMockClientForClientFunctions()
+			rpcClient.extraSubsystems = tt.extraSubsystems
 			rpcClient.shouldFailEmulationList = tt.shouldFailEmulationList
 			rpcClient.shouldFailSubsystemList = tt.shouldFailSubsystemList
 			rpcClient.shouldFailControllerDetach = tt.shouldFailControllerDetach
 			rpcClient.shouldFailControllerDestroy = tt.shouldFailControllerDestroy
 			rpcClient.shouldFailNamespaceDestroy = tt.shouldFailNamespaceDestroy
+			rpcClient.shouldFailSubsystemDestroy = tt.shouldFailSubsystemDestroy
 			rpcClient.shouldFailNvmeFunctionDestroy = tt.shouldFailNvmeFunctionDestroy
 
 			client := NewClient(rpcClient)
 
-			err := client.DestroyBlockDevice(tt.nsid, tt.pciAddr, tt.hotplug)
+			err := client.DestroyBlockDevice(tt.deviceName, tt.nsid, tt.pciAddr, tt.hotplug)
 
 			if tt.expectError {
 				if err == nil {
@@ -965,6 +1158,21 @@ func TestDestroyBlockDevice(t *testing.T) {
 
 			if err != nil {
 				t.Fatalf("Unexpected error: %v", err)
+			}
+
+			var expectedSubsystems []string
+			if tt.expectDestroyedSubsystem != "" {
+				expectedSubsystems = []string{tt.expectDestroyedSubsystem}
+			}
+			if !slices.Equal(rpcClient.destroyedSubsystems, expectedSubsystems) {
+				t.Errorf("Expected destroyed subsystems %v, got %v", expectedSubsystems, rpcClient.destroyedSubsystems)
+			}
+
+			if tt.expectDestroyedControllers != nil && !slices.Equal(rpcClient.destroyedControllers, tt.expectDestroyedControllers) {
+				t.Errorf("Expected destroyed controllers %v, got %v", tt.expectDestroyedControllers, rpcClient.destroyedControllers)
+			}
+			if tt.expectDestroyedFunctions != nil && !slices.Equal(rpcClient.destroyedFunctions, tt.expectDestroyedFunctions) {
+				t.Errorf("Expected destroyed functions %v, got %v", tt.expectDestroyedFunctions, rpcClient.destroyedFunctions)
 			}
 		})
 	}
