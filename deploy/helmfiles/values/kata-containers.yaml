@@ -1,3 +1,5 @@
+imagePullPolicy: IfNotPresent
+
 snapshotter:
   setup: []
 
