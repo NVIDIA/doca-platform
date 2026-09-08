@@ -656,6 +656,146 @@ var _ = Describe("FirmwareUpdate", func() {
 		Expect(status.Phase).To(Equal(provisioningv1.DPUPrepareBFB))
 	})
 
+	It("should arm the DPU Arm for shutdown again on a second firmware update cycle", func() {
+		mockServer := createBF4MockRedfishServer()
+		defer mockServer.Stop()
+		mockServer.SetFirmwareVersions("old-bmc", "old-erot", "old-sbios", "old-nic")
+
+		createBMCAndMTLSSecretsForBF4(mockServer)
+		prepareBF4DPUDevice(mockServer)
+
+		pldmPath := createTempPldmFwBundle()
+		defer func() { _ = os.Remove(pldmPath) }()
+		createBlueFieldSoftware(pldmPath, true)
+
+		dpu := dpuObj(defaultDPUName)
+		dpu.Spec.DPUDeviceName = defaultDPUDeviceName
+		dpu.Spec.BlueFieldSoftware = ptr.To(defaultBlueFieldSWName)
+		dpu.Status.Phase = provisioningv1.DPUUpdateFirmware
+		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
+
+		ctrlCtx := &dutil.ControllerContext{Client: k8sClient}
+		// Intermediate steps of a cycle legitimately return errors (a failed post-reboot
+		// verification requeues), so the error is only asserted on the checkpoints below.
+		reconcile := func() provisioningv1.DPUStatus {
+			status, _ := FirmwareUpdate(ctx, dpu, ctrlCtx)
+			dpu.Status = status
+			return status
+		}
+
+		By("running the first update cycle through to Rebooting")
+		reconcile() // submit
+		reconcile() // task complete, ArmShutdown
+		status := reconcile()
+		Expect(status.Phase).To(Equal(provisioningv1.DPURebooting))
+		Expect(mockServer.GetArmShutdownRequests()).To(Equal(1))
+
+		By("clearing the per-cycle guards so the next cycle can re-issue them")
+		for _, cond := range []provisioningv1.DPUConditionType{
+			provisioningv1.DPUCondFwBundleSubmitted,
+			provisioningv1.DPUCondFwBundleArmShutdown,
+			provisioningv1.DPUCondFwBundleActivated,
+		} {
+			Expect(status.Conditions).NotTo(ContainElement(HaveField("Type", cond.String())),
+				"%s must not survive the update cycle", cond)
+		}
+
+		By("power cycling the host, which leaves the Arm running again")
+		mockServer.SetArmPoweredOff(false)
+		dpu.Status.PreviousPhase = provisioningv1.DPURebooting
+
+		By("running a second update cycle for a bundle the device does not have")
+		reconcile() // post-reboot verify fails: versions still mismatch
+		reconcile() // resubmit
+		reconcile() // task complete, ArmShutdown again
+		status = reconcile()
+		Expect(status.Phase).To(Equal(provisioningv1.DPURebooting))
+		Expect(mockServer.GetArmShutdownRequests()).To(Equal(2))
+	})
+
+	It("should not submit a firmware update when the BMC reports no installed version", func() {
+		mockServer := createBF4MockRedfishServer()
+		defer mockServer.Stop()
+		// The BMC firmware inventory answers 200 with an empty Version, as it does while its
+		// MCTP/PLDM version query is failing. Every other component matches the bundle.
+		mockServer.SetFirmwareVersions("", targetBMCErotVersion, targetSBIOSVersion, targetBFNicFwVersion)
+
+		createBMCAndMTLSSecretsForBF4(mockServer)
+		prepareBF4DPUDevice(mockServer)
+
+		pldmPath := createTempPldmFwBundle()
+		defer func() { _ = os.Remove(pldmPath) }()
+		createBlueFieldSoftware(pldmPath, true)
+
+		dpu := dpuObj(defaultDPUName)
+		dpu.Spec.DPUDeviceName = defaultDPUDeviceName
+		dpu.Spec.BlueFieldSoftware = ptr.To(defaultBlueFieldSWName)
+		dpu.Status.Phase = provisioningv1.DPUUpdateFirmware
+		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
+
+		status, err := FirmwareUpdate(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(Equal("failed to check BMC firmware: firmware inventory entry has no version"))
+		Expect(status.RedfishTaskID).To(BeNil())
+		Expect(status.Conditions).To(ContainElement(
+			And(
+				HaveField("Type", provisioningv1.DPUCondFwBundleUpdated.String()),
+				HaveField("Reason", "FirmwareVersionCheckFailed"),
+			),
+		))
+	})
+
+	It("should not resubmit the bundle when post-reboot verification cannot read a version", func() {
+		mockServer := createBF4MockRedfishServer()
+		defer mockServer.Stop()
+		// The update landed - the device runs the bundle versions - but the BMC read comes
+		// back empty because MCTP/PLDM is still flaking after the power cycle.
+		mockServer.SetFirmwareVersions("", targetBMCErotVersion, targetSBIOSVersion, targetBFNicFwVersion)
+
+		createBMCAndMTLSSecretsForBF4(mockServer)
+		prepareBF4DPUDevice(mockServer)
+
+		pldmPath := createTempPldmFwBundle()
+		defer func() { _ = os.Remove(pldmPath) }()
+		createBlueFieldSoftware(pldmPath, true)
+
+		dpu := dpuObj(defaultDPUName)
+		dpu.Annotations = map[string]string{cutil.DPUForceFwUpdateAnnotation: "true"}
+		dpu.Spec.DPUDeviceName = defaultDPUDeviceName
+		dpu.Spec.BlueFieldSoftware = ptr.To(defaultBlueFieldSWName)
+		dpu.Status.Phase = provisioningv1.DPUUpdateFirmware
+		dpu.Status.PreviousPhase = provisioningv1.DPURebooting
+		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
+		cutil.SetDPUCondition(&dpu.Status, cutil.NewCondition(
+			provisioningv1.DPUCondFwBundleUpdated.String(),
+			nil,
+			"Updated",
+			"PLDM Firmware Updated",
+		))
+
+		ctrlCtx := &dutil.ControllerContext{Client: k8sClient}
+
+		By("requeueing instead of treating the empty read as a mismatch")
+		status, err := FirmwareUpdate(ctx, dpu, ctrlCtx)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(Equal("failed to check BMC firmware: firmware inventory entry has no version"))
+		Expect(status.RedfishTaskID).To(BeNil())
+		Expect(status.Conditions).To(ContainElement(
+			And(
+				HaveField("Type", provisioningv1.DPUCondFwBundleUpdated.String()),
+				HaveField("Reason", "Updated"),
+				HaveField("Status", metav1.ConditionTrue),
+			),
+		))
+
+		By("still not submitting on the following reconcile, despite force-fw-update")
+		dpu.Status = status
+		status, err = FirmwareUpdate(ctx, dpu, ctrlCtx)
+		Expect(err).To(HaveOccurred())
+		Expect(status.RedfishTaskID).To(BeNil())
+		Expect(mockServer.GetArmShutdownRequests()).To(BeZero())
+	})
+
 	It("should report FirmwareVersionsMismatch after reboot when versions still mismatch", func() {
 		mockServer := createBF4MockRedfishServer()
 		defer mockServer.Stop()

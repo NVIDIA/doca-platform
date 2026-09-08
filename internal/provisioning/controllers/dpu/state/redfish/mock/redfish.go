@@ -89,6 +89,7 @@ type RedfishMockServer struct {
 	bmcRShimGetError                bool                     // Simulate GET Oem/Nvidia error for testing
 	lastForceUpdate                 atomic.Bool              // ForceUpdate requested by the most recent PLDM multipart update, read from the test goroutine
 	armPoweredOff                   atomic.Bool              // DPU Arm reported as shut down by GET System, toggled by NvidiaChassis.Reset from another goroutine
+	armShutdownRequests             atomic.Int64             // Number of NvidiaChassis.Reset ArmShutdown requests received
 
 	// mu guards the account and factory-reset state below, which tests mutate while requests are
 	// in flight and which the crawler exercises from several goroutines at once.
@@ -1332,6 +1333,17 @@ func (r *RedfishMockServer) SetFirmwareVersions(bmc, bmcErot, sbios, nic string)
 	r.nicVersion = nic
 }
 
+// SetArmPoweredOff sets whether GET System reports the DPU Arm as shut down, letting a test
+// put the Arm back in a running state the way a host power cycle does.
+func (r *RedfishMockServer) SetArmPoweredOff(poweredOff bool) {
+	r.armPoweredOff.Store(poweredOff)
+}
+
+// GetArmShutdownRequests returns how many NvidiaChassis.Reset ArmShutdown requests the mock saw.
+func (r *RedfishMockServer) GetArmShutdownRequests() int {
+	return int(r.armShutdownRequests.Load())
+}
+
 // SetTaskState sets the task state for the mock server
 func (r *RedfishMockServer) SetTaskState(state string) {
 	r.taskState = state
@@ -1595,6 +1607,7 @@ func (r *RedfishMockServer) handleChassisReset(w http.ResponseWriter, req *http.
 	}
 	switch resetType, _ := body["ResetType"].(string); resetType {
 	case "ArmShutdown":
+		r.armShutdownRequests.Add(1)
 		r.armPoweredOff.Store(true)
 	case "ArmReset":
 		r.armPoweredOff.Store(false)
