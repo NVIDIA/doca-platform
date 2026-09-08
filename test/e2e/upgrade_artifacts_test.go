@@ -22,6 +22,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
@@ -37,6 +38,12 @@ import (
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+)
+
+const (
+	// Matches internal/servicechainset/controllers ownership labels on ServiceInterface children.
+	serviceInterfaceSetNameLabel      = dpuservicev1.SvcDpuGroupName + "/serviceinterfaceset-name"
+	serviceInterfaceSetNamespaceLabel = dpuservicev1.SvcDpuGroupName + "/serviceinterfaceset-namespace"
 )
 
 // upgradeArtifactsFile returns the on-disk path for the snapshot identified
@@ -113,6 +120,10 @@ func applyUpgradeExpectedChanges(before, after []map[string]interface{}, expecte
 // DPUDeployment-owned DPUServices, DPUServiceChains, DPUSets,
 // DPUServiceInterfaces, plus DPU-cluster-side ServiceChains, ServiceInterfaces,
 // and service Pods) to filePath as JSON.
+//
+// Note: ServiceInterface / NodeServiceInterfaces churn from SFC auto-migration is
+// excluded from identity compare via filterUpgradeInterfaceArtifacts, and checked
+// for inventory continuity via assertSFCInterfaceMigration.
 func collectArtifacts(filePath string) {
 	By("Collecting artifacts to: " + filePath)
 	Expect(os.MkdirAll(filepath.Dir(filePath), 0755)).To(Succeed())
@@ -199,9 +210,17 @@ func getArtifacts(filePath string) []map[string]interface{} {
 // compareArtifactSnapshots loads the two named snapshots, applies the given
 // expected-change transforms, and asserts they match (modulo sorting). The
 // phaseDescription is used in assertion messages.
+//
+// ServiceInterface and NodeServiceInterfaces artifacts are excluded from the
+// identity comparison (GVK/name/UID churn across SFC SI→NSI migration) but are
+// checked separately by assertSFCInterfaceMigration.
 func compareArtifactSnapshots(prevKey, currKey, phaseDescription string, expectedChanges []upgradeExpectedChange) {
-	prev := getArtifacts(upgradeArtifactsFile(prevKey))
-	curr := getArtifacts(upgradeArtifactsFile(currKey))
+	prevAll := getArtifacts(upgradeArtifactsFile(prevKey))
+	currAll := getArtifacts(upgradeArtifactsFile(currKey))
+	assertSFCInterfaceMigration(prevAll, currAll)
+
+	prev := filterUpgradeInterfaceArtifacts(prevAll)
+	curr := filterUpgradeInterfaceArtifacts(currAll)
 	applyUpgradeExpectedChanges(prev, curr, expectedChanges)
 	By(fmt.Sprintf("Comparing artifacts: %s vs %s", prevKey, currKey))
 	Expect(curr).To(HaveLen(len(prev)),
@@ -210,6 +229,133 @@ func compareArtifactSnapshots(prevKey, currKey, phaseDescription string, expecte
 	sort.Slice(curr, func(i, j int) bool { return fmt.Sprintf("%v", curr[i]) < fmt.Sprintf("%v", curr[j]) })
 	Expect(curr).To(BeComparableTo(prev),
 		"Object artifacts should be identical — no reprovisioning expected during %s upgrade", phaseDescription)
+}
+
+// filterUpgradeInterfaceArtifacts drops ServiceInterface and NodeServiceInterfaces
+// from upgrade snapshots. SFC SI→NSI migration recreates interface inventory under
+// a different GVK during upgrade, so those kinds are not stable across the cutover.
+//
+// TODO(v26.8+): delete this filter (and assertSFCInterfaceMigration / SI labels in
+// extractArtifacts) once the previous-GA upgrade hop is NSI-native — NSI objects can
+// return to the identity comparison and the SI→NSI cutover assert is obsolete.
+func filterUpgradeInterfaceArtifacts(artifacts []map[string]interface{}) []map[string]interface{} {
+	out := make([]map[string]interface{}, 0, len(artifacts))
+	for _, a := range artifacts {
+		kind, _ := a["kind"].(string)
+		if kind == dpuservicev1.ServiceInterfaceKind || kind == dpuservicev1.NodeServiceInterfacesKind {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
+}
+
+// assertSFCInterfaceMigration verifies SFC SI→NSI cutover across upgrade:
+// VPC ServiceInterfaces (virtualNetwork set) are ignored — they stay sticky-legacy.
+func assertSFCInterfaceMigration(before, after []map[string]interface{}) {
+	By("Asserting SFC ServiceInterface → NodeServiceInterfaces entry migration")
+	beforeSI := sfcServiceInterfaceMigrationKeys(before)
+	afterNSI := sfcNSIEntryMigrationKeys(after)
+	afterSI := sfcServiceInterfaceMigrationKeys(after)
+
+	Expect(afterSI).To(BeEmpty(),
+		"no SFC ServiceInterface should remain after upgrade (VPC sticky-legacy excluded)")
+	if len(beforeSI) == 0 {
+		return
+	}
+	Expect(afterNSI).To(ContainElements(beforeSI),
+		"every pre-upgrade SFC ServiceInterface must become an NSI entry (set/ns/node)")
+}
+
+// sfcServiceInterfaceMigrationKeys returns "setNS/setName/node" keys for SFC
+// ServiceInterfaces (no virtualNetwork) owned by a ServiceInterfaceSet.
+func sfcServiceInterfaceMigrationKeys(artifacts []map[string]interface{}) []string {
+	keys := make([]string, 0)
+	for _, a := range artifacts {
+		kind, _ := a["kind"].(string)
+		if kind != dpuservicev1.ServiceInterfaceKind {
+			continue
+		}
+		spec, _ := a["spec"].(map[string]interface{})
+		if artifactHasVirtualNetwork(spec) {
+			continue
+		}
+		setNS := artifactLabel(a, serviceInterfaceSetNamespaceLabel)
+		setName := artifactLabel(a, serviceInterfaceSetNameLabel)
+		node, _ := spec["node"].(string)
+		if setNS == "" || setName == "" || node == "" {
+			continue
+		}
+		keys = append(keys, setNS+"/"+setName+"/"+node)
+	}
+	return keys
+}
+
+// sfcNSIEntryMigrationKeys returns "setNS/setName/node" keys for non-terminating
+// entries on SFC NodeServiceInterfaces objects.
+func sfcNSIEntryMigrationKeys(artifacts []map[string]interface{}) []string {
+	keys := make([]string, 0)
+	for _, a := range artifacts {
+		kind, _ := a["kind"].(string)
+		if kind != dpuservicev1.NodeServiceInterfacesKind {
+			continue
+		}
+		spec, _ := a["spec"].(map[string]interface{})
+		if t, _ := spec["type"].(string); t != dpuservicev1.NSITypeSFC {
+			continue
+		}
+		node, _ := spec["node"].(string)
+		if node == "" {
+			continue
+		}
+		entries, _ := spec["interfaces"].([]interface{})
+		for _, raw := range entries {
+			entry, ok := raw.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if term, _ := entry["terminating"].(bool); term {
+				continue
+			}
+			name, _ := entry["name"].(string)
+			setNS, setName := splitInterfaceEntryName(name)
+			if setNS == "" || setName == "" {
+				continue
+			}
+			keys = append(keys, setNS+"/"+setName+"/"+node)
+		}
+	}
+	return keys
+}
+
+func splitInterfaceEntryName(name string) (namespace, setName string) {
+	parts := strings.SplitN(name, "_", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", ""
+	}
+	return parts[0], parts[1]
+}
+
+func artifactHasVirtualNetwork(spec map[string]interface{}) bool {
+	if spec == nil {
+		return false
+	}
+	for _, key := range []string{"pf", "vf", "service"} {
+		nested, _ := spec[key].(map[string]interface{})
+		if vn, _ := nested["virtualNetwork"].(string); vn != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func artifactLabel(a map[string]interface{}, key string) string {
+	labels, _ := a["labels"].(map[string]interface{})
+	if labels == nil {
+		return ""
+	}
+	v, _ := labels[key].(string)
+	return v
 }
 
 // ToClientObjectSlice converts a slice of concrete Kubernetes objects to []client.Object.
@@ -225,6 +371,8 @@ func ToClientObjectSlice[T any](in []T) []client.Object {
 // extractArtifacts extracts the GVK, name, namespace, UID, generation, and
 // spec of each object — the stable subset we care about for upgrade
 // comparison. All other fields (status, volatile metadata) are excluded.
+// ServiceInterface artifacts also include labels so SI→NSI migration can match
+// ownership (set name/namespace); those kinds are filtered from identity compare.
 // GVK is resolved via the scheme because List calls do not populate TypeMeta
 // on individual items.
 func extractArtifacts(objects []client.Object) []map[string]interface{} {
@@ -246,6 +394,13 @@ func extractArtifacts(objects []client.Object) []map[string]interface{} {
 			"uid":        string(obj.GetUID()),
 			"generation": obj.GetGeneration(),
 			"spec":       m["spec"],
+		}
+		if gvks[0].Kind == dpuservicev1.ServiceInterfaceKind {
+			labels := map[string]interface{}{}
+			for k, v := range obj.GetLabels() {
+				labels[k] = v
+			}
+			artifact["labels"] = labels
 		}
 		artifacts = append(artifacts, artifact)
 	}

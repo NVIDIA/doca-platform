@@ -142,7 +142,7 @@ func (r *StaleObjectRemover) desiredOvsPortName(ctx context.Context, spec interf
 		if patch == nil || patch.PeerBridge == "" {
 			return "", fmt.Errorf("peer bridge is not set or is empty")
 		}
-		patchPort, _ := getPatchPortNames(spec, metadata, SFCBridge, patch.PeerBridge)
+		patchPort, _ := getPatchPortNames(spec, metadata, patch.PeerBridge)
 		return patchPort, nil
 	default:
 		return FigureOutName(ctx, r.ECPFManager, spec)

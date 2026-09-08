@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	vpcv1 "github.com/nvidia/doca-platform/api/vpc/v1alpha1"
@@ -62,9 +63,9 @@ const (
 	// nsiTypeLabel is stamped on every NodeServiceInterfaces object to record its NSI type shard.
 	nsiTypeLabel = dpuservicev1.SvcDpuGroupName + "/nsi-type"
 
-	// interfaceModeAnnotation is set once on the first reconcile to permanently commit
-	// a ServiceInterfaceSet to either the legacy ServiceInterface path or the new
-	// NodeServiceInterfaces path. Once written it is never changed.
+	// interfaceModeAnnotation records whether a ServiceInterfaceSet uses the legacy
+	// ServiceInterface path or NodeServiceInterfaces. SFC sets are forced to nsi
+	// (including flipping a prior legacy stamp on upgrade). VPC sets keep sticky mode.
 	interfaceModeAnnotation = dpuservicev1.SvcDpuGroupName + "/interface-mode"
 	interfaceModeLegacy     = "legacy"
 	interfaceModeNSI        = "nsi"
@@ -189,50 +190,103 @@ func (r *ServiceInterfaceSetReconciler) reconcile(ctx context.Context, serviceIn
 
 	var res ctrl.Result
 	if mode == interfaceModeNSI {
-		err = r.reconcileNSI(ctx, serviceInterfaceSet)
+		nodeList, err := getNodeList(ctx, r.Client, serviceInterfaceSet.Spec.NodeSelector)
+		if err != nil {
+			conditions.AddFalse(
+				serviceInterfaceSet,
+				dpuservicev1.ConditionServiceInterfacesReconciled,
+				conditions.ReasonError,
+				conditions.ConditionMessage(fmt.Sprintf("Error occurred: %s", err.Error())),
+			)
+			return ctrl.Result{}, fmt.Errorf("get node list: %w", err)
+		}
+
+		err = r.reconcileNSI(ctx, serviceInterfaceSet, nodeList)
+		if err != nil {
+			conditions.AddFalse(
+				serviceInterfaceSet,
+				dpuservicev1.ConditionServiceInterfacesReconciled,
+				conditions.ReasonError,
+				conditions.ConditionMessage(fmt.Sprintf("Error occurred: %s", err.Error())),
+			)
+			return ctrl.Result{}, err
+		}
+
+		legacyServiceInterfaceMap, err := r.legacyChildMap(ctx, serviceInterfaceSet)
+		if err != nil {
+			conditions.AddFalse(
+				serviceInterfaceSet,
+				dpuservicev1.ConditionServiceInterfacesReconciled,
+				conditions.ReasonError,
+				conditions.ConditionMessage(fmt.Sprintf("Error occurred: %s", err.Error())),
+			)
+			return ctrl.Result{}, err
+		}
+		if len(legacyServiceInterfaceMap) > 0 {
+			unready, err := r.deleteLegacyChildrenWithReadyEntries(ctx, serviceInterfaceSet, legacyServiceInterfaceMap, nodeList)
+			if err != nil {
+				conditions.AddFalse(
+					serviceInterfaceSet,
+					dpuservicev1.ConditionServiceInterfacesReconciled,
+					conditions.ReasonError,
+					conditions.ConditionMessage(fmt.Sprintf("Error occurred: %s", err.Error())),
+				)
+				return ctrl.Result{}, err
+			}
+			if len(unready) > 0 {
+				conditions.AddFalse(
+					serviceInterfaceSet,
+					dpuservicev1.ConditionServiceInterfacesReconciled,
+					conditions.ReasonPending,
+					conditions.ConditionMessage(conditions.ReadyConditionMessage("NSI entries not ready before deleting legacy ServiceInterfaces", unready)),
+				)
+				return ctrl.Result{RequeueAfter: defaultRequeueAfter}, nil
+			}
+		}
 	} else {
 		res, err = reconcileSet(ctx, serviceInterfaceSet, r.Client, serviceInterfaceSet.Spec.NodeSelector, r)
-	}
-	if err != nil {
-		conditions.AddFalse(
-			serviceInterfaceSet,
-			dpuservicev1.ConditionServiceInterfacesReconciled,
-			conditions.ReasonError,
-			conditions.ConditionMessage(fmt.Sprintf("Error occurred: %s", err.Error())),
-		)
-		return ctrl.Result{}, err
+		if err != nil {
+			conditions.AddFalse(
+				serviceInterfaceSet,
+				dpuservicev1.ConditionServiceInterfacesReconciled,
+				conditions.ReasonError,
+				conditions.ConditionMessage(fmt.Sprintf("Error occurred: %s", err.Error())),
+			)
+			return ctrl.Result{}, err
+		}
 	}
 	conditions.AddTrue(serviceInterfaceSet, dpuservicev1.ConditionServiceInterfacesReconciled)
 	return res, nil
 }
 
-// ensureInterfaceMode reads the interface-mode annotation, or determines and persists it on first
-// reconcile. Precedence for un-annotated sets: existing ServiceInterface children → legacy;
-// VPC set when NSIPathForVPC gate is disabled → legacy;
-// SFC set when NSIPathForSFC gate is disabled → legacy; otherwise → NSI.
 func (r *ServiceInterfaceSetReconciler) ensureInterfaceMode(ctx context.Context, set *dpuservicev1.ServiceInterfaceSet) (string, error) {
+	if set.Spec.Template.Spec.GetVirtualNetworkName() != "" {
+		return r.ensureVPCInterfaceMode(ctx, set)
+	}
+
+	// SFC: always NSI (overwrite legacy stamp from pre-upgrade sticky mode).
+	if set.GetAnnotations() == nil {
+		set.SetAnnotations(map[string]string{})
+	}
+	set.Annotations[interfaceModeAnnotation] = interfaceModeNSI
+	return interfaceModeNSI, nil
+}
+
+// ensureVPCInterfaceMode returns the sticky interface mode for a VPC set.
+// Once stamped, the annotation is kept; otherwise the mode is chosen from existing
+// legacy children and the NSIPathForVPC feature gate.
+func (r *ServiceInterfaceSetReconciler) ensureVPCInterfaceMode(ctx context.Context, set *dpuservicev1.ServiceInterfaceSet) (string, error) {
 	if mode, ok := set.GetAnnotations()[interfaceModeAnnotation]; ok {
 		return mode, nil
 	}
-
-	// check for pre-existing ServiceInterface children.
 	existing, err := r.legacyChildMap(ctx, set)
 	if err != nil {
 		return "", fmt.Errorf("checking for existing ServiceInterface children: %w", err)
 	}
 	mode := interfaceModeNSI
-	if len(existing) > 0 {
+	if len(existing) > 0 || !features.Gates.Enabled(features.NSIPathForVPC) {
 		mode = interfaceModeLegacy
 	}
-
-	isVPC := set.Spec.Template.Spec.GetVirtualNetworkName() != ""
-	if isVPC && !features.Gates.Enabled(features.NSIPathForVPC) {
-		mode = interfaceModeLegacy
-	}
-	if !isVPC && !features.Gates.Enabled(features.NSIPathForSFC) {
-		mode = interfaceModeLegacy
-	}
-
 	if set.GetAnnotations() == nil {
 		set.SetAnnotations(map[string]string{})
 	}
@@ -257,9 +311,63 @@ func (r *ServiceInterfaceSetReconciler) legacyChildMap(ctx context.Context, set 
 		return serviceInterfaceMap, err
 	}
 	for _, serviceInterface := range serviceInterfaceList.Items {
+		if serviceInterface.Spec.Node == nil {
+			return nil, fmt.Errorf("serviceInterface %s/%s has no node", serviceInterface.Namespace, serviceInterface.Name)
+		}
 		serviceInterfaceMap[*serviceInterface.Spec.Node] = &serviceInterface
 	}
 	return serviceInterfaceMap, nil
+}
+
+// deleteLegacyChildrenWithReadyEntries migrates SFC sets onto NSI node by node: the legacy
+// ServiceInterface child of a node is deleted as soon as that node's owned NSI entry is Ready,
+// so a node lagging behind does not hold back the nodes that are already served by NSI.
+// A child whose node has no owned entry and is not selected is treated as an orphan and
+// deleted immediately, rather than waiting for a Ready entry that will never appear.
+// It returns the descriptors of the entries still awaited, keyed as <nsi>/<node>/<entry>.
+func (r *ServiceInterfaceSetReconciler) deleteLegacyChildrenWithReadyEntries(ctx context.Context, set *dpuservicev1.ServiceInterfaceSet, children map[string]client.Object, nodeList *corev1.NodeList) ([]string, error) {
+	owned, err := r.listNSIEntriesForServiceInterfaceSet(ctx, set)
+	if err != nil {
+		return nil, fmt.Errorf("list owned NSI entries: %w", err)
+	}
+	byNode := make(map[string]ownedNSIEntry, len(owned))
+	for _, o := range owned {
+		byNode[o.NSI.Spec.Node] = o
+	}
+
+	nsiType := nsiTypeForSet(set)
+	entryName := interfaceEntryName(set.Namespace, set.Name)
+	var unready []string
+	var errs []error
+	for nodeName, child := range children {
+		owned, ok := byNode[nodeName]
+		if !ok {
+			if nodeInList(nodeList, nodeName) {
+				// Entry not visible yet; wait rather than deleting the SI before NSI is programmed.
+				unready = append(unready, fmt.Sprintf("%s/%s/%s", nsiName(nodeName, nsiType), nodeName, entryName))
+				continue
+			}
+			if err := r.Client.Delete(ctx, child); err != nil && !apierrors.IsNotFound(err) {
+				errs = append(errs, fmt.Errorf("delete orphaned legacy ServiceInterface for node %s: %w", nodeName, err))
+			}
+			continue
+		}
+		entryStatus := owned.NSI.GetEntryStatus(owned.Entry.Name)
+		if owned.Entry.Terminating || entryStatus == nil || !conditions.IsTrue(entryStatus, conditions.TypeReady) {
+			unready = append(unready, fmt.Sprintf("%s/%s/%s", owned.NSI.Name, nodeName, owned.Entry.Name))
+			continue
+		}
+		if err := r.Client.Delete(ctx, child); err != nil && !apierrors.IsNotFound(err) {
+			errs = append(errs, fmt.Errorf("delete legacy ServiceInterface for node %s: %w", nodeName, err))
+		}
+	}
+	if len(errs) > 0 {
+		return nil, kerrors.NewAggregate(errs)
+	}
+
+	// Children are iterated in map order, so sort to keep the condition message stable.
+	slices.Sort(unready)
+	return unready, nil
 }
 
 func getServiceInterfaceForNode(ctx context.Context, cl client.Client, set *dpuservicev1.ServiceInterfaceSet, nodeName string) (*dpuservicev1.ServiceInterface, error) { //nolint:dupl
@@ -443,13 +551,8 @@ func nsiTypeForSet(set *dpuservicev1.ServiceInterfaceSet) string {
 }
 
 // reconcileNSI handles the NSI path of the main reconcile loop.
-func (r *ServiceInterfaceSetReconciler) reconcileNSI(ctx context.Context, set *dpuservicev1.ServiceInterfaceSet) error {
+func (r *ServiceInterfaceSetReconciler) reconcileNSI(ctx context.Context, set *dpuservicev1.ServiceInterfaceSet, nodeList *corev1.NodeList) error {
 	nsiType := nsiTypeForSet(set)
-
-	nodeList, err := getNodeList(ctx, r.Client, set.Spec.NodeSelector)
-	if err != nil {
-		return fmt.Errorf("get node list: %w", err)
-	}
 
 	interfaceEntries, err := r.listNSIEntriesForServiceInterfaceSet(ctx, set)
 	if err != nil {
