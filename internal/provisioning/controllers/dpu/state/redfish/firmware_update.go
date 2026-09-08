@@ -34,6 +34,7 @@ import (
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 
+	"github.com/go-resty/resty/v2"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -139,10 +140,14 @@ func FirmwareUpdate(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil
 			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), nil, "FirmwareVersionsMatch", "Firmware versions match - skipping firmware update"))
 		}
 	} else if dpu.Status.PreviousPhase == provisioningv1.DPURebooting {
-		if err := checkFirmwareVersions(client, blueFieldSoftware, *psid); err != nil {
+		switch err := checkFirmwareVersions(client, blueFieldSoftware, *psid); {
+		case errors.Is(err, errVersionMismatch):
 			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), err, "FirmwareVersionsMismatch", err.Error()))
 			return *state, err
-		} else {
+		case err != nil:
+			logger.Info("post-reboot firmware verification inconclusive, retrying", "reason", err.Error())
+			return *state, err
+		default:
 			logger.Info("firmware update completed successfully")
 			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), nil, "FirmwareUpdated", "Firmware updated successfully"))
 		}
@@ -214,43 +219,57 @@ func checkFirmwareVersions(client *rc.Client, blueFieldSoftware *provisioningv1.
 		return fmt.Errorf("BF NIC firmware version is not set for PSID %s", psid)
 	}
 
-	_, bmcFirmwareVersion, err := client.CheckBMCFirmware()
+	installed, err := componentVersion(client.CheckBMCFirmware())
 	if err != nil {
 		return fmt.Errorf("failed to check BMC firmware: %w", err)
 	}
-
-	if bmcFirmwareVersion.Version != versions.BMCVersion {
-		return fmt.Errorf("BMC firmware version %s is not equal to %s: %w", bmcFirmwareVersion.Version, versions.BMCVersion, errVersionMismatch)
+	if installed != versions.BMCVersion {
+		return fmt.Errorf("BMC firmware version %s is not equal to %s: %w", installed, versions.BMCVersion, errVersionMismatch)
 	}
 
-	_, bmcEROTFWVersion, err := client.CheckBMCEROTFW()
+	installed, err = componentVersion(client.CheckBMCEROTFW())
 	if err != nil {
 		return fmt.Errorf("failed to check BMC ERoT firmware: %w", err)
 	}
-
-	if bmcEROTFWVersion.Version != versions.BMCErotVersion {
-		return fmt.Errorf("BMC ERoT firmware version %s is not equal to %s: %w", bmcEROTFWVersion.Version, versions.BMCErotVersion, errVersionMismatch)
+	if installed != versions.BMCErotVersion {
+		return fmt.Errorf("BMC ERoT firmware version %s is not equal to %s: %w", installed, versions.BMCErotVersion, errVersionMismatch)
 	}
 
-	_, dpuUEFIVersion, err := client.CheckDPUUEFI()
+	installed, err = componentVersion(client.CheckDPUUEFI())
 	if err != nil {
 		return fmt.Errorf("failed to check DPU UEFI firmware: %w", err)
 	}
-
-	if dpuUEFIVersion.Version != versions.SBIOSVersion {
-		return fmt.Errorf("DPU SBIOS firmware version %s is not equal to %s: %w", dpuUEFIVersion.Version, versions.SBIOSVersion, errVersionMismatch)
+	if installed != versions.SBIOSVersion {
+		return fmt.Errorf("DPU SBIOS firmware version %s is not equal to %s: %w", installed, versions.SBIOSVersion, errVersionMismatch)
 	}
 
-	_, cx9NicFWVersion, err := client.CheckDPUNIC()
+	installed, err = componentVersion(client.CheckDPUNIC())
 	if err != nil {
 		return fmt.Errorf("failed to check CX9 NIC firmware: %w", err)
 	}
-
-	if cx9NicFWVersion.Version != versions.BFNicFwVersion {
-		return fmt.Errorf("BF NIC firmware version %s is not equal to %s: %w", cx9NicFWVersion.Version, versions.BFNicFwVersion, errVersionMismatch)
+	if installed != versions.BFNicFwVersion {
+		return fmt.Errorf("BF NIC firmware version %s is not equal to %s: %w", installed, versions.BFNicFwVersion, errVersionMismatch)
 	}
 
 	return nil
+}
+
+// componentVersion validates one Redfish firmware-inventory read and returns the installed
+// version.
+func componentVersion(resp *resty.Response, info *rc.VersionInfo, err error) (string, error) {
+	if err != nil {
+		return "", err
+	}
+	if resp == nil || info == nil {
+		return "", errors.New("empty Redfish response")
+	}
+	if resp.StatusCode() != http.StatusOK {
+		return "", fmt.Errorf("unexpected status code %d", resp.StatusCode())
+	}
+	if info.Version == "" {
+		return "", errors.New("firmware inventory entry has no version")
+	}
+	return info.Version, nil
 }
 
 // pldmTaskExceptionError is a Redfish firmware-update task that finished in Exception.
@@ -457,7 +476,13 @@ func firmwareUpdateAwaitingReboot(dpu *provisioningv1.DPU) bool {
 }
 
 func transitionToFirmwareUpdateReboot(ctx context.Context, dpu *provisioningv1.DPU, state *provisioningv1.DPUStatus, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
-	meta.RemoveStatusCondition(&state.Conditions, provisioningv1.DPUCondFwBundleSubmitted.String())
+	for _, cond := range []provisioningv1.DPUConditionType{
+		provisioningv1.DPUCondFwBundleSubmitted,
+		provisioningv1.DPUCondFwBundleArmShutdown,
+		provisioningv1.DPUCondFwBundleActivated,
+	} {
+		meta.RemoveStatusCondition(&state.Conditions, cond.String())
+	}
 	cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), nil, "Updated", "PLDM Firmware Updated"))
 	state.RedfishTaskID = nil
 	state.Phase = provisioningv1.DPURebooting
