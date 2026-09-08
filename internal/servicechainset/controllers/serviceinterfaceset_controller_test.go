@@ -18,11 +18,11 @@ package controller //nolint:dupl
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/utils"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 
@@ -56,19 +56,16 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 		})
 		AfterEach(func() {
 			By("Cleaning up the objects")
-			Expect(testutils.CleanupAndWait(ctx, testClient, cleanupObjects...)).To(Succeed())
+			Expect(cleanupNSIPathTestResources(ctx, testClient, cleanupObjects)).To(Succeed())
 			DeferCleanup(cleanServiceInterfaces, testNS.Name)
 		})
 		It("should successfully reconcile the ServiceInterfaceSet without Node Selector", func() {
 			By("Create ServiceInterfaceSet, without Node Selector")
-			cleanupObjects = append(cleanupObjects, createLegacyServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{}))
-			By("Verify ServiceInterface not created, no nodes")
+			cleanupObjects = append(cleanupObjects, createServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{}))
+			By("Verify no NSI entries yet, no nodes")
 			Consistently(func(g Gomega) {
-				serviceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
-				err := testClient.List(ctx, serviceInterfaceList)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(serviceInterfaceList.Items).To(BeEmpty())
-			}).WithTimeout(20 * time.Second).Should(Succeed())
+				g.Expect(nodesWithActiveNSIEntry(g, testNS.Name, svcIfcSetName)).To(BeEmpty())
+			}).WithTimeout(5 * time.Second).Should(Succeed())
 
 			By("Create 3 nodes")
 			labels := map[string]string{"role": "firewall"}
@@ -78,14 +75,12 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 
 			By("Reconciling the created resource, 3 nodes")
 			Eventually(func(g Gomega) {
-				assertServiceInterfaceList(ctx, g, 3, &cleanupObjects, getTestServiceInterfaceSpec(), testNS.Name)
+				g.Expect(nodesWithActiveNSIEntry(g, testNS.Name, svcIfcSetName)).To(ConsistOf("node1", "node2", "node3"))
 			}, timeout*3, interval).Should(Succeed())
-			By("Delete ServiceInterfaceSet Spec")
-			Expect(testClient.Delete(ctx, &dpuservicev1.ServiceInterfaceSet{ObjectMeta: metav1.ObjectMeta{Name: svcIfcSetName, Namespace: testNS.Name}})).To(Succeed())
 		})
 		It("should successfully reconcile the ServiceInterfaceSet with Node Selector", func() {
 			By("creating ServiceInterfaceSet, with Node Selector")
-			cleanupObjects = append(cleanupObjects, createLegacyServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
+			cleanupObjects = append(cleanupObjects, createServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
 				MatchLabels: map[string]string{"role": "firewall"}}))
 
 			By("Create 3 nodes")
@@ -96,14 +91,12 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 
 			By("Reconciling the created resource, 3 nodes, 2 matches")
 			Eventually(func(g Gomega) {
-				assertServiceInterfaceList(ctx, g, 2, &cleanupObjects, getTestServiceInterfaceSpec(), testNS.Name)
-			}, timeout*30, interval).Should(Succeed())
-			By("Delete ServiceInterfaceSet Spec")
-			Expect(testClient.Delete(ctx, &dpuservicev1.ServiceInterfaceSet{ObjectMeta: metav1.ObjectMeta{Name: svcIfcSetName, Namespace: testNS.Name}})).To(Succeed())
+				g.Expect(nodesWithActiveNSIEntry(g, testNS.Name, svcIfcSetName)).To(ConsistOf("node1", "node2"))
+			}, timeout*3, interval).Should(Succeed())
 		})
-		It("should successfully reconcile the ServiceInterfaceSet with Node Selector and remove Service Interface", func() {
+		It("should successfully reconcile the ServiceInterfaceSet with Node Selector and mark deselected entry terminating", func() {
 			By("creating ServiceInterfaceSet, with Node Selector")
-			cleanupObjects = append(cleanupObjects, createLegacyServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
+			cleanupObjects = append(cleanupObjects, createServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
 				MatchLabels: map[string]string{"role": "firewall"}}))
 
 			By("Create 3 nodes")
@@ -114,29 +107,36 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 
 			By("Reconciling the created resource, 3 nodes, 3 matches")
 			Eventually(func(g Gomega) {
-				assertServiceInterfaceList(ctx, g, 3, &cleanupObjects, getTestServiceInterfaceSpec(), testNS.Name)
-			}, timeout*30, interval).Should(Succeed())
+				g.Expect(nodesWithActiveNSIEntry(g, testNS.Name, svcIfcSetName)).To(ConsistOf("node1", "node2", "node3"))
+			}, timeout*3, interval).Should(Succeed())
 
-			By("Pathc Node-3 label to not be selected")
+			By("Patch Node-3 label to not be selected")
 			node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node3"}}
 			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(node), node)).To(Succeed())
 			patch := node.DeepCopy()
 			patch.Labels = make(map[string]string)
-
 			Eventually(func() error {
 				return testClient.Patch(ctx, patch, client.MergeFrom(node))
 			}, timeout, interval).Should(Succeed())
 
-			By("Reconciling the created resource, 3 nodes, 2 matching")
+			By("Expecting node3 entry Terminating and only 2 active entries")
+			entryName := interfaceEntryName(testNS.Name, svcIfcSetName)
 			Eventually(func(g Gomega) {
-				assertServiceInterfaceList(ctx, g, 2, &cleanupObjects, getTestServiceInterfaceSpec(), testNS.Name)
-			}, timeout*30, interval).Should(Succeed())
-			By("Delete ServiceInterfaceSet Spec")
-			Expect(testClient.Delete(ctx, &dpuservicev1.ServiceInterfaceSet{ObjectMeta: metav1.ObjectMeta{Name: svcIfcSetName, Namespace: testNS.Name}})).To(Succeed())
+				g.Expect(nodesWithActiveNSIEntry(g, testNS.Name, svcIfcSetName)).To(ConsistOf("node1", "node2"))
+				nsi := &dpuservicev1.NodeServiceInterfaces{}
+				g.Expect(testClient.Get(ctx, client.ObjectKey{
+					Namespace: utils.NSIObjectsNamespace,
+					Name:      nsiName("node3", dpuservicev1.NSITypeSFC),
+				}, nsi)).To(Succeed())
+				g.Expect(nsi.Spec.Interfaces).To(ContainElement(And(
+					HaveField("Name", entryName),
+					HaveField("Terminating", BeTrue()),
+				)))
+			}, timeout*3, interval).Should(Succeed())
 		})
 		It("should successfully reconcile the ServiceInterfaceSet after update", func() {
 			By("creating ServiceInterfaceSet, with Node Selector")
-			cleanupObjects = append(cleanupObjects, createLegacyServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
+			cleanupObjects = append(cleanupObjects, createServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
 				MatchLabels: map[string]string{"role": "firewall"}}))
 
 			By("Create 3 nodes")
@@ -147,8 +147,8 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 
 			By("Reconciling the created resource, 3 nodes, 2 matches")
 			Eventually(func(g Gomega) {
-				assertServiceInterfaceList(ctx, g, 2, &cleanupObjects, getTestServiceInterfaceSpec(), testNS.Name)
-			}, timeout*30, interval).Should(Succeed())
+				g.Expect(nodesWithActiveNSIEntry(g, testNS.Name, svcIfcSetName)).To(ConsistOf("node1", "node2"))
+			}, timeout*3, interval).Should(Succeed())
 
 			By("patch ServiceInterfaceSet Spec")
 			sis := &dpuservicev1.ServiceInterfaceSet{ObjectMeta: metav1.ObjectMeta{Name: svcIfcSetName, Namespace: testNS.Name}}
@@ -160,30 +160,41 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 					VlanID:             100,
 					ParentInterfaceRef: "p7",
 				},
-				VF: &dpuservicev1.VF{
-					VFID:               3,
-					PFID:               7,
-					ParentInterfaceRef: ptr.To("p10"),
-				},
-				PF: &dpuservicev1.PF{
-					ID: 8,
-				},
 			}
 			patch.Spec.Template.Spec = *updatedSpec
 			Eventually(func() error {
 				return testClient.Patch(ctx, patch, client.MergeFrom(sis))
 			}, timeout, interval).Should(Succeed())
-			By("Reconciling the updated resource")
+
+			By("Reconciling the updated resource onto NSI entries")
+			entryName := interfaceEntryName(testNS.Name, svcIfcSetName)
 			Eventually(func(g Gomega) {
-				assertServiceInterfaceList(ctx, g, 2, &cleanupObjects, updatedSpec, testNS.Name)
-			}, timeout, interval).Should(Succeed())
-			By("Delete ServiceInterfaceSet Spec")
-			Expect(testClient.Delete(ctx, &dpuservicev1.ServiceInterfaceSet{ObjectMeta: metav1.ObjectMeta{Name: svcIfcSetName, Namespace: testNS.Name}})).To(Succeed())
+				for _, node := range []string{"node1", "node2"} {
+					nsi := &dpuservicev1.NodeServiceInterfaces{}
+					g.Expect(testClient.Get(ctx, client.ObjectKey{
+						Namespace: utils.NSIObjectsNamespace,
+						Name:      nsiName(node, dpuservicev1.NSITypeSFC),
+					}, nsi)).To(Succeed())
+					var entry *dpuservicev1.InterfaceEntry
+					for i := range nsi.Spec.Interfaces {
+						if nsi.Spec.Interfaces[i].Name == entryName {
+							entry = &nsi.Spec.Interfaces[i]
+							break
+						}
+					}
+					g.Expect(entry).NotTo(BeNil())
+					g.Expect(entry.InterfaceType).To(Equal(dpuservicev1.InterfaceTypeVLAN))
+					g.Expect(entry.Vlan).NotTo(BeNil())
+					g.Expect(entry.Vlan.VlanID).To(Equal(100))
+					g.Expect(entry.Vlan.ParentInterfaceRef).To(Equal("p7-" + node))
+				}
+			}, timeout*3, interval).Should(Succeed())
 		})
 		It("should successfully delete the ServiceInterfaceSet", func() {
 			By("Creating ServiceInterfaceSet, with Node Selector")
-			cleanupObjects = append(cleanupObjects, createLegacyServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
-				MatchLabels: map[string]string{"role": "firewall"}}))
+			sis := createServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
+				MatchLabels: map[string]string{"role": "firewall"}})
+			cleanupObjects = append(cleanupObjects, sis)
 
 			By("Creating 2 nodes")
 			labels := map[string]string{"role": "firewall"}
@@ -191,73 +202,59 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 			cleanupObjects = append(cleanupObjects, createNode(ctx, "node2", labels))
 
 			By("Reconciling the created resource, 2 nodes, 2 matches")
+			entryName := interfaceEntryName(testNS.Name, svcIfcSetName)
 			Eventually(func(g Gomega) {
-				assertServiceInterfaceList(ctx, g, 2, &cleanupObjects, getTestServiceInterfaceSpec(), testNS.Name)
-			}, timeout*30, interval).Should(Succeed())
+				g.Expect(nodesWithActiveNSIEntry(g, testNS.Name, svcIfcSetName)).To(ConsistOf("node1", "node2"))
+			}, timeout*3, interval).Should(Succeed())
 
 			By("Deleting ServiceInterfaceSet")
-			sis := cleanupObjects[0].(*dpuservicev1.ServiceInterfaceSet)
 			Expect(testClient.Delete(ctx, sis)).NotTo(HaveOccurred())
+
+			By("Waiting for NSI entries to become Terminating")
+			Eventually(func(g Gomega) {
+				for _, node := range []string{"node1", "node2"} {
+					nsi := &dpuservicev1.NodeServiceInterfaces{}
+					g.Expect(testClient.Get(ctx, client.ObjectKey{
+						Namespace: utils.NSIObjectsNamespace,
+						Name:      nsiName(node, dpuservicev1.NSITypeSFC),
+					}, nsi)).To(Succeed())
+					g.Expect(nsi.Spec.Interfaces).To(ContainElement(And(
+						HaveField("Name", entryName),
+						HaveField("Terminating", BeTrue()),
+					)))
+				}
+			}, timeout*3, interval).Should(Succeed())
+
+			By("Verifying the ServiceInterfaceSet is not deleted while entries await release — finalizer holds")
+			Consistently(func(g Gomega) {
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(sis), &dpuservicev1.ServiceInterfaceSet{})).To(Succeed())
+			}, 5*time.Second, interval).Should(Succeed())
+
+			By("Releasing NSI entries")
+			for _, node := range []string{"node1", "node2"} {
+				nsiKey := client.ObjectKey{
+					Namespace: utils.NSIObjectsNamespace,
+					Name:      nsiName(node, dpuservicev1.NSITypeSFC),
+				}
+				nsi := &dpuservicev1.NodeServiceInterfaces{}
+				Expect(testClient.Get(ctx, nsiKey, nsi)).To(Succeed())
+				setEntryResourceReleased(nsi, entryName)
+				nsi.SetGroupVersionKind(dpuservicev1.NodeServiceInterfacesGroupVersionKind)
+				nsi.SetManagedFields(nil)
+				Expect(testClient.Status().Patch(ctx, nsi, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
+			}
 
 			By("Verifying ServiceInterfaceSet is deleted")
 			Eventually(func(g Gomega) {
-				sis := cleanupObjects[0].(*dpuservicev1.ServiceInterfaceSet)
-				err := testClient.Get(ctx, client.ObjectKeyFromObject(sis), sis)
+				err := testClient.Get(ctx, client.ObjectKeyFromObject(sis), &dpuservicev1.ServiceInterfaceSet{})
 				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
-			}, timeout*30, interval).Should(Succeed())
+			}, timeout*10, interval).Should(Succeed())
 		})
-		It("should successfully delete the ServiceInterfaceSet and corresponding ServiceInterfaces in its namespace only but not cross-namespace", func() {
+		It("ServiceInterfaceSet has condition ServiceInterfacesReconciled with AwaitingDeletion Reason when NSI entries are not released", func() {
 			By("Creating ServiceInterfaceSet, with Node Selector")
-			cleanupObjects = append(cleanupObjects, createLegacyServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
-				MatchLabels: map[string]string{"role": "firewall"}}))
-
-			By("Creating 2 nodes")
-			labels := map[string]string{"role": "firewall"}
-			cleanupObjects = append(cleanupObjects, createNode(ctx, "node1", labels))
-			cleanupObjects = append(cleanupObjects, createNode(ctx, "node2", labels))
-
-			By("Verifying ServiceInterfaceSets have been reconciled")
-			Eventually(func(g Gomega) {
-				// The second ServiceInterfaceSet should still exist
-				serviceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
-				g.ExpectWithOffset(1, testClient.List(ctx, serviceInterfaceList)).NotTo(HaveOccurred())
-				g.Expect(serviceInterfaceList.Items).To(HaveLen(2))
-			}, timeout*30, interval).Should(Succeed())
-
-			By("Create another namespace with a ServiceInterface copy from the default namespace")
-			namespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "zzz-testing-foo"}}
-			Expect(client.IgnoreAlreadyExists(testClient.Create(ctx, namespace))).To(Succeed())
-			siList := &dpuservicev1.ServiceInterfaceList{}
-			ExpectWithOffset(1, testClient.List(ctx, siList)).NotTo(HaveOccurred())
-			siCopy := siList.Items[0].DeepCopy()
-			siCopy.SetResourceVersion("")
-			siCopy.SetManagedFields(nil)
-			siCopy.SetOwnerReferences(nil)
-			siCopy.SetUID("")
-			siCopy.Namespace = "zzz-testing-foo"
-			Expect(testClient.Create(ctx, siCopy)).To(Succeed())
-			cleanupObjects = append(cleanupObjects, siCopy)
-
-			By("Deleting ServiceInterfaceSet")
-			sis := cleanupObjects[0].(*dpuservicev1.ServiceInterfaceSet)
-			Expect(testClient.Delete(ctx, sis)).NotTo(HaveOccurred())
-
-			By("Verifying ServiceInterface is deleted only in its namespace")
-			Eventually(func(g Gomega) {
-				sis := cleanupObjects[0].(*dpuservicev1.ServiceInterfaceSet)
-				err := testClient.Get(ctx, client.ObjectKeyFromObject(sis), sis)
-				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
-
-				siList := &dpuservicev1.ServiceInterfaceList{}
-				g.ExpectWithOffset(1, testClient.List(ctx, siList)).NotTo(HaveOccurred())
-				g.Expect(siList.Items).To(HaveLen(1))
-				g.Expect(siList.Items[0].GetNamespace()).NotTo(Equal(testNS.Name))
-			}, timeout*30, interval).Should(Succeed())
-		})
-		It("ServiceInterfaceSet has condition ServiceInterfacesReconciled with AwaitingDeletion Reason when there are still objects in the DPUCluster", func() {
-			By("Creating ServiceInterfaceSet, with Node Selector")
-			set := createLegacyServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
+			set := createServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
 				MatchLabels: map[string]string{"role": "firewall"}})
+			cleanupObjects = append(cleanupObjects, set)
 
 			By("Creating 2 nodes")
 			labels := map[string]string{"role": "firewall"}
@@ -276,68 +273,30 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 				),
 			))
 
-			By("Adding finalizer to the underlying objects")
-			gotServiceInterfacesList := &dpuservicev1.ServiceInterfaceList{}
-			Expect(testClient.List(ctx, gotServiceInterfacesList, client.InNamespace(set.Namespace))).To(Succeed())
-			Expect(gotServiceInterfacesList.Items).ToNot(BeEmpty())
-			for _, si := range gotServiceInterfacesList.Items {
-				si.SetFinalizers([]string{"test.dpu.nvidia.com/test"})
-				si.SetGroupVersionKind(dpuservicev1.ServiceInterfaceGroupVersionKind)
-				si.SetManagedFields(nil)
-				Expect(testClient.Patch(ctx, &si, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
-			}
-
-			By("Deleting the ServiceInterfaceSet")
+			By("Deleting the ServiceInterfaceSet without releasing NSI entries")
 			Expect(testClient.Delete(ctx, set)).To(Succeed())
 
 			By("Checking the deleted condition is added")
+			// Terminating NSI entries are skipped by updateSummaryNSI, so ServiceInterfacesReady
+			// can be True while Reconciled stays AwaitingDeletion until ResourceReleased.
 			Eventually(func(g Gomega) []metav1.Condition {
 				got := &dpuservicev1.ServiceInterfaceSet{}
 				g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: set.Namespace, Name: set.Name}, got)).To(Succeed())
 				return got.Status.Conditions
-			}).WithTimeout(10 * time.Second).Should(ConsistOf(
-				And(
+			}).WithTimeout(10 * time.Second).Should(And(
+				ContainElement(And(
 					HaveField("Type", string(conditions.TypeReady)),
 					HaveField("Status", metav1.ConditionFalse),
 					HaveField("Reason", string(conditions.ReasonAwaitingDeletion)),
-				),
-				And(
+				)),
+				ContainElement(And(
 					HaveField("Type", string(dpuservicev1.ConditionServiceInterfacesReconciled)),
 					HaveField("Status", metav1.ConditionFalse),
 					HaveField("Reason", string(conditions.ReasonAwaitingDeletion)),
-				),
-				And(
-					HaveField("Type", string(dpuservicev1.ConditionServiceInterfacesReady)),
-					HaveField("Status", metav1.ConditionFalse),
-					HaveField("Reason", string(conditions.ReasonPending)),
-				),
+				)),
 			))
-
-			By("Removing finalizer from the underlying object to ensure deletion")
-			gotInterfaces := &dpuservicev1.ServiceInterfaceList{}
-			Expect(testClient.List(ctx, gotInterfaces, client.InNamespace(set.Namespace))).To(Succeed())
-			Expect(gotInterfaces.Items).ToNot(BeEmpty())
-			for _, si := range gotInterfaces.Items {
-				si.SetFinalizers(nil)
-				si.SetGroupVersionKind(dpuservicev1.ServiceInterfaceGroupVersionKind)
-				si.SetManagedFields(nil)
-				Expect(testClient.Patch(ctx, &si, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
-			}
-
-			By("Checking the ServiceInterfaceSet is deleted")
-			Eventually(func(g Gomega) error {
-				got := &dpuservicev1.ServiceInterfaceSet{}
-				err := testClient.Get(ctx, client.ObjectKey{Namespace: set.Namespace, Name: set.Name}, got)
-				if apierrors.IsNotFound(err) {
-					return nil
-				}
-				if err != nil {
-					return err
-				}
-				return fmt.Errorf("ServiceInterfaceSet still exists")
-			}, timeout*30, interval).Should(Succeed())
 		})
-		It("should successfully reconcile the ServiceInterface with maximum name length", func() {
+		It("should successfully reconcile the ServiceInterfaceSet with maximum name length", func() {
 			By("Create 3 nodes")
 			labels := map[string]string{"role": "firewall"}
 			cleanupObjects = append(cleanupObjects, createNode(ctx, "node1", labels))
@@ -347,52 +306,19 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 			By("Create ServiceInterfaceSet, without Node Selector")
 			sis := getServiceInterfaceSet(testNS.Name, &metav1.LabelSelector{})
 			sis.Name = utilrand.String(63)
-			setServiceInterfaceSetMode(sis)
 			Expect(testClient.Create(ctx, sis)).NotTo(HaveOccurred())
 			cleanupObjects = append(cleanupObjects, sis)
 
-			By("Checking that ServiceInterfaces are created")
+			By("Checking that NSI entries are created for all nodes")
 			Eventually(func(g Gomega) {
-				gotServiceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
-				g.Expect(testClient.List(ctx, gotServiceInterfaceList, client.InNamespace(testNS.Name))).To(Succeed())
-				g.Expect(gotServiceInterfaceList.Items).To(HaveLen(3))
-			}, timeout*30, interval).Should(Succeed())
+				g.Expect(nodesWithActiveNSIEntry(g, testNS.Name, sis.Name)).To(ConsistOf("node1", "node2", "node3"))
+			}, timeout*3, interval).Should(Succeed())
 		})
 		It("should fail to create a ServiceInterfaceSet with name exceeding the maximum length", func() {
 			By("Create ServiceInterfaceSet, without Node Selector")
 			sis := getServiceInterfaceSet(testNS.Name, &metav1.LabelSelector{})
 			sis.Name = utilrand.String(64)
 			Expect(testClient.Create(ctx, sis)).To(HaveOccurred())
-		})
-		It("verify ServiceInterface node labeling", func() {
-			By("Create ServiceInterfaceSet, without Node Selector")
-			cleanupObjects = append(cleanupObjects, createLegacyServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{}))
-
-			By("Create 3 nodes")
-			labels := map[string]string{"role": "firewall"}
-			nodeNames := []string{"node1", "node2", "node3"}
-			cleanupObjects = append(cleanupObjects, createNode(ctx, nodeNames[0], labels))
-			cleanupObjects = append(cleanupObjects, createNode(ctx, nodeNames[1], labels))
-			cleanupObjects = append(cleanupObjects, createNode(ctx, nodeNames[2], make(map[string]string)))
-
-			By("Reconciling the created resource, 3 nodes")
-			Eventually(func(g Gomega) {
-				serviceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
-				g.Expect(testClient.List(ctx, serviceInterfaceList)).NotTo(HaveOccurred())
-				siNodes := []string{}
-				for _, si := range serviceInterfaceList.Items {
-					serviceInterface := si
-					cleanupObjects = append(cleanupObjects, &serviceInterface)
-					siNodes = append(siNodes, *si.Spec.Node)
-				}
-				sort.Strings(siNodes)
-				g.Expect(siNodes).To(HaveLen(3))
-				for i := range siNodes {
-					g.Expect(siNodes[i]).To(Equal(nodeNames[i]))
-				}
-			}, timeout*30, interval).Should(Succeed())
-			By("Delete ServiceInterfaceSet Spec")
-			Expect(testClient.Delete(ctx, &dpuservicev1.ServiceInterfaceSet{ObjectMeta: metav1.ObjectMeta{Name: svcIfcSetName, Namespace: testNS.Name}})).To(Succeed())
 		})
 		It("should set parentInterfaceRef field for ServiceInterface type VF", func() {
 			By("Create a node")
@@ -402,24 +328,34 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 			sis := serviceInterfaceSpec(testNS.Name, nil)
 			sis.Spec.Template.Spec = getTypedTestServiceInterfaceSpec(dpuservicev1.InterfaceTypeVF, nil)
 			sis.Spec.Template.Spec.VF.ParentInterfaceRef = ptr.To("p100")
-			setServiceInterfaceSetMode(sis)
 			Expect(testClient.Create(ctx, sis)).NotTo(HaveOccurred())
 			cleanupObjects = append(cleanupObjects, sis)
 
-			By("Reconciling the created resource")
+			By("Reconciling the created resource onto NSI")
+			entryName := interfaceEntryName(testNS.Name, sis.Name)
 			Eventually(func(g Gomega) {
-				serviceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
-				g.Expect(testClient.List(ctx, serviceInterfaceList)).NotTo(HaveOccurred())
-				g.Expect(serviceInterfaceList.Items).To(HaveLen(1))
-				si := serviceInterfaceList.Items[0]
-				assertServiceInterface(g, &si, &sis.Spec.Template.Spec, testNS.Name)
+				nsi := &dpuservicev1.NodeServiceInterfaces{}
+				g.Expect(testClient.Get(ctx, client.ObjectKey{
+					Namespace: utils.NSIObjectsNamespace,
+					Name:      nsiName("node1", dpuservicev1.NSITypeSFC),
+				}, nsi)).To(Succeed())
+				var entry *dpuservicev1.InterfaceEntry
+				for i := range nsi.Spec.Interfaces {
+					if nsi.Spec.Interfaces[i].Name == entryName {
+						entry = &nsi.Spec.Interfaces[i]
+						break
+					}
+				}
+				g.Expect(entry).NotTo(BeNil())
+				g.Expect(entry.VF).NotTo(BeNil())
+				g.Expect(entry.VF.ParentInterfaceRef).To(Equal(ptr.To("p100-node1")))
 			}, timeout*3, interval).Should(Succeed())
 		})
 		It("should set virtualNetwork field for ServiceInterface type PF", func() {
 			By("Create a node")
 			cleanupObjects = append(cleanupObjects, createNode(ctx, "node1", nil))
 
-			By("Create ServiceInterfaceSet with virtualNetwork")
+			By("Create VPC ServiceInterfaceSet with virtualNetwork (sticky legacy)")
 			cleanupObjects = append(cleanupObjects, createLegacyTypedServiceInterfaceSet(ctx, testNS.Name, nil, dpuservicev1.InterfaceTypePF, ptr.To("myvnet")))
 
 			By("Reconciling the created resource")
@@ -435,7 +371,7 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 			By("Create a node")
 			cleanupObjects = append(cleanupObjects, createNode(ctx, "node1", nil))
 
-			By("Create ServiceInterfaceSet with virtualNetwork")
+			By("Create VPC ServiceInterfaceSet with virtualNetwork (sticky legacy)")
 			cleanupObjects = append(cleanupObjects, createLegacyTypedServiceInterfaceSet(ctx, testNS.Name, nil, dpuservicev1.InterfaceTypeVF, ptr.To("myvnet")))
 
 			By("Reconciling the created resource")
@@ -451,7 +387,7 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 			By("Create a node")
 			cleanupObjects = append(cleanupObjects, createNode(ctx, "node1", nil))
 
-			By("Create ServiceInterfaceSet with virtualNetwork")
+			By("Create VPC ServiceInterfaceSet with virtualNetwork (sticky legacy)")
 			cleanupObjects = append(cleanupObjects, createLegacyTypedServiceInterfaceSet(ctx, testNS.Name, nil, dpuservicev1.InterfaceTypeService, ptr.To("myvnet")))
 
 			By("Reconciling the created resource")
@@ -476,85 +412,67 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 			sis.Spec.Template.Spec = getTypedTestServiceInterfaceSpec(dpuservicev1.InterfaceTypePatch, nil)
 			sis.Spec.Template.Spec.Patch.PeerPatchName = ptr.To("custom-patch-name")
 			sis.Spec.Template.Spec.Patch.PeerExternalIDs = peerExternalIDs
-			setServiceInterfaceSetMode(sis)
 			Expect(testClient.Create(ctx, sis)).NotTo(HaveOccurred())
 			cleanupObjects = append(cleanupObjects, sis)
 
-			By("Reconciling the created resource")
+			By("Reconciling the created resource onto NSI")
+			entryName := interfaceEntryName(testNS.Name, sis.Name)
 			Eventually(func(g Gomega) {
-				serviceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
-				g.Expect(testClient.List(ctx, serviceInterfaceList)).NotTo(HaveOccurred())
-				g.Expect(serviceInterfaceList.Items).To(HaveLen(1))
-				si := serviceInterfaceList.Items[0]
-				g.Expect(si.Spec.Patch).NotTo(BeNil())
-				g.Expect(si.Spec.Patch.PeerBridge).To(Equal("br-ext"))
-				g.Expect(si.Spec.Patch.PeerPatchName).To(Equal(ptr.To("custom-patch-name")))
-				g.Expect(si.Spec.Patch.PeerExternalIDs).To(Equal(peerExternalIDs))
+				nsi := &dpuservicev1.NodeServiceInterfaces{}
+				g.Expect(testClient.Get(ctx, client.ObjectKey{
+					Namespace: utils.NSIObjectsNamespace,
+					Name:      nsiName("node1", dpuservicev1.NSITypeSFC),
+				}, nsi)).To(Succeed())
+				var entry *dpuservicev1.InterfaceEntry
+				for i := range nsi.Spec.Interfaces {
+					if nsi.Spec.Interfaces[i].Name == entryName {
+						entry = &nsi.Spec.Interfaces[i]
+						break
+					}
+				}
+				g.Expect(entry).NotTo(BeNil())
+				g.Expect(entry.Patch).NotTo(BeNil())
+				g.Expect(entry.Patch.PeerBridge).To(Equal("br-ext"))
+				g.Expect(entry.Patch.PeerPatchName).To(Equal(ptr.To("custom-patch-name")))
+				g.Expect(entry.Patch.PeerExternalIDs).To(Equal(peerExternalIDs))
 			}, timeout*3, interval).Should(Succeed())
 		})
 		//nolint:goconst
-		It("should preserve labels and annotation from ServiceInterface that are not specified in ServiceInterfaceSet", func() {
-			// define test label/annotation keys an values
+		It("should apply template labels and annotations onto NSI entries", func() {
 			fooAnnotKey := "foo-annot"
 			fooAnnotValue := "value"
-			fooAnnotOverrideValue := "override-value"
 			fooLabelKey := "foo-label"
 			fooLabelValue := "value"
-			fooLabelOverrideValue := "override-value"
-			someOtherAnnotKey := "some-other-annot"
-			someOtherAnnotValue := "some-other-value"
-			someOtherLabelKey := "some-other-label"
-			someOtherLabelValue := "some-other-value"
 
 			By("Create a node")
 			nodeLabels := map[string]string{"my-label": "node1"}
 			cleanupObjects = append(cleanupObjects, createNode(ctx, "node1", nodeLabels))
 
-			By("Create a ServiceIntefaceSet with labels and annotations")
-			sis := getServiceInterfaceSet(testNS.Name, nil)
+			By("Create a ServiceInterfaceSet with labels and annotations")
+			sis := getServiceInterfaceSet(testNS.Name, &metav1.LabelSelector{MatchLabels: nodeLabels})
 			sis.Spec.Template.Annotations = map[string]string{fooAnnotKey: fooAnnotValue}
 			sis.Spec.Template.Labels = map[string]string{fooLabelKey: fooLabelValue}
-			setServiceInterfaceSetMode(sis)
 			Expect(testClient.Create(ctx, sis)).ToNot(HaveOccurred())
 			cleanupObjects = append(cleanupObjects, sis)
 
-			By("Update created ServiceInterface with labels and annotations")
-			si := &dpuservicev1.ServiceInterface{}
+			By("Verify NSI entry has expected labels and annotations")
+			entryName := interfaceEntryName(testNS.Name, sis.Name)
 			Eventually(func(g Gomega) {
-				var err error
-				si, err = getServiceInterfaceForNode(ctx, testClient, sis, "node1")
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(si).NotTo(BeNil())
-				g.Expect(si.Annotations).To(HaveKeyWithValue(fooAnnotKey, fooAnnotValue))
-				g.Expect(si.Labels).To(HaveKeyWithValue(fooLabelKey, fooLabelValue))
-			}, timeout*3, interval).Should(Succeed())
-
-			// we set a new label and annotation, and override label and annotation from ServiceInterfaceSet
-			// expected result is that the labels and annotaions from ServiceInterfaceSet are restored.
-			si.Annotations[fooAnnotKey] = fooAnnotOverrideValue
-			si.Annotations[someOtherAnnotKey] = someOtherAnnotValue
-			si.Labels[fooLabelKey] = fooLabelOverrideValue
-			si.Labels[someOtherLabelKey] = someOtherLabelValue
-			Expect(testClient.Update(ctx, si)).To(Succeed())
-
-			By("update ServiceInterfaceSet node selector to trigger reconcile")
-			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(sis), sis)).To(Succeed())
-			sis.Spec.NodeSelector = &metav1.LabelSelector{
-				MatchLabels: nodeLabels,
-			}
-			Expect(testClient.Update(ctx, sis)).To(Succeed())
-
-			By("Verify ServiceInteface has expected labels and annotations")
-			Eventually(func(g Gomega) {
-				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(si), si)).To(Succeed())
-				g.Expect(si.Annotations).To(And(
-					HaveKeyWithValue(fooAnnotKey, fooAnnotValue),
-					HaveKeyWithValue(someOtherAnnotKey, someOtherAnnotValue),
-				))
-				g.Expect(si.Labels).To(And(
-					HaveKeyWithValue(fooLabelKey, fooLabelValue),
-					HaveKeyWithValue(someOtherLabelKey, someOtherLabelValue),
-				))
+				nsi := &dpuservicev1.NodeServiceInterfaces{}
+				g.Expect(testClient.Get(ctx, client.ObjectKey{
+					Namespace: utils.NSIObjectsNamespace,
+					Name:      nsiName("node1", dpuservicev1.NSITypeSFC),
+				}, nsi)).To(Succeed())
+				var entry *dpuservicev1.InterfaceEntry
+				for i := range nsi.Spec.Interfaces {
+					if nsi.Spec.Interfaces[i].Name == entryName {
+						entry = &nsi.Spec.Interfaces[i]
+						break
+					}
+				}
+				g.Expect(entry).NotTo(BeNil())
+				g.Expect(entry.Annotations).To(HaveKeyWithValue(fooAnnotKey, fooAnnotValue))
+				g.Expect(entry.Labels).To(HaveKeyWithValue(fooLabelKey, fooLabelValue))
 			}, timeout*3, interval).Should(Succeed())
 		})
 	})
@@ -573,7 +491,7 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 		})
 		AfterEach(func() {
 			By("Cleaning up the objects")
-			Expect(testutils.CleanupAndWait(ctx, testClient, cleanupObjects...)).To(Succeed())
+			Expect(cleanupNSIPathTestResources(ctx, testClient, cleanupObjects)).To(Succeed())
 			DeferCleanup(cleanServiceInterfaces, testNS.Name)
 		})
 		It("should successfully create the ServiceInterfaceSet with vlan interface", func() {
@@ -627,7 +545,7 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 		})
 		It("should successfully create the ServiceInterfaceSet and have all conditions set", func() {
 			By("creating ServiceInterfaceSet, with Node Selector")
-			obj := createLegacyServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{MatchLabels: map[string]string{"role": "firewall"}})
+			obj := createServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{MatchLabels: map[string]string{"role": "firewall"}})
 			cleanupObjects = append(cleanupObjects, obj)
 			Eventually(func(g Gomega) {
 				assertServiceInterfaceSetCondition(g, testClient, obj)
@@ -649,11 +567,11 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 		})
 		AfterEach(func() {
 			By("Cleaning up the objects")
-			Expect(testutils.CleanupAndWait(ctx, testClient, cleanupObjects...)).To(Succeed())
+			Expect(cleanupNSIPathTestResources(ctx, testClient, cleanupObjects)).To(Succeed())
 			DeferCleanup(cleanServiceInterfaces, testNS.Name)
 		})
 		It("ServiceInterfaceSet has condition with Pending Reason after object creation", func() {
-			cleanupObjects = append(cleanupObjects, createLegacyServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
+			cleanupObjects = append(cleanupObjects, createServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
 				MatchLabels: map[string]string{"role": "firewall"}}))
 
 			By("Create 3 nodes")
@@ -664,10 +582,9 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 
 			By("Reconciling the created resource, 3 nodes, 2 matches")
 			Eventually(func(g Gomega) {
-				assertServiceInterfaceList(ctx, g, 2, &cleanupObjects, getTestServiceInterfaceSpec(), testNS.Name)
-			}, timeout*30, interval).Should(Succeed())
+				g.Expect(nodesWithActiveNSIEntry(g, testNS.Name, svcIfcSetName)).To(ConsistOf("node1", "node2"))
+			}, timeout*3, interval).Should(Succeed())
 
-			// get the conditions of the ServiceInterfaceSet
 			Eventually(func(g Gomega) []metav1.Condition {
 				obj := &dpuservicev1.ServiceInterfaceSet{}
 				g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: svcIfcSetName}, obj)).To(Succeed())
@@ -692,8 +609,8 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 			))
 		})
 		It("ServiceInterfaceSet has condition with Success Reason at the end of a successful reconciliation loop and underlying object ready", func() {
-			By("Creating the service chain set")
-			cleanupObjects = append(cleanupObjects, createLegacyServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
+			By("Creating the service interface set")
+			cleanupObjects = append(cleanupObjects, createServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
 				MatchLabels: map[string]string{"role": "firewall"}}))
 
 			By("Create 3 nodes")
@@ -703,27 +620,22 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 			cleanupObjects = append(cleanupObjects, createNode(ctx, "node3", make(map[string]string)))
 
 			By("Reconciling the created resource, 3 nodes, 2 matches")
+			entryName := interfaceEntryName(testNS.Name, svcIfcSetName)
 			Eventually(func(g Gomega) {
-				assertServiceInterfaceList(ctx, g, 2, &cleanupObjects, getTestServiceInterfaceSpec(), testNS.Name)
-			}, timeout*30, interval).Should(Succeed())
+				g.Expect(nodesWithActiveNSIEntry(g, testNS.Name, svcIfcSetName)).To(ConsistOf("node1", "node2"))
+			}, timeout*3, interval).Should(Succeed())
 
-			By("Updating the status of the underlying service chain objects")
-			gotServiceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
-			Expect(testClient.List(ctx, gotServiceInterfaceList, client.InNamespace(testNS.Name))).To(Succeed())
-			Expect(gotServiceInterfaceList.Items).ToNot(BeEmpty())
-			for _, serviceInterface := range gotServiceInterfaceList.Items {
-				serviceInterface.Status.Conditions = []metav1.Condition{
-					{
-						Type:               string(conditions.TypeReady),
-						Status:             metav1.ConditionTrue,
-						Reason:             string(conditions.ReasonSuccess),
-						LastTransitionTime: metav1.NewTime(time.Now()),
-						ObservedGeneration: serviceInterface.Generation,
-					},
-				}
-				serviceInterface.SetGroupVersionKind(dpuservicev1.ServiceInterfaceGroupVersionKind)
-				serviceInterface.SetManagedFields(nil)
-				Expect(testClient.Status().Patch(ctx, &serviceInterface, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
+			By("Updating the status of the underlying NSI entries")
+			for _, node := range []string{"node1", "node2"} {
+				nsi := &dpuservicev1.NodeServiceInterfaces{}
+				Expect(testClient.Get(ctx, client.ObjectKey{
+					Namespace: utils.NSIObjectsNamespace,
+					Name:      nsiName(node, dpuservicev1.NSITypeSFC),
+				}, nsi)).To(Succeed())
+				setEntryReady(nsi, entryName)
+				nsi.SetGroupVersionKind(dpuservicev1.NodeServiceInterfacesGroupVersionKind)
+				nsi.SetManagedFields(nil)
+				Expect(testClient.Status().Patch(ctx, nsi, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
 			}
 
 			By("Checking the conditions")
@@ -751,8 +663,8 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 			))
 		})
 		It("ServiceInterfaceSet has condition with Pending Reason with partial success", func() {
-			By("Creating the service chain set")
-			cleanupObjects = append(cleanupObjects, createLegacyServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
+			By("Creating the service interface set")
+			cleanupObjects = append(cleanupObjects, createServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{
 				MatchLabels: map[string]string{"role": "firewall"}}))
 
 			By("Create 3 nodes")
@@ -762,42 +674,21 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 			cleanupObjects = append(cleanupObjects, createNode(ctx, "node3", make(map[string]string)))
 
 			By("Reconciling the created resource, 3 nodes, 2 matches")
+			entryName := interfaceEntryName(testNS.Name, svcIfcSetName)
 			Eventually(func(g Gomega) {
-				assertServiceInterfaceList(ctx, g, 2, &cleanupObjects, getTestServiceInterfaceSpec(), testNS.Name)
-			}, timeout*30, interval).Should(Succeed())
+				g.Expect(nodesWithActiveNSIEntry(g, testNS.Name, svcIfcSetName)).To(ConsistOf("node1", "node2"))
+			}, timeout*3, interval).Should(Succeed())
 
-			By("Updating the status of the underlying service chain objects")
-			// Only update the first service chain, leaving the second one in a non-ready state
-			// to simulate a partial success scenario.
-			gotServiceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
-			Expect(testClient.List(ctx, gotServiceInterfaceList, client.InNamespace(testNS.Name))).To(Succeed())
-			Expect(gotServiceInterfaceList.Items).ToNot(BeEmpty())
-			for i, serviceInterface := range gotServiceInterfaceList.Items {
-				if i == 0 {
-					serviceInterface.Status.Conditions = []metav1.Condition{
-						{
-							Type:               string(conditions.TypeReady),
-							Status:             metav1.ConditionTrue,
-							Reason:             string(conditions.ReasonSuccess),
-							LastTransitionTime: metav1.NewTime(time.Now()),
-							ObservedGeneration: serviceInterface.Generation,
-						},
-					}
-				} else {
-					serviceInterface.Status.Conditions = []metav1.Condition{
-						{
-							Type:               string(conditions.TypeReady),
-							Status:             metav1.ConditionFalse,
-							Reason:             string(conditions.ReasonPending),
-							LastTransitionTime: metav1.NewTime(time.Now()),
-							ObservedGeneration: serviceInterface.Generation,
-						},
-					}
-				}
-				serviceInterface.SetGroupVersionKind(dpuservicev1.ServiceInterfaceGroupVersionKind)
-				serviceInterface.SetManagedFields(nil)
-				Expect(testClient.Status().Patch(ctx, &serviceInterface, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
-			}
+			By("Marking only one NSI entry Ready")
+			nsi := &dpuservicev1.NodeServiceInterfaces{}
+			Expect(testClient.Get(ctx, client.ObjectKey{
+				Namespace: utils.NSIObjectsNamespace,
+				Name:      nsiName("node1", dpuservicev1.NSITypeSFC),
+			}, nsi)).To(Succeed())
+			setEntryReady(nsi, entryName)
+			nsi.SetGroupVersionKind(dpuservicev1.NodeServiceInterfacesGroupVersionKind)
+			nsi.SetManagedFields(nil)
+			Expect(testClient.Status().Patch(ctx, nsi, client.Apply, client.ForceOwnership, client.FieldOwner("test"))).To(Succeed())
 
 			By("Checking the conditions")
 			Eventually(func(g Gomega) []metav1.Condition {
@@ -863,42 +754,25 @@ func assertServiceInterfaceSetCondition(g Gomega, testClient client.Client, serv
 	))
 }
 
-func assertServiceInterfaceList(ctx context.Context, g Gomega, nodeCount int, cleanupObjects *[]client.Object,
-	testSpec *dpuservicev1.ServiceInterfaceSpec, ns string) {
-	serviceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
-	g.ExpectWithOffset(1, testClient.List(ctx, serviceInterfaceList)).NotTo(HaveOccurred())
-	g.ExpectWithOffset(1, serviceInterfaceList.Items).To(HaveLen(nodeCount))
-
-	nodeMap := make(map[string]bool)
-	for _, si := range serviceInterfaceList.Items {
-		serviceInterface := si
-		*cleanupObjects = append(*cleanupObjects, &serviceInterface)
-		assertServiceInterface(g, &si, testSpec, ns)
-		nodeMap[*si.Spec.Node] = true
+// nodesWithActiveNSIEntry returns sorted node names that have a non-terminating SFC NSI entry for the set.
+func nodesWithActiveNSIEntry(g Gomega, setNS, setName string) []string {
+	entryName := interfaceEntryName(setNS, setName)
+	nsiList := &dpuservicev1.NodeServiceInterfacesList{}
+	g.Expect(testClient.List(ctx, nsiList, client.InNamespace(utils.NSIObjectsNamespace))).To(Succeed())
+	nodes := []string{}
+	for i := range nsiList.Items {
+		nsi := nsiList.Items[i]
+		if nsi.Spec.Type != dpuservicev1.NSITypeSFC {
+			continue
+		}
+		for _, e := range nsi.Spec.Interfaces {
+			if e.Name == entryName && !e.Terminating {
+				nodes = append(nodes, nsi.Spec.Node)
+			}
+		}
 	}
-	g.ExpectWithOffset(1, nodeMap).To(HaveLen(nodeCount))
-}
-
-func assertServiceInterface(g Gomega, si *dpuservicev1.ServiceInterface, testSpec *dpuservicev1.ServiceInterfaceSpec, ns string) {
-	specCopy := testSpec.DeepCopy()
-	node := si.Spec.Node
-	if specCopy.Vlan != nil {
-		specCopy.Vlan.ParentInterfaceRef = specCopy.Vlan.ParentInterfaceRef + "-" + *node
-	}
-	if specCopy.VF.ParentInterfaceRef != nil {
-		specCopy.VF.ParentInterfaceRef = ptr.To(*specCopy.VF.ParentInterfaceRef + "-" + *node)
-	}
-
-	specCopy.Node = node
-	g.ExpectWithOffset(2, si.Spec).To(Equal(*specCopy))
-	g.ExpectWithOffset(2, *node).NotTo(BeEmpty())
-	g.ExpectWithOffset(2, si.Name).To(HavePrefix(svcIfcSetName))
-	g.ExpectWithOffset(2, si.Labels[ServiceInterfaceSetNameLabel]).To(Equal(svcIfcSetName))
-	g.ExpectWithOffset(2, si.Labels[ServiceInterfaceSetNamespaceLabel]).To(Equal(ns))
-	g.ExpectWithOffset(2, si.OwnerReferences).To(HaveLen(1))
-	for k, v := range testutils.GetTestLabels() {
-		g.ExpectWithOffset(2, si.Labels[k]).To(Equal(v))
-	}
+	sort.Strings(nodes)
+	return nodes
 }
 
 func getServiceInterfaceSet(ns string, labelSelector *metav1.LabelSelector) *dpuservicev1.ServiceInterfaceSet {
@@ -913,16 +787,18 @@ func createServiceInterfaceSet(ctx context.Context, ns string, labelSelector *me
 	return sis
 }
 
-func setServiceInterfaceSetMode(sis *dpuservicev1.ServiceInterfaceSet) {
+func setServiceInterfaceSetModeLegacy(sis *dpuservicev1.ServiceInterfaceSet) {
 	if sis.Annotations == nil {
 		sis.Annotations = map[string]string{}
 	}
 	sis.Annotations[interfaceModeAnnotation] = interfaceModeLegacy
 }
 
-func createLegacyServiceInterfaceSet(ctx context.Context, ns string, labelSelector *metav1.LabelSelector) *dpuservicev1.ServiceInterfaceSet {
-	sis := getServiceInterfaceSet(ns, labelSelector)
-	setServiceInterfaceSetMode(sis)
+func createLegacyTypedServiceInterfaceSet(ctx context.Context, ns string, labelSelector *metav1.LabelSelector, typ string, vn *string) *dpuservicev1.ServiceInterfaceSet {
+	sis := serviceInterfaceSpec(ns, labelSelector)
+	sis.Spec.Template.Spec = getTypedTestServiceInterfaceSpec(typ, vn)
+	setServiceInterfaceSetModeLegacy(sis)
+
 	Expect(testClient.Create(ctx, sis)).NotTo(HaveOccurred())
 	return sis
 }
@@ -930,15 +806,6 @@ func createLegacyServiceInterfaceSet(ctx context.Context, ns string, labelSelect
 func createTypedServiceInterfaceSet(ctx context.Context, ns string, labelSelector *metav1.LabelSelector, typ string) *dpuservicev1.ServiceInterfaceSet {
 	sis := serviceInterfaceSpec(ns, labelSelector)
 	sis.Spec.Template.Spec = getTypedTestServiceInterfaceSpec(typ, nil)
-
-	Expect(testClient.Create(ctx, sis)).NotTo(HaveOccurred())
-	return sis
-}
-
-func createLegacyTypedServiceInterfaceSet(ctx context.Context, ns string, labelSelector *metav1.LabelSelector, typ string, vn *string) *dpuservicev1.ServiceInterfaceSet {
-	sis := serviceInterfaceSpec(ns, labelSelector)
-	sis.Spec.Template.Spec = getTypedTestServiceInterfaceSpec(typ, vn)
-	setServiceInterfaceSetMode(sis)
 
 	Expect(testClient.Create(ctx, sis)).NotTo(HaveOccurred())
 	return sis

@@ -134,18 +134,18 @@ func AddPort(ctx context.Context, ovs ovsutils.API, portName string, ifaceExtern
 	return nil
 }
 
-// getPatchPortNames generates OVS patch port names for connecting two bridges.
+// getPatchPortNames generates OVS patch port names between SFCBridge and the peer bridge.
 // Uses PeerPatchName when specified, otherwise derives a deterministic name from metadata.
-// Returns the patch port name for brA and the corresponding peer port name for brB.
+// Returns the patch port name for SFCBridge and the corresponding peer port name for peerBridge.
 //
 // Examples:
-//   - With PeerPatchName "mypatch", brA="br-sfc", brB="br-ovn":
+//   - With PeerPatchName "mypatch", peerBridge="br-ovn":
 //     returns ("p_brsfc_to_mypatch", "mypatch")
-//   - Without PeerPatchName, brA="br-sfc", brB="br-ovn", metadata hash 0xabcd1234:
+//   - Without PeerPatchName, peerBridge="br-ovn", metadata hash 0xabcd1234:
 //     returns ("p_brsfc_to_brovn_abcd1234", "p_brovn_to_brsfc_abcd1234")
-func getPatchPortNames(spec interfaceEntrySpec, metadata, brA, brB string) (string, string) {
-	strippedBrA := strings.ReplaceAll(brA, "-", "")
-	strippedBrB := strings.ReplaceAll(brB, "-", "")
+func getPatchPortNames(spec interfaceEntrySpec, metadata, peerBridge string) (string, string) {
+	strippedBrA := strings.ReplaceAll(SFCBridge, "-", "")
+	strippedBrB := strings.ReplaceAll(peerBridge, "-", "")
 
 	if patch := spec.GetPatch(); patch != nil && patch.PeerPatchName != nil {
 		peerPatchName := *patch.PeerPatchName
@@ -410,7 +410,7 @@ func addPeerPatchPort(ctx context.Context, ovs ovsutils.API, spec interfaceEntry
 	maps.Copy(peerPatchPort.externalIDs, patch.PeerExternalIDs)
 	peerPatchPort.externalIDs[ovsutils.DPFIDKey] = metadata
 
-	patchPort.portName, peerPatchPort.portName = getPatchPortNames(spec, metadata, SFCBridge, peerBridge)
+	patchPort.portName, peerPatchPort.portName = getPatchPortNames(spec, metadata, peerBridge)
 	if err := AddPatchPort(ctx, ovs, SFCBridge, peerBridge, patchPort, peerPatchPort); err != nil {
 		log.Error(err, "failed to add patch port between bridges", "patchPort", patchPort.portName, "peerPatchPort", peerPatchPort.portName)
 		return err
@@ -524,7 +524,7 @@ func deletePeerPatchPort(ctx context.Context, ovs ovsutils.API, spec interfaceEn
 
 	peerBridge := patch.PeerBridge
 	log.V(4).Info("peer bridge", "name", peerBridge)
-	patchPortName, patchPortPeerName := getPatchPortNames(spec, metadata, SFCBridge, peerBridge)
+	patchPortName, patchPortPeerName := getPatchPortNames(spec, metadata, peerBridge)
 	if err := DeletePatchPorts(ctx, ovs, SFCBridge, peerBridge, patchPortName, patchPortPeerName); err != nil {
 		log.Error(err, "failed to delete patch port between bridges", "patchPortName", patchPortName, "patchPortPeerName", patchPortPeerName)
 		return err
@@ -532,18 +532,45 @@ func deletePeerPatchPort(ctx context.Context, ovs ovsutils.API, spec interfaceEn
 	return nil
 }
 
+// hashedPatchPortsOwnedBySI reports whether this SI's OVS patch ports are named from
+// SI identity rather than a shared PeerPatchName. NSI uses entry.Name as hash input,
+// so those ports would leak if SI teardown is skipped on NSI handoff.
+func hashedPatchPortsOwnedBySI(si *dpuservicev1.ServiceInterface) bool {
+	if si.GetInterfaceType() != dpuservicev1.InterfaceTypePatch {
+		return false
+	}
+	patch := si.GetPatch()
+	return patch != nil && patch.PeerPatchName == nil
+}
+
 // reconcileDelete handles the delete reconciliation loop
 func (r *ServiceInterfaceReconciler) reconcileDelete(ctx context.Context, serviceInterface *dpuservicev1.ServiceInterface, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrllog.FromContext(ctx)
 	log.Info("Reconciling delete")
-	err := DeleteInterfacesFromOvs(ctx, r.OVS, r.ECPFManager, serviceInterface, req.NamespacedName.String())
+
+	ownedByNSI, err := utils.HasMatchingNonTerminatingNSIEntry(ctx, r.Client, serviceInterface)
 	if err != nil {
-		log.Error(err, "failed to delete DeleteInterfacesFromOvs")
+		log.Error(err, "failed to check NSI handoff ownership")
 		setFalseServiceInterfaceReconciledCondition(err, serviceInterface)
 		return requeueError()
 	}
+	// Hashed patch port names include SI metadata (namespace/name). NSI hashes
+	// entry.Name instead, so skipping SI teardown would leak the SI port pair.
+	// Named PeerPatchName ports are shared and must not be deleted.
+	if ownedByNSI && !hashedPatchPortsOwnedBySI(serviceInterface) {
+		log.Info("skipping OVS teardown; matching non-terminating NSI entry owns the interface")
+	} else {
+		if ownedByNSI {
+			log.Info("tearing down hashed SI patch ports; NSI uses a different port name")
+		}
+		err = DeleteInterfacesFromOvs(ctx, r.OVS, r.ECPFManager, serviceInterface, req.NamespacedName.String())
+		if err != nil {
+			log.Error(err, "failed to delete DeleteInterfacesFromOvs")
+			setFalseServiceInterfaceReconciledCondition(err, serviceInterface)
+			return requeueError()
+		}
+	}
 
-	// If there are no associated applications remove the finalizer
 	log.Info("Removing finalizer")
 	controllerutil.RemoveFinalizer(serviceInterface, ServiceInterfaceFinalizer)
 	return requeueDone()

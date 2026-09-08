@@ -134,6 +134,15 @@ func getNodeList(ctx context.Context, k8sClient client.Client, selector *metav1.
 	return nodeList, nil
 }
 
+func nodeInList(nodeList *corev1.NodeList, nodeName string) bool {
+	for _, node := range nodeList.Items {
+		if node.Name == nodeName {
+			return true
+		}
+	}
+	return false
+}
+
 // reconcileDelete reconciles the deletion of a set.
 //
 //nolint:unparam

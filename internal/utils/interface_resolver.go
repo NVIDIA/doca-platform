@@ -62,6 +62,60 @@ func ResolveServiceInterfaceByLabels(
 // ServiceInterfaceNodeFieldKey is the ServiceInterface spec.node field index key registered by ServiceInterfaceSetReconciler.
 const ServiceInterfaceNodeFieldKey = "spec.node"
 
+const (
+	serviceInterfaceSetNameLabel      = dpuservicev1.SvcDpuGroupName + "/serviceinterfaceset-name"
+	serviceInterfaceSetNamespaceLabel = dpuservicev1.SvcDpuGroupName + "/serviceinterfaceset-namespace"
+)
+
+// HasMatchingNonTerminatingNSIEntry reports whether the given ServiceInterface has a
+// matching non-terminating entry on the node's SFC-typed NodeServiceInterfaces shard.
+// Match criteria: both set-ownership labels from the SI (name + namespace) must be
+// present and non-empty, match the entry labels, and the entry namespace must equal
+// si.Namespace. Returns (false, nil) when the SI has no node or either ownership
+// label is missing or empty.
+func HasMatchingNonTerminatingNSIEntry(ctx context.Context, c client.Client, si *dpuservicev1.ServiceInterface) (bool, error) {
+	if si == nil || si.Spec.Node == nil || *si.Spec.Node == "" {
+		return false, nil
+	}
+	setName, hasName := si.Labels[serviceInterfaceSetNameLabel]
+	setNS, hasNS := si.Labels[serviceInterfaceSetNamespaceLabel]
+	if !hasName || !hasNS || setName == "" || setNS == "" {
+		return false, nil
+	}
+
+	sel := labels.SelectorFromSet(labels.Set{
+		serviceInterfaceSetNameLabel:      setName,
+		serviceInterfaceSetNamespaceLabel: setNS,
+	})
+
+	nsiList := &dpuservicev1.NodeServiceInterfacesList{}
+	if err := c.List(ctx, nsiList,
+		client.InNamespace(NSIObjectsNamespace),
+		client.MatchingFields{NSINodeFieldKey: *si.Spec.Node},
+	); err != nil {
+		return false, fmt.Errorf("list NSI shards for node %s: %w", *si.Spec.Node, err)
+	}
+
+	for _, nsi := range nsiList.Items {
+		if nsi.Spec.Type != dpuservicev1.NSITypeSFC {
+			continue
+		}
+		for _, entry := range nsi.Spec.Interfaces {
+			if entry.Terminating {
+				continue
+			}
+			entryNS, _ := entry.GetNamespacedName()
+			if entryNS != si.Namespace {
+				continue
+			}
+			if sel.Matches(labels.Set(entry.Labels)) {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
 // ListInterfacesForNode returns every legacy and non-terminating NSI (restricted to nsiTypes) interface
 // for nodeName as ServiceInterface objects. Interfaces are deduplicated by name, with NSI entries taking
 // priority over a legacy ServiceInterface sharing the same name, mirroring the resolver's precedence.
