@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -40,12 +41,17 @@ import (
 )
 
 const (
-	PodName           = "bfb-registry"
-	ConfigMapName     = "bfb-registry-config"
-	LabelPartOf       = "app.kubernetes.io/part-of"
-	LabelDPUComponent = "dpu.nvidia.com/component"
-	LabelValue        = "bfb-registry"
-	ContainerPort     = 8082
+	PodName       = "bfb-registry"
+	ConfigMapName = "bfb-registry-config"
+	// NodePortConfigMapName stores the allocated NodePort so a leader failover can
+	// recreate the Service (which is owned by the leader Pod and therefore GC'd)
+	// with the same port that was baked into DPU OS cloud-init.
+	NodePortConfigMapName = "bfb-registry-nodeport"
+	nodePortConfigMapKey  = "https"
+	LabelPartOf           = "app.kubernetes.io/part-of"
+	LabelDPUComponent     = "dpu.nvidia.com/component"
+	LabelValue            = "bfb-registry"
+	ContainerPort         = 8082
 	// HTTPSContainerPort is the only port the bfb-registry container exposes after the
 	// HTTPS migration; the plain-HTTP listener is removed (LLD task 4 §5).
 	HTTPSContainerPort = 8443
@@ -350,6 +356,10 @@ func bfbRegistryPodLabels() map[string]string {
 }
 
 func (r *BFBRegistryRunnable) ensureService(ctx context.Context, namespace string, leaderPod *corev1.Pod) error {
+	pinnedNodePort, err := r.pinnedHTTPSNodePort(ctx, namespace)
+	if err != nil {
+		return err
+	}
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: namespace,
@@ -364,11 +374,16 @@ func (r *BFBRegistryRunnable) ensureService(ctx context.Context, namespace strin
 
 		svc.Spec.Type = corev1.ServiceTypeNodePort
 		svc.Spec.Selector = bfbRegistryPodLabels()
+		nodePort := existingHTTPSNodePort(svc)
+		if nodePort == 0 {
+			nodePort = pinnedNodePort
+		}
 		svc.Spec.Ports = []corev1.ServicePort{
 			{
 				Name:       "https",
 				Port:       int32(HTTPSContainerPort),
 				TargetPort: intstr.FromInt(HTTPSContainerPort),
+				NodePort:   nodePort,
 			},
 		}
 		return nil
@@ -383,6 +398,69 @@ func (r *BFBRegistryRunnable) ensureService(ctx context.Context, namespace strin
 			return nil
 		}
 		return err
+	}
+	if err := r.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: PodName}, svc); err != nil {
+		return fmt.Errorf("get bfb-registry service after ensure: %w", err)
+	}
+	return r.persistHTTPSNodePort(ctx, namespace, existingHTTPSNodePort(svc))
+}
+
+// existingHTTPSNodePort returns the already-allocated NodePort for the https port, if any.
+func existingHTTPSNodePort(svc *corev1.Service) int32 {
+	for _, p := range svc.Spec.Ports {
+		if p.Name == "https" && p.NodePort != 0 {
+			return p.NodePort
+		}
+	}
+	return 0
+}
+
+func (r *BFBRegistryRunnable) pinnedHTTPSNodePort(ctx context.Context, namespace string) (int32, error) {
+	cm := &corev1.ConfigMap{}
+	err := r.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: NodePortConfigMapName}, cm)
+	if apierrors.IsNotFound(err) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("get %s ConfigMap: %w", NodePortConfigMapName, err)
+	}
+	raw := ""
+	if cm.Data != nil {
+		raw = cm.Data[nodePortConfigMapKey]
+	}
+	if raw == "" {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 1 || n > 65535 {
+		log.FromContext(ctx).Info("ignoring invalid pinned bfb-registry NodePort", "value", raw)
+		return 0, nil
+	}
+	return int32(n), nil
+}
+
+// persistHTTPSNodePort records the allocated NodePort in a ConfigMap that is not owned by
+// the leader Pod, so it survives failover GC of the Service.
+func (r *BFBRegistryRunnable) persistHTTPSNodePort(ctx context.Context, namespace string, nodePort int32) error {
+	if nodePort == 0 {
+		return nil
+	}
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: namespace,
+			Name:      NodePortConfigMapName,
+		},
+	}
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, cm, func() error {
+		cm.Labels = bfbRegistryPodLabels()
+		if cm.Data == nil {
+			cm.Data = map[string]string{}
+		}
+		cm.Data[nodePortConfigMapKey] = strconv.Itoa(int(nodePort))
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("persist bfb-registry NodePort: %w", err)
 	}
 	return nil
 }

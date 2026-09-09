@@ -20,6 +20,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 	"time"
@@ -258,20 +259,17 @@ func createManager(flags *cliFlags) (ctrl.Manager, *rest.Config) {
 }
 
 func resolveBFBRegistry(flags *cliFlags) (string, error) {
-	// If the load balancer address is set, use it to build the bfb-registry address
 	registryAddress := ""
-	if flags.bfbRegistryLoadBalancerAddress == "" {
-		if flags.dpuInstallInterface == string(provisioningv1.InstallViaRedFish) {
-			nodeIP := os.Getenv("NODE_IP")
-			if nodeIP == "" {
-				return "", fmt.Errorf("NODE_IP is empty, can not build the bfb-registry address")
-			}
-			registryAddress = "https://" + nodeIP
-		} else {
-			registryAddress = defaultBFBRegistryAddress
-		}
-	} else {
+	if flags.bfbRegistryLoadBalancerAddress != "" {
 		registryAddress = flags.bfbRegistryLoadBalancerAddress
+	} else if flags.dpuInstallInterface == string(provisioningv1.InstallViaRedFish) {
+		vip := bfbregistry.APIServerVIPFromDMSPodEnvs(flags.dmsPodEnvs)
+		if vip == "" || net.ParseIP(vip) == nil {
+			return "", fmt.Errorf("KubernetesAPIServerVIP %q must be a non-empty IP", vip)
+		}
+		registryAddress = "https://" + vip
+	} else {
+		registryAddress = defaultBFBRegistryAddress
 	}
 	registryAddress = httputils.EnsureHTTPSScheme(registryAddress)
 	setupLog.Info("bfb-registry address for downloading BFB files", "bfbRegistry", registryAddress)
