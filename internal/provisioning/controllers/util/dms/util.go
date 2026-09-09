@@ -27,8 +27,6 @@ import (
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 	"github.com/nvidia/doca-platform/internal/release"
 
-	"github.com/openconfig/gnmi/proto/gnmi"
-	"google.golang.org/grpc"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
@@ -371,24 +369,4 @@ func hostAgentDNSPolicy(option dnutil.HostAgentPodOptions) corev1.DNSPolicy {
 		return option.HostAgentDNSPolicy
 	}
 	return corev1.DNSClusterFirstWithHostNet
-}
-
-func ExecuteDMSDebugCmd(ctx context.Context, conn *grpc.ClientConn, command string) (string, error) {
-	gnmiClient := gnmi.NewGNMIClient(conn)
-	path := &gnmi.Path{
-		Elem: []*gnmi.PathElem{
-			{Name: "nvidia"},
-			{Name: "command", Key: map[string]string{"run": command}},
-			{Name: "run"},
-		},
-	}
-	req := &gnmi.GetRequest{
-		Path: []*gnmi.Path{path},
-	}
-	resp, err := gnmiClient.Get(ctx, req)
-	if err != nil {
-		return "", err
-	}
-
-	return resp.GetNotification()[0].GetUpdate()[0].GetVal().GetStringVal(), nil
 }

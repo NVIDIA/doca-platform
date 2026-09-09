@@ -43,7 +43,6 @@ import (
 	dnutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpunode/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpunodemaintenance"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpuset"
-	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
 	httputils "github.com/nvidia/doca-platform/internal/provisioning/utils/http"
 	provisioningwebhooks "github.com/nvidia/doca-platform/internal/provisioning/webhooks"
 	"github.com/nvidia/doca-platform/pkg/health"
@@ -305,7 +304,6 @@ func setupControllers(mgr ctrl.Manager, flags *cliFlags, bfbRegistry string, ima
 		alloc,
 		&dutil.KubeadmBootstrapTokenGenerator{Client: mgr.GetClient()},
 		&state.DefaultDPUArtifactGenerator{},
-		&reboot.DMSPodExecUptimeChecker{},
 		dpuOptions,
 		dpuMap,
 	).SetupWithManager(mgr); err != nil {

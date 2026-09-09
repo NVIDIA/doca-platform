@@ -49,7 +49,6 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpunodemaintenance"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpuset"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
-	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
 	provisioningwebhooks "github.com/nvidia/doca-platform/internal/provisioning/webhooks"
 
 	nvidiaNodeMaintenancev1 "github.com/Mellanox/maintenance-operator/api/v1alpha1"
@@ -194,7 +193,6 @@ var _ = BeforeSuite(func() {
 		alloc,
 		&mockNodeJoinCommandGenerator{},
 		&mockDPUArtifactGenerator{},
-		&reboot.DMSPodExecUptimeChecker{},
 		dutil.DPUOptions{DPUInstallInterface: string(provisioningv1.InstallViaMock), MaxDPUParallelInstallations: maxDPUParallelInstallations},
 		dpuMap)
 	err = dpuReconciler.SetupWithManager(k8sManager)

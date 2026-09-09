@@ -35,7 +35,6 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
-	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
 	dpfutils "github.com/nvidia/doca-platform/internal/utils"
 
 	"github.com/fluxcd/pkg/runtime/patch"
@@ -68,7 +67,7 @@ type DPUReconciler struct {
 	DPUInProvisioningMap *util.DPUInProvisioningMap
 }
 
-func NewDPUReconciler(mgr manager.Manager, alloc allocator.Allocator, joinCommandGenerator util.NodeJoinCommandGenerator, artifactGenerator util.DPUArtifactGenerator, hostUptimeChecker reboot.HostUptimeChecker, options util.DPUOptions, dpuMap *util.DPUInProvisioningMap) *DPUReconciler {
+func NewDPUReconciler(mgr manager.Manager, alloc allocator.Allocator, joinCommandGenerator util.NodeJoinCommandGenerator, artifactGenerator util.DPUArtifactGenerator, options util.DPUOptions, dpuMap *util.DPUInProvisioningMap) *DPUReconciler {
 	ctrlCtx := &util.ControllerContext{
 		Client:               mgr.GetClient(),
 		Scheme:               mgr.GetScheme(),
@@ -77,7 +76,6 @@ func NewDPUReconciler(mgr manager.Manager, alloc allocator.Allocator, joinComman
 		ClusterAllocator:     alloc,
 		JoinCommandGenerator: joinCommandGenerator,
 		DPUArtifactGenerator: artifactGenerator,
-		HostUptimeChecker:    hostUptimeChecker,
 		DPUInProvisioningMap: dpuMap,
 	}
 	handlers := map[provisioningv1.DPUPhase]PhaseHandlerFunc{

@@ -17,15 +17,11 @@ limitations under the License.
 package reboot
 
 import (
-	"context"
 	"fmt"
 	"strconv"
 	"strings"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
-	dmsutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util/dms"
-
-	"google.golang.org/grpc"
 )
 
 const (
@@ -34,31 +30,6 @@ const (
 	Cycle                    = "cycle"
 	Reset                    = "reset"
 )
-
-type HostUptimeChecker interface {
-	HostUptime(ctx context.Context, conn *grpc.ClientConn) (int, error)
-}
-
-type DMSPodExecUptimeChecker struct{}
-
-func (d *DMSPodExecUptimeChecker) HostUptime(ctx context.Context, conn *grpc.ClientConn) (int, error) {
-	uptimeStr, err := dmsutil.ExecuteDMSDebugCmd(ctx, conn, "cat /proc/uptime")
-	if err != nil {
-		return -1, err
-	}
-
-	ts := strings.Fields(uptimeStr)
-	if len(ts) != 2 {
-		return -1, fmt.Errorf("uptime incorrect: %#v", ts)
-	}
-
-	uptime, err := strconv.ParseFloat(strings.TrimSpace(ts[0]), 64)
-	if err != nil {
-		return -1, err
-	}
-
-	return int(uptime), nil
-}
 
 func PowerCycleRequired(annotations map[string]string) bool {
 	if annotations != nil {
