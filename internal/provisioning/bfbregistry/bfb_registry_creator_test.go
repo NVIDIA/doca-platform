@@ -86,6 +86,7 @@ var _ = Describe("EnsureBFBRegistry", func() {
 		Expect(svc.Spec.Ports[0].Name).To(Equal("https"))
 		Expect(svc.Spec.Ports[0].Port).To(Equal(int32(HTTPSContainerPort)))
 		Expect(svc.Spec.Ports[0].TargetPort.IntValue()).To(Equal(HTTPSContainerPort))
+		Expect(serviceOwnedByLeaderPod(svc, leaderPod)).To(BeTrue())
 	})
 
 	It("succeeds when pod and service already exist (no duplicate create)", func() {
@@ -135,6 +136,7 @@ var _ = Describe("EnsureBFBRegistry", func() {
 	})
 
 	It("replaces bfb-registry pod and re-parents service when owned by a different leader", func() {
+		const allocatedNodePort int32 = 31213
 		oldLeader := &corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "leader-old",
@@ -169,7 +171,14 @@ var _ = Describe("EnsureBFBRegistry", func() {
 				Namespace:       testNamespace,
 				OwnerReferences: []metav1.OwnerReference{*refOld},
 			},
-			Spec: corev1.ServiceSpec{Type: corev1.ServiceTypeNodePort},
+			Spec: corev1.ServiceSpec{
+				Type: corev1.ServiceTypeNodePort,
+				Ports: []corev1.ServicePort{{
+					Name:     "https",
+					Port:     int32(HTTPSContainerPort),
+					NodePort: allocatedNodePort,
+				}},
+			},
 		}
 		c := fake.NewClientBuilder().WithScheme(scheme).
 			WithObjects(oldLeader, newLeader, existingPod, existingSvc).
@@ -186,6 +195,41 @@ var _ = Describe("EnsureBFBRegistry", func() {
 		svc := &corev1.Service{}
 		Expect(c.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: PodName}, svc)).To(Succeed())
 		Expect(serviceOwnedByLeaderPod(svc, newLeader)).To(BeTrue())
+		Expect(svc.Spec.Ports[0].NodePort).To(Equal(allocatedNodePort))
+
+		cm := &corev1.ConfigMap{}
+		Expect(c.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: NodePortConfigMapName}, cm)).To(Succeed())
+		Expect(cm.Data[nodePortConfigMapKey]).To(Equal("31213"))
+		Expect(cm.OwnerReferences).To(BeEmpty())
+	})
+
+	It("recreates the Service with the pinned NodePort after failover GC", func() {
+		const allocatedNodePort int32 = 30377
+		newLeader := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "leader-new",
+				Namespace: testNamespace,
+				UID:       "new-uid",
+			},
+		}
+		pinned := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      NodePortConfigMapName,
+				Namespace: testNamespace,
+			},
+			Data: map[string]string{nodePortConfigMapKey: "30377"},
+		}
+		c := fake.NewClientBuilder().WithScheme(scheme).
+			WithObjects(newLeader, pinned).
+			Build()
+
+		err := EnsureBFBRegistry(ctx, EnsureBFBRegistryDeps{Client: c}, testNamespace, "leader-new", "node-2", "10.0.0.2", "registry:8082")
+		Expect(err).NotTo(HaveOccurred())
+
+		svc := &corev1.Service{}
+		Expect(c.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: PodName}, svc)).To(Succeed())
+		Expect(serviceOwnedByLeaderPod(svc, newLeader)).To(BeTrue())
+		Expect(svc.Spec.Ports[0].NodePort).To(Equal(allocatedNodePort))
 	})
 
 	It("does not fail when service create races with an existing service", func() {

@@ -23,29 +23,29 @@ import (
 )
 
 func TestResolveBFBRegistry(t *testing.T) {
-	const nodeIPEnv = "NODE_IP"
-
 	tests := []struct {
 		name         string
 		lbAddress    string
 		installIface string
-		nodeIP       string
-		setNodeIP    bool
+		dmsPodEnvs   []string
 		want         string
 		wantErr      bool
 	}{
 		{
-			name:         "redfish with NODE_IP returns https host without port",
+			name:         "redfish with API VIP returns https host without port",
 			installIface: string(provisioningv1.InstallViaRedFish),
-			nodeIP:       "10.0.0.5",
-			setNodeIP:    true,
-			want:         "https://10.0.0.5",
+			dmsPodEnvs:   []string{"KUBERNETES_SERVICE_HOST=10.0.0.10", "KUBERNETES_SERVICE_PORT=6443"},
+			want:         "https://10.0.0.10",
 		},
 		{
-			name:         "redfish with empty NODE_IP returns error",
+			name:         "redfish with empty VIP returns error",
 			installIface: string(provisioningv1.InstallViaRedFish),
-			nodeIP:       "",
-			setNodeIP:    true,
+			wantErr:      true,
+		},
+		{
+			name:         "redfish with hostname VIP returns error",
+			installIface: string(provisioningv1.InstallViaRedFish),
+			dmsPodEnvs:   []string{"KUBERNETES_SERVICE_HOST=api.example.com"},
 			wantErr:      true,
 		},
 		{
@@ -71,17 +71,21 @@ func TestResolveBFBRegistry(t *testing.T) {
 			installIface: string(provisioningv1.InstallViaRedFish),
 			want:         "https://bfb.example.com:30443",
 		},
+		{
+			name:         "load balancer wins over VIP",
+			lbAddress:    "https://lb.example.com:30443",
+			installIface: string(provisioningv1.InstallViaRedFish),
+			dmsPodEnvs:   []string{"KUBERNETES_SERVICE_HOST=10.0.0.10"},
+			want:         "https://lb.example.com:30443",
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if tc.setNodeIP {
-				t.Setenv(nodeIPEnv, tc.nodeIP)
-			}
-
 			flags := &cliFlags{
 				bfbRegistryLoadBalancerAddress: tc.lbAddress,
 				dpuInstallInterface:            tc.installIface,
+				dmsPodEnvs:                     tc.dmsPodEnvs,
 			}
 
 			got, err := resolveBFBRegistry(flags)
