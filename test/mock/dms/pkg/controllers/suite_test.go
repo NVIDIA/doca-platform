@@ -155,7 +155,6 @@ func TestMain(m *testing.M) {
 		allocator.NewAllocator(testClient),
 		&mockKubeadmJoinCommandGenerator{},
 		&mockDPUArtifactGenerator{},
-		&mockHostUptimeReporter{},
 		dutil.DPUOptions{DPUInstallInterface: string(provisioningv1.InstallViaGNOI), MaxDPUParallelInstallations: 50},
 		dpuMap)
 	if err := dpuReconciler.SetupWithManager(testManager); err != nil {

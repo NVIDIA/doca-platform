@@ -24,7 +24,6 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/allocator"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/future"
-	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -87,7 +86,6 @@ type ControllerContext struct {
 	ClusterAllocator     allocator.Allocator
 	JoinCommandGenerator NodeJoinCommandGenerator
 	DPUArtifactGenerator DPUArtifactGenerator
-	HostUptimeChecker    reboot.HostUptimeChecker
 	DPUInProvisioningMap *DPUInProvisioningMap
 	DPFOperatorConfig    *operatorv1.DPFOperatorConfig
 }

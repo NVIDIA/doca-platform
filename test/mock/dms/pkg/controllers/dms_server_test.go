@@ -40,7 +40,6 @@ import (
 	"github.com/nvidia/doca-platform/test/utils"
 
 	. "github.com/onsi/gomega"
-	"google.golang.org/grpc"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -196,13 +195,11 @@ func TestDMSServerReconciler(t *testing.T) {
 	// test.
 	g.Expect(os.Setenv("CLOUD_INIT_TIMEOUT", "1")).To(Succeed())
 
-	// 5) Rebooting phase is handled by using a stub HostUptimeChecker which simulates a reboot.
-
-	// 6) The DPUInitializeInterface HostNetworkingConfig phase checks that the first container in the pod has a Ready ContainerStatus.
+	// 5) The DPUInitializeInterface HostNetworkingConfig phase checks that the first container in the pod has a Ready ContainerStatus.
 	pod.Status.ContainerStatuses = []corev1.ContainerStatus{{Name: "Ready", Ready: true}}
 	g.Expect(testClient.Status().Update(ctx, pod)).To(Succeed())
 
-	// 7) The DPUClusterConfig phase requires the DPU node object be created and ready.
+	// 6) The DPUClusterConfig phase requires the DPU node object be created and ready.
 	// This is handled in the controller code.
 	tests := []struct {
 		name          string
@@ -336,12 +333,4 @@ func (m *mockDPUArtifactGenerator) GenerateBF4(context.Context, dutil.DPUArtifac
 		UserData:      []byte("#cloud-config\n"),
 		NetworkConfig: []byte("network:\n  config: disabled\n"),
 	}, nil
-}
-
-// mockHostUptimeReporter implements the interface for checking if a node reboot has occurred..
-// The implementation returns 0 to speed up testing.
-type mockHostUptimeReporter struct{}
-
-func (m mockHostUptimeReporter) HostUptime(ctx context.Context, conn *grpc.ClientConn) (int, error) {
-	return 0, nil
 }
