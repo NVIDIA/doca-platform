@@ -105,10 +105,12 @@ spec:
       _ovs-vsctl set Interface p0 type=dpdk
       _ovs-vsctl set Interface p0 mtu_request=9216
       _ovs-vsctl set Port p0 external_ids:dpf-type=physical
+      _ovs-vsctl set Interface p0 external_ids:hbn_uplink=p0_if
       _ovs-vsctl --may-exist add-port br-sfc p1
       _ovs-vsctl set Interface p1 type=dpdk
       _ovs-vsctl set Interface p1 mtu_request=9216
       _ovs-vsctl set Port p1 external_ids:dpf-type=physical
+      _ovs-vsctl set Interface p1 external_ids:hbn_uplink=p1_if
       
       # set default password for ubuntu user to not have to set it manually if
       # debug needed
