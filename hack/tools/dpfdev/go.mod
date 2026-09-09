@@ -20,7 +20,7 @@ replace github.com/nvidia/doca-platform => ../../..
 
 require (
 	dario.cat/mergo v1.0.1 // indirect
-	github.com/Mellanox/nic-configuration-operator v1.3.2-0.20260907163357-8f1d0e53e18d // indirect
+	github.com/Mellanox/nic-configuration-operator v1.3.2-0.20260908141202-e579f528313e // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProtonMail/go-crypto v1.1.3 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
