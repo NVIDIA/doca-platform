@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	rc "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
@@ -27,11 +28,13 @@ import (
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 const waitingForBMCRShimReason = "WaitingForBMCRShim"
+const armPowerOnWaitTimeout = 1 * time.Minute
 
 func ConfigFWParameters(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
 	logger := log.FromContext(ctx)
@@ -105,6 +108,36 @@ func ConfigFWParameters(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 		}
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToGetDpuFlavor", err.Error()))
 		return *state, err
+	}
+
+	_, system, err := client.GetSystem()
+	if err != nil {
+		err = fmt.Errorf("failed to get system: %w", err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToGetSystem", err.Error()))
+		return *state, err
+	}
+	if isDPUArmPoweredOff(system) {
+		_, armCond := cutil.GetDPUCondition(state, provisioningv1.DPUCondFWArmRestarted.String())
+		switch {
+		case armCond == nil || armCond.Status != metav1.ConditionTrue:
+			if _, err := client.ForceRestartDPUArm(); err != nil {
+				err = fmt.Errorf("failed to reset DPU Arm: %w", err)
+				cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToResetDPUArm", err.Error()))
+				return *state, err
+			}
+			logger.Info("successfully reset DPU Arm. Waiting for DPU Arm to become powered on...")
+			cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondFWArmRestarted, "", ""))
+		case time.Since(armCond.LastTransitionTime.Time) > armPowerOnWaitTimeout:
+			err := fmt.Errorf("DPU Arm did not power on within %s after ForceRestart (PowerState %q, Status.State %q)",
+				armPowerOnWaitTimeout, system.PowerState, system.Status.State)
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "DPUArmPowerOnTimeout", err.Error()))
+			state.Phase = provisioningv1.DPUError
+			return *state, nil
+		}
+		// Keep the message empty/stable so LastTransitionTime stays anchored for the timeout.
+		waitErr := fmt.Errorf("waiting for DPU Arm to power on after ForceRestart")
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), waitErr, "WaitingForDPUArmPowerOn", ""))
+		return *state, nil
 	}
 
 	if !isWaitingForBMCRShim(state) {

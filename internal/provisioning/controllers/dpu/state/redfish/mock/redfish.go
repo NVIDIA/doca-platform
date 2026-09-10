@@ -56,6 +56,7 @@ type RedfishMockServer struct {
 	secureBootError                 bool                     // Simulate Secure Boot endpoint error for testing
 	secureBootPatchError            bool                     // Simulate Secure Boot PATCH-only error for testing
 	systemError                     bool                     // Simulate GetSystem endpoint error for testing
+	systemPowerState                string                   // Override GET System PowerState; empty uses On / Paused from armPoweredOff
 	resetSystemError                bool                     // Simulate ResetSystem endpoint error for testing
 	lastResetType                   string                   // Last ComputerSystem.Reset ResetType or SOC.ForceReset
 	productDescriptionError         bool                     // Simulate GetProductDescription endpoint error for testing
@@ -1242,6 +1243,12 @@ func (r *RedfishMockServer) SetSystemError(simulateError bool) {
 	r.systemError = simulateError
 }
 
+// SetSystemPowerState overrides PowerState on GET System. Empty restores the default
+// derived from armPoweredOff (On, or Paused when the Arm is shut down).
+func (r *RedfishMockServer) SetSystemPowerState(state string) {
+	r.systemPowerState = state
+}
+
 // SetResetSystemError enables or disables ResetSystem endpoint error simulation for testing
 func (r *RedfishMockServer) SetResetSystemError(simulateError bool) {
 	r.resetSystemError = simulateError
@@ -1639,7 +1646,12 @@ func (r *RedfishMockServer) handleGetSystem(w http.ResponseWriter, req *http.Req
 
 	// A shut down Arm reports PowerState "Paused" and Status.State "StandbyOffline".
 	powerState, statusState := "On", "Enabled"
-	if r.armPoweredOff.Load() {
+	if r.systemPowerState != "" {
+		powerState = r.systemPowerState
+		if powerState == "Paused" || powerState == "Off" {
+			statusState = "StandbyOffline"
+		}
+	} else if r.armPoweredOff.Load() {
 		powerState, statusState = "Paused", "StandbyOffline"
 	}
 
