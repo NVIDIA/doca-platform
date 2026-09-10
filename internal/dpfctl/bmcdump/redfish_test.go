@@ -363,3 +363,53 @@ func TestWaitForDumpEntryFailsWhenNoEntryEverAppears(t *testing.T) {
 	g.Expect(err.Error()).To(ContainSubstring("no manager dump entry was found"))
 	g.Expect(atomic.LoadInt32(&polls)).To(Equal(int32(3)))
 }
+
+func TestCollectKeepsGoingWhenClearingTheSystemDumpEntriesFails(t *testing.T) {
+	g := NewWithT(t)
+
+	fixture := bf4Fixture()
+	serve := fixture.transport()
+	c := newFixtureCollector(t, fixture, CollectOptions{Namespace: DefaultNamespace, TaskTimeout: time.Minute, ClearExisting: true})
+	c.client.SetTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Path == fixture.systemDumpPath()+clearLogPath {
+			return nil, io.EOF
+		}
+		return serve(req)
+	}))
+
+	g.Expect(c.collect()).To(Succeed())
+
+	for _, unit := range []string{managerUnitName, systemUnitName} {
+		archive, err := os.ReadFile(filepath.Join(c.targetDir, unit, "log_dump.tar.zst"))
+		g.Expect(err).NotTo(HaveOccurred(), "expected an archive for the %s dump", unit)
+		g.Expect(string(archive)).To(Equal(attachmentPayload))
+	}
+	g.Expect(fixture.requestsTo(fixture.managerDumpPath() + clearLogPath)).To(HaveLen(1))
+	g.Expect(fixture.requestsTo(fixture.systemDumpPath() + collectDiagnosticDataPath)).To(HaveLen(1))
+
+	metadata, err := os.ReadFile(filepath.Join(c.targetDir, "metadata.txt"))
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(string(metadata)).To(ContainSubstring("Skipped clearing system dump entries"))
+	g.Expect(string(metadata)).To(ContainSubstring("EOF"))
+	g.Expect(string(metadata)).To(ContainSubstring("Selected system dump entry fresh"))
+}
+
+func TestNewCollectorClosesTheConnectionAfterEveryRequest(t *testing.T) {
+	g := NewWithT(t)
+
+	target := logTarget{IP: "10.0.0.10", Port: defaultPort, Password: "password"}
+	c, cancel, err := newCollector(context.Background(), target, t.TempDir(), CollectOptions{Namespace: DefaultNamespace}.withDefaults())
+	g.Expect(err).NotTo(HaveOccurred())
+	defer cancel()
+
+	var closeRequested bool
+	c.client.SetTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		closeRequested = req.Close
+		return httpResponse(req, http.StatusOK, `{"Product":"BlueField-4"}`), nil
+	}))
+
+	_, err = c.requestJSON(http.MethodGet, rootServicePath, nil)
+
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(closeRequested).To(BeTrue())
+}
