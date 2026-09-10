@@ -61,7 +61,7 @@ ENV uid=65532
 USER ${uid}:${uid}
 
 COPY --chown=${uid} --from=builder /workspace/source-code.tar.gz source-code.tar.gz
-COPY --chown=${uid} --from=builder /workspace/bin/ .
+COPY --chown=${uid} --chmod=755 --from=builder /workspace/bin/ .
 COPY --chown=root:root --chmod=755 --from=firmware /tmp/bf3-bmc.fwpkg .
 COPY --chown=root:root build/defaults.yaml /etc/dpf-defaults.yaml
 COPY --chown=root:root --from=version /tmp/dpf-version /etc/dpf-version
