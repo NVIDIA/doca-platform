@@ -147,11 +147,9 @@ spec:
         # miscellaneous configuration
         - name: RDE_DISABLE
           value: "1"
-  # Create the SNAP DMA SF from the DPU Agent on BlueField-4 socket-direct
-  # (sfNumStart defaults to 8000 when unset).
-  scalableFunctions:
-    - type: dma
-      count: 1
+  # Create the SNAP DMA SF from the DPU Agent on BlueField-4 socket-direct.
+  dma:
+    enabled: true
   configFiles:
     - path: /etc/mellanox/mlnx-bf.conf
       operation: override
@@ -162,7 +160,7 @@ spec:
         ENABLE_ESWITCH_MULTIPORT="yes"
 
         # Pin the vendor DMA SF creation off; the DPU Agent creates it instead
-        # (enabled via the spec.scalableFunctions dma entry above).
+        # (enabled via spec.dma.enabled above).
         SNAP_DMA_SF="no"
     - path: /etc/mellanox/mlnx-ovs.conf
       operation: override

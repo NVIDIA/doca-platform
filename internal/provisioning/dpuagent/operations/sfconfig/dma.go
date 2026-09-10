@@ -19,36 +19,22 @@ package sfconfig
 import (
 	"crypto/md5"
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
-	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
 
 	"k8s.io/klog/v2"
 )
 
-// snapDMASFNum is the default sfnum of the SNAP DMA SF on BlueField-4
-// socket-direct systems. It is a discovery ABI: SNAP identifies the DMA SF as
-// "SF with sf_num=8000 + DMA caps" (doca_devemu_pci_cap_is_dma_dev), so a
-// different value yields an SF SNAP cannot discover. It is the value operators
-// set for the DPUFlavor's scalableFunctions type=dma entry's sfNumStart field.
+// snapDMASFNum is the sfnum of the SNAP DMA SF on BlueField-4 socket-direct
+// systems. It is a discovery ABI: SNAP identifies the DMA SF as "SF with
+// sf_num=8000 + DMA caps" (doca_devemu_pci_cap_is_dma_dev), so a different
+// value yields an SF SNAP cannot discover. Not yet configurable via the
+// DPUFlavor API.
 const snapDMASFNum = 8000
-
-// findDMAScalableFunction returns the type=dma entry of scalableFunctions, or
-// nil if there is none. The DPUFlavor API allows at most one such entry.
-func findDMAScalableFunction(scalableFunctions []provisioningv1.ScalableFunction) *provisioningv1.ScalableFunction {
-	for i := range scalableFunctions {
-		sf := &scalableFunctions[i]
-		if sf.Type == provisioningv1.ScalableFunctionTypeDMA {
-			return sf
-		}
-	}
-	return nil
-}
 
 // selectDMASFTarget picks the single ECPF that should host the DMA SF,
 // mirroring the vendor's create_snap_dma_sf target selection (Redmine
@@ -143,14 +129,7 @@ func (s *CreateSF) findDMASF(device string, dmaSFNum int) (*SFInfo, error) {
 // vendor script's create_snap_dma_sf (mlnx_bf_configure ~L800-847, mlnx-tools
 // v2604.0.17).
 func (s *CreateSF) createDMASF(device string, dmaSFNum int) error {
-	if dmaSFNum != snapDMASFNum {
-		klog.Warningf("scalableFunctions[dma].sfNumStart=%d differs from the SNAP discovery ABI sfnum %d: SNAP will not discover the DMA SF",
-			dmaSFNum, snapDMASFNum)
-	}
-	mac, err := dmaSFMAC(s.dmaSFMACOverride, device, dmaSFNum)
-	if err != nil {
-		return err
-	}
+	mac := deriveDMASFMAC(device, dmaSFNum)
 
 	cmd := fmt.Sprintf("/sbin/mlnx-sf --action create --device %s --sfnum %d --hwaddr %s --disable-roce", device, dmaSFNum, mac)
 	if stdout, stderr, err := s.runBash(cmd); err != nil {
@@ -190,26 +169,6 @@ func (s *CreateSF) ensureDMASFRepresentorUp(device string, dmaSFNum int) {
 	if _, stderr, err := s.runBash(fmt.Sprintf("ip link set %s up", sf.Netdev)); err != nil {
 		klog.Warningf("Failed to bring up DMA SF representor %s: %v (stderr: %s)", sf.Netdev, err, stderr.String())
 	}
-}
-
-// dmaSFMAC returns the MAC for the DMA SF: the flavor's
-// scalableFunctions[dma].options.macAddress override if set, otherwise the
-// script-compatible derivation over the SF's sfnum.
-func dmaSFMAC(override, device string, dmaSFNum int) (string, error) {
-	if override != "" {
-		hw, err := net.ParseMAC(override)
-		if err != nil {
-			return "", fmt.Errorf("invalid scalableFunctions[dma].options.macAddress %q: %w", override, err)
-		}
-		// net.ParseMAC also accepts EUI-64 and InfiniBand addresses and various
-		// separators; require a 48-bit Ethernet MAC and return the canonical
-		// colon-separated form for mlnx-sf --hwaddr rather than the raw value.
-		if len(hw) != 6 {
-			return "", fmt.Errorf("invalid scalableFunctions[dma].options.macAddress %q: must be a 48-bit Ethernet MAC", override)
-		}
-		return hw.String(), nil
-	}
-	return deriveDMASFMAC(device, dmaSFNum), nil
 }
 
 // deriveDMASFMAC derives the SF MAC exactly like the vendor script

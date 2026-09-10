@@ -103,65 +103,27 @@ type DPUFlavorSpec struct {
 	// +optional
 	EWNicConfigurations []NicConfiguration `json:"ewNicConfigurations,omitempty"`
 
-	// ScalableFunctions configures the Scalable Functions (SFs) created on the DPU.
-	// For now, only entries with type dma are allowed, and at most one such entry.
-	// +kubebuilder:validation:MaxItems=1
-	// +kubebuilder:validation:XValidation:rule="self.filter(x, has(x.type) && x.type == 'dma').size() <= 1",message="at most one entry with type dma is supported for now"
-	// +kubebuilder:validation:XValidation:rule="self.all(x, has(x.type) && x.type == 'dma')",message="only entries with type dma are supported for now"
-	// +listType=atomic
+	// DMA configures the DMA SF that e.g. SNAP DOCA service uses to DMA host
+	// memory over the second Grace PCI link on BlueField-4 socket-direct
+	// systems.
 	// +optional
-	ScalableFunctions []ScalableFunction `json:"scalableFunctions,omitempty"`
+	DMA *DPUFlavorDMA `json:"dma,omitempty"`
 
 	// serviceReadiness configures the Service Readiness phase.
 	// +optional
 	ServiceReadiness *ServiceReadiness `json:"serviceReadiness,omitempty"`
 }
 
-// ScalableFunctionType selects the kind of Scalable Function a ScalableFunction entry creates.
-// Only dma is supported for now; regular, trusted, and host SF creation is not yet
-// driven by this field.
-// +kubebuilder:validation:Enum=dma
-type ScalableFunctionType string
-
-const (
-	// ScalableFunctionTypeDMA is the DMA Scalable Function that e.g. SNAP DOCA
-	// service uses to DMA host memory over the second Grace PCI link on
-	// BlueField-4 socket-direct systems.
-	ScalableFunctionTypeDMA ScalableFunctionType = "dma"
-)
-
-// ScalableFunction configures a set of Scalable Functions (SFs) created on the DPU.
-// +kubebuilder:validation:XValidation:rule="!has(self.type) || self.type != 'dma' || self.count >= 1",message="a dma entry must have count == 1"
-type ScalableFunction struct {
-	// Count is the number of Scalable Functions to create per target device.
-	// +kubebuilder:validation:Minimum=0
-	// +required
-	Count *int32 `json:"count,omitempty"`
-
-	// Type selects the kind of Scalable Function to create. Only dma is supported for now.
+// DPUFlavorDMA configures the DMA SF that the dpu-agent creates on
+// BlueField-4 socket-direct systems when Enabled is true.
+type DPUFlavorDMA struct {
+	// Enabled controls whether the dpu-agent creates the DMA SF. Defaults to
+	// false when unset, so the presence of the dma struct alone does not enable
+	// creation. Only takes effect on BlueField-4 socket-direct systems. The
+	// created Scalable Function always uses sfnum 8000, the SNAP discovery ABI
+	// value.
 	// +optional
-	Type ScalableFunctionType `json:"type,omitempty"`
-
-	// SFNumStart is the Scalable Function number this entry starts allocating from.
-	// Defaults per Type when Type is set; required when Type is unset.
-	// +kubebuilder:validation:Minimum=0
-	// +optional
-	SFNumStart *int32 `json:"sfNumStart,omitempty"`
-
-	// Options carries type-specific Scalable Function configuration.
-	// +optional
-	Options *ScalableFunctionOptions `json:"options,omitempty"`
-}
-
-// ScalableFunctionOptions carries type-specific Scalable Function configuration.
-type ScalableFunctionOptions struct {
-	// MACAddress pins the Scalable Function's MAC address (canonical colon-separated
-	// 48-bit form, e.g. "02:40:51:7c:e3:0f"). Defaults to a deterministic,
-	// vendor-compatible derivation when unset.
-	// +kubebuilder:validation:MinLength=17
-	// +kubebuilder:validation:Pattern=`^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$`
-	// +optional
-	MACAddress string `json:"macAddress,omitempty"`
+	Enabled *bool `json:"enabled,omitempty"`
 }
 
 // ServiceReadiness configures the Service Readiness provisioning phase.

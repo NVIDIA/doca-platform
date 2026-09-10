@@ -366,7 +366,7 @@ linters:
         linters:
           - kubeapilinter
       - path: api/provisioning/v1alpha1/dpuflavor_types.go
-        text: "requiredfields: field (DMAScalableFunction.Enabled|NicConfiguration.NumVfs|ConfigFile.Path|NetworkInterfaceConfig.PortNumber)"
+        text: "requiredfields: field (NicConfiguration.NumVfs|ConfigFile.Path|NetworkInterfaceConfig.PortNumber)"
         linters:
           - kubeapilinter
       - path: api/provisioning/v1alpha1/dpuflavortemplate_types.go
@@ -515,7 +515,7 @@ linters:
         linters:
           - kubeapilinter
       - path: api/provisioning/v1alpha1/dpuflavor_types.go
-        text: "optionalfields: field (DPUFlavorSpec.Grub|DPUFlavorSpec.Sysctl|DPUFlavorSpec.OVS|DPUFlavorSpec.ContainerdConfig|ScalableFunctions.DMA|DMAScalableFunction.SFNum|NicConfiguration.Force|NVConfig.Device|DPUFlavorOVS.RawConfigScript|ConfigFile.Type|ConfigFile.Permissions|PackageSpec.Version|PackageSpec.RepoFileRef|ContainerdConfig.RegistryEndpoint|NetworkInterfaceConfig.MTU)"
+        text: "optionalfields: field (DPUFlavorSpec.Grub|DPUFlavorSpec.Sysctl|DPUFlavorSpec.OVS|DPUFlavorSpec.ContainerdConfig|NicConfiguration.Force|NVConfig.Device|DPUFlavorOVS.RawConfigScript|ConfigFile.Type|ConfigFile.Permissions|PackageSpec.Version|PackageSpec.RepoFileRef|ContainerdConfig.RegistryEndpoint|NetworkInterfaceConfig.MTU)"
         linters:
           - kubeapilinter
       - path: api/provisioning/v1alpha1/dpunode_types.go

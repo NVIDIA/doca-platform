@@ -53,9 +53,9 @@ func TestParseDMASFObservations(t *testing.T) {
 func TestDMASFNumFromFlavor(t *testing.T) {
 	g := NewWithT(t)
 
-	flavorWith := func(sf []provisioningv1.ScalableFunction) *provisioningv1.DPUFlavor {
+	flavorWith := func(dma *provisioningv1.DPUFlavorDMA) *provisioningv1.DPUFlavor {
 		return &provisioningv1.DPUFlavor{
-			Spec: provisioningv1.DPUFlavorSpec{ScalableFunctions: sf},
+			Spec: provisioningv1.DPUFlavorSpec{DMA: dma},
 		}
 	}
 
@@ -65,20 +65,10 @@ func TestDMASFNumFromFlavor(t *testing.T) {
 	_, enabled = dmaSFNumFromFlavor(flavorWith(nil))
 	g.Expect(enabled).To(BeFalse())
 
-	_, enabled = dmaSFNumFromFlavor(flavorWith([]provisioningv1.ScalableFunction{
-		{Count: ptr.To(int32(1))},
-	}))
-	g.Expect(enabled).To(BeFalse(), "an entry without type=dma must not enable the feature")
+	_, enabled = dmaSFNumFromFlavor(flavorWith(&provisioningv1.DPUFlavorDMA{Enabled: ptr.To(false)}))
+	g.Expect(enabled).To(BeFalse(), "enabled=false must not enable the feature")
 
-	sfNum, enabled := dmaSFNumFromFlavor(flavorWith([]provisioningv1.ScalableFunction{
-		{Count: ptr.To(int32(1)), Type: provisioningv1.ScalableFunctionTypeDMA},
-	}))
+	sfNum, enabled := dmaSFNumFromFlavor(flavorWith(&provisioningv1.DPUFlavorDMA{Enabled: ptr.To(true)}))
 	g.Expect(enabled).To(BeTrue())
-	g.Expect(sfNum).To(Equal(DefaultDMASFNum), "an unset sfNumStart must default to the SNAP discovery ABI sfnum")
-
-	sfNum, enabled = dmaSFNumFromFlavor(flavorWith([]provisioningv1.ScalableFunction{
-		{Count: ptr.To(int32(1)), Type: provisioningv1.ScalableFunctionTypeDMA, SFNumStart: ptr.To(int32(9000))},
-	}))
-	g.Expect(enabled).To(BeTrue())
-	g.Expect(sfNum).To(Equal(9000))
+	g.Expect(sfNum).To(Equal(DefaultDMASFNum))
 }
