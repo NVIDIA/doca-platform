@@ -94,12 +94,12 @@ USER ${uid}:${uid}
 COPY --chown=${uid} --from=dependency /workspace/source-code.tar.gz source-code.tar.gz
 
 # Add the CNI Installer binary
-COPY --chown=${uid} --from=builder /workspace/bin/cni-installer .
+COPY --chown=${uid} --chmod=755 --from=builder /workspace/bin/cni-installer .
 
 # Stage each CNI binary at /opt/cnis/<name>. The installer copies everything it finds there to
 # /opt/cni/bin/ at runtime.
-COPY --chown=${uid} --from=rdmacni /usr/bin/rdma /opt/cnis/rdma
+COPY --chown=${uid} --chmod=755 --from=rdmacni /usr/bin/rdma /opt/cnis/rdma
 # Keep name ovs to match NAD type dispatch.
-COPY --chown=${uid} --from=builder /workspace/bin/ovs /opt/cnis/ovs
+COPY --chown=${uid} --chmod=755 --from=builder /workspace/bin/ovs /opt/cnis/ovs
 # The standard containernetworking CNIs, which the BFB used to provide via the kubernetes-cni package.
-COPY --chown=${uid} --from=cniplugins /cni-plugins/ /opt/cnis/
+COPY --chown=${uid} --chmod=755 --from=cniplugins /cni-plugins/ /opt/cnis/
