@@ -107,6 +107,7 @@ const (
 	DPUCondBFBPrepared            DPUConditionType = "BFBPrepared"
 	DPUCondInterfaceInitialized   DPUConditionType = "InterfaceInitialized"
 	DPUCondFWConfigured           DPUConditionType = "FWConfigured"
+	DPUCondFWArmRestarted         DPUConditionType = "FWArmRestarted"
 	DPUCondFwBundleSubmitted      DPUConditionType = "FwBundleSubmitted"
 	DPUCondFwBundleUpdated        DPUConditionType = "FwBundleUpdated"
 	DPUCondFwBundleActivated      DPUConditionType = "FwBundleActivated"

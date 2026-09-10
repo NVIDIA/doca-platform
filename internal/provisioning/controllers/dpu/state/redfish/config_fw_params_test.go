@@ -17,6 +17,8 @@ limitations under the License.
 package redfish
 
 import (
+	"time"
+
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	redfishmock "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/mock"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
@@ -222,6 +224,48 @@ var _ = Describe("ConfigFWParameters", func() {
 			status, err := ConfigFWParameters(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(status.Phase).To(Equal(provisioningv1.DPUPrepareBFB))
+		})
+
+		It("force-restarts the DPU Arm when PowerState is Paused and advances once it powers on", func() {
+			mockServer, dpu := prepareBF3Fixture()
+			defer mockServer.Stop()
+			mockServer.SetSystemPowerState("Paused")
+			mockServer.SetBMCRShimEnabled(true)
+
+			status, err := ConfigFWParameters(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUConfigFWParameters))
+			Expect(mockServer.GetLastResetType()).To(Equal("ForceRestart"))
+			_, cond := cutil.GetDPUCondition(&status, provisioningv1.DPUCondFWArmRestarted.String())
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+
+			mockServer.SetSystemPowerState("")
+			dpu.Status = status
+			status, err = ConfigFWParameters(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUPrepareBFB))
+		})
+
+		It("goes to DPUError when the Arm does not power on within the timeout", func() {
+			mockServer, dpu := prepareBF3Fixture()
+			defer mockServer.Stop()
+			mockServer.SetSystemPowerState("Paused")
+			// SetDPUCondition always stamps LastTransitionTime with now, so the expired
+			// restart condition has to be injected directly.
+			dpu.Status.Conditions = append(dpu.Status.Conditions, metav1.Condition{
+				Type:               provisioningv1.DPUCondFWArmRestarted.String(),
+				Status:             metav1.ConditionTrue,
+				Reason:             provisioningv1.DPUCondFWArmRestarted.String(),
+				LastTransitionTime: metav1.NewTime(time.Now().Add(-2 * armPowerOnWaitTimeout)),
+			})
+
+			status, err := ConfigFWParameters(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUError))
+			_, cond := cutil.GetDPUCondition(&status, provisioningv1.DPUCondFWConfigured.String())
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Reason).To(Equal("DPUArmPowerOnTimeout"))
 		})
 
 		It("returns FailedToGetBMCRShim when GET Oem/Nvidia fails while waiting", func() {
