@@ -94,25 +94,35 @@ func newCollector(ctx context.Context, target logTarget, outputDir string, opts 
 	budget := maxDumpUnits*(opts.TaskTimeout+defaultEntryRetryCount*defaultEntryRetryInterval) + time.Minute
 	targetCtx, cancel := context.WithTimeout(ctx, budget)
 
-	// Credentials are attached in discover(), once the root service has told us
-	// which username this BMC generation uses.
-	redfishClient := resty.New().
-		SetBaseURL(baseURL).
-		SetTimeout(opts.RequestTimeout)
-	if opts.InsecureSkipTLSVerify {
-		redfishClient.SetTLSClientConfig(&tls.Config{InsecureSkipVerify: true}) //nolint:gosec // Explicit user opt-in for lab/self-signed BMCs.
-	}
-
 	return &collector{
 		target:         target,
 		targetDir:      targetDir,
 		ctx:            targetCtx,
-		client:         redfishClient,
+		client:         newRedfishClient(baseURL, opts),
 		opts:           opts,
 		entryRetry:     defaultEntryRetryCount,
 		entryRetryWait: defaultEntryRetryInterval,
 		taskPollWait:   defaultTaskPollInterval,
 	}, cancel, nil
+}
+
+// newRedfishClient builds the client for one BMC. Credentials are attached in
+// discover(), once the root service has told us which username this BMC
+// generation uses.
+//
+// Every request closes its connection. BF4 BMCs close their end after
+// streaming a dump attachment, and a POST reused on that pooled connection
+// fails with EOF, which Go never retries. A dump is a few dozen requests, so
+// the extra handshakes are noise next to the dump task itself.
+func newRedfishClient(baseURL string, opts CollectOptions) *resty.Client {
+	redfishClient := resty.New().
+		SetBaseURL(baseURL).
+		SetTimeout(opts.RequestTimeout).
+		SetCloseConnection(true)
+	if opts.InsecureSkipTLSVerify {
+		redfishClient.SetTLSClientConfig(&tls.Config{InsecureSkipVerify: true}) //nolint:gosec // Explicit user opt-in for lab/self-signed BMCs.
+	}
+	return redfishClient
 }
 
 func (c *collector) collect() (err error) {
@@ -144,9 +154,7 @@ func (c *collector) collectDump(unit dumpUnit) error {
 	unitDir := filepath.Join(c.targetDir, unit.name)
 
 	if c.opts.ClearExisting {
-		if err := c.clearDumpEntries(unit); err != nil {
-			return err
-		}
+		c.clearDumpEntries(unit)
 	}
 
 	taskID, err := c.createDumpEntry(unit, unitDir)
@@ -163,11 +171,13 @@ func (c *collector) collectDump(unit dumpUnit) error {
 	return c.downloadDumpEntry(unit, unitDir, entryID)
 }
 
-func (c *collector) clearDumpEntries(unit dumpUnit) error {
+// clearDumpEntries is best-effort housekeeping: waitForDumpEntry picks the
+// newest entry by Created, so a stale entry cannot shadow the dump this run
+// creates, and a failed delete is recorded rather than costing us that dump.
+func (c *collector) clearDumpEntries(unit dumpUnit) {
 	if _, err := c.requestJSON(http.MethodPost, unit.clearTarget(), nil); err != nil {
-		return c.fail(fmt.Errorf("deleting existing %s dump entries: %w", unit.name, err))
+		c.note("Skipped clearing %s dump entries: %v", unit.name, err)
 	}
-	return nil
 }
 
 func (c *collector) createDumpEntry(unit dumpUnit, unitDir string) (string, error) {
