@@ -140,7 +140,7 @@ spec:
 			err = k8sClient.Update(ctx, obj)
 			Expect(err).To(HaveOccurred())
 		})
-		It("update object - check immutability of BMC IP", func() {
+		It("allows updating the BMC IP", func() {
 			obj := createObj("obj-10", "MT25066004DA")
 			obj.Spec.BMCIP = ptr.To("22.22.22.22")
 			err := k8sClient.Create(ctx, obj)
@@ -153,6 +153,17 @@ spec:
 			objFetched := &provisioningv1.DPUDevice{}
 			Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
 			Expect(*objFetched.Spec.BMCIP).To(Equal("4.4.4.4"))
+		})
+		It("allows assigning a BMC IP after creation", func() {
+			obj := createObj("obj-10-late-bmc-ip", "MT25066004DB")
+			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+			obj.Spec.BMCIP = ptr.To("4.4.4.5")
+			Expect(k8sClient.Update(ctx, obj)).To(Succeed())
+
+			objFetched := &provisioningv1.DPUDevice{}
+			Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
+			Expect(objFetched.Spec.BMCIP).To(Equal(ptr.To("4.4.4.5")))
 		})
 		It("create object with empty Serial Number should fail MinLength=1 validation", func() {
 			// SerialNumber requires MinLength=1 validation. When using Go struct with omitempty,

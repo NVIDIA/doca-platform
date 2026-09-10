@@ -97,6 +97,9 @@ const (
 	// does not chain to the current DPF CA (or fails identity pinning). The controller re-runs
 	// setUpMTLS over basic auth without clearing Initialized.
 	ReasonBMCServerCertificateUntrusted = "BMCServerCertificateUntrusted"
+	// ReasonBMCIPChanged indicates the BMC IP changed and the controller is re-issuing the
+	// IP-bound BMC server certificate before declaring the DPUDevice ready again.
+	ReasonBMCIPChanged = "BMCIPChanged"
 	// ReasonRedfishClientCertStale indicates the controller's Redfish client certificate does not
 	// chain to the current DPF CA. The controller forces cert-manager to reissue it.
 	ReasonRedfishClientCertStale = "RedfishClientCertStale"
@@ -216,6 +219,8 @@ type DPUDeviceSpec struct {
 
 	// BMCIP is the IP address of the BMC (Base Management Controller) on the device.
 	// This is used for remote management and monitoring of the device.
+	// When this value changes, the controller re-establishes secure communication with the BMC
+	// and re-issues the IP-bound BMC server certificate without reprovisioning the DPU.
 	// Example: "10.1.2.3"
 	// +kubebuilder:validation:Format=ipv4
 	// +optional
@@ -319,7 +324,7 @@ type DPUDeviceStatus struct {
 
 	// BMCIP is the IP address of the BMC (Base Management Controller) on the device.
 	// This is used for remote management and monitoring of the device.
-	// This value is discovered and should not be changed once set.
+	// The controller synchronizes this value from spec.bmcIp after reconciling an address change.
 	// Example: "10.1.2.3"
 	// +kubebuilder:validation:Format=ipv4
 	// +optional
@@ -392,6 +397,14 @@ type CertificateStatus struct {
 	// from the issued certificate at rotation time.
 	// +optional
 	NotAfter *metav1.Time `json:"notAfter,omitempty"`
+
+	// IssuedForBMCIP is the BMC address the installed certificate was issued for. When it differs
+	// from status.bmcIp, the identity bound into the certificate no longer matches the address the
+	// controller talks to and the certificate must be re-established. It is empty on devices
+	// provisioned before this field existed; the controller records it on the next successful
+	// rotation or expiry backfill.
+	// +optional
+	IssuedForBMCIP *string `json:"issuedForBMCIP,omitempty"`
 
 	// LastRotationTime is the time DPF last successfully rotated the certificate.
 	// +optional

@@ -160,6 +160,7 @@ automatically rotates it before it expires.
 
 * Each `DPUDevice` tracks its BMC server certificate under `status.bmcServerCertificate`:
     * `notAfter` — the expiry of the currently installed BMC server certificate.
+    * `issuedForBMCIP` — the BMC address the installed certificate is bound to.
     * `lastRotationTime` — when the controller last rotated the certificate.
     * `observedManualTrigger` — the last manual-rotation token the controller has already processed
         (see [Manual rotation](#manual-rotation)).
@@ -176,10 +177,29 @@ automatically rotates it before it expires.
 | Condition status | Reason                               | Meaning                                                                                                        |
 |------------------|--------------------------------------|----------------------------------------------------------------------------------------------------------------|
 | `True`           | `Success`                            | The certificate is installed and outside the renewal window.                                                   |
+| `False`          | `BMCIPChanged`                       | The BMC IP changed and DPF is re-establishing mTLS with a certificate for the new address.                      |
 | `False`          | `BMCServerCertificateRotating`       | A rotation is in progress (a new CSR was generated and the cert-manager `CertificateRequest` is being issued). |
 | `False`          | `BMCServerCertificateRotationFailed` | The last rotation attempt failed; the controller retries automatically.                                        |
 
 No user action is required for automatic rotation.
+
+## BMC IP changes
+
+`DPUDevice.spec.bmcIp` can be updated when DHCP or external inventory assigns a new address to the
+same physical BMC. DPF updates the observed address, removes the immutable cert-manager
+`CertificateRequest` associated with the previous IP, and performs the mTLS bootstrap steps needed
+to issue and install a server certificate for the new IP. Before trusting the new endpoint, DPF
+authenticates with the configured BMC credential and verifies that its serial number matches the
+`DPUDevice`. It does not factory-reset the BMC or reprovision the DPU.
+
+While this recovery is in progress, `Ready` and `BMCServerCertificateReady` are `False`. Automation
+should wait for both conditions to return to `True` before starting another Redfish operation.
+
+Recovery is resumable. `status.bmcServerCertificate.issuedForBMCIP` records the address the installed
+certificate is bound to and is advanced only once a certificate for the new address is installed, so
+a controller restart or a failure part-way through the bootstrap does not leave the DPU stranded with
+a certificate for its old address. The serial-number check is repeated on each attempt, so DPF never
+installs trust on an endpoint it has not confirmed belongs to this DPU.
 
 ## Manual rotation
 
@@ -210,13 +230,10 @@ controller cannot open the mTLS connection needed to request and install a new c
 In this case the controller reports `BMCServerCertificateReady=False` with reason
 `BMCServerCertificateRotationFailed`.
 
-DPF does not automatically re-run bootstrap when this happens because bootstrap uses basic-auth
-access to the BMC. To recover, delete and recreate the affected `DPUDevice` so DPF performs the
-mTLS bootstrap flow again and installs a fresh BMC server certificate.
-
-```bash
-kubectl -n dpf-operator-system delete dpudevice $DPUDEVICE_NAME
-```
+DPF automatically uses the configured BMC credential to re-run the mTLS bootstrap steps without
+clearing the `Initialized` condition. This recovery does not factory-reset the BMC. If recovery
+continues to fail, verify that the BMC is reachable at `spec.bmcIp` and that the configured BMC
+credential is valid.
 
 # SPIFFE Workload Identity
 

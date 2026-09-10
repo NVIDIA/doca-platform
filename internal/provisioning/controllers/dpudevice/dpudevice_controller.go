@@ -226,7 +226,13 @@ func (r *DPUDeviceReconciler) reconcile(ctx context.Context, dpuDevice *provisio
 	dpuInstallInterface := dpfOperatorConfig.Spec.ProvisioningController.InstallInterface
 
 	//nolint:staticcheck // SA1019: InstallViaGNOI is deprecated but still supported for backward compatibility
-	if dpuInstallInterface == nil || dpuInstallInterface.InstallViaHostAgent != nil || dpuInstallInterface.InstallViaGNOI != nil {
+	usesRedfish := dpuInstallInterface != nil && dpuInstallInterface.InstallViaHostAgent == nil && dpuInstallInterface.InstallViaGNOI == nil
+	skipHWProvisioning := dpuDevice.Labels[provisioningv1.DPUDeviceLabelSkipHWProvisioning] == labelValueTrue
+
+	// copy spec IP/Port to status but keep certificate lifecycle off devices that skipHWProvisioning
+	syncObservedBMCAddress(dpuDevice, usesRedfish && !skipHWProvisioning)
+
+	if !usesRedfish {
 		conditions.AddTrue(dpuDevice, provisioningv1.ConditionDpuDeviceDiscovered)
 		conditions.AddTrue(dpuDevice, provisioningv1.ConditionDpuDeviceReady)
 		setDPUDeviceLabels(dpuDevice)
@@ -235,14 +241,7 @@ func (r *DPUDeviceReconciler) reconcile(ctx context.Context, dpuDevice *provisio
 
 	// Redfish install interface
 
-	if dpuDevice.Spec.BMCIP != nil {
-		dpuDevice.Status.BMCIP = dpuDevice.Spec.BMCIP
-	}
-	if dpuDevice.Spec.BMCPort != nil {
-		dpuDevice.Status.BMCPort = dpuDevice.Spec.BMCPort
-	}
-
-	if dpuDevice.Labels[provisioningv1.DPUDeviceLabelSkipHWProvisioning] == labelValueTrue {
+	if skipHWProvisioning {
 		// until redfish support is implemented, skip hardware provisioning
 		log.Info("skip-hw-provisioning label set - skipping DPUDevice initialization and discovery")
 		conditions.AddTrue(dpuDevice, provisioningv1.ConditionDpuDeviceInitialized)
@@ -262,6 +261,11 @@ func (r *DPUDeviceReconciler) reconcile(ctx context.Context, dpuDevice *provisio
 		return ctrl.Result{}, err
 	}
 
+	bmcCertAddressStale, err := r.reconcileBMCIPChange(ctx, dpuDevice)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
 	// Check for disallowed mode switch (per-device → shared)
 	if !r.isModeSwitchAllowed(dpuDevice) {
 		conditions.AddFalse(dpuDevice, provisioningv1.ConditionBMCCredentialsReady,
@@ -274,28 +278,12 @@ func (r *DPUDeviceReconciler) reconcile(ctx context.Context, dpuDevice *provisio
 		return result, err
 	}
 
-	condition := conditions.Get(dpuDevice, provisioningv1.ConditionDpuDeviceInitialized)
-	if condition == nil || condition.Status == metav1.ConditionFalse {
-		if err := r.initializeDPUDevice(ctx, dpuDevice); err != nil {
-			log.Error(err, "Failed to initialize DPUDevice")
-			conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceInitialized,
-				conditions.ReasonError,
-				conditions.ConditionMessage(err.Error()))
-			return ctrl.Result{}, err
-		}
-
-		condition = conditions.Get(dpuDevice, provisioningv1.ConditionDpuDeviceInitialized)
-		if condition == nil || condition.Status == metav1.ConditionFalse {
-			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
-		}
-	} else {
-		if _, err := r.resolveAndAuthenticateBMC(ctx, dpuDevice, dpuDevice.BMCAddress(), true); err != nil {
-			log.Error(err, "Failed to reconcile BMC credentials")
-			return ctrl.Result{}, err
-		}
+	result, stop, err := r.ensureDPUDeviceInitialized(ctx, dpuDevice, bmcCertAddressStale, dpfOperatorConfig)
+	if stop || err != nil {
+		return result, err
 	}
 
-	condition = conditions.Get(dpuDevice, provisioningv1.ConditionDpuDeviceDiscovered)
+	condition := conditions.Get(dpuDevice, provisioningv1.ConditionDpuDeviceDiscovered)
 	if condition == nil || condition.Status == metav1.ConditionFalse {
 		err = r.discoverDPUDevice(ctx, dpuDevice)
 		if err != nil {
@@ -319,6 +307,12 @@ func (r *DPUDeviceReconciler) reconcile(ctx context.Context, dpuDevice *provisio
 	// Skip the success log when the server-certificate rotation is still in progress or has failed
 	// (without a returned error, e.g. a backoff requeue).
 	if cond := conditions.Get(dpuDevice, provisioningv1.ConditionDpuDeviceBMCServerCertificateReady); cond != nil && cond.Status != metav1.ConditionTrue {
+		// BMC IP change makes the configured endpoint unusable so DPUDevice is not ready anymore.
+		if bmcCertAddressStale {
+			conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceReady,
+				conditions.ConditionReason(cond.Reason),
+				conditions.ConditionMessage(cond.Message))
+		}
 		return result, nil
 	}
 
@@ -336,6 +330,190 @@ func (r *DPUDeviceReconciler) reconcile(ctx context.Context, dpuDevice *provisio
 
 	log.Info("DPUDevice reconciled successfully", "dpuDevice", dpuDevice.Name)
 	return result, nil
+}
+
+// ensureDPUDeviceInitialized initializes the BMC, or only recovers its IP-bound certificate when an
+// already-initialized device changes address. stop tells the caller to return the supplied result.
+func (r *DPUDeviceReconciler) ensureDPUDeviceInitialized(ctx context.Context, dpuDevice *provisioningv1.DPUDevice, bmcCertAddressStale bool, dpfOperatorConfig *operatorv1.DPFOperatorConfig) (ctrl.Result, bool, error) {
+	log := log.FromContext(ctx)
+	condition := conditions.Get(dpuDevice, provisioningv1.ConditionDpuDeviceInitialized)
+
+	// If DPUDevice is already initialized and BMC cert is stale, only rotate cert
+	if bmcCertAddressStale && condition != nil && condition.Status == metav1.ConditionTrue {
+		result, err := r.reconcileServerCertRotation(ctx, dpuDevice, bmcServerCertRenewBefore(dpfOperatorConfig))
+		return result, true, err
+	}
+	if condition == nil || condition.Status == metav1.ConditionFalse {
+		if err := r.initializeDPUDevice(ctx, dpuDevice); err != nil {
+			log.Error(err, "Failed to initialize DPUDevice")
+			conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceInitialized,
+				conditions.ReasonError,
+				conditions.ConditionMessage(err.Error()))
+			return ctrl.Result{}, true, err
+		}
+
+		condition = conditions.Get(dpuDevice, provisioningv1.ConditionDpuDeviceInitialized)
+		if condition == nil || condition.Status == metav1.ConditionFalse {
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, true, nil
+		}
+		return ctrl.Result{}, false, nil
+	}
+
+	if _, err := r.resolveAndAuthenticateBMC(ctx, dpuDevice, dpuDevice.BMCAddress(), true); err != nil {
+		log.Error(err, "Failed to reconcile BMC credentials")
+		return ctrl.Result{}, true, err
+	}
+	return ctrl.Result{}, false, nil
+}
+
+// syncObservedBMCAddress copies the desired BMC address into status. For Redfish devices managed by
+// the certificate lifecycle, an address change also records the address the installed certificate
+// is still bound to in the same patch, so pending mTLS recovery remains observable.
+func syncObservedBMCAddress(dpuDevice *provisioningv1.DPUDevice, trackServerCertificate bool) {
+	bmcIPChanged := dpuDevice.Spec.BMCIP != nil &&
+		dpuDevice.Status.BMCIP != nil &&
+		*dpuDevice.Spec.BMCIP != *dpuDevice.Status.BMCIP
+	if bmcIPChanged && trackServerCertificate {
+		oldBMCIP := *dpuDevice.Status.BMCIP
+		if dpuDevice.Status.BMCServerCertificate == nil {
+			dpuDevice.Status.BMCServerCertificate = &provisioningv1.CertificateStatus{}
+		}
+		if dpuDevice.Status.BMCServerCertificate.IssuedForBMCIP == nil {
+			dpuDevice.Status.BMCServerCertificate.IssuedForBMCIP = ptr.To(oldBMCIP)
+		}
+	}
+	if dpuDevice.Spec.BMCIP != nil {
+		dpuDevice.Status.BMCIP = ptr.To(*dpuDevice.Spec.BMCIP)
+	}
+	if dpuDevice.Spec.BMCPort != nil {
+		dpuDevice.Status.BMCPort = ptr.To(*dpuDevice.Spec.BMCPort)
+	}
+}
+
+// reconcileBMCIPChange verifies the BMC at the current address when the IP-bound certificate is
+// stale. The first pass after an address change verifies the new endpoint and invalidates the
+// previous certificate state; later reconciles preserve the in-flight CertificateRequest.
+func (r *DPUDeviceReconciler) reconcileBMCIPChange(ctx context.Context, dpuDevice *provisioningv1.DPUDevice) (bool, error) {
+	if !bmcServerCertAddressStale(dpuDevice) {
+		return false, nil
+	}
+
+	if bmcServerCertNeedsInvalidation(dpuDevice) {
+		oldBMCIP := *dpuDevice.Status.BMCServerCertificate.IssuedForBMCIP
+		if err := r.invalidateBMCAddress(ctx, dpuDevice, oldBMCIP); err != nil {
+			// revert status.bmcIp so reconciliation retries after connectivity issue is corrected.
+			dpuDevice.Status.BMCIP = ptr.To(oldBMCIP)
+			conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceReady,
+				conditions.ConditionReason(provisioningv1.ReasonBMCIPChanged),
+				conditions.ConditionMessage(err.Error()))
+			return false, err
+		}
+		return true, nil
+	}
+
+	return true, nil
+}
+
+// bmcServerCertNeedsInvalidation reports whether certificate state tied to the previous address is
+// still in place. After invalidateBMCAddress the BMC IP label matches status.bmcIp and NotAfter is
+// cleared, so later stale reconciles skip the CertificateRequest delete.
+func bmcServerCertNeedsInvalidation(dpuDevice *provisioningv1.DPUDevice) bool {
+	if dpuDevice.Status.BMCIP == nil {
+		return false
+	}
+	if dpuDevice.Status.BMCServerCertificate != nil && dpuDevice.Status.BMCServerCertificate.NotAfter != nil {
+		return true
+	}
+	return dpuDevice.Labels[cutil.DPUDeviceBMCIPLabel] != *dpuDevice.Status.BMCIP
+}
+
+// invalidateBMCAddress invalidates state tied to the previous BMC network identity. It deliberately
+// does not clear Initialized: re-entering full device initialization can update firmware or
+// factory-reset the BMC, neither of which is required for an address-only change.
+func (r *DPUDeviceReconciler) invalidateBMCAddress(ctx context.Context, dpuDevice *provisioningv1.DPUDevice, oldBMCIP string) error {
+	newBMCIP := *dpuDevice.Status.BMCIP
+	if err := r.confirmSameDPU(ctx, dpuDevice); err != nil {
+		return fmt.Errorf("refusing BMC IP change from %s to %s: %w", oldBMCIP, newBMCIP, err)
+	}
+
+	log.FromContext(ctx).Info("BMC IP changed; re-establishing BMC mTLS identity",
+		"oldBMCIP", oldBMCIP,
+		"newBMCIP", newBMCIP)
+
+	dpuDevice.Labels[cutil.DPUDeviceBMCIPLabel] = newBMCIP
+	if dpuDevice.Status.BMCServerCertificate == nil {
+		dpuDevice.Status.BMCServerCertificate = &provisioningv1.CertificateStatus{}
+	}
+	// The recorded expiry belongs to the certificate issued for the previous IP.
+	dpuDevice.Status.BMCServerCertificate.NotAfter = nil
+
+	message := fmt.Sprintf("BMC IP changed from %s to %s; re-establishing secure BMC communication", oldBMCIP, newBMCIP)
+	conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceBMCServerCertificateReady,
+		conditions.ConditionReason(provisioningv1.ReasonBMCIPChanged),
+		conditions.ConditionMessage(message))
+	conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceReady,
+		conditions.ConditionReason(provisioningv1.ReasonBMCIPChanged),
+		conditions.ConditionMessage(message))
+
+	// CertificateRequests are immutable and named deterministically per DPUDevice. Remove the
+	// request for the old IP so setUpMTLS generates a fresh CSR against the BMC at the new address.
+	cr := &unstructured.Unstructured{}
+	cr.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   certManagerGroup,
+		Version: "v1",
+		Kind:    "CertificateRequest",
+	})
+	cr.SetName(cutil.GenerateBMCServerCertRequestName(dpuDevice.Name))
+	cr.SetNamespace(dpuDevice.Namespace)
+	if err := r.Client.Delete(ctx, cr); err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("failed to delete BMC server CertificateRequest after BMC IP change: %w", err)
+	}
+	return nil
+}
+
+// recordServerCertAddress records the address the newly installed BMC server certificate is bound
+// to. It is what lets a later address change stay observable until recovery actually completes.
+func recordServerCertAddress(dpuDevice *provisioningv1.DPUDevice) {
+	if dpuDevice.Status.BMCIP == nil || dpuDevice.Status.BMCServerCertificate == nil {
+		return
+	}
+	dpuDevice.Status.BMCServerCertificate.IssuedForBMCIP = ptr.To(*dpuDevice.Status.BMCIP)
+}
+
+// bmcServerCertAddressStale reports whether the installed BMC server certificate was issued for an
+// address other than the one the controller now uses. A nil BMCServerCertificate or a missing
+// issuedForBMCIP is not stale: that is the upgrade path for devices provisioned before the field
+// existed, and treating emptiness as stale would rotate the whole fleet.
+func bmcServerCertAddressStale(dpuDevice *provisioningv1.DPUDevice) bool {
+	if dpuDevice.Status.BMCIP == nil ||
+		dpuDevice.Status.BMCServerCertificate == nil ||
+		dpuDevice.Status.BMCServerCertificate.IssuedForBMCIP == nil {
+		return false
+	}
+	return *dpuDevice.Status.BMCServerCertificate.IssuedForBMCIP != *dpuDevice.Status.BMCIP
+}
+
+// confirmSameDPU confirms that the proposed BMC address still identifies the physical DPU
+// represented by this DPUDevice. The auth uses the status.bmcIP (copied from new IP -
+// spec.IP) to match serial number.
+func (r *DPUDeviceReconciler) confirmSameDPU(ctx context.Context, dpuDevice *provisioningv1.DPUDevice) error {
+	// Use basic auth because the new address does not yet have a server certificate.
+	basicAuthClient, err := r.basicAuthClientForRecovery(ctx, dpuDevice)
+	if err != nil {
+		return fmt.Errorf("failed to authenticate to BMC at the new address: %w", err)
+	}
+
+	resp, chassisInfo, err := basicAuthClient.GetChassis()
+	if err != nil {
+		return fmt.Errorf("failed to read BMC chassis identity: %w (response: %s)", err, rfclient.RespBody(resp))
+	}
+	if chassisInfo.SerialNumber == "" {
+		return fmt.Errorf("BMC returned an empty serial number")
+	}
+	if chassisInfo.SerialNumber != dpuDevice.Spec.SerialNumber {
+		return fmt.Errorf("serial number mismatch, expected %s, got %s", dpuDevice.Spec.SerialNumber, chassisInfo.SerialNumber)
+	}
+	return nil
 }
 
 // soonestRequeue returns the result requesting the earliest requeue. A zero RequeueAfter means no
@@ -1393,6 +1571,7 @@ func (r *DPUDeviceReconciler) reconcileServerCertRotation(ctx context.Context, d
 
 	serverCertStatus.NotAfter = issuedNotAfter
 	serverCertStatus.LastRotationTime = ptr.To(metav1.Now())
+	recordServerCertAddress(dpuDevice)
 	if manualRequested {
 		serverCertStatus.ObservedManualTrigger = ptr.To(manualTrigger)
 	}
@@ -1510,7 +1689,10 @@ func (r *DPUDeviceReconciler) backfillServerCertExpiry(ctx context.Context, dpuD
 		return false, ctrl.Result{}
 	}
 
+	// The certificate was read over a connection whose identity was already pinned to the current
+	// address, so it is by construction the address this certificate is bound to.
 	dpuDevice.Status.BMCServerCertificate.NotAfter = &metav1.Time{Time: notAfter}
+	recordServerCertAddress(dpuDevice)
 	log.Info("backfilled BMC server certificate expiry", "notAfter", notAfter)
 
 	// Already within the renew window: let the caller fall through to a rotation.

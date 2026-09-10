@@ -1470,6 +1470,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			cond := findCondition(dpuDevice, string(provisioningv1.ConditionBMCCredentialsReady))
 			Expect(cond).NotTo(BeNil())
 			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceReady)).Status).To(Equal(metav1.ConditionTrue))
 		})
 
 		It("should recover BMCCredentialsReady after ModeSwitchNotAllowed is resolved", func() {
@@ -2799,6 +2800,214 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 		})
 	})
 
+	Context("syncObservedBMCAddress", func() {
+		newDevice := func(specIP, statusIP string, certStatus *provisioningv1.CertificateStatus) *provisioningv1.DPUDevice {
+			return &provisioningv1.DPUDevice{
+				Spec: provisioningv1.DPUDeviceSpec{BMCIP: ptr.To(specIP)},
+				Status: provisioningv1.DPUDeviceStatus{
+					BMCIP:                ptr.To(statusIP),
+					BMCServerCertificate: certStatus,
+				},
+			}
+		}
+
+		It("pins the previous address in the same pass that advances the observed address", func() {
+			dpuDevice := newDevice("192.0.2.20", "192.0.2.10", nil)
+
+			syncObservedBMCAddress(dpuDevice, true)
+
+			Expect(dpuDevice.Status.BMCIP).To(HaveValue(Equal("192.0.2.20")))
+			// Both writes land in one patch, so a reconcile that ends here still leaves the pending
+			// recovery visible rather than looking like nothing changed.
+			Expect(dpuDevice.Status.BMCServerCertificate.IssuedForBMCIP).To(HaveValue(Equal("192.0.2.10")))
+			Expect(bmcServerCertAddressStale(dpuDevice)).To(BeTrue())
+		})
+
+		It("keeps an already recorded issuing address so repeated changes stay detectable", func() {
+			dpuDevice := newDevice("192.0.2.30", "192.0.2.20", &provisioningv1.CertificateStatus{
+				IssuedForBMCIP: ptr.To("192.0.2.10"),
+			})
+
+			syncObservedBMCAddress(dpuDevice, true)
+
+			Expect(dpuDevice.Status.BMCIP).To(HaveValue(Equal("192.0.2.30")))
+			Expect(dpuDevice.Status.BMCServerCertificate.IssuedForBMCIP).To(HaveValue(Equal("192.0.2.10")))
+			Expect(bmcServerCertAddressStale(dpuDevice)).To(BeTrue())
+		})
+
+		It("records nothing when the address is unchanged", func() {
+			dpuDevice := newDevice("192.0.2.10", "192.0.2.10", nil)
+
+			syncObservedBMCAddress(dpuDevice, true)
+
+			Expect(dpuDevice.Status.BMCIP).To(HaveValue(Equal("192.0.2.10")))
+			Expect(dpuDevice.Status.BMCServerCertificate).To(BeNil())
+			Expect(bmcServerCertAddressStale(dpuDevice)).To(BeFalse())
+		})
+
+		It("does not track certificate state for a non-Redfish device", func() {
+			dpuDevice := newDevice("192.0.2.20", "192.0.2.10", nil)
+
+			syncObservedBMCAddress(dpuDevice, false)
+
+			Expect(dpuDevice.Status.BMCIP).To(HaveValue(Equal("192.0.2.20")))
+			Expect(dpuDevice.Status.BMCServerCertificate).To(BeNil())
+		})
+	})
+
+	Context("bmcServerCertAddressStale", func() {
+		newDevice := func(certStatus *provisioningv1.CertificateStatus) *provisioningv1.DPUDevice {
+			return &provisioningv1.DPUDevice{
+				Status: provisioningv1.DPUDeviceStatus{
+					BMCIP:                ptr.To("192.0.2.20"),
+					BMCServerCertificate: certStatus,
+				},
+			}
+		}
+
+		It("reports stale when the certificate was issued for another address", func() {
+			Expect(bmcServerCertAddressStale(newDevice(&provisioningv1.CertificateStatus{
+				IssuedForBMCIP: ptr.To("192.0.2.10"),
+			}))).To(BeTrue())
+		})
+
+		It("reports current when the certificate matches the address in use", func() {
+			Expect(bmcServerCertAddressStale(newDevice(&provisioningv1.CertificateStatus{
+				IssuedForBMCIP: ptr.To("192.0.2.20"),
+			}))).To(BeFalse())
+		})
+
+		It("does not report stale for devices provisioned before the field existed", func() {
+			Expect(bmcServerCertAddressStale(newDevice(&provisioningv1.CertificateStatus{}))).To(BeFalse())
+			Expect(bmcServerCertAddressStale(newDevice(nil))).To(BeFalse())
+		})
+	})
+
+	Context("bmcServerCertNeedsInvalidation", func() {
+		It("is true while the previous certificate expiry is still recorded", func() {
+			dpuDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{cutil.DPUDeviceBMCIPLabel: "192.0.2.20"}},
+				Status: provisioningv1.DPUDeviceStatus{
+					BMCIP: ptr.To("192.0.2.20"),
+					BMCServerCertificate: &provisioningv1.CertificateStatus{
+						NotAfter:       &metav1.Time{Time: time.Now().Add(24 * time.Hour)},
+						IssuedForBMCIP: ptr.To("192.0.2.10"),
+					},
+				},
+			}
+			Expect(bmcServerCertNeedsInvalidation(dpuDevice)).To(BeTrue())
+		})
+
+		It("is true while the BMC IP label still names the previous address", func() {
+			dpuDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{cutil.DPUDeviceBMCIPLabel: "192.0.2.10"}},
+				Status: provisioningv1.DPUDeviceStatus{
+					BMCIP: ptr.To("192.0.2.20"),
+					BMCServerCertificate: &provisioningv1.CertificateStatus{
+						IssuedForBMCIP: ptr.To("192.0.2.10"),
+					},
+				},
+			}
+			Expect(bmcServerCertNeedsInvalidation(dpuDevice)).To(BeTrue())
+		})
+
+		It("is false after invalidation has been recorded", func() {
+			dpuDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{cutil.DPUDeviceBMCIPLabel: "192.0.2.20"}},
+				Status: provisioningv1.DPUDeviceStatus{
+					BMCIP: ptr.To("192.0.2.20"),
+					BMCServerCertificate: &provisioningv1.CertificateStatus{
+						IssuedForBMCIP: ptr.To("192.0.2.10"),
+					},
+				},
+			}
+			Expect(bmcServerCertNeedsInvalidation(dpuDevice)).To(BeFalse())
+		})
+	})
+
+	Context("prepareForBMCIPChange", func() {
+		It("invalidates the old certificate state without clearing initialization", func() {
+			ctx := context.Background()
+			mockServer, reconciler := setupDiscoveryTest()
+			defer mockServer.Stop()
+
+			dpuDevice := createTestDPUDevice(mockServer, "test-dpudevice-ip-change")
+			dpuDevice.UID = types.UID("test-dpudevice-ip-change")
+			dpuDevice.Labels = map[string]string{}
+			newBMCIP := *dpuDevice.Status.BMCIP
+			oldBMCIP := "192.0.2.10"
+			Expect(newBMCIP).NotTo(Equal(oldBMCIP))
+
+			// syncObservedBMCAddress has already advanced status.bmcIp and pinned issuedForBMCIP to
+			// the address the installed certificate still belongs to.
+			dpuDevice.Status.BMCServerCertificate = &provisioningv1.CertificateStatus{
+				NotAfter:       &metav1.Time{Time: time.Now().Add(200 * 24 * time.Hour)},
+				IssuedForBMCIP: ptr.To(oldBMCIP),
+			}
+			dpuDevice.Status.Conditions = []metav1.Condition{{
+				Type:   string(provisioningv1.ConditionDpuDeviceInitialized),
+				Status: metav1.ConditionTrue,
+				Reason: "Success",
+			}}
+
+			Expect(reconciler.createServerCertCR(ctx, dpuDevice, "old-ip-csr")).To(Succeed())
+			Expect(reconciler.invalidateBMCAddress(ctx, dpuDevice, oldBMCIP)).To(Succeed())
+
+			Expect(dpuDevice.Labels[cutil.DPUDeviceBMCIPLabel]).To(Equal(newBMCIP))
+			Expect(dpuDevice.Status.BMCServerCertificate.NotAfter).To(BeNil())
+			Expect(findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceInitialized)).Status).To(Equal(metav1.ConditionTrue))
+
+			// The pending recovery stays observable once spec and status agree again, so a reconcile
+			// that no longer sees an address diff still routes to certificate recovery.
+			Expect(dpuDevice.Status.BMCServerCertificate.IssuedForBMCIP).To(HaveValue(Equal(oldBMCIP)))
+			Expect(bmcServerCertAddressStale(dpuDevice)).To(BeTrue())
+
+			certCond := findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceBMCServerCertificateReady))
+			Expect(certCond).NotTo(BeNil())
+			Expect(certCond.Status).To(Equal(metav1.ConditionFalse))
+			Expect(certCond.Reason).To(Equal(provisioningv1.ReasonBMCIPChanged))
+
+			readyCond := findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceReady))
+			Expect(readyCond).NotTo(BeNil())
+			Expect(readyCond.Status).To(Equal(metav1.ConditionFalse))
+			Expect(readyCond.Reason).To(Equal(provisioningv1.ReasonBMCIPChanged))
+
+			cr := &unstructured.Unstructured{}
+			cr.SetGroupVersionKind(crGVK())
+			err := reconciler.Client.Get(ctx, types.NamespacedName{
+				Name:      cutil.GenerateBMCServerCertRequestName(dpuDevice.Name),
+				Namespace: dpuDevice.Namespace,
+			}, cr)
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		})
+
+		It("rejects an address that belongs to a different DPU", func() {
+			ctx := context.Background()
+			mockServer, reconciler := setupDiscoveryTest()
+			defer mockServer.Stop()
+
+			dpuDevice := createTestDPUDevice(mockServer, "test-dpudevice-ip-mismatch")
+			dpuDevice.Spec.SerialNumber = "different-serial-number"
+			dpuDevice.Labels = map[string]string{}
+			dpuDevice.Status.BMCServerCertificate = &provisioningv1.CertificateStatus{
+				NotAfter: &metav1.Time{Time: time.Now().Add(200 * 24 * time.Hour)},
+			}
+			Expect(reconciler.createServerCertCR(ctx, dpuDevice, "old-ip-csr")).To(Succeed())
+
+			err := reconciler.invalidateBMCAddress(ctx, dpuDevice, "192.0.2.10")
+			Expect(err).To(MatchError(ContainSubstring("serial number mismatch")))
+			Expect(dpuDevice.Status.BMCServerCertificate.NotAfter).NotTo(BeNil())
+			Expect(dpuDevice.Labels).NotTo(HaveKey(cutil.DPUDeviceBMCIPLabel))
+
+			cr := &unstructured.Unstructured{}
+			cr.SetGroupVersionKind(crGVK())
+			Expect(reconciler.Client.Get(ctx, types.NamespacedName{
+				Name:      cutil.GenerateBMCServerCertRequestName(dpuDevice.Name),
+				Namespace: dpuDevice.Namespace,
+			}, cr)).To(Succeed())
+		})
+	})
+
 	Context("setUpMTLS server-cert self-heal", func() {
 		var ctx context.Context
 
@@ -3043,9 +3252,19 @@ func setupDiscoveryTest() (*mock.RedfishMockServer, *DPUDeviceReconciler) {
 		},
 	}
 
+	bmcPasswordSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      rfclient.BMCPasswordSecret,
+			Namespace: testNamespace,
+		},
+		Data: map[string][]byte{
+			"password": []byte("testpassword"),
+		},
+	}
+
 	fakeClient := fake.NewClientBuilder().
 		WithScheme(scheme).
-		WithObjects(caSecret, clientSecret, clientSecretBF4).
+		WithObjects(caSecret, clientSecret, clientSecretBF4, bmcPasswordSecret).
 		Build()
 
 	reconciler := &DPUDeviceReconciler{
