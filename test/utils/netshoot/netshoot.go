@@ -133,6 +133,18 @@ const (
 	// Defines the timeout for the EXEC command to complete
 	DefaultExecTimeout = 2 * time.Minute
 
+	// pingAttemptTimeout bounds a single ping exec attempt. It must stay well below pingRetryTimeout so a
+	// hung attempt (e.g. exec-ing through a port-forward tunnel that is being torn down and rebuilt) fails
+	// fast enough to leave room for further attempts within the outer retry window, instead of consuming
+	// the whole budget on one stuck call.
+	pingAttemptTimeout = 10 * time.Second
+
+	// pingRetryTimeout bounds the outer ping retry loop. It must comfortably exceed the time the background
+	// tunnel health-check goroutine can take to detect a broken tunnel and rebuild the client (up to the 3
+	// minute budget used by getDPUClusterClient in test/e2e/system_setup.go), so a transient port-forward
+	// failure has a chance to recover and retry with the refreshed client before the assertion gives up.
+	pingRetryTimeout = 4 * time.Minute
+
 	pingTotalHeaderSize = 20 + 8 // IP Header + ICMP Header
 )
 
@@ -520,11 +532,11 @@ func GetPodIP(ctx context.Context, testClient client.Client, namespace, podName 
 }
 
 func startIperf3Server(restClient **rest.RESTClient, restConfig **rest.Config, namespace string, podName string) {
-	execCommandEventually(restClient, restConfig, namespace, podName, []string{"iperf3", "-s", "-D"}, 30*time.Second, DefaultExecTimeout, DefaultErrorParser)
+	execCommandEventually(restClient, restConfig, namespace, podName, []string{"iperf3", "-s", "-D"}, 30*time.Second, WithExecTimeout(5*time.Second))
 }
 
 func stopIperf3Server(restClient **rest.RESTClient, restConfig **rest.Config, namespace string, podName string) {
-	execCommandEventually(restClient, restConfig, namespace, podName, []string{"pkill", "iperf3"}, 30*time.Second, DefaultExecTimeout, DefaultErrorParser)
+	execCommandEventually(restClient, restConfig, namespace, podName, []string{"pkill", "iperf3"}, 30*time.Second, WithExecTimeout(5*time.Second))
 }
 
 func startRDMAServer(restClient **rest.RESTClient, restConfig **rest.Config, namespace string, podName string) {
@@ -532,33 +544,33 @@ func startRDMAServer(restClient **rest.RESTClient, restConfig **rest.Config, nam
 	// keep the process running after the first client has finished the test.
 	// The timeout here needs to be higher than 30 because in case the client used is tunneled, and is broken, it has an
 	// internal timeout of 30s to re-create itself.
-	execCommandEventually(restClient, restConfig, namespace, podName, []string{"bash", "-c", "nohup bash -c 'while true; do ib_write_bw; done' >/dev/null 2>&1 < /dev/null & exit"}, 120*time.Second, 5*time.Second, DefaultErrorParser)
+	execCommandEventually(restClient, restConfig, namespace, podName, []string{"bash", "-c", "nohup bash -c 'while true; do ib_write_bw; done' >/dev/null 2>&1 < /dev/null & exit"}, 120*time.Second, WithExecTimeout(5*time.Second))
 }
 
 func stopRDMAServer(restClient **rest.RESTClient, restConfig **rest.Config, namespace string, podName string) {
 	// The timeout here needs to be higher than 30 because in case the client used is tunneled, and is broken, it has an
 	// internal timeout of 30s to re-create itself.
-	execCommandEventually(restClient, restConfig, namespace, podName, []string{"pkill", "bash"}, 120*time.Second, 5*time.Second, DefaultErrorParser)
+	execCommandEventually(restClient, restConfig, namespace, podName, []string{"pkill", "bash"}, 120*time.Second, WithExecTimeout(5*time.Second))
 	// The timeout here needs to be higher than 30 because in case the client used is tunneled, and is broken, it has an
 	// internal timeout of 30s to re-create itself.
-	execCommandEventually(restClient, restConfig, namespace, podName, []string{"pkill", "ib_write_bw"}, 120*time.Second, 5*time.Second, DefaultErrorParser)
+	execCommandEventually(restClient, restConfig, namespace, podName, []string{"pkill", "ib_write_bw"}, 120*time.Second, WithExecTimeout(5*time.Second))
 }
 
 func runRDMAClient(restClient **rest.RESTClient, restConfig **rest.Config, namespace string, podName string, serverIP string) string {
 	fileName := fmt.Sprintf("ib_write_bw-result-%s", utilrand.String(6))
 	// The timeout here needs to be higher than 30 because in case the client used is tunneled, and is broken, it has an
 	// internal timeout of 30s to re-create itself.
-	execCommandEventually(restClient, restConfig, namespace, podName, []string{"ib_write_bw", serverIP, "--report_gbit", "--out_json", fmt.Sprintf("--out_json_file=%s", fileName)}, 120*time.Second, 5*time.Second, DefaultErrorParser)
-	output := execCommandEventually(restClient, restConfig, namespace, podName, []string{"cat", fileName}, 120*time.Second, 5*time.Second, DefaultErrorParser)
+	execCommandEventually(restClient, restConfig, namespace, podName, []string{"ib_write_bw", serverIP, "--report_gbit", "--out_json", fmt.Sprintf("--out_json_file=%s", fileName)}, 120*time.Second, WithExecTimeout(5*time.Second))
+	output := execCommandEventually(restClient, restConfig, namespace, podName, []string{"cat", fileName}, 120*time.Second, WithExecTimeout(5*time.Second))
 	return output
 }
 
 func runIperf3Client(restClient **rest.RESTClient, restConfig **rest.Config, namespace string, podName string, iperf3ServerIP string) string {
-	return execCommandEventually(restClient, restConfig, namespace, podName, []string{"iperf3", "-c", iperf3ServerIP, "-J"}, 500*time.Second, DefaultExecTimeout, IperfErrorParser)
+	return execCommandEventually(restClient, restConfig, namespace, podName, []string{"iperf3", "-c", iperf3ServerIP, "-J"}, 500*time.Second, WithErrorParser(IperfErrorParser))
 }
 
 func runIperf3ClientReverse(restClient **rest.RESTClient, restConfig **rest.Config, namespace string, podName string, iperf3ServerIP string) string {
-	return execCommandEventually(restClient, restConfig, namespace, podName, []string{"iperf3", "-c", iperf3ServerIP, "-R", "-J"}, 500*time.Second, DefaultExecTimeout, IperfErrorParser)
+	return execCommandEventually(restClient, restConfig, namespace, podName, []string{"iperf3", "-c", iperf3ServerIP, "-R", "-J"}, 500*time.Second, WithErrorParser(IperfErrorParser))
 }
 
 // parseIperfResult unmarshals iperf3 --json output into an IperfResult and validates that connection
@@ -612,10 +624,16 @@ func AnalyzeIBWriteBWResult(output string, minAvg float32) {
 		"ib_write_bw average %.2f Gbit/sec is not above threshold %.2f Gbit/sec", *result.Results.BWAverage, minAvg)
 }
 
-// execCommandEventually executes a command on a pod repeatedly until it succeeds or the timeout is reached
-// The execTimeout parameter specifies how long each individual command execution can take
-func execCommandEventually(restClient **rest.RESTClient, config **rest.Config, namespace string, podName string, command []string, timeout time.Duration, execTimeout time.Duration, errorParser ErrorParserFunc) string {
-	fmt.Printf("Executing command %v on pod '%s' in namespace '%s' (timeout: %v, exec timeout: %v)\n", command, podName, namespace, timeout, execTimeout)
+// execCommandEventually executes a command on a pod repeatedly until it succeeds or the timeout is reached.
+// opts tune each individual attempt, see WithExecTimeout and WithErrorParser in particular.
+func execCommandEventually(restClient **rest.RESTClient, config **rest.Config, namespace string, podName string, command []string, timeout time.Duration, opts ...ExecOption) string {
+	o := newExecOptions(opts...)
+	fmt.Printf("Executing command %v on pod '%s' in namespace '%s' (timeout: %v, exec timeout: %v)\n", command, podName, namespace, timeout, o.execTimeout)
+	if o.execTimeout > timeout {
+		// A single stuck attempt (e.g. a broken port-forward tunnel) can then block for longer than the
+		// whole retry budget, leaving no room for a retry against a freshly recreated client.
+		fmt.Printf("WARNING: execTimeout (%v) is greater than timeout (%v); a single attempt may consume the entire retry budget\n", o.execTimeout, timeout)
+	}
 
 	var output string
 	var attemptCount int
@@ -626,7 +644,7 @@ func execCommandEventually(restClient **rest.RESTClient, config **rest.Config, n
 		// We pass the value of the pointer and not the pointer to the pointer to avoid race conditions with pointers
 		// being updated while execution happens. Assuming this function is wrapped in an Eventually, in case of an
 		// error, the next run should pass the up to date pointer and work as expected.
-		output, err = executeCommandOnce(*restClient, *config, namespace, podName, "", command, nil, errorParser)
+		output, err = executeCommandOnce(*restClient, *config, namespace, podName, command, opts...)
 		if err != nil {
 			fmt.Printf("Attempt %d failed, retrying in 5 seconds...\n", attemptCount)
 		}
@@ -636,12 +654,13 @@ func execCommandEventually(restClient **rest.RESTClient, config **rest.Config, n
 	return output
 }
 
-// execCommandFailConsistently executes a command on a pod repeatedly, expecting it to fail, until it unexpectly succeeds or the timeout is reached
-func execCommandFailConsistently(restClient *rest.RESTClient, config *rest.Config, namespace string, podName string, command []string, expectFailure error, timeout time.Duration, errorParser ErrorParserFunc) {
+// execCommandFailConsistently executes a command on a pod repeatedly, expecting it to fail, until it
+// unexpectly succeeds or the timeout is reached. opts tune each individual attempt.
+func execCommandFailConsistently(restClient *rest.RESTClient, config *rest.Config, namespace string, podName string, command []string, expectFailure error, timeout time.Duration, opts ...ExecOption) {
 	fmt.Printf("Executing command %v on pod '%s' in namespace '%s' (timeout: %v) - expecting failure\n", command, podName, namespace, timeout)
 
 	Consistently(func(g Gomega) {
-		_, err := executeCommandOnce(restClient, config, namespace, podName, "", command, nil, errorParser)
+		_, err := executeCommandOnce(restClient, config, namespace, podName, command, opts...)
 		g.Expect(err).To(HaveOccurred(), "command %v should consistently fail", command)
 		g.Expect(errors.Is(err, expectFailure)).To(BeTrue(), "command %v should fail with %v, but failed with %v", command, expectFailure, err)
 	}, timeout, 5*time.Second).Should(Succeed())
@@ -649,39 +668,88 @@ func execCommandFailConsistently(restClient *rest.RESTClient, config *rest.Confi
 
 // ExecInPodOnce runs a command in a pod once and returns stdout and any error. Uses DefaultErrorParser for error output.
 func ExecInPodOnce(restClient *rest.RESTClient, config *rest.Config, namespace, podName string, command []string) (string, error) {
-	return ExecInPodOnceWithErrorParser(restClient, config, namespace, podName, command, DefaultErrorParser)
+	return executeCommandOnce(restClient, config, namespace, podName, command)
 }
 
 // ExecInPodOnceWithErrorParser runs a command in a pod once and returns stdout and any error.
 // It uses the provided error parser for error output.
 func ExecInPodOnceWithErrorParser(restClient *rest.RESTClient, config *rest.Config, namespace, podName string, command []string, errorParser ErrorParserFunc) (string, error) {
-	return executeCommandOnce(restClient, config, namespace, podName, "", command, nil, errorParser)
+	return executeCommandOnce(restClient, config, namespace, podName, command, WithErrorParser(errorParser))
 }
 
 // ExecInPodOnceWithStdin runs a command in a pod once with stdin and returns stdout and any error.
 // Uses DefaultErrorParser for error output.
 func ExecInPodOnceWithStdin(restClient *rest.RESTClient, config *rest.Config, namespace, podName string, command []string, stdin io.Reader) (string, error) {
-	return executeCommandOnce(restClient, config, namespace, podName, "", command, stdin, DefaultErrorParser)
+	return executeCommandOnce(restClient, config, namespace, podName, command, WithStdin(stdin))
 }
 
 // ExecInContainerOnce executes a command in a specific container of a pod and returns the output and error.
 // Use this instead of ExecInPodOnce when the pod has multiple containers.
 func ExecInContainerOnce(restClient *rest.RESTClient, config *rest.Config, namespace, podName, containerName string, command []string) (string, error) {
-	return executeCommandOnce(restClient, config, namespace, podName, containerName, command, nil, DefaultErrorParser)
+	return executeCommandOnce(restClient, config, namespace, podName, command, WithContainer(containerName))
 }
 
-// executeCommandOnce executes a command on a pod once and returns the output and error.
-func executeCommandOnce(restClient *rest.RESTClient, config *rest.Config, namespace string, podName string, containerName string, command []string, stdin io.Reader, errorParser ErrorParserFunc) (string, error) {
-	execTimeout := DefaultExecTimeout
+// execOptions holds the tunable knobs for a single executeCommandOnce call. Unset fields are filled in
+// with defaults by newExecOptions before the exec runs.
+type execOptions struct {
+	containerName string
+	stdin         io.Reader
+	execTimeout   time.Duration
+	errorParser   ErrorParserFunc
+}
+
+// ExecOption configures an executeCommandOnce call. See WithContainer, WithStdin, WithExecTimeout and
+// WithErrorParser.
+type ExecOption func(*execOptions)
+
+// WithContainer targets a specific container in the pod. Defaults to the pod's only/first container.
+func WithContainer(containerName string) ExecOption {
+	return func(o *execOptions) { o.containerName = containerName }
+}
+
+// WithStdin attaches a stdin stream to the exec session. Defaults to no stdin.
+func WithStdin(stdin io.Reader) ExecOption {
+	return func(o *execOptions) { o.stdin = stdin }
+}
+
+// WithExecTimeout bounds how long a single attempt may block (e.g. waiting on a broken port-forward)
+// before it is aborted. Defaults to DefaultExecTimeout.
+func WithExecTimeout(execTimeout time.Duration) ExecOption {
+	return func(o *execOptions) { o.execTimeout = execTimeout }
+}
+
+// WithErrorParser overrides how stdout/stderr are inspected to enrich the returned error. Defaults to
+// DefaultErrorParser.
+func WithErrorParser(errorParser ErrorParserFunc) ExecOption {
+	return func(o *execOptions) { o.errorParser = errorParser }
+}
+
+// newExecOptions applies opts on top of the default execOptions.
+func newExecOptions(opts ...ExecOption) execOptions {
+	o := execOptions{
+		execTimeout: DefaultExecTimeout,
+		errorParser: DefaultErrorParser,
+	}
+	for _, opt := range opts {
+		opt(&o)
+	}
+	return o
+}
+
+// executeCommandOnce executes a command on a pod once and returns the output and error. Behavior is
+// tuned via ExecOptions, see WithContainer, WithStdin, WithExecTimeout and WithErrorParser.
+func executeCommandOnce(restClient *rest.RESTClient, config *rest.Config, namespace, podName string, command []string, opts ...ExecOption) (string, error) {
+	o := newExecOptions(opts...)
+
 	req := restClient.Post().
 		Resource("pods").
 		Name(podName).
 		Namespace(namespace).
 		SubResource("exec").
 		VersionedParams(&corev1.PodExecOptions{
-			Container: containerName,
+			Container: o.containerName,
 			Command:   command,
-			Stdin:     stdin != nil,
+			Stdin:     o.stdin != nil,
 			Stdout:    true,
 			Stderr:    true,
 		}, scheme.ParameterCodec)
@@ -694,11 +762,11 @@ func executeCommandOnce(restClient *rest.RESTClient, config *rest.Config, namesp
 
 	var stdout, stderr bytes.Buffer
 
-	ctx, cancel := context.WithTimeout(context.Background(), execTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), o.execTimeout)
 	defer cancel()
 
 	err = exec.StreamWithContext(ctx, remotecommand.StreamOptions{
-		Stdin:  stdin,
+		Stdin:  o.stdin,
 		Stdout: &stdout,
 		Stderr: &stderr,
 	})
@@ -706,7 +774,7 @@ func executeCommandOnce(restClient *rest.RESTClient, config *rest.Config, namesp
 	stderrStr := stderr.String()
 
 	if err != nil {
-		parserOutput := errorParser(stdoutStr, stderrStr)
+		parserOutput := o.errorParser(stdoutStr, stderrStr)
 		if parserOutput != "" {
 			// Parser found something (e.g., MTU error) - include it in the output
 			fmt.Print(parserOutput)
@@ -721,12 +789,12 @@ func executeCommandOnce(restClient *rest.RESTClient, config *rest.Config, namesp
 
 // AssertPingSuccess asserts that ping between pods succeeds
 func AssertPingSuccess(restClient **rest.RESTClient, config **rest.Config, namespace, fromPod, toPodIP string) {
-	execCommandEventually(restClient, config, namespace, fromPod, []string{"ping", "-c", "2", toPodIP}, 30*time.Second, DefaultExecTimeout, DefaultErrorParser)
+	execCommandEventually(restClient, config, namespace, fromPod, []string{"ping", "-c", "2", toPodIP}, pingRetryTimeout, WithExecTimeout(pingAttemptTimeout))
 }
 
 // AssertPingFailure asserts that ping between pods fails with ErrExecFailed error
 func AssertPingFailure(restClient **rest.RESTClient, config **rest.Config, namespace, fromPod, toPodIP string) {
-	execCommandFailConsistently(*restClient, *config, namespace, fromPod, []string{"ping", "-c", "2", toPodIP}, ErrExecFailed, 30*time.Second, DefaultErrorParser)
+	execCommandFailConsistently(*restClient, *config, namespace, fromPod, []string{"ping", "-c", "2", toPodIP}, ErrExecFailed, 30*time.Second, WithExecTimeout(pingAttemptTimeout))
 }
 
 // AssertPingSuccessWithMTU asserts that ping between pods succeeds with the specified MTU
@@ -739,7 +807,7 @@ func AssertPingSuccessWithMTU(restClient **rest.RESTClient, config **rest.Config
 	// Use Eventually to handle transient client recreation during port forwarding
 	Eventually(func(g Gomega) {
 		// Dereference pointers to get current client/config (may be updated if port forward breaks)
-		output, err := executeCommandOnce(*restClient, *config, namespace, fromPod, "", command, nil, DefaultErrorParser)
+		output, err := executeCommandOnce(*restClient, *config, namespace, fromPod, command, WithExecTimeout(pingAttemptTimeout))
 		g.Expect(err).NotTo(HaveOccurred(), "ping command should succeed, output: %s", output)
 	}, 1*time.Minute, 5*time.Second).Should(Succeed())
 }
@@ -757,7 +825,8 @@ func AssertPingFailureWithMTU(restClient **rest.RESTClient, config **rest.Config
 	// This will naturally retry on connection errors until the pod is reachable, then verify MTU error
 	Eventually(func(g Gomega) {
 		// Dereference pointers to get current client/config (may be updated if port forward breaks)
-		output, err := executeCommandOnce(*restClient, *config, namespace, fromPod, "", command, nil, mtuErrorParser)
+		output, err := executeCommandOnce(*restClient, *config, namespace, fromPod, command,
+			WithExecTimeout(pingAttemptTimeout), WithErrorParser(mtuErrorParser))
 		// Only succeed if we got an error AND the output contains the expected MTU string
 		// This handles both connection errors (will retry) and actual ping failures (will verify MTU)
 		if err == nil {
