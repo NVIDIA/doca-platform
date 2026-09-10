@@ -613,7 +613,7 @@ var _ = Describe("SFConfig", func() {
 						},
 					},
 					// Enable agent DMA SF handling so the pre-existing DMA SF is reserved.
-					ScalableFunctions: []provisioningv1.ScalableFunction{{Count: ptr.To(int32(1)), Type: provisioningv1.ScalableFunctionTypeDMA}},
+					DMA: &provisioningv1.DPUFlavorDMA{Enabled: ptr.To(true)},
 				},
 			}
 
@@ -720,7 +720,7 @@ var _ = Describe("SFConfig", func() {
 			}
 		})
 
-		It("should fail visibly when scalableFunctions has a dma entry but no eligible target ECPF exists", func() {
+		It("should fail visibly when dma.enabled is set but no eligible target ECPF exists", func() {
 			By("mock the DPUFlavor with PF_TOTAL_SF=2 and the DMA SF enabled")
 			dpuFlavor := provisioningv1.DPUFlavor{
 				Spec: provisioningv1.DPUFlavorSpec{
@@ -729,7 +729,7 @@ var _ = Describe("SFConfig", func() {
 							Parameters: []string{"PF_TOTAL_SF=2"},
 						},
 					},
-					ScalableFunctions: []provisioningv1.ScalableFunction{{Count: ptr.To(int32(1)), Type: provisioningv1.ScalableFunctionTypeDMA}},
+					DMA: &provisioningv1.DPUFlavorDMA{Enabled: ptr.To(true)},
 				},
 			}
 
@@ -761,77 +761,6 @@ var _ = Describe("SFConfig", func() {
 			Expect(commands).To(BeEmpty())
 		})
 
-		It("should recognize the SNAP DMA SF by the scalableFunctions dma entry's sfNumStart value", func() {
-			By("enable the DMA SF and set scalableFunctions dma entry's sfNumStart to 9000 in the flavor")
-			dpuFlavor := provisioningv1.DPUFlavor{
-				Spec: provisioningv1.DPUFlavorSpec{
-					NVConfig: []provisioningv1.NVConfig{
-						{
-							Parameters: []string{"PF_TOTAL_SF=2"},
-						},
-					},
-					ScalableFunctions: []provisioningv1.ScalableFunction{{Count: ptr.To(int32(1)), Type: provisioningv1.ScalableFunctionTypeDMA, SFNumStart: ptr.To(int32(9000))}},
-				},
-			}
-
-			By("mock mlnx-sf output containing an SF with the overridden sfnum")
-			mlnxsfOutput := `
-{
-    "pci/0000:03:00.0/229376": {
-        "device": "0000:03:00.0",
-        "sfnum": 0,
-        "aux_dev": "mlx5_core.sf.2"
-    },
-    "pci/0000:03:00.0/295002": {
-        "device": "0000:03:00.0",
-        "sfnum": 9000,
-        "aux_dev": "mlx5_core.sf.7",
-        "rdma_dev": "mlx5_2"
-    }
-}
-`
-			type expectedCommand struct {
-				cmd    string
-				stdout string
-			}
-
-			By("expecting one SF less: sfnum 9000 is counted as the SNAP DMA SF")
-			orderedCommands := []expectedCommand{
-				{cmd: mlnxSFShowCmd, stdout: mlnxsfOutput},
-				{cmd: "/sbin/mlnx-sf --action create --device 0000:03:00.0 --sfnum 0", stdout: ""},
-				// ensureDMASFRepresentorUp reads mlnx-sf; the existing DMA SF has no
-				// representor netdev here, so it issues no `ip link set ... up`.
-				{cmd: mlnxSFShowCmd, stdout: mlnxsfOutput},
-				{cmd: mlnxSFShowCmd, stdout: mlnxsfOutput},
-				{cmd: mlnxSFShowCmd, stdout: mlnxsfOutput},
-			}
-
-			cmdIdx := 0
-			operation := &CreateSF{
-				rootFS: tempDir,
-				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
-					Expect(cmdIdx).To(BeNumerically("<", len(orderedCommands)), "unexpected extra command: %s", cmd)
-					Expect(cmd).To(Equal(orderedCommands[cmdIdx].cmd))
-					expected := orderedCommands[cmdIdx]
-					cmdIdx++
-
-					var stdout, stderr bytes.Buffer
-					stdout.WriteString(expected.stdout)
-					return stdout, stderr, nil
-				},
-			}
-
-			discoverSingleTestPort := func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
-				return []pciutil.NICPort{{Netdev: "p0", PCIAddress: "0000:03:00.0"}}, nil
-			}
-			Expect(operation.Execute(ctx, &operations.Context{
-				DPUFlavor:     dpuFlavor,
-				DiscoverPorts: discoverSingleTestPort,
-				LatestDPU:     &provisioningv1.DPU{Status: provisioningv1.DPUStatus{DPUType: provisioningv1.DPUTypeBlueField4}},
-			})).To(Succeed())
-			Expect(cmdIdx).To(Equal(len(orderedCommands)))
-		})
-
 		It("should reserve a slot and create the DMA SF on the ibdev-less ECPF", func() {
 			By("mock a sysfs where 0001:03:00.0 is the silenced (ibdev-less) socket-direct ECPF")
 			for bdf, rdmaDev := range map[string]string{
@@ -856,7 +785,7 @@ var _ = Describe("SFConfig", func() {
 						{Parameters: []string{"PF_TOTAL_SF=3"}},
 					},
 					// Configure the agent to create the DMA SF.
-					ScalableFunctions: []provisioningv1.ScalableFunction{{Count: ptr.To(int32(1)), Type: provisioningv1.ScalableFunctionTypeDMA}},
+					DMA: &provisioningv1.DPUFlavorDMA{Enabled: ptr.To(true)},
 				},
 			}
 
@@ -958,7 +887,7 @@ var _ = Describe("SFConfig", func() {
 						{Parameters: []string{"PF_TOTAL_SF=3"}},
 					},
 					// Configure the agent to create the DMA SF.
-					ScalableFunctions: []provisioningv1.ScalableFunction{{Count: ptr.To(int32(1)), Type: provisioningv1.ScalableFunctionTypeDMA}},
+					DMA: &provisioningv1.DPUFlavorDMA{Enabled: ptr.To(true)},
 				},
 			}
 
@@ -1010,7 +939,7 @@ var _ = Describe("SFConfig", func() {
 			Expect(devlinkAndIP).To(Equal([]string{"ip link set en3f1pf0sf8000 up"}))
 		})
 
-		It("should NOT reserve a slot on an ibdev-less ECPF when scalableFunctions has no dma entry", func() {
+		It("should NOT reserve a slot on an ibdev-less ECPF when dma.enabled is unset", func() {
 			By("mock a sysfs where 0001:03:00.0 is ibdev-less but the agent DMA SF is not enabled")
 			for bdf, rdmaDev := range map[string]string{
 				"0000:03:00.0": "mlx5_0",
@@ -1023,14 +952,14 @@ var _ = Describe("SFConfig", func() {
 					Expect(os.MkdirAll(filepath.Join(devDir, "infiniband", rdmaDev), 0755)).To(Succeed())
 				}
 			}
-			By("the flavor has no scalableFunctions dma entry, so the agent does not create the DMA SF")
+			By("the flavor does not set dma.enabled, so the agent does not create the DMA SF")
 
 			dpuFlavor := provisioningv1.DPUFlavor{
 				Spec: provisioningv1.DPUFlavorSpec{
 					NVConfig: []provisioningv1.NVConfig{
 						{Parameters: []string{"PF_TOTAL_SF=1"}},
 					},
-					ScalableFunctions: nil,
+					DMA: nil,
 				},
 			}
 
@@ -1085,8 +1014,8 @@ var _ = Describe("SFConfig", func() {
 			))
 		})
 
-		It("should NOT create the DMA SF on a non-BlueField-4 DPU even when scalableFunctions has a dma entry", func() {
-			By("scalableFunctions has a dma entry in the flavor; only the BF4 gate should stop creation")
+		It("should NOT create the DMA SF on a non-BlueField-4 DPU even when dma.enabled is set", func() {
+			By("dma.enabled is set in the flavor; only the BF4 gate should stop creation")
 			// The target device p0 has no infiniband dir, so it is ibdev-less and
 			// would qualify to host the DMA SF on BF4 — only the non-BF4 gate
 			// prevents it here, making this a regression guard for that gate.
@@ -1095,7 +1024,7 @@ var _ = Describe("SFConfig", func() {
 					NVConfig: []provisioningv1.NVConfig{
 						{Parameters: []string{"PF_TOTAL_SF=2"}},
 					},
-					ScalableFunctions: []provisioningv1.ScalableFunction{{Count: ptr.To(int32(1)), Type: provisioningv1.ScalableFunctionTypeDMA}},
+					DMA: &provisioningv1.DPUFlavorDMA{Enabled: ptr.To(true)},
 				},
 			}
 
@@ -1275,22 +1204,11 @@ var _ = Describe("selectDMASFTarget", func() {
 	})
 })
 
-var _ = DescribeTable("dmaSFMAC",
-	func(override string, expected string, expectErr bool) {
-		mac, err := dmaSFMAC(override, "0001:03:00.0", 8000)
-		if expectErr {
-			Expect(err).To(HaveOccurred())
-			return
-		}
-		Expect(err).NotTo(HaveOccurred())
-		Expect(mac).To(Equal(expected))
-	},
-	// No override -> deterministic derivation over "<bdf>:<sfnum>".
-	Entry("empty override derives the vendor-compatible MAC", "", deriveDMASFMAC("0001:03:00.0", 8000), false),
-	// Overrides are validated and normalized to canonical colon form.
-	Entry("canonical override passes through", "02:40:51:7c:e3:0f", "02:40:51:7c:e3:0f", false),
-	Entry("uppercase override is lowercased", "02:40:51:7C:E3:0F", "02:40:51:7c:e3:0f", false),
-	Entry("dash-separated override is normalized", "02-40-51-7c-e3-0f", "02:40:51:7c:e3:0f", false),
-	Entry("EUI-64 (8-byte) override is rejected", "00:00:5e:00:53:00:00:01", "", true),
-	Entry("garbage override is rejected", "not-a-mac", "", true),
-)
+var _ = Describe("deriveDMASFMAC", func() {
+	It("derives a deterministic MAC over \"<bdf>:<sfnum>\"", func() {
+		mac := deriveDMASFMAC("0001:03:00.0", 8000)
+		Expect(mac).To(HavePrefix("02:"))
+		Expect(deriveDMASFMAC("0001:03:00.0", 8000)).To(Equal(mac), "derivation must be deterministic")
+		Expect(deriveDMASFMAC("0001:03:00.0", 8001)).NotTo(Equal(mac), "different sfnum must derive a different MAC")
+	})
+})
