@@ -90,16 +90,20 @@ func expectedDPUServicesV2604(input *systemTestInput) []string {
 	}
 }
 
-// expectedChangesV268 lists the spec changes the v26.4 → v26.8 hop intentionally
-// introduces. v26.8 starts defaulting DPUService.spec.security; strip it from
-// the v26.8 "after" artifacts when comparing against the v26.4 "before" baseline.
-var expectedChangesV268 = []upgradeExpectedChange{
-	{
-		gvk: dpuservicev1.GroupVersion.WithKind("DPUService"),
-		transform: func(artifact map[string]interface{}) {
-			unstructured.RemoveNestedField(artifact, "spec", "security")
-		},
-	},
+// stripDefaultedDPUServiceSecurity rewinds the v26.8 DPUService.spec.security
+// default so identity compare against v26.4 can ignore it, and bumps the
+// matching before generation for that one spec write.
+func stripDefaultedDPUServiceSecurity(before, after *[]map[string]interface{}) {
+	wantAPIVersion := dpuservicev1.GroupVersion.String()
+	for i, a := range *after {
+		apiVersion, _ := a["apiVersion"].(string)
+		kind, _ := a["kind"].(string)
+		if apiVersion != wantAPIVersion || kind != dpuservicev1.DPUServiceKind {
+			continue
+		}
+		unstructured.RemoveNestedField((*after)[i], "spec", "security")
+		bumpMatchingBeforeGeneration(*before, (*after)[i])
+	}
 }
 
 // The BFB LTS multi-hop upgrade path: install v25.10, validate the v26.4 hop
@@ -167,12 +171,12 @@ var _ = Describe("DPF Upgrade LTS", func() {
 
 		artifactsKey:     "v26.8",
 		prevArtifactsKey: "v26.4",
-		// v26.8 starts defaulting DPUService.spec.security; strip it when
-		// comparing v26.4 → v26.8 artifacts.
-		expectedChanges:    expectedChangesV268,
-		artifactPreOps:     []artifactPreOp{waitForSFCInterfaceMigration},
-		artifactAssertions: []artifactAssertion{assertSFCInterfaceMigration},
-		artifactPostOps:    []artifactPostOp{filterUpgradeInterfaceArtifacts},
+		artifactWaits:    []artifactWait{waitForSFCInterfaceMigration},
+		artifactChecks:   []artifactCheck{assertSFCInterfaceMigration},
+		artifactNormalizes: []artifactNormalize{
+			filterUpgradeInterfaceArtifacts,
+			stripDefaultedDPUServiceSecurity,
+		},
 
 		expectedDPUServices: expectedDPUServicesCurrent,
 	})
