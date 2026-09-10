@@ -91,7 +91,15 @@ Firmware Update:
 ### Updates
 Most fields in DPUDevice are immutable once set. Only the following can be updated:
 - Labels and annotations
+- `spec.bmcIp`, when DHCP or external inventory assigns a new address to the same physical BMC
 - Status fields (managed by controllers)
+
+When `spec.bmcIp` changes, the provisioning controller updates `status.bmcIp` and the BMC IP label,
+verifies over basic auth that the new endpoint reports the expected DPU serial number, invalidates
+the server-certificate request tied to the previous address, and re-establishes mTLS against the
+new address. The `DPUDevice` reports `Ready=False` and
+`BMCServerCertificateReady=False` with reason `BMCIPChanged` until recovery completes. This does
+not re-run full DPUDevice initialization or reprovision the associated `DPU`.
 
 ### Deletion
 DPUDevice resources are protected by a finalizer (`provisioning.dpu.nvidia.com/dpudevice-protection`) to prevent accidental deletion while the device is in use.

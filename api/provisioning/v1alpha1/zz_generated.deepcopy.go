@@ -501,6 +501,11 @@ func (in *CertificateStatus) DeepCopyInto(out *CertificateStatus) {
 		in, out := &in.NotAfter, &out.NotAfter
 		*out = (*in).DeepCopy()
 	}
+	if in.IssuedForBMCIP != nil {
+		in, out := &in.IssuedForBMCIP, &out.IssuedForBMCIP
+		*out = new(string)
+		**out = **in
+	}
 	if in.LastRotationTime != nil {
 		in, out := &in.LastRotationTime, &out.LastRotationTime
 		*out = (*in).DeepCopy()
