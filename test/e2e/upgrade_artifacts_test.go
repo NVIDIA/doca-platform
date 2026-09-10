@@ -17,12 +17,15 @@ limitations under the License.
 package e2e
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
@@ -70,6 +73,37 @@ func upgradeArtifactsFile(key string) string {
 type upgradeExpectedChange struct {
 	gvk       schema.GroupVersionKind
 	transform func(artifact map[string]interface{})
+}
+
+// artifactPreOp runs before a snapshot is captured,
+// for whatever an upgrade hop needs done or settled first — typically blocking
+// until the hop has converged, so the snapshot records its end state rather
+// than a moment mid-flight.
+type artifactPreOp func(ctx context.Context)
+
+// artifactAssertion checks a property of an upgrade hop that the identity
+// comparison cannot express, for example inventory continuity across a kind
+// the hop migrates. It sees the raw snapshots, before any post-op narrows them.
+type artifactAssertion func(before, after []map[string]interface{})
+
+// artifactPostOp runs after the assertions, to narrow the snapshots before the
+// identity comparison. Running after the assertions is what lets an assertion
+// still cover what it removes.
+// the assertions is what lets an assertion still cover what it removes.
+type artifactPostOp func(artifacts *[]map[string]interface{})
+
+// artifactComparison configures a hop's captures and the comparisons that
+// follow them. All fields are optional and scoped to a single upgrade hop, and
+// are listed in the order they run: preOps settle the cluster before a
+// capture, assertions add checks the identity comparison cannot make, postOps
+// narrow what it compares, and expectedChanges resets the spec fields the hop
+// intentionally changes. An empty value captures immediately and compares
+// every captured artifact field for field.
+type artifactComparison struct {
+	preOps          []artifactPreOp
+	assertions      []artifactAssertion
+	postOps         []artifactPostOp
+	expectedChanges []upgradeExpectedChange
 }
 
 // applyUpgradeExpectedChanges mutates `after` to reset the fields touched by
@@ -120,10 +154,6 @@ func applyUpgradeExpectedChanges(before, after []map[string]interface{}, expecte
 // DPUDeployment-owned DPUServices, DPUServiceChains, DPUSets,
 // DPUServiceInterfaces, plus DPU-cluster-side ServiceChains, ServiceInterfaces,
 // and service Pods) to filePath as JSON.
-//
-// Note: ServiceInterface / NodeServiceInterfaces churn from SFC auto-migration is
-// excluded from identity compare via filterUpgradeInterfaceArtifacts, and checked
-// for inventory continuity via assertSFCInterfaceMigration.
 func collectArtifacts(filePath string) {
 	By("Collecting artifacts to: " + filePath)
 	Expect(os.MkdirAll(filepath.Dir(filePath), 0755)).To(Succeed())
@@ -207,22 +237,11 @@ func getArtifacts(filePath string) []map[string]interface{} {
 	return artifacts
 }
 
-// compareArtifactSnapshots loads the two named snapshots, applies the given
-// expected-change transforms, and asserts they match (modulo sorting). The
+// compareArtifactSnapshots resets the fields the hop intentionally changed and
+// asserts the two prepared snapshots match (modulo sorting). The
 // phaseDescription is used in assertion messages.
-//
-// ServiceInterface and NodeServiceInterfaces artifacts are excluded from the
-// identity comparison (GVK/name/UID churn across SFC SI→NSI migration) but are
-// checked separately by assertSFCInterfaceMigration.
-func compareArtifactSnapshots(prevKey, currKey, phaseDescription string, expectedChanges []upgradeExpectedChange) {
-	prevAll := getArtifacts(upgradeArtifactsFile(prevKey))
-	currAll := getArtifacts(upgradeArtifactsFile(currKey))
-	assertSFCInterfaceMigration(prevAll, currAll)
-
-	prev := filterUpgradeInterfaceArtifacts(prevAll)
-	curr := filterUpgradeInterfaceArtifacts(currAll)
+func compareArtifactSnapshots(prev, curr []map[string]interface{}, phaseDescription string, expectedChanges []upgradeExpectedChange) {
 	applyUpgradeExpectedChanges(prev, curr, expectedChanges)
-	By(fmt.Sprintf("Comparing artifacts: %s vs %s", prevKey, currKey))
 	Expect(curr).To(HaveLen(len(prev)),
 		"Number of tracked objects should be unchanged after %s upgrade", phaseDescription)
 	sort.Slice(prev, func(i, j int) bool { return fmt.Sprintf("%v", prev[i]) < fmt.Sprintf("%v", prev[j]) })
@@ -234,20 +253,17 @@ func compareArtifactSnapshots(prevKey, currKey, phaseDescription string, expecte
 // filterUpgradeInterfaceArtifacts drops ServiceInterface and NodeServiceInterfaces
 // from upgrade snapshots. SFC SI→NSI migration recreates interface inventory under
 // a different GVK during upgrade, so those kinds are not stable across the cutover.
+// Register it as a post-filter on the cutover hop only, paired with
+// assertSFCInterfaceMigration so the inventory it hides stays covered.
 //
 // TODO(v26.8+): delete this filter (and assertSFCInterfaceMigration / SI labels in
 // extractArtifacts) once the previous-GA upgrade hop is NSI-native — NSI objects can
 // return to the identity comparison and the SI→NSI cutover assert is obsolete.
-func filterUpgradeInterfaceArtifacts(artifacts []map[string]interface{}) []map[string]interface{} {
-	out := make([]map[string]interface{}, 0, len(artifacts))
-	for _, a := range artifacts {
+func filterUpgradeInterfaceArtifacts(artifacts *[]map[string]interface{}) {
+	*artifacts = slices.DeleteFunc(*artifacts, func(a map[string]interface{}) bool {
 		kind, _ := a["kind"].(string)
-		if kind == dpuservicev1.ServiceInterfaceKind || kind == dpuservicev1.NodeServiceInterfacesKind {
-			continue
-		}
-		out = append(out, a)
-	}
-	return out
+		return kind == dpuservicev1.ServiceInterfaceKind || kind == dpuservicev1.NodeServiceInterfacesKind
+	})
 }
 
 // assertSFCInterfaceMigration verifies SFC SI→NSI cutover across upgrade:
@@ -265,6 +281,16 @@ func assertSFCInterfaceMigration(before, after []map[string]interface{}) {
 	}
 	Expect(afterNSI).To(ContainElements(beforeSI),
 		"every pre-upgrade SFC ServiceInterface must become an NSI entry (set/ns/node)")
+}
+
+func waitForSFCInterfaceMigration(ctx context.Context) {
+	By("Waiting for the SFC ServiceInterface → NodeServiceInterfaces cutover to converge")
+	Eventually(func(g Gomega) {
+		serviceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
+		g.Expect(dpuClusterClient[0].List(ctx, serviceInterfaceList)).To(Succeed())
+		g.Expect(sfcServiceInterfaceMigrationKeys(extractArtifacts(ToClientObjectSlice(serviceInterfaceList.Items)))).
+			To(BeEmpty(), "SFC ServiceInterfaces still awaiting NSI cutover")
+	}).WithTimeout(10 * time.Minute).WithPolling(time.Second).Should(Succeed())
 }
 
 // sfcServiceInterfaceMigrationKeys returns "setNS/setName/node" keys for SFC

@@ -169,7 +169,10 @@ var _ = Describe("DPF Upgrade LTS", func() {
 		prevArtifactsKey: "v26.4",
 		// v26.8 starts defaulting DPUService.spec.security; strip it when
 		// comparing v26.4 → v26.8 artifacts.
-		expectedChanges: expectedChangesV268,
+		expectedChanges:    expectedChangesV268,
+		artifactPreOps:     []artifactPreOp{waitForSFCInterfaceMigration},
+		artifactAssertions: []artifactAssertion{assertSFCInterfaceMigration},
+		artifactPostOps:    []artifactPostOp{filterUpgradeInterfaceArtifacts},
 
 		expectedDPUServices: expectedDPUServicesCurrent,
 	})
