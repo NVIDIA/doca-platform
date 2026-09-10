@@ -61,7 +61,7 @@ Collect BMC dumps for specific `DPUDevice` objects:
 dpfctl dump bmc --devices mt2610604vmk,mt2610604vnc --output-dir /tmp/bmc-dumps
 ```
 
-Clear existing BMC dump entries before creating a new dump:
+Clear existing BMC dump entries before creating a new dump. Clearing is best-effort: if the BMC rejects or drops the request, the failure is recorded in the target's `metadata.txt` and the dump is still collected.
 
 ```shell
 dpfctl dump bmc --clear-existing --output-dir /tmp/bmc-dumps
