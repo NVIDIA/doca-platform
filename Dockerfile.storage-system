@@ -68,12 +68,12 @@ USER ${uid}:${uid}
 COPY --chown=${uid} --from=builder /workspace/source-code.tar.gz source-code.tar.gz
 
 # Add the DPF binaries
-COPY --chown=${uid} --from=builder /workspace/bin/snap-csi-plugin /snap-csi-plugin
-COPY --chown=${uid} --from=builder /workspace/bin/snap-node-driver /snap-node-driver
-COPY --chown=${uid} --from=builder /workspace/bin/block-storage-vendor-dpu-plugin /block-storage-vendor-dpu-plugin
-COPY --chown=${uid} --from=builder /workspace/bin/nfs-storage-vendor-dpu-plugin /nfs-storage-vendor-dpu-plugin
-COPY --chown=${uid} --from=builder /workspace/bin/nvidia-external-attacher /nvidia-external-attacher
-COPY --chown=${uid} --from=builder /workspace/bin/snap-host-controller /snap-host-controller
+COPY --chown=${uid} --chmod=755 --from=builder /workspace/bin/snap-csi-plugin /snap-csi-plugin
+COPY --chown=${uid} --chmod=755 --from=builder /workspace/bin/snap-node-driver /snap-node-driver
+COPY --chown=${uid} --chmod=755 --from=builder /workspace/bin/block-storage-vendor-dpu-plugin /block-storage-vendor-dpu-plugin
+COPY --chown=${uid} --chmod=755 --from=builder /workspace/bin/nfs-storage-vendor-dpu-plugin /nfs-storage-vendor-dpu-plugin
+COPY --chown=${uid} --chmod=755 --from=builder /workspace/bin/nvidia-external-attacher /nvidia-external-attacher
+COPY --chown=${uid} --chmod=755 --from=builder /workspace/bin/snap-host-controller /snap-host-controller
 
 # Copy the DPF version file from version stage (not builder, to preserve builder cache)
 COPY --chown=root:root --from=version /tmp/dpf-version /etc/dpf-version
