@@ -1728,6 +1728,120 @@ var _ = Describe("Reboot", func() {
 			}))
 		})
 
+		It("uses the fwctl device as mlxfwreset -d target on BF4 while status and condition keep the PCI address", func() {
+			const target = "/dev/fwctl/fwctl0"
+			device := testPCIAddress0
+			resetCmd := "mlxfwreset -d " + target + " reset --level 3 --type 0"
+			mlxfwresetJSON := `{"reset_needed":true,"pending_nvconfig_parameters":[{"name":"PARAM_A","current":"0","next_boot":"1"}],"command_required":"` + resetCmd + `"}`
+			optCtx := &operations.Context{
+				RebootMethodDiscovery: true,
+				CurrentBootID:         "boot-id",
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
+					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device, DeviceID: pciutil.BlueField4DeviceID}}, nil
+				},
+				LatestDPU: &provisioningv1.DPU{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							cutil.AgentAnnotationAllowFirmwareResetReboot: "true",
+						},
+					},
+				},
+			}
+			var resolvedPorts []pciutil.NICPort
+			var cmds []string
+			h := &HandleReboot{
+				resolveTarget: func(port pciutil.NICPort) (string, error) {
+					resolvedPorts = append(resolvedPorts, port)
+					return target, nil
+				},
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					cmds = append(cmds, cmd)
+					var b bytes.Buffer
+					_, _ = b.WriteString(mlxfwresetJSON)
+					return b, bytes.Buffer{}, nil
+				},
+			}
+			m, err := h.getRebootMethod(optCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(*m).To(Equal(provisioningv1.RebootMethodFirmwareReset))
+			Expect(resolvedPorts).To(Equal([]pciutil.NICPort{{Netdev: "p0", PCIAddress: device, DeviceID: pciutil.BlueField4DeviceID}}))
+			// Every mlxfwreset invocation (status and the no-reset-level query workaround) targets
+			// the fwctl device, never the PCI address.
+			Expect(cmds).To(Equal([]string{
+				"mlxfwreset -d " + target + " status --json",
+				"mlxfwreset -d " + target + " query",
+			}))
+			Expect(h.perDeviceFirmwareResetCmds).To(Equal([]firmwareResetPerDevice{{Device: target, Cmd: resetCmd}}))
+			// Status and condition keep identifying the port by PCI address.
+			Expect(optCtx.Status.LastObservedPendingNVConfig).To(Equal(&provisioningv1.PendingNVConfigState{
+				BootID: "boot-id",
+				Devices: []provisioningv1.PendingNVConfigDevice{{
+					Device:  device,
+					Entries: []provisioningv1.PendingNVConfigEntry{{Name: "PARAM_A", Current: "0", NextBoot: "1"}},
+				}},
+			}))
+			cond := meta.FindStatusCondition(optCtx.Status.Conditions, cutil.AgentCondRebootMethodDiscovery)
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Reason).To(Equal(string(provisioningv1.RebootMethodFirmwareReset)))
+			Expect(cond.Message).To(Equal(mlxfwresetJSON))
+		})
+
+		It("runs mlxfwreset query against the fwctl device on BF4 when checking for no supported reset level", func() {
+			const target = "/dev/fwctl/fwctl0"
+			optCtx := &operations.Context{
+				RebootMethodDiscovery: true,
+				CurrentBootID:         "boot-id",
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
+					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPCIAddress0, DeviceID: pciutil.BlueField4DeviceID}}, nil
+				},
+			}
+			var cmds []string
+			h := &HandleReboot{
+				resolveTarget: func(pciutil.NICPort) (string, error) { return target, nil },
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					cmds = append(cmds, cmd)
+					var b bytes.Buffer
+					if strings.HasSuffix(cmd, " query") {
+						_, _ = b.WriteString(noResetLevelSupportedText)
+						return b, bytes.Buffer{}, nil
+					}
+					_, _ = b.WriteString(`{"reset_needed":true,"command_required":"mlxfwreset -d x reset --level 3"}`)
+					return b, bytes.Buffer{}, nil
+				},
+			}
+			m, err := h.getRebootMethod(optCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(*m).To(Equal(provisioningv1.RebootMethodPowerCycle))
+			Expect(cmds).To(Equal([]string{
+				"mlxfwreset -d " + target + " status --json",
+				"mlxfwreset -d " + target + " query",
+			}))
+		})
+
+		It("getRebootMethod returns an error naming the PCI device and runs no mlxfwreset when the fwctl device cannot be resolved", func() {
+			optCtx := &operations.Context{
+				RebootMethodDiscovery: true,
+				CurrentBootID:         "boot-id",
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
+					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPCIAddress0, DeviceID: pciutil.BlueField4DeviceID}}, nil
+				},
+			}
+			h := &HandleReboot{
+				resolveTarget: func(port pciutil.NICPort) (string, error) {
+					return "", fmt.Errorf("no fwctl device found for PCI %s", port.PCIAddress)
+				},
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					Fail("mlxfwreset must not run when the fwctl device cannot be resolved: " + cmd)
+					return bytes.Buffer{}, bytes.Buffer{}, nil
+				},
+			}
+			_, err := h.getRebootMethod(optCtx)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("resolve mlxfwreset device for PCI device " + testPCIAddress0))
+			Expect(err.Error()).To(ContainSubstring("no fwctl device found"))
+			Expect(optCtx.Status.LastObservedPendingNVConfig).To(BeNil())
+		})
+
 		It("getRebootMethod returns error when mlxfwreset JSON is invalid", func() {
 			optCtx := &operations.Context{
 				RebootMethodDiscovery: true,
