@@ -832,9 +832,7 @@ var _ = Describe("Installing", func() {
 
 			// Inspect the restart-OS-install Exception path directly so enrichment
 			// is not overwritten by a subsequent OSInstallRetries resubmit failure.
-			client, err := rc.NewTLSClient(ctx, env.dpuDevice.BMCAddress(), env.dpu.Namespace, env.ctrlCtx.Client)
-			Expect(err).NotTo(HaveOccurred())
-			status, err := submitAndMonitorBfbInstallTask(ctx, env.dpu, env.ctrlCtx, client)
+			status, err := submitAndMonitorBfbInstallTask(ctx, env.dpu, env.ctrlCtx, env.dpuDevice)
 			Expect(isRestartOSInstallError(err)).To(BeTrue())
 			Expect(status.Phase).NotTo(Equal(provisioningv1.DPUError))
 
@@ -860,9 +858,7 @@ var _ = Describe("Installing", func() {
 			})
 			env.mockServer.SetSELEntries([]rc.SELEntry{pcieLowSELEntry()})
 
-			client, err := rc.NewTLSClient(ctx, env.dpuDevice.BMCAddress(), env.dpu.Namespace, env.ctrlCtx.Client)
-			Expect(err).NotTo(HaveOccurred())
-			status, err := submitAndMonitorBfbInstallTask(ctx, env.dpu, env.ctrlCtx, client)
+			status, err := submitAndMonitorBfbInstallTask(ctx, env.dpu, env.ctrlCtx, env.dpuDevice)
 			Expect(isRestartOSInstallError(err)).To(BeTrue())
 			Expect(status.Phase).NotTo(Equal(provisioningv1.DPUError))
 
@@ -1047,7 +1043,6 @@ var _ = Describe("Installing", func() {
 			Expect(vmCond.Message).To(ContainSubstring("Virtual media inserted"))
 
 			By("Step 4: next reconcile waits for OSRunning instead of re-entering installOsBf4")
-			mockServer.SetBootLastState("DdrTraining")
 			dpu.Status = status
 			status, err = Installing(ctx, dpu, ctrlCtx)
 			Expect(err).NotTo(HaveOccurred())
@@ -1057,7 +1052,6 @@ var _ = Describe("Installing", func() {
 			Expect(osCond.Status).To(Equal(metav1.ConditionFalse))
 			Expect(osCond.Reason).To(Equal("OSNotRunning"))
 			Expect(osCond.Message).To(ContainSubstring("Waiting for DPU OS to finish booting"))
-			Expect(osCond.Message).To(ContainSubstring(`"DdrTraining"`))
 		})
 	})
 
@@ -1132,7 +1126,6 @@ var _ = Describe("Installing", func() {
 
 		It("should report OSInstalled=False while booting and flip to True (resetting LastTransitionTime) when the DPU agent starts", func() {
 			By("Step 1: OS still booting -> OSInstalled=False with descriptive message")
-			mockServer.SetOemLastState("DdrTraining")
 			dpu := dpuWithBFBTransferred("dpu-osinstalled-flip-test")
 
 			status, err := Installing(ctx, dpu, ctrlCtx)
@@ -1144,7 +1137,6 @@ var _ = Describe("Installing", func() {
 			Expect(falseCond.Status).To(Equal(metav1.ConditionFalse), "OSInstalled must be False while the DPU OS has not finished booting")
 			Expect(falseCond.Reason).To(Equal("OSNotRunning"))
 			Expect(falseCond.Message).To(ContainSubstring("Waiting for DPU OS to finish booting"))
-			Expect(falseCond.Message).To(ContainSubstring(`"DdrTraining"`))
 
 			By("Step 2: backdate the False transition so we can verify the True transition resets it forward")
 			for i := range status.Conditions {
@@ -1156,7 +1148,6 @@ var _ = Describe("Installing", func() {
 			dpu.Status = status
 
 			By("Step 3: DPU agent reports startup -> OSInstalled flips to True with fresh LastTransitionTime")
-			mockServer.SetOemLastState("OsIsRunning")
 			now := metav1.Now()
 			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{LastStartupTime: &now}
 			status, err = Installing(ctx, dpu, ctrlCtx)

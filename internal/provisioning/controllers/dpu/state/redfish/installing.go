@@ -85,43 +85,20 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 		return *state, nil
 	}
 
-	client, err := rc.NewTLSClient(ctx, device.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
-	if err != nil {
-		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "FailedToCreateClient", err.Error()))
-		return *state, err
-	}
-
 	if dpu.Status.DPUType == provisioningv1.DPUTypeBlueField4 {
 		_, cond := cutil.GetDPUCondition(state, string(provisioningv1.DPUCondChangeBootTarget))
 		if cond == nil || cond.Status != metav1.ConditionTrue {
-			return installWithRetry(ctx, dpu, ctrlCtx, client, logger, installOsBf4)
+			return installWithRetry(ctx, dpu, ctrlCtx, device, installOsBf4)
 		}
 	} else {
 		_, cond := cutil.GetDPUCondition(state, string(provisioningv1.DPUCondBFBTransferred))
 		if cond == nil || cond.Status != metav1.ConditionTrue {
-			return installWithRetry(ctx, dpu, ctrlCtx, client, logger, submitAndMonitorBfbInstallTask)
+			return installWithRetry(ctx, dpu, ctrlCtx, device, submitAndMonitorBfbInstallTask)
 		}
 	}
 
 	if dpu.Status.AgentStatus == nil || dpu.Status.AgentStatus.LastStartupTime == nil {
-		resp, system, err := client.GetSystem()
-		if err != nil || resp.StatusCode() != http.StatusOK {
-			if err == nil {
-				err = fmt.Errorf("failed to get system: unexpected status code %d", resp.StatusCode())
-			} else {
-				err = fmt.Errorf("failed to get system: %w", err)
-			}
-			logger.Error(err, "Failed to get system")
-			cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "FailToGetSystem", err.Error()))
-			return *state, err
-		}
-
-		lastState := system.BootProgress.LastState
-		if dpu.Status.DPUType == provisioningv1.DPUTypeBlueField3 {
-			lastState = system.BootProgress.OemLastState
-		}
-
-		msg := fmt.Sprintf("Waiting for DPU OS to finish booting and start dpu-agent; current boot state=%q", lastState)
+		msg := "Waiting for DPU OS to finish booting and start dpu-agent"
 		logger.Info(msg)
 		cond := cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), nil, "OSNotRunning", msg)
 		cond.Status = metav1.ConditionFalse
@@ -138,7 +115,7 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 	return *state, nil
 }
 
-type installBFOSFn func(context.Context, *provisioningv1.DPU, *dutil.ControllerContext, *rc.Client) (provisioningv1.DPUStatus, error)
+type installBFOSFn func(context.Context, *provisioningv1.DPU, *dutil.ControllerContext, *provisioningv1.DPUDevice) (provisioningv1.DPUStatus, error)
 
 // installWithRetry runs one OS install attempt per reconcile. Failures wrapped
 // as restartOSInstallError stay in OS Installing (controller RequeueAfter
@@ -151,11 +128,10 @@ func installWithRetry(
 	ctx context.Context,
 	dpu *provisioningv1.DPU,
 	ctrlCtx *dutil.ControllerContext,
-	client *rc.Client,
-	logger logr.Logger,
+	dpuDevice *provisioningv1.DPUDevice,
 	fn installBFOSFn,
 ) (provisioningv1.DPUStatus, error) {
-	state, err := fn(ctx, dpu, ctrlCtx, client)
+	state, err := fn(ctx, dpu, ctrlCtx, dpuDevice)
 	if err == nil {
 		return state, nil
 	}
@@ -166,6 +142,7 @@ func installWithRetry(
 	maxRuns := osInstallRetries(ctrlCtx.Options)
 	// Start a new OS install run up to maxRuns times.
 	count := incrementInstallRetryCounter(dpu.UID)
+	logger := log.FromContext(ctx)
 	if count >= maxRuns {
 		logger.Info("max number of OS installation runs reached", "maxRuns", maxRuns, "lastError", err)
 		clearInstallRetryCounter(dpu.UID)
@@ -186,10 +163,9 @@ func osInstallRetries(opts dutil.DPUOptions) int {
 	return int(dutil.DefaultOSInstallRetries)
 }
 
-func installOsBf4(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext, client *rc.Client) (provisioningv1.DPUStatus, error) {
+func installOsBf4(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext, dpuDevice *provisioningv1.DPUDevice) (provisioningv1.DPUStatus, error) {
 	logger := log.FromContext(ctx)
 	state := dpu.Status.DeepCopy()
-
 	logger.Info("installing OS for BlueField 4")
 
 	bfbRegistryAddr, err := getBFBRegistryAddress(ctx, ctrlCtx)
@@ -215,6 +191,12 @@ func installOsBf4(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 	schemes := []string{"http://", "https://"}
 	for _, prefix := range schemes {
 		bfbRegistryAddr = strings.TrimPrefix(bfbRegistryAddr, prefix)
+	}
+
+	client, err := rc.NewTLSClient(ctx, dpuDevice.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
+	if err != nil {
+		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "FailedToCreateClient", err.Error()))
+		return *state, err
 	}
 
 	if _, err := client.CheckOSImage(); err != nil {
@@ -419,9 +401,15 @@ func reconcileBf4ArmTransfer(
 	return nil
 }
 
-func submitAndMonitorBfbInstallTask(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext, client *rc.Client) (provisioningv1.DPUStatus, error) {
+func submitAndMonitorBfbInstallTask(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext, dpuDevice *provisioningv1.DPUDevice) (provisioningv1.DPUStatus, error) {
 	logger := log.FromContext(ctx)
 	state := dpu.Status.DeepCopy()
+
+	client, err := rc.NewTLSClient(ctx, dpuDevice.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
+	if err != nil {
+		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondBFBTransferred), err, "FailedToCreateClient", err.Error()))
+		return *state, err
+	}
 
 	if dpu.Status.RedfishTaskID == nil {
 		bfbRegistryAddr, err := getBFBRegistryAddress(ctx, ctrlCtx)
