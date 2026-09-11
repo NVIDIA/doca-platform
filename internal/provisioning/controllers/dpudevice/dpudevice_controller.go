@@ -737,9 +737,14 @@ func (r *DPUDeviceReconciler) initializeDPUDevice(ctx context.Context, dpuDevice
 func (r *DPUDeviceReconciler) ensureRedfishMTLS(ctx context.Context, dpuDevice *provisioningv1.DPUDevice, bmcAddress string, basicAuthClient *rfclient.Client) error {
 	log := log.FromContext(ctx)
 
-	_, err := rfclient.NewTLSClient(ctx, bmcAddress, dpuDevice.Namespace, r.Client)
+	tlsClient, err := rfclient.NewTLSClient(ctx, bmcAddress, dpuDevice.Namespace, r.Client)
 	if err == nil {
-		return nil
+		resp, _, getErr := tlsClient.GetManagers()
+		if resp != nil && resp.StatusCode() == http.StatusOK {
+			return nil
+		}
+		log.Error(getErr, "failed to get managers", "response", rfclient.RespBody(resp))
+		err = getErr
 	}
 
 	// Stale controller client leaf (CA re-issued without client renewal) cannot be healed by
@@ -829,6 +834,9 @@ func (r *DPUDeviceReconciler) reconcileCATrustBundle(ctx context.Context, dpuDev
 	)
 
 	tlsClient, err := rfclient.NewTLSClient(ctx, dpuDevice.BMCAddress(), dpuDevice.Namespace, r.Client)
+	if err == nil {
+		_, _, err = tlsClient.GetManagers()
+	}
 	if err != nil {
 		setCATrustBundleCondition(dpuDevice, metav1.ConditionFalse, provisioningv1.ReasonCATrustBundleSyncFailed, fmt.Sprintf("failed to create mTLS redfish client: %v", err))
 		return ctrl.Result{}, err
@@ -1525,6 +1533,9 @@ func (r *DPUDeviceReconciler) reconcileServerCertRotation(ctx context.Context, d
 	// cold-start backfill and/or rotation.
 	bmcAddress := dpuDevice.BMCAddress()
 	mtlsClient, err := rfclient.NewTLSClient(ctx, bmcAddress, dpuDevice.Namespace, r.Client)
+	if err == nil {
+		_, _, err = mtlsClient.GetManagers()
+	}
 	if err != nil {
 		// A server-certificate verification failure cannot be healed over mTLS: rotation needs a
 		// verified mTLS connection, which is exactly what is broken. Re-run setUpMTLS over basic
