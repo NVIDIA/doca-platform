@@ -38,7 +38,7 @@ DPUFlavor is a Kubernetes Custom Resource Definition (CRD) that defines configur
 | `dpuResources` | ResourceList | Minimum resources needed for BFB installation |
 | `systemReservedResources` | ResourceList | Resources reserved for system use |
 | `hostNetworkInterfaceConfigs` | [][NetworkInterfaceConfig](#networkinterfaceconfig) | Host-side network interface configuration |
-| `scalableFunctions` | [ScalableFunctions](#scalablefunctions) | Configures Scalable Functions (SFs) created on the DPU |
+| `dma` | [DPUFlavorDMA](#dpuflavordma) | Configures the DMA SF used by SNAP on BlueField-4 socket-direct systems |
 | `serviceReadiness` | [ServiceReadiness](#servicereadiness) | Configures the `Service Readiness` provisioning phase |
 
 ### ServiceReadiness
@@ -57,26 +57,11 @@ The hold itself is enabled by `DELAY_HOST_OS_INIT=0x3` in [NVConfig](#nvconfig),
 Trust; the phase gate works in either deployment mode. See
 [Service Readiness](../../advanced-configuration/service-readiness.md).
 
-### ScalableFunction
+### DPUFlavorDMA
 
 | Field | Type | Description |
 |-------|------|--------------|
-| `count` | *int32 | Number of Scalable Functions to create per target device. Minimum `0` |
-| `type` | [ScalableFunctionType](#scalablefunctiontype) | Selects the kind of Scalable Function to create. Only `dma` is supported for now. Its presence in the list is what enables DMA SF creation by the dpu-agent (only takes effect on BlueField-4 socket-direct systems) |
-| `sfNumStart` | *int32 | The Scalable Function number this entry starts allocating from. For `type: dma`, defaults to `8000` when unset |
-| `options` | [ScalableFunctionOptions](#scalablefunctionoptions) | Type-specific Scalable Function configuration |
-
-### ScalableFunctionType
-
-An enum with a single supported value for now:
-
-- `dma`: The DMA SF used by SNAP on BlueField-4 socket-direct systems
-
-### ScalableFunctionOptions
-
-| Field | Type | Description |
-|-------|------|--------------|
-| `macAddress` | string | Pins the Scalable Function's MAC (canonical colon-separated 48-bit form). Defaults to a deterministic, vendor-compatible derivation when unset |
+| `enabled` | *bool | **Enables DMA SF creation by the dpu-agent.** Defaults to `false` when unset, so the presence of the `dma` struct alone does not enable it. Only takes effect on BlueField-4 socket-direct systems. The created Scalable Function always uses `sfnum 8000` (the SNAP discovery ABI value) |
 
 ### DPUFlavorGrub
 
