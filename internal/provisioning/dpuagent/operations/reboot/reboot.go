@@ -96,6 +96,9 @@ type firmwareResetPerDevice struct {
 type HandleReboot struct {
 	runBash   bash.RunFunc
 	skipBlock bool
+	// resolveTarget returns the mlxfwreset -d target for a port (fwctl device on BF4 / CX9,
+	// PCI address on BF2 / BF3). Defaults to pciutil.NICPort.FwctlOrPCI when nil; tests inject it.
+	resolveTarget func(pciutil.NICPort) (string, error)
 	// allowFirmwareReset is set for the duration of getRebootMethodDeviceQuery from LatestDPU annotations
 	// (AgentAnnotationAllowFirmwareResetReboot). When false or h is nil, rebootMethodFromMlxfwresetStatus does not select FirmwareReset.
 	allowFirmwareReset bool
@@ -378,6 +381,7 @@ func checkRebootMethodPowerCycle(_ *HandleReboot, out *mlxfwresetStatusJSON) boo
 
 // WORKAROUND(mlxfwreset-no-reset-level): should be removed once [1] is fixed.
 // [1] Issue #5226391
+// device is the mlxfwreset -d target (fwctl device on BF4 / CX9, PCI address on BF2 / BF3).
 func (h *HandleReboot) queryReportsNoResetLevelSupported(device string) bool {
 	if h == nil || h.runBash == nil {
 		return false
@@ -389,7 +393,7 @@ func (h *HandleReboot) queryReportsNoResetLevelSupported(device string) bool {
 	lowered := strings.ToLower(outText)
 	if strings.Contains(lowered, strings.ToLower(noResetLevelSupportedText)) ||
 		strings.Contains(lowered, strings.ToLower(noResetLevelSupportedText1)) {
-		klog.Infof("PCI device %s: %s reported no supported reset level; using PowerCycle. err=%v output=%s",
+		klog.Infof("device %s: %s reported no supported reset level; using PowerCycle. err=%v output=%s",
 			device, cmd, err, outText)
 		return true
 	}
@@ -425,6 +429,7 @@ func rebootMethodTakesPrecedenceOver(a, b provisioningv1.RebootMethodType) bool 
 
 // rebootMethodFromMlxfwresetStatus maps one device's JSON to a reboot method.
 // Use checking reboot method according to the priority in rebootMethodMergePriority.
+// device is the mlxfwreset -d target (fwctl device on BF4 / CX9, PCI address on BF2 / BF3).
 func rebootMethodFromMlxfwresetStatus(h *HandleReboot, device string, out *mlxfwresetStatusJSON) provisioningv1.RebootMethodType {
 	if checkRebootMethodPowerCycle(nil, out) || h.queryReportsNoResetLevelSupported(device) {
 		return provisioningv1.RebootMethodPowerCycle
@@ -437,7 +442,7 @@ func rebootMethodFromMlxfwresetStatus(h *HandleReboot, device string, out *mlxfw
 	}
 	// Fallback to SystemLevelReset in case 'reset_needed' is true but no other reboot method is detected.
 	// Full tool output is available on the AgentCondRebootMethodDiscovery condition Message.
-	klog.Infof("PCI device %s: no reboot method matched from tool output; falling back to SystemLevelReset. See AgentCondRebootMethodDiscovery condition Message for full tool output.", device)
+	klog.Infof("device %s: no reboot method matched from tool output; falling back to SystemLevelReset. See AgentCondRebootMethodDiscovery condition Message for full tool output.", device)
 	return provisioningv1.RebootMethodSystemLevelReset
 }
 
@@ -647,6 +652,9 @@ func (h *HandleReboot) getRebootMethodDeviceQuery(optCtx *operations.Context) (*
 	if h.runBash == nil {
 		h.runBash = bash.Run
 	}
+	if h.resolveTarget == nil {
+		h.resolveTarget = pciutil.NICPort.FwctlOrPCI
+	}
 	desired, err := getDesiredNVConfigParameters(optCtx, nicPorts)
 	if err != nil {
 		return nil, err
@@ -655,8 +663,15 @@ func (h *HandleReboot) getRebootMethodDeviceQuery(optCtx *operations.Context) (*
 	finalRebootMethod := provisioningv1.RebootMethodNoAction
 	rawParts := make([]string, 0, len(nicPorts))
 	for _, port := range nicPorts {
-		device := port.PCIAddress
-		cmd := fmt.Sprintf("mlxfwreset -d %s status --json", device)
+		pciAddress := port.PCIAddress
+		// Resolved per call so a fwctl node that appears after port discovery is picked up.
+		target, err := h.resolveTarget(port)
+		if err != nil {
+			return nil, fmt.Errorf("resolve mlxfwreset device for PCI device %s: %w", pciAddress, err)
+		}
+		// Later mlxfwreset logs only carry the -d target; this line ties it back to the PCI device.
+		klog.Infof("PCI device %s (netdev %s, device ID %s): using mlxfwreset -d target %s", pciAddress, port.Netdev, port.DeviceID, target)
+		cmd := fmt.Sprintf("mlxfwreset -d %s status --json", target)
 		stdout, stderr, err := h.runBash(cmd)
 		if err != nil {
 			outText := strings.TrimSpace(stdout.String() + "\n" + stderr.String())
@@ -670,7 +685,7 @@ func (h *HandleReboot) getRebootMethodDeviceQuery(optCtx *operations.Context) (*
 			if optCtx.LatestDPU != nil && optCtx.LatestDPU.Status.Hostless &&
 				strings.Contains(outText, noResetLevelSupportedText) {
 				klog.Infof("WORKAROUND(mlxfwreset-no-reset-level): hostless PCI device %s: mlxfwreset reported no supported reset level; returning PowerCycle. err=%v output=%s",
-					device, err, outText)
+					pciAddress, err, outText)
 				rawParts = append(rawParts, outText)
 				h.noResetLevelPowerCycle = true
 				finalRebootMethod = provisioningv1.RebootMethodPowerCycle
@@ -682,7 +697,7 @@ func (h *HandleReboot) getRebootMethodDeviceQuery(optCtx *operations.Context) (*
 			if strings.Contains(outText, noResetLevelSupportedText) ||
 				strings.Contains(outText, noResetLevelSupportedText1) {
 				msg := fmt.Sprintf("%s: %v (stdout: %s, stderr: %s)", cmd, err, stdout.String(), stderr.String())
-				klog.Warningf("WORKAROUND: PCI device %s: %s", device, msg)
+				klog.Warningf("WORKAROUND: PCI device %s: %s", pciAddress, msg)
 				rawParts = append(rawParts, msg)
 				finalRebootMethod = provisioningv1.RebootMethodPowerCycle
 				break
@@ -695,9 +710,9 @@ func (h *HandleReboot) getRebootMethodDeviceQuery(optCtx *operations.Context) (*
 		}
 		var out mlxfwresetStatusJSON
 		if err := json.Unmarshal([]byte(raw), &out); err != nil {
-			return nil, fmt.Errorf("mlxfwreset status for %s: parse JSON: %w", device, err)
+			return nil, fmt.Errorf("mlxfwreset status for %s: parse JSON: %w", pciAddress, err)
 		}
-		recordPending(optCtx, device, out.PendingNvconfigParameters)
+		recordPending(optCtx, pciAddress, out.PendingNvconfigParameters)
 		if !ptr.Deref(out.ResetNeeded, false) {
 			continue
 		}
@@ -707,17 +722,17 @@ func (h *HandleReboot) getRebootMethodDeviceQuery(optCtx *operations.Context) (*
 		// workaround, removeForeverPending filters parameters that remained
 		// unchanged across boots. Provisioning continues when every pending entry
 		// is filtered; mlxfwreset reasons[] is not consulted (see removeForeverPending).
-		effective, shouldIgnore := removeForeverPending(optCtx, desired, device, out)
+		effective, shouldIgnore := removeForeverPending(optCtx, desired, pciAddress, out)
 		if shouldIgnore {
-			klog.Infof("PCI device %s: ignoring repeated pending NVCONFIG parameters after boot change", device)
+			klog.Infof("PCI device %s: ignoring repeated pending NVCONFIG parameters after boot change", pciAddress)
 			continue
 		}
 		rawParts = append(rawParts, raw)
-		m := rebootMethodFromMlxfwresetStatus(h, device, &effective)
+		m := rebootMethodFromMlxfwresetStatus(h, target, &effective)
 		if rebootMethodTakesPrecedenceOver(m, finalRebootMethod) {
 			finalRebootMethod = m
 		}
-		klog.Infof("PCI device %s requires reboot method %s, (current selected method: %s)", device, m, finalRebootMethod)
+		klog.Infof("PCI device %s requires reboot method %s, (current selected method: %s)", pciAddress, m, finalRebootMethod)
 	}
 
 	// If a higher-priority method wins (e.g. PowerCycle), drop those cmds—they only apply when finalRebootMethod is FirmwareReset.
