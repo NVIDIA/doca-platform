@@ -208,9 +208,9 @@ spec:
                       properties:
                         conf:
                           description: |-
-                            Conf is the <conf_name> argument passed to `mlxconfig set_system_conf`.
-                            The per-ASIC index is appended automatically by the daemon based on the
-                            device's detected Network Bay ASIC index, e.g. set_system_conf <conf>[0].
+                            Conf is the mlxconfig system configuration profile name. The daemon resolves
+                            the profile parameters for the device's detected Network Bay ASIC and manages
+                            them through the regular mlxconfig validation and apply flow.
                           type: string
                       required:
                       - conf
