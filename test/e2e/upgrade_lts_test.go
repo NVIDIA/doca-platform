@@ -113,7 +113,14 @@ var _ = Describe("DPF Upgrade LTS", func() {
 
 		artifactsKey:     "current",
 		prevArtifactsKey: "v26.4",
-		expectedChanges:  expectedChangesCurrent,
+		// v26.8 starts defaulting DPUService.spec.security; strip it when
+		// comparing v26.4 → current artifacts. SFC SI→NSI cutover is this hop.
+		artifactWaits:  []artifactWait{waitForSFCInterfaceMigration},
+		artifactChecks: []artifactCheck{assertSFCInterfaceMigration},
+		artifactNormalizes: []artifactNormalize{
+			filterUpgradeInterfaceArtifacts,
+			stripDefaultedDPUServiceSecurity,
+		},
 
 		expectedDPUServices: expectedDPUServicesCurrent,
 	})
