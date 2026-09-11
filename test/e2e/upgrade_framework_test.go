@@ -143,11 +143,19 @@ type validationPhaseInput struct {
 	// preRolloutPrevArtifactsKey, if set, compares the pre-rollout snapshot
 	// against a previous phase's snapshot.
 	preRolloutPrevArtifactsKey string
-	// expectedChanges lists spec changes this hop intentionally introduces (e.g.
-	// a newly defaulted field) so the artifact comparison ignores them. Empty for
-	// hops that introduce no such change. Applied to every snapshot comparison
-	// this phase runs.
-	expectedChanges []upgradeExpectedChange
+	// artifactWaits settle the cluster before each capture. Empty for hops
+	// that settle within the reconcile wait. Scope these to the hop that
+	// performs the work: waiting for an end state the hop never reaches
+	// just burns the timeout.
+	artifactWaits []artifactWait
+	// artifactChecks lists extra checks on this hop's snapshots, for
+	// properties identity comparison cannot express. Empty for hops that
+	// need none. Applied to every snapshot comparison this phase runs.
+	artifactChecks []artifactCheck
+	// artifactNormalizes rewrite snapshots after checks, so identity
+	// comparison can run. Empty for hops that preserve everything, which
+	// then compare every captured kind.
+	artifactNormalizes []artifactNormalize
 	// dpuClusterRunsCoreDNS marks releases that still run CoreDNS inside the DPU cluster via the
 	// Kamaji addon. From the release that serves DPU cluster DNS from the host cluster on, there is
 	// no CoreDNS Pod there to wait for.
@@ -318,6 +326,13 @@ func validationPhase(description string, in validationPhaseInput) {
 		panic(fmt.Sprintf("validation phase %q sets rolloutAllDPUs but not rolloutDPFVersionMinor", description))
 	}
 	validationPhaseLabels = append(validationPhaseLabels, in.label)
+	// Every capture this phase runs snapshots the same release, and every
+	// comparison the same pair of them, so they all share one config.
+	capture := artifactCapture{waits: in.artifactWaits}
+	compare := artifactCompare{
+		checks:     in.artifactChecks,
+		normalizes: in.artifactNormalizes,
+	}
 	Context("validation: "+description, Labels{in.label, Domain.RequiresNodes}, Serial, Ordered, func() {
 
 		if in.removeStaleDPUDeviceFinalizers {
@@ -371,14 +386,15 @@ func validationPhase(description string, in validationPhaseInput) {
 		// Capture before any rollout step when the phase compares the
 		// operator upgrade itself separately from an intentional rollout.
 		if in.captureBeforeRollout {
-			registerArtifactCaptureStep(description, "", in.artifactsKey, in.prevArtifactsKey, in.expectedChanges)
+			registerArtifactCaptureStep(description, "", in.artifactsKey, in.prevArtifactsKey, capture, compare)
 		}
 
 		// Capture a pre-rollout snapshot for multi-hop paths that prove the
 		// operator hop itself recreated nothing, kept separate from the
 		// post-rollout snapshot that becomes the next hop's baseline.
 		if in.preRolloutArtifactsKey != "" {
-			registerArtifactCaptureStep(description, "before rollout", in.preRolloutArtifactsKey, in.preRolloutPrevArtifactsKey, in.expectedChanges)
+			registerArtifactCaptureStep(description, "before rollout", in.preRolloutArtifactsKey, in.preRolloutPrevArtifactsKey,
+				capture, compare)
 		}
 
 		if in.rolloutAllDPUs {
@@ -407,16 +423,19 @@ func validationPhase(description string, in validationPhaseInput) {
 
 		// Capture position #2 (BFB LTS): after rollout steps complete.
 		if !in.captureBeforeRollout {
-			registerArtifactCaptureStep(description, "", in.artifactsKey, in.prevArtifactsKey, in.expectedChanges)
+			registerArtifactCaptureStep(description, "", in.artifactsKey, in.prevArtifactsKey, capture, compare)
 		}
 	})
 }
 
-// registerArtifactCaptureStep emits an It block that captures a snapshot and
-// optionally compares it against a previous one. No-op if artifactsKey is
-// empty. See upgrade_artifacts_test.go for the underlying capture/compare
-// machinery.
-func registerArtifactCaptureStep(phaseDescription, stepSuffix, artifactsKey, prevArtifactsKey string, expectedChanges []upgradeExpectedChange) {
+// registerArtifactCaptureStep emits an It block holding the whole snapshot
+// pipeline for one hop: wait, capture, then — when there is a previous snapshot
+// to compare against — load both, check, normalize, and compare. No-op if
+// artifactsKey is empty. Only waits run unconditionally: a phase can capture
+// without comparing, and its capture still has to wait for the same end state.
+// See upgrade_artifacts_test.go for the individual steps.
+func registerArtifactCaptureStep(phaseDescription, stepSuffix, artifactsKey, prevArtifactsKey string,
+	capture artifactCapture, compare artifactCompare) {
 	if artifactsKey == "" {
 		return
 	}
@@ -427,11 +446,25 @@ func registerArtifactCaptureStep(phaseDescription, stepSuffix, artifactsKey, pre
 		itName += " " + stepSuffix
 	}
 	It(itName, func() {
+		for _, wait := range capture.waits {
+			wait(ctx)
+		}
 		collectArtifacts(upgradeArtifactsFile(artifactsKey))
 		if prevArtifactsKey == "" {
 			return
 		}
-		compareArtifactSnapshots(prevArtifactsKey, artifactsKey, phaseDescription, expectedChanges)
+		prev := getArtifacts(upgradeArtifactsFile(prevArtifactsKey))
+		curr := getArtifacts(upgradeArtifactsFile(artifactsKey))
+		// Check before normalize rewrites the snapshots, so a check always
+		// sees more than the identity comparison does.
+		for _, check := range compare.checks {
+			check(prev, curr)
+		}
+		for _, normalize := range compare.normalizes {
+			normalize(&prev, &curr)
+		}
+		By(fmt.Sprintf("Comparing artifacts: %s vs %s", prevArtifactsKey, artifactsKey))
+		compareArtifactSnapshots(prev, curr, phaseDescription)
 	})
 }
 

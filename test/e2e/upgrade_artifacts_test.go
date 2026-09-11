@@ -17,12 +17,15 @@ limitations under the License.
 package e2e
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
@@ -34,7 +37,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -53,77 +55,60 @@ func upgradeArtifactsFile(key string) string {
 	return filepath.Join(artifactsDir, "..", "upgrade-artifacts-"+key+".json")
 }
 
-// upgradeExpectedChange describes a known spec change introduced by an upgrade.
-// Objects that are recreated can't be handled by this struct and need to be
-// handled in a different way. transform is applied only to the after artifact
-// of the matching GVK before comparison, resetting the changed field(s) back
-// to their pre-upgrade value so the assertion does not fail on expected
-// changes. The matching before artifact's generation is bumped by one to
-// account for the single spec change the upgrade introduced.
-//
-// Example — a field that flips from false to true after upgrade:
-//
-//	{gvk: dpuservicev1.GroupVersion.WithKind("DPUService"), transform: func(a map[string]interface{}) {
-//	    spec, _ := a["spec"].(map[string]interface{})
-//	    spec["something"] = false
-//	}}
-type upgradeExpectedChange struct {
-	gvk       schema.GroupVersionKind
-	transform func(artifact map[string]interface{})
+// artifactWait settles the live cluster before a snapshot is captured —
+// typically blocking until the hop has converged, so the file records its end
+// state rather than a moment mid-flight.
+type artifactWait func(ctx context.Context)
+
+// artifactCheck checks a property of an upgrade hop that identity comparison
+// cannot express, for example inventory continuity across a kind the hop
+// migrates. It sees the raw snapshots, before any normalize rewrites them.
+type artifactCheck func(before, after []map[string]interface{})
+
+// artifactNormalize rewrites both snapshots so identity comparison can run
+type artifactNormalize func(before, after *[]map[string]interface{})
+
+// artifactCapture is how a phase takes a snapshot. Waits run even when this
+// capture has no comparison: the file on disk still has to be the end state.
+type artifactCapture struct {
+	waits []artifactWait
 }
 
-// applyUpgradeExpectedChanges mutates `after` to reset the fields touched by
-// each registered transform, and bumps the matching `before` artifact's
-// generation by one (since the upgrade necessarily bumped it once).
-func applyUpgradeExpectedChanges(before, after []map[string]interface{}, expectedChanges []upgradeExpectedChange) {
-	type artifactKey struct{ apiVersion, kind, name, namespace string }
-	beforeIdx := make(map[artifactKey]int, len(before))
-	for i, b := range before {
-		k := artifactKey{
-			apiVersion: fmt.Sprintf("%v", b["apiVersion"]),
-			kind:       fmt.Sprintf("%v", b["kind"]),
-			name:       fmt.Sprintf("%v", b["name"]),
-			namespace:  fmt.Sprintf("%v", b["namespace"]),
-		}
-		beforeIdx[k] = i
-	}
+// artifactCompare is how a phase compares two snapshots. Empty checks and
+// normalizes means field-for-field identity on every captured kind.
+type artifactCompare struct {
+	checks     []artifactCheck
+	normalizes []artifactNormalize
+}
 
-	for i, artifact := range after {
-		apiVersion, _ := artifact["apiVersion"].(string)
-		kind, _ := artifact["kind"].(string)
-		gv, err := schema.ParseGroupVersion(apiVersion)
-		Expect(err).ToNot(HaveOccurred())
-		artifactGVK := gv.WithKind(kind)
-		for _, change := range expectedChanges {
-			if change.gvk != artifactGVK {
-				continue
-			}
-			change.transform(after[i])
-			// The spec change introduced by the upgrade bumped the generation once.
-			// Increment the matching before artifact's generation so the comparison holds.
-			k := artifactKey{
-				apiVersion: apiVersion,
-				kind:       kind,
-				name:       fmt.Sprintf("%v", artifact["name"]),
-				namespace:  fmt.Sprintf("%v", artifact["namespace"]),
-			}
-			if idx, ok := beforeIdx[k]; ok {
-				if gen, ok := before[idx]["generation"].(float64); ok {
-					before[idx]["generation"] = gen + 1
-				}
-			}
+// bumpMatchingBeforeGeneration increments generation on the before artifact
+// with the same apiVersion/kind/name/namespace as after. Call it from a
+// normalize after rewinding a spec field the hop wrote once.
+func bumpMatchingBeforeGeneration(before []map[string]interface{}, after map[string]interface{}) {
+	apiVersion := fmt.Sprintf("%v", after["apiVersion"])
+	kind := fmt.Sprintf("%v", after["kind"])
+	name := fmt.Sprintf("%v", after["name"])
+	namespace := fmt.Sprintf("%v", after["namespace"])
+	for i, b := range before {
+		if fmt.Sprintf("%v", b["apiVersion"]) != apiVersion ||
+			fmt.Sprintf("%v", b["kind"]) != kind ||
+			fmt.Sprintf("%v", b["name"]) != name ||
+			fmt.Sprintf("%v", b["namespace"]) != namespace {
+			continue
 		}
+		gen, ok := before[i]["generation"].(float64)
+		Expect(ok).To(BeTrue(),
+			"before artifact %s %s/%s generation must be a JSON number", kind, namespace, name)
+		before[i]["generation"] = gen + 1
+		return
 	}
+	Fail(fmt.Sprintf("no before artifact matching %s %s %s/%s", apiVersion, kind, namespace, name))
 }
 
 // collectArtifacts writes a snapshot of all tracked objects (DPUs,
 // DPUDeployment-owned DPUServices, DPUServiceChains, DPUSets,
 // DPUServiceInterfaces, plus DPU-cluster-side ServiceChains, ServiceInterfaces,
 // and service Pods) to filePath as JSON.
-//
-// Note: ServiceInterface / NodeServiceInterfaces churn from SFC auto-migration is
-// excluded from identity compare via filterUpgradeInterfaceArtifacts, and checked
-// for inventory continuity via assertSFCInterfaceMigration.
 func collectArtifacts(filePath string) {
 	By("Collecting artifacts to: " + filePath)
 	Expect(os.MkdirAll(filepath.Dir(filePath), 0755)).To(Succeed())
@@ -207,22 +192,9 @@ func getArtifacts(filePath string) []map[string]interface{} {
 	return artifacts
 }
 
-// compareArtifactSnapshots loads the two named snapshots, applies the given
-// expected-change transforms, and asserts they match (modulo sorting). The
-// phaseDescription is used in assertion messages.
-//
-// ServiceInterface and NodeServiceInterfaces artifacts are excluded from the
-// identity comparison (GVK/name/UID churn across SFC SI→NSI migration) but are
-// checked separately by assertSFCInterfaceMigration.
-func compareArtifactSnapshots(prevKey, currKey, phaseDescription string, expectedChanges []upgradeExpectedChange) {
-	prevAll := getArtifacts(upgradeArtifactsFile(prevKey))
-	currAll := getArtifacts(upgradeArtifactsFile(currKey))
-	assertSFCInterfaceMigration(prevAll, currAll)
-
-	prev := filterUpgradeInterfaceArtifacts(prevAll)
-	curr := filterUpgradeInterfaceArtifacts(currAll)
-	applyUpgradeExpectedChanges(prev, curr, expectedChanges)
-	By(fmt.Sprintf("Comparing artifacts: %s vs %s", prevKey, currKey))
+// compareArtifactSnapshots asserts the two prepared snapshots match (modulo
+// sorting). The phaseDescription is used in assertion messages.
+func compareArtifactSnapshots(prev, curr []map[string]interface{}, phaseDescription string) {
 	Expect(curr).To(HaveLen(len(prev)),
 		"Number of tracked objects should be unchanged after %s upgrade", phaseDescription)
 	sort.Slice(prev, func(i, j int) bool { return fmt.Sprintf("%v", prev[i]) < fmt.Sprintf("%v", prev[j]) })
@@ -232,22 +204,23 @@ func compareArtifactSnapshots(prevKey, currKey, phaseDescription string, expecte
 }
 
 // filterUpgradeInterfaceArtifacts drops ServiceInterface and NodeServiceInterfaces
-// from upgrade snapshots. SFC SI→NSI migration recreates interface inventory under
+// from both snapshots. SFC SI→NSI migration recreates interface inventory under
 // a different GVK during upgrade, so those kinds are not stable across the cutover.
+// Register it as a normalize on the cutover hop only, paired with
+// assertSFCInterfaceMigration so the inventory it hides stays covered.
 //
 // TODO(v26.8+): delete this filter (and assertSFCInterfaceMigration / SI labels in
 // extractArtifacts) once the previous-GA upgrade hop is NSI-native — NSI objects can
 // return to the identity comparison and the SI→NSI cutover assert is obsolete.
-func filterUpgradeInterfaceArtifacts(artifacts []map[string]interface{}) []map[string]interface{} {
-	out := make([]map[string]interface{}, 0, len(artifacts))
-	for _, a := range artifacts {
-		kind, _ := a["kind"].(string)
-		if kind == dpuservicev1.ServiceInterfaceKind || kind == dpuservicev1.NodeServiceInterfacesKind {
-			continue
-		}
-		out = append(out, a)
+func filterUpgradeInterfaceArtifacts(before, after *[]map[string]interface{}) {
+	drop := func(artifacts *[]map[string]interface{}) {
+		*artifacts = slices.DeleteFunc(*artifacts, func(a map[string]interface{}) bool {
+			kind, _ := a["kind"].(string)
+			return kind == dpuservicev1.ServiceInterfaceKind || kind == dpuservicev1.NodeServiceInterfacesKind
+		})
 	}
-	return out
+	drop(before)
+	drop(after)
 }
 
 // assertSFCInterfaceMigration verifies SFC SI→NSI cutover across upgrade:
@@ -265,6 +238,16 @@ func assertSFCInterfaceMigration(before, after []map[string]interface{}) {
 	}
 	Expect(afterNSI).To(ContainElements(beforeSI),
 		"every pre-upgrade SFC ServiceInterface must become an NSI entry (set/ns/node)")
+}
+
+func waitForSFCInterfaceMigration(ctx context.Context) {
+	By("Waiting for the SFC ServiceInterface → NodeServiceInterfaces cutover to converge")
+	Eventually(func(g Gomega) {
+		serviceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
+		g.Expect(dpuClusterClient[0].List(ctx, serviceInterfaceList)).To(Succeed())
+		g.Expect(sfcServiceInterfaceMigrationKeys(extractArtifacts(ToClientObjectSlice(serviceInterfaceList.Items)))).
+			To(BeEmpty(), "SFC ServiceInterfaces still awaiting NSI cutover")
+	}).WithTimeout(10 * time.Minute).WithPolling(time.Second).Should(Succeed())
 }
 
 // sfcServiceInterfaceMigrationKeys returns "setNS/setName/node" keys for SFC

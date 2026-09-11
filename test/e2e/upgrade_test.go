@@ -62,18 +62,20 @@ func expectedDPUServicesCurrent(input *systemTestInput) []string {
 	return append(expectedDPUServicesV2604(input), operatorv1.DPUMonitoringName.String())
 }
 
-// expectedChangesCurrent lists the spec changes an upgrade to the current HEAD
-// release intentionally introduces. Shared by every hop that lands on HEAD: the
-// regular previous-GA → HEAD upgrade and the BFB LTS v26.4 → v26.7 hop.
-var expectedChangesCurrent = []upgradeExpectedChange{
-	// DPUService .spec.security is newly defaulted at HEAD: "before" lacks it while
-	// "after" has it, so strip it from "after" (before's generation is bumped by one).
-	{
-		gvk: dpuservicev1.GroupVersion.WithKind("DPUService"),
-		transform: func(artifact map[string]interface{}) {
-			unstructured.RemoveNestedField(artifact, "spec", "security")
-		},
-	},
+// stripDefaultedDPUServiceSecurity rewinds the v26.8 DPUService.spec.security
+// default so identity compare against v26.4 can ignore it, and bumps the
+// matching before generation for that one spec write.
+func stripDefaultedDPUServiceSecurity(before, after *[]map[string]interface{}) {
+	wantAPIVersion := dpuservicev1.GroupVersion.String()
+	for i, a := range *after {
+		apiVersion, _ := a["apiVersion"].(string)
+		kind, _ := a["kind"].(string)
+		if apiVersion != wantAPIVersion || kind != dpuservicev1.DPUServiceKind {
+			continue
+		}
+		unstructured.RemoveNestedField((*after)[i], "spec", "security")
+		bumpMatchingBeforeGeneration(*before, (*after)[i])
+	}
 }
 
 // The regular previous-GA → main/release-branch upgrade: an install phase that
@@ -99,7 +101,12 @@ var _ = Describe("DPF Upgrade", func() {
 		artifactsKey:         "after",
 		prevArtifactsKey:     "before",
 		rolloutDependencies:  true,
-		expectedChanges:      expectedChangesCurrent,
-		expectedDPUServices:  expectedDPUServicesCurrent,
+		artifactWaits:        []artifactWait{waitForSFCInterfaceMigration},
+		artifactChecks:       []artifactCheck{assertSFCInterfaceMigration},
+		artifactNormalizes: []artifactNormalize{
+			filterUpgradeInterfaceArtifacts,
+			stripDefaultedDPUServiceSecurity,
+		},
+		expectedDPUServices: expectedDPUServicesCurrent,
 	})
 })
