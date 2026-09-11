@@ -156,6 +156,89 @@ var _ = Describe("EWPortFilter", func() {
 	})
 })
 
+var _ = Describe("FwctlOrPCI", func() {
+	const bdf = "0000:03:00.0"
+
+	writeFwctl := func(root string, names ...string) {
+		dir := filepath.Join(root, bdf, "fwctl")
+		ExpectWithOffset(1, os.MkdirAll(dir, 0755)).To(Succeed())
+		for _, name := range names {
+			ExpectWithOffset(1, os.WriteFile(filepath.Join(dir, name), nil, 0644)).To(Succeed())
+		}
+	}
+
+	It("should return the PCI address for BF3 without reading sysfs", func() {
+		// Point sysfs at an empty directory: the PCI branch must not depend on it.
+		setSysfsPCIDevicesPathForTest(GinkgoT().TempDir())
+		target, err := NICPort{PCIAddress: bdf, DeviceID: bluefield3DeviceID}.FwctlOrPCI()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(target).To(Equal(bdf))
+	})
+
+	It("should return the PCI address for BF2 and for ports with no device ID", func() {
+		setSysfsPCIDevicesPathForTest(GinkgoT().TempDir())
+		target, err := NICPort{PCIAddress: bdf, DeviceID: bluefield2DeviceID}.FwctlOrPCI()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(target).To(Equal(bdf))
+		target, err = NICPort{PCIAddress: bdf}.FwctlOrPCI()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(target).To(Equal(bdf))
+	})
+
+	It("should return the fwctl device for BF4", func() {
+		root := GinkgoT().TempDir()
+		setSysfsPCIDevicesPathForTest(root)
+		writeFwctl(root, "fwctl0")
+		target, err := NICPort{PCIAddress: bdf, DeviceID: BlueField4DeviceID}.FwctlOrPCI()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(target).To(Equal("/dev/fwctl/fwctl0"))
+	})
+
+	It("should pick the first fwctl entry in sorted order and ignore non-fwctl entries", func() {
+		root := GinkgoT().TempDir()
+		setSysfsPCIDevicesPathForTest(root)
+		writeFwctl(root, "fwctl3", "fwctl1", "power", "uevent")
+		target, err := NICPort{PCIAddress: bdf, DeviceID: BlueField4DeviceID}.FwctlOrPCI()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(target).To(Equal("/dev/fwctl/fwctl1"))
+	})
+
+	It("should normalize a short PCI address before looking up sysfs", func() {
+		root := GinkgoT().TempDir()
+		setSysfsPCIDevicesPathForTest(root)
+		writeFwctl(root, "fwctl0")
+		target, err := NICPort{PCIAddress: "03:00.0", DeviceID: BlueField4DeviceID}.FwctlOrPCI()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(target).To(Equal("/dev/fwctl/fwctl0"))
+	})
+
+	It("should return an error for BF4 when the fwctl directory is missing", func() {
+		setSysfsPCIDevicesPathForTest(GinkgoT().TempDir())
+		_, err := NICPort{PCIAddress: bdf, DeviceID: BlueField4DeviceID}.FwctlOrPCI()
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring(bdf))
+	})
+
+	It("should return an error for BF4 when the fwctl directory has no fwctl entries", func() {
+		root := GinkgoT().TempDir()
+		setSysfsPCIDevicesPathForTest(root)
+		writeFwctl(root, "power")
+		_, err := NICPort{PCIAddress: bdf, DeviceID: BlueField4DeviceID}.FwctlOrPCI()
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("no fwctl device"))
+		Expect(err.Error()).To(ContainSubstring(bdf))
+	})
+
+	It("should return the fwctl device for ConnectX-9", func() {
+		root := GinkgoT().TempDir()
+		setSysfsPCIDevicesPathForTest(root)
+		writeFwctl(root, "fwctl2")
+		target, err := NICPort{PCIAddress: bdf, DeviceID: connectX9DeviceID}.FwctlOrPCI()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(target).To(Equal("/dev/fwctl/fwctl2"))
+	})
+})
+
 var _ = Describe("FilterForScope", func() {
 	It("should return the matching filter for each scope", func() {
 		nsFilter, err := FilterForScope(PortScopeNS)

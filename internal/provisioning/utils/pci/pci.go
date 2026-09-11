@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
@@ -49,11 +50,15 @@ const (
 var (
 	sysfsNetPath        = "/sys/class/net"
 	sysfsPCIDevicesPath = "/sys/bus/pci/devices"
+	devFwctlPath        = "/dev/fwctl"
 )
 
 var (
 	nsNICDeviceIDs = sets.New(bluefield2DeviceID, bluefield3DeviceID, BlueField4DeviceID)
 	ewNICDeviceIDs = sets.New(connectX9DeviceID)
+	// fwctlDeviceIDs are the device IDs whose MFT tool target must be the fwctl
+	// character device instead of the PCI address.
+	fwctlDeviceIDs = sets.New(BlueField4DeviceID, connectX9DeviceID)
 )
 
 // NormalizeAddress normalizes a PCI address for comparisons.
@@ -138,6 +143,28 @@ func pciDeviceID(pciAddress string) (string, error) {
 	return id, nil
 }
 
+// fwctlDevice returns the fwctl character device path (e.g. /dev/fwctl/fwctl0)
+// bound to pciAddress by reading <sysfs pci devices>/<bdf>/fwctl/. When several
+// entries exist, the first in sorted order is returned.
+func fwctlDevice(pciAddress string) (string, error) {
+	fwctlDir := filepath.Join(sysfsPCIDevicesPath, NormalizeAddress(pciAddress), "fwctl")
+	entries, err := os.ReadDir(fwctlDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to read fwctl directory %s for PCI %s: %w", fwctlDir, pciAddress, err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "fwctl") {
+			names = append(names, entry.Name())
+		}
+	}
+	if len(names) == 0 {
+		return "", fmt.Errorf("no fwctl device found under %s for PCI %s", fwctlDir, pciAddress)
+	}
+	sort.Strings(names)
+	return filepath.Join(devFwctlPath, names[0]), nil
+}
+
 // NICPort describes a single physical NIC port discovered on the DPU.
 type NICPort struct {
 	// Netdev is the physical port network interface name, e.g. "p0", "p1".
@@ -146,6 +173,19 @@ type NICPort struct {
 	PCIAddress string
 	// DeviceID is the ECPF PCI device ID, e.g. "0xa2df".
 	DeviceID string
+}
+
+// FwctlOrPCI returns the MFT tool -d target for this port, resolved at call time.
+// BF4 and ConnectX-9 must use their fwctl device; it is looked up in sysfs on every
+// call because the fwctl node may appear after port discovery. BF2 / BF3 use the PCI
+// address, so the returned value is the PCI address itself and sysfs is not read.
+// The fwctl lookup does not fall back to the PCI address: a missing fwctl device on
+// BF4 / ConnectX-9 is an error.
+func (p NICPort) FwctlOrPCI() (string, error) {
+	if fwctlDeviceIDs.Has(p.DeviceID) {
+		return fwctlDevice(p.PCIAddress)
+	}
+	return p.PCIAddress, nil
 }
 
 // PortDiscoverer discovers physical NIC ports on the DPU by joining devlink and
