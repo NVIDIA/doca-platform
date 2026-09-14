@@ -33,6 +33,8 @@ import (
 type setupInfoEntry struct {
 	// HostBMCIP is the host BMC IP address of the DPU.
 	HostBMCIP string `json:"host-bmc-ip"`
+	// HostOOBIP is the host SSH/mgmt IP.
+	HostOOBIP string `json:"host-oob-ip,omitempty"`
 	// DPUDeviceValues is the map of DPUDevice values to be applied to the DPUDevice.
 	DPUDeviceValues map[string]any `json:"dpu-device-values,omitempty"`
 }
@@ -71,6 +73,7 @@ func loadCISetupInfo(path string) *ciSetupInfo {
 		entry.HostBMCIP = strings.TrimSpace(entry.HostBMCIP)
 		Expect(entry.HostBMCIP).NotTo(BeEmpty(),
 			"serial %q missing required host-bmc-ip in %s", serial, path)
+		entry.HostOOBIP = strings.TrimSpace(entry.HostOOBIP)
 		bySerial[key] = entry
 	}
 	return &ciSetupInfo{path: path, bySerial: bySerial}
@@ -91,6 +94,19 @@ func (s *ciSetupInfo) GetDPUDeviceValuesForDPUDevice(dpuDevice *provisioningv1.D
 // DPUDevice in node.Spec.DPUs and using its Status.SerialNumber. The IP lives
 // in setup-info, not on the DPUNode.
 func (s *ciSetupInfo) GetHostBMCIPForDPUNode(ctx context.Context, c client.Client, node *provisioningv1.DPUNode) string {
+	return s.entryForDPUNode(ctx, c, node).HostBMCIP
+}
+
+// GetHostOOBIPForDPUNode looks up the host SSH/mgmt IP for a DPUNode.
+func (s *ciSetupInfo) GetHostOOBIPForDPUNode(ctx context.Context, c client.Client, node *provisioningv1.DPUNode) string {
+	entry := s.entryForDPUNode(ctx, c, node)
+	Expect(entry.HostOOBIP).NotTo(BeEmpty(),
+		"DPUNode %q has no host-oob-ip in %s (host SSH/mgmt IP)", node.Name, s.path)
+	return entry.HostOOBIP
+}
+
+// entryForDPUNode loads the setup-info entry for the node's first DPUDevice serial.
+func (s *ciSetupInfo) entryForDPUNode(ctx context.Context, c client.Client, node *provisioningv1.DPUNode) setupInfoEntry {
 	Expect(node.Spec.DPUs).NotTo(BeEmpty(),
 		"DPUNode %q has no Spec.DPUs entries to resolve a DPUDevice", node.Name)
 
@@ -108,5 +124,5 @@ func (s *ciSetupInfo) GetHostBMCIPForDPUNode(ctx context.Context, c client.Clien
 	Expect(ok).To(BeTrue(),
 		"DPUNode %q (DPUDevice %q status serial %q) has no entry in %s; add the DPU serial there",
 		node.Name, deviceName, serial, s.path)
-	return entry.HostBMCIP
+	return entry
 }
