@@ -16,7 +16,7 @@ spec:
       labels:
         app: secondary-network-pod
       annotations:
-        k8s.v1.cni.cncf.io/networks: sriov-bf3-p0-vfs
+        k8s.v1.cni.cncf.io/networks: sriov-bf3-vfs
     spec:
       topologySpreadConstraints:
         - maxSkew: 1
@@ -45,9 +45,9 @@ spec:
               name: tcp-server
           resources:
             limits:
-              nvidia.com/bf3-p0-vfs: "1"
+              nvidia.com/bf3-vfs: "1"
             requests:
-              nvidia.com/bf3-p0-vfs: "1"
+              nvidia.com/bf3-vfs: "1"
           securityContext:
             capabilities:
               add:

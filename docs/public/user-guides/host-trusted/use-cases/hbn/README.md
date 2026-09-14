@@ -277,7 +277,7 @@ The NodeSRIOVDevicePluginConfig defines which VFs on the DPU physical functions 
 kubectl apply -f manifests/03-enable-accelerated-interfaces/nodesriovdevicepluginconfig.yaml
 ```
 
-<details markdown="1"><summary><b>NodeSRIOVDevicePluginConfig for VFs on PF0</b></summary>
+<details markdown="1"><summary><b>NodeSRIOVDevicePluginConfig for VFs on PF0 and PF1</b></summary>
 
 [embedmd]:#(manifests/03-enable-accelerated-interfaces/nodesriovdevicepluginconfig.yaml)
 ```yaml
@@ -285,17 +285,20 @@ kubectl apply -f manifests/03-enable-accelerated-interfaces/nodesriovdeviceplugi
 apiVersion: noderesources.dpu.nvidia.com/v1alpha1
 kind: NodeSRIOVDevicePluginConfig
 metadata:
-  name: bf3-p0-vfs
+  name: bf3-vfs
   namespace: dpf-operator-system
 spec:
   devicePluginResources:
-    - name: bf3-p0-vfs
+    - name: bf3-vfs
       type: vf
       options:
         isRdma: true
       ranges:
         - pfIndex: 0
           start: 2
+          end: 45
+        - pfIndex: 1
+          start: 0
           end: 45
 ```
 </details>
@@ -492,7 +495,7 @@ spec:
         matchLabels:
           feature.node.kubernetes.io/dpu-enabled: "true"
       dpuAnnotations:
-        noderesources.dpu.nvidia.com/nodesriovdevicepluginconfig: bf3-p0-vfs
+        noderesources.dpu.nvidia.com/nodesriovdevicepluginconfig: bf3-vfs
     dpuSetStrategy:
       type: RollingUpdate
   services:

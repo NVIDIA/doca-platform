@@ -16,7 +16,7 @@ spec:
         matchLabels:
           feature.node.kubernetes.io/dpu-enabled: "true"
       dpuAnnotations:
-        noderesources.dpu.nvidia.com/nodesriovdevicepluginconfig: bf3-p0-vfs
+        noderesources.dpu.nvidia.com/nodesriovdevicepluginconfig: bf3-vfs
     dpuSetStrategy:
       type: RollingUpdate
   services:
