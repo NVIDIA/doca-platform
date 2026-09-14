@@ -724,6 +724,43 @@ var _ = Describe("Installing", func() {
 			Expect(cond.Message).To(ContainSubstring("check power cable"))
 		})
 
+		It("dpu-agent reports startup after the BFB install task was dropped by a BMC reboot: treats BFB as transferred and hands off to DPUConfig", func() {
+			env := setupInstallingEnv("dpu-404-agent-recovers-test")
+			defer env.teardown()
+			env.dpu.Status.DPUType = provisioningv1.DPUTypeBlueField3
+			env.mockServer.SetTaskHTTPResponse(http.StatusNotFound, `{"error":"task gone"}`)
+
+			By("Step 1: no AgentStatus yet -> CheckTaskProgress 404 is a plain error, phase stays OSInstalling")
+			status, err := Installing(ctx, env.dpu, env.ctrlCtx)
+			Expect(err).To(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUOSInstalling))
+			Expect(status.RedfishTaskID).NotTo(BeNil())
+
+			_, failCond := cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondBFBTransferred))
+			Expect(failCond).NotTo(BeNil())
+			Expect(failCond.Reason).To(Equal("FailToCheckProgress"))
+
+			By("Step 2: dpu-agent reports startup -> BFBTransferred is treated as done and Installing hands off to DPUConfig")
+			env.dpu.Status = status
+			now := metav1.Now()
+			env.dpu.Status.AgentStatus = &provisioningv1.AgentStatus{LastStartupTime: &now}
+
+			status, err = Installing(ctx, env.dpu, env.ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUConfig))
+			Expect(status.RedfishTaskID).To(BeNil())
+
+			_, bfbCond := cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondBFBTransferred))
+			Expect(bfbCond).NotTo(BeNil())
+			Expect(bfbCond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(bfbCond.Reason).To(Equal("BFBTransferred"))
+
+			_, osCond := cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondOSInstalled))
+			Expect(osCond).NotTo(BeNil())
+			Expect(osCond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(osCond.Reason).To(Equal("OsInstalled"))
+		})
+
 		It("HTTP 404 from InstallBFB submit surfaces the BMC message in the condition (rshim not owned by BMC)", func() {
 			env := setupInstallingEnv("dpu-installbfb-404-test")
 			defer env.teardown()
