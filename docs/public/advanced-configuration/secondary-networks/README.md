@@ -127,7 +127,7 @@ kubectl wait --for=condition=ServiceChainSetReconciled --namespace dpf-operator-
 If you want to create pods with secondary networks, first create a secondary network NetworkAttachmentDefinition.
 
 ```shell
-kubectl apply -f manifests/03-test-traffic/nad_bf3_p0_vfs.yaml
+kubectl apply -f manifests/03-test-traffic/nad_bf3_vfs.yaml
 ```
 
 Now you can create pods with secondary network interfaces using the following command:

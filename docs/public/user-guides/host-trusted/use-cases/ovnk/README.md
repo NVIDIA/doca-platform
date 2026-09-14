@@ -381,6 +381,7 @@ envsubst < manifests/04-enable-accelerated-cni/helm-values/ovn-kubernetes.yml | 
 ovn-kubernetes-resource-injector:
   ## Enable the ovn-kubernetes-resource-injector
   enabled: true
+  resourceName: nvidia.com/bf3-vfs
 ```
 </details>
 
@@ -393,7 +394,7 @@ ovn-kubernetes-resource-injector:
   runtimeClassMappings:
     - runtimeClass: <kata-runtime-class-name>
       nadName: dpf-ovn-kubernetes-kata-qemu
-      resourceName: nvidia.com/bf3-p0-kata-vfs
+      resourceName: nvidia.com/bf3-kata-vfs
 ```
 
 
@@ -432,7 +433,7 @@ The NodeSRIOVDevicePluginConfig defines which VFs on the DPU physical functions 
 kubectl apply -f manifests/04-enable-accelerated-cni/nodesriovdevicepluginconfig.yaml
 ```
 
-<details markdown="1"><summary><b>NodeSRIOVDevicePluginConfig for VFs on PF0</b></summary>
+<details markdown="1"><summary><b>NodeSRIOVDevicePluginConfig for VFs on PF0 and PF1</b></summary>
 
 [embedmd]:#(manifests/04-enable-accelerated-cni/nodesriovdevicepluginconfig.yaml)
 ```yaml
@@ -440,7 +441,7 @@ kubectl apply -f manifests/04-enable-accelerated-cni/nodesriovdevicepluginconfig
 apiVersion: noderesources.dpu.nvidia.com/v1alpha1
 kind: NodeSRIOVDevicePluginConfig
 metadata:
-  name: bf3-p0-vfs
+  name: bf3-vfs
   namespace: dpf-operator-system
 spec:
   devicePluginResources:
@@ -450,7 +451,7 @@ spec:
         - pfIndex: 0
           start: 1
           end: 1
-    - name: bf3-p0-vfs
+    - name: bf3-vfs
       type: vf
       options:
         isRdma: true
@@ -458,20 +459,23 @@ spec:
         - pfIndex: 0
           start: 2
           end: 45
+        - pfIndex: 1
+          start: 0
+          end: 45
 ```
 </details>
 
 If [Kata Containers](../../../../advanced-configuration/kata-containers.md) is enabled, use the
-Kata variant instead. It reduces the `bf3-p0-vfs` RDMA range to VFs 2–40 and adds a dedicated
-`bf3-p0-kata-vfs` pool (VFs 41–45) with `isRdma: false`. VFs in this pool are cold-plugged into
-Kata VMs as the primary network interface; `isRdma: false` prevents RDMA uverbs from being exposed
-inside the VM.
+Kata variant instead. It partitions both PFs: PF0 VFs 2–40 and PF1 VFs 0–40 remain in the
+`bf3-vfs` RDMA pool, while VFs 41–45 from both PFs form a dedicated `bf3-kata-vfs` pool with
+`isRdma: false`. VFs in this pool are cold-plugged into Kata VMs as the primary network interface;
+`isRdma: false` prevents RDMA uverbs from being exposed inside the VM.
 
 ```shell
 kubectl apply -f manifests/04-enable-accelerated-cni/nodesriovdevicepluginconfig-kata.yaml
 ```
 
-<details markdown="1"><summary><b>NodeSRIOVDevicePluginConfig for VFs on PF0 (with Kata pool)</b></summary>
+<details markdown="1"><summary><b>NodeSRIOVDevicePluginConfig for VFs on PF0 and PF1 (with Kata pool)</b></summary>
 
 [embedmd]:#(manifests/04-enable-accelerated-cni/nodesriovdevicepluginconfig-kata.yaml)
 ```yaml
@@ -479,7 +483,7 @@ kubectl apply -f manifests/04-enable-accelerated-cni/nodesriovdevicepluginconfig
 apiVersion: noderesources.dpu.nvidia.com/v1alpha1
 kind: NodeSRIOVDevicePluginConfig
 metadata:
-  name: bf3-p0-vfs
+  name: bf3-vfs
   namespace: dpf-operator-system
 spec:
   devicePluginResources:
@@ -489,7 +493,7 @@ spec:
         - pfIndex: 0
           start: 1
           end: 1
-    - name: bf3-p0-vfs
+    - name: bf3-vfs
       type: vf
       options:
         isRdma: true
@@ -497,10 +501,16 @@ spec:
         - pfIndex: 0
           start: 2
           end: 40
-    - name: bf3-p0-kata-vfs
+        - pfIndex: 1
+          start: 0
+          end: 40
+    - name: bf3-kata-vfs
       type: vf
       ranges:
         - pfIndex: 0
+          start: 41
+          end: 45
+        - pfIndex: 1
           start: 41
           end: 45
 ```
@@ -713,7 +723,7 @@ spec:
         matchLabels:
           feature.node.kubernetes.io/dpu-enabled: "true"
       dpuAnnotations:
-        noderesources.dpu.nvidia.com/nodesriovdevicepluginconfig: bf3-p0-vfs
+        noderesources.dpu.nvidia.com/nodesriovdevicepluginconfig: bf3-vfs
     dpuSetStrategy:
       type: RollingUpdate
   services:

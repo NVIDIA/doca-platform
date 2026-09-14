@@ -198,7 +198,7 @@ spec:
           matchLabels:
             example.com/dpu-role: ovnk-hbn
         dpuAnnotations:
-          noderesources.dpu.nvidia.com/nodesriovdevicepluginconfig: bf3-p0-vfs
+          noderesources.dpu.nvidia.com/nodesriovdevicepluginconfig: bf3-vfs
   services:
     ovn:
       serviceTemplate: ovn
