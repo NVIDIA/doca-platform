@@ -85,6 +85,27 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 		return *state, nil
 	}
 
+	if dpu.Status.AgentStatus != nil && dpu.Status.AgentStatus.LastStartupTime != nil {
+		if dpu.Status.DPUType != provisioningv1.DPUTypeBlueField4 {
+			// The dpu-agent only starts once the BFB is installed and the new OS has booted, so the
+			// install task must already have completed. The BMC may have rebooted after the task
+			// finished and dropped it before we observed the final state, so mark the transfer as
+			// done here and stop tracking the task.
+			if dpu.Status.RedfishTaskID != nil {
+				logger.Info("dpu-agent reported startup while a BFB install task was still being tracked; treating the task as completed", "taskID", *dpu.Status.RedfishTaskID)
+			}
+			cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondBFBTransferred, "", ""))
+			state.RedfishTaskID = nil
+		}
+
+		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), nil, "OsInstalled", "OS installed, waiting for the DPU agent to start"))
+		clearInstallRetryCounter(dpu.UID)
+		ctrlCtx.DPUInProvisioningMap.Remove(dutil.DPUID(dpu.UID))
+		state.Phase = provisioningv1.DPUConfig
+		logger.Info("installation finished")
+		return *state, nil
+	}
+
 	if dpu.Status.DPUType == provisioningv1.DPUTypeBlueField4 {
 		_, cond := cutil.GetDPUCondition(state, string(provisioningv1.DPUCondChangeBootTarget))
 		if cond == nil || cond.Status != metav1.ConditionTrue {
@@ -97,21 +118,11 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 		}
 	}
 
-	if dpu.Status.AgentStatus == nil || dpu.Status.AgentStatus.LastStartupTime == nil {
-		msg := "Waiting for DPU OS to finish booting and start dpu-agent"
-		logger.Info(msg)
-		cond := cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), nil, "OSNotRunning", msg)
-		cond.Status = metav1.ConditionFalse
-		cutil.SetDPUCondition(state, cond)
-		return *state, nil
-	}
-
-	cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), nil, "OsInstalled", "OS installed, waiting for the DPU agent to start"))
-
-	clearInstallRetryCounter(dpu.UID)
-	ctrlCtx.DPUInProvisioningMap.Remove(dutil.DPUID(dpu.UID))
-	state.Phase = provisioningv1.DPUConfig
-	logger.Info("installation finished")
+	msg := "Waiting for DPU OS to finish booting and start dpu-agent"
+	logger.Info(msg)
+	cond := cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), nil, "OSNotRunning", msg)
+	cond.Status = metav1.ConditionFalse
+	cutil.SetDPUCondition(state, cond)
 	return *state, nil
 }
 
