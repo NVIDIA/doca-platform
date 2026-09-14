@@ -27,6 +27,7 @@ import (
 	"strings"
 	"time"
 
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -273,12 +274,12 @@ func RunTrafficTestWithResult(restClient **rest.RESTClient, restConfig **rest.Co
 	defer stopIperf3Server(restClient, restConfig, hostNamespace, podName2)
 
 	netshootOutput := runIperf3Client(restClient, restConfig, hostNamespace, podName1, pod2IP)
-	forwardResult := parseIperfResult(netshootOutput)
-	analyzeIperfResults(forwardResult, false)
+	forwardResult := ParseIperfResult(netshootOutput)
+	AnalyzeIperfResults(forwardResult, false)
 
 	reverseNetshootOutput := runIperf3ClientReverse(restClient, restConfig, hostNamespace, podName1, pod2IP)
-	reverseResult := parseIperfResult(reverseNetshootOutput)
-	analyzeIperfResults(reverseResult, true)
+	reverseResult := ParseIperfResult(reverseNetshootOutput)
+	AnalyzeIperfResults(reverseResult, true)
 
 	return TrafficTestResult{Forward: forwardResult, Reverse: reverseResult}
 }
@@ -573,9 +574,9 @@ func runIperf3ClientReverse(restClient **rest.RESTClient, restConfig **rest.Conf
 	return execCommandEventually(restClient, restConfig, namespace, podName, []string{"iperf3", "-c", iperf3ServerIP, "-R", "-J"}, 500*time.Second, WithErrorParser(IperfErrorParser))
 }
 
-// parseIperfResult unmarshals iperf3 --json output into an IperfResult and validates that connection
+// ParseIperfResult unmarshals iperf3 --json output into an IperfResult and validates that connection
 // information is present.
-func parseIperfResult(output string) IperfResult {
+func ParseIperfResult(output string) IperfResult {
 	var result IperfResult
 	err := json.Unmarshal([]byte(output), &result)
 	Expect(err).NotTo(HaveOccurred(), fmt.Sprintf("failed to parse iperf3 output: %v", err))
@@ -584,8 +585,9 @@ func parseIperfResult(output string) IperfResult {
 	return result
 }
 
-// analyzeIperfResults logs the transfer and asserts the throughput threshold for a parsed iperf3 result.
-func analyzeIperfResults(result IperfResult, reverse bool) {
+// AnalyzeIperfResults logs the transfer and asserts the throughput threshold for a parsed iperf3 result.
+func AnalyzeIperfResults(result IperfResult, reverse bool) {
+	Expect(result.Start.Connected).ShouldNot(BeEmpty(), "no connection information found: %+v", result.Start)
 	localIP := result.Start.Connected[0].LocalHost
 	remoteIP := result.Start.Connected[0].RemoteHost
 
@@ -618,10 +620,12 @@ func AnalyzeIBWriteBWResult(output string, minAvg float32) {
 		}
 		return fmt.Sprintf("%.2f Gbit/sec", *bw)
 	}
-	fmt.Printf("Bandwidth peak %s\t Bandwidth average %s\n", fmtBW(result.Results.BWPeak), fmtBW(result.Results.BWAverage))
+	avg := *result.Results.BWAverage
+	By(fmt.Sprintf("ib_write_bw result: BW average %s, BW peak %s, expected threshold %.2f Gbit/sec",
+		fmtBW(result.Results.BWAverage), fmtBW(result.Results.BWPeak), minAvg))
 
-	Expect(*result.Results.BWAverage).Should(BeNumerically(">", minAvg),
-		"ib_write_bw average %.2f Gbit/sec is not above threshold %.2f Gbit/sec", *result.Results.BWAverage, minAvg)
+	Expect(avg).Should(BeNumerically(">", minAvg),
+		"ib_write_bw average %.2f Gbit/sec is not above threshold %.2f Gbit/sec", avg, minAvg)
 }
 
 // execCommandEventually executes a command on a pod repeatedly until it succeeds or the timeout is reached.
