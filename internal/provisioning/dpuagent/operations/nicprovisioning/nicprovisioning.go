@@ -61,6 +61,7 @@ const (
 	nicRuntimeApplyTimeout    = 30 * time.Minute
 	invalidImageSignature     = "Invalid Image signature"
 	spectrumXConfigDir        = "/bindata/spectrum-x"
+	startMSTCommand           = "mst start"
 )
 
 // RuntimeConfigInterval is how often the post-provisioning runtime config loop reapplies.
@@ -146,7 +147,8 @@ func (n *NICProvisioning) Execute(execCtx context.Context, optCtx *operations.Co
 			return err
 		}
 	}
-	// 2. Stop host dmsd service (if present) and start local DMS server from NCO library.
+	// 2. Start MST, disable and stop host dmsd (if present, without masking),
+	//    then start a local DMS server from the NCO library.
 	prepareDMSServer := n.prepareLocalDMSServer
 	if n.prepareLocalDMSServerFn != nil {
 		prepareDMSServer = n.prepareLocalDMSServerFn
@@ -403,6 +405,9 @@ func isHTTPURL(value string) bool {
 }
 
 func (n *NICProvisioning) prepareLocalDMSServer(optCtx *operations.Context) error {
+	if err := n.ensureMSTStarted(); err != nil {
+		return err
+	}
 	if err := n.stopSystemDMSDServiceIfExists(); err != nil {
 		return err
 	}
@@ -966,6 +971,24 @@ func (n *NICProvisioning) LogRetainedResources() {
 	)
 }
 
+// ensureMSTStarted runs "mst start" so MST devices exist before host dmsd is
+// disabled. dmsd ExecStartPre normally starts MST; we take that over. Failure
+// fails the NIC provisioning operation.
+func (n *NICProvisioning) ensureMSTStarted() error {
+	if n.runBash == nil {
+		n.runBash = bash.Run
+	}
+
+	stdout, stderr, err := n.runBash(startMSTCommand)
+	if err != nil {
+		return fmt.Errorf("failed to start MST: %w, stdout: %s, stderr: %s", err, stdout.String(), stderr.String())
+	}
+	klog.InfoS("NIC provisioning: mst start completed",
+		"stdout", strings.TrimSpace(stdout.String()),
+		"stderr", strings.TrimSpace(stderr.String()))
+	return nil
+}
+
 func (n *NICProvisioning) stopSystemDMSDServiceIfExists() error {
 	if n.runBash == nil {
 		n.runBash = bash.Run
@@ -975,24 +998,24 @@ func (n *NICProvisioning) stopSystemDMSDServiceIfExists() error {
 	if err != nil {
 		combinedOutput := stdout.String() + stderr.String()
 		if strings.Contains(combinedOutput, "not-found") || strings.Contains(combinedOutput, "could not be found") {
-			klog.Info("NIC provisioning: dmsd service does not exist, skip service stop/disable")
+			klog.Info("NIC provisioning: dmsd service does not exist, skip service disable/stop")
 			return nil
 		}
 		return fmt.Errorf("failed to check dmsd service status: %w, stdout: %s, stderr: %s", err, stdout.String(), stderr.String())
 	}
 
 	if strings.TrimSpace(stdout.String()) == "not-found" {
-		klog.Info("NIC provisioning: dmsd service not found, skip service stop/disable")
+		klog.Info("NIC provisioning: dmsd service not found, skip service disable/stop")
 		return nil
 	}
 
+	// Disable so systemd cannot start dmsd after this agent (boot ordering race).
+	// Do not mask, so the unit can still be started manually if needed.
+	// MST is started by ensureMSTStarted, not by dmsd ExecStartPre after disable.
 	if _, stderr, err := n.runBash("systemctl disable --now dmsd.service"); err != nil {
 		return fmt.Errorf("failed to disable and stop dmsd.service: %w, stderr: %s", err, stderr.String())
 	}
-	if _, stderr, err := n.runBash("systemctl mask dmsd.service"); err != nil {
-		return fmt.Errorf("failed to mask dmsd.service: %w, stderr: %s", err, stderr.String())
-	}
 
-	klog.Info("NIC provisioning: permanently stopped dmsd service (disabled and masked)")
+	klog.Info("NIC provisioning: disabled and stopped dmsd service")
 	return nil
 }
