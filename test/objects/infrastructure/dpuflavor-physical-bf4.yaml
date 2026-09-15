@@ -148,6 +148,7 @@ spec:
         - name: RDE_DISABLE
           value: "1"
   # Create the SNAP DMA SF from the DPU Agent on BlueField-4 socket-direct.
+  # The agent owns its sfnum (8000) and target ECPF.
   dma:
     enabled: true
   configFiles:

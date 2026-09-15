@@ -137,7 +137,8 @@ const (
 	LastAppliedAdditionalRequestorsOnDPUPrefix = DPUProvisioningPrefix + "last-applied-additional-requestors-on-"
 	// HoldNodeEffectKey is the key for the hold node effect annotation.
 	HoldNodeEffectKey = DPUProvisioningPrefix + "wait-for-external-nodeeffect"
-	// TrustedSFCount is the key for the trusted SFC count annotation.
+	// Deprecated: honored only when both function lists are empty; ignored from v27.x.
+	// Use spec.scalableFunctions with options.trusted: true.
 	TrustedSFCount = DPUProvisioningPrefix + "num-of-trusted-sfs"
 	// SkipBFCFGSizeCheck is the annotation key to skip the bf.cfg size check.
 	SkipBFCFGSizeCheck = DPUProvisioningPrefix + "skip-bfcfg-size-check"

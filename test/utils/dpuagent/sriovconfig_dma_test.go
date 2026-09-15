@@ -53,7 +53,11 @@ func TestParseDMASFObservations(t *testing.T) {
 func TestDMASFNumFromFlavor(t *testing.T) {
 	g := NewWithT(t)
 
-	flavorWith := func(dma *provisioningv1.DPUFlavorDMA) *provisioningv1.DPUFlavor {
+	flavorWith := func(enabled *bool) *provisioningv1.DPUFlavor {
+		var dma *provisioningv1.DPUFlavorDMA
+		if enabled != nil {
+			dma = &provisioningv1.DPUFlavorDMA{Enabled: enabled}
+		}
 		return &provisioningv1.DPUFlavor{
 			Spec: provisioningv1.DPUFlavorSpec{DMA: dma},
 		}
@@ -65,10 +69,10 @@ func TestDMASFNumFromFlavor(t *testing.T) {
 	_, enabled = dmaSFNumFromFlavor(flavorWith(nil))
 	g.Expect(enabled).To(BeFalse())
 
-	_, enabled = dmaSFNumFromFlavor(flavorWith(&provisioningv1.DPUFlavorDMA{Enabled: ptr.To(false)}))
-	g.Expect(enabled).To(BeFalse(), "enabled=false must not enable the feature")
+	_, enabled = dmaSFNumFromFlavor(flavorWith(ptr.To(false)))
+	g.Expect(enabled).To(BeFalse())
 
-	sfNum, enabled := dmaSFNumFromFlavor(flavorWith(&provisioningv1.DPUFlavorDMA{Enabled: ptr.To(true)}))
+	sfNum, enabled := dmaSFNumFromFlavor(flavorWith(ptr.To(true)))
 	g.Expect(enabled).To(BeTrue())
-	g.Expect(sfNum).To(Equal(DefaultDMASFNum))
+	g.Expect(sfNum).To(Equal(DefaultDMASFNum), "the agent owns the SNAP discovery ABI sfnum")
 }

@@ -54,6 +54,7 @@ type Options struct {
 	SkipDNSConfig              bool
 	SkipContainerdConfigration bool
 	SkipSFConfig               bool
+	SkipVFConfig               bool
 	SkipVFMac                  bool
 	SkipOVSRawScript           bool
 	SkipKernelCmdLine          bool

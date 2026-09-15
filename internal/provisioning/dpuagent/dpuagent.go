@@ -45,7 +45,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/ovsscript"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/packages"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/reboot"
-	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/sfconfig"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/sriovconfig"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/staticfiles"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/sysctl"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/systemd"
@@ -109,7 +109,8 @@ func NewDPUAgent(optCtx *operations.Context) *DPUAgent {
 		&nvconfig.ConfigureNVConfig{},
 		&reboot.HandleReboot{},
 		&grub.CheckKernelCmdLine{},
-		&sfconfig.CreateSF{},
+		&sriovconfig.ReconcileSF{}, // ReconcileSF should run before ReconcileVF (to enable hostless switchdev).
+		&sriovconfig.ReconcileVF{},
 		&vfmac.SetVFMac{},
 		&ovsscript.RunOVSScript{},
 		&underlaymtu.SetNetplanUnderlayMTU{},

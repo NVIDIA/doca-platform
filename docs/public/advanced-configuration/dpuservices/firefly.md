@@ -226,8 +226,6 @@ Defines the DPU flavor for the Firefly service.
 apiVersion: provisioning.dpu.nvidia.com/v1alpha1
 kind: DPUFlavor
 metadata:
-  annotations:
-    provisioning.dpu.nvidia.com/num-of-trusted-sfs: "5"
   name: dpf-provisioning-firefly
   namespace: dpf-operator-system
 spec:
@@ -282,6 +280,15 @@ spec:
         - REAL_TIME_CLOCK_ENABLE=1
         - LINK_TYPE_P1=ETH
         - LINK_TYPE_P2=ETH
+  scalableFunctions:
+    - count: 15
+      device: p0
+      poolName: bf_sf
+    - count: 5
+      device: p0
+      options:
+        trusted: true
+      poolName: bf_sf_trusted
   ovs:
     rawConfigScript: |
       _ovs-vsctl() {

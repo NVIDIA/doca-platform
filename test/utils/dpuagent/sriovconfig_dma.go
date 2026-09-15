@@ -33,14 +33,12 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/client-go/rest"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
-	// DefaultDMASFNum is the sfnum the DPU Agent uses for the SNAP DMA SF. It
-	// mirrors snapDMASFNum in internal/provisioning/dpuagent/operations/sfconfig;
-	// not yet configurable via the DPUFlavor API.
+	// DefaultDMASFNum is the sfnum the DPU Agent uses for the SNAP DMA SF. It mirrors
+	// snapDMASFNum in internal/provisioning/dpuagent/operations/sriovconfig.
 	DefaultDMASFNum = 8000
 
 	// dmaSFPodPrefix is the name prefix of the per-DPU-node netutils pods used to
@@ -57,7 +55,7 @@ const (
 // provisioned DPUs joined.
 type DMAScalableFunctionInput struct {
 	// DPUFlavor is the flavor the DPUs were provisioned with; its
-	// spec.dma.enabled decides whether the validation applies at all.
+	// spec.scalableFunctions' dma entry decides whether the validation applies at all.
 	DPUFlavor *provisioningv1.DPUFlavor
 
 	// ClusterClient targets the DPU cluster via a refreshable wrapper, so it
@@ -121,7 +119,7 @@ type dmaSFObservation struct {
 }
 
 // ValidateDMAScalableFunction verifies the SNAP DMA SF that the DPU Agent creates
-// when the DPUFlavor sets spec.dma.enabled (BlueField-4
+// when the DPUFlavor sets a dma entry (BlueField-4
 // socket-direct). It spins up a privileged hostNetwork netutils pod on every DPU
 // cluster node, execs into it and asserts, from the DPU's own sysfs, that the SF
 // with the expected sfnum exists, exposes an RDMA device and has no netdev of its
@@ -189,7 +187,7 @@ func ValidateDMAScalableFunction(ctx context.Context, input DMAScalableFunctionI
 // dmaSFNumFromFlavor returns the DMA sfnum the DPU Agent is expected to use for
 // flavor, and whether the flavor enables the DMA SF at all.
 func dmaSFNumFromFlavor(flavor *provisioningv1.DPUFlavor) (int, bool) {
-	if flavor == nil || flavor.Spec.DMA == nil || !ptr.Deref(flavor.Spec.DMA.Enabled, false) {
+	if !flavor.DMAEnabled() {
 		return 0, false
 	}
 	return DefaultDMASFNum, true
