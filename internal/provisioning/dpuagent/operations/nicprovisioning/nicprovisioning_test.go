@@ -696,6 +696,52 @@ func TestWarnUnrecognizedNetworkBayTargets(t *testing.T) {
 	})
 }
 
+func TestEnsureMSTStarted(t *testing.T) {
+	t.Run("runs mst start", func(t *testing.T) {
+		runner := &fakeBashRunner{stdout: "MST start completed successfully"}
+		op := &NICProvisioning{runBash: runner.run}
+
+		require.NoError(t, op.ensureMSTStarted())
+		assert.Equal(t, []string{startMSTCommand}, runner.commands)
+	})
+
+	t.Run("returns error when mst start fails", func(t *testing.T) {
+		runner := &fakeBashRunner{stderr: "failed to load mst module", err: errors.New("exit status 1")}
+		op := &NICProvisioning{runBash: runner.run}
+
+		err := op.ensureMSTStarted()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to start MST")
+		assert.Contains(t, err.Error(), "failed to load mst module")
+	})
+}
+
+func TestStopSystemDMSDServiceIfExists(t *testing.T) {
+	t.Run("skips disable when dmsd service is not found", func(t *testing.T) {
+		runner := &fakeBashRunner{stdout: "not-found\n"}
+		op := &NICProvisioning{runBash: runner.run}
+
+		require.NoError(t, op.stopSystemDMSDServiceIfExists())
+		assert.Equal(t, []string{"systemctl show dmsd.service --property=LoadState --value"}, runner.commands)
+	})
+
+	t.Run("disables and stops dmsd without masking", func(t *testing.T) {
+		runner := &fakeBashSequenceRunner{
+			results: []fakeBashResult{
+				{stdout: "loaded\n"},
+				{},
+			},
+		}
+		op := &NICProvisioning{runBash: runner.run}
+
+		require.NoError(t, op.stopSystemDMSDServiceIfExists())
+		assert.Equal(t, []string{
+			"systemctl show dmsd.service --property=LoadState --value",
+			"systemctl disable --now dmsd.service",
+		}, runner.commands)
+	})
+}
+
 type fakeBashRunner struct {
 	commands []string
 	stdout   string
