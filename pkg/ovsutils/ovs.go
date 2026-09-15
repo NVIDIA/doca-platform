@@ -222,6 +222,8 @@ type BridgeConfig struct {
 	FailMode *string
 	// ExternalIDs are the external IDs to set for the bridge.
 	ExternalIDs map[string]string
+	// OtherConfig are the other_config values to set for the bridge.
+	OtherConfig map[string]string
 }
 
 type PortConfig struct {
@@ -617,6 +619,9 @@ func (c *Client) mutateOVSMapField(ctx context.Context, m model.Model, field *ma
 // SetPortExternalIDs sets the external IDs for a port.
 // It is a no-op if externalIDs is empty or if the port already has the requested keys with the same values.
 func (c *Client) SetPortExternalIDs(ctx context.Context, name string, externalIDs map[string]string) error {
+	if len(externalIDs) == 0 {
+		return nil
+	}
 	port := &ovsmodel.Port{Name: name}
 	if err := c.Get(ctx, port); err != nil {
 		return fmt.Errorf("failed to get port %s: %w", name, err)
@@ -627,11 +632,27 @@ func (c *Client) SetPortExternalIDs(ctx context.Context, name string, externalID
 // SetBridgeExternalIDs sets the external IDs for a bridge.
 // It is a no-op if externalIDs is empty or if the bridge already has the requested keys with the same values.
 func (c *Client) SetBridgeExternalIDs(ctx context.Context, name string, externalIDs map[string]string) error {
+	if len(externalIDs) == 0 {
+		return nil
+	}
 	bridge := &ovsmodel.Bridge{Name: name}
 	if err := c.Get(ctx, bridge); err != nil {
 		return fmt.Errorf("failed to get bridge %s: %w", name, err)
 	}
 	return c.mutateOVSMapField(ctx, bridge, &bridge.ExternalIDs, externalIDs)
+}
+
+// SetBridgeOtherConfig sets the other_config for a bridge.
+// It is a no-op if otherConfig is empty or if the bridge already has the requested keys with the same values.
+func (c *Client) SetBridgeOtherConfig(ctx context.Context, name string, otherConfig map[string]string) error {
+	if len(otherConfig) == 0 {
+		return nil
+	}
+	bridge := &ovsmodel.Bridge{Name: name}
+	if err := c.Get(ctx, bridge); err != nil {
+		return fmt.Errorf("failed to get bridge %s: %w", name, err)
+	}
+	return c.mutateOVSMapField(ctx, bridge, &bridge.OtherConfig, otherConfig)
 }
 
 func (c *Client) IsIfaceInBr(ctx context.Context, bridgeName, portName string) (bool, error) {
@@ -679,6 +700,9 @@ func (c *Client) GetOpenVSwitch(ctx context.Context) (*ovsmodel.OpenvSwitch, err
 }
 
 func (c *Client) SetOpenVSwitchExternalIDs(ctx context.Context, externalIDs map[string]string) error {
+	if len(externalIDs) == 0 {
+		return nil
+	}
 	ovsRow, err := c.GetOpenVSwitch(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get Open_vSwitch row: %v", err)
@@ -700,9 +724,12 @@ func (c *Client) AddBridge(ctx context.Context, bridgeConfig BridgeConfig) error
 	if err != nil && !errors.Is(err, ovsclient.ErrNotFound) {
 		return fmt.Errorf("failed to get bridge %s: %v", bridgeConfig.Name, err)
 	}
-	// bridge already exists
+	// bridge already exists, update external_ids and other_config
 	if err == nil {
-		return nil
+		if err := c.SetBridgeExternalIDs(ctx, bridgeConfig.Name, bridgeConfig.ExternalIDs); err != nil {
+			return err
+		}
+		return c.SetBridgeOtherConfig(ctx, bridgeConfig.Name, bridgeConfig.OtherConfig)
 	}
 
 	bridgeUUID := uuid.New().String()
@@ -712,6 +739,7 @@ func (c *Client) AddBridge(ctx context.Context, bridgeConfig BridgeConfig) error
 		DatapathType: bridgeConfig.DatapathType,
 		FailMode:     bridgeConfig.FailMode,
 		ExternalIDs:  bridgeConfig.ExternalIDs,
+		OtherConfig:  bridgeConfig.OtherConfig,
 	}
 
 	var portOps []ovsdb.Operation
