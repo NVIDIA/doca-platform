@@ -1,6 +1,6 @@
 ARG builder_image
 ARG base_image
-ARG rdma_cni_version=network-operator-v26.1.1
+ARG rdma_cni_version=network-operator-v26.7.0
 ARG cni_plugins_version=v1.9.1
 # Checksum of the linux-arm64 release tarball. The image is built for linux/arm64 only
 # (see docker-build-cni-installer in the Makefile), so a single checksum is enough. Adding a
