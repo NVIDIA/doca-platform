@@ -8,6 +8,9 @@ metadata:
 spec:
   # Must only contain fields the v26.8 CRD schema accepts
   deploymentMode: host-trusted
+  security:
+    kata:
+      disable: false
   provisioningController:
     bfbPVCName: bfb-pvc
     # CI runs the host control-plane controllers at a single replica to save

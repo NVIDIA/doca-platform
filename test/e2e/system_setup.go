@@ -582,8 +582,10 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 
 		expectedComponentsLastReleasedGA := []string{
 			operatorv1.CNIInstallerName.String(),
+			operatorv1.CoreDNSName.String(),
 			operatorv1.DPUMonitoringName.String(),
 			operatorv1.FlannelName.String(),
+			operatorv1.KataContainersName.String(),
 			operatorv1.KubeStateMetricsName.String(),
 			operatorv1.MultusName.String(),
 			operatorv1.NodeProblemDetectorName.String(),
@@ -594,14 +596,7 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 			operatorv1.SRIOVDevicePluginName.String(),
 		}
 
-		// CoreDNS and KataContainers are enabled at HEAD but absent from alpha.3
-		// (the last released GA): CoreDNS was not yet a host DPUService, and
-		// KataContainers is opt-in (requires security.kata in DPFOperatorConfig).
-		// TODO: Move both into expectedComponentsLastReleasedGA once v26.8 beta ships.
-		expectedComponents := append(slices.Clone(expectedComponentsLastReleasedGA),
-			operatorv1.CoreDNSName.String(),
-			operatorv1.KataContainersName.String(),
-		)
+		expectedComponents := slices.Clone(expectedComponentsLastReleasedGA)
 
 		// The initial phase of the upgrade test runs the last released GA, which ships the component
 		// set of its own release, so require only the long-standing ones there. Every other run is

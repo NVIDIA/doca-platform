@@ -148,9 +148,8 @@ var _ = Describe("DPF Upgrade LTS", func() {
 		removeStaleDPUDeviceFinalizers: true,
 
 		// v26.4 post-rollout artifacts become the v26.8 comparison baseline.
-		artifactsKey:               "v26.4",
-		preRolloutArtifactsKey:     "v26.4-pre-rollout",
-		preRolloutPrevArtifactsKey: "v25.10",
+		artifactsKey:                    "v26.4",
+		compareArtifactsToBeforeRollout: "v25.10",
 
 		expectedDPUServices:   expectedDPUServicesV2604,
 		dpuClusterRunsCoreDNS: true,
@@ -161,18 +160,15 @@ var _ = Describe("DPF Upgrade LTS", func() {
 
 		// No DPU rollout needed: BFB stays at LTS 3.2.1 and DPUs already
 		// report KubeletVersion after the mandatory v26.4 rollout.
-		rolloutAllDPUs:            false,
-		rolloutDependencies:       true,
-		verifyKubeletVersion:      true,
-		expectedDPFVersion:        func() string { return dpfV268Version },
-		expectedKubernetesVersion: "v1.35.6",
-		// TODO: Remove once we move to first beta release of 26.8
-		dpuClusterRunsCoreDNS: true,
+		rolloutAllDPUs:       false,
+		rolloutDependencies:  true,
+		verifyKubeletVersion: true,
+		expectedDPFVersion:   func() string { return dpfV268Version },
 
-		artifactsKey:     "v26.8",
-		prevArtifactsKey: "v26.4",
-		artifactWaits:    []artifactWait{waitForSFCInterfaceMigration},
-		artifactChecks:   []artifactCheck{assertSFCInterfaceMigration},
+		artifactsKey:                    "v26.8",
+		compareArtifactsToBeforeRollout: "v26.4",
+		artifactWaits:                   []artifactWait{waitForSFCInterfaceMigration},
+		artifactChecks:                  []artifactCheck{assertSFCInterfaceMigration},
 		artifactNormalizes: []artifactNormalize{
 			filterUpgradeInterfaceArtifacts,
 			stripDefaultedDPUServiceSecurity,
@@ -190,8 +186,8 @@ var _ = Describe("DPF Upgrade LTS", func() {
 		verifyKubeletVersion: true,
 		expectedDPFVersion:   func() string { return tag },
 
-		artifactsKey:     "current",
-		prevArtifactsKey: "v26.8",
+		artifactsKey:                    "current",
+		compareArtifactsToBeforeRollout: "v26.8",
 
 		expectedDPUServices: expectedDPUServicesCurrent,
 	})

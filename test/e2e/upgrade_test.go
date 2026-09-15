@@ -25,25 +25,19 @@ import (
 // operator has been upgraded externally. Each phase is its own labeled Ginkgo
 // container, selected by CI via its label.
 var _ = Describe("DPF Upgrade", func() {
-	installPhase("previous GA", installPhaseInput{
-		label:           Domain.DPFUpgrade,
-		skipBFBImageURL: true,
-		// The previous GA (LAST_STABLE_DPF_VERSION, default v26.8.0-alpha.3) pins its own
-		// Kubernetes version, which differs from HEAD's util.KubernetesVersion.
-		expectedKubernetesVersion: "v1.35.6",
-		// TODO: Remove once we move to first beta release of 26.8
-		dpuClusterRunsCoreDNS: true,
-		artifactsKey:          "before",
-		expectedDPUServices:   expectedDPUServicesCurrent,
+	installPhase("previous-GA", installPhaseInput{
+		label:               Domain.DPFUpgrade,
+		skipBFBImageURL:     true,
+		artifactsKey:        "before",
+		expectedDPUServices: expectedDPUServicesCurrent,
 	})
 
-	validationPhase("GA-to-current", validationPhaseInput{
-		label:                Domain.DPFUpgradeValidation,
-		captureBeforeRollout: true,
-		artifactsKey:         "after",
-		prevArtifactsKey:     "before",
-		rolloutDependencies:  true,
-		expectedDPUServices:  expectedDPUServicesCurrent,
-		expectedDPFVersion:   func() string { return tag },
+	validationPhase("current", validationPhaseInput{
+		label:                           Domain.DPFUpgradeValidation,
+		artifactsKey:                    "after",
+		compareArtifactsToBeforeRollout: "before",
+		rolloutDependencies:             true,
+		expectedDPUServices:             expectedDPUServicesCurrent,
+		expectedDPFVersion:              func() string { return tag },
 	})
 })
