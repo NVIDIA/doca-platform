@@ -31,6 +31,9 @@ DPUFlavor is a Kubernetes Custom Resource Definition (CRD) that defines configur
 | `grub` | [DPUFlavorGrub](#dpuflavorgrub) | All the parameters will be set in `GRUB_CMDLINE_LINUX` grub configuration |
 | `sysctl` | [DPUFlavorSysctl](#dpuflavorsysctl) | Kernel sysctl parameters which will be stored in `/etc/sysctl.d/99-dpf.conf` |
 | `nvconfig` | [][NVConfig](#nvconfig) | The device configuration which will be applied by `mlxconfig` |
+| `scalableFunctions` | [][ScalableFunction](#scalablefunction) | List of SF groups to create on the DPU, or on the host when `hostDevice` is set. Count is per selected device. Over-subscribe can fail at create time. Editing reprovisions the DPU. When both this list and `virtualFunctions` are empty, SF counts are still derived from `PF_TOTAL_SF` (removed in a future release). Up to 16 entries |
+| `virtualFunctions` | [][VirtualFunction](#virtualfunction) | List of VF groups to create. Count is per selected device. Groups ending up on the same device sum to a single `sriov_numvfs` and then list order assigns contiguous index ranges. Over-subscribe can fail at create time. Editing reprovisions the DPU. Up to 16 entries |
+| `dma` | [DPUFlavorDMA](#dpuflavordma) | SNAP DMA SF configuration. The agent picks the ECPF; sfnum is 8000 and MAC is derived. Ignored on non-BlueField-4 DPUs |
 | `ovs` | [DPUFlavorOVS](#dpuflavorovs) | Open vSwitch configuration applied by the DPU agent once per boot |
 | `bfcfgParameters` | []string | Parameters for the bf.cfg file. See [BFCfg Parameters](#bfcfg-parameters) for important parameters |
 | `configFiles` | [][ConfigFile](#configfile) | Custom configuration files. Users can use this configuration to overwrite files in the DPU file system or add content to existing files |
@@ -38,7 +41,6 @@ DPUFlavor is a Kubernetes Custom Resource Definition (CRD) that defines configur
 | `dpuResources` | ResourceList | Minimum resources needed for BFB installation |
 | `systemReservedResources` | ResourceList | Resources reserved for system use |
 | `hostNetworkInterfaceConfigs` | [][NetworkInterfaceConfig](#networkinterfaceconfig) | Host-side network interface configuration |
-| `dma` | [DPUFlavorDMA](#dpuflavordma) | Configures the DMA SF used by SNAP on BlueField-4 socket-direct systems |
 | `serviceReadiness` | [ServiceReadiness](#servicereadiness) | Configures the `Service Readiness` provisioning phase |
 
 ### ServiceReadiness
@@ -57,11 +59,102 @@ The hold itself is enabled by `DELAY_HOST_OS_INIT=0x3` in [NVConfig](#nvconfig),
 Trust; the phase gate works in either deployment mode. See
 [Service Readiness](../../advanced-configuration/service-readiness.md).
 
+### ScalableFunction
+
+Each entry is one group of SFs. `count` is per selected device, so `device: "*"` with
+`count: 20` creates 20 SFs on **each** port, not 20 in total.
+
+| Field | Type | Description |
+|-------|------|--------------|
+| `count` | int32 | SFs per selected device. `0` creates nothing. Required |
+| `device` | *string | `"*"`, a port name such as `p0`, or a PCI address. Defaults to `"*"` |
+| `hostDevice` | *bool | Create on the host (representors on the DPU). Implies controller 1; `options.controller` overrides. Host SFs use the host firmware budget. Must not set `poolName` |
+| `poolName` | *string | Device-plugin resource (for example `bf_sf`). Unset: hardware only. Forbidden with `hostDevice` |
+| `options` | [ScalableFunctionOptions](#scalablefunctionoptions) | Creation settings |
+
+### ScalableFunctionOptions
+
+| Field | Type | Description |
+|-------|------|--------------|
+| `macAddress` | *string | Pins the SF MAC (colon-separated 48-bit). Requires `count: 1` |
+| `sfNumStart` | *int32 | First sfnum of the group; the rest are sequential. Reserved before agent-numbered groups, which fill from 0 |
+| `trusted` | *bool | Creates the SFs as trusted functions |
+| `controller` | *int32 | External controller. Overrides `hostDevice` |
+| `cpuList` | *string | CPU pin list, e.g. `0-3` or `0,2,4` |
+| `disableRoCE` | *bool | Create with RoCE disabled |
+| `disableNetdev` | *bool | No ethernet netdev |
+
+### VirtualFunction
+
+Several entries may select the same device (including via `"*"`). Groups ending up on the
+same device sum to a single `sriov_numvfs` and then list order assigns contiguous index ranges:
+
+```yaml
+spec:
+  virtualFunctions:
+    - count: 8              # VF indices 0-7 on p0
+      device: p0
+      poolName: bf_vf
+    - count: 4              # VF indices 8-11 on p0
+      device: p0
+      poolName: bf_vf_2
+```
+
+That declares 12 VFs on `p0`, advertised as two device-plugin pools selecting `p0#0-7` and
+`p0#8-11`.
+
+Editing `virtualFunctions` reprovisions the DPU. A device no entry selects is left as-is;
+`count: 0` empties it.
+
+| Field | Type | Description |
+|-------|------|--------------|
+| `count` | int32 | VFs per selected device. Groups ending up on the same device sum to a single `sriov_numvfs` and then list order assigns contiguous index ranges. `0` creates nothing. Required |
+| `device` | *string | Same syntax as [ScalableFunction](#scalablefunction). Defaults to `"*"` |
+| `poolName` | *string | Device-plugin resource (for example `bf_vf`). Unset: hardware only |
+| `options` | [VirtualFunctionOptions](#virtualfunctionoptions) | Creation settings |
+
+### VirtualFunctionOptions
+
+| Field | Type | Description |
+|-------|------|--------------|
+| `macAddress` | *string | Sets the VF MAC (colon-separated 48-bit). Requires `count: 1` |
+
+Setting a DPU VF trusted is not supported; there is no `trusted` option here (compare
+[ScalableFunctionOptions](#scalablefunctionoptions), where SFs do support it).
+
 ### DPUFlavorDMA
 
 | Field | Type | Description |
 |-------|------|--------------|
-| `enabled` | *bool | **Enables DMA SF creation by the dpu-agent.** Defaults to `false` when unset, so the presence of the `dma` struct alone does not enable it. Only takes effect on BlueField-4 socket-direct systems. The created Scalable Function always uses `sfnum 8000` (the SNAP discovery ABI value) |
+| `enabled` | *bool | Create the SNAP DMA SF on BlueField-4. The agent picks the ECPF; sfnum is 8000 and MAC is derived |
+
+### Function counts and the firmware budget
+
+The agent creates what the groups declare. It does not check `PF_TOTAL_SF`; over-subscribe
+fails at create time on the DPU. Size `PF_TOTAL_SF` in [NVConfig](#nvconfig) for every
+DPU-side SF group.
+
+When both `scalableFunctions` and `virtualFunctions` are empty, behavior is unchanged:
+trusted SFs from `provisioning.dpu.nvidia.com/num-of-trusted-sfs` in pool `bf_sf_trusted`,
+then the rest of `PF_TOTAL_SF` as workload SFs in pool `bf_sf`.
+
+The `provisioning.dpu.nvidia.com/num-of-trusted-sfs` annotation is deprecated and is ignored
+from a future release in v27.x. Applying a flavor that sets it returns a deprecation warning.
+Declare the trusted SFs as a group instead:
+
+```yaml
+spec:
+  scalableFunctions:
+    - count: 15            # workload SFs, previously the residual of PF_TOTAL_SF
+      poolName: bf_sf
+    - count: 5             # previously num-of-trusted-sfs: "5"
+      poolName: bf_sf_trusted
+      options:
+        trusted: true
+```
+
+Declaring any group also turns off the inference above, so the workload SFs must be declared
+in the same flavor.
 
 ### DPUFlavorGrub
 

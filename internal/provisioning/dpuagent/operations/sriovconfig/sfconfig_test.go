@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package sfconfig
+package sriovconfig
 
 import (
 	"bytes"
@@ -26,7 +26,6 @@ import (
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	opts "github.com/nvidia/doca-platform/cmd/dpuagent/opts"
-	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
 	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
 
@@ -38,7 +37,7 @@ import (
 
 const mlnxSFShowCmd = "mlnx-sf -a show -j"
 
-var _ = Describe("SFConfig", func() {
+var _ = Describe("ReconcileSF", func() {
 	var tempDir string
 	discoverTestPorts := func(_ pciutil.PortScope) ([]pciutil.NICPort, error) { //nolint:unparam
 		return []pciutil.NICPort{
@@ -49,13 +48,21 @@ var _ = Describe("SFConfig", func() {
 	discoverBF4TestPorts := func(_ pciutil.PortScope) ([]pciutil.NICPort, error) { //nolint:unparam
 		return []pciutil.NICPort{
 			{Netdev: "p0", PCIAddress: "0000:03:00.0"},
-			{Netdev: "p1", PCIAddress: "0001:03:00.0"},
+			{Netdev: "p1", PCIAddress: "0000:03:00.1"},
+		}, nil
+	}
+	// Socket-direct DMA integration tests only: p0/p1 plus the second-grace-link ECPF.
+	discoverBF4TestPortsWithSecondGraceLink := func(_ pciutil.PortScope) ([]pciutil.NICPort, error) { //nolint:unparam
+		return []pciutil.NICPort{
+			{Netdev: "p0", PCIAddress: "0000:03:00.0"},
+			{Netdev: "p1", PCIAddress: "0000:03:00.1"},
+			{PCIAddress: "0001:03:00.0"},
 		}, nil
 	}
 
 	BeforeEach(func() {
 		var err error
-		tempDir, err = os.MkdirTemp("", "sfconfig-test-*")
+		tempDir, err = os.MkdirTemp("", "sriovconfig-test-*")
 		Expect(err).NotTo(HaveOccurred())
 	})
 
@@ -65,7 +72,7 @@ var _ = Describe("SFConfig", func() {
 
 	Context("set SF", func() {
 		It("should be skipped if SkipSFConfig is true", func() {
-			operation := &CreateSF{}
+			operation := &ReconcileSF{}
 			Expect(operation.ShouldSkip(&operations.Context{Options: opts.Options{SkipSFConfig: true}})).To(BeTrue())
 		})
 
@@ -90,7 +97,7 @@ var _ = Describe("SFConfig", func() {
 			Expect(os.MkdirAll(filepath.Dir(filepath.Join(tempDir, "sys/bus/auxiliary/drivers/mlx5_core.sf/bind")), 0777)).To(Succeed())
 
 			cmds := []string{}
-			operation := &CreateSF{
+			operation := &ReconcileSF{
 				rootFS: tempDir,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 					cmds = append(cmds, cmd)
@@ -139,7 +146,7 @@ var _ = Describe("SFConfig", func() {
 			Expect(os.MkdirAll(filepath.Dir(filepath.Join(tempDir, "sys/bus/auxiliary/drivers/mlx5_core.sf/bind")), 0777)).To(Succeed())
 
 			cmds := []string{}
-			operation := &CreateSF{
+			operation := &ReconcileSF{
 				rootFS: tempDir,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 					cmds = append(cmds, cmd)
@@ -168,9 +175,7 @@ var _ = Describe("SFConfig", func() {
 			By("mock the DPUFlavor")
 			dpuFlavor := provisioningv1.DPUFlavor{
 				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{
-						cutil.TrustedSFCount: "2",
-					},
+					Annotations: legacyTrustedSFCountAnnotation("2"),
 				},
 				Spec: provisioningv1.DPUFlavorSpec{
 					NVConfig: []provisioningv1.NVConfig{
@@ -242,14 +247,14 @@ var _ = Describe("SFConfig", func() {
 				cmd    string
 				stdout string
 			}
-			// DMA SF is disabled here, so configureSFsOnDevice does no upfront
-			// SF listing; the only mlnx-sf shows are verifyExpectedSFs + setGUIDForSF.
+			// DMA SF is disabled here, so createSFsOnDevice does no upfront SF listing:
+			// every SF is created first, then one listing serves both the
+			// creation check and the GUID pass.
 			orderedCommands := []expectedCommand{
 				{cmd: "/sbin/mlnx-sf --action create --device 0000:03:00.0 --sfnum 0", stdout: ""},
 				{cmd: "/sbin/mlnx-sf --action create --device 0000:03:00.0 --sfnum 1", stdout: ""},
 				{cmd: "/sbin/mlnx-sf --action create --device 0000:03:00.0 --sfnum 101 -t", stdout: ""},
 				{cmd: "/sbin/mlnx-sf --action create --device 0000:03:00.0 --sfnum 102 -t", stdout: ""},
-				{cmd: mlnxSFShowCmd, stdout: mlnxsfOutput},
 				{cmd: mlnxSFShowCmd, stdout: mlnxsfOutput},
 			}
 			unorderedCommands := []expectedCommand{
@@ -257,10 +262,13 @@ var _ = Describe("SFConfig", func() {
 				{cmd: "/opt/mellanox/iproute2/sbin/mlxdevm port function set pci/0000:03:00.1/294912 hw_addr 02:36:17:17:a9:b1", stdout: ""},
 				{cmd: "/opt/mellanox/iproute2/sbin/mlxdevm port function set pci/0000:03:00.100/294913 hw_addr 02:36:17:17:a9:b2", stdout: ""},
 				{cmd: "/opt/mellanox/iproute2/sbin/mlxdevm port function set pci/0000:03:00.101/294914 hw_addr 02:36:17:17:a9:b3", stdout: ""},
+				// The read-only verify stage lists the SFs once more, after the
+				// GUID pass has rebound their auxiliary devices.
+				{cmd: mlnxSFShowCmd, stdout: mlnxsfOutput},
 			}
 
 			cmdIdx := 0
-			operation := &CreateSF{
+			operation := &ReconcileSF{
 				rootFS: tempDir,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 					defer func() {
@@ -302,9 +310,7 @@ var _ = Describe("SFConfig", func() {
 			By("mock the DPUFlavor")
 			dpuFlavor := provisioningv1.DPUFlavor{
 				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{
-						cutil.TrustedSFCount: "1",
-					},
+					Annotations: legacyTrustedSFCountAnnotation("1"),
 				},
 				Spec: provisioningv1.DPUFlavorSpec{
 					NVConfig: []provisioningv1.NVConfig{
@@ -330,14 +336,14 @@ var _ = Describe("SFConfig", func() {
         "aux_dev": "mlx5_core.sf.3",
         "sf_netdev": "enp3s0f101s0"
     },
-    "pci/0001:03:00.0/229376": {
-        "device": "0001:03:00.0",
+    "pci/0000:03:00.1/229376": {
+        "device": "0000:03:00.1",
         "sfnum": 0,
         "aux_dev": "mlx5_core.sf.4",
         "sf_netdev": "enp3s1f0s0"
     },
-    "pci/0001:03:00.0/294913": {
-        "device": "0001:03:00.0",
+    "pci/0000:03:00.1/294913": {
+        "device": "0000:03:00.1",
         "sfnum": 101,
         "aux_dev": "mlx5_core.sf.5",
         "sf_netdev": "enp3s1f101s0"
@@ -364,7 +370,7 @@ var _ = Describe("SFConfig", func() {
 			Expect(os.MkdirAll(filepath.Dir(filepath.Join(tempDir, "sys/bus/auxiliary/drivers/mlx5_core.sf/bind")), 0777)).To(Succeed())
 
 			var commands []string
-			operation := &CreateSF{
+			operation := &ReconcileSF{
 				rootFS: tempDir,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 					commands = append(commands, cmd)
@@ -387,7 +393,7 @@ var _ = Describe("SFConfig", func() {
 			createCommands := []string{}
 			createCommandsByDevice := map[string][]string{
 				"0000:03:00.0": {},
-				"0001:03:00.0": {},
+				"0000:03:00.1": {},
 			}
 			mlxdevmCommands := []string{}
 			for _, cmd := range commands {
@@ -396,8 +402,8 @@ var _ = Describe("SFConfig", func() {
 					switch {
 					case strings.Contains(cmd, "--device 0000:03:00.0 "):
 						createCommandsByDevice["0000:03:00.0"] = append(createCommandsByDevice["0000:03:00.0"], cmd)
-					case strings.Contains(cmd, "--device 0001:03:00.0 "):
-						createCommandsByDevice["0001:03:00.0"] = append(createCommandsByDevice["0001:03:00.0"], cmd)
+					case strings.Contains(cmd, "--device 0000:03:00.1 "):
+						createCommandsByDevice["0000:03:00.1"] = append(createCommandsByDevice["0000:03:00.1"], cmd)
 					default:
 						Fail(fmt.Sprintf("unexpected create command device: %s", cmd))
 					}
@@ -411,15 +417,15 @@ var _ = Describe("SFConfig", func() {
 				"/sbin/mlnx-sf --action create --device 0000:03:00.0 --sfnum 0",
 				"/sbin/mlnx-sf --action create --device 0000:03:00.0 --sfnum 101 -t",
 			}))
-			Expect(createCommandsByDevice["0001:03:00.0"]).To(Equal([]string{
-				"/sbin/mlnx-sf --action create --device 0001:03:00.0 --sfnum 0",
-				"/sbin/mlnx-sf --action create --device 0001:03:00.0 --sfnum 101 -t",
+			Expect(createCommandsByDevice["0000:03:00.1"]).To(Equal([]string{
+				"/sbin/mlnx-sf --action create --device 0000:03:00.1 --sfnum 0",
+				"/sbin/mlnx-sf --action create --device 0000:03:00.1 --sfnum 101 -t",
 			}))
 			Expect(mlxdevmCommands).To(ConsistOf(
 				"/opt/mellanox/iproute2/sbin/mlxdevm port function set pci/0000:03:00.0/229376 hw_addr 02:36:17:17:a9:b0",
 				"/opt/mellanox/iproute2/sbin/mlxdevm port function set pci/0000:03:00.0/294913 hw_addr 02:36:17:17:a9:b1",
-				"/opt/mellanox/iproute2/sbin/mlxdevm port function set pci/0001:03:00.0/229376 hw_addr 02:36:17:17:a9:b2",
-				"/opt/mellanox/iproute2/sbin/mlxdevm port function set pci/0001:03:00.0/294913 hw_addr 02:36:17:17:a9:b3",
+				"/opt/mellanox/iproute2/sbin/mlxdevm port function set pci/0000:03:00.1/229376 hw_addr 02:36:17:17:a9:b2",
+				"/opt/mellanox/iproute2/sbin/mlxdevm port function set pci/0000:03:00.1/294913 hw_addr 02:36:17:17:a9:b3",
 			))
 		})
 
@@ -460,7 +466,7 @@ var _ = Describe("SFConfig", func() {
 			}
 
 			cmdIdx := 0
-			operation := &CreateSF{
+			operation := &ReconcileSF{
 				rootFS: tempDir,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 					By(fmt.Sprintf("expecting command: %s, received: %s", orderedCommands[cmdIdx].cmd, cmd))
@@ -484,9 +490,7 @@ var _ = Describe("SFConfig", func() {
 			By("mock the DPUFlavor with one trusted SF")
 			dpuFlavor := provisioningv1.DPUFlavor{
 				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{
-						cutil.TrustedSFCount: "1",
-					},
+					Annotations: legacyTrustedSFCountAnnotation("1"),
 				},
 				Spec: provisioningv1.DPUFlavorSpec{
 					NVConfig: []provisioningv1.NVConfig{
@@ -522,7 +526,7 @@ var _ = Describe("SFConfig", func() {
 			}
 
 			cmdIdx := 0
-			operation := &CreateSF{
+			operation := &ReconcileSF{
 				rootFS: tempDir,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 					By(fmt.Sprintf("expecting command: %s, received: %s", orderedCommands[cmdIdx].cmd, cmd))
@@ -538,7 +542,7 @@ var _ = Describe("SFConfig", func() {
 
 			err := operation.Execute(ctx, &operations.Context{DPUFlavor: dpuFlavor, DiscoverPorts: discoverTestPorts})
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("failed to create trusted SF 101"))
+			Expect(err.Error()).To(ContainSubstring("failed to create SF 101"))
 			Expect(err.Error()).To(ContainSubstring("trusted create failed"))
 		})
 
@@ -571,14 +575,14 @@ var _ = Describe("SFConfig", func() {
 			Expect(os.WriteFile(filepath.Join(tempDir, "sys/bus/auxiliary/devices/mlx5_core.sf.6/driver/unbind"), []byte(""), 0200)).To(Succeed())
 			Expect(os.MkdirAll(filepath.Dir(filepath.Join(tempDir, "sys/bus/auxiliary/drivers/mlx5_core.sf/bind")), 0777)).To(Succeed())
 
-			operation := &CreateSF{
+			operation := &ReconcileSF{
 				rootFS: tempDir,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 					var stdout, stderr bytes.Buffer
 					if cmd == mlnxSFShowCmd {
 						stdout.WriteString(mlnxsfOutput)
 					}
-					if cmd == "/sbin/mlnx-sf --action create --device 0001:03:00.0 --sfnum 0" {
+					if cmd == "/sbin/mlnx-sf --action create --device 0000:03:00.1 --sfnum 0" {
 						stdout.WriteString("partial")
 						return stdout, stderr, fmt.Errorf("create failed on p1")
 					}
@@ -594,7 +598,7 @@ var _ = Describe("SFConfig", func() {
 				},
 			})
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("failed to create SF 0 on device 0001:03:00.0"))
+			Expect(err.Error()).To(ContainSubstring("failed to create SF 0 on device 0000:03:00.1"))
 			Expect(err.Error()).To(ContainSubstring("create failed on p1"))
 		})
 
@@ -602,9 +606,7 @@ var _ = Describe("SFConfig", func() {
 			By("mock the DPUFlavor with PF_TOTAL_SF=3 and one trusted SF")
 			dpuFlavor := provisioningv1.DPUFlavor{
 				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{
-						cutil.TrustedSFCount: "1",
-					},
+					Annotations: legacyTrustedSFCountAnnotation("1"),
 				},
 				Spec: provisioningv1.DPUFlavorSpec{
 					NVConfig: []provisioningv1.NVConfig{
@@ -656,7 +658,7 @@ var _ = Describe("SFConfig", func() {
 			}
 
 			cmdIdx := 0
-			operation := &CreateSF{
+			operation := &ReconcileSF{
 				rootFS: tempDir,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 					Expect(cmdIdx).To(BeNumerically("<", len(orderedCommands)), "unexpected extra command: %s", cmd)
@@ -686,9 +688,7 @@ var _ = Describe("SFConfig", func() {
 			By("mock a misconfigured DPUFlavor: PF_TOTAL_SF=1 with 2 trusted SFs")
 			dpuFlavor := provisioningv1.DPUFlavor{
 				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{
-						cutil.TrustedSFCount: "2",
-					},
+					Annotations: legacyTrustedSFCountAnnotation("2"),
 				},
 				Spec: provisioningv1.DPUFlavorSpec{
 					NVConfig: []provisioningv1.NVConfig{
@@ -698,7 +698,7 @@ var _ = Describe("SFConfig", func() {
 			}
 
 			var commands []string
-			operation := &CreateSF{
+			operation := &ReconcileSF{
 				rootFS: tempDir,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 					commands = append(commands, cmd)
@@ -720,7 +720,7 @@ var _ = Describe("SFConfig", func() {
 			}
 		})
 
-		It("should fail visibly when dma.enabled is set but no eligible target ECPF exists", func() {
+		It("should fail visibly when spec.dma.enabled is set but no eligible target ECPF exists", func() {
 			By("mock the DPUFlavor with PF_TOTAL_SF=2 and the DMA SF enabled")
 			dpuFlavor := provisioningv1.DPUFlavor{
 				Spec: provisioningv1.DPUFlavorSpec{
@@ -737,7 +737,7 @@ var _ = Describe("SFConfig", func() {
 			Expect(os.MkdirAll(filepath.Join(tempDir, "sys/bus/pci/devices/0000:03:00.0/infiniband/mlx5_0"), 0755)).To(Succeed())
 
 			var commands []string
-			operation := &CreateSF{
+			operation := &ReconcileSF{
 				rootFS: tempDir,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 					commands = append(commands, cmd)
@@ -762,7 +762,7 @@ var _ = Describe("SFConfig", func() {
 		})
 
 		It("should reserve a slot and create the DMA SF on the ibdev-less ECPF", func() {
-			By("mock a sysfs where 0001:03:00.0 is the silenced (ibdev-less) socket-direct ECPF")
+			By("mock a sysfs where 0001:03:00.0 is the silenced (ibdev-less) second-grace-link ECPF")
 			for bdf, rdmaDev := range map[string]string{
 				"0000:03:00.0": "mlx5_0",
 				"0001:03:00.0": "",
@@ -774,7 +774,7 @@ var _ = Describe("SFConfig", func() {
 					Expect(os.MkdirAll(filepath.Join(devDir, "infiniband", rdmaDev), 0755)).To(Succeed())
 				}
 			}
-			By("mock the DMA SF aux device sysfs (sfnum 8000) on the ibdev-less ECPF")
+			By("mock the DMA SF aux device sysfs (sfnum 8000) on the second-grace-link ECPF")
 			auxDir := filepath.Join(tempDir, "sys/bus/pci/devices/0001:03:00.0/mlx5_core.sf.9")
 			Expect(os.MkdirAll(auxDir, 0755)).To(Succeed())
 			Expect(os.WriteFile(filepath.Join(auxDir, "sfnum"), []byte("8000\n"), 0444)).To(Succeed())
@@ -791,14 +791,17 @@ var _ = Describe("SFConfig", func() {
 
 			// Before the DMA SF is created there is no sfnum 8000; afterwards it
 			// exposes an RDMA device and its own netdev is gone (only the
-			// representor netdev remains). The workload SFs (3 on the master, 2
-			// on the reserved ibdev-less ECPF) are present throughout.
+			// representor netdev remains). Workload SFs are present throughout:
+			// PF_TOTAL_SF=3 on each discovered ECPF, minus one slot on the DMA host.
 			const workloadSFs = `
     "pci/0000:03:00.0/1": {"device": "0000:03:00.0", "sfnum": 0, "aux_dev": "mlx5_core.sf.2"},
     "pci/0000:03:00.0/2": {"device": "0000:03:00.0", "sfnum": 1, "aux_dev": "mlx5_core.sf.3"},
     "pci/0000:03:00.0/3": {"device": "0000:03:00.0", "sfnum": 2, "aux_dev": "mlx5_core.sf.4"},
-    "pci/0001:03:00.0/1": {"device": "0001:03:00.0", "sfnum": 0, "aux_dev": "mlx5_core.sf.5"},
-    "pci/0001:03:00.0/2": {"device": "0001:03:00.0", "sfnum": 1, "aux_dev": "mlx5_core.sf.6"}`
+    "pci/0000:03:00.1/1": {"device": "0000:03:00.1", "sfnum": 0, "aux_dev": "mlx5_core.sf.5"},
+    "pci/0000:03:00.1/2": {"device": "0000:03:00.1", "sfnum": 1, "aux_dev": "mlx5_core.sf.6"},
+    "pci/0000:03:00.1/3": {"device": "0000:03:00.1", "sfnum": 2, "aux_dev": "mlx5_core.sf.7"},
+    "pci/0001:03:00.0/1": {"device": "0001:03:00.0", "sfnum": 0, "aux_dev": "mlx5_core.sf.8"},
+    "pci/0001:03:00.0/2": {"device": "0001:03:00.0", "sfnum": 1, "aux_dev": "mlx5_core.sf.10"}`
 			beforeDMA := "{" + workloadSFs + "\n}\n"
 			afterDMA := "{" + workloadSFs + `,
     "pci/0001:03:00.0/9": {"device": "0001:03:00.0", "sfnum": 8000, "netdev": "en3f1pf0sf8000", "aux_dev": "mlx5_core.sf.9", "rdma_dev": "mlx5_2"}
@@ -806,7 +809,7 @@ var _ = Describe("SFConfig", func() {
 `
 			dmaCreated := false
 			var commands []string
-			operation := &CreateSF{
+			operation := &ReconcileSF{
 				rootFS:               tempDir,
 				auxDiscoveryInterval: time.Millisecond,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
@@ -828,7 +831,7 @@ var _ = Describe("SFConfig", func() {
 
 			err := operation.Execute(ctx, &operations.Context{
 				DPUFlavor:     dpuFlavor,
-				DiscoverPorts: discoverBF4TestPorts,
+				DiscoverPorts: discoverBF4TestPortsWithSecondGraceLink,
 				LatestDPU: &provisioningv1.DPU{
 					Status: provisioningv1.DPUStatus{DPUType: provisioningv1.DPUTypeBlueField4},
 				},
@@ -841,6 +844,8 @@ var _ = Describe("SFConfig", func() {
 				switch {
 				case strings.HasPrefix(cmd, "/sbin/mlnx-sf --action create --device 0000:03:00.0 "):
 					createByDevice["0000:03:00.0"] = append(createByDevice["0000:03:00.0"], cmd)
+				case strings.HasPrefix(cmd, "/sbin/mlnx-sf --action create --device 0000:03:00.1 "):
+					createByDevice["0000:03:00.1"] = append(createByDevice["0000:03:00.1"], cmd)
 				case strings.HasPrefix(cmd, "/sbin/mlnx-sf --action create --device 0001:03:00.0 "):
 					createByDevice["0001:03:00.0"] = append(createByDevice["0001:03:00.0"], cmd)
 				case strings.HasPrefix(cmd, "devlink ") || strings.HasPrefix(cmd, "ip link "):
@@ -853,7 +858,13 @@ var _ = Describe("SFConfig", func() {
 				"/sbin/mlnx-sf --action create --device 0000:03:00.0 --sfnum 1",
 				"/sbin/mlnx-sf --action create --device 0000:03:00.0 --sfnum 2",
 			}))
-			By("the ibdev-less ECPF creates 2 workload SFs plus the DMA SF (sfnum 8000, vendor-derived MAC)")
+			By("p1 gets the full PF_TOTAL_SF workload as well")
+			Expect(createByDevice["0000:03:00.1"]).To(Equal([]string{
+				"/sbin/mlnx-sf --action create --device 0000:03:00.1 --sfnum 0",
+				"/sbin/mlnx-sf --action create --device 0000:03:00.1 --sfnum 1",
+				"/sbin/mlnx-sf --action create --device 0000:03:00.1 --sfnum 2",
+			}))
+			By("the second-grace-link ECPF creates 2 workload SFs plus the DMA SF (sfnum 8000, vendor-derived MAC)")
 			Expect(createByDevice["0001:03:00.0"]).To(Equal([]string{
 				"/sbin/mlnx-sf --action create --device 0001:03:00.0 --sfnum 0",
 				"/sbin/mlnx-sf --action create --device 0001:03:00.0 --sfnum 1",
@@ -868,7 +879,7 @@ var _ = Describe("SFConfig", func() {
 		})
 
 		It("should bring a pre-existing DMA SF's representor up without recreating or reloading it", func() {
-			By("mock a sysfs where 0001:03:00.0 is the silenced (ibdev-less) socket-direct ECPF")
+			By("mock a sysfs where 0001:03:00.0 is the silenced (ibdev-less) second-grace-link ECPF")
 			for bdf, rdmaDev := range map[string]string{
 				"0000:03:00.0": "mlx5_0",
 				"0001:03:00.0": "",
@@ -898,13 +909,16 @@ var _ = Describe("SFConfig", func() {
     "pci/0000:03:00.0/1": {"device": "0000:03:00.0", "sfnum": 0, "aux_dev": "mlx5_core.sf.2"},
     "pci/0000:03:00.0/2": {"device": "0000:03:00.0", "sfnum": 1, "aux_dev": "mlx5_core.sf.3"},
     "pci/0000:03:00.0/3": {"device": "0000:03:00.0", "sfnum": 2, "aux_dev": "mlx5_core.sf.4"},
-    "pci/0001:03:00.0/1": {"device": "0001:03:00.0", "sfnum": 0, "aux_dev": "mlx5_core.sf.5"},
-    "pci/0001:03:00.0/2": {"device": "0001:03:00.0", "sfnum": 1, "aux_dev": "mlx5_core.sf.6"},
+    "pci/0000:03:00.1/1": {"device": "0000:03:00.1", "sfnum": 0, "aux_dev": "mlx5_core.sf.5"},
+    "pci/0000:03:00.1/2": {"device": "0000:03:00.1", "sfnum": 1, "aux_dev": "mlx5_core.sf.6"},
+    "pci/0000:03:00.1/3": {"device": "0000:03:00.1", "sfnum": 2, "aux_dev": "mlx5_core.sf.7"},
+    "pci/0001:03:00.0/1": {"device": "0001:03:00.0", "sfnum": 0, "aux_dev": "mlx5_core.sf.8"},
+    "pci/0001:03:00.0/2": {"device": "0001:03:00.0", "sfnum": 1, "aux_dev": "mlx5_core.sf.10"},
     "pci/0001:03:00.0/9": {"device": "0001:03:00.0", "sfnum": 8000, "netdev": "en3f1pf0sf8000", "aux_dev": "mlx5_core.sf.9", "rdma_dev": "mlx5_2"}
 }
 `
 			var commands []string
-			operation := &CreateSF{
+			operation := &ReconcileSF{
 				rootFS:               tempDir,
 				auxDiscoveryInterval: time.Millisecond,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
@@ -919,7 +933,7 @@ var _ = Describe("SFConfig", func() {
 
 			err := operation.Execute(ctx, &operations.Context{
 				DPUFlavor:     dpuFlavor,
-				DiscoverPorts: discoverBF4TestPorts,
+				DiscoverPorts: discoverBF4TestPortsWithSecondGraceLink,
 				LatestDPU: &provisioningv1.DPU{
 					Status: provisioningv1.DPUStatus{DPUType: provisioningv1.DPUTypeBlueField4},
 				},
@@ -939,11 +953,11 @@ var _ = Describe("SFConfig", func() {
 			Expect(devlinkAndIP).To(Equal([]string{"ip link set en3f1pf0sf8000 up"}))
 		})
 
-		It("should NOT reserve a slot on an ibdev-less ECPF when dma.enabled is unset", func() {
-			By("mock a sysfs where 0001:03:00.0 is ibdev-less but the agent DMA SF is not enabled")
+		It("should NOT reserve a slot on an ibdev-less ECPF when spec.dma.enabled is unset", func() {
+			By("mock a sysfs where p1 is ibdev-less but the agent DMA SF is not enabled")
 			for bdf, rdmaDev := range map[string]string{
 				"0000:03:00.0": "mlx5_0",
-				"0001:03:00.0": "",
+				"0000:03:00.1": "",
 			} {
 				devDir := filepath.Join(tempDir, "sys/bus/pci/devices", bdf)
 				Expect(os.MkdirAll(devDir, 0755)).To(Succeed())
@@ -952,14 +966,13 @@ var _ = Describe("SFConfig", func() {
 					Expect(os.MkdirAll(filepath.Join(devDir, "infiniband", rdmaDev), 0755)).To(Succeed())
 				}
 			}
-			By("the flavor does not set dma.enabled, so the agent does not create the DMA SF")
+			By("the flavor does not set spec.dma.enabled, so the agent does not create the DMA SF")
 
 			dpuFlavor := provisioningv1.DPUFlavor{
 				Spec: provisioningv1.DPUFlavorSpec{
 					NVConfig: []provisioningv1.NVConfig{
 						{Parameters: []string{"PF_TOTAL_SF=1"}},
 					},
-					DMA: nil,
 				},
 			}
 
@@ -972,15 +985,15 @@ var _ = Describe("SFConfig", func() {
         "sfnum": 0,
         "aux_dev": "mlx5_core.sf.2"
     },
-    "pci/0001:03:00.0/229376": {
-        "device": "0001:03:00.0",
+    "pci/0000:03:00.1/229376": {
+        "device": "0000:03:00.1",
         "sfnum": 0,
         "aux_dev": "mlx5_core.sf.3"
     }
 }
 `
 			var commands []string
-			operation := &CreateSF{
+			operation := &ReconcileSF{
 				rootFS: tempDir,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 					commands = append(commands, cmd)
@@ -1010,12 +1023,12 @@ var _ = Describe("SFConfig", func() {
 			}
 			Expect(createCommands).To(ConsistOf(
 				"/sbin/mlnx-sf --action create --device 0000:03:00.0 --sfnum 0",
-				"/sbin/mlnx-sf --action create --device 0001:03:00.0 --sfnum 0",
+				"/sbin/mlnx-sf --action create --device 0000:03:00.1 --sfnum 0",
 			))
 		})
 
-		It("should NOT create the DMA SF on a non-BlueField-4 DPU even when dma.enabled is set", func() {
-			By("dma.enabled is set in the flavor; only the BF4 gate should stop creation")
+		It("should NOT create the DMA SF on a non-BlueField-4 DPU even when spec.dma.enabled is set", func() {
+			By("the flavor sets spec.dma.enabled; only the BF4 gate should stop creation")
 			// The target device p0 has no infiniband dir, so it is ibdev-less and
 			// would qualify to host the DMA SF on BF4 — only the non-BF4 gate
 			// prevents it here, making this a regression guard for that gate.
@@ -1036,7 +1049,7 @@ var _ = Describe("SFConfig", func() {
 }
 `
 			var commands []string
-			operation := &CreateSF{
+			operation := &ReconcileSF{
 				rootFS:               tempDir,
 				auxDiscoveryInterval: time.Millisecond,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
@@ -1105,7 +1118,7 @@ var _ = Describe("SFConfig", func() {
 			Expect(os.MkdirAll(filepath.Dir(filepath.Join(tempDir, "sys/bus/auxiliary/drivers/mlx5_core.sf/bind")), 0777)).To(Succeed())
 
 			var commands []string
-			operation := &CreateSF{
+			operation := &ReconcileSF{
 				rootFS: tempDir,
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 					commands = append(commands, cmd)
@@ -1117,9 +1130,13 @@ var _ = Describe("SFConfig", func() {
 				},
 			}
 
-			Expect(operation.setGUIDForSF("0000:03:00.0")).To(Succeed())
+			operation.applyDefaults()
+			sfMap, err := operation.listSFs()
+			Expect(err).NotTo(HaveOccurred())
+			commands = nil
+
+			Expect(operation.setGUIDForSFs(sfMap, "0000:03:00.0")).To(Succeed())
 			Expect(commands).To(Equal([]string{
-				mlnxSFShowCmd,
 				"/opt/mellanox/iproute2/sbin/mlxdevm port function set pci/0000:03:00.0/229376 hw_addr 02:36:17:17:a9:b0",
 			}))
 
@@ -1138,7 +1155,7 @@ var _ = Describe("SFConfig", func() {
     }
 }
 `
-			operation := &CreateSF{
+			operation := &ReconcileSF{
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 					Expect(cmd).To(Equal(mlnxSFShowCmd))
 					var stdout, stderr bytes.Buffer
@@ -1147,8 +1164,9 @@ var _ = Describe("SFConfig", func() {
 				},
 			}
 
-			err := operation.verifyExpectedSFs("0000:03:00.0", []int{0}, map[int]error{}, false)
+			sfMap, err := operation.listSFs()
 			Expect(err).NotTo(HaveOccurred())
+			Expect(operation.checkSFsCreated(sfMap, "0000:03:00.0", []plannedSF{{sfNum: 0}}, nil)).To(Succeed())
 		})
 	})
 })
@@ -1205,10 +1223,24 @@ var _ = Describe("selectDMASFTarget", func() {
 })
 
 var _ = Describe("deriveDMASFMAC", func() {
-	It("derives a deterministic MAC over \"<bdf>:<sfnum>\"", func() {
-		mac := deriveDMASFMAC("0001:03:00.0", 8000)
-		Expect(mac).To(HavePrefix("02:"))
-		Expect(deriveDMASFMAC("0001:03:00.0", 8000)).To(Equal(mac), "derivation must be deterministic")
-		Expect(deriveDMASFMAC("0001:03:00.0", 8001)).NotTo(Equal(mac), "different sfnum must derive a different MAC")
+	It("derives the vendor-compatible MAC from the BDF and sfnum", func() {
+		Expect(deriveDMASFMAC("0001:03:00.0", 8000)).To(Equal("02:40:51:7c:e3:0f"))
 	})
 })
+
+var _ = DescribeTable("canonicalMAC",
+	func(value string, expected string, expectErr bool) {
+		mac, err := canonicalMAC(value)
+		if expectErr {
+			Expect(err).To(HaveOccurred())
+			return
+		}
+		Expect(err).NotTo(HaveOccurred())
+		Expect(mac).To(Equal(expected))
+	},
+	Entry("canonical value passes through", "02:40:51:7c:e3:0f", "02:40:51:7c:e3:0f", false),
+	Entry("uppercase value is lowercased", "02:40:51:7C:E3:0F", "02:40:51:7c:e3:0f", false),
+	Entry("dash-separated value is normalized", "02-40-51-7c-e3-0f", "02:40:51:7c:e3:0f", false),
+	Entry("EUI-64 (8-byte) value is rejected", "00:00:5e:00:53:00:00:01", "", true),
+	Entry("garbage value is rejected", "not-a-mac", "", true),
+)

@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package sfconfig
+package sriovconfig
 
 import (
 	"crypto/md5"
@@ -29,21 +29,13 @@ import (
 	"k8s.io/klog/v2"
 )
 
-// snapDMASFNum is the sfnum of the SNAP DMA SF on BlueField-4 socket-direct
-// systems. It is a discovery ABI: SNAP identifies the DMA SF as "SF with
-// sf_num=8000 + DMA caps" (doca_devemu_pci_cap_is_dma_dev), so a different
-// value yields an SF SNAP cannot discover. Not yet configurable via the
-// DPUFlavor API.
+// snapDMASFNum is the SNAP discovery ABI (sf_num=8000 + DMA caps). Owned by the agent,
+// not a scalableFunctions group.
 const snapDMASFNum = 8000
 
-// selectDMASFTarget picks the single ECPF that should host the DMA SF,
-// mirroring the vendor's create_snap_dma_sf target selection (Redmine
-// #5040591, steps a–f): among the switchdev N/S ECPFs, eliminate any that
-// expose an RDMA device (d) or share a PCI link (domain:bus) with one that
-// does (e), then take the first remaining, sorted by BDF for determinism (f).
-// Returns "" when none qualify (not socket-direct, or the 2nd-link ECPF is not
-// silenced). ASTRA/HW-multiplane ECPFs (step a) are excluded upstream: devices
-// comes from ctx.NSPorts(), i.e. devlink "physical"-flavour N/S ports.
+// selectDMASFTarget picks the DMA ECPF (Redmine #5040591 a–f): among N/S switchdev
+// ports, drop those with RDMA or sharing a PCI link with one, then first remaining BDF.
+// Empty if none qualify. devices come from ctx.NSPorts() (physical N/S only).
 func selectDMASFTarget(rootFS string, devices []string) (string, error) {
 	sorted := append([]string(nil), devices...)
 	sort.Strings(sorted)
@@ -69,8 +61,7 @@ func selectDMASFTarget(rootFS string, devices []string) (string, error) {
 	return "", nil
 }
 
-// pciLink returns the "domain:bus" prefix of a BDF ("0000:03" for
-// "0000:03:00.0") — the vendor's `cut -d: -f1-2`.
+// pciLink is the domain:bus of a BDF.
 func pciLink(bdf string) string {
 	parts := strings.SplitN(bdf, ":", 3)
 	if len(parts) < 3 {
@@ -79,9 +70,8 @@ func pciLink(bdf string) string {
 	return parts[0] + ":" + parts[1]
 }
 
-// dmaSFExists reports whether the DMA SF (sfnum s.dmaSFNum) already exists on
-// device — an agent restart within a boot, or vendor-created.
-func (s *CreateSF) dmaSFExists(device string) (bool, error) {
+// dmaSFExists is true if the DMA SF is already on device.
+func (s *ReconcileSF) dmaSFExists(device string) (bool, error) {
 	sfMap, err := s.listSFs()
 	if err != nil {
 		return false, fmt.Errorf("failed to inspect DMA SF: %w", err)
@@ -94,8 +84,7 @@ func (s *CreateSF) dmaSFExists(device string) (bool, error) {
 	return false, nil
 }
 
-// deviceHasRDMA reports whether the ECPF exposes an RDMA (ibdev) device. The
-// silenced secondary ECPF that hosts the DMA SF exposes none.
+// deviceHasRDMA is true if the ECPF exposes an ibdev.
 func deviceHasRDMA(rootFS, device string) (bool, error) {
 	ibDir := filepath.Join(rootFS, "sys/bus/pci/devices", device, "infiniband")
 	entries, err := os.ReadDir(ibDir)
@@ -108,9 +97,7 @@ func deviceHasRDMA(rootFS, device string) (bool, error) {
 	return len(entries) > 0, nil
 }
 
-// findDMASF returns the DMA SF entry (sfnum dmaSFNum) on device from mlnx-sf,
-// or nil if it does not exist.
-func (s *CreateSF) findDMASF(device string, dmaSFNum int) (*SFInfo, error) {
+func (s *ReconcileSF) findDMASF(device string, dmaSFNum int) (*SFInfo, error) {
 	sfMap, err := s.listSFs()
 	if err != nil {
 		return nil, err
@@ -123,12 +110,9 @@ func (s *CreateSF) findDMASF(device string, dmaSFNum int) (*SFInfo, error) {
 	return nil, nil
 }
 
-// createDMASF creates the DMA SF (sfnum dmaSFNum) on the silenced ECPF with
-// RoCE disabled, disables its netdev (the SF is consumed as an ibdev only), and
-// brings its representor up (best-effort, never added to a bridge). Mirrors the
-// vendor script's create_snap_dma_sf (mlnx_bf_configure ~L800-847, mlnx-tools
-// v2604.0.17).
-func (s *CreateSF) createDMASF(device string, dmaSFNum int) error {
+// createDMASF creates the DMA SF (RoCE off, no netdev). Mirrors create_snap_dma_sf
+// (mlnx_bf_configure ~L800-847).
+func (s *ReconcileSF) createDMASF(device string, dmaSFNum int) error {
 	mac := deriveDMASFMAC(device, dmaSFNum)
 
 	cmd := fmt.Sprintf("/sbin/mlnx-sf --action create --device %s --sfnum %d --hwaddr %s --disable-roce", device, dmaSFNum, mac)
@@ -136,32 +120,17 @@ func (s *CreateSF) createDMASF(device string, dmaSFNum int) error {
 		return fmt.Errorf("failed to create DMA SF on %s: stdout=%s, stderr=%s, err=%w", device, stdout.String(), stderr.String(), err)
 	}
 
-	aux, err := findAuxDevice(s.rootFS, s.auxDiscoveryInterval, device, dmaSFNum)
-	if err != nil {
+	if err := s.disableSFNetdev(device, dmaSFNum); err != nil {
 		return err
 	}
-	for _, c := range []string{
-		fmt.Sprintf("devlink dev param set auxiliary/%s name enable_eth value false cmode driverinit", aux),
-		fmt.Sprintf("devlink dev reload auxiliary/%s", aux),
-	} {
-		if stdout, stderr, err := s.runBash(c); err != nil {
-			return fmt.Errorf("failed to disable DMA SF netdev: cmd=%s, stdout=%s, stderr=%s, err=%w", c, stdout.String(), stderr.String(), err)
-		}
-	}
 
-	klog.InfoS("DMA SF created", "device", device, "sfnum", dmaSFNum, "mac", mac, "aux", aux)
+	klog.InfoS("DMA SF created", "device", device, "sfnum", dmaSFNum, "mac", mac)
 
 	return nil
 }
 
-// ensureDMASFRepresentorUp brings the DMA SF's representor netdev up,
-// best-effort and idempotently. It runs on every reconcile — both after a fresh
-// create and for a pre-existing DMA SF (agent restart / vendor-created), which
-// would otherwise never (re)assert it. Non-disruptive: `ip link set up` touches
-// only the representor and is a no-op when it is already up — no aux reload, so
-// no ibdev bounce for an in-use consumer. The representor must never be attached
-// to br-sfc — self-enforcing, since no ServiceInterface references it.
-func (s *CreateSF) ensureDMASFRepresentorUp(device string, dmaSFNum int) {
+// ensureDMASFRepresentorUp brings the representor up, best-effort, every reconcile.
+func (s *ReconcileSF) ensureDMASFRepresentorUp(device string, dmaSFNum int) {
 	sf, err := s.findDMASF(device, dmaSFNum)
 	if err != nil || sf == nil || sf.Netdev == "" {
 		return
@@ -171,17 +140,13 @@ func (s *CreateSF) ensureDMASFRepresentorUp(device string, dmaSFNum int) {
 	}
 }
 
-// deriveDMASFMAC derives the SF MAC exactly like the vendor script
-// (mlnx_bf_configure ~L797, mlnx-tools v2604.0.17): "02:" followed by the first
-// 5 bytes of md5("<bdf>:<sfnum>"). Byte-identical to the vendor path.
+// deriveDMASFMAC matches mlnx_bf_configure ~L797: "02:" + first 5 bytes of md5(bdf:sfnum).
 func deriveDMASFMAC(device string, dmaSFNum int) string {
 	sum := md5.Sum(fmt.Appendf(nil, "%s:%d", device, dmaSFNum))
 	return fmt.Sprintf("02:%02x:%02x:%02x:%02x:%02x", sum[0], sum[1], sum[2], sum[3], sum[4])
 }
 
-// verifyDMASFConsumable errors unless the DMA SF exposes an RDMA device and its
-// own netdev is absent (really disabled) — the closest boot-time proxy for "a
-// consumer's discovery of sfnum + DMA caps will succeed".
+// verifyDMASFConsumable requires an RDMA device and no SF netdev.
 func verifyDMASFConsumable(sf *SFInfo, device string, dmaSFNum int) error {
 	if sf == nil {
 		return fmt.Errorf("DMA SF (sfnum %d) not found on %s after creation", dmaSFNum, device)

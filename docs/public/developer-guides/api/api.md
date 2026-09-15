@@ -2652,8 +2652,7 @@ _Appears in:_
 
 
 
-DPUFlavorDMA configures the DMA SF that the dpu-agent creates on
-BlueField-4 socket-direct systems when Enabled is true.
+DPUFlavorDMA configures the SNAP DMA SF. The agent picks the ECPF; sfnum is 8000 and MAC is derived.
 
 
 
@@ -2662,7 +2661,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `enabled` _boolean_ | Enabled controls whether the dpu-agent creates the DMA SF. Defaults to<br />false when unset, so the presence of the dma struct alone does not enable<br />creation. Only takes effect on BlueField-4 socket-direct systems. The<br />created Scalable Function always uses sfnum 8000, the SNAP discovery ABI<br />value. |  | Optional: \{\} <br /> |
+| `enabled` _boolean_ | Enabled creates the SNAP DMA SF on BlueField-4 socket-direct systems. |  | Optional: \{\} <br /> |
 
 
 #### DPUFlavorFileOp
@@ -2749,6 +2748,9 @@ _Appears in:_
 | `grub` _[DPUFlavorGrub](#dpuflavorgrub)_ | Grub contains the grub configuration for the DPUFlavor. |  | Optional: \{\} <br /> |
 | `sysctl` _[DPUFLavorSysctl](#dpuflavorsysctl)_ | Sysctl contains the sysctl configuration for the DPUFlavor. |  | Optional: \{\} <br /> |
 | `nvconfig` _[NVConfig](#nvconfig) array_ | NVConfig contains the device-specific configuration (firmware settings, device parameters).<br />Each entry specifies a device (wildcard '*', or port identifiers 'p0'/'P0'/'p1'/'P1') and its parameters.<br />If device is '*' or unspecified (defaults to '*'), it applies to all devices and must be the only entry.<br />Each device (including unspecified as '*') must be unique across all nvconfig entries (case-insensitive).<br />Validation enforces: device enum values, parameter format (KEY=VALUE), case-insensitive uniqueness, and size limits. |  | MaxItems: 3 <br />Optional: \{\} <br /> |
+| `scalableFunctions` _[ScalableFunction](#scalablefunction) array_ | ScalableFunctions is the list of SF groups to create on the DPU, or on the host when<br />hostDevice is set. Count is per selected device. Over-subscribe can trigger failures at<br />create time. Editing this field reprovisions the DPU. For backward compatibility, when<br />both this SF list and VF list are empty, SF counts are still derived from PF_TOTAL_SF<br />(removed in a future release). |  | MaxItems: 16 <br />Optional: \{\} <br /> |
+| `virtualFunctions` _[VirtualFunction](#virtualfunction) array_ | VirtualFunctions is the list of VF groups to create. Count is per selected<br />device. Groups ending up on the same device sum to a single `sriov_numvfs` and then<br />list order assigns contiguous index ranges. Over-subscribe can trigger failures at<br />create time. Editing this field reprovisions the DPU. |  | MaxItems: 16 <br />Optional: \{\} <br /> |
+| `dma` _[DPUFlavorDMA](#dpuflavordma)_ | DMA configures the SNAP DMA SF. The agent picks the ECPF; sfnum is 8000 and MAC is derived.<br />Ignored except on BlueField-4. |  | Optional: \{\} <br /> |
 | `ovs` _[DPUFlavorOVS](#dpuflavorovs)_ | OVS contains the OVS configuration for the DPUFlavor. |  | Optional: \{\} <br /> |
 | `bfcfgParameters` _string array_ | BFCfgParameters are the parameters to be set in the bf.cfg file. |  | Optional: \{\} <br /> |
 | `configFiles` _[ConfigFile](#configfile) array_ | ConfigFiles are the files to be written on the DPU. |  | Optional: \{\} <br /> |
@@ -2760,7 +2762,6 @@ _Appears in:_
 | `dpuMode` _[DpuModeType](#dpumodetype)_ | DpuMode is deprecated and no longer used by provisioning workflows.<br />Deployment mode is sourced from DPFOperatorConfig and exposed on DPU.status.deploymentMode. |  | Enum: [dpu zero-trust nic] <br />Optional: \{\} <br /> |
 | `hostNetworkInterfaceConfigs` _[NetworkInterfaceConfig](#networkinterfaceconfig) array_ | HostNetworkInterfaceConfigs contains the configuration for the host-side network interfaces. |  | Optional: \{\} <br /> |
 | `ewNicConfigurations` _[NicConfiguration](#nicconfiguration) array_ | EWNicConfigurations lists per-NIC configuration for the E/W NICs.<br />Only the first entry is applied in this release; additional entries are ignored until a future<br />release adds multi-NIC support. The field is modeled as a list now so the API shape does not<br />need to change when multiple entries are supported. |  | MaxItems: 16 <br />Optional: \{\} <br /> |
-| `dma` _[DPUFlavorDMA](#dpuflavordma)_ | DMA configures the DMA SF that e.g. SNAP DOCA service uses to DMA host<br />memory over the second Grace PCI link on BlueField-4 socket-direct<br />systems. |  | Optional: \{\} <br /> |
 | `serviceReadiness` _[ServiceReadiness](#servicereadiness)_ | serviceReadiness configures the Service Readiness phase. |  | Optional: \{\} <br /> |
 
 
@@ -3881,6 +3882,48 @@ _Appears in:_
 | `maxUnavailable` _[IntOrString](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#intorstring-intstr-util)_ | MaxUnavailable is the maximum number of DPUs that can be unavailable during the update.<br />Deprecated: This field is deprecated and will be removed with v26.7.0. |  | Optional: \{\} <br /> |
 
 
+#### ScalableFunction
+
+
+
+ScalableFunction is one group of SFs to create.
+
+
+
+_Appears in:_
+- [DPUFlavorSpec](#dpuflavorspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `count` _integer_ | Count is SFs to create per selected device. With device "*", count 20 is 20 SFs<br />on each port. Zero creates nothing. |  | Minimum: 0 <br />Required: \{\} <br /> |
+| `device` _string_ | Device is the target port: "*", a name such as p0, or a PCI address. Defaults to "*". |  | Pattern: `^(\*\|[pP][0-9]+\|[0-9a-fA-F]\{4\}:[0-9a-fA-F]\{2\}:[0-9a-fA-F]\{2\}\.[0-7])$` <br />Optional: \{\} <br /> |
+| `hostDevice` _boolean_ | HostDevice creates the SFs on the host (representors on the DPU). Implies<br />controller 1; options.controller overrides. Host SFs use the host firmware<br />budget and must not set poolName. |  | Optional: \{\} <br /> |
+| `poolName` _string_ | PoolName is the device-plugin resource (for example bf_sf). Unset: created in<br />hardware only. Forbidden with hostDevice. |  | MaxLength: 63 <br />Pattern: `^[A-Za-z0-9][A-Za-z0-9_.-]*$` <br />Optional: \{\} <br /> |
+| `options` _[ScalableFunctionOptions](#scalablefunctionoptions)_ | Options are creation settings for this group. |  | Optional: \{\} <br /> |
+
+
+#### ScalableFunctionOptions
+
+
+
+ScalableFunctionOptions are per-group SF creation settings.
+
+
+
+_Appears in:_
+- [ScalableFunction](#scalablefunction)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `macAddress` _string_ | MACAddress pins the SF MAC (colon-separated 48-bit). Requires count 1. |  | Pattern: `^([0-9A-Fa-f]\{2\}:)\{5\}[0-9A-Fa-f]\{2\}$` <br />Optional: \{\} <br /> |
+| `sfNumStart` _integer_ | SFNumStart is the first sfnum of the group; the rest are sequential from it.<br />Reserved before agent-numbered groups, which fill from 0 around them. |  | Maximum: 65535 <br />Minimum: 0 <br />Optional: \{\} <br /> |
+| `trusted` _boolean_ | Trusted creates the SFs as trusted functions. |  | Optional: \{\} <br /> |
+| `controller` _integer_ | Controller is the external controller to create on. Overrides hostDevice. |  | Maximum: 15 <br />Minimum: 0 <br />Optional: \{\} <br /> |
+| `cpuList` _string_ | CPUList pins the SFs to CPUs in mlnx-sf list form, for example 0-3 or 0,2,4. |  | MaxLength: 200 <br />Pattern: `^[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*$` <br />Optional: \{\} <br /> |
+| `disableRoCE` _boolean_ | DisableRoCE creates the SFs with RoCE disabled. |  | Optional: \{\} <br /> |
+| `disableNetdev` _boolean_ | DisableNetdev leaves the SFs without an ethernet netdev. |  | Optional: \{\} <br /> |
+
+
 #### Script
 
 
@@ -4052,6 +4095,41 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `applyOnLabelChange` _boolean_ | Apply node effect when labels change on the DPU object<br />When set to true, label changes in Ready state will trigger node effect logic | false | Optional: \{\} <br /> |
 | `nodeMaintenanceAdditionalRequestors` _string array_ | Additional requestors to be added to the NvidiaNodeMaintenance CR when Drain is selected |  | Optional: \{\} <br /> |
+
+
+#### VirtualFunction
+
+
+
+VirtualFunction is one group of VFs to create.
+
+
+
+_Appears in:_
+- [DPUFlavorSpec](#dpuflavorspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `count` _integer_ | Count is VFs to create per selected device. Groups ending up on the same device sum to<br />a single `sriov_numvfs` and then list order assigns contiguous index ranges. Zero creates nothing. |  | Minimum: 0 <br />Required: \{\} <br /> |
+| `device` _string_ | Device is the target port: "*", a name such as p0, or a PCI address. Defaults to "*". |  | Pattern: `^(\*\|[pP][0-9]+\|[0-9a-fA-F]\{4\}:[0-9a-fA-F]\{2\}:[0-9a-fA-F]\{2\}\.[0-7])$` <br />Optional: \{\} <br /> |
+| `poolName` _string_ | PoolName is the device-plugin resource (for example bf_vf). Unset: created in<br />hardware only. |  | MaxLength: 63 <br />Pattern: `^[A-Za-z0-9][A-Za-z0-9_.-]*$` <br />Optional: \{\} <br /> |
+| `options` _[VirtualFunctionOptions](#virtualfunctionoptions)_ | Options are creation settings for this group. |  | Optional: \{\} <br /> |
+
+
+#### VirtualFunctionOptions
+
+
+
+VirtualFunctionOptions are per-group VF creation settings.
+
+
+
+_Appears in:_
+- [VirtualFunction](#virtualfunction)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `macAddress` _string_ | MACAddress sets the VF MAC (colon-separated 48-bit). Requires count 1. |  | Pattern: `^([0-9A-Fa-f]\{2\}:)\{5\}[0-9A-Fa-f]\{2\}$` <br />Optional: \{\} <br /> |
 
 
 

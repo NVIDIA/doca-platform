@@ -51,6 +51,31 @@ type DPUFlavorSpec struct {
 	// +listType=atomic
 	// +optional
 	NVConfig []NVConfig `json:"nvconfig,omitempty"`
+
+	// ScalableFunctions is the list of SF groups to create on the DPU, or on the host when
+	// hostDevice is set. Count is per selected device. Over-subscribe can trigger failures at
+	// create time. Editing this field reprovisions the DPU. For backward compatibility, when
+	// both this SF list and VF list are empty, SF counts are still derived from PF_TOTAL_SF
+	// (removed in a future release).
+	// +kubebuilder:validation:MaxItems=16
+	// +listType=atomic
+	// +optional
+	ScalableFunctions []ScalableFunction `json:"scalableFunctions,omitempty"`
+
+	// VirtualFunctions is the list of VF groups to create. Count is per selected
+	// device. Groups ending up on the same device sum to a single `sriov_numvfs` and then
+	// list order assigns contiguous index ranges. Over-subscribe can trigger failures at
+	// create time. Editing this field reprovisions the DPU.
+	// +kubebuilder:validation:MaxItems=16
+	// +listType=atomic
+	// +optional
+	VirtualFunctions []VirtualFunction `json:"virtualFunctions,omitempty"`
+
+	// DMA configures the SNAP DMA SF. The agent picks the ECPF; sfnum is 8000 and MAC is derived.
+	// Ignored except on BlueField-4.
+	// +optional
+	DMA *DPUFlavorDMA `json:"dma,omitempty"`
+
 	// OVS contains the OVS configuration for the DPUFlavor.
 	// +optional
 	OVS DPUFlavorOVS `json:"ovs,omitempty"`
@@ -103,27 +128,127 @@ type DPUFlavorSpec struct {
 	// +optional
 	EWNicConfigurations []NicConfiguration `json:"ewNicConfigurations,omitempty"`
 
-	// DMA configures the DMA SF that e.g. SNAP DOCA service uses to DMA host
-	// memory over the second Grace PCI link on BlueField-4 socket-direct
-	// systems.
-	// +optional
-	DMA *DPUFlavorDMA `json:"dma,omitempty"`
-
 	// serviceReadiness configures the Service Readiness phase.
 	// +optional
 	ServiceReadiness *ServiceReadiness `json:"serviceReadiness,omitempty"`
 }
 
-// DPUFlavorDMA configures the DMA SF that the dpu-agent creates on
-// BlueField-4 socket-direct systems when Enabled is true.
+// ScalableFunction is one group of SFs to create.
+// +kubebuilder:validation:XValidation:rule="!has(self.options) || !has(self.options.macAddress) || self.count == 1",message="options.macAddress requires count == 1"
+// +kubebuilder:validation:XValidation:rule="!has(self.hostDevice) || !self.hostDevice || !has(self.poolName)",message="poolName must not be set when hostDevice is true"
+type ScalableFunction struct {
+	// Count is SFs to create per selected device. With device "*", count 20 is 20 SFs
+	// on each port. Zero creates nothing.
+	// +kubebuilder:validation:Minimum=0
+	// +required
+	Count *int32 `json:"count,omitempty"`
+
+	// Device is the target port: "*", a name such as p0, or a PCI address. Defaults to "*".
+	// +kubebuilder:validation:Pattern=`^(\*|[pP][0-9]+|[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-7])$`
+	// +optional
+	Device *string `json:"device,omitempty"`
+
+	// HostDevice creates the SFs on the host (representors on the DPU). Implies
+	// controller 1; options.controller overrides. Host SFs use the host firmware
+	// budget and must not set poolName.
+	// +optional
+	HostDevice *bool `json:"hostDevice,omitempty"`
+
+	// PoolName is the device-plugin resource (for example bf_sf). Unset: created in
+	// hardware only. Forbidden with hostDevice.
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9][A-Za-z0-9_.-]*$`
+	// +optional
+	PoolName *string `json:"poolName,omitempty"`
+
+	// Options are creation settings for this group.
+	// +optional
+	Options *ScalableFunctionOptions `json:"options,omitempty"`
+}
+
+// ScalableFunctionOptions are per-group SF creation settings.
+type ScalableFunctionOptions struct {
+	// MACAddress pins the SF MAC (colon-separated 48-bit). Requires count 1.
+	// +kubebuilder:validation:Pattern=`^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$`
+	// +optional
+	MACAddress *string `json:"macAddress,omitempty"`
+
+	// SFNumStart is the first sfnum of the group; the rest are sequential from it.
+	// Reserved before agent-numbered groups, which fill from 0 around them.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=65535
+	// +optional
+	SFNumStart *int32 `json:"sfNumStart,omitempty"`
+
+	// Trusted creates the SFs as trusted functions.
+	// +optional
+	Trusted *bool `json:"trusted,omitempty"`
+
+	// Controller is the external controller to create on. Overrides hostDevice.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=15
+	// +optional
+	Controller *int32 `json:"controller,omitempty"`
+
+	// CPUList pins the SFs to CPUs in mlnx-sf list form, for example 0-3 or 0,2,4.
+	// +kubebuilder:validation:MaxLength=200
+	// +kubebuilder:validation:Pattern=`^[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*$`
+	// +optional
+	CPUList *string `json:"cpuList,omitempty"`
+
+	// DisableRoCE creates the SFs with RoCE disabled.
+	// +optional
+	DisableRoCE *bool `json:"disableRoCE,omitempty"`
+
+	// DisableNetdev leaves the SFs without an ethernet netdev.
+	// +optional
+	DisableNetdev *bool `json:"disableNetdev,omitempty"`
+}
+
+// VirtualFunction is one group of VFs to create.
+// +kubebuilder:validation:XValidation:rule="!has(self.options) || !has(self.options.macAddress) || self.count == 1",message="options.macAddress requires count == 1"
+type VirtualFunction struct {
+	// Count is VFs to create per selected device. Groups ending up on the same device sum to
+	// a single `sriov_numvfs` and then list order assigns contiguous index ranges. Zero creates nothing.
+	// +kubebuilder:validation:Minimum=0
+	// +required
+	Count *int32 `json:"count,omitempty"`
+
+	// Device is the target port: "*", a name such as p0, or a PCI address. Defaults to "*".
+	// +kubebuilder:validation:Pattern=`^(\*|[pP][0-9]+|[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-7])$`
+	// +optional
+	Device *string `json:"device,omitempty"`
+
+	// PoolName is the device-plugin resource (for example bf_vf). Unset: created in
+	// hardware only.
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9][A-Za-z0-9_.-]*$`
+	// +optional
+	PoolName *string `json:"poolName,omitempty"`
+
+	// Options are creation settings for this group.
+	// +optional
+	Options *VirtualFunctionOptions `json:"options,omitempty"`
+}
+
+// VirtualFunctionOptions are per-group VF creation settings.
+type VirtualFunctionOptions struct {
+	// MACAddress sets the VF MAC (colon-separated 48-bit). Requires count 1.
+	// +kubebuilder:validation:Pattern=`^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$`
+	// +optional
+	MACAddress *string `json:"macAddress,omitempty"`
+}
+
+// DPUFlavorDMA configures the SNAP DMA SF. The agent picks the ECPF; sfnum is 8000 and MAC is derived.
 type DPUFlavorDMA struct {
-	// Enabled controls whether the dpu-agent creates the DMA SF. Defaults to
-	// false when unset, so the presence of the dma struct alone does not enable
-	// creation. Only takes effect on BlueField-4 socket-direct systems. The
-	// created Scalable Function always uses sfnum 8000, the SNAP discovery ABI
-	// value.
+	// Enabled creates the SNAP DMA SF on BlueField-4 socket-direct systems.
 	// +optional
 	Enabled *bool `json:"enabled,omitempty"`
+}
+
+// DMAEnabled reports whether spec.dma.enabled is set.
+func (f *DPUFlavor) DMAEnabled() bool {
+	return f != nil && f.Spec.DMA != nil && f.Spec.DMA.Enabled != nil && *f.Spec.DMA.Enabled
 }
 
 // ServiceReadiness configures the Service Readiness provisioning phase.

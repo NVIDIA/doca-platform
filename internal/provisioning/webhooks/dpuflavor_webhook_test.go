@@ -292,6 +292,96 @@ var _ = Describe("DPUFlavor", func() {
 			Expect(objFetched.Spec.ContainerdConfig.RegistryEndpoint).To(Equal(refValue))
 		})
 
+		It("rejects a host Scalable Function group that names a pool", func() {
+			obj := createObj("obj-host-pool")
+			obj.Spec.ScalableFunctions = []provisioningv1.ScalableFunction{{
+				Count:      ptr.To(int32(2)),
+				HostDevice: ptr.To(true),
+				PoolName:   ptr.To("bf_sf"),
+			}}
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).To(MatchError(ContainSubstring("poolName must not be set when hostDevice is true")))
+		})
+
+		It("accepts a host Scalable Function group without a pool", func() {
+			obj := createObj("obj-host-no-pool")
+			obj.Spec.ScalableFunctions = []provisioningv1.ScalableFunction{{
+				Count:      ptr.To(int32(2)),
+				HostDevice: ptr.To(true),
+			}}
+			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+		})
+
+		It("accepts sfNumStart on a group of more than one Scalable Function", func() {
+			obj := createObj("obj-sfnumstart")
+			obj.Spec.ScalableFunctions = []provisioningv1.ScalableFunction{{
+				Count:    ptr.To(int32(4)),
+				PoolName: ptr.To("bf_sf_trusted"),
+				Options: &provisioningv1.ScalableFunctionOptions{
+					Trusted:    ptr.To(true),
+					SFNumStart: ptr.To(int32(101)),
+				},
+			}}
+			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+		})
+
+		It("still requires count == 1 to pin a MAC address", func() {
+			obj := createObj("obj-mac-multi")
+			obj.Spec.ScalableFunctions = []provisioningv1.ScalableFunction{{
+				Count:   ptr.To(int32(2)),
+				Options: &provisioningv1.ScalableFunctionOptions{MACAddress: ptr.To("02:40:51:7c:e3:0f")},
+			}}
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).To(MatchError(ContainSubstring("options.macAddress requires count == 1")))
+		})
+
+		It("rejects a pool shared by a Scalable Function and a Virtual Function group", func() {
+			obj := createObj("obj-pool-both-kinds")
+			obj.Spec.ScalableFunctions = []provisioningv1.ScalableFunction{
+				{Count: ptr.To(int32(2)), PoolName: ptr.To("shared")},
+			}
+			obj.Spec.VirtualFunctions = []provisioningv1.VirtualFunction{
+				{Count: ptr.To(int32(2)), PoolName: ptr.To("shared")},
+			}
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).To(MatchError(ContainSubstring("holds one device type")))
+		})
+
+		It("rejects pinned sfnum runs that overlap on the same device", func() {
+			obj := createObj("obj-sfnum-overlap")
+			obj.Spec.ScalableFunctions = []provisioningv1.ScalableFunction{
+				{
+					Count:   ptr.To(int32(4)),
+					Device:  ptr.To("p0"),
+					Options: &provisioningv1.ScalableFunctionOptions{SFNumStart: ptr.To(int32(10))},
+				},
+				{
+					Count:   ptr.To(int32(2)),
+					Device:  ptr.To("p0"),
+					Options: &provisioningv1.ScalableFunctionOptions{SFNumStart: ptr.To(int32(12))},
+				},
+			}
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).To(MatchError(ContainSubstring("overlapping the 10-13 pinned by scalableFunctions[0]")))
+		})
+
+		It("accepts pinned runs whose overlap depends on the discovered ports", func() {
+			obj := createObj("obj-sfnum-cross-selector")
+			obj.Spec.ScalableFunctions = []provisioningv1.ScalableFunction{
+				{
+					Count:   ptr.To(int32(2)),
+					Device:  ptr.To("p0"),
+					Options: &provisioningv1.ScalableFunctionOptions{SFNumStart: ptr.To(int32(10))},
+				},
+				{
+					Count:   ptr.To(int32(2)),
+					Device:  ptr.To("p1"),
+					Options: &provisioningv1.ScalableFunctionOptions{SFNumStart: ptr.To(int32(10))},
+				},
+			}
+			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+		})
+
 		It("create from yaml", func() {
 			yml := []byte(`
 apiVersion: provisioning.dpu.nvidia.com/v1alpha1
@@ -703,6 +793,100 @@ spec:
 			}}
 			_, err := webhook.ValidateDelete(ctx, generated)
 			Expect(err).ToNot(HaveOccurred())
+		})
+
+		It("warns about the deprecated trusted SF annotation", func() {
+			webhook := &DPUFlavor{}
+			obj := &provisioningv1.DPUFlavor{ObjectMeta: metav1.ObjectMeta{
+				Name:        "legacy-trusted-flavor",
+				Namespace:   "default",
+				Annotations: legacyTrustedSFCountAnnotation("5"),
+			}}
+
+			warnings, err := webhook.ValidateCreate(ctx, obj)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(warnings).To(HaveLen(1))
+			Expect(warnings[0]).To(ContainSubstring(legacyTrustedSFCountKey()))
+			Expect(warnings[0]).To(ContainSubstring("bf_sf_trusted"))
+
+			warnings, err = webhook.ValidateUpdate(ctx, obj, obj)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(warnings).To(HaveLen(1))
+		})
+
+		// Exercised directly rather than through the API server: while spec carries the
+		// immutability CEL rule, an update changing these fields never reaches the webhook.
+		Context("SR-IOV validation on update", func() {
+			webhook := &DPUFlavor{}
+
+			flavorWithSpec := func(spec provisioningv1.DPUFlavorSpec) *provisioningv1.DPUFlavor {
+				return &provisioningv1.DPUFlavor{
+					ObjectMeta: metav1.ObjectMeta{Name: "flavor", Namespace: "default"},
+					Spec:       spec,
+				}
+			}
+
+			It("rejects a pool shared by a Scalable Function and a Virtual Function group", func() {
+				obj := flavorWithSpec(provisioningv1.DPUFlavorSpec{
+					ScalableFunctions: []provisioningv1.ScalableFunction{
+						{Count: ptr.To(int32(2)), PoolName: ptr.To("shared")},
+					},
+					VirtualFunctions: []provisioningv1.VirtualFunction{
+						{Count: ptr.To(int32(2)), PoolName: ptr.To("shared")},
+					},
+				})
+
+				_, err := webhook.ValidateUpdate(ctx, flavorWithSpec(provisioningv1.DPUFlavorSpec{}), obj)
+				Expect(err).To(MatchError(ContainSubstring("holds one device type")))
+			})
+
+			It("rejects pinned sfnum runs that overlap on the same device", func() {
+				obj := flavorWithSpec(provisioningv1.DPUFlavorSpec{
+					ScalableFunctions: []provisioningv1.ScalableFunction{
+						{
+							Count:   ptr.To(int32(4)),
+							Device:  ptr.To("p0"),
+							Options: &provisioningv1.ScalableFunctionOptions{SFNumStart: ptr.To(int32(10))},
+						},
+						{
+							Count:   ptr.To(int32(2)),
+							Device:  ptr.To("p0"),
+							Options: &provisioningv1.ScalableFunctionOptions{SFNumStart: ptr.To(int32(12))},
+						},
+					},
+				})
+
+				_, err := webhook.ValidateUpdate(ctx, flavorWithSpec(provisioningv1.DPUFlavorSpec{}), obj)
+				Expect(err).To(MatchError(ContainSubstring("overlapping the 10-13 pinned by scalableFunctions[0]")))
+			})
+
+			It("accepts a well-formed SR-IOV spec", func() {
+				obj := flavorWithSpec(provisioningv1.DPUFlavorSpec{
+					ScalableFunctions: []provisioningv1.ScalableFunction{
+						{Count: ptr.To(int32(4)), Device: ptr.To("p0"), PoolName: ptr.To("bf_sf")},
+					},
+					VirtualFunctions: []provisioningv1.VirtualFunction{
+						{Count: ptr.To(int32(2)), Device: ptr.To("p0"), PoolName: ptr.To("bf_vf")},
+					},
+				})
+
+				warnings, err := webhook.ValidateUpdate(ctx, flavorWithSpec(provisioningv1.DPUFlavorSpec{}), obj)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(warnings).To(BeEmpty())
+			})
+		})
+
+		It("does not warn when the trusted SF annotation is absent", func() {
+			webhook := &DPUFlavor{}
+			obj := &provisioningv1.DPUFlavor{ObjectMeta: metav1.ObjectMeta{Name: "flavor", Namespace: "default"}}
+
+			warnings, err := webhook.ValidateCreate(ctx, obj)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(warnings).To(BeEmpty())
+
+			warnings, err = webhook.ValidateUpdate(ctx, obj, obj)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(warnings).To(BeEmpty())
 		})
 
 		It("Default should succeed without mutating spec", func() {

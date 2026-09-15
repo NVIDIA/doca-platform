@@ -14,11 +14,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package sfconfig
+package sriovconfig
 
 import (
 	"context"
 	"testing"
+
+	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -30,9 +32,9 @@ var (
 	cancel context.CancelFunc
 )
 
-func TestSFConfig(t *testing.T) {
+func TestSRIOVConfig(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "SFConfig Suite")
+	RunSpecs(t, "SRIOVConfig Suite")
 }
 
 var _ = BeforeSuite(func() {
@@ -42,3 +44,8 @@ var _ = BeforeSuite(func() {
 var _ = AfterSuite(func() {
 	cancel()
 })
+
+func legacyTrustedSFCountAnnotation(count string) map[string]string {
+	//nolint:staticcheck // SA1019: TrustedSFCount remains supported for compatibility tests.
+	return map[string]string{cutil.TrustedSFCount: count}
+}

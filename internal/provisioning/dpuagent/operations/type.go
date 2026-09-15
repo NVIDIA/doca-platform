@@ -126,6 +126,10 @@ type Context struct {
 
 	// ClearHostOSInit requests a null merge patch of agentStatus.hostOSInit on the next status update.
 	ClearHostOSInit bool
+
+	// SRIOVState holds sriovconfig plans for the shared device-plugin config.
+	// Untyped to avoid an import cycle; only sriovconfig.sharedState should read it.
+	SRIOVState any
 }
 
 // DeferredNVConfigParam is one deferred mlxconfig set request for a PCI device.

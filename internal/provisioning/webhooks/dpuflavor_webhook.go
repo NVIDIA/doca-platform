@@ -92,9 +92,13 @@ func (r *DPUFlavor) ValidateCreate(ctx context.Context, obj runtime.Object) (adm
 		return admission.Warnings{}, apierrors.NewBadRequest(fmt.Sprintf("config files are misconfigured: %s", err.Error()))
 	}
 
+	if err := validateSRIOVFunctions(dpuFlavor); err != nil {
+		return admission.Warnings{}, apierrors.NewBadRequest(err.Error())
+	}
+
 	// NVConfig validation is fully handled by CEL in the CRD schema
 
-	return admission.Warnings{}, nil
+	return deprecationWarnings(dpuFlavor), nil
 }
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
@@ -104,8 +108,39 @@ func (r *DPUFlavor) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.O
 		return admission.Warnings{}, apierrors.NewBadRequest(fmt.Sprintf("invalid object type expected DPUFlavor got %s", newObj.GetObjectKind().GroupVersionKind().String()))
 	}
 	dpuflavorlog.V(4).Info("validate update", "name", dpuFlavor.Name)
-	// This is a no-op as this type is immutable. The immutability validation is done inside the CRD definition.
-	return nil, nil
+
+	if err := validateSRIOVFunctions(dpuFlavor); err != nil {
+		return admission.Warnings{}, apierrors.NewBadRequest(err.Error())
+	}
+
+	// Annotations are mutable, hence the deprecation check.
+	return deprecationWarnings(dpuFlavor), nil
+}
+
+// validateSRIOVFunctions rejects the SR-IOV misconfigurations the dpu-agent would
+// otherwise only reach while reconciling, where it is too late.
+func validateSRIOVFunctions(flavor *provisioningv1.DPUFlavor) error {
+	// Reject poolnames overlapping device types
+	if err := cutil.ValidatePoolNames(flavor); err != nil {
+		return fmt.Errorf("SR-IOV pools are misconfigured: %w", err)
+	}
+
+	if err := cutil.ValidateScalableFunctions(flavor); err != nil {
+		return fmt.Errorf("scalable functions are misconfigured: %w", err)
+	}
+
+	return nil
+}
+
+// deprecationWarnings are admission warnings for still-honored legacy flavor knobs.
+//
+//nolint:staticcheck // SA1019: TrustedSFCount remains supported for deprecation warnings.
+func deprecationWarnings(flavor *provisioningv1.DPUFlavor) admission.Warnings {
+	var warnings admission.Warnings
+	if _, ok := flavor.Annotations[cutil.TrustedSFCount]; ok {
+		warnings = append(warnings, fmt.Sprintf("annotation %q is deprecated and will be ignored in a future release in v27.x: declare a spec.scalableFunctions group with options.trusted: true and poolName: bf_sf_trusted instead", cutil.TrustedSFCount))
+	}
+	return warnings
 }
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type

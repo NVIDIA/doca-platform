@@ -27,6 +27,7 @@ import (
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -145,3 +146,13 @@ var _ = AfterSuite(func() {
 	err := testEnv.Stop()
 	Expect(err).NotTo(HaveOccurred())
 })
+
+func legacyTrustedSFCountAnnotation(count string) map[string]string {
+	//nolint:staticcheck // SA1019: TrustedSFCount remains supported for deprecation tests.
+	return map[string]string{cutil.TrustedSFCount: count}
+}
+
+func legacyTrustedSFCountKey() string {
+	//nolint:staticcheck // SA1019: TrustedSFCount remains supported for deprecation tests.
+	return cutil.TrustedSFCount
+}

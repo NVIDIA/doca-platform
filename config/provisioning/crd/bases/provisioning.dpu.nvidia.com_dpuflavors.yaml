@@ -138,17 +138,12 @@ spec:
                 type: object
               dma:
                 description: |-
-                  DMA configures the DMA SF that e.g. SNAP DOCA service uses to DMA host
-                  memory over the second Grace PCI link on BlueField-4 socket-direct
-                  systems.
+                  DMA configures the SNAP DMA SF. The agent picks the ECPF; sfnum is 8000 and MAC is derived.
+                  Ignored except on BlueField-4.
                 properties:
                   enabled:
-                    description: |-
-                      Enabled controls whether the dpu-agent creates the DMA SF. Defaults to
-                      false when unset, so the presence of the dma struct alone does not enable
-                      creation. Only takes effect on BlueField-4 socket-direct systems. The
-                      created Scalable Function always uses sfnum 8000, the SNAP discovery ABI
-                      value.
+                    description: Enabled creates the SNAP DMA SF on BlueField-4 socket-direct
+                      systems.
                     type: boolean
                 type: object
               dpuMode:
@@ -501,6 +496,93 @@ spec:
                 x-kubernetes-validations:
                 - message: package names must be unique
                   rule: self.all(x, self.exists_one(y, x.name == y.name))
+              scalableFunctions:
+                description: |-
+                  ScalableFunctions is the list of SF groups to create on the DPU, or on the host when
+                  hostDevice is set. Count is per selected device. Over-subscribe can trigger failures at
+                  create time. Editing this field reprovisions the DPU. For backward compatibility, when
+                  both this SF list and VF list are empty, SF counts are still derived from PF_TOTAL_SF
+                  (removed in a future release).
+                items:
+                  description: ScalableFunction is one group of SFs to create.
+                  properties:
+                    count:
+                      description: |-
+                        Count is SFs to create per selected device. With device "*", count 20 is 20 SFs
+                        on each port. Zero creates nothing.
+                      format: int32
+                      minimum: 0
+                      type: integer
+                    device:
+                      description: 'Device is the target port: "*", a name such as
+                        p0, or a PCI address. Defaults to "*".'
+                      pattern: ^(\*|[pP][0-9]+|[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-7])$
+                      type: string
+                    hostDevice:
+                      description: |-
+                        HostDevice creates the SFs on the host (representors on the DPU). Implies
+                        controller 1; options.controller overrides. Host SFs use the host firmware
+                        budget and must not set poolName.
+                      type: boolean
+                    options:
+                      description: Options are creation settings for this group.
+                      properties:
+                        controller:
+                          description: Controller is the external controller to create
+                            on. Overrides hostDevice.
+                          format: int32
+                          maximum: 15
+                          minimum: 0
+                          type: integer
+                        cpuList:
+                          description: CPUList pins the SFs to CPUs in mlnx-sf list
+                            form, for example 0-3 or 0,2,4.
+                          maxLength: 200
+                          pattern: ^[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*$
+                          type: string
+                        disableNetdev:
+                          description: DisableNetdev leaves the SFs without an ethernet
+                            netdev.
+                          type: boolean
+                        disableRoCE:
+                          description: DisableRoCE creates the SFs with RoCE disabled.
+                          type: boolean
+                        macAddress:
+                          description: MACAddress pins the SF MAC (colon-separated
+                            48-bit). Requires count 1.
+                          pattern: ^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$
+                          type: string
+                        sfNumStart:
+                          description: |-
+                            SFNumStart is the first sfnum of the group; the rest are sequential from it.
+                            Reserved before agent-numbered groups, which fill from 0 around them.
+                          format: int32
+                          maximum: 65535
+                          minimum: 0
+                          type: integer
+                        trusted:
+                          description: Trusted creates the SFs as trusted functions.
+                          type: boolean
+                      type: object
+                    poolName:
+                      description: |-
+                        PoolName is the device-plugin resource (for example bf_sf). Unset: created in
+                        hardware only. Forbidden with hostDevice.
+                      maxLength: 63
+                      pattern: ^[A-Za-z0-9][A-Za-z0-9_.-]*$
+                      type: string
+                  required:
+                  - count
+                  type: object
+                  x-kubernetes-validations:
+                  - message: options.macAddress requires count == 1
+                    rule: '!has(self.options) || !has(self.options.macAddress) ||
+                      self.count == 1'
+                  - message: poolName must not be set when hostDevice is true
+                    rule: '!has(self.hostDevice) || !self.hostDevice || !has(self.poolName)'
+                maxItems: 16
+                type: array
+                x-kubernetes-list-type: atomic
               serviceReadiness:
                 description: serviceReadiness configures the Service Readiness phase.
                 properties:
@@ -564,6 +646,53 @@ spec:
                 x-kubernetes-validations:
                 - message: systemd service names must be unique
                   rule: self.all(x, self.exists_one(y, x.name == y.name))
+              virtualFunctions:
+                description: |-
+                  VirtualFunctions is the list of VF groups to create. Count is per selected
+                  device. Groups ending up on the same device sum to a single `sriov_numvfs` and then
+                  list order assigns contiguous index ranges. Over-subscribe can trigger failures at
+                  create time. Editing this field reprovisions the DPU.
+                items:
+                  description: VirtualFunction is one group of VFs to create.
+                  properties:
+                    count:
+                      description: |-
+                        Count is VFs to create per selected device. Groups ending up on the same device sum to
+                        a single `sriov_numvfs` and then list order assigns contiguous index ranges. Zero creates nothing.
+                      format: int32
+                      minimum: 0
+                      type: integer
+                    device:
+                      description: 'Device is the target port: "*", a name such as
+                        p0, or a PCI address. Defaults to "*".'
+                      pattern: ^(\*|[pP][0-9]+|[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-7])$
+                      type: string
+                    options:
+                      description: Options are creation settings for this group.
+                      properties:
+                        macAddress:
+                          description: MACAddress sets the VF MAC (colon-separated
+                            48-bit). Requires count 1.
+                          pattern: ^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$
+                          type: string
+                      type: object
+                    poolName:
+                      description: |-
+                        PoolName is the device-plugin resource (for example bf_vf). Unset: created in
+                        hardware only.
+                      maxLength: 63
+                      pattern: ^[A-Za-z0-9][A-Za-z0-9_.-]*$
+                      type: string
+                  required:
+                  - count
+                  type: object
+                  x-kubernetes-validations:
+                  - message: options.macAddress requires count == 1
+                    rule: '!has(self.options) || !has(self.options.macAddress) ||
+                      self.count == 1'
+                maxItems: 16
+                type: array
+                x-kubernetes-list-type: atomic
             type: object
             x-kubernetes-validations:
             - message: DPUFlavor spec is immutable
