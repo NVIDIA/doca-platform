@@ -364,7 +364,7 @@ func TestWaitForDumpEntryFailsWhenNoEntryEverAppears(t *testing.T) {
 	g.Expect(atomic.LoadInt32(&polls)).To(Equal(int32(3)))
 }
 
-func TestCollectKeepsGoingWhenClearingTheSystemDumpEntriesFails(t *testing.T) {
+func TestCollectFailsTheSystemDumpWhenClearingItsEntriesFails(t *testing.T) {
 	g := NewWithT(t)
 
 	fixture := bf4Fixture()
@@ -377,21 +377,51 @@ func TestCollectKeepsGoingWhenClearingTheSystemDumpEntriesFails(t *testing.T) {
 		return serve(req)
 	}))
 
-	g.Expect(c.collect()).To(Succeed())
+	err := c.collect()
 
-	for _, unit := range []string{managerUnitName, systemUnitName} {
-		archive, err := os.ReadFile(filepath.Join(c.targetDir, unit, "log_dump.tar.zst"))
-		g.Expect(err).NotTo(HaveOccurred(), "expected an archive for the %s dump", unit)
-		g.Expect(string(archive)).To(Equal(attachmentPayload))
-	}
-	g.Expect(fixture.requestsTo(fixture.managerDumpPath() + clearLogPath)).To(HaveLen(1))
-	g.Expect(fixture.requestsTo(fixture.systemDumpPath() + collectDiagnosticDataPath)).To(HaveLen(1))
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("deleting existing system dump entries"))
+	g.Expect(err.Error()).To(ContainSubstring("EOF"))
 
-	metadata, err := os.ReadFile(filepath.Join(c.targetDir, "metadata.txt"))
-	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(string(metadata)).To(ContainSubstring("Skipped clearing system dump entries"))
-	g.Expect(string(metadata)).To(ContainSubstring("EOF"))
-	g.Expect(string(metadata)).To(ContainSubstring("Selected system dump entry fresh"))
+	archive, readErr := os.ReadFile(filepath.Join(c.targetDir, managerUnitName, "log_dump.tar.zst"))
+	g.Expect(readErr).NotTo(HaveOccurred())
+	g.Expect(string(archive)).To(Equal(attachmentPayload))
+
+	// A dump must never be selected from entries the clear failed to remove, so
+	// the unit stops before creating one and leaves no directory behind.
+	g.Expect(fixture.requestsTo(fixture.systemDumpPath() + collectDiagnosticDataPath)).To(BeEmpty())
+	g.Expect(filepath.Join(c.targetDir, systemUnitName)).NotTo(BeADirectory())
+
+	metadata, readErr := os.ReadFile(filepath.Join(c.targetDir, "metadata.txt"))
+	g.Expect(readErr).NotTo(HaveOccurred())
+	g.Expect(string(metadata)).To(ContainSubstring("Failed system dump: "))
+	g.Expect(string(metadata)).To(ContainSubstring("deleting existing system dump entries"))
+	g.Expect(string(metadata)).NotTo(ContainSubstring("Skipped clearing"))
+}
+
+func TestCollectStillCollectsTheSystemDumpWhenClearingManagerEntriesFails(t *testing.T) {
+	g := NewWithT(t)
+
+	fixture := bf4Fixture()
+	serve := fixture.transport()
+	c := newFixtureCollector(t, fixture, CollectOptions{Namespace: DefaultNamespace, TaskTimeout: time.Minute, ClearExisting: true})
+	c.client.SetTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Path == fixture.managerDumpPath()+clearLogPath {
+			return httpResponse(req, http.StatusServiceUnavailable, `{"error":"busy"}`), nil
+		}
+		return serve(req)
+	}))
+
+	err := c.collect()
+
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("deleting existing manager dump entries"))
+	g.Expect(fixture.requestsTo(fixture.managerDumpPath() + collectDiagnosticDataPath)).To(BeEmpty())
+	g.Expect(filepath.Join(c.targetDir, managerUnitName)).NotTo(BeADirectory())
+
+	archive, readErr := os.ReadFile(filepath.Join(c.targetDir, systemUnitName, "log_dump.tar.zst"))
+	g.Expect(readErr).NotTo(HaveOccurred())
+	g.Expect(string(archive)).To(Equal(attachmentPayload))
 }
 
 func TestNewCollectorClosesTheConnectionAfterEveryRequest(t *testing.T) {
