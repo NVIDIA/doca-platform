@@ -10,9 +10,7 @@ spec:
       - dpuAnnotations:
           doMagic: "true"
         nameSuffix: dpuset1
-        # Physical: first DPU per host (label format 0000-2b-00).
-        dpuSelector:
-          provisioning.dpu.nvidia.com/dpudevice-pciAddress: "0000-2b-00"
+        # dpuSelector is set dynamically per host in upgrade_test.go (selectDPUDevicesDynamically).
         nodeSelector:
           matchLabels:
             kubernetes.io/hostname: replace

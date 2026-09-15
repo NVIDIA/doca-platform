@@ -93,9 +93,13 @@ var _ = Describe("DPF Upgrade tests", Labels{Domain.DPFUpgrade}, func() {
 				// Intentionally using deprecated field, e2e tests will be updated once we have removed the deprecated field. Unit
 				// tests cover the new field, e2e tests cover the old field since there is no more unit test coverage for the deprecated field.
 				// This particular test must use the deprecated field since it's using the old CRDs on DPUDeployment creation.
-				//nolint:staticcheck
-				dpuDeployment.Spec.DPUs.DPUSets[0].NodeSelector = &metav1.LabelSelector{
+				dpuNodeSelector := &metav1.LabelSelector{
 					MatchLabels: map[string]string{"kubernetes.io/hostname": node.GetName()},
+				}
+				//nolint:staticcheck
+				dpuDeployment.Spec.DPUs.DPUSets[0].NodeSelector = dpuNodeSelector
+				if input.selectDPUDevicesDynamically {
+					resolveDPUDeploymentDeprecatedDPUSelectors(ctx, input.client, dpuDeployment, dpuNodeSelector, 1, 1)
 				}
 				dpuDeployment.Spec.Services["example-2"] = dpuservicev1.DPUDeploymentServiceConfiguration{
 					ServiceTemplate:      "example-2",

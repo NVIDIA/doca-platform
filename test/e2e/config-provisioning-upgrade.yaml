@@ -8,6 +8,7 @@ dpuServiceConfiguration: "../objects/upgrade/dpuserviceconfiguration.yaml"
 dpuServiceTemplate: "../objects/upgrade/dpuservicetemplate.yaml"
 numberOfDPUNodes: 2
 numberOfDPUsPerNode: 1
+selectDPUDevicesDynamically: true
 
 # Unused, but still needed for the e2e tests to run.
 dpuSet: "../objects/infrastructure/dpuset-physical.yaml"

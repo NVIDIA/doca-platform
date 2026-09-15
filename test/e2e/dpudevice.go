@@ -206,6 +206,43 @@ func resolveDPUDeploymentDPUDevicePCISelectors(
 	}
 }
 
+// resolveDPUDeploymentDeprecatedDPUSelectors sets the deprecated DPUSelector field with a
+// dynamically discovered PCI address instead of DPUDeviceSelector.
+//
+// Use this instead of resolveDPUDeploymentDPUDevicePCISelectors when the DPUDeployment is
+// applied against a DPUSet/DPUDeployment CRD from before DPUDeviceSelector existed (e.g. the
+// v25.10 CRDs the upgrade test starts from). DPUDeviceSelector is a structural-schema field
+// unknown to that CRD, so setting it there gets silently pruned on apply, leaving the DPUSet
+// with no selector at all and matching every DPUDevice on the node.
+func resolveDPUDeploymentDeprecatedDPUSelectors(
+	ctx context.Context,
+	c client.Client,
+	dpuDeployment *dpuservicev1.DPUDeployment,
+	dpuNodeSelector *metav1.LabelSelector,
+	expectedDPUNodeCount int,
+	expectedDPUsPerNode int,
+) {
+	Expect(expectedDPUsPerNode).To(Equal(1),
+		"dynamic DPUDevice selection currently supports one DPU per node")
+	Expect(dpuDeployment.Spec.DPUs.DPUSets).NotTo(BeEmpty(),
+		"dynamic DPUDevice selection requires at least one DPUSet")
+
+	pciAddress := discoverSharedDPUDevicePCIAddress(
+		ctx,
+		c,
+		dpuDeployment.Namespace,
+		dpuNodeSelector,
+		expectedDPUNodeCount,
+	)
+	for i := range dpuDeployment.Spec.DPUs.DPUSets {
+		dpuSet := &dpuDeployment.Spec.DPUs.DPUSets[i]
+		//nolint:staticcheck // Deprecated field is the only one the pre-upgrade CRD recognizes.
+		dpuSet.DPUSelector = map[string]string{
+			util.DPUDevicePCIAddressLabel: pciAddress,
+		}
+	}
+}
+
 // discoverSharedDPUDevicePCIAddress returns a PCI address that a DPUDevice exposes on
 // every selected DPU node, so one DPUSet selector selects one DPUDevice per node.
 //
