@@ -7,6 +7,9 @@ metadata:
   namespace: dpf-operator-system
 spec:
   deploymentMode: host-trusted
+  security:
+    kata:
+      disable: false
   provisioningController:
     bfbPVCName: bfb-pvc
     # CI runs the host control-plane controllers at a single replica to save

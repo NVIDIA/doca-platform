@@ -98,10 +98,6 @@ type validationPhaseInput struct {
 	// Must not return "". Use a closure so package-level vars (set by init)
 	// are read at test execution time, not Ginkgo tree-construction time.
 	expectedDPFVersion func() string
-	// captureBeforeRollout makes capture+compare happen BEFORE rollout steps.
-	// Set true for the regular upgrade, where artifact validation precedes the
-	// post-upgrade rollout exercise.
-	captureBeforeRollout bool
 	// rolloutAllDPUs deletes every DPU and waits for them to be recreated with
 	// the new DPFVersion. Used by BFB LTS phases that bump major.minor.
 	rolloutAllDPUs bool
@@ -126,19 +122,15 @@ type validationPhaseInput struct {
 	// assertions in verifyDPUDeploymentDependencyTracking. Set for phases where
 	// DPUFlavorTemplate was not yet a supported resource (v26.4 and earlier).
 	skipDPUFlavorTemplateValidation bool
-	// artifactsKey captures a snapshot to upgrade-artifacts-<key>.json.
+	// artifactsKey is required. It captures a post-rollout snapshot to
+	// upgrade-artifacts-<key>.json, and an unconditional pre-rollout snapshot to
+	// upgrade-artifacts-<key>-before-rollout.json.
 	artifactsKey string
-	// prevArtifactsKey compares the current snapshot against this previously
-	// captured one.
-	prevArtifactsKey string
-	// preRolloutArtifactsKey, if set, captures a validation snapshot before any
-	// rollout step, so a multi-hop path can prove the operator hop itself did not
-	// recreate objects while keeping a separate post-rollout snapshot as the next
-	// hop's baseline.
-	preRolloutArtifactsKey string
-	// preRolloutPrevArtifactsKey, if set, compares the pre-rollout snapshot
-	// against a previous phase's snapshot.
-	preRolloutPrevArtifactsKey string
+	// compareArtifactsToBeforeRollout, if set, is the key of a previously
+	// captured snapshot to compare this phase's pre-rollout snapshot against —
+	// isolating what the operator upgrade itself changed from the rollout steps
+	// that follow. Empty skips the comparison.
+	compareArtifactsToBeforeRollout string
 	// artifactWaits settle the cluster before each capture. Empty for hops
 	// that settle within the reconcile wait. Scope these to the hop that
 	// performs the work: waiting for an end state the hop never reaches
@@ -264,11 +256,9 @@ func installPhase(description string, in installPhaseInput) {
 			verifySystemReady(in.expectedDPUServices(input), in.dpuClusterRunsCoreDNS)
 		})
 
-		if in.artifactsKey != "" {
-			It("capture DPU and DPUService artifacts after install", func() {
-				collectArtifacts(upgradeArtifactsFile(in.artifactsKey))
-			})
-		}
+		// No settling wait needed: the preceding "wait for DPUs to be
+		// provisioned" step already brings the cluster to steady state.
+		registerArtifactCaptureStep("after installation", in.artifactsKey, artifactCapture{})
 	})
 }
 
@@ -320,6 +310,12 @@ func validationPhase(description string, in validationPhaseInput) {
 	}
 	if in.rolloutAllDPUs && in.rolloutDPFVersionMinor == "" {
 		panic(fmt.Sprintf("validation phase %q sets rolloutAllDPUs but not rolloutDPFVersionMinor", description))
+	}
+	if in.artifactsKey == "" {
+		// registerArtifactCaptureStep's before-rollout call derives its key from
+		// artifactsKey + "-before-rollout", which is never empty on its own, so an
+		// unset artifactsKey would silently capture instead of no-op.
+		panic(fmt.Sprintf("validation phase %q must set artifactsKey", description))
 	}
 	validationPhaseLabels = append(validationPhaseLabels, in.label)
 	// Every capture this phase runs snapshots the same release, and every
@@ -380,18 +376,14 @@ func validationPhase(description string, in validationPhaseInput) {
 			time.Sleep(reconciliationWaitAfterRollout)
 		})
 
-		// Capture before any rollout step when the phase compares the
-		// operator upgrade itself separately from an intentional rollout.
-		if in.captureBeforeRollout {
-			registerArtifactCaptureStep(description, "", in.artifactsKey, in.prevArtifactsKey, capture, compare)
-		}
+		// Capture before any rollout step.
+		preRolloutArtifactsKey := in.artifactsKey + "-before-rollout"
+		registerArtifactCaptureStep("before rollout", preRolloutArtifactsKey, capture)
 
-		// Capture a pre-rollout snapshot for multi-hop paths that prove the
-		// operator hop itself recreated nothing, kept separate from the
-		// post-rollout snapshot that becomes the next hop's baseline.
-		if in.preRolloutArtifactsKey != "" {
-			registerArtifactCaptureStep(description, "before rollout", in.preRolloutArtifactsKey, in.preRolloutPrevArtifactsKey,
-				capture, compare)
+		// Compare the operator upgrade separately from an intentional rollout.
+		if in.compareArtifactsToBeforeRollout != "" {
+			registerArtifactComparisonStep(description, "before rollout", preRolloutArtifactsKey, in.compareArtifactsToBeforeRollout,
+				compare)
 		}
 
 		if in.rolloutAllDPUs {
@@ -410,6 +402,7 @@ func validationPhase(description string, in validationPhaseInput) {
 			VerifyDPUClusterWithNodes(ctx, getProvisionDPUClustersInput())
 			By("Waiting for system components to be ready after rollout")
 			verifySystemReady(in.expectedDPUServices(input), in.dpuClusterRunsCoreDNS)
+			waitForDisruptiveRolloutToSettle(ctx)
 		})
 		It("validate DPFOperatorConfig ready after rollout", func() {
 			VerifyDPFOperatorConfigReady(ctx, input.client, 15*time.Minute)
@@ -421,21 +414,15 @@ func validationPhase(description string, in validationPhaseInput) {
 			})
 		}
 
-		// Capture position #2 (BFB LTS): after rollout steps complete.
-		if !in.captureBeforeRollout {
-			registerArtifactCaptureStep(description, "", in.artifactsKey, in.prevArtifactsKey, capture, compare)
-		}
+		// Capture after rollout steps complete for comparison with the next phase.
+		registerArtifactCaptureStep("after rollout", in.artifactsKey, capture)
 	})
 }
 
-// registerArtifactCaptureStep emits an It block holding the whole snapshot
-// pipeline for one hop: wait, capture, then — when there is a previous snapshot
-// to compare against — load both, check, normalize, and compare. No-op if
-// artifactsKey is empty. Only waits run unconditionally: a phase can capture
-// without comparing, and its capture still has to wait for the same end state.
-// See upgrade_artifacts_test.go for the individual steps.
-func registerArtifactCaptureStep(phaseDescription, stepSuffix, artifactsKey, prevArtifactsKey string,
-	capture artifactCapture, compare artifactCompare) {
+// registerArtifactCaptureStep emits an It block that settles the cluster and
+// captures one artifact snapshot. No-op if artifactsKey is empty. See
+// upgrade_artifacts_test.go for the individual steps.
+func registerArtifactCaptureStep(stepSuffix, artifactsKey string, capture artifactCapture) {
 	if artifactsKey == "" {
 		return
 	}
@@ -450,9 +437,26 @@ func registerArtifactCaptureStep(phaseDescription, stepSuffix, artifactsKey, pre
 			wait(ctx)
 		}
 		collectArtifacts(upgradeArtifactsFile(artifactsKey))
-		if prevArtifactsKey == "" {
-			return
-		}
+	})
+}
+
+// registerArtifactComparisonStep emits an It block that loads the snapshot
+// captured by registerArtifactCaptureStep alongside a previously captured one,
+// checks, normalizes, and compares them. No-op if artifactsKey or
+// prevArtifactsKey is empty — a phase can capture without comparing. See
+// upgrade_artifacts_test.go for the individual steps.
+func registerArtifactComparisonStep(phaseDescription, stepSuffix, artifactsKey, prevArtifactsKey string,
+	compare artifactCompare) {
+	if artifactsKey == "" || prevArtifactsKey == "" {
+		return
+	}
+	itName := "compare DPU/DPUService artifacts"
+	if stepSuffix != "" {
+		// Disambiguate phases that compare more than one snapshot pair (e.g. the
+		// BFB LTS v26.4 hop compares pre- and post-rollout).
+		itName += " " + stepSuffix
+	}
+	It(itName, func() {
 		prev := getArtifacts(upgradeArtifactsFile(prevArtifactsKey))
 		curr := getArtifacts(upgradeArtifactsFile(artifactsKey))
 		// Check before normalize rewrites the snapshots, so a check always
@@ -466,6 +470,26 @@ func registerArtifactCaptureStep(phaseDescription, stepSuffix, artifactsKey, pre
 		By(fmt.Sprintf("Comparing artifacts: %s vs %s", prevArtifactsKey, artifactsKey))
 		compareArtifactSnapshots(prev, curr, phaseDescription)
 	})
+}
+
+// waitForDisruptiveRolloutToSettle waits until no DPUSet still has
+// ApplyOnLabelChange=true. The DPUDeploymentReconciler sets that true on a
+// DPUSet while a disruptive DPUService revision still has paused/stale
+// revisions pending cleanup (reconcileCurrentDPUServiceRevision), and flips it
+// back to false only once cleanStaleDPUServices has removed them and a later
+// reconcile observes none left. Capturing before that settle completes leaks
+// the stale DPUService/DPUServiceInterface revisions — and the DPUSet/DPU
+// generation bump that follows their cleanup — into the snapshot.
+func waitForDisruptiveRolloutToSettle(ctx context.Context) {
+	By("Waiting for the disruptive DPUDeployment rollout to settle")
+	Eventually(func(g Gomega) {
+		dpuSetList := &provisioningv1.DPUSetList{}
+		g.Expect(input.client.List(ctx, dpuSetList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		for _, dpuSet := range dpuSetList.Items {
+			g.Expect(ptr.Deref(dpuSet.Spec.DPUTemplate.Spec.NodeEffect.ApplyOnLabelChange, false)).
+				To(BeFalse(), "DPUSet %s still mid disruptive rollout", dpuSet.Name)
+		}
+	}).WithTimeout(10 * time.Minute).WithPolling(time.Second).Should(Succeed())
 }
 
 // validatePreUpgradeConditions waits for DPFOperatorConfig to report

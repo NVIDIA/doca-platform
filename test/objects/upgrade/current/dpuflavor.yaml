@@ -1,7 +1,7 @@
 apiVersion: provisioning.dpu.nvidia.com/v1alpha1
 kind: DPUFlavor
 metadata:
-  name: flavor-current
+  name: flavor
   namespace: dpf-operator-system
 spec:
   bfcfgParameters:
