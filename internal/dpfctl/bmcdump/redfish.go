@@ -154,7 +154,9 @@ func (c *collector) collectDump(unit dumpUnit) error {
 	unitDir := filepath.Join(c.targetDir, unit.name)
 
 	if c.opts.ClearExisting {
-		c.clearDumpEntries(unit)
+		if err := c.clearDumpEntries(unit); err != nil {
+			return err
+		}
 	}
 
 	taskID, err := c.createDumpEntry(unit, unitDir)
@@ -171,13 +173,15 @@ func (c *collector) collectDump(unit dumpUnit) error {
 	return c.downloadDumpEntry(unit, unitDir, entryID)
 }
 
-// clearDumpEntries is best-effort housekeeping: waitForDumpEntry picks the
-// newest entry by Created, so a stale entry cannot shadow the dump this run
-// creates, and a failed delete is recorded rather than costing us that dump.
-func (c *collector) clearDumpEntries(unit dumpUnit) {
+// clearDumpEntries fails the unit when the BMC does not clear its entries.
+// waitForDumpEntry picks the newest entry by Created, which is only safe on an
+// empty service: a BMC clock that moved backwards would otherwise hand back a
+// retained dump as if this run had produced it.
+func (c *collector) clearDumpEntries(unit dumpUnit) error {
 	if _, err := c.requestJSON(http.MethodPost, unit.clearTarget(), nil); err != nil {
-		c.note("Skipped clearing %s dump entries: %v", unit.name, err)
+		return c.fail(fmt.Errorf("deleting existing %s dump entries: %w", unit.name, err))
 	}
+	return nil
 }
 
 func (c *collector) createDumpEntry(unit dumpUnit, unitDir string) (string, error) {
