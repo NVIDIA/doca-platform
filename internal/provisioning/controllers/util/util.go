@@ -156,8 +156,6 @@ const (
 	RequeueInterval = 5 * time.Second
 	// RebootSyncInterval is the interval to requeue the request for waiting all DPUs get into non-provisioning phase.
 	RebootSyncInterval = 30 * time.Second
-	// CFGExtension is the extension of the BFB configuration file.
-	CFGExtension = "cfg"
 	// NodeMaintenanceRequestorID is the requestor ID used for NodeMaintenance CRs
 	NodeMaintenanceRequestorID = "dpu.nvidia.com"
 	// ProvisioningGroupName is the provisioning group, used to identify provisioning as
@@ -260,14 +258,6 @@ var (
 // Format: provisioning.dpu.nvidia.com/collision-dpuset-<dpuSetName>
 func GenerateDPUSetCollisionLabelKey(dpuSetName string) string {
 	return DPUSetCollisionLabelPrefix + dpuSetName
-}
-
-func GenerateBFCFGFileName(dpuName string, uid string) string {
-	return fmt.Sprintf("%s-%s.%s", dpuName, uid, CFGExtension)
-}
-
-func GenerateBFBCFGFilePath(filename string) string {
-	return string(os.PathSeparator) + BFBBaseDir + string(os.PathSeparator) + filename
 }
 
 func GenerateBFBTaskName(bfb provisioningv1.BFB) string {

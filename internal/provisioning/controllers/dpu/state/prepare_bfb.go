@@ -39,9 +39,40 @@ const (
 	UserDataDir = "user-data"
 )
 
+// artifactID identifies the provisioning artifacts a single DPU owns on the shared BFB volume.
+func artifactID(dpu *provisioningv1.DPU) string {
+	return fmt.Sprintf("%s_%s_%s", dpu.Namespace, dpu.Name, dpu.UID)
+}
+
+// BF3CFGFile returns the bf.cfg file written for a BlueField-3 DPU. The name carries no extension.
+func BF3CFGFile(dpu *provisioningv1.DPU) string {
+	return filepath.Join("/", cutil.BFBBaseDir, BFCFGDir, artifactID(dpu))
+}
+
+// BF4UserDataDir returns the directory of cloud-init seed artifacts written for a BlueField-4 DPU.
+func BF4UserDataDir(dpu *provisioningv1.DPU) string {
+	return filepath.Join("/", cutil.BFBBaseDir, UserDataDir, artifactID(dpu))
+}
+
+// RemoveArtifacts deletes the artifacts a DPU owns on the shared BFB volume. Both kinds are removed
+// regardless of DPU type, as the DPUDevice carrying that type may already be gone.
+func RemoveArtifacts(dpu *provisioningv1.DPU) error {
+	cfgFile := BF3CFGFile(dpu)
+	if err := cutil.RemoveFileEx(cfgFile); err != nil {
+		return fmt.Errorf("failed to remove BF3 config file at %s: %w", cfgFile, err)
+	}
+
+	userDataDir := BF4UserDataDir(dpu)
+	if err := cutil.RemoveAllEx(userDataDir); err != nil {
+		return fmt.Errorf("failed to remove BF4 user-data directory at %s: %w", userDataDir, err)
+	}
+
+	return nil
+}
+
 func prepareBF4ISO(ctx context.Context, dpu *provisioningv1.DPU, artifact dutil.BF4Artifact, state *provisioningv1.DPUStatus) (string, error) {
 	logger := log.FromContext(ctx)
-	userDataBasePath := filepath.Join("/", cutil.BFBBaseDir, UserDataDir, fmt.Sprintf("%s_%s_%s", dpu.Namespace, dpu.Name, dpu.UID))
+	userDataBasePath := BF4UserDataDir(dpu)
 	if err := os.MkdirAll(userDataBasePath, os.ModePerm); err != nil {
 		err = fmt.Errorf("failed to create directory %s: %w", userDataBasePath, err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToCreateDirectory", err.Error()))
@@ -104,7 +135,7 @@ func prepareBF4ISO(ctx context.Context, dpu *provisioningv1.DPU, artifact dutil.
 
 func prepareBF3BFB(ctx context.Context, dpu *provisioningv1.DPU, bfCFG []byte, state *provisioningv1.DPUStatus) (string, error) {
 	logger := log.FromContext(ctx)
-	bfCFGPath := filepath.Join("/", cutil.BFBBaseDir, BFCFGDir, fmt.Sprintf("%s_%s_%s", dpu.Namespace, dpu.Name, dpu.UID))
+	bfCFGPath := BF3CFGFile(dpu)
 	if err := os.MkdirAll(filepath.Dir(bfCFGPath), os.ModePerm); err != nil {
 		err = fmt.Errorf("failed to create directory %s: %w", filepath.Dir(bfCFGPath), err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), err, "FailedToCreateDirectory", err.Error()))
