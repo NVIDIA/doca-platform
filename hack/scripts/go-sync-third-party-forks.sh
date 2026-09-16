@@ -16,6 +16,19 @@
 
 set -eou pipefail
 
+# Copy upstream license and attestation files (LICENSE, NOTICE, COPYING, PATENTS, and any
+# provenance/attestation files) from the upstream checkout into the fork root, so the fork stays
+# license-compliant regardless of what a given upstream repo publishes.
+function copy_license_and_attestation_files() {
+	local upstream_dir="$1"
+	local dest_dir="$2"
+
+	find "${upstream_dir}" -maxdepth 1 -type f \( \
+		-iname 'LICENSE*' -o -iname 'NOTICE*' -o -iname 'COPYING*' -o -iname 'PATENTS*' \
+		-o -iname '*.attestation*' -o -iname '*.intoto.jsonl' \) \
+		| xargs -I{} cp {} "${dest_dir}/"
+}
+
 # Sync kamaji
 function sync_clastix_kamaji() {
 	pushd third_party/forked/github.com/clastix/kamaji/
@@ -33,6 +46,9 @@ function sync_clastix_kamaji() {
 	pushd "${upstream_dir}"
 	git checkout "${TARGET_COMMIT}"
 	popd
+
+	# preserve upstream license/attestation files
+	copy_license_and_attestation_files "${upstream_dir}" "."
 
 	# copy over required files
 	mkdir -p api
@@ -74,6 +90,9 @@ function sync_spiffe_spire_controller_manager() {
 	pushd "${upstream_dir}"
 	git checkout "${TARGET_COMMIT}"
 	popd
+
+	# preserve upstream license/attestation files
+	copy_license_and_attestation_files "${upstream_dir}" "."
 
 	# copy over required files
 	mkdir -p api/v1alpha1
