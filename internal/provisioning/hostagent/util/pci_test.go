@@ -122,12 +122,13 @@ func createVPDDataWithSerialNumber(serialNumber string) []byte {
 	fieldLen := len(snBytes)
 	totalLen := 2 + 1 + fieldLen // SN identifier (2) + length (1) + data
 
-	vpdData := []byte{
+	vpdData := make([]byte, 0, 6+len(snBytes))
+	vpdData = append(vpdData,
 		0x90,                 // Large resource tag for VPD-R
 		byte(totalLen), 0x00, // Length (little endian)
 		'S', 'N', // Serial Number field identifier
 		byte(fieldLen), // Field length
-	}
+	)
 	vpdData = append(vpdData, snBytes...)
 	return vpdData
 }

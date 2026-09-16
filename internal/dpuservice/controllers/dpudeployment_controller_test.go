@@ -11089,22 +11089,23 @@ func cleanDPUDeploymentDerivatives(namespace string) {
 	By("Ensuring DPUSets, DPUServiceChains, DPUServiceInterfaces and DPUServices are deleted")
 	dpuSetList := &provisioningv1.DPUSetList{}
 	Expect(testClient.List(ctx, dpuSetList, client.InNamespace(namespace))).To(Succeed())
-	objs := []client.Object{}
+	dpuServiceChainList := &dpuservicev1.DPUServiceChainList{}
+	Expect(testClient.List(ctx, dpuServiceChainList, client.InNamespace(namespace))).To(Succeed())
+	dpuServiceInterfaceList := &dpuservicev1.DPUServiceInterfaceList{}
+	Expect(testClient.List(ctx, dpuServiceInterfaceList, client.InNamespace(namespace))).To(Succeed())
+	dpuServiceList := &dpuservicev1.DPUServiceList{}
+	Expect(testClient.List(ctx, dpuServiceList, client.InNamespace(namespace))).To(Succeed())
+
+	objs := make([]client.Object, 0, len(dpuSetList.Items)+len(dpuServiceChainList.Items)+len(dpuServiceInterfaceList.Items)+len(dpuServiceList.Items))
 	for i := range dpuSetList.Items {
 		objs = append(objs, &dpuSetList.Items[i])
 	}
-	dpuServiceChainList := &dpuservicev1.DPUServiceChainList{}
-	Expect(testClient.List(ctx, dpuServiceChainList, client.InNamespace(namespace))).To(Succeed())
 	for i := range dpuServiceChainList.Items {
 		objs = append(objs, &dpuServiceChainList.Items[i])
 	}
-	dpuServiceInterfaceList := &dpuservicev1.DPUServiceInterfaceList{}
-	Expect(testClient.List(ctx, dpuServiceInterfaceList, client.InNamespace(namespace))).To(Succeed())
 	for i := range dpuServiceInterfaceList.Items {
 		objs = append(objs, &dpuServiceInterfaceList.Items[i])
 	}
-	dpuServiceList := &dpuservicev1.DPUServiceList{}
-	Expect(testClient.List(ctx, dpuServiceList, client.InNamespace(namespace))).To(Succeed())
 	for i := range dpuServiceList.Items {
 		objs = append(objs, &dpuServiceList.Items[i])
 	}

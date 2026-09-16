@@ -43,7 +43,8 @@ func createVPDData(fields ...string) []byte {
 		resourceData = append(resourceData, byte(len(fields[i+1])))
 		resourceData = append(resourceData, fields[i+1]...)
 	}
-	vpdData := []byte{vpdReadOnlyResourceTag, byte(len(resourceData)), byte(len(resourceData) >> 8)}
+	vpdData := make([]byte, 0, 3+len(resourceData))
+	vpdData = append(vpdData, vpdReadOnlyResourceTag, byte(len(resourceData)), byte(len(resourceData)>>8))
 	return append(vpdData, resourceData...)
 }
 
@@ -103,8 +104,8 @@ var _ = Describe("Pci Utils package test", func() {
 					},
 				})
 				Expect(pciUtils.LoadDriver("0000:b1:00.2", "nvme")).NotTo(HaveOccurred())
-				fakefs.GinkgoFakeFsFileContent(f, "/sys/bus/pci/devices/0000:b1:00.2/driver_override").To(Equal("nvme"))
-				fakefs.GinkgoFakeFsFileContent(f, "/sys/bus/pci/drivers/nvme/bind").To(Equal("0000:b1:00.2"))
+				Expect(fakefs.GinkgoFakeFsFileContent(f, "/sys/bus/pci/devices/0000:b1:00.2/driver_override")).To(Equal("nvme"))
+				Expect(fakefs.GinkgoFakeFsFileContent(f, "/sys/bus/pci/drivers/nvme/bind")).To(Equal("0000:b1:00.2"))
 			})
 			It("already loaded", func() {
 				fakefs.GinkgoConfigureFakeFS(&fsRoot, fakefs.Config{
@@ -152,7 +153,7 @@ var _ = Describe("Pci Utils package test", func() {
 					},
 				})
 				Expect(pciUtils.LoadDriver("0000:b1:00.2", "nvme")).To(MatchError(ContainSubstring("failed to bind device to the driver")))
-				fakefs.GinkgoFakeFsFileContent(f, "/sys/bus/pci/devices/0000:b1:00.2/driver_override").To(Equal("nvme"))
+				Expect(fakefs.GinkgoFakeFsFileContent(f, "/sys/bus/pci/devices/0000:b1:00.2/driver_override")).To(Equal("nvme"))
 			})
 			It("wrong driver", func() {
 				fakefs.GinkgoConfigureFakeFS(&fsRoot, fakefs.Config{
@@ -187,7 +188,7 @@ var _ = Describe("Pci Utils package test", func() {
 					},
 				})
 				Expect(pciUtils.UnloadDriver("0000:b1:00.2")).NotTo(HaveOccurred())
-				fakefs.GinkgoFakeFsFileContent(f, "/sys/bus/pci/drivers/nvme/unbind").To(Equal("0000:b1:00.2"))
+				Expect(fakefs.GinkgoFakeFsFileContent(f, "/sys/bus/pci/drivers/nvme/unbind")).To(Equal("0000:b1:00.2"))
 			})
 			It("no driver", func() {
 				fakefs.GinkgoConfigureFakeFS(&fsRoot, fakefs.Config{
@@ -396,7 +397,7 @@ var _ = Describe("Pci Utils package test", func() {
 					},
 				})
 				Expect(pciUtils.DisableSriovVfsDriverAutoprobe("0000:b1:00.2")).NotTo(HaveOccurred())
-				fakefs.GinkgoFakeFsFileContent(f, "/sys/devices/pci0000:b0/0000:b0:04.0/0000:b1:00.2/sriov_drivers_autoprobe").To(Equal("0"))
+				Expect(fakefs.GinkgoFakeFsFileContent(f, "/sys/devices/pci0000:b0/0000:b0:04.0/0000:b1:00.2/sriov_drivers_autoprobe")).To(Equal("0"))
 			})
 			It("failed", func() {
 				fakefs.GinkgoConfigureFakeFS(&fsRoot, fakefs.Config{
@@ -429,7 +430,7 @@ var _ = Describe("Pci Utils package test", func() {
 					},
 				})
 				Expect(pciUtils.SetSriovNumVfs("0000:b1:00.2", 125)).NotTo(HaveOccurred())
-				fakefs.GinkgoFakeFsFileContent(f, "/sys/devices/pci0000:b0/0000:b0:04.0/0000:b1:00.2/sriov_numvfs").To(Equal("125"))
+				Expect(fakefs.GinkgoFakeFsFileContent(f, "/sys/devices/pci0000:b0/0000:b0:04.0/0000:b1:00.2/sriov_numvfs")).To(Equal("125"))
 			})
 			It("failed", func() {
 				fakefs.GinkgoConfigureFakeFS(&fsRoot, fakefs.Config{

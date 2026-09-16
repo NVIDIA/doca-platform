@@ -502,7 +502,7 @@ func selectDPUsForService(ctx context.Context, input *systemTestInput, selectorV
 		g.Expect(dpuClusterClient[0].List(ctx, nodes,
 			client.MatchingLabels{tenantSelectorKey: selectorValue})).To(Succeed())
 		g.Expect(nodes.Items).To(HaveLen(len(dpuIndexes)))
-		nodeNames = nil
+		nodeNames = make([]string, 0, len(nodes.Items))
 		for _, node := range nodes.Items {
 			nodeNames = append(nodeNames, node.Name)
 		}

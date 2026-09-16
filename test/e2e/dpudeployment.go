@@ -878,7 +878,7 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgradeDrain(ctx context.Context, 
 	Eventually(func(g Gomega) {
 		// During rolling upgrade, drained node has pods with the new ServiceID
 		// while non-drained nodes still have pods with the old ServiceID.
-		var allPods []corev1.Pod
+		allPods := make([]corev1.Pod, 0, 2)
 		for _, sid := range []string{oldServiceIDForExample, serviceIDForExample} {
 			podList := &corev1.PodList{}
 			g.Expect(dpuClusterClient[0].List(ctx, podList,
@@ -1119,7 +1119,7 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgradeHold(ctx context.Context, i
 	Eventually(func(g Gomega) {
 		// During rolling upgrade, the DPU under node effect has pods with the new ServiceID
 		// while other DPUs still have pods with the old ServiceID.
-		var allPods []corev1.Pod
+		allPods := make([]corev1.Pod, 0, 2)
 		for _, sid := range []string{oldServiceIDForExample, serviceIDForExample} {
 			podList := &corev1.PodList{}
 			g.Expect(dpuClusterClient[0].List(ctx, podList,
@@ -1436,7 +1436,7 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgradeBadConfigurationAndBack(ctx
 	Consistently(checkStuckState).WithTimeout(1 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
 
 	By("Validating that the pod on the other DPU remained intact")
-	var allPods []corev1.Pod
+	allPods := make([]corev1.Pod, 0, 2)
 	for _, sid := range []string{oldServiceIDForExample, serviceIDForExample} {
 		podList := &corev1.PodList{}
 		Expect(dpuClusterClient[0].List(ctx, podList,

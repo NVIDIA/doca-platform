@@ -154,7 +154,7 @@ func (d *dpuServiceControllerObjects) GenerateManifests(ctx context.Context, var
 }
 
 func (d *dpuServiceControllerObjects) generateArgoCDProjects(argoCDNamespace string, labelsToAdd map[string]string, dpuClusters []*dpucluster.Config, applicationNamespace string) []client.Object {
-	appProjects := []client.Object{}
+	appProjects := make([]client.Object, 0, 2)
 	// Generate AppProject manifests for DPU and host clusters.
 	clusterKeys := make([]types.NamespacedName, 0, len(dpuClusters))
 	for _, dpuClusterConfig := range dpuClusters {

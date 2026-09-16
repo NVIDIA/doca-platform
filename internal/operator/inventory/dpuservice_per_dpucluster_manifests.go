@@ -562,7 +562,7 @@ func (p *dpuServicePerDPUClusterObjects) IsReadyForUpgrade(ctx context.Context, 
 		return nil
 	}
 
-	var errs []error
+	var errs []error //nolint:prealloc // final size depends on the variadic-spread results below, not known upfront
 
 	// List DPUClusters to determine expected count
 	dpuClusterList := &provisioningv1.DPUClusterList{}
@@ -580,7 +580,7 @@ func (p *dpuServicePerDPUClusterObjects) IsReadyForUpgrade(ctx context.Context, 
 // IsReady reports the readiness of the objects as well as the version state. It returns
 // an error when any of the resources is not ready.
 func (p *dpuServicePerDPUClusterObjects) IsReady(ctx context.Context, c client.Client, namespace string) error {
-	var errs []error
+	var errs []error //nolint:prealloc // final size depends on the variadic-spread results below, not known upfront
 
 	// List DPUClusters to determine expected count
 	dpuClusterList := &provisioningv1.DPUClusterList{}

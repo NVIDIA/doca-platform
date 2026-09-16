@@ -77,7 +77,7 @@ type GetSet interface {
 }
 
 func TypesAsStrings(conditionsTypes []ConditionType) []string {
-	out := []string{}
+	out := make([]string, 0, len(conditionsTypes))
 	for _, conditionType := range conditionsTypes {
 		out = append(out, string(conditionType))
 	}

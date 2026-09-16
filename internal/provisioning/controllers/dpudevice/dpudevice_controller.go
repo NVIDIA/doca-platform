@@ -2176,7 +2176,7 @@ func (r *DPUDeviceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		})).
 		Watches(&provisioningv1.DPUNode{}, handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []ctrl.Request {
 			dpuNode := obj.(*provisioningv1.DPUNode)
-			var requests []ctrl.Request
+			requests := make([]ctrl.Request, 0, len(dpuNode.Spec.DPUs))
 			for _, dpu := range dpuNode.Spec.DPUs {
 				requests = append(requests, ctrl.Request{
 					NamespacedName: types.NamespacedName{

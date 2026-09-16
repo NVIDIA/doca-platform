@@ -1531,7 +1531,7 @@ var _ = Describe("service chain controller flow application on the NSI path", fu
 	BeforeEach(func() {
 		featuregatetesting.SetFeatureGateDuringTest(GinkgoT(), features.MutableGates, features.NSIPathForSFC, true)
 
-		cleanupObjects = nil
+		cleanupObjects = make([]client.Object, 0, 3)
 		mockCtrl = gomock.NewController(GinkgoT())
 		ofb = NewMockBridge(mockCtrl)
 		ovsMock = ovsutils.NewMockAPI(mockCtrl)

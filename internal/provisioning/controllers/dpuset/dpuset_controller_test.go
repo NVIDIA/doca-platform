@@ -1032,7 +1032,7 @@ var _ = Describe("DPUSetReconciler rolloutRolling", func() {
 
 	runRollout := func(maxUnavailable int32, total int, dpus ...provisioningv1.DPU) []provisioningv1.DPU {
 		dpuMap := map[string]provisioningv1.DPU{}
-		objects := []client.Object{}
+		objects := make([]client.Object, 0, len(dpus))
 		for i := range dpus {
 			dpu := dpus[i]
 			dpuMap[dpu.Name] = dpu

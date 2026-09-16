@@ -125,7 +125,7 @@ const (
 	ProvisioningComponentLabelKey = DPUProvisioningPrefix + "component"
 	// HostNameDPULabelKey is the label added to the DPU Kubernetes Node that indicates the hostname
 	// of the host that this DPU belongs to.
-	// Deprecated: This field is deprecated and will be removed with v26.7.0. Use provisioningv1.DPUNodeNameLabel and
+	// Deprecated: This field is deprecated and will be removed with v27.1.0. Use provisioningv1.DPUNodeNameLabel and
 	// provisioningv1.DPUNodeNamespaceLabel instead.
 	HostNameDPULabelKey = DPUProvisioningPrefix + "host"
 	// SkipDpuProvisioningLabel is the label used to skip DPU provisioning

@@ -42,7 +42,7 @@ var _ = Describe("resolveSFPlan", func() {
 	// sfSummary renders the plan as "<netdev>/<sfnum>[pool]" so a spec can state the
 	// expected numbering in one line.
 	sfSummary := func(plan *sfPlan) []string {
-		var out []string
+		out := make([]string, 0, len(plan.sfs))
 		for _, sf := range plan.sfs {
 			out = append(out, sf.netdev+"/"+strconv.Itoa(sf.sfNum)+"["+sf.poolName+"]")
 		}

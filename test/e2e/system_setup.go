@@ -314,7 +314,7 @@ func (t *systemTestInput) applyConfig(conf config) {
 	t.dpuServiceInterface = optionalObjectFromFile[dpuservicev1.DPUServiceInterface](conf.DPUServiceInterfacePath)
 	t.dpuService = optionalObjectFromFile[dpuservicev1.DPUService](conf.DPUServicePath)
 
-	dpuClusterPrerequisiteObjects := []client.Object{}
+	dpuClusterPrerequisiteObjects := make([]client.Object, 0, len(conf.DPUClusterPrerequisiteObjectPaths))
 	for _, path := range conf.DPUClusterPrerequisiteObjectPaths {
 		dpuClusterPrerequisiteObjects = append(dpuClusterPrerequisiteObjects, unstructuredFromFile(path))
 	}

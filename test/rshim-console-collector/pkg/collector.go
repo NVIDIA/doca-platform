@@ -338,18 +338,25 @@ func (c *Collector) collectOnce(ctx context.Context, consolePath string) (bool, 
 		}
 	}()
 
-	madeProgress, err := c.readConsole(console, deviceName)
+	madeProgress, err := c.readConsole(console, deviceName) //nolint:staticcheck // SA4023: readConsole never returns nil, see its doc comment.
 	close(stopCloseWatcher)
 	<-closeWatcherDone
 	closeConsole()
 
-	if err != nil {
+	// readConsole always returns a non-nil error (see its doc comment) since there's no "clean end
+	// of stream" for a live console device; the trailing nil-error return below is required by Go
+	// but unreachable in practice.
+	if err != nil { //nolint:staticcheck // SA4023: intentional, see comment above.
 		return madeProgress, fmt.Errorf("read rshim console %s: %w", consolePath, err)
 	}
 	return madeProgress, nil
 }
 
-func (c *Collector) readConsole(reader io.Reader, deviceName string) (bool, error) {
+// readConsole tails reader until it errors (EOF, read error, or the reader being closed by the
+// caller's watcher goroutine on context cancellation) and always returns a non-nil error; there is
+// no "clean end of stream" for a live console device. The caller distinguishes an intentional
+// shutdown from a real failure by checking ctx.Err(), not by looking for a nil error here.
+func (c *Collector) readConsole(reader io.Reader, deviceName string) (bool, error) { //nolint:staticcheck // SA4023: intentional, see doc comment above.
 	buffered := bufio.NewReader(reader)
 	madeProgress := false
 	for {

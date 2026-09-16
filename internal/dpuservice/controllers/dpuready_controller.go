@@ -243,7 +243,7 @@ func (r *DPUReadyReconciler) selectiveDPUNodeFiltering(ctx context.Context, dpuC
 		}
 
 		nodeList := &corev1.NodeList{}
-		listOpts := []client.ListOption{}
+		listOpts := make([]client.ListOption, 0, 1)
 
 		// Apply NodeSelector if specified
 		selector, err := utils.LabelSelectorAsSelector(nodeSelector)

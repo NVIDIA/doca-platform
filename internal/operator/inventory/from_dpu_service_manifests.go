@@ -117,7 +117,7 @@ func (f *fromDPUService) Parse() error {
 }
 
 func (f *fromDPUService) GenerateManifests(_ context.Context, vars Variables) ([]client.Object, error) {
-	ret := []client.Object{}
+	ret := make([]client.Object, 0, 1)
 	if ok := vars.DisableSystemComponents[f.Name()]; ok {
 		return nil, nil
 	}
@@ -470,7 +470,7 @@ func rbacAndCRDEdits(chartName string, serviceAccounts []types.NamespacedName) [
 		})
 	}
 
-	edits := []StructuredEdit{}
+	edits := make([]StructuredEdit, 0, 3)
 	edits = append(edits,
 		dpuServiceAddValueEdit(true, chartName, "deployDPUManifests"),
 		dpuServiceAddValueEdit(serviceAccountList, chartName, "rbac", "serviceAccounts"),
