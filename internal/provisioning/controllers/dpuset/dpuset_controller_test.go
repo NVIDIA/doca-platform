@@ -989,52 +989,116 @@ var _ = Describe("DPUSetReconciler needDisruptDPU", func() {
 })
 
 var _ = Describe("DPUSetReconciler rolloutRolling", func() {
-	var reconciler *DPUSetReconciler
+	var (
+		dpuSet *provisioningv1.DPUSet
+		scheme *runtime.Scheme
+	)
 
 	BeforeEach(func() {
-		reconciler = &DPUSetReconciler{}
-	})
+		scheme = runtime.NewScheme()
+		Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
 
-	DescribeTable("should handle nil RollingUpdate and MaxUnavailable fields",
-		func(strategy provisioningv1.DPUSetStrategy, expectErr bool) {
-			dpuSet := &provisioningv1.DPUSet{
-				Spec: provisioningv1.DPUSetSpec{
-					Strategy: strategy,
-					DPUTemplate: provisioningv1.DPUTemplate{
-						Spec: provisioningv1.DPUTemplateSpec{
-							DPUFlavor:  ptr.To("test-flavor"),
-							NodeEffect: provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
-						},
+		dpuSet = &provisioningv1.DPUSet{
+			Spec: provisioningv1.DPUSetSpec{
+				DPUTemplate: provisioningv1.DPUTemplate{
+					Spec: provisioningv1.DPUTemplateSpec{
+						BFB:       &provisioningv1.BFBReference{Name: "bfb-v2"},
+						DPUFlavor: ptr.To("flavor"),
 					},
 				},
-			}
-			err := reconciler.rolloutRolling(context.Background(), dpuSet, map[string]provisioningv1.DPU{}, 0, nil, nil)
-			if expectErr {
-				Expect(err).To(HaveOccurred())
-			} else {
-				Expect(err).ToNot(HaveOccurred())
-			}
-		},
-		Entry("nil RollingUpdate", provisioningv1.DPUSetStrategy{
-			Type: provisioningv1.RollingUpdateStrategyType,
-		}, false),
-		Entry("nil MaxUnavailable", provisioningv1.DPUSetStrategy{
-			Type:          provisioningv1.RollingUpdateStrategyType,
-			RollingUpdate: &provisioningv1.RollingUpdateDPU{},
-		}, false),
-		Entry("explicit MaxUnavailable", provisioningv1.DPUSetStrategy{
-			Type: provisioningv1.RollingUpdateStrategyType,
-			RollingUpdate: &provisioningv1.RollingUpdateDPU{
-				MaxUnavailable: ptr.To(intstr.FromInt(2)),
 			},
-		}, false),
-		Entry("invalid MaxUnavailable string", provisioningv1.DPUSetStrategy{
-			Type: provisioningv1.RollingUpdateStrategyType,
-			RollingUpdate: &provisioningv1.RollingUpdateDPU{
-				MaxUnavailable: ptr.To(intstr.FromString("invalid")),
+		}
+	})
+
+	newDPU := func(name string, ready bool) provisioningv1.DPU {
+		condition := metav1.Condition{
+			Type:   provisioningv1.DPUCondReady.String(),
+			Status: metav1.ConditionTrue,
+			Reason: "Ready",
+		}
+		if !ready {
+			condition.Status = metav1.ConditionFalse
+			condition.Reason = "NotReady"
+		}
+		return provisioningv1.DPU{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testNamespace},
+			Spec: provisioningv1.DPUSpec{
+				BFB:       ptr.To("bfb-v1"),
+				DPUFlavor: "flavor",
 			},
-		}, true),
-	)
+			Status: provisioningv1.DPUStatus{Conditions: []metav1.Condition{condition}},
+		}
+	}
+
+	runRollout := func(maxUnavailable int32, total int, dpus ...provisioningv1.DPU) []provisioningv1.DPU {
+		dpuMap := map[string]provisioningv1.DPU{}
+		objects := []client.Object{}
+		for i := range dpus {
+			dpu := dpus[i]
+			dpuMap[dpu.Name] = dpu
+			objects = append(objects, &dpu)
+		}
+
+		fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
+		reconciler := &DPUSetReconciler{
+			Client:   fakeClient,
+			Options:  DPUSetOptions{MaxUnavailableDPUNodes: maxUnavailable},
+			Recorder: record.NewFakeRecorder(10),
+		}
+
+		Expect(reconciler.rolloutRolling(context.Background(), dpuSet, dpuMap, total, nil, nil)).To(Succeed())
+
+		remaining := &provisioningv1.DPUList{}
+		Expect(fakeClient.List(context.Background(), remaining)).To(Succeed())
+		return remaining.Items
+	}
+
+	It("should limit deletion using maxUnavailableDPUNodes", func() {
+		remaining := runRollout(2, 4,
+			newDPU("dpu-1", true),
+			newDPU("dpu-2", true),
+			newDPU("dpu-3", true),
+			newDPU("dpu-4", true),
+		)
+		Expect(remaining).To(HaveLen(2))
+	})
+
+	It("should count missing and not-ready DPUs against maxUnavailableDPUNodes", func() {
+		remaining := runRollout(2, 4,
+			newDPU("dpu-not-ready", false),
+			newDPU("dpu-ready-1", true),
+			newDPU("dpu-ready-2", true),
+		)
+		Expect(remaining).To(HaveLen(2))
+		Expect(remaining).To(ContainElement(HaveField("Name", "dpu-ready-1")))
+		Expect(remaining).To(ContainElement(HaveField("Name", "dpu-ready-2")))
+	})
+
+	It("should ignore the deprecated rollingUpdate.maxUnavailable field", func() {
+		dpuSet.Spec.Strategy.RollingUpdate = &provisioningv1.RollingUpdateDPU{
+			//nolint:staticcheck // Verify that the deprecated field no longer controls rollout.
+			MaxUnavailable: ptr.To(intstr.FromInt(2)),
+		}
+
+		remaining := runRollout(1, 2,
+			newDPU("dpu-1", true),
+			newDPU("dpu-2", true),
+		)
+		Expect(remaining).To(HaveLen(1))
+	})
+
+	It("should not let the deprecated field lower maxUnavailableDPUNodes", func() {
+		dpuSet.Spec.Strategy.RollingUpdate = &provisioningv1.RollingUpdateDPU{
+			//nolint:staticcheck // Verify that the deprecated field no longer controls rollout.
+			MaxUnavailable: ptr.To(intstr.FromInt(1)),
+		}
+
+		remaining := runRollout(2, 2,
+			newDPU("dpu-1", true),
+			newDPU("dpu-2", true),
+		)
+		Expect(remaining).To(BeEmpty())
+	})
 })
 
 var _ = Describe("DPUSetReconciler collision labels", func() {

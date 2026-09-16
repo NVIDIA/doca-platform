@@ -41,7 +41,6 @@ import (
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -58,7 +57,8 @@ const (
 )
 
 type DPUSetOptions struct {
-	DPUInstallInterface string
+	DPUInstallInterface    string
+	MaxUnavailableDPUNodes int32
 }
 
 // DPUSetReconciler reconciles a DPUSet object
@@ -718,32 +718,26 @@ func (r *DPUSetReconciler) onDelete(ctx context.Context, dpuSet *provisioningv1.
 	return nil
 }
 
+// rolloutRolling deletes drifted DPUs so they can be recreated from the DPUSet
+// template. Concurrency is MaxUnavailableDPUNodes (minimum 1, capped at
+// totalDPUDevices). Unavailable slots are devices with no CR plus CRs that
+// are not Ready or already deleting.
 func (r *DPUSetReconciler) rolloutRolling(ctx context.Context, dpuSet *provisioningv1.DPUSet,
-	dpuMap map[string]provisioningv1.DPU, total int, dpuClusters []provisioningv1.DPUCluster,
+	dpuMap map[string]provisioningv1.DPU, totalDPUDevices int, dpuClusters []provisioningv1.DPUCluster,
 	templateEvals map[string]templateEval) error {
-	var maxUnavailable *intstr.IntOrString
-	//nolint:staticcheck // SA1019: MaxUnavailable is deprecated but still supported
-	if dpuSet.Spec.Strategy.RollingUpdate != nil {
-		maxUnavailable = dpuSet.Spec.Strategy.RollingUpdate.MaxUnavailable
-	}
-	scaledValue, err := intstr.GetScaledValueFromIntOrPercent(intstr.ValueOrDefault(
-		maxUnavailable, intstr.FromInt(0)), total, true)
-	if err != nil {
-		return err
-	}
-
-	if scaledValue <= 0 {
-		scaledValue = 1
-	} else if scaledValue > total {
-		scaledValue = total
+	maxUnavailable := int(r.Options.MaxUnavailableDPUNodes)
+	if maxUnavailable < 1 {
+		maxUnavailable = 1
+	} else if maxUnavailable > totalDPUDevices {
+		maxUnavailable = totalDPUDevices
 	}
 
 	// The DPUs that have deleted should be considered as unavailable DPUs
-	unavaiable := total - len(dpuMap)
+	unavailable := totalDPUDevices - len(dpuMap)
 	for _, dpu := range dpuMap {
 		if isUnavailable(&dpu) {
 			// A DPU which is not ready should be considered an unavailable DPU. Skip this one
-			unavaiable++
+			unavailable++
 		}
 	}
 
@@ -760,13 +754,13 @@ func (r *DPUSetReconciler) rolloutRolling(ctx context.Context, dpuSet *provision
 				return err
 			}
 			r.Recorder.Eventf(dpuSet, corev1.EventTypeNormal, events.EventSuccessfulDeleteDPUReason, successMsg)
-		} else if unavaiable < scaledValue {
+		} else if unavailable < maxUnavailable {
 			if err := r.Delete(ctx, &dpu); err != nil {
 				r.Recorder.Eventf(dpuSet, corev1.EventTypeNormal, events.EventFailedDeleteDPUReason, failedMsg)
 				return err
 			}
 			r.Recorder.Eventf(dpuSet, corev1.EventTypeNormal, events.EventSuccessfulDeleteDPUReason, successMsg)
-			unavaiable++
+			unavailable++
 		}
 	}
 	return nil

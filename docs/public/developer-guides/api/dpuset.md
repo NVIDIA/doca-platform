@@ -13,8 +13,11 @@ An update to the DPUSet can be done for upgrading the BFB or modifying provision
 > [!NOTE]
 > This operation will result in a network
 > disruption and also a host reboot.
-> A rolling update can be configured to control the number of nodes that will be out-of-service in parallel (Please see
-> the DPUSet YAML example below).
+> `DPFOperatorConfig.spec.provisioningController.maxUnavailableDPUNodes` (default 50)
+> is the sole concurrency control for rolling updates. The DPUSet controller uses
+> it as the maximum number of unavailable DPUs when deleting outdated DPUs, and
+> DPUNodeMaintenance uses it to limit unavailable DPU nodes during node effects.
+> The deprecated `DPUSet.spec.strategy.rollingUpdate.maxUnavailable` value is ignored.
 > The cluster can also be divided into several DPU-Sets, please refer to the section
 > "Using several DPU Sets"
 
@@ -50,8 +53,6 @@ spec:
     matchLabels:
       feature.node.kubernetes.io/dpu-enabled: "true"
   strategy:
-    rollingUpdate:
-      maxUnavailable: "10%"
     type: RollingUpdate
   dpuTemplate:
     spec:
@@ -98,8 +99,6 @@ spec:
     matchLabels:
       e2e.servers/dk: "true"
   strategy:
-    rollingUpdate:
-      maxUnavailable: "10%"
     type: RollingUpdate
   dpuTemplate:
     spec:
@@ -249,8 +248,6 @@ spec:
     matchLabels:
       feature.node.kubernetes.io/dpu-enabled: "true"
   strategy:
-    rollingUpdate:
-      maxUnavailable: "10%"
     type: RollingUpdate
   dpuTemplate:
     annotations:
@@ -414,8 +411,6 @@ spec:
     matchLabels:
       feature.node.kubernetes.io/dpu-enabled: "true"
   strategy:
-    rollingUpdate:
-      maxUnavailable: "10%"
     type: RollingUpdate
   dpuTemplate:
     spec:

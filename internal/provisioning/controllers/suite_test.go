@@ -204,6 +204,7 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 	dpusetReconciler := &dpuset.DPUSetReconciler{
 		Client:   k8sManager.GetClient(),
+		Options:  dpuset.DPUSetOptions{MaxUnavailableDPUNodes: 50},
 		Scheme:   k8sManager.GetScheme(),
 		Recorder: k8sManager.GetEventRecorderFor(dpuset.DPUSetControllerName),
 	}

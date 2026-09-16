@@ -28,7 +28,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -322,8 +321,6 @@ metadata:
 spec:
   dpuNodeSelector:
   strategy:
-    rollingUpdate:
-      maxUnavailable: 10%
     type: RollingUpdate
   dpuTemplate:
     annotations:
@@ -448,7 +445,7 @@ spec:
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 		})
 
-		It("should accept RollingUpdate with nil maxUnavailable", func() {
+		It("should accept an empty RollingUpdate configuration", func() {
 			obj := createObj("obj-rolling-nil-maxunavailable")
 			obj.Spec.Strategy = provisioningv1.DPUSetStrategy{
 				Type:          provisioningv1.RollingUpdateStrategyType,
@@ -463,102 +460,6 @@ spec:
 				Type: provisioningv1.OnDeleteStrategyType,
 			}
 			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
-		})
-
-		// Tests for validateStrategy() - integer validation
-		It("should reject RollingUpdate with maxUnavailable=0", func() {
-			obj := createObj("obj-invalid-maxunavailable-zero")
-			obj.Spec.Strategy = provisioningv1.DPUSetStrategy{
-				Type: provisioningv1.RollingUpdateStrategyType,
-				RollingUpdate: &provisioningv1.RollingUpdateDPU{
-					MaxUnavailable: &intstr.IntOrString{Type: intstr.Int, IntVal: 0},
-				},
-			}
-			err := k8sClient.Create(ctx, obj)
-			Expect(err).To(HaveOccurred())
-			Expect(apierrors.IsInvalid(err)).To(BeTrue())
-		})
-
-		It("should reject RollingUpdate with negative maxUnavailable", func() {
-			obj := createObj("obj-invalid-maxunavailable-negative")
-			obj.Spec.Strategy = provisioningv1.DPUSetStrategy{
-				Type: provisioningv1.RollingUpdateStrategyType,
-				RollingUpdate: &provisioningv1.RollingUpdateDPU{
-					MaxUnavailable: &intstr.IntOrString{Type: intstr.Int, IntVal: -1},
-				},
-			}
-			err := k8sClient.Create(ctx, obj)
-			Expect(err).To(HaveOccurred())
-			Expect(apierrors.IsInvalid(err)).To(BeTrue())
-		})
-
-		// Tests for validateStrategy() - percentage validation
-		It("should reject RollingUpdate with maxUnavailable=0%", func() {
-			obj := createObj("obj-invalid-maxunavailable-zero-percent")
-			obj.Spec.Strategy = provisioningv1.DPUSetStrategy{
-				Type: provisioningv1.RollingUpdateStrategyType,
-				RollingUpdate: &provisioningv1.RollingUpdateDPU{
-					MaxUnavailable: &intstr.IntOrString{Type: intstr.String, StrVal: "0%"},
-				},
-			}
-			err := k8sClient.Create(ctx, obj)
-			Expect(err).To(HaveOccurred())
-			Expect(apierrors.IsInvalid(err)).To(BeTrue())
-		})
-
-		It("should reject RollingUpdate with maxUnavailable>100%", func() {
-			obj := createObj("obj-invalid-maxunavailable-over-100")
-			obj.Spec.Strategy = provisioningv1.DPUSetStrategy{
-				Type: provisioningv1.RollingUpdateStrategyType,
-				RollingUpdate: &provisioningv1.RollingUpdateDPU{
-					MaxUnavailable: &intstr.IntOrString{Type: intstr.String, StrVal: "150%"},
-				},
-			}
-			err := k8sClient.Create(ctx, obj)
-			Expect(err).To(HaveOccurred())
-			Expect(apierrors.IsInvalid(err)).To(BeTrue())
-		})
-
-		It("should accept RollingUpdate with valid percentage", func() {
-			obj := createObj("obj-valid-maxunavailable-percent")
-			obj.Spec.Strategy = provisioningv1.DPUSetStrategy{
-				Type: provisioningv1.RollingUpdateStrategyType,
-				RollingUpdate: &provisioningv1.RollingUpdateDPU{
-					MaxUnavailable: &intstr.IntOrString{Type: intstr.String, StrVal: "50%"},
-				},
-			}
-			err := k8sClient.Create(ctx, obj)
-			Expect(err).NotTo(HaveOccurred())
-		})
-
-		It("should accept RollingUpdate with maxUnavailable=100%", func() {
-			obj := createObj("obj-valid-maxunavailable-100-percent")
-			obj.Spec.Strategy = provisioningv1.DPUSetStrategy{
-				Type: provisioningv1.RollingUpdateStrategyType,
-				RollingUpdate: &provisioningv1.RollingUpdateDPU{
-					MaxUnavailable: &intstr.IntOrString{Type: intstr.String, StrVal: "100%"},
-				},
-			}
-			err := k8sClient.Create(ctx, obj)
-			Expect(err).NotTo(HaveOccurred())
-		})
-
-		// Tests for ValidateUpdate() - strategy validation on update
-		It("should reject update with invalid strategy", func() {
-			obj := createObj("obj-update-invalid-strategy")
-			err := k8sClient.Create(ctx, obj)
-			Expect(err).NotTo(HaveOccurred())
-
-			// Update with invalid strategy
-			obj.Spec.Strategy = provisioningv1.DPUSetStrategy{
-				Type: provisioningv1.RollingUpdateStrategyType,
-				RollingUpdate: &provisioningv1.RollingUpdateDPU{
-					MaxUnavailable: &intstr.IntOrString{Type: intstr.Int, IntVal: 0},
-				},
-			}
-			err = k8sClient.Update(ctx, obj)
-			Expect(err).To(HaveOccurred())
-			Expect(apierrors.IsInvalid(err)).To(BeTrue())
 		})
 
 		// Tests for ValidateCreate() - host power cycle annotation validation
