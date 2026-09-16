@@ -103,7 +103,6 @@ ENV SYSTEMD_IGNORE_CHROOT=1
 
 ARG TARGETARCH
 ARG MFT_VERSION=4.29.0-131
-ARG KUBECTL_VERSION=1.35.6
 ARG PACKAGES="dpkg-dev \
 libusb-1.0-0 \
 ipmitool \
@@ -150,10 +149,6 @@ RUN rm -f /usr/sbin/reboot \
     && echo "dbus-send --system --print-reply --dest=org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager.Reboot boolean:false" > /usr/sbin/reboot \
     && chmod +x /usr/sbin/reboot
 
-RUN curl -LO https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl && \
-    chmod +x kubectl && \
-    mv kubectl /usr/local/bin
-
 COPY --from=builder /workspace/bin/ .
 
 WORKDIR /workspace
@@ -170,7 +165,6 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
       sed -i 's/^Types: deb$/Types: deb deb-src/g' /etc/apt/sources.list.d/*.sources && \
       apt-get update && \
       apt-get source --download-only ${PACKAGES} && \
-      curl -LO https://github.com/kubernetes/kubectl/archive/refs/tags/kubernetes-${KUBECTL_VERSION}.tar.gz && \
       cd / && \
       tar -cf pkg-source-code.tar /src && \
       rm -rf /src \
