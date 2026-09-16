@@ -1,6 +1,6 @@
 module github.com/nvidia/doca-platform/hack/tools/lint/withpolling
 
-go 1.25
+go 1.26
 
 require (
 	github.com/golangci/plugin-module-register v0.1.2
