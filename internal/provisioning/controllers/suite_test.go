@@ -75,15 +75,17 @@ var (
 	//go:embed testdata/test-bfb.bfb
 	testBFB []byte
 
-	cfg               *rest.Config
-	k8sClient         client.Client
-	testEnv           *envtest.Environment
-	ctx               context.Context
-	cancel            context.CancelFunc
-	bfbServerURL      string
-	dpunodeReconciler *dpunode.DPUNodeReconciler
-	dpuReconciler     *dpu.DPUReconciler
-	dpuMap            *dutil.DPUInProvisioningMap
+	cfg                   *rest.Config
+	k8sClient             client.Client
+	testEnv               *envtest.Environment
+	ctx                   context.Context
+	cancel                context.CancelFunc
+	bfbServerURL          string
+	dpunodeReconciler     *dpunode.DPUNodeReconciler
+	dpuReconciler         *dpu.DPUReconciler
+	dpuMap                *dutil.DPUInProvisioningMap
+	closeBFBServer        func()
+	closePLDMUnpackServer func()
 )
 
 const (
@@ -287,8 +289,8 @@ var _ = BeforeSuite(func() {
 		Expect(err).ToNot(HaveOccurred(), "failed to run manager")
 	}()
 
-	defer bfbServer(testBFB)
-	defer pldmUnpackServer()
+	closeBFBServer = bfbServer(testBFB)
+	closePLDMUnpackServer = pldmUnpackServer()
 
 	// wait for the webhook server to get ready
 	dialer := &net.Dialer{Timeout: time.Second}
@@ -307,6 +309,13 @@ var _ = BeforeSuite(func() {
 })
 
 var _ = AfterSuite(func() {
+	if closeBFBServer != nil {
+		closeBFBServer()
+	}
+	if closePLDMUnpackServer != nil {
+		closePLDMUnpackServer()
+	}
+
 	By("removing the BFB directory ")
 	_ = os.RemoveAll(cutil.BFBBaseDir)
 

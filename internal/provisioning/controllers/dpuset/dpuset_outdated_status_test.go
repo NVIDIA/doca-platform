@@ -62,7 +62,8 @@ func newOutdatedFixture(strategy provisioningv1.StrategyType, dpus ...*provision
 		},
 	}
 
-	objs := []client.Object{dpuSet}
+	objs := make([]client.Object, 0, 1+len(dpus))
+	objs = append(objs, dpuSet)
 	for _, dpu := range dpus {
 		objs = append(objs, dpu)
 	}

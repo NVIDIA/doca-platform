@@ -1236,7 +1236,7 @@ func (r *DPUServiceReconciler) reconcileConfigPortEndpointSlices(
 ) error {
 	log := ctrllog.FromContext(ctx)
 	// First build the EndpointPorts. If there are no ports to expose, return early.
-	endpointPorts := []discoveryv1.EndpointPort{}
+	endpointPorts := make([]discoveryv1.EndpointPort, 0, len(dpuService.Spec.ConfigPorts.Ports))
 	for _, port := range dpuService.Spec.ConfigPorts.Ports {
 		// TODO: We have to merge the old and new DPU NodePorts for disruptive DPUDeployment upgrades.
 		dpuNodePort := dpuNodePorts[port.Name]
@@ -1482,7 +1482,7 @@ func (r *DPUServiceReconciler) convertEndpointSliceToSubsets(endpointSlice *disc
 func (r *DPUServiceReconciler) reconcileConfigPortServices(ctx context.Context, clusterName string, dpuService *dpuservicev1.DPUService, dpuNodePorts map[string]int32) error {
 	log := ctrllog.FromContext(ctx)
 	// First build the ServicePorts. If there are no ports to expose, return early.
-	servicePorts := []corev1.ServicePort{}
+	servicePorts := make([]corev1.ServicePort, 0, len(dpuService.Spec.ConfigPorts.Ports))
 	for _, port := range dpuService.Spec.ConfigPorts.Ports {
 		dpuNodePort := dpuNodePorts[port.Name]
 		p := corev1.ServicePort{

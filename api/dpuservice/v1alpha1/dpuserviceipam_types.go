@@ -89,7 +89,7 @@ type DPUServiceIPAMSpec struct {
 
 	// ClusterSelector determines in which clusters the DPUServiceIPAM controller should apply the configuration.
 	//
-	// Deprecated: This field is deprecated and will be removed with v26.7.0. Use DPUClusterSelector instead.
+	// Deprecated: This field is deprecated and will be removed with v27.1.0. Use DPUClusterSelector instead.
 	// +optional
 	ClusterSelector *metav1.LabelSelector `json:"clusterSelector,omitempty"`
 	// DPUClusterSelector determines in which clusters the DPUServiceIPAM controller should apply the configuration.

@@ -176,7 +176,7 @@ func createEtcdEncryptionValidationPod(ctx context.Context, c client.Client) {
 // validates their raw encryption envelopes in etcd.
 func validateDPUClusterRawEtcdEncryption(ctx context.Context, input *systemTestInput, cluster *provisioningv1.DPUCluster) {
 	tenantClient, clusterTunnel := newEtcdEncryptionTenantClient(ctx, input, cluster)
-	cleanupObjects := []client.Object{}
+	cleanupObjects := make([]client.Object, 0, 2)
 	DeferCleanup(func(ctx context.Context) {
 		defer clusterTunnel.Close()
 		Expect(testutils.CleanupAndWait(ctx, tenantClient, cleanupObjects...)).To(Succeed())
@@ -380,12 +380,13 @@ func expectTenantEncryptedResourcesAccessible(
 
 // etcdctlCommand builds an etcdctl command using the mounted Kamaji credentials.
 func etcdctlCommand(args ...string) []string {
-	command := []string{
+	command := make([]string, 0, 5+len(args))
+	command = append(command,
 		"/usr/local/bin/etcdctl",
-		"--endpoints=" + etcdEncryptionEndpoint,
+		"--endpoints="+etcdEncryptionEndpoint,
 		"--cacert=/etc/etcd/pki/ca.crt",
 		"--cert=/etc/etcd/client/tls.crt",
 		"--key=/etc/etcd/client/tls.key",
-	}
+	)
 	return append(command, args...)
 }

@@ -17,31 +17,31 @@ spec:
   validations:
     - expression: "!has(object.spec.dpuDetector) || !has(object.spec.dpuDetector.image)"
       message: >-
-        spec.dpuDetector.image is deprecated. This field is deprecated and will be removed with v26.7.0. Use the new field `daemon` instead.
+        spec.dpuDetector.image is deprecated. This field is deprecated and will be removed with v27.1.0. Use the new field `daemon` instead.
     - expression: "!has(object.spec.dpuServiceController) || !has(object.spec.dpuServiceController.image)"
       message: >-
-        spec.dpuServiceController.image is deprecated. This field is deprecated and will be removed with v26.7.0. Use the new field `controller` instead.
+        spec.dpuServiceController.image is deprecated. This field is deprecated and will be removed with v27.1.0. Use the new field `controller` instead.
     - expression: "!has(object.spec.flannel) || !has(object.spec.flannel.image)"
       message: >-
-        spec.flannel.image is deprecated. This field is deprecated and will be removed with v26.7.0. Use the new fields `cni` and `daemon` instead.
+        spec.flannel.image is deprecated. This field is deprecated and will be removed with v27.1.0. Use the new fields `cni` and `daemon` instead.
     - expression: "!has(object.spec.kamajiClusterManager) || !has(object.spec.kamajiClusterManager.image)"
       message: >-
-        spec.kamajiClusterManager.image is deprecated. This field is deprecated and will be removed with v26.7.0. Use the new field `controller` instead.
+        spec.kamajiClusterManager.image is deprecated. This field is deprecated and will be removed with v27.1.0. Use the new field `controller` instead.
     - expression: "!has(object.spec.multus) || !has(object.spec.multus.image)"
       message: >-
-        spec.multus.image is deprecated. This field is deprecated and will be removed with v26.7.0. Use the new field `cni` instead.
+        spec.multus.image is deprecated. This field is deprecated and will be removed with v27.1.0. Use the new field `cni` instead.
     - expression: "!has(object.spec.nvipam) || !has(object.spec.nvipam.image)"
       message: >-
-        spec.nvipam.image is deprecated. This field is deprecated and will be removed with v26.7.0. Use the new field `controller` instead.
+        spec.nvipam.image is deprecated. This field is deprecated and will be removed with v27.1.0. Use the new field `controller` instead.
     - expression: "!has(object.spec.ovsCNI)"
       message: >-
-        spec.ovsCNI is deprecated. OVS CNI is installed by CNIInstaller. Remove after 26.7 is released.
+        spec.ovsCNI is deprecated. OVS CNI is installed by CNIInstaller. Remove in 27.1.
     - expression: "!has(object.spec.provisioningController) || !has(object.spec.provisioningController.bfCFGTemplateConfigMap)"
       message: >-
         spec.provisioningController.bfCFGTemplateConfigMap is deprecated. BFCFGTemplateConfigMap is deprecated and will be removed in a future release. Use enableDynamicBFCFGTemplates instead for custom bf.cfg templates.
     - expression: "!has(object.spec.provisioningController) || !has(object.spec.provisioningController.image)"
       message: >-
-        spec.provisioningController.image is deprecated. This field is deprecated and will be removed with v26.7.0. Use the new field `controller` instead.
+        spec.provisioningController.image is deprecated. This field is deprecated and will be removed with v27.1.0. Use the new field `controller` instead.
     - expression: "!has(object.spec.provisioningController) || !has(object.spec.provisioningController.installInterface) || !has(object.spec.provisioningController.installInterface.installViaGNOI)"
       message: >-
         spec.provisioningController.installInterface.installViaGNOI is deprecated. Use InstallViaHostAgent instead.
@@ -59,16 +59,16 @@ spec:
         spec.provisioningController.registry.port is deprecated. Address is deprecated and will be removed in a future release.
     - expression: "!has(object.spec.serviceSetController) || !has(object.spec.serviceSetController.image)"
       message: >-
-        spec.serviceSetController.image is deprecated. This field is deprecated and will be removed with v26.7.0. Use the new field `controller` instead.
+        spec.serviceSetController.image is deprecated. This field is deprecated and will be removed with v27.1.0. Use the new field `controller` instead.
     - expression: "!has(object.spec.sfcController) || !has(object.spec.sfcController.image)"
       message: >-
-        spec.sfcController.image is deprecated. This field is deprecated and will be removed with v26.7.0. Use the new field `controller` instead.
+        spec.sfcController.image is deprecated. This field is deprecated and will be removed with v27.1.0. Use the new field `controller` instead.
     - expression: "!has(object.spec.sriovDevicePlugin) || !has(object.spec.sriovDevicePlugin.image)"
       message: >-
-        spec.sriovDevicePlugin.image is deprecated. This field is deprecated and will be removed with v26.7.0. Use the new field `deviceplugin` instead.
+        spec.sriovDevicePlugin.image is deprecated. This field is deprecated and will be removed with v27.1.0. Use the new field `deviceplugin` instead.
     - expression: "!has(object.spec.staticClusterManager) || !has(object.spec.staticClusterManager.image)"
       message: >-
-        spec.staticClusterManager.image is deprecated. This field is deprecated and will be removed with v26.7.0. Use the new field `controller` instead.
+        spec.staticClusterManager.image is deprecated. This field is deprecated and will be removed with v27.1.0. Use the new field `controller` instead.
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding

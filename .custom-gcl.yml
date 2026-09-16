@@ -4,9 +4,9 @@
 # in hack/tools/tools.mk.
 #
 # `version` must track GOLANGCI_LINT_VERSION in hack/tools/tools.mk.
-version: v2.7.2
+version: v2.13.2
 name: golangci-lint-custom
-destination: ./hack/tools/bin/go1.25
+destination: ./hack/tools/bin/go1.26
 plugins:
   - module: github.com/nvidia/doca-platform/hack/tools/lint/withpolling
     path: ./hack/tools/lint/withpolling

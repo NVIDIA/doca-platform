@@ -82,7 +82,7 @@ func (r *DPUDeploymentNodeReconciler) SetupWithManager(ctx context.Context, mgr 
 // DPUNodeMaintenanceToNode maps DPUNodeMaintenance objects to the corev1.Node that they are referencing
 func (r *DPUDeploymentNodeReconciler) DPUNodeMaintenanceToNode(ctx context.Context, o client.Object) []ctrl.Request {
 	log := ctrllog.FromContext(ctx)
-	result := []ctrl.Request{}
+	result := make([]ctrl.Request, 0, 1)
 	dpuNodeMaintenance, ok := o.(*provisioningv1.DPUNodeMaintenance)
 	if !ok {
 		log.Error(nil, "failed to convert object to DPUNodeMaintenance, bad type")

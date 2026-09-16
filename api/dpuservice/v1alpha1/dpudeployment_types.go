@@ -231,13 +231,13 @@ type DPUSet struct {
 
 	// NodeSelector defines the nodes that the DPUSet should target
 	//
-	// Deprecated: This field is deprecated and will be removed with v26.7.0. Use DPUNodeSelector instead.
+	// Deprecated: This field is deprecated and will be removed with v27.1.0. Use DPUNodeSelector instead.
 	// +optional
 	NodeSelector *metav1.LabelSelector `json:"nodeSelector,omitempty"`
 
 	// DPUSelector defines the DPUs that the DPUSet should target
 	//
-	// Deprecated: This field is deprecated and will be removed with v26.7.0. Use DPUDeviceSelector instead.
+	// Deprecated: This field is deprecated and will be removed with v27.1.0. Use DPUDeviceSelector instead.
 	// +optional
 	DPUSelector map[string]string `json:"dpuSelector,omitempty"`
 

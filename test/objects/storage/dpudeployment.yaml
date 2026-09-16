@@ -6,7 +6,7 @@
 #   * deploys separate VirtioFS and NVMe CSI services while sharing DOCA SNAP and the node driver.
 #   * changed flavor to snap-flavor — may be overridden at runtime by applyConfig.
 #   * changed the dpuSets selector field to dpuNodeSelector — upstream uses the deprecated nodeSelector
-#     (removed with v26.7.0); the value (feature.node.kubernetes.io/dpu-enabled) is unchanged.
+#     (removed with v27.1.0); the value (feature.node.kubernetes.io/dpu-enabled) is unchanged.
 #   * the DPUSet dpuDeviceSelector is patched in at runtime to pin the DPUSet to the single DPUDevice the
 #     test labels, since which DPU to use is only known from the cluster.
 #     Without the pin, on a multi-DPU host the DPUSet targets every DPU and the coordinated in-band host

@@ -17,10 +17,10 @@ spec:
   validations:
     - expression: "!has(object.spec.dpuSelector)"
       message: >-
-        spec.dpuSelector is deprecated. This field is deprecated and will be removed with v26.7.0. Use DPUDeviceSelector instead.
+        spec.dpuSelector is deprecated. This field is deprecated and will be removed with v27.1.0. Use DPUDeviceSelector instead.
     - expression: "!has(object.spec.strategy) || !has(object.spec.strategy.rollingUpdate) || !has(object.spec.strategy.rollingUpdate.maxUnavailable)"
       message: >-
-        spec.strategy.rollingUpdate.maxUnavailable is deprecated. This field is deprecated and will be removed with v26.7.0.
+        spec.strategy.rollingUpdate.maxUnavailable is deprecated. This field is deprecated and will be removed with v27.1.0.
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding

@@ -380,7 +380,7 @@ var _ = Describe("ServiceChainSet Controller", func() {
 			Eventually(func(g Gomega) {
 				serviceChainList := &dpuservicev1.ServiceChainList{}
 				g.Expect(testClient.List(ctx, serviceChainList)).NotTo(HaveOccurred())
-				scNodes := []string{}
+				scNodes := make([]string, 0, len(serviceChainList.Items))
 				for _, si := range serviceChainList.Items {
 					serviceInterface := si
 					cleanupObjects = append(cleanupObjects, &serviceInterface)
@@ -716,7 +716,7 @@ func cleanServiceChains(namespace string) {
 	By("Ensuring all ServiceChains are cleaned up")
 	serviceChainList := &dpuservicev1.ServiceChainList{}
 	Expect(testClient.List(ctx, serviceChainList, client.InNamespace(namespace))).To(Succeed())
-	objs := []client.Object{}
+	objs := make([]client.Object, 0, len(serviceChainList.Items))
 	for i := range serviceChainList.Items {
 		objs = append(objs, &serviceChainList.Items[i])
 	}

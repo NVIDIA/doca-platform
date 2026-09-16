@@ -189,7 +189,7 @@ func New() *SystemComponents {
 			bfbRegistryData: bfbRegistryData,
 		},
 		ServiceFunctionChainSet: newServiceChainSetControllerObjects(serviceChainSetData),
-		// TODO: Remove this after 26.7 is released.
+		// TODO: Remove this after 27.1 is released.
 		RemoveOVSCNI: removedComponent{name: operatorv1.OVSCNIName},
 		Multus: &fromDPUService{
 			name: operatorv1.MultusName,

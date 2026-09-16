@@ -146,7 +146,8 @@ func createVPDWithSerial(serialNumber string) []byte {
 	fieldLen := len(snBytes)
 	totalLen := 2 + 1 + fieldLen
 
-	vpdData := []byte{0x90, byte(totalLen), 0x00, 'S', 'N', byte(fieldLen)}
+	vpdData := make([]byte, 0, 6+len(snBytes))
+	vpdData = append(vpdData, 0x90, byte(totalLen), 0x00, 'S', 'N', byte(fieldLen))
 	vpdData = append(vpdData, snBytes...)
 	return vpdData
 }

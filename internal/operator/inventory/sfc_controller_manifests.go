@@ -136,7 +136,7 @@ func (p *sfcControllerObjects) GenerateManifests(_ context.Context, vars Variabl
 // IsReadyForUpgrade reports the readiness of the sfc controller objects. It returns an error when any of the resources is not
 // ready.
 func (p *sfcControllerObjects) IsReadyForUpgrade(ctx context.Context, c client.Client, config *operatorv1.DPFOperatorConfig) error {
-	var errs []error
+	var errs []error //nolint:prealloc // final size depends on the variadic-spread results below, not known upfront
 	errs = append(errs, p.areDPUServiceNADsReady(ctx, c, config.GetNamespace(), false)...)
 	errs = append(errs, p.fromDPUService.isReady(ctx, c, config.GetNamespace(), false))
 	return kerrors.NewAggregate(errs)
@@ -174,7 +174,7 @@ func (p *sfcControllerObjects) areDPUServiceNADsReady(ctx context.Context, c cli
 // IsReady reports the readiness of the sfc controller objects as well as the version state. It returns
 // an error when any of the resources is not ready.
 func (p *sfcControllerObjects) IsReady(ctx context.Context, c client.Client, namespace string) error {
-	var errs []error
+	var errs []error //nolint:prealloc // final size depends on the variadic-spread results below, not known upfront
 	errs = append(errs, p.areDPUServiceNADsReady(ctx, c, namespace, true)...)
 	errs = append(errs, p.fromDPUService.isReady(ctx, c, namespace, true))
 	return kerrors.NewAggregate(errs)

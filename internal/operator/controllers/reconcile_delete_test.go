@@ -523,7 +523,7 @@ func objectsInListStillExist(c client.Client, gvks []schema.GroupVersionKind) bo
 }
 
 func generateObjectsByGVK(ns string, gvks []schema.GroupVersionKind) []client.Object {
-	objs := []client.Object{}
+	objs := make([]client.Object, 0, len(gvks))
 	for i, gvk := range gvks {
 		object := &unstructured.Unstructured{}
 		object.SetGroupVersionKind(gvk)

@@ -722,7 +722,7 @@ func cleanServiceInterfaces(namespace string) {
 	By("Ensuring all ServiceInterfaces are cleaned up")
 	serviceInterfaceList := &dpuservicev1.ServiceInterfaceList{}
 	Expect(testClient.List(ctx, serviceInterfaceList, client.InNamespace(namespace))).To(Succeed())
-	objs := []client.Object{}
+	objs := make([]client.Object, 0, len(serviceInterfaceList.Items))
 	for i := range serviceInterfaceList.Items {
 		objs = append(objs, &serviceInterfaceList.Items[i])
 	}

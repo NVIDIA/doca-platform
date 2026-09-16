@@ -130,7 +130,7 @@ func (spec *BlueFieldSpecs) CanSatisfy(req corev1.ResourceList) CapacityResult {
 func (spec *BlueFieldSpecs) convertToResourceList(format resource.Format) (corev1.ResourceList, error) {
 	cpu, err := resource.ParseQuantity(fmt.Sprintf("%d", spec.CPU))
 	if err != nil {
-		return nil, fmt.Errorf("invalid CPU amount, get: %q, err: %v", spec.CPU, err)
+		return nil, fmt.Errorf("invalid CPU amount, get: %d, err: %v", spec.CPU, err)
 	}
 
 	var memSuffix string

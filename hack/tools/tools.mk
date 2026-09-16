@@ -72,7 +72,7 @@ HELM_GIT_VERSION ?= 1.4.0
 KUSTOMIZE_VERSION ?= v5.5.0
 CONTROLLER_TOOLS_VERSION ?= v0.19.0
 ENVTEST_VERSION ?= v0.0.0-20250604165838-d6126d850224
-GOLANGCI_LINT_VERSION ?= v2.7.2
+GOLANGCI_LINT_VERSION ?= v2.13.2
 # kube-api-linter has no tagged releases; pick a pseudo-version from
 # https://pkg.go.dev/sigs.k8s.io/kube-api-linter?tab=versions
 KUBE_API_LINTER_VERSION ?= v0.0.0-20260716143926-092fe0c72997
@@ -267,7 +267,7 @@ $(KUBE_API_LINTER): | $(TOOLSDIR_GO)
 golangci-lint-custom: $(GOLANGCI_LINT_CUSTOM) ## Build the golangci-lint-custom binary with the withpolling plugin locally if necessary.
 	@$(MAKE) tools-path-go TOOL=golangci-lint-custom VERSION=$(GOLANGCI_LINT_VERSION)
 $(GOLANGCI_LINT_CUSTOM): golangci-lint $(PROJECT_DIR)/.custom-gcl.yml $(wildcard $(PROJECT_DIR)/hack/tools/lint/withpolling/*.go) | $(TOOLSDIR_GO)
-	$Q cd $(PROJECT_DIR) && $(GOLANGCI_LINT) custom
+	$Q cd $(PROJECT_DIR) && GOTOOLCHAIN=$(GOTOOLCHAIN) $(GOLANGCI_LINT) custom
 	$Q mv $(TOOLSDIR_GO)/golangci-lint-custom $(GOLANGCI_LINT_CUSTOM)
 
 .PHONY: mockgen

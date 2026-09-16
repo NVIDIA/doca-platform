@@ -144,7 +144,7 @@ func (c *Client) queryLogsInTimeRange(ctx context.Context, searchTerm string, la
 
 // buildLogQLQuery constructs a LogQL query string
 func (c *Client) buildLogQLQuery(searchTerm string, labels map[string]string) string {
-	queries := []string{}
+	queries := make([]string, 0, len(labels))
 	for key, value := range labels {
 		queries = append(queries, fmt.Sprintf(`%s="%s"`, key, value))
 	}

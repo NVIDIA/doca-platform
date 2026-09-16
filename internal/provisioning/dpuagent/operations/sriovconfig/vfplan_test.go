@@ -33,7 +33,7 @@ var _ = Describe("resolveVFPlan", func() {
 
 	// vfSummary renders the VF runs as "<netdev>/<first>-<last>[pool]".
 	vfSummary := func(plan *vfPlan) []string {
-		var out []string
+		out := make([]string, 0, len(plan.vfs))
 		for _, vf := range plan.vfs {
 			out = append(out, vf.netdev+"/"+strconv.Itoa(vf.index)+"-"+strconv.Itoa(vf.index+vf.count-1)+"["+vf.poolName+"]")
 		}
