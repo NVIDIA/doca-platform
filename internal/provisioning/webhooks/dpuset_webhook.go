@@ -18,7 +18,6 @@ package webhooks
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -28,7 +27,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -81,10 +79,6 @@ func (r *DPUSet) ValidateCreate(ctx context.Context, obj runtime.Object) (admiss
 	dpusetlog.V(4).Info("validate create", "name", dpuSet.Name)
 	errs := field.ErrorList{}
 	newPath := field.NewPath("spec")
-	if err := validateStrategy(dpuSet.Spec.Strategy); err != nil {
-		errs = append(errs, field.Invalid(newPath.Child("strategy"), dpuSet.Spec.Strategy, err.Error()))
-
-	}
 
 	// Exactly-one-of dpuFlavor/dpuFlavorTemplate is enforced by the CRD XValidation rule.
 	dpuTemplatePath := newPath.Child("dpuTemplate", "spec")
@@ -118,10 +112,6 @@ func (r *DPUSet) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Obje
 	dpusetlog.V(4).Info("validate update", "name", dpuSet.Name)
 	errs := field.ErrorList{}
 	newPath := field.NewPath("spec")
-	if err := validateStrategy(dpuSet.Spec.Strategy); err != nil {
-		errs = append(errs, field.Invalid(newPath.Child("strategy"), dpuSet.Spec.Strategy, err.Error()))
-
-	}
 
 	// Exactly-one-of dpuFlavor/dpuFlavorTemplate is enforced by the CRD XValidation rule.
 	dpuTemplatePath := newPath.Child("dpuTemplate", "spec")
@@ -159,34 +149,4 @@ func (r *DPUSet) validateAstraEnabledInstallInterface(path *field.Path, spec pro
 		true,
 		"astraEnabled=true requires zero-trust deployment mode",
 	)
-}
-
-func validateStrategy(strategy provisioningv1.DPUSetStrategy) error {
-	if strategy.Type == provisioningv1.RollingUpdateStrategyType {
-		//nolint:staticcheck // SA1019: MaxUnavailable is deprecated but still supported
-		if strategy.RollingUpdate == nil || strategy.RollingUpdate.MaxUnavailable == nil {
-			return nil
-		}
-		//nolint:staticcheck // SA1019: MaxUnavailable is deprecated but still supported
-		switch strategy.RollingUpdate.MaxUnavailable.Type {
-		case intstr.String:
-			//nolint:staticcheck // SA1019: MaxUnavailable is deprecated but still supported
-			if scaledValue, err := intstr.GetScaledValueFromIntOrPercent(strategy.RollingUpdate.MaxUnavailable, 100, false); err != nil {
-				return err
-			} else {
-				if scaledValue <= 0 || scaledValue > 100 {
-					return errors.New("the value range of maxUnavailable must be greater than 0% and less than or equal to 100%")
-				}
-			}
-
-		case intstr.Int:
-			//nolint:staticcheck // SA1019: MaxUnavailable is deprecated but still supported
-			if strategy.RollingUpdate.MaxUnavailable.IntVal <= 0 {
-				return errors.New("the value range of maxUnavailable must be greater 0")
-			}
-
-		}
-	}
-
-	return nil
 }

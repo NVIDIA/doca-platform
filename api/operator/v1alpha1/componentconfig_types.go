@@ -106,6 +106,7 @@ type ProvisioningControllerConfiguration struct {
 	MultiDPUOperationsSyncWaitTime *metav1.Duration `json:"multiDPUOperationsSyncWaitTime,omitempty"`
 
 	// MaxUnavailableDPUNodes is the maximum number of DPUNodes that are unavailable during the node effect period.
+	// It is also used as the maximum number of unavailable DPUs when controlling DPUSet rolling-update deletion.
 	// +kubebuilder:default=50
 	// +kubebuilder:validation:Minimum=1
 	// +optional
