@@ -18,12 +18,15 @@ package state_test
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/allocator"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
+	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -78,6 +81,47 @@ var _ = Describe("DPU: deleting", func() {
 			err := k8sClient.Get(ctx, client.ObjectKey{Namespace: dpuDevice.Namespace, Name: dpuDevice.Name}, &provisioningv1.DPUDevice{})
 			return apierrors.IsNotFound(err)
 		}).WithTimeout(5 * time.Second).WithPolling(100 * time.Millisecond).Should(BeTrue())
+	})
+
+	It("deleting state should remove the BFB artifacts the DPU wrote to the shared volume", func() {
+		tempDir, err := os.MkdirTemp("", "bfb-deleting-test")
+		Expect(err).NotTo(HaveOccurred())
+		defer func() { _ = os.RemoveAll(tempDir) }()
+
+		originalBFBBaseDir := cutil.BFBBaseDir
+		cutil.BFBBaseDir = tempDir
+		defer func() { cutil.BFBBaseDir = originalBFBBaseDir }()
+
+		By("prepare DPU CR")
+		dpu := dpuObj("dpu-deleting-artifacts-test")
+		// The DPUDevice itself is not created: Deleting tolerates it being already gone.
+		dpu.Spec.DPUDeviceName = "dpu-device-deleting-artifacts-test"
+		dpu.Spec.Cluster.Name = "" // skip deleteNode in Deleting
+		dpu.Status.Phase = provisioningv1.DPUOSInstalling
+		dpu.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaGNOI))
+		createObject(dpu)
+
+		By("write the BF3 bf.cfg and the BF4 seed directory as PrepareBFB does")
+		bf3CFG := state.BF3CFGFile(dpu)
+		Expect(os.MkdirAll(filepath.Dir(bf3CFG), os.ModePerm)).To(Succeed())
+		Expect(os.WriteFile(bf3CFG, []byte("bf.cfg"), os.ModePerm)).To(Succeed())
+
+		bf4Dir := state.BF4UserDataDir(dpu)
+		Expect(os.MkdirAll(bf4Dir, os.ModePerm)).To(Succeed())
+		Expect(os.WriteFile(filepath.Join(bf4Dir, "user-data"), []byte("#cloud-config"), os.ModePerm)).To(Succeed())
+		Expect(os.WriteFile(filepath.Join(bf4Dir, "seed.iso"), []byte("iso"), os.ModePerm)).To(Succeed())
+
+		By("run the deleting state")
+		_, err = state.Deleting(ctx, dpu, &dutil.ControllerContext{
+			Client:               k8sClient,
+			DPUInProvisioningMap: dutil.NewDPUInProvisioningMap(10),
+			ClusterAllocator:     &noOpAllocator{},
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		By("verify no artifacts are left on the shared volume")
+		Expect(bf3CFG).NotTo(BeAnExistingFile())
+		Expect(bf4Dir).NotTo(BeAnExistingFile())
 	})
 })
 

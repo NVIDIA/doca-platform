@@ -55,13 +55,9 @@ func Deleting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Contr
 		return *state, err
 	}
 
-	cfgVersion := cutil.GenerateBFCFGFileName(dpu.Name, string(dpu.UID))
-
-	// Make sure there is no old bf cfg file in the shared volume
-	cfgFile := cutil.GenerateBFBCFGFilePath(cfgVersion)
-	if err := cutil.RemoveFileEx(cfgFile); err != nil {
-		err = fmt.Errorf("delete BFB CFG file %s failed: %w", cfgFile, err)
-		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondDeleting.String(), err, "DeleteBFBCFGFileError", err.Error()))
+	// Make sure this DPU leaves no artifacts behind on the shared BFB volume.
+	if err := RemoveArtifacts(dpu); err != nil {
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondDeleting.String(), err, "DeleteBFBArtifactsError", err.Error()))
 		return *state, err
 	}
 
