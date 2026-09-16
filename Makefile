@@ -124,7 +124,7 @@ $(SOS_REPORT_DIR): | $(REPOSDIR)
 	curl -sL ${DOCA_SOSREPORT_REPO_URL} | tar -xz -C ${REPOSDIR}
 
 # nvidia-external-attacher dependencies to be able to build its docker image
-EXTERNAL_ATTACHER_BRANCH=release-4.11
+EXTERNAL_ATTACHER_BRANCH=release-4.12
 NVIDIA_EXTERNAL_ATTACHER_DIR=third_party/forked/nvidia-external-attacher
 
 # Image for the SR-IOV device plugin, deployed by the NodeSRIOVDevicePlugin controller in the host cluster
