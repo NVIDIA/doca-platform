@@ -47,7 +47,7 @@ func (s StubComponent) Parse() error {
 }
 
 func (s StubComponent) GenerateManifests(_ context.Context, vars Variables) ([]client.Object, error) {
-	ret := []client.Object{}
+	ret := make([]client.Object, 0, len(s.objs))
 	for _, obj := range s.objs {
 		ret = append(ret, obj)
 	}

@@ -17,7 +17,7 @@ spec:
   validations:
     - expression: "!has(object.spec.clusterSelector)"
       message: >-
-        spec.clusterSelector is deprecated. This field is deprecated and will be removed with v26.7.0. Use DPUClusterSelector instead.
+        spec.clusterSelector is deprecated. This field is deprecated and will be removed with v27.1.0. Use DPUClusterSelector instead.
     - expression: "!has(object.spec.template) || !has(object.spec.template.spec) || !has(object.spec.template.spec.template) || !has(object.spec.template.spec.template.spec) || !has(object.spec.template.spec.template.spec.ovn)"
       message: >-
         spec.template.spec.template.spec.ovn is deprecated. This field is deprecated and will be removed with v26.10.0. Migrate to interfaceType="patch" with spec.patch.peerBridge and spec.patch.peerPatchName instead.

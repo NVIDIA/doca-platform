@@ -492,39 +492,40 @@ func setDPUHostNetworkReady(ctx context.Context, dpu *provisioningv1.DPU) {
 
 // cleanupTestObjects removes all test objects from the cluster.
 func cleanupTestObjects(ctx context.Context, c client.Client) {
-	allObjs := []client.Object{}
 	dpuList := &provisioningv1.DPUList{}
 	ExpectWithOffset(1, c.List(ctx, dpuList, client.InNamespace(testNamespace))).To(Succeed())
-	for i := range dpuList.Items {
-		allObjs = append(allObjs, &dpuList.Items[i])
-	}
 
 	configList := &noderesourcesv1.NodeSRIOVDevicePluginConfigList{}
 	ExpectWithOffset(1, c.List(ctx, configList, client.InNamespace(testNamespace))).To(Succeed())
-	for i := range configList.Items {
-		allObjs = append(allObjs, &configList.Items[i])
-	}
 
 	dpuNodeList := &provisioningv1.DPUNodeList{}
 	ExpectWithOffset(1, c.List(ctx, dpuNodeList, client.InNamespace(testNamespace))).To(Succeed())
-	for i := range dpuNodeList.Items {
-		allObjs = append(allObjs, &dpuNodeList.Items[i])
-	}
 
 	nodeList := &corev1.NodeList{}
 	ExpectWithOffset(1, c.List(ctx, nodeList)).To(Succeed())
-	for i := range nodeList.Items {
-		allObjs = append(allObjs, &nodeList.Items[i])
-	}
 
 	cmList := &corev1.ConfigMapList{}
 	ExpectWithOffset(1, c.List(ctx, cmList, client.InNamespace(testNamespace))).To(Succeed())
-	for i := range cmList.Items {
-		allObjs = append(allObjs, &cmList.Items[i])
-	}
 
 	podList := &corev1.PodList{}
 	ExpectWithOffset(1, c.List(ctx, podList, client.InNamespace(testNamespace))).To(Succeed())
+
+	allObjs := make([]client.Object, 0, len(dpuList.Items)+len(configList.Items)+len(dpuNodeList.Items)+len(nodeList.Items)+len(cmList.Items)+len(podList.Items))
+	for i := range dpuList.Items {
+		allObjs = append(allObjs, &dpuList.Items[i])
+	}
+	for i := range configList.Items {
+		allObjs = append(allObjs, &configList.Items[i])
+	}
+	for i := range dpuNodeList.Items {
+		allObjs = append(allObjs, &dpuNodeList.Items[i])
+	}
+	for i := range nodeList.Items {
+		allObjs = append(allObjs, &nodeList.Items[i])
+	}
+	for i := range cmList.Items {
+		allObjs = append(allObjs, &cmList.Items[i])
+	}
 	for i := range podList.Items {
 		allObjs = append(allObjs, &podList.Items[i])
 	}

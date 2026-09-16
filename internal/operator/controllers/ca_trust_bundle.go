@@ -257,7 +257,7 @@ func appendCertBlocks(out *bytes.Buffer, seen map[[sha256.Size]byte]bool, data [
 // ProvisioningCASecretToDPFOperatorConfig enqueues a reconcile when the provisioning CA Secret changes
 // so the CA trust bundle is kept in sync with the CA certificate (e.g. after a CA renewal/rotation).
 func (r *DPFOperatorConfigReconciler) ProvisioningCASecretToDPFOperatorConfig(_ context.Context, o client.Object) []ctrl.Request {
-	result := []ctrl.Request{}
+	result := make([]ctrl.Request, 0, 1)
 	// Ignore this enqueue function if the singletonNamespaceName is not set. This is done to enable easier testing.
 	if r.Settings.ConfigSingletonNamespaceName == nil {
 		return result
@@ -272,7 +272,7 @@ func (r *DPFOperatorConfigReconciler) ProvisioningCASecretToDPFOperatorConfig(_ 
 // CATrustBundleConfigMapToDPFOperatorConfig enqueues a reconcile when the CA trust bundle ConfigMap changes
 // so bundle-hash is recomputed by the operator after bundle edits (e.g. prune phase).
 func (r *DPFOperatorConfigReconciler) CATrustBundleConfigMapToDPFOperatorConfig(_ context.Context, o client.Object) []ctrl.Request {
-	result := []ctrl.Request{}
+	result := make([]ctrl.Request, 0, 1)
 	// Ignore this enqueue function if the singletonNamespaceName is not set. This is done to enable easier testing.
 	if r.Settings.ConfigSingletonNamespaceName == nil {
 		return result

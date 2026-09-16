@@ -381,7 +381,7 @@ func addKamajisTenantControlPlane(ctx context.Context, o objectScope, root clien
 }
 
 func kamajisTenantControlPlaneStatusConditions(tcp kamajiv1.TenantControlPlane) []metav1.Condition {
-	conds := []metav1.Condition{}
+	conds := make([]metav1.Condition, 0, len(tcp.Status.Kubernetes.Service.Conditions)+len(tcp.Status.Kubernetes.Deployment.Conditions)+1)
 	allConditionsReady := true
 	// The Service conditions are already metav1.Condition, we can start with them directly.
 	for _, cond := range tcp.Status.Kubernetes.Service.Conditions {
@@ -747,7 +747,7 @@ func argoStatusResourcesToConditions(status argov1.ApplicationStatus) []metav1.C
 	}
 
 	// Add ArgoCD's own conditions
-	notReadyConditions := []string{}
+	notReadyConditions := make([]string, 0, len(status.Conditions))
 	for _, c := range status.Conditions {
 		// ArgoCD conditions only have Type, Message, and LastTransitionTime
 		// We'll set Status to False since any condition indicates a problem

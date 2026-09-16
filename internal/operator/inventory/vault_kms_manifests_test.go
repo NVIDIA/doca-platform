@@ -149,7 +149,7 @@ func TestVaultKMSObjects_GenerateManifests(t *testing.T) {
 
 		g.Expect(volumeByName(ds.Spec.Template.Spec.Volumes, "kms-socket")).NotTo(BeNil())
 
-		var mountPaths []string
+		mountPaths := make([]string, 0, len(c.VolumeMounts))
 		for _, m := range c.VolumeMounts {
 			mountPaths = append(mountPaths, m.MountPath)
 		}

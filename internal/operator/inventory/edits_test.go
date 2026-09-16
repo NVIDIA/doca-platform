@@ -42,7 +42,7 @@ var _ = Describe("Test Edits", func() {
 			service := &corev1.Service{TypeMeta: metav1.TypeMeta{Kind: "Service"}}
 			role := &rbacv1.Role{TypeMeta: metav1.TypeMeta{Kind: "Role"}}
 
-			objs = nil
+			objs = make([]*unstructured.Unstructured, 0, 3)
 			objsByKind = make(map[ObjectKind]*unstructured.Unstructured)
 
 			obj := &unstructured.Unstructured{}

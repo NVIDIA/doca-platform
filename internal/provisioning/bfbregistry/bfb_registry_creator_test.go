@@ -243,7 +243,7 @@ var _ = Describe("desiredPod HTTPS wiring", func() {
 	})
 
 	It("runs nginx and the cert-reloader sidecar", func() {
-		var names []string
+		names := make([]string, 0, len(pod.Spec.Containers))
 		for _, c := range pod.Spec.Containers {
 			names = append(names, c.Name)
 		}

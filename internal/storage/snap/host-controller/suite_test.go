@@ -409,7 +409,7 @@ func cleanupTestObjects(ctx context.Context, c client.Client) {
 		&corestoragev1.StorageClassList{},
 		&corestoragev1.CSIDriverList{},
 	}
-	cleanupObjects := []client.Object{}
+	cleanupObjects := []client.Object{} //nolint:prealloc // final size depends on extractObjectsFromList's variadic-spread results, not known upfront
 	for _, objList := range objectLists {
 		ExpectWithOffset(1, c.List(ctx, objList)).NotTo(HaveOccurred())
 		cleanupObjects = append(cleanupObjects, extractObjectsFromList(objList)...)

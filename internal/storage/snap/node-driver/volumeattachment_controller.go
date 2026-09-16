@@ -188,7 +188,7 @@ func (r *VolumeAttachmentReconciler) handleAttachment(ctx context.Context, volum
 				klog.ErrorS(updateErr, "Failed to update VolumeAttachment status")
 				return ctrl.Result{}, fmt.Errorf("failed to update status: %w", updateErr)
 			}
-			return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 1}, nil
+			return ctrl.Result{RequeueAfter: time.Second * 1}, nil
 		}
 
 		if err := r.backfillFuncVUID(ctx, client, volumeAttachment, volume); err != nil {
@@ -197,7 +197,7 @@ func (r *VolumeAttachmentReconciler) handleAttachment(ctx context.Context, volum
 				"PCIDeviceAddress", volumeAttachment.Status.DPU.PCIDeviceAddress)
 		}
 
-		return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 10}, nil
+		return ctrl.Result{RequeueAfter: time.Second * 10}, nil
 	}
 
 	if err := validateVolumePlugin(ctx, volume.Spec.Request.VolumeMode, client, identityClient); err != nil {
@@ -312,7 +312,7 @@ func (r *VolumeAttachmentReconciler) handleAttachment(ctx context.Context, volum
 		"PCIDeviceAddress", pciAddr,
 		"DeviceName", deviceName)
 
-	return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 10}, nil
+	return ctrl.Result{RequeueAfter: time.Second * 10}, nil
 }
 
 // handleDetachment handles the detachment workflow once deletionTimestamp is set
