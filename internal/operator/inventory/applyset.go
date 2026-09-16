@@ -90,7 +90,7 @@ func ApplySetID(namespace string, component Component) string {
 
 // InventoryStringFromObjects computes the applyset inventory annotation value from a slice of client.Object.
 func InventoryStringFromObjects(objs ...client.Object) string {
-	gknnStrings := []string{}
+	gknnStrings := make([]string, 0, len(objs))
 	for _, obj := range objs {
 		gknnStrings = append(gknnStrings, GroupKindNamespaceName{
 			Group:     obj.GetObjectKind().GroupVersionKind().Group,

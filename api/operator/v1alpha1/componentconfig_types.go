@@ -40,7 +40,7 @@ type ProvisioningControllerConfiguration struct {
 
 	// Image overrides the container image used by the Provisioning controller.
 	//
-	// Deprecated: This field is deprecated and will be removed with v26.7.0.
+	// Deprecated: This field is deprecated and will be removed with v27.1.0.
 	// Use the new field `controller` instead.
 	// +optional
 	Image Image `json:"image,omitempty"`
@@ -176,7 +176,7 @@ func (c *ProvisioningControllerConfiguration) Name() string {
 	return ProvisioningControllerName.String()
 }
 
-// Deprecated: This method is deprecated and will be removed with v26.7.0. Use GetImages instead.
+// Deprecated: This method is deprecated and will be removed with v27.1.0. Use GetImages instead.
 func (c *ProvisioningControllerConfiguration) GetImage() *string {
 	return c.Image
 }
@@ -436,7 +436,7 @@ type DPUServiceControllerConfiguration struct {
 
 	// Image overrides the container image used by the DPUService controller.
 	//
-	// Deprecated: This field is deprecated and will be removed with v26.7.0.
+	// Deprecated: This field is deprecated and will be removed with v27.1.0.
 	// Use the new field `controller` instead.
 	// +optional
 	Image Image `json:"image,omitempty"`
@@ -464,7 +464,7 @@ func (c *DPUServiceControllerConfiguration) Name() string {
 	return DPUServiceControllerName.String()
 }
 
-// Deprecated: This method is deprecated and will be removed with v26.7.0. Use GetImages instead.
+// Deprecated: This method is deprecated and will be removed with v27.1.0. Use GetImages instead.
 func (c *DPUServiceControllerConfiguration) GetImage() *string {
 	return c.Image
 }
@@ -494,7 +494,7 @@ type DPUDetectorConfiguration struct {
 
 	// Image overrides the container image used by the DPUDetector Container.
 	//
-	// Deprecated: This field is deprecated and will be removed with v26.7.0.
+	// Deprecated: This field is deprecated and will be removed with v27.1.0.
 	// Use the new field `daemon` instead.
 	// +optional
 	Image Image `json:"image,omitempty"`
@@ -509,7 +509,7 @@ func (c *DPUDetectorConfiguration) Name() string {
 	return DPUDetectorName.String()
 }
 
-// Deprecated: This method is deprecated and will be removed with v26.7.0. Use GetImages instead.
+// Deprecated: This method is deprecated and will be removed with v27.1.0. Use GetImages instead.
 func (c *DPUDetectorConfiguration) GetImage() *string {
 	return c.Image
 }
@@ -540,7 +540,7 @@ type KamajiClusterManagerConfiguration struct {
 
 	// Image overrides the container image used by the Kamaji Cluster Manager.
 	//
-	// Deprecated: This field is deprecated and will be removed with v26.7.0.
+	// Deprecated: This field is deprecated and will be removed with v27.1.0.
 	// Use the new field `controller` instead.
 	// +optional
 	Image Image `json:"image,omitempty"`
@@ -561,7 +561,7 @@ func (c *KamajiClusterManagerConfiguration) Name() string {
 	return KamajiClusterManagerName.String()
 }
 
-// Deprecated: This method is deprecated and will be removed with v26.7.0. Use GetImages instead.
+// Deprecated: This method is deprecated and will be removed with v27.1.0. Use GetImages instead.
 func (c *KamajiClusterManagerConfiguration) GetImage() *string {
 	return c.Image
 }
@@ -592,7 +592,7 @@ type StaticClusterManagerConfiguration struct {
 
 	// Image overrides the container image used by the Static Cluster Manager.
 	//
-	// Deprecated: This field is deprecated and will be removed with v26.7.0.
+	// Deprecated: This field is deprecated and will be removed with v27.1.0.
 	// Use the new field `controller` instead.
 	// +optional
 	Image Image `json:"image,omitempty"`
@@ -607,7 +607,7 @@ func (c *StaticClusterManagerConfiguration) Name() string {
 	return StaticClusterManagerName.String()
 }
 
-// Deprecated: This method is deprecated and will be removed with v26.7.0. Use GetImages instead.
+// Deprecated: This method is deprecated and will be removed with v27.1.0. Use GetImages instead.
 func (c *StaticClusterManagerConfiguration) GetImage() *string {
 	return c.Image
 }
@@ -639,7 +639,7 @@ type ServiceSetControllerConfiguration struct {
 
 	// Image overrides the container image used by the ServiceChainSet Controller.
 	//
-	// Deprecated: This field is deprecated and will be removed with v26.7.0.
+	// Deprecated: This field is deprecated and will be removed with v27.1.0.
 	// Use the new field `controller` instead.
 	// +optional
 	Image Image `json:"image,omitempty"`
@@ -654,7 +654,7 @@ func (c *ServiceSetControllerConfiguration) Name() string {
 	return ServiceSetControllerName.String()
 }
 
-// Deprecated: This method is deprecated and will be removed with v26.7.0. Use GetImages instead.
+// Deprecated: This method is deprecated and will be removed with v27.1.0. Use GetImages instead.
 func (c *ServiceSetControllerConfiguration) GetImage() *string {
 	return c.Image
 }
@@ -703,7 +703,7 @@ type FlannelConfiguration struct {
 
 	// Images overrides the container images used by flannel
 	//
-	// Deprecated: This field is deprecated and will be removed with v26.7.0.
+	// Deprecated: This field is deprecated and will be removed with v27.1.0.
 	// Use the new fields `cni` and `daemon` instead.
 	// +optional
 	Images *FlannelImages `json:"image,omitempty"`
@@ -770,7 +770,7 @@ type MultusConfiguration struct {
 
 	// Image overrides the container image used by the Multus Container.
 	//
-	// Deprecated: This field is deprecated and will be removed with v26.7.0.
+	// Deprecated: This field is deprecated and will be removed with v27.1.0.
 	// Use the new field `cni` instead.
 	// +optional
 	Image Image `json:"image,omitempty"`
@@ -785,7 +785,7 @@ func (c *MultusConfiguration) Name() string {
 	return MultusName.String()
 }
 
-// Deprecated: This method is deprecated and will be removed with v26.7.0. Use GetImages instead.
+// Deprecated: This method is deprecated and will be removed with v27.1.0. Use GetImages instead.
 func (c *MultusConfiguration) GetImage() *string {
 	return c.Image
 }
@@ -817,7 +817,7 @@ type NVIPAMConfiguration struct {
 
 	// Image overrides the container image used by the NVIPAM controller.
 	//
-	// Deprecated: This field is deprecated and will be removed with v26.7.0.
+	// Deprecated: This field is deprecated and will be removed with v27.1.0.
 	// Use the new field `controller` instead.
 	// +optional
 	Image Image `json:"image,omitempty"`
@@ -842,7 +842,7 @@ type NVIPAMNode struct {
 	ResourceComponentConfig `json:",inline"`
 }
 
-// Deprecated: This method is deprecated and will be removed with v26.7.0. Use GetImages instead.
+// Deprecated: This method is deprecated and will be removed with v27.1.0. Use GetImages instead.
 func (c *NVIPAMConfiguration) GetImage() *string {
 	return c.Image
 }
@@ -881,7 +881,7 @@ type SRIOVDevicePluginConfiguration struct {
 
 	// Image overrides the container image used by the SRIOV Device Plugin container.
 	//
-	// Deprecated: This field is deprecated and will be removed with v26.7.0.
+	// Deprecated: This field is deprecated and will be removed with v27.1.0.
 	// Use the new field `deviceplugin` instead.
 	// +optional
 	Image Image `json:"image,omitempty"`
@@ -896,7 +896,7 @@ func (c *SRIOVDevicePluginConfiguration) Name() string {
 	return SRIOVDevicePluginName.String()
 }
 
-// Deprecated: This method is deprecated and will be removed with v26.7.0. Use GetImages instead.
+// Deprecated: This method is deprecated and will be removed with v27.1.0. Use GetImages instead.
 func (c *SRIOVDevicePluginConfiguration) GetImage() *string {
 	return c.Image
 }
@@ -927,7 +927,7 @@ type OVSCNIConfiguration struct {
 
 	// Image overrides the container image used by the OVS CNI.
 	//
-	// Deprecated: This field is deprecated and will be removed with v26.7.0.
+	// Deprecated: This field is deprecated and will be removed with v27.1.0.
 	// Use the new field `cni` instead.
 	// +optional
 	Image Image `json:"image,omitempty"`
@@ -942,7 +942,7 @@ func (c *OVSCNIConfiguration) Name() string {
 	return OVSCNIName.String()
 }
 
-// Deprecated: This method is deprecated and will be removed with v26.7.0. Use GetImages instead.
+// Deprecated: This method is deprecated and will be removed with v27.1.0. Use GetImages instead.
 func (c *OVSCNIConfiguration) GetImage() *string {
 	return c.Image
 }
@@ -977,7 +977,7 @@ type SFCControllerConfiguration struct {
 
 	// Image overrides the container image used by the SFC controller.
 	//
-	// Deprecated: This field is deprecated and will be removed with v26.7.0.
+	// Deprecated: This field is deprecated and will be removed with v27.1.0.
 	// Use the new field `controller` instead.
 	// +optional
 	Image Image `json:"image,omitempty"`
@@ -998,7 +998,7 @@ func (c *SFCControllerConfiguration) Name() string {
 	return SFCControllerName.String()
 }
 
-// Deprecated: This method is deprecated and will be removed with v26.7.0. Use GetImages instead.
+// Deprecated: This method is deprecated and will be removed with v27.1.0. Use GetImages instead.
 func (c *SFCControllerConfiguration) GetImage() *string {
 	return c.Image
 }

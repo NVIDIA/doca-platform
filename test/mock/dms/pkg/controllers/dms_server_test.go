@@ -257,7 +257,7 @@ func TestDMSServerReconciler(t *testing.T) {
 }
 
 func createNodes(n int) []*corev1.Node {
-	nodes := []*corev1.Node{}
+	nodes := make([]*corev1.Node, 0, n)
 	for i := range n {
 		name := fmt.Sprintf("target-cluster-%d", i)
 		nodes = append(nodes, &corev1.Node{

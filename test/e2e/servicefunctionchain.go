@@ -625,17 +625,16 @@ func setupMTUServiceFunctionChain(ctx context.Context, input *systemTestInput, m
 	dpuservice.WaitForDPUServices(ctx, input.client, input.namespace, []string{"sfc-controller"})
 
 	By("Create DPU service interfaces for service function")
-	interfaceConfigs := []dpuservice.TestDPUServiceInterfaceConfig{
-		{
-			Name:          cfg.physicalInterfacePrefix,
-			Type:          "physical",
-			Namespace:     input.namespace,
-			InterfaceName: cfg.physicalInterfacePrefix,
-			Labels: map[string]string{
-				"uplink": cfg.physicalInterfacePrefix,
-			},
+	interfaceConfigs := make([]dpuservice.TestDPUServiceInterfaceConfig, 0, 3)
+	interfaceConfigs = append(interfaceConfigs, dpuservice.TestDPUServiceInterfaceConfig{
+		Name:          cfg.physicalInterfacePrefix,
+		Type:          "physical",
+		Namespace:     input.namespace,
+		InterfaceName: cfg.physicalInterfacePrefix,
+		Labels: map[string]string{
+			"uplink": cfg.physicalInterfacePrefix,
 		},
-	}
+	})
 
 	for _, serviceID := range []string{cfg.service1ID, cfg.service2ID} {
 		interfaceConfigs = append(interfaceConfigs, dpuservice.TestDPUServiceInterfaceConfig{

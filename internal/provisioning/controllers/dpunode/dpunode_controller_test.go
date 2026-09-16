@@ -918,7 +918,8 @@ spec:
 					},
 				}
 
-				objs := []client.Object{configMap, dpuNode}
+				objs := make([]client.Object, 0, 2+len(dpus))
+				objs = append(objs, configMap, dpuNode)
 				for _, d := range dpus {
 					objs = append(objs, d)
 				}

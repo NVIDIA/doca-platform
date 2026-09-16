@@ -46,7 +46,7 @@ func Test_GetDPFClusters(t *testing.T) {
 			testKamajiClusterSecret(clusters[2], t),
 		}
 
-		objects := []client.Object{}
+		objects := make([]client.Object, 0, len(secrets)+len(clusters))
 		for _, s := range secrets {
 			objects = append(objects, s)
 		}
@@ -79,7 +79,7 @@ func Test_GetDPFClusters(t *testing.T) {
 			testKamajiClusterSecret(clusters[2], t),
 		}
 		clusters[2].Status.Phase = provisioningv1.PhaseNotReady
-		objects := []client.Object{}
+		objects := make([]client.Object, 0, len(secrets)+len(clusters))
 		for _, s := range secrets {
 			objects = append(objects, s)
 		}

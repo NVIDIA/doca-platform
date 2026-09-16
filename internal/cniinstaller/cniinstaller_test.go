@@ -35,7 +35,7 @@ var cniNames = []string{"rdma", "ovs", "host-device", "loopback", "dhcp", "stati
 // cniEntries returns one DescribeTable entry per shipped CNI, so dropping a COPY from the
 // Dockerfile is caught.
 func cniEntries() []TableEntry {
-	entries := []TableEntry{}
+	entries := make([]TableEntry, 0, len(cniNames))
 	for _, name := range cniNames {
 		entries = append(entries, Entry(nil, name))
 	}
@@ -107,7 +107,7 @@ var _ = Describe("CNI Installer", func() {
 
 			destFiles, err := os.ReadDir(destCniDir)
 			Expect(err).ToNot(HaveOccurred())
-			destNames := []string{}
+			destNames := make([]string, 0, len(destFiles))
 			for _, destFile := range destFiles {
 				destNames = append(destNames, destFile.Name())
 			}
@@ -226,7 +226,7 @@ var _ = Describe("CNI Installer", func() {
 			// Should only contain the expected CNI binaries, no temporary files
 			destFiles, err := os.ReadDir(destCniDir)
 			Expect(err).ToNot(HaveOccurred())
-			destNames := []string{}
+			destNames := make([]string, 0, len(destFiles))
 			for _, destFile := range destFiles {
 				destNames = append(destNames, destFile.Name())
 			}

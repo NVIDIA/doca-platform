@@ -23,6 +23,11 @@ linters:
   settings:
     ginkgolinter:
       forbid-focus-container: true
+    goconst:
+      ignore-tests: true
+      exclude-types:
+        - Call
+        - CompositeLit
     importas:
       alias:
         # DPF
@@ -91,6 +96,11 @@ linters:
           - dupl
         path: _test\.go
       - linters:
+          - goconst
+        # test/e2e files aren't named _test.go (so goconst's own ignore-tests setting doesn't cover
+        # them), but they're still e2e test code where repeated literal fixture values are normal.
+        path: "^test/e2e/"
+      - linters:
           - staticcheck
         text: "ST1000"
       - linters:
@@ -99,11 +109,63 @@ linters:
       - linters:
           - staticcheck
         # corev1.Endpoints and related types are needed for DPUService reconciliation. Ignore warnings that they're deprecated.
-        text: "SA1019.*corev1.Endpoint.*deprecated"
+        text: "SA1019: k8s\\.io/api/core/v1\\.Endpoint.*is deprecated"
       - linters:
           - staticcheck
         # ProvisioningInstallInterface.installViaGNOI is deprecated; validation still accepts it until configs migrate to installViaHostAgent.
         text: "SA1019.*InstallViaGNOI.*deprecated"
+      - linters:
+          - staticcheck
+        # RollingUpdateDPU.MaxUnavailable is deprecated and slated for removal in v27.1.0; still supported until callers migrate.
+        text: "SA1019: .*\\.MaxUnavailable is deprecated"
+      - linters:
+          - staticcheck
+        # DPUFlavor/related NodeDMSAddress field is deprecated (no longer used) but kept for compatibility with existing configs.
+        text: "SA1019: .*\\.NodeDMSAddress is deprecated"
+      - linters:
+          - staticcheck
+        # GNOI field is deprecated in favor of HostAgent; still accepted until configs migrate.
+        text: "SA1019: .*\\.GNOI is deprecated"
+      - linters:
+          - staticcheck
+        # DPUSet/DPUSetSpec.DPUSelector is deprecated in favor of DPUDeviceSelector but still supported until v27.1.0.
+        text: "SA1019: .*\\.DPUSelector is deprecated"
+      - linters:
+          - staticcheck
+        # Exclusions field is deprecated in favor of ExcludeRanges but still supported until v26.10.0.
+        text: "SA1019: .*\\.Exclusions is deprecated"
+      - linters:
+          - staticcheck
+        # BFBRegistryAddress is deprecated in favor of RegistryConfiguration but still supported until configs migrate.
+        text: "SA1019: .*\\.BFBRegistryAddress is deprecated"
+      - linters:
+          - staticcheck
+        # DPUDeviceSpec.OPN is deprecated in favor of status.opn but the spec field remains for immutability validation.
+        text: "SA1019: .*\\.OPN is deprecated"
+      - linters:
+          - staticcheck
+        # NodeSelector is deprecated in favor of DPUNodeSelector but still supported until v27.1.0.
+        text: "SA1019: .*\\.NodeSelector is deprecated"
+      - linters:
+          - staticcheck
+        # Images is deprecated in favor of the cni/daemon fields but still supported until v27.1.0.
+        text: "SA1019: .*\\.Images is deprecated"
+      - linters:
+          - staticcheck
+        # DPUDeviceSpec.PSID is deprecated in favor of status.psid but the spec field remains for immutability validation.
+        text: "SA1019: .*\\.PSID is deprecated"
+      - linters:
+          - staticcheck
+        # Forked kamaji KubeletSpec.CGroupFS is deprecated upstream in favor of ConfigurationJSONPatches; still set for compatibility.
+        text: "SA1019: .*\\.CGroupFS is deprecated"
+      - linters:
+          - staticcheck
+        # DPUSpec.BMCIP is deprecated in favor of DPUDevice's BMCIP but still supported until callers migrate.
+        text: "SA1019: .*\\.BMCIP is deprecated"
+      - linters:
+          - staticcheck
+        # BFBRegistry is deprecated in favor of RegistryConfiguration but still supported until configs migrate.
+        text: "SA1019: .*\\.BFBRegistry is deprecated"
     paths:
       - third_party
       - third_party$

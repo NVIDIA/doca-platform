@@ -116,7 +116,7 @@ func (r *DPUServiceCredentialRequestReconciler) Reconcile(ctx context.Context, r
 	// Add finalizer if not set.
 	if !controllerutil.ContainsFinalizer(obj, dpuservicev1.DPUServiceCredentialRequestFinalizer) {
 		controllerutil.AddFinalizer(obj, dpuservicev1.DPUServiceCredentialRequestFinalizer)
-		return ctrl.Result{Requeue: true}, nil
+		return ctrl.Result{}, nil
 	}
 
 	return r.reconcile(ctx, obj)
@@ -564,16 +564,11 @@ func (r *DPUServiceCredentialRequestReconciler) reconcileDelete(ctx context.Cont
 		return ctrl.Result{}, err
 	}
 
-	if !obj.DeletionTimestamp.IsZero() {
-		// Remove our finalizer from the object.
-		controllerutil.RemoveFinalizer(obj, dpuservicev1.DPUServiceCredentialRequestFinalizer)
+	// Remove our finalizer from the object.
+	controllerutil.RemoveFinalizer(obj, dpuservicev1.DPUServiceCredentialRequestFinalizer)
 
-		// Stop reconciliation as the object is being deleted.
-		return ctrl.Result{}, nil
-	}
-
-	// Requeue here to reconcile dependencies.
-	return ctrl.Result{Requeue: true}, nil
+	// Stop reconciliation as the object is being deleted.
+	return ctrl.Result{}, nil
 }
 
 func deleteServiceAccount(ctx context.Context, obj *dpuservicev1.DPUServiceCredentialRequest, targetClient client.Client) error {

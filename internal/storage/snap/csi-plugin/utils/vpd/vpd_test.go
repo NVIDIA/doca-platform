@@ -28,7 +28,8 @@ func createVPDResource(tag byte, fields ...string) []byte {
 		resourceData = append(resourceData, byte(len(fields[i+1])))
 		resourceData = append(resourceData, fields[i+1]...)
 	}
-	vpdData := []byte{tag, byte(len(resourceData)), byte(len(resourceData) >> 8)}
+	vpdData := make([]byte, 0, 3+len(resourceData))
+	vpdData = append(vpdData, tag, byte(len(resourceData)), byte(len(resourceData)>>8))
 	return append(vpdData, resourceData...)
 }
 
@@ -104,7 +105,7 @@ var _ = Describe("VPD", func() {
 	It("skips identifier and small resources", func() {
 		// Add a four-byte identifier resource followed by an unrelated
 		// one-byte small resource; neither should be parsed as VPD fields.
-		raw := []byte{0x82, 0x04, 0x00, 't', 'e', 's', 't'}
+		raw := []byte{0x82, 0x04, 0x00, 't', 'e', 's', 't'} //nolint:prealloc // fixed test fixture literal followed by one append; not worth a capacity hint
 		raw = append(raw, byte(0x01<<smallResourceTagShift|0x01), 0xff)
 		raw = append(raw, createVPDResource(readWriteTag, "VU", "test-function-vuid")...)
 

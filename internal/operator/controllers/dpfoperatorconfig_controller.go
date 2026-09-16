@@ -901,7 +901,7 @@ func (r *DPFOperatorConfigReconciler) deleteByGKNN(ctx context.Context, gknn inv
 
 // ResourceToDPFOperatorConfig enqueues a reconcile when an event occurs for system DPUServices.
 func (r *DPFOperatorConfigReconciler) ResourceToDPFOperatorConfig(_ context.Context, o client.Object) []ctrl.Request {
-	result := []ctrl.Request{}
+	result := make([]ctrl.Request, 0, 1)
 	// Ignore this enqueue function if the singletonNamespaceName is not set. This is done to enable easier testing.
 	if r.Settings.ConfigSingletonNamespaceName == nil {
 		return result

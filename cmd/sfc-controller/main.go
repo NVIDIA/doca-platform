@@ -189,7 +189,7 @@ func main() {
 
 	ctx := ctrl.SetupSignalHandler()
 
-	options := []client.Option{}
+	options := make([]client.Option, 0, 3)
 
 	options = append(options, client.WithEndpoint("unix:/var/run/openvswitch/db.sock"))
 	options = append(options, client.WithInactivityCheck(30*time.Second, 15*time.Second, &backoff.ZeroBackOff{}))

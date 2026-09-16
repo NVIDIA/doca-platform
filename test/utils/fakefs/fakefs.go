@@ -149,11 +149,11 @@ func GinkgoConfigureFakeFS(rootFsVar *string, cfg Config) *FakeFs {
 	return f
 }
 
-// GinkgoFakeFsFileContent helper function to check content of the file
-// in the fakeFs.
-func GinkgoFakeFsFileContent(fs *FakeFs, path string) Assertion {
+// GinkgoFakeFsFileContent reads the content of a file in the fakeFs, for use with Expect(...) at
+// the call site (e.g. Expect(GinkgoFakeFsFileContent(f, path)).To(Equal(...))).
+func GinkgoFakeFsFileContent(fs *FakeFs, path string) string {
 	realFilePath := fs.GetRealPath(path)
 	data, err := os.ReadFile(realFilePath)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
-	return Expect(string(data))
+	return string(data)
 }

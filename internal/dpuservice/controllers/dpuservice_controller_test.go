@@ -179,11 +179,12 @@ var _ = Describe("DPUService Controller", func() {
 			}
 			Expect(patcher.Patch(ctx, nonMatchingNode, patch.WithFieldOwner("dpu-service-test"))).To(Succeed())
 
-			expectedEndpointSliceEndpoint := []discoveryv1.Endpoint{{
+			expectedEndpointSliceEndpoint := make([]discoveryv1.Endpoint, 0, 2)
+			expectedEndpointSliceEndpoint = append(expectedEndpointSliceEndpoint, discoveryv1.Endpoint{
 				Addresses:  []string{"192.168.1.10"},
 				NodeName:   ptr.To("node-1"),
 				Conditions: discoveryv1.EndpointConditions{Ready: ptr.To(true)},
-			}}
+			})
 
 			dpuServices := getMinimalDPUServices(testNS.Name)
 			// A DPUService that should be deployed to the same cluster the DPF system is deployed in.
@@ -2178,10 +2179,10 @@ var _ = Describe("test DPUService reconciler step-by-step", func() {
 
 			By("Cleanup the control plane and argoCD secrets")
 			secretList := &corev1.SecretList{}
-			objs := []client.Object{}
 
 			// Delete all the secrets.
 			Expect(testClient.List(ctx, secretList)).To(Succeed())
+			objs := make([]client.Object, 0, len(secretList.Items))
 			for _, s := range secretList.Items {
 				objs = append(objs, s.DeepCopy())
 			}
@@ -2192,10 +2193,10 @@ var _ = Describe("test DPUService reconciler step-by-step", func() {
 			Expect(testClient.Delete(ctx, testNS)).To(Succeed())
 			By("Cleanup the control plane and argoCD secrets")
 			secretList := &corev1.SecretList{}
-			objs := []client.Object{}
 
 			// Delete all the secrets.
 			Expect(testClient.List(ctx, secretList)).To(Succeed())
+			objs := make([]client.Object, 0, len(secretList.Items))
 			for _, s := range secretList.Items {
 				objs = append(objs, s.DeepCopy())
 			}
