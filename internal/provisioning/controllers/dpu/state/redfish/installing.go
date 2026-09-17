@@ -49,6 +49,8 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 	logger := log.FromContext(ctx)
 	state := dpu.Status.DeepCopy()
 
+	cutil.ConfirmDPUCondition(state, provisioningv1.DPUCondBFBPrepared)
+
 	// Check if DPU deletion is requested during OS installation
 	if !dpu.DeletionTimestamp.IsZero() {
 		logger.Info("DPU deletion requested while in Installing state, cannot delete DPU during OS installation")

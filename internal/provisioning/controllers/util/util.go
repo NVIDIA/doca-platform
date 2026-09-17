@@ -649,6 +649,27 @@ func SetDPUCondition(status *provisioningv1.DPUStatus, condition *metav1.Conditi
 	return !isEqual
 }
 
+// ConfirmDPUCondition flips a condition left at False back to True, keeping LastTransitionTime.
+//
+// Conditions and the rest of the status are persisted as separate patches, so the reconcile that
+// completes a step lands condition=True slightly before the phase advance that went with it.
+// Reconciles for one DPU are serialized, but each reads the informer cache: a following reconcile
+// can land in that window, see the condition with the old phase, redo the step, and on a transient
+// failure patch the condition back to False while leaving the phase alone, as its own view never
+// had the new one. The handler owning the condition is then never re-entered to clear it, and the
+// False follows the DPU to Ready.
+//
+// Callers must prove the step succeeded, as this discards the recorded failure.
+func ConfirmDPUCondition(status *provisioningv1.DPUStatus, condType provisioningv1.DPUConditionType) {
+	_, condition := GetDPUCondition(status, condType.String())
+	if condition == nil || condition.Status == metav1.ConditionTrue {
+		return
+	}
+	condition.Status = metav1.ConditionTrue
+	condition.Reason = condType.String()
+	condition.Message = ""
+}
+
 // ReplaceDaemonSetPodNodeNameNodeAffinity replaces the RequiredDuringSchedulingIgnoredDuringExecution
 // NodeAffinity of the given affinity with a new NodeAffinity that selects the given nodeName.
 // Note that this function assumes that no NodeAffinity conflicts with the selected nodeName.

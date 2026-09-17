@@ -33,6 +33,8 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 	logger := log.FromContext(ctx)
 	state := dpu.Status.DeepCopy()
 
+	cutil.ConfirmDPUCondition(state, provisioningv1.DPUCondBFBPrepared)
+
 	if !dpu.DeletionTimestamp.IsZero() {
 		cond := meta.FindStatusCondition(dpu.Status.Conditions, string(provisioningv1.DPUCondOSInstalled))
 		if cond != nil && (cond.Status == metav1.ConditionTrue || cond.Reason == install.InstallationTerminated) {
