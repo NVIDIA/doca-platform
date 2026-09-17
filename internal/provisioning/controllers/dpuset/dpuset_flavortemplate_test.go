@@ -518,6 +518,109 @@ var _ = Describe("DPUSet template mode", func() {
 			Expect(got.Annotations).NotTo(HaveKey(cutil.RenderFailedReasonAnnotation))
 		})
 
+		It("clears a stale update-time render failure when the template is reverted to its last-good body", func() {
+			template := newTemplate(okBody)
+			device := newDevice(`{"mtu":9000}`)
+			// A reverted template hashes back to the values the DPU was provisioned with,
+			// because the failed render deliberately left the hash labels untouched.
+			th, vh, err := inputHashes(template.Spec, device.Spec.Values)
+			Expect(err).NotTo(HaveOccurred())
+			dpu := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{Name: "dpu-0", Namespace: tmplNS,
+					Labels: map[string]string{
+						cutil.DPUFlavorTemplateNameLabel: "tmpl",
+						cutil.DPUFlavorTemplateHashLabel: th,
+						cutil.DPUDeviceValuesHashLabel:   vh,
+					},
+					Annotations: map[string]string{
+						cutil.RenderFailedReasonAnnotation:  cutil.RenderFailedOnUpdate,
+						cutil.RenderFailedMessageAnnotation: "old failure",
+					},
+				},
+				Spec: provisioningv1.DPUSpec{DPUDeviceName: "dev", DPUFlavor: "dpu-0"},
+			}
+			r := tmplReconciler(scheme, template, device, dpu)
+			dpuSet := newTemplateDPUSet()
+
+			dpuMap := map[string]provisioningv1.DPU{"dpu-0": *dpu}
+			Expect(r.reconcileTemplateDPUs(ctx, dpuSet, dpuMap, r.evalTemplateDPUs(ctx, dpuSet, dpuMap))).To(Succeed())
+
+			got := &provisioningv1.DPU{}
+			Expect(r.Get(ctx, types.NamespacedName{Namespace: tmplNS, Name: "dpu-0"}, got)).To(Succeed())
+			Expect(got.Annotations).NotTo(HaveKey(cutil.RenderFailedReasonAnnotation))
+			Expect(got.Annotations).NotTo(HaveKey(cutil.RenderFailedMessageAnnotation))
+			// The labels were already current and must survive untouched.
+			Expect(got.Labels[cutil.DPUFlavorTemplateHashLabel]).To(Equal(th))
+			Expect(got.Labels[cutil.DPUDeviceValuesHashLabel]).To(Equal(vh))
+		})
+
+		It("keeps a create-time render failure parked while its failing inputs are still live", func() {
+			template := newTemplate(errBody)
+			device := newDevice("")
+			// createTemplateModeDPU stamps the hashes of the failing inputs, so this DPU hits
+			// the same unchanged-inputs path; the failure is terminal and must not be cleared.
+			th, vh, err := inputHashes(template.Spec, device.Spec.Values)
+			Expect(err).NotTo(HaveOccurred())
+			dpu := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{Name: "dpu-0", Namespace: tmplNS,
+					Labels: map[string]string{
+						cutil.DPUFlavorTemplateNameLabel: "tmpl",
+						cutil.DPUFlavorTemplateHashLabel: th,
+						cutil.DPUDeviceValuesHashLabel:   vh,
+					},
+					Annotations: map[string]string{
+						cutil.RenderFailedReasonAnnotation:  cutil.RenderFailedOnCreate,
+						cutil.RenderFailedMessageAnnotation: "create failure",
+					},
+				},
+				Spec: provisioningv1.DPUSpec{DPUDeviceName: "dev", DPUFlavor: "dpu-0"},
+			}
+			r := tmplReconciler(scheme, template, device, dpu)
+			dpuSet := newTemplateDPUSet()
+
+			dpuMap := map[string]provisioningv1.DPU{"dpu-0": *dpu}
+			Expect(r.reconcileTemplateDPUs(ctx, dpuSet, dpuMap, r.evalTemplateDPUs(ctx, dpuSet, dpuMap))).To(Succeed())
+
+			got := &provisioningv1.DPU{}
+			Expect(r.Get(ctx, types.NamespacedName{Namespace: tmplNS, Name: "dpu-0"}, got)).To(Succeed())
+			Expect(got.Annotations[cutil.RenderFailedReasonAnnotation]).To(Equal(cutil.RenderFailedOnCreate))
+		})
+
+		It("keeps the create-time reason when a create-failed DPU fails to render again", func() {
+			device := newDevice("")
+			// createTemplateModeDPU stamped the hashes of the original failing inputs.
+			th, vh, err := inputHashes(newTemplate(errBody).Spec, device.Spec.Values)
+			Expect(err).NotTo(HaveOccurred())
+			dpu := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{Name: "dpu-0", Namespace: tmplNS,
+					Labels: map[string]string{
+						cutil.DPUFlavorTemplateNameLabel: "tmpl",
+						cutil.DPUFlavorTemplateHashLabel: th,
+						cutil.DPUDeviceValuesHashLabel:   vh,
+					},
+					Annotations: map[string]string{
+						cutil.RenderFailedReasonAnnotation:  cutil.RenderFailedOnCreate,
+						cutil.RenderFailedMessageAnnotation: "create failure",
+					},
+				},
+				Spec: provisioningv1.DPUSpec{DPUDeviceName: "dev", DPUFlavor: "dpu-0"},
+			}
+			// A second, differently-invalid edit; no generated DPUFlavor exists for this DPU.
+			template := newTemplate("spec:\n  bfcfgParameters:\n    - \"{{ .alsoMissing }}\"\n")
+			r := tmplReconciler(scheme, template, device, dpu)
+			dpuSet := newTemplateDPUSet()
+
+			dpuMap := map[string]provisioningv1.DPU{"dpu-0": *dpu}
+			Expect(r.reconcileTemplateDPUs(ctx, dpuSet, dpuMap, r.evalTemplateDPUs(ctx, dpuSet, dpuMap))).To(Succeed())
+
+			// Downgrading to RenderFailedOnUpdate here would let a later revert to the original
+			// failing inputs clear the failure on a DPU that has no generated DPUFlavor.
+			got := &provisioningv1.DPU{}
+			Expect(r.Get(ctx, types.NamespacedName{Namespace: tmplNS, Name: "dpu-0"}, got)).To(Succeed())
+			Expect(got.Annotations[cutil.RenderFailedReasonAnnotation]).To(Equal(cutil.RenderFailedOnCreate))
+			Expect(got.Annotations[cutil.RenderFailedMessageAnnotation]).To(ContainSubstring("alsoMissing"))
+		})
+
 		It("records a render-failed annotation when an update render fails", func() {
 			template := newTemplate(errBody)
 			device := newDevice("")

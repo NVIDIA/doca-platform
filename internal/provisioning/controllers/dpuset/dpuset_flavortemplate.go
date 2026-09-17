@@ -103,6 +103,9 @@ type templateEval struct {
 	// equalButStale is true when the render matches the existing generated DPUFlavor
 	// but the DPU's hash labels are out of date and should be patched.
 	equalButStale bool
+	// clearRenderFailed is true when the DPU still carries an update-time render failure
+	// whose inputs are no longer live, so the annotations must be removed.
+	clearRenderFailed bool
 	// live label values, valid only when equalButStale is true.
 	liveTemplateHash string
 	liveValuesHash   string
@@ -280,7 +283,8 @@ func (r *DPUSetReconciler) evalTemplateDPU(ctx context.Context, dpuSet provision
 	// consumed snapshot vanished must not be torn down.
 	if liveHash == dpu.Labels[cutil.DPUFlavorTemplateHashLabel] &&
 		liveValuesHash == dpu.Labels[cutil.DPUDeviceValuesHashLabel] {
-		return templateEval{}
+		staleFailure := dpu.Annotations[cutil.RenderFailedReasonAnnotation] == cutil.RenderFailedOnUpdate
+		return templateEval{clearRenderFailed: staleFailure}
 	}
 
 	// Inputs changed: render the current template/values before deciding anything.
@@ -368,11 +372,24 @@ func (r *DPUSetReconciler) reconcileTemplateDPUs(ctx context.Context, dpuSet *pr
 			// failure is visible even for a Ready DPU.
 			logger.Error(eval.renderErr, "Failed to render DPUFlavorTemplate for existing DPU; recording render-failed annotation",
 				"DPU", fmt.Sprintf("%s/%s", dpu.Namespace, dpu.Name))
-			if err := r.patchDPURenderFailed(ctx, &dpu, cutil.RenderFailedOnUpdate, eval.renderErr.Error()); err != nil {
+			// A DPU that never rendered at create time has no generated DPUFlavor, so a later
+			// failure is not an update-time failure: keep the create-time reason, which is
+			// terminal until the DPU is reprovisioned by a successful render.
+			reason := cutil.RenderFailedOnUpdate
+			if dpu.Annotations[cutil.RenderFailedReasonAnnotation] == cutil.RenderFailedOnCreate {
+				reason = cutil.RenderFailedOnCreate
+			}
+			if err := r.patchDPURenderFailed(ctx, &dpu, reason, eval.renderErr.Error()); err != nil {
 				return err
 			}
 		case eval.equalButStale:
 			if err := r.patchDPUTemplateLabels(ctx, &dpu, eval.liveTemplateHash, eval.liveValuesHash); err != nil {
+				return err
+			}
+		case eval.clearRenderFailed:
+			logger.Info("DPUFlavorTemplate inputs match the DPU's last successful render; clearing stale render-failed annotation",
+				"DPU", fmt.Sprintf("%s/%s", dpu.Namespace, dpu.Name))
+			if err := r.patchDPUClearRenderFailed(ctx, &dpu); err != nil {
 				return err
 			}
 		}
@@ -389,6 +406,14 @@ func (r *DPUSetReconciler) patchDPUTemplateLabels(ctx context.Context, dpu *prov
 	}
 	dpu.Labels[cutil.DPUFlavorTemplateHashLabel] = templateHash
 	dpu.Labels[cutil.DPUDeviceValuesHashLabel] = valuesHash
+	clearRenderFailedAnnotations(dpu)
+	return patcher.Patch(ctx, dpu)
+}
+
+// patchDPUClearRenderFailed removes a stale render-failure annotation from a DPU whose hash
+// labels already match the live render inputs, leaving those labels untouched.
+func (r *DPUSetReconciler) patchDPUClearRenderFailed(ctx context.Context, dpu *provisioningv1.DPU) error {
+	patcher := patch.NewSerialPatcher(dpu, r.Client)
 	clearRenderFailedAnnotations(dpu)
 	return patcher.Patch(ctx, dpu)
 }
