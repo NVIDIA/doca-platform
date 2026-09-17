@@ -881,3 +881,54 @@ var _ = Describe("DPUClockSkewMessage", func() {
 		Expect(message(hostTime.Add(2 * time.Hour))).To(ContainSubstring("2h0m0s ahead of"))
 	})
 })
+
+var _ = Describe("ConfirmDPUCondition", func() {
+	prepared := time.Date(2026, 7, 4, 17, 18, 48, 0, time.UTC)
+
+	statusWith := func(status metav1.ConditionStatus) *provisioningv1.DPUStatus {
+		return &provisioningv1.DPUStatus{Conditions: []metav1.Condition{{
+			Type:               provisioningv1.DPUCondBFBPrepared.String(),
+			Status:             status,
+			Reason:             "FailedToEnsureRBAC",
+			Message:            "failed to ensure DPU agent RBAC",
+			LastTransitionTime: metav1.NewTime(prepared),
+		}}}
+	}
+
+	It("flips a stale False to True and drops its reason and message", func() {
+		status := statusWith(metav1.ConditionFalse)
+
+		ConfirmDPUCondition(status, provisioningv1.DPUCondBFBPrepared)
+
+		_, condition := GetDPUCondition(status, provisioningv1.DPUCondBFBPrepared.String())
+		Expect(condition.Status).To(Equal(metav1.ConditionTrue))
+		Expect(condition.Reason).To(Equal(provisioningv1.DPUCondBFBPrepared.String()))
+		Expect(condition.Message).To(BeEmpty())
+	})
+
+	It("keeps LastTransitionTime so step timeouts still measure from it", func() {
+		status := statusWith(metav1.ConditionFalse)
+
+		ConfirmDPUCondition(status, provisioningv1.DPUCondBFBPrepared)
+
+		_, condition := GetDPUCondition(status, provisioningv1.DPUCondBFBPrepared.String())
+		Expect(condition.LastTransitionTime.Time).To(Equal(prepared))
+	})
+
+	It("leaves an already True condition untouched", func() {
+		status := statusWith(metav1.ConditionTrue)
+
+		ConfirmDPUCondition(status, provisioningv1.DPUCondBFBPrepared)
+
+		_, condition := GetDPUCondition(status, provisioningv1.DPUCondBFBPrepared.String())
+		Expect(condition.Reason).To(Equal("FailedToEnsureRBAC"))
+	})
+
+	It("does not add a condition that was never reported", func() {
+		status := &provisioningv1.DPUStatus{}
+
+		ConfirmDPUCondition(status, provisioningv1.DPUCondBFBPrepared)
+
+		Expect(status.Conditions).To(BeEmpty())
+	})
+})
