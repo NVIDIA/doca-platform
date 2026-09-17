@@ -42,8 +42,14 @@ import (
 // Note: These functions are already defined in podipam_controller_test.go
 // We'll use the existing ones from that file
 
-// createTestPodWithName creates a test pod with a custom name for envtest
-func createTestPodWithName(name string, annotations map[string]string, labels map[string]string) *corev1.Pod {
+// newTestPodWithName builds a test pod with a custom name without persisting it.
+//
+// Specs that exercise a helper like needsRestartDueToDigestChange directly must use
+// this instead of createTestPodWithName: the PodRestartController registered in
+// suite_test.go watches pods in the default namespace on worker-1 and deletes the ones
+// whose digest annotation is stale, which is exactly the fixture those specs set up. A
+// pod that is never persisted cannot be deleted, so the assertion stays deterministic.
+func newTestPodWithName(name string, annotations map[string]string, labels map[string]string) *corev1.Pod {
 	if annotations == nil {
 		annotations = make(map[string]string)
 	}
@@ -51,7 +57,7 @@ func createTestPodWithName(name string, annotations map[string]string, labels ma
 		labels = make(map[string]string)
 	}
 
-	pod := &corev1.Pod{
+	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,
 			Namespace:   "default",
@@ -66,6 +72,11 @@ func createTestPodWithName(name string, annotations map[string]string, labels ma
 		},
 		Status: corev1.PodStatus{Phase: corev1.PodRunning},
 	}
+}
+
+// createTestPodWithName creates a test pod with a custom name for envtest
+func createTestPodWithName(name string, annotations map[string]string, labels map[string]string) *corev1.Pod {
+	pod := newTestPodWithName(name, annotations, labels)
 	Expect(testClient.Create(ctx, pod)).To(Succeed())
 	Eventually(func() error {
 		return testClient.Get(ctx, client.ObjectKey{Namespace: pod.Namespace, Name: pod.Name}, pod)
@@ -90,23 +101,27 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 	})
 
 	AfterEach(func() {
-		// Clean up created objects first (ServiceInterfaces, ServiceChains, etc.)
+		// Delete the pods before their ServiceChains and ServiceInterfaces. A pod that
+		// outlives its dependencies keeps its digest annotation but can no longer have a
+		// digest calculated, so reconcilePods errors and the controller requeues with
+		// backoff for the rest of the suite. Marking the pods Succeeded does not help,
+		// shouldProcessPod does not filter on phase.
+		By("Deleting the pods")
+		podList := &corev1.PodList{}
+		Expect(testClient.List(ctx, podList)).To(Succeed())
+		for i := range podList.Items {
+			pod := &podList.Items[i]
+			Expect(client.IgnoreNotFound(testClient.Delete(ctx, pod, client.GracePeriodSeconds(0)))).To(Succeed())
+		}
+		Eventually(func(g Gomega) {
+			remaining := &corev1.PodList{}
+			g.Expect(testClient.List(ctx, remaining)).To(Succeed())
+			g.Expect(remaining.Items).To(BeEmpty())
+		}).WithTimeout(30 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
+
+		// Then clean up the objects the pods depended on.
 		By("Cleaning up the objects")
 		Expect(testutils.CleanupAndWait(ctx, testClient, cleanupObjects...)).To(Succeed())
-
-		// Then clean up any remaining pods by setting them to succeeded state
-		// This is done separately to avoid conflicts with controller reconciliation
-		podList := &corev1.PodList{}
-		if err := testClient.List(ctx, podList); err == nil {
-			for i := range podList.Items {
-				pod := &podList.Items[i]
-				// Only update if pod is not being deleted and not already succeeded
-				if pod.DeletionTimestamp == nil && pod.Status.Phase != corev1.PodSucceeded {
-					pod.Status.Phase = corev1.PodSucceeded
-					_ = testClient.Status().Patch(ctx, pod, client.Merge)
-				}
-			}
-		}
 	})
 
 	Describe("handlePodRestart", func() {
@@ -157,7 +172,7 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 				g.Expect(err).NotTo(HaveOccurred())
 			}).WithTimeout(10 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
 
-			pod := createTestPodWithName(
+			pod := newTestPodWithName(
 				"test-pod-digest-change",
 				map[string]string{
 					NetworkAttachmentAnnot:  `[{"name":"mybrsfc","interface":"sfceth1"}]`,
@@ -167,17 +182,13 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 					dpuservicev1.DPFServiceIDLabelKey: "firewall",
 				},
 			)
+			pod.Status.Phase = corev1.PodRunning
 
-			testutils.PatchStatus(ctx, testClient, pod, func() {
-				pod.Status.Phase = corev1.PodRunning
-			})
-
-			// Now check if restart is needed - resources should be available
-			Eventually(func(g Gomega) {
-				needsRestart, err := controller.needsRestartDueToDigestChange(ctx, pod)
-				g.Expect(err).ToNot(HaveOccurred())
-				g.Expect(needsRestart).To(BeTrue())
-			}).WithTimeout(10 * time.Second).WithPolling(500 * time.Millisecond).Should(Succeed())
+			// The ServiceChain and ServiceInterface are in the cache at this point, so the
+			// result is deterministic and does not need to be retried.
+			needsRestart, err := controller.needsRestartDueToDigestChange(ctx, pod)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(needsRestart).To(BeTrue())
 		})
 
 		It("returns true when Pending pod has valid network and outdated digest", func() {
@@ -203,7 +214,7 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 				g.Expect(err).NotTo(HaveOccurred())
 			}).WithTimeout(10 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
 
-			pod := createTestPodWithName(
+			pod := newTestPodWithName(
 				"test-pod-pending-valid-network",
 				map[string]string{
 					NetworkAttachmentAnnot:  `[{"name":"mybrsfc","interface":"sfceth1"}]`,
@@ -213,26 +224,11 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 					dpuservicev1.DPFServiceIDLabelKey: "firewall",
 				},
 			)
+			pod.Status.Phase = corev1.PodPending
 
-			testutils.PatchStatus(ctx, testClient, pod, func() {
-				pod.Status.Phase = corev1.PodPending
-			})
-
-			// Verify the pod is in Pending state
-			Eventually(func(g Gomega) {
-				currentPod := &corev1.Pod{}
-				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod), currentPod)).To(Succeed())
-				g.Expect(currentPod.Status.Phase).To(Equal(corev1.PodPending))
-			}).WithTimeout(5 * time.Second).Should(Succeed())
-
-			// Now check if restart is needed - should return true for Pending pod with valid network and outdated digest
-			Eventually(func(g Gomega) {
-				currentPod := &corev1.Pod{}
-				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod), currentPod)).To(Succeed())
-				needsRestart, err := controller.needsRestartDueToDigestChange(ctx, currentPod)
-				g.Expect(err).ToNot(HaveOccurred())
-				g.Expect(needsRestart).To(BeTrue(), "Pending pod with valid network and outdated digest should need restart")
-			}).WithTimeout(10 * time.Second).WithPolling(500 * time.Millisecond).Should(Succeed())
+			needsRestart, err := controller.needsRestartDueToDigestChange(ctx, pod)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(needsRestart).To(BeTrue(), "Pending pod with valid network and outdated digest should need restart")
 		})
 
 		It("returns false when Pending pod has valid network and current digest", func() {
@@ -289,7 +285,7 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 				expectedDigest = digest
 			}).WithTimeout(10 * time.Second).WithPolling(500 * time.Millisecond).Should(Succeed())
 
-			pod := createTestPodWithName(
+			pod := newTestPodWithName(
 				"test-pod-pending-current-digest",
 				map[string]string{
 					NetworkAttachmentAnnot:  `[{"name":"mybrsfc","interface":"sfceth1"}]`,
@@ -299,26 +295,11 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 					dpuservicev1.DPFServiceIDLabelKey: "firewall",
 				},
 			)
+			pod.Status.Phase = corev1.PodPending
 
-			testutils.PatchStatus(ctx, testClient, pod, func() {
-				pod.Status.Phase = corev1.PodPending
-			})
-
-			// Verify the pod is in Pending state
-			Eventually(func(g Gomega) {
-				currentPod := &corev1.Pod{}
-				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod), currentPod)).To(Succeed())
-				g.Expect(currentPod.Status.Phase).To(Equal(corev1.PodPending))
-			}).WithTimeout(5 * time.Second).Should(Succeed())
-
-			// Now check if restart is needed - should return false for Pending pod with valid network and current digest
-			Eventually(func(g Gomega) {
-				currentPod := &corev1.Pod{}
-				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod), currentPod)).To(Succeed())
-				needsRestart, err := controller.needsRestartDueToDigestChange(ctx, currentPod)
-				g.Expect(err).ToNot(HaveOccurred())
-				g.Expect(needsRestart).To(BeFalse(), "Pending pod with valid network and current digest should not need restart")
-			}).WithTimeout(10 * time.Second).WithPolling(500 * time.Millisecond).Should(Succeed())
+			needsRestart, err := controller.needsRestartDueToDigestChange(ctx, pod)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(needsRestart).To(BeFalse(), "Pending pod with valid network and current digest should not need restart")
 		})
 
 		It("returns false when digest has not changed", func() {
@@ -375,7 +356,7 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 				expectedDigest = digest
 			}).WithTimeout(10 * time.Second).WithPolling(500 * time.Millisecond).Should(Succeed())
 
-			pod := createTestPodWithName(
+			pod := newTestPodWithName(
 				"test-pod-digest-match-unique",
 				map[string]string{
 					NetworkAttachmentAnnot:  `[{"name":"mybrsfc","interface":"sfceth1"}]`,
@@ -385,22 +366,15 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 					dpuservicev1.DPFServiceIDLabelKey: "firewall",
 				},
 			)
+			pod.Status.Phase = corev1.PodRunning
 
-			testutils.PatchStatus(ctx, testClient, pod, func() {
-				pod.Status.Phase = corev1.PodRunning
-			})
-
-			// Use Eventually to wait for ServiceChain/ServiceInterface to be available in cache
-			// This allows transient errors (missing resources) while they propagate
-			Eventually(func(g Gomega) {
-				needsRestart, err := controller.needsRestartDueToDigestChange(ctx, pod)
-				g.Expect(err).ToNot(HaveOccurred())
-				g.Expect(needsRestart).To(BeFalse())
-			}).WithTimeout(10 * time.Second).WithPolling(500 * time.Millisecond).Should(Succeed())
+			needsRestart, err := controller.needsRestartDueToDigestChange(ctx, pod)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(needsRestart).To(BeFalse())
 		})
 
 		It("returns false when pod is in Pending phase with invalid network", func() {
-			pod := createTestPodWithName(
+			pod := newTestPodWithName(
 				"test-pod-pending",
 				map[string]string{
 					NetworkAttachmentAnnot:  `[{"name":"invalid-network"}]`,
@@ -410,22 +384,15 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 					dpuservicev1.DPFServiceIDLabelKey: "firewall",
 				},
 			)
+			pod.Status.Phase = corev1.PodPending
 
-			testutils.PatchStatus(ctx, testClient, pod, func() {
-				pod.Status.Phase = corev1.PodPending
-			})
-
-			createdPod := &corev1.Pod{}
-			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod), createdPod)).To(Succeed())
-			Expect(createdPod.Status.Phase).To(Equal(corev1.PodPending))
-
-			needsRestart, err := controller.needsRestartDueToDigestChange(ctx, createdPod)
+			needsRestart, err := controller.needsRestartDueToDigestChange(ctx, pod)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(needsRestart).To(BeFalse())
 		})
 
 		It("returns false when pod has DeletionTimestamp", func() {
-			pod := createTestPodWithName(
+			pod := newTestPodWithName(
 				"test-pod-deleting",
 				map[string]string{
 					NetworkAttachmentAnnot:  `[{"name":"mybrsfc","interface":"sfceth1"}]`,
