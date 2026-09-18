@@ -19,9 +19,11 @@ import (
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -45,6 +47,14 @@ var _ = Describe("DPUSetReconciler getDPUDeviceMap", func() {
 		scheme = runtime.NewScheme()
 		Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
 	})
+
+	// selectorsFor parses the DPUSet's selectors the way Handle does before calling
+	// getDPUDeviceMap.
+	selectorsFor := func(dpuSet *provisioningv1.DPUSet) dpuSetSelectors {
+		selectors, err := parseDPUSetSelectors(dpuSet)
+		Expect(err).NotTo(HaveOccurred())
+		return selectors
+	}
 
 	Context("when listing DPU devices", func() {
 		It("should exclude DPU devices from deleted DPUNodes", func() {
@@ -153,7 +163,7 @@ var _ = Describe("DPUSetReconciler getDPUDeviceMap", func() {
 			}
 
 			// Call getDPUDeviceMap
-			dpuDeviceMap, err := reconciler.getDPUDeviceMap(ctx, dpuSet)
+			dpuDeviceMap, err := reconciler.getDPUDeviceMap(ctx, dpuSet, selectorsFor(dpuSet))
 
 			// Assertions
 			Expect(err).ToNot(HaveOccurred())
@@ -235,7 +245,7 @@ var _ = Describe("DPUSetReconciler getDPUDeviceMap", func() {
 				Scheme: scheme,
 			}
 
-			dpuDeviceMap, err := reconciler.getDPUDeviceMap(ctx, dpuSet)
+			dpuDeviceMap, err := reconciler.getDPUDeviceMap(ctx, dpuSet, selectorsFor(dpuSet))
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(dpuDeviceMap).To(HaveLen(2))
@@ -315,7 +325,7 @@ var _ = Describe("DPUSetReconciler getDPUDeviceMap", func() {
 				Scheme: scheme,
 			}
 
-			dpuDeviceMap, err := reconciler.getDPUDeviceMap(ctx, dpuSet)
+			dpuDeviceMap, err := reconciler.getDPUDeviceMap(ctx, dpuSet, selectorsFor(dpuSet))
 
 			Expect(err).ToNot(HaveOccurred())
 			// Should return empty map since all nodes are being deleted
@@ -405,7 +415,7 @@ var _ = Describe("DPUSetReconciler getDPUDeviceMap", func() {
 				Scheme: scheme,
 			}
 
-			dpuDeviceMap, err := reconciler.getDPUDeviceMap(ctx, dpuSet)
+			dpuDeviceMap, err := reconciler.getDPUDeviceMap(ctx, dpuSet, selectorsFor(dpuSet))
 
 			Expect(err).ToNot(HaveOccurred())
 			// Should only include device from the normal node
@@ -502,7 +512,7 @@ var _ = Describe("DPUSetReconciler getDPUDeviceMap", func() {
 				Scheme: scheme,
 			}
 
-			dpuDeviceMap, err := reconciler.getDPUDeviceMap(ctx, dpuSet)
+			dpuDeviceMap, err := reconciler.getDPUDeviceMap(ctx, dpuSet, selectorsFor(dpuSet))
 
 			Expect(err).ToNot(HaveOccurred())
 			// Should only include the device with label from normal node
@@ -566,7 +576,7 @@ var _ = Describe("DPUSetReconciler getDPUDeviceMap", func() {
 				Scheme: scheme,
 			}
 
-			dpuDeviceMap, err := reconciler.getDPUDeviceMap(ctx, dpuSet)
+			dpuDeviceMap, err := reconciler.getDPUDeviceMap(ctx, dpuSet, selectorsFor(dpuSet))
 
 			Expect(err).ToNot(HaveOccurred())
 			// Should return empty map even for recently deleted node
@@ -1522,5 +1532,127 @@ var _ = Describe("DPUSetReconciler collision labels", func() {
 				Expect(dpu.Labels).To(HaveKeyWithValue(collisionKey, "true"))
 			})
 		})
+	})
+})
+
+var _ = Describe("DPUSetReconciler validateDPUSet", func() {
+	newDPUSet := func(action provisioningv1.Action) *provisioningv1.DPUSet {
+		dpuSet := &provisioningv1.DPUSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-dpuset",
+				Namespace: testNamespace,
+			},
+			Spec: provisioningv1.DPUSetSpec{
+				Strategy: provisioningv1.DPUSetStrategy{
+					Type: provisioningv1.OnDeleteStrategyType,
+				},
+				DPUTemplate: provisioningv1.DPUTemplate{
+					Spec: provisioningv1.DPUTemplateSpec{
+						NodeEffect: provisioningv1.NodeEffect{Action: action},
+					},
+				},
+			},
+		}
+		conditions.EnsureConditions(dpuSet, provisioningv1.DPUSetConditions)
+		return dpuSet
+	}
+
+	prereqsCondition := func(dpuSet *provisioningv1.DPUSet) *metav1.Condition {
+		return meta.FindStatusCondition(dpuSet.Status.Conditions, string(provisioningv1.ConditionDPUSetReconciled))
+	}
+
+	// malformedSelector fails metav1.LabelSelectorAsSelector on its operator.
+	malformedSelector := &metav1.LabelSelector{
+		MatchExpressions: []metav1.LabelSelectorRequirement{{
+			Key:      "role",
+			Operator: "Bogus",
+		}},
+	}
+
+	It("should set DPUSetPrereqsReconciled to True once the pre-checks pass", func() {
+		dpuSet := newDPUSet(provisioningv1.Action{NoEffect: ptr.To(true)})
+		dpuSet.Spec.DPUNodeSelector = &metav1.LabelSelector{MatchLabels: map[string]string{"role": "worker"}}
+		Expect(prereqsCondition(dpuSet).Status).To(Equal(metav1.ConditionUnknown))
+
+		reconciler := &DPUSetReconciler{}
+
+		selectors, err := reconciler.validateDPUSet(dpuSet)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(prereqsCondition(dpuSet).Status).To(Equal(metav1.ConditionTrue))
+
+		By("Returning the parsed selectors so the reconcile does not parse them again")
+		Expect(selectors.node.String()).To(Equal("role=worker"))
+		Expect(selectors.device.String()).To(BeEmpty())
+	})
+
+	It("should report False when NodeEffect is rejected by RedFish", func() {
+		dpuSet := newDPUSet(provisioningv1.Action{Drain: ptr.To(true)})
+
+		reconciler := &DPUSetReconciler{
+			Options: DPUSetOptions{DPUInstallInterface: string(provisioningv1.InstallViaRedFish)},
+		}
+
+		_, err := reconciler.validateDPUSet(dpuSet)
+		Expect(err).To(MatchError(ContainSubstring("invalid NodeEffect")))
+		condition := prereqsCondition(dpuSet)
+		Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+		Expect(condition.Reason).To(Equal(string(conditions.ReasonError)))
+	})
+
+	It("should recover to True after the NodeEffect is corrected", func() {
+		dpuSet := newDPUSet(provisioningv1.Action{Drain: ptr.To(true)})
+		reconciler := &DPUSetReconciler{
+			Options: DPUSetOptions{DPUInstallInterface: string(provisioningv1.InstallViaRedFish)},
+		}
+		_, err := reconciler.validateDPUSet(dpuSet)
+		Expect(err).To(HaveOccurred())
+		Expect(prereqsCondition(dpuSet).Status).To(Equal(metav1.ConditionFalse))
+
+		dpuSet.Spec.DPUTemplate.Spec.NodeEffect.Action = provisioningv1.Action{NoEffect: ptr.To(true)}
+
+		_, err = reconciler.validateDPUSet(dpuSet)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(prereqsCondition(dpuSet).Status).To(Equal(metav1.ConditionTrue))
+	})
+
+	It("should report False when dpuNodeSelector is malformed", func() {
+		dpuSet := newDPUSet(provisioningv1.Action{NoEffect: ptr.To(true)})
+		dpuSet.Spec.DPUNodeSelector = malformedSelector
+
+		reconciler := &DPUSetReconciler{}
+
+		_, err := reconciler.validateDPUSet(dpuSet)
+		Expect(err).To(MatchError(ContainSubstring("invalid dpuNodeSelector")))
+		condition := prereqsCondition(dpuSet)
+		Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+		Expect(condition.Reason).To(Equal(string(conditions.ReasonError)))
+		Expect(condition.Message).To(ContainSubstring("invalid dpuNodeSelector"))
+	})
+
+	It("should report False when dpuDeviceSelector is malformed", func() {
+		dpuSet := newDPUSet(provisioningv1.Action{NoEffect: ptr.To(true)})
+		dpuSet.Spec.DPUDeviceSelector = malformedSelector
+
+		reconciler := &DPUSetReconciler{}
+
+		_, err := reconciler.validateDPUSet(dpuSet)
+		Expect(err).To(MatchError(ContainSubstring("invalid dpuDeviceSelector")))
+		Expect(prereqsCondition(dpuSet).Message).To(ContainSubstring("invalid dpuDeviceSelector"))
+	})
+
+	It("should recover to True after a malformed selector is corrected", func() {
+		dpuSet := newDPUSet(provisioningv1.Action{NoEffect: ptr.To(true)})
+		dpuSet.Spec.DPUNodeSelector = malformedSelector
+
+		reconciler := &DPUSetReconciler{}
+		_, err := reconciler.validateDPUSet(dpuSet)
+		Expect(err).To(HaveOccurred())
+		Expect(prereqsCondition(dpuSet).Status).To(Equal(metav1.ConditionFalse))
+
+		dpuSet.Spec.DPUNodeSelector = &metav1.LabelSelector{MatchLabels: map[string]string{"role": "worker"}}
+
+		_, err = reconciler.validateDPUSet(dpuSet)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(prereqsCondition(dpuSet).Status).To(Equal(metav1.ConditionTrue))
 	})
 })

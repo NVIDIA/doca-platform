@@ -111,15 +111,30 @@ func (r *DPUSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ c
 	return r.Handle(ctx, dpuSet)
 }
 
-func (r *DPUSetReconciler) validateDPUSet(dpuSet *provisioningv1.DPUSet) error {
+// validateDPUSet runs the pre-checks the controller requires before it manages DPUs for the
+// DPUSet, reporting the outcome on ConditionDPUSetReconciled. Every check here must be
+// decidable from the DPUSet spec and the controller's own configuration, so that a failure
+// is user-actionable and cannot be resolved by retrying.
+//
+// Checks that parse part of the spec return what they parsed, so the rest of the reconcile
+// reuses it instead of parsing again.
+func (r *DPUSetReconciler) validateDPUSet(dpuSet *provisioningv1.DPUSet) (dpuSetSelectors, error) {
 	if r.Options.DPUInstallInterface == string(provisioningv1.InstallViaRedFish) {
 		if dpuSet.Spec.DPUTemplate.Spec.NodeEffect.IsCustomLabel() || dpuSet.Spec.DPUTemplate.Spec.NodeEffect.IsTaint() || dpuSet.Spec.DPUTemplate.Spec.NodeEffect.IsDrain() {
 			message := fmt.Sprintf("NodeEffect is not allowed to be %s when using RedFish Install Interface", dpuSet.Spec.DPUTemplate.Spec.NodeEffect.String())
 			conditions.AddFalse(dpuSet, provisioningv1.ConditionDPUSetReconciled, conditions.ReasonError, conditions.ConditionMessage(message))
-			return fmt.Errorf("invalid NodeEffect: %s", message)
+			return dpuSetSelectors{}, fmt.Errorf("invalid NodeEffect: %s", message)
 		}
 	}
-	return nil
+
+	selectors, err := parseDPUSetSelectors(dpuSet)
+	if err != nil {
+		conditions.AddFalse(dpuSet, provisioningv1.ConditionDPUSetReconciled, conditions.ReasonError, conditions.ConditionMessage(err.Error()))
+		return dpuSetSelectors{}, err
+	}
+
+	conditions.AddTrue(dpuSet, provisioningv1.ConditionDPUSetReconciled)
+	return selectors, nil
 }
 
 func (r *DPUSetReconciler) reconcileDelete(ctx context.Context, dpuSet *provisioningv1.DPUSet) error {
@@ -243,7 +258,8 @@ func (r *DPUSetReconciler) cleanupCollisionLabels(ctx context.Context, dpuSet *p
 func (r *DPUSetReconciler) Handle(ctx context.Context, dpuSet *provisioningv1.DPUSet) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
-	if err := r.validateDPUSet(dpuSet); err != nil {
+	selectors, err := r.validateDPUSet(dpuSet)
+	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to validate DPUSet %w", err)
 	}
 
@@ -276,7 +292,7 @@ func (r *DPUSetReconciler) Handle(ctx context.Context, dpuSet *provisioningv1.DP
 	}
 
 	// Get dpuDevice map by dpuNodeSelector and dpuSelector
-	dpuDeviceMap, err := r.getDPUDeviceMap(ctx, dpuSet)
+	dpuDeviceMap, err := r.getDPUDeviceMap(ctx, dpuSet, selectors)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to get DPUDevice map %w", err)
 	}
@@ -507,24 +523,24 @@ func (r *DPUSetReconciler) flavorToDPUSetReq(ctx context.Context, resource clien
 	return requests
 }
 
-func (r *DPUSetReconciler) getDPUDeviceMap(ctx context.Context, dpuSet *provisioningv1.DPUSet) (map[string]provisioningv1.DPUDevice, error) {
-	dpuDeviceMap := make(map[string]provisioningv1.DPUDevice)
+// dpuSetSelectors holds the label selectors parsed from a DPUSet's selector fields.
+type dpuSetSelectors struct {
+	node   labels.Selector
+	device labels.Selector
+}
 
+// parseDPUSetSelectors converts the DPUSet's node and device selectors into label selectors.
+// A failure means the spec carries a malformed selector, which retrying cannot fix, so it is
+// reported on ConditionDPUSetReconciled by the caller.
+func parseDPUSetSelectors(dpuSet *provisioningv1.DPUSet) (dpuSetSelectors, error) {
 	// 1. Construct the label selector if dpuNodeSelector is specified
 	nodeSelector := labels.Everything()
 	if dpuSet.Spec.DPUNodeSelector != nil {
 		var err error
 		nodeSelector, err = metav1.LabelSelectorAsSelector(dpuSet.Spec.DPUNodeSelector)
 		if err != nil {
-			return nil, fmt.Errorf("invalid dpuNodeSelector: %w", err)
+			return dpuSetSelectors{}, fmt.Errorf("invalid dpuNodeSelector: %w", err)
 		}
-	}
-	dpuNodeList := &provisioningv1.DPUNodeList{}
-	if err := r.List(ctx, dpuNodeList, &client.ListOptions{
-		Namespace:     dpuSet.Namespace,
-		LabelSelector: nodeSelector,
-	}); err != nil {
-		return nil, fmt.Errorf("failed to list DPUNodes: %w", err)
 	}
 
 	// 2. Construct the selector from dpuDeviceSelector (or deprecated dpuSelector) if it is specified
@@ -534,18 +550,32 @@ func (r *DPUSetReconciler) getDPUDeviceMap(ctx context.Context, dpuSet *provisio
 		var err error
 		deviceSelector, err = metav1.LabelSelectorAsSelector(dpuSet.Spec.DPUDeviceSelector)
 		if err != nil {
-			return nil, fmt.Errorf("invalid dpuDeviceSelector: %w", err)
+			return dpuSetSelectors{}, fmt.Errorf("invalid dpuDeviceSelector: %w", err)
 		}
 	} else {
 		//nolint:staticcheck // Intentionally using deprecated field for backward compatibility
 		for key, value := range dpuSet.Spec.DPUSelector {
 			req, err := labels.NewRequirement(key, selection.Equals, []string{value})
 			if err != nil {
-				return nil, fmt.Errorf("invalid requirement for key %s: %w", key, err)
+				return dpuSetSelectors{}, fmt.Errorf("invalid requirement for key %s: %w", key, err)
 			}
 			// Add the requirement to the selector
 			deviceSelector = deviceSelector.Add(*req)
 		}
+	}
+
+	return dpuSetSelectors{node: nodeSelector, device: deviceSelector}, nil
+}
+
+func (r *DPUSetReconciler) getDPUDeviceMap(ctx context.Context, dpuSet *provisioningv1.DPUSet, selectors dpuSetSelectors) (map[string]provisioningv1.DPUDevice, error) {
+	dpuDeviceMap := make(map[string]provisioningv1.DPUDevice)
+
+	dpuNodeList := &provisioningv1.DPUNodeList{}
+	if err := r.List(ctx, dpuNodeList, &client.ListOptions{
+		Namespace:     dpuSet.Namespace,
+		LabelSelector: selectors.node,
+	}); err != nil {
+		return nil, fmt.Errorf("failed to list DPUNodes: %w", err)
 	}
 
 	// 3. List DPUDevices based on the constructed label selector
@@ -554,7 +584,7 @@ func (r *DPUSetReconciler) getDPUDeviceMap(ctx context.Context, dpuSet *provisio
 		if !node.DeletionTimestamp.IsZero() {
 			continue
 		}
-		selector := deviceSelector.DeepCopySelector()
+		selector := selectors.device.DeepCopySelector()
 		// Select DPUDevices belonging to the given DPUNode
 		// DPUNodeNameLabel is required. Lack of it means many other labels are also missing, creating DPU for such DPUDevice ends up with failure
 		nodeReq, err := labels.NewRequirement(provisioningv1.DPUNodeNameLabel, selection.Equals, []string{node.Name})
