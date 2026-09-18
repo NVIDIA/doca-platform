@@ -324,6 +324,20 @@ func (r *DPUDeviceReconciler) reconcile(ctx context.Context, dpuDevice *provisio
 
 	// Runs last so that a BMC that is only reachable after certificate recovery is not blocked by it.
 	if err := r.reconcileDynamicFields(ctx, dpuDevice); err != nil {
+		// This is the only steady-state path that opens a verified mTLS connection, so a certificate
+		// trust failure surfaces here rather than in reconcileServerCertRotation, which short-circuits
+		// without contacting the BMC while the recorded expiry is outside the renew window. Route it
+		// to the handlers that own recovery; returning a bare error would leave
+		// BMCServerCertificateReady reporting True while verified mTLS is broken.
+		if rfclient.IsBMCServerCertUntrusted(err) {
+			if dpuDevice.Status.BMCServerCertificate == nil {
+				dpuDevice.Status.BMCServerCertificate = &provisioningv1.CertificateStatus{}
+			}
+			return r.recoverServerCert(ctx, dpuDevice, dpuDevice.Status.BMCServerCertificate, err)
+		}
+		if rfclient.IsRedfishClientCertStale(err) {
+			return r.recoverRedfishClientCert(ctx, dpuDevice, err)
+		}
 		log.Error(err, "Failed to reconcile dynamic fields")
 		return result, err
 	}

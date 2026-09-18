@@ -2800,6 +2800,85 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 		})
 	})
 
+	Context("steady-state BMC server certificate trust failure", func() {
+		var ctx context.Context
+
+		BeforeEach(func() {
+			ctx = context.Background()
+		})
+
+		// reconcileServerCertRotation short-circuits without contacting the BMC while the recorded
+		// expiry is outside the renew window, so an out-of-band certificate replacement can only be
+		// noticed by reconcileDynamicFields. That error must drive recovery rather than leaving
+		// BMCServerCertificateReady reporting True while verified mTLS is broken.
+		It("drives recovery instead of leaving BMCServerCertificateReady True", func() {
+			mockServer, err := mock.CreateMockRedfishServer("BF-24.10", "testpassword")
+			Expect(err).NotTo(HaveOccurred())
+			defer mockServer.Stop()
+
+			bmcIP := mockServer.GetIPAddress()
+			bmcPort := uint32(mockServer.GetPort())
+
+			scheme := runtime.NewScheme()
+			Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
+			Expect(corev1.AddToScheme(scheme)).To(Succeed())
+			Expect(operatorv1.AddToScheme(scheme)).To(Succeed())
+
+			// The mock BMC's self-signed certificate is trusted only because the suite normally puts
+			// it in the bundle. Leave it out while keeping the client CA, so the controller's own
+			// mounted key pair still verifies: that is an untrusted BMC, not a stale client cert.
+			caTrustBundle := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{Name: CATrustBundleConfigMap, Namespace: testNamespace},
+				Data:       map[string]string{CATrustBundleDataKey: string(redfishClientCACertPEM)},
+			}
+			bmcPasswordSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: rfclient.BMCPasswordSecret, Namespace: testNamespace},
+				Data:       map[string][]byte{"password": []byte("testpassword")},
+			}
+			dpfOperatorConfig := &operatorv1.DPFOperatorConfig{
+				ObjectMeta: metav1.ObjectMeta{Name: "dpfoperatorconfig", Namespace: testNamespace},
+				Spec: operatorv1.DPFOperatorConfigSpec{
+					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
+						InstallInterface: &operatorv1.ProvisioningInstallInterface{
+							InstallViaRedfish: &operatorv1.InstallViaRedfish{},
+						},
+					},
+				},
+			}
+
+			dpuDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-dpudevice-untrusted", Namespace: testNamespace},
+				Status: provisioningv1.DPUDeviceStatus{
+					BMCIP:   &bmcIP,
+					BMCPort: &bmcPort,
+					// Well outside the renew window, so the rotation reconcile short-circuits.
+					BMCServerCertificate: &provisioningv1.CertificateStatus{
+						NotAfter: &metav1.Time{Time: time.Now().Add(300 * 24 * time.Hour)},
+					},
+				},
+			}
+			dpuDevice.SetConditions([]metav1.Condition{
+				{Type: "NodeAttached", Status: metav1.ConditionTrue, Reason: "Attached", LastTransitionTime: metav1.Now()},
+				{Type: "Initialized", Status: metav1.ConditionTrue, Reason: "Initialized", LastTransitionTime: metav1.Now()},
+				{Type: "Discovered", Status: metav1.ConditionTrue, Reason: "Discovered", LastTransitionTime: metav1.Now()},
+			})
+
+			reconciler := &DPUDeviceReconciler{Client: fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(dpuDevice, caTrustBundle, bmcPasswordSecret, dpfOperatorConfig).
+				WithStatusSubresource(dpuDevice).
+				Build()}
+
+			_, err = reconciler.reconcile(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+
+			cond := findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceBMCServerCertificateReady))
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+			Expect(cond.Reason).To(Equal(provisioningv1.ReasonBMCServerCertificateUntrusted))
+		})
+	})
+
 	Context("syncObservedBMCAddress", func() {
 		newDevice := func(specIP, statusIP string, certStatus *provisioningv1.CertificateStatus) *provisioningv1.DPUDevice {
 			return &provisioningv1.DPUDevice{
