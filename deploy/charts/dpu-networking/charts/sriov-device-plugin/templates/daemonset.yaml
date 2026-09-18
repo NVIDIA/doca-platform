@@ -22,9 +22,42 @@ spec:
         tier: node
       {{- include "sriov-device-plugin.labels" . | nindent 8 }}
       annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/sriovdp-config.yaml") . | sha256sum }}
         {{- include "sriov-device-plugin.annotations" . | nindent 8 }}
     spec:
       automountServiceAccountToken: false
+      initContainers:
+      # Resolves the config which the main plugin reads below. The generated config wrote by the dpu-agent should be
+      # used. Only if it does not exist (like in the upgrade case) the chart default is used. 
+      # A generated config that does not parse fails this container rather than falling back, because the default
+      # describes pools that may not exist on this node.
+      - name: config-init
+        args:
+        - --generated-path=/var/lib/dpf/sriovdp/config.json
+        - --default-path=/etc/pcidp-default/config.json
+        - --active-path=/etc/pcidp/config.json
+        command:
+        - /sriovdp-config-init
+        env:
+        - name: KUBERNETES_CLUSTER_DOMAIN
+          value: {{ quote .Values.kubernetesClusterDomain }}
+        image: {{ .Values.kubeSriovDevicePlugin.configInit.image.repository }}:{{ .Values.kubeSriovDevicePlugin.configInit.image.tag
+          | default .Chart.AppVersion }}
+        imagePullPolicy: {{ .Values.kubeSriovDevicePlugin.configInit.imagePullPolicy }}
+        resources: {{- toYaml .Values.kubeSriovDevicePlugin.configInit.resources | nindent
+          10 }}
+        {{- with .Values.kubeSriovDevicePlugin.configInit.containerSecurityContext }}
+        securityContext: {{- toYaml . | nindent 10 }}
+        {{- end }}
+        volumeMounts:
+        - mountPath: /var/lib/dpf/sriovdp
+          name: generated-config
+          readOnly: true
+        - mountPath: /etc/pcidp-default
+          name: default-config
+          readOnly: true
+        - mountPath: /etc/pcidp
+          name: active-config
       containers:
       - args: {{- toYaml .Values.kubeSriovDevicePlugin.kubeSriovdp.args | nindent 8 }}
         env:
@@ -49,7 +82,8 @@ spec:
         - mountPath: /var/log
           name: log
         - mountPath: /etc/pcidp
-          name: config-volume
+          name: active-config
+          readOnly: true
         - mountPath: /var/run/k8s.cni.cncf.io/devinfo/dp
           name: device-info
         ports:
@@ -92,9 +126,19 @@ spec:
           path: /var/run/k8s.cni.cncf.io/devinfo/dp
           type: DirectoryOrCreate
         name: device-info
+      # The config the plugin actually reads, resolved by the config-init container.
+      - emptyDir: {}
+        name: active-config
+      # dpu-agent writes the config for this node here. DirectoryOrCreate so the mount
+      # succeeds on a DPU whose agent has not created the directory.
+      - hostPath:
+          path: /var/lib/dpf/sriovdp
+          type: DirectoryOrCreate
+        name: generated-config
+      # Fallback for DPUs whose BFB runs an older version of dpu-agent that does not generate a config.
       - configMap:
           items:
           - key: config.json
             path: config.json
           name: sriovdp-config
-        name: config-volume
+        name: default-config

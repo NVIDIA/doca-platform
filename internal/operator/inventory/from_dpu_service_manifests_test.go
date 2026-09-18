@@ -554,6 +554,12 @@ func Test_fromDPUService_GenerateManifests(t *testing.T) {
 								valuesWithResources.Object[operatorv1.SRIOVDevicePluginName.String()] = map[string]interface{}{
 									"enabled": true,
 									"kubeSriovDevicePlugin": map[string]interface{}{
+										"configInit": map[string]interface{}{
+											"image": map[string]interface{}{
+												"repository": "example.com/dpf-system",
+												"tag":        "v0.1.0",
+											},
+										},
 										"kubeSriovdp": map[string]interface{}{
 											"resources": map[string]interface{}{
 												"limits": map[string]interface{}{

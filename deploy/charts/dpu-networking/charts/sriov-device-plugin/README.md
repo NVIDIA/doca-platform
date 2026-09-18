@@ -9,6 +9,13 @@ A Helm chart for Kubernetes
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | imagePullSecrets | list | `[]` |  |
+| kubeSriovDevicePlugin.configInit.image.repository | string | `"example.com/dpf-system"` |  |
+| kubeSriovDevicePlugin.configInit.image.tag | string | `"v0.1.0"` |  |
+| kubeSriovDevicePlugin.configInit.imagePullPolicy | string | `"IfNotPresent"` |  |
+| kubeSriovDevicePlugin.configInit.resources.limits.cpu | string | `"100m"` |  |
+| kubeSriovDevicePlugin.configInit.resources.limits.memory | string | `"50Mi"` |  |
+| kubeSriovDevicePlugin.configInit.resources.requests.cpu | string | `"10m"` |  |
+| kubeSriovDevicePlugin.configInit.resources.requests.memory | string | `"20Mi"` |  |
 | kubeSriovDevicePlugin.kubeSriovdp.args[0] | string | `"--log-dir=sriovdp"` |  |
 | kubeSriovDevicePlugin.kubeSriovdp.args[1] | string | `"--log-level=10"` |  |
 | kubeSriovDevicePlugin.kubeSriovdp.containerSecurityContext.privileged | bool | `true` |  |

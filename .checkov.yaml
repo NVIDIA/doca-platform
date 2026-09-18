@@ -73,6 +73,16 @@ exclusions: # Is used to define exclusions on a per-chart basis when analyzing a
     resource: DaemonSet.default.kube-sriov-device-plugin
     evaluated_keys:
       - spec/template/spec/containers/[0]/readinessProbe
+  # Digest and pull policy are injected by the operator from DPFSystemImage.
+  - check_id: CKV_K8S_15 # Image Pull Policy should be Always
+    resource: DaemonSet.default.kube-sriov-device-plugin
+    evaluated_keys:
+      - spec/template/spec/initContainers/[0]/image
+      - spec/template/spec/initContainers/[0]/imagePullPolicy
+  - check_id: CKV_K8S_43 # Image should use digest
+    resource: DaemonSet.default.kube-sriov-device-plugin
+    evaluated_keys:
+      - spec/template/spec/initContainers/[0]/image
 
   dpu-networking-nvidia-k8s-ipam:
   # Daemonset has to run as root.
