@@ -482,6 +482,20 @@ func CreateAndWaitForNetutilsHostPod(ctx context.Context, testClient client.Clie
 	return pod
 }
 
+// DeletePodBestEffort deletes pod without ever failing the spec. Use it from
+// DeferCleanup for test pods on a DPU cluster.
+//
+// A DPU cluster is reached through a port forward that may already be closing by
+// the time cleanup runs, and a torn down tunnel must not fail a spec whose
+// assertions have all passed. A Pod left behind is idle and goes away with the
+// cluster it sits on, so the error is only logged.
+func DeletePodBestEffort(ctx context.Context, testClient client.Client, pod *corev1.Pod) {
+	By(fmt.Sprintf("Deleting pod %s/%s", pod.Namespace, pod.Name))
+	if err := client.IgnoreNotFound(testClient.Delete(ctx, pod)); err != nil {
+		GinkgoWriter.Printf("failed to delete pod %s/%s, leaving it behind: %v\n", pod.Namespace, pod.Name, err)
+	}
+}
+
 // IsPodRunningAndReady returns true if the pod is Running and has PodReady condition true.
 func IsPodRunningAndReady(pod *corev1.Pod) bool {
 	if pod == nil || pod.Status.Phase != corev1.PodRunning {

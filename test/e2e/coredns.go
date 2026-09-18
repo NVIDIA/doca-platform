@@ -249,14 +249,8 @@ func ValidateDPUClusterDNSResolution(ctx context.Context, input *systemTestInput
 		podName := "coredns-resolution-check"
 		pod := generateDNSTestPod(podName)
 		Expect(client.IgnoreAlreadyExists(dpuClient.Create(ctx, pod))).To(Succeed())
-		DeferCleanup(func() {
-			// Best effort: the DPU cluster is reached through a port forward that may already be
-			// closing by the time cleanup runs, and a torn down tunnel must not fail a spec whose
-			// assertions have all passed. A Pod left behind is idle and is reused by name on the
-			// next run.
-			if err := client.IgnoreNotFound(dpuClient.Delete(ctx, pod)); err != nil {
-				GinkgoWriter.Printf("failed to delete DNS test Pod %s: %v\n", podName, err)
-			}
+		DeferCleanup(func(ctx context.Context) {
+			netshoot.DeletePodBestEffort(ctx, dpuClient, pod)
 		})
 		waitForDNSTestPodReady(ctx, dpuClient, podName)
 
