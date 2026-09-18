@@ -287,9 +287,7 @@ func createNetutilsSysfsPod(ctx context.Context, input DMAScalableFunctionInput,
 		if input.SkipCleanup {
 			return
 		}
-		By(fmt.Sprintf("Deleting netutils pod %s/%s", input.Namespace, podName))
-		err := input.ClusterClient.Delete(ctx, pod)
-		Expect(client.IgnoreNotFound(err)).To(Succeed(), "deleting pod %s/%s", input.Namespace, podName)
+		netshoot.DeletePodBestEffort(ctx, input.ClusterClient, pod)
 	})
 
 	netshoot.WaitForNetutilsPodReady(ctx, input.ClusterClient, pod, dmaSFPodReadyTimeout)
