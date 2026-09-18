@@ -83,6 +83,9 @@ var (
 	MultusContainer ContainerName = "kube-multus"
 	// SRIOVDevicePluginContainer is the default name of the scaffolded SR-IOV Device Plugin container.
 	SRIOVDevicePluginContainer ContainerName = "kube-sriovdp"
+	// SRIOVDevicePluginConfigInitContainer is the name of the SR-IOV Device Plugin init container
+	// that resolves which config the plugin consumes.
+	SRIOVDevicePluginConfigInitContainer ContainerName = "config-init"
 	// OVSCNI is the default name of the scaffolded OVS CNI
 	OVSCNI ContainerName = "ovs-cni-plugin"
 	// CNIInstallerContainer is the default name of the scaffolded CNI Installer container.

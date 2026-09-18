@@ -90,6 +90,7 @@ func newDefaultVariables(defaults *release.Defaults) Variables {
 			operatorv1.SFCControllerName.WithContainer(operatorv1.ControllerManagerContainer):                   defaults.DPFSystemImage,
 			operatorv1.DPUDetectorName.WithContainer(operatorv1.DPUDetectorContainer):                           defaults.DPFSystemImage,
 			operatorv1.CNIInstallerName.WithContainer(operatorv1.CNIInstallerContainer):                         defaults.CNIInstallerImage,
+			operatorv1.SRIOVDevicePluginName.WithContainer(operatorv1.SRIOVDevicePluginConfigInitContainer):     defaults.DPFSystemImage,
 			operatorv1.NodeSRIOVDevicePluginControllerName.WithContainer(operatorv1.ControllerManagerContainer): defaults.DPFSystemImage,
 			operatorv1.KataContainersName.WithContainer(operatorv1.KataDeployContainer):                         defaults.KataDeployImage,
 			operatorv1.VaultKMSName.WithContainer(operatorv1.VaultKMSContainer):                                 defaults.DPFSystemImage,

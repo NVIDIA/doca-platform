@@ -112,6 +112,11 @@ func helmPaths() helmPathsProvider {
 					Tag:        []string{"kubeSriovDevicePlugin", "kubeSriovdp", "image", "tag"},
 					Resources:  []string{"kubeSriovDevicePlugin", "kubeSriovdp", "resources"},
 				},
+				operatorv1.SRIOVDevicePluginConfigInitContainer: {
+					Repository: []string{"kubeSriovDevicePlugin", "configInit", "image", "repository"},
+					Tag:        []string{"kubeSriovDevicePlugin", "configInit", "image", "tag"},
+					Resources:  []string{"kubeSriovDevicePlugin", "configInit", "resources"},
+				},
 			},
 			operatorv1.CNIInstallerName: {
 				operatorv1.CNIInstallerContainer: {

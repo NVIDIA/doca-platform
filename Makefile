@@ -1281,7 +1281,8 @@ GO_GCFLAGS=-trimpath
 
 BUILD_TARGETS ?= $(DPU_ARCH_BUILD_TARGETS)
 DPF_SYSTEM_BUILD_TARGETS ?= operator provisioning dpuservice servicechainset kamaji-cluster-manager static-cluster-manager \
-	sfc-controller dpfctl dpudetector nodesriovdeviceplugin-controller nodesriovdeviceplugin-init dpf-kms-plugin
+	sfc-controller dpfctl dpudetector nodesriovdeviceplugin-controller nodesriovdeviceplugin-init dpf-kms-plugin \
+	sriovdp-config-init
 DPU_ARCH_BUILD_TARGETS ?=
 # contains list of storage-related binaries that have no system-level dependencies
 STORAGE_SYSTEM_BUILD_TARGETS ?= storage-snap-host-controller storage-snap-node-driver block-storage-vendor-dpu-plugin storage-snap-csi-plugin storage-nvidia-external-attacher nfs-storage-vendor-dpu-plugin
@@ -1565,6 +1566,10 @@ binary-nodesriovdeviceplugin-controller: ## Build the nodesriovdeviceplugin cont
 .PHONY: binary-nodesriovdeviceplugin-init
 binary-nodesriovdeviceplugin-init: ## Build the nodesriovdeviceplugin init binary.
 	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/nodesriovdeviceplugin-init github.com/nvidia/doca-platform/cmd/nodesriovdeviceplugin/initcontainer
+
+.PHONY: binary-sriovdp-config-init
+binary-sriovdp-config-init: ## Build the SR-IOV device plugin config init binary.
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/sriovdp-config-init github.com/nvidia/doca-platform/cmd/sriovdpconfiginit
 
 DOCKER_BUILD_TARGETS=$(DPU_ARCH_DOCKER_BUILD_TARGETS) $(MULTI_ARCH_DOCKER_BUILD_TARGETS)
 DPU_ARCH_DOCKER_BUILD_TARGETS=$(DPU_ARCH_BUILD_TARGETS) cni-installer

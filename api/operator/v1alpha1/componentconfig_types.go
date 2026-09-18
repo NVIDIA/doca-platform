@@ -891,6 +891,11 @@ type SRIOVDevicePluginConfiguration struct {
 	// It contains the image for the controller and its resource requirements.
 	// +optional
 	DevicePlugin *DefaultOverridesConfiguration `json:"deviceplugin,omitempty"`
+
+	// ConfigInit contains the configuration for the SR-IOV Device Plugin config-init container.
+	// It contains the image for the init container and its resource requirements.
+	// +optional
+	ConfigInit *DefaultOverridesConfiguration `json:"configInit,omitempty"`
 }
 
 func (c *SRIOVDevicePluginConfiguration) Name() string {
@@ -908,16 +913,21 @@ func (c *SRIOVDevicePluginConfiguration) GetImages() map[ContainerName]*string {
 	if c.DevicePlugin != nil {
 		images[SRIOVDevicePluginContainer] = c.DevicePlugin.GetImage()
 	}
+	if c.ConfigInit != nil {
+		images[SRIOVDevicePluginConfigInitContainer] = c.ConfigInit.GetImage()
+	}
 	return images
 }
 
 func (c *SRIOVDevicePluginConfiguration) GetResources() map[ContainerName]*corev1.ResourceRequirements {
-	if c.DevicePlugin == nil {
-		return nil
+	resources := make(map[ContainerName]*corev1.ResourceRequirements)
+	if c.DevicePlugin != nil {
+		resources[SRIOVDevicePluginContainer] = c.DevicePlugin.GetResource()
 	}
-	return map[ContainerName]*corev1.ResourceRequirements{
-		SRIOVDevicePluginContainer: c.DevicePlugin.GetResource(),
+	if c.ConfigInit != nil {
+		resources[SRIOVDevicePluginConfigInitContainer] = c.ConfigInit.GetResource()
 	}
+	return resources
 }
 
 // +kubebuilder:validation:XValidation:rule="!has(self.image) || !has(self.cni) || !has(self.cni.image)",message="only either 'image' (deprecated) or 'cni.image' can be set, but not both"

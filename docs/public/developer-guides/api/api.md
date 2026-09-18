@@ -1408,6 +1408,7 @@ _Appears in:_
 | `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br />Optional: \{\} <br /> |
 | `image` _[Image](#image)_ | Image overrides the container image used by the SRIOV Device Plugin container.<br />Deprecated: This field is deprecated and will be removed with v27.1.0.<br />Use the new field `deviceplugin` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br />Optional: \{\} <br /> |
 | `deviceplugin` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | DevicePlugin contains the configuration for the SRIOV Device Plugin component.<br />It contains the image for the controller and its resource requirements. |  | Optional: \{\} <br /> |
+| `configInit` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | ConfigInit contains the configuration for the SR-IOV Device Plugin config-init container.<br />It contains the image for the init container and its resource requirements. |  | Optional: \{\} <br /> |
 
 
 #### SecretKeyRef

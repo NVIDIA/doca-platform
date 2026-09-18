@@ -1,5 +1,19 @@
 imagePullSecrets: []
 kubeSriovDevicePlugin:
+  # configInit resolves which config the plugin consumes: the one dpu-agent generated for
+  # this node when it exists, otherwise sriovdpConfig.configJson below.
+  configInit:
+    image:
+      repository: example.com/dpf-system
+      tag: v0.1.0
+    imagePullPolicy: IfNotPresent
+    resources:
+      limits:
+        cpu: 100m
+        memory: 50Mi
+      requests:
+        cpu: 10m
+        memory: 20Mi
   kubeSriovdp:
     args:
     - --log-dir=sriovdp
@@ -22,6 +36,9 @@ sriovDevicePlugin:
   serviceAccount:
     annotations: {}
 sriovdpConfig:
+  # configJson is the fallback used on DPUs whose BFB runs a dpu-agent that does not yet
+  # generate a config (pre upgrade case). It describes the pools that old dpu-agent creates, so it is tied to that
+  # release and should not be edited to describe anything else.
   configJson: |-
     {
         "resourceList": [{
