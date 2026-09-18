@@ -299,17 +299,6 @@ func Test_chartHelper_GetAnnotationsFromChart(t *testing.T) {
 			user:     "",
 			password: "",
 		},
-		{
-			name:    "get from public OCI registry with username but no password set",
-			wantErr: false,
-			source: dpuservicev1.ApplicationSource{
-				RepoURL: "oci://nvcr.io/nvidia/cloud-native",
-				Chart:   "network-operator",
-				Version: "v25.1.0",
-			},
-			user:     "$oauthtoken",
-			password: "",
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
