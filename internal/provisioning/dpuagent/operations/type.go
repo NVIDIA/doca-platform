@@ -69,11 +69,11 @@ type Context struct {
 	// APIs not exposed by the controller-runtime client (e.g. Discovery).
 	K8sClient kubernetes.Interface
 
-	// DPUFlavor is the desired configuration template for this DPU, loaded at startup (e.g. from --dpuflavor YAML).
-	// Operations use it to apply sysctl, config files, grub, OVS, SF counts, and other flavor-defined settings.
+	// DPUFlavor is the live DPUFlavor named by LatestDPU.spec.dpuFlavor.
+	// GetLatestDPU loads it from the API on each Run(); operations must not read a disk snapshot.
 	DPUFlavor provisioningv1.DPUFlavor
 
-	// LatestDPU is the current DPU resource, typically populated by nvconfig.GetLatestDPU.
+	// LatestDPU is the current DPU resource, populated by GetLatestDPU.
 	// Operations use it to read spec/status and to decide behavior.
 	LatestDPU *provisioningv1.DPU
 

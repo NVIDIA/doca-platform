@@ -95,15 +95,18 @@ type Params struct {
 	DPUUID               string
 	DPUType              provisioningv1.DPUType
 	DPUAgentRepoURL      string
-	DPUFlavorYAML        string
-	UbuntuPassword       string
-	ConfigFiles          []WriteFile
-	OVSRawScript         string
-	OOBNetwork           bool
-	RedfishInterface     bool
-	BFBRegistryURL       string
-	AstraEnabled         bool
-	NICDeviceCount       int
+	// DPUFlavorYAML is the marshaled DPUFlavor for custom bf.cfg templates.
+	// Default user-data does not write it; dpu-agent loads DPUFlavor from the API.
+	// DPUFlavorYAML is deprecated because DPUFlavor is loaded from the API instead.
+	DPUFlavorYAML    string
+	UbuntuPassword   string
+	ConfigFiles      []WriteFile
+	OVSRawScript     string
+	OOBNetwork       bool
+	RedfishInterface bool
+	BFBRegistryURL   string
+	AstraEnabled     bool
+	NICDeviceCount   int
 
 	// SpiffeTokenExchangeEndpoint enables optional exchange before writing the token.
 	SpiffeTokenExchangeEndpoint string

@@ -68,11 +68,6 @@ write_files:
 {{indent 6 .OVSRawScript}}
 {{end}}
 
-  - path: /opt/dpf/dpuflavor.yaml
-    permissions: '0400'
-    content: |
-{{indent 6 .DPUFlavorYAML}}
-
   - path: /opt/dpf/dpuagent.conf
     permissions: '0600'
     content: |
@@ -82,7 +77,6 @@ write_files:
 {{- if .DPUType}}
       --dpu-type={{.DPUType}}
 {{- end}}
-      --dpuflavor=/opt/dpf/dpuflavor.yaml
       --control-plane-mtu={{.ControlPlaneMTU}}
       --zero-trust-mode={{.RedfishInterface}}
       --astra-enabled={{.AstraEnabled}}

@@ -58,7 +58,6 @@ import (
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	crclient "sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/yaml"
 )
 
 const (
@@ -90,7 +89,7 @@ func main() {
 	pflag.StringVar(&options.DPUNamespace, "dpu-namespace", "", "Namespace of the DPU")
 	pflag.StringVar(&options.DPUUID, "dpu-uid", "", "UID of the DPU object, used to reject stale agent status updates")
 	pflag.StringVar(&options.DPUType, "dpu-type", string(provisioningv1.DPUTypeUnknown), "DPU hardware type")
-	pflag.StringVar(&options.DPUFlavor, "dpuflavor", "", "Path to the DPU flavor YAML file")
+	pflag.StringVar(&options.DPUFlavor, "dpuflavor", "", "Deprecated: ignored. The agent loads DPUFlavor from the API using DPU.spec.dpuFlavor.")
 	pflag.StringVar(&options.KubeadmSecretName, "kubeadm-secret-name", "", "Name of the Secret containing the Kubeadm join command")
 	pflag.StringVar(&options.KubeadmSecretNamespace, "kubeadm-secret-namespace", "", "Namespace of the Secret containing the Kubeadm join command")
 	pflag.StringVar(&options.BFBRegistryURL, "bfb-registry-url", "", "HTTP base URL of bfb-registry (scheme://host:port) for downloading files from the registry")
@@ -131,9 +130,9 @@ func main() {
 		klog.Errorf("failed to validate options: %v", err)
 		os.Exit(1)
 	}
-
-	dpuFlavor := &provisioningv1.DPUFlavor{}
-	parseFileOrDie(options.DPUFlavor, YamlParserFunc, dpuFlavor)
+	if options.DPUFlavor != "" {
+		klog.Info("--dpuflavor is deprecated and ignored; DPUFlavor is loaded from the API")
+	}
 
 	execCtx := klog.NewContext(ctrl.SetupSignalHandler(), klog.Background())
 
@@ -159,7 +158,6 @@ func main() {
 		Client:      dpuClient,
 		WatchClient: dpuClient,
 		K8sClient:   k8sClient,
-		DPUFlavor:   *dpuFlavor,
 		Options:     options,
 	}
 
@@ -379,26 +377,4 @@ func waitForNonEmptyTokenFile(ctx context.Context, path string, timeout time.Dur
 		return fmt.Errorf("waiting for non-empty SPIFFE token file %s: %w", path, err)
 	}
 	return nil
-}
-
-type ParseFunc func(data []byte, obj interface{}) error
-
-func YamlParserFunc(data []byte, obj interface{}) error { return yaml.Unmarshal(data, obj) }
-
-func parseFile(name string, parse ParseFunc, obj interface{}) error {
-	data, err := os.ReadFile(name)
-	if err != nil {
-		return fmt.Errorf("failed to read file %s: %w", name, err)
-	}
-	if err := parse(data, obj); err != nil {
-		return fmt.Errorf("failed to parse file %s: %w", name, err)
-	}
-	return nil
-}
-
-func parseFileOrDie(name string, parse ParseFunc, obj interface{}) {
-	err := parseFile(name, parse, obj)
-	if err != nil {
-		klog.Fatalf("failed to parse file %s: %v", name, err)
-	}
 }
