@@ -327,6 +327,7 @@ var _ = Describe("DPUAgent", func() {
 				names = append(names, op.Name())
 			}
 
+			Expect(names).To(ContainElement("Get Latest DPU"))
 			Expect(names).To(ContainElement("Verify Static Files"))
 			Expect(names).To(ContainElement("Install Packages"))
 			Expect(names).To(ContainElement("Handle Reboot"))
@@ -335,6 +336,7 @@ var _ = Describe("DPUAgent", func() {
 			Expect(names).To(ContainElement("Configure Network"))
 			Expect(names).To(ContainElement("Run OVS Script"))
 			Expect(names).To(ContainElement("Set Netplan Underlay MTU"))
+			Expect(indexOf(names, "Get Latest DPU")).To(BeNumerically("<", indexOf(names, "Verify Static Files")))
 			Expect(indexOf(names, "Verify Static Files")).To(BeNumerically("<", indexOf(names, "Install Packages")))
 			Expect(indexOf(names, "Install Packages")).To(BeNumerically("<", indexOf(names, "Handle Reboot")))
 			Expect(indexOf(names, "Start Kubelet")).To(BeNumerically("<", indexOf(names, "Report Node Labels")))

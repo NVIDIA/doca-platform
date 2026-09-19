@@ -267,18 +267,12 @@ write_files:
 {{indent 6 .OVSRawScript}}
 {{end}}
 
-  - path: /opt/dpf/dpuflavor.yaml
-    permissions: '0400'
-    content: |
-{{indent 6 .DPUFlavorYAML}}
-
   - path: /opt/dpf/dpuagent.conf
     permissions: '0600'
     content: |
       --dpu-name={{.DPUName}}
       --dpu-namespace={{.DPUNamespace}}
       --dpu-uid={{.DPUUID}}
-      --dpuflavor=/opt/dpf/dpuflavor.yaml
       --control-plane-mtu={{.ControlPlaneMTU}}
       --zero-trust-mode={{.RedfishInterface}}
       --astra-enabled={{.AstraEnabled}}
@@ -402,8 +396,7 @@ chroot /mnt env PATH="$CHROOT_PATH" /usr/sbin/update-grub
 
 		Describe("cloud-init YAML with default template", func() {
 			var (
-				flavor        *provisioningv1.DPUFlavor
-				flavorYAMLStr string
+				flavor *provisioningv1.DPUFlavor
 			)
 
 			extractYAML := func(data []byte) []byte {
@@ -436,9 +429,6 @@ chroot /mnt env PATH="$CHROOT_PATH" /usr/sbin/update-grub
 			BeforeEach(func() {
 				flavor = &provisioningv1.DPUFlavor{}
 				Expect(yaml.Unmarshal([]byte(testDPUFlavorYAML), flavor)).To(Succeed())
-				flavorBytes, err := yaml.Marshal(flavor)
-				Expect(err).NotTo(HaveOccurred())
-				flavorYAMLStr = string(flavorBytes)
 			})
 
 			It("should produce valid YAML with all branches enabled (indentation validation)", func() {
@@ -483,9 +473,9 @@ ovs-vsctl add-br br-test
 `)
 				Expect(ovsFile.Content).To(Equal(expectedOvs))
 
-				flavorFile := getWriteFile(parsed, "/opt/dpf/dpuflavor.yaml")
-				Expect(flavorFile.Permissions).To(Equal("0400"))
-				Expect(flavorFile.Content).To(Equal(flavorYAMLStr))
+				for _, f := range parsed.WriteFiles {
+					Expect(f.Path).NotTo(Equal("/opt/dpf/dpuflavor.yaml"))
+				}
 
 				agentConf := getWriteFile(parsed, "/opt/dpf/dpuagent.conf")
 				Expect(agentConf.Permissions).To(Equal("0600"))
@@ -493,7 +483,6 @@ ovs-vsctl add-br br-test
 --dpu-name=dpu-1
 --dpu-namespace=ns-1
 --dpu-uid=
---dpuflavor=/opt/dpf/dpuflavor.yaml
 --control-plane-mtu=1500
 --zero-trust-mode=true
 --astra-enabled=true
@@ -557,7 +546,6 @@ network:
 --dpu-name=dpu-1
 --dpu-namespace=ns-1
 --dpu-uid=
---dpuflavor=/opt/dpf/dpuflavor.yaml
 --control-plane-mtu=1500
 --zero-trust-mode=true
 --astra-enabled=false
@@ -691,7 +679,6 @@ network:
 --dpu-name=dpu-1
 --dpu-namespace=ns-1
 --dpu-uid=
---dpuflavor=/opt/dpf/dpuflavor.yaml
 --control-plane-mtu=1500
 --zero-trust-mode=false
 --astra-enabled=false

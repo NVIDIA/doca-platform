@@ -46,7 +46,7 @@ var _ = Describe("GetLatestDPU Operation", func() {
 		Expect(operation.ShouldSkip(&operations.Context{})).To(BeFalse())
 	})
 
-	It("should assign the LatestDPU in context on success", func() {
+	It("should assign the LatestDPU and live DPUFlavor in context on success", func() {
 		expectedDPU := &provisioningv1.DPU{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "test-dpu",
@@ -61,7 +61,16 @@ var _ = Describe("GetLatestDPU Operation", func() {
 				DPUFlavor:     "test-dpu-flavor",
 			},
 		}
-		fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(expectedDPU).Build()
+		expectedFlavor := &provisioningv1.DPUFlavor{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-dpu-flavor",
+				Namespace: "test-ns",
+			},
+			Spec: provisioningv1.DPUFlavorSpec{
+				Sysctl: provisioningv1.DPUFLavorSysctl{Parameters: []string{"net.ipv4.ip_forward=1"}},
+			},
+		}
+		fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(expectedDPU, expectedFlavor).Build()
 
 		operation := &GetLatestDPU{}
 		operationCtx := operations.Context{
@@ -77,6 +86,8 @@ var _ = Describe("GetLatestDPU Operation", func() {
 		Expect(operationCtx.LatestDPU.Name).To(Equal("test-dpu"))
 		Expect(operationCtx.LatestDPU.Namespace).To(Equal("test-ns"))
 		Expect(operationCtx.LatestDPU.Spec.DPUNodeName).To(Equal("test-dpu-node"))
+		Expect(operationCtx.DPUFlavor.Name).To(Equal("test-dpu-flavor"))
+		Expect(operationCtx.DPUFlavor.Spec.Sysctl.Parameters).To(Equal([]string{"net.ipv4.ip_forward=1"}))
 	})
 
 	It("should return error when DPU UID does not match", func() {
@@ -119,5 +130,53 @@ var _ = Describe("GetLatestDPU Operation", func() {
 		Expect(err).To(HaveOccurred())
 		_ = fmt.Sprintf("%v", err)
 		Expect(operationCtx.LatestDPU).To(BeNil())
+	})
+
+	It("should return error when DPU spec.dpuFlavor is empty", func() {
+		dpu := &provisioningv1.DPU{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-dpu",
+				Namespace: "test-ns",
+				UID:       "test-uid-123",
+			},
+		}
+		fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).Build()
+
+		operation := &GetLatestDPU{}
+		operationCtx := operations.Context{
+			Options: opts.Options{
+				DPUNamespace: "test-ns",
+				DPUName:      "test-dpu",
+				DPUUID:       "test-uid-123",
+			},
+			Client: fakeClient,
+		}
+		err := operation.Execute(ctx, &operationCtx)
+		Expect(err).To(MatchError(ContainSubstring("spec.dpuFlavor is empty")))
+	})
+
+	It("should return error when DPUFlavor is missing", func() {
+		dpu := &provisioningv1.DPU{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-dpu",
+				Namespace: "test-ns",
+				UID:       "test-uid-123",
+			},
+			Spec: provisioningv1.DPUSpec{DPUFlavor: "missing-flavor"},
+		}
+		fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).Build()
+
+		operation := &GetLatestDPU{}
+		operationCtx := operations.Context{
+			Options: opts.Options{
+				DPUNamespace: "test-ns",
+				DPUName:      "test-dpu",
+				DPUUID:       "test-uid-123",
+			},
+			Client: fakeClient,
+		}
+		err := operation.Execute(ctx, &operationCtx)
+		Expect(err).To(MatchError(ContainSubstring("get DPUFlavor")))
+		Expect(operationCtx.DPUFlavor.Name).To(BeEmpty())
 	})
 })

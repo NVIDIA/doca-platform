@@ -23,6 +23,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
 
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -54,5 +55,16 @@ func (g *GetLatestDPU) Execute(execCtx context.Context, optCtx *operations.Conte
 		return fmt.Errorf("stale DPU object: expected UID %s but got %s", optCtx.Options.DPUUID, dpu.UID)
 	}
 	optCtx.LatestDPU = dpu
+
+	flavorName := dpu.Spec.DPUFlavor
+	if flavorName == "" {
+		return fmt.Errorf("DPU spec.dpuFlavor is empty")
+	}
+	flavor := &provisioningv1.DPUFlavor{}
+	if err := optCtx.Client.Get(execCtx, client.ObjectKey{Namespace: dpu.Namespace, Name: flavorName}, flavor); err != nil {
+		return fmt.Errorf("get DPUFlavor %s/%s: %w", dpu.Namespace, flavorName, err)
+	}
+	optCtx.DPUFlavor = *flavor
+	klog.InfoS("loaded DPUFlavor from API", "dpu", klog.KObj(dpu), "flavor", flavorName)
 	return nil
 }

@@ -61,8 +61,10 @@ var _ = Describe("Options.Validate SPIFFE mode", func() {
 		}, "token-file-path is required in SPIFFE mode"),
 	)
 
-	It("accepts a valid SPIFFE configuration", func() {
-		Expect(validSpiffe().Validate()).To(Succeed())
+	It("does not require --dpuflavor", func() {
+		o := validSpiffe()
+		o.DPUFlavor = ""
+		Expect(o.Validate()).To(Succeed())
 	})
 
 	It("accepts SpiffeMode combined with ZeroTrustMode", func() {

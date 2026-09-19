@@ -138,8 +138,7 @@ users:
 
 var _ = Describe("Generate", func() {
 	var (
-		flavor        *provisioningv1.DPUFlavor
-		flavorYAMLStr string
+		flavor *provisioningv1.DPUFlavor
 	)
 
 	getWriteFile := func(parsed *cloudConfig, filePath string) *writeEntry {
@@ -165,9 +164,6 @@ var _ = Describe("Generate", func() {
 	BeforeEach(func() {
 		flavor = &provisioningv1.DPUFlavor{}
 		Expect(yaml.Unmarshal([]byte(testDPUFlavorYAML), flavor)).To(Succeed())
-		flavorBytes, err := yaml.Marshal(flavor)
-		Expect(err).NotTo(HaveOccurred())
-		flavorYAMLStr = string(flavorBytes)
 	})
 
 	It("should return dpf.cfg with correct path, permissions, and static content", func() {
@@ -196,6 +192,7 @@ network:
 		Expect(parsed.Output.All).To(Equal("| tee -a /var/log/cloud-init-output.log /dev/console"))
 		agentConf := getWriteFile(parsed, "/opt/dpf/dpuagent.conf")
 		Expect(agentConf.Content).NotTo(ContainSubstring("--dpu-type="))
+		Expect(agentConf.Content).NotTo(ContainSubstring("--dpuflavor="))
 	})
 
 	It("should produce valid YAML with all branches enabled", func() {
@@ -245,9 +242,9 @@ ovs-vsctl add-br br-test
 `)
 		Expect(ovsFile.Content).To(Equal(expectedOvs))
 
-		flavorFile := getWriteFile(parsed, "/opt/dpf/dpuflavor.yaml")
-		Expect(flavorFile.Permissions).To(Equal("0400"))
-		Expect(flavorFile.Content).To(Equal(flavorYAMLStr))
+		for _, f := range parsed.WriteFiles {
+			Expect(f.Path).NotTo(Equal("/opt/dpf/dpuflavor.yaml"))
+		}
 
 		agentConf := getWriteFile(parsed, "/opt/dpf/dpuagent.conf")
 		Expect(agentConf.Permissions).To(Equal("0600"))
@@ -256,7 +253,6 @@ ovs-vsctl add-br br-test
 --dpu-namespace=ns-1
 --dpu-uid=
 --dpu-type=BlueField4
---dpuflavor=/opt/dpf/dpuflavor.yaml
 --control-plane-mtu=1500
 --zero-trust-mode=true
 --astra-enabled=true
