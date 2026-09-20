@@ -24,6 +24,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -62,6 +63,13 @@ const (
 	invalidImageSignature     = "Invalid Image signature"
 	spectrumXConfigDir        = "/bindata/spectrum-x"
 	startMSTCommand           = "mst start"
+	// noCarrierErrorMarker matches the error NCO returns from RuntimeConfigApplied when a
+	// port is administratively up without carrier ("network interface X for device port Y
+	// has NO-CARRIER"). NCO does not export a sentinel error for it.
+	noCarrierErrorMarker = "has NO-CARRIER"
+	// maxNoCarrierDevicesInMessage caps how many device serial numbers the
+	// EWNICConfigured condition message lists for NO-CARRIER devices.
+	maxNoCarrierDevicesInMessage = 5
 )
 
 // RuntimeConfigInterval is how often the post-provisioning runtime config loop reapplies.
@@ -85,7 +93,10 @@ type NICProvisioning struct {
 	prepareLocalDMSServerFn func(optCtx *operations.Context) error
 	installNICFirmwareFn    func(execCtx context.Context, optCtx *operations.Context, localNICFWPath string) error
 	applyNVConfigFn         func(execCtx context.Context, optCtx *operations.Context) error
-	applyRuntimeConfigFn    func(execCtx context.Context, optCtx *operations.Context) error
+	applyRuntimeConfigFn    func(execCtx context.Context, optCtx *operations.Context, devices []nicconfigurationv1alpha1.NicDevice) ([]nicconfigurationv1alpha1.NicDevice, error)
+	// noCarrierDevices are discovered devices whose last runtime config apply was
+	// skipped by NCO because a port had NO-CARRIER. Owned by the runtime config loop.
+	noCarrierDevices []nicconfigurationv1alpha1.NicDevice
 	// configureRestrictedModeFn overrides the restricted mode step (tests only).
 	configureRestrictedModeFn func(execCtx context.Context, optCtx *operations.Context) error
 	// ccTerminationCh overrides SpectrumXManager.GetCCTerminationChannel (tests only).
@@ -222,23 +233,94 @@ func (n *NICProvisioning) applyNVConfigAndUpdateStatus(execCtx context.Context, 
 	return nil
 }
 
-func (n *NICProvisioning) applyRuntimeConfigAndUpdateStatus(execCtx context.Context, optCtx *operations.Context) error {
+// applyRuntimeConfigAndUpdateStatus applies runtime config to devices and reflects the
+// result in the EWNICConfigured condition. Devices NCO skipped because a port has
+// NO-CARRIER do not fail the apply: the condition stays True with reason
+// RuntimeConfigAppliedNoCarrierPending and the loop retries them until carrier is up.
+// The DPU status is patched only when the condition actually changed, so a device
+// that never gets carrier does not cause a patch on every retry.
+func (n *NICProvisioning) applyRuntimeConfigAndUpdateStatus(execCtx context.Context, optCtx *operations.Context, devices []nicconfigurationv1alpha1.NicDevice) error {
 	applyRuntimeConfig := n.applyRuntimeConfig
 	if n.applyRuntimeConfigFn != nil {
 		applyRuntimeConfig = n.applyRuntimeConfigFn
 	}
-	if err := applyRuntimeConfig(execCtx, optCtx); err != nil {
-		setAgentCondition(optCtx, cutil.AgentCondEWNICConfigured, metav1.ConditionFalse, "RuntimeConfigApplyFailed", err.Error())
+	noCarrier, err := applyRuntimeConfig(execCtx, optCtx, devices)
+	n.updateNoCarrierDevices(devices, noCarrier, err)
+	var changed bool
+	switch {
+	case err != nil:
+		changed = setAgentCondition(optCtx, cutil.AgentCondEWNICConfigured, metav1.ConditionFalse, "RuntimeConfigApplyFailed", err.Error())
+	case len(n.noCarrierDevices) > 0:
+		changed = setAgentCondition(optCtx, cutil.AgentCondEWNICConfigured, metav1.ConditionTrue, "RuntimeConfigAppliedNoCarrierPending",
+			noCarrierPendingMessage(n.noCarrierDevices, len(n.discoveredNICDevices)))
+	default:
+		changed = setAgentCondition(optCtx, cutil.AgentCondEWNICConfigured, metav1.ConditionTrue, "RuntimeConfigApplied", "E/W NIC runtime configuration completed")
+	}
+	if changed {
 		if statusErr := updateStatusUntilSuccess(execCtx, optCtx); statusErr != nil {
 			return errors.Join(err, statusErr)
 		}
-		return err
 	}
-	setAgentCondition(optCtx, cutil.AgentCondEWNICConfigured, metav1.ConditionTrue, "RuntimeConfigApplied", "E/W NIC runtime configuration completed")
-	if err := updateStatusUntilSuccess(execCtx, optCtx); err != nil {
-		return err
+	return err
+}
+
+// updateNoCarrierDevices merges the outcome of one apply into n.noCarrierDevices.
+// On success every device that took part in the apply is dropped and the ones NCO
+// reported as NO-CARRIER are re-added. On failure nothing is dropped, so a device whose
+// apply failed right after carrier returned keeps being retried by the loop.
+func (n *NICProvisioning) updateNoCarrierDevices(applied, noCarrier []nicconfigurationv1alpha1.NicDevice, applyErr error) {
+	pending := make([]nicconfigurationv1alpha1.NicDevice, 0, len(n.noCarrierDevices)+len(noCarrier))
+	if applyErr == nil {
+		appliedSerials := make(map[string]struct{}, len(applied))
+		for _, device := range applied {
+			appliedSerials[device.Status.SerialNumber] = struct{}{}
+		}
+		for _, device := range n.noCarrierDevices {
+			if _, ok := appliedSerials[device.Status.SerialNumber]; !ok {
+				pending = append(pending, device)
+			}
+		}
+	} else {
+		pending = append(pending, n.noCarrierDevices...)
 	}
-	return nil
+	for _, device := range noCarrier {
+		if !containsDeviceSerial(pending, device.Status.SerialNumber) {
+			pending = append(pending, device)
+		}
+	}
+	n.noCarrierDevices = pending
+}
+
+func containsDeviceSerial(devices []nicconfigurationv1alpha1.NicDevice, serialNumber string) bool {
+	for _, device := range devices {
+		if device.Status.SerialNumber == serialNumber {
+			return true
+		}
+	}
+	return false
+}
+
+// noCarrierPendingMessage builds the EWNICConfigured message for NO-CARRIER devices,
+// e.g. "2/8 E/W NIC devices have NO-CARRIER ports, runtime config retried until
+// carrier is up: SN1, SN2". The serial number list is sorted and capped.
+func noCarrierPendingMessage(noCarrier []nicconfigurationv1alpha1.NicDevice, total int) string {
+	serials := make([]string, 0, len(noCarrier))
+	for _, device := range noCarrier {
+		serials = append(serials, device.Status.SerialNumber)
+	}
+	sort.Strings(serials)
+	listed := serials
+	suffix := ""
+	if len(listed) > maxNoCarrierDevicesInMessage {
+		listed = listed[:maxNoCarrierDevicesInMessage]
+		suffix = ", ..."
+	}
+	return fmt.Sprintf("%d/%d E/W NIC devices have NO-CARRIER ports, runtime config retried until carrier is up: %s%s",
+		len(noCarrier), total, strings.Join(listed, ", "), suffix)
+}
+
+func isNoCarrierError(err error) bool {
+	return err != nil && strings.Contains(err.Error(), noCarrierErrorMarker)
 }
 
 func updateStatusUntilSuccess(execCtx context.Context, optCtx *operations.Context) error {
@@ -610,27 +692,36 @@ func (n *NICProvisioning) applyNVConfig(execCtx context.Context, optCtx *operati
 	return nil
 }
 
-func (n *NICProvisioning) applyRuntimeConfig(execCtx context.Context, optCtx *operations.Context) error {
+// runtimeConfigDeviceResult is the per-device outcome of one NCO runtime config call.
+type runtimeConfigDeviceResult struct {
+	device nicconfigurationv1alpha1.NicDevice
+	err    error
+}
+
+// applyRuntimeConfig applies E/W NIC runtime config to devices through NCO. Devices that
+// NCO rejects because a port has NO-CARRIER are returned in noCarrier instead of failing
+// the apply; any other per-device error fails the whole apply.
+func (n *NICProvisioning) applyRuntimeConfig(execCtx context.Context, optCtx *operations.Context, devices []nicconfigurationv1alpha1.NicDevice) (noCarrier []nicconfigurationv1alpha1.NicDevice, err error) {
 	if n.dmsServer == nil || !n.dmsServer.IsRunning() {
-		return fmt.Errorf("local DMS server is not running for NIC runtime config apply")
+		return nil, fmt.Errorf("local DMS server is not running for NIC runtime config apply")
 	}
-	if len(n.discoveredNICDevices) == 0 {
-		return fmt.Errorf("no discovered NIC devices available for runtime config apply")
+	if len(devices) == 0 {
+		return nil, fmt.Errorf("no discovered NIC devices available for runtime config apply")
 	}
 
 	nvUtils := nicnvconfig.NewNVConfigUtils()
 	spectrumXMgr, err := n.getOrCreateSpectrumXConfigManager()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	cfgMgr := nicconfiguration.NewConfigurationManager(nil, n.dmsServer, nvUtils, spectrumXMgr)
 	ewNICCfg := optCtx.DPUFlavor.Spec.FirstEWNicConfiguration()
 	applyCtx, cancel := context.WithTimeout(execCtx, nicRuntimeApplyTimeout)
 	defer cancel()
 
-	errCh := make(chan error, len(n.discoveredNICDevices))
+	resultCh := make(chan runtimeConfigDeviceResult, len(devices))
 	var wg sync.WaitGroup
-	for _, discoveredDevice := range n.discoveredNICDevices {
+	for _, discoveredDevice := range devices {
 		device := discoveredDevice
 		wg.Add(1)
 		go func() {
@@ -643,8 +734,8 @@ func (n *NICProvisioning) applyRuntimeConfig(execCtx context.Context, optCtx *op
 				"type", device.Status.Type)
 			result, applyErr := cfgMgr.ApplyRuntimeConfiguration(applyCtx, &device)
 			if applyErr != nil {
-				errCh <- fmt.Errorf("failed to apply runtime config on NIC %q (type %q): %w",
-					device.Status.SerialNumber, device.Status.Type, applyErr)
+				resultCh <- runtimeConfigDeviceResult{device: device, err: fmt.Errorf("failed to apply runtime config on NIC %q (type %q): %w",
+					device.Status.SerialNumber, device.Status.Type, applyErr)}
 				return
 			}
 			klog.InfoS("NIC provisioning: NCO runtime config API completed",
@@ -655,19 +746,27 @@ func (n *NICProvisioning) applyRuntimeConfig(execCtx context.Context, optCtx *op
 	}
 
 	wg.Wait()
-	close(errCh)
+	close(resultCh)
 
-	applyErrs := make([]string, 0, len(n.discoveredNICDevices))
-	for applyErr := range errCh {
-		applyErrs = append(applyErrs, applyErr.Error())
+	applyErrs := make([]string, 0, len(devices))
+	for result := range resultCh {
+		if isNoCarrierError(result.err) {
+			klog.InfoS("NIC provisioning: NIC has NO-CARRIER, runtime config deferred until carrier is up",
+				"serialNumber", result.device.Status.SerialNumber,
+				"type", result.device.Status.Type,
+				"err", result.err.Error())
+			noCarrier = append(noCarrier, result.device)
+			continue
+		}
+		applyErrs = append(applyErrs, result.err.Error())
 	}
 	if len(applyErrs) > 0 {
-		return fmt.Errorf("NIC runtime config apply failed: %s", strings.Join(applyErrs, "; "))
+		return noCarrier, fmt.Errorf("NIC runtime config apply failed: %s", strings.Join(applyErrs, "; "))
 	}
 	if err := applyCtx.Err(); err != nil && err != context.Canceled {
-		return fmt.Errorf("NIC runtime config apply timed out or canceled: %w", err)
+		return noCarrier, fmt.Errorf("NIC runtime config apply timed out or canceled: %w", err)
 	}
-	return nil
+	return noCarrier, nil
 }
 
 // configureRestrictedMode sets each discovered E/W NIC to restricted (zero-trust) mode
@@ -784,8 +883,10 @@ func (n *NICProvisioning) getOrCreateSpectrumXConfigManager() (nicspectrumx.Spec
 	return n.spectrumXMgr, nil
 }
 
-func setAgentCondition(optCtx *operations.Context, conditionType string, status metav1.ConditionStatus, reason, message string) {
-	meta.SetStatusCondition(&optCtx.Status.Conditions, metav1.Condition{
+// setAgentCondition upserts the condition and reports whether status, reason or
+// message changed.
+func setAgentCondition(optCtx *operations.Context, conditionType string, status metav1.ConditionStatus, reason, message string) bool {
+	return meta.SetStatusCondition(&optCtx.Status.Conditions, metav1.Condition{
 		Type:               conditionType,
 		Status:             status,
 		Reason:             reason,
@@ -818,9 +919,10 @@ func (n *NICProvisioning) Shutdown() error {
 }
 
 // StartRuntimeConfigLoop applies runtime configuration once (retrying until success
-// or ctx cancel), then reapplies every RuntimeConfigInterval until ctx is canceled.
-// No-op when the local DMS session was never started. Callers must invoke this at
-// most once per NICProvisioning instance.
+// or ctx cancel), then keeps reapplying until ctx is canceled: to all devices when a
+// DOCA SPC-X CC process terminates, and every RuntimeConfigRetryInterval to devices
+// NCO skipped because a port had NO-CARRIER. No-op when the local DMS session was
+// never started. Callers must invoke this at most once per NICProvisioning instance.
 func (n *NICProvisioning) StartRuntimeConfigLoop(ctx context.Context, optCtx *operations.Context) {
 	if n.dmsServer == nil {
 		klog.Info("NIC provisioning: no local DMS session; skip runtime configuration loop")
@@ -835,7 +937,7 @@ func (n *NICProvisioning) runRuntimeConfigLoop(ctx context.Context, optCtx *oper
 	defer n.runtimeConfigWG.Done()
 
 	err := wait.PollUntilContextCancel(ctx, RuntimeConfigRetryInterval, true, func(execCtx context.Context) (bool, error) {
-		if err := n.applyRuntimeConfigAndUpdateStatus(execCtx, optCtx); err != nil {
+		if err := n.applyRuntimeConfigAndUpdateStatus(execCtx, optCtx, n.discoveredNICDevices); err != nil {
 			klog.Errorf("NIC runtime config apply failed, retrying: %v", err)
 			return false, nil
 		}
@@ -873,15 +975,60 @@ func (n *NICProvisioning) runRuntimeConfigLoop(ctx context.Context, optCtx *oper
 	}
 	defer stopCoalesceTimer()
 
+	// NO-CARRIER retry: armed only while n.noCarrierDevices is non-empty. Retrying
+	// only those devices is safe with respect to the mlxreg race above, because NCO
+	// checks carrier before touching DMS, and a device still without carrier fails
+	// fast on that check.
+	var (
+		noCarrierTimer  *time.Timer
+		noCarrierRetryC <-chan time.Time
+	)
+	stopNoCarrierTimer := func() {
+		if noCarrierTimer == nil {
+			return
+		}
+		if !noCarrierTimer.Stop() {
+			select {
+			case <-noCarrierTimer.C:
+			default:
+			}
+		}
+		noCarrierTimer = nil
+		noCarrierRetryC = nil
+	}
+	defer stopNoCarrierTimer()
+	armNoCarrierRetry := func() {
+		if len(n.noCarrierDevices) == 0 {
+			stopNoCarrierTimer()
+			return
+		}
+		if noCarrierTimer != nil {
+			return
+		}
+		noCarrierTimer = time.NewTimer(RuntimeConfigRetryInterval)
+		noCarrierRetryC = noCarrierTimer.C
+	}
+	armNoCarrierRetry()
+
 	for {
 		select {
 		case <-ctx.Done():
 			klog.Info("NIC provisioning: runtime configuration loop stopped")
 			return
 		// case <-ticker.C:
-		// 	if err := n.applyRuntimeConfigAndUpdateStatus(ctx, optCtx); err != nil {
+		// 	if err := n.applyRuntimeConfigAndUpdateStatus(ctx, optCtx, n.discoveredNICDevices); err != nil {
 		// 		klog.ErrorS(err, "periodic NIC runtime config apply failed")
 		// 	}
+		case <-noCarrierRetryC:
+			noCarrierTimer = nil
+			noCarrierRetryC = nil
+			pending := append([]nicconfigurationv1alpha1.NicDevice(nil), n.noCarrierDevices...)
+			klog.InfoS("NIC provisioning: retrying runtime config on NO-CARRIER devices",
+				"deviceCount", len(pending))
+			if err := n.applyRuntimeConfigAndUpdateStatus(ctx, optCtx, pending); err != nil {
+				klog.ErrorS(err, "NO-CARRIER retry NIC runtime config apply failed")
+			}
+			armNoCarrierRetry()
 		case iface, ok := <-ccCh:
 			if !ok {
 				klog.Info("NIC provisioning: CC termination channel closed")
@@ -912,9 +1059,10 @@ func (n *NICProvisioning) runRuntimeConfigLoop(ctx context.Context, optCtx *oper
 				klog.InfoS("NIC provisioning: coalesced additional CC terminations before reapply",
 					"rdmaInterfaces", ifaces)
 			}
-			if err := n.applyRuntimeConfigAndUpdateStatus(ctx, optCtx); err != nil {
+			if err := n.applyRuntimeConfigAndUpdateStatus(ctx, optCtx, n.discoveredNICDevices); err != nil {
 				klog.ErrorS(err, "CC-termination-triggered NIC runtime config apply failed")
 			}
+			armNoCarrierRetry()
 		}
 	}
 }
