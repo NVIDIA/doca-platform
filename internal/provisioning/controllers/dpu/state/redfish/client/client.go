@@ -736,20 +736,6 @@ func NewTLSClient(ctx context.Context, bmcAddress string, namespace string, k8sC
 
 	tlsClient := &Client{Client: c}
 
-	// verify if the tls client is working
-	// TODO: It is not necessary to perform verification every time when a tls client is created.
-	// We currently want to eliminate other issues with the mlt client, so we temporarily put it in this function.
-	// We will optimize it after redfish is stable.
-	resp, _, err := tlsClient.GetProductDescription()
-	if err != nil {
-		err = fmt.Errorf("verify mtls client failed, err: %v", err)
-		return nil, err
-	}
-
-	if resp != nil && resp.StatusCode() != http.StatusOK {
-		return nil, fmt.Errorf("redfish call getProductDescription failed, status code: %s", resp.Status())
-	}
-
 	return tlsClient, nil
 }
 

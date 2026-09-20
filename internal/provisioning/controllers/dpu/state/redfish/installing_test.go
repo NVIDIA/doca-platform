@@ -414,7 +414,6 @@ var _ = Describe("Installing", func() {
 
 		It("should report OSInstalled=False while booting and flip to True when the DPU agent starts", func() {
 			By("Step 1: OS still booting -> OSInstalled=False with descriptive message")
-			mockServer.SetOemLastState("DdrTraining")
 			dpu := dpuWithBFBTransferred("dpu-osinstalled-flip-test")
 
 			status, err := Installing(ctx, dpu, ctrlCtx)
@@ -426,7 +425,6 @@ var _ = Describe("Installing", func() {
 			Expect(falseCond.Status).To(Equal(metav1.ConditionFalse), "OSInstalled must be False while the DPU agent has not started")
 			Expect(falseCond.Reason).To(Equal("OSNotRunning"))
 			Expect(falseCond.Message).To(ContainSubstring("Waiting for DPU OS to finish booting"))
-			Expect(falseCond.Message).To(ContainSubstring(`"DdrTraining"`))
 
 			By("Step 2: backdate the False transition so we can verify the True transition resets it forward")
 			for i := range status.Conditions {

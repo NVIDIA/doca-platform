@@ -58,32 +58,13 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 		return *state, err
 	}
 
-	client, err := rc.NewTLSClient(ctx, device.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
-	if err != nil {
-		err = fmt.Errorf("failed to create TLS client: %w", err)
-		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "FailedToCreateClient", err.Error()))
-		return *state, err
-	}
-
 	_, cond := cutil.GetDPUCondition(state, string(provisioningv1.DPUCondBFBTransferred))
 	if cond == nil || cond.Status != metav1.ConditionTrue {
-		return submitAndMonitorBfbInstallTask(ctx, dpu, ctrlCtx, client)
+		return submitAndMonitorBfbInstallTask(ctx, dpu, ctrlCtx, device)
 	}
 
 	if dpu.Status.AgentStatus == nil || dpu.Status.AgentStatus.LastStartupTime == nil {
-		resp, system, err := client.GetSystem()
-		if err != nil || resp.StatusCode() != http.StatusOK {
-			if err == nil {
-				err = fmt.Errorf("failed to get system: unexpected status code %d", resp.StatusCode())
-			} else {
-				err = fmt.Errorf("failed to get system: %w", err)
-			}
-			logger.Error(err, "Failed to get system")
-			cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "FailToGetSystem", err.Error()))
-			return *state, err
-		}
-
-		msg := fmt.Sprintf("Waiting for DPU OS to finish booting and start dpu-agent; current boot state=%q", system.BootProgress.OemLastState)
+		msg := "Waiting for DPU OS to finish booting and start dpu-agent"
 		logger.Info(msg)
 		cond := cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), nil, "OSNotRunning", msg)
 		cond.Status = metav1.ConditionFalse
@@ -99,9 +80,16 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 	return *state, nil
 }
 
-func submitAndMonitorBfbInstallTask(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext, client *rc.Client) (provisioningv1.DPUStatus, error) {
+func submitAndMonitorBfbInstallTask(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext, dpuDevice *provisioningv1.DPUDevice) (provisioningv1.DPUStatus, error) {
 	logger := log.FromContext(ctx)
 	state := dpu.Status.DeepCopy()
+
+	client, err := rc.NewTLSClient(ctx, dpuDevice.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
+	if err != nil {
+		err = fmt.Errorf("failed to create TLS client: %w", err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "FailedToCreateClient", err.Error()))
+		return *state, err
+	}
 
 	if dpu.Status.RedfishTaskID == nil {
 		bfbRegistryAddr, err := getBFBRegistryAddress(ctx, ctrlCtx)

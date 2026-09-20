@@ -365,7 +365,15 @@ func (r *DPUDeviceReconciler) initializeDPUDevice(ctx context.Context, dpuDevice
 		}
 	}
 
-	_, err = rfclient.NewTLSClient(ctx, bmcAddress, dpuDevice.Namespace, r.Client)
+	client, err := rfclient.NewTLSClient(ctx, bmcAddress, dpuDevice.Namespace, r.Client)
+	if err == nil {
+		resp, _, getErr := client.GetManagers()
+		if getErr != nil {
+			err = getErr
+		} else if resp != nil && resp.StatusCode() != http.StatusOK {
+			err = fmt.Errorf("failed to get managers: unexpected status code %d", resp.StatusCode())
+		}
+	}
 	if err != nil {
 		log.Error(err, "failed to create tls client, setting up mTLS")
 		if needBmcReset, err := r.setUpMTLS(ctx, dpuDevice, basicAuthClient); err != nil {
