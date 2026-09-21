@@ -58,7 +58,8 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 	}
 
 	// Check for installation timeout
-	if err := checkInstallationTimeout(state, ctrlCtx.Options.OSInstallTimeout, logger); err != nil {
+	if err := dutil.CheckInstallationTimeout(state, ctrlCtx.Options.OSInstallTimeout); err != nil {
+		logger.Info("OS installation timeout exceeded", "timeout", ctrlCtx.Options.OSInstallTimeout, "error", err)
 		// Best-effort: append a SEL rail hint so an operator can spot
 		// ATX/PCIe power drops. No client is constructed yet here, so pass
 		// nil and let the helper build one. Hint is folded into err because
@@ -687,27 +688,6 @@ func probeRailHint(ctx context.Context, client *rc.Client, logger logr.Logger) s
 		return diag.FormatRailHint(rail, reading, threshold)
 	}
 	return ""
-}
-
-// checkInstallationTimeout checks if the OS installation has exceeded the configured timeout.
-// Returns an error if timeout is exceeded, nil otherwise.
-func checkInstallationTimeout(state *provisioningv1.DPUStatus, timeout time.Duration, logger logr.Logger) error {
-	if timeout <= 0 {
-		return nil
-	}
-
-	_, bfbPreparedCond := cutil.GetDPUCondition(state, string(provisioningv1.DPUCondBFBPrepared))
-	if bfbPreparedCond == nil {
-		return nil
-	}
-
-	elapsed := time.Since(bfbPreparedCond.LastTransitionTime.Time)
-	if elapsed <= timeout {
-		return nil
-	}
-
-	logger.Info("OS installation timeout exceeded", "elapsed", elapsed, "timeout", timeout)
-	return fmt.Errorf("OS installation timeout exceeded: %v > %v", elapsed, timeout)
 }
 
 // installRetryCounter tracks failed retryable OS install attempts per DPU UID across reconciles

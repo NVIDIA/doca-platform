@@ -39,7 +39,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
 const (
@@ -197,53 +196,6 @@ var _ = Describe("Installing", func() {
 			Expect(concatBFBAndBFCFGPath(registry, bfbFile, bfcfgFile)).To(Equal(expected))
 			Expect(concatBFBAndBFCFGPath("http://"+registry, bfbFile, bfcfgFile)).To(Equal(expected))
 			Expect(concatBFBAndBFCFGPath("https://"+registry, bfbFile, bfcfgFile)).To(Equal(expected))
-		})
-	})
-
-	Context("checkInstallationTimeout", func() {
-		var (
-			logger = zap.New(zap.UseDevMode(true))
-		)
-
-		It("should return nil when timeout is zero", func() {
-			state := &provisioningv1.DPUStatus{}
-			err := checkInstallationTimeout(state, 0, logger)
-			Expect(err).ToNot(HaveOccurred())
-		})
-
-		It("should return nil when timeout is negative", func() {
-			state := &provisioningv1.DPUStatus{}
-			err := checkInstallationTimeout(state, -1*time.Minute, logger)
-			Expect(err).ToNot(HaveOccurred())
-		})
-
-		It("should return nil when BFBPrepared condition is not set", func() {
-			state := &provisioningv1.DPUStatus{}
-			err := checkInstallationTimeout(state, 45*time.Minute, logger)
-			Expect(err).ToNot(HaveOccurred())
-		})
-
-		It("should return nil when timeout has not been exceeded", func() {
-			state := &provisioningv1.DPUStatus{}
-			cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondBFBPrepared), nil, "Prepared", ""))
-			err := checkInstallationTimeout(state, 45*time.Minute, logger)
-			Expect(err).ToNot(HaveOccurred())
-		})
-
-		It("should return error when timeout has been exceeded", func() {
-			state := &provisioningv1.DPUStatus{
-				Conditions: []metav1.Condition{
-					{
-						Type:               string(provisioningv1.DPUCondBFBPrepared),
-						Status:             metav1.ConditionTrue,
-						LastTransitionTime: metav1.Time{Time: time.Now().Add(-50 * time.Minute)},
-						Reason:             "Prepared",
-					},
-				},
-			}
-			err := checkInstallationTimeout(state, 45*time.Minute, logger)
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("OS installation timeout exceeded"))
 		})
 	})
 

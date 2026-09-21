@@ -64,7 +64,7 @@ type DPUOptions struct {
 	// to the bfb-registry server certificate SANs so the hostagent's VIP-based NodePort download
 	// passes TLS verification. Empty when no VIP override is configured.
 	KubernetesAPIServerVIP string
-	// OSInstallTimeout is the maximum time allowed for OS installation in zero-trust mode.
+	// OSInstallTimeout is the maximum time allowed for OS installation.
 	OSInstallTimeout time.Duration
 	// OSInstallRetries is the maximum number of retryable OS installation attempts in
 	// zero-trust mode before transitioning to Error. Defaults to DefaultOSInstallRetries.
