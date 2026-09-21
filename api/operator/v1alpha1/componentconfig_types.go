@@ -119,7 +119,7 @@ type ProvisioningControllerConfiguration struct {
 	// +optional
 	OSInstallRetries int32 `json:"osInstallRetries,omitempty"`
 
-	// OSInstallTimeout is the maximum time allowed for OS installation in zero-trust mode.
+	// OSInstallTimeout is the maximum time allowed for OS installation.
 	// If the installation exceeds this timeout, the DPU will transition to an error state.
 	// When unset, the provisioning controller defaults to 60m.
 	// +kubebuilder:validation:Type=string

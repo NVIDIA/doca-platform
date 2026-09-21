@@ -35,6 +35,14 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 
 	cutil.ConfirmDPUCondition(state, provisioningv1.DPUCondBFBPrepared)
 
+	// Check for installation timeout
+	if err := dutil.CheckInstallationTimeout(state, ctrlCtx.Options.OSInstallTimeout); err != nil {
+		logger.Info("OS installation timeout exceeded, transition to Error", "timeout", ctrlCtx.Options.OSInstallTimeout, "error", err)
+		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "InstallationTimeout", err.Error()))
+		state.Phase = provisioningv1.DPUError
+		return *state, nil
+	}
+
 	if !dpu.DeletionTimestamp.IsZero() {
 		cond := meta.FindStatusCondition(dpu.Status.Conditions, string(provisioningv1.DPUCondOSInstalled))
 		if cond != nil && (cond.Status == metav1.ConditionTrue || cond.Reason == install.InstallationTerminated) {

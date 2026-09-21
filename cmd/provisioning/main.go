@@ -175,7 +175,7 @@ func parseFlags() *cliFlags {
 	fs.BoolVar(&flags.enableDpuDiscovery, "enable-dpu-discovery", true, "Enable autmated DPU discovery")
 	fs.DurationVar(&flags.multiDPUOperationsSyncWaitTime, "multi-dpu-operations-sync-wait-time", 30*time.Second, "The wait time between DPUs sync operations on the same node")
 	fs.Int32Var(&flags.maxUnavailableDPUNodes, "max-unavailable-dpu-nodes", 50, "The maximum number of unavailable DPUNodes during node effects and unavailable DPUs during DPUSet rolling updates")
-	fs.DurationVar(&flags.osInstallTimeout, "os-install-timeout", DefaultOSInstallTimeout, "Maximum time allowed for OS installation in zero-trust mode")
+	fs.DurationVar(&flags.osInstallTimeout, "os-install-timeout", DefaultOSInstallTimeout, "Maximum time allowed for OS installation")
 	fs.Int32Var(&flags.osInstallRetries, "os-install-retries", dutil.DefaultOSInstallRetries, "Maximum number of retryable OS installation attempts in zero-trust mode before transitioning to Error. Defaults to 2 when unset")
 	fs.DurationVar(&flags.firmwareUpdateTimeout, "firmware-update-timeout", DefaultFirmwareUpdateTimeout, "Maximum time allowed for BF4 firmware update in zero-trust mode")
 	fs.DurationVar(&flags.preInstallAgentRegistrationTimeout, "pre-install-agent-registration-timeout", 30*time.Second, "How long Initializing waits for preInstall.agentReported during reprovisioning")
