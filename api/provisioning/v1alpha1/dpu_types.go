@@ -90,6 +90,7 @@ const (
 	DPUCondBFBPrepared            DPUConditionType = "BFBPrepared"
 	DPUCondInterfaceInitialized   DPUConditionType = "InterfaceInitialized"
 	DPUCondFWConfigured           DPUConditionType = "FWConfigured"
+	DPUCondFWArmRestarted         DPUConditionType = "FWArmRestarted"
 	DPUCondBFBTransferred         DPUConditionType = "BFBTransferred"
 	DPUCondOSInstalled            DPUConditionType = "OSInstalled"
 	DPUConditionHostPowerCycle    DPUConditionType = "HostPowerCycle"

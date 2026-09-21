@@ -45,7 +45,11 @@ type RedfishMockServer struct {
 	secureBootError       bool                     // Simulate Secure Boot endpoint error for testing
 	secureBootPatchError  bool                     // Simulate Secure Boot PATCH-only error for testing
 	systemError           bool                     // Simulate GetSystem endpoint error for testing
+	systemPowerState      string                   // Override GET System PowerState; empty means "On"
 	resetSystemError      bool                     // Simulate ResetSystem endpoint error for testing
+	lastResetType         string                   // Last ComputerSystem.Reset ResetType
+	bmcRShimEnabled       bool                     // BmcRShimEnabled reported by GET Managers/Bluefield_BMC/Oem/Nvidia
+	bmcRShimGetError      bool                     // Simulate GET Managers/Bluefield_BMC/Oem/Nvidia error for testing
 	oemLastState          string                   // Current ARM OS boot state: "OsIsRunning", "OsStarting", etc.
 	dpuVersion            DpuVersion               // Current DPU version
 	model                 string                   // DPU model string (optional override)
@@ -106,6 +110,10 @@ func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 	mux.HandleFunc("/redfish/v1/Systems/Bluefield/Bios/Settings", mock.handleSetBiosSettings)
 	mux.HandleFunc("/redfish/v1/Systems/Bluefield/Oem/Nvidia/Actions/Mode.Set", mock.handleSetMode)
 	mux.HandleFunc("/redfish/v1/Systems/Bluefield/Oem/Nvidia", mock.handleGetProductDescription)
+	mux.HandleFunc("/"+client.APIDisableHostRshim, mock.handleHostRshimSet)
+
+	// BMC RShim Oem (enable / status poll)
+	mux.HandleFunc("/"+client.APIEnableBMCRshim, mock.handleBMCRShimOem)
 
 	// Secure Boot endpoints
 	mux.HandleFunc("/redfish/v1/Systems/Bluefield/SecureBoot", mock.handleSecureBoot)
@@ -496,9 +504,77 @@ func (r *RedfishMockServer) SetSystemError(simulateError bool) {
 	r.systemError = simulateError
 }
 
+// SetSystemPowerState overrides PowerState on GET System. Empty restores the default "On".
+func (r *RedfishMockServer) SetSystemPowerState(state string) {
+	r.systemPowerState = state
+}
+
 // SetResetSystemError enables or disables ResetSystem endpoint error simulation for testing
 func (r *RedfishMockServer) SetResetSystemError(simulateError bool) {
 	r.resetSystemError = simulateError
+}
+
+// GetLastResetType returns the last ComputerSystem.Reset ResetType received, or empty if none.
+func (r *RedfishMockServer) GetLastResetType() string {
+	return r.lastResetType
+}
+
+// SetBMCRShimEnabled sets the BmcRShimEnabled flag reported by GET Managers/Bluefield_BMC/Oem/Nvidia.
+// PATCH enable does not flip this flag so tests can simulate async lag.
+func (r *RedfishMockServer) SetBMCRShimEnabled(enabled bool) {
+	r.bmcRShimEnabled = enabled
+}
+
+// SetBMCRShimGetError enables or disables GET Managers/Bluefield_BMC/Oem/Nvidia error simulation for testing.
+func (r *RedfishMockServer) SetBMCRShimGetError(simulateError bool) {
+	r.bmcRShimGetError = simulateError
+}
+
+// handleHostRshimSet handles POST HostRshim.Set (DisableHostRshim).
+func (r *RedfishMockServer) handleHostRshimSet(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	writeJSONResponse(w, successExtendedInfo())
+}
+
+// handleBMCRShimOem handles GET/PATCH Managers/Bluefield_BMC/Oem/Nvidia for BmcRShim.
+// PATCH returns success without flipping BmcRShimEnabled; tests call SetBMCRShimEnabled.
+func (r *RedfishMockServer) handleBMCRShimOem(w http.ResponseWriter, req *http.Request) {
+	switch req.Method {
+	case http.MethodGet:
+		if r.bmcRShimGetError {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]interface{}{"error": "BMC RShim Oem endpoint unavailable"}) //nolint:errcheck
+			return
+		}
+		writeJSONResponse(w, map[string]interface{}{
+			"BmcRShim": map[string]interface{}{
+				"BmcRShimEnabled": r.bmcRShimEnabled,
+			},
+		})
+	case http.MethodPatch:
+		writeJSONResponse(w, successExtendedInfo())
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// successExtendedInfo is the success body the real BMC returns for action POSTs and PATCHes.
+func successExtendedInfo() map[string]interface{} {
+	return map[string]interface{}{
+		"@Message.ExtendedInfo": []map[string]interface{}{
+			{
+				"@odata.type":     "#Message.v1_1_1.Message",
+				"Message":         "The request completed successfully.",
+				"MessageId":       "Base.1.18.1.Success",
+				"MessageSeverity": "OK",
+				"Resolution":      "None.",
+			},
+		},
+	}
 }
 
 // SetOemLastState sets the ARM OS boot state for the mock server
@@ -549,6 +625,15 @@ func (r *RedfishMockServer) handleGetSystem(w http.ResponseWriter, req *http.Req
 		return
 	}
 
+	// A shut down Arm reports PowerState "Paused" and Status.State "StandbyOffline".
+	powerState, statusState := "On", "Enabled"
+	if r.systemPowerState != "" {
+		powerState = r.systemPowerState
+		if powerState == "Paused" || powerState == "Off" {
+			statusState = "StandbyOffline"
+		}
+	}
+
 	response := map[string]interface{}{
 		"@odata.id":    "/redfish/v1/Systems/Bluefield",
 		"@odata.type":  "#ComputerSystem.v1_22_0.ComputerSystem",
@@ -559,9 +644,9 @@ func (r *RedfishMockServer) handleGetSystem(w http.ResponseWriter, req *http.Req
 		"Manufacturer": "Nvidia",
 		"Model":        "Bluefield 3 SmartNIC Main Card",
 		"SerialNumber": DpuSerialNumber,
-		"PowerState":   "On",
+		"PowerState":   powerState,
 		"Status": map[string]interface{}{
-			"State":      "Enabled",
+			"State":      statusState,
 			"Health":     "OK",
 			"Conditions": []interface{}{},
 		},
@@ -679,6 +764,7 @@ func (r *RedfishMockServer) handleResetSystem(w http.ResponseWriter, req *http.R
 		http.Error(w, "Invalid reset type", http.StatusBadRequest)
 		return
 	}
+	r.lastResetType = resetType
 
 	// Note: Secure Boot requires TWO reboots to take effect
 	// - First reboot: Apply BIOS configuration
