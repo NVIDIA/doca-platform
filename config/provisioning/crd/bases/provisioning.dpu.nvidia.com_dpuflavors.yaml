@@ -38,7 +38,12 @@ spec:
           metadata:
             type: object
           spec:
-            description: DPUFlavorSpec defines the content of DPUFlavor
+            description: |-
+              DPUFlavorSpec defines the content of DPUFlavor.
+              Config-only fields (grub, sysctl, nvconfig, ovs, packages, systemdServices,
+              containerdConfig, agent-applied configFiles, serviceReadiness, ewNicConfigurations,
+              dma, scalableFunctions, virtualFunctions) may be updated in place.
+              Immutable fields require a new DPUFlavor.
             properties:
               bfcfgParameters:
                 description: BFCfgParameters are the parameters to be set in the bf.cfg
@@ -695,8 +700,29 @@ spec:
                 x-kubernetes-list-type: atomic
             type: object
             x-kubernetes-validations:
-            - message: DPUFlavor spec is immutable
-              rule: self == oldSelf
+            - message: dpuMode is immutable
+              rule: (!has(self.dpuMode) && !has(oldSelf.dpuMode)) || (has(self.dpuMode)
+                && has(oldSelf.dpuMode) && self.dpuMode == oldSelf.dpuMode)
+            - message: bfcfgParameters is immutable
+              rule: (!has(self.bfcfgParameters) && !has(oldSelf.bfcfgParameters))
+                || (has(self.bfcfgParameters) && has(oldSelf.bfcfgParameters) && self.bfcfgParameters
+                == oldSelf.bfcfgParameters)
+            - message: dpuResources is immutable
+              rule: (!has(self.dpuResources) && !has(oldSelf.dpuResources)) || (has(self.dpuResources)
+                && has(oldSelf.dpuResources) && self.dpuResources == oldSelf.dpuResources)
+            - message: systemReservedResources is immutable
+              rule: (!has(self.systemReservedResources) && !has(oldSelf.systemReservedResources))
+                || (has(self.systemReservedResources) && has(oldSelf.systemReservedResources)
+                && self.systemReservedResources == oldSelf.systemReservedResources)
+            - message: hostNetworkInterfaceConfigs is immutable
+              rule: (!has(self.hostNetworkInterfaceConfigs) && !has(oldSelf.hostNetworkInterfaceConfigs))
+                || (has(self.hostNetworkInterfaceConfigs) && has(oldSelf.hostNetworkInterfaceConfigs)
+                && self.hostNetworkInterfaceConfigs == oldSelf.hostNetworkInterfaceConfigs)
+            - message: configFiles with type cloud-init (the default) are immutable
+              rule: '(has(self.configFiles) ? self.configFiles.filter(f, !has(f.type)
+                || f.type == ''cloud-init'') : []) == (has(oldSelf.configFiles) ?
+                oldSelf.configFiles.filter(f, !has(f.type) || f.type == ''cloud-init'')
+                : [])'
         type: object
     served: true
     storage: true

@@ -36,8 +36,7 @@ With neither configured the phase is a pass-through.
 # Configure The DPUFlavor
 
 To hold the host, set the nvconfig parameter that enables the firmware hold. Optionally set the gate that both releases
-the hold and blocks the phase. Since `DPUFlavor.spec` is immutable, enabling this on existing DPUs needs a new flavor
-and reprovisioning, not an edit.
+the hold and blocks the phase. `nvconfig` and `serviceReadiness` can be edited on an existing DPUFlavor.
 
 ```yaml
 apiVersion: provisioning.dpu.nvidia.com/v1alpha1
