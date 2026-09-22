@@ -428,12 +428,10 @@ var _ = Describe("Provisioning API Validation", func() {
 					}),
 				)
 
-				It("should reject adding force to an existing flavor", func() {
-					// DPUFlavorSpec is immutable, so force cannot be switched on in place: enabling
-					// it on an existing deployment means creating a new flavor and repointing the
-					// DPUSet at it.
+				It("should allow adding force to an existing flavor", func() {
+					// nvconfig is config-only and may be updated in place.
 					obj := getMinimalDPUFlavor(testNs.Name)
-					obj.Name = "cel-force-immutable"
+					obj.Name = "cel-force-mutable"
 					obj.Spec.NVConfig = []provisioningv1.NVConfig{
 						{Parameters: []string{"ADVANCED_PCI_SETTINGS=1"}},
 					}
@@ -442,9 +440,7 @@ var _ = Describe("Provisioning API Validation", func() {
 					created := &provisioningv1.DPUFlavor{}
 					Expect(testClient.Get(ctx, client.ObjectKeyFromObject(obj), created)).To(Succeed())
 					created.Spec.NVConfig[0].Force = ptr.To(true)
-					err := testClient.Update(ctx, created)
-					Expect(err).To(HaveOccurred())
-					Expect(err.Error()).To(ContainSubstring("immutable"))
+					Expect(testClient.Update(ctx, created)).To(Succeed())
 				})
 
 				It("should reject wildcard mixed with specific devices", func() {

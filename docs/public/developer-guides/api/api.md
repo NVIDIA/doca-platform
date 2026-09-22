@@ -2737,7 +2737,11 @@ _Appears in:_
 
 
 
-DPUFlavorSpec defines the content of DPUFlavor
+DPUFlavorSpec defines the content of DPUFlavor.
+Config-only fields (grub, sysctl, nvconfig, ovs, packages, systemdServices,
+containerdConfig, agent-applied configFiles, serviceReadiness, ewNicConfigurations,
+dma, scalableFunctions, virtualFunctions) may be updated in place.
+Immutable fields require a new DPUFlavor.
 
 
 

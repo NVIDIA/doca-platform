@@ -22,6 +22,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 
+	nicconfigv1alpha1 "github.com/Mellanox/nic-configuration-operator/api/v1alpha1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -143,53 +144,43 @@ var _ = Describe("DPUFlavor", func() {
 			Expect(objFetched.Spec.HostNetworkInterfaceConfigs).To(BeEmpty())
 		})
 
-		It("spec.grub is immutable", func() {
-			refValue := DefaultGrub
-			newValue := []string{`spec.grub`}
-
+		It("spec.grub is mutable", func() {
 			obj := createObj("obj-6")
-			obj.Spec.Grub.KernelParameters = refValue
-			obj.Spec.Sysctl.Parameters = DefaultSysctl
-			err := k8sClient.Create(ctx, obj)
-			Expect(err).NotTo(HaveOccurred())
-
-			obj.Spec.Grub.KernelParameters = newValue
-			err = k8sClient.Update(ctx, obj)
-			Expect(err).To(HaveOccurred())
-
-			objFetched := &provisioningv1.DPUFlavor{}
-			err = k8sClient.Get(ctx, getObjKey(obj), objFetched)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(objFetched.Spec.Grub.KernelParameters[0]).To(Equal(refValue[0]))
-		})
-
-		It("spec.sysctl is immutable", func() {
-			refValue := DefaultSysctl
-			newValue := []string{`spec.sysctl`}
-
-			obj := createObj("obj-7")
 			obj.Spec.Grub.KernelParameters = DefaultGrub
-			obj.Spec.Sysctl.Parameters = DefaultSysctl
 			err := k8sClient.Create(ctx, obj)
 			Expect(err).NotTo(HaveOccurred())
 
-			obj.Spec.Sysctl.Parameters = newValue
+			obj.Spec.Grub.KernelParameters = []string{`isolcpus=2-7`}
 			err = k8sClient.Update(ctx, obj)
-			Expect(err).To(HaveOccurred())
+			Expect(err).NotTo(HaveOccurred())
 
 			objFetched := &provisioningv1.DPUFlavor{}
 			err = k8sClient.Get(ctx, getObjKey(obj), objFetched)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(objFetched.Spec.Sysctl.Parameters[0]).To(Equal(refValue[0]))
+			Expect(objFetched.Spec.Grub.KernelParameters).To(Equal([]string{`isolcpus=2-7`}))
 		})
 
-		It("spec.nvconfig is immutable", func() {
+		It("spec.sysctl is mutable", func() {
+			obj := createObj("obj-7")
+			obj.Spec.Sysctl.Parameters = DefaultSysctl
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			obj.Spec.Sysctl.Parameters = []string{`net.ipv4.ip_forward=1`}
+			err = k8sClient.Update(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			objFetched := &provisioningv1.DPUFlavor{}
+			err = k8sClient.Get(ctx, getObjKey(obj), objFetched)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(objFetched.Spec.Sysctl.Parameters).To(Equal([]string{`net.ipv4.ip_forward=1`}))
+		})
+
+		It("spec.nvconfig is mutable", func() {
 			refValue := []string{`PF_BAR2_ENABLE=0`, `PER_PF_NUM_SF=1`}
-			newValue := []string{`spec.nvconfig`}
+			newValue := []string{`PF_BAR2_ENABLE=1`}
 
 			obj := createObj("obj-8")
-			obj.Spec.Grub.KernelParameters = DefaultGrub
-			obj.Spec.Sysctl.Parameters = DefaultSysctl
 			obj.Spec.NVConfig = []provisioningv1.NVConfig{
 				{Parameters: refValue},
 			}
@@ -198,33 +189,28 @@ var _ = Describe("DPUFlavor", func() {
 
 			obj.Spec.NVConfig[0].Parameters = newValue
 			err = k8sClient.Update(ctx, obj)
-			Expect(err).To(HaveOccurred())
+			Expect(err).NotTo(HaveOccurred())
 
 			objFetched := &provisioningv1.DPUFlavor{}
 			err = k8sClient.Get(ctx, getObjKey(obj), objFetched)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(objFetched.Spec.NVConfig[0].Parameters[0]).To(Equal(refValue[0]))
+			Expect(objFetched.Spec.NVConfig[0].Parameters).To(Equal(newValue))
 		})
 
-		It("spec.ovs is immutable", func() {
-			refValue := `ovs-vsct add-br br-hbn`
-			newValue := `spec.ovs`
-
+		It("spec.ovs is mutable", func() {
 			obj := createObj("obj-9")
-			obj.Spec.Grub.KernelParameters = DefaultGrub
-			obj.Spec.Sysctl.Parameters = DefaultSysctl
-			obj.Spec.OVS.RawConfigScript = refValue
+			obj.Spec.OVS.RawConfigScript = `ovs-vsctl add-br br-hbn`
 			err := k8sClient.Create(ctx, obj)
 			Expect(err).NotTo(HaveOccurred())
 
-			obj.Spec.OVS.RawConfigScript = newValue
+			obj.Spec.OVS.RawConfigScript = `ovs-vsctl add-br br-sfc`
 			err = k8sClient.Update(ctx, obj)
-			Expect(err).To(HaveOccurred())
+			Expect(err).NotTo(HaveOccurred())
 
 			objFetched := &provisioningv1.DPUFlavor{}
 			err = k8sClient.Get(ctx, getObjKey(obj), objFetched)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(objFetched.Spec.OVS.RawConfigScript).To(Equal(refValue))
+			Expect(objFetched.Spec.OVS.RawConfigScript).To(Equal(`ovs-vsctl add-br br-sfc`))
 		})
 
 		It("spec.bfcfgParameters is immutable", func() {
@@ -232,8 +218,6 @@ var _ = Describe("DPUFlavor", func() {
 			newValue := []string{`spec.bfcfgParameters`}
 
 			obj := createObj("obj-10")
-			obj.Spec.Grub.KernelParameters = DefaultGrub
-			obj.Spec.Sysctl.Parameters = DefaultSysctl
 			obj.Spec.BFCfgParameters = refValue
 			err := k8sClient.Create(ctx, obj)
 			Expect(err).NotTo(HaveOccurred())
@@ -241,6 +225,7 @@ var _ = Describe("DPUFlavor", func() {
 			obj.Spec.BFCfgParameters = newValue
 			err = k8sClient.Update(ctx, obj)
 			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("bfcfgParameters is immutable"))
 
 			objFetched := &provisioningv1.DPUFlavor{}
 			err = k8sClient.Get(ctx, getObjKey(obj), objFetched)
@@ -248,13 +233,11 @@ var _ = Describe("DPUFlavor", func() {
 			Expect(objFetched.Spec.BFCfgParameters[0]).To(Equal(refValue[0]))
 		})
 
-		It("spec.configFiles is immutable", func() {
+		It("cloud-init configFiles are immutable", func() {
 			refValue := `/etc/dummy.cfg`
-			newValue := `spec.configFiles`
+			newValue := `/etc/other.cfg`
 
 			obj := createObj("obj-11")
-			obj.Spec.Grub.KernelParameters = DefaultGrub
-			obj.Spec.Sysctl.Parameters = DefaultSysctl
 			obj.Spec.ConfigFiles = []provisioningv1.ConfigFile{
 				{Path: refValue, Raw: ptr.To("")},
 			}
@@ -264,6 +247,7 @@ var _ = Describe("DPUFlavor", func() {
 			obj.Spec.ConfigFiles[0].Path = newValue
 			err = k8sClient.Update(ctx, obj)
 			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("configFiles with type cloud-init (the default) are immutable"))
 
 			objFetched := &provisioningv1.DPUFlavor{}
 			err = k8sClient.Get(ctx, getObjKey(obj), objFetched)
@@ -271,25 +255,289 @@ var _ = Describe("DPUFlavor", func() {
 			Expect(objFetched.Spec.ConfigFiles[0].Path).To(Equal(refValue))
 		})
 
-		It("spec.ovs is immutable", func() {
-			refValue := `127.0.0.1:8001`
-			newValue := `spec.ovs`
-
-			obj := createObj("obj-12")
-			obj.Spec.Grub.KernelParameters = DefaultGrub
-			obj.Spec.Sysctl.Parameters = DefaultSysctl
-			obj.Spec.ContainerdConfig.RegistryEndpoint = refValue
+		It("agent-applied configFiles are mutable", func() {
+			fileType := provisioningv1.ConfigFileTypeAgentApplied
+			obj := createObj("obj-11-agent")
+			obj.Spec.ConfigFiles = []provisioningv1.ConfigFile{
+				{
+					Type: &fileType,
+					Path: "/etc/doca/profile.conf",
+					ContentFrom: &provisioningv1.ConfigFileContentSource{
+						ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+							LocalObjectReference: corev1.LocalObjectReference{Name: "profile-cm"},
+							Key:                  "profile.conf",
+						},
+					},
+				},
+			}
 			err := k8sClient.Create(ctx, obj)
 			Expect(err).NotTo(HaveOccurred())
 
-			obj.Spec.ContainerdConfig.RegistryEndpoint = newValue
+			obj.Spec.ConfigFiles[0].Path = "/etc/doca/profile-updated.conf"
 			err = k8sClient.Update(ctx, obj)
-			Expect(err).To(HaveOccurred())
+			Expect(err).NotTo(HaveOccurred())
 
 			objFetched := &provisioningv1.DPUFlavor{}
 			err = k8sClient.Get(ctx, getObjKey(obj), objFetched)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(objFetched.Spec.ContainerdConfig.RegistryEndpoint).To(Equal(refValue))
+			Expect(objFetched.Spec.ConfigFiles[0].Path).To(Equal("/etc/doca/profile-updated.conf"))
+		})
+
+		It("allows updating agent-applied configFiles when cloud-init files are unchanged", func() {
+			agentType := provisioningv1.ConfigFileTypeAgentApplied
+			obj := createObj("obj-11-mixed-files")
+			obj.Spec.ConfigFiles = []provisioningv1.ConfigFile{
+				{Path: "/etc/cloud-init.cfg", Raw: ptr.To("keep")},
+				{
+					Type: &agentType,
+					Path: "/etc/doca/profile.conf",
+					ContentFrom: &provisioningv1.ConfigFileContentSource{
+						ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+							LocalObjectReference: corev1.LocalObjectReference{Name: "profile-cm"},
+							Key:                  "profile.conf",
+						},
+					},
+				},
+			}
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			obj.Spec.ConfigFiles[1].Path = "/etc/doca/profile-updated.conf"
+			err = k8sClient.Update(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			objFetched := &provisioningv1.DPUFlavor{}
+			err = k8sClient.Get(ctx, getObjKey(obj), objFetched)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(objFetched.Spec.ConfigFiles[0].Path).To(Equal("/etc/cloud-init.cfg"))
+			Expect(objFetched.Spec.ConfigFiles[1].Path).To(Equal("/etc/doca/profile-updated.conf"))
+		})
+
+		It("spec.containerdConfig is mutable", func() {
+			obj := createObj("obj-12")
+			obj.Spec.ContainerdConfig.RegistryEndpoint = `127.0.0.1:8001`
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			obj.Spec.ContainerdConfig.RegistryEndpoint = `127.0.0.1:8002`
+			err = k8sClient.Update(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			objFetched := &provisioningv1.DPUFlavor{}
+			err = k8sClient.Get(ctx, getObjKey(obj), objFetched)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(objFetched.Spec.ContainerdConfig.RegistryEndpoint).To(Equal(`127.0.0.1:8002`))
+		})
+
+		It("spec.packages is mutable", func() {
+			obj := createObj("obj-packages")
+			obj.Spec.Packages = []provisioningv1.PackageSpec{{Name: "doca-ofed"}}
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			obj.Spec.Packages = []provisioningv1.PackageSpec{{Name: "doca-ofed"}, {Name: "mlnx-tools"}}
+			err = k8sClient.Update(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			objFetched := &provisioningv1.DPUFlavor{}
+			err = k8sClient.Get(ctx, getObjKey(obj), objFetched)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(objFetched.Spec.Packages).To(HaveLen(2))
+		})
+
+		It("spec.systemdServices is mutable", func() {
+			obj := createObj("obj-systemd")
+			obj.Spec.SystemdServices = []provisioningv1.SystemdServiceSpec{
+				{Name: "openvswitch-switch", Operation: provisioningv1.SystemdServiceEnableAndStart},
+			}
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			obj.Spec.SystemdServices = append(obj.Spec.SystemdServices, provisioningv1.SystemdServiceSpec{
+				Name: "kubelet", Operation: provisioningv1.SystemdServiceEnable,
+			})
+			err = k8sClient.Update(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			objFetched := &provisioningv1.DPUFlavor{}
+			err = k8sClient.Get(ctx, getObjKey(obj), objFetched)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(objFetched.Spec.SystemdServices).To(HaveLen(2))
+		})
+
+		It("spec.serviceReadiness is mutable", func() {
+			obj := createObj("obj-service-readiness")
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			obj.Spec.ServiceReadiness = &provisioningv1.ServiceReadiness{Gate: provisioningv1.GateOperationalReady}
+			err = k8sClient.Update(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			objFetched := &provisioningv1.DPUFlavor{}
+			err = k8sClient.Get(ctx, getObjKey(obj), objFetched)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(objFetched.Spec.ServiceReadiness.Gate).To(Equal(provisioningv1.GateOperationalReady))
+		})
+
+		It("spec.ewNicConfigurations is mutable", func() {
+			obj := createObj("obj-ewnic")
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			obj.Spec.EWNicConfigurations = []provisioningv1.NicConfiguration{{
+				NumVfs:   1,
+				LinkType: nicconfigv1alpha1.LinkTypeEnum("Ethernet"),
+			}}
+			err = k8sClient.Update(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			objFetched := &provisioningv1.DPUFlavor{}
+			err = k8sClient.Get(ctx, getObjKey(obj), objFetched)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(objFetched.Spec.EWNicConfigurations).To(HaveLen(1))
+			Expect(objFetched.Spec.EWNicConfigurations[0].NumVfs).To(Equal(1))
+		})
+
+		It("spec.dma is mutable", func() {
+			obj := createObj("obj-dma")
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			obj.Spec.DMA = &provisioningv1.DPUFlavorDMA{Enabled: ptr.To(true)}
+			err = k8sClient.Update(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			objFetched := &provisioningv1.DPUFlavor{}
+			err = k8sClient.Get(ctx, getObjKey(obj), objFetched)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(objFetched.DMAEnabled()).To(BeTrue())
+		})
+
+		It("spec.dpuMode is immutable", func() {
+			obj := createObj("obj-dpumode")
+			obj.Spec.DpuMode = provisioningv1.DpuMode
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			obj.Spec.DpuMode = provisioningv1.NicMode
+			err = k8sClient.Update(ctx, obj)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("dpuMode is immutable"))
+		})
+
+		It("spec.dpuResources is immutable", func() {
+			obj := createObj("obj-dpuresources")
+			obj.Spec.DPUResources = corev1.ResourceList{"cpu": resource.MustParse("5")}
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			obj.Spec.DPUResources = corev1.ResourceList{"cpu": resource.MustParse("8")}
+			err = k8sClient.Update(ctx, obj)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("dpuResources is immutable"))
+		})
+
+		It("spec.systemReservedResources is immutable", func() {
+			obj := createObj("obj-reserved")
+			obj.Spec.DPUResources = corev1.ResourceList{"cpu": resource.MustParse("5")}
+			obj.Spec.SystemReservedResources = corev1.ResourceList{"cpu": resource.MustParse("1")}
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			obj.Spec.SystemReservedResources = corev1.ResourceList{"cpu": resource.MustParse("2")}
+			err = k8sClient.Update(ctx, obj)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("systemReservedResources is immutable"))
+		})
+
+		It("spec.hostNetworkInterfaceConfigs is immutable", func() {
+			obj := createObj("obj-hostnic")
+			obj.Spec.HostNetworkInterfaceConfigs = []provisioningv1.NetworkInterfaceConfig{{
+				PortNumber: 0,
+				MTU:        ptr.To(int32(1500)),
+			}}
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			obj.Spec.HostNetworkInterfaceConfigs[0].MTU = ptr.To(int32(9000))
+			err = k8sClient.Update(ctx, obj)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("hostNetworkInterfaceConfigs is immutable"))
+		})
+
+		It("spec.scalableFunctions is mutable", func() {
+			obj := createObj("obj-sf-mut")
+			obj.Spec.ScalableFunctions = []provisioningv1.ScalableFunction{{
+				Count: ptr.To(int32(2)),
+			}}
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			obj.Spec.ScalableFunctions[0].Count = ptr.To(int32(4))
+			err = k8sClient.Update(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			objFetched := &provisioningv1.DPUFlavor{}
+			err = k8sClient.Get(ctx, getObjKey(obj), objFetched)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(*objFetched.Spec.ScalableFunctions[0].Count).To(Equal(int32(4)))
+		})
+
+		It("spec.virtualFunctions is mutable", func() {
+			obj := createObj("obj-vf-mut")
+			obj.Spec.VirtualFunctions = []provisioningv1.VirtualFunction{{
+				Count: ptr.To(int32(2)),
+			}}
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			obj.Spec.VirtualFunctions[0].Count = ptr.To(int32(4))
+			err = k8sClient.Update(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			objFetched := &provisioningv1.DPUFlavor{}
+			err = k8sClient.Get(ctx, getObjKey(obj), objFetched)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(*objFetched.Spec.VirtualFunctions[0].Count).To(Equal(int32(4)))
+		})
+
+		It("rejects updating scalableFunctions to share a pool with virtualFunctions", func() {
+			obj := createObj("obj-sf-vf-pool-update")
+			obj.Spec.ScalableFunctions = []provisioningv1.ScalableFunction{
+				{Count: ptr.To(int32(2)), PoolName: ptr.To("sf-pool")},
+			}
+			obj.Spec.VirtualFunctions = []provisioningv1.VirtualFunction{
+				{Count: ptr.To(int32(2)), PoolName: ptr.To("vf-pool")},
+			}
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			obj.Spec.ScalableFunctions[0].PoolName = ptr.To("vf-pool")
+			err = k8sClient.Update(ctx, obj)
+			Expect(err).To(MatchError(ContainSubstring("holds one device type")))
+		})
+
+		It("rejects an update that mixes config-only and immutable field changes", func() {
+			obj := createObj("obj-mixed")
+			obj.Spec.NVConfig = []provisioningv1.NVConfig{
+				{Parameters: []string{`PF_BAR2_ENABLE=0`}},
+			}
+			obj.Spec.DPUResources = corev1.ResourceList{"cpu": resource.MustParse("5")}
+			err := k8sClient.Create(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+
+			obj.Spec.NVConfig[0].Parameters = []string{`PF_BAR2_ENABLE=1`}
+			obj.Spec.DPUResources = corev1.ResourceList{"cpu": resource.MustParse("8")}
+			err = k8sClient.Update(ctx, obj)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("dpuResources is immutable"))
+
+			objFetched := &provisioningv1.DPUFlavor{}
+			err = k8sClient.Get(ctx, getObjKey(obj), objFetched)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(objFetched.Spec.NVConfig[0].Parameters).To(Equal([]string{`PF_BAR2_ENABLE=0`}))
+			Expect(objFetched.Spec.DPUResources["cpu"].Equal(resource.MustParse("5"))).To(BeTrue())
 		})
 
 		It("rejects a host Scalable Function group that names a pool", func() {
@@ -814,8 +1062,8 @@ spec:
 			Expect(warnings).To(HaveLen(1))
 		})
 
-		// Exercised directly rather than through the API server: while spec carries the
-		// immutability CEL rule, an update changing these fields never reaches the webhook.
+		// Direct webhook calls cover SR-IOV overlap/pool checks on update without
+		// requiring a prior Create through the API server.
 		Context("SR-IOV validation on update", func() {
 			webhook := &DPUFlavor{}
 
@@ -918,6 +1166,13 @@ spec:
 			Expect(err.Error()).To(ContainSubstring("invalid object type"))
 		})
 
+		It("ValidateUpdate should return error for invalid old object type", func() {
+			webhook := &DPUFlavor{}
+			_, err := webhook.ValidateUpdate(ctx, &provisioningv1.DPU{}, &provisioningv1.DPUFlavor{})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid object type"))
+		})
+
 		It("ValidateDelete should return error for invalid object type", func() {
 			webhook := &DPUFlavor{}
 			_, err := webhook.ValidateDelete(ctx, &provisioningv1.DPU{}) // Wrong type
@@ -998,6 +1253,62 @@ spec:
 			}
 
 			_, err := webhook.ValidateCreate(ctx, obj)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("type=agent-applied with operation=append"))
+		})
+
+		It("ValidateUpdate should reject empty configMapKeyRef name", func() {
+			webhook := &DPUFlavor{}
+			fileType := provisioningv1.ConfigFileTypeAgentApplied
+			old := &provisioningv1.DPUFlavor{
+				ObjectMeta: metav1.ObjectMeta{Name: "invalid-configmap-name-update", Namespace: "default"},
+				Spec: provisioningv1.DPUFlavorSpec{
+					ConfigFiles: []provisioningv1.ConfigFile{
+						{
+							Type: &fileType,
+							Path: "/etc/doca/profile.conf",
+							ContentFrom: &provisioningv1.ConfigFileContentSource{
+								ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+									LocalObjectReference: corev1.LocalObjectReference{Name: "profile-cm"},
+									Key:                  "profile.conf",
+								},
+							},
+						},
+					},
+				},
+			}
+			updated := old.DeepCopy()
+			updated.Spec.ConfigFiles[0].ContentFrom.ConfigMapKeyRef.Name = ""
+
+			_, err := webhook.ValidateUpdate(ctx, old, updated)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("configFiles[0].contentFrom.configMapKeyRef.name must be non-empty"))
+		})
+
+		It("ValidateUpdate should reject type=agent-applied with operation=append", func() {
+			webhook := &DPUFlavor{}
+			fileType := provisioningv1.ConfigFileTypeAgentApplied
+			old := &provisioningv1.DPUFlavor{
+				ObjectMeta: metav1.ObjectMeta{Name: "invalid-agent-append-update", Namespace: "default"},
+				Spec: provisioningv1.DPUFlavorSpec{
+					ConfigFiles: []provisioningv1.ConfigFile{
+						{
+							Type: &fileType,
+							Path: "/etc/doca/profile.conf",
+							ContentFrom: &provisioningv1.ConfigFileContentSource{
+								ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+									LocalObjectReference: corev1.LocalObjectReference{Name: "profile-cm"},
+									Key:                  "profile.conf",
+								},
+							},
+						},
+					},
+				},
+			}
+			updated := old.DeepCopy()
+			updated.Spec.ConfigFiles[0].Operation = provisioningv1.FileAppend
+
+			_, err := webhook.ValidateUpdate(ctx, old, updated)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("type=agent-applied with operation=append"))
 		})

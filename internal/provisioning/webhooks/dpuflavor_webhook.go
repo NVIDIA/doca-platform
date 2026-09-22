@@ -25,6 +25,7 @@ import (
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	dpfutils "github.com/nvidia/doca-platform/internal/utils"
 
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
@@ -80,20 +81,8 @@ func (r *DPUFlavor) ValidateCreate(ctx context.Context, obj runtime.Object) (adm
 
 	dpuflavorlog.V(4).Info("validate create", "name", dpuFlavor.Name)
 
-	if err := validateResources(dpuFlavor); err != nil {
-		return admission.Warnings{}, apierrors.NewBadRequest(fmt.Sprintf("resources are misconfigured: %s", err.Error()))
-	}
-
-	if err := validateHostNetworkInterfaceConfigs(dpuFlavor); err != nil {
-		return admission.Warnings{}, apierrors.NewBadRequest(fmt.Sprintf("host network interface configs are misconfigured: %s", err.Error()))
-	}
-
-	if err := validateConfigFileContentRefs(dpuFlavor); err != nil {
-		return admission.Warnings{}, apierrors.NewBadRequest(fmt.Sprintf("config files are misconfigured: %s", err.Error()))
-	}
-
-	if err := validateSRIOVFunctions(dpuFlavor); err != nil {
-		return admission.Warnings{}, apierrors.NewBadRequest(err.Error())
+	if err := validateDPUFlavorSpec(dpuFlavor); err != nil {
+		return admission.Warnings{}, err
 	}
 
 	// NVConfig validation is fully handled by CEL in the CRD schema
@@ -103,18 +92,75 @@ func (r *DPUFlavor) ValidateCreate(ctx context.Context, obj runtime.Object) (adm
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
 func (r *DPUFlavor) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
+	oldFlavor, ok := oldObj.(*provisioningv1.DPUFlavor)
+	if !ok {
+		return admission.Warnings{}, apierrors.NewBadRequest(fmt.Sprintf("invalid object type expected DPUFlavor got %s", oldObj.GetObjectKind().GroupVersionKind().String()))
+	}
 	dpuFlavor, ok := newObj.(*provisioningv1.DPUFlavor)
 	if !ok {
 		return admission.Warnings{}, apierrors.NewBadRequest(fmt.Sprintf("invalid object type expected DPUFlavor got %s", newObj.GetObjectKind().GroupVersionKind().String()))
 	}
 	dpuflavorlog.V(4).Info("validate update", "name", dpuFlavor.Name)
 
-	if err := validateSRIOVFunctions(dpuFlavor); err != nil {
+	if err := validateImmutableDPUFlavorFields(oldFlavor, dpuFlavor); err != nil {
 		return admission.Warnings{}, apierrors.NewBadRequest(err.Error())
+	}
+
+	if err := validateDPUFlavorSpec(dpuFlavor); err != nil {
+		return admission.Warnings{}, err
 	}
 
 	// Annotations are mutable, hence the deprecation check.
 	return deprecationWarnings(dpuFlavor), nil
+}
+
+func validateDPUFlavorSpec(flavor *provisioningv1.DPUFlavor) error {
+	if err := validateResources(flavor); err != nil {
+		return apierrors.NewBadRequest(fmt.Sprintf("resources are misconfigured: %s", err.Error()))
+	}
+	if err := validateHostNetworkInterfaceConfigs(flavor); err != nil {
+		return apierrors.NewBadRequest(fmt.Sprintf("host network interface configs are misconfigured: %s", err.Error()))
+	}
+	if err := validateConfigFileContentRefs(flavor); err != nil {
+		return apierrors.NewBadRequest(fmt.Sprintf("config files are misconfigured: %s", err.Error()))
+	}
+	if err := validateSRIOVFunctions(flavor); err != nil {
+		return apierrors.NewBadRequest(err.Error())
+	}
+	return nil
+}
+
+func validateImmutableDPUFlavorFields(oldFlavor, newFlavor *provisioningv1.DPUFlavor) error {
+	oldSpec, newSpec := oldFlavor.Spec, newFlavor.Spec
+	if oldSpec.DpuMode != newSpec.DpuMode {
+		return errors.New("dpuMode is immutable")
+	}
+	if !equality.Semantic.DeepEqual(oldSpec.BFCfgParameters, newSpec.BFCfgParameters) {
+		return errors.New("bfcfgParameters is immutable")
+	}
+	if !equality.Semantic.DeepEqual(oldSpec.DPUResources, newSpec.DPUResources) {
+		return errors.New("dpuResources is immutable")
+	}
+	if !equality.Semantic.DeepEqual(oldSpec.SystemReservedResources, newSpec.SystemReservedResources) {
+		return errors.New("systemReservedResources is immutable")
+	}
+	if !equality.Semantic.DeepEqual(oldSpec.HostNetworkInterfaceConfigs, newSpec.HostNetworkInterfaceConfigs) {
+		return errors.New("hostNetworkInterfaceConfigs is immutable")
+	}
+	if !equality.Semantic.DeepEqual(cloudInitConfigFiles(oldSpec.ConfigFiles), cloudInitConfigFiles(newSpec.ConfigFiles)) {
+		return errors.New("configFiles with type cloud-init (the default) are immutable")
+	}
+	return nil
+}
+
+func cloudInitConfigFiles(files []provisioningv1.ConfigFile) []provisioningv1.ConfigFile {
+	out := make([]provisioningv1.ConfigFile, 0, len(files))
+	for _, f := range files {
+		if f.Type == nil || *f.Type == provisioningv1.ConfigFileTypeCloudInit {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 // validateSRIOVFunctions rejects the SR-IOV misconfigurations the dpu-agent would

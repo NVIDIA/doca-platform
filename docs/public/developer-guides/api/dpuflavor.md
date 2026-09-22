@@ -16,7 +16,7 @@ DPUFlavor is a Kubernetes Custom Resource Definition (CRD) that defines configur
 
 ## Key Features
 
-- **Immutable Configuration**: Once created, the DPUFlavor spec cannot be modified to ensure consistency across DPU deployments
+- **Field-level immutability**: `dpuMode`, `bfcfgParameters`, `dpuResources`, `systemReservedResources`, `hostNetworkInterfaceConfigs`, and cloud-init `configFiles` cannot be changed after create. Other spec fields may be edited on the existing DPUFlavor
 - **Comprehensive System Configuration**: Covers all aspects of DPU system configuration from boot parameters to runtime settings
 - **Resource Management**: Defines resource requirements and allocation policies
 - **Cluster deployment mode**: Zero-trust vs host-trusted is configured on `DPFOperatorConfig` and reflected on `DPU` status (`deploymentMode`), not on `DPUFlavor`
@@ -31,8 +31,8 @@ DPUFlavor is a Kubernetes Custom Resource Definition (CRD) that defines configur
 | `grub` | [DPUFlavorGrub](#dpuflavorgrub) | All the parameters will be set in `GRUB_CMDLINE_LINUX` grub configuration |
 | `sysctl` | [DPUFlavorSysctl](#dpuflavorsysctl) | Kernel sysctl parameters which will be stored in `/etc/sysctl.d/99-dpf.conf` |
 | `nvconfig` | [][NVConfig](#nvconfig) | The device configuration which will be applied by `mlxconfig` |
-| `scalableFunctions` | [][ScalableFunction](#scalablefunction) | List of SF groups to create on the DPU, or on the host when `hostDevice` is set. Count is per selected device. Over-subscribe can fail at create time. Editing reprovisions the DPU. When both this list and `virtualFunctions` are empty, SF counts are still derived from `PF_TOTAL_SF` (removed in a future release). Up to 16 entries |
-| `virtualFunctions` | [][VirtualFunction](#virtualfunction) | List of VF groups to create. Count is per selected device. Groups ending up on the same device sum to a single `sriov_numvfs` and then list order assigns contiguous index ranges. Over-subscribe can fail at create time. Editing reprovisions the DPU. Up to 16 entries |
+| `scalableFunctions` | [][ScalableFunction](#scalablefunction) | List of SF groups to create on the DPU, or on the host when `hostDevice` is set. Count is per selected device. Over-subscribe can fail at create time. When both this list and `virtualFunctions` are empty, SF counts are still derived from `PF_TOTAL_SF` (removed in a future release). Up to 16 entries |
+| `virtualFunctions` | [][VirtualFunction](#virtualfunction) | List of VF groups to create. Count is per selected device. Groups ending up on the same device sum to a single `sriov_numvfs` and then list order assigns contiguous index ranges. Over-subscribe can fail at create time. Up to 16 entries |
 | `dma` | [DPUFlavorDMA](#dpuflavordma) | SNAP DMA SF configuration. The agent picks the ECPF; sfnum is 8000 and MAC is derived. Ignored on non-BlueField-4 DPUs |
 | `ovs` | [DPUFlavorOVS](#dpuflavorovs) | Open vSwitch configuration applied by the DPU agent once per boot |
 | `bfcfgParameters` | []string | Parameters for the bf.cfg file. See [BFCfg Parameters](#bfcfg-parameters) for important parameters |
@@ -103,8 +103,7 @@ spec:
 That declares 12 VFs on `p0`, advertised as two device-plugin pools selecting `p0#0-7` and
 `p0#8-11`.
 
-Editing `virtualFunctions` reprovisions the DPU. A device no entry selects is left as-is;
-`count: 0` empties it.
+A device no entry selects is left as-is; `count: 0` empties it.
 
 | Field | Type | Description |
 |-------|------|--------------|

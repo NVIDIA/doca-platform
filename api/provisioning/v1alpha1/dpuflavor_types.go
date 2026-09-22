@@ -30,8 +30,17 @@ const (
 // DPUFlavorGroupVersionKind is the GroupVersionKind of the DPUFlavor object
 var DPUFlavorGroupVersionKind = GroupVersion.WithKind(DPUFlavorKind)
 
-// DPUFlavorSpec defines the content of DPUFlavor
-// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="DPUFlavor spec is immutable"
+// DPUFlavorSpec defines the content of DPUFlavor.
+// Config-only fields (grub, sysctl, nvconfig, ovs, packages, systemdServices,
+// containerdConfig, agent-applied configFiles, serviceReadiness, ewNicConfigurations,
+// dma, scalableFunctions, virtualFunctions) may be updated in place.
+// Immutable fields require a new DPUFlavor.
+// +kubebuilder:validation:XValidation:rule="(!has(self.dpuMode) && !has(oldSelf.dpuMode)) || (has(self.dpuMode) && has(oldSelf.dpuMode) && self.dpuMode == oldSelf.dpuMode)",message="dpuMode is immutable"
+// +kubebuilder:validation:XValidation:rule="(!has(self.bfcfgParameters) && !has(oldSelf.bfcfgParameters)) || (has(self.bfcfgParameters) && has(oldSelf.bfcfgParameters) && self.bfcfgParameters == oldSelf.bfcfgParameters)",message="bfcfgParameters is immutable"
+// +kubebuilder:validation:XValidation:rule="(!has(self.dpuResources) && !has(oldSelf.dpuResources)) || (has(self.dpuResources) && has(oldSelf.dpuResources) && self.dpuResources == oldSelf.dpuResources)",message="dpuResources is immutable"
+// +kubebuilder:validation:XValidation:rule="(!has(self.systemReservedResources) && !has(oldSelf.systemReservedResources)) || (has(self.systemReservedResources) && has(oldSelf.systemReservedResources) && self.systemReservedResources == oldSelf.systemReservedResources)",message="systemReservedResources is immutable"
+// +kubebuilder:validation:XValidation:rule="(!has(self.hostNetworkInterfaceConfigs) && !has(oldSelf.hostNetworkInterfaceConfigs)) || (has(self.hostNetworkInterfaceConfigs) && has(oldSelf.hostNetworkInterfaceConfigs) && self.hostNetworkInterfaceConfigs == oldSelf.hostNetworkInterfaceConfigs)",message="hostNetworkInterfaceConfigs is immutable"
+// +kubebuilder:validation:XValidation:rule="(has(self.configFiles) ? self.configFiles.filter(f, !has(f.type) || f.type == 'cloud-init') : []) == (has(oldSelf.configFiles) ? oldSelf.configFiles.filter(f, !has(f.type) || f.type == 'cloud-init') : [])",message="configFiles with type cloud-init (the default) are immutable"
 type DPUFlavorSpec struct {
 	// Grub contains the grub configuration for the DPUFlavor.
 	// +optional
