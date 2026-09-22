@@ -509,19 +509,22 @@ func IsPodRunningAndReady(pod *corev1.Pod) bool {
 	return false
 }
 
-// GetReadyPodsMatchingLabels lists pods in the given namespace matching the given labels
-// and returns those that are running and ready.
-func GetReadyPodsMatchingLabels(ctx context.Context, c client.Client, namespace string, matchingLabels map[string]string) []*corev1.Pod {
-	pods := &corev1.PodList{}
-	Expect(c.List(ctx, pods, client.InNamespace(namespace), client.MatchingLabels(matchingLabels))).To(Succeed())
-
+// GetReadyPodsMatchingLabels waits for expected pods matching the given labels to be running and ready.
+func GetReadyPodsMatchingLabels(ctx context.Context, c client.Client, namespace string, matchingLabels map[string]string, expected int) []*corev1.Pod {
 	var matched []*corev1.Pod
-	for i := range pods.Items {
-		p := &pods.Items[i]
-		if IsPodRunningAndReady(p) {
-			matched = append(matched, p)
+	Eventually(func(g Gomega) {
+		pods := &corev1.PodList{}
+		g.Expect(c.List(ctx, pods, client.InNamespace(namespace), client.MatchingLabels(matchingLabels))).To(Succeed())
+		matched = nil
+		for i := range pods.Items {
+			p := &pods.Items[i]
+			if IsPodRunningAndReady(p) {
+				matched = append(matched, p)
+			}
 		}
-	}
+		g.Expect(matched).To(HaveLen(expected), "expected %d ready pods matching %v in %s, got %d of %d",
+			expected, matchingLabels, namespace, len(matched), len(pods.Items))
+	}).WithTimeout(3 * time.Minute).WithPolling(time.Second).Should(Succeed())
 	return matched
 }
 

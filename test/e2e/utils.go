@@ -113,7 +113,7 @@ type TestDomain struct {
 	OVNKPrimary             string // Tests that need OVNK as primary CNI
 	OVNKHBN                 string // Tests that need OVNK as primary CNI with HBN deployed alongside
 	DPFVPCOVN               string // VPC OVN test suite
-	Weave                   string // Weave test suite
+	WeaveBF3                string // Weave BF3 test suite
 	WeavePhysical           string // Physical BF4 Weave test suite (ZT)
 	MultiDPUCluster         string // Multi DPUCluster setup tests
 	ZeroTrust               string // Zero Trust mode in DPFOperatorConfig on the BeforeSuite stage
@@ -144,7 +144,7 @@ var Domain = TestDomain{
 	OVNKPrimary:             "OVNKPrimary",
 	OVNKHBN:                 "OVNKHBN",
 	DPFVPCOVN:               "DPFVPCOVN",
-	Weave:                   "Weave",
+	WeaveBF3:                "WeaveBF3",
 	WeavePhysical:           "WeavePhysical",
 	MultiDPUCluster:         "MultiDPUCluster",
 	ZeroTrust:               "ZeroTrust",
