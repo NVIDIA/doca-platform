@@ -29,6 +29,8 @@ import (
 	"github.com/nvidia/doca-platform/test/e2e/cleanup"
 	"github.com/nvidia/doca-platform/test/utils/netshoot"
 	"github.com/nvidia/doca-platform/test/utils/vpc"
+	"github.com/nvidia/doca-platform/test/utils/vpc/topology"
+	"github.com/nvidia/doca-platform/test/utils/vpc/topology/bf3"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -43,16 +45,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// weaveHW is the BlueField topology used by shared Weave helpers in this package, BF3 topology.
+var weaveHW topology.Topology = bf3.Topology
+
 const (
-	// Host-side PF interface names. These are the host PF netdevs that the flow controller creates PF
-	// attachments for in NIC Cloud.
-	weaveHostPFInterfaceP0 = "enp8s0f0np0"
-	weaveHostPFInterfaceP1 = "enp8s0f1np1"
-
-	// DPU-side port names used by the flow-controller for PF lookups.
-	weaveDPUPortP0 = "p0"
-	weaveDPUPortP1 = "p1"
-
 	// weaveDPUServiceLabelKey is propagated from spec.serviceDaemonSet.labels in our DPUService
 	// manifests to every pod. We use it (rather than svc.dpu.nvidia.com/service, which the
 	// controller hashes via generateServiceID) because the value is human-readable and stable.
@@ -66,24 +62,7 @@ const (
 	weaveDHCPNADP0 = "weave-dhcp-p0"
 	weaveDHCPNADP1 = "weave-dhcp-p1"
 
-	// DPU-side PCI address for p0, in the underscored form used in OVS isolation-bridge names.
-	// Pinned by the dpf-bootstrap deployment, see DPUService-weave-flow-controller.yml.
-	// If the underlay config in the DPUService changes, this needs to follow.
-	weaveDPUPortP0PCIUnderscored = "0000_03_00_0"
-	weaveDropBridgeP0            = "br-drop-n0"
-
-	// Host-side RDMA device name (ibv) for the p0 PF netdev. Pinned by hardware/driver enumeration
-	// on the worker.
-	weaveHostPFRDMADeviceP0 = "mlx5_0"
-
 	weavePFMTU = 9000
-
-	// weaveVNetSubnet is the /8 overlay IPv4 subnet used for all Weave virtual networks.
-	weaveVNetSubnet = "10.0.0.0/8"
-
-	// weaveRDMAMinAvgBWGbit gates that HW offload is engaged: with offload, BF2/BF3 sustain >60 Gbit/sec;
-	// without it, the SW path tops at a much lower average.
-	weaveRDMAMinAvgBWGbit = 60.0
 
 	// weaveIBWriteBWDuration is the per-run duration for the host-side ib_write_bw test (-D).
 	weaveIBWriteBWDuration = 5 * time.Second
@@ -110,6 +89,9 @@ const (
 	weaveOperationTimeout = 2 * time.Minute
 
 	weaveEventuallyPollInterval = 1 * time.Second
+
+	// weaveE2EAttachmentIDPrefix is the leading segment of attachment IDs minted by these helpers.
+	weaveE2EAttachmentIDPrefix = "e2e"
 
 	// weaveMetricBurstCount is the ICMP echo count per ping-based metric-delta burst.
 	weaveMetricBurstCount = 30
@@ -149,7 +131,7 @@ var (
 	weavePrerequisiteScope *cleanup.Scope
 )
 
-var weaveInput = &weaveTestInput{}
+var weaveBF3Input = &weaveBF3TestInput{}
 
 // vpcctlVNetResponse is used to parse create-vnet / get-vnet JSON responses.
 type vpcctlVNetResponse struct {
@@ -184,24 +166,36 @@ type vpcctlAttachmentResponse struct {
 type vpcctlListAttachmentResponse struct {
 	VirtualNetworkAttachments []struct {
 		Spec struct {
-			ID string `json:"id"`
+			ID    string `json:"id"`
+			NicID string `json:"nicId"`
 		} `json:"spec"`
 	} `json:"virtualNetworkAttachments"`
 }
 
-// weaveTestInput holds objects loaded from config for Weave e2e (see applyWeaveConfig).
-type weaveTestInput struct {
+// vpcctlAttachment identifies one attachment and the NIC it occupies.
+type vpcctlAttachment struct {
+	ID    string
+	NicID string
+}
+
+// String renders id (nic mac) for failure messages.
+func (a vpcctlAttachment) String() string {
+	return fmt.Sprintf("%s (nic %s)", a.ID, a.NicID)
+}
+
+// weaveBF3TestInput holds objects loaded from config for Weave BF3 e2e.
+type weaveBF3TestInput struct {
 	dhcpDaemonSet *appsv1.DaemonSet
 }
 
-func (t *weaveTestInput) applyWeaveConfig(conf config) {
-	t.dhcpDaemonSet = requiredObjectFromFile[appsv1.DaemonSet](Domain.Weave, "dhcpDaemonSet", conf.DHCPDaemonSetPath)
+func (t *weaveBF3TestInput) applyWeaveBF3Config(conf config) {
+	t.dhcpDaemonSet = requiredObjectFromFile[appsv1.DaemonSet](Domain.WeaveBF3, "dhcpDaemonSet", conf.DHCPDaemonSetPath)
 }
 
-// WeaveBeforeSuite is called from the e2e BeforeSuite to load Weave test artifacts from config.
-func WeaveBeforeSuite(c config) {
-	By("Setting Weave configs for the test")
-	weaveInput.applyWeaveConfig(c)
+// WeaveBF3BeforeSuite loads Weave BF3 test artifacts from config.
+func WeaveBF3BeforeSuite(c config) {
+	By("Setting Weave BF3 configs for the test")
+	weaveBF3Input.applyWeaveBF3Config(c)
 }
 
 // getProvisionDPUClustersInputForWeave returns provision input for Weave tests.
@@ -242,9 +236,7 @@ func verifyOVSResponsive(pod *corev1.Pod) {
 	}).WithTimeout(30 * time.Second).WithPolling(weaveEventuallyPollInterval).Should(Succeed())
 }
 
-// getPFMACFromFlowControllerByPort reads the PF MAC for the given DPU-side port (e.g. "p0" or "p1")
-// from the smart_nic sysfs config inside the flow-controller pod.
-// NOTE: This will not work on BF4 ASTRA setup since ECPFs have different names.
+// getPFMACFromFlowControllerByPort reads the PF MAC from smart_nic sysfs (e.g. p0, A1p0).
 func getPFMACFromFlowControllerByPort(pod *corev1.Pod, port string) string {
 	cmd := []string{"sh", "-c", fmt.Sprintf(`grep -i '^MAC' /sys/class/net/%s/smart_nic/pf/config | head -1 | sed 's/^[^:]*:[[:space:]]*//'`, port)}
 	var mac string
@@ -304,21 +296,35 @@ func createVNetOnPod(pod *corev1.Pod, vnetID string, vni uint32, subnet string) 
 		"failed to create virtual network %q on pod %s", vnetID, pod.Name)
 }
 
-// listAttachmentIDs runs vpcctl list-attachment with the given filter flags (e.g. --nic-id, --vnet-id)
-// and returns the attachment IDs from the JSON response. Used to discover stale attachments that
+// listAttachments runs vpcctl list-attachment with the given filter flags (e.g. --nic-id, --vnet-id)
+// and returns the attachments from the JSON response. Used to discover stale attachments that
 // block create/delete operations without relying on parsing gRPC error strings.
-func listAttachmentIDs(g Gomega, pod *corev1.Pod, filterFlags ...string) []string {
+func listAttachments(g Gomega, pod *corev1.Pod, filterFlags ...string) []vpcctlAttachment {
 	args := append([]string{"/vpcctl", "list-attachment"}, filterFlags...)
 	out, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name, args)
 	g.Expect(err).ToNot(HaveOccurred(), "vpcctl list-attachment %v failed on pod %s: %s", filterFlags, pod.Name, out)
 	var resp vpcctlListAttachmentResponse
 	g.Expect(json.Unmarshal([]byte(out), &resp)).To(Succeed(),
 		"failed to parse list-attachment response on pod %s: %s", pod.Name, out)
-	ids := make([]string, 0, len(resp.VirtualNetworkAttachments))
+	attachments := make([]vpcctlAttachment, 0, len(resp.VirtualNetworkAttachments))
 	for _, a := range resp.VirtualNetworkAttachments {
-		ids = append(ids, a.Spec.ID)
+		attachments = append(attachments, vpcctlAttachment{ID: a.Spec.ID, NicID: a.Spec.NicID})
 	}
-	return ids
+	return attachments
+}
+
+// isE2EAttachmentFor reports whether id was minted by these helpers for the given ID suffix.
+func isE2EAttachmentFor(id, suffix string) bool {
+	return strings.HasPrefix(id, weaveE2EAttachmentIDPrefix) && strings.HasSuffix(id, "-"+suffix)
+}
+
+// deleteStaleAttachment deletes attachmentID, tolerating NotFound from a concurrent delete.
+func deleteStaleAttachment(g Gomega, pod *corev1.Pod, attachmentID string) {
+	out, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name,
+		[]string{"/vpcctl", "delete-attachment", "--id", attachmentID})
+	if err != nil && !strings.Contains(out, "NotFound") {
+		g.Expect(err).ToNot(HaveOccurred(), "failed to delete stale attachment %s on pod %s: %s", attachmentID, pod.Name, out)
+	}
 }
 
 // createPFAttachmentAndWaitForHostIP creates a PF attachment on a flow-controller pod, waits until it is PHASE_READY,
@@ -332,7 +338,7 @@ func createPFAttachmentAndWaitForHostIP(pod *corev1.Pod, vnetID, pfMAC string) (
 	if len(macHex) > 4 {
 		macHex = macHex[len(macHex)-4:]
 	}
-	attID = fmt.Sprintf("e2e-%s-%s", vnetID, macHex)
+	attID = fmt.Sprintf("%s-%s-%s", weaveE2EAttachmentIDPrefix, vnetID, macHex)
 
 	By(fmt.Sprintf("Creating PF attachment for MAC %s on pod %s", pfMAC, pod.Name))
 	cmd := []string{
@@ -350,16 +356,12 @@ func createPFAttachmentAndWaitForHostIP(pod *corev1.Pod, vnetID, pfMAC string) (
 			return
 		}
 		if err != nil && strings.Contains(output, "already attached") {
-			staleIDs := listAttachmentIDs(g, pod, "--nic-id", pfMAC)
-			for _, staleID := range staleIDs {
-				By(fmt.Sprintf("NIC %s has stale attachment %s — deleting before retry", pfMAC, staleID))
-				delOut, delErr := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name,
-					[]string{"/vpcctl", "delete-attachment", "--id", staleID})
-				if delErr != nil && !strings.Contains(delOut, "NotFound") {
-					g.Expect(delErr).ToNot(HaveOccurred(), "failed to delete stale attachment %s on pod %s: %s", staleID, pod.Name, delOut)
-				}
+			// The server filters this list by NIC, so every entry is a blocker and can be deleted.
+			// The create below then fails this attempt and Eventually retries it.
+			for _, att := range listAttachments(g, pod, "--nic-id", pfMAC) {
+				By(fmt.Sprintf("NIC %s has stale attachment %s - deleting before retry", pfMAC, att.ID))
+				deleteStaleAttachment(g, pod, att.ID)
 			}
-			g.Expect(false).To(BeTrue(), "retry vpcctl create-attachment for nic %s after clearing %d stale attachment(s)", pfMAC, len(staleIDs))
 		}
 		g.Expect(err).ToNot(HaveOccurred(), "vpcctl create-attachment failed on pod %s: %s", pod.Name, output)
 		var createResp vpcctlAttachmentResponse
@@ -383,9 +385,64 @@ func createPFAttachmentAndWaitForHostIP(pod *corev1.Pod, vnetID, pfMAC string) (
 	return attID, hostIP
 }
 
-// isolationBridgeName returns the OVS isolation bridge name for a VNI on p0.
-func isolationBridgeName(vni uint32) string {
-	return fmt.Sprintf("br-isol-%d-%s", vni, weaveDPUPortP0PCIUnderscored)
+// createPFAttachmentByRepresentorAndWaitForHostIP creates a PF attachment via --rep.
+func createPFAttachmentByRepresentorAndWaitForHostIP(pod *corev1.Pod, vnetID, representor string) (attID, hostIP string) {
+	attID = fmt.Sprintf("%s-%s-%s", weaveE2EAttachmentIDPrefix, vnetID, representor)
+
+	By(fmt.Sprintf("Creating PF attachment for representor %s on pod %s", representor, pod.Name))
+	cmd := []string{
+		"/vpcctl", "create-attachment",
+		"--id", attID,
+		"--rep", representor,
+		"--vnet-id", vnetID,
+		"--type", "pf",
+	}
+	Eventually(func(g Gomega) {
+		output, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name, cmd)
+		if err != nil && strings.Contains(output, "AlreadyExists") {
+			assertVPCtlAttachmentPhaseReady(g, pod, attID)
+			return
+		}
+		if err != nil && strings.Contains(output, "already attached") {
+			// vpcctl cannot filter by representor and the NIC MAC behind it is only known to the server,
+			// so this list covers every NIC on the pod, including the other rail's live attachment.
+			// Match on our own ID scheme to avoid deleting attachments that belong to another NIC.
+			stale := listAttachments(g, pod)
+			deleted := 0
+			for _, att := range stale {
+				if att.ID == attID || !isE2EAttachmentFor(att.ID, representor) {
+					continue
+				}
+				By(fmt.Sprintf("Representor %s has stale attachment %s - deleting before retry", representor, att.ID))
+				deleteStaleAttachment(g, pod, att.ID)
+				deleted++
+			}
+			// Attachments exist but none are ours to clear, so no retry will get past the NIC.
+			if deleted == 0 && len(stale) > 0 {
+				StopTrying(fmt.Sprintf("representor %s already attached on pod %s but no %s attachment for it was found (listed: %v)",
+					representor, pod.Name, weaveE2EAttachmentIDPrefix, stale)).Now()
+			}
+		}
+		g.Expect(err).ToNot(HaveOccurred(), "vpcctl create-attachment failed on pod %s: %s", pod.Name, output)
+		var createResp vpcctlAttachmentResponse
+		g.Expect(json.Unmarshal([]byte(output), &createResp)).To(Succeed(), "failed to parse create-attachment response from pod %s: %s", pod.Name, output)
+	}).WithTimeout(weaveOperationTimeout).WithPolling(weaveEventuallyPollInterval).Should(Succeed(),
+		"failed to create PF attachment for representor %s on pod %s", representor, pod.Name)
+
+	By(fmt.Sprintf("Waiting for attachment %s on pod %s to reach PHASE_READY", attID, pod.Name))
+	Eventually(func(g Gomega) {
+		out, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name, []string{"/vpcctl", "get-attachment", "--id", attID})
+		g.Expect(err).ToNot(HaveOccurred())
+		var resp vpcctlAttachmentResponse
+		g.Expect(json.Unmarshal([]byte(out), &resp)).To(Succeed())
+		g.Expect(resp.VirtualNetworkAttachment.Status.State.Phase).To(Equal("PHASE_READY"))
+		hostIP = resp.VirtualNetworkAttachment.Status.HostIPv4
+		g.Expect(hostIP).ToNot(BeEmpty())
+	}).WithTimeout(weaveOperationTimeout).WithPolling(weaveEventuallyPollInterval).Should(Succeed(),
+		"attachment %s on pod %s did not reach PHASE_READY", attID, pod.Name)
+
+	By(fmt.Sprintf("Attachment %s ready on pod %s — host overlay IP: %s", attID, pod.Name, hostIP))
+	return attID, hostIP
 }
 
 // weaveMetricFamily is the Prometheus metric family emitted by `ovs-appctl metrics/show` carrying per-flow packet
@@ -477,10 +534,10 @@ func assertMetricDeviceNameLabel(g Gomega, metrics weaveMetrics, expectedBridge 
 // patchFlowControllerForMetrics patches the weave-flow-controller DPUService to a single underlay
 // interface and sets ENABLE_OVS_METRICS=true. The device_name label is the uplink of PCI function 0, so dual-port
 // underlays on the same NIC collide on the same label. Metrics e2e must run with one underlay.
-func patchFlowControllerForMetrics() {
+func patchFlowControllerForMetrics(ctx context.Context, cl client.Client) {
 	By("Patching weave-flow-controller DPUService: single underlay + ENABLE_OVS_METRICS=true")
 	svc := &dpuservicev1.DPUService{}
-	Expect(input.client.Get(ctx, client.ObjectKey{
+	Expect(cl.Get(ctx, client.ObjectKey{
 		Namespace: dpfOperatorSystemNamespace,
 		Name:      weaveFlowControllerName,
 	}, svc)).To(Succeed())
@@ -515,7 +572,7 @@ func patchFlowControllerForMetrics() {
 	raw, err := json.Marshal(values)
 	Expect(err).NotTo(HaveOccurred())
 	svc.Spec.HelmChart.Values.Raw = raw
-	Expect(input.client.Patch(ctx, svc, client.MergeFrom(original))).To(Succeed())
+	Expect(cl.Patch(ctx, svc, client.MergeFrom(original))).To(Succeed())
 }
 
 // upsertHelmEnv sets name=value on a helm container values map, preserving any other env entries.
@@ -538,11 +595,18 @@ func upsertHelmEnv(container map[string]any, name, value string) {
 
 // waitForFlowControllerPodsRolled waits until both flow-controller pods have new UIDs (DaemonSet
 // roll after the metrics patch) and are Ready, then returns them ordered by DPU node.
-func waitForFlowControllerPodsRolled(dpuNode1, dpuNode2 string, previousUIDs map[string]types.UID) (pod1, pod2 *corev1.Pod) {
+func waitForFlowControllerPodsRolled(ctx context.Context, dpuNode1, dpuNode2 string, previousUIDs map[string]types.UID) (pod1, pod2 *corev1.Pod) {
 	By("Waiting for weave-flow-controller pods to roll after metrics patch")
 	Eventually(func(g Gomega) {
-		pods := netshoot.GetReadyPodsMatchingLabels(ctx, dpuClusterClient[0], dpfOperatorSystemNamespace,
-			map[string]string{weaveDPUServiceLabelKey: weaveFlowControllerName})
+		podList := &corev1.PodList{}
+		g.Expect(dpuClusterClient[0].List(ctx, podList, client.InNamespace(dpfOperatorSystemNamespace),
+			client.MatchingLabels{weaveDPUServiceLabelKey: weaveFlowControllerName})).To(Succeed())
+		var pods []*corev1.Pod
+		for i := range podList.Items {
+			if p := &podList.Items[i]; netshoot.IsPodRunningAndReady(p) {
+				pods = append(pods, p)
+			}
+		}
 		g.Expect(pods).To(HaveLen(2), "expected 2 ready %s pods after metrics patch", weaveFlowControllerName)
 
 		p1 := netshoot.GetPodOnNode(pods, dpuNode1)
@@ -598,13 +662,13 @@ type weaveNetshootEndpoint struct {
 }
 
 // createWeaveNetshootPods creates the DHCP NADs needed by endpoints, creates the pods, and waits until Ready.
-func createWeaveNetshootPods(namespace string, endpoints []weaveNetshootEndpoint) {
+func createWeaveNetshootPods(ctx context.Context, cl client.Client, namespace string, endpoints []weaveNetshootEndpoint) {
 	By("Creating DHCP NADs and netshoot pods")
 	createdNADs := map[string]bool{}
 	configs := make([]*netshoot.TestPodConfig, 0, len(endpoints))
 	for _, ep := range endpoints {
 		if !createdNADs[ep.nadName] {
-			vpc.CreateDHCPNetworkAttachmentDefinition(ctx, input.client, namespace, ep.nadName, ep.hostPF, weavePFMTU, weaveContextScope.CleanupLabels)
+			vpc.CreateDHCPNetworkAttachmentDefinition(ctx, cl, namespace, ep.nadName, ep.hostPF, weavePFMTU, weaveContextScope.CleanupLabels)
 			createdNADs[ep.nadName] = true
 		}
 		configs = append(configs, &netshoot.TestPodConfig{
@@ -615,8 +679,8 @@ func createWeaveNetshootPods(namespace string, endpoints []weaveNetshootEndpoint
 			Labels:    weaveContextScope.CleanupLabels,
 		})
 	}
-	netshoot.CreatePods(ctx, input.client, configs)
-	netshoot.WaitForPodsReady(ctx, input.client, configs, vpc.LongTimeout)
+	netshoot.CreatePods(ctx, cl, configs)
+	netshoot.WaitForPodsReady(ctx, cl, configs, vpc.LongTimeout)
 }
 
 // metricDeltaExpect describes how a set of weave counters should move between two scrapes.
@@ -690,6 +754,7 @@ func eventuallyAssertWeaveMetrics(pods []*corev1.Pod, assert func(g Gomega, curr
 // verifyMetricsAfterPingBurst takes a baseline scrape, sends a ping burst, then waits until assert
 // holds against the post-burst scrapes.
 func verifyMetricsAfterPingBurst(byTraffic, byVerify string, pods []*corev1.Pod, namespace, srcPod, destIP string,
+	restCfg *rest.Config,
 	assert func(g Gomega, before, after []weaveMetrics)) {
 	By("Reading baseline weave metrics")
 	before := make([]weaveMetrics, len(pods))
@@ -698,7 +763,7 @@ func verifyMetricsAfterPingBurst(byTraffic, byVerify string, pods []*corev1.Pod,
 	}
 
 	By(byTraffic)
-	_, _ = netshoot.PingBurst(hostClusterRESTClient, input.restConfig, namespace, srcPod, destIP, weaveMetricBurstCount)
+	_, _ = netshoot.PingBurst(hostClusterRESTClient, restCfg, namespace, srcPod, destIP, weaveMetricBurstCount)
 
 	By(byVerify)
 	eventuallyAssertWeaveMetrics(pods, func(g Gomega, after []weaveMetrics) {
@@ -709,7 +774,7 @@ func verifyMetricsAfterPingBurst(byTraffic, byVerify string, pods []*corev1.Pod,
 // verifyMetricDeviceNameLabels asserts isolation and drop-bridge series on both flow-controller
 // pods carry device_name=p0.
 func verifyMetricDeviceNameLabels(fcPod1, fcPod2 *corev1.Pod, vni uint32) {
-	p0Bridge := isolationBridgeName(vni)
+	p0Bridge := weaveHW.P0.IsolationBridgeName(vni)
 	isolationMetricNames := []string{
 		weaveMetricHostTx,
 		weaveMetricHostRx,
@@ -722,9 +787,9 @@ func verifyMetricDeviceNameLabels(fcPod1, fcPod2 *corev1.Pod, vni uint32) {
 	By("Verifying flow metrics expose expected device_name labels")
 	eventuallyAssertWeaveMetrics([]*corev1.Pod{fcPod1, fcPod2}, func(g Gomega, current []weaveMetrics) {
 		for _, metrics := range current {
-			assertMetricDeviceNameLabel(g, metrics, p0Bridge, isolationMetricNames, weaveDPUPortP0)
-			assertMetricDeviceNameLabel(g, metrics, weaveDropBridgeP0,
-				[]string{weaveMetricRxVNIMismatch}, weaveDPUPortP0)
+			assertMetricDeviceNameLabel(g, metrics, p0Bridge, isolationMetricNames, weaveHW.P0.Uplink)
+			assertMetricDeviceNameLabel(g, metrics, weaveHW.P0.DropBridgeName,
+				[]string{weaveMetricRxVNIMismatch}, weaveHW.P0.Uplink)
 		}
 	})
 }
@@ -732,15 +797,15 @@ func verifyMetricDeviceNameLabels(fcPod1, fcPod2 *corev1.Pod, vni uint32) {
 // verifyCrossNodeIperfMetric runs bidirectional iperf between srcPod and dstPod, then checks that
 // weave counters on fcPod1/fcPod2 rose with the traffic, did not drop, and match across the tunnel
 // within 1 packet per million.
-func verifyCrossNodeIperfMetric(fcPod1, fcPod2 *corev1.Pod, vni uint32, namespace, srcPod, dstPod, dstOverlayIP string) {
-	bridge := isolationBridgeName(vni)
+func verifyCrossNodeIperfMetric(fcPod1, fcPod2 *corev1.Pod, vni uint32, namespace, srcPod, dstPod, dstOverlayIP string, restCfg *rest.Config) {
+	bridge := weaveHW.P0.IsolationBridgeName(vni)
 
 	By("Reading baseline weave metrics")
 	baseline1 := readWeaveMetrics(fcPod1)
 	baseline2 := readWeaveMetrics(fcPod2)
 
 	By("Running iperf cross-node")
-	iperfResult := netshoot.RunTrafficTestWithResult(&hostClusterRESTClient, &input.restConfig, namespace, srcPod, dstPod, dstOverlayIP)
+	iperfResult := netshoot.RunTrafficTestWithResult(&hostClusterRESTClient, &restCfg, namespace, srcPod, dstPod, dstOverlayIP)
 	forwardBytes := iperfResult.Forward.End.SumSent.Bytes
 	Expect(forwardBytes).To(BeNumerically(">", 0), "iperf reported zero forward bytes")
 	mss := iperfResult.Forward.Start.TCPMSSDefault
@@ -771,14 +836,14 @@ func verifyCrossNodeIperfMetric(fcPod1, fcPod2 *corev1.Pod, vni uint32, namespac
 
 // verifyVNIMismatchMetric sends a ping burst across mismatched VNets and checks the source isolation
 // bridge encapsulates at least one packet while the destination drop bridge counts a VNI mismatch.
-func verifyVNIMismatchMetric(fcPod1, fcPod2 *corev1.Pod, srcVNI uint32, namespace, srcPod, dstOverlayIP string) {
-	srcBridge := isolationBridgeName(srcVNI)
-	dstBridge := weaveDropBridgeP0
+func verifyVNIMismatchMetric(fcPod1, fcPod2 *corev1.Pod, srcVNI uint32, namespace, srcPod, dstOverlayIP string, restCfg *rest.Config) {
+	srcBridge := weaveHW.P0.IsolationBridgeName(srcVNI)
+	dstBridge := weaveHW.P0.DropBridgeName
 
 	verifyMetricsAfterPingBurst(
 		"Sending a ping burst across mismatched VNets",
 		"Verifying weave metrics across mismatching VNets",
-		[]*corev1.Pod{fcPod1, fcPod2}, namespace, srcPod, dstOverlayIP,
+		[]*corev1.Pod{fcPod1, fcPod2}, namespace, srcPod, dstOverlayIP, restCfg,
 		func(g Gomega, before, after []weaveMetrics) {
 			assertMetricDeltas(g, before[0], after[0], srcBridge, metricDeltaExpect{
 				mustRiseBy: map[string]uint64{weaveMetricHostTx: 1, weaveMetricTxSent: 1},
@@ -791,13 +856,13 @@ func verifyVNIMismatchMetric(fcPod1, fcPod2 *corev1.Pod, srcVNI uint32, namespac
 
 // verifyOutOfSubnetMetric sends a ping burst to destIP and checks the isolation bridge drops those
 // packets instead of encapsulating them, with host_tx accounted for as sent or dropped.
-func verifyOutOfSubnetMetric(fcPod *corev1.Pod, vni uint32, namespace, podName, destIP string) {
-	bridge := isolationBridgeName(vni)
+func verifyOutOfSubnetMetric(fcPod *corev1.Pod, vni uint32, namespace, podName, destIP string, restCfg *rest.Config) {
+	bridge := weaveHW.P0.IsolationBridgeName(vni)
 
 	verifyMetricsAfterPingBurst(
 		"Sending a ping burst to an out-of-subnet destination",
 		"Verifying weave metrics across out-of-subnet destination",
-		[]*corev1.Pod{fcPod}, namespace, podName, destIP,
+		[]*corev1.Pod{fcPod}, namespace, podName, destIP, restCfg,
 		func(g Gomega, before, after []weaveMetrics) {
 			assertMetricDeltas(g, before[0], after[0], bridge, metricDeltaExpect{
 				mustRiseBy:   map[string]uint64{weaveMetricHostTx: 1, weaveMetricTxDropped: 1},
@@ -871,12 +936,12 @@ func deleteVNetOnPod(pod *corev1.Pod, vnetID string) {
 			return
 		}
 		if err != nil && strings.Contains(output, "still attached") {
-			staleIDs := listAttachmentIDs(g, pod, "--vnet-id", vnetID)
-			for _, staleID := range staleIDs {
-				By(fmt.Sprintf("VNet %s still has attachment %s — deleting before retry", vnetID, staleID))
-				deleteAttachmentOnPod(pod, staleID)
+			stale := listAttachments(g, pod, "--vnet-id", vnetID)
+			for _, att := range stale {
+				By(fmt.Sprintf("VNet %s still has attachment %s — deleting before retry", vnetID, att.ID))
+				deleteAttachmentOnPod(pod, att.ID)
 			}
-			g.Expect(fmt.Errorf("deleted %d blocking attachment(s) for vnet %s, retrying vnet delete", len(staleIDs), vnetID)).ToNot(HaveOccurred())
+			g.Expect(fmt.Errorf("deleted %d blocking attachment(s) for vnet %s, retrying vnet delete", len(stale), vnetID)).ToNot(HaveOccurred())
 		}
 		g.Expect(err).ToNot(HaveOccurred(), "vpcctl delete-vnet %s failed on pod %s: %s", vnetID, pod.Name, output)
 	}).WithTimeout(weaveDPUTunnelCleanupTimeout).WithPolling(weaveEventuallyPollInterval).Should(Succeed(),
@@ -896,7 +961,7 @@ func createNetutilsHostPodOnNode(ctx context.Context, c client.Client, namespace
 			PreStop: &corev1.LifecycleHandler{
 				Exec: &corev1.ExecAction{
 					Command: []string{"/bin/sh", "-c",
-						fmt.Sprintf(weaveRDMAFlushCmdFmt, weaveHostPFInterfaceP0),
+						fmt.Sprintf(weaveRDMAFlushCmdFmt, weaveHW.P0.HostPFName),
 					},
 				},
 			},
@@ -980,5 +1045,5 @@ func runIBWriteBWPodToPod(restClient *rest.RESTClient, restCfg *rest.Config, ser
 		[]string{"cat", weaveIBWriteBWClientJSONPath})
 	Expect(jsonErr).ToNot(HaveOccurred(), "reading ib_write_bw client JSON in pod %s/%s failed: %s", clientPod.Namespace, clientPod.Name, jsonOut)
 
-	netshoot.AnalyzeIBWriteBWResult(jsonOut, weaveRDMAMinAvgBWGbit)
+	netshoot.AnalyzeIBWriteBWResult(jsonOut, weaveHW.RDMAMinAvgBWGbit)
 }

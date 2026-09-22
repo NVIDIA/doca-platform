@@ -4,7 +4,7 @@
 # The SNAP application layer lives under the snap*ObjectPaths / snap*Path keys below and is deployed by
 # the SNAP test's BeforeAll.
 # Run with a label filter that excludes the other domains so their BeforeSuite hooks don't also deploy
-# their layers, e.g. `DPFSystem && SNAP && !SDN && !DPFVPCOVN && !Weave`.
+# their layers, e.g. `DPFSystem && SNAP && !SDN && !DPFVPCOVN && !WeaveBF3`.
 bfb: "../objects/infrastructure/bfb.yaml"
 dpuClusters:
   - "../objects/infrastructure/dpucluster-kamaji.yaml"

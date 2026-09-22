@@ -33,7 +33,7 @@ import (
 // Fields are grouped by the suite that consumes them. Most fields are only
 // consumed by specific suites and are therefore optional pointers: they are
 // loaded when set and validated where the consuming suite loads them
-// (applyConfig, applySDNConfig, applyVPCOVNConfig, applyWeaveConfig).
+// (applyConfig, applySDNConfig, applyVPCOVNConfig, applyWeaveBF3Config).
 // validateRequiredConfigFields enforces the fields that are mandatory for the
 // selected suites before any object is loaded.
 type config struct {
@@ -79,8 +79,8 @@ type config struct {
 	DPUServiceVPCOVNControllerPath *string `json:"dpuServiceVPCOVNController,omitempty"`
 	DPUServiceVPCOVNNodePath       *string `json:"dpuServiceVPCOVNNode,omitempty"`
 
-	// Shared by the VPC OVN and Weave suites (loaded and validated by both
-	// applyVPCOVNConfig and applyWeaveConfig).
+	// Shared by the VPC OVN and Weave BF3 suites (loaded and validated by both
+	// applyVPCOVNConfig and applyWeaveBF3Config).
 	DHCPDaemonSetPath *string `json:"dhcpDaemonSet,omitempty"`
 
 	// OVN Kubernetes/HBN performance scenario (loaded by applyConfig when

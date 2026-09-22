@@ -442,9 +442,9 @@ var _ = BeforeSuite(func() {
 		VPCOVNBeforeSuite()
 	}
 
-	// Apply the WeaveBeforeSuite setup
-	if !strings.Contains(GinkgoLabelFilter(), "!"+Domain.Weave) {
-		WeaveBeforeSuite(*conf)
+	// Apply the Weave BF3 BeforeSuite setup
+	if !strings.Contains(GinkgoLabelFilter(), "!"+Domain.WeaveBF3) && !isGinkgoLabelApplied(Domain.WeavePhysical) {
+		WeaveBF3BeforeSuite(*conf)
 	}
 	// Apply the WeavePhysical BeforeSuite setup
 	if isGinkgoLabelApplied(Domain.WeavePhysical) {

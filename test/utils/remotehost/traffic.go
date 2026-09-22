@@ -66,7 +66,7 @@ func RunTrafficTest(client, server Host, cfg Net) {
 
 // RunIBWriteBW runs ib_write_bw and asserts average BW above minAvgBWGbit.
 func RunIBWriteBW(
-	server, client Host,
+	client, server Host,
 	cfg Net,
 	duration time.Duration,
 	minAvgBWGbit float32,

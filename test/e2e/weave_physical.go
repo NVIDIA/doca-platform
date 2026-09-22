@@ -28,6 +28,9 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/test/e2e/cleanup"
 	"github.com/nvidia/doca-platform/test/utils/dpuservice"
+	"github.com/nvidia/doca-platform/test/utils/remotehost"
+	"github.com/nvidia/doca-platform/test/utils/vpc"
+	"github.com/nvidia/doca-platform/test/utils/vpc/topology/bf4"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -46,6 +49,12 @@ var (
 	weavePhysicalPrerequisiteScope *cleanup.Scope
 	// weavePhysicalContextScope manages cleanup for test-specific WeavePhysical resources within each test Context.
 	weavePhysicalContextScope *cleanup.Scope
+	// weaveUnderlayBits is underlayConfigMapData prefix encoding for overlay routes.
+	weaveUnderlayBits = vpc.UnderlayPrefixBits{
+		Overlay:       weaveOverlayNetworkPrefixLength,
+		SoftwarePlane: weaveSoftwarePlaneIDBitLength,
+		Rail:          weaveRailIDBitLength,
+	}
 )
 
 const (
@@ -73,12 +82,21 @@ const (
 
 	weavePhysicalDPUDeploymentName = "weave-physical"
 
-	// BF4 DPU-side ECPF PCI addresses for rail0 sw0 / sw1.
-	weaveRail0Sw0PCIAddress = "0000:01:00.0"
-	weaveRail0Sw1PCIAddress = "0001:01:00.0"
+	// Weave underlayConfigMapData prefix encoding (overlay route masks).
+	weaveOverlayNetworkPrefixLength = 12
+	weaveSoftwarePlaneIDBitLength   = 1
+	weaveRailIDBitLength            = 3
 
+	// Weave create timeout.
 	weaveCreateTimeout = 60 * time.Second
 )
+
+// weavePhysicalPodsToVerify waits for WeavePhysical workloads on the DPU cluster (pod name substrings).
+var weavePhysicalPodsToVerify = []string{
+	xplaneServiceName,
+	weaveServiceFlowController,
+	weaveServiceDHCPAgent,
+}
 
 // weavePhysicalTestInput holds config-loaded objects for the BF4 WeavePhysical suite.
 type weavePhysicalTestInput struct {
@@ -224,10 +242,14 @@ func (t *weavePhysicalTestInput) configureDPUServiceTemplates() {
 	xplaneTemplate.Spec.Security = &dpuservicev1.DPUServiceSecurity{
 		Privileged: ptr.To(true),
 	}
+	dhcpAgentTemplate := t.newDPUServiceTemplate(weaveServiceDHCPAgent, t.weaveChartRepoURL, t.weaveChartVersion, weaveHelmChartName)
+	dhcpAgentTemplate.Spec.Security = &dpuservicev1.DPUServiceSecurity{
+		Privileged: ptr.To(true),
+	}
 	t.dpuServiceTemplates = []*dpuservicev1.DPUServiceTemplate{
 		xplaneTemplate,
 		t.newDPUServiceTemplate(weaveServiceFlowController, t.weaveChartRepoURL, t.weaveChartVersion, weaveHelmChartName),
-		t.newDPUServiceTemplate(weaveServiceDHCPAgent, t.weaveChartRepoURL, t.weaveChartVersion, weaveHelmChartName),
+		dhcpAgentTemplate,
 	}
 }
 
@@ -298,23 +320,23 @@ func (t *weavePhysicalTestInput) newWeaveFlowControllerConfiguration() *dpuservi
 					"enabled": true,
 					"underlayConfigMapData": map[string]any{
 						"nicIDType":                  "mac",
-						"overlayNetworkPrefixLength": 12,
-						"softwarePlaneIDBitLength":   1,
-						"railIDBitLength":            3,
+						"overlayNetworkPrefixLength": weaveOverlayNetworkPrefixLength,
+						"softwarePlaneIDBitLength":   weaveSoftwarePlaneIDBitLength,
+						"railIDBitLength":            weaveRailIDBitLength,
 						"interfaces": []map[string]string{
 							{
-								"pciAddress":           weaveRail0Sw0PCIAddress,
+								"pciAddress":           bf4.Topology.P0.PCIAddress,
 								"underlayInterface":    weavePeerBridgeBrcxRail0Sw0,
-								"overlayDHCPInterface": "r0swp0",
-								"dhcpBridgeName":       "br-dhcp-r0swp0",
-								"dropBridgeName":       "br-drop-r0swp0",
+								"overlayDHCPInterface": bf4.Topology.P0.OverlayDHCPInterface,
+								"dhcpBridgeName":       bf4.Topology.P0.DHCPBridgeName,
+								"dropBridgeName":       bf4.Topology.P0.DropBridgeName,
 							},
 							{
-								"pciAddress":           weaveRail0Sw1PCIAddress,
+								"pciAddress":           bf4.Topology.P1.PCIAddress,
 								"underlayInterface":    weavePeerBridgeBrcxRail0Sw1,
-								"overlayDHCPInterface": "r0swp1",
-								"dhcpBridgeName":       "br-dhcp-r0swp1",
-								"dropBridgeName":       "br-drop-r0swp1",
+								"overlayDHCPInterface": bf4.Topology.P1.OverlayDHCPInterface,
+								"dhcpBridgeName":       bf4.Topology.P1.DHCPBridgeName,
+								"dropBridgeName":       bf4.Topology.P1.DropBridgeName,
 							},
 						},
 					},
@@ -347,16 +369,16 @@ func (t *weavePhysicalTestInput) newWeaveDHCPAgentConfiguration() *dpuservicev1.
 						"createNADs": true,
 						"networks": []map[string]string{
 							{
-								"name":          "dhcp-r0swp0",
-								"bridge":        "br-dhcp-r0swp0",
+								"name":          bf4.Topology.P0.DHCPNADName,
+								"bridge":        bf4.Topology.P0.DHCPBridgeName,
 								"resourceName":  "nvidia.com/bf_sf",
-								"interfaceName": "r0swp0",
+								"interfaceName": bf4.Topology.P0.OverlayDHCPInterface,
 							},
 							{
-								"name":          "dhcp-r0swp1",
-								"bridge":        "br-dhcp-r0swp1",
+								"name":          bf4.Topology.P1.DHCPNADName,
+								"bridge":        bf4.Topology.P1.DHCPBridgeName,
 								"resourceName":  "nvidia.com/bf_sf",
-								"interfaceName": "r0swp1",
+								"interfaceName": bf4.Topology.P1.OverlayDHCPInterface,
 							},
 						},
 					},
@@ -377,6 +399,9 @@ func rawExtension(values map[string]any) *machineryruntime.RawExtension {
 // WeavePhysicalBeforeSuite loads WeavePhysical objects during e2e BeforeSuite.
 func WeavePhysicalBeforeSuite(c config) {
 	By("Setting WeavePhysical configs for the test")
+	Expect(ciSetupInfoPath).NotTo(BeEmpty(),
+		"WeavePhysical requires E2E_CI_SETUP_INFO_PATH for host-oob-ip worker mapping")
+	_, _, _ = weavePhysicalSSHEnv()
 	weavePhysicalInput.applyWeavePhysicalConfig(c)
 }
 
@@ -487,4 +512,96 @@ func createWeavePhysicalDPUServiceInterface(ctx context.Context, input *systemTe
 	By(fmt.Sprintf("Creating DPUServiceInterface %s/%s (peerBridge=%s)",
 		config.Namespace, config.Name, config.PeerBridge))
 	createWeavePhysicalObject(ctx, input.client, dpuServiceInterface)
+}
+
+// weavePhysicalSSHEnv reads lab SSH env and fails if password is missing or runtime is invalid.
+func weavePhysicalSSHEnv() (user, password, runtime string) {
+	envOrDefault := func(key, fallback string) string {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			return value
+		}
+		return fallback
+	}
+
+	password = strings.TrimSpace(os.Getenv(bf4.HostPasswordEnv))
+	Expect(password).ToNot(BeEmpty(), "%s must be set for WeavePhysical tests", bf4.HostPasswordEnv)
+	user = envOrDefault(bf4.HostUserEnv, bf4.DefaultHostUser)
+	runtime = strings.ToLower(envOrDefault(bf4.ContainerRuntimeEnv, bf4.DefaultContainerRuntime))
+	Expect(runtime).To(Or(Equal("docker"), Equal("podman")),
+		"%s must be \"docker\" or \"podman\" (got %q)", bf4.ContainerRuntimeEnv, runtime)
+	return user, password, runtime
+}
+
+// getWeavePhysicalRemoteHost returns an SSH Host for addr using PHYSICAL_* env.
+func getWeavePhysicalRemoteHost(addr string) remotehost.Host {
+	user, password, runtime := weavePhysicalSSHEnv()
+	return remotehost.Host{
+		Addr:          addr,
+		User:          user,
+		Password:      password,
+		ContainerName: bf4.NetutilsContainer,
+		Runtime:       runtime,
+	}
+}
+
+// weavePhysicalCreateVNet creates vnetID on pod and registers vpcctl delete.
+func weavePhysicalCreateVNet(pod *corev1.Pod, vnetID string, vni uint32, subnet string, cleanup *[]func()) {
+	createVNetOnPod(pod, vnetID, vni, subnet)
+	*cleanup = append(*cleanup, func() { deleteVNetOnPod(pod, vnetID) })
+}
+
+// weavePhysicalCreatePFAttachment attaches the representor to vnetID and registers vpcctl delete.
+func weavePhysicalCreatePFAttachment(pod *corev1.Pod, vnetID, rep string, cleanup *[]func()) string {
+	attID, hostIP := createPFAttachmentByRepresentorAndWaitForHostIP(pod, vnetID, rep)
+	*cleanup = append(*cleanup, func() { deleteAttachmentOnPod(pod, attID) })
+	return hostIP
+}
+
+// dpuNodeForClusterPod resolves the DPUNode for a DPU-cluster pod via node labels.
+func dpuNodeForClusterPod(ctx context.Context, hostClient, dpuClusterClient client.Client, pod *corev1.Pod) *provisioningv1.DPUNode {
+	Expect(pod.Spec.NodeName).NotTo(BeEmpty(), "pod %s has empty Spec.NodeName", pod.Name)
+
+	clusterNode := &corev1.Node{}
+	Eventually(func(g Gomega) {
+		g.Expect(dpuClusterClient.Get(ctx, client.ObjectKey{Name: pod.Spec.NodeName}, clusterNode)).To(Succeed(),
+			"getting DPU cluster node %q for pod %s", pod.Spec.NodeName, pod.Name)
+	}).WithTimeout(3 * time.Minute).WithPolling(time.Second).Should(Succeed())
+
+	dpuNodeName := clusterNode.Labels[provisioningv1.DPUNodeNameLabel]
+	Expect(dpuNodeName).NotTo(BeEmpty(),
+		"DPU cluster node %q missing %s", clusterNode.Name, provisioningv1.DPUNodeNameLabel)
+
+	dpuNodeNS := clusterNode.Labels[provisioningv1.DPUNodeNamespaceLabel]
+	if dpuNodeNS == "" {
+		dpuNodeNS = dpfOperatorSystemNamespace
+	}
+
+	dpuNode := &provisioningv1.DPUNode{}
+	Expect(hostClient.Get(ctx, client.ObjectKey{Namespace: dpuNodeNS, Name: dpuNodeName}, dpuNode)).To(Succeed(),
+		"getting DPUNode %s/%s for pod %s", dpuNodeNS, dpuNodeName, pod.Name)
+	return dpuNode
+}
+
+// pairRemoteWorkersToFlowControllers maps each FC pod to a host SSH worker via host-oob-ip.
+func pairRemoteWorkersToFlowControllers(
+	ctx context.Context,
+	hostClient, dpuClusterClient client.Client,
+	fcPods []*corev1.Pod,
+) (remotehost.Host, remotehost.Host, *corev1.Pod, *corev1.Pod) {
+	Expect(fcPods).To(HaveLen(2), "expected 2 flow-controller pods")
+	setupInfo := loadCISetupInfo(ciSetupInfoPath)
+
+	workerFor := func(pod *corev1.Pod) remotehost.Host {
+		dpuNode := dpuNodeForClusterPod(ctx, hostClient, dpuClusterClient, pod)
+		oob := setupInfo.GetHostOOBIPForDPUNode(ctx, hostClient, dpuNode)
+		By(fmt.Sprintf("Paired %s ↔ FC %s (DPU cluster node %s, DPUNode %s)",
+			oob, pod.Name, pod.Spec.NodeName, dpuNode.Name))
+		return getWeavePhysicalRemoteHost(oob)
+	}
+
+	w1 := workerFor(fcPods[0])
+	w2 := workerFor(fcPods[1])
+	Expect(w1.Addr).NotTo(Equal(w2.Addr),
+		"flow-controller pods resolved to the same host OOB IP %s", w1.Addr)
+	return w1, w2, fcPods[0], fcPods[1]
 }
