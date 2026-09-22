@@ -449,5 +449,37 @@ var _ = Describe("Installing", func() {
 			Expect(trueCond.Reason).To(Equal("OsInstalled"))
 			Expect(trueCond.LastTransitionTime.After(t1)).To(BeTrue(), "LastTransitionTime must advance on the False->True transition")
 		})
+
+		It("dpu-agent reports startup after the BFB install task was dropped by a BMC reboot: treats BFB as transferred and hands off to DPUConfig", func() {
+			By("prepare DPU in OSInstalling with an install task still being tracked and no BFBTransferred=True yet")
+			dpu := dpuObj("dpu-agent-recovers-test")
+			dpu.Spec.DPUDeviceName = dpuDevice.Name
+			dpu.Status.Phase = provisioningv1.DPUOSInstalling
+			dpu.Status.DPUType = provisioningv1.DPUTypeBlueField3
+			taskID := "0"
+			dpu.Status.RedfishTaskID = &taskID
+			failCond := cutil.NewCondition(string(provisioningv1.DPUCondBFBTransferred), nil, "FailToCheckProgress", "get status: 404 Not Found is not OK")
+			failCond.Status = metav1.ConditionFalse
+			cutil.SetDPUCondition(&dpu.Status, failCond)
+
+			By("dpu-agent reports startup -> BFBTransferred is treated as done and Installing hands off to DPUConfig")
+			now := metav1.Now()
+			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{LastStartupTime: &now}
+
+			status, err := Installing(ctx, dpu, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUConfig))
+			Expect(status.RedfishTaskID).To(BeNil())
+
+			_, bfbCond := cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondBFBTransferred))
+			Expect(bfbCond).NotTo(BeNil())
+			Expect(bfbCond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(bfbCond.Reason).To(Equal("BFBTransferred"))
+
+			_, osCond := cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondOSInstalled))
+			Expect(osCond).NotTo(BeNil())
+			Expect(osCond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(osCond.Reason).To(Equal("OsInstalled"))
+		})
 	})
 })
