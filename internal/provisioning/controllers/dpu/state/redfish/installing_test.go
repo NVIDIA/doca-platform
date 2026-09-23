@@ -131,7 +131,7 @@ func setupInstallingEnv(dpuName string) *installingTestEnv {
 
 func (e *installingTestEnv) teardown() {
 	if e.dpu != nil {
-		clearInstallRetryCounter(e.dpu.UID)
+		clearInstallState(e.dpu.UID)
 	}
 	if e.mockServer != nil {
 		e.mockServer.Stop()
@@ -433,7 +433,7 @@ var _ = Describe("Installing", func() {
 			},
 			DPUInProvisioningMap: dutil.NewDPUInProvisioningMap(10),
 		}
-		defer clearInstallRetryCounter(dpu.UID)
+		defer clearInstallState(dpu.UID)
 
 		status, err := Installing(ctx, dpu, ctrlCtx)
 		Expect(isRestartOSInstallError(err)).To(BeTrue())
