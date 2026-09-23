@@ -128,6 +128,16 @@ type ProvisioningControllerConfiguration struct {
 	// +optional
 	OSInstallTimeout *metav1.Duration `json:"osInstallTimeout,omitempty"`
 
+	// NodeJoinTokenTTL is the lifetime of the kubeadm bootstrap token created for
+	// a DPU node to join its DPUCluster. When unset, the provisioning controller
+	// defaults to 3h.
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Pattern=`^([0-9]+(h|m|s|ms|us|µs|ns))+$`
+	// +kubebuilder:validation:Format=duration
+	// +kubebuilder:validation:XValidation:rule="self == null || duration(self) > duration('0s')",message="must be greater than zero"
+	// +optional
+	NodeJoinTokenTTL *metav1.Duration `json:"nodeJoinTokenTTL,omitempty"`
+
 	// FirmwareUpdateTimeout is the maximum time allowed for BF4 firmware update in zero-trust mode.
 	// If the update exceeds this timeout, the DPU will transition to an error state.
 	// When unset, the provisioning controller defaults to 45m.

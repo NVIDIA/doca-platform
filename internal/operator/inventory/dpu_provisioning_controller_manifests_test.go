@@ -1006,6 +1006,57 @@ func TestDPFProvisioningControllerObjects_setOSInstallTimeout(t *testing.T) {
 	})
 }
 
+// TestDPFProvisioningControllerObjects_setNodeJoinTokenTTL verifies that the optional TTL becomes a controller flag.
+func TestDPFProvisioningControllerObjects_setNodeJoinTokenTTL(t *testing.T) {
+	g := NewGomegaWithT(t)
+
+	defaults := release.NewDefaults()
+	g.Expect(defaults.Parse()).To(Succeed())
+
+	provCtrl := &provisioningControllerObjects{data: provisioningControllerData, bfbRegistryData: bfbRegistryData}
+	g.Expect(provCtrl.Parse()).To(Succeed())
+
+	findDeployment := func(t *testing.T, vars Variables) *appsv1.Deployment {
+		t.Helper()
+		generatedObjs, err := provCtrl.GenerateManifests(context.Background(), vars)
+		NewGomegaWithT(t).Expect(err).NotTo(HaveOccurred())
+		for _, obj := range generatedObjs {
+			if obj.GetObjectKind().GroupVersionKind().Kind == string(DeploymentKind) {
+				deploy := &appsv1.Deployment{}
+				unstructuredObj, ok := obj.(*unstructured.Unstructured)
+				NewGomegaWithT(t).Expect(ok).To(BeTrue())
+				NewGomegaWithT(t).Expect(runtime.DefaultUnstructuredConverter.FromUnstructured(unstructuredObj.UnstructuredContent(), deploy)).To(Succeed())
+				return deploy
+			}
+		}
+		t.Fatal("deployment not found in generated manifests")
+		return nil
+	}
+
+	baseVars := func() Variables {
+		vars := newDefaultVariables(defaults)
+		vars.DPFProvisioningController = DPFProvisioningVariables{
+			BFBPersistentVolumeClaimName: ptr.To(TestPVC),
+			DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
+		}
+		return vars
+	}
+
+	t.Run("does not set flag when NodeJoinTokenTTL is unset", func(t *testing.T) {
+		deployment := findDeployment(t, baseVars())
+		for _, arg := range deployment.Spec.Template.Spec.Containers[0].Args {
+			NewGomegaWithT(t).Expect(arg).NotTo(HavePrefix("--node-join-token-ttl="))
+		}
+	})
+
+	t.Run("uses configured NodeJoinTokenTTL when set", func(t *testing.T) {
+		vars := baseVars()
+		vars.DPFProvisioningController.NodeJoinTokenTTL = &metav1.Duration{Duration: 12 * time.Hour}
+		deployment := findDeployment(t, vars)
+		NewGomegaWithT(t).Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--node-join-token-ttl=12h0m0s"))
+	})
+}
+
 func TestDPFProvisioningControllerObjects_setOSInstallRetries(t *testing.T) {
 	g := NewGomegaWithT(t)
 

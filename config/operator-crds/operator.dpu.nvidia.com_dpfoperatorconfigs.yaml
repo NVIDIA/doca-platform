@@ -1788,6 +1788,17 @@ spec:
                     format: duration
                     pattern: ^([0-9]+(h|m|s|ms|us|µs|ns))+$
                     type: string
+                  nodeJoinTokenTTL:
+                    description: |-
+                      NodeJoinTokenTTL is the lifetime of the kubeadm bootstrap token created for
+                      a DPU node to join its DPUCluster. When unset, the provisioning controller
+                      defaults to 3h.
+                    format: duration
+                    pattern: ^([0-9]+(h|m|s|ms|us|µs|ns))+$
+                    type: string
+                    x-kubernetes-validations:
+                    - message: must be greater than zero
+                      rule: self == null || duration(self) > duration('0s')
                   osInstallRetries:
                     description: |-
                       OSInstallRetries is the maximum number of retryable OS installation attempts in zero-trust mode
