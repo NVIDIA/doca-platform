@@ -1,0 +1,23 @@
+# e2e config for the mock-dpuagent suite: zero-trust provisioning of simulated DPUs
+# (test/mock/dpuagent) in a kind cluster whose DPU cluster is the kind cluster itself.
+# Run with: -ginkgo.label-filter="MockDPU && !SDN && !DPFVPCOVN && !Weave" -e2e.config=./config-mock-dpuagent.yaml
+dpfOperatorConfig: "../objects/infrastructure/operatorconfig-mock-dpuagent.yaml"
+provisioningControllerPVC: "../objects/infrastructure/pvc-quick.yaml"
+dpuClusters:
+  - "../objects/infrastructure/dpucluster.yaml"
+# The suite builds its own BFB, BlueFieldSoftware, DPUFlavor, DPUSet and DPUDiscovery objects;
+# the DPUService objects below are required by the config schema but never created.
+dpuSet: "../objects/infrastructure/dpuset-zerotrust.yaml"
+dpuServiceInterface: "../objects/application/dpuserviceinterface_service_type.yaml"
+dpuServiceChain: "../objects/application/dpuservicechain.yaml"
+dpuDeployment: "../objects/application/dpudeployment-zerotrust.yaml"
+dpuServiceCredentialRequest: "../objects/application/dpuservicecredentialrequest.yaml"
+dpuServiceConfiguration: "../objects/application/dpuserviceconfiguration.yaml"
+ipPoolDPUServiceIPAM: "../objects/application/dpuserviceipam_subnet.yaml"
+cidrPoolDPUServiceIPAM: "../objects/application/dpuserviceipam_cidr.yaml"
+dpuService: "../objects/application/dpuservice.yaml"
+dpuServiceTemplate: "../objects/application/dpuservicetemplate.yaml"
+# One DPUDevice/DPUNode per mock-dpuagent pod; the suite reads the actual replica count from the
+# mock-dpuagent Deployment, so these only satisfy the schema.
+numberOfDPUNodes: 1
+numberOfDPUsPerNode: 1

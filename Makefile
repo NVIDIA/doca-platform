@@ -218,7 +218,7 @@ grpc-format: buf  ## Format GRPC files
 ##@ Development
 GENERATE_TARGETS ?= dpuservice provisioning servicechainset sfc-controller vpc-crds operator \
 	operator-embedded release-defaults kamaji-cluster-manager static-cluster-manager \
-	storage mock-dms nodesriovdeviceplugin
+	storage mock-dms mock-dpuagent nodesriovdeviceplugin
 
 .PHONY: generate
 generate: ## Run all generate-* targets: generate-modules generate-manifests-* and generate-go-deepcopy-*.
@@ -266,6 +266,13 @@ generate-manifests-mock-dms: controller-gen
 	paths="./test/mock/dms/..." \
 	rbac:roleName=mock-dms-manager-role \
 	output:rbac:dir=./test/mock/dms/chart/templates/
+
+.PHONY: generate-manifests-mock-dpuagent
+generate-manifests-mock-dpuagent: controller-gen ## Generate the ClusterRole of the mock-dpuagent reboot controller.
+	$(CONTROLLER_GEN) \
+	paths="./test/mock/dpuagent/rebootcontroller/..." \
+	rbac:roleName=mock-dpuagent-reboot-controller-role \
+	output:rbac:dir=./test/mock/dpuagent/chart/templates/
 
 .PHONY: generate-manifests-dpuservice
 generate-manifests-dpuservice: controller-gen ## Generate manifests e.g. CRD, RBAC. for the dpuservice controller.
@@ -470,7 +477,7 @@ generate-docs-helm: helm-docs yq ## Generate helm chart documentation.
 
 .PHONY: generate-docs-embedmd
 generate-docs-embedmd: embedmd ## Embed additional files into markdown docs.
-	grep -rl --include \*.md -e '\[embedmd\]' docs | xargs $(EMBEDMD) -w
+	grep -rl --include \*.md -e '\[embedmd\]' docs test/mock/dpuagent | xargs $(EMBEDMD) -w
 
 .PHONY: init-external-attacher-submodule
 init-external-attacher-submodule: ## Initialize external-attacher submodule if needed
@@ -580,6 +587,8 @@ test-release-e2e-slow: ## Build images required for the slow DPF e2e tests.
 	$(MAKE) RELEASE_MANIFEST_ENABLED=true test-helper-images
 
 TEST_CLUSTER_NAME := dpf-test
+# The DPU kind cluster of the mock-dpuagent e2e, see test-e2e-mock-dpuagent.
+TEST_DPU_CLUSTER_NAME := dpf-test-dpu
 ADD_CONTROL_PLANE_TAINTS ?= true
 TEST_DEPLOY_PREREQS_NAMESPACE ?= dpf-operator-system
 .PHONY: test-env-e2e
@@ -593,8 +602,9 @@ test-env-e2e: kind helm ## Setup a Kind Kubernetes environment to run tests.
 	$(CURDIR)/hack/scripts/create-artefact-secrets.sh
 
 .PHONY: clean-test-env
-clean-test-env: kind ## Clean Kind test environment (delete Kind cluster)
+clean-test-env: kind ## Clean Kind test environment (delete the Kind cluster and the mock-dpuagent DPU cluster if present)
 	$(KIND) delete cluster --name $(TEST_CLUSTER_NAME)
+	$(KIND) delete cluster --name $(TEST_DPU_CLUSTER_NAME)
 
 
 OPERATOR_NAMESPACE ?= dpf-operator-system
@@ -699,6 +709,45 @@ test-e2e: stern ## Run e2e tests
 	PREREQS_NAMESPACE=$(TEST_DEPLOY_PREREQS_NAMESPACE) \
 	STERN=$(STERN) $(CURDIR)/hack/scripts/log-collector.sh \
 	  go test -timeout 0 ./test/e2e/ $(E2E_TEST_DEFAULTS) $(E2E_TEST_ARGS)
+
+# Zero-trust provisioning e2e against simulated DPUs (test/mock/dpuagent). Expects the management
+# kind cluster with the operator deployed (test-env-e2e, test-deploy-operator-helm). Builds the mock
+# image and loads it into that cluster (nothing is pushed), deploys MOCK_DPUAGENT_REPLICAS mocks with
+# the mock reboot controller, creates the DPU kind cluster and runs the MockDPU suite.
+#
+# The DPU cluster is a second kind cluster with kubeadm defaults (cluster-info ConfigMap, bootstrap
+# token auth, kubelet CSR auto-approval), which is all the simulated kubelets need. Its kubeconfig
+# is written next to the artifacts instead of the default kubeconfig so kubectl keeps pointing at
+# the management cluster. clean-test-env deletes it together with the management cluster.
+TEST_DPU_CLUSTER_KUBECONFIG ?= $(ARTIFACTS_DIR)/$(TEST_DPU_CLUSTER_NAME).kubeconfig
+KIND_KUBERNETES_VERSION ?= v1.32.8
+MOCK_DPUAGENT_REPLICAS ?= 2
+# The suite enables UEFI Secure Boot on the DPUSet so the Perform ARM Force Restart phase is covered;
+# that costs two Arm restarts at least 90 s apart per DPU. Set to true to skip it.
+MOCK_DPUAGENT_SKIP_SECURE_BOOT ?= false
+MOCK_DPUAGENT_E2E_TEST_ARGS ?= -ginkgo.label-filter="MockDPU && !SDN && !DPFVPCOVN && !Weave" -e2e.config=./config-mock-dpuagent.yaml
+.PHONY: test-e2e-mock-dpuagent
+test-e2e-mock-dpuagent: kind helm docker-build-mock-dpuagent ## Build and deploy mock-dpuagent into the kind test cluster, create the DPU kind cluster and run the mock-dpuagent e2e tests.
+	@# Two kind clusters plus one inotify-hungry pod per mock DPU exhaust the Linux defaults (128 instances,
+	@# 8192 watches); kind recommends 512 / 524288. Warn with the fix instead of touching the host.
+	@for p in max_user_instances:512 max_user_watches:524288; do \
+		key=$${p%%:*}; want=$${p##*:}; have=$$(cat /proc/sys/fs/inotify/$$key 2>/dev/null || echo 0); \
+		if [ "$$have" -lt "$$want" ]; then \
+			echo "WARNING: fs.inotify.$$key=$$have is below $$want; mock pods may fail with 'too many open files'. Run: sudo sysctl fs.inotify.$$key=$$want"; \
+		fi; \
+	done
+	$(KIND) load docker-image --name $(TEST_CLUSTER_NAME) $(MOCK_DPUAGENT_IMAGE):$(TAG)
+	$(HELM) upgrade --install --create-namespace --namespace $(OPERATOR_NAMESPACE) \
+		--set image.repository=$(MOCK_DPUAGENT_IMAGE) \
+		--set image.tag=$(TAG) \
+		--set rebootController.image.repository=$(MOCK_DPUAGENT_IMAGE) \
+		--set rebootController.image.tag=$(TAG) \
+		--set replicas=$(MOCK_DPUAGENT_REPLICAS) \
+		mock-dpuagent $(MOCK_DPUAGENT_HELM_CHART)
+	$(KIND) get clusters | grep -q "^$(TEST_DPU_CLUSTER_NAME)$$" || \
+		$(KIND) create cluster --name $(TEST_DPU_CLUSTER_NAME) --image kindest/node:$(KIND_KUBERNETES_VERSION) --kubeconfig $(TEST_DPU_CLUSTER_KUBECONFIG)
+	$(KIND) export kubeconfig --name $(TEST_DPU_CLUSTER_NAME) --kubeconfig $(TEST_DPU_CLUSTER_KUBECONFIG)
+	MOCK_DPU_CLUSTER_KUBECONFIG=$(TEST_DPU_CLUSTER_KUBECONFIG) MOCK_DPU_SKIP_SECURE_BOOT=$(MOCK_DPUAGENT_SKIP_SECURE_BOOT) $(MAKE) test-e2e E2E_TEST_ARGS='$(MOCK_DPUAGENT_E2E_TEST_ARGS)'
 
 .PHONY: generate-htmlreports
 generate-htmlreports: binary-dpfdev ## Generate HTML artifact viewers for all resource dumps under ARTIFACTS_DIR
@@ -1608,6 +1657,10 @@ docker-build-and-push-%: docker-build-%
 binary-hostagent: ## Build the hostagent binary.
 	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/hostagent github.com/nvidia/doca-platform/cmd/hostagent
 
+.PHONY: binary-mock-dpuagent
+binary-mock-dpuagent: ## Build the mock-dpuagent binary (one simulated DPU), e.g. for a VM image.
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/mock-dpuagent github.com/nvidia/doca-platform/test/mock/dpuagent
+
 # Setup docker buildx builder with docker-container driver for cache export support
 BUILDKITD_CONFIG ?=
 .PHONY: docker-buildx-setup
@@ -1660,6 +1713,9 @@ export CNIINSTALLER_UPSTREAM_IMAGE ?= $(UPSTREAM_REGISTRY)/$(CNIINSTALLER_IMAGE_
 
 MOCK_DMS_IMAGE_NAME ?= mock-dms
 MOCK_DMS_IMAGE ?= $(REGISTRY)/$(MOCK_DMS_IMAGE_NAME)
+
+MOCK_DPUAGENT_IMAGE_NAME ?= mock-dpuagent
+MOCK_DPUAGENT_IMAGE ?= $(REGISTRY)/$(MOCK_DPUAGENT_IMAGE_NAME)
 
 FAKE_FS_STORAGE_IMAGE_NAME ?= fake-fs-storage-vendor-dpu-plugin
 export FAKE_FS_STORAGE_IMAGE ?= $(REGISTRY)/$(FAKE_FS_STORAGE_IMAGE_NAME)
@@ -1844,6 +1900,26 @@ docker-build-mock-dms: docker-buildx-setup $(ARTIFACTS_DIR) ## Build docker imag
 		-f test/mock/dms/Dockerfile \
 		. \
 		-t $(MOCK_DMS_IMAGE):$(TAG)
+
+.PHONY: docker-build-mock-dpuagent
+docker-build-mock-dpuagent: docker-buildx-setup $(ARTIFACTS_DIR) ## Build docker image for mock-dpuagent (simulated DPUs + mock reboot controller)
+	$(CURDIR)/hack/scripts/docker-build.sh \
+		$(DOCKER_OUTPUT) \
+		--label=org.opencontainers.image.created=$(DATE) \
+		--label=org.opencontainers.image.name=$(PROJECT_NAME) \
+		--label=org.opencontainers.image.revision=$(FULL_COMMIT) \
+		--label=org.opencontainers.image.version=$(TAG) \
+		--label=org.opencontainers.image.source=$(PROJECT_REPO) \
+		--provenance=false \
+		--platform=linux/$(ARCH) \
+		--progress=plain \
+		--build-arg builder_image=$(BUILD_IMAGE) \
+		--build-arg base_image=$(BASE_IMAGE) \
+		--build-arg ldflags="$(GO_LDFLAGS)" \
+		--build-arg gcflags="$(GO_GCFLAGS)" \
+		-f test/mock/dpuagent/Dockerfile \
+		. \
+		-t $(MOCK_DPUAGENT_IMAGE):$(TAG)
 
 # Fake fs-storage vendor DPU plugin for SNAP e2e tests
 # Binary is named /fs-storage-vendor-dpu-plugin (matching the Helm chart command)
@@ -2059,6 +2135,8 @@ STORAGE_CHART_VER ?= $(TAG)
 
 # metadata for mock dms.
 MOCK_DMS_HELM_CHART ?=test/mock/dms/chart
+# metadata for mock dpuagent.
+MOCK_DPUAGENT_HELM_CHART ?= test/mock/dpuagent/chart
 export KWOK_HELM_CHART=test/mock/kwok/chart
 KWOK_HELM_CHART_NAME=kwok
 
