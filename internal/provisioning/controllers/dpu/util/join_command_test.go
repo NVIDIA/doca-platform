@@ -18,6 +18,7 @@ package util
 
 import (
 	"testing"
+	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
@@ -57,7 +58,7 @@ func TestGenerateJoinCommand(t *testing.T) {
 
 	t.Run("valid join command generation", func(t *testing.T) {
 		g := NewWithT(t)
-		generator := &KubeadmBootstrapTokenGenerator{testClient}
+		generator := &KubeadmBootstrapTokenGenerator{Client: testClient, TokenTTL: 12 * time.Hour}
 		cmd, err := generator.GenerateJoinCommand(ctx, &dpuCluster, dpu)
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(cmd).NotTo(BeEmpty())
@@ -72,6 +73,9 @@ func TestGenerateJoinCommand(t *testing.T) {
 		)).To(Succeed())
 		g.Expect(secretList.Items).To(HaveLen(1))
 		g.Expect(secretList.Items[0].Type).To(Equal(corev1.SecretTypeBootstrapToken))
+		expiresAt, err := time.Parse(time.RFC3339, string(secretList.Items[0].Data["expiration"]))
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(expiresAt).To(BeTemporally("~", time.Now().Add(12*time.Hour), 5*time.Second))
 
 		g.Expect(DeleteNodeJoinBootstrapTokens(ctx, testClient, dpu.Name, dpu.Namespace)).To(Succeed())
 		g.Expect(testClient.List(ctx, secretList,
@@ -86,9 +90,22 @@ func TestGenerateJoinCommand(t *testing.T) {
 
 	t.Run("skips non-bootstrap secrets with the same labels", func(t *testing.T) {
 		g := NewWithT(t)
-		generator := &KubeadmBootstrapTokenGenerator{testClient}
+		generator := &KubeadmBootstrapTokenGenerator{Client: testClient}
 		_, err := generator.GenerateJoinCommand(ctx, &dpuCluster, dpu)
 		g.Expect(err).NotTo(HaveOccurred())
+
+		bootstrapTokens := &corev1.SecretList{}
+		g.Expect(testClient.List(ctx, bootstrapTokens,
+			client.InNamespace("kube-system"),
+			client.MatchingLabels{
+				cutil.LabelDPUName:      dpu.Name,
+				cutil.LabelDPUNamespace: dpu.Namespace,
+			},
+		)).To(Succeed())
+		g.Expect(bootstrapTokens.Items).To(HaveLen(1))
+		expiresAt, err := time.Parse(time.RFC3339, string(bootstrapTokens.Items[0].Data["expiration"]))
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(expiresAt).To(BeTemporally("~", time.Now().Add(DefaultNodeJoinTokenTTL), 5*time.Second))
 
 		other := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{

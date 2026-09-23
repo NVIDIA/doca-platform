@@ -234,6 +234,7 @@ func (p *provisioningControllerObjects) dpfProvisioningDeploymentEdit(vars Varia
 			p.setMultiDPUOperationsSyncWaitTime,
 			p.setMaxUnavailableDPUNodes,
 			p.setOSInstallTimeout,
+			p.setNodeJoinTokenTTL,
 			p.setOSInstallRetries,
 			p.setFirmwareUpdateTimeout,
 			p.setPreInstallAgentRegistrationTimeout,
@@ -675,6 +676,18 @@ func (p *provisioningControllerObjects) setOSInstallTimeout(deploy *appsv1.Deplo
 		return fmt.Errorf(errManagerContainerNotFoundFmt, managerContainerName)
 	}
 	return setFlags(c, fmt.Sprintf("--os-install-timeout=%s", vars.DPFProvisioningController.OSInstallTimeout.Duration.String()))
+}
+
+// setNodeJoinTokenTTL configures the kubeadm bootstrap token lifetime when specified.
+func (p *provisioningControllerObjects) setNodeJoinTokenTTL(deploy *appsv1.Deployment, vars Variables) error {
+	if vars.DPFProvisioningController.NodeJoinTokenTTL == nil {
+		return nil
+	}
+	c := getManagerContainer(deploy)
+	if c == nil {
+		return fmt.Errorf(errManagerContainerNotFoundFmt, managerContainerName)
+	}
+	return setFlags(c, fmt.Sprintf("--node-join-token-ttl=%s", vars.DPFProvisioningController.NodeJoinTokenTTL.Duration.String()))
 }
 
 func (p *provisioningControllerObjects) setFirmwareUpdateTimeout(deploy *appsv1.Deployment, vars Variables) error {

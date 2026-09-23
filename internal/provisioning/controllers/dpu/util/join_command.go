@@ -46,12 +46,21 @@ type NodeJoinCommandGenerator interface {
 // https://kubernetes.io/docs/reference/setup-tools/kubeadm/kubeadm-init/#bootstrap-token-authentication
 type KubeadmBootstrapTokenGenerator struct {
 	client.Client
+	TokenTTL time.Duration
 }
+
+// DefaultNodeJoinTokenTTL is the default lifetime for a DPU kubeadm bootstrap token.
+// It is used when DPFOperatorConfig.spec.provisioningController.nodeJoinTokenTTL is unset.
+const DefaultNodeJoinTokenTTL = 3 * time.Hour
 
 // GenerateJoinCommand generates a join command for a DPU cluster node.
 // The bootstrap token Secret created in the DPU cluster is labeled with the DPU
 // identity so it can be revoked after the node has joined.
 func (s *KubeadmBootstrapTokenGenerator) GenerateJoinCommand(ctx context.Context, dc *provisioningv1.DPUCluster, dpu *provisioningv1.DPU) (string, error) {
+	tokenTTL := s.TokenTTL
+	if tokenTTL <= 0 {
+		tokenTTL = DefaultNodeJoinTokenTTL
+	}
 	// Generate a random 6 character string for the token ID.
 	tokenID := make([]byte, 3)
 	if _, err := rand.Read(tokenID); err != nil {
@@ -80,8 +89,8 @@ func (s *KubeadmBootstrapTokenGenerator) GenerateJoinCommand(ctx context.Context
 		StringData: map[string]string{
 			// This group is created by default when using kamaji clusters.
 			"auth-extra-groups": "system:bootstrappers:kubeadm:default-node-token",
-			// The bootstrap token will expire 2 hours after creation.
-			"expiration":                     time.Now().Add(2 * time.Hour).Format(time.RFC3339),
+			// The bootstrap token expires after the configured TTL.
+			"expiration":                     time.Now().Add(tokenTTL).Format(time.RFC3339),
 			"usage-bootstrap-authentication": "true",
 			"usage-bootstrap-signing":        "true",
 			"description":                    "Bootstrap token for DPU cluster node join",
