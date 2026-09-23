@@ -30,6 +30,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/checkbridge"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/containerd"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/devicepluginregistry"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/dns"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/dpumode"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/getdpu"
@@ -113,6 +114,7 @@ func NewDPUAgent(optCtx *operations.Context) *DPUAgent {
 		&ovsscript.RunOVSScript{},
 		&checkbridge.CheckBridge{},
 		&kubelet.ConfigureKubelet{},
+		&devicepluginregistry.CleanPluginRegistry{},
 		&kubelet.StartKubelet{},
 		&nodelabels.ReportNodeLabels{},
 		&hostosinit.ReleaseHostOSInit{},
