@@ -1,0 +1,74 @@
+# -- replicas is the number of simulated DPUs. Every pod is one DPU with its own pod IP as BMC IP.
+replicas: 1
+
+image:
+  # -- image.repository is the mock-dpuagent container image, built with `make docker-build-mock-dpuagent`.
+  repository: example.com/mock-dpuagent
+  # -- image.tag is the mock-dpuagent image tag. Defaults to the chart appVersion when empty.
+  tag: v0.1.0
+
+# -- imagePullSecrets are the pull secrets added to the mock and the reboot controller pods.
+imagePullSecrets: []
+
+# Rendered verbatim into the ConfigMap mounted at /etc/mock-dpuagent/config.yaml and shared by
+# every replica. See test/mock/dpuagent/pkg/config/config.go for the fields.
+mockConfig:
+  # -- mockConfig.dpuType is required and selects the Redfish personality and the install flow the mock emulates: bf3 installs a BFB, bf4 installs an OS ISO and applies a PLDM bundle.
+  dpuType: bf3
+  bmc:
+    # -- mockConfig.bmc.psid is the PSID the BMC reports. bf4 only: it must be a key of BlueFieldSoftware.spec.pldmFwBundle, and the bundle at that key must carry an image for this PSID.
+    psid: MT_0000001775
+    firmware:
+      # -- mockConfig.bmc.firmware.bmc is the BMC firmware version reported at power-on. bf3 only: below BF-24.10-17 every DPU goes through the BMC firmware upgrade and Manager.Reset before OS install, equal to it skips that path.
+      bmc: BF-24.10-17
+      # -- mockConfig.bmc.firmware.erot is the ERoT firmware version reported at power-on. On bf4 the controller compares erot, uefi, nic and bmc to the PLDM bundle and applies the bundle on any mismatch; the mock-0.0 placeholder never matches, so Update Firmware always runs. Setting all four to the bundle's versions makes the controller skip it. On bf3 it is only reported.
+      erot: mock-0.0
+      # -- mockConfig.bmc.firmware.uefi is the UEFI firmware version reported at power-on, compared like erot.
+      uefi: mock-0.0
+      # -- mockConfig.bmc.firmware.nic is the NIC firmware version reported at power-on, compared like erot.
+      nic: mock-0.0
+    # -- (object) mockConfig.bmc.responseDelay holds every Redfish response back for a uniformly random number of whole seconds between `minSeconds` and `maxSeconds`, to imitate a slow BMC. Only the Redfish port is affected, not the host reboot endpoint. Unset or `maxSeconds: 0` means no extra latency. Operations listed in responseDelayOverrides use their own range instead. The default adds up to one second to every response.
+    responseDelay:
+      minSeconds: 0
+      maxSeconds: 1
+    # -- (list) mockConfig.bmc.responseDelayOverrides give single Redfish operations their own delay range instead of responseDelay. Each element has `name` (an operation name from the "Redfish response delays" table in the README), optional `methods` (a list of HTTP methods, omitted or `["*"]` means every method the operation serves), `minSeconds` and `maxSeconds`; a zero range means no delay for that operation. Unknown names, methods the operation does not serve and two elements covering the same operation and method stop the mock at startup. The default makes the System read, which a real BMC answers slowly, take one to two seconds.
+    responseDelayOverrides:
+      - name: System
+        minSeconds: 1
+        maxSeconds: 2
+  agent:
+    # -- mockConfig.agent.rebootMethod is a comma separated list of NoAction, PowerCycle and SLR. Each agent run reports the next element; once the list is exhausted every run reports NoAction. PowerCycle and SLR wait for the host reboot, see "Host reboot" in the README.
+    rebootMethod: NoAction
+    # -- mockConfig.agent.dpuClusterJoin selects how the mock joins the DPU cluster. simulated (containers) replays kubeadm join and kubelet node registration in-process with client-go; kubelet only starts a kubelet the VM image has already configured, see "Running in a VM" in the README.
+    dpuClusterJoin: simulated
+
+# -- resources are the container resources of every mock DPU pod. The CPU request is sized for the short peaks between OS Installing and DPU Config rather than the idle average, see "Measured resource usage" in the README.
+resources:
+  requests:
+    cpu: 100m
+    memory: 64Mi
+
+# -- nodeSelector places the mock DPU pods, for example on a dedicated pool so they do not compete with the DPF controllers under test.
+nodeSelector: {}
+# -- tolerations of the mock DPU pods.
+tolerations: []
+# -- affinity of the mock DPU pods.
+affinity: {}
+
+# The mock reboot controller plays the external system of nodeRebootMethod external.
+rebootController:
+  # -- rebootController.enabled deploys the mock reboot controller that performs host reboots for DPUNodes with nodeRebootMethod external. Set to false when a custom script drives the host reboot instead.
+  enabled: true
+  image:
+    # -- rebootController.image.repository is the reboot controller image. It ships in the same image as the mock.
+    repository: example.com/mock-dpuagent
+    # -- rebootController.image.tag is the reboot controller image tag. Defaults to the chart appVersion when empty.
+    tag: v0.1.0
+  serviceAccount:
+    # -- rebootController.serviceAccount.annotations are added to the reboot controller ServiceAccount.
+    annotations: {}
+  # -- rebootController.resources are the container resources of the reboot controller pod.
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi

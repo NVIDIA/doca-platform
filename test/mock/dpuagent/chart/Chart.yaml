@@ -1,0 +1,6 @@
+apiVersion: v2
+name: mock-dpuagent
+description: A Helm chart for mock-dpuagent, N simulated BlueField DPUs (Redfish BMC + dpu-agent) for provisioning control plane scale tests
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

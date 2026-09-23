@@ -121,6 +121,7 @@ type TestDomain struct {
 	ImagePullSecretsSync    string // ImagePullSecrets sync/cleanup validation (opt out in CI via !ImagePullSecretsSync)
 	Performance             string // Performance test suite - applies MTU 9000 and extended DMS timeout
 	OCP                     string // OpenShift tests: reuse the provisioned control plane; selected specs may reprovision DPUs
+	MockDPU                 string // Zero-trust provisioning against mock-dpuagent DPUs (test/mock/dpuagent) in a kind cluster
 }
 
 // Domain is the global instance of test label domains
@@ -152,6 +153,7 @@ var Domain = TestDomain{
 	ImagePullSecretsSync:    "ImagePullSecretsSync",
 	Performance:             "Performance",
 	OCP:                     "OCP",
+	MockDPU:                 "MockDPU",
 }
 
 var (

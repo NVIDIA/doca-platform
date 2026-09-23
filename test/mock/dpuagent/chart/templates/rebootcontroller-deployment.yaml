@@ -1,0 +1,55 @@
+{{- if .Values.rebootController.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "chart.name" . }}-reboot-controller
+  labels:
+    app.kubernetes.io/component: reboot-controller
+  {{- include "chart.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: reboot-controller
+    {{- include "chart.labels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: reboot-controller
+      {{- include "chart.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "chart.name" . }}-reboot-controller
+      terminationGracePeriodSeconds: 10
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: reboot-controller
+        image: {{ .Values.rebootController.image.repository }}:{{ .Values.rebootController.image.tag | default .Chart.AppVersion }}
+        command:
+        - /mock-reboot-controller
+        args:
+        - --health-probe-bind-address=:8081
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 65532
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          {{- toYaml .Values.rebootController.resources | nindent 10 }}
+{{- end }}

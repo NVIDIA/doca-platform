@@ -1,0 +1,58 @@
+# DPFOperatorConfig for the mock-dpuagent e2e suite (test/e2e/mock_dpuagent_test.go).
+#
+# The DPU cluster of this suite is the kind management cluster itself (a static DPUCluster whose
+# kubeconfig points back at the same API server), so every component the operator would install
+# into a DPU cluster is disabled: only provisioning is under test. The suite fills in
+# spec.overrides.kubernetesAPIServerVIP/Port at runtime from the kind control-plane node.
+apiVersion: operator.dpu.nvidia.com/v1alpha1
+kind: DPFOperatorConfig
+metadata:
+  name: dpfoperatorconfig
+  namespace: dpf-operator-system
+spec:
+  deploymentMode: zero-trust
+  imagePullSecrets:
+    - dpf-pull-secret
+  provisioningController:
+    replicas: 1
+    bfbPVCName: bfb-pvc
+    installInterface:
+      installViaRedfish:
+        skipDPUNodeDiscovery: false
+        # The mock BMC accepts ResetToDefaults, so the full DPUDevice initialization path
+        # (factory reset -> settle -> password init) is exercised.
+        discoveredDPUDeviceBMCFactoryResetPolicy: OnInitialization
+  dpuServiceController:
+    replicas: 1
+  staticClusterManager:
+    disable: false
+    replicas: 1
+  kamajiClusterManager:
+    disable: true
+  nodeSRIOVDevicePluginController:
+    disable: true
+  dpuDetector:
+    disable: true
+  monitoring:
+    disable: true
+  serviceSetController:
+    disable: true
+  sfcController:
+    disable: true
+  multus:
+    disable: true
+  sriovDevicePlugin:
+    disable: true
+  flannel:
+    disable: true
+  ovsCNI:
+    disable: true
+  nvipam:
+    disable: true
+  cniInstaller:
+    disable: true
+  coreDNS:
+    disable: true
+  security:
+    kata:
+      disable: true
