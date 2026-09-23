@@ -114,7 +114,16 @@ releases:
             FOUND_APPLICATIONS=1
           done
           if [ $FOUND_APPLICATIONS -eq 1 ]; then
-            kubectl wait application --all -n dpf-operator-system --for=jsonpath='{.status.operationState.phase}'=Succeeded --timeout=300s
+            if ! kubectl wait application --all -n dpf-operator-system --for=jsonpath='{.status.operationState.phase}'=Succeeded --timeout=300s; then
+              # The application-controller's AppProject cache can still be warming up right
+              # after the argo-cd upgrade, which can fail the first sync attempt of an
+              # Application with a transient InvalidSpecError. Retry any Application that
+              # didn't reach Succeeded once before giving up.
+              for app in $(kubectl get application -n dpf-operator-system -o jsonpath='{range .items[?(@.status.operationState.phase!="Succeeded")]}{.metadata.name}{"\n"}{end}'); do
+                kubectl patch application "$app" -n dpf-operator-system --type=merge -p '{"operation":{"initiatedBy":{"username":"helmfile"},"sync":{"syncStrategy":{"hook":{}}}}}'
+              done
+              kubectl wait application --all -n dpf-operator-system --for=jsonpath='{.status.operationState.phase}'=Succeeded --timeout=180s
+            fi
           fi
         showlogs: true
 
