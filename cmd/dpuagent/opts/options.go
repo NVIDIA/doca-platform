@@ -60,6 +60,7 @@ type Options struct {
 	SkipKernelCmdLine          bool
 	SkipRemoveBuiltinKubelet   bool
 	SkipConfigureKubelet       bool
+	SkipCleanPluginRegistry    bool
 	SkipStartKubelet           bool
 	SkipRebootMethodDiscovery  bool
 	SkipNodeLabeling           bool
