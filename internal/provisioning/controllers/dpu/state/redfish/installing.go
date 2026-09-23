@@ -43,6 +43,14 @@ import (
 
 const (
 	exceptionTaskState = "Exception"
+
+	// osNotRunningReason marks the OSInstalled condition while the DPU is waiting for the OS and
+	// dpu-agent. Its message doubles as the store for the last BootProgress read from the BMC.
+	osNotRunningReason = "OSNotRunning"
+
+	// bootProgressProbeInterval throttles the BMC BootProgress read. Reconciles run every
+	// cutil.RequeueInterval (5s) for as long as the install takes.
+	bootProgressProbeInterval = time.Minute
 )
 
 func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
@@ -67,8 +75,11 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 		if hint := bestEffortRailHint(ctx, dpu, ctrlCtx, logger, nil); hint != "" {
 			err = fmt.Errorf("%s. %s", err.Error(), hint)
 		}
+		if last := lastReportedWaitMessage(state); last != "" {
+			err = fmt.Errorf("%s. Last reported: %s", err.Error(), last)
+		}
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "InstallationTimeout", err.Error()))
-		clearInstallRetryCounter(dpu.UID)
+		clearInstallState(dpu.UID)
 		state.Phase = provisioningv1.DPUError
 		return *state, nil
 	}
@@ -102,13 +113,14 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 		}
 
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), nil, "OsInstalled", "OS installed, waiting for the DPU agent to start"))
-		clearInstallRetryCounter(dpu.UID)
+		clearInstallState(dpu.UID)
 		ctrlCtx.DPUInProvisioningMap.Remove(dutil.DPUID(dpu.UID))
 		state.Phase = provisioningv1.DPUConfig
 		logger.Info("installation finished")
 		return *state, nil
 	}
 
+	msg := "Waiting for DPU OS to finish booting and start dpu-agent"
 	if dpu.Status.DPUType == provisioningv1.DPUTypeBlueField4 {
 		_, cond := cutil.GetDPUCondition(state, string(provisioningv1.DPUCondChangeBootTarget))
 		if cond == nil || cond.Status != metav1.ConditionTrue {
@@ -121,12 +133,79 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 		}
 	}
 
-	msg := "Waiting for DPU OS to finish booting and start dpu-agent"
+	if bootProgress := bootProgressState(ctx, dpu, ctrlCtx, logger); bootProgress != "" {
+		msg = fmt.Sprintf("%s (BootProgress %s)", msg, bootProgress)
+	} else if last := lastReportedWaitMessage(state); last != "" {
+		// Throttled or unreadable this time round: keep reporting what was last read rather than
+		// dropping back to the bare message, which would rewrite the condition on every reconcile.
+		msg = last
+	}
+
 	logger.Info(msg)
-	cond := cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), nil, "OSNotRunning", msg)
+	cond := cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), nil, osNotRunningReason, msg)
 	cond.Status = metav1.ConditionFalse
 	cutil.SetDPUCondition(state, cond)
 	return *state, nil
+}
+
+// lastReportedWaitMessage returns the OSInstalled message previously recorded while waiting, or ""
+// when the DPU has not been through the wait yet.
+func lastReportedWaitMessage(state *provisioningv1.DPUStatus) string {
+	_, cond := cutil.GetDPUCondition(state, string(provisioningv1.DPUCondOSInstalled))
+	if cond == nil || cond.Reason != osNotRunningReason {
+		return ""
+	}
+	return cond.Message
+}
+
+// bootProgressState renders the DPU Arm boot progress the BMC reports as the Redfish fields it
+// came from, or "" when nothing was read — either because the probe is still throttled or because
+// the BMC could not be reached. Callers treat the two the same: they fall back to the reading
+// already recorded in the OSInstalled condition, so a BMC hiccup costs only the extra detail and
+// never changes the condition the DPU would otherwise report.
+//
+// Both fields are reported because which one carries the answer varies, and not only by platform:
+//
+//	BF4 (Systems/BlueField_0) names the milestone in LastState ("OSRunning" once the OS is up),
+//	    omitting OemLastState — except for codes it has no name for, where LastState is "OEM" and
+//	    the raw 9-byte postcode lands in OemLastState instead.
+//	BF3 (Systems/Bluefield) names its states in OemLastState ("OsIsRunning", "OsStarting", "UEFI",
+//	    "BootRom", the crash-dump states, ...).
+//
+// Printing whichever are set keeps that split out of the control flow, and both arrive in the same
+// GET, so the second field is free.
+func bootProgressState(
+	ctx context.Context,
+	dpu *provisioningv1.DPU,
+	ctrlCtx *dutil.ControllerContext,
+	logger logr.Logger,
+) string {
+	if !checkInstallProgressState(dpu.UID) {
+		return ""
+	}
+	dpuDevice := &provisioningv1.DPUDevice{}
+	if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.DPUDeviceName}, dpuDevice); err != nil {
+		logger.V(1).Info("boot progress probe: failed to fetch DPUDevice", "err", err)
+		return ""
+	}
+	client, err := rc.NewTLSClient(ctx, dpuDevice.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
+	if err != nil {
+		logger.V(1).Info("boot progress probe: failed to construct client", "err", err)
+		return ""
+	}
+	_, system, err := client.GetSystem()
+	if err != nil || system == nil {
+		logger.V(1).Info("boot progress probe: failed to get Redfish system", "err", err)
+		return ""
+	}
+	var fields []string
+	if s := system.BootProgress.LastState; s != "" {
+		fields = append(fields, fmt.Sprintf("LastState=%q", s))
+	}
+	if s := system.BootProgress.OemLastState; s != "" {
+		fields = append(fields, fmt.Sprintf("OemLastState=%q", s))
+	}
+	return strings.Join(fields, " ")
 }
 
 type installBFOSFn func(context.Context, *provisioningv1.DPU, *dutil.ControllerContext, *provisioningv1.DPUDevice) (provisioningv1.DPUStatus, error)
@@ -159,7 +238,7 @@ func installWithRetry(
 	logger := log.FromContext(ctx)
 	if count >= maxRuns {
 		logger.Info("max number of OS installation runs reached", "maxRuns", maxRuns, "lastError", err)
-		clearInstallRetryCounter(dpu.UID)
+		clearInstallState(dpu.UID)
 		state.Phase = provisioningv1.DPUError
 		return state, nil
 	}
@@ -690,6 +769,19 @@ func probeRailHint(ctx context.Context, client *rc.Client, logger logr.Logger) s
 	return ""
 }
 
+// installProgressProbedAt records when BootProgress was last read from the BMC, per DPU UID, so the
+// probe can be throttled across reconciles.
+var installProgressProbedAt sync.Map
+
+// checkInstallProgressState reports whether this DPU is due a BMC read of its install progress.
+func checkInstallProgressState(dpuUID types.UID) bool {
+	if v, ok := installProgressProbedAt.Load(dpuUID); ok && time.Since(v.(time.Time)) < bootProgressProbeInterval {
+		return false
+	}
+	installProgressProbedAt.Store(dpuUID, time.Now())
+	return true
+}
+
 // installRetryCounter tracks failed retryable OS install attempts per DPU UID across reconciles
 var installRetryCounter sync.Map
 
@@ -709,8 +801,10 @@ func incrementInstallRetryCounter(dpuUID types.UID) int {
 	}
 }
 
-func clearInstallRetryCounter(dpuUID types.UID) {
+// clearInstallState drops every piece of per-DPU install state this file keeps across reconciles.
+func clearInstallState(dpuUID types.UID) {
 	installRetryCounter.Delete(dpuUID)
+	installProgressProbedAt.Delete(dpuUID)
 }
 
 // restartOSInstallError marks a failed OS install run that should count toward
