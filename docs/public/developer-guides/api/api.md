@@ -1789,6 +1789,8 @@ _Appears in:_
 | `lastObservedPendingNvconfig` _[PendingNVConfigState](#pendingnvconfigstate)_ | LastObservedPendingNVConfig stores the last pending NVConfig parameters seen<br />during reboot-method discovery on this boot. It is used on the next boot to<br />ignore repeated parameters that remained unchanged across boots. |  | Optional: \{\} <br /> |
 | `rebootSequenceCount` _integer_ | RebootSequenceCount is the length of the current non-NoAction RebootMethod sequence:<br />it increments on each agent run that reports a RebootMethod other than NoAction and<br />resets to 0 when the agent reports NoAction. Used with RebootMethod to bound host reboot loops. |  | Minimum: 0 <br />Optional: \{\} <br /> |
 | `kubeletVersion` _string_ | KubeletVersion represents the kubelet version running on the DPU. |  |  |
+| `version` _string_ | Version is set by an agent that can GET the live DPUFlavor and start a second Run().<br />Empty means an old agent; do not start in-place reconfig for this DPU. |  | MinLength: 1 <br />Optional: \{\} <br /> |
+| `appliedFlavorResourceVersion` _string_ | AppliedFlavorResourceVersion is the resourceVersion of the DPUFlavor this Run() GETed.<br />Debug only. It is not used to decide whether to start in-place reconfig. |  | MinLength: 1 <br />Optional: \{\} <br /> |
 | `preInstall` _[AgentPreInstallStatus](#agentpreinstallstatus)_ | PreInstall holds agent-reported status for work done before OS install in the reprovisioning process. |  | Optional: \{\} <br /> |
 | `trustBundleHash` _string_ | TrustBundleHash is the bundle-hash value last applied by the DPU agent. |  | Optional: \{\} <br /> |
 | `trustBundleLastUpdateTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | TrustBundleLastUpdateTime is when the trust bundle was last updated by the DPU agent. |  | Optional: \{\} <br /> |
@@ -3064,6 +3066,24 @@ _Appears in:_
 | `Perform ARM Force Restart` | DPUPerformArmForceRestart means ARM ForceRestart operations are in progress for Secure Boot configuration.<br /> |
 
 
+#### DPUReconfigStatus
+
+
+
+DPUReconfigStatus is the in-place reconfig state of one DPU. DPUSet is the only writer.
+
+
+
+_Appears in:_
+- [DPUStatus](#dpustatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `inProgress` _boolean_ | InProgress permits the DPU controller to jump to Node Effect. It is cleared when<br />this DPU is Ready again for this round. Do not set it together with Outdated. |  | Optional: \{\} <br /> |
+| `round` _integer_ | Round is the DPUSet round assigned when InProgress was set.<br />Zero means InProgress has not been set for a round. |  | Minimum: 1 <br />Optional: \{\} <br /> |
+| `completedRound` _integer_ | CompletedRound is the last round that reached Ready. Zero means this DPU has not<br />finished an in-place round. While it equals DPUSet status.dpuReconfig.round, this<br />DPU is not started again for the same annotation. |  | Minimum: 1 <br />Optional: \{\} <br /> |
+
+
 #### DPURef
 
 
@@ -3118,6 +3138,26 @@ DPUSetList contains a list of DPUSet
 | `items` _[DPUSet](#dpuset) array_ |  |  |  |
 
 
+#### DPUSetReconfigStatus
+
+
+
+DPUSetReconfigStatus is one annotation round of in-place DPU reconfig.
+A nil DPUSetStatus.DPUReconfig means no round has started. The controller sets
+round, active, and startedAt together.
+
+
+
+_Appears in:_
+- [DPUSetStatus](#dpusetstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `round` _integer_ | Round identifies the current or last round. It increases by one when a new<br />annotation round starts and is not reset when the annotation is removed.<br />Zero means no round has started. |  | Minimum: 1 <br />Optional: \{\} <br /> |
+| `active` _boolean_ | Active is true while this annotation round is not finished. |  | Optional: \{\} <br /> |
+| `startedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | StartedAt is when this round became active. It distinguishes a DPU that was<br />already Ready before the round from one that first becomes Ready during it.<br />The controller sets it with round and active, and never leaves it zero. |  | Optional: \{\} <br /> |
+
+
 #### DPUSetSpec
 
 
@@ -3154,6 +3194,7 @@ _Appears in:_
 | `dpuStatistics` _object (keys:[DPUPhase](#dpuphase), values:integer)_ | DPUStatistics is a map of DPUPhase to the number of DPUs in that phase. |  | Optional: \{\} <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions reflect the status of the object |  | Optional: \{\} <br /> |
 | `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  | Optional: \{\} <br /> |
+| `dpuReconfig` _[DPUSetReconfigStatus](#dpusetreconfigstatus)_ | DPUReconfig is the in-place reconfig round owned by the DPUSet controller.<br />The user starts a round with annotation provisioning.dpu.nvidia.com/inplace-reconfig=true.<br />Nil means no round has started. |  | Optional: \{\} <br /> |
 
 
 #### DPUSetStrategy
@@ -3229,6 +3270,8 @@ _Appears in:_
 | `addresses` _[NodeAddress](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#nodeaddress-v1-core) array_ | The DPU node's IP addresses |  | Optional: \{\} <br /> |
 | `dpuInstallInterface` _string_ | the name of the interface which will be used to install the bfb image,<br />and communicate with DPU, can be one of hostAgent,redfish |  | Enum: [gNOI hostAgent redfish] <br />Optional: \{\} <br /> |
 | `postProvisioningNodeEffect` _boolean_ | Indicates that node effect was triggered by post-provisioning label changes |  | Optional: \{\} <br /> |
+| `postProvisioningDPUConfig` _boolean_ | PostProvisioningDPUConfig must be set before entering Node Effect for an in-place<br />flavor reconfig, so Node Effect exits to DPU Config instead of Initialize Interface.<br />The DPU controller owns this field. If both this and PostProvisioningNodeEffect would<br />be set, only this one is set. |  | Optional: \{\} <br /> |
+| `dpuReconfig` _[DPUReconfigStatus](#dpureconfigstatus)_ | DPUReconfig is the in-place reconfig round state for this DPU. DPUSet writes it.<br />The DPU controller reads inProgress and does not write these fields.<br />Nil means no round has been assigned. |  | Optional: \{\} <br /> |
 | `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  | Optional: \{\} <br /> |
 | `dpuType` _[DPUType](#dputype)_ | The type of the DPU | Unknown | Enum: [Unknown BlueField2 BlueField3 BlueField4] <br />Optional: \{\} <br /> |
 | `agentLastStartupTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | AgentLastStartupTime is the time when the DPU agent was last started. This is copied from agentStatus.lastStartupTime. |  | Optional: \{\} <br /> |

@@ -324,6 +324,12 @@ spec:
                 description: AgentStatus contains the information reported from inside
                   the DPU
                 properties:
+                  appliedFlavorResourceVersion:
+                    description: |-
+                      AppliedFlavorResourceVersion is the resourceVersion of the DPUFlavor this Run() GETed.
+                      Debug only. It is not used to decide whether to start in-place reconfig.
+                    minLength: 1
+                    type: string
                   clock:
                     description: |-
                       Clock is the DPU clock compared against the host clock, recorded while the DPU agent was
@@ -609,6 +615,12 @@ spec:
                       was last updated by the DPU agent.
                     format: date-time
                     type: string
+                  version:
+                    description: |-
+                      Version is set by an agent that can GET the live DPUFlavor and start a second Run().
+                      Empty means an old agent; do not start in-place reconfig for this DPU.
+                    minLength: 1
+                    type: string
                 type: object
               bfCFGFile:
                 description: BFCFGFile is the path to the bf.cfg
@@ -707,6 +719,33 @@ spec:
                 - zero-trust
                 - nic
                 type: string
+              dpuReconfig:
+                description: |-
+                  DPUReconfig is the in-place reconfig round state for this DPU. DPUSet writes it.
+                  The DPU controller reads inProgress and does not write these fields.
+                  Nil means no round has been assigned.
+                properties:
+                  completedRound:
+                    description: |-
+                      CompletedRound is the last round that reached Ready. Zero means this DPU has not
+                      finished an in-place round. While it equals DPUSet status.dpuReconfig.round, this
+                      DPU is not started again for the same annotation.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  inProgress:
+                    description: |-
+                      InProgress permits the DPU controller to jump to Node Effect. It is cleared when
+                      this DPU is Ready again for this round. Do not set it together with Outdated.
+                    type: boolean
+                  round:
+                    description: |-
+                      Round is the DPUSet round assigned when InProgress was set.
+                      Zero means InProgress has not been set for a round.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                type: object
               dpuType:
                 default: Unknown
                 description: The type of the DPU
@@ -867,6 +906,13 @@ spec:
                 - Node Effect Removal
                 - Checking Host Reboot Required
                 type: string
+              postProvisioningDPUConfig:
+                description: |-
+                  PostProvisioningDPUConfig must be set before entering Node Effect for an in-place
+                  flavor reconfig, so Node Effect exits to DPU Config instead of Initialize Interface.
+                  The DPU controller owns this field. If both this and PostProvisioningNodeEffect would
+                  be set, only this one is set.
+                type: boolean
               postProvisioningNodeEffect:
                 description: Indicates that node effect was triggered by post-provisioning
                   label changes
