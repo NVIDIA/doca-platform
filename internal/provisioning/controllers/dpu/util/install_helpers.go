@@ -24,24 +24,30 @@ import (
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 )
 
-// CheckInstallationTimeout reports an error when OS installation has run for longer than timeout.
-// Returns nil otherwise, including when timeout is non-positive (the check is disabled).
+// InstallElapsed returns how long the current OS installation has been running, and whether that
+// could be determined at all.
 //
 // Elapsed time is measured from the BFBPrepared condition, which every install interface sets
 // before entering DPUOSInstalling and whose LastTransitionTime is preserved while the condition
-// keeps the same status.
+// keeps the same status. Install-progress logging shares this anchor with CheckInstallationTimeout
+// so a progress line and a timeout error report the same interval.
+func InstallElapsed(status *provisioningv1.DPUStatus) (time.Duration, bool) {
+	_, bfbPreparedCond := cutil.GetDPUCondition(status, string(provisioningv1.DPUCondBFBPrepared))
+	if bfbPreparedCond == nil {
+		return 0, false
+	}
+	return time.Since(bfbPreparedCond.LastTransitionTime.Time), true
+}
+
+// CheckInstallationTimeout reports an error when OS installation has run for longer than timeout.
+// Returns nil otherwise, including when timeout is non-positive (the check is disabled).
 func CheckInstallationTimeout(status *provisioningv1.DPUStatus, timeout time.Duration) error {
 	if timeout <= 0 {
 		return nil
 	}
 
-	_, bfbPreparedCond := cutil.GetDPUCondition(status, string(provisioningv1.DPUCondBFBPrepared))
-	if bfbPreparedCond == nil {
-		return nil
-	}
-
-	elapsed := time.Since(bfbPreparedCond.LastTransitionTime.Time)
-	if elapsed <= timeout {
+	elapsed, ok := InstallElapsed(status)
+	if !ok || elapsed <= timeout {
 		return nil
 	}
 

@@ -208,6 +208,49 @@ func bootProgressState(
 	return strings.Join(fields, " ")
 }
 
+// BFB installs, BF4 ARM transfers and PLDM firmware updates are all long-running Redfish tasks
+// polled the same way
+const (
+	msgTaskSubmitted = "redfish task submitted"
+	msgTaskProgress  = "redfish task progress"
+
+	opBFBInstall     = "bfb-install"
+	opBF4ArmTransfer = "bf4-arm-transfer"
+	opPLDMFirmware   = "pldm-firmware-update"
+)
+
+// taskSubmittedFields describes a newly accepted Redfish task.
+func taskSubmittedFields(operation string, taskInfo *rc.TaskInfo) []any {
+	return []any{
+		"operation", operation,
+		"taskID", taskInfo.ID,
+		"taskState", taskInfo.TaskState,
+		"taskStatus", taskInfo.TaskStatus,
+	}
+}
+
+// taskProgressFields describes one progress poll of a Redfish task. The BMC pulls the image
+// itself.
+func taskProgressFields(operation, taskID string, prog *rc.TaskProgress) []any {
+	return []any{
+		"operation", operation,
+		"taskID", taskID,
+		"percentComplete", prog.PercentComplete,
+		"taskState", prog.TaskState,
+		"taskStatus", prog.TaskStatus,
+	}
+}
+
+// withInstallElapsed appends how long the OS installation has been running. It shares the anchor
+// used by dutil.CheckInstallationTimeout, so a progress line and a timeout error report the same
+// interval and a reader can see how close a slow transfer is to being failed.
+func withInstallElapsed(fields []any, state *provisioningv1.DPUStatus) []any {
+	if elapsed, ok := dutil.InstallElapsed(state); ok {
+		return append(fields, "installElapsed", elapsed.Round(time.Second))
+	}
+	return fields
+}
+
 type installBFOSFn func(context.Context, *provisioningv1.DPU, *dutil.ControllerContext, *provisioningv1.DPUDevice) (provisioningv1.DPUStatus, error)
 
 // installWithRetry runs one OS install attempt per reconcile. Failures wrapped
@@ -257,7 +300,8 @@ func osInstallRetries(opts dutil.DPUOptions) int {
 }
 
 func installOsBf4(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext, dpuDevice *provisioningv1.DPUDevice) (provisioningv1.DPUStatus, error) {
-	logger := log.FromContext(ctx)
+	logger := log.FromContext(ctx).WithValues("bmc", dpuDevice.BMCAddress())
+	ctx = log.IntoContext(ctx, logger)
 	state := dpu.Status.DeepCopy()
 	logger.Info("installing OS for BlueField 4")
 
@@ -457,7 +501,7 @@ func reconcileBf4ArmTransfer(
 			return newRestartOSInstallError(fmt.Errorf("%w: %s", err, resp.String()))
 		}
 		state.RedfishTaskID = &taskInfo.ID
-		logger.Info(fmt.Sprintf("new install task: %+v", *taskInfo))
+		logger.Info(msgTaskSubmitted, append(taskSubmittedFields(opBF4ArmTransfer, taskInfo), "component", installDesc)...)
 		return nil
 	}
 
@@ -478,7 +522,8 @@ func reconcileBf4ArmTransfer(
 		cutil.SetDPUCondition(state, cutil.NewCondition(condKey, taskErr, "FailToInstall", fmt.Sprintf("Task %s is in Exception state: %v", *state.RedfishTaskID, prog.Messages)))
 		return newRestartOSInstallError(taskErr)
 	}
-	logger.Info(fmt.Sprintf("taskProgress: %+v", prog), "component", installDesc)
+	logger.Info(msgTaskProgress, append(withInstallElapsed(
+		taskProgressFields(opBF4ArmTransfer, *state.RedfishTaskID, prog), state), "component", installDesc)...)
 	if prog.PercentComplete < 100 {
 		taskProgress := fmt.Sprintf("install task %d%% complete", prog.PercentComplete)
 		c := cutil.NewCondition(condKey, nil, "TaskProgress", taskProgress)
@@ -495,7 +540,8 @@ func reconcileBf4ArmTransfer(
 }
 
 func submitAndMonitorBfbInstallTask(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext, dpuDevice *provisioningv1.DPUDevice) (provisioningv1.DPUStatus, error) {
-	logger := log.FromContext(ctx)
+	logger := log.FromContext(ctx).WithValues("bmc", dpuDevice.BMCAddress())
+	ctx = log.IntoContext(ctx, logger)
 	state := dpu.Status.DeepCopy()
 
 	client, err := rc.NewTLSClient(ctx, dpuDevice.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
@@ -528,7 +574,7 @@ func submitAndMonitorBfbInstallTask(ctx context.Context, dpu *provisioningv1.DPU
 		// Update the state with the task ID so it's reflected in the returned status
 		state.RedfishTaskID = &taskInfo.ID
 
-		logger.Info(fmt.Sprintf("new install task: %+v", *taskInfo))
+		logger.Info(msgTaskSubmitted, taskSubmittedFields(opBFBInstall, taskInfo)...)
 		return *state, nil
 	}
 
@@ -549,7 +595,8 @@ func submitAndMonitorBfbInstallTask(ctx context.Context, dpu *provisioningv1.DPU
 		return *state, newRestartOSInstallError(taskErr)
 	}
 
-	logger.Info(fmt.Sprintf("taskProgress: %+v", prog))
+	logger.Info(msgTaskProgress, withInstallElapsed(
+		taskProgressFields(opBFBInstall, *dpu.Status.RedfishTaskID, prog), state)...)
 	if prog.PercentComplete < 100 {
 		taskProgress := fmt.Sprintf("install task %d%% complete", prog.PercentComplete)
 		cond := cutil.NewCondition(string(provisioningv1.DPUCondBFBTransferred), nil, "TaskProgress", taskProgress)

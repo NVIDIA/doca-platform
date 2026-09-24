@@ -83,6 +83,9 @@ func FirmwareUpdate(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil
 		return *state, err
 	}
 
+	logger = logger.WithValues("bmc", dpuDevice.BMCAddress())
+	ctx = log.IntoContext(ctx, logger)
+
 	psid := dpuDevice.Status.PSID
 	if psid == nil || *psid == "" {
 		err := fmt.Errorf("PSID is not set for DPUDevice %s/%s", dpuDevice.Namespace, dpuDevice.Name)
@@ -293,7 +296,7 @@ func monitorTask(ctx context.Context, client *rc.Client, taskID string) (bool, e
 		return false, err
 	}
 
-	logger.Info(fmt.Sprintf("taskProgress: %+v", prog))
+	logger.Info(msgTaskProgress, taskProgressFields(opPLDMFirmware, taskID, prog)...)
 
 	// nolint:goconst
 	if prog.TaskState == "Exception" {
@@ -367,7 +370,7 @@ func submitPldmFirmwareUpdate(ctx context.Context, state *provisioningv1.DPUStat
 		return *state, err
 	}
 	state.RedfishTaskID = &taskInfo.ID
-	logger.Info(fmt.Sprintf("new pldm firmware update task: %+v", *taskInfo))
+	logger.Info(msgTaskSubmitted, taskSubmittedFields(opPLDMFirmware, taskInfo)...)
 	cutil.SetDPUCondition(state, cond)
 	return *state, nil
 }
