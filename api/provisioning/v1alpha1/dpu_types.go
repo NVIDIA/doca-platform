@@ -129,6 +129,7 @@ const (
 	DPUCondReady                  DPUConditionType = "Ready"
 	DPUCondError                  DPUConditionType = "Error"
 	DPUCondArmForceRestarted      DPUConditionType = "ArmForceRestarted"
+	DPUCondReconfiguring          DPUConditionType = "DPUReconfiguring"
 )
 
 // DPUOperationalConditionType represents operational readiness condition types
@@ -347,6 +348,27 @@ type DPUOutdated struct {
 	Message string `json:"message"`
 }
 
+// DPUReconfigStatus is the in-place reconfig state of one DPU. DPUSet is the only writer.
+type DPUReconfigStatus struct {
+	// InProgress permits the DPU controller to jump to Node Effect. It is cleared when
+	// this DPU is Ready again for this round. Do not set it together with Outdated.
+	// +optional
+	InProgress *bool `json:"inProgress,omitempty"`
+
+	// Round is the DPUSet round assigned when InProgress was set.
+	// Zero means InProgress has not been set for a round.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	Round int32 `json:"round,omitempty"`
+
+	// CompletedRound is the last round that reached Ready. Zero means this DPU has not
+	// finished an in-place round. While it equals DPUSet status.dpuReconfig.round, this
+	// DPU is not started again for the same annotation.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	CompletedRound int32 `json:"completedRound,omitempty"`
+}
+
 // DPUStatus defines the observed state of DPU
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.identityMode) || (has(self.identityMode) && self.identityMode == oldSelf.identityMode)",message="identityMode is immutable once set: can only transition from unset to a value"
 type DPUStatus struct {
@@ -421,6 +443,19 @@ type DPUStatus struct {
 	// Indicates that node effect was triggered by post-provisioning label changes
 	// +optional
 	PostProvisioningNodeEffect *bool `json:"postProvisioningNodeEffect,omitempty"`
+
+	// PostProvisioningDPUConfig must be set before entering Node Effect for an in-place
+	// flavor reconfig, so Node Effect exits to DPU Config instead of Initialize Interface.
+	// The DPU controller owns this field. If both this and PostProvisioningNodeEffect would
+	// be set, only this one is set.
+	// +optional
+	PostProvisioningDPUConfig *bool `json:"postProvisioningDPUConfig,omitempty"`
+
+	// DPUReconfig is the in-place reconfig round state for this DPU. DPUSet writes it.
+	// The DPU controller reads inProgress and does not write these fields.
+	// Nil means no round has been assigned.
+	// +optional
+	DPUReconfig *DPUReconfigStatus `json:"dpuReconfig,omitempty,omitzero"`
 
 	// ObservedGeneration records the Generation observed on the object the last time it was patched.
 	// +optional
@@ -545,6 +580,18 @@ type AgentStatus struct {
 
 	// KubeletVersion represents the kubelet version running on the DPU.
 	KubeletVersion *string `json:"kubeletVersion,omitempty"`
+
+	// Version is set by an agent that can GET the live DPUFlavor and start a second Run().
+	// Empty means an old agent; do not start in-place reconfig for this DPU.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	Version string `json:"version,omitempty"`
+
+	// AppliedFlavorResourceVersion is the resourceVersion of the DPUFlavor this Run() GETed.
+	// Debug only. It is not used to decide whether to start in-place reconfig.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	AppliedFlavorResourceVersion string `json:"appliedFlavorResourceVersion,omitempty"`
 
 	// PreInstall holds agent-reported status for work done before OS install in the reprovisioning process.
 	// +optional

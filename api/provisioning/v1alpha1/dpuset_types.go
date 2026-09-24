@@ -329,6 +329,34 @@ type DPUSetStatus struct {
 	// ObservedGeneration records the Generation observed on the object the last time it was patched.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
+	// DPUReconfig is the in-place reconfig round owned by the DPUSet controller.
+	// The user starts a round with annotation provisioning.dpu.nvidia.com/inplace-reconfig=true.
+	// Nil means no round has started.
+	// +optional
+	DPUReconfig *DPUSetReconfigStatus `json:"dpuReconfig,omitempty,omitzero"`
+}
+
+// DPUSetReconfigStatus is one annotation round of in-place DPU reconfig.
+// A nil DPUSetStatus.DPUReconfig means no round has started. The controller sets
+// round, active, and startedAt together.
+type DPUSetReconfigStatus struct {
+	// Round identifies the current or last round. It increases by one when a new
+	// annotation round starts and is not reset when the annotation is removed.
+	// Zero means no round has started.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	Round int32 `json:"round,omitempty"`
+
+	// Active is true while this annotation round is not finished.
+	// +optional
+	Active *bool `json:"active,omitempty"`
+
+	// StartedAt is when this round became active. It distinguishes a DPU that was
+	// already Ready before the round from one that first becomes Ready during it.
+	// The controller sets it with round and active, and never leaves it zero.
+	// +optional
+	StartedAt *metav1.Time `json:"startedAt,omitempty"`
 }
 
 // +kubebuilder:object:root=true
