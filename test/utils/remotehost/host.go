@@ -20,6 +20,7 @@ package remotehost
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -38,6 +39,16 @@ const (
 	hostSudoPreamble = `SUDO=''; if [ "$(id -u)" -ne 0 ]; then SUDO='sudo -n'; fi`
 )
 
+// RegistryAuth are credentials for pulling images on the remote host.
+type RegistryAuth struct {
+	// Registry is the registry host.
+	Registry string
+	// Username is the registry user.
+	Username string
+	// Password is the registry password or API key.
+	Password string
+}
+
 // Host is a remote SSH machine with an optional container runtime.
 type Host struct {
 	// Addr is the SSH address.
@@ -50,15 +61,37 @@ type Host struct {
 	ContainerName string
 	// Runtime is docker or podman.
 	Runtime string
+	// RegistryAuth is the registry credentials for pulling images, nil skips the login.
+	RegistryAuth *RegistryAuth
 }
 
 // SSH runs cmd on the host, not in the container.
 func (h Host) SSH(cmd string) (string, error) {
-	return ssh(h.Addr, h.sshUser(), h.Password, cmd)
+	return ssh(h.Addr, h.sshUser(), h.Password, cmd, nil)
+}
+
+// Login authenticates the host runtime against RegistryAuth, no-op when unset.
+func (h Host) Login() {
+	auth := h.RegistryAuth
+	if auth == nil {
+		return
+	}
+
+	// --password-stdin keeps the key out of the command line, so it never reaches argv, ps or logs.
+	loginCmd := h.runtimeCmd(fmt.Sprintf("login %s --username %s --password-stdin",
+		shellQuote(auth.Registry), shellQuote(auth.Username)))
+
+	Eventually(func(g Gomega) {
+		output, err := ssh(h.Addr, h.sshUser(), h.Password, loginCmd, strings.NewReader(auth.Password))
+		g.Expect(err).ToNot(HaveOccurred(), "failed to log %s into %s on %s: %s",
+			h.runtime(), auth.Registry, h.Addr, output)
+	}, DefaultTimeout).Should(Succeed())
 }
 
 // SpinUp starts a detached privileged host-network container.
 func (h Host) SpinUp(image string) {
+	h.Login()
+
 	rmCmd := h.runtimeCmd(fmt.Sprintf("rm -f %s >/dev/null 2>&1 || true", shellQuote(h.ContainerName)))
 	runCmd := h.runtimeCmd(fmt.Sprintf(
 		"run -d --name %s --network host --privileged --ulimit memlock=-1:-1 %s tail -F /dev/null",
@@ -139,8 +172,8 @@ func (h Host) execEventually(timeout time.Duration, command ...string) string {
 	return output
 }
 
-// ssh runs remoteCmd over SSH with sshpass.
-func ssh(host, user, password, remoteCmd string) (string, error) {
+// ssh runs remoteCmd over SSH with sshpass, stdin is piped to the remote command.
+func ssh(host, user, password, remoteCmd string, stdin io.Reader) (string, error) {
 	if strings.TrimSpace(user) == "" {
 		user = defaultSSHUser
 	}
@@ -156,6 +189,8 @@ func ssh(host, user, password, remoteCmd string) (string, error) {
 		user+"@"+host, remoteCmd,
 	)
 	cmd.Env = append(os.Environ(), "SSHPASS="+password)
+	// sshpass -e reads the SSH password from the environment, so stdin stays free for the remote command.
+	cmd.Stdin = stdin
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
