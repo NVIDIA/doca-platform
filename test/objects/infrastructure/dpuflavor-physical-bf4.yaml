@@ -36,6 +36,10 @@ spec:
         - PF_NUM_PF_MSIX=228
         - SRIOV_EN=1
         - NUM_OF_VFS=46
+  # count is PF_TOTAL_SF minus one slot for spec.dma (SNAP DMA SF).
+  scalableFunctions:
+    - count: 19
+      poolName: bf_sf
   ovs:
     rawConfigScript: |
       #!/bin/bash

@@ -389,6 +389,10 @@ spec:
         - NVME_EMULATION_NUM_PF=0
         - LINK_TYPE_P1=ETH
         - LINK_TYPE_P2=ETH
+  scalableFunctions:
+    - count: 20
+      device: "*"  # alternatively device: p0
+      poolName: bf_sf
   ovs:
     rawConfigScript: |
       _ovs-vsctl() {
@@ -1111,6 +1115,10 @@ spec:
         - NVME_EMULATION_NUM_PF=1
         - LINK_TYPE_P1=ETH
         - LINK_TYPE_P2=ETH
+  scalableFunctions:
+    - count: 20
+      device: "*"  # alternatively device: p0
+      poolName: bf_sf
   ovs:
     rawConfigScript: |
       _ovs-vsctl() {
@@ -1836,6 +1844,10 @@ spec:
         - NVME_EMULATION_NUM_MSIX=2
         - LINK_TYPE_P1=ETH
         - LINK_TYPE_P2=ETH
+  scalableFunctions:
+    - count: 20
+      device: "*"  # alternatively device: p0
+      poolName: bf_sf
   ovs:
     rawConfigScript: |
       _ovs-vsctl() {
@@ -2505,6 +2517,10 @@ spec:
         - VIRTIO_FS_EMULATION_NUM_PF=0
         - LINK_TYPE_P1=ETH
         - LINK_TYPE_P2=ETH
+  scalableFunctions:
+    - count: 20
+      device: "*"  # alternatively device: p0
+      poolName: bf_sf
   ovs:
     rawConfigScript: |
       _ovs-vsctl() {
@@ -3319,6 +3335,10 @@ spec:
         - NVME_EMULATION_NUM_PF=0
         - LINK_TYPE_P1=ETH
         - LINK_TYPE_P2=ETH
+  scalableFunctions:
+    - count: 20
+      device: "*"  # alternatively device: p0
+      poolName: bf_sf
   ovs:
     rawConfigScript: |
       _ovs-vsctl() {
@@ -4175,6 +4195,10 @@ spec:
         - NVME_EMULATION_NUM_MSIX=2
         - LINK_TYPE_P1=ETH
         - LINK_TYPE_P2=ETH
+  scalableFunctions:
+    - count: 20
+      device: "*"  # alternatively device: p0
+      poolName: bf_sf
   ovs:
     rawConfigScript: |
       _ovs-vsctl() {
@@ -4975,6 +4999,10 @@ spec:
         - VIRTIO_FS_EMULATION_NUM_PF=0
         - LINK_TYPE_P1=ETH
         - LINK_TYPE_P2=ETH
+  scalableFunctions:
+    - count: 20
+      device: "*"  # alternatively device: p0
+      poolName: bf_sf
   ovs:
     rawConfigScript: |
       _ovs-vsctl() {
