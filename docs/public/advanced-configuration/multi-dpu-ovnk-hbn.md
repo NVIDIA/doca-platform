@@ -6,7 +6,7 @@ title: "Host Trusted Multi-DPU Support OVN-Kubernetes and HBN Services"
 > future releases.
 
 This guide describes how to use the `dpuDeviceSelector` to target particular DPUs. This approach supports multiple DPUs
-and distributes OVN-Kubernetes, HBN, BlueMan and DTS services across them, providing more granular control over which
+and distributes OVN-Kubernetes, HBN and DTS services across them, providing more granular control over which
 DPUs run specific services and allowing for better resource allocation, service isolation, and  multi-DPU scalability.
 
 [[_TOC_]]
@@ -43,13 +43,13 @@ This configuration ensures that:
 ### Using dpuDeviceSelector for Multi-DPU Deployments
 
 The [OVN Kubernetes with Host Based Networking](../user-guides/host-trusted/use-cases/hbn-ovnk/README.md) guide 
-uses only `dpuNodeSelector` to target nodes with DPUs, which deploys all services (OVN-Kubernetes, HBN, DTS, Blueman) to 
+uses only `dpuNodeSelector` to target nodes with DPUs, which deploys all services (OVN-Kubernetes, HBN, DTS) to 
 all DPUs on those nodes. This creates conflicts when multiple DPUs are present.
 
 The `dpuDeviceSelector` approach solves this problem by enabling precise DPU targeting. It allows you to:
 
 1. **Run OVN-Kubernetes and HBN together on a single DPU** (critical requirement - they are integrated through service chains)
-2. Deploy other services (e.g., DTS, Blueman) on different DPUs to distribute workload
+2. Deploy other services (e.g., DTS) on different DPUs to distribute workload
 3. Target specific DPUs using custom labels or auto-generated device labels
 4. Achieve better resource isolation and performance optimization across multiple DPUs
 
@@ -138,7 +138,7 @@ dpuDeviceSelector:
 The examples in this guide use `example.com/dpu-role` labels to demonstrate multi-DPU deployment with two DPUs:
 
 - `example.com/dpu-role: ovnk-hbn` for the DPU running OVN-Kubernetes and HBN services
-- `example.com/dpu-role: other-services` for the DPU running Blueman and DTS services
+- `example.com/dpu-role: other-services` for the DPU running DTS services
 
 You can extend this pattern to support additional DPUs by creating more DPUDeployments with different
 `dpuDeviceSelector` values. Remember that OVN-Kubernetes should only run on one DPU per host.
@@ -210,9 +210,9 @@ spec:
 ...
 ```
 
-### Step 2: Create Additional DPUDeployment for Blueman and DTS Services
+### Step 2: Create Additional DPUDeployment for DTS Services
 
-Create a **new, additional** DPUDeployment for Blueman and DTS services that targets the second DPU. This new
+Create a **new, additional** DPUDeployment for DTS services that targets the second DPU. This new
 DPUDeployment must use a different `dpuDeviceSelector` to target the second DPU.
 
 #### Creating a Separate DPUFlavor
@@ -223,7 +223,7 @@ The second DPU requires a slightly different `DPUFlavor` without the `hostNetwor
 > **When to use `hostNetworkInterfaceConfigs`:**  
 > The `hostNetworkInterfaceConfigs` section (which configures DHCP and MTU settings for host-side network
 > interfaces) is only needed for the DPU that handles host networking (the one running OVN-Kubernetes and HBN).
-> Since the second DPU only runs Blueman and DTS services, it does not need to configure the host network
+> Since the second DPU only runs DTS services, it does not need to configure the host network
 > interfaces, and therefore the `hostNetworkInterfaceConfigs` section should be omitted.
 
 To create the new flavor, modify the existing `dpuflavor-hbn-ovn.yaml` file by removing the 
@@ -267,7 +267,7 @@ To create the new flavor, modify the existing `dpuflavor-hbn-ovn.yaml` file by r
 apiVersion: svc.dpu.nvidia.com/v1alpha1
 kind: DPUDeployment
 metadata:
-  name: blueman-dts
+  name: dts
   namespace: dpf-operator-system
 spec:
   dpus:
@@ -285,9 +285,6 @@ spec:
     dts:
       serviceTemplate: dts
       serviceConfiguration: dts
-    blueman:
-      serviceTemplate: blueman
-      serviceConfiguration: blueman
 ```
 
 ## Deployment Steps
@@ -305,12 +302,12 @@ Update the existing `ovn-hbn` DPUDeployment to use `dpuDeviceSelector` along wit
 kubectl apply -f dpudeployment-ovn-hbn-modified.yaml
 ```
 
-### 3. Deploy Additional DPUDeployment for Blueman and DTS
+### 3. Deploy Additional DPUDeployment for DTS
 
-Create and apply the new DPUDeployment for Blueman and DTS services:
+Create and apply the new DPUDeployment for DTS services:
 
 ```bash
-kubectl apply -f dpudeployment-blueman-dts.yaml
+kubectl apply -f dpudeployment-dts.yaml
 ```
 
 ### 4. Verify Deployment

@@ -737,9 +737,6 @@ spec:
     dts:
       serviceTemplate: dts
       serviceConfiguration: dts
-    blueman:
-      serviceTemplate: blueman
-      serviceConfiguration: blueman
   serviceChains:
     switches:
       - ports:
@@ -832,38 +829,6 @@ spec:
       repoURL: $HELM_REGISTRY_REPO_URL
       version: 1.26.5
       chart: doca-telemetry
-```
-</details>
-
-<details markdown="1"><summary><b>Blueman DPUServiceConfig and DPUServiceTemplate to deploy Blueman to the DPUs</b></summary>
-
-[embedmd]:#(manifests/05-dpudeployment-installation/dpuserviceconfig_blueman.yaml)
-```yaml
----
-apiVersion: svc.dpu.nvidia.com/v1alpha1
-kind: DPUServiceConfiguration
-metadata:
-  name: blueman
-  namespace: dpf-operator-system
-spec:
-  deploymentServiceName: "blueman"
-```
-
-[embedmd]:#(manifests/05-dpudeployment-installation/dpuservicetemplate_blueman.yaml)
-```yaml
----
-apiVersion: svc.dpu.nvidia.com/v1alpha1
-kind: DPUServiceTemplate
-metadata:
-  name: blueman
-  namespace: dpf-operator-system
-spec:
-  deploymentServiceName: "blueman"
-  helmChart:
-    source:
-      repoURL: $HELM_REGISTRY_REPO_URL
-      version: 1.0.8
-      chart: doca-blueman
 ```
 </details>
 
@@ -985,9 +950,9 @@ DPFOperatorConfig/dpfoperatorconfig         dpf-operator-system  Ready: True   S
     │     └─2 DPUs...                       dpf-operator-system    Ready: True   DPUReady    2h     See dpu-node-mt2310xz03lr-mt2310xz03lr, dpu-node-mt2310xz03m2-mt2310xz03m2
     └─Services
       ├─DPUServiceTemplates
-      │ └─4 DPUServiceTemplates...          dpf-operator-system    Ready: True   Success     2h     See ovn-blueman, ovn-dts, ovn-ovn
+      │ └─2 DPUServiceTemplates...          dpf-operator-system    Ready: True   Success     2h     See ovn-dts, ovn-ovn
       └─DPUServices
-        └─4 DPUServices...                  dpf-operator-system    Ready: True   Success     2h     See ovn-blueman-4tlmp, ovn-dts-49282, ovn-ovn-l2xsl
+        └─2 DPUServices...                  dpf-operator-system    Ready: True   Success     2h     See ovn-dts-49282, ovn-ovn-l2xsl
 ```
 
 #### Deploy test pods 

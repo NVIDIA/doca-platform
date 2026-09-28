@@ -954,9 +954,6 @@ spec:
     dts:
       serviceTemplate: dts
       serviceConfiguration: dts
-    blueman:
-      serviceTemplate: blueman
-      serviceConfiguration: blueman
     snap-node-driver:
       serviceTemplate: snap-node-driver
       serviceConfiguration: snap-node-driver
@@ -1251,38 +1248,6 @@ spec:
       repoURL: $HELM_REGISTRY_REPO_URL
       version: 1.26.5
       chart: doca-telemetry
-```
-</details>
-
-<details markdown="1"><summary><b>Blueman DPUServiceConfiguration and DPUServiceTemplate to deploy Blueman to the DPUs</b></summary>
-
-[embedmd]:#(manifests/05-dpudeployment-installation/dpuserviceconfiguration_blueman.yaml)
-```yaml
----
-apiVersion: svc.dpu.nvidia.com/v1alpha1
-kind: DPUServiceConfiguration
-metadata:
-  name: blueman
-  namespace: dpf-operator-system
-spec:
-  deploymentServiceName: "blueman"
-```
-
-[embedmd]:#(manifests/05-dpudeployment-installation/dpuservicetemplate_blueman.yaml)
-```yaml
----
-apiVersion: svc.dpu.nvidia.com/v1alpha1
-kind: DPUServiceTemplate
-metadata:
-  name: blueman
-  namespace: dpf-operator-system
-spec:
-  deploymentServiceName: "blueman"
-  helmChart:
-    source:
-      repoURL: $HELM_REGISTRY_REPO_URL
-      version: 1.0.8
-      chart: doca-blueman
 ```
 </details>
 

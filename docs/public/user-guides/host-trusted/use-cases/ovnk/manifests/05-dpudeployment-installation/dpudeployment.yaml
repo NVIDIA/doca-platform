@@ -26,9 +26,6 @@ spec:
     dts:
       serviceTemplate: dts
       serviceConfiguration: dts
-    blueman:
-      serviceTemplate: blueman
-      serviceConfiguration: blueman
   serviceChains:
     switches:
       - ports:
