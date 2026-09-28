@@ -42,9 +42,6 @@ export REGISTRY ?= example.com
 # This variable ensures that the values injected in the operator and charts point to the upstream artifacts.
 export UPSTREAM_REGISTRY ?= $(REGISTRY)
 
-# The latest stable tag is used in various places to refer to the latest stable release of DPF.
-LATEST_STABLE_TAG = v25.10.1
-
 # If V is set to 1 the output will be verbose.
 Q = $(if $(filter 1,$V),,@)
 
@@ -738,11 +735,14 @@ verify-md-links: $(LYCHEE) ## Check links in markdown docs are working
 	fi; \
 	$(LYCHEE) --accept 200,429 . *.md --exclude-path third_party --exclude-path ./deploy --exclude-path docs/do_not_publish # Exclude the external `third_party` docs and the generated `charts` docs.
 
-export CRDIFY_BASE_REF ?= $(LATEST_STABLE_TAG)
 export CRDIFY_COMPARE_REF ?= HEAD
 export CRDIFY_CONFIG ?= $(PROJECT_DIR)/crdify.yaml
 export CRDIFY_CRD_DIR = $(patsubst $(PROJECT_DIR)/%,%,$(CRDDIR))
 .PHONY: verify-crdify
+# CRDIFY_BASE_REF, when not already set (e.g. `CRDIFY_BASE_REF=v25.10.1 make
+# verify-crdify`), is resolved by crd-validation.sh: on an MR pipeline it's the
+# previous supported release branch relative to $CI_MERGE_REQUEST_TARGET_BRANCH_NAME,
+# otherwise it falls back to the latest stable release tag.
 verify-crdify: binary-dpfdev ## Verify that the CRDs are valid
 	hack/scripts/crd-validation.sh
 
