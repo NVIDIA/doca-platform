@@ -1,7 +1,7 @@
 ---
 # Source: dpuservices/storage/examples/scenarios/trusted-k8s-cluster/virtiofs-hotplug-pf/doca-snap-dpuserviceconfiguration.yaml
 # Modifications:
-#   * dropped the image override — uses the chart default.
+#   * dropped the image override — uses the chart default (can still be overridden via SNAP_IMAGE_URL).
 #   * dropped imagePullSecrets — added at runtime by the SNAP suite (NGC secret for the DOCA image).
 #   * added the NVMe subsystem used by the NVMe hot-plug consumer.
 apiVersion: svc.dpu.nvidia.com/v1alpha1
