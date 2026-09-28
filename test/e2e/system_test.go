@@ -358,8 +358,8 @@ func SystemSetupBeforeSuite(skipSystemComponentValidation bool) {
 // createNGCImagePullSecret creates a secret to be able to pull images from NGC, this secret can be used by DPUservices and should not be used for core components.
 func createNGCImagePullSecret(ctx context.Context, testClient client.Client) {
 	// Docker registry credentials
-	registry := "nvcr.io"
-	username := "$oauthtoken"
+	registry := ngcRegistry
+	username := ngcRegistryUsername
 	password := ngcAPIKey
 
 	// Create the auth string

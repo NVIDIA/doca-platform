@@ -541,6 +541,19 @@ func getWeavePhysicalRemoteHost(addr string) remotehost.Host {
 		Password:      password,
 		ContainerName: bf4.NetutilsContainer,
 		Runtime:       runtime,
+		RegistryAuth:  weavePhysicalHostRegistryAuth(),
+	}
+}
+
+// weavePhysicalHostRegistryAuth returns NGC credentials when an API key is set.
+func weavePhysicalHostRegistryAuth() *remotehost.RegistryAuth {
+	if ngcAPIKey == "" {
+		return nil
+	}
+	return &remotehost.RegistryAuth{
+		Registry: ngcRegistry,
+		Username: ngcRegistryUsername,
+		Password: ngcAPIKey,
 	}
 }
 
