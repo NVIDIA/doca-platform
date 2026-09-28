@@ -471,7 +471,10 @@ func (d *DPUDevice) BMCAddress() string {
 // +kubebuilder:metadata:annotations=helm.sh/resource-policy=keep
 // TODO: Add e2e test when we add scenarios that include creating our own DPUNode and DPUDevice objects
 // +kubebuilder:validation:XValidation:rule="self.metadata.name.size() <= 63", message="name length can't be bigger than 63 chars"
-// +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=`.status.conditions[?(@.type=='ConditionDpuDeviceReady')].status`
+// +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=`.status.conditions[?(@.type=='Ready')].status`
+// +kubebuilder:printcolumn:name="BMC IP",type="string",JSONPath=".spec.bmcIp"
+// +kubebuilder:printcolumn:name="Serial Number",type="string",JSONPath=".spec.serialNumber"
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // DPUDevice is the Schema for the dpudevices API
 type DPUDevice struct {

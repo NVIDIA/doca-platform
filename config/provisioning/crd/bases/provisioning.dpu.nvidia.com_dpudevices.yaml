@@ -16,9 +16,18 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .status.conditions[?(@.type=='ConditionDpuDeviceReady')].status
+    - jsonPath: .status.conditions[?(@.type=='Ready')].status
       name: Ready
       type: string
+    - jsonPath: .spec.bmcIp
+      name: BMC IP
+      type: string
+    - jsonPath: .spec.serialNumber
+      name: Serial Number
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
     name: v1alpha1
     schema:
       openAPIV3Schema:
