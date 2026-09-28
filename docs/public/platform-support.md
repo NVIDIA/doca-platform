@@ -58,33 +58,20 @@ The following NVIDIA BlueField 3 DPU models are recommended for DPF:
 > and connect the required power cable before starting DPF deployment. If the power cable is missing, the DPU may not boot
 > or may not be discoverable through BMC or Redfish.
 
-## BlueField BFB Support Matrix
+## BlueField OS, Firmware and Services Support Matrix
 
-The following matrix shows which BFB versions are supported with each DPF release.
+DPF v26.8 supports the following BFB versions for NVIDIA BlueField-3 DPUs, with the coupled DOCA Services matching each BFB's train:
 
-| BFB Version | DPF v25.10 | DPF v26.4 |
-|-------------|------------|-----------|
-| 3.2 (LTS)   | **✓**      | **✓**     |
-| 3.4 (Apr)   | -          | **✓**     |
+* **3.2 (LTS-1)** — fully supported
+* **3.5 (current GA)** — fully supported
+* **3.4 (previous GA)** — rollout only; reprovision to 3.5 before the next DPF release
 
-**Legend:**
-
-* **✓** **supported**: the BFB version is fully tested and supported with this DPF release. You can stay on this
-  combination for as long as the train remains in its support window.
-* **✓\*** **rollout only**: DPUs running this BFB version are allowed to operate while you move them forward, tested
-  with the feature set of the previous DPF release. This is a transitional state, not a resting place: reprovision
-  before the next DPF release, and expect to be asked to update first if you open a support case.
-* **-** **unsupported**: this combination is not supported. Reprovisioning to a supported combination is required.
-
-> [!NOTE]
-> Non-LTS BFB versions (3.3, 3.5) are only supported with their corresponding DPF release and are not carried forward.
-> The latest LTS BFB version is fully supported across every DPF release of its cycle, from the October release that
-> introduces it up to and including the following October release, so an LTS user reprovisions once a year and
-> upgrades directly from LTS to LTS. Older LTS versions are permitted to operate but are considered unsupported. In a
-> support case, updating to the latest supported BFB will be required before further investigation. See the
-> [DPF Compatibility Policy](operational-readiness/upgrades/compatibility-policy.md) for the full support window.
+See the [DPF Compatibility Policy](operational-readiness/upgrades/compatibility-policy.md) for the full annual
+support matrix and rollout-only definition.
 
 ## BlueField DPU Requirements
+
+The following requirements apply to NVIDIA BlueField-3 DPUs.
 
 | Component      | Minimum Version | Notes                                                                                                |
 |----------------|-----------------|------------------------------------------------------------------------------------------------------|

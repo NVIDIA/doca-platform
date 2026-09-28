@@ -33,6 +33,8 @@ Each worker machine:
 
 #### DPUs
 
+The following requirements apply to NVIDIA BlueField-3 DPUs.
+
 * Bluefield 3
 * 32 GB memory
 * Flashed with NVIDIA BFB with DOCA version 2.5 or higher

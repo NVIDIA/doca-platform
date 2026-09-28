@@ -89,9 +89,9 @@ minor version are always allowed.
 > Even when operating DPUs with an older BFB LTS version (e.g., BFB 3.2), you must still upgrade DPF through
 > each sequential release (e.g., v25.7 → v25.10 → v26.4). Skipping DPF releases is not supported.
 
-## BlueField BFB Support Matrix
+## BlueField OS, Firmware and Services Support Matrix
 
-For the full BFB version compatibility matrix, see the [BlueField BFB Support Matrix](../../platform-support.md#bluefield-bfb-support-matrix) in the Platform Support documentation.
+For the full BFB version compatibility matrix, see the [BlueField OS, Firmware and Services Support Matrix](../../platform-support.md#bluefield-os-firmware-and-services-support-matrix) in the Platform Support documentation.
 
 ## Prevalidation
 
@@ -244,7 +244,7 @@ helm upgrade --install -n dpf-operator-system dpf-operator \
   dpf-repository/dpf-operator --version=$TAG --reset-then-reuse-values
 ```
 
-Replace `$TAG` with the target DPF Operator version (e.g. `v26.4.0`).
+Replace `$TAG` with the target DPF Operator version (e.g. `v26.8.0`).
 
 Alternatively, re-apply the original values file explicitly with `-f values.yaml`. If the file is no longer
 available, the currently deployed values can be retrieved from the release:

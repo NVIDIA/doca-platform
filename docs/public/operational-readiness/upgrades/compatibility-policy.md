@@ -231,7 +231,7 @@ BFB LTS train, so DPUs can be rolled forward progressively rather than all at on
 
 The matrix below follows one full annual cycle. It is version independent. For the concrete versions
 of the release you run, see the
-[BlueField BFB Support Matrix](../../platform-support.md#bluefield-bfb-support-matrix).
+[BlueField OS, Firmware and Services Support Matrix](../../platform-support.md#bluefield-os-firmware-and-services-support-matrix).
 
 | BFB train             | DPF-Oct (prev) | DPF-Jan | DPF-Apr  | DPF-Jul  | DPF-Oct  |
 |:----------------------|:--------------:|:-------:|:--------:|:--------:|:--------:|
