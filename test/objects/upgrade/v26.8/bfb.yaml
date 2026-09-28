@@ -6,4 +6,4 @@ metadata:
 spec:
   # URL is overridden at runtime by the BFB_IMAGE_URL environment variable.
   # The default below matches the v26.8 repo baseline and is used only when BFB_IMAGE_URL is not set.
-  url: https://nbu-nfs.gtm.nvidia.com/auto/sw_mc_soc_release/doca_dpu/doca_3.5.0/last_stable_ubuntu_24.04_64k_pk
+  url: https://content.mellanox.com/BlueField/BFBs/Ubuntu24.04/bf-bundle-3.5.0-89_26.07_ubuntu-24.04_64k_prod.bfb
