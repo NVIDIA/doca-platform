@@ -1,11 +1,30 @@
 unhandledEnforcement: None
 validations:
   - name: default
-    enforcement: Warn
+    enforcement: Error
+    configuration:
+      # Breaking changes since 26.8
+      # Allow list for false-positive "default added" errors caused by the
+      # same crdify allOf/enum resolution issue as the "type" allowList below:
+      # once the underlying type is misread as "", crdify also reports the
+      # field's existing default value as newly added.
+      allowList:
+        - apiVersion: "provisioning.dpu.nvidia.com/v1alpha1"
+          kind: "DPUCluster"
+          field: ".status.phase"
+          error: 'default added when there was none previously : "\"Pending\""'
+        - apiVersion: "provisioning.dpu.nvidia.com/v1alpha1"
+          kind: "DPU"
+          field: ".status.dpuMode"
+          error: 'default added when there was none previously : "\"dpu\""'
+        - apiVersion: "provisioning.dpu.nvidia.com/v1alpha1"
+          kind: "DPUDevice"
+          field: ".status.dpuMode"
+          error: 'default added when there was none previously : "\"dpu\""'
   - name: description
     enforcement: Warn # changing to warning is important for the deprecation feature
   - name: minLength
-    enforcement: Warn
+    enforcement: Error
   - name: enum
     enforcement: Error
     configuration:
@@ -13,12 +32,12 @@ validations:
   - name: type
     enforcement: Error
     configuration:
-      # Allow list for false-positive "type changed" errors caused by crdify
-      # not resolving the effective type through a duplicated allOf/enum
-      # schema. Fixing the duplicate kubebuilder:validation:Enum marker that
-      # produced the allOf collapses it back to a plain "type: string", which
-      # crdify's type comparator misreads as a change from "" to "string".
       allowList:
+        # Breaking changes since 26.8
+        # Crdify does not resolve the effective type through a duplicated allOf/enum
+        # schema. Fixing the duplicate kubebuilder:validation:Enum marker that
+        # produced the allOf collapses it back to a plain "type: string", which
+        # crdify's type comparator misreads as a change from "" to "string".
         - apiVersion: "provisioning.dpu.nvidia.com/v1alpha1"
           kind: "DPUCluster"
           field: ".status.phase"
@@ -31,253 +50,25 @@ validations:
           kind: "DPUDevice"
           field: ".status.dpuMode"
           error: 'type changed : "" -> "string"'
+        - apiVersion: "provisioning.dpu.nvidia.com/v1alpha1"
+          kind: "DPU"
+          field: ".status.deploymentMode"
+          error: 'type changed : "" -> "string"'
   - name: required
     enforcement: Error
     configuration:
-      # Allow list for known required field changes that were bugs in previous versions
-      allowList:
-        - apiVersion: "provisioning.dpu.nvidia.com/v1alpha1"
-          kind: "DPUSet"
-          field: ".spec"
-          error: "new required fields: [dpuTemplate]"
-        - apiVersion: "provisioning.dpu.nvidia.com/v1alpha1"
-          kind: "DPUSet"
-          field: ".spec.dpuTemplate.spec"
-          error: "new required fields: [dpuFlavor]"
-        - apiVersion: "provisioning.dpu.nvidia.com/v1alpha1"
-          kind: "DPU"
-          field: ".spec"
-          error: "new required fields: [dpuFlavor nodeEffect]"
-        - apiVersion: "provisioning.dpu.nvidia.com/v1alpha1"
-          kind: "DPU"
-          field: ".spec"
-          error: "new required fields: [nodeEffect dpuFlavor]"
-        # Allow DPUSet required field changes for disruptive fields
-        - apiVersion: "provisioning.dpu.nvidia.com/v1alpha1"
-          kind: "DPUSet"
-          field: ".spec"
-          error: "new required fields: [strategy]"
-        - apiVersion: "provisioning.dpu.nvidia.com/v1alpha1"
-          kind: "DPUSet"
-          field: ".spec.strategy"
-          error: "new required fields: [type]"
-        - apiVersion: "provisioning.dpu.nvidia.com/v1alpha1"
-          kind: "DPUSet"
-          field: ".spec.dpuTemplate.spec"
-          error: "new required fields: [nodeEffect]"
-        # Allow DPUDeployment required field changes for disruptive fields
-        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
-          kind: "DPUDeployment"
-          field: ".spec.dpus"
-          error: "new required fields: [dpuSetStrategy nodeEffect]"
-        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
-          kind: "DPUDeployment"
-          field: ".spec.dpus"
-          error: "new required fields: [nodeEffect dpuSetStrategy]"
-        - apiVersion: "operator.dpu.nvidia.com/v1alpha1"
-          kind: "DPFOperatorConfig"
-          field: ".spec"
-          error: "new required fields: [deploymentMode]"
-        - apiVersion: "provisioning.dpu.nvidia.com/v1alpha1"
-          kind: "DPUFlavor"
-          field: ".spec.configFiles[*]"
-          error: "new required fields: [path]"
   - name: minimum
     enforcement: Error
     configuration:
+      # Breaking changes since 26.8
+      # Allow list for maxItems constraints newly added to bound unbounded
+      # lists on NodeSRIOVDevicePluginConfig.
       allowList:
-        # Allow list for known minimum and maximum mtu value changes
-        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
-          kind: "DPUServiceChain"
-          field: ".spec.template.spec.template.spec.switches[*].serviceMTU"
-          error: "minimum increased : 1000 -> 1280"
-        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
-          kind: "DPUDeployment"
-          field: ".spec.serviceChains.switches[*].serviceMTU"
-          error: "minimum increased : 1000 -> 1280"
-        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
-          kind: "ServiceChain"
-          field: ".spec.switches[*].serviceMTU"
-          error: "minimum increased : 1000 -> 1280"
-        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
-          kind: "ServiceChainSet"
-          field: ".spec.template.spec.switches[*].serviceMTU"
-          error: "minimum increased : 1000 -> 1280"
-        - apiVersion: "operator.dpu.nvidia.com/v1alpha1"
-          kind: "DPFOperatorConfig"
-          field: ".spec.networking.controlPlaneMTU"
-          error: "minimum increased : 1000 -> 1280"
-        - apiVersion: "operator.dpu.nvidia.com/v1alpha1"
-          kind: "DPFOperatorConfig"
-          field: ".spec.networking.highSpeedMTU"
-          error: "minimum increased : 1000 -> 1280"
-        - apiVersion: "operator.dpu.nvidia.com/v1alpha1"
-          kind: "DPUFlavor"
-          field: ".spec.hostNetworkInterfaceConfigs.mtu"
-          error: "minimum increased : 1000 -> 1280"
-        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
-          kind: "DPUServiceNAD"
-          field: ".spec.serviceMTU"
-          error: "minimum constraint added when there was none previously : 1280"
-        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
-          kind: "DPUServiceNAD"
-          field: ".spec.serviceMTU"
-          error: "maximum constraint added when there was none previously : 9216"
-        # Allow the DPUDeployment.spec.revisionHistoryLimit minimum constraint
-        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
-          kind: "DPUDeployment"
-          field: ".spec.revisionHistoryLimit"
-          error: "minimum constraint added when there was none previously : 1"
-        # Allow the DPUDeployment.spec.services validation to include at least one service and up to 50
-        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
-          kind: "DPUDeployment"
-          field: ".spec.services"
-          error: "minimum constraint added when there was none previously : 1"
-        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
-          kind: "DPUDeployment"
-          field: ".spec.services"
-          error: "maximum constraint added when there was none previously : 50"
-        # Allow the enforcement of min and maximum length of network interface name in DPUDeployment, DPUServiceConfiguration, DPUServiceInterface, ServiceInterfaceSet, ServiceInterface
-        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
-          kind: "DPUDeployment"
-          field: ".spec.serviceChains.switches[*].ports[*].service.interface"
-          error: "maximum decreased : 28 -> 15"
-        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
-          kind: "DPUServiceConfiguration"
-          field: ".spec.interfaces[*].name"
-          error: "maximum decreased : 28 -> 15"
-        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
-          kind: "DPUServiceInterface"
-          field: ".spec.template.spec.template.spec.service.interfaceName"
-          error: "maximum constraint added when there was none previously : 15"
-        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
-          kind: "ServiceInterfaceSet"
-          field: ".spec.template.spec.service.interfaceName"
-          error: "maximum constraint added when there was none previously : 15"
-        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
-          kind: "ServiceInterfaceSet"
-          field: ".spec.template.spec.service.interfaceName"
-          error: "minimum constraint added when there was none previously : 1"
-        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
-          kind: "ServiceInterface"
-          field: ".spec.service.interfaceName"
-          error: "maximum constraint added when there was none previously : 15"
-        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
-          kind: "ServiceInterface"
-          field: ".spec.service.interfaceName"
-          error: "minimum constraint added when there was none previously : 1"
-        # Allow PF/VF ID validation constraints (0-255) in DPUServiceInterface, ServiceInterfaceSet, ServiceInterface
-        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
-          kind: "DPUServiceInterface"
-          field: ".spec.template.spec.template.spec.pf.pfID"
-          error: "minimum constraint added when there was none previously : 0"
-        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
-          kind: "DPUServiceInterface"
-          field: ".spec.template.spec.template.spec.pf.pfID"
-          error: "maximum constraint added when there was none previously : 255"
-        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
-          kind: "DPUServiceInterface"
-          field: ".spec.template.spec.template.spec.vf.pfID"
-          error: "minimum constraint added when there was none previously : 0"
-        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
-          kind: "DPUServiceInterface"
-          field: ".spec.template.spec.template.spec.vf.pfID"
-          error: "maximum constraint added when there was none previously : 255"
-        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
-          kind: "DPUServiceInterface"
-          field: ".spec.template.spec.template.spec.vf.vfID"
-          error: "minimum constraint added when there was none previously : 0"
-        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
-          kind: "DPUServiceInterface"
-          field: ".spec.template.spec.template.spec.vf.vfID"
-          error: "maximum constraint added when there was none previously : 255"
-        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
-          kind: "ServiceInterfaceSet"
-          field: ".spec.template.spec.pf.pfID"
-          error: "minimum constraint added when there was none previously : 0"
-        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
-          kind: "ServiceInterfaceSet"
-          field: ".spec.template.spec.pf.pfID"
-          error: "maximum constraint added when there was none previously : 255"
-        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
-          kind: "ServiceInterfaceSet"
-          field: ".spec.template.spec.vf.pfID"
-          error: "minimum constraint added when there was none previously : 0"
-        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
-          kind: "ServiceInterfaceSet"
-          field: ".spec.template.spec.vf.pfID"
-          error: "maximum constraint added when there was none previously : 255"
-        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
-          kind: "ServiceInterfaceSet"
-          field: ".spec.template.spec.vf.vfID"
-          error: "minimum constraint added when there was none previously : 0"
-        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
-          kind: "ServiceInterfaceSet"
-          field: ".spec.template.spec.vf.vfID"
-          error: "maximum constraint added when there was none previously : 255"
-        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
-          kind: "ServiceInterface"
-          field: ".spec.pf.pfID"
-          error: "minimum constraint added when there was none previously : 0"
-        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
-          kind: "ServiceInterface"
-          field: ".spec.pf.pfID"
-          error: "maximum constraint added when there was none previously : 255"
-        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
-          kind: "ServiceInterface"
-          field: ".spec.vf.pfID"
-          error: "minimum constraint added when there was none previously : 0"
-        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
-          kind: "ServiceInterface"
-          field: ".spec.vf.pfID"
-          error: "maximum constraint added when there was none previously : 255"
-        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
-          kind: "ServiceInterface"
-          field: ".spec.vf.vfID"
-          error: "minimum constraint added when there was none previously : 0"
-        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
-          kind: "ServiceInterface"
-          field: ".spec.vf.vfID"
-          error: "maximum constraint added when there was none previously : 255"
-        # Allow NVConfig validation constraints (device enum refactoring + parameter validation)
-        - apiVersion: "provisioning.dpu.nvidia.com/v1alpha1"
-          kind: "DPUFlavor"
-          field: ".spec.nvconfig"
-          error: "maximum constraint added when there was none previously : 3"
-        - apiVersion: "provisioning.dpu.nvidia.com/v1alpha1"
-          kind: "DPUFlavor"
-          field: ".spec.nvconfig[*].device"
-          error: "enum constraint added when there was none previously : [\"*\" \"P0\" \"P1\" \"p0\" \"p1\"]"
-        - apiVersion: "provisioning.dpu.nvidia.com/v1alpha1"
-          kind: "DPUFlavor"
-          field: ".spec.nvconfig[*].parameters"
-          error: "minimum constraint added when there was none previously : 1"
-        - apiVersion: "provisioning.dpu.nvidia.com/v1alpha1"
-          kind: "DPUFlavor"
-          field: ".spec.nvconfig[*].parameters"
+        - apiVersion: "noderesources.dpu.nvidia.com/v1alpha1"
+          kind: "NodeSRIOVDevicePluginConfig"
+          field: ".spec.devicePluginResources"
           error: "maximum constraint added when there was none previously : 64"
-        - apiVersion: "provisioning.dpu.nvidia.com/v1alpha1"
-          kind: "DPUFlavor"
-          field: ".spec.nvconfig[*].parameters[*]"
-          error: "maximum constraint added when there was none previously : 200"
-        - apiVersion: "provisioning.dpu.nvidia.com/v1alpha1"
-          kind: "DPUFlavor"
-          field: ".spec.hostNetworkInterfaceConfigs[*].nvconfig.device"
-          error: "enum constraint added when there was none previously : [\"*\" \"P0\" \"P1\" \"p0\" \"p1\"]"
-        - apiVersion: "provisioning.dpu.nvidia.com/v1alpha1"
-          kind: "DPUFlavor"
-          field: ".spec.hostNetworkInterfaceConfigs[*].nvconfig.parameters"
-          error: "minimum constraint added when there was none previously : 1"
-        - apiVersion: "provisioning.dpu.nvidia.com/v1alpha1"
-          kind: "DPUFlavor"
-          field: ".spec.hostNetworkInterfaceConfigs[*].nvconfig.parameters"
-          error: "maximum constraint added when there was none previously : 64"
-        - apiVersion: "provisioning.dpu.nvidia.com/v1alpha1"
-          kind: "DPUFlavor"
-          field: ".spec.hostNetworkInterfaceConfigs[*].nvconfig.parameters[*]"
-          error: "maximum constraint added when there was none previously : 200"
-        # Allow BFB length constraints when making spec.bfb optional (mutually exclusive with blueFieldSoftware)
-        - apiVersion: "provisioning.dpu.nvidia.com/v1alpha1"
-          kind: "DPU"
-          field: ".spec.bfb"
-          error: "maximum constraint added when there was none previously : 253"
+        - apiVersion: "noderesources.dpu.nvidia.com/v1alpha1"
+          kind: "NodeSRIOVDevicePluginConfig"
+          field: ".spec.devicePluginResources[*].ranges"
+          error: "maximum constraint added when there was none previously : 1024"
