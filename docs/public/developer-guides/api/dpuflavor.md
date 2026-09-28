@@ -127,6 +127,9 @@ Setting a DPU VF trusted is not supported; there is no `trusted` option here (co
 |-------|------|--------------|
 | `enabled` | *bool | Create the SNAP DMA SF on BlueField-4. The agent picks the ECPF; sfnum is 8000 and MAC is derived |
 
+This SF is not listed under `scalableFunctions`. When it is enabled, set the workload
+group `count` to `PF_TOTAL_SF - 1` (see [Function counts and the firmware budget](#function-counts-and-the-firmware-budget)).
+
 ### Function counts and the firmware budget
 
 The agent creates what the groups declare. It does not check `PF_TOTAL_SF`; over-subscribe
@@ -145,8 +148,10 @@ Declare the trusted SFs as a group instead:
 spec:
   scalableFunctions:
     - count: 15            # workload SFs, previously the residual of PF_TOTAL_SF
+      device: "*"          # alternatively device: p0
       poolName: bf_sf
     - count: 5             # previously num-of-trusted-sfs: "5"
+      device: "*"          # alternatively device: p0
       poolName: bf_sf_trusted
       options:
         trusted: true
@@ -154,6 +159,37 @@ spec:
 
 Declaring any group also turns off the inference above, so the workload SFs must be declared
 in the same flavor.
+
+`count` is per selected device. Default for `device` is `*` and optional. If you want to control
+for single port for example `p0`, set  `device` explicitly to `"p0"`.
+The SNAP DMA SF is not consumed from `scalableFunctions` group. So when `spec.dma.enabled` is true, size the workload `count` as `PF_TOTAL_SF - 1` and leave `PF_TOTAL_SF` in [NVConfig](#nvconfig) unchanged.
+
+```yaml
+# BlueField-3 , set device to control where SFs are created from.
+spec:
+  nvconfig:
+    - device: "*"
+      parameters:
+        - PF_TOTAL_SF=20
+  scalableFunctions:
+    - count: 20
+      device: "*"          # optional, alternatively set `device: p0`
+      poolName: bf_sf
+```
+
+```yaml
+# BlueField-4 with SNAP DMA: omit device if not needed; reserve one firmware slot for dma.
+spec:
+  nvconfig:
+    - device: "*"
+      parameters:
+        - PF_TOTAL_SF=20
+  scalableFunctions:
+    - count: 19
+      poolName: bf_sf
+  dma:
+    enabled: true
+```
 
 ### DPUFlavorGrub
 
@@ -406,6 +442,10 @@ spec:
     - SRIOV_EN=1
     - NUM_OF_VFS=46
     - LAG_RESOURCE_ALLOCATION=1
+  scalableFunctions:
+  - count: 20
+    device: "*"  # alternatively device: p0
+    poolName: bf_sf
   ovs:
     rawConfigScript: |
       _ovs-vsctl() {

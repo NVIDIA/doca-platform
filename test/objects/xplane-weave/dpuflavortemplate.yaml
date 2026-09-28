@@ -39,6 +39,9 @@ spec:
             - PF_NUM_PF_MSIX=228
             - SRIOV_EN=1
             - NUM_OF_VFS=46
+      scalableFunctions:
+        - count: 20
+          poolName: bf_sf
 
       ovs:
         rawConfigScript: |

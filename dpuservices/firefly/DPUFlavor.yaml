@@ -57,10 +57,10 @@ spec:
         - LINK_TYPE_P2=ETH
   scalableFunctions:
     - count: 15
-      device: p0
+      device: "*"  # alternatively device: p0
       poolName: bf_sf
     - count: 5
-      device: p0
+      device: "*"  # alternatively device: p0
       options:
         trusted: true
       poolName: bf_sf_trusted

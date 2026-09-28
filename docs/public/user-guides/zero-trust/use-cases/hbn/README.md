@@ -414,6 +414,10 @@ spec:
     - LAG_RESOURCE_ALLOCATION=1
     - LINK_TYPE_P1=ETH
     - LINK_TYPE_P2=ETH
+  scalableFunctions:
+  - count: 20
+    device: "*"  # alternatively device: p0
+    poolName: bf_sf
   ovs:
     rawConfigScript: |
       _ovs-vsctl() {
@@ -1134,6 +1138,10 @@ spec:
     - LAG_RESOURCE_ALLOCATION=1
     - LINK_TYPE_P1=ETH
     - LINK_TYPE_P2=ETH
+  scalableFunctions:
+  - count: 20
+    device: "*"  # alternatively device: p0
+    poolName: bf_sf
   ovs:
     rawConfigScript: |
       _ovs-vsctl() {
