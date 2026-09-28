@@ -9,12 +9,12 @@ spec:
   helmChart:
     source:
       repoURL: $HELM_REGISTRY_REPO_URL
-      version: 3.4.0
+      version: 3.5.0
       chart: doca-hbn
     values:
       image:
         repository: $HBN_NGC_IMAGE_URL
-        tag: 3.4.0-doca3.4.0
+        tag: 3.5.0-doca3.5.0
       resources:
         memory: 6Gi
         nvidia.com/bf_sf: 5
