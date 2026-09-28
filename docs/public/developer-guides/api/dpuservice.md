@@ -9,36 +9,36 @@ nodes using Helm charts.
 
 ## Example
 
-The following is an example of a `DPUService` YAML for the blueman service:
+The following is an example of a `DPUService` YAML for the DOCA Telemetry Service (DTS):
 
 ```yaml
 apiVersion: svc.dpu.nvidia.com/v1alpha1
 kind: DPUService
 metadata:
-  name: doca-blueman-service
+  name: doca-telemetry-service
   namespace: dpf-operator-system
 spec:
   helmChart:
     source:
       repoURL: https://helm.ngc.nvidia.com/nvidia/doca
-      version: 1.0.8
-      chart: doca-blueman
+      version: 1.26.5
+      chart: doca-telemetry
   serviceDaemonSet:
     updateStrategy:
       type: RollingUpdate
       rollingUpdate:
         maxUnavailable: 2
     labels:
-      dpuservice.dpu.nvidia.com/name: doca-blueman-service
+      dpuservice.dpu.nvidia.com/name: doca-telemetry-service
     annotations:
-      dpuservice.dpu.nvidia.com/name: doca-blueman-service
+      dpuservice.dpu.nvidia.com/name: doca-telemetry-service
 ```
 
 In the above example:
 
-* A `DPUService` named `doca-blueman-service` is created in the `dpf-operator-system` namespace.
-* A HelmChart located at `https://helm.ngc.nvidia.com/nvidia/doca` with version `1.0.5`
-  and chart `doca-blueman` is used to deploy the `DPUService`.
+* A `DPUService` named `doca-telemetry-service` is created in the `dpf-operator-system` namespace.
+* A HelmChart located at `https://helm.ngc.nvidia.com/nvidia/doca` with version `1.26.5`
+  and chart `doca-telemetry` is used to deploy the `DPUService`.
 * A `DaemonSet` is deployed on target DPU nodes. We specify the update strategy,
   labels, and annotations for the `DaemonSet`.
 
@@ -62,8 +62,8 @@ spec:
   helmChart:
     source:
       repoURL: https://helm.ngc.nvidia.com/nvidia/doca
-      version: 1.0.8
-      chart: doca-blueman
+      version: 1.26.5
+      chart: doca-telemetry
 ```
 The following fields are used to specify the Helm chart:
 

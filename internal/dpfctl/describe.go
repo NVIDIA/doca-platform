@@ -1187,7 +1187,7 @@ func filterRequestorsForDPUSet(requestors []string, parentDPUDeploymentPrefix st
 		if len(parts) >= 3 {
 			// This is a DPUService/DPUServiceChain requestor: namespace_dpudeployment_objectname
 			// Check if it matches the parent DPUDeployment
-			// Format: dpf-operator-system_ovn-hbn_blueman-wbwp7
+			// Format: dpf-operator-system_ovn-hbn_dts-wbwp7
 			requestorPrefix := fmt.Sprintf("%s_%s", parts[0], parts[1])
 
 			// If no parent prefix (standalone DPUSet), show all requestors

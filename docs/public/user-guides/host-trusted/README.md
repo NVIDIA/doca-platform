@@ -34,7 +34,6 @@ Below are the validated user guides with corresponding deployment guides.
 | DOCA Host-Based Networking (HBN) | Accelerates underlay BGP routing with ECMP from the DPU   |
 | OVN Kubernetes with DPU offload  | Provides SDN overlay services and Kubernetes CNI offloads |
 | DOCA Telemetry Service (DTS)     | Provides enhanced DPU telemetry                           |
-| DOCA BlueMan                     | Offers a user-friendly GUI for DTS                        |
 
 ### OVN Kubernetes
 
@@ -44,7 +43,6 @@ Below are the validated user guides with corresponding deployment guides.
 |---------------------------------|-----------------------------------------------------------|
 | OVN Kubernetes with DPU offload | Provides SDN overlay services and Kubernetes CNI offloads |
 | DOCA Telemetry Service (DTS)    | Provides enhanced DPU telemetry                           |
-| DOCA BlueMan                    | Offers a user-friendly GUI for DTS                        |
 
 ### HBN
 
@@ -78,7 +76,6 @@ No DPUServices are necessary for this use case.
 | DOCA Host-Based Networking (HBN) | Accelerates underlay BGP routing with ECMP and EVPN-based overlays |
 | OVN Kubernetes with DPU offload  | Provides SDN overlay services and Kubernetes CNI offloads          |
 | DOCA Telemetry Service (DTS)     | Provides enhanced DPU telemetry                                    |
-| DOCA BlueMan                     | Offers a user-friendly GUI for DTS                                 |
 | DOCA SNAP                        | Provides shared storage for Kubernetes workloads                   |
 
 ## Prerequisites

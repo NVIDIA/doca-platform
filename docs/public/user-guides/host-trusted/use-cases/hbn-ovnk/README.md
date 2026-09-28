@@ -773,9 +773,6 @@ spec:
     dts:
       serviceTemplate: dts
       serviceConfiguration: dts
-    blueman:
-      serviceTemplate: blueman
-      serviceConfiguration: blueman
   serviceChains:
     switches:
       - ports:
@@ -1016,38 +1013,6 @@ spec:
 ```
 </details>
 
-<details markdown="1"><summary><b>Blueman DPUServiceConfig and DPUServiceTemplate to deploy Blueman to the DPUs</b></summary>
-
-[embedmd]:#(manifests/05-dpudeployment-installation/dpuserviceconfig_blueman.yaml)
-```yaml
----
-apiVersion: svc.dpu.nvidia.com/v1alpha1
-kind: DPUServiceConfiguration
-metadata:
-  name: blueman
-  namespace: dpf-operator-system
-spec:
-  deploymentServiceName: "blueman"
-```
-
-[embedmd]:#(manifests/05-dpudeployment-installation/dpuservicetemplate_blueman.yaml)
-```yaml
----
-apiVersion: svc.dpu.nvidia.com/v1alpha1
-kind: DPUServiceTemplate
-metadata:
-  name: blueman
-  namespace: dpf-operator-system
-spec:
-  deploymentServiceName: "blueman"
-  helmChart:
-    source:
-      repoURL: $HELM_REGISTRY_REPO_URL
-      version: 1.0.8
-      chart: doca-blueman
-```
-</details>
-
 <details markdown="1"><summary><b>OVN DPUServiceCredentialRequest to allow cross cluster communication</b></summary>
 
 [embedmd]:#(manifests/05-dpudeployment-installation/ovn-credentials.yaml)
@@ -1222,9 +1187,9 @@ DPFOperatorConfig/dpfoperatorconfig         dpf-operator-system    Ready: True  
     │     └─2 DPUs...                       dpf-operator-system    Ready: True   DPUReady   2h     See dpu-node-mt2310xz03lr-mt2310xz03lr, dpu-node-mt2310xz03m2-mt2310xz03m2
     └─Services
       ├─DPUServiceTemplates
-      │ └─4 DPUServiceTemplates...          dpf-operator-system    Ready: True   Success    2h     See ovn-hbn-blueman, ovn-hbn-dts, ovn-hbn-hbn, ovn-hbn-ovn
+      │ └─3 DPUServiceTemplates...          dpf-operator-system    Ready: True   Success    2h     See ovn-hbn-dts, ovn-hbn-hbn, ovn-hbn-ovn
       └─DPUServices
-        └─4 DPUServices...                  dpf-operator-system    Ready: True   Success    2h     See ovn-hbn-blueman-4tlmp, ovn-hbn-dts-49282, ovn-hbn-hbn-hd92m, ovn-hbn-ovn-l2xsl
+        └─3 DPUServices...                  dpf-operator-system    Ready: True   Success    2h     See ovn-hbn-dts-49282, ovn-hbn-hbn-hd92m, ovn-hbn-ovn-l2xsl
 ```
 
 #### Deploy test pods 

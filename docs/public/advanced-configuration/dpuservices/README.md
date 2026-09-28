@@ -9,8 +9,6 @@ This section contains documentation for the DPU services that can be deployed an
 
 * **Firefly**: DOCA Firefly service for secure PTP synchronization
     * [Firefly User Guide](firefly.md)
-* **BlueMan**: DOCA BlueMan service for comprehensive DPU management
-    * [BlueMan User Guide](blueman.md)
 * **Telemetry Service (DTS)**: DOCA Telemetry Service for monitoring and metrics collection
     * [DTS User Guide](doca-telemetry-service.md)
 * **Host-Based Networking (HBN)**: DOCA Host-Based Networking service for advanced networking capabilities

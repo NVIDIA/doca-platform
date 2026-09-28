@@ -29,9 +29,6 @@ spec:
     dts:
       serviceTemplate: dts
       serviceConfiguration: dts
-    blueman:
-      serviceTemplate: blueman
-      serviceConfiguration: blueman
     snap-node-driver:
       serviceTemplate: snap-node-driver
       serviceConfiguration: snap-node-driver
