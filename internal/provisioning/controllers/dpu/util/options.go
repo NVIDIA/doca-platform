@@ -33,6 +33,8 @@ import (
 
 const (
 	MaxRetryCount = 10
+	// DefaultDPUMaxConcurrentReconciles is the default number of concurrent DPU reconcile workers.
+	DefaultDPUMaxConcurrentReconciles int32 = 1
 	// DefaultOSInstallRetries is the default maximum number of retryable OS
 	// installation attempts in zero-trust mode before transitioning to Error.
 	// Used when DPFOperatorConfig.spec.provisioningController.osInstallRetries is unset.
@@ -59,6 +61,7 @@ type DPUOptions struct {
 	BFBRegistryLoadBalancer     string
 	CustomCASecretName          string
 	MaxDPUParallelInstallations int32
+	DPUMaxConcurrentReconciles  int32
 	// KubernetesAPIServerVIP is the Kubernetes API server VIP configured for the DMS/hostagent
 	// Pod (from DPFOperatorConfig KubernetesAPIServerVIP, passed via --dms-pod-envs). It is added
 	// to the bfb-registry server certificate SANs so the hostagent's VIP-based NodePort download

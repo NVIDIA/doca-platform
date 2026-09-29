@@ -231,6 +231,7 @@ func (p *provisioningControllerObjects) dpfProvisioningDeploymentEdit(vars Varia
 			p.setDeploymentMode,
 			p.setKubernetesAPIServerEnvVars,
 			p.setMaxDPUParallelInstallations,
+			p.setDPUMaxConcurrentReconciles,
 			p.setMultiDPUOperationsSyncWaitTime,
 			p.setMaxUnavailableDPUNodes,
 			p.setOSInstallTimeout,
@@ -522,6 +523,19 @@ func (p *provisioningControllerObjects) setMaxDPUParallelInstallations(deploy *a
 		return nil
 	}
 	return setFlags(c, fmt.Sprintf("--max-dpu-parallel-installations=%d", *vars.DPFProvisioningController.MaxDPUParallelInstallations))
+}
+
+// setDPUMaxConcurrentReconciles sets --dpu-max-concurrent-reconciles on the
+// provisioning controller when DPFOperatorConfig specifies a non-zero value.
+func (p *provisioningControllerObjects) setDPUMaxConcurrentReconciles(deploy *appsv1.Deployment, vars Variables) error {
+	if vars.DPFProvisioningController.DPUMaxConcurrentReconciles == 0 {
+		return nil
+	}
+	c := getManagerContainer(deploy)
+	if c == nil {
+		return fmt.Errorf(errManagerContainerNotFoundFmt, managerContainerName)
+	}
+	return setFlags(c, fmt.Sprintf("--dpu-max-concurrent-reconciles=%d", vars.DPFProvisioningController.DPUMaxConcurrentReconciles))
 }
 
 func (p *provisioningControllerObjects) setOSInstallRetries(deploy *appsv1.Deployment, vars Variables) error {

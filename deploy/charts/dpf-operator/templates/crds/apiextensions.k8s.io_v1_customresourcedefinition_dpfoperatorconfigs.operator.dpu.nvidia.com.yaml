@@ -1661,6 +1661,17 @@ spec:
                       a DMS API must respond, 0 is unlimited
                     minimum: 1
                     type: integer
+                  dpuMaxConcurrentReconciles:
+                    default: 1
+                    description: |-
+                      DPUMaxConcurrentReconciles specifies the maximum number of DPU objects that the
+                      provisioning DPU controller may reconcile concurrently. Reconciles for the same
+                      DPU remain serialized by the controller workqueue.
+                      When unset, the provisioning controller defaults to 1, matching the previous
+                      single-worker behavior. Raise this to overlap I/O-bound provisioning of different DPUs.
+                    format: int32
+                    minimum: 1
+                    type: integer
                   enableDynamicBFCFGTemplates:
                     description: |-
                       EnableDynamicBFCFGTemplates enables runtime discovery of bf.cfg templates via ConfigMaps.

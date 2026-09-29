@@ -175,6 +175,8 @@ func generateDPFOperatorConfig() *operatorv1.DPFOperatorConfig {
 				DiscoveredDPUDeviceBMCFactoryResetPolicy: provisioningv1.BMCFactoryResetPolicyNever,
 			},
 		}
+		// Set provisioning controller reconcile workers to 2 to test concurrency
+		dpfOperatorConfig.Spec.ProvisioningController.DPUMaxConcurrentReconciles = 2
 		dpfOperatorConfig.Spec.DPUDetector = &operatorv1.DPUDetectorConfiguration{
 			BaseComponentConfig: operatorv1.BaseComponentConfig{
 				Disable: ptr.To(true),

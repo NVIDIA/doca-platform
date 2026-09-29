@@ -292,6 +292,11 @@ spec:
 * `spec.provisioningController.maxDPUParallelInstallations`: Controls the maximum number of DPUs that can be provisioned concurrently.
     The default value is 50. The value must be at least 1.
 
+* `spec.provisioningController.dpuMaxConcurrentReconciles`: Controls how many different DPU objects the DPU controller can reconcile concurrently.
+    The value must be at least 1. The controller-runtime workqueue still serializes reconciles for the same DPU.
+    This worker limit is independent of `maxDPUParallelInstallations`: the latter limits how many DPUs may be in the provisioning lifecycle,
+    while this setting limits how many DPU reconcile loops may execute at once. It does not affect other controllers in the provisioning manager.
+
 * `spec.provisioningController.maxUnavailableDPUNodes`: Maximum number of DPU nodes that can be unavailable during node effects. The DPUSet controller also uses this value as the maximum number of unavailable DPUs when deleting outdated DPUs during a rolling update; the deprecated `DPUSet.spec.strategy.rollingUpdate.maxUnavailable` value is ignored. The provisioning controller interacts with the maintenance-operator to implement the node effect. The number of nodes that can have a node effect applied simultaneously is determined by MaxUnavailableDPUNodes in dpfoperatorconfig and MaxParallelOperations in the NodeMaintenance-operator configuration. NodeMaintenanceOperator has higher priority than what is defined in the DPFOperatorConfig. The default value of DPFOperatorConfig.MaxUnavailableDPUNodes is 50. For the default MaintenanceOperatorConfig values see instructions in [helm prerequisites](https://gitlab-master.nvidia.com/doca-platform-foundation/doca-platform-foundation/-/blob/main/docs/public/getting-started/helm-prerequisites.md?ref_type=heads).
 
 * `spec.provisioningController.osInstallRetries`: Maximum number of retryable OS installation attempts in zero-trust mode before the DPU transitions to Error. When unset, the provisioning controller defaults to 2.

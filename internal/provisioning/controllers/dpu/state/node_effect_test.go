@@ -17,6 +17,9 @@ limitations under the License.
 package state_test
 
 import (
+	"fmt"
+	"sync"
+
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
@@ -737,6 +740,71 @@ var _ = Describe("DPU: Node Effect", func() {
 			defaultDPUName  = "dpu-add-requestor-test"
 			defaultNodeName = "node-add-requestor-test"
 		)
+
+		It("preserves requestors added concurrently by different DPUs", func() {
+			const workers = 4
+			node := nodeObj(defaultNodeName)
+			createObject(node)
+
+			dpuNode := dpuNodeObj(node.Name)
+			createObject(dpuNode)
+			patch := client.MergeFrom(dpuNode.DeepCopy())
+			dpuNode.Status.KubeNodeRef = ptr.To(node.Name)
+			Expect(k8sClient.Status().Patch(ctx, dpuNode, patch)).To(Succeed())
+
+			nodeEffect := provisioningv1.NodeEffect{
+				Action: provisioningv1.Action{
+					Drain: ptr.To(true),
+					Force: ptr.To(false),
+				},
+			}
+			maintenanceName, err := cutil.GenerateDPUNodeMaintenanceObjectName(dpuNode.Name, nodeEffect)
+			Expect(err).NotTo(HaveOccurred())
+			createObject(&provisioningv1.DPUNodeMaintenance{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      maintenanceName,
+					Namespace: testNS.Name,
+				},
+				Spec: provisioningv1.DPUNodeMaintenanceSpec{
+					DPUNodeName: dpuNode.Name,
+					NodeEffect:  nodeEffect.DeepCopy(),
+				},
+			})
+
+			var wg sync.WaitGroup
+			errs := make(chan error, workers)
+			for i := range workers {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					dpu := dpuObj(fmt.Sprintf("%s-%d", defaultDPUName, i))
+					dpu.Spec.DPUNodeName = dpuNode.Name
+					dpu.Spec.NodeEffect = *nodeEffect.DeepCopy()
+					dpu.Status.Phase = provisioningv1.DPUNodeEffect
+					_, reconcileErr := state.NodeEffect(ctx, dpu, &dutil.ControllerContext{
+						Client: k8sClient,
+						Options: dutil.DPUOptions{
+							DPUInstallInterface: string(provisioningv1.InstallViaGNOI),
+						},
+					})
+					errs <- reconcileErr
+				}()
+			}
+			wg.Wait()
+			close(errs)
+			for reconcileErr := range errs {
+				Expect(reconcileErr).NotTo(HaveOccurred())
+			}
+
+			maintenance := &provisioningv1.DPUNodeMaintenance{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Namespace: testNS.Name,
+				Name:      maintenanceName,
+			}, maintenance)).To(Succeed())
+			for i := range workers {
+				Expect(maintenance.Spec.Requestor).To(ContainElement(fmt.Sprintf("%s-%d", defaultDPUName, i)))
+			}
+		})
 
 		It("should add requestor to existing DPUNodeMaintenance when not already present", func() {
 			node := nodeObj(defaultNodeName)
