@@ -296,6 +296,7 @@ func TestDPFOperatorConfig_Validation(t *testing.T) {
 						},
 						BFBPersistentVolumeClaimName: ptr.To("name"),
 						MaxDPUParallelInstallations:  ptr.To(int32(10)),
+						DPUMaxConcurrentReconciles:   25,
 					},
 					Flannel: &operatorv1.FlannelConfiguration{
 						HelmComponentConfig: operatorv1.HelmComponentConfig{
@@ -318,6 +319,23 @@ func TestDPFOperatorConfig_Validation(t *testing.T) {
 					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
 						BFBPersistentVolumeClaimName: ptr.To("name"),
 						MaxDPUParallelInstallations:  ptr.To(int32(0)),
+					},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "fail for DPUMaxConcurrentReconciles below minimum",
+			config: &operatorv1.DPFOperatorConfig{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "config-dpu-max-concurrent-reconciles-below-minimum",
+					Namespace: testNS.Name,
+				},
+				Spec: operatorv1.DPFOperatorConfigSpec{
+					DeploymentMode: operatorv1.DeploymentModeHostTrusted,
+					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
+						BFBPersistentVolumeClaimName: ptr.To("name"),
+						DPUMaxConcurrentReconciles:   -1,
 					},
 				},
 			},

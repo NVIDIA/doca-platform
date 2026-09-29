@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -171,6 +172,34 @@ func pcieLowSELEntry() rc.SELEntry {
 }
 
 var _ = Describe("Installing", func() {
+	It("increments install retries safely from concurrent reconciles", func() {
+		const workers = 25
+		dpuUID := types.UID("concurrent-install-retries")
+		clearInstallState(dpuUID)
+		DeferCleanup(clearInstallState, dpuUID)
+
+		var wg sync.WaitGroup
+		results := make(chan int, workers)
+		for range workers {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				results <- incrementInstallRetryCounter(dpuUID)
+			}()
+		}
+		wg.Wait()
+		close(results)
+
+		seen := map[int]struct{}{}
+		for result := range results {
+			seen[result] = struct{}{}
+		}
+		Expect(seen).To(HaveLen(workers))
+		for expected := 1; expected <= workers; expected++ {
+			Expect(seen).To(HaveKey(expected))
+		}
+	})
+
 	Context("restartOSInstallError", func() {
 		It("marks wrapped errors as a failed OS install run and leaves plain errors alone", func() {
 			base := errors.New("boom")

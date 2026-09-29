@@ -47,6 +47,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -400,6 +401,10 @@ func (r *DPUReconciler) adoptGeneratedFlavor(ctx context.Context, dpu *provision
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *DPUReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	maxConcurrentReconciles := r.ctrlCtx.Options.DPUMaxConcurrentReconciles
+	if maxConcurrentReconciles < 1 {
+		maxConcurrentReconciles = util.DefaultDPUMaxConcurrentReconciles
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&provisioningv1.DPU{}).
 		Watches(&provisioningv1.DPUCluster{}, handler.EnqueueRequestsFromMapFunc(r.nonInitializedDPU)).
@@ -411,6 +416,7 @@ func (r *DPUReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&corev1.Service{},
 			handler.EnqueueRequestsFromMapFunc(r.bfbRegistryServiceToRequest),
 			builder.WithPredicates(predicate.NewPredicateFuncs(r.isBFBRegistryService))).
+		WithOptions(controller.Options{MaxConcurrentReconciles: int(maxConcurrentReconciles)}).
 		Complete(r)
 }
 

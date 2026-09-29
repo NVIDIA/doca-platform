@@ -28,6 +28,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -180,10 +181,10 @@ func createDPUNodeMaintenance(ctx context.Context, k8sClient client.Client, name
 	dpunodemaintenance.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = []string{}
 	// append DPU name to Requestor
 	dpunodemaintenance.Spec.Requestor = append(dpunodemaintenance.Spec.Requestor, dpu.Name)
-	if err := k8sClient.Create(ctx, dpunodemaintenance); err != nil {
+	if err := k8sClient.Create(ctx, dpunodemaintenance); err != nil && !apierrors.IsAlreadyExists(err) {
 		return err
 	}
-	logger.V(3).Info(fmt.Sprintf("Successfully created DPUNodeMaintenance (%s/%s) object", dpunodemaintenance.Namespace, dpunodemaintenance.Name))
+	logger.V(3).Info(fmt.Sprintf("Successfully ensured DPUNodeMaintenance (%s/%s) object", dpunodemaintenance.Namespace, dpunodemaintenance.Name))
 	return nil
 }
 
@@ -191,34 +192,39 @@ func createDPUNodeMaintenance(ctx context.Context, k8sClient client.Client, name
 // if dpu.Spec.NodeEffect.Force is true, and dpunodemaintenance.Spec.NodeEffect.Force is false, update dpunodemaintenance.Spec.NodeEffect.Force to true. Because true is stronger than false
 // setting force to true is used for critical service update, it means the node effect should be applied immediately.
 func addRequestorAndUpdateForce(ctx context.Context, k8sClient client.Client, dpunodemaintenance *provisioningv1.DPUNodeMaintenance, dpuRequestor string, additionalRequestors []string, force bool) error {
-	originalDPUNodeMaintenance := dpunodemaintenance.DeepCopy()
-	found := false
-	for _, r := range dpunodemaintenance.Spec.Requestor {
-		if r == dpuRequestor {
-			found = true
-			break
+	key := client.ObjectKeyFromObject(dpunodemaintenance)
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		current := &provisioningv1.DPUNodeMaintenance{}
+		if err := k8sClient.Get(ctx, key, current); err != nil {
+			return err
 		}
-	}
-	if !found {
-		if force && dpunodemaintenance.Spec.NodeEffect.Force != nil && !*dpunodemaintenance.Spec.NodeEffect.Force {
-			dpunodemaintenance.Spec.NodeEffect.Force = &force
+
+		if isDPUInRequestor(current, dpuRequestor) {
+			return nil
 		}
-		dpunodemaintenance.Spec.Requestor = append(dpunodemaintenance.Spec.Requestor, dpuRequestor)
-		dpunodemaintenance.Spec.Requestor = append(dpunodemaintenance.Spec.Requestor, additionalRequestors...)
-		dpunodemaintenance.Spec.Requestor = cutil.RemoveDuplicates(dpunodemaintenance.Spec.Requestor)
+
+		original := current.DeepCopy()
+		if force && current.Spec.NodeEffect.Force != nil && !*current.Spec.NodeEffect.Force {
+			current.Spec.NodeEffect.Force = &force
+		}
+		current.Spec.Requestor = append(current.Spec.Requestor, dpuRequestor)
+		current.Spec.Requestor = append(current.Spec.Requestor, additionalRequestors...)
+		current.Spec.Requestor = cutil.RemoveDuplicates(current.Spec.Requestor)
 		jsonStr, err := cutil.MarshalJSON(additionalRequestors)
 		if err != nil {
 			return fmt.Errorf("failed to marshal node maintenance additional requestors: %w", err)
 		}
 		lastAppliedAdditionalRequestorsOnDPUKey := cutil.GenerateLastAppliedAdditionalRequestorsOnDPUAnnotationKey(dpuRequestor)
-		dpunodemaintenance.Annotations[lastAppliedAdditionalRequestorsOnDPUKey] = jsonStr
-		patch := client.MergeFrom(originalDPUNodeMaintenance)
-		if err := k8sClient.Patch(ctx, dpunodemaintenance, patch); err != nil {
-			return fmt.Errorf("failed to patch dpunodemaintenance %s, err: %v", originalDPUNodeMaintenance.Name, err)
+		if current.Annotations == nil {
+			current.Annotations = map[string]string{}
 		}
-	}
-
-	return nil
+		current.Annotations[lastAppliedAdditionalRequestorsOnDPUKey] = jsonStr
+		patch := client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{})
+		if err := k8sClient.Patch(ctx, current, patch); err != nil {
+			return fmt.Errorf("failed to patch dpunodemaintenance %s: %w", original.Name, err)
+		}
+		return nil
+	})
 }
 
 func isDPUInRequestor(dpunodemaintenance *provisioningv1.DPUNodeMaintenance, dpuName string) bool {

@@ -792,6 +792,7 @@ func TestDPFProvisioningControllerObjects_setMaxDPUParallelInstallations(t *test
 			BFBPersistentVolumeClaimName: &expectedPVC,
 			DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
 			MaxDPUParallelInstallations:  ptr.To(int32(10)),
+			DPUMaxConcurrentReconciles:   25,
 		}
 
 		generatedObjs, err := provCtrl.GenerateManifests(context.Background(), vars)
@@ -814,6 +815,7 @@ func TestDPFProvisioningControllerObjects_setMaxDPUParallelInstallations(t *test
 		g.Expect(deployment).NotTo(BeNil())
 		g.Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(2))
 		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--max-dpu-parallel-installations=10"))
+		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--dpu-max-concurrent-reconciles=25"))
 	})
 
 	t.Run("test default (unset) max DPU parallel installations", func(t *testing.T) {
@@ -846,6 +848,7 @@ func TestDPFProvisioningControllerObjects_setMaxDPUParallelInstallations(t *test
 		g.Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(2))
 		for _, arg := range deployment.Spec.Template.Spec.Containers[0].Args {
 			g.Expect(arg).NotTo(ContainSubstring("--max-dpu-parallel-installations"))
+			g.Expect(arg).NotTo(ContainSubstring("--dpu-max-concurrent-reconciles"))
 		}
 	})
 

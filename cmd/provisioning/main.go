@@ -130,6 +130,7 @@ type cliFlags struct {
 	customCASecretName                 string
 	dmsPodEnvs                         []string
 	maxDPUParallelInstallations        int32
+	dpuMaxConcurrentReconciles         int32
 	enableDpuDiscovery                 bool
 	multiDPUOperationsSyncWaitTime     time.Duration
 	maxUnavailableDPUNodes             int32
@@ -173,6 +174,7 @@ func parseFlags() *cliFlags {
 	fs.StringVar(&flags.customCASecretName, "custom-CA-secret", "", "the secret object which containing the custom CA certificate")
 	fs.StringSliceVar(&flags.dmsPodEnvs, "dms-pod-envs", []string{}, "environment variables to set in the DMS pod")
 	fs.Int32Var(&flags.maxDPUParallelInstallations, "max-dpu-parallel-installations", 50, "The maximum number of DPUs that can be in provisioning at once")
+	fs.Int32Var(&flags.dpuMaxConcurrentReconciles, "dpu-max-concurrent-reconciles", dutil.DefaultDPUMaxConcurrentReconciles, "The maximum number of DPU objects that can be reconciled concurrently")
 	fs.BoolVar(&flags.enableDpuDiscovery, "enable-dpu-discovery", true, "Enable autmated DPU discovery")
 	fs.DurationVar(&flags.multiDPUOperationsSyncWaitTime, "multi-dpu-operations-sync-wait-time", 30*time.Second, "The wait time between DPUs sync operations on the same node")
 	fs.Int32Var(&flags.maxUnavailableDPUNodes, "max-unavailable-dpu-nodes", 50, "The maximum number of unavailable DPUNodes during node effects and unavailable DPUs during DPUSet rolling updates")
@@ -290,6 +292,7 @@ func setupControllers(mgr ctrl.Manager, flags *cliFlags, bfbRegistry string, ima
 		CustomCASecretName:                 flags.customCASecretName,
 		KubernetesAPIServerVIP:             bfbregistry.APIServerVIPFromDMSPodEnvs(flags.dmsPodEnvs),
 		MaxDPUParallelInstallations:        flags.maxDPUParallelInstallations,
+		DPUMaxConcurrentReconciles:         flags.dpuMaxConcurrentReconciles,
 		OSInstallTimeout:                   flags.osInstallTimeout,
 		OSInstallRetries:                   flags.osInstallRetries,
 		FirmwareUpdateTimeout:              flags.firmwareUpdateTimeout,
