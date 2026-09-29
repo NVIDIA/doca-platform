@@ -1,11 +1,49 @@
 unhandledEnforcement: None
 validations:
   - name: default
-    enforcement: Warn
+    enforcement: Error
+    configuration:
+      # Breaking changes since v25.10
+      allowList:
+        - apiVersion: "provisioning.dpu.nvidia.com/v1alpha1"
+          kind: "DPUFlavor"
+          field: ".spec.dpuMode"
+          error: 'default value removed : "\"dpu\""'
+        - apiVersion: "provisioning.dpu.nvidia.com/v1alpha1"
+          kind: "DPU"
+          field: ".spec.nodeEffect"
+          error: 'default value removed : "{\"drain\":true}"'
+        - apiVersion: "provisioning.dpu.nvidia.com/v1alpha1"
+          kind: "DPUSet"
+          field: ".spec.strategy.type"
+          error: 'default value removed : "\"OnDelete\""'
+        - apiVersion: "provisioning.dpu.nvidia.com/v1alpha1"
+          kind: "DPUSet"
+          field: ".spec.dpuTemplate.spec.nodeEffect"
+          error: 'default value removed : "{\"drain\":true}"'
   - name: description
     enforcement: Warn # changing to warning is important for the deprecation feature
   - name: minLength
-    enforcement: Warn
+    enforcement: Error
+    configuration:
+      # Breaking changes since v25.10
+      allowList:
+        - apiVersion: "provisioning.dpu.nvidia.com/v1alpha1"
+          kind: "DPUDevice"
+          field: ".spec.serialNumber"
+          error: "minimum constraint added when there was none previously : 1"
+        - apiVersion: "svc.dpu.nvidia.com/v1alpha1"
+          kind: "DPUServiceInterface"
+          field: ".spec.template.spec.template.spec.service.interfaceName"
+          error: "minimum constraint added when there was none previously : 1"
+        - apiVersion: "provisioning.dpu.nvidia.com/v1alpha1"
+          kind: "DPUSet"
+          field: ".spec.dpuTemplate.spec.bfb.name"
+          error: "minimum constraint added when there was none previously : 1"
+        - apiVersion: "provisioning.dpu.nvidia.com/v1alpha1"
+          kind: "DPUSet"
+          field: ".spec.dpuTemplate.spec.dpuFlavor"
+          error: "minimum constraint added when there was none previously : 1"
   - name: enum
     enforcement: Error
     configuration:
