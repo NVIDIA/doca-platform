@@ -24,6 +24,7 @@ import (
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	"github.com/nvidia/doca-platform/pkg/conditions"
+	"github.com/nvidia/doca-platform/test/utils/testedservices"
 
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -72,6 +73,7 @@ func WaitForDPUServices(ctx context.Context, testClient client.Client, namespace
 		g.Expect(report.missing).To(BeEmpty(), report.String())
 		g.Expect(report.notReady).To(BeEmpty(), report.String())
 	}).WithTimeout(20 * time.Minute).WithPolling(time.Second).Should(Succeed())
+	testedservices.RecordReadyDPUServices(ctx, testClient)
 }
 
 // dpuServiceReadinessReport captures the current DPUService readiness state for diagnostics.
@@ -150,12 +152,13 @@ func dpuServiceReadyConditionMessage(service *dpuservicev1.DPUService) string {
 	)
 }
 
-func WaitForDPUDeploymentReady(ctx context.Context, client client.Client, namespace string, deploymentNames []string, timeout time.Duration) {
+func WaitForDPUDeploymentReady(ctx context.Context, testClient client.Client, namespace string, deploymentNames []string, timeout time.Duration) {
 	Eventually(func(g Gomega) {
 		for _, deploymentName := range deploymentNames {
-			g.Expect(IsDPUDeploymentReady(ctx, g, client, deploymentName, namespace)).To(BeTrue())
+			g.Expect(IsDPUDeploymentReady(ctx, g, testClient, deploymentName, namespace)).To(BeTrue())
 		}
 	}, timeout).Should(Succeed())
+	testedservices.RecordReadyDPUServices(ctx, testClient)
 }
 
 func IsDPUServiceInterfaceReady(ctx context.Context, g Gomega, testClient client.Client, interfaceName string, namespace string) bool {
