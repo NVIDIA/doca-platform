@@ -38,6 +38,7 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 )
 
@@ -160,9 +161,10 @@ var _ = Describe("DPUDevice SPIFFE reconcile (envtest)", Ordered, func() {
 
 		device := &provisioningv1.DPUDevice{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      deviceName,
-				Namespace: namespace,
-				Labels:    map[string]string{provisioningv1.DPUDeviceLabelSkipHWProvisioning: "true"},
+				Name:       deviceName,
+				Namespace:  namespace,
+				Labels:     map[string]string{provisioningv1.DPUDeviceLabelSkipHWProvisioning: "true"},
+				Finalizers: []string{provisioningv1.DPUDeviceFinalizer},
 			},
 			Spec: provisioningv1.DPUDeviceSpec{SerialNumber: serial},
 		}
@@ -214,8 +216,30 @@ var _ = Describe("DPUDevice SPIFFE reconcile (envtest)", Ordered, func() {
 		}).WithTimeout(spiffeEnvtestEventuallyTimeout).WithPolling(spiffeEnvtestEventuallyInterval).Should(Succeed())
 
 		Expect(k8sClient.Delete(envCtx, device)).To(Succeed())
+		Consistently(func(g Gomega) {
+			gotDevice := &provisioningv1.DPUDevice{}
+			g.Expect(k8sClient.Get(envCtx, client.ObjectKeyFromObject(device), gotDevice)).To(Succeed())
+			g.Expect(gotDevice.DeletionTimestamp.IsZero()).To(BeFalse())
+			g.Expect(gotDevice.Finalizers).To(ContainElements(provisioningv1.DPUDeviceFinalizer, provisioningv1.SPIFFEDeregistrationFinalizer))
+			gotCSE := &spirev1alpha1.ClusterStaticEntry{}
+			g.Expect(k8sClient.Get(envCtx, client.ObjectKey{Name: cseName}, gotCSE)).To(Succeed())
+			g.Expect(gotCSE.DeletionTimestamp.IsZero()).To(BeTrue())
+		}).WithTimeout(time.Second).WithPolling(spiffeEnvtestEventuallyInterval).Should(Succeed())
+
+		// This manager runs only the DPUDevice controller; model the DPU controller's release.
+		Eventually(func(g Gomega) {
+			gotDevice := &provisioningv1.DPUDevice{}
+			g.Expect(k8sClient.Get(envCtx, client.ObjectKeyFromObject(device), gotDevice)).To(Succeed())
+			base := gotDevice.DeepCopy()
+			controllerutil.RemoveFinalizer(gotDevice, provisioningv1.DPUDeviceFinalizer)
+			g.Expect(k8sClient.Patch(envCtx, gotDevice, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{}))).To(Succeed())
+		}).WithTimeout(spiffeEnvtestEventuallyTimeout).WithPolling(spiffeEnvtestEventuallyInterval).Should(Succeed())
+
 		Eventually(func() bool {
 			return apierrors.IsNotFound(k8sClient.Get(envCtx, client.ObjectKey{Name: cseName}, &spirev1alpha1.ClusterStaticEntry{}))
-		}).WithTimeout(spiffeEnvtestEventuallyTimeout).WithPolling(spiffeEnvtestEventuallyInterval).Should(BeTrue())
+		}).WithTimeout(2 * spiffeEnvtestEventuallyTimeout).WithPolling(spiffeEnvtestEventuallyInterval).Should(BeTrue())
+		Eventually(func() bool {
+			return apierrors.IsNotFound(k8sClient.Get(envCtx, client.ObjectKeyFromObject(device), &provisioningv1.DPUDevice{}))
+		}).WithTimeout(2 * spiffeEnvtestEventuallyTimeout).WithPolling(spiffeEnvtestEventuallyInterval).Should(BeTrue())
 	})
 })
