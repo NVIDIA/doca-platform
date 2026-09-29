@@ -19,6 +19,7 @@ package dpudevice
 import (
 	"context"
 	"strings"
+	"time"
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -37,9 +38,11 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 )
 
@@ -395,6 +398,72 @@ var _ = Describe("mirrorSpiffeEntryStatus", func() {
 		expectCondition(metav1.ConditionFalse, conditions.ReasonError, "masked by another entry")
 	})
 })
+
+var _ = DescribeTable("DPUDevice protected deletion", func(spiffe bool) {
+	ctx := context.Background()
+	scheme := spiffeScheme()
+	Expect(corev1.AddToScheme(scheme)).To(Succeed())
+	device := spiffeDPUDevice()
+	device.Finalizers = []string{provisioningv1.DPUDeviceFinalizer, provisioningv1.BMCCredentialFinalizer}
+	device.Spec.BMCCredentialSecretName = ptr.To("device-password")
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
+		Name: "device-password", Namespace: device.Namespace,
+		Finalizers: []string{provisioningv1.BMCCredentialFinalizer},
+	}}
+	objects := []client.Object{device, secret}
+	if spiffe {
+		device.Finalizers = append(device.Finalizers, provisioningv1.SPIFFEDeregistrationFinalizer)
+		objects = append(objects, &spirev1alpha1.ClusterStaticEntry{ObjectMeta: metav1.ObjectMeta{Name: testCSEName}})
+	}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
+	r := &DPUDeviceReconciler{Client: cl}
+	req := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(device)}
+	Expect(cl.Delete(ctx, device)).To(Succeed())
+	Expect(cl.Get(ctx, req.NamespacedName, device)).To(Succeed())
+	Expect(device.DeletionTimestamp.IsZero()).To(BeFalse())
+
+	By("preserving dependencies on repeated reconciles while the DPU holds protection")
+	for range 2 {
+		result, err := r.Reconcile(ctx, req)
+		Expect(err).NotTo(HaveOccurred())
+		if spiffe {
+			cse, err := getCSE(ctx, cl)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cse.DeletionTimestamp.IsZero()).To(BeTrue())
+		}
+		Expect(cl.Get(ctx, client.ObjectKeyFromObject(secret), secret)).To(Succeed())
+		Expect(secret.Finalizers).To(ContainElement(provisioningv1.BMCCredentialFinalizer))
+		Expect(result.RequeueAfter).To(Equal(10 * time.Second))
+		Expect(cl.Get(ctx, req.NamespacedName, device)).To(Succeed())
+		Expect(device.Finalizers).To(ContainElements(provisioningv1.DPUDeviceFinalizer, provisioningv1.BMCCredentialFinalizer))
+		if spiffe {
+			Expect(device.Finalizers).To(ContainElement(provisioningv1.SPIFFEDeregistrationFinalizer))
+		}
+	}
+
+	By("resuming cleanup once the DPU releases protection")
+	base := device.DeepCopy()
+	controllerutil.RemoveFinalizer(device, provisioningv1.DPUDeviceFinalizer)
+	Expect(cl.Patch(ctx, device, client.MergeFrom(base))).To(Succeed())
+	result, err := r.Reconcile(ctx, req)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(result).To(Equal(ctrl.Result{}))
+	if spiffe {
+		_, err := getCSE(ctx, cl)
+		Expect(apierrors.IsNotFound(err)).To(BeTrue())
+	}
+	Expect(cl.Get(ctx, client.ObjectKeyFromObject(secret), secret)).To(Succeed())
+	Expect(secret.Finalizers).NotTo(ContainElement(provisioningv1.BMCCredentialFinalizer))
+	Expect(apierrors.IsNotFound(cl.Get(ctx, req.NamespacedName, &provisioningv1.DPUDevice{}))).To(BeTrue())
+
+	By("reconciling the deleted device as a no-op")
+	result, err = r.Reconcile(ctx, req)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(result).To(Equal(ctrl.Result{}))
+},
+	Entry("with SPIFFE identity", true),
+	Entry("with BMC credentials only", false),
+)
 
 var _ = Describe("SPIFFE ClusterStaticEntry deletion", func() {
 	var ctx context.Context
