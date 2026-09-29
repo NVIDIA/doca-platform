@@ -25,10 +25,13 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"math/big"
 	"math/rand"
 	"net"
+	"net/http"
 	"net/url"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -251,34 +254,83 @@ func GetTestDPUCluster(ns, name string) provisioningv1.DPUCluster {
 	}
 }
 
-// ResolveBFBImageURL resolves a BFB image URL to a real file path.
-// On our test environment, we can access NFS files via HTTP.
-// To be able to test the latest BFB image, we need to resolve the URL to a real file path.
+// ResolveBFBImageURL resolves a BFB image URL to a concrete .bfb URL.
+// Wildcard paths under /auto/sw_mc_soc_release/doca_dpu/ are expanded with Glob.
+// A URL that already ends in .bfb is returned unchanged. last_stable-style
+// pointers (path segment starts with last_stable, or an explicit .txt) fetch a
+// sibling/self .txt whose body is the real target. Any other URL is returned
+// unchanged.
 func ResolveBFBImageURL(bfbURL string) (string, error) {
-	// Parse the URL to get the path.
 	u, err := url.Parse(bfbURL)
 	if err != nil {
 		panic(err)
 	}
 
-	// Return early if the URL does not contain a wildcard or does not start with a certain path.
-	if !strings.Contains(u.Path, "*") || !strings.HasPrefix(u.Path, "/auto/sw_mc_soc_release/doca_dpu/") {
+	// Wildcard path (e.g. .../*.bfb): expand * on this machine's filesystem.
+	if strings.Contains(u.Path, "*") && strings.HasPrefix(u.Path, "/auto/sw_mc_soc_release/doca_dpu/") {
+		file, err := filepath.Glob(u.Path)
+		if err != nil {
+			return "", err
+		}
+		if len(file) == 0 {
+			return "", fmt.Errorf("no file found for %s", u.Path)
+		}
+		if len(file) > 1 {
+			return "", fmt.Errorf("multiple files found for %s", u.Path)
+		}
+
+		// Same URL, but with the matched path instead of the glob.
+		return fmt.Sprintf("%s://%s%s", u.Scheme, u.Host, file[0]), nil
+	}
+
+	if strings.HasSuffix(u.Path, ".bfb") {
 		return bfbURL, nil
 	}
 
-	// Get the real file path from the path in the URI.
-	file, err := filepath.Glob(u.Path)
-	if err != nil {
-		return "", err
-	}
-	if len(file) == 0 {
-		return "", fmt.Errorf("no file found for %s", u.Path)
-	}
-	if len(file) > 1 {
-		return "", fmt.Errorf("multiple files found for %s", u.Path)
+	base := path.Base(u.Path)
+	if strings.HasSuffix(u.Path, ".txt") || strings.HasPrefix(base, "last_stable") {
+		pointer := *u
+		if !strings.HasSuffix(pointer.Path, ".txt") {
+			pointer.Path += ".txt"
+		}
+		return resolveBFBPointer(pointer.String())
 	}
 
-	return fmt.Sprintf("%s://%s%s", u.Scheme, u.Host, file[0]), nil
+	return bfbURL, nil
+}
+
+// resolveBFBPointer GETs pointerURL and returns the BFB download URL from the body.
+// The body must be a single http(s) URL, or an absolute path which is joined with
+// the pointer's scheme and host.
+func resolveBFBPointer(pointerURL string) (string, error) {
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Get(pointerURL)
+	if err != nil {
+		return "", fmt.Errorf("fetch BFB pointer %s: %w", pointerURL, err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("fetch BFB pointer %s: HTTP %d", pointerURL, resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	if err != nil {
+		return "", fmt.Errorf("read BFB pointer %s: %w", pointerURL, err)
+	}
+	target := strings.TrimSpace(strings.ReplaceAll(string(body), "\r", ""))
+	if target == "" {
+		return "", fmt.Errorf("BFB pointer %s is empty", pointerURL)
+	}
+	if strings.HasPrefix(target, "http://") || strings.HasPrefix(target, "https://") {
+		return target, nil
+	}
+	if strings.HasPrefix(target, "/") {
+		pu, err := url.Parse(pointerURL)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("%s://%s%s", pu.Scheme, pu.Host, target), nil
+	}
+	return "", fmt.Errorf("BFB pointer %s body is neither an absolute path nor an http(s) URL: %s", pointerURL, target)
 }
 
 // ResolveHBNImageURL processes the HBN image URL and returns it if valid.

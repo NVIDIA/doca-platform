@@ -36,6 +36,7 @@ import (
 	"github.com/nvidia/doca-platform/test/e2e/cleanup"
 	"github.com/nvidia/doca-platform/test/utils"
 	"github.com/nvidia/doca-platform/test/utils/metrics"
+	"github.com/nvidia/doca-platform/test/utils/testedservices"
 	nvipamv1 "github.com/nvidia/doca-platform/third_party/api/nvipam/api/v1alpha1"
 	argov1 "github.com/nvidia/doca-platform/third_party/forked/argoproj/argo-cd/pkg/apis/application/v1alpha1"
 	kamajiv1 "github.com/nvidia/doca-platform/third_party/forked/github.com/clastix/kamaji/api/v1alpha1"
@@ -513,6 +514,9 @@ func reportAfterEach(spec SpecReport) {
 }
 
 var _ = ReportAfterEach(func(spec SpecReport) {
+	// Snapshot Ready DPUServices before spec cleanup deletes them.
+	testedservices.RecordReadyDPUServices(ctx, testClient)
+
 	// Collect diagnostics on failure (resources, logs, SOS reports)
 	reportAfterEach(spec)
 
@@ -521,6 +525,12 @@ var _ = ReportAfterEach(func(spec SpecReport) {
 })
 
 var _ = AfterSuite(func() {
+	// Long-lived Ready DPUServices (operator system, leftover product CRs) and
+	// suite-scoped BFB / BlueFieldSoftware before teardown.
+	testedservices.RecordReadyDPUServices(ctx, testClient)
+	testedservices.RecordReadyBFBs(ctx, testClient)
+	testedservices.RecordReadyBlueFieldSoftware(ctx, testClient)
+
 	collectInput := collectResourcesInput{
 		collectResources: collectResources,
 		testClient:       testClient,
