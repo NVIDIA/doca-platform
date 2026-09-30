@@ -17,6 +17,8 @@ limitations under the License.
 package e2e
 
 import (
+	"github.com/nvidia/doca-platform/test/e2e/upgrade/rollout"
+
 	. "github.com/onsi/ginkgo/v2"
 )
 
@@ -36,8 +38,11 @@ var _ = Describe("DPF Upgrade", func() {
 		label:                           Domain.DPFUpgradeValidation,
 		artifactsKey:                    "after",
 		compareArtifactsToBeforeRollout: "before",
-		rolloutDependencies:             true,
-		expectedDPUServices:             expectedDPUServicesCurrent,
-		expectedDPFVersion:              func() string { return tag },
+		rolloutAfterUpgrade: rolloutDependencies(
+			rollout.ExpectDPFVersion(func() string { return tag }),
+			rollout.ForDPUDeployment(0, rollout.WithCurrentDependencies()),
+		),
+		expectedDPUServices: expectedDPUServicesCurrent,
+		expectedDPFVersion:  func() string { return tag },
 	})
 })

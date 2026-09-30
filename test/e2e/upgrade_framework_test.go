@@ -35,6 +35,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -43,6 +44,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/pkg/conditions"
+	"github.com/nvidia/doca-platform/test/e2e/upgrade/rollout"
 	"github.com/nvidia/doca-platform/test/utils/dpuservice"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -88,6 +90,10 @@ type installPhaseInput struct {
 	expectedDPUServices func(input *systemTestInput) []string
 }
 
+// rolloutAfterUpgradeFunc performs the optional rollout portion of a validation
+// phase. The phase description is provided for resource names and diagnostics.
+type rolloutAfterUpgradeFunc = rollout.Step[*systemTestInput]
+
 // validationPhaseInput configures one validation phase of an upgrade path:
 // validate existing resources after the operator has been upgraded externally.
 // All booleans default to false and most fields are optional.
@@ -98,16 +104,9 @@ type validationPhaseInput struct {
 	// Must not return "". Use a closure so package-level vars (set by init)
 	// are read at test execution time, not Ginkgo tree-construction time.
 	expectedDPFVersion func() string
-	// rolloutAllDPUs deletes every DPU and waits for them to be recreated with
-	// the new DPFVersion. Used by BFB LTS phases that bump major.minor.
-	rolloutAllDPUs bool
-	// rolloutDPFVersionMinor is the major.minor expected in DPFVersion after
-	// rolloutAllDPUs (e.g. "v26.4").
-	rolloutDPFVersionMinor string
-	// rolloutDependencies updates one DPUDeployment to a new dependency set
-	// (BFB, DPUFlavor, DPUServiceTemplate, DPUServiceConfiguration) and waits
-	// for reconciliation. Used by regular and BFB LTS upgrades.
-	rolloutDependencies bool
+	// rolloutAfterUpgrade, if set, performs the phase-specific rollout after
+	// the upgraded system has been validated. A nil function means no rollout.
+	rolloutAfterUpgrade rolloutAfterUpgradeFunc
 	// verifyKubeletVersion asserts every DPU reports a non-empty KubeletVersion.
 	// Required after DPUs are reprovisioned with DPF v26.4+.
 	verifyKubeletVersion bool
@@ -118,10 +117,6 @@ type validationPhaseInput struct {
 	// after a v25.10 → v26.4 upgrade non-selected DPUDevices can retain the legacy
 	// finalizer and stall the eventual teardown (#5048585).
 	removeStaleDPUDeviceFinalizers bool
-	// skipDPUFlavorTemplateValidation, if true, skips DPUFlavorTemplate-related
-	// assertions in verifyDPUDeploymentDependencyTracking. Set for phases where
-	// DPUFlavorTemplate was not yet a supported resource (v26.4 and earlier).
-	skipDPUFlavorTemplateValidation bool
 	// artifactsKey is required. It captures a post-rollout snapshot to
 	// upgrade-artifacts-<key>.json, and an unconditional pre-rollout snapshot to
 	// upgrade-artifacts-<key>-before-rollout.json.
@@ -308,9 +303,6 @@ func validationPhase(description string, in validationPhaseInput) {
 	if in.expectedDPUServices == nil {
 		panic(fmt.Sprintf("validation phase %q must set expectedDPUServices", description))
 	}
-	if in.rolloutAllDPUs && in.rolloutDPFVersionMinor == "" {
-		panic(fmt.Sprintf("validation phase %q sets rolloutAllDPUs but not rolloutDPFVersionMinor", description))
-	}
 	if in.artifactsKey == "" {
 		// registerArtifactCaptureStep's before-rollout call derives its key from
 		// artifactsKey + "-before-rollout", which is never empty on its own, so an
@@ -386,15 +378,9 @@ func validationPhase(description string, in validationPhaseInput) {
 				compare)
 		}
 
-		if in.rolloutAllDPUs {
-			It(fmt.Sprintf("roll out all DPUs with BFB LTS under %s", description), func() {
-				rolloutAllDPUs(ctx, input, in.rolloutDPFVersionMinor)
-			})
-		}
-
-		if in.rolloutDependencies {
-			It("perform DPU and DPUService rollout test", func() {
-				rolloutDependencies(ctx, input, in.skipDPUFlavorTemplateValidation, description)
+		if in.rolloutAfterUpgrade != nil {
+			It("perform post-upgrade rollout", func() {
+				in.rolloutAfterUpgrade(ctx, input, description)
 			})
 		}
 
@@ -407,7 +393,6 @@ func validationPhase(description string, in validationPhaseInput) {
 		It("validate DPFOperatorConfig ready after rollout", func() {
 			VerifyDPFOperatorConfigReady(ctx, input.client, 15*time.Minute)
 		})
-
 		if in.verifyKubeletVersion {
 			It("verify all DPUs report KubeletVersion", func() {
 				verifyDPUsHaveKubeletVersion(ctx, input)
@@ -641,14 +626,37 @@ func verifySystemReady(dpuServiceNames []string, dpuClusterRunsCoreDNS bool) {
 	dpuservice.WaitForDPUServices(ctx, input.client, dpfOperatorSystemNamespace, dpuServiceNames)
 }
 
-// rolloutDependencies simulates a post-upgrade dependency rollout by creating
-// the current BFB, DPUFlavor, "-rollout"-suffixed DPUServiceTemplate, and
-// DPUServiceConfiguration objects from the current manifests and updating one
-// DPUDeployment to reference them.
-func rolloutDependencies(ctx context.Context, input *systemTestInput, skipDPUFlavorTemplateValidation bool, hopSuffix string) {
+// rolloutDependencies creates a rollout step configured with an explicit action
+// for each selected DPUDeployment. Deployments are addressed by their index
+// after sorting by name so the plan is deterministic.
+func rolloutDependencies(opts ...rollout.Option) rolloutAfterUpgradeFunc {
+	plan := rollout.NewPlan(opts...)
+	return func(ctx context.Context, input *systemTestInput, hopSuffix string) {
+		rolloutDPUDeploymentDependencies(ctx, input, hopSuffix, plan)
+	}
+}
+
+func rolloutDPUDeploymentDependencies(
+	ctx context.Context,
+	input *systemTestInput,
+	hopSuffix string,
+	plan rollout.Plan,
+) {
 	// Sanitize the hop description into a valid k8s name suffix.
 	sanitized := strings.NewReplacer(" ", "-", ".", "-").Replace(strings.ToLower(hopSuffix))
 	nameSuffix := "-rollout-" + sanitized
+
+	dpuDeploymentList := &dpuservicev1.DPUDeploymentList{}
+	Expect(input.client.List(ctx, dpuDeploymentList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+	Expect(dpuDeploymentList.Items).To(HaveLen(input.numberOfDPUNodes), "expected one DPUDeployment per DPU node")
+	slices.SortFunc(dpuDeploymentList.Items, func(a, b dpuservicev1.DPUDeployment) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+	deploymentActions := plan.DeploymentActions()
+	for index := range deploymentActions {
+		Expect(index).To(BeNumerically("<", len(dpuDeploymentList.Items)),
+			"DPUDeployment rollout index %d is out of range", index)
+	}
 
 	By("Creating current BFB and DPUFlavor")
 	ProvisionBFBOrBlueFieldSoftwareAndDPUFlavor(ctx, getProvisionDPUClustersInput())
@@ -670,65 +678,149 @@ func rolloutDependencies(ctx context.Context, input *systemTestInput, skipDPUFla
 	currentConfig.Spec.ServiceConfiguration.ServiceDaemonSet.Labels["rollout"] = hopSuffix
 	Expect(input.client.Create(ctx, currentConfig)).To(Succeed())
 
-	By("Selecting one DPUDeployment to update")
-	dpuDeploymentList := &dpuservicev1.DPUDeploymentList{}
-	Expect(input.client.List(ctx, dpuDeploymentList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
-	Expect(dpuDeploymentList.Items).To(HaveLen(input.numberOfDPUNodes), "expected one DPUDeployment per DPU node")
+	type dpuRolloutRecord struct {
+		oldUID         string
+		deviceLabel    string
+		expectedBFB    string
+		deploymentName string
+		action         rollout.DPUDeploymentAction
+	}
+	rolloutRecords := make([]dpuRolloutRecord, 0, len(dpuDeploymentList.Items)*len(deploymentActions))
+	verifyReplacementDPUs := false
+	for _, action := range deploymentActions {
+		if action.Reprovisions() {
+			verifyReplacementDPUs = true
+			break
+		}
+	}
+	By("Recording DPUs and dependency references before rollout")
+	for index, action := range deploymentActions {
+		deployment := &dpuDeploymentList.Items[index]
+		dpus := &provisioningv1.DPUList{}
+		Expect(input.client.List(ctx, dpus,
+			client.InNamespace(dpfOperatorSystemNamespace),
+			client.MatchingLabels{
+				dpuservicev1.ParentDPUDeploymentNameLabel: fmt.Sprintf("%s_%s", deployment.Namespace, deployment.Name),
+			},
+		)).To(Succeed())
+		Expect(dpus.Items).NotTo(BeEmpty(), "expected DPUDeployment %s to own at least one DPU", deployment.Name)
+		for j := range dpus.Items {
+			dpu := &dpus.Items[j]
+			deviceLabel := dpu.GetLabels()[util.DPUDeviceNameLabel]
+			Expect(deviceLabel).NotTo(BeEmpty(), "DPU %s must have device name label", dpu.Name)
+			Expect(dpu.Spec.BFB).NotTo(BeNil(), "DPU %s must reference a BFB", dpu.Name)
+			expectedBFB := *dpu.Spec.BFB
+			if action.UsesCurrentDependencies() {
+				expectedBFB = input.bfb.Name
+			}
+			rolloutRecords = append(rolloutRecords, dpuRolloutRecord{
+				oldUID:         string(dpu.GetUID()),
+				deviceLabel:    deviceLabel,
+				expectedBFB:    expectedBFB,
+				deploymentName: deployment.Name,
+				action:         action,
+			})
+		}
+	}
 
 	// Re-apply the target manifest so fields a new release adds (e.g. v26.4's
 	// required dpuSetStrategy) reach DPUDeployments created under older releases.
-	By("Re-applying the target manifest to every DPUDeployment")
+	By("Applying the configured action to each DPUDeployment")
 	for i := range dpuDeploymentList.Items {
 		dpuDeployment := &dpuDeploymentList.Items[i]
+		action, configured := deploymentActions[i]
 		patchBase := dpuDeployment.DeepCopy()
-		desiredSpec := input.dpuDeployment.DeepCopy().Spec
-		preserveDPUSetRuntimeSelectors(
-			desiredSpec.DPUs.DPUSets,
-			dpuDeployment.Spec.DPUs.DPUSets,
-		)
+		desiredSpec := dpuDeployment.DeepCopy().Spec
+		if configured && action.KeepsExistingDependencies() {
+			if !action.ApplyModifiers(&desiredSpec) {
+				continue
+			}
+		} else {
+			desiredSpec = input.dpuDeployment.DeepCopy().Spec
+			preserveDPUSetRuntimeSelectors(
+				desiredSpec.DPUs.DPUSets,
+				dpuDeployment.Spec.DPUs.DPUSets,
+			)
+		}
+		if configured && action.UsesCurrentDependencies() {
+			desiredSpec.DPUs.BFB = ptr.To(input.bfb.Name)
+			// input.dpuFlavor and input.dpuFlavorTemplate are mutually exclusive (enforced in applyConfig).
+			if input.dpuFlavor != nil {
+				desiredSpec.DPUs.Flavor = ptr.To(input.dpuFlavor.Name)
+				desiredSpec.DPUs.FlavorTemplate = nil
+			} else if input.dpuFlavorTemplate != nil {
+				desiredSpec.DPUs.FlavorTemplate = ptr.To(input.dpuFlavorTemplate.Name)
+				desiredSpec.DPUs.Flavor = nil
+			}
+			primaryServiceName := input.dpuServiceTemplate.Name
+			svc, ok := desiredSpec.Services[primaryServiceName]
+			Expect(ok).To(BeTrue(), "DPUDeployment %s should contain service %s", dpuDeployment.Name, primaryServiceName)
+			svc.ServiceTemplate = currentTemplate.Name
+			svc.ServiceConfiguration = currentConfig.Name
+			desiredSpec.Services[primaryServiceName] = svc
+		}
 		dpuDeployment.Spec = desiredSpec
 		Expect(input.client.Patch(ctx, dpuDeployment, client.MergeFrom(patchBase))).To(Succeed())
 	}
 
-	selectedDPUDeployment := &dpuDeploymentList.Items[0]
-	By(fmt.Sprintf("Selected DPUDeployment: %s", selectedDPUDeployment.GetName()))
-
-	By("Updating selected DPUDeployment to reference current BFB, DPUFlavor/DPUFlavorTemplate, DPUServiceTemplate and DPUServiceConfiguration")
-	original := selectedDPUDeployment.DeepCopy()
-	selectedDPUDeployment.Spec.DPUs.BFB = ptr.To(input.bfb.Name)
-	// input.dpuFlavor and input.dpuFlavorTemplate are mutually exclusive (enforced in applyConfig).
-	// Guard each patch behind its nil check and clear the counterpart so the XOR contract holds
-	// regardless of which flavor object the active config supplies.
-	if input.dpuFlavor != nil {
-		selectedDPUDeployment.Spec.DPUs.Flavor = ptr.To(input.dpuFlavor.Name)
-		selectedDPUDeployment.Spec.DPUs.FlavorTemplate = nil
-	} else if input.dpuFlavorTemplate != nil {
-		selectedDPUDeployment.Spec.DPUs.FlavorTemplate = ptr.To(input.dpuFlavorTemplate.Name)
-		selectedDPUDeployment.Spec.DPUs.Flavor = nil
+	By("Deleting DPUs configured for reprovisioning")
+	for _, record := range rolloutRecords {
+		if !record.action.Reprovisions() {
+			continue
+		}
+		dpus := &provisioningv1.DPUList{}
+		Expect(input.client.List(ctx, dpus,
+			client.InNamespace(dpfOperatorSystemNamespace),
+			client.MatchingLabels{util.DPUDeviceNameLabel: record.deviceLabel},
+		)).To(Succeed())
+		Expect(dpus.Items).To(HaveLen(1), "expected one DPU for device %s", record.deviceLabel)
+		Expect(client.IgnoreNotFound(input.client.Delete(ctx, &dpus.Items[0]))).To(Succeed())
 	}
-	primaryServiceName := input.dpuServiceTemplate.Name
-	svc, ok := selectedDPUDeployment.Spec.Services[primaryServiceName]
-	Expect(ok).To(BeTrue(), "DPUDeployment %s should contain service %s", selectedDPUDeployment.Name, primaryServiceName)
-	svc.ServiceTemplate = currentTemplate.Name
-	svc.ServiceConfiguration = currentConfig.Name
-	selectedDPUDeployment.Spec.Services[primaryServiceName] = svc
-	Expect(input.client.Patch(ctx, selectedDPUDeployment, client.MergeFrom(original))).To(Succeed())
 
-	By("Waiting for selected DPUDeployment Reconciled conditions to become True")
+	By("Waiting for configured DPUDeployments to reconcile")
 	Eventually(func(g Gomega) {
-		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(selectedDPUDeployment), selectedDPUDeployment)).To(Succeed())
-		for _, condType := range []conditions.ConditionType{
-			dpuservicev1.ConditionDPUSetsReconciled,
-			dpuservicev1.ConditionDPUServicesReconciled,
-			dpuservicev1.ConditionDPUServiceChainsReconciled,
-			dpuservicev1.ConditionDPUServiceInterfacesReconciled,
-		} {
-			g.Expect(conditions.IsTrue(selectedDPUDeployment, condType)).To(BeTrue(),
-				"%s should be True for %s", condType, selectedDPUDeployment.Name)
+		for index := range deploymentActions {
+			deployment := &dpuDeploymentList.Items[index]
+			g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(deployment), deployment)).To(Succeed())
+			for _, condType := range []conditions.ConditionType{
+				dpuservicev1.ConditionDPUSetsReconciled,
+				dpuservicev1.ConditionDPUServicesReconciled,
+				dpuservicev1.ConditionDPUServiceChainsReconciled,
+				dpuservicev1.ConditionDPUServiceInterfacesReconciled,
+			} {
+				g.Expect(conditions.IsTrue(deployment, condType)).To(BeTrue(),
+					"%s should be True for %s", condType, deployment.Name)
+			}
 		}
 	}).WithTimeout(20 * time.Minute).WithPolling(time.Second).Should(Succeed())
 
-	verifyDPUDeploymentDependencyTracking(ctx, input, skipDPUFlavorTemplateValidation)
+	if verifyReplacementDPUs {
+		By("Verifying the configured rollouts produced replacement DPUs")
+		Eventually(func(g Gomega) {
+			for _, record := range rolloutRecords {
+				if !record.action.Reprovisions() {
+					continue
+				}
+				dpus := &provisioningv1.DPUList{}
+				g.Expect(input.client.List(ctx, dpus,
+					client.InNamespace(dpfOperatorSystemNamespace),
+					client.MatchingLabels{util.DPUDeviceNameLabel: record.deviceLabel},
+				)).To(Succeed())
+				g.Expect(dpus.Items).To(HaveLen(1), "expected one replacement DPU for device %s", record.deviceLabel)
+				dpu := &dpus.Items[0]
+				g.Expect(string(dpu.GetUID())).NotTo(Equal(record.oldUID),
+					"DPU for device %s owned by %s should have a new UID", record.deviceLabel, record.deploymentName)
+				g.Expect(dpu.Spec.BFB).To(HaveValue(Equal(record.expectedBFB)),
+					"DPU for device %s should use BFB %s", record.deviceLabel, record.expectedBFB)
+				expectedDPFVersion := plan.ExpectedDPFVersion()
+				g.Expect(dpu.Status.DPFVersion).NotTo(BeNil())
+				g.Expect(*dpu.Status.DPFVersion).To(ContainSubstring(expectedDPFVersion),
+					"DPU for device %s should have DPFVersion containing %s", record.deviceLabel, expectedDPFVersion)
+			}
+		}).WithTimeout(provisioningTimeout).WithPolling(time.Second).Should(Succeed())
+	}
+
+	verifyDPUDeploymentDependencyTracking(ctx, input, plan.SkipDPUFlavorTemplateValidation())
 }
 
 func preserveDPUSetRuntimeSelectors(desired, installed []dpuservicev1.DPUSet) {
