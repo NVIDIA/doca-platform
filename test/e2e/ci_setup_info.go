@@ -91,7 +91,7 @@ func (s *ciSetupInfo) GetDPUDeviceValuesForDPUDevice(dpuDevice *provisioningv1.D
 }
 
 // GetHostBMCIPForDPUNode looks up the host BMC IP by resolving the first
-// DPUDevice in node.Spec.DPUs and using its Status.SerialNumber. The IP lives
+// DPUDevice in node.Spec.DPUs and using its Spec.SerialNumber. The IP lives
 // in setup-info, not on the DPUNode.
 func (s *ciSetupInfo) GetHostBMCIPForDPUNode(ctx context.Context, c client.Client, node *provisioningv1.DPUNode) string {
 	return s.entryForDPUNode(ctx, c, node).HostBMCIP
@@ -106,6 +106,10 @@ func (s *ciSetupInfo) GetHostOOBIPForDPUNode(ctx context.Context, c client.Clien
 }
 
 // entryForDPUNode loads the setup-info entry for the node's first DPUDevice serial.
+// Uses Spec.SerialNumber, which DPUDiscovery sets from its own chassis scan the moment
+// it creates the DPUDevice, rather than Status.SerialNumber, which the DPUDevice
+// controller only sets after a second, independent BMC round-trip — a live BMC call
+// this lookup has no reason to depend on.
 func (s *ciSetupInfo) entryForDPUNode(ctx context.Context, c client.Client, node *provisioningv1.DPUNode) setupInfoEntry {
 	Expect(node.Spec.DPUs).NotTo(BeEmpty(),
 		"DPUNode %q has no Spec.DPUs entries to resolve a DPUDevice", node.Name)
@@ -115,14 +119,12 @@ func (s *ciSetupInfo) entryForDPUNode(ctx context.Context, c client.Client, node
 	Eventually(func(g Gomega) {
 		g.Expect(c.Get(ctx, client.ObjectKey{Namespace: node.Namespace, Name: deviceName}, device)).To(Succeed(),
 			"getting DPUDevice %q for DPUNode %q", deviceName, node.Name)
-		g.Expect(device.Status.SerialNumber).NotTo(BeNil(),
-			"DPUDevice %q Status.SerialNumber not yet set", deviceName)
 	}).WithTimeout(2 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
 
-	serial := normalizeSetupInfoSerial(*device.Status.SerialNumber)
+	serial := normalizeSetupInfoSerial(device.Spec.SerialNumber)
 	entry, ok := s.bySerial[serial]
 	Expect(ok).To(BeTrue(),
-		"DPUNode %q (DPUDevice %q status serial %q) has no entry in %s; add the DPU serial there",
+		"DPUNode %q (DPUDevice %q serial %q) has no entry in %s; add the DPU serial there",
 		node.Name, deviceName, serial, s.path)
 	return entry
 }
