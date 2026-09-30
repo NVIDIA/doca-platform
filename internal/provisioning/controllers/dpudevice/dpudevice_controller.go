@@ -151,13 +151,13 @@ func (r *DPUDeviceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 func (r *DPUDeviceReconciler) reconcileDelete(ctx context.Context, dpuDevice *provisioningv1.DPUDevice) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
-	// Keep identity and credentials available until the DPU releases the device.
-	if controllerutil.ContainsFinalizer(dpuDevice, provisioningv1.DPUDeviceFinalizer) {
-		log.V(3).Info("Waiting for DPU to release device protection before cleanup")
-		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
-	}
-
 	if controllerutil.ContainsFinalizer(dpuDevice, provisioningv1.SPIFFEDeregistrationFinalizer) {
+		// Keep SPIFFE identity and credentials available until the DPU releases the device.
+		if controllerutil.ContainsFinalizer(dpuDevice, provisioningv1.DPUDeviceFinalizer) {
+			log.V(3).Info("Waiting for DPU to release device protection before SPIFFE cleanup")
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+		}
+
 		done, err := r.deleteSPIFFEEntry(ctx, dpuDevice)
 		if err != nil {
 			log.Error(err, "Failed to deregister SPIFFE ClusterStaticEntry")
