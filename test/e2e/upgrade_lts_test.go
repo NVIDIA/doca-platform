@@ -26,6 +26,7 @@ import (
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	"github.com/nvidia/doca-platform/test/e2e/upgrade/rollout"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -108,9 +109,10 @@ func stripDefaultedDPUServiceSecurity(before, after *[]map[string]interface{}) {
 
 // The BFB LTS multi-hop upgrade path: install v25.10, validate the v26.4 hop
 // with a mandatory full DPU rollout (so DPUs start reporting KubeletVersion),
-// validate the v26.8 hop without reprovisioning, then validate HEAD. Each phase
-// is its own labeled Ginkgo container, selected by CI via its label. Append a
-// new validationPhase for each future hop (v26.10 → …).
+// validate the v26.8 hop without reprovisioning, then validate HEAD by
+// concurrently reprovisioning one DPU with the current BFB and the other with
+// its existing BFB. Each phase is its own labeled Ginkgo container, selected by
+// CI via its label. Append a new validationPhase for each future hop.
 var _ = Describe("DPF Upgrade LTS", func() {
 	installPhase("BFB LTS v25.10", installPhaseInput{
 		label: Domain.DPFBFBLTSUpgrade,
@@ -131,15 +133,23 @@ var _ = Describe("DPF Upgrade LTS", func() {
 	validationPhase("v26.4", validationPhaseInput{
 		label: Domain.DPFBFBLTSUpgradeV264,
 
-		// Reprovision all DPUs under v26.4 so they start reporting KubeletVersion
-		// (required for the v26.8 skew check), then exercise a dependency rollout.
-		rolloutAllDPUs:         true,
-		rolloutDPFVersionMinor: "v26.4",
-		rolloutDependencies:    true,
-		verifyKubeletVersion:   true,
-
-		// DPUFlavorTemplate was introduced after v26.4; skip its dependency validation.
-		skipDPUFlavorTemplateValidation: true,
+		// Reprovision both DPUs once under v26.4 so they start reporting
+		// KubeletVersion (required for the v26.8 skew check). Move the first
+		// DPUDeployment to current dependencies while the second keeps its
+		// existing dependencies. DPUFlavorTemplate validation is skipped because
+		// the resource was introduced after v26.4.
+		rolloutAfterUpgrade: rolloutDependencies(
+			rollout.WithoutDPUFlavorTemplateValidation(),
+			rollout.ExpectDPFVersion(func() string { return dpfV264Version }),
+			rollout.ForDPUDeployment(0, rollout.ReprovisionWithCurrentDependencies()),
+			rollout.ForDPUDeployment(1, rollout.ReprovisionWithExistingDependencies(
+				// DPUSetStrategy was introduced in v26.4 as a required field.
+				func(spec *dpuservicev1.DPUDeploymentSpec) {
+					spec.DPUs.DPUSetStrategy.Type = provisioningv1.RollingUpdateStrategyType
+				},
+			)),
+		),
+		verifyKubeletVersion: true,
 
 		expectedDPFVersion:        func() string { return dpfV264Version },
 		expectedKubernetesVersion: "v1.34.0",
@@ -158,10 +168,13 @@ var _ = Describe("DPF Upgrade LTS", func() {
 	validationPhase("v26.8", validationPhaseInput{
 		label: Domain.DPFBFBLTSUpgradeV268,
 
-		// No DPU rollout needed: BFB stays at LTS 3.2.1 and DPUs already
-		// report KubeletVersion after the mandatory v26.4 rollout.
-		rolloutAllDPUs:       false,
-		rolloutDependencies:  true,
+		// Keep the BFB on LTS 3.2.1 and exercise a dependency rollout on the
+		// first DPUDeployment. DPUs already report KubeletVersion after the
+		// mandatory v26.4 rollout.
+		rolloutAfterUpgrade: rolloutDependencies(
+			rollout.ExpectDPFVersion(func() string { return dpfV268Version }),
+			rollout.ForDPUDeployment(0, rollout.WithCurrentDependencies()),
+		),
 		verifyKubeletVersion: true,
 		expectedDPFVersion:   func() string { return dpfV268Version },
 
@@ -180,9 +193,13 @@ var _ = Describe("DPF Upgrade LTS", func() {
 	validationPhase("current", validationPhaseInput{
 		label: Domain.DPFBFBLTSUpgradeCurrent,
 
-		// No DPU rollout. BFB stays at LTS 3.2.1 and DPUs are not reprovisioned.
-		rolloutAllDPUs:       false,
-		rolloutDependencies:  true,
+		// Reprovision both DPUs concurrently: the selected DPU moves to the
+		// current BFB while the other DPU keeps the existing BFB LTS 3.2.1.
+		rolloutAfterUpgrade: rolloutDependencies(
+			rollout.ExpectDPFVersion(func() string { return tag }),
+			rollout.ForDPUDeployment(0, rollout.ReprovisionWithCurrentDependencies()),
+			rollout.ForDPUDeployment(1, rollout.ReprovisionWithExistingDependencies()),
+		),
 		verifyKubeletVersion: true,
 		expectedDPFVersion:   func() string { return tag },
 
@@ -192,49 +209,6 @@ var _ = Describe("DPF Upgrade LTS", func() {
 		expectedDPUServices: expectedDPUServicesCurrent,
 	})
 })
-
-// rolloutAllDPUs deletes every DPU in the system namespace and waits for all
-// to be recreated with the given expectedDPFVersion. Used in the BFB LTS
-// upgrade path to reprovision all DPUs so they report their kubelet version.
-func rolloutAllDPUs(ctx context.Context, input *systemTestInput, expectedDPFVersionMajorMinor string) {
-	By("Listing all DPUs before rollout")
-	dpuList := &provisioningv1.DPUList{}
-	Expect(input.client.List(ctx, dpuList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
-	Expect(dpuList.Items).NotTo(BeEmpty(), "expected DPUs to be present before rollout")
-
-	type dpuRecord struct {
-		oldUID      string
-		deviceLabel string
-	}
-	dpusBefore := make([]dpuRecord, len(dpuList.Items))
-	for i, dpu := range dpuList.Items {
-		deviceLabel := dpu.GetLabels()[util.DPUDeviceNameLabel]
-		Expect(deviceLabel).NotTo(BeEmpty(), "DPU %s must have device name label", dpu.Name)
-		dpusBefore[i] = dpuRecord{oldUID: string(dpu.GetUID()), deviceLabel: deviceLabel}
-	}
-
-	By(fmt.Sprintf("Deleting all %d DPUs to trigger rollout", len(dpusBefore)))
-	for i := range dpuList.Items {
-		Expect(client.IgnoreNotFound(input.client.Delete(ctx, &dpuList.Items[i]))).To(Succeed())
-	}
-
-	By("Waiting for all DPUs to be recreated with DPFVersion matching " + expectedDPFVersionMajorMinor)
-	Eventually(func(g Gomega) {
-		for _, before := range dpusBefore {
-			updated := &provisioningv1.DPUList{}
-			g.Expect(input.client.List(ctx, updated,
-				client.InNamespace(dpfOperatorSystemNamespace),
-				client.MatchingLabels{util.DPUDeviceNameLabel: before.deviceLabel},
-			)).To(Succeed())
-			g.Expect(updated.Items).To(HaveLen(1), "DPU for device %s should be recreated", before.deviceLabel)
-			dpu := &updated.Items[0]
-			g.Expect(string(dpu.GetUID())).NotTo(Equal(before.oldUID), "DPU for device %s should have a new UID", before.deviceLabel)
-			g.Expect(dpu.Status.DPFVersion).NotTo(BeNil())
-			g.Expect(*dpu.Status.DPFVersion).To(ContainSubstring(expectedDPFVersionMajorMinor),
-				"DPU for device %s should have DPFVersion containing %s", before.deviceLabel, expectedDPFVersionMajorMinor)
-		}
-	}).WithTimeout(20 * time.Minute).WithPolling(time.Second).Should(Succeed())
-}
 
 // verifyDPUsHaveKubeletVersion asserts that every DPU in the system namespace
 // has a non-empty KubeletVersion in its AgentStatus. Required after DPUs are
