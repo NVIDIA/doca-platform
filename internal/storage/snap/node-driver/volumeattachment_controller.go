@@ -22,6 +22,7 @@ import (
 	"maps"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"time"
 
 	pb "github.com/nvidia/doca-platform/api/grpc/nvidia/storage/plugins/v1"
@@ -244,7 +245,11 @@ func (r *VolumeAttachmentReconciler) handleAttachment(ctx context.Context, volum
 	// to be created again and what doesn't.
 	switch *volumeMode {
 	case corev1.PersistentVolumeBlock:
-		nsID, pciAddr, uuid, funcVUID, err = r.exposeBlockDeviceOnSNAP(snapProvResp.GetProviderName(), volumeAttachment, storageParameters)
+		if isKVBlockType(storageParameters) {
+			nsID, pciAddr, uuid, funcVUID, err = r.exposeMemosDeviceOnSNAP(snapProvResp.GetProviderName(), volumeAttachment, storageParameters)
+		} else {
+			nsID, pciAddr, uuid, funcVUID, err = r.exposeBlockDeviceOnSNAP(snapProvResp.GetProviderName(), volumeAttachment, storageParameters)
+		}
 		if nsID > 0 {
 			volumeAttachment.Status.DPU.BdevAttrs.NVMeNsID = int64(nsID)
 		}
@@ -291,6 +296,7 @@ func (r *VolumeAttachmentReconciler) handleAttachment(ctx context.Context, volum
 			"FuncVUID", funcVUID,
 			"BdevAttrs.NsID", nsID,
 			"BdevAttrs.UUID", uuid,
+			"BlockType", blockType(storageParameters),
 		)
 	case corev1.PersistentVolumeFilesystem:
 		klog.InfoS("VolumeAttachment DPU attributes updated",
@@ -382,7 +388,7 @@ func (r *VolumeAttachmentReconciler) handleDetachment(ctx context.Context, volum
 
 	// If SNAP provider is retrieved, proceed to detach from SNAP
 	if snapProvResp.GetProviderName() != "" {
-		if err := r.detachFromSNAP(snapProvResp.GetProviderName(), volumeAttachment, volume.Spec.Request.VolumeMode); err != nil {
+		if err := r.detachFromSNAP(snapProvResp.GetProviderName(), volumeAttachment, volume.Spec.Request.VolumeMode, volume.Spec.StorageParameters); err != nil {
 			klog.ErrorS(err, "Failed to detach from SNAP")
 			return err
 		}
@@ -708,6 +714,23 @@ func (r *VolumeAttachmentReconciler) exposeBlockDeviceOnSNAP(snapProvider string
 	return client.ExposeBlockDevice(volumeAttachment.Status.DPU, volumeAttachment.Spec, storageParameters)
 }
 
+func (r *VolumeAttachmentReconciler) exposeMemosDeviceOnSNAP(snapProvider string, volumeAttachment *snapstoragev1.VolumeAttachment, storageParameters map[string]string) (int, string, string, string, error) {
+	client, err := r.createSNAPClient(snapProvider)
+	if err != nil {
+		return 0, "", "", "", err
+	}
+	defer func() {
+		if err := client.Close(); err != nil {
+			klog.ErrorS(err, "Failed to close SNAP client")
+		}
+	}()
+
+	klog.InfoS("Exposing MEMOS KV device on SNAP",
+		"DeviceName", volumeAttachment.Status.DPU.DeviceName,
+		"BlockType", blockType(storageParameters))
+	return client.ExposeMemosDevice(volumeAttachment.Status.DPU, volumeAttachment.Spec, storageParameters)
+}
+
 func (r *VolumeAttachmentReconciler) exposeFSDeviceOnSNAP(snapProvider string,
 	volumeAttachment *snapstoragev1.VolumeAttachment, storageParameters map[string]string) (string, string, string, error) {
 	client, err := r.createSNAPClient(snapProvider)
@@ -752,7 +775,7 @@ func (r *VolumeAttachmentReconciler) backfillFuncVUID(ctx context.Context, plugi
 		return fmt.Errorf("SNAP provider name is empty")
 	}
 
-	funcVUID, err := r.getFuncVUIDFromSNAP(snapProvResp.GetProviderName(), pciAddr, *volumeMode)
+	funcVUID, err := r.getFuncVUIDFromSNAP(snapProvResp.GetProviderName(), pciAddr, *volumeMode, volume.Spec.StorageParameters)
 	if err != nil {
 		return err
 	}
@@ -769,8 +792,9 @@ func (r *VolumeAttachmentReconciler) backfillFuncVUID(ctx context.Context, plugi
 	return nil
 }
 
-// getFuncVUIDFromSNAP queries SNAP for the emulated function VUID exposed at pciAddr
-func (r *VolumeAttachmentReconciler) getFuncVUIDFromSNAP(snapProvider, pciAddr string, volumeMode corev1.PersistentVolumeMode) (string, error) {
+// getFuncVUIDFromSNAP queries SNAP for the emulated function VUID exposed at pciAddr.
+// Block NVMe uses the SNAP4 listing; MEMOS uses doca_nvme_get_emulation_functions.
+func (r *VolumeAttachmentReconciler) getFuncVUIDFromSNAP(snapProvider, pciAddr string, volumeMode corev1.PersistentVolumeMode, storageParameters map[string]string) (string, error) {
 	client, err := r.createSNAPClient(snapProvider)
 	if err != nil {
 		return "", err
@@ -783,6 +807,9 @@ func (r *VolumeAttachmentReconciler) getFuncVUIDFromSNAP(snapProvider, pciAddr s
 
 	switch volumeMode {
 	case corev1.PersistentVolumeBlock:
+		if isKVBlockType(storageParameters) {
+			return client.GetMemosFuncVUID(pciAddr)
+		}
 		return client.GetBlockFuncVUID(pciAddr)
 	case corev1.PersistentVolumeFilesystem:
 		return client.GetFSFuncVUID(pciAddr)
@@ -791,7 +818,7 @@ func (r *VolumeAttachmentReconciler) getFuncVUIDFromSNAP(snapProvider, pciAddr s
 	}
 }
 
-func (r *VolumeAttachmentReconciler) detachFromSNAP(snapProvider string, volumeAttachment *snapstoragev1.VolumeAttachment, volumeMode *corev1.PersistentVolumeMode) error {
+func (r *VolumeAttachmentReconciler) detachFromSNAP(snapProvider string, volumeAttachment *snapstoragev1.VolumeAttachment, volumeMode *corev1.PersistentVolumeMode, storageParameters map[string]string) error {
 	client, err := r.createSNAPClient(snapProvider)
 	if err != nil {
 		return err
@@ -808,6 +835,14 @@ func (r *VolumeAttachmentReconciler) detachFromSNAP(snapProvider string, volumeA
 
 	switch *volumeMode {
 	case corev1.PersistentVolumeBlock:
+		if isKVBlockType(storageParameters) {
+			return client.DestroyMemosDevice(
+				volumeAttachment.Status.DPU.FuncVUID,
+				int(volumeAttachment.Status.DPU.BdevAttrs.NVMeNsID),
+				volumeAttachment.Status.DPU.PCIDeviceAddress,
+				volumeAttachment.Spec.FunctionTypeConfig.HotplugFunction,
+				volumeAttachment.Status.DPU.DeviceName)
+		}
 		return client.DestroyBlockDevice(volumeAttachment.Status.DPU.DeviceName,
 			int(volumeAttachment.Status.DPU.BdevAttrs.NVMeNsID), volumeAttachment.Status.DPU.PCIDeviceAddress,
 			volumeAttachment.Spec.FunctionTypeConfig.HotplugFunction)
@@ -816,6 +851,24 @@ func (r *VolumeAttachmentReconciler) detachFromSNAP(snapProvider string, volumeA
 	default:
 		return fmt.Errorf("unsupported volume mode: %s", *volumeMode)
 	}
+}
+
+// blockType returns the block protocol from storage parameters.
+// It matches csi.snap.dpf.nvidia.com/blocktype on the SNAP StorageClass
+// (nvme, virtio, or kv). Default is nvme.
+func blockType(storageParameters map[string]string) string {
+	if v := strings.TrimSpace(strings.ToLower(storageParameters[snapstoragev1.ParamBlockType])); v != "" {
+		return v
+	}
+	if v := strings.TrimSpace(strings.ToLower(storageParameters[snapstoragev1.ParamBlockTypeCSIKey])); v != "" {
+		return v
+	}
+	return snapstoragev1.BlockTypeNVMe
+}
+
+// isKVBlockType returns true if the block type is kv.
+func isKVBlockType(storageParameters map[string]string) bool {
+	return blockType(storageParameters) == snapstoragev1.BlockTypeKV
 }
 
 // SetupWithManager sets up the controller with the Manager.

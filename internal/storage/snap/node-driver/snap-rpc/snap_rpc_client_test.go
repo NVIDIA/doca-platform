@@ -1321,3 +1321,679 @@ func TestDestroyFSDevice(t *testing.T) {
 		})
 	}
 }
+
+/*
+ * CMX key/value path.
+ *
+ * ExposeMemosDevice and DestroyMemosDevice build and tear down the NVMe front
+ * end of a MEMOS volume. The volume itself is the nvcache plugin's, and arrives
+ * here as dpuStatus.DeviceName, so none of these tests create one.
+ */
+
+// testMemosParameters is the NVMe front-end configuration for one CMX attachment.
+func testMemosParameters() map[string]string {
+	return map[string]string{
+		ParamMemosSubsystemNQN: "nqn.2026-01.io.spdk:cmx0",
+		ParamMemosNvmeManagers: "mlx5_0",
+	}
+}
+
+// testMemosHotplugMock is a SNAP service with a hotplug-capable PCI switch.
+func testMemosHotplugMock() *MockMemosClient {
+	return &MockMemosClient{
+		switches: []PCISwitch{{
+			Name:     "mlx5_0",
+			Types:    []string{PCIPortTypeNVMe},
+			MaxPorts: 31,
+		}},
+	}
+}
+
+// testMemosStaticMock is a SNAP service with one free static emulation function
+// and no hotplug slots, which is how a DPU without hotplug firmware presents.
+func testMemosStaticMock() *MockMemosClient {
+	return &MockMemosClient{
+		switches: []PCISwitch{{Name: "mlx5_0", Types: []string{PCIPortTypeNVMe}}},
+		nvmeFunctions: []DocaNvmeEmulationFunction{{
+			VUID:   "MT2333XZ0NVMES1D0F0",
+			Kind:   FunctionKindStatic,
+			BDF:    testMemosPCIBDF,
+			EmuMgr: "mlx5_0",
+		}},
+	}
+}
+
+// testMemosDPUStatus is an attachment whose plugin has already created the volume.
+func testMemosDPUStatus() snapstoragev1.VolumeAttachmentStatusDPU {
+	return snapstoragev1.VolumeAttachmentStatusDPU{DeviceName: "memos_vol_1"}
+}
+
+// testMemosHotplugSpec requests a hotplug function rather than a static one.
+func testMemosHotplugSpec() snapstoragev1.VolumeAttachmentSpec {
+	spec := snapstoragev1.VolumeAttachmentSpec{}
+	spec.FunctionTypeConfig.HotplugFunction = true
+	return spec
+}
+
+func TestExposeMemosDevice(t *testing.T) {
+	mock := testMemosHotplugMock()
+	c := &client{rpcClient: mock}
+
+	nsid, pciBDF, nguid, funcVUID, err := c.ExposeMemosDevice(
+		testMemosDPUStatus(), testMemosHotplugSpec(), testMemosParameters())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if nsid != 1 {
+		t.Errorf("nsid = %d, want 1", nsid)
+	}
+	if pciBDF != testMemosPCIBDF {
+		t.Errorf("pciBDF = %q, want %q", pciBDF, testMemosPCIBDF)
+	}
+	if len(nguid) != 32 {
+		t.Errorf("host NGUID %q is %d characters, want 32", nguid, len(nguid))
+	}
+	if funcVUID == "" {
+		t.Errorf("expected a function VUID")
+	}
+
+	// The NVMe module has to be configured before the first subsystem, the
+	// namespace and port before the controller, and the controller is hotplugged
+	// last: that is what publishes the namespace to the host.
+	assertCallOrder(t, mock.methodsCalled(), []string{
+		"doca_nvme_set_config",
+		"doca_nvme_subsystem_create",
+		"doca_nvme_subsystem_ns_create",
+		"pci_switch_port_create",
+		"doca_nvme_subsystem_controller_create",
+		"doca_nvme_subsystem_controller_hotplug",
+	})
+
+	// The namespace is a KV namespace over the MEMOS volume: that pairing is what
+	// makes the volume reachable by host KV clients.
+	nsParams := mock.paramsFor("doca_nvme_subsystem_ns_create")
+	if nsParams["csi"] != CSIKV {
+		t.Errorf("csi = %v, want %v", nsParams["csi"], CSIKV)
+	}
+	if nsParams["backend_name"] != "memos_vol_1" {
+		t.Errorf("backend_name = %v, want memos_vol_1", nsParams["backend_name"])
+	}
+	if nsParams["nguid"] != nguid {
+		t.Errorf("namespace nguid = %v, want the returned %v", nsParams["nguid"], nguid)
+	}
+
+	// The subsystem is dedicated to this volume; its handle is derived from the
+	// volume name but prefixed so it does not collide with the MEMOS volume.
+	if got := mock.paramsFor("doca_nvme_subsystem_create")["subsystem_name"]; got != "nvme_subsys_memos_vol_1" {
+		t.Errorf("subsystem_name = %v, want nvme_subsys_memos_vol_1", got)
+	}
+	// The NQN embeds the volume so each volume gets a distinct subsystem NQN.
+	wantNQN := testMemosParameters()[ParamMemosSubsystemNQN] + ":memos_vol_1"
+	if got := mock.paramsFor("doca_nvme_subsystem_create")["nqn"]; got != wantNQN {
+		t.Errorf("subsystem nqn = %v, want %q", got, wantNQN)
+	}
+
+	// The controller binds to the switch port that was just created.
+	if got := mock.paramsFor("doca_nvme_subsystem_controller_create")["vuid"]; got != funcVUID {
+		t.Errorf("controller vuid = %v, want %v", got, funcVUID)
+	}
+	if got := mock.paramsFor("pci_switch_port_create")["type"]; got != PCIPortTypeNVMe {
+		t.Errorf("port type = %v, want %v", got, PCIPortTypeNVMe)
+	}
+	hotplugParams := mock.paramsFor("doca_nvme_subsystem_controller_hotplug")
+	if hotplugParams["subsystem_name"] != "nvme_subsys_memos_vol_1" {
+		t.Errorf("hotplug subsystem_name = %v, want the volume's subsystem nvme_subsys_memos_vol_1", hotplugParams["subsystem_name"])
+	}
+	if hotplugParams["cntl_id"] != 0 {
+		t.Errorf("hotplug cntl_id = %v, want 0", hotplugParams["cntl_id"])
+	}
+	if mock.countOf("pci_switch_port_set_power") != 0 {
+		t.Errorf("pci_switch_port_set_power should not run; hotplug is what publishes the controller")
+	}
+}
+
+func TestExposeMemosDeviceClaimsAStaticFunction(t *testing.T) {
+	mock := testMemosStaticMock()
+	c := &client{rpcClient: mock}
+
+	// A static function already exists on the DPU, so it is claimed rather than
+	// created, and it has no power to switch on.
+	_, pciBDF, _, funcVUID, err := c.ExposeMemosDevice(
+		testMemosDPUStatus(), snapstoragev1.VolumeAttachmentSpec{}, testMemosParameters())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if pciBDF != testMemosPCIBDF || funcVUID != "MT2333XZ0NVMES1D0F0" {
+		t.Errorf("got (%q, %q), want the static function", pciBDF, funcVUID)
+	}
+	for _, method := range []string{
+		"pci_switch_port_create",
+		"pci_switch_port_set_power",
+		"doca_nvme_subsystem_controller_hotplug",
+	} {
+		if mock.countOf(method) != 0 {
+			t.Errorf("%s should not run for a static function", method)
+		}
+	}
+}
+
+func TestExposeMemosDeviceIsIdempotent(t *testing.T) {
+	mock := testMemosHotplugMock()
+	c := &client{rpcClient: mock}
+
+	nsid, pciBDF, nguid, funcVUID, err := c.ExposeMemosDevice(
+		testMemosDPUStatus(), testMemosHotplugSpec(), testMemosParameters())
+	if err != nil {
+		t.Fatalf("unexpected error on the first call: %v", err)
+	}
+
+	// A retry sees what the first call recorded on the CR.
+	status := testMemosDPUStatus()
+	status.FuncVUID = funcVUID
+	status.PCIDeviceAddress = pciBDF
+	status.BdevAttrs.NVMeNsID = int64(nsid)
+	status.BdevAttrs.NVMeUUID = nguid
+
+	nsid2, pciBDF2, nguid2, funcVUID2, err := c.ExposeMemosDevice(
+		status, testMemosHotplugSpec(), testMemosParameters())
+	if err != nil {
+		t.Fatalf("unexpected error on the second call: %v", err)
+	}
+
+	if nsid2 != nsid || pciBDF2 != pciBDF || nguid2 != nguid || funcVUID2 != funcVUID {
+		t.Errorf("retry changed the result: (%d,%s,%s,%s) then (%d,%s,%s,%s)",
+			nsid, pciBDF, nguid, funcVUID, nsid2, pciBDF2, nguid2, funcVUID2)
+	}
+
+	// Creating a second PCI function or namespace on retry would leak a PCIe
+	// function and a host-visible namespace.
+	for _, method := range []string{
+		"doca_nvme_subsystem_create",
+		"doca_nvme_subsystem_ns_create",
+		"pci_switch_port_create",
+		"doca_nvme_subsystem_controller_create",
+		"doca_nvme_subsystem_controller_hotplug",
+	} {
+		if count := mock.countOf(method); count != 1 {
+			t.Errorf("%s called %d times across two calls, want 1", method, count)
+		}
+	}
+
+	// An existing subsystem means the module is already configured.
+	if count := mock.countOf("doca_nvme_set_config"); count != 1 {
+		t.Errorf("doca_nvme_set_config called %d times, want 1", count)
+	}
+}
+
+// TestExposeMemosDeviceReusesExistingNamespaceSubsystem covers a retry after the
+// configured subsystem name changed (for example an upgrade that renamed the
+// shared subsystem). The namespace still lives in its original subsystem, so the
+// controller must be created there - not in the newly configured subsystem -
+// otherwise it would not expose the namespace. No new subsystem or namespace may
+// be created on this path either.
+func TestExposeMemosDeviceReusesExistingNamespaceSubsystem(t *testing.T) {
+	const oldSubsystem = "nqn.2026-01.io.spdk:cmx-old"
+
+	mock := &MockMemosClient{
+		switches: []PCISwitch{{Name: "mlx5_0", Types: []string{PCIPortTypeNVMe}}},
+		nvmeSubsystems: []DocaNvmeSubsystem{{
+			SubsystemName: oldSubsystem,
+			NQN:           oldSubsystem,
+		}},
+		nvmeNamespaces: []DocaNvmeNamespace{{
+			NSID:          5,
+			CSI:           CSIKV,
+			Backend:       "memos_vol_1",
+			SubsystemName: oldSubsystem,
+		}},
+		nvmeFunctions: []DocaNvmeEmulationFunction{{
+			VUID:   "MT2333XZ0NVMES1D0F0",
+			Kind:   FunctionKindStatic,
+			BDF:    testMemosPCIBDF,
+			EmuMgr: "mlx5_0",
+		}},
+	}
+	c := &client{rpcClient: mock}
+
+	// The parameters now configure a different subsystem than the one the
+	// namespace was created in.
+	params := map[string]string{
+		ParamMemosSubsystemNQN: "nqn.2026-01.io.spdk:cmx-new",
+		ParamMemosNvmeManagers: "mlx5_0",
+	}
+
+	nsid, pciBDF, _, funcVUID, err := c.ExposeMemosDevice(
+		testMemosDPUStatus(), snapstoragev1.VolumeAttachmentSpec{}, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if nsid != 5 {
+		t.Errorf("nsid = %d, want the existing namespace's 5", nsid)
+	}
+	if pciBDF != testMemosPCIBDF || funcVUID != "MT2333XZ0NVMES1D0F0" {
+		t.Errorf("got (%q, %q), want the static function", pciBDF, funcVUID)
+	}
+
+	// Neither a new subsystem nor a new namespace may be created on this path.
+	if mock.countOf("doca_nvme_subsystem_create") != 0 {
+		t.Errorf("a new subsystem was created; the existing namespace's subsystem must be reused")
+	}
+	if mock.countOf("doca_nvme_subsystem_ns_create") != 0 {
+		t.Errorf("a new namespace was created; the existing one must be reused")
+	}
+
+	// The controller must land in the namespace's subsystem so it exposes it.
+	if len(mock.nvmeControllers) != 1 {
+		t.Fatalf("expected exactly one controller, got %d", len(mock.nvmeControllers))
+	}
+	if got := mock.nvmeControllers[0].SubsystemName; got != oldSubsystem {
+		t.Errorf("controller subsystem = %q, want the namespace's %q", got, oldSubsystem)
+	}
+	if got := mock.paramsFor("doca_nvme_subsystem_controller_create")["subsystem_name"]; got != oldSubsystem {
+		t.Errorf("controller_create subsystem_name = %v, want %q", got, oldSubsystem)
+	}
+}
+
+func TestExposeMemosDeviceDefaultsToEverySupportedManager(t *testing.T) {
+	mock := testMemosHotplugMock()
+	mock.nvmeManagers = []DocaNvmeManager{{ManagerName: "mlx5_0"}, {ManagerName: "mlx5_1"}}
+
+	parameters := testMemosParameters()
+	delete(parameters, ParamMemosNvmeManagers)
+	parameters[ParamMemosNvmeNetworkDevs] = "mlx5_2"
+
+	_, _, _, _, err := (&client{rpcClient: mock}).ExposeMemosDevice(
+		testMemosDPUStatus(), testMemosHotplugSpec(), parameters)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	params := mock.paramsFor("doca_nvme_set_config")
+	if params["managers_dev_list"] != "mlx5_0,mlx5_1" {
+		t.Errorf("managers_dev_list = %v, want mlx5_0,mlx5_1", params["managers_dev_list"])
+	}
+	// The network list is where the CMX traffic goes, so it is passed through.
+	if params["network_dev_list"] != "mlx5_2" {
+		t.Errorf("network_dev_list = %v, want mlx5_2", params["network_dev_list"])
+	}
+}
+
+func TestExposeMemosDeviceRequiresASubsystemNQN(t *testing.T) {
+	mock := testMemosHotplugMock()
+	parameters := testMemosParameters()
+	delete(parameters, ParamMemosSubsystemNQN)
+
+	_, _, _, _, err := (&client{rpcClient: mock}).ExposeMemosDevice(
+		testMemosDPUStatus(), testMemosHotplugSpec(), parameters)
+	if err == nil {
+		t.Fatalf("expected an error when %s is missing", ParamMemosSubsystemNQN)
+	}
+	if len(mock.methodsCalled()) != 0 {
+		t.Errorf("an incomplete configuration must not issue RPCs, got %v", mock.methodsCalled())
+	}
+}
+
+func TestExposeMemosDeviceRequiresTheVolume(t *testing.T) {
+	// The volume is the namespace backend, so without it there is nothing to
+	// expose: the plugin has not run yet.
+	mock := testMemosHotplugMock()
+
+	_, _, _, _, err := (&client{rpcClient: mock}).ExposeMemosDevice(
+		snapstoragev1.VolumeAttachmentStatusDPU{}, testMemosHotplugSpec(), testMemosParameters())
+	if err == nil {
+		t.Fatalf("expected an error when the attachment has no device name")
+	}
+	if len(mock.methodsCalled()) != 0 {
+		t.Errorf("a missing volume must not issue RPCs, got %v", mock.methodsCalled())
+	}
+}
+
+func TestExposeMemosDeviceRejectsVFFunctionType(t *testing.T) {
+	// The MEMOS path has no VF selection, so a vf request must be rejected
+	// rather than silently exposing a PF and diverging from the spec.
+	mock := testMemosHotplugMock()
+	spec := testMemosHotplugSpec()
+	spec.FunctionTypeConfig.FunctionType = snapstoragev1.FunctionTypeVF
+
+	_, _, _, _, err := (&client{rpcClient: mock}).ExposeMemosDevice(
+		testMemosDPUStatus(), spec, testMemosParameters())
+	if err == nil {
+		t.Fatalf("expected an error when the function type is vf")
+	}
+	if len(mock.methodsCalled()) != 0 {
+		t.Errorf("a rejected function type must not issue RPCs, got %v", mock.methodsCalled())
+	}
+}
+
+func TestExposeMemosDeviceRequiresNVMeCapableSwitch(t *testing.T) {
+	mock := testMemosHotplugMock()
+	mock.switches = []PCISwitch{{Name: "mlx5_0", Types: []string{"virtio_fs"}}}
+
+	_, _, _, _, err := (&client{rpcClient: mock}).ExposeMemosDevice(
+		testMemosDPUStatus(), testMemosHotplugSpec(), testMemosParameters())
+	if err == nil {
+		t.Fatalf("expected an error when no switch supports NVMe ports")
+	}
+	if mock.countOf("pci_switch_port_create") != 0 {
+		t.Errorf("no port should be created on a switch that does not support the type")
+	}
+}
+
+func TestDestroyMemosDevice(t *testing.T) {
+	mock := testMemosHotplugMock()
+	c := &client{rpcClient: mock}
+
+	nsid, pciBDF, _, funcVUID, err := c.ExposeMemosDevice(
+		testMemosDPUStatus(), testMemosHotplugSpec(), testMemosParameters())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	mock.calls, mock.params = nil, nil
+
+	if err := c.DestroyMemosDevice(funcVUID, nsid, pciBDF, true, "memos_vol_1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Hotunplug retracts the namespace from the host before anything backing it
+	// is torn down, and the port is only destroyed once nothing is bound to it.
+	assertCallOrder(t, mock.methodsCalled(), []string{
+		"doca_nvme_subsystem_controller_hotunplug",
+		"doca_nvme_subsystem_controller_destroy",
+		"doca_nvme_subsystem_ns_destroy",
+		"doca_nvme_subsystem_destroy",
+		"pci_switch_port_destroy",
+	})
+
+	unplugParams := mock.paramsFor("doca_nvme_subsystem_controller_hotunplug")
+	if unplugParams["cntl_id"] != 0 {
+		t.Errorf("hotunplug cntl_id = %v, want 0", unplugParams["cntl_id"])
+	}
+	if mock.countOf("pci_switch_port_set_power") != 0 {
+		t.Errorf("pci_switch_port_set_power should not run; hotunplug is what retracts the controller")
+	}
+
+	// Nothing may be left behind on the service.
+	if len(mock.nvmeNamespaces) != 0 || len(mock.nvmeControllers) != 0 || len(mock.nvmeSubsystems) != 0 {
+		t.Errorf("NVMe objects survived teardown: ns=%v ctrl=%v subsys=%v",
+			mock.nvmeNamespaces, mock.nvmeControllers, mock.nvmeSubsystems)
+	}
+	if len(mock.switches[0].Ports) != 0 {
+		t.Errorf("PCI switch port survived teardown: %v", mock.switches[0].Ports)
+	}
+}
+
+// TestDestroyMemosDeviceRecoversAfterFailedTeardown reproduces a teardown that
+// fails after the hotunplug has already cleared the switch port's BDF. The retry
+// must still resolve every resource from the persisted funcVUID and finish the
+// cleanup; anchoring on the now-stale BDF would silently orphan the controller,
+// namespace, subsystem and port and still report success.
+func TestDestroyMemosDeviceRecoversAfterFailedTeardown(t *testing.T) {
+	mock := testMemosHotplugMock()
+	c := &client{rpcClient: mock}
+
+	nsid, pciBDF, _, funcVUID, err := c.ExposeMemosDevice(
+		testMemosDPUStatus(), testMemosHotplugSpec(), testMemosParameters())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if funcVUID == "" {
+		t.Fatalf("attach did not record a funcVUID")
+	}
+
+	// The first teardown fails at controller destroy, which runs after the
+	// hotunplug that clears the port's BDF.
+	mock.failMethod = "doca_nvme_subsystem_controller_destroy"
+	if err := c.DestroyMemosDevice(funcVUID, nsid, pciBDF, true, "memos_vol_1"); err == nil {
+		t.Fatalf("expected the injected controller-destroy failure")
+	}
+
+	// The hotunplug cleared the BDF, so the port can no longer be found by it -
+	// only the persisted funcVUID still identifies the resources.
+	if _, _, found := findPCISwitchPortByBDF(mock.switches, pciBDF); found {
+		t.Fatalf("precondition: hotunplug should have cleared the port BDF")
+	}
+
+	mock.failMethod = ""
+	mock.calls, mock.params = nil, nil
+
+	if err := c.DestroyMemosDevice(funcVUID, nsid, pciBDF, true, "memos_vol_1"); err != nil {
+		t.Fatalf("unexpected error on retry: %v", err)
+	}
+
+	assertCallOrder(t, mock.methodsCalled(), []string{
+		"doca_nvme_subsystem_controller_destroy",
+		"doca_nvme_subsystem_ns_destroy",
+		"doca_nvme_subsystem_destroy",
+		"pci_switch_port_destroy",
+	})
+
+	// The retry must leave nothing behind.
+	if len(mock.nvmeNamespaces) != 0 || len(mock.nvmeControllers) != 0 || len(mock.nvmeSubsystems) != 0 {
+		t.Errorf("NVMe objects survived teardown: ns=%v ctrl=%v subsys=%v",
+			mock.nvmeNamespaces, mock.nvmeControllers, mock.nvmeSubsystems)
+	}
+	if len(mock.switches[0].Ports) != 0 {
+		t.Errorf("PCI switch port survived teardown: %v", mock.switches[0].Ports)
+	}
+}
+
+// TestDestroyMemosDeviceReleasesSubsystemAfterControllerDestroyed reproduces a
+// teardown that fails only after the controller has already been destroyed, so
+// the retry can no longer learn the subsystem name from a live controller. The
+// volume owns a subsystem whose handle is the volume name, so the retry recovers
+// it from deviceName and must still release the namespace and subsystem instead
+// of leaking them and reporting success.
+func TestDestroyMemosDeviceReleasesSubsystemAfterControllerDestroyed(t *testing.T) {
+	mock := testMemosHotplugMock()
+	c := &client{rpcClient: mock}
+
+	nsid, pciBDF, _, funcVUID, err := c.ExposeMemosDevice(
+		testMemosDPUStatus(), testMemosHotplugSpec(), testMemosParameters())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// The first teardown fails at namespace destroy, which runs after the
+	// controller has already been destroyed.
+	mock.failMethod = "doca_nvme_subsystem_ns_destroy"
+	if err := c.DestroyMemosDevice(funcVUID, nsid, pciBDF, true, "memos_vol_1"); err == nil {
+		t.Fatalf("expected the injected namespace-destroy failure")
+	}
+	if len(mock.nvmeControllers) != 0 {
+		t.Fatalf("precondition: the controller should already be destroyed, got %v", mock.nvmeControllers)
+	}
+	if len(mock.nvmeNamespaces) != 1 || len(mock.nvmeSubsystems) != 1 {
+		t.Fatalf("precondition: namespace and subsystem should still exist, ns=%v subsys=%v",
+			mock.nvmeNamespaces, mock.nvmeSubsystems)
+	}
+
+	mock.failMethod = ""
+	mock.calls, mock.params = nil, nil
+
+	if err := c.DestroyMemosDevice(funcVUID, nsid, pciBDF, true, "memos_vol_1"); err != nil {
+		t.Fatalf("unexpected error on retry: %v", err)
+	}
+
+	// The retry has no controller to name the subsystem, so it must fall back to
+	// the volume name to find and release the namespace and subsystem.
+	if mock.countOf("doca_nvme_subsystem_ns_destroy") != 1 {
+		t.Errorf("expected the namespace to be destroyed on retry, calls=%v", mock.methodsCalled())
+	}
+	if mock.countOf("doca_nvme_subsystem_destroy") != 1 {
+		t.Errorf("expected the subsystem to be destroyed on retry, calls=%v", mock.methodsCalled())
+	}
+	if len(mock.nvmeNamespaces) != 0 || len(mock.nvmeControllers) != 0 || len(mock.nvmeSubsystems) != 0 {
+		t.Errorf("NVMe objects survived teardown: ns=%v ctrl=%v subsys=%v",
+			mock.nvmeNamespaces, mock.nvmeControllers, mock.nvmeSubsystems)
+	}
+	if len(mock.switches[0].Ports) != 0 {
+		t.Errorf("PCI switch port survived teardown: %v", mock.switches[0].Ports)
+	}
+}
+
+func TestDestroyMemosDeviceKeepsAStaticFunction(t *testing.T) {
+	mock := testMemosStaticMock()
+	c := &client{rpcClient: mock}
+
+	nsid, pciBDF, _, funcVUID, err := c.ExposeMemosDevice(
+		testMemosDPUStatus(), snapstoragev1.VolumeAttachmentSpec{}, testMemosParameters())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	mock.calls, mock.params = nil, nil
+
+	if err := c.DestroyMemosDevice(funcVUID, nsid, pciBDF, false, "memos_vol_1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// A static function is permanent: it is neither hotunplugged nor destroyed.
+	for _, method := range []string{
+		"pci_switch_port_set_power",
+		"pci_switch_port_destroy",
+		"doca_nvme_subsystem_controller_hotunplug",
+	} {
+		if mock.countOf(method) != 0 {
+			t.Errorf("%s should not run for a static function", method)
+		}
+	}
+	if len(mock.nvmeControllers) != 0 || len(mock.nvmeNamespaces) != 0 {
+		t.Errorf("NVMe objects survived teardown: ctrl=%v ns=%v", mock.nvmeControllers, mock.nvmeNamespaces)
+	}
+}
+
+// TestExposeMemosDeviceIsolatesVolumesInDistinctSubsystems attaches two volumes
+// and proves each lands in its own subsystem holding exactly one namespace and
+// one controller. That is what keeps a PCI function seeing only its own volume's
+// namespace: nothing associates a namespace with a controller other than sharing
+// a subsystem, so distinct subsystems are what isolate the attachments.
+func TestExposeMemosDeviceIsolatesVolumesInDistinctSubsystems(t *testing.T) {
+	mock := testMemosHotplugMock()
+	c := &client{rpcClient: mock}
+
+	if _, _, _, _, err := c.ExposeMemosDevice(
+		testMemosDPUStatus(), testMemosHotplugSpec(), testMemosParameters()); err != nil {
+		t.Fatalf("unexpected error attaching the first volume: %v", err)
+	}
+
+	second := testMemosDPUStatus()
+	second.DeviceName = "memos_vol_2"
+	if _, _, _, _, err := c.ExposeMemosDevice(second, testMemosHotplugSpec(), testMemosParameters()); err != nil {
+		t.Fatalf("unexpected error attaching the second volume: %v", err)
+	}
+
+	// Two volumes must produce two subsystems, each with its own namespace and
+	// controller - never one shared subsystem holding both namespaces.
+	if len(mock.nvmeSubsystems) != 2 {
+		t.Fatalf("expected one subsystem per volume, got %v", mock.nvmeSubsystems)
+	}
+	perSubsystem := map[string]struct{ namespaces, controllers int }{}
+	for _, ns := range mock.nvmeNamespaces {
+		entry := perSubsystem[ns.SubsystemName]
+		entry.namespaces++
+		perSubsystem[ns.SubsystemName] = entry
+	}
+	for _, ctrl := range mock.nvmeControllers {
+		entry := perSubsystem[ctrl.SubsystemName]
+		entry.controllers++
+		perSubsystem[ctrl.SubsystemName] = entry
+	}
+	for _, volume := range []string{"nvme_subsys_memos_vol_1", "nvme_subsys_memos_vol_2"} {
+		entry, ok := perSubsystem[volume]
+		if !ok {
+			t.Errorf("volume %q has no dedicated subsystem, got %v", volume, perSubsystem)
+			continue
+		}
+		if entry.namespaces != 1 || entry.controllers != 1 {
+			t.Errorf("subsystem %q holds %d namespaces and %d controllers, want 1 and 1",
+				volume, entry.namespaces, entry.controllers)
+		}
+	}
+}
+
+// TestDestroyMemosDeviceLeavesOtherVolumesIntact tears one volume down and proves
+// the other volume's dedicated subsystem, namespace and controller are untouched.
+func TestDestroyMemosDeviceLeavesOtherVolumesIntact(t *testing.T) {
+	mock := testMemosHotplugMock()
+	c := &client{rpcClient: mock}
+
+	nsid, pciBDF, _, funcVUID, err := c.ExposeMemosDevice(
+		testMemosDPUStatus(), testMemosHotplugSpec(), testMemosParameters())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	second := testMemosDPUStatus()
+	second.DeviceName = "memos_vol_2"
+	if _, _, _, _, err := c.ExposeMemosDevice(second, testMemosHotplugSpec(), testMemosParameters()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	mock.calls, mock.params = nil, nil
+
+	if err := c.DestroyMemosDevice(funcVUID, nsid, pciBDF, true, "memos_vol_1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// The detached volume owns its subsystem, so that subsystem is destroyed
+	// along with its single namespace.
+	if mock.countOf("doca_nvme_subsystem_destroy") != 1 {
+		t.Errorf("the detached volume's dedicated subsystem should be destroyed")
+	}
+	if mock.countOf("doca_nvme_subsystem_ns_destroy") != 1 {
+		t.Errorf("expected the requested namespace to be destroyed")
+	}
+
+	// The other volume is in a different subsystem, so it is left fully intact.
+	if len(mock.nvmeNamespaces) != 1 || mock.nvmeNamespaces[0].Backend != "memos_vol_2" {
+		t.Errorf("the surviving attachment's namespace was disturbed: %v", mock.nvmeNamespaces)
+	}
+	if len(mock.nvmeSubsystems) != 1 || mock.nvmeSubsystems[0].SubsystemName != "nvme_subsys_memos_vol_2" {
+		t.Errorf("the surviving attachment's subsystem was disturbed: %v", mock.nvmeSubsystems)
+	}
+	if len(mock.nvmeControllers) != 1 || mock.nvmeControllers[0].SubsystemName != "nvme_subsys_memos_vol_2" {
+		t.Errorf("the surviving attachment's controller was disturbed: %v", mock.nvmeControllers)
+	}
+}
+
+func TestGetMemosFuncVUID(t *testing.T) {
+	mock := testMemosStaticMock()
+	c := &client{rpcClient: mock}
+
+	vuid, err := c.GetMemosFuncVUID(testMemosPCIBDF)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if vuid != "MT2333XZ0NVMES1D0F0" {
+		t.Errorf("vuid = %q, want the static function at %s", vuid, testMemosPCIBDF)
+	}
+	if mock.countOf("doca_nvme_get_emulation_functions") < 1 {
+		t.Errorf("expected doca_nvme_get_emulation_functions")
+	}
+
+	if _, err := c.GetMemosFuncVUID("5F:00.0"); err == nil {
+		t.Errorf("expected an error for a BDF that is not on the function list")
+	}
+}
+
+func TestDestroyMemosDeviceToleratesMissingObjects(t *testing.T) {
+	mock := testMemosHotplugMock()
+
+	// Detaching something already torn down has to converge: the controller
+	// retries detachment until it succeeds. An empty funcVUID exercises the
+	// legacy BDF-only fallback for attachments that never recorded one.
+	if err := (&client{rpcClient: mock}).DestroyMemosDevice("", 1, testMemosPCIBDF, true, "memos_vol_1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, method := range []string{
+		"doca_nvme_subsystem_controller_hotunplug",
+		"doca_nvme_subsystem_controller_destroy",
+		"doca_nvme_subsystem_ns_destroy",
+		"pci_switch_port_destroy",
+	} {
+		if mock.countOf(method) != 0 {
+			t.Errorf("%s should not run when the object is already gone", method)
+		}
+	}
+}

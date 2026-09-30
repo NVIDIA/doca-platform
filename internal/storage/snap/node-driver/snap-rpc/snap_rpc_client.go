@@ -18,10 +18,13 @@ package rpcclient
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	snapstoragev1 "github.com/nvidia/doca-platform/api/storage/v1alpha1"
 
+	"github.com/google/uuid"
 	"k8s.io/klog/v2"
 )
 
@@ -32,12 +35,23 @@ type Client interface {
 	// ExposeFSDevice exposes a filesystem device on the SNAP controller
 	ExposeFSDevice(deviceName string, dpuStatus snapstoragev1.VolumeAttachmentStatusDPU,
 		parameters map[string]string) (string, string, string, error)
+	// ExposeMemosDevice exposes a CMX key/value volume as an NVMe KV namespace on
+	// the SNAP controller
+	ExposeMemosDevice(dpuStatus snapstoragev1.VolumeAttachmentStatusDPU, spec snapstoragev1.VolumeAttachmentSpec,
+		parameters map[string]string) (int, string, string, string, error)
 	// DestroyBlockDevice destroys a block device on the SNAP controller.
 	DestroyBlockDevice(deviceName string, nsid int, pciAddr string, hotplug bool) error
+	// DestroyMemosDevice destroys the NVMe front end of a CMX key/value volume on
+	// the SNAP controller. deviceName is the MEMOS volume, whose name is also the
+	// handle of the dedicated subsystem holding the volume's namespace.
+	DestroyMemosDevice(funcVUID string, nsid int, pciAddr string, hotplug bool, deviceName string) error
 	// DestroyFSDevice destroys a filesystem device on the SNAP controller
 	DestroyFSDevice(deviceName string, pciAddr string) error
 	// GetBlockFuncVUID returns the emulated NVMe function VUID exposed at pciAddr
 	GetBlockFuncVUID(pciAddr string) (string, error)
+	// GetMemosFuncVUID returns the emulated NVMe function VUID exposed at pciAddr
+	// on the SNAP5 MEMOS path (doca_nvme_get_emulation_functions).
+	GetMemosFuncVUID(pciAddr string) (string, error)
 	// GetFSFuncVUID returns the emulated VirtioFS function VUID exposed at pciAddr
 	GetFSFuncVUID(pciAddr string) (string, error)
 	// Close closes the underlying RPC connection
@@ -55,6 +69,13 @@ func NewClient(rpcClient JSONRPCClient) Client {
 // client is default implementation of the Client interface
 type client struct {
 	rpcClient JSONRPCClient
+}
+
+// memosRPC returns the transport the CMX key/value path uses. It is the same
+// connection the block path runs on, read as SNAP5 replies rather than SNAP4
+// ones - see MemosJSONRPCClient.
+func (c *client) memosRPC() MemosJSONRPCClient {
+	return NewMemosJSONRPCClient(c.rpcClient)
 }
 
 // ExposeBlockDevice exposes a block device on the SNAP controller
@@ -397,6 +418,34 @@ func (c *client) GetBlockFuncVUID(pciAddr string) (string, error) {
 	return getFunctionVUIDByPCIAddress(pciAddr, emulationFunctions)
 }
 
+// GetMemosFuncVUID returns the SNAP5 emulated NVMe function VUID at pciAddr.
+// That is the same vuid field of doca_nvme_get_emulation_functions (static PF
+// or hotplug). A hotplug BDF that has not yet landed on the emulation list is
+// resolved from pci_switch_show_info.
+func (c *client) GetMemosFuncVUID(pciAddr string) (string, error) {
+	if pciAddr == "" {
+		return "", fmt.Errorf("PCI address is empty")
+	}
+
+	functions, err := DocaNvmeGetEmulationFunctions(c.memosRPC())
+	if err != nil {
+		return "", err
+	}
+	if function, found := DocaNvmeFindFunctionByBDF(functions, pciAddr); found {
+		return function.VUID, nil
+	}
+
+	switches, err := PCISwitchShowInfo(c.memosRPC())
+	if err != nil {
+		return "", err
+	}
+	if vuid, _, found := findPCISwitchPortByBDF(switches, pciAddr); found {
+		return vuid, nil
+	}
+
+	return "", fmt.Errorf("no NVMe emulation function found for PCI address %s", pciAddr)
+}
+
 // GetFSFuncVUID returns the emulated VirtioFS function VUID exposed at pciAddr.
 func (c *client) GetFSFuncVUID(pciAddr string) (string, error) {
 	if pciAddr == "" {
@@ -580,6 +629,568 @@ func (c *client) DestroyFSDevice(deviceName string, pciAddr string) error {
 	}
 
 	return nil
+}
+
+/*
+ * CMX key/value path.
+ *
+ * The block path exposes a local backend behind an emulated NVMe function. The
+ * CMX path serves the same host-visible shape - one NVMe namespace on one
+ * controller - but the namespace is backed by a MEMOS volume composed of
+ * namespaces on a remote CMX target, and the controller sits on a hotplug PCI
+ * switch port instead of a static or SR-IOV function.
+ */
+
+// Storage parameter keys configuring the NVMe front end of the CMX path. The
+// target side is not configured here: the plugin connects the MEMOS target and
+// creates the volume, and hands the volume name back as the device name.
+const (
+	ParamMemosSubsystemNQN = "memos_subsystem_nqn"
+	ParamMemosNumQueues    = "memos_num_queues"
+	ParamMemosPCISwitch    = "memos_pci_switch"
+	// ParamMemosNvmeManagers and ParamMemosNvmeNetworkDevs configure the NVMe
+	// module, which has to be configured before the first subsystem is created.
+	ParamMemosNvmeManagers    = "memos_nvme_managers"
+	ParamMemosNvmeNetworkDevs = "memos_nvme_network_devs"
+)
+
+// memosConfig is the resolved NVMe front-end configuration for one attachment.
+type memosConfig struct {
+	subsystemNQN    string
+	numQueues       int
+	pciSwitch       string
+	nvmeManagers    string
+	nvmeNetworkDevs string
+}
+
+// parseMemosConfig resolves the NVMe front-end configuration from the storage
+// parameters.
+func parseMemosConfig(parameters map[string]string) (memosConfig, error) {
+	if parameters == nil {
+		parameters = make(map[string]string)
+	}
+
+	cfg := memosConfig{
+		subsystemNQN:    parameters[ParamMemosSubsystemNQN],
+		pciSwitch:       parameters[ParamMemosPCISwitch],
+		nvmeManagers:    parameters[ParamMemosNvmeManagers],
+		nvmeNetworkDevs: parameters[ParamMemosNvmeNetworkDevs],
+	}
+
+	if value := parameters[ParamMemosNumQueues]; value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return memosConfig{}, fmt.Errorf("invalid %s %q: %w", ParamMemosNumQueues, value, err)
+		}
+		cfg.numQueues = parsed
+	}
+
+	// The NQN is the base for each volume's dedicated subsystem, so it is the one
+	// parameter that must be present.
+	if cfg.subsystemNQN == "" {
+		return memosConfig{}, fmt.Errorf("no NVMe subsystem NQN: %s is required", ParamMemosSubsystemNQN)
+	}
+
+	return cfg, nil
+}
+
+// memosSubsystemNamePrefix keeps the NVMe subsystem handle distinct from the
+// MEMOS volume it fronts. SNAP keeps its emulation objects - including the
+// plugin's MEMOS volume, which is named after the same volume - in one name
+// registry, so using the volume name verbatim as the subsystem handle collides
+// with it and fails with SNAP_ERROR_IN_USE.
+const memosSubsystemNamePrefix = "nvme_subsys_"
+
+// memosSubsystemName returns the handle of the NVMe subsystem dedicated to
+// volumeName. It is a pure function of the volume name so teardown can address
+// the subsystem from deviceName alone, and it is prefixed so it never collides
+// with the MEMOS volume of the same name.
+func memosSubsystemName(volumeName string) string {
+	return memosSubsystemNamePrefix + volumeName
+}
+
+// memosVolumeSubsystem derives the dedicated NVMe subsystem for one CMX volume:
+// its handle (used by the doca_nvme RPCs) and its NQN (what the host enumerates).
+//
+// Each volume gets a subsystem of its own so that its namespace is visible only
+// to that volume's controller, and therefore only to that volume's PCI function.
+// A single subsystem shared across volumes would instead expose every namespace
+// to every controller in it, letting one host reach another volume's data.
+func memosVolumeSubsystem(baseNQN, volumeName string) (name, nqn string) {
+	return memosSubsystemName(volumeName), baseNQN + ":" + volumeName
+}
+
+// ExposeMemosDevice exposes a CMX key/value volume as an NVMe KV namespace.
+//
+// The MEMOS side is the plugin's: it connects the target and creates the volume,
+// and dpuStatus.DeviceName is that volume name. This builds the NVMe front end
+// over it - subsystem, KV namespace bound to the volume, and a controller on an
+// emulated function - mirroring how ExposeBlockDevice wraps a bdev. Every step
+// checks the live state first, so a retried attachment converges instead of
+// creating duplicates.
+//
+// It returns the namespace ID, the PCI address, the host-visible NGUID and the
+// VUID of the emulated function, matching ExposeBlockDevice.
+func (c *client) ExposeMemosDevice(dpuStatus snapstoragev1.VolumeAttachmentStatusDPU,
+	spec snapstoragev1.VolumeAttachmentSpec, parameters map[string]string) (int, string, string, string, error) {
+	// volumeName is the MEMOS volume the plugin created, which the KV namespace
+	// takes as its backend.
+	volumeName := dpuStatus.DeviceName
+	funcVUID := dpuStatus.FuncVUID
+	// The namespace listing does not report the NGUID, so the value recorded on
+	// the CR is the only source once the namespace exists.
+	hostNGUID := dpuStatus.BdevAttrs.NVMeUUID
+
+	// The MEMOS path exposes the KV namespace over a static NVMe function or a
+	// hotplug switch port, neither of which selects a VF. Reject vf rather than
+	// silently exposing a PF and diverging from the requested function type.
+	if spec.FunctionTypeConfig.FunctionType == snapstoragev1.FunctionTypeVF {
+		return 0, "", hostNGUID, funcVUID, fmt.Errorf("function type %q is not supported for MEMOS/CMX attachments", snapstoragev1.FunctionTypeVF)
+	}
+
+	cfg, err := parseMemosConfig(parameters)
+	if err != nil {
+		return 0, "", hostNGUID, funcVUID, err
+	}
+
+	if volumeName == "" {
+		return 0, "", hostNGUID, funcVUID, fmt.Errorf("no device name on the attachment: the plugin has not created the MEMOS volume yet")
+	}
+
+	subsystems, err := DocaNvmeGetSubsystems(c.memosRPC())
+	if err != nil {
+		return 0, "", hostNGUID, funcVUID, err
+	}
+
+	if err := c.ensureNvmeConfig(cfg, subsystems); err != nil {
+		return 0, "", hostNGUID, funcVUID, err
+	}
+
+	namespaces, err := DocaNvmeGetNamespaces(c.memosRPC())
+	if err != nil {
+		return 0, "", hostNGUID, funcVUID, err
+	}
+
+	subsystemName, subsystemNQN := memosVolumeSubsystem(cfg.subsystemNQN, volumeName)
+	nsid := 0
+	if ns, exists := DocaNvmeFindNamespaceByBackend(namespaces, volumeName); exists {
+		nsid = ns.NSID
+		subsystemName = ns.SubsystemName
+		klog.Infof("NVMe KV namespace already exists: NSID=%d, subsystem=%s", nsid, subsystemName)
+	} else {
+		err = DocaNvmeSubsystemCreate(c.memosRPC(), DocaNvmeSubsystemCreateRequest{
+			SubsystemName: subsystemName,
+			NQN:           subsystemNQN,
+		}, subsystems)
+		if err != nil {
+			return 0, "", hostNGUID, funcVUID, err
+		}
+
+		nsid = int(dpuStatus.BdevAttrs.NVMeNsID)
+		if nsid < 1 {
+			nsid = 1
+		}
+		if hostNGUID == "" {
+			hostNGUID = newHostNGUID()
+		}
+
+		err = DocaNvmeSubsystemNsCreate(c.memosRPC(), DocaNvmeNamespaceCreateRequest{
+			SubsystemName: subsystemName,
+			NSID:          nsid,
+			BackendName:   volumeName,
+			CSI:           CSIKV,
+			NGUID:         hostNGUID,
+		})
+		if err != nil {
+			return 0, "", hostNGUID, funcVUID, err
+		}
+		klog.Infof("Created NVMe KV namespace: NSID=%d, NGUID=%s, backend=%s", nsid, hostNGUID, volumeName)
+	}
+
+	// The controller binds to an emulated function. A hotplug attachment gets its
+	// own PCI switch port; otherwise it claims a static function, which already
+	// exists on the DPU and is neither created nor powered.
+	hotplug := spec.FunctionTypeConfig.HotplugFunction
+
+	var pciBDF string
+	if hotplug {
+		funcVUID, _, err = c.ensureMemosSwitchPort(cfg, funcVUID)
+	} else {
+		funcVUID, pciBDF, err = c.resolveMemosStaticFunction(funcVUID)
+	}
+	if err != nil {
+		return nsid, "", hostNGUID, funcVUID, err
+	}
+
+	controllers, err := DocaNvmeGetControllers(c.memosRPC())
+	if err != nil {
+		return nsid, "", hostNGUID, funcVUID, err
+	}
+
+	// A function carries at most one controller, so the port decides whether a
+	// controller already exists for this attachment.
+	var cntlID int
+	if ctrl, exists := DocaNvmeFindControllerByVUID(controllers, funcVUID); exists {
+		klog.Infof("NVMe controller already exists: subsystem=%s cntlID=%d", ctrl.SubsystemName, ctrl.CntlID)
+		subsystemName = ctrl.SubsystemName
+		cntlID = ctrl.CntlID
+	} else {
+		cntlID = DocaNvmeNextControllerID(controllers, subsystemName)
+		err = DocaNvmeSubsystemControllerCreate(c.memosRPC(), DocaNvmeControllerCreateRequest{
+			SubsystemName: subsystemName,
+			CntlID:        cntlID,
+			VUID:          funcVUID,
+			NumQueues:     cfg.numQueues,
+		})
+		if err != nil {
+			return nsid, "", hostNGUID, funcVUID, err
+		}
+	}
+
+	if hotplug {
+		pciBDF, err = c.hotplugMemosController(subsystemName, cntlID, funcVUID)
+		if err != nil {
+			return nsid, "", hostNGUID, funcVUID, err
+		}
+	}
+
+	klog.Infof("Final CMX Device State -> subsystem=%s, NSID=%d, PCI BDF=%s, Function UUID (vuid)=%s, volume=%s",
+		subsystemName, nsid, pciBDF, funcVUID, volumeName)
+
+	return nsid, pciBDF, hostNGUID, funcVUID, nil
+}
+
+// ensureNvmeConfig selects the emulation managers and network devices the NVMe
+// module uses.
+//
+// Every subsystem depends on this configuration, so it has to be set before the
+// first one is created; an existing subsystem means it is already set.
+func (c *client) ensureNvmeConfig(cfg memosConfig, subsystems []DocaNvmeSubsystem) error {
+	if len(subsystems) > 0 {
+		klog.Infof("NVMe subsystems already exist, leaving the existing configuration in place")
+		return nil
+	}
+
+	managerList := cfg.nvmeManagers
+	if managerList == "" {
+		managers, err := DocaNvmeGetSupportedManagers(c.memosRPC())
+		if err != nil {
+			return err
+		}
+		if len(managers) == 0 {
+			return fmt.Errorf("no NVMe emulation managers reported by the SNAP service")
+		}
+		managerList = strings.Join(DocaNvmeManagerNames(managers), ",")
+		klog.Infof("No NVMe manager list configured, using every supported manager: %s", managerList)
+	}
+
+	// The network list defaults to the devices the MEMOS data path uses, since
+	// that is where the CMX traffic goes.
+	return DocaNvmeSetConfig(c.memosRPC(), managerList, cfg.nvmeNetworkDevs)
+}
+
+// ensureMemosSwitchPort returns the hotplug PCI switch port the controller binds
+// to, creating one when this attachment does not have a live port yet.
+func (c *client) ensureMemosSwitchPort(cfg memosConfig, funcVUID string) (string, string, error) {
+	switches, err := PCISwitchShowInfo(c.memosRPC())
+	if err != nil {
+		return funcVUID, "", err
+	}
+
+	// A persisted VUID with a live port means the port already exists; creating
+	// another would leak a PCIe function on every retry.
+	if funcVUID != "" {
+		if _, owningSwitch, found := FindPCISwitchPort(switches, funcVUID); found {
+			return funcVUID, owningSwitch, nil
+		}
+		klog.Infof("Persisted VUID %s has no PCI switch port, creating a new one", funcVUID)
+	}
+
+	switchName := cfg.pciSwitch
+	if switchName == "" {
+		switchName, err = PCISwitchForType(switches, PCIPortTypeNVMe)
+		if err != nil {
+			return funcVUID, "", err
+		}
+	}
+
+	funcVUID, err = PCISwitchPortCreate(c.memosRPC(), switchName, PCIPortTypeNVMe)
+	if err != nil {
+		return "", switchName, err
+	}
+
+	return funcVUID, switchName, nil
+}
+
+// resolveMemosStaticFunction claims the static emulation function the controller
+// is exposed through and returns its VUID and PCI address. A static function is
+// always present on the DPU, so it is claimed rather than created.
+func (c *client) resolveMemosStaticFunction(funcVUID string) (string, string, error) {
+	functions, err := DocaNvmeGetEmulationFunctions(c.memosRPC())
+	if err != nil {
+		return funcVUID, "", err
+	}
+
+	if funcVUID != "" {
+		function, found := DocaNvmeFindFunctionByVUID(functions, funcVUID)
+		if !found {
+			return funcVUID, "", fmt.Errorf("no NVMe emulation function with VUID %s", funcVUID)
+		}
+		return function.VUID, function.BDF, nil
+	}
+
+	function, found := DocaNvmeFindFreeStaticFunction(functions)
+	if !found {
+		return "", "", fmt.Errorf("no free static NVMe emulation function available")
+	}
+
+	klog.Infof("Claiming static NVMe emulation function %s at %s", function.VUID, function.BDF)
+
+	return function.VUID, function.BDF, nil
+}
+
+// hotplugMemosController publishes a hotplug-bound controller to the host and
+// returns the PCI address the function is assigned once it is visible. A
+// controller on a static function must not take this path: the service rejects
+// it, because that function is always present.
+func (c *client) hotplugMemosController(subsystemName string, cntlID int, vuid string) (string, error) {
+	switches, err := PCISwitchShowInfo(c.memosRPC())
+	if err != nil {
+		return "", err
+	}
+
+	port, _, _ := FindPCISwitchPort(switches, vuid)
+	if port.Power != PCIPortStatePowerOn {
+		if err := DocaNvmeSubsystemControllerHotplug(c.memosRPC(), subsystemName, cntlID); err != nil {
+			return "", err
+		}
+
+		refreshed, err := PCISwitchShowInfo(c.memosRPC())
+		if err != nil {
+			return "", err
+		}
+		port, _, _ = FindPCISwitchPort(refreshed, vuid)
+	}
+
+	if port.BDF != "" {
+		return port.BDF, nil
+	}
+
+	// The BDF is also reported on the emulation function once the PCI function is
+	// stable, which covers a listing that has not yet filled the switch port.
+	functions, err := DocaNvmeGetEmulationFunctions(c.memosRPC())
+	if err != nil {
+		return "", err
+	}
+	if function, found := DocaNvmeFindFunctionByVUID(functions, vuid); found && function.BDF != "" {
+		return function.BDF, nil
+	}
+
+	return "", fmt.Errorf("no PCI address reported for hotplugged controller %d in subsystem %s", cntlID, subsystemName)
+}
+
+// newHostNGUID generates a host-visible namespace identifier: 32 hex characters,
+// which is a UUID without its dashes.
+func newHostNGUID() string {
+	return strings.ReplaceAll(uuid.Must(uuid.NewRandom()).String(), "-", "")
+}
+
+// DestroyMemosDevice tears down the NVMe front end of a CMX key/value volume.
+//
+// The MEMOS volume itself is the plugin's to destroy, so this stops at releasing
+// the namespace that references it. Teardown runs front to back - controller
+// hotunplug, controller, namespace, subsystem, then the port - and each step
+// resolves its target from live state and is skipped when the object is already
+// gone, so a retried detachment converges.
+func (c *client) DestroyMemosDevice(funcVUID string, nsid int, pciAddr string, hotplug bool, deviceName string) error {
+	controllers, err := DocaNvmeGetControllers(c.memosRPC())
+	if err != nil {
+		return err
+	}
+
+	// The emulated function is what ties the SNAP resources to this attachment,
+	// and it is either a hotplug switch port or a static function.
+	vuid, switchName, err := c.resolveMemosFunction(funcVUID, pciAddr, hotplug)
+	if err != nil {
+		return err
+	}
+	if vuid == "" {
+		klog.Errorf("No NVMe emulation function found for funcVUID %q / PCI address %q", funcVUID, pciAddr)
+	}
+
+	var subsystemName string
+	ctrl, hasCtrl := DocaNvmeFindControllerByVUID(controllers, vuid)
+	if hasCtrl {
+		subsystemName = ctrl.SubsystemName
+	} else if vuid != "" {
+		klog.Errorf("No NVMe controller found for VUID: %s", vuid)
+	}
+
+	// With the controller already gone, fall back to the volume's dedicated
+	// subsystem, whose handle is derived from the volume name, so the namespace
+	// and subsystem are still released on retry.
+	if subsystemName == "" {
+		subsystemName = memosSubsystemName(deviceName)
+	}
+
+	// Hotunplug retracts the namespace from the host before anything backing it
+	// is torn down. A static function is always present and cannot be unplugged.
+	if hasCtrl && hotplug {
+		if err := DocaNvmeSubsystemControllerHotunplug(c.memosRPC(), subsystemName, ctrl.CntlID); err != nil {
+			return err
+		}
+	}
+
+	if hasCtrl {
+		if err := DocaNvmeSubsystemControllerDestroy(c.memosRPC(), subsystemName, ctrl.CntlID); err != nil {
+			return err
+		}
+		klog.Infof("Successfully destroyed NVMe controller %d in subsystem %s", ctrl.CntlID, subsystemName)
+	}
+
+	namespaces, err := DocaNvmeGetNamespaces(c.memosRPC())
+	if err != nil {
+		return err
+	}
+
+	if ns, exists := DocaNvmeFindNamespace(namespaces, subsystemName, nsid); exists {
+		if err := DocaNvmeSubsystemNsDestroy(c.memosRPC(), subsystemName, nsid); err != nil {
+			return err
+		}
+		klog.Infof("Successfully destroyed NVMe namespace ID %d in subsystem %s, releasing backend %s",
+			nsid, subsystemName, ns.Backend)
+	}
+
+	if err := c.destroyIdleNvmeSubsystem(subsystemName); err != nil {
+		return err
+	}
+
+	// Only a hotplug port is ours to destroy; a static function is permanent.
+	if hotplug && vuid != "" && switchName != "" {
+		if err := PCISwitchPortDestroy(c.memosRPC(), switchName, vuid); err != nil {
+			return err
+		}
+		klog.Infof("Successfully destroyed PCI switch port %s", vuid)
+	}
+
+	return nil
+}
+
+// resolveMemosFunction returns the VUID of this attachment's emulated function
+// and, for a hotplug function, the switch owning its port.
+//
+// It prefers the persisted funcVUID: a hotunplug clears the port's BDF, so the
+// VUID is the only identity that survives a teardown retried after the
+// hotunplug. The BDF is used only when no funcVUID was ever recorded (legacy
+// attachments), reproducing the previous behavior.
+func (c *client) resolveMemosFunction(funcVUID, pciAddr string, hotplug bool) (string, string, error) {
+	if funcVUID == "" {
+		return c.resolveMemosFunctionByBDF(pciAddr, hotplug)
+	}
+
+	// A static function has no switch port; the VUID alone drives teardown.
+	if !hotplug {
+		return funcVUID, "", nil
+	}
+
+	// The switch owning the port is resolved by VUID, which still matches after a
+	// hotunplug even though the port's BDF has been cleared. A missing port means
+	// it was already destroyed, so the later port-destroy step is a no-op.
+	switches, err := PCISwitchShowInfo(c.memosRPC())
+	if err != nil {
+		return "", "", err
+	}
+	if _, switchName, found := FindPCISwitchPort(switches, funcVUID); found {
+		return funcVUID, switchName, nil
+	}
+
+	return funcVUID, "", nil
+}
+
+// resolveMemosFunctionByBDF returns the VUID of the emulated function at pciAddr,
+// and the switch owning it when it is a hotplug port.
+func (c *client) resolveMemosFunctionByBDF(pciAddr string, hotplug bool) (string, string, error) {
+	if pciAddr == "" {
+		return "", "", nil
+	}
+
+	if hotplug {
+		switches, err := PCISwitchShowInfo(c.memosRPC())
+		if err != nil {
+			return "", "", err
+		}
+		vuid, switchName, _ := findPCISwitchPortByBDF(switches, pciAddr)
+		return vuid, switchName, nil
+	}
+
+	functions, err := DocaNvmeGetEmulationFunctions(c.memosRPC())
+	if err != nil {
+		return "", "", err
+	}
+	if function, found := DocaNvmeFindFunctionByBDF(functions, pciAddr); found {
+		return function.VUID, "", nil
+	}
+
+	return "", "", nil
+}
+
+// destroyIdleNvmeSubsystem removes the subsystem once it holds no namespaces or
+// controllers. It is shared by every CMX volume on the node, so it outlives an
+// individual attachment.
+func (c *client) destroyIdleNvmeSubsystem(subsystemName string) error {
+	if subsystemName == "" {
+		return nil
+	}
+
+	namespaces, err := DocaNvmeGetNamespaces(c.memosRPC())
+	if err != nil {
+		return err
+	}
+	for _, ns := range namespaces {
+		if ns.SubsystemName == subsystemName {
+			klog.Infof("NVMe subsystem %s still has namespaces, leaving it in place", subsystemName)
+			return nil
+		}
+	}
+
+	controllers, err := DocaNvmeGetControllers(c.memosRPC())
+	if err != nil {
+		return err
+	}
+	for _, ctrl := range controllers {
+		if ctrl.SubsystemName == subsystemName {
+			klog.Infof("NVMe subsystem %s still has controllers, leaving it in place", subsystemName)
+			return nil
+		}
+	}
+
+	subsystems, err := DocaNvmeGetSubsystems(c.memosRPC())
+	if err != nil {
+		return err
+	}
+	if !DocaNvmeSubsystemExists(subsystems, subsystemName) {
+		return nil
+	}
+
+	return DocaNvmeSubsystemDestroy(c.memosRPC(), subsystemName)
+}
+
+// findPCISwitchPortByBDF locates the port exposed at pciAddr and reports its VUID
+// and switch.
+func findPCISwitchPortByBDF(switches []PCISwitch, pciAddr string) (string, string, bool) {
+	if pciAddr == "" {
+		return "", "", false
+	}
+
+	for _, sw := range switches {
+		for _, port := range sw.Ports {
+			if port.BDF == pciAddr {
+				return port.VUID, sw.Name, true
+			}
+		}
+	}
+
+	return "", "", false
 }
 
 // Close closes the underlying RPC connection
