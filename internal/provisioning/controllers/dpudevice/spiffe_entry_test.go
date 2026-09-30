@@ -422,7 +422,7 @@ var _ = DescribeTable("DPUDevice protected deletion", func(spiffe bool) {
 	Expect(cl.Get(ctx, req.NamespacedName, device)).To(Succeed())
 	Expect(device.DeletionTimestamp.IsZero()).To(BeFalse())
 
-	By("preserving dependencies on repeated reconciles while the DPU holds protection")
+	By("deferring cleanup only for SPIFFE devices while the DPU holds protection")
 	for range 2 {
 		result, err := r.Reconcile(ctx, req)
 		Expect(err).NotTo(HaveOccurred())
@@ -432,12 +432,16 @@ var _ = DescribeTable("DPUDevice protected deletion", func(spiffe bool) {
 			Expect(cse.DeletionTimestamp.IsZero()).To(BeTrue())
 		}
 		Expect(cl.Get(ctx, client.ObjectKeyFromObject(secret), secret)).To(Succeed())
-		Expect(secret.Finalizers).To(ContainElement(provisioningv1.BMCCredentialFinalizer))
-		Expect(result.RequeueAfter).To(Equal(10 * time.Second))
 		Expect(cl.Get(ctx, req.NamespacedName, device)).To(Succeed())
-		Expect(device.Finalizers).To(ContainElements(provisioningv1.DPUDeviceFinalizer, provisioningv1.BMCCredentialFinalizer))
+		Expect(device.Finalizers).To(ContainElement(provisioningv1.DPUDeviceFinalizer))
 		if spiffe {
-			Expect(device.Finalizers).To(ContainElement(provisioningv1.SPIFFEDeregistrationFinalizer))
+			Expect(secret.Finalizers).To(ContainElement(provisioningv1.BMCCredentialFinalizer))
+			Expect(result.RequeueAfter).To(Equal(10 * time.Second))
+			Expect(device.Finalizers).To(ContainElements(provisioningv1.SPIFFEDeregistrationFinalizer, provisioningv1.BMCCredentialFinalizer))
+		} else {
+			Expect(secret.Finalizers).NotTo(ContainElement(provisioningv1.BMCCredentialFinalizer))
+			Expect(result).To(Equal(ctrl.Result{}))
+			Expect(device.Finalizers).NotTo(ContainElement(provisioningv1.BMCCredentialFinalizer))
 		}
 	}
 
