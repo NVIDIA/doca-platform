@@ -45,6 +45,10 @@ const (
 var _ = Describe("DPUNode Controller", func() {
 	const (
 		DefaultSerialNumberPrefix = "MT25066004C"
+		// DefaultSerialNumberSuffixLength is large enough that random suffixes
+		// generated across the many DPUDevices created in this suite don't
+		// collide and trip the webhook's cluster-wide uniqueness check.
+		DefaultSerialNumberSuffixLength = 10
 	)
 
 	var (
@@ -97,7 +101,7 @@ var _ = Describe("DPUNode Controller", func() {
 				Namespace: namespace,
 			},
 			Spec: provisioningv1.DPUDeviceSpec{
-				SerialNumber: DefaultSerialNumberPrefix + utilrand.String(5),
+				SerialNumber: DefaultSerialNumberPrefix + utilrand.String(DefaultSerialNumberSuffixLength),
 				BMCIP:        bmcIP,
 			},
 		}
@@ -365,7 +369,7 @@ var _ = Describe("DPUNode Controller", func() {
 						Namespace: operatorcontroller.DefaultDPFOperatorConfigSingletonNamespace,
 					},
 					Spec: provisioningv1.DPUDeviceSpec{
-						SerialNumber: DefaultSerialNumberPrefix + utilrand.String(5),
+						SerialNumber: DefaultSerialNumberPrefix + utilrand.String(DefaultSerialNumberSuffixLength),
 						BMCIP:        ptr.To("2.2.2.2"),
 					},
 				}
@@ -415,7 +419,7 @@ var _ = Describe("DPUNode Controller", func() {
 					Spec: provisioningv1.DPUSpec{
 						DPUNodeName:   "test-dpunode-13",
 						DPUDeviceName: dpuDevice1.Name,
-						SerialNumber:  DefaultSerialNumberPrefix + utilrand.String(5),
+						SerialNumber:  DefaultSerialNumberPrefix + utilrand.String(DefaultSerialNumberSuffixLength),
 						DPUFlavor:     "dpu-flavor",
 						BFB:           ptr.To(DefaultTestBFB),
 						NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
@@ -429,7 +433,7 @@ var _ = Describe("DPUNode Controller", func() {
 					Spec: provisioningv1.DPUSpec{
 						DPUNodeName:   "test-dpunode-13",
 						DPUDeviceName: dpuDevice2.Name,
-						SerialNumber:  DefaultSerialNumberPrefix + utilrand.String(5),
+						SerialNumber:  DefaultSerialNumberPrefix + utilrand.String(DefaultSerialNumberSuffixLength),
 						DPUFlavor:     "dpu-flavor",
 						BFB:           ptr.To(DefaultTestBFB),
 						NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
@@ -511,7 +515,7 @@ var _ = Describe("DPUNode Controller", func() {
 					Spec: provisioningv1.DPUSpec{
 						DPUNodeName:   "test-dpunode-14",
 						DPUDeviceName: dpuDevice7.Name,
-						SerialNumber:  DefaultSerialNumberPrefix + utilrand.String(5),
+						SerialNumber:  DefaultSerialNumberPrefix + utilrand.String(DefaultSerialNumberSuffixLength),
 						DPUFlavor:     "dpu-flavor",
 						BFB:           ptr.To(DefaultTestBFB),
 						NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
@@ -587,7 +591,7 @@ var _ = Describe("DPUNode Controller", func() {
 					Spec: provisioningv1.DPUSpec{
 						DPUNodeName:   "test-dpunode-21",
 						DPUDeviceName: dpuDevice1.Name,
-						SerialNumber:  DefaultSerialNumberPrefix + utilrand.String(5),
+						SerialNumber:  DefaultSerialNumberPrefix + utilrand.String(DefaultSerialNumberSuffixLength),
 						DPUFlavor:     "dpu-flavor",
 						BFB:           ptr.To(DefaultTestBFB),
 						NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
@@ -601,7 +605,7 @@ var _ = Describe("DPUNode Controller", func() {
 					Spec: provisioningv1.DPUSpec{
 						DPUNodeName:   "test-dpunode-21",
 						DPUDeviceName: dpuDevice2.Name,
-						SerialNumber:  DefaultSerialNumberPrefix + utilrand.String(5),
+						SerialNumber:  DefaultSerialNumberPrefix + utilrand.String(DefaultSerialNumberSuffixLength),
 						DPUFlavor:     "dpu-flavor",
 						BFB:           ptr.To(DefaultTestBFB),
 						NodeEffect:    provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
