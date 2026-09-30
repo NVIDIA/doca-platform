@@ -33,6 +33,16 @@ const (
 	VolumeStateInProgress VolumeState = "InProgress"
 	// Available means that all related resources are created
 	VolumeStateAvailable VolumeState = "Available"
+
+	// ParamBlockType is the storage parameter that selects the block protocol.
+	// It is the short form of csi.snap.dpf.nvidia.com/blocktype.
+	ParamBlockType       = "blocktype"
+	ParamBlockTypeCSIKey = "csi.snap.dpf.nvidia.com/blocktype"
+
+	// Block protocol values for ParamBlockType. Default is nvme.
+	BlockTypeNVMe   = "nvme"
+	BlockTypeVirtio = "virtio"
+	BlockTypeKV     = "kv"
 )
 
 // VolumeGroupVersionKind is the GroupVersionKind of the Volume object

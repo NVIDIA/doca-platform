@@ -360,6 +360,80 @@ var _ = Describe("VolumeAttachment Controller", func() {
 			}, testTimeout, testInterval).Should(Succeed())
 		})
 
+		It("should attach a block volume with blocktype kv via MEMOS", func() {
+			By("Setting up mock expectations for MEMOS")
+			mockIdentityClient.EXPECT().
+				GetPluginInfo(gomock.Any(), gomock.Any()).
+				Return(&pb.GetPluginInfoResponse{
+					Name:          testPluginName,
+					VendorVersion: "1.0.0",
+				}, nil).
+				AnyTimes()
+			mockIdentityClient.EXPECT().
+				Probe(gomock.Any(), gomock.Any()).
+				Return(&pb.ProbeResponse{Ready: &wrapperspb.BoolValue{Value: true}}, nil).
+				AnyTimes()
+			mockPluginClient.EXPECT().
+				StoragePluginGetCapabilities(gomock.Any(), gomock.Any()).
+				Return(&pb.StoragePluginGetCapabilitiesResponse{
+					Capabilities: []*pb.StoragePluginServiceCapability{
+						{Type: &pb.StoragePluginServiceCapability_Rpc{
+							Rpc: &pb.StoragePluginServiceCapability_RPC{
+								Type: pb.StoragePluginServiceCapability_RPC_TYPE_CREATE_DELETE_BLOCK_DEVICE,
+							},
+						}},
+					},
+				}, nil).
+				AnyTimes()
+			mockPluginClient.EXPECT().
+				GetSNAPProvider(gomock.Any(), gomock.Any()).
+				Return(&pb.GetSNAPProviderResponse{ProviderName: testProviderName}, nil).
+				AnyTimes()
+			mockPluginClient.EXPECT().
+				CreateDevice(gomock.Any(), gomock.Any()).
+				Return(&pb.CreateDeviceResponse{DeviceName: testDeviceName}, nil).
+				AnyTimes()
+			mockPluginClient.EXPECT().
+				GetDevice(gomock.Any(), gomock.Any()).
+				Return(&pb.GetDeviceResponse{VolumeMode: string(corev1.PersistentVolumeBlock)}, nil).
+				AnyTimes()
+			mockSNAPClient.EXPECT().
+				ExposeMemosDevice(gomock.Any(), gomock.Any(), gomock.Any()).
+				Return(1, testPCIAddr, "test-uuid", "test-function-vuid", nil).
+				AnyTimes()
+			mockSNAPClient.EXPECT().
+				GetMemosFuncVUID(testPCIAddr).
+				Return("test-function-vuid", nil).
+				AnyTimes()
+			mockSNAPClient.EXPECT().
+				Close().
+				Return(nil).
+				AnyTimes()
+
+			By("Creating Volume with volumeMode Block and blocktype kv")
+			volume = getVolume(corev1.PersistentVolumeBlock)
+			volume.Spec.StorageParameters = map[string]string{
+				snapstoragev1.ParamBlockType: snapstoragev1.BlockTypeKV,
+			}
+			createVolume(volume)
+			cleanupObjects = append(cleanupObjects, volume)
+
+			By("Creating VolumeAttachment with storageAttached=true")
+			volumeAttachment = getVolumeAttachment(true, false)
+			createVolumeAttachment(volumeAttachment)
+			cleanupObjects = append(cleanupObjects, volumeAttachment)
+
+			By("Verifying VolumeAttachment gets attached through MEMOS")
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(testCtx, client.ObjectKeyFromObject(volumeAttachment), volumeAttachment)).NotTo(HaveOccurred())
+				g.Expect(controllerutil.ContainsFinalizer(volumeAttachment, dpuFinalizer)).To(BeTrue())
+				g.Expect(volumeAttachment.Status.DPU.Attached).To(BeTrue())
+				g.Expect(volumeAttachment.Status.DPU.DeviceName).NotTo(BeEmpty())
+				g.Expect(volumeAttachment.Status.DPU.PCIDeviceAddress).To(Equal(testPCIAddr))
+				g.Expect(volumeAttachment.Status.DPU.FuncVUID).To(Equal("test-function-vuid"))
+			}, testTimeout, testInterval).Should(Succeed())
+		})
+
 		It("should successfully attach a filesystem volume", func() {
 			By("Setting up mock expectations for filesystem volume")
 			setupMockExpectations(corev1.PersistentVolumeFilesystem)
@@ -408,6 +482,59 @@ var _ = Describe("VolumeAttachment Controller", func() {
 				g.Expect(volumeAttachment.Status.DPU.Attached).To(BeTrue())
 				g.Expect(volumeAttachment.Status.DPU.DeviceName).To(Equal(testDeviceName))
 				g.Expect(volumeAttachment.Status.DPU.PCIDeviceAddress).To(Equal(testPCIAddr))
+			}, testTimeout, testInterval).Should(Succeed())
+		})
+
+		It("should backfill FuncVUID for a MEMOS attachment from the SNAP5 function list", func() {
+			By("Setting up mock expectations for MEMOS")
+			mockIdentityClient.EXPECT().
+				GetPluginInfo(gomock.Any(), gomock.Any()).
+				Return(&pb.GetPluginInfoResponse{
+					Name:          testPluginName,
+					VendorVersion: "1.0.0",
+				}, nil).
+				AnyTimes()
+			mockIdentityClient.EXPECT().
+				Probe(gomock.Any(), gomock.Any()).
+				Return(&pb.ProbeResponse{Ready: &wrapperspb.BoolValue{Value: true}}, nil).
+				AnyTimes()
+			mockPluginClient.EXPECT().
+				GetSNAPProvider(gomock.Any(), gomock.Any()).
+				Return(&pb.GetSNAPProviderResponse{ProviderName: testProviderName}, nil).
+				AnyTimes()
+			mockPluginClient.EXPECT().
+				GetDevice(gomock.Any(), gomock.Any()).
+				Return(&pb.GetDeviceResponse{VolumeMode: string(corev1.PersistentVolumeBlock)}, nil).
+				AnyTimes()
+			mockSNAPClient.EXPECT().
+				GetMemosFuncVUID(testPCIAddr).
+				Return("test-function-vuid", nil).
+				AnyTimes()
+			mockSNAPClient.EXPECT().
+				Close().
+				Return(nil).
+				AnyTimes()
+
+			By("Creating Volume with volumeMode Block and blocktype kv")
+			volume = getVolume(corev1.PersistentVolumeBlock)
+			volume.Spec.StorageParameters = map[string]string{
+				snapstoragev1.ParamBlockType: snapstoragev1.BlockTypeKV,
+			}
+			createVolume(volume)
+			cleanupObjects = append(cleanupObjects, volume)
+
+			By("Creating an attached VolumeAttachment without FuncVUID")
+			volumeAttachment = getVolumeAttachment(true, true)
+			volumeAttachment.Status.DPU.DeviceName = testDeviceName
+			volumeAttachment.Status.DPU.PCIDeviceAddress = testPCIAddr
+			createVolumeAttachment(volumeAttachment)
+			cleanupObjects = append(cleanupObjects, volumeAttachment)
+
+			By("Verifying FuncVUID is filled from doca_nvme_get_emulation_functions")
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(testCtx, client.ObjectKeyFromObject(volumeAttachment), volumeAttachment)).NotTo(HaveOccurred())
+				g.Expect(volumeAttachment.Status.DPU.FuncVUID).To(Equal("test-function-vuid"))
+				g.Expect(volumeAttachment.Status.DPU.Attached).To(BeTrue())
 			}, testTimeout, testInterval).Should(Succeed())
 		})
 
