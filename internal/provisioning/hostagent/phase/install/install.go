@@ -148,11 +148,13 @@ func (h *Handler) download(ctx context.Context, filename string, dst string) err
 		return err
 	}
 	logger.Info("start downloading", "url", httpURL, "dst", dst)
+	start := time.Now()
 	origErr := h.downloadFile(ctx, httpURL, dst)
 	if origErr == nil {
 		logger.Info("download finished", "url", filename, "dst", dst)
 		return nil
 	}
+	logger.Error(origErr, "download failed, trying workarounds", "url", httpURL, "dst", dst, "elapsed", time.Since(start).Round(time.Second))
 
 	if err := h.downloadWithBFBRegistryServiceEnv(ctx, filename, dst); err == nil {
 		logger.Info("download finished", "url", filename, "dst", dst)
