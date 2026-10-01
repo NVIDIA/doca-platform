@@ -150,25 +150,6 @@ releases:
         command: "kubectl"
         args: ["rollout", "status", "-n", "{{ .Values.namespaces.argoCD }}", "--timeout=300s", "statefulset", "-l", "app.kubernetes.io/name=argocd-application-controller"]
         showlogs: true
-      # The Applications below stay in dpf-operator-system even when Argo CD itself runs
-      # elsewhere, because the DPF Operator creates them in its own namespace.
-      # Ensure a sync is done of all applications. This is e.g. required when upgrading ArgoCD from v2 to v3 which includes changing the tracking strategy (if not configured otherwise).
-      # Without a sync, ArgoCD may not delete resources because of the missing tracking information.
-      # TODO: delete after v26.4.0 is released
-      - events: [ "postsync" ]
-        command: "/bin/bash"
-        args:
-        - -c
-        - |
-          FOUND_APPLICATIONS=0
-          for app in $(kubectl get application -n dpf-operator-system -o name); do
-            kubectl patch $app -n dpf-operator-system --type=merge -p '{"operation":{"initiatedBy":{"username":"helmfile"},"sync":{"syncStrategy":{"hook":{}}}}}'
-            FOUND_APPLICATIONS=1
-          done
-          if [ $FOUND_APPLICATIONS -eq 1 ]; then
-            kubectl wait application --all -n dpf-operator-system --for=jsonpath='{.status.operationState.phase}'=Succeeded --timeout=300s
-          fi
-        showlogs: true
 
   - name: node-feature-discovery
     namespace: dpf-operator-system
