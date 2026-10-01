@@ -32,13 +32,18 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// ValidateBMCFactoryResetSkippedOnBootstrap asserts the ZT bootstrap contract for BMC factory
-// reset: the suite explicitly sets discoveredDPUDeviceBMCFactoryResetPolicy=Never (there is no
-// CRD default for that OperatorConfig field), so every discovered DPUDevice reports
-// FactoryResetSkipped while password hardening still runs and leaves no managed account on the
-// factory default.
-func ValidateBMCFactoryResetSkippedOnBootstrap(ctx context.Context, input *systemTestInput) {
-	By("Asserting DPFOperatorConfig still has discoveredDPUDeviceBMCFactoryResetPolicy=Never")
+// bmcFactoryResetTimeout bounds the wait for a DPUDevice to finish its bootstrap factory reset and
+// become Ready. The reset alone takes 3-4 minutes on a BlueField BMC, on top of the controller's
+// settle delay and the password, firmware and mTLS initialization that follow it.
+const bmcFactoryResetTimeout = 15 * time.Minute
+
+// ValidateBMCFactoryResetCompletedOnBootstrap asserts the ZT bootstrap contract for BMC factory
+// reset: the suite leaves discoveredDPUDeviceBMCFactoryResetPolicy unset, so discovery stamps the
+// default (OnInitialization) on every DPUDevice, each BMC is reset to factory defaults exactly
+// once and reports FactoryResetCompleted, and password hardening afterwards leaves no managed
+// account on the factory default.
+func ValidateBMCFactoryResetCompletedOnBootstrap(ctx context.Context, input *systemTestInput) {
+	By("Asserting DPFOperatorConfig resolves discoveredDPUDeviceBMCFactoryResetPolicy to OnInitialization")
 	cfg := &operatorv1.DPFOperatorConfig{}
 	Expect(input.client.Get(ctx, client.ObjectKey{
 		Namespace: dpfOperatorSystemNamespace,
@@ -47,9 +52,9 @@ func ValidateBMCFactoryResetSkippedOnBootstrap(ctx context.Context, input *syste
 	Expect(cfg.Spec.ProvisioningController).NotTo(BeNil())
 	Expect(cfg.Spec.ProvisioningController.InstallInterface).NotTo(BeNil())
 	Expect(cfg.Spec.ProvisioningController.InstallInterface.InstallViaRedfish).NotTo(BeNil())
-	Expect(cfg.Spec.ProvisioningController.InstallInterface.InstallViaRedfish.
-		DiscoveredDPUDeviceBMCFactoryResetPolicy).To(Equal(provisioningv1.BMCFactoryResetPolicyNever),
-		"e2e must keep Never on OperatorConfig; discovery has no CRD default and would otherwise stamp OnInitialization")
+	Expect(provisioningv1.GetBMCFactoryResetPolicy(cfg.Spec.ProvisioningController.InstallInterface.InstallViaRedfish.
+		DiscoveredDPUDeviceBMCFactoryResetPolicy)).To(Equal(provisioningv1.BMCFactoryResetPolicyOnInitialization),
+		"e2e expects discovered DPUDevices to be factory-reset on initialization")
 
 	By("Listing DPUDevices for BMC factory reset validation")
 	dpuDevices := &provisioningv1.DPUDeviceList{}
@@ -58,34 +63,38 @@ func ValidateBMCFactoryResetSkippedOnBootstrap(ctx context.Context, input *syste
 		g.Expect(dpuDevices.Items).NotTo(BeEmpty(), "expected at least one DPUDevice")
 	}).WithTimeout(3 * time.Minute).WithPolling(time.Second).Should(Succeed())
 
-	By("Asserting bootstrap devices skipped factory reset and hardened BMC passwords")
+	By("Asserting bootstrap devices completed factory reset and hardened BMC passwords")
 	for i := range dpuDevices.Items {
-		assertFactoryResetSkippedAndHardened(ctx, input, &dpuDevices.Items[i])
+		assertFactoryResetCompletedAndHardened(ctx, input, &dpuDevices.Items[i])
 	}
 }
 
-func assertFactoryResetSkippedAndHardened(ctx context.Context, input *systemTestInput, device *provisioningv1.DPUDevice) {
+func assertFactoryResetCompletedAndHardened(ctx context.Context, input *systemTestInput, device *provisioningv1.DPUDevice) {
 	key := client.ObjectKeyFromObject(device)
-	By(fmt.Sprintf("Checking bootstrap factory-reset skip on DPUDevice %s", key.Name))
+	By(fmt.Sprintf("Checking bootstrap factory reset completed on DPUDevice %s", key.Name))
 	Eventually(func(g Gomega) {
 		current := &provisioningv1.DPUDevice{}
 		g.Expect(input.client.Get(ctx, key, current)).To(Succeed())
-		g.Expect(conditions.IsTrue(current, provisioningv1.ConditionDpuDeviceReady)).To(BeTrue(),
-			"DPUDevice %s not Ready", key.Name)
+		g.Expect(provisioningv1.GetBMCFactoryResetPolicy(current.Spec.BMCFactoryResetPolicy)).To(
+			Equal(provisioningv1.BMCFactoryResetPolicyOnInitialization),
+			"bootstrap DPUDevice %s should carry OnInitialization from discovery", key.Name)
 		resetCond := conditions.Get(current, provisioningv1.ConditionDpuDeviceBMCFactoryResetReady)
 		g.Expect(resetCond).NotTo(BeNil(), "BMCFactoryResetReady not set on %s", key.Name)
 		g.Expect(resetCond.Status).To(Equal(metav1.ConditionTrue),
-			"BMCFactoryResetReady not True on %s: %s", key.Name, resetCond.Message)
-		g.Expect(resetCond.Reason).To(Equal(provisioningv1.ReasonFactoryResetSkipped),
-			"expected FactoryResetSkipped on bootstrap device %s (suite sets Never), got %s: %s",
+			"BMCFactoryResetReady not True on %s: %s: %s", key.Name, resetCond.Reason, resetCond.Message)
+		g.Expect(resetCond.Reason).To(Equal(provisioningv1.ReasonFactoryResetCompleted),
+			"expected FactoryResetCompleted on bootstrap device %s, got %s: %s",
 			key.Name, resetCond.Reason, resetCond.Message)
-		g.Expect(provisioningv1.GetBMCFactoryResetPolicy(current.Spec.BMCFactoryResetPolicy)).To(
-			Equal(provisioningv1.BMCFactoryResetPolicyNever),
-			"bootstrap DPUDevice %s should carry Never from discovery", key.Name)
+		g.Expect(current.Status.BMCFactoryResetRequestTime).NotTo(BeNil(),
+			"DPUDevice %s reports a completed reset but never recorded submitting ResetToDefaults", key.Name)
+		g.Expect(resetCond.LastTransitionTime.Time).NotTo(BeTemporally("<", current.Status.BMCFactoryResetRequestTime.Time),
+			"BMCFactoryResetReady on %s turned True before the reset was requested", key.Name)
+		g.Expect(conditions.IsTrue(current, provisioningv1.ConditionDpuDeviceReady)).To(BeTrue(),
+			"DPUDevice %s not Ready", key.Name)
 		g.Expect(conditions.IsTrue(current, provisioningv1.ConditionBMCCredentialsReady)).To(BeTrue(),
 			"BMCCredentialsReady not True on %s", key.Name)
 		g.Expect(current.BMCAddress()).NotTo(BeEmpty(), "DPUDevice %s has no BMC address", key.Name)
-	}).WithTimeout(5 * time.Minute).WithPolling(time.Second).Should(Succeed())
+	}).WithTimeout(bmcFactoryResetTimeout).WithPolling(time.Second).Should(Succeed())
 
 	assertPasswordHardened(ctx, input, key.Name)
 }
