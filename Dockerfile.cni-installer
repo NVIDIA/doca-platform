@@ -1,7 +1,8 @@
 ARG builder_image
 ARG base_image
 ARG rdma_cni_version=network-operator-v26.7.0
-ARG cni_plugins_version=network-operator-v26.7.0
+# Older than 26.7 to fix CVEs
+ARG cni_plugins_version=network-operator-v26.4.2
 
 # 1) dependency stage to create a dependency layer with go vendor folder and other dependencies
 FROM --platform=${BUILDPLATFORM} ${builder_image} AS dependency
