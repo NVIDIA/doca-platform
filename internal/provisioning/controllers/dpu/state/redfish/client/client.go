@@ -55,6 +55,10 @@ const (
 	APICheckDPUOS                   = "redfish/v1/UpdateService/FirmwareInventory/DPU_OS"
 	APICheckDPUUEFI                 = "redfish/v1/UpdateService/FirmwareInventory/{DPU_UEFI_ID}"
 	APICheckPendingBundle           = "redfish/v1/UpdateService/FirmwareInventory/Pending_Bundle"
+	APICheckPendingBMCFW            = "redfish/v1/UpdateService/FirmwareInventory/BlueField_FW_BMC_0_pending"
+	APICheckPendingBMCEROTFW        = "redfish/v1/UpdateService/FirmwareInventory/BlueField_FW_ERoT_BMC_0_pending"
+	APICheckPendingDPUUEFI          = "redfish/v1/UpdateService/FirmwareInventory/BlueField_FW_CPU_0_pending"
+	APICheckPendingDPUNIC           = "redfish/v1/UpdateService/FirmwareInventory/BlueField_FW_NIC_0_pending"
 	APICheckOSImage                 = "redfish/v1/UpdateService/FirmwareInventory/BlueField_OS_Image_CPU_0"
 	APICheckConfigImage             = "redfish/v1/UpdateService/FirmwareInventory/BlueField_OS_Config_CPU_0"
 	APIInstallBFB                   = "redfish/v1/UpdateService/Actions/UpdateService.SimpleUpdate"
@@ -1908,6 +1912,34 @@ func (c *Client) CheckOSImage() (*VersionInfo, error) {
 // CheckConfigImage returns the BlueField Arm OS config member of the BMC firmware inventory.
 func (c *Client) CheckConfigImage() (*VersionInfo, error) {
 	return c.getFirmwareInventory(APICheckConfigImage)
+}
+
+// CheckPendingBMCFirmware returns the BMC firmware version staged by a BF4 PLDM update.
+func (c *Client) CheckPendingBMCFirmware() (*resty.Response, *VersionInfo, error) {
+	return do[VersionInfo](func() (*resty.Response, error) {
+		return c.Client.R().Get(APICheckPendingBMCFW)
+	})
+}
+
+// CheckPendingBMCEROTFW returns the BMC ERoT firmware version staged by a BF4 PLDM update.
+func (c *Client) CheckPendingBMCEROTFW() (*resty.Response, *VersionInfo, error) {
+	return do[VersionInfo](func() (*resty.Response, error) {
+		return c.Client.R().Get(APICheckPendingBMCEROTFW)
+	})
+}
+
+// CheckPendingDPUUEFI returns the DPU UEFI version staged by a BF4 PLDM update.
+func (c *Client) CheckPendingDPUUEFI() (*resty.Response, *VersionInfo, error) {
+	return do[VersionInfo](func() (*resty.Response, error) {
+		return c.Client.R().Get(APICheckPendingDPUUEFI)
+	})
+}
+
+// CheckPendingDPUNIC returns the DPU NIC firmware version staged by a BF4 PLDM update.
+func (c *Client) CheckPendingDPUNIC() (*resty.Response, *VersionInfo, error) {
+	return do[VersionInfo](func() (*resty.Response, error) {
+		return c.Client.R().Get(APICheckPendingDPUNIC)
+	})
 }
 
 // getFirmwareInventory reads a single firmware inventory member. A member the BMC has not published

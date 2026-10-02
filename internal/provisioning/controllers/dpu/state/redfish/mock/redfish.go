@@ -49,6 +49,10 @@ type RedfishMockServer struct {
 	bmcErotVersion                  string
 	sbiosVersion                    string
 	nicVersion                      string
+	pendingBMCVersion               string
+	pendingBMCErotVersion           string
+	pendingSBIOSVersion             string
+	pendingNICVersion               string
 	password                        string
 	dpuMode                         string                   // Current DPU mode: "NicMode" or "DpuMode"
 	secureBootEnable                bool                     // Configured/desired Secure Boot state (for next boot)
@@ -618,14 +622,31 @@ func (r *RedfishMockServer) handleCheckFirmwareInventory(w http.ResponseWriter, 
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	version := r.firmwareVersionForPath(req.URL.Path)
+	// A BMC with nothing staged - or one that does not implement the _pending members at all -
+	// answers with a Redfish error rather than an inventory entry.
+	if version == "" && strings.HasSuffix(req.URL.Path, "_pending") {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":{"code":"Base.1.0.ResourceMissingAtURI"}}`))
+		return
+	}
 	writeJSONResponse(w, map[string]interface{}{
 		"@odata.id": req.URL.Path,
-		"Version":   r.firmwareVersionForPath(req.URL.Path),
+		"Version":   version,
 	})
 }
 
 func (r *RedfishMockServer) firmwareVersionForPath(path string) string {
 	switch {
+	case strings.HasSuffix(path, "BlueField_FW_BMC_0_pending"):
+		return r.pendingBMCVersion
+	case strings.HasSuffix(path, "BlueField_FW_ERoT_BMC_0_pending"):
+		return r.pendingBMCErotVersion
+	case strings.HasSuffix(path, "BlueField_FW_CPU_0_pending"):
+		return r.pendingSBIOSVersion
+	case strings.HasSuffix(path, "BlueField_FW_NIC_0_pending"):
+		return r.pendingNICVersion
 	case strings.HasSuffix(path, "BlueField_FW_ERoT_BMC_0"):
 		return r.bmcErotVersionOrDefault()
 	case strings.HasSuffix(path, "BlueField_FW_CPU_0"), strings.HasSuffix(path, "DPU_UEFI"):
@@ -1338,6 +1359,14 @@ func (r *RedfishMockServer) SetFirmwareVersions(bmc, bmcErot, sbios, nic string)
 	r.bmcErotVersion = bmcErot
 	r.sbiosVersion = sbios
 	r.nicVersion = nic
+}
+
+// SetPendingFirmwareVersions sets the firmware versions exposed by BF4 _pending inventory entries.
+func (r *RedfishMockServer) SetPendingFirmwareVersions(bmc, bmcErot, sbios, nic string) {
+	r.pendingBMCVersion = bmc
+	r.pendingBMCErotVersion = bmcErot
+	r.pendingSBIOSVersion = sbios
+	r.pendingNICVersion = nic
 }
 
 // SetArmPoweredOff sets whether GET System reports the DPU Arm as shut down, letting a test
