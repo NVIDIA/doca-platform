@@ -65,11 +65,6 @@ const reconciliationWaitAfterRollout time.Duration = 30 * time.Second
 type installPhaseInput struct {
 	// label is the Ginkgo label used to filter this phase in CI.
 	label string
-	// skipBFBImageURL clears provInput.bfbImageURL before
-	// ProvisionBFBOrBlueFieldSoftwareAndDPUFlavor, so the pre-upgrade state
-	// reflects the hardcoded URL from the phase's BFB manifest regardless of
-	// BFB_IMAGE_URL.
-	skipBFBImageURL bool
 	// skipSystemComponentValidation skips the current-shape system-component
 	// checks during setup. Set for previous-release installs (e.g. BFB LTS
 	// v25.10) whose deployed component shape differs from the current release.
@@ -220,12 +215,6 @@ func installPhase(description string, in installPhaseInput) {
 			provInput := getProvisionDPUClustersInput()
 			provInput.expectedKubernetesVersion = in.expectedKubernetesVersion
 			ProvisionDPUClusters(ctx, provInput)
-			if in.skipBFBImageURL {
-				// Use the hardcoded URL from the BFB manifest regardless of
-				// BFB_IMAGE_URL — pre-upgrade state reflects the known
-				// previous-release BFB.
-				provInput.bfbImageURL = ""
-			}
 			ProvisionBFBOrBlueFieldSoftwareAndDPUFlavor(ctx, provInput)
 		})
 

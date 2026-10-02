@@ -94,66 +94,70 @@ var CleanupScope = cleanup.CleanupLabels
 
 // TestDomain defines test label domains for categorizing e2e tests
 type TestDomain struct {
-	DPFSystem               string // DPFSystem test suite (e2e, provisioning-e2e)
-	Scale                   string // Scale test suite
-	SDN                     string // SDN test suite
-	SNAP                    string // SNAP test suite
-	Provisioning            string // Provisioning test suite
-	RequiresNodes           string // Tests that require at least 1 DPU to be provisioned
-	L2Connectivity          string // Tests that require L2 connectivity between nodes
-	DPFUpgrade              string // Upgrade test suite
-	DPFUpgradeValidation    string // Upgrade validation test suite
-	DPFBFBLTSUpgrade        string // BFB LTS upgrade test suite - phase 1: install v25.10 with BFB LTS
-	DPFBFBLTSUpgradeV264    string // BFB LTS upgrade test suite - phase 2: validate v26.4 + DPU rollout
-	DPFBFBLTSUpgradeV268    string // BFB LTS upgrade test suite - phase 3: validate v26.8
-	DPFBFBLTSUpgradeCurrent string // BFB LTS upgrade test suite - phase 4: validate HEAD with BFB LTS DPUs
-	ExternalTest            string // External test scripts (DPF precondition setup)
-	TCP                     string // TCP external performance tests
-	UDP                     string // UDP external performance tests
-	OVNKPrimary             string // Tests that need OVNK as primary CNI
-	OVNKHBN                 string // Tests that need OVNK as primary CNI with HBN deployed alongside
-	DPFVPCOVN               string // VPC OVN test suite
-	WeaveBF3                string // Weave BF3 test suite
-	WeavePhysical           string // Physical BF4 Weave test suite (ZT)
-	MultiDPUCluster         string // Multi DPUCluster setup tests
-	ZeroTrust               string // Zero Trust mode in DPFOperatorConfig on the BeforeSuite stage
-	Observability           string // Observability test suite
-	ImagePullSecretsSync    string // ImagePullSecrets sync/cleanup validation (opt out in CI via !ImagePullSecretsSync)
-	Performance             string // Performance test suite - applies MTU 9000 and extended DMS timeout
-	OCP                     string // OpenShift tests: reuse the provisioned control plane; selected specs may reprovision DPUs
-	MockDPU                 string // Zero-trust provisioning against mock-dpuagent DPUs (test/mock/dpuagent) in a kind cluster
+	DPFSystem                       string // DPFSystem test suite (e2e, provisioning-e2e)
+	Scale                           string // Scale test suite
+	SDN                             string // SDN test suite
+	SNAP                            string // SNAP test suite
+	Provisioning                    string // Provisioning test suite
+	RequiresNodes                   string // Tests that require at least 1 DPU to be provisioned
+	L2Connectivity                  string // Tests that require L2 connectivity between nodes
+	DPFUpgrade                      string // Upgrade test suite
+	DPFUpgradeValidation            string // Upgrade validation test suite
+	DPFUpgradeUsingLTSBFB           string // Upgrade-using-LTS-BFB test suite - install phase: provision against the LTS BFB
+	DPFUpgradeUsingLTSBFBValidation string // Upgrade-using-LTS-BFB test suite - validation phase: reprovision one DPUDeployment onto current BFB, the other in place on LTS BFB
+	DPFBFBLTSUpgrade                string // BFB LTS upgrade test suite - phase 1: install v25.10 with BFB LTS
+	DPFBFBLTSUpgradeV264            string // BFB LTS upgrade test suite - phase 2: validate v26.4 + DPU rollout
+	DPFBFBLTSUpgradeV268            string // BFB LTS upgrade test suite - phase 3: validate v26.8
+	DPFBFBLTSUpgradeCurrent         string // BFB LTS upgrade test suite - phase 4: validate HEAD with BFB LTS DPUs
+	ExternalTest                    string // External test scripts (DPF precondition setup)
+	TCP                             string // TCP external performance tests
+	UDP                             string // UDP external performance tests
+	OVNKPrimary                     string // Tests that need OVNK as primary CNI
+	OVNKHBN                         string // Tests that need OVNK as primary CNI with HBN deployed alongside
+	DPFVPCOVN                       string // VPC OVN test suite
+	WeaveBF3                        string // Weave BF3 test suite
+	WeavePhysical                   string // Physical BF4 Weave test suite (ZT)
+	MultiDPUCluster                 string // Multi DPUCluster setup tests
+	ZeroTrust                       string // Zero Trust mode in DPFOperatorConfig on the BeforeSuite stage
+	Observability                   string // Observability test suite
+	ImagePullSecretsSync            string // ImagePullSecrets sync/cleanup validation (opt out in CI via !ImagePullSecretsSync)
+	Performance                     string // Performance test suite - applies MTU 9000 and extended DMS timeout
+	OCP                             string // OpenShift tests: reuse the provisioned control plane; selected specs may reprovision DPUs
+	MockDPU                         string // Zero-trust provisioning against mock-dpuagent DPUs (test/mock/dpuagent) in a kind cluster
 }
 
 // Domain is the global instance of test label domains
 var Domain = TestDomain{
-	DPFSystem:               "DPFSystem",
-	Scale:                   "SCALE",
-	SDN:                     "SDN",
-	SNAP:                    "SNAP",
-	Provisioning:            "Provisioning",
-	RequiresNodes:           "RequiresNodes",
-	L2Connectivity:          "L2Connectivity",
-	DPFUpgrade:              "DPFUpgrade",
-	DPFUpgradeValidation:    "DPFUpgradeValidation",
-	DPFBFBLTSUpgrade:        "DPFBFBLTSUpgrade",
-	DPFBFBLTSUpgradeV264:    "DPFBFBLTSUpgradeV264",
-	DPFBFBLTSUpgradeV268:    "DPFBFBLTSUpgradeV268",
-	DPFBFBLTSUpgradeCurrent: "DPFBFBLTSUpgradeCurrent",
-	ExternalTest:            "ExternalTest",
-	TCP:                     "TCP",
-	UDP:                     "UDP",
-	OVNKPrimary:             "OVNKPrimary",
-	OVNKHBN:                 "OVNKHBN",
-	DPFVPCOVN:               "DPFVPCOVN",
-	WeaveBF3:                "WeaveBF3",
-	WeavePhysical:           "WeavePhysical",
-	MultiDPUCluster:         "MultiDPUCluster",
-	ZeroTrust:               "ZeroTrust",
-	Observability:           "Observability",
-	ImagePullSecretsSync:    "ImagePullSecretsSync",
-	Performance:             "Performance",
-	OCP:                     "OCP",
-	MockDPU:                 "MockDPU",
+	DPFSystem:                       "DPFSystem",
+	Scale:                           "SCALE",
+	SDN:                             "SDN",
+	SNAP:                            "SNAP",
+	Provisioning:                    "Provisioning",
+	RequiresNodes:                   "RequiresNodes",
+	L2Connectivity:                  "L2Connectivity",
+	DPFUpgrade:                      "DPFUpgrade",
+	DPFUpgradeValidation:            "DPFUpgradeValidation",
+	DPFUpgradeUsingLTSBFB:           "DPFUpgradeUsingLTSBFB",
+	DPFUpgradeUsingLTSBFBValidation: "DPFUpgradeUsingLTSBFBValidation",
+	DPFBFBLTSUpgrade:                "DPFBFBLTSUpgrade",
+	DPFBFBLTSUpgradeV264:            "DPFBFBLTSUpgradeV264",
+	DPFBFBLTSUpgradeV268:            "DPFBFBLTSUpgradeV268",
+	DPFBFBLTSUpgradeCurrent:         "DPFBFBLTSUpgradeCurrent",
+	ExternalTest:                    "ExternalTest",
+	TCP:                             "TCP",
+	UDP:                             "UDP",
+	OVNKPrimary:                     "OVNKPrimary",
+	OVNKHBN:                         "OVNKHBN",
+	DPFVPCOVN:                       "DPFVPCOVN",
+	WeaveBF3:                        "WeaveBF3",
+	WeavePhysical:                   "WeavePhysical",
+	MultiDPUCluster:                 "MultiDPUCluster",
+	ZeroTrust:                       "ZeroTrust",
+	Observability:                   "Observability",
+	ImagePullSecretsSync:            "ImagePullSecretsSync",
+	Performance:                     "Performance",
+	OCP:                             "OCP",
+	MockDPU:                         "MockDPU",
 }
 
 var (

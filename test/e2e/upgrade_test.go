@@ -29,7 +29,6 @@ import (
 var _ = Describe("DPF Upgrade", func() {
 	installPhase("previous-GA", installPhaseInput{
 		label:               Domain.DPFUpgrade,
-		skipBFBImageURL:     true,
 		artifactsKey:        "before",
 		expectedDPUServices: expectedDPUServicesCurrent,
 	})
@@ -41,6 +40,34 @@ var _ = Describe("DPF Upgrade", func() {
 		rolloutAfterUpgrade: rolloutDependencies(
 			rollout.ExpectDPFVersion(func() string { return tag }),
 			rollout.ForDPUDeployment(0, rollout.WithCurrentDependencies()),
+			rollout.ForDPUDeployment(1, rollout.ReprovisionWithExistingDependencies()),
+		),
+		expectedDPUServices: expectedDPUServicesCurrent,
+		expectedDPFVersion:  func() string { return tag },
+	})
+})
+
+// The LTS-BFB variant of the regular upgrade: a single-hop install phase that provisions against
+// the LTS BFB (instead of the pinned previous-GA BFB the plain "DPF Upgrade" path above uses),
+// then a validation phase after the operator has been upgraded externally that reprovisions one
+// of the two per-node DPUDeployments onto the current/nightly BFB and reprovisions the other in
+// place while it keeps its existing (LTS) BFB. This exercises reprovisioning on both the LTS and
+// current BFB after an operator upgrade in a single run.
+var _ = Describe("DPF Upgrade Using LTS BFB", func() {
+	installPhase("previous-GA-lts-bfb", installPhaseInput{
+		label:               Domain.DPFUpgradeUsingLTSBFB,
+		artifactsKey:        "before",
+		expectedDPUServices: expectedDPUServicesCurrent,
+	})
+
+	validationPhase("current-using-lts-bfb", validationPhaseInput{
+		label:                           Domain.DPFUpgradeUsingLTSBFBValidation,
+		artifactsKey:                    "after",
+		compareArtifactsToBeforeRollout: "before",
+		rolloutAfterUpgrade: rolloutDependencies(
+			rollout.ExpectDPFVersion(func() string { return tag }),
+			rollout.ForDPUDeployment(0, rollout.ReprovisionWithCurrentDependencies()),
+			rollout.ForDPUDeployment(1, rollout.ReprovisionWithExistingDependencies()),
 		),
 		expectedDPUServices: expectedDPUServicesCurrent,
 		expectedDPFVersion:  func() string { return tag },
