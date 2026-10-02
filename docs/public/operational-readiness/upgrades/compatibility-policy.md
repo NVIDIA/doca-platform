@@ -362,12 +362,8 @@ API, is therefore changed or removed only in a January release, never at October
 
 ### Finding deprecated fields in your manifests
 
-Start with the `DPFOperatorConfig`. It exposes a status condition that reports deprecated field usage
-across your applied manifests, so you can see everything that needs migrating before the next January
-release in one place, without reading release notes.
-
-To inspect a single field, the deprecation notices are also recorded in the CRD schemas, so
-`kubectl explain` reports them straight from the cluster:
+Deprecation notices are recorded in the CRD schemas, so `kubectl explain` reports them straight from
+the cluster:
 
 ```shell
 $ kubectl explain dpudeployment.spec.dpus.dpuSets.dpuSelector

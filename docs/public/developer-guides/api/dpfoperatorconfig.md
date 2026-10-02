@@ -30,11 +30,17 @@ metadata:
   namespace: dpf-operator-system
 spec:
   deploymentMode: host-trusted
+  provisioningController:
+    dmsTimeout: 900
   staticClusterManager:
     disable: true
   kamajiClusterManager:
     disable: false
 ```
+
+> [!NOTE]
+> `spec.deploymentMode` and `spec.provisioningController` are required fields; the API server rejects a
+> `DPFOperatorConfig` that omits either.
 
 We can verify if the configuration is applied correctly by checking the status of the `DPFOperatorConfig` resource.
 
@@ -74,6 +80,9 @@ metadata:
   name: dpfoperatorconfig
   namespace: dpf-operator-system
 spec:
+  deploymentMode: host-trusted
+  provisioningController:
+    dmsTimeout: 900
   overrides:
     argoCDNamespace: argo-cd
   staticClusterManager:
