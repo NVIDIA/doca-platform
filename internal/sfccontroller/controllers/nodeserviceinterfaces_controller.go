@@ -70,14 +70,13 @@ func setTrueNodeServiceInterfacesReconciledCondition(nsi *dpuservicev1.NodeServi
 	)
 }
 
-// ensureEntryStatus guarantees GetEntryStatus(name) won't return nil.
-func ensureEntryStatus(nsi *dpuservicev1.NodeServiceInterfaces, name string) {
-	for i := range nsi.Status.InterfaceStatuses {
-		if nsi.Status.InterfaceStatuses[i].Name == name {
-			return
-		}
+// ensureEntryStatus returns the named InterfaceEntryStatus, creating it if absent.
+func ensureEntryStatus(nsi *dpuservicev1.NodeServiceInterfaces, name string) *dpuservicev1.InterfaceEntryStatus {
+	if status := nsi.FindInterfaceEntryStatus(name); status != nil {
+		return status
 	}
 	nsi.Status.InterfaceStatuses = append(nsi.Status.InterfaceStatuses, dpuservicev1.InterfaceEntryStatus{Name: name})
+	return nsi.FindInterfaceEntryStatus(name)
 }
 
 // pruneOrphanedEntryStatuses drops status entries whose spec entry was already removed.
@@ -123,26 +122,30 @@ func (r *NodeServiceInterfacesReconciler) reconcileDelete(ctx context.Context, n
 // reconcileEntry reconciles a single interface entry in OVS and updates its status condition.
 func (r *NodeServiceInterfacesReconciler) reconcileEntry(ctx context.Context, nsi *dpuservicev1.NodeServiceInterfaces, entry *dpuservicev1.InterfaceEntry) error {
 	log := ctrllog.FromContext(ctx)
-	entryStatus := nsi.GetEntryStatus(entry.Name)
+	entryStatus := ensureEntryStatus(nsi, entry.Name)
+	condView := entryStatus.AsGetSet()
 
 	if entry.Terminating {
-		if conditions.IsTrue(entryStatus, dpuservicev1.ResourceReleased) {
+		if nsi.IsEntryResourceReleased(entry) {
 			return nil
 		}
 		if err := DeleteInterfacesFromOvs(ctx, r.OVS, r.ECPFManager, entry, entry.Name); err != nil {
 			log.Error(err, "failed to release interface", "entry", entry.Name)
 			return err
 		}
-		conditions.AddTrue(entryStatus, dpuservicev1.ResourceReleased)
+		conditions.AddTrue(condView, dpuservicev1.ResourceReleased)
+		entryStatus.SetObservedSpecHash(entry)
 		return nil
 	}
 
 	if err := AddInterfacesToOvs(ctx, r.OVS, r.ECPFManager, entry, entry.Name); err != nil {
 		log.Error(err, "failed to reconcile interface", "entry", entry.Name)
-		conditions.AddFalse(entryStatus, conditions.TypeReady, conditions.ReasonError, conditions.ConditionMessage(fmt.Sprintf("Error occurred: %v", err)))
+		conditions.AddFalse(condView, conditions.TypeReady, conditions.ReasonError, conditions.ConditionMessage(fmt.Sprintf("Error occurred: %v", err)))
+		entryStatus.SetObservedSpecHash(entry)
 		return err
 	}
-	conditions.AddTrue(entryStatus, conditions.TypeReady)
+	conditions.AddTrue(condView, conditions.TypeReady)
+	entryStatus.SetObservedSpecHash(entry)
 	return nil
 }
 
@@ -195,7 +198,6 @@ func (r *NodeServiceInterfacesReconciler) Reconcile(ctx context.Context, req ctr
 	var errs []error
 	for i := range nsi.Spec.Interfaces {
 		entry := &nsi.Spec.Interfaces[i]
-		ensureEntryStatus(nsi, entry.Name)
 		if err := r.reconcileEntry(ctx, nsi, entry); err != nil {
 			errs = append(errs, err)
 		}

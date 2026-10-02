@@ -19,8 +19,10 @@ package v1alpha1
 import (
 	"strings"
 
+	"github.com/nvidia/doca-platform/internal/digest"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -58,6 +60,45 @@ var (
 
 var _ conditions.GetSet = &NodeServiceInterfaces{}
 
+// interfaceEntryStatusGetSet wraps an InterfaceEntryStatus as conditions.GetSet so
+// pkg/conditions helpers can write per-entry conditions.
+//
+// GetGeneration always returns 0 so AddTrue/AddFalse stamp ObservedGeneration=0.
+// Per-entry freshness is ObservedSpecHash (see IsEntryReady / IsEntryResourceReleased),
+// not object-level ObservedGeneration. Stamping NSI metadata.generation here would make
+// entry conditions look "stale" after unrelated sibling mutations bump the parent
+// generation and tempt callers into treating them like object-level conditions.
+type interfaceEntryStatusGetSet struct {
+	status *InterfaceEntryStatus
+}
+
+func (a *interfaceEntryStatusGetSet) GetConditions() []metav1.Condition  { return a.status.Conditions }
+func (a *interfaceEntryStatusGetSet) SetConditions(c []metav1.Condition) { a.status.Conditions = c }
+func (a *interfaceEntryStatusGetSet) GetGeneration() int64               { return 0 }
+
+// FindInterfaceEntryStatus returns the named entry status, or nil if absent.
+func (c *NodeServiceInterfaces) FindInterfaceEntryStatus(entryName string) *InterfaceEntryStatus {
+	for i := range c.Status.InterfaceStatuses {
+		if c.Status.InterfaceStatuses[i].Name == entryName {
+			return &c.Status.InterfaceStatuses[i]
+		}
+	}
+	return nil
+}
+
+// GetEntryStatus returns a conditions.GetSet view of the named entry's status.
+// Per-entry conditions are stamped with ObservedGeneration=0; for readiness /
+// ResourceReleased freshness against the current entry spec, use IsEntryReady /
+// IsEntryResourceReleased (ObservedSpecHash), not conditions.IsTrue.
+// Returns nil if the entry is not found.
+func (c *NodeServiceInterfaces) GetEntryStatus(entryName string) conditions.GetSet {
+	status := c.FindInterfaceEntryStatus(entryName)
+	if status == nil {
+		return nil
+	}
+	return status.AsGetSet()
+}
+
 func (c *NodeServiceInterfaces) GetConditions() []metav1.Condition {
 	return c.Status.Conditions
 }
@@ -66,31 +107,32 @@ func (c *NodeServiceInterfaces) SetConditions(conditions []metav1.Condition) {
 	c.Status.Conditions = conditions
 }
 
-// interfaceEntryStatusGetSet wraps an InterfaceEntryStatus and the parent NSI's metadata
-// generation, implementing conditions.GetSet so pkg/conditions helpers can be used
-// for per-entry condition checks.
-type interfaceEntryStatusGetSet struct {
-	status     *InterfaceEntryStatus
-	generation int64
+// IsEntryReady reports whether the named entry is Ready for the current entry spec.
+// Ready.Status must be True and ObservedSpecHash must match entry.SpecHash().
+// NSI metadata.generation is intentionally ignored so sibling mutations on a shared
+// shard do not demote unrelated non-terminating ready entries.
+func (c *NodeServiceInterfaces) IsEntryReady(entry *InterfaceEntry) bool {
+	return c.isEntryConditionFresh(entry, conditions.TypeReady)
 }
 
-func (a *interfaceEntryStatusGetSet) GetConditions() []metav1.Condition  { return a.status.Conditions }
-func (a *interfaceEntryStatusGetSet) SetConditions(c []metav1.Condition) { a.status.Conditions = c }
-func (a *interfaceEntryStatusGetSet) GetGeneration() int64               { return a.generation }
+// IsEntryResourceReleased reports whether ResourceReleased is True for the current
+// (typically terminating) entry spec via ObservedSpecHash match.
+func (c *NodeServiceInterfaces) IsEntryResourceReleased(entry *InterfaceEntry) bool {
+	return c.isEntryConditionFresh(entry, ResourceReleased)
+}
 
-// GetEntryStatus returns a conditions.GetSet view of the named entry's status,
-// using the NSI object's metadata generation for staleness detection.
-// Returns nil if the entry is not found.
-func (c *NodeServiceInterfaces) GetEntryStatus(entryName string) conditions.GetSet {
-	for i := range c.Status.InterfaceStatuses {
-		if c.Status.InterfaceStatuses[i].Name == entryName {
-			return &interfaceEntryStatusGetSet{
-				status:     &c.Status.InterfaceStatuses[i],
-				generation: c.GetGeneration(),
-			}
-		}
+func (c *NodeServiceInterfaces) isEntryConditionFresh(entry *InterfaceEntry, conditionType conditions.ConditionType) bool {
+	if c == nil || entry == nil {
+		return false
 	}
-	return nil
+	status := c.FindInterfaceEntryStatus(entry.Name)
+	if status == nil || status.ObservedSpecHash == "" {
+		return false
+	}
+	if status.ObservedSpecHash != entry.SpecHash() {
+		return false
+	}
+	return meta.IsStatusConditionTrue(status.Conditions, string(conditionType))
 }
 
 // NodeServiceInterfacesSpec defines the desired state of NodeServiceInterfaces.
@@ -168,6 +210,16 @@ type InterfaceEntry struct {
 	Patch *PatchDef `json:"patch,omitempty"`
 }
 
+// SpecHash returns a stable digest of this InterfaceEntry's desired state.
+// Consumers compare it to InterfaceEntryStatus.ObservedSpecHash to decide whether
+// per-entry status is fresh for this entry, independent of NSI object generation.
+func (i *InterfaceEntry) SpecHash() string {
+	if i == nil {
+		return ""
+	}
+	return digest.FromObjects(i).String()
+}
+
 // GetNamespacedName returns the namespace and name of the ServiceInterfaceSet
 // that owns this entry, decoded from the entry Name field. Both components are
 // guaranteed non-empty for any entry produced by InterfaceEntryName; the guard
@@ -216,6 +268,14 @@ type InterfaceEntryStatus struct {
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	Name string `json:"name"`
+	// ObservedSpecHash is the SpecHash of the InterfaceEntry this status was
+	// reconciled against. Consumers treat entry conditions as fresh only when this
+	// matches the current spec entry hash, so sibling mutations that bump NSI
+	// metadata.generation do not invalidate unrelated entries.
+	// Empty is not a valid hash; omit the field until the entry has been reconciled.
+	// +kubebuilder:validation:MinLength=1
+	// +optional
+	ObservedSpecHash string `json:"observedSpecHash,omitempty"`
 	// Params carries controller-specific information for handling reconcile/release of the matching InterfaceEntry in spec.
 	// Multiple reconcilers may write distinct keys safely as long as they do not share keys.
 	// +optional
@@ -225,6 +285,24 @@ type InterfaceEntryStatus struct {
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// AsGetSet wraps an already-resolved InterfaceEntryStatus as conditions.GetSet
+// so callers that hold the status pointer do not need a second name lookup.
+// See interfaceEntryStatusGetSet for why GetGeneration is fixed at 0.
+func (s *InterfaceEntryStatus) AsGetSet() conditions.GetSet {
+	if s == nil {
+		return nil
+	}
+	return &interfaceEntryStatusGetSet{status: s}
+}
+
+// SetObservedSpecHash records that status conditions were computed against entry.
+func (s *InterfaceEntryStatus) SetObservedSpecHash(entry *InterfaceEntry) {
+	if s == nil || entry == nil {
+		return
+	}
+	s.ObservedSpecHash = entry.SpecHash()
 }
 
 // +kubebuilder:object:root=true

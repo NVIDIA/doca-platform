@@ -95,6 +95,15 @@ var _ = Describe("node service interfaces controller", func() {
 		return ctrl.Request{NamespacedName: types.NamespacedName{Namespace: nsi.Namespace, Name: nsi.Name}}
 	}
 
+	findSpecEntry := func(nsi *dpuservicev1.NodeServiceInterfaces, name string) *dpuservicev1.InterfaceEntry {
+		for i := range nsi.Spec.Interfaces {
+			if nsi.Spec.Interfaces[i].Name == name {
+				return &nsi.Spec.Interfaces[i]
+			}
+		}
+		return nil
+	}
+
 	// pfEntry is computed lazily since it needs the namespace created in BeforeEach.
 	pfEntry := func() dpuservicev1.InterfaceEntry {
 		return dpuservicev1.InterfaceEntry{
@@ -133,9 +142,21 @@ var _ = Describe("node service interfaces controller", func() {
 			Expect(testClient.Get(ctx, types.NamespacedName{Namespace: nsi.Namespace, Name: nsi.Name}, nsi)).To(Succeed())
 			Expect(conditions.IsTrue(nsi, dpuservicev1.NodeServiceInterfacesReconciled)).To(Equal(ready))
 
-			entryStatus := nsi.GetEntryStatus(entry.Name)
-			Expect(entryStatus).NotTo(BeNil())
-			Expect(conditions.IsTrue(entryStatus, conditions.TypeReady)).To(Equal(ready))
+			// Read the entry back from the API server: fields with CRD defaults (e.g. ovn.externalBridge)
+			// are only populated on write, so a locally built entry hashes differently.
+			storedEntry := findSpecEntry(nsi, entry.Name)
+			Expect(storedEntry).NotTo(BeNil())
+
+			Expect(nsi.GetEntryStatus(entry.Name)).NotTo(BeNil())
+			Expect(nsi.IsEntryReady(storedEntry)).To(Equal(ready))
+			if ready {
+				st := nsi.FindInterfaceEntryStatus(entry.Name)
+				Expect(st.ObservedSpecHash).To(Equal(storedEntry.SpecHash()))
+				readyCond := conditions.Get(nsi.GetEntryStatus(entry.Name), conditions.TypeReady)
+				Expect(readyCond).NotTo(BeNil())
+				Expect(readyCond.ObservedGeneration).To(BeZero(),
+					"per-entry conditions must not stamp NSI metadata.generation")
+			}
 		},
 			Entry("success pf interface",
 				dpuservicev1.InterfaceEntry{
@@ -240,9 +261,10 @@ var _ = Describe("node service interfaces controller", func() {
 			Expect(err).To(Succeed())
 
 			Expect(testClient.Get(ctx, types.NamespacedName{Namespace: nsi.Namespace, Name: nsi.Name}, nsi)).To(Succeed())
-			entryStatus := nsi.GetEntryStatus(entry.Name)
-			Expect(entryStatus).NotTo(BeNil())
-			Expect(conditions.IsTrue(entryStatus, dpuservicev1.ResourceReleased)).To(BeTrue())
+			Expect(nsi.IsEntryResourceReleased(&entry)).To(BeTrue())
+			st := nsi.FindInterfaceEntryStatus(entry.Name)
+			Expect(st).NotTo(BeNil())
+			Expect(st.ObservedSpecHash).To(Equal(entry.SpecHash()))
 		})
 
 		It("should not touch OVS again once ResourceReleased is already set", func() {
@@ -256,6 +278,7 @@ var _ = Describe("node service interfaces controller", func() {
 			nsi.Status.InterfaceStatuses = []dpuservicev1.InterfaceEntryStatus{{Name: entry.Name}}
 			Expect(testClient.Status().Update(ctx, nsi)).To(Succeed())
 			conditions.AddTrue(nsi.GetEntryStatus(entry.Name), dpuservicev1.ResourceReleased)
+			nsi.FindInterfaceEntryStatus(entry.Name).SetObservedSpecHash(&entry)
 			Expect(testClient.Status().Update(ctx, nsi)).To(Succeed())
 
 			// no OVS mock expectations set: any call would fail the test.

@@ -320,8 +320,9 @@ func (r *ServiceInterfaceSetReconciler) legacyChildMap(ctx context.Context, set 
 }
 
 // deleteLegacyChildrenWithReadyEntries migrates SFC sets onto NSI node by node: the legacy
-// ServiceInterface child of a node is deleted as soon as that node's owned NSI entry is Ready,
-// so a node lagging behind does not hold back the nodes that are already served by NSI.
+// ServiceInterface child of a node is deleted as soon as that node's owned NSI entry is Ready
+// for the current entry spec (ObservedSpecHash match), so a node lagging behind does not hold
+// back the nodes that are already served by NSI.
 // A child whose node has no owned entry and is not selected is treated as an orphan and
 // deleted immediately, rather than waiting for a Ready entry that will never appear.
 // It returns the descriptors of the entries still awaited, keyed as <nsi>/<node>/<entry>.
@@ -352,8 +353,8 @@ func (r *ServiceInterfaceSetReconciler) deleteLegacyChildrenWithReadyEntries(ctx
 			}
 			continue
 		}
-		entryStatus := owned.NSI.GetEntryStatus(owned.Entry.Name)
-		if owned.Entry.Terminating || entryStatus == nil || !conditions.IsTrue(entryStatus, conditions.TypeReady) {
+		entry := owned.Entry
+		if entry.Terminating || !owned.NSI.IsEntryReady(&entry) {
 			unready = append(unready, fmt.Sprintf("%s/%s/%s", owned.NSI.Name, nodeName, owned.Entry.Name))
 			continue
 		}
@@ -578,7 +579,7 @@ func (r *ServiceInterfaceSetReconciler) reconcileNSI(ctx context.Context, set *d
 			}
 			continue
 		}
-		if !isEntryResourceReleased(owned.NSI, owned.Entry.Name) {
+		if !owned.NSI.IsEntryResourceReleased(&owned.Entry) {
 			continue
 		}
 		updatedNSI, err := r.removeEntryFromNSI(ctx, set, owned.NSI)
@@ -610,7 +611,7 @@ func (r *ServiceInterfaceSetReconciler) reconcileDeleteNSI(ctx context.Context, 
 			waiting++
 			continue
 		}
-		if !isEntryResourceReleased(owned.NSI, owned.Entry.Name) {
+		if !owned.NSI.IsEntryResourceReleased(&owned.Entry) {
 			waiting++
 			continue
 		}
@@ -717,16 +718,6 @@ func (r *ServiceInterfaceSetReconciler) listNSIEntriesForServiceInterfaceSet(ctx
 	return owned, nil
 }
 
-// isEntryResourceReleased returns true when the entry's ResourceReleased condition is True
-// and was observed at the current generation of the NSI object.
-func isEntryResourceReleased(nsi *dpuservicev1.NodeServiceInterfaces, entryName string) bool {
-	entry := nsi.GetEntryStatus(entryName)
-	if entry == nil {
-		return false
-	}
-	return conditions.IsTrue(entry, dpuservicev1.ResourceReleased)
-}
-
 // updateSummaryNSI computes ServiceInterfaceSet readiness from per-entry NSI status conditions.
 func (r *ServiceInterfaceSetReconciler) updateSummaryNSI(ctx context.Context, set *dpuservicev1.ServiceInterfaceSet) error {
 	defer conditions.SetSummary(set)
@@ -749,9 +740,8 @@ func (r *ServiceInterfaceSetReconciler) updateSummaryNSI(ctx context.Context, se
 		if interfaceEntry.Entry.Terminating {
 			continue
 		}
-		entryStatus := interfaceEntry.NSI.GetEntryStatus(interfaceEntry.Entry.Name)
-		entryReady := entryStatus != nil && conditions.IsTrue(entryStatus, conditions.TypeReady)
-		if !entryReady {
+		entry := interfaceEntry.Entry
+		if !interfaceEntry.NSI.IsEntryReady(&entry) {
 			unreadyNames = append(unreadyNames, fmt.Sprintf("%s/%s", interfaceEntry.NSI.Name, interfaceEntry.Entry.Name))
 		}
 	}

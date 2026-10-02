@@ -39,6 +39,19 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
+// stampEntrySpecHashes sets ObservedSpecHash on each InterfaceEntryStatus from the matching spec entry.
+func stampEntrySpecHashes(nsi *dpuservicev1.NodeServiceInterfaces) {
+	byName := make(map[string]*dpuservicev1.InterfaceEntry, len(nsi.Spec.Interfaces))
+	for i := range nsi.Spec.Interfaces {
+		byName[nsi.Spec.Interfaces[i].Name] = &nsi.Spec.Interfaces[i]
+	}
+	for i := range nsi.Status.InterfaceStatuses {
+		if entry, ok := byName[nsi.Status.InterfaceStatuses[i].Name]; ok {
+			nsi.Status.InterfaceStatuses[i].SetObservedSpecHash(entry)
+		}
+	}
+}
+
 // Proves the firefly custom-flow path resolves legacy and NSI interfaces identically via getInterfaceCandidates.
 var _ = Describe("service chain controller custom flows", func() {
 	var (
@@ -98,6 +111,7 @@ var _ = Describe("service chain controller custom flows", func() {
 				},
 			},
 		}
+		stampEntrySpecHashes(nsi)
 
 		pod := &corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
@@ -212,6 +226,7 @@ var _ = Describe("service chain controller custom flows", func() {
 				},
 			},
 		}
+		stampEntrySpecHashes(nsi)
 
 		registerPhysicalPort := func(entryName, ofPort string) {
 			portNum := 0
@@ -284,6 +299,7 @@ var _ = Describe("service chain controller custom flows", func() {
 				},
 			},
 		}
+		stampEntrySpecHashes(nsi)
 
 		registerPhysicalPort := func(entryName string, ofPort int) {
 			ovsMock.EXPECT().WhereAll(conditionMatcher{entryName}, gomock.Any()).DoAndReturn(

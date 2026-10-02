@@ -32,6 +32,8 @@ import (
 //   - spec changed (entries added, removed, or modified by any manager)
 //   - any status.interfaceStatuses entry Ready condition changed
 //     (downstream reconcilers update SIS readiness from NSI entry status)
+//   - any status.interfaceStatuses entry ObservedSpecHash changed
+//     (entry status was re-reconciled against a new entry spec)
 //   - any status.interfaceStatuses entry just transitioned to ResourceReleased=True
 //     (the termination handshake completed; the producer must now remove the entry)
 //
@@ -59,6 +61,9 @@ func (NSIPredicate) Update(e event.UpdateEvent) bool {
 		if nsiEntryReadyChanged(old, &newStatus) {
 			return true
 		}
+		if nsiEntrySpecHashChanged(old, &newStatus) {
+			return true
+		}
 		if !meta.IsStatusConditionTrue(newStatus.Conditions, string(dpuservicev1.ResourceReleased)) {
 			continue
 		}
@@ -74,6 +79,14 @@ func nsiEntryReadyChanged(old, new *dpuservicev1.InterfaceEntryStatus) bool {
 	oldReady := old != nil && meta.IsStatusConditionTrue(old.Conditions, string(conditions.TypeReady))
 	newReady := meta.IsStatusConditionTrue(new.Conditions, string(conditions.TypeReady))
 	return oldReady != newReady
+}
+
+func nsiEntrySpecHashChanged(old, new *dpuservicev1.InterfaceEntryStatus) bool {
+	oldHash := ""
+	if old != nil {
+		oldHash = old.ObservedSpecHash
+	}
+	return oldHash != new.ObservedSpecHash
 }
 
 func findInterfaceEntryStatus(nsi *dpuservicev1.NodeServiceInterfaces, name string) *dpuservicev1.InterfaceEntryStatus {

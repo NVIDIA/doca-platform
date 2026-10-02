@@ -773,6 +773,16 @@ var _ = Describe("nsiInterfaceReadinessChanged", func() {
 		}
 		Expect(nsiInterfaceReadinessChanged(statuses, statuses)).To(BeFalse())
 	})
+
+	It("returns true when ObservedSpecHash changes with Ready still true", func() {
+		old := []dpuservicev1.InterfaceEntryStatus{
+			{Name: "ns1_set1", ObservedSpecHash: "hash-a", Conditions: readyCondition(true)},
+		}
+		new := []dpuservicev1.InterfaceEntryStatus{
+			{Name: "ns1_set1", ObservedSpecHash: "hash-b", Conditions: readyCondition(true)},
+		}
+		Expect(nsiInterfaceReadinessChanged(old, new)).To(BeTrue())
+	})
 })
 
 var _ = Describe("newNodeServiceInterfacesReadyPredicate", func() {
@@ -833,6 +843,13 @@ var _ = Describe("newNodeServiceInterfacesReadyPredicate", func() {
 				ObjectOld: readyNSI(true),
 				ObjectNew: readyNSI(false),
 			})).To(BeTrue())
+		})
+
+		It("returns true when ObservedSpecHash changes", func() {
+			oldNSI := readyNSI(true)
+			newNSI := readyNSI(true)
+			newNSI.Status.InterfaceStatuses[0].ObservedSpecHash = "new-hash"
+			Expect(p.Update(event.UpdateEvent{ObjectOld: oldNSI, ObjectNew: newNSI})).To(BeTrue())
 		})
 	})
 

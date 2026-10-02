@@ -6154,6 +6154,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `name` _string_ | Name matches the spec entry name. |  | MinLength: 1 <br />Required: \{\} <br /> |
+| `observedSpecHash` _string_ | ObservedSpecHash is the SpecHash of the InterfaceEntry this status was<br />reconciled against. Consumers treat entry conditions as fresh only when this<br />matches the current spec entry hash, so sibling mutations that bump NSI<br />metadata.generation do not invalidate unrelated entries.<br />Empty is not a valid hash; omit the field until the entry has been reconciled. |  | MinLength: 1 <br />Optional: \{\} <br /> |
 | `params` _object (keys:string, values:string)_ | Params carries controller-specific information for handling reconcile/release of the matching InterfaceEntry in spec.<br />Multiple reconcilers may write distinct keys safely as long as they do not share keys. |  | Optional: \{\} <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions may be written by multiple reconcilers for the same entry. |  | Optional: \{\} <br /> |
 

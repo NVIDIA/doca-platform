@@ -474,6 +474,15 @@ spec:
                       description: Name matches the spec entry name.
                       minLength: 1
                       type: string
+                    observedSpecHash:
+                      description: |-
+                        ObservedSpecHash is the SpecHash of the InterfaceEntry this status was
+                        reconciled against. Consumers treat entry conditions as fresh only when this
+                        matches the current spec entry hash, so sibling mutations that bump NSI
+                        metadata.generation do not invalidate unrelated entries.
+                        Empty is not a valid hash; omit the field until the entry has been reconciled.
+                      minLength: 1
+                      type: string
                     params:
                       additionalProperties:
                         type: string
