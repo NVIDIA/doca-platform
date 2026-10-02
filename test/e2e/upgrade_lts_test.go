@@ -117,8 +117,6 @@ var _ = Describe("DPF Upgrade LTS", func() {
 	installPhase("BFB LTS v25.10", installPhaseInput{
 		label: Domain.DPFBFBLTSUpgrade,
 
-		// Pin to the LTS BFB manifest even when CI exports BFB_IMAGE_URL.
-		skipBFBImageURL: true,
 		// v25.10's servicechainset-controller creates a DPUServiceCredentialRequest with an
 		// empty spec.targetCluster.name that the current CRD rejects. Provisioning works
 		// without it being Ready, so skip the DPFOperatorConfig.Ready wait.
