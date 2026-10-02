@@ -941,6 +941,125 @@ var _ = Describe("FirmwareUpdate", func() {
 		Expect(status.RedfishTaskID).NotTo(BeNil())
 	})
 
+	Context("submitted firmware update task", func() {
+		const lostTaskID = "lost-task"
+
+		// prepareSubmittedUpdate puts the DPU where updatePldmFwBundle polls the BMC task it
+		// submitted on an earlier reconcile.
+		prepareSubmittedUpdate := func(mockServer *redfishmock.RedfishMockServer) *provisioningv1.DPU {
+			mockServer.SetFirmwareVersions("old-bmc", "old-erot", "old-sbios", "old-nic")
+			createBMCAndMTLSSecretsForBF4(mockServer)
+			prepareBF4DPUDevice(mockServer)
+			createBlueFieldSoftware(createTempPldmFwBundle(), true)
+
+			dpu := dpuObj(defaultDPUName)
+			dpu.Spec.DPUDeviceName = defaultDPUDeviceName
+			dpu.Spec.BlueFieldSoftware = ptr.To(defaultBlueFieldSWName)
+			dpu.Status.Phase = provisioningv1.DPUUpdateFirmware
+			dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
+			cutil.SetDPUCondition(&dpu.Status, cutil.NewCondition(
+				provisioningv1.DPUCondFwBundleSubmitted.String(),
+				nil,
+				"Submitting",
+				"Submitting PLDM Firmware",
+			))
+			dpu.Status.RedfishTaskID = ptr.To(lostTaskID)
+			return dpu
+		}
+
+		respondTaskNotFound := func(mockServer *redfishmock.RedfishMockServer) {
+			mockServer.SetTaskHTTPResponse(404, `{"error":{"code":"Base.1.0.ResourceMissingAtURI"}}`)
+		}
+
+		It("should continue activation when the task is gone but the bundle is staged", func() {
+			mockServer := createBF4MockRedfishServer()
+			defer mockServer.Stop()
+
+			dpu := prepareSubmittedUpdate(mockServer)
+			mockServer.SetPendingFirmwareVersions(targetBMCVersion, targetBMCErotVersion, targetSBIOSVersion, targetBFNicFwVersion)
+			respondTaskNotFound(mockServer)
+
+			status, err := FirmwareUpdate(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUUpdateFirmware))
+			Expect(status.RedfishTaskID).To(HaveValue(Equal(lostTaskID)))
+			Expect(status.Conditions).To(ContainElement(
+				And(
+					HaveField("Type", provisioningv1.DPUCondFwBundleArmShutdown.String()),
+					HaveField("Status", metav1.ConditionTrue),
+				),
+			))
+		})
+
+		It("should resubmit the update when the task is gone and the staged firmware mismatches", func() {
+			mockServer := createBF4MockRedfishServer()
+			defer mockServer.Stop()
+
+			dpu := prepareSubmittedUpdate(mockServer)
+			mockServer.SetPendingFirmwareVersions("old-bmc", "old-erot", "old-sbios", "old-nic")
+			respondTaskNotFound(mockServer)
+
+			ctrlCtx := &dutil.ControllerContext{Client: k8sClient}
+			status, err := FirmwareUpdate(ctx, dpu, ctrlCtx)
+			Expect(err).To(MatchError(ContainSubstring("firmware update task lost-task was not found")))
+			Expect(err).To(MatchError(ContainSubstring("pending BMC firmware version old-bmc is not equal to " + targetBMCVersion)))
+			Expect(status.RedfishTaskID).To(BeNil())
+			Expect(status.Conditions).To(ContainElement(
+				And(
+					HaveField("Type", provisioningv1.DPUCondFwBundleSubmitted.String()),
+					HaveField("Status", metav1.ConditionFalse),
+					HaveField("Reason", "FailedToUpdatePldmFwBundle"),
+				),
+			))
+
+			By("submitting a replacement task on the next reconcile")
+			mockServer.SetTaskHTTPResponse(0, "")
+			dpu.Status = status
+			status, err = FirmwareUpdate(ctx, dpu, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.RedfishTaskID).NotTo(BeNil())
+		})
+
+		It("should keep the task when it is gone and the BMC publishes no staged firmware", func() {
+			mockServer := createBF4MockRedfishServer()
+			defer mockServer.Stop()
+
+			// No SetPendingFirmwareVersions: the BMC answers the _pending members with a
+			// Redfish error, as one that does not implement them does.
+			dpu := prepareSubmittedUpdate(mockServer)
+			respondTaskNotFound(mockServer)
+
+			status, err := FirmwareUpdate(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+			Expect(err).To(MatchError(ContainSubstring("failed to check pending BMC firmware")))
+			Expect(status.RedfishTaskID).To(HaveValue(Equal(lostTaskID)))
+			Expect(status.Conditions).To(ContainElement(
+				And(
+					HaveField("Type", provisioningv1.DPUCondFwBundleSubmitted.String()),
+					HaveField("Status", metav1.ConditionTrue),
+				),
+			))
+		})
+
+		It("should keep the task when the BMC fails the task query", func() {
+			mockServer := createBF4MockRedfishServer()
+			defer mockServer.Stop()
+
+			dpu := prepareSubmittedUpdate(mockServer)
+			mockServer.SetPendingFirmwareVersions(targetBMCVersion, targetBMCErotVersion, targetSBIOSVersion, targetBFNicFwVersion)
+			mockServer.SetTaskHTTPResponse(500, `{"error":{"code":"Base.1.0.InternalError"}}`)
+
+			status, err := FirmwareUpdate(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+			Expect(err).To(MatchError(ContainSubstring("get task lost-task: unexpected response")))
+			Expect(status.RedfishTaskID).To(HaveValue(Equal(lostTaskID)))
+			Expect(status.Conditions).To(ContainElement(
+				And(
+					HaveField("Type", provisioningv1.DPUCondFwBundleSubmitted.String()),
+					HaveField("Status", metav1.ConditionTrue),
+				),
+			))
+		})
+	})
+
 	Context("ERoT background copy status", func() {
 		preparePldmUpdate := func(mockServer *redfishmock.RedfishMockServer) (*provisioningv1.DPU, string) {
 			createBMCAndMTLSSecretsForBF4(mockServer)

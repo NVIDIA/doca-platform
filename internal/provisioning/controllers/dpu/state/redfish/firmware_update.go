@@ -196,30 +196,42 @@ func lookupByPSID[V any](m map[string]V, psid string) (V, bool) {
 	return zero, false
 }
 
-func checkFirmwareVersions(client *rc.Client, blueFieldSoftware *provisioningv1.BlueFieldSoftware, psid string) error {
+// bundleVersions returns the firmware versions BlueFieldSoftware unpacked from the bundle for
+// psid, rejecting a set that is missing any component the firmware update compares.
+func bundleVersions(blueFieldSoftware *provisioningv1.BlueFieldSoftware, psid string) (provisioningv1.BluefieldDeviceVersions, error) {
+	var versions provisioningv1.BluefieldDeviceVersions
 	if blueFieldSoftware.Status.Versions == nil {
-		return fmt.Errorf("BlueFieldSoftware versions are not set")
+		return versions, fmt.Errorf("BlueFieldSoftware versions are not set")
 	}
 
 	versions, ok := lookupByPSID(blueFieldSoftware.Status.Versions.BluefieldSoftwareVersions, psid)
 	if !ok {
-		return fmt.Errorf("firmware versions are not set for PSID %s", psid)
+		return versions, fmt.Errorf("firmware versions are not set for PSID %s", psid)
 	}
 
 	if versions.BMCVersion == "" {
-		return fmt.Errorf("BMC firmware version is not set for PSID %s", psid)
+		return versions, fmt.Errorf("BMC firmware version is not set for PSID %s", psid)
 	}
 
 	if versions.BMCErotVersion == "" {
-		return fmt.Errorf("BMC ERoT firmware version is not set for PSID %s", psid)
+		return versions, fmt.Errorf("BMC ERoT firmware version is not set for PSID %s", psid)
 	}
 
 	if versions.SBIOSVersion == "" {
-		return fmt.Errorf("DPU SBIOS firmware version is not set for PSID %s", psid)
+		return versions, fmt.Errorf("DPU SBIOS firmware version is not set for PSID %s", psid)
 	}
 
 	if versions.BFNicFwVersion == "" {
-		return fmt.Errorf("BF NIC firmware version is not set for PSID %s", psid)
+		return versions, fmt.Errorf("BF NIC firmware version is not set for PSID %s", psid)
+	}
+
+	return versions, nil
+}
+
+func checkFirmwareVersions(client *rc.Client, blueFieldSoftware *provisioningv1.BlueFieldSoftware, psid string) error {
+	versions, err := bundleVersions(blueFieldSoftware, psid)
+	if err != nil {
+		return err
 	}
 
 	installed, err := componentVersion(client.CheckBMCFirmware())
@@ -257,8 +269,7 @@ func checkFirmwareVersions(client *rc.Client, blueFieldSoftware *provisioningv1.
 	return nil
 }
 
-// componentVersion validates one Redfish firmware-inventory read and returns the installed
-// version.
+// componentVersion validates one Redfish firmware-inventory read and returns the Version.
 func componentVersion(resp *resty.Response, info *rc.VersionInfo, err error) (string, error) {
 	if err != nil {
 		return "", err
@@ -288,12 +299,30 @@ func (e pldmTaskExceptionError) Error() string {
 	return fmt.Sprintf("task %s is in Exception state", e.taskID)
 }
 
+// pldmTaskNotFoundError means the BMC no longer has the task record. This can happen after a
+// BMC restart even when the multipart upload completed, so callers must verify the staged
+// firmware inventory before deciding whether to continue or resubmit.
+type pldmTaskNotFoundError struct {
+	taskID string
+}
+
+// Error returns a description of the missing firmware update task.
+func (e pldmTaskNotFoundError) Error() string {
+	return fmt.Sprintf("firmware update task %s was not found", e.taskID)
+}
+
 func monitorTask(ctx context.Context, client *rc.Client, taskID string) (bool, error) {
 	logger := log.FromContext(ctx)
 
-	_, prog, err := client.CheckTaskProgress(taskID)
+	resp, prog, err := client.CheckTaskProgress(taskID)
 	if err != nil {
 		return false, err
+	}
+	if resp.StatusCode() == http.StatusNotFound {
+		return false, pldmTaskNotFoundError{taskID: taskID}
+	}
+	if resp.StatusCode() != http.StatusOK {
+		return false, fmt.Errorf("get task %s: unexpected response: %s", taskID, resp.Status())
 	}
 
 	logger.Info(msgTaskProgress, taskProgressFields(opPLDMFirmware, taskID, prog)...)
@@ -308,6 +337,54 @@ func monitorTask(ctx context.Context, client *rc.Client, taskID string) (bool, e
 	}
 
 	return true, nil
+}
+
+// checkStagedFirmwareVersions is the fallback for a firmware update whose Redfish task is gone:
+// the task record does not survive a BMC restart, the staged firmware does. It compares the
+// FirmwareInventory _pending members against the versions BlueFieldSoftware unpacked from the bundle.
+func checkStagedFirmwareVersions(ctx context.Context, ctrlCtx *dutil.ControllerContext, client *rc.Client, dpu *provisioningv1.DPU, dpuDevice *provisioningv1.DPUDevice) error {
+	blueFieldSoftware := &provisioningv1.BlueFieldSoftware{}
+	if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: ptr.Deref(dpu.Spec.BlueFieldSoftware, "")}, blueFieldSoftware); err != nil {
+		return fmt.Errorf("failed to get BlueFieldSoftware: %w", err)
+	}
+	versions, err := bundleVersions(blueFieldSoftware, ptr.Deref(dpuDevice.Status.PSID, ""))
+	if err != nil {
+		return err
+	}
+
+	staged, err := componentVersion(client.CheckPendingBMCFirmware())
+	if err != nil {
+		return fmt.Errorf("failed to check pending BMC firmware: %w", err)
+	}
+	if staged != versions.BMCVersion {
+		return fmt.Errorf("pending BMC firmware version %s is not equal to %s: %w", staged, versions.BMCVersion, errVersionMismatch)
+	}
+
+	staged, err = componentVersion(client.CheckPendingBMCEROTFW())
+	if err != nil {
+		return fmt.Errorf("failed to check pending BMC ERoT firmware: %w", err)
+	}
+	if staged != versions.BMCErotVersion {
+		return fmt.Errorf("pending BMC ERoT firmware version %s is not equal to %s: %w", staged, versions.BMCErotVersion, errVersionMismatch)
+	}
+
+	staged, err = componentVersion(client.CheckPendingDPUUEFI())
+	if err != nil {
+		return fmt.Errorf("failed to check pending DPU UEFI firmware: %w", err)
+	}
+	if staged != versions.SBIOSVersion {
+		return fmt.Errorf("pending DPU SBIOS firmware version %s is not equal to %s: %w", staged, versions.SBIOSVersion, errVersionMismatch)
+	}
+
+	staged, err = componentVersion(client.CheckPendingDPUNIC())
+	if err != nil {
+		return fmt.Errorf("failed to check pending CX9 NIC firmware: %w", err)
+	}
+	if staged != versions.BFNicFwVersion {
+		return fmt.Errorf("pending BF NIC firmware version %s is not equal to %s: %w", staged, versions.BFNicFwVersion, errVersionMismatch)
+	}
+
+	return nil
 }
 
 func submitPldmFirmwareUpdate(ctx context.Context, state *provisioningv1.DPUStatus, client *rc.Client, pldmFwBundle string, force bool, cond *metav1.Condition) (provisioningv1.DPUStatus, error) {
@@ -410,7 +487,27 @@ func updatePldmFwBundle(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 		return *state, nil
 	}
 
-	if completed, err := monitorTask(ctx, client, *state.RedfishTaskID); err != nil {
+	completed, err := monitorTask(ctx, client, *state.RedfishTaskID)
+	var lostTask pldmTaskNotFoundError
+	if errors.As(err, &lostTask) {
+		// A BMC restart drops task records even when the upload itself finished, so a task that
+		// is gone says nothing on its own. What the BMC has staged does: firmware matching the
+		// bundle means the upload completed and activation can go ahead.
+		if stagedErr := checkStagedFirmwareVersions(ctx, ctrlCtx, client, dpu, dpuDevice); stagedErr != nil {
+			err = fmt.Errorf("%w: %w", lostTask, stagedErr)
+			if errors.Is(stagedErr, errVersionMismatch) {
+				// Staged firmware is not the submitted bundle. Mark submit incomplete so the
+				// next reconcile POSTs update-multipart again.
+				state.RedfishTaskID = nil
+				cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleSubmitted.String(), err, "FailedToUpdatePldmFwBundle", err.Error()))
+			}
+		} else {
+			logger.Info("firmware update task is gone but the bundle is staged, continuing", "taskID", lostTask.taskID)
+			completed, err = true, nil
+		}
+	}
+
+	if err != nil {
 		var taskException pldmTaskExceptionError
 		if errors.As(err, &taskException) {
 			// BMC task got exception. Mark submit incomplete so the next reconcile
