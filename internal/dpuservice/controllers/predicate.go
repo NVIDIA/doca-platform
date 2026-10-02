@@ -192,13 +192,21 @@ func newNodeServiceInterfacesReadyPredicate() predicate.Funcs {
 	}
 }
 
-// nsiInterfaceReadinessChanged returns true if the Ready condition of any entry changed
-// between the old and new InterfaceStatuses slices.
+// nsiInterfaceReadinessChanged returns true if any entry's Ready condition or
+// ObservedSpecHash changed. Hash changes matter because IsEntryReady treats
+// Ready=True as stale until the hash matches the current spec entry.
 func nsiInterfaceReadinessChanged(oldStatuses, newStatuses []dpuservicev1.InterfaceEntryStatus) bool {
-	readiness := func(statuses []dpuservicev1.InterfaceEntryStatus) map[string]bool {
-		m := make(map[string]bool, len(statuses))
+	type entryFreshness struct {
+		ready bool
+		hash  string
+	}
+	readiness := func(statuses []dpuservicev1.InterfaceEntryStatus) map[string]entryFreshness {
+		m := make(map[string]entryFreshness, len(statuses))
 		for _, s := range statuses {
-			m[s.Name] = meta.IsStatusConditionTrue(s.Conditions, string(conditions.TypeReady))
+			m[s.Name] = entryFreshness{
+				ready: meta.IsStatusConditionTrue(s.Conditions, string(conditions.TypeReady)),
+				hash:  s.ObservedSpecHash,
+			}
 		}
 		return m
 	}

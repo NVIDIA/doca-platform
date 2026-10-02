@@ -37,46 +37,40 @@ import (
 )
 
 // assertConditionCurrent waits for the named condition on the given entry to be
-// True and for its ObservedGeneration to match the NSI's current metadata.generation.
-// This mirrors conditions.IsTrue / isEntryResourceReleased in the controller,
-// confirming that the test's status patch will actually be acted upon.
-// Eventually is used to tolerate the informer-cache propagation window between
-// a status Patch and when the cached client reflects the update.
+// True with ObservedSpecHash matching the current spec entry. This mirrors
+// IsEntryReady / IsEntryResourceReleased in the controllers.
 func assertConditionCurrent(nsiKey client.ObjectKey, entryName string, condType conditions.ConditionType) {
 	GinkgoHelper()
 	Eventually(func(g Gomega) {
 		got := &dpuservicev1.NodeServiceInterfaces{}
 		g.Expect(testClient.Get(ctx, nsiKey, got)).To(Succeed())
-		entryStatus := got.GetEntryStatus(entryName)
-		g.Expect(entryStatus).NotTo(BeNil(), "entry %q should have a status on NSI %s", entryName, nsiKey)
-		g.Expect(conditions.IsTrue(entryStatus, condType)).To(BeTrue(),
-			"condition %q on entry %q should be True with ObservedGeneration matching NSI generation %d",
-			condType, entryName, got.GetGeneration())
+		var entry *dpuservicev1.InterfaceEntry
+		for i := range got.Spec.Interfaces {
+			if got.Spec.Interfaces[i].Name == entryName {
+				entry = &got.Spec.Interfaces[i]
+				break
+			}
+		}
+		g.Expect(entry).NotTo(BeNil(), "entry %q should exist in NSI %s spec", entryName, nsiKey)
+		switch condType {
+		case conditions.TypeReady:
+			g.Expect(got.IsEntryReady(entry)).To(BeTrue(),
+				"entry %q should be Ready with matching ObservedSpecHash", entryName)
+		case dpuservicev1.ResourceReleased:
+			g.Expect(got.IsEntryResourceReleased(entry)).To(BeTrue(),
+				"entry %q should be ResourceReleased with matching ObservedSpecHash", entryName)
+		default:
+			entryStatus := got.GetEntryStatus(entryName)
+			g.Expect(entryStatus).NotTo(BeNil(), "entry %q should have a status on NSI %s", entryName, nsiKey)
+			g.Expect(conditions.IsTrue(entryStatus, condType)).To(BeTrue())
+		}
 	}, timeout, interval).Should(Succeed())
 }
 
-// setEntryReady simulates a downstream reconciler setting Ready=True on an NSI entry.
-// ObservedGeneration is set to the NSI's current generation.
+// setEntryReady simulates a downstream reconciler setting Ready=True on an NSI entry
+// with ObservedSpecHash matching the current spec entry.
 func setEntryReady(nsi *dpuservicev1.NodeServiceInterfaces, entryName string) {
-	cond := metav1.Condition{
-		Type:               string(conditions.TypeReady),
-		Status:             metav1.ConditionTrue,
-		Reason:             string(conditions.ReasonSuccess),
-		LastTransitionTime: metav1.Now(),
-		ObservedGeneration: nsi.GetGeneration(),
-	}
-	for i := range nsi.Status.InterfaceStatuses {
-		if nsi.Status.InterfaceStatuses[i].Name != entryName {
-			continue
-		}
-		nsi.Status.InterfaceStatuses[i].Conditions = append(
-			nsi.Status.InterfaceStatuses[i].Conditions, cond)
-		return
-	}
-	nsi.Status.InterfaceStatuses = append(nsi.Status.InterfaceStatuses, dpuservicev1.InterfaceEntryStatus{
-		Name:       entryName,
-		Conditions: []metav1.Condition{cond},
-	})
+	setEntryCondition(nsi, entryName, conditions.TypeReady)
 }
 
 // markEntryReady patches the NSI status so the named entry looks Ready to the controller.
@@ -126,15 +120,31 @@ func legacyChildNames(ctx context.Context, g Gomega, set *dpuservicev1.ServiceIn
 }
 
 // setEntryResourceReleased simulates the SFC/VPC reconciler setting ResourceReleased=True
-// on a terminating NSI entry. ObservedGeneration is set to the NSI's current generation
-// to satisfy the isEntryResourceReleased check.
+// on a terminating NSI entry with ObservedSpecHash matching the current (terminating) spec entry.
 func setEntryResourceReleased(nsi *dpuservicev1.NodeServiceInterfaces, entryName string) {
+	setEntryCondition(nsi, entryName, dpuservicev1.ResourceReleased)
+}
+
+// setEntryCondition finds or creates the named InterfaceEntryStatus and sets condType=True
+// with ObservedSpecHash matching the current spec entry.
+func setEntryCondition(nsi *dpuservicev1.NodeServiceInterfaces, entryName string, condType conditions.ConditionType) {
+	GinkgoHelper()
+	var entry *dpuservicev1.InterfaceEntry
+	for i := range nsi.Spec.Interfaces {
+		if nsi.Spec.Interfaces[i].Name == entryName {
+			entry = &nsi.Spec.Interfaces[i]
+			break
+		}
+	}
+	Expect(entry).NotTo(BeNil(), "setEntryCondition: entry %q missing from NSI spec", entryName)
+
 	cond := metav1.Condition{
-		Type:               string(dpuservicev1.ResourceReleased),
+		Type:               string(condType),
 		Status:             metav1.ConditionTrue,
 		Reason:             string(conditions.ReasonSuccess),
 		LastTransitionTime: metav1.Now(),
-		ObservedGeneration: nsi.GetGeneration(),
+		// Per-entry conditions intentionally leave ObservedGeneration at 0; freshness is ObservedSpecHash.
+		ObservedGeneration: 0,
 	}
 	for i := range nsi.Status.InterfaceStatuses {
 		if nsi.Status.InterfaceStatuses[i].Name != entryName {
@@ -142,12 +152,15 @@ func setEntryResourceReleased(nsi *dpuservicev1.NodeServiceInterfaces, entryName
 		}
 		nsi.Status.InterfaceStatuses[i].Conditions = append(
 			nsi.Status.InterfaceStatuses[i].Conditions, cond)
+		nsi.Status.InterfaceStatuses[i].SetObservedSpecHash(entry)
 		return
 	}
-	nsi.Status.InterfaceStatuses = append(nsi.Status.InterfaceStatuses, dpuservicev1.InterfaceEntryStatus{
+	st := dpuservicev1.InterfaceEntryStatus{
 		Name:       entryName,
 		Conditions: []metav1.Condition{cond},
-	})
+	}
+	st.SetObservedSpecHash(entry)
+	nsi.Status.InterfaceStatuses = append(nsi.Status.InterfaceStatuses, st)
 }
 
 // cleanupNSIPathTestResources tears down NSI-path test fixtures. ServiceInterfaceSet

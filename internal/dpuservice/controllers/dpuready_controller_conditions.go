@@ -463,8 +463,12 @@ func (r *DPUReadyReconciler) aggregateDPUServiceInterfacesCondition(ctx context.
 		return metav1.Condition{}, fmt.Errorf("failed to list NodeServiceInterfaces: %w", err)
 	}
 	for _, nsi := range nsiList.Items {
-		for _, status := range nsi.Status.InterfaceStatuses {
-			entry := dpuservicev1.InterfaceEntry{Name: status.Name}
+		for _, entry := range nsi.Spec.Interfaces {
+			// Terminating entries can still carry Ready=True after the hash is
+			// restamped for release; they must not keep the interface ready.
+			if entry.Terminating {
+				continue
+			}
 			setNamespace, setName := entry.GetNamespacedName()
 			if setNamespace == "" || setName == "" {
 				continue
@@ -475,7 +479,7 @@ func (r *DPUReadyReconciler) aggregateDPUServiceInterfacesCondition(ctx context.
 			if _, alreadySet := serviceInterfaceReadiness[key]; alreadySet {
 				continue
 			}
-			serviceInterfaceReadiness[key] = meta.IsStatusConditionTrue(status.Conditions, string(conditions.TypeReady))
+			serviceInterfaceReadiness[key] = nsi.IsEntryReady(&entry)
 		}
 	}
 

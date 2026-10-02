@@ -322,22 +322,27 @@ var _ = Describe("Conditions Aggregation", func() {
 			specInterfaces := make([]dpuservicev1.InterfaceEntry, 0, len(entries))
 			statuses := make([]dpuservicev1.InterfaceEntryStatus, 0, len(entries))
 			for _, e := range entries {
-				specInterfaces = append(specInterfaces, dpuservicev1.InterfaceEntry{
+				entry := dpuservicev1.InterfaceEntry{
 					Name:          e.name,
 					InterfaceType: dpuservicev1.InterfaceTypePhysical,
-				})
+				}
+				specInterfaces = append(specInterfaces, entry)
 				readyStatus := metav1.ConditionFalse
 				if e.ready {
 					readyStatus = metav1.ConditionTrue
 				}
-				statuses = append(statuses, dpuservicev1.InterfaceEntryStatus{
+				st := dpuservicev1.InterfaceEntryStatus{
 					Name: e.name,
 					Conditions: []metav1.Condition{{
 						Type:   string(conditions.TypeReady),
 						Status: readyStatus,
 						Reason: "Test",
 					}},
-				})
+				}
+				if e.ready {
+					st.SetObservedSpecHash(&entry)
+				}
+				statuses = append(statuses, st)
 			}
 			return &dpuservicev1.NodeServiceInterfaces{
 				ObjectMeta: metav1.ObjectMeta{
@@ -432,6 +437,23 @@ var _ = Describe("Conditions Aggregation", func() {
 				cond := aggregateInterfacesCondition(
 					nodeServiceInterfaces("other-node", nsiEntry{name: entryName, ready: true}),
 				)
+				Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+				Expect(cond.Reason).To(Equal("ServiceInterfacesNotReady"))
+			})
+
+			It("should treat Ready=True with a mismatched ObservedSpecHash as not ready", func() {
+				nsi := nodeServiceInterfaces(nsiTestDPUName, nsiEntry{name: entryName, ready: true})
+				nsi.Status.InterfaceStatuses[0].ObservedSpecHash = "stale-hash"
+				cond := aggregateInterfacesCondition(nsi)
+				Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+				Expect(cond.Reason).To(Equal("ServiceInterfacesNotReady"))
+			})
+
+			It("should not treat a terminating NSI entry as ready", func() {
+				nsi := nodeServiceInterfaces(nsiTestDPUName, nsiEntry{name: entryName, ready: true})
+				nsi.Spec.Interfaces[0].Terminating = true
+				nsi.Status.InterfaceStatuses[0].SetObservedSpecHash(&nsi.Spec.Interfaces[0])
+				cond := aggregateInterfacesCondition(nsi)
 				Expect(cond.Status).To(Equal(metav1.ConditionFalse))
 				Expect(cond.Reason).To(Equal("ServiceInterfacesNotReady"))
 			})
@@ -1139,6 +1161,7 @@ var _ = Describe("DPUReadyReconciler Conditions", func() {
 
 			By("Setting NodeServiceInterfaces entry status as ready")
 			Expect(dpuClusterClient.Get(ctx, client.ObjectKeyFromObject(nodeServiceInterfaces), nodeServiceInterfaces)).To(Succeed())
+			storedEntry := nodeServiceInterfaces.Spec.Interfaces[0]
 			nodeServiceInterfaces.Status.InterfaceStatuses = []dpuservicev1.InterfaceEntryStatus{{
 				Name: entryName,
 			}}
@@ -1148,6 +1171,7 @@ var _ = Describe("DPUReadyReconciler Conditions", func() {
 				Reason:             "Ready",
 				ObservedGeneration: nodeServiceInterfaces.Generation,
 			})
+			nodeServiceInterfaces.Status.InterfaceStatuses[0].SetObservedSpecHash(&storedEntry)
 			Expect(dpuClusterClient.Status().Update(ctx, nodeServiceInterfaces)).To(Succeed())
 
 			Eventually(func(g Gomega) {

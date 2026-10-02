@@ -68,12 +68,11 @@ func (r *ServiceChainReconciler) getSFCNodeServiceInterfaces(ctx context.Context
 
 // isNSIEntryReady mirrors isValidateServiceInterface, but reads the single Ready condition InterfaceEntryStatus carries.
 func isNSIEntryReady(nsi *dpuservicev1.NodeServiceInterfaces, entry *dpuservicev1.InterfaceEntry) (bool, string) {
-	status := nsi.GetEntryStatus(entry.Name)
-	if status != nil && conditions.IsTrue(status, conditions.TypeReady) {
+	if nsi.IsEntryReady(entry) {
 		return true, ""
 	}
 	var errorMessage string
-	if status != nil {
+	if status := nsi.GetEntryStatus(entry.Name); status != nil {
 		if ready := conditions.Get(status, conditions.TypeReady); ready != nil {
 			errorMessage = ready.Message
 		}

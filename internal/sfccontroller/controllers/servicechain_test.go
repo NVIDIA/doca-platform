@@ -527,7 +527,7 @@ var _ = Describe("service chain controller port resolution", func() {
 			},
 		}
 		for _, entry := range entries {
-			nsi.Status.InterfaceStatuses = append(nsi.Status.InterfaceStatuses, dpuservicev1.InterfaceEntryStatus{
+			st := dpuservicev1.InterfaceEntryStatus{
 				Name: entry.Name,
 				Conditions: []metav1.Condition{{
 					Type:               string(conditions.TypeReady),
@@ -535,9 +535,12 @@ var _ = Describe("service chain controller port resolution", func() {
 					Reason:             "Reason",
 					Message:            "ready for testing",
 					LastTransitionTime: metav1.Now(),
-					ObservedGeneration: nsi.Generation,
+					ObservedGeneration: 0, // per-entry conditions do not stamp NSI generation
 				}},
-			})
+			}
+			e := entry
+			st.SetObservedSpecHash(&e)
+			nsi.Status.InterfaceStatuses = append(nsi.Status.InterfaceStatuses, st)
 		}
 		return nsi
 	}
@@ -1582,10 +1585,11 @@ var _ = Describe("service chain controller flow application on the NSI path", fu
 					Reason:             "Success",
 					Message:            "",
 					LastTransitionTime: metav1.Now(),
-					ObservedGeneration: nsi.Generation,
+					ObservedGeneration: 0, // per-entry conditions do not stamp NSI generation
 				},
 			},
 		}}
+		nsi.Status.InterfaceStatuses[0].SetObservedSpecHash(&nsi.Spec.Interfaces[0])
 		Expect(testClient.Status().Update(ctx, nsi)).To(Succeed())
 
 		nn = types.NamespacedName{

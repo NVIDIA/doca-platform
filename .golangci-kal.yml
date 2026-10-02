@@ -625,7 +625,7 @@ linters:
         linters:
           - kubeapilinter
       - path: api/dpuservice/v1alpha1/nodeserviceinterfaces_types.go
-        text: "optionalorrequired: (field interfaceEntryStatusGetSet.status|field interfaceEntryStatusGetSet.generation|field InterfaceEntry.Terminating|embedded field NodeServiceInterfaces.metav1.ObjectMeta|field NodeServiceInterfaces.Spec|field NodeServiceInterfaces.Status)"
+        text: "optionalorrequired: (field interfaceEntryStatusGetSet.status|field InterfaceEntry.Terminating|embedded field NodeServiceInterfaces.metav1.ObjectMeta|field NodeServiceInterfaces.Spec|field NodeServiceInterfaces.Status)"
         linters:
           - kubeapilinter
       - path: api/dpuservice/v1alpha1/servicechain_types.go
