@@ -151,6 +151,7 @@ func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 	mux.HandleFunc("/redfish/v1/Systems", mock.handleGetSystems)
 
 	// Root service
+	mux.HandleFunc("/redfish/v1", mock.handleRootService)
 	mux.HandleFunc("/redfish/v1/", mock.handleRootService)
 
 	// Chassis

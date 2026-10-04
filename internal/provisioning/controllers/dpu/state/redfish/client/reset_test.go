@@ -17,6 +17,7 @@ limitations under the License.
 package client
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -48,10 +49,10 @@ var _ = Describe("DPU ARM reset", func() {
 
 		client := &Client{Client: resty.New().SetBaseURL(server.URL)}
 
-		_, err := client.ForceRestartDPUArm()
+		_, err := client.ForceRestartDPUArm(context.Background())
 		Expect(err).NotTo(HaveOccurred())
 
-		_, err = client.GracefulRestartDPUArm()
+		_, err = client.GracefulRestartDPUArm(context.Background())
 		Expect(err).NotTo(HaveOccurred())
 
 		Expect(resetTypes).To(Equal([]string{"ForceRestart", "GracefulRestart"}))
@@ -75,7 +76,7 @@ var _ = Describe("DPU ARM reset", func() {
 		defer server.Close()
 
 		client := &Client{Client: resty.New().SetBaseURL(server.URL)}
-		_, err := client.ForceResetSOC()
+		_, err := client.ForceResetSOC(context.Background())
 		Expect(err).NotTo(HaveOccurred())
 		Expect(posted).To(BeTrue())
 	})

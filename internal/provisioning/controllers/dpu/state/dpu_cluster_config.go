@@ -131,6 +131,8 @@ func ClusterConfig(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.
 }
 
 func checkFwVersion(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext) error {
+	ctx, cancel := rfclient.ReadContext(ctx)
+	defer cancel()
 	if dpu.Status.DPUInstallInterface == nil || *dpu.Status.DPUInstallInterface != string(provisioningv1.InstallViaRedFish) {
 		return nil
 	}
@@ -156,8 +158,9 @@ func checkFwVersion(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil
 	if rfClient, err = rfclient.NewTLSClient(ctx, dpuDevice.BMCAddress(), dpu.Namespace, ctrlCtx.Client); err != nil {
 		return err
 	}
+	defer rfClient.CloseIdleConnections()
 
-	if _, versionInfo, err = rfClient.CheckDPUUEFI(); err != nil {
+	if _, versionInfo, err = rfClient.CheckDPUUEFI(ctx); err != nil {
 		return err
 	}
 
@@ -167,7 +170,7 @@ func checkFwVersion(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil
 		return fmt.Errorf("DPU UEFI version %s was not updated, expected %s", versionInfo.Version, bfbUEFIVersion)
 	}
 
-	if _, versionInfo, err = rfClient.CheckDPUBSP(); err != nil {
+	if _, versionInfo, err = rfClient.CheckDPUBSP(ctx); err != nil {
 		return err
 	}
 

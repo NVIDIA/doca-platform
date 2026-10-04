@@ -30,6 +30,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 
@@ -382,7 +383,9 @@ type BootProgress struct {
 // Client is a Redfish client
 type Client struct {
 	*resty.Client
-	IsBF4 bool
+	readOnce sync.Once
+	reader   *resty.Client
+	IsBF4    bool
 }
 
 type BmcManager struct {
@@ -391,14 +394,14 @@ type BmcManager struct {
 	LastResetTime   string `json:"LastResetTime,omitempty"`
 }
 
-func (c *Client) GetBmcManager() (*resty.Response, *BmcManager, error) {
-	managerID, err := getBMCManagerID(c)
+func (c *Client) GetBmcManager(ctx context.Context) (*resty.Response, *BmcManager, error) {
+	ctx, cancel := ReadContext(ctx)
+	defer cancel()
+	managerID, err := getBMCManagerID(ctx, c)
 	if err != nil {
 		return nil, nil, err
 	}
-	return do[BmcManager](func() (*resty.Response, error) {
-		return c.Client.R().Get(strings.Replace(APIGetBMCManager, "{MANAGER_ID}", *managerID, 1))
-	})
+	return read[BmcManager](ctx, c, strings.Replace(APIGetBMCManager, "{MANAGER_ID}", *managerID, 1))
 }
 
 // ChangeBMCPassword sets newPassword on every BMC account DPF manages, so that no managed account
@@ -421,10 +424,11 @@ func (c *Client) ChangeBMCPassword(ctx context.Context, newPassword string, user
 
 	// BF4 handling - re-authenticate as the Redfish user after changing its password, and set the
 	// service account password over the freshly authenticated client.
-	reAuthenticated, err := NewBasicAuthClient(c.BaseURL, user, newPassword)
+	reAuthenticated, err := NewBasicAuthClient(ctx, c.BaseURL, user, newPassword)
 	if err != nil {
 		return resp, info, fmt.Errorf("failed to re-authenticate as %q after changing its password: %w", user, err)
 	}
+	defer reAuthenticated.CloseIdleConnections()
 	if err := reAuthenticated.SetServiceAccountPassword(ctx, newPassword); err != nil {
 		return resp, info, err
 	}
@@ -502,8 +506,8 @@ func AccountPasswordError(user string, resp *resty.Response) error {
 }
 
 // InstallCert installs the given certificate, making the certificate trusted by BMC
-func (c *Client) InstallCert(caCert string) (*resty.Response, *ExtendedInfo, error) {
-	managerID, err := getBMCManagerID(c)
+func (c *Client) InstallCert(ctx context.Context, caCert string) (*resty.Response, *ExtendedInfo, error) {
+	managerID, err := getBMCManagerID(ctx, c)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -522,21 +526,18 @@ func (c *Client) InstallCert(caCert string) (*resty.Response, *ExtendedInfo, err
 
 // ListTruststoreCerts lists BMC truststore certificates and computes SHA-256
 // fingerprints from certificate raw bytes.
-func (c *Client) ListTruststoreCerts() ([]TruststoreCert, error) {
-	managerID, err := getBMCManagerID(c)
+func (c *Client) ListTruststoreCerts(ctx context.Context) ([]TruststoreCert, error) {
+	ctx, cancel := ReadContext(ctx)
+	defer cancel()
+	managerID, err := getBMCManagerID(ctx, c)
 	if err != nil {
 		return nil, err
 	}
 
 	collectionURI := strings.Replace(APIInstallCert, "{MANAGER_ID}", *managerID, 1)
-	collectionResp, collection, err := do[TruststoreCollection](func() (*resty.Response, error) {
-		return c.Client.R().Get(collectionURI)
-	})
+	_, collection, err := read[TruststoreCollection](ctx, c, collectionURI)
 	if err != nil {
 		return nil, err
-	}
-	if collectionResp.StatusCode() != http.StatusOK {
-		return nil, fmt.Errorf("list truststore certificates %q: unexpected status code %d", collectionURI, collectionResp.StatusCode())
 	}
 
 	ret := make([]TruststoreCert, 0, len(collection.Members))
@@ -545,14 +546,9 @@ func (c *Client) ListTruststoreCerts() ([]TruststoreCert, error) {
 		if uri == "" {
 			continue
 		}
-		certResp, certResource, err := do[TruststoreCertificate](func() (*resty.Response, error) {
-			return c.Client.R().Get(uri)
-		})
+		_, certResource, err := read[TruststoreCertificate](ctx, c, uri)
 		if err != nil {
 			return nil, err
-		}
-		if certResp.StatusCode() != http.StatusOK {
-			return nil, fmt.Errorf("get truststore certificate %q: unexpected status code %d", uri, certResp.StatusCode())
 		}
 
 		fingerprint, err := certificateFingerprintSHA256(certResource.CertificateString)
@@ -585,8 +581,8 @@ func (c *Client) DeleteTruststoreCert(certURI string) (*resty.Response, *Extende
 }
 
 // ReplaceCACert replaces the trusted CA certificate with the given caCert
-func (c *Client) ReplaceCACert(caCert string) (*resty.Response, *ExtendedInfo, error) {
-	managerID, err := getBMCManagerID(c)
+func (c *Client) ReplaceCACert(ctx context.Context, caCert string) (*resty.Response, *ExtendedInfo, error) {
+	managerID, err := getBMCManagerID(ctx, c)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -602,8 +598,8 @@ func (c *Client) ReplaceCACert(caCert string) (*resty.Response, *ExtendedInfo, e
 }
 
 // ReplaceServerCert replaces the server certificate used by BMC APIs
-func (c *Client) ReplaceServerCert(srvCert string) (*resty.Response, *ExtendedInfo, error) {
-	managerID, err := getBMCManagerID(c)
+func (c *Client) ReplaceServerCert(ctx context.Context, srvCert string) (*resty.Response, *ExtendedInfo, error) {
+	managerID, err := getBMCManagerID(ctx, c)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -627,14 +623,14 @@ type ServerCertInfo struct {
 // GetServerCert fetches the certificate the BMC is actually serving on its HTTPS endpoint.
 // It is used for cold-start backfill of the recorded expiry and to detect out-of-band
 // changes to the BMC server certificate.
-func (c *Client) GetServerCert() (*resty.Response, *ServerCertInfo, error) {
-	managerID, err := getBMCManagerID(c)
+func (c *Client) GetServerCert(ctx context.Context) (*resty.Response, *ServerCertInfo, error) {
+	ctx, cancel := ReadContext(ctx)
+	defer cancel()
+	managerID, err := getBMCManagerID(ctx, c)
 	if err != nil {
 		return nil, nil, err
 	}
-	return do[ServerCertInfo](func() (*resty.Response, error) {
-		return c.Client.R().Get(strings.Replace(APIServerCert, managerIDPlaceholder, *managerID, 1))
-	})
+	return read[ServerCertInfo](ctx, c, strings.Replace(APIServerCert, managerIDPlaceholder, *managerID, 1))
 }
 
 // ReplaceCert replaces existing certificate. For more information, refer to
@@ -654,8 +650,8 @@ type CSRInfo struct {
 
 // GenerateCSR generates a server CSR that can be signed by external CA. For more information, refer to
 // https://docs.nvidia.com/networking/display/bluefieldbmcv2410/redfish+certificate+management#src-704886301_RedfishCertificateManagement-forth
-func (c *Client) GenerateCSR(cn string) (*resty.Response, *CSRInfo, error) {
-	managerID, err := getBMCManagerID(c)
+func (c *Client) GenerateCSR(ctx context.Context, cn string) (*resty.Response, *CSRInfo, error) {
+	managerID, err := getBMCManagerID(ctx, c)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -699,7 +695,7 @@ func (c *Client) EnableMTLS() (*resty.Response, *ExtendedInfo, error) {
 
 // CheckBMCFirmware fetches BMC firmware version. For more information, refer to
 // https://docs.nvidia.com/networking/display/bluefieldbmcv2410/cec+and+bmc+firmware+operations#src-704886294_CECandBMCFirmwareOperations-FetchingRunningBMCFirmwareVersion
-func (c *Client) CheckBMCFirmware() (*resty.Response, *VersionInfo, error) {
+func (c *Client) CheckBMCFirmware(ctx context.Context) (*resty.Response, *VersionInfo, error) {
 	bmcFwID := "BMC_Firmware"
 	if c.IsBF4 {
 		bmcFwID = "BlueField_FW_BMC_0"
@@ -707,36 +703,30 @@ func (c *Client) CheckBMCFirmware() (*resty.Response, *VersionInfo, error) {
 
 	url := strings.Replace(APICheckBMCFW, "{BMC_FW_ID}", bmcFwID, 1)
 
-	return do[VersionInfo](func() (*resty.Response, error) {
-		return c.Client.R().Get(url)
-	})
+	return read[VersionInfo](ctx, c, url)
 }
 
-func (c *Client) CheckDpuBoardFW() (*resty.Response, *VersionInfo, error) {
-	return do[VersionInfo](func() (*resty.Response, error) {
-		return c.Client.R().Get(APICheckDpuBoardFW)
-	})
+func (c *Client) CheckDpuBoardFW(ctx context.Context) (*resty.Response, *VersionInfo, error) {
+	return read[VersionInfo](ctx, c, APICheckDpuBoardFW)
 }
 
-func (c *Client) CheckBMCEROTFW() (*resty.Response, *VersionInfo, error) {
-	return do[VersionInfo](func() (*resty.Response, error) {
-		return c.Client.R().Get(APICheckBMCEROTFW)
-	})
+func (c *Client) CheckBMCEROTFW(ctx context.Context) (*resty.Response, *VersionInfo, error) {
+	return read[VersionInfo](ctx, c, APICheckBMCEROTFW)
 }
 
-func (c *Client) GetSystem() (*resty.Response, *SystemInfo, error) {
-	systemID, err := getSystemID(c)
+func (c *Client) GetSystem(ctx context.Context) (*resty.Response, *SystemInfo, error) {
+	ctx, cancel := ReadContext(ctx)
+	defer cancel()
+	systemID, err := getSystemID(ctx, c)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	return do[SystemInfo](func() (*resty.Response, error) {
-		return c.Client.R().Get(strings.Replace(APIGetSystem, "{SYSTEM_ID}", systemID, 1))
-	})
+	return read[SystemInfo](ctx, c, strings.Replace(APIGetSystem, "{SYSTEM_ID}", systemID, 1))
 }
 
 // CheckDPUNIC fetches DPU NIC version
-func (c *Client) CheckDPUNIC() (*resty.Response, *VersionInfo, error) {
+func (c *Client) CheckDPUNIC(ctx context.Context) (*resty.Response, *VersionInfo, error) {
 	dpuNicID := "DPU_NIC"
 	if c.IsBF4 {
 		dpuNicID = "BlueField_FW_NIC_0"
@@ -744,19 +734,15 @@ func (c *Client) CheckDPUNIC() (*resty.Response, *VersionInfo, error) {
 
 	url := strings.Replace(APICheckDPUNIC, "{DPU_NIC_ID}", dpuNicID, 1)
 
-	return do[VersionInfo](func() (*resty.Response, error) {
-		return c.Client.R().Get(url)
-	})
+	return read[VersionInfo](ctx, c, url)
 }
 
 // CheckDPUOS fetches DPU OS version
-func (c *Client) CheckDPUOS() (*resty.Response, *VersionInfo, error) {
-	return do[VersionInfo](func() (*resty.Response, error) {
-		return c.Client.R().Get(APICheckDPUOS)
-	})
+func (c *Client) CheckDPUOS(ctx context.Context) (*resty.Response, *VersionInfo, error) {
+	return read[VersionInfo](ctx, c, APICheckDPUOS)
 }
 
-func (c *Client) CheckDPUUEFI() (*resty.Response, *VersionInfo, error) {
+func (c *Client) CheckDPUUEFI(ctx context.Context) (*resty.Response, *VersionInfo, error) {
 	uefiID := "DPU_UEFI"
 	if c.IsBF4 {
 		uefiID = "BlueField_FW_CPU_0"
@@ -764,15 +750,11 @@ func (c *Client) CheckDPUUEFI() (*resty.Response, *VersionInfo, error) {
 
 	url := strings.Replace(APICheckDPUUEFI, "{DPU_UEFI_ID}", uefiID, 1)
 
-	return do[VersionInfo](func() (*resty.Response, error) {
-		return c.Client.R().Get(url)
-	})
+	return read[VersionInfo](ctx, c, url)
 }
 
-func (c *Client) CheckDPUBSP() (*resty.Response, *VersionInfo, error) {
-	return do[VersionInfo](func() (*resty.Response, error) {
-		return c.Client.R().Get(APICheckDPUBSP)
-	})
+func (c *Client) CheckDPUBSP(ctx context.Context) (*resty.Response, *VersionInfo, error) {
+	return read[VersionInfo](ctx, c, APICheckDPUBSP)
 }
 
 // UpdateBMCFirmware using HttpPushUri method. For more information, refer to
@@ -805,28 +787,31 @@ func (c *Client) InstallBFB(imageURI string) (*resty.Response, *TaskInfo, error)
 	})
 }
 
-func (c *Client) GetManagers() (*resty.Response, *Managers, error) {
-	resp, managers, err := do[Managers](func() (*resty.Response, error) {
-		return c.Client.R().Get(APIGetManagers)
-	})
+func (c *Client) GetManagers(ctx context.Context) (*resty.Response, *Managers, error) {
+	resp, managers, err := read[Managers](ctx, c, APIGetManagers)
 	if err != nil {
 		return resp, nil, fmt.Errorf("get managers from %q failed: %w", APIGetManagers, err)
 	}
 	return resp, managers, nil
 }
 
-func getBMCManagerID(c *Client) (*string, error) {
-	_, managers, err := c.GetManagers()
+func getBMCManagerID(ctx context.Context, c *Client) (*string, error) {
+	_, managers, err := c.GetManagers(ctx)
 	if err != nil {
 		return nil, err
 	}
+	return findBMCManagerID(managers)
+}
+
+// findBMCManagerID selects the BMC member from the managers collection.
+func findBMCManagerID(managers *Managers) (*string, error) {
 	if managers == nil || len(managers.Members) == 0 {
 		return nil, fmt.Errorf("no managers found")
 	}
 	var managerID string
 	for _, manager := range managers.Members {
 		if strings.Contains(strings.ToLower(manager.ODataID), "bmc") {
-			managerID = strings.Split(manager.ODataID, "/")[len(strings.Split(manager.ODataID, "/"))-1]
+			managerID = manager.ODataID[strings.LastIndex(manager.ODataID, "/")+1:]
 			break
 		}
 	}
@@ -858,8 +843,8 @@ func certificateFingerprintSHA256(certPEM string) (string, error) {
 
 // FactoryResetBMC resets BMC to factory defaults. For more information, refer to
 // https://docs.nvidia.com/networking/display/bluefieldbmcv2504/factory+reset+bmc
-func (c *Client) FactoryResetBMC() (*resty.Response, *ExtendedInfo, error) {
-	managerID, err := getBMCManagerID(c)
+func (c *Client) FactoryResetBMC(ctx context.Context) (*resty.Response, *ExtendedInfo, error) {
+	managerID, err := getBMCManagerID(ctx, c)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -873,8 +858,8 @@ func (c *Client) FactoryResetBMC() (*resty.Response, *ExtendedInfo, error) {
 
 // ResetBMC resets BMC. For more information, refer to
 // https://docs.nvidia.com/networking/display/bluefieldbmcv2410/cec+and+bmc+firmware+operations#src-704886294_CECandBMCFirmwareOperations-UpdatingBMC
-func (c *Client) ResetBMC() (*resty.Response, *ExtendedInfo, error) {
-	managerID, err := getBMCManagerID(c)
+func (c *Client) ResetBMC(ctx context.Context) (*resty.Response, *ExtendedInfo, error) {
+	managerID, err := getBMCManagerID(ctx, c)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -887,10 +872,8 @@ func (c *Client) ResetBMC() (*resty.Response, *ExtendedInfo, error) {
 }
 
 // CheckTaskProgress fetches progress of the given task
-func (c *Client) CheckTaskProgress(taskID string) (*resty.Response, *TaskProgress, error) {
-	return do[TaskProgress](func() (*resty.Response, error) {
-		return c.Client.R().Get(fmt.Sprintf("%s/%s", APICheckProgress, taskID))
-	})
+func (c *Client) CheckTaskProgress(ctx context.Context, taskID string) (*resty.Response, *TaskProgress, error) {
+	return read[TaskProgress](ctx, c, fmt.Sprintf("%s/%s", APICheckProgress, taskID))
 }
 
 // GetSELEntries fetches the BMC System Event Log entries collection. Used by
@@ -899,14 +882,14 @@ func (c *Client) CheckTaskProgress(taskID string) (*resty.Response, *TaskProgres
 // and never propagate them. The context is propagated to the HTTP layer so
 // callers can cap the call duration on unreachable BMCs.
 func (c *Client) GetSELEntries(ctx context.Context) (*resty.Response, *SELEntries, error) {
-	systemID, err := getSystemID(c)
+	ctx, cancel := ReadContext(ctx)
+	defer cancel()
+	systemID, err := getSystemID(ctx, c)
 	if err != nil {
 		return nil, nil, err
 	}
 	url := strings.Replace(APIGetSELEntries, "{SYSTEM_ID}", systemID, 1)
-	return do[SELEntries](func() (*resty.Response, error) {
-		return c.Client.R().SetContext(ctx).Get(url)
-	})
+	return read[SELEntries](ctx, c, url)
 }
 
 // DisableHostRshim disables host RShim. For more information, refer to
@@ -954,15 +937,10 @@ type BMCRShimOem struct {
 }
 
 // GetBMCRShimEnabled GETs Managers/Bluefield_BMC/Oem/Nvidia and returns BmcRShimEnabled.
-func (c *Client) GetBMCRShimEnabled() (bool, *resty.Response, error) {
-	resp, oem, err := do[BMCRShimOem](func() (*resty.Response, error) {
-		return c.Client.R().Get(APIEnableBMCRshim)
-	})
+func (c *Client) GetBMCRShimEnabled(ctx context.Context) (bool, *resty.Response, error) {
+	resp, oem, err := read[BMCRShimOem](ctx, c, APIEnableBMCRshim)
 	if err != nil {
 		return false, resp, err
-	}
-	if resp.StatusCode() != http.StatusOK {
-		return false, resp, fmt.Errorf("unexpected status code %d", resp.StatusCode())
 	}
 	if oem.BmcRShim.BmcRShimEnabled == nil {
 		return false, resp, fmt.Errorf("BmcRShim.BmcRShimEnabled missing from Redfish response")
@@ -984,22 +962,18 @@ type ChassisInfo struct {
 
 var blueFieldRegex = regexp.MustCompile(`bluefield[- ]?(\d+)`)
 
-func (c *Client) GetPSID() (string, error) {
+func (c *Client) GetPSID(ctx context.Context) (string, error) {
+	ctx, cancel := ReadContext(ctx)
+	defer cancel()
 	if !c.IsBF4 {
-		resp, versionInfo, err := c.CheckDpuBoardFW()
-		if err != nil || resp.StatusCode() != http.StatusOK {
-			errMsg := "failed to check DPU board firmware"
-			if err != nil {
-				errMsg = fmt.Sprintf("%s: %v", errMsg, err)
-			} else if resp.StatusCode() != http.StatusOK {
-				errMsg = fmt.Sprintf("%s: unexpected response status: %s", errMsg, RespBody(resp))
-			}
-			return "", fmt.Errorf("%s: %w", errMsg, err)
+		_, versionInfo, err := c.CheckDpuBoardFW(ctx)
+		if err != nil {
+			return "", fmt.Errorf("failed to check DPU board firmware: %w", err)
 		}
 		return versionInfo.Version, nil
 	}
 
-	_, systemInfo, err := c.GetSystem()
+	_, systemInfo, err := c.GetSystem(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -1009,7 +983,7 @@ func (c *Client) GetPSID() (string, error) {
 	}
 
 	// TODO: Remove this once initial FW would start from 0.8
-	_, chassisInfo, err := c.GetChassis()
+	_, chassisInfo, err := c.GetChassis(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -1041,68 +1015,64 @@ func (c *ChassisInfo) GetBlueFieldVersion() provisioningv1.DPUType {
 }
 
 // GetChassis fetches part number of DPU
-func (c *Client) GetChassis() (*resty.Response, *ChassisInfo, error) {
+func (c *Client) GetChassis(ctx context.Context) (*resty.Response, *ChassisInfo, error) {
 	chassisID := "Card1"
 	if c.IsBF4 {
 		chassisID = "BlueField_0"
 	}
 
-	return do[ChassisInfo](func() (*resty.Response, error) {
-		return c.Client.R().Get(strings.Replace(APIGetChassis, "{CHASSIS_ID}", chassisID, 1))
-	})
+	return read[ChassisInfo](ctx, c, strings.Replace(APIGetChassis, "{CHASSIS_ID}", chassisID, 1))
 }
 
-func (c *Client) GetErotChassis() (*resty.Response, *ChassisInfo, error) {
+func (c *Client) GetErotChassis(ctx context.Context) (*resty.Response, *ChassisInfo, error) {
 	chassisID := "BlueField_ERoT_BMC_0"
 	url := strings.Replace(APIGetChassis, "{CHASSIS_ID}", chassisID, 1)
-	return do[ChassisInfo](func() (*resty.Response, error) {
-		return c.Client.R().Get(url)
-	})
+	return read[ChassisInfo](ctx, c, url)
 }
 
-func (c *Client) GetSystems() (*resty.Response, *Systems, error) {
-	return do[Systems](func() (*resty.Response, error) {
-		return c.Client.R().Get(APIGetSystems)
-	})
+func (c *Client) GetSystems(ctx context.Context) (*resty.Response, *Systems, error) {
+	return read[Systems](ctx, c, APIGetSystems)
 }
 
-func getSystemID(c *Client) (string, error) {
-	response, systems, err := c.GetSystems()
+func getSystemID(ctx context.Context, c *Client) (string, error) {
+	_, systems, err := c.GetSystems(ctx)
 	if err != nil {
 		return "", err
 	}
-	if response.StatusCode() != http.StatusOK {
-		return "", fmt.Errorf("unexpected status code: %d", response.StatusCode())
-	}
 
+	return findSystemID(systems)
+}
+
+// findSystemID selects the BlueField member from the systems collection.
+func findSystemID(systems *Systems) (string, error) {
 	for _, system := range systems.Members {
 		if strings.Contains(strings.ToLower(system.ODataID), "bluefield") {
-			return strings.Split(system.ODataID, "/")[len(strings.Split(system.ODataID, "/"))-1], nil
+			return system.ODataID[strings.LastIndex(system.ODataID, "/")+1:], nil
 		}
 	}
 	return "", fmt.Errorf("no system found")
 }
 
 // GetProductDescription fetches product spec of DPU
-func (c *Client) GetProductDescription() (*resty.Response, *ProductSpecInfo, error) {
-	systemID, err := getSystemID(c)
+func (c *Client) GetProductDescription(ctx context.Context) (*resty.Response, *ProductSpecInfo, error) {
+	ctx, cancel := ReadContext(ctx)
+	defer cancel()
+	systemID, err := getSystemID(ctx, c)
 	if err != nil {
 		return nil, nil, err
 	}
-	return do[ProductSpecInfo](func() (*resty.Response, error) {
-		return c.Client.R().Get(strings.Replace(APIProductDescription, "{SYSTEM_ID}", systemID, 1))
-	})
+	return read[ProductSpecInfo](ctx, c, strings.Replace(APIProductDescription, "{SYSTEM_ID}", systemID, 1))
 }
 
 // GetBios returns a Bios information for current DPU
-func (c *Client) GetBios() (*resty.Response, *Bios, error) {
-	systemID, err := getSystemID(c)
+func (c *Client) GetBios(ctx context.Context) (*resty.Response, *Bios, error) {
+	ctx, cancel := ReadContext(ctx)
+	defer cancel()
+	systemID, err := getSystemID(ctx, c)
 	if err != nil {
 		return nil, nil, err
 	}
-	return do[Bios](func() (*resty.Response, error) {
-		return c.Client.R().Get(strings.Replace(APIGetBios, "{SYSTEM_ID}", systemID, 1))
-	})
+	return read[Bios](ctx, c, strings.Replace(APIGetBios, "{SYSTEM_ID}", systemID, 1))
 }
 
 type NetworkDeviceFunction struct {
@@ -1117,21 +1087,19 @@ type Ethernet struct {
 	MTUSize             int    `json:"MTUSize"`
 }
 
-func (c *Client) GetNetworkDeviceFunction(pfID string) (*resty.Response, *NetworkDeviceFunction, error) {
+func (c *Client) GetNetworkDeviceFunction(ctx context.Context, pfID string) (*resty.Response, *NetworkDeviceFunction, error) {
 	url := APIGetNetworkDeviceFunctions
 	if c.IsBF4 {
 		url = APIGetNetworkDeviceFunctionsBF4
 	}
 
 	url = strings.Replace(url, "{PF_ID}", pfID, 1)
-	return do[NetworkDeviceFunction](func() (*resty.Response, error) {
-		return c.Client.R().Get(url)
-	})
+	return read[NetworkDeviceFunction](ctx, c, url)
 }
 
 // SetDpuMode returns a Bios information for current DPU
-func (c *Client) SetDpuMode(desiredMode provisioningv1.DpuModeType) (*resty.Response, error) {
-	systemID, err := getSystemID(c)
+func (c *Client) SetDpuMode(ctx context.Context, desiredMode provisioningv1.DpuModeType) (*resty.Response, error) {
+	systemID, err := getSystemID(ctx, c)
 	if err != nil {
 		return nil, err
 	}
@@ -1155,9 +1123,6 @@ func (c *Client) SetDpuMode(desiredMode provisioningv1.DpuModeType) (*resty.Resp
 type reqFunc func() (*resty.Response, error)
 
 // RespBody returns the response body as a string, guarding against a nil resp.
-// do returns a nil *resty.Response on transport errors, and resty's
-// Response.String() dereferences its receiver without a nil check, so logging a
-// nil resp directly panics.
 func RespBody(resp *resty.Response) string {
 	if resp == nil {
 		return ""
@@ -1169,7 +1134,7 @@ func RespBody(resp *resty.Response) string {
 func do[T any](req reqFunc) (*resty.Response, *T, error) {
 	resp, err := req()
 	if err != nil {
-		return nil, nil, err
+		return resp, nil, err
 	}
 	var t T
 	if err := json.Unmarshal(resp.Body(), &t); err != nil {
@@ -1183,13 +1148,7 @@ func responseDebugSummary(resp *resty.Response) string {
 		return "response=nil"
 	}
 
-	body := strings.TrimSpace(string(resp.Body()))
-	if len(body) > 256 {
-		body = body[:256] + "...(truncated)"
-	}
-	body = strings.ReplaceAll(body, "\n", "\\n")
-
-	return fmt.Sprintf("status=%s body_len=%d body_snippet=%q", resp.Status(), len(resp.Body()), body)
+	return fmt.Sprintf("status=%s body_len=%d", resp.Status(), len(resp.Body()))
 }
 
 // NewRawClient creates a client to check if the BMC is reachable
@@ -1210,10 +1169,8 @@ func NewRawClient(bmcAddress string) (*Client, error) {
 }
 
 // GetRootService returns the root service of the BMC
-func (c *Client) GetRootService() (*resty.Response, *RootServiceInfo, error) {
-	return do[RootServiceInfo](func() (*resty.Response, error) {
-		return c.Client.R().Get(APIRootService)
-	})
+func (c *Client) GetRootService(ctx context.Context) (*resty.Response, *RootServiceInfo, error) {
+	return read[RootServiceInfo](ctx, c, APIRootService)
 }
 
 // BMCCredentialResult contains the resolved BMC credential information.
@@ -1268,7 +1225,12 @@ func PasswordChangeRequired(resp *resty.Response) bool {
 	if resp == nil || resp.StatusCode() != http.StatusForbidden {
 		return false
 	}
-	return strings.Contains(string(resp.Body()), "PasswordChangeRequired")
+	for _, id := range requestError(resp, nil).MessageIDs {
+		if strings.HasSuffix(id, ".PasswordChangeRequired") {
+			return true
+		}
+	}
+	return false
 }
 
 // VerifyBMCCredential tries to authenticate to the BMC with the given password,
@@ -1283,18 +1245,21 @@ func PasswordChangeRequired(resp *resty.Response) bool {
 //
 // A password the BMC rejects yields ErrBMCPasswordRejected; every other failure means the BMC gave
 // no usable answer.
-func VerifyBMCCredential(bmcAddress, password string) (*Client, string, error) {
+func VerifyBMCCredential(ctx context.Context, bmcAddress, password string) (*Client, string, error) {
+	ctx, cancel := ReadContext(ctx)
+	defer cancel()
 	if !strings.HasPrefix(bmcAddress, httpsPrefix) {
 		bmcAddress = httpsPrefix + bmcAddress
 	}
 
 	for _, user := range []string{BF3BMCUser, BF4BMCUser} {
-		c, err := NewBasicAuthClient(bmcAddress, user, password)
+		c, err := NewBasicAuthClient(ctx, bmcAddress, user, password)
 		if err != nil {
 			return nil, "", err
 		}
-		resp, _, err := c.GetManagers()
-		if err != nil {
+		resp, _, err := c.GetManagers(ctx)
+		if err != nil && !HasHTTPStatus(err, http.StatusUnauthorized) && !HasHTTPStatus(err, http.StatusForbidden) {
+			c.CloseIdleConnections()
 			return nil, "", err
 		}
 		switch resp.StatusCode() {
@@ -1304,11 +1269,11 @@ func VerifyBMCCredential(bmcAddress, password string) (*Client, string, error) {
 			if PasswordChangeRequired(resp) {
 				return c, user, nil
 			}
-			return nil, "", unexpectedBMCStatus(resp)
+			c.CloseIdleConnections()
+			return nil, "", requestError(resp, nil)
 		case http.StatusUnauthorized:
+			c.CloseIdleConnections()
 			continue
-		default:
-			return nil, "", unexpectedBMCStatus(resp)
 		}
 	}
 	return nil, "", ErrBMCPasswordRejected
@@ -1316,7 +1281,9 @@ func VerifyBMCCredential(bmcAddress, password string) (*Client, string, error) {
 
 // InitPassword resolves the BMC password and authenticates to the BMC.
 func InitPassword(ctx context.Context, bmcAddress string, namespace string, bmcCredentialSecretName *string, k8sClient client.Client) (*Client, error) {
-	cred, err := ResolveBMCCredential(ctx, namespace, bmcCredentialSecretName, k8sClient)
+	readCtx, cancel := ReadContext(ctx)
+	defer cancel()
+	cred, err := ResolveBMCCredential(readCtx, namespace, bmcCredentialSecretName, k8sClient)
 	if err != nil {
 		return nil, err
 	}
@@ -1326,20 +1293,26 @@ func InitPassword(ctx context.Context, bmcAddress string, namespace string, bmcC
 		bmcAddress = httpsPrefix + bmcAddress
 	}
 
-	user, err := bmcUserForAddress(ctx, bmcAddress)
+	user, err := bmcUserForAddress(readCtx, bmcAddress)
 	if err != nil {
 		return nil, err
 	}
 
-	client, err := NewBasicAuthClient(bmcAddress, user, passwd)
+	client, err := NewBasicAuthClient(readCtx, bmcAddress, user, passwd)
 	if err != nil {
 		return nil, err
 	}
-	resp, _, err := client.GetManagers()
-	if err != nil {
+	resp, _, err := client.GetManagers(readCtx)
+	if err != nil && !HasHTTPStatus(err, http.StatusUnauthorized) &&
+		(!HasHTTPStatus(err, http.StatusForbidden) || !PasswordChangeRequired(resp)) {
+		client.CloseIdleConnections()
 		return nil, err
 	}
-	return completeInitPassword(ctx, client, resp, bmcAddress, user, passwd)
+	result, err := completeInitPassword(ctx, client, resp, bmcAddress, user, passwd)
+	if result != client {
+		client.CloseIdleConnections()
+	}
+	return result, err
 }
 
 func bmcUserForAddress(ctx context.Context, bmcAddress string) (string, error) {
@@ -1347,7 +1320,8 @@ func bmcUserForAddress(ctx context.Context, bmcAddress string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	_, rootServiceInfo, err := rootClient.GetRootService()
+	defer rootClient.CloseIdleConnections()
+	_, rootServiceInfo, err := rootClient.GetRootService(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -1397,7 +1371,7 @@ func completeInitPasswordForbidden(ctx context.Context, resp *resty.Response, bm
 	if err := changeDefaultPassword(ctx, bmcAddress, user, passwd); err != nil {
 		return nil, err
 	}
-	return NewBasicAuthClient(bmcAddress, user, passwd)
+	return NewBasicAuthClient(ctx, bmcAddress, user, passwd)
 }
 
 // changeDefaultPassword moves a BMC that still holds the factory default password onto passwd,
@@ -1405,10 +1379,11 @@ func completeInitPasswordForbidden(ctx context.Context, resp *resty.Response, bm
 // holding an unknown password rather than as a connectivity problem.
 func changeDefaultPassword(ctx context.Context, bmcAddress, user, passwd string) error {
 	log.FromContext(ctx).Info("try to change password")
-	defaultClient, err := NewBasicAuthClient(bmcAddress, user, BMCDefaultPassword)
+	defaultClient, err := NewBasicAuthClient(ctx, bmcAddress, user, BMCDefaultPassword)
 	if err != nil {
 		return err
 	}
+	defer defaultClient.CloseIdleConnections()
 	resp, _, err := defaultClient.ChangeBMCPassword(ctx, passwd, user)
 	if err != nil {
 		return err
@@ -1427,30 +1402,34 @@ func changeDefaultPassword(ctx context.Context, bmcAddress, user, passwd string)
 // It first tries to authenticate with newPassword (in case rotation already happened).
 // If that fails, it authenticates with oldPassword and changes the BMC password to newPassword.
 func RotatePassword(ctx context.Context, bmcAddress string, newPassword, oldPassword string) (*Client, error) {
+	readCtx, cancel := ReadContext(ctx)
+	defer cancel()
 	if !strings.HasPrefix(bmcAddress, httpsPrefix) {
 		bmcAddress = httpsPrefix + bmcAddress
 	}
 
 	// Crash-recovery: password might already be rotated.
-	newClient, _, err := VerifyBMCCredential(bmcAddress, newPassword)
+	newClient, _, err := VerifyBMCCredential(readCtx, bmcAddress, newPassword)
 	if err == nil {
 		log.FromContext(ctx).Info("new password already active on BMC")
 		// Re-apply to the service account: a previous pass may have changed the Redfish user and
 		// then failed before the service account, and this branch is what that retry lands on.
 		if err := newClient.SetServiceAccountPassword(ctx, newPassword); err != nil {
+			newClient.CloseIdleConnections()
 			return nil, err
 		}
 		return newClient, nil
 	}
-	if !strings.Contains(err.Error(), "password is wrong") && !strings.Contains(err.Error(), "unexpected BMC status") {
+	if !errors.Is(err, ErrBMCPasswordRejected) {
 		return nil, fmt.Errorf("BMC connectivity issue during password rotation: %w", err)
 	}
 
 	// Authenticate with old password to perform the rotation.
-	oldClient, bmcUser, err := VerifyBMCCredential(bmcAddress, oldPassword)
+	oldClient, bmcUser, err := VerifyBMCCredential(readCtx, bmcAddress, oldPassword)
 	if err != nil {
 		return nil, fmt.Errorf("failed to authenticate with old password: %w", err)
 	}
+	defer oldClient.CloseIdleConnections()
 
 	log.FromContext(ctx).Info("rotating BMC password", "user", bmcUser)
 	resp, _, err := oldClient.ChangeBMCPassword(ctx, newPassword, bmcUser)
@@ -1461,7 +1440,7 @@ func RotatePassword(ctx context.Context, bmcAddress string, newPassword, oldPass
 		return nil, fmt.Errorf("failed to change BMC password: %w", AccountPasswordError(bmcUser, resp))
 	}
 
-	rotatedClient, err := NewBasicAuthClient(bmcAddress, bmcUser, newPassword)
+	rotatedClient, err := NewBasicAuthClient(ctx, bmcAddress, bmcUser, newPassword)
 	if err != nil {
 		return nil, err
 	}
@@ -1470,7 +1449,9 @@ func RotatePassword(ctx context.Context, bmcAddress string, newPassword, oldPass
 }
 
 // NewBasicAuthClient returns a Client using basic auth
-func NewBasicAuthClient(bmcAddress, user, passwd string) (*Client, error) {
+func NewBasicAuthClient(ctx context.Context, bmcAddress, user, passwd string) (*Client, error) {
+	ctx, cancel := ReadContext(ctx)
+	defer cancel()
 	if !strings.HasPrefix(bmcAddress, httpsPrefix) {
 		bmcAddress = httpsPrefix + bmcAddress
 	}
@@ -1490,8 +1471,12 @@ func NewBasicAuthClient(bmcAddress, user, passwd string) (*Client, error) {
 
 	client := &Client{Client: c, IsBF4: false}
 
-	_, rootServiceInfo, err := client.GetRootService()
-	if err != nil {
+	resp, rootServiceInfo, err := client.GetRootService(ctx)
+	// Root authentication rejection is not a constructor failure: the credential
+	// workflow checks Managers and preserves the BF3/BF4 account fallback.
+	if err != nil && !HasHTTPStatus(err, http.StatusUnauthorized) &&
+		(!HasHTTPStatus(err, http.StatusForbidden) || !PasswordChangeRequired(resp)) {
+		client.CloseIdleConnections()
 		return nil, err
 	}
 
@@ -1511,6 +1496,8 @@ func tlsClientError(bmcAddress string, err error) error {
 // against the DPF CA (CA-pinned chain + IP-or-CN identity pinning); client-side auth is provided by
 // the Redfish client key pair sourced via CertSource (Kubernetes API or mounted files).
 func NewTLSClient(ctx context.Context, bmcAddress string, namespace string, k8sClient client.Client) (*Client, error) {
+	ctx, cancel := ReadContext(ctx)
+	defer cancel()
 	if !strings.HasPrefix(bmcAddress, httpsPrefix) {
 		bmcAddress = httpsPrefix + bmcAddress
 	}
@@ -1525,8 +1512,9 @@ func NewTLSClient(ctx context.Context, bmcAddress string, namespace string, k8sC
 	if err != nil {
 		return nil, tlsClientError(bmcAddress, fmt.Errorf("failed to create raw client: %w", err))
 	}
+	defer rawClient.CloseIdleConnections()
 
-	_, rootServiceInfo, err := rawClient.GetRootService()
+	_, rootServiceInfo, err := rawClient.GetRootService(ctx)
 	if err != nil {
 		return nil, tlsClientError(bmcAddress, err)
 	}
@@ -1562,20 +1550,20 @@ func NewTLSClient(ctx context.Context, bmcAddress string, namespace string, k8sC
 }
 
 // GetSecureBoot queries current Secure Boot state from BMC
-func (c *Client) GetSecureBoot() (*resty.Response, *SecureBootInfo, error) {
-	systemID, err := getSystemID(c)
+func (c *Client) GetSecureBoot(ctx context.Context) (*resty.Response, *SecureBootInfo, error) {
+	ctx, cancel := ReadContext(ctx)
+	defer cancel()
+	systemID, err := getSystemID(ctx, c)
 	if err != nil {
 		return nil, nil, err
 	}
 	url := strings.Replace(APISecureBoot, "{SYSTEM_ID}", systemID, 1)
-	return do[SecureBootInfo](func() (*resty.Response, error) {
-		return c.Client.R().Get(url)
-	})
+	return read[SecureBootInfo](ctx, c, url)
 }
 
 // EnableSecureBoot configures Secure Boot to enabled
-func (c *Client) EnableSecureBoot() (*resty.Response, error) {
-	systemID, err := getSystemID(c)
+func (c *Client) EnableSecureBoot(ctx context.Context) (*resty.Response, error) {
+	systemID, err := getSystemID(ctx, c)
 	if err != nil {
 		return nil, err
 	}
@@ -1598,8 +1586,8 @@ func (c *Client) EnableSecureBoot() (*resty.Response, error) {
 }
 
 // DisableSecureBoot configures Secure Boot to disabled
-func (c *Client) DisableSecureBoot() (*resty.Response, error) {
-	systemID, err := getSystemID(c)
+func (c *Client) DisableSecureBoot(ctx context.Context) (*resty.Response, error) {
+	systemID, err := getSystemID(ctx, c)
 	if err != nil {
 		return nil, err
 	}
@@ -1623,15 +1611,15 @@ func (c *Client) DisableSecureBoot() (*resty.Response, error) {
 }
 
 // ForceRestartDPUArm performs ForceRestart on DPU ARM (not host power cycle).
-func (c *Client) ForceRestartDPUArm() (*resty.Response, error) {
-	return c.resetDPUArm("ForceRestart")
+func (c *Client) ForceRestartDPUArm(ctx context.Context) (*resty.Response, error) {
+	return c.resetDPUArm(ctx, "ForceRestart")
 }
 
 // ForceResetSOC posts Oem Nvidia SOC.ForceReset. Unlike ComputerSystem.Reset
 // ForceRestart, this does not wait for host PERST, which is required for NIC
 // firmware parameters to apply on hostless CMX.
-func (c *Client) ForceResetSOC() (*resty.Response, error) {
-	systemID, err := getSystemID(c)
+func (c *Client) ForceResetSOC(ctx context.Context) (*resty.Response, error) {
+	systemID, err := getSystemID(ctx, c)
 	if err != nil {
 		return nil, err
 	}
@@ -1647,12 +1635,12 @@ func (c *Client) ForceResetSOC() (*resty.Response, error) {
 }
 
 // GracefulRestartDPUArm performs GracefulRestart on the DPU ARM system.
-func (c *Client) GracefulRestartDPUArm() (*resty.Response, error) {
-	return c.resetDPUArm("GracefulRestart")
+func (c *Client) GracefulRestartDPUArm(ctx context.Context) (*resty.Response, error) {
+	return c.resetDPUArm(ctx, "GracefulRestart")
 }
 
-func (c *Client) resetDPUArm(resetType string) (*resty.Response, error) {
-	systemID, err := getSystemID(c)
+func (c *Client) resetDPUArm(ctx context.Context, resetType string) (*resty.Response, error) {
+	systemID, err := getSystemID(ctx, c)
 	if err != nil {
 		return nil, err
 	}
@@ -1727,7 +1715,7 @@ func (c *Client) SetBootTarget(target string, bootSourceOverride bool) (*resty.R
 		},
 	}
 
-	systemID, err := getSystemID(c)
+	systemID, err := legacyBootSystemID(c)
 	if err != nil {
 		return nil, err
 	}
@@ -1742,31 +1730,19 @@ func (c *Client) SetBootTarget(target string, bootSourceOverride bool) (*resty.R
 	return resp, nil
 }
 
-func (c *Client) GetSettings() (*resty.Response, *Settings, error) {
-	systemID, err := getSystemID(c)
+func (c *Client) GetSettings(ctx context.Context) (*resty.Response, *Settings, error) {
+	ctx, cancel := ReadContext(ctx)
+	defer cancel()
+	systemID, err := getSystemID(ctx, c)
 	if err != nil {
 		return nil, nil, err
 	}
 	url := strings.Replace(APIBluefieldSettings, "{SYSTEM_ID}", systemID, 1)
-	return do[Settings](func() (*resty.Response, error) {
-		return c.Client.R().Get(url)
-	})
-}
-
-func (c *Client) GetVirtualMedia(mediaID string) (*resty.Response, *VirtualMedia, error) {
-	managerID, err := getBMCManagerID(c)
-	if err != nil {
-		return nil, nil, err
-	}
-	url := strings.Replace(APIGetVirtualMedia, managerIDPlaceholder, *managerID, 1)
-	url = strings.Replace(url, "{MEDIA_ID}", mediaID, 1)
-	return do[VirtualMedia](func() (*resty.Response, error) {
-		return c.Client.R().Get(url)
-	})
+	return read[Settings](ctx, c, url)
 }
 
 func insertVirtualMedia(c *Client, reqBody map[string]interface{}, mediaID string) (*resty.Response, error) {
-	managerID, err := getBMCManagerID(c)
+	managerID, err := legacyBootManagerID(c)
 	if err != nil {
 		return nil, err
 	}
@@ -1786,7 +1762,7 @@ func insertVirtualMedia(c *Client, reqBody map[string]interface{}, mediaID strin
 	if resp.StatusCode() != http.StatusOK {
 		return nil, fmt.Errorf("failed to eject virtual media %s: %s", mediaID, resp.Status())
 	}
-	resp, virtualMedia, err := c.GetVirtualMedia(mediaID)
+	resp, virtualMedia, err := c.legacyBootVirtualMedia(mediaID)
 	if err != nil {
 		return nil, err
 	}
@@ -1812,7 +1788,7 @@ func insertVirtualMedia(c *Client, reqBody map[string]interface{}, mediaID strin
 		return nil, fmt.Errorf("failed to insert virtual media %s: %s", mediaID, resp.Status())
 	}
 
-	resp, virtualMedia, err = c.GetVirtualMedia(mediaID)
+	resp, virtualMedia, err = c.legacyBootVirtualMedia(mediaID)
 	if err != nil {
 		return nil, err
 	}
@@ -1905,55 +1881,89 @@ func (c *Client) ActivatePendingBundle() (*resty.Response, error) {
 }
 
 // CheckOSImage returns the BlueField Arm OS image member of the BMC firmware inventory.
-func (c *Client) CheckOSImage() (*VersionInfo, error) {
-	return c.getFirmwareInventory(APICheckOSImage)
+func (c *Client) CheckOSImage(ctx context.Context) (*VersionInfo, error) {
+	return c.getFirmwareInventory(ctx, APICheckOSImage)
 }
 
 // CheckConfigImage returns the BlueField Arm OS config member of the BMC firmware inventory.
-func (c *Client) CheckConfigImage() (*VersionInfo, error) {
-	return c.getFirmwareInventory(APICheckConfigImage)
+func (c *Client) CheckConfigImage(ctx context.Context) (*VersionInfo, error) {
+	return c.getFirmwareInventory(ctx, APICheckConfigImage)
 }
 
 // CheckPendingBMCFirmware returns the BMC firmware version staged by a BF4 PLDM update.
-func (c *Client) CheckPendingBMCFirmware() (*resty.Response, *VersionInfo, error) {
-	return do[VersionInfo](func() (*resty.Response, error) {
-		return c.Client.R().Get(APICheckPendingBMCFW)
-	})
+func (c *Client) CheckPendingBMCFirmware(ctx context.Context) (*resty.Response, *VersionInfo, error) {
+	return read[VersionInfo](ctx, c, APICheckPendingBMCFW)
 }
 
 // CheckPendingBMCEROTFW returns the BMC ERoT firmware version staged by a BF4 PLDM update.
-func (c *Client) CheckPendingBMCEROTFW() (*resty.Response, *VersionInfo, error) {
-	return do[VersionInfo](func() (*resty.Response, error) {
-		return c.Client.R().Get(APICheckPendingBMCEROTFW)
-	})
+func (c *Client) CheckPendingBMCEROTFW(ctx context.Context) (*resty.Response, *VersionInfo, error) {
+	return read[VersionInfo](ctx, c, APICheckPendingBMCEROTFW)
 }
 
 // CheckPendingDPUUEFI returns the DPU UEFI version staged by a BF4 PLDM update.
-func (c *Client) CheckPendingDPUUEFI() (*resty.Response, *VersionInfo, error) {
-	return do[VersionInfo](func() (*resty.Response, error) {
-		return c.Client.R().Get(APICheckPendingDPUUEFI)
-	})
+func (c *Client) CheckPendingDPUUEFI(ctx context.Context) (*resty.Response, *VersionInfo, error) {
+	return read[VersionInfo](ctx, c, APICheckPendingDPUUEFI)
 }
 
 // CheckPendingDPUNIC returns the DPU NIC firmware version staged by a BF4 PLDM update.
-func (c *Client) CheckPendingDPUNIC() (*resty.Response, *VersionInfo, error) {
-	return do[VersionInfo](func() (*resty.Response, error) {
-		return c.Client.R().Get(APICheckPendingDPUNIC)
-	})
+func (c *Client) CheckPendingDPUNIC(ctx context.Context) (*resty.Response, *VersionInfo, error) {
+	return read[VersionInfo](ctx, c, APICheckPendingDPUNIC)
 }
 
-// getFirmwareInventory reads a single firmware inventory member. A member the BMC has not published
-// is reported as an error: Redfish answers with a decodable error body, so do() returns no error of
-// its own and only the status code tells a missing member from a present one.
-func (c *Client) getFirmwareInventory(uri string) (*VersionInfo, error) {
-	resp, info, err := do[VersionInfo](func() (*resty.Response, error) {
-		return c.Client.R().Get(uri)
-	})
+// getFirmwareInventory reads a single firmware inventory member, preserving
+// status and cause when the BMC has not published it or the request fails.
+func (c *Client) getFirmwareInventory(ctx context.Context, uri string) (*VersionInfo, error) {
+	_, info, err := read[VersionInfo](ctx, c, uri)
 	if err != nil {
 		return nil, fmt.Errorf("get %q: %w", uri, err)
 	}
-	if resp.StatusCode() != http.StatusOK {
-		return nil, fmt.Errorf("get %q: unexpected response: %s", uri, responseDebugSummary(resp))
-	}
 	return info, nil
+}
+
+// legacyBootSystemID keeps the original transport and lifetime for BF4 boot reads.
+// The caller restarts installation on failure without durable command
+// checkpoints, so a new read timeout could replay an already accepted mutation.
+func legacyBootSystemID(c *Client) (string, error) {
+	response, systems, err := do[Systems](func() (*resty.Response, error) { return c.Client.R().Get(APIGetSystems) })
+	if err != nil {
+		return "", err
+	}
+	if response.StatusCode() != http.StatusOK {
+		return "", fmt.Errorf("unexpected status code: %d", response.StatusCode())
+	}
+	return findSystemID(systems)
+}
+
+// legacyBootManagerID discovers the BMC manager without changing boot-mutation timeouts.
+func legacyBootManagerID(c *Client) (*string, error) {
+	_, managers, err := do[Managers](func() (*resty.Response, error) { return c.Client.R().Get(APIGetManagers) })
+	if err != nil {
+		return nil, err
+	}
+	return findBMCManagerID(managers)
+}
+
+// GetSettingsForBootMutation reads boot settings with the mutation client's original lifetime.
+func (c *Client) GetSettingsForBootMutation() (*resty.Response, *Settings, error) {
+	systemID, err := legacyBootSystemID(c)
+	if err != nil {
+		return nil, nil, err
+	}
+	url := strings.Replace(APIBluefieldSettings, "{SYSTEM_ID}", systemID, 1)
+	return do[Settings](func() (*resty.Response, error) {
+		return c.Client.R().Get(url)
+	})
+}
+
+// legacyBootVirtualMedia reads virtual media without changing boot-mutation timeouts.
+func (c *Client) legacyBootVirtualMedia(mediaID string) (*resty.Response, *VirtualMedia, error) {
+	managerID, err := legacyBootManagerID(c)
+	if err != nil {
+		return nil, nil, err
+	}
+	url := strings.Replace(APIGetVirtualMedia, managerIDPlaceholder, *managerID, 1)
+	url = strings.Replace(url, "{MEDIA_ID}", mediaID, 1)
+	return do[VirtualMedia](func() (*resty.Response, error) {
+		return c.Client.R().Get(url)
+	})
 }

@@ -17,6 +17,7 @@ limitations under the License.
 package controller
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
@@ -133,7 +134,7 @@ var _ = Describe("Redfish Mock Server Tests", func() {
 
 			By("Verifying Redfish client can make API calls")
 			// Test a simple API call to verify connectivity
-			resp, service, err := redfishClient.GetRootService()
+			resp, service, err := redfishClient.GetRootService(context.Background())
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp).NotTo(BeNil())
 			Expect(resp.StatusCode()).To(Equal(200))

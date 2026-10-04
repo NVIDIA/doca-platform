@@ -76,11 +76,14 @@ func ConfigFWParameters(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 		return *state, nil
 	}
 
-	client, err := rc.NewTLSClient(ctx, device.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
+	readCtx, cancelRead := rc.ReadContext(ctx)
+	defer cancelRead()
+	client, err := rc.NewTLSClient(readCtx, device.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
 	if err != nil {
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUConfigFWParameters), err, "FailedToCreateClient", err.Error()))
 		return *state, err
 	}
+	defer client.CloseIdleConnections()
 
 	if dpu.Status.DPUType == provisioningv1.DPUTypeBlueField4 {
 		resp, _, err := client.SetHostPrivilegeRestricted()
@@ -110,7 +113,7 @@ func ConfigFWParameters(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 		return *state, err
 	}
 
-	_, system, err := client.GetSystem()
+	_, system, err := client.GetSystem(readCtx)
 	if err != nil {
 		err = fmt.Errorf("failed to get system: %w", err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToGetSystem", err.Error()))
@@ -120,7 +123,7 @@ func ConfigFWParameters(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 		_, armCond := cutil.GetDPUCondition(state, provisioningv1.DPUCondFWArmRestarted.String())
 		switch {
 		case armCond == nil || armCond.Status != metav1.ConditionTrue:
-			if _, err := client.ForceRestartDPUArm(); err != nil {
+			if _, err := client.ForceRestartDPUArm(ctx); err != nil {
 				err = fmt.Errorf("failed to reset DPU Arm: %w", err)
 				cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToResetDPUArm", err.Error()))
 				return *state, err
@@ -166,7 +169,7 @@ func ConfigFWParameters(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 		}
 	}
 
-	enabled, _, err := client.GetBMCRShimEnabled()
+	enabled, _, err := client.GetBMCRShimEnabled(ctx)
 	if err != nil {
 		err = fmt.Errorf("failed to get BMC RShim status: %w", err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToGetBMCRShim", err.Error()))

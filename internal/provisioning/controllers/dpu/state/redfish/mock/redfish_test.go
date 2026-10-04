@@ -17,6 +17,7 @@ limitations under the License.
 package mock
 
 import (
+	"context"
 	"net/http"
 	"testing"
 
@@ -48,7 +49,7 @@ func TestRedfishMockServer(t *testing.T) {
 }
 
 func testRootService(t *testing.T, client *client.Client) {
-	resp, _, err := client.GetRootService()
+	resp, _, err := client.GetRootService(context.Background())
 	if err != nil {
 		t.Fatalf("Failed to get root service: %v", err)
 	}
@@ -58,7 +59,7 @@ func testRootService(t *testing.T, client *client.Client) {
 }
 
 func testSetBootTarget(t *testing.T, client *client.Client) {
-	resp, settings, err := client.GetSettings()
+	resp, settings, err := client.GetSettings(context.Background())
 	if err != nil {
 		t.Fatalf("GetSettings failed: %v", err)
 	}
@@ -77,7 +78,7 @@ func testSetBootTarget(t *testing.T, client *client.Client) {
 		t.Errorf("Expected status %d, got %d", http.StatusNoContent, resp.StatusCode())
 	}
 
-	resp, settings, err = client.GetSettings()
+	resp, settings, err = client.GetSettings(context.Background())
 	if err != nil {
 		t.Fatalf("GetSettings after SetBootTarget failed: %v", err)
 	}
@@ -93,7 +94,7 @@ func testSetBootTarget(t *testing.T, client *client.Client) {
 }
 
 func testChassisInfo(t *testing.T, client *client.Client) {
-	resp, chassisInfo, err := client.GetChassis()
+	resp, chassisInfo, err := client.GetChassis(context.Background())
 	if err != nil {
 		t.Fatalf("Failed to get chassis info: %v", err)
 	}
@@ -122,7 +123,7 @@ func TestBF4Auth(t *testing.T) {
 	}
 
 	// Test that BF4 auth works with admin user
-	resp, _, err := client.GetRootService()
+	resp, _, err := client.GetRootService(context.Background())
 	if err != nil {
 		t.Fatalf("Failed to get root service with BF4 auth: %v", err)
 	}

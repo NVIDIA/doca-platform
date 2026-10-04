@@ -17,6 +17,7 @@ limitations under the License.
 package client
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -63,7 +64,7 @@ func TestListTruststoreCerts(t *testing.T) {
 		Client: resty.New().SetBaseURL(server.URL),
 	}
 
-	got, err := client.ListTruststoreCerts()
+	got, err := client.ListTruststoreCerts(context.Background())
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(got).To(HaveLen(1))
 	g.Expect(got[0].URI).To(Equal("redfish/v1/Managers/BMC/Truststore/Certificates/1"))
@@ -89,9 +90,9 @@ func TestListTruststoreCertsReturnsErrorOnCollectionNonOK(t *testing.T) {
 		Client: resty.New().SetBaseURL(server.URL),
 	}
 
-	_, err := client.ListTruststoreCerts()
+	_, err := client.ListTruststoreCerts(context.Background())
 	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("unexpected status code 500"))
+	g.Expect(HasHTTPStatus(err, http.StatusInternalServerError)).To(BeTrue())
 }
 
 func TestListTruststoreCertsReturnsErrorOnMemberNonOK(t *testing.T) {
@@ -115,9 +116,9 @@ func TestListTruststoreCertsReturnsErrorOnMemberNonOK(t *testing.T) {
 		Client: resty.New().SetBaseURL(server.URL),
 	}
 
-	_, err := client.ListTruststoreCerts()
+	_, err := client.ListTruststoreCerts(context.Background())
 	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("unexpected status code 403"))
+	g.Expect(HasHTTPStatus(err, http.StatusForbidden)).To(BeTrue())
 }
 
 func TestDeleteTruststoreCert(t *testing.T) {

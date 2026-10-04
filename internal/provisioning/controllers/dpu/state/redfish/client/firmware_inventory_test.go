@@ -17,6 +17,8 @@ limitations under the License.
 package client
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -56,7 +58,7 @@ func TestCheckOSImage(t *testing.T) {
 	server, client := firmwareInventoryServer(t, http.StatusOK, fmt.Sprintf(`{"Version":%q}`, osImageVersion))
 	defer server.Close()
 
-	info, err := client.CheckOSImage()
+	info, err := client.CheckOSImage(context.Background())
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(info.Version).To(Equal(osImageVersion))
 }
@@ -66,12 +68,14 @@ func TestCheckOSImageReturnsErrorOnMissingMember(t *testing.T) {
 	server, client := firmwareInventoryServer(t, http.StatusNotFound, missingMemberBody)
 	defer server.Close()
 
-	info, err := client.CheckOSImage()
+	info, err := client.CheckOSImage(context.Background())
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(info).To(BeNil())
 	g.Expect(err.Error()).To(ContainSubstring(APICheckOSImage))
-	g.Expect(err.Error()).To(ContainSubstring("status=404"))
-	g.Expect(err.Error()).To(ContainSubstring("ResourceMissingAtURI"))
+	g.Expect(HasHTTPStatus(err, http.StatusNotFound)).To(BeTrue())
+	var requestErr *RequestError
+	g.Expect(errors.As(err, &requestErr)).To(BeTrue())
+	g.Expect(requestErr.Code).To(ContainSubstring("ResourceMissingAtURI"))
 }
 
 func TestCheckOSImageReturnsErrorOnUndecodableBody(t *testing.T) {
@@ -79,7 +83,7 @@ func TestCheckOSImageReturnsErrorOnUndecodableBody(t *testing.T) {
 	server, client := firmwareInventoryServer(t, http.StatusOK, "<html>gateway error</html>")
 	defer server.Close()
 
-	info, err := client.CheckOSImage()
+	info, err := client.CheckOSImage(context.Background())
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(info).To(BeNil())
 	g.Expect(err.Error()).To(ContainSubstring(APICheckOSImage))
@@ -90,7 +94,7 @@ func TestCheckConfigImage(t *testing.T) {
 	server, client := firmwareInventoryServer(t, http.StatusOK, `{"Version":"seed.iso"}`)
 	defer server.Close()
 
-	info, err := client.CheckConfigImage()
+	info, err := client.CheckConfigImage(context.Background())
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(info.Version).To(Equal("seed.iso"))
 }
@@ -100,9 +104,9 @@ func TestCheckConfigImageReturnsErrorOnMissingMember(t *testing.T) {
 	server, client := firmwareInventoryServer(t, http.StatusNotFound, missingMemberBody)
 	defer server.Close()
 
-	info, err := client.CheckConfigImage()
+	info, err := client.CheckConfigImage(context.Background())
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(info).To(BeNil())
 	g.Expect(err.Error()).To(ContainSubstring(APICheckConfigImage))
-	g.Expect(err.Error()).To(ContainSubstring("status=404"))
+	g.Expect(HasHTTPStatus(err, http.StatusNotFound)).To(BeTrue())
 }

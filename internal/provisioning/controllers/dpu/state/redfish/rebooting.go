@@ -120,12 +120,15 @@ func Rebooting(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Cont
 }
 
 func reconcileHostlessReboot(ctx context.Context, dpu *provisioningv1.DPU, state *provisioningv1.DPUStatus, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
-	client, err := redfishClientForDPU(ctx, dpu, ctrlCtx)
+	readCtx, cancelRead := rc.ReadContext(ctx)
+	defer cancelRead()
+	client, err := redfishClientForDPU(readCtx, dpu, ctrlCtx)
 	if err != nil {
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondRebooted.String(), err, "FailedToCreateClient", err.Error()))
 		return *state, err
 	}
 
+	defer client.CloseIdleConnections()
 	if state.RebootStatus == nil {
 		now := metav1.Now()
 		method := provisioningv1.RebootMethodPowerCycle
@@ -143,7 +146,7 @@ func reconcileHostlessReboot(ctx context.Context, dpu *provisioningv1.DPU, state
 	}
 
 	if !hostlessRebootStarted(state.RebootStatus.Reason) {
-		if _, err := client.ForceResetSOC(); err != nil {
+		if _, err := client.ForceResetSOC(ctx); err != nil {
 			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondRebooted.String(), err, "FailedToTriggerRedfishSOCForceReset", err.Error()))
 			return *state, err
 		}
@@ -153,7 +156,7 @@ func reconcileHostlessReboot(ctx context.Context, dpu *provisioningv1.DPU, state
 		return *state, nil
 	}
 
-	resp, system, err := client.GetSystem()
+	resp, system, err := client.GetSystem(readCtx)
 	if err != nil {
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondRebooted.String(), err, "FailedToGetRedfishSystem", err.Error()))
 		return *state, err
@@ -193,13 +196,16 @@ func reconcileHostlessReboot(ctx context.Context, dpu *provisioningv1.DPU, state
 func reconcileWaitForArmShutdown(ctx context.Context, dpu *provisioningv1.DPU, state *provisioningv1.DPUStatus, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
 	logger := log.FromContext(ctx)
 
-	client, err := redfishClientForDPU(ctx, dpu, ctrlCtx)
+	readCtx, cancelRead := rc.ReadContext(ctx)
+	defer cancelRead()
+	client, err := redfishClientForDPU(readCtx, dpu, ctrlCtx)
 	if err != nil {
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondRebooted.String(), err, "FailedToCreateClient", err.Error()))
 		return *state, err
 	}
 
-	resp, system, err := client.GetSystem()
+	defer client.CloseIdleConnections()
+	resp, system, err := client.GetSystem(readCtx)
 	if err != nil {
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondRebooted.String(), err, "FailedToGetRedfishSystem", err.Error()))
 		return *state, err

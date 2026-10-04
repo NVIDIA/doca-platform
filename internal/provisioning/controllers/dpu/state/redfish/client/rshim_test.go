@@ -17,6 +17,7 @@ limitations under the License.
 package client
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 
@@ -36,7 +37,7 @@ var _ = Describe("GetBMCRShimEnabled", func() {
 		defer server.Close()
 
 		client := &Client{Client: resty.New().SetBaseURL(server.URL)}
-		enabled, resp, err := client.GetBMCRShimEnabled()
+		enabled, resp, err := client.GetBMCRShimEnabled(context.Background())
 		Expect(err).NotTo(HaveOccurred())
 		Expect(resp.StatusCode()).To(Equal(http.StatusOK))
 		Expect(enabled).To(BeTrue())
@@ -50,7 +51,7 @@ var _ = Describe("GetBMCRShimEnabled", func() {
 		defer server.Close()
 
 		client := &Client{Client: resty.New().SetBaseURL(server.URL)}
-		enabled, resp, err := client.GetBMCRShimEnabled()
+		enabled, resp, err := client.GetBMCRShimEnabled(context.Background())
 		Expect(err).NotTo(HaveOccurred())
 		Expect(resp.StatusCode()).To(Equal(http.StatusOK))
 		Expect(enabled).To(BeFalse())
@@ -64,9 +65,9 @@ var _ = Describe("GetBMCRShimEnabled", func() {
 		defer server.Close()
 
 		client := &Client{Client: resty.New().SetBaseURL(server.URL)}
-		_, resp, err := client.GetBMCRShimEnabled()
+		_, resp, err := client.GetBMCRShimEnabled(context.Background())
 		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring("unexpected status code"))
+		Expect(HasHTTPStatus(err, http.StatusInternalServerError)).To(BeTrue())
 		Expect(resp.StatusCode()).To(Equal(http.StatusInternalServerError))
 	})
 
@@ -78,7 +79,7 @@ var _ = Describe("GetBMCRShimEnabled", func() {
 		defer server.Close()
 
 		client := &Client{Client: resty.New().SetBaseURL(server.URL)}
-		_, resp, err := client.GetBMCRShimEnabled()
+		_, resp, err := client.GetBMCRShimEnabled(context.Background())
 		Expect(err).To(HaveOccurred())
 		Expect(resp).NotTo(BeNil())
 	})
@@ -91,7 +92,7 @@ var _ = Describe("GetBMCRShimEnabled", func() {
 		defer server.Close()
 
 		client := &Client{Client: resty.New().SetBaseURL(server.URL)}
-		_, resp, err := client.GetBMCRShimEnabled()
+		_, resp, err := client.GetBMCRShimEnabled(context.Background())
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("BmcRShimEnabled missing"))
 		Expect(resp.StatusCode()).To(Equal(http.StatusOK))

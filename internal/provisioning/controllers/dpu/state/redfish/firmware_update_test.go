@@ -17,10 +17,12 @@ limitations under the License.
 package redfish
 
 import (
+	"net/http"
 	"os"
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	rc "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
 	redfishmock "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/mock"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
@@ -1049,7 +1051,7 @@ var _ = Describe("FirmwareUpdate", func() {
 			mockServer.SetTaskHTTPResponse(500, `{"error":{"code":"Base.1.0.InternalError"}}`)
 
 			status, err := FirmwareUpdate(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
-			Expect(err).To(MatchError(ContainSubstring("get task lost-task: unexpected response")))
+			Expect(rc.HasHTTPStatus(err, http.StatusInternalServerError)).To(BeTrue(), "expected a completed HTTP 500 task-query failure: %v", err)
 			Expect(status.RedfishTaskID).To(HaveValue(Equal(lostTaskID)))
 			Expect(status.Conditions).To(ContainElement(
 				And(
