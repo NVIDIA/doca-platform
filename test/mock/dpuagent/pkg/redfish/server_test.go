@@ -133,37 +133,37 @@ func TestBF3Discovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, root, err := raw.GetRootService()
+	_, root, err := raw.GetRootService(context.Background())
 	if err != nil || root.IsBF4() {
 		t.Fatalf("root service: %+v %v", root, err)
 	}
-	c, err := rfclient.NewBasicAuthClient(url, rfclient.BF3BMCUser, "whatever")
+	c, err := rfclient.NewBasicAuthClient(context.Background(), url, rfclient.BF3BMCUser, "whatever")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if c.IsBF4 {
 		t.Fatal("BF3 personality detected as BF4")
 	}
-	resp, chassis, err := c.GetChassis()
+	resp, chassis, err := c.GetChassis(context.Background())
 	mustOK(t, "GetChassis", resp.StatusCode(), err)
 	if chassis.SerialNumber != testSerial || chassis.GetBlueFieldVersion() != provisioningv1.DPUTypeBlueField3 {
 		t.Fatalf("unexpected chassis %+v", chassis)
 	}
-	psid, err := c.GetPSID()
+	psid, err := c.GetPSID(context.Background())
 	if err != nil || psid != testPSID {
 		t.Fatalf("GetPSID: %q %v", psid, err)
 	}
-	resp, pf0, err := c.GetNetworkDeviceFunction("eth0f0")
+	resp, pf0, err := c.GetNetworkDeviceFunction(context.Background(), "eth0f0")
 	mustOK(t, "GetNetworkDeviceFunction", resp.StatusCode(), err)
 	if pf0.Ethernet.MACAddress != config.PF0MAC(testSerial) {
 		t.Fatalf("unexpected PF0 %+v", pf0)
 	}
-	resp, desc, err := c.GetProductDescription()
+	resp, desc, err := c.GetProductDescription(context.Background())
 	mustOK(t, "GetProductDescription", resp.StatusCode(), err)
 	if desc.Mode == nil || *desc.Mode != rfclient.DpuMode {
 		t.Fatalf("expected DpuMode, got %+v", desc)
 	}
-	resp, mgr, err := c.GetBmcManager()
+	resp, mgr, err := c.GetBmcManager(context.Background())
 	mustOK(t, "GetBmcManager", resp.StatusCode(), err)
 	if mgr.FirmwareVersion != config.BMCMinSupportedVersion {
 		t.Fatalf("unexpected manager %+v", mgr)
@@ -172,10 +172,10 @@ func TestBF3Discovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Any password is accepted: VerifyBMCCredential succeeds with the factory default.
-	if _, user, err := rfclient.VerifyBMCCredential(url, rfclient.BMCDefaultPassword); err != nil || user != rfclient.BF3BMCUser {
+	if _, user, err := rfclient.VerifyBMCCredential(context.Background(), url, rfclient.BMCDefaultPassword); err != nil || user != rfclient.BF3BMCUser {
 		t.Fatalf("VerifyBMCCredential: %q %v", user, err)
 	}
-	resp, _, err = c.FactoryResetBMC()
+	resp, _, err = c.FactoryResetBMC(context.Background())
 	mustOK(t, "FactoryResetBMC", resp.StatusCode(), err)
 	resp, _, err = c.SetRedfishUserPassword(rfclient.BF3BMCUser, "new-password")
 	mustOK(t, "SetRedfishUserPassword", resp.StatusCode(), err)
@@ -187,11 +187,11 @@ func TestBF3BMCFirmwareUpgrade(t *testing.T) {
 	fw := defaultFirmware()
 	fw.BMC = oldBMCVersion
 	_, _, url := startServer(t, config.DPUTypeBF3, fw)
-	c, err := rfclient.NewBasicAuthClient(url, rfclient.BF3BMCUser, "x")
+	c, err := rfclient.NewBasicAuthClient(context.Background(), url, rfclient.BF3BMCUser, "x")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, v, err := c.CheckBMCFirmware()
+	_, v, err := c.CheckBMCFirmware(context.Background())
 	if err != nil || v.Version != oldBMCVersion {
 		t.Fatalf("CheckBMCFirmware: %+v %v", v, err)
 	}
@@ -209,19 +209,19 @@ func TestBF3BMCFirmwareUpgrade(t *testing.T) {
 	if err != nil || resp.StatusCode() != http.StatusAccepted {
 		t.Fatalf("UpdateBMCFirmware: %v %v", resp.Status(), err)
 	}
-	resp, prog, err := c.CheckTaskProgress(task.ID)
+	resp, prog, err := c.CheckTaskProgress(context.Background(), task.ID)
 	mustOK(t, "CheckTaskProgress", resp.StatusCode(), err)
 	if prog.TaskState != TaskStateCompleted || prog.PercentComplete != 100 {
 		t.Fatalf("unexpected task %+v", prog)
 	}
 	// The version only changes after Manager.Reset, like a real BMC.
-	_, v, _ = c.CheckBMCFirmware()
+	_, v, _ = c.CheckBMCFirmware(context.Background())
 	if v.Version != oldBMCVersion {
 		t.Fatalf("version changed before reset: %s", v.Version)
 	}
-	resp, _, err = c.ResetBMC()
+	resp, _, err = c.ResetBMC(context.Background())
 	mustOK(t, "ResetBMC", resp.StatusCode(), err)
-	_, v, _ = c.CheckBMCFirmware()
+	_, v, _ = c.CheckBMCFirmware(context.Background())
 	if v.Version != config.BMCMinSupportedVersion {
 		t.Fatalf("version after reset %s", v.Version)
 	}
@@ -229,19 +229,19 @@ func TestBF3BMCFirmwareUpgrade(t *testing.T) {
 
 func TestBF3ConfigFWParametersAndInstall(t *testing.T) {
 	state, sup, url := startServer(t, config.DPUTypeBF3, defaultFirmware())
-	c, err := rfclient.NewBasicAuthClient(url, rfclient.BF3BMCUser, "x")
+	c, err := rfclient.NewBasicAuthClient(context.Background(), url, rfclient.BF3BMCUser, "x")
 	if err != nil {
 		t.Fatal(err)
 	}
 	resp, _, err := c.DisableHostRshim()
 	mustOK(t, "DisableHostRshim", resp.StatusCode(), err)
-	enabled, _, err := c.GetBMCRShimEnabled()
+	enabled, _, err := c.GetBMCRShimEnabled(context.Background())
 	if err != nil || enabled {
 		t.Fatalf("rshim before enable: %v %v", enabled, err)
 	}
 	resp, _, err = c.EnableBMCRShim()
 	mustOK(t, "EnableBMCRShim", resp.StatusCode(), err)
-	enabled, _, err = c.GetBMCRShimEnabled()
+	enabled, _, err = c.GetBMCRShimEnabled(context.Background())
 	if err != nil || !enabled {
 		t.Fatalf("rshim after enable: %v %v", enabled, err)
 	}
@@ -269,7 +269,7 @@ func TestBF3ConfigFWParametersAndInstall(t *testing.T) {
 		t.Fatalf("InstallBFB: %v %v", resp.Status(), err)
 	}
 	sup.wait(t)
-	resp, prog, err := c.CheckTaskProgress(task.ID)
+	resp, prog, err := c.CheckTaskProgress(context.Background(), task.ID)
 	mustOK(t, "CheckTaskProgress", resp.StatusCode(), err)
 	if prog.TaskState != TaskStateCompleted || prog.PercentComplete != 100 {
 		t.Fatalf("unexpected task %+v", prog)
@@ -279,9 +279,9 @@ func TestBF3ConfigFWParametersAndInstall(t *testing.T) {
 	if len(sup.boots) != 1 || !bytes.Equal(sup.boots[0], bfcfg) {
 		t.Fatalf("supervisor boots %d", len(sup.boots))
 	}
-	_, uefi, _ := c.CheckDPUUEFI()
-	_, bsp, _ := c.CheckDPUBSP()
-	_, os, _ := c.CheckDPUOS()
+	_, uefi, _ := c.CheckDPUUEFI(context.Background())
+	_, bsp, _ := c.CheckDPUBSP(context.Background())
+	_, os, _ := c.CheckDPUOS(context.Background())
 	if uefi.Version != "4.15.0-19-g37c6f5adb2" || bsp.Version != "4.15.0.13977" || os.Version != "3.4.0" {
 		t.Fatalf("installed versions uefi=%s bsp=%s os=%s", uefi.Version, bsp.Version, os.Version)
 	}
@@ -296,7 +296,7 @@ func TestBF3ConfigFWParametersAndInstall(t *testing.T) {
 	}
 	deadline := time.Now().Add(10 * time.Second)
 	for {
-		_, prog, err = c.CheckTaskProgress(task.ID)
+		_, prog, err = c.CheckTaskProgress(context.Background(), task.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -315,15 +315,15 @@ func TestBF3ConfigFWParametersAndInstall(t *testing.T) {
 
 func TestBF3ResetPaths(t *testing.T) {
 	state, sup, url := startServer(t, config.DPUTypeBF3, defaultFirmware())
-	c, err := rfclient.NewBasicAuthClient(url, rfclient.BF3BMCUser, "x")
+	c, err := rfclient.NewBasicAuthClient(context.Background(), url, rfclient.BF3BMCUser, "x")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.ForceRestartDPUArm(); err != nil {
+	if _, err := c.ForceRestartDPUArm(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	sup.wait(t)
-	if _, err := c.ForceResetSOC(); err != nil {
+	if _, err := c.ForceResetSOC(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	sup.wait(t)
@@ -334,12 +334,12 @@ func TestBF3ResetPaths(t *testing.T) {
 		t.Fatalf("reboots %d", reboots)
 	}
 	state.SetPowerOff()
-	_, system, err := c.GetSystem()
+	_, system, err := c.GetSystem(context.Background())
 	if err != nil || system.PowerState != "Off" || system.Status.State != "StandbyOffline" {
 		t.Fatalf("system after power off %+v %v", system, err)
 	}
 	state.SetPowerOn()
-	_, system, _ = c.GetSystem()
+	_, system, _ = c.GetSystem(context.Background())
 	if system.PowerState != "On" || system.BootProgress.OemLastState != OemLastStateOSUp {
 		t.Fatalf("system after power on %+v", system)
 	}
@@ -356,30 +356,30 @@ func TestBF4Discovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, root, err := raw.GetRootService(); err != nil || !root.IsBF4() {
+	if _, root, err := raw.GetRootService(context.Background()); err != nil || !root.IsBF4() {
 		t.Fatalf("root service: %+v %v", root, err)
 	}
-	c, err := rfclient.NewBasicAuthClient(url, rfclient.BF4BMCUser, "x")
+	c, err := rfclient.NewBasicAuthClient(context.Background(), url, rfclient.BF4BMCUser, "x")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !c.IsBF4 {
 		t.Fatal("BF4 personality not detected")
 	}
-	resp, chassis, err := c.GetChassis()
+	resp, chassis, err := c.GetChassis(context.Background())
 	mustOK(t, "GetChassis", resp.StatusCode(), err)
 	if chassis.GetBlueFieldVersion() != provisioningv1.DPUTypeBlueField4 {
 		t.Fatalf("unexpected chassis %+v", chassis)
 	}
-	if psid, err := c.GetPSID(); err != nil || psid != testPSID {
+	if psid, err := c.GetPSID(context.Background()); err != nil || psid != testPSID {
 		t.Fatalf("GetPSID: %q %v", psid, err)
 	}
-	resp, pf0, err := c.GetNetworkDeviceFunction("0")
+	resp, pf0, err := c.GetNetworkDeviceFunction(context.Background(), "0")
 	mustOK(t, "GetNetworkDeviceFunction", resp.StatusCode(), err)
 	if pf0.Ethernet.PermanentMACAddress != config.PF0MAC(testSerial) {
 		t.Fatalf("unexpected PF0 %+v", pf0)
 	}
-	resp, desc, err := c.GetProductDescription()
+	resp, desc, err := c.GetProductDescription(context.Background())
 	mustOK(t, "GetProductDescription", resp.StatusCode(), err)
 	if desc.Mode != nil {
 		t.Fatalf("BF4 must not expose Mode: %+v", desc)
@@ -393,12 +393,12 @@ func TestBF4Discovery(t *testing.T) {
 
 func TestBF4FirmwareUpdate(t *testing.T) {
 	state, _, url := startServer(t, config.DPUTypeBF4, defaultFirmware())
-	c, err := rfclient.NewBasicAuthClient(url, rfclient.BF4BMCUser, "x")
+	c, err := rfclient.NewBasicAuthClient(context.Background(), url, rfclient.BF4BMCUser, "x")
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Firmware update: versions differ from the bundle, upload the trimmed PLDM package.
-	resp, erot, err := c.GetErotChassis()
+	resp, erot, err := c.GetErotChassis(context.Background())
 	mustOK(t, "GetErotChassis", resp.StatusCode(), err)
 	if erot.Oem["Nvidia"].(map[string]interface{})["BackgroundCopyStatus"] != "Completed" {
 		t.Fatalf("unexpected ERoT chassis %+v", erot)
@@ -412,30 +412,30 @@ func TestBF4FirmwareUpdate(t *testing.T) {
 	if err != nil || resp.StatusCode() != http.StatusAccepted {
 		t.Fatalf("UpdateBluefieldFirmwareMultipart: %v %v", resp.Status(), err)
 	}
-	_, prog, err := c.CheckTaskProgress(task.ID)
+	_, prog, err := c.CheckTaskProgress(context.Background(), task.ID)
 	if err != nil || prog.TaskState != TaskStateCompleted {
 		t.Fatalf("task %+v %v", prog, err)
 	}
 	if _, err := c.ArmShutdown(); err != nil {
 		t.Fatal(err)
 	}
-	_, system, _ := c.GetSystem()
+	_, system, _ := c.GetSystem(context.Background())
 	if system.PowerState != "Paused" {
 		t.Fatalf("expected Paused after ArmShutdown, got %s", system.PowerState)
 	}
 	resp, err = c.ActivatePendingBundle()
 	mustOK(t, "ActivatePendingBundle", resp.StatusCode(), err)
 	// Versions switch only when the host reboots.
-	if _, info, err := c.CheckBMCFirmware(); err != nil || info.Version != config.BMCMinSupportedVersion {
+	if _, info, err := c.CheckBMCFirmware(context.Background()); err != nil || info.Version != config.BMCMinSupportedVersion {
 		t.Fatalf("BMC version changed before reboot: %+v %v", info, err)
 	}
 	if !state.ApplyActivatedBundle() {
 		t.Fatal("no activated bundle")
 	}
-	_, bmc, _ := c.CheckBMCFirmware()
-	_, erotFW, _ := c.CheckBMCEROTFW()
-	_, sbios, _ := c.CheckDPUUEFI()
-	_, nic, _ := c.CheckDPUNIC()
+	_, bmc, _ := c.CheckBMCFirmware(context.Background())
+	_, erotFW, _ := c.CheckBMCEROTFW(context.Background())
+	_, sbios, _ := c.CheckDPUUEFI(context.Background())
+	_, nic, _ := c.CheckDPUNIC(context.Background())
 	if bmc.Version != "BF4-26.07-0005" || erotFW.Version != "02.00.0044.0000_n05" || sbios.Version != "26.08-0007" || nic.Version != "82.48.4004" {
 		t.Fatalf("bundle versions bmc=%s erot=%s sbios=%s nic=%s", bmc.Version, erotFW.Version, sbios.Version, nic.Version)
 	}
@@ -443,7 +443,7 @@ func TestBF4FirmwareUpdate(t *testing.T) {
 
 func TestBF4OSInstall(t *testing.T) {
 	_, sup, url := startServer(t, config.DPUTypeBF4, defaultFirmware())
-	c, err := rfclient.NewBasicAuthClient(url, rfclient.BF4BMCUser, "x")
+	c, err := rfclient.NewBasicAuthClient(context.Background(), url, rfclient.BF4BMCUser, "x")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -462,10 +462,10 @@ func TestBF4OSInstall(t *testing.T) {
 	}))
 	defer registry.Close()
 	host := strings.TrimPrefix(registry.URL, "https://")
-	if _, err := c.CheckOSImage(); err != nil {
+	if _, err := c.CheckOSImage(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.CheckConfigImage(); err != nil {
+	if _, err := c.CheckConfigImage(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	for _, step := range []struct {
@@ -487,7 +487,7 @@ func TestBF4OSInstall(t *testing.T) {
 		}
 		deadline := time.Now().Add(10 * time.Second)
 		for {
-			_, prog, err := c.CheckTaskProgress(task.ID)
+			_, prog, err := c.CheckTaskProgress(context.Background(), task.ID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -512,13 +512,13 @@ func TestBF4OSInstall(t *testing.T) {
 	if _, err := c.SetBootTarget("None", false); err != nil {
 		t.Fatal(err)
 	}
-	if _, settings, err := c.GetSettings(); err != nil || settings.Boot.BootSourceOverrideTarget != "None" {
+	if _, settings, err := c.GetSettings(context.Background()); err != nil || settings.Boot.BootSourceOverrideTarget != "None" {
 		t.Fatalf("settings %+v %v", settings, err)
 	}
 	if _, err := c.SetBootTarget("Usb", true); err != nil {
 		t.Fatal(err)
 	}
-	if _, settings, err := c.GetSettings(); err != nil || settings.Boot.BootSourceOverrideTarget != "Usb" || settings.Boot.BootSourceOverrideEnabled != "Once" {
+	if _, settings, err := c.GetSettings(context.Background()); err != nil || settings.Boot.BootSourceOverrideTarget != "Usb" || settings.Boot.BootSourceOverrideEnabled != "Once" {
 		t.Fatalf("settings %+v %v", settings, err)
 	}
 	if _, err := c.ChassisReset(); err != nil {
@@ -548,26 +548,26 @@ func TestBF4OSInstall(t *testing.T) {
 // CA and the BMC IP like rfclient.NewTLSClient does.
 func TestCertificateLifecycle(t *testing.T) {
 	_, _, url := startServer(t, config.DPUTypeBF3, defaultFirmware())
-	c, err := rfclient.NewBasicAuthClient(url, rfclient.BF3BMCUser, "x")
+	c, err := rfclient.NewBasicAuthClient(context.Background(), url, rfclient.BF3BMCUser, "x")
 	if err != nil {
 		t.Fatal(err)
 	}
 	caKey, caCert, caPEM := newTestCA(t)
 
 	// Truststore reconcile by fingerprint.
-	certs, err := c.ListTruststoreCerts()
+	certs, err := c.ListTruststoreCerts(context.Background())
 	if err != nil || len(certs) != 0 {
 		t.Fatalf("initial truststore %+v %v", certs, err)
 	}
-	resp, _, err := c.InstallCert(string(caPEM))
+	resp, _, err := c.InstallCert(context.Background(), string(caPEM))
 	mustOK(t, "InstallCert", resp.StatusCode(), err)
-	certs, err = c.ListTruststoreCerts()
+	certs, err = c.ListTruststoreCerts(context.Background())
 	if err != nil || len(certs) != 1 {
 		t.Fatalf("truststore after install %+v %v", certs, err)
 	}
 	resp, _, err = c.DeleteTruststoreCert(certs[0].URI)
 	mustOK(t, "DeleteTruststoreCert", resp.StatusCode(), err)
-	if certs, _ = c.ListTruststoreCerts(); len(certs) != 0 {
+	if certs, _ = c.ListTruststoreCerts(context.Background()); len(certs) != 0 {
 		t.Fatalf("truststore after delete %+v", certs)
 	}
 
@@ -601,13 +601,13 @@ func TestCertificateLifecycle(t *testing.T) {
 	otherKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	otherCSRDER, _ := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{Subject: pkix.Name{CommonName: bmcIP}}, otherKey)
 	otherCSR, _ := x509.ParseCertificateRequest(otherCSRDER)
-	resp, _, err = c.ReplaceServerCert(string(signCSR(t, caKey, caCert, otherCSR)))
+	resp, _, err = c.ReplaceServerCert(context.Background(), string(signCSR(t, caKey, caCert, otherCSR)))
 	if err != nil || resp.StatusCode() != http.StatusInternalServerError {
 		t.Fatalf("ReplaceServerCert with foreign key: %v %v", resp.Status(), err)
 	}
-	resp, _, err = c.ReplaceServerCert(string(leafPEM))
+	resp, _, err = c.ReplaceServerCert(context.Background(), string(leafPEM))
 	mustOK(t, "ReplaceServerCert", resp.StatusCode(), err)
-	resp, served, err := c.GetServerCert()
+	resp, served, err := c.GetServerCert(context.Background())
 	mustOK(t, "GetServerCert", resp.StatusCode(), err)
 	if strings.TrimSpace(served.CertificateString) != strings.TrimSpace(string(leafPEM)) {
 		t.Fatal("served certificate is not the installed one")

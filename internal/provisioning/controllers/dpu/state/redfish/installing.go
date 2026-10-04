@@ -183,17 +183,20 @@ func bootProgressState(
 	if !checkInstallProgressState(dpu.UID) {
 		return ""
 	}
+	readCtx, cancel := rc.ReadContext(ctx)
+	defer cancel()
 	dpuDevice := &provisioningv1.DPUDevice{}
-	if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.DPUDeviceName}, dpuDevice); err != nil {
+	if err := ctrlCtx.Get(readCtx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.DPUDeviceName}, dpuDevice); err != nil {
 		logger.V(1).Info("boot progress probe: failed to fetch DPUDevice", "err", err)
 		return ""
 	}
-	client, err := rc.NewTLSClient(ctx, dpuDevice.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
+	client, err := rc.NewTLSClient(readCtx, dpuDevice.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
 	if err != nil {
 		logger.V(1).Info("boot progress probe: failed to construct client", "err", err)
 		return ""
 	}
-	_, system, err := client.GetSystem()
+	defer client.CloseIdleConnections()
+	_, system, err := client.GetSystem(readCtx)
 	if err != nil || system == nil {
 		logger.V(1).Info("boot progress probe: failed to get Redfish system", "err", err)
 		return ""
@@ -330,13 +333,16 @@ func installOsBf4(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 		bfbRegistryAddr = strings.TrimPrefix(bfbRegistryAddr, prefix)
 	}
 
-	client, err := rc.NewTLSClient(ctx, dpuDevice.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
+	readCtx, cancelRead := rc.ReadContext(ctx)
+	defer cancelRead()
+	client, err := rc.NewTLSClient(readCtx, dpuDevice.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
 	if err != nil {
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "FailedToCreateClient", err.Error()))
 		return *state, err
 	}
+	defer client.CloseIdleConnections()
 
-	if _, err := client.CheckOSImage(); err != nil {
+	if _, err := client.CheckOSImage(readCtx); err != nil {
 		err = fmt.Errorf("failed to check OS image: %w", err)
 		logger.Error(err, "Failed to check OS image")
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "FailToCheckOSImage", err.Error()))
@@ -344,7 +350,7 @@ func installOsBf4(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 	}
 
 	imageURI := filepath.Join(bfbRegistryAddr, bluefieldSoftware.Status.DownloadedComponents.OsIso)
-	if err := reconcileBf4ArmTransfer(logger, dpu, state, client, provisioningv1.DPUCondIsoTransferred, imageURI, client.InstallBluefieldArmImage, "ISO"); err != nil {
+	if err := reconcileBf4ArmTransfer(ctx, logger, dpu, state, client, provisioningv1.DPUCondIsoTransferred, imageURI, client.InstallBluefieldArmImage, "ISO"); err != nil {
 		logger.Error(err, "Failed to install ISO", "error", err)
 		return *state, err
 	}
@@ -352,7 +358,7 @@ func installOsBf4(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 		return *state, nil
 	}
 
-	osImage, err := client.CheckOSImage()
+	osImage, err := client.CheckOSImage(ctx)
 	if err != nil {
 		err = fmt.Errorf("failed to check OS image: %w", err)
 		logger.Error(err, "Failed to check OS image")
@@ -361,7 +367,7 @@ func installOsBf4(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 	}
 	logger.Info("ISO transferred, starting to install config", "osImage", osImage.Version)
 
-	if _, err := client.CheckConfigImage(); err != nil {
+	if _, err := client.CheckConfigImage(ctx); err != nil {
 		err = fmt.Errorf("failed to check config image: %w", err)
 		logger.Error(err, "Failed to check config image")
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "FailToCheckConfigImage", err.Error()))
@@ -369,7 +375,7 @@ func installOsBf4(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 	}
 
 	configURI := filepath.Join(bfbRegistryAddr, dpu.Status.BFCFGFile)
-	if err := reconcileBf4ArmTransfer(logger, dpu, state, client, provisioningv1.DPUCondConfigTransferred, configURI, client.InstallBluefieldArmConfig, "config"); err != nil {
+	if err := reconcileBf4ArmTransfer(ctx, logger, dpu, state, client, provisioningv1.DPUCondConfigTransferred, configURI, client.InstallBluefieldArmConfig, "config"); err != nil {
 		logger.Error(err, "Failed to install config", "error", err)
 		return *state, err
 	}
@@ -377,7 +383,7 @@ func installOsBf4(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 		return *state, nil
 	}
 
-	configImage, err := client.CheckConfigImage()
+	configImage, err := client.CheckConfigImage(ctx)
 	if err != nil {
 		err = fmt.Errorf("failed to check config image: %w", err)
 		logger.Error(err, "Failed to check config image")
@@ -408,7 +414,7 @@ func installOsBf4(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 		return *state, newRestartOSInstallError(err)
 	}
 
-	_, settings, err := client.GetSettings()
+	_, settings, err := client.GetSettingsForBootMutation()
 	if err != nil {
 		err = fmt.Errorf("failed to get settings: %w", err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondChangeBootTarget), err, "FailToGetSettings", "Failed to get settings"))
@@ -428,7 +434,7 @@ func installOsBf4(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 		return *state, newRestartOSInstallError(err)
 	}
 
-	_, settings, err = client.GetSettings()
+	_, settings, err = client.GetSettingsForBootMutation()
 	if err != nil {
 		err = fmt.Errorf("failed to get settings: %w", err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondChangeBootTarget), err, "FailToGetSettings", "Failed to get settings"))
@@ -467,6 +473,7 @@ func installOsBf4(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 // and updates state. It uses state.RedfishTaskID (not dpu.Status) so a completed ISO step can start
 // the config step in the same reconcile without reusing the prior task id from the API object.
 func reconcileBf4ArmTransfer(
+	ctx context.Context,
 	logger logr.Logger,
 	dpu *provisioningv1.DPU,
 	state *provisioningv1.DPUStatus,
@@ -505,7 +512,7 @@ func reconcileBf4ArmTransfer(
 		return nil
 	}
 
-	resp, prog, err := client.CheckTaskProgress(*state.RedfishTaskID)
+	resp, prog, err := client.CheckTaskProgress(ctx, *state.RedfishTaskID)
 	if err != nil {
 		err = fmt.Errorf("failed to check task progress: %w", err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(condKey, err, "FailToCheckProgress", err.Error()))
@@ -544,11 +551,14 @@ func submitAndMonitorBfbInstallTask(ctx context.Context, dpu *provisioningv1.DPU
 	ctx = log.IntoContext(ctx, logger)
 	state := dpu.Status.DeepCopy()
 
-	client, err := rc.NewTLSClient(ctx, dpuDevice.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
+	readCtx, cancelRead := rc.ReadContext(ctx)
+	defer cancelRead()
+	client, err := rc.NewTLSClient(readCtx, dpuDevice.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
 	if err != nil {
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondBFBTransferred), err, "FailedToCreateClient", err.Error()))
 		return *state, err
 	}
+	defer client.CloseIdleConnections()
 
 	if dpu.Status.RedfishTaskID == nil {
 		bfbRegistryAddr, err := getBFBRegistryAddress(ctx, ctrlCtx)
@@ -579,15 +589,14 @@ func submitAndMonitorBfbInstallTask(ctx context.Context, dpu *provisioningv1.DPU
 	}
 
 	// check progress
-	resp, prog, err := client.CheckTaskProgress(*dpu.Status.RedfishTaskID)
+	resp, prog, err := client.CheckTaskProgress(readCtx, *dpu.Status.RedfishTaskID)
 	if err != nil {
+		if resp != nil && rc.HasHTTPStatus(err, resp.StatusCode()) {
+			err = fmt.Errorf("%v: %w", buildNon200ProgressError(ctx, dpu, ctrlCtx, logger, client, resp), err)
+		}
 		err = fmt.Errorf("failed to check task progress: %w", err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondBFBTransferred), err, "FailToCheckProgress", err.Error()))
 		return *state, err
-	} else if resp.StatusCode() != http.StatusOK {
-		enrichedErr := buildNon200ProgressError(ctx, dpu, ctrlCtx, logger, client, resp)
-		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondBFBTransferred), enrichedErr, "FailToCheckProgress", enrichedErr.Error()))
-		return *state, enrichedErr
 	}
 	if prog.TaskState == exceptionTaskState {
 		taskErr := buildExceptionTaskError(ctx, dpu, ctrlCtx, logger, client, resp, prog)
@@ -665,8 +674,7 @@ func buildInstallBFBError(logger logr.Logger, status, body string) error {
 // buildNon200ProgressError formats the enriched error for a non-200 response
 // from CheckTaskProgress. Preserves the legacy "get status: ... is not OK"
 // prefix for tools grepping on it; appends taskID, classified hint, optional
-// rail hint (only on power-related statuses), and a truncated body. Also
-// emits the full forensic detail to the logger.
+// rail hint (only on power-related statuses). Do not emit arbitrary error bodies.
 func buildNon200ProgressError(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext, logger logr.Logger, client *rc.Client, resp *resty.Response) error {
 	status := resp.Status()
 	body := resp.String()
@@ -682,14 +690,10 @@ func buildNon200ProgressError(ctx context.Context, dpu *provisioningv1.DPU, ctrl
 			parts = append(parts, rh)
 		}
 	}
-	if body != "" {
-		parts = append(parts, "body: "+truncateForCondition(body))
-	}
 	enrichedErr := fmt.Errorf("%s", strings.Join(parts, ". "))
 	logger.Error(enrichedErr, "CheckTaskProgress returned non-OK status",
 		"taskID", *dpu.Status.RedfishTaskID,
-		"status", status,
-		"body", body)
+		"status", status)
 	return enrichedErr
 }
 
@@ -741,18 +745,18 @@ const railHintMaxEntries = 20
 // call, missing fields) are silently swallowed - this is supplemental
 // diagnostic context, never a hard requirement.
 //
-// If existingClient is non-nil, it is reused as-is to avoid the extra
-// GetProductDescription verification round-trip that NewTLSClient performs.
+// If existingClient is non-nil, reuse it to avoid another root discovery and
+// credential load. The diagnostic budget includes acquisition when needed.
 // Callers in branches that already have a validated client (non-200,
 // Exception) should pass it; the timeout branch passes nil.
 func bestEffortRailHint(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext, logger logr.Logger, existingClient *rc.Client) string {
+	if ctx.Err() != nil {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(ctx, railHintProbeTimeout)
+	defer cancel()
 	cl := existingClient
 	if cl == nil {
-		// NewTLSClient (incl. its GetProductDescription verification probe) is
-		// bounded by the parent reconcile context, NOT by railHintProbeTimeout.
-		// We accept this gap because the reconcile context is the natural upper
-		// bound and tightening it would mask real TLS setup failures as opaque
-		// "context deadline exceeded" entries in the V(1) log.
 		device := &provisioningv1.DPUDevice{}
 		if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.DPUDeviceName}, device); err != nil {
 			logger.V(1).Info("rail hint probe: failed to fetch DPUDevice", "err", err)
@@ -764,10 +768,9 @@ func bestEffortRailHint(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 			logger.V(1).Info("rail hint probe: failed to construct client", "err", err)
 			return ""
 		}
+		defer cl.CloseIdleConnections()
 	}
-	probeCtx, cancel := context.WithTimeout(ctx, railHintProbeTimeout)
-	defer cancel()
-	return probeRailHint(probeCtx, cl, logger)
+	return probeRailHint(ctx, cl, logger)
 }
 
 // probeRailHint executes the SEL fetch + scan against an already-constructed

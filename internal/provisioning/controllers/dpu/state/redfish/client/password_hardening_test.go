@@ -203,7 +203,7 @@ var _ = Describe("BMC password hardening", func() {
 		bmc := newFakeAccountBMC(true, oldPassword)
 		defer bmc.Close()
 
-		client, err := NewBasicAuthClient(bmc.server.URL, BF4BMCUser, oldPassword)
+		client, err := NewBasicAuthClient(context.Background(), bmc.server.URL, BF4BMCUser, oldPassword)
 		Expect(err).NotTo(HaveOccurred())
 
 		resp, _, err := client.ChangeBMCPassword(ctx, newPassword, BF4BMCUser)
@@ -229,7 +229,7 @@ var _ = Describe("BMC password hardening", func() {
 		bmc := newFakeAccountBMC(true, BMCDefaultPassword)
 		defer bmc.Close()
 
-		client, err := NewBasicAuthClient(bmc.server.URL, BF4BMCUser, BMCDefaultPassword)
+		client, err := NewBasicAuthClient(context.Background(), bmc.server.URL, BF4BMCUser, BMCDefaultPassword)
 		Expect(err).NotTo(HaveOccurred())
 
 		resp, _, err := client.ChangeBMCPassword(ctx, newPassword, BF4BMCUser)
@@ -247,7 +247,7 @@ var _ = Describe("BMC password hardening", func() {
 		bmc := newFakeAccountBMC(false, oldPassword)
 		defer bmc.Close()
 
-		client, err := NewBasicAuthClient(bmc.server.URL, BF3BMCUser, oldPassword)
+		client, err := NewBasicAuthClient(context.Background(), bmc.server.URL, BF3BMCUser, oldPassword)
 		Expect(err).NotTo(HaveOccurred())
 
 		_, _, err = client.ChangeBMCPassword(ctx, newPassword, BF3BMCUser)
@@ -263,7 +263,7 @@ var _ = Describe("BMC password hardening", func() {
 		defer bmc.Close()
 		bmc.serviceMissing = true
 
-		client, err := NewBasicAuthClient(bmc.server.URL, BF4BMCUser, oldPassword)
+		client, err := NewBasicAuthClient(context.Background(), bmc.server.URL, BF4BMCUser, oldPassword)
 		Expect(err).NotTo(HaveOccurred())
 
 		resp, _, err := client.ChangeBMCPassword(ctx, newPassword, BF4BMCUser)
@@ -279,7 +279,7 @@ var _ = Describe("BMC password hardening", func() {
 		defer bmc.Close()
 		bmc.servicePatchFail = true
 
-		client, err := NewBasicAuthClient(bmc.server.URL, BF4BMCUser, oldPassword)
+		client, err := NewBasicAuthClient(context.Background(), bmc.server.URL, BF4BMCUser, oldPassword)
 		Expect(err).NotTo(HaveOccurred())
 
 		_, _, err = client.ChangeBMCPassword(ctx, newPassword, BF4BMCUser)

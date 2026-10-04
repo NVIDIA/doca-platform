@@ -2539,7 +2539,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			cr := newServerCertRequest(dpuDevice)
 
 			// mtlsClient is nil because it must not be used on this path.
-			result, err := reconciler.installIssuedServerCert(nil, cr, apierrors.NewNotFound(schema.GroupResource{}, cr.GetName()))
+			result, err := reconciler.installIssuedServerCert(context.Background(), nil, cr, apierrors.NewNotFound(schema.GroupResource{}, cr.GetName()))
 			Expect(result).To(BeNil())
 			Expect(err).To(MatchError(ContainSubstring("not found during rotation")))
 		})
@@ -2548,7 +2548,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			reconciler := &DPUDeviceReconciler{}
 			cr := newServerCertRequest(dpuDevice)
 
-			result, err := reconciler.installIssuedServerCert(nil, cr, nil)
+			result, err := reconciler.installIssuedServerCert(context.Background(), nil, cr, nil)
 			Expect(result).To(BeNil())
 			Expect(errors.Is(err, errCertRequestPending)).To(BeTrue())
 		})
@@ -2566,7 +2566,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			cr := newServerCertRequest(dpuDevice)
 			setConditions(cr, map[string]interface{}{"type": "Denied", "status": "True", "message": "not approved"})
 
-			result, err := reconciler.installIssuedServerCert(nil, cr, nil)
+			result, err := reconciler.installIssuedServerCert(context.Background(), nil, cr, nil)
 			Expect(result).To(BeNil())
 			Expect(errors.Is(err, errCertRequestPending)).To(BeFalse())
 			Expect(err).To(MatchError(ContainSubstring("denied")))
@@ -2577,7 +2577,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			cr := newServerCertRequest(dpuDevice)
 			setConditions(cr, map[string]interface{}{"type": "InvalidRequest", "status": "True", "message": "bad CSR"})
 
-			result, err := reconciler.installIssuedServerCert(nil, cr, nil)
+			result, err := reconciler.installIssuedServerCert(context.Background(), nil, cr, nil)
 			Expect(result).To(BeNil())
 			Expect(errors.Is(err, errCertRequestPending)).To(BeFalse())
 			Expect(err).To(MatchError(ContainSubstring("invalid")))
@@ -2588,7 +2588,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			cr := newServerCertRequest(dpuDevice)
 			setConditions(cr, map[string]interface{}{"type": "Ready", "status": "False", "reason": "Failed", "message": "issuer error"})
 
-			result, err := reconciler.installIssuedServerCert(nil, cr, nil)
+			result, err := reconciler.installIssuedServerCert(context.Background(), nil, cr, nil)
 			Expect(result).To(BeNil())
 			Expect(errors.Is(err, errCertRequestPending)).To(BeFalse())
 			Expect(err).To(MatchError(ContainSubstring("failed to issue")))
@@ -2599,7 +2599,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			cr := newServerCertRequest(dpuDevice)
 			setConditions(cr, map[string]interface{}{"type": "Ready", "status": "False", "reason": "Pending", "message": "waiting for approval"})
 
-			result, err := reconciler.installIssuedServerCert(nil, cr, nil)
+			result, err := reconciler.installIssuedServerCert(context.Background(), nil, cr, nil)
 			Expect(result).To(BeNil())
 			Expect(errors.Is(err, errCertRequestPending)).To(BeTrue())
 		})
@@ -2620,7 +2620,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			cr := newServerCertRequest(dpuDevice)
 			Expect(unstructured.SetNestedField(cr.Object, base64.StdEncoding.EncodeToString(issuedCrt), "status", "certificate")).To(Succeed())
 
-			result, err := reconciler.installIssuedServerCert(mtlsClient, cr, nil)
+			result, err := reconciler.installIssuedServerCert(context.Background(), mtlsClient, cr, nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).NotTo(BeNil())
 			Expect(result.Time.Equal(expectedNotAfter)).To(BeTrue())
@@ -3129,7 +3129,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			dpuDevice := createTestDPUDevice(mockServer, "test-dpudevice-mtls-selfheal")
 			newIssuedServerCertCR(reconciler, dpuDevice, mockServer.GetServerCertPEM())
 
-			basicAuthClient, err := rfclient.NewBasicAuthClient(dpuDevice.BMCAddress(), "root", "testpassword")
+			basicAuthClient, err := rfclient.NewBasicAuthClient(context.Background(), dpuDevice.BMCAddress(), "root", "testpassword")
 			Expect(err).NotTo(HaveOccurred())
 
 			err = reconciler.setUpMTLS(ctx, dpuDevice, basicAuthClient)
@@ -3148,7 +3148,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			dpuDevice := createTestDPUDevice(mockServer, "test-dpudevice-mtls-success")
 			newIssuedServerCertCR(reconciler, dpuDevice, mockServer.GetServerCertPEM())
 
-			basicAuthClient, err := rfclient.NewBasicAuthClient(dpuDevice.BMCAddress(), "root", "testpassword")
+			basicAuthClient, err := rfclient.NewBasicAuthClient(context.Background(), dpuDevice.BMCAddress(), "root", "testpassword")
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(reconciler.setUpMTLS(ctx, dpuDevice, basicAuthClient)).To(Succeed())
@@ -3166,7 +3166,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			// current trust bundle fails (upgrade/self-heal path).
 			newIssuedServerCertCR(reconciler, dpuDevice, generateUnrelatedServerCertPEM())
 
-			basicAuthClient, err := rfclient.NewBasicAuthClient(dpuDevice.BMCAddress(), "root", "testpassword")
+			basicAuthClient, err := rfclient.NewBasicAuthClient(context.Background(), dpuDevice.BMCAddress(), "root", "testpassword")
 			Expect(err).NotTo(HaveOccurred())
 
 			err = reconciler.setUpMTLS(ctx, dpuDevice, basicAuthClient)
@@ -3193,7 +3193,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			Expect(reconciler.Client.Update(ctx, cm)).To(Succeed())
 			newIssuedServerCertCR(reconciler, dpuDevice, leafPEM)
 
-			basicAuthClient, err := rfclient.NewBasicAuthClient(dpuDevice.BMCAddress(), "root", "testpassword")
+			basicAuthClient, err := rfclient.NewBasicAuthClient(context.Background(), dpuDevice.BMCAddress(), "root", "testpassword")
 			Expect(err).NotTo(HaveOccurred())
 
 			err = reconciler.setUpMTLS(ctx, dpuDevice, basicAuthClient)

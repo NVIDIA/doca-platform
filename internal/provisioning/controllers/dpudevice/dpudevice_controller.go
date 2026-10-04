@@ -379,7 +379,11 @@ func (r *DPUDeviceReconciler) ensureDPUDeviceInitialized(ctx context.Context, dp
 		return ctrl.Result{}, false, nil
 	}
 
-	if _, err := r.resolveAndAuthenticateBMC(ctx, dpuDevice, dpuDevice.BMCAddress(), true); err != nil {
+	basicClient, err := r.resolveAndAuthenticateBMC(ctx, dpuDevice, dpuDevice.BMCAddress(), true)
+	if basicClient != nil {
+		defer basicClient.CloseIdleConnections()
+	}
+	if err != nil {
 		log.Error(err, "Failed to reconcile BMC credentials")
 		return ctrl.Result{}, true, err
 	}
@@ -517,15 +521,18 @@ func bmcServerCertAddressStale(dpuDevice *provisioningv1.DPUDevice) bool {
 // represented by this DPUDevice. The auth uses the status.bmcIP (copied from new IP -
 // spec.IP) to match serial number.
 func (r *DPUDeviceReconciler) confirmSameDPU(ctx context.Context, dpuDevice *provisioningv1.DPUDevice) error {
+	ctx, cancel := rfclient.ReadContext(ctx)
+	defer cancel()
 	// Use basic auth because the new address does not yet have a server certificate.
 	basicAuthClient, err := r.basicAuthClientForRecovery(ctx, dpuDevice)
 	if err != nil {
 		return fmt.Errorf("failed to authenticate to BMC at the new address: %w", err)
 	}
 
-	resp, chassisInfo, err := basicAuthClient.GetChassis()
+	defer basicAuthClient.CloseIdleConnections()
+	_, chassisInfo, err := basicAuthClient.GetChassis(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to read BMC chassis identity: %w (response: %s)", err, rfclient.RespBody(resp))
+		return fmt.Errorf("failed to read BMC chassis identity: %w", err)
 	}
 	if chassisInfo.SerialNumber == "" {
 		return fmt.Errorf("BMC returned an empty serial number")
@@ -723,6 +730,7 @@ func (r *DPUDeviceReconciler) initializeDPUDevice(ctx context.Context, dpuDevice
 		return err
 	}
 
+	defer basicAuthClient.CloseIdleConnections()
 	if basicAuthClient.IsBF4 {
 		dpuDevice.Status.DPUType = provisioningv1.DPUTypeBlueField4
 	} else {
@@ -757,13 +765,18 @@ func (r *DPUDeviceReconciler) initializeDPUDevice(ctx context.Context, dpuDevice
 func (r *DPUDeviceReconciler) ensureRedfishMTLS(ctx context.Context, dpuDevice *provisioningv1.DPUDevice, bmcAddress string, basicAuthClient *rfclient.Client) error {
 	log := log.FromContext(ctx)
 
-	tlsClient, err := rfclient.NewTLSClient(ctx, bmcAddress, dpuDevice.Namespace, r.Client)
+	readCtx, cancelRead := rfclient.ReadContext(ctx)
+	defer cancelRead()
+	mtlsRejected := false
+	tlsClient, err := rfclient.NewTLSClient(readCtx, bmcAddress, dpuDevice.Namespace, r.Client)
 	if err == nil {
-		resp, _, getErr := tlsClient.GetManagers()
-		if resp != nil && resp.StatusCode() == http.StatusOK {
+		defer tlsClient.CloseIdleConnections()
+		resp, _, getErr := tlsClient.GetManagers(readCtx)
+		if getErr == nil && resp != nil && resp.StatusCode() == http.StatusOK {
 			return nil
 		}
-		log.Error(getErr, "failed to get managers", "response", rfclient.RespBody(resp))
+		log.Error(getErr, "failed to get managers")
+		mtlsRejected = rfclient.HasHTTPStatus(getErr, http.StatusUnauthorized)
 		err = getErr
 	}
 
@@ -781,7 +794,15 @@ func (r *DPUDeviceReconciler) ensureRedfishMTLS(ctx context.Context, dpuDevice *
 		return err
 	}
 
-	log.Error(err, "failed to create tls client, setting up mTLS")
+	// Only affirmative trust/authentication evidence in this initialization path
+	// permits bootstrap. Connectivity, credential-load and protocol failures do not.
+	if !rfclient.IsBMCServerCertUntrusted(err) && !mtlsRejected {
+		return fmt.Errorf("cannot verify BMC mTLS readiness: %w", err)
+	}
+	if _, _, verifyErr := basicAuthClient.GetManagers(ctx); verifyErr != nil {
+		return fmt.Errorf("cannot authenticate BMC bootstrap: %w", verifyErr)
+	}
+	log.Error(err, "BMC requires mTLS bootstrap")
 	if err := r.setUpMTLS(ctx, dpuDevice, basicAuthClient); err != nil {
 		err = fmt.Errorf("failed to set up mTLS: %w", err)
 		log.Error(err, "failed to set up mTLS")
@@ -853,16 +874,19 @@ func (r *DPUDeviceReconciler) reconcileCATrustBundle(ctx context.Context, dpuDev
 		"desired_cert_count", len(desiredCerts),
 	)
 
-	tlsClient, err := rfclient.NewTLSClient(ctx, dpuDevice.BMCAddress(), dpuDevice.Namespace, r.Client)
+	readCtx, cancelRead := rfclient.ReadContext(ctx)
+	defer cancelRead()
+	tlsClient, err := rfclient.NewTLSClient(readCtx, dpuDevice.BMCAddress(), dpuDevice.Namespace, r.Client)
 	if err == nil {
-		_, _, err = tlsClient.GetManagers()
+		defer tlsClient.CloseIdleConnections()
+		_, _, err = tlsClient.GetManagers(readCtx)
 	}
 	if err != nil {
 		setCATrustBundleCondition(dpuDevice, metav1.ConditionFalse, provisioningv1.ReasonCATrustBundleSyncFailed, fmt.Sprintf("failed to create mTLS redfish client: %v", err))
 		return ctrl.Result{}, err
 	}
 
-	installedCerts, err := tlsClient.ListTruststoreCerts()
+	installedCerts, err := tlsClient.ListTruststoreCerts(ctx)
 	if err != nil {
 		setCATrustBundleCondition(dpuDevice, metav1.ConditionFalse, provisioningv1.ReasonCATrustBundleSyncFailed, fmt.Sprintf("failed to list truststore certificates: %v", err))
 		return ctrl.Result{}, err
@@ -888,7 +912,7 @@ func (r *DPUDeviceReconciler) reconcileCATrustBundle(ctx context.Context, dpuDev
 		if _, found := installedByFingerprint[fingerprint]; found {
 			continue
 		}
-		resp, _, err := tlsClient.InstallCert(cert.pem)
+		resp, _, err := tlsClient.InstallCert(ctx, cert.pem)
 		if err != nil {
 			log.Error(err, "Failed to install truststore certificate", "dpudevice", dpuDevice.Name, "fingerprint", fingerprint)
 			setCATrustBundleCondition(dpuDevice, metav1.ConditionFalse, provisioningv1.ReasonCATrustBundleSyncFailed, fmt.Sprintf("failed to install truststore cert %s: %v", fingerprint, err))
@@ -997,26 +1021,29 @@ func (r *DPUDeviceReconciler) discoverDPUDevice(ctx context.Context, dpuDevice *
 	log.Info("Discovering DPUDevice", "dpuDevice", dpuDevice.Name)
 
 	bmcAddress := dpuDevice.BMCAddress()
-	client, err := rfclient.NewTLSClient(ctx, bmcAddress, dpuDevice.Namespace, r.Client)
+	readCtx, cancelRead := rfclient.ReadContext(ctx)
+	defer cancelRead()
+	client, err := rfclient.NewTLSClient(readCtx, bmcAddress, dpuDevice.Namespace, r.Client)
 	if err != nil {
 		log.Error(err, "Failed to create TLS client")
 		return err
 	}
+	defer client.CloseIdleConnections()
 
 	// The mode is needed before the chassis check below, which tolerates an unknown DPU type only in NIC mode.
-	if err := r.refreshDPUMode(ctx, dpuDevice, client); err != nil {
+	if err := r.refreshDPUMode(readCtx, dpuDevice, client); err != nil {
 		return err
 	}
 
-	resp, chassisInfo, err := client.GetChassis()
+	_, chassisInfo, err := client.GetChassis(ctx)
 	if err != nil {
-		log.Error(err, "Failed to get chassis info", "address", bmcAddress, "response", rfclient.RespBody(resp))
+		log.Error(err, "Failed to get chassis info", "address", bmcAddress)
 		return err
 	}
 
 	if chassisInfo.SerialNumber == "" {
 		err = fmt.Errorf("serial number is empty")
-		log.Error(err, "Failed to get chassis info", "address", bmcAddress, "response", rfclient.RespBody(resp))
+		log.Error(err, "Failed to get chassis info", "address", bmcAddress)
 		return err
 	}
 
@@ -1039,15 +1066,15 @@ func (r *DPUDeviceReconciler) discoverDPUDevice(ctx context.Context, dpuDevice *
 	}
 	if dpuDevice.Status.DPUMode == provisioningv1.DpuMode && dpuDevice.Status.DPUType == provisioningv1.DPUTypeUnknown {
 		err = fmt.Errorf("unknown DPU type")
-		log.Error(err, "Failed to get DPU type", "address", bmcAddress, "response", rfclient.RespBody(resp))
+		log.Error(err, "Failed to get DPU type", "address", bmcAddress)
 		return err
 	}
 
-	psid, err := client.GetPSID()
+	psid, err := client.GetPSID(ctx)
 	if err == nil {
 		dpuDevice.Status.PSID = ptr.To(psid)
 	} else {
-		log.Error(err, "Failed to get PSID", "address", bmcAddress, "response", rfclient.RespBody(resp), "psid", psid)
+		log.Error(err, "Failed to get PSID", "address", bmcAddress, "psid", psid)
 		if client.IsBF4 {
 			return err
 		}
@@ -1059,9 +1086,9 @@ func (r *DPUDeviceReconciler) discoverDPUDevice(ctx context.Context, dpuDevice *
 	if client.IsBF4 {
 		device = "0"
 	}
-	resp, pf0, err := client.GetNetworkDeviceFunction(device)
+	_, pf0, err := client.GetNetworkDeviceFunction(ctx, device)
 	if err != nil {
-		log.Error(err, "Failed to get network device function", "address", bmcAddress, "response", rfclient.RespBody(resp))
+		log.Error(err, "Failed to get network device function", "address", bmcAddress)
 		return err
 	}
 
@@ -1076,7 +1103,7 @@ func (r *DPUDeviceReconciler) discoverDPUDevice(ctx context.Context, dpuDevice *
 	if mac != "" {
 		dpuDevice.Status.PF0MAC = ptr.To(mac)
 	} else {
-		log.Info("No MAC address found for PF0", "address", bmcAddress, "response", rfclient.RespBody(resp))
+		log.Info("No MAC address found for PF0", "address", bmcAddress)
 	}
 
 	// TODO: Get the PCI address once it will be available in the Redfish API
@@ -1105,9 +1132,9 @@ func (r *DPUDeviceReconciler) discoverDPUDevice(ctx context.Context, dpuDevice *
 
 // refreshDPUMode records the mode (DPU or NIC) the BMC currently reports.
 func (r *DPUDeviceReconciler) refreshDPUMode(ctx context.Context, dpuDevice *provisioningv1.DPUDevice, client *rfclient.Client) error {
-	resp, productDescription, err := client.GetProductDescription()
+	_, productDescription, err := client.GetProductDescription(ctx)
 	if err != nil {
-		log.FromContext(ctx).Error(err, "Failed to get product description", "address", dpuDevice.BMCAddress(), "response", rfclient.RespBody(resp))
+		log.FromContext(ctx).Error(err, "Failed to get product description", "address", dpuDevice.BMCAddress())
 		return err
 	}
 
@@ -1123,7 +1150,7 @@ func (r *DPUDeviceReconciler) refreshDPUMode(ctx context.Context, dpuDevice *pro
 
 func checkBMCManagerDateTimeSync(ctx context.Context, client *rfclient.Client) error {
 	log := log.FromContext(ctx)
-	_, bmcManager, err := client.GetBmcManager()
+	_, bmcManager, err := client.GetBmcManager(ctx)
 	if err != nil {
 		log.Error(err, "Failed to get BMC manager")
 		return err
@@ -1146,19 +1173,22 @@ func checkBMCManagerDateTimeSync(ctx context.Context, client *rfclient.Client) e
 func (r *DPUDeviceReconciler) reconcileDynamicFields(ctx context.Context, dpuDevice *provisioningv1.DPUDevice) error {
 	log := log.FromContext(ctx)
 	bmcAddress := dpuDevice.BMCAddress()
-	client, err := rfclient.NewTLSClient(ctx, bmcAddress, dpuDevice.Namespace, r.Client)
+	readCtx, cancelRead := rfclient.ReadContext(ctx)
+	defer cancelRead()
+	client, err := rfclient.NewTLSClient(readCtx, bmcAddress, dpuDevice.Namespace, r.Client)
 	if err != nil {
 		log.Error(err, "Failed to create TLS client")
 		return err
 	}
 
-	if err := r.refreshDPUMode(ctx, dpuDevice, client); err != nil {
+	defer client.CloseIdleConnections()
+	if err := r.refreshDPUMode(readCtx, dpuDevice, client); err != nil {
 		return err
 	}
 
-	resp, secureBootInfo, err := client.GetSecureBoot()
+	_, secureBootInfo, err := client.GetSecureBoot(ctx)
 	if err != nil {
-		log.Error(err, "Failed to get Secure Boot state", "address", bmcAddress, "response", rfclient.RespBody(resp))
+		log.Error(err, "Failed to get Secure Boot state", "address", bmcAddress)
 		return err
 	}
 
@@ -1246,7 +1276,7 @@ func (r *DPUDeviceReconciler) replaceServerCert(ctx context.Context, dpudevice *
 		return r.createServerCertFromCSR(ctx, dpudevice, basicAuthClient)
 	}
 
-	resp, _, err := basicAuthClient.ReplaceServerCert(string(decodedCert))
+	resp, _, err := basicAuthClient.ReplaceServerCert(ctx, string(decodedCert))
 	if err != nil {
 		return fmt.Errorf("failed to replace server cert, err: %v", err)
 	}
@@ -1302,7 +1332,7 @@ func (r *DPUDeviceReconciler) installBootstrapCA(ctx context.Context, basicAuthC
 		return fmt.Errorf("failed to parse bootstrap CA bundle: %w", err)
 	}
 
-	installedCerts, err := basicAuthClient.ListTruststoreCerts()
+	installedCerts, err := basicAuthClient.ListTruststoreCerts(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to list BMC truststore certificates: %w", err)
 	}
@@ -1340,7 +1370,7 @@ func (r *DPUDeviceReconciler) installBootstrapCA(ctx context.Context, basicAuthC
 		if _, found := installedByFingerprint[fingerprint]; found {
 			continue
 		}
-		resp, _, err := basicAuthClient.InstallCert(cert.pem)
+		resp, _, err := basicAuthClient.InstallCert(ctx, cert.pem)
 		if err != nil {
 			return fmt.Errorf("failed to install CA cert %s in BMC truststore: %w", fingerprint, err)
 		}
@@ -1359,7 +1389,7 @@ func (r *DPUDeviceReconciler) createServerCertFromCSR(ctx context.Context, dpude
 	if dpudevice.Status.BMCIP == nil {
 		return fmt.Errorf("cannot generate CSR: DPUDevice %s has no BMCIP set", dpudevice.Name)
 	}
-	resp, csrInfo, err := basicAuthClient.GenerateCSR(*dpudevice.Status.BMCIP)
+	resp, csrInfo, err := basicAuthClient.GenerateCSR(ctx, *dpudevice.Status.BMCIP)
 	if err != nil {
 		return fmt.Errorf("failed to generate CSR, err: %v", err)
 	} else if resp.StatusCode() != http.StatusOK {
@@ -1552,9 +1582,12 @@ func (r *DPUDeviceReconciler) reconcileServerCertRotation(ctx context.Context, d
 
 	// cold-start backfill and/or rotation.
 	bmcAddress := dpuDevice.BMCAddress()
-	mtlsClient, err := rfclient.NewTLSClient(ctx, bmcAddress, dpuDevice.Namespace, r.Client)
+	readCtx, cancelRead := rfclient.ReadContext(ctx)
+	defer cancelRead()
+	mtlsClient, err := rfclient.NewTLSClient(readCtx, bmcAddress, dpuDevice.Namespace, r.Client)
 	if err == nil {
-		_, _, err = mtlsClient.GetManagers()
+		defer mtlsClient.CloseIdleConnections()
+		_, _, err = mtlsClient.GetManagers(readCtx)
 	}
 	if err != nil {
 		// A server-certificate verification failure cannot be healed over mTLS: rotation needs a
@@ -1661,6 +1694,7 @@ func (r *DPUDeviceReconciler) recoverServerCert(ctx context.Context, dpuDevice *
 		return ctrl.Result{RequeueAfter: serverCertRotationBackoff}, nil
 	}
 
+	defer basicAuthClient.CloseIdleConnections()
 	if err := r.setUpMTLS(ctx, dpuDevice, basicAuthClient); err != nil {
 		log.Info("BMC mTLS recovery not complete yet", "err", err.Error())
 		conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceBMCServerCertificateReady,
@@ -1684,11 +1718,13 @@ func (r *DPUDeviceReconciler) recoverServerCert(ctx context.Context, dpuDevice *
 // client even when the shared credential is unchanged, because recovery must talk to the BMC over
 // basic auth when mTLS is broken.
 func (r *DPUDeviceReconciler) basicAuthClientForRecovery(ctx context.Context, dpuDevice *provisioningv1.DPUDevice) (*rfclient.Client, error) {
+	ctx, cancel := rfclient.ReadContext(ctx)
+	defer cancel()
 	cred, err := rfclient.ResolveBMCCredential(ctx, dpuDevice.Namespace, dpuDevice.Spec.BMCCredentialSecretName, r.Client)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve BMC credential: %w", err)
 	}
-	basicAuthClient, _, err := rfclient.VerifyBMCCredential(dpuDevice.BMCAddress(), cred.Password)
+	basicAuthClient, _, err := rfclient.VerifyBMCCredential(ctx, dpuDevice.BMCAddress(), cred.Password)
 	if err != nil {
 		return nil, fmt.Errorf("failed to authenticate to BMC over basic auth: %w", err)
 	}
@@ -1701,23 +1737,23 @@ func (r *DPUDeviceReconciler) basicAuthClientForRecovery(ctx context.Context, dp
 // fleet does not rotate all at once.
 // It returns handled=true with the result the reconcile should return when the backfilled
 // certificate is still outside its renew window. It returns handled=false when the caller should
-// fall through to a rotation: the fetch failed, the certificate could not be parsed, or the
-// backfilled expiry is already within the renew window.
+// fall through to a rotation when the backfilled expiry is within the renew window.
+// Failed or malformed observations requeue without authorizing a rotation.
 func (r *DPUDeviceReconciler) backfillServerCertExpiry(ctx context.Context, dpuDevice *provisioningv1.DPUDevice, mtlsClient *rfclient.Client, renewBefore time.Duration) (bool, ctrl.Result) {
 	log := log.FromContext(ctx)
 
-	_, info, err := mtlsClient.GetServerCert()
+	_, info, err := mtlsClient.GetServerCert(ctx)
 	if err != nil {
-		log.Error(err, "failed to fetch served BMC server certificate; will rotate")
-		return false, ctrl.Result{}
+		log.Error(err, "failed to fetch served BMC server certificate; retrying read")
+		return true, ctrl.Result{RequeueAfter: serverCertRotationBackoff}
 	}
 	if info == nil || info.CertificateString == "" {
-		return false, ctrl.Result{}
+		return true, ctrl.Result{RequeueAfter: serverCertRotationBackoff}
 	}
 	notAfter, err := certNotAfter(info.CertificateString)
 	if err != nil {
-		log.Error(err, "failed to parse served BMC server certificate; will rotate")
-		return false, ctrl.Result{}
+		log.Error(err, "failed to parse served BMC server certificate; retrying read")
+		return true, ctrl.Result{RequeueAfter: serverCertRotationBackoff}
 	}
 
 	// The certificate was read over a connection whose identity was already pinned to the current
@@ -1750,7 +1786,7 @@ func (r *DPUDeviceReconciler) rotateServerCert(ctx context.Context, dpuDevice *p
 	if !rotationInProgress {
 		return nil, r.startServerCertRotation(ctx, dpuDevice, mtlsClient, cr, getErr == nil)
 	}
-	return r.installIssuedServerCert(mtlsClient, cr, getErr)
+	return r.installIssuedServerCert(ctx, mtlsClient, cr, getErr)
 }
 
 // startServerCertRotation begins a fresh rotation: it deletes any stale CertificateRequest,
@@ -1767,7 +1803,7 @@ func (r *DPUDeviceReconciler) startServerCertRotation(ctx context.Context, dpuDe
 	if dpuDevice.Status.BMCIP == nil {
 		return fmt.Errorf("cannot generate CSR: DPUDevice %s has no BMCIP set", dpuDevice.Name)
 	}
-	resp, csrInfo, err := mtlsClient.GenerateCSR(*dpuDevice.Status.BMCIP)
+	resp, csrInfo, err := mtlsClient.GenerateCSR(ctx, *dpuDevice.Status.BMCIP)
 	if err != nil {
 		return fmt.Errorf("failed to generate CSR: %w", err)
 	} else if resp.StatusCode() != http.StatusOK {
@@ -1784,7 +1820,7 @@ func (r *DPUDeviceReconciler) startServerCertRotation(ctx context.Context, dpuDe
 // CertificateRequest, then installs the issued certificate on the BMC and returns its NotAfter.
 // getErr is the result of the caller's CR Get. It returns errCertRequestPending while issuance is
 // still pending.
-func (r *DPUDeviceReconciler) installIssuedServerCert(mtlsClient *rfclient.Client, cr *unstructured.Unstructured, getErr error) (*metav1.Time, error) {
+func (r *DPUDeviceReconciler) installIssuedServerCert(ctx context.Context, mtlsClient *rfclient.Client, cr *unstructured.Unstructured, getErr error) (*metav1.Time, error) {
 	if apierrors.IsNotFound(getErr) {
 		// CR vanished mid-rotation; let the next reconcile start a fresh rotation.
 		return nil, fmt.Errorf("CertificateRequest %s not found during rotation", cr.GetName())
@@ -1806,7 +1842,7 @@ func (r *DPUDeviceReconciler) installIssuedServerCert(mtlsClient *rfclient.Clien
 	if err != nil {
 		return nil, fmt.Errorf("failed to base64 decode certificate: %w", err)
 	}
-	resp, _, err := mtlsClient.ReplaceServerCert(string(decodedCert))
+	resp, _, err := mtlsClient.ReplaceServerCert(ctx, string(decodedCert))
 	if err != nil {
 		return nil, fmt.Errorf("failed to replace server cert: %w", err)
 	} else if resp.StatusCode() != http.StatusOK {
@@ -1981,11 +2017,12 @@ func (r *DPUDeviceReconciler) resolveAndAuthenticateBMC(ctx context.Context, dpu
 			}
 
 			if err := r.moveCredentialFinalizer(ctx, dpuDevice, statusSecretName, specSecretName); err != nil {
+				basicAuthClient.CloseIdleConnections()
 				return nil, fmt.Errorf("failed to move credential finalizer during rotation: %w", err)
 			}
 		} else {
 			log.Info("Adopting per-device credential for an initialized device", "secret", specSecretName)
-			basicAuthClient, _, err = rfclient.VerifyBMCCredential(bmcAddress, cred.Password)
+			basicAuthClient, _, err = rfclient.VerifyBMCCredential(ctx, bmcAddress, cred.Password)
 			if err != nil {
 				r.setBMCCredentialsConditionFromError(dpuDevice, err)
 				return nil, fmt.Errorf("failed to verify per-device credential: %w", err)
@@ -2002,6 +2039,7 @@ func (r *DPUDeviceReconciler) resolveAndAuthenticateBMC(ctx context.Context, dpu
 
 	if !isRotation && dpuDevice.Spec.BMCCredentialSecretName != nil && *dpuDevice.Spec.BMCCredentialSecretName != "" {
 		if err := r.ensureCredentialFinalizer(ctx, dpuDevice.Namespace, *dpuDevice.Spec.BMCCredentialSecretName); err != nil {
+			basicAuthClient.CloseIdleConnections()
 			return nil, fmt.Errorf("failed to add finalizer to credential secret: %w", err)
 		}
 	}
@@ -2301,7 +2339,7 @@ func mapClusterStaticEntryToDPUDevice(ctx context.Context, obj client.Object) []
 func (r *DPUDeviceReconciler) checkAndUpdateBmcFw(ctx context.Context, dpuDevice *provisioningv1.DPUDevice, basicAuthClient *rfclient.Client) (stop bool, err error) {
 	log := log.FromContext(ctx)
 
-	_, data, err := basicAuthClient.CheckBMCFirmware()
+	_, data, err := basicAuthClient.CheckBMCFirmware(ctx)
 	if err != nil {
 		err = fmt.Errorf("failed to get BMC firmware: %w", err)
 		cutil.SetDPUDeviceCondition(dpuDevice, cutil.NewCondition(string(provisioningv1.ConditionDpuDeviceInitialized), err, "FailedToCheckBMCFW", err.Error()))
@@ -2315,7 +2353,7 @@ func (r *DPUDeviceReconciler) checkAndUpdateBmcFw(ctx context.Context, dpuDevice
 			switch taskID := taskID.(type) {
 			case string:
 				// check progress
-				resp, prog, err := basicAuthClient.CheckTaskProgress(taskID)
+				resp, prog, err := basicAuthClient.CheckTaskProgress(ctx, taskID)
 				if err != nil {
 					err = fmt.Errorf("failed to check task progress: %w", err)
 					log.Error(err, "Failed to check task progress")
@@ -2342,7 +2380,7 @@ func (r *DPUDeviceReconciler) checkAndUpdateBmcFw(ctx context.Context, dpuDevice
 					return true, nil
 				case "Completed":
 					log.Info("Task completed. Resetting BMC")
-					_, _, err := basicAuthClient.ResetBMC()
+					_, _, err := basicAuthClient.ResetBMC(ctx)
 					if err != nil {
 						err = fmt.Errorf("failed to reset BMC: %w", err)
 						cutil.SetDPUDeviceCondition(dpuDevice, cutil.NewCondition(string(provisioningv1.ConditionDpuDeviceInitialized), err, "FailToResetBMC", err.Error()))

@@ -116,10 +116,10 @@ func assertPasswordHardened(ctx context.Context, input *systemTestInput, deviceN
 		current := &provisioningv1.DPUDevice{}
 		g.Expect(input.client.Get(ctx, key, current)).To(Succeed())
 		g.Expect(current.BMCAddress()).NotTo(BeEmpty())
-		_, user, err := rfclient.VerifyBMCCredential(current.BMCAddress(), cred.Password)
+		_, user, err := rfclient.VerifyBMCCredential(ctx, current.BMCAddress(), cred.Password)
 		g.Expect(err).NotTo(HaveOccurred(), "Secret password should authenticate to BMC of %s", deviceName)
 		g.Expect(user).NotTo(BeEmpty())
-		_, _, err = rfclient.VerifyBMCCredential(current.BMCAddress(), rfclient.BMCDefaultPassword)
+		_, _, err = rfclient.VerifyBMCCredential(ctx, current.BMCAddress(), rfclient.BMCDefaultPassword)
 		g.Expect(err).To(MatchError(rfclient.ErrBMCPasswordRejected),
 			"factory default password should be rejected on Redfish user of %s", deviceName)
 	}).WithTimeout(2 * time.Minute).WithPolling(time.Second).Should(Succeed())

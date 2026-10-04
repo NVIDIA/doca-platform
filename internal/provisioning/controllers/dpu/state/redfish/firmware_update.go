@@ -109,11 +109,14 @@ func FirmwareUpdate(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil
 		return *state, err
 	}
 
-	client, err := rc.NewTLSClient(ctx, dpuDevice.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
+	readCtx, cancelRead := rc.ReadContext(ctx)
+	defer cancelRead()
+	client, err := rc.NewTLSClient(readCtx, dpuDevice.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
 	if err != nil {
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), err, "FailedToCreateClient", err.Error()))
 		return *state, err
 	}
+	defer client.CloseIdleConnections()
 
 	// Stale DPU cache between reconcile loops: a later loop can see FwBundleUpdated
 	// (reason Updated) from the prior loop while phase is still UpdateFirmware and
@@ -130,7 +133,7 @@ func FirmwareUpdate(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil
 		if forceUpdate {
 			return updatePldmFwBundle(ctx, dpu, ctrlCtx, pldmFwBundlePath, forceUpdate)
 		}
-		switch err := checkFirmwareVersions(client, blueFieldSoftware, *psid); {
+		switch err := checkFirmwareVersions(readCtx, client, blueFieldSoftware, *psid); {
 		case errors.Is(err, errVersionMismatch):
 			logger.Info("firmware version mismatch with PLDM bundle - updating firmware", "reason", err.Error())
 			return updatePldmFwBundle(ctx, dpu, ctrlCtx, pldmFwBundlePath, false)
@@ -143,7 +146,7 @@ func FirmwareUpdate(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil
 			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), nil, "FirmwareVersionsMatch", "Firmware versions match - skipping firmware update"))
 		}
 	} else if dpu.Status.PreviousPhase == provisioningv1.DPURebooting {
-		switch err := checkFirmwareVersions(client, blueFieldSoftware, *psid); {
+		switch err := checkFirmwareVersions(readCtx, client, blueFieldSoftware, *psid); {
 		case errors.Is(err, errVersionMismatch):
 			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), err, "FirmwareVersionsMismatch", err.Error()))
 			return *state, err
@@ -228,13 +231,15 @@ func bundleVersions(blueFieldSoftware *provisioningv1.BlueFieldSoftware, psid st
 	return versions, nil
 }
 
-func checkFirmwareVersions(client *rc.Client, blueFieldSoftware *provisioningv1.BlueFieldSoftware, psid string) error {
+func checkFirmwareVersions(ctx context.Context, client *rc.Client, blueFieldSoftware *provisioningv1.BlueFieldSoftware, psid string) error {
+	ctx, cancel := rc.ReadContext(ctx)
+	defer cancel()
 	versions, err := bundleVersions(blueFieldSoftware, psid)
 	if err != nil {
 		return err
 	}
 
-	installed, err := componentVersion(client.CheckBMCFirmware())
+	installed, err := componentVersion(client.CheckBMCFirmware(ctx))
 	if err != nil {
 		return fmt.Errorf("failed to check BMC firmware: %w", err)
 	}
@@ -242,7 +247,7 @@ func checkFirmwareVersions(client *rc.Client, blueFieldSoftware *provisioningv1.
 		return fmt.Errorf("BMC firmware version %s is not equal to %s: %w", installed, versions.BMCVersion, errVersionMismatch)
 	}
 
-	installed, err = componentVersion(client.CheckBMCEROTFW())
+	installed, err = componentVersion(client.CheckBMCEROTFW(ctx))
 	if err != nil {
 		return fmt.Errorf("failed to check BMC ERoT firmware: %w", err)
 	}
@@ -250,7 +255,7 @@ func checkFirmwareVersions(client *rc.Client, blueFieldSoftware *provisioningv1.
 		return fmt.Errorf("BMC ERoT firmware version %s is not equal to %s: %w", installed, versions.BMCErotVersion, errVersionMismatch)
 	}
 
-	installed, err = componentVersion(client.CheckDPUUEFI())
+	installed, err = componentVersion(client.CheckDPUUEFI(ctx))
 	if err != nil {
 		return fmt.Errorf("failed to check DPU UEFI firmware: %w", err)
 	}
@@ -258,7 +263,7 @@ func checkFirmwareVersions(client *rc.Client, blueFieldSoftware *provisioningv1.
 		return fmt.Errorf("DPU SBIOS firmware version %s is not equal to %s: %w", installed, versions.SBIOSVersion, errVersionMismatch)
 	}
 
-	installed, err = componentVersion(client.CheckDPUNIC())
+	installed, err = componentVersion(client.CheckDPUNIC(ctx))
 	if err != nil {
 		return fmt.Errorf("failed to check CX9 NIC firmware: %w", err)
 	}
@@ -314,15 +319,12 @@ func (e pldmTaskNotFoundError) Error() string {
 func monitorTask(ctx context.Context, client *rc.Client, taskID string) (bool, error) {
 	logger := log.FromContext(ctx)
 
-	resp, prog, err := client.CheckTaskProgress(taskID)
-	if err != nil {
-		return false, err
-	}
-	if resp.StatusCode() == http.StatusNotFound {
+	_, prog, err := client.CheckTaskProgress(ctx, taskID)
+	if rc.HasHTTPStatus(err, http.StatusNotFound) {
 		return false, pldmTaskNotFoundError{taskID: taskID}
 	}
-	if resp.StatusCode() != http.StatusOK {
-		return false, fmt.Errorf("get task %s: unexpected response: %s", taskID, resp.Status())
+	if err != nil {
+		return false, err
 	}
 
 	logger.Info(msgTaskProgress, taskProgressFields(opPLDMFirmware, taskID, prog)...)
@@ -352,7 +354,9 @@ func checkStagedFirmwareVersions(ctx context.Context, ctrlCtx *dutil.ControllerC
 		return err
 	}
 
-	staged, err := componentVersion(client.CheckPendingBMCFirmware())
+	ctx, cancel := rc.ReadContext(ctx)
+	defer cancel()
+	staged, err := componentVersion(client.CheckPendingBMCFirmware(ctx))
 	if err != nil {
 		return fmt.Errorf("failed to check pending BMC firmware: %w", err)
 	}
@@ -360,7 +364,7 @@ func checkStagedFirmwareVersions(ctx context.Context, ctrlCtx *dutil.ControllerC
 		return fmt.Errorf("pending BMC firmware version %s is not equal to %s: %w", staged, versions.BMCVersion, errVersionMismatch)
 	}
 
-	staged, err = componentVersion(client.CheckPendingBMCEROTFW())
+	staged, err = componentVersion(client.CheckPendingBMCEROTFW(ctx))
 	if err != nil {
 		return fmt.Errorf("failed to check pending BMC ERoT firmware: %w", err)
 	}
@@ -368,7 +372,7 @@ func checkStagedFirmwareVersions(ctx context.Context, ctrlCtx *dutil.ControllerC
 		return fmt.Errorf("pending BMC ERoT firmware version %s is not equal to %s: %w", staged, versions.BMCErotVersion, errVersionMismatch)
 	}
 
-	staged, err = componentVersion(client.CheckPendingDPUUEFI())
+	staged, err = componentVersion(client.CheckPendingDPUUEFI(ctx))
 	if err != nil {
 		return fmt.Errorf("failed to check pending DPU UEFI firmware: %w", err)
 	}
@@ -376,7 +380,7 @@ func checkStagedFirmwareVersions(ctx context.Context, ctrlCtx *dutil.ControllerC
 		return fmt.Errorf("pending DPU SBIOS firmware version %s is not equal to %s: %w", staged, versions.SBIOSVersion, errVersionMismatch)
 	}
 
-	staged, err = componentVersion(client.CheckPendingDPUNIC())
+	staged, err = componentVersion(client.CheckPendingDPUNIC(ctx))
 	if err != nil {
 		return fmt.Errorf("failed to check pending CX9 NIC firmware: %w", err)
 	}
@@ -390,7 +394,7 @@ func checkStagedFirmwareVersions(ctx context.Context, ctrlCtx *dutil.ControllerC
 func submitPldmFirmwareUpdate(ctx context.Context, state *provisioningv1.DPUStatus, client *rc.Client, pldmFwBundle string, force bool, cond *metav1.Condition) (provisioningv1.DPUStatus, error) {
 	logger := log.FromContext(ctx)
 
-	_, erotChassis, err := client.GetErotChassis()
+	_, erotChassis, err := client.GetErotChassis(ctx)
 	if err != nil {
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToGetErotChassis", err.Error()))
 		return *state, err
@@ -467,11 +471,14 @@ func updatePldmFwBundle(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 		return *state, err
 	}
 
-	client, err := rc.NewTLSClient(ctx, dpuDevice.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
+	readCtx, cancelRead := rc.ReadContext(ctx)
+	defer cancelRead()
+	client, err := rc.NewTLSClient(readCtx, dpuDevice.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
 	if err != nil {
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToCreateClient", err.Error()))
 		return *state, err
 	}
+	defer client.CloseIdleConnections()
 
 	cond := cutil.NewCondition(provisioningv1.DPUCondFwBundleSubmitted.String(), nil, "Submitting", "Submitting PLDM Firmware")
 	_, existingCond := cutil.GetDPUCondition(&dpu.Status, cond.Type)
@@ -487,7 +494,7 @@ func updatePldmFwBundle(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 		return *state, nil
 	}
 
-	completed, err := monitorTask(ctx, client, *state.RedfishTaskID)
+	completed, err := monitorTask(readCtx, client, *state.RedfishTaskID)
 	var lostTask pldmTaskNotFoundError
 	if errors.As(err, &lostTask) {
 		// A BMC restart drops task records even when the upload itself finished, so a task that
@@ -518,7 +525,7 @@ func updatePldmFwBundle(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToUpdatePldmFwBundle", err.Error()))
 		return *state, fmt.Errorf("failed to update PLDM firmware: %w", err)
 	} else if completed {
-		_, system, err := client.GetSystem()
+		_, system, err := client.GetSystem(ctx)
 		if err != nil {
 			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToGetSystem", err.Error()))
 			return *state, err

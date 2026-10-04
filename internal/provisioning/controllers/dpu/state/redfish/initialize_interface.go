@@ -66,13 +66,16 @@ func InitializeInterface(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *
 		return *state, err
 	}
 
-	tlsClient, err := rfclient.NewTLSClient(ctx, device.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
+	readCtx, cancelRead := rfclient.ReadContext(ctx)
+	defer cancelRead()
+	tlsClient, err := rfclient.NewTLSClient(readCtx, device.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
 	if err != nil {
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondInterfaceInitialized), err, "FailedToCreateClient", err.Error()))
 		return *state, err
 	}
+	defer tlsClient.CloseIdleConnections()
 
-	descr, err := getProductDescription(tlsClient)
+	descr, err := getProductDescription(readCtx, tlsClient)
 	if err != nil {
 		log.Error(err, fmt.Sprintf("Failed to get product description for DPU %s", device.BMCAddress()))
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondInterfaceInitialized), err, "FailedToGetProductDescription", err.Error()))
@@ -82,7 +85,7 @@ func InitializeInterface(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *
 	// Redfish returns DPU is in NIC mode - reqesting to change to DpuMode
 	if descr.Mode != nil && *descr.Mode == rfclient.NicMode {
 		log.Info(fmt.Sprintf("DPU %s is in NicMode. Setting DPU mode to DpuMode", device.BMCAddress()))
-		_, err := tlsClient.SetDpuMode(provisioningv1.DpuMode)
+		_, err := tlsClient.SetDpuMode(ctx, provisioningv1.DpuMode)
 		if err != nil {
 			err = fmt.Errorf("failed to request mode change: %w", err)
 			cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondInterfaceInitialized), err, "FailedToRequestModeChange", err.Error()))
@@ -117,7 +120,7 @@ func InitializeInterface(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *
 
 	// In NIC mode, DPU type was unknown, now it's in DPU mode - updating to the value from the Redfish
 	if dpu.Status.DPUType == provisioningv1.DPUTypeUnknown {
-		_, chassisInfo, err := tlsClient.GetChassis()
+		_, chassisInfo, err := tlsClient.GetChassis(ctx)
 		if err != nil {
 			log.Error(err, fmt.Sprintf("Failed to get chassis info for DPU %s", device.BMCAddress()))
 			cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondInterfaceInitialized), err, "FailedToGetChassisInfo", err.Error()))
@@ -206,7 +209,7 @@ func verifySecureBootAfterRestarts(ctx context.Context, dpu *provisioningv1.DPU,
 		return false, nil
 	}
 
-	_, sbInfo, err := tlsClient.GetSecureBoot()
+	_, sbInfo, err := tlsClient.GetSecureBoot(ctx)
 	if err != nil {
 		cutil.SetDPUCondition(state, cutil.NewCondition(
 			string(provisioningv1.DPUCondInterfaceInitialized),
@@ -259,7 +262,7 @@ func verifySecureBootAfterRestarts(ctx context.Context, dpu *provisioningv1.DPU,
 func detectAndStageSecureBoot(ctx context.Context, dpu *provisioningv1.DPU, state *provisioningv1.DPUStatus, tlsClient *rfclient.Client) (bool, error) {
 	log := log.FromContext(ctx)
 
-	_, sbInfo, err := tlsClient.GetSecureBoot()
+	_, sbInfo, err := tlsClient.GetSecureBoot(ctx)
 	if err != nil {
 		cutil.SetDPUCondition(state, cutil.NewCondition(
 			string(provisioningv1.DPUCondInterfaceInitialized),
@@ -281,9 +284,9 @@ func detectAndStageSecureBoot(ctx context.Context, dpu *provisioningv1.DPU, stat
 		"dpu", dpu.Name, "desired", desiredEnabled, "current", currentEnabled)
 
 	if desiredEnabled {
-		_, err = tlsClient.EnableSecureBoot()
+		_, err = tlsClient.EnableSecureBoot(ctx)
 	} else {
-		_, err = tlsClient.DisableSecureBoot()
+		_, err = tlsClient.DisableSecureBoot(ctx)
 	}
 	if err != nil {
 		err = fmt.Errorf("failed to stage Secure Boot: %w", err)
@@ -325,10 +328,10 @@ func checkDPUDeviceReady(dpuDevice *provisioningv1.DPUDevice) error {
 	return nil
 }
 
-func getProductDescription(tlsClient *rfclient.Client) (*rfclient.ProductSpecInfo, error) {
-	resp, desc, err := tlsClient.GetProductDescription()
-	if err != nil || resp == nil || resp.StatusCode() != http.StatusOK {
-		return nil, fmt.Errorf("failed to get description, err: %v, resp: %+v, desc: %+v", err, resp, desc)
+func getProductDescription(ctx context.Context, tlsClient *rfclient.Client) (*rfclient.ProductSpecInfo, error) {
+	_, desc, err := tlsClient.GetProductDescription(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get description: %w", err)
 	}
 	return desc, nil
 }
@@ -341,7 +344,7 @@ func checkCapacity(ctx context.Context, dpu *provisioningv1.DPU, device *provisi
 		return dutil.CapacityUnknown, err
 	}
 	// check capacity by description
-	productSpecInfo, err := getProductDescription(tlsClient)
+	productSpecInfo, err := getProductDescription(ctx, tlsClient)
 	if err != nil {
 		log.Error(err, fmt.Sprintf("Failed to get product description for DPU %s", device.BMCAddress()))
 		return dutil.CapacityUnknown, err
@@ -357,7 +360,7 @@ func checkCapacity(ctx context.Context, dpu *provisioningv1.DPU, device *provisi
 	}
 
 	// check capacity by part number
-	resp, pn, err := tlsClient.GetChassis()
+	resp, pn, err := tlsClient.GetChassis(ctx)
 	if err != nil || resp == nil || resp.StatusCode() != http.StatusOK {
 		var status string
 		if resp != nil {

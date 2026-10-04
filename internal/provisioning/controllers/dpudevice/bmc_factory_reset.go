@@ -109,8 +109,9 @@ func (r *DPUDeviceReconciler) submitBMCFactoryReset(ctx context.Context, dpuDevi
 		return true, nil
 	}
 
+	defer privilegedClient.CloseIdleConnections()
 	log.Info("Resetting BMC to factory defaults")
-	resp, _, err := privilegedClient.FactoryResetBMC()
+	resp, _, err := privilegedClient.FactoryResetBMC(ctx)
 	if err != nil {
 		message := fmt.Sprintf("failed to submit ResetToDefaults to the BMC: %v", err)
 		setBMCFactoryResetCondition(dpuDevice, metav1.ConditionFalse, provisioningv1.ReasonFactoryResetFailed, message)
@@ -164,28 +165,38 @@ func (r *DPUDeviceReconciler) persistBMCFactoryResetRequestTime(ctx context.Cont
 // discards it again moments later and full hardening is resolveAndAuthenticateBMC's job.
 func (r *DPUDeviceReconciler) privilegedClientForFactoryReset(ctx context.Context, dpuDevice *provisioningv1.DPUDevice) (*rfclient.Client, error) {
 	log := log.FromContext(ctx)
+	readCtx, cancelRead := rfclient.ReadContext(ctx)
+	defer cancelRead()
 
-	cred, err := rfclient.ResolveBMCCredential(ctx, dpuDevice.Namespace, dpuDevice.Spec.BMCCredentialSecretName, r.Client)
+	cred, err := rfclient.ResolveBMCCredential(readCtx, dpuDevice.Namespace, dpuDevice.Spec.BMCCredentialSecretName, r.Client)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve BMC credential: %w", err)
 	}
 	bmcAddress := dpuDevice.BMCAddress()
 
-	if client, _, err := rfclient.VerifyBMCCredential(bmcAddress, cred.Password); err == nil {
+	if client, _, err := rfclient.VerifyBMCCredential(readCtx, bmcAddress, cred.Password); err == nil {
 		// VerifyBMCCredential treats PasswordChangeRequired as success so post-reset probing works,
 		// but most Redfish endpoints — including ResetToDefaults — stay blocked in that state.
 		// When the Secret still holds 0penBmc, there is no non-default password to write, so the
 		// next FactoryResetBMC call would loop on 403. Point the operator at the Secret instead.
 		// A factory-default Secret with a normal 200 OK Managers response is fine and can submit.
 		if cred.Password == rfclient.BMCDefaultPassword {
-			if resp, _, managersErr := client.GetManagers(); managersErr == nil && rfclient.PasswordChangeRequired(resp) {
+			resp, _, managersErr := client.GetManagers(readCtx)
+			if rfclient.HasHTTPStatus(managersErr, http.StatusForbidden) && rfclient.PasswordChangeRequired(resp) {
+				client.CloseIdleConnections()
 				return nil, fmt.Errorf("BMC requires changing the factory default password before access is granted; set a non-default password in the credential Secret")
+			}
+			if managersErr != nil {
+				client.CloseIdleConnections()
+				return nil, fmt.Errorf("failed to verify BMC Managers before factory reset: %w", managersErr)
 			}
 		}
 		return client, nil
+	} else if !errors.Is(err, rfclient.ErrBMCPasswordRejected) {
+		return nil, fmt.Errorf("the BMC at %s is not answering with a usable credential response, so the factory reset cannot start: %w", bmcAddress, err)
 	}
 
-	defaultClient, user, err := rfclient.VerifyBMCCredential(bmcAddress, rfclient.BMCDefaultPassword)
+	defaultClient, user, err := rfclient.VerifyBMCCredential(readCtx, bmcAddress, rfclient.BMCDefaultPassword)
 	if err != nil {
 		// Only a BMC that answered and turned both passwords down is a credential problem. A BMC
 		// that is still booting, or unreachable, must not send the operator off to edit a Secret
@@ -196,6 +207,7 @@ func (r *DPUDeviceReconciler) privilegedClientForFactoryReset(ctx context.Contex
 		return nil, fmt.Errorf("the BMC accepts neither the password in the credential Secret nor the factory default: "+
 			"correct the Secret or reset the BMC out of band, then the reset will proceed (%w)", err)
 	}
+	defer defaultClient.CloseIdleConnections()
 
 	log.Info("BMC still holds the factory default password; setting the Secret password before the reset", "user", user)
 	resp, _, err := defaultClient.SetRedfishUserPassword(user, cred.Password)
@@ -206,7 +218,7 @@ func (r *DPUDeviceReconciler) privilegedClientForFactoryReset(ctx context.Contex
 		return nil, rfclient.AccountPasswordError(user, resp)
 	}
 
-	client, _, err := rfclient.VerifyBMCCredential(bmcAddress, cred.Password)
+	client, _, err := rfclient.VerifyBMCCredential(ctx, bmcAddress, cred.Password)
 	if err != nil {
 		return nil, fmt.Errorf("failed to re-authenticate after setting the BMC password: %w", err)
 	}
@@ -232,13 +244,15 @@ func (r *DPUDeviceReconciler) awaitBMCFactoryReset(ctx context.Context, dpuDevic
 	// only mean the reset took effect. After ResetToDefaults a BlueField BMC typically accepts
 	// 0penBmc but returns PasswordChangeRequired on Managers until hardening changes it; that
 	// still counts as the factory default being in effect (see VerifyBMCCredential).
-	if _, _, err := rfclient.VerifyBMCCredential(dpuDevice.BMCAddress(), rfclient.BMCDefaultPassword); err != nil {
+	client, _, err := rfclient.VerifyBMCCredential(ctx, dpuDevice.BMCAddress(), rfclient.BMCDefaultPassword)
+	if err != nil {
 		message := awaitBMCFactoryResetMessage(elapsed, err)
 		setBMCFactoryResetCondition(dpuDevice, metav1.ConditionFalse, provisioningv1.ReasonFactoryResetInProgress, message)
 		setInitializedPending(dpuDevice, message)
 		return true, nil
 	}
 
+	client.CloseIdleConnections()
 	// The reset dropped the BMC's pending CSR key pair, so an existing server CertificateRequest is
 	// unusable. setUpMTLS recovers from that on its own, but deleting it here avoids a
 	// guaranteed-failing install round trip.

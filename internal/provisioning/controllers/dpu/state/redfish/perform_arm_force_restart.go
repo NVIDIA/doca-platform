@@ -85,6 +85,7 @@ func PerformArmForceRestart(ctx context.Context, dpu *provisioningv1.DPU, ctrlCt
 		return *state, err // Retryable
 	}
 
+	defer client.CloseIdleConnections()
 	return executeRestartStateMachine(ctx, dpu, state, tracker, client)
 }
 
@@ -179,7 +180,7 @@ func triggerArmRestart(ctx context.Context, dpu *provisioningv1.DPU, state *prov
 			return *state, err // Retryable
 		}
 	} else {
-		if _, err := client.ForceRestartDPUArm(); err != nil {
+		if _, err := client.ForceRestartDPUArm(ctx); err != nil {
 			log.Error(err, "Failed to trigger ARM ForceRestart")
 			setArmCondition(state, "FailedToRebootDPUArm", err.Error())
 			return *state, err // Retryable

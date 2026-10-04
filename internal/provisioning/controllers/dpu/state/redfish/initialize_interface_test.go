@@ -17,6 +17,7 @@ limitations under the License.
 package redfish
 
 import (
+	"context"
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -929,7 +930,7 @@ var _ = Describe("InitializeInterface", func() {
 			client, err := server.GetClient()
 			Expect(err).NotTo(HaveOccurred())
 
-			desc, err := getProductDescription(client)
+			desc, err := getProductDescription(context.Background(), client)
 			Expect(err).NotTo(HaveOccurred(), "BF4 Oem/Nvidia response without Description/Mode must not fail")
 			Expect(desc).NotTo(BeNil())
 			Expect(desc.Description).To(BeNil())
