@@ -1735,12 +1735,16 @@ func argoCDValuesFromDPUService(serviceDaemonSetValues *dpuservicev1.ServiceDaem
 	serviceDaemonSetValues.Labels[dpuservicev1.DPFServiceIDLabelKey] = serviceID
 
 	if shouldDefaultMaxUnavailable(serviceDaemonSetValues.UpdateStrategy) {
-		serviceDaemonSetValues.UpdateStrategy = &appsv1.DaemonSetUpdateStrategy{
-			Type: appsv1.RollingUpdateDaemonSetStrategyType,
-			RollingUpdate: &appsv1.RollingUpdateDaemonSet{
-				MaxUnavailable: ptr.To(intstr.FromInt32(highMaxUnavailableDaemonSetUpdate)),
-			},
+		// Set only MaxUnavailable, preserving Type, MaxSurge, and anything else already present.
+		updateStrategy := serviceDaemonSetValues.UpdateStrategy.DeepCopy()
+		if updateStrategy == nil {
+			updateStrategy = &appsv1.DaemonSetUpdateStrategy{Type: appsv1.RollingUpdateDaemonSetStrategyType}
 		}
+		if updateStrategy.RollingUpdate == nil {
+			updateStrategy.RollingUpdate = &appsv1.RollingUpdateDaemonSet{}
+		}
+		updateStrategy.RollingUpdate.MaxUnavailable = ptr.To(intstr.FromInt32(highMaxUnavailableDaemonSetUpdate))
+		serviceDaemonSetValues.UpdateStrategy = updateStrategy
 	}
 
 	// Convert the typedServiceDaemonSetValues to untyped map[string]interface,
