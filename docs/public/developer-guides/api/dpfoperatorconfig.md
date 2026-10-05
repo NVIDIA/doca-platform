@@ -310,6 +310,14 @@ spec:
 
 * `spec.provisioningController.osInstallRetries`: Maximum number of retryable OS installation attempts in zero-trust mode before the DPU transitions to Error. When unset, the provisioning controller defaults to 2.
 
+* `spec.provisioningController.osInstallTimeout`: Maximum time allowed for OS installation. If the installation exceeds this timeout, the DPU transitions to Error. The value is a duration string built from integer-and-unit segments (`h`, `m`, `s`, `ms`, `us`/`µs`, `ns`); fractional values such as `1.5h` are rejected (e.g. `60m`, `1h30m`).
+
+* `spec.provisioningController.firmwareUpdateTimeout`: Maximum time allowed for the BF4 firmware-update phase in zero-trust mode. The timeout is measured from the time the DPU's interface was initialized (the `InterfaceInitialized` condition), so time spent in the firmware-configuration steps that precede the update counts against this budget; if the elapsed time exceeds the timeout, the DPU transitions to Error. The value is a duration string built from integer-and-unit segments (`h`, `m`, `s`, `ms`, `us`/`µs`, `ns`); fractional values such as `1.5h` are rejected (e.g. `45m`, `1h`).
+
+* `spec.provisioningController.nodeJoinTokenTTL`: Lifetime of the kubeadm bootstrap token created for a DPU node to join its DPUCluster. Long-running provisioning can exceed the token lifetime, causing kubeadm discovery to fail and leaving an otherwise provisioned DPU unable to join; raise this when provisioning routinely outlasts the token lifetime. The value must be greater than zero and is a duration string built from integer-and-unit segments (`h`, `m`, `s`, `ms`, `us`/`µs`, `ns`); fractional values such as `1.5h` are rejected (e.g. `3h`, `30m`).
+
+* `spec.provisioningController.hostAgentDNSPolicy`: DNS policy for the hostagent pod. Valid values are `ClusterFirstWithHostNet`, `ClusterFirst`, or `Default`.
+
   The maxDPUParallelInstallations and maxUnavailableDPUNodes options can be configured together and can be combined with maxParallelOperations and maxUnavailable in Nvidia NodeMaintenance-operator configuration. Below are some examples to show the expected behaviour.
 
 | maxDPUParallelInstallations in DPFOperatorconfig | maxUnavailableDPUNodes in DPFOperatorconfig | maxParallelOperations in Nvidia NodeMaintenanceConfig | maxUnavailable in Nvidia NodeMaintenanceConfig | max number of DPUs in provisioning | max number of Nodes under node effect in NodeMaintenanceOperator|
