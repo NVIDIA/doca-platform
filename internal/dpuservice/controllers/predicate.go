@@ -18,10 +18,12 @@ package controllers
 
 import (
 	"maps"
+	"slices"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	"github.com/nvidia/doca-platform/pkg/conditions"
+	argov1 "github.com/nvidia/doca-platform/third_party/forked/argoproj/argo-cd/pkg/apis/application/v1alpha1"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -30,6 +32,53 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
+
+// dpuServiceChangedPredicate drops updates that only touch status, which the
+// DPUService reconciler patches on every exit. Periodic resyncs (identical
+// ResourceVersion) still pass so drift in DPU clusters gets repaired.
+func dpuServiceChangedPredicate() predicate.Predicate {
+	return predicate.Or(
+		predicate.GenerationChangedPredicate{},
+		predicate.LabelChangedPredicate{},
+		predicate.AnnotationChangedPredicate{},
+		predicate.Funcs{
+			UpdateFunc: func(e event.UpdateEvent) bool {
+				if e.ObjectOld == nil || e.ObjectNew == nil {
+					return false
+				}
+				if e.ObjectOld.GetResourceVersion() == e.ObjectNew.GetResourceVersion() {
+					return true
+				}
+				return !slices.Equal(e.ObjectOld.GetFinalizers(), e.ObjectNew.GetFinalizers()) ||
+					!e.ObjectOld.GetDeletionTimestamp().Equal(e.ObjectNew.GetDeletionTimestamp())
+			},
+		},
+	)
+}
+
+// argoApplicationChangedPredicate drops Application updates that don't change
+// anything the DPUService reconciler reads: Argo rewrites status constantly and
+// the Application CRD has no status subresource.
+func argoApplicationChangedPredicate() predicate.Funcs {
+	return predicate.Funcs{
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldApp, ok := e.ObjectOld.(*argov1.Application)
+			if !ok {
+				return false
+			}
+			newApp, ok := e.ObjectNew.(*argov1.Application)
+			if !ok {
+				return false
+			}
+			return oldApp.Status.Sync.Status != newApp.Status.Sync.Status ||
+				oldApp.Status.Health.Status != newApp.Status.Health.Status ||
+				!equality.Semantic.DeepEqual(oldApp.Spec, newApp.Spec) ||
+				!maps.Equal(oldApp.GetLabels(), newApp.GetLabels()) ||
+				!maps.Equal(oldApp.GetAnnotations(), newApp.GetAnnotations()) ||
+				!oldApp.GetDeletionTimestamp().Equal(newApp.GetDeletionTimestamp())
+		},
+	}
+}
 
 // newDPUServiceIDLabelPredicate creates a predicate that filters Pod events with the DPFServiceIDLabelKey label.
 func newDPUServiceIDLabelPredicate() predicate.Predicate {

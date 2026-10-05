@@ -20,6 +20,8 @@ import (
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	"github.com/nvidia/doca-platform/pkg/conditions"
+	argov1 "github.com/nvidia/doca-platform/third_party/forked/argoproj/argo-cd/pkg/apis/application/v1alpha1"
+	argohealth "github.com/nvidia/doca-platform/third_party/forked/argoproj/gitops-engine/pkg/health"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -71,6 +73,182 @@ var _ = Describe("privilegedPodEnforcementChangedPredicate", func() {
 		newCfg := configWith(ptr.To(true))
 		newCfg.Spec.Networking = &operatorv1.Networking{ControlPlaneMTU: ptr.To(1500)}
 		Expect(p.Update(event.UpdateEvent{ObjectOld: oldCfg, ObjectNew: newCfg})).To(BeFalse())
+	})
+})
+
+var _ = Describe("dpuServiceChangedPredicate", func() {
+	var p predicate.Predicate
+
+	baseDPUService := func() *dpuservicev1.DPUService {
+		return &dpuservicev1.DPUService{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:            "test-dpuservice",
+				Namespace:       "default",
+				Generation:      1,
+				ResourceVersion: "1",
+				Labels:          map[string]string{"app": "test"},
+				Annotations:     map[string]string{"note": "value"},
+				Finalizers:      []string{dpuservicev1.DPUServiceFinalizer},
+			},
+		}
+	}
+
+	BeforeEach(func() {
+		p = dpuServiceChangedPredicate()
+	})
+
+	It("returns false for a status-only update", func() {
+		oldSvc := baseDPUService()
+		newSvc := oldSvc.DeepCopy()
+		newSvc.ResourceVersion = "2"
+		newSvc.Status.Conditions = []metav1.Condition{
+			{
+				Type:               string(conditions.TypeReady),
+				Status:             metav1.ConditionTrue,
+				Reason:             "Test",
+				LastTransitionTime: metav1.Now(),
+			},
+		}
+		Expect(p.Update(event.UpdateEvent{ObjectOld: oldSvc, ObjectNew: newSvc})).To(BeFalse())
+	})
+
+	It("returns true when generation changes", func() {
+		oldSvc := baseDPUService()
+		newSvc := oldSvc.DeepCopy()
+		newSvc.Generation = 2
+		Expect(p.Update(event.UpdateEvent{ObjectOld: oldSvc, ObjectNew: newSvc})).To(BeTrue())
+	})
+
+	It("returns true when labels change", func() {
+		oldSvc := baseDPUService()
+		newSvc := oldSvc.DeepCopy()
+		newSvc.Labels["app"] = "changed"
+		Expect(p.Update(event.UpdateEvent{ObjectOld: oldSvc, ObjectNew: newSvc})).To(BeTrue())
+	})
+
+	It("returns true when annotations change", func() {
+		oldSvc := baseDPUService()
+		newSvc := oldSvc.DeepCopy()
+		newSvc.Annotations["note"] = "changed"
+		Expect(p.Update(event.UpdateEvent{ObjectOld: oldSvc, ObjectNew: newSvc})).To(BeTrue())
+	})
+
+	It("returns true when a finalizer is added", func() {
+		oldSvc := baseDPUService()
+		oldSvc.Finalizers = nil
+		newSvc := oldSvc.DeepCopy()
+		newSvc.Finalizers = []string{dpuservicev1.DPUServiceFinalizer}
+		Expect(p.Update(event.UpdateEvent{ObjectOld: oldSvc, ObjectNew: newSvc})).To(BeTrue())
+	})
+
+	It("returns true when the deletion timestamp is set", func() {
+		oldSvc := baseDPUService()
+		newSvc := oldSvc.DeepCopy()
+		now := metav1.Now()
+		newSvc.DeletionTimestamp = &now
+		Expect(p.Update(event.UpdateEvent{ObjectOld: oldSvc, ObjectNew: newSvc})).To(BeTrue())
+	})
+
+	It("passes periodic resyncs (identical old and new objects)", func() {
+		oldSvc := baseDPUService()
+		newSvc := oldSvc.DeepCopy()
+		Expect(newSvc.ResourceVersion).NotTo(BeEmpty())
+		Expect(p.Update(event.UpdateEvent{ObjectOld: oldSvc, ObjectNew: newSvc})).To(BeTrue())
+	})
+
+	It("returns true for create and delete events", func() {
+		Expect(p.Create(event.CreateEvent{Object: baseDPUService()})).To(BeTrue())
+		Expect(p.Delete(event.DeleteEvent{Object: baseDPUService()})).To(BeTrue())
+	})
+})
+
+var _ = Describe("argoApplicationChangedPredicate", func() {
+	var p predicate.Predicate
+
+	baseApplication := func() *argov1.Application {
+		return &argov1.Application{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:            "test-app",
+				Namespace:       "default",
+				ResourceVersion: "1",
+				Labels:          map[string]string{"app": "test"},
+				Annotations:     map[string]string{"note": "value"},
+			},
+			Spec: argov1.ApplicationSpec{Project: "default"},
+			Status: argov1.ApplicationStatus{
+				Sync:   argov1.SyncStatus{Status: argov1.SyncStatusCodeSynced},
+				Health: argov1.AppHealthStatus{Status: argohealth.HealthStatusHealthy},
+			},
+		}
+	}
+
+	BeforeEach(func() {
+		p = argoApplicationChangedPredicate()
+	})
+
+	It("returns false when only status churn and resourceVersion change", func() {
+		oldApp := baseApplication()
+		newApp := oldApp.DeepCopy()
+		newApp.ResourceVersion = "2"
+		now := metav1.Now()
+		newApp.Status.ReconciledAt = &now
+		newApp.Status.Resources = []argov1.ResourceStatus{{Kind: "Deployment", Name: "test"}}
+		Expect(p.Update(event.UpdateEvent{ObjectOld: oldApp, ObjectNew: newApp})).To(BeFalse())
+	})
+
+	It("returns true when sync status changes", func() {
+		oldApp := baseApplication()
+		newApp := oldApp.DeepCopy()
+		newApp.Status.Sync.Status = argov1.SyncStatusCodeOutOfSync
+		Expect(p.Update(event.UpdateEvent{ObjectOld: oldApp, ObjectNew: newApp})).To(BeTrue())
+	})
+
+	It("returns true when health status changes", func() {
+		oldApp := baseApplication()
+		newApp := oldApp.DeepCopy()
+		newApp.Status.Health.Status = argohealth.HealthStatusDegraded
+		Expect(p.Update(event.UpdateEvent{ObjectOld: oldApp, ObjectNew: newApp})).To(BeTrue())
+	})
+
+	It("returns true when spec changes", func() {
+		oldApp := baseApplication()
+		newApp := oldApp.DeepCopy()
+		newApp.Spec.Destination.Namespace = "changed"
+		Expect(p.Update(event.UpdateEvent{ObjectOld: oldApp, ObjectNew: newApp})).To(BeTrue())
+	})
+
+	It("returns true when the skip-reconcile annotation changes", func() {
+		oldApp := baseApplication()
+		newApp := oldApp.DeepCopy()
+		newApp.Annotations[annotationKeyAppSkipReconcile] = "true"
+		Expect(p.Update(event.UpdateEvent{ObjectOld: oldApp, ObjectNew: newApp})).To(BeTrue())
+	})
+
+	It("returns true when labels change", func() {
+		oldApp := baseApplication()
+		newApp := oldApp.DeepCopy()
+		newApp.Labels["app"] = "changed"
+		Expect(p.Update(event.UpdateEvent{ObjectOld: oldApp, ObjectNew: newApp})).To(BeTrue())
+	})
+
+	It("returns true when the deletion timestamp is set", func() {
+		oldApp := baseApplication()
+		newApp := oldApp.DeepCopy()
+		now := metav1.Now()
+		newApp.DeletionTimestamp = &now
+		Expect(p.Update(event.UpdateEvent{ObjectOld: oldApp, ObjectNew: newApp})).To(BeTrue())
+	})
+
+	It("returns false for non-Application objects", func() {
+		oldPod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "test-pod", ResourceVersion: "1"}}
+		newPod := oldPod.DeepCopy()
+		newPod.Labels = map[string]string{"app": "changed"}
+		Expect(p.Update(event.UpdateEvent{ObjectOld: oldPod, ObjectNew: newPod})).To(BeFalse())
+	})
+
+	It("returns true for create and delete events", func() {
+		Expect(p.Create(event.CreateEvent{Object: baseApplication()})).To(BeTrue())
+		Expect(p.Delete(event.DeleteEvent{Object: baseApplication()})).To(BeTrue())
 	})
 })
 
