@@ -132,8 +132,9 @@ func (r *DPUServiceReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Ma
 	}
 
 	bldr := ctrl.NewControllerManagedBy(mgr).
-		For(&dpuservicev1.DPUService{}).
-		Watches(&argov1.Application{}, handler.EnqueueRequestsFromMapFunc(r.requestsForChangeByLabel)).
+		For(&dpuservicev1.DPUService{}, builder.WithPredicates(dpuServiceChangedPredicate())).
+		Watches(&argov1.Application{}, handler.EnqueueRequestsFromMapFunc(r.requestsForChangeByLabel),
+			builder.WithPredicates(argoApplicationChangedPredicate())).
 		Watches(
 			&corev1.Secret{},
 			handler.EnqueueRequestsFromMapFunc(r.imagePullSecretToDPUServices),
