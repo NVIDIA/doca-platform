@@ -44,6 +44,7 @@ import (
 
 	"github.com/fluxcd/pkg/runtime/patch"
 	multusTypes "gopkg.in/k8snetworkplumbingwg/multus-cni.v4/pkg/types"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -1704,6 +1705,26 @@ func getProjectName(dpuService *dpuservicev1.DPUService) string {
 	return argocd.AppProjectNameDPU
 }
 
+// highMaxUnavailableDaemonSetUpdate is well above any supported DPU count, so it never itself
+// becomes a limiting factor on the rollout.
+const highMaxUnavailableDaemonSetUpdate = 30000
+
+// shouldDefaultMaxUnavailable reports whether maxUnavailable should be defaulted rather than kept as
+// set by the user: true when unset, or RollingUpdate with maxUnavailable unset or "100%"; false for any other explicit choice.
+func shouldDefaultMaxUnavailable(strategy *appsv1.DaemonSetUpdateStrategy) bool {
+	if strategy == nil {
+		return true
+	}
+	if strategy.Type != "" && strategy.Type != appsv1.RollingUpdateDaemonSetStrategyType {
+		return false
+	}
+	if strategy.RollingUpdate == nil || strategy.RollingUpdate.MaxUnavailable == nil {
+		return true
+	}
+	maxUnavailable := strategy.RollingUpdate.MaxUnavailable
+	return maxUnavailable.Type == intstr.String && maxUnavailable.StrVal == "100%"
+}
+
 func argoCDValuesFromDPUService(serviceDaemonSetValues *dpuservicev1.ServiceDaemonSetValues, dpuService *dpuservicev1.DPUService, clusterName, serviceID string) (*runtime.RawExtension, error) {
 	if serviceDaemonSetValues == nil {
 		serviceDaemonSetValues = &dpuservicev1.ServiceDaemonSetValues{}
@@ -1712,6 +1733,15 @@ func argoCDValuesFromDPUService(serviceDaemonSetValues *dpuservicev1.ServiceDaem
 		serviceDaemonSetValues.Labels = map[string]string{}
 	}
 	serviceDaemonSetValues.Labels[dpuservicev1.DPFServiceIDLabelKey] = serviceID
+
+	if shouldDefaultMaxUnavailable(serviceDaemonSetValues.UpdateStrategy) {
+		serviceDaemonSetValues.UpdateStrategy = &appsv1.DaemonSetUpdateStrategy{
+			Type: appsv1.RollingUpdateDaemonSetStrategyType,
+			RollingUpdate: &appsv1.RollingUpdateDaemonSet{
+				MaxUnavailable: ptr.To(intstr.FromInt32(highMaxUnavailableDaemonSetUpdate)),
+			},
+		}
+	}
 
 	// Convert the typedServiceDaemonSetValues to untyped map[string]interface,
 	// so it can be merged with the additional values we want to set.
