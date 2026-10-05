@@ -2391,6 +2391,20 @@ var _ = Describe("unit test DPUService functions", func() {
 				},
 				`{"serviceDaemonSet":{"labels":{"svc.dpu.nvidia.com/service":"someservice"},"updateStrategy":{"rollingUpdate":{"maxUnavailable":30000},"type":"RollingUpdate"}}}`,
 			),
+			Entry("serviceDaemonSet with explicit maxSurge and unset maxUnavailable preserves maxSurge",
+				ptr.To("someservice"),
+				`{}`,
+				false,
+				&dpuservicev1.ServiceDaemonSetValues{
+					UpdateStrategy: &appsv1.DaemonSetUpdateStrategy{
+						Type: appsv1.RollingUpdateDaemonSetStrategyType,
+						RollingUpdate: &appsv1.RollingUpdateDaemonSet{
+							MaxSurge: ptr.To(intstr.FromInt32(1)),
+						},
+					},
+				},
+				`{"serviceDaemonSet":{"labels":{"svc.dpu.nvidia.com/service":"someservice"},"updateStrategy":{"rollingUpdate":{"maxSurge":1,"maxUnavailable":30000},"type":"RollingUpdate"}}}`,
+			),
 			Entry("serviceDaemonSet with maxUnavailable 100% is defaulted",
 				ptr.To("someservice"),
 				`{}`,
