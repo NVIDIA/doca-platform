@@ -14,6 +14,7 @@ A Helm chart for Kubernetes
 | deployDPUManifests | bool | `false` | deployDPUManifests controls whether the manifests that are required in the DPUCluster should be deployed. |
 | deployHostManifests | bool | `false` | deployHostManifests controls whether the manifests that are required in the host cluster should be deployed. |
 | env | list | `[]` |  |
+| global.serviceDaemonSet.updateStrategy.type | string | `"RollingUpdate"` | DaemonSet update strategy. The DPUService controller supplies rollout settings when managed by DPF. |
 | imagePullSecrets | list | `[]` |  |
 | nvIpam.controller.resources.limits.memory | string | `"300Mi"` |  |
 | nvIpam.controller.resources.requests.cpu | string | `"100m"` |  |

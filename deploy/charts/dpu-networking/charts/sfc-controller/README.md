@@ -22,6 +22,7 @@ A Helm chart for Kubernetes
 | controllerManager.serviceAccount.annotations | object | `{}` |  |
 | dpuLinkerCachePath | string | `""` |  |
 | dpuOptLibraryPath | string | `""` |  |
+| global.serviceDaemonSet.updateStrategy.type | string | `"RollingUpdate"` | DaemonSet update strategy. The DPUService controller supplies rollout settings when managed by DPF. |
 | imagePullSecrets | list | `[]` |  |
 | openvSwitchBinDir | string | `"/usr/bin"` |  |
 | openvSwitchRunDir | string | `"/var/run/openvswitch"` |  |

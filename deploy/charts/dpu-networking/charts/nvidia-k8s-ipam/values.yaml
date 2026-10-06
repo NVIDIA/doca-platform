@@ -3,6 +3,12 @@ deployDPUManifests: false
 # -- deployHostManifests controls whether the manifests that are required in the host cluster should be deployed.
 deployHostManifests: false
 
+global:
+  serviceDaemonSet:
+    updateStrategy:
+      # -- DaemonSet update strategy. The DPUService controller supplies rollout settings when managed by DPF.
+      type: RollingUpdate
+
 controllerManager:
   replicas: 2
 
