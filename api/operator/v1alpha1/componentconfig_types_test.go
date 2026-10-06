@@ -73,9 +73,20 @@ func TestServiceDaemonSetMaxUnavailableValue(t *testing.T) {
 		config *DPUServiceControllerConfiguration
 		want   int32
 	}{
-		"nil config":     {config: nil, want: DefaultServiceDaemonSetMaxUnavailableFallback},
-		"unset field":    {config: &DPUServiceControllerConfiguration{}, want: DefaultServiceDaemonSetMaxUnavailableFallback},
-		"explicit value": {config: &DPUServiceControllerConfiguration{DefaultServiceDaemonSetMaxUnavailable: ptr.To(int32(5))}, want: 5},
+		"nil config": {
+			config: nil,
+			want:   DefaultServiceDaemonSetMaxUnavailableFallback,
+		},
+		"unset field": {
+			config: &DPUServiceControllerConfiguration{},
+			want:   DefaultServiceDaemonSetMaxUnavailableFallback,
+		},
+		"explicit value": {
+			config: &DPUServiceControllerConfiguration{
+				DefaultServiceDaemonSetMaxUnavailable: ptr.To(int32(5)),
+			},
+			want: 5,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

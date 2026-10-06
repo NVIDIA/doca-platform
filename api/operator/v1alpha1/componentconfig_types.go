@@ -521,7 +521,7 @@ type DPUServiceControllerConfiguration struct {
 	DisableHostNetworkReadyNoExecuteTaints *bool `json:"disableHostNetworkReadyNoExecuteTaints,omitempty"`
 
 	// DefaultServiceDaemonSetMaxUnavailable overrides the maxUnavailable defaulted onto a
-	// ServiceDaemonSet left unset or at 100%. Defaults to 30000; lower it to cap update burst.
+	// ServiceDaemonSet left unset or at 100%. Lower it to cap update burst.
 	// +kubebuilder:validation:Minimum=1
 	// +optional
 	DefaultServiceDaemonSetMaxUnavailable *int32 `json:"defaultServiceDaemonSetMaxUnavailable,omitempty"`
