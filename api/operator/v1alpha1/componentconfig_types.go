@@ -519,6 +519,29 @@ type DPUServiceControllerConfiguration struct {
 	// Set to false to enable NoExecute tainting when HostNetworkReady != True.
 	// +optional
 	DisableHostNetworkReadyNoExecuteTaints *bool `json:"disableHostNetworkReadyNoExecuteTaints,omitempty"`
+
+	// DefaultServiceDaemonSetMaxUnavailable overrides the maxUnavailable defaulted onto a
+	// DPUService's ServiceDaemonSet update strategy when it is left unset or at the literal 100%.
+	// It exists so a node that is temporarily unreachable does not block the rollout from
+	// proceeding on every other node. Defaults to 30000, well above any supported DPU count, so it
+	// never itself becomes a limiting factor; lower it to cap how many DPUs update at once, e.g. to
+	// bound image-pull burst across a large fleet.
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	DefaultServiceDaemonSetMaxUnavailable *int32 `json:"defaultServiceDaemonSetMaxUnavailable,omitempty"`
+}
+
+// DefaultServiceDaemonSetMaxUnavailableFallback is used when DefaultServiceDaemonSetMaxUnavailable
+// is unset. See its doc comment for why 30000 was chosen.
+const DefaultServiceDaemonSetMaxUnavailableFallback int32 = 30000
+
+// ServiceDaemonSetMaxUnavailableValue returns DefaultServiceDaemonSetMaxUnavailable, or
+// DefaultServiceDaemonSetMaxUnavailableFallback when c is nil or the field is unset.
+func (c *DPUServiceControllerConfiguration) ServiceDaemonSetMaxUnavailableValue() int32 {
+	if c == nil {
+		return DefaultServiceDaemonSetMaxUnavailableFallback
+	}
+	return ptr.Deref(c.DefaultServiceDaemonSetMaxUnavailable, DefaultServiceDaemonSetMaxUnavailableFallback)
 }
 
 func (c *DPUServiceControllerConfiguration) Name() string {

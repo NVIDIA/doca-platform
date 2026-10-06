@@ -67,3 +67,21 @@ func TestSRIOVDevicePluginConfigurationOverrides(t *testing.T) {
 		t.Errorf("GetResources() = %#v, want %#v", got, want)
 	}
 }
+
+func TestServiceDaemonSetMaxUnavailableValue(t *testing.T) {
+	cases := map[string]struct {
+		config *DPUServiceControllerConfiguration
+		want   int32
+	}{
+		"nil config":     {config: nil, want: DefaultServiceDaemonSetMaxUnavailableFallback},
+		"unset field":    {config: &DPUServiceControllerConfiguration{}, want: DefaultServiceDaemonSetMaxUnavailableFallback},
+		"explicit value": {config: &DPUServiceControllerConfiguration{DefaultServiceDaemonSetMaxUnavailable: ptr.To(int32(5))}, want: 5},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := tc.config.ServiceDaemonSetMaxUnavailableValue(); got != tc.want {
+				t.Errorf("ServiceDaemonSetMaxUnavailableValue() = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
