@@ -11,6 +11,10 @@ metadata:
   annotations:
     {{- include "multus.annotations" . | nindent 4 }}
 spec:
+  {{- with (.Values.global.serviceDaemonSet).updateStrategy }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   selector:
     matchLabels:
       name: multus

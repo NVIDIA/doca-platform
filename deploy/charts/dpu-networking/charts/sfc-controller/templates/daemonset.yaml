@@ -14,8 +14,10 @@ spec:
   selector:
     matchLabels:
       name: sfc-controller-node
+  {{- with (.Values.global.serviceDaemonSet).updateStrategy }}
   updateStrategy:
-    type: RollingUpdate
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   template:
     metadata:
       labels:

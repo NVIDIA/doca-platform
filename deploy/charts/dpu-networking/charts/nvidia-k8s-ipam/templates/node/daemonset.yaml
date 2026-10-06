@@ -15,8 +15,10 @@ spec:
   selector:
     matchLabels:
       name: nv-ipam-node
+  {{- with (.Values.global.serviceDaemonSet).updateStrategy }}
   updateStrategy:
-    type: RollingUpdate
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   template:
     metadata:
       labels:

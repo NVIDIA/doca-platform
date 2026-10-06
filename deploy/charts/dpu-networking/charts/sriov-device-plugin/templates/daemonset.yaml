@@ -10,6 +10,10 @@ metadata:
   annotations:
     {{- include "sriov-device-plugin.annotations" . | nindent 4 }}
 spec:
+  {{- with (.Values.global.serviceDaemonSet).updateStrategy }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   selector:
     matchLabels:
       name: sriov-device-plugin

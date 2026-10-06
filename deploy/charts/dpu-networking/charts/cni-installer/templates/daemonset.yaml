@@ -10,6 +10,10 @@ metadata:
   annotations:
     {{- include "cni-installer.annotations" . | nindent 4 }}
 spec:
+  {{- with (.Values.global.serviceDaemonSet).updateStrategy }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   selector:
     matchLabels:
       name: cni-installer
