@@ -155,16 +155,16 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(dpf_apiserver_request_total{cluster=\"$cluster\", code=~\"5..\"}[$__rate_interval]))",
+          "expr": "sum(rate(dpf_apiserver_request_total{cluster=\"$cluster\", code=~\"4..|5..\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "Value",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "5xx Error Rate",
+      "title": "4xx / 5xx Error Rate",
       "type": "stat",
-      "description": "API responses with HTTP 5xx"
+      "description": "API responses with HTTP 4xx or 5xx"
     },
     {
       "datasource": {
@@ -830,12 +830,114 @@
       "type": "timeseries"
     },
     {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "axisSoftMin": 0,
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 22
+      },
+      "id": 106,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "topk(10, sum by (resource, code) (rate(dpf_apiserver_request_total{cluster=\"$cluster\", code=~\"404|409|429\"}[$__rate_interval])))",
+          "instant": false,
+          "legendFormat": "{{resource}} ({{code}})",
+          "range": true,
+          "refId": "A",
+          "hide": false
+        }
+      ],
+      "title": "409 / 429 / 404 Rate by Resource",
+      "type": "timeseries",
+      "description": "Top 10 resource+code series for the three status codes that most commonly indicate thundering-herd contention: 409 (resourceVersion conflicts), 429 (APF/rate-limit throttling), 404 (requests against not-yet-created CRDs/resources)."
+    },
+    {
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 23
+        "y": 31
       },
       "id": 200,
       "panels": [],
@@ -905,7 +1007,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 24
+        "y": 32
       },
       "id": 201,
       "options": {
@@ -1006,7 +1108,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 24
+        "y": 32
       },
       "id": 202,
       "options": {
@@ -1108,7 +1210,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 24
+        "y": 32
       },
       "id": 203,
       "options": {
@@ -1209,7 +1311,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 32
+        "y": 40
       },
       "id": 204,
       "options": {
@@ -1311,7 +1413,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 32
+        "y": 40
       },
       "id": 205,
       "options": {
@@ -1355,7 +1457,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 41
+        "y": 49
       },
       "id": 300,
       "panels": [],
@@ -1425,7 +1527,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 42
+        "y": 50
       },
       "id": 301,
       "options": {
@@ -1526,7 +1628,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 42
+        "y": 50
       },
       "id": 302,
       "options": {
@@ -1628,7 +1730,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 42
+        "y": 50
       },
       "id": 303,
       "options": {
@@ -1672,7 +1774,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 50
+        "y": 58
       },
       "id": 400,
       "panels": [],
@@ -1742,7 +1844,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 51
+        "y": 59
       },
       "id": 401,
       "options": {
@@ -1844,7 +1946,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 51
+        "y": 59
       },
       "id": 402,
       "options": {
@@ -1946,7 +2048,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 59
+        "y": 67
       },
       "id": 403,
       "options": {
@@ -2047,7 +2149,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 59
+        "y": 67
       },
       "id": 404,
       "options": {
@@ -2084,6 +2186,325 @@
       ],
       "title": "etcd Error Rate",
       "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 75
+      },
+      "id": 500,
+      "panels": [],
+      "title": "API Priority and Fairness (APF)",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "axisSoftMin": 0,
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 76
+      },
+      "id": 501,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by (flow_schema, reason) (rate(dpf_apiserver_flowcontrol_rejected_requests_total{cluster=\"$cluster\"}[$__rate_interval]))",
+          "instant": false,
+          "legendFormat": "{{flow_schema}} ({{reason}})",
+          "range": true,
+          "refId": "A",
+          "hide": false
+        }
+      ],
+      "title": "Rejected Requests by Flow Schema",
+      "type": "timeseries",
+      "description": "apiserver_flowcontrol_rejected_requests_total - requests APF dropped/rejected because the priority level's queue was full or the fair-share limit was exceeded (root cause of client-visible HTTP 429s)"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "axisSoftMin": 0,
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 76
+      },
+      "id": 502,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by (priority_level) (dpf_apiserver_flowcontrol_current_executing_requests{cluster=\"$cluster\"})",
+          "instant": false,
+          "legendFormat": "{{priority_level}}",
+          "range": true,
+          "refId": "A",
+          "hide": false
+        }
+      ],
+      "title": "Executing Requests by Priority Level",
+      "type": "timeseries",
+      "description": "apiserver_flowcontrol_current_executing_requests - how close each priority level's seat allocation is to saturation"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "axisSoftMin": 0,
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 76
+      },
+      "id": 503,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.99, sum by (le, priority_level) (rate(dpf_apiserver_flowcontrol_request_wait_duration_seconds_bucket{cluster=\"$cluster\"}[$__rate_interval])))",
+          "instant": false,
+          "legendFormat": "p99 {{priority_level}}",
+          "range": true,
+          "refId": "A",
+          "hide": false
+        }
+      ],
+      "title": "Queue Wait Duration (p99) by Priority Level",
+      "type": "timeseries",
+      "description": "apiserver_flowcontrol_request_wait_duration_seconds - time requests sit queued before APF admits or rejects them"
     }
   ],
   "preload": false,
