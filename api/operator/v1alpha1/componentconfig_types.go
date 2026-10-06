@@ -520,15 +520,18 @@ type DPUServiceControllerConfiguration struct {
 	// +optional
 	DisableHostNetworkReadyNoExecuteTaints *bool `json:"disableHostNetworkReadyNoExecuteTaints,omitempty"`
 
-	// DefaultServiceDaemonSetMaxUnavailable overrides the maxUnavailable defaulted onto a
-	// ServiceDaemonSet left unset or at 100%. Lower it to cap update burst.
+	// DefaultServiceDaemonSetMaxUnavailable specifies the fallback maxUnavailable for
+	// ServiceDaemonSet rolling updates. It defaults to 30000 and is applied when
+	// serviceDaemonSet.updateStrategy is omitted or its rollingUpdate.maxUnavailable
+	// is unset or "100%". Other explicit maxUnavailable values and OnDelete strategies
+	// are preserved. Lower this value to limit the number of unavailable pods during updates.
 	// +kubebuilder:validation:Minimum=1
 	// +optional
 	DefaultServiceDaemonSetMaxUnavailable *int32 `json:"defaultServiceDaemonSetMaxUnavailable,omitempty"`
 }
 
 // DefaultServiceDaemonSetMaxUnavailableFallback is used when DefaultServiceDaemonSetMaxUnavailable
-// is unset. See its doc comment for why 30000 was chosen.
+// is unset. The large absolute value allows rollouts to proceed despite unreachable DPU nodes.
 const DefaultServiceDaemonSetMaxUnavailableFallback int32 = 30000
 
 // ServiceDaemonSetMaxUnavailableValue returns DefaultServiceDaemonSetMaxUnavailable, or

@@ -1,3 +1,9 @@
+global:
+  serviceDaemonSet:
+    updateStrategy:
+      # -- DaemonSet update strategy. The DPUService controller supplies rollout settings when managed by DPF.
+      type: RollingUpdate
+
 controllerManager:
   manager:
     # No --leader-elect: sfc-controller uses per-node sharding
