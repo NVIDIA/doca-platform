@@ -924,7 +924,7 @@ func VerifyDPUClusterWithNodes(ctx context.Context, input ProvisionDPUClustersIn
 
 	if isGinkgoLabelApplied(Domain.ZeroTrust) {
 		ProcessDPUNodeMaintenanceHold(ctx, input)
-		WaitForDPUReboot(ctx, input)
+		WaitForDPUReboot(ctx, input, tracker)
 	}
 
 	// Verify nodes are present in DPUCluster,
@@ -933,6 +933,13 @@ func VerifyDPUClusterWithNodes(ctx context.Context, input ProvisionDPUClustersIn
 		g.Expect(dpuClusterClient[0].List(ctx, nodes)).ToNot(HaveOccurred())
 		nodeKey := fmt.Sprintf("%d/%d", len(nodes.Items), expectedDPUs)
 		tracker.By(nodeKey, "Checking that the number of nodes %d is equal to %d", len(nodes.Items), expectedDPUs)
+		// Reboot logging must not fail the node-count wait: list errors are logged and skipped.
+		rebootingDPUs := &provisioningv1.DPUList{}
+		if err := input.client.List(ctx, rebootingDPUs); err != nil {
+			GinkgoWriter.Printf("Failed to list DPUs for reboot logging: %v\n", err)
+		} else {
+			logDPURebootRequests(rebootingDPUs.Items, tracker)
+		}
 		g.Expect(nodes.Items).To(HaveLen(expectedDPUs))
 	}).WithTimeout(provisioningTimeout).WithPolling(1 * time.Second).Should(Succeed())
 
@@ -1033,15 +1040,16 @@ func ProcessDPUNodeMaintenanceHold(ctx context.Context, input ProvisionDPUCluste
 // and updates `RebootStatus` as the Job progresses; the test does not look
 // at the Job directly because the controller may garbage-collect it after
 // success. Fails fast if any DPU's `RebootStatus.Phase` becomes `Failed`.
-// Applies to ZeroTrust only.
-func WaitForDPUReboot(ctx context.Context, input ProvisionDPUClustersInput) {
-	tracker := NewByTracker()
+// Applies to ZeroTrust only. tracker is shared with the caller so a reboot request is
+// logged once across the reboot wait and the node-count wait that follows.
+func WaitForDPUReboot(ctx context.Context, input ProvisionDPUClustersInput, tracker *ByTracker) {
 	dpus := &provisioningv1.DPUList{}
 
 	By("Wait for DPUs to reach DPURebooting state in ZeroTrust")
 	Eventually(func(g Gomega) {
 		g.Expect(input.client.List(ctx, dpus)).ToNot(HaveOccurred())
 		g.Expect(dpus.Items).To(HaveLen(input.numberOfDPUNodes * input.numberOfDPUsPerNode))
+		logDPURebootRequests(dpus.Items, tracker)
 
 		for _, dpu := range dpus.Items {
 			dpuStatusKey := fmt.Sprintf("%s/%v", dpu.Name, dpu.Status.Phase)
@@ -1061,30 +1069,35 @@ func WaitForDPUReboot(ctx context.Context, input ProvisionDPUClustersInput) {
 
 	By("Reboot driven by in-cluster script Job (nodeRebootMethod.script); waiting for completion")
 	waitForScriptRebootCompletion(ctx, input.client,
-		input.numberOfDPUNodes*input.numberOfDPUsPerNode)
+		input.numberOfDPUNodes*input.numberOfDPUsPerNode, tracker)
 }
 
 // Waits for all DPU host reboots to finish in script-reboot mode by checking DPU.Status.RebootStatus,
 // Succeeds when all DPUs report RebootStatus.Succeeded, fails-fast if any hit RebootStatus.Failed.
-func waitForScriptRebootCompletion(ctx context.Context, c client.Client, expectedDPUs int) {
-	tracker := NewByTracker()
+func waitForScriptRebootCompletion(ctx context.Context, c client.Client, expectedDPUs int, tracker *ByTracker) {
 	Eventually(func(g Gomega) {
 		dpus := &provisioningv1.DPUList{}
 		g.Expect(c.List(ctx, dpus)).To(Succeed())
 		g.Expect(dpus.Items).To(HaveLen(expectedDPUs))
+		logDPURebootRequests(dpus.Items, tracker)
 
 		for i := range dpus.Items {
 			dpu := &dpus.Items[i]
 			rs := dpu.Status.RebootStatus
 			phase := provisioningv1.RebootStatusPhase("")
-			reason, message := "", ""
+			reason, message, method := "", "", ""
 			if rs != nil {
 				phase = rs.Phase
 				reason = rs.Reason
 				message = rs.Message
+				if rs.Method != nil {
+					method = string(*rs.Method)
+				}
 			}
-			tracker.By(dpu.Name, "DPU %s RebootStatus.Phase=%q reason=%q",
-				dpu.Name, phase, reason)
+			// Key by phase and reason so every transition is printed, not only the first status seen.
+			tracker.By(fmt.Sprintf("%s/rebootstatus/%s/%s", dpu.Name, phase, reason),
+				"DPU %s RebootStatus.Phase=%q reason=%q method=%q from=%q",
+				dpu.Name, phase, reason, method, dpu.Status.PreviousPhase)
 
 			// We use Expect here (not g.Expect) to fail fast the test if a DPU
 			// enters the RebootStatusFailed state.
@@ -1099,6 +1112,22 @@ func waitForScriptRebootCompletion(ctx context.Context, c client.Client, expecte
 					dpu.Name, phase))
 		}
 	}).WithTimeout(30 * time.Minute).WithPolling(time.Second).Should(Succeed())
+}
+
+// logDPURebootRequests logs each DPU in DPURebooting once per source phase and requested method,
+// so a DPU that reboots again from a later phase is logged again. It works on the caller's DPU
+// snapshot so the log reflects exactly what the wait loop observed.
+func logDPURebootRequests(dpus []provisioningv1.DPU, tracker *ByTracker) {
+	for i := range dpus {
+		dpu := &dpus[i]
+		rs := dpu.Status.RebootStatus
+		if dpu.Status.Phase != provisioningv1.DPURebooting || rs == nil || rs.Method == nil {
+			continue
+		}
+		key := fmt.Sprintf("%s/reboot/%s/%s", dpu.Name, dpu.Status.PreviousPhase, *rs.Method)
+		tracker.By(key, "DPU %s rebooting from phase %q: requested method=%s",
+			dpu.Name, dpu.Status.PreviousPhase, *rs.Method)
+	}
 }
 
 // VerifyClusterPods waits until, for each name substring in podSubstrToVerify, at least one pod in the
