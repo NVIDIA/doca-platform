@@ -8,6 +8,10 @@ metadata:
   annotations:
     {{- include "opentelemetry-collector.annotations" . | nindent 4 }}
 spec:
+  {{- with (.Values.global.serviceDaemonSet).updateStrategy }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "opentelemetry-collector.selectorLabels" . | nindent 6 }}
