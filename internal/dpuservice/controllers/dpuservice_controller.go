@@ -588,7 +588,8 @@ func (r *DPUServiceReconciler) reconcile(ctx context.Context, dpuService *dpuser
 	conditions.AddTrue(dpuService, dpuservicev1.ConditionApplicationPrereqsReconciled)
 
 	// Update the ArgoApplication for all target clusters.
-	if err = r.reconcileApplication(ctx, dpuClusterConfigs, dpuService, serviceDaemonSet, dpfOperatorConfig.GetNamespace(), serviceID); err != nil {
+	maxUnavailable := dpfOperatorConfig.Spec.DPUServiceController.ServiceDaemonSetMaxUnavailableValue()
+	if err = r.reconcileApplication(ctx, dpuClusterConfigs, dpuService, serviceDaemonSet, dpfOperatorConfig.GetNamespace(), serviceID, maxUnavailable); err != nil {
 		message := fmt.Sprintf("Unable to reconcile Applications: %v", err)
 		conditions.AddFalse(
 			dpuService,
@@ -894,18 +895,18 @@ func (r *DPUServiceReconciler) reconcileImagePullSecrets(ctx context.Context, dp
 	return kerrors.NewAggregate(errs)
 }
 
-func (r *DPUServiceReconciler) reconcileApplication(ctx context.Context, dpuClusterConfigs []*dpucluster.Config, dpuService *dpuservicev1.DPUService, serviceDaemonSet *dpuservicev1.ServiceDaemonSetValues, dpfOperatorConfigNamespace, serviceID string) error {
+func (r *DPUServiceReconciler) reconcileApplication(ctx context.Context, dpuClusterConfigs []*dpucluster.Config, dpuService *dpuservicev1.DPUService, serviceDaemonSet *dpuservicev1.ServiceDaemonSetValues, dpfOperatorConfigNamespace, serviceID string, maxUnavailable int32) error {
 	project := getProjectName(dpuService)
 	if project != argocd.AppProjectNameDPU {
-		return r.ensureApplication(ctx, dpuService, serviceDaemonSet, "in-cluster", "", dpfOperatorConfigNamespace, serviceID)
+		return r.ensureApplication(ctx, dpuService, serviceDaemonSet, "in-cluster", "", dpfOperatorConfigNamespace, serviceID, maxUnavailable)
 	}
-	return r.reconcileStandardApplications(ctx, dpuClusterConfigs, dpuService, serviceDaemonSet, dpfOperatorConfigNamespace, serviceID)
+	return r.reconcileStandardApplications(ctx, dpuClusterConfigs, dpuService, serviceDaemonSet, dpfOperatorConfigNamespace, serviceID, maxUnavailable)
 }
 
 // reconcileStandardApplications reconciles ArgoCD Applications across DPU clusters.
 // It creates/updates applications in clusters that match the DPUService's cluster selector,
 // and deletes applications from clusters that no longer match or no longer exist.
-func (r *DPUServiceReconciler) reconcileStandardApplications(ctx context.Context, dpuClusterConfigs []*dpucluster.Config, dpuService *dpuservicev1.DPUService, serviceDaemonSet *dpuservicev1.ServiceDaemonSetValues, dpfOperatorConfigNamespace, serviceID string) error {
+func (r *DPUServiceReconciler) reconcileStandardApplications(ctx context.Context, dpuClusterConfigs []*dpucluster.Config, dpuService *dpuservicev1.DPUService, serviceDaemonSet *dpuservicev1.ServiceDaemonSetValues, dpfOperatorConfigNamespace, serviceID string, maxUnavailable int32) error {
 	// Get the list of the DPUClusters the DPUService is targeting
 	targetDPUClusterConfigs, err := utils.GetMatchingDPUClusters(dpuClusterConfigs, dpuService.Spec.DPUClusterSelector)
 	if err != nil {
@@ -920,7 +921,7 @@ func (r *DPUServiceReconciler) reconcileStandardApplications(ctx context.Context
 			continue
 		}
 
-		if err := r.ensureApplication(ctx, dpuService, serviceDaemonSet, dpuClusterConfig.Cluster.Name, dpuClusterConfig.Cluster.Namespace, dpfOperatorConfigNamespace, serviceID); err != nil {
+		if err := r.ensureApplication(ctx, dpuService, serviceDaemonSet, dpuClusterConfig.Cluster.Name, dpuClusterConfig.Cluster.Namespace, dpfOperatorConfigNamespace, serviceID, maxUnavailable); err != nil {
 			return fmt.Errorf("ensure application for DPUCluster %s: %w", dpuClusterConfig.ClusterNamespaceName(), err)
 		}
 		targetClusterNames[applicationTargetClusterKey(dpuClusterConfig.Cluster.Namespace, dpuClusterConfig.Cluster.Name)] = struct{}{}
@@ -973,10 +974,10 @@ func applicationTargetClusterKey(clusterNamespace, clusterName string) string {
 	return fmt.Sprintf("%s-%s", clusterNamespace, clusterName)
 }
 
-func (r *DPUServiceReconciler) ensureApplication(ctx context.Context, dpuService *dpuservicev1.DPUService, serviceDaemonSet *dpuservicev1.ServiceDaemonSetValues, clusterName, clusterNamespace, dpfOperatorConfigNamespace, serviceID string) error {
+func (r *DPUServiceReconciler) ensureApplication(ctx context.Context, dpuService *dpuservicev1.DPUService, serviceDaemonSet *dpuservicev1.ServiceDaemonSetValues, clusterName, clusterNamespace, dpfOperatorConfigNamespace, serviceID string, maxUnavailable int32) error {
 	log := ctrllog.FromContext(ctx)
 	project := getProjectName(dpuService)
-	values, err := argoCDValuesFromDPUService(serviceDaemonSet, dpuService, clusterName, serviceID)
+	values, err := argoCDValuesFromDPUService(serviceDaemonSet, dpuService, clusterName, serviceID, maxUnavailable)
 	if err != nil {
 		return err
 	}
@@ -1705,10 +1706,6 @@ func getProjectName(dpuService *dpuservicev1.DPUService) string {
 	return argocd.AppProjectNameDPU
 }
 
-// highMaxUnavailableDaemonSetUpdate is well above any supported DPU count, so it never itself
-// becomes a limiting factor on the rollout.
-const highMaxUnavailableDaemonSetUpdate = 30000
-
 // shouldDefaultMaxUnavailable reports whether maxUnavailable should be defaulted rather than kept as
 // set by the user: true when unset, or RollingUpdate with maxUnavailable unset or "100%"; false for any other explicit choice.
 func shouldDefaultMaxUnavailable(strategy *appsv1.DaemonSetUpdateStrategy) bool {
@@ -1725,7 +1722,7 @@ func shouldDefaultMaxUnavailable(strategy *appsv1.DaemonSetUpdateStrategy) bool 
 	return maxUnavailable.Type == intstr.String && maxUnavailable.StrVal == "100%"
 }
 
-func argoCDValuesFromDPUService(serviceDaemonSetValues *dpuservicev1.ServiceDaemonSetValues, dpuService *dpuservicev1.DPUService, clusterName, serviceID string) (*runtime.RawExtension, error) {
+func argoCDValuesFromDPUService(serviceDaemonSetValues *dpuservicev1.ServiceDaemonSetValues, dpuService *dpuservicev1.DPUService, clusterName, serviceID string, maxUnavailable int32) (*runtime.RawExtension, error) {
 	if serviceDaemonSetValues == nil {
 		serviceDaemonSetValues = &dpuservicev1.ServiceDaemonSetValues{}
 	}
@@ -1743,7 +1740,7 @@ func argoCDValuesFromDPUService(serviceDaemonSetValues *dpuservicev1.ServiceDaem
 		if updateStrategy.RollingUpdate == nil {
 			updateStrategy.RollingUpdate = &appsv1.RollingUpdateDaemonSet{}
 		}
-		updateStrategy.RollingUpdate.MaxUnavailable = ptr.To(intstr.FromInt32(highMaxUnavailableDaemonSetUpdate))
+		updateStrategy.RollingUpdate.MaxUnavailable = ptr.To(intstr.FromInt32(maxUnavailable))
 		serviceDaemonSetValues.UpdateStrategy = updateStrategy
 	}
 

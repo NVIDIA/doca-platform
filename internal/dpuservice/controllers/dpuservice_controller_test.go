@@ -2275,7 +2275,7 @@ var _ = Describe("unit test DPUService functions", func() {
 				}
 			}
 
-			o, err := argoCDValuesFromDPUService(serviceDaemonSetValues, dpuService, "test-cluster", *serviceID)
+			o, err := argoCDValuesFromDPUService(serviceDaemonSetValues, dpuService, "test-cluster", *serviceID, operatorv1.DefaultServiceDaemonSetMaxUnavailableFallback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(o.Raw).To(BeEquivalentTo([]byte(expectedValues)))
 		},
@@ -2495,7 +2495,7 @@ var _ = Describe("unit test DPUService functions", func() {
 				},
 			}
 
-			o, err := argoCDValuesFromDPUService(nil, dpuService, "test-cluster", "someservice")
+			o, err := argoCDValuesFromDPUService(nil, dpuService, "test-cluster", "someservice", operatorv1.DefaultServiceDaemonSetMaxUnavailableFallback)
 			Expect(err).ToNot(HaveOccurred())
 
 			var result map[string]interface{}
@@ -2512,6 +2512,25 @@ var _ = Describe("unit test DPUService functions", func() {
 			// Verify other values are also present
 			Expect(result).To(HaveKeyWithValue("key", "value"))
 			Expect(result).To(HaveKey("serviceDaemonSet"))
+		})
+
+		It("uses the configured maxUnavailable instead of the fallback when defaulting", func() {
+			dpuService := &dpuservicev1.DPUService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "name",
+					Namespace: "test-namespace",
+				},
+				Spec: dpuservicev1.DPUServiceSpec{
+					ServiceID: ptr.To("someservice"),
+					HelmChart: dpuservicev1.HelmChart{
+						Values: &runtime.RawExtension{Raw: []byte(`{}`)},
+					},
+				},
+			}
+
+			o, err := argoCDValuesFromDPUService(nil, dpuService, "test-cluster", "someservice", 500)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(o.Raw).To(BeEquivalentTo([]byte(`{"serviceDaemonSet":{"labels":{"svc.dpu.nvidia.com/service":"someservice"},"updateStrategy":{"rollingUpdate":{"maxUnavailable":500},"type":"RollingUpdate"}}}`)))
 		})
 	})
 })
