@@ -34,7 +34,7 @@ import (
 )
 
 const waitingForBMCRShimReason = "WaitingForBMCRShim"
-const armPowerOnWaitTimeout = 1 * time.Minute
+const armPowerOnWaitTimeout = 5 * time.Minute
 
 func ConfigFWParameters(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
 	logger := log.FromContext(ctx)
