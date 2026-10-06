@@ -542,7 +542,7 @@ _Appears in:_
 | `controller` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Controller contains the configuration for the DPU Service controller component.<br />It contains the image for the controller and its resource requirements. |  | Optional: \{\} <br /> |
 | `disableDPUReadyTaints` _boolean_ | DisableDPUReadyTaints is a full taint kill-switch for the DPUReady controller.<br />When set to true, no taint managed by this controller (NoSchedule for critical<br />DPUServices, or NoExecute for HostNetworkReady) is added, removed, or otherwise<br />touched on host worker nodes. |  | Optional: \{\} <br /> |
 | `disableHostNetworkReadyNoExecuteTaints` _boolean_ | DisableHostNetworkReadyNoExecuteTaints disables NoExecute taints on host worker nodes<br />based on HostNetworkReady. When unset or true, the feature is disabled (safe default).<br />Set to false to enable NoExecute tainting when HostNetworkReady != True. |  | Optional: \{\} <br /> |
-| `defaultServiceDaemonSetMaxUnavailable` _integer_ | DefaultServiceDaemonSetMaxUnavailable overrides the maxUnavailable defaulted onto a<br />ServiceDaemonSet left unset or at 100%. Defaults to 30000; lower it to cap update burst. |  | Minimum: 1 <br />Optional: \{\} <br /> |
+| `defaultServiceDaemonSetMaxUnavailable` _integer_ | DefaultServiceDaemonSetMaxUnavailable overrides the maxUnavailable defaulted onto a<br />ServiceDaemonSet left unset or at 100%. Lower it to cap update burst. |  | Minimum: 1 <br />Optional: \{\} <br /> |
 
 
 #### DefaultOverridesConfiguration

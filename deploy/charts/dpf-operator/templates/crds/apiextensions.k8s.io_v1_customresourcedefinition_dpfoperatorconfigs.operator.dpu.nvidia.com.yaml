@@ -363,7 +363,7 @@ spec:
                   defaultServiceDaemonSetMaxUnavailable:
                     description: |-
                       DefaultServiceDaemonSetMaxUnavailable overrides the maxUnavailable defaulted onto a
-                      ServiceDaemonSet left unset or at 100%. Defaults to 30000; lower it to cap update burst.
+                      ServiceDaemonSet left unset or at 100%. Lower it to cap update burst.
                     format: int32
                     minimum: 1
                     type: integer
