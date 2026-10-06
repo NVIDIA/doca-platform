@@ -18,7 +18,11 @@ package main
 
 import (
 	"crypto/tls"
+	"errors"
+	"fmt"
+	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
@@ -32,6 +36,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	"k8s.io/component-base/logs"
 	logsv1 "k8s.io/component-base/logs/api/v1"
 	_ "k8s.io/component-base/logs/json/register"
@@ -42,6 +47,28 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 )
+
+// hostServiceAccountDir holds a token/CA bundle for the cluster this pod is actually
+// scheduled on. When this controller is deployed "in-cluster" to manage a remote DPU
+// tenant cluster, ctrl.GetConfigOrDie() resolves to that tenant cluster instead (its
+// KUBERNETES_SERVICE_HOST/PORT and default serviceaccount path are overridden for
+// that purpose) - so the metrics endpoint's TokenReview/SubjectAccessReview auth needs
+// its own config pointed at the host apiserver Prometheus actually authenticates against.
+const hostServiceAccountDir = "/var/run/secrets/host-cluster/serviceaccount"
+
+func hostClusterConfig() (*rest.Config, error) {
+	tokenFile := filepath.Join(hostServiceAccountDir, "token")
+	if _, err := os.Stat(tokenFile); err != nil {
+		return nil, fmt.Errorf("host cluster service account token unavailable: %w", err)
+	}
+	return &rest.Config{
+		Host:            "https://kubernetes.default.svc",
+		BearerTokenFile: tokenFile,
+		TLSClientConfig: rest.TLSClientConfig{
+			CAFile: filepath.Join(hostServiceAccountDir, "ca.crt"),
+		},
+	}, nil
+}
 
 var (
 	scheme     = runtime.NewScheme()
@@ -118,13 +145,30 @@ func main() {
 	})
 
 	metricsOpts := metricsserver.Options{
-		BindAddress:    metricsAddr,
-		SecureServing:  true,
-		FilterProvider: filters.WithAuthenticationAndAuthorization,
+		BindAddress:   metricsAddr,
+		SecureServing: true,
 	}
 	if insecureMetrics {
 		metricsOpts.SecureServing = false
-		metricsOpts.FilterProvider = nil
+	} else {
+		hostConfig, err := hostClusterConfig()
+		switch {
+		case errors.Is(err, os.ErrNotExist):
+			setupLog.Info("host cluster token not mounted, using default config for metrics auth")
+			hostConfig = ctrl.GetConfigOrDie()
+		case err != nil:
+			setupLog.Error(err, "unable to build host cluster config for metrics auth")
+			os.Exit(1)
+		}
+		// The provided httpClient is built from the manager (tenant) config and would
+		// override the host CA/token, so build one from the host config instead.
+		metricsOpts.FilterProvider = func(_ *rest.Config, _ *http.Client) (metricsserver.Filter, error) {
+			hostClient, err := rest.HTTPClientFor(hostConfig)
+			if err != nil {
+				return nil, err
+			}
+			return filters.WithAuthenticationAndAuthorization(hostConfig, hostClient)
+		}
 	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{

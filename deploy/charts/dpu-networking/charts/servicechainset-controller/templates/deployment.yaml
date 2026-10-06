@@ -48,16 +48,41 @@ spec:
                 matchLabels:
                   control-plane: controller-manager
                 {{- include "servicechain.selectorLabels" . | nindent 18 }}
-      {{- with .Values.volumes }}
       volumes:
+      # Bound token + CA for the cluster this pod is actually scheduled on, used by the
+      # metrics endpoint's TokenReview/SubjectAccessReview auth. Kept separate from
+      # .Values.volumes, which (for the "in-cluster" per-DPUCluster deployment) overlays
+      # the default serviceaccount path with a remote tenant cluster's credentials.
+      - name: host-api-access
+        projected:
+          defaultMode: 420
+          sources:
+          - serviceAccountToken:
+              expirationSeconds: 3607
+              path: token
+          - configMap:
+              items:
+              - key: ca.crt
+                path: ca.crt
+              name: kube-root-ca.crt
+          - downwardAPI:
+              items:
+              - fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+                path: namespace
+      {{- with .Values.volumes }}
         {{- toYaml . | nindent 6 }}
       {{- end }}
       containers:
       - args: {{- toYaml .Values.controllerManager.manager.args | nindent 8 }}
         command:
         - /servicechainset
-        {{- with .Values.volumeMounts }}
         volumeMounts:
+        - name: host-api-access
+          mountPath: /var/run/secrets/host-cluster/serviceaccount
+          readOnly: true
+        {{- with .Values.volumeMounts }}
           {{- toYaml . | nindent 8 }}
         {{- end }}
         env:
@@ -78,6 +103,10 @@ spec:
           initialDelaySeconds: 15
           periodSeconds: 20
         name: manager
+        ports:
+        - containerPort: 8080
+          name: metrics
+          protocol: TCP
         readinessProbe:
           httpGet:
             path: /readyz

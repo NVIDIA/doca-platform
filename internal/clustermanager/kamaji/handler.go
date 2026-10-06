@@ -859,7 +859,7 @@ func getServiceMonitorResource(dc *provisioningv1.DPUCluster, gvk schema.GroupVe
 		},
 		"endpoints": []interface{}{
 			metricsEndpoint(clusterName, secretName, "kube-apiserver-metrics", "apiserver",
-				"apiserver_request_total|apiserver_request_duration_seconds_(bucket|sum|count)|apiserver_current_inflight_requests|apiserver_longrunning_requests|apiserver_storage_size_bytes|apiserver_storage_objects|etcd_requests_total|etcd_request_errors_total|etcd_request_duration_seconds_(bucket|sum|count)|"+processMetricsRegex,
+				"apiserver_request_total|apiserver_request_duration_seconds_(bucket|sum|count)|apiserver_current_inflight_requests|apiserver_longrunning_requests|apiserver_storage_size_bytes|apiserver_storage_objects|apiserver_flowcontrol_rejected_requests_total|apiserver_flowcontrol_current_executing_requests|apiserver_flowcontrol_current_inqueue_requests|apiserver_flowcontrol_request_wait_duration_seconds_(bucket|sum|count)|etcd_requests_total|etcd_request_errors_total|etcd_request_duration_seconds_(bucket|sum|count)|"+processMetricsRegex,
 				// Drop the same histogram buckets the kube-prometheus-stack chart drops by
 				// default, restricted to the histogram families the keep rule lets through.
 				map[string]interface{}{

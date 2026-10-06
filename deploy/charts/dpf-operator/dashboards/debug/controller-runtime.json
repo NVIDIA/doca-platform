@@ -4979,7 +4979,6 @@
         "type": "query"
       },
       {
-        "allValue": ".*",
         "current": {
           "selected": true,
           "text": [
@@ -4993,7 +4992,7 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(kube_pod_info{node=~\"^$Node$\"},pod)",
+        "definition": "label_values(dpf_controller_runtime_active_workers{job=\"doca-platform-framework\"},pod)",
         "hide": 0,
         "includeAll": true,
         "label": "Pod",
@@ -5001,7 +5000,7 @@
         "name": "Pod",
         "options": [],
         "query": {
-          "query": "label_values(kube_pod_info{node=~\"^$Node$\"},pod)",
+          "query": "label_values(dpf_controller_runtime_active_workers{job=\"doca-platform-framework\"},pod)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 1,
@@ -5011,7 +5010,6 @@
         "type": "query"
       },
       {
-        "allValue": ".*",
         "current": {
           "selected": true,
           "text": [
@@ -5043,7 +5041,6 @@
         "type": "query"
       },
       {
-        "allValue": ".*",
         "current": {
           "selected": true,
           "text": [
