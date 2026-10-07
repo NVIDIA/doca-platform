@@ -83,7 +83,7 @@ func TestServiceDaemonSetMaxUnavailableValue(t *testing.T) {
 		},
 		"explicit value": {
 			config: &DPUServiceControllerConfiguration{
-				DefaultServiceDaemonSetMaxUnavailable: ptr.To(int32(5)),
+				DefaultServiceDaemonSetMaxUnavailable: 5,
 			},
 			want: 5,
 		},
