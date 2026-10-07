@@ -1886,6 +1886,27 @@ spec:
                 description: Security groups configuration for security-related components
                   managed by the DPF Operator.
                 properties:
+                  certManagement:
+                    description: |-
+                      CertManagement configures the certificate authority that the provisioning certificates of DPF
+                      chain up to, and the trust bundle their consumers validate peers against. If unset, DPF signs
+                      them with a self-signed CA of its own.
+                    properties:
+                      trustBundleConfigMapName:
+                        default: dpf-ca-trust-bundle
+                        description: |-
+                          TrustBundleConfigMapName is the ConfigMap holding the CA certificate(s) that DPF components
+                          validate their peers against.
+
+                          Name it when the chart is anchored to an authority of your own, the mode in which the content of
+                          the bundle is yours to provide. With the self-signed root of DPF the operator generates the
+                          content itself, under this name. To trust additional CAs alongside the root of DPF, merge them
+                          into the ConfigMap directly, DPF preserves certificates it did not add.
+                        maxLength: 253
+                        minLength: 1
+                        pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                        type: string
+                    type: object
                   kata:
                     description: |-
                       Kata is the configuration for Kata Containers.
@@ -2963,6 +2984,50 @@ spec:
                   the object the last time it was patched.
                 format: int64
                 type: integer
+              security:
+                description: |-
+                  Security records what the operator has rolled out for the security-related components it
+                  manages. It is grouped the way spec.security groups their configuration, so that what was
+                  asked for and what is in effect are read at the same path.
+                properties:
+                  certManagement:
+                    description: CertManagement records what the operator has rolled
+                      out for the provisioning PKI.
+                    properties:
+                      anchor:
+                        description: |-
+                          Anchor is the certificate authority the provisioning PKI has been rolled out against, recorded
+                          once the platform intermediate CA has been applied under it and every peer that has to validate
+                          the chain below it trusts that chain.
+
+                          It is what the anchor chosen in the dpf-operator Helm chart is compared against, so a change of
+                          authority is reported for as long as the rollout of it is outstanding rather than only by the
+                          reconcile that first observed it.
+
+                          Nothing rolled out yet is reported by leaving it out altogether.
+                        properties:
+                          group:
+                            description: Group of the issuer, which is the API group
+                              of cert-manager.
+                            maxLength: 253
+                            minLength: 1
+                            type: string
+                          kind:
+                            description: |-
+                              Kind of the issuer, either Issuer for one in the namespace of the DPFOperatorConfig or
+                              ClusterIssuer for a cluster scoped one.
+                            enum:
+                            - Issuer
+                            - ClusterIssuer
+                            type: string
+                          name:
+                            description: Name of the issuer.
+                            maxLength: 253
+                            minLength: 1
+                            type: string
+                        type: object
+                    type: object
+                type: object
               targetVersion:
                 description: |-
                   TargetVersion is the version of the DPF Operator that is being deployed. It differs from

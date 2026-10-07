@@ -22,6 +22,7 @@ import (
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/release"
+	"github.com/nvidia/doca-platform/pkg/certmanager"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 
 	corev1 "k8s.io/api/core/v1"
@@ -46,6 +47,14 @@ func newDefaultVariables(defaults *release.Defaults) Variables {
 		FlannelSkipCNIConfigInstallation:       true,
 		FlannelPodCIDR:                         DefaultFlannelPodCIDR,
 		DisableHostNetworkReadyNoExecuteTaints: true, // opt-in: disabled until explicitly set to false
+		// Anchor the platform intermediate CA in the self-signed root of DPF. Every path that applies
+		// the components overrides this with the anchor read from the cluster, so this only stands in
+		// for the paths that merely enumerate or delete them.
+		PlatformCAIssuerRef: certmanager.IssuerReference{
+			Name:  operatorv1.GlobalRootIssuerName,
+			Kind:  operatorv1.CertManagerIssuerKind,
+			Group: operatorv1.CertManagerGroup,
+		},
 		DisableSystemComponents: map[operatorv1.ComponentName]bool{
 			operatorv1.ProvisioningControllerName: false,
 			operatorv1.DPUServiceControllerName:   false,
@@ -167,6 +176,10 @@ type Variables struct {
 	ArgoCDNamespace                        string
 	VaultKMS                               *operatorv1.VaultKMSConfiguration
 	SpiffeEnabled                          bool
+	// PlatformCAIssuerRef is the issuer that signs the platform intermediate CA, read from the
+	// webhook intermediate CA that the dpf-operator chart anchors the whole PKI on. It is the only
+	// part of the provisioning PKI that differs between the self-signed and the external issuer mode.
+	PlatformCAIssuerRef certmanager.IssuerReference
 }
 
 type DPFProvisioningVariables struct {
@@ -347,6 +360,8 @@ func setBasicConfig(variables Variables, config *operatorv1.DPFOperatorConfig) V
 	}
 	variables.ImagePullSecrets = config.Spec.ImagePullSecrets
 	variables.ArgoCDNamespace = config.Namespace
+	// PlatformCAIssuerRef is deliberately not set here: the authority anchoring the PKI is read from
+	// the cluster, not from the DPFOperatorConfig, so the caller resolves it and sets it.
 	return variables
 }
 

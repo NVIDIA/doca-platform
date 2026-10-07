@@ -273,6 +273,67 @@ _Appears in:_
 | `installer` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Installer contains the configuration for the CNI-Installer component.<br />It contains the image for the controller and its resource requirements. |  | Optional: \{\} <br /> |
 
 
+#### CertManagementAnchor
+
+
+
+CertManagementAnchor identifies the cert-manager issuer a certificate authority is anchored to.
+Every field is recorded as resolved, with the defaults cert-manager applies already filled in, so
+that comparing two anchors cannot turn on whether one of them left a field out.
+
+
+
+_Appears in:_
+- [CertManagementStatus](#certmanagementstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `name` _string_ | Name of the issuer. |  | MaxLength: 253 <br />MinLength: 1 <br />Optional: \{\} <br /> |
+| `kind` _string_ | Kind of the issuer, either Issuer for one in the namespace of the DPFOperatorConfig or<br />ClusterIssuer for a cluster scoped one. |  | Enum: [Issuer ClusterIssuer] <br />Optional: \{\} <br /> |
+| `group` _string_ | Group of the issuer, which is the API group of cert-manager. |  | MaxLength: 253 <br />MinLength: 1 <br />Optional: \{\} <br /> |
+
+
+#### CertManagementConfiguration
+
+
+
+CertManagementConfiguration configures the trust bundle that the consumers of the provisioning
+certificates of DPF validate peers against.
+
+The certificate authority those certificates chain up to is not configured here. It is chosen once
+for the whole PKI through the certificateAuthority.issuerRef value of the dpf-operator Helm chart,
+which the chart stamps onto the webhook intermediate CA it creates. DPF reads the anchor back from
+there, so the platform and webhook chains cannot end up anchored to different authorities, and the
+serving certificates of the webhooks are covered by the same choice even though the chart creates
+them before a DPFOperatorConfig exists.
+
+
+
+_Appears in:_
+- [SecurityConfiguration](#securityconfiguration)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `trustBundleConfigMapName` _string_ | TrustBundleConfigMapName is the ConfigMap holding the CA certificate(s) that DPF components<br />validate their peers against.<br />Name it when the chart is anchored to an authority of your own, the mode in which the content of<br />the bundle is yours to provide. With the self-signed root of DPF the operator generates the<br />content itself, under this name. To trust additional CAs alongside the root of DPF, merge them<br />into the ConfigMap directly, DPF preserves certificates it did not add. | dpf-ca-trust-bundle | MaxLength: 253 <br />MinLength: 1 <br />Pattern: `^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$` <br />Optional: \{\} <br /> |
+
+
+#### CertManagementStatus
+
+
+
+CertManagementStatus records what the operator has rolled out for the provisioning PKI, as opposed
+to what it is being asked to roll out.
+
+
+
+_Appears in:_
+- [SecurityStatus](#securitystatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `anchor` _[CertManagementAnchor](#certmanagementanchor)_ | Anchor is the certificate authority the provisioning PKI has been rolled out against, recorded<br />once the platform intermediate CA has been applied under it and every peer that has to validate<br />the chain below it trusts that chain.<br />It is what the anchor chosen in the dpf-operator Helm chart is compared against, so a change of<br />authority is reported for as long as the rollout of it is outstanding rather than only by the<br />reconcile that first observed it.<br />Nothing rolled out yet is reported by leaving it out altogether. |  | Optional: \{\} <br /> |
+
+
 
 
 
@@ -423,6 +484,7 @@ _Appears in:_
 | `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object the last time it was patched. |  | Optional: \{\} <br /> |
 | `version` _string_ | Version is the version of the DPF Operator that is currently deployed. |  | Optional: \{\} <br /> |
 | `targetVersion` _string_ | TargetVersion is the version of the DPF Operator that is being deployed. It differs from<br />Version while an upgrade is in progress. |  | Optional: \{\} <br /> |
+| `security` _[SecurityStatus](#securitystatus)_ | Security records what the operator has rolled out for the security-related components it<br />manages. It is grouped the way spec.security groups their configuration, so that what was<br />asked for and what is in effect are read at the same path. |  | Optional: \{\} <br /> |
 
 
 #### DPUDetectorConfiguration
@@ -1450,6 +1512,24 @@ _Appears in:_
 | `kata` _[KataContainersConfiguration](#katacontainersconfiguration)_ | Kata is the configuration for Kata Containers.<br />Kata Containers provides VM-based isolation for untrusted workloads on DPU nodes.<br />This component is disabled by default; set disable to false to enable. |  | Optional: \{\} <br /> |
 | `spiffe` _[SPIFFEConfiguration](#spiffeconfiguration)_ | spiffe configures the SPIFFE-based DPU Agent identity flow. Edits are accepted post-bootstrap<br />but do NOT retro-apply to already-provisioned DPUs. |  | Optional: \{\} <br /> |
 | `vaultKMS` _[VaultKMSConfiguration](#vaultkmsconfiguration)_ | VaultKMS is the configuration for the standalone Vault/OpenBao KMS plugin component.<br />It is deployed as a DaemonSet on control-plane nodes and is disabled by default.<br />The plugin is used for encryption at rest for DPUClusters. |  | Optional: \{\} <br /> |
+| `certManagement` _[CertManagementConfiguration](#certmanagementconfiguration)_ | CertManagement configures the certificate authority that the provisioning certificates of DPF<br />chain up to, and the trust bundle their consumers validate peers against. If unset, DPF signs<br />them with a self-signed CA of its own. |  | Optional: \{\} <br /> |
+
+
+#### SecurityStatus
+
+
+
+SecurityStatus records what the operator has rolled out for the security-related components it
+manages, mirroring SecurityConfiguration on the spec.
+
+
+
+_Appears in:_
+- [DPFOperatorConfigStatus](#dpfoperatorconfigstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `certManagement` _[CertManagementStatus](#certmanagementstatus)_ | CertManagement records what the operator has rolled out for the provisioning PKI. |  | Optional: \{\} <br /> |
 
 
 #### ServiceSetControllerConfiguration

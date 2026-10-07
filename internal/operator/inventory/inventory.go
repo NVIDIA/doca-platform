@@ -132,6 +132,9 @@ var (
 	//go:embed manifests/bfb-registry.yaml
 	bfbRegistryData []byte
 
+	//go:embed manifests/platform-ca.yaml
+	platformCAData []byte
+
 	//go:embed manifests/sfc-controller.yaml
 	sfcControllerData []byte
 
@@ -187,6 +190,7 @@ func New() *SystemComponents {
 		DPFProvisioning: &provisioningControllerObjects{
 			data:            provisioningControllerData,
 			bfbRegistryData: bfbRegistryData,
+			platformCAData:  platformCAData,
 		},
 		ServiceFunctionChainSet: newServiceChainSetControllerObjects(serviceChainSetData),
 		// TODO: Remove this after 27.1 is released.

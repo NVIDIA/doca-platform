@@ -131,14 +131,41 @@ func AddFalse(obj GetSet, conditionType ConditionType, conditionReason Condition
 	add(obj, metav1.ConditionFalse, conditionType, conditionReason, conditionMessage)
 }
 
+// SetSummaryOption configures how SetSummary aggregates the conditions of an object.
+type SetSummaryOption func(*setSummaryOptions)
+
+type setSummaryOptions struct {
+	excluded map[string]struct{}
+}
+
+// ExcludeFromSummary keeps the given conditions out of the Ready summary, so they report on their
+// own without holding Ready back. Use it for a condition that is reported for visibility while
+// nothing depends on it yet, and drop the option once something does.
+func ExcludeFromSummary(conditionTypes ...ConditionType) SetSummaryOption {
+	return func(options *setSummaryOptions) {
+		if options.excluded == nil {
+			options.excluded = make(map[string]struct{}, len(conditionTypes))
+		}
+		for _, conditionType := range conditionTypes {
+			options.excluded[string(conditionType)] = struct{}{}
+		}
+	}
+}
+
 // SetSummary sets the overall controller condition and add a summary to the message.
 // If we have:
 // - only ready conditions, the reason is Success.
 // - unready conditions, the reason will be Pending.
 // - failed conditions, the reason is Failure.
 // - one of the conditions is in deletion, the reason is AwaitingDeletion
-func SetSummary(obj GetSet) {
+// Conditions passed to ExcludeFromSummary are ignored entirely.
+func SetSummary(obj GetSet, opts ...SetSummaryOption) {
 	conditions := obj.GetConditions()
+
+	options := &setSummaryOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
 
 	// Check if any non-Ready condition is stale
 	hasStaleConditions := false
@@ -147,6 +174,11 @@ func SetSummary(obj GetSet) {
 	summaryReason := ReasonPending
 	for _, condition := range conditions {
 		if condition.Type == string(TypeReady) {
+			continue
+		}
+		// Excluded before the staleness check as well, so an excluded condition cannot make Ready
+		// report that reconciliation is still in progress either.
+		if _, excluded := options.excluded[condition.Type]; excluded {
 			continue
 		}
 		if condition.Status == metav1.ConditionTrue {

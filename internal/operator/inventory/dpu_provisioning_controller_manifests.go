@@ -58,8 +58,10 @@ var _ Component = &provisioningControllerObjects{}
 type provisioningControllerObjects struct {
 	data                   []byte
 	bfbRegistryData        []byte
+	platformCAData         []byte
 	objects                []*unstructured.Unstructured
 	bfbRegistryObjects     []*unstructured.Unstructured
+	platformCAObjects      []*unstructured.Unstructured
 	bfbRegistryServiceName string
 	bfbRegistryServicePort int
 }
@@ -78,6 +80,8 @@ func (p *provisioningControllerObjects) Parse() (err error) {
 		return fmt.Errorf("provisioningControllerObjects.data can not be empty")
 	} else if p.bfbRegistryData == nil {
 		return fmt.Errorf("provisioningControllerObjects.bfbRegistryData can not be empty")
+	} else if p.platformCAData == nil {
+		return fmt.Errorf("provisioningControllerObjects.platformCAData can not be empty")
 	}
 
 	objs, err := utils.BytesToUnstructured(p.data)
@@ -92,6 +96,13 @@ func (p *provisioningControllerObjects) Parse() (err error) {
 	} else if len(bfbRegistryObjs) == 0 {
 		return fmt.Errorf("no objects found in BFB Registry manifests")
 	}
+	platformCAObjs, err := utils.BytesToUnstructured(p.platformCAData)
+	if err != nil {
+		return fmt.Errorf("error while converting platform CA manifests to objects: %w", err)
+	} else if len(platformCAObjs) == 0 {
+		return fmt.Errorf("no objects found in platform CA manifests")
+	}
+	p.platformCAObjects = append(p.platformCAObjects, platformCAObjs...)
 	p.bfbRegistryObjects = append(p.bfbRegistryObjects, bfbRegistryObjs...)
 	for _, obj := range bfbRegistryObjs {
 		if ObjectKind(obj.GetKind()) != ServiceKind {
@@ -150,11 +161,19 @@ func (p *provisioningControllerObjects) GenerateManifests(_ context.Context, var
 	if t := vars.DPFProvisioningController.DMSTimeout; t != nil && *t < 0 {
 		return nil, fmt.Errorf("DPFProvisioningController invalid DMSTimeout, must be greater than or equal to 0")
 	}
+	if vars.PlatformCAIssuerRef.Name == "" {
+		return nil, fmt.Errorf("PlatformCAIssuerRef must have a name, it anchors the platform intermediate CA")
+	}
 
 	// make a copy of the objects
 	objsCopy := make([]*unstructured.Unstructured, 0, len(p.objects))
 	for i := range p.objects {
 		objsCopy = append(objsCopy, p.objects[i].DeepCopy())
+	}
+	// Added before the edits below so they pick up the namespace and the component labels like every
+	// other object read from an embedded manifest, and so the issuerRef edit reaches the intermediate.
+	for i := range p.platformCAObjects {
+		objsCopy = append(objsCopy, p.platformCAObjects[i].DeepCopy())
 	}
 
 	labelsToAdd := map[string]string{
@@ -177,6 +196,7 @@ func (p *provisioningControllerObjects) GenerateManifests(_ context.Context, var
 		AddForAll(NamespaceEdit(vars.Namespace),
 			LabelsEdit(labelsToAdd)).
 		AddForKind(IssuerKind, p.setProvisioningIssuerCASecretEdit(vars)).
+		AddForKind(CertificateKind, p.setPlatformCAIssuerRefEdit(vars)).
 		AddForKindS(DeploymentKind, ImagePullSecretsEditForDeploymentEdit(vars.ImagePullSecrets...)).
 		AddForKindS(DeploymentKind, p.dpfProvisioningDeploymentEdit(vars)).
 		AddForKindS(DeploymentKind, NodeAffinityEdit(&controlPlaneNodeAffinity)).
@@ -193,6 +213,27 @@ func (p *provisioningControllerObjects) GenerateManifests(_ context.Context, var
 	}
 
 	return ret, nil
+}
+
+// setPlatformCAIssuerRefEdit points the platform intermediate CA at whatever anchors it.
+//
+// The provisioning certificates reference the issuer over that CA and never the CA that signs it,
+// which makes this issuerRef the single place where the choice of certificate authority takes
+// effect: the self-signed root the dpf-operator chart creates, or the authority its
+// certificateAuthority.issuerRef value names. Everything below the intermediate is identical in
+// both modes, so this is the only object the mode edit touches.
+func (p *provisioningControllerObjects) setPlatformCAIssuerRefEdit(vars Variables) UnstructuredEdit {
+	return func(obj *unstructured.Unstructured) error {
+		if obj.GetName() != operatorv1.PlatformIntermediateCAName {
+			return nil
+		}
+
+		return unstructured.SetNestedStringMap(obj.Object, map[string]string{
+			"name":  vars.PlatformCAIssuerRef.Name,
+			"kind":  vars.PlatformCAIssuerRef.Kind,
+			"group": vars.PlatformCAIssuerRef.Group,
+		}, "spec", "issuerRef")
+	}
 }
 
 func (p *provisioningControllerObjects) setProvisioningIssuerCASecretEdit(vars Variables) UnstructuredEdit {

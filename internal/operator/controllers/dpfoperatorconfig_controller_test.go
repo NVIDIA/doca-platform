@@ -119,6 +119,7 @@ func TestDPFOperatorConfigReconciler_Conditions(t *testing.T) {
 	testNS := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "testns-"}}
 	// Create the namespace for the test.
 	g.Expect(testClient.Create(ctx, testNS)).To(Succeed())
+	createWebhookIntermediateCA(g, testNS.Name)
 
 	// This DPFOperatorConfig as various problems which will be fixed during the flow of the test code.
 	config := &operatorv1.DPFOperatorConfig{
@@ -145,6 +146,9 @@ func TestDPFOperatorConfigReconciler_Conditions(t *testing.T) {
 	// Create a pull secret to be used by the DPFOperatorConfig.
 	pullSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "secret-one", Namespace: testNS.Name}}
 	g.Expect(testClient.Create(ctx, pullSecret)).To(Succeed())
+	// Stand in for the chart and create the issuer the platform CA is anchored to, so that
+	// CertManagementReady below reports on the chain rather than on a missing anchor.
+	createReadyIssuer(g, operatorv1.GlobalRootIssuerName, testNS.Name)
 	// Create the DPFOperatorConfig.
 	g.Expect(testClient.Create(ctx, config)).To(Succeed())
 
@@ -159,6 +163,7 @@ func TestDPFOperatorConfigReconciler_Conditions(t *testing.T) {
 				"ImagePullSecretsReconciled":     "Error",
 				"PreUpgradeValidationReady":      "Success",
 				"CATrustBundleReady":             "Pending",
+				"CertManagementReady":            "Pending",
 			})
 		}).WithTimeout(10 * time.Second).Should(Succeed())
 	})
@@ -181,6 +186,9 @@ func TestDPFOperatorConfigReconciler_Conditions(t *testing.T) {
 				"ImagePullSecretsReconciled":     "Success",
 				"PreUpgradeValidationReady":      "Success",
 				"CATrustBundleReady":             "Pending",
+				// cert-manager does not run in envtest, so the platform intermediate CA the operator
+				// applies is never issued here and the chain below the anchor stays pending.
+				"CertManagementReady": "Pending",
 			})
 		}).WithTimeout(5*time.Second).Should(Succeed(), fmt.Sprintf("test failed with %v", config))
 	})
@@ -209,6 +217,7 @@ func TestDPFOperatorConfigReconciler_Conditions(t *testing.T) {
 				"ImagePullSecretsReconciled":     "Success",
 				"PreUpgradeValidationReady":      "Success",
 				"CATrustBundleReady":             "Pending",
+				"CertManagementReady":            "Pending",
 			})
 		}).WithTimeout(10 * time.Second).Should(Succeed())
 
@@ -219,11 +228,13 @@ func TestDPFOperatorConfigReconciler_Conditions(t *testing.T) {
 			g.Expect(testClient.Update(ctx, dpuservice)).To(Succeed())
 		}).WithTimeout(10 * time.Second).Should(Succeed())
 
-		// Wait for DPFOperatorConfig to be deleted
+		// Wait for DPFOperatorConfig to be deleted. Teardown reports every kind it has just deleted as
+		// still awaiting deletion and requeues, so the provisioning objects this config renders take a
+		// further pass of reconcileDeleteRequeueDuration to be seen gone.
 		g.Eventually(func(g Gomega) {
 			conf := &operatorv1.DPFOperatorConfig{}
 			g.Expect(apierrors.IsNotFound(testClient.Get(ctx, client.ObjectKeyFromObject(config), conf))).To(BeTrue())
-		}).WithTimeout(10 * time.Second).Should(Succeed())
+		}).WithTimeout(3 * reconcileDeleteRequeueDuration).Should(Succeed())
 	})
 }
 
@@ -462,6 +473,7 @@ func TestDPFOperatorConfigReconciler_Reconcile(t *testing.T) {
 	testNS := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "testns-"}}
 	// Create the namespace for the test.
 	g.Expect(testClient.Create(ctx, testNS)).To(Succeed())
+	createWebhookIntermediateCA(g, testNS.Name)
 
 	initialImagePullSecrets := []string{"secret-one", "secret-two"}
 	updatedImagePullSecrets := []string{"secret-two"}
@@ -740,6 +752,7 @@ func TestDPFOperatorConfigReconciler_ReconcileWithTwoDPUClusters(t *testing.T) {
 	testNS := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "testns-"}}
 	// Create the namespace for the test.
 	g.Expect(testClient.Create(ctx, testNS)).To(Succeed())
+	createWebhookIntermediateCA(g, testNS.Name)
 
 	initialImagePullSecrets := []string{"secret-one", "secret-two"}
 	// Create the DPF ImagePullSecrets
@@ -1160,6 +1173,7 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 
 	testNS := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "testns-"}}
 	g.Expect(testClient.Create(ctx, testNS)).To(Succeed())
+	createWebhookIntermediateCA(g, testNS.Name)
 
 	// Create a proper inventory and defaults for the reconciler
 	mockInventory := inventory.New()
