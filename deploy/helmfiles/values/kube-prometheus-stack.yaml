@@ -300,6 +300,40 @@ grafana:
             name: TraceID
             url: "$${__value.raw}"
 
+    - name: Tempo
+      type: tempo
+      uid: tempo
+      access: proxy
+      url: http://tempo.dpf-operator-system.svc.cluster.local:3200
+      isDefault: false
+      editable: true
+      jsonData:
+        # Jump from a trace span to the matching logs in Loki, completing the round trip with
+        # the Loki -> Tempo derivedField above.
+        tracesToLogsV2:
+          datasourceUid: loki
+          spanStartTimeShift: "-1h"
+          spanEndTimeShift: "1h"
+          filterByTraceID: true
+          customQuery: false
+        # Jump from a trace span to request-rate/error/duration metrics in Prometheus. Tempo's
+        # metrics generator (values/tempo.yaml) writes them, labelled by service.
+        # kube-prometheus-stack creates the Prometheus datasource with uid: prometheus.
+        tracesToMetrics:
+          datasourceUid: prometheus
+          tags:
+            - key: service.name
+              value: service
+          queries:
+            - name: Request rate
+              query: sum(rate(traces_spanmetrics_calls_total{$$__tags}[5m]))
+            - name: Error rate
+              query: sum(rate(traces_spanmetrics_calls_total{$$__tags, status_code="STATUS_CODE_ERROR"}[5m]))
+            - name: Duration (p90)
+              query: histogram_quantile(0.9, sum(rate(traces_spanmetrics_latency_bucket{$$__tags}[5m])) by (le))
+        serviceMap:
+          datasourceUid: prometheus
+
   # Sidecar configuration
   sidecar:
     # Datasources sidecar - provisions datasources from ConfigMaps/Secrets

@@ -342,7 +342,7 @@ linters:
         linters:
           - kubeapilinter
       - path: api/operator/v1alpha1/componentconfig_types.go
-        text: "requiredfields: field (OpenTelemetryCollectorLoggingConfiguration.Endpoint|OpenTelemetryCollectorMetricsConfiguration.Endpoint)"
+        text: "requiredfields: field OpenTelemetryCollectorExportConfiguration.Endpoint"
         linters:
           - kubeapilinter
       - path: api/operator/v1alpha1/dpfoperatorconfig_types.go
@@ -483,7 +483,7 @@ linters:
         linters:
           - kubeapilinter
       - path: api/operator/v1alpha1/componentconfig_types.go
-        text: "optionalfields: field (ProvisioningControllerConfiguration.EnableDynamicBFCFGTemplates|ProvisioningControllerConfiguration.DMSTimeout|ProvisioningControllerConfiguration.MaxDPUParallelInstallations|ProvisioningControllerConfiguration.MaxUnavailableDPUNodes|ProvisioningControllerConfiguration.HostAgentDNSPolicy|RegistryConfiguration.Port|KamajiClusterManagerConfiguration.EtcdEncryptionAtRest|FlannelConfiguration.Images|OpenTelemetryCollectorConfiguration.Logging|OpenTelemetryCollectorConfiguration.Metrics|OpenTelemetryCollectorCASecretReference.Namespace|OpenTelemetryCollectorCASecretReference.Key|OpenTelemetryCollectorLoggingConfiguration.Transport|OpenTelemetryCollectorLoggingConfiguration.CASecretRef|OpenTelemetryCollectorMetricsConfiguration.Transport|OpenTelemetryCollectorMetricsConfiguration.CASecretRef|KataContainersConfiguration.ContainerdConfigFileName|EtcdEncryptionAtRestConfiguration.StaticKey|VaultKMSConfiguration.TokenCheckIntervalSeconds|VaultKMSConfiguration.LoginTimeoutSeconds|VaultKMSConfiguration.Namespace|VaultKMSTLS.CACertConfigMapRef|VaultKMSTransit.Mount|VaultKMSAuth.Token|VaultKMSAuth.AppRole|VaultKMSAuth.Userpass|VaultKMSAuth.Kubernetes|VaultKMSAuth.JWT|VaultKMSAppRoleAuth.AuthEngineMountPath|VaultKMSUserpassAuth.AuthEngineMountPath|VaultKMSKubernetesAuth.Audience|VaultKMSKubernetesAuth.AuthEngineMountPath|VaultKMSJWTAuth.AuthEngineMountPath)"
+        text: "optionalfields: field (ProvisioningControllerConfiguration.EnableDynamicBFCFGTemplates|ProvisioningControllerConfiguration.DMSTimeout|ProvisioningControllerConfiguration.MaxDPUParallelInstallations|ProvisioningControllerConfiguration.MaxUnavailableDPUNodes|ProvisioningControllerConfiguration.HostAgentDNSPolicy|RegistryConfiguration.Port|KamajiClusterManagerConfiguration.EtcdEncryptionAtRest|FlannelConfiguration.Images|OpenTelemetryCollectorConfiguration.Logging|OpenTelemetryCollectorConfiguration.Metrics|OpenTelemetryCollectorConfiguration.Tracing|OpenTelemetryCollectorCASecretReference.Namespace|OpenTelemetryCollectorCASecretReference.Key|OpenTelemetryCollectorExportConfiguration.Transport|OpenTelemetryCollectorExportConfiguration.CASecretRef|KataContainersConfiguration.ContainerdConfigFileName|EtcdEncryptionAtRestConfiguration.StaticKey|VaultKMSConfiguration.TokenCheckIntervalSeconds|VaultKMSConfiguration.LoginTimeoutSeconds|VaultKMSConfiguration.Namespace|VaultKMSTLS.CACertConfigMapRef|VaultKMSTransit.Mount|VaultKMSAuth.Token|VaultKMSAuth.AppRole|VaultKMSAuth.Userpass|VaultKMSAuth.Kubernetes|VaultKMSAuth.JWT|VaultKMSAppRoleAuth.AuthEngineMountPath|VaultKMSUserpassAuth.AuthEngineMountPath|VaultKMSKubernetesAuth.Audience|VaultKMSKubernetesAuth.AuthEngineMountPath|VaultKMSJWTAuth.AuthEngineMountPath)"
         linters:
           - kubeapilinter
       - path: api/operator/v1alpha1/dpfoperatorconfig_types.go

@@ -358,6 +358,22 @@ func openTelemetryCollectorEdits(vars Variables) ([]StructuredEdit, error) {
 		}
 	}
 
+	// Tracing configures where the DPU cluster opentelemetry-collector forwards trace spans it
+	// receives locally over OTLP (e.g. from other DOCA services running on the DPU), the same way
+	// logging/metrics are forwarded above.
+	if vars.OpenTelemetryCollector.Tracing.Endpoint != "" {
+		edits = append(edits, dpuServiceAddValueEdit(vars.OpenTelemetryCollector.Tracing.Endpoint,
+			operatorv1.OpenTelemetryCollectorName.String(), "tracing", "endpoint"))
+		if vars.OpenTelemetryCollector.Tracing.Transport != "" {
+			edits = append(edits, dpuServiceAddValueEdit(vars.OpenTelemetryCollector.Tracing.Transport,
+				operatorv1.OpenTelemetryCollectorName.String(), "tracing", "transport"))
+		}
+		if vars.OpenTelemetryCollector.Tracing.CACert != "" {
+			edits = append(edits, dpuServiceAddValueEdit(vars.OpenTelemetryCollector.Tracing.CACert,
+				operatorv1.OpenTelemetryCollectorName.String(), "tracing", "caCert"))
+		}
+	}
+
 	return edits, nil
 }
 

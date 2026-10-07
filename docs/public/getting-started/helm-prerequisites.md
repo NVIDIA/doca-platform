@@ -34,6 +34,7 @@ and purposes:
 | [kube-state-metrics]      | 8.1.3   | Exposes DPF Operator related objects as metrics                                                | No          | Post-installation     |
 | [kube-prometheus-stack]   | 88.1.3  | Complete monitoring stack with Prometheus and Grafana for collecting and visualizing metrics   | No          | Post-installation     |
 | [loki]                    | 18.7.1  | Kubernetes log aggregation and storage, integrates with Grafana                                | No          | Post-installation     |
+| [tempo]                   | 3.1.0   | Distributed trace storage and search, integrates with Grafana, Loki and Prometheus             | No          | Post-installation     |
 | [opentelemetry-collector] | 0.166.0 | Collects and exports metrics, logs, and traces to observability backends                       | No          | Post-installation     |
 
 `Conditional` means the component is required for the default installation described in the user guides, but can be
@@ -42,6 +43,12 @@ replaced in custom deployments.
 Some of the components requires the DPF Operator to be installed before they can be installed.  
 This is necessary for `kube-state-metrics` and `kube-prometheus-stack` (Grafana dashboards), because we rely on ConfigMaps created by the DPF Operator to
 provide the necessary configuration for these components.
+
+> [!IMPORTANT]
+> The bundled `loki` and `tempo` releases are reference deployments: a single pod on a local volume, not highly
+> available. For production, run your own backends, for example Tempo in
+> [microservices mode](https://grafana.com/docs/tempo/latest/set-up-for-tracing/setup-tempo/deploy/), and point the
+> `opentelemetry-collector` exporters at them. The DPF controllers need no change.
 
 See [Running Argo CD in a separate namespace](#running-argo-cd-in-a-separate-namespace) for the configuration required to utilise ArgoCD running in a different namespace.
 
@@ -61,6 +68,7 @@ See [Running Kamaji in a separate namespace](#running-kamaji-in-a-separate-names
 [kube-state-metrics]: https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-state-metrics
 [kube-prometheus-stack]: https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack
 [loki]: https://github.com/grafana-community/helm-charts/tree/main/charts/loki
+[tempo]: https://github.com/grafana-community/helm-charts/tree/main/charts/tempo
 [opentelemetry-collector]: https://github.com/open-telemetry/opentelemetry-collector-contrib/
 [helmfile]: https://helmfile.readthedocs.io/
 [DPF repository]: https://github.com/nvidia/doca-platform/
@@ -1019,6 +1027,40 @@ grafana:
             name: TraceID
             url: "$${__value.raw}"
 
+    - name: Tempo
+      type: tempo
+      uid: tempo
+      access: proxy
+      url: http://tempo.dpf-operator-system.svc.cluster.local:3200
+      isDefault: false
+      editable: true
+      jsonData:
+        # Jump from a trace span to the matching logs in Loki, completing the round trip with
+        # the Loki -> Tempo derivedField above.
+        tracesToLogsV2:
+          datasourceUid: loki
+          spanStartTimeShift: "-1h"
+          spanEndTimeShift: "1h"
+          filterByTraceID: true
+          customQuery: false
+        # Jump from a trace span to request-rate/error/duration metrics in Prometheus. Tempo's
+        # metrics generator (values/tempo.yaml) writes them, labelled by service.
+        # kube-prometheus-stack creates the Prometheus datasource with uid: prometheus.
+        tracesToMetrics:
+          datasourceUid: prometheus
+          tags:
+            - key: service.name
+              value: service
+          queries:
+            - name: Request rate
+              query: sum(rate(traces_spanmetrics_calls_total{$$__tags}[5m]))
+            - name: Error rate
+              query: sum(rate(traces_spanmetrics_calls_total{$$__tags, status_code="STATUS_CODE_ERROR"}[5m]))
+            - name: Duration (p90)
+              query: histogram_quantile(0.9, sum(rate(traces_spanmetrics_latency_bucket{$$__tags}[5m])) by (le))
+        serviceMap:
+          datasourceUid: prometheus
+
   # Sidecar configuration
   sidecar:
     # Datasources sidecar - provisions datasources from ConfigMaps/Secrets
@@ -1242,6 +1284,95 @@ lokiCanary:
 
 </details>
 
+<details markdown="1"><summary><b>tempo</b></summary>
+
+[embedmd]:#(../../../deploy/helmfiles/values/tempo.yaml)
+```yaml
+# Tempo configuration for management cluster
+# This deployment receives trace spans from the management cluster opentelemetry-collector
+# (deploy/helmfiles/values/opentelemetry-collector.yaml) over OTLP, and is wired into Grafana
+# (values/kube-prometheus-stack.yaml) as a datasource for trace-to-logs (Loki) and
+# trace-to-metrics (Prometheus) correlation, completing the round trip with the existing
+# logs-to-traces derivedFields on the Loki datasource.
+
+tempo:
+  # Single binary mode, matching Loki's deployment shape in this same stack: one process, one
+  # replica, local filesystem storage. Not HA; move to a distributed/object-storage backend
+  # before relying on this for anything beyond local debugging of trace plumbing.
+  storage:
+    trace:
+      backend: local
+      local:
+        path: /var/tempo/traces
+      wal:
+        path: /var/tempo/wal
+
+  # Only OTLP (4317 grpc / 4318 http) is used. The Jaeger receivers stay at the chart defaults,
+  # its service template fails when the jaeger block is removed.
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+  # Generate span metrics and service-graph metrics from the received traces and remote-write
+  # them to Prometheus, whose remote-write receiver is enabled in values/kube-prometheus-stack.yaml.
+  # They back the Grafana trace-to-metrics links and the service map.
+  metricsGenerator:
+    enabled: true
+    remoteWriteUrl: http://kube-prometheus-stack-prometheus.dpf-operator-system.svc.cluster.local:9090/api/v1/write
+    storage:
+      path: /var/tempo/metrics
+  overrides:
+    defaults:
+      metrics_generator:
+        processors:
+          - service-graphs
+          - span-metrics
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 200m
+      memory: 512Mi
+
+# Schedule on control-plane nodes, matching Loki/opentelemetry-collector.
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: "node-role.kubernetes.io/master"
+              operator: Exists
+        - matchExpressions:
+            - key: "node-role.kubernetes.io/control-plane"
+              operator: Exists
+
+tolerations:
+  - key: node-role.kubernetes.io/master
+    operator: Exists
+    effect: NoSchedule
+  - key: node-role.kubernetes.io/control-plane
+    operator: Exists
+    effect: NoSchedule
+
+persistence:
+  enabled: true
+  storageClassName: local-path
+  size: 10Gi
+
+serviceMonitor:
+  enabled: true
+  additionalLabels:
+    release: kube-prometheus-stack
+```
+
+</details>
+
 
 <details markdown="1"><summary><b>opentelemetry-collector</b></summary>
 
@@ -1368,6 +1499,13 @@ config:
       resource_to_telemetry_conversion:
         enabled: true
 
+    # Export traces to Tempo (deploy/helmfiles/values/tempo.yaml), which is also wired into
+    # Grafana (values/kube-prometheus-stack.yaml) for trace-to-logs/metrics correlation.
+    otlp/tempo:
+      endpoint: tempo.dpf-operator-system.svc.cluster.local:4317
+      tls:
+        insecure: true
+
     # Debug exporter for troubleshooting
     debug:
       verbosity: basic
@@ -1385,6 +1523,11 @@ config:
         receivers: [otlp, otlp/tls]
         processors: [memory_limiter, k8s_attributes, resource, batch]
         exporters: [prometheusremotewrite, debug]
+
+      traces:
+        receivers: [otlp, otlp/tls]
+        processors: [memory_limiter, k8s_attributes, resource, batch]
+        exporters: [otlp/tempo, debug]
 
 # Resources for the collector deployment
 resources:

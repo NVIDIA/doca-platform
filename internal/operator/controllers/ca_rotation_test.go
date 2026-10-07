@@ -327,7 +327,7 @@ func TestCARotationSignalSurvivesAFailedApply(t *testing.T) {
 	config := newPausedConfig(testNS.Name)
 	config.Spec.Monitoring = &operatorv1.MonitoringConfiguration{
 		OpenTelemetryCollector: &operatorv1.OpenTelemetryCollectorConfiguration{
-			Logging: &operatorv1.OpenTelemetryCollectorLoggingConfiguration{
+			Logging: &operatorv1.OpenTelemetryCollectorExportConfiguration{
 				Endpoint:    "https://collector.example.com:4318",
 				CASecretRef: &operatorv1.OpenTelemetryCollectorCASecretReference{Name: "absent-ca"},
 			},

@@ -83,10 +83,10 @@ func openTelemetryCollectorConfiguration(ctx context.Context, c client.Client, d
 	err := c.Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: otelServingCertSecretName}, servingCert)
 	if apierrors.IsNotFound(err) || (err == nil && len(servingCert.Data[operatorv1.OpenTelemetryCollectorCASecretKey]) == 0) {
 		return &operatorv1.OpenTelemetryCollectorConfiguration{
-			Logging: &operatorv1.OpenTelemetryCollectorLoggingConfiguration{
+			Logging: &operatorv1.OpenTelemetryCollectorExportConfiguration{
 				Endpoint: fmt.Sprintf("%s%s:%d", otelEndpointSchema, exportAddress, otelNodePort),
 			},
-			Metrics: &operatorv1.OpenTelemetryCollectorMetricsConfiguration{
+			Metrics: &operatorv1.OpenTelemetryCollectorExportConfiguration{
 				Endpoint: fmt.Sprintf("%s%s:%d", otelEndpointSchema, exportAddress, otelNodePort),
 			},
 		}
@@ -97,11 +97,11 @@ func openTelemetryCollectorConfiguration(ctx context.Context, c client.Client, d
 	// The CA is read straight from the cert-manager-managed serving certificate Secret
 	// (namespace and key default to the DPFOperatorConfig namespace and "ca.crt").
 	return &operatorv1.OpenTelemetryCollectorConfiguration{
-		Logging: &operatorv1.OpenTelemetryCollectorLoggingConfiguration{
+		Logging: &operatorv1.OpenTelemetryCollectorExportConfiguration{
 			Endpoint:    fmt.Sprintf("%s%s:%d", otelTLSEndpointSchema, exportAddress, otelTLSNodePort),
 			CASecretRef: &operatorv1.OpenTelemetryCollectorCASecretReference{Name: otelServingCertSecretName},
 		},
-		Metrics: &operatorv1.OpenTelemetryCollectorMetricsConfiguration{
+		Metrics: &operatorv1.OpenTelemetryCollectorExportConfiguration{
 			Endpoint:    fmt.Sprintf("%s%s:%d", otelTLSEndpointSchema, exportAddress, otelTLSGRPCNodePort),
 			Transport:   ptr.To(operatorv1.OpenTelemetryCollectorTransportGRPC),
 			CASecretRef: &operatorv1.OpenTelemetryCollectorCASecretReference{Name: otelServingCertSecretName},

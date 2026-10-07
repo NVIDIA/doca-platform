@@ -23,4 +23,7 @@ OpenTelemetry Collector for DPU nodes
 | resources.requests.cpu | string | `"100m"` |  |
 | resources.requests.memory | string | `"256Mi"` |  |
 | serviceDaemonSet.labels | object | `{}` |  |
+| tracing.caCert | string | `""` | PEM-encoded CA certificate bundle used to verify the endpoint's TLS certificate. Set via DPFOperatorConfig.spec.monitoring.openTelemetryCollector.tracing.caSecretRef. If empty, TLS endpoints are verified against the system CA pool. |
+| tracing.endpoint | string | `""` | endpoint where the DPU cluster collector forwards traces received from local OTLP producers (e.g. DOCA services on the DPU) to the management cluster. This MUST be set via DPFOperatorConfig.spec.monitoring.openTelemetryCollector.tracing.endpoint. Example: "http://10.0.110.1:30050" (management cluster node IP with NodePort). |
+| tracing.transport | string | `"http"` | OTLP transport used to export to the endpoint: "http" (OTLP/HTTP) or "grpc" (OTLP/gRPC). Set via DPFOperatorConfig.spec.monitoring.openTelemetryCollector.tracing.transport. |
 
