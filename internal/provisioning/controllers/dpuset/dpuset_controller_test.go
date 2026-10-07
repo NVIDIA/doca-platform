@@ -623,6 +623,32 @@ var _ = Describe("DPUSetReconciler BlueFieldSoftware finalizer", func() {
 	}
 
 	Context("Handle", func() {
+		It("should persist the DPUSet finalizer before attaching the BlueFieldSoftware finalizer", func() {
+			bfs := &provisioningv1.BlueFieldSoftware{
+				ObjectMeta: metav1.ObjectMeta{Name: bfsName, Namespace: testNamespace},
+			}
+			dpuSet := newDPUSet()
+			dpuSet.Finalizers = nil
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(bfs, dpuSet).
+				Build()
+			reconciler := &DPUSetReconciler{
+				Client:   fakeClient,
+				Scheme:   scheme,
+				Recorder: record.NewFakeRecorder(10),
+			}
+
+			_, err := reconciler.Handle(ctx, dpuSet)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(dpuSet.Finalizers).To(ContainElement(provisioningv1.DPUSetFinalizer))
+
+			updatedBFS := &provisioningv1.BlueFieldSoftware{}
+			Expect(fakeClient.Get(ctx, client.ObjectKeyFromObject(bfs), updatedBFS)).To(Succeed())
+			Expect(updatedBFS.Finalizers).NotTo(ContainElement(provisioningv1.BlueFieldSoftwareFinalizerForDPUSet(dpuSet.Name)))
+		})
+
 		It("should add a per-DPUSet finalizer to the referenced BlueFieldSoftware", func() {
 			bfs := &provisioningv1.BlueFieldSoftware{
 				ObjectMeta: metav1.ObjectMeta{Name: bfsName, Namespace: testNamespace},
@@ -641,6 +667,52 @@ var _ = Describe("DPUSetReconciler BlueFieldSoftware finalizer", func() {
 
 			_, err := reconciler.Handle(ctx, dpuSet)
 			Expect(err).NotTo(HaveOccurred())
+
+			updatedBFS := &provisioningv1.BlueFieldSoftware{}
+			Expect(fakeClient.Get(ctx, client.ObjectKeyFromObject(bfs), updatedBFS)).To(Succeed())
+			Expect(updatedBFS.Finalizers).To(ContainElement(provisioningv1.BlueFieldSoftwareFinalizerForDPUSet(dpuSet.Name)))
+		})
+
+		It("should attach the BlueFieldSoftware finalizer even when cluster metadata conflicts", func() {
+			dpuSet := newDPUSet()
+			dpuSet.Spec.DPUTemplate.Spec.Cluster.NodeLabels = map[string]string{"env": "from-dpuset"}
+			bfs := &provisioningv1.BlueFieldSoftware{
+				ObjectMeta: metav1.ObjectMeta{Name: bfsName, Namespace: testNamespace},
+			}
+			node := &provisioningv1.DPUNode{
+				ObjectMeta: metav1.ObjectMeta{Name: "node-1", Namespace: testNamespace},
+			}
+			device := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "device-1",
+					Namespace: testNamespace,
+					Labels:    map[string]string{provisioningv1.DPUNodeNameLabel: node.Name},
+				},
+				Spec: provisioningv1.DPUDeviceSpec{
+					Cluster: &provisioningv1.DPUDeviceClusterSpec{
+						NodeLabels: map[string]string{"env": "from-device"},
+					},
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(bfs, node, device, dpuSet).
+				Build()
+			reconciler := &DPUSetReconciler{
+				Client:   fakeClient,
+				Scheme:   scheme,
+				Recorder: record.NewFakeRecorder(10),
+			}
+
+			// Conflict is reported on the DPUSet and does not fail the reconcile, so a
+			// protection attempt after this return would never be retried.
+			_, err := reconciler.Handle(ctx, dpuSet)
+			Expect(err).NotTo(HaveOccurred())
+
+			dpuList := &provisioningv1.DPUList{}
+			Expect(fakeClient.List(ctx, dpuList, client.InNamespace(testNamespace))).To(Succeed())
+			Expect(dpuList.Items).To(BeEmpty())
 
 			updatedBFS := &provisioningv1.BlueFieldSoftware{}
 			Expect(fakeClient.Get(ctx, client.ObjectKeyFromObject(bfs), updatedBFS)).To(Succeed())

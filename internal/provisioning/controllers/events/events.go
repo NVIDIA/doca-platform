@@ -29,6 +29,8 @@ const (
 
 	// EventFailedDeleteBFBReason indicates that BFB delete execution failed.
 	EventFailedDeleteBFBReason = "FailedDelete"
+	// EventFailedDeleteBlueFieldSoftwareReason indicates that BlueFieldSoftware delete execution failed.
+	EventFailedDeleteBlueFieldSoftwareReason = "FailedDeleteBlueFieldSoftware"
 	// EventFailedDownloadBFBReason indicates that BFB download execution failed.
 	EventFailedDownloadBFBReason = "FailedDownload"
 	// EventSuccessfulDownloadBFBReason indicates that BFB is successfully downloaded.
