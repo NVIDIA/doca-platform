@@ -28,6 +28,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/operator/utils"
 	"github.com/nvidia/doca-platform/internal/release"
 	"github.com/nvidia/doca-platform/pkg/bfcfg"
+	"github.com/nvidia/doca-platform/pkg/certmanager"
 
 	. "github.com/onsi/gomega"
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
@@ -39,6 +40,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
@@ -101,6 +103,7 @@ func TestDPFProvisioningControllerObjects_Parse(t *testing.T) {
 			p := provisioningControllerObjects{
 				data:            provisioningControllerData,
 				bfbRegistryData: bfbRegistryData,
+				platformCAData:  platformCAData,
 			}
 			p.data = tc.data
 			if tc.expectErr {
@@ -119,9 +122,12 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 	g.Expect(err).NotTo(HaveOccurred())
 	originalBFBRegistryObjs, err := utils.BytesToUnstructured(bfbRegistryData)
 	g.Expect(err).NotTo(HaveOccurred())
+	originalPlatformCAObjs, err := utils.BytesToUnstructured(platformCAData)
+	g.Expect(err).NotTo(HaveOccurred())
 	provCtrl := provisioningControllerObjects{
 		data:            provisioningControllerData,
 		bfbRegistryData: bfbRegistryData,
+		platformCAData:  platformCAData,
 	}
 	g.Expect(provCtrl.Parse()).NotTo(HaveOccurred())
 	defaults := &release.Defaults{}
@@ -217,8 +223,10 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 				g.Expect(obj.GetNamespace()).To(Equal(testNS))
 				uns, ok := obj.(*unstructured.Unstructured)
 				g.Expect(ok).To(BeTrue())
+				// A CA certificate such as the platform intermediate serves no hostname and carries no
+				// dnsNames, so there is nothing to rewrite the namespace into.
 				certs, ok, _ := unstructured.NestedSlice(uns.UnstructuredContent(), "spec", "dnsNames")
-				g.Expect(ok).To(BeTrue())
+				g.Expect(ok || obj.GetName() == operatorv1.PlatformIntermediateCAName).To(BeTrue())
 				for i := range certs {
 					s, ok := certs[i].(string)
 					g.Expect(ok).To(BeTrue())
@@ -260,7 +268,9 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 		generatedObjs, err := provCtrl.GenerateManifests(context.Background(), vars)
 		g.Expect(err).NotTo(HaveOccurred())
 
-		g.Expect(generatedObjs).To(HaveLen(len(originalObjs) + len(originalBFBRegistryObjs)))
+		// The platform intermediate CA and the issuer over it are added by GenerateManifests rather
+		// than read from the embedded manifest, so they are not part of the parsed originals.
+		g.Expect(generatedObjs).To(HaveLen(len(originalObjs) + len(originalBFBRegistryObjs) + len(originalPlatformCAObjs)))
 
 		// Expect the namespaces for the namespace scoped objects to equal the namespace in variables.
 		for _, obj := range generatedObjs {
@@ -647,6 +657,7 @@ func TestDPFProvisioningControllerObjects_GenerateBFBRegistryManifests(t *testin
 	provCtrl := &provisioningControllerObjects{
 		data:            provisioningControllerData,
 		bfbRegistryData: bfbRegistryData,
+		platformCAData:  platformCAData,
 	}
 	err = provCtrl.Parse()
 	g.Expect(err).NotTo(HaveOccurred())
@@ -779,6 +790,7 @@ func TestDPFProvisioningControllerObjects_setMaxDPUParallelInstallations(t *test
 	provCtrl := &provisioningControllerObjects{
 		data:            provisioningControllerData,
 		bfbRegistryData: bfbRegistryData,
+		platformCAData:  platformCAData,
 	}
 	err = provCtrl.Parse()
 	g.Expect(err).NotTo(HaveOccurred())
@@ -961,6 +973,7 @@ func TestDPFProvisioningControllerObjects_setOSInstallTimeout(t *testing.T) {
 	provCtrl := &provisioningControllerObjects{
 		data:            provisioningControllerData,
 		bfbRegistryData: bfbRegistryData,
+		platformCAData:  platformCAData,
 	}
 	g.Expect(provCtrl.Parse()).To(Succeed())
 
@@ -1016,7 +1029,11 @@ func TestDPFProvisioningControllerObjects_setNodeJoinTokenTTL(t *testing.T) {
 	defaults := release.NewDefaults()
 	g.Expect(defaults.Parse()).To(Succeed())
 
-	provCtrl := &provisioningControllerObjects{data: provisioningControllerData, bfbRegistryData: bfbRegistryData}
+	provCtrl := &provisioningControllerObjects{
+		data:            provisioningControllerData,
+		bfbRegistryData: bfbRegistryData,
+		platformCAData:  platformCAData,
+	}
 	g.Expect(provCtrl.Parse()).To(Succeed())
 
 	findDeployment := func(t *testing.T, vars Variables) *appsv1.Deployment {
@@ -1069,6 +1086,7 @@ func TestDPFProvisioningControllerObjects_setOSInstallRetries(t *testing.T) {
 	provCtrl := &provisioningControllerObjects{
 		data:            provisioningControllerData,
 		bfbRegistryData: bfbRegistryData,
+		platformCAData:  platformCAData,
 	}
 	g.Expect(provCtrl.Parse()).To(Succeed())
 
@@ -1126,6 +1144,7 @@ func TestDPFProvisioningControllerObjects_setFirmwareUpdateTimeout(t *testing.T)
 	provCtrl := &provisioningControllerObjects{
 		data:            provisioningControllerData,
 		bfbRegistryData: bfbRegistryData,
+		platformCAData:  platformCAData,
 	}
 	g.Expect(provCtrl.Parse()).To(Succeed())
 
@@ -1183,6 +1202,7 @@ func TestDPFProvisioningControllerObjects_setNodeEffectRemovalTimeout(t *testing
 	provCtrl := &provisioningControllerObjects{
 		data:            provisioningControllerData,
 		bfbRegistryData: bfbRegistryData,
+		platformCAData:  platformCAData,
 	}
 	g.Expect(provCtrl.Parse()).To(Succeed())
 
@@ -1228,5 +1248,163 @@ func TestDPFProvisioningControllerObjects_setNodeEffectRemovalTimeout(t *testing
 		vars.DPFProvisioningController.NodeEffectRemovalTimeout = &metav1.Duration{Duration: 30 * time.Minute}
 		deployment := findDeployment(t, vars)
 		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--node-effect-removal-timeout=30m0s"))
+	})
+}
+
+// TestProvisioningControllerObjects_PlatformCA covers the one object whose shape depends on the
+// configured certificate authority: the platform intermediate CA. Its issuerRef is what anchors
+// every provisioning certificate, while the leaves themselves must look identical in both modes.
+func TestProvisioningControllerObjects_PlatformCA(t *testing.T) {
+	g := NewWithT(t)
+	provCtrl := provisioningControllerObjects{
+		data:            provisioningControllerData,
+		bfbRegistryData: bfbRegistryData,
+		platformCAData:  platformCAData,
+	}
+	g.Expect(provCtrl.Parse()).NotTo(HaveOccurred())
+	defaults := &release.Defaults{}
+	g.Expect(defaults.Parse()).To(Succeed())
+
+	const testNS = "dpf-operator-system"
+
+	// The anchor reaches the component as a resolved reference, the operator having read it from the
+	// webhook intermediate CA, so the modes are expressed here as the two anchors that read yields.
+	generate := func(t *testing.T, anchor *certmanager.IssuerReference) []client.Object {
+		t.Helper()
+		g := NewGomegaWithT(t)
+		vars := newDefaultVariables(defaults)
+		vars.Namespace = testNS
+		vars.DPFProvisioningController = DPFProvisioningVariables{
+			BFBPersistentVolumeClaimName: ptr.To(TestPVC),
+			DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
+		}
+		if anchor != nil {
+			vars.PlatformCAIssuerRef = anchor.WithIssuerDefaults()
+		}
+		objs, err := provCtrl.GenerateManifests(context.Background(), vars)
+		g.Expect(err).NotTo(HaveOccurred())
+		return objs
+	}
+
+	findObj := func(t *testing.T, objs []client.Object, kind ObjectKind, name string) *unstructured.Unstructured {
+		t.Helper()
+		for _, obj := range objs {
+			if obj.GetObjectKind().GroupVersionKind().Kind != string(kind) || obj.GetName() != name {
+				continue
+			}
+			uns, ok := obj.(*unstructured.Unstructured)
+			NewGomegaWithT(t).Expect(ok).To(BeTrue())
+			return uns
+		}
+		return nil
+	}
+
+	issuerRefOf := func(t *testing.T, obj *unstructured.Unstructured) map[string]string {
+		t.Helper()
+		g := NewGomegaWithT(t)
+		g.Expect(obj).NotTo(BeNil())
+		ref, found, err := unstructured.NestedStringMap(obj.UnstructuredContent(), "spec", "issuerRef")
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(found).To(BeTrue())
+		return ref
+	}
+
+	t.Run("self-signed anchors the platform intermediate CA in the global root", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		objs := generate(t, nil)
+
+		intermediateCA := findObj(t, objs, CertificateKind, operatorv1.PlatformIntermediateCAName)
+		g.Expect(issuerRefOf(t, intermediateCA)).To(Equal(map[string]string{
+			"name":  operatorv1.GlobalRootIssuerName,
+			"kind":  operatorv1.CertManagerIssuerKind,
+			"group": operatorv1.CertManagerGroup,
+		}))
+
+		// It has to be a CA, in the namespace of the release, and hold its keypair under a Secret the
+		// issuer below resolves by the same name.
+		isCA, found, err := unstructured.NestedBool(intermediateCA.UnstructuredContent(), "spec", "isCA")
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(found).To(BeTrue())
+		g.Expect(isCA).To(BeTrue())
+		g.Expect(intermediateCA.GetNamespace()).To(Equal(testNS))
+		g.Expect(intermediateCA.GetLabels()).To(HaveKeyWithValue(operatorv1.DPFComponentLabelKey, DPFProvisioningControllerName))
+
+		secretName, found, err := unstructured.NestedString(intermediateCA.UnstructuredContent(), "spec", "secretName")
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(found).To(BeTrue())
+
+		// The key has to survive a reissue, which is what keeps the identity signing the leaves the
+		// same when the anchor above changes. Left to the cert-manager default, as of v1.18 Always, a
+		// re-anchor would rekey this CA and invalidate everything it had already issued.
+		rotationPolicy, found, err := unstructured.NestedString(intermediateCA.UnstructuredContent(), "spec", "privateKey", "rotationPolicy")
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(found).To(BeTrue())
+		g.Expect(rotationPolicy).To(Equal("Never"))
+
+		issuer := findObj(t, objs, IssuerKind, operatorv1.PlatformIssuerName)
+		g.Expect(issuer).NotTo(BeNil())
+		g.Expect(issuer.GetNamespace()).To(Equal(testNS))
+		issuerSecret, found, err := unstructured.NestedString(issuer.UnstructuredContent(), "spec", "ca", "secretName")
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(found).To(BeTrue())
+		g.Expect(issuerSecret).To(Equal(secretName))
+	})
+
+	t.Run("an external issuer replaces the anchor and nothing else", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		selfSigned := generate(t, nil)
+		external := generate(t, &certmanager.IssuerReference{
+			Name:  "openbao-issuer",
+			Kind:  operatorv1.CertManagerClusterIssuerKind,
+			Group: operatorv1.CertManagerGroup,
+		})
+
+		g.Expect(issuerRefOf(t, findObj(t, external, CertificateKind, operatorv1.PlatformIntermediateCAName))).To(Equal(map[string]string{
+			"name":  "openbao-issuer",
+			"kind":  operatorv1.CertManagerClusterIssuerKind,
+			"group": operatorv1.CertManagerGroup,
+		}))
+
+		// The mode is invisible below the intermediate: the same object set, and every certificate
+		// other than the intermediate keeps the issuer it had. That includes the webhook serving
+		// certificate, which the Helm chart anchors directly.
+		g.Expect(external).To(HaveLen(len(selfSigned)))
+		for _, obj := range selfSigned {
+			if obj.GetObjectKind().GroupVersionKind().Kind != string(CertificateKind) ||
+				obj.GetName() == operatorv1.PlatformIntermediateCAName {
+				continue
+			}
+			want := issuerRefOf(t, findObj(t, selfSigned, CertificateKind, obj.GetName()))
+			got := issuerRefOf(t, findObj(t, external, CertificateKind, obj.GetName()))
+			g.Expect(got).To(Equal(want), "issuerRef of Certificate %s changed with the CA mode", obj.GetName())
+		}
+
+		// The issuer of the leaves is the platform issuer in both modes, so it is never re-rendered.
+		g.Expect(findObj(t, external, IssuerKind, operatorv1.PlatformIssuerName)).
+			To(Equal(findObj(t, selfSigned, IssuerKind, operatorv1.PlatformIssuerName)))
+	})
+
+	t.Run("an external issuer without a kind or group is defaulted", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		objs := generate(t, &certmanager.IssuerReference{Name: "namespaced-issuer"})
+
+		g.Expect(issuerRefOf(t, findObj(t, objs, CertificateKind, operatorv1.PlatformIntermediateCAName))).To(Equal(map[string]string{
+			"name":  "namespaced-issuer",
+			"kind":  operatorv1.CertManagerIssuerKind,
+			"group": operatorv1.CertManagerGroup,
+		}))
+	})
+
+	t.Run("an unresolved anchor is rejected rather than rendered", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		vars := newDefaultVariables(defaults)
+		vars.DPFProvisioningController = DPFProvisioningVariables{
+			BFBPersistentVolumeClaimName: ptr.To(TestPVC),
+			DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
+		}
+		vars.PlatformCAIssuerRef = certmanager.IssuerReference{}
+
+		_, err := provCtrl.GenerateManifests(context.Background(), vars)
+		g.Expect(err).To(MatchError(ContainSubstring("PlatformCAIssuerRef")))
 	})
 }

@@ -33,6 +33,19 @@ const (
 	SystemComponentsReconciledCondition     conditions.ConditionType = "SystemComponentsReconciled"
 	SystemComponentsReadyCondition          conditions.ConditionType = "SystemComponentsReady"
 	CATrustBundleReadyCondition             conditions.ConditionType = "CATrustBundleReady"
+	// CertManagementReadyCondition reports the readiness of the certificate authority that anchors
+	// the DPF provisioning PKI.
+	CertManagementReadyCondition conditions.ConditionType = "CertManagementReady"
+)
+
+// Condition reasons reported on CertManagementReadyCondition.
+const (
+	// CertManagementReasonIssuerNotFound is reported when the issuer anchoring the PKI names an
+	// issuer that does not exist.
+	CertManagementReasonIssuerNotFound conditions.ConditionReason = "IssuerNotFound"
+	// CertManagementReasonCARotationRequired is reported when the issuer anchoring the PKI changed on
+	// a cluster that already has provisioned DPUs, whose BMCs still trust the previous chain.
+	CertManagementReasonCARotationRequired conditions.ConditionReason = "CARotationRequired"
 )
 
 var (
@@ -44,6 +57,7 @@ var (
 		SystemComponentsReconciledCondition,
 		SystemComponentsReadyCondition,
 		CATrustBundleReadyCondition,
+		CertManagementReadyCondition,
 	}
 )
 
@@ -57,6 +71,36 @@ const (
 	CATrustBundleKey = "ca.crt"
 	// CATrustBundleHashKey tracks the effective CA set by a stable hash.
 	CATrustBundleHashKey = "bundle-hash"
+)
+
+// The DPF PKI is a root with one intermediate CA per purpose. The provisioning certificates chain
+// to the platform intermediate, the serving certificates of the webhooks to the webhook
+// intermediate, and both intermediates to the same root.
+const (
+	// GlobalRootIssuerName is the issuer over the self-signed root CA that the dpf-operator Helm
+	// chart creates. The chart creates none when it is pointed at an authority of your own, so the
+	// PKI being anchored here is what tells DPF it signs under a root of its own.
+	GlobalRootIssuerName = "dpf-global-root-issuer"
+
+	// WebhookIntermediateCAName is the intermediate CA that signs the serving certificates of the DPF
+	// webhooks. The dpf-operator chart creates it in both CA modes and stamps the anchor of the whole
+	// PKI onto its issuerRef, which is where DPF reads that anchor from.
+	WebhookIntermediateCAName = "dpf-webhook-intermediate-ca"
+
+	// PlatformIntermediateCAName is the intermediate CA that signs the provisioning certificates. It
+	// names both the cert-manager Certificate and the Secret holding its keypair.
+	PlatformIntermediateCAName = "dpf-platform-intermediate-ca"
+
+	// PlatformIssuerName is the issuer over PlatformIntermediateCAName. Every provisioning
+	// certificate references it, in both CA modes, so a leaf never has to know what anchors the PKI.
+	PlatformIssuerName = "dpf-platform-issuer"
+
+	// CertManagerGroup is the API group of the cert-manager issuer kinds.
+	CertManagerGroup = "cert-manager.io"
+	// CertManagerIssuerKind is the namespaced cert-manager issuer kind.
+	CertManagerIssuerKind = "Issuer"
+	// CertManagerClusterIssuerKind is the cluster scoped cert-manager issuer kind.
+	CertManagerClusterIssuerKind = "ClusterIssuer"
 )
 
 var (
@@ -369,6 +413,37 @@ type SecurityConfiguration struct {
 	// The plugin is used for encryption at rest for DPUClusters.
 	// +optional
 	VaultKMS *VaultKMSConfiguration `json:"vaultKMS,omitempty"`
+
+	// CertManagement configures the certificate authority that the provisioning certificates of DPF
+	// chain up to, and the trust bundle their consumers validate peers against. If unset, DPF signs
+	// them with a self-signed CA of its own.
+	// +optional
+	CertManagement *CertManagementConfiguration `json:"certManagement,omitempty"`
+}
+
+// CertManagementConfiguration configures the trust bundle that the consumers of the provisioning
+// certificates of DPF validate peers against.
+//
+// The certificate authority those certificates chain up to is not configured here. It is chosen once
+// for the whole PKI through the certificateAuthority.issuerRef value of the dpf-operator Helm chart,
+// which the chart stamps onto the webhook intermediate CA it creates. DPF reads the anchor back from
+// there, so the platform and webhook chains cannot end up anchored to different authorities, and the
+// serving certificates of the webhooks are covered by the same choice even though the chart creates
+// them before a DPFOperatorConfig exists.
+type CertManagementConfiguration struct {
+	// TrustBundleConfigMapName is the ConfigMap holding the CA certificate(s) that DPF components
+	// validate their peers against.
+	//
+	// Name it when the chart is anchored to an authority of your own, the mode in which the content of
+	// the bundle is yours to provide. With the self-signed root of DPF the operator generates the
+	// content itself, under this name. To trust additional CAs alongside the root of DPF, merge them
+	// into the ConfigMap directly, DPF preserves certificates it did not add.
+	// +kubebuilder:default=dpf-ca-trust-bundle
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
+	// +optional
+	TrustBundleConfigMapName string `json:"trustBundleConfigMapName,omitempty"`
 }
 
 // PrivilegedPodEnforcementEnabled reports whether privileged pod enforcement is enabled.
@@ -395,6 +470,59 @@ type DPFOperatorConfigStatus struct {
 	// Version while an upgrade is in progress.
 	// +optional
 	TargetVersion *string `json:"targetVersion,omitempty"`
+
+	// Security records what the operator has rolled out for the security-related components it
+	// manages. It is grouped the way spec.security groups their configuration, so that what was
+	// asked for and what is in effect are read at the same path.
+	// +optional
+	Security *SecurityStatus `json:"security,omitempty"`
+}
+
+// SecurityStatus records what the operator has rolled out for the security-related components it
+// manages, mirroring SecurityConfiguration on the spec.
+type SecurityStatus struct {
+	// CertManagement records what the operator has rolled out for the provisioning PKI.
+	// +optional
+	CertManagement *CertManagementStatus `json:"certManagement,omitempty"`
+}
+
+// CertManagementStatus records what the operator has rolled out for the provisioning PKI, as opposed
+// to what it is being asked to roll out.
+type CertManagementStatus struct {
+	// Anchor is the certificate authority the provisioning PKI has been rolled out against, recorded
+	// once the platform intermediate CA has been applied under it and every peer that has to validate
+	// the chain below it trusts that chain.
+	//
+	// It is what the anchor chosen in the dpf-operator Helm chart is compared against, so a change of
+	// authority is reported for as long as the rollout of it is outstanding rather than only by the
+	// reconcile that first observed it.
+	//
+	// Nothing rolled out yet is reported by leaving it out altogether.
+	// +optional
+	Anchor *CertManagementAnchor `json:"anchor,omitempty"`
+}
+
+// CertManagementAnchor identifies the cert-manager issuer a certificate authority is anchored to.
+// Every field is recorded as resolved, with the defaults cert-manager applies already filled in, so
+// that comparing two anchors cannot turn on whether one of them left a field out.
+type CertManagementAnchor struct {
+	// Name of the issuer.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +optional
+	Name string `json:"name,omitempty"`
+
+	// Kind of the issuer, either Issuer for one in the namespace of the DPFOperatorConfig or
+	// ClusterIssuer for a cluster scoped one.
+	// +kubebuilder:validation:Enum=Issuer;ClusterIssuer
+	// +optional
+	Kind string `json:"kind,omitempty"`
+
+	// Group of the issuer, which is the API group of cert-manager.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +optional
+	Group string `json:"group,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -461,10 +589,25 @@ func (c *DPFOperatorConfig) MonitoringEnabled() bool {
 	return c.Spec.Monitoring == nil || c.Spec.Monitoring.Disable == nil || !*c.Spec.Monitoring.Disable
 }
 
+// CertManagement returns the certificate management configuration, or nil when it is unset. It
+// saves every caller from walking the optional Security group to reach it.
+func (c *DPFOperatorConfig) CertManagement() *CertManagementConfiguration {
+	if c.Spec.Security == nil {
+		return nil
+	}
+	return c.Spec.Security.CertManagement
+}
+
 // GetCATrustBundleConfigMapName returns the name of the ConfigMap that holds the public provisioning
 // CA certificate(s). Consumers should call this helper to discover the trust bundle name instead of
-// hardcoding it. For now it always returns a fixed default name; a configurable override on the
-// DPFOperatorConfig API is planned for a follow-up task.
+// hardcoding it.
+//
+// The name holds in both CA modes, they differ only in who fills the ConfigMap. It deliberately does
+// not depend on which authority anchors the PKI: that is read from the cluster, while this is
+// resolved by components which hold nothing but the DPFOperatorConfig.
 func (c *DPFOperatorConfig) GetCATrustBundleConfigMapName() string {
+	if certManagement := c.CertManagement(); certManagement != nil && certManagement.TrustBundleConfigMapName != "" {
+		return certManagement.TrustBundleConfigMapName
+	}
 	return DefaultCATrustBundleConfigMapName
 }

@@ -596,6 +596,111 @@ func TestSetSummary(t *testing.T) {
 	}
 }
 
+// TestSetSummaryExcludeFromSummary tests that an excluded condition is ignored by the summary
+// whatever state it is in, while the conditions around it still count.
+func TestSetSummaryExcludeFromSummary(t *testing.T) {
+	tests := []struct {
+		name              string
+		obj               *MockObject
+		initialConditions []metav1.Condition
+		excluded          []ConditionType
+		expectedCondition metav1.Condition
+	}{
+		{
+			name: "An excluded condition that is not ready does not hold Ready back",
+			obj:  &MockObject{},
+			initialConditions: []metav1.Condition{
+				{Type: "ApplicationsReady", Status: metav1.ConditionTrue, Reason: string(ReasonSuccess)},
+				{Type: "CertManagementReady", Status: metav1.ConditionFalse, Reason: string(ReasonPending)},
+			},
+			excluded: []ConditionType{"CertManagementReady"},
+			expectedCondition: metav1.Condition{
+				Type:   string(TypeReady),
+				Status: metav1.ConditionTrue,
+				Reason: string(ReasonSuccess),
+			},
+		},
+		{
+			name: "An excluded condition that failed does not hold Ready back",
+			obj:  &MockObject{},
+			initialConditions: []metav1.Condition{
+				{Type: "ApplicationsReady", Status: metav1.ConditionTrue, Reason: string(ReasonSuccess)},
+				{Type: "CertManagementReady", Status: metav1.ConditionFalse, Reason: string(ReasonFailure)},
+			},
+			excluded: []ConditionType{"CertManagementReady"},
+			expectedCondition: metav1.Condition{
+				Type:   string(TypeReady),
+				Status: metav1.ConditionTrue,
+				Reason: string(ReasonSuccess),
+			},
+		},
+		{
+			name: "A stale excluded condition does not hold Ready back",
+			obj:  &MockObject{generation: 2},
+			initialConditions: []metav1.Condition{
+				{Type: "ApplicationsReady", Status: metav1.ConditionTrue, Reason: string(ReasonSuccess), ObservedGeneration: 2},
+				{Type: "CertManagementReady", Status: metav1.ConditionFalse, Reason: string(ReasonPending), ObservedGeneration: 1},
+			},
+			excluded: []ConditionType{"CertManagementReady"},
+			expectedCondition: metav1.Condition{
+				Type:   string(TypeReady),
+				Status: metav1.ConditionTrue,
+				Reason: string(ReasonSuccess),
+			},
+		},
+		{
+			name: "Conditions that are not excluded still hold Ready back",
+			obj:  &MockObject{},
+			initialConditions: []metav1.Condition{
+				{Type: "ApplicationsReady", Status: metav1.ConditionFalse, Reason: string(ReasonPending)},
+				{Type: "CertManagementReady", Status: metav1.ConditionFalse, Reason: string(ReasonFailure)},
+			},
+			excluded: []ConditionType{"CertManagementReady"},
+			expectedCondition: metav1.Condition{
+				Type:    string(TypeReady),
+				Status:  metav1.ConditionFalse,
+				Reason:  string(ReasonPending),
+				Message: ReadyConditionMessage(MessageNotReady, []string{"ApplicationsReady"}),
+			},
+		},
+		{
+			name: "Without the option an unready condition holds Ready back as before",
+			obj:  &MockObject{},
+			initialConditions: []metav1.Condition{
+				{Type: "ApplicationsReady", Status: metav1.ConditionTrue, Reason: string(ReasonSuccess)},
+				{Type: "CertManagementReady", Status: metav1.ConditionFalse, Reason: string(ReasonPending)},
+			},
+			expectedCondition: metav1.Condition{
+				Type:    string(TypeReady),
+				Status:  metav1.ConditionFalse,
+				Reason:  string(ReasonPending),
+				Message: ReadyConditionMessage(MessageNotReady, []string{"CertManagementReady"}),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
+			tt.obj.SetConditions(tt.initialConditions)
+
+			// Called without any option at all when nothing is excluded, so the case below that
+			// asserts the unchanged behavior really exercises the zero-option path.
+			if len(tt.excluded) == 0 {
+				SetSummary(tt.obj)
+			} else {
+				SetSummary(tt.obj, ExcludeFromSummary(tt.excluded...))
+			}
+
+			readyCondition := Get(tt.obj, TypeReady)
+			g.Expect(readyCondition).NotTo(BeNil())
+			g.Expect(readyCondition.Status).To(Equal(tt.expectedCondition.Status))
+			g.Expect(readyCondition.Reason).To(Equal(tt.expectedCondition.Reason))
+			g.Expect(readyCondition.Message).To(Equal(tt.expectedCondition.Message))
+		})
+	}
+}
+
 func TestGet(t *testing.T) {
 	g := NewWithT(t)
 	tests := []struct {

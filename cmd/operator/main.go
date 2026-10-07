@@ -24,6 +24,7 @@ import (
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/features"
+	"github.com/nvidia/doca-platform/internal/operator/certmanagement"
 	operatorcontroller "github.com/nvidia/doca-platform/internal/operator/controllers"
 	"github.com/nvidia/doca-platform/internal/operator/inventory"
 	"github.com/nvidia/doca-platform/internal/release"
@@ -33,6 +34,7 @@ import (
 	"github.com/spf13/pflag"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -119,6 +121,9 @@ func main() {
 	}
 	ctrl.SetLogger(klog.Background())
 
+	anchorCertificate := &unstructured.Unstructured{}
+	anchorCertificate.SetGroupVersionKind(certmanagement.CertificateGVK)
+
 	metricsOpts := metricsserver.Options{
 		BindAddress:    metricsAddr,
 		SecureServing:  true,
@@ -166,6 +171,18 @@ func main() {
 					Namespaces: map[string]cache.Config{
 						configSingletonNamespace: {
 							FieldSelector: fields.OneTermEqualSelector("metadata.name", operatorv1.DefaultCATrustBundleConfigMapName),
+						},
+					},
+				},
+				// Scope the Certificate informer to the one the authority anchoring the PKI is read
+				// from, which is the only Certificate the DPFOperatorConfig controller watches.
+				// Narrowing it cannot affect reads: unstructured objects are not served from this
+				// cache at all (client.CacheOptions.Unstructured is left false), so every Certificate
+				// the operator reads is a live lookup.
+				anchorCertificate: {
+					Namespaces: map[string]cache.Config{
+						configSingletonNamespace: {
+							FieldSelector: fields.OneTermEqualSelector("metadata.name", operatorv1.WebhookIntermediateCAName),
 						},
 					},
 				},

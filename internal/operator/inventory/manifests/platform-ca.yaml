@@ -1,0 +1,47 @@
+# The platform intermediate CA of DPF and the issuer over it.
+#
+# The provisioning certificates reference that issuer and never the CA that signs it, which makes
+# the Certificate below the single place where the choice of certificate authority takes effect. Its
+# issuerRef is replaced when the component is generated, pointing either at the self-signed root the
+# dpf-operator chart creates or at the authority its certificateAuthority.issuerRef value names.
+# Everything below the intermediate is identical in both modes.
+#
+# This is a manifest of its own rather than part of provisioning-controller.yaml because the
+# kustomize overlay that renders that file prefixes every name with dpf-provisioning-, while these
+# objects are not provisioning scoped: bfb-registry chains to the same intermediate.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: dpf-platform-intermediate-ca
+spec:
+  isCA: true
+  commonName: dpf-platform-intermediate-ca
+  secretName: dpf-platform-intermediate-ca
+  # 3 years, renewed halfway through its lifetime. The margin this leaves over the lifetime of the
+  # leaves below it (a year, renewed halfway) is what guarantees every leaf reissues, picking up the
+  # refreshed CA certificate, well before the copy it bundled at its own last issuance expires.
+  # Changing either value has to preserve that margin.
+  duration: 26280h
+  renewBefore: 13140h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    # The key outlives the certificates issued over it, which is what lets the authority above this
+    # one change without changing the identity that signs the leaves: re-signed under a new anchor,
+    # this CA keeps its key and its subject, so everything it has already issued still validates.
+    # cert-manager defaults this to Always as of v1.18, which would generate a new key on every
+    # reissue and make both a re-anchor and an ordinary renewal a fleet wide CA rotation.
+    rotationPolicy: Never
+  # The self-signed default. Replaced per CA mode, see the note above.
+  issuerRef:
+    name: dpf-global-root-issuer
+    kind: Issuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: dpf-platform-issuer
+spec:
+  ca:
+    secretName: dpf-platform-intermediate-ca

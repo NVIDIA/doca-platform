@@ -46,3 +46,61 @@ func TestPrivilegedPodEnforcementEnabled(t *testing.T) {
 		})
 	}
 }
+
+// certManagementConfig builds a DPFOperatorConfig carrying the given certificate management
+// configuration, so the tests below exercise the helpers through the optional Security group they
+// have to walk.
+func certManagementConfig(certManagement *operatorv1.CertManagementConfiguration) *operatorv1.DPFOperatorConfig {
+	return &operatorv1.DPFOperatorConfig{
+		Spec: operatorv1.DPFOperatorConfigSpec{
+			Security: &operatorv1.SecurityConfiguration{CertManagement: certManagement},
+		},
+	}
+}
+
+// TestGetCATrustBundleConfigMapName verifies the resolved trust bundle name. It holds in both CA
+// modes, which differ only in who fills the ConfigMap, so nothing here depends on the anchor.
+func TestGetCATrustBundleConfigMapName(t *testing.T) {
+	tests := []struct {
+		name   string
+		config *operatorv1.DPFOperatorConfig
+		want   string
+	}{
+		{
+			name:   "nil Security uses the default name",
+			config: &operatorv1.DPFOperatorConfig{},
+			want:   operatorv1.DefaultCATrustBundleConfigMapName,
+		},
+		{
+			name:   "nil CertManagement uses the default name",
+			config: certManagementConfig(nil),
+			want:   operatorv1.DefaultCATrustBundleConfigMapName,
+		},
+		{
+			name:   "an unset name uses the default name",
+			config: certManagementConfig(&operatorv1.CertManagementConfiguration{}),
+			want:   operatorv1.DefaultCATrustBundleConfigMapName,
+		},
+		{
+			name: "an empty name uses the default name",
+			config: certManagementConfig(&operatorv1.CertManagementConfiguration{
+				TrustBundleConfigMapName: "",
+			}),
+			want: operatorv1.DefaultCATrustBundleConfigMapName,
+		},
+		{
+			name: "a configured name is honored",
+			config: certManagementConfig(&operatorv1.CertManagementConfiguration{
+				TrustBundleConfigMapName: "enterprise-ca-bundle",
+			}),
+			want: "enterprise-ca-bundle",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.config.GetCATrustBundleConfigMapName(); got != tt.want {
+				t.Errorf("GetCATrustBundleConfigMapName() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

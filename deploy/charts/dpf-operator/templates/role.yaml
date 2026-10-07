@@ -145,6 +145,14 @@ rules:
   - update
   - watch
 - apiGroups:
+  - cert-manager.io
+  resources:
+  - clusterissuers
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - certificates.k8s.io
   resources:
   - certificatesigningrequests

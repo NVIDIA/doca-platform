@@ -27,11 +27,13 @@ import (
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/operator/certmanagement"
 	"github.com/nvidia/doca-platform/internal/operator/inventory"
 	"github.com/nvidia/doca-platform/internal/operator/utils"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/release"
 	"github.com/nvidia/doca-platform/internal/spire"
+	"github.com/nvidia/doca-platform/pkg/certmanager"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 
@@ -48,10 +50,12 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
 const (
@@ -146,11 +150,20 @@ type DPFOperatorConfigReconcilerSettings struct {
 // +kubebuilder:rbac:groups=maintenance.nvidia.com,resources=nodemaintenances,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kamaji.clastix.io,resources=tenantcontrolplanes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cert-manager.io,resources=certificaterequests;certificates;issuers,verbs=get;list;watch;create;update;patch;delete
+// clusterissuers is read only, and only needed when the chart anchors the PKI to a
+// ClusterIssuer: that issuer is pre-existing and administrator owned, so DPF reads it to report its
+// readiness and never creates or modifies one. Every issuer DPF owns is a namespaced Issuer, covered
+// by the rule above. The readiness read needs get alone today; list and watch are granted with it so
+// that enqueueing a reconcile when the issuer changes does not need an RBAC change first.
+// +kubebuilder:rbac:groups=cert-manager.io,resources=clusterissuers,verbs=get;list;watch
 // +kubebuilder:rbac:groups=nv-ipam.nvidia.com,resources=ippools,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=monitoring.coreos.com,resources=servicemonitors,verbs=get;list;watch;create;update;patch;delete
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *DPFOperatorConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	anchorCertificate := &unstructured.Unstructured{}
+	anchorCertificate.SetGroupVersionKind(certmanagement.CertificateGVK)
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&operatorv1.DPFOperatorConfig{}).
 		Watches(&provisioningv1.DPUCluster{}, handler.EnqueueRequestsFromMapFunc(r.ResourceToDPFOperatorConfig)).
@@ -160,7 +173,29 @@ func (r *DPFOperatorConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&appsv1.DaemonSet{}, handler.EnqueueRequestsFromMapFunc(r.DaemonSetToDPFOperatorConfig)).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.ProvisioningCASecretToDPFOperatorConfig)).
 		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(r.CATrustBundleConfigMapToDPFOperatorConfig)).
+		Watches(anchorCertificate,
+			handler.EnqueueRequestsFromMapFunc(r.ResourceToDPFOperatorConfig),
+			builder.WithPredicates(isAnchorCertificate())).
 		Complete(r)
+}
+
+// isAnchorCertificate keeps the watch above to the one Certificate the authority anchoring the PKI
+// is read from.
+//
+// Nothing else brings a change of authority to the operator. The chart repoints this one Certificate
+// and leaves every object the other watches cover untouched, so without the watch a re-anchor waits
+// for the cache resync, and until it comes CertManagementReady keeps reporting success against an
+// authority that has already moved. The certificates DPF issues below the anchor are a different
+// matter: reconciling the whole system every time cert-manager renews one of those is work for
+// nothing, so they are dropped here.
+//
+// The informer behind the watch is narrowed to this name as well, where the manager is built. This
+// predicate is what makes the controller correct on its own, independently of how the cache it is
+// handed happens to be scoped.
+func isAnchorCertificate() predicate.Predicate {
+	return predicate.NewPredicateFuncs(func(o client.Object) bool {
+		return o.GetName() == operatorv1.WebhookIntermediateCAName
+	})
 }
 
 // Reconcile reconciles changes in a DPFOperatorConfig.
@@ -201,7 +236,13 @@ func (r *DPFOperatorConfigReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		r.updateSystemComponentStatus(ctx, dpfOperatorConfig, dpuClusters)
 
 		// Set the summary condition for the DPFOperatorConfig.
-		conditions.SetSummary(dpfOperatorConfig)
+		//
+		// CertManagementReady is kept out of the summary: it reports on the platform intermediate CA,
+		// which nothing signs certificates with yet, so an unready or misconfigured PKI must not hold
+		// back a cluster that is otherwise fully functional. It is still reported on its own condition,
+		// which is what makes a misconfiguration diagnosable before anything depends on it. Remove the
+		// exclusion once the provisioning certificates actually chain to this CA.
+		conditions.SetSummary(dpfOperatorConfig, conditions.ExcludeFromSummary(operatorv1.CertManagementReadyCondition))
 
 		log.Info("Patching")
 		if err := patcher.Patch(ctx, dpfOperatorConfig,
@@ -312,7 +353,33 @@ func (r *DPFOperatorConfigReconciler) reconcile(ctx context.Context, dpfOperator
 	}
 	conditions.AddTrue(dpfOperatorConfig, operatorv1.ImagePullSecretsReconciledCondition)
 
-	if err := r.reconcileSystemComponents(ctx, dpfOperatorConfig, dpuClusters); err != nil {
+	// The authority the whole PKI is anchored to, chosen in the chart and read back from the webhook
+	// intermediate CA, along with what anchoring the platform CA there means for the DPUs already
+	// provisioned. Resolved once here and passed down, so every step below judges the chain against
+	// the same anchor and the system components are applied with it.
+	anchorState, err := certmanagement.ResolveAnchorState(ctx, r.Client, dpfOperatorConfig)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	// The chart has not created the Certificate the anchor is read from yet. Reported on the condition
+	// by the resolve above rather than returned as an error, since this is the ordering of a chart
+	// install and not a state anyone has to act on. No requeue either: the watch on that Certificate
+	// wakes this reconcile as soon as the chart creates it.
+	if anchorState.Phase == certmanagement.AnchorPhasePending {
+		ctrllog.FromContext(ctx).Info("Waiting for the Certificate the anchor of the provisioning PKI is read from",
+			"certificate", operatorv1.WebhookIntermediateCAName)
+		return ctrl.Result{}, nil
+	}
+	// A cluster anchored before DPF recorded what it was rolled out against: the record is left to the
+	// deferred patch of the caller and the apply to the next reconcile, the same hand-off the target
+	// version above uses. Applying first would repoint the Certificate the record was read from, and a
+	// record lost with the reconcile that failed after it is a rotation nobody reports again.
+	if anchorState.Phase == certmanagement.AnchorPhaseRecorded {
+		ctrllog.FromContext(ctx).Info("Recording the anchor of the provisioning PKI", "anchor", anchorState.IssuerRef.Name)
+		return ctrl.Result{}, nil
+	}
+
+	if err := r.reconcileSystemComponents(ctx, dpfOperatorConfig, dpuClusters, anchorState.IssuerRef); err != nil {
 		message := fmt.Sprintf("System components must be reconciled for DPF Operator to continue:\n%v",
 			conditions.JoinErrors(err, 1))
 		conditions.AddFalse(
@@ -324,6 +391,19 @@ func (r *DPFOperatorConfigReconciler) reconcile(ctx context.Context, dpfOperator
 	}
 	conditions.AddTrue(dpfOperatorConfig, operatorv1.SystemComponentsReconciledCondition)
 
+	// The apply above is what anchors the platform CA, so the anchor counts as rolled out once it has
+	// succeeded. A rotation is the exception: the peers provisioned under the previous anchor still
+	// have to be brought over, and the difference recorded here is what keeps reporting that.
+	if !anchorState.RotationRequired() {
+		certmanagement.RecordAnchor(dpfOperatorConfig, anchorState.IssuerRef)
+	}
+
+	// Reports every state it finds on CertManagementReadyCondition, failures included. The error is
+	// held rather than returned right away: nothing below depends on the chain being ready, so
+	// aborting would let a failed read of the PKI hold back the trust bundle, which is the one step
+	// that keeps existing peers validating.
+	certErr := certmanagement.Reconcile(ctx, r.Client, dpfOperatorConfig, anchorState.IssuerRef, anchorState.RotationRequired())
+
 	if err := r.reconcileCATrustBundle(ctx, dpfOperatorConfig); err != nil {
 		// The provisioning CA Secret is issued asynchronously by cert-manager. A pending error is not
 		// fatal: surface it on the condition and return.
@@ -334,7 +414,7 @@ func (r *DPFOperatorConfigReconciler) reconcile(ctx context.Context, dpfOperator
 				operatorv1.CATrustBundleReadyCondition,
 				conditions.ReasonPending,
 				conditions.ConditionMessage(pendingErr.Error()))
-			return ctrl.Result{}, nil
+			return ctrl.Result{}, certErr
 		}
 		message := fmt.Sprintf("CA trust bundle must be reconciled for DPF Operator to continue:\n%v",
 			conditions.JoinErrors(err, 1))
@@ -343,9 +423,13 @@ func (r *DPFOperatorConfigReconciler) reconcile(ctx context.Context, dpfOperator
 			operatorv1.CATrustBundleReadyCondition,
 			conditions.ReasonError,
 			conditions.ConditionMessage(message))
-		return ctrl.Result{}, err
+		return ctrl.Result{}, errors.Join(certErr, err)
 	}
 	conditions.AddTrue(dpfOperatorConfig, operatorv1.CATrustBundleReadyCondition)
+
+	if certErr != nil {
+		return ctrl.Result{}, certErr
+	}
 
 	// Update the DPF version in the status of the DPFOperatorConfig after a successful reconciliation.
 	dpfOperatorConfig.Status.Version = ptr.To(release.DPFVersion())
@@ -492,9 +576,10 @@ func (r *DPFOperatorConfigReconciler) reconcileImagePullSecrets(ctx context.Cont
 // 8. OVS CNI
 // 9. SFC Controller
 // 10. CNI Installer
-func (r *DPFOperatorConfigReconciler) reconcileSystemComponents(ctx context.Context, config *operatorv1.DPFOperatorConfig, dpuClusters []*dpucluster.Config) error {
+func (r *DPFOperatorConfigReconciler) reconcileSystemComponents(ctx context.Context, config *operatorv1.DPFOperatorConfig, dpuClusters []*dpucluster.Config, caIssuerRef certmanager.IssuerReference) error {
 	var errs []error
 	vars := inventory.VariablesFromDPFOperatorConfig(r.Defaults, config, dpuClusters)
+	vars.PlatformCAIssuerRef = caIssuerRef
 	caErr := r.resolveOpenTelemetryCollectorCACerts(ctx, config, &vars)
 	if caErr != nil {
 		errs = append(errs, caErr)

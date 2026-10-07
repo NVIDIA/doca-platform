@@ -570,6 +570,44 @@ var _ = Describe("Operator API Validation", func() {
 			)
 		})
 
+		Context("Validate certificate management configuration", func() {
+			DescribeTable("certManagement.trustBundleConfigMapName",
+				func(certManagement *operatorv1.CertManagementConfiguration, expectError bool, errorMessage string) {
+					config := getMinimalDPFOperatorConfig(testNs.Name)
+					config.Spec.Security = &operatorv1.SecurityConfiguration{CertManagement: certManagement}
+					validateConfigCreation(config, expectError, errorMessage, &cleanupObjs)
+				},
+				Entry("valid - no certManagement, the default bundle name", nil, false, ""),
+				Entry("valid - empty certManagement, the default bundle name",
+					&operatorv1.CertManagementConfiguration{}, false, ""),
+				Entry("valid - a named bundle, for an externally anchored PKI",
+					&operatorv1.CertManagementConfiguration{TrustBundleConfigMapName: "enterprise-ca-bundle"},
+					false, ""),
+				// The trust bundle name is not a pointer, so an empty one never reaches the API server
+				// and is defaulted like an unset one. It is covered here to pin that down as accepted
+				// rather than rejected, which is what the minimum length would suggest on its own.
+				Entry("valid - an empty bundle name, which defaults",
+					&operatorv1.CertManagementConfiguration{TrustBundleConfigMapName: ""}, false, ""),
+				// Rejected at admission rather than when the ConfigMap it names is looked up, which is
+				// where an invalid name would otherwise surface.
+				Entry("invalid - a bundle name that is not a DNS subdomain",
+					&operatorv1.CertManagementConfiguration{TrustBundleConfigMapName: "Enterprise_CA_Bundle"},
+					true, "spec.security.certManagement.trustBundleConfigMapName"),
+			)
+
+			It("defaults the trust bundle name", func() {
+				config := getMinimalDPFOperatorConfig(testNs.Name)
+				config.Spec.Security = &operatorv1.SecurityConfiguration{
+					CertManagement: &operatorv1.CertManagementConfiguration{},
+				}
+				Expect(testClient.Create(ctx, config)).To(Succeed())
+				cleanupObjs = append(cleanupObjs, config)
+
+				Expect(config.Spec.Security.CertManagement.TrustBundleConfigMapName).
+					To(Equal(operatorv1.DefaultCATrustBundleConfigMapName))
+			})
+		})
+
 		Context("Validate etcd encryption at rest", func() {
 			It("accepts provider staticKey with a staticKey ref", func() {
 				config := getMinimalDPFOperatorConfig(testNs.Name)
