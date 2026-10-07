@@ -72,6 +72,57 @@ For more details, use the help command:
 dpfdev config --help
 ```
 
+### Runner Commands
+
+Commands for inspecting GitLab CI runners and the hosts backing E2E environments.
+
+#### DPU Health
+
+Check BlueField DPU PF interface health on physical and NIC Cloud CI runner workers.
+
+```bash
+# Check physical hosts and NIC Cloud runners
+dpfdev runner dpu-health
+
+# Check physical CI hosts only
+dpfdev runner dpu-health physical
+
+# Check NIC Cloud runners discovered from GitLab (cloud is an alias for nic-cloud)
+dpfdev runner dpu-health cloud
+
+# Check one explicit NIC Cloud runner without GitLab discovery
+dpfdev runner dpu-health cloud --no-gitlab --nic-cloud-host 10.10.20.30
+
+# Show per-host probe progress before the summary
+dpfdev runner dpu-health --verbose
+
+# Force colors when piping through a pager
+dpfdev runner dpu-health --color always | less -R
+```
+
+By default, physical checks SSH to the active physical CI setups (`cloud-dev-ci01..04`, `setup28-dpf`, `setup34-dpf`, `setup35-dpf`), then probe `worker1` and `worker2` from each host. NIC Cloud checks discover active runners with the `managed/nic-cloud` tag, SSH to each runner, source `/workspace/cloud_tools/.setup_info`, and probe `CLOUD_PLAYER_1_IP` and `CLOUD_PLAYER_2_IP`.
+
+Physical checks require DPU PF interfaces to be present and `up` by default. NIC Cloud checks only require PF interfaces to exist, because those links can be `down` when no test is currently using the setup. When a reachable worker has missing DPU PF interfaces, the command also checks `kubectl get dpus -A` from the runner environment and fills the `DPU_PHASE` column with the current phase names (for example `OS Installing`). Rows with bad interfaces and a known DPU phase are treated as passing, because the lifecycle state explains the missing host interfaces. If local `kubectl` is unavailable, it falls back to the master host (`--master-host`, or `MASTER_HOST`, default `master1`).
+
+##### Credentials
+
+Physical and NIC Cloud setups use **different** SSH credentials, resolved independently:
+
+| Environment | SSH user (default, overridable) | Password (required, env only) |
+| --- | --- | --- |
+| Physical | `depuser` — `--physical-user` or `PHYSICAL_USER` | `PHYSICAL_PASSWORD` |
+| NIC Cloud | `root` — `--cloud-user` or `CLOUD_SSH_USER` | `VM_PASSWORD` (or `CLOUD_SSH_PASSWORD`) |
+
+GitLab discovery of NIC Cloud runners uses `GITLAB_TOKEN` (or `GITLAB_API_TOKEN` / `GITLAB_RUNNER_GROUP_MAINTAINER_TOKEN`). Passwords are never taken as command-line flags. If a selected pool has no password set, it is skipped with a warning instead of failing the whole run, so you can check one environment even when only its password is available. Use `--secrets-file <file>` to load any of these variables from an env file before probing.
+
+The default output is summary-only. Use `--verbose` to show per-host probe progress. Output color is enabled automatically for terminals and disabled for redirected logs; use `--color always`/`never` to override.
+
+For all options, use:
+
+```bash
+dpfdev runner dpu-health --help
+```
+
 ### Test Commands
 
 Commands for running tests and validations.
