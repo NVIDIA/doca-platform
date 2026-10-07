@@ -73,3 +73,37 @@ var _ = Describe("DPF Upgrade Using LTS BFB", func() {
 		expectedDPFVersion:  func() string { return tag },
 	})
 })
+
+// The ZeroTrust previous-GA → main/release-branch upgrade: an install phase
+// that provisions against the previous GA release in ZeroTrust mode, then a
+// validation phase after the operator has been upgraded externally.
+var _ = Describe("DPF Upgrade ZT", func() {
+	installPhase("previous GA ZeroTrust", installPhaseInput{
+		label:     Domain.DPFUpgrade,
+		zeroTrust: true,
+		// ZeroTrust hosts have no PCI visibility of the DPU (see the DPUDeployment
+		// creation step below), so the host-side component shape at this release
+		// (e.g. kata-containers, which requires PCI passthrough) can genuinely
+		// differ from host-trusted's. Skip the current-shape assertion here, same
+		// as the BFB LTS v25.10 install phase.
+		skipSystemComponentValidation: true,
+		// The previous GA (LAST_STABLE_DPF_VERSION, default v26.8.0-latest-stable) pins
+		// its own Kubernetes version, which differs from HEAD's util.KubernetesVersion.
+		expectedKubernetesVersion: "v1.35.6",
+		artifactsKey:              "before",
+		expectedDPUServices:       expectedDPUServicesCurrent,
+	})
+
+	validationPhase("GA-to-current ZeroTrust", validationPhaseInput{
+		label:                           Domain.DPFUpgradeValidation,
+		zeroTrust:                       true,
+		expectedDPFVersion:              func() string { return tag },
+		artifactsKey:                    "after",
+		compareArtifactsToBeforeRollout: "before",
+		rolloutAfterUpgrade: rolloutDependencies(
+			rollout.ExpectDPFVersion(func() string { return tag }),
+			rollout.ForDPUDeployment(0, rollout.WithCurrentDependencies()),
+		),
+		expectedDPUServices: expectedDPUServicesCurrent,
+	})
+})

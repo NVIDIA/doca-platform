@@ -1,0 +1,20 @@
+# The DPFOperatorConfig is passed as a per-release manifest instead of being
+# generated from the current Go types, because fields may be added to or
+# removed from the API between DPF releases.
+dpfOperatorConfig: "../objects/upgrade/v26.8/dpfoperatorconfig-zerotrust.yaml"
+provisioningControllerPVC: "../objects/infrastructure/pvc-provisioning.yaml"
+bfb: "../objects/upgrade/v26.8/bfb.yaml"
+dpuClusters:
+  - "../objects/upgrade/v26.8/dpucluster.yaml"
+dpuFlavor: "../objects/upgrade/v26.8/dpuflavor.yaml"
+dpuDeployment: "../objects/upgrade/v26.8/dpudeployment-zerotrust.yaml"
+dpuServiceConfiguration: "../objects/upgrade/v26.8/dpuserviceconfiguration.yaml"
+additionalDPUServiceConfiguration: "../objects/upgrade/v26.8/dpuserviceconfiguration-2.yaml"
+dpuServiceTemplate: "../objects/upgrade/v26.8/dpuservicetemplate.yaml"
+additionalDPUServiceTemplate: "../objects/upgrade/v26.8/dpuservicetemplate-2.yaml"
+ipPoolDPUServiceIPAM: "../objects/application/dpuserviceipam_subnet.yaml"
+dpuDiscovery: "../objects/infrastructure/dpudicovery.yaml"
+numberOfDPUNodes: 2
+numberOfDPUsPerNode: 1
+nodeRebootConfigMap: dpunode-reboot-redfish
+nodeRebootConfigMapPath: "../objects/infrastructure/dpunode-reboot-redfish.yaml"

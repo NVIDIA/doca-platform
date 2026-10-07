@@ -12,14 +12,16 @@ spec:
         nameSuffix: dpuset1
         nodeSelector:
           matchLabels:
-            kubernetes.io/hostname: replace
+            feature.node.kubernetes.io/dpu-enabled: "true"
     dpuSetStrategy:
       type: RollingUpdate
       rollingUpdate:
         maxUnavailable: 100%
     flavor: flavor
+    # ZeroTrust: hold the node rather than draining it; the BMC-based reboot
+    # controller handles the DPU reset out-of-band via Redfish.
     nodeEffect:
-      drain: true
+      hold: true
   revisionHistoryLimit: 10
   serviceChains:
     switches:

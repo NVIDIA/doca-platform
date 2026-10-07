@@ -523,7 +523,7 @@ func DeployDPFSystemComponents(ctx context.Context, input DeployDPFSystemCompone
 
 	}).WithTimeout(300 * time.Second).Should(Succeed())
 
-	if isGinkgoLabelApplied(Domain.ZeroTrust) {
+	if isGinkgoLabelApplied(Domain.ZeroTrust) && !isUpgradeInstallPhase() {
 		By("Verify bfb-registry Service and pods (created by provisioning controller leader)")
 		Eventually(func(g Gomega) {
 			svc := &corev1.Service{}
@@ -731,7 +731,13 @@ func ProvisionBFB(ctx context.Context, input ProvisionDPUClustersInput) {
 		g.Expect(bfb.Status.Phase).To(Equal(provisioningv1.BFBReady))
 	}).WithTimeout(10 * time.Minute).WithPolling(time.Second).Should(Succeed())
 
-	if isGinkgoLabelApplied(Domain.ZeroTrust) {
+	// The NodePort-based reachability probe assumes the current-release
+	// bfb-registry (a NodePort Service). Upgrade install phases run against a
+	// prior-release operator whose registry differs (v25.10 serves the BFB from
+	// a ClusterIP nginx on hostNetwork:8080, with no NodePort), so skip the
+	// probe there. Provisioning itself validates BMC reachability, and the
+	// prior-release address is set on the DPFOperatorConfig instead.
+	if isGinkgoLabelApplied(Domain.ZeroTrust) && !isUpgradeInstallPhase() {
 		By("Verifying BFB file is reachable")
 		bfb := &provisioningv1.BFB{}
 		Expect(input.client.Get(ctx, client.ObjectKey{
@@ -924,7 +930,6 @@ func VerifyDPUClusterWithNodes(ctx context.Context, input ProvisionDPUClustersIn
 
 	if isGinkgoLabelApplied(Domain.ZeroTrust) {
 		ProcessDPUNodeMaintenanceHold(ctx, input)
-		WaitForDPUReboot(ctx, input, tracker)
 	}
 
 	// Verify nodes are present in DPUCluster,
@@ -994,124 +999,50 @@ func releaseDPUNodeMaintenanceHold(ctx context.Context, c client.Client, dpuNode
 	return nil
 }
 
-// ProcessDPUNodeMaintenanceHold waits for DPUNodeMaintenance CRs to have the hold annotation set to "true"
-// and then patches them to "false" to allow DPU provisioning to continue.
-// This simulates an external system completing the node effect in a non-K8s environment.
+// ProcessDPUNodeMaintenanceHold releases DPUNodeMaintenance node-effect holds as
+// they appear (simulating an external system completing the node effect) and waits
+// until all DPUs are Ready. DPUs hold all at once (initial provisioning) or one at
+// a time (RollingUpdate rollout), so holds must be released continuously rather
+// than waiting for all DPUs to hold at once, which would deadlock a rolling update.
+// The Consistently window keeps releasing so the next DPU to roll is not missed.
+// Fails fast on a DPU provisioning Error or reboot-script failure. ZeroTrust only.
 func ProcessDPUNodeMaintenanceHold(ctx context.Context, input ProvisionDPUClustersInput) {
-	By("Processing DPUNodeMaintenance with Node Effect Hold")
+	By("Releasing DPUNodeMaintenance node-effect holds until all DPUs are Ready")
 	tracker := NewByTracker()
-
 	expectedDPUs := input.numberOfDPUNodes * input.numberOfDPUsPerNode
 
-	// Wait for DPUNodeMaintenance CRs to exist with hold annotation set to "true"
-	var dpuNodeMaintenanceList *provisioningv1.DPUNodeMaintenanceList
-	Eventually(func(g Gomega) {
-		dpuNodeMaintenanceList = &provisioningv1.DPUNodeMaintenanceList{}
-		g.Expect(input.client.List(ctx, dpuNodeMaintenanceList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
-
-		// Count how many have the hold annotation set to "true"
-		holdCount := 0
-		for i := range dpuNodeMaintenanceList.Items {
-			if isDPUNodeMaintenanceOnHold(&dpuNodeMaintenanceList.Items[i]) {
-				holdCount++
+	releaseHolds := func(g Gomega) {
+		list := &provisioningv1.DPUNodeMaintenanceList{}
+		g.Expect(input.client.List(ctx, list, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		for i := range list.Items {
+			if isDPUNodeMaintenanceOnHold(&list.Items[i]) {
+				g.Expect(releaseDPUNodeMaintenanceHold(ctx, input.client, &list.Items[i])).To(Succeed())
 			}
 		}
-
-		holdKey := fmt.Sprintf("%d/%d", holdCount, expectedDPUs)
-		tracker.By(holdKey, "Found %d/%d DPUNodeMaintenance CRs with hold annotation set to true", holdCount, expectedDPUs)
-		g.Expect(holdCount).To(Equal(expectedDPUs), "All DPUs should have DPUNodeMaintenance with hold annotation set to true")
-	}).WithTimeout(5 * time.Minute).WithPolling(time.Second).Should(Succeed())
-
-	// Patch all DPUNodeMaintenance CRs to set hold annotation to "false"
-	By("Setting hold annotation to false on all DPUNodeMaintenance CRs to allow provisioning to continue")
-	for i := range dpuNodeMaintenanceList.Items {
-		if isDPUNodeMaintenanceOnHold(&dpuNodeMaintenanceList.Items[i]) {
-			Eventually(releaseDPUNodeMaintenanceHold).WithArguments(ctx, input.client, &dpuNodeMaintenanceList.Items[i]).WithTimeout(30 * time.Second).Should(Succeed())
-			By(fmt.Sprintf("Released hold on DPUNodeMaintenance %s", dpuNodeMaintenanceList.Items[i].Name))
-		}
-	}
-}
-
-// WaitForDPUReboot waits for all DPUs to reach the DPURebooting phase, then
-// polls each DPU's `Status.RebootStatus.Phase` until it reports `Succeeded`.
-// The actual reboot is driven in-cluster by the DPUNode controller, which
-// spawns a Job from the ConfigMap named in
-// ProvisionDPUClustersInput.NodeRebootConfigMap (e.g. `dpunode-reboot-redfish`)
-// and updates `RebootStatus` as the Job progresses; the test does not look
-// at the Job directly because the controller may garbage-collect it after
-// success. Fails fast if any DPU's `RebootStatus.Phase` becomes `Failed`.
-// Applies to ZeroTrust only. tracker is shared with the caller so a reboot request is
-// logged once across the reboot wait and the node-count wait that follows.
-func WaitForDPUReboot(ctx context.Context, input ProvisionDPUClustersInput, tracker *ByTracker) {
-	dpus := &provisioningv1.DPUList{}
-
-	By("Wait for DPUs to reach DPURebooting state in ZeroTrust")
-	Eventually(func(g Gomega) {
-		g.Expect(input.client.List(ctx, dpus)).ToNot(HaveOccurred())
-		g.Expect(dpus.Items).To(HaveLen(input.numberOfDPUNodes * input.numberOfDPUsPerNode))
-		logDPURebootRequests(dpus.Items, tracker)
-
-		for _, dpu := range dpus.Items {
-			dpuStatusKey := fmt.Sprintf("%s/%v", dpu.Name, dpu.Status.Phase)
-			tracker.By(dpuStatusKey, "DPU %s dpu.Status.Phase=%v", dpu.Name, dpu.Status.Phase)
-
-			if dpu.Status.Phase != provisioningv1.DPUReady {
-				dpuKey := client.ObjectKey{Name: dpu.Name, Namespace: dpu.Namespace}
-				current := &provisioningv1.DPU{}
-				g.Expect(input.client.Get(ctx, dpuKey, current)).To(Succeed())
-				// TODO: update this behavior when retry during provisioning is introduced
-				// Failing test instantly when facing Error during provisioning
-				Expect(current.Status.Phase).NotTo(Equal(provisioningv1.DPUError))
-				g.Expect(current.Status.Phase).To(Equal(provisioningv1.DPURebooting))
-			}
-		}
-	}).WithTimeout(provisioningTimeout).Should(Succeed())
-
-	By("Reboot driven by in-cluster script Job (nodeRebootMethod.script); waiting for completion")
-	waitForScriptRebootCompletion(ctx, input.client,
-		input.numberOfDPUNodes*input.numberOfDPUsPerNode, tracker)
-}
-
-// Waits for all DPU host reboots to finish in script-reboot mode by checking DPU.Status.RebootStatus,
-// Succeeds when all DPUs report RebootStatus.Succeeded, fails-fast if any hit RebootStatus.Failed.
-func waitForScriptRebootCompletion(ctx context.Context, c client.Client, expectedDPUs int, tracker *ByTracker) {
-	Eventually(func(g Gomega) {
+		// Fail fast on a terminal provisioning error or reboot-script failure.
 		dpus := &provisioningv1.DPUList{}
-		g.Expect(c.List(ctx, dpus)).To(Succeed())
-		g.Expect(dpus.Items).To(HaveLen(expectedDPUs))
-		logDPURebootRequests(dpus.Items, tracker)
-
+		g.Expect(input.client.List(ctx, dpus)).To(Succeed())
 		for i := range dpus.Items {
 			dpu := &dpus.Items[i]
-			rs := dpu.Status.RebootStatus
-			phase := provisioningv1.RebootStatusPhase("")
-			reason, message, method := "", "", ""
-			if rs != nil {
-				phase = rs.Phase
-				reason = rs.Reason
-				message = rs.Message
-				if rs.Method != nil {
-					method = string(*rs.Method)
-				}
+			Expect(dpu.Status.Phase).NotTo(Equal(provisioningv1.DPUError),
+				fmt.Sprintf("DPU %s entered Error during provisioning", dpu.Name))
+			if cond := conditions.Get(dpu, conditions.ConditionType(provisioningv1.DPUCondRebooted)); cond != nil {
+				Expect(cond.Reason).NotTo(BeElementOf(util.ReasonRebootScriptFailed, util.ReasonRebootScriptFailedToFetchJob),
+					fmt.Sprintf("DPU %s reboot script failed: %s", dpu.Name, cond.Message))
 			}
-			// Key by phase and reason so every transition is printed, not only the first status seen.
-			tracker.By(fmt.Sprintf("%s/rebootstatus/%s/%s", dpu.Name, phase, reason),
-				"DPU %s RebootStatus.Phase=%q reason=%q method=%q from=%q",
-				dpu.Name, phase, reason, method, dpu.Status.PreviousPhase)
-
-			// We use Expect here (not g.Expect) to fail fast the test if a DPU
-			// enters the RebootStatusFailed state.
-			Expect(phase).NotTo(Equal(provisioningv1.RebootStatusFailed),
-				fmt.Sprintf("DPU %s RebootStatus=Failed (reason=%q, message=%q); "+
-					"the script-reboot Job hit its backoffLimit and recovery "+
-					"requires manual Job deletion",
-					dpu.Name, reason, message))
-
-			g.Expect(phase).To(Equal(provisioningv1.RebootStatusSucceeded),
-				fmt.Sprintf("DPU %s RebootStatus.Phase=%q (waiting for Succeeded)",
-					dpu.Name, phase))
 		}
-	}).WithTimeout(30 * time.Minute).WithPolling(time.Second).Should(Succeed())
+	}
+
+	Eventually(func(g Gomega) {
+		releaseHolds(g)
+		g.Expect(verifyExpectedDPUsToBeReady(ctx, tracker, input, expectedDPUs)).To(Succeed())
+		// Keep releasing while confirming readiness stays stable: if the next DPU in
+		// a rolling update starts, this fails and the outer Eventually resumes.
+		g.Consistently(func(cg Gomega) {
+			releaseHolds(cg)
+			cg.Expect(verifyExpectedDPUsToBeReady(ctx, nil, input, expectedDPUs)).To(Succeed())
+		}).WithTimeout(20 * time.Second).WithPolling(time.Second).Should(Succeed())
+	}).WithTimeout(provisioningTimeout).WithPolling(time.Second).Should(Succeed())
 }
 
 // logDPURebootRequests logs each DPU in DPURebooting once per source phase and requested method,

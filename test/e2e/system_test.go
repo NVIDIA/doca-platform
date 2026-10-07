@@ -86,12 +86,17 @@ func dpfOperatorConfigFromFile(path string) *operatorv1.DPFOperatorConfig {
 	Expect(dpfOperatorConfig.GetNamespace()).To(Equal(dpfOperatorSystemNamespace),
 		"DPFOperatorConfig manifest %s must use the namespace %q", path, dpfOperatorSystemNamespace)
 
-	// The OpenTelemetry collector endpoint embeds a runtime address a static manifest cannot
-	// carry. Without an endpoint the operator does not deploy the opentelemetry-collector
-	// DPUService, so inject it whenever the manifest enables monitoring without configuring the
-	// collector, mirroring the generated config.
-	if dpfOperatorConfig.Spec.Monitoring != nil && dpfOperatorConfig.MonitoringEnabled() &&
-		dpfOperatorConfig.Spec.Monitoring.OpenTelemetryCollector == nil {
+	// The OpenTelemetry collector endpoint and, in zero-trust, the API server
+	// VIP/port are runtime values a static per-release manifest cannot carry,
+	// so inject them here mirroring generateDPFOperatorConfig.
+	injectOTEL := dpfOperatorConfig.Spec.Monitoring != nil && dpfOperatorConfig.MonitoringEnabled() &&
+		dpfOperatorConfig.Spec.Monitoring.OpenTelemetryCollector == nil
+	zeroTrust := isGinkgoLabelApplied(Domain.ZeroTrust)
+
+	// Without an endpoint the operator does not deploy the opentelemetry-collector
+	// DPUService, so inject it whenever the manifest enables monitoring without
+	// configuring the collector.
+	if injectOTEL {
 		By("Get the OpenTelemetry export address")
 		exportAddress := otelExportAddress(ctx, testClient, conf.DPUClusterPaths)
 		dpfOperatorConfig.Spec.Monitoring.OpenTelemetryCollector = &operatorv1.OpenTelemetryCollectorConfiguration{
@@ -103,7 +108,44 @@ func dpfOperatorConfigFromFile(path string) *operatorv1.DPFOperatorConfig {
 			},
 		}
 	}
+
+	// Zero-trust bf.cfg generation fails without the API server VIP/port
+	// (FailedToGenerateBFConfig), which the previous-release manifests predate.
+	if zeroTrust {
+		By("Get control plane IP")
+		controlPlaneIP := getClusterControlPlaneIP(ctx, testClient)
+		applyZeroTrustAPIServerOverrides(dpfOperatorConfig, controlPlaneIP)
+	}
+
 	return dpfOperatorConfig
+}
+
+// applyZeroTrustAPIServerOverrides sets Spec.Overrides.KubernetesAPIServerVIP
+// and KubernetesAPIServerPort, which zero-trust bf.cfg generation requires but a
+// static per-release manifest cannot carry (like the OTEL endpoint). The VIP is
+// the given control-plane IP; the port comes from the test's REST config
+// (default 443). Values already set on the config are left untouched.
+func applyZeroTrustAPIServerOverrides(cfg *operatorv1.DPFOperatorConfig, controlPlaneIP string) {
+	apiServerPort := 443
+	if u, err := url.Parse(restConfig.Host); err == nil {
+		if p := u.Port(); p != "" {
+			if parsed, err := strconv.Atoi(p); err == nil {
+				apiServerPort = parsed
+			}
+		}
+	}
+	if cfg.Spec.Overrides == nil {
+		cfg.Spec.Overrides = &operatorv1.Overrides{}
+	}
+	if cfg.Spec.Overrides.KubernetesAPIServerVIP == nil {
+		cfg.Spec.Overrides.KubernetesAPIServerVIP = ptr.To(controlPlaneIP)
+	}
+	if cfg.Spec.Overrides.KubernetesAPIServerPort == nil {
+		cfg.Spec.Overrides.KubernetesAPIServerPort = ptr.To(apiServerPort)
+	}
+	By(fmt.Sprintf("Using API server VIP %s:%d for zero-trust kubeconfig",
+		ptr.Deref(cfg.Spec.Overrides.KubernetesAPIServerVIP, ""),
+		ptr.Deref(cfg.Spec.Overrides.KubernetesAPIServerPort, 0)))
 }
 
 // generateDPFOperatorConfig builds the DPFOperatorConfig for suites that test
@@ -181,20 +223,7 @@ func generateDPFOperatorConfig() *operatorv1.DPFOperatorConfig {
 				Disable: ptr.To(true),
 			},
 		}
-		apiServerPort := 443
-		if u, err := url.Parse(restConfig.Host); err == nil {
-			if p := u.Port(); p != "" {
-				if parsed, err := strconv.Atoi(p); err == nil {
-					apiServerPort = parsed
-				}
-			}
-		}
-		By(fmt.Sprintf("Using API server VIP %s:%d for zero-trust kubeconfig", controlPlaneIP, apiServerPort))
-		if dpfOperatorConfig.Spec.Overrides == nil {
-			dpfOperatorConfig.Spec.Overrides = &operatorv1.Overrides{}
-		}
-		dpfOperatorConfig.Spec.Overrides.KubernetesAPIServerVIP = ptr.To(controlPlaneIP)
-		dpfOperatorConfig.Spec.Overrides.KubernetesAPIServerPort = ptr.To(apiServerPort)
+		applyZeroTrustAPIServerOverrides(dpfOperatorConfig, controlPlaneIP)
 	}
 
 	if isGinkgoLabelApplied(Domain.Scale) {
