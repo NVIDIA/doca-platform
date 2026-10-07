@@ -68,6 +68,7 @@ func TestSRIOVDevicePluginConfigurationOverrides(t *testing.T) {
 	}
 }
 
+// TestServiceDaemonSetMaxUnavailableValue checks the fallback and explicit rollout limit.
 func TestServiceDaemonSetMaxUnavailableValue(t *testing.T) {
 	cases := map[string]struct {
 		config *DPUServiceControllerConfiguration
