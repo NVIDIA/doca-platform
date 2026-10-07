@@ -527,7 +527,7 @@ type DPUServiceControllerConfiguration struct {
 	// are preserved. Lower this value to limit the number of unavailable pods during updates.
 	// +kubebuilder:validation:Minimum=1
 	// +optional
-	DefaultServiceDaemonSetMaxUnavailable *int32 `json:"defaultServiceDaemonSetMaxUnavailable,omitempty"`
+	DefaultServiceDaemonSetMaxUnavailable int32 `json:"defaultServiceDaemonSetMaxUnavailable,omitempty"`
 }
 
 // DefaultServiceDaemonSetMaxUnavailableFallback is used when DefaultServiceDaemonSetMaxUnavailable
@@ -537,10 +537,10 @@ const DefaultServiceDaemonSetMaxUnavailableFallback int32 = 30000
 // ServiceDaemonSetMaxUnavailableValue returns DefaultServiceDaemonSetMaxUnavailable, or
 // DefaultServiceDaemonSetMaxUnavailableFallback when c is nil or the field is unset.
 func (c *DPUServiceControllerConfiguration) ServiceDaemonSetMaxUnavailableValue() int32 {
-	if c == nil {
+	if c == nil || c.DefaultServiceDaemonSetMaxUnavailable == 0 {
 		return DefaultServiceDaemonSetMaxUnavailableFallback
 	}
-	return ptr.Deref(c.DefaultServiceDaemonSetMaxUnavailable, DefaultServiceDaemonSetMaxUnavailableFallback)
+	return c.DefaultServiceDaemonSetMaxUnavailable
 }
 
 func (c *DPUServiceControllerConfiguration) Name() string {
