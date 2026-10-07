@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -500,17 +501,29 @@ func serverCertSANs(namespace, nodeIP, apiServerVIP string) (dnsNames, ipAddress
 	//     hostagent uses when the override is set.
 	//   - KUBERNETES_SERVICE_HOST: the provisioning controller's own env (in-cluster ClusterIP,
 	//     or the shared value on setups without a separate VIP).
-	// Add all valid, distinct IPs; duplicates and empty/invalid values are skipped.
+	// The VIP and the env may be hostnames (e.g. the OpenShift API hostname), which go into the
+	// DNS SANs. Duplicates and empty/invalid values are skipped.
 	seen := map[string]struct{}{}
-	for _, ip := range []string{nodeIP, apiServerVIP, os.Getenv("KUBERNETES_SERVICE_HOST")} {
-		if net.ParseIP(ip) == nil {
+	for _, name := range dnsNames {
+		seen[name] = struct{}{}
+	}
+	if net.ParseIP(nodeIP) != nil {
+		seen[nodeIP] = struct{}{}
+		ipAddresses = append(ipAddresses, nodeIP)
+	}
+	for _, addr := range []string{apiServerVIP, os.Getenv("KUBERNETES_SERVICE_HOST")} {
+		if _, ok := seen[addr]; ok {
 			continue
 		}
-		if _, ok := seen[ip]; ok {
+		switch {
+		case net.ParseIP(addr) != nil:
+			ipAddresses = append(ipAddresses, addr)
+		case len(validation.IsDNS1123Subdomain(addr)) == 0:
+			dnsNames = append(dnsNames, addr)
+		default:
 			continue
 		}
-		seen[ip] = struct{}{}
-		ipAddresses = append(ipAddresses, ip)
+		seen[addr] = struct{}{}
 	}
 	return dnsNames, ipAddresses
 }
