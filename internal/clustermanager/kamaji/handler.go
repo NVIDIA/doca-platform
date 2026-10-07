@@ -27,6 +27,7 @@ import (
 	"text/template"
 	"time"
 
+	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/clustermanager/controller"
 	"github.com/nvidia/doca-platform/internal/operator/inventory"
@@ -460,10 +461,15 @@ func (cm *clusterHandler) reconcileKamaji(ctx context.Context, dc *provisioningv
 		if err != nil {
 			return "", 0, nil, err
 		}
+		images, err := cm.getDPUClusterImages(ctx)
+		if err != nil {
+			return "", 0, nil, err
+		}
 		tcp, err = expectedTenantControlPlane(dc, cm.Scheme, nodePort, podCIDR)
 		if err != nil {
 			return "", 0, nil, fmt.Errorf("failed to generate expected TCP, err: %v", err)
 		}
+		applyTCPImages(tcp, images)
 		cm.patchDPUClusterEncryptionMetadata(dc, encPlan)
 		applyTCPEncryptionIfEnabled(tcp, encPlan)
 		if err := cm.Client.Create(ctx, tcp); err != nil {
@@ -541,6 +547,38 @@ func (cm *clusterHandler) getFlannelPodCIDR(ctx context.Context) (string, error)
 		return *dpfOperatorConfig.Spec.Flannel.PodCIDR, nil
 	}
 	return inventory.DefaultFlannelPodCIDR, nil
+}
+
+// getDPUClusterImages returns the image configuration of the DPU cluster, or nil if the Kamaji defaults should be
+// used.
+func (cm *clusterHandler) getDPUClusterImages(ctx context.Context) (*operatorv1.DPUClusterImagesConfiguration, error) {
+	dpfOperatorConfig, err := utils.GetDPFOperatorConfig(ctx, cm.Client)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get DPFOperatorConfig for the DPU cluster images, err: %v", err)
+	}
+	if dpfOperatorConfig.Spec.KamajiClusterManager == nil {
+		return nil, nil
+	}
+	return dpfOperatorConfig.Spec.KamajiClusterManager.DPUClusterImages, nil
+}
+
+// applyTCPImages points the control plane, kube-proxy and CoreDNS images of the TenantControlPlane at the
+// configured repositories. Unset values keep the Kamaji defaults.
+func applyTCPImages(tcp *kamajiv1.TenantControlPlane, images *operatorv1.DPUClusterImagesConfiguration) {
+	if images == nil {
+		return
+	}
+	if registry := ptr.Deref(images.HostedControlPlaneRepository, ""); registry != "" {
+		tcp.Spec.ControlPlane.Deployment.RegistrySettings.Registry = registry
+	}
+	if repository := ptr.Deref(images.AddonsRepository, ""); repository != "" {
+		if tcp.Spec.Addons.KubeProxy != nil {
+			tcp.Spec.Addons.KubeProxy.ImageRepository = repository
+		}
+		if tcp.Spec.Addons.CoreDNS != nil {
+			tcp.Spec.Addons.CoreDNS.ImageRepository = repository
+		}
+	}
 }
 
 // disableCoreDNSAddon clears the CoreDNS addon on an already existing TenantControlPlane.

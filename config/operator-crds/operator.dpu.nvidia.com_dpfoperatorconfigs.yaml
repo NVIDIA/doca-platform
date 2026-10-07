@@ -70,7 +70,9 @@ spec:
                       It contains the image for the controller and its resource requirements.
                     properties:
                       image:
-                        description: Image is a reference to a container image.
+                        description: |-
+                          Image is a reference to a container image.
+                          If neither a tag nor a digest is set, the tag and digest of the component's default image are used.
                         pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                         type: string
                       resources:
@@ -133,7 +135,9 @@ spec:
                       It contains the image for the CoreDNS container and its resource requirements.
                     properties:
                       image:
-                        description: Image is a reference to a container image.
+                        description: |-
+                          Image is a reference to a container image.
+                          If neither a tag nor a digest is set, the tag and digest of the component's default image are used.
                         pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                         type: string
                       resources:
@@ -220,7 +224,9 @@ spec:
                       It contains the image for the controller and its resource requirements.
                     properties:
                       image:
-                        description: Image is a reference to a container image.
+                        description: |-
+                          Image is a reference to a container image.
+                          If neither a tag nor a digest is set, the tag and digest of the component's default image are used.
                         pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                         type: string
                       resources:
@@ -298,7 +304,9 @@ spec:
                       It contains the image for the controller and its resource requirements.
                     properties:
                       image:
-                        description: Image is a reference to a container image.
+                        description: |-
+                          Image is a reference to a container image.
+                          If neither a tag nor a digest is set, the tag and digest of the component's default image are used.
                         pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                         type: string
                       resources:
@@ -399,7 +407,9 @@ spec:
                       Note: The resources for the CNI container are not configurable.
                     properties:
                       image:
-                        description: Image is a reference to a container image.
+                        description: |-
+                          Image is a reference to a container image.
+                          If neither a tag nor a digest is set, the tag and digest of the component's default image are used.
                         pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                         type: string
                     type: object
@@ -409,7 +419,9 @@ spec:
                       It contains the image for the Flannel Daemon container and its resource requirements.
                     properties:
                       image:
-                        description: Image is a reference to a container image.
+                        description: |-
+                          Image is a reference to a container image.
+                          If neither a tag nor a digest is set, the tag and digest of the component's default image are used.
                         pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                         type: string
                       resources:
@@ -512,7 +524,9 @@ spec:
                       It contains the image for the controller and its resource requirements.
                     properties:
                       image:
-                        description: Image is a reference to a container image.
+                        description: |-
+                          Image is a reference to a container image.
+                          If neither a tag nor a digest is set, the tag and digest of the component's default image are used.
                         pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                         type: string
                       resources:
@@ -568,6 +582,30 @@ spec:
                     description: Disable ensures the component is not deployed when
                       set to true.
                     type: boolean
+                  dpuClusterImages:
+                    description: |-
+                      DPUClusterImages configures the images of Kamaji-managed DPU clusters.
+                      It is applied only when a Kamaji cluster is first created and is not changed for existing clusters.
+                    properties:
+                      addonsRepository:
+                        description: |-
+                          AddonsRepository is the image repository the addon images of the DPU cluster, e.g. kube-proxy, are
+                          pulled from. For example, for the repository example.com/k8s, kube-proxy is pulled from
+                          example.com/k8s/kube-proxy.
+                          The Kamaji defaults are used if this is not set.
+                        maxLength: 255
+                        pattern: ^(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*$
+                        type: string
+                      hostedControlPlaneRepository:
+                        description: |-
+                          HostedControlPlaneRepository is the image repository the hosted control plane images of the DPU cluster are
+                          pulled from: kube-apiserver, kube-controller-manager and kube-scheduler. For example, for the
+                          repository example.com/k8s, kube-apiserver is pulled from example.com/k8s/kube-apiserver.
+                          This is registry.k8s.io by default.
+                        maxLength: 255
+                        pattern: ^(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*$
+                        type: string
+                    type: object
                   etcdEncryptionAtRest:
                     description: |-
                       EtcdEncryptionAtRest configures encryption at rest for the etcd datastore of
@@ -669,7 +707,9 @@ spec:
                           It contains the image for kube-state-metrics and its resource requirements.
                         properties:
                           image:
-                            description: Image is a reference to a container image.
+                            description: |-
+                              Image is a reference to a container image.
+                              If neither a tag nor a digest is set, the tag and digest of the component's default image are used.
                             pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                             type: string
                           resources:
@@ -742,7 +782,9 @@ spec:
                           It contains the image for node-problem-detector and its resource requirements.
                         properties:
                           image:
-                            description: Image is a reference to a container image.
+                            description: |-
+                              Image is a reference to a container image.
+                              If neither a tag nor a digest is set, the tag and digest of the component's default image are used.
                             pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                             type: string
                           resources:
@@ -815,7 +857,9 @@ spec:
                           It contains the image for opentelemetry-collector and its resource requirements.
                         properties:
                           image:
-                            description: Image is a reference to a container image.
+                            description: |-
+                              Image is a reference to a container image.
+                              If neither a tag nor a digest is set, the tag and digest of the component's default image are used.
                             pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                             type: string
                           resources:
@@ -1011,7 +1055,9 @@ spec:
                       It contains the image for the controller and its resource requirements.
                     properties:
                       image:
-                        description: Image is a reference to a container image.
+                        description: |-
+                          Image is a reference to a container image.
+                          If neither a tag nor a digest is set, the tag and digest of the component's default image are used.
                         pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                         type: string
                       resources:
@@ -1134,7 +1180,9 @@ spec:
                       It contains the image for the controller and its resource requirements.
                     properties:
                       image:
-                        description: Image is a reference to a container image.
+                        description: |-
+                          Image is a reference to a container image.
+                          If neither a tag nor a digest is set, the tag and digest of the component's default image are used.
                         pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                         type: string
                       resources:
@@ -1198,14 +1246,16 @@ spec:
                         pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                         type: string
                       image:
-                        description: Image overrides the container image for the SRIOV
-                          device plugin.
+                        description: |-
+                          Image overrides the container image for the SRIOV device plugin.
+                          If neither a tag nor a digest is set, the tag and digest of the default image are used.
                         pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                         type: string
                       initImage:
                         description: |-
                           InitImage overrides the container image for the init container
                           that generates device plugin configuration.
+                          If neither a tag nor a digest is set, the tag and digest of the default image are used.
                         pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                         type: string
                     type: object
@@ -1232,7 +1282,9 @@ spec:
                       It contains the image for the controller and its resource requirements.
                     properties:
                       image:
-                        description: Image is a reference to a container image.
+                        description: |-
+                          Image is a reference to a container image.
+                          If neither a tag nor a digest is set, the tag and digest of the component's default image are used.
                         pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                         type: string
                       resources:
@@ -1309,7 +1361,9 @@ spec:
                       It contains the image for the node and its resource requirements.
                     properties:
                       image:
-                        description: Image is a reference to a container image.
+                        description: |-
+                          Image is a reference to a container image.
+                          If neither a tag nor a digest is set, the tag and digest of the component's default image are used.
                         pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                         type: string
                       resources:
@@ -1486,7 +1540,9 @@ spec:
                       It contains the image for the controller and its resource requirements.
                     properties:
                       image:
-                        description: Image is a reference to a container image.
+                        description: |-
+                          Image is a reference to a container image.
+                          If neither a tag nor a digest is set, the tag and digest of the component's default image are used.
                         pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                         type: string
                       resources:
@@ -1593,7 +1649,9 @@ spec:
                       It contains the image for the controller and its resource requirements.
                     properties:
                       image:
-                        description: Image is a reference to a container image.
+                        description: |-
+                          Image is a reference to a container image.
+                          If neither a tag nor a digest is set, the tag and digest of the component's default image are used.
                         pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                         type: string
                       resources:
@@ -1922,7 +1980,9 @@ spec:
                           It contains the image for the kata-deploy container.
                         properties:
                           image:
-                            description: Image is a reference to a container image.
+                            description: |-
+                              Image is a reference to a container image.
+                              If neither a tag nor a digest is set, the tag and digest of the component's default image are used.
                             pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                             type: string
                         type: object
@@ -2321,7 +2381,9 @@ spec:
                           for the KMS plugin DaemonSet.
                         properties:
                           image:
-                            description: Image is a reference to a container image.
+                            description: |-
+                              Image is a reference to a container image.
+                              If neither a tag nor a digest is set, the tag and digest of the component's default image are used.
                             pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                             type: string
                           resources:
@@ -2469,7 +2531,9 @@ spec:
                       It contains the image for the controller and its resource requirements.
                     properties:
                       image:
-                        description: Image is a reference to a container image.
+                        description: |-
+                          Image is a reference to a container image.
+                          If neither a tag nor a digest is set, the tag and digest of the component's default image are used.
                         pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                         type: string
                       resources:
@@ -2563,7 +2627,9 @@ spec:
                       It contains the image for the controller and its resource requirements.
                     properties:
                       image:
-                        description: Image is a reference to a container image.
+                        description: |-
+                          Image is a reference to a container image.
+                          If neither a tag nor a digest is set, the tag and digest of the component's default image are used.
                         pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                         type: string
                       resources:
@@ -2654,7 +2720,9 @@ spec:
                       It contains the image for the init container and its resource requirements.
                     properties:
                       image:
-                        description: Image is a reference to a container image.
+                        description: |-
+                          Image is a reference to a container image.
+                          If neither a tag nor a digest is set, the tag and digest of the component's default image are used.
                         pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                         type: string
                       resources:
@@ -2712,7 +2780,9 @@ spec:
                       It contains the image for the controller and its resource requirements.
                     properties:
                       image:
-                        description: Image is a reference to a container image.
+                        description: |-
+                          Image is a reference to a container image.
+                          If neither a tag nor a digest is set, the tag and digest of the component's default image are used.
                         pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                         type: string
                       resources:
@@ -2797,7 +2867,9 @@ spec:
                       It contains the image for the controller and its resource requirements.
                     properties:
                       image:
-                        description: Image is a reference to a container image.
+                        description: |-
+                          Image is a reference to a container image.
+                          If neither a tag nor a digest is set, the tag and digest of the component's default image are used.
                         pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                         type: string
                       resources:
