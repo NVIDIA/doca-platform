@@ -58,13 +58,26 @@ import (
 
 const reconciliationWaitAfterRollout time.Duration = 30 * time.Second
 
+// upgradeDPUNodeLabel uniquely selects a single DPUNode for per-node
+// DPUDeployment fan-out. HT DPUNodes inherit kubernetes.io/hostname from
+// their host Node, but ZT DPUNodes (discovered over BMC/Redfish, with no
+// host Node relationship) don't get that label copied, so
+// createUpgradeDPUDeployments stamps this one itself and uses it for both.
+const upgradeDPUNodeLabel = "e2e.dpu.nvidia.com/upgrade-dpunode"
+
 // installPhaseInput configures one install phase of an upgrade path: provision
 // DPUs and create the dependency resources from the phase's config manifests,
 // then capture the initial artifact snapshot. All booleans default to false and
 // most fields are optional.
 type installPhaseInput struct {
-	// label is the Ginkgo label used to filter this phase in CI.
+	// label is the Ginkgo label used to filter this phase in CI. Combine with
+	// Domain.ZeroTrust in the filter to select a specific mode variant, e.g.
+	// "DPFUpgrade && ZeroTrust" for ZT or "DPFUpgrade && !ZeroTrust" for HT.
 	label string
+	// zeroTrust, if true, attaches Domain.ZeroTrust to this phase's Ginkgo
+	// container so the filter "DPFUpgrade && ZeroTrust" selects only the ZT
+	// variant while "DPFUpgrade && !ZeroTrust" selects only the HT one.
+	zeroTrust bool
 	// skipSystemComponentValidation skips the current-shape system-component
 	// checks during setup. Set for previous-release installs (e.g. BFB LTS
 	// v25.10) whose deployed component shape differs from the current release.
@@ -93,8 +106,13 @@ type rolloutAfterUpgradeFunc = rollout.Step[*systemTestInput]
 // validate existing resources after the operator has been upgraded externally.
 // All booleans default to false and most fields are optional.
 type validationPhaseInput struct {
-	// label is the Ginkgo label used to filter this phase in CI.
+	// label is the Ginkgo label used to filter this phase in CI. Combine with
+	// Domain.ZeroTrust in the filter to select a specific mode variant.
 	label string
+	// zeroTrust, if true, attaches Domain.ZeroTrust to this phase's Ginkgo
+	// container so the filter "DPFUpgradeValidation && ZeroTrust" selects only
+	// the ZT variant while "DPFUpgradeValidation && !ZeroTrust" selects HT.
+	zeroTrust bool
 	// expectedDPFVersion returns the DPF version expected at this phase.
 	// Must not return "". Use a closure so package-level vars (set by init)
 	// are read at test execution time, not Ginkgo tree-construction time.
@@ -149,31 +167,35 @@ type validationPhaseInput struct {
 	expectedKubernetesVersion string
 }
 
-// validationPhaseLabels collects the Ginkgo label of every registered
+// validationPhaseLabelSets collects the full label set of every registered
 // validation phase as a side effect of validationPhase. BeforeSuite consults it
-// (via isUpgradeValidationPhase) to skip cleanup between phases.
-var validationPhaseLabels []string
+// (via isUpgradeValidationPhase) to skip cleanup between phases. Storing the
+// full set (not just the primary label) allows correct Ginkgo AST matching for
+// compound filters like "DPFUpgradeValidation && ZeroTrust".
+var validationPhaseLabelSets []Labels
 
-// installPhaseLabels collects the Ginkgo label of every registered install
+// installPhaseLabelSets collects the full label set of every registered install
 // phase as a side effect of installPhase. BeforeSuite consults it via
-// isUpgradeInstallPhase.
-var installPhaseLabels []string
+// isUpgradeInstallPhase. Using the full set avoids substring false-positives
+// (e.g. "DPFBFBLTSUpgrade" is a prefix of "DPFBFBLTSUpgradeV264").
+var installPhaseLabelSets []Labels
 
 // isUpgradeValidationPhase reports whether the active Ginkgo label filter
 // matches any upgrade *validation* phase. Used by BeforeSuite to skip cleanup
 // between phases. Install phases are NOT covered here because Phase 1 needs
 // normal pre-test cleanup.
 func isUpgradeValidationPhase() bool {
-	return anyLabelMatchesFilter(validationPhaseLabels)
+	return anyLabelSetMatchesFilter(validationPhaseLabelSets)
 }
 
 // isUpgradeInstallPhase reports whether the active Ginkgo label filter matches
 // any upgrade *install* phase. Used by BeforeSuite to skip the domain-specific
 // setup hooks (SDN, SNAP, VPC OVN, Weave): install phases drive all setup
 // from their own phase steps, so the upgrade configs may omit those domains'
-// config fields.
+// config fields. Also used by system_setup.go to skip bfb-registry checks that
+// only apply to the current operator (install phases use a prior-release operator).
 func isUpgradeInstallPhase() bool {
-	return anyLabelMatchesFilter(installPhaseLabels)
+	return anyLabelSetMatchesFilter(installPhaseLabelSets)
 }
 
 // isUpgradePhase reports whether the active Ginkgo label filter matches any
@@ -186,11 +208,14 @@ func isUpgradePhase() bool {
 	return isUpgradeInstallPhase() || isUpgradeValidationPhase()
 }
 
-// anyLabelMatchesFilter reports whether any of the given phase labels matches
-// the active Ginkgo label filter.
-func anyLabelMatchesFilter(labels []string) bool {
-	for _, label := range labels {
-		if Label(label).MatchesLabelFilter(GinkgoLabelFilter()) {
+// anyLabelSetMatchesFilter reports whether any of the given label sets matches
+// the active Ginkgo label filter. Uses Ginkgo's AST-based MatchesLabelFilter
+// so compound filters like "DPFUpgrade && ZeroTrust" are evaluated correctly
+// and prefix labels (e.g. "DPFBFBLTSUpgrade") do not false-match their
+// longer siblings ("DPFBFBLTSUpgradeV264").
+func anyLabelSetMatchesFilter(labelSets []Labels) bool {
+	for _, ls := range labelSets {
+		if ls.MatchesLabelFilter(GinkgoLabelFilter()) {
 			return true
 		}
 	}
@@ -206,8 +231,12 @@ func installPhase(description string, in installPhaseInput) {
 	if in.expectedDPUServices == nil {
 		panic(fmt.Sprintf("install phase %q must set expectedDPUServices", description))
 	}
-	installPhaseLabels = append(installPhaseLabels, in.label)
-	Context("install: "+description, Labels{in.label, Domain.RequiresNodes}, Serial, Ordered, func() {
+	phaseLabels := Labels{in.label, Domain.RequiresNodes}
+	if in.zeroTrust {
+		phaseLabels = append(phaseLabels, Domain.ZeroTrust)
+	}
+	installPhaseLabelSets = append(installPhaseLabelSets, phaseLabels)
+	Context("install: "+description, phaseLabels, Serial, Ordered, func() {
 
 		It("create DPFOperatorConfig", func() {
 			SystemSetupBeforeSuite(in.skipSystemComponentValidation)
@@ -246,39 +275,80 @@ func installPhase(description string, in installPhaseInput) {
 	})
 }
 
+// createUpgradeDPUDeployments creates one DPUDeployment per discovered DPU
+// node, each pinned to that node alone. This works the same way for both HT
+// and ZT: neither carries a label unique to just one DPUNode out of the box
+// (HT DPUNodes get kubernetes.io/hostname copied from their host Node, but
+// that's per-run and ZT DPUNodes never get it at all), so this stamps one
+// itself and selects on it.
 func createUpgradeDPUDeployments(ctx context.Context, systemInput *systemTestInput) {
 	Expect(systemInput.numberOfDPUsPerNode).To(Equal(1),
 		"dynamic upgrade DPU selection currently supports one DPU per node")
 
-	By("Get worker nodes")
-	nodes := &corev1.NodeList{}
-	Expect(systemInput.client.List(ctx, nodes,
-		client.MatchingLabels{"node-role.kubernetes.io/worker": ""})).To(Succeed())
+	By("Waiting for discovered DPU nodes")
+	dpuNodeList := &provisioningv1.DPUNodeList{}
+	Eventually(func(g Gomega) {
+		g.Expect(systemInput.client.List(ctx, dpuNodeList,
+			client.InNamespace(dpfOperatorSystemNamespace),
+			client.MatchingLabels{util.NodeSelectorLabel: "true"},
+		)).To(Succeed())
+		g.Expect(dpuNodeList.Items).To(HaveLen(systemInput.numberOfDPUNodes))
+	}).WithTimeout(5 * time.Minute).WithPolling(time.Second).Should(Succeed())
 
-	By("Creating DPUDeployment objects for each DPU node")
-	for i := 0; i < systemInput.numberOfDPUNodes; i++ {
-		node := &nodes.Items[i]
+	By("Creating one DPUDeployment per DPU node")
+	for i := range dpuNodeList.Items {
+		dpuNode := &dpuNodeList.Items[i]
+
+		// Host-trusted nodes can expose more than one DPUDevice, so pin the DPUSet to
+		// a single device by PCI address. ZT has no PCI visibility (no PCI label) and
+		// one DPU per node, so it only waits for its DPUDevice to be attached.
+		pciAddress := ""
+		if isGinkgoLabelApplied(Domain.ZeroTrust) {
+			By(fmt.Sprintf("Waiting for DPUNode %s's DPUDevice to be attached", dpuNode.Name))
+			Eventually(func(g Gomega) {
+				dpuDevices := &provisioningv1.DPUDeviceList{}
+				g.Expect(systemInput.client.List(ctx, dpuDevices,
+					client.InNamespace(dpfOperatorSystemNamespace),
+					client.MatchingLabels{provisioningv1.DPUNodeNameLabel: dpuNode.Name},
+				)).To(Succeed())
+				g.Expect(dpuDevices.Items).To(HaveLen(1))
+			}).WithTimeout(5 * time.Minute).WithPolling(time.Second).Should(Succeed())
+		} else {
+			dpuDevices := waitForDPUDevicesWithPCIAddress(
+				ctx,
+				systemInput.client,
+				dpfOperatorSystemNamespace,
+				dpuNode.Name,
+			)
+			selectedDPUDevice, err := selectDPUDeviceWithPCIAddress(dpuDevices)
+			Expect(err).NotTo(HaveOccurred())
+			pciAddress = selectedDPUDevice.Labels[util.DPUDevicePCIAddressLabel]
+			By(fmt.Sprintf("Selecting DPUDevice with PCI address %s on DPUNode %s", pciAddress, dpuNode.Name))
+		}
+
+		patchBase := dpuNode.DeepCopy()
+		if dpuNode.Labels == nil {
+			dpuNode.Labels = map[string]string{}
+		}
+		dpuNode.Labels[upgradeDPUNodeLabel] = dpuNode.Name
+		Expect(systemInput.client.Patch(ctx, dpuNode, client.MergeFrom(patchBase))).To(Succeed())
+
 		dpuDeployment := systemInput.dpuDeployment.DeepCopy()
 		dpuDeployment.SetLabels(CleanupScope.Suite)
-		dpuDeployment.SetName(node.GetName())
-		// Per-node hostname selector uses the previous-release CRD schema.
+		// DPUDeployment names are capped at 20 chars (XValidation on the CRD), which
+		// a DPUNode name can exceed (ZT names DPUNodes after the DPU's serial number),
+		// so index rather than reuse the DPUNode name.
+		dpuDeployment.SetName(fmt.Sprintf("%s-%d", systemInput.dpuDeployment.Name, i))
+		// Per-node selector uses the previous-release CRD schema.
 		//nolint:staticcheck
 		dpuDeployment.Spec.DPUs.DPUSets[0].NodeSelector = &metav1.LabelSelector{
-			MatchLabels: map[string]string{"kubernetes.io/hostname": node.GetName()},
+			MatchLabels: map[string]string{upgradeDPUNodeLabel: dpuNode.Name},
 		}
-		dpuDevices := waitForDPUDevicesWithPCIAddress(
-			ctx,
-			systemInput.client,
-			dpfOperatorSystemNamespace,
-			node.Name,
-		)
-		selectedDPUDevice, err := selectDPUDeviceWithPCIAddress(dpuDevices)
-		Expect(err).NotTo(HaveOccurred())
-		pciAddress := selectedDPUDevice.Labels[util.DPUDevicePCIAddressLabel]
-		By(fmt.Sprintf("Selecting DPUDevice with PCI address %s on worker %s", pciAddress, node.Name))
-		//nolint:staticcheck // Install runs against the previous-release CRD schema.
-		dpuDeployment.Spec.DPUs.DPUSets[0].DPUSelector = map[string]string{
-			util.DPUDevicePCIAddressLabel: pciAddress,
+		if pciAddress != "" {
+			//nolint:staticcheck // Install runs against the previous-release CRD schema.
+			dpuDeployment.Spec.DPUs.DPUSets[0].DPUSelector = map[string]string{
+				util.DPUDevicePCIAddressLabel: pciAddress,
+			}
 		}
 		Expect(systemInput.client.Create(ctx, dpuDeployment)).To(Succeed())
 	}
@@ -298,7 +368,11 @@ func validationPhase(description string, in validationPhaseInput) {
 		// unset artifactsKey would silently capture instead of no-op.
 		panic(fmt.Sprintf("validation phase %q must set artifactsKey", description))
 	}
-	validationPhaseLabels = append(validationPhaseLabels, in.label)
+	phaseLabels := Labels{in.label, Domain.RequiresNodes}
+	if in.zeroTrust {
+		phaseLabels = append(phaseLabels, Domain.ZeroTrust)
+	}
+	validationPhaseLabelSets = append(validationPhaseLabelSets, phaseLabels)
 	// Every capture this phase runs snapshots the same release, and every
 	// comparison the same pair of them, so they all share one config.
 	capture := artifactCapture{waits: in.artifactWaits}
@@ -306,7 +380,7 @@ func validationPhase(description string, in validationPhaseInput) {
 		checks:     in.artifactChecks,
 		normalizes: in.artifactNormalizes,
 	}
-	Context("validation: "+description, Labels{in.label, Domain.RequiresNodes}, Serial, Ordered, func() {
+	Context("validation: "+description, phaseLabels, Serial, Ordered, func() {
 
 		if in.removeStaleDPUDeviceFinalizers {
 			// Runs even when this phase preserves the cluster (-e2e.skip-cleanup),
@@ -637,7 +711,7 @@ func rolloutDPUDeploymentDependencies(
 
 	dpuDeploymentList := &dpuservicev1.DPUDeploymentList{}
 	Expect(input.client.List(ctx, dpuDeploymentList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
-	Expect(dpuDeploymentList.Items).To(HaveLen(input.numberOfDPUNodes), "expected one DPUDeployment per DPU node")
+	Expect(dpuDeploymentList.Items).To(HaveLen(input.numberOfDPUNodes), "unexpected number of DPUDeployments")
 	slices.SortFunc(dpuDeploymentList.Items, func(a, b dpuservicev1.DPUDeployment) int {
 		return strings.Compare(a.Name, b.Name)
 	})
@@ -664,7 +738,7 @@ func rolloutDPUDeploymentDependencies(
 	if currentConfig.Spec.ServiceConfiguration.ServiceDaemonSet.Labels == nil {
 		currentConfig.Spec.ServiceConfiguration.ServiceDaemonSet.Labels = map[string]string{}
 	}
-	currentConfig.Spec.ServiceConfiguration.ServiceDaemonSet.Labels["rollout"] = hopSuffix
+	currentConfig.Spec.ServiceConfiguration.ServiceDaemonSet.Labels["rollout"] = sanitized
 	Expect(input.client.Create(ctx, currentConfig)).To(Succeed())
 
 	type dpuRolloutRecord struct {
@@ -942,4 +1016,65 @@ func hasDPUDeploymentFinalizer(obj client.Object) bool {
 		}
 	}
 	return false
+}
+
+// verifyDPUsHaveKubeletVersion asserts that every DPU in the system namespace
+// has a non-empty KubeletVersion in its AgentStatus. Required after DPUs are
+// reprovisioned with DPF v26.4+.
+func verifyDPUsHaveKubeletVersion(ctx context.Context, input *systemTestInput) {
+	By("Verifying all DPUs report KubeletVersion")
+	Eventually(func(g Gomega) {
+		dpuList := &provisioningv1.DPUList{}
+		g.Expect(input.client.List(ctx, dpuList, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+		g.Expect(dpuList.Items).NotTo(BeEmpty())
+		for _, dpu := range dpuList.Items {
+			g.Expect(dpu.Status.AgentStatus).NotTo(BeNil(), "DPU %s should have AgentStatus", dpu.Name)
+			g.Expect(dpu.Status.AgentStatus.KubeletVersion).NotTo(BeNil(), "DPU %s should have KubeletVersion", dpu.Name)
+			g.Expect(*dpu.Status.AgentStatus.KubeletVersion).NotTo(BeEmpty(), "DPU %s KubeletVersion should not be empty", dpu.Name)
+		}
+	}).WithTimeout(5 * time.Minute).WithPolling(time.Second).Should(Succeed())
+}
+
+// removeStaleDPUDeviceProtectionFinalizers clears provisioning.dpu.nvidia.com/dpudevice-protection
+// from DPUDevice objects that are not referenced by any active DPU.
+//
+// Workaround for v25.10 → v26.4 upgrade (#5048585): non-selected DPUDevices can retain the
+// legacy finalizer after upgrade, which blocks DPUDevice deletion and stalls DPFOperatorConfig
+// teardown. Only the finalizer is removed; DPUDevice objects are kept.
+func removeStaleDPUDeviceProtectionFinalizers(ctx context.Context, testClient client.Client) {
+	By("Removing stale dpudevice-protection finalizers from unreferenced DPUDevices (v25.10→v26.4 upgrade workaround)")
+
+	dpuList := &provisioningv1.DPUList{}
+	Expect(testClient.List(ctx, dpuList)).To(Succeed())
+
+	referencedDPUDevices := make(map[string]struct{}, len(dpuList.Items))
+	for i := range dpuList.Items {
+		dpu := &dpuList.Items[i]
+		if name := dpu.Spec.DPUDeviceName; name != "" {
+			referencedDPUDevices[name] = struct{}{}
+		}
+		if name := dpu.GetLabels()[util.DPUDeviceNameLabel]; name != "" {
+			referencedDPUDevices[name] = struct{}{}
+		}
+	}
+
+	dpuDeviceList := &provisioningv1.DPUDeviceList{}
+	Expect(testClient.List(ctx, dpuDeviceList)).To(Succeed())
+
+	for i := range dpuDeviceList.Items {
+		device := &dpuDeviceList.Items[i]
+		if _, referenced := referencedDPUDevices[device.Name]; referenced {
+			continue
+		}
+		if !slices.Contains(device.Finalizers, provisioningv1.DPUDeviceFinalizer) {
+			continue
+		}
+		By(fmt.Sprintf("Patching DPUDevice %s/%s: remove %s finalizer",
+			device.Namespace, device.Name, provisioningv1.DPUDeviceFinalizer))
+		original := device.DeepCopy()
+		device.Finalizers = slices.DeleteFunc(device.Finalizers, func(finalizer string) bool {
+			return finalizer == provisioningv1.DPUDeviceFinalizer
+		})
+		Expect(testClient.Patch(ctx, device, client.MergeFrom(original))).To(Succeed())
+	}
 }

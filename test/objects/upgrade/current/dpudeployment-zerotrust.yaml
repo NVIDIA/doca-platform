@@ -1,0 +1,49 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUDeployment
+metadata:
+  name: upgrade-test
+  namespace: dpf-operator-system
+spec:
+  dpus:
+    bfb: bf-bundle
+    dpuSets:
+      - dpuAnnotations:
+          doMagic: "true"
+        nameSuffix: dpuset1
+        nodeSelector:
+          matchLabels:
+            feature.node.kubernetes.io/dpu-enabled: "true"
+    dpuSetStrategy:
+      type: RollingUpdate
+      rollingUpdate:
+        maxUnavailable: 100%
+    flavor: flavor
+    # ZeroTrust: hold the node rather than draining it; the BMC-based reboot
+    # controller handles the DPU reset out-of-band via Redfish.
+    nodeEffect:
+      hold: true
+  revisionHistoryLimit: 10
+  serviceChains:
+    switches:
+      - ports:
+          - service:
+              interface: net1
+              name: example
+              ipam:
+                matchLabels:
+                  svc.dpu.nvidia.com/pool: pool1
+          - service:
+              interface: net2
+              name: example-2
+              ipam:
+                matchLabels:
+                  svc.dpu.nvidia.com/pool: pool1
+    upgradePolicy:
+      applyNodeEffect: true
+  services:
+    example:
+      serviceConfiguration: example
+      serviceTemplate: example
+    example-2:
+      serviceConfiguration: example-2
+      serviceTemplate: example-2

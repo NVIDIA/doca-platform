@@ -572,7 +572,12 @@ var _ = AfterSuite(func() {
 	}
 
 	By("Performing final suite cleanup")
-	cleanupTracker.HandleScopeLifecycle(nil, cleanup.GinkgoHook.AfterSuite)
+	// Nil when BeforeSuite panicked before the tracker was created (e.g. flag
+	// validation failure), so a genuine setup error isn't masked by a nil
+	// pointer dereference here.
+	if cleanupTracker != nil {
+		cleanupTracker.HandleScopeLifecycle(nil, cleanup.GinkgoHook.AfterSuite)
+	}
 })
 
 // validateRequiredConfigFields fails fast when the e2e config file omits a

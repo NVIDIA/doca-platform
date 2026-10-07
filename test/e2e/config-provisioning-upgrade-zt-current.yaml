@@ -1,0 +1,16 @@
+provisioningControllerPVC: "../objects/infrastructure/pvc-provisioning.yaml"
+bfb: "../objects/upgrade/current/bfb.yaml"
+dpuClusters:
+  - "../objects/upgrade/current/dpucluster.yaml"
+dpuFlavor: "../objects/upgrade/current/dpuflavor.yaml"
+dpuDeployment: "../objects/upgrade/current/dpudeployment-zerotrust.yaml"
+dpuServiceConfiguration: "../objects/upgrade/current/dpuserviceconfiguration.yaml"
+additionalDPUServiceConfiguration: "../objects/upgrade/current/dpuserviceconfiguration-2.yaml"
+dpuServiceTemplate: "../objects/upgrade/current/dpuservicetemplate.yaml"
+additionalDPUServiceTemplate: "../objects/upgrade/current/dpuservicetemplate-2.yaml"
+ipPoolDPUServiceIPAM: "../objects/application/dpuserviceipam_subnet.yaml"
+dpuDiscovery: "../objects/infrastructure/dpudicovery.yaml"
+numberOfDPUNodes: 2
+numberOfDPUsPerNode: 1
+nodeRebootConfigMap: dpunode-reboot-redfish
+nodeRebootConfigMapPath: "../objects/infrastructure/dpunode-reboot-redfish.yaml"
