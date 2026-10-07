@@ -687,16 +687,24 @@ type image struct {
 	tag       string
 }
 
-// Image will be in the form: repoName/imageName:version.
-func parseImageString(repoImageVersion string) (*image, error) {
-	repoImage, tag, found := strings.Cut(repoImageVersion, ":")
-	if !found {
-		return nil, fmt.Errorf("image must be in the format 'image:tag' and must always contain a colon. input: %v", repoImageVersion)
-	}
+// Image will be in the form: repoName/imageName:version. The version is optional; if it is omitted the tag
+// is left empty so that the helm chart's default tag is used.
+func parseImageString(repoImageVersion string) *image {
+	repoImage, tag, _ := strings.Cut(repoImageVersion, ":")
 	return &image{
 		repoImage: repoImage,
 		tag:       tag,
-	}, nil
+	}
+}
+
+// imageValueEdits returns the edits to set image in the helm values at repoPath and tagPath.
+// The tag is only set if image has one so that the helm chart's default tag is used otherwise.
+func imageValueEdits(image *image, repoPath, tagPath []string) []StructuredEdit {
+	edits := []StructuredEdit{dpuServiceAddValueEdit(image.repoImage, repoPath...)}
+	if image.tag != "" {
+		edits = append(edits, dpuServiceAddValueEdit(image.tag, tagPath...))
+	}
+	return edits
 }
 
 // imageEditsForComponent contains the correct functions to set images in each of the components deployed by covered by the DPUNetworking helm chart.
@@ -706,13 +714,10 @@ func imageEditsForComponent(name string, imageOverride string) ([]StructuredEdit
 	// This handles cases like "flannel" with "image1,image2" where the first image is for daemon, second for cni
 	// TODO: remove this special case when we remove the legacy format support.
 	if name == operatorv1.FlannelName.String() {
-		images := []*image{}
-		for _, override := range strings.Split(imageOverride, ",") {
-			i, err := parseImageString(override)
-			if err != nil {
-				return nil, err
-			}
-			images = append(images, i)
+		overrides := strings.Split(imageOverride, ",")
+		images := make([]*image, 0, len(overrides))
+		for _, override := range overrides {
+			images = append(images, parseImageString(override))
 		}
 		edits := map[string]func(...*image) []StructuredEdit{
 			operatorv1.FlannelName.String(): setFlannelImage,
@@ -724,10 +729,7 @@ func imageEditsForComponent(name string, imageOverride string) ([]StructuredEdit
 		return editForComponent(images...), nil
 	}
 
-	imageName, err := parseImageString(imageOverride)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse image string %q: %v", imageOverride, err)
-	}
+	imageName := parseImageString(imageOverride)
 
 	// Handle multi-container component images
 	if strings.Contains(name, multiSplitChar) {
@@ -757,12 +759,10 @@ func setFlannelImage(imageOverride ...*image) []StructuredEdit {
 	repoPathCNI := []string{operatorv1.FlannelName.String(), "flannel", "image_cni", "repository"}
 	tagPathCNI := []string{operatorv1.FlannelName.String(), "flannel", "image_cni", "tag"}
 
-	return []StructuredEdit{
-		dpuServiceAddValueEdit(kubeFlannelImage.repoImage, repoPath...),
-		dpuServiceAddValueEdit(kubeFlannelImage.tag, tagPath...),
-		dpuServiceAddValueEdit(cniImage.repoImage, repoPathCNI...),
-		dpuServiceAddValueEdit(cniImage.tag, tagPathCNI...),
-	}
+	return append(
+		imageValueEdits(kubeFlannelImage, repoPath, tagPath),
+		imageValueEdits(cniImage, repoPathCNI, tagPathCNI)...,
+	)
 }
 
 // generateImageEditsFromPaths generates image edits using the configurable path system
@@ -791,10 +791,7 @@ func generateImageEditsFromPaths(componentName operatorv1.ComponentName, contain
 	repoPath := append([]string{componentName.String()}, containerConfig.Repository...)
 	tagPath := append([]string{componentName.String()}, containerConfig.Tag...)
 
-	return []StructuredEdit{
-		dpuServiceAddValueEdit(image.repoImage, repoPath...),
-		dpuServiceAddValueEdit(image.tag, tagPath...),
-	}, nil
+	return imageValueEdits(image, repoPath, tagPath), nil
 }
 
 // resourceEditsForComponent generates resource edits using the configurable path system

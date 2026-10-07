@@ -765,10 +765,9 @@ func Test_parseHelmChartString(t *testing.T) {
 
 func Test_parseImageString(t *testing.T) {
 	tests := []struct {
-		name    string
-		in      string
-		want    *image
-		wantErr bool
+		name string
+		in   string
+		want *image
 	}{
 		{
 			name: "correctly parse image reference with tag",
@@ -777,7 +776,6 @@ func Test_parseImageString(t *testing.T) {
 				repoImage: "docker.com/image",
 				tag:       "v1.0",
 			},
-			wantErr: false,
 		},
 		{
 			name: "correctly parse image reference with tag and digest",
@@ -786,7 +784,6 @@ func Test_parseImageString(t *testing.T) {
 				repoImage: "docker.com/image",
 				tag:       "v1.0@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
 			},
-			wantErr: false,
 		},
 		{
 			name: "correctly parse image reference with digest only",
@@ -795,16 +792,19 @@ func Test_parseImageString(t *testing.T) {
 				repoImage: "docker.com/image@sha256",
 				tag:       "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
 			},
-			wantErr: false,
+		},
+		{
+			name: "leave tag empty for image reference without tag",
+			in:   "docker.com/image",
+			want: &image{
+				repoImage: "docker.com/image",
+				tag:       "",
+			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := parseImageString(tt.in)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("parseImageString() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
+			got := parseImageString(tt.in)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("parseImageString() got = %v, want %v", got, tt.want)
 			}

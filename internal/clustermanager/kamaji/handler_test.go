@@ -1249,3 +1249,153 @@ var _ = Describe("Kamaji Handler - pod CIDR", func() {
 		Expect(handler.getFlannelPodCIDR(ctx)).To(Equal(inventory.DefaultFlannelPodCIDR))
 	})
 })
+
+var _ = Describe("Kamaji Handler - DPU cluster images", func() {
+	var (
+		testNS  *corev1.Namespace
+		handler *clusterHandler
+	)
+
+	// createDPFOperatorConfig creates the singleton config, optionally with DPU cluster images.
+	createDPFOperatorConfig := func(images *operatorv1.DPUClusterImagesConfiguration) error {
+		config := &operatorv1.DPFOperatorConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "config", Namespace: testNS.Name},
+			Spec: operatorv1.DPFOperatorConfigSpec{
+				DeploymentMode: operatorv1.DeploymentModeHostTrusted,
+				ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
+					BFBPersistentVolumeClaimName: ptr.To("pvc"),
+				},
+			},
+		}
+		if images != nil {
+			config.Spec.KamajiClusterManager = &operatorv1.KamajiClusterManagerConfiguration{DPUClusterImages: images}
+		}
+		if err := k8sClient.Create(ctx, config); err != nil {
+			return err
+		}
+		DeferCleanup(testutils.CleanupAndWait, ctx, k8sClient, config)
+		return nil
+	}
+
+	// expectedTCP returns the TenantControlPlane the cluster manager builds for a DPUCluster without a keepalived
+	// VIP, which keeps the Kamaji CoreDNS addon.
+	expectedTCP := func(name string) *kamajiv1.TenantControlPlane {
+		dpuCluster := &provisioningv1.DPUCluster{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testNS.Name},
+			Spec: provisioningv1.DPUClusterSpec{
+				Type:     string(provisioningv1.KamajiCluster),
+				MaxNodes: 100,
+			},
+		}
+		Expect(k8sClient.Create(ctx, dpuCluster)).To(Succeed())
+		DeferCleanup(testutils.CleanupAndWait, ctx, k8sClient, dpuCluster)
+
+		tcp, err := expectedTenantControlPlane(dpuCluster, scheme.Scheme, int32(30443), inventory.DefaultFlannelPodCIDR)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(tcp.Spec.Addons.CoreDNS).NotTo(BeNil())
+		return tcp
+	}
+
+	// createTCP creates the TenantControlPlane and returns it as stored, i.e. with the CRD defaults applied.
+	createTCP := func(tcp *kamajiv1.TenantControlPlane) *kamajiv1.TenantControlPlane {
+		Expect(k8sClient.Create(ctx, tcp)).To(Succeed())
+		DeferCleanup(k8sClient.Delete, ctx, tcp)
+
+		got := &kamajiv1.TenantControlPlane{}
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tcp), got)).To(Succeed())
+		return got
+	}
+
+	BeforeEach(func() {
+		testNS = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "testns-"}}
+		Expect(k8sClient.Create(ctx, testNS)).To(Succeed())
+		DeferCleanup(k8sClient.Delete, ctx, testNS)
+
+		handler = &clusterHandler{Client: k8sClient, Scheme: scheme.Scheme}
+	})
+
+	It("should return the configured DPU cluster images", func() {
+		images := &operatorv1.DPUClusterImagesConfiguration{
+			HostedControlPlaneRepository: ptr.To("registry.example.com:5000/k8s"),
+			AddonsRepository:             ptr.To("registry.example.com:5000/addons"),
+		}
+		Expect(createDPFOperatorConfig(images)).To(Succeed())
+
+		Expect(handler.getDPUClusterImages(ctx)).To(Equal(images))
+	})
+
+	It("should return no DPU cluster images if they are not configured", func() {
+		Expect(createDPFOperatorConfig(nil)).To(Succeed())
+
+		Expect(handler.getDPUClusterImages(ctx)).To(BeNil())
+	})
+
+	It("should reject a hosted control plane repository with a tag", func() {
+		Expect(createDPFOperatorConfig(&operatorv1.DPUClusterImagesConfiguration{
+			HostedControlPlaneRepository: ptr.To("registry.example.com/k8s:v1.0.0"),
+		})).NotTo(Succeed())
+	})
+
+	It("should reject an addons repository with a tag", func() {
+		Expect(createDPFOperatorConfig(&operatorv1.DPUClusterImagesConfiguration{
+			AddonsRepository: ptr.To("registry.example.com/k8s:v1.0.0"),
+		})).NotTo(Succeed())
+	})
+
+	It("should point the control plane images at the hosted control plane repository and the addon images at the addons repository", func() {
+		tcp := expectedTCP("images-cluster")
+		applyTCPImages(tcp, &operatorv1.DPUClusterImagesConfiguration{
+			HostedControlPlaneRepository: ptr.To("registry.example.com/k8s"),
+			AddonsRepository:             ptr.To("registry.example.com/addons"),
+		})
+
+		got := createTCP(tcp)
+		registrySettings := got.Spec.ControlPlane.Deployment.RegistrySettings
+		Expect(registrySettings.Registry).To(Equal("registry.example.com/k8s"))
+		By("Verifying the image names are still defaulted")
+		Expect(registrySettings.APIServerImage).To(Equal("kube-apiserver"))
+		Expect(registrySettings.ControllerManagerImage).To(Equal("kube-controller-manager"))
+		Expect(registrySettings.SchedulerImage).To(Equal("kube-scheduler"))
+		Expect(got.Spec.Addons.KubeProxy.ImageRepository).To(Equal("registry.example.com/addons"))
+		Expect(got.Spec.Addons.CoreDNS.ImageRepository).To(Equal("registry.example.com/addons"))
+	})
+
+	It("should keep the Kamaji default addon images if only the hosted control plane repository is configured", func() {
+		tcp := expectedTCP("control-plane-registry-cluster")
+		applyTCPImages(tcp, &operatorv1.DPUClusterImagesConfiguration{
+			HostedControlPlaneRepository: ptr.To("registry.example.com/k8s"),
+		})
+
+		got := createTCP(tcp)
+		Expect(got.Spec.ControlPlane.Deployment.RegistrySettings.Registry).To(Equal("registry.example.com/k8s"))
+		Expect(got.Spec.Addons.KubeProxy.ImageRepository).To(BeEmpty())
+		Expect(got.Spec.Addons.CoreDNS.ImageRepository).To(BeEmpty())
+	})
+
+	It("should keep the Kamaji default hosted control plane repository if only the addons repository is configured", func() {
+		tcp := expectedTCP("addons-image-repository-cluster")
+		applyTCPImages(tcp, &operatorv1.DPUClusterImagesConfiguration{
+			AddonsRepository: ptr.To("registry.example.com/addons"),
+		})
+
+		got := createTCP(tcp)
+		Expect(got.Spec.ControlPlane.Deployment.RegistrySettings.Registry).To(Equal("registry.k8s.io"))
+		Expect(got.Spec.Addons.KubeProxy.ImageRepository).To(Equal("registry.example.com/addons"))
+		Expect(got.Spec.Addons.CoreDNS.ImageRepository).To(Equal("registry.example.com/addons"))
+	})
+
+	It("should keep the Kamaji default images if no DPU cluster images are configured", func() {
+		dpuCluster := &provisioningv1.DPUCluster{
+			ObjectMeta: metav1.ObjectMeta{Name: "default-images-cluster", Namespace: testNS.Name},
+		}
+		tcp, err := expectedTenantControlPlane(dpuCluster, scheme.Scheme, int32(30443), inventory.DefaultFlannelPodCIDR)
+		Expect(err).NotTo(HaveOccurred())
+		expected := tcp.DeepCopy()
+
+		applyTCPImages(tcp, nil)
+		Expect(tcp).To(Equal(expected))
+
+		applyTCPImages(tcp, &operatorv1.DPUClusterImagesConfiguration{})
+		Expect(tcp).To(Equal(expected))
+	})
+})

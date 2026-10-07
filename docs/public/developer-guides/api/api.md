@@ -487,6 +487,23 @@ _Appears in:_
 | `security` _[SecurityStatus](#securitystatus)_ | Security records what the operator has rolled out for the security-related components it<br />manages. It is grouped the way spec.security groups their configuration, so that what was<br />asked for and what is in effect are read at the same path. |  | Optional: \{\} <br /> |
 
 
+#### DPUClusterImagesConfiguration
+
+
+
+DPUClusterImagesConfiguration configures the images of Kamaji-managed DPU clusters.
+
+
+
+_Appears in:_
+- [KamajiClusterManagerConfiguration](#kamajiclustermanagerconfiguration)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `hostedControlPlaneRepository` _string_ | HostedControlPlaneRepository is the image repository the hosted control plane images of the DPU cluster are<br />pulled from: kube-apiserver, kube-controller-manager and kube-scheduler. For example, for the<br />repository example.com/k8s, kube-apiserver is pulled from example.com/k8s/kube-apiserver.<br />This is registry.k8s.io by default. |  | MaxLength: 255 <br />Pattern: `^(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*$` <br />Optional: \{\} <br /> |
+| `addonsRepository` _string_ | AddonsRepository is the image repository the addon images of the DPU cluster, e.g. kube-proxy, are<br />pulled from. For example, for the repository example.com/k8s, kube-proxy is pulled from<br />example.com/k8s/kube-proxy.<br />The Kamaji defaults are used if this is not set. |  | MaxLength: 255 <br />Pattern: `^(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*$` <br />Optional: \{\} <br /> |
+
+
 #### DPUDetectorConfiguration
 
 
@@ -746,6 +763,7 @@ _Appears in:_
 _Underlying type:_ _string_
 
 Image is a reference to a container image.
+If neither a tag nor a digest is set, the tag and digest of the component's default image are used.
 
 _Validation:_
 - Pattern: `^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$`
@@ -861,6 +879,7 @@ _Appears in:_
 | `image` _[Image](#image)_ | Image overrides the container image used by the Kamaji Cluster Manager.<br />Deprecated: This field is deprecated and will be removed with v27.1.0.<br />Use the new field `controller` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br />Optional: \{\} <br /> |
 | `controller` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Controller contains the configuration for the Kamaji Cluster Manager component.<br />It contains the image for the controller and its resource requirements. |  | Optional: \{\} <br /> |
 | `etcdEncryptionAtRest` _[EtcdEncryptionAtRestConfiguration](#etcdencryptionatrestconfiguration)_ | EtcdEncryptionAtRest configures encryption at rest for the etcd datastore of<br />Kamaji-managed DPU clusters. The provider selection is applied only when a<br />Kamaji cluster is first created and is not changed for existing clusters. |  | Optional: \{\} <br /> |
+| `dpuClusterImages` _[DPUClusterImagesConfiguration](#dpuclusterimagesconfiguration)_ | DPUClusterImages configures the images of Kamaji-managed DPU clusters.<br />It is applied only when a Kamaji cluster is first created and is not changed for existing clusters. |  | Optional: \{\} <br /> |
 
 
 #### KataContainersConfiguration
@@ -1086,8 +1105,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `image` _[Image](#image)_ | Image overrides the container image for the SRIOV device plugin. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br />Optional: \{\} <br /> |
-| `initImage` _[Image](#image)_ | InitImage overrides the container image for the init container<br />that generates device plugin configuration. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br />Optional: \{\} <br /> |
+| `image` _[Image](#image)_ | Image overrides the container image for the SRIOV device plugin.<br />If neither a tag nor a digest is set, the tag and digest of the default image are used. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br />Optional: \{\} <br /> |
+| `initImage` _[Image](#image)_ | InitImage overrides the container image for the init container<br />that generates device plugin configuration.<br />If neither a tag nor a digest is set, the tag and digest of the default image are used. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br />Optional: \{\} <br /> |
 | `defaultResourcePrefix` _string_ | DefaultResourcePrefix is the default resource prefix for the SRIOV device plugin resources.<br />Defaults to "nvidia.com". |  | Pattern: `^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$` <br />Optional: \{\} <br /> |
 
 

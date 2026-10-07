@@ -17,6 +17,7 @@ limitations under the License.
 package inventory
 
 import (
+	"strings"
 	"time"
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
@@ -295,7 +296,8 @@ func extraImageConfigs(componentConfig operatorv1.ComponentConfigurable, images 
 	if imageConfig, ok := componentConfig.(operatorv1.DeprecatedImageComponentConfigurable); ok && imageConfig.GetImage() != nil {
 		containerName := getContainerNameFromComponent(componentName)
 		if containerName != "" {
-			images[componentName.WithContainer(containerName)] = *imageConfig.GetImage()
+			key := componentName.WithContainer(containerName)
+			images[key] = imageWithDefaultTag(*imageConfig.GetImage(), images[key])
 			return
 		}
 		// TODO: Remove this special case after the deprecated single image config is removed.
@@ -309,10 +311,32 @@ func extraImageConfigs(componentConfig operatorv1.ComponentConfigurable, images 
 		containerImages := multiImageConfig.GetImages()
 		for containerName, img := range containerImages {
 			if img != nil {
-				images[componentName.WithContainer(containerName)] = *img
+				key := componentName.WithContainer(containerName)
+				images[key] = imageWithDefaultTag(*img, images[key])
 			}
 		}
 	}
+}
+
+// imageWithDefaultTag returns img with the tag and digest of defaultImage appended if img has neither,
+// so that an image override which only changes the repository keeps the version shipped with the release.
+// img is returned unchanged if it already has a tag or digest, or if defaultImage has none.
+func imageWithDefaultTag(img, defaultImage string) string {
+	if imageTagAndDigest(img) != "" {
+		return img
+	}
+	return img + imageTagAndDigest(defaultImage)
+}
+
+// imageTagAndDigest returns the tag and/or digest suffix of an image reference, including the leading ':' or '@'.
+// It returns an empty string if the reference has neither. Only the last path component is searched so that a
+// registry port, e.g. "registry:5000/image", is not mistaken for a tag.
+func imageTagAndDigest(ref string) string {
+	lastPathComponent := ref[strings.LastIndex(ref, "/")+1:]
+	if i := strings.IndexAny(lastPathComponent, ":@"); i >= 0 {
+		return lastPathComponent[i:]
+	}
+	return ""
 }
 
 func extraResourceConfigs(componentConfig operatorv1.ComponentConfigurable, resources map[string]corev1.ResourceRequirements, componentName operatorv1.ComponentName) {
@@ -486,11 +510,12 @@ func setAdditionalConfigs(variables Variables, config *operatorv1.DPFOperatorCon
 	// Extract NodeSRIOVDevicePluginController configuration
 	if config.Spec.NodeSRIOVDevicePluginController != nil && config.Spec.NodeSRIOVDevicePluginController.DevicePlugin != nil {
 		dp := config.Spec.NodeSRIOVDevicePluginController.DevicePlugin
+		dpVars := &variables.NodeSRIOVDevicePluginController
 		if dp.Image != nil {
-			variables.NodeSRIOVDevicePluginController.DevicePluginImage = *dp.Image
+			dpVars.DevicePluginImage = imageWithDefaultTag(*dp.Image, dpVars.DevicePluginImage)
 		}
 		if dp.InitImage != nil {
-			variables.NodeSRIOVDevicePluginController.DevicePluginInitImage = *dp.InitImage
+			dpVars.DevicePluginInitImage = imageWithDefaultTag(*dp.InitImage, dpVars.DevicePluginInitImage)
 		}
 		if dp.DefaultResourcePrefix != nil {
 			variables.NodeSRIOVDevicePluginController.DefaultResourcePrefix = *dp.DefaultResourcePrefix

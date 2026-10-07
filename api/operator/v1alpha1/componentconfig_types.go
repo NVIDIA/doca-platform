@@ -576,6 +576,32 @@ type KamajiClusterManagerConfiguration struct {
 	// Kamaji cluster is first created and is not changed for existing clusters.
 	// +optional
 	EtcdEncryptionAtRest *EtcdEncryptionAtRestConfiguration `json:"etcdEncryptionAtRest,omitempty"`
+
+	// DPUClusterImages configures the images of Kamaji-managed DPU clusters.
+	// It is applied only when a Kamaji cluster is first created and is not changed for existing clusters.
+	// +optional
+	DPUClusterImages *DPUClusterImagesConfiguration `json:"dpuClusterImages,omitempty"`
+}
+
+// DPUClusterImagesConfiguration configures the images of Kamaji-managed DPU clusters.
+type DPUClusterImagesConfiguration struct {
+	// HostedControlPlaneRepository is the image repository the hosted control plane images of the DPU cluster are
+	// pulled from: kube-apiserver, kube-controller-manager and kube-scheduler. For example, for the
+	// repository example.com/k8s, kube-apiserver is pulled from example.com/k8s/kube-apiserver.
+	// This is registry.k8s.io by default.
+	// +optional
+	// +kubebuilder:validation:MaxLength=255
+	// +kubebuilder:validation:Pattern=`^(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*$`
+	HostedControlPlaneRepository *string `json:"hostedControlPlaneRepository,omitempty"`
+
+	// AddonsRepository is the image repository the addon images of the DPU cluster, e.g. kube-proxy, are
+	// pulled from. For example, for the repository example.com/k8s, kube-proxy is pulled from
+	// example.com/k8s/kube-proxy.
+	// The Kamaji defaults are used if this is not set.
+	// +optional
+	// +kubebuilder:validation:MaxLength=255
+	// +kubebuilder:validation:Pattern=`^(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*$`
+	AddonsRepository *string `json:"addonsRepository,omitempty"`
 }
 
 func (c *KamajiClusterManagerConfiguration) Name() string {
@@ -1135,11 +1161,13 @@ func (c *CoreDNSConfiguration) GetResources() map[ContainerName]*corev1.Resource
 // managed by the NodeSRIOVDevicePlugin controller.
 type NodeSRIOVDevicePluginSettings struct {
 	// Image overrides the container image for the SRIOV device plugin.
+	// If neither a tag nor a digest is set, the tag and digest of the default image are used.
 	// +optional
 	Image Image `json:"image,omitempty"`
 
 	// InitImage overrides the container image for the init container
 	// that generates device plugin configuration.
+	// If neither a tag nor a digest is set, the tag and digest of the default image are used.
 	// +optional
 	InitImage Image `json:"initImage,omitempty"`
 
