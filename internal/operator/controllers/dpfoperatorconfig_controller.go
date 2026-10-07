@@ -601,18 +601,35 @@ func (r *DPFOperatorConfigReconciler) reconcileSystemComponents(ctx context.Cont
 }
 
 // resolveOpenTelemetryCollectorCACerts reads the CA certificate Secrets referenced by
-// spec.monitoring.openTelemetryCollector.logging.caSecretRef and
-// spec.monitoring.openTelemetryCollector.metrics.caSecretRef and injects their PEM content into the
-// inventory variables so it can be passed to the DPU cluster opentelemetry-collector as a Helm
-// value. The Secret content only travels as a Helm value because the collector runs in the DPU
-// cluster, where a Secret referenced by name in the host cluster would not resolve. That copy is
-// also why the referenced Secret may live in any host cluster namespace: it is read once here and
-// carries no runtime dependency on its source namespace.
+// spec.monitoring.openTelemetryCollector.logging.caSecretRef,
+// spec.monitoring.openTelemetryCollector.metrics.caSecretRef and
+// spec.monitoring.openTelemetryCollector.tracing.caSecretRef and injects their PEM content into
+// the inventory variables. For logging and metrics the content travels as a Helm value because
+// the collector runs in the DPU cluster, where a Secret referenced by name in the host cluster
+// would not resolve; that copy is also why the referenced Secret may live in any host cluster
+// namespace: it is read once here and carries no runtime dependency on its source namespace. For
+// tracing the content is passed inline as a --otel-tracing-ca-pem flag value to controllers that
+// export spans (see internal/operator/inventory.setTracingFlags) rather than mounted from a
+// Secret, so a CA rotation here flows through the same "flag value changes -> Deployment rolls
+// out" path as every other tracing flag instead of going stale in an already-running process.
+//
+// Tracing is resolved independent of otelConfig.Disabled(): that flag only controls whether the
+// bundled DPU cluster opentelemetry-collector component is deployed, and DPF controllers can
+// export trace spans to any OTLP endpoint without it.
 func (r *DPFOperatorConfigReconciler) resolveOpenTelemetryCollectorCACerts(ctx context.Context, config *operatorv1.DPFOperatorConfig, vars *inventory.Variables) error {
 	if config.Spec.Monitoring == nil || config.Spec.Monitoring.OpenTelemetryCollector == nil {
 		return nil
 	}
 	otelConfig := config.Spec.Monitoring.OpenTelemetryCollector
+
+	if otelConfig.Tracing != nil && otelConfig.Tracing.CASecretRef != nil {
+		caCert, err := r.resolveOpenTelemetryCollectorCACert(ctx, config.Namespace, "tracing", otelConfig.Tracing.CASecretRef)
+		if err != nil {
+			return err
+		}
+		vars.OpenTelemetryCollector.Tracing.CACert = caCert
+	}
+
 	if otelConfig.Disabled() {
 		return nil
 	}

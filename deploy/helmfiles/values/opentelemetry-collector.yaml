@@ -119,6 +119,13 @@ config:
       resource_to_telemetry_conversion:
         enabled: true
 
+    # Export traces to Tempo (deploy/helmfiles/values/tempo.yaml), which is also wired into
+    # Grafana (values/kube-prometheus-stack.yaml) for trace-to-logs/metrics correlation.
+    otlp/tempo:
+      endpoint: tempo.dpf-operator-system.svc.cluster.local:4317
+      tls:
+        insecure: true
+
     # Debug exporter for troubleshooting
     debug:
       verbosity: basic
@@ -136,6 +143,11 @@ config:
         receivers: [otlp, otlp/tls]
         processors: [memory_limiter, k8s_attributes, resource, batch]
         exporters: [prometheusremotewrite, debug]
+
+      traces:
+        receivers: [otlp, otlp/tls]
+        processors: [memory_limiter, k8s_attributes, resource, batch]
+        exporters: [otlp/tempo, debug]
 
 # Resources for the collector deployment
 resources:

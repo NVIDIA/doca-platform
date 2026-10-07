@@ -392,3 +392,47 @@ spec:
 ```
 
 </details>
+
+## Tracing
+
+DPF controllers can export distributed trace spans for their reconcile loops via OpenTelemetry, using the `tracing.k8s.io/traceparent` and `tracing.k8s.io/tracestate` annotations an upstream caller (e.g. carbide) sets on the CRs it creates, so a single request can be followed across DPF's own controllers.
+
+`tracing.endpoint` is a single destination shared by two independent producers:
+
+* **DPF's own controller binaries** (Host Cluster) export spans for their own reconcile loops directly to `tracing.endpoint`, using their own embedded OpenTelemetry SDK — there is no DaemonSet in this path.
+* **The DPU cluster's OpenTelemetry Collector DaemonSet** also accepts trace spans pushed to it locally over OTLP (port 4317/4318, the same receiver already used for OTLP-native logs and metrics) from any other process running on the DPU — for example another DOCA service — and forwards them on to the same `tracing.endpoint`. No second collector is required in front of it; the DaemonSet's `otlp` receiver already accepts arbitrary local OTLP traffic today for logs/metrics, and traces follow the identical path:
+
+```mermaid
+flowchart LR
+    subgraph host["Host Cluster"]
+        ctrl["DPF controllers"]
+        ep["tracing.endpoint<br/>(e.g. the host cluster<br/>OpenTelemetry Collector)"]
+    end
+    subgraph dpu["DPU cluster"]
+        app["Application<br/>(e.g. a DOCA service)"]
+        dpuc["OpenTelemetry Collector<br/>DaemonSet"]
+    end
+
+    ctrl -- "OTLP" --> ep
+    app -- "OTLP (local)" --> dpuc
+    dpuc -- "OTLP" --> ep
+```
+
+### Configuration
+
+Tracing is disabled by default. Set `tracing.endpoint` to enable it; this both makes DPF controllers export their own spans and, if the opentelemetry-collector component is otherwise disabled, deploys the DPU cluster collector so it can accept and forward traces from other local emitters:
+
+```yaml
+apiVersion: operator.dpu.nvidia.com/v1alpha1
+kind: DPFOperatorConfig
+metadata:
+  name: dpfoperatorconfig
+  namespace: dpf-operator-system
+spec:
+  monitoring:
+    openTelemetryCollector:
+      tracing:
+        endpoint: "http://<host-node-ip>:30050"
+```
+
+`tracing` takes the same `transport` and `caSecretRef` fields as `logging`/`metrics` — see [Transport](#transport) and [TLS and Custom CA Certificates](#tls-and-custom-ca-certificates) above.

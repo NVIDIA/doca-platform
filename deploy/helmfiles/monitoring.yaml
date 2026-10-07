@@ -68,6 +68,19 @@ releases:
     needs:
       - dpf-operator-system/kube-prometheus-stack
 
+  - name: tempo
+    namespace: dpf-operator-system
+    createNamespace: true
+    chart: grafana-community/tempo
+    version: 3.1.0
+    labels:
+      app: tempo
+      type: tracing
+    values:
+      - values/tempo.yaml
+    needs:
+      - dpf-operator-system/kube-prometheus-stack
+
   - name: opentelemetry-collector
     namespace: dpf-operator-system
     createNamespace: true
@@ -85,6 +98,7 @@ releases:
     needs:
       - dpf-operator-system/kube-prometheus-stack
       - dpf-operator-system/loki
+      - dpf-operator-system/tempo
     hooks:
       # The collector's TLS OTLP receivers serve the certificate created here.
       # It cannot be an extraObjects entry in the chart values because the node

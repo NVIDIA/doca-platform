@@ -1,0 +1,81 @@
+# Tempo configuration for management cluster
+# This deployment receives trace spans from the management cluster opentelemetry-collector
+# (deploy/helmfiles/values/opentelemetry-collector.yaml) over OTLP, and is wired into Grafana
+# (values/kube-prometheus-stack.yaml) as a datasource for trace-to-logs (Loki) and
+# trace-to-metrics (Prometheus) correlation, completing the round trip with the existing
+# logs-to-traces derivedFields on the Loki datasource.
+
+tempo:
+  # Single binary mode, matching Loki's deployment shape in this same stack: one process, one
+  # replica, local filesystem storage. Not HA; move to a distributed/object-storage backend
+  # before relying on this for anything beyond local debugging of trace plumbing.
+  storage:
+    trace:
+      backend: local
+      local:
+        path: /var/tempo/traces
+      wal:
+        path: /var/tempo/wal
+
+  # Only OTLP (4317 grpc / 4318 http) is used. The Jaeger receivers stay at the chart defaults,
+  # its service template fails when the jaeger block is removed.
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+  # Generate span metrics and service-graph metrics from the received traces and remote-write
+  # them to Prometheus, whose remote-write receiver is enabled in values/kube-prometheus-stack.yaml.
+  # They back the Grafana trace-to-metrics links and the service map.
+  metricsGenerator:
+    enabled: true
+    remoteWriteUrl: http://kube-prometheus-stack-prometheus.dpf-operator-system.svc.cluster.local:9090/api/v1/write
+    storage:
+      path: /var/tempo/metrics
+  overrides:
+    defaults:
+      metrics_generator:
+        processors:
+          - service-graphs
+          - span-metrics
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 200m
+      memory: 512Mi
+
+# Schedule on control-plane nodes, matching Loki/opentelemetry-collector.
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: "node-role.kubernetes.io/master"
+              operator: Exists
+        - matchExpressions:
+            - key: "node-role.kubernetes.io/control-plane"
+              operator: Exists
+
+tolerations:
+  - key: node-role.kubernetes.io/master
+    operator: Exists
+    effect: NoSchedule
+  - key: node-role.kubernetes.io/control-plane
+    operator: Exists
+    effect: NoSchedule
+
+persistence:
+  enabled: true
+  storageClassName: local-path
+  size: 10Gi
+
+serviceMonitor:
+  enabled: true
+  additionalLabels:
+    release: kube-prometheus-stack

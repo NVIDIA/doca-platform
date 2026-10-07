@@ -100,10 +100,10 @@ func dpfOperatorConfigFromFile(path string) *operatorv1.DPFOperatorConfig {
 		By("Get the OpenTelemetry export address")
 		exportAddress := otelExportAddress(ctx, testClient, conf.DPUClusterPaths)
 		dpfOperatorConfig.Spec.Monitoring.OpenTelemetryCollector = &operatorv1.OpenTelemetryCollectorConfiguration{
-			Logging: &operatorv1.OpenTelemetryCollectorLoggingConfiguration{
+			Logging: &operatorv1.OpenTelemetryCollectorExportConfiguration{
 				Endpoint: fmt.Sprintf("%s%s:%d", otelEndpointSchema, exportAddress, otelNodePort),
 			},
-			Metrics: &operatorv1.OpenTelemetryCollectorMetricsConfiguration{
+			Metrics: &operatorv1.OpenTelemetryCollectorExportConfiguration{
 				Endpoint: fmt.Sprintf("%s%s:%d", otelEndpointSchema, exportAddress, otelNodePort),
 			},
 		}

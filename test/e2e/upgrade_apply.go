@@ -98,10 +98,10 @@ func applyDPFOperatorConfigFromPhaseConfig(ctx context.Context, input *systemTes
 		}
 		controlPlaneIP := getClusterControlPlaneIP(ctx, input.client)
 		cfg.Spec.Monitoring.OpenTelemetryCollector = &operatorv1.OpenTelemetryCollectorConfiguration{
-			Logging: &operatorv1.OpenTelemetryCollectorLoggingConfiguration{
+			Logging: &operatorv1.OpenTelemetryCollectorExportConfiguration{
 				Endpoint: fmt.Sprintf("%s%s:%d", otelEndpointSchema, controlPlaneIP, otelNodePort),
 			},
-			Metrics: &operatorv1.OpenTelemetryCollectorMetricsConfiguration{
+			Metrics: &operatorv1.OpenTelemetryCollectorExportConfiguration{
 				Endpoint: fmt.Sprintf("%s%s:%d", otelEndpointSchema, controlPlaneIP, otelNodePort),
 			},
 		}

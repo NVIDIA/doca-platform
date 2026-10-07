@@ -1139,8 +1139,7 @@ certificate bundle used to verify the endpoint's TLS certificate.
 
 
 _Appears in:_
-- [OpenTelemetryCollectorLoggingConfiguration](#opentelemetrycollectorloggingconfiguration)
-- [OpenTelemetryCollectorMetricsConfiguration](#opentelemetrycollectormetricsconfiguration)
+- [OpenTelemetryCollectorExportConfiguration](#opentelemetrycollectorexportconfiguration)
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
@@ -1165,35 +1164,20 @@ _Appears in:_
 | `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  | Optional: \{\} <br /> |
 | `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br />Optional: \{\} <br /> |
 | `daemon` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Daemon contains the configuration for the opentelemetry-collector component.<br />It contains the image for opentelemetry-collector and its resource requirements. |  | Optional: \{\} <br /> |
-| `logging` _[OpenTelemetryCollectorLoggingConfiguration](#opentelemetrycollectorloggingconfiguration)_ | Logging contains the configuration for the opentelemetry-collector logging component.<br />If not specified, logging will not be streamed. |  | Optional: \{\} <br /> |
-| `metrics` _[OpenTelemetryCollectorMetricsConfiguration](#opentelemetrycollectormetricsconfiguration)_ | Metrics contains the configuration for the opentelemetry-collector metrics component.<br />If not specified, metrics will not be streamed from DPU clusters. |  | Optional: \{\} <br /> |
+| `logging` _[OpenTelemetryCollectorExportConfiguration](#opentelemetrycollectorexportconfiguration)_ | Logging contains the configuration for the opentelemetry-collector logging component.<br />If not specified, logging will not be streamed. |  | Optional: \{\} <br /> |
+| `metrics` _[OpenTelemetryCollectorExportConfiguration](#opentelemetrycollectorexportconfiguration)_ | Metrics contains the configuration for the opentelemetry-collector metrics component.<br />If not specified, metrics will not be streamed from DPU clusters. |  | Optional: \{\} <br /> |
+| `tracing` _[OpenTelemetryCollectorExportConfiguration](#opentelemetrycollectorexportconfiguration)_ | Tracing contains the configuration for exporting distributed traces from DPF controllers.<br />If not specified, DPF controllers will not export trace spans. |  | Optional: \{\} <br /> |
 
 
-#### OpenTelemetryCollectorLoggingConfiguration
-
-
-
-OpenTelemetryCollectorLoggingConfiguration configures where and how the DPU cluster
-opentelemetry-collector exports its data.
+#### OpenTelemetryCollectorExportConfiguration
 
 
 
-_Appears in:_
-- [OpenTelemetryCollectorConfiguration](#opentelemetrycollectorconfiguration)
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `endpoint` _string_ | Endpoint is the OTLP endpoint where the DPU cluster opentelemetry-collector sends data to.<br />This could be the management cluster's opentelemetry-collector endpoint.<br />If not specified, nothing will be forwarded from DPU clusters.<br />For the http transport the endpoint must include the scheme, e.g. "https://host:4318".<br />For the grpc transport the endpoint is "host:4317", optionally prefixed with a<br />scheme ("https://host:4317") to enforce TLS. |  | Required: \{\} <br /> |
-| `transport` _[OpenTelemetryCollectorTransport](#opentelemetrycollectortransport)_ | Transport is the OTLP transport used to export data to the endpoint. |  | Enum: [http grpc] <br />Optional: \{\} <br /> |
-| `caSecretRef` _[OpenTelemetryCollectorCASecretReference](#opentelemetrycollectorcasecretreference)_ | CASecretRef references a Secret that contains the PEM-encoded CA certificate bundle<br />(under the "ca.crt" key) used to verify the endpoint's TLS certificate. Set it when the<br />endpoint serves a certificate issued by a private CA. The Secret may live in any namespace,<br />for example alongside the endpoint's cert-manager Certificate; if its namespace is empty,<br />the DPFOperatorConfig namespace is used.<br />If not specified, TLS endpoints are verified against the system CA pool.<br />Changes to the Secret content are applied on the next reconciliation of the DPFOperatorConfig. |  | Optional: \{\} <br /> |
-
-
-#### OpenTelemetryCollectorMetricsConfiguration
-
-
-
-OpenTelemetryCollectorMetricsConfiguration configures where and how the DPU cluster
-opentelemetry-collector exports its metrics.
+OpenTelemetryCollectorExportConfiguration configures where and how an opentelemetry signal
+(logs, metrics or traces) is exported. It is shared by
+OpenTelemetryCollectorConfiguration.Logging (the DPU cluster opentelemetry-collector's log
+export destination), .Metrics (its metric export destination) and .Tracing (where DPF
+controllers export their own trace spans).
 
 
 
@@ -1202,7 +1186,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `endpoint` _string_ | Endpoint is the OTLP endpoint where the DPU cluster opentelemetry-collector sends metrics to.<br />This could be the management cluster's opentelemetry-collector endpoint.<br />If not specified, metrics will not be forwarded from DPU clusters.<br />For the http transport the endpoint must include the scheme, e.g. "https://host:4318".<br />For the grpc transport the endpoint is "host:4317", optionally prefixed with a<br />scheme ("https://host:4317") to enforce TLS. |  | Required: \{\} <br /> |
+| `endpoint` _string_ | Endpoint is the OTLP endpoint data is sent to. This could be the management cluster's<br />opentelemetry-collector endpoint.<br />If not specified, nothing will be exported for this signal.<br />For the http transport the endpoint must include the scheme, e.g. "https://host:4318".<br />For the grpc transport the endpoint is "host:4317", optionally prefixed with a<br />scheme ("https://host:4317") to enforce TLS. |  | Required: \{\} <br /> |
 | `transport` _[OpenTelemetryCollectorTransport](#opentelemetrycollectortransport)_ | Transport is the OTLP transport used to export data to the endpoint. |  | Enum: [http grpc] <br />Optional: \{\} <br /> |
 | `caSecretRef` _[OpenTelemetryCollectorCASecretReference](#opentelemetrycollectorcasecretreference)_ | CASecretRef references a Secret that contains the PEM-encoded CA certificate bundle<br />(under the "ca.crt" key) used to verify the endpoint's TLS certificate. Set it when the<br />endpoint serves a certificate issued by a private CA. The Secret may live in any namespace,<br />for example alongside the endpoint's cert-manager Certificate; if its namespace is empty,<br />the DPFOperatorConfig namespace is used.<br />If not specified, TLS endpoints are verified against the system CA pool.<br />Changes to the Secret content are applied on the next reconciliation of the DPFOperatorConfig. |  | Optional: \{\} <br /> |
 
@@ -1216,8 +1200,7 @@ OpenTelemetryCollectorTransport is the OTLP transport used to export data to the
 
 
 _Appears in:_
-- [OpenTelemetryCollectorLoggingConfiguration](#opentelemetrycollectorloggingconfiguration)
-- [OpenTelemetryCollectorMetricsConfiguration](#opentelemetrycollectormetricsconfiguration)
+- [OpenTelemetryCollectorExportConfiguration](#opentelemetrycollectorexportconfiguration)
 
 | Field | Description |
 | --- | --- |

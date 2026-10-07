@@ -236,9 +236,16 @@ type OpenTelemetryCollectorGenericVariables struct {
 	CACert    string
 }
 
+// OpenTelemetryCollectorVariables holds the OTLP export destinations for the three signals
+// spec.monitoring.openTelemetryCollector configures. Logging and Metrics are the DPU cluster
+// opentelemetry-collector's own forwarding targets. Tracing is shared by two consumers: DPF
+// controllers export spans directly to it (see internal/utils/tracing), and the DPU cluster
+// opentelemetry-collector forwards to it any trace spans it receives locally over OTLP (e.g. from
+// other DOCA services running on the DPU), exactly like it already does for logs/metrics.
 type OpenTelemetryCollectorVariables struct {
 	Metrics OpenTelemetryCollectorGenericVariables
 	Logging OpenTelemetryCollectorGenericVariables
+	Tracing OpenTelemetryCollectorGenericVariables
 }
 
 // KataContainersVariables holds variables specific to the Kata Containers component.
@@ -574,7 +581,7 @@ func setMonitoringConfigs(variables Variables, config *operatorv1.DPFOperatorCon
 	if otelConfig := config.Spec.Monitoring.OpenTelemetryCollector; otelConfig != nil {
 		if otelConfig.Disabled() {
 			variables.DisableSystemComponents[operatorv1.OpenTelemetryCollectorName] = true
-		} else if otelConfig.Logging != nil || otelConfig.Metrics != nil {
+		} else if otelConfig.Logging != nil || otelConfig.Metrics != nil || otelConfig.Tracing != nil {
 			// Only enable if at least one endpoint is explicitly provided
 			variables.DisableSystemComponents[operatorv1.OpenTelemetryCollectorName] = false
 			if otelConfig.Logging != nil {
@@ -591,6 +598,18 @@ func setMonitoringConfigs(variables Variables, config *operatorv1.DPFOperatorCon
 			}
 		}
 		// If enabled but no endpoint provided, it remains disabled
+
+		// Tracing configures DPF controllers' own OTLP exporters directly (see
+		// internal/utils/tracing), independent of whether the opentelemetry-collector component
+		// itself is enabled. When the component is enabled, its DPU cluster collector also
+		// forwards to this same endpoint any trace spans it receives locally over OTLP (e.g. from
+		// other DOCA services running on the DPU).
+		if otelConfig.Tracing != nil {
+			variables.OpenTelemetryCollector.Tracing.Endpoint = otelConfig.Tracing.Endpoint
+			if otelConfig.Tracing.Transport != nil {
+				variables.OpenTelemetryCollector.Tracing.Transport = string(*otelConfig.Tracing.Transport)
+			}
+		}
 	}
 
 	return variables

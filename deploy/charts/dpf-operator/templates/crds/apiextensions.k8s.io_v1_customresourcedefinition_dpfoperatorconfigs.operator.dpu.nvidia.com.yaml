@@ -964,9 +964,9 @@ spec:
                             type: object
                           endpoint:
                             description: |-
-                              Endpoint is the OTLP endpoint where the DPU cluster opentelemetry-collector sends data to.
-                              This could be the management cluster's opentelemetry-collector endpoint.
-                              If not specified, nothing will be forwarded from DPU clusters.
+                              Endpoint is the OTLP endpoint data is sent to. This could be the management cluster's
+                              opentelemetry-collector endpoint.
+                              If not specified, nothing will be exported for this signal.
                               For the http transport the endpoint must include the scheme, e.g. "https://host:4318".
                               For the grpc transport the endpoint is "host:4317", optionally prefixed with a
                               scheme ("https://host:4317") to enforce TLS.
@@ -1025,9 +1025,70 @@ spec:
                             type: object
                           endpoint:
                             description: |-
-                              Endpoint is the OTLP endpoint where the DPU cluster opentelemetry-collector sends metrics to.
-                              This could be the management cluster's opentelemetry-collector endpoint.
-                              If not specified, metrics will not be forwarded from DPU clusters.
+                              Endpoint is the OTLP endpoint data is sent to. This could be the management cluster's
+                              opentelemetry-collector endpoint.
+                              If not specified, nothing will be exported for this signal.
+                              For the http transport the endpoint must include the scheme, e.g. "https://host:4318".
+                              For the grpc transport the endpoint is "host:4317", optionally prefixed with a
+                              scheme ("https://host:4317") to enforce TLS.
+                            type: string
+                          transport:
+                            description: Transport is the OTLP transport used to export
+                              data to the endpoint.
+                            enum:
+                            - http
+                            - grpc
+                            type: string
+                        required:
+                        - endpoint
+                        type: object
+                        x-kubernetes-validations:
+                        - message: caSecretRef cannot be used with a plaintext http://
+                            endpoint
+                          rule: '!has(self.caSecretRef) || !self.endpoint.startsWith(''http://'')'
+                      tracing:
+                        description: |-
+                          Tracing contains the configuration for exporting distributed traces from DPF controllers.
+                          If not specified, DPF controllers will not export trace spans.
+                        properties:
+                          caSecretRef:
+                            description: |-
+                              CASecretRef references a Secret that contains the PEM-encoded CA certificate bundle
+                              (under the "ca.crt" key) used to verify the endpoint's TLS certificate. Set it when the
+                              endpoint serves a certificate issued by a private CA. The Secret may live in any namespace,
+                              for example alongside the endpoint's cert-manager Certificate; if its namespace is empty,
+                              the DPFOperatorConfig namespace is used.
+                              If not specified, TLS endpoints are verified against the system CA pool.
+                              Changes to the Secret content are applied on the next reconciliation of the DPFOperatorConfig.
+                            properties:
+                              key:
+                                description: |-
+                                  Key is the Secret data key that holds the PEM-encoded CA certificate bundle.
+                                  If unset, "ca.crt" is used, matching the key that cert-manager writes.
+                                maxLength: 253
+                                minLength: 1
+                                type: string
+                              name:
+                                description: Name is the name of the Secret holding
+                                  the CA certificate bundle.
+                                maxLength: 253
+                                minLength: 1
+                                type: string
+                              namespace:
+                                description: |-
+                                  Namespace is the namespace of the Secret holding the CA certificate bundle.
+                                  If unset, the DPFOperatorConfig namespace is used.
+                                maxLength: 63
+                                minLength: 1
+                                type: string
+                            required:
+                            - name
+                            type: object
+                          endpoint:
+                            description: |-
+                              Endpoint is the OTLP endpoint data is sent to. This could be the management cluster's
+                              opentelemetry-collector endpoint.
+                              If not specified, nothing will be exported for this signal.
                               For the http transport the endpoint must include the scheme, e.g. "https://host:4318".
                               For the grpc transport the endpoint is "host:4317", optionally prefixed with a
                               scheme ("https://host:4317") to enforce TLS.

@@ -7,6 +7,10 @@
 {{- if eq .Values.metrics.transport "grpc" }}
 {{- $metricsExporter = "otlp/metrics" }}
 {{- end }}
+{{- $tracesExporter := "otlphttp/traces" }}
+{{- if eq .Values.tracing.transport "grpc" }}
+{{- $tracesExporter = "otlp/traces" }}
+{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -139,6 +143,23 @@ data:
           max_interval: 30s
           max_elapsed_time: 1h
 {{- end }}
+{{- if .Values.tracing.endpoint }}
+
+      {{ $tracesExporter }}:
+        endpoint: {{ .Values.tracing.endpoint | quote }}
+        {{- if .Values.tracing.caCert }}
+        tls:
+          ca_pem: {{ .Values.tracing.caCert | quote }}
+        {{- else if hasPrefix "http://" .Values.tracing.endpoint }}
+        tls:
+          insecure: true
+        {{- end }}
+        retry_on_failure:
+          enabled: true
+          initial_interval: 5s
+          max_interval: 30s
+          max_elapsed_time: 1h
+{{- end }}
 
       debug:
         verbosity: basic
@@ -170,4 +191,11 @@ data:
           receivers: [kubeletstats, otlp]
           processors: [memory_limiter, k8sattributes, resource, batch]
           exporters: [{{ $metricsExporter }}, debug]
+{{- end }}
+{{- if .Values.tracing.endpoint }}
+
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, k8sattributes, resource, batch]
+          exporters: [{{ $tracesExporter }}, debug]
 {{- end }}
