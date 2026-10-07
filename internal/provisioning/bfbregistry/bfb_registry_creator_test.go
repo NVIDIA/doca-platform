@@ -447,6 +447,32 @@ var _ = Describe("serverCertSANs", func() {
 		_, ips := serverCertSANs("dpf-provisioning", "10.0.0.3", "")
 		Expect(ips).To(ConsistOf("10.0.0.3", "10.0.0.10"))
 	})
+
+	It("adds a hostname VIP to the DNS SANs", func() {
+		GinkgoT().Setenv("KUBERNETES_SERVICE_HOST", "172.30.0.1")
+		dns, ips := serverCertSANs("dpf-provisioning", "10.0.0.3", "api.ocp.example.com")
+		Expect(dns).To(ConsistOf(
+			"bfb-registry",
+			"bfb-registry.dpf-provisioning",
+			"bfb-registry.dpf-provisioning.svc",
+			"bfb-registry.dpf-provisioning.svc.cluster.local",
+			"api.ocp.example.com",
+		))
+		Expect(ips).To(ConsistOf("10.0.0.3", "172.30.0.1"))
+	})
+
+	It("does not duplicate a hostname shared by the configured VIP and the env", func() {
+		GinkgoT().Setenv("KUBERNETES_SERVICE_HOST", "api.ocp.example.com")
+		dns, _ := serverCertSANs("dpf-provisioning", "10.0.0.3", "api.ocp.example.com")
+		Expect(dns).To(HaveLen(5))
+		Expect(dns).To(ContainElement("api.ocp.example.com"))
+	})
+
+	It("skips a VIP that is neither an IP nor a valid DNS name", func() {
+		dns, ips := serverCertSANs("dpf-provisioning", "10.0.0.3", "not a host!")
+		Expect(dns).To(HaveLen(4))
+		Expect(ips).To(ConsistOf("10.0.0.3"))
+	})
 })
 
 var _ = Describe("APIServerVIPFromDMSPodEnvs", func() {
