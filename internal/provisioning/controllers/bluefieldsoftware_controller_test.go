@@ -36,6 +36,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
@@ -725,6 +726,79 @@ var _ = Describe("BlueFieldSoftware", func() {
 				err := k8sClient.Get(ctx, getObjKey(obj), objFetched)
 				return apierrors.IsNotFound(err)
 			}).WithTimeout(30 * time.Second).Should(BeTrue())
+		})
+
+		It("BlueFieldSoftware: should block deletion while a DPUSet references it, without waiting for the protection finalizer", func() {
+			By("creating the BlueFieldSoftware")
+			obj := createObj("bfs-dpuset-ref")
+			obj.Spec.PldmFwBundle = defaultPldmBundle(bfbServerURL + BFB512KBPath)
+			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+			objFetched := &provisioningv1.BlueFieldSoftware{}
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
+				g.Expect(objFetched.Status.Phase).To(Equal(provisioningv1.BlueFieldSoftwareReady))
+			}).WithTimeout(30 * time.Second).Should(Succeed())
+
+			By("creating a DPUSet that references the BlueFieldSoftware but selects no DPUDevice")
+			dpuSet := &provisioningv1.DPUSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dpuset-" + utilrand.String(5),
+					Namespace: testNS.Name,
+				},
+				Spec: provisioningv1.DPUSetSpec{
+					Strategy: provisioningv1.DPUSetStrategy{
+						Type: provisioningv1.OnDeleteStrategyType,
+					},
+					DPUTemplate: provisioningv1.DPUTemplate{
+						Spec: provisioningv1.DPUTemplateSpec{
+							BlueFieldSoftware: &provisioningv1.BlueFieldSoftwareReference{Name: obj.Name},
+							DPUFlavor:         ptr.To("dummy-flavor"),
+							NodeEffect:        provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, dpuSet)).To(Succeed())
+
+			By("confirming the live DPUSet spec references this BlueFieldSoftware")
+			fetchedDPUSet := &provisioningv1.DPUSet{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: dpuSet.Name, Namespace: dpuSet.Namespace}, fetchedDPUSet)).To(Succeed())
+			Expect(fetchedDPUSet.DeletionTimestamp.IsZero()).To(BeTrue())
+			Expect(fetchedDPUSet.Spec.DPUTemplate.Spec.BlueFieldSoftware).NotTo(BeNil())
+			Expect(fetchedDPUSet.Spec.DPUTemplate.Spec.BlueFieldSoftware.Name).To(Equal(obj.Name))
+
+			By("deleting the BlueFieldSoftware while the DPUSet spec still references it")
+			Expect(k8sClient.Delete(ctx, obj)).To(Succeed())
+
+			By("verifying deletion is blocked by the live DPUSet reference")
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
+				cond := meta.FindStatusCondition(objFetched.Status.Conditions, string(provisioningv1.BlueFieldSoftwareCondDeleted))
+				g.Expect(cond).NotTo(BeNil())
+				g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(cond.Reason).To(Equal(string(conditions.ReasonPending)))
+				g.Expect(cond.Message).To(ContainSubstring("still referenced by DPUSet " + dpuSet.Name))
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			Consistently(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
+				g.Expect(objFetched.Status.Phase).To(Equal(provisioningv1.BlueFieldSoftwareDeleting))
+			}).WithTimeout(5 * time.Second).Should(Succeed())
+
+			By("deleting the DPUSet and waiting for it to be gone")
+			Expect(k8sClient.Delete(ctx, dpuSet)).To(Succeed())
+			Eventually(func() bool {
+				return apierrors.IsNotFound(k8sClient.Get(ctx, types.NamespacedName{
+					Name:      dpuSet.Name,
+					Namespace: dpuSet.Namespace,
+				}, &provisioningv1.DPUSet{}))
+			}).WithTimeout(30*time.Second).Should(BeTrue(), "DPUSet should be deleted")
+
+			By("verifying BlueFieldSoftware is deleted after the DPUSet is removed")
+			Eventually(func() bool {
+				return apierrors.IsNotFound(k8sClient.Get(ctx, getObjKey(obj), objFetched))
+			}).WithTimeout(60 * time.Second).WithPolling(1 * time.Second).Should(BeTrue())
 		})
 	})
 })

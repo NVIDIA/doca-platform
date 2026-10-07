@@ -285,10 +285,20 @@ func (r *DPUSetReconciler) Handle(ctx context.Context, dpuSet *provisioningv1.DP
 
 	dpuSet.GetLabels()[cutil.DPUSetDPUTemplateSpecHashLabelKey] = dpuTemplateSpecHash
 
-	// Add finalizer if not set.
+	// Add the DPUSet finalizer in memory and return so the deferred patch persists
+	// it before anything else. Do not attach the BlueFieldSoftware finalizer on
+	// this pass: that update is written immediately, and a failed DPUSet patch
+	// would leave it on BlueFieldSoftware without the DPUSet finalizer. The next
+	// reconcile, once the DPUSet finalizer is present, attaches it below before
+	// getDPUDeviceMap, cluster-metadata validation, and GetDPUsMap: those can
+	// return early, and a metadata conflict returns success so a later attempt
+	// would not be retried.
 	if !controllerutil.ContainsFinalizer(dpuSet, provisioningv1.DPUSetFinalizer) {
 		controllerutil.AddFinalizer(dpuSet, provisioningv1.DPUSetFinalizer)
 		return ctrl.Result{}, nil
+	}
+	if err := r.addBlueFieldSoftwareFinalizer(ctx, dpuSet); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// Get dpuDevice map by dpuNodeSelector and dpuSelector
@@ -314,12 +324,9 @@ func (r *DPUSetReconciler) Handle(ctx context.Context, dpuSet *provisioningv1.DP
 	if dpuSet.Spec.DPUTemplate.Spec.BlueFieldSoftware != nil {
 		keepBFSName = dpuSet.Spec.DPUTemplate.Spec.BlueFieldSoftware.Name
 	}
-	// Drop stale finalizers left on a previously referenced BlueFieldSoftware after an edit,
-	// then ensure the current reference is protected.
+	// Drop stale finalizers left on a previously referenced BlueFieldSoftware after an edit.
+	// The current reference was protected above, before steps that can return early.
 	if err := r.removeBlueFieldSoftwareFinalizer(ctx, dpuSet, keepBFSName); err != nil {
-		return ctrl.Result{}, err
-	}
-	if err := r.addBlueFieldSoftwareFinalizer(ctx, dpuSet); err != nil {
 		return ctrl.Result{}, err
 	}
 

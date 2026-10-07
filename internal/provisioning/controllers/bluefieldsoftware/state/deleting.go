@@ -37,17 +37,47 @@ type blueFieldSoftwareDeletingState struct {
 	recorder record.EventRecorder
 }
 
-func (st *blueFieldSoftwareDeletingState) Handle(ctx context.Context, c client.Client) error {
-	// Wait for per-DPUSet protection finalizers to be released before cleaning up files.
+// blockDeletion reports the BlueFieldSoftware as still in use, keeping it in Deleting.
+func (st *blueFieldSoftwareDeletingState) blockDeletion(msg string) error {
+	st.recorder.Eventf(st.bfs, corev1.EventTypeWarning, events.EventFailedDeleteBlueFieldSoftwareReason, msg)
+	conditions.AddFalse(st.bfs, provisioningv1.BlueFieldSoftwareCondDeleted,
+		conditions.ReasonPending, conditions.ConditionMessage(msg))
+	return fmt.Errorf("%s", msg)
+}
+
+// blockedByDPUSet returns a non-nil error while any DPUSet still claims this BlueFieldSoftware.
+// A DPUSet spec reference alone is enough: the per-DPUSet protection finalizer is added
+// asynchronously by the DPUSet controller, so it can still be missing when the BlueFieldSoftware
+// is deleted right after the DPUSet is created, and Kubernetes rejects adding finalizers once
+// deletionTimestamp is set. A DPUSet that is itself being deleted is not a claim: reconcileDelete
+// drops the protection finalizer before the object is garbage-collected, and the leftover spec
+// reference must not keep deletion blocked.
+func (st *blueFieldSoftwareDeletingState) blockedByDPUSet(ctx context.Context, c client.Client) error {
+	dpuSetList := &provisioningv1.DPUSetList{}
+	if err := c.List(ctx, dpuSetList, client.InNamespace(st.bfs.Namespace)); err != nil {
+		return st.blockDeletion(fmt.Errorf("failed to list DPUSets for reference checking: %w", err).Error())
+	}
+	for _, ds := range dpuSetList.Items {
+		bfsRef := ds.Spec.DPUTemplate.Spec.BlueFieldSoftware
+		if bfsRef != nil && bfsRef.Name == st.bfs.Name && ds.DeletionTimestamp.IsZero() {
+			return st.blockDeletion(fmt.Sprintf("Cannot delete BlueFieldSoftware %s/%s: still referenced by DPUSet %s",
+				st.bfs.Namespace, st.bfs.Name, ds.Name))
+		}
+	}
+
+	// Also wait for protection finalizers left by DPUSets that are already gone from the API.
 	for _, f := range st.bfs.Finalizers {
 		if strings.HasPrefix(f, provisioningv1.BlueFieldSoftwareFinalizerPrefix) {
-			errMsg := fmt.Sprintf("Cannot delete BlueFieldSoftware %s/%s: still protected by DPUSet finalizer %s",
-				st.bfs.Namespace, st.bfs.Name, f)
-			st.recorder.Eventf(st.bfs, corev1.EventTypeWarning, events.EventFailedDownloadBFBReason, errMsg)
-			conditions.AddFalse(st.bfs, provisioningv1.BlueFieldSoftwareCondDeleted,
-				conditions.ReasonPending, conditions.ConditionMessage(errMsg))
-			return fmt.Errorf("%s", errMsg)
+			return st.blockDeletion(fmt.Sprintf("Cannot delete BlueFieldSoftware %s/%s: still protected by DPUSet finalizer %s",
+				st.bfs.Namespace, st.bfs.Name, f))
 		}
+	}
+	return nil
+}
+
+func (st *blueFieldSoftwareDeletingState) Handle(ctx context.Context, c client.Client) error {
+	if err := st.blockedByDPUSet(ctx, c); err != nil {
+		return err
 	}
 
 	// Delete all downloaded component files (one per PSID for platform bundles).
