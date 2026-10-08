@@ -164,6 +164,7 @@ func TestDPFOperatorConfigReconciler_Conditions(t *testing.T) {
 				"PreUpgradeValidationReady":      "Success",
 				"CATrustBundleReady":             "Pending",
 				"CertManagementReady":            "Pending",
+				"DeprecatedFieldsNotInUse":       "Success",
 			})
 		}).WithTimeout(10 * time.Second).Should(Succeed())
 	})
@@ -188,7 +189,8 @@ func TestDPFOperatorConfigReconciler_Conditions(t *testing.T) {
 				"CATrustBundleReady":             "Pending",
 				// cert-manager does not run in envtest, so the platform intermediate CA the operator
 				// applies is never issued here and the chain below the anchor stays pending.
-				"CertManagementReady": "Pending",
+				"CertManagementReady":      "Pending",
+				"DeprecatedFieldsNotInUse": "Success",
 			})
 		}).WithTimeout(5*time.Second).Should(Succeed(), fmt.Sprintf("test failed with %v", config))
 	})
@@ -218,6 +220,7 @@ func TestDPFOperatorConfigReconciler_Conditions(t *testing.T) {
 				"PreUpgradeValidationReady":      "Success",
 				"CATrustBundleReady":             "Pending",
 				"CertManagementReady":            "Pending",
+				"DeprecatedFieldsNotInUse":       "Success",
 			})
 		}).WithTimeout(10 * time.Second).Should(Succeed())
 

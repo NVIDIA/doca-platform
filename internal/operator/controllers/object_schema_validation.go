@@ -194,7 +194,7 @@ func objectSchemaValidationMessage(gvk schema.GroupVersionKind, objectErrs []err
 	return fmt.Sprintf("%s:\n%s", gvk.String(), joinedErr.Error())
 }
 
-func formatObjectRef(obj *unstructured.Unstructured) string {
+func formatObjectRef(obj client.Object) string {
 	if obj.GetNamespace() == "" {
 		return obj.GetName()
 	}

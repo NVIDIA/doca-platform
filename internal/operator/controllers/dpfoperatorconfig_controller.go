@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
@@ -35,6 +36,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/spire"
 	"github.com/nvidia/doca-platform/pkg/certmanager"
 	"github.com/nvidia/doca-platform/pkg/conditions"
+	"github.com/nvidia/doca-platform/pkg/deprecation"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 
 	"github.com/Masterminds/semver/v3"
@@ -66,7 +68,7 @@ const (
 
 	// maxItemsToReportOnValidationMessage is the maximum number of objects reported
 	// for validation errors to prevent condition messages from growing unbounded.
-	maxItemsToReportOnValidationMessage int = 5
+	maxItemsToReportOnValidationMessage int = 10
 )
 
 const (
@@ -85,6 +87,21 @@ type DPFOperatorConfigReconciler struct {
 	Settings       *DPFOperatorConfigReconcilerSettings
 	Inventory      *inventory.SystemComponents
 	Defaults       *release.Defaults
+
+	// KnownDeprecations is the set of GVKs and deprecated field paths reconcileDeprecatedFieldsUsage
+	// scans. Defaults to deprecation.KnownDeprecations (see cmd/operator/main.go); overridable so
+	// tests can scan a small, controlled set of GVKs instead of every real DPF CRD kind.
+	KnownDeprecations []deprecation.GVKDeprecations
+
+	// lastDeprecatedFieldsScan is the time reconcileDeprecatedFieldsUsage last actually ran its
+	// cluster scan. Reconcile runs with the default MaxConcurrentReconciles (1) against a singleton
+	// object, so this field needs no synchronization.
+	lastDeprecatedFieldsScan time.Time
+
+	// deprecatedFieldsCache holds, per GVK, the last known deprecated-field findings for each
+	// object keyed by generation — see reconcileDeprecatedFieldsUsage/deprecatedFieldsForGVK in
+	// deprecated_fields.go. Same synchronization reasoning as lastDeprecatedFieldsScan above.
+	deprecatedFieldsCache map[schema.GroupVersionKind]map[types.NamespacedName]deprecatedFieldsCacheEntry
 }
 
 // DPFOperatorConfigReconcilerSettings contains settings related to the DPFOperatorConfig.
@@ -234,6 +251,7 @@ func (r *DPFOperatorConfigReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	// Defer a patch call to always patch the object when Reconcile exits.
 	defer func() {
 		r.updateSystemComponentStatus(ctx, dpfOperatorConfig, dpuClusters)
+		r.reconcileDeprecatedFieldsUsage(ctx, dpfOperatorConfig)
 
 		// Set the summary condition for the DPFOperatorConfig.
 		//
@@ -242,7 +260,12 @@ func (r *DPFOperatorConfigReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		// back a cluster that is otherwise fully functional. It is still reported on its own condition,
 		// which is what makes a misconfiguration diagnosable before anything depends on it. Remove the
 		// exclusion once the provisioning certificates actually chain to this CA.
-		conditions.SetSummary(dpfOperatorConfig, conditions.ExcludeFromSummary(operatorv1.CertManagementReadyCondition))
+		//
+		// DeprecatedFieldsNotInUse is informational and must never affect Ready.
+		conditions.SetSummary(dpfOperatorConfig, conditions.ExcludeFromSummary(
+			operatorv1.CertManagementReadyCondition,
+			operatorv1.DeprecatedFieldsNotInUseCondition,
+		))
 
 		log.Info("Patching")
 		if err := patcher.Patch(ctx, dpfOperatorConfig,

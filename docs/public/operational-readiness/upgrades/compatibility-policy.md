@@ -362,8 +362,39 @@ API, is therefore changed or removed only in a January release, never at October
 
 ### Finding deprecated fields in your manifests
 
-Deprecation notices are recorded in the CRD schemas, so `kubectl explain` reports them straight from
-the cluster:
+Start with the `DPFOperatorConfig`. Its `status.conditions` carry a `DeprecatedFieldsNotInUse`
+condition that reports deprecated field usage across your applied manifests, so you can see
+everything that needs migrating before the next January release in one place, without reading
+release notes. This condition is informational only: it never affects the `Ready` condition, so
+deprecated usage never blocks reconciliation or an upgrade by itself.
+
+`Status: "True"` means the scan found nothing deprecated in use. `Status: "False"` means it found
+at least one object with a deprecated field set, and `message` groups results by kind — a heading
+per kind with its object count, then one bullet per object listing its namespace/name and every
+deprecated field path set on it, capped per kind with a trailing count of any not shown:
+
+```shell
+$ kubectl get dpfoperatorconfig -n dpf-operator-system dpfoperatorconfig -o jsonpath='{.status.conditions[?(@.type=="DeprecatedFieldsNotInUse")]}' | jq .
+{
+  "type": "DeprecatedFieldsNotInUse",
+  "status": "False",
+  "reason": "DeprecatedFieldsInUse",
+  "message": "CRs are still using deprecated fields:\nDPFOperatorConfig (1):\n* dpf-operator-system/dpfoperatorconfig: spec.multus.image, spec.nvipam.image\nDPU (1):\n* dpf-operator-system/example: spec.bmcIP"
+}
+```
+
+If the scan itself could not complete, e.g. because the operator failed to list objects,
+`status` is `"Unknown"` with `reason: InspectionFailed` instead — this is also excluded from `Ready`.
+
+This condition is refreshed periodically rather than instantly: it is cheap to compute but not
+free, so it is not recomputed on every reconcile. In practice this means a field you just set can
+take on the order of minutes, and in some cases up to your operator's configured reconcile
+interval, to be reflected. Since the intent is to catch deprecated usage well ahead of a January
+removal, not to alert on it the instant it happens, this delay does not affect how you should use
+the condition — check it any time before upgrading, not immediately after every change.
+
+To inspect a single field, the deprecation notices are also recorded in the CRD schemas, so
+`kubectl explain` reports them straight from the cluster:
 
 ```shell
 $ kubectl explain dpudeployment.spec.dpus.dpuSets.dpuSelector
