@@ -48,11 +48,21 @@ spec:
         [Service]
         ExecStart=
         ExecStart=/bin/bash -c '/opt/dpf/dpuagent $(cat /opt/dpf/dpuagent.conf) --skip-reboot-method-discovery'
+    - operation: override
+      path: /etc/systemd/system/sfc-state-propagation.service.d/10-dpf-no-sfc-gate.conf
+      permissions: "0644"
+      raw: |
+        [Service]
+        ExecStartPre=
   packages:
     - name: tree
       version:
         value: "0.1"
         matchPolicy: AtLeast
+    - name: sfc-state-propagation
+  systemdServices:
+    - name: sfc-state-propagation.service
+      operation: Enable
   grub:
     kernelParameters:
       - console=hvc0
@@ -155,3 +165,5 @@ spec:
               interfaces:
                 - pf0vf0
       EOF
+
+      systemctl restart sfc-state-propagation.service || true

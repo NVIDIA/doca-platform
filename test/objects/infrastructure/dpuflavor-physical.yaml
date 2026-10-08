@@ -34,11 +34,21 @@ spec:
         #!/bin/bash
         echo "node-labeling-test=ok"
         echo "node-labeling-test-second=ok2"
+    - operation: override
+      path: /etc/systemd/system/sfc-state-propagation.service.d/10-dpf-no-sfc-gate.conf
+      permissions: "0644"
+      raw: |
+        [Service]
+        ExecStartPre=
   packages:
     - name: tree
       version:
         value: "0.1"
         matchPolicy: AtLeast
+    - name: sfc-state-propagation
+  systemdServices:
+    - name: sfc-state-propagation.service
+      operation: Enable
   grub:
     kernelParameters:
       - console=hvc0
@@ -124,3 +134,5 @@ spec:
       # set default password for ubuntu user to not have to set it manually if
       # debug needed
       echo -e "ubuntu\nubuntu" | passwd ubuntu
+
+      systemctl restart sfc-state-propagation.service || true
