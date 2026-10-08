@@ -528,6 +528,12 @@ type ContainerdConfig struct {
 	// RegistryEndpoint is the endpoint of the container registry.
 	// +optional
 	RegistryEndpoint string `json:"registryEndpoint,omitempty"`
+	// SandboxImage overrides the containerd sandbox (pause) image on the DPU, e.g.
+	// "registry.example.com/pause:3.9". When unset, the sandbox image shipped with the BFB is kept.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=512
+	// +optional
+	SandboxImage string `json:"sandboxImage,omitempty"`
 }
 
 // NetworkInterfaceConfig defines the configuration for a network interface

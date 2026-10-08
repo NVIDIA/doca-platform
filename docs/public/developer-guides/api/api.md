@@ -2361,6 +2361,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `registryEndpoint` _string_ | RegistryEndpoint is the endpoint of the container registry. |  | Optional: \{\} <br /> |
+| `sandboxImage` _string_ | SandboxImage overrides the containerd sandbox (pause) image on the DPU, e.g.<br />"registry.example.com/pause:3.9". When unset, the sandbox image shipped with the BFB is kept. |  | MaxLength: 512 <br />MinLength: 1 <br />Optional: \{\} <br /> |
 
 
 #### DMSAddress

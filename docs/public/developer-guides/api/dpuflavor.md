@@ -309,6 +309,7 @@ there.
 | Field | Type | Description |
 |-------|------|--------------|
 | `registryEndpoint` | string | Container registry endpoint |
+| `sandboxImage` | string | Overrides the containerd sandbox (pause) image on the DPU, e.g. `registry.example.com/pause:3.9`. The image must be pullable from the DPU. When unset, the sandbox image shipped with the BFB is kept; removing the field later does not restore the BFB's original value |
 
 ### NetworkInterfaceConfig
 

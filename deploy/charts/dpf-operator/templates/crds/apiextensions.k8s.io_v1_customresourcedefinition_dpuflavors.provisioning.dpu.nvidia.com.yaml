@@ -142,6 +142,13 @@ spec:
                     description: RegistryEndpoint is the endpoint of the container
                       registry.
                     type: string
+                  sandboxImage:
+                    description: |-
+                      SandboxImage overrides the containerd sandbox (pause) image on the DPU, e.g.
+                      "registry.example.com/pause:3.9". When unset, the sandbox image shipped with the BFB is kept.
+                    maxLength: 512
+                    minLength: 1
+                    type: string
                 type: object
               dma:
                 description: |-
