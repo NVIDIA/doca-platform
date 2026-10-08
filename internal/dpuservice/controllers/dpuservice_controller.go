@@ -1712,11 +1712,10 @@ func shouldDefaultMaxUnavailable(strategy *appsv1.DaemonSetUpdateStrategy) bool 
 	if strategy == nil {
 		return true
 	}
-	if strategy.Type != "" && strategy.Type != appsv1.RollingUpdateDaemonSetStrategyType {
-		return false
-	}
-	if strategy.RollingUpdate == nil || strategy.RollingUpdate.MaxUnavailable == nil {
-		return true
+	if strategy.Type == "" || strategy.Type == appsv1.RollingUpdateDaemonSetStrategyType {
+		if strategy.RollingUpdate == nil || strategy.RollingUpdate.MaxUnavailable == nil {
+			return true
+		}
 	}
 	return false
 }
