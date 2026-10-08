@@ -44,6 +44,7 @@ const (
 
 // RedfishMockServer represents a mock Redfish server for testing
 type RedfishMockServer struct {
+	networkDeviceFunctionStatus     int // Optional PF0 HTTP status override; zero uses 200.
 	server                          *httptest.Server
 	bmcVersion                      string
 	bmcErotVersion                  string
@@ -95,6 +96,7 @@ type RedfishMockServer struct {
 	lastForceUpdate                 atomic.Bool              // ForceUpdate requested by the most recent PLDM multipart update, read from the test goroutine
 	armPoweredOff                   atomic.Bool              // DPU Arm reported as shut down by GET System, toggled by NvidiaChassis.Reset from another goroutine
 	armShutdownRequests             atomic.Int64             // Number of NvidiaChassis.Reset ArmShutdown requests received
+	networkDeviceFunctionRequests   atomic.Int64             // Number of PF0 GET requests received
 
 	// mu guards the account and factory-reset state below, which tests mutate while requests are
 	// in flight and which the crawler exercises from several goroutines at once.
@@ -1092,7 +1094,22 @@ func (r *RedfishMockServer) handleResetBMC(w http.ResponseWriter, req *http.Requ
 	json.NewEncoder(w).Encode(response) //nolint: errcheck
 }
 
+// SetNetworkDeviceFunctionStatus overrides the PF0 GET status for BF3 and BF4.
+func (r *RedfishMockServer) SetNetworkDeviceFunctionStatus(status int) {
+	r.networkDeviceFunctionStatus = status
+}
+
+// GetNetworkDeviceFunctionRequests returns how many PF0 GET requests the mock received.
+func (r *RedfishMockServer) GetNetworkDeviceFunctionRequests() int {
+	return int(r.networkDeviceFunctionRequests.Load())
+}
+
 func (r *RedfishMockServer) handleGetNetworkDeviceFunction(w http.ResponseWriter, req *http.Request) {
+	r.networkDeviceFunctionRequests.Add(1)
+	if r.networkDeviceFunctionStatus != 0 && r.networkDeviceFunctionStatus != http.StatusOK {
+		writeRedfishError(w, r.networkDeviceFunctionStatus, "Base.1.18.1.GeneralError", "PF0 resource unavailable")
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	response := map[string]interface{}{
@@ -1108,6 +1125,11 @@ func (r *RedfishMockServer) handleGetNetworkDeviceFunction(w http.ResponseWriter
 }
 
 func (r *RedfishMockServer) handleGetNetworkDeviceFunctionBF4(w http.ResponseWriter, req *http.Request) {
+	r.networkDeviceFunctionRequests.Add(1)
+	if r.networkDeviceFunctionStatus != 0 && r.networkDeviceFunctionStatus != http.StatusOK {
+		writeRedfishError(w, r.networkDeviceFunctionStatus, "Base.1.18.1.GeneralError", "PF0 resource unavailable")
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	response := map[string]interface{}{

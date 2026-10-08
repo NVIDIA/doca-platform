@@ -29,6 +29,7 @@ import (
 	"fmt"
 	"math/big"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
@@ -418,6 +419,122 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 	})
 
 	Context("discoverDPUDevice", func() {
+		for _, version := range []mock.DpuVersion{mock.BF3, mock.BF4} {
+			DescribeTable(fmt.Sprintf("BF%d PF0 discovery", version), func(mode string, status int, previousMAC *string) {
+				ctx := context.Background()
+				mockServer, reconciler := setupDiscoveryTest()
+				DeferCleanup(mockServer.Stop)
+				mockServer.SetDpuVersion(version)
+				mockServer.SetNicMode(mode)
+				mockServer.SetNetworkDeviceFunctionStatus(status)
+				device := createTestDPUDevice(mockServer, "test-pf0-discovery")
+				device.Status.DPUMode = provisioningv1.NicMode // Must use the freshly reported mode.
+				device.Status.PF0MAC = previousMAC
+
+				err := reconciler.discoverDPUDevice(ctx, device)
+				// BF4 omits Mode, so discovery must conservatively treat it as DPU mode.
+				confirmedNICMode := mode == "NicMode" && version == mock.BF3
+				if confirmedNICMode {
+					Expect(device.Status.DPUMode).To(Equal(provisioningv1.NicMode))
+				} else {
+					Expect(device.Status.DPUMode).To(Equal(provisioningv1.DpuMode))
+				}
+				Expect(mockServer.GetNetworkDeviceFunctionRequests()).To(BeNumerically(">", 0))
+				discoveryShouldSucceed := status == http.StatusOK || status == http.StatusNotFound
+				if !discoveryShouldSucceed {
+					Expect(rfclient.HasHTTPStatus(err, status)).To(BeTrue())
+					Expect(device.Labels).NotTo(HaveKey(cutil.DPUDeviceBMCIPLabel))
+					Expect(findCondition(device, string(provisioningv1.ConditionDpuDeviceDiscovered))).To(BeNil())
+					return
+				}
+				Expect(err).NotTo(HaveOccurred())
+				Expect(device.Labels).To(HaveKeyWithValue(cutil.DPUDeviceBMCIPLabel, mockServer.GetIPAddress()))
+				Expect(findCondition(device, string(provisioningv1.ConditionDpuDeviceDiscovered)).Status).To(Equal(metav1.ConditionTrue))
+				Expect(device.Status.SerialNumber).To(Equal(ptr.To(mock.DpuSerialNumber)))
+				Expect(device.Status.OPN).To(Equal(ptr.To(mock.DpuOPN)))
+				if status == http.StatusOK {
+					Expect(device.Status.PF0MAC).To(Equal(ptr.To("00:1B:21:C0:8F:32")))
+				} else {
+					Expect(device.Status.PF0MAC).To(Equal(previousMAC))
+				}
+			},
+				Entry("NIC mode missing PF0", "NicMode", http.StatusNotFound, (*string)(nil)),
+				Entry("NIC mode missing PF0 preserves the last MAC", "NicMode", http.StatusNotFound, ptr.To("00:11:22:33:44:55")),
+				Entry("DPU mode missing PF0 refreshes stale NIC mode", "DpuMode", http.StatusNotFound, (*string)(nil)),
+				Entry("DPU mode missing PF0 preserves the last MAC", "DpuMode", http.StatusNotFound, ptr.To("00:11:22:33:44:55")),
+				Entry("NIC mode reads an available PF0 MAC", "NicMode", http.StatusOK, (*string)(nil)),
+				Entry("NIC mode refreshes the last MAC when PF0 is available", "NicMode", http.StatusOK, ptr.To("00:11:22:33:44:55")),
+				Entry("DPU mode reads an available PF0 MAC", "DpuMode", http.StatusOK, (*string)(nil)),
+				Entry("DPU mode authentication rejection", "DpuMode", http.StatusUnauthorized, (*string)(nil)),
+				Entry("DPU mode authorization rejection", "DpuMode", http.StatusForbidden, (*string)(nil)),
+				Entry("NIC mode authentication rejection", "NicMode", http.StatusUnauthorized, (*string)(nil)),
+				Entry("NIC mode authorization rejection", "NicMode", http.StatusForbidden, (*string)(nil)),
+				Entry("NIC mode unavailable PF0", "NicMode", http.StatusServiceUnavailable, (*string)(nil)),
+				Entry("DPU mode unavailable PF0", "DpuMode", http.StatusServiceUnavailable, (*string)(nil)),
+			)
+		}
+
+		DescribeTable("should persist discovery when PF0 is missing", func(mode string, expectedMode provisioningv1.DpuModeType) {
+			ctx := context.Background()
+			mockServer, reconciler := setupDiscoveryTest()
+			DeferCleanup(mockServer.Stop)
+			mockServer.SetNicMode(mode)
+			mockServer.SetNetworkDeviceFunctionStatus(http.StatusNotFound)
+			device := createTestDPUDevice(mockServer, "test-persist-nic-discovery")
+			device.Status.BMCCredentialSecretName = ptr.To(rfclient.BMCPasswordSecret)
+			device.Status.BMCServerCertificate = &provisioningv1.CertificateStatus{
+				NotAfter: ptr.To(metav1.NewTime(time.Now().Add(365 * 24 * time.Hour))),
+			}
+			device.Status.CATrustBundle = &provisioningv1.TrustBundleStatus{
+				ObservedBundleHash: ptr.To("test-bundle"),
+			}
+			device.SetConditions([]metav1.Condition{
+				{
+					Type:               "NodeAttached",
+					Status:             metav1.ConditionTrue,
+					Reason:             "Attached",
+					LastTransitionTime: metav1.Now(),
+				},
+				{
+					Type:               "Initialized",
+					Status:             metav1.ConditionTrue,
+					Reason:             "Initialized",
+					LastTransitionTime: metav1.Now(),
+				},
+			})
+			config := &operatorv1.DPFOperatorConfig{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "dpfoperatorconfig",
+					Namespace: testNamespace,
+				},
+				Spec: operatorv1.DPFOperatorConfigSpec{
+					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
+						InstallInterface: &operatorv1.ProvisioningInstallInterface{
+							InstallViaRedfish: &operatorv1.InstallViaRedfish{},
+						},
+					},
+				},
+			}
+			scheme := reconciler.Client.Scheme()
+			Expect(operatorv1.AddToScheme(scheme)).To(Succeed())
+			bundle := &corev1.ConfigMap{}
+			Expect(reconciler.Get(ctx, types.NamespacedName{Name: CATrustBundleConfigMap, Namespace: testNamespace}, bundle)).To(Succeed())
+			bundle.Data[BundleHashDataKey] = "test-bundle"
+			reconciler.Client = fake.NewClientBuilder().WithScheme(scheme).
+				WithObjects(device, config, bundle).WithStatusSubresource(device).Build()
+
+			_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(device)})
+			Expect(err).NotTo(HaveOccurred())
+			persisted := &provisioningv1.DPUDevice{}
+			Expect(reconciler.Get(ctx, client.ObjectKeyFromObject(device), persisted)).To(Succeed())
+			Expect(persisted.Labels).To(HaveKeyWithValue(cutil.DPUDeviceBMCIPLabel, mockServer.GetIPAddress()))
+			Expect(findCondition(persisted, string(provisioningv1.ConditionDpuDeviceDiscovered)).Status).To(Equal(metav1.ConditionTrue))
+			Expect(persisted.Status.DPUMode).To(Equal(expectedMode))
+		},
+			Entry("NIC mode", "NicMode", provisioningv1.NicMode),
+			Entry("DPU mode", "DpuMode", provisioningv1.DpuMode),
+		)
+
 		It("should fail when TLS client creation fails (no secrets)", func() {
 			ctx := context.Background()
 			scheme := runtime.NewScheme()
