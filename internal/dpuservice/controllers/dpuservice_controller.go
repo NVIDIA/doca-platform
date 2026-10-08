@@ -1706,18 +1706,35 @@ func getProjectName(dpuService *dpuservicev1.DPUService) string {
 	return argocd.AppProjectNameDPU
 }
 
-// shouldDefaultMaxUnavailable reports whether maxUnavailable is unset.
-// Explicit values and OnDelete strategies are preserved.
-func shouldDefaultMaxUnavailable(strategy *appsv1.DaemonSetUpdateStrategy) bool {
+// defaultServiceDaemonSetUpdateStrategy fills in an omitted maxUnavailable.
+// Explicit values, and the rest of the strategy are preserved.
+func defaultServiceDaemonSetUpdateStrategy(strategy *appsv1.DaemonSetUpdateStrategy, maxUnavailable int32) (*appsv1.DaemonSetUpdateStrategy, error) {
+	strategy = strategy.DeepCopy()
 	if strategy == nil {
-		return true
-	}
-	if strategy.Type == "" || strategy.Type == appsv1.RollingUpdateDaemonSetStrategyType {
-		if strategy.RollingUpdate == nil || strategy.RollingUpdate.MaxUnavailable == nil {
-			return true
+		strategy = &appsv1.DaemonSetUpdateStrategy{
+			Type: appsv1.RollingUpdateDaemonSetStrategyType,
 		}
 	}
-	return false
+	isRollingUpdate := strategy.Type == "" || strategy.Type == appsv1.RollingUpdateDaemonSetStrategyType
+	hasMaxUnavailable := strategy.RollingUpdate != nil && strategy.RollingUpdate.MaxUnavailable != nil
+	if !isRollingUpdate || hasMaxUnavailable {
+		return strategy, nil
+	}
+	if strategy.RollingUpdate == nil {
+		strategy.RollingUpdate = &appsv1.RollingUpdateDaemonSet{}
+	}
+	if strategy.RollingUpdate.MaxSurge != nil {
+		maxSurge, err := intstr.GetScaledValueFromIntOrPercent(strategy.RollingUpdate.MaxSurge, 1, true)
+		if err != nil {
+			return nil, fmt.Errorf("resolve serviceDaemonSet maxSurge: %w", err)
+		}
+		if maxSurge > 0 {
+			// Kubernetes requires maxUnavailable to be zero when maxSurge is nonzero.
+			maxUnavailable = 0
+		}
+	}
+	strategy.RollingUpdate.MaxUnavailable = ptr.To(intstr.FromInt32(maxUnavailable))
+	return strategy, nil
 }
 
 func argoCDValuesFromDPUService(serviceDaemonSetValues *dpuservicev1.ServiceDaemonSetValues, dpuService *dpuservicev1.DPUService, clusterName, serviceID string, maxUnavailable int32) (*runtime.RawExtension, error) {
@@ -1729,31 +1746,11 @@ func argoCDValuesFromDPUService(serviceDaemonSetValues *dpuservicev1.ServiceDaem
 	}
 	serviceDaemonSetValues.Labels[dpuservicev1.DPFServiceIDLabelKey] = serviceID
 
-	if shouldDefaultMaxUnavailable(serviceDaemonSetValues.UpdateStrategy) {
-		// Set only MaxUnavailable, preserving Type, MaxSurge, and anything else already present.
-		updateStrategy := serviceDaemonSetValues.UpdateStrategy.DeepCopy()
-		if updateStrategy == nil {
-			updateStrategy = &appsv1.DaemonSetUpdateStrategy{
-				Type: appsv1.RollingUpdateDaemonSetStrategyType,
-			}
-		}
-		if updateStrategy.RollingUpdate == nil {
-			updateStrategy.RollingUpdate = &appsv1.RollingUpdateDaemonSet{}
-		}
-		defaultMaxUnavailable := maxUnavailable
-		if updateStrategy.RollingUpdate.MaxUnavailable == nil && updateStrategy.RollingUpdate.MaxSurge != nil {
-			maxSurge, err := intstr.GetScaledValueFromIntOrPercent(updateStrategy.RollingUpdate.MaxSurge, 1, true)
-			if err != nil {
-				return nil, fmt.Errorf("resolve serviceDaemonSet maxSurge: %w", err)
-			}
-			if maxSurge > 0 {
-				// Kubernetes requires maxUnavailable to be zero when maxSurge is nonzero.
-				defaultMaxUnavailable = 0
-			}
-		}
-		updateStrategy.RollingUpdate.MaxUnavailable = ptr.To(intstr.FromInt32(defaultMaxUnavailable))
-		serviceDaemonSetValues.UpdateStrategy = updateStrategy
+	updateStrategy, err := defaultServiceDaemonSetUpdateStrategy(serviceDaemonSetValues.UpdateStrategy, maxUnavailable)
+	if err != nil {
+		return nil, err
 	}
+	serviceDaemonSetValues.UpdateStrategy = updateStrategy
 
 	// Convert the typedServiceDaemonSetValues to untyped map[string]interface,
 	// so it can be merged with the additional values we want to set.
