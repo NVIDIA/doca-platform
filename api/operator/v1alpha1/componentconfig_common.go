@@ -102,6 +102,10 @@ var (
 	VaultKMSContainer ContainerName = "vault-kms"
 	// CoreDNSContainer is the default name of the host cluster CoreDNS container.
 	CoreDNSContainer ContainerName = "coredns"
+	// SPIFFECSIDriverContainer is the default name of the SPIFFE CSI driver container.
+	SPIFFECSIDriverContainer ContainerName = "spiffe-csi-driver"
+	// SPIFFECSINodeDriverRegistrarContainer is the default name of the SPIFFE CSI node-driver-registrar container.
+	SPIFFECSINodeDriverRegistrarContainer ContainerName = "node-driver-registrar"
 )
 
 type ContainerName string
@@ -163,6 +167,9 @@ func (c *DPFOperatorConfig) ComponentConfigs() []ComponentConfigurable {
 	}
 	if c.Spec.Security != nil && c.Spec.Security.VaultKMS != nil {
 		out = append(out, c.Spec.Security.VaultKMS)
+	}
+	if c.Spec.Security != nil && c.Spec.Security.SPIFFE != nil && c.Spec.Security.SPIFFE.CSIDriver != nil {
+		out = append(out, c.Spec.Security.SPIFFE.CSIDriver)
 	}
 	if c.Spec.Monitoring != nil && c.Spec.Monitoring.KubeStateMetrics != nil {
 		out = append(out, c.Spec.Monitoring.KubeStateMetrics)

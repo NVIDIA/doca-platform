@@ -152,6 +152,16 @@ func helmPaths() helmPathsProvider {
 					Tag:        []string{"image", "tag"},
 				},
 			},
+			operatorv1.SPIFFECSIDriverName: {
+				operatorv1.SPIFFECSIDriverContainer: {
+					Repository: []string{"image", "repository"},
+					Tag:        []string{"image", "tag"},
+				},
+				operatorv1.SPIFFECSINodeDriverRegistrarContainer: {
+					Repository: []string{"nodeDriverRegistrar", "image", "repository"},
+					Tag:        []string{"nodeDriverRegistrar", "image", "tag"},
+				},
+			},
 			operatorv1.CoreDNSName: {
 				operatorv1.CoreDNSContainer: {
 					Repository: []string{"image", "repository"},

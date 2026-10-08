@@ -808,6 +808,7 @@ _Appears in:_
 - [KataContainersConfiguration](#katacontainersconfiguration)
 - [NVIPAMController](#nvipamcontroller)
 - [NVIPAMNode](#nvipamnode)
+- [SPIFFECSIDriverConfiguration](#spiffecsidriverconfiguration)
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
@@ -1396,6 +1397,24 @@ _Appears in:_
 | `secureFlowDeletionTimeout` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#duration-v1-meta)_ | SecureFlowDeletionTimeout controls the timeout for which the API server is unreachable after which all the flows<br />are deleted to prevent unintended packet leaks. It has effect when is greater than zero.<br />Value must be in units accepted by Go time.ParseDuration https://golang.org/pkg/time/#ParseDuration. |  | Optional: \{\} <br /> |
 
 
+#### SPIFFECSIDriverConfiguration
+
+
+
+SPIFFECSIDriverConfiguration is the configuration for the SPIFFE CSI driver.
+It is deployed whenever SPIFFE is configured, so it cannot be disabled on its own.
+
+
+
+_Appears in:_
+- [SPIFFEConfiguration](#spiffeconfiguration)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `driver` _[ImageComponentConfig](#imagecomponentconfig)_ | driver contains the configuration for the SPIFFE CSI driver container.<br />It contains the image for the container. |  | Optional: \{\} <br /> |
+| `nodeDriverRegistrar` _[ImageComponentConfig](#imagecomponentconfig)_ | nodeDriverRegistrar contains the configuration for the node-driver-registrar container<br />that registers the SPIFFE CSI driver with the kubelet.<br />It contains the image for the container. |  | Optional: \{\} <br /> |
+
+
 #### SPIFFEConfiguration
 
 
@@ -1420,6 +1439,7 @@ _Appears in:_
 | `spireOIDCURL` _string_ | SPIREOIDCURL is the OIDC discovery (issuer) URL of the pre-installed SPIRE Server.<br />The matching kube-apiserver AuthenticationConfiguration.jwt[].issuer value is applied out-of-band. |  | MaxLength: 2048 <br />MinLength: 1 <br />Required: \{\} <br /> |
 | `spireControllerManagerClassName` _string_ | spireControllerManagerClassName selects the SPIRE controller-manager instance that renders<br />DPF ClusterStaticEntries. |  | MaxLength: 253 <br />MinLength: 1 <br />Required: \{\} <br /> |
 | `trustBundle` _[SPIFFETrustBundleConfigMapReference](#spiffetrustbundleconfigmapreference)_ | trustBundle references a ConfigMap holding the initial SPIRE trust bundle. |  | Required: \{\} <br /> |
+| `csiDriver` _[SPIFFECSIDriverConfiguration](#spiffecsidriverconfiguration)_ | csiDriver contains the configuration for the SPIFFE CSI driver deployed to the DPU clusters. |  | Optional: \{\} <br /> |
 
 
 #### SPIFFETrustBundleConfigMapReference

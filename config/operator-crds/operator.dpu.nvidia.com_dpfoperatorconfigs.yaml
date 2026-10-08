@@ -2107,6 +2107,36 @@ spec:
                       spiffe configures the SPIFFE-based DPU Agent identity flow. Edits are accepted post-bootstrap
                       but do NOT retro-apply to already-provisioned DPUs.
                     properties:
+                      csiDriver:
+                        description: csiDriver contains the configuration for the
+                          SPIFFE CSI driver deployed to the DPU clusters.
+                        properties:
+                          driver:
+                            description: |-
+                              driver contains the configuration for the SPIFFE CSI driver container.
+                              It contains the image for the container.
+                            properties:
+                              image:
+                                description: |-
+                                  Image is a reference to a container image.
+                                  If neither a tag nor a digest is set, the tag and digest of the component's default image are used.
+                                pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
+                                type: string
+                            type: object
+                          nodeDriverRegistrar:
+                            description: |-
+                              nodeDriverRegistrar contains the configuration for the node-driver-registrar container
+                              that registers the SPIFFE CSI driver with the kubelet.
+                              It contains the image for the container.
+                            properties:
+                              image:
+                                description: |-
+                                  Image is a reference to a container image.
+                                  If neither a tag nor a digest is set, the tag and digest of the component's default image are used.
+                                pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
+                                type: string
+                            type: object
+                        type: object
                       dpuAgentExchangedSPIFFEIDTemplate:
                         description: |-
                           DPUAgentExchangedSPIFFEIDTemplate renders the post-exchange SPIFFE ID subject. It receives
