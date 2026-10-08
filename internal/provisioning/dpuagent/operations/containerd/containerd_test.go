@@ -368,6 +368,144 @@ version = 2
 		})
 	})
 
+	Context("Sandbox image", func() {
+		const sandboxImage = "foo.example.com/pause:3.9"
+
+		var (
+			configPath   string
+			executedCmds []string
+			operation    *ConfigureContainerd
+		)
+
+		flavorWith := func(containerdConfig provisioningv1.ContainerdConfig) *operations.Context {
+			return &operations.Context{
+				DPUFlavor: provisioningv1.DPUFlavor{
+					Spec: provisioningv1.DPUFlavorSpec{ContainerdConfig: containerdConfig},
+				},
+			}
+		}
+
+		readConfig := func(path string) map[string]interface{} {
+			var config map[string]interface{}
+			_, err := toml.DecodeFile(path, &config)
+			Expect(err).NotTo(HaveOccurred())
+			return config
+		}
+
+		BeforeEach(func() {
+			configPath = filepath.Join(tempDir, "/etc/containerd/config.toml")
+			executedCmds = nil
+			operation = &ConfigureContainerd{
+				rootFS: tempDir,
+				getContainerdVersion: func() (string, error) {
+					return containerdV1VersionOutput, nil
+				},
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					executedCmds = append(executedCmds, cmd)
+					return bytes.Buffer{}, bytes.Buffer{}, nil
+				},
+			}
+		})
+
+		It("should override the BFB sandbox image in a version 2 config and keep other settings", func() {
+			originalContent := `
+version = 2
+
+[plugins]
+  [plugins."io.containerd.grpc.v1.cri"]
+    sandbox_image = "k8s.gcr.io/pause:3.9"
+    [plugins."io.containerd.grpc.v1.cri".containerd]
+      default_runtime_name = "runc"
+    [plugins."io.containerd.grpc.v1.cri".registry.mirrors."docker.io"]
+      endpoint = ["dockerhub.nvidia.com"]
+`
+			Expect(os.WriteFile(configPath, []byte(originalContent), 0644)).To(Succeed())
+
+			Expect(operation.Execute(ctx, flavorWith(provisioningv1.ContainerdConfig{SandboxImage: sandboxImage}))).To(Succeed())
+
+			config := readConfig(configPath)
+			Expect(getNestedValue(config, "plugins", "io.containerd.grpc.v1.cri", "sandbox_image")).To(Equal(sandboxImage))
+			Expect(getNestedValue(config, "plugins", "io.containerd.grpc.v1.cri", "containerd", "default_runtime_name")).To(Equal("runc"))
+			Expect(getNestedValue(config, "plugins", "io.containerd.grpc.v1.cri", "registry", "mirrors", "docker.io", "endpoint")).To(ConsistOf("dockerhub.nvidia.com"))
+			Expect(getNestedValue(config, "plugins", "io.containerd.cri.v1.images")).To(BeNil())
+		})
+
+		It("should create the CRI plugin table when it is missing from a version 2 config", func() {
+			Expect(os.WriteFile(configPath, []byte("version = 2\n"), 0644)).To(Succeed())
+
+			Expect(operation.configureSandboxImage(sandboxImage)).To(Succeed())
+
+			config := readConfig(configPath)
+			Expect(getNestedValue(config, "plugins", "io.containerd.grpc.v1.cri", "sandbox_image")).To(Equal(sandboxImage))
+			Expect(filepath.Join(tempDir, containerdRestartMarker)).To(BeAnExistingFile())
+		})
+
+		It("should set pinned_images.sandbox in a version 3 config", func() {
+			originalContent := `
+version = 3
+
+[plugins]
+  [plugins."io.containerd.cri.v1.images".pinned_images]
+    sandbox = "registry.k8s.io/pause:3.10"
+`
+			Expect(os.WriteFile(configPath, []byte(originalContent), 0644)).To(Succeed())
+
+			Expect(operation.configureSandboxImage(sandboxImage)).To(Succeed())
+
+			config := readConfig(configPath)
+			Expect(getNestedValue(config, "plugins", "io.containerd.cri.v1.images", "pinned_images", "sandbox")).To(Equal(sandboxImage))
+			Expect(getNestedValue(config, "plugins", "io.containerd.grpc.v1.cri")).To(BeNil())
+		})
+
+		It("should edit config-mlnx.toml when config.toml is absent", func() {
+			Expect(os.Remove(configPath)).To(Succeed())
+			mlnxPath := filepath.Join(tempDir, "/etc/containerd/config-mlnx.toml")
+			Expect(os.WriteFile(mlnxPath, []byte("version = 2\n"), 0644)).To(Succeed())
+
+			Expect(operation.configureSandboxImage(sandboxImage)).To(Succeed())
+
+			config := readConfig(mlnxPath)
+			Expect(getNestedValue(config, "plugins", "io.containerd.grpc.v1.cri", "sandbox_image")).To(Equal(sandboxImage))
+		})
+
+		It("should configure the sandbox image together with the registry mirror", func() {
+			Expect(os.WriteFile(configPath, []byte("version = 2\n"), 0644)).To(Succeed())
+
+			Expect(operation.Execute(ctx, flavorWith(provisioningv1.ContainerdConfig{
+				RegistryEndpoint: "my.registry.com",
+				SandboxImage:     sandboxImage,
+			}))).To(Succeed())
+
+			config := readConfig(configPath)
+			Expect(getNestedValue(config, "plugins", "io.containerd.grpc.v1.cri", "sandbox_image")).To(Equal(sandboxImage))
+			Expect(getNestedValue(config, "plugins", "io.containerd.grpc.v1.cri", "registry", "mirrors", "nvcr.io", "endpoint")).To(ConsistOf("my.registry.com"))
+		})
+
+		It("should leave the containerd config untouched when no sandbox image is set", func() {
+			originalContent := "version = 2\n\n[plugins]\n  [plugins.\"io.containerd.grpc.v1.cri\"]\n    sandbox_image = \"k8s.gcr.io/pause:3.9\"\n"
+			Expect(os.WriteFile(configPath, []byte(originalContent), 0644)).To(Succeed())
+
+			Expect(operation.Execute(ctx, flavorWith(provisioningv1.ContainerdConfig{}))).To(Succeed())
+
+			Expect(os.ReadFile(configPath)).To(Equal([]byte(originalContent)))
+		})
+
+		It("should not restart containerd again when the sandbox image is already set", func() {
+			Expect(os.WriteFile(configPath, []byte("version = 2\n"), 0644)).To(Succeed())
+			opCtx := flavorWith(provisioningv1.ContainerdConfig{SandboxImage: sandboxImage})
+
+			Expect(operation.Execute(ctx, opCtx)).To(Succeed())
+			Expect(executedCmds).To(ContainElement("systemctl stop containerd"))
+			content, err := os.ReadFile(configPath)
+			Expect(err).NotTo(HaveOccurred())
+
+			executedCmds = nil
+			Expect(operation.Execute(ctx, opCtx)).To(Succeed())
+			Expect(executedCmds).To(Equal([]string{"systemctl enable --now containerd"}))
+			Expect(os.ReadFile(configPath)).To(Equal(content))
+		})
+	})
+
 	Context("TLS compatibility drop-in", func() {
 		It("should create the managed drop-in and only mark content changes", func() {
 			operation := &ConfigureContainerd{rootFS: tempDir}

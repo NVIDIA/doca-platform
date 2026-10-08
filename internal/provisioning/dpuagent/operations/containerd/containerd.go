@@ -30,6 +30,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/Masterminds/semver/v3"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/klog/v2"
 )
 
@@ -96,6 +97,15 @@ func (c *ConfigureContainerd) Execute(execCtx context.Context, optCtx *operation
 		klog.Info("No registry endpoint configured, skipping registry mirror configuration")
 	} else {
 		if err := c.configureRegistryMirror(endpoint); err != nil {
+			return err
+		}
+	}
+
+	sandboxImage := optCtx.DPUFlavor.Spec.ContainerdConfig.SandboxImage
+	if sandboxImage == "" {
+		klog.Info("No sandbox image configured, keeping the containerd default")
+	} else {
+		if err := c.configureSandboxImage(sandboxImage); err != nil {
 			return err
 		}
 	}
@@ -293,6 +303,47 @@ func setRegistryConfigPath(config map[string]interface{}, path string) {
 		criPlugin["registry"] = registry
 	}
 	registry["config_path"] = path
+}
+
+// configureSandboxImage sets the containerd sandbox (pause) image, overriding
+// whatever value the BFB ships. The key depends on the config file schema
+// version rather than the containerd binary version: containerd 2.x still loads
+// version 2 files and migrates the v1 CRI sandbox_image into the images plugin,
+// which would override a version 3 key written into a version 2 file.
+func (c *ConfigureContainerd) configureSandboxImage(image string) error {
+	configPath, err := c.resolveContainerdConfigPath()
+	if err != nil {
+		return err
+	}
+
+	var config map[string]interface{}
+	if _, err := toml.DecodeFile(configPath, &config); err != nil {
+		return fmt.Errorf("failed to parse containerd config: %w", err)
+	}
+	if config == nil {
+		config = make(map[string]interface{})
+	}
+
+	sandboxImagePath := []string{"plugins", criPluginV1, "sandbox_image"}
+	if version, _, _ := unstructured.NestedInt64(config, "version"); version >= 3 {
+		sandboxImagePath = []string{"plugins", criImagesPluginV2, "pinned_images", "sandbox"}
+	}
+	if err := unstructured.SetNestedField(config, image, sandboxImagePath...); err != nil {
+		return fmt.Errorf("failed to set containerd sandbox image: %w", err)
+	}
+
+	buf := new(bytes.Buffer)
+	if err := toml.NewEncoder(buf).Encode(config); err != nil {
+		return fmt.Errorf("failed to encode containerd config: %w", err)
+	}
+	changed, err := c.writeRestartSensitiveFile(configPath, buf.Bytes())
+	if err != nil {
+		return fmt.Errorf("failed to write containerd config: %w", err)
+	}
+	if changed {
+		klog.Infof("Set containerd sandbox image to %s in %s", image, configPath)
+	}
+	return nil
 }
 
 // hostsConfig models a containerd registry hosts.toml host-config file.
