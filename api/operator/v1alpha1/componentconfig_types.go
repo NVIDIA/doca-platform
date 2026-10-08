@@ -523,8 +523,8 @@ type DPUServiceControllerConfiguration struct {
 	// DefaultServiceDaemonSetMaxUnavailable specifies the fallback maxUnavailable for
 	// ServiceDaemonSet rolling updates. It defaults to 30000 and is applied when
 	// serviceDaemonSet.updateStrategy is omitted or its rollingUpdate.maxUnavailable
-	// is unset. If maxSurge is nonzero and maxUnavailable is unset, maxUnavailable
-	// is set to zero instead. Explicit maxUnavailable values and OnDelete strategies
+	// is unset and maxSurge is unset or zero. If maxSurge is nonzero, an omitted maxUnavailable
+	// is left unset. Explicit maxUnavailable values and OnDelete strategies
 	// are preserved. Lower this value to limit the number of unavailable pods during updates.
 	// +kubebuilder:validation:Minimum=1
 	// +optional

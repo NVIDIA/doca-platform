@@ -1707,7 +1707,7 @@ func getProjectName(dpuService *dpuservicev1.DPUService) string {
 }
 
 // defaultServiceDaemonSetUpdateStrategy fills in an omitted maxUnavailable.
-// Explicit values, and the rest of the strategy are preserved.
+// Explicit values and surge strategies are preserved.
 func defaultServiceDaemonSetUpdateStrategy(strategy *appsv1.DaemonSetUpdateStrategy, maxUnavailable int32) (*appsv1.DaemonSetUpdateStrategy, error) {
 	strategy = strategy.DeepCopy()
 	if strategy == nil {
@@ -1729,8 +1729,8 @@ func defaultServiceDaemonSetUpdateStrategy(strategy *appsv1.DaemonSetUpdateStrat
 			return nil, fmt.Errorf("resolve serviceDaemonSet maxSurge: %w", err)
 		}
 		if maxSurge > 0 {
-			// Kubernetes requires maxUnavailable to be zero when maxSurge is nonzero.
-			maxUnavailable = 0
+			// Leave maxUnavailable unset for surge rollouts.
+			return strategy, nil
 		}
 	}
 	strategy.RollingUpdate.MaxUnavailable = ptr.To(intstr.FromInt32(maxUnavailable))
