@@ -1082,28 +1082,8 @@ func (r *DPUDeviceReconciler) discoverDPUDevice(ctx context.Context, dpuDevice *
 
 	dpuDevice.Status.OPN = ptr.To(chassisInfo.PartNumber)
 
-	device := "eth0f0"
-	if client.IsBF4 {
-		device = "0"
-	}
-	_, pf0, err := client.GetNetworkDeviceFunction(ctx, device)
-	if err != nil {
-		log.Error(err, "Failed to get network device function", "address", bmcAddress)
+	if err := r.discoverPF0MAC(ctx, dpuDevice, client); err != nil {
 		return err
-	}
-
-	var mac string
-	if client.IsBF4 {
-		mac = pf0.Ethernet.PermanentMACAddress
-
-	} else {
-		mac = pf0.Ethernet.MACAddress
-	}
-
-	if mac != "" {
-		dpuDevice.Status.PF0MAC = ptr.To(mac)
-	} else {
-		log.Info("No MAC address found for PF0", "address", bmcAddress)
 	}
 
 	// TODO: Get the PCI address once it will be available in the Redfish API
@@ -1127,6 +1107,35 @@ func (r *DPUDeviceReconciler) discoverDPUDevice(ctx context.Context, dpuDevice *
 
 	conditions.AddTrue(dpuDevice, provisioningv1.ConditionDpuDeviceDiscovered)
 	log.Info("DPUDevice discovered successfully", "dpuDevice", dpuDevice.Name)
+	return nil
+}
+
+// discoverPF0MAC records available PF0 metadata, tolerating a missing resource.
+func (r *DPUDeviceReconciler) discoverPF0MAC(ctx context.Context, dpuDevice *provisioningv1.DPUDevice, client *rfclient.Client) error {
+	device := "eth0f0"
+	if client.IsBF4 {
+		device = "0"
+	}
+	_, pf0, err := client.GetNetworkDeviceFunction(ctx, device)
+	if rfclient.HasHTTPStatus(err, http.StatusNotFound) {
+		log.FromContext(ctx).V(1).Info("PF0 is unavailable; continuing discovery without a new MAC", "address", dpuDevice.BMCAddress(), "err", err)
+		return nil
+	}
+	if err != nil {
+		log.FromContext(ctx).Error(err, "Failed to get network device function", "address", dpuDevice.BMCAddress())
+		return fmt.Errorf("failed to read PF0 network device function: %w", err)
+	}
+
+	mac := pf0.Ethernet.MACAddress
+	if client.IsBF4 {
+		mac = pf0.Ethernet.PermanentMACAddress
+	}
+	if mac == "" {
+		log.FromContext(ctx).Info("No MAC address found for PF0", "address", dpuDevice.BMCAddress())
+		return nil
+	}
+
+	dpuDevice.Status.PF0MAC = ptr.To(mac)
 	return nil
 }
 
