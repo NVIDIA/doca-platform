@@ -696,7 +696,7 @@ func TestResolveAnchor(t *testing.T) {
 				WithObjects(tt.objs...).
 				Build()
 
-			got, err := resolveAnchor(context.Background(), c, testNamespace)
+			got, err := ResolveAnchor(context.Background(), c, testNamespace)
 			if tt.wantError != "" {
 				g.Expect(err).To(HaveOccurred())
 				g.Expect(err.Error()).To(ContainSubstring(tt.wantError))
