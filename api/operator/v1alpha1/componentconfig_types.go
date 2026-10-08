@@ -447,6 +447,46 @@ type SPIFFEConfiguration struct {
 	// trustBundle references a ConfigMap holding the initial SPIRE trust bundle.
 	// +required
 	TrustBundle SPIFFETrustBundleConfigMapReference `json:"trustBundle,omitzero"`
+
+	// csiDriver contains the configuration for the SPIFFE CSI driver deployed to the DPU clusters.
+	// +optional
+	CSIDriver *SPIFFECSIDriverConfiguration `json:"csiDriver,omitempty"`
+}
+
+// SPIFFECSIDriverConfiguration is the configuration for the SPIFFE CSI driver.
+// It is deployed whenever SPIFFE is configured, so it cannot be disabled on its own.
+type SPIFFECSIDriverConfiguration struct {
+	// driver contains the configuration for the SPIFFE CSI driver container.
+	// It contains the image for the container.
+	// +optional
+	Driver *ImageComponentConfig `json:"driver,omitempty"`
+
+	// nodeDriverRegistrar contains the configuration for the node-driver-registrar container
+	// that registers the SPIFFE CSI driver with the kubelet.
+	// It contains the image for the container.
+	// +optional
+	NodeDriverRegistrar *ImageComponentConfig `json:"nodeDriverRegistrar,omitempty"`
+}
+
+func (c *SPIFFECSIDriverConfiguration) Name() string {
+	return SPIFFECSIDriverName.String()
+}
+
+// Disabled always returns false, because whether the SPIFFE CSI driver is deployed follows the SPIFFE configuration.
+func (c *SPIFFECSIDriverConfiguration) Disabled() bool {
+	return false
+}
+
+// GetImages returns a map of container names to their images.
+func (c *SPIFFECSIDriverConfiguration) GetImages() map[ContainerName]*string {
+	images := map[ContainerName]*string{}
+	if c.Driver != nil {
+		images[SPIFFECSIDriverContainer] = c.Driver.GetImage()
+	}
+	if c.NodeDriverRegistrar != nil {
+		images[SPIFFECSINodeDriverRegistrarContainer] = c.NodeDriverRegistrar.GetImage()
+	}
+	return images
 }
 
 // +kubebuilder:validation:XValidation:rule="!has(self.image) || !has(self.controller) || !has(self.controller.image)",message="only either 'image' (deprecated) or 'controller.image' can be set, but not both"

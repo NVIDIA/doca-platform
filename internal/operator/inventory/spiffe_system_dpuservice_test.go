@@ -164,3 +164,46 @@ func TestDPUServiceSetSpiffeEditPreservesPrivileged(t *testing.T) {
 	g.Expect(dpuService.Spec.Security.SPIFFE).ToNot(BeNil())
 	g.Expect(ptr.Deref(dpuService.Spec.Security.Privileged, false)).To(BeTrue())
 }
+
+func TestSPIFFECSIDriverImages(t *testing.T) {
+	csiDriverValue := func(g Gomega, vars Variables, path ...string) (string, bool) {
+		u := generatedDPUService(g, New().SPIFFECSIDriver, vars)
+		value, found, err := unstructured.NestedString(u.Object,
+			append([]string{"spec", "helmChart", "values", operatorv1.SPIFFECSIDriverName.String()}, path...)...)
+		g.Expect(err).ToNot(HaveOccurred())
+		return value, found
+	}
+
+	t.Run("chart defaults are used when no image is configured", func(t *testing.T) {
+		g := NewWithT(t)
+
+		vars := spiffeSystemTestVariables(g, enabledSPIFFEConfiguration())
+		g.Expect(vars.DisableSystemComponents[operatorv1.SPIFFECSIDriverName]).To(BeFalse())
+		_, found := csiDriverValue(g, vars, "image", "repository")
+		g.Expect(found).To(BeFalse())
+		_, found = csiDriverValue(g, vars, "nodeDriverRegistrar", "image", "repository")
+		g.Expect(found).To(BeFalse())
+	})
+
+	t.Run("configured images override the chart defaults", func(t *testing.T) {
+		g := NewWithT(t)
+
+		spiffe := enabledSPIFFEConfiguration()
+		spiffe.CSIDriver = &operatorv1.SPIFFECSIDriverConfiguration{
+			Driver: &operatorv1.ImageComponentConfig{Image: ptr.To("mirror.example.com/spiffe-csi-driver:0.2.8")},
+			// Without a tag the chart's default tag is kept.
+			NodeDriverRegistrar: &operatorv1.ImageComponentConfig{Image: ptr.To("mirror.example.com/csi-node-driver-registrar")},
+		}
+		vars := spiffeSystemTestVariables(g, spiffe)
+		g.Expect(vars.DisableSystemComponents[operatorv1.SPIFFECSIDriverName]).To(BeFalse())
+
+		value, _ := csiDriverValue(g, vars, "image", "repository")
+		g.Expect(value).To(Equal("mirror.example.com/spiffe-csi-driver"))
+		value, _ = csiDriverValue(g, vars, "image", "tag")
+		g.Expect(value).To(Equal("0.2.8"))
+		value, _ = csiDriverValue(g, vars, "nodeDriverRegistrar", "image", "repository")
+		g.Expect(value).To(Equal("mirror.example.com/csi-node-driver-registrar"))
+		_, found := csiDriverValue(g, vars, "nodeDriverRegistrar", "image", "tag")
+		g.Expect(found).To(BeFalse())
+	})
+}
