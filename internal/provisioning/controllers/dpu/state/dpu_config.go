@@ -19,15 +19,20 @@ package state
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 
 	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
+
+// maxFailedEWNICDevicesInMessage caps how many failed E/W NIC devices a condition
+// message lists.
+const maxFailedEWNICDevicesInMessage = 5
 
 func DPUConfig(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
 	logger := log.FromContext(ctx)
@@ -72,10 +77,10 @@ func DPUConfig(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Cont
 	logger.Info("DPUConfig: agent reboot method", "dpu", dpu.Name, "namespace", dpu.Namespace, "rebootMethod", rm)
 
 	// Astra E/W NIC runtime config runs after the rest of the agent pipeline. Do not
-	// leave DPU Config on NoAction until the agent reports EWNICConfigured=True.
+	// leave DPU Config on NoAction until the agent reports at least one configured E/W NIC.
 	// Host-reboot methods must not wait: runtime config has not started yet.
 	if rm == provisioningv1.RebootMethodNoAction {
-		if ready, reason, message := ewnicRuntimeConfigReady(dpu); !ready {
+		if ready, reason, message := ewnicRuntimeConfigReady(dpu.Status.AgentStatus.EWNICRuntimeConfig); !ready {
 			logger.Info("Waiting for E/W NIC runtime configuration", "dpu", dpu.Name, "namespace", dpu.Namespace, "reason", reason)
 			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondDPUConfig.String(),
 				fmt.Errorf("%s", message), reason, ""))
@@ -117,40 +122,37 @@ func DPUConfig(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Cont
 
 // ewnicRuntimeConfigReady reports whether E/W NIC runtime configuration is healthy
 // enough for DPU Config (NoAction) to advance, and for Ready to keep DPUCondReady True.
-//
-// Runtime config is required once the agent has started NIC provisioning
-// (EWNICNVConfigApplied=True) or has already reported EWNICConfigured. Until
-// EWNICConfigured is True, DPU Config stays put, and Ready keeps the phase but
-// clears DPUCondReady (e.g. periodic RuntimeConfigApplyFailed after Ready).
-func ewnicRuntimeConfigReady(dpu *provisioningv1.DPU) (ready bool, reason, message string) {
-	if !requiresEWNICRuntimeConfig(dpu) {
+// It is ready once at least one E/W NIC device is configured. Until then, DPU Config
+// stays put, and Ready keeps the phase but clears DPUCondReady (e.g. every device
+// failed a CC-termination-triggered reapply after Ready).
+func ewnicRuntimeConfigReady(status *provisioningv1.EWNICRuntimeConfigStatus) (ready bool, reason, message string) {
+	// The agent reports EWNICRuntimeConfig only when it runs NIC provisioning, so
+	// unset means this DPU has no E/W NIC runtime config to wait for.
+	if status == nil {
 		return true, "", ""
 	}
-	cond := meta.FindStatusCondition(dpu.Status.AgentStatus.Conditions, cutil.AgentCondEWNICConfigured)
-	if cond == nil {
-		return false, "WaitingForEWNICConfigured", "waiting for DPU agent to apply E/W NIC runtime configuration"
-	}
-	if cond.Status == metav1.ConditionTrue {
+	configured := ptr.Deref(status.ConfiguredDevices, 0)
+	discovered := ptr.Deref(status.DiscoveredDevices, 0)
+	if configured >= 1 {
 		return true, "", ""
 	}
-	reason = cond.Reason
-	if reason == "" {
-		reason = "WaitingForEWNICConfigured"
+	summary := fmt.Sprintf("%d/%d E/W NIC devices configured", configured, discovered)
+	if configured+int32(len(status.FailedDevices)) < discovered {
+		return false, "WaitingForEWNICRuntimeConfig", summary
 	}
-	message = cond.Message
-	if message == "" {
-		message = "waiting for DPU agent to apply E/W NIC runtime configuration"
-	}
-	return false, reason, message
+	return false, "NoEWNICDeviceConfigured", summary + ": " + failedEWNICDevicesSummary(status.FailedDevices)
 }
 
-func requiresEWNICRuntimeConfig(dpu *provisioningv1.DPU) bool {
-	if dpu.Status.AgentStatus == nil {
-		return false
+// failedEWNICDevicesSummary lists failed devices as "PCI (Reason)", capped at
+// maxFailedEWNICDevicesInMessage entries.
+func failedEWNICDevicesSummary(failed []provisioningv1.EWNICDeviceFailure) string {
+	entries := make([]string, 0, min(len(failed), maxFailedEWNICDevicesInMessage))
+	for i, device := range failed {
+		if i == maxFailedEWNICDevicesInMessage {
+			entries = append(entries, "...")
+			break
+		}
+		entries = append(entries, fmt.Sprintf("%s (%s)", ptr.Deref(device.PCIAddress, ""), ptr.Deref(device.Reason, "")))
 	}
-	if cond := meta.FindStatusCondition(dpu.Status.AgentStatus.Conditions, cutil.AgentCondEWNICConfigured); cond != nil {
-		return true
-	}
-	cond := meta.FindStatusCondition(dpu.Status.AgentStatus.Conditions, cutil.AgentCondEWNICNVConfigApplied)
-	return cond != nil && cond.Status == metav1.ConditionTrue
+	return strings.Join(entries, ", ")
 }

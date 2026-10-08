@@ -17,6 +17,7 @@ limitations under the License.
 package state_test
 
 import (
+	"fmt"
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -166,52 +167,55 @@ var _ = Describe("Phase DPUConfig", func() {
 			expectDPUConfigCondition(status, metav1.ConditionTrue, string(provisioningv1.RebootMethodNoAction), "RebootMethod is NoAction; transitioning to Host Network Configuration phase")
 		})
 
-		It("should stay in DPUConfig when EWNICNVConfigApplied is true but EWNICConfigured is missing", func() {
+		It("should stay in DPUConfig until the first E/W NIC runtime config pass finishes", func() {
 			oldTime := metav1.NewTime(metav1.Now().Add(-time.Hour))
 			dpu := dpuObj(defaultDPUName)
 			dpu.Status.Phase = provisioningv1.DPUConfig
 			dpu.Status.AgentLastStartupTime = &oldTime
 			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
-				LastStartupTime: ptr.To(metav1.Now()),
-				RebootMethod:    ptr.To(provisioningv1.RebootMethodNoAction),
-				Conditions: []metav1.Condition{{
-					Type:   cutil.AgentCondEWNICNVConfigApplied,
-					Status: metav1.ConditionTrue,
-					Reason: "NICNVConfigApplied",
-				}},
+				LastStartupTime:    ptr.To(metav1.Now()),
+				RebootMethod:       ptr.To(provisioningv1.RebootMethodNoAction),
+				EWNICRuntimeConfig: &provisioningv1.EWNICRuntimeConfigStatus{DiscoveredDevices: ptr.To(int32(8))},
 			}
 
 			status, err := state.DPUConfig(ctx, dpu, &dutil.ControllerContext{})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(status.Phase).To(Equal(provisioningv1.DPUConfig))
 			Expect(status.AgentLastStartupTime).To(Equal(&oldTime), "should not consume AgentLastStartupTime while waiting for runtime config")
-			expectDPUConfigCondition(status, metav1.ConditionFalse, "WaitingForEWNICConfigured", "waiting for DPU agent to apply E/W NIC runtime configuration")
+			expectDPUConfigCondition(status, metav1.ConditionFalse, "WaitingForEWNICRuntimeConfig", "0/8 E/W NIC devices configured")
 		})
 
-		It("should stay in DPUConfig when EWNICConfigured is RuntimeConfigApplyFailed", func() {
+		It("should stay in DPUConfig when no E/W NIC device is configured", func() {
 			oldTime := metav1.NewTime(metav1.Now().Add(-time.Hour))
+			failed := make([]provisioningv1.EWNICDeviceFailure, 0, 7)
+			for i := 3; i < 10; i++ {
+				failed = append(failed, provisioningv1.EWNICDeviceFailure{
+					PCIAddress: ptr.To(fmt.Sprintf("0000:%02x:00", i)),
+					Reason:     ptr.To("NoCarrier"),
+					Message:    ptr.To("has NO-CARRIER"),
+				})
+			}
 			dpu := dpuObj(defaultDPUName)
 			dpu.Status.Phase = provisioningv1.DPUConfig
 			dpu.Status.AgentLastStartupTime = &oldTime
 			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
 				LastStartupTime: ptr.To(metav1.Now()),
 				RebootMethod:    ptr.To(provisioningv1.RebootMethodNoAction),
-				Conditions: []metav1.Condition{{
-					Type:    cutil.AgentCondEWNICConfigured,
-					Status:  metav1.ConditionFalse,
-					Reason:  "RuntimeConfigApplyFailed",
-					Message: "NIC runtime config apply failed: dmspe missing libmstflint_sdk.so",
-				}},
+				EWNICRuntimeConfig: &provisioningv1.EWNICRuntimeConfigStatus{
+					DiscoveredDevices: ptr.To(int32(7)),
+					FailedDevices:     failed,
+				},
 			}
 
 			status, err := state.DPUConfig(ctx, dpu, &dutil.ControllerContext{})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(status.Phase).To(Equal(provisioningv1.DPUConfig))
 			Expect(status.AgentLastStartupTime).To(Equal(&oldTime), "should not consume AgentLastStartupTime while runtime config is failing")
-			expectDPUConfigCondition(status, metav1.ConditionFalse, "RuntimeConfigApplyFailed", "NIC runtime config apply failed: dmspe missing libmstflint_sdk.so")
+			expectDPUConfigCondition(status, metav1.ConditionFalse, "NoEWNICDeviceConfigured",
+				"0/7 E/W NIC devices configured: 0000:03:00 (NoCarrier), 0000:04:00 (NoCarrier), 0000:05:00 (NoCarrier), 0000:06:00 (NoCarrier), 0000:07:00 (NoCarrier), ...")
 		})
 
-		It("should move to host network configuration when EWNICConfigured is true", func() {
+		It("should move to host network configuration when some E/W NIC devices are configured", func() {
 			oldTime := metav1.NewTime(metav1.Now().Add(-time.Hour))
 			dpu := dpuObj(defaultDPUName)
 			dpu.Status.Phase = provisioningv1.DPUConfig
@@ -219,17 +223,14 @@ var _ = Describe("Phase DPUConfig", func() {
 			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
 				LastStartupTime: ptr.To(metav1.Now()),
 				RebootMethod:    ptr.To(provisioningv1.RebootMethodNoAction),
-				Conditions: []metav1.Condition{
-					{
-						Type:   cutil.AgentCondEWNICNVConfigApplied,
-						Status: metav1.ConditionTrue,
-						Reason: "NICNVConfigApplied",
-					},
-					{
-						Type:   cutil.AgentCondEWNICConfigured,
-						Status: metav1.ConditionTrue,
-						Reason: "RuntimeConfigApplied",
-					},
+				EWNICRuntimeConfig: &provisioningv1.EWNICRuntimeConfigStatus{
+					DiscoveredDevices: ptr.To(int32(2)),
+					ConfiguredDevices: ptr.To(int32(1)),
+					FailedDevices: []provisioningv1.EWNICDeviceFailure{{
+						PCIAddress: ptr.To("0000:04:00"),
+						Reason:     ptr.To("ApplyFailed"),
+						Message:    ptr.To("spectrumx runtime config failed to apply"),
+					}},
 				},
 			}
 

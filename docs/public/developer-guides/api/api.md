@@ -1881,6 +1881,7 @@ _Appears in:_
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions contains the conditions reported from inside the DPU |  | Optional: \{\} <br /> |
 | `spiffe` _[SpiffeStatus](#spiffestatus)_ | Spiffe contains the SPIFFE heartbeat status reported by the DPU Agent when running in<br />SPIFFE identity mode. |  | Optional: \{\} <br /> |
 | `hostOSInit` _[HostOSInitStatus](#hostosinitstatus)_ | hostOSInit reports terminal host OS init release status from the DPU agent.<br />Unset while the agent is polling or has not reached ReleaseHostOSInit. |  | Optional: \{\} <br /> |
+| `ewnicRuntimeConfig` _[EWNICRuntimeConfigStatus](#ewnicruntimeconfigstatus)_ | ewnicRuntimeConfig reports E/W NIC runtime configuration on this boot. The DPU agent<br />sets it when NIC provisioning starts; when set, the controller waits for runtime<br />configuration before leaving DPU Config. Unset means runtime configuration is not required. |  | Optional: \{\} <br /> |
 
 
 #### BFB
@@ -3486,6 +3487,44 @@ _Appears in:_
 | `dpu` |  |
 | `nic` |  |
 | `zero-trust` | ZeroTrustMode is deprecated and kept for backward compatibility with DPUFlavor.spec.dpuMode.<br />Deprecated: DPUFlavor.spec.dpuMode is deprecated; use DPFOperatorConfig.spec.deploymentMode.<br /> |
+
+
+#### EWNICDeviceFailure
+
+
+
+EWNICDeviceFailure describes an E/W NIC device whose runtime configuration apply failed.
+
+
+
+_Appears in:_
+- [EWNICRuntimeConfigStatus](#ewnicruntimeconfigstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `pciAddress` _string_ | pciAddress is the device's PCI address without the function number<br />(Domain:Bus:Device, e.g. 0000:03:00), shared by all ports of the device. |  | Required: \{\} <br /> |
+| `reason` _string_ | reason is a CamelCase reason for the failure, e.g. NoCarrier or ApplyFailed. |  | Required: \{\} <br /> |
+| `message` _string_ | message is the error returned for the device, truncated by the DPU agent. |  | Optional: \{\} <br /> |
+
+
+#### EWNICRuntimeConfigStatus
+
+
+
+EWNICRuntimeConfigStatus reports the result of E/W NIC runtime configuration.
+configuredDevices + len(failedDevices) < discoveredDevices means the first runtime
+configuration pass over all devices has not finished yet. An unset count means 0.
+
+
+
+_Appears in:_
+- [AgentStatus](#agentstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `discoveredDevices` _integer_ | discoveredDevices is the number of E/W NIC devices found on this boot. |  | Optional: \{\} <br /> |
+| `configuredDevices` _integer_ | configuredDevices is the number of devices whose last runtime configuration apply succeeded. |  | Optional: \{\} <br /> |
+| `failedDevices` _[EWNICDeviceFailure](#ewnicdevicefailure) array_ | failedDevices lists devices whose last runtime configuration apply failed. |  | Optional: \{\} <br /> |
 
 
 #### External

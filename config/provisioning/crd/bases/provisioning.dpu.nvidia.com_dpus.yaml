@@ -399,6 +399,48 @@ spec:
                       - type
                       type: object
                     type: array
+                  ewnicRuntimeConfig:
+                    description: |-
+                      ewnicRuntimeConfig reports E/W NIC runtime configuration on this boot. The DPU agent
+                      sets it when NIC provisioning starts; when set, the controller waits for runtime
+                      configuration before leaving DPU Config. Unset means runtime configuration is not required.
+                    properties:
+                      configuredDevices:
+                        description: configuredDevices is the number of devices whose
+                          last runtime configuration apply succeeded.
+                        format: int32
+                        type: integer
+                      discoveredDevices:
+                        description: discoveredDevices is the number of E/W NIC devices
+                          found on this boot.
+                        format: int32
+                        type: integer
+                      failedDevices:
+                        description: failedDevices lists devices whose last runtime
+                          configuration apply failed.
+                        items:
+                          description: EWNICDeviceFailure describes an E/W NIC device
+                            whose runtime configuration apply failed.
+                          properties:
+                            message:
+                              description: message is the error returned for the device,
+                                truncated by the DPU agent.
+                              type: string
+                            pciAddress:
+                              description: |-
+                                pciAddress is the device's PCI address without the function number
+                                (Domain:Bus:Device, e.g. 0000:03:00), shared by all ports of the device.
+                              type: string
+                            reason:
+                              description: reason is a CamelCase reason for the failure,
+                                e.g. NoCarrier or ApplyFailed.
+                              type: string
+                          required:
+                          - pciAddress
+                          - reason
+                          type: object
+                        type: array
+                    type: object
                   hostOSInit:
                     description: |-
                       hostOSInit reports terminal host OS init release status from the DPU agent.

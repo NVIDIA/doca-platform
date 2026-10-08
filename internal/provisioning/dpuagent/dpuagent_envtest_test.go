@@ -126,11 +126,22 @@ var _ = Describe("DPUAgent status patches (envtest)", Ordered, func() {
 			Reason:             "StatusPatched",
 			LastTransitionTime: metav1.Now(),
 		}}
+		ewnicRuntimeConfig := &provisioningv1.EWNICRuntimeConfigStatus{
+			DiscoveredDevices: ptr.To(int32(2)),
+			ConfiguredDevices: ptr.To(int32(1)),
+			FailedDevices: []provisioningv1.EWNICDeviceFailure{{
+				PCIAddress: ptr.To("0000:04:00"),
+				Reason:     ptr.To("NoCarrier"),
+				Message:    ptr.To("network interface eth2 for device port 0000:04:00.0 has NO-CARRIER"),
+			}},
+		}
+		agent.optCtx.Status.EWNICRuntimeConfig = ewnicRuntimeConfig
 		Expect(agent.updateStatus(envCtx)).To(Succeed())
 
 		Expect(k8sClient.Get(envCtx, key, got)).To(Succeed())
 		Expect(got.Status.AgentStatus.Spiffe.LastProbeTime).To(Equal(probeTime))
 		Expect(*got.Status.AgentStatus.Spiffe.LastProbeMessage).To(Equal(probeMessage))
 		Expect(meta.FindStatusCondition(got.Status.AgentStatus.Conditions, "HeartbeatCoexistence")).NotTo(BeNil())
+		Expect(got.Status.AgentStatus.EWNICRuntimeConfig).To(Equal(ewnicRuntimeConfig))
 	})
 })

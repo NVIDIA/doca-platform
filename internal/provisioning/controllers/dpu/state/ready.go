@@ -58,13 +58,15 @@ func Ready(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Controll
 		return *state, err
 	}
 
-	// Periodic / post-provisioning E/W NIC runtime config can fail after the DPU
+	// Post-provisioning E/W NIC runtime config can fail on every device after the DPU
 	// already reached Ready. Stay in Ready phase but clear DPUCondReady until the
-	// agent reports EWNICConfigured=True again.
-	if ready, reason, message := ewnicRuntimeConfigReady(dpu); !ready {
-		logger.Info("E/W NIC runtime configuration is not ready", "dpu", dpu.Name, "namespace", dpu.Namespace, "reason", reason)
-		updateFalseDPUCondReady(state, reason, message)
-		return *state, nil
+	// agent reports at least one configured E/W NIC again.
+	if agentStatus := dpu.Status.AgentStatus; agentStatus != nil {
+		if ready, reason, message := ewnicRuntimeConfigReady(agentStatus.EWNICRuntimeConfig); !ready {
+			logger.Info("E/W NIC runtime configuration is not ready", "dpu", dpu.Name, "namespace", dpu.Namespace, "reason", reason)
+			updateFalseDPUCondReady(state, reason, message)
+			return *state, nil
+		}
 	}
 
 	cond := cutil.DPUCondition(provisioningv1.DPUCondReady, "DPUReady", "")

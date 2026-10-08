@@ -472,6 +472,9 @@ func (d *DPUAgent) updateStatus(ctx context.Context) error {
 	} else if agentStatus.HostOSInit != nil {
 		latestDPU.Status.AgentStatus.HostOSInit = agentStatus.HostOSInit.DeepCopy()
 	}
+	if agentStatus.EWNICRuntimeConfig != nil {
+		latestDPU.Status.AgentStatus.EWNICRuntimeConfig = agentStatus.EWNICRuntimeConfig.DeepCopy()
+	}
 	for _, condition := range agentStatus.Conditions {
 		meta.SetStatusCondition(&latestDPU.Status.AgentStatus.Conditions, condition)
 	}

@@ -38,7 +38,6 @@ import (
 	nicdms "github.com/Mellanox/nic-configuration-operator/pkg/dms"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -177,6 +176,8 @@ func TestNICProvisioning_Execute(t *testing.T) {
 		bfs := newBFS("downloads/astra-nic-fw.fwpkg")
 		fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(bfs).Build()
 		ctx := newOptCtx(fakeClient, "https://registry.example.com")
+		// Result left over from a previous boot must not survive Execute.
+		ctx.Status.EWNICRuntimeConfig = &provisioningv1.EWNICRuntimeConfigStatus{DiscoveredDevices: ptr.To(int32(8)), ConfiguredDevices: ptr.To(int32(8))}
 		runner := &fakeBashRunner{}
 		op.runBash = runner.run
 
@@ -185,10 +186,32 @@ func TestNICProvisioning_Execute(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "already here", string(content))
 		assert.Equal(t, []string{"flint -i '" + existingFile + "' q"}, runner.commands)
-		pending := meta.FindStatusCondition(ctx.Status.Conditions, cutil.AgentCondEWNICConfigured)
-		require.NotNil(t, pending)
-		assert.Equal(t, metav1.ConditionFalse, pending.Status)
-		assert.Equal(t, "RuntimeConfigPending", pending.Reason)
+		assert.Equal(t, &provisioningv1.EWNICRuntimeConfigStatus{DiscoveredDevices: ptr.To(int32(0))}, ctx.Status.EWNICRuntimeConfig)
+	})
+
+	t.Run("reports discovered device count for runtime config", func(t *testing.T) {
+		existingFile := filepath.Join(tempDir, "astra-nic-fw-count.fwpkg")
+		require.NoError(t, os.WriteFile(existingFile, []byte("already here"), 0600))
+		opWithDevices := &NICProvisioning{
+			runBash: (&fakeBashRunner{}).run,
+			prepareLocalDMSServerFn: func(_ *operations.Context) error {
+				return nil
+			},
+			installNICFirmwareFn:      func(_ context.Context, _ *operations.Context, _ string) error { return nil },
+			applyNVConfigFn:           func(_ context.Context, _ *operations.Context) error { return nil },
+			configureRestrictedModeFn: func(_ context.Context, _ *operations.Context) error { return nil },
+			discoveredNICDevices: []nicconfigurationv1alpha1.NicDevice{
+				newNicDevice("SN1", "0000:03:00.0"),
+				newNicDevice("SN2", "0000:04:00.0"),
+			},
+		}
+
+		bfs := newBFS("downloads/astra-nic-fw-count.fwpkg")
+		fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(bfs).Build()
+		ctx := newOptCtx(fakeClient, "https://registry.example.com")
+
+		require.NoError(t, opWithDevices.Execute(context.Background(), ctx))
+		assert.Equal(t, &provisioningv1.EWNICRuntimeConfigStatus{DiscoveredDevices: ptr.To(int32(2))}, ctx.Status.EWNICRuntimeConfig)
 	})
 
 	t.Run("download firmware to local nic-firmware directory", func(t *testing.T) {
@@ -292,144 +315,138 @@ func TestNICProvisioning_Execute(t *testing.T) {
 	})
 }
 
-func TestNICProvisioning_applyRuntimeConfigAndUpdateStatus(t *testing.T) {
-	t.Run("sets EWNICConfigured true on success", func(t *testing.T) {
-		op := &NICProvisioning{
-			applyRuntimeConfigFn: func(_ context.Context, _ *operations.Context, _ []nicconfigurationv1alpha1.NicDevice) ([]nicconfigurationv1alpha1.NicDevice, error) {
-				return nil, nil
-			},
-		}
-		ctx := &operations.Context{
-			Status: provisioningv1.AgentStatus{Conditions: []metav1.Condition{}},
-		}
-
-		require.NoError(t, op.applyRuntimeConfigAndUpdateStatus(context.Background(), ctx, nil))
-		require.Len(t, ctx.Status.Conditions, 1)
-		assert.Equal(t, cutil.AgentCondEWNICConfigured, ctx.Status.Conditions[0].Type)
-		assert.Equal(t, metav1.ConditionTrue, ctx.Status.Conditions[0].Status)
-		assert.Equal(t, "RuntimeConfigApplied", ctx.Status.Conditions[0].Reason)
-	})
-
-	t.Run("sets EWNICConfigured false on failure", func(t *testing.T) {
-		op := &NICProvisioning{
-			applyRuntimeConfigFn: func(_ context.Context, _ *operations.Context, _ []nicconfigurationv1alpha1.NicDevice) ([]nicconfigurationv1alpha1.NicDevice, error) {
-				return nil, errors.New("runtime apply failed")
-			},
-		}
-		ctx := &operations.Context{
-			Status: provisioningv1.AgentStatus{Conditions: []metav1.Condition{}},
-		}
-
-		err := op.applyRuntimeConfigAndUpdateStatus(context.Background(), ctx, nil)
-		require.Error(t, err)
-		require.Len(t, ctx.Status.Conditions, 1)
-		assert.Equal(t, cutil.AgentCondEWNICConfigured, ctx.Status.Conditions[0].Type)
-		assert.Equal(t, metav1.ConditionFalse, ctx.Status.Conditions[0].Status)
-		assert.Equal(t, "RuntimeConfigApplyFailed", ctx.Status.Conditions[0].Reason)
-	})
-
-	t.Run("keeps EWNICConfigured true with pending reason when only NO-CARRIER devices fail", func(t *testing.T) {
-		devices := []nicconfigurationv1alpha1.NicDevice{
-			newNicDevice("SN1", "0000:03:00.0"),
-			newNicDevice("SN2", "0000:04:00.0"),
-			newNicDevice("SN3", "0000:05:00.0"),
-		}
-		op := &NICProvisioning{
-			discoveredNICDevices: devices,
-			applyRuntimeConfigFn: func(_ context.Context, _ *operations.Context, _ []nicconfigurationv1alpha1.NicDevice) ([]nicconfigurationv1alpha1.NicDevice, error) {
-				return []nicconfigurationv1alpha1.NicDevice{devices[1]}, nil
-			},
-		}
-		ctx := &operations.Context{
-			Status: provisioningv1.AgentStatus{Conditions: []metav1.Condition{}},
-		}
-
-		require.NoError(t, op.applyRuntimeConfigAndUpdateStatus(context.Background(), ctx, devices))
-		cond := meta.FindStatusCondition(ctx.Status.Conditions, cutil.AgentCondEWNICConfigured)
-		require.NotNil(t, cond)
-		assert.Equal(t, metav1.ConditionTrue, cond.Status)
-		assert.Equal(t, "RuntimeConfigAppliedNoCarrierPending", cond.Reason)
-		assert.Equal(t, "1/3 E/W NIC devices have NO-CARRIER ports, runtime config retried until carrier is up: SN2", cond.Message)
-		require.Len(t, op.noCarrierDevices, 1)
-		assert.Equal(t, "SN2", op.noCarrierDevices[0].Status.SerialNumber)
-	})
-
-	t.Run("patches status only when the condition changes", func(t *testing.T) {
+func TestNICProvisioning_updateRuntimeConfigStatus(t *testing.T) {
+	t.Run("reports every device configured on success", func(t *testing.T) {
 		devices := []nicconfigurationv1alpha1.NicDevice{
 			newNicDevice("SN1", "0000:03:00.0"),
 			newNicDevice("SN2", "0000:04:00.0"),
 		}
-		var noCarrier []nicconfigurationv1alpha1.NicDevice
 		op := &NICProvisioning{
 			discoveredNICDevices: devices,
-			applyRuntimeConfigFn: func(_ context.Context, _ *operations.Context, _ []nicconfigurationv1alpha1.NicDevice) ([]nicconfigurationv1alpha1.NicDevice, error) {
-				return noCarrier, nil
+			applyRuntimeConfigFn: func(_ context.Context, _ *operations.Context, _ []nicconfigurationv1alpha1.NicDevice) []runtimeConfigDeviceResult {
+				return nil
 			},
 		}
 		updates := 0
 		ctx := &operations.Context{
-			Status:                   provisioningv1.AgentStatus{Conditions: []metav1.Condition{}},
+			Status:                   provisioningv1.AgentStatus{EWNICRuntimeConfig: &provisioningv1.EWNICRuntimeConfigStatus{DiscoveredDevices: ptr.To(int32(2))}},
 			UpdateStatusUntilSuccess: func(context.Context) error { updates++; return nil },
 		}
 
-		// First apply: SN2 has NO-CARRIER. Pending condition is new, so status is patched.
-		noCarrier = []nicconfigurationv1alpha1.NicDevice{devices[1]}
-		require.NoError(t, op.applyRuntimeConfigAndUpdateStatus(context.Background(), ctx, devices))
+		op.applyRuntimeConfigAndRecordFailures(context.Background(), ctx, devices)
+		require.NoError(t, op.updateRuntimeConfigStatus(context.Background(), ctx))
+		assert.Equal(t, &provisioningv1.EWNICRuntimeConfigStatus{DiscoveredDevices: ptr.To(int32(2)), ConfiguredDevices: ptr.To(int32(2))}, ctx.Status.EWNICRuntimeConfig)
 		assert.Equal(t, 1, updates)
-
-		// Retry on SN2 only, still NO-CARRIER: nothing changed, no patch.
-		require.NoError(t, op.applyRuntimeConfigAndUpdateStatus(context.Background(), ctx, noCarrier))
-		assert.Equal(t, 1, updates)
-
-		// Carrier is back on SN2: pending list empties and the condition flips to applied.
-		pending := noCarrier
-		noCarrier = nil
-		require.NoError(t, op.applyRuntimeConfigAndUpdateStatus(context.Background(), ctx, pending))
-		assert.Equal(t, 2, updates)
-		cond := meta.FindStatusCondition(ctx.Status.Conditions, cutil.AgentCondEWNICConfigured)
-		require.NotNil(t, cond)
-		assert.Equal(t, metav1.ConditionTrue, cond.Status)
-		assert.Equal(t, "RuntimeConfigApplied", cond.Reason)
-		assert.Empty(t, op.noCarrierDevices)
 	})
 
-	t.Run("keeps NO-CARRIER devices pending when a retry fails", func(t *testing.T) {
+	t.Run("reports failed devices sorted by PCI address", func(t *testing.T) {
+		devices := []nicconfigurationv1alpha1.NicDevice{
+			newNicDevice("SN1", "0000:03:00.0", "0000:03:00.1"),
+			newNicDevice("SN2", "0000:04:00.0", "0000:04:00.1"),
+			newNicDevice("SN3", "0000:05:00.0", "0000:05:00.1"),
+		}
+		op := &NICProvisioning{
+			discoveredNICDevices: devices,
+			applyRuntimeConfigFn: func(_ context.Context, _ *operations.Context, _ []nicconfigurationv1alpha1.NicDevice) []runtimeConfigDeviceResult {
+				return []runtimeConfigDeviceResult{
+					{device: devices[2], reason: runtimeConfigReasonApplyFailed, err: errors.New("spectrumx runtime config failed to apply")},
+					{device: devices[1], reason: runtimeConfigReasonNoCarrier, err: errors.New("network interface eth2 for device port 0000:04:00.0 has NO-CARRIER")},
+				}
+			},
+		}
+		ctx := &operations.Context{}
+
+		op.applyRuntimeConfigAndRecordFailures(context.Background(), ctx, devices)
+		require.NoError(t, op.updateRuntimeConfigStatus(context.Background(), ctx))
+		assert.Equal(t, &provisioningv1.EWNICRuntimeConfigStatus{
+			DiscoveredDevices: ptr.To(int32(3)),
+			ConfiguredDevices: ptr.To(int32(1)),
+			FailedDevices: []provisioningv1.EWNICDeviceFailure{
+				{PCIAddress: ptr.To("0000:04:00"), Reason: ptr.To("NoCarrier"), Message: ptr.To("network interface eth2 for device port 0000:04:00.0 has NO-CARRIER")},
+				{PCIAddress: ptr.To("0000:05:00"), Reason: ptr.To("ApplyFailed"), Message: ptr.To("spectrumx runtime config failed to apply")},
+			},
+		}, ctx.Status.EWNICRuntimeConfig)
+	})
+
+	t.Run("patches status only when it changes", func(t *testing.T) {
 		devices := []nicconfigurationv1alpha1.NicDevice{
 			newNicDevice("SN1", "0000:03:00.0"),
 			newNicDevice("SN2", "0000:04:00.0"),
 		}
+		var failures []runtimeConfigDeviceResult
 		op := &NICProvisioning{
 			discoveredNICDevices: devices,
-			noCarrierDevices:     []nicconfigurationv1alpha1.NicDevice{devices[1]},
-			applyRuntimeConfigFn: func(_ context.Context, _ *operations.Context, _ []nicconfigurationv1alpha1.NicDevice) ([]nicconfigurationv1alpha1.NicDevice, error) {
-				return nil, errors.New("runtime apply failed")
+			applyRuntimeConfigFn: func(_ context.Context, _ *operations.Context, _ []nicconfigurationv1alpha1.NicDevice) []runtimeConfigDeviceResult {
+				return failures
 			},
 		}
+		updates := 0
 		ctx := &operations.Context{
-			Status: provisioningv1.AgentStatus{Conditions: []metav1.Condition{}},
+			UpdateStatusUntilSuccess: func(context.Context) error { updates++; return nil },
 		}
 
-		require.Error(t, op.applyRuntimeConfigAndUpdateStatus(context.Background(), ctx, op.noCarrierDevices))
-		cond := meta.FindStatusCondition(ctx.Status.Conditions, cutil.AgentCondEWNICConfigured)
-		require.NotNil(t, cond)
-		assert.Equal(t, metav1.ConditionFalse, cond.Status)
-		assert.Equal(t, "RuntimeConfigApplyFailed", cond.Reason)
-		require.Len(t, op.noCarrierDevices, 1)
-		assert.Equal(t, "SN2", op.noCarrierDevices[0].Status.SerialNumber)
+		// First apply: SN2 fails. The status is new, so it is patched.
+		failures = []runtimeConfigDeviceResult{{device: devices[1], reason: runtimeConfigReasonNoCarrier, err: errors.New("has NO-CARRIER")}}
+		op.applyRuntimeConfigAndRecordFailures(context.Background(), ctx, devices)
+		require.NoError(t, op.updateRuntimeConfigStatus(context.Background(), ctx))
+		assert.Equal(t, 1, updates)
+
+		// Retry on SN2 only, same failure: nothing changed, no patch.
+		op.applyRuntimeConfigAndRecordFailures(context.Background(), ctx, devices[1:])
+		require.NoError(t, op.updateRuntimeConfigStatus(context.Background(), ctx))
+		assert.Equal(t, 1, updates)
+
+		// SN2 succeeds: the failed list empties and the status is patched again.
+		failures = nil
+		op.applyRuntimeConfigAndRecordFailures(context.Background(), ctx, devices[1:])
+		require.NoError(t, op.updateRuntimeConfigStatus(context.Background(), ctx))
+		assert.Equal(t, 2, updates)
+		assert.Equal(t, &provisioningv1.EWNICRuntimeConfigStatus{DiscoveredDevices: ptr.To(int32(2)), ConfiguredDevices: ptr.To(int32(2))}, ctx.Status.EWNICRuntimeConfig)
+		assert.Empty(t, op.failedDevices)
+	})
+
+	t.Run("reports devices with the same serial number by PCI address", func(t *testing.T) {
+		// The two ASICs of a Network Bay card share one serial number.
+		devices := []nicconfigurationv1alpha1.NicDevice{
+			newNicDevice("SN1", "0000:03:00.0"),
+			newNicDevice("SN1", "0000:04:00.0"),
+		}
+		op := &NICProvisioning{
+			discoveredNICDevices: devices,
+			applyRuntimeConfigFn: func(_ context.Context, _ *operations.Context, _ []nicconfigurationv1alpha1.NicDevice) []runtimeConfigDeviceResult {
+				return []runtimeConfigDeviceResult{
+					{device: devices[1], reason: runtimeConfigReasonNoCarrier, err: errors.New("has NO-CARRIER")},
+					{device: devices[0], reason: runtimeConfigReasonNoCarrier, err: errors.New("has NO-CARRIER")},
+				}
+			},
+		}
+		ctx := &operations.Context{}
+
+		op.applyRuntimeConfigAndRecordFailures(context.Background(), ctx, devices)
+		require.NoError(t, op.updateRuntimeConfigStatus(context.Background(), ctx))
+		failed := ctx.Status.EWNICRuntimeConfig.FailedDevices
+		require.Len(t, failed, 2)
+		assert.Equal(t, ptr.To("0000:03:00"), failed[0].PCIAddress)
+		assert.Equal(t, ptr.To("0000:04:00"), failed[1].PCIAddress)
 	})
 }
 
-func TestNoCarrierPendingMessage(t *testing.T) {
-	devices := []nicconfigurationv1alpha1.NicDevice{
-		newNicDevice("SN7"), newNicDevice("SN3"), newNicDevice("SN5"), newNicDevice("SN1"),
-		newNicDevice("SN6"), newNicDevice("SN2"), newNicDevice("SN4"),
-	}
-	assert.Equal(t,
-		"7/8 E/W NIC devices have NO-CARRIER ports, runtime config retried until carrier is up: SN1, SN2, SN3, SN4, SN5, ...",
-		noCarrierPendingMessage(devices, 8))
-	assert.Equal(t,
-		"2/8 E/W NIC devices have NO-CARRIER ports, runtime config retried until carrier is up: SN3, SN7",
-		noCarrierPendingMessage(devices[:2], 8))
+func TestNICProvisioning_applyRuntimeConfig(t *testing.T) {
+	t.Run("fails every device when the local DMS server is not running", func(t *testing.T) {
+		devices := []nicconfigurationv1alpha1.NicDevice{
+			newNicDevice("SN1", "0000:03:00.0"),
+			newNicDevice("SN2", "0000:04:00.0"),
+		}
+		op := &NICProvisioning{dmsServer: &fakeDMSServer{running: false}}
+
+		failures := op.applyRuntimeConfig(context.Background(), &operations.Context{}, devices)
+		require.Len(t, failures, 2)
+		for i, failure := range failures {
+			assert.Equal(t, devices[i].Status.Ports, failure.device.Status.Ports)
+			assert.Equal(t, runtimeConfigReasonApplyFailed, failure.reason)
+			assert.EqualError(t, failure.err, "local DMS server is not running for NIC runtime config apply")
+		}
+	})
 }
 
 func TestIsNoCarrierError(t *testing.T) {
@@ -447,7 +464,7 @@ func TestNICProvisioning_StartRuntimeConfigLoop(t *testing.T) {
 		require.NoError(t, op.Shutdown())
 	})
 
-	t.Run("retries first apply until success", func(t *testing.T) {
+	t.Run("retries every device after the first apply cannot run", func(t *testing.T) {
 		originalInterval := RuntimeConfigInterval
 		originalRetry := RuntimeConfigRetryInterval
 		RuntimeConfigInterval = time.Hour
@@ -459,29 +476,27 @@ func TestNICProvisioning_StartRuntimeConfigLoop(t *testing.T) {
 
 		var calls atomic.Int32
 		op := &NICProvisioning{
-			dmsServer: &fakeDMSServer{running: true},
-			applyRuntimeConfigFn: func(_ context.Context, _ *operations.Context, _ []nicconfigurationv1alpha1.NicDevice) ([]nicconfigurationv1alpha1.NicDevice, error) {
+			dmsServer:            &fakeDMSServer{running: true},
+			discoveredNICDevices: []nicconfigurationv1alpha1.NicDevice{newNicDevice("SN1", "0000:03:00.0")},
+			applyRuntimeConfigFn: func(_ context.Context, _ *operations.Context, applied []nicconfigurationv1alpha1.NicDevice) []runtimeConfigDeviceResult {
 				if calls.Add(1) < 3 {
-					return nil, errors.New("runtime apply failed")
+					return failRuntimeConfig(applied, errors.New("local DMS server is not running"))
 				}
-				return nil, nil
+				return nil
 			},
 		}
 		ctx, cancel := context.WithCancel(context.Background())
 		optCtx := &operations.Context{
-			Status: provisioningv1.AgentStatus{Conditions: []metav1.Condition{}},
+			Status: provisioningv1.AgentStatus{EWNICRuntimeConfig: &provisioningv1.EWNICRuntimeConfigStatus{DiscoveredDevices: ptr.To(int32(1))}},
 		}
 
 		op.StartRuntimeConfigLoop(ctx, optCtx)
-		// Wait on the call counter only — reading Status.Conditions while the
-		// loop goroutine writes them races under -race.
+		// Wait on the call counter only — reading Status while the loop goroutine
+		// writes it races under -race.
 		require.Eventually(t, func() bool { return calls.Load() >= 3 }, time.Second, 10*time.Millisecond)
 		cancel()
 		require.NoError(t, op.Shutdown())
-		cond := meta.FindStatusCondition(optCtx.Status.Conditions, cutil.AgentCondEWNICConfigured)
-		require.NotNil(t, cond)
-		assert.Equal(t, metav1.ConditionTrue, cond.Status)
-		assert.Equal(t, "RuntimeConfigApplied", cond.Reason)
+		assert.Equal(t, &provisioningv1.EWNICRuntimeConfigStatus{DiscoveredDevices: ptr.To(int32(1)), ConfiguredDevices: ptr.To(int32(1))}, optCtx.Status.EWNICRuntimeConfig)
 	})
 
 	t.Run("applies runtime config then stops on context cancel", func(t *testing.T) {
@@ -497,9 +512,9 @@ func TestNICProvisioning_StartRuntimeConfigLoop(t *testing.T) {
 		var calls atomic.Int32
 		op := &NICProvisioning{
 			dmsServer: &fakeDMSServer{running: true},
-			applyRuntimeConfigFn: func(_ context.Context, _ *operations.Context, _ []nicconfigurationv1alpha1.NicDevice) ([]nicconfigurationv1alpha1.NicDevice, error) {
+			applyRuntimeConfigFn: func(_ context.Context, _ *operations.Context, _ []nicconfigurationv1alpha1.NicDevice) []runtimeConfigDeviceResult {
 				calls.Add(1)
-				return nil, nil
+				return nil
 			},
 		}
 		ctx, cancel := context.WithCancel(context.Background())
@@ -531,9 +546,9 @@ func TestNICProvisioning_StartRuntimeConfigLoop(t *testing.T) {
 		op := &NICProvisioning{
 			dmsServer:       &fakeDMSServer{running: true},
 			ccTerminationCh: ccCh,
-			applyRuntimeConfigFn: func(_ context.Context, _ *operations.Context, _ []nicconfigurationv1alpha1.NicDevice) ([]nicconfigurationv1alpha1.NicDevice, error) {
+			applyRuntimeConfigFn: func(_ context.Context, _ *operations.Context, _ []nicconfigurationv1alpha1.NicDevice) []runtimeConfigDeviceResult {
 				calls.Add(1)
-				return nil, nil
+				return nil
 			},
 		}
 		ctx, cancel := context.WithCancel(context.Background())
@@ -556,7 +571,7 @@ func TestNICProvisioning_StartRuntimeConfigLoop(t *testing.T) {
 		require.NoError(t, op.Shutdown())
 	})
 
-	t.Run("retries only NO-CARRIER devices until carrier is up", func(t *testing.T) {
+	t.Run("retries only failed devices until they succeed", func(t *testing.T) {
 		originalInterval := RuntimeConfigInterval
 		originalRetry := RuntimeConfigRetryInterval
 		RuntimeConfigInterval = time.Hour
@@ -575,30 +590,30 @@ func TestNICProvisioning_StartRuntimeConfigLoop(t *testing.T) {
 		op := &NICProvisioning{
 			dmsServer:            &fakeDMSServer{running: true},
 			discoveredNICDevices: devices,
-			applyRuntimeConfigFn: func(_ context.Context, _ *operations.Context, applied []nicconfigurationv1alpha1.NicDevice) ([]nicconfigurationv1alpha1.NicDevice, error) {
+			applyRuntimeConfigFn: func(_ context.Context, _ *operations.Context, applied []nicconfigurationv1alpha1.NicDevice) []runtimeConfigDeviceResult {
 				if len(applied) == len(devices) {
 					fullApplies.Add(1)
-					// First full apply: SN2 has NO-CARRIER.
-					return []nicconfigurationv1alpha1.NicDevice{devices[1]}, nil
+					// First full apply: SN2 fails. The first pass still finishes.
+					return []runtimeConfigDeviceResult{{device: devices[1], reason: runtimeConfigReasonApplyFailed, err: errors.New("apply failed")}}
 				}
 				if len(applied) != 1 || applied[0].Status.SerialNumber != "SN2" {
 					unexpectedRetryTarget.Store(true)
 				}
-				// First retry: still NO-CARRIER. Second retry: carrier is back.
+				// First retry: still failing. Second retry: succeeds.
 				if retryApplies.Add(1) == 1 {
-					return applied, nil
+					return []runtimeConfigDeviceResult{{device: applied[0], reason: runtimeConfigReasonApplyFailed, err: errors.New("apply failed")}}
 				}
-				return nil, nil
+				return nil
 			},
 		}
 		ctx, cancel := context.WithCancel(context.Background())
 		optCtx := &operations.Context{
-			Status: provisioningv1.AgentStatus{Conditions: []metav1.Condition{}},
+			Status: provisioningv1.AgentStatus{EWNICRuntimeConfig: &provisioningv1.EWNICRuntimeConfigStatus{DiscoveredDevices: ptr.To(int32(2))}},
 		}
 
 		op.StartRuntimeConfigLoop(ctx, optCtx)
 		require.Eventually(t, func() bool { return retryApplies.Load() >= 2 }, time.Second, 10*time.Millisecond)
-		// Once the pending list is empty the retry timer must stay disarmed.
+		// Once the failed list is empty the retry timer must stay disarmed.
 		time.Sleep(5 * RuntimeConfigRetryInterval)
 		cancel()
 		require.NoError(t, op.Shutdown())
@@ -606,11 +621,8 @@ func TestNICProvisioning_StartRuntimeConfigLoop(t *testing.T) {
 		assert.Equal(t, int32(1), fullApplies.Load())
 		assert.Equal(t, int32(2), retryApplies.Load())
 		assert.False(t, unexpectedRetryTarget.Load())
-		assert.Empty(t, op.noCarrierDevices)
-		cond := meta.FindStatusCondition(optCtx.Status.Conditions, cutil.AgentCondEWNICConfigured)
-		require.NotNil(t, cond)
-		assert.Equal(t, metav1.ConditionTrue, cond.Status)
-		assert.Equal(t, "RuntimeConfigApplied", cond.Reason)
+		assert.Empty(t, op.failedDevices)
+		assert.Equal(t, &provisioningv1.EWNICRuntimeConfigStatus{DiscoveredDevices: ptr.To(int32(2)), ConfiguredDevices: ptr.To(int32(2))}, optCtx.Status.EWNICRuntimeConfig)
 	})
 }
 
