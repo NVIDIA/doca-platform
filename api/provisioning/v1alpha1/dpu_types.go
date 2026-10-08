@@ -624,6 +624,45 @@ type AgentStatus struct {
 	// Unset while the agent is polling or has not reached ReleaseHostOSInit.
 	// +optional
 	HostOSInit *HostOSInitStatus `json:"hostOSInit,omitempty"`
+
+	// ewnicRuntimeConfig reports E/W NIC runtime configuration on this boot. The DPU agent
+	// sets it when NIC provisioning starts; when set, the controller waits for runtime
+	// configuration before leaving DPU Config. Unset means runtime configuration is not required.
+	// +optional
+	EWNICRuntimeConfig *EWNICRuntimeConfigStatus `json:"ewnicRuntimeConfig,omitempty"`
+}
+
+// EWNICRuntimeConfigStatus reports the result of E/W NIC runtime configuration.
+// configuredDevices + len(failedDevices) < discoveredDevices means the first runtime
+// configuration pass over all devices has not finished yet. An unset count means 0.
+type EWNICRuntimeConfigStatus struct {
+	// discoveredDevices is the number of E/W NIC devices found on this boot.
+	// +optional
+	DiscoveredDevices *int32 `json:"discoveredDevices,omitempty"`
+
+	// configuredDevices is the number of devices whose last runtime configuration apply succeeded.
+	// +optional
+	ConfiguredDevices *int32 `json:"configuredDevices,omitempty"`
+
+	// failedDevices lists devices whose last runtime configuration apply failed.
+	// +optional
+	FailedDevices []EWNICDeviceFailure `json:"failedDevices,omitempty"`
+}
+
+// EWNICDeviceFailure describes an E/W NIC device whose runtime configuration apply failed.
+type EWNICDeviceFailure struct {
+	// pciAddress is the device's PCI address without the function number
+	// (Domain:Bus:Device, e.g. 0000:03:00), shared by all ports of the device.
+	// +required
+	PCIAddress *string `json:"pciAddress,omitempty"`
+
+	// reason is a CamelCase reason for the failure, e.g. NoCarrier or ApplyFailed.
+	// +required
+	Reason *string `json:"reason,omitempty"`
+
+	// message is the error returned for the device, truncated by the DPU agent.
+	// +optional
+	Message *string `json:"message,omitempty"`
 }
 
 // ClockStatus holds two readings of the same instant, taken on the DPU and on the host.

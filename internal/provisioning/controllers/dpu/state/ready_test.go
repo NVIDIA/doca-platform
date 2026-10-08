@@ -115,18 +115,20 @@ var _ = Describe("DPU: Ready", func() {
 	}
 
 	Context("E/W NIC runtime configuration", func() {
-		It("DPU: Ready: should stay in Ready phase with Ready=False when EWNICConfigured fails", func() {
+		It("DPU: Ready: should stay in Ready phase with Ready=False when no E/W NIC device is configured", func() {
 			dpu := createBasicDPU(
 				map[string]string{"existing": "label"},
 				provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 			)
 			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
-				Conditions: []metav1.Condition{{
-					Type:    cutil.AgentCondEWNICConfigured,
-					Status:  metav1.ConditionFalse,
-					Reason:  "RuntimeConfigApplyFailed",
-					Message: "NIC runtime config apply failed: dmspe missing libmstflint_sdk.so",
-				}},
+				EWNICRuntimeConfig: &provisioningv1.EWNICRuntimeConfigStatus{
+					DiscoveredDevices: ptr.To(int32(1)),
+					FailedDevices: []provisioningv1.EWNICDeviceFailure{{
+						PCIAddress: ptr.To("0000:03:00"),
+						Reason:     ptr.To("ApplyFailed"),
+						Message:    ptr.To("dmspe missing libmstflint_sdk.so"),
+					}},
+				},
 			}
 
 			By("creating a Node in the DPUCluster")
@@ -149,23 +151,27 @@ var _ = Describe("DPU: Ready", func() {
 				And(
 					HaveField("Type", provisioningv1.DPUCondReady.String()),
 					HaveField("Status", metav1.ConditionFalse),
-					HaveField("Reason", "RuntimeConfigApplyFailed"),
-					HaveField("Message", "NIC runtime config apply failed: dmspe missing libmstflint_sdk.so"),
+					HaveField("Reason", "NoEWNICDeviceConfigured"),
+					HaveField("Message", "0/1 E/W NIC devices configured: 0000:03:00 (ApplyFailed)"),
 				),
 			))
 		})
 
-		It("DPU: Ready: should keep Ready=True when EWNICConfigured is True", func() {
+		It("DPU: Ready: should keep Ready=True when some E/W NIC devices are configured", func() {
 			dpu := createBasicDPU(
 				map[string]string{"existing": "label"},
 				provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
 			)
 			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
-				Conditions: []metav1.Condition{{
-					Type:   cutil.AgentCondEWNICConfigured,
-					Status: metav1.ConditionTrue,
-					Reason: "RuntimeConfigApplied",
-				}},
+				EWNICRuntimeConfig: &provisioningv1.EWNICRuntimeConfigStatus{
+					DiscoveredDevices: ptr.To(int32(2)),
+					ConfiguredDevices: ptr.To(int32(1)),
+					FailedDevices: []provisioningv1.EWNICDeviceFailure{{
+						PCIAddress: ptr.To("0000:04:00"),
+						Reason:     ptr.To("NoCarrier"),
+						Message:    ptr.To("has NO-CARRIER"),
+					}},
+				},
 			}
 
 			By("creating a Node in the DPUCluster")
