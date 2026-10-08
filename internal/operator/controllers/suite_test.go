@@ -30,6 +30,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/operator/inventory"
 	"github.com/nvidia/doca-platform/internal/release"
+	"github.com/nvidia/doca-platform/pkg/deprecation"
 	argov1 "github.com/nvidia/doca-platform/third_party/forked/argoproj/argo-cd/pkg/apis/application/v1alpha1"
 
 	"k8s.io/client-go/kubernetes/scheme"
@@ -138,8 +139,9 @@ func TestMain(m *testing.M) {
 		Settings: &DPFOperatorConfigReconcilerSettings{
 			SkipWebhook: true,
 		},
-		Inventory: inventory,
-		Defaults:  defaults,
+		Inventory:         inventory,
+		Defaults:          defaults,
+		KnownDeprecations: deprecation.KnownDeprecations,
 	}
 	if err := reconciler.SetupWithManager(testManager); err != nil {
 		panic(fmt.Sprintf("Failed to setup DPFOperatorConfigReconciler: %v", err))

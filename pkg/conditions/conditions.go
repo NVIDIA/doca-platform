@@ -152,6 +152,11 @@ func ExcludeFromSummary(conditionTypes ...ConditionType) SetSummaryOption {
 	}
 }
 
+// AddUnknown adds a condition with Status=Unknown and a specified reason/message.
+func AddUnknown(obj GetSet, conditionType ConditionType, conditionReason ConditionReason, conditionMessage ConditionMessage) {
+	add(obj, metav1.ConditionUnknown, conditionType, conditionReason, conditionMessage)
+}
+
 // SetSummary sets the overall controller condition and add a summary to the message.
 // If we have:
 // - only ready conditions, the reason is Success.

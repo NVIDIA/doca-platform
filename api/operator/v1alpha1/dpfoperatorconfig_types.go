@@ -36,6 +36,12 @@ const (
 	// CertManagementReadyCondition reports the readiness of the certificate authority that anchors
 	// the DPF provisioning PKI.
 	CertManagementReadyCondition conditions.ConditionType = "CertManagementReady"
+
+	// DeprecatedFieldsNotInUseCondition reports whether any DPF custom resource in the cluster
+	// currently has a deprecated field set. This is informational and is intentionally excluded
+	// from the Ready summary (see the conditions.SetSummary call site) — pre-existing deprecated
+	// usage must not block Ready or upgrades.
+	DeprecatedFieldsNotInUseCondition conditions.ConditionType = "DeprecatedFieldsNotInUse"
 )
 
 // Condition reasons reported on CertManagementReadyCondition.
@@ -48,6 +54,15 @@ const (
 	CertManagementReasonCARotationRequired conditions.ConditionReason = "CARotationRequired"
 )
 
+const (
+	// ReasonDeprecatedFieldsInUse is used on DeprecatedFieldsNotInUseCondition=False when the scan
+	// found at least one deprecated field set on a live object.
+	ReasonDeprecatedFieldsInUse conditions.ConditionReason = "DeprecatedFieldsInUse"
+	// ReasonInspectionFailed is used on DeprecatedFieldsNotInUseCondition=Unknown when the scan
+	// itself could not complete (e.g. a CRD or object listing error).
+	ReasonInspectionFailed conditions.ConditionReason = "InspectionFailed"
+)
+
 var (
 	Conditions = []conditions.ConditionType{
 		conditions.TypeReady,
@@ -58,6 +73,7 @@ var (
 		SystemComponentsReadyCondition,
 		CATrustBundleReadyCondition,
 		CertManagementReadyCondition,
+		DeprecatedFieldsNotInUseCondition,
 	}
 )
 

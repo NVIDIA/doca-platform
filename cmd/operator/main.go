@@ -28,6 +28,7 @@ import (
 	operatorcontroller "github.com/nvidia/doca-platform/internal/operator/controllers"
 	"github.com/nvidia/doca-platform/internal/operator/inventory"
 	"github.com/nvidia/doca-platform/internal/release"
+	"github.com/nvidia/doca-platform/pkg/deprecation"
 	"github.com/nvidia/doca-platform/pkg/health"
 	argov1 "github.com/nvidia/doca-platform/third_party/forked/argoproj/argo-cd/pkg/apis/application/v1alpha1"
 
@@ -221,12 +222,13 @@ func main() {
 		os.Exit(1)
 	}
 	if err = (&operatorcontroller.DPFOperatorConfigReconciler{
-		Client:         mgr.GetClient(),
-		UncachedClient: uncachedClient,
-		Scheme:         mgr.GetScheme(),
-		Settings:       getSettings(),
-		Inventory:      inventory,
-		Defaults:       defaults,
+		Client:            mgr.GetClient(),
+		UncachedClient:    uncachedClient,
+		Scheme:            mgr.GetScheme(),
+		Settings:          getSettings(),
+		Inventory:         inventory,
+		Defaults:          defaults,
+		KnownDeprecations: deprecation.KnownDeprecations,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DPFOperatorConfig")
 		os.Exit(1)

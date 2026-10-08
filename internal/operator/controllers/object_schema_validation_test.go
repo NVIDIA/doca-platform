@@ -214,7 +214,7 @@ func TestValidateObjectSchemasLimitsObjectsPerMessage(t *testing.T) {
 		objects[i] = unstructured.Unstructured{Object: map[string]interface{}{
 			"apiVersion": "svc.dpu.nvidia.com/v1alpha1",
 			"kind":       "DPUDeployment",
-			"metadata":   map[string]interface{}{"name": fmt.Sprintf("obj-%02d", i), "namespace": "target"},
+			"metadata":   map[string]interface{}{"name": fmt.Sprintf("obj-%03d", i), "namespace": "target"},
 			"spec":       map[string]interface{}{},
 		}}
 	}
@@ -227,9 +227,9 @@ func TestValidateObjectSchemasLimitsObjectsPerMessage(t *testing.T) {
 	g.Expect(err).NotTo(HaveOccurred())
 
 	formatted := objectSchemaValidationMessage(gvk, msgs)
-	g.Expect(formatted).To(ContainSubstring("target/obj-00"))
-	g.Expect(formatted).To(ContainSubstring("target/obj-04"))
-	g.Expect(formatted).NotTo(ContainSubstring("target/obj-05"))
+	g.Expect(formatted).To(ContainSubstring(fmt.Sprintf("target/obj-%03d", 0)))
+	g.Expect(formatted).To(ContainSubstring(fmt.Sprintf("target/obj-%03d", maxItemsToReportOnValidationMessage-1)))
+	g.Expect(formatted).NotTo(ContainSubstring(fmt.Sprintf("target/obj-%03d", maxItemsToReportOnValidationMessage)))
 	g.Expect(formatted).To(ContainSubstring("and 1 more"))
 }
 

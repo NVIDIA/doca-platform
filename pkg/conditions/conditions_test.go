@@ -282,6 +282,7 @@ func TestSetSummary(t *testing.T) {
 		name              string
 		obj               *MockObject
 		initialConditions []metav1.Condition
+		excludeTypes      []ConditionType
 		expectedCondition metav1.Condition
 	}{
 		{
@@ -578,6 +579,81 @@ func TestSetSummary(t *testing.T) {
 				Reason: string(ReasonSuccess),
 			},
 		},
+		{
+			name: "Excluded False condition does not affect Ready",
+			obj:  &MockObject{},
+			initialConditions: []metav1.Condition{
+				{
+					Type:    "ApplicationsReady",
+					Status:  metav1.ConditionTrue,
+					Reason:  string(ReasonSuccess),
+					Message: "",
+				},
+				{
+					Type:    "DeprecatedFieldsNotInUse",
+					Status:  metav1.ConditionFalse,
+					Reason:  "DeprecatedFieldsInUse",
+					Message: "spec.bmcIP is in use",
+				},
+			},
+			excludeTypes: []ConditionType{"DeprecatedFieldsNotInUse"},
+			expectedCondition: metav1.Condition{
+				Type:   string(TypeReady),
+				Status: metav1.ConditionTrue,
+				Reason: string(ReasonSuccess),
+			},
+		},
+		{
+			name: "Excluded stale condition does not affect Ready",
+			obj:  &MockObject{generation: 2},
+			initialConditions: []metav1.Condition{
+				{
+					Type:               "ApplicationsReady",
+					Status:             metav1.ConditionTrue,
+					Reason:             string(ReasonSuccess),
+					Message:            "",
+					ObservedGeneration: 2,
+				},
+				{
+					Type:               "DeprecatedFieldsNotInUse",
+					Status:             metav1.ConditionFalse,
+					Reason:             "DeprecatedFieldsInUse",
+					Message:            "",
+					ObservedGeneration: 1, // stale
+				},
+			},
+			excludeTypes: []ConditionType{"DeprecatedFieldsNotInUse"},
+			expectedCondition: metav1.Condition{
+				Type:   string(TypeReady),
+				Status: metav1.ConditionTrue,
+				Reason: string(ReasonSuccess),
+			},
+		},
+		{
+			name: "Non-excluded conditions retain existing behavior alongside an exclusion list",
+			obj:  &MockObject{},
+			initialConditions: []metav1.Condition{
+				{
+					Type:    "ApplicationsReady",
+					Status:  metav1.ConditionFalse,
+					Reason:  string(ReasonPending),
+					Message: "",
+				},
+				{
+					Type:    "DeprecatedFieldsNotInUse",
+					Status:  metav1.ConditionFalse,
+					Reason:  "DeprecatedFieldsInUse",
+					Message: "",
+				},
+			},
+			excludeTypes: []ConditionType{"DeprecatedFieldsNotInUse"},
+			expectedCondition: metav1.Condition{
+				Type:    string(TypeReady),
+				Status:  metav1.ConditionFalse,
+				Reason:  string(ReasonPending),
+				Message: ReadyConditionMessage(MessageNotReady, []string{"ApplicationsReady"}),
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -585,7 +661,11 @@ func TestSetSummary(t *testing.T) {
 			if len(tt.initialConditions) > 0 {
 				tt.obj.SetConditions(tt.initialConditions)
 			}
-			SetSummary(tt.obj)
+			if len(tt.excludeTypes) == 0 {
+				SetSummary(tt.obj)
+			} else {
+				SetSummary(tt.obj, ExcludeFromSummary(tt.excludeTypes...))
+			}
 
 			readyCondition := Get(tt.obj, TypeReady)
 			g.Expect(readyCondition).NotTo(BeNil())
@@ -699,6 +779,19 @@ func TestSetSummaryExcludeFromSummary(t *testing.T) {
 			g.Expect(readyCondition.Message).To(Equal(tt.expectedCondition.Message))
 		})
 	}
+}
+
+func TestAddUnknown(t *testing.T) {
+	g := NewWithT(t)
+	obj := &MockObject{}
+
+	AddUnknown(obj, "DeprecatedFieldsNotInUse", ReasonError, "listing CRDs failed")
+
+	cond := Get(obj, "DeprecatedFieldsNotInUse")
+	g.Expect(cond).NotTo(BeNil())
+	g.Expect(cond.Status).To(Equal(metav1.ConditionUnknown))
+	g.Expect(cond.Reason).To(Equal(string(ReasonError)))
+	g.Expect(cond.Message).To(Equal("listing CRDs failed"))
 }
 
 func TestGet(t *testing.T) {
