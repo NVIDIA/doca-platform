@@ -207,13 +207,13 @@ func TestWatch(t *testing.T) {
 	g.Expect(accessor.state.connection.watches).To(BeEmpty())
 
 	g.Expect(accessor.watch(ctx, NewWatcher(wi))).To(Succeed())
-	g.Expect(accessor.state.connection.watches.Has("test-watch")).To(BeTrue())
-	g.Expect(accessor.state.connection.watches.Len()).To(Equal(1))
+	g.Expect(accessor.state.connection.watches).To(HaveKey("test-watch"))
+	g.Expect(accessor.state.connection.watches).To(HaveLen(1))
 
 	// Add watch again (no-op as watch already exists)
 	g.Expect(accessor.watch(ctx, NewWatcher(wi))).To(Succeed())
-	g.Expect(accessor.state.connection.watches.Has("test-watch")).To(BeTrue())
-	g.Expect(accessor.state.connection.watches.Len()).To(Equal(1))
+	g.Expect(accessor.state.connection.watches).To(HaveKey("test-watch"))
+	g.Expect(accessor.state.connection.watches).To(HaveLen(1))
 
 	// Disconnect
 	accessor.disconnect()

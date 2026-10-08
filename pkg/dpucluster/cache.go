@@ -19,6 +19,7 @@ package dpucluster
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"sync"
 	"time"
 
@@ -28,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -276,6 +278,12 @@ type TypedWatcherOptions[object client.Object, request comparable] struct {
 
 	// Predicates is used to filter resource events.
 	Predicates []predicate.TypedPredicate[object]
+
+	// DisconnectHandler returns reconcile requests when the connection to this
+	// dpu cluster is dropped. The cache adds them to Watcher. The handler must
+	// not use the remote cache client. It is called after that client has been
+	// cleaned up.
+	DisconnectHandler func(ctx context.Context, cluster client.ObjectKey) []request
 }
 
 // NewWatcher creates a Watcher for the dpu cluster.
@@ -289,6 +297,7 @@ func NewWatcher[object client.Object, request comparable](options TypedWatcherOp
 		eventHandler: options.EventHandler,
 		predicates:   options.Predicates,
 		watcher:      options.Watcher,
+		onDisconnect: options.DisconnectHandler,
 	}
 }
 
@@ -298,6 +307,7 @@ type watcher[object client.Object, request comparable] struct {
 	eventHandler handler.TypedEventHandler[object, request]
 	predicates   []predicate.TypedPredicate[object]
 	watcher      SourceWatcher[request]
+	onDisconnect func(ctx context.Context, cluster client.ObjectKey) []request
 }
 
 func (tw *watcher[object, request]) Name() string          { return tw.name }
@@ -327,6 +337,45 @@ func SetupRemoteCacheWithManager(ctx context.Context, mgr ctrl.Manager, opts ...
 	return rc, nil
 }
 
+// requestSource is started by a controller and adds reconcile requests to the
+// queue that controller passes to Start. Requests added before Start are kept
+// until that queue is available.
+type requestSource[request comparable] struct {
+	mu      sync.Mutex
+	queue   workqueue.TypedRateLimitingInterface[request]
+	pending []request
+}
+
+// Start stores the controller work queue and enqueues requests added before the
+// controller started this source.
+func (s *requestSource[request]) Start(_ context.Context, q workqueue.TypedRateLimitingInterface[request]) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if q == nil {
+		return fmt.Errorf("disconnect source requires a work queue")
+	}
+	s.queue = q
+	for _, req := range s.pending {
+		q.Add(req)
+	}
+	s.pending = nil
+	return nil
+}
+
+// Add enqueues reconcile requests on the controller work queue.
+// Requests added before Start are kept until the controller starts this source.
+func (s *requestSource[request]) Add(requests []request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.queue == nil {
+		s.pending = append(s.pending, requests...)
+		return
+	}
+	for _, req := range requests {
+		s.queue.Add(req)
+	}
+}
+
 // RemoteCache reconcile dpuClusters CRs and manges caches for those dpuClusters.
 // It provides a way to watch dpuClusters and get cachedClients for dpuClusters.
 // Specific objects can be watched in the dpu cluster.
@@ -337,6 +386,9 @@ type RemoteCache struct {
 	accessors map[client.ObjectKey]*accessor
 
 	options *Options
+
+	// disconnectSources is one *requestSource[request] per controller.
+	disconnectSources map[any]any
 
 	// Lock to synchronize acess to accessors.
 	sync.RWMutex
@@ -396,12 +448,14 @@ func (rc *RemoteCache) reconcile(ctx context.Context, cluster *provisioningv1.DP
 		log.Info("Connected to dpuCluster")
 	}
 
-	// Check if the connection is healthy.
+	// Health.Check returns an error only after more than maxRetries failed
+	// probes, so watches from earlier reconciles are already stored.
 	if _, err := accessor.healthCheck(); err != nil {
 		// healthchek returning an error means that the connection is not healthy
 		// and we have reached the max number of retries. We should disconnect
 		// and delete the accessor.
-		rc.deleteAccessor(clusterKey)
+		watchers := rc.deleteAccessor(clusterKey)
+		rc.notifyDisconnect(ctx, clusterKey, watchers)
 		// still return the error to requeue and attempt a new connection
 		return ctrl.Result{}, err
 	}
@@ -451,17 +505,124 @@ func (rc *RemoteCache) getAccessor(cluster client.ObjectKey) *accessor {
 }
 
 // deleteAccessor disconnects and deletes the accessor for the given cluster.
-func (rc *RemoteCache) deleteAccessor(cluster client.ObjectKey) {
+// It returns the watches that were running on that connection.
+func (rc *RemoteCache) deleteAccessor(cluster client.ObjectKey) []Watcher {
 	rc.Lock()
 	defer rc.Unlock()
 
 	accessor, ok := rc.accessors[cluster]
 	if !ok {
 		// accessor does not exist
-		return
+		return nil
 	}
-	accessor.disconnect()
+	watchers := accessor.disconnect()
 	delete(rc.accessors, cluster)
+	return watchers
+}
+
+// disconnectSetup is one controller source registration. Callers that arrive
+// while Watch is in progress wait on done instead of keeping the source early.
+type disconnectSetup struct {
+	src  any
+	done chan struct{}
+	err  error
+}
+
+// ensureDisconnectSource starts one source on the controller and reuses it
+// for every DisconnectHandler that targets that controller. Watch is called
+// without the cache lock so a slow controller does not block other clusters.
+// The source is returned only after Watch succeeds.
+func ensureDisconnectSource[request comparable](rc *RemoteCache, w SourceWatcher[request]) (*requestSource[request], error) {
+	if err := comparableWatcher(w); err != nil {
+		return nil, err
+	}
+	rc.Lock()
+	if rc.disconnectSources == nil {
+		rc.disconnectSources = map[any]any{}
+	}
+	if existing, ok := rc.disconnectSources[w]; ok {
+		rc.Unlock()
+		return waitDisconnectSource[request](existing)
+	}
+	src := &requestSource[request]{}
+	setup := &disconnectSetup{src: src, done: make(chan struct{})}
+	rc.disconnectSources[w] = setup
+	rc.Unlock()
+
+	err := w.Watch(src)
+	rc.Lock()
+	setup.err = err
+	if err != nil && rc.disconnectSources[w] == setup {
+		delete(rc.disconnectSources, w)
+	}
+	close(setup.done)
+	rc.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	return src, nil
+}
+
+// waitDisconnectSource waits until Watch finishes and returns the source only
+// when registration succeeded.
+func waitDisconnectSource[request comparable](existing any) (*requestSource[request], error) {
+	setup, ok := existing.(*disconnectSetup)
+	if !ok {
+		return nil, fmt.Errorf("disconnect source has type %T", existing)
+	}
+	<-setup.done
+	if setup.err != nil {
+		return nil, setup.err
+	}
+	src, ok := setup.src.(*requestSource[request])
+	if !ok {
+		return nil, fmt.Errorf("disconnect source for %T has a different request type", setup.src)
+	}
+	return src, nil
+}
+
+// comparableWatcher reports whether watcher can be used as a map key.
+func comparableWatcher(watcher any) error {
+	if watcher == nil {
+		return fmt.Errorf("disconnect handler requires a watcher")
+	}
+	if t := reflect.TypeOf(watcher); t == nil || !t.Comparable() {
+		return fmt.Errorf("disconnect handler watcher %T is not comparable", watcher)
+	}
+	return nil
+}
+
+// disconnectInvoker enqueues reconcile requests for one watcher when its
+// cluster connection drops.
+type disconnectInvoker interface {
+	invokeDisconnect(ctx context.Context, cluster client.ObjectKey, rc *RemoteCache) error
+}
+
+// invokeDisconnect enqueues the requests returned by this watcher's DisconnectHandler.
+func (tw *watcher[object, request]) invokeDisconnect(ctx context.Context, cluster client.ObjectKey, rc *RemoteCache) error {
+	if tw.onDisconnect == nil {
+		return nil
+	}
+	src, err := ensureDisconnectSource(rc, tw.watcher)
+	if err != nil {
+		return err
+	}
+	src.Add(tw.onDisconnect(ctx, cluster))
+	return nil
+}
+
+// notifyDisconnect calls the DisconnectHandler of each watch that was running on cluster.
+func (rc *RemoteCache) notifyDisconnect(ctx context.Context, cluster client.ObjectKey, watchers []Watcher) {
+	log := ctrllog.FromContext(ctx)
+	for _, w := range watchers {
+		invoker, ok := w.(disconnectInvoker)
+		if !ok {
+			continue
+		}
+		if err := invoker.invokeDisconnect(ctx, cluster, rc); err != nil {
+			log.Error(err, "failed to notify disconnect", "watcher", w.Name())
+		}
+	}
 }
 
 // Watch can be used to watch specific resources in the dpu cluster.

@@ -19,10 +19,11 @@ package dpucluster
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"sync"
 	"time"
 
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/discovery"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -62,9 +63,8 @@ type accessorConnectionState struct {
 	// Get & List calls from the client or via the Watch method of the accessor.
 	cache *cacheWithCancel
 
-	// watches is used to track the watches that have been added through the Watch method
-	// of the accessor. This is important to avoid adding duplicate watches.
-	watches sets.Set[string]
+	// watches tracks the watches added through the Watch method, by name.
+	watches map[string]Watcher
 }
 
 // newAccessor creates a new accessor.
@@ -100,7 +100,7 @@ func (a *accessor) setState(c client.Client, cache *cacheWithCancel, discoveryCl
 	a.state.connection = &accessorConnectionState{
 		cachedClient: c,
 		cache:        cache,
-		watches:      sets.Set[string]{},
+		watches:      map[string]Watcher{},
 	}
 
 	a.health = NewHealthServer(discoveryClient, DefaultMaxBackoff, DefaultMaxRetries, requeueAfter)
@@ -132,16 +132,17 @@ func (a *accessor) getNextCheckTime() time.Duration {
 	return a.health.GetNextCheckTime()
 }
 
-func (a *accessor) disconnect() {
-	if !a.isConnected() {
-		return
-	}
-
+// disconnect stops the cache and returns the watches that were running on it.
+func (a *accessor) disconnect() []Watcher {
 	a.Lock()
 	defer a.Unlock()
-
+	if a.state.connection == nil {
+		return nil
+	}
 	a.state.connection.cache.cancel()
+	watchers := slices.Collect(maps.Values(a.state.connection.watches))
 	a.state.connection = nil
+	return watchers
 }
 
 func (a *accessor) isConnected() bool {
@@ -185,8 +186,11 @@ func (a *accessor) watch(ctx context.Context, watcher Watcher) error {
 		return ErrDPUClusterNotConnected
 	}
 
-	if a.state.connection.watches.Has(watcher.Name()) {
+	if _, ok := a.state.connection.watches[watcher.Name()]; ok {
 		log.Info(fmt.Sprintf("skipping creation of watch %s for %T, already exists", watcher.Name(), watcher.Object()))
+		// Keep the latest watcher so a replaced DisconnectHandler is the one
+		// returned when the connection drops. The informer is already running.
+		a.state.connection.watches[watcher.Name()] = watcher
 		return nil
 	}
 
@@ -194,6 +198,6 @@ func (a *accessor) watch(ctx context.Context, watcher Watcher) error {
 		return fmt.Errorf("failed to create watch %s for %T: %w", watcher.Name(), watcher.Object(), err)
 	}
 
-	a.state.connection.watches.Insert(watcher.Name())
+	a.state.connection.watches[watcher.Name()] = watcher
 	return nil
 }
