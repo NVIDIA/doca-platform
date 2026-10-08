@@ -36,6 +36,8 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
@@ -371,6 +373,252 @@ var _ = Describe("DPU", func() {
 				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
 				return objFetched.Status.Phase
 			}).WithTimeout(10 * time.Second).WithPolling(10 * time.Millisecond).Should(Equal(provisioningv1.DPUInitializing))
+		})
+
+		It("DPU: a Ready DPU is reconciled when its spec is updated and is not polled again", func() {
+			By("creating the obj")
+			obj := createObj("ready-update-" + utilrand.String(5))
+			obj.Spec.DPUDeviceName = testDPUDevice.Name
+			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+			By("waiting until the controller has admitted the DPU")
+			objFetched := &provisioningv1.DPU{}
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
+				g.Expect(controllerutil.ContainsFinalizer(objFetched, provisioningv1.DPUFinalizer)).To(BeTrue())
+			}).WithTimeout(20 * time.Second).Should(Succeed())
+
+			By("moving the DPU to Ready")
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
+				if objFetched.Status.Phase != provisioningv1.DPUReady {
+					patch := client.MergeFrom(objFetched.DeepCopy())
+					objFetched.Status.Phase = provisioningv1.DPUReady
+					g.Expect(k8sClient.Status().Patch(ctx, objFetched, patch)).To(Succeed())
+				}
+				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
+				g.Expect(objFetched.Status.Phase).To(Equal(provisioningv1.DPUReady))
+				g.Expect(objFetched.Status.ObservedGeneration).To(Equal(objFetched.Generation))
+			}).WithTimeout(20 * time.Second).Should(Succeed())
+
+			By("letting any RequeueAfter scheduled before Ready expire")
+			// Earlier phases requeue on RequeueInterval. Outlast that timer so the only
+			// thing left that can reconcile this DPU is a watch event.
+			Consistently(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
+				g.Expect(objFetched.Status.Phase).To(Equal(provisioningv1.DPUReady))
+			}).WithTimeout(cutil.RequeueInterval + 2*time.Second).WithPolling(500 * time.Millisecond).Should(Succeed())
+
+			By("expecting a Ready reconcile whose Node cannot be read to requeue on the provisioning interval")
+			res, err := dpuReconciler.Reconcile(ctx, ctrl.Request{NamespacedName: getObjKey(obj)})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(res.RequeueAfter).To(Equal(cutil.RequeueInterval))
+
+			By("updating the spec")
+			// NodeLabels is a spec field, so the apiserver bumps metadata.generation and the
+			// DPU watch enqueues another reconcile. An annotation-only write would not.
+			// Retry: the controller may patch the object between Get and Patch.
+			var updatedFrom int64
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
+				updatedFrom = objFetched.Generation
+				base := objFetched.DeepCopy()
+				objFetched.Spec.Cluster.NodeLabels = map[string]string{"dpu-controller-test": "updated"}
+				g.Expect(k8sClient.Patch(ctx, objFetched, client.MergeFrom(base))).To(Succeed())
+			}).WithTimeout(20 * time.Second).Should(Succeed())
+
+			By("expecting the update event to enqueue a reconcile while the DPU stays Ready")
+			// Only the DPU controller's status patch writes observedGeneration, and the
+			// Ready DPU has no timer left, so catching up to the new generation means the
+			// update event queued a reconcile and it ran.
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
+				g.Expect(objFetched.Generation).To(BeNumerically(">", updatedFrom))
+				g.Expect(objFetched.Status.ObservedGeneration).To(Equal(objFetched.Generation))
+				g.Expect(objFetched.Status.Phase).To(Equal(provisioningv1.DPUReady))
+			}).WithTimeout(20 * time.Second).Should(Succeed())
+		})
+
+		It("DPU: a Ready DPU is reconciled when it is deleted", func() {
+			By("creating the obj")
+			obj := createObj("ready-delete-" + utilrand.String(5))
+			obj.Spec.DPUDeviceName = testDPUDevice.Name
+			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+			By("waiting until the controller has admitted the DPU")
+			objFetched := &provisioningv1.DPU{}
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
+				g.Expect(controllerutil.ContainsFinalizer(objFetched, provisioningv1.DPUFinalizer)).To(BeTrue())
+			}).WithTimeout(20 * time.Second).Should(Succeed())
+
+			By("moving the DPU to Ready")
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
+				if objFetched.Status.Phase != provisioningv1.DPUReady {
+					patch := client.MergeFrom(objFetched.DeepCopy())
+					objFetched.Status.Phase = provisioningv1.DPUReady
+					g.Expect(k8sClient.Status().Patch(ctx, objFetched, patch)).To(Succeed())
+				}
+				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
+				g.Expect(objFetched.Status.Phase).To(Equal(provisioningv1.DPUReady))
+			}).WithTimeout(20 * time.Second).Should(Succeed())
+
+			By("deleting the DPU")
+			Expect(k8sClient.Delete(ctx, objFetched)).To(Succeed())
+
+			By("expecting the delete to be reconciled into Deleting, or the object to be removed")
+			Eventually(func(g Gomega) {
+				err := k8sClient.Get(ctx, getObjKey(obj), objFetched)
+				if apierrors.IsNotFound(err) {
+					return
+				}
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(objFetched.DeletionTimestamp.IsZero()).To(BeFalse())
+				g.Expect(objFetched.Status.Phase).To(Equal(provisioningv1.DPUDeleting))
+			}).WithTimeout(20 * time.Second).Should(Succeed())
+		})
+
+		// startReadyDPUWithRemoteNode creates a DPUCluster, a Ready DPU assigned to it, and a
+		// remote Node with the given address. The returned DPU has already been reconciled by
+		// state.Ready, so a later Node change is what enqueues the next reconcile.
+		var startReadyDPUWithRemoteNode = func(name, ip string) (*provisioningv1.DPU, *corev1.Node) {
+			cluster := &provisioningv1.DPUCluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "node-watch-" + utilrand.String(5),
+					Namespace: testNS.Name,
+				},
+				Spec: provisioningv1.DPUClusterSpec{
+					Type: string(provisioningv1.StaticCluster),
+				},
+			}
+			cluster.Spec.Kubeconfig = cluster.Name + "-admin-kubeconfig"
+			secret, err := testutils.GetFakeKamajiClusterSecretFromEnvtest(*cluster, cfg)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient.Create(ctx, secret)).To(Succeed())
+			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), cluster)).To(Succeed())
+				patch := client.MergeFrom(cluster.DeepCopy())
+				cluster.Status.Phase = provisioningv1.PhaseReady
+				cluster.Status.Conditions = []metav1.Condition{{
+					Type:               string(provisioningv1.ConditionCreated),
+					Status:             metav1.ConditionTrue,
+					Reason:             "Created",
+					Message:            "dpu_controller_test",
+					LastTransitionTime: metav1.Time{Time: time.Now()},
+				}}
+				g.Expect(k8sClient.Status().Patch(ctx, cluster, patch)).To(Succeed())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), cluster)).To(Succeed())
+				g.Expect(cluster.Status.Phase).To(Equal(provisioningv1.PhaseReady))
+			}).WithTimeout(30 * time.Second).Should(Succeed())
+			DeferCleanup(func() {
+				Expect(testutils.CleanupAndWait(ctx, k8sClient, cluster)).To(Succeed())
+				Expect(testutils.CleanupAndWait(ctx, k8sClient, secret)).To(Succeed())
+			})
+
+			obj := createObj(name)
+			obj.Spec.DPUDeviceName = testDPUDevice.Name
+			obj.Spec.Cluster.Name = cluster.Name
+			obj.Spec.Cluster.Namespace = cluster.Namespace
+			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+			objFetched := &provisioningv1.DPU{}
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
+				g.Expect(controllerutil.ContainsFinalizer(objFetched, provisioningv1.DPUFinalizer)).To(BeTrue())
+			}).WithTimeout(20 * time.Second).Should(Succeed())
+
+			node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: obj.Name}}
+			Expect(k8sClient.Create(ctx, node)).To(Succeed())
+			DeferCleanup(func() {
+				Expect(testutils.CleanupAndWait(ctx, k8sClient, node)).To(Succeed())
+			})
+			setTestNodeStatus(ctx, node.Name, corev1.ConditionTrue, ip)
+
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
+				if objFetched.Status.Phase != provisioningv1.DPUReady {
+					patch := client.MergeFrom(objFetched.DeepCopy())
+					objFetched.Status.Phase = provisioningv1.DPUReady
+					g.Expect(k8sClient.Status().Patch(ctx, objFetched, patch)).To(Succeed())
+				}
+				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
+				g.Expect(objFetched.Status.Phase).To(Equal(provisioningv1.DPUReady))
+				g.Expect(objFetched.Status.Addresses).To(ContainElement(corev1.NodeAddress{Type: corev1.NodeInternalIP, Address: ip}))
+				cond := meta.FindStatusCondition(objFetched.Status.Conditions, string(provisioningv1.DPUCondReady))
+				g.Expect(cond).NotTo(BeNil())
+				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+			}).WithTimeout(30 * time.Second).Should(Succeed())
+			return objFetched, node
+		}
+
+		var expectSettledReady = func(obj *provisioningv1.DPU) {
+			Consistently(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, getObjKey(obj), obj)).To(Succeed())
+				g.Expect(obj.Status.Phase).To(Equal(provisioningv1.DPUReady))
+				cond := meta.FindStatusCondition(obj.Status.Conditions, string(provisioningv1.DPUCondReady))
+				g.Expect(cond).NotTo(BeNil())
+				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+			}).WithTimeout(cutil.RequeueInterval + 2*time.Second).WithPolling(500 * time.Millisecond).Should(Succeed())
+		}
+
+		It("DPU: a Ready DPU is reconciled when its DPU-cluster Node changes", func() {
+			By("creating a Ready DPU whose remote Node is Ready")
+			objFetched, node := startReadyDPUWithRemoteNode("ready-node-"+utilrand.String(5), "10.1.0.1")
+
+			By("letting any RequeueAfter scheduled before Ready expire")
+			expectSettledReady(objFetched)
+
+			By("making the remote Node NotReady")
+			setTestNodeStatus(ctx, node.Name, corev1.ConditionFalse, "10.1.0.1")
+
+			By("expecting the Node informer to enqueue the DPU")
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, getObjKey(objFetched), objFetched)).To(Succeed())
+				g.Expect(objFetched.Status.Phase).To(Equal(provisioningv1.DPUReady))
+				cond := meta.FindStatusCondition(objFetched.Status.Conditions, string(provisioningv1.DPUCondReady))
+				g.Expect(cond).NotTo(BeNil())
+				g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(cond.Reason).To(Equal("NodeNotReady"))
+			}).WithTimeout(20 * time.Second).Should(Succeed())
+		})
+
+		It("DPU: a Ready DPU is reconciled when its DPU-cluster Node address changes", func() {
+			objFetched, node := startReadyDPUWithRemoteNode("ready-addr-"+utilrand.String(5), "10.1.0.1")
+			expectSettledReady(objFetched)
+
+			By("changing the remote Node address")
+			setTestNodeStatus(ctx, node.Name, corev1.ConditionTrue, "10.2.0.2")
+
+			By("expecting state.Ready to copy the new address")
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, getObjKey(objFetched), objFetched)).To(Succeed())
+				g.Expect(objFetched.Status.Phase).To(Equal(provisioningv1.DPUReady))
+				g.Expect(objFetched.Status.Addresses).To(ContainElement(corev1.NodeAddress{Type: corev1.NodeInternalIP, Address: "10.2.0.2"}))
+			}).WithTimeout(20 * time.Second).Should(Succeed())
+		})
+
+		It("DPU: a Ready DPU is reconciled when DPU-cluster Node last-applied labels change", func() {
+			objFetched, node := startReadyDPUWithRemoteNode("ready-labels-"+utilrand.String(5), "10.1.0.1")
+			expectSettledReady(objFetched)
+
+			By("changing the last-applied labels annotation")
+			setTestNodeAnnotation(ctx, node.Name, cutil.LastAppliedLabelsOnDPUKey, `{"zone":"a"}`)
+
+			By("expecting state.Ready to leave Ready for cluster config")
+			expectClusterConfigFromNode(objFetched)
+		})
+
+		It("DPU: a Ready DPU is reconciled when DPU-cluster Node last-applied annotations change", func() {
+			objFetched, node := startReadyDPUWithRemoteNode("ready-ann-"+utilrand.String(5), "10.1.0.1")
+			expectSettledReady(objFetched)
+
+			By("changing the last-applied annotations annotation")
+			setTestNodeAnnotation(ctx, node.Name, cutil.LastAppliedAnnotationsOnDPUKey, `{"note":"a"}`)
+
+			By("expecting state.Ready to leave Ready for cluster config")
+			expectClusterConfigFromNode(objFetched)
 		})
 
 		It("DPU: a DPU should have set a DPF version in the status and NodeLabels", func() {
@@ -723,6 +971,194 @@ var _ = Describe("DPU UpdateDPUStatus", func() {
 		Expect(dpu.Status.PreviousPhase).To(Equal(provisioningv1.DPUInitializing))
 	})
 })
+
+var _ = Describe("DPU StayReadyWithoutRequeue", func() {
+	DescribeTable("skips the interval only when a Ready DPU stays Ready",
+		func(phase, next provisioningv1.DPUPhase, skip bool) {
+			Expect(dpuctrl.StayReadyWithoutRequeue(phase, next)).To(Equal(skip))
+		},
+		Entry("spec or status update that leaves the phase Ready does not schedule another poll", provisioningv1.DPUReady, provisioningv1.DPUReady, true),
+		Entry("delete requeues by moving the dpu to Deleting", provisioningv1.DPUReady, provisioningv1.DPUDeleting, false),
+		Entry("spec update that must rerun cluster config requeues", provisioningv1.DPUReady, provisioningv1.DPUClusterConfig, false),
+		Entry("spec update that must rerun node effect requeues", provisioningv1.DPUReady, provisioningv1.DPUNodeEffect, false),
+		Entry("entering ready requeues once so the ready handler runs", provisioningv1.DPUNodeEffectRemoval, provisioningv1.DPUReady, false),
+		Entry("provisioning phases keep the interval", provisioningv1.DPUOSInstalling, provisioningv1.DPUOSInstalling, false),
+		Entry("error phase is not treated as a settled ready dpu", provisioningv1.DPUOSInstalling, provisioningv1.DPUError, false),
+		Entry("ready that moves to error is not treated as settled", provisioningv1.DPUReady, provisioningv1.DPUError, false),
+	)
+})
+
+var _ = Describe("DPU cluster Node watch", func() {
+	It("relists on the controller-runtime default period", func() {
+		Expect(dpuctrl.ClusterNodeResyncPeriod).To(Equal(10 * time.Hour))
+	})
+
+	It("accepts remote Node changes that Ready records", func() {
+		ready := func(rv, ip, readyStatus, labels string) *corev1.Node {
+			return &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            "dpu-1",
+					ResourceVersion: rv,
+					Annotations: map[string]string{
+						cutil.LastAppliedLabelsOnDPUKey: labels,
+					},
+				},
+				Status: corev1.NodeStatus{
+					Addresses: []corev1.NodeAddress{{
+						Type:    corev1.NodeInternalIP,
+						Address: ip,
+					}},
+					Conditions: []corev1.NodeCondition{{
+						Type:   corev1.NodeReady,
+						Status: corev1.ConditionStatus(readyStatus),
+					}},
+				},
+			}
+		}
+
+		base := ready("1", "10.0.0.1", "True", `{"a":"b"}`)
+		Expect(dpuctrl.NodeChangeAffectsDPU(nil, base)).To(BeTrue())
+		Expect(dpuctrl.NodeChangeAffectsDPU(base, nil)).To(BeTrue())
+		Expect(dpuctrl.NodeChangeAffectsDPU(base, base.DeepCopy())).To(BeTrue(), "resync keeps the resourceVersion")
+
+		unchanged := base.DeepCopy()
+		unchanged.ResourceVersion = "2"
+		unchanged.Status.Allocatable = corev1.ResourceList{}
+		Expect(dpuctrl.NodeChangeAffectsDPU(base, unchanged)).To(BeFalse())
+
+		notReady := unchanged.DeepCopy()
+		notReady.ResourceVersion = "3"
+		notReady.Status.Conditions[0].Status = corev1.ConditionFalse
+		Expect(dpuctrl.NodeChangeAffectsDPU(base, notReady)).To(BeTrue())
+
+		address := unchanged.DeepCopy()
+		address.ResourceVersion = "4"
+		address.Status.Addresses[0].Address = "10.0.0.2"
+		Expect(dpuctrl.NodeChangeAffectsDPU(base, address)).To(BeTrue())
+
+		labels := unchanged.DeepCopy()
+		labels.ResourceVersion = "5"
+		labels.Annotations[cutil.LastAppliedLabelsOnDPUKey] = `{"a":"c"}`
+		Expect(dpuctrl.NodeChangeAffectsDPU(base, labels)).To(BeTrue())
+
+		annotations := unchanged.DeepCopy()
+		annotations.ResourceVersion = "6"
+		annotations.Annotations[cutil.LastAppliedAnnotationsOnDPUKey] = `{"a":"c"}`
+		Expect(dpuctrl.NodeChangeAffectsDPU(base, annotations)).To(BeTrue())
+	})
+
+	It("selects only a Ready DPU with the Node name and cluster", func() {
+		cluster := types.NamespacedName{Namespace: "tenant", Name: "cluster-a"}
+		dpus := []provisioningv1.DPU{
+			dpuForNodeWatch("dpf", "dpu-1", "cluster-a", provisioningv1.DPUReady),
+			dpuForNodeWatch("provisioning", "dpu-1", "cluster-a", provisioningv1.DPUOSInstalling),
+			dpuForNodeWatch("other", "dpu-1", "cluster-b", provisioningv1.DPUReady),
+			dpuForNodeWatch("dpf", "dpu-2", "cluster-a", provisioningv1.DPUReady),
+		}
+		Expect(dpuctrl.DPUsForClusterNode(dpus, cluster, "dpu-1")).To(Equal([]*provisioningv1.DPU{
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "dpu-1",
+					Namespace: "dpf",
+				},
+			},
+		}))
+	})
+
+	It("selects every Ready DPU in a disconnected cluster", func() {
+		cluster := types.NamespacedName{Namespace: "tenant", Name: "cluster-a"}
+		dpus := []provisioningv1.DPU{
+			dpuForNodeWatch("dpf", "dpu-1", "cluster-a", provisioningv1.DPUReady),
+			dpuForNodeWatch("provisioning", "dpu-2", "cluster-a", provisioningv1.DPUOSInstalling),
+			dpuForNodeWatch("other", "dpu-3", "cluster-b", provisioningv1.DPUReady),
+			dpuForNodeWatch("dpf", "dpu-4", "cluster-a", provisioningv1.DPUReady),
+		}
+		Expect(dpuctrl.ReadyDPUsForCluster(dpus, cluster)).To(Equal([]*provisioningv1.DPU{
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "dpu-1",
+					Namespace: "dpf",
+				},
+			},
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "dpu-4",
+					Namespace: "dpf",
+				},
+			},
+		}))
+	})
+})
+
+// dpuForNodeWatch returns a DPU with the given namespace, name, cluster, and phase.
+func dpuForNodeWatch(namespace, name, clusterName string, phase provisioningv1.DPUPhase) provisioningv1.DPU {
+	return provisioningv1.DPU{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+		Spec: provisioningv1.DPUSpec{
+			Cluster: provisioningv1.K8sCluster{
+				Name:      clusterName,
+				Namespace: "tenant",
+			},
+		},
+		Status: provisioningv1.DPUStatus{
+			Phase: phase,
+		},
+	}
+}
+
+// setTestNodeStatus patches the Node status with a Ready condition and one internal IP.
+func setTestNodeStatus(ctx context.Context, name string, ready corev1.ConditionStatus, ip string) {
+	Eventually(func(g Gomega) {
+		current := &corev1.Node{}
+		g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: name}, current)).To(Succeed())
+		base := current.DeepCopy()
+		current.Status.Addresses = []corev1.NodeAddress{{Type: corev1.NodeInternalIP, Address: ip}}
+		current.Status.Conditions = []corev1.NodeCondition{{
+			Type:               corev1.NodeReady,
+			Status:             ready,
+			Reason:             "Test",
+			Message:            "dpu controller test",
+			LastHeartbeatTime:  metav1.Now(),
+			LastTransitionTime: metav1.Now(),
+		}}
+		g.Expect(k8sClient.Status().Patch(ctx, current, client.MergeFrom(base))).To(Succeed())
+	}).WithTimeout(10 * time.Second).Should(Succeed())
+}
+
+// setTestNodeAnnotation patches one annotation on the Node.
+func setTestNodeAnnotation(ctx context.Context, name, key, value string) {
+	Eventually(func(g Gomega) {
+		current := &corev1.Node{}
+		g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: name}, current)).To(Succeed())
+		base := current.DeepCopy()
+		if current.Annotations == nil {
+			current.Annotations = map[string]string{}
+		}
+		current.Annotations[key] = value
+		g.Expect(k8sClient.Patch(ctx, current, client.MergeFrom(base))).To(Succeed())
+	}).WithTimeout(10 * time.Second).Should(Succeed())
+}
+
+// expectClusterConfigFromNode reports that a Node metadata change enqueued the Ready DPU.
+// The mock ClusterConfig handler then moves the phase to ServiceReadiness on the following reconcile.
+func expectClusterConfigFromNode(obj *provisioningv1.DPU) {
+	Eventually(func(g Gomega) {
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(obj), obj)).To(Succeed())
+		switch obj.Status.Phase {
+		case provisioningv1.DPUClusterConfig:
+			cond := meta.FindStatusCondition(obj.Status.Conditions, string(provisioningv1.DPUCondReady))
+			g.Expect(cond).NotTo(BeNil())
+			g.Expect(cond.Reason).To(Equal("RerunClusterConfig"))
+		case provisioningv1.DPUServiceReadiness:
+			g.Expect(obj.Status.PreviousPhase).To(Equal(provisioningv1.DPUClusterConfig))
+		default:
+			g.Expect(obj.Status.Phase).To(Equal(provisioningv1.DPUClusterConfig))
+		}
+	}).WithTimeout(20 * time.Second).Should(Succeed())
+}
 
 // setEnvForBFBRegistry sets POD_NAME, NODE_NAME, NODE_IP, BFB_REGISTRY_IMAGE and returns a restore func.
 func setEnvForBFBRegistry(podName, nodeName, registryImage string) func() {

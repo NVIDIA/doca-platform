@@ -50,6 +50,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpuset"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	provisioningwebhooks "github.com/nvidia/doca-platform/internal/provisioning/webhooks"
+	pkgdpucluster "github.com/nvidia/doca-platform/pkg/dpucluster"
 
 	nvidiaNodeMaintenancev1 "github.com/Mellanox/maintenance-operator/api/v1alpha1"
 	. "github.com/onsi/ginkgo/v2"
@@ -197,7 +198,22 @@ var _ = BeforeSuite(func() {
 		&mockDPUArtifactGenerator{},
 		dutil.DPUOptions{DPUInstallInterface: string(provisioningv1.InstallViaMock), MaxDPUParallelInstallations: maxDPUParallelInstallations},
 		dpuMap)
+	err = dpu.SetupIndexers(ctx, k8sManager)
+	Expect(err).ToNot(HaveOccurred())
 	err = dpuReconciler.SetupWithManager(k8sManager)
+	Expect(err).ToNot(HaveOccurred())
+	_, err = pkgdpucluster.SetupRemoteCacheWithManager(ctx, k8sManager,
+		pkgdpucluster.OptionHostClient{Client: k8sManager.GetClient()},
+		pkgdpucluster.OptionScheme{Scheme: k8sManager.GetScheme()},
+		pkgdpucluster.OptionUserAgent{UserAgent: "provisioning-controller"},
+		pkgdpucluster.OptionSyncPeriod{SyncPeriod: dpu.ClusterNodeResyncPeriod},
+		pkgdpucluster.OptionTimeout{Timeout: 10 * time.Second},
+		pkgdpucluster.OptionGetWatcherCallbacks{
+			GetWatcherCallbacks: []pkgdpucluster.GetWatcherCallback{
+				dpuReconciler.WatchDPUClusterNodes,
+			},
+		},
+	)
 	Expect(err).ToNot(HaveOccurred())
 
 	err = (&provisioningwebhooks.DPUSet{

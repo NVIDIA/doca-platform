@@ -157,6 +157,9 @@ func TestMain(m *testing.M) {
 		&mockDPUArtifactGenerator{},
 		dutil.DPUOptions{DPUInstallInterface: string(provisioningv1.InstallViaGNOI), MaxDPUParallelInstallations: 50},
 		dpuMap)
+	if err := dpu.SetupIndexers(ctx, testManager); err != nil {
+		panic(fmt.Sprintf("Failed to setup DPU field indexers: %v", err))
+	}
 	if err := dpuReconciler.SetupWithManager(testManager); err != nil {
 		panic(fmt.Sprintf("Failed to setup DPU reconciler: %v", err))
 	}

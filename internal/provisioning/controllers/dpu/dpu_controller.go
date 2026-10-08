@@ -25,6 +25,7 @@ import (
 	"reflect"
 	"slices"
 	"sort"
+	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/bfbregistry"
@@ -36,6 +37,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	dpfutils "github.com/nvidia/doca-platform/internal/utils"
+	dpucluster "github.com/nvidia/doca-platform/pkg/dpucluster"
 
 	"github.com/fluxcd/pkg/runtime/patch"
 	corev1 "k8s.io/api/core/v1"
@@ -49,6 +51,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -58,14 +61,24 @@ import (
 
 type PhaseHandlerFunc func(context.Context, *provisioningv1.DPU, *util.ControllerContext) (provisioningv1.DPUStatus, error)
 
-// DPUControllerName is used when reporting events
-const DPUControllerName = "dpu"
+const (
+	// DPUControllerName is used when reporting events.
+	DPUControllerName = "dpu"
+
+	// ClusterNodeResyncPeriod is how often the DPUCluster Node cache relists.
+	// Ten hours is controller-runtime's default cache sync period.
+	ClusterNodeResyncPeriod = 10 * time.Hour
+
+	// dpuNameField indexes DPU metadata.name so a Node event lists only DPUs with that name.
+	dpuNameField = "dpu.metadata.name"
+)
 
 // DPUReconciler reconciles a DPU object
 type DPUReconciler struct {
 	ctrlCtx              *util.ControllerContext
 	handlers             map[provisioningv1.DPUPhase]PhaseHandlerFunc
 	DPUInProvisioningMap *util.DPUInProvisioningMap
+	controller           controller.Controller
 }
 
 func NewDPUReconciler(mgr manager.Manager, alloc allocator.Allocator, joinCommandGenerator util.NodeJoinCommandGenerator, artifactGenerator util.DPUArtifactGenerator, options util.DPUOptions, dpuMap *util.DPUInProvisioningMap) *DPUReconciler {
@@ -259,8 +272,23 @@ func (r *DPUReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl
 	}
 	nextState.DeploymentMode = deploymentMode
 
+	// Capture the phase this reconcile handled. UpdateDPUStatus replaces dpu.Status.
+	phase := dpu.Status.Phase
 	if UpdateDPUStatus(dpu, nextState) {
 		logger.Info("DPU phase changed", "from", dpu.Status.PreviousPhase, "to", dpu.Status.Phase)
+	}
+	if StayReadyWithoutRequeue(phase, nextState.Phase) {
+		// A DPU that is already Ready and stays Ready is not polled on the provisioning
+		// interval. DPU update and delete events enqueue it, as does a relevant Node
+		// change from the DPUCluster cache. A handler error uses the same fixed interval
+		// as the other phases. Returning the error would use controller-runtime backoff
+		// and stretch the retry toward 16 minutes.
+		if err != nil {
+			logger.Info("DPU is Ready but the handler failed; requeueing", "error", err.Error(), "interval", cutil.RequeueInterval)
+			return ctrl.Result{RequeueAfter: cutil.RequeueInterval}, nil
+		}
+		logger.V(1).Info("DPU is Ready; waiting for an event before reconciling again")
+		return ctrl.Result{}, nil
 	}
 	if nextState.Phase != provisioningv1.DPUError {
 		// TODO: move the state checking in state machine
@@ -270,6 +298,13 @@ func (r *DPUReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl
 
 	// If we have an error we have to requeue the DPU and let controller-runtime handle the error.
 	return ctrl.Result{}, err
+}
+
+// StayReadyWithoutRequeue reports that this reconcile handled a Ready DPU which is
+// still Ready, so the interval requeue should be skipped. Leaving Ready, or entering
+// it from another phase, still requeues.
+func StayReadyWithoutRequeue(phase, next provisioningv1.DPUPhase) bool {
+	return phase == provisioningv1.DPUReady && next == provisioningv1.DPUReady
 }
 
 // setDPUFlavorRenderedCondition mirrors the DPUFlavorTemplate render status into the
@@ -399,13 +434,23 @@ func (r *DPUReconciler) adoptGeneratedFlavor(ctx context.Context, dpu *provision
 	return nil
 }
 
+// SetupIndexers registers the DPU name index used to map a DPU-cluster Node to its DPU.
+func SetupIndexers(ctx context.Context, mgr ctrl.Manager) error {
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &provisioningv1.DPU{}, dpuNameField, func(obj client.Object) []string {
+		return []string{obj.GetName()}
+	}); err != nil {
+		return fmt.Errorf("failed to register indexer for DPU name: %w", err)
+	}
+	return nil
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *DPUReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	maxConcurrentReconciles := r.ctrlCtx.Options.DPUMaxConcurrentReconciles
 	if maxConcurrentReconciles < 1 {
 		maxConcurrentReconciles = util.DefaultDPUMaxConcurrentReconciles
 	}
-	return ctrl.NewControllerManagedBy(mgr).
+	c, err := ctrl.NewControllerManagedBy(mgr).
 		For(&provisioningv1.DPU{}).
 		Watches(&provisioningv1.DPUCluster{}, handler.EnqueueRequestsFromMapFunc(r.nonInitializedDPU)).
 		// Watch DPUNode annotation changes for external reboot method
@@ -417,7 +462,172 @@ func (r *DPUReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(r.bfbRegistryServiceToRequest),
 			builder.WithPredicates(predicate.NewPredicateFuncs(r.isBFBRegistryService))).
 		WithOptions(controller.Options{MaxConcurrentReconciles: int(maxConcurrentReconciles)}).
-		Complete(r)
+		Build(r)
+	if err != nil {
+		return err
+	}
+	r.controller = c
+	return nil
+}
+
+// WatchDPUClusterNodes watches Nodes in one DPUCluster through the process-wide remote cache.
+// Node events enqueue the Ready DPU on this controller. A dropped connection enqueues every
+// Ready DPU in that cluster so state.Ready records that the Node could not be read.
+func (r *DPUReconciler) WatchDPUClusterNodes(_ context.Context, _ client.Client, cluster client.ObjectKey) (dpucluster.Watcher, error) {
+	return dpucluster.NewWatcher(dpucluster.WatcherOptions{
+		Name:    "dpu-watch-cluster-nodes",
+		Watcher: r.controller,
+		Kind:    &corev1.Node{},
+		EventHandler: handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+			return readyDPURequests(ctx, r.ctrlCtx.Client, cluster, obj.GetName())
+		}),
+		DisconnectHandler: func(ctx context.Context, dropped client.ObjectKey) []reconcile.Request {
+			return readyDPUsOnDisconnect(ctx, r.ctrlCtx.Client, dropped)
+		},
+		Predicates: []predicate.Predicate{clusterNodePredicate()},
+	}), nil
+}
+
+// clusterNodePredicate passes a Node add or delete through. An update is passed
+// through when it changes a field state.Ready records.
+func clusterNodePredicate() predicate.Predicate {
+	return predicate.Funcs{
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			return NodeChangeAffectsDPU(nodeFromObject(e.ObjectOld), nodeFromObject(e.ObjectNew))
+		},
+	}
+}
+
+// readyDPUsOnDisconnect lists Ready DPUs whose spec.cluster is the DPUCluster that dropped.
+// The list is served from the management-cluster cache. The remote cache client is already gone.
+// A failure is logged and no DPUs are enqueued.
+func readyDPUsOnDisconnect(ctx context.Context, c client.Client, cluster types.NamespacedName) []reconcile.Request {
+	list := &provisioningv1.DPUList{}
+	if err := c.List(ctx, list); err != nil {
+		log.FromContext(ctx).Error(err, "failed to list Ready DPUs for a disconnected DPU cluster", "cluster", cluster)
+		return nil
+	}
+	var requests []reconcile.Request
+	for _, dpu := range ReadyDPUsForCluster(list.Items, cluster) {
+		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(dpu)})
+	}
+	return requests
+}
+
+// readyDPURequests lists DPUs named like the Node and returns the Ready one in cluster.
+// The list is served from the management-cluster cache. A failure is logged and the Node event is dropped.
+func readyDPURequests(ctx context.Context, c client.Client, cluster types.NamespacedName, nodeName string) []reconcile.Request {
+	if nodeName == "" {
+		return nil
+	}
+	list := &provisioningv1.DPUList{}
+	if err := c.List(ctx, list, client.MatchingFields{dpuNameField: nodeName}); err != nil {
+		log.FromContext(ctx).Error(err, "failed to list DPUs for a DPU-cluster Node", "node", nodeName)
+		return nil
+	}
+	var requests []reconcile.Request
+	for _, dpu := range DPUsForClusterNode(list.Items, cluster, nodeName) {
+		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(dpu)})
+	}
+	return requests
+}
+
+// NodeChangeAffectsDPU reports whether a remote Node event can change what
+// state.Ready records: the Ready condition, addresses, or the last-applied
+// label and annotation metadata. A resync delivers the same resourceVersion
+// and is always accepted so a dropped watch is repaired.
+func NodeChangeAffectsDPU(oldNode, newNode *corev1.Node) bool {
+	if oldNode == nil || newNode == nil {
+		return true
+	}
+	if oldNode.ResourceVersion == newNode.ResourceVersion {
+		return true
+	}
+	if nodeReadyStatus(oldNode) != nodeReadyStatus(newNode) {
+		log.Log.V(4).Info("DPU-cluster Node ready status changed", "node", newNode.Name, "from", nodeReadyStatus(oldNode), "to", nodeReadyStatus(newNode))
+		return true
+	}
+	if !slices.Equal(oldNode.Status.Addresses, newNode.Status.Addresses) {
+		log.Log.V(4).Info("DPU-cluster Node addresses changed", "node", newNode.Name, "from", oldNode.Status.Addresses, "to", newNode.Status.Addresses)
+		return true
+	}
+	if annotation(oldNode, cutil.LastAppliedLabelsOnDPUKey) != annotation(newNode, cutil.LastAppliedLabelsOnDPUKey) {
+		log.Log.V(4).Info("DPU-cluster Node last-applied labels changed", "node", newNode.Name)
+		return true
+	}
+	if annotation(oldNode, cutil.LastAppliedAnnotationsOnDPUKey) != annotation(newNode, cutil.LastAppliedAnnotationsOnDPUKey) {
+		log.Log.V(4).Info("DPU-cluster Node last-applied annotations changed", "node", newNode.Name)
+		return true
+	}
+	return false
+}
+
+// ReadyDPUsForCluster returns stub Ready DPUs whose spec.cluster points at cluster.
+// Only name and namespace are set. Other phases already requeue on their own.
+func ReadyDPUsForCluster(dpus []provisioningv1.DPU, cluster types.NamespacedName) []*provisioningv1.DPU {
+	var matches []*provisioningv1.DPU
+	for i := range dpus {
+		dpu := &dpus[i]
+		if dpu.Status.Phase != provisioningv1.DPUReady {
+			continue
+		}
+		if dpu.Spec.Cluster.Name != cluster.Name || dpu.Spec.Cluster.Namespace != cluster.Namespace {
+			continue
+		}
+		stub := &provisioningv1.DPU{}
+		stub.Name = dpu.Name
+		stub.Namespace = dpu.Namespace
+		matches = append(matches, stub)
+	}
+	return matches
+}
+
+// DPUsForClusterNode returns stub Ready DPUs whose name is the remote Node name
+// and whose spec.cluster points at cluster. Only name and namespace are set.
+// Other phases already requeue on their own and do not need this watch.
+func DPUsForClusterNode(dpus []provisioningv1.DPU, cluster types.NamespacedName, nodeName string) []*provisioningv1.DPU {
+	var matches []*provisioningv1.DPU
+	for i := range dpus {
+		dpu := &dpus[i]
+		if dpu.Status.Phase != provisioningv1.DPUReady {
+			continue
+		}
+		if dpu.Name != nodeName {
+			continue
+		}
+		if dpu.Spec.Cluster.Name != cluster.Name || dpu.Spec.Cluster.Namespace != cluster.Namespace {
+			continue
+		}
+		stub := &provisioningv1.DPU{}
+		stub.Name = dpu.Name
+		stub.Namespace = dpu.Namespace
+		matches = append(matches, stub)
+	}
+	return matches
+}
+
+// nodeFromObject returns the Node carried by a controller-runtime event.
+func nodeFromObject(obj client.Object) *corev1.Node {
+	node, _ := obj.(*corev1.Node)
+	return node
+}
+
+// nodeReadyStatus returns the NodeReady condition status, or empty when the condition is absent.
+func nodeReadyStatus(node *corev1.Node) corev1.ConditionStatus {
+	for _, condition := range node.Status.Conditions {
+		if condition.Type == corev1.NodeReady {
+			return condition.Status
+		}
+	}
+	return ""
+}
+
+// annotation returns one annotation value, or empty when the Node has no annotations.
+func annotation(node *corev1.Node, key string) string {
+	if node.Annotations == nil {
+		return ""
+	}
+	return node.Annotations[key]
 }
 
 func (r *DPUReconciler) nonInitializedDPU(ctx context.Context, obj client.Object) []reconcile.Request {
