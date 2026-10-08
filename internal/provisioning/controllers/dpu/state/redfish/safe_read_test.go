@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -43,16 +44,22 @@ func TestTaskReadFailureKeepsIdentity(t *testing.T) {
 		t.Run(http.StatusText(status), func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Hold the handler until the client has observed cancellation. Returning
+			// earlier makes net/http write an empty HTTP 200, which the client can
+			// accept instead of context.Canceled.
+			hold := make(chan struct{})
+			releaseHold := sync.OnceFunc(func() { close(hold) })
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				if status == 200 {
 					cancel()
-					<-r.Context().Done()
+					<-hold
 					return
 				}
 				w.WriteHeader(status)
 				_, _ = io.WriteString(w, "upstream unavailable")
 			}))
 			defer server.Close()
+			defer releaseHold()
 			c, err := rc.NewRawClient(server.URL)
 			if err != nil {
 				t.Fatal(err)
@@ -67,6 +74,7 @@ func TestTaskReadFailureKeepsIdentity(t *testing.T) {
 				return nil, nil, errors.New("must not submit")
 			}
 			err = reconcileBf4ArmTransfer(ctx, logr.Discard(), dpu, state, c, provisioningv1.DPUCondIsoTransferred, "image", install, "ISO")
+			releaseHold()
 			if err == nil || isRestartOSInstallError(err) || state.RedfishTaskID == nil || *state.RedfishTaskID != taskID || submissions != 0 || state.Phase != provisioningv1.DPUOSInstalling {
 				t.Fatalf("read failure lost operation identity: state=%+v submissions=%d err=%v", state, submissions, err)
 			}
