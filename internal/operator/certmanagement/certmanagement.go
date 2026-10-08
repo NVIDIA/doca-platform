@@ -60,7 +60,7 @@ var (
 	}
 )
 
-// resolveAnchor returns the issuer that anchors the whole DPF PKI, read from the webhook
+// ResolveAnchor returns the issuer that anchors the whole DPF PKI, read from the webhook
 // intermediate CA the dpf-operator chart creates.
 //
 // The chart stamps its certificateAuthority.issuerRef onto that Certificate, or the issuer over its
@@ -69,7 +69,7 @@ var (
 // two cannot be configured to disagree. A missing Certificate means the chart is not installed or
 // not reconciled yet, which is reported rather than guessed at, since guessing the self-signed root
 // is exactly the mistake that would anchor the platform CA to an issuer nobody created.
-func resolveAnchor(ctx context.Context, c client.Client, namespace string) (certmanager.IssuerReference, error) {
+func ResolveAnchor(ctx context.Context, c client.Client, namespace string) (certmanager.IssuerReference, error) {
 	webhookCA := &unstructured.Unstructured{}
 	webhookCA.SetGroupVersionKind(CertificateGVK)
 	key := client.ObjectKey{Namespace: namespace, Name: operatorv1.WebhookIntermediateCAName}
@@ -150,7 +150,7 @@ func (s AnchorState) RotationRequired() bool {
 // has to act on, and an error there puts the components that have nothing to do with the PKI behind
 // the backoff of a condition that clears itself.
 func ResolveAnchorState(ctx context.Context, c client.Client, config *operatorv1.DPFOperatorConfig) (AnchorState, error) {
-	issuerRef, err := resolveAnchor(ctx, c, config.Namespace)
+	issuerRef, err := ResolveAnchor(ctx, c, config.Namespace)
 	if apierrors.IsNotFound(err) {
 		conditions.AddFalse(
 			config,

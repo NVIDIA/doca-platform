@@ -412,7 +412,7 @@ func reanchorWebhookCA(g Gomega, namespace, issuerName string) {
 	g.Expect(testClient.Get(ctx,
 		client.ObjectKey{Namespace: namespace, Name: operatorv1.WebhookIntermediateCAName}, webhookCA)).To(Succeed())
 	g.Expect(unstructured.SetNestedField(webhookCA.Object, issuerName, "spec", "issuerRef", "name")).To(Succeed())
-	g.Expect(testClient.Update(ctx, webhookCA)).To(Succeed())
+	g.Expect(testClient.Patch(ctx, webhookCA, client.Merge)).To(Succeed())
 }
 
 // recordedCAAnchor returns the anchor recorded as rolled out on the config, or nil when none is.

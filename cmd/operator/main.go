@@ -166,12 +166,22 @@ func main() {
 						},
 					},
 				},
-				// Scope the ConfigMap informer to the single CA trust bundle ConfigMap watched by the
-				// DPFOperatorConfig controller to avoid watching all ConfigMaps cluster-wide.
+				// Scope the ConfigMap informer to the namespace of the DPFOperatorConfig, rather than
+				// cluster-wide. It cannot be narrowed to a name the way the Secret informer above is:
+				// the CA trust bundle is named by security.certManagement.trustBundleConfigMapName,
+				// which is set on the config and can change while the operator runs, so a field
+				// selector fixed at startup would stop delivering events the moment it is overridden.
+				// CATrustBundleConfigMapToDPFOperatorConfig discards every other ConfigMap in the
+				// namespace, so the widening costs event delivery, not reconciles.
 				&corev1.ConfigMap{}: {
 					Namespaces: map[string]cache.Config{
 						configSingletonNamespace: {
-							FieldSelector: fields.OneTermEqualSelector("metadata.name", operatorv1.DefaultCATrustBundleConfigMapName),
+							// Only the identity of a ConfigMap decides whether it enqueues a reconcile,
+							// and reads go to the API server anyway (DisableFor above), so the contents
+							// are dropped before they reach the cache. Without this the informer would
+							// hold every ConfigMap in a namespace it shares with the components DPF
+							// deploys.
+							Transform: stripConfigMapContents,
 						},
 					},
 				},
@@ -261,4 +271,17 @@ func getSettings() *operatorcontroller.DPFOperatorConfigReconcilerSettings {
 	return &operatorcontroller.DPFOperatorConfigReconcilerSettings{
 		ConfigSingletonNamespaceName: configSingletonNamespaceName,
 	}
+}
+
+// stripConfigMapContents drops the payload of a ConfigMap on its way into the informer cache, which
+// the operator uses for event delivery only. Anything else is passed through untouched, since a
+// cache transform is invoked for every object the informer handles.
+func stripConfigMapContents(obj interface{}) (interface{}, error) {
+	cm, ok := obj.(*corev1.ConfigMap)
+	if !ok {
+		return obj, nil
+	}
+	cm.Data = nil
+	cm.BinaryData = nil
+	return cm, nil
 }

@@ -427,15 +427,16 @@ func (r *DPFOperatorConfigReconciler) reconcile(ctx context.Context, dpfOperator
 	// that keeps existing peers validating.
 	certErr := certmanagement.Reconcile(ctx, r.Client, dpfOperatorConfig, anchorState.IssuerRef, anchorState.RotationRequired())
 
-	if err := r.reconcileCATrustBundle(ctx, dpfOperatorConfig); err != nil {
-		// The provisioning CA Secret is issued asynchronously by cert-manager. A pending error is not
-		// fatal: surface it on the condition and return.
+	if err := r.reconcileCATrustBundle(ctx, dpfOperatorConfig, anchorState.IssuerRef); err != nil {
+		// The bundle depends on material that arrives on someone else's schedule: cert-manager issuing
+		// the provisioning CA, or the operator supplying their own trust bundle. Neither is fatal, so
+		// the error carries the reason to surface and the reconcile returns without failing.
 		pendingErr := &caTrustBundlePendingError{}
 		if errors.As(err, &pendingErr) {
 			conditions.AddFalse(
 				dpfOperatorConfig,
 				operatorv1.CATrustBundleReadyCondition,
-				conditions.ReasonPending,
+				pendingErr.reason,
 				conditions.ConditionMessage(pendingErr.Error()))
 			return ctrl.Result{}, certErr
 		}

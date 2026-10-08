@@ -63,6 +63,15 @@ const (
 	ReasonInspectionFailed conditions.ConditionReason = "InspectionFailed"
 )
 
+// Condition reasons reported on CATrustBundleReadyCondition.
+const (
+	// CATrustBundleReasonNotProvided is reported when an external issuer anchors the PKI, which makes
+	// the certificates peers validate against the operator's to supply, and the bundle naming them is
+	// either absent or empty. It is distinct from the generic pending reason because nothing DPF is
+	// waiting on will resolve it.
+	CATrustBundleReasonNotProvided conditions.ConditionReason = "TrustBundleNotProvided"
+)
+
 var (
 	Conditions = []conditions.ConditionType{
 		conditions.TypeReady,
