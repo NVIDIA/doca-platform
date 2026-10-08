@@ -1706,8 +1706,8 @@ func getProjectName(dpuService *dpuservicev1.DPUService) string {
 	return argocd.AppProjectNameDPU
 }
 
-// shouldDefaultMaxUnavailable reports whether maxUnavailable should be defaulted rather than kept as
-// set by the user: true when unset, or RollingUpdate with maxUnavailable unset or "100%"; false for any other explicit choice.
+// shouldDefaultMaxUnavailable reports whether maxUnavailable is unset.
+// Explicit values and OnDelete strategies are preserved.
 func shouldDefaultMaxUnavailable(strategy *appsv1.DaemonSetUpdateStrategy) bool {
 	if strategy == nil {
 		return true
@@ -1718,8 +1718,7 @@ func shouldDefaultMaxUnavailable(strategy *appsv1.DaemonSetUpdateStrategy) bool 
 	if strategy.RollingUpdate == nil || strategy.RollingUpdate.MaxUnavailable == nil {
 		return true
 	}
-	maxUnavailable := strategy.RollingUpdate.MaxUnavailable
-	return maxUnavailable.Type == intstr.String && maxUnavailable.StrVal == "100%"
+	return false
 }
 
 func argoCDValuesFromDPUService(serviceDaemonSetValues *dpuservicev1.ServiceDaemonSetValues, dpuService *dpuservicev1.DPUService, clusterName, serviceID string, maxUnavailable int32) (*runtime.RawExtension, error) {
