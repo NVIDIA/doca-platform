@@ -690,6 +690,8 @@ spec:
       _ovs-vsctl set Interface pbrovntobrdpu type=patch options:peer=pbrdputobrovn
       _ovs-vsctl set Interface pbrdputobrovn type=patch options:peer=pbrovntobrdpu
 
+      systemctl restart sfc-state-propagation.service || true
+
   bfcfgParameters:
     - UPDATE_ATF_UEFI=yes
     - UPDATE_DPU_OS=yes
@@ -732,6 +734,19 @@ spec:
     permissions: "0644"
     raw: |
       signal (receive) peer=runc,
+  - path: /etc/systemd/system/sfc-state-propagation.service.d/10-dpf-no-sfc-gate.conf
+    operation: override
+    permissions: "0644"
+    raw: |
+      [Service]
+      ExecStartPre=
+
+  packages:
+  - name: sfc-state-propagation
+
+  systemdServices:
+  - name: sfc-state-propagation.service
+    operation: Enable
 ```
 </details>
 

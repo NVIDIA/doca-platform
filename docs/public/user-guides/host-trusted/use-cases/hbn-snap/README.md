@@ -603,6 +603,17 @@ spec:
     permissions: "0644"
     raw: |
       signal (receive) peer=runc,
+  - operation: override
+    path: /etc/systemd/system/sfc-state-propagation.service.d/10-dpf-no-sfc-gate.conf
+    permissions: "0644"
+    raw: |
+      [Service]
+      ExecStartPre=
+  packages:
+  - name: sfc-state-propagation
+  systemdServices:
+  - name: sfc-state-propagation.service
+    operation: Enable
   grub:
     kernelParameters:
     - console=hvc0
@@ -680,6 +691,8 @@ spec:
       _ovs-vsctl --may-exist add-br br-hbn
       _ovs-vsctl set bridge br-hbn datapath_type=netdev
       _ovs-vsctl set bridge br-hbn fail_mode=secure
+
+      systemctl restart sfc-state-propagation.service || true
 ```
 </details>
 
@@ -1660,6 +1673,17 @@ spec:
     permissions: "0644"
     raw: |
       signal (receive) peer=runc,
+  - operation: override
+    path: /etc/systemd/system/sfc-state-propagation.service.d/10-dpf-no-sfc-gate.conf
+    permissions: "0644"
+    raw: |
+      [Service]
+      ExecStartPre=
+  packages:
+  - name: sfc-state-propagation
+  systemdServices:
+  - name: sfc-state-propagation.service
+    operation: Enable
   grub:
     kernelParameters:
     - console=hvc0
@@ -1737,6 +1761,8 @@ spec:
       _ovs-vsctl --may-exist add-br br-hbn
       _ovs-vsctl set bridge br-hbn datapath_type=netdev
       _ovs-vsctl set bridge br-hbn fail_mode=secure
+
+      systemctl restart sfc-state-propagation.service || true
 ```
 </details>
 

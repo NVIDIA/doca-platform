@@ -413,6 +413,19 @@ spec:
     path: /etc/mellanox/mlnx-sf.conf
     permissions: "0644"
     raw: ""
+  # Link state propagation, which mirrors an HBN uplink's carrier onto the representor
+  # serving it. Not yet supported on BlueField-4
+  - operation: override
+    path: /etc/systemd/system/sfc-state-propagation.service.d/10-dpf-no-sfc-gate.conf
+    permissions: "0644"
+    raw: |
+      [Service]
+      ExecStartPre=
+  packages:
+  - name: sfc-state-propagation
+  systemdServices:
+  - name: sfc-state-propagation.service
+    operation: Enable
   grub:
     kernelParameters:
     - console=hvc0
@@ -506,6 +519,8 @@ spec:
       # Patch br-ovn and br-dpu together
       _ovs-vsctl set Interface pbrovntobrdpu type=patch options:peer=pbrdputobrovn
       _ovs-vsctl set Interface pbrdputobrovn type=patch options:peer=pbrovntobrdpu
+
+      systemctl restart sfc-state-propagation.service || true
 ```
 
 ## DPU Node Label Scripts
