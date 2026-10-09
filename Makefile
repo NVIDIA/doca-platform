@@ -1355,6 +1355,10 @@ DPU_ARCH = arm64
 # Use distroless as minimal base image to package the manager binary
 BASE_IMAGE = nvcr.io/nvidia/doca/dpf_containers:1.0.2-ubuntu22.04-distroless
 ALPINE_IMAGE = alpine:3.19
+# URL template of the doca-dms deb of an internal build, installed on top of the DOCA host image in the hostdriver,
+# storage-host and bfb-registry images. {arch} is replaced by amd/arm.
+# Nothing is installed when it is empty.
+DOCA_DMS_URL ?=
 # Base image for hostdriver (DOCA full runtime host image)
 HOSTDRIVER_BASE_IMAGE ?= nvcr.io/nvidia/doca/doca:full-rt-3.5.0-host
 # Base image for storage-host, by default it is the same as the hostdriver base image
@@ -1815,6 +1819,7 @@ docker-build-hostdriver: docker-buildx-setup $(ARTIFACTS_DIR)
 		--progress=plain \
 		--build-arg builder_image=$(BUILD_IMAGE) \
 		--build-arg hostdriver_base_image=$(HOSTDRIVER_BASE_IMAGE) \
+		--build-arg doca_dms_url="$(DOCA_DMS_URL)" \
 		--build-arg ldflags="$(GO_LDFLAGS)" \
 		--build-arg gcflags="$(GO_GCFLAGS)" \
 		--build-arg ubuntu_mirror=$(UBUNTU_MIRROR) \
@@ -2013,6 +2018,7 @@ docker-build-storage-host: docker-buildx-setup $(ARTIFACTS_DIR)
 		--progress=plain \
 		--build-arg builder_image=$(BUILD_IMAGE) \
 		--build-arg storage_host_base_image=$(STORAGE_HOST_BASE_IMAGE) \
+		--build-arg doca_dms_url="$(DOCA_DMS_URL)" \
 		--build-arg ldflags="$(GO_LDFLAGS)" \
 		--build-arg gcflags="$(GO_GCFLAGS)" \
 		--build-arg TAG=$(TAG) \
@@ -2057,6 +2063,7 @@ docker-build-bfb-registry: docker-buildx-setup $(ARTIFACTS_DIR)
 		--build-arg PACKAGE_SOURCES=$(PACKAGE_SOURCES) \
 		--build-arg builder_image=$(BUILD_IMAGE) \
 		--build-arg bfb_registry_base_image=$(BFB_REGISTRY_BASE_IMAGE) \
+		--build-arg doca_dms_url="$(DOCA_DMS_URL)" \
 		--provenance=false \
 		--platform=$(call build_platforms,$(DPF_SYSTEM_ARCH)) \
 		--progress=plain \
