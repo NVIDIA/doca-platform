@@ -7,6 +7,8 @@ metadata:
     {{- include "opentelemetry-collector.labels" . | nindent 4 }}
 spec:
   type: ClusterIP
+  # Workloads send to the collector on their own node (the DaemonSet runs on every node).
+  internalTrafficPolicy: Local
   ports:
   - name: otlp-grpc
     port: 4317
