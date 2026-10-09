@@ -55,6 +55,17 @@ ARG TAG
 # The command echo is not present in the final image so this stage is needed.
 RUN echo "${TAG}" > /tmp/dpf-version
 
+# Download the doca-dms deb from an internal build (a separate stage keeps curl and the download out of the final image).
+FROM --platform=${BUILDPLATFORM} ${builder_image} AS doca-dms
+ARG TARGETARCH
+# doca_dms_url is a URL template where {arch} is amd/arm; nothing is downloaded when it is empty.
+ARG doca_dms_url
+RUN mkdir /debs && \
+    if [ -n "${doca_dms_url}" ]; then \
+        cd /debs && \
+        curl -fsSLO --retry 3 "$(echo "${doca_dms_url}" | sed "s|{arch}|${TARGETARCH%64}|g")"; \
+    fi
+
 FROM ${storage_host_base_image}
 
 ARG PACKAGES="keyutils libevent-core-2.1-7t64 libnfsidmap1 libwrap0 nfs-common rpcbind ucf"
@@ -73,6 +84,11 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     apt-get update && \
     apt-get upgrade -y -qq && \
     apt-get install -y -qq --no-install-recommends ${PACKAGES}
+
+# Install the doca-dms build on top of the DOCA host image, only if it was downloaded.
+# It depends on doca-sdk-mgmt >= 99.99.9999-9 (development placeholder version), which the DOCA 3.5 packages in the base image do not satisfy.
+RUN --mount=type=bind,from=doca-dms,source=/debs,target=/tmp/doca-dms \
+    if ls /tmp/doca-dms/*.deb >/dev/null 2>&1; then dpkg -i --ignore-depends=doca-sdk-mgmt /tmp/doca-dms/*.deb; fi
 
 WORKDIR /
 
