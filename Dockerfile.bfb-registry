@@ -229,8 +229,24 @@ RUN dpkg-scanpackages -m . > Packages && gzip -k Packages
 WORKDIR /rpm
 RUN createrepo_c .
 
+# Download the doca-dms deb from an internal build (a separate stage keeps curl and the download out of the final image).
+FROM --platform=${BUILDPLATFORM} ${builder_image} AS doca-dms
+ARG TARGETARCH
+# doca_dms_url is a URL template where {arch} is amd/arm; nothing is downloaded when it is empty.
+ARG doca_dms_url
+RUN mkdir /debs && \
+    if [ -n "${doca_dms_url}" ]; then \
+        cd /debs && \
+        curl -fsSLO --retry 3 "$(echo "${doca_dms_url}" | sed "s|{arch}|${TARGETARCH%64}|g")"; \
+    fi
+
 # Stage 3: Create final image based on bfb-registry base image
 FROM ${bfb_registry_base_image}
+
+# Install the doca-dms build on top of the DOCA host image, only if it was downloaded.
+# It depends on doca-sdk-mgmt >= 99.99.9999-9 (development placeholder version), which the DOCA 3.5 packages in the base image do not satisfy.
+RUN --mount=type=bind,from=doca-dms,source=/debs,target=/tmp/doca-dms \
+    if ls /tmp/doca-dms/*.deb >/dev/null 2>&1; then dpkg -i --ignore-depends=doca-sdk-mgmt /tmp/doca-dms/*.deb; fi
 
 # copy the tengine source code
 ARG version=3.1.0
